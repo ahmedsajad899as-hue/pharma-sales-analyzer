@@ -11,6 +11,7 @@ import {
   getReviewQueue, resolveReviewItem,
   getItemMergeSuggestions, mergeCatalogItems,
 } from './companies.controller.js';
+import { listCompanyNameAliases, createCompanyNameAlias, deleteCompanyNameAlias } from './company-name-alias.controller.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
 
 const router = express.Router();
@@ -43,6 +44,11 @@ router.post('/:id/items/merge',            mergeCatalogItems);
 router.get('/:id/aliases',                 listCompanyAliases);
 router.post('/:id/aliases',                createCompanyAlias);
 router.delete('/:id/aliases/:aliasId',     deleteCompanyAlias);
+
+// Company-name aliases (اسم الشركة كما يرد بالملفات → هذي الشركة تحديداً)
+router.get   ('/:id/company-aliases',          listCompanyNameAliases);
+router.post  ('/:id/company-aliases',          createCompanyNameAlias);
+router.delete('/:id/company-aliases/:aliasId', deleteCompanyNameAlias);
 
 // Review queue (الايتمات المؤقتة غير المطابقة)
 router.get('/:id/review-queue',            getReviewQueue);

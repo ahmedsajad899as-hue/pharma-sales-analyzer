@@ -13,8 +13,9 @@ interface DupPair {
   b: { id: number; name: string; price: number | null; sales: number };
 }
 interface ReviewItem { id: number; name: string; userName: string | null; salesCount: number; confidence: string; suggestions: { id: number; name: string; sim: number }[]; companyId?: number; companyName?: string }
+interface CompanyAliasRow { id: number; fromKey?: string; fromName: string; companyId: number; officeId?: number; createdAt?: string }
 
-type Tab = 'catalog' | 'aliases' | 'review' | 'import';
+type Tab = 'catalog' | 'aliases' | 'review' | 'import' | 'names';
 
 // ── استيراد الكتالوج الشامل ──
 type ImpAction = 'item-link' | 'item-promote' | 'item-create' | 'item-confirm' | 'skip';
@@ -69,6 +70,15 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
   const [items, setItems]     = useState<Item[]>([]);
   const [aliases, setAliases] = useState<Alias[]>([]);
   const [review, setReview]   = useState<ReviewItem[]>([]);
+
+  // ── دليل الأسماء (تبويب 'names') — مجمّع عبر كل الشركات دائماً، بمعزل عن
+  // قائمة الشركة المنسدلة (متل تبويب الاستيراد الشامل، يتجاهلها كلياً) ──
+  const [namesItems, setNamesItems] = useState<Item[]>([]);
+  const [namesItemAliases, setNamesItemAliases] = useState<Alias[]>([]);
+  const [namesCompanyAliases, setNamesCompanyAliases] = useState<CompanyAliasRow[]>([]);
+  const [namesLoading, setNamesLoading] = useState(false);
+  const [namesView, setNamesView] = useState<'items' | 'companies'>('items');
+  const [onlyUncovered, setOnlyUncovered] = useState(false);
 
   // ── تحميل الشركات مرة واحدة ──
   useEffect(() => {
@@ -144,6 +154,33 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { setSelectMode(false); setSelectedIds([]); }, [companyId, tab]);
+
+  // ── دليل الأسماء: تحميل مجمّع عبر كل الشركات (كتالوج + aliases الايتم +
+  // aliases الشركة) بمعزل عن الشركة المختارة بالأعلى ──
+  const loadNamesBrowser = useCallback(async () => {
+    if (companies.length === 0) return;
+    setNamesLoading(true); setErr('');
+    try {
+      const results = await Promise.all(companies.map(async c => {
+        const [detail, aliasRes, coAliasRes] = await Promise.all([
+          fetch(`/api/sa/companies/${c.id}`, { headers: H() }).then(r => r.json()).catch(() => ({})),
+          fetch(`/api/sa/companies/${c.id}/aliases`, { headers: H() }).then(r => r.json()).catch(() => ({})),
+          fetch(`/api/sa/companies/${c.id}/company-aliases`, { headers: H() }).then(r => r.json()).catch(() => ({})),
+        ]);
+        return {
+          c,
+          items: (detail.data?.items || []) as Item[],
+          itemAliases: (Array.isArray(aliasRes.data) ? aliasRes.data : []) as Alias[],
+          companyAliases: (Array.isArray(coAliasRes.data) ? coAliasRes.data : []) as CompanyAliasRow[],
+        };
+      }));
+      setNamesItems(results.flatMap(({ c, items }) => items.map(i => ({ ...i, companyId: c.id, companyName: c.name }))));
+      setNamesItemAliases(results.flatMap(r => r.itemAliases));
+      setNamesCompanyAliases(results.flatMap(r => r.companyAliases));
+    } catch { setErr('تعذّر تحميل دليل الأسماء'); }
+    setNamesLoading(false);
+  }, [companies, H]);
+  useEffect(() => { if (tab === 'names') loadNamesBrowser(); }, [tab, loadNamesBrowser]);
 
   // ── حالة الاستيراد الشامل ──
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -441,23 +478,51 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
   // ── أفعال قواعد التوحيد (aliases) ──
   const [aliasModal, setAliasModal] = useState(false);
   const [newAlias, setNewAlias] = useState({ fromName: '', toItemId: '' });
-  const addAlias = async () => {
-    if (!newAlias.fromName.trim() || !newAlias.toItemId || !companyId || companyId === 'all') return;
+  // targetCompanyId اختياري: يسمح باستدعاء الدالتين من دليل الأسماء (تبويب
+  // 'names') حيث كل صف يخص شركته الخاصة بمعزل عن الشركة المختارة بالأعلى —
+  // نفس الحل المستخدم مسبقاً بـ resolveReview. غيابه = الشركة المعروضة حالياً.
+  const addAlias = async (fromName: string, toItemId: string, targetCompanyId?: number) => {
+    const cid = targetCompanyId ?? (companyId !== 'all' ? companyId : null);
+    if (!fromName.trim() || !toItemId || !cid) return;
     setBusy(true); setErr('');
     try {
-      const r = await fetch(`/api/sa/companies/${companyId}/aliases`, { method: 'POST', headers: H(), body: JSON.stringify(newAlias) });
+      const r = await fetch(`/api/sa/companies/${cid}/aliases`, { method: 'POST', headers: H(), body: JSON.stringify({ fromName, toItemId }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'فشل');
       setAliasModal(false); setNewAlias({ fromName: '', toItemId: '' });
-      await reload();
+      if (tab === 'names') await loadNamesBrowser(); else await reload();
     } catch (e) { setErr(e instanceof Error ? e.message : 'فشل إضافة القاعدة'); }
     setBusy(false);
   };
-  const delAlias = async (id: number) => {
-    if (!companyId || companyId === 'all' || !confirm('حذف قاعدة التوحيد هذه؟')) return;
+  const delAlias = async (id: number, targetCompanyId?: number) => {
+    const cid = targetCompanyId ?? (companyId !== 'all' ? companyId : null);
+    if (!cid || !confirm('حذف قاعدة التوحيد هذه؟')) return;
     setBusy(true);
-    await fetch(`/api/sa/companies/${companyId}/aliases/${id}`, { method: 'DELETE', headers: H() });
-    setBusy(false); await reload();
+    await fetch(`/api/sa/companies/${cid}/aliases/${id}`, { method: 'DELETE', headers: H() });
+    setBusy(false);
+    if (tab === 'names') await loadNamesBrowser(); else await reload();
+  };
+
+  // ── أفعال أسماء الشركة البديلة (CompanyAlias) — تُستخدم فقط بدليل الأسماء ──
+  const [newCompanyAliasName, setNewCompanyAliasName] = useState<Record<number, string>>({});
+  const [newItemAliasName, setNewItemAliasName] = useState<Record<number, string>>({});
+  const addCompanyAlias = async (targetCompanyId: number, fromName: string) => {
+    if (!fromName.trim()) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch(`/api/sa/companies/${targetCompanyId}/company-aliases`, { method: 'POST', headers: H(), body: JSON.stringify({ fromName }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'فشل');
+      setNewCompanyAliasName(prev => ({ ...prev, [targetCompanyId]: '' }));
+      await loadNamesBrowser();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'فشل إضافة اسم الشركة البديل'); }
+    setBusy(false);
+  };
+  const delCompanyAlias = async (targetCompanyId: number, aliasId: number) => {
+    if (!confirm('حذف الاسم البديل هذا؟')) return;
+    setBusy(true);
+    await fetch(`/api/sa/companies/${targetCompanyId}/company-aliases/${aliasId}`, { method: 'DELETE', headers: H() });
+    setBusy(false); await loadNamesBrowser();
   };
 
   // ── أفعال طابور المراجعة ──
@@ -488,11 +553,31 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
   const filteredAliases = aliases.filter(a => !search || a.fromName.toLowerCase().includes(search.toLowerCase()) || a.toName.toLowerCase().includes(search.toLowerCase()));
   const filteredReview = review.filter(r => !search || r.name.toLowerCase().includes(search.toLowerCase()));
 
+  // ── تجميع دليل الأسماء: alias لكل ايتم/شركة ──
+  const itemAliasesByItemId = new Map<number, Alias[]>();
+  for (const a of namesItemAliases) {
+    if (a.toItemId == null) continue;
+    if (!itemAliasesByItemId.has(a.toItemId)) itemAliasesByItemId.set(a.toItemId, []);
+    itemAliasesByItemId.get(a.toItemId)!.push(a);
+  }
+  const companyAliasesByCompanyId = new Map<number, CompanyAliasRow[]>();
+  for (const a of namesCompanyAliases) {
+    if (!companyAliasesByCompanyId.has(a.companyId)) companyAliasesByCompanyId.set(a.companyId, []);
+    companyAliasesByCompanyId.get(a.companyId)!.push(a);
+  }
+  const namesItemsFiltered = namesItems
+    .filter(i => !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.companyName || '').toLowerCase().includes(search.toLowerCase()))
+    .filter(i => !onlyUncovered || !itemAliasesByItemId.has(i.id));
+  const namesCompaniesFiltered = companies
+    .filter(c => !search || c.name.toLowerCase().includes(search.toLowerCase()))
+    .filter(c => !onlyUncovered || !companyAliasesByCompanyId.has(c.id));
+
   const tabs: { id: Tab; label: string; count: number; icon: string }[] = [
     { id: 'catalog', label: 'الكتالوج',       count: items.length,   icon: '💊' },
     ...(companyId !== 'all' ? [{ id: 'aliases' as Tab, label: 'قواعد التوحيد',  count: aliases.length, icon: '🔗' }] : []),
     { id: 'review',  label: 'طابور المراجعة', count: review.length,  icon: '🆕' },
     ...(companyId !== 'all' ? [{ id: 'import' as Tab, label: 'استيراد شامل',   count: impPlan ? impPlan.length : 0, icon: '📥' }] : []),
+    { id: 'names',   label: 'دليل الأسماء',    count: namesItems.length, icon: '📖' },
   ];
 
   return (
@@ -941,6 +1026,107 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
               )}
             </div>
           )}
+
+          {/* ── دليل الأسماء ── */}
+          {tab === 'names' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 12, padding: 14, fontSize: 13, color: '#1e3a8a' }}>
+                <div style={{ fontWeight: 800, marginBottom: 4 }}>📖 دليل الأسماء</div>
+                هذا التبويب <b>لا يتبع الشركة المختارة أعلاه</b> — يعرض كل ايتم/شركة وكل أسمائه البديلة المحفوظة عبر كل الشركات دفعة واحدة، حتى تعرف منو معرَّف ومنو لا.
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button onClick={() => setNamesView('items')} style={btnStyle(namesView === 'items' ? '#6366f1' : '#94a3b8', namesView !== 'items')}>💊 الايتمات</button>
+                <button onClick={() => setNamesView('companies')} style={btnStyle(namesView === 'companies' ? '#6366f1' : '#94a3b8', namesView !== 'companies')}>🏭 الشركات</button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', cursor: 'pointer', marginInlineStart: 8 }}>
+                  <input type="checkbox" checked={onlyUncovered} onChange={e => setOnlyUncovered(e.target.checked)} />
+                  بلا أسماء بديلة فقط
+                </label>
+                {namesLoading && <span style={{ fontSize: 12, color: '#94a3b8' }}>⏳ جاري التحميل...</span>}
+              </div>
+
+              {namesView === 'items' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {namesItemsFiltered.map(i => {
+                    const itemAliases = itemAliasesByItemId.get(i.id) || [];
+                    return (
+                      <div key={`${i.companyId}-${i.id}`} style={{ border: '1px solid #e8edf5', borderRadius: 12, padding: 12, background: '#fff' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                          <span style={{ fontWeight: 800, fontSize: 14, color: '#1e293b' }}>{i.name}</span>
+                          {i.companyName && <span style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed' }}>🏢 {i.companyName}</span>}
+                          {itemAliases.length === 0 && (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', background: '#fffbeb', padding: '2px 10px', borderRadius: 20 }}>بلا أسماء بديلة</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {itemAliases.map(a => (
+                            <span key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 20, padding: '3px 6px 3px 12px' }}>
+                              {a.fromName}
+                              <button onClick={() => delAlias(a.id, i.companyId)} title="حذف" style={{ ...btnStyle('#ef4444', true), padding: '2px 6px', fontSize: 10 }}>🗑</button>
+                            </span>
+                          ))}
+                          <input
+                            value={newItemAliasName[i.id] ?? ''}
+                            onChange={e => setNewItemAliasName(prev => ({ ...prev, [i.id]: e.target.value }))}
+                            placeholder="+ اسم بديل جديد..."
+                            style={{ padding: '5px 10px', borderRadius: 20, border: '1.5px dashed #cbd5e1', fontSize: 12, minWidth: 160 }}
+                          />
+                          <button
+                            disabled={busy || !(newItemAliasName[i.id] ?? '').trim()}
+                            onClick={async () => {
+                              const name = (newItemAliasName[i.id] ?? '').trim();
+                              await addAlias(name, String(i.id), i.companyId);
+                              setNewItemAliasName(prev => ({ ...prev, [i.id]: '' }));
+                            }}
+                            style={{ ...btnStyle('#059669', true), fontSize: 11 }}
+                          >➕ إضافة</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {namesItemsFiltered.length === 0 && <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center' }}>لا توجد ايتمات مطابقة</div>}
+                </div>
+              )}
+
+              {namesView === 'companies' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {namesCompaniesFiltered.map(c => {
+                    const coAliases = companyAliasesByCompanyId.get(c.id) || [];
+                    return (
+                      <div key={c.id} style={{ border: '1px solid #e8edf5', borderRadius: 12, padding: 12, background: '#fff' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                          <span style={{ fontWeight: 800, fontSize: 14, color: '#1e293b' }}>🏭 {c.name}</span>
+                          {coAliases.length === 0 && (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', background: '#fffbeb', padding: '2px 10px', borderRadius: 20 }}>بلا أسماء بديلة</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {coAliases.map(a => (
+                            <span key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 20, padding: '3px 6px 3px 12px' }}>
+                              {a.fromName}
+                              <button onClick={() => delCompanyAlias(c.id, a.id)} title="حذف" style={{ ...btnStyle('#ef4444', true), padding: '2px 6px', fontSize: 10 }}>🗑</button>
+                            </span>
+                          ))}
+                          <input
+                            value={newCompanyAliasName[c.id] ?? ''}
+                            onChange={e => setNewCompanyAliasName(prev => ({ ...prev, [c.id]: e.target.value }))}
+                            placeholder="+ اسم بديل جديد..."
+                            style={{ padding: '5px 10px', borderRadius: 20, border: '1.5px dashed #cbd5e1', fontSize: 12, minWidth: 160 }}
+                          />
+                          <button
+                            disabled={busy || !(newCompanyAliasName[c.id] ?? '').trim()}
+                            onClick={() => addCompanyAlias(c.id, newCompanyAliasName[c.id] ?? '')}
+                            style={{ ...btnStyle('#059669', true), fontSize: 11 }}
+                          >➕ إضافة</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {namesCompaniesFiltered.length === 0 && <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center' }}>لا توجد شركات مطابقة</div>}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -1033,7 +1219,7 @@ export default function ItemsCatalogPage({ defaultAll = false }: { defaultAll?: 
               {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
             </select>
           </div>
-          <button onClick={addAlias} disabled={busy || !newAlias.fromName.trim() || !newAlias.toItemId} style={{ ...btnStyle('#0891b2'), width: '100%', marginTop: 4 }}>حفظ القاعدة</button>
+          <button onClick={() => addAlias(newAlias.fromName, newAlias.toItemId)} disabled={busy || !newAlias.fromName.trim() || !newAlias.toItemId} style={{ ...btnStyle('#0891b2'), width: '100%', marginTop: 4 }}>حفظ القاعدة</button>
         </Modal>
       )}
     </div>
