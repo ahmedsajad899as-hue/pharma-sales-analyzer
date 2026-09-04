@@ -2225,20 +2225,46 @@ app.post('/api/dedup-names', async (req, res) => {
     if (apply) {
       // Helper: get id for a name in an entity array
       const id = (arr, name) => arr.find(x => x.name === name)?.id;
+      // خرائط إعادة توجيه (id قديم → id حي فعلياً) — تُحدَّث بعد كل دمج ناجح.
+      // ضرورية لأن الدفعة قد تحوي سلاسل (A يُدمَج بـB، وB نفسه يُدمَج بـC بصف
+      // آخر بنفس الدفعة): بدونها، الدمج الثاني يحاول العمل على ايتم B بعد ما
+      // انحذف فعلاً بالدمج الأول (id عالق من لقطة allItemObjs الأصلية)، فيفشل
+      // بخطأ "السجل غير موجود" ويوقف كل الدفعة — حتى الصفوف اللي بعده بالطابور.
+      const itemRedirect = new Map(), repRedirect = new Map(), companyRedirect = new Map();
+      const resolve = (map, x) => { while (map.has(x)) x = map.get(x); return x; };
+      const errors = [];
+      let mergedCount = 0;
+
       const mergeOne = async (entityType, from, to) => {
-        if (entityType === 'item') {
-          const a = id(allItemObjs, from), b = id(allItemObjs, to);
-          if (a && b) {
+        try {
+          if (entityType === 'item') {
+            let a = id(allItemObjs, from), b = id(allItemObjs, to);
+            if (!a || !b) return;
+            a = resolve(itemRedirect, a); b = resolve(itemRedirect, b);
+            if (a === b) return; // اندمجا فعلاً سوية عبر صف سابق بنفس الدفعة
             const keepId   = from.length >= to.length ? a : b;
             const deleteId = from.length >= to.length ? b : a;
             await mergeItems(deleteId, keepId);
+            itemRedirect.set(deleteId, keepId);
+          } else if (entityType === 'rep') {
+            let a = id(allRepObjs, from), b = id(allRepObjs, to);
+            if (!a || !b) return;
+            a = resolve(repRedirect, a); b = resolve(repRedirect, b);
+            if (a === b) return;
+            await mergeReps(a, b);
+            repRedirect.set(a, b);
+          } else if (entityType === 'company') {
+            let a = id(allCompanyObjs, from), b = id(allCompanyObjs, to);
+            if (!a || !b) return;
+            a = resolve(companyRedirect, a); b = resolve(companyRedirect, b);
+            if (a === b) return;
+            await mergeCompanies(a, b);
+            companyRedirect.set(a, b);
           }
-        } else if (entityType === 'rep') {
-          const a = id(allRepObjs, from), b = id(allRepObjs, to);
-          if (a && b) await mergeReps(a, b);
-        } else if (entityType === 'company') {
-          const a = id(allCompanyObjs, from), b = id(allCompanyObjs, to);
-          if (a && b) await mergeCompanies(a, b);
+          mergedCount++;
+        } catch (e) {
+          // صف واحد فاشل لا يوقف بقية الدفعة — يُسجَّل ويُكمل البقية
+          errors.push({ entityType, from, to, error: e.message });
         }
       };
 
@@ -2253,6 +2279,8 @@ app.post('/api/dedup-names', async (req, res) => {
         if (entityTypes.includes('rep'))     for (const e of repDedup.log)     await mergeOne('rep', e.from, e.to);
         if (entityTypes.includes('company')) for (const e of companyDedup.log) await mergeOne('company', e.from, e.to);
       }
+
+      return res.json({ success: true, applied: apply, count: log.length, mergedCount, errors, normalizations: log });
     }
 
     res.json({ success: true, applied: apply, count: log.length, normalizations: log });

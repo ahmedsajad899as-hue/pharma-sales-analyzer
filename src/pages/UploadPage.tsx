@@ -429,6 +429,12 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || t.upload.dedupFailed);
+      // دمج جزئي (بعض الأزواج فشلت، متل سلسلة A→B→C بنفس الدفعة) ما عاد يوقف
+      // الطلب كامل بالسيرفر — يرجع 200 مع errors[]. نعرضها للمستخدم بدل ما
+      // نخفيها، لأن مو كل الأزواج المحدَّدة اندمجت فعلياً بهالحالة.
+      if (Array.isArray(json.errors) && json.errors.length > 0) {
+        setError(`تم دمج ${json.mergedCount ?? 0} من ${merges.length}، وتعذّر دمج ${json.errors.length} — جرّب ارفع الملف مرة ثانية`);
+      }
       // Remember these confirmed merges so identical names in future uploads merge
       // automatically without asking again (only when the feature is enabled).
       if (autoMergeEnabled) {

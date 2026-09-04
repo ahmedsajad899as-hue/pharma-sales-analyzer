@@ -26,6 +26,7 @@
  *   node scripts/import-alias-mapping.mjs <path.xlsx> --no-company-aliases  # يعطّل aliases الشركة (عمود A→C)، يبقي أليسات الايتم فقط
  */
 
+import 'dotenv/config';
 import prisma from '../server/lib/prisma.js';
 import { normalizeItemKey } from '../server/lib/itemResolver.js';
 import XLSX from 'xlsx';
@@ -63,10 +64,20 @@ async function main() {
     select: { id: true, name: true, officeId: true },
   });
   const companyByKey = new Map(); // normKey -> company[]
+  const companiesById = new Map();
   for (const c of companies) {
     const k = normalizeItemKey(c.name);
     if (!companyByKey.has(k)) companyByKey.set(k, []);
     companyByKey.get(k).push(c);
+    companiesById.set(c.id, c);
+  }
+
+  // aliases شركة محفوظة مسبقاً — يُستخدَم كبديل لو اسم العمود الكانوني ما
+  // طابق اسم شركة بالضبط (بدل ما نعتبره "غير موجود" رغم وجود alias يحلّه).
+  const companyAliasByKey = new Map(); // normKey -> company
+  for (const a of await prisma.companyAlias.findMany({ where: OFFICE_ID ? { officeId: OFFICE_ID } : {} })) {
+    const c = companiesById.get(a.companyId);
+    if (c && !companyAliasByKey.has(a.fromKey)) companyAliasByKey.set(a.fromKey, c);
   }
 
   const catalogCache = new Map(); // companyId -> Map(normKey -> item)
@@ -85,6 +96,17 @@ async function main() {
     return byKey;
   }
 
+  // فهرس عام لكل الكتالوج (كل الشركات) — تشخيصي فقط: لما ايتم كانوني ما يوجد
+  // ضمن الشركة المحدَّدة بالصف، نتحقق هل هو موجود فعلاً بشركة أخرى بالتطبيق
+  // (خطأ بعمود الشركة بالملف، أو الايتم مصنَّف بشركة مختلفة بالتطبيق حالياً).
+  const allCompaniesById = new Map((await prisma.scientificCompany.findMany({ select: { id: true, name: true } })).map(c => [c.id, c.name]));
+  const globalItemsByKey = new Map();
+  for (const it of await prisma.item.findMany({ where: { isTemp: false }, select: { id: true, name: true, scientificCompanyId: true } })) {
+    const k = normalizeItemKey(it.name);
+    if (!globalItemsByKey.has(k)) globalItemsByKey.set(k, []);
+    globalItemsByKey.get(k).push(it);
+  }
+
   const summary = {
     rowsProcessed: 0,
     skippedEmptyRow: 0,
@@ -99,9 +121,9 @@ async function main() {
     itemAliasUnchanged: 0,
     itemAliasConflict: 0,
   };
-  const problems = { companyNotFound: [], companyAmbiguous: [], itemNotFound: [], companyAliasConflict: [], itemAliasConflict: [] };
+  const problems = { companyNotFound: new Map(), companyAmbiguous: new Map(), itemNotFound: new Map(), companyAliasConflict: new Map(), itemAliasConflict: new Map() };
   const CAP = 50;
-  const pushProblem = (list, row) => { if (list.length < CAP) list.push(row); };
+  const bumpProblem = (map, key) => map.set(key, (map.get(key) || 0) + 1);
 
   for (const row of dataRows) {
     const [rawCompanyRaw, rawItemRaw, canonCompanyRaw, canonItemRaw] = row;
@@ -113,10 +135,18 @@ async function main() {
     if (!canonCompany) { summary.skippedEmptyRow++; continue; }
     summary.rowsProcessed++;
 
-    const hits = companyByKey.get(normalizeItemKey(canonCompany)) || [];
-    if (hits.length === 0) { summary.companyNotFound++; pushProblem(problems.companyNotFound, canonCompany); continue; }
-    if (hits.length > 1) { summary.companyAmbiguous++; pushProblem(problems.companyAmbiguous, `${canonCompany} (${hits.length} شركات بنفس الاسم)`); continue; }
-    const company = hits[0];
+    const canonCompanyKey = normalizeItemKey(canonCompany);
+    const hits = companyByKey.get(canonCompanyKey) || [];
+    let company;
+    if (hits.length === 1) {
+      company = hits[0];
+    } else if (hits.length === 0) {
+      const aliased = companyAliasByKey.get(canonCompanyKey);
+      if (!aliased) { summary.companyNotFound++; bumpProblem(problems.companyNotFound, canonCompany); continue; }
+      company = aliased; // alias محفوظ يحل الاسم رغم عدم تطابقه لاسم شركة مباشرة
+    } else {
+      summary.companyAmbiguous++; bumpProblem(problems.companyAmbiguous, `${canonCompany} (${hits.length} شركات بنفس الاسم)`); continue;
+    }
 
     // ── alias الشركة (عمود A → C) ──
     if (INCLUDE_COMPANY_ALIASES && rawCompany) {
@@ -136,7 +166,7 @@ async function main() {
           summary.companyAliasUnchanged++;
         } else {
           summary.companyAliasConflict++;
-          pushProblem(problems.companyAliasConflict, `"${rawCompany}" موجود مسبقاً → شركة أخرى (id=${existing.companyId})، المطلوب هنا: ${company.name} (id=${company.id})`);
+          bumpProblem(problems.companyAliasConflict, `"${rawCompany}" موجود مسبقاً → شركة أخرى (id=${existing.companyId})، المطلوب هنا: ${company.name} (id=${company.id})`);
         }
       }
     }
@@ -145,7 +175,16 @@ async function main() {
     if (!rawItem) { summary.skippedEmptyItem++; continue; }
     const catalog = await getCatalog(company.id);
     const target = catalog.get(normalizeItemKey(canonItem));
-    if (!target) { summary.itemNotFound++; pushProblem(problems.itemNotFound, `"${canonItem}" (شركة: ${company.name})`); continue; }
+    if (!target) {
+      summary.itemNotFound++;
+      const elsewhere = globalItemsByKey.get(normalizeItemKey(canonItem)) || [];
+      const elsewhereOtherCompanies = elsewhere.filter(e => e.scientificCompanyId !== company.id);
+      const msg = elsewhereOtherCompanies.length > 0
+        ? `"${canonItem}" (شركة بالملف: ${company.name}) — موجود فعلاً لكن تحت شركة أخرى بالتطبيق: ${[...new Set(elsewhereOtherCompanies.map(e => allCompaniesById.get(e.scientificCompanyId) || e.scientificCompanyId))].join('، ')}`
+        : `"${canonItem}" (شركة: ${company.name}) — غير موجود بالكتالوج إطلاقاً بأي شركة`;
+      bumpProblem(problems.itemNotFound, msg);
+      continue;
+    }
 
     const itemFromKey = normalizeItemKey(rawItem);
     if (!itemFromKey || itemFromKey === normalizeItemKey(target.name)) continue; // مطابق أصلاً، لا حاجة alias
@@ -160,11 +199,18 @@ async function main() {
         });
       }
       summary.itemAliasCreated++;
-    } else if (existingRule.toItemId === target.id) {
-      summary.itemAliasUnchanged++;
     } else {
-      summary.itemAliasConflict++;
-      pushProblem(problems.itemAliasConflict, `"${rawItem}" (شركة: ${company.name}) موجود مسبقاً → ايتم آخر (id=${existingRule.toItemId})، المطلوب هنا: ${target.name} (id=${target.id})`);
+      // toItemId قابل لـ null (alias قديم بالاسم فقط) — نتحقق بالاسم أيضاً قبل
+      // اعتباره تعارضاً، وإلا كل alias قديم بلا toItemId يُصنَّف تعارضاً خطأً.
+      const sameTarget = existingRule.toItemId === target.id ||
+        (existingRule.toItemId == null && normalizeItemKey(existingRule.toName || '') === normalizeItemKey(target.name));
+      if (sameTarget) {
+        summary.itemAliasUnchanged++;
+      } else {
+        summary.itemAliasConflict++;
+        const existingLabel = existingRule.toItemId ? `"${existingRule.toName}" (id=${existingRule.toItemId})` : `"${existingRule.toName}" (بلا id، اسم فقط)`;
+        bumpProblem(problems.itemAliasConflict, `"${rawItem}" (شركة: ${company.name}) موجود مسبقاً → ${existingLabel}، المطلوب هنا: ${target.name} (id=${target.id})`);
+      }
     }
   }
 
@@ -180,9 +226,11 @@ async function main() {
     ['companyAliasConflict', 'تعارضات alias الشركة'],
     ['itemAliasConflict', 'تعارضات alias الايتم'],
   ]) {
-    if (problems[key].length > 0) {
-      console.log(`\n--- ${label} (أول ${problems[key].length}${summary[key] > problems[key].length ? ` من ${summary[key]}` : ''}) ---`);
-      for (const p of problems[key]) console.log('  -', p);
+    const entries = [...problems[key].entries()].sort((a, b) => b[1] - a[1]); // الأكثر تكراراً أولاً
+    if (entries.length > 0) {
+      console.log(`\n--- ${label} (${entries.length} قيمة فريدة${summary[key] > entries.length ? ` · ${summary[key]} صف` : ''}) ---`);
+      for (const [msg, count] of entries.slice(0, CAP)) console.log(`  - ${msg}${count > 1 ? `  (×${count})` : ''}`);
+      if (entries.length > CAP) console.log(`  ... و${entries.length - CAP} أخرى`);
     }
   }
 }
