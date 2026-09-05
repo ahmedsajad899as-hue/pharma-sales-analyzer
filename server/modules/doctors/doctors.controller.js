@@ -5,7 +5,7 @@ import fs from 'fs';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import {
   resolveAreaScope, getScopedSurveyDoctors, buildVisitOverlay,
-  ensureDoctorRowsForScope, isFieldRole,
+  ensureDoctorRowsForScope, isFieldRole, resolveCompanyMembers,
 } from '../../lib/surveyDoctors.js';
 import * as importVisits from './doctor-visits-import.js';
 
@@ -47,9 +47,11 @@ export async function visitsByArea(req, res, next) {
     const normArea = normalizeAreaName;
 
     // ── المصدر الموحّد: أطباء السيرفي ضمن مناطق النطاق ──────────
-    // مندوب ميداني → مناطقه · مدير + repUserId → مناطق المندوب · مدير "الكل" → كل مناطق الفريق
+    // مندوب ميداني → مناطقه · مدير + repUserId → مناطق المندوب · مدير + companyId
+    // → مناطق أعضاء الفريق تحت هذه الشركة الرئيسية · مدير "الكل" → كل مناطق الفريق
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
-    const scope       = await resolveAreaScope(req.user, { repUserId });
+    const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
+    const scope       = await resolveAreaScope(req.user, { repUserId, companyId });
     const scopedDocs  = await getScopedSurveyDoctors(scope);
     const overlay     = await buildVisitOverlay(scope, dateFilter);
 
@@ -121,7 +123,8 @@ export async function visitsByArea(req, res, next) {
 export async function visitsLatestMonth(req, res, next) {
   try {
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
-    const scope = await resolveAreaScope(req.user, { repUserId });
+    const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
+    const scope = await resolveAreaScope(req.user, { repUserId, companyId });
     const orClauses = [];
     if (scope.memberRepIds.length)  orClauses.push({ scientificRepId: { in: scope.memberRepIds } });
     if (scope.memberUserIds.length) orClauses.push({ userId: { in: scope.memberUserIds } });
@@ -152,6 +155,20 @@ async function resolvePharmacyVisitWhere(req, extra = {}) {
 
   // اختياري: فلترة حسب مندوب محدد (للمدير فقط)
   const repUserIdPharma = (!isFieldRep && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
+
+  // اختياري: فلترة حسب «الشركة الرئيسية» لأعضاء الفريق (مدير المكتب) — تُتجاهل لو تحدَّد مندوب بعينه
+  const companyIdPharma = (!isFieldRep && !repUserIdPharma && req.query.companyId) ? parseInt(req.query.companyId) : null;
+  if (companyIdPharma) {
+    const members = await resolveCompanyMembers(userId, companyIdPharma);
+    const orClauses = [];
+    const repIds  = members.map(m => m.repId).filter(Boolean);
+    const userIds = members.map(m => m.userId);
+    if (repIds.length)  orClauses.push({ scientificRepId: { in: repIds } });
+    if (userIds.length) orClauses.push({ userId: { in: userIds } });
+    // لا أعضاء لهذه الشركة → نتيجة فارغة عمداً بدل الرجوع لكامل بيانات المدير
+    return orClauses.length ? { OR: orClauses, isActive: true, ...extra } : { id: -1, ...extra };
+  }
+
   let subLinkedRepIdPharma = null;
   if (repUserIdPharma) {
     const subUserPharma = await prisma.user.findUnique({
@@ -1162,12 +1179,30 @@ export async function getManagerSubReps(req, res, next) {
       },
       orderBy: { assignedAt: 'asc' },
     });
+
+    // «الشركة الرئيسية» لكل عضو فريق — فقط لمدير المكتب، إذ يشرف على أكثر من
+    // شركة دفعة واحدة (باقي أدوار المدراء مُقيَّدة أصلاً بشركة واحدة فلا حاجة للتجميع).
+    let companyByUserId = new Map();
+    if (req.user.role === 'office_manager' && subs.length) {
+      const assignments = await prisma.userCompanyAssignment.findMany({
+        where: { userId: { in: subs.map(s => s.user.id) }, isPrimary: true },
+        select: { userId: true, company: { select: { id: true, name: true } } },
+      });
+      companyByUserId = new Map(assignments.map(a => [a.userId, a.company]));
+    }
+
     const reps = subs.map(s => ({
       userId:      s.user.id,
       name:        s.user.displayName || s.user.username,
       linkedRepId: s.user.linkedRepId,
+      company:     companyByUserId.get(s.user.id) ?? null,
     }));
-    res.json({ reps });
+
+    const companiesMap = new Map();
+    for (const r of reps) if (r.company) companiesMap.set(r.company.id, r.company);
+    const companies = [...companiesMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+
+    res.json({ reps, companies });
   } catch (e) { next(e); }
 }
 

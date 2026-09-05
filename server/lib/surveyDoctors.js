@@ -34,12 +34,42 @@ async function resolveRepId(userId, linkedRepId) {
   return own?.id ?? null;
 }
 
-// ── resolveAreaScope(user, { repUserId }) ────────────────────────────────────
+// ── resolveCompanyMembers(managerId, companyId) ──────────────────────────────
+// أعضاء فريق المدير (+ المدير نفسه) الذين «شركتهم الرئيسية» (UserCompanyAssignment
+// isPrimary) هي companyId — تُستخدم لتصفية شاشة الزيارات لمدير المكتب حسب
+// «الشركة الرئيسية» لكل فريق/مندوب، لا حسب مندوب واحد.
+export async function resolveCompanyMembers(managerId, companyId) {
+  const [ownU, subs] = await Promise.all([
+    prisma.user.findUnique({ where: { id: managerId }, select: { linkedRepId: true } }),
+    prisma.userManagerAssignment.findMany({
+      where: { managerId },
+      include: { user: { select: { id: true, linkedRepId: true } } },
+    }),
+  ]);
+  const candidates = [{ id: managerId, linkedRepId: ownU?.linkedRepId ?? null }, ...subs.map(s => s.user)];
+  const assignments = await prisma.userCompanyAssignment.findMany({
+    where: { userId: { in: candidates.map(c => c.id) }, companyId, isPrimary: true },
+    select: { userId: true },
+  });
+  const matched = new Set(assignments.map(a => a.userId));
+
+  const members = [];
+  for (const c of candidates) {
+    if (!matched.has(c.id)) continue;
+    const repId = await resolveRepId(c.id, c.linkedRepId ?? null);
+    members.push({ userId: c.id, repId });
+  }
+  return members;
+}
+
+// ── resolveAreaScope(user, { repUserId, companyId }) ─────────────────────────
 // يُرجع نطاق المناطق + السيرفيات النشطة:
 //   - مندوب ميداني: مناطقه هو.
 //   - مدير + repUserId: مناطق ذاك المندوب.
+//   - مدير + companyId (مدير المكتب فقط عملياً): اتحاد مناطق أعضاء الفريق
+//     (+ المدير نفسه إن كانت شركته الرئيسية نفسها) الذين شركتهم الرئيسية هي هذه.
 //   - مدير (الكل): اتحاد مناطق المدير + كل مندوبي فريقه (UserManagerAssignment).
-export async function resolveAreaScope(user, { repUserId = null } = {}) {
+export async function resolveAreaScope(user, { repUserId = null, companyId = null } = {}) {
   const ids = new Set();
   const memberUserIds = new Set(); // لطبقة الزيارات: مَن تُحتسب زياراتهم
   const memberRepIds  = new Set(); // معرّفات المندوب العلمي المقابلة
@@ -59,6 +89,12 @@ export async function resolveAreaScope(user, { repUserId = null } = {}) {
     const repId = await resolveRepId(repUserId, u?.linkedRepId ?? null);
     addMember(repUserId, repId);
     (await areaIdsForUser(repUserId, repId)).forEach(id => ids.add(id));
+  } else if (companyId) {
+    const members = await resolveCompanyMembers(user.id, companyId);
+    for (const m of members) {
+      addMember(m.userId, m.repId);
+      (await areaIdsForUser(m.userId, m.repId)).forEach(id => ids.add(id));
+    }
   } else {
     // مدير "الكل": مناطقه + كل مندوبي الفريق
     const [ownU, subs] = await Promise.all([

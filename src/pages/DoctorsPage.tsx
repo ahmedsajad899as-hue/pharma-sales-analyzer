@@ -282,9 +282,14 @@ export default function DoctorsPage() {
   const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
   const [showVisitMonthPicker, setShowVisitMonthPicker] = useState(false);
   // ── Rep filter (for managers only) ─────────────────────────
-  interface ManagerRep { userId: number; name: string; linkedRepId: number | null; }
+  interface ManagerCompany { id: number; name: string; }
+  interface ManagerRep { userId: number; name: string; linkedRepId: number | null; company: ManagerCompany | null; }
   const [managerReps, setManagerReps]       = useState<ManagerRep[]>([]);
+  const [managerCompanies, setManagerCompanies] = useState<ManagerCompany[]>([]);
   const [visitRepFilter, setVisitRepFilter] = useState<number | null>(null); // null = all
+  // فلترة إضافية بـ«الشركة الرئيسية» — لمدير المكتب فقط (يشرف على أكثر من شركة).
+  // اختيار شركة يُظهر زيارات كل مندوبيها مجتمعة، ويضيّق قائمة شرائح المندوبين أدناه.
+  const [visitCompanyFilter, setVisitCompanyFilter] = useState<number | null>(null); // null = all companies
   // Manager wishlist view — show each rep's wishlist
   interface RepWishEntry { doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string; }
   interface RepWishData  { rep: { id: number; name: string }; wishlist: RepWishEntry[]; loading: boolean; open: boolean; openDetails: Set<number>; }
@@ -630,7 +635,7 @@ export default function DoctorsPage() {
     visitFetchAbortRef.current = ctrl;
 
     // Return cached data instantly if available (unless explicit refresh)
-    const cacheKey = `${visitRepFilter ?? 'all'}_${visitMonthFilter?.month ?? 'all'}_${visitMonthFilter?.year ?? 'all'}`;
+    const cacheKey = `${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${visitMonthFilter?.month ?? 'all'}_${visitMonthFilter?.year ?? 'all'}`;
     if (!forceRefresh) {
       const cached = visitCacheRef.current.get(cacheKey);
       if (cached) {
@@ -651,6 +656,7 @@ export default function DoctorsPage() {
       const ps = new URLSearchParams();
       if (visitMonthFilter) { ps.set('month', String(visitMonthFilter.month)); ps.set('year', String(visitMonthFilter.year)); }
       if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
+      else if (visitCompanyFilter !== null) ps.set('companyId', String(visitCompanyFilter));
       const r = await fetch(`${API}/api/doctors/visits-by-area?${ps}`, { headers: H(), signal: ctrl.signal });
       const j = await r.json();
       console.log('[visitsByArea] status:', r.status, 'response:', j);
@@ -664,7 +670,7 @@ export default function DoctorsPage() {
     } finally {
       if (!ctrl.signal.aborted) setVisitLoading(false);
     }
-  }, [token, visitMonthFilter, visitRepFilter]);
+  }, [token, visitMonthFilter, visitRepFilter, visitCompanyFilter]);
 
   // Default the doctors-visits month filter to the current month, or — if it has
   // no reports yet — the most recent month that does. "الكل" stays one click away
@@ -689,6 +695,7 @@ export default function DoctorsPage() {
       const r = await fetch(`${API}/api/doctors/sub-reps`, { headers: H() });
       const j = await r.json();
       setManagerReps(Array.isArray(j.reps) ? j.reps : []);
+      setManagerCompanies(Array.isArray(j.companies) ? j.companies : []);
     } catch (e) { console.error('[sub-reps] fetch error:', e); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
@@ -956,7 +963,7 @@ export default function DoctorsPage() {
     pharmVisitFetchAbortRef.current = ctrl;
 
     // Return cached data instantly if available (unless explicit refresh)
-    const cacheKey = `${visitRepFilter ?? 'all'}_${pharmVisitMonthFilter?.month ?? 'all'}_${pharmVisitMonthFilter?.year ?? 'all'}`;
+    const cacheKey = `${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${pharmVisitMonthFilter?.month ?? 'all'}_${pharmVisitMonthFilter?.year ?? 'all'}`;
     if (!forceRefresh) {
       const cached = pharmVisitCacheRef.current.get(cacheKey);
       if (cached) {
@@ -973,6 +980,7 @@ export default function DoctorsPage() {
       const ps = new URLSearchParams();
       if (pharmVisitMonthFilter) { ps.set('month', String(pharmVisitMonthFilter.month)); ps.set('year', String(pharmVisitMonthFilter.year)); }
       if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
+      else if (visitCompanyFilter !== null) ps.set('companyId', String(visitCompanyFilter));
       const r = await fetch(`${API}/api/doctors/pharmacy-visits-by-area?${ps}`, { headers: H(), signal: ctrl.signal });
       const j = await r.json();
       const areas = Array.isArray(j.areas) ? j.areas : [];
@@ -984,7 +992,7 @@ export default function DoctorsPage() {
       if (!ctrl.signal.aborted) setPharmVisitLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, pharmVisitMonthFilter, visitRepFilter]);
+  }, [token, pharmVisitMonthFilter, visitRepFilter, visitCompanyFilter]);
 
   // Same default-month behavior as the doctors visits view, for the pharmacies sub-view.
   const pharmVisitMonthDefaultAppliedRef = useRef(false);
@@ -1798,8 +1806,41 @@ export default function DoctorsPage() {
       {/* ── VISITS TAB ───────────────────────────────────── */}
       {activeTab === 'visits' && showVisitAnalysis && (
         <div>
-          {/* Rep selector (managers only) */}
-          {!isFieldRep && managerReps.length > 0 && (
+          {/* Company selector (office manager only — oversees multiple main companies) */}
+          {!isFieldRep && managerCompanies.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="navOrgStructure" size={11} /> الشركة الرئيسية</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => { setVisitCompanyFilter(null); setVisitRepFilter(null); }}
+                  style={{
+                    padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: `1.5px solid ${visitCompanyFilter === null ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                    background: visitCompanyFilter === null ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                    color: visitCompanyFilter === null ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+                  }}>الكل</button>
+                {managerCompanies.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => { setVisitCompanyFilter(c.id); setVisitRepFilter(null); }}
+                    title="إظهار زيارات كل مندوبي هذه الشركة مجتمعة"
+                    style={{
+                      padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      border: `1.5px solid ${visitCompanyFilter === c.id ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                      background: visitCompanyFilter === c.id ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                      color: visitCompanyFilter === c.id ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+                    }}>{c.name}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Rep selector (managers only) — narrowed to the selected company's reps, if any */}
+          {!isFieldRep && managerReps.length > 0 && (() => {
+            const visibleReps = visitCompanyFilter === null
+              ? managerReps
+              : managerReps.filter(rep => rep.company?.id === visitCompanyFilter);
+            return (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1811,7 +1852,7 @@ export default function DoctorsPage() {
                     background: visitRepFilter === null ? 'var(--c-accent-light)' : 'var(--c-bg)',
                     color: visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-text-secondary)',
                   }}>الكل</button>
-                {managerReps.map(rep => (
+                {visibleReps.map(rep => (
                   <button
                     key={rep.userId}
                     onClick={() => setVisitRepFilter(rep.userId)}
@@ -1824,7 +1865,8 @@ export default function DoctorsPage() {
                 ))}
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Analysis type toggle: doctors vs pharmacies */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
