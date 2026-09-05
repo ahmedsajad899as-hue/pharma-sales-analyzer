@@ -4171,7 +4171,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     } else if (role === 'manager') {
       // manager can filter by rep
       if (repId) where.scientificRepId = repId;
-    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager'].includes(role)) {
+    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager'].includes(role)) {
       if (repId) {
         if (repId < 0) {
           // Negative repId = manager's own visits (encoded as -userId)
@@ -4220,18 +4220,22 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
             ...(allRepIds2.length > 0 ? [{ scientificRepId: { in: allRepIds2 } }] : []),
           ];
         } else {
-          // Fallback for company_manager/supervisor/product_manager with no subordinates:
+          // Fallback for company_manager/supervisor/product_manager/office_manager with no subordinates:
           // show reps whose PRIMARY company is the manager's PRIMARY company (التيم على أساس الرئيسية)
+          // — باستثناء مدير المكتب: لا فرق عنده بين رئيسية وثانوية، كل شركاته تابعة له بالتساوي.
+          const isOfficeManager = role === 'office_manager';
           const [assignments, managerRow] = await Promise.all([
             prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true, isPrimary: true } }),
             prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } }),
           ]);
           const primaryAssignments = assignments.filter(a => a.isPrimary);
-          const companyIds = (primaryAssignments.length ? primaryAssignments : assignments).map(a => a.companyId);
+          const companyIds = isOfficeManager
+            ? assignments.map(a => a.companyId)
+            : (primaryAssignments.length ? primaryAssignments : assignments).map(a => a.companyId);
           const managerOfficeId = managerRow?.officeId ?? null;
           if (companyIds.length > 0) {
             const repUsersWhere = {
-              companyAssignments: { some: { companyId: { in: companyIds }, isPrimary: true } },
+              companyAssignments: { some: isOfficeManager ? { companyId: { in: companyIds } } : { companyId: { in: companyIds }, isPrimary: true } },
               linkedRepId: { not: null },
               ...(managerOfficeId ? { officeId: managerOfficeId } : { id: -1 }),
             };
@@ -4284,7 +4288,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       else pharmWhere.userId = userId;
     } else if (role === 'manager') {
       if (repId) pharmWhere.scientificRepId = repId;
-    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager'].includes(role)) {
+    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager'].includes(role)) {
       if (repId) {
         if (repId < 0) {
           pharmWhere.userId = -repId;

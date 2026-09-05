@@ -58,9 +58,9 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [callsData, setCallsData]       = useState<DailyCallsData | null>(null);
   const [callsLoading, setCallsLoading] = useState(false);
   const [showMap, setShowMap]           = useState(false);
-  const isCompanyManager = ['company_manager', 'team_leader'].includes(user?.role ?? '');
+  const isCompanyManager = ['company_manager', 'team_leader', 'office_manager'].includes(user?.role ?? '');
   const [showCallsSection, setShowCallsSection] = useState(() =>
-    ['company_manager', 'team_leader'].includes(user?.role ?? '') ? true : localStorage.getItem('dash_calls_open') === 'true'
+    ['company_manager', 'team_leader', 'office_manager'].includes(user?.role ?? '') ? true : localStorage.getItem('dash_calls_open') === 'true'
   );
   const [showCallStats, setShowCallStats] = useState(false);
   const isManagerOrAdmin = useAuth().isManagerOrAdmin;
