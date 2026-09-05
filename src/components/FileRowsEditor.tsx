@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -62,6 +62,34 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
   const gridRef       = useRef<HTMLDivElement | null>(null);
   const autoScrollRef = useRef(0); // 1 = للأسفل، -1 = للأعلى، 0 = ثابت
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * تمرير افتراضي (virtualization) للصفوف.
+   *
+   * الملفات تصل لآلاف الصفوف، وكانت كل الصفوف تُقحَم في الـDOM دفعة واحدة —
+   * فأي تفاعل (سحب تحديد، فتح قائمة فلتر، حتى مجرد إعادة رسم بسبب تغيير حالة)
+   * كان يعيد رسم الجدول كله. هنا نرسم فقط الصفوف الظاهرة + هامش صغير، ونعوّض
+   * الباقي بصفّي حشو (spacer) للحفاظ على ارتفاع شريط التمرير الصحيح.
+   */
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(600);
+  const [rowH, setRowH] = useState(27);
+  const firstRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  useLayoutEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const update = () => setViewportH(el.clientHeight || 600);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
+    const h = firstRowRef.current?.getBoundingClientRect().height;
+    if (h && Math.abs(h - rowH) > 0.5) setRowH(h);
+  });
 
   const load = () => {
     setLoading(true); setErr('');
@@ -373,6 +401,18 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     setFilterMenuCol(col);
   };
 
+  /**
+   * قائمة القيم المميّزة للعمود المفتوح فلترته — مُحسَّبة مرّة واحدة فقط عند
+   * فتح القائمة أو تغيّر الصفوف، لا في كل إعادة رسم. كانت تُحسَب مباشرةً في
+   * الـJSX فتُعاد من الصفر (مسح كل الصفوف + فرز عربي) مع كل ضغطة حرف في
+   * بحث القائمة أو كل تأشير/إلغاء صندوق اختيار.
+   */
+  const filterMenuValues = useMemo(
+    () => (filterMenuCol ? distinctValuesFor(filterMenuCol) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filterMenuCol, rows, deletedIds],
+  );
+
   /** يحفظ الفلتر على السيرفر — يُعيد حساب Sale.isHidden فوراً فينعكس على كل تحليل وتقرير. */
   const applyColumnFilter = async (col: string, included: Set<string>) => {
     const all = distinctValuesFor(col).map(d => d.value);
@@ -440,6 +480,16 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
     fontSize: 12, whiteSpace: 'nowrap', cursor: 'text',
   };
 
+  // نطاق الصفوف الظاهرة فعلياً (+ هامش) — الباقي يُعوَّض بصفّي حشو أسفل/أعلى
+  const ROW_OVERSCAN = 10;
+  const winStart = Math.max(0, Math.floor(scrollTop / rowH) - ROW_OVERSCAN);
+  const winCount = Math.ceil(viewportH / rowH) + ROW_OVERSCAN * 2;
+  const winEnd   = Math.min(sortedRows.length, winStart + winCount);
+  const windowRows = sortedRows.slice(winStart, winEnd);
+  const topPad    = winStart * rowH;
+  const bottomPad = (sortedRows.length - winEnd) * rowH;
+  const colSpanAll = visibleCols.length + 2;
+
   return (
     <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', zIndex: 4000,
@@ -504,7 +554,8 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
         {err && <div style={{ padding: '8px 16px', background: '#fef2f2', color: '#b91c1c', fontSize: 12 }}>⚠️ {err}</div>}
 
         <div ref={gridRef} style={{ flex: 1, overflow: 'auto' }}
-          onMouseUp={() => setIsSelecting(false)}>
+          onMouseUp={() => setIsSelecting(false)}
+          onScroll={e => setScrollTop(e.currentTarget.scrollTop)}>
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>⏳ جاري تحميل الصفوف...</div>
           ) : (
@@ -548,14 +599,14 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                               <input value={filterSearch} onChange={e => setFilterSearch(e.target.value)} placeholder="🔍 بحث بالقيمة..."
                                 style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, direction: 'rtl', boxSizing: 'border-box' }} />
                               <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                                <button onClick={() => setFilterDraft(new Set(distinctValuesFor(c.key).map(d => d.value)))}
+                                <button onClick={() => setFilterDraft(new Set(filterMenuValues.map(d => d.value)))}
                                   style={{ border: 'none', background: 'none', color: '#4f46e5', cursor: 'pointer', fontSize: 10, fontWeight: 700, padding: 0 }}>تحديد الكل</button>
                                 <button onClick={() => setFilterDraft(new Set())}
                                   style={{ border: 'none', background: 'none', color: '#64748b', cursor: 'pointer', fontSize: 10, fontWeight: 700, padding: 0 }}>إلغاء التحديد</button>
                               </div>
                             </div>
                             <div style={{ overflowY: 'auto', padding: 6, flex: 1 }}>
-                              {distinctValuesFor(c.key)
+                              {filterMenuValues
                                 .filter(d => !filterSearch.trim() || d.value.toLowerCase().includes(filterSearch.trim().toLowerCase()))
                                 .map(d => (
                                   <label key={d.value || '∅'} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', fontSize: 11, fontWeight: 400, cursor: 'pointer' }}>
@@ -605,8 +656,13 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                     ))}
                   </tr>
                 ))}
-                {sortedRows.map((row, idx) => (
-                  <tr key={row.id} style={{ background: row.isManual ? '#dcfce7' : (idx % 2 ? '#fafbfc' : '#fff') }}>
+                {topPad > 0 && (
+                  <tr aria-hidden style={{ height: topPad }}><td colSpan={colSpanAll} style={{ padding: 0, border: 'none' }} /></tr>
+                )}
+                {windowRows.map((row, i) => {
+                  const idx = winStart + i;
+                  return (
+                  <tr key={row.id} ref={i === 0 ? firstRowRef : undefined} style={{ background: row.isManual ? '#dcfce7' : (idx % 2 ? '#fafbfc' : '#fff') }}>
                     <td style={{ ...TD, textAlign: 'center' }}>
                       <button onClick={() => setDeletedIds(p => new Set(p).add(row.id))}
                         title="حذف هذا الصف" style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer' }}>✕</button>
@@ -662,7 +718,11 @@ export default function FileRowsEditor({ fileId, fileName, onClose, onSaved }: {
                       );
                     })}
                   </tr>
-                ))}
+                  );
+                })}
+                {bottomPad > 0 && (
+                  <tr aria-hidden style={{ height: bottomPad }}><td colSpan={colSpanAll} style={{ padding: 0, border: 'none' }} /></tr>
+                )}
               </tbody>
             </table>
           )}
