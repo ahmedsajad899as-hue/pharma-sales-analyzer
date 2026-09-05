@@ -129,7 +129,10 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   const recalcUserSummary = (summaryRows: string[][], dataRows: string[][]): string[][] => {
     const norm = (h: any) => String(h ?? '').trim();
     const VALUE_HEADERS = new Set(['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي', 'إجمالي القيمة ($)']);
-    const ITEM_HEADERS  = new Set(['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج', 'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر', 'الايتم', 'ايتم', 'آيتم', 'الآيتم']);
+    // نفس مجموعة الايتم في ALIAS_GROUPS أعلاه — «الصنف»/«اسم الصنف» ليسا هنا عمداً
+    // (في ميركاتو هما الشركة المصنّعة لا اسم المادة)، و«اسم المادة بالمكتب» أُضيف
+    // لأنه قد يصبح ترويسة العمود الموحَّدة الفعلية بعد الدمج.
+    const ITEM_HEADERS  = new Set(['المادة', 'اسم المادة', 'اسم المادة بالمكتب', 'المنتج', 'اسم المنتج', 'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر', 'الايتم', 'ايتم', 'آيتم', 'الآيتم']);
     const QTY_HEADERS   = new Set(['الكمية', 'كمية', 'الكميه', 'كميه']);
 
     const header  = (dataRows[0] ?? []).map(norm);
@@ -1603,7 +1606,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // نفس مجموعة «المحافظة» أدناه في ALIAS_GROUPS — مرجع واحد كي نتعرّف على
     // عمود المحافظة لاحقاً (groupOf(h) === PROVINCE_GROUP) ونملأ خلاياه
     // الفارغة من s.area.province بدل تركها فارغة كما وردت حرفياً في الملف.
-    const PROVINCE_GROUP = ['المحافظة', 'محافظة', 'المحافظه', 'محافظه'];
+    // «المدينة» في ميركاتو = نفس مفهوم المحافظة هناك (راجع mercatoColumnMap:
+    // province يطابق أي عمود يحوي «مدين») — تُضم هنا لنفس السبب.
+    const PROVINCE_GROUP = ['المحافظة', 'محافظة', 'المحافظه', 'محافظه', 'المدينة', 'مدينة'];
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const allKeys = new Set<string>();
     let hasRaw = false;
@@ -1619,6 +1624,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // Same alias merge as buildMergedSheet — different active files can label the
       // same logical column differently (e.g. "الصيدلية" vs "اسم الصيدلية" vs "المذخر").
       const ALIAS_GROUPS: string[][] = [
+        // ملاحظة: «اسم الشركة» عمداً غير مُدرَجة هنا رغم أنها تعني الصيدلية المشترية
+        // (الزبون) في ملفات ميركاتو تحديداً — لأن نفس الترويسة تعني الشركة المصنّعة
+        // فعلياً في ملفات أخرى (راجع COLUMN_ALIASES.company في sales.service.js)،
+        // فدمجها هنا كان سيخلط الحقلين في ملفات غير ميركاتو. تبقى عموداً مستقلاً.
         ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون'],
         // Warehouse/depot — a distinct field from the customer/pharmacy above; some
         // source files carry both on the same row (e.g. delivery routed through a
@@ -1630,7 +1639,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // (Area.provinceId)، فدمجها مع المنطقة كان سيفقد أحد المستويين في
         // التصدير المدمج. المجموعة تمنع تفرّق تهجئاتها إلى أعمدة متعددة.
         PROVINCE_GROUP,
-        ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
+        // «اسم المادة بالمكتب» (ميركاتو) = نفس «المادة» في ملفات أخرى — بدونها
+        // كانت تظهر عموداً منفصلاً بجانب «المادة» بدل الاندماج معه.
+        // «الصنف»/«اسم الصنف» أُزيلا من هنا عمداً: في ميركاتو «الصنف» هو الشركة
+        // المصنّعة لا اسم المادة (راجع mercatoColumnMap) — أُضيفا لمجموعة الشركة أدناه.
+        ['المادة', 'اسم المادة', 'اسم المادة بالمكتب', 'المنتج', 'اسم المنتج',
          'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر',
          'الايتم', 'ايتم', 'آيتم', 'الآيتم'],
         ['الكمية المجانية', 'الكمية المجانيه', 'الكميه المجانية', 'الكميه المجانيه',
@@ -1643,7 +1656,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         ['التاريخ', 'تاريخ', 'cv', 'تاريخ البيع', 'تاريخ الفاتورة', 'تاريخ الطلب',
          'تاريخ العملية', 'أنشات بتاريخ', 'انشات بتاريخ', 'أنشأت بتاريخ', 'انشأت بتاريخ',
          'تاريخ الانشاء', 'تاريخ الإنشاء'],
-        ['الشركة', 'الشركه'],
+        // «الصنف» في ميركاتو و«القسم» في بعض ملفات المكتب = الشركة المصنّعة فعلياً.
+        ['الشركة', 'الشركه', 'الصنف', 'اسم الصنف', 'القسم'],
         // Invoice/order number — same logical field, different label per source file
         // (e.g. "رقم الفاتورة" vs "رقم طلبية المذخر").
         ['رقم الفاتورة', 'رقم الفاتوره', 'رقم طلبية المذخر', 'رقم طلبيه المذخر',
@@ -2025,7 +2039,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // نفس مجموعة «المحافظة» أدناه في ALIAS_GROUPS — مرجع واحد كي نتعرّف على
     // عمود المحافظة لاحقاً (groupOf(h) === PROVINCE_GROUP) ونملأ خلاياه
     // الفارغة من s.area.province بدل تركها فارغة كما وردت حرفياً في الملف.
-    const PROVINCE_GROUP = ['المحافظة', 'محافظة', 'المحافظه', 'محافظه'];
+    // «المدينة» في ميركاتو = نفس مفهوم المحافظة هناك (راجع mercatoColumnMap:
+    // province يطابق أي عمود يحوي «مدين») — تُضم هنا لنفس السبب.
+    const PROVINCE_GROUP = ['المحافظة', 'محافظة', 'المحافظه', 'محافظه', 'المدينة', 'مدينة'];
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -2038,6 +2054,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // column instead of showing them side by side — columns unique to one file
       // (no match in any group) keep standing on their own via the Set-union below.
       const ALIAS_GROUPS: string[][] = [
+        // ملاحظة: «اسم الشركة» عمداً غير مُدرَجة هنا رغم أنها تعني الصيدلية المشترية
+        // (الزبون) في ملفات ميركاتو تحديداً — لأن نفس الترويسة تعني الشركة المصنّعة
+        // فعلياً في ملفات أخرى (راجع COLUMN_ALIASES.company في sales.service.js)،
+        // فدمجها هنا كان سيخلط الحقلين في ملفات غير ميركاتو. تبقى عموداً مستقلاً.
         ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون'],
         // Warehouse/depot — a distinct field from the customer/pharmacy above; some
         // source files carry both on the same row (e.g. delivery routed through a
@@ -2049,7 +2069,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // (Area.provinceId)، فدمجها مع المنطقة كان سيفقد أحد المستويين في
         // التصدير المدمج. المجموعة تمنع تفرّق تهجئاتها إلى أعمدة متعددة.
         PROVINCE_GROUP,
-        ['المادة', 'اسم المادة', 'الصنف', 'اسم الصنف', 'المنتج', 'اسم المنتج',
+        // «اسم المادة بالمكتب» (ميركاتو) = نفس «المادة» في ملفات أخرى — بدونها
+        // كانت تظهر عموداً منفصلاً بجانب «المادة» بدل الاندماج معه.
+        // «الصنف»/«اسم الصنف» أُزيلا من هنا عمداً: في ميركاتو «الصنف» هو الشركة
+        // المصنّعة لا اسم المادة (راجع mercatoColumnMap) — أُضيفا لمجموعة الشركة أدناه.
+        ['المادة', 'اسم المادة', 'اسم المادة بالمكتب', 'المنتج', 'اسم المنتج',
          'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر',
          'الايتم', 'ايتم', 'آيتم', 'الآيتم'],
         ['الكمية المجانية', 'الكمية المجانيه', 'الكميه المجانية', 'الكميه المجانيه',
@@ -2062,7 +2086,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         ['التاريخ', 'تاريخ', 'cv', 'تاريخ البيع', 'تاريخ الفاتورة', 'تاريخ الطلب',
          'تاريخ العملية', 'أنشات بتاريخ', 'انشات بتاريخ', 'أنشأت بتاريخ', 'انشأت بتاريخ',
          'تاريخ الانشاء', 'تاريخ الإنشاء'],
-        ['الشركة', 'الشركه'],
+        // «الصنف» في ميركاتو و«القسم» في بعض ملفات المكتب = الشركة المصنّعة فعلياً.
+        ['الشركة', 'الشركه', 'الصنف', 'اسم الصنف', 'القسم'],
         // Invoice/order number — same logical field, different label per source file
         // (e.g. "رقم الفاتورة" vs "رقم طلبية المذخر").
         ['رقم الفاتورة', 'رقم الفاتوره', 'رقم طلبية المذخر', 'رقم طلبيه المذخر',
