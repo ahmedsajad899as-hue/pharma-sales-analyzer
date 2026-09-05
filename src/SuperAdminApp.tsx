@@ -57,17 +57,20 @@ import DoctorChangesPage from './pages/super-admin/DoctorChangesPage';
 
 type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes';
 
-const NAV: { id: Page; label: string; icon: string; color: string; glow: string; masterOnly?: boolean }[] = [
-  { id: 'offices',      label: 'المكاتب',    icon: '🏢', color: '#06b6d4', glow: 'rgba(6,182,212,0.35)' },
-  { id: 'companies',    label: 'الشركات',    icon: '🏭', color: '#8b5cf6', glow: 'rgba(139,92,246,0.35)' },
-  { id: 'items',        label: 'الايتمات',   icon: '💊', color: '#6366f1', glow: 'rgba(99,102,241,0.35)' },
-  { id: 'areas',        label: 'المناطق',    icon: '🗺️', color: '#0d9488', glow: 'rgba(13,148,136,0.35)' },
-  { id: 'users',        label: 'المستخدمون', icon: '👥', color: '#10b981', glow: 'rgba(16,185,129,0.35)' },
-  { id: 'super-admins', label: 'المشرفون',   icon: '🛡️', color: '#f59e0b', glow: 'rgba(245,158,11,0.35)', masterOnly: true },
-  { id: 'visits',       label: 'الزيارات',    icon: '📋', color: '#e11d48', glow: 'rgba(225,29,72,0.35)',  masterOnly: true },
-  { id: 'surveys',      label: 'السيرفيات',   icon: '🗂️', color: '#f97316', glow: 'rgba(249,115,22,0.35)', masterOnly: true },
-  { id: 'doctor-changes', label: 'سجل الأطباء', icon: '🔔', color: '#eab308', glow: 'rgba(234,179,8,0.35)', masterOnly: true },
+// لون تمييز واحد فقط للحالة النشطة (بدل لون مختلف لكل عنصر) — يهدّئ الشريط الجانبي
+// ويجعل العين تتبع "أين أنا" بدل التوهان بين تدرّجات ملوّنة متعددة.
+const NAV: { id: Page; label: string; icon: string; masterOnly?: boolean }[] = [
+  { id: 'offices',      label: 'المكاتب',      icon: '🏢' },
+  { id: 'companies',    label: 'الشركات',      icon: '🏭' },
+  { id: 'items',        label: 'الايتمات',     icon: '💊' },
+  { id: 'areas',        label: 'المناطق',      icon: '🗺️' },
+  { id: 'users',        label: 'المستخدمون',   icon: '👥' },
+  { id: 'super-admins', label: 'المشرفون',     icon: '🛡️', masterOnly: true },
+  { id: 'visits',       label: 'الزيارات',      icon: '📋', masterOnly: true },
+  { id: 'surveys',      label: 'السيرفيات',     icon: '🗂️', masterOnly: true },
+  { id: 'doctor-changes', label: 'سجل الأطباء', icon: '🔔', masterOnly: true },
 ];
+const ACCENT = '#4f46e5';
 
 // جرس إشعارات تغييرات الأطباء + تطابقات الأسماء بحاجة مراجعة — يظهر للماستر أدمن فقط
 function NotificationBell({ token, refreshKey, onOpen }: { token: string; refreshKey: string; onOpen: () => void }) {
@@ -91,16 +94,16 @@ function NotificationBell({ token, refreshKey, onOpen }: { token: string; refres
 
   return (
     <button onClick={onOpen} title="سجل تغييرات الأطباء ومطابقة الأسماء" style={{
-      position: 'relative', width: 40, height: 40, borderRadius: 11,
-      background: '#fffbeb', border: '1.5px solid #fde68a', cursor: 'pointer',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0,
+      position: 'relative', width: 34, height: 34, borderRadius: 9,
+      background: '#f8fafc', border: '1px solid #e2e8f0', cursor: 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0,
     }}>
       🔔
       {count > 0 && (
         <span style={{
-          position: 'absolute', top: -6, insetInlineEnd: -6, minWidth: 18, height: 18, padding: '0 4px',
-          borderRadius: 9, background: '#ef4444', color: '#fff', fontSize: 11, fontWeight: 800,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(239,68,68,0.4)',
+          position: 'absolute', top: -5, insetInlineEnd: -5, minWidth: 16, height: 16, padding: '0 3px',
+          borderRadius: 8, background: '#dc2626', color: '#fff', fontSize: 10, fontWeight: 700,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>{count > 99 ? '99+' : count}</span>
       )}
     </button>
@@ -132,33 +135,32 @@ function StatsBar({ token, onOpenItems }: { token: string; onOpenItems: () => vo
   }, [token]);
 
   const cards = [
-    { label: 'مكتب',      value: stats.offices,   icon: '🏢', color: '#06b6d4', bg: 'rgba(6,182,212,0.1)',   border: 'rgba(6,182,212,0.25)'   },
-    { label: 'شركة',      value: stats.companies, icon: '🏭', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)',  border: 'rgba(139,92,246,0.25)'  },
-    { label: 'مستخدم',   value: stats.users,     icon: '👥', color: '#10b981', bg: 'rgba(16,185,129,0.1)',  border: 'rgba(16,185,129,0.25)'  },
-    { label: 'ايتم',      value: stats.items,     icon: '💊', color: '#ec4899', bg: 'rgba(236,72,153,0.1)',  border: 'rgba(236,72,153,0.25)', onClick: onOpenItems, title: 'عرض كل الايتمات وطابور المراجعة عبر كل الشركات' },
+    { label: 'مكتب',    value: stats.offices,   icon: '🏢' },
+    { label: 'شركة',    value: stats.companies, icon: '🏭' },
+    { label: 'مستخدم', value: stats.users,     icon: '👥' },
+    { label: 'ايتم',    value: stats.items,     icon: '💊', onClick: onOpenItems, title: 'عرض كل الايتمات وطابور المراجعة عبر كل الشركات' },
   ];
 
   return (
-    <div style={{ display: 'flex', gap: 10, padding: '12px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+    <div style={{ display: 'flex', gap: 8, padding: '10px 24px', borderBottom: '1px solid #eef1f6', flexShrink: 0, background: '#fff' }}>
       {cards.map(s => (
         <div key={s.label} onClick={s.onClick} title={s.title} style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: s.bg, border: `1.5px solid ${s.border}`,
-          borderRadius: 14, padding: '8px 18px', flexShrink: 0,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+          display: 'flex', alignItems: 'center', gap: 9,
+          background: '#f8fafc', border: '1px solid #eef1f6',
+          borderRadius: 10, padding: '7px 16px', flexShrink: 0,
           cursor: s.onClick ? 'pointer' : 'default',
         }}>
-          <div style={{ width: 38, height: 38, borderRadius: 11, background: `${s.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{s.icon}</div>
+          <span style={{ fontSize: 14, flexShrink: 0, opacity: .75 }}>{s.icon}</span>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, fontWeight: 500 }}>{s.label}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', lineHeight: 1 }}>{s.value}</div>
+            <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2, fontWeight: 500 }}>{s.label}</div>
           </div>
         </div>
       ))}
       <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 20, padding: '5px 14px' }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981', animation: 'saPulse 2s infinite' }} />
-          <span style={{ fontSize: 11, color: '#15803d', fontWeight: 700 }}>نشط</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', border: '1px solid #eef1f6', borderRadius: 20, padding: '5px 14px' }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', animation: 'saPulse 2s infinite' }} />
+          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>نشط</span>
         </div>
       </div>
     </div>
@@ -186,73 +188,63 @@ function SuperAdminShell() {
       display: 'flex', height: '100vh',
       fontFamily: '"Segoe UI", Tahoma, "Arial", sans-serif',
       direction: 'rtl', overflow: 'hidden',
-      background: '#f1f5fb',
+      background: '#f4f6fa',
     }}>
 
       {/* ── Sidebar ───────────────────────────────────────── */}
       <aside style={{
-        width: collapsed ? 68 : 256,
-        background: 'linear-gradient(175deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%)',
-        borderLeft: '1px solid rgba(165,180,252,0.15)',
+        width: collapsed ? 64 : 232,
+        background: '#1e2333',
+        borderLeft: '1px solid rgba(255,255,255,0.06)',
         display: 'flex', flexDirection: 'column',
-        transition: 'width .25s cubic-bezier(.4,0,.2,1)',
+        transition: 'width .2s ease',
         overflow: 'hidden', flexShrink: 0,
-        boxShadow: '4px 0 32px rgba(30,27,75,0.35)',
         position: 'relative', zIndex: 10,
       }}>
 
         {/* Logo */}
         <div style={{
-          padding: collapsed ? '20px 14px' : '20px 18px',
-          borderBottom: '1px solid rgba(255,255,255,0.10)',
-          display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
+          padding: collapsed ? '18px 14px' : '18px 18px',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
         }}>
           <div style={{
-            width: 40, height: 40, borderRadius: 12, flexShrink: 0,
-            background: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
+            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+            background: ACCENT,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 20, boxShadow: '0 4px 16px rgba(99,102,241,0.5)',
+            fontSize: 15,
           }}>🛡️</div>
           {!collapsed && (
             <div>
               <div style={{
-                fontWeight: 800, fontSize: 15, whiteSpace: 'nowrap',
-                color: '#e0e7ff',
+                fontWeight: 700, fontSize: 13.5, whiteSpace: 'nowrap',
+                color: '#f1f5f9',
               }}>لوحة التحكم</div>
-              <div style={{ fontSize: 10, color: '#a5b4fc', whiteSpace: 'nowrap', marginTop: 2, letterSpacing: 1.5, fontWeight: 600 }}>SUPER ADMIN</div>
+              <div style={{ fontSize: 9.5, color: '#7c869c', whiteSpace: 'nowrap', marginTop: 1, letterSpacing: 1, fontWeight: 600 }}>SUPER ADMIN</div>
             </div>
           )}
         </div>
 
         {/* Nav items */}
-        <nav style={{ flex: 1, padding: '14px 8px', overflowY: 'auto', overflowX: 'hidden' }}>
+        <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto', overflowX: 'hidden' }}>
           {visibleNav.map(n => {
             const active = page === n.id;
             return (
               <button key={n.id} onClick={() => setPage(n.id)} title={collapsed ? n.label : undefined} style={{
-                display: 'flex', alignItems: 'center', gap: 12,
-                width: '100%', padding: collapsed ? '12px 0' : '11px 14px',
+                display: 'flex', alignItems: 'center', gap: 10,
+                width: '100%', padding: collapsed ? '10px 0' : '9px 12px',
                 justifyContent: collapsed ? 'center' : 'flex-start',
-                borderRadius: 12, border: 'none', cursor: 'pointer', marginBottom: 4,
-                background: active
-                  ? 'rgba(255,255,255,0.15)'
-                  : 'transparent',
-                boxShadow: active ? '0 2px 12px rgba(0,0,0,0.15)' : 'none',
-                transition: 'all .18s', overflow: 'hidden',
+                borderRadius: 8, border: 'none', cursor: 'pointer', marginBottom: 2,
+                background: active ? 'rgba(255,255,255,0.09)' : 'transparent',
+                borderRight: active ? `2px solid ${ACCENT}` : '2px solid transparent',
+                transition: 'background .15s', overflow: 'hidden',
               }}>
-                <div style={{
-                  width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-                  background: active ? `linear-gradient(135deg, ${n.color}, ${n.color}cc)` : 'rgba(255,255,255,0.08)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 17,
-                  boxShadow: active ? `0 4px 12px ${n.glow}` : 'none',
-                  transition: 'all .18s',
-                }}>{n.icon}</div>
+                <span style={{ fontSize: 15, flexShrink: 0, opacity: active ? 1 : .8 }}>{n.icon}</span>
                 {!collapsed && (
                   <span style={{
-                    fontSize: 13, fontWeight: active ? 700 : 500,
-                    color: active ? '#fff' : '#a5b4fc',
-                    whiteSpace: 'nowrap', transition: 'color .18s',
+                    fontSize: 12.5, fontWeight: active ? 700 : 500,
+                    color: active ? '#f1f5f9' : '#94a1b8',
+                    whiteSpace: 'nowrap', transition: 'color .15s',
                   }}>{n.label}</span>
                 )}
               </button>
@@ -261,39 +253,36 @@ function SuperAdminShell() {
         </nav>
 
         {/* User card + logout */}
-        <div style={{ padding: '10px 8px', borderTop: '1px solid rgba(255,255,255,0.12)', flexShrink: 0 }}>
+        <div style={{ padding: '8px', borderTop: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
           {!collapsed && (
             <div style={{
-              padding: '11px 13px', marginBottom: 8, borderRadius: 12,
-              background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.15)',
+              padding: '9px 11px', marginBottom: 6, borderRadius: 8,
+              background: 'rgba(255,255,255,0.05)',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                 <div style={{
-                  width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-                  background: admin.isMaster
-                    ? 'linear-gradient(135deg, #f59e0b, #d97706)'
-                    : 'linear-gradient(135deg, #818cf8, #6366f1)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17,
-                  boxShadow: '0 3px 10px rgba(0,0,0,0.25)',
+                  width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+                  background: admin.isMaster ? '#92400e' : '#334155',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13,
                 }}>{admin.isMaster ? '👑' : '🛡️'}</div>
                 <div style={{ overflow: 'hidden' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e7ff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{admin.username}</div>
-                  <div style={{ fontSize: 10, color: admin.isMaster ? '#fcd34d' : '#a5b4fc', marginTop: 2, fontWeight: 600 }}>
-                    {admin.isMaster ? '👑 Master Admin' : '🛡️ Super Admin'}
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{admin.username}</div>
+                  <div style={{ fontSize: 9.5, color: '#8b95a8', marginTop: 1, fontWeight: 500 }}>
+                    {admin.isMaster ? 'Master Admin' : 'Super Admin'}
                   </div>
                 </div>
               </div>
             </div>
           )}
           <button onClick={logout} title="تسجيل خروج" style={{
-            display: 'flex', alignItems: 'center', gap: 9,
+            display: 'flex', alignItems: 'center', gap: 8,
             justifyContent: collapsed ? 'center' : 'flex-start',
-            width: '100%', padding: '9px 12px', borderRadius: 11,
-            border: '1px solid rgba(252,165,165,0.25)',
-            cursor: 'pointer', background: 'rgba(239,68,68,0.12)',
-            color: '#fca5a5', fontSize: 13, fontWeight: 600, transition: 'all .2s',
+            width: '100%', padding: '8px 11px', borderRadius: 8,
+            border: 'none',
+            cursor: 'pointer', background: 'transparent',
+            color: '#94a1b8', fontSize: 12.5, fontWeight: 500, transition: 'background .15s, color .15s',
           }}>
-            <span>🚪</span>
+            <span style={{ fontSize: 14 }}>🚪</span>
             {!collapsed && <span>تسجيل خروج</span>}
           </button>
         </div>
@@ -304,37 +293,31 @@ function SuperAdminShell() {
 
         {/* Header */}
         <header style={{
-          height: 62, flexShrink: 0,
+          height: 56, flexShrink: 0,
           background: '#ffffff',
-          borderBottom: '1px solid #e8edf5',
-          padding: '0 24px',
-          display: 'flex', alignItems: 'center', gap: 14,
-          boxShadow: '0 1px 6px rgba(99,102,241,0.07)',
+          borderBottom: '1px solid #eef1f6',
+          padding: '0 22px',
+          display: 'flex', alignItems: 'center', gap: 12,
         }}>
           <button onClick={() => setCollapsed(c => !c)} style={{
-            width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-            background: '#f1f5f9', border: '1.5px solid #e2e8f0',
+            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+            background: '#f8fafc', border: '1px solid #eef1f6',
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#64748b', fontSize: 15, transition: 'all .2s',
+            color: '#64748b', fontSize: 14, transition: 'background .15s',
           }}>☰</button>
 
           {/* Page indicator */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-              background: `linear-gradient(135deg, ${activeMeta.color}20, ${activeMeta.color}10)`,
-              border: `1.5px solid ${activeMeta.color}30`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17,
-            }}>{activeMeta.icon}</div>
-            <span style={{ fontWeight: 800, fontSize: 16, color: '#1e1b4b' }}>{activeMeta.label}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 15, opacity: .8 }}>{activeMeta.icon}</span>
+            <span style={{ fontWeight: 700, fontSize: 14.5, color: '#1e293b' }}>{activeMeta.label}</span>
           </div>
 
           {/* Right side: bell + date */}
-          <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
             {admin.isMaster && (
               <NotificationBell token={token} refreshKey={page} onOpen={() => setPage('doctor-changes')} />
             )}
-            <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500 }}>
+            <div style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 500 }}>
               {new Date().toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </div>
           </div>
@@ -345,14 +328,13 @@ function SuperAdminShell() {
 
         {/* Page content */}
         <main style={{
-          flex: 1, overflowY: 'auto', padding: 24,
-          background: '#f1f5fb',
+          flex: 1, overflowY: 'auto', padding: 22,
+          background: '#f4f6fa',
         }}>
           <div style={{
             background: '#ffffff',
-            border: '1px solid #e8edf5',
-            borderRadius: 18, padding: 24, minHeight: '100%',
-            boxShadow: '0 2px 16px rgba(99,102,241,0.06)',
+            border: '1px solid #eef1f6',
+            borderRadius: 14, padding: 22, minHeight: '100%',
           }}>
             {page === 'offices'      && <OfficesPage />}
             {page === 'companies'    && <CompaniesPage onOpenUser={id => { setJumpUserId(id); setPage('users'); }} />}
@@ -369,7 +351,9 @@ function SuperAdminShell() {
 
       <style>{`
         @keyframes saPulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
-        aside nav button:hover { background: rgba(255,255,255,0.12) !important; }
+        aside nav button:hover { background: rgba(255,255,255,0.06) !important; }
+        aside button[title="تسجيل خروج"]:hover { background: rgba(239,68,68,0.12) !important; color: #fca5a5 !important; }
+        header button:hover { background: #eef1f6 !important; }
       `}</style>
     </div>
   );

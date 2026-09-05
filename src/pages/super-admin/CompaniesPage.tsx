@@ -724,33 +724,32 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>🏭 الشركات العلمية</h2>
-        <button onClick={() => setForm({ name: '', isActive: true })} style={btnStyle('#0f172a')}>+ إضافة شركة</button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1e293b' }}>الشركات العلمية</h2>
+        <button onClick={() => setForm({ name: '', isActive: true })} style={btnStyle('#1e293b')}>+ إضافة شركة</button>
       </div>
 
       {loading ? <Spinner /> : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(270px,1fr))', gap: 12 }}>
           {companies.map(c => (
             <div key={c.id} onClick={() => loadOrg(c.id)} style={{
-              background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20,
-              cursor: 'pointer', transition: 'box-shadow .15s, transform .15s',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+              background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: 16,
+              cursor: 'pointer', transition: 'border-color .15s',
             }}
-              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 18px rgba(99,102,241,0.13)'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px rgba(0,0,0,0.04)'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'; }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#c7d2e8'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#e9edf3'; }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 16 }}>{c.name}</div>
-                <span style={{ background: c.isActive ? '#dcfce7' : '#fee2e2', color: c.isActive ? '#16a34a' : '#dc2626', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                <div style={{ fontWeight: 700, fontSize: 14.5, color: '#1e293b' }}>{c.name}</div>
+                <span style={{ background: c.isActive ? '#f0fdf4' : '#fef2f2', color: c.isActive ? '#16a34a' : '#b91c1c', borderRadius: 20, padding: '2px 9px', fontSize: 10.5, fontWeight: 600 }}>
                   {c.isActive ? 'نشط' : 'معطل'}
                 </span>
               </div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>🏢 {c.office?.name} · 💊 {c._count?.items ?? 0} ايتم · 📋 {c._count?.lines ?? 0} لاين</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 12 }}>{c.office?.name} · {c._count?.items ?? 0} ايتم · {c._count?.lines ?? 0} لاين</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
                 <button onClick={() => setForm({ ...c })} style={btnStyle('#3b82f6', true)}>تعديل</button>
-                <button onClick={() => toggleCompany(c)} style={btnStyle(c.isActive ? '#f59e0b' : '#10b981', true)}>{c.isActive ? 'تعطيل' : 'تفعيل'}</button>
-                <button onClick={() => delCompany(c)} style={btnStyle('#ef4444', true)}>حذف</button>
+                <button onClick={() => toggleCompany(c)} style={btnStyle(c.isActive ? '#d97706' : '#16a34a', true)}>{c.isActive ? 'تعطيل' : 'تفعيل'}</button>
+                <button onClick={() => delCompany(c)} style={btnStyle('#dc2626', true)}>حذف</button>
               </div>
             </div>
           ))}
