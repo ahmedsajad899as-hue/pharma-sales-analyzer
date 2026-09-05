@@ -98,7 +98,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
       .then(r => r.json())
       .then(j => {
         const map = new Map<number, number>();
-        (j.byItem ?? []).forEach((it: any) => { map.set(it.itemId, it.totalQuantity); });
+        (j.data?.byItem ?? []).forEach((it: any) => { map.set(it.itemId, it.totalQuantity); });
         setActuals(map);
       })
       .catch(() => setActuals(new Map()))

@@ -1246,7 +1246,17 @@ export async function getReport(id, query = {}) {
     };
   }
 
-  const aggregated = aggregateSalesWithReps(rawSales);
+  // بلا recordType محدَّد: الناتج صافٍ (مبيع ناقص إرجاع) — نقلب إشارة صفوف
+  // الإرجاع قبل التجميع. استدعاءات ReportsPage التي تطلب recordType='sale'|
+  // 'return' صراحةً (لتطرح هي بنفسها لاحقاً) تبقى كما هي — القيم موجبة دائماً،
+  // وإلا صار طرحها هناك يُضيف بدل أن يطرح (سالب سالب = زائد).
+  const salesForAggregation = query.recordType
+    ? rawSales
+    : rawSales.map(s => (String(s.recordType ?? '').trim().toLowerCase() === 'return'
+        ? { ...s, quantity: -s.quantity, totalValue: -s.totalValue }
+        : s));
+
+  const aggregated = aggregateSalesWithReps(salesForAggregation);
   console.log('[SciRep.getReport] aggregated totals:', JSON.stringify(aggregated.totals), 'rows:', rawSales.length);
   const { totals, byArea, byItem, byRep } = aggregated;
 
