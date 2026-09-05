@@ -69,54 +69,6 @@ export default function ItemsPage() {
     } catch (e: any) { alert(e.message); }
   };
 
-  // Dedup state
-  type DedupEntry = { from: string; to: string; entityType: string };
-  const [dedupLoading, setDedupLoading]   = useState(false);
-  const [dedupPreview, setDedupPreview]   = useState<DedupEntry[] | null>(null);
-  const [dedupSel, setDedupSel]           = useState<Set<number>>(new Set());
-  const [dedupApplying, setDedupApplying] = useState(false);
-
-  // Dry-run: detect similar items and show them all pre-checked for review.
-  const runDedup = async () => {
-    setDedupLoading(true);
-    try {
-      const r = await fetch(`${API}/api/dedup-names`, {
-        method: 'POST',
-        headers: jsonH(),
-        body: JSON.stringify({ apply: false }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'فشل');
-      const items = (j.normalizations as DedupEntry[]).filter(e => e.entityType === 'item');
-      setDedupPreview(items);
-      setDedupSel(new Set(items.map((_, i) => i)));
-    } catch (e: any) { alert(e.message); }
-    finally { setDedupLoading(false); }
-  };
-
-  // Apply ONLY the checked item pairs.
-  const applyDedup = async () => {
-    if (!dedupPreview) return;
-    const merges = dedupPreview
-      .filter((_, i) => dedupSel.has(i))
-      .map(e => ({ from: e.from, to: e.to, entityType: 'item' }));
-    if (merges.length === 0) { setDedupPreview(null); return; }
-    setDedupApplying(true);
-    try {
-      const r = await fetch(`${API}/api/dedup-names`, {
-        method: 'POST',
-        headers: jsonH(),
-        body: JSON.stringify({ apply: true, merges }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'فشل');
-      setDedupPreview(null);
-      await load();
-    } catch (e: any) { alert(e.message); }
-    finally { setDedupApplying(false); }
-  };
-
-
   const importInputRef            = useRef<HTMLInputElement>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importing, setImporting]   = useState(false);
@@ -177,41 +129,11 @@ export default function ItemsPage() {
   };
   const openView = (item: Item) => { setSelected(item); setModal('view'); };
 
-  // ── Merge state ─────────────────────────────────────────
-  const [mergeSource, setMergeSource] = useState<Item | null>(null);
-  const [mergeTargetId, setMergeTargetId] = useState<number | null>(null);
-  const [mergeSearch, setMergeSearch] = useState('');
-  const [merging, setMerging] = useState(false);
-
-  const openMerge = (item: Item) => {
-    setMergeSource(item);
-    setMergeTargetId(null);
-    setMergeSearch('');
-  };
-
-  const handleMerge = async () => {
-    if (!mergeSource || !mergeTargetId) return;
-    if (!confirm(`سيتم دمج "${mergeSource.name}" في الايتم المختار وحذف الأصلي نهائياً. متابعة؟`)) return;
-    setMerging(true);
-    try {
-      const r = await fetch(`${API}/api/items/${mergeSource.id}/merge`, {
-        method: 'POST', headers: jsonH(),
-        body: JSON.stringify({ targetId: mergeTargetId }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'فشل الدمج');
-      setMergeSource(null);
-      await load();
-    } catch (e: any) { alert(e.message); }
-    finally { setMerging(false); }
-  };
-
   const handleSave = async () => {
     if (!form.name.trim()) { setSaveErr('اسم الايتم مطلوب'); return; }
     setSaving(true); setSaveErr('');
     try {
-      const body = {
-        name: form.name.trim(),
+      const body: Record<string, unknown> = {
         scientificName:    form.scientificName.trim()    || null,
         dosage:            form.dosage.trim()            || null,
         form:              form.form.trim()              || null,
@@ -220,7 +142,8 @@ export default function ItemsPage() {
       };
 
       if (modal === 'add') {
-        const r = await fetch(`${API}/api/items`, { method: 'POST', headers: jsonH(), body: JSON.stringify(body) });
+        // اسم الايتم يُحدَّد فقط عند الإضافة — تغييره لاحقاً مقفل لكل المستخدمين.
+        const r = await fetch(`${API}/api/items`, { method: 'POST', headers: jsonH(), body: JSON.stringify({ ...body, name: form.name.trim() }) });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || 'فشل الإضافة');
       } else if (modal === 'edit' && selected) {
@@ -233,23 +156,6 @@ export default function ItemsPage() {
     } catch (e: any) {
       setSaveErr(e.message);
     } finally { setSaving(false); }
-  };
-
-  const handleDelete = async (item: Item) => {
-    if (!confirm(`حذف الايتم "${item.name}"؟`)) return;
-    try {
-      let r = await fetch(`${API}/api/items/${item.id}`, { method: 'DELETE', headers: authH() });
-      let j = await r.json();
-      // 409 = item has dependent data (sales, visits, …). Offer force delete.
-      if (r.status === 409 && j?.code === 'HAS_DEPENDENCIES') {
-        const msg = `${j.error}\n\nهل تريد المتابعة وحذف جميع البيانات المرتبطة بهذا الايتم؟ هذا الإجراء لا يمكن التراجع عنه.`;
-        if (!confirm(msg)) return;
-        r = await fetch(`${API}/api/items/${item.id}?force=1`, { method: 'DELETE', headers: authH() });
-        j = await r.json();
-      }
-      if (!r.ok) throw new Error(j.error || 'فشل الحذف');
-      await load();
-    } catch (e: any) { alert(e.message); }
   };
 
   const handleImport = async () => {
@@ -375,18 +281,6 @@ export default function ItemsPage() {
             📥 استيراد Excel
           </button>
           <button
-            onClick={() => runDedup()}
-            disabled={dedupLoading}
-            style={{
-              background: '#fff', color: '#d97706',
-              border: '1.5px solid #d97706', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-              transition: 'all .18s',
-            }}
-          >
-            {dedupLoading ? '⏳...' : '🔀 دمج المتشابهات'}
-          </button>
-          <button
             onClick={openAdd}
             style={{
               background:'linear-gradient(135deg,#6366f1,#8b5cf6)', color:'#fff',
@@ -445,71 +339,6 @@ export default function ItemsPage() {
       )}
       {error && (
         <div style={{ textAlign:'center', padding:'20px', color:'#ef4444', fontSize:13 }}>{error}</div>
-      )}
-
-      {/* ── Dedup preview panel ─────────────────────────────── */}
-      {dedupPreview !== null && (
-        <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', borderRadius: 12, padding: '16px 20px', marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <strong style={{ color: '#92400e', fontSize: 14 }}>
-              {dedupPreview.length === 0
-                ? '✅ لا توجد أيتمات متشابهة'
-                : `⚠️ تم اكتشاف ${dedupPreview.length} أيتم متشابه — اختَر ما تريد دمجه (يُحتفظ بالاسم الأطول)`}
-            </strong>
-            <button onClick={() => setDedupPreview(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#92400e' }}>✕</button>
-          </div>
-          {dedupPreview.length > 0 && (
-            <>
-              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 12 }}>
-                <thead>
-                  <tr style={{ background: '#fef3c7' }}>
-                    <th style={{ padding: '6px 10px', textAlign: 'center', width: 34 }}>
-                      <input
-                        type="checkbox"
-                        checked={dedupSel.size === dedupPreview.length}
-                        ref={cb => { if (cb) cb.indeterminate = dedupSel.size > 0 && dedupSel.size < dedupPreview.length; }}
-                        onChange={e => setDedupSel(e.target.checked ? new Set(dedupPreview.map((_, i) => i)) : new Set())}
-                        title="تحديد الكل"
-                      />
-                    </th>
-                    <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>سيُحذف</th>
-                    <th style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</th>
-                    <th style={{ padding: '6px 10px', textAlign: 'right', color: '#065f46', fontWeight: 700 }}>سيُبقى (الأطول)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dedupPreview.map((e, i) => {
-                    const keepLonger = e.from.length >= e.to.length;
-                    const keep   = keepLonger ? e.from : e.to;
-                    const remove = keepLonger ? e.to   : e.from;
-                    const checked = dedupSel.has(i);
-                    const toggle = () => setDedupSel(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
-                    return (
-                      <tr key={i} style={{ borderTop: '1px solid #fde68a', cursor: 'pointer' }} onClick={toggle}>
-                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
-                          <input type="checkbox" checked={checked} onChange={toggle} onClick={ev => ev.stopPropagation()} />
-                        </td>
-                        <td style={{ padding: '6px 10px', color: checked ? '#dc2626' : '#94a3b8', textDecoration: checked ? 'line-through' : 'none' }}>{remove}</td>
-                        <td style={{ padding: '6px 10px', textAlign: 'center', color: '#92400e' }}>→</td>
-                        <td style={{ padding: '6px 10px', color: checked ? '#065f46' : '#94a3b8', fontWeight: 600 }}>{keep}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <button
-                onClick={applyDedup}
-                disabled={dedupApplying || dedupSel.size === 0}
-                style={{
-                  background: dedupSel.size === 0 ? '#cbd5e1' : '#d97706', color: '#fff', border: 'none', borderRadius: 8,
-                  padding: '8px 20px', fontSize: 13, fontWeight: 700, cursor: dedupSel.size === 0 ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {dedupApplying ? '⏳ جاري الدمج...' : `🔀 دمج المحدد (${dedupSel.size})`}
-              </button>
-            </>
-          )}
-        </div>
       )}
 
       {!loading && !error && filtered.length === 0 && (
@@ -577,16 +406,6 @@ export default function ItemsPage() {
                       title="تعديل"
                       style={{ background:'#f0fdf4', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#059669' }}
                     >✏️</button>}
-                    {!isRep && <button
-                      onClick={() => openMerge(item)}
-                      title="دمج مع ايتم آخر"
-                      style={{ background:'#fef3c7', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#b45309' }}
-                    >🔀</button>}
-                    {!isRep && <button
-                      onClick={() => handleDelete(item)}
-                      title="حذف"
-                      style={{ background:'#fff1f2', border:'none', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:13, color:'#e11d48' }}
-                    >🗑</button>}
                   </div>
                 </div>
 
@@ -637,8 +456,18 @@ export default function ItemsPage() {
             </div>
 
             <div className="items-form-row">
-              <label className="items-form-label">💊 اسم الايتم <span style={{ color:'#ef4444' }}>*</span></label>
-              <input className="items-form-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="مثال: اموكسيسيلين 500mg" />
+              <label className="items-form-label">
+                💊 اسم الايتم <span style={{ color:'#ef4444' }}>*</span>
+                {modal === 'edit' && <span style={{ color:'#94a3b8', fontWeight:400, fontSize:11 }}> 🔒 مقفل — لا يمكن تغييره بعد الإضافة</span>}
+              </label>
+              <input
+                className="items-form-input"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="مثال: اموكسيسيلين 500mg"
+                disabled={modal === 'edit'}
+                style={modal === 'edit' ? { background:'#f1f5f9', color:'#94a3b8', cursor:'not-allowed' } : undefined}
+              />
             </div>
             <div className="items-form-row">
               <label className="items-form-label">🔬 الاسم العلمي</label>
@@ -763,58 +592,6 @@ export default function ItemsPage() {
         </div>
       )}
 
-      {/* ── Merge Modal ──────────────────────────────────────── */}
-      {mergeSource && (
-        <div className="items-modal-overlay" onClick={() => setMergeSource(null)}>
-          <div className="items-modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: 16 }}>
-              <h3 style={{ margin:0, fontSize:16, fontWeight:800, color:'#1e293b' }}>
-                🔀 دمج الايتم
-              </h3>
-              <button onClick={() => setMergeSource(null)} style={{ background:'none', border:'none', fontSize:18, cursor:'pointer', color:'#94a3b8' }}>✕</button>
-            </div>
-            <div style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 13, color:'#9a3412' }}>
-              سيتم دمج <strong>{mergeSource.name}</strong>
-              {mergeSource.company?.name && <> (<span>{mergeSource.company.name}</span>)</>}
-              {' '}مع الايتم المختار. كل المبيعات والزيارات والخطط المرتبطة ستُنقل، ثم يُحذف هذا الايتم نهائياً.
-            </div>
-            <input
-              type="text"
-              placeholder="🔍 ابحث عن الايتم الهدف..."
-              value={mergeSearch}
-              onChange={e => setMergeSearch(e.target.value)}
-              style={{ width:'100%', padding:'8px 12px', borderRadius: 8, border:'1px solid #cbd5e1', fontSize: 14, marginBottom: 10, direction:'rtl', boxSizing:'border-box' }}
-            />
-            <div style={{ maxHeight: 280, overflowY:'auto', display:'flex', flexDirection:'column', gap: 4, marginBottom: 12 }}>
-              {items
-                .filter(i => i.id !== mergeSource.id)
-                .filter(i => !mergeSearch || i.name.toLowerCase().includes(mergeSearch.toLowerCase()) || (i.company?.name ?? '').toLowerCase().includes(mergeSearch.toLowerCase()))
-                .slice(0, 200)
-                .map(i => (
-                  <label key={i.id} style={{ display:'flex', alignItems:'center', gap: 10, padding:'8px 12px', background: mergeTargetId === i.id ? '#dcfce7' : '#f8fafc', border: `1px solid ${mergeTargetId === i.id ? '#86efac' : 'transparent'}`, borderRadius: 8, cursor:'pointer', fontSize: 13 }}>
-                    <input type="radio" name="mergeTarget" checked={mergeTargetId === i.id} onChange={() => setMergeTargetId(i.id)} />
-                    <span style={{ flex: 1 }}>
-                      <strong>{i.name}</strong>
-                      {i.company?.name && <span style={{ color:'#64748b', marginRight: 6, fontSize: 11 }}>· {i.company.name}</span>}
-                    </span>
-                    <span style={{ color:'#94a3b8', fontSize: 11 }}>#{i.id}</span>
-                  </label>
-                ))}
-            </div>
-            <div style={{ display:'flex', gap: 8 }}>
-              <button
-                onClick={handleMerge}
-                disabled={!mergeTargetId || merging}
-                style={{ flex: 1, background: mergeTargetId ? '#b45309' : '#cbd5e1', border:'none', borderRadius: 10, padding: 10, fontSize: 13, fontWeight: 700, color:'#fff', cursor: mergeTargetId ? 'pointer' : 'not-allowed' }}
-              >{merging ? '⏳ جاري الدمج...' : '🔀 تنفيذ الدمج'}</button>
-              <button
-                onClick={() => setMergeSource(null)}
-                style={{ flex: 1, background:'#f1f5f9', border:'none', borderRadius: 10, padding: 10, fontSize: 13, fontWeight: 700, color:'#475569', cursor:'pointer' }}
-              >إلغاء</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Excel Import Modal ───────────────────────────────── */}
       {modal === 'import' && (

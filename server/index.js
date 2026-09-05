@@ -25,7 +25,7 @@ import { startPharmacyAlertScheduler } from './modules/pharmacy-analysis/pharmac
 import { resolveEffectiveAreaIds, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
-  mergeItems, mergeItemInto, mergeReps, mergeCompanies,
+  mergeItems, mergeReps, mergeCompanies,
   normalizeArabic,
 } from './modules/sales/sales.repository.js';
 import { COLUMN_ALIASES } from './modules/sales/sales.service.js';
@@ -1418,7 +1418,10 @@ app.patch('/api/items/:id', async (req, res) => {
     const id     = parseInt(req.params.id);
     const userId = req.user?.id ?? null;
     if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
-    const { name, scientificName, dosage, form, price, scientificMessage, companyName } = req.body;
+    // اسم الايتم مقفل لكل المستخدمين — يُحدَّد مرة واحدة عند الإضافة فقط ولا
+    // يُغيَّر بعدها (حتى لو وصل ضمن الطلب، كطلب من نسخة واجهة قديمة)، فلا
+    // يُقرأ من req.body إطلاقاً هنا. بقية الحقول تبقى قابلة للتعديل.
+    const { scientificName, dosage, form, price, scientificMessage, companyName } = req.body;
     // Handle company: find by name+user or create
     let companyIdUpdate = {};
     if (companyName != null) {
@@ -1437,7 +1440,6 @@ app.patch('/api/items/:id', async (req, res) => {
     const updated = await prisma.item.update({
       where: { id },
       data: {
-        ...(name              != null ? { name: String(name).trim() }                      : {}),
         ...(scientificName    != null ? { scientificName: scientificName?.trim() || null } : {}),
         ...(dosage            != null ? { dosage: dosage?.trim() || null }                 : {}),
         ...(form              != null ? { form: form?.trim() || null }                     : {}),
@@ -1451,92 +1453,18 @@ app.patch('/api/items/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/items/:id', async (req, res) => {
-  try {
-    const id     = parseInt(req.params.id);
-    const userId = req.user?.id ?? null;
-    const force  = req.query.force === '1';
-    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
-    const item = await prisma.item.findFirst({ where: { id, ...(userId ? { userId } : {}) } });
-    if (!item) return res.status(404).json({ error: 'الايتم غير موجود' });
-
-    // Count "hard" data references that would be lost if we delete the item.
-    const [salesCount, doctorTargetCount, doctorVisitCount, pharmVisitItemCount, commInvItemCount] = await Promise.all([
-      prisma.sale.count({                  where: { itemId: id } }),
-      prisma.doctor.count({                where: { targetItemId: id } }),
-      prisma.doctorVisit.count({           where: { itemId: id, isActive: true } }),
-      prisma.pharmacyVisitItem.count({     where: { itemId: id } }),
-      prisma.commercialInvoiceItem.count({ where: { itemId: id } }),
-    ]);
-    const hardRefs = salesCount + doctorTargetCount + doctorVisitCount + pharmVisitItemCount + commInvItemCount;
-
-    if (hardRefs > 0 && !force) {
-      return res.status(409).json({
-        error: `لا يمكن حذف الايتم "${item.name}" لأنه مرتبط ببيانات موجودة (${salesCount} مبيعات، ${doctorVisitCount} زيارات أطباء، ${pharmVisitItemCount} زيارات صيدليات، ${commInvItemCount} فواتير تجارية، ${doctorTargetCount} أطباء كهدف). استخدم "دمج المتشابهات" لنقل البيانات إلى ايتم آخر، أو أعد المحاولة مع التأكيد على الحذف القسري.`,
-        code: 'HAS_DEPENDENCIES',
-        counts: { sales: salesCount, doctorTargets: doctorTargetCount, doctorVisits: doctorVisitCount, pharmacyVisitItems: pharmVisitItemCount, commercialInvoiceItems: commInvItemCount },
-      });
-    }
-
-    // Clean up all dependent rows in a transaction, then delete the item.
-    await prisma.$transaction(async (tx) => {
-      // Soft assignment-link tables (always safe to delete)
-      await tx.representativeItem.deleteMany({  where: { itemId: id } });
-      await tx.scientificRepItem.deleteMany({   where: { itemId: id } });
-      await tx.planEntryItem.deleteMany({       where: { itemId: id } });
-      await tx.productLineItem.deleteMany({     where: { itemId: id } });
-      await tx.userItemAssignment.deleteMany({  where: { itemId: id } });
-      await tx.fmsPlanItem.deleteMany({         where: { itemId: id } });
-      await tx.repItemTarget.deleteMany({       where: { itemId: id } });
-
-      if (force && hardRefs > 0) {
-        // Forced: also remove hard data references
-        await tx.sale.deleteMany({                  where: { itemId: id } });
-        await tx.doctorVisit.deleteMany({           where: { itemId: id } });
-        await tx.pharmacyVisitItem.deleteMany({     where: { itemId: id } });
-        await tx.commercialInvoiceItem.deleteMany({ where: { itemId: id } });
-        // Doctor.targetItemId is nullable — set to null instead of deleting doctors
-        await tx.doctor.updateMany({ where: { targetItemId: id }, data: { targetItemId: null } });
-      }
-
-      await tx.item.delete({ where: { id } });
-    }, { timeout: 30000 });
-
-    res.json({ success: true, forced: force, removedCounts: force ? { sales: salesCount, doctorVisits: doctorVisitCount, pharmacyVisitItems: pharmVisitItemCount, commercialInvoiceItems: commInvItemCount, doctorTargetsCleared: doctorTargetCount } : undefined });
-  } catch (err) {
-    console.error('[delete item]', err);
-    res.status(500).json({ error: err.message });
-  }
+// حذف الايتم مُعطَّل لكل المستخدمين — كان يُخاطر بفقدان مبيعات/زيارات مرتبطة
+// بلا رجعة. منطق الحذف السابق (عدّ البيانات المرتبطة + حذف قسري) محفوظ في
+// تاريخ git لو استُرجعت الميزة لاحقاً.
+app.delete('/api/items/:id', (req, res) => {
+  res.status(403).json({ error: 'حذف الايتمات مُعطَّل حالياً' });
 });
 
-// POST /api/items/:sourceId/merge  body: { targetId }
-// Merges sourceId INTO targetId — reassigns all FKs, resolves composite-unique
-// conflicts, then deletes source. Requires both items belong to the caller.
-app.post('/api/items/:sourceId/merge', requireAuth, async (req, res) => {
-  try {
-    const sourceId = parseInt(req.params.sourceId);
-    const targetId = parseInt(req.body?.targetId);
-    const userId   = req.user?.id ?? null;
-    if (isNaN(sourceId) || isNaN(targetId)) return res.status(400).json({ error: 'معرّف غير صالح' });
-    if (sourceId === targetId) return res.status(400).json({ error: 'لا يمكن دمج الايتم مع نفسه' });
-
-    const scope = userId ? { userId } : {};
-    const [source, target] = await Promise.all([
-      prisma.item.findFirst({ where: { id: sourceId, ...scope } }),
-      prisma.item.findFirst({ where: { id: targetId, ...scope } }),
-    ]);
-    if (!source) return res.status(404).json({ error: 'الايتم المصدر غير موجود' });
-    if (!target) return res.status(404).json({ error: 'الايتم الهدف غير موجود' });
-
-    // Re-point every relation (incl. RepItemTarget) then delete the source —
-    // shared with the bulk /api/dedup-names path so neither can lose targets.
-    const result = await prisma.$transaction(tx => mergeItemInto(tx, sourceId, targetId), { timeout: 30000 });
-
-    res.json({ success: true, merged: { from: source.name, into: target.name }, counts: result });
-  } catch (err) {
-    console.error('[merge items]', err);
-    res.status(500).json({ error: err.message });
-  }
+// دمج الايتمات اليدوي مُعطَّل لكل المستخدمين — منطق الدمج (mergeItemInto) محفوظ
+// في تاريخ git لو استُرجعت الميزة لاحقاً. (لا علاقة له بـ/api/dedup-names —
+// ذاك مسار منفصل يستخدمه رفع الملفات ويبقى فعّالاً.)
+app.post('/api/items/:sourceId/merge', requireAuth, (req, res) => {
+  res.status(403).json({ error: 'دمج الايتمات مُعطَّل حالياً' });
 });
 
 // POST /api/items/:id/image — upload item image
