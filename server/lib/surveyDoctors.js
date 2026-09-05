@@ -39,21 +39,22 @@ async function resolveRepId(userId, linkedRepId) {
 const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader']);
 
 // ── resolveCompanyMembers(managerId, companyId) ──────────────────────────────
-// أعضاء فريق المدير (+ المدير نفسه) الذين «شركتهم الرئيسية» (UserCompanyAssignment
-// isPrimary) هي companyId — تُستخدم لتصفية شاشة الزيارات لمدير المكتب حسب
-// «الشركة الرئيسية» لكل فريق/مندوب، لا حسب مندوب واحد.
+// أعضاء فريق المدير الذين «شركتهم الرئيسية» (UserCompanyAssignment isPrimary)
+// هي companyId — تُستخدم لتصفية شاشة الزيارات حسب «الشركة الرئيسية» لكل
+// فريق/مندوب، لا حسب مندوب واحد.
+//
+// عمداً بلا المدير نفسه: مدير المكتب عادةً مُعيَّن على مناطق إدارية واسعة
+// (محافظات كاملة) لأغراض الإشراف العام، لا لأنه يزور أطباءها بنفسه. ضمّه هنا
+// كان يُسرّب كل نطاقه الإداري إلى أي شركة تصادف كونها «شركته الرئيسية» هو
+// شخصياً، فتظهر تلك الشركة بعدد الإجمالي الكامل بدل عدد مندوبيها فقط.
 export async function resolveCompanyMembers(managerId, companyId) {
-  const [ownU, subs] = await Promise.all([
-    prisma.user.findUnique({ where: { id: managerId }, select: { linkedRepId: true } }),
-    prisma.userManagerAssignment.findMany({
-      where: { managerId },
-      include: { user: { select: { id: true, linkedRepId: true, role: true } } },
-    }),
-  ]);
-  const candidates = [
-    { id: managerId, linkedRepId: ownU?.linkedRepId ?? null },
-    ...subs.map(s => s.user).filter(u => !MANAGEMENT_ROLES.has(u.role)),
-  ];
+  const subs = await prisma.userManagerAssignment.findMany({
+    where: { managerId },
+    include: { user: { select: { id: true, linkedRepId: true, role: true } } },
+  });
+  const candidates = subs.map(s => s.user).filter(u => !MANAGEMENT_ROLES.has(u.role));
+  if (!candidates.length) return [];
+
   const assignments = await prisma.userCompanyAssignment.findMany({
     where: { userId: { in: candidates.map(c => c.id) }, companyId, isPrimary: true },
     select: { userId: true },
@@ -74,7 +75,8 @@ export async function resolveCompanyMembers(managerId, companyId) {
 //   - مندوب ميداني: مناطقه هو.
 //   - مدير + repUserId: مناطق ذاك المندوب.
 //   - مدير + companyId (مدير المكتب فقط عملياً): اتحاد مناطق أعضاء الفريق
-//     (+ المدير نفسه إن كانت شركته الرئيسية نفسها) الذين شركتهم الرئيسية هي هذه.
+//     (المندوبين فقط، بلا المدير نفسه — راجع resolveCompanyMembers) الذين
+//     شركتهم الرئيسية هي هذه.
 //   - مدير (الكل): اتحاد مناطق المدير + كل مندوبي فريقه (UserManagerAssignment).
 export async function resolveAreaScope(user, { repUserId = null, companyId = null } = {}) {
   const ids = new Set();
