@@ -928,6 +928,25 @@ app.get('/api/my-company-org', async (req, res) => {
       managerIds:     u.managersOfUser.map(m => m.managerId).filter(mid => idSet.has(mid)),
       subordinateIds: u.subordinatesOfUser.map(s => s.userId).filter(sid => idSet.has(sid)),
     }));
+
+    // مدير المكتب يُدير فعلياً كل شركاته الـ18 (راجع التعديل السابق)، لكن أي مدير
+    // شركة/مندوب من هذه الشركات بلا UserManagerAssignment صريح يربطه به كان يظهر
+    // في الشجرة كـ«جذر» منفصل بجانبه بدل أن يتفرّع من تحته — فتبدو الهيكلية مبتورة
+    // (شركة واحدة فقط تحته، والباقي جذور متناثرة تحتاج تمرير أفقي لرؤيتها).
+    // نُلحق هؤلاء بحسابه هنا (للعرض فقط، لا تعديل فعلي على UserManagerAssignment).
+    if (requester?.role === 'office_manager') {
+      for (const u of result) {
+        if (u.id !== userId && u.managerIds.length === 0) u.managerIds = [userId];
+      }
+      const officeManagerRow = result.find(u => u.id === userId);
+      if (officeManagerRow) {
+        officeManagerRow.subordinateIds = [...new Set([
+          ...officeManagerRow.subordinateIds,
+          ...result.filter(u => u.id !== userId && u.managerIds.includes(userId)).map(u => u.id),
+        ])];
+      }
+    }
+
     res.json({ success: true, data: { users: result } });
   } catch (e) {
     console.error('[my-company-org]', e);
