@@ -1624,11 +1624,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // Same alias merge as buildMergedSheet — different active files can label the
       // same logical column differently (e.g. "الصيدلية" vs "اسم الصيدلية" vs "المذخر").
       const ALIAS_GROUPS: string[][] = [
-        // ملاحظة: «اسم الشركة» عمداً غير مُدرَجة هنا رغم أنها تعني الصيدلية المشترية
-        // (الزبون) في ملفات ميركاتو تحديداً — لأن نفس الترويسة تعني الشركة المصنّعة
-        // فعلياً في ملفات أخرى (راجع COLUMN_ALIASES.company في sales.service.js)،
-        // فدمجها هنا كان سيخلط الحقلين في ملفات غير ميركاتو. تبقى عموداً مستقلاً.
-        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون'],
+        // «اسم الشركة» هنا لا في مجموعة الشركة المصنّعة أدناه: في ملفات ميركاتو
+        // القيمة فعلياً اسم الصيدلية المشترية (العميل) — أكّد صاحب البيانات هذا
+        // على ملفاته فعلياً (راجع أيضاً MERCATO_PHARMACY_ALIASES في reports.routes.js).
+        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون', 'اسم الشركة', 'اسم الشركه'],
         // Warehouse/depot — a distinct field from the customer/pharmacy above; some
         // source files carry both on the same row (e.g. delivery routed through a
         // depot to a pharmacy), so merging them would silently drop one value.
@@ -2054,11 +2053,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // column instead of showing them side by side — columns unique to one file
       // (no match in any group) keep standing on their own via the Set-union below.
       const ALIAS_GROUPS: string[][] = [
-        // ملاحظة: «اسم الشركة» عمداً غير مُدرَجة هنا رغم أنها تعني الصيدلية المشترية
-        // (الزبون) في ملفات ميركاتو تحديداً — لأن نفس الترويسة تعني الشركة المصنّعة
-        // فعلياً في ملفات أخرى (راجع COLUMN_ALIASES.company في sales.service.js)،
-        // فدمجها هنا كان سيخلط الحقلين في ملفات غير ميركاتو. تبقى عموداً مستقلاً.
-        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون'],
+        // «اسم الشركة» هنا لا في مجموعة الشركة المصنّعة أدناه: في ملفات ميركاتو
+        // القيمة فعلياً اسم الصيدلية المشترية (العميل) — أكّد صاحب البيانات هذا
+        // على ملفاته فعلياً (راجع أيضاً MERCATO_PHARMACY_ALIASES في reports.routes.js).
+        ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون', 'اسم الشركة', 'اسم الشركه'],
         // Warehouse/depot — a distinct field from the customer/pharmacy above; some
         // source files carry both on the same row (e.g. delivery routed through a
         // depot to a pharmacy), so merging them would silently drop one value.
