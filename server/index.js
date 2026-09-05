@@ -191,7 +191,13 @@ async function countSurveyDoctorsByAreaName(areaId) {
   return rows.filter(r => normalizeArabic(r.areaName || '') === target).length;
 }
 
-const AREA_SA_SELECT = { id: true, name: true, provinceId: true, provinceConflict: true, subProvinceId: true };
+// userId/user.username مُضافان ليعرف مدير النظام أن «ابو دشير» ×2 هما صفّان
+// مستقلّان لحسابين مختلفين (Area مملوكة لحساب عبر @@unique([name, userId]))
+// وليسا خطأ تكرار قابلاً للدمج — راجع mergeAreaInto في lib/mergeAreas.js.
+const AREA_SA_SELECT = {
+  id: true, name: true, provinceId: true, provinceConflict: true, subProvinceId: true,
+  userId: true, user: { select: { username: true } },
+};
 
 // ════════════════════════════════════════════════════════════════════════════
 // المحافظات (Provinces) — إدارة السوبر أدمن
@@ -640,6 +646,9 @@ app.get('/api/sa/areas/merge-suggestions', requireSuperAdmin, async (req, res) =
         const a = areas[i], b = areas[j];
         // Skip identical-after-normalisation (handled by deterministic merge).
         if (normalizeArabic(a.name) === normalizeArabic(b.name)) continue;
+        // منطقتان من حسابين مختلفين ليستا مرشّحتين للدمج مهما تشابه اسمهما —
+        // Area مملوكة لحساب، ودمجهما يُخفي بيانات أحد الحسابين (mergeAreaInto يرفضه أصلاً).
+        if ((a.userId ?? null) !== (b.userId ?? null)) continue;
         if (areSimilar(a.name, b.name)) {
           suggestions.push({
             a: { id: a.id, name: a.name, sales: countByArea.get(a.id) || 0 },
