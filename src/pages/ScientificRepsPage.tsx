@@ -844,9 +844,12 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     <td>{rep.phone || '—'}</td>
                     <td>
                       <div className="tag-list">
-                        {(rep.companies ?? []).length === 0
-                          ? <span style={{ color: '#94a3b8' }}>—</span>
-                          : (rep.companies ?? []).map(c => <span key={c.id} className="tag" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>{c.name}</span>)
+                        {(rep.companies ?? []).length > 0
+                          ? (rep.companies ?? []).map(c => <span key={c.id} className="tag" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>{c.name}</span>)
+                          // لا شركات مُعيَّنة للمندوب نفسه — نعرض الشركة الرئيسية المُعيَّنة لحساب المستخدم بدلاً من فراغ
+                          : rep.company
+                            ? <span className="tag" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>{rep.company}</span>
+                            : <span style={{ color: '#94a3b8' }}>—</span>
                         }
                       </div>
                     </td>
@@ -982,11 +985,14 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                   </div>
                 </div>
 
-                {(rep.companies ?? []).length > 0 && (
+                {((rep.companies ?? []).length > 0 || rep.company) && (
                   <div className="rep-mobile-card-row">
                     <span className="rep-mobile-card-label">{t.sciReps.labelCompany}</span>
                     <div className="tag-list" style={{ flex: 1 }}>
-                      {(rep.companies ?? []).map(c => <span key={c.id} className="tag" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: 11 }}>{c.name}</span>)}
+                      {(rep.companies ?? []).length > 0
+                        ? (rep.companies ?? []).map(c => <span key={c.id} className="tag" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: 11 }}>{c.name}</span>)
+                        : <span className="tag" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: 11 }}>{rep.company}</span>
+                      }
                     </div>
                   </div>
                 )}

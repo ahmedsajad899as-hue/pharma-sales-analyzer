@@ -111,7 +111,8 @@ export async function list(filters, user = null, options = {}) {
         name: u.displayName || u.username,
         phone: u.phone || null,
         email: null,
-        company: u.companyAssignments[0]?.company?.name || null,
+        // الشركة الرئيسية المُعيَّنة لحساب المستخدم (وليس أول عنصر عشوائي بالمصفوفة)
+        company: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name || null,
         notes: null,
         isActive: u.isActive,
         areas:          sciRepData?.areas?.map(a => a.area)          ?? [],
