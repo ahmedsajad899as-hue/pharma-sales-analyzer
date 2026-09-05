@@ -105,14 +105,17 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
       (await areaIdsForUser(m.userId, m.repId)).forEach(id => ids.add(id));
     }
   } else {
-    // مدير "الكل": مناطقه + كل مندوبي الفريق
-    const [ownU, subs] = await Promise.all([
+    // مدير "الكل": مناطقه + كل مندوبي الفريق الفعليين (بلا أدوار الإدارة
+    // الوسيطة — مدير الشركة وقائد التيم لا يزوران أطباء بنفسهما، فضمّهما هنا
+    // كان يُحسب أي زيارة مسجَّلة تحت حسابهما الشخصي ضمن إجمالي "الكل").
+    const [ownU, allSubs] = await Promise.all([
       prisma.user.findUnique({ where: { id: user.id }, select: { linkedRepId: true } }),
       prisma.userManagerAssignment.findMany({
         where: { managerId: user.id },
-        include: { user: { select: { id: true, linkedRepId: true } } },
+        include: { user: { select: { id: true, linkedRepId: true, role: true } } },
       }),
     ]);
+    const subs = allSubs.filter(s => !MANAGEMENT_ROLES.has(s.user.role));
     const ownRepId = await resolveRepId(user.id, ownU?.linkedRepId ?? null);
     addMember(user.id, ownRepId);
     (await areaIdsForUser(user.id, ownRepId)).forEach(id => ids.add(id));
