@@ -876,14 +876,20 @@ app.get('/api/my-company-org', async (req, res) => {
     if (!userId) return res.status(401).json({ success: false, error: 'غير مصرح' });
 
     // الشركة الرئيسية للمستخدم الحالي — الهيكل يُبنى على أساسها (fallback: كل شركاته لو لم تُحدَّد رئيسية)
+    // مدير المكتب: لا فرق عنده بين رئيسية وثانوية — كل شركاته المُعيَّنة له تابعة له بالتساوي.
+    const isOfficeManager = req.user?.role === 'office_manager';
     const mine = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true, isPrimary: true } });
     const primaryMine = mine.filter(c => c.isPrimary);
-    const companyIds = [...new Set((primaryMine.length ? primaryMine : mine).map(c => c.companyId))];
+    const companyIds = isOfficeManager
+      ? [...new Set(mine.map(c => c.companyId))]
+      : [...new Set((primaryMine.length ? primaryMine : mine).map(c => c.companyId))];
     if (companyIds.length === 0) return res.json({ success: true, data: { users: [] } });
 
-    // كل المستخدمين الذين شركتهم الرئيسية ضمن هذه الشركات
+    // كل المستخدمين الذين شركتهم (الرئيسية، أو أي شركة له لو كان مدير مكتب) ضمن هذه الشركات
     const assignments = await prisma.userCompanyAssignment.findMany({
-      where: { companyId: { in: companyIds }, isPrimary: true },
+      where: isOfficeManager
+        ? { companyId: { in: companyIds } }
+        : { companyId: { in: companyIds }, isPrimary: true },
       select: { userId: true },
     });
     const userIds = [...new Set(assignments.map(a => a.userId))];

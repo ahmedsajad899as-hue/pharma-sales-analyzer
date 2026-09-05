@@ -265,7 +265,7 @@ export async function setUserCompanies(req, res) {
   const requested = [...new Set(raw.map(id => parseInt(id)).filter(Number.isInteger))];
 
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
     if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
 
     // تجاهل أي شركة محذوفة بدل إسقاط الحفظ كله بخطأ مفتاح أجنبي
@@ -276,13 +276,16 @@ export async function setUserCompanies(req, res) {
     const ids = requested.filter(id => validSet.has(id));
     const dropped = requested.filter(id => !validSet.has(id));
 
+    // مدير المكتب: لا فرق بين شركة رئيسية وثانوية — كل شركاته تابعة له بالتساوي، فتُحفظ
+    // جميعها isPrimary=true (كل مدراء ومندوبي هذه الشركات يُعتبرون تحت إدارته).
+    const isOfficeManager = user.role === 'office_manager';
     let primaryId = req.body?.primaryCompanyId != null ? parseInt(req.body.primaryCompanyId) : null;
     if (!Number.isInteger(primaryId) || !ids.includes(primaryId)) primaryId = ids[0] ?? null; // fallback: الأولى
 
     await prisma.$transaction([
       prisma.userCompanyAssignment.deleteMany({ where: { userId } }),
       ...(ids.length ? [prisma.userCompanyAssignment.createMany({
-        data: ids.map(id => ({ userId, companyId: id, isPrimary: id === primaryId })),
+        data: ids.map(id => ({ userId, companyId: id, isPrimary: isOfficeManager ? true : id === primaryId })),
         skipDuplicates: true,
       })] : []),
     ]);

@@ -1,21 +1,25 @@
 import prisma from '../../lib/prisma.js';
 
 /** Helper: get the PRIMARY company IDs of the requesting manager.
- *  التيم يُبنى على أساس الشركة الرئيسية؛ إن لم تُحدَّد رئيسية بعد نرجع كل الشركات (سلوك قديم آمن). */
-async function getManagerCompanyIds(userId) {
+ *  التيم يُبنى على أساس الشركة الرئيسية؛ إن لم تُحدَّد رئيسية بعد نرجع كل الشركات (سلوك قديم آمن).
+ *  استثناء: مدير المكتب لا فرق عنده بين رئيسية وثانوية — كل شركاته المُعيَّنة تابعة له بالتساوي. */
+async function getManagerCompanyIds(userId, role) {
   const assignments = await prisma.userCompanyAssignment.findMany({
     where: { userId },
     select: { companyId: true, isPrimary: true },
   });
+  if (role === 'office_manager') return assignments.map(a => a.companyId);
   const primary = assignments.filter(a => a.isPrimary).map(a => a.companyId);
   return primary.length ? primary : assignments.map(a => a.companyId);
 }
 
-/** Helper: verify a target user's PRIMARY company is one of the manager's companies */
-async function verifyInSameCompany(managerCompanyIds, targetUserId) {
+/** Helper: verify a target user's company (PRIMARY, or any company for an office_manager) is one of the manager's companies */
+async function verifyInSameCompany(managerCompanyIds, targetUserId, isOfficeManager = false) {
   if (managerCompanyIds.length === 0) return false;
   const match = await prisma.userCompanyAssignment.findFirst({
-    where: { userId: targetUserId, companyId: { in: managerCompanyIds }, isPrimary: true },
+    where: isOfficeManager
+      ? { userId: targetUserId, companyId: { in: managerCompanyIds } }
+      : { userId: targetUserId, companyId: { in: managerCompanyIds }, isPrimary: true },
   });
   return match !== null;
 }
@@ -24,17 +28,19 @@ async function verifyInSameCompany(managerCompanyIds, targetUserId) {
 export async function listCompanyMembers(req, res, next) {
   try {
     const managerId = req.user.id;
-    const companyIds = await getManagerCompanyIds(managerId);
+    const isOfficeManager = req.user.role === 'office_manager';
+    const companyIds = await getManagerCompanyIds(managerId, req.user.role);
 
     if (companyIds.length === 0) {
       return res.json({ success: true, data: [] });
     }
 
     // Find all users (excluding self) whose PRIMARY company is one of the manager's companies
+    // (or any company, primary or secondary, when the manager is an office_manager)
     const members = await prisma.user.findMany({
       where: {
         id: { not: managerId },
-        companyAssignments: { some: { companyId: { in: companyIds }, isPrimary: true } },
+        companyAssignments: { some: isOfficeManager ? { companyId: { in: companyIds } } : { companyId: { in: companyIds }, isPrimary: true } },
       },
       select: {
         id: true,
@@ -74,8 +80,8 @@ export async function getMemberAreas(req, res, next) {
     const managerId = req.user.id;
     const targetUserId = +req.params.userId;
 
-    const companyIds = await getManagerCompanyIds(managerId);
-    const allowed = await verifyInSameCompany(companyIds, targetUserId);
+    const companyIds = await getManagerCompanyIds(managerId, req.user.role);
+    const allowed = await verifyInSameCompany(companyIds, targetUserId, req.user.role === 'office_manager');
     if (!allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذا المستخدم.' });
     }
@@ -107,8 +113,8 @@ export async function setMemberAreas(req, res, next) {
       return res.status(400).json({ error: 'areaIds يجب أن تكون مصفوفة.' });
     }
 
-    const companyIds = await getManagerCompanyIds(managerId);
-    const allowed = await verifyInSameCompany(companyIds, targetUserId);
+    const companyIds = await getManagerCompanyIds(managerId, req.user.role);
+    const allowed = await verifyInSameCompany(companyIds, targetUserId, req.user.role === 'office_manager');
     if (!allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية لتعديل هذا المستخدم.' });
     }
@@ -152,8 +158,8 @@ export async function getRepAreas(req, res, next) {
       return res.json({ success: true, allAreas, assignedAreaIds: [], userId: null });
     }
 
-    const companyIds = await getManagerCompanyIds(managerId);
-    const allowed = await verifyInSameCompany(companyIds, rep.userId);
+    const companyIds = await getManagerCompanyIds(managerId, req.user.role);
+    const allowed = await verifyInSameCompany(companyIds, rep.userId, req.user.role === 'office_manager');
     if (!allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذا المندوب.' });
     }
@@ -197,8 +203,8 @@ export async function setRepAreas(req, res, next) {
       return res.status(404).json({ error: 'المندوب غير مرتبط بحساب مستخدم.' });
     }
 
-    const companyIds = await getManagerCompanyIds(managerId);
-    const allowed = await verifyInSameCompany(companyIds, rep.userId);
+    const companyIds = await getManagerCompanyIds(managerId, req.user.role);
+    const allowed = await verifyInSameCompany(companyIds, rep.userId, req.user.role === 'office_manager');
     if (!allowed) {
       return res.status(403).json({ error: 'ليس لديك صلاحية لتعديل هذا المندوب.' });
     }

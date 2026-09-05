@@ -275,8 +275,13 @@ export async function commitUsersImport(req, res) {
       });
 
       if (Array.isArray(companyIds) && companyIds.length) {
+        // مدير المكتب: كل شركاته تابعة له بالتساوي — لا فرق بين رئيسية وثانوية (كلها isPrimary)
+        const officeManagerRole = ROLE_VALUES.has(role) ? role : 'scientific_rep';
         await prisma.userCompanyAssignment.createMany({
-          data: companyIds.map(companyId => ({ userId: user.id, companyId, isPrimary: companyId === primaryCompanyId })),
+          data: companyIds.map(companyId => ({
+            userId: user.id, companyId,
+            isPrimary: officeManagerRole === 'office_manager' ? true : companyId === primaryCompanyId,
+          })),
           skipDuplicates: true,
         });
       }

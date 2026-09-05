@@ -1003,11 +1003,15 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     : `✅ محفوظ (${savedCompanyIds.length})`}
                 </span>
               </div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>⭐ الشركة الرئيسية تُحدَّد على أساسها التيمات والهيكل الإداري وربط المدير. الشركات الثانوية: عمل كامل وتظهر ايتماتها، لكن خارج تكوين الفريق.</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
+                {detail.role === 'office_manager'
+                  ? 'مدير المكتب: لا فرق بين شركة رئيسية وثانوية — كل الشركات المختارة تابعة له بالتساوي، وكل مدرائها ومندوبيها يُعتبرون تحت إدارته.'
+                  : '⭐ الشركة الرئيسية تُحدَّد على أساسها التيمات والهيكل الإداري وربط المدير. الشركات الثانوية: عمل كامل وتظهر ايتماتها، لكن خارج تكوين الفريق.'}
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {companies.map(c => {
                   const checked = draftCompanyIds.includes(c.id);
-                  const isPrimary = draftPrimaryCompanyId === c.id;
+                  const isPrimary = detail.role === 'office_manager' ? checked : draftPrimaryCompanyId === c.id;
                   return (
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: isPrimary ? '#fef9c3' : '#f8fafc', borderRadius: 8, fontSize: 14, border: isPrimary ? '1.5px solid #eab308' : '1.5px solid transparent' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1 }}>
@@ -1028,7 +1032,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                         }} />
                         {c.name}
                       </label>
-                      {checked && (
+                      {checked && detail.role !== 'office_manager' && (
                         <button type="button" onClick={() => setDraftPrimaryCompanyId(c.id)} title={isPrimary ? 'الشركة الرئيسية' : 'تعيين كرئيسية'}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, opacity: isPrimary ? 1 : 0.35 }}>
                           {isPrimary ? '⭐ رئيسية' : '☆'}
