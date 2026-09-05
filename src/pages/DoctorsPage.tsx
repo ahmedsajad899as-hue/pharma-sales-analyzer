@@ -638,6 +638,12 @@ export default function DoctorsPage() {
         setNoAreaStats(cached.noAreaStats);
         return;
       }
+    } else {
+      // تحديث صريح (بعد إلغاء/تعطيل ملف استيراد مثلاً) لا يعني أن بيانات هذا
+      // الفلتر فقط تغيّرت — قد يمسّ ملف واحد زيارات أكثر من مندوب. مسح الكاش
+      // كله بدل مفتاح الفلتر الحالي فقط، وإلا بقيت تبويبات أخرى (مثل «الكل»)
+      // تعرض أرقاماً قديمة محفوظة محلياً حتى لو حُدِّثت في السيرفر.
+      visitCacheRef.current.clear();
     }
 
     setVisitLoading(true);
@@ -957,6 +963,9 @@ export default function DoctorsPage() {
         setPharmVisitAreas(cached);
         return;
       }
+    } else {
+      // نفس سبب مسح كاش زيارات الأطباء أعلاه — ملف واحد قد يمسّ أكثر من مندوب.
+      pharmVisitCacheRef.current.clear();
     }
 
     setPharmVisitLoading(true);
