@@ -1,6 +1,7 @@
 // Reusable company org-chart (top-down hierarchy of users by manager/subordinate links).
 // Extracted so both the super-admin CompaniesPage and the company-manager
 // «الهيكلية» page can render the same chart.
+import { useRef, useState } from 'react';
 
 export interface OrgUser {
   id: number; username: string; displayName?: string | null;
@@ -132,6 +133,28 @@ function OrgBranch({ u, all, canonicalParents, visited, onSelect }: {
 }
 
 export function OrgTree({ users, onSelect }: { users: OrgUser[]; onSelect?: (u: OrgUser) => void }) {
+  // شجرة بمديرين كثيرين (شركات مدير المكتب مثلاً) تصير عريضة جداً — التمرير بشريط
+  // التمرير الرفيع وحده كان صعباً/بطيئاً لرؤية كل الأسماء. هذا يضيف سحباً بالماوس
+  // (اضغط واسحب فوق أي فراغ في الشجرة) لتحريكها أفقياً كلوحة رسم.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startScrollLeft: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.otree-card')) return; // لا تسحب عند النقر على بطاقة (يفتح تفاصيلها)
+    const el = wrapRef.current;
+    if (!el) return;
+    dragRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft };
+    setDragging(true);
+  };
+  const onMouseMove = (e: React.MouseEvent) => {
+    const st = dragRef.current;
+    const el = wrapRef.current;
+    if (!st || !el) return;
+    el.scrollLeft = st.startScrollLeft - (e.clientX - st.startX);
+  };
+  const endDrag = () => { dragRef.current = null; setDragging(false); };
+
   if (users.length === 0) return (
     <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0', fontSize: 14 }}>
       لا يوجد مستخدمون مرتبطون بعد
@@ -143,7 +166,15 @@ export function OrgTree({ users, onSelect }: { users: OrgUser[]; onSelect?: (u: 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: ORG_CSS }} />
-      <div className="otree-wrap">
+      <div
+        className="otree-wrap"
+        ref={wrapRef}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={endDrag}
+        onMouseLeave={endDrag}
+        style={{ cursor: dragging ? 'grabbing' : 'grab', userSelect: dragging ? 'none' : undefined }}
+      >
         <ul className="otree-root">
           {startNodes.map(u => <OrgBranch key={u.id} u={u} all={users} canonicalParents={canonicalParents} visited={new Set()} onSelect={onSelect} />)}
         </ul>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import NumberWheelPicker from '../components/NumberWheelPicker';
+import ItemPickerModal from '../components/ItemPickerModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -106,7 +107,8 @@ export default function AccountBuilderPage() {
 
   // كتالوج الايتمات (مرتبط بالشركات المعيّنة للمستخدم) — لاختيار اسم الايتم وتعبئة الشركة تلقائياً
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
-  const [itemSuggestRowId, setItemSuggestRowId] = useState<string | null>(null);
+  // الصف الذي تُفتح له نافذة اختيار الايتم الكبيرة
+  const [itemPickerRowId, setItemPickerRowId] = useState<string | null>(null);
 
   // عجلة اختيار الرقم (بدل الكتابة) لحقول الكمية ونسب البونص
   const [wheelFor, setWheelFor] = useState<{ rowId: string; field: WheelField } | null>(null);
@@ -389,49 +391,18 @@ export default function AccountBuilderPage() {
                 {activeAccount.items.map((r, i) => {
                   const netPrice = netPriceFor(r.price, r.totalBonusPercent);
                   const supportPerUnit = financialSupportPerUnit(r.price, r.totalBonusPercent, r.keptBonusPercent, activeAccount.bonusMethod);
-                  const suggMatches = itemSuggestRowId === r.id
-                    ? (r.itemName.trim()
-                        ? catalogItems.filter(ci => ci.name.toLowerCase().includes(r.itemName.trim().toLowerCase()))
-                        : catalogItems
-                      )
-                    : [];
                   return (
                   <tr key={r.id} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb', position: 'relative' }}>
                     <td style={TD}>{i + 1}</td>
                     <td style={TD}>
-                      <input
-                        value={r.itemName}
-                        autoComplete="off"
-                        onChange={e => { updateRow(r.id, { itemName: e.target.value }); setItemSuggestRowId(r.id); }}
-                        onFocus={() => setItemSuggestRowId(r.id)}
-                        onBlur={() => setTimeout(() => setItemSuggestRowId(prev => prev === r.id ? null : prev), 150)}
-                        style={CELL_INPUT}
-                        placeholder="اختر أو اكتب اسم الايتم"
-                      />
-                      {suggMatches.length > 0 && (
-                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, boxShadow: '0 6px 20px rgba(0,0,0,0.18)', marginTop: 2, maxHeight: 240, overflowY: 'auto' }}>
-                          {suggMatches.map(ci => (
-                            <div
-                              key={ci.id}
-                              onMouseDown={() => {
-                                const companyName = ci.scientificCompany?.name || ci.company?.name || '';
-                                const patch: Partial<AccountItemRow> = { itemName: ci.name, companyName };
-                                if (ci.price != null) patch.price = ci.price;
-                                updateRow(r.id, patch);
-                                setItemSuggestRowId(null);
-                              }}
-                              style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', textAlign: 'right' }}
-                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                              onMouseLeave={e => (e.currentTarget.style.background = '')}
-                            >
-                              <div style={{ fontWeight: 600, fontSize: 12, color: '#111827' }}>{ci.name}</div>
-                              {(ci.scientificCompany?.name || ci.company?.name) && (
-                                <div style={{ fontSize: 10, color: '#94a3b8' }}>{ci.scientificCompany?.name || ci.company?.name}</div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setItemPickerRowId(r.id)}
+                        title="اضغط لاختيار الايتم من القائمة"
+                        style={{ ...CELL_INPUT, textAlign: 'right', cursor: 'pointer', color: r.itemName ? '#1e293b' : '#94a3b8', background: '#fff' }}
+                      >
+                        {r.itemName || 'اختر أو اكتب اسم الايتم'}
+                      </button>
                     </td>
                     <td style={TD}><input value={r.companyName} onChange={e => updateRow(r.id, { companyName: e.target.value })} style={CELL_INPUT} placeholder="اسم الشركة" /></td>
                     <td style={TD}><input type="number" value={r.price || ''} onChange={e => updateRow(r.id, { price: parseFloat(e.target.value) || 0 })} style={{ ...CELL_INPUT, textAlign: 'center' }} placeholder="0" /></td>
@@ -473,6 +444,26 @@ export default function AccountBuilderPage() {
           </div>
         </div>
       )}
+
+      {/* نافذة اختيار الايتم الكبيرة */}
+      {itemPickerRowId && activeAccount && (() => {
+        const row = activeAccount.items.find(r => r.id === itemPickerRowId);
+        if (!row) return null;
+        return (
+          <ItemPickerModal
+            items={catalogItems}
+            currentName={row.itemName}
+            onSelect={ci => {
+              const companyName = ci.scientificCompany?.name || ci.company?.name || '';
+              const patch: Partial<AccountItemRow> = { itemName: ci.name, companyName };
+              if (ci.price != null) patch.price = ci.price;
+              updateRow(row.id, patch);
+            }}
+            onCustom={name => updateRow(row.id, { itemName: name })}
+            onClose={() => setItemPickerRowId(null)}
+          />
+        );
+      })()}
 
       {/* عجلة اختيار الرقم (كمية / نسب بونص) */}
       {wheelFor && activeAccount && (() => {

@@ -484,6 +484,13 @@ app.post('/api/sa/sub-provinces/auto-match', requireSuperAdmin, async (req, res)
 });
 
 app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
+  // ?all=true — كل صفوف Area بلا تصفية بالسيرفي. تحتاجها صفحة إدارة المناطق
+  // (السوبر أدمن) لأن التصفية أدناه تُخفي مناطق موجودة فقط عبر ملفات مبيعات
+  // (لا السيرفي) — بالضبط المناطق المكررة التي يريد المدير رؤيتها ليدمجها.
+  if (req.query.all === 'true') {
+    const areas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    return res.json({ success: true, data: areas });
+  }
   // Return ONLY area names from the latest active survey (exact match, nothing extra)
   const activeSurvey = await prisma.masterSurvey.findFirst({
     where: { isActive: true }, orderBy: { createdAt: 'desc' }, select: { id: true },
