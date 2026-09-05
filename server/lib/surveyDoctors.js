@@ -34,6 +34,10 @@ async function resolveRepId(userId, linkedRepId) {
   return own?.id ?? null;
 }
 
+// أدوار إدارية وسيطة لا تزور أطباء بنفسها — تُستبعد من تجميع «الشركة الرئيسية»
+// كما تُستبعد من شرائح «المندوب» في getManagerSubReps (doctors.controller.js).
+const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader']);
+
 // ── resolveCompanyMembers(managerId, companyId) ──────────────────────────────
 // أعضاء فريق المدير (+ المدير نفسه) الذين «شركتهم الرئيسية» (UserCompanyAssignment
 // isPrimary) هي companyId — تُستخدم لتصفية شاشة الزيارات لمدير المكتب حسب
@@ -43,10 +47,13 @@ export async function resolveCompanyMembers(managerId, companyId) {
     prisma.user.findUnique({ where: { id: managerId }, select: { linkedRepId: true } }),
     prisma.userManagerAssignment.findMany({
       where: { managerId },
-      include: { user: { select: { id: true, linkedRepId: true } } },
+      include: { user: { select: { id: true, linkedRepId: true, role: true } } },
     }),
   ]);
-  const candidates = [{ id: managerId, linkedRepId: ownU?.linkedRepId ?? null }, ...subs.map(s => s.user)];
+  const candidates = [
+    { id: managerId, linkedRepId: ownU?.linkedRepId ?? null },
+    ...subs.map(s => s.user).filter(u => !MANAGEMENT_ROLES.has(u.role)),
+  ];
   const assignments = await prisma.userCompanyAssignment.findMany({
     where: { userId: { in: candidates.map(c => c.id) }, companyId, isPrimary: true },
     select: { userId: true },

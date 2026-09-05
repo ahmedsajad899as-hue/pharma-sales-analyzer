@@ -1167,18 +1167,23 @@ export async function specialtySuggestions(req, res, next) {
 
 // ── GET /pharmacy-names?q= — autocomplete pharmacy names from doctors ─
 // ─── Get subordinate reps of the current manager ─────────────────────────────
+// أدوار إدارية وسيطة — لا يزورون أطباء بأنفسهم فلا يظهرون كشرائح «مندوب» قابلة
+// للاختيار، رغم وجودهم ضمن UserManagerAssignment (لأغراض تجميع نطاق المناطق).
+const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader']);
+
 export async function getManagerSubReps(req, res, next) {
   try {
     const managerId = req.user.id;
-    const subs = await prisma.userManagerAssignment.findMany({
+    const allSubs = await prisma.userManagerAssignment.findMany({
       where: { managerId },
       include: {
         user: {
-          select: { id: true, displayName: true, username: true, linkedRepId: true },
+          select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
         },
       },
       orderBy: { assignedAt: 'asc' },
     });
+    const subs = allSubs.filter(s => !MANAGEMENT_ROLES.has(s.user.role));
 
     // «الشركة الرئيسية» لكل عضو فريق — فقط لمدير المكتب، إذ يشرف على أكثر من
     // شركة دفعة واحدة (باقي أدوار المدراء مُقيَّدة أصلاً بشركة واحدة فلا حاجة للتجميع).
