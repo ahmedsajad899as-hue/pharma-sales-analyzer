@@ -30,10 +30,16 @@ export const DEF_META = { label: 'مستخدم', color: '#64748b', bg: '#f8fafc'
 // connectors / corner styles.
 const ORG_CSS = `
   .otree-wrap { direction:ltr; overflow-x:auto; overflow-y:visible; padding:4px 8px 12px; }
-  .otree-root { list-style:none; margin:0; padding:0; display:flex; flex-wrap:nowrap; justify-content:center; direction:ltr; }
+  /* justify-content:flex-start عمداً لا center: عند وجود عدد كبير من الشركات/المندوبين
+     تفيض الشجرة عن عرض الحاوية — ومع center يوزّع المتصفح الفيض على الجهتين، فيصبح
+     نصف المحتوى (الجهة الأولى) غير قابل للوصول بالتمرير أياً كان مدى السحب (شريط
+     التمرير يصل لأقصاه لكن الأسماء بالطرف الآخر تبقى مقصوصة دائماً). flex-start
+     يجعل كل المحتوى قابلاً للوصول بالتمرير للأمام فقط، على حساب التوسيط الجمالي
+     عندما لا تفيض الشجرة أصلاً (تصطف لليسار بدل الوسط، وهذا مقبول). */
+  .otree-root { list-style:none; margin:0; padding:0; display:flex; flex-wrap:nowrap; justify-content:flex-start; direction:ltr; }
   .otree-ul   {
     list-style:none; margin:0; padding:0;
-    display:flex; flex-wrap:nowrap; justify-content:center;
+    display:flex; flex-wrap:nowrap; justify-content:flex-start;
     padding-top:16px; position:relative; direction:ltr;
   }
   .otree-ul::before {
