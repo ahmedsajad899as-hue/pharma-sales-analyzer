@@ -1181,10 +1181,23 @@ async function resolveSciRepSales(id, query = {}, select) {
   // then for each key keep the rows from the single file that contains the MOST
   // occurrences. This collapses cross-file overlap while preserving every
   // genuine intra-file duplicate.
+  //
+  // IMPORTANT: rep/item/customer are matched by NORMALIZED NAME, not raw id.
+  // Item/Customer/MedicalRepresentative rows are scoped per uploader (unique
+  // name+userId — see sales.repository.js), so the same real item/pharmacy/rep
+  // gets a DIFFERENT id in each uploader's file. Files from different owners
+  // legitimately reach this same report (see `ownerIds` above), so keying on
+  // raw ids would make identical rows from two owners look like distinct keys
+  // and both would survive dedup — double-counting a shared/overlapping file.
+  // Area is exempt: it's already a single global catalog (findOrCreateArea),
+  // so areaId is already stable across uploaders.
   const keyToFileRows = new Map(); // key → Map(uploadedFileId → rows[])
   for (const s of rawSales) {
     const dayKey = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : 'nodate';
-    const key = `${s.representative.id}|${s.areaId}|${s.itemId}|${s.customerId ?? 'no-customer'}|${dayKey}|${s.quantity}|${s.recordType || 'sale'}`;
+    const repKey = normalizeArabic(s.representative?.name ?? '');
+    const itemKey = normalizeArabic(s.item?.name ?? '');
+    const customerKey = s.customer ? normalizeArabic(s.customer.name) : 'no-customer';
+    const key = `${repKey}|${s.areaId}|${itemKey}|${customerKey}|${dayKey}|${s.quantity}|${s.recordType || 'sale'}`;
     let fileMap = keyToFileRows.get(key);
     if (!fileMap) { fileMap = new Map(); keyToFileRows.set(key, fileMap); }
     const fid = s.uploadedFileId ?? 0;
@@ -1210,6 +1223,7 @@ const REPORT_SALES_SELECT = {
   area: { select: { id: true, name: true } },
   item: { select: { id: true, name: true } },
   representative: { select: { id: true, name: true } },
+  customer: { select: { name: true } },
   // Per-file currency so aggregateSalesWithReps can normalize each row to USD
   // before summing (files may mix USD/IQD — raw sums across them are wrong).
   uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
