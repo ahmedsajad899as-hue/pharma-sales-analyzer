@@ -1731,10 +1731,10 @@ app.get('/api/files/linked-users', requireAuth, async (req, res) => {
     const managerId = req.user?.id ?? null;
     const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager']);
 
-    // موظف المكتب ليس مديراً لأحد — يُعمِّم على كل الحسابات النشطة بلا استثناء
+    // موظف المكتب ليس مديراً لأحد — يُعمِّم فقط على حسابات مدير المكتب / مدير الشركة
     if (req.user?.role === 'office_employee') {
       const allUsers = await prisma.user.findMany({
-        where: { isActive: true, id: { not: managerId } },
+        where: { isActive: true, id: { not: managerId }, role: { in: ['office_manager', 'company_manager'] } },
         select: {
           id: true, username: true, displayName: true, role: true,
           areaAssignments: { select: { areaId: true, area: { select: { name: true } } } },
@@ -1822,11 +1822,13 @@ app.post('/api/files/:id/share-with-user', requireAuth, async (req, res) => {
     const file = await prisma.uploadedFile.findFirst({ where: { id: fileId, userId: callerId } });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية تعديله' });
 
-    // موظف المكتب يُعمِّم على أي حساب نشط — بلا قيد "مرؤوس"
+    // موظف المكتب يُعمِّم فقط على حسابات مدير المكتب / مدير الشركة — بلا قيد "مرؤوس"
     if (req.user?.role === 'office_employee') {
       for (const targetId of targetIds) {
-        const target = await prisma.user.findFirst({ where: { id: targetId, isActive: true } });
-        if (!target) return res.status(404).json({ error: 'المستخدم غير موجود' });
+        const target = await prisma.user.findFirst({
+          where: { id: targetId, isActive: true, role: { in: ['office_manager', 'company_manager'] } },
+        });
+        if (!target) return res.status(404).json({ error: 'المستخدم غير موجود أو ليس مدير مكتب/شركة' });
       }
     } else {
       // Verify all target users are subordinates of the caller
