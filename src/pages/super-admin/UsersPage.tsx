@@ -2142,7 +2142,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
         {form && (
           <Modal onClose={() => { setForm(null); setError(''); }} title="تعديل المستخدم">
-            <UserFormFields form={form} setForm={setForm} offices={offices} isEdit />
+            <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} isEdit />
             {error && <ErrBox msg={error} />}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => { setForm(null); setError(''); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
