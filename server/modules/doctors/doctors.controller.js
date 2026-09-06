@@ -3,6 +3,7 @@ import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { findOrCreateArea } from '../sales/sales.repository.js';
 import {
   resolveAreaScope, getScopedSurveyDoctors, buildVisitOverlay,
   ensureDoctorRowsForScope, isFieldRole, resolveCompanyMembers,
@@ -676,22 +677,11 @@ export async function create(req, res, next) {
     const { name, specialty, areaId, areaName, pharmacyName, targetItemId, notes } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
 
-    // Resolve areaId from areaName if only text was provided (create new area if not found)
-    // Uses normalizeAreaName (not raw lowercase) so spelling variants like "مدينة الصدر" /
-    // "مدينه الصدر" resolve to the SAME existing Area instead of spawning a duplicate
-    // owned by this user — duplicates fragment the same real place across accounts and
-    // hide doctors from other users' views (manager vs rep) of that area.
+    // Resolve areaId from areaName if only text was provided — findOrCreateArea
+    // matches against the shared area catalog (no more per-user duplicate rows).
     let resolvedAreaId = areaId ? parseInt(areaId) : null;
     if (!resolvedAreaId && areaName?.trim()) {
-      const nameNorm = normalizeAreaName(areaName);
-      const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-      const found = allAreas.find(a => normalizeAreaName(a.name) === nameNorm);
-      if (found) {
-        resolvedAreaId = found.id;
-      } else {
-        const newArea = await prisma.area.create({ data: { name: areaName.trim(), userId } });
-        resolvedAreaId = newArea.id;
-      }
+      resolvedAreaId = (await findOrCreateArea(areaName, userId)).id;
     }
 
     // ── Sync Doctor → MasterSurvey ────────────────────────────
@@ -780,15 +770,7 @@ export async function update(req, res, next) {
     const { name, specialty, areaId, areaName, pharmacyName, targetItemId, notes, isActive } = req.body;
     let resolvedAreaId = areaId !== undefined ? (areaId ? parseInt(areaId) : null) : undefined;
     if (resolvedAreaId === undefined && areaName?.trim()) {
-      const nameNorm = normalizeAreaName(areaName);
-      const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-      const found = allAreas.find(a => normalizeAreaName(a.name) === nameNorm);
-      if (found) {
-        resolvedAreaId = found.id;
-      } else {
-        const newArea = await prisma.area.create({ data: { name: areaName.trim(), userId } });
-        resolvedAreaId = newArea.id;
-      }
+      resolvedAreaId = (await findOrCreateArea(areaName, userId)).id;
     }
 
     // التحقق من وجود الطبيب أولاً (يمكن أن يكون مسجّلاً بحساب آخر لكن زاره المندوب)
@@ -982,9 +964,9 @@ export async function importExcel(req, res, next) {
       });
     }
 
-    // Pre-load areas and items for matching
+    // Pre-load areas (shared catalog — no userId filter) and items for matching
     const [allAreas, allItems] = await Promise.all([
-      prisma.area.findMany({ where: { userId }, select: { id: true, name: true } }),
+      prisma.area.findMany({ select: { id: true, name: true } }),
       prisma.item.findMany({ where: { userId }, select: { id: true, name: true } }),
     ]);
 

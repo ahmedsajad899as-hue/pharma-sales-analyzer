@@ -707,6 +707,10 @@ export async function extractVisitsFromExcel(file, user) {
 async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
+  const linkedAreaIds = new Set(
+    (await prisma.userAreaAssignment.findMany({ where: { userId: ownerUserId }, select: { areaId: true } }))
+      .map(r => r.areaId)
+  );
   // لحسم اسم الايتم نصاً إلى itemId: الاسم قد يكون مستخرجاً من حقل note أو
   // مكتوباً يدوياً في شبكة المراجعة، وDoctorVisit لا يخزّن إلا itemId.
   const allItems = await prisma.item.findMany({ where: { userId: ownerUserId }, select: { id: true, name: true } });
@@ -790,10 +794,16 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
         const norm = normalizeAreaName(areaName);
         let found = areaByNorm.get(norm);
         if (!found) {
-          found = await prisma.area.create({ data: { name: areaName, userId: ownerUserId } });
+          // كتالوج مشترك مثل الايتمات/الشركات — تُنشأ بلا مالك (userId: null)
+          // بدل صف خاص بهذا الحساب، فلا تتكرر إن ذكرها حساب آخر لاحقاً.
+          found = await prisma.area.create({ data: { name: areaName, userId: null } });
           areaByNorm.set(normalizeAreaName(found.name), found);
         }
         areaId = found.id;
+        if (!linkedAreaIds.has(areaId)) {
+          await prisma.userAreaAssignment.createMany({ data: [{ userId: ownerUserId, areaId }], skipDuplicates: true });
+          linkedAreaIds.add(areaId);
+        }
       }
 
       let doctorId = r.doctorId ?? null;
@@ -946,6 +956,10 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
 async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
+  const linkedAreaIds = new Set(
+    (await prisma.userAreaAssignment.findMany({ where: { userId: ownerUserId }, select: { areaId: true } }))
+      .map(r => r.areaId)
+  );
   const allItems = await prisma.item.findMany({ where: { userId: ownerUserId }, select: { id: true, name: true } });
 
   let imported = 0, skipped = 0;
@@ -963,10 +977,14 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
         const norm = normalizeAreaName(areaName);
         let found = areaByNorm.get(norm);
         if (!found) {
-          found = await prisma.area.create({ data: { name: areaName, userId: ownerUserId } });
+          found = await prisma.area.create({ data: { name: areaName, userId: null } });
           areaByNorm.set(normalizeAreaName(found.name), found);
         }
         areaId = found.id;
+        if (!linkedAreaIds.has(areaId)) {
+          await prisma.userAreaAssignment.createMany({ data: [{ userId: ownerUserId, areaId }], skipDuplicates: true });
+          linkedAreaIds.add(areaId);
+        }
       }
 
       const dateVal = parseVisitDate(r.date);

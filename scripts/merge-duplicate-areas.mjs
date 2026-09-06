@@ -4,16 +4,15 @@
  * الخلفية: جدول Area فيه صفوف كثيرة لنفس المكان («حي الجامعه»، «حي جامعه»،
  * «جامعه»...) فتظهر شرائح مكررة في شاشة تعيين مناطق المندوب.
  *
- * ⚠️ قيد أمان جوهري — الدمج داخل نفس الحساب فقط:
- * Area مملوكة لحساب (`@@unique([name, userId])`) و~15 موضعاً يستعلم
- * `area.findMany({ where: { userId } })`. لو دمجنا صف حساب أ مع صف حساب ب في
- * صف واحد مالكه أ، فإن استعلامات ب لن تُرجع المنطقة أبداً — أي «اختفاء
- * مناطق» وهو بالضبط عطل «إخفاء الأطباء بين المدير والمندوب» المعروف سابقاً.
- * لذلك المفتاح = (normalizeAreaName, userId)، والمجموعات العابرة للحسابات
- * تُعرض للعلم فقط ولا تُلمس.
+ * المنطقة كتالوج مشترك الآن (مثل الايتمات/الشركات) — لم يعد userId جزءاً من
+ * مفتاح التجميع، فمجموعتا «ابو دشير» لحسابين مختلفين تُدمَجان لصف واحد؛
+ * UserAreaAssignment (ضمن COMPOSITE_REFS) يُعاد توجيهه للناجي فيحتفظ كل حساب
+ * بوصوله (بدل أن يُخفي الدمج منطقة عن أحدهما، وهو العطل الذي كان هذا القيد
+ * يتجنّبه سابقاً — راجع findOrCreateArea في server/modules/sales/sales.repository.js
+ * حيث يتم نفس الربط تلقائياً عند كل رفع ملف جديد).
  *
- * قيد ثانٍ: لا نلمس مجموعة فيها محافظتان مختلفتان (provinceId متعارض) —
- * قد تكون أماكن مختلفة فعلاً بنفس الاسم.
+ * قيد الأمان الوحيد المتبقّي: لا نلمس مجموعة فيها محافظتان مختلفتان
+ * (provinceId متعارض) — قد تكون أماكن مختلفة فعلاً بنفس الاسم.
  *
  * الاستعمال:
  *   node scripts/merge-duplicate-areas.mjs           # تحليل فقط
@@ -56,28 +55,18 @@ async function main() {
     orderBy: { id: 'asc' },
   });
 
-  // المفتاح: الاسم المطبَّع + الحساب المالك
+  // المفتاح: الاسم المطبَّع فقط — عبر كل الحسابات (كتالوج مشترك)
   const groups = new Map();
   for (const a of areas) {
-    const k = `${a.userId ?? 'null'}::${normalizeAreaName(a.name)}`;
+    const k = normalizeAreaName(a.name);
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(a);
   }
 
-  // للعلم فقط: أماكن مكررة عبر حسابات مختلفة (لا تُلمس)
-  const byNameOnly = new Map();
-  for (const a of areas) {
-    const k = normalizeAreaName(a.name);
-    if (!byNameOnly.has(k)) byNameOnly.set(k, new Set());
-    byNameOnly.get(k).add(a.userId ?? 'null');
-  }
-  const crossAccount = [...byNameOnly.values()].filter(s => s.size > 1).length;
-
   const dupGroups = [...groups.entries()].filter(([, rows]) => rows.length > 1);
 
   console.log(`جدول Area: ${areas.length} صف`);
-  console.log(`مجموعات مكررة داخل نفس الحساب (قابلة للدمج): ${dupGroups.length}`);
-  console.log(`أماكن موزّعة على أكثر من حساب (لن تُلمس — تُخفي مناطق لو دُمجت): ${crossAccount}`);
+  console.log(`مجموعات مكررة (قابلة للدمج): ${dupGroups.length}`);
   console.log(`الوضع: ${APPLY ? '⚠️ تنفيذ فعلي' : 'تحليل فقط (dry-run)'}\n`);
 
   let merged = 0, deletedRows = 0, skippedProvince = 0;
@@ -85,7 +74,7 @@ async function main() {
   for (const [key, rows] of dupGroups) {
     const provinces = [...new Set(rows.map(r => r.provinceId).filter(Boolean))];
     if (provinces.length > 1) {
-      console.log(`⏭️  «${key.split('::')[1]}» — محافظات متعارضة (${provinces.join(', ')}) — متروكة للمراجعة اليدوية`);
+      console.log(`⏭️  «${key}» — محافظات متعارضة (${provinces.join(', ')}) — متروكة للمراجعة اليدوية`);
       skippedProvince++;
       continue;
     }
@@ -148,7 +137,6 @@ async function main() {
   console.log(`مجموعات ${APPLY ? 'دُمجت' : 'ستُدمج'}      : ${merged}`);
   console.log(`صفوف ${APPLY ? 'حُذفت' : 'ستُحذف'}         : ${deletedRows}`);
   console.log(`متروكة (محافظات متعارضة) : ${skippedProvince}`);
-  console.log(`متروكة (حسابات مختلفة)   : ${crossAccount} مكان`);
   if (!APPLY) console.log(`\nلم يُكتب شيء. أعد التشغيل مع --apply للتنفيذ.`);
 }
 

@@ -5,7 +5,7 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import { resolveItemName, loadResolutionContext } from '../../lib/itemResolver.js';
+import { resolveItemName, loadResolutionContext, normalizeAreaName } from '../../lib/itemResolver.js';
 
 /**
  * Normalize Arabic text to a canonical form:
@@ -72,20 +72,28 @@ export function saleValueUSD(sale) {
 }
 
 /**
- * Upsert an Area by name scoped to userId. Returns the area record.
+ * Find or create an Area by name in the SHARED catalog (mirrors how Items/
+ * Companies work — one canonical row, users are just LINKED to it via
+ * UserAreaAssignment) — and link it to userId.
+ *
+ * Areas used to be created per-account (userId on the row itself), so the
+ * same real place typed in two different users' files spawned two separate
+ * rows with the same name — the duplicates piling up on the super-admin
+ * Areas page. Matching is now global (no userId in the lookup), new areas
+ * are created ownerless (userId: null, same as the SA "+ إضافة منطقة"
+ * button), and the caller's userId is recorded only as an assignment.
+ *
  * @param {string} name
  * @param {number} userId
  */
 export async function findOrCreateArea(name, userId, provinceId = null) {
-  const normalized = normalizeArabic(name);
-  // Pull all areas for this user and find one whose normalized name matches.
-  // This handles variants like ا/أ/إ/آ, ه/ة, with/without diacritics etc.
-  const userAreas = await prisma.area.findMany({
-    where: { userId: userId ?? null },
+  const key = normalizeAreaName(name);
+  const allAreas = await prisma.area.findMany({
     select: { id: true, name: true, provinceId: true },
   });
-  const existing = userAreas.find(r => normalizeArabic(r.name) === normalized);
+  const existing = allAreas.find(r => normalizeAreaName(r.name) === key);
 
+  let area;
   if (existing) {
     if (provinceId != null && existing.provinceId !== provinceId) {
       if (existing.provinceId == null) {
@@ -108,13 +116,22 @@ export async function findOrCreateArea(name, userId, provinceId = null) {
         }
       }
     }
-    return existing;
+    area = existing;
+  } else {
+    area = await prisma.area.create({
+      data: { name: name.trim(), userId: null, provinceId: provinceId ?? null },
+    });
   }
 
-  // Create using the normalized name so future lookups stay consistent.
-  return prisma.area.create({
-    data: { name: normalized, userId: userId ?? null, provinceId: provinceId ?? null },
-  });
+  if (userId) {
+    await prisma.userAreaAssignment.upsert({
+      where:  { userId_areaId: { userId, areaId: area.id } },
+      create: { userId, areaId: area.id },
+      update: {},
+    });
+  }
+
+  return area;
 }
 
 /**
@@ -230,11 +247,10 @@ export async function getAllCompanies(userId) {
 }
 
 /**
- * Return all Area names + ids for a user.
- * @param {number} userId
+ * Return all Area names + ids (shared catalog, no userId filter).
  */
-export async function getAllAreas(userId) {
-  return prisma.area.findMany({ where: { userId }, select: { id: true, name: true } });
+export async function getAllAreas() {
+  return prisma.area.findMany({ select: { id: true, name: true } });
 }
 
 // ─── Merge-duplicate helpers ──────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaNames } from '../../lib/areaScope.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { resolveAreaScope } from '../../lib/surveyDoctors.js';
+import { findOrCreateArea } from '../sales/sales.repository.js';
 
 // ── Arabic normalization helper ───────────────────────────────
 // Normalizes Arabic text: hamza variants → ا, ة → ه, ى → ي, strip diacritics + "ال"
@@ -279,16 +280,10 @@ export async function updateDoctor(req, res, next) {
   } catch (e) { next(e); }
 }
 
-// ── Helper: find or create Area by name for a user ──────────
+// ── Helper: find or create Area by name (shared catalog), link to user ──────
 async function resolveAreaId(areaName, userId) {
   if (!areaName?.trim()) return null;
-  const nameNorm = areaName.trim().toLowerCase();
-  // Find existing area by name for this user (case-insensitive JS comparison)
-  const userAreas = await prisma.area.findMany({ where: { userId }, select: { id: true, name: true } });
-  const found = userAreas.find(a => a.name.trim().toLowerCase() === nameNorm);
-  if (found) return found.id;
-  const created = await prisma.area.create({ data: { name: areaName.trim(), userId } });
-  return created.id;
+  return (await findOrCreateArea(areaName, userId)).id;
 }
 
 // ── Helper: get linked userId for a rep ──────────────────────

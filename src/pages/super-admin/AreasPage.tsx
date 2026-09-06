@@ -335,7 +335,7 @@ export default function AreasPage() {
             <span style={{ flex: 1, minWidth: 140, color: '#1e293b', fontWeight: 500 }}>
               {a.name}
               {a.userId != null && (
-                <span title="هذه منطقة خاصة بحساب مستخدم معيّن — منطقة بنفس الاسم عند حساب آخر صفّ مستقلّ بالتصميم، ولا يمكن دمجهما" style={{ marginInlineStart: 6, fontSize: 10, fontWeight: 600, color: '#3730a3', background: '#e0e7ff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '1px 6px' }}>👤 {a.user?.username ?? `#${a.userId}`}</span>
+                <span title="صف قديم من قبل توحيد نظام المناطق — لا يزال مرتبطاً بحساب معيّن، ويمكن دمجه الآن مع أي منطقة أخرى بنفس الاسم عبر «دمج المكررات»" style={{ marginInlineStart: 6, fontSize: 10, fontWeight: 600, color: '#3730a3', background: '#e0e7ff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '1px 6px' }}>👤 {a.user?.username ?? `#${a.userId}`}</span>
               )}
               {a.provinceConflict && (
                 <span title={`ورد اسم هذه المنطقة في ملف بمحافظة «${a.provinceConflict}» تختلف عن المحفوظة`} style={{ marginInlineStart: 6, fontSize: 10, fontWeight: 700, color: '#b91c1c', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '1px 6px' }}>⚠️ {a.provinceConflict}</span>
@@ -388,12 +388,10 @@ export default function AreasPage() {
                 onBlur={() => setOpenMergePicker(null)}
                 style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #fca5a5', direction: 'rtl', maxWidth: 150 }}>
                 <option value="" disabled>— دمج داخل —</option>
-                {/* الدمج بين حسابين مختلفين ممنوع من الخادم (يُخفي بيانات أحدهما) —
-                    نستبعده هنا مسبقاً بدل ترك المدير يجرّب ويصطدم بخطأ */}
-                {areas.filter(x => x.id !== a.id && (x.userId ?? null) === (a.userId ?? null)).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+                {areas.filter(x => x.id !== a.id).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
               </select>
             ) : (
-              <button onClick={() => setOpenMergePicker(a.id)} disabled={busy} title="دمج هذه المنطقة داخل منطقة أخرى لنفس الحساب (تُحذف بعد نقل بياناتها)"
+              <button onClick={() => setOpenMergePicker(a.id)} disabled={busy} title="دمج هذه المنطقة داخل منطقة أخرى (تُحذف بعد نقل بياناتها)"
                 style={{ ...btnStyle('#d97706', true), fontSize: 11, padding: '3px 8px' }}>🔀 دمج</button>
             )}
 
@@ -572,8 +570,7 @@ export default function AreasPage() {
                       <select value={deleteTransferTo} onChange={e => setDeleteTransferTo(e.target.value ? Number(e.target.value) : '')} disabled={busy}
                         style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}>
                         <option value="">— اختر منطقة الوجهة —</option>
-                        {/* النقل بين حسابين مختلفين ممنوع من الخادم لنفس سبب منع الدمج */}
-                        {areas.filter(a => a.id !== deleteInfo.id && (a.userId ?? null) === (areas.find(x => x.id === deleteInfo.id)?.userId ?? null)).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                        {areas.filter(a => a.id !== deleteInfo.id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                       </select>
                       <button onClick={() => confirmDelete('transfer')} disabled={busy || !deleteTransferTo} style={{ ...btnStyle('#0d9488', true), fontSize: 13, opacity: (busy || !deleteTransferTo) ? 0.5 : 1 }}>نقل وحذف</button>
                     </div>

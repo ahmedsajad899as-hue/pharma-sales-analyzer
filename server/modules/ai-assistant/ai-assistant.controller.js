@@ -814,7 +814,7 @@ async function executePlanStatsQuery(spec, userId) {
   // Filter by area if requested
   let filteredArea = null;
   if (filters.areaName) {
-    const areasList = await prisma.area.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true }, take: 200 }).catch(() => []);
+    const areasList = await prisma.area.findMany({ select: { id: true, name: true }, take: 200 }).catch(() => []);
     const area = fuzzyFind(areasList, 'name', filters.areaName);
     if (area) filteredArea = byArea.find(a => a.name === area.name) || null;
   }
@@ -1083,7 +1083,6 @@ async function executeRepSalesQuery(spec, userId, repAnalysisContext) {
   let resolvedAreaNames = null;
   if (areaQueries.length) {
     const allAreas = await prisma.area.findMany({
-      where: userId ? { userId } : {},
       select: { id: true, name: true },
     }).catch(() => []);
     const matched = new Map();
@@ -1243,7 +1242,6 @@ async function executeRepSalesQuery(spec, userId, repAnalysisContext) {
 async function executeStatsQuery(spec, userId) {
   const { filters = {}, groupBy } = spec;
   const areasList = await prisma.area.findMany({
-    where: userId ? { userId } : {},
     select: { id: true, name: true },
     take: 200,
   }).catch(() => []);
@@ -1526,7 +1524,6 @@ async function executeUnvisitedDoctorsQuery(spec, userId) {
   const { areaName, areaNames, repName } = filters;
 
   const areasList = await prisma.area.findMany({
-    where: userId ? { userId } : {},
     select: { id: true, name: true },
   }).catch(() => []);
 
@@ -1627,7 +1624,6 @@ async function executeDoctorListQuery(spec, userId) {
 
   if (areaName) {
     const areasList = await prisma.area.findMany({
-      where: userId ? { userId } : {},
       select: { id: true, name: true },
     }).catch(() => []);
     const area = fuzzyFind(areasList, 'name', areaName);
@@ -2129,7 +2125,7 @@ async function executePharmNetQuery(spec, userId) {
     if (matched.length) where.customerId = { in: matched.map(c => c.id) };
   }
   if (filters.areaName) {
-    const areasAll = await prisma.area.findMany({ where: { userId }, select: { id: true, name: true } });
+    const areasAll = await prisma.area.findMany({ select: { id: true, name: true } });
     const matched = areasAll.filter(a => a.name && a.name.toLowerCase().includes(filters.areaName.toLowerCase()));
     if (matched.length) where.areaId = { in: matched.map(a => a.id) };
   }
@@ -2277,7 +2273,6 @@ async function executeBonusQuery(spec, userId) {
 // ── Execute: Dispatch ─────────────────────────────────────────
 async function executeQuery(spec, userId) {
   const areasList = await prisma.area.findMany({
-    where: userId ? { userId } : {},
     select: { id: true, name: true },
     take: 100,
   }).catch(() => []);
@@ -2487,7 +2482,6 @@ export async function handleCommand(req, res) {
         select: { name: true }, take: 60, orderBy: { name: 'asc' },
       }).catch(() => []),
       prisma.area.findMany({
-        where: userId ? { userId } : {},
         select: { name: true }, take: 60, orderBy: { name: 'asc' },
       }).catch(() => []),
       prisma.monthlyPlan.findMany({

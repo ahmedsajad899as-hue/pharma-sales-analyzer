@@ -24,18 +24,14 @@
 export async function mergeAreaInto(prisma, oldId, canonicalId) {
   if (oldId === canonicalId) return;
 
-  // Area مملوكة لحساب (@@unique([name, userId])) — دمج صف حساب أ مع صف حساب ب
-  // ينقل مبيعات/أطباء أ إلى منطقة يملكها ب فعلياً، فتختفي من استعلامات أ
-  // (نفس عطل «إخفاء الأطباء بين المدير والمندوب» الموثّق سابقاً). راجع
-  // scripts/merge-duplicate-areas.mjs الذي يطبّق نفس القيد بمفتاح التجميع.
+  // Area كتالوج مشترك الآن (مثل الايتمات/الشركات) — دمج صفين بنفس الاسم لحسابين
+  // مختلفين آمن: UserAreaAssignment أدناه يُعيد ربط كل حساب كان معتمداً على
+  // النسخة الممتصّة بالمنطقة الباقية، فلا يفقد أحد وصوله.
   const [oldOwner, canonicalOwner] = await Promise.all([
     prisma.area.findUnique({ where: { id: oldId },       select: { userId: true, provinceId: true } }),
     prisma.area.findUnique({ where: { id: canonicalId }, select: { userId: true, provinceId: true } }),
   ]);
   if (!oldOwner || !canonicalOwner) throw new Error('منطقة غير موجودة');
-  if ((oldOwner.userId ?? null) !== (canonicalOwner.userId ?? null)) {
-    throw new Error('لا يمكن دمج منطقتين من حسابين مختلفين — سيُخفي بيانات أحد الحسابين عن صاحبه. كل حساب يحتاج نسخته الخاصة من المنطقة.');
-  }
 
   // Simple FK tables — bulk reroute
   await prisma.doctor.updateMany({ where: { areaId: oldId }, data: { areaId: canonicalId } });
@@ -117,16 +113,16 @@ export async function mergeDuplicateAreasByName(prisma, normalize) {
     select: { id: true, name: true, provinceId: true, userId: true }, orderBy: { id: 'asc' },
   });
 
-  // المفتاح يضم المحافظة والحساب المالك: «المركز» في بغداد و«المركز» في
-  // البصرة مكانان مختلفان ودمجهما يخلط مبيعاتهما بلا رجعة؛ و«ابو دشير» عند
-  // حساب أ و«ابو دشير» عند حساب ب صفّان مستقلّان بالتصميم (Area مملوكة لحساب
-  // عبر @@unique([name, userId])) — دمجهما يُخفي بيانات أحد الحسابين عن
-  // صاحبه (راجع mergeAreaInto أعلاه وscripts/merge-duplicate-areas.mjs).
-  const byKey = new Map(); // normalizedName|provinceId|userId → [{id,name}, …] (id asc)
+  // المفتاح يضم المحافظة فقط: «المركز» في بغداد و«المركز» في البصرة مكانان
+  // مختلفان ودمجهما يخلط مبيعاتهما بلا رجعة. الحساب المالك لم يعد جزءاً من
+  // المفتاح — Area كتالوج مشترك الآن (مثل الايتمات/الشركات)، فـ«ابو دشير»
+  // عند حساب أ و«ابو دشير» عند حساب ب نفس المكان الحقيقي ويُدمَجان لصف واحد
+  // (راجع mergeAreaInto أعلاه).
+  const byKey = new Map(); // normalizedName|provinceId → [{id,name}, …] (id asc)
   for (const a of allAreas) {
     const key = normalize(a.name);
     if (!key) continue;
-    const groupKey = key + '|' + (a.provinceId ?? '') + '|' + (a.userId ?? '');
+    const groupKey = key + '|' + (a.provinceId ?? '');
     if (!byKey.has(groupKey)) byKey.set(groupKey, []);
     byKey.get(groupKey).push(a);
   }

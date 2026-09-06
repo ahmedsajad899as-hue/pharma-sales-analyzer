@@ -13,6 +13,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from './prisma.js';
+import { findOrCreateArea } from '../modules/sales/sales.repository.js';
 import { normalizeAreaName } from './itemResolver.js';
 import { resolveEffectiveAreaIds } from './areaScope.js';
 
@@ -287,15 +288,10 @@ export function logSurveyEdit(surveyId, entryType, entryId, action, oldData, new
   });
 }
 
-// إيجاد/إنشاء منطقة بالاسم لمستخدم (لمزامنة areaId عند cascade)
+// إيجاد/إنشاء منطقة بالاسم (كتالوج مشترك) وربطها بحساب المستخدم — لمزامنة areaId عند cascade
 async function resolveAreaIdForUser(areaName, userId) {
   if (!areaName?.trim()) return null;
-  const norm = areaName.trim().toLowerCase();
-  const userAreas = await prisma.area.findMany({ where: { userId }, select: { id: true, name: true } });
-  const found = userAreas.find(a => a.name.trim().toLowerCase() === norm);
-  if (found) return found.id;
-  const created = await prisma.area.create({ data: { name: areaName.trim(), userId } });
-  return created.id;
+  return (await findOrCreateArea(areaName, userId)).id;
 }
 
 // ── createSurveyDoctor — إنشاء طبيب سيرفي موحّد (log + notify) ────────────────

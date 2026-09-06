@@ -22,7 +22,7 @@ import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
 import { seedProvinces, autoMatchProvinces, seedSubProvinces, autoMatchSubProvinces } from './lib/provinces.js';
 import { startPharmacyAlertScheduler } from './modules/pharmacy-analysis/pharmacy-alerts.scheduler.js';
-import { resolveEffectiveAreaIds, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
+import { resolveEffectiveAreaIds, resolveEffectiveAreas, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
   mergeItems, mergeReps, mergeCompanies,
@@ -191,9 +191,9 @@ async function countSurveyDoctorsByAreaName(areaId) {
   return rows.filter(r => normalizeArabic(r.areaName || '') === target).length;
 }
 
-// userId/user.username مُضافان ليعرف مدير النظام أن «ابو دشير» ×2 هما صفّان
-// مستقلّان لحسابين مختلفين (Area مملوكة لحساب عبر @@unique([name, userId]))
-// وليسا خطأ تكرار قابلاً للدمج — راجع mergeAreaInto في lib/mergeAreas.js.
+// المنطقة كتالوج مشترك الآن (مثل الايتمات/الشركات، بلا userId عادةً) — userId/
+// user.username يبقيان في التحديد لعرض أي صف قديم لم يُدمج بعد (من قبل هذا
+// التغيير) كصف "خاص" حساب معيّن، راجع lib/mergeAreas.js.
 const AREA_SA_SELECT = {
   id: true, name: true, provinceId: true, provinceConflict: true, subProvinceId: true,
   userId: true, user: { select: { username: true } },
@@ -646,9 +646,6 @@ app.get('/api/sa/areas/merge-suggestions', requireSuperAdmin, async (req, res) =
         const a = areas[i], b = areas[j];
         // Skip identical-after-normalisation (handled by deterministic merge).
         if (normalizeArabic(a.name) === normalizeArabic(b.name)) continue;
-        // منطقتان من حسابين مختلفين ليستا مرشّحتين للدمج مهما تشابه اسمهما —
-        // Area مملوكة لحساب، ودمجهما يُخفي بيانات أحد الحسابين (mergeAreaInto يرفضه أصلاً).
-        if ((a.userId ?? null) !== (b.userId ?? null)) continue;
         if (areSimilar(a.name, b.name)) {
           suggestions.push({
             a: { id: a.id, name: a.name, sales: countByArea.get(a.id) || 0 },
@@ -1075,12 +1072,9 @@ app.get('/api/areas', async (req, res) => {
       return res.json({ success: true, data: areas });
     }
 
-    // Manager / admin: areas they own
-    const areas = await prisma.area.findMany({
-      where: { userId },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true },
-    });
+    // Manager / admin: مناطقهم المُعيَّنة (UserAreaAssignment) — نفس منطق المندوب أعلاه، لا
+    // Area.userId (المنطقة كتالوج مشترك الآن، فلم يعد لهذا الحساب "مناطق يملكها").
+    const areas = (await resolveEffectiveAreas(userId)).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
     res.json({ success: true, data: areas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3055,10 +3049,12 @@ app.get('/api/dashboard/stats', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
     const userFilter = userId ? { userId } : {};
+    // areasCount = مناطق المستخدم المُعيَّنة (UserAreaAssignment) لا Area.userId — المنطقة
+    // كتالوج مشترك الآن، فتعيين الحساب صار عبر جدول التعيين لا ملكية الصف نفسه.
     const [sciRepsCount, filesCount, areasCount, totalSales, totalReturns] = await Promise.all([
       prisma.scientificRepresentative.count({ where: { isActive: true, ...userFilter } }),
       prisma.uploadedFile.count({ where: userFilter }),
-      prisma.area.count({ where: userFilter }),
+      userId ? prisma.userAreaAssignment.count({ where: { userId } }) : prisma.area.count(),
       prisma.sale.count({ where: { ...userFilter, isHidden: false, recordType: 'sale' } }),
       prisma.sale.count({ where: { ...userFilter, isHidden: false, recordType: 'return' } }),
     ]);
@@ -3562,7 +3558,7 @@ app.post('/api/pharmacy-visits', async (req, res) => {
     const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
     let resolvedAreaId = areaId ? parseInt(areaId) : null;
     if (!resolvedAreaId && areaName?.trim()) {
-      const allAreas = await prisma.area.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+      const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
       const an = normalize(areaName);
       const matchedArea = allAreas.find(a => normalize(a.name) === an || normalize(a.name).includes(an) || an.includes(normalize(a.name)));
       if (matchedArea) resolvedAreaId = matchedArea.id;
@@ -3983,7 +3979,7 @@ app.post('/api/pharmacy-visits/voice-record', upload.single('audio'), async (req
     } else {
       allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
     }
-    const allAreas = await prisma.area.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
+    const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
 
     const audioData   = fs.readFileSync(req.file.path);
     const audioBase64 = audioData.toString('base64');

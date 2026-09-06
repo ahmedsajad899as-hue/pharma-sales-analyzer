@@ -1,15 +1,11 @@
 import prisma from '../../lib/prisma.js';
+import { findOrCreateArea } from '../sales/sales.repository.js';
 
 // ── Shared helpers ────────────────────────────────────────────
-// Find or create an Area by name for a given user
+// Find or create an Area by name (shared catalog) and link it to this user
 async function resolveAreaId(areaName, userId) {
   if (!areaName?.trim()) return null;
-  const nameNorm = areaName.trim().toLowerCase();
-  const userAreas = await prisma.area.findMany({ where: { userId }, select: { id: true, name: true } });
-  const found = userAreas.find(a => a.name.trim().toLowerCase() === nameNorm);
-  if (found) return found.id;
-  const created = await prisma.area.create({ data: { name: areaName.trim(), userId } });
-  return created.id;
+  return (await findOrCreateArea(areaName, userId)).id;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
