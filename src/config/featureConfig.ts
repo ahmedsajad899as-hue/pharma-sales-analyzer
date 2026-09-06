@@ -26,7 +26,7 @@ export interface NavItemDef {
 // نفس القائمة التي تُبنى منها القائمة الجانبية الحقيقية للمستخدم (Sidebar.tsx)
 export const NAV_ITEMS: NavItemDef[] = [
   { id: 'dashboard',         labelAr: 'الرئيسية',                  i18nKey: 'dashboard',    icon: '📊', roles: [] },
-  { id: 'rep-analysis',      labelAr: 'تحليل ملفات المندوبين',      icon: '📂', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user'] },
+  { id: 'rep-analysis',      labelAr: 'تحليل ملفات المندوبين',      icon: '📂', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','office_employee'] },
   { id: 'doctors',           labelAr: 'تحليل الكولات',              i18nKey: 'doctors',      icon: '🏥', roles: [] },
   { id: 'monthly-plans',     labelAr: 'البلان الشهري',              i18nKey: 'monthlyPlans', icon: '📅', roles: [] },
   { id: 'daily-plan',        labelAr: 'البلان اليومي',              i18nKey: 'dailyPlan',    icon: '📆', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','user'] },

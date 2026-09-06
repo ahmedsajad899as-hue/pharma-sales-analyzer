@@ -1730,6 +1730,26 @@ app.get('/api/files/linked-users', requireAuth, async (req, res) => {
   try {
     const managerId = req.user?.id ?? null;
     const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager']);
+
+    // موظف المكتب ليس مديراً لأحد — يُعمِّم على كل الحسابات النشطة بلا استثناء
+    if (req.user?.role === 'office_employee') {
+      const allUsers = await prisma.user.findMany({
+        where: { isActive: true, id: { not: managerId } },
+        select: {
+          id: true, username: true, displayName: true, role: true,
+          areaAssignments: { select: { areaId: true, area: { select: { name: true } } } },
+        },
+      });
+      const data = allUsers.map(u => ({
+        id: u.id,
+        name: u.displayName || u.username,
+        role: u.role,
+        areaCount: u.areaAssignments.length,
+        areas: u.areaAssignments.map(a => a.area.name).slice(0, 10),
+      }));
+      return res.json({ success: true, data });
+    }
+
     if (!MANAGER_ROLES.has(req.user?.role)) return res.status(403).json({ error: 'غير مصرح' });
 
     const assignments = await prisma.userManagerAssignment.findMany({
@@ -1796,16 +1816,24 @@ app.post('/api/files/:id/share-with-user', requireAuth, async (req, res) => {
       if (!isNaN(id)) targetIds = [id];
     }
 
-    const ALLOWED = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager']);
+    const ALLOWED = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager', 'office_employee']);
     if (!ALLOWED.has(req.user?.role)) return res.status(403).json({ error: 'غير مصرح' });
 
     const file = await prisma.uploadedFile.findFirst({ where: { id: fileId, userId: callerId } });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية تعديله' });
 
-    // Verify all target users are subordinates of the caller
-    for (const targetId of targetIds) {
-      const asgn = await prisma.userManagerAssignment.findFirst({ where: { userId: targetId, managerId: callerId } });
-      if (!asgn) return res.status(403).json({ error: 'هذا المستخدم غير مرتبط بك' });
+    // موظف المكتب يُعمِّم على أي حساب نشط — بلا قيد "مرؤوس"
+    if (req.user?.role === 'office_employee') {
+      for (const targetId of targetIds) {
+        const target = await prisma.user.findFirst({ where: { id: targetId, isActive: true } });
+        if (!target) return res.status(404).json({ error: 'المستخدم غير موجود' });
+      }
+    } else {
+      // Verify all target users are subordinates of the caller
+      for (const targetId of targetIds) {
+        const asgn = await prisma.userManagerAssignment.findFirst({ where: { userId: targetId, managerId: callerId } });
+        if (!asgn) return res.status(403).json({ error: 'هذا المستخدم غير مرتبط بك' });
+      }
     }
 
     // areaOverrides: { [userId]: areaId[] } — optional custom area list per user

@@ -1093,7 +1093,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                           )}
 
                           {/* Sync with reps — manager only */}
-                          {f.userId === user?.id && ['admin','manager','company_manager','team_leader','supervisor','product_manager','office_manager'].includes(user?.role ?? '') && (
+                          {f.userId === user?.id && ['admin','manager','company_manager','team_leader','supervisor','product_manager','office_manager','office_employee'].includes(user?.role ?? '') && (
                             <button onClick={() => { openShareModal(f); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
                               <Icon name="link" size={13} /> {isSharedByMe ? `مزامنة (${shareCount})` : 'مزامنة مع مندوبين'}
                             </button>
