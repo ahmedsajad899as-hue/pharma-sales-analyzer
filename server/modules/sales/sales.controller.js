@@ -7,6 +7,24 @@
 import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
   checkManualNames } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
+import prisma from '../../lib/prisma.js';
+
+// موظف المكتب: كل ملف يرفعه يُعمَّم فوراً على كل الحسابات النشطة — بلا خطوة
+// "مشاركة" يدوية (نفس أثر الضغط على "تحديد الكل" ثم المزامنة في UploadPage).
+// pharmacy_net/filter_page مستثناة: ملفات عمل شخصية لا تُشارك بتصميم النظام.
+async function autoSyncIfOfficeEmployee(user, fileId, fileType) {
+  if (!user || user.role !== 'office_employee' || !fileId) return;
+  if (['filter_page', 'pharmacy_net'].includes(fileType)) return;
+  const targets = await prisma.user.findMany({
+    where: { isActive: true, id: { not: user.id } },
+    select: { id: true },
+  });
+  if (targets.length === 0) return;
+  await prisma.fileUserShare.createMany({
+    data: targets.map(u => ({ fileId, userId: u.id })),
+    skipDuplicates: true,
+  });
+}
 
 /**
  * POST /api/upload-sales
@@ -39,13 +57,21 @@ export async function uploadSales(req, res, next) {
       totalValue: req.body.totalValueCol || undefined,
     };
 
+    const fileType = req.body.fileType || 'sales';
     const result = await processUploadedFile(req.file, {
       uploadedBy:     req.body.uploadedBy || req.user?.username || null,
       columnMapping,
       userId:         req.user?.id ?? null,
-      fileType:       req.body.fileType || 'sales',
+      fileType,
       sourceCurrency: req.body.sourceCurrency || null,  // user-specified: 'IQD' | 'USD' | null
     });
+
+    // لا تُسقط نجاح الرفع لو فشلت خطوة التعميم التلقائي لسبب عابر
+    try {
+      await autoSyncIfOfficeEmployee(req.user, result?.uploadedFile?.id, fileType);
+    } catch (syncErr) {
+      console.error('[autoSyncIfOfficeEmployee]', syncErr);
+    }
 
     return res.status(201).json({
       success: true,
@@ -111,6 +137,11 @@ export async function addManualSales(req, res, next) {
       uploadedBy: req.user?.username || null,
       rememberItems: Array.isArray(rememberItems) ? rememberItems : [],
     });
+    try {
+      await autoSyncIfOfficeEmployee(req.user, result?.uploadedFile?.id, 'sales');
+    } catch (syncErr) {
+      console.error('[autoSyncIfOfficeEmployee]', syncErr);
+    }
     return res.status(201).json({ success: true, data: result });
   } catch (err) {
     next(err);
