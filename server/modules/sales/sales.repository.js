@@ -677,13 +677,21 @@ function aggregateSales(sales) {
 }
 
 /**
- * Same as aggregateSales but also groups by commercial representative,
- * and groups byArea by (area + rep) so each row shows area + its commercial rep.
+ * Same as aggregateSales but also groups by commercial representative.
+ *
+ * byArea groups by AREA ONLY (not area+rep): a scientific rep's area is fixed
+ * regardless of which commercial rep's name shows up on a given sale/return
+ * row, and a sale/return pair for the same area can legitimately carry
+ * different commercial-rep names (different data entry, rep handoff, etc.).
+ * Grouping by area+rep used to split those into two rows — the return would
+ * "disappear" from the area's sales row and land in its own near-empty row
+ * lower in the table instead of netting against the sale. Per-rep totals are
+ * still available separately via byRep.
  */
 export function aggregateSalesWithReps(sales) {
-  const areaRepMap = new Map(); // key = "areaId-repId"
-  const itemMap    = new Map();
-  const repMap     = new Map();
+  const areaMap = new Map(); // key = areaId
+  const itemMap = new Map();
+  const repMap  = new Map();
   let totalQuantity = 0;
   let totalValue    = 0;
 
@@ -693,20 +701,17 @@ export function aggregateSalesWithReps(sales) {
     totalQuantity += qty;
     totalValue    += val;
 
-    // By (area + commercial rep) combination
-    const arKey = `${sale.area.id}-${sale.representative.id}`;
-    if (!areaRepMap.has(arKey)) {
-      areaRepMap.set(arKey, {
+    // By area (regardless of which commercial rep's name is on the row)
+    if (!areaMap.has(sale.area.id)) {
+      areaMap.set(sale.area.id, {
         areaId:    sale.area.id,
         areaName:  sale.area.name,
-        repId:     sale.representative.id,
-        repName:   sale.representative.name,
         totalQuantity: 0,
         totalValue:    0,
       });
     }
-    areaRepMap.get(arKey).totalQuantity += qty;
-    areaRepMap.get(arKey).totalValue    += val;
+    areaMap.get(sale.area.id).totalQuantity += qty;
+    areaMap.get(sale.area.id).totalValue    += val;
 
     // By item
     if (!itemMap.has(sale.item.id)) {
@@ -725,7 +730,7 @@ export function aggregateSalesWithReps(sales) {
 
   return {
     totals: { totalQuantity, totalValue: +totalValue.toFixed(2) },
-    byArea: [...areaRepMap.values()].sort((a, b) => b.totalValue - a.totalValue),
+    byArea: [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue),
     byItem: [...itemMap.values()].sort((a, b) => a.itemName.localeCompare(b.itemName)),
     byRep:  [...repMap.values()].sort((a, b) => b.totalValue - a.totalValue),
   };
