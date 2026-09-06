@@ -14,7 +14,7 @@ async function resolveRepId(userId) {
   return rep?.id ?? null;
 }
 
-const MANAGER_ROLES = ['admin', 'manager', 'office_manager', 'supervisor', 'scientific_supervisor'];
+const MANAGER_ROLES = ['admin', 'manager', 'office_manager', 'supervisor', 'scientific_supervisor', 'office_employee'];
 
 // ── POST /api/tracking/location ───────────────────────────────
 // Body: { latitude, longitude, accuracy?, workDate? }

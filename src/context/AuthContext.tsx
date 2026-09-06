@@ -182,7 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user?.role === 'company_manager' || user?.role === 'supervisor' ||
     user?.role === 'product_manager' || user?.role === 'team_leader' ||
     user?.role === 'office_manager'  || user?.role === 'commercial_supervisor' ||
-    user?.role === 'commercial_team_leader';
+    user?.role === 'commercial_team_leader' || user?.role === 'office_employee';
 
   const hasFeature = (key: string): boolean => {
     if (import.meta.env.DEV && !ALL_FEATURE_KEYS.has(key) && !warnedMissingFeatureKeys.has(key)) {

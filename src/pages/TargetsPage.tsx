@@ -12,7 +12,7 @@ interface SavedTarget { id: number; itemId: number; item: NamedItem; target: num
 const NOW = new Date();
 
 // Roles allowed to create/sync targets for reps
-const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'office_manager', 'product_manager', 'commercial_supervisor', 'commercial_team_leader']);
+const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'office_manager', 'product_manager', 'commercial_supervisor', 'commercial_team_leader', 'office_employee']);
 
 export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: number[] }) {
   const { token, user } = useAuth();

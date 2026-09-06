@@ -131,7 +131,7 @@ export default function CommercialRepPage() {
 
   const isRep       = role === 'commercial_rep';
   const isLead      = role === 'commercial_team_leader' || role === 'commercial_supervisor';
-  const isMgr       = ['admin', 'manager', 'office_manager', 'company_manager'].includes(role);
+  const isMgr       = ['admin', 'manager', 'office_manager', 'company_manager', 'office_employee'].includes(role);
   const canUpload   = isMgr;
   const canCollect  = isRep || isMgr;
 

@@ -57,6 +57,7 @@ type TabId = 'uploads' | 'rows' | 'delivery';
 const ROLE_CAN_VIEW_DELIVERY = new Set([
   'admin', 'manager', 'company_manager', 'team_leader',
   'commercial_team_leader', 'commercial_supervisor', 'office_manager',
+  'office_employee',
 ]);
 
 // ─── Helpers ──────────────────────────────────────────────────

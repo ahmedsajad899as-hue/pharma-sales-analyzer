@@ -9,7 +9,7 @@ import { buildUserCanonMap } from '../../lib/itemResolver.js';
 // ── Role helpers ─────────────────────────────────────────────
 const COMM_REP_ROLES  = new Set(['commercial_rep']);
 const COMM_LEAD_ROLES = new Set(['commercial_team_leader', 'commercial_supervisor']);
-const MGR_ROLES       = new Set(['admin', 'manager', 'office_manager', 'company_manager']);
+const MGR_ROLES       = new Set(['admin', 'manager', 'office_manager', 'company_manager', 'office_employee']);
 const ALL_COMM_ROLES  = new Set([...COMM_REP_ROLES, ...COMM_LEAD_ROLES, ...MGR_ROLES]);
 
 const isRep      = role => COMM_REP_ROLES.has(role);

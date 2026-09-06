@@ -1317,7 +1317,7 @@ export async function getRepWishlist(req, res, next) {
     if (isNaN(repUserId)) return res.status(400).json({ error: 'repUserId غير صالح' });
 
     const ALLOWED = ['admin', 'manager', 'supervisor', 'team_leader', 'commercial_team_leader',
-                     'company_manager', 'office_manager'];
+                     'company_manager', 'office_manager', 'office_employee'];
     if (!ALLOWED.includes(role)) {
       const assignment = await prisma.userManagerAssignment.findFirst({
         where: { managerId, userId: repUserId },

@@ -30,6 +30,7 @@ const AUTO_POSTPONE_NOTE = 'لم يتم اتخاذ أي إجراء خلال 24 �
 const MANAGER_ROLES = new Set([
   'admin', 'manager', 'company_manager', 'supervisor', 'product_manager',
   'office_manager', 'commercial_supervisor', 'commercial_team_leader', 'team_leader',
+  'office_employee',
 ]);
 
 // Roles that should receive repeat / low-achievement alerts

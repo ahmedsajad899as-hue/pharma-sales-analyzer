@@ -31,6 +31,7 @@ const COMPANY_SCOPED_ROLES = new Set([
   'scientific_rep',
   'company_manager', 'supervisor', 'product_manager', 'team_leader',
   'office_manager', 'commercial_supervisor', 'commercial_team_leader',
+  'office_employee',
 ]);
 
 export async function list(filters, user = null, options = {}) {

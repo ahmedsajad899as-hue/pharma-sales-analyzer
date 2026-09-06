@@ -4158,7 +4158,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
     } else if (role === 'manager') {
       // manager can filter by rep
       if (repId) where.scientificRepId = repId;
-    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager'].includes(role)) {
+    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager', 'office_employee'].includes(role)) {
       if (repId) {
         if (repId < 0) {
           // Negative repId = manager's own visits (encoded as -userId)
@@ -4275,7 +4275,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
       else pharmWhere.userId = userId;
     } else if (role === 'manager') {
       if (repId) pharmWhere.scientificRepId = repId;
-    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager'].includes(role)) {
+    } else if (['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager', 'office_employee'].includes(role)) {
       if (repId) {
         if (repId < 0) {
           pharmWhere.userId = -repId;
