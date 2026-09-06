@@ -2923,18 +2923,34 @@ app.post('/api/sales-data-files', requireAuth, async (req, res) => {
     if (!name || !Array.isArray(fixedCols) || !Array.isArray(areaCols) || !Array.isArray(rows) || !Array.isArray(regions)) {
       return res.status(400).json({ error: 'بيانات الملف غير مكتملة' });
     }
-    const file = await prisma.salesDataFile.create({
-      data: {
-        userId,
-        name,
-        uploadedAt: uploadedAt ? new Date(uploadedAt) : new Date(),
-        fixedCols,
-        areaCols,
-        rows,
-        regions,
-        sourceFileIds: sourceFileIds ?? null,
-      },
-    });
+    const fileData = {
+      name,
+      uploadedAt: uploadedAt ? new Date(uploadedAt) : new Date(),
+      fixedCols,
+      areaCols,
+      rows,
+      regions,
+      sourceFileIds: sourceFileIds ?? null,
+    };
+    const file = await prisma.salesDataFile.create({ data: { userId, ...fileData } });
+
+    // موظف المكتب: يُعمَّم ملف الستوك (نفس البيانات) فوراً على حسابات مدير
+    // المكتب / مدير الشركة — كل واحد يحصل على نسخته الخاصة (لا مشاركة/قراءة
+    // موحّدة هنا، مثل رصيد المذاخر تماماً)، فتظهر في صفحة "Stock" عندهم مباشرة.
+    if (req.user?.role === 'office_employee') {
+      try {
+        const targets = await prisma.user.findMany({
+          where: { isActive: true, id: { not: userId }, role: { in: ['office_manager', 'company_manager'] } },
+          select: { id: true },
+        });
+        for (const target of targets) {
+          await prisma.salesDataFile.create({ data: { userId: target.id, ...fileData } }).catch(err => {
+            console.error('[autoSyncSalesDataFile]', target.id, err);
+          });
+        }
+      } catch (syncErr) { console.error('[autoSyncSalesDataFile]', syncErr); }
+    }
+
     res.json({ success: true, data: file });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
