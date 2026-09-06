@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -119,6 +119,39 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [allCompanies, setAllCompanies]           = useState<Company[]>([]);
   const [selCompanies, setSelCompanies]           = useState<NamedItem[]>([]);
   const [filterCompanyId, setFilterCompanyId]     = useState<number | 'all'>('all');
+
+  // ─── Company-first browsing: group reps by company, drill in on click ──────
+  const [companyFilterKey, setCompanyFilterKey]   = useState<string | null>(null);
+  interface CompanyGroupView { key: string; name: string; reps: ScientificRep[] }
+  const companyGroups = useMemo<CompanyGroupView[]>(() => {
+    const map = new Map<string, CompanyGroupView>();
+    for (const rep of reps) {
+      const cos: NamedItem[] = (rep.companies && rep.companies.length > 0)
+        ? rep.companies
+        : (rep.company ? [{ id: -1, name: rep.company }] : []);
+      if (cos.length === 0) {
+        const key = '__none__';
+        if (!map.has(key)) map.set(key, { key, name: t.sciReps.noCompanyGroup, reps: [] });
+        map.get(key)!.reps.push(rep);
+        continue;
+      }
+      for (const c of cos) {
+        const key = `c:${normalizeAr(c.name).toLowerCase()}`;
+        if (!map.has(key)) map.set(key, { key, name: c.name, reps: [] });
+        const grp = map.get(key)!;
+        if (!grp.reps.some(r => r.id === rep.id)) grp.reps.push(rep);
+      }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }, [reps, t]);
+  // Reset a stale filter (e.g. after the underlying reps/companies changed)
+  useEffect(() => {
+    if (companyFilterKey && !companyGroups.some(g => g.key === companyFilterKey)) setCompanyFilterKey(null);
+  }, [companyGroups, companyFilterKey]);
+  const showCompanyPicker = companyGroups.length > 1;
+  const visibleReps = !showCompanyPicker
+    ? reps
+    : (companyFilterKey ? (companyGroups.find(g => g.key === companyFilterKey)?.reps ?? []) : []);
 
   // ─── Global block panel (commercial reps / areas / items) ──────────────────
   // Manager types a commercial rep / area / item name → matching sales/returns
@@ -818,6 +851,40 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         <div className="loading-spinner">{t.sciReps.loading}</div>
       ) : (
         <>
+          {/* ── Company picker: pick a company first, then see its reps ── */}
+          {showCompanyPicker && (
+            companyFilterKey === null ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 22 }}>
+                {companyGroups.map(g => (
+                  <button
+                    key={g.key}
+                    className="quick-action-card"
+                    onClick={() => setCompanyFilterKey(g.key)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="quick-action-icon" style={{ background: '#c2410c' }}>🏢</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="quick-action-label">{g.name}</div>
+                      <div className="quick-action-desc">{g.reps.length} {t.sciReps.repsCountSuffix}</div>
+                    </div>
+                    <span className="quick-action-arrow">‹</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+                <button className="btn btn--secondary btn--sm" onClick={() => setCompanyFilterKey(null)}>
+                  ‹ {t.sciReps.backToCompanies}
+                </button>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 14, color: '#c2410c' }}>
+                  🏢 {companyGroups.find(g => g.key === companyFilterKey)?.name}
+                </span>
+              </div>
+            )
+          )}
+
+          {(!showCompanyPicker || companyFilterKey !== null) && (
+          <>
           {/* ── Desktop table ── */}
           <div className="rep-desktop-table table-wrapper">
             <table className="data-table">
@@ -835,9 +902,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                 </tr>
               </thead>
               <tbody>
-                {reps.length === 0 ? (
+                {visibleReps.length === 0 ? (
                   <tr><td colSpan={9} className="empty-row">{t.sciReps.noReps}</td></tr>
-                ) : reps.map(rep => (
+                ) : visibleReps.map(rep => (
                   <tr key={rep.id}>
                     <td>{rep.id}</td>
                     <td><strong>{rep.name}</strong>{rep.notes && <div className="row-note">{rep.notes}</div>}</td>
@@ -963,9 +1030,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
 
           {/* ── Mobile card list ── */}
           <div className="rep-mobile-cards">
-            {reps.length === 0 ? (
+            {visibleReps.length === 0 ? (
               <div style={{ textAlign: 'center', color: '#94a3b8', padding: '32px 0', fontSize: 14 }}>{t.sciReps.noRepsHint}</div>
-            ) : reps.map(rep => (
+            ) : visibleReps.map(rep => (
               <div key={rep.id} className="rep-mobile-card">
                 <div className="rep-mobile-card-header">
                   <div>
@@ -1035,6 +1102,8 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
               </div>
             ))}
           </div>
+          </>
+          )}
         </>
       )}
 

@@ -201,6 +201,10 @@ const translations = {
       assignTooltip: 'التعيينات',
       deleteTooltip: 'حذف',
       noRepsHint: 'لا يوجد مندوبون علميون — أضف أول مندوب',
+      // Company-first picker
+      noCompanyGroup: 'بدون شركة',
+      repsCountSuffix: 'مندوب',
+      backToCompanies: 'رجوع لقائمة الشركات',
       // Mobile card labels
       labelCompany: '🏢 الشركة:',
       labelAreas: '📍 المناطق:',
@@ -727,6 +731,10 @@ const translations = {
       assignTooltip: 'Assignments',
       deleteTooltip: 'Delete',
       noRepsHint: 'No scientific reps — add the first one',
+      // Company-first picker
+      noCompanyGroup: 'No Company',
+      repsCountSuffix: 'rep(s)',
+      backToCompanies: 'Back to companies',
       // Mobile card labels
       labelCompany: '🏢 Company:',
       labelAreas: '📍 Areas:',
