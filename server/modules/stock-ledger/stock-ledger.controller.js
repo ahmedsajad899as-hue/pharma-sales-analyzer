@@ -3,7 +3,7 @@
  */
 
 import {
-  parseMovementFile, ingestRows, ingestBaselineFromStockFile,
+  parseMovementFile, ingestRows, ingestBaselineFromStockFile, readStockFileRows,
   buildAlerts, removeBatch, recomputeBalances,
   classifyMovementRows, classifyBaselineFromStockFile,
   saveWarehouseNameLinks, saveItemLinks, saveStockCompanyNameLinks,
@@ -13,6 +13,25 @@ import {
 } from './stock-ledger.repository.js';
 
 const utf8Name = (file) => Buffer.from(file.originalname, 'latin1').toString('utf8');
+
+// موظف المكتب: كل ستوك يرفعه يُعمَّم فوراً على حسابات مدير المكتب / مدير الشركة
+// فقط — بإعادة تنفيذ نفس عملية الاستيراد (runForUser) لكل حساب هدف بمعرّفه هو،
+// فتُبنى/تُطابَق مذاخره وأرصدته الخاصة من نفس الصفوف تماماً كأنه رفعها بنفسه
+// (النظام أصلاً يعزل كل بيانات الستوك حسب userId — لا آلية مشاركة/قراءة موحّدة
+// هنا كما في ملفات المبيعات، فالتكرار المتحكَّم به هو الطريق الأبسط والأصح).
+// تسلسلي لا مُتوازٍ لتفادي ضغط الذاكرة، وكل حساب هدف مُعزول بـtry/catch حتى لا
+// يُسقط فشل حساب واحد نجاح رفع صاحب الملف الأصلي ولا بقية الحسابات.
+async function autoSyncStockToManagers(user, runForUser) {
+  if (!user || user.role !== 'office_employee') return;
+  const targets = await prisma.user.findMany({
+    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'company_manager'] } },
+    select: { id: true },
+  });
+  for (const target of targets) {
+    try { await runForUser(target.id); }
+    catch (err) { console.error('[autoSyncStockToManagers]', target.id, err); }
+  }
+}
 
 /** تاريخ سريان الدفعة — يقبل ISO أو yyyy-mm-dd، وإلا اليوم */
 function toDate(v) {
@@ -143,11 +162,21 @@ export async function baselineFromStockFile(req, res) {
       return res.status(400).json({ success: false, error: 'اختر ملف ستوك' });
     }
     await saveNameChoices(req.user.id, req.body);
+    const movementDate = toDate(req.body?.movementDate);
     const result = await ingestBaselineFromStockFile({
       userId: req.user.id,
       salesDataFileId,
-      movementDate: toDate(req.body?.movementDate),
+      movementDate,
     });
+    try {
+      if (req.user?.role === 'office_employee') {
+        // الملف (SalesDataFile) مملوك لموظف المكتب — يُقرأ مرة واحدة بحسابه هو، ثم
+        // تُستورَد نفس الصفوف مباشرةً بحساب كل هدف (sourceFileId=null لأنه لا يخص الهدف).
+        const { file, rows } = await readStockFileRows(req.user.id, salesDataFileId);
+        await autoSyncStockToManagers(req.user, targetUserId =>
+          ingestRows({ userId: targetUserId, kind: 'baseline', name: 'ستوك افتتاحي: ' + file.name, movementDate, rows }));
+      }
+    } catch (syncErr) { console.error('[autoSyncStockToManagers]', syncErr); }
     res.json({ success: true, data: result });
   } catch (err) { fail(res, err, 400); }
 }
@@ -194,13 +223,13 @@ export async function commitMovements(req, res) {
 
     const label = { baseline: 'ستوك افتتاحي', in: 'تعزيز', out: 'مبيع من المذاخر' }[kind];
     const fileName = String(req.body?.fileName || '').trim();
-    const result = await ingestRows({
-      userId: req.user.id,
-      kind,
-      name: label + (fileName ? ': ' + fileName : ''),
-      movementDate: toDate(req.body?.movementDate),
-      rows,
-    });
+    const name = label + (fileName ? ': ' + fileName : '');
+    const movementDate = toDate(req.body?.movementDate);
+    const result = await ingestRows({ userId: req.user.id, kind, name, movementDate, rows });
+    try {
+      await autoSyncStockToManagers(req.user, targetUserId =>
+        ingestRows({ userId: targetUserId, kind, name, movementDate, rows }));
+    } catch (syncErr) { console.error('[autoSyncStockToManagers]', syncErr); }
     res.json({ success: true, data: result });
   } catch (err) { fail(res, err, 400); }
 }
@@ -224,13 +253,12 @@ export async function uploadMovements(req, res) {
       });
     }
     const label = { baseline: 'ستوك افتتاحي', in: 'تعزيز', out: 'مبيع من المذاخر' }[kind];
-    const result = await ingestRows({
-      userId: req.user.id,
-      kind,
-      name: label + ': ' + originalName,
-      movementDate,
-      rows,
-    });
+    const name = label + ': ' + originalName;
+    const result = await ingestRows({ userId: req.user.id, kind, name, movementDate, rows });
+    try {
+      await autoSyncStockToManagers(req.user, targetUserId =>
+        ingestRows({ userId: targetUserId, kind, name, movementDate, rows }));
+    } catch (syncErr) { console.error('[autoSyncStockToManagers]', syncErr); }
     res.json({ success: true, data: { ...result, skipped, colMap } });
   } catch (err) { fail(res, err, 400); }
 }
@@ -258,13 +286,12 @@ export async function manualMovements(req, res) {
     if (!rows.length) return res.status(400).json({ success: false, error: 'لا توجد أسطر صالحة' });
 
     const label = { baseline: 'ستوك افتتاحي', in: 'تعزيز', out: 'مبيع من المذاخر' }[kind];
-    const result = await ingestRows({
-      userId: req.user.id,
-      kind,
-      name: label + ' (إدخال يدوي)',
-      movementDate,
-      rows,
-    });
+    const name = label + ' (إدخال يدوي)';
+    const result = await ingestRows({ userId: req.user.id, kind, name, movementDate, rows });
+    try {
+      await autoSyncStockToManagers(req.user, targetUserId =>
+        ingestRows({ userId: targetUserId, kind, name, movementDate, rows }));
+    } catch (syncErr) { console.error('[autoSyncStockToManagers]', syncErr); }
     res.json({ success: true, data: result });
   } catch (err) { fail(res, err, 400); }
 }

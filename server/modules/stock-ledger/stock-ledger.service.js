@@ -673,7 +673,7 @@ export async function ingestRows({ userId, kind, name, movementDate, sourceFileI
 }
 
 /** يقرأ صفوف ملف Stock (بلا حفظ) — أساس classify/ingest للستوك الافتتاحي من ملف موجود. */
-async function readStockFileRows(userId, salesDataFileId) {
+export async function readStockFileRows(userId, salesDataFileId) {
   const file = await prisma.salesDataFile.findFirst({ where: { id: salesDataFileId, userId } });
   if (!file) throw new Error('الملف غير موجود');
   const rows = flattenStockMatrix(file);
