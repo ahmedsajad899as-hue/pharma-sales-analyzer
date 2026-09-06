@@ -524,6 +524,33 @@ export async function setBlockingEnabled(userId, enabled) {
   return { enabled: !!enabled };
 }
 
+/**
+ * توسّع مالكي الملفات إلى كل من يشاركهم تعيين شركة (UserCompanyAssignment).
+ * مدير المكتب (office_manager) يشرف على عدة حسابات مدراء شركات، وكل حساب
+ * يرفع ملفاته الخاصة به (UploadedFile.userId هو حساب مدير الشركة، لا حساب
+ * مدير المكتب) — فحجبٌ يضيفه مدير المكتب يُخزَّن بحسابه هو، ولن يطابق أبداً
+ * `userId` مالكِ الملف الفعلي بلا هذا التوسيع، فيبقى الحجب محفوظاً بلا أي أثر
+ * على التقارير. التوسيع باتجاهين: كل من يشارك شركة مع أيٍّ من مالكي الملفات
+ * (سواء كان هو المدير الأعلى أو زميلاً آخر بنفس الشركة) يدخل ضمن نطاق مطابقة
+ * الحجب أدناه.
+ * @param {number[]} ownerIds
+ * @returns {Promise<number[]>}
+ */
+export async function expandOwnerIdsByCompany(ownerIds) {
+  if (!Array.isArray(ownerIds) || ownerIds.length === 0) return ownerIds ?? [];
+  const companyRows = await prisma.userCompanyAssignment.findMany({
+    where: { userId: { in: ownerIds } },
+    select: { companyId: true },
+  });
+  const companyIds = [...new Set(companyRows.map(r => r.companyId))];
+  if (companyIds.length === 0) return ownerIds;
+  const teammateRows = await prisma.userCompanyAssignment.findMany({
+    where: { companyId: { in: companyIds } },
+    select: { userId: true },
+  });
+  return [...new Set([...ownerIds, ...teammateRows.map(r => r.userId)])];
+}
+
 // ─── Globally-blocked areas / items ───────────────────────────
 // Same idea as blocked commercial reps, but for whole areas or items: any sale/
 // return in a blocked area (or of a blocked item) is hidden from every
@@ -944,7 +971,10 @@ async function resolveSciRepSales(id, query = {}, select) {
       where: { id: { in: fileIds } },
       select: { userId: true },
     });
-    const ownerIds = [...new Set(fileOwners.map(f => f.userId).filter(Boolean))];
+    const directOwnerIds = [...new Set(fileOwners.map(f => f.userId).filter(Boolean))];
+    // مدير المكتب يضيف الحجب من حسابه هو، لا من حساب مدير الشركة الذي رفع
+    // الملف فعلياً — بلا هذا التوسيع لا يتطابق userId أبداً ويبقى الحجب بلا أثر.
+    const ownerIds = await expandOwnerIdsByCompany(directOwnerIds);
     if (ownerIds.length > 0) {
       // Only apply block lists of owners who have blocking ENABLED (master switch)
       // AND the block row itself isn't temporarily paused (enabled=false).

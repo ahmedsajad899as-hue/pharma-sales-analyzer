@@ -13,6 +13,7 @@ import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import { buildItemScopeFilter } from '../../lib/itemScope.js';
 import { extractCompanyFromCode, isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { normalizeItemKey } from '../../lib/itemResolver.js';
+import { expandOwnerIdsByCompany } from '../scientific-reps/scientific-reps.service.js';
 
 const router = Router();
 
@@ -80,7 +81,10 @@ router.get('/overall', async (req, res) => {
           areaFilter = { areaId: { in: areaIds } };
         }
 
-        const ownerIds = [...new Set(sharedFiles.map(f => f.userId).filter(Boolean))];
+        const directOwnerIds = [...new Set(sharedFiles.map(f => f.userId).filter(Boolean))];
+        // مدير المكتب يضيف الحجب من حسابه هو، لا من حساب مدير الشركة الذي رفع
+        // الملف فعلياً — راجع نفس التوسيع في resolveSciRepSales (scientific-reps.service.js).
+        const ownerIds = await expandOwnerIdsByCompany(directOwnerIds);
         if (ownerIds.length > 0) {
           // Only apply block lists of owners who have blocking ENABLED (master switch)
           // AND the block row itself isn't temporarily paused (enabled=false).
