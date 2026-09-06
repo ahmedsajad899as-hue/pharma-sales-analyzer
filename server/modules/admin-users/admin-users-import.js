@@ -141,7 +141,7 @@ export async function previewUsersImport(req, res) {
           companyIds: [], companyNames: [],
           itemIds: [], itemNames: [],
           provinceIds: [], provinceNames: [],
-          areaIds: [], areaNames: [],
+          areaIds: [], areaNames: [], newAreaNames: [],
           unmatchedCompanies: [], unmatchedItems: [], unmatchedProvinces: [], unmatchedAreas: [],
         };
         blocks.push(current);
@@ -195,7 +195,13 @@ export async function previewUsersImport(req, res) {
           for (const a of found) if (!current.areaIds.includes(a.id)) current.areaIds.push(a.id);
           if (!current.areaNames.includes(found[0].name)) current.areaNames.push(found[0].name);
         } else {
+          // منطقة غير موجودة بعد ضمن أي حساب — ستُنشأ تلقائياً عند التنفيذ (نفس
+          // سلوك findOrCreateArea في كل مسارات المطابقة الأخرى: رفع المبيعات،
+          // استيراد زيارات الأطباء، السيرفي...) بدل إسقاطها بصمت كما كان يحدث
+          // سابقاً، وهو ما كان يجعل مناطق الملف "لا تُطبَّق" ويتطلب إعادة تعيينها
+          // يدوياً من شاشة تعديل المستخدم بعد الاستيراد.
           current.unmatchedAreas.push(areaRaw);
+          if (!current.newAreaNames.includes(areaRaw)) current.newAreaNames.push(areaRaw);
         }
       }
     });
@@ -218,7 +224,7 @@ export async function previewUsersImport(req, res) {
       if (b.unmatchedCompanies.length) warnings.push(`شركات غير موجودة ضمن كتالوج هذا المكتب: ${b.unmatchedCompanies.join('، ')}`);
       if (b.unmatchedItems.length) warnings.push(`ايتمات غير معروفة: ${b.unmatchedItems.join('، ')}`);
       if (b.unmatchedProvinces.length) warnings.push(`محافظات غير معروفة: ${b.unmatchedProvinces.join('، ')}`);
-      if (b.unmatchedAreas.length) warnings.push(`مناطق غير معروفة: ${b.unmatchedAreas.join('، ')}`);
+      if (b.unmatchedAreas.length) warnings.push(`مناطق جديدة سيتم إنشاؤها تلقائياً: ${b.unmatchedAreas.join('، ')}`);
 
       return {
         rowIndex: b.startRow,
@@ -228,7 +234,7 @@ export async function previewUsersImport(req, res) {
         primaryCompanyId: b.companyIds[0] ?? null,
         itemIds: b.itemIds, itemNames: b.itemNames,
         provinceIds: b.provinceIds, provinceNames: b.provinceNames,
-        areaIds: b.areaIds, areaNames: b.areaNames,
+        areaIds: b.areaIds, areaNames: b.areaNames, newAreaNames: b.newAreaNames,
         errors, warnings,
       };
     });
@@ -253,10 +259,28 @@ export async function commitUsersImport(req, res) {
   const created = [];
   const failed = [];
 
+  // كاش مناطق مشترك بين كل صفوف هذا الاستيراد: يمنع إنشاء منطقة مكررة إن ذكرها
+  // أكثر من مستخدم بنفس الملف، ويُحدَّث بعد كل إنشاء فعلي (راجع findOrCreateArea
+  // في sales.repository.js — نفس المبدأ، لكن هنا بلا userId لأنها تُنشأ بنفس
+  // طريقة زر "+ إضافة منطقة" في لوحة السوبر أدمن، لا كمنطقة خاصة بحساب المستخدم
+  // الجديد نفسه).
+  const areaCache = new Map(
+    (await prisma.area.findMany({ select: { id: true, name: true } }))
+      .map(a => [normalizeAreaName(a.name), a])
+  );
+  async function resolveOrCreateAreaId(rawName) {
+    const key = normalizeAreaName(rawName);
+    const cached = areaCache.get(key);
+    if (cached) return cached.id;
+    const createdArea = await prisma.area.create({ data: { name: rawName.trim() } });
+    areaCache.set(key, createdArea);
+    return createdArea.id;
+  }
+
   for (const row of rows) {
     const {
       rowIndex, username, password, displayName, phone, role,
-      companyIds, primaryCompanyId, itemIds, provinceIds, areaIds,
+      companyIds, primaryCompanyId, itemIds, provinceIds, areaIds, newAreaNames,
     } = row;
     try {
       if (!username || !password) throw new Error('اسم المستخدم وكلمة المرور مطلوبان');
@@ -299,13 +323,20 @@ export async function commitUsersImport(req, res) {
           skipDuplicates: true,
         });
       }
-      if (Array.isArray(areaIds) && areaIds.length) {
+      const finalAreaIds = new Set(Array.isArray(areaIds) ? areaIds : []);
+      if (Array.isArray(newAreaNames) && newAreaNames.length) {
+        for (const name of newAreaNames) {
+          if (!String(name ?? '').trim()) continue;
+          finalAreaIds.add(await resolveOrCreateAreaId(name));
+        }
+      }
+      if (finalAreaIds.size) {
         await prisma.userAreaAssignment.createMany({
-          data: areaIds.map(areaId => ({ userId: user.id, areaId })),
+          data: [...finalAreaIds].map(areaId => ({ userId: user.id, areaId })),
           skipDuplicates: true,
         });
       }
-      if ((Array.isArray(provinceIds) && provinceIds.length) || (Array.isArray(areaIds) && areaIds.length)) {
+      if ((Array.isArray(provinceIds) && provinceIds.length) || finalAreaIds.size) {
         try { await syncUserAreaDerivedLinks(user.id); }
         catch (e) { console.warn('[commitUsersImport] derived-link sync failed (non-fatal):', e.message); }
       }
