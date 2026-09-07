@@ -408,7 +408,10 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
  * doctorId مباشرة في الصفوف عند الحسم. لا تُنشئ ولا تحفظ شيئاً — قراءة فقط.
  *
  * التصنيف (يطابق فلسفة classifyRepNamesForUser تماماً):
- *   linked → رابط محفوظ مسبقاً لنفس الاسم (بما فيها "ليس أياً منهم" → null) → بلا سؤال
+ *   linked → رابط محفوظ مسبقاً لنفس الاسم — إمّا خاص بهذا المستخدم (DoctorNameLink،
+ *     بما فيها "ليس أياً منهم" → null)، أو مؤكَّد على مستوى السيرفي كله
+ *     (MasterSurveyDoctorAlias، أعلى ثقة لأنه سبق تأكيده — عبر استيراد أطباء
+ *     السيرفي في لوحة السوبر أدمن، أو عبر استيراد زيارات سابق لأي مستخدم آخر) → بلا سؤال
  *   exact  → اسم مطابق تماماً بعد التنظيف، ولطبيب واحد لا لبس فيه → بلا سؤال
  *   ask    → مرشّحون بدرجة معتد بها لكن بلا حسم (أو أكثر من مطابقة تامة بلا تمييز) → يُعرض للمستخدم مع كل تفاصيله
  *   none   → لا مرشّح على الإطلاق → طبيب جديد بلا سؤال
@@ -417,22 +420,35 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
   const rowsWithName = (doctorRows || []).filter(r => String(r?.doctorName ?? '').trim());
   if (rowsWithName.length === 0) return { doctorNames: { pending: [], resolved: [], unrelated: [] } };
 
-  const [links, existingDoctorsFull] = await Promise.all([
+  const [links, existingDoctorsFull, visibleSurveys] = await Promise.all([
     prisma.doctorNameLink.findMany({
       where: { userId: ownerUserId },
       select: { fromKey: true, doctorId: true, doctor: { select: { id: true, name: true } } },
     }),
     prisma.doctor.findMany({
       where: { userId: ownerUserId },
-      select: { id: true, name: true, specialty: true, pharmacyName: true, areaId: true, area: { select: { name: true } } },
+      select: { id: true, name: true, specialty: true, pharmacyName: true, areaId: true, masterSurveyDoctorId: true, area: { select: { name: true } } },
     }),
+    prisma.masterSurvey.findMany({ where: { isActive: true, hiddenUsers: { none: { userId: ownerUserId } } }, select: { id: true } }),
   ]);
   const linkByKey = new Map(links.map(l => [l.fromKey, l]));
   const candidates = existingDoctorsFull.map(d => ({
     id: d.id, name: d.name, specialty: d.specialty, pharmacyName: d.pharmacyName,
-    areaId: d.areaId ?? null, areaName: d.area?.name ?? null,
+    areaId: d.areaId ?? null, areaName: d.area?.name ?? null, masterSurveyDoctorId: d.masterSurveyDoctorId ?? null,
   }));
   const candById = new Map(candidates.map(c => [c.id, c]));
+  const candBySurveyDoctorId = new Map(candidates.filter(c => c.masterSurveyDoctorId != null).map(c => [c.masterSurveyDoctorId, c]));
+
+  // aliases مؤكَّدة على مستوى السيرفي (لا خاصة بهذا المستخدم وحده) — نفس المصدر
+  // الذي يغذّي استيراد أطباء السيرفي وfindSurveyDoctor عند الحفظ، يُستشار هنا
+  // أيضاً كي لا يُعاد سؤال أي مستخدم عن اسم سبق تأكيده لأي سبب.
+  const surveyAliases = visibleSurveys.length
+    ? await prisma.masterSurveyDoctorAlias.findMany({
+        where: { surveyId: { in: visibleSurveys.map(s => s.id) } },
+        select: { fromKey: true, surveyDoctorId: true, surveyDoctor: { select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true } } },
+      })
+    : [];
+  const surveyAliasByKey = new Map(surveyAliases.map(a => [a.fromKey, a]));
 
   /**
    * صف طابق طبيباً موجوداً → كل هويته تُؤخذ من التطبيق لا من الملف: الاسم
@@ -482,6 +498,34 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
         if (linkedDoc) adoptAppDoctorIdentity(r, linkedDoc);
       }
       resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: link.doctor ? { id: link.doctor.id, name: link.doctor.name } : null });
+      continue;
+    }
+
+    const surveyAlias = surveyAliasByKey.get(g.key);
+    if (surveyAlias && surveyAlias.surveyDoctorId) {
+      const localDoc = candBySurveyDoctorId.get(surveyAlias.surveyDoctorId);
+      if (localDoc) {
+        for (const r of g.rows) adoptAppDoctorIdentity(r, localDoc);
+        resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: { id: localDoc.id, name: localDoc.name } });
+      } else {
+        // لا سجل Doctor بعد لهذا المستخدم لطبيب السيرفي هذا — سيُنشأ عند الحفظ
+        // (commitDoctorRows → findSurveyDoctor، alias-aware أيضاً) بلا سؤال،
+        // بالاسم القانوني المسجَّل في السيرفي لا كما كُتب في الملف. areaId يُترك
+        // فارغاً كي يُعاد حسمه من areaName النصي (المستبدَل بالقانوني) عند الحفظ.
+        const sd = surveyAlias.surveyDoctor;
+        for (const r of g.rows) {
+          r.doctorId = null;
+          r.areaId = null;
+          r.rawDoctorName = r.doctorName;
+          if (sd) {
+            r.doctorName   = sd.name;
+            r.specialty    = sd.specialty    || r.specialty;
+            r.areaName     = sd.areaName     || r.areaName;
+            r.pharmacyName = sd.pharmacyName || r.pharmacyName;
+          }
+        }
+        resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: sd ? { id: sd.id, name: sd.name } : null });
+      }
       continue;
     }
 
