@@ -2940,6 +2940,8 @@ app.post('/api/sales-data-files', requireAuth, async (req, res) => {
     // موظف المكتب: يُعمَّم ملف الستوك (نفس البيانات) فوراً على حسابات مدير
     // المكتب / مدير الشركة — كل واحد يحصل على نسخته الخاصة (لا مشاركة/قراءة
     // موحّدة هنا، مثل رصيد المذاخر تماماً)، فتظهر في صفحة "Stock" عندهم مباشرة.
+    // syncedFromFileId يربط كل نسخة بالملف الأصل — فحذف الأصل (أدناه) يحذفها
+    // تلقائياً معه (onDelete: Cascade في الـ schema) من كل تلك الحسابات.
     if (req.user?.role === 'office_employee') {
       try {
         const targets = await prisma.user.findMany({
@@ -2947,7 +2949,7 @@ app.post('/api/sales-data-files', requireAuth, async (req, res) => {
           select: { id: true },
         });
         for (const target of targets) {
-          await prisma.salesDataFile.create({ data: { userId: target.id, ...fileData } }).catch(err => {
+          await prisma.salesDataFile.create({ data: { userId: target.id, ...fileData, syncedFromFileId: file.id } }).catch(err => {
             console.error('[autoSyncSalesDataFile]', target.id, err);
           });
         }

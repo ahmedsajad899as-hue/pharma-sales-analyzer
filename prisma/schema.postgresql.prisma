@@ -1662,12 +1662,19 @@ model SalesDataFile {
   rows          Json // Record<string,string>[]
   regions       Json // string[]
   sourceFileIds Json? // number[] (for merged files)
+  // نسخة مُعمَّمة تلقائياً من ملف ستوك موظف مكتب (autoSync عند الرفع في
+  // POST /api/sales-data-files) — تشير للملف الأصل عبر الحسابات. Cascade:
+  // حذف الأصل يحذف كل نسخه المُعمَّمة معه في كل الحسابات تلقائياً.
+  syncedFromFileId Int?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  syncedFrom   SalesDataFile?  @relation("SalesDataFileSync", fields: [syncedFromFileId], references: [id], onDelete: Cascade)
+  syncedCopies SalesDataFile[] @relation("SalesDataFileSync")
 
   @@index([userId])
+  @@index([syncedFromFileId])
   @@map("sales_data_files")
 }
 
