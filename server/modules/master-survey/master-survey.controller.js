@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaNames } from '../../lib/areaScope.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { resolveAreaScope } from '../../lib/surveyDoctors.js';
+import { resolveAreaScope, ensureDoctorRowsForScope } from '../../lib/surveyDoctors.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 
 // ── Arabic normalization helper ───────────────────────────────
@@ -107,6 +107,21 @@ export async function getSurvey(req, res, next) {
     // الأطباء/الصيدليات بلا اسم منطقة أيضاً حتى يتطابق العدد مع تحليل الكولات تماماً
     survey.doctors    = survey.doctors.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName)));
     survey.pharmacies = survey.pharmacies.filter(p => p.areaName?.trim() && normAreaSet.has(normAreaKey(p.areaName)));
+
+    // مزامنة تلقائية بلا زر "استيراد": نفس منطق ensureDoctorRowsForScope الذي
+    // يغذّي شاشة الأطباء الموحّدة — أي طبيب سيرفي ظاهر هنا (بما فيه ما أُضيف/
+    // عُدِّل/طوبِق للتو من لوحة السوبر أدمن) يُنسخ فوراً لسجلات هذا الحساب عند
+    // فتح الصفحة، فلا يحتاج المستخدم للضغط على "استيراد" ليظهر عنده لاحقاً.
+    // نفس تحديد الحساب المستهدف المستخدم في importAllDoctors/importDoctor أدناه:
+    // repId صريح، أو حساب مدير المندوب الميداني لنفسه؛ مدير يستعرض "الكل" بلا
+    // repId لا حساب واحد بعينه يُنسخ له فتُترك المزامنة (المطابقة تبقى تُرى فقط).
+    let ownerUserId = repUserId;
+    if (!ownerUserId && FIELD_ROLES.has(req.user.role)) {
+      ownerUserId = (await getManagerUserId(req.user.id)) ?? req.user.id;
+    }
+    if (ownerUserId && survey.doctors.length) {
+      await ensureDoctorRowsForScope(ownerUserId, survey.doctors, scope);
+    }
 
     res.json({ success: true, data: { ...survey, userAreaNames } });
   } catch (e) { next(e); }

@@ -188,20 +188,10 @@ export default function SurveyPage() {
   };
 
   // ── Import helpers ──
-  const [importingAll, setImportingAll] = useState(false);
-
-  const importAllDoctors = async () => {
-    if (!selectedSurvey) return;
-    setImportingAll(true);
-    try {
-      const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/import-all${repParam}`, { method: 'POST', headers: H() });
-      const d = await r.json();
-      showToast(d.success ? <><Icon name="checkCircle" size={14} /> {d.message}</> : <><Icon name="close" size={14} /> {d.error ?? 'خطأ'}</>);
-    } catch {
-      showToast(<><Icon name="close" size={14} /> حدث خطأ أثناء الاستيراد</>);
-    } finally { setImportingAll(false); }
-  };
-
+  // ملاحظة: أطباء السيرفي لم يعودوا بحاجة لزر استيراد — GET /api/master-surveys/:id
+  // يزامنهم تلقائياً لسجلات المستخدم عند فتح الصفحة (ensureDoctorRowsForScope في
+  // getSurvey)، بنفس آلية شاشة الأطباء الموحّدة. الصيدليات ليست جزءاً من ذلك
+  // التوحيد بعد، فيبقى استيرادها يدوياً كما كان.
   const [importingAllPharm, setImportingAllPharm] = useState(false);
 
   const importAllPharmacies = async () => {
@@ -214,13 +204,6 @@ export default function SurveyPage() {
     } catch {
       showToast(<><Icon name="close" size={14} /> حدث خطأ أثناء الاستيراد</>);
     } finally { setImportingAllPharm(false); }
-  };
-
-  const importDoctor = async (docId: number) => {
-    if (!selectedSurvey) return;
-    const r = await fetch(`/api/master-surveys/${selectedSurvey.id}/doctors/${docId}/import${repParam}`, { method: 'POST', headers: H() });
-    const d = await r.json();
-    showToast(d.success ? <><Icon name="checkCircle" size={14} /> {d.message || 'أُضيف الطبيب لقائمة أطبائك'}</> : <><Icon name="close" size={14} /> {d.error ?? 'خطأ'}</>);
   };
 
   const importPharmacy = async (pharmaId: number) => {
@@ -411,7 +394,7 @@ export default function SurveyPage() {
           background: 'var(--c-warning-bg)', border: '1.5px solid var(--c-warning-border)', borderRadius: 12,
           padding: '10px 14px', marginBottom: 20, direction: 'rtl',
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-warning)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={13} /> استيراد لحساب:</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-warning)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={13} /> عرض/استيراد لحساب:</span>
           <select
             value={selectedRepId ?? ''}
             onChange={e => handleRepChange(e.target.value ? Number(e.target.value) : null)}
@@ -455,18 +438,9 @@ export default function SurveyPage() {
         ))}
         <div style={{ marginRight: 'auto', display: 'flex', gap: 8, paddingBottom: 4 }}>
           {tab === 'doctors' && (
-            <>
-              <button
-                onClick={importAllDoctors}
-                disabled={importingAll || selectedSurvey.doctors.length === 0}
-                style={{ ...btnImport, padding: '7px 14px', fontSize: 12, opacity: importingAll ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 5 }}
-              >
-                {importingAll ? 'جاري...' : <><Icon name="import" size={14} /> استيرد الكل</>}
-              </button>
-              <button onClick={() => setAddingDoc(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <Icon name="add" size={14} /> إضافة طبيب
-              </button>
-            </>
+            <button onClick={() => setAddingDoc(true)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Icon name="add" size={14} /> إضافة طبيب
+            </button>
           )}
           {tab === 'pharmacies' && (
             <>
@@ -539,7 +513,6 @@ export default function SurveyPage() {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
                     <button onClick={() => setEditingDoc(d)} style={{ ...btnSecondary, padding: '6px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="edit" size={13} /> تعديل</button>
-                    <button onClick={() => importDoctor(d.id)} style={{ ...btnImport, padding: '6px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="import" size={13} /> استيراد لسجلاتي</button>
                   </div>
                 </div>
               </div>
