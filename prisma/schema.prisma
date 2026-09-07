@@ -92,6 +92,7 @@ model User {
 
   // Master Survey relations
   surveyDoctorEdits    MasterSurveyDoctor[]     @relation("SurveyDoctorEditor")
+  surveyDoctorAliasCreated MasterSurveyDoctorAlias[] @relation("SurveyDoctorAliasCreator")
   surveyPharmacyEdits  MasterSurveyPharmacy[]   @relation("SurveyPharmacyEditor")
   surveyEditLogs       MasterSurveyEditLog[]    @relation("SurveyEditLogUser")
   surveyHiddenFor      MasterSurveyHiddenUser[] @relation("SurveyHiddenUser")
@@ -1444,6 +1445,7 @@ model MasterSurvey {
   createdBy   SuperAdmin? @relation("SurveyCreator", fields: [createdById], references: [id])
 
   doctors       MasterSurveyDoctor[]
+  doctorAliases MasterSurveyDoctorAlias[]
   pharmacies    MasterSurveyPharmacy[]
   editLogs      MasterSurveyEditLog[]
   hiddenUsers   MasterSurveyHiddenUser[]
@@ -1518,9 +1520,38 @@ model MasterSurveyDoctor {
   lastEditedBy    User?                @relation("SurveyDoctorEditor", fields: [lastEditedById], references: [id])
   importedDoctors Doctor[]
   archiveEntries  DoctorArchiveEntry[]
+  aliases         MasterSurveyDoctorAlias[]
 
   @@index([surveyId])
   @@map("master_survey_doctors")
+}
+
+// ─── Master Survey Doctor Alias (تطابق أسماء مؤكَّد على مستوى السيرفي) ───────
+// يحفظ تطابقاً مؤكَّداً بين اسم/منطقة قادمَين من ملف Excel مرفوع (أثناء
+// استيراد أطباء السيرفي أو استيراد زيارات) وبين طبيب سيرفي موجود فعلاً —
+// بحيث لا يُعاد سؤال السوبر أدمن أو أي مندوب عن نفس الاسم لاحقاً. يشبه
+// DoctorNameLink تماماً لكن مرتبط بـ surveyId (كتالوج مشترك) لا userId
+// (حساب مندوب فردي)، لأن أطباء السيرفي كتالوج واحد يستفيد منه الجميع.
+// surveyDoctorId = null يعني «تأكَّد أنه ليس أياً من الموجودين» فيُحفظ أيضاً
+// كي لا يتكرّر السؤال، وسيُنشأ طبيب سيرفي جديد دائماً لهذا الاسم.
+model MasterSurveyDoctorAlias {
+  id             Int      @id @default(autoincrement())
+  surveyId       Int
+  fromKey        String
+  fromName       String
+  areaName       String?
+  surveyDoctorId Int?
+  confidence     String   @default("confirmed") // 'fuzzy' | 'confirmed'
+  createdById    Int?
+  createdAt      DateTime @default(now())
+
+  survey       MasterSurvey        @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  surveyDoctor MasterSurveyDoctor? @relation(fields: [surveyDoctorId], references: [id], onDelete: Cascade)
+  createdBy    User?               @relation("SurveyDoctorAliasCreator", fields: [createdById], references: [id])
+
+  @@unique([surveyId, fromKey])
+  @@index([surveyDoctorId])
+  @@map("master_survey_doctor_aliases")
 }
 
 // ─── Rep Item Target (التارگت الشهري للمندوب لكل ايتم) ────────

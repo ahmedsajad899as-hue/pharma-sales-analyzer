@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
+import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, classifySurveyDoctorRows, saveSurveyDoctorAlias } from '../../lib/surveyDoctors.js';
 
 // ── Shared helpers ────────────────────────────────────────────
 // Find or create an Area by name (shared catalog) and link it to this user
@@ -179,28 +180,87 @@ export async function deleteDoctor(req, res, next) {
   } catch (e) { next(e); }
 }
 
-export async function bulkImportDoctors(req, res, next) {
+// ── استيراد أطباء السيرفي بمطابقة (لا إدراج أعمى) ──────────────────────────
+// تدفّق على مرحلتين (مطابق لنمط doctor-visits-import.js):
+//   1) extractDoctorImport — يصنّف كل صف مقابل أطباء هذا السيرفي + الروابط
+//      المحفوظة (MasterSurveyDoctorAlias)، بلا أي كتابة — للمراجعة فقط.
+//   2) commitDoctorImport — يستقبل الصفوف بعد قرار السوبر أدمن على كل حالة
+//      "ask"، وينشئ/يحدّث فعلياً.
+export async function extractDoctorImport(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const { doctors } = req.body;
     if (!Array.isArray(doctors) || doctors.length === 0)
       return res.status(400).json({ success: false, error: 'لا يوجد بيانات' });
-    const data = doctors
-      .filter(d => d.name?.trim())
-      .map(d => ({
-        surveyId,
-        name:         d.name.trim(),
-        specialty:    d.specialty    || null,
-        areaName:     d.areaName     || null,
-        pharmacyName: d.pharmacyName || null,
-        className:    d.className    || null,
-        zoneName:     d.zoneName     || null,
-        phone:        d.phone        || null,
-        notes:        d.notes        || null,
-      }));
-    const result = await prisma.masterSurveyDoctor.createMany({ data });
-    res.status(201).json({ success: true, count: result.count });
-  } catch (e) { console.error('[bulkImportDoctors]', e.message, e.code); next(e); }
+    const classification = await classifySurveyDoctorRows(surveyId, doctors);
+    // classifySurveyDoctorRows تُلصق rowKey/matchedDoctorId داخل عناصر doctors
+    // نفسها (بالمرجع) — تُعاد هنا كي تستبدل الواجهة نسختها الخام بها، فتحمل كل
+    // صفوف "resolved"/"unrelated" مطابقتها المحسومة جاهزة بلا إعادة حساب المفتاح محلياً.
+    res.json({ success: true, data: { ...classification, rows: doctors } });
+  } catch (e) { console.error('[extractDoctorImport]', e.message, e.code); next(e); }
+}
+
+export async function commitDoctorImport(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0)
+      return res.status(400).json({ success: false, error: 'لا يوجد بيانات' });
+
+    const editedById = req.superAdmin?.id ?? null;
+    let created = 0, matched = 0;
+
+    for (const r of rows) {
+      const name = String(r?.name ?? '').trim();
+      if (!name) continue;
+      const fields = {
+        specialty:    r.specialty    || null,
+        areaName:     r.areaName     || null,
+        pharmacyName: r.pharmacyName || null,
+        className:    r.className    || null,
+        zoneName:     r.zoneName     || null,
+        phone:        r.phone        || null,
+        notes:        r.notes        || null,
+      };
+
+      if (r.matchedDoctorId) {
+        // صف مطابق لطبيب موجود: عبّئ الحقول الفارغة فقط من الملف — لا يستبدل
+        // أي قيمة موجودة أصلاً في السيرفي (البيانات المُثبَّتة يدوياً مرجع).
+        const existing = await prisma.masterSurveyDoctor.findUnique({ where: { id: r.matchedDoctorId } });
+        if (existing && existing.surveyId === surveyId) {
+          const fillData = {};
+          for (const [k, v] of Object.entries(fields)) {
+            if (v && !existing[k]) fillData[k] = v;
+          }
+          if (Object.keys(fillData).length) {
+            await updateSurveyDoctorLib(surveyId, existing.id, fillData, editedById);
+          }
+          // حالة "ask" حسمها السوبر أدمن يدوياً — تُحفظ كي لا يُعاد السؤال عن
+          // نفس هذا الاسم لاحقاً (سواء في استيراد سيرفي آخر أو استيراد زيارات).
+          if (r.wasAsk) {
+            await saveSurveyDoctorAlias(surveyId, {
+              fromName: name, areaName: r.areaName, surveyDoctorId: existing.id,
+              confidence: 'confirmed', createdById: editedById,
+            });
+          }
+          matched++;
+          continue;
+        }
+      }
+
+      // لا تطابق — طبيب سيرفي جديد
+      const doc = await createSurveyDoctor(surveyId, { name, ...fields }, editedById);
+      if (r.wasAsk) {
+        await saveSurveyDoctorAlias(surveyId, {
+          fromName: name, areaName: r.areaName, surveyDoctorId: doc.id,
+          confidence: 'confirmed', createdById: editedById,
+        });
+      }
+      created++;
+    }
+
+    res.status(201).json({ success: true, created, matched });
+  } catch (e) { console.error('[commitDoctorImport]', e.message, e.code); next(e); }
 }
 
 // ── Survey Pharmacies ────────────────────────────────────────

@@ -17,6 +17,45 @@ import { findOrCreateArea } from '../modules/sales/sales.repository.js';
 import { normalizeAreaName } from './itemResolver.js';
 import { resolveEffectiveAreaIds } from './areaScope.js';
 import { OFFICE_SCOPED_ROLES } from './officeScope.js';
+import { normalizeRepName, repNameScore } from '../modules/scientific-reps/scientific-reps.service.js';
+
+// ════════════════════════════════════════════════════════════════════════════
+// مطابقة أسماء الأطباء — مشتركة بين استيراد زيارات الأطباء (doctor-visits-
+// import.js) واستيراد أطباء السيرفي نفسه (survey-admin.controller.js). كانت
+// معرَّفة محلياً في doctor-visits-import.js فقط؛ نُقلت هنا كي يستفيد منها
+// الطرفان بلا ازدواج، ويُحفظ التطابق المؤكَّد في مكان واحد (MasterSurveyDoctorAlias).
+// ════════════════════════════════════════════════════════════════════════════
+
+// CRM/ملفات خارجية تكتب اسم الطبيب أحياناً "عيادة الدكتور فلان" بدل "فلان"
+// وحدها — لو تُرك كما هو، لا يطابق السجل الصافي الموجود أصلاً.
+const DOCTOR_PREFIX_RE = /^\s*(عيادة\s+)?(الدكتور|دكتور|د\.?)\s+/i;
+export function cleanDoctorName(name) {
+  let s = String(name ?? '').trim();
+  for (let i = 0; i < 3 && DOCTOR_PREFIX_RE.test(s); i++) s = s.replace(DOCTOR_PREFIX_RE, '').trim();
+  return s;
+}
+
+/** مفتاح تصنيف موحّد للاسم — نفس المفتاح يُستخدم عند القراءة وعند حفظ الرابط لاحقاً. */
+export function doctorLinkKey(name, areaName) {
+  return `${normalizeRepName(cleanDoctorName(name))}|${normalizeAreaName(areaName || '')}`;
+}
+
+/**
+ * درجة تطابق طبيب واحدة (0..1): الاسم هو الأساس (محرك تشابه أسماء المندوبين
+ * — كلمتان مشتركتان على الأقل)، وتُضاف نقاط ترجيح عند تطابق المنطقة/
+ * الاختصاص/الصيدلية أيضاً.
+ */
+export function doctorMatchScore(cand, target) {
+  const nameScore = repNameScore(cand.name, target.name);
+  if (nameScore === 0) return 0;
+  let bonus = 0;
+  if (cand.areaName && target.areaName && normalizeAreaName(cand.areaName) === normalizeAreaName(target.areaName)) bonus += 0.12;
+  if (cand.specialty && target.specialty && normalizeRepName(cand.specialty) === normalizeRepName(target.specialty)) bonus += 0.08;
+  if (cand.pharmacyName && target.pharmacyName && normalizeRepName(cand.pharmacyName) === normalizeRepName(target.pharmacyName)) bonus += 0.05;
+  return Math.min(1, nameScore + bonus);
+}
+
+export const DOCTOR_ASK_FLOOR = 0.45; // أدنى نقاط يُعتَد بها كمرشَّح يُعرض للمستخدم
 
 // الأدوار الميدانية (مُقيّدة بمناطقها). المدراء يرون كامل الفريق.
 const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'commercial_rep']);
@@ -364,4 +403,132 @@ export async function updateSurveyDoctor(surveyId, docId, fields, editedById) {
   }
 
   return { old, updated };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// استيراد أطباء السيرفي من Excel — مطابقة ضد أطباء هذا السيرفي + الروابط
+// (MasterSurveyDoctorAlias) المحفوظة مسبقاً، بنفس فلسفة classifyDoctorRows
+// في doctor-visits-import.js لكن ضد MasterSurveyDoctor مباشرة لا Doctor خاص
+// بمستخدم — لأن هذا استيراد لكتالوج السيرفي المشترك نفسه لا لزيارات مندوب.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * تصنّف صفوف طبيب مرفوعة (name/areaName/specialty/pharmacyName...) دفعة
+ * واحدة (مجموعة واحدة لكل اسم+منطقة مختلفين) مقابل أطباء هذا السيرفي +
+ * الروابط المحفوظة. لا تُنشئ ولا تحفظ شيئاً — قراءة فقط.
+ *
+ *   resolved (status: linked|exact) → رابط محفوظ مسبقاً أو اسم مطابق تماماً
+ *     لطبيب واحد لا لبس فيه → بلا سؤال.
+ *   pending  → مرشّحون بدرجة معتد بها لكن بلا حسم → يُعرض للسوبر أدمن.
+ *   unrelated → لا مرشّح على الإطلاق → طبيب سيرفي جديد بلا سؤال.
+ */
+export async function classifySurveyDoctorRows(surveyId, rows) {
+  const rowsWithName = (rows || []).filter(r => String(r?.name ?? '').trim());
+  if (rowsWithName.length === 0) return { resolved: [], pending: [], unrelated: [] };
+
+  const [aliases, existingDoctors] = await Promise.all([
+    prisma.masterSurveyDoctorAlias.findMany({
+      where: { surveyId },
+      select: { fromKey: true, surveyDoctorId: true },
+    }),
+    prisma.masterSurveyDoctor.findMany({
+      where: { surveyId },
+      select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true, className: true, zoneName: true, phone: true, notes: true },
+    }),
+  ]);
+  const aliasByKey = new Map(aliases.map(a => [a.fromKey, a]));
+  const candById = new Map(existingDoctors.map(d => [d.id, d]));
+
+  const groups = new Map();
+  for (const r of rowsWithName) {
+    const key = doctorLinkKey(r.name, r.areaName);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key, raw: r.name, cleanedName: cleanDoctorName(r.name),
+        areaName: r.areaName || '', specialty: r.specialty || '', pharmacyName: r.pharmacyName || '',
+        rows: [],
+      });
+    }
+    groups.get(key).rows.push(r);
+  }
+
+  const resolved = [], pending = [], unrelated = [];
+
+  for (const g of groups.values()) {
+    for (const r of g.rows) r.rowKey = g.key;
+
+    const alias = aliasByKey.get(g.key);
+    if (alias) {
+      const doc = alias.surveyDoctorId ? candById.get(alias.surveyDoctorId) : null;
+      for (const r of g.rows) r.matchedDoctorId = alias.surveyDoctorId ?? null;
+      resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: doc ? { id: doc.id, name: doc.name } : null });
+      continue;
+    }
+
+    const cleanNorm = normalizeRepName(g.cleanedName);
+    const exactMatches = existingDoctors.filter(c => normalizeRepName(c.name) === cleanNorm);
+    let exact = null;
+    if (exactMatches.length === 1) exact = exactMatches[0];
+    else if (exactMatches.length > 1 && g.areaName) {
+      const areaMatches = exactMatches.filter(c => c.areaName && normalizeAreaName(c.areaName) === normalizeAreaName(g.areaName));
+      if (areaMatches.length === 1) exact = areaMatches[0];
+    }
+    if (exact) {
+      for (const r of g.rows) r.matchedDoctorId = exact.id;
+      resolved.push({ raw: g.raw, key: g.key, status: 'exact', doctor: { id: exact.id, name: exact.name } });
+      continue;
+    }
+
+    const scored = exactMatches.length > 1
+      ? exactMatches.map(c => ({ ...c, score: 1 }))
+      : existingDoctors
+          .map(c => ({ ...c, score: doctorMatchScore({ name: g.cleanedName, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName }, c) }))
+          .filter(c => c.score >= DOCTOR_ASK_FLOOR)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 5);
+
+    for (const r of g.rows) r.matchedDoctorId = null;
+    if (scored.length === 0) {
+      unrelated.push({ raw: g.raw, key: g.key, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName });
+    } else {
+      pending.push({
+        raw: g.raw, key: g.key, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName,
+        suggestions: scored.map(c => ({ id: c.id, name: c.name, score: c.score, areaName: c.areaName, specialty: c.specialty, pharmacyName: c.pharmacyName })),
+      });
+    }
+  }
+
+  const byName = (a, b) => a.raw.localeCompare(b.raw, 'ar');
+  return { resolved: resolved.sort(byName), pending: pending.sort(byName), unrelated: unrelated.sort(byName) };
+}
+
+/**
+ * يحفظ/يحدّث تطابقاً مؤكَّداً على مستوى السيرفي (MasterSurveyDoctorAlias) —
+ * surveyDoctorId=null يعني «ليس أياً من الموجودين» فيُحفظ أيضاً كي لا يتكرّر
+ * السؤال، وسيُنشأ طبيب سيرفي جديد دائماً لهذا الاسم.
+ */
+export async function saveSurveyDoctorAlias(surveyId, { fromName, areaName, surveyDoctorId, confidence = 'confirmed', createdById = null }) {
+  const name = String(fromName ?? '').trim();
+  if (!name || !normalizeRepName(cleanDoctorName(name))) return null;
+  const fromKey = doctorLinkKey(name, areaName);
+  return prisma.masterSurveyDoctorAlias.upsert({
+    where:  { surveyId_fromKey: { surveyId, fromKey } },
+    update: { fromName: name, areaName: areaName || null },
+    create: { surveyId, fromKey, fromName: name, areaName: areaName || null, surveyDoctorId: surveyDoctorId ?? null, confidence, createdById },
+  });
+}
+
+/**
+ * يبحث عن alias مؤكَّد مسبقاً لاسم/منطقة ضمن مجموعة سيرفيات — يُستخدم في
+ * استيراد الزيارات (findSurveyDoctor في doctor-visits-import.js) ليتعرّف
+ * فوراً على تهجئة أكّدها السوبر أدمن سابقاً عبر استيراد أطباء السيرفي، بلا
+ * حاجة لإعادة حساب درجة تشابه ولا عتبة نقاط — تأكيد بشري أعلى ثقة من أي تقدير آلي.
+ */
+export async function loadSurveyDoctorAliases(surveyIds) {
+  if (!surveyIds?.length) return new Map();
+  const rows = await prisma.masterSurveyDoctorAlias.findMany({
+    where: { surveyId: { in: surveyIds } },
+    select: { fromKey: true, surveyDoctorId: true },
+  });
+  return new Map(rows.map(r => [r.fromKey, r.surveyDoctorId]));
 }

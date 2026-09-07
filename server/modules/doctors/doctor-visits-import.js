@@ -27,7 +27,7 @@ import fs from 'fs';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { resolveDocOwnerUserId } from './doctors.controller.js';
 import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
-import { createSurveyDoctor } from '../../lib/surveyDoctors.js';
+import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases } from '../../lib/surveyDoctors.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
 const FEEDBACK_RULES = [
@@ -165,16 +165,8 @@ function leadingSegment(v) {
 const PHARMACY_NAME_RE = /^(صيدلية|صيدليه|ص[.\s])/;
 const DOCTOR_NAME_RE   = /(دكتور|عيادة|د\.)/;
 
-// CRM يكتب اسم الطبيب أحياناً "عيادة الدكتور فلان" بدل "فلان" وحدها — لو تُرك
-// كما هو، لا يطابق السجل الصافي الموجود أصلاً فيُنشئ طبيباً مكرَّراً بلا زيارات
-// تحت الاسم القديم، بينما الزيارة الجديدة تعلَّق على سجل جديد منفصل. نفس فكرة
-// PHARMACY_PREFIX_RE في sales.service.js لكن لأسماء الأطباء.
-const DOCTOR_PREFIX_RE = /^\s*(عيادة\s+)?(الدكتور|دكتور|د\.?)\s+/i;
-function cleanDoctorName(name) {
-  let s = String(name ?? '').trim();
-  for (let i = 0; i < 3 && DOCTOR_PREFIX_RE.test(s); i++) s = s.replace(DOCTOR_PREFIX_RE, '').trim();
-  return s;
-}
+// cleanDoctorName منقولة إلى server/lib/surveyDoctors.js (مشتركة مع استيراد
+// أطباء السيرفي) — مستوردة أعلى الملف.
 
 // ════════════════════════════════════════════════════════════════════════════
 // تحليل حقل note في صيغة CRM — منه نستخرج الايتم المستهدف + ملاحظات الزيارة
@@ -407,28 +399,8 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
 // بتهجئة مختلفة قليلاً) — فنستعين بالمنطقة/الاختصاص/الصيدلية كأدلة إضافية.
 // ════════════════════════════════════════════════════════════════════════════
 
-/** مفتاح تصنيف موحّد للاسم — نفس المفتاح يُستخدم عند القراءة وعند حفظ الرابط لاحقاً. */
-function doctorLinkKey(name, areaName) {
-  return `${normalizeRepName(cleanDoctorName(name))}|${normalizeAreaName(areaName || '')}`;
-}
-
-/**
- * درجة تطابق طبيب واحدة (0..1): الاسم هو الأساس (نفس محرك تشابه أسماء
- * المندوبين — كلمتان مشتركتان على الأقل)، وتُضاف نقاط ترجيح عند تطابق
- * المنطقة/الاختصاص/الصيدلية أيضاً — هذه هي "تفاصيل الاسم الإضافية" التي تساعد
- * على تأكيد المطابقة عند الشك في الاسم وحده.
- */
-function doctorMatchScore(cand, target) {
-  const nameScore = repNameScore(cand.name, target.name);
-  if (nameScore === 0) return 0; // بلا كلمتين مشتركتين على الأقل — ليسا نفس الشخص مهما تشابهت باقي الحقول
-  let bonus = 0;
-  if (cand.areaName && target.areaName && normalizeAreaName(cand.areaName) === normalizeAreaName(target.areaName)) bonus += 0.12;
-  if (cand.specialty && target.specialty && normalizeRepName(cand.specialty) === normalizeRepName(target.specialty)) bonus += 0.08;
-  if (cand.pharmacyName && target.pharmacyName && normalizeRepName(cand.pharmacyName) === normalizeRepName(target.pharmacyName)) bonus += 0.05;
-  return Math.min(1, nameScore + bonus);
-}
-
-const DOCTOR_ASK_FLOOR = 0.45; // أدنى نقاط يُعتَد بها كمرشَّح يُعرض للمستخدم — أقل من هذا لا صلة له بالاسم أصلاً
+// doctorLinkKey / doctorMatchScore / DOCTOR_ASK_FLOOR منقولة إلى
+// server/lib/surveyDoctors.js (مشتركة مع استيراد أطباء السيرفي) — مستوردة أعلى الملف.
 
 /**
  * تصنّف كل أسماء الأطباء في doctorRows دفعة واحدة (مجموعة واحدة لكل اسم+منطقة
@@ -738,6 +710,12 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
         select: { id: true, name: true, areaName: true, specialty: true, pharmacyName: true },
       })
     : [];
+  // روابط أسماء مؤكَّدة على مستوى السيرفي (MasterSurveyDoctorAlias) — سبق
+  // تأكيدها إمّا من استيراد أطباء السيرفي (Super Admin) أو من استيراد زيارات
+  // سابق لهذا الاسم. تُعتمد فوراً بلا عتبة نقاط: تأكيد بشري صريح أعلى ثقة من
+  // أي تقدير آلي، وهذا ما يجعل تهجئة أكّدها السوبر أدمن مرة واحدة تُتعرَّف
+  // عليها تلقائياً في كل استيراد زيارات لاحق بلا إعادة سؤال أحد.
+  const surveyAliasByKey = await loadSurveyDoctorAliases(visibleSurveys.map(s => s.id));
   // عتبة تشابه مرتفعة عمداً (خطأ إملائي/مسافة بسيطة فقط) — هذا الربط تلقائي بلا
   // سؤال المستخدم (صف تجاوز مرحلة المطابقة التفاعلية بلا حسم — مثلاً تعديل يدوي
   // لاسم الطبيب في شبكة المراجعة)، فلا نخمّن عند أدنى التباس حقيقي؛ يبقى إنشاء
@@ -756,6 +734,11 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
   };
 
   const findSurveyDoctor = (name, ctx) => {
+    if (surveyAliasByKey.has(doctorLinkKey(name, ctx.areaName))) {
+      const aliasedId = surveyAliasByKey.get(doctorLinkKey(name, ctx.areaName));
+      const doc = aliasedId ? surveyDoctorsAll.find(d => d.id === aliasedId) : null;
+      return { match: doc ?? null, fuzzy: false };
+    }
     const nameNorm = name.trim().toLowerCase();
     let cands = surveyDoctorsAll.filter(d => d.name.trim().toLowerCase() === nameNorm);
     if (cands.length === 0) return bestFuzzyMatch(name, ctx, surveyDoctorsAll, d => ({ name: d.name, areaName: d.areaName, specialty: d.specialty, pharmacyName: d.pharmacyName }));

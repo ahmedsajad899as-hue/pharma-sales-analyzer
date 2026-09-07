@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import {
   listSurveys, getSurvey, createSurvey, updateSurvey, deleteSurvey,
-  addDoctor, updateDoctor, deleteDoctor, bulkImportDoctors,
+  addDoctor, updateDoctor, deleteDoctor, extractDoctorImport, commitDoctorImport,
   addPharmacy, updatePharmacy, deletePharmacy, bulkImportPharmacies,
   getVisibility, hideUser, showUser, hideOffice, showOffice,
   getSurveyLogs,
@@ -23,7 +23,8 @@ router.delete('/:id', deleteSurvey);
 
 // Doctors
 router.post('/:id/doctors',              addDoctor);
-router.post('/:id/doctors/bulk',         bulkImportDoctors);
+router.post('/:id/doctors/bulk/extract', extractDoctorImport);
+router.post('/:id/doctors/bulk/commit',  commitDoctorImport);
 router.put('/:id/doctors/:docId',        updateDoctor);
 router.delete('/:id/doctors/:docId',     deleteDoctor);
 

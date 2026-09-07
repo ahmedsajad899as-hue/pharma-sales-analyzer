@@ -5,6 +5,12 @@ import { parseExcelFile } from '../../services/excelParser';
 
 // ── Types ────────────────────────────────────────────────────
 interface DocImportRow { name: string; specialty: string; areaName: string; pharmacyName: string; className: string; zoneName: string; phone: string; notes: string; }
+type DocClassifyRow = DocImportRow & { rowKey?: string; matchedDoctorId?: number | null };
+interface DocMatchSuggestion { id: number; name: string; score: number; areaName?: string | null; specialty?: string | null; pharmacyName?: string | null; }
+interface DocMatchResolved { raw: string; key: string; status: 'linked' | 'exact'; doctor: { id: number; name: string } | null; }
+interface DocMatchPending { raw: string; key: string; areaName?: string; specialty?: string; pharmacyName?: string; suggestions: DocMatchSuggestion[]; }
+interface DocMatchUnrelated { raw: string; key: string; }
+interface DocClassification { resolved: DocMatchResolved[]; pending: DocMatchPending[]; unrelated: DocMatchUnrelated[]; }
 interface PharmaImportRow { name: string; ownerName: string; pharmacyName: string; phone: string; address: string; areaName: string; notes: string; }
 interface Survey {
   id: number; name: string; description?: string; isActive: boolean;
@@ -290,8 +296,11 @@ export default function MasterSurveyPage() {
   const [fillingFromDoctors, setFillingFromDoctors] = useState(false);
 
   // excel import
-  const [importDoctorsPreview, setImportDoctorsPreview] = useState<DocImportRow[]>([]);
+  const [importDoctorsPreview, setImportDoctorsPreview] = useState<DocClassifyRow[]>([]);
   const [showDoctorsImport,    setShowDoctorsImport]    = useState(false);
+  const [docClassification,    setDocClassification]    = useState<DocClassification | null>(null);
+  const [docMatchChoice,       setDocMatchChoice]        = useState<Record<string, number | 'new'>>({});
+  const [classifyingDocs,      setClassifyingDocs]       = useState(false);
   const [importPharmasPreview, setImportPharmasPreview] = useState<PharmaImportRow[]>([]);
   const [showPharmasImport,    setShowPharmasImport]    = useState(false);
 
@@ -404,8 +413,26 @@ export default function MasterSurveyPage() {
     setDetectedDocMapping(humanMap);
     const allHeaders = Object.keys(rows[0] as Record<string,unknown>);
     setUnknownDocCols(allHeaders.filter(h => !(h in headerMap)));
-    setImportDoctorsPreview(rows.map(r => smartMapDocRow(r as Record<string,unknown>, headerMap)).filter(r => r.name));
+    const mapped = rows.map(r => smartMapDocRow(r as Record<string,unknown>, headerMap)).filter(r => r.name);
+    setImportDoctorsPreview(mapped);
+    setDocClassification(null);
+    setDocMatchChoice({});
     setShowDoctorsImport(true); e.target.value = '';
+    if (!selectedSurvey || !mapped.length) return;
+    setClassifyingDocs(true);
+    try {
+      const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/doctors/bulk/extract`, {
+        method: 'POST', headers: H(), body: JSON.stringify({ doctors: mapped }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || d.message || `خطأ ${r.status}`);
+      setDocClassification(d.data);
+      setImportDoctorsPreview(d.data.rows ?? mapped);
+    } catch (err: any) {
+      alert(`❌ فشل تصنيف الأطباء: ${err.message}`);
+    } finally {
+      setClassifyingDocs(false);
+    }
   };
   const handlePharmaExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -421,21 +448,41 @@ export default function MasterSurveyPage() {
     setImportPharmasPreview(rows.map(r => smartMapPharmaRow(r as Record<string,unknown>, headerMap)).filter(r => r.name));
     setShowPharmasImport(true); e.target.value = '';
   };
+  const pendingDocUnresolvedCount = docClassification
+    ? docClassification.pending.filter(p => !docMatchChoice[p.key]).length
+    : 0;
+
   const confirmImportDoctors = async () => {
-    if (!selectedSurvey || !importDoctorsPreview.length) return;
+    if (!selectedSurvey || !importDoctorsPreview.length || !docClassification) return;
+    if (pendingDocUnresolvedCount > 0) {
+      alert(`يوجد ${pendingDocUnresolvedCount} اسم بحاجة مراجعة قبل التأكيد`);
+      return;
+    }
+    const pendingKeys = new Set(docClassification.pending.map(p => p.key));
+    const rowsPayload = importDoctorsPreview.map(r => {
+      const key = r.rowKey || '';
+      const wasAsk = pendingKeys.has(key);
+      let matchedDoctorId: number | null = r.matchedDoctorId ?? null;
+      if (wasAsk) {
+        const choice = docMatchChoice[key];
+        matchedDoctorId = (choice && choice !== 'new') ? Number(choice) : null;
+      }
+      return { ...r, matchedDoctorId, wasAsk };
+    });
+
     setImporting(true);
     const BATCH = 500;
-    const total = importDoctorsPreview.length;
+    const total = rowsPayload.length;
     try {
       for (let i = 0; i < total; i += BATCH) {
-        const chunk = importDoctorsPreview.slice(i, i + BATCH);
+        const chunk = rowsPayload.slice(i, i + BATCH);
         setImportProgress(`جاري الاستيراد... ${Math.min(i + BATCH, total)}/${total}`);
-        const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/doctors/bulk`, {
-          method: 'POST', headers: H(), body: JSON.stringify({ doctors: chunk }),
+        const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/doctors/bulk/commit`, {
+          method: 'POST', headers: H(), body: JSON.stringify({ rows: chunk }),
         });
         if (!r.ok) { const d = await r.json(); throw new Error(d.error || d.message || `خطأ ${r.status}`); }
       }
-      setShowDoctorsImport(false); setImportDoctorsPreview([]);
+      setShowDoctorsImport(false); setImportDoctorsPreview([]); setDocClassification(null); setDocMatchChoice({});
       fetchSurvey(selectedSurvey.id);
     } catch (e: any) {
       alert(`❌ فشل الاستيراد: ${e.message}`);
@@ -536,32 +583,107 @@ export default function MasterSurveyPage() {
             </div>
           </div>
         )}
-        <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e8edf5', borderRadius: 10, marginBottom: 16 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr style={{ background: '#f8fafc' }}>
-              {['الاسم','الاختصاص','المنطقة','الصيدلية','الكلاس','الزون','الهاتف'].map(h => (
-                <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5' }}>{h}</th>
+        {classifyingDocs && (
+          <div style={{ marginBottom: 12, padding: '10px 12px', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#4338ca' }}>
+            🔎 جارٍ مطابقة الأسماء مع أطباء السيرفي الحاليين...
+          </div>
+        )}
+        {docClassification && !classifyingDocs && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, fontSize: 12 }}>
+            <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #86efac', borderRadius: 20, padding: '3px 10px', fontWeight: 700 }}>
+              ✅ تطابق تلقائي: {docClassification.resolved.length}
+            </span>
+            {docClassification.pending.length > 0 && (
+              <span style={{ background: '#fffbeb', color: '#92400e', border: '1px solid #fcd34d', borderRadius: 20, padding: '3px 10px', fontWeight: 700 }}>
+                ⏳ بحاجة مراجعة: {docClassification.pending.length - pendingDocUnresolvedCount}/{docClassification.pending.length}
+              </span>
+            )}
+            <span style={{ background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 20, padding: '3px 10px', fontWeight: 700 }}>
+              🆕 طبيب جديد: {docClassification.unrelated.length}
+            </span>
+          </div>
+        )}
+        {docClassification && docClassification.pending.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', marginBottom: 4 }}>
+              🩺 تأكيد أسماء تشبه أطباء موجودين ({docClassification.pending.length - pendingDocUnresolvedCount}/{docClassification.pending.length})
+            </div>
+            <p style={{ margin: '0 0 8px', fontSize: 11.5, color: '#78716c' }}>
+              الاسم في الملف يشبه طبيباً (أو أكثر) مسجَّلاً مسبقاً في هذا السيرفي — قارن المنطقة/الاختصاص/الصيدلية لتأكيد أنه نفس الطبيب، أو اختر إنشاء طبيب جديد. القرار يُحفظ فلا يُعاد سؤالك عن نفس الاسم لاحقاً (حتى من صفحة الزيارات).
+            </p>
+            <div style={{ maxHeight: '38vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {docClassification.pending.map(e => (
+                <div key={e.key} style={matchCard}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>{e.raw}</div>
+                  {(e.areaName || e.specialty || e.pharmacyName) && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, fontSize: 11 }}>
+                      {e.areaName && <span style={matchChip}>📍 {e.areaName}</span>}
+                      {e.specialty && <span style={matchChip}>🩺 {e.specialty}</span>}
+                      {e.pharmacyName && <span style={matchChip}>🏪 {e.pharmacyName}</span>}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {e.suggestions.map(s => {
+                      const selected = docMatchChoice[e.key] === s.id;
+                      return (
+                        <label key={s.id} style={{ ...candidateRow, ...(selected ? candidateRowOn : {}) }}>
+                          <input type="radio" name={`survey-doc-${e.key}`} checked={selected}
+                            onChange={() => setDocMatchChoice(p => ({ ...p, [e.key]: s.id }))} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>
+                              {s.name} <span style={{ fontWeight: 600, color: '#6366f1' }}>(تشابه {Math.round(s.score * 100)}%)</span>
+                            </div>
+                            {(s.areaName || s.specialty || s.pharmacyName) && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 3, fontSize: 10.5, color: '#64748b' }}>
+                                {s.areaName && <span>📍 {s.areaName}</span>}
+                                {s.specialty && <span>🩺 {s.specialty}</span>}
+                                {s.pharmacyName && <span>🏪 {s.pharmacyName}</span>}
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                    <label style={{ ...candidateRow, ...(docMatchChoice[e.key] === 'new' ? candidateRowOn : {}) }}>
+                      <input type="radio" name={`survey-doc-${e.key}`} checked={docMatchChoice[e.key] === 'new'}
+                        onChange={() => setDocMatchChoice(p => ({ ...p, [e.key]: 'new' }))} />
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>🆕 ليس أياً منهم — أنشئ طبيباً جديداً بهذا الاسم</span>
+                    </label>
+                  </div>
+                </div>
               ))}
-            </tr></thead>
-            <tbody>
-              {importDoctorsPreview.map((d, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '7px 10px', fontWeight: 600, color: '#1e293b' }}>{d.name}</td>
-                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.specialty || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.areaName || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.pharmacyName || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.className || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.zoneName || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.phone || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </div>
+        )}
+        <details style={{ marginBottom: 16 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>عرض كل الصفوف ({importDoctorsPreview.length})</summary>
+          <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e8edf5', borderRadius: 10, marginTop: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead><tr style={{ background: '#f8fafc' }}>
+                {['الاسم','الاختصاص','المنطقة','الصيدلية','الكلاس','الزون','الهاتف'].map(h => (
+                  <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5' }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {importDoctorsPreview.map((d, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '7px 10px', fontWeight: 600, color: '#1e293b' }}>{d.name}</td>
+                    <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.specialty || '—'}</td>
+                    <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.areaName || '—'}</td>
+                    <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.pharmacyName || '—'}</td>
+                    <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.className || '—'}</td>
+                    <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.zoneName || '—'}</td>
+                    <td style={{ padding: '7px 10px', color: '#64748b' }}>{d.phone || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
           {importProgress && <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>{importProgress}</span>}
           <button onClick={() => setShowDoctorsImport(false)} disabled={importing} style={btnSecondary}>إلغاء</button>
-          <button onClick={confirmImportDoctors} disabled={importing} style={btnPrimary}>
+          <button onClick={confirmImportDoctors} disabled={importing || classifyingDocs || !docClassification || pendingDocUnresolvedCount > 0} style={btnPrimary}>
             {importing ? (importProgress || 'جاري الاستيراد...') : `✅ استيراد ${importDoctorsPreview.length} طبيب`}
           </button>
         </div>
@@ -1551,3 +1673,7 @@ const btnDanger: React.CSSProperties = {
   borderRadius: 9, cursor: 'pointer', fontWeight: 600, fontSize: 13,
   padding: '9px 20px', fontFamily: 'inherit',
 };
+const matchCard: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, background: '#f8fafc' };
+const matchChip: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 9px', color: '#475569', fontWeight: 500 };
+const candidateRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', borderRadius: 8, border: '1.5px solid #e2e8f0', background: '#fff', cursor: 'pointer' };
+const candidateRowOn: React.CSSProperties = { borderColor: '#6366f1', background: '#eef2ff' };

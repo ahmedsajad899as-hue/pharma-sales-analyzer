@@ -79,6 +79,7 @@ model User {
 
   // Master Survey relations
   surveyDoctorEdits   MasterSurveyDoctor[]     @relation("SurveyDoctorEditor")
+  surveyDoctorAliasCreated MasterSurveyDoctorAlias[] @relation("SurveyDoctorAliasCreator")
   surveyPharmacyEdits MasterSurveyPharmacy[]   @relation("SurveyPharmacyEditor")
   surveyEditLogs      MasterSurveyEditLog[]    @relation("SurveyEditLogUser")
   surveyHiddenFor     MasterSurveyHiddenUser[] @relation("SurveyHiddenUser")
@@ -1339,6 +1340,7 @@ model MasterSurvey {
   createdBy   SuperAdmin? @relation("SurveyCreator", fields: [createdById], references: [id])
 
   doctors       MasterSurveyDoctor[]
+  doctorAliases MasterSurveyDoctorAlias[]
   pharmacies    MasterSurveyPharmacy[]
   editLogs      MasterSurveyEditLog[]
   hiddenUsers   MasterSurveyHiddenUser[]
@@ -1413,9 +1415,31 @@ model MasterSurveyDoctor {
   lastEditedBy    User?                @relation("SurveyDoctorEditor", fields: [lastEditedById], references: [id])
   importedDoctors Doctor[]
   archiveEntries  DoctorArchiveEntry[]
+  aliases         MasterSurveyDoctorAlias[]
 
   @@index([surveyId])
   @@map("master_survey_doctors")
+}
+
+// ─── Master Survey Doctor Alias (تطابق أسماء مؤكَّد على مستوى السيرفي) ───────
+model MasterSurveyDoctorAlias {
+  id             Int      @id @default(autoincrement())
+  surveyId       Int
+  fromKey        String
+  fromName       String
+  areaName       String?
+  surveyDoctorId Int?
+  confidence     String   @default("confirmed") // 'fuzzy' | 'confirmed'
+  createdById    Int?
+  createdAt      DateTime @default(now())
+
+  survey       MasterSurvey        @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  surveyDoctor MasterSurveyDoctor? @relation(fields: [surveyDoctorId], references: [id], onDelete: Cascade)
+  createdBy    User?               @relation("SurveyDoctorAliasCreator", fields: [createdById], references: [id])
+
+  @@unique([surveyId, fromKey])
+  @@index([surveyDoctorId])
+  @@map("master_survey_doctor_aliases")
 }
 
 // ─── Master Survey Pharmacy (صيدلية داخل السيرفي) ───────────
