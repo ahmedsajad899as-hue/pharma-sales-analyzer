@@ -40,15 +40,25 @@ export async function getRepresentativeById(id) {
  * @param {{ isActive?: boolean }} filters
  */
 export async function listRepresentatives(filters = {}, fileIds = null, userId = null) {
-  // When fileIds are provided the sales-in-file filter already scopes the results.
-  // Do NOT add a userId filter in that case — MedicalRepresentative records belong
-  // to the file OWNER's userId, so a rep viewing a shared file would find nothing
-  // if we filtered by their own userId.
-  const effectiveUserId = (fileIds && fileIds.length > 0) ? null : userId;
-  const reps = await repRepo.listRepresentatives(
-    { ...filters, ...(effectiveUserId != null ? { userId: effectiveUserId } : {}) },
-    fileIds
-  );
+  // MedicalRepresentative records belong to the file OWNER's userId — filtering
+  // directly by the CALLER's own userId returns nothing for anyone viewing files
+  // shared with them (office_manager/company_manager viewing an office_employee's
+  // broadcast, or a rep viewing a manager's transferred file) — this was exactly
+  // why the "اكتب اسم مندوب تجاري…" autocomplete came back empty for those accounts.
+  // Fix: resolve every file the caller can access (owned OR shared via
+  // FileUserShare) and scope by THOSE files' sales instead of raw ownership.
+  let effectiveFileIds = fileIds;
+  if (userId != null) {
+    const accessible = await prisma.uploadedFile.findMany({
+      where: { OR: [{ userId }, { fileShares: { some: { userId } } } ] },
+      select: { id: true },
+    });
+    const accessibleIds = accessible.map(f => f.id);
+    effectiveFileIds = (fileIds && fileIds.length > 0)
+      ? fileIds.filter(id => accessibleIds.includes(id))
+      : accessibleIds;
+  }
+  const reps = await repRepo.listRepresentatives(filters, effectiveFileIds);
   return reps.map(r => ({
     ...r,
     areasCount: r._count?.areas ?? 0,
