@@ -971,21 +971,29 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       where: { id: { in: fileIds } },
       select: { userId: true, user: { select: { role: true } } },
     });
-    // ملفات موظف المكتب مستثناة من توسيع "زملاء الشركة": هذا الحساب مُعيَّن على
-    // كل شركات النظام عمداً (ليقدر يُعمِّم أي ملف) — فلو وسّعنا حسب شركته لعاد
-    // الناتج كل مدراء التطبيق تقريباً وطُبِّقت حجوباتهم الشخصية على تقرير مندوب
-    // لا علاقة له بفريقهم. حجب موظف المكتب نفسه (إن وُجد) يبقى مُطبَّقاً.
-    const directOwnerIds = [...new Set(
-      fileOwners.filter(f => f.user?.role !== 'office_employee').map(f => f.userId).filter(Boolean),
-    )];
+    // ثلاث حالات بحسب مالك كل ملف نشط، تُجمع بالنتيجة (Union):
+    //  1) ملف يملكه المُشاهِد نفسه → حجبه هو فقط (بلا توسيع بالشركة) — وإلا
+    //     فمفتاحه الشخصي (تفعيل/تعطيل الحجب) يبقى بلا أثر متى كان أحد زملائه
+    //     بالشركة (كمدير آخر) يحجب نفس الاسم ومفتاحه هو مُفعَّل، فيبدو الحجب
+    //     "عالقاً" رغم إيقافه — وهذا بالضبط الخلل المُبلَّغ عنه.
+    //  2) ملف موظف المكتب المُشارَك → حجب المُشاهِد نفسه أيضاً (حجب مستقل لكل
+    //     حساب، تماماً كملف رفعه بنفسه — راجع نفس المنطق في reports.routes.js).
+    //  3) ملف مدير حقيقي آخر شارَكه مع المُشاهِد → حجب ذلك المالك وزملائه
+    //     بالشركة (التصميم الأصلي: مدير يفرض حجبه على من يشارك الملف معه)،
+    //     مُستبعَداً منه المُشاهِد نفسه حتى لا يُطبَّق حجبه على نفسه مرتين بمصدر
+    //     غير مباشر.
+    const ownFileOwner = viewerId && fileOwners.some(f => f.userId === viewerId);
     const hasOfficeEmployeeOwner = fileOwners.some(f => f.user?.role === 'office_employee');
-    // مدير المكتب يضيف الحجب من حسابه هو، لا من حساب مدير الشركة الذي رفع
-    // الملف فعلياً — بلا هذا التوسيع لا يتطابق userId أبداً ويبقى الحجب بلا أثر.
-    // ملف موظف المكتب → حجب المُشاهِد نفسه (viewerId) هو ما يُطبَّق عليه — حجب
-    // مستقل لكل حساب، تماماً كملف رفعه بنفسه (راجع نفس المنطق في reports.routes.js).
+    const otherManagerOwnerIds = [...new Set(
+      fileOwners
+        .filter(f => f.userId !== viewerId && f.user?.role !== 'office_employee')
+        .map(f => f.userId)
+        .filter(Boolean),
+    )];
+    const expandedOtherIds = (await expandOwnerIdsByCompany(otherManagerOwnerIds)).filter(id => id !== viewerId);
     const ownerIds = [...new Set([
-      ...(await expandOwnerIdsByCompany(directOwnerIds)),
-      ...(hasOfficeEmployeeOwner && viewerId ? [viewerId] : []),
+      ...expandedOtherIds,
+      ...((ownFileOwner || hasOfficeEmployeeOwner) && viewerId ? [viewerId] : []),
     ])];
     if (ownerIds.length > 0) {
       // Only apply block lists of owners who have blocking ENABLED (master switch)
