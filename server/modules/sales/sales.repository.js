@@ -440,7 +440,7 @@ export async function createUploadedFile(data) {
  * @param {{ startDate?, endDate? }} dateRange
  * @returns {{ byArea, byItem, totals }}
  */
-export async function getSalesAggregates(repId, areaIds, itemIds, dateRange = {}, fileIds = null, recordType = null, blockConditions = []) {
+export async function getSalesAggregates(repId, areaIds, itemIds, dateRange = {}, fileIds = null, recordType = null) {
   const dateFilter = buildDateFilter(dateRange);
 
   // Build WHERE clause
@@ -452,7 +452,6 @@ export async function getSalesAggregates(repId, areaIds, itemIds, dateRange = {}
     ...(itemIds ? { itemId: { in: itemIds } } : {}),
     ...buildFileIdsFilter(fileIds),
     ...(recordType ? { recordType } : {}),
-    ...(blockConditions.length > 0 ? { AND: blockConditions } : {}),
   };
 
   // Single query: fetch all matching sales with area + item names

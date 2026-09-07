@@ -7,13 +7,12 @@
 import { Router } from 'express';
 import { getRepresentativeReport } from '../representatives/representatives.controller.js';
 import { COLUMN_ALIASES, detectMercatoFormat } from '../sales/sales.service.js';
-import { saleValueUSD, normalizeArabic } from '../sales/sales.repository.js';
+import { saleValueUSD } from '../sales/sales.repository.js';
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import { buildItemScopeFilter } from '../../lib/itemScope.js';
 import { extractCompanyFromCode, isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { normalizeItemKey } from '../../lib/itemResolver.js';
-import { expandOwnerIdsByCompany } from '../scientific-reps/scientific-reps.service.js';
 
 const router = Router();
 
@@ -60,108 +59,22 @@ router.get('/overall', async (req, res) => {
       rawApplied = ownedCount === parsedFileIds.length;
     }
     const effectiveItemScope = rawApplied ? {} : itemScopeFilter;
-    // ── Block filter: names the file owner (manager) has globally blocked
-    //    (BlockedArea/BlockedItem/BlockedCommercialRep) must stay hidden from
-    //    anyone the file is transferred to — same lists used by the
-    //    scientific-rep report, now also enforced here for shared-file viewers.
-    let blockFilterConditions = [];
+    // «التحليل الشامل» مُستثنى عمداً من خاصية الحجب (BlockedArea/Item/
+    // CommercialRep/Pharmacy) — بطلب صريح: الحجب يخصّ تقرير «علمي» فقط
+    // (resolveSciRepSales في scientific-reps.service.js)، ولا يجوز أن يمسّ
+    // نتائج أو بيانات هذه الشاشة إطلاقاً، سواء كان الملف مملوكاً أو مُشارَكاً.
+    // نطاق المناطق (لا علاقة له بالحجب) يبقى مُطبَّقاً على الملفات المُشارَكة:
+    // UserAreaAssignment ∪ ScientificRepArea ∪ مناطق المحافظات المعيّنة —
+    // موحَّد في areaScope.js ليشمل توسيع المحافظات، وليعطي اتحاداً بدل «أول
+    // مصدر غير فارغ» (مستخدم له مناطق يدوية ومحافظة كان يفقد الثانية).
     if (userId && parsedFileIds.length > 0) {
-      // Check if any of the requested files are shared with this user (not owned by them)
-      const sharedFiles = await prisma.uploadedFile.findMany({
+      const sharedFiles = await prisma.uploadedFile.count({
         where: { id: { in: parsedFileIds }, NOT: { userId }, fileShares: { some: { userId } } },
-        select: { id: true, userId: true, user: { select: { role: true } } },
       });
-      if (sharedFiles.length > 0) {
-        // نطاق المناطق الفعلي: UserAreaAssignment ∪ ScientificRepArea ∪ مناطق
-        // المحافظات المعيّنة. كان هنا تسلسل يدوي يجرّب الأول ثم يتراجع للثاني —
-        // وُحّد في areaScope.js ليشمل توسيع المحافظات، وليعطي اتحاداً بدل
-        // «أول مصدر غير فارغ» (مستخدم له مناطق يدوية ومحافظة كان يفقد الثانية).
+      if (sharedFiles > 0) {
         const areaIds = await resolveEffectiveAreaIds(userId);
         if (areaIds.length > 0) {
           areaFilter = { areaId: { in: areaIds } };
-        }
-
-        // ملفات موظف المكتب: الحجب فيها مستقل بالكامل لكل حساب — كل مستلم يُطبِّق
-        // حجبه الشخصي هو على ما يراه (كأنه رفع الملف بنفسه)، بلا أي تأثير من
-        // حسابات أخرى. هذا الحساب مُعيَّن على كل شركات النظام عمداً (ليقدر
-        // يُعمِّم أي ملف) — فلو وُسِّع حسب شركته لعاد الناتج كل مدراء التطبيق
-        // تقريباً وطُبِّقت حجوباتهم عِوضاً عن حجب المستلم نفسه.
-        const directOwnerIds = [...new Set(
-          sharedFiles.filter(f => f.user?.role !== 'office_employee').map(f => f.userId).filter(Boolean),
-        )];
-        const hasOfficeEmployeeShare = sharedFiles.some(f => f.user?.role === 'office_employee');
-        // مدير المكتب يضيف الحجب من حسابه هو، لا من حساب مدير الشركة الذي رفع
-        // الملف فعلياً — راجع نفس التوسيع في resolveSciRepSales (scientific-reps.service.js).
-        // استبعاد المُستلِم (userId) نفسه من الناتج: directOwnerIds هنا بالتعريف
-        // "ملّاك غيري" (شرط NOT:{userId} أعلاه على sharedFiles) — فأي عودة له في
-        // الموسَّع سببها فقط مشاركته بشركة مع المالك الحقيقي (زميل بالشركة)، لا
-        // ملكية فعلية، وكانت ستُطبِّق حجبه الشخصي مرتين أو بمصدر خاطئ.
-        const expandedIds = (await expandOwnerIdsByCompany(directOwnerIds)).filter(id => id !== userId);
-        // ملف موظف المكتب → حجب المستلم نفسه هو ما يُطبَّق عليه (مستقل بالكامل).
-        const ownerIds = [...new Set([...expandedIds, ...(hasOfficeEmployeeShare ? [userId] : [])])];
-        if (ownerIds.length > 0) {
-          // Only apply block lists of owners who have blocking ENABLED (master switch)
-          // AND the block row itself isn't temporarily paused (enabled=false).
-          const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true }, enabled: true };
-          const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows, blockedRepAreaRows] = await Promise.all([
-            prisma.blockedCommercialRep.findMany({ where: blockWhere, select: { name: true } }),
-            prisma.blockedArea.findMany({ where: blockWhere, select: { name: true } }),
-            prisma.blockedItem.findMany({ where: blockWhere, select: { name: true } }),
-            prisma.blockedPharmacy.findMany({ where: blockWhere, select: { name: true } }),
-            prisma.blockedRepArea.findMany({ where: blockWhere, select: { commercialRepName: true, areaName: true } }),
-          ]);
-
-          const blockedRepNorms = new Set(blockedRepRows.map(b => normalizeArabic(b.name)).filter(Boolean));
-          if (blockedRepNorms.size > 0) {
-            const allMedReps = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
-            const blockedRepIds = allMedReps.filter(r => blockedRepNorms.has(normalizeArabic(r.name))).map(r => r.id);
-            if (blockedRepIds.length > 0) blockFilterConditions.push({ NOT: { representativeId: { in: blockedRepIds } } });
-          }
-
-          const blockedAreaNorms = new Set(blockedAreaRows.map(b => normalizeArabic(b.name)).filter(Boolean));
-          if (blockedAreaNorms.size > 0) {
-            const allAreasForBlock = await prisma.area.findMany({ select: { id: true, name: true } });
-            const blockedAreaIds = allAreasForBlock.filter(a => blockedAreaNorms.has(normalizeArabic(a.name))).map(a => a.id);
-            if (blockedAreaIds.length > 0) blockFilterConditions.push({ NOT: { areaId: { in: blockedAreaIds } } });
-          }
-
-          const blockedItemNorms = new Set(blockedItemRows.map(b => normalizeArabic(b.name)).filter(Boolean));
-          if (blockedItemNorms.size > 0) {
-            const allItemsForBlock = await prisma.item.findMany({ select: { id: true, name: true } });
-            const blockedItemIds = allItemsForBlock.filter(i => blockedItemNorms.has(normalizeArabic(i.name))).map(i => i.id);
-            if (blockedItemIds.length > 0) blockFilterConditions.push({ NOT: { itemId: { in: blockedItemIds } } });
-          }
-
-          // الصيدلية = Customer على صف المبيعة (مطابقة بالاسم المطبَّع لأن نفس
-          // الصيدلية تتكرر كصفوف Customer متعددة عبر الملفات).
-          const blockedPharmNorms = new Set(blockedPharmRows.map(b => normalizeArabic(b.name)).filter(Boolean));
-          if (blockedPharmNorms.size > 0) {
-            const allCustomers = await prisma.customer.findMany({ select: { id: true, name: true } });
-            const blockedCustomerIds = allCustomers.filter(c => blockedPharmNorms.has(normalizeArabic(c.name))).map(c => c.id);
-            if (blockedCustomerIds.length > 0) blockFilterConditions.push({ NOT: { customerId: { in: blockedCustomerIds } } });
-          }
-
-          // حجب جزئي: مندوب تجاري محدد في مجموعة مناطق محددة له فقط (لا كل المندوب
-          // ولا كل المنطقة) — نفس المنطق المطبَّق في resolveSciRepSales.
-          if (blockedRepAreaRows.length > 0) {
-            const allMedRepsForBlock  = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
-            const allAreasForRepBlock = await prisma.area.findMany({ select: { id: true, name: true } });
-            const areasByRepNorm = new Map();
-            for (const row of blockedRepAreaRows) {
-              const rk = normalizeArabic(row.commercialRepName);
-              if (!areasByRepNorm.has(rk)) areasByRepNorm.set(rk, new Set());
-              areasByRepNorm.get(rk).add(normalizeArabic(row.areaName));
-            }
-            const repAreaConds = [];
-            for (const [repNorm, areaNormsSet] of areasByRepNorm) {
-              const repIdsForBlock  = allMedRepsForBlock.filter(r => normalizeArabic(r.name) === repNorm).map(r => r.id);
-              const areaIdsForBlock = allAreasForRepBlock.filter(a => areaNormsSet.has(normalizeArabic(a.name))).map(a => a.id);
-              if (repIdsForBlock.length > 0 && areaIdsForBlock.length > 0) {
-                repAreaConds.push({ representativeId: { in: repIdsForBlock }, areaId: { in: areaIdsForBlock } });
-              }
-            }
-            if (repAreaConds.length > 0) blockFilterConditions.push({ NOT: { OR: repAreaConds } });
-          }
         }
       }
     }
@@ -223,7 +136,6 @@ router.get('/overall', async (req, res) => {
       ...userOwnershipFilter,
       ...areaFilter,
       ...effectiveItemScope,
-      ...(blockFilterConditions.length > 0 ? { AND: blockFilterConditions } : {}),
       // No explicit dates → per-file garbage exclusion; otherwise the explicit range.
       ...(noDateFileFilter
         ? noDateFileFilter
