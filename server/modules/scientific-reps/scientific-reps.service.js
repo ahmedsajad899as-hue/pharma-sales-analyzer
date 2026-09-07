@@ -971,29 +971,28 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       where: { id: { in: fileIds } },
       select: { userId: true, user: { select: { role: true } } },
     });
-    // ثلاث حالات بحسب مالك كل ملف نشط، تُجمع بالنتيجة (Union):
-    //  1) ملف يملكه المُشاهِد نفسه → حجبه هو فقط (بلا توسيع بالشركة) — وإلا
-    //     فمفتاحه الشخصي (تفعيل/تعطيل الحجب) يبقى بلا أثر متى كان أحد زملائه
-    //     بالشركة (كمدير آخر) يحجب نفس الاسم ومفتاحه هو مُفعَّل، فيبدو الحجب
-    //     "عالقاً" رغم إيقافه — وهذا بالضبط الخلل المُبلَّغ عنه.
-    //  2) ملف موظف المكتب المُشارَك → حجب المُشاهِد نفسه أيضاً (حجب مستقل لكل
-    //     حساب، تماماً كملف رفعه بنفسه — راجع نفس المنطق في reports.routes.js).
-    //  3) ملف مدير حقيقي آخر شارَكه مع المُشاهِد → حجب ذلك المالك وزملائه
-    //     بالشركة (التصميم الأصلي: مدير يفرض حجبه على من يشارك الملف معه)،
-    //     مُستبعَداً منه المُشاهِد نفسه حتى لا يُطبَّق حجبه على نفسه مرتين بمصدر
-    //     غير مباشر.
-    const ownFileOwner = viewerId && fileOwners.some(f => f.userId === viewerId);
-    const hasOfficeEmployeeOwner = fileOwners.some(f => f.user?.role === 'office_employee');
+    // حالتان تُجمعان بالنتيجة (Union):
+    //  1) حجب المُشاهِد نفسه يُطبَّق دائماً على ما يراه هو (بمفتاحه الشخصي وحده،
+    //     بلا توسيع بالشركة) — سواء كان الملف النشط ملكه هو، أو ملف موظف مكتب
+    //     مُشارَك، أو حتى ملف مدير حقيقي آخر شارَكه معه (مثال: مدير المكتب يحجب
+    //     مندوباً تجارياً من صفحة المندوبين العلميين، فيختفي من كل تقارير
+    //     العلميين/التيم ليدر التي يراها، رغم أن الملفات الفعلية يرفعها مدراء
+    //     الشركات لا هو). بلا هذا لا يتطابق أي userId أبداً لحسابه ويبقى حجبه
+    //     محفوظاً بلا أثر — وهذا بالضبط الخلل المُبلَّغ عنه.
+    //  2) ملف مدير حقيقي آخر شارَكه مع المُشاهِد → حجب ذلك المالك وزملائه
+    //     بالشركة أيضاً (التصميم الأصلي: مدير يفرض حجبه على من يشارك الملف
+    //     معه)، عدا موظف المكتب (مُعيَّن عمداً على كل شركات النظام، فتوسيعه
+    //     يُرجع كل مدراء التطبيق تقريباً) الذي يُطبَّق حجبه هو فقط دون توسيع.
     const otherManagerOwnerIds = [...new Set(
       fileOwners
         .filter(f => f.userId !== viewerId && f.user?.role !== 'office_employee')
         .map(f => f.userId)
         .filter(Boolean),
     )];
-    const expandedOtherIds = (await expandOwnerIdsByCompany(otherManagerOwnerIds)).filter(id => id !== viewerId);
+    const expandedOtherIds = await expandOwnerIdsByCompany(otherManagerOwnerIds);
     const ownerIds = [...new Set([
       ...expandedOtherIds,
-      ...((ownFileOwner || hasOfficeEmployeeOwner) && viewerId ? [viewerId] : []),
+      ...(viewerId ? [viewerId] : []),
     ])];
     if (ownerIds.length > 0) {
       // Only apply block lists of owners who have blocking ENABLED (master switch)
