@@ -282,7 +282,7 @@ export async function getRepReport(req, res, next) {
       fileIds:    parseFileIds(req.query.fileIds || req.query.fileId),
       recordType: req.query.recordType || null,
     };
-    const report = await svc.getReport(id, query);
+    const report = await svc.getReport(id, query, req.user?.id ?? null);
     res.json({ success: true, data: report });
   } catch (err) {
     console.error('[getRepReport] ERROR id=%s query=%j err=%s', req.params.id, req.query, err?.message, err?.stack);

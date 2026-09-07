@@ -1148,7 +1148,7 @@ app.get('/api/export/raw-sales', async (req, res) => {
         startDate:  startDate || undefined,
         endDate:    endDate   || undefined,
         recordType: recordType || null,
-      });
+      }, req.user?.id ?? null);
       return res.json({ success: true, data: sales });
     }
 

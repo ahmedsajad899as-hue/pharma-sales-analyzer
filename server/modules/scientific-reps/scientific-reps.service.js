@@ -868,7 +868,7 @@ export async function removeRepNameLink(userId, fromKey) {
   return { ok: true };
 }
 
-async function resolveSciRepSales(id, query = {}, select) {
+async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   const rep = await assertExists(id);
 
   // ── Arabic normalizer (unify alef variants, teh marbuta, remove diacritics) ──
@@ -978,12 +978,15 @@ async function resolveSciRepSales(id, query = {}, select) {
     const directOwnerIds = [...new Set(
       fileOwners.filter(f => f.user?.role !== 'office_employee').map(f => f.userId).filter(Boolean),
     )];
-    const officeEmployeeOwnerIds = [...new Set(
-      fileOwners.filter(f => f.user?.role === 'office_employee').map(f => f.userId).filter(Boolean),
-    )];
+    const hasOfficeEmployeeOwner = fileOwners.some(f => f.user?.role === 'office_employee');
     // مدير المكتب يضيف الحجب من حسابه هو، لا من حساب مدير الشركة الذي رفع
     // الملف فعلياً — بلا هذا التوسيع لا يتطابق userId أبداً ويبقى الحجب بلا أثر.
-    const ownerIds = [...new Set([...(await expandOwnerIdsByCompany(directOwnerIds)), ...officeEmployeeOwnerIds])];
+    // ملف موظف المكتب → حجب المُشاهِد نفسه (viewerId) هو ما يُطبَّق عليه — حجب
+    // مستقل لكل حساب، تماماً كملف رفعه بنفسه (راجع نفس المنطق في reports.routes.js).
+    const ownerIds = [...new Set([
+      ...(await expandOwnerIdsByCompany(directOwnerIds)),
+      ...(hasOfficeEmployeeOwner && viewerId ? [viewerId] : []),
+    ])];
     if (ownerIds.length > 0) {
       // Only apply block lists of owners who have blocking ENABLED (master switch)
       // AND the block row itself isn't temporarily paused (enabled=false).
@@ -1274,8 +1277,8 @@ const REPORT_SALES_SELECT = {
  * Aggregates across all assigned commercial reps,
  * filtered by assigned areas + items.
  */
-export async function getReport(id, query = {}) {
-  const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT);
+export async function getReport(id, query = {}, viewerId = null) {
+  const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT, viewerId);
   const { rep, commercialLinks, areaLinks, itemLinks, rawSales, fileIds } = resolved;
 
   // Reports/exports must show the rep's CURRENT name, not the static `name` column
@@ -1358,7 +1361,7 @@ const EXPORT_SALES_SELECT = {
  * Uses the EXACT same filter as getReport() via resolveSciRepSales(), so
  * export totals always match the on-screen report's totals.
  */
-export async function getRawSalesForExport(id, query = {}) {
-  const { rawSales } = await resolveSciRepSales(id, query, EXPORT_SALES_SELECT);
+export async function getRawSalesForExport(id, query = {}, viewerId = null) {
+  const { rawSales } = await resolveSciRepSales(id, query, EXPORT_SALES_SELECT, viewerId);
   return rawSales;
 }
