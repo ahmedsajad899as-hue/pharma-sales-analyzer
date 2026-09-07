@@ -178,7 +178,7 @@ export async function getRepresentativeReport(req, res, next) {
       recordType: req.query.recordType || null,
     };
 
-    const report = await service.getRepresentativeReport(repId, query);
+    const report = await service.getRepresentativeReport(repId, query, req.user?.id ?? null);
     res.json({ success: true, data: report });
   } catch (err) { next(err); }
 }

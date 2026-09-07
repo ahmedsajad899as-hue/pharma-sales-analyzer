@@ -6,8 +6,12 @@
 
 import * as repRepo  from './representatives.repository.js';
 import * as salesRepo from '../sales/sales.repository.js';
-import { findOrCreateArea } from '../sales/sales.repository.js';
+import { findOrCreateArea, normalizeArabic } from '../sales/sales.repository.js';
 import { AppError }  from '../../middleware/errorHandler.js';
+import prisma from '../../lib/prisma.js';
+import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
+import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
+import { expandOwnerIdsByCompany } from '../scientific-reps/scientific-reps.service.js';
 
 // ─── CRUD ────────────────────────────────────────────────────
 
@@ -160,7 +164,7 @@ export async function clearItems(repId) {
  * @param {number} repId
  * @param {{ startDate?, endDate?, areaId?, itemId? }} query
  */
-export async function getRepresentativeReport(repId, query = {}) {
+export async function getRepresentativeReport(repId, query = {}, viewerId = null) {
   // ── 1. Validate rep exists ──────────────────────────────
   const rep = await repRepo.findRepresentativeById(repId);
   if (!rep) throw new AppError(`Representative with id ${repId} not found.`, 404, 'NOT_FOUND');
@@ -177,16 +181,97 @@ export async function getRepresentativeReport(repId, query = {}) {
   const queryAreaIds = query.areaId ? [+query.areaId] : null;
   const queryItemIds = query.itemId ? [+query.itemId] : null;
 
+  // ── 3ب. تحقّق من ملكية/مشاركة الملفات + نطاق المُشاهِد وحجبه المستقل على
+  // الملفات المُشارَكة (نفس منطق resolveSciRepSales و reports.routes.js) —
+  // بدونه: أي fileId يُمرَّر يُقبَل بلا تحقق، وأي ملف مُشارَك يظهر بلا فلترة
+  // مناطق/ايتمات/حجب على الإطلاق (كانت هذه الفجوة الفعلية في تبويب «تجاري»).
+  let effectiveFileIds = query.fileIds ?? null;
+  let scopeAreaIds = queryAreaIds;
+  let scopeItemIds = queryItemIds;
+  const blockConditions = [];
+
+  if (viewerId && effectiveFileIds && effectiveFileIds.length > 0) {
+    const [files, shares] = await Promise.all([
+      prisma.uploadedFile.findMany({
+        where: { id: { in: effectiveFileIds } },
+        select: { id: true, userId: true, user: { select: { role: true } } },
+      }),
+      prisma.fileUserShare.findMany({
+        where: { userId: viewerId, fileId: { in: effectiveFileIds } },
+        select: { fileId: true },
+      }),
+    ]);
+    const sharedIds = new Set(shares.map(s => s.fileId));
+    const accessibleFiles = files.filter(f => f.userId === viewerId || sharedIds.has(f.id));
+    effectiveFileIds = accessibleFiles.map(f => f.id);
+
+    const sharedNotOwned = accessibleFiles.filter(f => f.userId !== viewerId);
+    if (sharedNotOwned.length > 0) {
+      const [effAreaIds, effItemIds] = await Promise.all([
+        resolveEffectiveAreaIds(viewerId),
+        resolveEffectiveItemIds(viewerId),
+      ]);
+      if (effAreaIds.length > 0) {
+        scopeAreaIds = queryAreaIds ? queryAreaIds.filter(id => effAreaIds.includes(id)) : effAreaIds;
+      }
+      if (effItemIds) {
+        scopeItemIds = queryItemIds ? queryItemIds.filter(id => effItemIds.includes(id)) : effItemIds;
+      }
+
+      // ملف موظف المكتب → حجب المُشاهِد نفسه؛ غيره → حجب المالك (وزملائه
+      // بالشركة) مُستبعَداً منه المُشاهِد نفسه — طابِق نفس القاعدة في
+      // reports.routes.js و resolveSciRepSales حرفياً.
+      const directOwnerIds = [...new Set(
+        sharedNotOwned.filter(f => f.user?.role !== 'office_employee').map(f => f.userId),
+      )];
+      const hasOfficeEmployeeOwner = sharedNotOwned.some(f => f.user?.role === 'office_employee');
+      const ownerIds = [...new Set([
+        ...(await expandOwnerIdsByCompany(directOwnerIds)).filter(id => id !== viewerId),
+        ...(hasOfficeEmployeeOwner ? [viewerId] : []),
+      ])];
+      if (ownerIds.length > 0) {
+        // لا حجب مندوب تجاري هنا: التقرير مقصور أصلاً على representativeId=repId
+        // الواحد، فحجب مندوب آخر لا معنى له ضمن صفحة مندوب محدد.
+        const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true }, enabled: true };
+        const [blockedAreaRows, blockedItemRows, blockedPharmRows] = await Promise.all([
+          prisma.blockedArea.findMany({ where: blockWhere, select: { name: true } }),
+          prisma.blockedItem.findMany({ where: blockWhere, select: { name: true } }),
+          prisma.blockedPharmacy.findMany({ where: blockWhere, select: { name: true } }),
+        ]);
+        const blockedAreaNorms = new Set(blockedAreaRows.map(b => normalizeArabic(b.name)));
+        if (blockedAreaNorms.size > 0) {
+          const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+          const ids = allAreas.filter(a => blockedAreaNorms.has(normalizeArabic(a.name))).map(a => a.id);
+          if (ids.length) blockConditions.push({ NOT: { areaId: { in: ids } } });
+        }
+        const blockedItemNorms = new Set(blockedItemRows.map(b => normalizeArabic(b.name)));
+        if (blockedItemNorms.size > 0) {
+          const allItems = await prisma.item.findMany({ select: { id: true, name: true } });
+          const ids = allItems.filter(i => blockedItemNorms.has(normalizeArabic(i.name))).map(i => i.id);
+          if (ids.length) blockConditions.push({ NOT: { itemId: { in: ids } } });
+        }
+        const blockedPharmNorms = new Set(blockedPharmRows.map(b => normalizeArabic(b.name)));
+        if (blockedPharmNorms.size > 0) {
+          const allCustomers = await prisma.customer.findMany({ select: { id: true, name: true } });
+          const ids = allCustomers.filter(c => blockedPharmNorms.has(normalizeArabic(c.name))).map(c => c.id);
+          if (ids.length) blockConditions.push({ NOT: { customerId: { in: ids } } });
+        }
+      }
+    }
+  }
+
   // ── 4. Run aggregation — strict rep isolation ────────────
   //  Primary filter: representativeId = repId  (source of truth for who made the sale)
-  //  Optional narrow: areaId / itemId from query params only
+  //  Optional narrow: areaId / itemId from query params only (or the viewer's
+  //  own scope/blocks when the requested files were shared, not owned).
   const { totals, byArea, byItem } = await salesRepo.getSalesAggregates(
     repId,
-    queryAreaIds,   // null → no area filter — all of THIS rep's areas
-    queryItemIds,   // null → no item filter — all of THIS rep's items
+    scopeAreaIds,
+    scopeItemIds,
     { startDate: query.startDate, endDate: query.endDate },
-    query.fileIds ?? null,
+    effectiveFileIds,
     query.recordType || null,
+    blockConditions,
   );
 
   // ── 5. Shape response ───────────────────────────────────
