@@ -49,6 +49,7 @@ export default function AreasPage() {
   const [openProvincePicker, setOpenProvincePicker] = useState<number | null>(null);
   const [openSubPicker, setOpenSubPicker]           = useState<number | null>(null);
   const [openMergePicker, setOpenMergePicker]       = useState<number | null>(null);
+  const [mergeQuery, setMergeQuery]                 = useState('');
 
   const [mergeSugs, setMergeSugs]     = useState<MergeSuggestion[] | null>(null);
   const [mergeBusy, setMergeBusy]     = useState(false);
@@ -141,6 +142,23 @@ export default function AreasPage() {
       const j = await r.json();
       if (j.success) { setAreas(j.data); await refreshProvinceCounts(); showToast(`✅ تم نقل ${j.updated} منطقة`); }
       else showToast('❌ ' + (j.error || 'فشل النقل'), '#dc2626');
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setBusy(false); }
+  };
+
+  // نقل مباشر إلى قسم (كرخ/رصافة) دون المرور بخطوتين — يُسند المحافظة والقسم معاً
+  const assignProvinceAndSub = async (areaId: number, provinceId: number, subProvinceId: number) => {
+    setBusy(true);
+    try {
+      const r1 = await fetch('/api/sa/areas/province-bulk', { method: 'PUT', headers: H(), body: JSON.stringify({ areaIds: [areaId], provinceId }) });
+      if (handleAuthError(r1)) return;
+      const j1 = await r1.json();
+      if (!j1.success) { showToast('❌ ' + (j1.error || 'فشل النقل'), '#dc2626'); return; }
+      const r2 = await fetch('/api/sa/areas/sub-province-bulk', { method: 'PUT', headers: H(), body: JSON.stringify({ areaIds: [areaId], subProvinceId }) });
+      if (handleAuthError(r2)) return;
+      const j2 = await r2.json();
+      if (j2.success) { setAreas(j2.data); await refreshProvinceCounts(); showToast('✅ تم النقل'); }
+      else showToast('❌ ' + (j2.error || 'فشل تحديد القسم'), '#dc2626');
     } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
     finally { setBusy(false); }
   };
@@ -344,12 +362,31 @@ export default function AreasPage() {
 
             {/* نقل بين المحافظات */}
             {provincePickerOpen ? (
-              <select autoFocus defaultValue={a.provinceId ?? ''} disabled={busy}
-                onChange={e => { assignProvince([a.id], e.target.value === '' ? null : Number(e.target.value)); setOpenProvincePicker(null); }}
+              <select autoFocus defaultValue={a.subProvinceId != null ? `${a.provinceId}:${a.subProvinceId}` : (a.provinceId ?? '')} disabled={busy}
+                onChange={e => {
+                  const val = e.target.value;
+                  setOpenProvincePicker(null);
+                  if (val === '') { assignProvince([a.id], null); return; }
+                  if (val.includes(':')) {
+                    const [pid, sid] = val.split(':').map(Number);
+                    assignProvinceAndSub(a.id, pid, sid);
+                  } else {
+                    assignProvince([a.id], Number(val));
+                  }
+                }}
                 onBlur={() => setOpenProvincePicker(null)}
-                style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #93c5fd', direction: 'rtl', maxWidth: 140 }}>
+                style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #93c5fd', direction: 'rtl', maxWidth: 160 }}>
                 <option value="">— بلا محافظة</option>
-                {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {provinces.map(p => {
+                  const subs = subProvinces.filter(s => s.provinceId === p.id);
+                  if (subs.length === 0) return <option key={p.id} value={p.id}>{p.name}</option>;
+                  return (
+                    <optgroup key={p.id} label={p.name}>
+                      <option value={p.id}>{p.name} (بلا قسم)</option>
+                      {subs.map(s => <option key={s.id} value={`${p.id}:${s.id}`}>{p.name} - {s.name}</option>)}
+                    </optgroup>
+                  );
+                })}
               </select>
             ) : (
               <button onClick={() => setOpenProvincePicker(a.id)} disabled={busy} title="نقل إلى محافظة أخرى"
@@ -376,22 +413,35 @@ export default function AreasPage() {
               )
             )}
 
-            {/* دمج مع منطقة أخرى */}
-            {mergePickerOpen ? (
-              <select autoFocus defaultValue="" disabled={busy}
-                onChange={e => {
-                  const toId = Number(e.target.value);
-                  const target = areas.find(x => x.id === toId);
-                  if (target) mergeInto(a.id, toId, a.name, target.name);
-                  else setOpenMergePicker(null);
-                }}
-                onBlur={() => setOpenMergePicker(null)}
-                style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #fca5a5', direction: 'rtl', maxWidth: 150 }}>
-                <option value="" disabled>— دمج داخل —</option>
-                {areas.filter(x => x.id !== a.id).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-              </select>
-            ) : (
-              <button onClick={() => setOpenMergePicker(a.id)} disabled={busy} title="دمج هذه المنطقة داخل منطقة أخرى (تُحذف بعد نقل بياناتها)"
+            {/* دمج مع منطقة أخرى — يمكن الكتابة للبحث عن اسم المنطقة أو الاختيار من القائمة */}
+            {mergePickerOpen ? (() => {
+              const q = mergeQuery.trim().toLowerCase();
+              const matches = q ? areas.filter(x => x.id !== a.id && x.name.toLowerCase().includes(q)) : areas.filter(x => x.id !== a.id);
+              const closeMergePicker = () => { setOpenMergePicker(null); setMergeQuery(''); };
+              return (
+                <div style={{ position: 'relative' }}>
+                  <input type="text" autoFocus disabled={busy} value={mergeQuery}
+                    onChange={e => setMergeQuery(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Escape') closeMergePicker();
+                      if (e.key === 'Enter' && matches.length === 1) mergeInto(a.id, matches[0].id, a.name, matches[0].name);
+                    }}
+                    onBlur={() => setTimeout(closeMergePicker, 150)}
+                    placeholder="اكتب اسم المنطقة..."
+                    style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #fca5a5', direction: 'rtl', width: 150 }} />
+                  <div style={{ position: 'absolute', top: '100%', insetInlineStart: 0, zIndex: 20, background: '#fff', border: '1px solid #fca5a5', borderRadius: 6, marginTop: 2, maxHeight: 180, overflowY: 'auto', width: 190, boxShadow: '0 6px 18px rgba(0,0,0,0.15)' }}>
+                    {matches.length === 0 && <div style={{ padding: '6px 10px', fontSize: 12, color: '#94a3b8' }}>لا توجد نتائج</div>}
+                    {matches.slice(0, 40).map(x => (
+                      <div key={x.id} onMouseDown={() => mergeInto(a.id, x.id, a.name, x.name)}
+                        style={{ padding: '5px 10px', fontSize: 12, cursor: 'pointer', color: '#1e293b' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>{x.name}</div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })() : (
+              <button onClick={() => { setOpenMergePicker(a.id); setMergeQuery(''); }} disabled={busy} title="دمج هذه المنطقة داخل منطقة أخرى (تُحذف بعد نقل بياناتها)"
                 style={{ ...btnStyle('#d97706', true), fontSize: 11, padding: '3px 8px' }}>🔀 دمج</button>
             )}
 
