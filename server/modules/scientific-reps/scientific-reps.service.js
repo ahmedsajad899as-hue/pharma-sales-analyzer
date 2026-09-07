@@ -969,12 +969,21 @@ async function resolveSciRepSales(id, query = {}, select) {
   if (fileIds && fileIds.length > 0) {
     const fileOwners = await prisma.uploadedFile.findMany({
       where: { id: { in: fileIds } },
-      select: { userId: true },
+      select: { userId: true, user: { select: { role: true } } },
     });
-    const directOwnerIds = [...new Set(fileOwners.map(f => f.userId).filter(Boolean))];
+    // ملفات موظف المكتب مستثناة من توسيع "زملاء الشركة": هذا الحساب مُعيَّن على
+    // كل شركات النظام عمداً (ليقدر يُعمِّم أي ملف) — فلو وسّعنا حسب شركته لعاد
+    // الناتج كل مدراء التطبيق تقريباً وطُبِّقت حجوباتهم الشخصية على تقرير مندوب
+    // لا علاقة له بفريقهم. حجب موظف المكتب نفسه (إن وُجد) يبقى مُطبَّقاً.
+    const directOwnerIds = [...new Set(
+      fileOwners.filter(f => f.user?.role !== 'office_employee').map(f => f.userId).filter(Boolean),
+    )];
+    const officeEmployeeOwnerIds = [...new Set(
+      fileOwners.filter(f => f.user?.role === 'office_employee').map(f => f.userId).filter(Boolean),
+    )];
     // مدير المكتب يضيف الحجب من حسابه هو، لا من حساب مدير الشركة الذي رفع
     // الملف فعلياً — بلا هذا التوسيع لا يتطابق userId أبداً ويبقى الحجب بلا أثر.
-    const ownerIds = await expandOwnerIdsByCompany(directOwnerIds);
+    const ownerIds = [...new Set([...(await expandOwnerIdsByCompany(directOwnerIds)), ...officeEmployeeOwnerIds])];
     if (ownerIds.length > 0) {
       // Only apply block lists of owners who have blocking ENABLED (master switch)
       // AND the block row itself isn't temporarily paused (enabled=false).
