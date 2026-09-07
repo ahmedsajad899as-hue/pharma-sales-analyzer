@@ -195,7 +195,7 @@ export default function DoctorsPage() {
   const isCommercialRep = user?.role === 'commercial_rep';
   const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
   const isFieldRep  = FIELD_ROLES.includes(user?.role ?? '');
-  const canSeePharmNet = ['company_manager', 'team_leader'].includes(user?.role ?? '');
+  const canSeePharmNet = ['company_manager', 'team_leader', 'office_manager', 'office_employee'].includes(user?.role ?? '');
   const showDoctorFields    = hasFeature('doctor_fields');
   const showVisitAnalysis   = hasFeature('visit_analysis_tab');
   const showDoctorsList     = hasFeature('doctors_list_tab');
