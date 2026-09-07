@@ -16,6 +16,7 @@ import prisma from './prisma.js';
 import { findOrCreateArea } from '../modules/sales/sales.repository.js';
 import { normalizeAreaName } from './itemResolver.js';
 import { resolveEffectiveAreaIds } from './areaScope.js';
+import { OFFICE_SCOPED_ROLES } from './officeScope.js';
 
 // الأدوار الميدانية (مُقيّدة بمناطقها). المدراء يرون كامل الفريق.
 const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'commercial_rep']);
@@ -37,7 +38,11 @@ async function resolveRepId(userId, linkedRepId) {
 
 // أدوار إدارية وسيطة لا تزور أطباء بنفسها — تُستبعد من تجميع «الشركة الرئيسية»
 // كما تُستبعد من شرائح «المندوب» في getManagerSubReps (doctors.controller.js).
-const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader']);
+// تشمل أيضاً الأدوار المكتبية (office_manager/office_hr/office_employee — راجع
+// officeScope.js): لا تزور أطباء بنفسها، وبما أنها تحمل الآن كل شركات مكتبها
+// isPrimary=true معاً فضمّها هنا كان سيجعلها "تطابق" أي companyId في
+// resolveCompanyMembers، لا شركة فريقها الفعلية فقط.
+const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader', ...OFFICE_SCOPED_ROLES]);
 
 // ── resolveCompanyMembers(managerId, companyId) ──────────────────────────────
 // أعضاء فريق المدير الذين «شركتهم الرئيسية» (UserCompanyAssignment isPrimary)

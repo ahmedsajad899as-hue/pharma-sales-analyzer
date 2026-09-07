@@ -8,6 +8,7 @@ import {
   resolveAreaScope, getScopedSurveyDoctors, buildVisitOverlay,
   ensureDoctorRowsForScope, isFieldRole, resolveCompanyMembers,
 } from '../../lib/surveyDoctors.js';
+import { OFFICE_SCOPED_ROLES } from '../../lib/officeScope.js';
 import * as importVisits from './doctor-visits-import.js';
 
 // Field reps never own Doctor rows under their own userId — doctors belong to
@@ -1151,7 +1152,11 @@ export async function specialtySuggestions(req, res, next) {
 // ─── Get subordinate reps of the current manager ─────────────────────────────
 // أدوار إدارية وسيطة — لا يزورون أطباء بأنفسهم فلا يظهرون كشرائح «مندوب» قابلة
 // للاختيار، رغم وجودهم ضمن UserManagerAssignment (لأغراض تجميع نطاق المناطق).
-const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader']);
+// تشمل أيضاً الأدوار المكتبية (office_manager/office_hr/office_employee) — لا
+// تزور أطباء بنفسها إطلاقاً (راجع officeScope.js)، وبما أنها تحمل الآن كل شركات
+// مكتبها isPrimary=true معاً، ضمّها هنا كان يُفسد أيضاً «الشركة الرئيسية» أدناه
+// (تُصبح عشوائية — آخر شركة بترتيب الاستعلام بدل شركة فريقها الفعلية).
+const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader', ...OFFICE_SCOPED_ROLES]);
 
 export async function getManagerSubReps(req, res, next) {
   try {
