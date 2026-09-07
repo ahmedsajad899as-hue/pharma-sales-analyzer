@@ -2259,15 +2259,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   // Build grouped structure: office → company → users
   type CompanyGroup = { company: { id: number; name: string } | null; users: UserRow[] };
-  type OfficeGroup  = { office: { id: number; name: string }; companyGroups: CompanyGroup[] };
+  type OfficeGroup  = { office: { id: number; name: string }; officeLevelUsers: UserRow[]; companyGroups: CompanyGroup[] };
 
   const officeMap = new Map<number, OfficeGroup>();
   for (const u of officeUsers) {
     const oid = u.officeId!;
     if (!officeMap.has(oid)) {
-      officeMap.set(oid, { office: { id: oid, name: u.office?.name || `مكتب #${oid}` }, companyGroups: [] });
+      officeMap.set(oid, { office: { id: oid, name: u.office?.name || `مكتب #${oid}` }, officeLevelUsers: [], companyGroups: [] });
     }
     const og = officeMap.get(oid)!;
+    // الأدوار المكتبية تخدم المكتب كله لا شركة بعينها (كل شركاته معيَّنة لها
+    // تلقائياً — راجع officeScope.js) فتظهر في قسم مستقل أعلى قائمة المكتب،
+    // لا تحت غطاء أي شركة واحدة بالذات.
+    if (OFFICE_SCOPED_ROLES.has(u.role)) { og.officeLevelUsers.push(u); continue; }
     const userCompanies = u.companyAssignments ?? [];
     if (userCompanies.length === 0) {
       // No company — put in null group
@@ -2351,6 +2355,21 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </div>
 
               <div style={{ background: '#f8fafc', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {og.officeLevelUsers.length > 0 && (
+                  <div style={{ border: '1.5px solid #c7d2fe', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                    <div style={{
+                      background: '#eef2ff', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8,
+                      borderBottom: '1px solid #e2e8f0',
+                    }}>
+                      <span style={{ fontSize: 16 }}>🏢</span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#4338ca' }}>إدارة المكتب (كل الشركات)</span>
+                      <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{og.officeLevelUsers.length} مستخدم</span>
+                    </div>
+                    <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {sortUsers(og.officeLevelUsers).map(u => <UserCard key={`${u.id}-office`} u={u} />)}
+                    </div>
+                  </div>
+                )}
                 {og.companyGroups.map((cg, ci) => (
                   <div key={cg.company?.id ?? 'none'} style={{
                     border: `1.5px solid ${cg.company ? '#a5b4fc' : '#e2e8f0'}`,
