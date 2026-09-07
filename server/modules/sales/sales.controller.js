@@ -11,11 +11,14 @@ import prisma from '../../lib/prisma.js';
 
 // موظف المكتب: كل ملف يرفعه يُعمَّم فوراً على حسابات مدير المكتب / مدير الشركة
 // فقط — بلا خطوة "مشاركة" يدوية (نفس أثر الضغط على "تحديد الكل" في UploadPage،
-// حيث أصبحت القائمة هناك أيضاً مقصورة على هذين الدورين).
-// pharmacy_net/filter_page مستثناة: ملفات عمل شخصية لا تُشارك بتصميم النظام.
+// حيث أصبحت القائمة هناك أيضاً مقصورة على هذين الدورين). يشمل pharmacy_net
+// أيضاً (استثناء من قاعدة "خصوصية pharmacy_net" العامة، مقصور على هذا الدور
+// فقط — GET /api/files ومسارات pharmacy-analysis.controller.js عُدِّلت لتتحقق
+// من FileUserShare بدل الاكتفاء بملكية userId).
+// filter_page يبقى مستثنى: أداة تنظيف عمل شخصية بلا قيمة تُشارَك.
 async function autoSyncIfOfficeEmployee(user, fileId, fileType) {
   if (!user || user.role !== 'office_employee' || !fileId) return;
-  if (['filter_page', 'pharmacy_net'].includes(fileType)) return;
+  if (fileType === 'filter_page') return;
   const targets = await prisma.user.findMany({
     where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'company_manager'] } },
     select: { id: true },

@@ -25,11 +25,21 @@ export function alertKeyOf(pharmaName, itemName) {
   return `${norm(pharmaName)}|${norm(itemName)}`;
 }
 
-function buildFileFilter(fileIds) {
-  if (!fileIds) return {};
+// يتحقق من صلاحية userId على كل fileId (ملكية أو مشاركة FileUserShare) — نفس
+// المنطق في pharmacy-analysis.controller.js، مكرَّر هنا لأن computePharmacyAlerts
+// يُستدعى أيضاً من المُجدوِل بمعرّف المالك الحقيقي (لا يحتاج تحققاً، لكن يمر منه
+// بأمان لأنه سيملك كل ملفاته فعلاً).
+async function resolveFileScope(userId, fileIds) {
+  if (!fileIds) return userId ? { userId } : {};
   const ids = String(fileIds).split(',').map(Number).filter(Boolean);
-  if (!ids.length) return {};
-  return ids.length === 1 ? { uploadedFileId: ids[0] } : { uploadedFileId: { in: ids } };
+  if (!ids.length) return userId ? { userId } : {};
+  const accessible = await prisma.uploadedFile.findMany({
+    where: { id: { in: ids }, OR: [{ userId }, { fileShares: { some: { userId } } }] },
+    select: { id: true },
+  });
+  const verifiedIds = accessible.map(f => f.id);
+  if (!verifiedIds.length) return { id: -1 };
+  return { uploadedFileId: { in: verifiedIds } };
 }
 
 /**
@@ -51,7 +61,7 @@ export async function computePharmacyAlerts(userId, opts = {}) {
   const itemScope = await buildItemScopeFilter(userId);
 
   const sales = await prisma.sale.findMany({
-    where: { isHidden: false, ...(userId ? { userId } : {}), ...buildFileFilter(fileIds), ...itemScope },
+    where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
     select: {
       quantity: true, totalValue: true, saleDate: true,
       item:     { select: { name: true } },

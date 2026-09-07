@@ -1656,9 +1656,11 @@ app.get('/api/files', async (req, res) => {
 
     let whereClause;
     if (userId) {
-      // pharmacy_net files are strictly private — never shared across users
+      // pharmacy_net files are private by default — إلا ما عُمِّم من حساب موظف
+      // المكتب تلقائياً (FileUserShare)، وهي المشاركة الوحيدة الممكنة أصلاً هنا
+      // بما أن هذه الملفات لا تُعرَض في مودال المشاركة اليدوي إطلاقاً.
       if (context === 'pharmacy_net') {
-        whereClause = { userId, ...typeFilter };
+        whereClause = { OR: [{ userId, ...typeFilter }, { fileShares: { some: { userId } }, ...typeFilter }] };
       } else {
         const orClauses = [{ userId, ...typeFilter }];
         if (linkedRepId) orClauses.push({ sharedWithRepId: linkedRepId, ...typeFilter });

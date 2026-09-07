@@ -13,15 +13,22 @@ function norm(s = '') {
     .toLowerCase();
 }
 
-function buildFileFilter(fileIds) {
-  if (!fileIds) return {};
+// يتحقق من أن المستخدم يملك أو يُشارَك معه (FileUserShare) كل fileId مطلوب —
+// ضروري الآن بعد أن صارت ملفات pharmacy_net قابلة للتعميم من موظف المكتب على
+// مدير المكتب/الشركة؛ سابقاً كان buildUserFilter({userId}) وحده يكفي لأن كل
+// ملف كان يخص صاحبه فقط. المصفوفة المُتحقَّق منها فقط هي ما يُستخدم في
+// uploadedFileId — فلا يمكن لأي مستخدم تمرير fileId لملف غيره غير المُشارَك معه.
+async function resolveFileScope(userId, fileIds) {
+  if (!fileIds) return userId ? { userId } : {};
   const ids = String(fileIds).split(',').map(Number).filter(Boolean);
-  if (!ids.length) return {};
-  return ids.length === 1 ? { uploadedFileId: ids[0] } : { uploadedFileId: { in: ids } };
-}
-
-function buildUserFilter(userId) {
-  return userId ? { userId } : {};
+  if (!ids.length) return userId ? { userId } : {};
+  const accessible = await prisma.uploadedFile.findMany({
+    where: { id: { in: ids }, OR: [{ userId }, { fileShares: { some: { userId } } }] },
+    select: { id: true },
+  });
+  const verifiedIds = accessible.map(f => f.id);
+  if (!verifiedIds.length) return { id: -1 }; // لا صلاحية على أي من الملفات المطلوبة
+  return { uploadedFileId: { in: verifiedIds } };
 }
 
 // Convert stored value to IQD (multiply by exchangeRate if file currency is USD)
@@ -41,7 +48,7 @@ export async function listPharmacies(req, res, next) {
     const search  = req.query.search ? norm(req.query.search) : null;
 
     const sales = await prisma.sale.findMany({
-      where: { isHidden: false, ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
+      where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
       select: {
         id: true,
         quantity: true,
@@ -164,7 +171,7 @@ export async function pharmacyDetail(req, res, next) {
     const itemFilter  = req.query.item ? norm(req.query.item) : null;
 
     const sales = await prisma.sale.findMany({
-      where: { isHidden: false, ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
+      where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
       select: {
         id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
         customer:     { select: { id: true, name: true } },
@@ -248,7 +255,7 @@ export async function listItems(req, res, next) {
     const search  = req.query.search ? norm(req.query.search) : null;
 
     const sales = await prisma.sale.findMany({
-      where: { isHidden: false, ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
+      where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
       select: {
         quantity: true, totalValue: true, saleDate: true,
         item:         { select: { id: true, name: true } },
@@ -318,7 +325,7 @@ export async function itemDetail(req, res, next) {
     const itemScope  = await buildItemScopeFilter(userId);
 
     const sales = await prisma.sale.findMany({
-      where: { isHidden: false, ...buildUserFilter(userId), ...buildFileFilter(fileIds), ...itemScope },
+      where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
       select: {
         id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
         item:           { select: { id: true, name: true } },
