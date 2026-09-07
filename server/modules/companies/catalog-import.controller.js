@@ -14,6 +14,7 @@ import {
   extractCompanyFromCode, loadCompanyMatchContext, resolveCompanyName,
 } from '../../lib/companyResolver.js';
 import { mergeItems } from '../sales/sales.repository.js';
+import { syncOfficeScopedUsersForOffice } from '../../lib/officeScope.js';
 
 /** يقرأ سعراً من خلية قد تحمل "IQD 1,200" أو رقماً أو فراغاً. */
 function parsePrice(v) {
@@ -309,6 +310,8 @@ export async function commitCatalogImport(req, res) {
         }
       }
     }
+
+    if (summary.companiesCreated > 0) await syncOfficeScopedUsersForOffice(officeId);
 
     res.json({ success: true, summary });
   } catch (err) {

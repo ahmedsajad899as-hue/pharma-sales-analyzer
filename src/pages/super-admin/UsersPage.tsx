@@ -21,6 +21,10 @@ const ROLES = [
   { value: 'manager',                 label: 'مدير (manager)' },
 ];
 
+// الأدوار المكتبية — لا تُربط بشركة معيّنة، تحصل تلقائياً على كل شركات مكتبها
+// (راجع server/lib/officeScope.js) لتتفاعل مع كل بيانات المكتب لا شركة بعينها.
+const OFFICE_SCOPED_ROLES = new Set(['office_manager', 'office_hr', 'office_employee']);
+
 // ملاحظة: شجرة الميزات (FEATURE_TREE) أصبحت مبنية تلقائياً من src/config/featureConfig.ts —
 // نفس الملف الذي يبني منه القائمة الجانبية الحقيقية (Sidebar.tsx)، فأي صفحة جديدة تُضاف
 // إلى NAV_ITEMS هناك تظهر هنا تلقائياً بنفس الاسم والأيقونة دون أي تعديل في هذا الملف.
@@ -990,7 +994,22 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </div>
             </div>
           )}
-          {tab === 'companies' && (
+          {tab === 'companies' && OFFICE_SCOPED_ROLES.has(detail.role) && (() => {
+            const officeCompaniesForDetail = companies.filter(c => c.officeId === detail.officeId);
+            return (
+            <div>
+              <div style={{ fontSize: 12.5, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+                ℹ️ هذا الدور يعمل على مستوى المكتب كله — كل شركات مكتبه ({officeCompaniesForDetail.length}) معيَّنة له تلقائياً ولا يمكن اختيارها يدوياً. أي شركة تُضاف لاحقاً لهذا المكتب تُعيَّن له فوراً كذلك.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+                {officeCompaniesForDetail.map(c => (
+                  <div key={c.id} style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, fontSize: 14, color: '#334155' }}>{c.name}</div>
+                ))}
+              </div>
+            </div>
+            );
+          })()}
+          {tab === 'companies' && !OFFICE_SCOPED_ROLES.has(detail.role) && (
             <div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button onClick={() => { setDraftCompanyIds(companies.map(c => c.id)); setDraftPrimaryCompanyId(prev => prev ?? companies[0]?.id ?? null); }} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
@@ -2403,7 +2422,11 @@ function UserFormFields({ form, setForm, offices, companies, isEdit }: { form: a
           {offices.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
       </div>
-      {officeCompanies.length > 0 && (
+      {OFFICE_SCOPED_ROLES.has(form.role) ? (
+        <div style={{ marginBottom: 14, fontSize: 12.5, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '8px 12px' }}>
+          ℹ️ هذا الدور يعمل على مستوى المكتب كله — سيحصل تلقائياً على كل شركات المكتب المختار أعلاه، بلا حاجة لاختيار شركة بعينها.
+        </div>
+      ) : officeCompanies.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>الشركة</label>
           <select value={form.companyId || ''} onChange={e => setForm((f: any) => ({ ...f, companyId: e.target.value ? Number(e.target.value) : null }))}

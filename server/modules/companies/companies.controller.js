@@ -3,6 +3,7 @@ import XLSX from 'xlsx';
 import { normalizeItemKey, loadCompanyContext, resolveItemName } from '../../lib/itemResolver.js';
 import { mergeItems } from '../sales/sales.repository.js';
 import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
+import { syncOfficeScopedUsersForOffice } from '../../lib/officeScope.js';
 
 // ── List companies (optionally filtered by officeId) ──────────────────────
 export async function listCompanies(req, res) {
@@ -49,6 +50,11 @@ export async function createCompany(req, res) {
     data: { name, officeId: parseInt(officeId), notes },
     include: { office: { select: { id: true, name: true } } },
   });
+
+  // مستخدمو المكتب بالأدوار المكتبية (مدير مكتب/HR/موظف مكتب) يحصلون على هذه
+  // الشركة الجديدة فوراً — راجع officeScope.js.
+  await syncOfficeScopedUsersForOffice(company.officeId);
+
   res.status(201).json({ success: true, data: company });
 }
 

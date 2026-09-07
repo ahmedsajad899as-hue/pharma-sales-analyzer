@@ -3,6 +3,7 @@ import prisma from '../../lib/prisma.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { syncUserAreaDerivedLinks, resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
+import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 
 const userSelect = {
   id: true, username: true, displayName: true, role: true,
@@ -75,18 +76,27 @@ export async function createUser(req, res) {
   const mergedPerms = buildDefaultPermissions(permissions);
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const user = await prisma.user.create({
+  const parsedOfficeId = officeId ? parseInt(officeId) : null;
+  let user = await prisma.user.create({
     data: {
       username,
       passwordHash,
       displayName,
       role,
       phone,
-      officeId: officeId ? parseInt(officeId) : null,
+      officeId: parsedOfficeId,
       permissions: JSON.stringify(mergedPerms),
     },
     select: userSelect,
   });
+
+  // الأدوار المكتبية (مدير مكتب/HR/موظف مكتب) لا تُربط بشركة معيّنة — تحصل
+  // تلقائياً على كل شركات مكتبها لتتفاعل مع كل بيانات المكتب لا شركة بعينها.
+  if (isOfficeScopedRole(role) && parsedOfficeId) {
+    await syncOfficeScopedCompanies(user.id, parsedOfficeId);
+    user = await prisma.user.findUnique({ where: { id: user.id }, select: userSelect });
+  }
+
   res.status(201).json({ success: true, data: user });
 }
 
@@ -107,7 +117,14 @@ export async function updateUser(req, res) {
     if (password)                   data.passwordHash = await bcrypt.hash(password, 12);
     if (linkedRepId !== undefined)  data.linkedRepId  = linkedRepId ? parseInt(linkedRepId) : null;
 
-    const user = await prisma.user.update({ where: { id }, data, select: userSelect });
+    let user = await prisma.user.update({ where: { id }, data, select: userSelect });
+
+    // تغيّر الدور إلى/داخل الأدوار المكتبية، أو تغيّر المكتب نفسه لمستخدم مكتبي
+    // أصلاً: أعد مزامنة شركاته على كل شركات مكتبه الحالي (راجع createUser أعلاه).
+    if (isOfficeScopedRole(user.role) && (role !== undefined || officeId !== undefined)) {
+      await syncOfficeScopedCompanies(user.id, user.officeId);
+      user = await prisma.user.findUnique({ where: { id }, select: userSelect });
+    }
 
     // Keep the linked ScientificRepresentative record(s) in sync. That row's `name`
     // is only set ONCE at auto-creation (from displayName/username) — reports/exports
@@ -265,8 +282,21 @@ export async function setUserCompanies(req, res) {
   const requested = [...new Set(raw.map(id => parseInt(id)).filter(Number.isInteger))];
 
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, officeId: true } });
     if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
+
+    // الأدوار المكتبية مُدارة تلقائياً (كل شركات المكتب) — أي محاولة اختيار
+    // يدوي هنا تُتجاهل وتُعاد المزامنة على كل شركات المكتب الحالية بدلاً منها.
+    if (isOfficeScopedRole(user.role)) {
+      const ids = await syncOfficeScopedCompanies(userId, user.officeId);
+      return res.json({
+        success: true,
+        autoManaged: true,
+        data: ids.map(companyId => ({ companyId, isPrimary: true })),
+        primaryCompanyId: null,
+        dropped: [],
+      });
+    }
 
     // تجاهل أي شركة محذوفة بدل إسقاط الحفظ كله بخطأ مفتاح أجنبي
     const found = requested.length

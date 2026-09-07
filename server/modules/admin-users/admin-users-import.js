@@ -26,6 +26,7 @@ import prisma from '../../lib/prisma.js';
 import { normalizeArabic, normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
+import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 import { buildDefaultPermissions } from './admin-users.controller.js';
 
 // نفس قيم/تسميات ROLES في src/pages/super-admin/UsersPage.tsx — يقبل العمود
@@ -298,13 +299,16 @@ export async function commitUsersImport(req, res) {
         select: { id: true },
       });
 
-      if (Array.isArray(companyIds) && companyIds.length) {
-        // مدير المكتب: كل شركاته تابعة له بالتساوي — لا فرق بين رئيسية وثانوية (كلها isPrimary)
-        const officeManagerRole = ROLE_VALUES.has(role) ? role : 'scientific_rep';
+      const resolvedRole = ROLE_VALUES.has(role) ? role : 'scientific_rep';
+      if (isOfficeScopedRole(resolvedRole)) {
+        // الأدوار المكتبية (مدير مكتب/HR/موظف مكتب) لا تُربط بشركة معيّنة — تحصل
+        // تلقائياً على كل شركات المكتب بغض النظر عمّا ورد في عمود «الشركة» بالملف.
+        await syncOfficeScopedCompanies(user.id, officeId);
+      } else if (Array.isArray(companyIds) && companyIds.length) {
         await prisma.userCompanyAssignment.createMany({
           data: companyIds.map(companyId => ({
             userId: user.id, companyId,
-            isPrimary: officeManagerRole === 'office_manager' ? true : companyId === primaryCompanyId,
+            isPrimary: companyId === primaryCompanyId,
           })),
           skipDuplicates: true,
         });
