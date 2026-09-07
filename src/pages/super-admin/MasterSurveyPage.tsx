@@ -39,6 +39,16 @@ interface SurveyPharmacy {
 interface VisibilityUser {
   id: number; username: string; displayName?: string; role: string; officeId?: number; hidden: boolean;
 }
+interface AreaBucket { areaName: string; count: number; }
+interface Coverage {
+  total: number;
+  visibleToSomeone: number;
+  noArea: { count: number; sample: { id: number; name: string }[] };
+  notInCatalog:  AreaBucket[];
+  unassignedAll: AreaBucket[];
+  target: { userId: number; name: string; role: string; visible: number; outOfScope: AreaBucket[] } | null;
+  users: { id: number; name: string; role: string }[];
+}
 interface VisibilityOffice { id: number; name: string; hidden: boolean; }
 interface EditLog {
   id: number; entryType: string; entryId: number; action: string;
@@ -295,6 +305,12 @@ export default function MasterSurveyPage() {
   const [docSearch, setDocSearch] = useState('');
   const [fillingFromDoctors, setFillingFromDoctors] = useState(false);
 
+  // فحص الظهور (لماذا يقلّ العدد عند المستخدمين)
+  const [coverage,        setCoverage]        = useState<Coverage | null>(null);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [coverageUserId,  setCoverageUserId]  = useState<number | ''>('');
+  const [showCoverage,    setShowCoverage]    = useState(false);
+
   // excel import
   const [importDoctorsPreview, setImportDoctorsPreview] = useState<DocClassifyRow[]>([]);
   const [showDoctorsImport,    setShowDoctorsImport]    = useState(false);
@@ -350,6 +366,17 @@ export default function MasterSurveyPage() {
     const r = await fetch(`/api/super-admin/surveys/${id}`, { headers: H() });
     const d = await r.json();
     if (d.success) setSelectedSurvey(d.data);
+  }, [H]);
+
+  // ── فحص الظهور ──
+  const loadCoverage = useCallback(async (surveyId: number, userId: number | '') => {
+    setCoverageLoading(true);
+    try {
+      const qs = userId ? `?userId=${userId}` : '';
+      const r = await fetch(`/api/super-admin/surveys/${surveyId}/coverage${qs}`, { headers: H() });
+      const d = await r.json();
+      if (d.success) setCoverage(d.data);
+    } finally { setCoverageLoading(false); }
   }, [H]);
 
   // ── Fetch visibility ──
@@ -1154,6 +1181,10 @@ export default function MasterSurveyPage() {
               </span>
             )}
             <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
+              <button
+                onClick={() => { setShowCoverage(true); loadCoverage(selectedSurvey.id, coverageUserId); }}
+                style={{ ...btnSecondary, padding: '9px 18px', borderColor: '#f59e0b', color: '#b45309' }}
+              >🔍 فحص الظهور</button>
               <button onClick={() => downloadTemplate('doctors')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
               <button onClick={() => docFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
               <input ref={docFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleDocExcel} />
@@ -1648,6 +1679,132 @@ export default function MasterSurveyPage() {
       {showDrugEntryForm  && <DrugEntryForm />}
       {showDoctorsImport  && <DocImportModal />}
       {showPharmasImport  && <PharmaImportModal />}
+
+      {showCoverage && (
+        <div onClick={() => setShowCoverage(false)} style={{
+          position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, direction: 'rtl',
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 760,
+            maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 800, color: '#1e1b4b' }}>🔍 فحص ظهور الأطباء</h3>
+            <p style={{ margin: '0 0 16px', fontSize: 12.5, color: '#64748b', lineHeight: 1.7 }}>
+              الرقم هنا هو العدد الخام لكل أطباء السيرفي. المستخدم لا يرى إلا الطبيب الذي له
+              <strong> اسم منطقة</strong> مطابق لإحدى <strong>مناطق نطاقه</strong>. هذا الفحص يوضّح أي أطباء سقطوا ولماذا.
+            </p>
+
+            {coverageLoading || !coverage ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>جاري الفحص...</div>
+            ) : (() => {
+              const notInCatalogTotal  = coverage.notInCatalog.reduce((s, a) => s + a.count, 0);
+              const unassignedTotal    = coverage.unassignedAll.reduce((s, a) => s + a.count, 0);
+              const Bucket = ({ title, count, color, hint, rows }: {
+                title: string; count: number; color: string; hint: string; rows?: AreaBucket[];
+              }) => (
+                <div style={{ border: `1.5px solid ${color}33`, background: `${color}0d`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 20, fontWeight: 800, color }}>{count}</span>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, color: '#1e293b' }}>{title}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>{hint}</div>
+                  {rows && rows.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                      {rows.slice(0, 40).map(r => (
+                        <span key={r.areaName} style={{
+                          background: '#fff', border: '1px solid #e2e8f0', borderRadius: 20,
+                          padding: '3px 10px', fontSize: 11.5, color: '#475569', fontWeight: 600,
+                        }}>{r.areaName} — {r.count}</span>
+                      ))}
+                      {rows.length > 40 && <span style={{ fontSize: 11.5, color: '#94a3b8' }}>+{rows.length - 40} منطقة أخرى</span>}
+                    </div>
+                  )}
+                </div>
+              );
+
+              return (
+                <>
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 150, background: '#f8fafc', borderRadius: 12, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: '#1e1b4b' }}>{coverage.total}</div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>إجمالي أطباء السيرفي</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 150, background: '#f0fdf4', borderRadius: 12, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>{coverage.visibleToSomeone}</div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>ظاهرون لمستخدم واحد على الأقل</div>
+                    </div>
+                  </div>
+
+                  {coverage.noArea.count > 0 && (
+                    <Bucket
+                      title="طبيب بلا اسم منطقة" count={coverage.noArea.count} color="#dc2626"
+                      hint="لا يظهرون لأي مستخدم إطلاقاً — لا يوجد زر يصلحهم. الحل: افتح كل طبيب واملأ حقل المنطقة (أو أعِد استيرادهم من Excel مع عمود المنطقة)."
+                    />
+                  )}
+                  {notInCatalogTotal > 0 && (
+                    <Bucket
+                      title="طبيب منطقته غير موجودة في قائمة المناطق" count={notInCatalogTotal} color="#f59e0b"
+                      hint='الحل: صفحة "المناطق" ← زر "🔄 تحديث من السيرفي" لإنشائها، ثم أسندها للفريق المعني.'
+                      rows={coverage.notInCatalog}
+                    />
+                  )}
+                  {unassignedTotal > 0 && (
+                    <Bucket
+                      title="طبيب منطقته موجودة لكنها غير مُسندة لأي مستخدم" count={unassignedTotal} color="#7c3aed"
+                      hint='الحل: أسند هذه المناطق للمندوب/الفريق المسؤول عنها (صفحة المندوبين العلميين ← المندوب ← تبويب المناطق).'
+                      rows={coverage.unassignedAll}
+                    />
+                  )}
+
+                  <div style={{ borderTop: '1.5px solid #e8edf5', marginTop: 18, paddingTop: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>
+                      قارن مع رقم مستخدم بعينه
+                    </div>
+                    <select
+                      value={coverageUserId}
+                      onChange={e => {
+                        const v = e.target.value ? Number(e.target.value) : '';
+                        setCoverageUserId(v);
+                        if (selectedSurvey) loadCoverage(selectedSurvey.id, v);
+                      }}
+                      style={{ ...inputStyle, maxWidth: 340, cursor: 'pointer' }}
+                    >
+                      <option value="">— اختر مستخدماً —</option>
+                      {coverage.users.map(u => (
+                        <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                      ))}
+                    </select>
+
+                    {coverage.target && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 13, color: '#1e293b', marginBottom: 10 }}>
+                          <strong>{coverage.target.name}</strong> يرى{' '}
+                          <strong style={{ color: '#6366f1' }}>{coverage.target.visible}</strong> من {coverage.total} —
+                          الفارق <strong style={{ color: '#dc2626' }}>{coverage.total - coverage.target.visible}</strong> طبيب.
+                        </div>
+                        {coverage.target.outOfScope.length > 0 && (
+                          <Bucket
+                            title="طبيب في مناطق خارج نطاقه هو (مُسندة لغيره)"
+                            count={coverage.target.outOfScope.reduce((s, a) => s + a.count, 0)}
+                            color="#0ea5e9"
+                            hint="إن كانت هذه المناطق تخصّه فعلاً، أسندها له من صفحة المندوبين العلميين ← تبويب المناطق."
+                            rows={coverage.target.outOfScope}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                    <button onClick={() => setShowCoverage(false)} style={btnSecondary}>إغلاق</button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import {
   addDoctor, updateDoctor, deleteDoctor, extractDoctorImport, commitDoctorImport,
   addPharmacy, updatePharmacy, deletePharmacy, bulkImportPharmacies,
   getVisibility, hideUser, showUser, hideOffice, showOffice,
-  getSurveyLogs,
+  getSurveyLogs, coverageCheck,
   listDrugEntries, addDrugEntry, updateDrugEntry, deleteDrugEntry, bulkImportDrugEntries,
 } from './survey-admin.controller.js';
 
@@ -43,6 +43,9 @@ router.delete('/:id/visibility/hide-office/:officeId', showOffice);
 
 // Audit log
 router.get('/:id/logs', getSurveyLogs);
+
+// فحص الظهور: لماذا يقلّ عدد الأطباء عند المستخدمين عن العدد هنا
+router.get('/:id/coverage', coverageCheck);
 
 // Drug price entries
 router.get('/:id/drug-entries',               listDrugEntries);

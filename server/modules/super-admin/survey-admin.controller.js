@@ -1,6 +1,8 @@
 import prisma from '../../lib/prisma.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
-import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, classifySurveyDoctorRows, saveSurveyDoctorAlias, ensureGlobalArea, loadAreaNameIndex } from '../../lib/surveyDoctors.js';
+import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, classifySurveyDoctorRows, saveSurveyDoctorAlias, ensureGlobalArea, loadAreaNameIndex, resolveAreaScope } from '../../lib/surveyDoctors.js';
+import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { areaIdsOfProvinces, areaIdsOfSubProvinces } from '../../lib/areaScope.js';
 
 // ── Shared helpers ────────────────────────────────────────────
 // Find or create an Area by name (shared catalog) and link it to this user
@@ -264,6 +266,108 @@ export async function commitDoctorImport(req, res, next) {
 
     res.status(201).json({ success: true, created, matched });
   } catch (e) { console.error('[commitDoctorImport]', e.message, e.code); next(e); }
+}
+
+// ── فحص ظهور أطباء السيرفي ────────────────────────────────────
+// عدد الأطباء في لوحة السوبر أدمن هو العدد الخام لكل صفوف السيرفي، بينما ما
+// يراه أي مستخدم يمرّ بفلتر getScopedSurveyDoctors: «اسم منطقة غير فارغ +
+// مطابق (بعد التطبيع) لإحدى مناطق نطاقه». الفرق بين الرقمين كان يظهر كأنه عطل
+// بلا أي وسيلة لمعرفة أي أطباء سقطوا ولا لماذا. هذه الدالة تُصنّف كل طبيب إلى
+// سبب واحد محدَّد، مجمَّعاً باسم المنطقة كي يكون قابلاً للإصلاح مباشرة.
+export async function coverageCheck(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const userId   = req.query.userId ? parseInt(req.query.userId) : null;
+
+    const [docs, areas, users] = await Promise.all([
+      prisma.masterSurveyDoctor.findMany({
+        where:  { surveyId },
+        select: { id: true, name: true, areaName: true },
+      }),
+      prisma.area.findMany({ select: { id: true, name: true } }),
+      prisma.user.findMany({
+        select:  { id: true, username: true, displayName: true, role: true },
+        orderBy: { displayName: 'asc' },
+      }),
+    ]);
+
+    // كتالوج المناطق: الاسم المطبَّع → معرّفات الصفوف (نفس تطبيع المطابقة الحقيقي)
+    const catalogIds = new Map();
+    for (const a of areas) {
+      const n = normalizeAreaName(a.name);
+      if (!catalogIds.has(n)) catalogIds.set(n, []);
+      catalogIds.get(n).push(a.id);
+    }
+
+    // اتحاد نطاقات كل المستخدمين — منطقة خارجه = لا يراها أحد إطلاقاً
+    const [ua, sra, upa, uspa] = await Promise.all([
+      prisma.userAreaAssignment.findMany({ select: { areaId: true } }),
+      prisma.scientificRepArea.findMany({ select: { areaId: true } }),
+      prisma.userProvinceAssignment.findMany({ select: { provinceId: true } }),
+      prisma.userSubProvinceAssignment.findMany({ select: { subProvinceId: true } }),
+    ]);
+    const [provAreaIds, subAreaIds] = await Promise.all([
+      areaIdsOfProvinces([...new Set(upa.map(r => r.provinceId))]),
+      areaIdsOfSubProvinces([...new Set(uspa.map(r => r.subProvinceId))]),
+    ]);
+    const assignedAreaIds = new Set([
+      ...ua.map(r => r.areaId), ...sra.map(r => r.areaId), ...provAreaIds, ...subAreaIds,
+    ]);
+
+    // نطاق مستخدم بعينه — يُحسب بنفس resolveAreaScope الذي تستعمله الشاشات
+    let target = null;
+    if (userId) {
+      const u = users.find(x => x.id === userId);
+      if (u) {
+        const scope = await resolveAreaScope({ id: u.id, role: u.role }, {});
+        target = { user: u, normAreas: new Set(scope.normAreaNames) };
+      }
+    }
+
+    const bump = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
+    const noArea = [];                 // بلا اسم منطقة أصلاً — لا يراه أحد
+    const notInCatalog   = new Map();  // اسم منطقة بلا صف Area مطابق
+    const unassignedAll  = new Map();  // المنطقة موجودة لكن غير مُسندة لأي مستخدم
+    const outOfTargetScope = new Map();// مُسندة لغيره لكنها خارج نطاق المستخدم المحدَّد
+    let visibleToTarget = 0, visibleToSomeone = 0;
+
+    for (const d of docs) {
+      const raw = d.areaName?.trim();
+      if (!raw) { noArea.push({ id: d.id, name: d.name }); continue; }
+      const norm = normalizeAreaName(raw);
+      const ids  = catalogIds.get(norm);
+      if (!ids?.length) { bump(notInCatalog, raw); continue; }
+      if (!ids.some(id => assignedAreaIds.has(id))) { bump(unassignedAll, raw); continue; }
+      visibleToSomeone++;
+      if (target) {
+        if (target.normAreas.has(norm)) visibleToTarget++;
+        else bump(outOfTargetScope, raw);
+      }
+    }
+
+    const toList = map => [...map.entries()]
+      .map(([areaName, count]) => ({ areaName, count }))
+      .sort((a, b) => b.count - a.count);
+
+    res.json({
+      success: true,
+      data: {
+        total: docs.length,
+        visibleToSomeone,
+        noArea: { count: noArea.length, sample: noArea.slice(0, 50) },
+        notInCatalog:  toList(notInCatalog),
+        unassignedAll: toList(unassignedAll),
+        target: target ? {
+          userId: target.user.id,
+          name:   target.user.displayName || target.user.username,
+          role:   target.user.role,
+          visible: visibleToTarget,
+          outOfScope: toList(outOfTargetScope),
+        } : null,
+        users: users.map(u => ({ id: u.id, name: u.displayName || u.username, role: u.role })),
+      },
+    });
+  } catch (e) { next(e); }
 }
 
 // ── Survey Pharmacies ────────────────────────────────────────
