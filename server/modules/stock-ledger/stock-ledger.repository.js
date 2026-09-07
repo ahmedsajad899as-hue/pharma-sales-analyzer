@@ -55,6 +55,19 @@ export async function deleteBatch(id, userId) {
   return prisma.stockMovementBatch.deleteMany({ where: { id, userId } });
 }
 
+/** دفعات الستوك الافتتاحي المشتقة من ملف Stock (SalesDataFile) محدَّد، لحساب واحد */
+export async function getBatchIdsBySourceFile(userId, sourceFileId) {
+  const rows = await prisma.stockMovementBatch.findMany({
+    where: { userId, sourceFileId },
+    select: { id: true },
+  });
+  return rows.map(r => r.id);
+}
+
+export async function deleteBatchesByIds(ids, userId) {
+  return prisma.stockMovementBatch.deleteMany({ where: { id: { in: ids }, userId } });
+}
+
 // ─── الحركات ──────────────────────────────────────────────────
 export async function bulkInsertMovements(movements) {
   if (!movements.length) return;

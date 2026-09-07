@@ -901,3 +901,40 @@ export async function removeBatch(userId, batchId) {
   await recomputeBalances(userId, warehouseIds);
   return { warehouseIds };
 }
+
+/** يحذف كل دفعات الستوك الافتتاحي المشتقة من ملف Stock معيّن (sourceFileId) لحساب
+ *  واحد، ثم يعيد حساب أرصدة المذاخر المتأثرة. لا خطأ إن لم توجد دفعات (وضع طبيعي —
+ *  أغلب ملفات Stock لم تُستورَد كستوك افتتاحي أصلاً). */
+export async function removeBatchesBySourceFile(userId, sourceFileId) {
+  const batchIds = await repo.getBatchIdsBySourceFile(userId, sourceFileId);
+  if (!batchIds.length) return { removed: 0 };
+  const warehouseIds = new Set();
+  for (const id of batchIds) {
+    for (const whId of await repo.getBatchWarehouseIds(id)) warehouseIds.add(whId);
+  }
+  await repo.deleteBatchesByIds(batchIds, userId);
+  await recomputeBalances(userId, [...warehouseIds]);
+  return { removed: batchIds.length };
+}
+
+/**
+ * يُستدعى عند حذف ملف Stock (SalesDataFile) من صفحة Stock: يحذف دفعة/دفعات الستوك
+ * الافتتاحي المستوردة منه من رصيد المذاخر — بحساب مالك الملف نفسه، وإن كان موظف
+ * مكتب (الذي يُعمَّم رفعه تلقائياً على مدير المكتب/مدير الشركة، راجع
+ * autoSyncStockToManagers في stock-ledger.controller.js) فمن كل حساب هدف استُورد
+ * له الستوك أيضاً — فلا يبقى رصيد يتيم في أي حساب بعد حذف مصدره. تسلسلي مع عزل
+ * كل حساب بـtry/catch، نفس فلسفة autoSyncStockToManagers.
+ */
+export async function removeBaselineForDeletedStockFile(user, sourceFileId) {
+  if (!user?.id || !Number.isInteger(sourceFileId)) return;
+  await removeBatchesBySourceFile(user.id, sourceFileId);
+  if (user.role !== 'office_employee') return;
+  const targets = await prisma.user.findMany({
+    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'company_manager'] } },
+    select: { id: true },
+  });
+  for (const target of targets) {
+    try { await removeBatchesBySourceFile(target.id, sourceFileId); }
+    catch (err) { console.error('[removeBaselineForDeletedStockFile]', target.id, err); }
+  }
+}

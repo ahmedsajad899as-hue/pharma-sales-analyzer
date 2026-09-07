@@ -171,10 +171,13 @@ export async function baselineFromStockFile(req, res) {
     try {
       if (req.user?.role === 'office_employee') {
         // الملف (SalesDataFile) مملوك لموظف المكتب — يُقرأ مرة واحدة بحسابه هو، ثم
-        // تُستورَد نفس الصفوف مباشرةً بحساب كل هدف (sourceFileId=null لأنه لا يخص الهدف).
+        // تُستورَد نفس الصفوف مباشرةً بحساب كل هدف. sourceFileId يبقى معرّف ملف
+        // موظف المكتب نفسه (لا ملف الهدف — لا نسخة له) عمداً: هو مفتاح الربط الوحيد
+        // بين دفعة كل حساب هدف وملف المصدر، يُستعمل لاحقاً في
+        // removeBaselineForDeletedStockFile لحذف رصيد كل الحسابات معاً عند حذف الملف.
         const { file, rows } = await readStockFileRows(req.user.id, salesDataFileId);
         await autoSyncStockToManagers(req.user, targetUserId =>
-          ingestRows({ userId: targetUserId, kind: 'baseline', name: 'ستوك افتتاحي: ' + file.name, movementDate, rows }));
+          ingestRows({ userId: targetUserId, kind: 'baseline', name: 'ستوك افتتاحي: ' + file.name, movementDate, sourceFileId: salesDataFileId, rows }));
       }
     } catch (syncErr) { console.error('[autoSyncStockToManagers]', syncErr); }
     res.json({ success: true, data: result });
