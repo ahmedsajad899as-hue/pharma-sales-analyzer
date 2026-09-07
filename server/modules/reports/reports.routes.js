@@ -81,25 +81,24 @@ router.get('/overall', async (req, res) => {
           areaFilter = { areaId: { in: areaIds } };
         }
 
-        // ملفات موظف المكتب مستثناة من توسيع "زملاء الشركة": هذا الحساب مُعيَّن
-        // على كل شركات النظام عمداً (ليقدر يُعمِّم أي ملف) — فلو وسّعنا حسب شركته
-        // لعاد الناتج كل مدراء التطبيق تقريباً وطُبِّقت حجوباتهم الشخصية (غير
-        // ذات الصلة) على ملف لا علاقة له بفريقهم. حجب موظف المكتب نفسه (إن
-        // وُجد) يبقى مُطبَّقاً؛ التوسيع بالشركة يبقى فقط لملفات مدراء حقيقيين.
+        // ملفات موظف المكتب: الحجب فيها مستقل بالكامل لكل حساب — كل مستلم يُطبِّق
+        // حجبه الشخصي هو على ما يراه (كأنه رفع الملف بنفسه)، بلا أي تأثير من
+        // حسابات أخرى. هذا الحساب مُعيَّن على كل شركات النظام عمداً (ليقدر
+        // يُعمِّم أي ملف) — فلو وُسِّع حسب شركته لعاد الناتج كل مدراء التطبيق
+        // تقريباً وطُبِّقت حجوباتهم عِوضاً عن حجب المستلم نفسه.
         const directOwnerIds = [...new Set(
           sharedFiles.filter(f => f.user?.role !== 'office_employee').map(f => f.userId).filter(Boolean),
         )];
-        const officeEmployeeOwnerIds = [...new Set(
-          sharedFiles.filter(f => f.user?.role === 'office_employee').map(f => f.userId).filter(Boolean),
-        )];
+        const hasOfficeEmployeeShare = sharedFiles.some(f => f.user?.role === 'office_employee');
         // مدير المكتب يضيف الحجب من حسابه هو، لا من حساب مدير الشركة الذي رفع
         // الملف فعلياً — راجع نفس التوسيع في resolveSciRepSales (scientific-reps.service.js).
         // استبعاد المُستلِم (userId) نفسه من الناتج: directOwnerIds هنا بالتعريف
         // "ملّاك غيري" (شرط NOT:{userId} أعلاه على sharedFiles) — فأي عودة له في
         // الموسَّع سببها فقط مشاركته بشركة مع المالك الحقيقي (زميل بالشركة)، لا
-        // ملكية فعلية، وكانت تُطبِّق حجبه الشخصي على ملف غيره المشارَك معه.
+        // ملكية فعلية، وكانت ستُطبِّق حجبه الشخصي مرتين أو بمصدر خاطئ.
         const expandedIds = (await expandOwnerIdsByCompany(directOwnerIds)).filter(id => id !== userId);
-        const ownerIds = [...new Set([...expandedIds, ...officeEmployeeOwnerIds])];
+        // ملف موظف المكتب → حجب المستلم نفسه هو ما يُطبَّق عليه (مستقل بالكامل).
+        const ownerIds = [...new Set([...expandedIds, ...(hasOfficeEmployeeShare ? [userId] : [])])];
         if (ownerIds.length > 0) {
           // Only apply block lists of owners who have blocking ENABLED (master switch)
           // AND the block row itself isn't temporarily paused (enabled=false).
