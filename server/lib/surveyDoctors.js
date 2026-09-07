@@ -338,9 +338,41 @@ async function resolveAreaIdForUser(areaName, userId) {
   return (await findOrCreateArea(areaName, userId)).id;
 }
 
+// ── ensureGlobalArea / loadAreaNameIndex ──────────────────────────────────────
+// طبيب سيرفي بمنطقة اسمها جديد كلياً (لم تُستخدم من قبل في أي حساب) يبقى غير
+// مرئي للجميع إلى الأبد: getScopedSurveyDoctors تطابق بالاسم المطبَّع مقابل
+// مناطق Area الموجودة فعلاً — واسم بلا أي صف Area مطابق لا يمكن أن يُسنَد لفريق
+// أصلاً. سابقاً كان الحل الوحيد زيارة صفحة المناطق يدوياً وضغط «تحديث من
+// السيرفي» (POST /api/sa/areas/reset-from-survey). هنا نُطبّق نفس فكرة ذاك الزر
+// تلقائياً عند كل إنشاء/تعديل طبيب سيرفي (يدوي أو عبر استيراد إكسل) — صف Area
+// بلا userId (كتالوج عام، نفس نمط reset-from-survey) يُنشأ فوراً فيصبح قابلاً
+// للإسناد لأي فريق من نفس اللحظة، بدل انتظار زيارة يدوية لصفحة أخرى.
+export async function loadAreaNameIndex() {
+  const rows = await prisma.area.findMany({ select: { name: true } });
+  return new Set(rows.map(r => normalizeAreaName(r.name)));
+}
+
+export async function ensureGlobalArea(areaName, knownNames = null) {
+  const trimmed = String(areaName ?? '').trim();
+  if (!trimmed) return;
+  const norm = normalizeAreaName(trimmed);
+  if (knownNames) {
+    if (knownNames.has(norm)) return;
+    await prisma.area.create({ data: { name: trimmed } });
+    knownNames.add(norm);
+    return;
+  }
+  const known = await loadAreaNameIndex();
+  if (known.has(norm)) return;
+  await prisma.area.create({ data: { name: trimmed } });
+}
+
 // ── createSurveyDoctor — إنشاء طبيب سيرفي موحّد (log + notify) ────────────────
 // editedById: userId للمندوب/المدير، أو null للسوبر أدمن.
-export async function createSurveyDoctor(surveyId, fields, editedById) {
+// areaCache: Set اختياري (من loadAreaNameIndex) لتفادي استعلام كامل جدول
+// المناطق عند كل صف في استيراد جماعي — commitDoctorImport يمرّره جاهزاً.
+export async function createSurveyDoctor(surveyId, fields, editedById, areaCache = null) {
+  if (fields.areaName) await ensureGlobalArea(fields.areaName, areaCache);
   const doc = await prisma.masterSurveyDoctor.create({
     data: {
       surveyId,
@@ -362,7 +394,7 @@ export async function createSurveyDoctor(surveyId, fields, editedById) {
 
 // ── updateSurveyDoctor — تعديل طبيب سيرفي موحّد (cascade + log) ───────────────
 // يُطبّق التغيير على MasterSurveyDoctor + كل صفوف Doctor المرتبطة + يسجّل الحركة.
-export async function updateSurveyDoctor(surveyId, docId, fields, editedById) {
+export async function updateSurveyDoctor(surveyId, docId, fields, editedById, areaCache = null) {
   const old = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
   if (!old || old.surveyId !== surveyId) return { error: 'not_found' };
 
@@ -370,6 +402,7 @@ export async function updateSurveyDoctor(surveyId, docId, fields, editedById) {
   for (const key of ['name', 'specialty', 'areaName', 'pharmacyName', 'className', 'zoneName', 'phone', 'notes']) {
     if (fields[key] !== undefined) data[key] = key === 'name' ? String(fields[key]).trim() : fields[key];
   }
+  if (data.areaName) await ensureGlobalArea(data.areaName, areaCache);
 
   const updated = await prisma.masterSurveyDoctor.update({ where: { id: docId }, data });
   await logSurveyEdit(surveyId, 'doctor', docId, 'update', old, updated, editedById);

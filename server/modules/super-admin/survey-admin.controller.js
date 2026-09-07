@@ -1,6 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
-import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, classifySurveyDoctorRows, saveSurveyDoctorAlias } from '../../lib/surveyDoctors.js';
+import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, classifySurveyDoctorRows, saveSurveyDoctorAlias, ensureGlobalArea, loadAreaNameIndex } from '../../lib/surveyDoctors.js';
 
 // ── Shared helpers ────────────────────────────────────────────
 // Find or create an Area by name (shared catalog) and link it to this user
@@ -99,6 +99,7 @@ export async function addDoctor(req, res, next) {
     const surveyId = parseInt(req.params.id);
     const { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الطبيب مطلوب' });
+    if (areaName) await ensureGlobalArea(areaName);
     const doc = await prisma.masterSurveyDoctor.create({
       data: { surveyId, name: name.trim(), specialty, areaName, pharmacyName, className, zoneName, phone, notes },
     });
@@ -123,6 +124,7 @@ export async function updateDoctor(req, res, next) {
     if (zoneName     !== undefined) data.zoneName     = zoneName;
     if (phone        !== undefined) data.phone        = phone;
     if (notes        !== undefined) data.notes        = notes;
+    if (data.areaName) await ensureGlobalArea(data.areaName);
     const updated = await prisma.masterSurveyDoctor.update({ where: { id: docId }, data });
     await logEntry(surveyId, 'doctor', docId, 'update', old, updated, null);
 
@@ -208,6 +210,7 @@ export async function commitDoctorImport(req, res, next) {
       return res.status(400).json({ success: false, error: 'لا يوجد بيانات' });
 
     const editedById = req.superAdmin?.id ?? null;
+    const areaCache = await loadAreaNameIndex();
     let created = 0, matched = 0;
 
     for (const r of rows) {
@@ -233,7 +236,7 @@ export async function commitDoctorImport(req, res, next) {
             if (v && !existing[k]) fillData[k] = v;
           }
           if (Object.keys(fillData).length) {
-            await updateSurveyDoctorLib(surveyId, existing.id, fillData, editedById);
+            await updateSurveyDoctorLib(surveyId, existing.id, fillData, editedById, areaCache);
           }
           // حالة "ask" حسمها السوبر أدمن يدوياً — تُحفظ كي لا يُعاد السؤال عن
           // نفس هذا الاسم لاحقاً (سواء في استيراد سيرفي آخر أو استيراد زيارات).
@@ -249,7 +252,7 @@ export async function commitDoctorImport(req, res, next) {
       }
 
       // لا تطابق — طبيب سيرفي جديد
-      const doc = await createSurveyDoctor(surveyId, { name, ...fields }, editedById);
+      const doc = await createSurveyDoctor(surveyId, { name, ...fields }, editedById, areaCache);
       if (r.wasAsk) {
         await saveSurveyDoctorAlias(surveyId, {
           fromName: name, areaName: r.areaName, surveyDoctorId: doc.id,

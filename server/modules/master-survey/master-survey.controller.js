@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaNames } from '../../lib/areaScope.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { resolveAreaScope, ensureDoctorRowsForScope } from '../../lib/surveyDoctors.js';
+import { resolveAreaScope, ensureDoctorRowsForScope, ensureGlobalArea } from '../../lib/surveyDoctors.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 
 // ── Arabic normalization helper ───────────────────────────────
@@ -172,6 +172,7 @@ export async function addDoctor(req, res, next) {
     await assertVisible(surveyId, req.user, res);
     const { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الطبيب مطلوب' });
+    if (areaName?.trim()) await ensureGlobalArea(areaName);
     const doc = await prisma.masterSurveyDoctor.create({
       data: {
         surveyId,
@@ -258,6 +259,7 @@ export async function updateDoctor(req, res, next) {
     if (zoneName     !== undefined) data.zoneName     = zoneName;
     if (phone        !== undefined) data.phone        = phone;
     if (notes        !== undefined) data.notes        = notes;
+    if (data.areaName?.trim()) await ensureGlobalArea(data.areaName);
     const updated = await prisma.masterSurveyDoctor.update({ where: { id: docId }, data });
     await logEntry(surveyId, 'doctor', docId, 'update', old, updated, req.user.id);
 
