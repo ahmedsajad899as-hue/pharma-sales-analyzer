@@ -68,16 +68,46 @@ const COL_KEYWORDS = {
   area:        ['المنطقة', 'المناطق', 'area'],
 };
 
-function findCol(headers, keywords) {
-  const lower = headers.map(h => String(h).trim().toLowerCase());
-  for (const kw of keywords) {
-    const k = kw.toLowerCase();
-    let idx = lower.findIndex(h => h === k);
-    if (idx === -1) idx = lower.findIndex(h => h.includes(k));
-    if (idx !== -1) return headers[idx];
+// ترتيب أعمدة النموذج — يُستخدم كخطة بديلة عندما يحذف المستخدم صف الترويسة
+// من الملف قبل تعبئته (كان يؤدي سابقاً لابتلاع أول مستخدم كترويسة ثم إرجاع
+// «صالح للاستيراد: 0» بلا أي تفسير).
+const POSITIONAL_ORDER = ['username', 'password', 'displayName', 'phone', 'role', 'company', 'item', 'province', 'area'];
+
+// يطابق خلايا صف واحد مقابل كلمات الترويسة، ويُعيد { field: columnIndex }.
+// كل عمود يُحجَز لأول حقل يطابقه حتى لا يسرق حقلان نفس العمود.
+function matchColumns(cells) {
+  const lower = cells.map(c => String(c ?? '').trim().toLowerCase());
+  const map = {};
+  const taken = new Set();
+  for (const [field, kws] of Object.entries(COL_KEYWORDS)) {
+    for (const kw of kws) {
+      const k = kw.toLowerCase();
+      let idx = lower.findIndex((h, i) => !taken.has(i) && h === k);
+      if (idx === -1) idx = lower.findIndex((h, i) => !taken.has(i) && h && h.includes(k));
+      if (idx !== -1) { map[field] = idx; taken.add(idx); break; }
+    }
   }
-  return null;
+  return map;
 }
+
+// يبحث عن صف الترويسة الحقيقي ضمن أول صفوف الورقة (قد تسبقه صفوف عنوان فارغة)،
+// وإن لم يجده يفترض ترتيب أعمدة النموذج — بنفس روح كشف الترويسة في قارئ المبيعات.
+function detectLayout(aoa) {
+  const firstFilled = aoa.findIndex(r => Array.isArray(r) && r.some(c => String(c ?? '').trim() !== ''));
+  if (firstFilled === -1) return null;
+  const limit = Math.min(aoa.length, firstFilled + 15);
+  for (let i = firstFilled; i < limit; i++) {
+    const map = matchColumns(aoa[i] || []);
+    if (map.username != null && Object.keys(map).length >= 3) {
+      return { colMap: map, headerRowIndex: i, headerless: false };
+    }
+  }
+  const colMap = {};
+  POSITIONAL_ORDER.forEach((f, idx) => { colMap[f] = idx; });
+  return { colMap, headerRowIndex: firstFilled - 1, headerless: true };
+}
+
+const USERNAME_HEADER_WORDS = new Set(COL_KEYWORDS.username.map(k => k.toLowerCase()));
 
 export async function previewUsersImport(req, res) {
   try {
@@ -88,18 +118,18 @@ export async function previewUsersImport(req, res) {
     }
     if (!req.file) return res.status(400).json({ error: 'لم يتم رفع أي ملف' });
 
-    const workbook = XLSX.readFile(req.file.path);
-    const sheet    = workbook.Sheets[workbook.SheetNames[0]];
-    const rawRows  = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    const workbook  = XLSX.readFile(req.file.path);
+    // ورقة «المستخدمون» تحديداً إن وُجدت — بقية أوراق النموذج مرجعية فقط.
+    const sheetName = workbook.SheetNames.find(n => /المستخدم|user/i.test(String(n))) ?? workbook.SheetNames[0];
+    const sheet     = workbook.Sheets[sheetName];
+    const aoa       = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: true });
     fs.unlink(req.file.path, () => {});
 
-    if (rawRows.length === 0) {
-      return res.json({ success: true, data: { officeId, rows: [], summary: { total: 0, valid: 0, invalid: 0 } } });
+    const layout = detectLayout(aoa);
+    if (!layout) {
+      return res.status(400).json({ error: 'الورقة فارغة — لا توجد أي صفوف بيانات في الملف.' });
     }
-
-    const headers = Object.keys(rawRows[0]);
-    const colMap  = {};
-    for (const [field, kws] of Object.entries(COL_KEYWORDS)) colMap[field] = findCol(headers, kws);
+    const { colMap, headerRowIndex, headerless } = layout;
 
     // كتالوج المكتب: شركاته وايتماتها (نطاق المطابقة).
     const companies = await prisma.scientificCompany.findMany({
@@ -126,14 +156,21 @@ export async function previewUsersImport(req, res) {
 
     // ── تقسيم الصفوف إلى كتل: صف بعمود "اسم المستخدم" غير فارغ يبدأ كتلة جديدة؛
     // الصفوف الفارغة من اسم المستخدم بعده تنضم لنفس الكتلة حتى الكتلة التالية.
-    const get = (raw, field) => (colMap[field] ? String(raw[colMap[field]] ?? '').trim() : '');
+    const get = (raw, field) => {
+      const idx = colMap[field];
+      return idx == null ? '' : String(raw[idx] ?? '').trim();
+    };
     const blocks = [];
     let current = null;
     let carryCompany = null; // آخر شركة صحيحة ذُكرت ضمن الكتلة الحالية (تُطبَّق على أي ايتم بلا شركة صريحة بنفس الصف)
 
-    rawRows.forEach((raw, i) => {
-      const excelRow = i + 2; // ١ = صف الترويسة
+    aoa.forEach((raw, i) => {
+      if (i <= headerRowIndex) return;
+      if (!Array.isArray(raw) || raw.every(c => String(c ?? '').trim() === '')) return;
+      const excelRow = i + 1; // فهرس الصف في إكسل يبدأ من ١
       const username = get(raw, 'username');
+      // صف ترويسة متبقٍ (وضع «بلا ترويسة») — ليس مستخدماً
+      if (username && USERNAME_HEADER_WORDS.has(username.toLowerCase())) return;
       if (username) {
         current = {
           startRow: excelRow, endRow: excelRow,
@@ -220,6 +257,8 @@ export async function previewUsersImport(req, res) {
         seenInFile.add(lower);
       }
 
+      if (b.username && /s/.test(b.username)) warnings.push('اسم المستخدم يحتوي مسافات — سيُستخدم كما هو عند تسجيل الدخول');
+
       const { value: role, matched: roleMatched } = resolveRole(b.roleRaw);
       if (!roleMatched) warnings.push(`الدور "${b.roleRaw}" غير معروف — تم استخدام "مندوب علمي" افتراضياً`);
       if (b.unmatchedCompanies.length) warnings.push(`شركات غير موجودة ضمن كتالوج هذا المكتب: ${b.unmatchedCompanies.join('، ')}`);
@@ -241,9 +280,20 @@ export async function previewUsersImport(req, res) {
     });
 
     const valid = rows.filter(r => r.errors.length === 0).length;
+    const notices = [];
+    if (headerless) {
+      notices.push('لم يُعثر على صف الترويسة في الملف — تمت قراءة الأعمدة حسب ترتيب النموذج: اسم المستخدم، كلمة المرور، الاسم الظاهر، رقم الهاتف، الدور، الشركة، الايتمات، المحافظة، المنطقة.');
+    }
+    if (rows.length === 0) {
+      notices.push('لم يُعثر على أي مستخدم في الملف — تأكد أن عمود «اسم المستخدم» معبأ في أول صف من كل كتلة.');
+    }
     res.json({
       success: true,
-      data: { officeId, rows, summary: { total: rows.length, valid, invalid: rows.length - valid } },
+      data: {
+        officeId, rows, sheetName, headerless,
+        notice: notices.join(' '),
+        summary: { total: rows.length, valid, invalid: rows.length - valid },
+      },
     });
   } catch (err) {
     if (req.file) fs.unlink(req.file.path, () => {});

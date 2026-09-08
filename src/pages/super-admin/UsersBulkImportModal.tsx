@@ -44,6 +44,7 @@ export default function UsersBulkImportModal({ offices, token, onClose, onImport
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState('');
   const [rows, setRows] = useState<PreviewRow[] | null>(null);
+  const [notice, setNotice] = useState('');
   const [result, setResult] = useState<CommitResult | null>(null);
   const [fileName, setFileName] = useState('');
 
@@ -151,7 +152,7 @@ export default function UsersBulkImportModal({ offices, token, onClose, onImport
     const file = fileList?.[0];
     if (!file) return;
     if (!officeId) { setError('اختر المكتب أولاً'); return; }
-    setError(''); setUploading(true); setRows(null); setResult(null); setFileName(file.name);
+    setError(''); setNotice(''); setUploading(true); setRows(null); setResult(null); setFileName(file.name);
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -160,6 +161,7 @@ export default function UsersBulkImportModal({ offices, token, onClose, onImport
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || 'فشل قراءة الملف');
       setRows(j.data.rows);
+      setNotice(j.data.notice ?? '');
     } catch (e: any) {
       setError(e.message ?? 'فشل قراءة الملف');
     } finally {
@@ -201,7 +203,7 @@ export default function UsersBulkImportModal({ offices, token, onClose, onImport
 
         <div style={{ marginBottom: 16 }}>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>المكتب</label>
-          <select value={officeId} onChange={e => { setOfficeId(e.target.value); setRows(null); setResult(null); }}
+          <select value={officeId} onChange={e => { setOfficeId(e.target.value); setRows(null); setResult(null); setNotice(''); }}
             style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14 }}>
             <option value="">اختر المكتب...</option>
             {offices.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -219,6 +221,10 @@ export default function UsersBulkImportModal({ offices, token, onClose, onImport
           </label>
           {fileName && <span style={{ alignSelf: 'center', fontSize: 12, color: '#64748b' }}>📄 {fileName}</span>}
         </div>
+
+        {notice && !result && (
+          <div style={{ background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 12px', fontSize: 12.5, marginBottom: 12, lineHeight: 1.7 }}>⚠ {notice}</div>
+        )}
 
         {rows && !result && (
           <>
