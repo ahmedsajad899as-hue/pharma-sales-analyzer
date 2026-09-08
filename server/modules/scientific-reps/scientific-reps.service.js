@@ -89,6 +89,9 @@ export async function list(filters, user = null, options = {}) {
       include: {
         companyAssignments: { include: { company: { select: { id: true, name: true } } } },
         linkedRep:          true,
+        // روابط المدير المباشر (UserManagerAssignment) — تُستخدم في الواجهة لعرض
+        // القائمة مُجمَّعة: قائد الفريق ثم مندوبوه، لا قائمة مسطّحة بلا ترتيب.
+        managersOfUser:     { select: { managerId: true } },
       },
     });
 
@@ -122,6 +125,11 @@ export async function list(filters, user = null, options = {}) {
         commercialReps: sciRepData?.commercialReps?.map(l => l.commercialRep) ?? [],
         _isUser: true,
         role: u.role,
+        // معرّف حساب المستخدم (غير id أعلاه = معرّف سجل المندوب العلمي) ومعرّفات
+        // مدرائه — الاثنان بمعرّفات users، فبهما تُبنى شجرة «قائد فريق ← مندوبوه».
+        userId: u.id,
+        managerIds: u.managersOfUser.map(m => m.managerId),
+        companyId: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.id ?? null,
       };
     }));
 
