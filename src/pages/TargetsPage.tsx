@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import RepSelectOptions, { type GroupableRep } from '../components/RepSelectOptions';
 
 const API = import.meta.env.VITE_API_URL || '';
 
 interface NamedItem { id: number; name: string; }
-interface ScientificRep { id: number; name: string; items: NamedItem[]; }
-interface CommRep { id: number; name: string; items?: { item: NamedItem }[]; }
+interface ScientificRep extends GroupableRep { items: NamedItem[]; }
+interface CommRep extends GroupableRep { items?: { item: NamedItem }[]; }
 interface TargetRow { itemId: number; itemName: string; target: string; }
 interface SavedTarget { id: number; itemId: number; item: NamedItem; target: number; month: number; year: number; }
 
@@ -294,7 +295,8 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
             style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 14, cursor: 'pointer', background: '#fff' }}
           >
             <option value="">— اختر مندوباً —</option>
-            {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            {/* مرتّبة: شركة ← قائد فريق ← مندوبوه. التجاريون بلا أدوار فتظهر قائمتهم مسطّحة */}
+            <RepSelectOptions reps={reps} />
           </select>
         </div>}
 
