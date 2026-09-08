@@ -1564,6 +1564,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         );
       })}
     </div>
+    {/* تحذير الارجاعات — عنصر مستقل حتى لا يزيح أزرار Excel/تصدير عن طرف المحاذاة */}
+    {!hasReturns && (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)',
+        borderRadius: 8, padding: '5px 10px', fontSize: 12, color: 'var(--c-warning)',
+      }}>
+        <Icon name="warning" size={13} />
+        <span>لا يوجد بيانات ارجاعات — ارفع ملف ارجاعات من <strong>رفع الملفات</strong></span>
+      </div>
+    )}
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
       {/* ── Export-all (per-rep) button — relocated here from the page header ── */}
       {user?.role !== 'scientific_rep' && (
@@ -1598,16 +1609,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         <Icon name={rowPreviewKey === '__top__' ? 'loading' : 'excel'} size={17} className={rowPreviewKey === '__top__' ? 'icon-spin' : undefined} />
         <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>Excel</span>
       </button>
-      {!hasReturns && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)',
-          borderRadius: 8, padding: '5px 10px', fontSize: 12, color: 'var(--c-warning)',
-        }}>
-          <Icon name="warning" size={13} />
-          <span>لا يوجد بيانات ارجاعات — ارفع ملف ارجاعات من <strong>رفع الملفات</strong></span>
-        </div>
-      )}
     </div>
     </div>
   );
