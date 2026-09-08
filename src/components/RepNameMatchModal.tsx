@@ -17,6 +17,8 @@ interface Entry {
   key: string;
   status: 'linked' | 'exact' | 'ask';
   rep: { id: number; name: string } | null;
+  /** اسم الزميل الذي حسم هذا الاسم — null إن كان القرار قرارك أنت */
+  by?: string | null;
   suggestions: Suggestion[];
 }
 interface RepOpt { id: number; name: string }
@@ -106,6 +108,7 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
           الاسم المسجَّل في التطبيق. المطابقة تتم مع <b>مندوبيك أنت فقط</b> — وأي
           اسم لا يخصّهم يُتجاهل بلا سؤال. أكّد لكل اسم أدناه: هل هو نفس المندوب
           المقترح؟ ما تؤكّده يُحفظ فلا نسألك عنه ثانيةً، وتُحتسب مبيعاته له مباشرةً.
+          <br />القرار <b>مشترك مع زملائك في المكتب</b>: ما يؤكّده أحدكم لا يُسأل عنه أحد بعده.
         </p>
 
         {loading ? (
@@ -205,10 +208,10 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
                         {e.rep ? e.rep.name : 'مُتجاهَل (ليس أحد المندوبين)'}
                       </span>
                       <span style={{ marginInlineStart: 'auto', fontSize: 10.5, color: '#94a3b8' }}>
-                        {e.status === 'exact' ? 'تطابق تام' : 'مؤكَّد سابقاً'}
+                        {e.status === 'exact' ? 'تطابق تام' : e.by ? `أكّده ${e.by}` : 'مؤكَّد سابقاً'}
                       </span>
                       {e.status === 'linked' && (
-                        <button onClick={() => unlink(e.key)} title="إلغاء الربط وإعادة السؤال"
+                        <button onClick={() => unlink(e.key)} title="إلغاء الربط وإعادة السؤال (يشمل قرار الزميل — القرار مشترك)"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 12, fontWeight: 800, padding: 0 }}>✕</button>
                       )}
                     </div>

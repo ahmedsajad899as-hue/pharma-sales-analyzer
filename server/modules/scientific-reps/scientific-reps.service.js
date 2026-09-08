@@ -770,13 +770,32 @@ export async function classifyRepNamesForUser(names, user = null) {
     .filter(r => Number.isInteger(r.id) && r.name);
 
   const userId = user?.id ?? null;
-  const linkRows = userId
+  // نطاق القرارات المحفوظة = المستخدم وزملاؤه في نفس الشركات/المكتب، لا هو وحده.
+  // السبب: نسبة المبيعات تقرأ SciRepNameLink بـ scientificRepId فقط بلا userId
+  // (resolveSciRepSales أدناه)، أي أن قرار أي زميل مُطبَّق فعلاً على تقارير الجميع.
+  // حصر «لا تسألني ثانيةً» بصاحب القرار وحده كان يجعل كل حساب في المكتب يُسأل من
+  // جديد عن أسماء حسمها زميله — فيتكرّر السؤال عند كل رفع/فتح لملف ميركاتو رغم أن
+  // المبيعات محسوبة أصلاً بذلك القرار.
+  const scopeIds = userId ? await expandOwnerIdsByCompany([userId]) : [];
+  const linkRows = scopeIds.length > 0
     ? await prisma.sciRepNameLink.findMany({
-        where:  { userId },
-        select: { fromKey: true, scientificRepId: true, scientificRep: { select: { id: true, name: true } } },
+        where:  { userId: { in: scopeIds } },
+        select: {
+          userId: true, fromKey: true, scientificRepId: true,
+          scientificRep: { select: { id: true, name: true } },
+          user:          { select: { displayName: true, username: true } },
+        },
+        orderBy: { id: 'desc' }, // الأحدث أولاً عند تساوي الأولوية
       })
     : [];
-  const linkByKey = new Map(linkRows.map(l => [l.fromKey, l]));
+  // عند تعدّد قرارات الزملاء لنفس الاسم: قرار المستخدم نفسه أولاً، ثم ربطٌ فعلي
+  // بمندوب، ثم «ليس أحد مندوبينا» — كي لا يُسقط تجاهلُ زميلٍ مندوباً حقيقياً.
+  const linkRank = l => (l.userId === userId ? 2 : 0) + (l.scientificRepId != null ? 1 : 0);
+  const linkByKey = new Map();
+  for (const l of linkRows) {
+    const cur = linkByKey.get(l.fromKey);
+    if (!cur || linkRank(l) > linkRank(cur)) linkByKey.set(l.fromKey, l);
+  }
   const repByKey  = new Map();
   for (const r of reps) {
     const k = normalizeRepName(r.name);
@@ -790,6 +809,8 @@ export async function classifyRepNamesForUser(names, user = null) {
       return {
         raw, key, status: 'linked',
         rep: link.scientificRep ? { id: link.scientificRep.id, name: link.scientificRep.name } : null,
+        // اسم من حسم هذا الاسم إن كان زميلاً — ليعرف المستخدم لماذا لم يُسأل عنه
+        by: link.userId === userId ? null : (link.user?.displayName || link.user?.username || null),
         suggestions: [],
       };
     }
@@ -870,9 +891,19 @@ export async function saveRepNameLinks(userId, links) {
   return { saved };
 }
 
-/** يحذف ربط اسم محفوظاً — يعود الاسم ليُسأل عنه من جديد. */
+/**
+ * يحذف ربط اسم محفوظاً — يعود الاسم ليُسأل عنه من جديد.
+ * يشمل نسخ الزملاء لنفس الاسم: القرار مشترك على نطاق الشركة/المكتب (انظر
+ * classifyRepNamesForUser)، فحذف نسخة المستخدم وحدها كان يترك الاسم «محسوماً»
+ * فور إعادة الفحص فيبدو الزر بلا أثر — كما أن الربط الخاطئ ينسب مبيعات لمندوب
+ * خاطئ في تقارير الجميع، فيجب أن يستطيع أي زميل تصحيحه.
+ */
 export async function removeRepNameLink(userId, fromKey) {
-  await prisma.sciRepNameLink.deleteMany({ where: { userId, fromKey: String(fromKey ?? '') } });
+  const key = String(fromKey ?? '');
+  const scopeIds = userId ? await expandOwnerIdsByCompany([userId]) : [];
+  await prisma.sciRepNameLink.deleteMany({
+    where: { fromKey: key, userId: { in: scopeIds.length > 0 ? scopeIds : [userId] } },
+  });
   return { ok: true };
 }
 
