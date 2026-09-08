@@ -105,13 +105,17 @@ router.get('/overall', async (req, res) => {
       ? (() => { const d = new Date(endDate); d.setUTCHours(23, 59, 59, 999); return d; })()
       : null;
 
-    // When no explicit dates are given, exclude each file's date-defaulted "garbage"
-    // rows (Excel had no date → saleDate = @default(now()) ≈ that file's uploadedAt)
-    // PER FILE — never via a single global min/max range. A global range would drop an
-    // ENTIRE file whose rows are all date-defaulted (e.g. a stock file with no date
-    // column), which silently excluded the 2nd file in multi-file analysis.
+    // استبعاد صفوف «التاريخ الافتراضي» لكل ملف على حدة: صفوف لم يحمل الإكسل لها
+    // تاريخاً فأخذت saleDate = @default(now()) ≈ لحظة رفع الملف. لكل ملف حدّه
+    // (uploadedAt) — لا مدى عام واحد: المدى العام كان يُسقط ملفاً كاملاً كل صفوفه
+    // بلا تاريخ (ملف ستوك مثلاً) فيختفي الملف الثاني بصمت في التحليل متعدد الملفات.
+    //
+    // ⚠️ يُطبَّق دائماً — لا عند غياب التواريخ فقط. سابقاً كان مقصوراً على حالة
+    // «بلا تواريخ»، فيعطي نفس الشاشة رقمين مختلفين للإرجاع: التحليل التلقائي
+    // يُسقط الصفوف بلا تاريخ، ثم مدىً صريح يشمل يومَ الرفع يُعيدها كلها. النتيجة
+    // أن تضييق المدى كان يرفع الإجمالي بدل أن يخفضه — وهو مستحيل منطقياً.
     let noDateFileFilter = null;
-    if (!startDate && !endDate && parsedFileIds.length > 0) {
+    if (parsedFileIds.length > 0) {
       const fileRecords = await prisma.uploadedFile.findMany({
         where: { id: { in: parsedFileIds } },
         select: { id: true, uploadedAt: true },
@@ -130,23 +134,35 @@ router.get('/overall', async (req, res) => {
       if (orConds.length > 0) noDateFileFilter = { OR: orConds };
     }
 
-    const where = {
+    // حارس الصفوف بلا تاريخ + المدى الصريح يُطبَّقان معاً (AND): الأول يحدّد ما
+    // يُعتدّ بتاريخه أصلاً، والثاني يقصّ داخله. فرعا الـOR يحملان saleDate خاصاً
+    // بكل ملف، وهو مستوى مستقل عن saleDate الأعلى فلا يتعارضان.
+    const explicitRange = (effectiveStartDate || effectiveEndDate) ? {
+      saleDate: {
+        ...(effectiveStartDate ? { gte: effectiveStartDate } : {}),
+        ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
+      },
+    } : {};
+    const baseWhere = {
       isHidden: false,
       ...fileFilter,
       ...userOwnershipFilter,
       ...areaFilter,
       ...effectiveItemScope,
-      // No explicit dates → per-file garbage exclusion; otherwise the explicit range.
-      ...(noDateFileFilter
-        ? noDateFileFilter
-        : (effectiveStartDate || effectiveEndDate ? {
-            saleDate: {
-              ...(effectiveStartDate ? { gte: effectiveStartDate } : {}),
-              ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
-            },
-          } : {})),
       ...(recordType ? { recordType } : {}),
     };
+    const where = {
+      ...baseWhere,
+      ...(noDateFileFilter ?? {}),
+      ...explicitRange,
+    };
+
+    // كم صفاً أسقطه حارسُ «بلا تاريخ»؟ نُرجعه للواجهة كي لا يكون الاستبعاد صامتاً:
+    // المستخدم يرى «مبيع/ارجاع» أقل مما في الإكسل ولا يعرف السبب. عدّة واحدة
+    // فقط — الطرف الآخر هو sales.length بعد الجلب أدناه.
+    const countWithUndated = noDateFileFilter
+      ? await prisma.sale.count({ where: { ...baseWhere, ...explicitRange } })
+      : 0;
 
     // Column names that represent "product/item code" in uploaded files —
     // these often contain the company name (e.g. "HUMANISTurkeyN/A")
@@ -293,12 +309,14 @@ router.get('/overall', async (req, res) => {
       }
     }
 
+    const undatedExcluded = noDateFileFilter ? Math.max(0, countWithUndated - sales.length) : 0;
+
     const byItem     = [...itemMap.values()].sort((a, b) => a.itemName.localeCompare(b.itemName));
     const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byAreaItem = [...areaItemMap.values()];
     const byCompany  = [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, minDate, maxDate, recordCount: sales.length, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

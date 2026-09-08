@@ -722,7 +722,7 @@ interface SciReport {
 type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; }
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
 
 // مطابقة اسم متسامحة مع حالة الأحرف والتشكيل العربي — الشركة/المنطقة/الايتم قد
 // تصل بحالة أحرف مختلفة بين استعلام المبيعات واستعلام الإرجاع المنفصلين
@@ -793,7 +793,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // Remembers the last AUTO-populated date range so we can tell it apart from dates the
   // user typed. Auto dates must NOT be sent as a hard filter (they'd re-exclude a file
   // whose rows are all date-defaulted); only user-chosen dates filter the result.
-  const overallAutoDatesRef = useRef<{ from: string; to: string } | null>(null);
+  // ⚠️ يُحفظ في sessionStorage لا في الذاكرة فقط: fromDate/toDate يبقيان بعد تحديث
+  // الصفحة (sessionStorage) بينما كان هذا المرجع يعود null، فتُقرأ نفس التواريخ
+  // مرةً كـ«تلقائية» ومرةً كـ«اختيار المستخدم» — وهو ما جعل الشاشة تتأرجح بين
+  // رقمين للإرجاع مع كل «تحليل» و«ريفرش».
+  const overallAutoDatesRef = useRef<{ from: string; to: string } | null>(
+    (() => { try { return JSON.parse(sessionStorage.getItem('rpt_autoDates') || 'null'); } catch { return null; } })(),
+  );
+  const setAutoDatesRef = (v: { from: string; to: string } | null) => {
+    overallAutoDatesRef.current = v;
+    try {
+      if (v) sessionStorage.setItem('rpt_autoDates', JSON.stringify(v));
+      else sessionStorage.removeItem('rpt_autoDates');
+    } catch { /* ignore */ }
+  };
   const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
 
   // Preview modal state
@@ -1205,6 +1218,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         minDate: d.minDate ?? null,
         maxDate: d.maxDate ?? null,
         recordCount: d.recordCount ?? null,
+        undatedExcluded: d.undatedExcluded ?? 0,
       });
       // Only send dates the USER chose. Auto-populated dates (matching the ref) are
       // treated as "no filter" so the backend's per-file detection runs and every
@@ -1246,7 +1260,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const nf = salesData.minDate ? toLocalDate(salesData.minDate) : '';
         const nt = salesData.maxDate ? toLocalDate(salesData.maxDate) : '';
         setFromDate(nf); setToDate(nt);
-        overallAutoDatesRef.current = { from: nf, to: nt };
+        setAutoDatesRef({ from: nf, to: nt });
       }
       setOverallSales(parseOverall(salesData));
       setOverallReturns(returnsRes.ok ? parseOverall(returnsJson.data ?? returnsJson) : null);
@@ -3086,6 +3100,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   {salesQ > 0 ? `${Math.round((retQ / salesQ) * 100)}%` : '—'}
                 </span>
               </div>
+              {/* صفوف بلا تاريخ في الإكسل — تُستبعد من التحليل. كان الاستبعاد صامتاً
+                  فيرى المستخدم إجمالياً أقل مما في الملف بلا تفسير. */}
+              {(() => {
+                const undated = (overallSales?.undatedExcluded ?? 0) + (overallReturns?.undatedExcluded ?? 0);
+                if (undated <= 0) return null;
+                return (
+                  <div
+                    title="صفوف لم يحمل الإكسل لها تاريخاً، فأخذت تاريخ لحظة الرفع. تُستبعد دائماً من التحليل حتى لا يتغيّر الإجمالي بتغيّر المدى الزمني."
+                    style={{ borderTop: '1px solid #e2e8f0', padding: '7px 14px', fontSize: 11, color: '#92400e', background: '#fffbeb' }}
+                  >
+                    ⚠️ {fmt(undated)} صف بلا تاريخ في الملف — مستبعَد من التحليل
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Smart search — modal style */}
