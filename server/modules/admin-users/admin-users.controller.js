@@ -1,7 +1,11 @@
 import bcrypt from 'bcryptjs';
 import prisma from '../../lib/prisma.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { syncUserAreaDerivedLinks, resolveEffectiveAreaIds } from '../../lib/areaScope.js';
+import {
+  syncUserAreaDerivedLinks, resolveEffectiveAreaIds,
+  ALL_AREAS_ROLES, isAllAreasRole, readAutoAllAreas, userHasAllAreas,
+  invalidateAllAreasFlag,
+} from '../../lib/areaScope.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 
@@ -51,7 +55,14 @@ export async function getUser(req, res) {
   const id = parseInt(req.params.id);
   const user = await prisma.user.findUnique({ where: { id }, select: userSelect });
   if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({ success: true, data: user });
+  // راية «كل المناطق تلقائياً» + العدد الكلي: الواجهة تعرض العدد الفعلي لا عدد
+  // صفوف UserAreaAssignment المحفوظة (التي لا تُقرأ أصلاً وقت تفعيل الراية).
+  const autoAllAreas = readAutoAllAreas(user.permissions);
+  const totalAreaCount = await prisma.area.count();
+  res.json({
+    success: true,
+    data: { ...user, autoAllAreas, autoAllAreasEligible: isAllAreasRole(user.role), totalAreaCount },
+  });
 }
 
 // ── Create user ───────────────────────────────────────────────────────────
@@ -343,11 +354,26 @@ export async function setUserAreas(req, res) {
   const { areaIds = [] } = req.body;
   const parsedAreaIds = areaIds.map(id => parseInt(id));
 
+  // راية «كل المناطق تلقائياً» مُفعَّلة ⇒ النطاق مُدار آلياً (areaScope.js) ولا
+  // معنى لحفظ قائمة يدوية. لا نلمس التعيينات المحفوظة إطلاقاً كي تعود كما كانت
+  // لحظة إطفاء الراية بدل أن يجدها المشرف ممسوحة.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (await userHasAllAreas(userId)) {
+    const effective = await resolveEffectiveAreaIds(userId);
+    return res.json({ success: true, autoManaged: true, effectiveAreaCount: effective.length });
+  }
+
   // Resolve area IDs: if this user has a manager, also include the equivalent areas
   // from the manager's account using fuzzy Arabic name matching (handles ة/ه, حي prefix, etc.)
+  //
+  // هذا الوراثة مقصودة للمندوبين وحدهم: صفوف Area مُفهرسة (name,userId) فلكل
+  // حساب صفّه الخاص، ومنطقة المندوب يجب أن تُقابَل بصف المدير ليرى بياناتها.
+  // أما الأدوار الإدارية (مدير/موظف مكتب، مدير شركة) فلا تحتاجها — بل كانت
+  // تنفخ قائمتها بعشرات الصفوف الموازية لمدرائها («خارج السيرفي»)، وهو سبب
+  // اختلاف العدد بين حسابين حُدِّدت لهما «كل المناطق» (163 مقابل 142).
   let finalAreaIds = [...parsedAreaIds];
   try {
-    const managerRows = await prisma.userManagerAssignment.findMany({
+    const managerRows = isAllAreasRole(user?.role) ? [] : await prisma.userManagerAssignment.findMany({
       where: { userId },
       select: { managerId: true },
     });
@@ -409,6 +435,11 @@ export async function setUserProvinces(req, res) {
   const { provinceIds = [] } = req.body;
   const ids = [...new Set(provinceIds.map(Number).filter(Number.isInteger))];
 
+  if (await userHasAllAreas(userId)) {
+    const effective = await resolveEffectiveAreaIds(userId);
+    return res.json({ success: true, autoManaged: true, effectiveAreaCount: effective.length });
+  }
+
   const existing = ids.length
     ? await prisma.province.findMany({ where: { id: { in: ids } }, select: { id: true } })
     : [];
@@ -440,6 +471,11 @@ export async function setUserSubProvinces(req, res) {
   const userId = parseInt(req.params.id);
   const { subProvinceIds = [] } = req.body;
   const ids = [...new Set(subProvinceIds.map(Number).filter(Number.isInteger))];
+
+  if (await userHasAllAreas(userId)) {
+    const effective = await resolveEffectiveAreaIds(userId);
+    return res.json({ success: true, autoManaged: true, effectiveAreaCount: effective.length });
+  }
 
   const existing = ids.length
     ? await prisma.subProvince.findMany({ where: { id: { in: ids } }, select: { id: true } })
@@ -571,7 +607,40 @@ export async function setUserFeatures(req, res) {
     data: { permissions: JSON.stringify(perms) },
     select: { id: true, permissions: true },
   });
+  invalidateAllAreasFlag(id); // permissions تغيّرت — أسقِط الراية المخزّنة مؤقتاً
   res.json({ success: true, data: user });
+}
+
+// ── تفعيل/إطفاء «كل المناطق والمحافظات تلقائياً» ───────────────────────────
+// PUT /api/sa/users/:id/all-areas  { enabled: boolean }
+//
+// راية واحدة في permissions.autoAllAreas تُغني عن تعيين المناطق يدوياً لحسابات
+// الإدارة: النطاق يُوسَّع وقت الاستعلام في areaScope.js إلى كل صفوف Area، فأي
+// منطقة تُضاف (سوبر أدمن، رفع ملف، السيرفي الخارجي) أو تُحذف أو يُعدَّل اسمها
+// تنعكس فوراً على كل صاحب راية — بلا إعادة تعيين وبلا فروق بين حساب وآخر.
+// التعيينات اليدوية المحفوظة تبقى كما هي وتستأنف عملها فور الإطفاء.
+export async function setUserAllAreas(req, res) {
+  const id = parseInt(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
+  const enabled = Boolean(req.body?.enabled);
+
+  const existing = await prisma.user.findUnique({ where: { id }, select: { role: true, permissions: true } });
+  if (!existing) return res.status(404).json({ error: 'المستخدم غير موجود' });
+  if (enabled && !isAllAreasRole(existing.role)) {
+    return res.status(400).json({
+      error: `هذه الميزة متاحة للأدوار الإدارية فقط (${[...ALL_AREAS_ROLES].join('، ')}).`,
+    });
+  }
+
+  let perms = {};
+  try { perms = JSON.parse(existing.permissions || '{}'); } catch {}
+  perms.autoAllAreas = enabled;
+
+  await prisma.user.update({ where: { id }, data: { permissions: JSON.stringify(perms) } });
+  invalidateAllAreasFlag(id);
+
+  const effectiveAreaCount = (await resolveEffectiveAreaIds(id)).length;
+  res.json({ success: true, autoAllAreas: enabled, effectiveAreaCount });
 }
 
 // ── Set interaction permissions ───────────────────────────────────────────

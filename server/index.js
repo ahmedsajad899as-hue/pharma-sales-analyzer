@@ -3111,7 +3111,9 @@ app.get('/api/dashboard/stats', async (req, res) => {
     const [sciRepsCount, filesCount, areasCount, totalSales, totalReturns] = await Promise.all([
       prisma.scientificRepresentative.count({ where: { isActive: true, ...userFilter } }),
       prisma.uploadedFile.count({ where: userFilter }),
-      userId ? prisma.userAreaAssignment.count({ where: { userId } }) : prisma.area.count(),
+      // النطاق الفعلي لا صفوف التعيين وحدها: المحافظات تُوسَّع وقت الاستعلام،
+      // وراية «كل المناطق تلقائياً» تُلغي التعيين اليدوي أصلاً (areaScope.js).
+      userId ? resolveEffectiveAreaIds(userId).then(ids => ids.length) : prisma.area.count(),
       prisma.sale.count({ where: { ...userFilter, isHidden: false, recordType: 'sale' } }),
       prisma.sale.count({ where: { ...userFilter, isHidden: false, recordType: 'return' } }),
     ]);

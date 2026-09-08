@@ -55,7 +55,16 @@ interface UserDetail extends UserRow {
   provinceAssignments?: { provinceId: number; province: { id: number; name: string } }[];
   subProvinceAssignments?: { subProvinceId: number; subProvince: { id: number; name: string; provinceId: number } }[];
   managersOfUser:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
+  // راية «كل المناطق والمحافظات تلقائياً» + العدد الكلي لصفوف المناطق (يأتيان من
+  // /api/sa/users/:id مباشرةً؛ راجع server/lib/areaScope.js)
+  autoAllAreas?: boolean;
+  autoAllAreasEligible?: boolean;
+  totalAreaCount?: number;
 }
+
+// الأدوار التي يجوز تفعيل «كل المناطق تلقائياً» لها — مطابقة لـ ALL_AREAS_ROLES
+// في server/lib/areaScope.js. حسابات إدارية تعمل على كل بيانات المكتب.
+const ALL_AREAS_ROLES = new Set(['office_manager', 'office_hr', 'office_employee', 'company_manager']);
 
 export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: number | null; onJumpClear?: () => void } = {}) {
   const { token, logout } = useSuperAdmin();
@@ -130,6 +139,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftDoctorFilter,  setDraftDoctorFilter]  = useState<{ byArea: boolean; planMode: string; surveyOnly: boolean }>({ byArea: true, planMode: 'plan_and_all', surveyOnly: false });
   const [draftDisableActLog, setDraftDisableActLog] = useState(false);
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
+  const [allAreasBusy,       setAllAreasBusy]       = useState(false);
 
   // حفظ الشركات: تطبيق فوري (حفظ تلقائي) + تحقق من النتيجة المحفوظة فعلاً
   const [companySaveState, setCompanySaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -522,6 +532,26 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     await saveAssignment('areas', draftAreaIds);
   };
 
+  // تبديل «كل المناطق والمحافظات تلقائياً». راية واحدة على الخادم توسّع النطاق
+  // وقت الاستعلام إلى كل صفوف Area، فلا حاجة لإعادة التعيين عند إضافة/حذف منطقة.
+  const toggleAllAreas = async (enabled: boolean) => {
+    if (!detail) return;
+    if (!enabled && !confirm('سيعود هذا الحساب إلى المناطق المُحدَّدة يدوياً (المحفوظة سابقاً). متابعة؟')) return;
+    setAllAreasBusy(true);
+    try {
+      const r = await fetch(`/api/sa/users/${detail.id}/all-areas`, {
+        method: 'PUT', headers: H(), body: JSON.stringify({ enabled }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.success) { showToast('❌ ' + (j?.error || 'فشل التبديل'), '#dc2626'); return; }
+      showToast(enabled ? `✅ مُفعّل — كل المناطق (${j.effectiveAreaCount})` : '✅ عاد للتحديد اليدوي');
+      loadDetail(detail.id, { keepTab: true });
+      window.dispatchEvent(new Event('areas-changed'));
+    } catch {
+      showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
+    } finally { setAllAreasBusy(false); }
+  };
+
   const saveAssignment = async (type: string, ids: number[]) => {
     if (!detail) return;
     setSaving(true);
@@ -859,7 +889,14 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         || (a.subProvinceId != null && draftSubProvinceIds.includes(a.subProvinceId)),
       ).map(a => a.id),
     );
-    const effectiveAreaCount = new Set([...draftAreaIds, ...impliedAreaIds]).size;
+    // راية «كل المناطق تلقائياً»: النطاق الفعلي = كل صفوف Area على الخادم، لا
+    // التأشيرات المحفوظة — فنعرض العدد الكلي كي يتطابق ما يراه المشرف مع ما
+    // يراه المستخدم فعلاً (وكي يتساوى حسابان مُفعَّلان بدل 163 مقابل 142).
+    const autoAllAreas   = detail.autoAllAreas === true;
+    const autoAllEligible = detail.autoAllAreasEligible ?? ALL_AREAS_ROLES.has(detail.role);
+    const effectiveAreaCount = autoAllAreas
+      ? (detail.totalAreaCount ?? displayAreas.length)
+      : new Set([...draftAreaIds, ...impliedAreaIds]).size;
     const conflictCount = displayAreas.filter(a => a.provinceConflict).length;
 
 
@@ -1184,6 +1221,40 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'areas' && (
             <div>
+              {/* 🌍 كل المناطق والمحافظات تلقائياً — بديل التعيين اليدوي لحسابات
+                  الإدارة. مُفعَّلة ⇒ النطاق يُحسب وقت الاستعلام من كل صفوف Area،
+                  فأي منطقة تُضاف (سوبر أدمن/رفع ملف/سيرفي خارجي) أو تُحذف أو
+                  يُعاد تسميتها تنعكس فوراً بلا إعادة تعيين، ويتساوى كل الحسابات
+                  المُفعَّلة في العدد بدل أن يختلف حساب عن آخر. */}
+              {autoAllEligible && (
+                <div style={{
+                  marginBottom: 12, borderRadius: 14, padding: '12px 14px',
+                  border: `2px solid ${autoAllAreas ? '#86efac' : '#e2e8f0'}`,
+                  background: autoAllAreas ? '#f0fdf4' : '#fff',
+                  display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, background: autoAllAreas ? '#bbf7d0' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>🌍</div>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>كل المناطق والمحافظات تلقائياً</div>
+                    <div style={{ fontSize: 12, color: autoAllAreas ? '#166534' : '#64748b', marginTop: 3, lineHeight: 1.6 }}>
+                      {autoAllAreas
+                        ? `🟢 مفعّل — الحساب يشمل كل المناطق (${detail.totalAreaCount ?? '—'}) وكل المحافظات والأقسام. أي منطقة تُضاف أو تُحذف أو يُعدَّل اسمها (من السوبر أدمن أو السيرفي الخارجي أو رفع ملف) تنعكس فوراً بلا إعادة تعيين.`
+                        : '⚪ معطّل — يعتمد الحساب على التحديد اليدوي أدناه، ولن تصله أي منطقة جديدة تلقائياً.'}
+                    </div>
+                  </div>
+                  <label style={{ position: 'relative', width: 56, height: 30, flexShrink: 0, cursor: allAreasBusy ? 'wait' : 'pointer', opacity: allAreasBusy ? 0.5 : 1 }}>
+                    <input
+                      type="checkbox"
+                      checked={autoAllAreas}
+                      disabled={allAreasBusy}
+                      onChange={e => toggleAllAreas(e.target.checked)}
+                      style={{ opacity: 0, width: 0, height: 0 }}
+                    />
+                    <span style={{ position: 'absolute', inset: 0, background: autoAllAreas ? '#16a34a' : '#e2e8f0', borderRadius: 30, transition: 'background 0.2s' }} />
+                    <span style={{ position: 'absolute', top: 5, left: autoAllAreas ? 31 : 5, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+                  </label>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <button
                   disabled={saving || mergeBusy}
@@ -1350,6 +1421,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: 14 }}>⏳ جاري تحميل قائمة المناطق...</div>
               ) : (
               <>
+              {!autoAllAreas && (
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button
                   onClick={() => { if (displayAreas.length > 0) setDraftAreaIds(displayAreas.map(a => a.id)); }}
@@ -1368,6 +1440,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}
                 >✗ إلغاء الكل</button>
               </div>
+              )}
               {/* ➕ إضافة منطقة جديدة يدوياً */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <input
@@ -1405,7 +1478,10 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 )}
                 {areaGroups.map(group => {
                   const pid = group.province?.id ?? null;
-                  const provinceChecked = pid != null && draftProvinceIds.includes(pid);
+                  // راية «كل المناطق تلقائياً» تجعل كل مجموعة مشمولة بالكامل —
+                  // للعرض فقط (لا تأشير محفوظ)؛ فتتعطّل أزرار التحديد وتتسلسل
+                  // الشمولية إلى الأقسام والمناطق عبر subImplied/implied أدناه.
+                  const provinceChecked = autoAllAreas || (pid != null && draftProvinceIds.includes(pid));
                   const groupAreaIds = group.areas.map(a => a.id);
                   const directChecked = groupAreaIds.filter(id => draftAreaIds.includes(id)).length;
                   const allChecked  = groupAreaIds.length > 0 && directChecked === groupAreaIds.length;
@@ -1432,6 +1508,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             <input
                               type="checkbox"
                               checked={provinceChecked}
+                              disabled={autoAllAreas}
+                              title={autoAllAreas ? 'مشمولة تلقائياً — «كل المناطق والمحافظات» مفعّل لهذا الحساب' : undefined}
                               onChange={e => setDraftProvinceIds(
                                 e.target.checked
                                   ? [...draftProvinceIds, pid]
@@ -1448,7 +1526,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                         )}
 
                         {provinceChecked && (
-                          <span title="تعيين ديناميكي: أي منطقة تُضاف لهذه المحافظة لاحقاً تدخل نطاق المستخدم تلقائياً" style={{ fontSize: 10, fontWeight: 700, color: '#166534', background: '#bbf7d0', border: '1px solid #86efac', borderRadius: 6, padding: '1px 6px' }}>المحافظة كاملة</span>
+                          <span title={autoAllAreas ? '«كل المناطق والمحافظات تلقائياً» مفعّل لهذا الحساب' : 'تعيين ديناميكي: أي منطقة تُضاف لهذه المحافظة لاحقاً تدخل نطاق المستخدم تلقائياً'} style={{ fontSize: 10, fontWeight: 700, color: '#166534', background: '#bbf7d0', border: '1px solid #86efac', borderRadius: 6, padding: '1px 6px' }}>{autoAllAreas ? '🌍 تلقائي' : 'المحافظة كاملة'}</span>
                         )}
 
                         {/* يدفع باقي عناصر الرأس (الأزرار) لطرف السطر؛ ويلتف تلقائياً تحته
@@ -1532,7 +1610,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                         type="checkbox"
                                         checked={subChecked || subImplied}
                                         disabled={subImplied}
-                                        title={subImplied ? 'مشمول تلقائياً لأن المحافظة كاملة معيّنة' : 'تعيين ديناميكي: أي منطقة تُضاف لهذا القسم لاحقاً تدخل نطاق المستخدم تلقائياً'}
+                                        title={subImplied ? (autoAllAreas ? 'مشمول تلقائياً — «كل المناطق والمحافظات» مفعّل' : 'مشمول تلقائياً لأن المحافظة كاملة معيّنة') : 'تعيين ديناميكي: أي منطقة تُضاف لهذا القسم لاحقاً تدخل نطاق المستخدم تلقائياً'}
                                         onChange={e => setDraftSubProvinceIds(
                                           e.target.checked
                                             ? [...draftSubProvinceIds, sg.sub!.id]
@@ -1599,7 +1677,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                       <div style={{ fontSize: 11, color: '#94a3b8', padding: '3px 6px' }}>لا توجد مناطق في هذا القسم بعد.</div>
                                     )}
                                     {sg.areas.map(a => {
-                            const implied = impliedAreaIds.has(a.id);
+                            const implied = autoAllAreas || impliedAreaIds.has(a.id);
                             const checked = implied || draftAreaIds.includes(a.id);
                             const pickerOpen = openProvincePicker === a.id;
                             return (
@@ -1625,11 +1703,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                         type="checkbox"
                                         checked={checked}
                                         disabled={implied}
-                                        title={implied ? 'مشمولة تلقائياً عبر تعيين المحافظة' : undefined}
+                                        title={implied ? (autoAllAreas ? 'مشمولة تلقائياً — «كل المناطق والمحافظات» مفعّل' : 'مشمولة تلقائياً عبر تعيين المحافظة') : undefined}
                                         onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))}
                                       />
                                       <span>{a.name}</span>
-                                      {implied && <span style={{ fontSize: 10, color: '#166534', background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: 6, padding: '1px 6px' }}>عبر المحافظة</span>}
+                                      {implied && <span style={{ fontSize: 10, color: '#166534', background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: 6, padding: '1px 6px' }}>{autoAllAreas ? '🌍 تلقائي' : 'عبر المحافظة'}</span>}
                                       {a.provinceConflict && (
                                         <span title={`ورد اسم هذه المنطقة في ملف بمحافظة «${a.provinceConflict}» تختلف عن المحفوظة — راجعها واحسم التعارض`} style={{ fontSize: 10, fontWeight: 700, color: '#b91c1c', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '1px 6px' }}>⚠️ {a.provinceConflict}</span>
                                       )}
@@ -1682,6 +1760,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </>
               )}
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+                {autoAllAreas ? (
+                  <div style={{ fontSize: 12, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '8px 12px' }}>
+                    🌍 النطاق مُدار تلقائياً — لا حاجة للحفظ. أطفئ المفتاح أعلاه للعودة إلى التحديد اليدوي.
+                  </div>
+                ) : (
                 <button
                   onClick={() => {
                     if (draftAreaIds.length === 0 && draftProvinceIds.length === 0 && draftSubProvinceIds.length === 0
@@ -1694,6 +1777,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   disabled={saving || refsLoading}
                   style={btnStyle('#0f172a', true)}
                 >{saving ? '...' : 'حفظ التغييرات'}</button>
+                )}
               </div>
               {/* 🗑️ نافذة حذف منطقة — تنبيه بالبيانات + نقل أو تصفير */}
               {deleteAreaInfo && (() => {

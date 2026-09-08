@@ -13,6 +13,74 @@
 
 import prisma from './prisma.js';
 
+// ════════════════════════════════════════════════════════════════════════════
+// «كل المناطق تلقائياً» (autoAllAreas)
+// ────────────────────────────────────────────────────────────────────────────
+// حسابات الإدارة (مدير مكتب / موظف مكتب / HR / مدير شركة) تعمل على كل بيانات
+// المكتب لا على قطاع منها، فتحديد مناطقها يدوياً كان مصدر تضارب دائم: كل حساب
+// يُحفظ في لحظة مختلفة، وحفظُ مناطقِ من له مدراء يرث صفوف Area الموازية
+// لمدرائه (Area مُفهرسة @@unique[name,userId] فلكل حساب صفوفه) — فينتهي حسابان
+// «محدد لهما كل المناطق» بعددين مختلفين (163 مقابل 142)، وأي منطقة جديدة تدخل
+// من السوبر أدمن أو السيرفي الخارجي لا تصل لأيٍّ منهما حتى يُعاد التعيين يدوياً.
+//
+// الحل — على غرار officeScope.js للشركات: راية واحدة في permissions، وتوسيعها
+// وقت الاستعلام لا وقت الحفظ. النتيجة: النطاق = كل صفوف Area لحظةَ السؤال، فلا
+// لقطة تتجمّد ولا فرق بين حسابين، وأي منطقة تُضاف/تُحذف تنعكس فوراً على الجميع.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** الأدوار المسموح لها بتفعيل الراية (أدوار إدارية لا مندوبين). */
+export const ALL_AREAS_ROLES = new Set([
+  'office_manager', 'office_hr', 'office_employee', 'company_manager',
+]);
+
+export function isAllAreasRole(role) {
+  return ALL_AREAS_ROLES.has(role);
+}
+
+/** قراءة الراية من عمود permissions النصّي (JSON). */
+export function readAutoAllAreas(permissionsJson) {
+  try { return JSON.parse(permissionsJson || '{}').autoAllAreas === true; }
+  catch { return false; }
+}
+
+// resolveEffectiveAreaIds تُستدعى في عشرات المسارات وأحياناً داخل حلقات، فنتجنّب
+// قراءة permissions في كل مرة. العملية fork واحدة (ecosystem.config.cjs) فالإبطال
+// الصريح عند الكتابة كافٍ؛ الـTTL شبكة أمان لا أكثر.
+const allAreasFlagCache = new Map(); // userId -> { value, exp }
+const FLAG_TTL_MS = 30_000;
+
+/** يُستدعى بعد أي كتابة تمسّ permissions لهذا المستخدم. بلا وسيط = إبطال الكل. */
+export function invalidateAllAreasFlag(userId = null) {
+  if (userId == null) allAreasFlagCache.clear();
+  else allAreasFlagCache.delete(Number(userId));
+}
+
+export async function userHasAllAreas(userId) {
+  if (!userId) return false;
+  const key = Number(userId);
+  const hit = allAreasFlagCache.get(key);
+  if (hit && hit.exp > Date.now()) return hit.value;
+  const row = await prisma.user.findUnique({ where: { id: key }, select: { permissions: true } });
+  const value = readAutoAllAreas(row?.permissions);
+  allAreasFlagCache.set(key, { value, exp: Date.now() + FLAG_TTL_MS });
+  return value;
+}
+
+/** كل صفوف Area — المصدر الموحّد لأصحاب الراية. */
+export async function allAreaIds() {
+  const rows = await prisma.area.findMany({ select: { id: true } });
+  return rows.map(r => r.id);
+}
+
+/** كل المستخدمين أصحاب الراية (لعكس اتجاه الاستعلام في usersForAreaIds). */
+export async function userIdsWithAllAreas() {
+  const rows = await prisma.user.findMany({
+    where:  { role: { in: [...ALL_AREAS_ROLES] } },
+    select: { id: true, permissions: true },
+  });
+  return rows.filter(u => readAutoAllAreas(u.permissions)).map(u => u.id);
+}
+
 /** كل معرّفات المناطق التابعة لمجموعة محافظات (توسيع وقت الاستعلام). */
 export async function areaIdsOfProvinces(provinceIds) {
   if (!provinceIds || provinceIds.length === 0) return [];
@@ -33,8 +101,12 @@ export async function areaIdsOfSubProvinces(subProvinceIds) {
   return rows.map(r => r.id);
 }
 
-/** معرّفات الأقسام المعيّنة لمستخدم. */
+/** معرّفات الأقسام المعيّنة لمستخدم (أو كلها لصاحب راية «كل المناطق»). */
 export async function subProvinceIdsForUser(userId) {
+  if (await userHasAllAreas(userId)) {
+    const all = await prisma.subProvince.findMany({ select: { id: true } });
+    return all.map(r => r.id);
+  }
   const rows = await prisma.userSubProvinceAssignment.findMany({
     where:  { userId },
     select: { subProvinceId: true },
@@ -42,8 +114,12 @@ export async function subProvinceIdsForUser(userId) {
   return rows.map(r => r.subProvinceId);
 }
 
-/** معرّفات المحافظات المعيّنة لمستخدم. */
+/** معرّفات المحافظات المعيّنة لمستخدم (أو كلها لصاحب راية «كل المناطق»). */
 export async function provinceIdsForUser(userId) {
+  if (await userHasAllAreas(userId)) {
+    const all = await prisma.province.findMany({ select: { id: true } });
+    return all.map(r => r.id);
+  }
   const rows = await prisma.userProvinceAssignment.findMany({
     where:  { userId },
     select: { provinceId: true },
@@ -65,6 +141,10 @@ export async function provinceIdsForUser(userId) {
 export async function resolveEffectiveAreaIds(userId, opts = {}) {
   const { linkedRepId = undefined, includeRepAreas = true } = opts;
   if (!userId) return [];
+
+  // راية «كل المناطق»: النطاق = كل صفوف Area لحظة الاستعلام. لا نقرأ أي تعيين
+  // محفوظ — فالتعيينات اليدوية تبقى مخزّنة كما هي وتعود للعمل فور إطفاء الراية.
+  if (await userHasAllAreas(userId)) return allAreaIds();
 
   // نحلّ linkedRepId فقط إن لم يُمرَّر — الكثير من المستدعين يعرفه أصلاً.
   let repId = linkedRepId;
@@ -263,6 +343,10 @@ export async function usersForAreaIds(areaIds) {
   });
   const provinceIds    = [...new Set(areas.map(a => a.provinceId).filter(Boolean))];
   const subProvinceIds = [...new Set(areas.map(a => a.subProvinceId).filter(Boolean))];
+
+  // أصحاب راية «كل المناطق» يقعون ضمن نطاق كل منطقة بلا استثناء
+  const allAreasUserIds = await userIdsWithAllAreas();
+  for (const areaId of areaIds) for (const uid of allAreasUserIds) add(areaId, uid);
 
   const [direct, viaRep, viaProvince, viaSub] = await Promise.all([
     prisma.userAreaAssignment.findMany({

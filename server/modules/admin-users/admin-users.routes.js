@@ -3,7 +3,7 @@ import multer from 'multer';
 import {
   listAllUsers, getUser, createUser, updateUser,
   setUserCompanies, setUserAreas, setUserProvinces, setUserSubProvinces, setUserItems, setUserLines,
-  setUserManagers, setUserInteractions, setUserFeatures,
+  setUserManagers, setUserInteractions, setUserFeatures, setUserAllAreas,
   getUserRepInfo, getUserCompanyItems,
   deleteUser,
 } from './admin-users.controller.js';
@@ -30,6 +30,8 @@ router.put('/:id/companies',    setUserCompanies);
 router.put('/:id/areas',        setUserAreas);
 router.put('/:id/provinces',    setUserProvinces);
 router.put('/:id/sub-provinces', setUserSubProvinces);
+// راية «كل المناطق والمحافظات تلقائياً» — تُغني عن التعيين اليدوي لحسابات الإدارة
+router.put('/:id/all-areas',    setUserAllAreas);
 router.put('/:id/items',        setUserItems);
 router.put('/:id/lines',        setUserLines);
 router.put('/:id/managers',     setUserManagers);
