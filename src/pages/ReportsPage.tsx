@@ -1203,6 +1203,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     finally { setLoading(false); }
   };
 
+  // ── تشغيل «التحليل الشامل» تلقائياً بمجرد دخول التبويب ──────────────────
+  // كان المستخدم مضطراً للضغط على «تحليل» في كل مرة رغم أن الملفات مختارة
+  // مسبقاً. نُشغّله مرة واحدة لكل مجموعة ملفات (المفتاح = معرّفات الملفات)،
+  // فلا يتكرر عند التنقل بين التبويبات ويعاد تلقائياً عند تغيّر الملفات.
+  const overallAutoRan = useRef('');
+  useEffect(() => {
+    if (mode !== 'overall') return;
+    const ids = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
+    if (ids.length === 0) return;
+    const key = [...ids].sort((a, b) => a - b).join(',');
+    if (overallAutoRan.current === key) return;
+    overallAutoRan.current = key;
+    if (loading || overallSales) return; // تقرير معروض بالفعل أو طلب جارٍ — لا تُعده
+    loadOverallReport();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, overallFileIds.join(','), activeFileIds.join(',')]);
+
   const fmt = (n: number) => Math.round(n || 0).toLocaleString('ar-IQ-u-nu-latn');
 
   // Load targets for a rep + derive period from fromDate or current month
