@@ -99,6 +99,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState('');
+  // الحساب الذي يحجز اسم المستخدم عند خطأ 409 — يُعرض مع زر ينقل إليه في القائمة،
+  // لأنه غالباً في مكتب آخر أو معطّل فلا يظهر أمام الأدمن الذي يظن أنه حذفه.
+  const [conflict,  setConflict]  = useState<any>(null);
   const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'|'features'>(() => {
     const saved = localStorage.getItem('sa_user_tab');
     return (saved as any) || 'info';
@@ -440,7 +443,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const saveUser = async () => {
     if (!form?.username?.trim()) { setError('اسم المستخدم مطلوب'); return; }
     if (!form.id && !form.password?.trim()) { setError('كلمة المرور مطلوبة'); return; }
-    setSaving(true); setError('');
+    setSaving(true); setError(''); setConflict(null);
     const isEdit = Boolean(form.id);
     const payload: any = { username: form.username, displayName: form.displayName, role: form.role, phone: form.phone, officeId: form.officeId || null };
     if (form.password) payload.password = form.password;
@@ -454,6 +457,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         logout();
       } else {
         setError(d.error || 'خطأ');
+        if (d.code === 'USERNAME_TAKEN' && d.existing) setConflict(d.existing);
       }
       setSaving(false); return;
     }
@@ -2244,11 +2248,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         </div>
 
         {form && (
-          <Modal onClose={() => { setForm(null); setError(''); }} title="تعديل المستخدم">
+          <Modal onClose={() => { setForm(null); setError(''); setConflict(null); }} title="تعديل المستخدم">
             <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} isEdit />
             {error && <ErrBox msg={error} />}
+          {conflict && <ConflictBox existing={conflict} onGo={() => { setForm(null); setError(''); setConflict(null); setSearch(conflict.username); }} />}
+            {conflict && <ConflictBox existing={conflict} onGo={() => { setForm(null); setError(''); setConflict(null); setDetail(null); setSearch(conflict.username); }} />}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setForm(null); setError(''); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
+              <button onClick={() => { setForm(null); setError(''); setConflict(null); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
               <button onClick={saveUser} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ'}</button>
             </div>
           </Modal>
@@ -2489,11 +2495,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       )}
 
       {form && !detail && (
-        <Modal onClose={() => { setForm(null); setError(''); }} title={form.id ? 'تعديل المستخدم' : 'إضافة مستخدم'}>
+        <Modal onClose={() => { setForm(null); setError(''); setConflict(null); }} title={form.id ? 'تعديل المستخدم' : 'إضافة مستخدم'}>
           <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} isEdit={Boolean(form.id)} />
           {error && <ErrBox msg={error} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button onClick={() => { setForm(null); setError(''); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
+            <button onClick={() => { setForm(null); setError(''); setConflict(null); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
             <button onClick={saveUser} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ'}</button>
           </div>
         </Modal>
@@ -2540,5 +2546,22 @@ function UserFormFields({ form, setForm, offices, companies, isEdit }: { form: a
         </div>
       )}
     </>
+  );
+}
+
+// صندوق يوضّح الحساب الذي يحجز اسم المستخدم مع زر يبحث عنه في القائمة مباشرة.
+function ConflictBox({ existing, onGo }: { existing: any; onGo: () => void }) {
+  const roleLabel = ROLES.find(r => r.value === existing.role)?.label || existing.role;
+  return (
+    <div style={{ marginBottom: 14, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', fontSize: 12.5, color: '#92400e' }}>
+      <div style={{ fontWeight: 700, marginBottom: 4 }}>الحساب الذي يحجز هذا الاسم:</div>
+      <div>
+        #{existing.id} · {existing.displayName || existing.username} · {roleLabel} · {existing.officeName || 'بدون مكتب'} ·{' '}
+        <span style={{ color: existing.isActive ? '#15803d' : '#b91c1c', fontWeight: 700 }}>{existing.isActive ? 'نشط' : 'معطّل'}</span>
+      </div>
+      <button onClick={onGo} style={{ marginTop: 8, background: '#b45309', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+        🔎 اعرضه في القائمة
+      </button>
+    </div>
   );
 }

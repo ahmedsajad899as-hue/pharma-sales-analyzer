@@ -76,30 +76,73 @@ export function buildDefaultPermissions(customPermissions) {
   return customPermissions ? { ...defaultPerms, ...customPermissions } : defaultPerms;
 }
 
+// اسم المستخدم فريد على مستوى النظام كله (كل المكاتب والشركات). عند رفض الاسم
+// لا تكفي رسالة «مستخدم بالفعل»: الحساب المالك للاسم قد يكون في مكتب آخر أو
+// معطّلاً، فلا يلمحه الأدمن في القائمة أمامه ويظن أنه حذفه سابقاً. لذلك نُرجع
+// هوية ذلك الحساب (اسمه الظاهر/مكتبه/حالته/رقمه) لتعرضها الواجهة وتنقل إليه.
+async function findUsernameConflict(username, excludeId = null) {
+  const existing = await prisma.user.findUnique({
+    where: { username },
+    select: {
+      id: true, username: true, displayName: true, role: true,
+      isActive: true, officeId: true, office: { select: { name: true } },
+    },
+  });
+  if (!existing || existing.id === excludeId) return null;
+  const where = existing.office?.name ? `المكتب: ${existing.office.name}` : 'بدون مكتب';
+  const state = existing.isActive ? 'نشط' : 'معطّل';
+  const who = existing.displayName ? `${existing.displayName} · ` : '';
+  return {
+    error: `اسم المستخدم «${username}» محجوز لحساب موجود فعلاً (${who}${where} · ${state} · رقم الحساب ${existing.id}). `
+         + `إن كنت قد حذفت حساباً بهذا الاسم سابقاً فإن الحذف لم يكتمل أو أن هذا حساب آخر يحمل نفس الاسم — `
+         + `ابحث عن الاسم في قائمة المستخدمين واحذف الحساب القديم أولاً، أو استخدم اسماً مختلفاً.`,
+    code: 'USERNAME_TAKEN',
+    existing: {
+      id: existing.id, username: existing.username, displayName: existing.displayName,
+      role: existing.role, isActive: existing.isActive,
+      officeId: existing.officeId, officeName: existing.office?.name ?? null,
+    },
+  };
+}
+
 export async function createUser(req, res) {
-  const { username, password, displayName, role = 'scientific_rep', officeId, phone, permissions } = req.body;
+  const { password, displayName, role = 'scientific_rep', officeId, phone, permissions } = req.body;
+  // trim: مسافة زائدة في الطرف تُنشئ اسماً مختلفاً عن نظيره بصرياً فيتعذّر لاحقاً
+  // تسجيل الدخول به ويبدو الاسم «محجوزاً» بلا سبب ظاهر.
+  const username = typeof req.body.username === 'string' ? req.body.username.trim() : req.body.username;
   if (!username || !password)
     return res.status(400).json({ error: 'username and password required' });
 
-  const exists = await prisma.user.findUnique({ where: { username } });
-  if (exists) return res.status(409).json({ error: 'Username already taken' });
+  const conflict = await findUsernameConflict(username);
+  if (conflict) return res.status(409).json(conflict);
 
   const mergedPerms = buildDefaultPermissions(permissions);
 
   const passwordHash = await bcrypt.hash(password, 12);
   const parsedOfficeId = officeId ? parseInt(officeId) : null;
-  let user = await prisma.user.create({
-    data: {
-      username,
-      passwordHash,
-      displayName,
-      role,
-      phone,
-      officeId: parsedOfficeId,
-      permissions: JSON.stringify(mergedPerms),
-    },
-    select: userSelect,
-  });
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: {
+        username,
+        passwordHash,
+        displayName,
+        role,
+        phone,
+        officeId: parsedOfficeId,
+        permissions: JSON.stringify(mergedPerms),
+      },
+      select: userSelect,
+    });
+  } catch (err) {
+    // P2002 = خرق قيد التفرّد؛ يحدث لو أُنشئ نفس الاسم بين الفحص أعلاه والكتابة.
+    if (err.code === 'P2002') {
+      const raced = await findUsernameConflict(username);
+      return res.status(409).json(raced ?? { error: 'اسم المستخدم مستخدم بالفعل.', code: 'USERNAME_TAKEN' });
+    }
+    console.error('[createUser] failed:', err);
+    return res.status(500).json({ error: 'حدث خطأ أثناء إنشاء المستخدم.' });
+  }
 
   // الأدوار المكتبية (مدير مكتب/HR/موظف مكتب) لا تُربط بشركة معيّنة — تحصل
   // تلقائياً على كل شركات مكتبها لتتفاعل مع كل بيانات المكتب لا شركة بعينها.
@@ -118,7 +161,7 @@ export async function updateUser(req, res) {
     const { username, displayName, role, isActive, phone, officeId, permissions, password, linkedRepId } = req.body;
 
     const data = {};
-    if (username     !== undefined) data.username    = username;
+    if (username     !== undefined) data.username    = typeof username === 'string' ? username.trim() : username;
     if (displayName  !== undefined) data.displayName = displayName;
     if (role         !== undefined) data.role        = role;
     if (isActive     !== undefined) data.isActive    = Boolean(isActive);
@@ -127,6 +170,11 @@ export async function updateUser(req, res) {
     if (permissions  !== undefined) data.permissions = JSON.stringify(permissions);
     if (password)                   data.passwordHash = await bcrypt.hash(password, 12);
     if (linkedRepId !== undefined)  data.linkedRepId  = linkedRepId ? parseInt(linkedRepId) : null;
+
+    if (data.username) {
+      const conflict = await findUsernameConflict(data.username, id);
+      if (conflict) return res.status(409).json(conflict);
+    }
 
     let user = await prisma.user.update({ where: { id }, data, select: userSelect });
 
