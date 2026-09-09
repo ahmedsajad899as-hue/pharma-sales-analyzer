@@ -699,6 +699,43 @@ export async function saveDoctorNameLinks(userId, links) {
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
+ * مفتاح تطابق متسامح لاسم مندوب: يحذف لاحقة «/ المنطقة» الملصقة بنفس الخلية
+ * (leadingSegment) ثم يحذف كل الفراغات، لا يفصل بينها فقط. الهدف حالة شائعة
+ * في ملفات CRM: نفس المندوب يُكتب أحياناً «عبدالله عمر» ملتصقة وأحياناً
+ * «عبد الله عمر» منفصلة — مطابقة classifyRepNamesForUser بالكلمات المشتركة
+ * (repNameScore) تفشل هنا لأن «عبد» و«الله» كلمتان لا تُطابقان كلمة «عبدالله»
+ * الواحدة، فتبقى صفوفه بلا مندوب رغم أن اسمه حُسم فعلاً لصفوف أخرى بنفس الملف.
+ * تُستعمل بعد التصنيف العادي (لا تُغيّر أي مطابقة ناجحة فيه) وفقط حين تحسم
+ * مندوباً واحداً لا لبس فيه — تصادم مندوبَين مختلفين على نفس المفتاح المتسامح
+ * يبقى بلا حسم كما كان (لا نخمّن بينهما).
+ */
+const looseRepKey = s => normalizeRepName(leadingSegment(s)).replace(/\s+/g, '');
+
+/** يبني خريطة looseRepKey → مندوب، لمندوبي هذا المستخدم فقط، ويتجاهل أي مفتاح
+ *  يتصادم فيه مندوبان مختلفان (تركهما بلا حسم أسلم من تخمين أحدهما خطأً). */
+function buildLooseRepIndex(reps) {
+  const groups = new Map();
+  for (const r of reps) {
+    const k = looseRepKey(r.name);
+    if (!k) continue;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+  const index = new Map();
+  for (const [k, list] of groups) if (list.length === 1) index.set(k, list[0]);
+  return index;
+}
+
+/** يطبّق الفهرس المتسامح على صفوف لم تُحسَم بالمطابقة العادية (repId لا يزال فارغاً). */
+function applyLooseRepFallback(rowsList, looseIndex) {
+  for (const r of rowsList) {
+    if (r.repId || !r.repName) continue;
+    const found = looseIndex.get(looseRepKey(r.repName));
+    if (found) r.repId = found.id;
+  }
+}
+
+/**
  * قراءة الملف ومحاولة مطابقة كل حقل — بلا إنشاء أي شيء. النتيجة صفوف تُعرض
  * لمراجعة المستخدم في شبكة قابلة للتعديل قبل الحفظ الفعلي. يكتشف صيغة الملف
  * تلقائياً (قالبنا البسيط أو تصدير CRM خارجي) ويُرجع شكلاً موحّداً دائماً
@@ -741,7 +778,7 @@ export async function extractVisitsFromExcel(file, user) {
   } else {
     for (const [field, kws] of Object.entries(COL_KEYWORDS)) colMap[field] = findCol(headers, kws);
     rawRepNames = colMap.repName
-      ? [...new Set(rows.map(r => String(r[colMap.repName] ?? '').trim()).filter(Boolean))]
+      ? [...new Set(rows.map(r => leadingSegment(r[colMap.repName])).filter(Boolean))]
       : [];
   }
 
@@ -750,6 +787,7 @@ export async function extractVisitsFromExcel(file, user) {
   for (const e of [...repClassification.pending, ...repClassification.resolved]) {
     if (e.rep) repByKey.set(e.key, e.rep);
   }
+  const looseRepIndex = buildLooseRepIndex(repClassification.reps);
 
   const [allAreas, allItems] = await Promise.all([
     prisma.area.findMany({ select: { id: true, name: true } }),
@@ -758,6 +796,8 @@ export async function extractVisitsFromExcel(file, user) {
 
   if (isCrm) {
     const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas, allItems });
+    applyLooseRepFallback(doctorRows, looseRepIndex);
+    applyLooseRepFallback(pharmacyRows, looseRepIndex);
     const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
     return { doctorRows, pharmacyRows, repNames: repClassification, doctorNames, format: 'crm', columnsDetected: {} };
   }
@@ -765,7 +805,7 @@ export async function extractVisitsFromExcel(file, user) {
   const doctorRows = rows.map((row, i) => {
     const get = field => (colMap[field] ? String(row[colMap[field]] ?? '').trim() : '');
 
-    const repRaw = get('repName');
+    const repRaw = leadingSegment(get('repName'));
     const repKey = repRaw ? normalizeRepName(repRaw) : '';
     const rep = repKey ? repByKey.get(repKey) : null;
 
@@ -794,6 +834,7 @@ export async function extractVisitsFromExcel(file, user) {
     };
   }).filter(r => r.doctorName); // صف بلا اسم طبيب لا معنى لاستيراده كزيارة
 
+  applyLooseRepFallback(doctorRows, looseRepIndex);
   const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
   return { doctorRows, pharmacyRows: [], repNames: repClassification, doctorNames, format: 'template', columnsDetected: colMap };
 }
