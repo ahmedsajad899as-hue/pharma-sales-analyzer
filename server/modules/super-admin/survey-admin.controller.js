@@ -435,43 +435,52 @@ export async function deletePharmacy(req, res, next) {
   } catch (e) { next(e); }
 }
 
-// ── دمج صيدليتين ──────────────────────────────────────────────
-// يُبقي على اسم keepId ويحذف mergeId، وينقل كل الأطباء الذين كان اسم صيدليتهم
-// هو اسم الصيدلية المدموجة إلى اسم الصيدلية الباقية (في MasterSurveyDoctor وفي
-// كل صفوف Doctor المرتبطة بها عبر masterSurveyDoctorId — نفس نمط cascade
-// المستخدم عند تعديل اسم صيدلية طبيب واحد).
+// ── دمج صيدليات (اثنتان أو أكثر) في صيدلية واحدة ──────────────
+// يُبقي على اسم keepId ويحذف كل صيدليات mergeIds، وينقل كل الأطباء الذين كان
+// اسم صيدليتهم هو اسم إحدى الصيدليات المدموجة إلى اسم الصيدلية الباقية (في
+// MasterSurveyDoctor وفي كل صفوف Doctor المرتبطة بها عبر masterSurveyDoctorId
+// — نفس نمط cascade المستخدم عند تعديل اسم صيدلية طبيب واحد).
+// body: { keepId, mergeIds: number[] } — mergeId مفرد (توافقاً مع النسخة السابقة) مقبول أيضاً.
 export async function mergePharmacies(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
-    const keepId  = parseInt(req.body?.keepId);
-    const mergeId = parseInt(req.body?.mergeId);
-    if (!keepId || !mergeId || keepId === mergeId)
-      return res.status(400).json({ success: false, error: 'اختر صيدليتين مختلفتين' });
+    const keepId = parseInt(req.body?.keepId);
+    const rawMergeIds = Array.isArray(req.body?.mergeIds)
+      ? req.body.mergeIds
+      : (req.body?.mergeId != null ? [req.body.mergeId] : []);
+    const mergeIds = [...new Set(rawMergeIds.map(id => parseInt(id)).filter(id => id && id !== keepId))];
+    if (!keepId || mergeIds.length === 0)
+      return res.status(400).json({ success: false, error: 'اختر صيدلية للإبقاء عليها وصيدلية واحدة على الأقل لدمجها' });
 
-    const [keepPharma, mergePharma] = await Promise.all([
-      prisma.masterSurveyPharmacy.findUnique({ where: { id: keepId } }),
-      prisma.masterSurveyPharmacy.findUnique({ where: { id: mergeId } }),
-    ]);
-    if (!keepPharma || keepPharma.surveyId !== surveyId || !mergePharma || mergePharma.surveyId !== surveyId)
+    const keepPharma = await prisma.masterSurveyPharmacy.findUnique({ where: { id: keepId } });
+    if (!keepPharma || keepPharma.surveyId !== surveyId)
+      return res.status(404).json({ success: false, error: 'غير موجود' });
+
+    const mergePharmas = await prisma.masterSurveyPharmacy.findMany({ where: { id: { in: mergeIds }, surveyId } });
+    if (mergePharmas.length === 0)
       return res.status(404).json({ success: false, error: 'غير موجود' });
 
     const cmpKey = s => String(s ?? '').trim().toLowerCase();
-    const mergeKey = cmpKey(mergePharma.name);
+    const mergeKeys = new Set(mergePharmas.map(p => cmpKey(p.name)));
     const allDocsWithPharma = await prisma.masterSurveyDoctor.findMany({
       where: { surveyId, pharmacyName: { not: null } },
       select: { id: true, pharmacyName: true },
     });
-    const affectedIds = allDocsWithPharma.filter(d => cmpKey(d.pharmacyName) === mergeKey).map(d => d.id);
+    const affectedIds = allDocsWithPharma.filter(d => mergeKeys.has(cmpKey(d.pharmacyName))).map(d => d.id);
     if (affectedIds.length) {
       await prisma.masterSurveyDoctor.updateMany({ where: { id: { in: affectedIds } }, data: { pharmacyName: keepPharma.name } });
       await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: { in: affectedIds } }, data: { pharmacyName: keepPharma.name } });
     }
 
-    await prisma.masterSurveyPharmacy.delete({ where: { id: mergeId } });
-    await logEntry(surveyId, 'pharmacy', mergeId, 'delete', mergePharma, null, null);
-    await logEntry(surveyId, 'pharmacy', keepId, 'update', keepPharma, { ...keepPharma, notes: `دُمجت معها الصيدلية "${mergePharma.name}"` }, null);
+    const mergedIds = mergePharmas.map(p => p.id);
+    await prisma.masterSurveyPharmacy.deleteMany({ where: { id: { in: mergedIds } } });
+    for (const mp of mergePharmas) {
+      await logEntry(surveyId, 'pharmacy', mp.id, 'delete', mp, null, null);
+    }
+    await logEntry(surveyId, 'pharmacy', keepId, 'update', keepPharma,
+      { ...keepPharma, notes: `دُمجت معها: ${mergePharmas.map(p => p.name).join('، ')}` }, null);
 
-    res.json({ success: true, reassignedDoctors: affectedIds.length, data: keepPharma });
+    res.json({ success: true, reassignedDoctors: affectedIds.length, mergedCount: mergedIds.length, data: keepPharma });
   } catch (e) { next(e); }
 }
 

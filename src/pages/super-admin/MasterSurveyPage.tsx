@@ -307,6 +307,8 @@ export default function MasterSurveyPage() {
   const [docSearch, setDocSearch] = useState('');
   // pharmacy search filter
   const [pharmaSearch, setPharmaSearch] = useState('');
+  // pharmacy multi-select (for merge)
+  const [selectedPharmaIds, setSelectedPharmaIds] = useState<Set<number>>(new Set());
   const [fillingFromDoctors, setFillingFromDoctors] = useState(false);
 
   // فحص الظهور (لماذا يقلّ العدد عند المستخدمين)
@@ -431,6 +433,8 @@ export default function MasterSurveyPage() {
     if (tab === 'logs')        fetchLogs(selectedSurvey.id);
     if (tab === 'drug_prices') { setDrugEntrySearch(''); setDrugEntriesPage(1); fetchDrugEntries(selectedSurvey.id, '', 1); }
   }, [tab, selectedSurvey?.id]);
+
+  useEffect(() => { setSelectedPharmaIds(new Set()); }, [selectedSurvey?.id]);
 
   // ── Excel import handlers ───────────────────────────────────
   const handleDocExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -931,35 +935,44 @@ export default function MasterSurveyPage() {
   }
 
   // ── Merge Pharmacies Modal ───────────────────────────────────
+  // يعمل على الصيدليات المحدَّدة عبر مربعات الاختيار بجدول الصيدليات — يختار
+  // السوبر أدمن أيّها يبقى، والباقي يُدمج فيها ويُحذف.
   function MergePharmacyModal() {
-    const pharmacies = selectedSurvey?.pharmacies ?? [];
-    const [keepId,  setKeepId]  = useState<number | ''>('');
-    const [mergeId, setMergeId] = useState<number | ''>('');
+    const selected = (selectedSurvey?.pharmacies ?? []).filter(p => selectedPharmaIds.has(p.id));
+    const [keepId, setKeepId] = useState<number | ''>(selected[0]?.id ?? '');
     const pharmaLabel = (p: SurveyPharmacy) => `${p.name}${p.areaName ? ` — ${p.areaName}` : ''}`;
+    const mergeIds = selected.filter(p => p.id !== keepId).map(p => p.id);
 
     return (
       <ModalOverlay onClose={() => setShowMergePharma(false)}>
-        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>🔗 دمج صيدليتين</h3>
-        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
-          تُحذف الصيدلية «المدموجة»، وينتقل كل الأطباء الذين كان اسم صيدليتهم هو اسمها إلى اسم الصيدلية «الباقية».
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>🔗 دمج {selected.length} صيدليات</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
+          اختر الصيدلية التي سيبقى اسمها — الباقي سيُحذف وينتقل كل الأطباء المرتبطين بأسمائها إلى الاسم المختار.
         </p>
-        <label style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>الصيدلية الباقية (يُحتفظ باسمها) *</label>
-        <select value={keepId} onChange={e => setKeepId(e.target.value ? Number(e.target.value) : '')} style={{ ...inputStyle, cursor: 'pointer', marginBottom: 12 }}>
-          <option value="">اختر صيدلية...</option>
-          {pharmacies.filter(p => p.id !== mergeId).map(p => <option key={p.id} value={p.id}>{pharmaLabel(p)}</option>)}
-        </select>
-        <label style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>الصيدلية المدموجة (ستُحذف) *</label>
-        <select value={mergeId} onChange={e => setMergeId(e.target.value ? Number(e.target.value) : '')} style={{ ...inputStyle, cursor: 'pointer' }}>
-          <option value="">اختر صيدلية...</option>
-          {pharmacies.filter(p => p.id !== keepId).map(p => <option key={p.id} value={p.id}>{pharmaLabel(p)}</option>)}
-        </select>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '40vh', overflowY: 'auto', marginBottom: 8 }}>
+          {selected.map(p => (
+            <label key={p.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 10,
+              border: `1.5px solid ${keepId === p.id ? '#6366f1' : '#e2e8f0'}`,
+              background: keepId === p.id ? '#eef2ff' : '#fff', cursor: 'pointer',
+            }}>
+              <input type="radio" name="pharma-keep" checked={keepId === p.id} onChange={() => setKeepId(p.id)} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{pharmaLabel(p)}</div>
+              </div>
+              {keepId === p.id
+                ? <Badge text="يبقى" color="#10b981" />
+                : <Badge text="سيُدمج ويُحذف" color="#ef4444" />}
+            </label>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 10 }}>
           <button onClick={() => setShowMergePharma(false)} disabled={merging} style={btnSecondary}>إلغاء</button>
           <button
-            onClick={() => { if (keepId && mergeId) mergePharmacies(keepId, mergeId); }}
-            disabled={!keepId || !mergeId || merging}
+            onClick={() => { if (keepId && mergeIds.length) mergePharmacies(keepId, mergeIds); }}
+            disabled={!keepId || mergeIds.length === 0 || merging}
             style={btnPrimary}
-          >{merging ? 'جاري الدمج...' : '🔗 دمج'}</button>
+          >{merging ? 'جاري الدمج...' : `🔗 دمج ${mergeIds.length || ''}`}</button>
         </div>
       </ModalOverlay>
     );
@@ -982,20 +995,22 @@ export default function MasterSurveyPage() {
   const deletePharma = async (pharmaId: number) => {
     if (!selectedSurvey || !confirm('حذف هذه الصيدلية من السيرفي؟ سيُنقل الأطباء المرتبطون باسمها إلى أقرب اسم صيدلية مشابه، أو يبقون بلا اسم صيدلية إن لم يوجد شبيه.')) return;
     await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/${pharmaId}`, { method: 'DELETE', headers: H() });
+    setSelectedPharmaIds(prev => { const next = new Set(prev); next.delete(pharmaId); return next; });
     fetchSurvey(selectedSurvey.id);
   };
 
-  const mergePharmacies = async (keepId: number, mergeId: number) => {
-    if (!selectedSurvey || keepId === mergeId) return;
+  const mergePharmacies = async (keepId: number, mergeIds: number[]) => {
+    if (!selectedSurvey || !mergeIds.length) return;
     setMerging(true);
     try {
       const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/merge`, {
-        method: 'POST', headers: H(), body: JSON.stringify({ keepId, mergeId }),
+        method: 'POST', headers: H(), body: JSON.stringify({ keepId, mergeIds }),
       });
       const d = await r.json();
       if (!r.ok || !d.success) throw new Error(d.error || `خطأ ${r.status}`);
       alert(`✅ تم الدمج${d.reassignedDoctors ? ` — تم نقل ${d.reassignedDoctors} طبيب إلى الصيدلية الباقية` : ''}`);
       setShowMergePharma(false);
+      setSelectedPharmaIds(new Set());
       fetchSurvey(selectedSurvey.id);
     } catch (e: any) {
       alert(`❌ فشل الدمج: ${e.message}`);
@@ -1329,11 +1344,19 @@ export default function MasterSurveyPage() {
                 }).length} نتيجة
               </span>
             )}
+            {selectedPharmaIds.size > 0 && (
+              <span style={{ fontSize: 12, color: '#4338ca', fontWeight: 700, whiteSpace: 'nowrap', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 20, padding: '3px 10px' }}>
+                ✓ محدَّد: {selectedPharmaIds.size}
+                <button onClick={() => setSelectedPharmaIds(new Set())} style={{ marginRight: 6, border: 'none', background: 'none', color: '#4338ca', cursor: 'pointer', fontWeight: 700, textDecoration: 'underline' }}>إلغاء التحديد</button>
+              </span>
+            )}
             <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
               <button onClick={fillPharmaciesFromDoctors} disabled={fillingFromDoctors} style={{ ...btnSecondary, padding: '9px 18px', background: '#f0fdf4', border: '1px solid #86efac', color: '#16a34a' }}>
                 {fillingFromDoctors ? '⏳ جاري الملء...' : '🔄 ملء من الأطباء'}
               </button>
-              <button onClick={() => setShowMergePharma(true)} disabled={selectedSurvey.pharmacies.length < 2} style={{ ...btnSecondary, padding: '9px 18px', borderColor: '#6366f1', color: '#4338ca' }}>🔗 دمج صيدليتين</button>
+              <button onClick={() => setShowMergePharma(true)} disabled={selectedPharmaIds.size < 2} style={{ ...btnSecondary, padding: '9px 18px', borderColor: '#6366f1', color: '#4338ca' }}>
+                🔗 دمج المحدَّد{selectedPharmaIds.size >= 2 ? ` (${selectedPharmaIds.size})` : ''}
+              </button>
               <button onClick={() => downloadTemplate('pharmacies')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
               <button onClick={() => pharmaFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
               <input ref={pharmaFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handlePharmaExcel} />
@@ -1362,6 +1385,21 @@ export default function MasterSurveyPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '2px solid #e8edf5', width: 1 }}>
+                      <input
+                        type="checkbox"
+                        checked={filtered.length > 0 && filtered.every(p => selectedPharmaIds.has(p.id))}
+                        onChange={e => {
+                          setSelectedPharmaIds(prev => {
+                            const next = new Set(prev);
+                            if (e.target.checked) filtered.forEach(p => next.add(p.id));
+                            else filtered.forEach(p => next.delete(p.id));
+                            return next;
+                          });
+                        }}
+                        style={{ width: 15, height: 15, cursor: 'pointer' }}
+                      />
+                    </th>
                     {['الاسم','صاحب الصيدلية','الصيدلية','الهاتف','العنوان','المنطقة','آخر تعديل',''].map(h => (
                       <th key={h} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#374151', borderBottom: '2px solid #e8edf5', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
@@ -1369,9 +1407,23 @@ export default function MasterSurveyPage() {
                 </thead>
                 <tbody>
                   {filtered.map(p => (
-                    <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                      onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                    <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9', background: selectedPharmaIds.has(p.id) ? '#eef2ff' : undefined }}
+                      onMouseEnter={e => { if (!selectedPharmaIds.has(p.id)) e.currentTarget.style.background = '#f8fafc'; }}
+                      onMouseLeave={e => { if (!selectedPharmaIds.has(p.id)) e.currentTarget.style.background = ''; }}>
+                      <td style={{ padding: '10px 12px' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedPharmaIds.has(p.id)}
+                          onChange={e => {
+                            setSelectedPharmaIds(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(p.id); else next.delete(p.id);
+                              return next;
+                            });
+                          }}
+                          style={{ width: 15, height: 15, cursor: 'pointer' }}
+                        />
+                      </td>
                       <td style={{ padding: '10px 12px', fontWeight: 700, color: '#1e293b' }}>{p.name}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.ownerName || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.pharmacyName || '—'}</td>
