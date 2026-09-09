@@ -187,17 +187,23 @@ export default function StockLedgerPage() {
     return s;
   }, [alerts]);
 
+  const searchTerms = useMemo(
+    () => search.trim().toLowerCase().split(/\s+/).filter(Boolean),
+    [search]);
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return balances.filter(b => {
       if (fRegion !== 'all' && b.region !== fRegion) return false;
       if (fWarehouse !== 'all' && b.warehouseId !== fWarehouse) return false;
       if (fCompany !== 'all' && b.companyName !== fCompany) return false;
       if (onlyAlerting && !alertingKeys.has(`${b.warehouseId}|${b.itemKey}`)) return false;
-      if (q && !b.itemName.toLowerCase().includes(q) && !b.warehouse.toLowerCase().includes(q)) return false;
+      if (searchTerms.length) {
+        const haystack = `${b.itemName} ${b.warehouse} ${b.companyName ?? ''} ${b.region}`.toLowerCase();
+        if (!searchTerms.every(t => haystack.includes(t))) return false;
+      }
       return true;
     });
-  }, [balances, fRegion, fWarehouse, fCompany, search, onlyAlerting, alertingKeys]);
+  }, [balances, fRegion, fWarehouse, fCompany, searchTerms, onlyAlerting, alertingKeys]);
 
   const kpis = useMemo(() => ({
     warehouses: new Set(filtered.map(b => b.warehouseId)).size,
@@ -479,7 +485,7 @@ function BalancesTab(p: {
       <div className="sl-filters">
         <div className="sl-field sl-field--grow">
           <label className="sl-label">بحث</label>
-          <input className="form-input sl-input" value={p.search} onChange={e => p.setSearch(e.target.value)} placeholder="ايتم أو مذخر…" />
+          <input className="form-input sl-input" value={p.search} onChange={e => p.setSearch(e.target.value)} placeholder="ايتم أو مذخر… (اكتب أكثر من كلمة مفصولة بمسافة)" />
         </div>
         <div className="sl-field">
           <label className="sl-label">المنطقة</label>
