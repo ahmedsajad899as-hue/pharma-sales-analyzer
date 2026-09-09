@@ -255,6 +255,12 @@ function leadingSegment(v) {
 
 const PHARMACY_NAME_RE = /^(صيدلية|صيدليه|ص[.\s])/;
 const DOCTOR_NAME_RE   = /(دكتور|عيادة|د\.)/;
+// عميل «مذخر/مخزن» في ملفات CRM هو طلبية توزيع بالجملة لا زيارة طبيب ولا
+// صيدلية — لا يطابق PHARMACY_NAME_RE ولا DOCTOR_NAME_RE فيقع افتراضياً في فئة
+// «طبيب» (السطر أدناه)، وعنوانه الحر عادة اسم مدينة عام («baghdad») لا حي حقيقي
+// فيفشل resolveArea لكل صفوفه بنفس النص فتُنشأ منطقة واحدة وهمية بذلك الاسم
+// تُجمَّع فيها كل زيارات المذاخر معاً. يُستبعَد هنا كلياً بدل استيراده كطبيب مزيَّف.
+const WAREHOUSE_NAME_RE = /^\s*(مذخر|مخزن)/;
 
 // cleanDoctorName منقولة إلى server/lib/surveyDoctors.js (مشتركة مع استيراد
 // أطباء السيرفي) — مستوردة أعلى الملف.
@@ -430,6 +436,8 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
     const rep     = repKey ? repByKey.get(repKey) : null;
 
     const clientName = leadingSegment(clientRaw);
+    if (WAREHOUSE_NAME_RE.test(clientName)) return; // مذخر/مخزن — طلبية توزيع لا زيارة، راجع WAREHOUSE_NAME_RE أعلاه
+
     let category = get(row, 'category');
     if (!category || category.toLowerCase() === 'unset') {
       category = PHARMACY_NAME_RE.test(clientName) ? 'صيدلية'
