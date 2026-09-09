@@ -291,6 +291,8 @@ export default function MasterSurveyPage() {
   const [editingDoc,       setEditingDoc]        = useState<SurveyDoctor | null>(null);
   const [showPharmaForm,   setShowPharmaForm]    = useState(false);
   const [editingPharma,    setEditingPharma]     = useState<SurveyPharmacy | null>(null);
+  const [showMergePharma,  setShowMergePharma]   = useState(false);
+  const [merging,          setMerging]           = useState(false);
 
   // visibility
   const [visUsers,   setVisUsers]   = useState<VisibilityUser[]>([]);
@@ -303,6 +305,8 @@ export default function MasterSurveyPage() {
 
   // doctor search filter
   const [docSearch, setDocSearch] = useState('');
+  // pharmacy search filter
+  const [pharmaSearch, setPharmaSearch] = useState('');
   const [fillingFromDoctors, setFillingFromDoctors] = useState(false);
 
   // فحص الظهور (لماذا يقلّ العدد عند المستخدمين)
@@ -926,6 +930,41 @@ export default function MasterSurveyPage() {
     );
   }
 
+  // ── Merge Pharmacies Modal ───────────────────────────────────
+  function MergePharmacyModal() {
+    const pharmacies = selectedSurvey?.pharmacies ?? [];
+    const [keepId,  setKeepId]  = useState<number | ''>('');
+    const [mergeId, setMergeId] = useState<number | ''>('');
+    const pharmaLabel = (p: SurveyPharmacy) => `${p.name}${p.areaName ? ` — ${p.areaName}` : ''}`;
+
+    return (
+      <ModalOverlay onClose={() => setShowMergePharma(false)}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>🔗 دمج صيدليتين</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
+          تُحذف الصيدلية «المدموجة»، وينتقل كل الأطباء الذين كان اسم صيدليتهم هو اسمها إلى اسم الصيدلية «الباقية».
+        </p>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>الصيدلية الباقية (يُحتفظ باسمها) *</label>
+        <select value={keepId} onChange={e => setKeepId(e.target.value ? Number(e.target.value) : '')} style={{ ...inputStyle, cursor: 'pointer', marginBottom: 12 }}>
+          <option value="">اختر صيدلية...</option>
+          {pharmacies.filter(p => p.id !== mergeId).map(p => <option key={p.id} value={p.id}>{pharmaLabel(p)}</option>)}
+        </select>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 4 }}>الصيدلية المدموجة (ستُحذف) *</label>
+        <select value={mergeId} onChange={e => setMergeId(e.target.value ? Number(e.target.value) : '')} style={{ ...inputStyle, cursor: 'pointer' }}>
+          <option value="">اختر صيدلية...</option>
+          {pharmacies.filter(p => p.id !== keepId).map(p => <option key={p.id} value={p.id}>{pharmaLabel(p)}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
+          <button onClick={() => setShowMergePharma(false)} disabled={merging} style={btnSecondary}>إلغاء</button>
+          <button
+            onClick={() => { if (keepId && mergeId) mergePharmacies(keepId, mergeId); }}
+            disabled={!keepId || !mergeId || merging}
+            style={btnPrimary}
+          >{merging ? 'جاري الدمج...' : '🔗 دمج'}</button>
+        </div>
+      </ModalOverlay>
+    );
+  }
+
   // ── Delete helpers ────────────────────────────────────────────
   const deleteSurvey = async (id: number) => {
     if (!confirm('حذف هذا السيرفي نهائياً؟ سيُحذف مع كل بياناته.')) return;
@@ -941,9 +980,28 @@ export default function MasterSurveyPage() {
   };
 
   const deletePharma = async (pharmaId: number) => {
-    if (!selectedSurvey || !confirm('حذف هذه الصيدلية من السيرفي؟')) return;
+    if (!selectedSurvey || !confirm('حذف هذه الصيدلية من السيرفي؟ سيُنقل الأطباء المرتبطون باسمها إلى أقرب اسم صيدلية مشابه، أو يبقون بلا اسم صيدلية إن لم يوجد شبيه.')) return;
     await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/${pharmaId}`, { method: 'DELETE', headers: H() });
     fetchSurvey(selectedSurvey.id);
+  };
+
+  const mergePharmacies = async (keepId: number, mergeId: number) => {
+    if (!selectedSurvey || keepId === mergeId) return;
+    setMerging(true);
+    try {
+      const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/merge`, {
+        method: 'POST', headers: H(), body: JSON.stringify({ keepId, mergeId }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.success) throw new Error(d.error || `خطأ ${r.status}`);
+      alert(`✅ تم الدمج${d.reassignedDoctors ? ` — تم نقل ${d.reassignedDoctors} طبيب إلى الصيدلية الباقية` : ''}`);
+      setShowMergePharma(false);
+      fetchSurvey(selectedSurvey.id);
+    } catch (e: any) {
+      alert(`❌ فشل الدمج: ${e.message}`);
+    } finally {
+      setMerging(false);
+    }
   };
 
   const toggleUserVisibility = async (userId: number, currentlyHidden: boolean) => {
@@ -1256,19 +1314,51 @@ export default function MasterSurveyPage() {
       {/* Pharmacies Tab */}
       {tab === 'pharmacies' && (
         <div>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginBottom: 14 }}>
-            <button onClick={fillPharmaciesFromDoctors} disabled={fillingFromDoctors} style={{ ...btnSecondary, padding: '9px 18px', background: '#f0fdf4', border: '1px solid #86efac', color: '#16a34a' }}>
-              {fillingFromDoctors ? '⏳ جاري الملء...' : '🔄 ملء من الأطباء'}
-            </button>
-            <button onClick={() => downloadTemplate('pharmacies')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
-            <button onClick={() => pharmaFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
-            <input ref={pharmaFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handlePharmaExcel} />
-            <button onClick={() => { setEditingPharma(null); setShowPharmaForm(true); }} style={{ ...btnPrimary, padding: '9px 18px' }}>➕ إضافة صيدلية</button>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+            <input
+              value={pharmaSearch}
+              onChange={e => setPharmaSearch(e.target.value)}
+              placeholder="🔍 بحث باسم الصيدلية أو المنطقة..."
+              style={{ flex: 1, minWidth: 220, padding: '9px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, outline: 'none', direction: 'rtl' }}
+            />
+            {pharmaSearch && (
+              <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {selectedSurvey.pharmacies.filter(p => {
+                  const q = pharmaSearch.trim().toLowerCase();
+                  return (p.name?.toLowerCase().includes(q) || p.areaName?.toLowerCase().includes(q) || p.ownerName?.toLowerCase().includes(q) || p.pharmacyName?.toLowerCase().includes(q) || p.phone?.toLowerCase().includes(q));
+                }).length} نتيجة
+              </span>
+            )}
+            <div style={{ display: 'flex', gap: 8, marginRight: 'auto' }}>
+              <button onClick={fillPharmaciesFromDoctors} disabled={fillingFromDoctors} style={{ ...btnSecondary, padding: '9px 18px', background: '#f0fdf4', border: '1px solid #86efac', color: '#16a34a' }}>
+                {fillingFromDoctors ? '⏳ جاري الملء...' : '🔄 ملء من الأطباء'}
+              </button>
+              <button onClick={() => setShowMergePharma(true)} disabled={selectedSurvey.pharmacies.length < 2} style={{ ...btnSecondary, padding: '9px 18px', borderColor: '#6366f1', color: '#4338ca' }}>🔗 دمج صيدليتين</button>
+              <button onClick={() => downloadTemplate('pharmacies')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
+              <button onClick={() => pharmaFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
+              <input ref={pharmaFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handlePharmaExcel} />
+              <button onClick={() => { setEditingPharma(null); setShowPharmaForm(true); }} style={{ ...btnPrimary, padding: '9px 18px' }}>➕ إضافة صيدلية</button>
+            </div>
           </div>
           {selectedSurvey.pharmacies.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>لا توجد صيدليات في هذا السيرفي بعد</div>
-          ) : (
+          ) : (() => {
+            const q = pharmaSearch.trim().toLowerCase();
+            const filtered = q
+              ? selectedSurvey.pharmacies.filter(p =>
+                  p.name?.toLowerCase().includes(q) ||
+                  p.areaName?.toLowerCase().includes(q) ||
+                  p.ownerName?.toLowerCase().includes(q) ||
+                  p.pharmacyName?.toLowerCase().includes(q) ||
+                  p.phone?.toLowerCase().includes(q)
+                )
+              : selectedSurvey.pharmacies;
+            return (
             <div style={{ overflowX: 'auto' }}>
+              {filtered.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>لا توجد نتائج تطابق "{pharmaSearch}"</div>
+              )}
+              {filtered.length > 0 && (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc' }}>
@@ -1278,7 +1368,7 @@ export default function MasterSurveyPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedSurvey.pharmacies.map(p => (
+                  {filtered.map(p => (
                     <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}
                       onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                       onMouseLeave={e => (e.currentTarget.style.background = '')}>
@@ -1303,8 +1393,10 @@ export default function MasterSurveyPage() {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -1676,6 +1768,7 @@ export default function MasterSurveyPage() {
       {showSurveyForm     && <SurveyForm />}
       {showDocForm        && <DoctorForm />}
       {showPharmaForm     && <PharmacyForm />}
+      {showMergePharma    && <MergePharmacyModal />}
       {showDrugEntryForm  && <DrugEntryForm />}
       {showDoctorsImport  && <DocImportModal />}
       {showPharmasImport  && <PharmaImportModal />}
