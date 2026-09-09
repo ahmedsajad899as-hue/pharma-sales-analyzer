@@ -190,6 +190,10 @@ export async function pharmacyVisitsByArea(req, res, next) {
     } : undefined;
 
     const normArea = normalizeAreaName;
+    // تطبيع أسماء الصيدليات للمطابقة/التجميع: مثل normArea لكن يحذف أيضاً النقاط
+    // ("ص." و"ص/" و"ص" هي نفس الاختصار) — لا نلمس normalizeArabic المشتركة لأنها
+    // تُستخدم أيضاً لتطبيع أسماء الايتمات حيث النقطة قد تعني جرعة عشرية (0.5).
+    const normPharm = (s) => normArea(s).replace(/\./g, ' ').replace(/\s+/g, ' ').trim();
 
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
@@ -214,42 +218,75 @@ export async function pharmacyVisitsByArea(req, res, next) {
     // فهرسة الزيارات باسم الصيدلية المطبَّع + منطقتها — مفتاح المطابقة مع صيدلية السيرفي
     const visitsByKey = new Map();
     for (const v of visits) {
-      const key = `${normArea(v.pharmacyName)}|${normArea(v.area?.name ?? v.areaName ?? '')}`;
+      const key = `${normPharm(v.pharmacyName)}|${normArea(v.area?.name ?? v.areaName ?? '')}`;
       if (!visitsByKey.has(key)) visitsByKey.set(key, []);
       visitsByKey.get(key).push(v);
     }
 
     const areaMap = new Map(); // key = normName(areaName)
     const claimedVisitIds = new Set();
+    const newAreaGroup = (id, name) => ({ id, name, pharmacies: [], pharmNameKeys: new Map() });
 
     for (const p of scopedPharms) {
       const areaName = p.areaName.trim(); // مضمون غير فارغ — مُصفّى في getScopedSurveyPharmacies
       const areaKey = normArea(areaName);
       const resolvedArea = scope.normToArea.get(areaKey);
-      if (!areaMap.has(areaKey)) areaMap.set(areaKey, { id: resolvedArea?.id ?? null, name: resolvedArea?.name ?? areaName, pharmacies: [] });
-      const matched = visitsByKey.get(`${normArea(p.name)}|${areaKey}`) ?? [];
+      if (!areaMap.has(areaKey)) areaMap.set(areaKey, newAreaGroup(resolvedArea?.id ?? null, resolvedArea?.name ?? areaName));
+      const g = areaMap.get(areaKey);
+      const matched = visitsByKey.get(`${normPharm(p.name)}|${areaKey}`) ?? [];
       matched.forEach(v => claimedVisitIds.add(v.id));
-      areaMap.get(areaKey).pharmacies.push({ name: p.name, visits: matched.map(toEntry) });
+
+      // دمج صفوف الكتالوج المتشابهة اسماً ضمن نفس المنطقة (فروقات فاصلة/همزة/تشكيل
+      // مثل "ص." و"ص" و"الأولى" و"الاولى") بدل عرضها كصيدليات مكرّرة، كل واحدة
+      // حاملة نفس الزيارة.
+      const nameKey = normPharm(p.name);
+      const existing = g.pharmNameKeys.get(nameKey);
+      if (existing) {
+        const existingIds = new Set(existing.visits.map(v => v.id));
+        matched.forEach(v => { if (!existingIds.has(v.id)) existing.visits.push(toEntry(v)); });
+      } else {
+        const entry = { name: p.name, visits: matched.map(toEntry) };
+        g.pharmacies.push(entry);
+        g.pharmNameKeys.set(nameKey, entry);
+      }
     }
 
     for (const v of visits) {
       if (claimedVisitIds.has(v.id)) continue;
       const areaLabel = v.area?.name ?? v.areaName ?? 'بدون منطقة';
       const areaKey = normArea(areaLabel);
-      if (!areaMap.has(areaKey)) areaMap.set(areaKey, { id: v.area?.id ?? null, name: areaLabel, pharmacies: [] });
+      if (!areaMap.has(areaKey)) areaMap.set(areaKey, newAreaGroup(v.area?.id ?? null, areaLabel));
       const g = areaMap.get(areaKey);
-      let entry = g.pharmacies.find(p => normArea(p.name) === normArea(v.pharmacyName));
-      if (!entry) { entry = { name: v.pharmacyName, visits: [] }; g.pharmacies.push(entry); }
+      const nameKey = normPharm(v.pharmacyName);
+      let entry = g.pharmNameKeys.get(nameKey);
+      if (!entry) {
+        entry = { name: v.pharmacyName, visits: [] };
+        g.pharmacies.push(entry);
+        g.pharmNameKeys.set(nameKey, entry);
+      }
       entry.visits.push(toEntry(v));
     }
 
-    const areas = [...areaMap.values()].map(a => ({
-      id: a.id,
-      name: a.name,
-      pharmacies: a.pharmacies,
-      totalPharmacies: a.pharmacies.length,
-      totalVisits: a.pharmacies.reduce((s, p) => s + p.visits.length, 0),
-    })).sort((a, b) => b.totalVisits - a.totalVisits);
+    const areas = [...areaMap.values()].map(a => {
+      // الصيدليات المُزارة أولاً (الأحدث زيارةً أولاً)، ثم غير المُزارة أبجدياً —
+      // بدل الترتيب الأبجدي البحت لكل صيدليات المنطقة.
+      const pharmacies = [...a.pharmacies].sort((x, y) => {
+        const xVisited = x.visits.length > 0, yVisited = y.visits.length > 0;
+        if (xVisited !== yVisited) return xVisited ? -1 : 1;
+        if (xVisited) {
+          const latest = list => Math.max(...list.map(v => new Date(v.visitDate).getTime()));
+          return latest(y.visits) - latest(x.visits);
+        }
+        return x.name.localeCompare(y.name, 'ar');
+      });
+      return {
+        id: a.id,
+        name: a.name,
+        pharmacies,
+        totalPharmacies: pharmacies.length,
+        totalVisits: pharmacies.reduce((s, p) => s + p.visits.length, 0),
+      };
+    }).sort((a, b) => b.totalVisits - a.totalVisits);
 
     res.json({ areas });
   } catch (e) { next(e); }
