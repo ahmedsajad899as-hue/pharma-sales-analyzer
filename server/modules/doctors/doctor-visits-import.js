@@ -960,6 +960,13 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
         areaId = resolvedAreaId;
         if (ambiguous) ambiguousAreaNote = true;
       }
+      // اسم المنطقة القانوني بعد الحسم — لا نص العنوان الحر («العيادة الثانية -
+      // حي الجهاد») القادم أحياناً من عمود عنوان/مدينة في ملفات CRM. resolveCommitAreaId
+      // قد يحسم المنطقة بنجاح حتى حين فشلت resolveArea وقت الاستخراج (مثلاً حين
+      // تُنشأ المنطقة أثناء هذا الحفظ نفسه من صف سابق بنفس الاسم) — يُستعمل هنا
+      // فقط لتسمية صف السيرفي الجديد إن أُنشئ لاحقاً، لا لمفتاح المطابقة
+      // (ctx/doctorLinkKey) كي لا يتغيّر مفتاح الروابط المحفوظة مسبقاً لهذا النص.
+      const resolvedAreaName = (areaId && allAreas.find(a => a.id === areaId)?.name) || areaName;
 
       let doctorId = r.doctorId ?? null;
       const cacheKey = `${doctorName.toLowerCase()}|${areaId ?? ''}`;
@@ -1031,7 +1038,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
           const sd = findSurveyDoctor(doctorName, ctx).match ?? (hostSurvey
             ? await createSurveyDoctor(hostSurvey.id, {
                 name: doctorName, specialty: r.specialty || null,
-                areaName: areaName || null, pharmacyName: r.pharmacyName || null,
+                areaName: resolvedAreaName || null, pharmacyName: r.pharmacyName || null,
               }, ownerUserId)
             : null);
           if (!sd) unlinkedNote = true;
@@ -1050,9 +1057,9 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
           existingDoctors.push({
             id: created.id, name: doctorName, areaId,
             specialty: r.specialty || null, pharmacyName: r.pharmacyName || null,
-            masterSurveyDoctorId: sd?.id ?? null, area: areaName ? { name: areaName } : null,
+            masterSurveyDoctorId: sd?.id ?? null, area: resolvedAreaName ? { name: resolvedAreaName } : null,
           });
-          if (sd) surveyDoctorsAll.push({ id: sd.id, name: doctorName, areaName, specialty: r.specialty || null, pharmacyName: r.pharmacyName || null });
+          if (sd) surveyDoctorsAll.push({ id: sd.id, name: doctorName, areaName: resolvedAreaName, specialty: r.specialty || null, pharmacyName: r.pharmacyName || null });
         }
         doctorCache.set(cacheKey, doctorId);
       } else {
