@@ -2700,15 +2700,25 @@ export default function DoctorsPage() {
               }}>
                 {/* Area header */}
                 <button onClick={() => toggleArea(key)} style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '11px 16px', background: 'var(--c-bg)', border: 'none', cursor: 'pointer',
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 14,
+                  padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer',
                   textAlign: 'right', direction: 'rtl',
                 }}>
+                  <div style={{
+                    width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
+                    background: 'var(--c-accent-light)', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', fontSize: 18,
+                  }}><Icon name="doctor" size={18} style={{ color: 'var(--c-accent)' }} /></div>
                   <div style={{ flex: 1, textAlign: 'right' }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)' }}>{area.name}</span>
-                    <span style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginRight: 10 }}>
-                      {area.totalDoctors} طبيب · {area.visitedCount} تمت زيارتهم
-                    </span>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text-primary)' }}>{area.name}</div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, color: 'var(--c-accent)', background: 'var(--c-accent-light)', borderRadius: 20, padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Icon name="doctor" size={11} /> {area.totalDoctors} طبيب
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--c-success)', background: 'var(--c-success-bg)', borderRadius: 20, padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Icon name="checkCircle" size={11} /> {area.visitedCount} تمت زيارتهم
+                      </span>
+                    </div>
                   </div>
                   <span style={{
                     fontSize: 11, fontWeight: 700,
