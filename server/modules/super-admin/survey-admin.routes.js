@@ -3,7 +3,7 @@ import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import {
   listSurveys, getSurvey, createSurvey, updateSurvey, deleteSurvey,
   addDoctor, updateDoctor, deleteDoctor, extractDoctorImport, commitDoctorImport,
-  addPharmacy, updatePharmacy, deletePharmacy, bulkImportPharmacies, mergePharmacies,
+  addPharmacy, updatePharmacy, deletePharmacy, bulkImportPharmacies, mergePharmacies, getPharmacyMergeSuggestions,
   getVisibility, hideUser, showUser, hideOffice, showOffice,
   getSurveyLogs, coverageCheck,
   listDrugEntries, addDrugEntry, updateDrugEntry, deleteDrugEntry, bulkImportDrugEntries,
@@ -32,6 +32,7 @@ router.delete('/:id/doctors/:docId',     deleteDoctor);
 router.post('/:id/pharmacies',              addPharmacy);
 router.post('/:id/pharmacies/bulk',         bulkImportPharmacies);
 router.post('/:id/pharmacies/merge',        mergePharmacies);
+router.get('/:id/pharmacies/merge-suggestions', getPharmacyMergeSuggestions);
 router.put('/:id/pharmacies/:pharmaId',     updatePharmacy);
 router.delete('/:id/pharmacies/:pharmaId',  deletePharmacy);
 

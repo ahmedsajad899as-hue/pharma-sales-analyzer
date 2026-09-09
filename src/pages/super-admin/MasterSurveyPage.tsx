@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import * as XLSX from 'xlsx';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { parseExcelFile } from '../../services/excelParser';
@@ -36,6 +36,10 @@ interface SurveyPharmacy {
   address?: string; areaName?: string; notes?: string;
   lastEditedAt?: string; lastEditedBy?: { username: string; displayName?: string };
 }
+interface PharmaSuggestionMember {
+  id: number; name: string; areaName?: string | null; ownerName?: string | null; phone?: string | null; doctorCount: number;
+}
+interface PharmaMergeSuggestion { suggestedKeepId: number; members: PharmaSuggestionMember[]; }
 interface VisibilityUser {
   id: number; username: string; displayName?: string; role: string; officeId?: number; hidden: boolean;
 }
@@ -293,6 +297,12 @@ export default function MasterSurveyPage() {
   const [editingPharma,    setEditingPharma]     = useState<SurveyPharmacy | null>(null);
   const [showMergePharma,  setShowMergePharma]   = useState(false);
   const [merging,          setMerging]           = useState(false);
+  const [showMergeSuggestions,     setShowMergeSuggestions]     = useState(false);
+  const [pharmaSuggestions,        setPharmaSuggestions]        = useState<PharmaMergeSuggestion[]>([]);
+  const [pharmaSuggestionsLoading, setPharmaSuggestionsLoading] = useState(false);
+  const [ignoredSuggestionKeys,    setIgnoredSuggestionKeys]    = useState<Set<string>>(new Set());
+  const [suggestionKeep,           setSuggestionKeep]           = useState<Record<string, number>>({});
+  const [expandedPharmaIds,        setExpandedPharmaIds]        = useState<Set<number>>(new Set());
 
   // visibility
   const [visUsers,   setVisUsers]   = useState<VisibilityUser[]>([]);
@@ -434,7 +444,13 @@ export default function MasterSurveyPage() {
     if (tab === 'drug_prices') { setDrugEntrySearch(''); setDrugEntriesPage(1); fetchDrugEntries(selectedSurvey.id, '', 1); }
   }, [tab, selectedSurvey?.id]);
 
-  useEffect(() => { setSelectedPharmaIds(new Set()); }, [selectedSurvey?.id]);
+  useEffect(() => {
+    setSelectedPharmaIds(new Set());
+    setExpandedPharmaIds(new Set());
+    setPharmaSuggestions([]);
+    setIgnoredSuggestionKeys(new Set());
+    setSuggestionKeep({});
+  }, [selectedSurvey?.id]);
 
   // ── Excel import handlers ───────────────────────────────────
   const handleDocExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -978,6 +994,76 @@ export default function MasterSurveyPage() {
     );
   }
 
+  // ── Merge Suggestions Modal (اقتراحات دمج ذكية) ───────────────
+  // يعرض مجموعات صيدليات يُحتمل أنها نفس الصيدلية بأسماء متشابهة (بادئة مختلفة،
+  // خطأ إملائي، أو تكرار)، محسوبة على الخادم — يختار السوبر أدمن الاسم الذي
+  // يبقى في كل مجموعة، أو يتجاهلها إن لم تكن فعلاً نفس الصيدلية.
+  function MergeSuggestionsModal() {
+    const visible = pharmaSuggestions.filter(g => !ignoredSuggestionKeys.has(suggestionGroupKey(g)));
+
+    return (
+      <ModalOverlay onClose={() => setShowMergeSuggestions(false)}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>💡 اقتراحات دمج ذكية</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
+          مجموعات أسماء متقاربة بالشكل أو النطق (بادئة "صيدلية/ص." مختلفة، خطأ إملائي بسيط، أو تكرار) — راجع كل مجموعة واختر الاسم الذي يبقى، أو تجاهلها إن لم تكن فعلاً نفس الصيدلية.
+        </p>
+        {pharmaSuggestionsLoading ? <Spinner /> : visible.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>
+            {pharmaSuggestions.length > 0 ? 'تمت مراجعة كل الاقتراحات' : 'لا توجد أسماء متشابهة يُقترح دمجها حالياً'}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '55vh', overflowY: 'auto' }}>
+            {visible.map(g => {
+              const key = suggestionGroupKey(g);
+              const keepId = suggestionKeep[key] ?? g.suggestedKeepId;
+              const mergeCount = g.members.length - 1;
+              return (
+                <div key={key} style={{ border: '1.5px solid #e8edf5', borderRadius: 12, padding: 12, background: '#fafbff' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                    {g.members.map(m => (
+                      <label key={m.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8,
+                        border: `1.5px solid ${keepId === m.id ? '#6366f1' : '#e2e8f0'}`,
+                        background: keepId === m.id ? '#eef2ff' : '#fff', cursor: 'pointer',
+                      }}>
+                        <input type="radio" name={`suggestion-keep-${key}`} checked={keepId === m.id}
+                          onChange={() => setSuggestionKeep(prev => ({ ...prev, [key]: m.id }))} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{m.name}</div>
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                            {m.areaName ? `📍 ${m.areaName} · ` : ''}👨‍⚕️ {m.doctorCount} طبيب
+                          </div>
+                        </div>
+                        {keepId === m.id && <Badge text="يبقى" color="#10b981" />}
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button onClick={() => setIgnoredSuggestionKeys(prev => new Set(prev).add(key))} style={{ ...btnSecondary, padding: '6px 14px', fontSize: 12 }}>
+                      تجاهل
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const mergeIds = g.members.filter(m => m.id !== keepId).map(m => m.id);
+                        await mergePharmacies(keepId, mergeIds);
+                        loadPharmaSuggestions();
+                      }}
+                      disabled={merging}
+                      style={{ ...btnPrimary, padding: '6px 14px', fontSize: 12 }}
+                    >{merging ? 'جاري الدمج...' : `🔗 دمج (${mergeCount})`}</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          <button onClick={() => setShowMergeSuggestions(false)} style={btnSecondary}>إغلاق</button>
+        </div>
+      </ModalOverlay>
+    );
+  }
+
   // ── Delete helpers ────────────────────────────────────────────
   const deleteSurvey = async (id: number) => {
     if (!confirm('حذف هذا السيرفي نهائياً؟ سيُحذف مع كل بياناته.')) return;
@@ -1031,6 +1117,42 @@ export default function MasterSurveyPage() {
     const method = currentlyHidden ? 'DELETE' : 'POST';
     await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/visibility/hide-office/${officeId}`, { method, headers: H() });
     setVisOffices(v => v.map(o => o.id === officeId ? { ...o, hidden: !currentlyHidden } : o));
+  };
+
+  // ── اقتراحات دمج ذكية للصيدليات المتشابهة ─────────────────────
+  const loadPharmaSuggestions = useCallback(async () => {
+    if (!selectedSurvey) return;
+    setPharmaSuggestionsLoading(true);
+    try {
+      const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/merge-suggestions`, { headers: H() });
+      const d = await r.json();
+      if (d.success) setPharmaSuggestions(d.data);
+    } finally {
+      setPharmaSuggestionsLoading(false);
+    }
+  }, [selectedSurvey?.id, H]);
+
+  const suggestionGroupKey = (g: PharmaMergeSuggestion) => g.members.map(m => m.id).sort((a, b) => a - b).join('-');
+
+  // ── أطباء كل صيدلية (باسم الصيدلية) — لعرضهم عند الضغط على صف الصيدلية ─────
+  const doctorsByPharmacyKey = useMemo(() => {
+    const map = new Map<string, SurveyDoctor[]>();
+    for (const d of selectedSurvey?.doctors ?? []) {
+      const name = d.pharmacyName?.trim();
+      if (!name) continue;
+      const k = name.toLowerCase();
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(d);
+    }
+    return map;
+  }, [selectedSurvey?.doctors]);
+
+  const togglePharmaExpand = (pharmaId: number) => {
+    setExpandedPharmaIds(prev => {
+      const next = new Set(prev);
+      if (next.has(pharmaId)) next.delete(pharmaId); else next.add(pharmaId);
+      return next;
+    });
   };
 
   // ── Render ────────────────────────────────────────────────────
@@ -1357,6 +1479,9 @@ export default function MasterSurveyPage() {
               <button onClick={() => setShowMergePharma(true)} disabled={selectedPharmaIds.size < 2} style={{ ...btnSecondary, padding: '9px 18px', borderColor: '#6366f1', color: '#4338ca' }}>
                 🔗 دمج المحدَّد{selectedPharmaIds.size >= 2 ? ` (${selectedPharmaIds.size})` : ''}
               </button>
+              <button onClick={() => { setShowMergeSuggestions(true); loadPharmaSuggestions(); }} style={{ ...btnSecondary, padding: '9px 18px', borderColor: '#f59e0b', color: '#b45309' }}>
+                💡 اقتراحات دمج ذكية
+              </button>
               <button onClick={() => downloadTemplate('pharmacies')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
               <button onClick={() => pharmaFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
               <input ref={pharmaFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handlePharmaExcel} />
@@ -1406,8 +1531,12 @@ export default function MasterSurveyPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(p => (
-                    <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9', background: selectedPharmaIds.has(p.id) ? '#eef2ff' : undefined }}
+                  {filtered.map(p => {
+                    const linkedDoctors = doctorsByPharmacyKey.get(p.name.trim().toLowerCase()) ?? [];
+                    const expanded = expandedPharmaIds.has(p.id);
+                    return (
+                    <Fragment key={p.id}>
+                    <tr style={{ borderBottom: expanded ? 'none' : '1px solid #f1f5f9', background: selectedPharmaIds.has(p.id) ? '#eef2ff' : undefined }}
                       onMouseEnter={e => { if (!selectedPharmaIds.has(p.id)) e.currentTarget.style.background = '#f8fafc'; }}
                       onMouseLeave={e => { if (!selectedPharmaIds.has(p.id)) e.currentTarget.style.background = ''; }}>
                       <td style={{ padding: '10px 12px' }}>
@@ -1424,7 +1553,24 @@ export default function MasterSurveyPage() {
                           style={{ width: 15, height: 15, cursor: 'pointer' }}
                         />
                       </td>
-                      <td style={{ padding: '10px 12px', fontWeight: 700, color: '#1e293b' }}>{p.name}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <button
+                          onClick={() => togglePharmaExpand(p.id)}
+                          title="عرض الأطباء المرتبطين بهذه الصيدلية"
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 6, border: 'none', background: 'none',
+                            cursor: 'pointer', padding: 0, fontWeight: 700, color: '#1e293b', fontSize: 13,
+                          }}
+                        >
+                          <span style={{ fontSize: 10, color: '#94a3b8', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>◀</span>
+                          {p.name}
+                          <span style={{
+                            fontSize: 10.5, fontWeight: 700, borderRadius: 20, padding: '1px 7px',
+                            background: linkedDoctors.length ? '#eef2ff' : '#f1f5f9',
+                            color: linkedDoctors.length ? '#4338ca' : '#94a3b8',
+                          }}>👨‍⚕️ {linkedDoctors.length}</span>
+                        </button>
+                      </td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.ownerName || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.pharmacyName || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{p.phone || '—'}</td>
@@ -1442,7 +1588,30 @@ export default function MasterSurveyPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    {expanded && (
+                      <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td></td>
+                        <td colSpan={8} style={{ padding: '4px 12px 14px' }}>
+                          {linkedDoctors.length === 0 ? (
+                            <div style={{ fontSize: 12, color: '#94a3b8' }}>لا يوجد أطباء مرتبطون بهذا الاسم</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {linkedDoctors.map(d => (
+                                <span key={d.id} style={{
+                                  fontSize: 11.5, fontWeight: 600, color: '#334155', background: '#f1f5f9',
+                                  border: '1px solid #e2e8f0', borderRadius: 20, padding: '3px 10px',
+                                }}>
+                                  {d.name}{d.areaName ? <span style={{ color: '#94a3b8', fontWeight: 500 }}> · {d.areaName}</span> : ''}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
               )}
@@ -1821,6 +1990,7 @@ export default function MasterSurveyPage() {
       {showDocForm        && <DoctorForm />}
       {showPharmaForm     && <PharmacyForm />}
       {showMergePharma    && <MergePharmacyModal />}
+      {showMergeSuggestions && <MergeSuggestionsModal />}
       {showDrugEntryForm  && <DrugEntryForm />}
       {showDoctorsImport  && <DocImportModal />}
       {showPharmasImport  && <PharmaImportModal />}
