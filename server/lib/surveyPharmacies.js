@@ -191,10 +191,29 @@ class UnionFind {
   union(a, b) { const ra = this.find(a), rb = this.find(b); if (ra !== rb) this.parent.set(ra, rb); }
 }
 
+// ── pharmacyNamesVeryClose(cleanedA, cleanedB) ───────────────────────────────
+// أشد صرامة من areSimilar العامة (مصمَّمة لأسماء أدوية طويلة نسبياً بقاعدة
+// "تداخل كلمات" تُطابق أي اسمين يشتركان كلمة واحدة فقط). أسماء الصيدليات
+// العربية قصيرة (كلمة أو كلمتان غالباً) — تلك القاعدة كانت تُطابق أي صيدليتين
+// تشتركان بكلمة عامة شائعة (مثل "النور"، "الرحمة"، "الأمل") رغم كونهما
+// منشأتين مختلفتين تماماً. هنا فقط: تطابق تام بعد التطبيع، أو أحد الاسمين
+// بادئة تغطي معظم الآخر (نسبة عالية لا 55%)، أو تشابه Levenshtein عالٍ جداً
+// على النص الكامل (يلتقط خطأ إملائي بسيط أو اختلاف حرف ة/ه أو أ/ا).
+function pharmacyNamesVeryClose(cleanedA, cleanedB) {
+  const a = normalizeStr(cleanedA), b = normalizeStr(cleanedB);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer  = a.length <= b.length ? b : a;
+  if (longer.startsWith(shorter) && shorter.length / longer.length >= 0.75) return true;
+  return similarity(a, b) >= 0.86;
+}
+
 // ── findPharmacyMergeSuggestions(pharmacies, doctorCountByKey) ──────────────
 // يجمّع صيدليات هذا السيرفي في مجموعات "يُحتمل أنها نفس الصيدلية بأسماء مختلفة
 // قليلاً" — بادئة صيدلية/ص. مختلفة، خطأ إملائي بسيط، أو نفس الاسم مكرَّراً —
 // يوفّر على السوبر أدمن البحث اليدوي بين آلاف الأسماء لإيجاد مرشّحي الدمج.
+// دقّة عالية مقصودة: أفضل تفويت مرشّح حقيقي من اقتراح اسمين مختلفين فعلاً.
 //
 // نرتّب أبجدياً على الاسم بعد التطبيع ونقارن كل اسم بنافذة محدودة من جيرانه
 // (سلوك sorted-neighborhood القياسي) بدل مقارنة كل زوج O(n²) — سيرفي واحد قد
@@ -202,26 +221,26 @@ class UnionFind {
 // الطلب. المرشّحون الفعليون متقاربون أبجدياً بعد إزالة بادئة "صيدلية/ص."،
 // فتلتقطهم النافذة رغم صغرها.
 //
-// كل مجموعة تحمل suggestedKeepId — الصيدلية الأغنى بيانات ضمن المجموعة (أكثر
-// أطباء مرتبطين، ثم أطول اسم) كاختيار افتراضي معقول لـ"الاسم الذي يبقى"، يبقى
-// للسوبر أدمن تغييره قبل التأكيد.
+// Union-Find وحده يسمح بـ"تسلسل": لو A قريب من B وB قريب من C يجتمعون في مجموعة
+// واحدة حتى لو A بعيد تماماً عن C — هذا بالضبط ما كان يُنتج مجموعات ضخمة بأسماء
+// غير متشابهة فعلياً. لذا بعد التجميع الأولي نختار "الممثّل" (الأغنى بيانات:
+// أكثر أطباء مرتبطين، ثم أطول اسم) ونُبقي فقط من هو قريب مباشرة من الممثّل
+// نفسه — فتتحوّل كل مجموعة إلى نجمة حول اسم واحد بدل سلسلة، وهذا أصلاً شكل
+// عملية الدمج (اسم يبقى + أسماء تُدمج فيه مباشرة).
 const MERGE_SUGGESTION_WINDOW = 60;
 export function findPharmacyMergeSuggestions(pharmacies, doctorCountByKey = new Map()) {
   const cmpKey = s => String(s ?? '').trim().toLowerCase();
   const withKey = pharmacies
     .filter(p => p.name?.trim())
-    .map(p => ({ ...p, _sortKey: normalizeStr(cleanPharmacyName(p.name)), _doctorCount: doctorCountByKey.get(cmpKey(p.name)) ?? 0 }))
-    .sort((a, b) => a._sortKey.localeCompare(b._sortKey));
+    .map(p => ({ ...p, _clean: cleanPharmacyName(p.name), _doctorCount: doctorCountByKey.get(cmpKey(p.name)) ?? 0 }))
+    .sort((a, b) => normalizeStr(a._clean).localeCompare(normalizeStr(b._clean)));
 
   const uf = new UnionFind(withKey.map(p => p.id));
   for (let i = 0; i < withKey.length; i++) {
     const a = withKey[i];
-    const aClean = cleanPharmacyName(a.name);
     for (let j = i + 1; j < Math.min(i + 1 + MERGE_SUGGESTION_WINDOW, withKey.length); j++) {
       const b = withKey[j];
-      if (a._sortKey === b._sortKey || areSimilar(aClean, cleanPharmacyName(b.name))) {
-        uf.union(a.id, b.id);
-      }
+      if (pharmacyNamesVeryClose(a._clean, b._clean)) uf.union(a.id, b.id);
     }
   }
 
@@ -232,14 +251,20 @@ export function findPharmacyMergeSuggestions(pharmacies, doctorCountByKey = new 
     groups.get(root).push(p);
   }
 
-  return [...groups.values()]
-    .filter(members => members.length >= 2)
-    .map(members => {
-      const ranked = [...members].sort((a, b) => b._doctorCount - a._doctorCount || b.name.length - a.name.length);
-      return {
-        suggestedKeepId: ranked[0].id,
-        members: members.map(({ _sortKey, _doctorCount, ...rest }) => ({ ...rest, doctorCount: _doctorCount })),
-      };
-    })
-    .sort((a, b) => b.members.length - a.members.length);
+  const suggestions = [];
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const ranked = [...members].sort((a, b) => b._doctorCount - a._doctorCount || b.name.length - a.name.length);
+    const anchor = ranked[0];
+    // تنقية "النجمة": أبقِ فقط من يقترب فعلاً من الممثّل مباشرة — يستبعد أعضاء
+    // انضمّوا للمجموعة عبر حلقة وسيطة بعيدة عنه.
+    const kept = members.filter(m => m.id === anchor.id || pharmacyNamesVeryClose(anchor._clean, m._clean));
+    if (kept.length < 2) continue;
+    suggestions.push({
+      suggestedKeepId: anchor.id,
+      members: kept.map(({ _clean, _doctorCount, ...rest }) => ({ ...rest, doctorCount: _doctorCount })),
+    });
+  }
+
+  return suggestions.sort((a, b) => b.members.length - a.members.length);
 }
