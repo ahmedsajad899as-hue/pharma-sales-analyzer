@@ -388,9 +388,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   };
 
   const loadDetail = (id: number, opts: { keepTab?: boolean } = {}) => {
-    // Save current scroll position before entering detail
-    const main = getMainEl();
-    if (main) savedScrollRef.current = main.scrollTop;
+    // Save current scroll position before entering detail — لكن ليس عند إعادة
+    // التحميل بعد حفظ (keepTab=true)، وإلا نستبدل موضع تمرير قائمة المستخدمين
+    // المحفوظ بموضع تمرير صفحة التفاصيل نفسها، فيعود «رجوع» لأعلى القائمة خطأً.
+    if (!opts.keepTab) {
+      const main = getMainEl();
+      if (main) savedScrollRef.current = main.scrollTop;
+    }
     setRepInfoData(null);
     fetch(`/api/sa/users/${id}`, { headers: H() }).then(r => r.json()).then(d => {
       if (d.success) {
@@ -467,7 +471,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       });
     }
     setSaving(false); setForm(null); load(true);
-    if (detail?.id === form.id) loadDetail(form.id);
+    if (detail?.id === form.id) loadDetail(form.id, { keepTab: true });
   };
 
   // Lightweight toast for save feedback
