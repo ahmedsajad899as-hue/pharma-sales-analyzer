@@ -27,6 +27,19 @@ function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
+// ── تصنيف «مذاخر بغداد» ──────────────────────────────────────────
+// قائمة قابلة للتعديل: أسماء/أجزاء أسماء مناطق بغداد كما تظهر في حقل «المنطقة».
+// عدّل هذه القائمة عند إضافة منطقة بغدادية جديدة (لا حاجة لتعديل أي منطق آخر).
+// (المندوبون التجاريون المسؤولون حالياً عن مناطق بغداد: محمد ثائر، حمزة، علي نجم —
+//  للمرجعية فقط؛ رصيد المذاخر لا يربط المذخر باسم مندوب فلا تُستخدم أسماؤهم في المطابقة.)
+const BAGHDAD_REGIONS = ['الحارثية', 'الرصافة'];
+
+const normArabic = (s: string) => s.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+const isBaghdadRegion = (region: string) => {
+  const r = normArabic(region);
+  return BAGHDAD_REGIONS.some(b => r.includes(normArabic(b)));
+};
+
 // ── الأنواع ────────────────────────────────────────────────────
 interface Balance {
   warehouseId: number; warehouse: string; region: string;
@@ -133,6 +146,7 @@ export default function StockLedgerPage() {
   const [fCompany, setFCompany] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [onlyAlerting, setOnlyAlerting] = useState(false);
+  const [onlyBaghdad, setOnlyBaghdad] = useState(true);
 
   // ── تحميل البيانات ───────────────────────────────────────────
   const loadBalances = useCallback(async () => {
@@ -197,13 +211,14 @@ export default function StockLedgerPage() {
       if (fWarehouse !== 'all' && b.warehouseId !== fWarehouse) return false;
       if (fCompany !== 'all' && b.companyName !== fCompany) return false;
       if (onlyAlerting && !alertingKeys.has(`${b.warehouseId}|${b.itemKey}`)) return false;
+      if (onlyBaghdad && !isBaghdadRegion(b.region)) return false;
       if (searchTerms.length) {
         const haystack = `${b.itemName} ${b.warehouse} ${b.companyName ?? ''} ${b.region}`.toLowerCase();
         if (!searchTerms.every(t => haystack.includes(t))) return false;
       }
       return true;
     });
-  }, [balances, fRegion, fWarehouse, fCompany, searchTerms, onlyAlerting, alertingKeys]);
+  }, [balances, fRegion, fWarehouse, fCompany, searchTerms, onlyAlerting, onlyBaghdad, alertingKeys]);
 
   const kpis = useMemo(() => ({
     warehouses: new Set(filtered.map(b => b.warehouseId)).size,
@@ -392,6 +407,7 @@ export default function StockLedgerPage() {
           fCompany={fCompany} setFCompany={setFCompany}
           search={search} setSearch={setSearch}
           onlyAlerting={onlyAlerting} setOnlyAlerting={setOnlyAlerting}
+          onlyBaghdad={onlyBaghdad} setOnlyBaghdad={setOnlyBaghdad}
           alertingKeys={alertingKeys}
           canExport={hasFeature('stock_ledger_export')}
         />
@@ -452,6 +468,7 @@ function BalancesTab(p: {
   fCompany: string; setFCompany: (v: string) => void;
   search: string; setSearch: (v: string) => void;
   onlyAlerting: boolean; setOnlyAlerting: (v: boolean) => void;
+  onlyBaghdad: boolean; setOnlyBaghdad: (v: boolean) => void;
   alertingKeys: Set<string>;
   canExport: boolean;
 }) {
@@ -510,6 +527,13 @@ function BalancesTab(p: {
           </select>
         </div>
         <div className="sl-actions">
+          <button
+            className={`filter-chip${p.onlyBaghdad ? ' filter-chip--active' : ''}`}
+            onClick={() => p.setOnlyBaghdad(!p.onlyBaghdad)}
+            title="عرض مذاخر بغداد فقط (حسب المنطقة) — اضغط للتبديل"
+          >
+            <Icon name="location" size={12} /> مذاخر بغداد فقط
+          </button>
           <button
             className={`filter-chip${p.onlyAlerting ? ' filter-chip--active' : ''}`}
             onClick={() => p.setOnlyAlerting(!p.onlyAlerting)}
