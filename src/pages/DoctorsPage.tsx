@@ -2686,6 +2686,7 @@ export default function DoctorsPage() {
             const key     = String(area.id);
             const isOpen  = expandedAreas.has(key);
             const pct     = area.totalDoctors > 0 ? Math.round(area.visitedCount / area.totalDoctors * 100) : 0;
+            const pctColor = pct >= 80 ? 'var(--c-success)' : pct >= 50 ? 'var(--c-accent)' : 'var(--c-warning)';
             const searchQ = visitSearch.trim().toLowerCase();
 
             const sorted = visitDoctorsByArea.get(key) ?? [];
@@ -2718,15 +2719,11 @@ export default function DoctorsPage() {
                       <span style={{ fontSize: 12, color: 'var(--c-success)', background: 'var(--c-success-bg)', borderRadius: 20, padding: '2px 9px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         <Icon name="checkCircle" size={11} /> {area.visitedCount} تمت زيارتهم
                       </span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: pctColor, background: `color-mix(in srgb, ${pctColor} 10%, transparent)`, borderRadius: 20, padding: '2px 8px', display: 'inline-flex', alignItems: 'center' }}>
+                        {pct}%
+                      </span>
                     </div>
                   </div>
-                  <span style={{
-                    fontSize: 11, fontWeight: 700,
-                    color: pct >= 80 ? 'var(--c-success)' : pct >= 50 ? 'var(--c-accent)' : 'var(--c-warning)',
-                    background: pct >= 80 ? 'var(--c-success-bg)' : pct >= 50 ? 'var(--c-accent-light)' : 'var(--c-warning-bg)',
-                    border: `1px solid ${pct >= 80 ? 'var(--c-success-border)' : pct >= 50 ? 'var(--c-accent)' : 'var(--c-warning-border)'}`,
-                    borderRadius: 6, padding: '2px 8px', flexShrink: 0,
-                  }}>{pct}%</span>
                   {canSeePharmNet && (() => {
                     const stats = visitAreaStatsMap.get(area.name);
                     if (!stats || stats.total === 0) return null;
