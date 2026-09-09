@@ -3,7 +3,7 @@ import multer from 'multer';
 import {
   listAllUsers, getUser, createUser, updateUser,
   setUserCompanies, setUserAreas, setUserProvinces, setUserSubProvinces, setUserItems, setUserLines,
-  setUserManagers, setUserInteractions, setUserFeatures, setUserAllAreas,
+  setUserManagers, setUserSubordinates, setUserInteractions, setUserFeatures, setUserAllAreas,
   getUserRepInfo, getUserCompanyItems,
   deleteUser,
 } from './admin-users.controller.js';
@@ -35,6 +35,7 @@ router.put('/:id/all-areas',    setUserAllAreas);
 router.put('/:id/items',        setUserItems);
 router.put('/:id/lines',        setUserLines);
 router.put('/:id/managers',     setUserManagers);
+router.put('/:id/subordinates', setUserSubordinates);
 router.put('/:id/interactions', setUserInteractions);
 router.put('/:id/features',     setUserFeatures);
 

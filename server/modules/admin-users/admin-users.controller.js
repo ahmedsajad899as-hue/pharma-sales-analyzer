@@ -633,6 +633,25 @@ export async function setUserManagers(req, res) {
   res.json({ success: true });
 }
 
+// ── Set user subordinates (عكس setUserManagers: من حساب المدير نفسه، يختار
+// أي المستخدمين هو مديرهم — تعيين سريع بدل الدخول لكل حساب على حدة). يمسّ فقط
+// صفوف UserManagerAssignment التي managerId فيها = هذا الحساب، فلا يمحو مديرين
+// آخرين مُعيَّنين لنفس الموظف من جهة أخرى.
+export async function setUserSubordinates(req, res) {
+  const managerId = parseInt(req.params.id);
+  const { userIds = [] } = req.body;
+  const ids = [...new Set(userIds.map(n => parseInt(n)))].filter(id => Number.isInteger(id) && id !== managerId);
+
+  await prisma.$transaction([
+    prisma.userManagerAssignment.deleteMany({ where: { managerId, userId: { notIn: ids } } }),
+    ...(ids.length ? [prisma.userManagerAssignment.createMany({
+      data: ids.map(userId => ({ userId, managerId })),
+      skipDuplicates: true,
+    })] : []),
+  ]);
+  res.json({ success: true });
+}
+
 // ── Set user features (enable/disable per-user features) ────────────────────
 export async function setUserFeatures(req, res) {
   const id = parseInt(req.params.id);

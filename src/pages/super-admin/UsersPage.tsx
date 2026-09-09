@@ -55,6 +55,7 @@ interface UserDetail extends UserRow {
   provinceAssignments?: { provinceId: number; province: { id: number; name: string } }[];
   subProvinceAssignments?: { subProvinceId: number; subProvince: { id: number; name: string; provinceId: number } }[];
   managersOfUser:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
+  subordinatesOfUser: { userId: number; user: { id: number; username: string; displayName?: string } }[];
   // راية «كل المناطق والمحافظات تلقائياً» + العدد الكلي لصفوف المناطق (يأتيان من
   // /api/sa/users/:id مباشرةً؛ راجع server/lib/areaScope.js)
   autoAllAreas?: boolean;
@@ -102,7 +103,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // الحساب الذي يحجز اسم المستخدم عند خطأ 409 — يُعرض مع زر ينقل إليه في القائمة،
   // لأنه غالباً في مكتب آخر أو معطّل فلا يظهر أمام الأدمن الذي يظن أنه حذفه.
   const [conflict,  setConflict]  = useState<any>(null);
-  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'|'features'>(() => {
+  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'|'employees'|'features'>(() => {
     const saved = localStorage.getItem('sa_user_tab');
     return (saved as any) || 'info';
   });
@@ -125,6 +126,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // بكل صف دائماً — كانت تُثقّل القائمة بصرياً مع مئات المناطق)
   const [openProvincePicker,  setOpenProvincePicker]  = useState<number | null>(null);
   const [draftMgrIds,        setDraftMgrIds]        = useState<number[]>([]);
+  // «الموظفون»: تعيين عكسي — من حساب المدير نفسه، بدل الدخول لكل حساب على حدة
+  const [draftSubIds,        setDraftSubIds]        = useState<number[]>([]);
   const [itemSearch,         setItemSearch]         = useState('');
   const [areaSearch,         setAreaSearch]         = useState('');
   const [mergeSugs,          setMergeSugs]          = useState<{ a: { id: number; name: string; sales: number }; b: { id: number; name: string; sales: number } }[] | null>(null);
@@ -264,6 +267,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setDraftProvinceIds((detail.provinceAssignments ?? []).map(p => p.provinceId));
     setDraftSubProvinceIds((detail.subProvinceAssignments ?? []).map(s => s.subProvinceId));
     setDraftMgrIds(detail.managersOfUser.map(a => a.managerId));
+    setDraftSubIds((detail.subordinatesOfUser ?? []).map(a => a.userId));
     setDraftsUserId(detail.id);
     try {
       const p = JSON.parse(detail.permissions || '{}');
@@ -565,6 +569,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setSaving(true);
     const keyMap: Record<string, string> = {
       companies: 'companyIds', lines: 'lineIds', items: 'itemIds', areas: 'areaIds', managers: 'managerIds',
+      subordinates: 'userIds',
     };
     try {
       const body: Record<string, any> = { [keyMap[type]]: ids };
@@ -806,6 +811,31 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const selAreaIds    = draftAreaIds;
     const selProvinceIds = draftProvinceIds;
     const selMgrIds     = draftMgrIds;
+    const selSubIds     = draftSubIds;
+
+    // «الموظفون»: مرشّحو التعيين مرتّبون — حسابات إدارة المكتب أولاً، ثم البقية
+    // حسب اسم الشركة الأساسية، وداخل كل شركة المدراء قبل المندوبين.
+    const MANAGER_ROLES = new Set(['company_manager', 'supervisor', 'product_manager', 'team_leader', 'commercial_supervisor', 'commercial_team_leader', 'admin', 'manager']);
+    const REP_ROLES     = new Set(['scientific_rep', 'commercial_rep']);
+    const roleGroupRank = (role: string) => MANAGER_ROLES.has(role) ? 0 : REP_ROLES.has(role) ? 1 : 2;
+    const primaryCompanyNameOf = (u: UserRow) => {
+      const cas = u.companyAssignments ?? [];
+      return (cas.find(a => a.isPrimary) ?? cas[0])?.company?.name ?? '';
+    };
+    const employeeCandidates = users
+      .filter(u => u.id !== detail.id)
+      .slice()
+      .sort((a, b) => {
+        const officeA = OFFICE_SCOPED_ROLES.has(a.role) ? 0 : 1;
+        const officeB = OFFICE_SCOPED_ROLES.has(b.role) ? 0 : 1;
+        if (officeA !== officeB) return officeA - officeB;
+        if (officeA === 0) return (a.displayName || a.username).localeCompare(b.displayName || b.username, 'ar');
+        const cmpCompany = primaryCompanyNameOf(a).localeCompare(primaryCompanyNameOf(b), 'ar');
+        if (cmpCompany !== 0) return cmpCompany;
+        const cmpRole = roleGroupRank(a.role) - roleGroupRank(b.role);
+        if (cmpRole !== 0) return cmpRole;
+        return (a.displayName || a.username).localeCompare(b.displayName || b.username, 'ar');
+      });
 
     // The areas list comes from the active survey (deduped). A user may still be
     // assigned to areas NOT in that survey list (legacy / non-survey areas). Those
@@ -958,6 +988,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           <TabBtn id="items"     label={`الايتمات (${selItemIds.length})`} />
           <TabBtn id="areas"     label={`المناطق (${effectiveAreaCount})`} />
           <TabBtn id="managers"  label={`المدراء (${selMgrIds.length})`} />
+          <TabBtn id="employees" label={`الموظفون (${selSubIds.length})`} />
           <TabBtn id="features"  label="🎛️ المميزات" />
         </div>
 
@@ -1869,6 +1900,32 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </div>
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
                 <button onClick={() => saveAssignment('managers', draftMgrIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
+              </div>
+            </div>
+          )}
+          {tab === 'employees' && (
+            <div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
+                تعيين عكسي: اختر من هنا كل المستخدمين الذين {detail.displayName || detail.username} مديرهم — بدل الدخول لحساب كل واحد منهم لإضافته من تبويب «المدراء».
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button onClick={() => setDraftSubIds(employeeCandidates.map(u => u.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => setDraftSubIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 420, overflowY: 'auto' }}>
+                {employeeCandidates.map(u => {
+                  const companyName = primaryCompanyNameOf(u);
+                  return (
+                    <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+                      <input type="checkbox" checked={draftSubIds.includes(u.id)} onChange={e => setDraftSubIds(prev => e.target.checked ? (prev.includes(u.id) ? prev : [...prev, u.id]) : prev.filter(x => x !== u.id))} />
+                      {u.displayName || u.username} ({ROLES.find(r => r.value === u.role)?.label || u.role}{companyName ? ` · ${companyName}` : ''})
+                    </label>
+                  );
+                })}
+                {employeeCandidates.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13, padding: 8 }}>لا يوجد مستخدمون آخرون</div>}
+              </div>
+              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={() => saveAssignment('subordinates', draftSubIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
             </div>
           )}
