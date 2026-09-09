@@ -2111,6 +2111,9 @@ export default function DoctorsPage() {
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                                         <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--c-success)', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
                                         <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)' }}>{doc.name}</span>
+                                        {doc.visits.length > 1 && (
+                                          <span title={`${doc.visits.length} زيارات خلال الفترة المحددة`} style={{ fontSize: 10, fontWeight: 700, background: 'var(--c-success-bg)', color: 'var(--c-success)', borderRadius: 20, padding: '2px 7px', border: '1px solid var(--c-success)', whiteSpace: 'nowrap', flexShrink: 0 }}>×{doc.visits.length}</span>
+                                        )}
                                         {hasDetails && (
                                           <button onClick={() => toggleDocExpand(doc.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', color: 'var(--c-text-muted)', fontSize: 11, lineHeight: 1, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</button>
                                         )}
