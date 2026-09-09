@@ -2704,10 +2704,7 @@ export default function DoctorsPage() {
                   <div style={{ flex: 1, textAlign: 'right' }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)' }}>{area.name}</span>
                     <span style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginRight: 10 }}>
-                      {area.totalDoctors} طبيب
-                      {area.visitedCount > 0 && ` · ${area.visitedCount} زيارة`}
-                      {area.writingCount > 0 && ` · ${area.writingCount} كتابة`}
-                      {(area.totalDoctors - area.visitedCount) > 0 && ` · ${area.totalDoctors - area.visitedCount} لم يُزار`}
+                      {area.totalDoctors} طبيب · {area.visitedCount} تمت زيارتهم
                     </span>
                   </div>
                   <span style={{
