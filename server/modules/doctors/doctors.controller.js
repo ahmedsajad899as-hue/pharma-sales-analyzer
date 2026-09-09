@@ -191,9 +191,15 @@ export async function pharmacyVisitsByArea(req, res, next) {
 
     const normArea = normalizeAreaName;
     // تطبيع أسماء الصيدليات للمطابقة/التجميع: مثل normArea لكن يحذف أيضاً النقاط
-    // ("ص." و"ص/" و"ص" هي نفس الاختصار) — لا نلمس normalizeArabic المشتركة لأنها
-    // تُستخدم أيضاً لتطبيع أسماء الايتمات حيث النقطة قد تعني جرعة عشرية (0.5).
-    const normPharm = (s) => normArea(s).replace(/\./g, ' ').replace(/\s+/g, ' ').trim();
+    // ("ص." و"ص/" و"ص" هي نفس الاختصار) وبادئة "صيدلية"/"ص" نفسها — فـ"صيدلية
+    // الأولى" و"ص الاولى" و"الاولى" يجب أن تُطابَق كصيدلية واحدة. حذف النقاط يجب
+    // أن يسبق normArea (الذي يحذف "ال" التعريف) وإلا "ص.الاولى" (بلا مسافة) تفلت
+    // من حذف "ال" لأنها غير مسبوقة بمسافة حينها. لا نلمس normalizeArabic المشتركة
+    // لأنها تُستخدم أيضاً لتطبيع أسماء الايتمات حيث النقطة قد تعني جرعة عشرية (0.5).
+    const normPharm = (s) => {
+      const cleaned = String(s).replace(/\./g, ' ').replace(/\s+/g, ' ').trim();
+      return normArea(cleaned).replace(/^(صيدليه|ص)(\s+|$)/, '').trim();
+    };
 
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
