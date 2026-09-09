@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaNames } from '../../lib/areaScope.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { resolveAreaScope, ensureDoctorRowsForScope, ensureGlobalArea } from '../../lib/surveyDoctors.js';
+import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib } from '../../lib/surveyPharmacies.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 
 // ── Arabic normalization helper ───────────────────────────────
@@ -448,45 +449,31 @@ export async function importDoctor(req, res, next) {
 }
 
 // ── POST /api/master-surveys/:id/pharmacies ──────────────────
+// مفوَّض لـ createSurveyPharmacy (surveyPharmacies.js) — نفس نمط addDoctor
+// أعلاه: ensureGlobalArea يضمن ظهور صيدلية بمنطقة جديدة كلياً لكل الفرق فوراً.
 export async function addPharmacy(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     await assertVisible(surveyId, req.user, res);
     const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الصيدلية مطلوب' });
-    const ph = await prisma.masterSurveyPharmacy.create({
-      data: {
-        surveyId,
-        name: name.trim(), ownerName, pharmacyName, phone, address, areaName, notes,
-        lastEditedById: req.user.id,
-        lastEditedAt:   new Date(),
-      },
-    });
-    await logEntry(surveyId, 'pharmacy', ph.id, 'create', null, ph, req.user.id);
+    const ph = await createSurveyPharmacy(surveyId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, req.user.id);
     res.status(201).json({ success: true, data: ph });
   } catch (e) { next(e); }
 }
 
 // ── PUT /api/master-surveys/:id/pharmacies/:pharmaId ─────────
+// مفوَّض لـ updateSurveyPharmacy — تعديل الاسم يُطبَّق تلقائياً على الأطباء
+// المرتبطين وزيارات الصيدليات المسجَّلة بالاسم القديم (cascadePharmacyNameChange).
 export async function updatePharmacy(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const pharmaId = parseInt(req.params.pharmaId);
     await assertVisible(surveyId, req.user, res);
-    const old = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
-    if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
     const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
-    const data = { lastEditedById: req.user.id, lastEditedAt: new Date() };
-    if (name         !== undefined) data.name         = name.trim();
-    if (ownerName    !== undefined) data.ownerName    = ownerName;
-    if (pharmacyName !== undefined) data.pharmacyName = pharmacyName;
-    if (phone        !== undefined) data.phone        = phone;
-    if (address      !== undefined) data.address      = address;
-    if (areaName     !== undefined) data.areaName     = areaName;
-    if (notes        !== undefined) data.notes        = notes;
-    const updated = await prisma.masterSurveyPharmacy.update({ where: { id: pharmaId }, data });
-    await logEntry(surveyId, 'pharmacy', pharmaId, 'update', old, updated, req.user.id);
-    res.json({ success: true, data: updated });
+    const result = await updateSurveyPharmacyLib(surveyId, pharmaId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, req.user.id);
+    if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
+    res.json({ success: true, data: result.updated });
   } catch (e) { next(e); }
 }
 

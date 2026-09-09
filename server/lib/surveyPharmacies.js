@@ -11,6 +11,7 @@
 import prisma from './prisma.js';
 import { normalizeAreaName } from './itemResolver.js';
 import { areSimilar, similarity, normalizeStr } from './fuzzyMatch.js';
+import { ensureGlobalArea, logSurveyEdit } from './surveyDoctors.js';
 
 // Common prefixes/titles typed before a pharmacy name (same set the invoice-
 // extraction path in sales.service.js strips) — stripped before comparing
@@ -59,4 +60,186 @@ export async function getScopedSurveyPharmacies(scope) {
   });
   const set = new Set(normAreaNames);
   return all.filter(p => p.areaName?.trim() && set.has(normalizeAreaName(p.areaName)));
+}
+
+// ── cascadePharmacyNameChange(surveyId, oldNames, newName) ──────────────────
+// صيدلية غيّرت اسمها (تعديل) أو اندمجت باسم آخر (دمج) أو حُذفت مع نقل الأطباء
+// لأقرب بديل (حذف): الأطباء الذين اسم صيدليتهم كان أحد oldNames يتبعون الاسم
+// الجديد في MasterSurveyDoctor + كل صفوف Doctor المرتبطة (نفس فكرة cascade في
+// updateSurveyDoctor)، وزيارات الصيدليات المسجَّلة بأحد الأسماء القديمة
+// (PharmacyVisit.pharmacyName نص خام بلا FK — خلافاً لـ DoctorVisit المربوطة
+// بـ doctorId) تتبع الاسم الجديد أيضاً كي لا تنفصل عن صيدليتها في تحليل
+// الزيارات. newName فارغ/null (حذف بلا بديل مشابه) يُبقي الزيارات كما هي —
+// PharmacyVisit.pharmacyName غير قابل لـ null أصلاً في الـ schema.
+export async function cascadePharmacyNameChange(surveyId, oldNames, newName) {
+  const trimmedNew = String(newName ?? '').trim();
+  const names = [...new Set((oldNames || []).map(n => String(n ?? '').trim()).filter(Boolean))]
+    .filter(n => n.toLowerCase() !== trimmedNew.toLowerCase());
+  if (!names.length) return { affectedDoctors: 0, affectedVisits: 0 };
+
+  let affectedDoctors = 0, affectedVisits = 0;
+  for (const oldName of names) {
+    const docs = await prisma.masterSurveyDoctor.findMany({
+      where: { surveyId, pharmacyName: { equals: oldName, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (docs.length) {
+      const ids = docs.map(d => d.id);
+      await prisma.masterSurveyDoctor.updateMany({ where: { id: { in: ids } }, data: { pharmacyName: trimmedNew || null } });
+      await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: { in: ids } }, data: { pharmacyName: trimmedNew || null } });
+      affectedDoctors += ids.length;
+    }
+    if (trimmedNew) {
+      const result = await prisma.pharmacyVisit.updateMany({
+        where: { pharmacyName: { equals: oldName, mode: 'insensitive' } },
+        data: { pharmacyName: trimmedNew },
+      });
+      affectedVisits += result.count;
+    }
+  }
+  return { affectedDoctors, affectedVisits };
+}
+
+// ── createSurveyPharmacy — إنشاء صيدلية سيرفي موحّد (log + منطقة عامة) ───────
+// نظير createSurveyDoctor: ensureGlobalArea يضمن ظهور صيدلية بمنطقة جديدة
+// كلياً لكل الفرق فوراً (بدل أن تبقى غير مرئية للأبد — كانت هذه الخطوة مفقودة
+// من مسار الصيدليات أصلاً وهي سبب رئيسي لعدم تطابق العدد بين لوحة السوبر أدمن
+// وما يظهر عند المستخدمين).
+export async function createSurveyPharmacy(surveyId, fields, editedById, areaCache = null) {
+  if (fields.areaName?.trim()) await ensureGlobalArea(fields.areaName, areaCache);
+  const ph = await prisma.masterSurveyPharmacy.create({
+    data: {
+      surveyId,
+      name:         fields.name.trim(),
+      ownerName:    fields.ownerName    ?? null,
+      pharmacyName: fields.pharmacyName ?? null,
+      phone:        fields.phone        ?? null,
+      address:      fields.address      ?? null,
+      areaName:     fields.areaName     ?? null,
+      notes:        fields.notes        ?? null,
+      lastEditedById: editedById ?? null,
+      lastEditedAt:   new Date(),
+    },
+  });
+  await logSurveyEdit(surveyId, 'pharmacy', ph.id, 'create', null, ph, editedById);
+  return ph;
+}
+
+// ── updateSurveyPharmacy — تعديل صيدلية سيرفي موحّد (منطقة عامة + cascade اسم) ─
+export async function updateSurveyPharmacy(surveyId, pharmaId, fields, editedById, areaCache = null) {
+  const old = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
+  if (!old || old.surveyId !== surveyId) return { error: 'not_found' };
+
+  const data = { lastEditedById: editedById ?? null, lastEditedAt: new Date() };
+  for (const key of ['name', 'ownerName', 'pharmacyName', 'phone', 'address', 'areaName', 'notes']) {
+    if (fields[key] !== undefined) data[key] = key === 'name' ? String(fields[key]).trim() : fields[key];
+  }
+  if (data.areaName?.trim()) await ensureGlobalArea(data.areaName, areaCache);
+
+  const updated = await prisma.masterSurveyPharmacy.update({ where: { id: pharmaId }, data });
+  await logSurveyEdit(surveyId, 'pharmacy', pharmaId, 'update', old, updated, editedById);
+
+  if (data.name !== undefined && data.name !== old.name) {
+    await cascadePharmacyNameChange(surveyId, [old.name], data.name);
+  }
+
+  return { old, updated };
+}
+
+// ── deleteSurveyPharmacy — حذف صيدلية سيرفي موحّد (نقل الأطباء+الزيارات لأقرب بديل) ─
+export async function deleteSurveyPharmacy(surveyId, pharmaId, editedById) {
+  const old = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
+  if (!old || old.surveyId !== surveyId) return { error: 'not_found' };
+
+  const remainingPharmacies = await prisma.masterSurveyPharmacy.findMany({
+    where: { surveyId, id: { not: pharmaId } }, select: { name: true },
+  });
+  const replacement = findClosestPharmacyName(old.name, remainingPharmacies.map(p => p.name));
+  const { affectedDoctors } = await cascadePharmacyNameChange(surveyId, [old.name], replacement);
+
+  await prisma.masterSurveyPharmacy.delete({ where: { id: pharmaId } });
+  await logSurveyEdit(surveyId, 'pharmacy', pharmaId, 'delete', old, null, editedById);
+
+  return { old, reassignedDoctors: affectedDoctors };
+}
+
+// ── mergeSurveyPharmacies — دمج صيدليات في صيدلية واحدة (نقل الأطباء+الزيارات) ─
+export async function mergeSurveyPharmacies(surveyId, keepId, mergeIds, editedById) {
+  const keepPharma = await prisma.masterSurveyPharmacy.findUnique({ where: { id: keepId } });
+  if (!keepPharma || keepPharma.surveyId !== surveyId) return { error: 'not_found' };
+
+  const mergePharmas = await prisma.masterSurveyPharmacy.findMany({ where: { id: { in: mergeIds }, surveyId } });
+  if (mergePharmas.length === 0) return { error: 'not_found' };
+
+  const { affectedDoctors } = await cascadePharmacyNameChange(surveyId, mergePharmas.map(p => p.name), keepPharma.name);
+
+  const mergedIds = mergePharmas.map(p => p.id);
+  await prisma.masterSurveyPharmacy.deleteMany({ where: { id: { in: mergedIds } } });
+  for (const mp of mergePharmas) {
+    await logSurveyEdit(surveyId, 'pharmacy', mp.id, 'delete', mp, null, editedById);
+  }
+  await logSurveyEdit(surveyId, 'pharmacy', keepId, 'update', keepPharma,
+    { ...keepPharma, notes: `دُمجت معها: ${mergePharmas.map(p => p.name).join('، ')}` }, editedById);
+
+  return { reassignedDoctors: affectedDoctors, mergedCount: mergedIds.length, data: keepPharma };
+}
+
+// ── Union-Find بسيط لتجميع الصيدليات المتشابهة ────────────────────────────────
+class UnionFind {
+  constructor(ids) { this.parent = new Map(ids.map(id => [id, id])); }
+  find(id) { while (this.parent.get(id) !== id) { this.parent.set(id, this.parent.get(this.parent.get(id))); id = this.parent.get(id); } return id; }
+  union(a, b) { const ra = this.find(a), rb = this.find(b); if (ra !== rb) this.parent.set(ra, rb); }
+}
+
+// ── findPharmacyMergeSuggestions(pharmacies, doctorCountByKey) ──────────────
+// يجمّع صيدليات هذا السيرفي في مجموعات "يُحتمل أنها نفس الصيدلية بأسماء مختلفة
+// قليلاً" — بادئة صيدلية/ص. مختلفة، خطأ إملائي بسيط، أو نفس الاسم مكرَّراً —
+// يوفّر على السوبر أدمن البحث اليدوي بين آلاف الأسماء لإيجاد مرشّحي الدمج.
+//
+// نرتّب أبجدياً على الاسم بعد التطبيع ونقارن كل اسم بنافذة محدودة من جيرانه
+// (سلوك sorted-neighborhood القياسي) بدل مقارنة كل زوج O(n²) — سيرفي واحد قد
+// يحوي آلاف الصيدليات (لوحظ 2666 في الإنتاج) وحساب كل الأزواج عندها كان سيجمّد
+// الطلب. المرشّحون الفعليون متقاربون أبجدياً بعد إزالة بادئة "صيدلية/ص."،
+// فتلتقطهم النافذة رغم صغرها.
+//
+// كل مجموعة تحمل suggestedKeepId — الصيدلية الأغنى بيانات ضمن المجموعة (أكثر
+// أطباء مرتبطين، ثم أطول اسم) كاختيار افتراضي معقول لـ"الاسم الذي يبقى"، يبقى
+// للسوبر أدمن تغييره قبل التأكيد.
+const MERGE_SUGGESTION_WINDOW = 60;
+export function findPharmacyMergeSuggestions(pharmacies, doctorCountByKey = new Map()) {
+  const cmpKey = s => String(s ?? '').trim().toLowerCase();
+  const withKey = pharmacies
+    .filter(p => p.name?.trim())
+    .map(p => ({ ...p, _sortKey: normalizeStr(cleanPharmacyName(p.name)), _doctorCount: doctorCountByKey.get(cmpKey(p.name)) ?? 0 }))
+    .sort((a, b) => a._sortKey.localeCompare(b._sortKey));
+
+  const uf = new UnionFind(withKey.map(p => p.id));
+  for (let i = 0; i < withKey.length; i++) {
+    const a = withKey[i];
+    const aClean = cleanPharmacyName(a.name);
+    for (let j = i + 1; j < Math.min(i + 1 + MERGE_SUGGESTION_WINDOW, withKey.length); j++) {
+      const b = withKey[j];
+      if (a._sortKey === b._sortKey || areSimilar(aClean, cleanPharmacyName(b.name))) {
+        uf.union(a.id, b.id);
+      }
+    }
+  }
+
+  const groups = new Map();
+  for (const p of withKey) {
+    const root = uf.find(p.id);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(p);
+  }
+
+  return [...groups.values()]
+    .filter(members => members.length >= 2)
+    .map(members => {
+      const ranked = [...members].sort((a, b) => b._doctorCount - a._doctorCount || b.name.length - a.name.length);
+      return {
+        suggestedKeepId: ranked[0].id,
+        members: members.map(({ _sortKey, _doctorCount, ...rest }) => ({ ...rest, doctorCount: _doctorCount })),
+      };
+    })
+    .sort((a, b) => b.members.length - a.members.length);
 }

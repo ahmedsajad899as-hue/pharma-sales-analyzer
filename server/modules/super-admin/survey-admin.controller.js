@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, classifySurveyDoctorRows, saveSurveyDoctorAlias, ensureGlobalArea, loadAreaNameIndex, resolveAreaScope } from '../../lib/surveyDoctors.js';
-import { findClosestPharmacyName } from '../../lib/surveyPharmacies.js';
+import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib, deleteSurveyPharmacy, mergeSurveyPharmacies, findPharmacyMergeSuggestions } from '../../lib/surveyPharmacies.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { areaIdsOfProvinces, areaIdsOfSubProvinces } from '../../lib/areaScope.js';
 
@@ -372,15 +372,18 @@ export async function coverageCheck(req, res, next) {
 }
 
 // ── Survey Pharmacies ────────────────────────────────────────
+// addPharmacy/updatePharmacy/deletePharmacy/mergePharmacies تُفوَّض لمكتبة
+// surveyPharmacies.js المشتركة (نفس نمط أطباء السيرفي في surveyDoctors.js):
+// ensureGlobalArea يضمن ظهور صيدلية بمنطقة جديدة كلياً لكل الفرق فوراً، وتعديل/
+// حذف/دمج الاسم يُطبَّق تلقائياً على الأطباء المرتبطين وزيارات الصيدليات
+// المسجَّلة بالاسم القديم — فيتطابق ما يظهر عند جميع المستخدمين في صفحة
+// السيرفي وتحليل الزيارات مباشرة مع لوحة السوبر أدمن، بلا أي انتظار.
 export async function addPharmacy(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الصيدلية مطلوب' });
-    const ph = await prisma.masterSurveyPharmacy.create({
-      data: { surveyId, name: name.trim(), ownerName, pharmacyName, phone, address, areaName, notes },
-    });
-    await logEntry(surveyId, 'pharmacy', ph.id, 'create', null, ph, null);
+    const ph = await createSurveyPharmacy(surveyId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, req.superAdmin?.id ?? null);
     res.status(201).json({ success: true, data: ph });
   } catch (e) { next(e); }
 }
@@ -389,20 +392,10 @@ export async function updatePharmacy(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const pharmaId = parseInt(req.params.pharmaId);
-    const old = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
-    if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
     const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
-    const data = {};
-    if (name         !== undefined) data.name         = name.trim();
-    if (ownerName    !== undefined) data.ownerName    = ownerName;
-    if (pharmacyName !== undefined) data.pharmacyName = pharmacyName;
-    if (phone        !== undefined) data.phone        = phone;
-    if (address      !== undefined) data.address      = address;
-    if (areaName     !== undefined) data.areaName     = areaName;
-    if (notes        !== undefined) data.notes        = notes;
-    const updated = await prisma.masterSurveyPharmacy.update({ where: { id: pharmaId }, data });
-    await logEntry(surveyId, 'pharmacy', pharmaId, 'update', old, updated, null);
-    res.json({ success: true, data: updated });
+    const result = await updateSurveyPharmacyLib(surveyId, pharmaId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, req.superAdmin?.id ?? null);
+    if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
+    res.json({ success: true, data: result.updated });
   } catch (e) { next(e); }
 }
 
@@ -410,28 +403,9 @@ export async function deletePharmacy(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const pharmaId = parseInt(req.params.pharmaId);
-    const old = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
-    if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
-
-    // الأطباء الذين كان اسم صيدليتهم هذه الصيدلية المحذوفة: يُنقَلون إلى أقرب
-    // اسم صيدلية مشابه من الصيدليات المتبقية، أو يُترَكون بلا اسم صيدلية إن لم
-    // يوجد شبيه — بدل أن يبقوا مربوطين باسم لم يعد موجوداً في السيرفي.
-    const cmpKey = s => String(s ?? '').trim().toLowerCase();
-    const deletedKey = cmpKey(old.name);
-    const [allDocsWithPharma, remainingPharmacies] = await Promise.all([
-      prisma.masterSurveyDoctor.findMany({ where: { surveyId, pharmacyName: { not: null } }, select: { id: true, pharmacyName: true } }),
-      prisma.masterSurveyPharmacy.findMany({ where: { surveyId, id: { not: pharmaId } }, select: { name: true } }),
-    ]);
-    const affectedIds = allDocsWithPharma.filter(d => cmpKey(d.pharmacyName) === deletedKey).map(d => d.id);
-    if (affectedIds.length) {
-      const replacement = findClosestPharmacyName(old.name, remainingPharmacies.map(p => p.name));
-      await prisma.masterSurveyDoctor.updateMany({ where: { id: { in: affectedIds } }, data: { pharmacyName: replacement } });
-      await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: { in: affectedIds } }, data: { pharmacyName: replacement } });
-    }
-
-    await prisma.masterSurveyPharmacy.delete({ where: { id: pharmaId } });
-    await logEntry(surveyId, 'pharmacy', pharmaId, 'delete', old, null, null);
-    res.json({ success: true, reassignedDoctors: affectedIds.length });
+    const result = await deleteSurveyPharmacy(surveyId, pharmaId, req.superAdmin?.id ?? null);
+    if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
+    res.json({ success: true, reassignedDoctors: result.reassignedDoctors });
   } catch (e) { next(e); }
 }
 
@@ -452,35 +426,37 @@ export async function mergePharmacies(req, res, next) {
     if (!keepId || mergeIds.length === 0)
       return res.status(400).json({ success: false, error: 'اختر صيدلية للإبقاء عليها وصيدلية واحدة على الأقل لدمجها' });
 
-    const keepPharma = await prisma.masterSurveyPharmacy.findUnique({ where: { id: keepId } });
-    if (!keepPharma || keepPharma.surveyId !== surveyId)
-      return res.status(404).json({ success: false, error: 'غير موجود' });
+    const result = await mergeSurveyPharmacies(surveyId, keepId, mergeIds, req.superAdmin?.id ?? null);
+    if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
+    res.json({ success: true, reassignedDoctors: result.reassignedDoctors, mergedCount: result.mergedCount, data: result.data });
+  } catch (e) { next(e); }
+}
 
-    const mergePharmas = await prisma.masterSurveyPharmacy.findMany({ where: { id: { in: mergeIds }, surveyId } });
-    if (mergePharmas.length === 0)
-      return res.status(404).json({ success: false, error: 'غير موجود' });
-
+// ── اقتراحات دمج ذكية ──────────────────────────────────────────
+// يجمّع صيدليات هذا السيرفي في مجموعات "يُحتمل أنها نفس الصيدلية بأسماء مختلفة
+// قليلاً" — يوفّر على السوبر أدمن البحث اليدوي بين آلاف الأسماء لإيجاد
+// مرشّحي الدمج (انظر findPharmacyMergeSuggestions). قراءة فقط.
+export async function getPharmacyMergeSuggestions(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const [pharmacies, docsWithPharma] = await Promise.all([
+      prisma.masterSurveyPharmacy.findMany({
+        where: { surveyId },
+        select: { id: true, name: true, areaName: true, ownerName: true, phone: true },
+      }),
+      prisma.masterSurveyDoctor.findMany({
+        where: { surveyId, pharmacyName: { not: null } },
+        select: { pharmacyName: true },
+      }),
+    ]);
     const cmpKey = s => String(s ?? '').trim().toLowerCase();
-    const mergeKeys = new Set(mergePharmas.map(p => cmpKey(p.name)));
-    const allDocsWithPharma = await prisma.masterSurveyDoctor.findMany({
-      where: { surveyId, pharmacyName: { not: null } },
-      select: { id: true, pharmacyName: true },
-    });
-    const affectedIds = allDocsWithPharma.filter(d => mergeKeys.has(cmpKey(d.pharmacyName))).map(d => d.id);
-    if (affectedIds.length) {
-      await prisma.masterSurveyDoctor.updateMany({ where: { id: { in: affectedIds } }, data: { pharmacyName: keepPharma.name } });
-      await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: { in: affectedIds } }, data: { pharmacyName: keepPharma.name } });
+    const doctorCountByKey = new Map();
+    for (const d of docsWithPharma) {
+      const k = cmpKey(d.pharmacyName);
+      doctorCountByKey.set(k, (doctorCountByKey.get(k) ?? 0) + 1);
     }
-
-    const mergedIds = mergePharmas.map(p => p.id);
-    await prisma.masterSurveyPharmacy.deleteMany({ where: { id: { in: mergedIds } } });
-    for (const mp of mergePharmas) {
-      await logEntry(surveyId, 'pharmacy', mp.id, 'delete', mp, null, null);
-    }
-    await logEntry(surveyId, 'pharmacy', keepId, 'update', keepPharma,
-      { ...keepPharma, notes: `دُمجت معها: ${mergePharmas.map(p => p.name).join('، ')}` }, null);
-
-    res.json({ success: true, reassignedDoctors: affectedIds.length, mergedCount: mergedIds.length, data: keepPharma });
+    const suggestions = findPharmacyMergeSuggestions(pharmacies, doctorCountByKey);
+    res.json({ success: true, data: suggestions });
   } catch (e) { next(e); }
 }
 
@@ -490,6 +466,12 @@ export async function bulkImportPharmacies(req, res, next) {
     const { pharmacies } = req.body;
     if (!Array.isArray(pharmacies) || pharmacies.length === 0)
       return res.status(400).json({ success: false, error: 'لا يوجد بيانات' });
+    // ensureGlobalArea لكل منطقة جديدة في الملف — بدون هذا، صيدلية بمنطقة لم
+    // تُستخدم من قبل تبقى غير مرئية لأي مستخدم للأبد (نفس فخ استيراد الأطباء).
+    const areaCache = await loadAreaNameIndex();
+    for (const p of pharmacies) {
+      if (p.areaName?.trim()) await ensureGlobalArea(p.areaName, areaCache);
+    }
     const data = pharmacies
       .filter(p => p.name?.trim())
       .map(p => ({
