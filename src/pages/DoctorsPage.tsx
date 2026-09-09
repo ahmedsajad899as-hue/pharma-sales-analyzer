@@ -196,6 +196,9 @@ export default function DoctorsPage() {
   const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
   const isFieldRep  = FIELD_ROLES.includes(user?.role ?? '');
   const canSeePharmNet = ['company_manager', 'team_leader', 'office_manager', 'office_employee'].includes(user?.role ?? '');
+  // «قائمة الطلبات» (تعليم طبيب لتذكير المدير بتضمينه بالبلان القادم) قرار
+  // مدير حصراً — لا تظهر لموظف المكتب ولا أي دور آخر غير هذه الثلاثة.
+  const canSeeWishlist = ['team_leader', 'company_manager', 'product_manager'].includes(user?.role ?? '');
   const showDoctorFields    = hasFeature('doctor_fields');
   const showVisitAnalysis   = hasFeature('visit_analysis_tab');
   const showDoctorsList     = hasFeature('doctors_list_tab');
@@ -1781,7 +1784,7 @@ export default function DoctorsPage() {
               {/* Actions */}
               <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
                 {/* Wish star */}
-                {(() => { const isW = wishedDoctors.has(d.id); return (
+                {canSeeWishlist && (() => { const isW = wishedDoctors.has(d.id); return (
                   <button onClick={() => toggleWish(d.id, d.name, { specialty: d.specialty, pharmacyName: d.pharmacyName, areaName: d.area?.name })} title={isW ? 'إزالة من قائمة الطلبات' : 'أضف لقائمة الطلبات'} style={{
                     background: isW ? 'var(--c-accent-light)' : 'transparent', border: `1.5px solid ${isW ? 'var(--c-accent)' : 'var(--c-border)'}`,
                     borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
@@ -2333,7 +2336,7 @@ export default function DoctorsPage() {
             }}>
               {expandedAreas.size > 0 ? '▲ طي الكل' : '▼ فتح الكل'}
             </button>
-            {wishedDoctors.size > 0 && (
+            {canSeeWishlist && wishedDoctors.size > 0 && (
               <button onClick={() => setShowWishPanel(v => !v)} style={{
                 padding: '7px 14px', borderRadius: 8,
                 border: `1.5px solid ${showWishPanel ? 'var(--c-accent)' : 'var(--c-border)'}`,
@@ -2346,7 +2349,7 @@ export default function DoctorsPage() {
           </div>
 
           {/* Wished doctors panel */}
-          {showWishPanel && wishedDoctors.size > 0 && (() => {
+          {canSeeWishlist && showWishPanel && wishedDoctors.size > 0 && (() => {
             const allDocsMap: Record<number, (typeof visitAreas)[0]['doctors'][0]> = {};
             visitAreas.flatMap(a => a.doctors).forEach(d => { allDocsMap[d.id] = d; });
             // Build wished list from wishedDoctors Set — include doctors even if they have no visits
@@ -2801,13 +2804,15 @@ export default function DoctorsPage() {
                             </div>
 
                             {/* Wish button */}
-                            <button onClick={() => toggleWish(doc.id, doc.name, { specialty: doc.specialty, pharmacyName: doc.pharmacyName, areaName: doc.area?.name })} title={isWished ? 'إزالة من القائمة' : 'أضف للبلان'} style={{
-                              background: isWished ? 'var(--c-accent-light)' : 'transparent', border: `1.5px solid ${isWished ? 'var(--c-accent)' : 'var(--c-border)'}`,
-                              borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                              opacity: isWished ? 1 : 0.45,
-                              transition: 'all 0.15s',
-                            }}>{'⭐'}</button>
+                            {canSeeWishlist && (
+                              <button onClick={() => toggleWish(doc.id, doc.name, { specialty: doc.specialty, pharmacyName: doc.pharmacyName, areaName: doc.area?.name })} title={isWished ? 'إزالة من القائمة' : 'أضف للبلان'} style={{
+                                background: isWished ? 'var(--c-accent-light)' : 'transparent', border: `1.5px solid ${isWished ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                                borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                opacity: isWished ? 1 : 0.45,
+                                transition: 'all 0.15s',
+                              }}>{'⭐'}</button>
+                            )}
 
                             {/* Visit count with expand toggle */}
                             {doc.visits.length > 0 ? (
