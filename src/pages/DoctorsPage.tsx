@@ -692,7 +692,10 @@ export default function DoctorsPage() {
   const loadManagerReps = useCallback(async () => {
     if (isFieldRep) return;
     try {
-      const r = await fetch(`${API}/api/doctors/sub-reps`, { headers: H() });
+      // مدير الشركة فقط يرى قائد الفريق كشريحة منفصلة (زيارات منسوبة له عبر
+      // استيراد ملف) — مدير المكتب وموظف المكتب لا يريان زياراته إطلاقاً.
+      const qs = user?.role === 'company_manager' ? '?includeTeamLead=1' : '';
+      const r = await fetch(`${API}/api/doctors/sub-reps${qs}`, { headers: H() });
       const j = await r.json();
       setManagerReps(Array.isArray(j.reps) ? j.reps : []);
       setManagerCompanies(Array.isArray(j.companies) ? j.companies : []);

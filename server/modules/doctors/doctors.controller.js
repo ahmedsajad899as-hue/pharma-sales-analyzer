@@ -1198,9 +1198,14 @@ export async function specialtySuggestions(req, res, next) {
 // (تُصبح عشوائية — آخر شركة بترتيب الاستعلام بدل شركة فريقها الفعلية).
 const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader', ...OFFICE_SCOPED_ROLES]);
 
+// استثناء: قائد الفريق قد تُنسَب له زيارات فعلية عبر استيراد ملف (خلافاً لبقية
+// أدوار MANAGEMENT_ROLES)، ومطلوب أن يظهر كشريحة «مندوب» منفصلة — لكن لمدير
+// الشركة حصراً (?includeTeamLead=1 من صفحة تحليل الكولات فقط)، لا لمدير
+// المكتب/موظف المكتب الذين يجب ألا يروا زيارات قائد الفريق إطلاقاً.
 export async function getManagerSubReps(req, res, next) {
   try {
     const managerId = req.user.id;
+    const includeTeamLead = req.user.role === 'company_manager' && req.query.includeTeamLead === '1';
     const allSubs = await prisma.userManagerAssignment.findMany({
       where: { managerId },
       include: {
@@ -1210,7 +1215,9 @@ export async function getManagerSubReps(req, res, next) {
       },
       orderBy: { assignedAt: 'asc' },
     });
-    const subs = allSubs.filter(s => !MANAGEMENT_ROLES.has(s.user.role));
+    const subs = allSubs.filter(s =>
+      includeTeamLead && s.user.role === 'team_leader' ? true : !MANAGEMENT_ROLES.has(s.user.role)
+    );
 
     // «الشركة الرئيسية» لكل عضو فريق — فقط لمدير المكتب، إذ يشرف على أكثر من
     // شركة دفعة واحدة (باقي أدوار المدراء مُقيَّدة أصلاً بشركة واحدة فلا حاجة للتجميع).
