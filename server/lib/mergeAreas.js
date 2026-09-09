@@ -1,3 +1,5 @@
+import { normalizeAreaName } from './itemResolver.js';
+
 /**
  * Area-merge utilities.
  *
@@ -10,6 +12,12 @@
  *  - /api/sa/areas/reset-from-survey   (full survey-driven reset)
  *  - /api/sa/areas/merge-duplicates    (deterministic: same name after Arabic normalisation)
  *  - /api/sa/areas/merge               (manual pair confirmed from a fuzzy suggestion)
+ *  - /api/sa/areas/review-queue/:id/link (queue: "بانتظار المراجعة" منطقة رُبطت بموجودة)
+ *
+ * كل مسار من هذه يُسجّل اسم المنطقة الممتصّة في AreaAlias قبل حذفها (راجع
+ * أسفله) — بدون هذا، نفس الاسم المختلف قليلاً (يتكرر غالباً من نفس الملف/
+ * المندوب) كان يُنشئ منطقة مكررة جديدة في كل استيراد لاحق فيحتاج دمجاً يدوياً
+ * مراراً؛ الآن يُتذكَّر القرار للأبد ويُربط تلقائياً من أول مرة (areaResolver.js).
  */
 
 /**
@@ -28,7 +36,7 @@ export async function mergeAreaInto(prisma, oldId, canonicalId) {
   // مختلفين آمن: UserAreaAssignment أدناه يُعيد ربط كل حساب كان معتمداً على
   // النسخة الممتصّة بالمنطقة الباقية، فلا يفقد أحد وصوله.
   const [oldOwner, canonicalOwner] = await Promise.all([
-    prisma.area.findUnique({ where: { id: oldId },       select: { userId: true, provinceId: true } }),
+    prisma.area.findUnique({ where: { id: oldId },       select: { name: true, userId: true, provinceId: true } }),
     prisma.area.findUnique({ where: { id: canonicalId }, select: { userId: true, provinceId: true } }),
   ]);
   if (!oldOwner || !canonicalOwner) throw new Error('منطقة غير موجودة');
@@ -95,6 +103,18 @@ export async function mergeAreaInto(prisma, oldId, canonicalId) {
       data:  { provinceId: oldOwner.provinceId },
     });
   }
+
+  // تسجيل الذاكرة: اسم المنطقة المُمتصّة يُربط تلقائياً بالباقية من الآن
+  // فصاعداً — يمنع نفس الاسم من إعادة إنشاء منطقة مكررة في استيراد لاحق.
+  const fromKey = normalizeAreaName(oldOwner.name);
+  await prisma.areaAlias.upsert({
+    where:  { fromKey },
+    update: { fromName: oldOwner.name, areaId: canonicalId, confidence: 'confirmed' },
+    create: { fromKey, fromName: oldOwner.name, areaId: canonicalId, confidence: 'confirmed' },
+  });
+  // أي alias كان يشير سابقاً للمنطقة المُمتصّة (مثلاً من دمج متسلسل) يُعاد
+  // توجيهه للباقية بدل أن يُحذف تعاقبياً (onDelete: Cascade) وتضيع ذاكرته.
+  await prisma.areaAlias.updateMany({ where: { areaId: oldId }, data: { areaId: canonicalId } });
 
   // Finally remove the absorbed duplicate
   await prisma.area.delete({ where: { id: oldId } });

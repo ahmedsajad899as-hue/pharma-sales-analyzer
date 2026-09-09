@@ -14,6 +14,7 @@
 
 import prisma from './prisma.js';
 import { findOrCreateArea } from '../modules/sales/sales.repository.js';
+import { resolveAreaByName } from './areaResolver.js';
 import { normalizeAreaName } from './itemResolver.js';
 import { resolveEffectiveAreaIds } from './areaScope.js';
 import { OFFICE_SCOPED_ROLES } from './officeScope.js';
@@ -115,6 +116,28 @@ export async function resolveCompanyMembers(managerId, companyId) {
   return members;
 }
 
+// ── buildAreaNameIndex(areaRecords) ──────────────────────────────────────────
+// خريطة "اسم مطبَّع → صف Area" لمجموعة مناطق، مضافاً إليها كل تهجئة سبق ربطها
+// بإحداها عبر AreaAlias (دمج يدوي أو ربط ضبابي تلقائي عند الاستيراد — راجع
+// areaResolver.js وmergeAreaInto). بدون هذا، طبيب/صيدلية سيرفي مخزَّن بالاسم
+// (نص خام بلا FK) بتهجئة قديمة أو مختلفة قليلاً عن الاسم القانوني يبقى غير
+// مرئي رغم أن منطقته الحقيقية ضمن النطاق فعلاً.
+export async function buildAreaNameIndex(areaRecords) {
+  const normToArea = new Map(areaRecords.map(a => [normalizeAreaName(a.name), a]));
+  const areaIds = areaRecords.map(a => a.id);
+  if (areaIds.length) {
+    const aliasRows = await prisma.areaAlias.findMany({
+      where: { areaId: { in: areaIds } }, select: { fromKey: true, areaId: true },
+    });
+    const areaById = new Map(areaRecords.map(a => [a.id, a]));
+    for (const alias of aliasRows) {
+      const target = areaById.get(alias.areaId);
+      if (target && !normToArea.has(alias.fromKey)) normToArea.set(alias.fromKey, target);
+    }
+  }
+  return normToArea;
+}
+
 // ── resolveAreaScope(user, { repUserId, companyId }) ─────────────────────────
 // يُرجع نطاق المناطق + السيرفيات النشطة:
 //   - مندوب ميداني: مناطقه هو.
@@ -182,7 +205,7 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
   const areaRecords = areaIds.length
     ? await prisma.area.findMany({ where: { id: { in: areaIds } }, select: { id: true, name: true } })
     : [];
-  const normToArea = new Map(areaRecords.map(a => [normalizeAreaName(a.name), a]));
+  const normToArea = await buildAreaNameIndex(areaRecords);
 
   const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
   const surveyIds = surveys.map(s => s.id);
@@ -348,11 +371,10 @@ async function resolveAreaIdForUser(areaName, userId) {
 // طبيب سيرفي بمنطقة اسمها جديد كلياً (لم تُستخدم من قبل في أي حساب) يبقى غير
 // مرئي للجميع إلى الأبد: getScopedSurveyDoctors تطابق بالاسم المطبَّع مقابل
 // مناطق Area الموجودة فعلاً — واسم بلا أي صف Area مطابق لا يمكن أن يُسنَد لفريق
-// أصلاً. سابقاً كان الحل الوحيد زيارة صفحة المناطق يدوياً وضغط «تحديث من
-// السيرفي» (POST /api/sa/areas/reset-from-survey). هنا نُطبّق نفس فكرة ذاك الزر
-// تلقائياً عند كل إنشاء/تعديل طبيب سيرفي (يدوي أو عبر استيراد إكسل) — صف Area
-// بلا userId (كتالوج عام، نفس نمط reset-from-survey) يُنشأ فوراً فيصبح قابلاً
-// للإسناد لأي فريق من نفس اللحظة، بدل انتظار زيارة يدوية لصفحة أخرى.
+// أصلاً. المطابقة الفعلية (تام → alias محفوظ → ضبابي بثقة عالية → إنشاء جديد
+// معلَّم needsReview) موحّدة الآن في areaResolver.js — هنا فقط نضيف مساراً
+// سريعاً لتفادي إعادة نفس المطابقة لكل صف داخل دفعة استيراد إكسل واحدة
+// (knownNames يُمرَّر جاهزاً من commitDoctorImport عبر loadAreaNameIndex).
 export async function loadAreaNameIndex() {
   const rows = await prisma.area.findMany({ select: { name: true } });
   return new Set(rows.map(r => normalizeAreaName(r.name)));
@@ -362,15 +384,9 @@ export async function ensureGlobalArea(areaName, knownNames = null) {
   const trimmed = String(areaName ?? '').trim();
   if (!trimmed) return;
   const norm = normalizeAreaName(trimmed);
-  if (knownNames) {
-    if (knownNames.has(norm)) return;
-    await prisma.area.create({ data: { name: trimmed } });
-    knownNames.add(norm);
-    return;
-  }
-  const known = await loadAreaNameIndex();
-  if (known.has(norm)) return;
-  await prisma.area.create({ data: { name: trimmed } });
+  if (knownNames?.has(norm)) return;
+  await resolveAreaByName(trimmed);
+  if (knownNames) knownNames.add(norm);
 }
 
 // ── createSurveyDoctor — إنشاء طبيب سيرفي موحّد (log + notify) ────────────────

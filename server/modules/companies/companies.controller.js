@@ -494,6 +494,9 @@ export async function getCompanyOrg(req, res) {
     });
 
     const userIdSet = new Set(userIds);
+    const roleById  = new Map(users.map(u => [u.id, u.role]));
+    // موظف المكتب قد يُعيَّن «مديراً» لمندوبين فقط للسماح له برؤية زياراتهم — ليست
+    // إدارة فعلية، فلا يجب أن تُحتسب رابطاً في الهيكلية (راجع نفس المنطق في my-company-org).
     const result = users.map(u => ({
       id:             u.id,
       username:       u.username,
@@ -502,8 +505,8 @@ export async function getCompanyOrg(req, res) {
       isActive:       u.isActive,
       phone:          u.phone,
       // Only links between users in this company
-      managerIds:     u.managersOfUser.map(m => m.managerId).filter(mid => userIdSet.has(mid)),
-      subordinateIds: u.subordinatesOfUser.map(s => s.userId).filter(sid => userIdSet.has(sid)),
+      managerIds:     u.managersOfUser.map(m => m.managerId).filter(mid => userIdSet.has(mid) && roleById.get(mid) !== 'office_employee'),
+      subordinateIds: u.role === 'office_employee' ? [] : u.subordinatesOfUser.map(s => s.userId).filter(sid => userIdSet.has(sid)),
     }));
 
     res.json({ success: true, data: { company, users: result } });

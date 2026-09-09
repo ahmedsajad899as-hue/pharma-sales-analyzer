@@ -197,7 +197,7 @@ async function countSurveyDoctorsByAreaName(areaId) {
 // التغيير) كصف "خاص" حساب معيّن، راجع lib/mergeAreas.js.
 const AREA_SA_SELECT = {
   id: true, name: true, provinceId: true, provinceConflict: true, subProvinceId: true,
-  userId: true, user: { select: { username: true } },
+  userId: true, user: { select: { username: true } }, needsReview: true,
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -686,6 +686,66 @@ app.post('/api/sa/areas/merge', requireSuperAdmin, async (req, res) => {
   }
 });
 
+// GET /api/sa/areas/review-queue — مناطق أُنشئت تلقائياً (سيرفي/ملفات مرفوعة)
+// بلا تطابق تام أو ثقة عالية كافية للربط الصامت (راجع areaResolver.js). لكل
+// منطقة اقتراحات مرشّحين (بعتبات fuzzyMatch الافتراضية الأخف — إنسان سيقرر)
+// مقابل المناطق المؤكَّدة فقط، ليقرر السوبر أدمن: دمج بموجودة / تأكيد كجديدة.
+app.get('/api/sa/areas/review-queue', requireSuperAdmin, async (req, res) => {
+  try {
+    const pending   = await prisma.area.findMany({ where: { needsReview: true }, select: AREA_SA_SELECT, orderBy: { id: 'desc' } });
+    const confirmed = await prisma.area.findMany({ where: { needsReview: false }, select: { id: true, name: true } });
+    const data = pending.map(area => {
+      const suggestions = confirmed
+        .filter(c => areSimilar(area.name, c.name))
+        .map(c => ({ id: c.id, name: c.name, score: similarity(normalizeStr(area.name), normalizeStr(c.name)) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+      return { ...area, suggestions };
+    });
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[area-review-queue]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/areas/review-queue/:id/confirm — تأكيد أن المنطقة جديدة فعلاً
+// (لا تشبه أي منطقة موجودة) — تُزال من الطابور فقط، بلا دمج.
+app.post('/api/sa/areas/review-queue/:id/confirm', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    await prisma.area.update({ where: { id }, data: { needsReview: false } });
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas });
+  } catch (err) {
+    console.error('[area-review-queue-confirm]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/areas/review-queue/:id/link { targetAreaId } — دمج منطقة من
+// الطابور داخل منطقة مختارة (mergeAreaInto نفسها المستخدمة في «دمج» اليدوي)،
+// فيُسجَّل اسمها تلقائياً في AreaAlias ولا يعود يتكرر مستقبلاً.
+app.post('/api/sa/areas/review-queue/:id/link', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const targetAreaId = Number(req.body?.targetAreaId);
+    if (!Number.isInteger(id) || !Number.isInteger(targetAreaId) || id === targetAreaId) {
+      return res.status(400).json({ success: false, error: 'معرّفات غير صالحة' });
+    }
+    const target = await prisma.area.findUnique({ where: { id: targetAreaId }, select: { id: true } });
+    if (!target) return res.status(404).json({ success: false, error: 'منطقة الوجهة غير موجودة' });
+
+    await mergeAreaInto(prisma, id, targetAreaId);
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas });
+  } catch (err) {
+    console.error('[area-review-queue-link]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/sa/areas/:id/usage — count every record that references this area so the
 // admin can be warned BEFORE deleting. `blocking` = refs that cannot be nulled out
 // (sales have a required areaId) → such areas must be TRANSFERRED, not zeroed.
@@ -936,11 +996,15 @@ app.get('/api/my-company-org', async (req, res) => {
       scopedUsers = users.filter(u => visible.has(u.id));
     }
 
-    const idSet = new Set(scopedUsers.map(u => u.id));
+    const idSet   = new Set(scopedUsers.map(u => u.id));
+    const roleById = new Map(scopedUsers.map(u => [u.id, u.role]));
+    // موظف المكتب قد يُعيَّن «مديراً» لمندوبين فقط للسماح له برؤية زياراتهم
+    // (getManagerSubReps) — ليست إدارة فعلية، فلا يجب أن تُحتسب رابطاً في الهيكلية
+    // (كانت تجعله يظهر كأب للمندوب بدل مديره الحقيقي عند وجود أكثر من مدير له).
     const result = scopedUsers.map(u => ({
       id: u.id, username: u.username, displayName: u.displayName, role: u.role, isActive: u.isActive, phone: u.phone,
-      managerIds:     u.managersOfUser.map(m => m.managerId).filter(mid => idSet.has(mid)),
-      subordinateIds: u.subordinatesOfUser.map(s => s.userId).filter(sid => idSet.has(sid)),
+      managerIds:     u.managersOfUser.map(m => m.managerId).filter(mid => idSet.has(mid) && roleById.get(mid) !== 'office_employee'),
+      subordinateIds: u.role === 'office_employee' ? [] : u.subordinatesOfUser.map(s => s.userId).filter(sid => idSet.has(sid)),
     }));
 
     // مدير المكتب يُدير فعلياً كل شركاته الـ18 (راجع التعديل السابق)، لكن أي مدير

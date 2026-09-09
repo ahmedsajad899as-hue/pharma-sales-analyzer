@@ -3,7 +3,7 @@ import { resolveEffectiveAreaIds, resolveEffectiveAreaNames } from '../../lib/ar
 import { normalizeArabic, normalizeAreaName } from '../../lib/itemResolver.js';
 import {
   resolveAreaScope, getScopedSurveyDoctors, isFieldRole,
-  createSurveyDoctor, updateSurveyDoctor,
+  createSurveyDoctor, updateSurveyDoctor, buildAreaNameIndex,
 } from '../../lib/surveyDoctors.js';
 
 const normKey = s => normalizeArabic(s).toLowerCase();
@@ -355,9 +355,10 @@ export async function importFromVisits(req, res, next) {
       if (repAreaIds.length > 0) {
         const areaRecords = await prisma.area.findMany({
           where: { id: { in: repAreaIds } },
-          select: { name: true },
+          select: { id: true, name: true },
         });
-        const normAreaNames = new Set(areaRecords.map(a => normArea(a.name)));
+        // alias-aware — يشمل أي تهجئة سبق ربطها بإحدى هذه المناطق (راجع buildAreaNameIndex)
+        const normAreaNames = new Set((await buildAreaNameIndex(areaRecords)).keys());
 
         const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
         const surveyIds = surveys.map(s => s.id);

@@ -2,10 +2,11 @@ import { useMemo, useState, useEffect } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, btnStyle } from './OfficesPage';
 
-interface Area { id: number; name: string; provinceId: number | null; provinceConflict?: string | null; subProvinceId: number | null; userId: number | null; user?: { username: string } | null; }
+interface Area { id: number; name: string; provinceId: number | null; provinceConflict?: string | null; subProvinceId: number | null; userId: number | null; user?: { username: string } | null; needsReview?: boolean; }
 interface Province { id: number; name: string; sortOrder?: number; areaCount?: number; }
 interface SubProvince { id: number; name: string; provinceId: number; sortOrder?: number; areaCount?: number; }
 interface MergeSuggestion { a: { id: number; name: string; sales: number }; b: { id: number; name: string; sales: number } }
+interface ReviewQueueItem extends Area { suggestions: { id: number; name: string; score: number }[] }
 interface DeleteInfo { id: number; name: string; usage: Record<string, number>; total: number; blocking: boolean }
 
 // توست خفيف — نفس النمط المستخدم في UsersPage.tsx، معزول هنا لأن هذه صفحة مستقلة.
@@ -54,6 +55,10 @@ export default function AreasPage() {
   const [mergeSugs, setMergeSugs]     = useState<MergeSuggestion[] | null>(null);
   const [mergeBusy, setMergeBusy]     = useState(false);
 
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueueItem[]>([]);
+  const [reviewBusy, setReviewBusy]   = useState(false);
+  const [reviewOpen, setReviewOpen]   = useState(true);
+
   const [deleteInfo, setDeleteInfo]   = useState<DeleteInfo | null>(null);
   const [deleteTransferTo, setDeleteTransferTo] = useState<number | ''>('');
 
@@ -74,8 +79,48 @@ export default function AreasPage() {
       if (pr.success) setProvinces(pr.data);
       if (sp.success) setSubProvinces(sp.data);
     } finally { setLoading(false); }
+    loadReviewQueue();
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  // ── طابور المراجعة — مناطق أُنشئت تلقائياً بلا تطابق تام/ثقة عالية كافية ────
+  const loadReviewQueue = async () => {
+    try {
+      const r = await fetch('/api/sa/areas/review-queue', { headers: H() });
+      if (handleAuthError(r)) return;
+      const j = await r.json();
+      if (j.success) setReviewQueue(j.data);
+    } catch { /* صامت — طابور ثانوي، لا يمنع عمل الصفحة الأساسية */ }
+  };
+
+  const confirmReviewItem = async (id: number, name: string) => {
+    setReviewBusy(true);
+    try {
+      const r = await fetch(`/api/sa/areas/review-queue/${id}/confirm`, { method: 'POST', headers: H() });
+      if (handleAuthError(r)) return;
+      const j = await r.json();
+      if (j.success) {
+        setAreas(j.data); setReviewQueue(prev => prev.filter(x => x.id !== id));
+        showToast(`✅ "${name}" مؤكَّدة كمنطقة جديدة`);
+      } else showToast('❌ ' + j.error, '#dc2626');
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setReviewBusy(false); }
+  };
+
+  const linkReviewItem = async (id: number, targetAreaId: number, name: string, targetName: string) => {
+    if (!confirm(`ربط "${name}" بمنطقة "${targetName}" الموجودة؟ ستُنقل كل بياناتها وتُحذف "${name}"، ويُتذكَّر هذا الربط تلقائياً مستقبلاً. لا يمكن التراجع.`)) return;
+    setReviewBusy(true);
+    try {
+      const r = await fetch(`/api/sa/areas/review-queue/${id}/link`, { method: 'POST', headers: H(), body: JSON.stringify({ targetAreaId }) });
+      if (handleAuthError(r)) return;
+      const j = await r.json();
+      if (j.success) {
+        setAreas(j.data); setReviewQueue(prev => prev.filter(x => x.id !== id));
+        showToast(`✅ تم الربط بـ"${targetName}"`);
+      } else showToast('❌ ' + j.error, '#dc2626');
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setReviewBusy(false); }
+  };
 
   const refreshProvinceCounts = async () => {
     const [r, rs] = await Promise.all([
@@ -472,6 +517,33 @@ export default function AreasPage() {
             style={{ ...btnStyle('#7c3aed', true), fontSize: 12 }}>🔄 تحديث من السيرفي</button>
         </div>
       </div>
+
+      {reviewQueue.length > 0 && (
+        <div style={{ marginBottom: 12, border: '1px solid #93c5fd', background: '#eff6ff', borderRadius: 10, padding: 12 }}>
+          <div onClick={() => setReviewOpen(o => !o)} style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: reviewOpen ? 8 : 0 }}>
+            <strong style={{ fontSize: 13, color: '#1e3a8a' }}>🕓 بانتظار المراجعة ({reviewQueue.length}) <span style={{ fontWeight: 500, fontSize: 11, color: '#3b82f6' }}>— مناطق أُنشئت تلقائياً من ملفات/سيرفي بلا تطابق أكيد</span></strong>
+            <span style={{ fontSize: 12, color: '#3b82f6' }}>{reviewOpen ? '▼' : '◀'}</span>
+          </div>
+          {reviewOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+              {reviewQueue.map(item => (
+                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 10px', fontSize: 13, flexWrap: 'wrap' }}>
+                  <span style={{ flex: 1, minWidth: 120, fontWeight: 600 }}>{item.name}</span>
+                  {item.suggestions.length === 0 && <span style={{ fontSize: 11, color: '#94a3b8' }}>لا توجد مناطق مشابهة</span>}
+                  {item.suggestions.map(s => (
+                    <button key={s.id} disabled={reviewBusy} onClick={() => linkReviewItem(item.id, s.id, item.name, s.name)}
+                      title={`تشابه ${(s.score * 100).toFixed(0)}%`}
+                      style={{ ...btnStyle('#0d9488', true), fontSize: 11, padding: '3px 10px' }}>دمج في «{s.name}»</button>
+                  ))}
+                  <button disabled={reviewBusy} onClick={() => confirmReviewItem(item.id, item.name)}
+                    title="تأكيد أنها منطقة جديدة فعلاً — لا تشبه أي منطقة موجودة"
+                    style={{ ...btnStyle('#16a34a', true), fontSize: 11, padding: '3px 10px' }}>✅ منطقة جديدة فعلاً</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {conflictCount > 0 && (
         <div style={{ marginBottom: 12, border: '1px solid #fca5a5', background: '#fef2f2', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#991b1b' }}>

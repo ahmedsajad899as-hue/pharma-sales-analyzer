@@ -5,7 +5,8 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import { resolveItemName, loadResolutionContext, normalizeAreaName } from '../../lib/itemResolver.js';
+import { resolveItemName, loadResolutionContext } from '../../lib/itemResolver.js';
+import { resolveAreaByName } from '../../lib/areaResolver.js';
 
 /**
  * Normalize Arabic text to a canonical form:
@@ -87,40 +88,32 @@ export function saleValueUSD(sale) {
  * @param {number} userId
  */
 export async function findOrCreateArea(name, userId, provinceId = null) {
-  const key = normalizeAreaName(name);
-  const allAreas = await prisma.area.findMany({
-    select: { id: true, name: true, provinceId: true },
-  });
-  const existing = allAreas.find(r => normalizeAreaName(r.name) === key);
+  // المطابقة نفسها (تام → alias محفوظ → ضبابي بثقة عالية → إنشاء جديد
+  // معلَّم للمراجعة) موحّدة الآن في areaResolver.js، يشاركها ensureGlobalArea
+  // في surveyDoctors.js. هنا نُبقي فقط ما يخص هذا المسار تحديداً: تعارض
+  // المحافظة وربط المستخدم بالمنطقة.
+  let { area } = await resolveAreaByName(name);
 
-  let area;
-  if (existing) {
-    if (provinceId != null && existing.provinceId !== provinceId) {
-      if (existing.provinceId == null) {
-        // منطقة قديمة بلا محافظة — املأها من أول ملف يحمل العمود.
-        await prisma.area.update({ where: { id: existing.id }, data: { provinceId } });
-        existing.provinceId = provinceId;
-      } else {
-        // تعارض: نفس اسم المنطقة ورد بمحافظة مختلفة. لا نكتب فوق القيمة
-        // المحفوظة — إدخال المحافظة في مفتاح تفرّد Area كان سيولّد انفجار
-        // مناطق مكررة (المشكلة التي وُجدت كل آلة الدمج لمعالجتها). نسجّل
-        // التعارض ليظهر بشارة تحذير في لوحة السوبر أدمن ويحسمه المدير.
-        const conflictName = await prisma.province.findUnique({
-          where: { id: provinceId }, select: { name: true },
+  if (provinceId != null && area.provinceId !== provinceId) {
+    if (area.provinceId == null) {
+      // منطقة (قديمة أو أُنشئت للتو) بلا محافظة — املأها من أول ملف يحمل العمود.
+      await prisma.area.update({ where: { id: area.id }, data: { provinceId } });
+      area = { ...area, provinceId };
+    } else {
+      // تعارض: نفس اسم المنطقة ورد بمحافظة مختلفة. لا نكتب فوق القيمة
+      // المحفوظة — إدخال المحافظة في مفتاح تفرّد Area كان سيولّد انفجار
+      // مناطق مكررة (المشكلة التي وُجدت كل آلة الدمج لمعالجتها). نسجّل
+      // التعارض ليظهر بشارة تحذير في لوحة السوبر أدمن ويحسمه المدير.
+      const conflictName = await prisma.province.findUnique({
+        where: { id: provinceId }, select: { name: true },
+      });
+      if (conflictName?.name) {
+        await prisma.area.update({
+          where: { id: area.id },
+          data:  { provinceConflict: conflictName.name },
         });
-        if (conflictName?.name) {
-          await prisma.area.update({
-            where: { id: existing.id },
-            data:  { provinceConflict: conflictName.name },
-          });
-        }
       }
     }
-    area = existing;
-  } else {
-    area = await prisma.area.create({
-      data: { name: name.trim(), userId: null, provinceId: provinceId ?? null },
-    });
   }
 
   if (userId) {

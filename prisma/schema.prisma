@@ -93,6 +93,7 @@ model User {
   // Master Survey relations
   surveyDoctorEdits    MasterSurveyDoctor[]     @relation("SurveyDoctorEditor")
   surveyDoctorAliasCreated MasterSurveyDoctorAlias[] @relation("SurveyDoctorAliasCreator")
+  areaAliasCreated         AreaAlias[]               @relation("AreaAliasCreator")
   surveyPharmacyEdits  MasterSurveyPharmacy[]   @relation("SurveyPharmacyEditor")
   surveyEditLogs       MasterSurveyEditLog[]    @relation("SurveyEditLogUser")
   surveyHiddenFor      MasterSurveyHiddenUser[] @relation("SurveyHiddenUser")
@@ -170,6 +171,9 @@ model Area {
   // القسم داخل المحافظة (الكرخ/الرصافة). null = المنطقة تتبع المحافظة مباشرة.
   subProvinceId    Int?
   subProvince      SubProvince?      @relation(fields: [subProvinceId], references: [id], onDelete: SetNull)
+  // منطقة أُنشئت تلقائياً بلا تطابق تام/ذاكرة/ثقة عالية (راجع areaResolver.js) —
+  // تظهر في طابور "بانتظار المراجعة" حتى يقرر السوبر أدمن دمجها أو تأكيدها.
+  needsReview      Boolean           @default(false)
 
   // Relations
   representatives     RepresentativeArea[]
@@ -181,6 +185,7 @@ model Area {
   pharmacies          Pharmacy[]
   planAreas           PlanArea[]
   dailyPlanEntries    DailyPlanEntry[]
+  aliases             AreaAlias[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -188,6 +193,26 @@ model Area {
   @@index([provinceId])
   @@index([subProvinceId])
   @@map("areas")
+}
+
+// اسم بديل تمت مطابقته (تلقائياً بثقة عالية أو دمجاً يدوياً مؤكَّداً) لمنطقة —
+// الذاكرة التي تمنع نفس الاسم المختلف قليلاً من إعادة إنشاء منطقة مكررة في كل
+// استيراد لاحق. يُستخدم من areaResolver.js (المطابقة عند الإنشاء)،
+// mergeAreas.js (تسجيل تلقائي عند أي دمج)، وresolveAreaScope (مطابقة عند
+// القراءة لأطباء/صيدليات السيرفي المخزَّنة بالاسم النصي لا بمعرّف).
+model AreaAlias {
+  id          Int      @id @default(autoincrement())
+  fromKey     String   @unique // normalizeAreaName(fromName) — مفتاح المطابقة
+  fromName    String // الاسم الأصلي كما ظهر (للعرض)
+  areaId      Int
+  area        Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  confidence  String   @default("fuzzy") // 'fuzzy' (ربط تلقائي) | 'confirmed' (دمج يدوي)
+  createdById Int?
+  createdBy   User?    @relation("AreaAliasCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([areaId])
+  @@map("area_aliases")
 }
 
 // ─── Company (Pharmaceutical company) ───────────────────────
