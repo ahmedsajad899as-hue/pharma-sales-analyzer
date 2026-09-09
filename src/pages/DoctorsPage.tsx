@@ -1841,8 +1841,8 @@ export default function DoctorsPage() {
             </div>
           )}
 
-          {/* Rep selector (managers only) — narrowed to the selected company's reps, if any */}
-          {!isFieldRep && managerReps.length > 0 && (() => {
+          {/* Rep selector (managers only) — hidden until a specific company is chosen when multiple companies exist */}
+          {!isFieldRep && managerReps.length > 0 && (managerCompanies.length === 0 || visitCompanyFilter !== null) && (() => {
             const visibleReps = visitCompanyFilter === null
               ? managerReps
               : managerReps.filter(rep => rep.company?.id === visitCompanyFilter);

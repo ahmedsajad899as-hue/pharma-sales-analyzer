@@ -26,7 +26,7 @@ router.get('/representative/:id', getRepresentativeReport);
  */
 router.get('/overall', async (req, res) => {
   try {
-    const { fileIds, startDate, endDate, recordType } = req.query;
+    const { fileIds, startDate, endDate, recordType, teamManagerId } = req.query;
     const userId = req.user?.id ?? null;
 
     const parsedFileIds = fileIds
@@ -43,6 +43,28 @@ router.get('/overall', async (req, res) => {
     // نطاق ايتمات المستخدم (تبويب «الايتمات»): إن حُدِّدت ايتمات فالمبيع
     // والإرجاع يُحسبان عليها فقط. فارغة = بلا تقييد.
     const itemScopeFilter = await buildItemScopeFilter(userId);
+
+    // ── فلتر «التيم» (اختياري) — عزل مبيع/ارجاع تيم واحد داخل المكتب ─────────
+    // تيم = حساب مدير شركة (company_manager) واحد + كل شركاته (رئيسية وثانوية،
+    // UserCompanyAssignment). يُبنى بمعرّفات الشركة الحقيقية (ScientificCompany
+    // ∪ Company) لا بمطابقة اسم نصي — لأن الأخير ينتج أسماء مكرَّرة بحالة أحرف
+    // مختلفة (HUMANIS/humanis) حين لا يكون لبعض الصفوف علاقة شركة فعلية في
+    // القاعدة. كما نستعمل itemScopeFilter الخاص بمدير الشركة نفسه (لا الطالب)
+    // كي تُطابق الأرقام تماماً ما يراه هو لو فتح نفس الملفات.
+    let teamCompanyIds = [];
+    let teamItemScope = null;
+    const mgrId = teamManagerId ? Number(teamManagerId) : 0;
+    if (mgrId && userId) {
+      const [viewer, target] = await Promise.all([
+        prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } }),
+        prisma.user.findUnique({ where: { id: mgrId }, select: { id: true, officeId: true, role: true } }),
+      ]);
+      if (target && target.role === 'company_manager' && viewer?.officeId != null && target.officeId === viewer.officeId) {
+        const rows = await prisma.userCompanyAssignment.findMany({ where: { userId: mgrId }, select: { companyId: true } });
+        teamCompanyIds = rows.map(r => r.companyId);
+        teamItemScope = await buildItemScopeFilter(mgrId);
+      }
+    }
 
     // ── وضع «تحليل كامل» (raw=1) ────────────────────────────────────────────
     // يتجاوز قائمة ايتمات المستخدم ليعرض كل ما في الملف. مسموح **فقط** على
@@ -143,12 +165,17 @@ router.get('/overall', async (req, res) => {
         ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
       },
     } : {};
+    // تيم مُحدَّد: نطاق ايتماته يحل محل نطاق الطالب (لا تقاطع معه) — المطلوب أن
+    // ترى بالضبط ما يراه مدير الشركة المستهدَف، بغضّ النظر عمن يطلب الشاشة.
+    const finalItemScope = teamItemScope ?? effectiveItemScope;
+    const teamCompanyFilter = teamCompanyIds.length > 0 ? { item: { scientificCompanyId: { in: teamCompanyIds } } } : {};
     const baseWhere = {
       isHidden: false,
       ...fileFilter,
       ...userOwnershipFilter,
       ...areaFilter,
-      ...effectiveItemScope,
+      ...finalItemScope,
+      ...teamCompanyFilter,
       ...(recordType ? { recordType } : {}),
     };
     const where = {
@@ -317,6 +344,60 @@ router.get('/overall', async (req, res) => {
     const byCompany  = [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
 
     res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/reports/overall-teams
+ * التيمات (فرق) الموجودة داخل مكتب الطالب: كل حساب «مدير شركة» (company_manager)
+ * في نفس officeId، باسم عرض = شركته الرئيسية، ومعرّفات كل شركاته (رئيسية
+ * وثانوية) — لاستعمالها لاحقاً كـ teamManagerId في /overall لعزل مبيع/ارجاع
+ * ذلك التيم فقط. مبنية على officeId لا على تسلسل UserManagerAssignment: طلب
+ * صريح أن الشاشة تعرض «تيمات المكتب» كاملة.
+ */
+router.get('/overall-teams', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    if (!userId) return res.json({ success: true, data: { teams: [] } });
+
+    const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
+    if (viewer?.officeId == null) return res.json({ success: true, data: { teams: [] } });
+
+    const managers = await prisma.user.findMany({
+      where: { officeId: viewer.officeId, role: 'company_manager', isActive: true },
+      select: { id: true, displayName: true, username: true },
+      orderBy: { id: 'asc' },
+    });
+    if (managers.length === 0) return res.json({ success: true, data: { teams: [] } });
+
+    const assignments = await prisma.userCompanyAssignment.findMany({
+      where: { userId: { in: managers.map(m => m.id) } },
+      select: { userId: true, isPrimary: true, company: { select: { id: true, name: true } } },
+    });
+    const byManager = new Map();
+    for (const a of assignments) {
+      if (!byManager.has(a.userId)) byManager.set(a.userId, []);
+      byManager.get(a.userId).push(a);
+    }
+
+    const teams = managers
+      .map(m => {
+        const rows = byManager.get(m.id) ?? [];
+        if (rows.length === 0) return null;
+        const primary = rows.find(r => r.isPrimary) ?? rows[0];
+        return {
+          managerId: m.id,
+          managerName: m.displayName || m.username,
+          name: primary.company.name,
+          companyIds: rows.map(r => r.company.id),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+
+    res.json({ success: true, data: { teams } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -725,6 +725,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // companies are summed together (the backend aggregates by the shared area/item records).
   const [overallFileIds, setOverallFileIds] = useState<number[]>([]);
   const [overallFilesOpen, setOverallFilesOpen] = useState(false);
+  // تيمات المكتب (كل تيم = حساب مدير شركة + كل شركاته) — شرائح لعزل مبيع/ارجاع
+  // تيم واحد بالضبط كما يراه مديره، بدل كل أسماء الشركات الخام من الملف.
+  interface OverallTeam { managerId: number; managerName: string; name: string; companyIds: number[] }
+  const [overallTeams, setOverallTeams] = useState<OverallTeam[]>([]);
+  const [overallTeamId, setOverallTeamId] = useState<number | null>(null);
   // Remembers the last AUTO-populated date range so we can tell it apart from dates the
   // user typed. Auto dates must NOT be sent as a hard filter (they'd re-exclude a file
   // whose rows are all date-defaulted); only user-chosen dates filter the result.
@@ -794,6 +799,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const list = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : []);
         setSciReps(list);
       }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  // تيمات المكتب لشرائح «الشركة الرئيسية» في التحليل الشامل — فارغة لمن لا
+  // يملك officeId (مثل company_manager نفسه) فلا تظهر الشرائح أصلاً.
+  useEffect(() => {
+    fetch('/api/reports/overall-teams', { headers: authH() })
+      .then(r => r.json())
+      .then(json => setOverallTeams(Array.isArray(json?.data?.teams) ? json.data.teams : []))
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -1137,7 +1152,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     loadOverallReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overallRaw]);
-  const loadOverallReport = async () => {
+  // teamOverride: undefined = اقرأ overallTeamId الحالي من الحالة، وإلا استعمل
+  // القيمة المُمرَّرة مباشرة — ضروري لأن onClick الشريحة يستدعي setOverallTeamId
+  // ثم يطلب تحميلاً فورياً قبل أن تُحدَّث الحالة (إغلاق قديم/stale closure).
+  const loadOverallReport = async (teamOverride?: number | null) => {
     // Selected files (multi). Fall back to all active files when none explicitly picked.
     const fileIds = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
     if (fileIds.length === 0) { setError('يرجى اختيار ملف للتحليل'); return; }
@@ -1169,6 +1187,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // Scope to all selected files — the backend sums matching areas/items/companies.
       params.set('fileIds', fileIds.join(','));
       if (overallRaw) params.set('raw', '1');
+      const activeTeamId = teamOverride !== undefined ? teamOverride : overallTeamId;
+      if (activeTeamId) params.set('teamManagerId', String(activeTeamId));
       const [salesRes, returnsRes] = await Promise.all([
         fetch(`/api/reports/overall?${params}&recordType=sale`,   { headers: authH() }),
         fetch(`/api/reports/overall?${params}&recordType=return`, { headers: authH() }),
@@ -3012,48 +3032,40 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const netQ   = salesQ - retQ;
         const netV   = salesV - retV;
 
-        // ─── Company/team quick-filter chips ───────────────────────────────────
-        // أسماء الشركات الظاهرة فعلاً في الملفات المحلَّلة (مبيع أو ارجاع) — الضغط
-        // على أي منها يعزل عرض «تحليل شامل» بأكمله (KPI + كل التبويبات) على تلك
-        // الشركة فقط، عبر نفس آلية overallSelectedTags المستخدمة أصلاً بالبحث
-        // الذكي (company tag) — فتُعطي بالضبط نفس أرقام مبيع/ارجاع مدير تلك
-        // الشركة لو حلَّل نفس الملفات. لا داعي لطلب API جديد: الأسماء مشتقة من
-        // overallSales.byCompany نفسه.
-        const overallCompanyNames = [...new Set([
-          ...overallSales.byCompany.map(c => c.name),
-          ...(overallReturns?.byCompany ?? []).map(c => c.name),
-        ])].sort((a, b) => a.localeCompare(b, 'ar'));
-        const activeCompanyTag = overallSelectedTags.find(t => t.type === 'company')?.name ?? null;
-
         return (
           <>
-            {/* ── Company/team chips ── */}
-            {overallCompanyNames.length > 1 && (
+            {/* ── Team chips ── */}
+            {overallTeams.length > 1 && (
               <div style={{ marginTop: 8, marginBottom: 8 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Icon name="navCommercial" size={11} /> الشركة الرئيسية
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button
-                    onClick={() => setOverallSelectedTags([])}
+                    disabled={loading}
+                    onClick={() => { setOverallTeamId(null); loadOverallReport(null); }}
                     style={{
-                      padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                      border: `1.5px solid ${activeCompanyTag === null ? '#1e40af' : '#d1d5db'}`,
-                      background: activeCompanyTag === null ? '#eff6ff' : '#fff',
-                      color: activeCompanyTag === null ? '#1e40af' : '#6b7280',
+                      padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer',
+                      border: `1.5px solid ${overallTeamId === null ? '#1e40af' : '#d1d5db'}`,
+                      background: overallTeamId === null ? '#eff6ff' : '#fff',
+                      color: overallTeamId === null ? '#1e40af' : '#6b7280',
+                      opacity: loading ? 0.6 : 1,
                     }}
                   >الكل</button>
-                  {overallCompanyNames.map(name => (
+                  {overallTeams.map(team => (
                     <button
-                      key={name}
-                      onClick={() => setOverallSelectedTags([{ name, type: 'company' }])}
+                      key={team.managerId}
+                      disabled={loading}
+                      title={team.managerName}
+                      onClick={() => { setOverallTeamId(team.managerId); loadOverallReport(team.managerId); }}
                       style={{
-                        padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                        border: `1.5px solid ${activeCompanyTag === name ? '#1e40af' : '#d1d5db'}`,
-                        background: activeCompanyTag === name ? '#eff6ff' : '#fff',
-                        color: activeCompanyTag === name ? '#1e40af' : '#6b7280',
+                        padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer',
+                        border: `1.5px solid ${overallTeamId === team.managerId ? '#1e40af' : '#d1d5db'}`,
+                        background: overallTeamId === team.managerId ? '#eff6ff' : '#fff',
+                        color: overallTeamId === team.managerId ? '#1e40af' : '#6b7280',
+                        opacity: loading ? 0.6 : 1,
                       }}
-                    >{name}</button>
+                    >{team.name}</button>
                   ))}
                 </div>
               </div>
