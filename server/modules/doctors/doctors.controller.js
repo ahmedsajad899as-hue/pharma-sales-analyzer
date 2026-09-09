@@ -6,8 +6,9 @@ import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 import {
   resolveAreaScope, getScopedSurveyDoctors, buildVisitOverlay,
-  ensureDoctorRowsForScope, isFieldRole, resolveCompanyMembers,
+  ensureDoctorRowsForScope, isFieldRole,
 } from '../../lib/surveyDoctors.js';
+import { getScopedSurveyPharmacies } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES } from '../../lib/officeScope.js';
 import * as importVisits from './doctor-visits-import.js';
 
@@ -142,60 +143,28 @@ export async function visitsLatestMonth(req, res, next) {
   } catch (e) { next(e); }
 }
 
-// المنطق مشترك بين pharmacyVisitsByArea و pharmacyVisitsLatestMonth.
-async function resolvePharmacyVisitWhere(req, extra = {}) {
-  const userId = req.user.id;
-  const role   = req.user.role;
-  const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
-  const isFieldRep  = FIELD_ROLES.includes(role);
-
-  let linkedRepId = null;
-  if (isFieldRep) {
-    const userRow = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } });
-    linkedRepId = userRow?.linkedRepId;
-  }
-
-  // اختياري: فلترة حسب مندوب محدد (للمدير فقط)
-  const repUserIdPharma = (!isFieldRep && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
-
-  // اختياري: فلترة حسب «الشركة الرئيسية» لأعضاء الفريق (مدير المكتب) — تُتجاهل لو تحدَّد مندوب بعينه
-  const companyIdPharma = (!isFieldRep && !repUserIdPharma && req.query.companyId) ? parseInt(req.query.companyId) : null;
-  if (companyIdPharma) {
-    const members = await resolveCompanyMembers(userId, companyIdPharma);
-    const orClauses = [];
-    const repIds  = members.map(m => m.repId).filter(Boolean);
-    const userIds = members.map(m => m.userId);
-    if (repIds.length)  orClauses.push({ scientificRepId: { in: repIds } });
-    if (userIds.length) orClauses.push({ userId: { in: userIds } });
-    // لا أعضاء لهذه الشركة → نتيجة فارغة عمداً بدل الرجوع لكامل بيانات المدير
-    return orClauses.length ? { OR: orClauses, isActive: true, ...extra } : { id: -1, ...extra };
-  }
-
-  let subLinkedRepIdPharma = null;
-  if (repUserIdPharma) {
-    const subUserPharma = await prisma.user.findUnique({
-      where: { id: repUserIdPharma },
-      select: { linkedRepId: true },
-    });
-    subLinkedRepIdPharma = subUserPharma?.linkedRepId ?? null;
-  }
-
-  // isActive=false → زيارات ملف استيراد إكسل مُعطَّل (VisitImportFile) — تُخفى هنا حتى يُعاد تفعيله.
-  return isFieldRep
-    ? { scientificRepId: linkedRepId ?? -1, isActive: true, ...extra }
-    : repUserIdPharma
-      ? subLinkedRepIdPharma
-        ? { scientificRepId: subLinkedRepIdPharma, isActive: true, ...extra }
-        : { userId: repUserIdPharma, isActive: true, ...extra }
-      : { userId, isActive: true, ...extra };
+// نطاق زيارات الصيدليات — نفس نطاق «المصدر الموحّد» المستخدم للأطباء تماماً
+// (resolveAreaScope: مندوب ميداني → مناطقه، مدير + repUserId/companyId → مناطق
+// ذاك المندوب/الشركة، مدير «الكل» → كل مناطق الفريق). موحَّد هنا بدل منطق منفصل
+// كان يقتصر على زيارات المدير نفسه فقط في حالة «الكل» (لا فريقه) خلافاً للأطباء.
+function pharmacyVisitOrClauses(scope) {
+  const orClauses = [];
+  if (scope.memberRepIds.length)  orClauses.push({ scientificRepId: { in: scope.memberRepIds } });
+  if (scope.memberUserIds.length) orClauses.push({ userId: { in: scope.memberUserIds } });
+  return orClauses;
 }
 
 // ─── Latest month with any pharmacy-visit report (for defaulting the pharmacies month filter) ──
 export async function pharmacyVisitsLatestMonth(req, res, next) {
   try {
-    const visitWhere = await resolvePharmacyVisitWhere(req);
+    const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
+    const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
+    const scope = await resolveAreaScope(req.user, { repUserId, companyId });
+    const orClauses = pharmacyVisitOrClauses(scope);
+    if (!orClauses.length) return res.json({ month: null, year: null });
+
     const latest = await prisma.pharmacyVisit.findFirst({
-      where: visitWhere,
+      where: { OR: orClauses, isActive: true },
       select: { visitDate: true },
       orderBy: { visitDate: 'desc' },
     });
@@ -205,6 +174,12 @@ export async function pharmacyVisitsLatestMonth(req, res, next) {
 }
 
 // ─── Pharmacy Visits by Area (for visits analysis toggle) ──────
+// المصدر الموحّد نفسه المستخدم للأطباء (visitsByArea أعلاه): كل صيدليات السيرفي
+// النشط ضمن مناطق النطاق — لا فقط الصيدليات التي زارها المندوب فعلاً — مع إلحاق
+// زياراتها المطابقة بالاسم+المنطقة (بنفس فلسفة overlay.byName لدى الأطباء، إذ
+// لا رابط مباشر بين PharmacyVisit وصيدلية السيرفي، فالاسم+المنطقة هما المطابقة).
+// زيارة باسم لا يطابق أي صيدلية سيرفي ضمن النطاق تبقى ظاهرة تحت منطقتها
+// المسجَّلة بدل أن تختفي فجأة عن الشاشة.
 export async function pharmacyVisitsByArea(req, res, next) {
   try {
     const filterMonth = req.query.month ? parseInt(req.query.month) : null;
@@ -214,44 +189,66 @@ export async function pharmacyVisitsByArea(req, res, next) {
       lt:  new Date(filterYear, filterMonth, 1),
     } : undefined;
 
-    const visitWhere = await resolvePharmacyVisitWhere(req, dateFilter ? { visitDate: dateFilter } : {});
+    const normArea = normalizeAreaName;
 
-    const visits = await prisma.pharmacyVisit.findMany({
-      where: visitWhere,
+    const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
+    const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
+    const scope = await resolveAreaScope(req.user, { repUserId, companyId });
+    const scopedPharms = await getScopedSurveyPharmacies(scope);
+
+    const orClauses = pharmacyVisitOrClauses(scope);
+    const visits = orClauses.length ? await prisma.pharmacyVisit.findMany({
+      where: { OR: orClauses, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) },
       include: {
         area:  { select: { id: true, name: true } },
         items: { include: { item: { select: { id: true, name: true } } } },
       },
       orderBy: { visitDate: 'desc' },
+    }) : [];
+
+    const toEntry = v => ({
+      id: v.id, visitDate: v.visitDate, notes: v.notes,
+      items: v.items.map(i => ({ id: i.id, name: i.item?.name ?? i.itemName ?? '—' })),
     });
 
-    // Group by area
-    const areaMap = new Map();
-    const noAreaVisits = [];
+    // فهرسة الزيارات باسم الصيدلية المطبَّع + منطقتها — مفتاح المطابقة مع صيدلية السيرفي
+    const visitsByKey = new Map();
+    for (const v of visits) {
+      const key = `${normArea(v.pharmacyName)}|${normArea(v.area?.name ?? v.areaName ?? '')}`;
+      if (!visitsByKey.has(key)) visitsByKey.set(key, []);
+      visitsByKey.get(key).push(v);
+    }
+
+    const areaMap = new Map(); // key = normName(areaName)
+    const claimedVisitIds = new Set();
+
+    for (const p of scopedPharms) {
+      const areaName = p.areaName.trim(); // مضمون غير فارغ — مُصفّى في getScopedSurveyPharmacies
+      const areaKey = normArea(areaName);
+      const resolvedArea = scope.normToArea.get(areaKey);
+      if (!areaMap.has(areaKey)) areaMap.set(areaKey, { id: resolvedArea?.id ?? null, name: resolvedArea?.name ?? areaName, pharmacies: [] });
+      const matched = visitsByKey.get(`${normArea(p.name)}|${areaKey}`) ?? [];
+      matched.forEach(v => claimedVisitIds.add(v.id));
+      areaMap.get(areaKey).pharmacies.push({ name: p.name, visits: matched.map(toEntry) });
+    }
 
     for (const v of visits) {
-      const areaKey = v.areaId ?? v.areaName ?? '__none__';
+      if (claimedVisitIds.has(v.id)) continue;
       const areaLabel = v.area?.name ?? v.areaName ?? 'بدون منطقة';
-      const areaId    = v.area?.id ?? null;
-      if (!areaMap.has(areaKey))
-        areaMap.set(areaKey, { id: areaId, name: areaLabel, pharmacies: new Map() });
-      const areaEntry = areaMap.get(areaKey);
-      if (!areaEntry.pharmacies.has(v.pharmacyName))
-        areaEntry.pharmacies.set(v.pharmacyName, { name: v.pharmacyName, visits: [] });
-      areaEntry.pharmacies.get(v.pharmacyName).visits.push({
-        id: v.id,
-        visitDate: v.visitDate,
-        notes: v.notes,
-        items: v.items.map(i => ({ id: i.id, name: i.item?.name ?? i.itemName ?? '—' })),
-      });
+      const areaKey = normArea(areaLabel);
+      if (!areaMap.has(areaKey)) areaMap.set(areaKey, { id: v.area?.id ?? null, name: areaLabel, pharmacies: [] });
+      const g = areaMap.get(areaKey);
+      let entry = g.pharmacies.find(p => normArea(p.name) === normArea(v.pharmacyName));
+      if (!entry) { entry = { name: v.pharmacyName, visits: [] }; g.pharmacies.push(entry); }
+      entry.visits.push(toEntry(v));
     }
 
     const areas = [...areaMap.values()].map(a => ({
       id: a.id,
       name: a.name,
-      pharmacies: [...a.pharmacies.values()],
-      totalPharmacies: a.pharmacies.size,
-      totalVisits: [...a.pharmacies.values()].reduce((s, p) => s + p.visits.length, 0),
+      pharmacies: a.pharmacies,
+      totalPharmacies: a.pharmacies.length,
+      totalVisits: a.pharmacies.reduce((s, p) => s + p.visits.length, 0),
     })).sort((a, b) => b.totalVisits - a.totalVisits);
 
     res.json({ areas });
