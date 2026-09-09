@@ -294,6 +294,13 @@ export async function pharmacyVisitsByArea(req, res, next) {
       };
     }).sort((a, b) => b.totalVisits - a.totalVisits);
 
+    // TEMP DEBUG — تشخيص فرق "68 صيدلية" في الرأس مقابل 8 صيدليات ظاهرة عند
+    // الفتح. يُحذف بعد التأكد. راجع PM2 logs.
+    console.log('[pharmVisitDebug]', JSON.stringify(areas.map(a => ({
+      area: a.name, totalPharmacies: a.totalPharmacies, totalVisits: a.totalVisits,
+      pharmaciesArrayLen: a.pharmacies.length,
+    }))));
+
     res.json({ areas });
   } catch (e) { next(e); }
 }
