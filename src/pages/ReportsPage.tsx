@@ -3012,8 +3012,53 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const netQ   = salesQ - retQ;
         const netV   = salesV - retV;
 
+        // ─── Company/team quick-filter chips ───────────────────────────────────
+        // أسماء الشركات الظاهرة فعلاً في الملفات المحلَّلة (مبيع أو ارجاع) — الضغط
+        // على أي منها يعزل عرض «تحليل شامل» بأكمله (KPI + كل التبويبات) على تلك
+        // الشركة فقط، عبر نفس آلية overallSelectedTags المستخدمة أصلاً بالبحث
+        // الذكي (company tag) — فتُعطي بالضبط نفس أرقام مبيع/ارجاع مدير تلك
+        // الشركة لو حلَّل نفس الملفات. لا داعي لطلب API جديد: الأسماء مشتقة من
+        // overallSales.byCompany نفسه.
+        const overallCompanyNames = [...new Set([
+          ...overallSales.byCompany.map(c => c.name),
+          ...(overallReturns?.byCompany ?? []).map(c => c.name),
+        ])].sort((a, b) => a.localeCompare(b, 'ar'));
+        const activeCompanyTag = overallSelectedTags.find(t => t.type === 'company')?.name ?? null;
+
         return (
           <>
+            {/* ── Company/team chips ── */}
+            {overallCompanyNames.length > 1 && (
+              <div style={{ marginTop: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="navCommercial" size={11} /> الشركة الرئيسية
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => setOverallSelectedTags([])}
+                    style={{
+                      padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      border: `1.5px solid ${activeCompanyTag === null ? '#1e40af' : '#d1d5db'}`,
+                      background: activeCompanyTag === null ? '#eff6ff' : '#fff',
+                      color: activeCompanyTag === null ? '#1e40af' : '#6b7280',
+                    }}
+                  >الكل</button>
+                  {overallCompanyNames.map(name => (
+                    <button
+                      key={name}
+                      onClick={() => setOverallSelectedTags([{ name, type: 'company' }])}
+                      style={{
+                        padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        border: `1.5px solid ${activeCompanyTag === name ? '#1e40af' : '#d1d5db'}`,
+                        background: activeCompanyTag === name ? '#eff6ff' : '#fff',
+                        color: activeCompanyTag === name ? '#1e40af' : '#6b7280',
+                      }}
+                    >{name}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* ── KPI Summary ── */}
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginTop: 8, marginBottom: 8 }}>
               {/* Header row */}
