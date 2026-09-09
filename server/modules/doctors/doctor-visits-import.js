@@ -25,6 +25,7 @@ import prisma from '../../lib/prisma.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { resolveDocOwnerUserId } from './doctors.controller.js';
 import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
 import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases } from '../../lib/surveyDoctors.js';
@@ -138,6 +139,96 @@ function findByName(list, val) {
   return list.find(x => x.name.trim().toLowerCase() === v)
       || list.find(x => x.name.toLowerCase().includes(v) || v.includes(x.name.toLowerCase()))
       || null;
+}
+
+/**
+ * يطابق نص منطقة حر — وقد يكون وصفاً مركّباً من ملف CRM خارجي («العيادة
+ * الثانية - حي الجهاد»، «العيادة الثالثة - الطارمية») لا اسم منطقة صافياً —
+ * مقابل قائمة المناطق الموجودة فعلاً، بنفس محرك التشابه المستخدم لكتالوج
+ * الايتمات/الشركات (areSimilar) بدل الاحتواء النصي الساذج في findByName.
+ * بدونه كان أي وصف يتضمّن اسم منطقة موجودة أصلاً (برقم عيادة أو تفصيل إضافي
+ * قبله أو بعده) يُنشئ منطقة جديدة مكرَّرة بالنص الكامل بدل أن يُنسب لمنطقته
+ * الحقيقية الموجودة أصلاً.
+ *
+ * نفس تصنيف resolveItemName/resolveCompanyName تماماً:
+ *   exact  → تطابق تام بعد التطبيع → منطقة واحدة بلا شك
+ *   high   → مرشّح ضبابي وحيد لا لبس فيه → يُعتمد تلقائياً
+ *   medium → أكثر من مرشّح (مثل «حي الجامعة + الحارثية» يطابق منطقتين حقيقيتين
+ *            معاً دفعة واحدة) → التباس حقيقي لا يجوز تخمينه اعتباطاً
+ *   none   → لا مرشّح على الإطلاق → منطقة جديدة فعلاً
+ */
+function resolveArea(rawName, allAreas) {
+  const name = String(rawName ?? '').trim();
+  const empty = { area: null, confidence: 'none', suggestions: [] };
+  if (!name) return empty;
+
+  const norm = normalizeAreaName(name);
+  const exact = allAreas.find(a => normalizeAreaName(a.name) === norm);
+  if (exact) return { area: exact, confidence: 'exact', suggestions: [exact] };
+
+  // احتواء بحدود كلمات كاملة بعد التطبيع العربي (لا حرفياً بالمسافة البادئة/
+  // اللاحقة فقط) — يلتقط نصاً وصفياً يتضمّن اسم منطقة موجودة أصلاً ككلمة/كلمات
+  // كاملة («العيادة الثانية - حي الجهاد» يحوي «حي الجهاد» → «جهاد» بعد التطبيع)
+  // بلا اللجوء لتشابه ليفنشتاين الحرفي العام، الذي جُرِّب هنا فعلياً وتبيَّن أنه
+  // يخلط بين منطقتين قصيرتين متقاربتي التهجئة لكن مختلفتين فعلاً («الطارمية» ↔
+  // «الحارثية» بفارق حرفين فقط) فيُصنَّفان خطأً كمرشَّحَين متزاحمَين معاً.
+  const wrapped = ` ${norm} `;
+  const contained = allAreas
+    .filter(a => {
+      const t = normalizeAreaName(a.name);
+      return t.length > 2 && wrapped.includes(` ${t} `);
+    })
+    .map(a => ({ ...a, sim: similarity(norm, normalizeAreaName(a.name)) }))
+    .sort((a, b) => b.sim - a.sim);
+  if (contained.length === 1) return { area: contained[0], confidence: 'high', suggestions: contained };
+  if (contained.length > 1)  return { area: null, confidence: 'medium', suggestions: contained };
+
+  // لا احتواء بكلمة كاملة إطلاقاً — تسامح أخطاء إملائية بسيطة بمحرك التشابه
+  // العام (نفس المستعمل للايتمات/الشركات)، يُستشار أخيراً فقط بعد فشل الاحتواء
+  // الدقيق كي لا يُقدَّم على مطابقة أدق منه عند تعارضهما.
+  const fuzzy = allAreas
+    .filter(a => areSimilar(name, a.name))
+    .map(a => ({ ...a, sim: similarity(norm, normalizeAreaName(a.name)) }))
+    .sort((a, b) => b.sim - a.sim);
+  if (fuzzy.length === 0) return empty;
+  if (fuzzy.length === 1) return { area: fuzzy[0], confidence: 'high', suggestions: fuzzy };
+  return { area: null, confidence: 'medium', suggestions: fuzzy };
+}
+
+/**
+ * يحسم areaId لنص منطقة عند الحفظ الفعلي: تطابق تام أولاً (خريطة سريعة)، ثم
+ * نفس مطابقة resolveArea الضبابية قبل اللجوء لإنشاء منطقة جديدة — تحسّباً
+ * لتعديل يدوي في شبكة المراجعة لم يمرّ بمطابقة الاستخراج (onChange يصفّر
+ * areaId عند أي تعديل نصي). التباس حقيقي (أكثر من مرشّح، كنص يجمع منطقتين)
+ * لا يُخمَّن ولا يُنشئ منطقة مكرَّرة: الصف يُحفظ بلا منطقة محسومة، ويُصحَّح
+ * يدوياً لاحقاً بدل ربطه بمنطقة خاطئة أو تكرار واحدة موجودة أصلاً.
+ */
+async function resolveCommitAreaId(areaName, { allAreas, areaByNorm, linkedAreaIds, ownerUserId }) {
+  if (!areaName) return { areaId: null, ambiguous: false };
+  const norm = normalizeAreaName(areaName);
+  let found = areaByNorm.get(norm);
+  let ambiguous = false;
+  if (!found) {
+    const resolved = resolveArea(areaName, allAreas);
+    if (resolved.confidence === 'medium') {
+      ambiguous = true;
+    } else if (resolved.area) {
+      found = resolved.area;
+    } else {
+      // كتالوج مشترك مثل الايتمات/الشركات — تُنشأ بلا مالك (userId: null)
+      // بدل صف خاص بهذا الحساب، فلا تتكرر إن ذكرها حساب آخر لاحقاً.
+      found = await prisma.area.create({ data: { name: areaName, userId: null } });
+      allAreas.push(found);
+    }
+    if (found) areaByNorm.set(normalizeAreaName(found.name), found);
+  }
+  if (!found) return { areaId: null, ambiguous };
+  const areaId = found.id;
+  if (!linkedAreaIds.has(areaId)) {
+    await prisma.userAreaAssignment.createMany({ data: [{ userId: ownerUserId, areaId }], skipDuplicates: true });
+    linkedAreaIds.add(areaId);
+  }
+  return { areaId, ambiguous };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -347,7 +438,11 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
     }
 
     const areaRaw = get(row, 'address') || get(row, 'city');
-    const area = findByName(allAreas, areaRaw);
+    const areaMatch = resolveArea(areaRaw, allAreas);
+    // مرشَّح واثق (تام أو ضبابي وحيد) → الاسم القانوني الموجود أصلاً يحلّ محل
+    // الوصف الخام؛ التباس حقيقي أو بلا مرشّح إطلاقاً → يبقى النص الخام كما هو
+    // (سيُعاد فحصه بنفس المنطق عند الحفظ، وتُنشأ منطقة جديدة عندها فقط إن لزم).
+    const areaResolvedName = areaMatch.area ? areaMatch.area.name : areaRaw;
     // حقل note ثريّ: منه الايتم المستهدف والملاحظات، ومنه أيضاً توقيت يصلح
     // تاريخاً للزيارة حين يغيب عمود created (بعض التصديرات لا تتضمنه أصلاً).
     const parsedNote = parseCrmNote(get(row, 'note'), allItems);
@@ -361,7 +456,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
       pharmacyRows.push({
         _row, repName, repId: rep?.id ?? null,
         pharmacyName: clientName,
-        areaName: areaRaw, areaId: area?.id ?? null,
+        areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
         itemName: parsedNote.itemName, itemId: parsedNote.itemId,
         date, notes, isDoubleVisit,
         lat: null, lng: null,
@@ -378,7 +473,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
         _row, repName, repId: rep?.id ?? null,
         doctorName, doctorId: null,
         specialty: get(row, 'subcategory'),
-        areaName: areaRaw, areaId: area?.id ?? null,
+        areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
         pharmacyName: get(row, 'associated'),
         itemName: parsedNote.itemName, itemId: parsedNote.itemId,
         date,
@@ -675,8 +770,9 @@ export async function extractVisitsFromExcel(file, user) {
     const rep = repKey ? repByKey.get(repKey) : null;
 
     const doctorName = get('doctor');
-    const areaName   = get('area');
-    const area = findByName(allAreas, areaName);
+    const areaRaw    = get('area');
+    const areaMatch  = resolveArea(areaRaw, allAreas);
+    const areaName   = areaMatch.area ? areaMatch.area.name : areaRaw;
 
     const itemName = get('item');
     const item = findByName(allItems, itemName);
@@ -688,7 +784,7 @@ export async function extractVisitsFromExcel(file, user) {
       repName: repRaw, repId: rep?.id ?? null,
       doctorName, doctorId: null,
       specialty: get('specialty'),
-      areaName, areaId: area?.id ?? null,
+      areaName, areaId: areaMatch.area?.id ?? null,
       pharmacyName: get('pharmacy'),
       itemName, itemId: item?.id ?? null,
       date: toDateInput(dateVal) || '',
@@ -808,6 +904,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
   const errors = [];
   const doctorCache = new Map(); // "الاسم|areaId" → doctorId (يمنع تكرار الإنشاء لنفس الطبيب عبر صفوف الملف)
   let unlinkedNote = false;
+  let ambiguousAreaNote = false;
 
   for (const r of (Array.isArray(rows) ? rows : [])) {
     try {
@@ -818,19 +915,9 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
       let areaId = r.areaId ?? null;
       const areaName = String(r?.areaName ?? '').trim();
       if (!areaId && areaName) {
-        const norm = normalizeAreaName(areaName);
-        let found = areaByNorm.get(norm);
-        if (!found) {
-          // كتالوج مشترك مثل الايتمات/الشركات — تُنشأ بلا مالك (userId: null)
-          // بدل صف خاص بهذا الحساب، فلا تتكرر إن ذكرها حساب آخر لاحقاً.
-          found = await prisma.area.create({ data: { name: areaName, userId: null } });
-          areaByNorm.set(normalizeAreaName(found.name), found);
-        }
-        areaId = found.id;
-        if (!linkedAreaIds.has(areaId)) {
-          await prisma.userAreaAssignment.createMany({ data: [{ userId: ownerUserId, areaId }], skipDuplicates: true });
-          linkedAreaIds.add(areaId);
-        }
+        const { areaId: resolvedAreaId, ambiguous } = await resolveCommitAreaId(areaName, { allAreas, areaByNorm, linkedAreaIds, ownerUserId });
+        areaId = resolvedAreaId;
+        if (ambiguous) ambiguousAreaNote = true;
       }
 
       let doctorId = r.doctorId ?? null;
@@ -975,6 +1062,9 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
   if (unlinkedNote) {
     errors.push('تنبيه: لا توجد قائمة سيرفي متاحة لهذا الحساب — بعض الأطباء الجدد أُنشئوا بلا ربط بالسيرفي ولن يظهروا في شاشة «الزيارات» حتى تُربط لاحقاً.');
   }
+  if (ambiguousAreaNote) {
+    errors.push('تنبيه: اسم منطقة في الملف يطابق أكثر من منطقة موجودة فعلاً (مثل نص يجمع منطقتين بـ"+") — بعض الأطباء استُوردوا بلا منطقة محسومة، راجعهم يدوياً.');
+  }
 
   return { imported, skipped, errors };
 }
@@ -991,6 +1081,7 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
 
   let imported = 0, skipped = 0;
   const errors = [];
+  let ambiguousAreaNote = false;
 
   for (const r of (Array.isArray(rows) ? rows : [])) {
     try {
@@ -1001,17 +1092,9 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
       let areaId = r.areaId ?? null;
       const areaName = String(r?.areaName ?? '').trim();
       if (!areaId && areaName) {
-        const norm = normalizeAreaName(areaName);
-        let found = areaByNorm.get(norm);
-        if (!found) {
-          found = await prisma.area.create({ data: { name: areaName, userId: null } });
-          areaByNorm.set(normalizeAreaName(found.name), found);
-        }
-        areaId = found.id;
-        if (!linkedAreaIds.has(areaId)) {
-          await prisma.userAreaAssignment.createMany({ data: [{ userId: ownerUserId, areaId }], skipDuplicates: true });
-          linkedAreaIds.add(areaId);
-        }
+        const { areaId: resolvedAreaId, ambiguous } = await resolveCommitAreaId(areaName, { allAreas, areaByNorm, linkedAreaIds, ownerUserId });
+        areaId = resolvedAreaId;
+        if (ambiguous) ambiguousAreaNote = true;
       }
 
       const dateVal = parseVisitDate(r.date);
@@ -1048,6 +1131,10 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
       skipped++;
       errors.push(`صيدلية — صف ${r?._row ?? '?'}: ${e.message}`);
     }
+  }
+
+  if (ambiguousAreaNote) {
+    errors.push('تنبيه: اسم منطقة في الملف يطابق أكثر من منطقة موجودة فعلاً (مثل نص يجمع منطقتين بـ"+") — بعض زيارات الصيدليات استُوردت بلا منطقة محسومة، راجعها يدوياً.');
   }
 
   return { imported, skipped, errors };
