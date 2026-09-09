@@ -199,7 +199,13 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
 export async function buildVisitOverlay(scope, dateFilter) {
   const orClauses = [];
   if (scope.memberRepIds.length)  orClauses.push({ scientificRepId: { in: scope.memberRepIds } });
-  if (scope.memberUserIds.length) orClauses.push({ userId: { in: scope.memberUserIds } });
+  // مطابقة userId (مَن حفظ/رفع الزيارة) مقصورة على الزيارات بلا مندوب علمي محسوم
+  // (مدير يسجّل زيارته شخصياً بلا ScientificRepresentative). زيارة لها
+  // scientificRepId فعلي — وهي كل زيارات الاستيراد الجماعي، رقم الملف يُنسَب
+  // فيها userId لمَن رفع الملف لا للمندوب الفعلي — تُنسب لذلك المندوب حصراً؛
+  // بدون هذا القيد كانت الزيارة تظهر لمن رفع الملف بصرف النظر عن مندوبها
+  // الحقيقي، فيختلف عدد "الزيارات" باختلاف مَن يفتح الشاشة رغم تطابق مناطقهم.
+  if (scope.memberUserIds.length) orClauses.push({ scientificRepId: null, userId: { in: scope.memberUserIds } });
   const bySurveyDocId = new Map();
   const byName = new Map();
   if (!orClauses.length) return { bySurveyDocId, byName };

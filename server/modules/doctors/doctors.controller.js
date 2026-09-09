@@ -130,7 +130,8 @@ export async function visitsLatestMonth(req, res, next) {
     const scope = await resolveAreaScope(req.user, { repUserId, companyId });
     const orClauses = [];
     if (scope.memberRepIds.length)  orClauses.push({ scientificRepId: { in: scope.memberRepIds } });
-    if (scope.memberUserIds.length) orClauses.push({ userId: { in: scope.memberUserIds } });
+    // راجع نفس التعليق في buildVisitOverlay/pharmacyVisitOrClauses.
+    if (scope.memberUserIds.length) orClauses.push({ scientificRepId: null, userId: { in: scope.memberUserIds } });
     if (!orClauses.length) return res.json({ month: null, year: null });
 
     const latest = await prisma.doctorVisit.findFirst({
@@ -150,7 +151,10 @@ export async function visitsLatestMonth(req, res, next) {
 function pharmacyVisitOrClauses(scope) {
   const orClauses = [];
   if (scope.memberRepIds.length)  orClauses.push({ scientificRepId: { in: scope.memberRepIds } });
-  if (scope.memberUserIds.length) orClauses.push({ userId: { in: scope.memberUserIds } });
+  // مطابقة userId مقصورة على زيارات بلا مندوب علمي محسوم — راجع نفس التعليق في
+  // buildVisitOverlay (surveyDoctors.js): زيارة استيراد جماعي لها scientificRepId
+  // فعلي يجب أن تُنسب لذلك المندوب حصراً لا لمَن رفع الملف بحسابه.
+  if (scope.memberUserIds.length) orClauses.push({ scientificRepId: null, userId: { in: scope.memberUserIds } });
   return orClauses;
 }
 
