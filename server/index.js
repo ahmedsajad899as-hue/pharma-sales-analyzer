@@ -24,6 +24,7 @@ import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
 import { seedProvinces, autoMatchProvinces, seedSubProvinces, autoMatchSubProvinces } from './lib/provinces.js';
 import { startPharmacyAlertScheduler } from './modules/pharmacy-analysis/pharmacy-alerts.scheduler.js';
 import { resolveEffectiveAreaIds, resolveEffectiveAreas, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
+import { resolveStockScope, filterStockFiles } from './lib/stockScope.js';
 import {
   getAllItems, getAllReps, getAllCompanies,
   mergeItems, mergeReps, mergeCompanies,
@@ -3006,7 +3007,8 @@ app.get('/api/sales-data-files', requireAuth, async (req, res) => {
       where: { userId },
       orderBy: { uploadedAt: 'desc' },
     });
-    res.json({ success: true, data: files });
+    const scope = await resolveStockScope(userId);
+    res.json({ success: true, data: filterStockFiles(files, scope) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

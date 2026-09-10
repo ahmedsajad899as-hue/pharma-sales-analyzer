@@ -87,9 +87,9 @@ export async function getPairHistory({ userId, warehouseId, itemKey }) {
 }
 
 // ─── الأرصدة ──────────────────────────────────────────────────
-export async function getBalances(userId, { warehouseIds = null } = {}) {
+export async function getBalances(userId, { warehouseIds = null, scopeWhere = {} } = {}) {
   return prisma.stockBalance.findMany({
-    where: { userId, ...(warehouseIds ? { warehouseId: { in: warehouseIds } } : {}) },
+    where: { userId, ...(warehouseIds ? { warehouseId: { in: warehouseIds } } : {}), ...scopeWhere },
     include: { warehouse: { select: { id: true, name: true, region: true } } },
     orderBy: [{ remaining: 'asc' }],
   });

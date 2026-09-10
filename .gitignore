@@ -46,3 +46,8 @@ server_out.txt
 # failed run can't leave one behind for the next 'git add -A' to commit)
 payload.tgz
 dist.tgz
+
+# Claude Code isolated worktrees (each is a full nested checkout under
+# .claude/worktrees/ — without this, deploy.ps1's 'git add -A' would commit
+# the entire nested repo copy)
+.claude/

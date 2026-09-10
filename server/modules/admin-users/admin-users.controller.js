@@ -19,6 +19,8 @@ const userSelect = {
   companyAssignments: { include: { company: { select: { id: true, name: true } } } },
   lineAssignments:    { include: { line:    { select: { id: true, name: true, companyId: true } } } },
   itemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
+  stockCompanyAssignments: { include: { company: { select: { id: true, name: true } } } },
+  stockItemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
   areaAssignments:    { include: { area:    { select: { id: true, name: true } } } },
   provinceAssignments: { include: { province: { select: { id: true, name: true } } } },
   subProvinceAssignments: { include: { subProvince: { select: { id: true, name: true, provinceId: true } } } },
@@ -584,6 +586,72 @@ export async function setUserItems(req, res) {
   } catch (err) {
     console.error('[setUserItems] failed for user', userId, err);
     res.status(500).json({ error: 'فشل حفظ الايتمات — لم يتغيّر شيء. حاول مرة أخرى.' });
+  }
+}
+
+// ── Set user stock scope (UserStockCompanyAssignment / UserStockItemAssignment) ────
+// مستقل تماماً عن companyAssignments/itemAssignments أعلاه — نطاق خاص بصفحتي
+// «Stock» و«رصيد المذاخر» فقط (راجع server/lib/stockScope.js). فارغ = بلا تقييد،
+// متاح لأي دور بما فيها الأدوار المكتبية (بعكس تبويب «الشركات» العادي).
+export async function setUserStockCompanies(req, res) {
+  const userId = parseInt(req.params.id);
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
+
+  const raw = Array.isArray(req.body?.companyIds) ? req.body.companyIds : [];
+  const requested = [...new Set(raw.map(id => parseInt(id)).filter(Number.isInteger))];
+
+  try {
+    const found = requested.length
+      ? await prisma.scientificCompany.findMany({ where: { id: { in: requested } }, select: { id: true } })
+      : [];
+    const validSet = new Set(found.map(c => c.id));
+    const ids = requested.filter(id => validSet.has(id));
+    const dropped = requested.filter(id => !validSet.has(id));
+
+    await prisma.$transaction([
+      prisma.userStockCompanyAssignment.deleteMany({ where: { userId } }),
+      ...(ids.length ? [prisma.userStockCompanyAssignment.createMany({
+        data: ids.map(companyId => ({ userId, companyId })),
+        skipDuplicates: true,
+      })] : []),
+    ]);
+
+    const saved = await prisma.userStockCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+    res.json({ success: true, data: saved.map(a => a.companyId), dropped });
+  } catch (err) {
+    console.error('[setUserStockCompanies] failed for user', userId, err);
+    res.status(500).json({ error: 'فشل حفظ نطاق شركات الستوك — لم يتغيّر شيء. حاول مرة أخرى.' });
+  }
+}
+
+export async function setUserStockItems(req, res) {
+  const userId = parseInt(req.params.id);
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
+
+  const raw = Array.isArray(req.body?.itemIds) ? req.body.itemIds : [];
+  const requested = [...new Set(raw.map(id => parseInt(id)).filter(Number.isInteger))];
+
+  try {
+    const found = requested.length
+      ? await prisma.item.findMany({ where: { id: { in: requested } }, select: { id: true } })
+      : [];
+    const validSet = new Set(found.map(i => i.id));
+    const ids = requested.filter(id => validSet.has(id));
+    const dropped = requested.filter(id => !validSet.has(id));
+
+    await prisma.$transaction([
+      prisma.userStockItemAssignment.deleteMany({ where: { userId } }),
+      ...(ids.length ? [prisma.userStockItemAssignment.createMany({
+        data: ids.map(itemId => ({ userId, itemId })),
+        skipDuplicates: true,
+      })] : []),
+    ]);
+
+    const saved = await prisma.userStockItemAssignment.findMany({ where: { userId }, select: { itemId: true } });
+    res.json({ success: true, data: saved.map(a => a.itemId), dropped });
+  } catch (err) {
+    console.error('[setUserStockItems] failed for user', userId, err);
+    res.status(500).json({ error: 'فشل حفظ نطاق ايتمات الستوك — لم يتغيّر شيء. حاول مرة أخرى.' });
   }
 }
 

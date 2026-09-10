@@ -58,6 +58,8 @@ model User {
   companyAssignments     UserCompanyAssignment[]
   lineAssignments        UserLineAssignment[]
   itemAssignments        UserItemAssignment[]
+  stockCompanyAssignments UserStockCompanyAssignment[]
+  stockItemAssignments   UserStockItemAssignment[]
   areaAssignments        UserAreaAssignment[]
   provinceAssignments    UserProvinceAssignment[]
   subProvinceAssignments UserSubProvinceAssignment[]
@@ -279,6 +281,7 @@ model Item {
   planEntryItems      PlanEntryItem[]
   lineItems           ProductLineItem[]
   userItemAssignments UserItemAssignment[]
+  userStockItemAssignments UserStockItemAssignment[]
   pharmacyVisitItems  PharmacyVisitItem[]
   commercialItems     CommercialInvoiceItem[]
   fmsPlanItems        FmsPlanItem[]
@@ -1064,6 +1067,7 @@ model ScientificCompany {
   items                  Item[]                  @relation("CompanyItems")
   lines                  ProductLine[]
   userCompanyAssignments UserCompanyAssignment[]
+  userStockCompanyAssignments UserStockCompanyAssignment[]
   itemAliases            ItemMergeRule[]         @relation("CompanyAliases")
   nameAliases            CompanyAlias[]
 
@@ -1139,6 +1143,34 @@ model UserItemAssignment {
 
   @@id([userId, itemId])
   @@map("user_item_assignments")
+}
+
+// ─── User ↔ Stock Company Assignment (نطاق الستوك — مستقل عن UserCompanyAssignment
+// الذي تُديره officeScope.js تلقائياً للأدوار المكتبية؛ فارغ = بلا تقييد) ─────
+model UserStockCompanyAssignment {
+  userId     Int
+  companyId  Int
+  assignedAt DateTime @default(now())
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company ScientificCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, companyId])
+  @@map("user_stock_company_assignments")
+}
+
+// ─── User ↔ Stock Item Assignment (نطاق الستوك — مستقل عن UserItemAssignment
+// المستعمل لنطاق المبيعات؛ فارغ = بلا تقييد) ──────────────────────────────
+model UserStockItemAssignment {
+  userId     Int
+  itemId     Int
+  assignedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([userId, itemId])
+  @@map("user_stock_item_assignments")
 }
 
 // ─── User ↔ Area Assignment ──────────────────────────────────

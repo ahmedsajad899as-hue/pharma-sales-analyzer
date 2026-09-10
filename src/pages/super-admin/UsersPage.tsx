@@ -51,6 +51,9 @@ interface UserDetail extends UserRow {
   companyAssignments: { companyId: number; isPrimary?: boolean; company: { id: number; name: string } }[];
   lineAssignments:    { lineId: number;    line:    { name?: string; companyId: number } }[];
   itemAssignments:    { itemId: number;    item:    { name: string } }[];
+  // نطاق ستوك مستقل — راجع server/lib/stockScope.js. فارغ = بلا تقييد.
+  stockCompanyAssignments: { companyId: number; company: { id: number; name: string } }[];
+  stockItemAssignments:    { itemId: number;    item:    { name: string } }[];
   areaAssignments:    { areaId: number;    area:    { name: string } }[];
   provinceAssignments?: { provinceId: number; province: { id: number; name: string } }[];
   subProvinceAssignments?: { subProvinceId: number; subProvince: { id: number; name: string; provinceId: number } }[];
@@ -103,7 +106,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // الحساب الذي يحجز اسم المستخدم عند خطأ 409 — يُعرض مع زر ينقل إليه في القائمة،
   // لأنه غالباً في مكتب آخر أو معطّل فلا يظهر أمام الأدمن الذي يظن أنه حذفه.
   const [conflict,  setConflict]  = useState<any>(null);
-  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'areas'|'managers'|'employees'|'features'>(() => {
+  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'stockScope'|'areas'|'managers'|'employees'|'features'>(() => {
     const saved = localStorage.getItem('sa_user_tab');
     return (saved as any) || 'info';
   });
@@ -114,6 +117,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftPrimaryCompanyId, setDraftPrimaryCompanyId] = useState<number | null>(null);
   const [draftLineIds,       setDraftLineIds]       = useState<number[]>([]);
   const [draftItemIds,       setDraftItemIds]       = useState<number[]>([]);
+  // نطاق ستوك مستقل (UserStockCompanyAssignment/UserStockItemAssignment) — راجع
+  // server/lib/stockScope.js. stockCatalogItems منفصل عن items (كتالوج تبويب
+  // «الايتمات» العادي) لأنه يتبع اختيار شركات مختلفاً (draftStockCompanyIds لا draftCompanyIds).
+  const [draftStockCompanyIds, setDraftStockCompanyIds] = useState<number[]>([]);
+  const [draftStockItemIds,    setDraftStockItemIds]    = useState<number[]>([]);
+  const [stockCatalogItems,    setStockCatalogItems]    = useState<Item[]>([]);
+  const [stockItemSearch,      setStockItemSearch]      = useState('');
   const [draftAreaIds,       setDraftAreaIds]       = useState<number[]>([]);
   // تعيين المحافظة ديناميكي: يُحفظ كمحافظة لا كقائمة مناطق، فتدخل نطاقَ
   // المستخدم تلقائياً أي منطقة تُضاف لها لاحقاً.
@@ -155,6 +165,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const companySaveSeq    = useRef(0);
   const pendingCompanyRef = useRef<{ ids: number[]; primary: number | null } | null>(null);
   const itemsReqSeq       = useRef(0);
+  const stockItemsReqSeq  = useRef(0);
 
   const load = (restoreScroll = false) => {
     const scrollPos = restoreScroll ? (getMainEl()?.scrollTop ?? 0) : 0;
@@ -252,6 +263,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       .catch(() => {});
   };
 
+  // ايتمات كتالوج الشركات المُختارة في تبويب «نطاق الستوك» — نفس endpoint كتالوج
+  // «الايتمات» العادي (لا يهتم بالغرض، فقط يعيد ايتمات الشركات المُمرَّرة)، لكن
+  // بحالة منفصلة كي لا يتضارب مع تبويب «الايتمات» العادي (شركات مختلفة).
+  const loadStockCompanyItems = (userId: number, companyIds?: number[]) => {
+    const seq = ++stockItemsReqSeq.current;
+    if (companyIds && companyIds.length === 0) { setStockCatalogItems([]); return; }
+    const qs = companyIds && companyIds.length ? `?companyIds=${companyIds.join(',')}` : '';
+    fetch(`/api/sa/users/${userId}/company-items${qs}`, { headers: H() })
+      .then(r => r.json())
+      .then(d => { if (seq === stockItemsReqSeq.current && d.success) setStockCatalogItems(d.data); })
+      .catch(() => {});
+  };
+
   // Reset drafts whenever detail changes
   useEffect(() => {
     if (!detail) { setItems([]); setDraftsUserId(null); return; }
@@ -263,6 +287,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setDraftPrimaryCompanyId(detail.companyAssignments.find(a => a.isPrimary)?.companyId ?? detail.companyAssignments[0]?.companyId ?? null);
     setDraftLineIds(detail.lineAssignments.map(a => a.lineId));
     setDraftItemIds(detail.itemAssignments.map(a => a.itemId));
+    setDraftStockCompanyIds((detail.stockCompanyAssignments ?? []).map(a => a.companyId));
+    setDraftStockItemIds((detail.stockItemAssignments ?? []).map(a => a.itemId));
     setDraftAreaIds(detail.areaAssignments.map(a => a.areaId));
     setDraftProvinceIds((detail.provinceAssignments ?? []).map(p => p.provinceId));
     setDraftSubProvinceIds((detail.subProvinceAssignments ?? []).map(s => s.subProvinceId));
@@ -438,6 +464,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.id, draftsUserId, draftCompanyIds.join(',')]);
 
+  // نفس الفكرة لتبويب «نطاق الستوك» — كتالوج ايتماته يتبع شركاته الخاصة
+  // (draftStockCompanyIds)، وإن لم تُختر أي شركة بعد (بلا تقييد شركات) يُعرض
+  // كتالوج كل شركات مكتب المستخدم كي يبقى تقييد الايتمات وحده ممكناً.
+  useEffect(() => {
+    if (!detail || draftsUserId !== detail.id) return;
+    const ids = draftStockCompanyIds.length
+      ? [...draftStockCompanyIds]
+      : companies.filter(c => c.officeId === detail.officeId).map(c => c.id);
+    const t = setTimeout(() => loadStockCompanyItems(detail.id, ids), 120);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id, draftsUserId, draftStockCompanyIds.join(','), companies.length]);
+
   const goBack = () => {
     setDetail(null);
     localStorage.removeItem('sa_user_detail_id');
@@ -544,6 +583,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     await saveAssignment('areas', draftAreaIds);
   };
 
+  // نطاق الستوك: يحفظ الشركات ثم الايتمات معاً بضغطة واحدة (مستقل تماماً عن
+  // تبويب «الشركات»/«الايتمات» العادي — راجع server/lib/stockScope.js).
+  const saveStockScope = async () => {
+    await saveAssignment('stock-companies', draftStockCompanyIds);
+    await saveAssignment('stock-items', draftStockItemIds);
+  };
+
   // تبديل «كل المناطق والمحافظات تلقائياً». راية واحدة على الخادم توسّع النطاق
   // وقت الاستعلام إلى كل صفوف Area، فلا حاجة لإعادة التعيين عند إضافة/حذف منطقة.
   const toggleAllAreas = async (enabled: boolean) => {
@@ -569,7 +615,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setSaving(true);
     const keyMap: Record<string, string> = {
       companies: 'companyIds', lines: 'lineIds', items: 'itemIds', areas: 'areaIds', managers: 'managerIds',
-      subordinates: 'userIds',
+      subordinates: 'userIds', 'stock-companies': 'companyIds', 'stock-items': 'itemIds',
     };
     try {
       const body: Record<string, any> = { [keyMap[type]]: ids };
@@ -593,11 +639,14 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       }
       // تحقق من المحفوظ فعلاً: الخادم يرجع قائمة الـids بعد الحفظ للايتمات/اللاينات
       const j = await res.json().catch(() => null);
-      const savedIds: number[] | null = Array.isArray(j?.data) && (type === 'items' || type === 'lines')
+      const savedIds: number[] | null = Array.isArray(j?.data)
+        && (type === 'items' || type === 'lines' || type === 'stock-companies' || type === 'stock-items')
         ? j.data.map((n: any) => Number(n)) : null;
       if (savedIds) {
         if (type === 'items') setDraftItemIds(savedIds);
         if (type === 'lines') setDraftLineIds(savedIds);
+        if (type === 'stock-companies') setDraftStockCompanyIds(savedIds);
+        if (type === 'stock-items') setDraftStockItemIds(savedIds);
       }
       // Reload detail but keep the user on the same tab (don't snap back to 'info')
       loadDetail(detail.id, { keepTab: true });
@@ -808,6 +857,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const selCompanyIds = draftCompanyIds;
     const selLineIds    = draftLineIds;
     const selItemIds    = draftItemIds;
+    const selStockCompanyIds = draftStockCompanyIds;
+    const selStockItemIds    = draftStockItemIds;
     const selAreaIds    = draftAreaIds;
     const selProvinceIds = draftProvinceIds;
     const selMgrIds     = draftMgrIds;
@@ -948,6 +999,17 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       }, {})
     );
 
+    // نفس التجميع لكتالوج تبويب «نطاق الستوك» (شركات/كتالوج مختلفَين عن الأعلى)
+    const filteredStockItems = stockCatalogItems.filter(i => !stockItemSearch || i.name.toLowerCase().includes(stockItemSearch.toLowerCase()));
+    const stockItemGroups = Object.entries(
+      filteredStockItems.reduce<Record<string, Item[]>>((acc, i) => {
+        const key = i.companyName || '—';
+        (acc[key] ||= []).push(i);
+        return acc;
+      }, {})
+    );
+    const officeCompaniesForStock = companies.filter(c => c.officeId === detail.officeId);
+
     const TabBtn = ({ id, label }: { id: typeof tab; label: string }) => (
       <button onClick={() => setTab(id)} style={{
         padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
@@ -986,6 +1048,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           <TabBtn id="companies" label={`الشركات (${selCompanyIds.length})${companiesDirty ? ' ●' : ''}`} />
           <TabBtn id="lines"     label={`اللاينات (${selLineIds.length})`} />
           <TabBtn id="items"     label={`الايتمات (${selItemIds.length})`} />
+          <TabBtn id="stockScope" label={`📦 نطاق الستوك (${selStockCompanyIds.length + selStockItemIds.length})`} />
           <TabBtn id="areas"     label={`المناطق (${effectiveAreaCount})`} />
           <TabBtn id="managers"  label={`المدراء (${selMgrIds.length})`} />
           <TabBtn id="employees" label={`الموظفون (${selSubIds.length})`} />
@@ -1255,6 +1318,85 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   }}
                   disabled={saving || companySaveState === 'saving'}
                   style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
+              </div>
+            </div>
+          )}
+          {tab === 'stockScope' && (
+            <div>
+              <div style={{ fontSize: 12.5, color: '#0369a1', marginBottom: 12, lineHeight: 1.9, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 12px' }}>
+                📦 نطاق مستقل خاص بصفحتي «Stock» و«رصيد المذاخر» فقط — لا علاقة له بتبويب «الشركات»/«الايتمات» أعلاه (نطاق المبيعات). يُستعمل لتقييد ما يراه هذا المستخدم من ملف الستوك المُعمَّم عليه من موظف المكتب.
+                <br />
+                ℹ️ لم تختر شيئاً؟ يرى المستخدم <b>كل</b> الشركات/الايتمات كما هو الآن (السلوك الافتراضي بلا تغيير).
+              </div>
+
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: '#1e293b' }}>🏭 الشركات</div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button onClick={() => setDraftStockCompanyIds(officeCompaniesForStock.map(c => c.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => setDraftStockCompanyIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل (= كل الشركات)</button>
+              </div>
+              <CheckList
+                allItems={officeCompaniesForStock.map(c => ({ id: c.id, label: c.name }))}
+                selIds={draftStockCompanyIds}
+                onToggle={mkToggle(draftStockCompanyIds, setDraftStockCompanyIds)}
+              />
+
+              <div style={{ fontWeight: 700, fontSize: 13, margin: '18px 0 6px', color: '#1e293b' }}>💊 الايتمات</div>
+              <input
+                type="text"
+                placeholder="🔍 بحث عن ايتم..."
+                value={stockItemSearch}
+                onChange={e => setStockItemSearch(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', marginBottom: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button onClick={() => setDraftStockItemIds(stockCatalogItems.map(i => i.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
+                <button onClick={() => setDraftStockItemIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل (= كل الايتمات)</button>
+              </div>
+              {stockCatalogItems.length === 0 ? (
+                <div style={{ color: '#94a3b8', fontSize: 13, padding: 20, textAlign: 'center', background: '#f8fafc', borderRadius: 8 }}>
+                  لا توجد ايتمات في كتالوج شركات هذا المكتب.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 360, overflowY: 'auto' }}>
+                  {stockItemGroups.map(([companyName, groupItems]) => {
+                    const groupIds = groupItems.map(i => i.id);
+                    const allSel = groupIds.every(id => draftStockItemIds.includes(id));
+                    return (
+                      <div key={companyName}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>🏭 {companyName} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({groupItems.length})</span></div>
+                          <button
+                            onClick={() => setDraftStockItemIds(prev => allSel
+                              ? prev.filter(x => !groupIds.includes(x))
+                              : [...new Set([...prev, ...groupIds])])}
+                            style={{ ...btnStyle(allSel ? '#64748b' : '#2563eb', true), fontSize: 11, padding: '2px 10px' }}>
+                            {allSel ? 'إلغاء الشركة' : 'تحديد الشركة'}
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {groupItems.map(i => {
+                            const on = draftStockItemIds.includes(i.id);
+                            return (
+                              <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: on ? '#eff6ff' : '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14, border: on ? '1px solid #bfdbfe' : '1px solid transparent' }}>
+                                <input type="checkbox" checked={on} onChange={e => setDraftStockItemIds(prev => e.target.checked ? (prev.includes(i.id) ? prev : [...prev, i.id]) : prev.filter(x => x !== i.id))} />
+                                {i.name}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: (draftStockCompanyIds.length === 0 && draftStockItemIds.length === 0) ? '#16a34a' : '#64748b', fontWeight: 600 }}>
+                  {(draftStockCompanyIds.length === 0 && draftStockItemIds.length === 0)
+                    ? '✓ بلا تقييد → المستخدم يرى كل الستوك كما هو الآن'
+                    : `مُقيَّد: ${draftStockCompanyIds.length} شركة، ${draftStockItemIds.length} ايتم`}
+                </span>
+                <button onClick={saveStockScope} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
               </div>
             </div>
           )}

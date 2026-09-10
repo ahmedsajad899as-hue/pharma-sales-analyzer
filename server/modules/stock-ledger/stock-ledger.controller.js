@@ -11,6 +11,7 @@ import {
 import {
   getWarehouses, getBatches, getBalances, getPairHistory, prisma,
 } from './stock-ledger.repository.js';
+import { buildStockBalanceWhere } from '../../lib/stockScope.js';
 
 const utf8Name = (file) => Buffer.from(file.originalname, 'latin1').toString('utf8');
 
@@ -79,7 +80,8 @@ export async function deleteBatchHandler(req, res) {
 // ─── الأرصدة ──────────────────────────────────────────────────
 export async function listBalances(req, res) {
   try {
-    const rows = await getBalances(req.user.id);
+    const scopeWhere = await buildStockBalanceWhere(req.user.id);
+    const rows = await getBalances(req.user.id, { scopeWhere });
     res.json({
       success: true,
       data: rows.map(b => ({

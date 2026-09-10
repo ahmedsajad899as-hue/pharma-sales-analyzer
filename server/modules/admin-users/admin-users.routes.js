@@ -4,6 +4,7 @@ import {
   listAllUsers, getUser, createUser, updateUser,
   setUserCompanies, setUserAreas, setUserProvinces, setUserSubProvinces, setUserItems, setUserLines,
   setUserManagers, setUserSubordinates, setUserInteractions, setUserFeatures, setUserAllAreas,
+  setUserStockCompanies, setUserStockItems,
   getUserRepInfo, getUserCompanyItems,
   deleteUser,
 } from './admin-users.controller.js';
@@ -33,6 +34,9 @@ router.put('/:id/sub-provinces', setUserSubProvinces);
 // راية «كل المناطق والمحافظات تلقائياً» — تُغني عن التعيين اليدوي لحسابات الإدارة
 router.put('/:id/all-areas',    setUserAllAreas);
 router.put('/:id/items',        setUserItems);
+// نطاق ستوك مستقل — راجع server/lib/stockScope.js
+router.put('/:id/stock-companies', setUserStockCompanies);
+router.put('/:id/stock-items',     setUserStockItems);
 router.put('/:id/lines',        setUserLines);
 router.put('/:id/managers',     setUserManagers);
 router.put('/:id/subordinates', setUserSubordinates);
