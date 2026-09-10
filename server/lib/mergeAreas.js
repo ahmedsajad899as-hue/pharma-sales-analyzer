@@ -137,30 +137,60 @@ export async function mergeDuplicateAreasByName(prisma, normalize) {
     select: { id: true, name: true, provinceId: true, userId: true }, orderBy: { id: 'asc' },
   });
 
-  // المفتاح يضم المحافظة فقط: «المركز» في بغداد و«المركز» في البصرة مكانان
-  // مختلفان ودمجهما يخلط مبيعاتهما بلا رجعة. الحساب المالك لم يعد جزءاً من
-  // المفتاح — Area كتالوج مشترك الآن (مثل الايتمات/الشركات)، فـ«ابو دشير»
-  // عند حساب أ و«ابو دشير» عند حساب ب نفس المكان الحقيقي ويُدمَجان لصف واحد
-  // (راجع mergeAreaInto أعلاه).
-  const byKey = new Map(); // normalizedName|provinceId → [{id,name}, …] (id asc)
+  // التجميع بالاسم المطبَّع أولاً، ثم الفصل بالمحافظة داخل كل اسم: «المركز» في
+  // بغداد و«المركز» في البصرة مكانان مختلفان ودمجهما يخلط مبيعاتهما بلا رجعة.
+  // الحساب المالك لم يعد جزءاً من المفتاح — Area كتالوج مشترك الآن (مثل
+  // الايتمات/الشركات)، فـ«ابو دشير» عند حساب أ و«ابو دشير» عند حساب ب نفس
+  // المكان الحقيقي ويُدمَجان لصف واحد (راجع mergeAreaInto أعلاه).
+  const byName = new Map(); // normalizedName → [{id,name,provinceId}, …] (id asc)
   for (const a of allAreas) {
     const key = normalize(a.name);
     if (!key) continue;
-    const groupKey = key + '|' + (a.provinceId ?? '');
-    if (!byKey.has(groupKey)) byKey.set(groupKey, []);
-    byKey.get(groupKey).push(a);
+    if (!byName.has(key)) byName.set(key, []);
+    byName.get(key).push(a);
   }
 
   let mergedCount = 0;
   const groups = [];
-  for (const [, rows] of byKey) {
-    if (rows.length <= 1) continue;
-    const [canonical, ...dupes] = rows; // lowest id = canonical survivor
+
+  // يمتص كل الصفوف عدا الأول (الأقدم = الأدنى id) داخل مجموعة واحدة.
+  const absorbGroup = async rows => {
+    if (rows.length <= 1) return;
+    const [canonical, ...dupes] = rows;
     for (const dupe of dupes) {
       await mergeAreaInto(prisma, dupe.id, canonical.id);
       mergedCount++;
     }
     groups.push({ canonicalId: canonical.id, name: canonical.name, absorbed: dupes.length });
+  };
+
+  for (const rows of byName.values()) {
+    if (rows.length <= 1) continue;
+
+    // صفوف بلا محافظة ليست «مكاناً ثالثاً» — هي نفس المنطقة لكن لم تُسنَد بعد.
+    // ضمّ المحافظة للمفتاح كان يعزلها في مجموعة مستقلة فلا تُدمج أبداً مع
+    // نظيرتها المُسنَدة، وهو سبب بقاء المكررات ظاهرة تحت «غير محدد» رغم
+    // الضغط على «دمج المكررات» مراراً.
+    const unassigned  = rows.filter(a => a.provinceId == null);
+    const byProvince  = new Map();
+    for (const a of rows) {
+      if (a.provinceId == null) continue;
+      if (!byProvince.has(a.provinceId)) byProvince.set(a.provinceId, []);
+      byProvince.get(a.provinceId).push(a);
+    }
+
+    if (byProvince.size === 1 && unassigned.length > 0) {
+      // محافظة واحدة فقط تحمل هذا الاسم → غير المُسنَدة تتبعها بلا لبس.
+      const [assigned] = [...byProvince.values()];
+      await absorbGroup([...assigned, ...unassigned].sort((a, b) => a.id - b.id));
+      continue;
+    }
+
+    // إما بلا محافظة إطلاقاً، أو الاسم موزّع على محافظتين فأكثر (التباس حقيقي:
+    // لا نُخمّن لأيّهما تتبع غير المُسنَدة). في الحالتين نكتفي بدمج المتطابقات
+    // داخل كل محافظة، وغير المُسنَدة فيما بينها.
+    for (const g of byProvince.values()) await absorbGroup(g);
+    await absorbGroup(unassigned);
   }
 
   return { mergedCount, groups };
