@@ -1,4 +1,5 @@
-﻿@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;600;700;800&display=swap');
+﻿/* خط Tajawal يُحمَّل من index.html عبر <link> — @import هنا كان يجعل تحميله
+   متسلسلاً بعد تنزيل هذا الملف وتحليله، فيؤخّر أول رسم للصفحة. */
 
 :root {
   --c-primary:        #0f1e35;   /* deep navy - sidebar & headings */

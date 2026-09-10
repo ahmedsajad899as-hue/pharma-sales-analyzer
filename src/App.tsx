@@ -74,19 +74,6 @@ const OrgStructurePage        = lazyWithRetry(_importOrgStructure);
 const AccountBuilderPage      = lazyWithRetry(_importAccountBuilder);
 const AqdarExportPage         = lazyWithRetry(_importAqdarExport);
 
-// Preload all page chunks immediately in background after app mounts
-function preloadAllChunks() {
-  const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 100));
-  idle(() => {
-    _importDashboard(); _importRepAnalysis(); _importUpload();
-    _importRepresentatives(); _importScientificReps(); _importDoctors();
-    _importMonthlyPlans(); _importDailyPlan(); _importReports(); _importUsers();
-    _importCommercial(); _importAI(); _importSurvey(); _importFMS(); _importSalesData();
-    _importDistributorSales(); _importFileFilter(); _importPharmacyAnalysis(); _importItemAnalysis();
-    _importBonusSales(); _importOrgStructure(); _importAccountBuilder(); _importAqdarExport();
-  });
-}
-
 // Minimal spinner shown while a page chunk is loading
 function PageLoader() {
   return (
@@ -244,9 +231,6 @@ function keepMounted(prev: Set<PageId>, page: PageId): Set<PageId> {
 function AppInner() {
   const { user, hasFeature, token } = useAuth();
   const isImpersonating = sessionStorage.getItem('_is_impersonating') === '1';
-
-  // Preload all page chunks in background so navigation is instant
-  useEffect(() => { preloadAllChunks(); }, []);
 
   // On mobile (< 768px) start with sidebar closed
   const [activePage, setActivePage]       = useState<PageId>(() => {
@@ -416,14 +400,26 @@ function AppInner() {
       _importDistributorSales, _importFileFilter, _importPharmacyAnalysis, _importItemAnalysis,
       _importBonusSales, _importOrgStructure, _importAccountBuilder, _importAqdarExport,
     ];
+
+    // على شبكة بطيئة أو وضع توفير البيانات، سحب ~6MB من الشيفرة مقدّماً يضرّ أكثر
+    // مما ينفع: يزاحم طلبات الـAPI التي تنتظرها الصفحة المفتوحة فعلاً. نكتفي
+    // حينها بالتحميل عند الزيارة.
+    const conn = (navigator as any).connection;
+    if (conn?.saveData) return;
+    if (typeof conn?.effectiveType === 'string' && /2g/.test(conn.effectiveType)) return;
+
     let i = 0;
+    let cancelled = false;
     const idle = (window as any).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 400));
     const pump = () => {
-      if (i >= importers.length) return;
+      if (cancelled || i >= importers.length) return;
       importers[i++]().catch(() => {}); // load next chunk, ignore failures
       idle(pump);                        // schedule the one after it
     };
-    idle(pump);
+    // مهلة بدء: تُترك الشبكة أولاً لطلبات بيانات الصفحة الحالية، فالمستخدم ينتظر
+    // تلك لا شيفرة صفحات لم يفتحها بعد.
+    const startTimer = setTimeout(() => idle(pump), 2500);
+    return () => { cancelled = true; clearTimeout(startTimer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

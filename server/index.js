@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import multer from 'multer';
 import cors from 'cors';
 import XLSX from 'xlsx';
@@ -100,13 +101,30 @@ const imageUpload = multer({
 });
 
 app.use(cors());
+// ── ضغط الاستجابات ────────────────────────────────────────────
+// حزم الواجهة وردود الـAPI نصّية وتُضغط 4-5 أضعاف. بدون هذا كان المتصفح ينزّل
+// عدة ميغابايت خام لكل جلسة جديدة، وهو أوضح سبب لبطء فتح الصفحات على اتصال ضعيف.
+// threshold: لا فائدة من ضغط الردود الصغيرة (تكلفة CPU بلا مكسب) على سيرفر صغير.
+app.use(compression({ threshold: 1024 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(activityMiddleware); // Log non-GET authenticated actions
 
 // ── Serve React frontend in production (BEFORE auth) ─────────
 
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(distPath));
+  app.use(express.static(distPath, {
+    // ملفات /assets تحمل بصمة محتوى في اسمها (index-a1b2c3.js) — أي تعديل يغيّر
+    // الاسم، فتخزينها سنة كاملة آمن ويجعل كل زيارة تالية بلا تنزيل إطلاق.
+    // index.html بلا بصمة، فيجب ألا يُخزَّن وإلا بقي المستخدم على نسخة قديمة
+    // تشير إلى حزم حُذفت في آخر نشر (deploy.ps1 يمسح assets القديمة).
+    setHeaders(res, filePath) {
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
   console.log('✓ Serving static files from:', distPath);
 }
 
@@ -4491,6 +4509,8 @@ app.post('/api/pharmacy-visits/:id/like', async (req, res) => {
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
+    // نفس سبب no-cache أعلاه: index.html هو ما يربط المستخدم بأسماء الحزم الحالية.
+    res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }

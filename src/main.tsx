@@ -1,8 +1,12 @@
-import React from 'react'
+import React, { Suspense, lazy } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
-import SuperAdminApp from './SuperAdminApp.tsx'
 import './index.css'
+
+// لوحة السوبر-أدمن تُحمَّل عند الحاجة فقط. الاستيراد الثابت كان يسحب معه 9 صفحات
+// سوبر-أدمن + مكتبة xlsx إلى حزمة الدخول (index-*.js)، فيصير كل مستخدم عادي
+// ينزّل ويحلّل ~1.5MB لا يستعمل منها شيئاً قبل أن تظهر الواجهة.
+const SuperAdminApp = lazy(() => import('./SuperAdminApp.tsx'))
 
 // ── Impersonation bootstrap: if opened via ?imp=1, read one-time token from localStorage ──
 const _impParams = new URLSearchParams(window.location.search);
@@ -46,8 +50,12 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+const isSuperAdmin = window.location.pathname.startsWith('/super-admin')
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    {window.location.pathname.startsWith('/super-admin') ? <SuperAdminApp /> : <App />}
+    {isSuperAdmin
+      ? <Suspense fallback={null}><SuperAdminApp /></Suspense>
+      : <App />}
   </React.StrictMode>,
 )
