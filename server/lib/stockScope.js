@@ -10,7 +10,6 @@
 
 import prisma from './prisma.js';
 import { normalizeItemKey } from './itemResolver.js';
-import { areSimilar } from './fuzzyMatch.js';
 import { asArray, detectCompanyCol, detectItemNameCol } from './stockMatrix.js';
 
 /**
@@ -105,6 +104,12 @@ export function filterStockMatrixRows(rows, fixedCols, scope) {
   const alnumKey = (s) => normalizeItemKey(s).replace(/[^\p{L}\p{N}]/gu, '');
   const MIN_CONTAIN_LEN = 3; // دون هذا الطول احتمال تطابق عرضي بريء مرتفع جداً
 
+  // areSimilar (تشابه Levenshtein/تداخل كلمات) عمداً غير مُستعمَلة هنا: صُدَّت فعلياً
+  // في الإنتاج — "Diasel 10mg 2ml im.iv 10 amp" المُعيَّن طابق تشابهاً "Diazem
+  // 10mg/2ml IM/IV 10 amp" غير المُعيَّن لأن جل الكلمات (الجرعة/الصيغة) متطابقة
+  // وتختلف فقط كلمة اسم الدواء نفسه — بالضبط الجزء الذي يهم. نطاق الستوك ميزة
+  // تحكّم وصول: تمرير خاطئ (يرى ما لا يُفترض) أخطر من رفض خاطئ (يحتاج تعيين
+  // صريح إضافي)، فالمطابقة هنا تامة أو احتواء فقط — لا تشابه تقريبي.
   const matchesSet = (raw, keys) => {
     if (!keys) return true; // بُعد غير مقيَّد
     const key = normalizeItemKey(raw);
@@ -117,7 +122,6 @@ export function filterStockMatrixRows(rows, fixedCols, scope) {
         if (kAlnum.length >= MIN_CONTAIN_LEN && (rawAlnum.includes(kAlnum) || kAlnum.includes(rawAlnum))) return true;
       }
     }
-    for (const k of keys) if (areSimilar(raw, k)) return true;
     return false;
   };
 
