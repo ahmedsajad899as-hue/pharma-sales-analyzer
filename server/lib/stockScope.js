@@ -83,8 +83,13 @@ export async function buildStockBalanceWhere(userId) {
 
 /**
  * فلترة صفوف ملف Stock الخام (SalesDataFile.rows) بنطاق المستخدم — اسم
- * الشركة/الايتم هنا نص حر لم يمرّ بأي مطابقة مسبقة (بعكس StockBalance)، فالمطابقة
- * تامة أولاً ثم تشابه (areSimilar) كاحتياط لفروق الكتابة.
+ * الشركة/الايتم هنا نص حر لم يمرّ بأي مطابقة مسبقة (بعكس StockBalance)، وغالباً
+ * مُلصَق بلا فواصل (شوهد فعلياً: "AL-HAYATIRAQIN/A" لشركة كتالوجها "AL-HAYATI"،
+ * "DevaTurkeyN/A" لـ"Deva") — تشابه Levenshtein (areSimilar) يفشل مع هذا
+ * الإلصاق (نسب تشابه ~0.3-0.5، تحت العتبة) رغم أن الاسم موجود فعلاً داخل النص.
+ * لذا المطابقة: تامة أولاً، وإلا احتواء بعد تجريد كل حرف غير أبجدي/رقمي (تُطابِق
+ * "alhayati" داخل "alhayatiraqina")، وإلا تشابه كاحتياط أخير لفروق الكتابة
+ * الحقيقية (لا الإلصاق).
  * @param {any[]} rows
  * @param {string[]} fixedCols
  * @param {Awaited<ReturnType<typeof resolveStockScope>>} scope
@@ -95,11 +100,23 @@ export function filterStockMatrixRows(rows, fixedCols, scope) {
   const itemCol = detectItemNameCol(fixedCols);
   const companyCol = detectCompanyCol(fixedCols);
 
+  // أحرف/أرقام فقط (بكل اللغات) — يُسقط الفواصل والرموز التي تُلصَق بها الأعمدة
+  // الملصَقة في ملفات الستوك الخام دون أن يُسقط حروف عربية أو تشكيل الايتمات.
+  const alnumKey = (s) => normalizeItemKey(s).replace(/[^\p{L}\p{N}]/gu, '');
+  const MIN_CONTAIN_LEN = 3; // دون هذا الطول احتمال تطابق عرضي بريء مرتفع جداً
+
   const matchesSet = (raw, keys) => {
     if (!keys) return true; // بُعد غير مقيَّد
     const key = normalizeItemKey(raw);
     if (!key) return false;
     if (keys.has(key)) return true;
+    const rawAlnum = alnumKey(raw);
+    if (rawAlnum.length >= MIN_CONTAIN_LEN) {
+      for (const k of keys) {
+        const kAlnum = alnumKey(k);
+        if (kAlnum.length >= MIN_CONTAIN_LEN && (rawAlnum.includes(kAlnum) || kAlnum.includes(rawAlnum))) return true;
+      }
+    }
     for (const k of keys) if (areSimilar(raw, k)) return true;
     return false;
   };
