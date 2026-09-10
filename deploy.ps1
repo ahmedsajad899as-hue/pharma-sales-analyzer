@@ -69,16 +69,29 @@ function Invoke-Retry([string]$what, [scriptblock]$action, [int]$tries = 4) {
   throw "$what failed after $tries attempts"
 }
 
-# 3) transfer code + dist
-Step "3/5 scp -> $server"
-Invoke-Retry "code transfer" { scp -i $key @sshOpts -r server prisma package.json package-lock.json "${server}:${dir}/" }
-# Clear stale hashed chunks first so old builds don't accumulate — each build
-# emits new content-hash filenames, so without this dist/assets grows unbounded
-# (it had reached 3110 files / 1.8 GB, which stalled scp and filled the disk).
-# NOTE: this hop was previously unchecked — it failed silently and the deploy
-# carried on to print "DEPLOY OK" over a half-transferred tree.
-Invoke-Retry "stale-asset cleanup" { ssh -i $key @sshOpts $server "cd ${dir}/dist && find assets -type f -delete 2>/dev/null; mkdir -p assets" }
-Invoke-Retry "dist transfer" { scp -i $key @sshOpts -r dist/* "${server}:${dir}/dist/" }
+# 3) transfer code + dist — as two tar streams, NOT a recursive scp.
+# A recursive scp of ~130 code files + ~40 dist files pays a round trip per file.
+# On this link (which drops to ~9 KB/s while the SSH flood is on) one stalled file
+# hangs the whole copy for many minutes, and a dropped connection leaves a HALF
+# transferred tree — a new server/index.js beside an old package.json is exactly
+# how production went down with ERR_MODULE_NOT_FOUND. A single archive either
+# lands whole or fails outright, and measured ~10x faster (616 KB in 70 s where
+# the recursive copy had not finished after 10 min).
+Step "3/5 transfer -> $server"
+Remove-Item payload.tgz, dist.tgz -Force -ErrorAction SilentlyContinue
+tar -czf payload.tgz server prisma package.json package-lock.json
+if ($LASTEXITCODE -ne 0) { throw "packing code failed" }
+tar -czf dist.tgz -C dist .
+if ($LASTEXITCODE -ne 0) { throw "packing dist failed" }
+Invoke-Retry "code transfer" { scp -i $key @sshOpts payload.tgz "${server}:${dir}/" }
+Invoke-Retry "dist transfer" { scp -i $key @sshOpts dist.tgz  "${server}:${dir}/" }
+# Unpack both, clearing stale hashed chunks first so old builds don't accumulate —
+# each build emits new content-hash filenames, so without the delete dist/assets
+# grows unbounded (it had reached 3110 files / 1.8 GB and filled the disk).
+# NOTE: this hop used to be unchecked — it failed silently and the deploy carried
+# on to print "DEPLOY OK" over a half-transferred tree.
+Invoke-Retry "unpack on server" { ssh -i $key @sshOpts $server "cd ${dir} && tar -xzf payload.tgz && rm -f payload.tgz && find dist/assets -type f -delete 2>/dev/null; mkdir -p dist/assets && tar -xzf dist.tgz -C dist && rm -f dist.tgz && echo unpacked" }
+Remove-Item payload.tgz, dist.tgz -Force -ErrorAction SilentlyContinue
 
 # 4) optional deps / schema on server
 $remote = "cd $dir"

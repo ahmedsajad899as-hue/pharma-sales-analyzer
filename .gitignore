@@ -41,3 +41,8 @@ nodemon.json
 
 # Test files
 server_out.txt
+
+# deploy.ps1 transfer archives (built and deleted per deploy; ignored so a
+# failed run can't leave one behind for the next 'git add -A' to commit)
+payload.tgz
+dist.tgz
