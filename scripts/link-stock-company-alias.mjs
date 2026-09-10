@@ -101,7 +101,15 @@ async function main() {
     }
     linksUpserted++;
 
-    if (!DRY) {
+    if (DRY) {
+      const [mc, bc] = await Promise.all([
+        prisma.stockMovement.count({ where: { userId, companyName: FROM } }),
+        prisma.stockBalance.count({ where: { userId, companyName: FROM } }),
+      ]);
+      if (mc || bc) console.log(`  [user ${userId}] سيُعاد تسمية ${mc} حركة و${bc} رصيد`);
+      movementsRenamed += mc;
+      balancesRenamed += bc;
+    } else {
       const rm = await prisma.stockMovement.updateMany({ where: { userId, companyName: FROM }, data: { companyName: TO } });
       const rb = await prisma.stockBalance.updateMany({ where: { userId, companyName: FROM }, data: { companyName: TO } });
       movementsRenamed += rm.count;
