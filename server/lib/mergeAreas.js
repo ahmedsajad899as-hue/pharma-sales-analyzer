@@ -1,4 +1,5 @@
 import { normalizeAreaName } from './itemResolver.js';
+import { invalidateAreaSnapshot } from './areaResolver.js';
 
 /**
  * Area-merge utilities.
@@ -118,6 +119,9 @@ export async function mergeAreaInto(prisma, oldId, canonicalId) {
 
   // Finally remove the absorbed duplicate
   await prisma.area.delete({ where: { id: oldId } });
+  // الدمج يحذف صفّ منطقة — أبطل لقطة المناطق كي لا يُرجع محرّك المطابقة
+  // معرّفاً لمنطقة لم تعد موجودة لو تزامن الدمج مع رفع ملف جارٍ.
+  invalidateAreaSnapshot();
 }
 
 /**

@@ -26,7 +26,7 @@ import { resolveEffectiveAreaIds, resolveEffectiveAreas, syncUserAreaDerivedLink
 import {
   getAllItems, getAllReps, getAllCompanies,
   mergeItems, mergeReps, mergeCompanies,
-  normalizeArabic,
+  normalizeArabic, findOrCreateArea,
 } from './modules/sales/sales.repository.js';
 import { COLUMN_ALIASES } from './modules/sales/sales.service.js';
 import authRoutes              from './modules/auth/auth.routes.js';
@@ -570,10 +570,20 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
     // Reroutes every FK to the lowest-id canonical, then deletes the dupes.
     await mergeDuplicateAreasByName(prisma, normalizeArabic);
 
-    // 4. Add survey names not yet in Area table
+    // 4. Add survey names not yet in Area table — المقارنة بالاسم المطبَّع لا
+    // بالنص الخام: المقارنة الخام كانت تعيد إنشاء «الدورة - الطعمة» رغم وجود
+    // «الدورة الطعمة» (وهما اسم واحد بعد التطبيع)، فتُبطل الدمج الذي جرى للتو
+    // في الخطوة السابقة. ونطبّع أسماء السيرفي بينها أيضاً كي لا تُنشأ تهجئتان
+    // منها في الدفعة نفسها.
     const existingAfter = await prisma.area.findMany({ select: { name: true } });
-    const existingNames = new Set(existingAfter.map(a => a.name.trim()));
-    const toCreate = surveyNames.filter(n => !existingNames.has(n));
+    const existingNorms = new Set(existingAfter.map(a => normalizeArabic(a.name)));
+    const toCreate = [];
+    for (const n of surveyNames) {
+      const key = normalizeArabic(n);
+      if (existingNorms.has(key)) continue;
+      existingNorms.add(key);
+      toCreate.push(n);
+    }
     if (toCreate.length > 0) {
       await prisma.area.createMany({
         data: toCreate.map(name => ({ name })),
@@ -1176,13 +1186,12 @@ app.post('/api/areas', async (req, res) => {
     const { name } = req.body;
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
     const trimmed = String(name).trim();
-    const area = await prisma.area.upsert({
-      where:  { name_userId: { name: trimmed, userId } },
-      update: {},
-      create: { name: trimmed, userId },
-      select: { id: true, name: true },
-    });
-    res.json(area);
+    // كان upsert بالاسم الخام مقيَّداً بـ userId: أي فرق إملائي (أو نفس الاسم
+    // من حساب آخر) يُنشئ صفّ منطقة جديداً. نمرّ الآن على نفس مطابقة الكتالوج
+    // المشترك المستعملة في رفع المبيعات والسيرفي (تام → alias → ضبابي → جديد
+    // معلَّم للمراجعة)، ويُسجَّل المستخدم كارتباط لا كمالك.
+    const area = await findOrCreateArea(trimmed, userId);
+    res.json({ id: area.id, name: area.name });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

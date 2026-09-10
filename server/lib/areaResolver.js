@@ -28,23 +28,62 @@ import { areSimilar, similarity } from './fuzzyMatch.js';
 // عمداً، تفادياً لدمج حيّين مختلفين فعلاً يشتركان جذراً لغوياً واحداً.
 const AUTO_LINK_OPTS = { lev: 0.92, prefixRatio: 0.85, wordOverlap: 0.95 };
 
+const AREA_SELECT = { id: true, name: true, provinceId: true, needsReview: true };
+
+// ── لقطة جدول المناطق داخل الدفعة الواحدة ────────────────────────────────────
+// التسلسل أدناه كان سيعني استعلاماً كاملاً لجدول المناطق لكل اسم في الدفعة
+// (رفع ملف فيه 300 منطقة = 300 استعلام متسلسل). فنقرأ الجدول مرة واحدة لكل
+// «دفعة» ونُضيف إليها كل منطقة تُنشأ فوراً — فصحّة الدفعة مضمونة دون تكرار
+// القراءة. اللقطة تُلغى فور خلوّ الطابور (أي بين طلبين مستقلين)، فلا تعيش
+// أطول من الدفعة نفسها ولا تُخفي دمجاً/حذفاً جرى في طلب آخر.
+let snapshot = null;
+let inFlight = 0;
+
+async function loadAreas() {
+  if (!snapshot) snapshot = await prisma.area.findMany({ select: AREA_SELECT });
+  return snapshot;
+}
+
+/** إلغاء اللقطة يدوياً — يستدعيه أي مسار يعدّل جدول المناطق خارج هذا الملف. */
+export function invalidateAreaSnapshot() { snapshot = null; }
+
+// ── قفل التسلسل (داخل العملية) ───────────────────────────────────────────────
+// السبب الحقيقي وراء استمرار تكرار المناطق رغم كل ما سبق: المطابقة كانت
+// تُنفَّذ على التوازي. رفع المبيعات (resolveEntities في sales.service.js) وربط
+// مناطق المندوبين (assignAreasByName) يستدعيان هذه الدالة عبر Promise.all لكل
+// الأسماء دفعةً واحدة، فتقرأ كل الاستدعاءات جدول Area في اللحظة نفسها — قبل
+// أن يكتب أيٌّ منها صفّه الجديد. فتهجئتان لنفس المنطقة داخل ملف واحد
+// («الدورة - الطعمة» و«الدورة الطعمة» — تطبيعهما متطابق حرفياً) لا ترى
+// إحداهما الأخرى، فتفشل خطوة «التطابق التام» بلا ذنب وتُنشأ منطقتان.
+// القفل يجعل كل مطابقة تبدأ بعد اكتمال سابقتها، فترى ما أُنشئ للتو.
+let gate = Promise.resolve();
+
 /**
  * يطابق اسم منطقة قادم من ملف/سيرفي مقابل كتالوج Area، بالترتيب:
  * تطابق تام → alias محفوظ → ضبابي بثقة عالية (يُحفظ alias) → إنشاء جديد
- * (بعلامة needsReview).
+ * (بعلامة needsReview). الاستدعاءات المتوازية تُنفَّذ واحدة تلو الأخرى.
  *
  * @param {string} rawName
  * @returns {Promise<{ area: {id:number,name:string,provinceId:number|null}, matched: 'exact'|'alias'|'fuzzy'|'new' }|null>}
  *          null إن كان الاسم فارغاً.
  */
-export async function resolveAreaByName(rawName) {
+export function resolveAreaByName(rawName) {
+  inFlight++;
+  const run = () => resolveAreaByNameSerial(rawName);
+  const result = gate.then(run, run);
+  // فشل استدعاء واحد يجب ألا يوقف طابور الانتظار خلفه.
+  gate = result.then(() => {}, () => {});
+  const release = () => { if (--inFlight === 0) snapshot = null; };
+  result.then(release, release);
+  return result;
+}
+
+async function resolveAreaByNameSerial(rawName) {
   const trimmed = String(rawName ?? '').trim();
   if (!trimmed) return null;
   const norm = normalizeAreaName(trimmed);
 
-  const allAreas = await prisma.area.findMany({
-    select: { id: true, name: true, provinceId: true, needsReview: true },
-  });
+  const allAreas = await loadAreas();
 
   // 1) تطابق تام
   const exact = allAreas.find(a => normalizeAreaName(a.name) === norm);
@@ -54,7 +93,7 @@ export async function resolveAreaByName(rawName) {
   const alias = await prisma.areaAlias.findUnique({ where: { fromKey: norm } });
   if (alias) {
     const target = allAreas.find(a => a.id === alias.areaId)
-      ?? await prisma.area.findUnique({ where: { id: alias.areaId }, select: { id: true, name: true, provinceId: true, needsReview: true } });
+      ?? await prisma.area.findUnique({ where: { id: alias.areaId }, select: AREA_SELECT });
     if (target) return { area: target, matched: 'alias' };
     // alias يتيم (منطقته حُذفت خارج مسار الدمج المعتاد) — تجاهله والمتابعة كالمعتاد
   }
@@ -80,6 +119,10 @@ export async function resolveAreaByName(rawName) {
   // 4) لا تطابق البتة — منطقة جديدة فعلاً، لكن بعلامة مراجعة بدل إضافة صامتة
   const created = await prisma.area.create({
     data: { name: trimmed, userId: null, needsReview: true },
+    select: AREA_SELECT,
   });
+  // تُضاف للقطة فوراً: الاسم التالي في الدفعة نفسها يجب أن يراها في خطوة
+  // «التطابق التام» بدل أن ينشئ نسخة ثانية منها.
+  if (snapshot) snapshot.push(created);
   return { area: created, matched: 'new' };
 }
