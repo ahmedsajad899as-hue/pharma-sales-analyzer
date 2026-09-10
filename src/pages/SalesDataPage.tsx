@@ -637,7 +637,12 @@ table{border-collapse:collapse;width:100%}
       rows = rows.filter(row => selectedCompanies.has(String(row[companyCol] ?? '').trim()));
     } else if (itemSearchTerms.length) {
       rows = rows.filter(row => {
-        const haystack = activeFile.fixedCols.map(c => String(row[c] ?? '')).join(' ').toLowerCase();
+        const fixedHay = activeFile.fixedCols.map(c => String(row[c] ?? '')).join(' ');
+        const areaHay = activeFile.areaCols
+          .filter(ac => toNum(row[ac.key] ?? '') > 0)
+          .map(ac => `${ac.region} ${ac.label}`)
+          .join(' ');
+        const haystack = `${fixedHay} ${areaHay}`.toLowerCase();
         return itemSearchTerms.every(t => haystack.includes(t));
       });
     }
@@ -1332,7 +1337,7 @@ table{border-collapse:collapse;width:100%}
                 <input
                   value={itemQuery}
                   onChange={e => { setItemQuery(e.target.value); setSelectedItems([]); setPage(1); }}
-                  placeholder="ابحث عن ايتم أو شركة… (اكتب أكثر من كلمة مفصولة بمسافة)"
+                  placeholder="ابحث عن ايتم أو شركة أو منطقة أو مخزن… (اكتب أكثر من كلمة مفصولة بمسافة)"
                   style={{ flex: 1, fontSize: 13, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: 'var(--c-text-primary)' }}
                 />
                 {(itemQuery || selectedItems.length > 0) && (
