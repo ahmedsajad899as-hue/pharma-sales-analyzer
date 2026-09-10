@@ -136,3 +136,55 @@ export function filterStockFiles(files, scope) {
     rows: filterStockMatrixRows(asArray(f.rows), asArray(f.fixedCols), scope),
   }));
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// توحيد اسم الشركة على صفحة Stock الخام — نفس آلية StockCompanyNameLink المستعملة
+// أصلاً في stock-ledger.service.js (resolveCompanyLabel) عند استيعاب حركات رصيد
+// المذاخر، لكنها لم تكن مُطبَّقة إطلاقاً على صفحة «Stock» (الجدول الخام) نفسها —
+// فنفس الشركة تظهر بتهجئتين مختلفتين بين ملف وآخر («Marcyrl» مقابل
+// «REMASEEygptN/A») بلا أي توحيد. هذا لا يُعدّل الملف المرفوع الأصلي (SalesDataFile
+// يبقى كما رُفع) — التوحيد يحصل عند القراءة فقط، فيمكن تصحيحه لاحقاً بلا فقدان بيانات.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * مُحلِّل اسم شركة جاهز لمستخدم — رابط محفوظ (StockCompanyNameLink) أولاً، وإلا
+ * تطابق تام مع كتالوج Company الخاص به، وإلا يبقى الاسم كما ورد. نفس منطق
+ * resolveCompanyLabel المحلي في stock-ledger.service.js، مُصدَّر هنا ليُعاد استعماله
+ * في قراءة صفحة Stock أيضاً (ولسكربتات الترحيل التي تحتاج نفس القرار).
+ * @param {number} userId
+ * @returns {Promise<(raw: string) => string>}
+ */
+export async function loadCompanyLabelResolver(userId) {
+  const [links, cos] = await Promise.all([
+    prisma.stockCompanyNameLink.findMany({ where: { userId }, select: { fromKey: true, companyId: true } }),
+    prisma.company.findMany({ where: { userId }, select: { id: true, name: true } }),
+  ]);
+  const linkByKey = new Map(links.map(l => [l.fromKey, l.companyId]));
+  const nameById = new Map(cos.map(c => [c.id, c.name]));
+  const nameByKey = new Map(cos.map(c => [normalizeItemKey(c.name), c.name]));
+
+  return (raw) => {
+    const trimmed = String(raw ?? '').trim();
+    if (!trimmed) return trimmed;
+    const key = normalizeItemKey(trimmed);
+    if (linkByKey.has(key)) {
+      const companyId = linkByKey.get(key);
+      return companyId ? (nameById.get(companyId) ?? trimmed) : trimmed;
+    }
+    return nameByKey.get(key) ?? trimmed;
+  };
+}
+
+/** يُطبِّق مُحلِّل اسم الشركة على عمود الشركة في rows كل ملفات Stock — يُستعمل في
+ *  GET /api/sales-data-files قبل الفلترة، كي تُطابِق rows القانونية نطاق المستخدم. */
+export function applyCompanyLabelsToFiles(files, resolveLabel) {
+  return files.map(f => {
+    const fixedCols = asArray(f.fixedCols);
+    const companyCol = detectCompanyCol(fixedCols);
+    if (!companyCol) return f;
+    const rows = asArray(f.rows).map(r => (r && Object.prototype.hasOwnProperty.call(r, companyCol))
+      ? { ...r, [companyCol]: resolveLabel(r[companyCol]) }
+      : r);
+    return { ...f, rows };
+  });
+}
