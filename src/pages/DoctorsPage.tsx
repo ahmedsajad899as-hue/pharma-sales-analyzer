@@ -887,7 +887,7 @@ export default function DoctorsPage() {
 
   // Auto-load + auto-refresh team wishlists for managers (no clicks needed)
   useEffect(() => {
-    if (activeTab !== 'visits' || isFieldRep) return;
+    if (activeTab !== 'visits' || !canSeeWishlist) return;
     // Initial load
     loadTeamWishlists();
     // Refresh every 30 seconds while user is on visits tab
@@ -902,7 +902,7 @@ export default function DoctorsPage() {
       document.removeEventListener('visibilitychange', onVisible);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, isFieldRep]);
+  }, [activeTab, canSeeWishlist]);
 
   // (auto-open removed — panel is collapsed by default, user must click to open)
 
@@ -2548,7 +2548,7 @@ export default function DoctorsPage() {
           })()}
 
           {/* ── Manager: wishlists of assigned reps (collapsible panel) ── */}
-          {!isFieldRep && (
+          {canSeeWishlist && (
             <div style={{ marginBottom: 18, border: '2px solid var(--c-accent)', borderRadius: 14, overflow: 'hidden', direction: 'rtl' }}>
               {/* Panel header — always visible, click to open/close */}
               <div
