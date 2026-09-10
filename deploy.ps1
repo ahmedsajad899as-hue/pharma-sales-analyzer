@@ -49,16 +49,36 @@ if ($LASTEXITCODE -ne 0) { throw "build failed - deploy aborted" }
 # names) would otherwise pile up on the server every deploy until the disk fills.
 Get-ChildItem dist -Recurse -Filter *.map -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
+# The box sits under constant SSH brute-force load (1300+ failed logins/hour from
+# ~390 IPs). sshd's MaxStartups then refuses a share of NEW connections at random
+# — "kex_exchange_identification: Connection reset". A single dropped hop used to
+# abort the deploy, or worse land HALF of it: new server/*.js next to an old
+# package.json, which took production down with ERR_MODULE_NOT_FOUND on a package
+# the new code imports. So every hop retries, and every hop is checked.
+$sshOpts = @('-o','ConnectTimeout=20','-o','ServerAliveInterval=10','-o','ServerAliveCountMax=6','-o','ConnectionAttempts=3')
+
+function Invoke-Retry([string]$what, [scriptblock]$action, [int]$tries = 4) {
+  for ($i = 1; $i -le $tries; $i++) {
+    & $action
+    if ($LASTEXITCODE -eq 0) { return }
+    if ($i -lt $tries) {
+      Write-Host "  $what failed (try $i/$tries) - retrying in 6s..." -ForegroundColor Yellow
+      Start-Sleep -Seconds 6
+    }
+  }
+  throw "$what failed after $tries attempts"
+}
+
 # 3) transfer code + dist
 Step "3/5 scp -> $server"
-scp -i $key -r server prisma package.json package-lock.json "${server}:${dir}/"
-if ($LASTEXITCODE -ne 0) { throw "code transfer failed" }
+Invoke-Retry "code transfer" { scp -i $key @sshOpts -r server prisma package.json package-lock.json "${server}:${dir}/" }
 # Clear stale hashed chunks first so old builds don't accumulate — each build
 # emits new content-hash filenames, so without this dist/assets grows unbounded
 # (it had reached 3110 files / 1.8 GB, which stalled scp and filled the disk).
-ssh -i $key $server "cd ${dir}/dist && find assets -type f -delete 2>/dev/null; mkdir -p assets"
-scp -i $key -r dist/* "${server}:${dir}/dist/"
-if ($LASTEXITCODE -ne 0) { throw "dist transfer failed" }
+# NOTE: this hop was previously unchecked — it failed silently and the deploy
+# carried on to print "DEPLOY OK" over a half-transferred tree.
+Invoke-Retry "stale-asset cleanup" { ssh -i $key @sshOpts $server "cd ${dir}/dist && find assets -type f -delete 2>/dev/null; mkdir -p assets" }
+Invoke-Retry "dist transfer" { scp -i $key @sshOpts -r dist/* "${server}:${dir}/dist/" }
 
 # 4) optional deps / schema on server
 $remote = "cd $dir"
@@ -66,13 +86,28 @@ if ($Install) { $remote = "$remote; npm install --omit=dev" }
 if ($Schema)  { $remote = "$remote; npx prisma generate --schema prisma/schema.postgresql.prisma; npx prisma db push --schema prisma/schema.postgresql.prisma --accept-data-loss" }
 if ($Install -or $Schema) {
   Step "4/5 server install/schema"
-  ssh -i $key $server $remote
-  if ($LASTEXITCODE -ne 0) { throw "server install/schema failed" }
+  Invoke-Retry "server install/schema" { ssh -i $key @sshOpts $server $remote }
 } else { Write-Host "4/5 skip install/schema (no flags)" }
 
 # 5) restart + health
 Step "5/5 pm2 restart + health"
-ssh -i $key $server "pm2 restart $proc --update-env; sleep 2; pm2 describe $proc | grep -E 'status|restarts' | head -2"
-if ($LASTEXITCODE -ne 0) { throw "pm2 restart failed" }
+Invoke-Retry "pm2 restart" { ssh -i $key @sshOpts $server "pm2 restart $proc --update-env; sleep 2; pm2 describe $proc | grep -E 'status|restarts' | head -2" }
+
+# A real request, not just "pm2 says online". pm2 reports a process that died on
+# an import error as online for a while; only an actual 200 proves the new code
+# booted. Without this the script happily printed "DEPLOY OK" over a dead app.
+Write-Host "health check..." -NoNewline
+$code = ""
+for ($i = 1; $i -le 6; $i++) {
+  Start-Sleep -Seconds 5
+  $code = (ssh -i $key @sshOpts $server "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/health") -join ""
+  if ($code -match "200") { break }
+  Write-Host "." -NoNewline
+}
+if ($code -notmatch "200") {
+  ssh -i $key @sshOpts $server "tail -n 20 /root/.pm2/logs/$proc-error.log"
+  throw "app did NOT come back up (health=$code) - see the error log above"
+}
+Write-Host " 200 OK"
 
 Write-Host "`nDEPLOY OK - production updated" -ForegroundColor Green
