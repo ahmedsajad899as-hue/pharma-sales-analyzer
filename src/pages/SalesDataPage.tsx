@@ -125,6 +125,9 @@ export default function SalesDataPage() {
 
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [itemQuery, setItemQuery]         = useState('');
+  const itemSearchTerms = useMemo(
+    () => itemQuery.trim().toLowerCase().split(/\s+/).filter(Boolean),
+    [itemQuery]);
   const [selectedCompanies, setSelectedCompanies] = useState<Set<string>>(new Set());
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const regionFilter = selectedRegions.length === 0 ? 'all' : selectedRegions.length === 1 ? selectedRegions[0] : 'multi';
@@ -632,15 +635,17 @@ table{border-collapse:collapse;width:100%}
     } else if (selectedCompanies.size > 0 && companyCol) {
       // No items selected — show all items from selected companies
       rows = rows.filter(row => selectedCompanies.has(String(row[companyCol] ?? '').trim()));
-    } else {
-      const q = itemQuery.trim().toLowerCase();
-      if (q) rows = rows.filter(row => activeFile.fixedCols.some(c => String(row[c] ?? '').toLowerCase().includes(q)));
+    } else if (itemSearchTerms.length) {
+      rows = rows.filter(row => {
+        const haystack = activeFile.fixedCols.map(c => String(row[c] ?? '')).join(' ').toLowerCase();
+        return itemSearchTerms.every(t => haystack.includes(t));
+      });
     }
     Object.entries(colFilters).forEach(([col, vals]) => {
       if (vals.length > 0) rows = rows.filter(row => vals.includes(String(row[col] ?? '').trim()));
     });
     return rows;
-  }, [activeFile, selectedItems, itemQuery, selectedCompanies, companyCol, colFilters, regionFilter, selectedRegions]);
+  }, [activeFile, selectedItems, itemSearchTerms, selectedCompanies, companyCol, colFilters, regionFilter, selectedRegions]);
 
   // Grand totals per display column
   const grandTotals = useMemo(() => {
@@ -1327,7 +1332,7 @@ table{border-collapse:collapse;width:100%}
                 <input
                   value={itemQuery}
                   onChange={e => { setItemQuery(e.target.value); setSelectedItems([]); setPage(1); }}
-                  placeholder="ابحث عن ايتم..."
+                  placeholder="ابحث عن ايتم أو شركة… (اكتب أكثر من كلمة مفصولة بمسافة)"
                   style={{ flex: 1, fontSize: 13, border: 'none', outline: 'none', background: 'transparent', direction: 'rtl', color: 'var(--c-text-primary)' }}
                 />
                 {(itemQuery || selectedItems.length > 0) && (
@@ -1417,8 +1422,9 @@ table{border-collapse:collapse;width:100%}
               const allItems = [...new Set(
                 sourceRows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
               )].sort((a, b) => a.localeCompare(b, 'ar'));
-              const q = itemQuery.trim().toLowerCase();
-              const baseItems = q ? allItems.filter(name => name.toLowerCase().includes(q)) : allItems;
+              const baseItems = itemSearchTerms.length
+                ? allItems.filter(name => { const n = name.toLowerCase(); return itemSearchTerms.every(t => n.includes(t)); })
+                : allItems;
               // Keep original order — selected items stay in place
               const visibleItems = baseItems;
               const hasActive = selectedItems.length > 0;
@@ -1865,7 +1871,7 @@ table{border-collapse:collapse;width:100%}
                             {activeFile.fixedCols.map((c, ci) => {
                               if (shortageOnlyMode && c === priceCol) return null;
                               const val = row[c] ?? '';
-                              const hi = itemQuery && val.toLowerCase().includes(itemQuery.toLowerCase());
+                              const hi = itemSearchTerms.length > 0 && itemSearchTerms.some(t => val.toLowerCase().includes(t));
                               const display = c === priceCol ? (toNum(val) > 0 ? fmtNum(toNum(val)) : (val || '—')) : val;
                               return (
                                 <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}), ...(ci === 2 ? { color: 'var(--c-text-primary)' } : {}) }}>
