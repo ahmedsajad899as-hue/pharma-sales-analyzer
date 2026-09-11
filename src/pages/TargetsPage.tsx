@@ -244,158 +244,160 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
     'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر',
   ];
   const years = Array.from({ length: 5 }, (_, i) => NOW.getFullYear() - 2 + i);
+  const showActualCols = isManager && !!selRepId && repType === 'scientific';
 
   return (
-    <div style={{ padding: 24, maxWidth: 800, margin: '0 auto', direction: 'rtl' }}>
-      <style>{`
-        .tgt-btn { padding: 8px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 700; transition: all 0.15s; }
-        .tgt-btn:hover { filter: brightness(0.93); }
-        .tgt-input { width: 100%; padding: 6px 10px; border: 1.5px solid #e2e8f0; border-radius: 7px; font-size: 14px; text-align: center; direction: ltr; }
-        .tgt-input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px #6366f133; }
-      `}</style>
-
-      <h2 style={{ margin: '0 0 20px', fontSize: 20, fontWeight: 800, color: '#0f172a' }}>🎯 التارگت الشهري</h2>
+    <div className="page" dir="rtl" style={{ maxWidth: 1000 }}>
+      <div className="page-header">
+        <div>
+          <div className="page-title">🎯 التارگت الشهري</div>
+          <div className="page-subtitle">
+            {isManager
+              ? 'تحديد ومتابعة الأهداف الشهرية لكل مندوب علمي أو تجاري، ومقارنتها بالمبيع الفعلي'
+              : 'الأهداف الشهرية المعيّنة لك من قبل إدارة الشركة'}
+          </div>
+        </div>
+      </div>
 
       {/* ── Rep-only banner ── */}
       {!isManager && (
-        <div style={{ background: '#eef2ff', border: '1.5px solid #c7d2fe', borderRadius: 12, padding: '12px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, direction: 'rtl' }}>
-          <span style={{ fontSize: 22 }}>🎯</span>
+        <div className="info-banner" style={{ marginBottom: 20 }}>
+          <span className="info-banner-icon">🎯</span>
           <div>
-            <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#3730a3' }}>تارگتاتك الشهرية</p>
-            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6366f1' }}>هذه هي التارگتات المعيّنة لك من قبل مدير الشركة — للاطلاع فقط</p>
+            <strong>تارگتاتك الشهرية</strong>
+            <p>هذه هي التارگتات المعيّنة لك من قبل مدير الشركة — للاطلاع فقط</p>
           </div>
         </div>
       )}
 
       {/* ── Controls ── */}
-      <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', padding: '18px 20px', marginBottom: 20, display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end' }}>
+      <div className="filter-card" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-end' }}>
         {/* Rep type toggle — manager only */}
-        {isManager && <div>
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 5, fontWeight: 600 }}>نوع المندوب</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {(['scientific', 'commercial'] as const).map(t => (
-              <button
-                key={t}
-                className="tgt-btn"
-                onClick={() => setRepType(t)}
-                style={{ background: repType === t ? '#6366f1' : '#f1f5f9', color: repType === t ? '#fff' : '#475569' }}
-              >
-                {t === 'scientific' ? '🔬 علمي' : '💼 تجاري'}
-              </button>
-            ))}
+        {isManager && (
+          <div className="form-group">
+            <label className="form-label">نوع المندوب</label>
+            <div className="tabs">
+              {(['scientific', 'commercial'] as const).map(t => (
+                <button
+                  key={t}
+                  className={`tab ${repType === t ? 'tab--active' : ''}`}
+                  onClick={() => setRepType(t)}
+                >
+                  {t === 'scientific' ? '🔬 علمي' : '💼 تجاري'}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>}
+        )}
 
         {/* Rep selector — manager only */}
-        {isManager && <div style={{ flex: 1, minWidth: 180 }}>
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 5, fontWeight: 600 }}>المندوب</div>
-          <select
-            value={selRepId}
-            onChange={e => setSelRepId(e.target.value)}
-            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 14, cursor: 'pointer', background: '#fff' }}
-          >
-            <option value="">— اختر مندوباً —</option>
-            {/* مرتّبة: شركة ← قائد فريق ← مندوبوه. التجاريون بلا أدوار فتظهر قائمتهم مسطّحة */}
-            <RepSelectOptions reps={reps} />
-          </select>
-        </div>}
+        {isManager && (
+          <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
+            <label className="form-label">المندوب</label>
+            <select
+              className="form-input"
+              value={selRepId}
+              onChange={e => setSelRepId(e.target.value)}
+              style={{ cursor: 'pointer' }}
+            >
+              <option value="">— اختر مندوباً —</option>
+              {/* مرتّبة: شركة ← قائد فريق ← مندوبوه. التجاريون بلا أدوار فتظهر قائمتهم مسطّحة */}
+              <RepSelectOptions reps={reps} />
+            </select>
+          </div>
+        )}
 
         {/* Month */}
-        <div>
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 5, fontWeight: 600 }}>الشهر</div>
+        <div className="form-group">
+          <label className="form-label">الشهر</label>
           <select
+            className="form-input"
             value={month}
             onChange={e => setMonth(parseInt(e.target.value))}
-            style={{ padding: '7px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 14, cursor: 'pointer', background: '#fff' }}
+            style={{ width: 'auto', cursor: 'pointer' }}
           >
             {months.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
           </select>
         </div>
 
         {/* Year */}
-        <div>
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 5, fontWeight: 600 }}>السنة</div>
+        <div className="form-group">
+          <label className="form-label">السنة</label>
           <select
+            className="form-input"
             value={year}
             onChange={e => setYear(parseInt(e.target.value))}
-            style={{ padding: '7px 10px', borderRadius: 8, border: '1.5px solid #e2e8f0', fontSize: 14, cursor: 'pointer', background: '#fff' }}
+            style={{ width: 'auto', cursor: 'pointer' }}
           >
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
 
         {/* Broadcast — manager only */}
-        {isManager && <button
-          className="tgt-btn"
-          onClick={() => { setShowBroadcast(v => !v); setBroadcastSel(new Set()); setBroadcastResult(null); }}
-          disabled={!selRepId || rows.length === 0}
-          title="مزامنة نفس التارگت مع مندوبين آخرين"
-          style={{ background: showBroadcast ? '#f59e0b' : '#fff', color: showBroadcast ? '#fff' : '#f59e0b', border: '1.5px solid #f59e0b', opacity: (!selRepId || rows.length === 0) ? 0.4 : 1 }}
-        >
-          🔄 مزامنة مع مندوبين آخرين
-        </button>}
+        {isManager && (
+          <button
+            className={`btn ${showBroadcast ? 'btn--primary' : 'btn--secondary'}`}
+            onClick={() => { setShowBroadcast(v => !v); setBroadcastSel(new Set()); setBroadcastResult(null); }}
+            disabled={!selRepId || rows.length === 0}
+            title="مزامنة نفس التارگت مع مندوبين آخرين"
+          >
+            🔄 مزامنة مع مندوبين آخرين
+          </button>
+        )}
       </div>
 
       {/* ── Broadcast Panel — manager only ── */}
       {isManager && showBroadcast && selRepId && rows.length > 0 && (
-        <div style={{ background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+        <div className="card" style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <div>
-              <span style={{ fontWeight: 800, fontSize: 14, color: '#92400e' }}>� مزامنة التارگت مع مندوبين آخرين</span>
-              <div style={{ fontSize: 12, color: '#b45309', marginTop: 2 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--c-text-primary)' }}>🔄 مزامنة التارگت مع مندوبين آخرين</div>
+              <div style={{ fontSize: 12.5, color: 'var(--c-text-secondary)', marginTop: 2 }}>
                 سيتم تطبيق تارگت {months[month - 1]} {year} على المندوبين المحددين أدناه
                 {repType === 'scientific' && <span> (يُطبَّق فقط على الايتمات المشتركة)</span>}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button
-                className="tgt-btn"
+                className="btn btn--secondary btn--sm"
                 onClick={() => setBroadcastSel(new Set(reps.filter(r => r.id !== parseInt(selRepId)).map(r => r.id)))}
-                style={{ background: '#f59e0b', color: '#fff', fontSize: 12, padding: '5px 14px' }}
-              >تحديد الكل</button>              <button
-                className="tgt-btn"
+              >تحديد الكل</button>
+              <button
+                className="btn btn--secondary btn--sm"
                 onClick={() => setBroadcastSel(new Set())}
-                style={{ background: '#f1f5f9', color: '#374151', fontSize: 12, padding: '5px 14px' }}
               >إلغاء الكل</button>
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+          <div className="tag-list" style={{ marginBottom: 14 }}>
             {reps.filter(r => r.id !== parseInt(selRepId)).map(r => {
               const checked = broadcastSel.has(r.id);
               return (
                 <div
                   key={r.id}
                   onClick={() => setBroadcastSel(prev => { const s = new Set(prev); checked ? s.delete(r.id) : s.add(r.id); return s; })}
-                  style={{
-                    padding: '6px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 13, fontWeight: checked ? 700 : 400,
-                    border: checked ? '1.5px solid #f59e0b' : '1.5px solid #e2e8f0',
-                    background: checked ? '#fef3c7' : '#fff',
-                    color: checked ? '#92400e' : '#64748b',
-                    transition: 'all .12s',
-                    display: 'flex', alignItems: 'center', gap: 5,
-                  }}
+                  className={`filter-chip ${checked ? 'filter-chip--active' : ''}`}
                 >
                   {checked ? '✓' : '○'} {r.name}
                 </div>
               );
             })}
             {reps.filter(r => r.id !== parseInt(selRepId)).length === 0 && (
-              <span style={{ fontSize: 13, color: '#94a3b8' }}>لا يوجد مندوبون آخرون</span>
+              <span style={{ fontSize: 13, color: 'var(--c-text-muted)' }}>لا يوجد مندوبون آخرون</span>
             )}
           </div>
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <button
-              className="tgt-btn"
+              className="btn btn--primary"
               onClick={broadcast}
               disabled={broadcasting || broadcastSel.size === 0}
-              style={{ background: '#f59e0b', color: '#fff', opacity: broadcastSel.size === 0 ? 0.4 : 1, minWidth: 140 }}
+              style={{ minWidth: 160 }}
             >
               {broadcasting ? '⏳ جاري المزامنة...' : `🔄 مزامنة مع ${broadcastSel.size} مندوب`}
             </button>
             {broadcastResult && (
-              <span style={{ fontSize: 13, fontWeight: 700, color: broadcastResult.startsWith('✓') ? '#059669' : '#d97706' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: broadcastResult.startsWith('✓') ? 'var(--c-success)' : 'var(--c-danger)' }}>
                 {broadcastResult}
               </span>
             )}
@@ -405,17 +407,18 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
 
       {/* ── Items Table ── */}
       {isManager && !selRepId && (
-        <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8', fontSize: 15 }}>
+        <div className="card" style={{ textAlign: 'center', padding: 48, color: 'var(--c-text-secondary)' }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>🎯</div>
           اختر مندوباً لعرض التارگت الخاص به
         </div>
       )}
 
       {(isManager ? !!selRepId : true) && loading && (
-        <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>⏳ جاري التحميل...</div>
+        <div className="card" style={{ textAlign: 'center', padding: 48, color: 'var(--c-text-secondary)' }}>⏳ جاري التحميل...</div>
       )}
 
       {(isManager ? !!selRepId : true) && !loading && rows.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 48, background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', color: '#94a3b8' }}>
+        <div className="card" style={{ textAlign: 'center', padding: 48, color: 'var(--c-text-secondary)' }}>
           <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
           <div>{isManager ? 'لا توجد ايتمات مخصصة لهذا المندوب' : 'لم يتم تعيين أي تارگت لك هذا الشهر'}</div>
           {isManager && <div style={{ fontSize: 12, marginTop: 4 }}>قم بتعيين الايتمات من قسم المندوبين العلميين</div>}
@@ -423,23 +426,23 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
       )}
 
       {(isManager ? !!selRepId : true) && !loading && rows.length > 0 && (
-        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-          <div style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="table-wrapper">
+          <div style={{ background: 'var(--c-primary)', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>
               🎯 تارگت {months[month - 1]} {year}
             </span>
-            <span style={{ color: '#c7d2fe', fontSize: 12 }}>{rows.length} ايتم</span>
+            <span style={{ color: '#aeb9d6', fontSize: 12 }}>{rows.length} ايتم</span>
           </div>
 
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="data-table">
             <thead>
-              <tr style={{ background: '#f8fafc' }}>
-                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#475569', borderBottom: '1px solid #e2e8f0' }}>#</th>
-                <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#475569', borderBottom: '1px solid #e2e8f0' }}>اسم الايتم</th>
-                <th style={{ padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#6366f1', borderBottom: '1px solid #e2e8f0', width: 140 }}>🎯 التارگت (عدد)</th>
-                {isManager && selRepId && repType === 'scientific' && <>
-                  <th style={{ padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#0891b2', borderBottom: '1px solid #e2e8f0', width: 120 }}>📦 المبيع النت</th>
-                  <th style={{ padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#059669', borderBottom: '1px solid #e2e8f0', width: 90 }}>✓ الانجاز</th>
+              <tr>
+                <th style={{ width: 40 }}>#</th>
+                <th>اسم الايتم</th>
+                <th style={{ textAlign: 'center', width: 140, color: 'var(--c-accent)' }}>التارگت (عدد)</th>
+                {showActualCols && <>
+                  <th style={{ textAlign: 'center', width: 120 }}>المبيع النت</th>
+                  <th style={{ textAlign: 'center', width: 90 }}>الانجاز</th>
                 </>}
               </tr>
             </thead>
@@ -447,17 +450,16 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
               {rows.map((row, i) => {
                 const actual = actuals.get(row.itemId) ?? 0;
                 const tgt = parseFloat(row.target) || 0;
-                const showActualCols = isManager && !!selRepId && repType === 'scientific';
                 const pct = showActualCols && tgt > 0 ? Math.round((actual / tgt) * 100) : null;
-                const pctColor = pct === null ? '#94a3b8' : pct >= 100 ? '#059669' : pct >= 70 ? '#d97706' : '#dc2626';
+                const pctVariant = pct === null ? 'gray' : pct >= 100 ? 'green' : pct >= 70 ? 'blue' : 'red';
                 return (
-                <tr key={row.itemId} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                  <td style={{ padding: '10px 16px', fontSize: 13, color: '#94a3b8', width: 40 }}>{i + 1}</td>
-                  <td style={{ padding: '10px 16px', fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{row.itemName}</td>
-                  <td style={{ padding: '8px 16px', textAlign: 'center' }}>
+                <tr key={row.itemId}>
+                  <td style={{ color: 'var(--c-text-muted)', width: 40 }}>{i + 1}</td>
+                  <td style={{ fontWeight: 600 }}>{row.itemName}</td>
+                  <td style={{ textAlign: 'center' }}>
                     {isManager ? (
                       <input
-                        className="tgt-input"
+                        className="form-input tgt-target-input"
                         type="number"
                         min="0"
                         placeholder="0"
@@ -466,27 +468,28 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
                         onKeyDown={e => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
-                            const inputs = document.querySelectorAll<HTMLInputElement>('.tgt-input');
+                            const inputs = document.querySelectorAll<HTMLInputElement>('.tgt-target-input');
                             const next = inputs[i + 1];
                             if (next) { next.focus(); next.select(); }
                           }
                         }}
+                        style={{ textAlign: 'center', direction: 'ltr', maxWidth: 110, margin: '0 auto' }}
                       />
                     ) : (
-                      <span style={{ fontWeight: 800, fontSize: 15, color: '#4f46e5' }}>
+                      <span style={{ fontWeight: 800, fontSize: 15, color: 'var(--c-accent)' }}>
                         {(parseFloat(row.target) || 0).toLocaleString('ar-IQ-u-nu-latn')}
                       </span>
                     )}
                   </td>
                   {showActualCols && <>
-                    <td style={{ padding: '10px 16px', textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#0e7490' }}>
-                      {loadingActuals ? <span style={{ color: '#cbd5e1' }}>⋯</span> : actual.toLocaleString('ar-IQ-u-nu-latn')}
+                    <td style={{ textAlign: 'center', fontWeight: 600, color: 'var(--c-text-secondary)' }}>
+                      {loadingActuals ? <span style={{ color: 'var(--c-text-muted)' }}>⋯</span> : actual.toLocaleString('ar-IQ-u-nu-latn')}
                     </td>
-                    <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                    <td style={{ textAlign: 'center' }}>
                       {pct === null || loadingActuals ? (
-                        <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>
+                        <span style={{ color: 'var(--c-text-muted)', fontSize: 12 }}>—</span>
                       ) : (
-                        <span style={{ fontWeight: 800, fontSize: 13, color: pctColor }}>{pct}%</span>
+                        <span className={`badge badge--${pctVariant}`}>{pct}%</span>
                       )}
                     </td>
                   </>}
@@ -495,24 +498,24 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
               })}
             </tbody>
             <tfoot>
-              <tr style={{ background: '#f0f9ff', borderTop: '2px solid #bae6fd' }}>
-                <td colSpan={2} style={{ padding: '10px 16px', fontWeight: 700, fontSize: 13, color: '#0369a1' }}>
+              <tr style={{ background: 'var(--c-accent-light)', borderTop: '2px solid var(--c-purple-border)' }}>
+                <td colSpan={2} style={{ fontWeight: 700, color: 'var(--c-accent)' }}>
                   الإجمالي
                 </td>
-                <td style={{ padding: '10px 16px', textAlign: 'center', fontWeight: 800, fontSize: 15, color: '#0369a1' }}>
+                <td style={{ textAlign: 'center', fontWeight: 800, fontSize: 15, color: 'var(--c-accent)' }}>
                   {rows.reduce((s, r) => s + (parseFloat(r.target) || 0), 0).toLocaleString('ar-IQ-u-nu-latn')}
                 </td>
-                {isManager && selRepId && repType === 'scientific' && (() => {
+                {showActualCols && (() => {
                   const totalActual = rows.reduce((s, r) => s + (actuals.get(r.itemId) ?? 0), 0);
                   const totalTarget = rows.reduce((s, r) => s + (parseFloat(r.target) || 0), 0);
                   const overallPct = totalTarget > 0 ? Math.round((totalActual / totalTarget) * 100) : null;
-                  const pctColor = overallPct === null ? '#94a3b8' : overallPct >= 100 ? '#059669' : overallPct >= 70 ? '#d97706' : '#dc2626';
+                  const overallVariant = overallPct === null ? 'gray' : overallPct >= 100 ? 'green' : overallPct >= 70 ? 'blue' : 'red';
                   return <>
-                    <td style={{ padding: '10px 16px', textAlign: 'center', fontWeight: 800, fontSize: 15, color: '#0e7490' }}>
+                    <td style={{ textAlign: 'center', fontWeight: 800, fontSize: 15, color: 'var(--c-accent)' }}>
                       {totalActual.toLocaleString('ar-IQ-u-nu-latn')}
                     </td>
-                    <td style={{ padding: '10px 16px', textAlign: 'center', fontWeight: 800, fontSize: 15, color: pctColor }}>
-                      {overallPct !== null ? `${overallPct}%` : '—'}
+                    <td style={{ textAlign: 'center' }}>
+                      {overallPct !== null ? <span className={`badge badge--${overallVariant}`} style={{ fontSize: 13 }}>{overallPct}%</span> : '—'}
                     </td>
                   </>;
                 })()}
@@ -522,13 +525,13 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
         </div>
       )}
       {isManager && !!selRepId && !loading && rows.length > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14, gap: 12, alignItems: 'center' }}>
-          {saved && <span style={{ color: '#059669', fontWeight: 700, fontSize: 13 }}>✓ تم الحفظ بنجاح</span>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16, gap: 12, alignItems: 'center' }}>
+          {saved && <span style={{ color: 'var(--c-success)', fontWeight: 700, fontSize: 13 }}>✓ تم الحفظ بنجاح</span>}
           <button
-            className="tgt-btn"
+            className="btn btn--primary"
             onClick={save}
             disabled={saving}
-            style={{ background: '#6366f1', color: '#fff', minWidth: 150, opacity: saving ? 0.6 : 1 }}
+            style={{ minWidth: 150 }}
           >
             {saving ? '⏳ جاري الحفظ...' : '💾 حفظ التارگت'}
           </button>
