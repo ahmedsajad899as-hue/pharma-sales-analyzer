@@ -2797,13 +2797,6 @@ export default function DoctorsPage() {
                                 <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--c-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                   {doc.name}
                                 </span>
-                                {doc.isWriting && (
-                                  <span style={{
-                                    fontSize: 10, padding: '1px 5px', borderRadius: 4,
-                                    background: 'var(--c-accent-light)', border: '1px solid var(--c-accent)',
-                                    flexShrink: 0, lineHeight: 1.4, color: 'var(--c-accent)', fontWeight: 600,
-                                  }}>كتابة</span>
-                                )}
                               </div>
                               {doc.specialty && <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 1 }}>{doc.specialty}</div>}
                               {doc.pharmacyName && (
@@ -3595,9 +3588,6 @@ export default function DoctorsPage() {
                                   {/* Name row */}
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                     <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--c-text-primary)' }}>{doc.name}</span>
-                                    {doc.isWriting && (
-                                      <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 4, background: 'var(--c-accent-light)', border: '1px solid var(--c-accent)', flexShrink: 0, lineHeight: 1.4, color: 'var(--c-accent)', fontWeight: 600 }}>كتابة</span>
-                                    )}
                                     {doc.className && (
                                       <span style={{ fontSize: 10, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 6, padding: '1px 7px', fontWeight: 600 }}>{doc.className}</span>
                                     )}
