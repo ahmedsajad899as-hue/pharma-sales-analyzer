@@ -154,6 +154,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftRequireGps,    setDraftRequireGps]    = useState(true);
   const [draftDoctorFilter,  setDraftDoctorFilter]  = useState<{ byArea: boolean; planMode: string; surveyOnly: boolean }>({ byArea: true, planMode: 'plan_and_all', surveyOnly: false });
   const [draftDisableActLog, setDraftDisableActLog] = useState(false);
+  // إخفاء بصري من شجرة «الهيكلية» فقط — راجع perms.hiddenFromOrgChart في server/index.js
+  const [draftHiddenOrgChart, setDraftHiddenOrgChart] = useState(false);
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
   const [allAreasBusy,       setAllAreasBusy]       = useState(false);
 
@@ -300,12 +302,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       setDraftDisabledFeats(p.disabledFeatures ?? []);
       setDraftRequireGps(p.requireGps !== false);
       setDraftDisableActLog(p.disableActivityLog === true);
+      setDraftHiddenOrgChart(p.hiddenFromOrgChart === true);
       setDraftDoctorFilter({
         byArea: p.doctorFilterByArea !== false,
         planMode: p.doctorFilterPlanMode || 'plan_and_all',
         surveyOnly: p.doctorFilterSurveyOnly === true,
       });
-    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); }
+    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftHiddenOrgChart(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); }
   }, [detail?.id]);
 
   // طيّ افتراضي عند فتح مستخدم: نطوي كل مجموعة (محافظة أو «غير محدد») لا صلة لها
@@ -782,6 +785,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           disabledFeatures: draftDisabledFeats,
           requireGps: draftRequireGps,
           disableActivityLog: draftDisableActLog,
+          hiddenFromOrgChart: draftHiddenOrgChart,
           doctorFilterByArea: draftDoctorFilter.byArea,
           doctorFilterPlanMode: draftDoctorFilter.planMode,
           doctorFilterSurveyOnly: draftDoctorFilter.surveyOnly,
@@ -2190,6 +2194,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       <SidebarBtn id="gps"           icon="📍" label="GPS / الموقع"  dot={{ color: draftRequireGps ? '#f97316' : '#22c55e' }} />
                       <SidebarBtn id="activity_log"  icon="🕵️" label="سجل الحركات"  dot={{ color: draftDisableActLog ? '#94a3b8' : '#22c55e' }} />
                       <SidebarBtn id="doctor_filter" icon="🔍" label="فلتر الأطباء"  dot={{ color: '#6366f1' }} />
+                      <SidebarBtn id="org_chart"     icon="🏗️" label="الهيكلية"      dot={{ color: draftHiddenOrgChart ? '#94a3b8' : '#22c55e' }} />
                     </div>
 
                     <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '8px 12px' }} />
@@ -2307,6 +2312,37 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                           <input type="checkbox" checked={!draftDisableActLog} onChange={e => setDraftDisableActLog(!e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
                           <span style={{ position: 'absolute', inset: 0, background: !draftDisableActLog ? '#22c55e' : '#e2e8f0', borderRadius: 30, transition: 'background 0.2s' }} />
                           <span style={{ position: 'absolute', top: 5, left: !draftDisableActLog ? 31 : 5, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Org Chart visibility ── */}
+                  {featSection === 'org_chart' && (
+                    <div>
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>🏗️ الظهور في شجرة الهيكلية</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>إخفاء بصري بحت من صفحة «الهيكلية» — لا يغيّر صلاحيات الحساب ولا بياناته ولا نتائجه في أي مكان آخر. مرؤوسو الحساب المخفي (إن وُجدوا) يظهرون مباشرة تحت مديره كأن هذا الحساب غير موجود في الشجرة.</div>
+                      </div>
+                      <div style={{
+                        borderRadius: 14, border: `2px solid ${draftHiddenOrgChart ? '#94a3b8' : '#22c55e'}`,
+                        background: draftHiddenOrgChart ? '#f8fafc' : '#f0fdf4',
+                        padding: '18px 20px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: draftHiddenOrgChart ? '#e2e8f0' : '#bbf7d0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🏗️</div>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>ظهور الحساب في شجرة الهيكلية</div>
+                            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                              {draftHiddenOrgChart ? '⚫ مخفي — لا يظهر كعقدة في شجرة الهيكلية' : '🟢 يظهر بشكل طبيعي في شجرة الهيكلية'}
+                            </div>
+                          </div>
+                        </div>
+                        <label style={{ position: 'relative', display: 'inline-block', width: 56, height: 30, cursor: 'pointer', flexShrink: 0 }}>
+                          <input type="checkbox" checked={!draftHiddenOrgChart} onChange={e => setDraftHiddenOrgChart(!e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+                          <span style={{ position: 'absolute', inset: 0, background: !draftHiddenOrgChart ? '#22c55e' : '#e2e8f0', borderRadius: 30, transition: 'background 0.2s' }} />
+                          <span style={{ position: 'absolute', top: 5, left: !draftHiddenOrgChart ? 31 : 5, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
                         </label>
                       </div>
                     </div>

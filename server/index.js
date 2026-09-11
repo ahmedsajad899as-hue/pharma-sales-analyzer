@@ -972,6 +972,38 @@ app.post('/api/report-share', upload.single('file'), (req, res) => {
   }
 });
 
+// حساب مُعلَّم permissions.hiddenFromOrgChart=true — يُخفى من شجرة «الهيكلية» فقط
+// (لا يمسّ صلاحياته/بياناته/فعالياته، ولا حتى /api/sa/companies/:id/org الذي
+// يستعمله السوبر أدمن لإدارة الهيكل — الإخفاء لمن يتصفّح الشجرة فقط). حذفه من
+// المصفوفة مباشرة كان سيُسقط كل مرؤوسيه معه (managerIds تشير لمعرّف لم يعد
+// موجوداً فلا يُطابَق كجذر ولا كابن لأحد) — لذا يُعاد ربط كل مرؤوس مباشرة
+// بأقرب مدير غير مخفي (تخطّي سلسلة كاملة من المخفيين إن تكرّرت) قبل الحذف.
+function isHiddenFromOrgChart(permissionsJson) {
+  try { return JSON.parse(permissionsJson || '{}').hiddenFromOrgChart === true; }
+  catch { return false; }
+}
+function reparentAroundHidden(result, hiddenIds) {
+  if (hiddenIds.size === 0) return result;
+  const byId = new Map(result.map(u => [u.id, u]));
+  const resolveVisible = (id, visited) => {
+    if (visited.has(id)) return [];
+    visited.add(id);
+    if (!hiddenIds.has(id)) return [id];
+    const u = byId.get(id);
+    if (!u) return [];
+    return u.managerIds.flatMap(mid => resolveVisible(mid, visited));
+  };
+  for (const u of result) {
+    if (hiddenIds.has(u.id)) continue;
+    u.managerIds = [...new Set(u.managerIds.flatMap(mid => resolveVisible(mid, new Set())))];
+  }
+  for (const u of result) {
+    if (hiddenIds.has(u.id)) continue;
+    u.subordinateIds = result.filter(o => !hiddenIds.has(o.id) && o.managerIds.includes(u.id)).map(o => o.id);
+  }
+  return result.filter(u => !hiddenIds.has(u.id));
+}
+
 // ── Org structure for the current user's company (الهيكلية) ──────────────────
 app.get('/api/my-company-org', async (req, res) => {
   try {
@@ -1000,7 +1032,7 @@ app.get('/api/my-company-org', async (req, res) => {
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
       select: {
-        id: true, username: true, displayName: true, role: true, isActive: true, phone: true,
+        id: true, username: true, displayName: true, role: true, isActive: true, phone: true, permissions: true,
         managersOfUser:     { select: { managerId: true } },
         subordinatesOfUser: { select: { userId: true } },
       },
@@ -1054,7 +1086,10 @@ app.get('/api/my-company-org', async (req, res) => {
       }
     }
 
-    res.json({ success: true, data: { users: result } });
+    const hiddenIds = new Set(scopedUsers.filter(u => isHiddenFromOrgChart(u.permissions)).map(u => u.id));
+    const visibleResult = reparentAroundHidden(result, hiddenIds);
+
+    res.json({ success: true, data: { users: visibleResult } });
   } catch (e) {
     console.error('[my-company-org]', e);
     res.status(500).json({ success: false, error: e.message });
