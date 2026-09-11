@@ -155,12 +155,12 @@ const ORG_CSS = `
   /* موظف/HR المكتب: خط جانبي (متقطّع، لا عمودي) يتفرّع من جهة البطاقة قبل خط
      مدراء الشركات الأساسي أسفلها — تمييزاً بين علاقة الدعم الإداري (جانبية)
      وعلاقة الإدارة التنفيذية (عمودية تنزل للأسفل بالخط الصلب المعتاد). */
-  /* align-items:flex-start عمداً لا center: التوسيط الافتراضي كان يوسّط الخط
-     على ارتفاع البطاقة كاملة (تصل حتى شارة الدور وزر الطيّ أسفلها)، فيخرج الخط
-     أعلى من منتصف الاسم فعلياً. margin-top أدناه يرفعه ليحاذي سطر الأيقونة+الاسم
-     تحديداً (أول سطرين في البطاقة) بدل مركز الصندوق كله. */
+  /* align-items:flex-start على الصف + align-self:flex-end على الفرع الجانبي:
+     بطاقة المدير تبدأ من أعلى الصف (فيبقى واضحاً أنه «الأعلى»)، والبطاقات
+     الجانبية (HR/الموظف) تُثبَّت عند أسفل ارتفاع بطاقته — لا في منتصفها ولا
+     بمستواها — بصرف النظر عن طول محتوى البطاقة (شارة/هاتف/زر طيّ أم لا). */
   .cview-node-row { display:flex; align-items:flex-start; }
-  .cview-staff { display:flex; align-items:center; flex-shrink:0; margin-top:19px; }
+  .cview-staff { display:flex; align-items:center; flex-shrink:0; align-self:flex-end; margin-bottom:2px; }
   .cview-staff-cards { display:flex; align-items:center; gap:4px; }
   .cview-staff-connector { width:14px; height:0; border-top:1.5px dashed #94a3b8; flex-shrink:0; }
   .cview-mini-card {
