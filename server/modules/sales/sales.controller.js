@@ -9,7 +9,7 @@ import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, ins
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 
-// موظف المكتب: كل ملف يرفعه يُعمَّم فوراً على حسابات مدير المكتب / مدير الشركة
+// موظف المكتب: كل ملف يرفعه يُعمَّم فوراً على حسابات مدير المكتب / HR المكتب / مدير الشركة
 // فقط — بلا خطوة "مشاركة" يدوية (نفس أثر الضغط على "تحديد الكل" في UploadPage،
 // حيث أصبحت القائمة هناك أيضاً مقصورة على هذين الدورين). يشمل pharmacy_net
 // أيضاً (استثناء من قاعدة "خصوصية pharmacy_net" العامة، مقصور على هذا الدور
@@ -20,7 +20,7 @@ async function autoSyncIfOfficeEmployee(user, fileId, fileType) {
   if (!user || user.role !== 'office_employee' || !fileId) return;
   if (fileType === 'filter_page') return;
   const targets = await prisma.user.findMany({
-    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'company_manager'] } },
+    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'office_hr', 'company_manager'] } },
     select: { id: true },
   });
   if (targets.length === 0) return;

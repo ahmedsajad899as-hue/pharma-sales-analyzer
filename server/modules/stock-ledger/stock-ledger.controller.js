@@ -15,7 +15,7 @@ import { resolveStockScope, makeBalanceScopeFilter } from '../../lib/stockScope.
 
 const utf8Name = (file) => Buffer.from(file.originalname, 'latin1').toString('utf8');
 
-// موظف المكتب: كل ستوك يرفعه يُعمَّم فوراً على حسابات مدير المكتب / مدير الشركة
+// موظف المكتب: كل ستوك يرفعه يُعمَّم فوراً على حسابات مدير المكتب / HR المكتب / مدير الشركة
 // فقط — بإعادة تنفيذ نفس عملية الاستيراد (runForUser) لكل حساب هدف بمعرّفه هو،
 // فتُبنى/تُطابَق مذاخره وأرصدته الخاصة من نفس الصفوف تماماً كأنه رفعها بنفسه
 // (النظام أصلاً يعزل كل بيانات الستوك حسب userId — لا آلية مشاركة/قراءة موحّدة
@@ -25,7 +25,7 @@ const utf8Name = (file) => Buffer.from(file.originalname, 'latin1').toString('ut
 async function autoSyncStockToManagers(user, runForUser) {
   if (!user || user.role !== 'office_employee') return;
   const targets = await prisma.user.findMany({
-    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'company_manager'] } },
+    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'office_hr', 'company_manager'] } },
     select: { id: true },
   });
   for (const target of targets) {

@@ -932,7 +932,7 @@ export async function removeBaselineForDeletedStockFile(user, sourceFileId) {
   await removeBatchesBySourceFile(user.id, sourceFileId);
   if (user.role !== 'office_employee') return;
   const targets = await prisma.user.findMany({
-    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'company_manager'] } },
+    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'office_hr', 'company_manager'] } },
     select: { id: true },
   });
   for (const target of targets) {
