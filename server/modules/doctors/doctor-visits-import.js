@@ -58,7 +58,17 @@ const COL_KEYWORDS = {
   lat:       ['خط العرض', 'latitude', 'lat'],
   lng:       ['خط الطول', 'longitude', 'lng', 'long'],
   location:  ['الموقع', 'الإحداثيات', 'الاحداثيات', 'location', 'gps', 'coordinates'],
+  correctGeo:['correct-geo', 'correct geo', 'geo-correct', 'صحة الموقع', 'تحقق الموقع'],
 };
+
+/** عمود "correct-geo" (yes/no) — هل سُجّلت الزيارة قريباً من موقع الطبيب فعلاً؟ قيمة غير معروفة/فارغة = null. */
+function parseYesNo(v) {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (!s) return null;
+  if (['yes', 'true', '1', 'نعم', 'صحيح'].includes(s)) return true;
+  if (['no', 'false', '0', 'لا', 'خطأ', 'خاطئ'].includes(s)) return false;
+  return null;
+}
 
 function findCol(headers, keywords) {
   const lower = headers.map(h => String(h).trim().toLowerCase());
@@ -421,6 +431,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
     type:        findCol(headers, ['type']),
     created:     findCol(headers, ['created']),
     note:        findCol(headers, ['note']),
+    correctGeo:  findCol(headers, ['correct-geo']),
   };
   const get = (row, key) => (col[key] ? String(row[col[key]] ?? '').trim() : '');
 
@@ -458,6 +469,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
     const date = toDateInput(dateVal) || '';
     const isDoubleVisit = get(row, 'type') === 'Double Visit';
     const notes = parsedNote.notes;
+    const geoCorrect = parseYesNo(get(row, 'correctGeo'));
     const _row = i + 2;
 
     if (category.includes('صيدل')) {
@@ -467,7 +479,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
         areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
         itemName: parsedNote.itemName, itemId: parsedNote.itemId,
         date, notes, isDoubleVisit,
-        lat: null, lng: null,
+        lat: null, lng: null, geoCorrect,
       });
     } else {
       // فئة غير محسومة (لا "دكتور" صريحة ولا شبه اسم صيدلية) تُعامَل كطبيب
@@ -487,7 +499,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
         date,
         feedback: 'pending', // لا مصدر واثق للفيدباك في نص هذه الصيغة الحر
         notes, isDoubleVisit,
-        lat: null, lng: null,
+        lat: null, lng: null, geoCorrect,
       });
     }
   });
@@ -838,7 +850,7 @@ export async function extractVisitsFromExcel(file, user) {
       date: toDateInput(dateVal) || '',
       feedback: mapFeedback(get('feedback')),
       notes: get('notes'), isDoubleVisit: false,
-      lat, lng,
+      lat, lng, geoCorrect: parseYesNo(get('correctGeo')),
     };
   }).filter(r => r.doctorName); // صف بلا اسم طبيب لا معنى لاستيراده كزيارة
 
@@ -1104,6 +1116,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
           isDoubleVisit: !!r.isDoubleVisit,
           latitude:  Number.isFinite(r.lat) ? r.lat : null,
           longitude: Number.isFinite(r.lng) ? r.lng : null,
+          geoCorrect: typeof r.geoCorrect === 'boolean' ? r.geoCorrect : null,
           userId: user.id,
           visitImportFileId: importFileId ?? null,
         },
@@ -1165,6 +1178,7 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
           isDoubleVisit: !!r.isDoubleVisit,
           latitude:  Number.isFinite(r.lat) ? r.lat : null,
           longitude: Number.isFinite(r.lng) ? r.lng : null,
+          geoCorrect: typeof r.geoCorrect === 'boolean' ? r.geoCorrect : null,
           userId: user.id,
           visitImportFileId: importFileId ?? null,
         },

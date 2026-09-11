@@ -78,6 +78,7 @@ interface VisitRecord {
   feedback: string;
   notes?: string;
   item?: Item;
+  geoCorrect?: boolean | null;
 }
 interface VisitDoctor {
   id: number; name: string; specialty?: string;
@@ -2823,12 +2824,13 @@ export default function DoctorsPage() {
 
                             {/* Visit count with expand toggle */}
                             {doc.visits.length > 0 ? (
-                              <button onClick={() => toggleVisitExpand(doc.id)} style={{
+                              <button onClick={() => toggleVisitExpand(doc.id)} title={doc.visits.some(v => v.geoCorrect === false) ? 'إحدى الزيارات مسجَّلة بعيداً عن موقع الطبيب' : undefined} style={{
                                 display: 'flex', alignItems: 'center', gap: 4,
                                 fontSize: 12, color: 'var(--c-accent)', fontWeight: 600,
                                 background: isVisitOpen ? 'var(--c-accent-light)' : 'var(--c-accent-light)',
                                 padding: '3px 8px', borderRadius: 10, flexShrink: 0,
-                                border: 'none', cursor: 'pointer', transition: 'background 0.12s',
+                                border: doc.visits.some(v => v.geoCorrect === false) ? '1.5px solid var(--c-danger)' : 'none',
+                                cursor: 'pointer', transition: 'background 0.12s',
                               }}>
                                 {doc.visits.length} زيارة
                                 <span style={{ fontSize: 10, transition: 'transform 0.2s', display: 'inline-block', transform: isVisitOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
@@ -2868,6 +2870,7 @@ export default function DoctorsPage() {
                                     <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>التاريخ</th>
                                     <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>الايتم</th>
                                     <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>الفيدباك</th>
+                                    <th style={{ textAlign: 'center', padding: '4px 8px', fontWeight: 600 }}>الموقع</th>
                                     <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>ملاحظات</th>
                                   </tr>
                                 </thead>
@@ -2881,6 +2884,15 @@ export default function DoctorsPage() {
                                         <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)' }}>{v.item?.name ?? '—'}</td>
                                         <td style={{ padding: '5px 8px' }}>
                                           <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: vfb.bg, color: vfb.color }}>{vfb.label}</span>
+                                        </td>
+                                        <td style={{ padding: '5px 8px', textAlign: 'center' }}>
+                                          {v.geoCorrect === true ? (
+                                            <span title="الزيارة قريبة من موقع الطبيب" style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: 'var(--c-success)' }} />
+                                          ) : v.geoCorrect === false ? (
+                                            <span title="الزيارة بعيدة عن موقع الطبيب — تحقّق منها" style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: 'var(--c-danger)' }} />
+                                          ) : (
+                                            <span style={{ color: 'var(--c-text-muted)' }}>—</span>
+                                          )}
                                         </td>
                                         <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                           {v.notes ?? '—'}

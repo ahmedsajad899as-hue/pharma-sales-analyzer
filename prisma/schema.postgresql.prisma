@@ -824,6 +824,7 @@ model DoctorVisit {
   isDoubleVisit   Boolean  @default(false) // زيارة مزدوجة مع مدير/سوبرفايزر
   latitude        Float? // موقع GPS عند تسجيل الزيارة
   longitude       Float?
+  geoCorrect      Boolean? // عمود "correct-geo" في استيراد CRM: هل سُجّلت الزيارة قريباً من موقع الطبيب فعلاً؟ null = غير معروف
   createdAt       DateTime @default(now())
 
   // الملف الذي استُوردت منه هذه الزيارة (إن جاءت من استيراد إكسل جماعي — راجع
@@ -892,6 +893,7 @@ model PharmacyVisit {
   isDoubleVisit   Boolean  @default(false) // زيارة مزدوجة مع مدير/سوبرفايزر
   latitude        Float?
   longitude       Float?
+  geoCorrect      Boolean? // راجع التعليق المطابق في DoctorVisit
   createdAt       DateTime @default(now())
 
   // راجع التعليق المطابق في DoctorVisit — نفس فكرة ربط/تفعيل ملف الاستيراد.

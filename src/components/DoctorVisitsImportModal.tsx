@@ -28,7 +28,7 @@ interface DoctorRow {
   pharmacyName: string;
   itemName: string; itemId: number | null;
   date: string; feedback: string; notes: string; isDoubleVisit: boolean;
-  lat: number | null; lng: number | null;
+  lat: number | null; lng: number | null; geoCorrect: boolean | null;
 }
 interface PharmacyRow {
   _row: number;
@@ -37,7 +37,7 @@ interface PharmacyRow {
   areaName: string; areaId: number | null;
   itemName: string; itemId: number | null; // مستخرَجان من حقل note (يُحفظان كـ PharmacyVisitItem)
   date: string; notes: string; isDoubleVisit: boolean;
-  lat: number | null; lng: number | null;
+  lat: number | null; lng: number | null; geoCorrect: boolean | null;
 }
 
 const FEEDBACK_OPTS: { value: string; label: string }[] = [
@@ -478,7 +478,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                 <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
-                      {['المندوب', 'الطبيب', 'الاختصاص', 'المنطقة', 'الصيدلية', 'الايتم', 'التاريخ', 'الفيدباك', 'الملاحظات', ''].map(h => (
+                      {['المندوب', 'الطبيب', 'الاختصاص', 'المنطقة', 'الصيدلية', 'الايتم', 'التاريخ', 'الفيدباك', 'الموقع', 'الملاحظات', ''].map(h => (
                         <th key={h} style={th}>{h}</th>
                       ))}
                     </tr>
@@ -520,6 +520,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                             {FEEDBACK_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                           </select>
                         </td>
+                        <td style={{ ...td, textAlign: 'center' }}>{geoBadge(r.geoCorrect)}</td>
                         <td style={td}><input value={r.notes} onChange={e => setDocCell(i, { notes: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
                         <td style={{ ...td, textAlign: 'center' }}>
                           <button onClick={() => removeDocRow(i)} title="حذف الصف" style={delBtn}>×</button>
@@ -536,7 +537,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                 <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
-                      {['المندوب', 'الصيدلية', 'المنطقة', 'الايتم', 'التاريخ', 'الملاحظات', ''].map(h => (
+                      {['المندوب', 'الصيدلية', 'المنطقة', 'الايتم', 'التاريخ', 'الموقع', 'الملاحظات', ''].map(h => (
                         <th key={h} style={th}>{h}</th>
                       ))}
                     </tr>
@@ -555,6 +556,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                         <td style={td}><input value={r.areaName} onChange={e => setPharmCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 100 }} /></td>
                         <td style={td}><input value={r.itemName} onChange={e => setPharmCell(i, { itemName: e.target.value, itemId: null })} style={{ ...cellInp, minWidth: 110 }} /></td>
                         <td style={td}><input type="date" value={r.date} onChange={e => setPharmCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
+                        <td style={{ ...td, textAlign: 'center' }}>{geoBadge(r.geoCorrect)}</td>
                         <td style={td}><input value={r.notes} onChange={e => setPharmCell(i, { notes: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>
                         <td style={{ ...td, textAlign: 'center' }}>
                           <button onClick={() => removePharmRow(i)} title="حذف الصف" style={delBtn}>×</button>
@@ -590,6 +592,13 @@ function normalizeLocal(s: string): string {
     .replace(/[ً-ٟ]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** شارة صحة الموقع (عمود correct-geo في ملفات CRM): أخضر = قريب من موقع الطبيب، أحمر = بعيد، شرطة = غير متوفر بالملف. */
+function geoBadge(geoCorrect: boolean | null) {
+  if (geoCorrect === true) return <span title="قريب من موقع الطبيب" style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#16a34a' }} />;
+  if (geoCorrect === false) return <span title="بعيد عن موقع الطبيب" style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#dc2626' }} />;
+  return <span style={{ color: '#94a3b8' }}>—</span>;
 }
 
 // ── styles ──
