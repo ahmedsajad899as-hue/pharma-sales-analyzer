@@ -76,6 +76,9 @@ interface Batch {
   unmatched: Unmatched | null;
 }
 interface StockFile { id: number; name: string; uploadedAt: string }
+/** عدّادات تشرح سبب فراغ جدول الأرصدة — total = كل أرصدة الحساب قبل تطبيق نطاق
+ *  شركات/ايتمات الستوك، hiddenByScope = كم منها حجبه ذلك النطاق. */
+interface BalancesMeta { total: number; hiddenByScope: number; movements: number }
 /** مراجعة معلَّقة بانتظار تأكيد المستخدم لأسماء مشكوك فيها — مصدرها إما ملف
  *  مرفوع (صفوفه تعود من extract ويجب إعادة إرسالها عند الحفظ) أو ملف Stock
  *  محفوظ سلفاً على الخادم (يُعاد قراءته عند الحفظ فلا حاجة لصفوفه هنا). */
@@ -115,6 +118,7 @@ export default function StockLedgerPage() {
 
   const [tab, setTab] = useState<'balances' | 'alerts' | 'batches'>('balances');
   const [balances, setBalances] = useState<Balance[]>([]);
+  const [balMeta, setBalMeta] = useState<BalancesMeta | null>(null);
   const [alerts, setAlerts] = useState<AlertsData | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [stockFiles, setStockFiles] = useState<StockFile[]>([]);
@@ -149,16 +153,21 @@ export default function StockLedgerPage() {
   const [onlyBaghdad, setOnlyBaghdad] = useState(true);
 
   // ── تحميل البيانات ───────────────────────────────────────────
+  // فشل التحميل كان يُبتلَع بصمت: j.success=false يترك المصفوفة فارغة فتظهر رسالة
+  // «لا توجد أرصدة بعد» وكأن الحساب فارغ، بينما الخادم أرجع خطأ فعلياً.
   const loadBalances = useCallback(async () => {
     const r = await fetch(`${API}/api/stock-ledger/balances`, { headers: authHeaders() });
     const j = await r.json();
-    if (j.success) setBalances(j.data);
+    if (!j.success) throw new Error(j.error || 'تعذّر تحميل الأرصدة');
+    setBalances(j.data);
+    setBalMeta(j.meta ?? null);
   }, []);
 
   const loadAlerts = useCallback(async () => {
     const r = await fetch(`${API}/api/stock-ledger/alerts?pct=${pct}&qty=${qtyT}`, { headers: authHeaders() });
     const j = await r.json();
-    if (j.success) setAlerts(j.data);
+    if (!j.success) throw new Error(j.error || 'تعذّر تحميل التنبيهات');
+    setAlerts(j.data);
   }, [pct, qtyT]);
 
   const loadBatches = useCallback(async () => {
@@ -171,13 +180,14 @@ export default function StockLedgerPage() {
   }, []);
 
   const reloadAll = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setErr('');
     try { await Promise.all([loadBalances(), loadAlerts(), loadBatches()]); }
+    catch (e: any) { setErr(e.message || 'تعذّر تحميل البيانات'); }
     finally { setLoading(false); }
   }, [loadBalances, loadAlerts, loadBatches]);
 
   useEffect(() => { reloadAll(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-  useEffect(() => { loadAlerts(); }, [pct, qtyT, loadAlerts]);
+  useEffect(() => { loadAlerts().catch((e: any) => setErr(e.message || 'تعذّر تحميل التنبيهات')); }, [pct, qtyT, loadAlerts]);
 
   // ── قوائم الفلاتر ────────────────────────────────────────────
   const regions = useMemo(
@@ -401,7 +411,7 @@ export default function StockLedgerPage() {
 
       {!loading && tab === 'balances' && (
         <BalancesTab
-          rows={filtered} hasAnyBalances={balances.length > 0} regions={regions} warehouses={warehouses} companies={companies}
+          rows={filtered} hasAnyBalances={balances.length > 0} meta={balMeta} regions={regions} warehouses={warehouses} companies={companies}
           fRegion={fRegion} setFRegion={(r) => { setFRegion(r); setFWarehouse('all'); }}
           fWarehouse={fWarehouse} setFWarehouse={setFWarehouse}
           fCompany={fCompany} setFCompany={setFCompany}
@@ -460,8 +470,28 @@ function Kpi({ label, value, danger }: { label: string; value: string; danger?: 
 // ═══════════════════════════════════════════════════════════════
 //  تبويب الأرصدة
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * سبب فراغ الجدول بدقة. كانت الرسالة واحدة دائماً («لا توجد أرصدة بعد — ابدأ
+ * بالاستيراد») حتى حين تكون الأرصدة محسوبة فعلاً ويحجبها فلتر محلي أو نطاق
+ * السوبر أدمن — فيُعاد الاستيراد مراراً بلا فائدة.
+ */
+function emptyReason(hasAnyBalances: boolean, onlyBaghdad: boolean, meta: BalancesMeta | null): string {
+  if (hasAnyBalances) {
+    return 'لا توجد أرصدة مطابقة للفلاتر الحالية.' + (onlyBaghdad
+      ? ' فلتر «مذاخر بغداد فقط» مفعَّل ويُخفي أي مذخر منطقته ليست الحارثية أو الرصافة — جرّب إلغاءه.'
+      : ' جرّب تعديل أو إلغاء الفلاتر المطبَّقة.');
+  }
+  if (meta && meta.hiddenByScope > 0) {
+    return `محسوب ${fmtNum(meta.total)} رصيد لهذا الحساب، لكن نطاق شركات/ايتمات الستوك المحدّد له من لوحة السوبر أدمن يحجبها كلها — وسّع النطاق أو أفرغه (فارغ = بلا تقييد).`;
+  }
+  if (meta && meta.total === 0 && meta.movements > 0) {
+    return `توجد ${fmtNum(meta.movements)} حركة مسجّلة لكن بلا أرصدة محسوبة — اضغط «تحديث»، وإن بقيت فارغة فأعد رفع الستوك الافتتاحي.`;
+  }
+  return 'لا توجد أرصدة بعد — ابدأ من تبويب «الدفعات» باستيراد الستوك الافتتاحي من ملف Stock.';
+}
 function BalancesTab(p: {
-  rows: Balance[]; hasAnyBalances: boolean;
+  rows: Balance[]; hasAnyBalances: boolean; meta: BalancesMeta | null;
   regions: string[]; warehouses: { id: number; name: string; region: string }[]; companies: string[];
   fRegion: string; setFRegion: (v: string) => void;
   fWarehouse: number | 'all'; setFWarehouse: (v: number | 'all') => void;
@@ -550,11 +580,7 @@ function BalancesTab(p: {
       </div>
 
       {!p.rows.length ? (
-        <div className="sl-empty">
-          {p.hasAnyBalances
-            ? 'لا توجد أرصدة مطابقة للفلاتر الحالية.' + (p.onlyBaghdad ? ' فلتر «مذاخر بغداد فقط» مفعَّل ويُخفي أي مذخر منطقته ليست الحارثية أو الرصافة — جرّب إلغاءه.' : ' جرّب تعديل أو إلغاء الفلاتر المطبَّقة.')
-            : 'لا توجد أرصدة بعد — ابدأ من تبويب «الدفعات» باستيراد الستوك الافتتاحي من ملف Stock.'}
-        </div>
+        <div className="sl-empty">{emptyReason(p.hasAnyBalances, p.onlyBaghdad, p.meta)}</div>
       ) : (
         <div className="table-wrapper sl-table-wrap">
           <table className="data-table sl-table">

@@ -58,27 +58,63 @@ export function isUnrestricted(scope) {
   return !scope || (scope.itemIds === null && scope.companyIds === null);
 }
 
-/**
- * شرط Prisma لـ StockBalance — يدمج بُعدي الشركة/الايتم (AND)، كل بُعد يُطبَّق
- * فقط إن كان مقيَّداً. StockBalance.companyName نص حر بلا FK؛ المطابقة بالاسم
- * القانوني (نفس normalizeItemKey المستعمل في resolveCompanyLabel وقت الاستيعاب).
- */
-export async function buildStockBalanceWhere(userId) {
-  const scope = await resolveStockScope(userId);
-  if (isUnrestricted(scope)) return {};
+// أحرف/أرقام فقط (بكل اللغات) — يُسقط الفواصل والرموز التي تُلصَق بها الأعمدة
+// الملصَقة في ملفات الستوك الخام دون أن يُسقط حروف عربية أو تشكيل الايتمات.
+const alnumKey = (s) => normalizeItemKey(s).replace(/[^\p{L}\p{N}]/gu, '');
+const MIN_CONTAIN_LEN = 3; // دون هذا الطول احتمال تطابق عرضي بريء مرتفع جداً
 
-  const clauses = [];
-  if (scope.itemIds) clauses.push({ itemId: { in: scope.itemIds } });
-  if (scope.companyNameKeys?.size) {
-    // مطابقة بالاسم القانوني: companyName يُخزَّن أصلاً بصيغته القانونية عند
-    // الاستيعاب (resolveCompanyLabel في stock-ledger.service.js) — تطابق تام يكفي هنا.
-    const companies = await prisma.scientificCompany.findMany({
-      where: { id: { in: scope.companyIds } }, select: { name: true },
-    });
-    clauses.push({ companyName: { in: companies.map(c => c.name) } });
+/**
+ * هل يقع نص حر ضمن مجموعة مفاتيح أسماء النطاق — تام، ثم احتواء بعد تجريد كل حرف
+ * غير أبجدي/رقمي، ثم تشابه. مشترك بين صفحة Stock الخام (filterStockMatrixRows)
+ * وأرصدة رصيد المذاخر (makeBalanceScopeFilter) كي لا تتفق الصفحتان على البيانات
+ * وتختلفا على من يراها. keys=null يعني بُعداً غير مقيَّد.
+ */
+function matchesNameScope(raw, keys) {
+  if (!keys) return true;
+  const key = normalizeItemKey(raw);
+  if (!key) return false;
+  if (keys.has(key)) return true;
+  const rawAlnum = alnumKey(raw);
+  if (rawAlnum.length >= MIN_CONTAIN_LEN) {
+    for (const k of keys) {
+      const kAlnum = alnumKey(k);
+      if (kAlnum.length >= MIN_CONTAIN_LEN && (rawAlnum.includes(kAlnum) || kAlnum.includes(rawAlnum))) return true;
+    }
   }
-  if (!clauses.length) return {};
-  return clauses.length === 1 ? clauses[0] : { AND: clauses };
+  for (const k of keys) if (areSimilar(raw, k)) return true;
+  return false;
+}
+
+/**
+ * مُرشِّح StockBalance بنطاق المستخدم — يدمج بُعدي الشركة/الايتم (AND)، كل بُعد
+ * يُطبَّق فقط إن كان مقيَّداً.
+ *
+ * كان هذا شرط Prisma (buildStockBalanceWhere) يطابق بُعدين بطريقة تُصفّر النتيجة:
+ *   • الايتم بالـ FK وحده (itemId) — وهو null لكل ايتم لم يُربط بالكتالوج بثقة
+ *     alias/exact/high وقت الاستيعاب، فكل رصيد لايتم غير مربوط كان يختفي للأبد
+ *     حتى لو كان اسمه نفسه ضمن ايتمات النطاق.
+ *   • الشركة بأسماء ScientificCompany، بينما StockBalance.companyName يُكتب من
+ *     كتالوج Company (جدول آخر، resolveCompanyLabel) — تطابق تام عبر جدولين
+ *     مختلفين يفشل عند أي فرق تهجئة، فتُحجب كل الأرصدة.
+ * النتيجة كانت صفحة Stock الخام تعرض الصفوف و«رصيد المذاخر» فارغة تماماً. الآن
+ * كلتاهما تستعملان matchesNameScope نفسها، والايتم يُقبل بالـ FK أو بمفتاح اسمه.
+ *
+ * @param {Awaited<ReturnType<typeof resolveStockScope>>} scope
+ * @returns {(b: {itemId: number|null, itemKey: string, itemName: string, companyName: string|null}) => boolean}
+ */
+export function makeBalanceScopeFilter(scope) {
+  if (isUnrestricted(scope)) return () => true;
+  const itemIdSet = scope.itemIds ? new Set(scope.itemIds) : null;
+  return (b) => {
+    if (itemIdSet) {
+      const byId = b.itemId != null && itemIdSet.has(b.itemId);
+      // itemKey مُطبَّع بنفس normalizeItemKey المستعمل في بناء itemNameKeys
+      const byKey = !!scope.itemNameKeys?.has(b.itemKey);
+      if (!byId && !byKey && !matchesNameScope(b.itemName, scope.itemNameKeys)) return false;
+    }
+    if (scope.companyNameKeys?.size && !matchesNameScope(b.companyName ?? '', scope.companyNameKeys)) return false;
+    return true;
+  };
 }
 
 /**
@@ -100,30 +136,9 @@ export function filterStockMatrixRows(rows, fixedCols, scope) {
   const itemCol = detectItemNameCol(fixedCols);
   const companyCol = detectCompanyCol(fixedCols);
 
-  // أحرف/أرقام فقط (بكل اللغات) — يُسقط الفواصل والرموز التي تُلصَق بها الأعمدة
-  // الملصَقة في ملفات الستوك الخام دون أن يُسقط حروف عربية أو تشكيل الايتمات.
-  const alnumKey = (s) => normalizeItemKey(s).replace(/[^\p{L}\p{N}]/gu, '');
-  const MIN_CONTAIN_LEN = 3; // دون هذا الطول احتمال تطابق عرضي بريء مرتفع جداً
-
-  const matchesSet = (raw, keys) => {
-    if (!keys) return true; // بُعد غير مقيَّد
-    const key = normalizeItemKey(raw);
-    if (!key) return false;
-    if (keys.has(key)) return true;
-    const rawAlnum = alnumKey(raw);
-    if (rawAlnum.length >= MIN_CONTAIN_LEN) {
-      for (const k of keys) {
-        const kAlnum = alnumKey(k);
-        if (kAlnum.length >= MIN_CONTAIN_LEN && (rawAlnum.includes(kAlnum) || kAlnum.includes(rawAlnum))) return true;
-      }
-    }
-    for (const k of keys) if (areSimilar(raw, k)) return true;
-    return false;
-  };
-
   return rows.filter(row => {
-    const itemOk = matchesSet(String(row?.[itemCol] ?? '').trim(), scope.itemNameKeys);
-    const companyOk = matchesSet(String(row?.[companyCol] ?? '').trim(), scope.companyNameKeys);
+    const itemOk = matchesNameScope(String(row?.[itemCol] ?? '').trim(), scope.itemNameKeys);
+    const companyOk = matchesNameScope(String(row?.[companyCol] ?? '').trim(), scope.companyNameKeys);
     return itemOk && companyOk;
   });
 }

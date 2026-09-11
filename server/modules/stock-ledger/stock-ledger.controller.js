@@ -11,7 +11,7 @@ import {
 import {
   getWarehouses, getBatches, getBalances, getPairHistory, prisma,
 } from './stock-ledger.repository.js';
-import { buildStockBalanceWhere } from '../../lib/stockScope.js';
+import { resolveStockScope, makeBalanceScopeFilter } from '../../lib/stockScope.js';
 
 const utf8Name = (file) => Buffer.from(file.originalname, 'latin1').toString('utf8');
 
@@ -80,10 +80,16 @@ export async function deleteBatchHandler(req, res) {
 // ─── الأرصدة ──────────────────────────────────────────────────
 export async function listBalances(req, res) {
   try {
-    const scopeWhere = await buildStockBalanceWhere(req.user.id);
-    const rows = await getBalances(req.user.id, { scopeWhere });
+    const scope = await resolveStockScope(req.user.id);
+    const all = await getBalances(req.user.id);
+    const rows = all.filter(makeBalanceScopeFilter(scope));
+    // تشخيص الفراغ: الصفحة كانت تقول «لا توجد أرصدة بعد — ابدأ بالاستيراد» في كل
+    // حالة فراغ، حتى حين تكون الأرصدة محسوبة فعلاً لكن نطاق السوبر أدمن يحجبها،
+    // فيُعاد الاستيراد بلا فائدة. هذه العدادات تجعل الصفحة تشرح سبب فراغها.
+    const movements = all.length ? 0 : await prisma.stockMovement.count({ where: { userId: req.user.id } });
     res.json({
       success: true,
+      meta: { total: all.length, hiddenByScope: all.length - rows.length, movements },
       data: rows.map(b => ({
         warehouseId: b.warehouseId,
         warehouse: b.warehouse.name,

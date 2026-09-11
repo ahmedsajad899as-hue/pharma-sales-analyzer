@@ -24,7 +24,7 @@ import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { flattenStockMatrix } from '../../lib/stockMatrix.js';
 import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { getAllCompanies } from '../sales/sales.repository.js';
-import { buildStockBalanceWhere } from '../../lib/stockScope.js';
+import { resolveStockScope, makeBalanceScopeFilter } from '../../lib/stockScope.js';
 import * as repo from './stock-ledger.repository.js';
 
 // COLUMN_ALIASES.customer يضع «صيدلية/زبون» قبل «مذخر»، وresolveColumns يأخذ أول
@@ -840,16 +840,15 @@ const SEV_ORDER = { out: 0, critical: 1, low: 2 };
 
 /** الايتمات التي يجب عمل طلبية جديدة لها، مجمّعة حسب المذخر */
 export async function buildAlerts(userId, { pct = 20, qty = 10, region = null, warehouseId = null } = {}) {
-  const scopeWhere = await buildStockBalanceWhere(userId);
-  const balances = await prisma.stockBalance.findMany({
+  const scope = await resolveStockScope(userId);
+  const balances = (await prisma.stockBalance.findMany({
     where: {
       userId,
       ...(warehouseId ? { warehouseId } : {}),
       ...(region ? { warehouse: { region } } : {}),
-      ...scopeWhere,
     },
     include: { warehouse: { select: { id: true, name: true, region: true } } },
-  });
+  })).filter(makeBalanceScopeFilter(scope));
 
   const byWarehouse = new Map();
   const totals = { out: 0, critical: 0, low: 0 };
