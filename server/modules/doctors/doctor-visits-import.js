@@ -500,19 +500,35 @@ function matchItemByText(ctx, text) {
   return null;
 }
 
+/** أول مقطع لاتيني ≥3 أحرف — تقريب "الاسم التجاري الجذري" بمعزل عن الجرعة/الشكل
+ *  (يُلحقان عادة بعد اسم المادة: "pantactive 40mg tab"). */
+const coreWord = text => normItemText(text).match(/[a-z]{3,}/)?.[0] ?? '';
+
 /**
  * حين لا يُحسم ايتم تلقائياً (matchItemByText أعادت null) لكن يوجد مرشّح قريب
  * محتمل، يُعاد للمستخدم كـ"هل تقصد؟" في شبكة المراجعة بدل ترك الخانة بلا أي
  * اقتراح — يختاره بضغطة واحدة إن كان صحيحاً، أو يتجاهله ويكتب الاسم يدوياً.
  * سؤال صريح بدل تخمين صامت: لا يُربط تلقائياً مهما علت نسبة التشابه.
+ *
+ * مقارنة الاسم الجذري لا النص كاملاً: matchItemByText/resolveItemNameSync
+ * يقارنان النص الخام كاملاً بالكتالوج (بما فيه الجرعة/الشكل)، فنص قصير كـ
+ * "conivabn" يُقارَن بـ"Conviban 25mg 30tab" كاملاً فيبدو تشابهه منخفضاً رغم أن
+ * الكلمة الجذرية وحدها قريبة جداً — لذلك لا تُستخدَم آلية areSimilar الصارمة
+ * (مصمَّمة لقرار دمج تلقائي واثق) بل تشابه مباشر أخفّ على الجذر فقط، مع تعزيز
+ * حين يكون أحدهما احتواءً للآخر بلا بادئة كاملة (كـ"drop" ضمن "uricodrop").
  */
 function suggestItemMatch(ctx, text) {
-  const t = normItemText(text);
-  if (!t || t.length < 3) return null;
-  const r = resolveItemNameSync(text, ctx);
-  const top = r.suggestions?.[0];
-  if (top && top.sim >= 0.5) return ctx.catalogById.get(top.id) ?? { id: top.id, name: top.name };
-  return null;
+  const core = coreWord(text);
+  if (!core || core.length < 3) return null;
+  let best = null, bestScore = 0;
+  for (const it of ctx.catalog) {
+    const c = coreWord(it.name);
+    if (!c || c.length < 3) continue;
+    const contained = c.includes(core) || core.includes(c);
+    const score = contained ? Math.max(similarity(core, c), 0.75) : similarity(core, c);
+    if (score > bestScore) { bestScore = score; best = it; }
+  }
+  return bestScore >= 0.6 ? best : null;
 }
 
 /** يبحث عن أي اسم ايتم من الكتالوج داخل نص الملاحظة كاملاً (الأطول أولاً). */
