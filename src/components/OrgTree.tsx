@@ -162,7 +162,7 @@ const ORG_CSS = `
   .cview-node-row { display:flex; align-items:flex-start; }
   .cview-staff { display:flex; align-items:center; flex-shrink:0; align-self:flex-end; margin-bottom:2px; }
   .cview-staff-cards { display:flex; align-items:center; gap:4px; }
-  .cview-staff-connector { width:14px; height:0; border-top:1.5px dashed #94a3b8; flex-shrink:0; }
+  .cview-staff-connector { width:38px; height:0; border-top:1.5px dashed #94a3b8; flex-shrink:0; }
   .cview-mini-card {
     position:relative; direction:rtl; display:flex; align-items:center; gap:4px;
     background: var(--c-surface, #fff); border-radius:20px;
