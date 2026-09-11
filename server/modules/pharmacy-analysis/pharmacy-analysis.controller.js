@@ -369,14 +369,18 @@ export async function itemDetail(req, res, next) {
           areaName: s.area?.name || '',
           orders: [],
           totalQty: 0,
+          saleQty: 0,
+          returnQty: 0,
           totalValue: 0,
           lastOrder: s.saleDate,
         });
       }
       const p = byPharma.get(pharmaName);
       const iqd2 = Math.round(toIQD(s.totalValue, s.uploadedFile));
+      const isReturn = s.recordType === 'return';
       p.orders.push({ date: s.saleDate, qty: s.quantity, value: iqd2, rep: s.representative?.name || '', type: s.recordType });
       p.totalQty   += s.quantity;
+      if (isReturn) p.returnQty += s.quantity; else p.saleQty += s.quantity;
       p.totalValue += iqd2;
       if (new Date(s.saleDate) > new Date(p.lastOrder)) p.lastOrder = s.saleDate;
     }

@@ -134,6 +134,7 @@ export default function PharmacyAnalysisPage() {
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [itemDetail, setItemDetail]     = useState<any | null>(null);
   const [itemDetailLoading, setItemDetailLoading] = useState(false);
+  const [itemDetailDaysSort, setItemDetailDaysSort] = useState<'asc' | 'desc' | null>(null);
 
   // Alerts
   const [alerts, setAlerts]             = useState<Alert[]>([]);
@@ -282,10 +283,12 @@ export default function PharmacyAnalysisPage() {
       .then(r => r.json()).then(d => setPharmaDetail(d)).catch(() => {}).finally(() => setPharmaDetailLoading(false));
   };
   const openItem = (name: string) => {
-    setSelectedItem(name); setItemDetailLoading(true);
+    setSelectedItem(name); setItemDetailLoading(true); setItemDetailDaysSort(null);
     fetch(`${API}/api/pharmacy-analysis/item/${encodeURIComponent(name)}${fileQuery}`, { headers })
       .then(r => r.json()).then(d => setItemDetail(d)).catch(() => {}).finally(() => setItemDetailLoading(false));
   };
+
+  const handleItemDetailDaysSort = () => setItemDetailDaysSort(d => d === 'asc' ? 'desc' : 'asc');
 
   const onPharmaSearch = (v: string) => { setPharmaSearch(v); clearTimeout(searchTimer.current); searchTimer.current = setTimeout(() => loadPharmacies(v), 350); };
   const onItemSearch   = (v: string) => { setItemSearch(v);   clearTimeout(searchTimer.current); searchTimer.current = setTimeout(() => loadItems(v),    350); };
@@ -351,6 +354,17 @@ export default function PharmacyAnalysisPage() {
       else return 0;
       if (typeof av === 'string') return itemSortDir === 'asc' ? av.localeCompare(bv, 'ar') : bv.localeCompare(av, 'ar');
       return itemSortDir === 'asc' ? av - bv : bv - av;
+    });
+  })();
+
+  // ترتيب صيدليات تفاصيل الايتم حسب الأيام (asc = من الأقدم إلى الأحدث)
+  const sortedItemDetailPharmacies: any[] = (() => {
+    const list = itemDetail?.pharmacies || [];
+    if (!itemDetailDaysSort) return list;
+    return [...list].sort((a: any, b: any) => {
+      const at = new Date(a.lastOrder).getTime();
+      const bt = new Date(b.lastOrder).getTime();
+      return itemDetailDaysSort === 'asc' ? at - bt : bt - at;
     });
   })();
 
@@ -932,18 +946,29 @@ export default function PharmacyAnalysisPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--c-bg)' }}>
-                      {['الصيدلية','المنطقة','الكمية','آخر طلبية','الأيام'].map(h => <th key={h} style={TH2}>{h}</th>)}
+                      <th style={TH2}>الصيدلية</th>
+                      <th style={TH2}>المنطقة</th>
+                      <th style={TH2}>الكمية</th>
+                      <th style={TH2}>آخر طلبية</th>
+                      <th style={{ ...TH2, cursor: 'pointer', userSelect: 'none' }} onClick={handleItemDetailDaysSort} title="ترتيب من الأقدم إلى الأحدث">
+                        الأيام{itemDetailDaysSort ? (itemDetailDaysSort === 'asc' ? ' ↑' : ' ↓') : ''}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(itemDetail.pharmacies || []).map((ph: any, i: number) => {
+                    {sortedItemDetailPharmacies.map((ph: any, i: number) => {
                       const days = Math.floor((Date.now() - new Date(ph.lastOrder).getTime()) / 86400000);
                       const dc = dayColor(days);
                       return (
                         <tr key={ph.name} style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)' }}>
                           <td style={{ ...TD2, fontWeight: 600 }}>{ph.name}</td>
                           <td style={{ ...TD2, color: 'var(--c-text-secondary)' }}>{ph.areaName || '—'}</td>
-                          <td style={{ ...TD2, textAlign: 'right' }}>{fmt(ph.totalQty)}</td>
+                          <td style={{ ...TD2, textAlign: 'right' }}>
+                            {fmt(ph.saleQty ?? ph.totalQty)}
+                            {(ph.returnQty ?? 0) > 0 && (
+                              <> / <span style={{ color: 'var(--c-danger)', fontWeight: 700 }}>{fmt(ph.returnQty)}</span></>
+                            )}
+                          </td>
                           <td style={{ ...TD2, color: 'var(--c-text-secondary)' }}>{fmtDate(ph.lastOrder)}</td>
                           <td style={{ ...TD2, textAlign: 'center' }}>
                             <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700, fontSize: 11 }}>{days}</span>
