@@ -125,8 +125,12 @@ export default function SalesDataPage() {
 
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [itemQuery, setItemQuery]         = useState('');
+  // normColHeader (not just toLowerCase) so Arabic spelling variants (ة/ه، ى/ي،
+  // تشكيل، أ/إ/آ) don't silently break matching against region/warehouse names —
+  // those come raw from Excel header cells and are far more likely to carry such
+  // variants than item/company names typed by staff.
   const itemSearchTerms = useMemo(
-    () => itemQuery.trim().toLowerCase().split(/\s+/).filter(Boolean),
+    () => normColHeader(itemQuery).split(/\s+/).filter(Boolean),
     [itemQuery]);
   const [selectedCompanies, setSelectedCompanies] = useState<Set<string>>(new Set());
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
@@ -642,7 +646,7 @@ table{border-collapse:collapse;width:100%}
           .filter(ac => toNum(row[ac.key] ?? '') > 0)
           .map(ac => `${ac.region} ${ac.label}`)
           .join(' ');
-        const haystack = `${fixedHay} ${areaHay}`.toLowerCase();
+        const haystack = normColHeader(`${fixedHay} ${areaHay}`);
         return itemSearchTerms.every(t => haystack.includes(t));
       });
     }
@@ -1428,7 +1432,7 @@ table{border-collapse:collapse;width:100%}
                 sourceRows.map(r => String(r[itemNameCol] ?? '').trim()).filter(Boolean)
               )].sort((a, b) => a.localeCompare(b, 'ar'));
               const baseItems = itemSearchTerms.length
-                ? allItems.filter(name => { const n = name.toLowerCase(); return itemSearchTerms.every(t => n.includes(t)); })
+                ? allItems.filter(name => { const n = normColHeader(name); return itemSearchTerms.every(t => n.includes(t)); })
                 : allItems;
               // Keep original order — selected items stay in place
               const visibleItems = baseItems;
@@ -1876,7 +1880,7 @@ table{border-collapse:collapse;width:100%}
                             {activeFile.fixedCols.map((c, ci) => {
                               if (shortageOnlyMode && c === priceCol) return null;
                               const val = row[c] ?? '';
-                              const hi = itemSearchTerms.length > 0 && itemSearchTerms.some(t => val.toLowerCase().includes(t));
+                              const hi = itemSearchTerms.length > 0 && itemSearchTerms.some(t => normColHeader(val).includes(t));
                               const display = c === priceCol ? (toNum(val) > 0 ? fmtNum(toNum(val)) : (val || '—')) : val;
                               return (
                                 <td key={ci} style={{ ...tdS, ...(ci === 1 ? { minWidth: 180, maxWidth: 280, fontWeight: 600 } : {}), ...(ci === 2 ? { color: 'var(--c-text-primary)' } : {}) }}>
