@@ -27,7 +27,7 @@ interface DoctorRow {
   specialty: string; areaName: string; areaId: number | null;
   pharmacyName: string;
   itemName: string; itemId: number | null;
-  date: string; feedback: string; notes: string; isDoubleVisit: boolean;
+  date: string; time: string; feedback: string; notes: string; isDoubleVisit: boolean;
   lat: number | null; lng: number | null; geoCorrect: boolean | null;
 }
 interface PharmacyRow {
@@ -36,7 +36,7 @@ interface PharmacyRow {
   pharmacyName: string;
   areaName: string; areaId: number | null;
   itemName: string; itemId: number | null; // مستخرَجان من حقل note (يُحفظان كـ PharmacyVisitItem)
-  date: string; notes: string; isDoubleVisit: boolean;
+  date: string; time: string; notes: string; isDoubleVisit: boolean;
   lat: number | null; lng: number | null; geoCorrect: boolean | null;
 }
 

@@ -103,10 +103,29 @@ function inVisitRange(d) {
   return (y >= MIN_VISIT_YEAR && y <= MAX_VISIT_YEAR) ? d : null;
 }
 
+/** يستخرج وقت اليوم (HH:MM[:SS] مع AM/PM اختياري) من ذيل النص الواقع بعد جزء
+ *  التاريخ — ملفات CRM تكتب التاريخ والوقت معاً في خلية واحدة نصية
+ *  ("19/08/2026 11:19 PM")، وبدون هذا الاستخراج كانت كل الزيارات المستورَدة
+ *  تُحفظ عند منتصف الليل (00:00) فتظهر شاشة "الرئيسية" وقتاً واحداً موحَّداً
+ *  (03:00 صباحاً بتوقيت العراق UTC+3) لكل زيارة بصرف النظر عن وقتها الحقيقي. */
+const TIME_TAIL_RE = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?/;
+function extractTimeTail(tail) {
+  const m = String(tail ?? '').match(TIME_TAIL_RE);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = Number(m[2]);
+  const sec = m[3] ? Number(m[3]) : 0;
+  const ap = m[4]?.toLowerCase();
+  if (ap === 'pm' && h < 12) h += 12;
+  if (ap === 'am' && h === 12) h = 0;
+  if (h > 23 || min > 59 || sec > 59) return null;
+  return { h, min, sec };
+}
+
 function parseVisitDate(v) {
   if (!v && v !== 0) return null;
   if (v instanceof Date) return inVisitRange(v);
-  if (typeof v === 'number') return inVisitRange(excelSerialToDate(v)); // رقم إكسل تسلسلي
+  if (typeof v === 'number') return inVisitRange(excelSerialToDate(v)); // رقم إكسل تسلسلي (يحفظ الوقت ضمن الكسر العشري تلقائياً)
   const s = String(v).trim();
   if (!s) return null;
   // نص يحتوي رقماً فقط = خلية تاريخ مخزَّنة كنص في إكسل → رقم تسلسلي لا «سنة».
@@ -116,9 +135,19 @@ function parseVisitDate(v) {
     return null;
   }
   const dmy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
-  if (dmy) { const d = new Date(+dmy[3], +dmy[2] - 1, +dmy[1]); if (!isNaN(d.getTime())) return inVisitRange(d); }
+  if (dmy) {
+    const d = new Date(+dmy[3], +dmy[2] - 1, +dmy[1]);
+    const tail = extractTimeTail(s.slice(dmy[0].length));
+    if (tail) d.setHours(tail.h, tail.min, tail.sec, 0);
+    if (!isNaN(d.getTime())) return inVisitRange(d);
+  }
   const ymd = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
-  if (ymd) { const d = new Date(+ymd[1], +ymd[2] - 1, +ymd[3]); if (!isNaN(d.getTime())) return inVisitRange(d); }
+  if (ymd) {
+    const d = new Date(+ymd[1], +ymd[2] - 1, +ymd[3]);
+    const tail = extractTimeTail(s.slice(ymd[0].length));
+    if (tail) d.setHours(tail.h, tail.min, tail.sec, 0);
+    if (!isNaN(d.getTime())) return inVisitRange(d);
+  }
   const generic = new Date(s);
   return inVisitRange(generic);
 }
@@ -129,6 +158,26 @@ function toDateInput(d) {
   if (!d || isNaN(d.getTime())) return '';
   const p2 = n => String(n).padStart(2, '0');
   return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+}
+
+/** Date → "HH:MM" محلي — الوقت المستخرج فعلياً من الملف (راجع extractTimeTail)،
+ *  يُحفَظ منفصلاً عن date لأنه يُطبَّق لاحقاً على تاريخ قد يُعدِّله المستخدم يدوياً
+ *  في شبكة المراجعة (حقل date نوعه HTML date input، لا يحمل وقتاً). */
+function toTimeInput(d) {
+  if (!d || isNaN(d.getTime())) return '';
+  const p2 = n => String(n).padStart(2, '0');
+  return p2(d.getHours()) + ':' + p2(d.getMinutes());
+}
+
+/** يطبّق وقت الصف (r.time، "HH:MM" مستخرَج وقت التحليل) على تاريخ الحفظ —
+ *  date في شبكة المراجعة حقل HTML date بلا وقت، فحتى لو عدّله المستخدم يدوياً
+ *  يبقى الوقت الأصلي المستخرَج من الملف محفوظاً بدل أن يسقط إلى منتصف الليل. */
+function applyRowTime(dateVal, r) {
+  if (dateVal && /^\d{1,2}:\d{2}$/.test(r?.time || '')) {
+    const [hh, mm] = r.time.split(':').map(Number);
+    dateVal.setHours(hh, mm, 0, 0);
+  }
+  return dateVal;
 }
 
 function parseLocation(row, colMap) {
@@ -467,6 +516,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
     const parsedNote = parseCrmNote(get(row, 'note'), allItems);
     const dateVal = parseVisitDate(get(row, 'created')) || parseVisitDate(parsedNote.timestamp);
     const date = toDateInput(dateVal) || '';
+    const time = toTimeInput(dateVal);
     const isDoubleVisit = get(row, 'type') === 'Double Visit';
     const notes = parsedNote.notes;
     const geoCorrect = parseYesNo(get(row, 'correctGeo'));
@@ -478,7 +528,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
         pharmacyName: clientName,
         areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
         itemName: parsedNote.itemName, itemId: parsedNote.itemId,
-        date, notes, isDoubleVisit,
+        date, time, notes, isDoubleVisit,
         lat: null, lng: null, geoCorrect,
       });
     } else {
@@ -496,7 +546,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, allItems = [] }) {
         areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
         pharmacyName: get(row, 'associated'),
         itemName: parsedNote.itemName, itemId: parsedNote.itemId,
-        date,
+        date, time,
         feedback: 'pending', // لا مصدر واثق للفيدباك في نص هذه الصيغة الحر
         notes, isDoubleVisit,
         lat: null, lng: null, geoCorrect,
@@ -847,7 +897,7 @@ export async function extractVisitsFromExcel(file, user) {
       areaName, areaId: areaMatch.area?.id ?? null,
       pharmacyName: get('pharmacy'),
       itemName, itemId: item?.id ?? null,
-      date: toDateInput(dateVal) || '',
+      date: toDateInput(dateVal) || '', time: toTimeInput(dateVal),
       feedback: mapFeedback(get('feedback')),
       notes: get('notes'), isDoubleVisit: false,
       lat, lng, geoCorrect: parseYesNo(get('correctGeo')),
@@ -1100,7 +1150,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
         if (doc) await ensureSurveyLink(doc);
       }
 
-      const dateVal = parseVisitDate(r.date);
+      const dateVal = applyRowTime(parseVisitDate(r.date), r);
       const rowItemName = String(r?.itemName ?? '').trim();
       const resolvedItemId = r.itemId ?? (rowItemName ? matchItemByText(allItems, rowItemName)?.id ?? null : null);
       await prisma.doctorVisit.create({
@@ -1166,7 +1216,7 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
         if (ambiguous) ambiguousAreaNote = true;
       }
 
-      const dateVal = parseVisitDate(r.date);
+      const dateVal = applyRowTime(parseVisitDate(r.date), r);
       const visit = await prisma.pharmacyVisit.create({
         data: {
           pharmacyName,

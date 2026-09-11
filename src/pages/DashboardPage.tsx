@@ -1895,7 +1895,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     const pharmName   = v.doctor?.pharmacyName ?? '';
                     const items: string[] = isPharmacy
                       ? ((v as any).pharmItems ?? []).map((pi: any) => pi.item?.name || pi.itemName).filter(Boolean)
-                      : (v.item?.name ? [v.item.name] : []);
+                      : (v.item?.name || (v as any).itemName ? [v.item?.name || (v as any).itemName] : []);
 
                     rows.push(
                       <div key={isPharm ? `ph-${v.id}` : v.id} style={{
@@ -3676,7 +3676,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   const repName    = v.scientificRep?.name || (v as any).user?.displayName || (v as any).user?.username || '';
                   const items: string[] = isPharmacy
                     ? ((v as any).pharmItems ?? []).map((pi: any) => pi.item?.name || pi.itemName).filter(Boolean)
-                    : (v.item?.name ? [v.item.name] : []);
+                    : (v.item?.name || (v as any).itemName ? [v.item?.name || (v as any).itemName] : []);
                   const areaName   = v.doctor?.area?.name ?? '';
 
                   return (
