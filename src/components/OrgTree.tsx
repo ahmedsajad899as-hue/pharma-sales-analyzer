@@ -8,6 +8,7 @@
 // stay legible regardless of name length. The hierarchy math (who is whose
 // canonical single parent) is unchanged — only how it's drawn.
 import { useMemo, useState } from 'react';
+import type { CSSProperties } from 'react';
 
 export interface OrgUser {
   id: number; username: string; displayName?: string | null;
@@ -58,7 +59,14 @@ function buildCanonicalParentMap(users: OrgUser[]): Map<number, number | null> {
 
 const ORG_CSS = `
   .oview-list { font-size: 13px; }
-  .oview-toolbar { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-bottom:12px; }
+  .oview-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .oview-switch { display:inline-flex; align-items:center; gap:2px; padding:3px; border-radius:10px; background: var(--c-bg, #f0f2f7); border:1px solid var(--c-border, #dde3ef); }
+  .oview-switch-btn {
+    display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border-radius:8px; border:none; cursor:pointer;
+    font-size:12px; font-weight:600; background:transparent; color: var(--c-text-secondary, #5a6a8a);
+  }
+  .oview-switch-btn--active { background: var(--c-surface, #fff); color: var(--c-accent, #1a56db); box-shadow: 0 1px 3px rgba(15,23,42,0.08); }
+  .oview-toolbar-actions { display:flex; align-items:center; gap:8px; }
   .oview-toolbar-btn {
     display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border-radius:8px;
     font-size:12px; font-weight:600; cursor:pointer;
@@ -89,6 +97,42 @@ const ORG_CSS = `
   .oview-off { font-size:10px; color: var(--c-danger, #dc2626); font-weight:700; background: var(--c-danger-bg, #fef2f2); border-radius:6px; padding:1px 6px; flex-shrink:0; white-space:nowrap; }
   .oview-count { font-size:10.5px; color: var(--c-text-muted, #8fa0be); flex-shrink:0; margin-inline-start:auto; padding-inline-start:8px; }
   .oview-children { padding-inline-start:20px; margin-inline-start:12px; border-inline-start:1.5px solid var(--c-border, #dde3ef); }
+
+  /* ── وضع «الشجرة» — بطاقات موصولة بخطوط، عمودياً (لا فروع أفقية عريضة) ── */
+  .tview-root-group + .tview-root-group { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--c-border, #dde3ef); }
+  .tview-row { display:flex; align-items:center; gap:6px; }
+  .tview-toggle {
+    width:20px; height:20px; flex-shrink:0; border:1px solid var(--c-border, #dde3ef); background: var(--c-surface, #fff);
+    cursor:pointer; padding:0; border-radius:50%; font-size:10px; color: var(--c-text-muted, #8fa0be);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .tview-toggle:hover { background: var(--c-accent-light, #ebf0fc); color: var(--c-accent, #1a56db); border-color: var(--c-accent, #1a56db); }
+  .tview-card {
+    position:relative; background: var(--c-surface, #fff); border-radius: 12px;
+    border: 1px solid var(--c-border, #dde3ef); border-top: 3px solid var(--role-color, #64748b);
+    padding: 7px 12px; min-width: 160px; max-width: 260px;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.05);
+    cursor:pointer; display:flex; align-items:center; gap:9px;
+    transition: box-shadow .15s, transform .15s;
+  }
+  .tview-card:hover { box-shadow: 0 5px 16px rgba(15,23,42,0.12); transform: translateY(-1px); }
+  .tview-card-icon { width:30px; height:30px; border-radius:9px; flex-shrink:0; font-size:15px; display:flex; align-items:center; justify-content:center; }
+  .tview-card-body { min-width:0; }
+  .tview-card-name { font-weight:700; font-size:12.5px; color: var(--c-text-primary, #1a2332); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tview-card-meta { display:flex; align-items:center; gap:6px; margin-top:3px; }
+  .tview-card-badge { font-size:10px; font-weight:600; border-radius:20px; padding:1px 7px; white-space:nowrap; }
+  .tview-card-phone { font-size:10.5px; color: var(--c-text-muted, #8fa0be); white-space:nowrap; }
+  .tview-card-off { font-size:9.5px; color: var(--c-danger, #dc2626); font-weight:700; background: var(--c-danger-bg, #fef2f2); border-radius:6px; padding:1px 6px; white-space:nowrap; }
+  .tview-children {
+    margin-inline-start: 27px; padding-inline-start: 22px; margin-top: 12px;
+    border-inline-start: 2px solid var(--c-border, #dde3ef);
+    display:flex; flex-direction:column; gap:12px;
+  }
+  .tview-children > .tview-node { position:relative; }
+  .tview-children > .tview-node::before {
+    content:''; position:absolute; top:18px; inset-inline-start:-22px; width:22px; height:0;
+    border-top: 2px solid var(--c-border, #dde3ef);
+  }
 `;
 
 function OrgRow({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }: {
@@ -130,10 +174,58 @@ function OrgRow({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }
   );
 }
 
+function TreeNode({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }: {
+  u: OrgUser; childrenMap: Map<number, OrgUser[]>;
+  onSelect?: (u: OrgUser) => void;
+  collapsed: Set<number>; toggleCollapse: (id: number) => void;
+  visited: Set<number>;
+}) {
+  if (visited.has(u.id)) return null; // safety net against malformed cyclic manager links
+  const next = new Set(visited); next.add(u.id);
+  const m = ROLE_META[u.role] ?? DEF_META;
+  const children = childrenMap.get(u.id) ?? [];
+  const isOpen = !collapsed.has(u.id);
+  return (
+    <div className="tview-node">
+      <div className="tview-row">
+        <div className="tview-card" style={{ '--role-color': m.color } as CSSProperties} onClick={() => onSelect?.(u)}>
+          <span className="tview-card-icon" style={{ background: `${m.color}18` }}>{m.icon}</span>
+          <div className="tview-card-body">
+            <div className="tview-card-name">{u.displayName || u.username}</div>
+            <div className="tview-card-meta">
+              <span className="tview-card-badge" style={{ color: m.color, background: `${m.color}15`, border: `1px solid ${m.color}30` }}>{m.label}</span>
+              {u.phone && <span className="tview-card-phone">{u.phone}</span>}
+              {!u.isActive && <span className="tview-card-off">معطل</span>}
+            </div>
+          </div>
+        </div>
+        {children.length > 0 && (
+          <button
+            type="button" className="tview-toggle"
+            onClick={e => { e.stopPropagation(); toggleCollapse(u.id); }}
+            title={isOpen ? `طيّ (${children.length})` : `فرد (${children.length})`}
+          >{isOpen ? '▾' : '◂'}</button>
+        )}
+      </div>
+      {isOpen && children.length > 0 && (
+        <div className="tview-children">
+          {children.map(c => (
+            <TreeNode key={c.id} u={c} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={next} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type OrgViewMode = 'list' | 'tree';
+
 export function OrgTree({ users, onSelect }: { users: OrgUser[]; onSelect?: (u: OrgUser) => void }) {
   // كل المستخدمين مفروودون افتراضياً — الهدف إظهار أكبر عدد من الأسماء دفعة
   // واحدة؛ الطيّ متاح لكل عقدة (وزر «طيّ الكل») لمن يريد تضييق فرع كبير.
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const [mode, setMode] = useState<OrgViewMode>(() => (localStorage.getItem('orgtree_view_mode') as OrgViewMode) || 'list');
+  const setModeAndPersist = (m: OrgViewMode) => { setMode(m); localStorage.setItem('orgtree_view_mode', m); };
   const toggleCollapse = (id: number) => setCollapsed(prev => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -166,15 +258,25 @@ export function OrgTree({ users, onSelect }: { users: OrgUser[]; onSelect?: (u: 
     <>
       <style dangerouslySetInnerHTML={{ __html: ORG_CSS }} />
       <div className="oview-list">
-        {childrenMap.size > 0 && (
-          <div className="oview-toolbar">
-            <button type="button" className="oview-toolbar-btn" onClick={expandAll}>⊞ فرد الكل</button>
-            <button type="button" className="oview-toolbar-btn" onClick={collapseAll}>⊟ طيّ الكل</button>
+        <div className="oview-toolbar">
+          <div className="oview-switch">
+            <button type="button" className={`oview-switch-btn${mode === 'list' ? ' oview-switch-btn--active' : ''}`} onClick={() => setModeAndPersist('list')}>☰ قائمة</button>
+            <button type="button" className={`oview-switch-btn${mode === 'tree' ? ' oview-switch-btn--active' : ''}`} onClick={() => setModeAndPersist('tree')}>🌳 شجرة</button>
           </div>
-        )}
-        {roots.map(u => (
+          {childrenMap.size > 0 && (
+            <div className="oview-toolbar-actions">
+              <button type="button" className="oview-toolbar-btn" onClick={expandAll}>⊞ فرد الكل</button>
+              <button type="button" className="oview-toolbar-btn" onClick={collapseAll}>⊟ طيّ الكل</button>
+            </div>
+          )}
+        </div>
+        {mode === 'list' ? roots.map(u => (
           <div key={u.id} className="oview-root-group">
             <OrgRow u={u} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={new Set()} />
+          </div>
+        )) : roots.map(u => (
+          <div key={u.id} className="tview-root-group">
+            <TreeNode u={u} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={new Set()} />
           </div>
         ))}
       </div>
