@@ -604,7 +604,9 @@ function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
       // تفصيل المنطقة على أنه اسم الصيدلية). أأمن أن يُترك للمستخدم يدوياً
       // حين لا توجد بادئة قاطعة، بدل استنتاج قد يُحفظ خطأً في سجل الطبيب.
       if (!planPharmacy) {
-        const ph = parts.find(p => PHARMACY_SEG_RE.test(p));
+        // مقطع بادئته "ص."/"صيدلية" لكن بلا اسم مخصّص بعدها («صيدلية» وحدها) ليس
+        // اسم صيدلية فعلياً — نتجاهله بدل حفظ الكلمة العامة كأنها اسم.
+        const ph = parts.find(p => PHARMACY_SEG_RE.test(p) && p.replace(PHARMACY_SEG_RE, '').trim().length > 0);
         if (ph) planPharmacy = ph;
       }
       continue;
