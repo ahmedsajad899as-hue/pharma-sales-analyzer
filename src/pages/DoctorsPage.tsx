@@ -2816,11 +2816,6 @@ export default function DoctorsPage() {
                                   })()}
                                 </div>
                               )}
-                              {lastVisit?.repName && (
-                                <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 1, textAlign: 'left' }}>
-                                  {lastVisit.repName}
-                                </div>
-                              )}
                             </div>
 
                             {/* Wish button */}
@@ -2871,6 +2866,15 @@ export default function DoctorsPage() {
                               <span style={{ fontSize: 11, color: 'var(--c-text-muted)', flexShrink: 0, minWidth: 58, textAlign: 'center' }}>لم يُزر</span>
                             )}
                           </div>
+
+                          {/* Rep/user who logged the last visit — full-width line under the main
+                              row (not inside the name column, which only spans part of the row) so
+                              it lands at the true left edge, matching where it was asked to sit. */}
+                          {lastVisit?.repName && (
+                            <div style={{ padding: '0 18px 8px', marginTop: -6, fontSize: 11, color: 'var(--c-text-muted)', textAlign: 'left', direction: 'rtl' }}>
+                              {lastVisit.repName}
+                            </div>
+                          )}
 
                           {/* Expanded visits */}
                           {isVisitOpen && doc.visits.length > 0 && (
