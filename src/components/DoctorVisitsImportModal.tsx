@@ -22,6 +22,8 @@ interface DoctorRow {
   _row: number;
   repName: string; repId: number | null;
   doctorName: string; doctorId: number | null; doctorKey?: string;
+  // طبيب مطابَق في السيرفي بلا صف Doctor محلي بعد — يُنشأ ويُربط به عند الحفظ
+  surveyDoctorId?: number | null;
   // قيَم الملف قبل تبنّي هوية الطبيب المسجَّل في التطبيق — للاطلاع فقط (tooltip)
   rawDoctorName?: string; rawSpecialty?: string; rawAreaName?: string; rawPharmacyName?: string;
   specialty: string; areaName: string; areaId: number | null;
@@ -253,8 +255,9 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
    * (لا قيمة الملف)، وقيمة الملف تظهر في الـtooltip للمقارنة. تُعيد null لصف
    * غير مطابَق فتُعرض خانة إدخال عادية بدلاً منها.
    */
-  const lockedCell = (doctorId: number | null, value: string, rawValue: string | undefined, minWidth: number) => {
-    if (!doctorId) return null;
+  const isMatchedDoctor = (r: DoctorRow) => !!(r.doctorId || r.surveyDoctorId);
+  const lockedCell = (matched: boolean, value: string, rawValue: string | undefined, minWidth: number) => {
+    if (!matched) return null;
     const differs = !!rawValue && rawValue !== value;
     return (
       <div title={differs ? `في الملف: ${rawValue}` : 'من بيانات الطبيب في التطبيق'}
@@ -513,8 +516,11 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                         <td style={td}>
                           {/* طبيب مطابَق لطبيب موجود: يُعرض اسمه كما هو في التطبيق ولا يُعدَّل هنا —
                               الزيارة تُضاف إليه فقط، واسمه في التطبيق يبقى دون تغيير. */}
-                          {r.doctorId ? (
-                            <div title={r.rawDoctorName && r.rawDoctorName !== r.doctorName ? `في الملف: ${r.rawDoctorName}` : 'مطابَق لطبيب موجود'}
+                          {isMatchedDoctor(r) ? (
+                            <div title={[
+                                r.doctorId ? 'مطابَق لطبيب موجود في التطبيق' : 'مطابَق لطبيب في السيرفي — سيُربط به عند الحفظ',
+                                r.rawDoctorName && r.rawDoctorName !== r.doctorName ? `في الملف: ${r.rawDoctorName}` : '',
+                              ].filter(Boolean).join(' · ')}
                               style={{ ...cellInp, minWidth: 140, background: '#f0fdf4', borderColor: '#bbf7d0', display: 'flex', alignItems: 'center', gap: 4, cursor: 'default' }}>
                               <span>🔗</span><span style={{ fontWeight: 600 }}>{r.doctorName}</span>
                             </div>
@@ -524,11 +530,11 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                         </td>
                         {/* الاختصاص/المنطقة/الصيدلية لطبيب مطابَق تُعرض من بيانات التطبيق
                             الأصلية ولا تُعدَّل من الملف — الملف يضيف زيارة فقط. */}
-                        <td style={td}>{lockedCell(r.doctorId, r.specialty, r.rawSpecialty, 90)
+                        <td style={td}>{lockedCell(isMatchedDoctor(r), r.specialty, r.rawSpecialty, 90)
                           ?? <input value={r.specialty} onChange={e => setDocCell(i, { specialty: e.target.value })} style={{ ...cellInp, minWidth: 90 }} />}</td>
-                        <td style={td}>{lockedCell(r.doctorId, r.areaName, r.rawAreaName, 90)
+                        <td style={td}>{lockedCell(isMatchedDoctor(r), r.areaName, r.rawAreaName, 90)
                           ?? <input value={r.areaName} onChange={e => setDocCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 90 }} />}</td>
-                        <td style={td}>{lockedCell(r.doctorId, r.pharmacyName, r.rawPharmacyName, 110)
+                        <td style={td}>{lockedCell(isMatchedDoctor(r), r.pharmacyName, r.rawPharmacyName, 110)
                           ?? <input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 110 }} />}</td>
                         <td style={td}><input list="visit-item-options" value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null })}
                           title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير مطابَق — اختر الاسم الصحيح من القائمة ليُحفظ بالاسم القانوني ويُتذكَّر للمرات القادمة' : undefined)}

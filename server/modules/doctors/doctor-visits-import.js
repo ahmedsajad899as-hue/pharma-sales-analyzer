@@ -725,6 +725,26 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     : [];
   const surveyAliasByKey = new Map(surveyAliases.map(a => [a.fromKey, a]));
 
+  // أطباء السيرفي أنفسهم (لا aliases فقط) — طبيب أُدخل عبر استيراد أطباء السيرفي
+  // أو استيراد زيارات سابق يكون موجوداً في السيرفي بالاسم نفسه دون أي alias ودون
+  // صف Doctor محلي لهذا المالك أحياناً. كان هذا يُصنَّف «جديداً» في شبكة المراجعة
+  // (بلا 🔗) رغم أن الحفظ يربطه بالسيرفي فعلاً (findSurveyDoctor) — فيتناقض ما
+  // تعرضه الشبكة مع ما يحدث. تطابق الاسم التام هنا يُعتمد ربطاً (بلا سؤال) تماماً
+  // كطبيب محلي متطابق الاسم؛ التشابه غير التام يبقى لمرحلة الحفظ (عتبة 0.92).
+  const surveyDoctorsVisible = visibleSurveys.length
+    ? await prisma.masterSurveyDoctor.findMany({
+        where: { surveyId: { in: visibleSurveys.map(s => s.id) } },
+        select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
+      })
+    : [];
+  const surveyByNorm = new Map();
+  for (const sd of surveyDoctorsVisible) {
+    const k = normalizeRepName(cleanDoctorName(sd.name));
+    if (!k) continue;
+    if (!surveyByNorm.has(k)) surveyByNorm.set(k, []);
+    surveyByNorm.get(k).push(sd);
+  }
+
   /**
    * صف طابق طبيباً موجوداً → كل هويته تُؤخذ من التطبيق لا من الملف: الاسم
    * والاختصاص والمنطقة والصيدلية. الملف يضيف زيارة فحسب ولا يُعيد تعريف الطبيب،
@@ -732,6 +752,7 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
    */
   const adoptAppDoctorIdentity = (r, doc) => {
     r.doctorId = doc.id;
+    r.surveyDoctorId = doc.masterSurveyDoctorId ?? null;
     r.rawDoctorName   = r.doctorName;
     r.rawSpecialty    = r.specialty;
     r.rawAreaName     = r.areaName;
@@ -741,6 +762,26 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     r.areaName     = doc.areaName     || '';
     r.areaId       = doc.areaId ?? null;
     r.pharmacyName = doc.pharmacyName || '';
+  };
+
+  /**
+   * صف طابق طبيباً في السيرفي لا صف Doctor محلياً له بعد — يُنشأ صف Doctor عند
+   * الحفظ مربوطاً به (surveyDoctorId) بالاسم القانوني المسجَّل في السيرفي؛ حقول
+   * السيرفي الفارغة تُكمَّل من الملف لأن الصف المحلي جديد أصلاً. areaId يُترك
+   * فارغاً كي يُعاد حسمه من areaName النصي عند الحفظ.
+   */
+  const adoptSurveyDoctorIdentity = (r, sd) => {
+    r.doctorId = null;
+    r.surveyDoctorId = sd.id;
+    r.areaId = null;
+    r.rawDoctorName   = r.doctorName;
+    r.rawSpecialty    = r.specialty;
+    r.rawAreaName     = r.areaName;
+    r.rawPharmacyName = r.pharmacyName;
+    r.doctorName   = sd.name;
+    r.specialty    = sd.specialty    || r.specialty    || '';
+    r.areaName     = sd.areaName     || r.areaName     || '';
+    r.pharmacyName = sd.pharmacyName || r.pharmacyName || '';
   };
 
   // تجميع الصفوف حسب مفتاح التصنيف — يكفي تصنيف كل اسم مختلف مرة واحدة، ثم تُطبَّق
@@ -789,15 +830,8 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
         // فارغاً كي يُعاد حسمه من areaName النصي (المستبدَل بالقانوني) عند الحفظ.
         const sd = surveyAlias.surveyDoctor;
         for (const r of g.rows) {
-          r.doctorId = null;
-          r.areaId = null;
-          r.rawDoctorName = r.doctorName;
-          if (sd) {
-            r.doctorName   = sd.name;
-            r.specialty    = sd.specialty    || r.specialty;
-            r.areaName     = sd.areaName     || r.areaName;
-            r.pharmacyName = sd.pharmacyName || r.pharmacyName;
-          }
+          if (sd) adoptSurveyDoctorIdentity(r, sd);
+          else { r.doctorId = null; r.surveyDoctorId = null; }
         }
         resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: sd ? { id: sd.id, name: sd.name } : null });
       }
@@ -805,17 +839,38 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     }
 
     const cleanNorm = normalizeRepName(g.cleanedName);
+    // مرشّح تام واحد من قائمة — وعند التعدّد يُحسم بالمنطقة إن أمكن (نفس القاعدة
+    // للأطباء المحليين وأطباء السيرفي).
+    const pickExact = (list) => {
+      if (list.length === 1) return list[0];
+      if (list.length > 1 && g.areaName) {
+        const byArea = list.filter(c => c.areaName && normalizeAreaName(c.areaName) === normalizeAreaName(g.areaName));
+        if (byArea.length === 1) return byArea[0];
+      }
+      return null;
+    };
     const exactMatches = candidates.filter(c => normalizeRepName(c.name) === cleanNorm);
-    let exact = null;
-    if (exactMatches.length === 1) exact = exactMatches[0];
-    else if (exactMatches.length > 1 && g.areaName) {
-      const areaMatches = exactMatches.filter(c => c.areaName && normalizeAreaName(c.areaName) === normalizeAreaName(g.areaName));
-      if (areaMatches.length === 1) exact = areaMatches[0];
-    }
+    const exact = pickExact(exactMatches);
     if (exact) {
       for (const r of g.rows) adoptAppDoctorIdentity(r, exact);
       resolved.push({ raw: g.raw, key: g.key, status: 'exact', doctor: { id: exact.id, name: exact.name } });
       continue;
+    }
+
+    // لا صف Doctor محلياً بهذا الاسم — لكن قد يكون في السيرفي بالاسم نفسه تماماً
+    // (أُدخل من استيراد أطباء السيرفي أو من زيارات مستخدم آخر). يُربط به بلا سؤال؛
+    // وإن كان له صف Doctor محلي باسم مختلف (مربوط بالسيرفي) يُستعمل ذلك الصف.
+    if (exactMatches.length === 0) {
+      const surveyExact = pickExact(surveyByNorm.get(cleanNorm) ?? []);
+      if (surveyExact) {
+        const localDoc = candBySurveyDoctorId.get(surveyExact.id);
+        for (const r of g.rows) {
+          if (localDoc) adoptAppDoctorIdentity(r, localDoc);
+          else adoptSurveyDoctorIdentity(r, surveyExact);
+        }
+        resolved.push({ raw: g.raw, key: g.key, status: 'exact', doctor: localDoc ? { id: localDoc.id, name: localDoc.name } : { id: surveyExact.id, name: surveyExact.name } });
+        continue;
+      }
     }
 
     // اسم متطابق تماماً لكن أكثر من طبيب بالاسم نفسه بالضبط ولا يمكن حسم الفرق
@@ -828,7 +883,7 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
           .sort((a, b) => b.score - a.score)
           .slice(0, 5);
 
-    for (const r of g.rows) r.doctorId = null;
+    for (const r of g.rows) { r.doctorId = null; r.surveyDoctorId = null; }
     if (scored.length === 0) {
       unrelated.push({ raw: g.raw, key: g.key });
     } else {
@@ -1220,7 +1275,10 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
         } else {
           // طبيب جديد بالكامل — يُنشأ عبر السيرفي أولاً كي يظهر في الزيارات/
           // الأطباء/الأرشيف، ثم صف Doctor المربوط به (نفس نمط addCustomDoctor).
-          const sd = findSurveyDoctor(doctorName, ctx).match ?? (hostSurvey
+          // صف حُسم في مرحلة المطابقة لطبيب سيرفي بعينه (surveyDoctorId) يُربط به
+          // مباشرة بدل إعادة المطابقة بالاسم.
+          const pinnedSd = r.surveyDoctorId ? surveyDoctorsAll.find(d => d.id === r.surveyDoctorId) : null;
+          const sd = pinnedSd ?? findSurveyDoctor(doctorName, ctx).match ?? (hostSurvey
             ? await createSurveyDoctor(hostSurvey.id, {
                 name: doctorName, specialty: r.specialty || null,
                 areaName: resolvedAreaName || null, pharmacyName: r.pharmacyName || null,
