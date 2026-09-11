@@ -24,12 +24,17 @@ interface DoctorRow {
   doctorName: string; doctorId: number | null; doctorKey?: string;
   // طبيب مطابَق في السيرفي بلا صف Doctor محلي بعد — يُنشأ ويُربط به عند الحفظ
   surveyDoctorId?: number | null;
+  // صيدلية مستخرَجة من الملف (لا من بيانات الطبيب في التطبيق/السيرفي — كانت فارغة)
+  // — تُعرض قابلة للتعديل ومميَّزة للمراجعة؛ إبقاؤها عند الحفظ يحفظها في سجل الطبيب.
+  pharmacyFromFile?: boolean;
   // قيَم الملف قبل تبنّي هوية الطبيب المسجَّل في التطبيق — للاطلاع فقط (tooltip)
   rawDoctorName?: string; rawSpecialty?: string; rawAreaName?: string; rawPharmacyName?: string;
   specialty: string; areaName: string; areaId: number | null;
   pharmacyName: string;
   itemName: string; itemId: number | null;
   rawItemName?: string; // نص الايتم كما ورد في الملف — يُحفظ كقاعدة توحيد إن صُحِّح يدوياً
+  // اقتراح "هل تقصد؟" حين لم يُحسم الايتم تلقائياً — يظهر كزر تأكيد سريع
+  itemSuggestionId?: number | null; itemSuggestionName?: string | null;
   date: string; time: string; feedback: string; notes: string; isDoubleVisit: boolean;
   lat: number | null; lng: number | null; geoCorrect: boolean | null;
 }
@@ -40,6 +45,7 @@ interface PharmacyRow {
   areaName: string; areaId: number | null;
   itemName: string; itemId: number | null; // مستخرَجان من حقل note (يُحفظان كـ PharmacyVisitItem)
   rawItemName?: string;
+  itemSuggestionId?: number | null; itemSuggestionName?: string | null;
   date: string; time: string; notes: string; isDoubleVisit: boolean;
   lat: number | null; lng: number | null; geoCorrect: boolean | null;
 }
@@ -534,11 +540,26 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                           ?? <input value={r.specialty} onChange={e => setDocCell(i, { specialty: e.target.value })} style={{ ...cellInp, minWidth: 90 }} />}</td>
                         <td style={td}>{lockedCell(isMatchedDoctor(r), r.areaName, r.rawAreaName, 90)
                           ?? <input value={r.areaName} onChange={e => setDocCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 90 }} />}</td>
-                        <td style={td}>{lockedCell(isMatchedDoctor(r), r.pharmacyName, r.rawPharmacyName, 110)
-                          ?? <input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 110 }} />}</td>
-                        <td style={td}><input list="visit-item-options" value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null })}
-                          title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير مطابَق — اختر الاسم الصحيح من القائمة ليُحفظ بالاسم القانوني ويُتذكَّر للمرات القادمة' : undefined)}
-                          style={{ ...cellInp, minWidth: 110, ...(r.itemId ? { background: '#f0fdf4', borderColor: '#bbf7d0', fontWeight: 600 } : {}) }} /></td>
+                        {/* صيدلية الطبيب مقفلة كباقي هويته إلا حين تكون فارغة عنده أصلاً في
+                            التطبيق/السيرفي واستُخرجت من الملف — تُعرض قابلة للتعديل ومميَّزة
+                            بلون تنبيه كي يراجعها المستخدم ويؤكّدها أو يمسحها. */}
+                        <td style={td}>{(isMatchedDoctor(r) && !r.pharmacyFromFile) ? lockedCell(true, r.pharmacyName, r.rawPharmacyName, 110) : (
+                          <input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })}
+                            title={r.pharmacyFromFile ? 'مستخرَجة من الملف — راجعها وعدّلها أو امسحها، وستُحفظ في سجل الطبيب عند التأكيد' : undefined}
+                            style={{ ...cellInp, minWidth: 110, ...(r.pharmacyFromFile ? { background: '#fffbeb', borderColor: '#fbbf24' } : {}) }} />
+                        )}</td>
+                        <td style={td}>
+                          <input list="visit-item-options" value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null, itemSuggestionId: null, itemSuggestionName: null })}
+                            title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير مطابَق — اختر الاسم الصحيح من القائمة ليُحفظ بالاسم القانوني ويُتذكَّر للمرات القادمة' : undefined)}
+                            style={{ ...cellInp, minWidth: 110, ...(r.itemId ? { background: '#f0fdf4', borderColor: '#bbf7d0', fontWeight: 600 } : {}) }} />
+                          {!r.itemId && r.itemSuggestionName && (
+                            <button onClick={() => setDocCell(i, { itemName: r.itemSuggestionName!, itemSuggestionId: null, itemSuggestionName: null })}
+                              title="اضغط لتأكيد هذا الاسم"
+                              style={{ display: 'block', marginTop: 3, fontSize: 11, padding: '2px 6px', borderRadius: 6, border: '1px solid #fbbf24', background: '#fffbeb', color: '#92400e', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                              هل تقصد: {r.itemSuggestionName}؟
+                            </button>
+                          )}
+                        </td>
                         <td style={td}><input type="date" value={r.date} onChange={e => setDocCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
                         <td style={td}>
                           <select value={r.feedback} onChange={e => setDocCell(i, { feedback: e.target.value })} style={{ ...cellInp, minWidth: 100 }}>
@@ -579,9 +600,18 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                         </td>
                         <td style={td}><input value={r.pharmacyName} onChange={e => setPharmCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>
                         <td style={td}><input value={r.areaName} onChange={e => setPharmCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 100 }} /></td>
-                        <td style={td}><input list="visit-item-options" value={r.itemName} onChange={e => setPharmCell(i, { itemName: e.target.value, itemId: null })}
-                          title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير مطابَق — اختر الاسم الصحيح من القائمة ليُحفظ بالاسم القانوني ويُتذكَّر للمرات القادمة' : undefined)}
-                          style={{ ...cellInp, minWidth: 110, ...(r.itemId ? { background: '#f0fdf4', borderColor: '#bbf7d0', fontWeight: 600 } : {}) }} /></td>
+                        <td style={td}>
+                          <input list="visit-item-options" value={r.itemName} onChange={e => setPharmCell(i, { itemName: e.target.value, itemId: null, itemSuggestionId: null, itemSuggestionName: null })}
+                            title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير مطابَق — اختر الاسم الصحيح من القائمة ليُحفظ بالاسم القانوني ويُتذكَّر للمرات القادمة' : undefined)}
+                            style={{ ...cellInp, minWidth: 110, ...(r.itemId ? { background: '#f0fdf4', borderColor: '#bbf7d0', fontWeight: 600 } : {}) }} />
+                          {!r.itemId && r.itemSuggestionName && (
+                            <button onClick={() => setPharmCell(i, { itemName: r.itemSuggestionName!, itemSuggestionId: null, itemSuggestionName: null })}
+                              title="اضغط لتأكيد هذا الاسم"
+                              style={{ display: 'block', marginTop: 3, fontSize: 11, padding: '2px 6px', borderRadius: 6, border: '1px solid #fbbf24', background: '#fffbeb', color: '#92400e', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                              هل تقصد: {r.itemSuggestionName}؟
+                            </button>
+                          )}
+                        </td>
                         <td style={td}><input type="date" value={r.date} onChange={e => setPharmCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
                         <td style={{ ...td, textAlign: 'center' }}>{geoBadge(r.geoCorrect)}</td>
                         <td style={td}><input value={r.notes} onChange={e => setPharmCell(i, { notes: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>

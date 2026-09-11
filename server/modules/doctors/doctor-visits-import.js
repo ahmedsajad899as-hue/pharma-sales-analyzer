@@ -500,6 +500,21 @@ function matchItemByText(ctx, text) {
   return null;
 }
 
+/**
+ * حين لا يُحسم ايتم تلقائياً (matchItemByText أعادت null) لكن يوجد مرشّح قريب
+ * محتمل، يُعاد للمستخدم كـ"هل تقصد؟" في شبكة المراجعة بدل ترك الخانة بلا أي
+ * اقتراح — يختاره بضغطة واحدة إن كان صحيحاً، أو يتجاهله ويكتب الاسم يدوياً.
+ * سؤال صريح بدل تخمين صامت: لا يُربط تلقائياً مهما علت نسبة التشابه.
+ */
+function suggestItemMatch(ctx, text) {
+  const t = normItemText(text);
+  if (!t || t.length < 3) return null;
+  const r = resolveItemNameSync(text, ctx);
+  const top = r.suggestions?.[0];
+  if (top && top.sim >= 0.5) return ctx.catalogById.get(top.id) ?? { id: top.id, name: top.name };
+  return null;
+}
+
 /** يبحث عن أي اسم ايتم من الكتالوج داخل نص الملاحظة كاملاً (الأطول أولاً). */
 function scanNoteForCatalogItem(ctx, note) {
   const t = normItemText(note);
@@ -517,7 +532,7 @@ function scanNoteForCatalogItem(ctx, note) {
  */
 function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
   const raw = String(rawNote ?? '').replace(/\r/g, ' ').trim();
-  const empty = { itemName: '', itemId: null, rawItemName: '', notes: raw, timestamp: '' };
+  const empty = { itemName: '', itemId: null, rawItemName: '', itemSuggestion: null, pharmacyName: '', notes: raw, timestamp: '' };
   if (!raw) return { ...empty, notes: '' };
 
   const firstTs = raw.match(/\(\s*(\d{1,2}\/\d{1,2}\/\d{4}[^)]*)\)/);
@@ -529,14 +544,20 @@ function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
   const alternating = raw.trimStart().startsWith('***');
   const freeTexts = [];
   let planItem = '';
+  let planPharmacy = ''; // مقطع صيدلية داخل سطر خطة (طبيب \ اختصاص \ صيدلية \ ايتم)
 
   for (const [idx, seg] of segments.entries()) {
     if (isNoteAuthorSegment(seg, alternating && idx % 2 === 0)) continue; // مقطع الكاتب
     const body = stripNoteMeta(seg).replace(NOTE_TS_RE, '').trim();
     if (!body) continue;
     if (isPlanLine(body)) {                                 // سطر خطة لا ملاحظة
-      const last = body.split(/[\\/]/).pop().trim();
+      const parts = body.split(/[\\/]/).map(s => s.trim()).filter(Boolean);
+      const last = parts[parts.length - 1] ?? '';
       if (!planItem && looksLikeItemToken(last)) planItem = last;
+      // اسم صيدلية الطبيب غالباً مذكور هنا («د. فلان \ اختصاص \ ص. الصيدلية \
+      // ايتم») ولا يُستخرَج من أي عمود آخر في هذه الصيغة — يُستعمل لاحقاً فقط
+      // حين يخلو سجل الطبيب في التطبيق/السيرفي من صيدلية أصلاً.
+      if (!planPharmacy) { const ph = parts.find(p => PHARMACY_SEG_RE.test(p)); if (ph) planPharmacy = ph; }
       continue;
     }
     freeTexts.push(body.replace(/\s{2,}/g, ' '));
@@ -553,6 +574,7 @@ function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
   }
   let item = itemText ? matchItemByText(itemCtx, itemText) : null;
   if (!item && !itemText) { item = scanNoteForCatalogItem(itemCtx, raw); if (item) itemText = item.name; }
+  const itemSuggestion = (!item && itemText) ? suggestItemMatch(itemCtx, itemText) : null;
 
   const notes = freeTexts.join(' | ').trim();
   // صيغة غير متوقَّعة تماماً (بلا *** ولا نص مفهوم) → نُبقي الملاحظة الخام بدل ضياعها.
@@ -560,7 +582,7 @@ function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
 
   // rawItemName = النص كما ورد في الملف — يُحفظ كقاعدة توحيد (ItemMergeRule) عند
   // الحفظ إن صحّحه المستخدم يدوياً إلى ايتم من الكتالوج، فلا يُسأل مرة أخرى.
-  return { itemName: item ? item.name : itemText, itemId: item?.id ?? null, rawItemName: itemText, notes, timestamp };
+  return { itemName: item ? item.name : itemText, itemId: item?.id ?? null, rawItemName: itemText, itemSuggestion, pharmacyName: planPharmacy, notes, timestamp };
 }
 
 /** يقرأ صفوف صيغة CRM ويقسّمها إلى زيارات أطباء وزيارات صيدليات منفصلة. */
@@ -624,6 +646,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EMPTY_ITE
         pharmacyName: clientName,
         areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
         itemName: parsedNote.itemName, itemId: parsedNote.itemId, rawItemName: parsedNote.rawItemName,
+        itemSuggestionId: parsedNote.itemSuggestion?.id ?? null, itemSuggestionName: parsedNote.itemSuggestion?.name ?? null,
         date, time, notes, isDoubleVisit,
         lat: null, lng: null, geoCorrect,
       });
@@ -640,8 +663,13 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EMPTY_ITE
         doctorName, doctorId: null,
         specialty: get(row, 'subcategory'),
         areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
-        pharmacyName: get(row, 'associated'),
+        // عمود "associated-client" أولاً؛ وإلا اسم الصيدلية المستخرَج من سطر
+        // الخطة داخل note نفسها (راجع parseCrmNote) — يُستعمل فقط عند مطابقة
+        // الحفظ لاحقاً حين يخلو سجل الطبيب في التطبيق/السيرفي من صيدلية أصلاً،
+        // ويُعرض في شبكة المراجعة (قابلاً للتعديل، مميَّزاً بلون تنبيه) للتأكيد.
+        pharmacyName: get(row, 'associated') || parsedNote.pharmacyName,
         itemName: parsedNote.itemName, itemId: parsedNote.itemId, rawItemName: parsedNote.rawItemName,
+        itemSuggestionId: parsedNote.itemSuggestion?.id ?? null, itemSuggestionName: parsedNote.itemSuggestion?.name ?? null,
         date, time,
         feedback: 'pending', // لا مصدر واثق للفيدباك في نص هذه الصيغة الحر
         notes, isDoubleVisit,
@@ -761,7 +789,12 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     r.specialty    = doc.specialty    || '';
     r.areaName     = doc.areaName     || '';
     r.areaId       = doc.areaId ?? null;
-    r.pharmacyName = doc.pharmacyName || '';
+    // سجل الطبيب في التطبيق/السيرفي بلا صيدلية مسجَّلة → الاسم المستخرَج من
+    // الملف (عمود associated-client أو سطر الخطة في note) أفضل من ترك الخانة
+    // فارغة دائماً؛ يُعلَّم pharmacyFromFile كي تُميَّزه الواجهة ويُراجعه المستخدم
+    // بدل اعتماده صامتاً كبيانات طبيب مؤكَّدة.
+    r.pharmacyFromFile = !doc.pharmacyName && !!r.pharmacyName;
+    r.pharmacyName = doc.pharmacyName || r.pharmacyName || '';
   };
 
   /**
@@ -781,6 +814,7 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     r.doctorName   = sd.name;
     r.specialty    = sd.specialty    || r.specialty    || '';
     r.areaName     = sd.areaName     || r.areaName     || '';
+    r.pharmacyFromFile = !sd.pharmacyName && !!r.pharmacyName;
     r.pharmacyName = sd.pharmacyName || r.pharmacyName || '';
   };
 
@@ -1054,6 +1088,7 @@ export async function extractVisitsFromExcel(file, user) {
 
     const rawItemName = get('item');
     const item = rawItemName ? matchItemByText(itemCtx, rawItemName) : null;
+    const itemSuggestion = (!item && rawItemName) ? suggestItemMatch(itemCtx, rawItemName) : null;
     const itemName = item ? item.name : rawItemName; // الاسم القانوني حين يُطابَق
     const { lat, lng } = parseLocation(row, colMap);
     const dateVal = parseVisitDate(get('date'));
@@ -1066,6 +1101,7 @@ export async function extractVisitsFromExcel(file, user) {
       areaName, areaId: areaMatch.area?.id ?? null,
       pharmacyName: get('pharmacy'),
       itemName, itemId: item?.id ?? null, rawItemName,
+      itemSuggestionId: itemSuggestion?.id ?? null, itemSuggestionName: itemSuggestion?.name ?? null,
       date: toDateInput(dateVal) || '', time: toTimeInput(dateVal),
       feedback: mapFeedback(get('feedback')),
       notes: get('notes'), isDoubleVisit: false,
@@ -1317,10 +1353,17 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
           });
           if (fetched) { doc = fetched; existingDoctors.push(fetched); }
         }
-        // لا تُنسَخ أي قيمة من الملف إلى سجل الطبيب (ولا حتى إلى حقل فارغ):
-        // بيانات الطبيب في التطبيق هي المرجع، والملف يضيف زيارة فقط. عمود
-        // «الصيدلية» في هذه الملفات هو أصلاً اسم العيادة لا صيدلية حقيقية.
-        if (doc) await ensureSurveyLink(doc);
+        // لا تُنسَخ أي قيمة من الملف إلى سجل الطبيب المؤكَّد — إلا الصيدلية حين
+        // تكون فارغة عندنا: pharmacyFromFile تعني أن شبكة المراجعة عرضت قيمة
+        // مستخرَجة من الملف (وليست بيانات طبيب مؤكَّدة) للمستخدم كي يراجعها
+        // ويعدّلها/يمسحها؛ إبقاؤها في الصف عند الحفظ = تأكيد صريح منه، فتُحفظ.
+        if (doc) {
+          await ensureSurveyLink(doc);
+          if (r.pharmacyFromFile && !doc.pharmacyName && r.pharmacyName) {
+            await prisma.doctor.update({ where: { id: doc.id }, data: { pharmacyName: r.pharmacyName } });
+            doc.pharmacyName = r.pharmacyName;
+          }
+        }
       }
 
       const dateVal = applyRowTime(parseVisitDate(r.date), r);
