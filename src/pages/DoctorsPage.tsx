@@ -335,6 +335,7 @@ export default function DoctorsPage() {
   };
   const [expandedAreas, setExpandedAreas]   = useState<Set<string>>(new Set());
   const [visitSearch, setVisitSearch]       = useState('');
+  const [visitItemFilter, setVisitItemFilter] = useState('');
   const [showOnlyVisited, setShowOnlyVisited] = useState(false);  const [showCoveragePopup, setShowCoveragePopup] = useState(false);
   const coverageCardRef = useRef<HTMLDivElement>(null);
   const [showTotalPopup, setShowTotalPopup] = useState(false);
@@ -1513,6 +1514,7 @@ export default function DoctorsPage() {
       const filtered = area.doctors.filter(d => {
         if (showOnlyVisited && !d.visited) return false;
         if (searchQ && !d.name.toLowerCase().includes(searchQ) && !(d.specialty ?? '').toLowerCase().includes(searchQ)) return false;
+        if (visitItemFilter && !d.visits.some(v => v.item?.name === visitItemFilter)) return false;
         return true;
       });
       const sorted = [...filtered].sort((a, b) => {
@@ -1522,7 +1524,7 @@ export default function DoctorsPage() {
       m.set(String(area.id), sorted);
     }
     return m;
-  }, [visitAreas, showOnlyVisited, visitSearch]);
+  }, [visitAreas, showOnlyVisited, visitSearch, visitItemFilter]);
 
   // مطابقة صيدلية الطبيب مع بيانات الصيدليات نت — نسخة سريعة تستعمل netPharmNormMap
   // (بحث O(1)) بدل findNetMatches التي كانت تُستدعى لكل طبيب ظاهر في كل إعادة رسم
@@ -2327,6 +2329,20 @@ export default function DoctorsPage() {
               suggestions={visitAreas.flatMap(a => a.doctors.map((d: any) => d.name))}
               style={{ maxWidth: 260, minWidth: 180 }}
             />
+            <select value={visitItemFilter} onChange={e => setVisitItemFilter(e.target.value)}
+              title="اعرض فقط الأطباء الذين لهم زيارة تخص هذا الايتم"
+              style={{
+                padding: '7px 10px', borderRadius: 8,
+                border: `1.5px solid ${visitItemFilter ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                background: visitItemFilter ? 'var(--c-accent-light)' : '#fff',
+                color: visitItemFilter ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+                fontSize: 13, fontWeight: 600, direction: 'rtl', outline: 'none', cursor: 'pointer', maxWidth: 180,
+              }}>
+              <option value="">كل الايتمات</option>
+              {[...items].sort((a, b) => a.name.localeCompare(b.name)).map(it => (
+                <option key={it.id} value={it.name}>{it.name}</option>
+              ))}
+            </select>
             <button onClick={() => setShowOnlyVisited(v => !v)} style={{
               padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${showOnlyVisited ? 'var(--c-success)' : 'var(--c-border)'}`,
               background: showOnlyVisited ? 'var(--c-success-bg)' : '#fff', color: showOnlyVisited ? 'var(--c-success)' : 'var(--c-text-secondary)',
@@ -2703,7 +2719,7 @@ export default function DoctorsPage() {
             const searchQ = visitSearch.trim().toLowerCase();
 
             const sorted = visitDoctorsByArea.get(key) ?? [];
-            if (sorted.length === 0 && searchQ) return null;
+            if (sorted.length === 0 && (searchQ || visitItemFilter)) return null;
 
             return (
               <div key={key} style={{
