@@ -7,7 +7,7 @@
 // viewport width), no horizontal panning is needed to reach a branch, and rows
 // stay legible regardless of name length. The hierarchy math (who is whose
 // canonical single parent) is unchanged — only how it's drawn.
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 
 export interface OrgUser {
@@ -98,41 +98,59 @@ const ORG_CSS = `
   .oview-count { font-size:10.5px; color: var(--c-text-muted, #8fa0be); flex-shrink:0; margin-inline-start:auto; padding-inline-start:8px; }
   .oview-children { padding-inline-start:20px; margin-inline-start:12px; border-inline-start:1.5px solid var(--c-border, #dde3ef); }
 
-  /* ── وضع «الشجرة» — بطاقات موصولة بخطوط، عمودياً (لا فروع أفقية عريضة) ── */
-  .tview-root-group + .tview-root-group { margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--c-border, #dde3ef); }
-  .tview-row { display:flex; align-items:center; gap:6px; }
-  .tview-toggle {
-    width:20px; height:20px; flex-shrink:0; border:1px solid var(--c-border, #dde3ef); background: var(--c-surface, #fff);
-    cursor:pointer; padding:0; border-radius:50%; font-size:10px; color: var(--c-text-muted, #8fa0be);
-    display:flex; align-items:center; justify-content:center;
+  /* ── وضع «الشجرة» — جذع مركزي عمودي وخطوط تفرّع أفقية إلى كل ابن (شكل شجرة
+     عائلة/تنظيمية كلاسيكي)، بدل التمدد الأفقي العريض القديم لأننا نطوي الفروع
+     الكبيرة بدل عرضها كاملة. direction:ltr على الحاويات فقط (هيكل الخطوط)
+     تفادياً لانعكاس زوايا الوصلات في RTL؛ محتوى كل بطاقة يبقى RTL طبيعياً. ── */
+  .cview-wrap { direction:ltr; overflow-x:auto; overflow-y:visible; padding:8px 8px 18px; cursor:grab; }
+  .cview-wrap--dragging { cursor:grabbing; user-select:none; }
+  .cview-root { list-style:none; margin:0; padding:0; display:flex; flex-wrap:nowrap; justify-content:flex-start; direction:ltr; }
+  .cview-ul {
+    list-style:none; margin:0; padding:0;
+    display:flex; flex-wrap:nowrap; justify-content:flex-start;
+    padding-top:24px; position:relative; direction:ltr;
   }
-  .tview-toggle:hover { background: var(--c-accent-light, #ebf0fc); color: var(--c-accent, #1a56db); border-color: var(--c-accent, #1a56db); }
-  .tview-card {
-    position:relative; background: var(--c-surface, #fff); border-radius: 12px;
-    border: 1px solid var(--c-border, #dde3ef); border-top: 3px solid var(--role-color, #64748b);
-    padding: 7px 12px; min-width: 160px; max-width: 260px;
-    box-shadow: 0 1px 3px rgba(15,23,42,0.05);
-    cursor:pointer; display:flex; align-items:center; gap:9px;
+  .cview-ul::before {
+    content:''; position:absolute; top:0; left:50%; transform:translateX(-50%);
+    border-left:2px solid #94a3b8; width:0; height:24px;
+  }
+  .cview-li {
+    display:inline-flex; flex-direction:column; align-items:center;
+    position:relative; padding:24px 8px 0; text-align:center;
+  }
+  .cview-li::before, .cview-li::after {
+    content:''; position:absolute; top:0;
+    border-top:2px solid #94a3b8; width:50%; height:24px;
+  }
+  .cview-li::before { right:50%; }
+  .cview-li::after  { left:50%; border-left:2px solid #94a3b8; }
+  .cview-li:only-child::before, .cview-li:only-child::after { display:none; }
+  .cview-li:only-child { padding-top:0; }
+  .cview-li:first-child::before, .cview-li:last-child::after { border:0 none; }
+  .cview-li:last-child::before  { border-right:2px solid #94a3b8; border-radius:0 6px 0 0; }
+  .cview-li:first-child::after  { border-radius:6px 0 0 0; }
+  .cview-card {
+    position:relative; direction:rtl;
+    background: var(--c-surface, #fff); border-radius: 10px;
+    border: 1.5px solid var(--c-border, #dde3ef); border-top: 3px solid var(--role-color, #64748b);
+    padding: 9px 14px; min-width: 128px; max-width: 210px;
+    box-shadow: 0 1px 4px rgba(15,23,42,0.06);
+    cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px;
     transition: box-shadow .15s, transform .15s;
   }
-  .tview-card:hover { box-shadow: 0 5px 16px rgba(15,23,42,0.12); transform: translateY(-1px); }
-  .tview-card-icon { width:30px; height:30px; border-radius:9px; flex-shrink:0; font-size:15px; display:flex; align-items:center; justify-content:center; }
-  .tview-card-body { min-width:0; }
-  .tview-card-name { font-weight:700; font-size:12.5px; color: var(--c-text-primary, #1a2332); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .tview-card-meta { display:flex; align-items:center; gap:6px; margin-top:3px; }
-  .tview-card-badge { font-size:10px; font-weight:600; border-radius:20px; padding:1px 7px; white-space:nowrap; }
-  .tview-card-phone { font-size:10.5px; color: var(--c-text-muted, #8fa0be); white-space:nowrap; }
-  .tview-card-off { font-size:9.5px; color: var(--c-danger, #dc2626); font-weight:700; background: var(--c-danger-bg, #fef2f2); border-radius:6px; padding:1px 6px; white-space:nowrap; }
-  .tview-children {
-    margin-inline-start: 27px; padding-inline-start: 22px; margin-top: 12px;
-    border-inline-start: 2px solid var(--c-border, #dde3ef);
-    display:flex; flex-direction:column; gap:12px;
+  .cview-card:hover { box-shadow: 0 6px 18px rgba(15,23,42,0.14); transform: translateY(-2px); }
+  .cview-card--root { border-radius: 999px; padding: 13px 24px; min-width:150px; }
+  .cview-card-icon { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; margin-bottom:1px; }
+  .cview-card--root .cview-card-icon { border-radius:50%; }
+  .cview-card-name { font-weight:700; font-size:12px; color: var(--c-text-primary, #1a2332); white-space:nowrap; }
+  .cview-card-badge { font-size:9.5px; font-weight:600; border-radius:20px; padding:1px 7px; white-space:nowrap; }
+  .cview-card-phone { font-size:9.5px; color: var(--c-text-muted, #8fa0be); }
+  .cview-card-off { font-size:9px; color: var(--c-danger, #dc2626); font-weight:700; }
+  .cview-card-toggle {
+    margin-top:4px; border:1px solid var(--c-border, #dde3ef); background: var(--c-bg, #f0f2f7);
+    border-radius: 20px; padding: 1px 10px; font-size:10px; font-weight:700; color: var(--c-text-secondary, #5a6a8a); cursor:pointer;
   }
-  .tview-children > .tview-node { position:relative; }
-  .tview-children > .tview-node::before {
-    content:''; position:absolute; top:18px; inset-inline-start:-22px; width:22px; height:0;
-    border-top: 2px solid var(--c-border, #dde3ef);
-  }
+  .cview-card-toggle:hover { background: var(--c-accent-light, #ebf0fc); color: var(--c-accent, #1a56db); border-color: var(--c-accent, #1a56db); }
 `;
 
 function OrgRow({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }: {
@@ -174,11 +192,14 @@ function OrgRow({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }
   );
 }
 
-function TreeNode({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }: {
+// عقدة واحدة في «الشجرة الكلاسيكية»: بطاقة، وإن كانت لها فروع فـ<ul> تحتها
+// يحمل خط جذع عمودي (::before) وخطوط تفرّع أفقية لكل ابن (::before/::after) —
+// نفس تقنية CSS المستعملة في الرسم المطلوب: جذع مركزي وخط أفقي إلى كل بطاقة.
+function ClassicBranch({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited, isRoot }: {
   u: OrgUser; childrenMap: Map<number, OrgUser[]>;
   onSelect?: (u: OrgUser) => void;
   collapsed: Set<number>; toggleCollapse: (id: number) => void;
-  visited: Set<number>;
+  visited: Set<number>; isRoot?: boolean;
 }) {
   if (visited.has(u.id)) return null; // safety net against malformed cyclic manager links
   const next = new Set(visited); next.add(u.id);
@@ -186,34 +207,72 @@ function TreeNode({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited
   const children = childrenMap.get(u.id) ?? [];
   const isOpen = !collapsed.has(u.id);
   return (
-    <div className="tview-node">
-      <div className="tview-row">
-        <div className="tview-card" style={{ '--role-color': m.color } as CSSProperties} onClick={() => onSelect?.(u)}>
-          <span className="tview-card-icon" style={{ background: `${m.color}18` }}>{m.icon}</span>
-          <div className="tview-card-body">
-            <div className="tview-card-name">{u.displayName || u.username}</div>
-            <div className="tview-card-meta">
-              <span className="tview-card-badge" style={{ color: m.color, background: `${m.color}15`, border: `1px solid ${m.color}30` }}>{m.label}</span>
-              {u.phone && <span className="tview-card-phone">{u.phone}</span>}
-              {!u.isActive && <span className="tview-card-off">معطل</span>}
-            </div>
-          </div>
-        </div>
+    <li className="cview-li">
+      <div
+        className={`cview-card${isRoot ? ' cview-card--root' : ''}`}
+        style={{ '--role-color': m.color } as CSSProperties}
+        onClick={() => onSelect?.(u)}
+      >
+        <span className="cview-card-icon" style={{ background: `${m.color}18` }}>{m.icon}</span>
+        <span className="cview-card-name">{u.displayName || u.username}</span>
+        <span className="cview-card-badge" style={{ color: m.color, background: `${m.color}15`, border: `1px solid ${m.color}30` }}>{m.label}</span>
+        {u.phone && <span className="cview-card-phone">{u.phone}</span>}
+        {!u.isActive && <span className="cview-card-off">معطل</span>}
         {children.length > 0 && (
           <button
-            type="button" className="tview-toggle"
+            type="button" className="cview-card-toggle"
             onClick={e => { e.stopPropagation(); toggleCollapse(u.id); }}
-            title={isOpen ? `طيّ (${children.length})` : `فرد (${children.length})`}
-          >{isOpen ? '▾' : '◂'}</button>
+            title={isOpen ? 'طيّ الفرع' : 'فرد الفرع'}
+          >{isOpen ? `− ${children.length}` : `+ ${children.length}`}</button>
         )}
       </div>
       {isOpen && children.length > 0 && (
-        <div className="tview-children">
+        <ul className="cview-ul">
           {children.map(c => (
-            <TreeNode key={c.id} u={c} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={next} />
+            <ClassicBranch key={c.id} u={c} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={next} />
           ))}
-        </div>
+        </ul>
       )}
+    </li>
+  );
+}
+
+// حاوية «الشجرة الكلاسيكية» — سحب بالماوس للتمرير الأفقي عند اتساع الفروع
+// المفرودة (نفس أسلوب التصميم الأصلي القديم قبل إعادة التصميم كقائمة مضغوطة).
+function ClassicTreeView({ roots, childrenMap, onSelect, collapsed, toggleCollapse }: {
+  roots: OrgUser[]; childrenMap: Map<number, OrgUser[]>;
+  onSelect?: (u: OrgUser) => void;
+  collapsed: Set<number>; toggleCollapse: (id: number) => void;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startScrollLeft: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.cview-card')) return; // لا تسحب عند النقر على بطاقة (يفتح تفاصيلها)
+    const el = wrapRef.current;
+    if (!el) return;
+    dragRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft };
+    setDragging(true);
+  };
+  const onMouseMove = (e: React.MouseEvent) => {
+    const st = dragRef.current;
+    const el = wrapRef.current;
+    if (!st || !el) return;
+    el.scrollLeft = st.startScrollLeft - (e.clientX - st.startX);
+  };
+  const endDrag = () => { dragRef.current = null; setDragging(false); };
+
+  return (
+    <div
+      ref={wrapRef} className={`cview-wrap${dragging ? ' cview-wrap--dragging' : ''}`}
+      onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={endDrag} onMouseLeave={endDrag}
+    >
+      <ul className="cview-root">
+        {roots.map(u => (
+          <ClassicBranch key={u.id} u={u} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={new Set()} isRoot />
+        ))}
+      </ul>
     </div>
   );
 }
@@ -274,11 +333,9 @@ export function OrgTree({ users, onSelect }: { users: OrgUser[]; onSelect?: (u: 
           <div key={u.id} className="oview-root-group">
             <OrgRow u={u} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={new Set()} />
           </div>
-        )) : roots.map(u => (
-          <div key={u.id} className="tview-root-group">
-            <TreeNode u={u} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={new Set()} />
-          </div>
-        ))}
+        )) : (
+          <ClassicTreeView roots={roots} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} />
+        )}
       </div>
     </>
   );
