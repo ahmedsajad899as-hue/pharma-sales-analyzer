@@ -310,6 +310,7 @@ export default function MasterSurveyPage() {
   const [nameCleanupLoading,       setNameCleanupLoading]       = useState(false);
   const [nameCleanupSelected,      setNameCleanupSelected]      = useState<Set<number>>(new Set());
   const [nameCleanupApplying,      setNameCleanupApplying]      = useState(false);
+  const [nameCleanupProgress,      setNameCleanupProgress]      = useState<{ done: number; total: number } | null>(null);
 
   // visibility
   const [visUsers,   setVisUsers]   = useState<VisibilityUser[]>([]);
@@ -1153,7 +1154,7 @@ export default function MasterSurveyPage() {
           <button onClick={() => setShowNameCleanup(false)} style={btnSecondary}>إغلاق</button>
           {nameCleanupChanges.length > 0 && (
             <button onClick={applyNameCleanup} disabled={nameCleanupApplying || nameCleanupSelected.size === 0} style={btnPrimary}>
-              {nameCleanupApplying ? 'جاري التطبيق...' : `✅ تطبيق (${nameCleanupSelected.size})`}
+              {nameCleanupApplying ? `جاري التطبيق... (${nameCleanupProgress?.done ?? 0}/${nameCleanupProgress?.total ?? nameCleanupSelected.size})` : `✅ تطبيق (${nameCleanupSelected.size})`}
             </button>
           )}
         </div>
@@ -1247,22 +1248,40 @@ export default function MasterSurveyPage() {
     }
   }, [selectedSurvey?.id, H]);
 
+  // دفعات صغيرة (لا كل الأسماء بطلب واحد) — الخادم يعمل على VPS بذاكرة محدودة
+  // (951MB) مُشترَك مع تطبيقات أخرى، وطلب واحد بآلاف الاستعلامات المتتالية قد
+  // يستهلك وقتاً/ذاكرة تكفي لإسقاط العملية (لوحظ فعلاً: طلب دفعة 1379 اسم أدّى
+  // لانقطاع الاتصال بمنتصف الطريق وصفحة خطأ HTML بدل JSON). العملية idempotent
+  // (تعيد حساب الاسم النظيف وتتجاهل ما تغيّر فعلاً) فتكرار المحاولة على ما تبقّى آمن.
+  const NAME_CLEANUP_BATCH_SIZE = 100;
   const applyNameCleanup = async () => {
     if (!selectedSurvey || nameCleanupSelected.size === 0) return;
+    const allIds = [...nameCleanupSelected];
     setNameCleanupApplying(true);
+    setNameCleanupProgress({ done: 0, total: allIds.length });
+    let totalUpdated = 0, totalDoctors = 0, totalVisits = 0;
     try {
-      const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/cleanup-names/apply`, {
-        method: 'POST', headers: H(), body: JSON.stringify({ ids: [...nameCleanupSelected] }),
-      });
-      const d = await r.json();
-      if (!r.ok || !d.success) throw new Error(d.error || `خطأ ${r.status}`);
-      alert(`✅ تم تعديل ${d.updated} اسم${d.affectedDoctors ? ` — تحديث ${d.affectedDoctors} طبيب` : ''}${d.affectedVisits ? ` و${d.affectedVisits} زيارة` : ''}`);
+      for (let i = 0; i < allIds.length; i += NAME_CLEANUP_BATCH_SIZE) {
+        const batch = allIds.slice(i, i + NAME_CLEANUP_BATCH_SIZE);
+        const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/cleanup-names/apply`, {
+          method: 'POST', headers: H(), body: JSON.stringify({ ids: batch }),
+        });
+        let d: any;
+        try { d = await r.json(); } catch { throw new Error(`استجابة غير صالحة من الخادم (${r.status}) — أُنجزت ${totalUpdated} من ${allIds.length}، أعد المحاولة على البقية`); }
+        if (!r.ok || !d.success) throw new Error(d.error || `خطأ ${r.status} — أُنجزت ${totalUpdated} من ${allIds.length}، أعد المحاولة على البقية`);
+        totalUpdated += d.updated ?? 0;
+        totalDoctors += d.affectedDoctors ?? 0;
+        totalVisits  += d.affectedVisits ?? 0;
+        setNameCleanupProgress({ done: Math.min(i + batch.length, allIds.length), total: allIds.length });
+      }
+      alert(`✅ تم تعديل ${totalUpdated} اسم${totalDoctors ? ` — تحديث ${totalDoctors} طبيب` : ''}${totalVisits ? ` و${totalVisits} زيارة` : ''}`);
       setShowNameCleanup(false);
       fetchSurvey(selectedSurvey.id);
     } catch (e: any) {
       alert(`❌ فشل التنظيف: ${e.message}`);
     } finally {
       setNameCleanupApplying(false);
+      setNameCleanupProgress(null);
     }
   };
 

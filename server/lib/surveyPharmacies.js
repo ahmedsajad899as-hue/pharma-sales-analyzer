@@ -68,26 +68,36 @@ export async function previewPharmacyNameCleanup(surveyId) {
   return changes;
 }
 
+// idSet قد يصل لآلاف الصفوف دفعة واحدة (زر "تنظيف الأسماء" مطبَّق على كل
+// صيدليات السيرفي) — كل صف يعالَج بمعزل عن البقية (try/catch فردي) كي لا يوقف
+// خطأ صف واحد (أو انقطاع مؤقت بالاتصال) بقية الدفعة؛ العملية idempotent أصلاً
+// (تعيد حساب الاسم النظيف وتتخطى ما لا يحتاج تغييراً) فيصح تكرار الاستدعاء
+// بأمان على الصفوف التي فشلت. failedIds تُعاد للواجهة لإعادة المحاولة عليها فقط.
 export async function applyPharmacyNameCleanup(surveyId, ids, editedById) {
   const idSet = [...new Set((ids || []).map(id => parseInt(id)).filter(Boolean))];
-  if (!idSet.length) return { updated: 0, affectedDoctors: 0, affectedVisits: 0 };
+  if (!idSet.length) return { updated: 0, affectedDoctors: 0, affectedVisits: 0, failedIds: [] };
 
   const pharmacies = await prisma.masterSurveyPharmacy.findMany({ where: { surveyId, id: { in: idSet } } });
   let updated = 0, affectedDoctors = 0, affectedVisits = 0;
+  const failedIds = [];
   for (const old of pharmacies) {
-    const cleaned = normalizePharmacyStoredName(old.name);
-    if (!cleaned || cleaned === old.name) continue;
-    const updatedRow = await prisma.masterSurveyPharmacy.update({
-      where: { id: old.id },
-      data: { name: cleaned, lastEditedById: editedById ?? null, lastEditedAt: new Date() },
-    });
-    await logSurveyEdit(surveyId, 'pharmacy', old.id, 'update', old, updatedRow, editedById);
-    const cascade = await cascadePharmacyNameChange(surveyId, [old.name], cleaned);
-    affectedDoctors += cascade.affectedDoctors;
-    affectedVisits += cascade.affectedVisits;
-    updated++;
+    try {
+      const cleaned = normalizePharmacyStoredName(old.name);
+      if (!cleaned || cleaned === old.name) continue;
+      const updatedRow = await prisma.masterSurveyPharmacy.update({
+        where: { id: old.id },
+        data: { name: cleaned, lastEditedById: editedById ?? null, lastEditedAt: new Date() },
+      });
+      await logSurveyEdit(surveyId, 'pharmacy', old.id, 'update', old, updatedRow, editedById);
+      const cascade = await cascadePharmacyNameChange(surveyId, [old.name], cleaned);
+      affectedDoctors += cascade.affectedDoctors;
+      affectedVisits += cascade.affectedVisits;
+      updated++;
+    } catch (e) {
+      failedIds.push(old.id);
+    }
   }
-  return { updated, affectedDoctors, affectedVisits };
+  return { updated, affectedDoctors, affectedVisits, failedIds };
 }
 
 // ── findClosestPharmacyName(deletedName, candidateNames) ────────────────────
