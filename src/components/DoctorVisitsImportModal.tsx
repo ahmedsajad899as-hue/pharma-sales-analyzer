@@ -27,6 +27,9 @@ interface DoctorRow {
   // صيدلية مستخرَجة من الملف (لا من بيانات الطبيب في التطبيق/السيرفي — كانت فارغة)
   // — تُعرض قابلة للتعديل ومميَّزة للمراجعة؛ إبقاؤها عند الحفظ يحفظها في سجل الطبيب.
   pharmacyFromFile?: boolean;
+  // ضمن pharmacyFromFile: القيمة استنتجها الذكاء الاصطناعي من نص الملاحظة (لا
+  // استخراج قطعي ببادئة "ص.") — شارة ✨ إضافية تُنبّه أنها أقل قطعية وتحتاج مراجعة أدق.
+  pharmacyFromAI?: boolean;
   // قيَم الملف قبل تبنّي هوية الطبيب المسجَّل في التطبيق — للاطلاع فقط (tooltip)
   rawDoctorName?: string; rawSpecialty?: string; rawAreaName?: string; rawPharmacyName?: string;
   specialty: string; areaName: string; areaId: number | null;
@@ -479,6 +482,12 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                   <span style={{ fontSize: 12, fontWeight: 700, color: '#b45309' }}>💊 {unmatched} ايتم غير مطابَق للكتالوج — اختر اسمه الصحيح من خانة الايتم</span>
                 ) : null;
               })()}
+              {(() => {
+                const aiPharmacies = docRows.filter(r => r.pharmacyFromAI).length;
+                return aiPharmacies > 0 ? (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#b45309' }}>✨ {aiPharmacies} صيدلية اقترحها الذكاء الاصطناعي — راجعها في الخانات الصفراء</span>
+                ) : null;
+              })()}
               {missingRepCount > 0 && (
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>⚠️ {missingRepCount} صف بلا مندوب — صحّحه أدناه أو سيُتجاهل</span>
               )}
@@ -544,9 +553,14 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                             التطبيق/السيرفي واستُخرجت من الملف — تُعرض قابلة للتعديل ومميَّزة
                             بلون تنبيه كي يراجعها المستخدم ويؤكّدها أو يمسحها. */}
                         <td style={td}>{(isMatchedDoctor(r) && !r.pharmacyFromFile) ? lockedCell(true, r.pharmacyName, r.rawPharmacyName, 110) : (
-                          <input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })}
-                            title={r.pharmacyFromFile ? 'مستخرَجة من الملف — راجعها وعدّلها أو امسحها، وستُحفظ في سجل الطبيب عند التأكيد' : undefined}
-                            style={{ ...cellInp, minWidth: 110, ...(r.pharmacyFromFile ? { background: '#fffbeb', borderColor: '#fbbf24' } : {}) }} />
+                          <>
+                            <input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value, pharmacyFromAI: false })}
+                              title={r.pharmacyFromFile
+                                ? (r.pharmacyFromAI ? 'اقترحها الذكاء الاصطناعي من نص الملاحظة — راجعها بعناية، عدّلها أو امسحها؛ وستُحفظ في سجل الطبيب عند التأكيد' : 'مستخرَجة من الملف — راجعها وعدّلها أو امسحها، وستُحفظ في سجل الطبيب عند التأكيد')
+                                : undefined}
+                              style={{ ...cellInp, minWidth: 110, ...(r.pharmacyFromFile ? { background: '#fffbeb', borderColor: '#fbbf24' } : {}) }} />
+                            {r.pharmacyFromAI && <span style={{ fontSize: 11, marginRight: 4 }} title="اقتراح ذكاء اصطناعي">✨</span>}
+                          </>
                         )}</td>
                         <td style={td}>
                           <input list="visit-item-options" value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null, itemSuggestionId: null, itemSuggestionName: null })}

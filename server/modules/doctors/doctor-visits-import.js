@@ -30,6 +30,7 @@ import { resolveDocOwnerUserId } from './doctors.controller.js';
 import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
 import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases } from '../../lib/surveyDoctors.js';
 import { runFeedbackInferenceForImportFile } from './doctor-visit-feedback-ai.js';
+import { enrichDoctorRowsWithPharmacyAI } from './doctor-visit-pharmacy-ai.js';
 import { saveItemLinks } from '../stock-ledger/stock-ledger.service.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
@@ -1118,6 +1119,10 @@ export async function extractVisitsFromExcel(file, user) {
     const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx });
     applyLooseRepFallback(doctorRows, looseRepIndex);
     applyLooseRepFallback(pharmacyRows, looseRepIndex);
+    // إثراء اختياري بالذكاء الاصطناعي لصيدلية أي صف لم يستخرجها الاستخراج
+    // القطعي (بادئة "ص." الصريحة فقط) — يُشغَّل قبل تصنيف الأطباء كي يُعرَض
+    // الاقتراح مباشرة في شبكة المراجعة؛ فشله الكلي لا يُسقِط الاستخراج نفسه.
+    await enrichDoctorRowsWithPharmacyAI(doctorRows, Date.now() + 200_000).catch(() => {});
     const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
     return { doctorRows, pharmacyRows, repNames: repClassification, doctorNames, itemOptions, format: 'crm', columnsDetected: {} };
   }
@@ -1158,6 +1163,7 @@ export async function extractVisitsFromExcel(file, user) {
   }).filter(r => r.doctorName); // صف بلا اسم طبيب لا معنى لاستيراده كزيارة
 
   applyLooseRepFallback(doctorRows, looseRepIndex);
+  await enrichDoctorRowsWithPharmacyAI(doctorRows, Date.now() + 200_000).catch(() => {});
   const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
   return { doctorRows, pharmacyRows: [], repNames: repClassification, doctorNames, itemOptions, format: 'template', columnsDetected: colMap };
 }
