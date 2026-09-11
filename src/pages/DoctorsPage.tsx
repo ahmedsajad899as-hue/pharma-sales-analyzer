@@ -2849,7 +2849,7 @@ export default function DoctorsPage() {
                               row (not inside the name column, which only spans part of the row) so
                               it lands at the true left edge, matching where it was asked to sit. */}
                           {lastVisit?.repName && (
-                            <div style={{ padding: '0 18px 8px', marginTop: -6, fontSize: 9, color: 'var(--c-text-muted)', textAlign: 'left', direction: 'rtl' }}>
+                            <div style={{ padding: '0 18px 8px', marginTop: -6, fontSize: 10, color: 'var(--c-text-muted)', textAlign: 'left', direction: 'rtl' }}>
                               {lastVisit.repName}
                             </div>
                           )}
