@@ -30,6 +30,7 @@ import { resolveDocOwnerUserId } from './doctors.controller.js';
 import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
 import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases } from '../../lib/surveyDoctors.js';
 import { runFeedbackInferenceForImportFile } from './doctor-visit-feedback-ai.js';
+import { saveItemLinks } from '../stock-ledger/stock-ledger.service.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
 const FEEDBACK_RULES = [
@@ -418,23 +419,85 @@ async function loadVisitItemCtx(user, ownerUserId) {
 }
 
 /**
- * يربط نصاً بايتم قانوني من الكتالوج عبر سلّم ثقة itemResolver:
+ * يتذكّر قرار المستخدم في شبكة المراجعة: نص ايتم خام من الملف (rawItemName) لم
+ * يُطابَق تلقائياً، صحّحه المستخدم إلى ايتم من الكتالوج → قاعدة توحيد
+ * (ItemMergeRule بنطاق شركة الايتم الهدف، عبر saveItemLinks نفسها المستعملة في
+ * الستوك) فيُطابَق تلقائياً في أي ملف لاحق بلا سؤال. يُحفظ مرة واحدة لكل نص خام
+ * في الاستيراد الواحد، ولا يُحفظ حين يطابق النص الخام الهدف أصلاً (saveItemLinks
+ * تتجاهله) أو حين لم يُحسم ايتم.
+ */
+function itemLinkRememberer(user) {
+  const done = new Set();
+  return async (rawItemName, itemId) => {
+    const raw = String(rawItemName ?? '').trim();
+    if (!raw || !itemId) return;
+    const key = normalizeItemKey(raw);
+    if (!key || done.has(key)) return;
+    done.add(key);
+    await saveItemLinks(user?.id ?? null, [{ fromName: raw, toItemId: itemId }]).catch(() => {});
+  };
+}
+
+// عائلات الشكل الصيدلاني — لحسم التباس مرشّحين بنفس الاسم التجاري يختلفان
+// بالشكل فقط («Sycocetam syr» ↔ «SYCOCETAM SYRUP» لا «SYCOCETAM 500MG TAB»).
+const ITEM_FORM_FAMILIES = [
+  ['syr', 'syp', 'syrup'],
+  ['tab', 'tabs', 'tablet', 'tablets'],
+  ['cap', 'caps', 'capsule', 'capsules'],
+  ['cream', 'crm'],
+  ['drop', 'drops'],
+  ['inj', 'injection', 'amp', 'amps', 'ampoule', 'vial', 'vials'],
+  ['supp', 'suppository'],
+  ['gel', 'jel'],
+  ['sachet', 'sachets', 'sach'],
+  ['spray'],
+  ['susp', 'suspension'],
+  ['oint', 'ointment'],
+  ['lotion'],
+  ['sol', 'soln', 'solution'],
+];
+function itemFormFamily(text) {
+  const tokens = normItemText(text).split(/[^a-z]+/).filter(Boolean);
+  return ITEM_FORM_FAMILIES.find(fam => tokens.some(tk => fam.includes(tk))) ?? null;
+}
+// خلية تجمع أكثر من ايتم («airtide , pantactive»، «a + b»، «a و b»)
+const ITEM_LIST_SEP_RE = /\s*[,،+&]\s*|\s+و\s+|\s*\/\s*/;
+
+/**
+ * يربط نصاً واحداً بايتم قانوني من الكتالوج عبر سلّم ثقة itemResolver:
  *   alias/exact/high → ربط مباشر؛
- *   medium (أكثر من مرشّح) → أعلى مرشّح فقط إن كان شبه مطابق (≥ 0.85 — مثل
- *     «pantactive 40» ↔ «pantactive 40mg»)، وإلا لا نخمّن بين مرشّحين متقاربين؛
+ *   medium (أكثر من مرشّح) → المرشّح الوحيد الذي يشارك النص شكله الصيدلاني، وإلا
+ *     أعلى مرشّح فقط إن كان شبه مطابق (≥ 0.85 — «pantactive 40» ↔ «pantactive 40mg»)،
+ *     وإلا لا نخمّن بين مرشّحين متقاربين؛
  *   none → احتواء نصي كحلّ أخير (السلوك القديم: «... مادة pantactive 40mg» يحوي «pantactive»).
  */
-function matchItemByText(ctx, text) {
-  const t = normItemText(text);
-  if (!t) return null;
-  const r = resolveItemNameSync(text, ctx);
+function matchSingleItemText(ctx, t) {
+  const r = resolveItemNameSync(t, ctx);
   if (r.canonicalItem && ['alias', 'exact', 'high'].includes(r.confidence)) return r.canonicalItem;
-  if (r.confidence === 'medium' && r.suggestions[0]?.sim >= 0.85) return ctx.catalogById.get(r.suggestions[0].id) ?? r.suggestions[0];
+  if (r.confidence === 'medium') {
+    const fam = itemFormFamily(t);
+    const sameForm = fam ? r.suggestions.filter(s => itemFormFamily(s.name) === fam) : [];
+    const pick = sameForm.length === 1 ? sameForm[0] : (r.suggestions[0]?.sim >= 0.85 ? r.suggestions[0] : null);
+    if (pick) return ctx.catalogById.get(pick.id) ?? pick;
+  }
   if (t.length < 3) return null; // نص قصير جداً يطابق كل شيء بالاحتواء — لا نخمّن
   return [...ctx.catalog]
     .filter(it => normItemText(it.name).length >= 3)
     .sort((a, b) => b.name.length - a.name.length)
     .find(it => t.includes(normItemText(it.name)) || normItemText(it.name).includes(t)) ?? null;
+}
+
+function matchItemByText(ctx, text) {
+  const t = normItemText(text);
+  if (!t) return null;
+  const direct = matchSingleItemText(ctx, t);
+  if (direct) return direct;
+  // نص يجمع أكثر من ايتم — DoctorVisit تحمل ايتماً واحداً: أول جزء يُطابَق يُعتمد.
+  const parts = t.split(ITEM_LIST_SEP_RE).map(s => s.trim()).filter(s => s.length >= 3);
+  if (parts.length > 1) {
+    for (const p of parts) { const m = matchSingleItemText(ctx, p); if (m) return m; }
+  }
+  return null;
 }
 
 /** يبحث عن أي اسم ايتم من الكتالوج داخل نص الملاحظة كاملاً (الأطول أولاً). */
@@ -454,7 +517,7 @@ function scanNoteForCatalogItem(ctx, note) {
  */
 function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
   const raw = String(rawNote ?? '').replace(/\r/g, ' ').trim();
-  const empty = { itemName: '', itemId: null, notes: raw, timestamp: '' };
+  const empty = { itemName: '', itemId: null, rawItemName: '', notes: raw, timestamp: '' };
   if (!raw) return { ...empty, notes: '' };
 
   const firstTs = raw.match(/\(\s*(\d{1,2}\/\d{1,2}\/\d{4}[^)]*)\)/);
@@ -495,7 +558,9 @@ function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
   // صيغة غير متوقَّعة تماماً (بلا *** ولا نص مفهوم) → نُبقي الملاحظة الخام بدل ضياعها.
   if (!notes && !itemText && !raw.includes('***')) return empty;
 
-  return { itemName: item ? item.name : itemText, itemId: item?.id ?? null, notes, timestamp };
+  // rawItemName = النص كما ورد في الملف — يُحفظ كقاعدة توحيد (ItemMergeRule) عند
+  // الحفظ إن صحّحه المستخدم يدوياً إلى ايتم من الكتالوج، فلا يُسأل مرة أخرى.
+  return { itemName: item ? item.name : itemText, itemId: item?.id ?? null, rawItemName: itemText, notes, timestamp };
 }
 
 /** يقرأ صفوف صيغة CRM ويقسّمها إلى زيارات أطباء وزيارات صيدليات منفصلة. */
@@ -558,7 +623,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EMPTY_ITE
         _row, repName, repId: rep?.id ?? null,
         pharmacyName: clientName,
         areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
-        itemName: parsedNote.itemName, itemId: parsedNote.itemId,
+        itemName: parsedNote.itemName, itemId: parsedNote.itemId, rawItemName: parsedNote.rawItemName,
         date, time, notes, isDoubleVisit,
         lat: null, lng: null, geoCorrect,
       });
@@ -576,7 +641,7 @@ function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EMPTY_ITE
         specialty: get(row, 'subcategory'),
         areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
         pharmacyName: get(row, 'associated'),
-        itemName: parsedNote.itemName, itemId: parsedNote.itemId,
+        itemName: parsedNote.itemName, itemId: parsedNote.itemId, rawItemName: parsedNote.rawItemName,
         date, time,
         feedback: 'pending', // لا مصدر واثق للفيدباك في نص هذه الصيغة الحر
         notes, isDoubleVisit,
@@ -628,10 +693,24 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     prisma.masterSurvey.findMany({ where: { isActive: true, hiddenUsers: { none: { userId: ownerUserId } } }, select: { id: true } }),
   ]);
   const linkByKey = new Map(links.map(l => [l.fromKey, l]));
-  const candidates = existingDoctorsFull.map(d => ({
-    id: d.id, name: d.name, specialty: d.specialty, pharmacyName: d.pharmacyName,
-    areaId: d.areaId ?? null, areaName: d.area?.name ?? null, masterSurveyDoctorId: d.masterSurveyDoctorId ?? null,
-  }));
+  // صف Doctor المحلي قد يخلو من المنطقة/الاختصاص/الصيدلية (أُنشئ قديماً أو يدوياً
+  // بالاسم فقط) بينما سجل السيرفي المربوط به يحملها — وهي أيضاً «بيانات التطبيق»
+  // لا الملف، فتُكمَّل منه؛ وإلا ظهر طبيب مطابَق بمنطقة «—» في شبكة المراجعة رغم
+  // أنه مسجَّل في منطقته بالسيرفي.
+  const msIds = [...new Set(existingDoctorsFull.map(d => d.masterSurveyDoctorId).filter(Boolean))];
+  const surveyById = new Map((msIds.length
+    ? await prisma.masterSurveyDoctor.findMany({ where: { id: { in: msIds } }, select: { id: true, areaName: true, specialty: true, pharmacyName: true } })
+    : []).map(s => [s.id, s]));
+  const candidates = existingDoctorsFull.map(d => {
+    const sd = d.masterSurveyDoctorId ? surveyById.get(d.masterSurveyDoctorId) : null;
+    return {
+      id: d.id, name: d.name,
+      specialty: d.specialty || sd?.specialty || null,
+      pharmacyName: d.pharmacyName || sd?.pharmacyName || null,
+      areaId: d.areaId ?? null, areaName: d.area?.name ?? sd?.areaName ?? null,
+      masterSurveyDoctorId: d.masterSurveyDoctorId ?? null,
+    };
+  });
   const candById = new Map(candidates.map(c => [c.id, c]));
   const candBySurveyDoctorId = new Map(candidates.filter(c => c.masterSurveyDoctorId != null).map(c => [c.masterSurveyDoctorId, c]));
 
@@ -894,13 +973,16 @@ export async function extractVisitsFromExcel(file, user) {
     prisma.area.findMany({ select: { id: true, name: true } }),
     loadVisitItemCtx(user, ownerUserId),
   ]);
+  // أسماء الكتالوج لقائمة اقتراحات خانة الايتم في شبكة المراجعة — ما لم يُطابَق
+  // تلقائياً يختاره المستخدم من هنا بالاسم القانوني، ويُحفظ قراره كقاعدة توحيد.
+  const itemOptions = itemCtx.catalog.map(c => c.name).sort((a, b) => a.localeCompare(b));
 
   if (isCrm) {
     const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx });
     applyLooseRepFallback(doctorRows, looseRepIndex);
     applyLooseRepFallback(pharmacyRows, looseRepIndex);
     const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
-    return { doctorRows, pharmacyRows, repNames: repClassification, doctorNames, format: 'crm', columnsDetected: {} };
+    return { doctorRows, pharmacyRows, repNames: repClassification, doctorNames, itemOptions, format: 'crm', columnsDetected: {} };
   }
 
   const doctorRows = rows.map((row, i) => {
@@ -928,7 +1010,7 @@ export async function extractVisitsFromExcel(file, user) {
       specialty: get('specialty'),
       areaName, areaId: areaMatch.area?.id ?? null,
       pharmacyName: get('pharmacy'),
-      itemName, itemId: item?.id ?? null,
+      itemName, itemId: item?.id ?? null, rawItemName,
       date: toDateInput(dateVal) || '', time: toTimeInput(dateVal),
       feedback: mapFeedback(get('feedback')),
       notes: get('notes'), isDoubleVisit: false,
@@ -938,7 +1020,7 @@ export async function extractVisitsFromExcel(file, user) {
 
   applyLooseRepFallback(doctorRows, looseRepIndex);
   const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
-  return { doctorRows, pharmacyRows: [], repNames: repClassification, doctorNames, format: 'template', columnsDetected: colMap };
+  return { doctorRows, pharmacyRows: [], repNames: repClassification, doctorNames, itemOptions, format: 'template', columnsDetected: colMap };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -969,6 +1051,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
   // لحسم اسم الايتم نصاً إلى itemId: الاسم قد يكون مستخرجاً من حقل note أو
   // مكتوباً يدوياً في شبكة المراجعة، وDoctorVisit لا يخزّن إلا itemId.
   const itemCtx = await loadVisitItemCtx(user, ownerUserId);
+  const rememberItem = itemLinkRememberer(user);
 
   // نفس السيرفي المضيف الذي تستعمله addCustomDoctor — أول سيرفي نشط ظاهر لهذا المالك.
   const hostSurvey = await prisma.masterSurvey.findFirst({
@@ -1185,6 +1268,9 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
       const dateVal = applyRowTime(parseVisitDate(r.date), r);
       const rowItemName = String(r?.itemName ?? '').trim();
       const resolvedItemId = r.itemId ?? (rowItemName ? matchItemByText(itemCtx, rowItemName)?.id ?? null : null);
+      // itemId فارغ + اسم يُحسم الآن = تصحيح يدوي في شبكة المراجعة (المطابَق تلقائياً
+      // يصل بـitemId محسوم) → يُتذكَّر كقاعدة توحيد؛ المطابقة الضبابية التلقائية لا تُثبَّت.
+      if (!r.itemId && resolvedItemId) await rememberItem(r?.rawItemName, resolvedItemId);
       await prisma.doctorVisit.create({
         data: {
           doctorId,
@@ -1229,6 +1315,7 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
       .map(r => r.areaId)
   );
   const itemCtx = await loadVisitItemCtx(user, ownerUserId);
+  const rememberItem = itemLinkRememberer(user);
 
   let imported = 0, skipped = 0;
   const errors = [];
@@ -1269,6 +1356,7 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
       // فلا يُفقَد الايتم حتى لو لم يكن في كتالوج الحساب.
       const itemName = String(r?.itemName ?? '').trim();
       const itemId = r?.itemId ?? (itemName ? matchItemByText(itemCtx, itemName)?.id ?? null : null);
+      if (!r?.itemId && itemId) await rememberItem(r?.rawItemName, itemId); // تصحيح يدوي فقط — راجع commitDoctorRows
       if (itemId || itemName) {
         await prisma.pharmacyVisitItem.create({
           data: {

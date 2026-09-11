@@ -27,6 +27,7 @@ interface DoctorRow {
   specialty: string; areaName: string; areaId: number | null;
   pharmacyName: string;
   itemName: string; itemId: number | null;
+  rawItemName?: string; // نص الايتم كما ورد في الملف — يُحفظ كقاعدة توحيد إن صُحِّح يدوياً
   date: string; time: string; feedback: string; notes: string; isDoubleVisit: boolean;
   lat: number | null; lng: number | null; geoCorrect: boolean | null;
 }
@@ -36,6 +37,7 @@ interface PharmacyRow {
   pharmacyName: string;
   areaName: string; areaId: number | null;
   itemName: string; itemId: number | null; // مستخرَجان من حقل note (يُحفظان كـ PharmacyVisitItem)
+  rawItemName?: string;
   date: string; time: string; notes: string; isDoubleVisit: boolean;
   lat: number | null; lng: number | null; geoCorrect: boolean | null;
 }
@@ -80,6 +82,8 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
   const [doctorChoice, setDoctorChoice] = useState<Record<string, string>>({});
   const [doctorNamesApplied, setDoctorNamesApplied] = useState(false);
   const [rememberDoctorChoices, setRememberDoctorChoices] = useState(true);
+  // أسماء ايتمات كتالوج الشركة (من الخادم) — اقتراحات خانة الايتم لما لم يُطابَق تلقائياً
+  const [itemOptions, setItemOptions] = useState<string[]>([]);
 
   const totalRows = docRows.length + pharmRows.length;
 
@@ -140,6 +144,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
       setPendingNames(data.repNames?.pending ?? []);
       setUnrelatedNames(data.repNames?.unrelated ?? []);
       setPendingDoctorNames(data.doctorNames?.pending ?? []);
+      setItemOptions(Array.isArray(data.itemOptions) ? data.itemOptions : []);
       if (dRows.length === 0 && pRows.length === 0) {
         setInfo('لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب (أو أنه بصيغة معروفة).');
       } else if (dRows.length > 0) {
@@ -454,8 +459,17 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
 
         {totalRows > 0 && nameApplied && doctorNamesApplied && (
           <>
+            <datalist id="visit-item-options">
+              {itemOptions.map(n => <option key={n} value={n} />)}
+            </datalist>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#166534' }}>✅ {readyCount} صف جاهز</span>
+              {(() => {
+                const unmatched = docRows.filter(r => r.itemName && !r.itemId).length + pharmRows.filter(r => r.itemName && !r.itemId).length;
+                return unmatched > 0 ? (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#b45309' }}>💊 {unmatched} ايتم غير مطابَق للكتالوج — اختر اسمه الصحيح من خانة الايتم</span>
+                ) : null;
+              })()}
               {missingRepCount > 0 && (
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>⚠️ {missingRepCount} صف بلا مندوب — صحّحه أدناه أو سيُتجاهل</span>
               )}
@@ -516,8 +530,8 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                           ?? <input value={r.areaName} onChange={e => setDocCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 90 }} />}</td>
                         <td style={td}>{lockedCell(r.doctorId, r.pharmacyName, r.rawPharmacyName, 110)
                           ?? <input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 110 }} />}</td>
-                        <td style={td}><input value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null })}
-                          title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير موجود في التطبيق — سيُحفظ نصاً كما هو' : undefined)}
+                        <td style={td}><input list="visit-item-options" value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null })}
+                          title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير مطابَق — اختر الاسم الصحيح من القائمة ليُحفظ بالاسم القانوني ويُتذكَّر للمرات القادمة' : undefined)}
                           style={{ ...cellInp, minWidth: 110, ...(r.itemId ? { background: '#f0fdf4', borderColor: '#bbf7d0', fontWeight: 600 } : {}) }} /></td>
                         <td style={td}><input type="date" value={r.date} onChange={e => setDocCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
                         <td style={td}>
@@ -559,8 +573,8 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                         </td>
                         <td style={td}><input value={r.pharmacyName} onChange={e => setPharmCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>
                         <td style={td}><input value={r.areaName} onChange={e => setPharmCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 100 }} /></td>
-                        <td style={td}><input value={r.itemName} onChange={e => setPharmCell(i, { itemName: e.target.value, itemId: null })}
-                          title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير موجود في التطبيق — سيُحفظ نصاً كما هو' : undefined)}
+                        <td style={td}><input list="visit-item-options" value={r.itemName} onChange={e => setPharmCell(i, { itemName: e.target.value, itemId: null })}
+                          title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير مطابَق — اختر الاسم الصحيح من القائمة ليُحفظ بالاسم القانوني ويُتذكَّر للمرات القادمة' : undefined)}
                           style={{ ...cellInp, minWidth: 110, ...(r.itemId ? { background: '#f0fdf4', borderColor: '#bbf7d0', fontWeight: 600 } : {}) }} /></td>
                         <td style={td}><input type="date" value={r.date} onChange={e => setPharmCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
                         <td style={{ ...td, textAlign: 'center' }}>{geoBadge(r.geoCorrect)}</td>

@@ -129,6 +129,7 @@ function wordOverlapRatio(a, b) {
     'ointment', 'pomade', 'pomad', 'amp', 'amps', 'ampoule', 'vial', 'vials', 'sachet', 'sachets',
     'supp', 'suppository', 'injection', 'inj', 'solution', 'soln', 'lotion', 'powder', 'patch',
     'patches', 'effervescent', 'oral', 'sachettes',
+    'syr', 'syp', 'crm', 'oint', 'sach', 'sol',
   ]);
   const sig = s =>
     s.split(/[\s\/\-]+/)
