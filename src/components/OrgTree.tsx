@@ -102,53 +102,53 @@ const ORG_CSS = `
      عائلة/تنظيمية كلاسيكي)، بدل التمدد الأفقي العريض القديم لأننا نطوي الفروع
      الكبيرة بدل عرضها كاملة. direction:ltr على الحاويات فقط (هيكل الخطوط)
      تفادياً لانعكاس زوايا الوصلات في RTL؛ محتوى كل بطاقة يبقى RTL طبيعياً. ── */
-  .cview-wrap { direction:ltr; overflow-x:auto; overflow-y:visible; padding:8px 8px 18px; cursor:grab; }
+  .cview-wrap { direction:ltr; overflow-x:auto; overflow-y:visible; padding:6px 6px 14px; cursor:grab; }
   .cview-wrap--dragging { cursor:grabbing; user-select:none; }
   .cview-root { list-style:none; margin:0; padding:0; display:flex; flex-wrap:nowrap; justify-content:flex-start; direction:ltr; }
   .cview-ul {
     list-style:none; margin:0; padding:0;
     display:flex; flex-wrap:nowrap; justify-content:flex-start;
-    padding-top:24px; position:relative; direction:ltr;
+    padding-top:14px; position:relative; direction:ltr;
   }
   .cview-ul::before {
     content:''; position:absolute; top:0; left:50%; transform:translateX(-50%);
-    border-left:2px solid #94a3b8; width:0; height:24px;
+    border-left:1.5px solid #94a3b8; width:0; height:14px;
   }
   .cview-li {
     display:inline-flex; flex-direction:column; align-items:center;
-    position:relative; padding:24px 8px 0; text-align:center;
+    position:relative; padding:14px 4px 0; text-align:center;
   }
   .cview-li::before, .cview-li::after {
     content:''; position:absolute; top:0;
-    border-top:2px solid #94a3b8; width:50%; height:24px;
+    border-top:1.5px solid #94a3b8; width:50%; height:14px;
   }
   .cview-li::before { right:50%; }
-  .cview-li::after  { left:50%; border-left:2px solid #94a3b8; }
+  .cview-li::after  { left:50%; border-left:1.5px solid #94a3b8; }
   .cview-li:only-child::before, .cview-li:only-child::after { display:none; }
   .cview-li:only-child { padding-top:0; }
   .cview-li:first-child::before, .cview-li:last-child::after { border:0 none; }
-  .cview-li:last-child::before  { border-right:2px solid #94a3b8; border-radius:0 6px 0 0; }
-  .cview-li:first-child::after  { border-radius:6px 0 0 0; }
+  .cview-li:last-child::before  { border-right:1.5px solid #94a3b8; border-radius:0 4px 0 0; }
+  .cview-li:first-child::after  { border-radius:4px 0 0 0; }
   .cview-card {
     position:relative; direction:rtl;
-    background: var(--c-surface, #fff); border-radius: 10px;
-    border: 1.5px solid var(--c-border, #dde3ef); border-top: 3px solid var(--role-color, #64748b);
-    padding: 9px 14px; min-width: 128px; max-width: 210px;
-    box-shadow: 0 1px 4px rgba(15,23,42,0.06);
-    cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px;
+    background: var(--c-surface, #fff); border-radius: 7px;
+    border: 1px solid var(--c-border, #dde3ef); border-top: 2px solid var(--role-color, #64748b);
+    padding: 4px 8px; min-width: 76px; max-width: 132px;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.05);
+    cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:1px;
     transition: box-shadow .15s, transform .15s;
   }
-  .cview-card:hover { box-shadow: 0 6px 18px rgba(15,23,42,0.14); transform: translateY(-2px); }
-  .cview-card--root { border-radius: 999px; padding: 13px 24px; min-width:150px; }
-  .cview-card-icon { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; margin-bottom:1px; }
+  .cview-card:hover { box-shadow: 0 5px 14px rgba(15,23,42,0.13); transform: translateY(-2px); }
+  .cview-card--root { border-radius: 999px; padding: 6px 14px; min-width:90px; }
+  .cview-card-icon { width:16px; height:16px; border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:9px; margin-bottom:1px; }
   .cview-card--root .cview-card-icon { border-radius:50%; }
-  .cview-card-name { font-weight:700; font-size:12px; color: var(--c-text-primary, #1a2332); white-space:nowrap; }
-  .cview-card-badge { font-size:9.5px; font-weight:600; border-radius:20px; padding:1px 7px; white-space:nowrap; }
-  .cview-card-phone { font-size:9.5px; color: var(--c-text-muted, #8fa0be); }
-  .cview-card-off { font-size:9px; color: var(--c-danger, #dc2626); font-weight:700; }
+  .cview-card-name { font-weight:700; font-size:9px; color: var(--c-text-primary, #1a2332); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:120px; }
+  .cview-card-badge { font-size:7px; font-weight:600; border-radius:20px; padding:0.5px 5px; white-space:nowrap; }
+  .cview-card-phone { font-size:7px; color: var(--c-text-muted, #8fa0be); }
+  .cview-card-off { font-size:6.5px; color: var(--c-danger, #dc2626); font-weight:700; }
   .cview-card-toggle {
-    margin-top:4px; border:1px solid var(--c-border, #dde3ef); background: var(--c-bg, #f0f2f7);
-    border-radius: 20px; padding: 1px 10px; font-size:10px; font-weight:700; color: var(--c-text-secondary, #5a6a8a); cursor:pointer;
+    margin-top:2px; border:1px solid var(--c-border, #dde3ef); background: var(--c-bg, #f0f2f7);
+    border-radius: 20px; padding: 0 6px; font-size:7.5px; font-weight:700; color: var(--c-text-secondary, #5a6a8a); cursor:pointer;
   }
   .cview-card-toggle:hover { background: var(--c-accent-light, #ebf0fc); color: var(--c-accent, #1a56db); border-color: var(--c-accent, #1a56db); }
 `;
