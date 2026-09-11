@@ -80,6 +80,7 @@ interface VisitRecord {
   notes?: string;
   item?: Item;
   geoCorrect?: boolean | null;
+  repName?: string | null;
 }
 interface VisitDoctor {
   id: number; name: string; specialty?: string;
@@ -2813,6 +2814,11 @@ export default function DoctorsPage() {
                                       </button>
                                     );
                                   })()}
+                                </div>
+                              )}
+                              {lastVisit?.repName && (
+                                <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 1, textAlign: 'left' }}>
+                                  {lastVisit.repName}
                                 </div>
                               )}
                             </div>

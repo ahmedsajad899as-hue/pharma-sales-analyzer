@@ -241,13 +241,18 @@ export async function buildVisitOverlay(scope, dateFilter) {
       id: true, visitDate: true, feedback: true, feedbackSource: true, notes: true, itemName: true, geoCorrect: true,
       item: { select: { id: true, name: true } },
       doctor: { select: { masterSurveyDoctorId: true, name: true } },
+      scientificRep: { select: { name: true } },
+      user: { select: { displayName: true, username: true } },
     },
     orderBy: { visitDate: 'desc' },
   });
   for (const v of visits) {
     // ايتم محفوظ نصاً (لا يطابق الكتالوج) يُعرض كأي ايتم آخر — بمعرّف null.
     const item = v.item ?? (v.itemName ? { id: null, name: v.itemName } : null);
-    const entry = { id: v.id, visitDate: v.visitDate, feedback: v.feedback, feedbackSource: v.feedbackSource, notes: v.notes, item, geoCorrect: v.geoCorrect };
+    // مَن قام بالزيارة فعلياً: المندوب العلمي المحسوم أولاً (كل زيارات الاستيراد
+    // الجماعي تحمله)، وإلا مَن سجّلها شخصياً (مدير يسجّل زيارته بنفسه بلا مندوب).
+    const repName = v.scientificRep?.name || v.user?.displayName || v.user?.username || null;
+    const entry = { id: v.id, visitDate: v.visitDate, feedback: v.feedback, feedbackSource: v.feedbackSource, notes: v.notes, item, geoCorrect: v.geoCorrect, repName };
     const msId = v.doctor?.masterSurveyDoctorId;
     if (msId != null) {
       if (!bySurveyDocId.has(msId)) bySurveyDocId.set(msId, []);
