@@ -1230,10 +1230,11 @@ export async function getManagerSubReps(req, res, next) {
       includeTeamLead && s.user.role === 'team_leader' ? true : !MANAGEMENT_ROLES.has(s.user.role)
     );
 
-    // «الشركة الرئيسية» لكل عضو فريق — فقط لمدير المكتب، إذ يشرف على أكثر من
-    // شركة دفعة واحدة (باقي أدوار المدراء مُقيَّدة أصلاً بشركة واحدة فلا حاجة للتجميع).
+    // «الشركة الرئيسية» لكل عضو فريق — للأدوار المكتبية كلها (مدير/HR/موظف المكتب)،
+    // إذ تشرف على شركات المكتب كلها دفعة واحدة (officeScope.js) فتحتاج التجميع؛
+    // باقي أدوار المدراء مُقيَّدة أصلاً بشركة واحدة فلا حاجة له.
     let companyByUserId = new Map();
-    if (req.user.role === 'office_manager' && subs.length) {
+    if (OFFICE_SCOPED_ROLES.has(req.user.role) && subs.length) {
       const assignments = await prisma.userCompanyAssignment.findMany({
         where: { userId: { in: subs.map(s => s.user.id) }, isPrimary: true },
         select: { userId: true, company: { select: { id: true, name: true } } },

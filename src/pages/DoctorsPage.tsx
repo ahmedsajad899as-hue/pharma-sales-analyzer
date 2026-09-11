@@ -290,7 +290,7 @@ export default function DoctorsPage() {
   const [managerReps, setManagerReps]       = useState<ManagerRep[]>([]);
   const [managerCompanies, setManagerCompanies] = useState<ManagerCompany[]>([]);
   const [visitRepFilter, setVisitRepFilter] = useState<number | null>(null); // null = all
-  // فلترة إضافية بـ«الشركة الرئيسية» — لمدير المكتب فقط (يشرف على أكثر من شركة).
+  // فلترة إضافية بـ«الشركة الرئيسية» — للأدوار المكتبية (مدير/HR/موظف المكتب) التي تشرف على أكثر من شركة.
   // اختيار شركة يُظهر زيارات كل مندوبيها مجتمعة، ويضيّق قائمة شرائح المندوبين أدناه.
   const [visitCompanyFilter, setVisitCompanyFilter] = useState<number | null>(null); // null = all companies
   // Manager wishlist view — show each rep's wishlist
@@ -1812,7 +1812,7 @@ export default function DoctorsPage() {
       {/* ── VISITS TAB ───────────────────────────────────── */}
       {activeTab === 'visits' && showVisitAnalysis && (
         <div>
-          {/* Company selector (office manager only — oversees multiple main companies) */}
+          {/* Company selector (office roles — oversee multiple main companies; server returns companies only for them) */}
           {!isFieldRep && managerCompanies.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="navOrgStructure" size={11} /> الشركة الرئيسية</div>
