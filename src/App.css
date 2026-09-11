@@ -3322,9 +3322,8 @@ select.comm-input { cursor: pointer; }
     padding: 12px !important;
   }
 
-  /* Doctor row: hide date & item columns on mobile to show name */
-  .doc-row-date,
-  .doc-row-item {
+  /* Doctor row: hide date column on mobile to show name */
+  .doc-row-date {
     display: none !important;
   }
 }

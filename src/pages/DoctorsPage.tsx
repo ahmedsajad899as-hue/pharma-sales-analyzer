@@ -340,12 +340,6 @@ export default function DoctorsPage() {
   const [showTotalPopup, setShowTotalPopup] = useState(false);
   const totalCardRef = useRef<HTMLDivElement>(null);
   const [expandedVisits, setExpandedVisits] = useState<Set<number>>(new Set());
-  const [expandedNoteIds, setExpandedNoteIds] = useState<Set<number>>(new Set());
-  const toggleNoteExpand = (visitId: number) => setExpandedNoteIds(prev => {
-    const next = new Set(prev);
-    if (next.has(visitId)) next.delete(visitId); else next.add(visitId);
-    return next;
-  });
   const [openItemDropdowns, setOpenItemDropdowns] = useState<Set<number>>(new Set());
   const toggleItemDrop = (id: number, force?: boolean) => setOpenItemDropdowns(prev => {
     const next = new Set(prev);
@@ -2770,7 +2764,6 @@ export default function DoctorsPage() {
                     )}
                     {sorted.map(doc => {
                       const lastVisit = doc.visits[0];
-                      const fb = lastVisit ? (FEEDBACK_LABEL[lastVisit.feedback] ?? FEEDBACK_LABEL.pending) : null;
                       const isVisitOpen = expandedVisits.has(doc.id);
                       const isWished    = wishedDoctors.has(doc.id);
                       return (
@@ -2850,21 +2843,6 @@ export default function DoctorsPage() {
                             <span className="doc-row-date" style={{ fontSize: 12, color: 'var(--c-text-secondary)', flexShrink: 0, minWidth: 72, textAlign: 'center' }}>
                               {lastVisit ? fmt(lastVisit.visitDate) : '—'}
                             </span>
-
-                            {/* Item */}
-                            <span className="doc-row-item" style={{ fontSize: 12, color: 'var(--c-text-secondary)', flexShrink: 0, minWidth: 70, textAlign: 'center' }}>
-                              {lastVisit?.item?.name ?? doc.targetItem?.name ?? '—'}
-                            </span>
-
-                            {/* Feedback chip */}
-                            {fb ? (
-                              <span style={{
-                                fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 10,
-                                background: fb.bg, color: fb.color, flexShrink: 0, minWidth: 58, textAlign: 'center',
-                              }}>{fb.label}</span>
-                            ) : (
-                              <span style={{ fontSize: 11, color: 'var(--c-text-muted)', flexShrink: 0, minWidth: 58, textAlign: 'center' }}>لم يُزر</span>
-                            )}
                           </div>
 
                           {/* Rep/user who logged the last visit — full-width line under the main
@@ -2914,14 +2892,9 @@ export default function DoctorsPage() {
                                           )}
                                         </td>
                                         <td
-                                          onClick={() => v.notes && toggleNoteExpand(v.id)}
-                                          title={v.notes ?? undefined}
                                           style={{
                                             padding: '5px 8px', color: 'var(--c-text-secondary)',
-                                            cursor: v.notes ? 'pointer' : 'default',
-                                            ...(expandedNoteIds.has(v.id)
-                                              ? { whiteSpace: 'normal', wordBreak: 'break-word', minWidth: 220 }
-                                              : { maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
+                                            whiteSpace: 'normal', wordBreak: 'break-word', minWidth: 220,
                                           }}
                                         >
                                           {v.notes ?? '—'}
