@@ -925,7 +925,7 @@ function FilesPanel({ pn, open, setOpen }: { pn: ReturnType<typeof usePharmacyNe
                   onChange={e => { const f = e.target.files?.[0]; if (f) { requestUpload(f); e.target.value = ''; } }} />
                 {uploading
                   ? <span style={{ color: 'var(--c-accent)', fontSize: 13, fontWeight: 600 }}>⏳ جاري الرفع...</span>
-                  : <><div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-accent)' }}>اسحب وأفلت أو اضغط للاختيار</div><div style={{ fontSize: 10, color: 'var(--c-text-muted)' }}>.xlsx / .xls / .csv</div></>
+                  : <><div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-accent)' }}>اسحب وأفلت أو اضغط للاختيار — أو الصق (Ctrl+V)</div><div style={{ fontSize: 10, color: 'var(--c-text-muted)' }}>.xlsx / .xls / .csv — يمكن لصق ملف منسوخ من الواتساب أو من الحاسوب</div></>
                 }
               </div>
             )}

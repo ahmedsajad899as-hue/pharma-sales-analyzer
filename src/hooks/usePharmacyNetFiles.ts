@@ -68,6 +68,17 @@ export function usePharmacyNetFiles(token: string | null) {
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) requestUpload(file); };
 
+  // لصق ملف (Ctrl+V) — يعمل سواء كان الملف منسوخاً من الواتساب (مستندات) أو من الحاسوب
+  useEffect(() => {
+    if (!showUpload) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const file = e.clipboardData?.files?.[0];
+      if (file) { e.preventDefault(); requestUpload(file); }
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [showUpload]);
+
   const clearAllData = useCallback(async () => {
     setClearing(true);
     try {

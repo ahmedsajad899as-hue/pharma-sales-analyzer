@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import VisitImportFilesPanel from './VisitImportFilesPanel';
 
@@ -160,6 +160,17 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
     }
   };
 
+  // لصق ملف (Ctrl+V) قبل اختيار أي ملف — يعمل سواء كان الملف منسوخاً من الواتساب أو من الحاسوب
+  useEffect(() => {
+    if (totalRows > 0) return;
+    const onPaste = (e: ClipboardEvent) => {
+      if (e.clipboardData?.files?.length) { e.preventDefault(); onFile(e.clipboardData.files); }
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalRows]);
+
   const needsDecision = useMemo(() => [...pendingNames, ...unrelatedNames.map(u => ({ ...u, status: 'none', rep: null, suggestions: [] as any[] }))], [pendingNames, unrelatedNames]);
   const decidedCount = needsDecision.filter(e => nameChoice[e.key]).length;
 
@@ -304,6 +315,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
         <p style={{ margin: '0 0 14px', fontSize: 12.5, color: '#64748b', lineHeight: 1.7 }}>
           ارفع ملف إكسل يحتوي زيارات الأطباء (وصيدليات إن وُجدت) — سيتم ملء زيارات كل مندوب
           حسب اسمه في الملف. راجع النتيجة وصحّحها قبل الحفظ النهائي.
+          <br />يمكنك أيضاً لصق الملف مباشرة (Ctrl+V) — سواء كان منسوخاً من الواتساب أو من الحاسوب.
         </p>
 
         {totalRows === 0 && (

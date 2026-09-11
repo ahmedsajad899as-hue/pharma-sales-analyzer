@@ -557,7 +557,7 @@ export default function PharmacyAnalysisPage() {
                 onChange={e => { const f = e.target.files?.[0]; if (f) { requestUpload(f); e.target.value = ''; } }} />
               {uploading
                 ? <span style={{ color: 'var(--c-accent)', fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="loading" size={13} className="icon-spin" /> جاري الرفع...</span>
-                : <><div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-accent)' }}>اسحب وأفلت أو اضغط للاختيار</div><div style={{ fontSize: 10, color: 'var(--c-text-muted)' }}>.xlsx / .xls / .csv</div></>
+                : <><div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-accent)' }}>اسحب وأفلت أو اضغط للاختيار — أو الصق (Ctrl+V)</div><div style={{ fontSize: 10, color: 'var(--c-text-muted)' }}>.xlsx / .xls / .csv — يمكن لصق ملف منسوخ من الواتساب أو من الحاسوب</div></>
               }
             </div>
           )}

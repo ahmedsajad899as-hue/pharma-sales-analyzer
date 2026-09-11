@@ -984,6 +984,21 @@ table{border-collapse:collapse;width:100%}
     }
   }, []);
 
+  // لصق ملف (Ctrl+V) — يعمل سواء كان الملف منسوخاً من الواتساب أو من الحاسوب
+  useEffect(() => {
+    if (!hasFeature('sales_data_upload') || importing) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const list = e.clipboardData?.files;
+      if (!list || list.length === 0) return;
+      const accepted = Array.from(list).filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+      if (accepted.length === 0) return;
+      e.preventDefault();
+      handleFilesList(accepted);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [hasFeature, importing, handleFilesList]);
+
   const deleteFile = async (id: string) => {
     if (!confirm('حذف هذا الملف؟')) return;
     const ok = await apiDeleteFile(id);
@@ -1097,7 +1112,7 @@ table{border-collapse:collapse;width:100%}
       {/* Header — title moved to the app-level topbar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
         {hasFeature('sales_data_upload') && (
-        <button onClick={openFilePicker} disabled={importing}
+        <button onClick={openFilePicker} disabled={importing} title="أو الصق ملفاً منسوخاً (Ctrl+V) — من الواتساب أو من الحاسوب"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: importing ? 'default' : 'pointer', background: 'var(--c-accent)', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)', opacity: importing ? 0.7 : 1 }}>
           <Icon name="import" size={15} /> استيراد Excel
         </button>
