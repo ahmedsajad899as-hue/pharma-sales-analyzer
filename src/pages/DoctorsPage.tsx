@@ -339,6 +339,12 @@ export default function DoctorsPage() {
   const [showTotalPopup, setShowTotalPopup] = useState(false);
   const totalCardRef = useRef<HTMLDivElement>(null);
   const [expandedVisits, setExpandedVisits] = useState<Set<number>>(new Set());
+  const [expandedNoteIds, setExpandedNoteIds] = useState<Set<number>>(new Set());
+  const toggleNoteExpand = (visitId: number) => setExpandedNoteIds(prev => {
+    const next = new Set(prev);
+    if (next.has(visitId)) next.delete(visitId); else next.add(visitId);
+    return next;
+  });
   const [openItemDropdowns, setOpenItemDropdowns] = useState<Set<number>>(new Set());
   const toggleItemDrop = (id: number, force?: boolean) => setOpenItemDropdowns(prev => {
     const next = new Set(prev);
@@ -2898,7 +2904,17 @@ export default function DoctorsPage() {
                                             <span style={{ color: 'var(--c-text-muted)' }}>—</span>
                                           )}
                                         </td>
-                                        <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        <td
+                                          onClick={() => v.notes && toggleNoteExpand(v.id)}
+                                          title={v.notes ?? undefined}
+                                          style={{
+                                            padding: '5px 8px', color: 'var(--c-text-secondary)',
+                                            cursor: v.notes ? 'pointer' : 'default',
+                                            ...(expandedNoteIds.has(v.id)
+                                              ? { whiteSpace: 'normal', wordBreak: 'break-word', minWidth: 220 }
+                                              : { maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
+                                          }}
+                                        >
                                           {v.notes ?? '—'}
                                         </td>
                                       </tr>
