@@ -33,10 +33,14 @@ function buildFeedbackPrompt(batch) {
   const list = batch.map(v => ({ id: v.id, item: v.itemName || '', notes: v.notes }));
   return `أنت تحلل ملاحظات كتبها مندوبون طبيون بعد زيارة أطباء عراقيين، وتستنتج منها "فيدباك" الطبيب تجاه مادة دوائية معينة.
 
+كل زيارة لها حقل "item" — هو الايتم الذي زار المندوب الطبيب بخصوصه تحديداً. الفيدباك يتعلق بهذا الايتم حصراً، لا بأي مادة أخرى ورد ذكرها في النص.
+
 القيم المسموحة فقط:
 ${FEEDBACK_DEFINITIONS}
 
 قواعد صارمة:
+- قاعدة حاسمة: إذا ذكرت الملاحظة أن الطبيب يكتب/يهتم/يخزّن مادة مختلفة عن item المعطى لهذه الزيارة (منافس يشغل مكان الايتم المستهدف)، فهذا ليس writing ولا interested ولا stocked لهذا الايتم إطلاقاً — صنّفه unavailable (منافس يشغل مكانه) لا حالة الطبيب تجاه المادة الأخرى.
+  مثال: item="pantactive"، والملاحظة "الدكتور اوضح حاليا انه يكتب rapibrazole" → الفيدباك الصحيح unavailable (يكتب مادة أخرى غير pantactive)، وليس writing.
 - لا تخمّن أبداً. إن كان نص الملاحظة غامضاً أو لا يكفي لحسم فئة واحدة بثقة معقولة، لا تُدرج تلك الزيارة في الرد إطلاقاً — تجاهلها كلياً بدل وضع قيمة عشوائية.
 - أعد فقط الزيارات التي استطعت تصنيفها بثقة معقولة.
 - لا تُرجع أي قيمة خارج القائمة الخمسة أعلاه.
@@ -146,4 +150,42 @@ export async function backfillPendingVisitFeedback({ batchSize = 500, onProgress
     onProgress?.({ totalSeen, totalUpdated, cursor });
   }
   return { totalSeen, totalUpdated };
+}
+
+/**
+ * إعادة تصنيف لمرة واحدة (سكربت يدوي — راجع server/scripts/reclassify-visit-
+ * feedback.js) لكل زيارة سبق أن صنّفها الذكاء الاصطناعي (feedbackSource=
+ * 'import_ai')، بعد تصحيح البرومبت ليُميّز الايتم المستهدف عن أي مادة أخرى
+ * وردت في النص (كانت زيارات "الطبيب يكتب مادة منافسة غير الايتم المستهدف"
+ * تُصنَّف خطأً writing بدل unavailable). لا يُقيَّد بـfeedback='pending' —
+ * الهدف هنا تصحيح تصنيف موجود لا ملء فراغ.
+ */
+export async function reclassifyImportAiFeedback({ batchSize = 500, onProgress } = {}) {
+  let totalSeen = 0, totalChanged = 0, cursor = 0;
+  while (true) {
+    const visits = await prisma.doctorVisit.findMany({
+      where: { id: { gt: cursor }, feedbackSource: 'import_ai', notes: { not: null } },
+      select: { id: true, notes: true, itemName: true, feedback: true },
+      take: batchSize,
+      orderBy: { id: 'asc' },
+    });
+    if (visits.length === 0) break;
+    cursor = visits[visits.length - 1].id;
+
+    const withNotes = visits.filter(v => v.notes && v.notes.trim());
+    if (withNotes.length) {
+      totalSeen += withNotes.length;
+      const deadline = Date.now() + 180_000;
+      const { results } = await inferVisitFeedbackBatched(withNotes, deadline);
+      const changed = [...results.entries()].filter(([id, fb]) => fb !== withNotes.find(v => v.id === id)?.feedback);
+      if (changed.length) {
+        await prisma.$transaction(
+          changed.map(([id, feedback]) => prisma.doctorVisit.update({ where: { id }, data: { feedback, feedbackSource: 'import_ai' } }))
+        );
+        totalChanged += changed.length;
+      }
+    }
+    onProgress?.({ totalSeen, totalChanged, cursor });
+  }
+  return { totalSeen, totalChanged };
 }
