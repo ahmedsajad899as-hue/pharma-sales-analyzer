@@ -2774,11 +2774,17 @@ export default function DoctorsPage() {
                       const isWished    = wishedDoctors.has(doc.id);
                       return (
                         <div key={doc.id} style={{ borderBottom: '1px solid var(--c-border-light)' }}>
-                          {/* Main row */}
-                          <div style={{
-                            display: 'flex', alignItems: 'center', gap: 10,
-                            padding: '10px 18px', direction: 'rtl',
-                          }}>
+                          {/* Main row — clicking anywhere in it toggles the visits list open/closed
+                              (not only the dedicated "N زيارة ▾" button), matching how the rest of
+                              the row already reads as one clickable unit. */}
+                          <div
+                            onClick={() => doc.visits.length > 0 && toggleVisitExpand(doc.id)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 10,
+                              padding: '10px 18px', direction: 'rtl',
+                              cursor: doc.visits.length > 0 ? 'pointer' : 'default',
+                            }}
+                          >
                             {/* Status dot */}
                             <span style={{
                               width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
@@ -2820,7 +2826,7 @@ export default function DoctorsPage() {
 
                             {/* Wish button */}
                             {canSeeWishlist && (
-                              <button onClick={() => toggleWish(doc.id, doc.name, { specialty: doc.specialty, pharmacyName: doc.pharmacyName, areaName: doc.area?.name })} title={isWished ? 'إزالة من القائمة' : 'أضف للبلان'} style={{
+                              <button onClick={e => { e.stopPropagation(); toggleWish(doc.id, doc.name, { specialty: doc.specialty, pharmacyName: doc.pharmacyName, areaName: doc.area?.name }); }} title={isWished ? 'إزالة من القائمة' : 'أضف للبلان'} style={{
                                 background: isWished ? 'var(--c-accent-light)' : 'transparent', border: `1.5px solid ${isWished ? 'var(--c-accent)' : 'var(--c-border)'}`,
                                 borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 15,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -2831,7 +2837,7 @@ export default function DoctorsPage() {
 
                             {/* Visit count with expand toggle */}
                             {doc.visits.length > 0 ? (
-                              <button onClick={() => toggleVisitExpand(doc.id)} title={doc.visits.some(v => v.geoCorrect === false) ? 'إحدى الزيارات مسجَّلة بعيداً عن موقع الطبيب' : undefined} style={{
+                              <button onClick={e => { e.stopPropagation(); toggleVisitExpand(doc.id); }} title={doc.visits.some(v => v.geoCorrect === false) ? 'إحدى الزيارات مسجَّلة بعيداً عن موقع الطبيب' : undefined} style={{
                                 display: 'flex', alignItems: 'center', gap: 4,
                                 fontSize: 12, color: 'var(--c-accent)', fontWeight: 600,
                                 background: isVisitOpen ? 'var(--c-accent-light)' : 'var(--c-accent-light)',
