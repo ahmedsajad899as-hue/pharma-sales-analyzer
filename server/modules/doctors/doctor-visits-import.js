@@ -377,14 +377,58 @@ const looksLikeItemToken = s => /[A-Za-z]{3,}/.test(s) && !/[؀-ۿ]/.test(s);
 // تعليق حرّ يصادف احتواؤه على شرطة مائلة.
 const PLAN_LINE_START_RE = /^\s*(?:د\.|دكتور|الدكتور|عيادة|ص\.|صيدلية|صيدليه)\s*/;
 const PHARMACY_SEG_RE    = /^\s*(?:ص\.|صيدلية|صيدليه)/;
-function isPlanLine(text) {
-  const parts = text.split(/[\\/]/).map(s => s.trim()).filter(Boolean);
-  if (parts.length < 3) return false;                       // أقل من فاصلَين = جملة عادية
-  // الشرطة المائلة العكسية فاصل خاص بهذه السطور، فوجود اثنتين يكفي وحده.
-  if (!PLAN_LINE_START_RE.test(parts[0])) return (text.match(/\\/g) || []).length >= 2;
-  // بدأ بلقب طبيب/صيدلية: نتأكّد أنه سطر توجيه فعلاً (ينتهي بايتم لاتيني أو
-  // يتضمّن مقطع صيدلية) لا جملة حرّة تصادف أنها تبدأ بـ«الدكتور» وفيها شرطات.
+// بعض كتّاب الملاحظات يكتبون نفس سطر الخطة بشرطة عادية محاطة بمسافات بدل \ أو /
+// («... - المحمودية - اسراء عبد الامير - Toprimide(...)») — نقبلها كفاصل بديل،
+// لكن بشرط مسافة على الجانبين (لا نقسم كلمة بشرطة داخلية بلا مسافة).
+const DASH_SPLIT_RE = /\s-\s/;
+
+function qualifiesAsPlanLine(parts, text, { minParts = 3 } = {}) {
+  if (parts.length < minParts) return false;
+  if (PLAN_LINE_START_RE.test(parts[0])) {
+    // بدأ بلقب طبيب/صيدلية: نتأكّد أنه سطر توجيه فعلاً (ينتهي بايتم لاتيني أو
+    // يتضمّن مقطع صيدلية) لا جملة حرّة تصادف أنها تبدأ بـ«الدكتور» وفيها فواصل.
+    return looksLikeItemToken(parts[parts.length - 1]) || parts.some(p => PHARMACY_SEG_RE.test(p));
+  }
+  // لم يبدأ بلقب — الشرطة المائلة العكسية فاصل خاص بهذه السطور فوجود اثنتين يكفي
+  // وحده؛ وإلا (شرطة عادية أو / فقط، أكثر شيوعاً في نثر عادي) نشترط انتهاءه
+  // بايتم لاتيني أو مقطع صيدلية صريح، لا العدد وحده.
+  if ((text.match(/\\/g) || []).length >= 2) return true;
   return looksLikeItemToken(parts[parts.length - 1]) || parts.some(p => PHARMACY_SEG_RE.test(p));
+}
+
+/**
+ * يُجزّئ سطر خطة محتملاً بأول فاصل يُنتج تجزئة مؤهَّلة: \ أو / أولاً (نفس
+ * السلوك القديم)، ثم "-" (فاصل أكثر شيوعاً في نثر عادي — نشترط 4 مقاطع فأكثر
+ * بدل 3 كهامش أمان إضافي ضد ابتلاع جملة عادية فيها شرطات بالخطأ).
+ * أو null إن لم يتأهّل أي منهما — يبقى النص تعليقاً حرّاً عادياً.
+ */
+function splitPlanLine(text) {
+  const slashParts = text.split(/[\\/]/).map(s => s.trim()).filter(Boolean);
+  if (qualifiesAsPlanLine(slashParts, text)) return slashParts;
+  const dashParts = text.split(DASH_SPLIT_RE).map(s => s.trim()).filter(Boolean);
+  if (qualifiesAsPlanLine(dashParts, text, { minParts: 4 })) return dashParts;
+  return null;
+}
+
+/**
+ * المقطع السابق للايتم مباشرة قد يحمل هو نفسه فواصل "-" داخلية (فُصِل الجزء
+ * الخارجي بـ / لكن هذا الجزء بالذات كُتب "منطقة - تفصيل - اسم الصيدلية") — نأخذ
+ * آخر جزء فرعي منه (الأقرب للايتم دوماً)، لا المقطع كاملاً بمنطقته/تفصيله الملصق.
+ */
+function pharmacyCandidateFromSegment(seg) {
+  if (!seg) return seg;
+  const sub = seg.split(DASH_SPLIT_RE).map(s => s.trim()).filter(Boolean);
+  return sub.length ? sub[sub.length - 1] : seg;
+}
+
+// مرشّح صيدلية من موضعه (المقطع قبل الايتم مباشرة) حين لا يحمل بادئة "ص." صريحة —
+// تسمية شائعة عراقياً: الصيدلية باسم صاحبها بلا أي بادئة. حراسة بسيطة ضد التقاط
+// شيء آخر بالخطأ (رمز قصير كـ"B"، تكرار اسم الطبيب، أو نص يشبه ايتماً بالخطأ).
+function isLikelyPharmacyCandidate(cand, doctorSeg) {
+  if (!cand || cand.length < 4 || cand.length > 40) return false;
+  if (looksLikeItemToken(cand)) return false; // نص لاتيني — أقرب لايتم آخر لا صيدلية
+  if (doctorSeg && normalizeRepName(cleanDoctorName(cand)) === normalizeRepName(cleanDoctorName(doctorSeg))) return false;
+  return true;
 }
 
 /**
@@ -566,14 +610,22 @@ function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
     if (isNoteAuthorSegment(seg, alternating && idx % 2 === 0)) continue; // مقطع الكاتب
     const body = stripNoteMeta(seg).replace(NOTE_TS_RE, '').trim();
     if (!body) continue;
-    if (isPlanLine(body)) {                                 // سطر خطة لا ملاحظة
-      const parts = body.split(/[\\/]/).map(s => s.trim()).filter(Boolean);
+    const parts = splitPlanLine(body);
+    if (parts) {                                            // سطر خطة لا ملاحظة
       const last = parts[parts.length - 1] ?? '';
       if (!planItem && looksLikeItemToken(last)) planItem = last;
       // اسم صيدلية الطبيب غالباً مذكور هنا («د. فلان \ اختصاص \ ص. الصيدلية \
       // ايتم») ولا يُستخرَج من أي عمود آخر في هذه الصيغة — يُستعمل لاحقاً فقط
-      // حين يخلو سجل الطبيب في التطبيق/السيرفي من صيدلية أصلاً.
-      if (!planPharmacy) { const ph = parts.find(p => PHARMACY_SEG_RE.test(p)); if (ph) planPharmacy = ph; }
+      // حين يخلو سجل الطبيب في التطبيق/السيرفي من صيدلية أصلاً. بادئة "ص."
+      // الصريحة أولاً؛ وإلا المقطع السابق للايتم مباشرة (تسمية شائعة بلا بادئة).
+      if (!planPharmacy) {
+        const ph = parts.find(p => PHARMACY_SEG_RE.test(p));
+        if (ph) planPharmacy = ph;
+        else if (looksLikeItemToken(last)) {
+          const cand = pharmacyCandidateFromSegment(parts[parts.length - 2]);
+          if (isLikelyPharmacyCandidate(cand, parts[0])) planPharmacy = cand;
+        }
+      }
       continue;
     }
     freeTexts.push(body.replace(/\s{2,}/g, ' '));
