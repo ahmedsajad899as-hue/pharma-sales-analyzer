@@ -142,8 +142,11 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
       setPendingDoctorNames(data.doctorNames?.pending ?? []);
       if (dRows.length === 0 && pRows.length === 0) {
         setInfo('لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب (أو أنه بصيغة معروفة).');
-      } else if (pRows.length > 0) {
-        setInfo(`اكتُشف ملف يحتوي زيارات أطباء وصيدليات معاً — ${dRows.length} زيارة طبيب و${pRows.length} زيارة صيدلية.`);
+      } else if (dRows.length > 0) {
+        const uniqueDoctors = new Set(dRows.map(r => r.doctorKey || r.doctorName)).size;
+        setInfo(pRows.length > 0
+          ? `اكتُشف ملف يحتوي زيارات أطباء وصيدليات معاً — ${dRows.length} زيارة طبيب (${uniqueDoctors} طبيب) و${pRows.length} زيارة صيدلية.`
+          : `اكتُشف ${dRows.length} زيارة طبيب (${uniqueDoctors} طبيب).`);
       }
       // لا حاجة لمطابقة إضافية إن لم تكن هناك أسماء غير محسومة
       if ((data.repNames?.pending ?? []).length === 0 && (data.repNames?.unrelated ?? []).length === 0) {
