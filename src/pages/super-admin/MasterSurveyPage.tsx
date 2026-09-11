@@ -302,6 +302,7 @@ export default function MasterSurveyPage() {
   const [pharmaSuggestionsLoading, setPharmaSuggestionsLoading] = useState(false);
   const [ignoredSuggestionKeys,    setIgnoredSuggestionKeys]    = useState<Set<string>>(new Set());
   const [suggestionKeep,           setSuggestionKeep]           = useState<Record<string, number>>({});
+  const [suggestionMergeSelection, setSuggestionMergeSelection] = useState<Record<string, Set<number>>>({});
   const [expandedPharmaIds,        setExpandedPharmaIds]        = useState<Set<number>>(new Set());
 
   // visibility
@@ -1005,7 +1006,7 @@ export default function MasterSurveyPage() {
       <ModalOverlay onClose={() => setShowMergeSuggestions(false)}>
         <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>💡 اقتراحات دمج ذكية</h3>
         <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
-          مجموعات أسماء متقاربة بالشكل أو النطق (بادئة "صيدلية/ص." مختلفة، خطأ إملائي بسيط، أو تكرار) — راجع كل مجموعة واختر الاسم الذي يبقى، أو تجاهلها إن لم تكن فعلاً نفس الصيدلية.
+          مجموعات أسماء متقاربة بالشكل أو النطق (بادئة "صيدلية/ص." مختلفة، خطأ إملائي بسيط، أو تكرار) — راجع كل مجموعة، اختر بالدائرة الاسم الذي يبقى، وحدد بصندوق الاختيار أي الأسماء الأخرى تريد دمجها فعلاً معه (يمكن استثناء أسماء ليست نفس الصيدلية)، أو تجاهل المجموعة كاملة إن لم تكن فعلاً متطابقة.
         </p>
         {pharmaSuggestionsLoading ? <Spinner /> : visible.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>
@@ -1016,27 +1017,54 @@ export default function MasterSurveyPage() {
             {visible.map(g => {
               const key = suggestionGroupKey(g);
               const keepId = suggestionKeep[key] ?? g.suggestedKeepId;
-              const mergeCount = g.members.length - 1;
+              const otherMembers = g.members.filter(m => m.id !== keepId);
+              const selectedMerge = suggestionMergeSelection[key] ?? new Set(otherMembers.map(m => m.id));
+              const mergeIds = otherMembers.filter(m => selectedMerge.has(m.id)).map(m => m.id);
               return (
                 <div key={key} style={{ border: '1.5px solid #e8edf5', borderRadius: 12, padding: 12, background: '#fafbff' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-                    {g.members.map(m => (
-                      <label key={m.id} style={{
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8,
-                        border: `1.5px solid ${keepId === m.id ? '#6366f1' : '#e2e8f0'}`,
-                        background: keepId === m.id ? '#eef2ff' : '#fff', cursor: 'pointer',
-                      }}>
-                        <input type="radio" name={`suggestion-keep-${key}`} checked={keepId === m.id}
-                          onChange={() => setSuggestionKeep(prev => ({ ...prev, [key]: m.id }))} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{m.name}</div>
-                          <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                            {m.areaName ? `📍 ${m.areaName} · ` : ''}👨‍⚕️ {m.doctorCount} طبيب
+                    {g.members.map(m => {
+                      const isKeep = keepId === m.id;
+                      const isChecked = isKeep || selectedMerge.has(m.id);
+                      return (
+                        <label key={m.id} style={{
+                          display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8,
+                          border: `1.5px solid ${isKeep ? '#6366f1' : isChecked ? '#c7d2fe' : '#e2e8f0'}`,
+                          background: isKeep ? '#eef2ff' : isChecked ? '#fff' : '#f8fafc',
+                          cursor: 'pointer', opacity: isChecked ? 1 : 0.6,
+                        }}>
+                          <input type="radio" name={`suggestion-keep-${key}`} checked={isKeep}
+                            title="سيبقى هذا الاسم"
+                            onChange={() => {
+                              setSuggestionKeep(prev => ({ ...prev, [key]: m.id }));
+                              setSuggestionMergeSelection(prev => {
+                                const next = { ...prev };
+                                delete next[key];
+                                return next;
+                              });
+                            }} />
+                          {!isKeep && (
+                            <input type="checkbox" checked={selectedMerge.has(m.id)}
+                              title="دمج هذا الاسم في الاسم الذي سيبقى"
+                              onChange={() => {
+                                setSuggestionMergeSelection(prev => {
+                                  const current = prev[key] ?? new Set(otherMembers.map(om => om.id));
+                                  const nextSet = new Set(current);
+                                  if (nextSet.has(m.id)) nextSet.delete(m.id); else nextSet.add(m.id);
+                                  return { ...prev, [key]: nextSet };
+                                });
+                              }} />
+                          )}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>{m.name}</div>
+                            <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                              {m.areaName ? `📍 ${m.areaName} · ` : ''}👨‍⚕️ {m.doctorCount} طبيب
+                            </div>
                           </div>
-                        </div>
-                        {keepId === m.id && <Badge text="يبقى" color="#10b981" />}
-                      </label>
-                    ))}
+                          {isKeep && <Badge text="يبقى" color="#10b981" />}
+                        </label>
+                      );
+                    })}
                   </div>
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     <button onClick={() => setIgnoredSuggestionKeys(prev => new Set(prev).add(key))} style={{ ...btnSecondary, padding: '6px 14px', fontSize: 12 }}>
@@ -1044,13 +1072,14 @@ export default function MasterSurveyPage() {
                     </button>
                     <button
                       onClick={async () => {
-                        const mergeIds = g.members.filter(m => m.id !== keepId).map(m => m.id);
                         await mergePharmacies(keepId, mergeIds);
+                        setSuggestionKeep(prev => { const next = { ...prev }; delete next[key]; return next; });
+                        setSuggestionMergeSelection(prev => { const next = { ...prev }; delete next[key]; return next; });
                         loadPharmaSuggestions();
                       }}
-                      disabled={merging}
+                      disabled={merging || mergeIds.length === 0}
                       style={{ ...btnPrimary, padding: '6px 14px', fontSize: 12 }}
-                    >{merging ? 'جاري الدمج...' : `🔗 دمج (${mergeCount})`}</button>
+                    >{merging ? 'جاري الدمج...' : `🔗 دمج (${mergeIds.length})`}</button>
                   </div>
                 </div>
               );
