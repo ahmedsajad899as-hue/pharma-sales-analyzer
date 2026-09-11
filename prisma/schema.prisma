@@ -926,6 +926,8 @@ model DoctorVisit {
   itemName        String?
   feedback        String   @default("pending")
   // "pending" | "writing" | "stocked" | "interested" | "not_interested" | "unavailable"
+  feedbackSource  String?
+  // من ضبط قيمة feedback: null/"manual" = يدوياً من المندوب/المدير، "import_ai" = استنتاج تلقائي بالذكاء الاصطناعي من نص notes عند الاستيراد (راجع doctor-visits-import.js)
   notes           String?
   isDoubleVisit   Boolean  @default(false) // زيارة مزدوجة مع مدير/سوبرفايزر
   latitude        Float? // موقع GPS عند تسجيل الزيارة

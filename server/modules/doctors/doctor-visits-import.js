@@ -29,6 +29,7 @@ import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { resolveDocOwnerUserId } from './doctors.controller.js';
 import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
 import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases } from '../../lib/surveyDoctors.js';
+import { runFeedbackInferenceForImportFile } from './doctor-visit-feedback-ai.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
 const FEEDBACK_RULES = [
@@ -1286,6 +1287,13 @@ export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], r
   // لا نُبقي سجل ملف فارغاً (كل الصفوف فشلت/تُجوهلت) — يُربك قائمة "الملفات المرفوعة".
   if (totalImported === 0) {
     await prisma.visitImportFile.delete({ where: { id: importFile.id } }).catch(() => {});
+  } else if (doctorResult.imported > 0) {
+    // استنتاج الفيدباك بالذكاء الاصطناعي لزيارات هذا الملف — لا يُنتظَر (fire-
+    // and-forget): استجابة الاستيراد يجب أن تعود فوراً بصرف النظر عن مدة/نجاح
+    // استدعاء Gemini، ولا يجوز لفشله إسقاط نجاح الاستيراد نفسه.
+    runFeedbackInferenceForImportFile(importFile.id).catch(err => {
+      console.error('[doctor-visits-import] feedback AI inference failed:', err?.message || err);
+    });
   }
 
   return {

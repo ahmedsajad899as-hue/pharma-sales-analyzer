@@ -76,6 +76,7 @@ interface VisitRecord {
   id: number;
   visitDate: string;
   feedback: string;
+  feedbackSource?: string | null;
   notes?: string;
   item?: Item;
   geoCorrect?: boolean | null;
@@ -2884,6 +2885,9 @@ export default function DoctorsPage() {
                                         <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)' }}>{v.item?.name ?? '—'}</td>
                                         <td style={{ padding: '5px 8px' }}>
                                           <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: vfb.bg, color: vfb.color }}>{vfb.label}</span>
+                                          {v.feedbackSource === 'import_ai' && (
+                                            <span title="اقتراح تلقائي بالذكاء الاصطناعي من نص الملاحظات — راجعه وعدّله عند الحاجة" style={{ marginRight: 4, fontSize: 11 }}>✨</span>
+                                          )}
                                         </td>
                                         <td style={{ padding: '5px 8px', textAlign: 'center' }}>
                                           {v.geoCorrect === true ? (

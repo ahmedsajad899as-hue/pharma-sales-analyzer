@@ -75,6 +75,7 @@ interface Visit {
   id: number;
   visitDate: string;
   feedback: string;
+  feedbackSource?: string | null;
   notes?: string | null;
   isDoubleVisit: boolean;
   doctor:        { id: number; name: string };
@@ -618,6 +619,9 @@ export default function VisitsPage() {
                             <span style={{ background: `${feedbackColor(v.feedback)}18`, color: feedbackColor(v.feedback), borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
                               {feedbackLabel(v.feedback)}{v.isDoubleVisit && ' ×2'}
                             </span>
+                            {v.feedbackSource === 'import_ai' && (
+                              <span title="اقتراح تلقائي بالذكاء الاصطناعي من نص الملاحظات — راجعه وعدّله عند الحاجة" style={{ marginRight: 4, fontSize: 12 }}>✨</span>
+                            )}
                           </td>
                           <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 13 }}>{v.item?.name ?? ''}</td>
                           <td style={{ padding: '11px 14px', color: '#64748b', fontSize: 13, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.notes || ''}</td>

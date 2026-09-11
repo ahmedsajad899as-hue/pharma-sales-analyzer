@@ -167,7 +167,9 @@ export async function updateVisit(req, res) {
 
     const data = {};
     if (visitDate      !== undefined) data.visitDate      = new Date(visitDate);
-    if (feedback       !== undefined) data.feedback       = feedback;
+    // تعديل يدوي للفيدباك يُسقط علامة "مقترَح آلياً" (راجع doctor-visit-feedback-ai.js) —
+    // القيمة المؤكَّدة من إنسان تحلّ محل الاقتراح، فتختفي شارة ✨ في الواجهة.
+    if (feedback       !== undefined) { data.feedback = feedback; data.feedbackSource = null; }
     if (notes          !== undefined) data.notes          = notes;
     if (isDoubleVisit  !== undefined) data.isDoubleVisit  = Boolean(isDoubleVisit);
     if (itemId         !== undefined) data.itemId         = itemId ? parseInt(itemId) : null;
