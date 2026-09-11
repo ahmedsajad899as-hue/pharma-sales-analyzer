@@ -155,19 +155,23 @@ const ORG_CSS = `
   /* موظف/HR المكتب: خط جانبي (متقطّع، لا عمودي) يتفرّع من جهة البطاقة قبل خط
      مدراء الشركات الأساسي أسفلها — تمييزاً بين علاقة الدعم الإداري (جانبية)
      وعلاقة الإدارة التنفيذية (عمودية تنزل للأسفل بالخط الصلب المعتاد). */
-  .cview-node-row { display:flex; align-items:center; }
-  .cview-staff { display:flex; align-items:center; flex-shrink:0; }
+  /* align-items:flex-start عمداً لا center: التوسيط الافتراضي كان يوسّط الخط
+     على ارتفاع البطاقة كاملة (تصل حتى شارة الدور وزر الطيّ أسفلها)، فيخرج الخط
+     أعلى من منتصف الاسم فعلياً. margin-top أدناه يرفعه ليحاذي سطر الأيقونة+الاسم
+     تحديداً (أول سطرين في البطاقة) بدل مركز الصندوق كله. */
+  .cview-node-row { display:flex; align-items:flex-start; }
+  .cview-staff { display:flex; align-items:center; flex-shrink:0; margin-top:19px; }
   .cview-staff-cards { display:flex; align-items:center; gap:4px; }
   .cview-staff-connector { width:14px; height:0; border-top:1.5px dashed #94a3b8; flex-shrink:0; }
   .cview-mini-card {
-    position:relative; direction:rtl; display:flex; align-items:center; gap:3px;
+    position:relative; direction:rtl; display:flex; align-items:center; gap:4px;
     background: var(--c-surface, #fff); border-radius:20px;
     border:1px dashed var(--c-border, #dde3ef); border-inline-start:2px dashed var(--role-color, #64748b);
-    padding:2.5px 7px; cursor:pointer; white-space:nowrap; max-width:110px;
+    padding:4px 10px; cursor:pointer; white-space:nowrap; max-width:140px;
   }
   .cview-mini-card:hover { background: var(--c-accent-light, #ebf0fc); }
-  .cview-mini-card-icon { font-size:8px; }
-  .cview-mini-card-name { font-weight:700; font-size:7.5px; color: var(--c-text-primary, #1a2332); overflow:hidden; text-overflow:ellipsis; }
+  .cview-mini-card-icon { font-size:11px; }
+  .cview-mini-card-name { font-weight:700; font-size:10.5px; color: var(--c-text-primary, #1a2332); overflow:hidden; text-overflow:ellipsis; }
 `;
 
 function OrgRow({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }: {
