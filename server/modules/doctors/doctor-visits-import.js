@@ -411,27 +411,6 @@ function splitPlanLine(text) {
 }
 
 /**
- * المقطع السابق للايتم مباشرة قد يحمل هو نفسه فواصل "-" داخلية (فُصِل الجزء
- * الخارجي بـ / لكن هذا الجزء بالذات كُتب "منطقة - تفصيل - اسم الصيدلية") — نأخذ
- * آخر جزء فرعي منه (الأقرب للايتم دوماً)، لا المقطع كاملاً بمنطقته/تفصيله الملصق.
- */
-function pharmacyCandidateFromSegment(seg) {
-  if (!seg) return seg;
-  const sub = seg.split(DASH_SPLIT_RE).map(s => s.trim()).filter(Boolean);
-  return sub.length ? sub[sub.length - 1] : seg;
-}
-
-// مرشّح صيدلية من موضعه (المقطع قبل الايتم مباشرة) حين لا يحمل بادئة "ص." صريحة —
-// تسمية شائعة عراقياً: الصيدلية باسم صاحبها بلا أي بادئة. حراسة بسيطة ضد التقاط
-// شيء آخر بالخطأ (رمز قصير كـ"B"، تكرار اسم الطبيب، أو نص يشبه ايتماً بالخطأ).
-function isLikelyPharmacyCandidate(cand, doctorSeg) {
-  if (!cand || cand.length < 4 || cand.length > 40) return false;
-  if (looksLikeItemToken(cand)) return false; // نص لاتيني — أقرب لايتم آخر لا صيدلية
-  if (doctorSeg && normalizeRepName(cleanDoctorName(cand)) === normalizeRepName(cleanDoctorName(doctorSeg))) return false;
-  return true;
-}
-
-/**
  * سياق مطابقة الايتمات لهذا الاستيراد — نفس محرّك توحيد هوية الايتمات المستعمل
  * في رفع المبيعات/الستوك (itemResolver): كتالوج شركات المستخدم (UserCompanyAssignment
  * للرافع ولمالك الأطباء معاً) + ايتمات المالك + قواعد التوحيد المحفوظة (ItemMergeRule).
@@ -616,15 +595,16 @@ function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
       if (!planItem && looksLikeItemToken(last)) planItem = last;
       // اسم صيدلية الطبيب غالباً مذكور هنا («د. فلان \ اختصاص \ ص. الصيدلية \
       // ايتم») ولا يُستخرَج من أي عمود آخر في هذه الصيغة — يُستعمل لاحقاً فقط
-      // حين يخلو سجل الطبيب في التطبيق/السيرفي من صيدلية أصلاً. بادئة "ص."
-      // الصريحة أولاً؛ وإلا المقطع السابق للايتم مباشرة (تسمية شائعة بلا بادئة).
+      // حين يخلو سجل الطبيب في التطبيق/السيرفي من صيدلية أصلاً. نكتفي بالبادئة
+      // الصريحة "ص./صيدلية": جُرِّب أخذ المقطع السابق للايتم مباشرة بلا بادئة
+      // (تسمية شائعة بلا بادئة) لكن الموضع غير ثابت فعلياً بين الصفوف — بعض
+      // الصفوف تُدرج مقطعاً إضافياً (تفصيل منطقة فرعية) بين الصيدلية والايتم
+      // («... \ الصيدلية \ تفصيل_منطقة \ الايتم»)، فأنتج تخمينات خاطئة (أخذ
+      // تفصيل المنطقة على أنه اسم الصيدلية). أأمن أن يُترك للمستخدم يدوياً
+      // حين لا توجد بادئة قاطعة، بدل استنتاج قد يُحفظ خطأً في سجل الطبيب.
       if (!planPharmacy) {
         const ph = parts.find(p => PHARMACY_SEG_RE.test(p));
         if (ph) planPharmacy = ph;
-        else if (looksLikeItemToken(last)) {
-          const cand = pharmacyCandidateFromSegment(parts[parts.length - 2]);
-          if (isLikelyPharmacyCandidate(cand, parts[0])) planPharmacy = cand;
-        }
       }
       continue;
     }
