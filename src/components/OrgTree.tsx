@@ -1,7 +1,13 @@
 // Reusable company org-chart (top-down hierarchy of users by manager/subordinate links).
 // Extracted so both the super-admin CompaniesPage and the company-manager
 // «الهيكلية» page can render the same chart.
-import { useRef, useState } from 'react';
+//
+// Rendered as a vertical, collapsible, indented list (not a horizontal box tree):
+// far more names fit on screen at once (scroll is vertical, unconstrained by
+// viewport width), no horizontal panning is needed to reach a branch, and rows
+// stay legible regardless of name length. The hierarchy math (who is whose
+// canonical single parent) is unchanged — only how it's drawn.
+import { useMemo, useState } from 'react';
 
 export interface OrgUser {
   id: number; username: string; displayName?: string | null;
@@ -25,75 +31,6 @@ export const ROLE_META: Record<string, { label: string; color: string; bg: strin
   manager:                { label: 'مدير',                 color: '#374151', bg: '#f9fafb', icon: '⚙️' },
 };
 export const DEF_META = { label: 'مستخدم', color: '#64748b', bg: '#f8fafc', icon: '👤' };
-
-// direction:ltr forced on tree containers so RTL layout doesn't reverse the
-// connectors / corner styles.
-const ORG_CSS = `
-  .otree-wrap { direction:ltr; overflow-x:auto; overflow-y:visible; padding:4px 8px 12px; }
-  /* justify-content:flex-start عمداً لا center: عند وجود عدد كبير من الشركات/المندوبين
-     تفيض الشجرة عن عرض الحاوية — ومع center يوزّع المتصفح الفيض على الجهتين، فيصبح
-     نصف المحتوى (الجهة الأولى) غير قابل للوصول بالتمرير أياً كان مدى السحب (شريط
-     التمرير يصل لأقصاه لكن الأسماء بالطرف الآخر تبقى مقصوصة دائماً). flex-start
-     يجعل كل المحتوى قابلاً للوصول بالتمرير للأمام فقط، على حساب التوسيط الجمالي
-     عندما لا تفيض الشجرة أصلاً (تصطف لليسار بدل الوسط، وهذا مقبول). */
-  .otree-root { list-style:none; margin:0; padding:0; display:flex; flex-wrap:nowrap; justify-content:flex-start; direction:ltr; }
-  .otree-ul   {
-    list-style:none; margin:0; padding:0;
-    display:flex; flex-wrap:nowrap; justify-content:flex-start;
-    padding-top:16px; position:relative; direction:ltr;
-  }
-  .otree-ul::before {
-    content:''; position:absolute; top:0; left:50%;
-    transform:translateX(-50%);
-    border-left:1.5px solid #94a3b8; width:0; height:16px;
-  }
-  .otree-li {
-    display:inline-flex; flex-direction:column; align-items:center;
-    position:relative; padding:16px 4px 0; text-align:center;
-  }
-  .otree-li::before, .otree-li::after {
-    content:''; position:absolute; top:0;
-    border-top:1.5px solid #94a3b8; width:50%; height:16px;
-  }
-  .otree-li::before { right:50%; }
-  .otree-li::after  { left:50%; border-left:1.5px solid #94a3b8; }
-  .otree-li:only-child::before, .otree-li:only-child::after { display:none; }
-  .otree-li:only-child { padding-top:0; }
-  .otree-li:first-child::before, .otree-li:last-child::after { border:0 none; }
-  .otree-li:last-child::before  { border-right:1.5px solid #94a3b8; border-radius:0 4px 0 0; }
-  .otree-li:first-child::after  { border-radius:4px 0 0 0; }
-  .otree-card {
-    position:relative; direction:rtl;
-    background:#fff; border-radius:8px;
-    padding:5px 7px; min-width:82px; max-width:108px;
-    box-shadow:0 1px 5px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.05);
-    cursor:pointer; transition:transform .15s, box-shadow .15s;
-    display:flex; flex-direction:column; align-items:center; gap:2px;
-  }
-  .otree-card:hover { transform:translateY(-2px); box-shadow:0 4px 14px rgba(0,0,0,0.11); }
-  .otree-card-icon {
-    width:26px; height:26px; border-radius:7px;
-    display:flex; align-items:center; justify-content:center;
-    font-size:12px; margin-bottom:1px; flex-shrink:0;
-  }
-  .otree-card-name  { font-weight:700; font-size:9.5px; color:#1e293b; line-height:1.3; }
-  .otree-card-badge { font-size:7.5px; font-weight:600; border-radius:20px; padding:1px 5px; white-space:nowrap; }
-  .otree-card-phone { font-size:7.5px; color:#94a3b8; }
-  .otree-card-off   { font-size:7px; color:#dc2626; font-weight:700; }
-`;
-
-function OrgCard({ u, onSelect }: { u: OrgUser; onSelect?: (u: OrgUser) => void }) {
-  const m = ROLE_META[u.role] ?? DEF_META;
-  return (
-    <div className="otree-card" onClick={() => onSelect?.(u)} style={{ borderTop: `3px solid ${m.color}`, opacity: u.isActive ? 1 : 0.6 }}>
-      <div className="otree-card-icon" style={{ background: `${m.color}18` }}>{m.icon}</div>
-      <div className="otree-card-name">{u.displayName || u.username}</div>
-      <span className="otree-card-badge" style={{ color: m.color, background: `${m.color}15`, border: `1px solid ${m.color}30` }}>{m.label}</span>
-      {u.phone && <div className="otree-card-phone">{u.phone}</div>}
-      {!u.isActive && <div className="otree-card-off">⚠️ معطل</div>}
-    </div>
-  );
-}
 
 // When a user has multiple managers, render them only under their deepest/most-direct
 // manager so the tree stays a clean top-down hierarchy without duplicate branches.
@@ -119,71 +56,127 @@ function buildCanonicalParentMap(users: OrgUser[]): Map<number, number | null> {
   return result;
 }
 
-function OrgBranch({ u, all, canonicalParents, visited, onSelect }: {
-  u: OrgUser; all: OrgUser[]; canonicalParents: Map<number, number | null>;
-  visited: Set<number>; onSelect?: (u: OrgUser) => void
+const ORG_CSS = `
+  .oview-list { font-size: 13px; }
+  .oview-toolbar { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-bottom:12px; }
+  .oview-toolbar-btn {
+    display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border-radius:8px;
+    font-size:12px; font-weight:600; cursor:pointer;
+    border:1px solid var(--c-border, #dde3ef); background: var(--c-surface, #fff); color: var(--c-text-secondary, #5a6a8a);
+  }
+  .oview-toolbar-btn:hover { background: var(--c-accent-light, #ebf0fc); color: var(--c-accent, #1a56db); border-color: var(--c-accent, #1a56db); }
+  .oview-root-group { border-radius: 12px; }
+  .oview-root-group + .oview-root-group { margin-top: 10px; padding-top: 12px; border-top: 1px dashed var(--c-border, #dde3ef); }
+  .oview-row {
+    display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; cursor:pointer;
+    transition: background .12s;
+  }
+  .oview-row:hover { background: var(--c-border-light, #edf0f7); }
+  .oview-toggle {
+    width:18px; height:18px; flex-shrink:0; border:none; background:transparent; cursor:pointer; padding:0;
+    display:flex; align-items:center; justify-content:center; font-size:10px; color: var(--c-text-muted, #8fa0be);
+    border-radius:4px;
+  }
+  .oview-toggle:hover { background: var(--c-border, #dde3ef); }
+  .oview-toggle-spacer { width:18px; flex-shrink:0; }
+  .oview-icon {
+    width:26px; height:26px; border-radius:8px; flex-shrink:0; font-size:13px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .oview-name { font-weight:700; font-size:12.5px; color: var(--c-text-primary, #1a2332); white-space:nowrap; }
+  .oview-badge { font-size:10px; font-weight:600; border-radius:20px; padding:1.5px 8px; white-space:nowrap; flex-shrink:0; }
+  .oview-phone { font-size:11px; color: var(--c-text-muted, #8fa0be); flex-shrink:0; white-space:nowrap; }
+  .oview-off { font-size:10px; color: var(--c-danger, #dc2626); font-weight:700; background: var(--c-danger-bg, #fef2f2); border-radius:6px; padding:1px 6px; flex-shrink:0; white-space:nowrap; }
+  .oview-count { font-size:10.5px; color: var(--c-text-muted, #8fa0be); flex-shrink:0; margin-inline-start:auto; padding-inline-start:8px; }
+  .oview-children { padding-inline-start:20px; margin-inline-start:12px; border-inline-start:1.5px solid var(--c-border, #dde3ef); }
+`;
+
+function OrgRow({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }: {
+  u: OrgUser; childrenMap: Map<number, OrgUser[]>;
+  onSelect?: (u: OrgUser) => void;
+  collapsed: Set<number>; toggleCollapse: (id: number) => void;
+  visited: Set<number>;
 }) {
-  if (visited.has(u.id)) return null;
+  if (visited.has(u.id)) return null; // safety net against malformed cyclic manager links
   const next = new Set(visited); next.add(u.id);
-  const children = all.filter(c => canonicalParents.get(c.id) === u.id && !next.has(c.id));
+  const m = ROLE_META[u.role] ?? DEF_META;
+  const children = childrenMap.get(u.id) ?? [];
+  const isOpen = !collapsed.has(u.id);
   return (
-    <li className="otree-li">
-      <OrgCard u={u} onSelect={onSelect} />
-      {children.length > 0 && (
-        <ul className="otree-ul">
-          {children.map(c => <OrgBranch key={c.id} u={c} all={all} canonicalParents={canonicalParents} visited={next} onSelect={onSelect} />)}
-        </ul>
+    <div className="oview-node">
+      <div className="oview-row" onClick={() => onSelect?.(u)}>
+        {children.length > 0 ? (
+          <button
+            type="button" className="oview-toggle"
+            onClick={e => { e.stopPropagation(); toggleCollapse(u.id); }}
+            title={isOpen ? 'طيّ' : 'فرد'}
+          >{isOpen ? '▾' : '◂'}</button>
+        ) : <span className="oview-toggle-spacer" />}
+        <span className="oview-icon" style={{ background: `${m.color}18` }}>{m.icon}</span>
+        <span className="oview-name">{u.displayName || u.username}</span>
+        <span className="oview-badge" style={{ color: m.color, background: `${m.color}15`, border: `1px solid ${m.color}30` }}>{m.label}</span>
+        {u.phone && <span className="oview-phone">{u.phone}</span>}
+        {!u.isActive && <span className="oview-off">معطل</span>}
+        {children.length > 0 && <span className="oview-count">{children.length}</span>}
+      </div>
+      {isOpen && children.length > 0 && (
+        <div className="oview-children">
+          {children.map(c => (
+            <OrgRow key={c.id} u={c} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={next} />
+          ))}
+        </div>
       )}
-    </li>
+    </div>
   );
 }
 
 export function OrgTree({ users, onSelect }: { users: OrgUser[]; onSelect?: (u: OrgUser) => void }) {
-  // شجرة بمديرين كثيرين (شركات مدير المكتب مثلاً) تصير عريضة جداً — التمرير بشريط
-  // التمرير الرفيع وحده كان صعباً/بطيئاً لرؤية كل الأسماء. هذا يضيف سحباً بالماوس
-  // (اضغط واسحب فوق أي فراغ في الشجرة) لتحريكها أفقياً كلوحة رسم.
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ startX: number; startScrollLeft: number } | null>(null);
-  const [dragging, setDragging] = useState(false);
+  // كل المستخدمين مفروودون افتراضياً — الهدف إظهار أكبر عدد من الأسماء دفعة
+  // واحدة؛ الطيّ متاح لكل عقدة (وزر «طيّ الكل») لمن يريد تضييق فرع كبير.
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const toggleCollapse = (id: number) => setCollapsed(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
-  const onMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.otree-card')) return; // لا تسحب عند النقر على بطاقة (يفتح تفاصيلها)
-    const el = wrapRef.current;
-    if (!el) return;
-    dragRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft };
-    setDragging(true);
-  };
-  const onMouseMove = (e: React.MouseEvent) => {
-    const st = dragRef.current;
-    const el = wrapRef.current;
-    if (!st || !el) return;
-    el.scrollLeft = st.startScrollLeft - (e.clientX - st.startX);
-  };
-  const endDrag = () => { dragRef.current = null; setDragging(false); };
+  const { roots, childrenMap } = useMemo(() => {
+    const canonicalParents = buildCanonicalParentMap(users);
+    const byParent = new Map<number, OrgUser[]>();
+    for (const u of users) {
+      const pid = canonicalParents.get(u.id);
+      if (pid == null) continue;
+      if (!byParent.has(pid)) byParent.set(pid, []);
+      byParent.get(pid)!.push(u);
+    }
+    const rootList = users.filter(u => canonicalParents.get(u.id) == null);
+    return { roots: rootList.length > 0 ? rootList : users, childrenMap: byParent };
+  }, [users]);
+
+  const collapseAll = () => setCollapsed(new Set(childrenMap.keys()));
+  const expandAll = () => setCollapsed(new Set());
 
   if (users.length === 0) return (
-    <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0', fontSize: 14 }}>
+    <div style={{ textAlign: 'center', color: 'var(--c-text-muted, #8fa0be)', padding: '40px 0', fontSize: 14 }}>
       لا يوجد مستخدمون مرتبطون بعد
     </div>
   );
-  const canonicalParents = buildCanonicalParentMap(users);
-  const roots = users.filter(u => canonicalParents.get(u.id) === null);
-  const startNodes = roots.length > 0 ? roots : users;
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: ORG_CSS }} />
-      <div
-        className="otree-wrap"
-        ref={wrapRef}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={endDrag}
-        onMouseLeave={endDrag}
-        style={{ cursor: dragging ? 'grabbing' : 'grab', userSelect: dragging ? 'none' : undefined }}
-      >
-        <ul className="otree-root">
-          {startNodes.map(u => <OrgBranch key={u.id} u={u} all={users} canonicalParents={canonicalParents} visited={new Set()} onSelect={onSelect} />)}
-        </ul>
+      <div className="oview-list">
+        {childrenMap.size > 0 && (
+          <div className="oview-toolbar">
+            <button type="button" className="oview-toolbar-btn" onClick={expandAll}>⊞ فرد الكل</button>
+            <button type="button" className="oview-toolbar-btn" onClick={collapseAll}>⊟ طيّ الكل</button>
+          </div>
+        )}
+        {roots.map(u => (
+          <div key={u.id} className="oview-root-group">
+            <OrgRow u={u} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={new Set()} />
+          </div>
+        ))}
       </div>
     </>
   );
