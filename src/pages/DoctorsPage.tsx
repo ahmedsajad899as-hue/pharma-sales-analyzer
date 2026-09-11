@@ -1812,6 +1812,20 @@ export default function DoctorsPage() {
       {/* ── VISITS TAB ───────────────────────────────────── */}
       {activeTab === 'visits' && showVisitAnalysis && (
         <div>
+          {/* Top toolbar — bulk import sits alone above the filters, not mixed with the doctors/pharmacies toggle */}
+          {!isFieldRep && showVisitsImport && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--c-border)' }}>
+              <button
+                onClick={() => setShowVisitsImportModal(true)}
+                title="استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بدل تسجيلها واحدة تلو الأخرى"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '7px 16px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                  border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
+                }}><Icon name="import" size={13} /> استيراد من إكسل</button>
+            </div>
+          )}
+
           {/* Company selector (office roles — oversee multiple main companies; server returns companies only for them) */}
           {!isFieldRep && managerCompanies.length > 0 && (
             <div style={{ marginBottom: 14 }}>
@@ -1876,16 +1890,6 @@ export default function DoctorsPage() {
 
           {/* Analysis type toggle: doctors vs pharmacies */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-            {!isFieldRep && showVisitsImport && (
-              <button
-                onClick={() => setShowVisitsImportModal(true)}
-                title="استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بدل تسجيلها واحدة تلو الأخرى"
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  padding: '6px 14px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
-                  border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)', marginInlineEnd: 4,
-                }}><Icon name="import" size={13} /> استيراد من إكسل</button>
-            )}
             <button
               onClick={() => setVisitAnalysisType('doctors')}
               style={{
