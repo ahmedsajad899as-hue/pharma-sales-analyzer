@@ -151,6 +151,23 @@ const ORG_CSS = `
     border-radius: 20px; padding: 0 6px; font-size:7.5px; font-weight:700; color: var(--c-text-secondary, #5a6a8a); cursor:pointer;
   }
   .cview-card-toggle:hover { background: var(--c-accent-light, #ebf0fc); color: var(--c-accent, #1a56db); border-color: var(--c-accent, #1a56db); }
+
+  /* موظف/HR المكتب: خط جانبي (متقطّع، لا عمودي) يتفرّع من جهة البطاقة قبل خط
+     مدراء الشركات الأساسي أسفلها — تمييزاً بين علاقة الدعم الإداري (جانبية)
+     وعلاقة الإدارة التنفيذية (عمودية تنزل للأسفل بالخط الصلب المعتاد). */
+  .cview-node-row { display:flex; align-items:center; }
+  .cview-staff { display:flex; align-items:center; flex-shrink:0; }
+  .cview-staff-cards { display:flex; align-items:center; gap:4px; }
+  .cview-staff-connector { width:14px; height:0; border-top:1.5px dashed #94a3b8; flex-shrink:0; }
+  .cview-mini-card {
+    position:relative; direction:rtl; display:flex; align-items:center; gap:3px;
+    background: var(--c-surface, #fff); border-radius:20px;
+    border:1px dashed var(--c-border, #dde3ef); border-inline-start:2px dashed var(--role-color, #64748b);
+    padding:2.5px 7px; cursor:pointer; white-space:nowrap; max-width:110px;
+  }
+  .cview-mini-card:hover { background: var(--c-accent-light, #ebf0fc); }
+  .cview-mini-card-icon { font-size:8px; }
+  .cview-mini-card-name { font-weight:700; font-size:7.5px; color: var(--c-text-primary, #1a2332); overflow:hidden; text-overflow:ellipsis; }
 `;
 
 function OrgRow({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }: {
@@ -192,6 +209,11 @@ function OrgRow({ u, childrenMap, onSelect, collapsed, toggleCollapse, visited }
   );
 }
 
+// موظف مكتب/HR: علاقة دعم إداري لا إدارة تنفيذية — يُعرض كبطاقة صغيرة على خط
+// جانبي متقطّع بجهة البطاقة الأصلية، قبل (يسار) خط الفروع التنفيذي أسفلها،
+// بدل أن يُحسب ابناً عادياً في السلسلة العمودية الرئيسية.
+const STAFF_ROLES = new Set(['office_employee', 'office_hr']);
+
 // عقدة واحدة في «الشجرة الكلاسيكية»: بطاقة، وإن كانت لها فروع فـ<ul> تحتها
 // يحمل خط جذع عمودي (::before) وخطوط تفرّع أفقية لكل ابن (::before/::after) —
 // نفس تقنية CSS المستعملة في الرسم المطلوب: جذع مركزي وخط أفقي إلى كل بطاقة.
@@ -204,31 +226,55 @@ function ClassicBranch({ u, childrenMap, onSelect, collapsed, toggleCollapse, vi
   if (visited.has(u.id)) return null; // safety net against malformed cyclic manager links
   const next = new Set(visited); next.add(u.id);
   const m = ROLE_META[u.role] ?? DEF_META;
-  const children = childrenMap.get(u.id) ?? [];
+  const allChildren = childrenMap.get(u.id) ?? [];
+  const staffChildren = allChildren.filter(c => STAFF_ROLES.has(c.role));
+  const lineChildren = allChildren.filter(c => !STAFF_ROLES.has(c.role));
   const isOpen = !collapsed.has(u.id);
   return (
     <li className="cview-li">
-      <div
-        className={`cview-card${isRoot ? ' cview-card--root' : ''}`}
-        style={{ '--role-color': m.color } as CSSProperties}
-        onClick={() => onSelect?.(u)}
-      >
-        <span className="cview-card-icon" style={{ background: `${m.color}18` }}>{m.icon}</span>
-        <span className="cview-card-name">{u.displayName || u.username}</span>
-        <span className="cview-card-badge" style={{ color: m.color, background: `${m.color}15`, border: `1px solid ${m.color}30` }}>{m.label}</span>
-        {u.phone && <span className="cview-card-phone">{u.phone}</span>}
-        {!u.isActive && <span className="cview-card-off">معطل</span>}
-        {children.length > 0 && (
-          <button
-            type="button" className="cview-card-toggle"
-            onClick={e => { e.stopPropagation(); toggleCollapse(u.id); }}
-            title={isOpen ? 'طيّ الفرع' : 'فرد الفرع'}
-          >{isOpen ? `− ${children.length}` : `+ ${children.length}`}</button>
+      <div className="cview-node-row">
+        {staffChildren.length > 0 && (
+          <div className="cview-staff">
+            <div className="cview-staff-cards">
+              {staffChildren.map(s => {
+                const sm = ROLE_META[s.role] ?? DEF_META;
+                return (
+                  <div
+                    key={s.id} className="cview-mini-card"
+                    style={{ '--role-color': sm.color } as CSSProperties}
+                    onClick={() => onSelect?.(s)} title={`${s.displayName || s.username} — ${sm.label}`}
+                  >
+                    <span className="cview-mini-card-icon">{sm.icon}</span>
+                    <span className="cview-mini-card-name">{s.displayName || s.username}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <span className="cview-staff-connector" />
+          </div>
         )}
+        <div
+          className={`cview-card${isRoot ? ' cview-card--root' : ''}`}
+          style={{ '--role-color': m.color } as CSSProperties}
+          onClick={() => onSelect?.(u)}
+        >
+          <span className="cview-card-icon" style={{ background: `${m.color}18` }}>{m.icon}</span>
+          <span className="cview-card-name">{u.displayName || u.username}</span>
+          <span className="cview-card-badge" style={{ color: m.color, background: `${m.color}15`, border: `1px solid ${m.color}30` }}>{m.label}</span>
+          {u.phone && <span className="cview-card-phone">{u.phone}</span>}
+          {!u.isActive && <span className="cview-card-off">معطل</span>}
+          {lineChildren.length > 0 && (
+            <button
+              type="button" className="cview-card-toggle"
+              onClick={e => { e.stopPropagation(); toggleCollapse(u.id); }}
+              title={isOpen ? 'طيّ الفرع' : 'فرد الفرع'}
+            >{isOpen ? `− ${lineChildren.length}` : `+ ${lineChildren.length}`}</button>
+          )}
+        </div>
       </div>
-      {isOpen && children.length > 0 && (
+      {isOpen && lineChildren.length > 0 && (
         <ul className="cview-ul">
-          {children.map(c => (
+          {lineChildren.map(c => (
             <ClassicBranch key={c.id} u={c} childrenMap={childrenMap} onSelect={onSelect} collapsed={collapsed} toggleCollapse={toggleCollapse} visited={next} />
           ))}
         </ul>
