@@ -516,7 +516,9 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                           ?? <input value={r.areaName} onChange={e => setDocCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 90 }} />}</td>
                         <td style={td}>{lockedCell(r.doctorId, r.pharmacyName, r.rawPharmacyName, 110)
                           ?? <input value={r.pharmacyName} onChange={e => setDocCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 110 }} />}</td>
-                        <td style={td}><input value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null })} style={{ ...cellInp, minWidth: 110 }} /></td>
+                        <td style={td}><input value={r.itemName} onChange={e => setDocCell(i, { itemName: e.target.value, itemId: null })}
+                          title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير موجود في التطبيق — سيُحفظ نصاً كما هو' : undefined)}
+                          style={{ ...cellInp, minWidth: 110, ...(r.itemId ? { background: '#f0fdf4', borderColor: '#bbf7d0', fontWeight: 600 } : {}) }} /></td>
                         <td style={td}><input type="date" value={r.date} onChange={e => setDocCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
                         <td style={td}>
                           <select value={r.feedback} onChange={e => setDocCell(i, { feedback: e.target.value })} style={{ ...cellInp, minWidth: 100 }}>
@@ -557,7 +559,9 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                         </td>
                         <td style={td}><input value={r.pharmacyName} onChange={e => setPharmCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>
                         <td style={td}><input value={r.areaName} onChange={e => setPharmCell(i, { areaName: e.target.value, areaId: null })} style={{ ...cellInp, minWidth: 100 }} /></td>
-                        <td style={td}><input value={r.itemName} onChange={e => setPharmCell(i, { itemName: e.target.value, itemId: null })} style={{ ...cellInp, minWidth: 110 }} /></td>
+                        <td style={td}><input value={r.itemName} onChange={e => setPharmCell(i, { itemName: e.target.value, itemId: null })}
+                          title={r.itemId ? 'مطابَق لايتم في التطبيق — يُحفظ بالاسم القانوني' : (r.itemName ? 'ايتم غير موجود في التطبيق — سيُحفظ نصاً كما هو' : undefined)}
+                          style={{ ...cellInp, minWidth: 110, ...(r.itemId ? { background: '#f0fdf4', borderColor: '#bbf7d0', fontWeight: 600 } : {}) }} /></td>
                         <td style={td}><input type="date" value={r.date} onChange={e => setPharmCell(i, { date: e.target.value })} style={{ ...cellInp, minWidth: 120 }} /></td>
                         <td style={{ ...td, textAlign: 'center' }}>{geoBadge(r.geoCorrect)}</td>
                         <td style={td}><input value={r.notes} onChange={e => setPharmCell(i, { notes: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>

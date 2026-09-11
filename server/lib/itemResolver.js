@@ -205,7 +205,16 @@ export async function resolveItemName(name, ctx = {}) {
     catalogById = loaded.catalogById;
     aliasMap = loaded.aliasMap;
   }
+  return resolveItemNameSync(name, { catalog, catalogById, aliasMap });
+}
 
+/**
+ * نفس منطق resolveItemName لكن متزامن — يشترط سياقاً محمَّلاً مسبقاً
+ * (loadResolutionContext/loadCompanyContext). للمسارات المتزامنة بطبيعتها
+ * (مثل تحليل حقل note في استيراد الزيارات) التي تطابق أسماء كثيرة داخل حلقة
+ * بلا await، كي لا يُعاد كتابة سلّم الثقة نفسه هناك.
+ */
+export function resolveItemNameSync(name, { catalog, catalogById, aliasMap }) {
   const result = { canonicalItem: null, confidence: 'none', suggestions: [] };
   if (!name || !String(name).trim()) return result;
 
