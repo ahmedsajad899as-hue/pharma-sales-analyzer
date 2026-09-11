@@ -401,7 +401,7 @@ export default function StockLedgerPage() {
 
       {!loading && tab === 'balances' && (
         <BalancesTab
-          rows={filtered} regions={regions} warehouses={warehouses} companies={companies}
+          rows={filtered} hasAnyBalances={balances.length > 0} regions={regions} warehouses={warehouses} companies={companies}
           fRegion={fRegion} setFRegion={(r) => { setFRegion(r); setFWarehouse('all'); }}
           fWarehouse={fWarehouse} setFWarehouse={setFWarehouse}
           fCompany={fCompany} setFCompany={setFCompany}
@@ -461,7 +461,7 @@ function Kpi({ label, value, danger }: { label: string; value: string; danger?: 
 //  تبويب الأرصدة
 // ═══════════════════════════════════════════════════════════════
 function BalancesTab(p: {
-  rows: Balance[];
+  rows: Balance[]; hasAnyBalances: boolean;
   regions: string[]; warehouses: { id: number; name: string; region: string }[]; companies: string[];
   fRegion: string; setFRegion: (v: string) => void;
   fWarehouse: number | 'all'; setFWarehouse: (v: number | 'all') => void;
@@ -550,7 +550,11 @@ function BalancesTab(p: {
       </div>
 
       {!p.rows.length ? (
-        <div className="sl-empty">لا توجد أرصدة بعد — ابدأ من تبويب «الدفعات» باستيراد الستوك الافتتاحي من ملف Stock.</div>
+        <div className="sl-empty">
+          {p.hasAnyBalances
+            ? 'لا توجد أرصدة مطابقة للفلاتر الحالية.' + (p.onlyBaghdad ? ' فلتر «مذاخر بغداد فقط» مفعَّل ويُخفي أي مذخر منطقته ليست الحارثية أو الرصافة — جرّب إلغاءه.' : ' جرّب تعديل أو إلغاء الفلاتر المطبَّقة.')
+            : 'لا توجد أرصدة بعد — ابدأ من تبويب «الدفعات» باستيراد الستوك الافتتاحي من ملف Stock.'}
+        </div>
       ) : (
         <div className="table-wrapper sl-table-wrap">
           <table className="data-table sl-table">
