@@ -4,6 +4,7 @@ import {
   listSurveys, getSurvey, createSurvey, updateSurvey, deleteSurvey,
   addDoctor, updateDoctor, deleteDoctor, extractDoctorImport, commitDoctorImport,
   addPharmacy, updatePharmacy, deletePharmacy, bulkImportPharmacies, mergePharmacies, getPharmacyMergeSuggestions,
+  previewPharmacyNameCleanupCtrl, applyPharmacyNameCleanupCtrl,
   getVisibility, hideUser, showUser, hideOffice, showOffice,
   getSurveyLogs, coverageCheck,
   listDrugEntries, addDrugEntry, updateDrugEntry, deleteDrugEntry, bulkImportDrugEntries,
@@ -33,6 +34,8 @@ router.post('/:id/pharmacies',              addPharmacy);
 router.post('/:id/pharmacies/bulk',         bulkImportPharmacies);
 router.post('/:id/pharmacies/merge',        mergePharmacies);
 router.get('/:id/pharmacies/merge-suggestions', getPharmacyMergeSuggestions);
+router.get('/:id/pharmacies/cleanup-names/preview', previewPharmacyNameCleanupCtrl);
+router.post('/:id/pharmacies/cleanup-names/apply',  applyPharmacyNameCleanupCtrl);
 router.put('/:id/pharmacies/:pharmaId',     updatePharmacy);
 router.delete('/:id/pharmacies/:pharmaId',  deletePharmacy);
 

@@ -23,6 +23,73 @@ export function cleanPharmacyName(name) {
   return s;
 }
 
+// ── normalizePharmacyStoredName(name) — تنظيف الاسم المخزَّن فعلياً ──────────
+// بخلاف cleanPharmacyName أعلاه (يُستخدم فقط للمطابقة عند اقتراحات الدمج، لا
+// يُكتب للقاعدة)، هذه تُستخدم فعلياً لتعديل الاسم المخزَّن في قاعدة البيانات
+// (زر "تنظيف الأسماء" في لوحة السوبر أدمن). تزيل بادئات تصنيفية شائعة قبل
+// الاسم الصريح (ص / ص. / ص/ / صيدلية / الصيدلية / الاسم / العميل) مع أي فارزة
+// أو نقطة أو شرطة تتلوها — بشكل تكراري (قد تتكرر أكثر من بادئة، مثل
+// "الاسم: ص. مملكة العلاج") — ثم توحّد نهاية كل كلمة تنتهي بـ"ه" إلى "ة" (خطأ
+// إملائي شائع، مثل "قمه الدواء" ← "قمة الدواء")، باستثناء "الله" حفاظاً على
+// الأسماء الدينية. لا تلمس الاسم الصريح نفسه — فقط البادئة التصنيفية قبله.
+const NAME_LABEL_PREFIX_RE = /^(الصيدليه|الصيدلية|صيدليه|صيدلية|الاسم|العميل|ص)(?=$|[\s.,،:\-/])/iu;
+const LEADING_PUNCT_RE = /^[\s.,،:\-/]+/u;
+
+export function normalizePharmacyStoredName(name) {
+  const original = String(name ?? '').trim();
+  let s = original;
+  for (let i = 0; i < 5; i++) {
+    const before = s;
+    s = s.replace(LEADING_PUNCT_RE, '').replace(NAME_LABEL_PREFIX_RE, '').trim();
+    if (s === before) break;
+  }
+  if (!s) return original; // البادئة كانت الاسم كله فعلياً — لا نمسح الصف بالكامل
+  // "الله" مستثناة كنهاية كلمة (منفردة أو ملتصقة مثل "عبدالله"/"نصرالله") — ليست خطأ إملائي.
+  s = s.split(/\s+/).map(w => (/ه$/u.test(w) && !/الله$/u.test(w)) ? w.slice(0, -1) + 'ة' : w).join(' ');
+  return s;
+}
+
+// ── previewPharmacyNameCleanup / applyPharmacyNameCleanup ───────────────────
+// معاينة (بلا كتابة) ثم تطبيق فعلي لتنظيف أسماء صيدليات سيرفي واحد بواسطة
+// normalizePharmacyStoredName أعلاه. التطبيق يستعمل cascadePharmacyNameChange
+// نفسها المستخدمة في التعديل اليدوي لاسم صيدلية — فتتبعه أسماء الصيدلية عند
+// الأطباء المرتبطين وزيارات الصيدليات المسجَّلة بالاسم القديم أيضاً.
+export async function previewPharmacyNameCleanup(surveyId) {
+  const pharmacies = await prisma.masterSurveyPharmacy.findMany({
+    where: { surveyId },
+    select: { id: true, name: true, areaName: true },
+    orderBy: { name: 'asc' },
+  });
+  const changes = [];
+  for (const p of pharmacies) {
+    const cleaned = normalizePharmacyStoredName(p.name);
+    if (cleaned && cleaned !== p.name) changes.push({ id: p.id, oldName: p.name, newName: cleaned, areaName: p.areaName });
+  }
+  return changes;
+}
+
+export async function applyPharmacyNameCleanup(surveyId, ids, editedById) {
+  const idSet = [...new Set((ids || []).map(id => parseInt(id)).filter(Boolean))];
+  if (!idSet.length) return { updated: 0, affectedDoctors: 0, affectedVisits: 0 };
+
+  const pharmacies = await prisma.masterSurveyPharmacy.findMany({ where: { surveyId, id: { in: idSet } } });
+  let updated = 0, affectedDoctors = 0, affectedVisits = 0;
+  for (const old of pharmacies) {
+    const cleaned = normalizePharmacyStoredName(old.name);
+    if (!cleaned || cleaned === old.name) continue;
+    const updatedRow = await prisma.masterSurveyPharmacy.update({
+      where: { id: old.id },
+      data: { name: cleaned, lastEditedById: editedById ?? null, lastEditedAt: new Date() },
+    });
+    await logSurveyEdit(surveyId, 'pharmacy', old.id, 'update', old, updatedRow, editedById);
+    const cascade = await cascadePharmacyNameChange(surveyId, [old.name], cleaned);
+    affectedDoctors += cascade.affectedDoctors;
+    affectedVisits += cascade.affectedVisits;
+    updated++;
+  }
+  return { updated, affectedDoctors, affectedVisits };
+}
+
 // ── findClosestPharmacyName(deletedName, candidateNames) ────────────────────
 // عند حذف صيدلية من السيرفي، الأطباء الذين كان اسم صيدليتهم هذا الاسم يحتاجون
 // أقرب اسم بديل من الصيدليات المتبقية بدل أن يبقوا مربوطين باسم لم يعد موجوداً.

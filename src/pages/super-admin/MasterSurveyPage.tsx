@@ -40,6 +40,7 @@ interface PharmaSuggestionMember {
   id: number; name: string; areaName?: string | null; ownerName?: string | null; phone?: string | null; doctorCount: number;
 }
 interface PharmaMergeSuggestion { suggestedKeepId: number; members: PharmaSuggestionMember[]; }
+interface PharmaNameCleanupChange { id: number; oldName: string; newName: string; areaName?: string | null; }
 interface VisibilityUser {
   id: number; username: string; displayName?: string; role: string; officeId?: number; hidden: boolean;
 }
@@ -304,6 +305,11 @@ export default function MasterSurveyPage() {
   const [suggestionKeep,           setSuggestionKeep]           = useState<Record<string, number>>({});
   const [suggestionMergeSelection, setSuggestionMergeSelection] = useState<Record<string, Set<number>>>({});
   const [expandedPharmaIds,        setExpandedPharmaIds]        = useState<Set<number>>(new Set());
+  const [showNameCleanup,          setShowNameCleanup]          = useState(false);
+  const [nameCleanupChanges,       setNameCleanupChanges]       = useState<PharmaNameCleanupChange[]>([]);
+  const [nameCleanupLoading,       setNameCleanupLoading]       = useState(false);
+  const [nameCleanupSelected,      setNameCleanupSelected]      = useState<Set<number>>(new Set());
+  const [nameCleanupApplying,      setNameCleanupApplying]      = useState(false);
 
   // visibility
   const [visUsers,   setVisUsers]   = useState<VisibilityUser[]>([]);
@@ -1093,6 +1099,68 @@ export default function MasterSurveyPage() {
     );
   }
 
+  // ── Name Cleanup Modal (🧹 تنظيف الأسماء) ──────────────────────
+  // يعرض كل صيدلية سيتغيّر اسمها بإزالة بادئة تصنيفية (ص/صيدلية/الاسم/العميل)
+  // وتوحيد نهاية الكلمات من ه إلى ة — السوبر أدمن يستثني بصندوق الاختيار أي اسم
+  // لا يريد تعديله فعلاً، ثم يطبّق فقط على المحدَّد.
+  function NameCleanupModal() {
+    const allChecked = nameCleanupChanges.length > 0 && nameCleanupSelected.size === nameCleanupChanges.length;
+    return (
+      <ModalOverlay onClose={() => setShowNameCleanup(false)}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>🧹 تنظيف أسماء الصيدليات</h3>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
+          يزيل بادئة "ص/ص./صيدلية/الصيدلية/الاسم/العميل" قبل اسم الصيدلية ويوحّد نهاية الكلمات من "ه" إلى "ة" (مثل "قمه الدواء" ← "قمة الدواء") — بلا لمس الاسم الصريح نفسه. راجع القائمة وأزل التحديد عن أي اسم لا تريد تعديله.
+        </p>
+        {nameCleanupLoading ? <Spinner /> : nameCleanupChanges.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>
+            لا توجد أسماء بحاجة تنظيف حالياً
+          </div>
+        ) : (
+          <>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, fontWeight: 700, color: '#334155', cursor: 'pointer' }}>
+              <input type="checkbox" checked={allChecked}
+                onChange={() => setNameCleanupSelected(allChecked ? new Set() : new Set(nameCleanupChanges.map(c => c.id)))} />
+              تحديد الكل ({nameCleanupSelected.size} من {nameCleanupChanges.length})
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '50vh', overflowY: 'auto' }}>
+              {nameCleanupChanges.map(c => {
+                const checked = nameCleanupSelected.has(c.id);
+                return (
+                  <label key={c.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8,
+                    border: `1.5px solid ${checked ? '#7dd3fc' : '#e2e8f0'}`,
+                    background: checked ? '#f0f9ff' : '#f8fafc', cursor: 'pointer', opacity: checked ? 1 : 0.6,
+                  }}>
+                    <input type="checkbox" checked={checked}
+                      onChange={() => setNameCleanupSelected(prev => {
+                        const next = new Set(prev);
+                        if (next.has(c.id)) next.delete(c.id); else next.add(c.id);
+                        return next;
+                      })} />
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
+                      <span style={{ color: '#94a3b8', textDecoration: 'line-through' }}>{c.oldName}</span>
+                      {' '}←{' '}
+                      <span style={{ color: '#0369a1', fontWeight: 700 }}>{c.newName}</span>
+                      {c.areaName && <span style={{ color: '#94a3b8', fontSize: 11 }}> · 📍 {c.areaName}</span>}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button onClick={() => setShowNameCleanup(false)} style={btnSecondary}>إغلاق</button>
+          {nameCleanupChanges.length > 0 && (
+            <button onClick={applyNameCleanup} disabled={nameCleanupApplying || nameCleanupSelected.size === 0} style={btnPrimary}>
+              {nameCleanupApplying ? 'جاري التطبيق...' : `✅ تطبيق (${nameCleanupSelected.size})`}
+            </button>
+          )}
+        </div>
+      </ModalOverlay>
+    );
+  }
+
   // ── Delete helpers ────────────────────────────────────────────
   const deleteSurvey = async (id: number) => {
     if (!confirm('حذف هذا السيرفي نهائياً؟ سيُحذف مع كل بياناته.')) return;
@@ -1162,6 +1230,41 @@ export default function MasterSurveyPage() {
   }, [selectedSurvey?.id, H]);
 
   const suggestionGroupKey = (g: PharmaMergeSuggestion) => g.members.map(m => m.id).sort((a, b) => a - b).join('-');
+
+  // ── تنظيف أسماء الصيدليات (إزالة بادئة ص/صيدلية/الاسم/العميل + توحيد ه↔ة) ──
+  const loadNameCleanupPreview = useCallback(async () => {
+    if (!selectedSurvey) return;
+    setNameCleanupLoading(true);
+    try {
+      const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/cleanup-names/preview`, { headers: H() });
+      const d = await r.json();
+      if (d.success) {
+        setNameCleanupChanges(d.data);
+        setNameCleanupSelected(new Set(d.data.map((c: PharmaNameCleanupChange) => c.id)));
+      }
+    } finally {
+      setNameCleanupLoading(false);
+    }
+  }, [selectedSurvey?.id, H]);
+
+  const applyNameCleanup = async () => {
+    if (!selectedSurvey || nameCleanupSelected.size === 0) return;
+    setNameCleanupApplying(true);
+    try {
+      const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/cleanup-names/apply`, {
+        method: 'POST', headers: H(), body: JSON.stringify({ ids: [...nameCleanupSelected] }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.success) throw new Error(d.error || `خطأ ${r.status}`);
+      alert(`✅ تم تعديل ${d.updated} اسم${d.affectedDoctors ? ` — تحديث ${d.affectedDoctors} طبيب` : ''}${d.affectedVisits ? ` و${d.affectedVisits} زيارة` : ''}`);
+      setShowNameCleanup(false);
+      fetchSurvey(selectedSurvey.id);
+    } catch (e: any) {
+      alert(`❌ فشل التنظيف: ${e.message}`);
+    } finally {
+      setNameCleanupApplying(false);
+    }
+  };
 
   // ── أطباء كل صيدلية (باسم الصيدلية) — لعرضهم عند الضغط على صف الصيدلية ─────
   const doctorsByPharmacyKey = useMemo(() => {
@@ -1510,6 +1613,9 @@ export default function MasterSurveyPage() {
               </button>
               <button onClick={() => { setShowMergeSuggestions(true); loadPharmaSuggestions(); }} style={{ ...btnSecondary, padding: '9px 18px', borderColor: '#f59e0b', color: '#b45309' }}>
                 💡 اقتراحات دمج ذكية
+              </button>
+              <button onClick={() => { setShowNameCleanup(true); loadNameCleanupPreview(); }} style={{ ...btnSecondary, padding: '9px 18px', borderColor: '#0ea5e9', color: '#0369a1' }}>
+                🧹 تنظيف الأسماء
               </button>
               <button onClick={() => downloadTemplate('pharmacies')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
               <button onClick={() => pharmaFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
@@ -2020,6 +2126,7 @@ export default function MasterSurveyPage() {
       {showPharmaForm     && <PharmacyForm />}
       {showMergePharma    && <MergePharmacyModal />}
       {showMergeSuggestions && <MergeSuggestionsModal />}
+      {showNameCleanup && <NameCleanupModal />}
       {showDrugEntryForm  && <DrugEntryForm />}
       {showDoctorsImport  && <DocImportModal />}
       {showPharmasImport  && <PharmaImportModal />}

@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, classifySurveyDoctorRows, saveSurveyDoctorAlias, ensureGlobalArea, loadAreaNameIndex, resolveAreaScope } from '../../lib/surveyDoctors.js';
-import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib, deleteSurveyPharmacy, mergeSurveyPharmacies, findPharmacyMergeSuggestions } from '../../lib/surveyPharmacies.js';
+import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib, deleteSurveyPharmacy, mergeSurveyPharmacies, findPharmacyMergeSuggestions, previewPharmacyNameCleanup, applyPharmacyNameCleanup } from '../../lib/surveyPharmacies.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { areaIdsOfProvinces, areaIdsOfSubProvinces } from '../../lib/areaScope.js';
 
@@ -457,6 +457,27 @@ export async function getPharmacyMergeSuggestions(req, res, next) {
     }
     const suggestions = findPharmacyMergeSuggestions(pharmacies, doctorCountByKey);
     res.json({ success: true, data: suggestions });
+  } catch (e) { next(e); }
+}
+
+// ── تنظيف أسماء الصيدليات (إزالة بادئة "ص/صيدلية/الاسم/العميل" + توحيد ه↔ة) ──
+// معاينة بلا كتابة، ثم تطبيق فعلي على الأسماء المحدَّدة فقط (checkboxes في
+// الواجهة) — نفس منطق normalizePharmacyStoredName في surveyPharmacies.js.
+export async function previewPharmacyNameCleanupCtrl(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const changes = await previewPharmacyNameCleanup(surveyId);
+    res.json({ success: true, data: changes });
+  } catch (e) { next(e); }
+}
+
+export async function applyPharmacyNameCleanupCtrl(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) return res.status(400).json({ success: false, error: 'اختر اسماً واحداً على الأقل' });
+    const result = await applyPharmacyNameCleanup(surveyId, ids, req.superAdmin?.id ?? null);
+    res.json({ success: true, ...result });
   } catch (e) { next(e); }
 }
 
