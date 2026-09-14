@@ -322,9 +322,13 @@ export async function processUploadedFile(file, options = {}) {
     // تراجع: ملف فيه «محافظة» فقط بلا عمود منطقة كان يعمل قبل فصل الحقلين
     // (كانت «محافظة» alias للمنطقة). نُبقيه يعمل باستعمال المحافظة اسماً
     // للمنطقة أيضاً، وإلا صارت كل صفوفه «غير محدد».
+    // اسم الشيت هذا يُستعمل كمنطقة فقط حين يكون اسماً حقيقياً لمنطقة (ملف
+    // مقسّم شيت لكل منطقة) — أما الاسم الافتراضي الذي لم يُغيَّر ("Sheet1"،
+    // "ورقة1"…) فليس اسم منطقة فعلياً، فتجاهله يمنع إنشاء منطقة وهمية باسمه.
+    const sheetNameVal = String(raw['_sheetName'] || '').trim();
     const areaVal = String(raw[rc.area] || '').trim()
       || provinceVal
-      || String(raw['_sheetName'] || '').trim()
+      || (isGenericSheetName(sheetNameVal) ? '' : sheetNameVal)
       || 'غير محدد';
 
     const itemNameVal   = String(raw[rc.item] || '').trim() || 'غير محدد';
@@ -632,6 +636,15 @@ function isSalesSheet(sheetName) {
 }
 
 /**
+ * Returns true if a sheet name is Excel's untouched default ("Sheet1", "ورقة1"…)
+ * rather than something the file's author actually renamed to a region/area name.
+ */
+function isGenericSheetName(sheetName) {
+  const s = String(sheetName).trim();
+  return /^(sheet|ورقة|ورقه|صفحة|صفحه)\s*\d*$/i.test(s);
+}
+
+/**
  * Robustly parse a numeric value coming from Excel.
  * Handles: Arabic numerals, comma-thousands separators, spaces, currency symbols.
  */
@@ -936,13 +949,23 @@ const _mHas = (header, ...parts) => {
 };
 
 /**
- * توقيع ملف ميركاتو: عمود «اسم المذخر» + عمود «رقم طلبية المذخر» معاً.
- * وجود «اسم المذخر» وحده لا يكفي — فهو alias زبون في ملفات أخرى.
+ * توقيع ملف ميركاتو: عمود «اسم المذخر» + (عمود «رقم طلبية المذخر» أو عمود
+ * «اسم المادة بالمكتب») معاً. وجود «اسم المذخر» وحده لا يكفي — فهو alias زبون
+ * في ملفات أخرى.
+ *
+ * بعض تصديرات ميركاتو (مثل تقرير بلا عمود رقم طلبية) لا تحمل «رقم طلبية
+ * المذخر» فكانت تفلت من الاكتشاف فتُقرأ بالمطابقة العامة، التي تُخطئ حصراً في
+ * حقل الايتم: exact-match tier في resolveColumns تلتقط «الصنف» (alias صريح
+ * في قائمة الايتم) قبل الوصول لـ partial-match الذي كان سيفضّل «اسم المادة
+ * بالمكتب» — فتتحوّل أسماء الشركات (Deva/ALBALSAM…) لايتمات جديدة في طابور
+ * المراجعة. «اسم المادة بالمكتب» توقيع فريد بما يكفي (عبارة "بالمكتب" غير
+ * موجودة في أي ترويسة أخرى بالتطبيق) فنعتمده كبديل لعمود رقم الطلبية.
  */
 export function detectMercatoFormat(headers) {
-  const hasWarehouse = headers.some(h => _mHas(h, 'اسم', 'مذخر'));
-  const hasOrderNum  = headers.some(h => _mHas(h, 'رقم', 'طلبيه', 'مذخر'));
-  return hasWarehouse && hasOrderNum;
+  const hasWarehouse     = headers.some(h => _mHas(h, 'اسم', 'مذخر'));
+  const hasOrderNum      = headers.some(h => _mHas(h, 'رقم', 'طلبيه', 'مذخر'));
+  const hasOfficeItemCol = headers.some(h => _mHas(h, 'ماده', 'بالمكتب'));
+  return hasWarehouse && (hasOrderNum || hasOfficeItemCol);
 }
 
 /**
@@ -983,9 +1006,36 @@ export function mercatoColumnMap(headers) {
  * @param {string[]} headers   - Actual Excel column headers
  * @param {object}   overrides - Manual overrides from request
  */
+// أعضاء قائمة الايتم المذكورون في تعليق COLUMN_ALIASES.item أعلاه كـ"احتياط أخير
+// للملفات التي لا تحمل غيرهم" — لكن مرحلتي المطابقة أدناه (تام ثم جزئي) كانتا
+// مستقلتين، فعمود اسمه حرفياً "الصنف" كان يفوز بالمطابقة التامة قبل أن تصل
+// الدالة أصلاً لمرحلة المطابقة الجزئية التي كانت ستُفضّل "اسم المادة" — فتتحوّل
+// أسماء الشركات في ملفات كهذه لايتمات جديدة في طابور المراجعة. حل: هذه الأسماء
+// تُستبعد من كل المراحل ولا تُجرَّب إلا إن فشلت بقية القائمة تماماً (تام وجزئي).
+// «اسم الصنف» أيضاً — نفس الالتباس، وبلا استبعاده كانت مطابقة "يحوي" العكسية
+// (alias.includes(header)) تجعل عموداً اسمه حرفياً "الصنف" وحده يطابق alias
+// "اسم الصنف" (لأنها تحويه) فيتسلل نفس الخطأ من باب خلفي رغم استبعاد "الصنف" أعلاه.
+const AMBIGUOUS_ALIASES = {
+  item: new Set(['صنف', 'الصنف', 'اسم الصنف']),
+};
+
 export function resolveColumns(headers, overrides) {
   const result = {};
   const lowerHeaders = headers.map(h => String(h).toLowerCase().trim());
+
+  const resolveField = (aliasList) => {
+    // 1. Exact alias match (no exclusions — if user named it exactly, use it)
+    const exactMatch = aliasList.find(alias =>
+      lowerHeaders.includes(alias.toLowerCase())
+    );
+    if (exactMatch) return headers[lowerHeaders.indexOf(exactMatch.toLowerCase())];
+    // 2. Partial / contains match — skip headers that look like status/notes/ID columns
+    const partialIdx = lowerHeaders.findIndex((h, idx) => {
+      if (isExcludedHeader(headers[idx])) return false; // skip status/notes columns
+      return aliasList.some(alias => h.includes(alias.toLowerCase()) || alias.toLowerCase().includes(h));
+    });
+    return partialIdx !== -1 ? headers[partialIdx] : null;
+  };
 
   for (const [field, aliases] of Object.entries(COLUMN_ALIASES)) {
     // 1. Manual override takes priority
@@ -993,25 +1043,14 @@ export function resolveColumns(headers, overrides) {
       result[field] = overrides[field];
       continue;
     }
-    // 2. Exact alias match (no exclusions — if user named it exactly, use it)
-    const exactMatch = aliases.find(alias =>
-      lowerHeaders.includes(alias.toLowerCase())
-    );
-    if (exactMatch) {
-      result[field] = headers[lowerHeaders.indexOf(exactMatch.toLowerCase())];
-      continue;
-    }
-    // 3. Partial / contains match — skip headers that look like status/notes/ID columns
-    const partialIdx = lowerHeaders.findIndex((h, idx) => {
-      if (isExcludedHeader(headers[idx])) return false; // skip status/notes columns
-      return aliases.some(alias => h.includes(alias.toLowerCase()) || alias.toLowerCase().includes(h));
-    });
-    if (partialIdx !== -1) {
-      result[field] = headers[partialIdx];
-      continue;
-    }
-    // 4. Final fallback: use the field name itself (may be undefined in the row)
-    result[field] = field;
+    const ambiguous = AMBIGUOUS_ALIASES[field];
+    const specificAliases = ambiguous ? aliases.filter(a => !ambiguous.has(a)) : aliases;
+    // 2-3. Try every non-ambiguous alias first (exact, then partial); only if
+    // none of them match anything do we fall back to the ambiguous ones.
+    result[field] = resolveField(specificAliases)
+      ?? (ambiguous ? resolveField(aliases) : null)
+      // 4. Final fallback: use the field name itself (may be undefined in the row)
+      ?? field;
   }
   return result;
 }
