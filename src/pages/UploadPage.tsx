@@ -191,7 +191,6 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   }, []);
 
   const [deleting, setDeleting] = useState<number | null>(null);
-  const [confirmId, setConfirmId] = useState<number | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [menuOpenUp, setMenuOpenUp] = useState(false);
   // محرّر صفوف الملف — يعدّل بيانات الملف نفسها فتنعكس في التقارير والتصدير
@@ -348,7 +347,6 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
     [shareModalFile !== null, () => setShareModalFile(null)],
     [currencyModal !== null, () => setCurrencyModal(null)],
     [analyzeFile !== null,   () => setAnalyzeFile(null)],
-    [confirmId !== null,     () => setConfirmId(null)],
     [showNorm,               () => setShowNorm(false)],
   ]);
 
@@ -566,7 +564,6 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
 
   const deleteFile = async (id: number) => {
     setDeleting(id);
-    setConfirmId(null);
     try {
       const res = await fetch(`${API}/api/files/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
@@ -1030,9 +1027,10 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
               const currIsDollar = (f.currencyMode ?? f.detectedCurrency) === 'USD';
 
               return (
-                <div key={f.id} style={{
+                <div key={f.id} onClick={() => onFileActivated(f.id)} style={{
                   ...CARD,
                   marginBottom: 0,
+                  cursor: 'pointer',
                   borderColor: isActive ? 'var(--c-success-border)' : isSharedToMe ? 'var(--c-warning-border)' : '#e2e8f0',
                   background: isActive ? 'var(--c-success-bg)' : isSharedToMe ? 'var(--c-warning-bg)' : '#fff',
                 }}>
@@ -1042,6 +1040,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     <div style={{ position: 'relative', flexShrink: 0 }}>
                       <button
                         onClick={(e) => {
+                          e.stopPropagation();
                           if (openMenuId === f.id) { setOpenMenuId(null); return; }
                           // Flip the menu upward when there isn't enough room below the
                           // button (e.g. the last file card in a long list) so its lower
@@ -1060,7 +1059,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                       >⋮</button>
 
                       {openMenuId === f.id && (
-                        <div style={{
+                        <div onClick={e => e.stopPropagation()} style={{
                           position: 'absolute', right: 0, zIndex: 1000,
                           ...(menuOpenUp ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
                           background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
@@ -1108,21 +1107,11 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
 
                           <div style={{ height: 1, background: '#f1f5f9', margin: '4px 0' }} />
 
-                          {/* Delete */}
-                          {confirmId === f.id ? (
-                            <div style={{ padding: '6px 12px', display: 'flex', gap: 6, alignItems: 'center' }}>
-                              <span style={{ fontSize: 11, color: 'var(--c-danger)', fontWeight: 600, flex: 1 }}>{t.upload.confirmDelete}</span>
-                              <button style={{ ...BTN_PRI, background: 'var(--c-danger)', padding: '3px 10px', display: 'inline-flex', alignItems: 'center' }} onClick={() => deleteFile(f.id)} disabled={deleting === f.id}>
-                                {deleting === f.id ? <Icon name="loading" size={12} className="icon-spin" /> : <Icon name="check" size={12} />}
-                              </button>
-                              <button style={{ ...BTN_GHOST, padding: '3px 8px' }} onClick={() => setConfirmId(null)}><Icon name="close" size={12} /></button>
-                            </div>
-                          ) : (
-                            <button onClick={() => setConfirmId(f.id)} disabled={deleting === f.id}
-                              style={{ ...MENU_ITEM_STYLE, color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Icon name="delete" size={13} /> حذف الملف
-                            </button>
-                          )}
+                          {/* Delete — immediate, no confirmation step */}
+                          <button onClick={() => { setOpenMenuId(null); deleteFile(f.id); }} disabled={deleting === f.id}
+                            style={{ ...MENU_ITEM_STYLE, color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {deleting === f.id ? <Icon name="loading" size={13} className="icon-spin" /> : <Icon name="delete" size={13} />} حذف الملف
+                          </button>
                         </div>
                       )}
                     </div>
@@ -1134,7 +1123,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     <span style={BADGE(typeMeta.bg, typeMeta.color, typeMeta.border)}>{typeMeta.label}</span>
                     {f.sourceSystem === 'mercato' && (
                       <button
-                        onClick={() => setRepNameFileIds([f.id])}
+                        onClick={(e) => { e.stopPropagation(); setRepNameFileIds([f.id]); }}
                         style={{ ...BADGE('var(--c-warning-bg)', 'var(--c-warning)', 'var(--c-warning-border)'), cursor: 'pointer' }}
                         title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. اضغط لمطابقة أسماء المندوبين في الملف مع سجلاتهم في التطبيق."
                       ><Icon name="pharmacy" size={11} /> ميركاتو · مطابقة الأسماء</button>
@@ -1142,7 +1131,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     {isActive && <span style={BADGE('var(--c-success-bg)', 'var(--c-success)', 'var(--c-success-border)')}><Icon name="checkCircle" size={11} /> {t.upload.statusActive}</span>}
                     {isSharedByMe && (
                       <button
-                        onClick={() => setExpandedSharesId(expandedSharesId === f.id ? null : f.id)}
+                        onClick={(e) => { e.stopPropagation(); setExpandedSharesId(expandedSharesId === f.id ? null : f.id); }}
                         style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--c-purple-border)', borderRadius: 20, padding: '2px 10px', background: expandedSharesId === f.id ? 'var(--c-purple-bg)' : 'var(--c-surface)', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: 'var(--c-purple)', flexShrink: 0 }}
                         title="عرض المندوبين"
                       >
@@ -1155,7 +1144,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
 
                   {/* ── Expanded reps row ── */}
                   {isSharedByMe && expandedSharesId === f.id && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e2e8f0' }}>
+                    <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e2e8f0' }}>
                       {shares.map(s => (
                         <span key={s.userId} style={BADGE('var(--c-purple-bg)', 'var(--c-purple)', 'var(--c-purple-border)')}>
                           <Icon name="link" size={11} /> {s.user.displayName || s.user.username}
@@ -1169,7 +1158,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="calendar" size={12} /> {fmtDate(f.uploadedAt)}</span>
                     {!!f._count?.columnFilters && (
                       <button
-                        onClick={() => { setEditorFile({ id: f.id, name: f.originalName }); setOpenMenuId(null); }}
+                        onClick={(e) => { e.stopPropagation(); setEditorFile({ id: f.id, name: f.originalName }); setOpenMenuId(null); }}
                         title="بعض الأعمدة مفلترة في هذا الملف — القيم المستبعدة مخفية من كل التحليل والتقارير. اضغط لمراجعة الفلتر"
                         style={{ ...BADGE('var(--c-warning-bg)', 'var(--c-warning)', 'var(--c-warning-border)'), cursor: 'pointer' }}
                       >
@@ -1178,7 +1167,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     )}
                     {hasFeature('currency_convert') ? (
                       <button
-                        onClick={() => toggleCurrency(f)}
+                        onClick={(e) => { e.stopPropagation(); toggleCurrency(f); }}
                         title={currIsDollar ? 'تحويل إلى دينار عراقي' : 'تحويل إلى دولار'}
                         style={{ ...BADGE(currIsDollar ? 'var(--c-warning-bg)' : 'var(--c-success-bg)', currIsDollar ? 'var(--c-warning)' : 'var(--c-success)', currIsDollar ? 'var(--c-warning-border)' : 'var(--c-success-border)'), cursor: 'pointer' }}
                       >
@@ -1190,7 +1179,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                       </span>
                     )}
                     <button
-                      onClick={() => onFileActivated(f.id)}
+                      onClick={(e) => { e.stopPropagation(); onFileActivated(f.id); }}
                       title={isActive ? 'إلغاء التفعيل' : 'تفعيل الملف'}
                       style={{
                         border: isActive ? '1px solid var(--c-success-border)' : '1px solid #cbd5e1',
