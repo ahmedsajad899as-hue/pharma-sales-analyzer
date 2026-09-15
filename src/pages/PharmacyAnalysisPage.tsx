@@ -148,6 +148,13 @@ export default function PharmacyAnalysisPage() {
   const [alertDays, setAlertDays]       = useState(30);
   const [alertSearch, setAlertSearch]   = useState('');
   // إعدادات التنبيهات التلقائية (المُجدوِل في السيرفر يقرأها)
+  // التنبيهات تُحسب لكل زوج (صيدلية × ايتم)، فتبلغ عشرات الآلاف على ملف كبير
+  // (24,725 زوجاً ⇒ 19,541 تنبيهاً). رسمها كلها دفعةً واحدة يعني ~160 ألف عنصر
+  // DOM ويجمّد الصفحة ثوانيَ — الخادم نفسه ينهي عمله في أقل من نصف ثانية.
+  // البحث والترتيب والتصدير تبقى على المجموعة كاملة؛ المحدود هو المرسوم فقط.
+  const ALERTS_PAGE = 300;
+  const [alertsShown, setAlertsShown] = useState(ALERTS_PAGE);
+
   const [alertSettings, setAlertSettings] = useState<any>(null);
   const [showAlertSettings, setShowAlertSettings] = useState(false);
   const [alertSaving, setAlertSaving] = useState(false);
@@ -294,6 +301,9 @@ export default function PharmacyAnalysisPage() {
     setCollapsedGroups(groupBy === 'item' ? new Set(items.map(i => i.name)) : new Set());
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupBy, items.length]);
+
+  // أي تغيير في البحث/الترتيب/المدة يبدأ العرض من أول صفحة
+  useEffect(() => { setAlertsShown(ALERTS_PAGE); }, [alertSearch, alertSortCol, alertSortDir, alertDays, fileIdsParam]);
 
   // تغيّر اختيار الملفات ⇒ الصفوف المحمّلة لكل ايتم لم تعد صالحة. تُطوى
   // المجموعات أيضاً وإلا بقيت مجموعة مفتوحة بلا صفوف ولا إعادة جلب.
@@ -1231,7 +1241,7 @@ export default function PharmacyAnalysisPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedAlerts.map((a, i) => {
+                  {sortedAlerts.slice(0, alertsShown).map((a, i) => {
                     const dc = dayColor(a.daysSinceLast);
                     return (
                       <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)' }}>
@@ -1247,6 +1257,20 @@ export default function PharmacyAnalysisPage() {
                       </tr>
                     );
                   })}
+                  {sortedAlerts.length > alertsShown && (
+                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: '14px 16px', background: 'var(--c-bg)', borderTop: '1px solid var(--c-border)' }}>
+                      <span style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginLeft: 10 }}>
+                        يُعرض {fmt(alertsShown)} من {fmt(sortedAlerts.length)} تنبيه
+                      </span>
+                      <button
+                        onClick={() => setAlertsShown(n => n + ALERTS_PAGE)}
+                        style={{ padding: '5px 14px', border: '1px solid var(--c-accent)', borderRadius: 6, background: '#fff', color: 'var(--c-accent)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                      >عرض {fmt(Math.min(ALERTS_PAGE, sortedAlerts.length - alertsShown))} أخرى</button>
+                      <span style={{ fontSize: 11, color: 'var(--c-text-muted)', marginRight: 10 }}>
+                        (البحث والترتيب والتصدير تعمل على الكل)
+                      </span>
+                    </td></tr>
+                  )}
                   {sortedAlerts.length === 0 && (
                     <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-muted)', fontSize: 13 }}>
                       {alertSearch ? 'لا يوجد تنبيه يطابق البحث.' : (
