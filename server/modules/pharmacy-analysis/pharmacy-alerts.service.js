@@ -6,40 +6,15 @@
  * اختلافاً صامتاً بين ما يراه المستخدم وما يصله كإشعار.
  */
 
-import prisma from '../../lib/prisma.js';
-import { buildItemScopeFilter } from '../../lib/itemScope.js';
+import { norm, getScopedSales, dedupCrossFile } from './scoped-sales.js';
 
-/** تطبيع عربي للمطابقة الضبابية (نفس قواعد بقية الموديول). */
-export function norm(s = '') {
-  return String(s).trim()
-    .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
-    .replace(/\u0629/g, '\u0647')
-    .replace(/\u0640/g, '')
-    .replace(/[\u064B-\u065F]/g, '')
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
-}
+export { norm };
 
-/** مفتاح ثابت لزوج (صيدلية × ايتم) — يُستعمل لمنع تكرار التنبيه. */
+/**
+ * A stable key for a (pharmacy x item) pair - used to avoid repeat alerts.
+ */
 export function alertKeyOf(pharmaName, itemName) {
   return `${norm(pharmaName)}|${norm(itemName)}`;
-}
-
-// يتحقق من صلاحية userId على كل fileId (ملكية أو مشاركة FileUserShare) — نفس
-// المنطق في pharmacy-analysis.controller.js، مكرَّر هنا لأن computePharmacyAlerts
-// يُستدعى أيضاً من المُجدوِل بمعرّف المالك الحقيقي (لا يحتاج تحققاً، لكن يمر منه
-// بأمان لأنه سيملك كل ملفاته فعلاً).
-async function resolveFileScope(userId, fileIds) {
-  if (!fileIds) return userId ? { userId } : {};
-  const ids = String(fileIds).split(',').map(Number).filter(Boolean);
-  if (!ids.length) return userId ? { userId } : {};
-  const accessible = await prisma.uploadedFile.findMany({
-    where: { id: { in: ids }, OR: [{ userId }, { fileShares: { some: { userId } } }] },
-    select: { id: true },
-  });
-  const verifiedIds = accessible.map(f => f.id);
-  if (!verifiedIds.length) return { id: -1 };
-  return { uploadedFileId: { in: verifiedIds } };
 }
 
 /**
@@ -56,46 +31,29 @@ async function resolveFileScope(userId, fileIds) {
 export async function computePharmacyAlerts(userId, opts = {}) {
   const { fileIds = null, thresholdDays = 30 } = opts;
 
-  // ايتمات المستخدم المعيّنة تُقيّد التنبيهات أيضاً — وإلا نبّهنا على ايتمات
-  // لا يعمل عليها أصلاً.
-  const itemScope = await buildItemScopeFilter(userId);
+  // نفس المُحمِّل المشترك مع تبويبَي الصيدليات والايتمات: استعلام واحد مخزَّن
+  // مؤقتاً للنطاق بدل استعلام ثالث مستقل (كان يجلب rawData لكل صف أيضاً).
+  const sales = await getScopedSales(userId, fileIds);
 
-  const sales = await prisma.sale.findMany({
-    where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
-    select: {
-      quantity: true, totalValue: true, saleDate: true,
-      item:     { select: { name: true } },
-      customer: { select: { name: true } },
-      area:     { select: { id: true, name: true } },
-      rawData:  true,
-    },
-  });
+  // التكرار يُطوى عبر الملفات المتداخلة فقط — كانت النسخة السابقة تُسقط أي
+  // صفّين متطابقَي القيم ولو كانا طلبيتين حقيقيتين في الملف نفسه، فتنقص
+  // «عدد الطلبيات» في التنبيهات كما كان يحدث في تبويب الصيدليات.
+  const deduped = dedupCrossFile(
+    sales.filter(s => s._pharmaName),
+    s => [s._normPharma, s._normItem, s._day, s.quantity, s.totalValue].join('|'),
+  );
 
   const map = new Map();
-  const seen = new Set();
 
-  for (const s of sales) {
-    const iName = s.item?.name || 'غير محدد';
-    let pharmaName = s.customer?.name;
-    if (!pharmaName && s.rawData) {
-      try {
-        const raw = JSON.parse(s.rawData);
-        pharmaName = raw.pharmacyName || raw.pharmacy || raw.customer || raw.Customer
-          || raw['اسم الصيدلية'] || raw['الصيدلية'] || raw['العميل'] || null;
-      } catch { /* صف بلا rawData صالح — نتجاهله */ }
-    }
-    if (!pharmaName) continue;
-
-    const day = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '';
-    const dedupKey = [norm(pharmaName), norm(iName), day, s.quantity, s.totalValue].join('|');
-    if (seen.has(dedupKey)) continue;
-    seen.add(dedupKey);
+  for (const s of deduped) {
+    const iName = s._itemName || 'غير محدد';
+    const pharmaName = s._pharmaName;
 
     const key = `${pharmaName}|||${iName}`;
     if (!map.has(key)) {
       map.set(key, {
         pharmaName, itemName: iName,
-        areaName: s.area?.name || '', areaId: s.area?.id ?? null,
+        areaName: s._areaName, areaId: s.areaId ?? null,
         lastOrder: s.saleDate, lastOrderQty: s.quantity, orderCount: 0,
       });
     }
@@ -104,7 +62,7 @@ export async function computePharmacyAlerts(userId, opts = {}) {
     if (new Date(s.saleDate) > new Date(e.lastOrder)) {
       e.lastOrder    = s.saleDate;
       e.lastOrderQty = s.quantity;
-      if (s.area?.id) { e.areaId = s.area.id; e.areaName = s.area.name || e.areaName; }
+      if (s.areaId) { e.areaId = s.areaId; e.areaName = s._areaName || e.areaName; }
     }
   }
 

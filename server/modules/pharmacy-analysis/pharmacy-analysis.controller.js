@@ -1,152 +1,5 @@
-import prisma from '../../lib/prisma.js';
 import { computePharmacyAlerts } from './pharmacy-alerts.service.js';
-import { buildItemScopeFilter } from '../../lib/itemScope.js';
-
-// Normalise Arabic text for fuzzy matching
-function norm(s = '') {
-  return String(s).trim()
-    .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')
-    .replace(/\u0629/g, '\u0647')
-    .replace(/\u0640/g, '')
-    .replace(/[\u064B-\u065F]/g, '')
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
-}
-
-// يتحقق من أن المستخدم يملك أو يُشارَك معه (FileUserShare) كل fileId مطلوب —
-// ضروري الآن بعد أن صارت ملفات pharmacy_net قابلة للتعميم من موظف المكتب على
-// مدير المكتب/الشركة؛ سابقاً كان buildUserFilter({userId}) وحده يكفي لأن كل
-// ملف كان يخص صاحبه فقط. المصفوفة المُتحقَّق منها فقط هي ما يُستخدم في
-// uploadedFileId — فلا يمكن لأي مستخدم تمرير fileId لملف غيره غير المُشارَك معه.
-async function resolveFileScope(userId, fileIds) {
-  if (!fileIds) return userId ? { userId } : {};
-  const ids = String(fileIds).split(',').map(Number).filter(Boolean);
-  if (!ids.length) return userId ? { userId } : {};
-  const accessible = await prisma.uploadedFile.findMany({
-    where: { id: { in: ids }, OR: [{ userId }, { fileShares: { some: { userId } } }] },
-    select: { id: true },
-  });
-  const verifiedIds = accessible.map(f => f.id);
-  if (!verifiedIds.length) return { id: -1 }; // لا صلاحية على أي من الملفات المطلوبة
-  return { uploadedFileId: { in: verifiedIds } };
-}
-
-const SALE_DETAIL_SELECT = {
-  id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
-  uploadedFileId: true,
-  customer:       { select: { id: true, name: true } },
-  area:           { select: { id: true, name: true } },
-  item:           { select: { id: true, name: true } },
-  representative: { select: { id: true, name: true } },
-  uploadedFile:   { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
-};
-
-const dayKey = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
-
-// إسقاط التكرار **عبر الملفات المتداخلة فقط** — نفس خوارزمية تقرير المندوبين
-// العلميين (scientific-reps.service.js) حرفياً، لئلا يختلف الرقمان.
-//
-// نجمع الصفوف بمفتاح مركّب، ثم لكل مفتاح نُبقي صفوف **الملف الذي يحتوي أكثر
-// عدد من التكرارات وحده**. هذا يطوي تداخل «ملف كل العراق + ملف المنطقة» ويُبقي
-// كل طلبية حقيقية مكررة داخل الملف الواحد — وبيانات الأدوية تكرر الكميات
-// المستديرة (10/50/100) لنفس الصيدلية في اليوم نفسه بشكل مشروع تماماً.
-//
-// كانت نسخة Pharmacy Net تُسقط أي صفّين متطابقَي القيم بصرف النظر عن الملف،
-// فتبتلع عشرات آلاف الطلبيات الحقيقية من ملف واحد بلا أي تداخل أصلاً.
-function dedupCrossFile(rows, keyOf) {
-  const keyToFileRows = new Map(); // key → Map(uploadedFileId → rows[])
-  for (const r of rows) {
-    const key = keyOf(r);
-    let fileMap = keyToFileRows.get(key);
-    if (!fileMap) { fileMap = new Map(); keyToFileRows.set(key, fileMap); }
-    const fid = r.uploadedFileId ?? 0;
-    const arr = fileMap.get(fid);
-    if (arr) arr.push(r); else fileMap.set(fid, [r]);
-  }
-  const kept = new Set();
-  for (const fileMap of keyToFileRows.values()) {
-    let best = null;
-    for (const fileRows of fileMap.values()) {
-      if (!best || fileRows.length > best.length) best = fileRows;
-    }
-    if (best) for (const r of best) kept.add(r);
-  }
-  return rows.filter(r => kept.has(r)); // يحافظ على ترتيب الإدخال (saleDate desc)
-}
-
-// كل تبويب في الصفحة (الصيدليات/الايتمات) وكل فتح تفصيل صيدلية/ايتم كانا
-// يعيدون نفس استعلام المبيعات الكامل للنطاق من الصفر — بما فيه فحص صلاحية
-// الملفات و buildItemScopeFilter (الذي بدوره قد يجلب *كل* صفوف Item) — ثم
-// يعيدون معالجتها بالكامل في JS (parse + تطبيع + dedup) في كل نقرة. هذا ما
-// كان يُشعِر بالبطء عند التنقل بين الصيدليات/المناطق وفتح التفاصيل. الآن
-// تُخزَّن نتيجة الجلب (قبل التجميع الخاص بكل تبويب) لمدة قصيرة لكل
-// (مستخدم × اختيار ملفات) — فالنقرات المتتالية على نفس الاختيار تصيب
-// الكاش بدل تكرار كل الاستعلامات، بلا أي تغيير في منطق dedup/التجميع نفسه.
-const SALES_CACHE_TTL_MS = 15000;
-const salesCache = new Map(); // `${userId}|${fileIds}` -> { expiresAt, promise }
-
-async function getScopedSales(userId, fileIds) {
-  const key = `${userId}|${fileIds || ''}`;
-  const hit = salesCache.get(key);
-  if (hit && hit.expiresAt > Date.now()) return hit.promise;
-
-  const promise = (async () => {
-    const [itemScope, fileScope] = await Promise.all([
-      buildItemScopeFilter(userId),
-      resolveFileScope(userId, fileIds),
-    ]);
-    const where = { isHidden: false, ...fileScope, ...itemScope };
-    const sales = await prisma.sale.findMany({
-      where,
-      select: SALE_DETAIL_SELECT,
-      orderBy: { saleDate: 'desc' },
-    });
-
-    // rawData = صف الإكسل الأصلي كاملاً كـJSON لكل صف. على ملف بـ48 ألف صف هو
-    // أضخم ما يُنقل من قاعدة البيانات في كل طلب، ولا يُستعمل إلا كخطة بديلة
-    // لاسم الصيدلية حين لا يكون للصف عميل مرتبط. فنجلبه لتلك الصفوف وحدها —
-    // وفي ملف يُقرأ فيه عمود العميل صحيحاً لا يُجلب إطلاقاً.
-    // (customerId=null هو نفس شرط الخطة البديلة عملياً: findOrCreateCustomer
-    // لا يُستدعى إلا باسم غير فارغ، فلا وجود لعميل بلا اسم.)
-    let rawById = null;
-    if (sales.some(s => !s.customer?.name)) {
-      const rawRows = await prisma.sale.findMany({
-        where:  { ...where, customerId: null },
-        select: { id: true, rawData: true },
-      });
-      rawById = new Map(rawRows.map(r => [r.id, r.rawData]));
-    }
-
-    // اسم الصيدلية يُحسَب مرة واحدة هنا بدل أن يُعاد حسابه (parse + سلسلة ||)
-    // لكل صف في كل مسار استهلاك — كان pharmacyDetail وحده يحسبه مرتين لكل صف.
-    for (const s of sales) {
-      let pharmaName = s.customer?.name || null;
-      const rawJson = pharmaName ? null : rawById?.get(s.id);
-      if (rawJson) {
-        try {
-          const raw = JSON.parse(rawJson);
-          pharmaName = raw.pharmacyName || raw.pharmacy || raw.customer || raw.Customer || raw['اسم الصيدلية'] || raw['الصيدلية'] || raw['العميل'] || null;
-        } catch {}
-      }
-      s._pharmaName = pharmaName;
-    }
-    return sales;
-  })();
-
-  const entry = { expiresAt: Date.now() + SALES_CACHE_TTL_MS, promise };
-  salesCache.set(key, entry);
-  promise.catch(() => salesCache.delete(key)); // لا تُخزَّن نتيجة فاشلة
-  setTimeout(() => { if (salesCache.get(key) === entry) salesCache.delete(key); }, SALES_CACHE_TTL_MS + 2000);
-  return promise;
-}
-
-// Convert stored value to IQD (multiply by exchangeRate if file currency is USD)
-function toIQD(value, uploadedFile) {
-  if (!uploadedFile) return value || 0;
-  const rate = uploadedFile.exchangeRate || 1500;
-  const mode = uploadedFile.currencyMode || uploadedFile.detectedCurrency || 'IQD';
-  return mode === 'USD' ? (value || 0) * rate : (value || 0);
-}
+import { norm, dedupCrossFile, getScopedSales } from './scoped-sales.js';
 
 // ── GET /api/pharmacy-analysis/pharmacies ─────────────────────
 export async function listPharmacies(req, res, next) {
@@ -164,20 +17,20 @@ export async function listPharmacies(req, res, next) {
     // لا محصوراً بنتيجة البحث الحالية.
     const deduped = dedupCrossFile(
       sales.filter(s => s._pharmaName),
-      s => [norm(s._pharmaName), norm(s.item?.name || ''), dayKey(s.saleDate), s.quantity, s.totalValue, s.recordType || 'sale'].join('|'),
+      s => [s._normPharma, s._normItem, s._day, s.quantity, s.totalValue, s.recordType || 'sale'].join('|'),
     );
 
     for (const s of deduped) {
       const pharmaName = s._pharmaName;
-      const areaName = s.area?.name || '';
+      const areaName = s._areaName;
 
-      if (search && !norm(pharmaName).includes(search) && !norm(areaName).includes(search)) continue;
+      if (search && !s._normPharma.includes(search) && !norm(areaName).includes(search)) continue;
 
       if (!map.has(pharmaName)) {
         map.set(pharmaName, {
           name: pharmaName,
           areaName,
-          repName: s.representative?.name || '',
+          repName: s._repName,
           totalOrders: 0,
           totalQty: 0,
           totalValue: 0,
@@ -190,12 +43,12 @@ export async function listPharmacies(req, res, next) {
         });
       }
       const p = map.get(pharmaName);
-      const iqd = toIQD(s.totalValue, s.uploadedFile);
+      const iqd = s._iqd;
       if (!p.areaName && areaName) p.areaName = areaName;
-      if (!p.repName && s.representative?.name) p.repName = s.representative.name;
+      if (!p.repName && s._repName) p.repName = s._repName;
 
-      const isReturn = s.recordType === 'return';
-      const iName = s.item?.name || 'غير محدد';
+      const isReturn = s._isReturn;
+      const iName = s._itemName || 'غير محدد';
       if (isReturn) {
         p.returnsOrders++;
         p.returnsQty   += s.quantity;
@@ -255,34 +108,30 @@ export async function pharmacyDetail(req, res, next) {
 
     const sales = await getScopedSales(userId, fileIds);
 
-    const rows = sales.filter(s => {
-      if (!s._pharmaName || !norm(s._pharmaName).includes(pharmaQuery)) return false;
-      if (itemFilter) {
-        const iName = s.item?.name || '';
-        if (!norm(iName).includes(itemFilter)) return false;
-      }
+    const matching = sales.filter(s => {
+      if (!s._pharmaName || !s._normPharma.includes(pharmaQuery)) return false;
+      if (itemFilter && !s._normItem.includes(itemFilter)) return false;
       return true;
-    }).map(s => {
-      return {
-        id: s.id,
-        pharmaName: s._pharmaName,
-        itemName:   s.item?.name || 'غير محدد',
-        areaName:   s.area?.name || '',
-        repName:    s.representative?.name || '',
-        quantity:   s.quantity,
-        totalValue: Math.round(toIQD(s.totalValue, s.uploadedFile)),
-        saleDate:   s.saleDate,
-        recordType: s.recordType,
-        uploadedFileId: s.uploadedFileId,
-      };
     });
+
+    const dedupedRows = dedupCrossFile(
+      matching,
+      s => [s._normPharma, s._normItem, s._day, s.quantity, Math.round(s._iqd), s.recordType, s._normRep].join('|'),
+    ).map(s => ({
+      id: s.id,
+      pharmaName: s._pharmaName,
+      itemName:   s._itemName || 'غير محدد',
+      areaName:   s._areaName,
+      repName:    s._repName,
+      quantity:   s.quantity,
+      totalValue: Math.round(s._iqd),
+      saleDate:   s.saleDate,
+      recordType: s.recordType,
+      uploadedFileId: s.uploadedFileId,
+    }));
 
     // Group by item
     const byItem = new Map();
-    const dedupedRows = dedupCrossFile(
-      rows,
-      r => [norm(r.pharmaName), norm(r.itemName), dayKey(r.saleDate), r.quantity, r.totalValue, r.recordType, norm(r.repName)].join('|'),
-    );
     for (const r of dedupedRows) {
       if (!byItem.has(r.itemName)) byItem.set(r.itemName, { name: r.itemName, orders: [], totalQty: 0, totalValue: 0 });
       const b = byItem.get(r.itemName);
@@ -312,13 +161,13 @@ export async function listItems(req, res, next) {
     const map = new Map(); // itemName → { pharmacies, totalQty, totalValue, ... }
     const deduped = dedupCrossFile(
       sales,
-      s => [norm(s.item?.name || 'غير محدد'), norm(s._pharmaName || ''), dayKey(s.saleDate), s.quantity, s.totalValue].join('|'),
+      s => [s._normItem, s._normPharma, s._day, s.quantity, s.totalValue].join('|'),
     );
     for (const s of deduped) {
-      const iName = s.item?.name || 'غير محدد';
-      if (search && !norm(iName).includes(search)) continue;
+      const iName = s._itemName || 'غير محدد';
+      if (search && !s._normItem.includes(search)) continue;
 
-      const iqdVal = toIQD(s.totalValue, s.uploadedFile);
+      const iqdVal = s._iqd;
       if (!map.has(iName)) map.set(iName, { name: iName, pharmacies: new Map(), totalQty: 0, totalValue: 0, firstOrder: s.saleDate, lastOrder: s.saleDate });
       const it = map.get(iName);
       it.totalQty   += s.quantity;
@@ -328,7 +177,7 @@ export async function listItems(req, res, next) {
 
       const pharmaName = s._pharmaName || 'غير محدد';
 
-      if (!it.pharmacies.has(pharmaName)) it.pharmacies.set(pharmaName, { name: pharmaName, areaName: s.area?.name || '', qty: 0, value: 0 });
+      if (!it.pharmacies.has(pharmaName)) it.pharmacies.set(pharmaName, { name: pharmaName, areaName: s._areaName, qty: 0, value: 0 });
       const ph = it.pharmacies.get(pharmaName);
       ph.qty   += s.quantity;
       ph.value += iqdVal;
@@ -357,11 +206,11 @@ export async function itemDetail(req, res, next) {
 
     const sales = await getScopedSales(userId, fileIds);
 
-    const filteredRows = sales.filter(s => norm(s.item?.name || '').includes(itemQuery));
+    const filteredRows = sales.filter(s => s._normItem.includes(itemQuery));
 
     const rows = dedupCrossFile(
       filteredRows,
-      s => [norm(s.item?.name || ''), norm(s._pharmaName || ''), dayKey(s.saleDate), s.quantity, s.totalValue, s.recordType, norm(s.representative?.name || '')].join('|'),
+      s => [s._normItem, s._normPharma, s._day, s.quantity, s.totalValue, s.recordType, s._normRep].join('|'),
     );
 
     // Group by pharmacy
@@ -372,7 +221,7 @@ export async function itemDetail(req, res, next) {
       if (!byPharma.has(pharmaName)) {
         byPharma.set(pharmaName, {
           name: pharmaName,
-          areaName: s.area?.name || '',
+          areaName: s._areaName,
           repName: '',
           orders: [],
           totalQty: 0,
@@ -387,12 +236,12 @@ export async function itemDetail(req, res, next) {
         });
       }
       const p = byPharma.get(pharmaName);
-      const iqd2 = Math.round(toIQD(s.totalValue, s.uploadedFile));
-      const isReturn = s.recordType === 'return';
-      p.orders.push({ date: s.saleDate, qty: s.quantity, value: iqd2, rep: s.representative?.name || '', type: s.recordType });
+      const iqd2 = Math.round(s._iqd);
+      const isReturn = s._isReturn;
+      p.orders.push({ date: s.saleDate, qty: s.quantity, value: iqd2, rep: s._repName, type: s.recordType });
       p.totalQty   += s.quantity;
-      if (!p.areaName && s.area?.name) p.areaName = s.area.name;
-      if (!p.repName && s.representative?.name) p.repName = s.representative.name;
+      if (!p.areaName && s._areaName) p.areaName = s._areaName;
+      if (!p.repName && s._repName) p.repName = s._repName;
       if (isReturn) {
         p.returnQty   += s.quantity;
         p.returnValue += iqd2;
