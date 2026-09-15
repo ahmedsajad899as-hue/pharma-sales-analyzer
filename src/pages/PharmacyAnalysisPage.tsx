@@ -119,6 +119,12 @@ export default function PharmacyAnalysisPage() {
   const [selectedPharma, setSelectedPharma] = useState<string | null>(null);
   const [expandedRows, setExpandedRows]     = useState<Set<string>>(new Set());
 
+  // تجميع «الايتم»: صفوف كل ايتم تُجلب عند فتح المجموعة فقط. الصيدلية الواحدة
+  // تشتري عشرات الايتمات، فتحميل كل أزواج (صيدلية × ايتم) دفعةً واحدة يعني
+  // عشرات آلاف الصفوف في استجابة واحدة — لذا التحميل عند الطلب.
+  const [itemGroupRows, setItemGroupRows]       = useState<Record<string, PharmacySummary[]>>({});
+  const [itemGroupLoading, setItemGroupLoading] = useState<Set<string>>(new Set());
+
   // Sort
   const [pharmaSortCol, setPharmaSortCol] = useState<string | null>(null);
   const [pharmaSortDir, setPharmaSortDir] = useState<'asc' | 'desc'>('asc');
@@ -277,6 +283,26 @@ export default function PharmacyAnalysisPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // تجميع «الايتم» يبني مجموعاته من قائمة الايتمات نفسها (تبويب الايتمات)
+  useEffect(() => {
+    if (groupBy === 'item' && items.length === 0 && !itemsLoading) loadItems('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupBy]);
+
+  // مجموعات الايتمات تبدأ مطوية — صفوف كل مجموعة تُجلب عند فتحها
+  useEffect(() => {
+    setCollapsedGroups(groupBy === 'item' ? new Set(items.map(i => i.name)) : new Set());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupBy, items.length]);
+
+  // تغيّر اختيار الملفات ⇒ الصفوف المحمّلة لكل ايتم لم تعد صالحة. تُطوى
+  // المجموعات أيضاً وإلا بقيت مجموعة مفتوحة بلا صفوف ولا إعادة جلب.
+  useEffect(() => {
+    setItemGroupRows({});
+    if (groupBy === 'item') setCollapsedGroups(new Set(items.map(i => i.name)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileIdsParam]);
+
   const openPharma = (name: string) => {
     setSelectedPharma(name); setPharmaDetailLoading(true);
     fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(name)}${fileQuery}`, { headers })
@@ -293,7 +319,40 @@ export default function PharmacyAnalysisPage() {
   const onPharmaSearch = (v: string) => { setPharmaSearch(v); clearTimeout(searchTimer.current); searchTimer.current = setTimeout(() => loadPharmacies(v), 350); };
   const onItemSearch   = (v: string) => { setItemSearch(v);   clearTimeout(searchTimer.current); searchTimer.current = setTimeout(() => loadItems(v),    350); };
 
-  const toggleGroup = (key: string) => setCollapsedGroups(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+  // صيدليات ايتم واحد — نفس مصدر تبويب «الايتمات» (بلا سقف على عدد الصيدليات).
+  const loadItemGroup = useCallback((itemName: string) => {
+    setItemGroupLoading(prev => { const s = new Set(prev); s.add(itemName); return s; });
+    fetch(`${API}/api/pharmacy-analysis/item/${encodeURIComponent(itemName)}${fileQuery}`, { headers })
+      .then(r => r.json())
+      .then(d => {
+        const now = Date.now();
+        const rows: PharmacySummary[] = (d.pharmacies || []).map((ph: any) => ({
+          name:          ph.name,
+          areaName:      ph.areaName || '',
+          repName:       ph.repName || '',
+          totalOrders:   ph.orderCount ?? 0,
+          totalQty:      ph.saleQty ?? 0,
+          totalValue:    Math.round(ph.saleValue ?? 0),
+          returnsQty:    ph.returnQty ?? 0,
+          returnsValue:  Math.round(ph.returnValue ?? 0),
+          firstOrder:    ph.firstOrder ?? null,
+          lastOrder:     ph.lastOrder ?? null,
+          itemCount:     1,
+          daysSinceLast: ph.lastOrder ? Math.floor((now - new Date(ph.lastOrder).getTime()) / 86400000) : 9999,
+          topItems:      [{ name: itemName, qty: ph.totalQty ?? 0, value: Math.round(ph.totalValue ?? 0), count: ph.orders?.length ?? 0 }],
+        }));
+        setItemGroupRows(prev => ({ ...prev, [itemName]: rows }));
+      })
+      .catch(() => {})
+      .finally(() => setItemGroupLoading(prev => { const s = new Set(prev); s.delete(itemName); return s; }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileQuery, token]);
+
+  const toggleGroup = (key: string) => {
+    const wasCollapsed = collapsedGroups.has(key);
+    setCollapsedGroups(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+    if (wasCollapsed && groupBy === 'item' && !itemGroupRows[key] && !itemGroupLoading.has(key)) loadItemGroup(key);
+  };
   const toggleRow   = (key: string) => setExpandedRows(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
 
   const filteredAlerts = alerts.filter(a => {
@@ -322,9 +381,9 @@ export default function PharmacyAnalysisPage() {
   const sortArrow = (col: string, activeCol: string | null, dir: 'asc' | 'desc') =>
     activeCol === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '';
 
-  const sortedPharmacies: PharmacySummary[] = (() => {
-    if (!pharmaSortCol) return pharmacies;
-    return [...pharmacies].sort((a, b) => {
+  const sortPharmacyRows = (list: PharmacySummary[]): PharmacySummary[] => {
+    if (!pharmaSortCol) return list;
+    return [...list].sort((a, b) => {
       let av: any, bv: any;
       if      (pharmaSortCol === 'name')   { av = a.name;            bv = b.name; }
       else if (pharmaSortCol === 'area')   { av = a.areaName || '';  bv = b.areaName || ''; }
@@ -339,7 +398,9 @@ export default function PharmacyAnalysisPage() {
       if (typeof av === 'string') return pharmaSortDir === 'asc' ? av.localeCompare(bv, 'ar') : bv.localeCompare(av, 'ar');
       return pharmaSortDir === 'asc' ? av - bv : bv - av;
     });
-  })();
+  };
+
+  const sortedPharmacies: PharmacySummary[] = sortPharmacyRows(pharmacies);
 
   const sortedItems: ItemSummary[] = (() => {
     if (!itemSortCol) return items;
@@ -387,21 +448,37 @@ export default function PharmacyAnalysisPage() {
   })();
 
   // ── Group pharmacies ─────────────────────────────────────────
-  type Group = { key: string; label: string; rows: PharmacySummary[] };
+  type Group = { key: string; label: string; rows: PharmacySummary[]; count: number; lazy?: boolean };
   const grouped: Group[] = (() => {
-    if (groupBy === 'none') return [{ key: '__all__', label: '', rows: sortedPharmacies }];
+    if (groupBy === 'none') return [{ key: '__all__', label: '', rows: sortedPharmacies, count: sortedPharmacies.length }];
+
+    // تجميع «الايتم» مختلف جوهرياً عن البقية: الصيدلية تشتري ايتمات كثيرة، فلا
+    // يصحّ وضعها في مجموعة واحدة. (كان يضعها تحت ايتمها الأعلى مبيعاً فقط، فتبدو
+    // بقية صيدليات الايتم «مفقودة».) هنا المجموعة = ايتم، وصفوفها = كل صيدلياته
+    // بأرقام ذلك الايتم وحده، تُجلب عند فتح المجموعة.
+    if (groupBy === 'item') {
+      const q = pharmaSearch.trim().toLowerCase();
+      return sortedItems.map(it => {
+        const loaded = itemGroupRows[it.name];
+        if (!loaded) return { key: it.name, label: it.name, rows: [], count: it.pharmacyCount, lazy: true };
+        const visible = q
+          ? loaded.filter(r => r.name.toLowerCase().includes(q) || (r.areaName || '').toLowerCase().includes(q))
+          : loaded;
+        return { key: it.name, label: it.name, rows: sortPharmacyRows(visible), count: visible.length, lazy: true };
+      });
+    }
+
     const map = new Map<string, PharmacySummary[]>();
     for (const p of sortedPharmacies) {
       let key: string;
       if (groupBy === 'area')   key = p.areaName?.trim() || 'غير محدد';
       else if (groupBy === 'rep')  key = p.repName?.trim() || 'غير محدد';
-      else if (groupBy === 'item') key = p.topItems[0]?.name?.trim() || 'غير محدد';
       else if (groupBy === 'date') key = p.lastOrder ? new Date(p.lastOrder).toLocaleDateString('ar-IQ', { year: 'numeric', month: 'long' }) : 'غير محدد';
       else key = 'غير محدد';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(p);
     }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ar')).map(([k, rows]) => ({ key: k, label: k, rows }));
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ar')).map(([k, rows]) => ({ key: k, label: k, rows, count: rows.length }));
   })();
 
   // ─────────────────────────────────────────────────────────────
@@ -700,17 +777,21 @@ export default function PharmacyAnalysisPage() {
                           <td colSpan={11} style={{ padding: '7px 14px', fontWeight: 700, fontSize: 12, color: 'var(--c-accent)' }}>
                             {collapsedGroups.has(g.key) ? '▶' : '▼'}&nbsp;
                             {g.label}
-                            <span style={{ fontWeight: 400, color: 'var(--c-text-secondary)', marginRight: 8, fontSize: 11 }}>({g.rows.length} صيدلية)</span>
+                            <span style={{ fontWeight: 400, color: 'var(--c-text-secondary)', marginRight: 8, fontSize: 11 }}>({g.count} صيدلية)</span>
+                            {itemGroupLoading.has(g.key) && <span style={{ fontWeight: 400, color: 'var(--c-text-muted)', marginRight: 8, fontSize: 11 }}>… جارٍ التحميل</span>}
                           </td>
                         </tr>
                       )}
                       {/* Rows */}
                       {!collapsedGroups.has(g.key) && g.rows.map((p, i) => {
                         const dc = dayColor(p.daysSinceLast);
-                        const expanded = expandedRows.has(p.name);
+                        // الصيدلية نفسها تتكرر عبر مجموعات ايتمات مختلفة — فمفتاح
+                        // الصف (والتوسيع) يجب أن يشمل المجموعة، وإلا انفتحت نسخها كلها معاً.
+                        const rowKey = `${g.key}|${p.name}`;
+                        const expanded = expandedRows.has(rowKey);
                         return (
                           <>
-                            <tr key={p.name}
+                            <tr key={rowKey}
                               style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)', cursor: 'pointer', transition: 'background .1s' }}
                               onMouseOver={e => (e.currentTarget as HTMLElement).style.background = 'var(--c-accent-light)'}
                               onMouseOut={e  => (e.currentTarget as HTMLElement).style.background  = i % 2 === 0 ? '#fff' : 'var(--c-bg)'}
@@ -734,13 +815,13 @@ export default function PharmacyAnalysisPage() {
                               <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>
                                 <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700, fontSize: 11 }}>{p.daysSinceLast}</span>
                               </td>
-                              <td style={{ ...TD, textAlign: 'center' }} onClick={() => toggleRow(p.name)}>
+                              <td style={{ ...TD, textAlign: 'center' }} onClick={() => toggleRow(rowKey)}>
                                 <span style={{ fontSize: 10, color: 'var(--c-text-muted)', cursor: 'pointer' }}>{expanded ? '▲' : '▼'}</span>
                               </td>
                             </tr>
                             {/* Expanded: top items as small chips */}
                             {expanded && (
-                              <tr key={`exp-${p.name}`} style={{ background: 'var(--c-bg)' }}>
+                              <tr key={`exp-${rowKey}`} style={{ background: 'var(--c-bg)' }}>
                                 <td colSpan={11} style={{ padding: '8px 16px', borderBottom: '1px solid var(--c-border)' }}>
                                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                                     <span style={{ fontSize: 11, color: 'var(--c-text-secondary)', fontWeight: 600 }}>الايتمات:</span>
@@ -779,6 +860,11 @@ export default function PharmacyAnalysisPage() {
                   ))}
                   {pharmacies.length === 0 && (
                     <tr><td colSpan={11} style={{ textAlign: 'center', padding: 40, color: 'var(--c-text-muted)', fontSize: 13 }}>لا توجد بيانات. ارفع ملفات مبيعات أولاً.</td></tr>
+                  )}
+                  {pharmacies.length > 0 && groupBy === 'item' && grouped.length === 0 && (
+                    <tr><td colSpan={11} style={{ textAlign: 'center', padding: 30, color: 'var(--c-text-muted)', fontSize: 13 }}>
+                      {itemsLoading ? 'جارٍ تحميل الايتمات…' : 'لا توجد ايتمات لعرضها'}
+                    </td></tr>
                   )}
                 </tbody>
               </table>

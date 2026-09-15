@@ -204,7 +204,9 @@ export async function listPharmacies(req, res, next) {
       firstOrder:    p.firstOrder,
       lastOrder:     p.lastOrder,
       itemCount:     p.items.size,
-      daysSinceLast: p.firstOrder ? Math.floor((now - new Date(p.firstOrder).getTime()) / 86400000) : 9999,
+      // كان يُحسب من firstOrder — فيظهر عمود «الأيام» 174 يوماً لصيدلية آخر
+      // طلبية لها قبل 16 يوماً، ويُلوّن صيدليات نشطة بالأحمر.
+      daysSinceLast: p.lastOrder ? Math.floor((now - new Date(p.lastOrder).getTime()) / 86400000) : 9999,
       topItems: [...p.items.entries()]
         .sort((a, b) => b[1].qty - a[1].qty)
         .slice(0, 5)
@@ -348,11 +350,16 @@ export async function itemDetail(req, res, next) {
         byPharma.set(pharmaName, {
           name: pharmaName,
           areaName: s.area?.name || '',
+          repName: '',
           orders: [],
           totalQty: 0,
           saleQty: 0,
           returnQty: 0,
           totalValue: 0,
+          saleValue: 0,
+          returnValue: 0,
+          orderCount: 0,
+          firstOrder: null,
           lastOrder: s.saleDate,
         });
       }
@@ -361,7 +368,17 @@ export async function itemDetail(req, res, next) {
       const isReturn = s.recordType === 'return';
       p.orders.push({ date: s.saleDate, qty: s.quantity, value: iqd2, rep: s.representative?.name || '', type: s.recordType });
       p.totalQty   += s.quantity;
-      if (isReturn) p.returnQty += s.quantity; else p.saleQty += s.quantity;
+      if (!p.areaName && s.area?.name) p.areaName = s.area.name;
+      if (!p.repName && s.representative?.name) p.repName = s.representative.name;
+      if (isReturn) {
+        p.returnQty   += s.quantity;
+        p.returnValue += iqd2;
+      } else {
+        p.saleQty     += s.quantity;
+        p.saleValue   += iqd2;
+        p.orderCount++;
+        if (!p.firstOrder || new Date(s.saleDate) < new Date(p.firstOrder)) p.firstOrder = s.saleDate;
+      }
       p.totalValue += iqd2;
       if (new Date(s.saleDate) > new Date(p.lastOrder)) p.lastOrder = s.saleDate;
     }
