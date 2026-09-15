@@ -31,6 +31,51 @@ async function resolveFileScope(userId, fileIds) {
   return { uploadedFileId: { in: verifiedIds } };
 }
 
+const SALE_DETAIL_SELECT = {
+  id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
+  customer:       { select: { id: true, name: true } },
+  area:           { select: { id: true, name: true } },
+  item:           { select: { id: true, name: true } },
+  representative: { select: { id: true, name: true } },
+  uploadedFile:   { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
+  rawData: true,
+};
+
+// كل تبويب في الصفحة (الصيدليات/الايتمات) وكل فتح تفصيل صيدلية/ايتم كانا
+// يعيدون نفس استعلام المبيعات الكامل للنطاق من الصفر — بما فيه فحص صلاحية
+// الملفات و buildItemScopeFilter (الذي بدوره قد يجلب *كل* صفوف Item) — ثم
+// يعيدون معالجتها بالكامل في JS (parse + تطبيع + dedup) في كل نقرة. هذا ما
+// كان يُشعِر بالبطء عند التنقل بين الصيدليات/المناطق وفتح التفاصيل. الآن
+// تُخزَّن نتيجة الجلب (قبل التجميع الخاص بكل تبويب) لمدة قصيرة لكل
+// (مستخدم × اختيار ملفات) — فالنقرات المتتالية على نفس الاختيار تصيب
+// الكاش بدل تكرار كل الاستعلامات، بلا أي تغيير في منطق dedup/التجميع نفسه.
+const SALES_CACHE_TTL_MS = 15000;
+const salesCache = new Map(); // `${userId}|${fileIds}` -> { expiresAt, promise }
+
+async function getScopedSales(userId, fileIds) {
+  const key = `${userId}|${fileIds || ''}`;
+  const hit = salesCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.promise;
+
+  const promise = (async () => {
+    const [itemScope, fileScope] = await Promise.all([
+      buildItemScopeFilter(userId),
+      resolveFileScope(userId, fileIds),
+    ]);
+    return prisma.sale.findMany({
+      where: { isHidden: false, ...fileScope, ...itemScope },
+      select: SALE_DETAIL_SELECT,
+      orderBy: { saleDate: 'desc' },
+    });
+  })();
+
+  const entry = { expiresAt: Date.now() + SALES_CACHE_TTL_MS, promise };
+  salesCache.set(key, entry);
+  promise.catch(() => salesCache.delete(key)); // لا تُخزَّن نتيجة فاشلة
+  setTimeout(() => { if (salesCache.get(key) === entry) salesCache.delete(key); }, SALES_CACHE_TTL_MS + 2000);
+  return promise;
+}
+
 // Convert stored value to IQD (multiply by exchangeRate if file currency is USD)
 function toIQD(value, uploadedFile) {
   if (!uploadedFile) return value || 0;
@@ -43,26 +88,10 @@ function toIQD(value, uploadedFile) {
 export async function listPharmacies(req, res, next) {
   try {
     const userId  = req.user.id;
-    const itemScope = await buildItemScopeFilter(userId);
     const fileIds = req.query.fileIds || null;
     const search  = req.query.search ? norm(req.query.search) : null;
 
-    const sales = await prisma.sale.findMany({
-      where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
-      select: {
-        id: true,
-        quantity: true,
-        totalValue: true,
-        saleDate: true,
-        recordType: true,
-        customer:     { select: { id: true, name: true } },
-        area:         { select: { id: true, name: true } },
-        item:         { select: { id: true, name: true } },
-        representative: { select: { id: true, name: true } },
-        uploadedFile: { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
-        rawData:  true,
-      },
-    });
+    const sales = await getScopedSales(userId, fileIds);
 
     // Group by pharmacy name (from customer or rawData)
     const map = new Map(); // pharmacyName → { ... }
@@ -164,25 +193,11 @@ export async function listPharmacies(req, res, next) {
 export async function pharmacyDetail(req, res, next) {
   try {
     const userId      = req.user.id;
-    // ايتمات المستخدم المعيّنة (فارغة = الكل) — تُقيّد المبيع والإرجاع المعروضين
-    const itemScope   = await buildItemScopeFilter(userId);
     const pharmaQuery = norm(req.params.name);
     const fileIds     = req.query.fileIds || null;
     const itemFilter  = req.query.item ? norm(req.query.item) : null;
 
-    const sales = await prisma.sale.findMany({
-      where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
-      select: {
-        id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
-        customer:     { select: { id: true, name: true } },
-        area:         { select: { id: true, name: true } },
-        item:         { select: { id: true, name: true } },
-        representative: { select: { id: true, name: true } },
-        uploadedFile: { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
-        rawData: true,
-      },
-      orderBy: { saleDate: 'desc' },
-    });
+    const sales = await getScopedSales(userId, fileIds);
 
     const rows = sales.filter(s => {
       let pharmaName = s.customer?.name;
@@ -250,21 +265,10 @@ export async function pharmacyDetail(req, res, next) {
 export async function listItems(req, res, next) {
   try {
     const userId  = req.user.id;
-    const itemScope = await buildItemScopeFilter(userId);
     const fileIds = req.query.fileIds || null;
     const search  = req.query.search ? norm(req.query.search) : null;
 
-    const sales = await prisma.sale.findMany({
-      where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
-      select: {
-        quantity: true, totalValue: true, saleDate: true,
-        item:         { select: { id: true, name: true } },
-        customer:     { select: { id: true, name: true } },
-        area:         { select: { id: true, name: true } },
-        uploadedFile: { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
-        rawData:  true,
-      },
-    });
+    const sales = await getScopedSales(userId, fileIds);
 
     const map = new Map(); // itemName → { pharmacies, totalQty, totalValue, ... }
     const seenItemSales = new Set();
@@ -322,21 +326,8 @@ export async function itemDetail(req, res, next) {
     const userId     = req.user.id;
     const itemQuery  = norm(req.params.name);
     const fileIds    = req.query.fileIds || null;
-    const itemScope  = await buildItemScopeFilter(userId);
 
-    const sales = await prisma.sale.findMany({
-      where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
-      select: {
-        id: true, quantity: true, totalValue: true, saleDate: true, recordType: true,
-        item:           { select: { id: true, name: true } },
-        customer:       { select: { id: true, name: true } },
-        area:           { select: { id: true, name: true } },
-        representative: { select: { id: true, name: true } },
-        uploadedFile:   { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
-        rawData: true,
-      },
-      orderBy: { saleDate: 'desc' },
-    });
+    const sales = await getScopedSales(userId, fileIds);
 
     const filteredRows = sales.filter(s => norm(s.item?.name || '').includes(itemQuery));
 
