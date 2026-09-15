@@ -378,6 +378,9 @@ model Sale {
   @@index([saleDate])
   @@index([userId])
   @@index([isHidden])
+  // العمود الذي تفلتر به فعلياً كل صفحات التحليل (uploadedFileId + isHidden)
+  // كان بلا فهرس، فكان كل طلب يمسح جدول المبيعات كاملاً.
+  @@index([uploadedFileId, isHidden])
   @@map("sales")
 }
 

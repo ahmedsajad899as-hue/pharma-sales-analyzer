@@ -39,7 +39,6 @@ const SALE_DETAIL_SELECT = {
   item:           { select: { id: true, name: true } },
   representative: { select: { id: true, name: true } },
   uploadedFile:   { select: { currencyMode: true, exchangeRate: true, detectedCurrency: true } },
-  rawData: true,
 };
 
 const dayKey = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
@@ -96,19 +95,36 @@ async function getScopedSales(userId, fileIds) {
       buildItemScopeFilter(userId),
       resolveFileScope(userId, fileIds),
     ]);
+    const where = { isHidden: false, ...fileScope, ...itemScope };
     const sales = await prisma.sale.findMany({
-      where: { isHidden: false, ...fileScope, ...itemScope },
+      where,
       select: SALE_DETAIL_SELECT,
       orderBy: { saleDate: 'desc' },
     });
-    // اسم الصيدلية (customer.name → أول حقل مطابق داخل rawData) يُحسَب مرة واحدة
-    // هنا بدل أن يُعاد حسابه (parse + سلسلة ||) لكل صف في كل مسار استهلاك —
-    // كان pharmacyDetail وحده يحسبه مرتين لكل صف (فلترة ثم تعيين).
+
+    // rawData = صف الإكسل الأصلي كاملاً كـJSON لكل صف. على ملف بـ48 ألف صف هو
+    // أضخم ما يُنقل من قاعدة البيانات في كل طلب، ولا يُستعمل إلا كخطة بديلة
+    // لاسم الصيدلية حين لا يكون للصف عميل مرتبط. فنجلبه لتلك الصفوف وحدها —
+    // وفي ملف يُقرأ فيه عمود العميل صحيحاً لا يُجلب إطلاقاً.
+    // (customerId=null هو نفس شرط الخطة البديلة عملياً: findOrCreateCustomer
+    // لا يُستدعى إلا باسم غير فارغ، فلا وجود لعميل بلا اسم.)
+    let rawById = null;
+    if (sales.some(s => !s.customer?.name)) {
+      const rawRows = await prisma.sale.findMany({
+        where:  { ...where, customerId: null },
+        select: { id: true, rawData: true },
+      });
+      rawById = new Map(rawRows.map(r => [r.id, r.rawData]));
+    }
+
+    // اسم الصيدلية يُحسَب مرة واحدة هنا بدل أن يُعاد حسابه (parse + سلسلة ||)
+    // لكل صف في كل مسار استهلاك — كان pharmacyDetail وحده يحسبه مرتين لكل صف.
     for (const s of sales) {
       let pharmaName = s.customer?.name || null;
-      if (!pharmaName && s.rawData) {
+      const rawJson = pharmaName ? null : rawById?.get(s.id);
+      if (rawJson) {
         try {
-          const raw = JSON.parse(s.rawData);
+          const raw = JSON.parse(rawJson);
           pharmaName = raw.pharmacyName || raw.pharmacy || raw.customer || raw.Customer || raw['اسم الصيدلية'] || raw['الصيدلية'] || raw['العميل'] || null;
         } catch {}
       }
