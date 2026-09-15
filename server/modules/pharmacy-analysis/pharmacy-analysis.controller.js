@@ -8,7 +8,9 @@ export async function listPharmacies(req, res, next) {
     const fileIds = req.query.fileIds || null;
     const search  = req.query.search ? norm(req.query.search) : null;
 
+    const tStart = Date.now();
     const sales = await getScopedSales(userId, fileIds);
+    const tLoad = Date.now();
 
     // Group by pharmacy name (from customer or rawData)
     const map = new Map(); // pharmacyName → { ... }
@@ -19,6 +21,7 @@ export async function listPharmacies(req, res, next) {
       sales.filter(s => s._pharmaName),
       s => [s._normPharma, s._normItem, s._day, s.quantity, s.totalValue, s.recordType || 'sale'].join('|'),
     );
+    const tDedup = Date.now();
 
     for (const s of deduped) {
       const pharmaName = s._pharmaName;
@@ -72,6 +75,7 @@ export async function listPharmacies(req, res, next) {
       }
     }
 
+    const tAgg = Date.now();
     const now = Date.now();
     const result = [...map.values()].map(p => ({
       name:          p.name,
@@ -94,7 +98,10 @@ export async function listPharmacies(req, res, next) {
         .map(([name, d]) => ({ name, qty: d.qty, value: Math.round(d.value), count: d.count })),
     })).sort((a, b) => b.totalValue - a.totalValue);
 
-    res.json({ pharmacies: result, total: result.length });
+    const payload = JSON.stringify({ pharmacies: result, total: result.length });
+    const tDone = Date.now();
+    console.log(`[pharmacy-net:list] load=${tLoad - tStart}ms dedup=${tDedup - tLoad}ms agg=${tAgg - tDedup}ms build+json=${tDone - tAgg}ms payload=${Math.round(payload.length / 1024)}KB pharmacies=${result.length}`);
+    res.type('application/json').send(payload);
   } catch (e) { next(e); }
 }
 
