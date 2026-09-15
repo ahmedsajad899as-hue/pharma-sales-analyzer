@@ -2697,20 +2697,16 @@ app.post('/api/files/:id/sync-assignments', async (req, res) => {
       sales.map(s => [`${s.representativeId}-${s.itemId}`, { representativeId: s.representativeId, itemId: s.itemId }])
     ).values()];
 
-    const [areas, items] = await Promise.all([
-      Promise.all(repAreaPairs.map(p => prisma.representativeArea.upsert({
-        where:  { representativeId_areaId: p },
-        update: {},
-        create: p,
-      }))),
-      Promise.all(repItemPairs.map(p => prisma.representativeItem.upsert({
-        where:  { representativeId_itemId: p },
-        update: {},
-        create: p,
-      }))),
+    await Promise.all([
+      repAreaPairs.length > 0
+        ? prisma.representativeArea.createMany({ data: repAreaPairs, skipDuplicates: true })
+        : Promise.resolve(),
+      repItemPairs.length > 0
+        ? prisma.representativeItem.createMany({ data: repItemPairs, skipDuplicates: true })
+        : Promise.resolve(),
     ]);
 
-    res.json({ success: true, assignedAreas: areas.length, assignedItems: items.length });
+    res.json({ success: true, assignedAreas: repAreaPairs.length, assignedItems: repItemPairs.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -587,16 +587,12 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
   ).values()];
 
   await Promise.all([
-    ...repAreaPairs.map(p => prisma.representativeArea.upsert({
-      where:  { representativeId_areaId: p },
-      update: {},
-      create: p,
-    })),
-    ...repItemPairs.map(p => prisma.representativeItem.upsert({
-      where:  { representativeId_itemId: p },
-      update: {},
-      create: p,
-    })),
+    repAreaPairs.length > 0
+      ? prisma.representativeArea.createMany({ data: repAreaPairs, skipDuplicates: true })
+      : Promise.resolve(),
+    repItemPairs.length > 0
+      ? prisma.representativeItem.createMany({ data: repItemPairs, skipDuplicates: true })
+      : Promise.resolve(),
   ]);
 
   return {
@@ -1151,8 +1147,25 @@ async function buildAreaProvinceMap(validRows) {
   return out;
 }
 
+// Runs `fn` over `items` with at most `limit` in flight at once — unbounded
+// Promise.all over hundreds of unique names (one Postgres round-trip each)
+// starves the connection pool (connection_limit=3 on the small VPS) and
+// times out with "Timed out fetching a new connection from the pool".
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 async function resolveEntities(names, upsertFn) {
-  const entries = await Promise.all(names.map(async name => [name, (await upsertFn(name)).id]));
+  const entries = await mapWithConcurrency(names, 3, async name => [name, (await upsertFn(name)).id]);
   return Object.fromEntries(entries);
 }
 
@@ -1611,8 +1624,12 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
   const repAreaPairs = [...new Map(validRows.map(r => [`${repMap[r.repName]}-${areaMap[r.area]}`, { representativeId: repMap[r.repName], areaId: areaMap[r.area] }])).values()];
   const repItemPairs = [...new Map(validRows.map(r => [`${repMap[r.repName]}-${itemMap[r.item]}`, { representativeId: repMap[r.repName], itemId: itemMap[r.item] }])).values()];
   await Promise.all([
-    ...repAreaPairs.map(p => prisma.representativeArea.upsert({ where: { representativeId_areaId: p }, update: {}, create: p })),
-    ...repItemPairs.map(p => prisma.representativeItem.upsert({ where: { representativeId_itemId: p }, update: {}, create: p })),
+    repAreaPairs.length > 0
+      ? prisma.representativeArea.createMany({ data: repAreaPairs, skipDuplicates: true })
+      : Promise.resolve(),
+    repItemPairs.length > 0
+      ? prisma.representativeItem.createMany({ data: repItemPairs, skipDuplicates: true })
+      : Promise.resolve(),
   ]);
 
   // ── 7ب. ربط المندوبين التجاريين الجدد بأي مندوب علمي مناطقه تتقاطع معهم ──
