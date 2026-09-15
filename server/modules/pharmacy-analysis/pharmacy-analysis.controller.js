@@ -42,23 +42,37 @@ const SALE_DETAIL_SELECT = {
   rawData: true,
 };
 
-// يمنع تكرار الصف نفسه عبر ملفات متداخلة (نفس الطلبية استُوردت في أكثر من
-// ملف) بلا إسقاط أي طلبية حقيقية داخل نفس الملف — حتى لو تطابقت قيمها مصادفة
-// مع صف آخر (شائع في بيانات B2B: نفس الكمية والسعر لطلبيتين منفصلتين حقاً).
-// كانت النسخة القديمة تُسقط أي صفّين متطابقَي القيم بصرف النظر عن الملف، ما
-// كان يُسقط عشرات آلاف الطلبيات الحقيقية من ملف واحد فقط (راجع memory:
-// "analysis dedup must keep intra-file duplicate orders, collapse only
-// cross-file overlap — pharmacy-analysis still naive").
-function makeCrossFileDedup() {
-  const seenFilesByKey = new Map(); // key -> Set<uploadedFileId>
-  return (key, fileId) => {
-    let files = seenFilesByKey.get(key);
-    if (!files) { files = new Set(); seenFilesByKey.set(key, files); }
-    if (files.has(fileId)) return true; // نفس الملف يكرر مفتاحاً سبق أن قدّمه — طلبية حقيقية أخرى، أبقِها
-    const isFirstEverForThisKey = files.size === 0;
-    files.add(fileId);
-    return isFirstEverForThisKey; // أول ظهور مطلقاً يُقبل، وإلا فهو تداخل ملف آخر فيُسقَط
-  };
+const dayKey = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+
+// إسقاط التكرار **عبر الملفات المتداخلة فقط** — نفس خوارزمية تقرير المندوبين
+// العلميين (scientific-reps.service.js) حرفياً، لئلا يختلف الرقمان.
+//
+// نجمع الصفوف بمفتاح مركّب، ثم لكل مفتاح نُبقي صفوف **الملف الذي يحتوي أكثر
+// عدد من التكرارات وحده**. هذا يطوي تداخل «ملف كل العراق + ملف المنطقة» ويُبقي
+// كل طلبية حقيقية مكررة داخل الملف الواحد — وبيانات الأدوية تكرر الكميات
+// المستديرة (10/50/100) لنفس الصيدلية في اليوم نفسه بشكل مشروع تماماً.
+//
+// كانت نسخة Pharmacy Net تُسقط أي صفّين متطابقَي القيم بصرف النظر عن الملف،
+// فتبتلع عشرات آلاف الطلبيات الحقيقية من ملف واحد بلا أي تداخل أصلاً.
+function dedupCrossFile(rows, keyOf) {
+  const keyToFileRows = new Map(); // key → Map(uploadedFileId → rows[])
+  for (const r of rows) {
+    const key = keyOf(r);
+    let fileMap = keyToFileRows.get(key);
+    if (!fileMap) { fileMap = new Map(); keyToFileRows.set(key, fileMap); }
+    const fid = r.uploadedFileId ?? 0;
+    const arr = fileMap.get(fid);
+    if (arr) arr.push(r); else fileMap.set(fid, [r]);
+  }
+  const kept = new Set();
+  for (const fileMap of keyToFileRows.values()) {
+    let best = null;
+    for (const fileRows of fileMap.values()) {
+      if (!best || fileRows.length > best.length) best = fileRows;
+    }
+    if (best) for (const r of best) kept.add(r);
+  }
+  return rows.filter(r => kept.has(r)); // يحافظ على ترتيب الإدخال (saleDate desc)
 }
 
 // كل تبويب في الصفحة (الصيدليات/الايتمات) وكل فتح تفصيل صيدلية/ايتم كانا
@@ -130,17 +144,15 @@ export async function listPharmacies(req, res, next) {
     // Group by pharmacy name (from customer or rawData)
     const map = new Map(); // pharmacyName → { ... }
 
-    // Deduplicate: same row appearing in multiple overlapping uploaded files
-    // (never within the same file — see makeCrossFileDedup)
-    const keepRow = makeCrossFileDedup();
+    // التكرار يُطوى عبر الملفات المتداخلة فقط — قبل البحث، ليبقى القرار عالمياً
+    // لا محصوراً بنتيجة البحث الحالية.
+    const deduped = dedupCrossFile(
+      sales.filter(s => s._pharmaName),
+      s => [norm(s._pharmaName), norm(s.item?.name || ''), dayKey(s.saleDate), s.quantity, s.totalValue, s.recordType || 'sale'].join('|'),
+    );
 
-    for (const s of sales) {
+    for (const s of deduped) {
       const pharmaName = s._pharmaName;
-      if (!pharmaName) continue;
-
-      const dedupKey = [norm(pharmaName), norm(s.item?.name || ''), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue, s.recordType || 'sale'].join('|');
-      if (!keepRow(dedupKey, s.uploadedFileId)) continue;
-
       const areaName = s.area?.name || '';
 
       if (search && !norm(pharmaName).includes(search) && !norm(areaName).includes(search)) continue;
@@ -251,12 +263,10 @@ export async function pharmacyDetail(req, res, next) {
 
     // Group by item
     const byItem = new Map();
-    // Deduplicate rows from multiple overlapping uploaded files (never within the same file)
-    const keepRow = makeCrossFileDedup();
-    const dedupedRows = rows.filter(r => {
-      const k = [norm(r.pharmaName), norm(r.itemName), r.saleDate ? new Date(r.saleDate).toISOString().slice(0, 10) : '', r.quantity, r.totalValue, r.recordType, norm(r.repName)].join('|');
-      return keepRow(k, r.uploadedFileId);
-    });
+    const dedupedRows = dedupCrossFile(
+      rows,
+      r => [norm(r.pharmaName), norm(r.itemName), dayKey(r.saleDate), r.quantity, r.totalValue, r.recordType, norm(r.repName)].join('|'),
+    );
     for (const r of dedupedRows) {
       if (!byItem.has(r.itemName)) byItem.set(r.itemName, { name: r.itemName, orders: [], totalQty: 0, totalValue: 0 });
       const b = byItem.get(r.itemName);
@@ -284,14 +294,13 @@ export async function listItems(req, res, next) {
     const sales = await getScopedSales(userId, fileIds);
 
     const map = new Map(); // itemName → { pharmacies, totalQty, totalValue, ... }
-    // Deduplicate rows from overlapping uploaded files (never within the same file)
-    const keepRow = makeCrossFileDedup();
-    for (const s of sales) {
+    const deduped = dedupCrossFile(
+      sales,
+      s => [norm(s.item?.name || 'غير محدد'), norm(s._pharmaName || ''), dayKey(s.saleDate), s.quantity, s.totalValue].join('|'),
+    );
+    for (const s of deduped) {
       const iName = s.item?.name || 'غير محدد';
       if (search && !norm(iName).includes(search)) continue;
-
-      const dedupKey = [norm(iName), norm(s._pharmaName || ''), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue].join('|');
-      if (!keepRow(dedupKey, s.uploadedFileId)) continue;
 
       const iqdVal = toIQD(s.totalValue, s.uploadedFile);
       if (!map.has(iName)) map.set(iName, { name: iName, pharmacies: new Map(), totalQty: 0, totalValue: 0, firstOrder: s.saleDate, lastOrder: s.saleDate });
@@ -334,12 +343,10 @@ export async function itemDetail(req, res, next) {
 
     const filteredRows = sales.filter(s => norm(s.item?.name || '').includes(itemQuery));
 
-    // Deduplicate rows from overlapping uploaded files (never within the same file)
-    const keepRow = makeCrossFileDedup();
-    const rows = filteredRows.filter(s => {
-      const k = [norm(s.item?.name || ''), norm(s._pharmaName || ''), s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '', s.quantity, s.totalValue, s.recordType, norm(s.representative?.name || '')].join('|');
-      return keepRow(k, s.uploadedFileId);
-    });
+    const rows = dedupCrossFile(
+      filteredRows,
+      s => [norm(s.item?.name || ''), norm(s._pharmaName || ''), dayKey(s.saleDate), s.quantity, s.totalValue, s.recordType, norm(s.representative?.name || '')].join('|'),
+    );
 
     // Group by pharmacy
     const byPharma = new Map();
