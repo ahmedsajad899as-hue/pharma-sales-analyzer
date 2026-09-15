@@ -48,33 +48,8 @@ export async function resolveFileScope(userId, fileIds) {
   return { uploadedFileId: { in: verifiedIds } };
 }
 
-// إسقاط التكرار **عبر الملفات المتداخلة فقط** — نفس خوارزمية تقرير المندوبين
-// العلميين (scientific-reps.service.js) حرفياً، لئلا يختلف الرقمان.
-//
-// نجمع الصفوف بمفتاح مركّب، ثم لكل مفتاح نُبقي صفوف **الملف الذي يحتوي أكثر
-// عدد من التكرارات وحده**. هذا يطوي تداخل «ملف كل العراق + ملف المنطقة» ويُبقي
-// كل طلبية حقيقية مكررة داخل الملف الواحد — وبيانات الأدوية تكرر الكميات
-// المستديرة (10/50/100) لنفس الصيدلية في اليوم نفسه بشكل مشروع تماماً.
-export function dedupCrossFile(rows, keyOf) {
-  const keyToFileRows = new Map(); // key → Map(uploadedFileId → rows[])
-  for (const r of rows) {
-    const key = keyOf(r);
-    let fileMap = keyToFileRows.get(key);
-    if (!fileMap) { fileMap = new Map(); keyToFileRows.set(key, fileMap); }
-    const fid = r.uploadedFileId ?? 0;
-    const arr = fileMap.get(fid);
-    if (arr) arr.push(r); else fileMap.set(fid, [r]);
-  }
-  const kept = new Set();
-  for (const fileMap of keyToFileRows.values()) {
-    let best = null;
-    for (const fileRows of fileMap.values()) {
-      if (!best || fileRows.length > best.length) best = fileRows;
-    }
-    if (best) for (const r of best) kept.add(r);
-  }
-  return rows.filter(r => kept.has(r)); // يحافظ على ترتيب الإدخال (saleDate desc)
-}
+// المنطق في server/lib/crossFileDedup.js — مشترك مع «تحليل الإيتم» وغيره.
+export { dedupCrossFile } from '../../lib/crossFileDedup.js';
 
 // أعمدة Sale وحدها بلا أي علاقة متشعّبة: طلب العلاقات عبر select المتشعّب يجعل
 // Prisma يبني لكل صف من الـ48 ألف كائناً متداخلاً لكل علاقة (خمسة كائنات

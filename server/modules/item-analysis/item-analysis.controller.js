@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { buildItemScopeFilter, resolveEffectiveItemIds } from '../../lib/itemScope.js';
+import { dedupCrossFile } from '../../lib/crossFileDedup.js';
 import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
 import { list as listScientificReps } from '../scientific-reps/scientific-reps.service.js';
 
@@ -331,6 +332,7 @@ export async function getItemAnalytics(req, res, next) {
       where: salesWhere,
       select: {
         quantity: true, totalValue: true, saleDate: true, recordType: true,
+        uploadedFileId: true,
         area:           { select: { name: true } },
         representative: { select: { name: true } },
         customer:       { select: { name: true } },
@@ -342,13 +344,9 @@ export async function getItemAnalytics(req, res, next) {
     const byArea = new Map(), byRep = new Map(), byPharmacy = new Map(), byMonth = new Map();
     let totalSalesQty = 0, totalSalesValue = 0, totalReturnsQty = 0, totalReturnsValue = 0;
     let firstSaleDate = null, lastSaleDate = null;
-    const dedup = new Set();
 
+    // اسم الصيدلية يُحسم قبل الدمج لأنه جزء من مفتاح المحتوى
     for (const s of sales) {
-      const iqd = toIQD(s.totalValue, s.uploadedFile);
-      const isReturn = s.recordType === 'return';
-
-      // Resolve pharmacy
       let pharma = s.customer?.name;
       if (!pharma && s.rawData) {
         try {
@@ -356,11 +354,22 @@ export async function getItemAnalytics(req, res, next) {
           pharma = r.pharmacyName || r.pharmacy || r.customer || r['اسم الصيدلية'] || r['الصيدلية'] || null;
         } catch {}
       }
-      pharma = pharma || 'غير محدد';
-      const dateKey = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '';
-      const dedupKey = [norm(pharma), dateKey, s.quantity, s.totalValue, s.recordType || 'sale'].join('|');
-      if (dedup.has(dedupKey)) continue;
-      dedup.add(dedupKey);
+      s._pharma  = pharma || 'غير محدد';
+      s._dateKey = s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : '';
+    }
+
+    // كان الدمج يُسقط كل تكرار لمفتاح واحد عالمياً، فيبتلع طلبيات حقيقية
+    // متطابقة القيم داخل الملف الواحد (نفس الخلل الذي كان في Pharmacy Net).
+    const deduped = dedupCrossFile(
+      sales,
+      s => [norm(s._pharma), s._dateKey, s.quantity, s.totalValue, s.recordType || 'sale'].join('|'),
+    );
+
+    for (const s of deduped) {
+      const iqd = toIQD(s.totalValue, s.uploadedFile);
+      const isReturn = s.recordType === 'return';
+      const pharma = s._pharma;
+      const dateKey = s._dateKey;
 
       if (isReturn) { totalReturnsQty += s.quantity; totalReturnsValue += iqd; }
       else {
