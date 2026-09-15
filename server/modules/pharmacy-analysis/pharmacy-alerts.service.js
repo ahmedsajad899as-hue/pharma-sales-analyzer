@@ -33,7 +33,9 @@ export async function computePharmacyAlerts(userId, opts = {}) {
 
   // نفس المُحمِّل المشترك مع تبويبَي الصيدليات والايتمات: استعلام واحد مخزَّن
   // مؤقتاً للنطاق بدل استعلام ثالث مستقل (كان يجلب rawData لكل صف أيضاً).
+  const tStart = Date.now();
   const sales = await getScopedSales(userId, fileIds);
+  const tLoad = Date.now();
 
   // التكرار يُطوى عبر الملفات المتداخلة فقط — كانت النسخة السابقة تُسقط أي
   // صفّين متطابقَي القيم ولو كانا طلبيتين حقيقيتين في الملف نفسه، فتنقص
@@ -43,6 +45,7 @@ export async function computePharmacyAlerts(userId, opts = {}) {
     s => [s._normPharma, s._normItem, s._day, s.quantity, s.totalValue].join('|'),
   );
 
+  const tDedup = Date.now();
   const map = new Map();
 
   for (const s of deduped) {
@@ -50,29 +53,39 @@ export async function computePharmacyAlerts(userId, opts = {}) {
     const pharmaName = s._pharmaName;
 
     const key = `${pharmaName}|||${iName}`;
-    if (!map.has(key)) {
-      map.set(key, {
+    let e = map.get(key);
+    if (!e) {
+      e = {
         pharmaName, itemName: iName,
         areaName: s._areaName, areaId: s.areaId ?? null,
-        lastOrder: s.saleDate, lastOrderQty: s.quantity, orderCount: 0,
-      });
+        lastOrder: s.saleDate, lastOrderTs: s._ts, lastOrderQty: s.quantity, orderCount: 0,
+      };
+      map.set(key, e);
     }
-    const e = map.get(key);
     e.orderCount++;
-    if (new Date(s.saleDate) > new Date(e.lastOrder)) {
+    if (s._ts > e.lastOrderTs) {
       e.lastOrder    = s.saleDate;
+      e.lastOrderTs  = s._ts;
       e.lastOrderQty = s.quantity;
       if (s.areaId) { e.areaId = s.areaId; e.areaName = s._areaName || e.areaName; }
     }
   }
+  const tGroup = Date.now();
 
   const now = Date.now();
-  return [...map.values()]
-    .map(e => ({
-      ...e,
+  const out = [];
+  for (const e of map.values()) {
+    const daysSinceLast = Math.floor((now - e.lastOrderTs) / 86400000);
+    if (daysSinceLast < thresholdDays) continue;
+    out.push({
+      pharmaName: e.pharmaName, itemName: e.itemName,
+      areaName: e.areaName, areaId: e.areaId,
+      lastOrder: e.lastOrder, lastOrderQty: e.lastOrderQty, orderCount: e.orderCount,
       totalQty: e.lastOrderQty,
-      daysSinceLast: Math.floor((now - new Date(e.lastOrder).getTime()) / 86400000),
-    }))
-    .filter(e => e.daysSinceLast >= thresholdDays)
-    .sort((a, b) => b.daysSinceLast - a.daysSinceLast);
+      daysSinceLast,
+    });
+  }
+  out.sort((a, b) => b.daysSinceLast - a.daysSinceLast);
+  console.log(`[pharmacy-net:alerts] load=${tLoad - tStart}ms dedup=${tDedup - tLoad}ms group=${tGroup - tDedup}ms build=${Date.now() - tGroup}ms pairs=${map.size} alerts=${out.length}`);
+  return out;
 }

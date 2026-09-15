@@ -171,6 +171,9 @@ export async function getScopedSales(userId, fileIds) {
       s._day        = dayKey(s.saleDate);
       s._iqd        = toIQD(s.totalValue, fileById.get(s.uploadedFileId));
       s._isReturn   = s.recordType === 'return';
+      // مقارنات التواريخ في حلقات التجميع كانت تُنشئ كائنَي Date لكل صف
+      // (‏new Date(a) > new Date(b)‎) — أي عشرات آلاف الكائنات لكل طلب.
+      s._ts         = s.saleDate ? s.saleDate.getTime() : 0;
     }
     const tDerive = Date.now();
 

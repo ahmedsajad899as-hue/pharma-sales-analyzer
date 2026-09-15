@@ -42,6 +42,8 @@ export async function listPharmacies(req, res, next) {
           returnsValue: 0,
           firstOrder: null,
           lastOrder: null,
+          firstTs: Infinity,
+          lastTs: -Infinity,
           items: new Map(), // itemName → { qty, value, count }
         });
       }
@@ -65,8 +67,8 @@ export async function listPharmacies(req, res, next) {
         p.totalOrders++;
         p.totalQty   += s.quantity;
         p.totalValue += iqd;
-        if (!p.firstOrder || new Date(s.saleDate) < new Date(p.firstOrder)) p.firstOrder = s.saleDate;
-        if (!p.lastOrder  || new Date(s.saleDate) > new Date(p.lastOrder))  p.lastOrder  = s.saleDate;
+        if (s._ts < p.firstTs) { p.firstTs = s._ts; p.firstOrder = s.saleDate; }
+        if (s._ts > p.lastTs)  { p.lastTs  = s._ts; p.lastOrder  = s.saleDate; }
         if (!p.items.has(iName)) p.items.set(iName, { qty: 0, value: 0, count: 0 });
         const ip = p.items.get(iName);
         ip.qty   += s.quantity;
@@ -91,7 +93,7 @@ export async function listPharmacies(req, res, next) {
       itemCount:     p.items.size,
       // كان يُحسب من firstOrder — فيظهر عمود «الأيام» 174 يوماً لصيدلية آخر
       // طلبية لها قبل 16 يوماً، ويُلوّن صيدليات نشطة بالأحمر.
-      daysSinceLast: p.lastOrder ? Math.floor((now - new Date(p.lastOrder).getTime()) / 86400000) : 9999,
+      daysSinceLast: p.lastOrder ? Math.floor((now - p.lastTs) / 86400000) : 9999,
       topItems: [...p.items.entries()]
         .sort((a, b) => b[1].qty - a[1].qty)
         .slice(0, 5)
@@ -175,12 +177,12 @@ export async function listItems(req, res, next) {
       if (search && !s._normItem.includes(search)) continue;
 
       const iqdVal = s._iqd;
-      if (!map.has(iName)) map.set(iName, { name: iName, pharmacies: new Map(), totalQty: 0, totalValue: 0, firstOrder: s.saleDate, lastOrder: s.saleDate });
+      if (!map.has(iName)) map.set(iName, { name: iName, pharmacies: new Map(), totalQty: 0, totalValue: 0, firstOrder: s.saleDate, lastOrder: s.saleDate, firstTs: s._ts, lastTs: s._ts });
       const it = map.get(iName);
       it.totalQty   += s.quantity;
       it.totalValue += iqdVal;
-      if (new Date(s.saleDate) < new Date(it.firstOrder)) it.firstOrder = s.saleDate;
-      if (new Date(s.saleDate) > new Date(it.lastOrder))  it.lastOrder  = s.saleDate;
+      if (s._ts < it.firstTs) { it.firstTs = s._ts; it.firstOrder = s.saleDate; }
+      if (s._ts > it.lastTs)  { it.lastTs  = s._ts; it.lastOrder  = s.saleDate; }
 
       const pharmaName = s._pharmaName || 'غير محدد';
 
@@ -239,7 +241,9 @@ export async function itemDetail(req, res, next) {
           returnValue: 0,
           orderCount: 0,
           firstOrder: null,
+          firstTs: Infinity,
           lastOrder: s.saleDate,
+          lastTs: s._ts,
         });
       }
       const p = byPharma.get(pharmaName);
@@ -256,16 +260,18 @@ export async function itemDetail(req, res, next) {
         p.saleQty     += s.quantity;
         p.saleValue   += iqd2;
         p.orderCount++;
-        if (!p.firstOrder || new Date(s.saleDate) < new Date(p.firstOrder)) p.firstOrder = s.saleDate;
+        if (s._ts < p.firstTs) { p.firstTs = s._ts; p.firstOrder = s.saleDate; }
       }
       p.totalValue += iqd2;
-      if (new Date(s.saleDate) > new Date(p.lastOrder)) p.lastOrder = s.saleDate;
+      if (s._ts > p.lastTs) { p.lastTs = s._ts; p.lastOrder = s.saleDate; }
     }
 
     res.json({
       itemName:     req.params.name,
       totalOrders:  rows.length,
-      pharmacies:   [...byPharma.values()].sort((a, b) => b.totalQty - a.totalQty),
+      pharmacies:   [...byPharma.values()]
+        .sort((a, b) => b.totalQty - a.totalQty)
+        .map(({ firstTs, lastTs, ...p }) => p), // حقول داخلية للمقارنة فقط
     });
   } catch (e) { next(e); }
 }
