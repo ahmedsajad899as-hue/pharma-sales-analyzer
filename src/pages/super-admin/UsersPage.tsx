@@ -156,6 +156,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftDisableActLog, setDraftDisableActLog] = useState(false);
   // إخفاء بصري من شجرة «الهيكلية» فقط — راجع perms.hiddenFromOrgChart في server/index.js
   const [draftHiddenOrgChart, setDraftHiddenOrgChart] = useState(false);
+  // الخانة (مبيعات/ارجاعات/صافي) التي تُفتح تلقائياً عند دخول صفحة التقارير والتحليل
+  const [draftDefaultReportView, setDraftDefaultReportView] = useState<'sales' | 'returns' | 'net'>('net');
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
   const [allAreasBusy,       setAllAreasBusy]       = useState(false);
 
@@ -308,7 +310,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         planMode: p.doctorFilterPlanMode || 'plan_and_all',
         surveyOnly: p.doctorFilterSurveyOnly === true,
       });
-    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftHiddenOrgChart(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); }
+      setDraftDefaultReportView(['sales', 'returns', 'net'].includes(p.defaultReportView) ? p.defaultReportView : 'net');
+    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftHiddenOrgChart(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); setDraftDefaultReportView('net'); }
   }, [detail?.id]);
 
   // طيّ افتراضي عند فتح مستخدم: نطوي كل مجموعة (محافظة أو «غير محدد») لا صلة لها
@@ -789,6 +792,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           doctorFilterByArea: draftDoctorFilter.byArea,
           doctorFilterPlanMode: draftDoctorFilter.planMode,
           doctorFilterSurveyOnly: draftDoctorFilter.surveyOnly,
+          defaultReportView: draftDefaultReportView,
         }),
       });
       if (!res.ok) {
@@ -2194,6 +2198,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       <SidebarBtn id="gps"           icon="📍" label="GPS / الموقع"  dot={{ color: draftRequireGps ? '#f97316' : '#22c55e' }} />
                       <SidebarBtn id="activity_log"  icon="🕵️" label="سجل الحركات"  dot={{ color: draftDisableActLog ? '#94a3b8' : '#22c55e' }} />
                       <SidebarBtn id="doctor_filter" icon="🔍" label="فلتر الأطباء"  dot={{ color: '#6366f1' }} />
+                      <SidebarBtn id="report_view"   icon="📊" label="عرض التقارير"  dot={{ color: '#0d9f6e' }} />
                       <SidebarBtn id="org_chart"     icon="🏗️" label="الهيكلية"      dot={{ color: draftHiddenOrgChart ? '#94a3b8' : '#22c55e' }} />
                     </div>
 
@@ -2413,6 +2418,34 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             <span style={{ position: 'absolute', inset: 0, background: draftDoctorFilter.surveyOnly ? '#6366f1' : '#e2e8f0', borderRadius: 24, transition: 'background 0.2s' }} />
                             <span style={{ position: 'absolute', top: 3, left: draftDoctorFilter.surveyOnly ? 23 : 3, width: 18, height: 18, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
                           </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Default Report View ── */}
+                  {featSection === 'report_view' && (
+                    <div>
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>📊 عرض التقارير الافتراضي</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>الخانة التي تظهر تلقائياً عند دخول صفحة «التقارير والتحليل» (تجاري أو علمي) واختيار مندوب</div>
+                      </div>
+
+                      <div style={{ borderRadius: 14, border: '2px solid #0d9f6e', background: '#ecfdf5', padding: '18px 20px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {[
+                            { value: 'sales'   as const, icon: '💰', label: 'مبيعات',      desc: 'يفتح على إجمالي المبيعات فقط' },
+                            { value: 'returns' as const, icon: '↩️', label: 'ارجاعات',      desc: 'يفتح على إجمالي المرتجعات فقط' },
+                            { value: 'net'     as const, icon: '⚖️', label: 'صافي (نت)',    desc: 'يفتح على صافي المبيعات بعد خصم الارجاعات (الافتراضي)' },
+                          ].map(opt => (
+                            <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', padding: '10px 12px', borderRadius: 10, background: draftDefaultReportView === opt.value ? '#fff' : 'transparent', border: draftDefaultReportView === opt.value ? '1px solid #6ee7b7' : '1px solid transparent' }}>
+                              <input type="radio" name="defaultReportView" value={opt.value} checked={draftDefaultReportView === opt.value} onChange={() => setDraftDefaultReportView(opt.value)} style={{ marginTop: 3, accentColor: '#0d9f6e' }} />
+                              <div>
+                                <div style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{opt.icon} {opt.label}</div>
+                                <div style={{ fontSize: 11, color: '#64748b' }}>{opt.desc}</div>
+                              </div>
+                            </label>
+                          ))}
                         </div>
                       </div>
                     </div>

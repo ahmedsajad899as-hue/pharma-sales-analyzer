@@ -39,6 +39,7 @@ interface AuthContextType {
   hasFeature: (key: string) => boolean;
   requiresGps: () => boolean;
   getDoctorFilterPlanMode: () => string;
+  getDefaultReportView: () => 'sales' | 'returns' | 'net';
   savedAccounts: SavedAccount[];
   switchAccount: (account: SavedAccount) => void;
   removeSavedAccount: (userId: number) => void;
@@ -209,8 +210,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch { return 'plan_and_all'; }
   };
 
+  // الخانة (مبيعات/ارجاعات/صافي) التي تُفتح تلقائياً عند دخول صفحة التقارير
+  // والتحليل — يضبطها السوبر أدمن لكل مستخدم من تعديلات المستخدمين. «net» هو
+  // السلوك الافتراضي القديم قبل إضافة هذا الإعداد.
+  const getDefaultReportView = (): 'sales' | 'returns' | 'net' => {
+    try {
+      const p = JSON.parse(user?.permissions || '{}');
+      return (['sales', 'returns', 'net'].includes(p.defaultReportView) ? p.defaultReportView : 'net');
+    } catch { return 'net'; }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, requiresGps, getDoctorFilterPlanMode, savedAccounts, switchAccount, removeSavedAccount }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, requiresGps, getDoctorFilterPlanMode, getDefaultReportView, savedAccounts, switchAccount, removeSavedAccount }}>
       {children}
     </AuthContext.Provider>
   );

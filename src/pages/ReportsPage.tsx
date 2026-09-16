@@ -672,7 +672,7 @@ const normReportName = (s: string) => s.trim()
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
 export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
-  const { token, user } = useAuth();
+  const { token, user, getDefaultReportView } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [mode, setMode]           = useState<Mode>(() => (sessionStorage.getItem('rpt_mode') as Mode) || 'scientific');
@@ -701,7 +701,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [error, setError]         = useState('');
   const [activeTab, setActiveTab] = useState<'area' | 'item' | 'rep'>('area');
   const [showInfoTags, setShowInfoTags] = useState(false);
-  const [reportView, setReportView] = useState<ReportView>(() => (sessionStorage.getItem('rpt_view') as ReportView) || 'sales');
+  const [reportView, setReportView] = useState<ReportView>(() => (sessionStorage.getItem('rpt_view') as ReportView) || getDefaultReportView());
   const [exporting, setExporting]           = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [selCommIds, setSelCommIds]           = useState<Set<number>>(new Set());
@@ -914,7 +914,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           ? (delta > 0 ? 0 : reps.length - 1)
           : (currIdx + delta + reps.length) % reps.length;
         const nextId = String(reps[nextIdx].id);
-        setReportView('net'); // كل مندوب جديد يفتح على «صافي (نت)» افتراضياً
+        setReportView(getDefaultReportView()); // الخانة الافتراضية لهذا المستخدم عند فتح مندوب جديد
         if (mode === 'commercial') { setCommRepId(nextId); loadCommReport(nextId); }
         else                       { setSciRepId(nextId);  loadSciReport(nextId);  }
         return;
@@ -1067,7 +1067,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (!salesRes.ok) throw new Error(salesJson.message || t.reports.errLoad);
       setCommReport(parseReport(salesJson.data ?? salesJson));
       setCommReturnsReport(returnsRes.ok ? parseReport(returnsJson.data ?? returnsJson) : null);
-      setReportView('net');
+      setReportView(getDefaultReportView());
       setActiveTab('area');
       setShowTargets(false);
       setTargetData([]);
@@ -1133,7 +1133,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (!salesRes.ok) throw new Error(salesJson.message || t.reports.errLoad);
       setSciReport(parseSciReport(salesJson.data ?? salesJson));
       setSciReturnsReport(returnsRes.ok ? parseSciReport(returnsJson.data ?? returnsJson) : null);
-      setReportView('net');
+      setReportView(getDefaultReportView());
       setActiveTab('area');
       setShowTargets(false);
       setTargetData([]);
@@ -2622,13 +2622,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {/* Rep / file selector */}
           {mode === 'commercial' ? (
             <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={commRepId}
-              onChange={e => { setCommRepId(e.target.value); if (e.target.value) { setReportView('net'); loadCommReport(e.target.value); } }}>
+              onChange={e => { setCommRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadCommReport(e.target.value); } }}>
               <option value="">-- {t.reports.selectCommRep} --</option>
               {commReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           ) : mode === 'scientific' ? (
             <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={sciRepId}
-              onChange={e => { setSciRepId(e.target.value); if (e.target.value) { setReportView('net'); loadSciReport(e.target.value); } }}>
+              onChange={e => { setSciRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadSciReport(e.target.value); } }}>
               <option value="">-- {t.reports.selectSciRep} --</option>
               <RepSelectOptions reps={sciReps} />
             </select>
