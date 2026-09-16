@@ -64,7 +64,7 @@ export async function visitsByArea(req, res, next) {
       const visits = overlay.bySurveyDocId.get(d.id) ?? overlay.byName.get(normArea(d.name)) ?? [];
       return {
         id: d.id, name: d.name, specialty: d.specialty ?? null,
-        pharmacyName: d.pharmacyName ?? null,
+        pharmacyName: d.pharmacyName ?? null, className: d.className ?? null,
         area: resolvedArea, targetItem: null, isActive: true, planEntries: [],
         visits,
       };
@@ -83,7 +83,7 @@ export async function visitsByArea(req, res, next) {
       const effectiveArea = d.area ?? d.planEntries?.[0]?.plan?.planAreas?.[0]?.area ?? null;
       const doc = {
         id: d.id, name: d.name, specialty: d.specialty,
-        pharmacyName: d.pharmacyName ?? null,
+        pharmacyName: d.pharmacyName ?? null, className: d.className ?? null,
         area: effectiveArea,
         targetItem: d.targetItem ?? null, isActive: d.isActive,
         visited, isWriting, visits: d.visits,

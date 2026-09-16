@@ -84,7 +84,7 @@ interface VisitRecord {
 }
 interface VisitDoctor {
   id: number; name: string; specialty?: string;
-  pharmacyName?: string;
+  pharmacyName?: string; className?: string | null;
   area?: { id: number; name: string };
   targetItem?: Item; isActive: boolean;
   visited: boolean; isWriting: boolean;
@@ -1132,7 +1132,7 @@ export default function DoctorsPage() {
     finally { setNewDocSaving(false); }
   };
 
-  const openEditDoc = (doc: ArchiveDoctor) => {
+  const openEditDoc = (doc: Pick<ArchiveDoctor, 'surveyDoctorId' | 'name' | 'specialty' | 'areaName' | 'pharmacyName' | 'className'>) => {
     setEditDocId(doc.surveyDoctorId);
     setEditDocName(doc.name);
     setEditDocSpecialty(doc.specialty ?? '');
@@ -1160,7 +1160,10 @@ export default function DoctorsPage() {
       const j = await r.json();
       if (!j.success) throw new Error(j.error ?? 'فشل الحفظ');
       setEditDocId(null);
+      // التعديل قد يكون فُتح من تبويب الزيارات أو الأرشيف — كلاهما يعرض نفس
+      // طبيب السيرفي، فنحدّث الاثنين كي لا يبقى أحدهما بقيمة قديمة مخزّنة.
       loadArchive();
+      loadVisits(true);
     } catch (e: any) { setEditDocErr(e.message); }
     finally { setEditDocSaving(false); }
   };
@@ -2836,6 +2839,23 @@ export default function DoctorsPage() {
                                 opacity: isWished ? 1 : 0.45,
                                 transition: 'all 0.15s',
                               }}>{'⭐'}</button>
+                            )}
+
+                            {/* Edit button — مدراء فقط. تعديل من هنا يمس طبيب السيرفي الموحّد
+                                (MasterSurveyDoctor) مباشرة عبر نفس آلية تبويب الأرشيف: يُطبَّق
+                                فوراً على كل المستخدمين المرتبطين بهذا الطبيب + يُسجَّل بسجل
+                                تعديلات السيرفي الذي يراه السوبر أدمن. */}
+                            {!isFieldRep && (
+                              <button onClick={e => { e.stopPropagation(); openEditDoc({
+                                surveyDoctorId: doc.id, name: doc.name,
+                                specialty: doc.specialty ?? null, areaName: doc.area?.name ?? null,
+                                pharmacyName: doc.pharmacyName ?? null, className: doc.className ?? null,
+                              }); }} title="تعديل بيانات الطبيب" style={{
+                                background: 'transparent', border: '1.5px solid var(--c-border)',
+                                borderRadius: 8, width: 30, height: 30, cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                color: 'var(--c-text-muted)', transition: 'all 0.15s',
+                              }}><Icon name="edit" size={13} /></button>
                             )}
 
                             {/* Visit count with expand toggle */}
