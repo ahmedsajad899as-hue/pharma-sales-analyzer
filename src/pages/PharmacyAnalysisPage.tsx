@@ -117,6 +117,7 @@ export default function PharmacyAnalysisPage() {
   const [pharmaDetail, setPharmaDetail]     = useState<PharmacyDetail | null>(null);
   const [pharmaDetailLoading, setPharmaDetailLoading] = useState(false);
   const [selectedPharma, setSelectedPharma] = useState<string | null>(null);
+  const [detailItem, setDetailItem]         = useState<string | null>(null);
   const [expandedRows, setExpandedRows]     = useState<Set<string>>(new Set());
 
   // تجميع «الايتم»: صفوف كل ايتم تُجلب عند فتح المجموعة فقط. الصيدلية الواحدة
@@ -186,7 +187,7 @@ export default function PharmacyAnalysisPage() {
 
   const deleteOneFile = async (id: number) => {
     await pnDeleteOneFile(id);
-    if (selectedPharma) setSelectedPharma(null);
+    if (selectedPharma) { setSelectedPharma(null); setDetailItem(null); }
     if (selectedItem)   setSelectedItem(null);
   };
 
@@ -313,9 +314,14 @@ export default function PharmacyAnalysisPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileIdsParam]);
 
-  const openPharma = (name: string) => {
-    setSelectedPharma(name); setPharmaDetailLoading(true);
-    fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(name)}${fileQuery}`, { headers })
+  // itemName: عند الدخول من مجموعة ايتم، التفاصيل تُقصر على ذلك الايتم وحده —
+  // وإلا عُرضت كل ايتمات الصيدلية وضاع سياق الايتم الذي جاء منه المستخدم.
+  const openPharma = (name: string, itemName?: string | null) => {
+    setSelectedPharma(name);
+    setDetailItem(itemName || null);
+    setPharmaDetailLoading(true);
+    const q = itemName ? `${fileQuery}&item=${encodeURIComponent(itemName)}` : fileQuery;
+    fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(name)}${q}`, { headers })
       .then(r => r.json()).then(d => setPharmaDetail(d)).catch(() => {}).finally(() => setPharmaDetailLoading(false));
   };
   const openItem = (name: string) => {
@@ -806,13 +812,13 @@ export default function PharmacyAnalysisPage() {
                               onMouseOver={e => (e.currentTarget as HTMLElement).style.background = 'var(--c-accent-light)'}
                               onMouseOut={e  => (e.currentTarget as HTMLElement).style.background  = i % 2 === 0 ? '#fff' : 'var(--c-bg)'}
                             >
-                              <td style={TD} onClick={() => openPharma(p.name)}>{i + 1}</td>
-                              <td style={{ ...TD, fontWeight: 600, color: 'var(--c-text-primary)', textAlign: 'right' }} onClick={() => openPharma(p.name)}>{p.name}</td>
-                              <td style={{ ...TD, color: 'var(--c-text-secondary)' }}       onClick={() => openPharma(p.name)}>{p.areaName || '—'}</td>
-                              <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.totalOrders}</td>
-                              <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{fmt(p.totalQty)}</td>
-                              <td style={{ ...TD, textAlign: 'right', color: '#047857' }} onClick={() => openPharma(p.name)}>{fmtV(p.totalValue)}</td>
-                              <td style={{ ...TD, textAlign: 'center' }} onClick={() => openPharma(p.name)}>
+                              <td style={TD} onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>{i + 1}</td>
+                              <td style={{ ...TD, fontWeight: 600, color: 'var(--c-text-primary)', textAlign: 'right' }} onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>{p.name}</td>
+                              <td style={{ ...TD, color: 'var(--c-text-secondary)' }}       onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>{p.areaName || '—'}</td>
+                              <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>{p.totalOrders}</td>
+                              <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>{fmt(p.totalQty)}</td>
+                              <td style={{ ...TD, textAlign: 'right', color: '#047857' }} onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>{fmtV(p.totalValue)}</td>
+                              <td style={{ ...TD, textAlign: 'center' }} onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>
                                 {p.returnsQty > 0 ? (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
                                     <span style={{ color: 'var(--c-danger)', fontWeight: 700, fontSize: 12 }}>{fmt(p.returnsQty)}</span>
@@ -820,9 +826,9 @@ export default function PharmacyAnalysisPage() {
                                   </div>
                                 ) : <span style={{ color: 'var(--c-border)', fontSize: 11 }}>—</span>}
                               </td>
-                              <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name)}>{p.itemCount}</td>
-                              <td style={{ ...TD, color: 'var(--c-text-secondary)' }}       onClick={() => openPharma(p.name)}>{p.lastOrder ? fmtDate(p.lastOrder) : '—'}</td>
-                              <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name)}>
+                              <td style={{ ...TD, textAlign: 'right' }}    onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>{p.itemCount}</td>
+                              <td style={{ ...TD, color: 'var(--c-text-secondary)' }}       onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>{p.lastOrder ? fmtDate(p.lastOrder) : '—'}</td>
+                              <td style={{ ...TD, textAlign: 'center' }}    onClick={() => openPharma(p.name, groupBy === 'item' ? g.key : null)}>
                                 <span style={{ background: dc.bg, color: dc.color, borderRadius: 4, padding: '2px 7px', fontWeight: 700, fontSize: 11 }}>{p.daysSinceLast}</span>
                               </td>
                               <td style={{ ...TD, textAlign: 'center' }} onClick={() => toggleRow(rowKey)}>
@@ -888,9 +894,21 @@ export default function PharmacyAnalysisPage() {
       {/* ── Pharmacy Detail ───────────────────────────────── */}
       {tab === 'pharmacies' && selectedPharma && (
         <div>
-          <button onClick={() => { setSelectedPharma(null); setPharmaDetail(null); }} style={{ ...BACK_BTN, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="chevronLeft" size={13} /> رجوع</button>
+          <button onClick={() => { setSelectedPharma(null); setPharmaDetail(null); setDetailItem(null); }} style={{ ...BACK_BTN, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="chevronLeft" size={13} /> رجوع</button>
           <div style={{ ...CARD, marginTop: 10 }}>
-            <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)' }}>{selectedPharma}</h2>
+            <h2 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)' }}>{selectedPharma}</h2>
+            {detailItem && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px', flexWrap: 'wrap' }}>
+                <span style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: 5, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>
+                  {detailItem}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>الأرقام أدناه لهذا الإيتم وحده</span>
+                <button
+                  onClick={() => openPharma(selectedPharma, null)}
+                  style={{ padding: '3px 10px', border: '1px solid var(--c-border)', borderRadius: 5, background: '#fff', color: 'var(--c-text-secondary)', cursor: 'pointer', fontSize: 11 }}
+                >عرض كل ايتمات الصيدلية</button>
+              </div>
+            )}
             {pharmaDetailLoading ? <Loader /> : pharmaDetail && (
               <>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
