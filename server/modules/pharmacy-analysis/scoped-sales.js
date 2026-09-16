@@ -9,6 +9,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { buildItemScopeFilter } from '../../lib/itemScope.js';
+import { resolveFileScope } from '../../lib/fileScope.js';
 
 /** تطبيع عربي للمطابقة الضبابية. */
 export function norm(s = '') {
@@ -31,22 +32,10 @@ export function toIQD(value, uploadedFile) {
   return mode === 'USD' ? (value || 0) * rate : (value || 0);
 }
 
-// يتحقق من أن المستخدم يملك أو يُشارَك معه (FileUserShare) كل fileId مطلوب —
-// ضروري لأن ملفات pharmacy_net قابلة للتعميم من موظف المكتب على مدير
-// المكتب/الشركة. المصفوفة المُتحقَّق منها فقط هي ما يُستخدم في uploadedFileId —
-// فلا يمكن لأي مستخدم تمرير fileId لملف غيره غير المُشارَك معه.
-export async function resolveFileScope(userId, fileIds) {
-  if (!fileIds) return userId ? { userId } : {};
-  const ids = String(fileIds).split(',').map(Number).filter(Boolean);
-  if (!ids.length) return userId ? { userId } : {};
-  const accessible = await prisma.uploadedFile.findMany({
-    where: { id: { in: ids }, OR: [{ userId }, { fileShares: { some: { userId } } }] },
-    select: { id: true },
-  });
-  const verifiedIds = accessible.map(f => f.id);
-  if (!verifiedIds.length) return { id: -1 }; // لا صلاحية على أي من الملفات المطلوبة
-  return { uploadedFileId: { in: verifiedIds } };
-}
+// المنطق في server/lib/fileScope.js — مشترك مع «تحليل الإيتم» وغيره.
+// (مستورد محلياً لأن getScopedSales أدناه يستدعيه، و`export ... from` وحده
+// لا يُنشئ ربطاً محلياً.)
+export { resolveFileScope };
 
 // المنطق في server/lib/crossFileDedup.js — مشترك مع «تحليل الإيتم» وغيره.
 export { dedupCrossFile } from '../../lib/crossFileDedup.js';

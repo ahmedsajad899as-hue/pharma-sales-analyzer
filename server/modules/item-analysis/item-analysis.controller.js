@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { buildItemScopeFilter, resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { dedupCrossFile } from '../../lib/crossFileDedup.js';
+import { resolveFileScope } from '../../lib/fileScope.js';
 import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
 import { list as listScientificReps } from '../scientific-reps/scientific-reps.service.js';
 
@@ -13,13 +14,6 @@ function norm(s = '') {
     .replace(/[\u064B-\u065F]/g, '')
     .replace(/\s+/g, ' ')
     .toLowerCase();
-}
-
-function buildFileFilter(fileIds) {
-  if (!fileIds) return {};
-  const ids = String(fileIds).split(',').map(Number).filter(Boolean);
-  if (!ids.length) return {};
-  return ids.length === 1 ? { uploadedFileId: ids[0] } : { uploadedFileId: { in: ids } };
 }
 
 function toIQD(value, uploadedFile) {
@@ -110,7 +104,7 @@ export async function listItems(req, res, next) {
     // مقيّدة أيضاً بايتمات المستخدم المعيّنة (فارغة = الكل)
     const itemScope = await buildItemScopeFilter(userId);
     const sales = await prisma.sale.findMany({
-      where: { userId, isHidden: false, ...buildFileFilter(fileIds), ...itemScope },
+      where: { isHidden: false, ...(await resolveFileScope(userId, fileIds)), ...itemScope },
       select: { itemId: true },
       distinct: ['itemId'],
     });
@@ -153,7 +147,7 @@ export async function listReps(req, res, next) {
     // ── 3. Sales value/qty per area (for rep-specific sales estimate) ─────
     const salesByAreaRaw = await prisma.sale.groupBy({
       by: ['areaId'],
-      where: { userId, itemId, isHidden: false, ...buildFileFilter(fileIds), recordType: 'sale' },
+      where: { itemId, isHidden: false, ...(await resolveFileScope(userId, fileIds)), recordType: 'sale' },
       _sum: { totalValue: true, quantity: true },
     });
     const salesValueByArea = new Map(salesByAreaRaw.map(s => [s.areaId, s._sum.totalValue || 0]));
@@ -314,7 +308,9 @@ export async function getItemAnalytics(req, res, next) {
     const allowedItemIds = await resolveEffectiveItemIds(userId);
     if (allowedItemIds && !allowedItemIds.includes(itemId))
       return res.status(403).json({ error: 'هذا الإيتم خارج الايتمات المعيَّنة لحسابك' });
-    const salesWhere = { userId, itemId, isHidden: false, ...buildFileFilter(fileIds) };
+    // الملف قد يكون مرفوعاً من موظف ومُشارَكاً مع المدير — شرط userId الخام
+    // كان يُفرغ الصفحة تماماً في تلك الحالة (راجع lib/fileScope.js).
+    const salesWhere = { itemId, isHidden: false, ...(await resolveFileScope(userId, fileIds)) };
     if (sciRep) {
       // Scientific rep: filter sales by their assigned areas
       if (sciRep.areaIds.length > 0) {
@@ -494,11 +490,10 @@ export async function getItemAnalytics(req, res, next) {
       const sibSales = await prisma.sale.groupBy({
         by: ['itemId'],
         where: {
-          userId,
           isHidden: false,
           item: { companyId: item.companyId },
           recordType: 'sale',
-          ...buildFileFilter(fileIds),
+          ...(await resolveFileScope(userId, fileIds)),
         },
         _sum: { quantity: true, totalValue: true },
       });
