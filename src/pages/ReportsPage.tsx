@@ -205,73 +205,23 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
   const recalcSummary = (sheetIdx: number, newRows: string[][], prev: PreviewSheet[]): PreviewSheet[] => {
     const updated = prev.map((s, i) => i === sheetIdx ? { ...s, rows: newRows } : s);
 
-    // ── Case A: cross-rep «ملخص عام» export = [ملخص عام, data sheet×N, «ملخص-Name»×N] ──
-    // Editing the summary itself (sheet 0) or a per-rep «ملخص-Name» sheet directly
-    // changes nothing else. Editing a DATA sheet re-sums its qty/value into BOTH the
-    // matching row of «ملخص عام» (matched by rep NAME, not sheet index — a rep owns
-    // one row there but TWO sheets: data + its own «ملخص-Name») and that rep's own
+    // ── Case A: cross-rep export = [data sheet×N, «ملخص-Name»×N] ──
+    // Editing a per-rep «ملخص-Name» sheet directly changes nothing else. Editing a
+    // DATA sheet (named «ت-Name»/«ع-Name») re-sums its qty/value into that rep's own
     // «ملخص-Name» sheet (via the same recalcUserSummary used for single-rep exports).
-    const isCrossRep = prev[0]?.rows[0]?.[0] === '#';
-    if (isCrossRep) {
-      if (sheetIdx === 0) return updated;
-
-      const editedName = prev[sheetIdx]?.name ?? '';
-      const commPrefix = `${t.reports.exportCommPrefix}-`;
-      const sciPrefix  = `${t.reports.exportSciPrefix}-`;
-      const repName = editedName.startsWith(commPrefix) ? editedName.slice(commPrefix.length)
-        : editedName.startsWith(sciPrefix) ? editedName.slice(sciPrefix.length)
-        : null;
-      if (repName === null) return updated; // not a data sheet (e.g. a «ملخص-Name» sheet) — no cascade
-
-      // Same value/quantity column detection recalcUserSummary already uses below —
-      // matches "السعر الكلي"/"المجموع الكلي"/"مبلغ الإجمالي" headers too, not just
-      // ones literally containing «قيمة»/«إجمالي», and excludes the bonus-qty column.
-      const norm = (h: any) => String(h ?? '').trim();
-      const VALUE_HEADERS = new Set(['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي', 'إجمالي القيمة ($)']);
-      const header = (newRows[0] ?? []).map(norm);
-      const rtCol  = header.findIndex(h => /نوع.*سجل|record.?type/i.test(h));
-      const qtyCol = header.findIndex(h => /كمية|qty|quantity/i.test(h) && !/مجاني|free|بونص|bonus/i.test(h));
-      const valCol = header.findIndex(h => VALUE_HEADERS.has(h) || (!/سعر\s*الوحد|unit\s*price/i.test(h) && /إجمالي\s*القيمة|السعر\s*الكلي|المجموع\s*الكلي/.test(h)));
-
-      const dataRows = newRows.slice(1);
-      const sum = (col: number) => col < 0 ? null : dataRows.reduce((s, row) => {
-        const v = parseFloat(row[col] ?? ''); if (isNaN(v)) return s;
-        const isRet = rtCol >= 0 && /↩|ارجاع|return/i.test(row[rtCol] ?? '');
-        return s + (isRet ? -Math.abs(v) : Math.abs(v));
-      }, 0);
-
-      const tQty = sum(qtyCol);
-      const tVal = sum(valCol);
-
-      const summaryRows = prev[0].rows.map(row => {
-        if (row[2] !== repName) return row; // match the rep's row by name (col 2), not by sheet index
-        return row.map((v, ci) =>
-          ci === 3 && tQty !== null ? String(Math.round(tQty)) :
-          ci === 4 && tVal !== null ? String(Math.round(tVal)) : v
-        );
-      });
-
-      // Recalc grand total row (col 0 is empty)
-      const newSummary = [...summaryRows];
-      const gtIdx = newSummary.findIndex((row, ri) => ri > 0 && row[0] === '');
-      if (gtIdx >= 0) {
-        const gQty = newSummary.slice(1, gtIdx).reduce((s, r) => s + (Number(r[3]) || 0), 0);
-        const gVal = newSummary.slice(1, gtIdx).reduce((s, r) => s + (Number(r[4]) || 0), 0);
-        newSummary[gtIdx] = newSummary[gtIdx].map((v, ci) =>
-          ci === 3 ? String(Math.round(gQty)) : ci === 4 ? String(Math.round(gVal)) : v
-        );
-      }
-
-      let result = updated.map((s, i) => i === 0 ? { ...s, rows: newSummary } : s);
-
-      // Also recompute this rep's own «ملخص-Name» sheet from the same edited data.
+    const editedName = prev[sheetIdx]?.name ?? '';
+    const commPrefix = `${t.reports.exportCommPrefix}-`;
+    const sciPrefix  = `${t.reports.exportSciPrefix}-`;
+    const repName = editedName.startsWith(commPrefix) ? editedName.slice(commPrefix.length)
+      : editedName.startsWith(sciPrefix) ? editedName.slice(sciPrefix.length)
+      : null;
+    if (repName !== null) {
       const ownSummaryIdx = prev.findIndex(s => s.name === `ملخص-${repName}`.slice(0, 31));
       if (ownSummaryIdx >= 0) {
         const recomputed = recalcUserSummary(prev[ownSummaryIdx].rows, newRows);
-        result = result.map((s, i) => i === ownSummaryIdx ? { ...s, rows: recomputed } : s);
+        return updated.map((s, i) => i === ownSummaryIdx ? { ...s, rows: recomputed } : s);
       }
-
-      return result;
+      return updated;
     }
 
     // ── Case B: single-rep preview = [data sheet, «الملخص»] ──
@@ -1649,12 +1599,32 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return out;
   };
 
+  /* بعض الملفات المستوردة صُنّفت صفوفها sale/return بشكل خاطئ (recordType) رغم
+     أن الصف الخام نفسه يحمل إشارة صريحة (عمود أصل الشيت الداخلي «_sheetName» —
+     قيمته اسم شيت الملف الأصلي، مثل «مبيع»/«ارجاع»). نثق بـ recordType أولاً،
+     ونستعين بهذه الإشارة الخام كاحتياط حتى تُصدَّر الكمية والسعر الكلي بالإشارة
+     الصحيحة أيضاً على الملفات القديمة التي لم تُصنَّف بشكل صحيح وقت الاستيراد. */
+  const RETURN_TAG_RE = /ارجاع|إرجاع|مرتجع|رجيع|return/i;
+  const isReturnSale = (s: any): boolean => {
+    if (s.recordType === 'return') return true;
+    if (!s.rawData) return false;
+    try {
+      const raw = JSON.parse(s.rawData);
+      for (const k of Object.keys(raw)) {
+        if (/sheetname/i.test(k) && RETURN_TAG_RE.test(String(raw[k] ?? ''))) return true;
+      }
+    } catch {}
+    return false;
+  };
+
   /* ─── Build sheet AOA from raw sales (shared by doExport + buildPreviewData) ─── */
   const buildSheet = (sales: any[], sciRepName?: string): any[][] => {
     if (sales.length === 0) return [[t.reports.noDataTable]];
     const isDateKey = (k: string) => /تاريخ|date/i.test(k);
     const TOTAL_VALUE_GROUP = ['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي'];
     const isTotalPriceKey  = (k: string) => TOTAL_VALUE_GROUP.includes(k);
+    // "الكمية المجانية"/"كمية البونص" (free/bonus qty) must stay positive على المرتجعات
+    const isQtyKey = (k: string) => /كمية|quantity|qty/i.test(k) && !/مجاني|free|بونص|bonus/i.test(k);
     const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
     const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
     // نفس مجموعة «المحافظة» أدناه في ALIAS_GROUPS — مرجع واحد كي نتعرّف على
@@ -1742,7 +1712,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // match any canonical slot so they naturally fall after «ملاحظة» with the rest.
       // «نوع السجل» عمود يضيفه التطبيق: لا يُدرج إلا إذا كان الملف يحوي إرجاعات
       // فعلاً، وإلا كان عموداً ثابت القيمة لا فائدة منه ولا وجود له في الأصل.
-      const hasReturns = sales.some(s => s.recordType === 'return');
+      const hasReturns = sales.some(s => isReturnSale(s));
       const finalHeaders = keepSourceOrder([
         ...headers,
         ...(sciRepName ? [sciHeader] : []),
@@ -1753,7 +1723,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         ...sales.map(s => {
           let raw: any = {};
           try { if (s.rawData) raw = enrichRawForExport(s, JSON.parse(s.rawData)); } catch {}
-          const isRet = s.recordType === 'return';
+          const isRet = isReturnSale(s);
           const typeLabel = isRet ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
           const rawGet = (h: string) => {
             for (const sk of sourceKeysOf.get(h) ?? [h]) {
@@ -1791,6 +1761,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             if (companyKey && itemCodeKey && h === itemCodeKey) return '';
             const v = rawGet(h);
             if (isDateKey(h)) return formatDateUnified(v);
+            // إرجاع: الكمية تصير سالبة أيضاً (مثل السعر الكلي أعلاه) حتى ينزّل
+            // مجموع Excel قيمة المرتجعات من المبيعات تلقائياً بلا تدخّل يدوي
+            if (isRet && isQtyKey(h)) {
+              const n = toNum(v);
+              if (n !== 0) return Math.round(-Math.abs(n) * 100) / 100;
+            }
             if (typeof v !== 'number') return v ?? '';
             const isPriceCol = /سعر|price|value|قيمة|total|مبلغ|cost|ثمن/i.test(h);
             return Math.round((isPriceCol ? convertSaleVal(s, v) : v) * 100) / 100;
@@ -1803,7 +1779,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const baseHeaders = [t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate];
     // لا rawData هنا (بيانات مُجمَّعة من التطبيق لا من ملف) — الأعمدة كلها من
     // صنع التطبيق، فنُبقيها بترتيبها المنطقي.
-    const hasReturns = sales.some(s => s.recordType === 'return');
+    const hasReturns = sales.some(s => isReturnSale(s));
     const finalHeaders = keepSourceOrder([
       ...baseHeaders,
       ...(sciRepName ? [sciHeader] : []),
@@ -1812,13 +1788,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return [
       finalHeaders,
       ...sales.map(s => {
-        const typeLabel = s.recordType === 'return' ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
+        const isRet = isReturnSale(s);
+        const typeLabel = isRet ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
         const valuesByHeader: Record<string, any> = {
           [t.reports.exportColRepName]: s.representative?.name ?? '',
           [t.reports.colArea]: s.area?.name ?? '',
           [t.reports.colItem]: s.item?.name ?? '',
-          [t.reports.colQty]: Math.round(s.quantity || 0),
-          [t.reports.exportColValTotal]: Math.round(convertSaleVal(s, s.totalValue || 0)),
+          [t.reports.colQty]: Math.round(s.quantity || 0) * (isRet ? -1 : 1),
+          [t.reports.exportColValTotal]: Math.round(convertSaleVal(s, s.totalValue || 0)) * (isRet ? -1 : 1),
           [t.reports.exportColDate]: formatDateUnified(s.saleDate),
         };
         return finalHeaders.map(h => h === sciHeader ? sciRepName : h === typeHeader ? typeLabel : (valuesByHeader[h] ?? ''));
@@ -1950,8 +1927,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     sales: any[],
     opts: { areaCount?: number | null; targets?: { itemId: number; itemName: string; target: number }[] } = {},
   ): (string | number)[][] => {
-    const saleRows   = sales.filter(s => s.recordType !== 'return');
-    const returnRows = sales.filter(s => s.recordType === 'return');
+    const saleRows   = sales.filter(s => !isReturnSale(s));
+    const returnRows = sales.filter(s => isReturnSale(s));
     const totalSalesVal   = Math.round(saleRows.reduce((a, s)   => a + convertSaleVal(s, s.totalValue || 0), 0));
     const totalReturnsVal = Math.round(returnRows.reduce((a, s) => a + convertSaleVal(s, s.totalValue || 0), 0));
 
@@ -1961,7 +1938,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const name = s.item?.name ?? s.itemName;
       if (!name) continue;
       const q = s.quantity || 0;
-      itemAgg.set(name, (itemAgg.get(name) || 0) + (s.recordType === 'return' ? -q : q));
+      itemAgg.set(name, (itemAgg.get(name) || 0) + (isReturnSale(s) ? -q : q));
     }
 
     const targets = opts.targets ?? [];
@@ -2012,10 +1989,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // data sheets, so the cross-rep summary's row→sheet index mapping (used by the
     // preview's auto-recalc) stays 1:1 with the data sheets.
     const perRepSummaries: PreviewSheet[] = [];
-    const summaryData: string[][] = [
-      ['#', t.reports.exportSumType, t.reports.exportColRepName, t.reports.exportSumTotalQty, t.reports.exportSumTotalVal]
-    ];
-    let idx = 1;
     const toStr = (rows: (string | number)[][]) => rows.map(r => r.map(v => String(v ?? '')));
 
     for (const repId of Array.from(selCommIds)) {
@@ -2024,14 +1997,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const res  = await fetch(`/api/export/raw-sales?commRepIds=${repId}&${qStr}`, { headers: authH() });
       const json = await res.json();
       const sales: any[] = json.data ?? [];
-      const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity || 0) : s + (r.quantity || 0), 0);
-      // Convert each sale to the target currency BEFORE summing — active files can mix
-      // USD and IQD, so raw totalValue figures aren't comparable until converted.
-      const netVal = sales.reduce((s, r) => {
-        const v = convertSaleVal(r, r.totalValue || 0);
-        return r.recordType === 'return' ? s - v : s + v;
-      }, 0);
-      summaryData.push([String(idx++), t.reports.exportCommType, repName, String(Math.round(netQty)), String(Math.round(netVal))]);
       const rows = buildSheet(sales);
       result.push({ name: `${t.reports.exportCommPrefix}-${repName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
       const targets = await fetchRepTargets('commercial', repId);
@@ -2052,24 +2017,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const sJson = await sRes.json();
         sales2 = sJson.data ?? [];
       }
-      const netQty2 = sales2.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity || 0) : s + (r.quantity || 0), 0);
-      const netVal2 = sales2.reduce((s, r) => {
-        const v = convertSaleVal(r, r.totalValue || 0);
-        return r.recordType === 'return' ? s - v : s + v;
-      }, 0);
-      summaryData.push([String(idx++), t.reports.exportSciType, sciName, String(Math.round(netQty2)), String(Math.round(netVal2))]);
       const rows = buildSheet(sales2, sciName);
       result.push({ name: `${t.reports.exportSciPrefix}-${sciName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
       const targets = await fetchRepTargets('scientific', repId);
       perRepSummaries.push({ name: `ملخص-${sciName}`.slice(0, 31), rows: toStr(buildSummarySheet(sciName, sales2, { areaCount, targets })), noTotals: true });
     }
 
-    if (summaryData.length > 1) {
-      const gQty = summaryData.slice(1).reduce((s, r) => s + Number(r[3] || 0), 0);
-      const gVal = summaryData.slice(1).reduce((s, r) => s + Number(r[4] || 0), 0);
-      summaryData.push(['', t.reports.exportGrandTotal, '', String(gQty), String(gVal)]);
-    }
-    result.unshift({ name: t.reports.exportSummarySheet, rows: summaryData });
     result.push(...perRepSummaries);
     return result;
   };
@@ -2077,8 +2030,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   /* ─── Row-level full-rep Excel download ─── */
   const buildMergedSheet = (sales: any[], recordFilter?: 'sale' | 'return' | 'both'): any[][] => {
     let rows = sales;
-    if (recordFilter === 'sale')   rows = sales.filter(s => s.recordType !== 'return');
-    if (recordFilter === 'return') rows = sales.filter(s => s.recordType === 'return');
+    if (recordFilter === 'sale')   rows = sales.filter(s => !isReturnSale(s));
+    if (recordFilter === 'return') rows = sales.filter(s => isReturnSale(s));
     if (!rows.length) return [['لا توجد بيانات']];
 
     const isDateKey  = (k: string) => /تاريخ|date/i.test(k);
@@ -2189,7 +2142,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // after «ملاحظة» instead of appearing in their original raw-file order.
       const finalHeaders = keepSourceOrder(headers);
       const dataRows = parsed.map(({ s, raw }) => {
-        const isRet = s.recordType === 'return';
+        const isRet = isReturnSale(s);
         const rawGet = (h: string) => {
           for (const sk of sourceKeysOf.get(h) ?? [h]) {
             const v = raw[sk];
@@ -2245,14 +2198,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // Fallback: no rawData
     const header = keepSourceOrder(['نوع السجل', 'اسم المندوب', 'المنطقة', 'المادة', 'الكمية', 'إجمالي القيمة ($)', 'التاريخ']);
     const dataRows = rows.map(s => {
-      const isRet = s.recordType === 'return';
+      const isRet = isReturnSale(s);
       const valuesByHeader: Record<string, any> = {
         'نوع السجل': isRet ? 'إرجاع' : 'مبيع',
         'اسم المندوب': s.representative?.name ?? '',
         'المنطقة': s.area?.name ?? '',
         'المادة': s.item?.name ?? '',
-        'الكمية': isRet ? -(s.quantity ?? 0) : (s.quantity ?? 0),
-        'إجمالي القيمة ($)': convertSaleVal(s, s.totalValue ?? 0),
+        'الكمية': isRet ? -Math.abs(s.quantity ?? 0) : (s.quantity ?? 0),
+        'إجمالي القيمة ($)': isRet ? -Math.abs(convertSaleVal(s, s.totalValue ?? 0)) : convertSaleVal(s, s.totalValue ?? 0),
         'التاريخ': formatDateUnified(s.saleDate),
       };
       return header.map(h => valuesByHeader[h] ?? '');
@@ -2411,11 +2364,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
       };
 
-      const summaryData: any[][] = [
-        ['#', t.reports.exportSumType, t.reports.exportColRepName, t.reports.exportSumTotalQty, t.reports.exportSumTotalVal]
-      ];
-      let idx = 1;
-
       // ── Commercial reps ───────────────────────────────
       for (const repId of Array.from(selCommIds)) {
         const rep = commReps.find(r => r.id === repId);
@@ -2424,12 +2372,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const res  = await fetch(`/api/export/raw-sales?commRepIds=${repId}&${qStr}`, { headers: authH() });
         const json = await res.json();
         const sales: any[] = json.data ?? [];
-        const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity || 0) : s + (r.quantity || 0), 0);
-        const netVal = sales.reduce((s, r) => {
-          const v = convertSaleVal(r, r.totalValue || 0);
-          return r.recordType === 'return' ? s - v : s + v;
-        }, 0);
-        summaryData.push([idx++, t.reports.exportCommType, repName, Math.round(netQty), Math.round(netVal)]);
         addSheet(`${t.reports.exportCommPrefix}-${repName}`, buildSheet(sales));  // no sciRepName for commercial
         const targets = await fetchRepTargets('commercial', repId);
         addSheet(`ملخص-${repName}`, buildSummarySheet(repName, sales, { targets }));
@@ -2451,31 +2393,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           const sJson = await sRes.json();
           sales = sJson.data ?? [];
         }
-        const netQty = sales.reduce((s, r) => r.recordType === 'return' ? s - (r.quantity || 0) : s + (r.quantity || 0), 0);
-        const netVal = sales.reduce((s, r) => {
-          const v = convertSaleVal(r, r.totalValue || 0);
-          return r.recordType === 'return' ? s - v : s + v;
-        }, 0);
-        summaryData.push([idx++, t.reports.exportSciType, sciName, Math.round(netQty), Math.round(netVal)]);
         addSheet(`${t.reports.exportSciPrefix}-${sciName}`, buildSheet(sales, sciName));  // pass sciRepName
         const targets = await fetchRepTargets('scientific', repId);
         addSheet(`ملخص-${sciName}`, buildSummarySheet(sciName, sales, { areaCount, targets }));
       }
-
-      // ── Grand total row ──────────────────────────────
-      if (summaryData.length > 1) {
-        const gQty = summaryData.slice(1).reduce((s, r) => s + (r[3] || 0), 0);
-        const gVal = summaryData.slice(1).reduce((s, r) => s + (r[4] || 0), 0);
-        summaryData.push(['', t.reports.exportGrandTotal, '', gQty, gVal]);
-      }
-
-      // ── Add summary sheet FIRST ─────────────────────────
-      const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
-      styleSheet(summaryWs, summaryData, [4, 10, 30, 18, 24]);
-      XLSX.utils.book_append_sheet(wb, summaryWs, t.reports.exportSummarySheet);
-      // Move summary to front
-      const si = wb.SheetNames.indexOf(t.reports.exportSummarySheet);
-      if (si > 0) { wb.SheetNames.splice(si, 1); wb.SheetNames.unshift(t.reports.exportSummarySheet); }
 
       setExportProgress(t.reports.exportSavingFile);
       XLSX.writeFile(wb, `${t.reports.exportFileName}_${new Date().toISOString().slice(0,10)}.xlsx`);
