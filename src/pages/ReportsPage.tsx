@@ -44,6 +44,15 @@ const keepSourceOrder = (headers: string[]): string[] => {
 // Raw-file columns that should never appear in the export (not useful to reps/managers).
 const isExcludedColumn = (h: string): boolean => /حالة.*مذخر|حالة.*طلبي/i.test(h);
 
+/* Excel forbids : \ / ? * [ ] in a sheet name (and caps it at 31 chars) — book_append_sheet
+   throws otherwise. Rep display names here can legitimately contain "/" (e.g. combined with
+   a team-leader label, "الاسم / ليدر المنطقة"), so every sheet-name build must go through
+   this instead of a bare `.slice(0, 31)`. */
+const sanitizeSheetName = (name: string): string => {
+  const cleaned = String(name ?? '').replace(/[:\\/?*[\]]/g, '-').trim();
+  return (cleaned || 'sheet').slice(0, 31);
+};
+
 /* Apply the shared export look (teal header, borders, column width) to a freshly-built
    worksheet. `aoa` is the same array-of-arrays used to build `ws`. Data rows are plain
    white — no banding. */
@@ -216,7 +225,7 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       : editedName.startsWith(sciPrefix) ? editedName.slice(sciPrefix.length)
       : null;
     if (repName !== null) {
-      const ownSummaryIdx = prev.findIndex(s => s.name === `ملخص-${repName}`.slice(0, 31));
+      const ownSummaryIdx = prev.findIndex(s => s.name === sanitizeSheetName(`ملخص-${repName}`));
       if (ownSummaryIdx >= 0) {
         const recomputed = recalcUserSummary(prev[ownSummaryIdx].rows, newRows);
         return updated.map((s, i) => i === ownSummaryIdx ? { ...s, rows: recomputed } : s);
@@ -295,7 +304,7 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       const aoa = s.rows.map((row, ri) => ri === 0 ? row : row.map(toCellValue));
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       styleSheet(ws, aoa);
-      XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+      XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(s.name));
     });
     XLSX.writeFile(wb, fileName);
   };
@@ -2003,9 +2012,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const json = await res.json();
       const sales: any[] = json.data ?? [];
       const rows = buildSheet(sales);
-      result.push({ name: `${t.reports.exportCommPrefix}-${repName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
+      result.push({ name: sanitizeSheetName(`${t.reports.exportCommPrefix}-${repName}`), rows: rows.map(r => r.map(v => String(v ?? ''))) });
       const targets = await fetchRepTargets('commercial', repId);
-      perRepSummaries.push({ name: `ملخص-${repName}`.slice(0, 31), rows: toStr(buildSummarySheet(repName, sales, { targets })), noTotals: true });
+      perRepSummaries.push({ name: sanitizeSheetName(`ملخص-${repName}`), rows: toStr(buildSummarySheet(repName, sales, { targets })), noTotals: true });
     }
 
     for (const repId of Array.from(selSciIds)) {
@@ -2023,9 +2032,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         sales2 = sJson.data ?? [];
       }
       const rows = buildSheet(sales2, sciName);
-      result.push({ name: `${t.reports.exportSciPrefix}-${sciName}`.slice(0, 31), rows: rows.map(r => r.map(v => String(v ?? ''))) });
+      result.push({ name: sanitizeSheetName(`${t.reports.exportSciPrefix}-${sciName}`), rows: rows.map(r => r.map(v => String(v ?? ''))) });
       const targets = await fetchRepTargets('scientific', repId);
-      perRepSummaries.push({ name: `ملخص-${sciName}`.slice(0, 31), rows: toStr(buildSummarySheet(sciName, sales2, { areaCount, targets })), noTotals: true });
+      perRepSummaries.push({ name: sanitizeSheetName(`ملخص-${sciName}`), rows: toStr(buildSummarySheet(sciName, sales2, { areaCount, targets })), noTotals: true });
     }
 
     result.push(...perRepSummaries);
@@ -2270,7 +2279,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // Show data in the preview/editor modal — no auto-download; user saves via "تصدير Excel" when ready
       setPreviewFileName(`${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
       setPreviewSheets([
-        { name: repName.slice(0, 31), rows: stringRows },
+        { name: sanitizeSheetName(repName), rows: stringRows },
         { name: 'الملخص', rows: summaryRows, noTotals: true },
       ]);
       setShowPreviewModal(true);
@@ -2312,7 +2321,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(rows);
     styleSheet(ws, rows);
-    XLSX.utils.book_append_sheet(wb, ws, rep.name.slice(0, 31));
+    XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(rep.name));
     // «الملخص» sheet — same format as the رفع الملفات export
     const targets    = await fetchRepTargets(kind === 'comm' ? 'commercial' : 'scientific', rep.id);
     const summaryRows = buildSummarySheet(sciName ?? rep.name, sales, { areaCount, targets });
@@ -2368,7 +2377,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const addSheet = (name: string, rows: any[][]) => {
         const ws = XLSX.utils.aoa_to_sheet(rows);
         styleSheet(ws, rows);
-        XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+        XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(name));
       };
 
       // ── Commercial reps ───────────────────────────────
