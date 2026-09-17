@@ -1622,7 +1622,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (sales.length === 0) return [[t.reports.noDataTable]];
     const isDateKey = (k: string) => /تاريخ|date/i.test(k);
     const TOTAL_VALUE_GROUP = ['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي'];
-    const isTotalPriceKey  = (k: string) => TOTAL_VALUE_GROUP.includes(k);
+    // .includes() وحده كان يفشل بصمت إن حمل عمود الملف الخام مسافة/محرفاً غير
+    // مرئي إضافياً (شائع في ملفات إكسل حقيقية) — فيسقط الحقل لفرع التحويل العام
+    // بلا تفعيل إشارة الإرجاع رغم تطابق النص ظاهرياً. نفس نمط valCol في
+    // recalcUserSummary أعلاه (مطابقة جزئية عبر regex) يتحمّل هذه الفروق.
+    const isTotalPriceKey  = (k: string) => TOTAL_VALUE_GROUP.includes(k)
+      || (!/سعر\s*الوحد|unit\s*price/i.test(k) && /السعر\s*الكلي|المجموع\s*الكلي|مبلغ\s*الإجمالي/.test(k));
     // "الكمية المجانية"/"كمية البونص" (free/bonus qty) must stay positive على المرتجعات
     const isQtyKey = (k: string) => /كمية|quantity|qty/i.test(k) && !/مجاني|free|بونص|bonus/i.test(k);
     const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
@@ -2038,7 +2043,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // "الكمية المجانية"/"كمية البونص" (free/bonus qty) must stay positive — exclude from qty negation
     const isQtyKey   = (k: string) => /كمية|quantity|qty/i.test(k) && !/مجاني|free|بونص|bonus/i.test(k);
     const TOTAL_VALUE_GROUP = ['السعر الكلي', 'المجموع الكلي', 'مبلغ الإجمالي'];
-    const isTotalPriceKey  = (k: string) => TOTAL_VALUE_GROUP.includes(k);
+    // مطابقة جزئية عبر regex كاحتياط لـ .includes() الحرفي — راجع نفس التعليق في buildSheet أعلاه
+    const isTotalPriceKey  = (k: string) => TOTAL_VALUE_GROUP.includes(k)
+      || (!/سعر\s*الوحد|unit\s*price/i.test(k) && /السعر\s*الكلي|المجموع\s*الكلي|مبلغ\s*الإجمالي/.test(k));
     const isTotalAmountKey = (k: string) => k === 'مبلغ الإجمالي';
     const isCompanyKey  = (k: string) => k === 'الشركة' || k === 'الشركه';
     const isItemCodeKey = (k: string) => /^رقم\s*الماد[ةه]$/.test(k);
