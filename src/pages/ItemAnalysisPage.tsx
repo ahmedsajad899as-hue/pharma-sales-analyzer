@@ -165,9 +165,9 @@ const COMMON_FORMS = [
 ];
 
 export default function ItemAnalysisPage() {
-  const { token, isManagerOrAdmin } = useAuth();
+  const { token, user, isManagerOrAdmin } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
-  const pn = usePharmacyNetFiles(token);
+  const pn = usePharmacyNetFiles(token, user?.id);
   const { fileIdsParam } = pn;
   const [filesPanelOpen, setFilesPanelOpen] = useState(false);
 

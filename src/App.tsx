@@ -249,13 +249,28 @@ function AppInner() {
   });
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
   const [showAI, setShowAI]               = useState(() => localStorage.getItem('showAIAssistant') !== 'false');
+  // تفعيل الملفات يُحفظ لكل مستخدم على حدة (وليس بمفتاح واحد مشترك)، ويبقى كما
+  // هو عبر الريفرش أو تسجيل الخروج/الدخول لنفس الحساب، إلى أن يغيّره المستخدم بنفسه.
   const [activeFileIds, setActiveFileIds] = useState<number[]>(() => {
     try {
-      const saved = localStorage.getItem('activeFileIds');
+      const u = JSON.parse(localStorage.getItem('auth_user') || 'null');
+      const saved = localStorage.getItem(u?.id ? `activeFileIds_${u.id}` : 'activeFileIds');
       if (saved) return JSON.parse(saved) as number[];
     } catch {}
     return [];
   });
+  // إعادة تحميل تفعيل الملفات الخاص بالحساب الحالي عند تغيّر المستخدم المسجّل
+  // دخوله (تبديل حساب، أو خروج ثم دخول) دون الحاجة لإعادة تحميل الصفحة بالكامل.
+  const activeFileIdsUserRef = useRef<number | null | undefined>(user?.id ?? null);
+  useEffect(() => {
+    const uid = user?.id ?? null;
+    if (activeFileIdsUserRef.current === uid) return;
+    activeFileIdsUserRef.current = uid;
+    try {
+      const saved = uid ? localStorage.getItem(`activeFileIds_${uid}`) : null;
+      setActiveFileIds(saved ? JSON.parse(saved) : []);
+    } catch { setActiveFileIds([]); }
+  }, [user?.id]);
 
   // Re-derive each scientific rep's commercial reps from the ACTIVE file(s) whenever
   // the active set changes. Different files attribute commercial reps to areas
@@ -443,17 +458,18 @@ function AppInner() {
   }, []);
 
   const toggleFileActive = useCallback((id: number | null) => {
+    const key = user?.id ? `activeFileIds_${user.id}` : 'activeFileIds';
     if (id === null) {
       setActiveFileIds([]);
-      localStorage.removeItem('activeFileIds');
+      localStorage.removeItem(key);
       return;
     }
     setActiveFileIds(prev => {
       const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
-      localStorage.setItem('activeFileIds', JSON.stringify(next));
+      localStorage.setItem(key, JSON.stringify(next));
       return next;
     });
-  }, []);
+  }, [user?.id]);
 
   // Show login page when not authenticated
   if (!user) return <LoginPage />;

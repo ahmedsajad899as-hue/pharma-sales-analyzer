@@ -8,12 +8,26 @@ export interface UpFile { id: number; originalName: string; uploadedAt: string; 
  * إدارة ملفات سياق `pharmacy_net` (رفع/اختيار/حذف) — مشتركة بين صفحة Pharmacy Net
  * وصفحة تحليل الإيتم المستقلة، فكلتاهما تحلّل نفس مجموعة الملفات المرفوعة.
  */
-export function usePharmacyNetFiles(token: string | null) {
+export function usePharmacyNetFiles(token: string | null, userId?: number | null) {
   const headers = { Authorization: `Bearer ${token}` };
+  // تحديد الملفات يُحفظ لكل مستخدم على حدة، ويبقى كما هو عبر الريفرش/الخروج من
+  // الصفحة/تسجيل الخروج والدخول، إلى أن يغيّره المستخدم بنفسه.
+  const selKey   = `pharmacyNetSelFiles_${userId ?? 'anon'}`;
+  const knownKey = `pharmacyNetKnownFiles_${userId ?? 'anon'}`;
 
   const [files, setFiles]               = useState<UpFile[]>([]);
-  const [selFiles, setSelFiles]         = useState<Set<number>>(new Set());
+  const [selFiles, setSelFilesRaw]      = useState<Set<number>>(new Set());
   const [filesLoading, setFilesLoading] = useState(false);
+
+  // بديل عن setSelFiles العادي: يحفظ التحديد في localStorage فور تغييره
+  const setSelFiles = useCallback((update: Set<number> | ((prev: Set<number>) => Set<number>)) => {
+    setSelFilesRaw(prev => {
+      const next = typeof update === 'function' ? (update as (p: Set<number>) => Set<number>)(prev) : update;
+      try { localStorage.setItem(selKey, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selKey]);
 
   const [uploading, setUploading]       = useState(false);
   const [uploadMsg, setUploadMsg]       = useState<{ ok: boolean; text: string } | null>(null);
@@ -111,10 +125,27 @@ export function usePharmacyNetFiles(token: string | null) {
     fetch(`${API}/api/files?context=pharmacy_net`, { headers }).then(r => r.json()).then(d => {
       const all: UpFile[] = Array.isArray(d.data) ? d.data : [];
       setFiles(all);
-      if (all.length > 0) setSelFiles(new Set(all.map(f => f.id)));
+      const allIds = all.map(f => f.id);
+
+      let persistedSel: number[] | null = null;
+      let persistedKnown: number[] = [];
+      try {
+        const rawSel = localStorage.getItem(selKey);
+        if (rawSel !== null) persistedSel = JSON.parse(rawSel);
+        persistedKnown = JSON.parse(localStorage.getItem(knownKey) || '[]');
+      } catch {}
+
+      // أول زيارة لهذا المستخدم (لا يوجد تحديد محفوظ) → التحديد الافتراضي: كل الملفات.
+      // بعد ذلك: نحافظ على اختيار المستخدم كما هو، ونُدرج تلقائياً فقط الملفات
+      // الجديدة التي لم يسبق له رؤيتها (لم تكن ضمن known من قبل).
+      const nextSel = persistedSel === null
+        ? new Set(allIds)
+        : new Set(allIds.filter(id => (persistedSel as number[]).includes(id) || !persistedKnown.includes(id)));
+      setSelFiles(nextSel);
+      try { localStorage.setItem(knownKey, JSON.stringify(allIds)); } catch {}
     }).catch(() => {}).finally(() => setFilesLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, userId]);
 
   return {
     files, selFiles, filesLoading, fileIdsParam, fileQuery,

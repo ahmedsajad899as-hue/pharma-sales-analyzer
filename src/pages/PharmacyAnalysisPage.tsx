@@ -89,7 +89,7 @@ type GroupBy = 'none' | 'area' | 'rep' | 'item' | 'date';
 
 // ── Main Page ─────────────────────────────────────────────────
 export default function PharmacyAnalysisPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
 
   const {
@@ -100,7 +100,7 @@ export default function PharmacyAnalysisPage() {
     pendingFile, setPendingFile, preCurrency, setPreCurrency, preRate, setPreRate,
     clearing, showClearConfirm, setShowClearConfirm, clearAllData: pnClearAllData,
     confirmDeleteFileId, setConfirmDeleteFileId, deletingFileId, deleteOneFile: pnDeleteOneFile,
-  } = usePharmacyNetFiles(token);
+  } = usePharmacyNetFiles(token, user?.id);
 
   const [tab, setTab]               = useState<Tab>(() => {
     const s = sessionStorage.getItem('pharma_page_tab');
