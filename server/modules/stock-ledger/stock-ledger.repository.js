@@ -4,10 +4,14 @@
 
 import prisma from '../../lib/prisma.js';
 
+// القراءة تقبل دفتراً واحداً (رقم) أو اتحاد دفاتر (مصفوفة) — المدير يقرأ دفاتر
+// موظفي مكتبه مع دفتره (راجع lib/stockLedgerScope.js)؛ الاستيعاب يبقى بدفتر واحد.
+const ownerWhere = (userIds) => Array.isArray(userIds) ? { userId: { in: userIds } } : { userId: userIds };
+
 // ─── المذاخر ──────────────────────────────────────────────────
-export async function getWarehouses(userId) {
+export async function getWarehouses(userIds) {
   return prisma.stockWarehouse.findMany({
-    where: { userId },
+    where: ownerWhere(userIds),
     orderBy: [{ region: 'asc' }, { name: 'asc' }],
   });
 }
@@ -30,15 +34,15 @@ export async function finalizeBatch(batchId, { rowCount, unmatched }) {
   });
 }
 
-export async function getBatches(userId) {
+export async function getBatches(userIds) {
   return prisma.stockMovementBatch.findMany({
-    where: { userId },
+    where: ownerWhere(userIds),
     orderBy: [{ movementDate: 'desc' }, { uploadedAt: 'desc' }],
   });
 }
 
-export async function getBatchById(id, userId) {
-  return prisma.stockMovementBatch.findFirst({ where: { id, userId } });
+export async function getBatchById(id, userIds) {
+  return prisma.stockMovementBatch.findFirst({ where: { id, ...ownerWhere(userIds) } });
 }
 
 /** معرّفات المذاخر المتأثرة بدفعة — تُقرأ قبل الحذف لتحديد نطاق إعادة الحساب */
@@ -77,9 +81,9 @@ export async function bulkInsertMovements(movements) {
   }
 }
 
-export async function getPairHistory({ userId, warehouseId, itemKey }) {
+export async function getPairHistory({ userIds, warehouseId, itemKey }) {
   return prisma.stockMovement.findMany({
-    where: { userId, warehouseId, itemKey },
+    where: { ...ownerWhere(userIds), warehouseId, itemKey },
     orderBy: [{ movementDate: 'desc' }, { id: 'desc' }],
     include: { batch: { select: { id: true, name: true, kind: true, uploadedAt: true } } },
     take: 500,
@@ -87,9 +91,9 @@ export async function getPairHistory({ userId, warehouseId, itemKey }) {
 }
 
 // ─── الأرصدة ──────────────────────────────────────────────────
-export async function getBalances(userId, { warehouseIds = null, scopeWhere = {} } = {}) {
+export async function getBalances(userIds, { warehouseIds = null, scopeWhere = {} } = {}) {
   return prisma.stockBalance.findMany({
-    where: { userId, ...(warehouseIds ? { warehouseId: { in: warehouseIds } } : {}), ...scopeWhere },
+    where: { ...ownerWhere(userIds), ...(warehouseIds ? { warehouseId: { in: warehouseIds } } : {}), ...scopeWhere },
     include: { warehouse: { select: { id: true, name: true, region: true } } },
     orderBy: [{ remaining: 'asc' }],
   });

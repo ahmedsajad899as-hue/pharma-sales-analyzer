@@ -3,36 +3,24 @@
  */
 
 import {
-  parseMovementFile, ingestRows, ingestBaselineFromStockFile, readStockFileRows,
-  buildAlerts, removeBatch, recomputeBalances,
+  parseMovementFile, ingestRows, ingestBaselineFromStockFile,
+  buildAlerts, removeBatch, recomputeBalances, resolveBalanceCompanies,
   classifyMovementRows, classifyBaselineFromStockFile,
   saveWarehouseNameLinks, saveItemLinks, saveStockCompanyNameLinks,
 } from './stock-ledger.service.js';
 import {
-  getWarehouses, getBatches, getBalances, getPairHistory, prisma,
+  getWarehouses, getBatches, getBatchById, getBalances, getPairHistory, prisma,
 } from './stock-ledger.repository.js';
 import { resolveStockScope, makeBalanceScopeFilter } from '../../lib/stockScope.js';
+import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
 
 const utf8Name = (file) => Buffer.from(file.originalname, 'latin1').toString('utf8');
 
-// موظف المكتب: كل ستوك يرفعه يُعمَّم فوراً على حسابات مدير المكتب / HR المكتب / مدير الشركة
-// فقط — بإعادة تنفيذ نفس عملية الاستيراد (runForUser) لكل حساب هدف بمعرّفه هو،
-// فتُبنى/تُطابَق مذاخره وأرصدته الخاصة من نفس الصفوف تماماً كأنه رفعها بنفسه
-// (النظام أصلاً يعزل كل بيانات الستوك حسب userId — لا آلية مشاركة/قراءة موحّدة
-// هنا كما في ملفات المبيعات، فالتكرار المتحكَّم به هو الطريق الأبسط والأصح).
-// تسلسلي لا مُتوازٍ لتفادي ضغط الذاكرة، وكل حساب هدف مُعزول بـtry/catch حتى لا
-// يُسقط فشل حساب واحد نجاح رفع صاحب الملف الأصلي ولا بقية الحسابات.
-async function autoSyncStockToManagers(user, runForUser) {
-  if (!user || user.role !== 'office_employee') return;
-  const targets = await prisma.user.findMany({
-    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'office_hr', 'company_manager'] } },
-    select: { id: true },
-  });
-  for (const target of targets) {
-    try { await runForUser(target.id); }
-    catch (err) { console.error('[autoSyncStockToManagers]', target.id, err); }
-  }
-}
+// القراءة: اتحاد دفاتر موظفي المكتب مع دفتر المستخدم (مدير المكتب / HR / مدير
+// الشركة يقرؤون مباشرةً ما رفعه موظف المكتب — لا نسخ). الكتابة: دفتر المستخدم
+// نفسه دائماً. كان الرفع يُعمَّم بإعادة الاستيعاب في حساب كل مدير (نسخة مستقلة
+// لكل حساب) فتباعدت النسخ وظهرت أرقام مختلفة لنفس المذاخر بين الحسابات — راجع
+// lib/stockLedgerScope.js لتفصيل السبب.
 
 /** تاريخ سريان الدفعة — يقبل ISO أو yyyy-mm-dd، وإلا اليوم */
 function toDate(v) {
@@ -49,7 +37,8 @@ const fail = (res, err, code = 500) => {
 // ─── المذاخر والدفعات ─────────────────────────────────────────
 export async function listWarehouses(req, res) {
   try {
-    const warehouses = await getWarehouses(req.user.id);
+    const { readIds } = await resolveLedgerScope(req.user);
+    const warehouses = await getWarehouses(readIds);
     const regions = [...new Set(warehouses.map(w => w.region).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
     res.json({ success: true, data: { warehouses, regions } });
   } catch (err) { fail(res, err); }
@@ -57,22 +46,30 @@ export async function listWarehouses(req, res) {
 
 export async function listBatches(req, res) {
   try {
-    const batches = await getBatches(req.user.id);
+    const { readIds, viewer, ownerName } = await resolveLedgerScope(req.user);
+    const batches = await getBatches(readIds);
     res.json({
       success: true,
       data: batches.map(b => ({
         ...b,
         unmatched: b.unmatched ? JSON.parse(b.unmatched) : null,
+        own: b.userId === req.user.id,
+        // اسم صاحب الدفعة — للناظر على دفاتر غيره فقط (موظف المكتب يرى دفعاته هو وحدها)
+        ownerName: viewer ? (ownerName.get(b.userId) ?? null) : null,
       })),
     });
   } catch (err) { fail(res, err); }
 }
 
+/** حذف دفعة — من دفتر المستخدم أو أي دفتر يقرؤه (المدير يحذف رفعة خاطئة لموظف مكتبه) */
 export async function deleteBatchHandler(req, res) {
   try {
     const id = parseInt(req.params.id, 10);
     if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
-    await removeBatch(req.user.id, id);
+    const { readIds } = await resolveLedgerScope(req.user);
+    const batch = await getBatchById(id, readIds);
+    if (!batch) return res.status(404).json({ success: false, error: 'الدفعة غير موجودة' });
+    await removeBatch(batch.userId, id);
     res.json({ success: true });
   } catch (err) { fail(res, err, /غير موجودة/.test(err.message) ? 404 : 500); }
 }
@@ -80,23 +77,28 @@ export async function deleteBatchHandler(req, res) {
 // ─── الأرصدة ──────────────────────────────────────────────────
 export async function listBalances(req, res) {
   try {
-    const scope = await resolveStockScope(req.user.id);
-    const all = await getBalances(req.user.id);
+    const [scope, ledger] = await Promise.all([resolveStockScope(req.user.id), resolveLedgerScope(req.user)]);
+    const all = await getBalances(ledger.readIds);
     const rows = all.filter(makeBalanceScopeFilter(scope));
     // تشخيص الفراغ: الصفحة كانت تقول «لا توجد أرصدة بعد — ابدأ بالاستيراد» في كل
     // حالة فراغ، حتى حين تكون الأرصدة محسوبة فعلاً لكن نطاق السوبر أدمن يحجبها،
     // فيُعاد الاستيراد بلا فائدة. هذه العدادات تجعل الصفحة تشرح سبب فراغها.
-    const movements = all.length ? 0 : await prisma.stockMovement.count({ where: { userId: req.user.id } });
-    res.json({
-      success: true,
-      meta: { total: all.length, hiddenByScope: all.length - rows.length, movements },
-      data: rows.map(b => ({
+    const movements = all.length ? 0 : await prisma.stockMovement.count({ where: { userId: { in: ledger.readIds } } });
+    // «الشركة الرئيسية» لكل رصيد — شرائح تصفية للأدوار المكتبية (قائمة فارغة لغيرها)
+    const tag = await resolveBalanceCompanies(rows, req.user);
+    let unclassified = 0;
+    const data = rows.map(b => {
+      const companyId = tag.companyIdOf(b);
+      if (tag.companies.length && companyId == null) unclassified++;
+      return {
         warehouseId: b.warehouseId,
         warehouse: b.warehouse.name,
         region: b.warehouse.region,
+        ownerId: b.userId,
         itemKey: b.itemKey,
         itemName: b.itemName,
         companyName: b.companyName,
+        companyId,
         opening: b.opening,
         openingAt: b.openingAt,
         inQty: b.inQty,
@@ -104,7 +106,16 @@ export async function listBalances(req, res) {
         remaining: b.remaining,
         pctLeft: b.opening > 0 ? Math.round((b.remaining / b.opening) * 100) : null,
         lastMovementAt: b.lastMovementAt,
-      })),
+      };
+    });
+    res.json({
+      success: true,
+      meta: {
+        total: all.length, hiddenByScope: all.length - rows.length, movements,
+        sharedLedger: ledger.viewer && ledger.readIds.length > 1,
+        companies: tag.companies, unclassified,
+      },
+      data,
     });
   } catch (err) { fail(res, err); }
 }
@@ -115,7 +126,8 @@ export async function listAlerts(req, res) {
     const qty = Math.max(0, Number(req.query.qty ?? 10));
     const region = req.query.region || null;
     const warehouseId = req.query.warehouseId ? parseInt(req.query.warehouseId, 10) : null;
-    const data = await buildAlerts(req.user.id, { pct, qty, region, warehouseId });
+    const { readIds } = await resolveLedgerScope(req.user);
+    const data = await buildAlerts({ userIds: readIds, viewer: req.user }, { pct, qty, region, warehouseId });
     res.json({ success: true, data });
   } catch (err) { fail(res, err); }
 }
@@ -127,7 +139,8 @@ export async function pairHistory(req, res) {
     if (!Number.isInteger(warehouseId) || !itemKey) {
       return res.status(400).json({ success: false, error: 'معطيات ناقصة' });
     }
-    const rows = await getPairHistory({ userId: req.user.id, warehouseId, itemKey });
+    const { readIds } = await resolveLedgerScope(req.user);
+    const rows = await getPairHistory({ userIds: readIds, warehouseId, itemKey });
     res.json({ success: true, data: rows });
   } catch (err) { fail(res, err); }
 }
@@ -176,18 +189,6 @@ export async function baselineFromStockFile(req, res) {
       salesDataFileId,
       movementDate,
     });
-    try {
-      if (req.user?.role === 'office_employee') {
-        // الملف (SalesDataFile) مملوك لموظف المكتب — يُقرأ مرة واحدة بحسابه هو، ثم
-        // تُستورَد نفس الصفوف مباشرةً بحساب كل هدف. sourceFileId يبقى معرّف ملف
-        // موظف المكتب نفسه (لا ملف الهدف — لا نسخة له) عمداً: هو مفتاح الربط الوحيد
-        // بين دفعة كل حساب هدف وملف المصدر، يُستعمل لاحقاً في
-        // removeBaselineForDeletedStockFile لحذف رصيد كل الحسابات معاً عند حذف الملف.
-        const { file, rows } = await readStockFileRows(req.user.id, salesDataFileId);
-        await autoSyncStockToManagers(req.user, targetUserId =>
-          ingestRows({ userId: targetUserId, kind: 'baseline', name: 'ستوك افتتاحي: ' + file.name, movementDate, sourceFileId: salesDataFileId, rows }));
-      }
-    } catch (syncErr) { console.error('[autoSyncStockToManagers]', syncErr); }
     res.json({ success: true, data: result });
   } catch (err) { fail(res, err, 400); }
 }
@@ -237,10 +238,6 @@ export async function commitMovements(req, res) {
     const name = label + (fileName ? ': ' + fileName : '');
     const movementDate = toDate(req.body?.movementDate);
     const result = await ingestRows({ userId: req.user.id, kind, name, movementDate, rows });
-    try {
-      await autoSyncStockToManagers(req.user, targetUserId =>
-        ingestRows({ userId: targetUserId, kind, name, movementDate, rows }));
-    } catch (syncErr) { console.error('[autoSyncStockToManagers]', syncErr); }
     res.json({ success: true, data: result });
   } catch (err) { fail(res, err, 400); }
 }
@@ -266,10 +263,6 @@ export async function uploadMovements(req, res) {
     const label = { baseline: 'ستوك افتتاحي', in: 'تعزيز', out: 'مبيع من المذاخر' }[kind];
     const name = label + ': ' + originalName;
     const result = await ingestRows({ userId: req.user.id, kind, name, movementDate, rows });
-    try {
-      await autoSyncStockToManagers(req.user, targetUserId =>
-        ingestRows({ userId: targetUserId, kind, name, movementDate, rows }));
-    } catch (syncErr) { console.error('[autoSyncStockToManagers]', syncErr); }
     res.json({ success: true, data: { ...result, skipped, colMap } });
   } catch (err) { fail(res, err, 400); }
 }
@@ -299,10 +292,6 @@ export async function manualMovements(req, res) {
     const label = { baseline: 'ستوك افتتاحي', in: 'تعزيز', out: 'مبيع من المذاخر' }[kind];
     const name = label + ' (إدخال يدوي)';
     const result = await ingestRows({ userId: req.user.id, kind, name, movementDate, rows });
-    try {
-      await autoSyncStockToManagers(req.user, targetUserId =>
-        ingestRows({ userId: targetUserId, kind, name, movementDate, rows }));
-    } catch (syncErr) { console.error('[autoSyncStockToManagers]', syncErr); }
     res.json({ success: true, data: result });
   } catch (err) { fail(res, err, 400); }
 }
@@ -310,7 +299,9 @@ export async function manualMovements(req, res) {
 // ─── إعادة حساب يدوية (زر صيانة) ──────────────────────────────
 export async function recompute(req, res) {
   try {
-    const count = await recomputeBalances(req.user.id);
+    const { readIds } = await resolveLedgerScope(req.user);
+    let count = 0;
+    for (const id of readIds) count += await recomputeBalances(id);
     res.json({ success: true, data: { pairs: count } });
   } catch (err) { fail(res, err); }
 }

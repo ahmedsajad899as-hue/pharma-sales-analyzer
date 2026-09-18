@@ -22,9 +22,10 @@ import {
 } from '../../lib/itemResolver.js';
 import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { flattenStockMatrix } from '../../lib/stockMatrix.js';
-import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
+import { isPlaceholderCompanyValue, extractCompanyFromCode, resolveCompanyName } from '../../lib/companyResolver.js';
 import { getAllCompanies } from '../sales/sales.repository.js';
 import { resolveStockScope, makeBalanceScopeFilter } from '../../lib/stockScope.js';
+import { OFFICE_SCOPED_ROLES } from '../../lib/officeScope.js';
 import * as repo from './stock-ledger.repository.js';
 
 // COLUMN_ALIASES.customer يضع «صيدلية/زبون» قبل «مذخر»، وresolveColumns يأخذ أول
@@ -838,17 +839,22 @@ export function severityOf(remaining, opening, { pct, qty }) {
 
 const SEV_ORDER = { out: 0, critical: 1, low: 2 };
 
-/** الايتمات التي يجب عمل طلبية جديدة لها، مجمّعة حسب المذخر */
-export async function buildAlerts(userId, { pct = 20, qty = 10, region = null, warehouseId = null } = {}) {
-  const scope = await resolveStockScope(userId);
+/**
+ * الايتمات التي يجب عمل طلبية جديدة لها، مجمّعة حسب المذخر.
+ * @param {{ userIds: number[], viewer: {id:number, role:string} }} p  الدفاتر المقروءة
+ *   (اتحاد — راجع stockLedgerScope.js) والمستخدم الناظر (نطاق ستوكه وشركاته)
+ */
+export async function buildAlerts({ userIds, viewer }, { pct = 20, qty = 10, region = null, warehouseId = null } = {}) {
+  const scope = await resolveStockScope(viewer.id);
   const balances = (await prisma.stockBalance.findMany({
     where: {
-      userId,
+      userId: { in: userIds },
       ...(warehouseId ? { warehouseId } : {}),
       ...(region ? { warehouse: { region } } : {}),
     },
     include: { warehouse: { select: { id: true, name: true, region: true } } },
   })).filter(makeBalanceScopeFilter(scope));
+  const tag = await resolveBalanceCompanies(balances, viewer);
 
   const byWarehouse = new Map();
   const totals = { out: 0, critical: 0, low: 0 };
@@ -867,6 +873,7 @@ export async function buildAlerts(userId, { pct = 20, qty = 10, region = null, w
     g.counts[sev]++;
     g.items.push({
       itemKey: b.itemKey, itemName: b.itemName, companyName: b.companyName,
+      companyId: tag.companyIdOf(b),
       opening: b.opening, inQty: b.inQty, outQty: b.outQty, remaining: b.remaining,
       // الكمية المقترحة للطلبية = ما استُهلك فعلاً منذ الستوك الافتتاحي
       suggestedQty: Math.max(0, Math.round(b.opening + b.inQty - b.remaining)),
@@ -891,6 +898,7 @@ export async function buildAlerts(userId, { pct = 20, qty = 10, region = null, w
     groups, totals,
     totalItems: totals.out + totals.critical + totals.low,
     thresholds: { pct, qty },
+    companies: tag.companies,
   };
 }
 
@@ -921,22 +929,103 @@ export async function removeBatchesBySourceFile(userId, sourceFileId) {
 
 /**
  * يُستدعى عند حذف ملف Stock (SalesDataFile) من صفحة Stock: يحذف دفعة/دفعات الستوك
- * الافتتاحي المستوردة منه من رصيد المذاخر — بحساب مالك الملف نفسه، وإن كان موظف
- * مكتب (الذي يُعمَّم رفعه تلقائياً على مدير المكتب/مدير الشركة، راجع
- * autoSyncStockToManagers في stock-ledger.controller.js) فمن كل حساب هدف استُورد
- * له الستوك أيضاً — فلا يبقى رصيد يتيم في أي حساب بعد حذف مصدره. تسلسلي مع عزل
- * كل حساب بـtry/catch، نفس فلسفة autoSyncStockToManagers.
+ * الافتتاحي المستوردة منه من رصيد المذاخر — بحساب مالك الملف، ومن أي حساب آخر
+ * لا يزال يحمل دفعة بنفس sourceFileId (بقايا التعميم القديم على حسابات المدراء
+ * قبل توحيد الدفتر — راجع stockLedgerScope.js) فلا يبقى رصيد يتيم بعد حذف مصدره.
+ * تسلسلي مع عزل كل حساب بـtry/catch.
  */
 export async function removeBaselineForDeletedStockFile(user, sourceFileId) {
   if (!user?.id || !Number.isInteger(sourceFileId)) return;
-  await removeBatchesBySourceFile(user.id, sourceFileId);
-  if (user.role !== 'office_employee') return;
-  const targets = await prisma.user.findMany({
-    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'office_hr', 'company_manager'] } },
-    select: { id: true },
+  const owners = await prisma.stockMovementBatch.findMany({
+    where: { sourceFileId }, select: { userId: true }, distinct: ['userId'],
   });
-  for (const target of targets) {
-    try { await removeBatchesBySourceFile(target.id, sourceFileId); }
-    catch (err) { console.error('[removeBaselineForDeletedStockFile]', target.id, err); }
+  const ids = new Set([user.id, ...owners.map(o => o.userId)]);
+  for (const id of ids) {
+    try { await removeBatchesBySourceFile(id, sourceFileId); }
+    catch (err) { console.error('[removeBaselineForDeletedStockFile]', id, err); }
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  6. «الشركة الرئيسية» لكل رصيد — للأدوار المكتبية
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * يربط كل رصيد (مذخر × ايتم) بشركة علمية (ScientificCompany) من شركات الناظر
+ * المُعيَّنة — للأدوار المكتبية (مدير المكتب / HR / موظف المكتب) التي تشرف على
+ * كل شركات مكتبها معاً وتحتاج تصفية الستوك بشركة واحدة. باقي الأدوار (مدير
+ * شركة واحدة…) تُرجع قائمة فارغة فلا تظهر الشرائح.
+ *
+ * الربط: الايتم المُطابَق بالكتالوج (itemId → Item.scientificCompanyId) أولاً —
+ * الأدق؛ وإلا اسم الشركة النصي في الرصيد («HUMANISTurkeyN/A» كما يأتي ملصقاً في
+ * ملفات الستوك) بعد تجريد لاحقة الدولة/N-A (extractCompanyFromCode → «HUMANIS»)
+ * ثم مطابقته بشركات الناظر (alias محفوظ ← تام ← متجاهل للمسافات ← ضبابي وحيد)،
+ * وإن فشل التجريد يُجرَّب الاسم كما ورد. ما لم يُربط يبقى null («غير مصنّف»).
+ *
+ * @param {Array<{itemId:number|null, companyName:string|null}>} balances
+ * @param {{id:number, role:string}} viewer
+ * @returns {Promise<{ companies: Array<{id:number,name:string,count:number}>, companyIdOf: (b) => number|null }>}
+ */
+export async function resolveBalanceCompanies(balances, viewer) {
+  const none = { companies: [], companyIdOf: () => null };
+  if (!viewer?.id || !OFFICE_SCOPED_ROLES.has(viewer.role) || !balances.length) return none;
+
+  const assigns = await prisma.userCompanyAssignment.findMany({
+    where: { userId: viewer.id, company: { isActive: true } },
+    select: { company: { select: { id: true, name: true, officeId: true } } },
+  });
+  const companies = assigns.map(a => a.company).filter(Boolean);
+  if (!companies.length) return none;
+  const companyIds = companies.map(c => c.id);
+  const byId = new Map(companies.map(c => [c.id, c]));
+
+  // ① الايتم المُطابَق بالكتالوج
+  const itemIds = [...new Set(balances.map(b => b.itemId).filter(Boolean))];
+  const items = itemIds.length
+    ? await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true, scientificCompanyId: true } })
+    : [];
+  const companyByItem = new Map(items.map(i => [i.id, i.scientificCompanyId]));
+
+  // ② اسم الشركة النصي — سياق مطابقة مقصور على شركات الناظر (لا كل شركات المكتب)
+  const aliases = await prisma.companyAlias.findMany({
+    where: { companyId: { in: companyIds } }, select: { fromKey: true, companyId: true },
+  });
+  const aliasMap = new Map();
+  for (const a of aliases) if (!aliasMap.has(a.fromKey)) aliasMap.set(a.fromKey, a.companyId);
+  const ctx = { companies, byId, aliasMap };
+  const ACCEPT = new Set(['alias', 'exact', 'high']);
+  const byNameCache = new Map();
+  const companyByName = (raw) => {
+    const name = String(raw ?? '').trim();
+    if (!name) return null;
+    if (byNameCache.has(name)) return byNameCache.get(name);
+    let id = null;
+    for (const cand of [extractCompanyFromCode(name), name]) {
+      if (!cand) continue;
+      const r = resolveCompanyName(cand, ctx);
+      if (r.company && ACCEPT.has(r.confidence)) { id = r.company.id; break; }
+    }
+    byNameCache.set(name, id);
+    return id;
+  };
+
+  const companyIdOf = (b) => {
+    if (b.itemId != null) {
+      const cid = companyByItem.get(b.itemId);
+      if (cid != null && byId.has(cid)) return cid;
+    }
+    return companyByName(b.companyName);
+  };
+
+  const counts = new Map(companyIds.map(id => [id, 0]));
+  for (const b of balances) {
+    const cid = companyIdOf(b);
+    if (cid != null) counts.set(cid, (counts.get(cid) ?? 0) + 1);
+  }
+  return {
+    companies: companies
+      .map(c => ({ id: c.id, name: c.name, count: counts.get(c.id) ?? 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ar')),
+    companyIdOf,
+  };
 }

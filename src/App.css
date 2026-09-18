@@ -3414,6 +3414,27 @@ select.comm-input { cursor: pointer; }
 .sl-kpis--modal { box-shadow: none; margin-bottom: 4px; }
 .sl-kpis--modal .sl-kpi { flex: 1; min-width: 84px; text-align: center; padding: 2px 8px; }
 
+/* ── شرائح «الشركة الرئيسية» (الأدوار المكتبية) — فلتر على مستوى الصفحة فوق التبويبات ── */
+.sl-parent-companies {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.sl-parent-companies-label { display: inline-flex; align-items: center; gap: 4px; color: var(--c-text-muted); white-space: nowrap; }
+.sl-parent-companies-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.sl-chip-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 17px; padding: 0 5px; margin-inline-start: 6px; border-radius: 9px;
+  background: var(--c-border-light); font-size: 10.5px; font-weight: 700; line-height: 1;
+}
+.filter-chip--active .sl-chip-count { background: var(--c-accent); color: #fff; }
+.sl-chip--empty { opacity: 0.55; }
+.sl-chip--empty.filter-chip--active { opacity: 1; }
+
 /* ── شريط التبويبات + التحديث ── */
 .sl-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .sl-bar .tabs { margin-bottom: 0; }
