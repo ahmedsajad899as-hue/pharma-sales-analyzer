@@ -683,17 +683,19 @@ export async function readStockFileRows(userId, salesDataFileId) {
   return { file, rows };
 }
 
-/** معاينة تطابق الستوك الافتتاحي من ملف Stock موجود — قبل الحفظ، بلا لمس قاعدة البيانات. */
-export async function classifyBaselineFromStockFile({ userId, salesDataFileId }) {
-  const { rows } = await readStockFileRows(userId, salesDataFileId);
-  return classifyMovementRows({ rows, userId });
+/** معاينة تطابق الستوك الافتتاحي من ملف Stock موجود — قبل الحفظ، بلا لمس قاعدة البيانات.
+ *  fileOwnerId = صاحب نسخة الملف (الرافع)، ledgerId = دفتر المطابقة/الكتابة (قد يختلفان:
+ *  مدير يستورد من نسخته للملف إلى دفتر موظف المكتب — راجع stockLedgerScope.js). */
+export async function classifyBaselineFromStockFile({ fileOwnerId, ledgerId, salesDataFileId }) {
+  const { rows } = await readStockFileRows(fileOwnerId, salesDataFileId);
+  return classifyMovementRows({ rows, userId: ledgerId });
 }
 
-/** استيراد الستوك الافتتاحي من ملف Stock موجود (SalesDataFile) */
-export async function ingestBaselineFromStockFile({ userId, salesDataFileId, movementDate }) {
-  const { file, rows } = await readStockFileRows(userId, salesDataFileId);
+/** استيراد الستوك الافتتاحي من ملف Stock موجود (SalesDataFile) — نفس تفريق fileOwnerId/ledgerId */
+export async function ingestBaselineFromStockFile({ fileOwnerId, ledgerId, salesDataFileId, movementDate }) {
+  const { file, rows } = await readStockFileRows(fileOwnerId, salesDataFileId);
   return ingestRows({
-    userId, kind: 'baseline',
+    userId: ledgerId, kind: 'baseline',
     name: 'ستوك افتتاحي: ' + file.name,
     movementDate, sourceFileId: file.id, rows,
   });

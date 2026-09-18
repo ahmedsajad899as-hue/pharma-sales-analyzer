@@ -3093,12 +3093,18 @@ app.delete('/api/sales-data-files/:id', requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
     const userId = req.user?.id;
     if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    // نسخ الملف المعمَّمة على حسابات المدراء (syncedFromFileId) تُحذف معه بالتتالي —
+    // تُلتقط معرّفاتها قبل الحذف لأن مديراً قد يكون استورد الستوك الافتتاحي من
+    // نسخته هو (sourceFileId = معرّف النسخة لا الأصل) إلى دفتر المكتب.
+    const copies = await prisma.salesDataFile.findMany({ where: { syncedFromFileId: id }, select: { id: true } });
     const { count } = await prisma.salesDataFile.deleteMany({ where: { id, userId } });
-    // إن كان هذا الملف قد استُورد كستوك افتتاحي في رصيد المذاخر (بحساب صاحبه أو
-    // الحسابات التي عُمِّم عليها تلقائياً)، يُحذف ذلك الرصيد أيضاً فلا يبقى يتيماً.
+    // إن كان هذا الملف (أو إحدى نسخه) قد استُورد كستوك افتتاحي في رصيد المذاخر،
+    // يُحذف ذلك الرصيد أيضاً فلا يبقى يتيماً.
     if (count > 0) {
-      try { await removeBaselineForDeletedStockFile(req.user, id); }
-      catch (syncErr) { console.error('[removeBaselineForDeletedStockFile]', syncErr); }
+      for (const fid of [id, ...copies.map(c => c.id)]) {
+        try { await removeBaselineForDeletedStockFile(req.user, fid); }
+        catch (syncErr) { console.error('[removeBaselineForDeletedStockFile]', fid, syncErr); }
+      }
     }
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }

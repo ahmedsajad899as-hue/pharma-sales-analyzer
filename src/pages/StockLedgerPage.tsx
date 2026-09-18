@@ -88,7 +88,7 @@ interface ParentCompany { id: number; name: string; count: number }
  *  الشركة الرئيسية (فارغة لغير الأدوار المكتبية)، unclassified = أرصدة بلا شركة. */
 interface BalancesMeta {
   total: number; hiddenByScope: number; movements: number;
-  sharedLedger?: boolean; companies?: ParentCompany[]; unclassified?: number;
+  sharedLedger?: boolean; ledgerOwners?: string[]; companies?: ParentCompany[]; unclassified?: number;
 }
 /** فلتر الشركة الرئيسية: الكل / شركة بعينها / غير المصنّف فقط */
 type ParentCompanyFilter = 'all' | 'none' | number;
@@ -424,7 +424,12 @@ export default function StockLedgerPage() {
         <Kpi label="مذخر × ايتم" value={fmtNum(kpis.pairs)} />
         <Kpi label="مجموع المتبقي" value={fmtNum(Math.round(kpis.remaining))} />
         <Kpi label="تحتاج طلبية" value={fmtNum(kpis.alerts)} danger={kpis.alerts > 0} />
-        <div className="sl-kpis-note">المتبقي = الافتتاحي + التعزيز − المبيع</div>
+        <div className="sl-kpis-note">
+          {balMeta?.sharedLedger && balMeta.ledgerOwners?.length
+            ? <span title="مدير المكتب / HR / مدير الشركة يقرؤون دفتر موظف المكتب مباشرةً — نفس الأرقام في كل الحسابات، وأي رفع من هنا يُكتب في الدفتر نفسه">دفتر المكتب (رفع: {balMeta.ledgerOwners.join('، ')}) · </span>
+            : null}
+          المتبقي = الافتتاحي + التعزيز − المبيع
+        </div>
       </div>
 
       {/* ── الشركة الرئيسية (الأدوار المكتبية — تشرف على كل شركات المكتب) ── */}

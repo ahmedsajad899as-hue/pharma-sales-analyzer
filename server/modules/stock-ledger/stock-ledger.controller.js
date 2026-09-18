@@ -16,11 +16,12 @@ import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
 
 const utf8Name = (file) => Buffer.from(file.originalname, 'latin1').toString('utf8');
 
-// القراءة: اتحاد دفاتر موظفي المكتب مع دفتر المستخدم (مدير المكتب / HR / مدير
-// الشركة يقرؤون مباشرةً ما رفعه موظف المكتب — لا نسخ). الكتابة: دفتر المستخدم
-// نفسه دائماً. كان الرفع يُعمَّم بإعادة الاستيعاب في حساب كل مدير (نسخة مستقلة
-// لكل حساب) فتباعدت النسخ وظهرت أرقام مختلفة لنفس المذاخر بين الحسابات — راجع
-// lib/stockLedgerScope.js لتفصيل السبب.
+// دفتر واحد للمكتب: مدير المكتب / HR / مدير الشركة يقرؤون دفتر موظف المكتب
+// مباشرةً ويكتبون فيه (writeId) — لا نسخ لكل حساب. كان الرفع يُعمَّم بإعادة
+// الاستيعاب في حساب كل مدير (نسخة مستقلة لكل حساب) فتباعدت النسخ وظهرت أرقام
+// مختلفة لنفس المذاخر بين الحسابات — راجع lib/stockLedgerScope.js لتفصيل السبب.
+// كل ما يخصّ المطابقة عند الاستيعاب (مذاخر، روابط أسماء المذاخر/الشركات، كتالوج
+// الشركات، تكرار طلبيات ميركاتو) يُقرأ ويُحفظ بدفتر الكتابة لا بحساب الرافع.
 
 /** تاريخ سريان الدفعة — يقبل ISO أو yyyy-mm-dd، وإلا اليوم */
 function toDate(v) {
@@ -54,14 +55,14 @@ export async function listBatches(req, res) {
         ...b,
         unmatched: b.unmatched ? JSON.parse(b.unmatched) : null,
         own: b.userId === req.user.id,
-        // اسم صاحب الدفعة — للناظر على دفاتر غيره فقط (موظف المكتب يرى دفعاته هو وحدها)
+        // اسم صاحب الدفتر — للناظر على دفتر غيره فقط (موظف المكتب يرى دفعاته هو وحدها)
         ownerName: viewer ? (ownerName.get(b.userId) ?? null) : null,
       })),
     });
   } catch (err) { fail(res, err); }
 }
 
-/** حذف دفعة — من دفتر المستخدم أو أي دفتر يقرؤه (المدير يحذف رفعة خاطئة لموظف مكتبه) */
+/** حذف دفعة — من أي دفتر يقرؤه المستخدم (المدير يحذف رفعة خاطئة من دفتر المكتب) */
 export async function deleteBatchHandler(req, res) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -112,7 +113,9 @@ export async function listBalances(req, res) {
       success: true,
       meta: {
         total: all.length, hiddenByScope: all.length - rows.length, movements,
-        sharedLedger: ledger.viewer && ledger.readIds.length > 1,
+        // دفتر المكتب (لا دفتر المستخدم) — أسماء أصحابه تُعرض كتلميح في الصفحة
+        sharedLedger: ledger.viewer,
+        ledgerOwners: ledger.viewer ? [...ledger.ownerName.values()] : [],
         companies: tag.companies, unclassified,
       },
       data,
@@ -165,7 +168,9 @@ export async function extractBaselineFromStockFile(req, res) {
     if (!Number.isInteger(salesDataFileId)) {
       return res.status(400).json({ success: false, error: 'اختر ملف ستوك' });
     }
-    const result = await classifyBaselineFromStockFile({ userId: req.user.id, salesDataFileId });
+    // الملف (SalesDataFile) ملك الرافع — نسخته هو؛ المطابقة بدفتر الكتابة
+    const { writeId } = await resolveLedgerScope(req.user);
+    const result = await classifyBaselineFromStockFile({ fileOwnerId: req.user.id, ledgerId: writeId, salesDataFileId });
     res.json({ success: true, data: result });
   } catch (err) { fail(res, err, 400); }
 }
@@ -182,10 +187,12 @@ export async function baselineFromStockFile(req, res) {
     if (!Number.isInteger(salesDataFileId)) {
       return res.status(400).json({ success: false, error: 'اختر ملف ستوك' });
     }
-    await saveNameChoices(req.user.id, req.body);
+    const { writeId } = await resolveLedgerScope(req.user);
+    await saveNameChoices(writeId, req.body);
     const movementDate = toDate(req.body?.movementDate);
     const result = await ingestBaselineFromStockFile({
-      userId: req.user.id,
+      fileOwnerId: req.user.id,
+      ledgerId: writeId,
       salesDataFileId,
       movementDate,
     });
@@ -212,7 +219,8 @@ export async function extractMovements(req, res) {
         colMap,
       });
     }
-    const { pending, mercato } = await classifyMovementRows({ rows, userId: req.user.id });
+    const { writeId } = await resolveLedgerScope(req.user);
+    const { pending, mercato } = await classifyMovementRows({ rows, userId: writeId });
     // rawRow غير مُستعمل في أي شاشة — يُسقَط من صفوف الذهاب والإياب بين الاستخراج
     // والحفظ لتخفيف حِمل الشبكة (قد تبلغ الملفات آلاف الأسطر).
     const lean = rows.map(({ rawRow, ...r }) => r);
@@ -231,13 +239,14 @@ export async function commitMovements(req, res) {
       .map(r => ({ ...r, movementDate: r?.movementDate ? toDate(r.movementDate) : undefined }));
     if (!rows.length) return res.status(400).json({ success: false, error: 'لا توجد صفوف' });
 
-    await saveNameChoices(req.user.id, req.body);
+    const { writeId } = await resolveLedgerScope(req.user);
+    await saveNameChoices(writeId, req.body);
 
     const label = { baseline: 'ستوك افتتاحي', in: 'تعزيز', out: 'مبيع من المذاخر' }[kind];
     const fileName = String(req.body?.fileName || '').trim();
     const name = label + (fileName ? ': ' + fileName : '');
     const movementDate = toDate(req.body?.movementDate);
-    const result = await ingestRows({ userId: req.user.id, kind, name, movementDate, rows });
+    const result = await ingestRows({ userId: writeId, kind, name, movementDate, rows });
     res.json({ success: true, data: result });
   } catch (err) { fail(res, err, 400); }
 }
@@ -262,7 +271,8 @@ export async function uploadMovements(req, res) {
     }
     const label = { baseline: 'ستوك افتتاحي', in: 'تعزيز', out: 'مبيع من المذاخر' }[kind];
     const name = label + ': ' + originalName;
-    const result = await ingestRows({ userId: req.user.id, kind, name, movementDate, rows });
+    const { writeId } = await resolveLedgerScope(req.user);
+    const result = await ingestRows({ userId: writeId, kind, name, movementDate, rows });
     res.json({ success: true, data: { ...result, skipped, colMap } });
   } catch (err) { fail(res, err, 400); }
 }
@@ -291,7 +301,8 @@ export async function manualMovements(req, res) {
 
     const label = { baseline: 'ستوك افتتاحي', in: 'تعزيز', out: 'مبيع من المذاخر' }[kind];
     const name = label + ' (إدخال يدوي)';
-    const result = await ingestRows({ userId: req.user.id, kind, name, movementDate, rows });
+    const { writeId } = await resolveLedgerScope(req.user);
+    const result = await ingestRows({ userId: writeId, kind, name, movementDate, rows });
     res.json({ success: true, data: result });
   } catch (err) { fail(res, err, 400); }
 }
