@@ -14,6 +14,7 @@ import {
   listBalances, listAlerts, pairHistory,
   listStockFiles, baselineFromStockFile, extractBaselineFromStockFile,
   uploadMovements, extractMovements, commitMovements, manualMovements, recompute,
+  saveTeamCompanyLinkHandler,
 } from './stock-ledger.controller.js';
 
 const router = Router();
@@ -56,6 +57,9 @@ router.post('/movements/upload', upload.single('file'), uploadMovements); // kin
 router.post('/movements/extract', upload.single('file'), extractMovements); // kind='in'|'out'|'baseline' → { rows, pending }
 router.post('/movements/commit', commitMovements); // { kind, movementDate, rows, *Choices?, fileName? }
 router.post('/movements/manual', manualMovements);
+
+// ─── الشركة الرئيسية ──────────────────────────────────────────
+router.post('/team-company-link', saveTeamCompanyLinkHandler); // { companyId, managerId } — قرار يدوي لشركة «تحتاج قرار»
 
 // ─── صيانة ────────────────────────────────────────────────────
 router.delete('/batches/:id', deleteBatchHandler);

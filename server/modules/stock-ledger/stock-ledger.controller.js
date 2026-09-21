@@ -4,7 +4,7 @@
 
 import {
   parseMovementFile, ingestRows, ingestBaselineFromStockFile,
-  buildAlerts, removeBatch, recomputeBalances, resolveBalanceTeams,
+  buildAlerts, removeBatch, recomputeBalances, resolveBalanceTeams, saveTeamCompanyLink,
   classifyMovementRows, classifyBaselineFromStockFile,
   saveWarehouseNameLinks, saveItemLinks, saveStockCompanyNameLinks,
 } from './stock-ledger.service.js';
@@ -117,7 +117,7 @@ export async function listBalances(req, res) {
         // دفتر المكتب (لا دفتر المستخدم) — أسماء أصحابه تُعرض كتلميح في الصفحة
         sharedLedger: ledger.viewer,
         ledgerOwners: ledger.viewer ? [...ledger.ownerName.values()] : [],
-        teams: tag.teams, unclassified,
+        teams: tag.teams, unclassified, pendingDecisions: tag.pendingDecisions,
       },
       data,
     });
@@ -305,6 +305,24 @@ export async function manualMovements(req, res) {
     const { writeId } = await resolveLedgerScope(req.user);
     const result = await ingestRows({ userId: writeId, kind, name, movementDate, rows });
     res.json({ success: true, data: result });
+  } catch (err) { fail(res, err, 400); }
+}
+
+// ─── «الشركة الرئيسية»: قرار يدوي لشركة «تحتاج قرار» ────────────
+/** يحفظ اختيار المستخدم لتيم شركة ثانوية مشتركة بلا رئيسية حصرية (راجع
+ *  loadOfficeTeams في stock-ledger.service.js) — للأدوار المكتبية فقط، ومحفوظ
+ *  لكل المكتب لا للمستخدم وحده. */
+export async function saveTeamCompanyLinkHandler(req, res) {
+  try {
+    const companyId = parseInt(req.body?.companyId, 10);
+    const managerId = parseInt(req.body?.managerId, 10);
+    if (!Number.isInteger(companyId) || !Number.isInteger(managerId)) {
+      return res.status(400).json({ success: false, error: 'معطيات ناقصة' });
+    }
+    const me = await prisma.user.findUnique({ where: { id: req.user.id }, select: { officeId: true } });
+    if (me?.officeId == null) return res.status(400).json({ success: false, error: 'لا مكتب لهذا الحساب' });
+    await saveTeamCompanyLink({ officeId: me.officeId, companyId, managerId });
+    res.json({ success: true });
   } catch (err) { fail(res, err, 400); }
 }
 

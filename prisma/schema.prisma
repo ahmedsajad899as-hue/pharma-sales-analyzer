@@ -54,6 +54,7 @@ model User {
   warehouseNameLinks     WarehouseNameLink[]
   stockCompanyNameLinks  StockCompanyNameLink[]
   stockOrderLines        StockOrderLine[]
+  stockTeamCompanyLinks  StockTeamCompanyLink[]
   accountBuilderAccounts AccountBuilderAccount[]
   sales                  Sale[]
   doctors                Doctor[]
@@ -1161,6 +1162,7 @@ model ScientificOffice {
   users               User[]
   areas               Area[]                     @relation("OfficeAreas")
   surveyHiddenOffices MasterSurveyHiddenOffice[] @relation("SurveyHiddenOffice")
+  stockTeamCompanyLinks StockTeamCompanyLink[]
 
   @@map("scientific_offices")
 }
@@ -1182,6 +1184,7 @@ model ScientificCompany {
   userStockCompanyAssignments UserStockCompanyAssignment[]
   itemAliases            ItemMergeRule[]         @relation("CompanyAliases")
   nameAliases            CompanyAlias[]
+  teamLinks              StockTeamCompanyLink[]
 
   @@unique([name, officeId])
   @@index([officeId])
@@ -2331,4 +2334,25 @@ model StockOrderLine {
   @@unique([userId, orderNumber, pharmacyKey, itemKey])
   @@index([movementId])
   @@map("stock_order_lines")
+}
+
+// تعيين يدوي لشركة «غير مصنّف» في شرائح «الشركة الرئيسية» برصيد المذاخر — شركة
+// ثانوية (لا رئيسية) عند أكثر من مدير شركة معاً (لا حسم آلي مبدئي لها، راجع
+// loadOfficeTeams في stock-ledger.service.js) يختار مستخدم مكتبي يدوياً أيّ تيم
+// يملكها فعلياً، فيُحفظ القرار هنا ويُطبَّق تلقائياً بعدها — نفس فلسفة
+// WarehouseNameLink/StockCompanyNameLink/AreaAlias (اسأل مرة، تذكّر للأبد).
+// يفوز دائماً على الحسم الآلي (حتى لو كانت الشركة ستُحسم تلقائياً لتيم آخر).
+model StockTeamCompanyLink {
+  id        Int      @id @default(autoincrement())
+  officeId  Int
+  companyId Int
+  managerId Int // حساب company_manager الذي اختاره المستخدم مالكاً للشركة
+  createdAt DateTime @default(now())
+
+  office  ScientificOffice  @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  company ScientificCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  manager User              @relation(fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([officeId, companyId])
+  @@map("stock_team_company_links")
 }

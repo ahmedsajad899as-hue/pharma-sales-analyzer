@@ -3435,6 +3435,17 @@ select.comm-input { cursor: pointer; }
 .sl-chip--empty { opacity: 0.55; }
 .sl-chip--empty.filter-chip--active { opacity: 1; }
 
+/* ── شركات «تحتاج قرار» (شركة ثانوية مشتركة بين تيمين بلا رئيسية حصرية) ── */
+.sl-pending-decisions { border-color: var(--c-warning); background: var(--c-warning-bg); flex-direction: column; align-items: stretch; }
+.sl-pending-decisions .sl-parent-companies-label { color: var(--c-warning); }
+.sl-pending-decisions-list { display: flex; flex-direction: column; gap: 8px; }
+.sl-pending-decision-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 0; border-top: 1px solid var(--c-border-light);
+}
+.sl-pending-decision-row:first-child { border-top: none; padding-top: 0; }
+.sl-pending-decision-candidates { display: flex; gap: 6px; flex-wrap: wrap; margin-inline-start: auto; }
+
 /* ── شريط التبويبات + التحديث ── */
 .sl-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .sl-bar .tabs { margin-bottom: 0; }

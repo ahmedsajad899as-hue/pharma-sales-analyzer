@@ -960,10 +960,11 @@ export async function removeBaselineForDeletedStockFile(user, sourceFileId) {
  *
  * @param {number} officeId
  * @returns {Promise<{ teams: Array<{id:number,name:string,managerName:string,companyIds:number[]}>,
- *                     companies: Array<{id:number,name:string}>, teamByCompany: Map<number,number> }>}
+ *                     companies: Array<{id:number,name:string}>, teamByCompany: Map<number,number>,
+ *                     ambiguous: Array<{companyId:number, companyName:string, candidates:{managerId:number,teamName:string}[]}> }>}
  */
 async function loadOfficeTeams(officeId) {
-  const empty = { teams: [], companies: [], teamByCompany: new Map() };
+  const empty = { teams: [], companies: [], teamByCompany: new Map(), ambiguous: [] };
   if (officeId == null) return empty;
 
   const managers = await prisma.user.findMany({
@@ -1008,20 +1009,66 @@ async function loadOfficeTeams(officeId) {
       holders.get(r.company.id).push({ managerId: m.id, isPrimary: r.company.id === primary.company.id });
     }
   }
+  const teamById = new Map(teams.map(t => [t.id, t]));
 
   // لكل شركة: شركة رئيسية حصراً لمدير واحد تُنسب له دائماً (أقوى إشارة) حتى لو
   // حملها آخرون ثانوياً؛ وإلا حامل وحيد (ثانوية عند مدير واحد فقط، لا تنازع) يفوز
   // بها كذلك؛ وإلا (رئيسية لأكثر من مدير معاً، أو ثانوية مشتركة بين عدة مديرين
-  // بلا رئيسية) تبقى بلا تيم («غير مصنّف» في resolveBalanceTeams) بدل التخمين.
+  // بلا رئيسية — شوهد فعلياً: DLBEEN ثانوية عند humanis وCT معاً) لا تُخمَّن، بل
+  // تُجمَع في ambiguous لتُعرَض للمستخدم كقرار يدوي (StockTeamCompanyLink أدناه).
   const teamByCompany = new Map();
+  const ambiguous = [];
   for (const [companyId, list] of holders) {
     const primaries = list.filter(h => h.isPrimary);
     if (primaries.length === 1) teamByCompany.set(companyId, primaries[0].managerId);
     else if (primaries.length === 0 && list.length === 1) teamByCompany.set(companyId, list[0].managerId);
+    else {
+      ambiguous.push({
+        companyId, companyName: companyById.get(companyId).name,
+        candidates: list.map(h => ({ managerId: h.managerId, teamName: teamById.get(h.managerId)?.name ?? '' })),
+      });
+    }
   }
 
+  // قرارات محفوظة مسبقاً (StockTeamCompanyLink) تفوز دائماً على الحسم الآلي —
+  // «اسأل مرة، تذكّر للأبد» كبقية روابط الأسماء في هذه الوحدة. مدير حُذف أو تغيّر
+  // دوره بعد حفظ القرار يُسقِط القرار بصمت (يعود العدّ تلقائياً «تحتاج قرار»).
+  const links = await prisma.stockTeamCompanyLink.findMany({ where: { officeId }, select: { companyId: true, managerId: true } });
+  const decidedIds = new Set();
+  for (const l of links) {
+    if (!teamById.has(l.managerId)) continue;
+    teamByCompany.set(l.companyId, l.managerId);
+    decidedIds.add(l.companyId);
+  }
+  const pendingAmbiguous = ambiguous.filter(a => !decidedIds.has(a.companyId));
+
   teams.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-  return { teams, companies: [...companyById.values()], teamByCompany };
+  return { teams, companies: [...companyById.values()], teamByCompany, ambiguous: pendingAmbiguous };
+}
+
+/**
+ * يحفظ قرار المستخدم لشركة «تحتاج قرار» (ثانوية مشتركة بين تيمين بلا رئيسية
+ * حصرية — راجع loadOfficeTeams أعلاه) على تيم واحد بعينه. القرار مشترك لكل
+ * المكتب (StockTeamCompanyLink بمفتاح officeId+companyId) — أي حساب مكتبي يراه،
+ * لا صاحب القرار وحده، فلا يُسأل كل مستخدم في المكتب عن نفس الشركة بمعزل عن غيره.
+ * managerId يجب أن يكون company_manager نشطاً في نفس المكتب، وإلا يُرفض.
+ * @param {{officeId:number, companyId:number, managerId:number}} p
+ */
+export async function saveTeamCompanyLink({ officeId, companyId, managerId }) {
+  if (!Number.isInteger(officeId) || !Number.isInteger(companyId) || !Number.isInteger(managerId)) {
+    throw new Error('معطيات ناقصة');
+  }
+  const [company, manager] = await Promise.all([
+    prisma.scientificCompany.findFirst({ where: { id: companyId, officeId }, select: { id: true } }),
+    prisma.user.findFirst({ where: { id: managerId, officeId, role: 'company_manager', isActive: true }, select: { id: true } }),
+  ]);
+  if (!company) throw new Error('الشركة غير موجودة في هذا المكتب');
+  if (!manager) throw new Error('يجب اختيار مدير شركة نشط في نفس المكتب');
+  await prisma.stockTeamCompanyLink.upsert({
+    where: { officeId_companyId: { officeId, companyId } },
+    update: { managerId },
+    create: { officeId, companyId, managerId },
+  });
 }
 
 /**
@@ -1044,11 +1091,12 @@ async function loadOfficeTeams(officeId) {
  *                     teamIdOf: (b) => number|null }>}
  */
 export async function resolveBalanceTeams(balances, viewer) {
-  const none = { teams: [], teamIdOf: () => null };
+  const none = { teams: [], teamIdOf: () => null, pendingDecisions: [] };
   if (!viewer?.id || !OFFICE_SCOPED_ROLES.has(viewer.role) || !balances.length) return none;
 
   const me = await prisma.user.findUnique({ where: { id: viewer.id }, select: { officeId: true } });
-  const { teams, companies, teamByCompany } = await loadOfficeTeams(me?.officeId ?? null);
+  const officeId = me?.officeId ?? null;
+  const { teams, companies, teamByCompany, ambiguous } = await loadOfficeTeams(officeId);
   if (!teams.length || !companies.length) return none;
   const byId = new Map(companies.map(c => [c.id, c]));
 
@@ -1082,15 +1130,26 @@ export async function resolveBalanceTeams(balances, viewer) {
     return id;
   };
 
-  const teamIdOf = (b) => {
-    let companyId = null;
+  const companyIdOf = (b) => {
     if (b.itemId != null) {
       const cid = companyByItem.get(b.itemId);
-      if (cid != null && byId.has(cid)) companyId = cid;
+      if (cid != null && byId.has(cid)) return cid;
     }
-    if (companyId == null) companyId = companyByName(b.companyName);
+    return companyByName(b.companyName);
+  };
+  const teamIdOf = (b) => {
+    const companyId = companyIdOf(b);
     return companyId == null ? null : (teamByCompany.get(companyId) ?? null);
   };
+
+  // شركات «تحتاج قرار» يقتصر عرضها على ما له رصيد فعلي ظاهر عند هذا الناظر —
+  // لا كل شركات المكتب المتنازع عليها (قد لا يخصّ بعضها ملفاته/شركاته إطلاقاً).
+  const presentAmbiguousIds = new Set();
+  for (const b of balances) {
+    const companyId = companyIdOf(b);
+    if (companyId != null && teamByCompany.get(companyId) == null) presentAmbiguousIds.add(companyId);
+  }
+  const pendingDecisions = ambiguous.filter(a => presentAmbiguousIds.has(a.companyId));
 
   const counts = new Map(teams.map(t => [t.id, 0]));
   for (const b of balances) {
@@ -1100,5 +1159,6 @@ export async function resolveBalanceTeams(balances, viewer) {
   return {
     teams: teams.map(t => ({ id: t.id, name: t.name, managerName: t.managerName, count: counts.get(t.id) ?? 0 })),
     teamIdOf,
+    pendingDecisions,
   };
 }

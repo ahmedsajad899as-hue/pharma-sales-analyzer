@@ -84,14 +84,18 @@ interface StockFile { id: number; name: string; uploadedAt: string }
  *  الرئيسية — نفس شرائح التحليل الشامل. id = معرّف حساب المدير، count = عدد
  *  أرصدة (مذخر × ايتم) المربوطة بشركات التيم. */
 interface Team { id: number; name: string; managerName: string; count: number }
+/** شركة «تحتاج قرار» — ثانوية مشتركة بين تيمين أو أكثر بلا رئيسية حصرية لأيّ
+ *  منهم (لا حسم آلي لها)، بانتظار اختيار المستخدم أيّ تيم يملكها فعلياً. */
+interface PendingDecision { companyId: number; companyName: string; candidates: { managerId: number; teamName: string }[] }
 /** عدّادات تشرح سبب فراغ جدول الأرصدة — total = كل أرصدة الحساب قبل تطبيق نطاق
  *  شركات/ايتمات الستوك، hiddenByScope = كم منها حجبه ذلك النطاق. sharedLedger =
  *  الأرصدة المعروضة اتحاد دفاتر موظفي المكتب مع دفتر المستخدم. companies = شرائح
  *  الشركة الرئيسية (تيمات المكتب — فارغة لغير الأدوار المكتبية)، unclassified =
- *  أرصدة لم تُنسب لأي تيم. */
+ *  أرصدة لم تُنسب لأي تيم، pendingDecisions = شركات ضمنها تحتاج قراراً يدوياً. */
 interface BalancesMeta {
   total: number; hiddenByScope: number; movements: number;
   sharedLedger?: boolean; ledgerOwners?: string[]; teams?: Team[]; unclassified?: number;
+  pendingDecisions?: PendingDecision[];
 }
 /** فلتر الشركة الرئيسية: الكل / تيم بعينه / غير المصنّف فقط */
 type TeamFilter = 'all' | 'none' | number;
@@ -310,6 +314,25 @@ export default function StockLedgerPage() {
     finally { setBusy(null); }
   };
 
+  // قرار يدوي لشركة «تحتاج قرار» (راجع PendingDecision) — يُحفظ لكل المكتب مرة
+  // واحدة عبر StockTeamCompanyLink، فلا يتكرّر السؤال لاحقاً لأي حساب مكتبي آخر.
+  const [assigningCompany, setAssigningCompany] = useState<number | null>(null);
+  const assignTeamCompany = async (companyId: number, managerId: number, companyName: string, teamName: string) => {
+    setAssigningCompany(companyId); setErr('');
+    try {
+      const r = await fetch(`${API}/api/stock-ledger/team-company-link`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, managerId }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'فشل الحفظ');
+      flash(`${companyName} ← ${teamName}`);
+      await reloadAll();
+    } catch (e: any) { setErr(e.message); }
+    finally { setAssigningCompany(null); }
+  };
+
   // رفع ملف (حركة أو ستوك افتتاحي) على مرحلتين: استخراج+تصنيف أولاً (بلا حفظ)،
   // فإن وُجدت أسماء مشكوك فيها تُفتح نافذة التأكيد، وإلا يُحفظ مباشرة — تماماً
   // كنظام تأكيد الأسماء في «تحليل الزيارات».
@@ -459,6 +482,31 @@ export default function StockLedgerPage() {
                 title="أرصدة لم تُنسب لأي تيم — شركتها لا مدير شركة لها، أو الايتم غير مربوط بالكتالوج واسم الشركة لا يطابق أي شركة تيم"
               >غير مصنّف<span className="sl-chip-count">{fmtNum(balMeta?.unclassified ?? 0)}</span></button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── شركات «تحتاج قرار» — ثانوية مشتركة بين تيمين بلا رئيسية حصرية، لا حسم آلي لها ── */}
+      {(balMeta?.pendingDecisions?.length ?? 0) > 0 && (
+        <div className="sl-parent-companies sl-pending-decisions">
+          <div className="sl-label sl-parent-companies-label"><Icon name="warning" size={11} /> تحتاج قراراً: أيّ تيم يملك هذه الشركة؟</div>
+          <div className="sl-pending-decisions-list">
+            {balMeta!.pendingDecisions!.map(d => (
+              <div key={d.companyId} className="sl-pending-decision-row">
+                <span className="sl-strong">{d.companyName}</span>
+                <span className="sl-dim">شركة ثانوية عند أكثر من تيم — اختر مالكها الفعلي:</span>
+                <div className="sl-pending-decision-candidates">
+                  {d.candidates.map(c => (
+                    <button
+                      key={c.managerId}
+                      className="btn btn--secondary btn--sm"
+                      disabled={assigningCompany === d.companyId}
+                      onClick={() => assignTeamCompany(d.companyId, c.managerId, d.companyName, c.teamName)}
+                    >{c.teamName}</button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
