@@ -986,10 +986,12 @@ async function loadOfficeTeams(officeId) {
 
   const teams = [];
   const companyById = new Map();
-  // شركة مشتركة بين مديرين تُنسب لمن هي شركته الرئيسية؛ وإلا لأول مدير يحملها
-  // (الأقدم id) — قرار ثابت كي لا تقفز الشريحة بين تيم وآخر بين طلب وآخر.
-  const teamByCompany = new Map();
-  const primaryClaimed = new Set();
+  // اعتماد ترتيب المعالجة لحسم شركة يحملها أكثر من مدير كان يُنتج نتيجة عشوائية
+  // (شوهد فعلياً: WINFAST/DLBEEN — ثانوية عند أحمد سجاد/humanis وعلي حسن/CT معاً،
+  // رئيسية عند لا أحد منهما — كانت تظهر تحت humanis لمجرد أن معرّفه أصغر). الحسم
+  // الآن بمعنى البيانات لا بترتيبها: لكل شركة تُجمَع كل الحيازات (رئيسية/ثانوية)
+  // من كل المديرين، ثم تُحسم بلا اعتماد على ترتيب المعالجة (انظر أدناه).
+  const holders = new Map(); // companyId → [{managerId, isPrimary}, …]
   for (const m of managers) {
     const rows = byManager.get(m.id) ?? [];
     if (!rows.length) continue;
@@ -1002,12 +1004,20 @@ async function loadOfficeTeams(officeId) {
     });
     for (const r of rows) {
       companyById.set(r.company.id, r.company);
-      const isPrimaryHere = r.company.id === primary.company.id;
-      if (!teamByCompany.has(r.company.id) || (isPrimaryHere && !primaryClaimed.has(r.company.id))) {
-        teamByCompany.set(r.company.id, m.id);
-      }
-      if (isPrimaryHere) primaryClaimed.add(r.company.id);
+      if (!holders.has(r.company.id)) holders.set(r.company.id, []);
+      holders.get(r.company.id).push({ managerId: m.id, isPrimary: r.company.id === primary.company.id });
     }
+  }
+
+  // لكل شركة: شركة رئيسية حصراً لمدير واحد تُنسب له دائماً (أقوى إشارة) حتى لو
+  // حملها آخرون ثانوياً؛ وإلا حامل وحيد (ثانوية عند مدير واحد فقط، لا تنازع) يفوز
+  // بها كذلك؛ وإلا (رئيسية لأكثر من مدير معاً، أو ثانوية مشتركة بين عدة مديرين
+  // بلا رئيسية) تبقى بلا تيم («غير مصنّف» في resolveBalanceTeams) بدل التخمين.
+  const teamByCompany = new Map();
+  for (const [companyId, list] of holders) {
+    const primaries = list.filter(h => h.isPrimary);
+    if (primaries.length === 1) teamByCompany.set(companyId, primaries[0].managerId);
+    else if (primaries.length === 0 && list.length === 1) teamByCompany.set(companyId, list[0].managerId);
   }
 
   teams.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
@@ -1024,8 +1034,9 @@ async function loadOfficeTeams(officeId) {
  * الرصيد («HUMANISTurkeyN/A» كما يأتي ملصقاً في ملفات الستوك) بعد تجريد لاحقة
  * الدولة/N-A (extractCompanyFromCode → «HUMANIS») ثم مطابقته بشركات التيمات
  * (alias محفوظ ← تام ← متجاهل للمسافات ← ضبابي وحيد)، وإن فشل التجريد يُجرَّب
- * الاسم كما ورد. ما لم يُربط بتيم يبقى null («غير مصنّف») — ويشمل ذلك شركات
- * المكتب التي لا مدير شركة لها.
+ * الاسم كما ورد. ما لم يُربط بتيم يبقى null («غير مصنّف») — ويشمل شركات المكتب
+ * التي لا مدير شركة لها، وشركات ثانوية (لا رئيسية) عند أكثر من مدير معاً
+ * (لا مالك حصري لها في البيانات، فلا تُخمَّن — راجع loadOfficeTeams أعلاه).
  *
  * @param {Array<{itemId:number|null, companyName:string|null}>} balances
  * @param {{id:number, role:string}} viewer
