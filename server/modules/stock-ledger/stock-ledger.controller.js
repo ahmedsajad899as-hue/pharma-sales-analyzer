@@ -4,7 +4,7 @@
 
 import {
   parseMovementFile, ingestRows, ingestBaselineFromStockFile,
-  buildAlerts, removeBatch, recomputeBalances, resolveBalanceCompanies,
+  buildAlerts, removeBatch, recomputeBalances, resolveBalanceTeams,
   classifyMovementRows, classifyBaselineFromStockFile,
   saveWarehouseNameLinks, saveItemLinks, saveStockCompanyNameLinks,
 } from './stock-ledger.service.js';
@@ -85,12 +85,13 @@ export async function listBalances(req, res) {
     // حالة فراغ، حتى حين تكون الأرصدة محسوبة فعلاً لكن نطاق السوبر أدمن يحجبها،
     // فيُعاد الاستيراد بلا فائدة. هذه العدادات تجعل الصفحة تشرح سبب فراغها.
     const movements = all.length ? 0 : await prisma.stockMovement.count({ where: { userId: { in: ledger.readIds } } });
-    // «الشركة الرئيسية» لكل رصيد — شرائح تصفية للأدوار المكتبية (قائمة فارغة لغيرها)
-    const tag = await resolveBalanceCompanies(rows, req.user);
+    // «الشركة الرئيسية» — تيمات المكتب (حسابات مدراء الشركات) كشرائح تصفية
+    // للأدوار المكتبية، نفس تعريف /api/reports/overall-teams (قائمة فارغة لغيرها)
+    const tag = await resolveBalanceTeams(rows, req.user);
     let unclassified = 0;
     const data = rows.map(b => {
-      const companyId = tag.companyIdOf(b);
-      if (tag.companies.length && companyId == null) unclassified++;
+      const teamId = tag.teamIdOf(b);
+      if (tag.teams.length && teamId == null) unclassified++;
       return {
         warehouseId: b.warehouseId,
         warehouse: b.warehouse.name,
@@ -99,7 +100,7 @@ export async function listBalances(req, res) {
         itemKey: b.itemKey,
         itemName: b.itemName,
         companyName: b.companyName,
-        companyId,
+        teamId,
         opening: b.opening,
         openingAt: b.openingAt,
         inQty: b.inQty,
@@ -116,7 +117,7 @@ export async function listBalances(req, res) {
         // دفتر المكتب (لا دفتر المستخدم) — أسماء أصحابه تُعرض كتلميح في الصفحة
         sharedLedger: ledger.viewer,
         ledgerOwners: ledger.viewer ? [...ledger.ownerName.values()] : [],
-        companies: tag.companies, unclassified,
+        teams: tag.teams, unclassified,
       },
       data,
     });

@@ -44,15 +44,15 @@ const isBaghdadRegion = (region: string) => {
 interface Balance {
   warehouseId: number; warehouse: string; region: string;
   itemKey: string; itemName: string; companyName: string | null;
-  /** الشركة الرئيسية (ScientificCompany) المربوطة بالرصيد — null = غير مصنّف؛ يُحسب في الخادم للأدوار المكتبية فقط */
-  companyId: number | null;
+  /** تيم المكتب (حساب مدير الشركة) المربوط بالرصيد — null = غير مصنّف؛ يُحسب في الخادم للأدوار المكتبية فقط */
+  teamId: number | null;
   opening: number; openingAt: string | null;
   inQty: number; outQty: number; remaining: number;
   pctLeft: number | null; lastMovementAt: string | null;
 }
 type Severity = 'out' | 'critical' | 'low';
 interface AlertItem {
-  itemKey: string; itemName: string; companyName: string | null; companyId: number | null;
+  itemKey: string; itemName: string; companyName: string | null; teamId: number | null;
   opening: number; inQty: number; outQty: number; remaining: number;
   suggestedQty: number; pctLeft: number; lastMovementAt: string | null;
   severity: Severity;
@@ -80,18 +80,21 @@ interface Batch {
   own: boolean; ownerName: string | null;
 }
 interface StockFile { id: number; name: string; uploadedAt: string }
-/** شريحة «الشركة الرئيسية» — count = عدد أرصدة (مذخر × ايتم) المربوطة بها */
-interface ParentCompany { id: number; name: string; count: number }
+/** شريحة «الشركة الرئيسية» = تيم مكتب (حساب مدير شركة)، معروض باسم شركته
+ *  الرئيسية — نفس شرائح التحليل الشامل. id = معرّف حساب المدير، count = عدد
+ *  أرصدة (مذخر × ايتم) المربوطة بشركات التيم. */
+interface Team { id: number; name: string; managerName: string; count: number }
 /** عدّادات تشرح سبب فراغ جدول الأرصدة — total = كل أرصدة الحساب قبل تطبيق نطاق
  *  شركات/ايتمات الستوك، hiddenByScope = كم منها حجبه ذلك النطاق. sharedLedger =
  *  الأرصدة المعروضة اتحاد دفاتر موظفي المكتب مع دفتر المستخدم. companies = شرائح
- *  الشركة الرئيسية (فارغة لغير الأدوار المكتبية)، unclassified = أرصدة بلا شركة. */
+ *  الشركة الرئيسية (تيمات المكتب — فارغة لغير الأدوار المكتبية)، unclassified =
+ *  أرصدة لم تُنسب لأي تيم. */
 interface BalancesMeta {
   total: number; hiddenByScope: number; movements: number;
-  sharedLedger?: boolean; ledgerOwners?: string[]; companies?: ParentCompany[]; unclassified?: number;
+  sharedLedger?: boolean; ledgerOwners?: string[]; teams?: Team[]; unclassified?: number;
 }
-/** فلتر الشركة الرئيسية: الكل / شركة بعينها / غير المصنّف فقط */
-type ParentCompanyFilter = 'all' | 'none' | number;
+/** فلتر الشركة الرئيسية: الكل / تيم بعينه / غير المصنّف فقط */
+type TeamFilter = 'all' | 'none' | number;
 /** مراجعة معلَّقة بانتظار تأكيد المستخدم لأسماء مشكوك فيها — مصدرها إما ملف
  *  مرفوع (صفوفه تعود من extract ويجب إعادة إرسالها عند الحفظ) أو ملف Stock
  *  محفوظ سلفاً على الخادم (يُعاد قراءته عند الحفظ فلا حاجة لصفوفه هنا). */
@@ -164,9 +167,9 @@ export default function StockLedgerPage() {
   const [search, setSearch] = useState('');
   const [onlyAlerting, setOnlyAlerting] = useState(false);
   const [onlyBaghdad, setOnlyBaghdad] = useState(true);
-  // «الشركة الرئيسية» — فلتر على مستوى الصفحة (الأرصدة + التنبيهات + المؤشرات)،
-  // يظهر للأدوار المكتبية فقط لأن الخادم لا يُرجع الشرائح لغيرها.
-  const [fParentCompany, setFParentCompany] = useState<ParentCompanyFilter>('all');
+  // «الشركة الرئيسية» — فلتر تيمات على مستوى الصفحة (الأرصدة + التنبيهات +
+  // المؤشرات)، يظهر للأدوار المكتبية فقط لأن الخادم لا يُرجع الشرائح لغيرها.
+  const [fTeam, setFTeam] = useState<TeamFilter>('all');
 
   // ── تحميل البيانات ───────────────────────────────────────────
   // فشل التحميل كان يُبتلَع بصمت: j.success=false يترك المصفوفة فارغة فتظهر رسالة
@@ -221,25 +224,25 @@ export default function StockLedgerPage() {
     () => [...new Set(balances.map(b => b.companyName).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'ar')),
     [balances]);
 
-  const parentCompanies = balMeta?.companies ?? [];
-  const matchesParentCompany = useCallback((companyId: number | null) => {
-    if (fParentCompany === 'all') return true;
-    if (fParentCompany === 'none') return companyId === null;
-    return companyId === fParentCompany;
-  }, [fParentCompany]);
+  const teams = balMeta?.teams ?? [];
+  const matchesTeam = useCallback((teamId: number | null) => {
+    if (fTeam === 'all') return true;
+    if (fTeam === 'none') return teamId === null;
+    return teamId === fTeam;
+  }, [fTeam]);
 
-  // التنبيهات بعد فلتر الشركة الرئيسية — المجموعات الفارغة تسقط والعدادات تُعاد
+  // التنبيهات بعد فلتر التيم — المجموعات الفارغة تسقط والعدادات تُعاد
   const alertsView = useMemo<AlertsData | null>(() => {
-    if (!alerts || fParentCompany === 'all') return alerts;
+    if (!alerts || fTeam === 'all') return alerts;
     const totals: Record<Severity, number> = { out: 0, critical: 0, low: 0 };
     const groups = alerts.groups.map(g => {
-      const items = g.items.filter(it => matchesParentCompany(it.companyId));
+      const items = g.items.filter(it => matchesTeam(it.teamId));
       const counts: Record<Severity, number> = { out: 0, critical: 0, low: 0 };
       for (const it of items) { counts[it.severity]++; totals[it.severity]++; }
       return { ...g, items, counts, total: items.length };
     }).filter(g => g.items.length);
     return { ...alerts, groups, totals, totalItems: totals.out + totals.critical + totals.low };
-  }, [alerts, fParentCompany, matchesParentCompany]);
+  }, [alerts, fTeam, matchesTeam]);
 
   const alertingKeys = useMemo(() => {
     const s = new Set<string>();
@@ -253,7 +256,7 @@ export default function StockLedgerPage() {
 
   const filtered = useMemo(() => {
     return balances.filter(b => {
-      if (!matchesParentCompany(b.companyId)) return false;
+      if (!matchesTeam(b.teamId)) return false;
       if (fRegion !== 'all' && b.region !== fRegion) return false;
       if (fWarehouse !== 'all' && b.warehouseId !== fWarehouse) return false;
       if (fCompany !== 'all' && b.companyName !== fCompany) return false;
@@ -265,7 +268,7 @@ export default function StockLedgerPage() {
       }
       return true;
     });
-  }, [balances, fRegion, fWarehouse, fCompany, searchTerms, onlyAlerting, onlyBaghdad, alertingKeys, matchesParentCompany]);
+  }, [balances, fRegion, fWarehouse, fCompany, searchTerms, onlyAlerting, onlyBaghdad, alertingKeys, matchesTeam]);
 
   const kpis = useMemo(() => ({
     warehouses: new Set(filtered.map(b => b.warehouseId)).size,
@@ -432,28 +435,28 @@ export default function StockLedgerPage() {
         </div>
       </div>
 
-      {/* ── الشركة الرئيسية (الأدوار المكتبية — تشرف على كل شركات المكتب) ── */}
-      {parentCompanies.length > 0 && (
+      {/* ── الشركة الرئيسية (تيمات المكتب — شريحة لكل مدير شركة باسم شركته الرئيسية) ── */}
+      {teams.length > 0 && (
         <div className="sl-parent-companies">
           <div className="sl-label sl-parent-companies-label"><Icon name="navOrgStructure" size={11} /> الشركة الرئيسية</div>
           <div className="sl-parent-companies-chips">
             <button
-              className={`filter-chip${fParentCompany === 'all' ? ' filter-chip--active' : ''}`}
-              onClick={() => setFParentCompany('all')}
+              className={`filter-chip${fTeam === 'all' ? ' filter-chip--active' : ''}`}
+              onClick={() => setFTeam('all')}
             >الكل</button>
-            {parentCompanies.map(c => (
+            {teams.map(t => (
               <button
-                key={c.id}
-                className={`filter-chip${fParentCompany === c.id ? ' filter-chip--active' : ''}${c.count ? '' : ' sl-chip--empty'}`}
-                onClick={() => setFParentCompany(c.id)}
-                title={c.count ? `${fmtNum(c.count)} رصيد (مذخر × ايتم) لايتمات هذه الشركة` : 'لا ستوك مسجَّل لايتمات هذه الشركة'}
-              >{c.name}<span className="sl-chip-count">{fmtNum(c.count)}</span></button>
+                key={t.id}
+                className={`filter-chip${fTeam === t.id ? ' filter-chip--active' : ''}${t.count ? '' : ' sl-chip--empty'}`}
+                onClick={() => setFTeam(t.id)}
+                title={`${t.managerName}${t.count ? ` — ${fmtNum(t.count)} رصيد (مذخر × ايتم)` : ' — لا ستوك مسجَّل لايتمات هذا التيم'}`}
+              >{t.name}<span className="sl-chip-count">{fmtNum(t.count)}</span></button>
             ))}
             {(balMeta?.unclassified ?? 0) > 0 && (
               <button
-                className={`filter-chip${fParentCompany === 'none' ? ' filter-chip--active' : ''}`}
-                onClick={() => setFParentCompany('none')}
-                title="أرصدة لم يُتعرَّف على شركتها الرئيسية — ايتم غير مربوط بالكتالوج واسم شركة لا يطابق أي شركة من شركات المكتب"
+                className={`filter-chip${fTeam === 'none' ? ' filter-chip--active' : ''}`}
+                onClick={() => setFTeam('none')}
+                title="أرصدة لم تُنسب لأي تيم — شركتها لا مدير شركة لها، أو الايتم غير مربوط بالكتالوج واسم الشركة لا يطابق أي شركة تيم"
               >غير مصنّف<span className="sl-chip-count">{fmtNum(balMeta?.unclassified ?? 0)}</span></button>
             )}
           </div>
@@ -490,7 +493,7 @@ export default function StockLedgerPage() {
           onlyBaghdad={onlyBaghdad} setOnlyBaghdad={setOnlyBaghdad}
           alertingKeys={alertingKeys}
           canExport={hasFeature('stock_ledger_export')}
-          parentCompanyActive={fParentCompany !== 'all'}
+          teamActive={fTeam !== 'all'}
         />
       )}
 
@@ -547,9 +550,9 @@ function Kpi({ label, value, danger }: { label: string; value: string; danger?: 
  * بالاستيراد») حتى حين تكون الأرصدة محسوبة فعلاً ويحجبها فلتر محلي أو نطاق
  * السوبر أدمن — فيُعاد الاستيراد مراراً بلا فائدة.
  */
-function emptyReason(hasAnyBalances: boolean, onlyBaghdad: boolean, meta: BalancesMeta | null, parentCompanyActive: boolean): string {
+function emptyReason(hasAnyBalances: boolean, onlyBaghdad: boolean, meta: BalancesMeta | null, teamActive: boolean): string {
   if (hasAnyBalances) {
-    if (parentCompanyActive) return 'لا ستوك مسجَّل لايتمات هذه الشركة الرئيسية ضمن الفلاتر الحالية — اختر «الكل» أعلى الصفحة لعرض كل الشركات.';
+    if (teamActive) return 'لا ستوك مسجَّل لايتمات هذه الشركة الرئيسية ضمن الفلاتر الحالية — اختر «الكل» أعلى الصفحة لعرض كل التيمات.';
     return 'لا توجد أرصدة مطابقة للفلاتر الحالية.' + (onlyBaghdad
       ? ' فلتر «مذاخر بغداد فقط» مفعَّل ويُخفي أي مذخر منطقته ليست الحارثية أو الرصافة — جرّب إلغاءه.'
       : ' جرّب تعديل أو إلغاء الفلاتر المطبَّقة.');
@@ -573,7 +576,7 @@ function BalancesTab(p: {
   onlyBaghdad: boolean; setOnlyBaghdad: (v: boolean) => void;
   alertingKeys: Set<string>;
   canExport: boolean;
-  parentCompanyActive: boolean;
+  teamActive: boolean;
 }) {
   const [limit, setLimit] = useState(200);
   const [history, setHistory] = useState<{ row: Balance; movements: Movement[] } | null>(null);
@@ -653,7 +656,7 @@ function BalancesTab(p: {
       </div>
 
       {!p.rows.length ? (
-        <div className="sl-empty">{emptyReason(p.hasAnyBalances, p.onlyBaghdad, p.meta, p.parentCompanyActive)}</div>
+        <div className="sl-empty">{emptyReason(p.hasAnyBalances, p.onlyBaghdad, p.meta, p.teamActive)}</div>
       ) : (
         <div className="table-wrapper sl-table-wrap">
           <table className="data-table sl-table">

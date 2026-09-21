@@ -856,7 +856,7 @@ export async function buildAlerts({ userIds, viewer }, { pct = 20, qty = 10, reg
     },
     include: { warehouse: { select: { id: true, name: true, region: true } } },
   })).filter(makeBalanceScopeFilter(scope));
-  const tag = await resolveBalanceCompanies(balances, viewer);
+  const tag = await resolveBalanceTeams(balances, viewer);
 
   const byWarehouse = new Map();
   const totals = { out: 0, critical: 0, low: 0 };
@@ -875,7 +875,7 @@ export async function buildAlerts({ userIds, viewer }, { pct = 20, qty = 10, reg
     g.counts[sev]++;
     g.items.push({
       itemKey: b.itemKey, itemName: b.itemName, companyName: b.companyName,
-      companyId: tag.companyIdOf(b),
+      teamId: tag.teamIdOf(b),
       opening: b.opening, inQty: b.inQty, outQty: b.outQty, remaining: b.remaining,
       // الكمية المقترحة للطلبية = ما استُهلك فعلاً منذ الستوك الافتتاحي
       suggestedQty: Math.max(0, Math.round(b.opening + b.inQty - b.remaining)),
@@ -900,7 +900,7 @@ export async function buildAlerts({ userIds, viewer }, { pct = 20, qty = 10, reg
     groups, totals,
     totalItems: totals.out + totals.critical + totals.low,
     thresholds: { pct, qty },
-    companies: tag.companies,
+    teams: tag.teams,
   };
 }
 
@@ -949,36 +949,96 @@ export async function removeBaselineForDeletedStockFile(user, sourceFileId) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  6. «الشركة الرئيسية» لكل رصيد — للأدوار المكتبية
+//  6. «الشركة الرئيسية» لكل رصيد — تيمات المكتب، للأدوار المكتبية
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * يربط كل رصيد (مذخر × ايتم) بشركة علمية (ScientificCompany) من شركات الناظر
- * المُعيَّنة — للأدوار المكتبية (مدير المكتب / HR / موظف المكتب) التي تشرف على
- * كل شركات مكتبها معاً وتحتاج تصفية الستوك بشركة واحدة. باقي الأدوار (مدير
- * شركة واحدة…) تُرجع قائمة فارغة فلا تظهر الشرائح.
+ * تيمات المكتب — نفس تعريف شرائح «الشركة الرئيسية» في التحليل الشامل
+ * (GET /api/reports/overall-teams): كل حساب «مدير شركة» (company_manager) نشط في
+ * المكتب هو تيم، اسمه المعروض = اسم شركته الرئيسية، ويضمّ كل شركاته (رئيسية
+ * وثانوية). لا تُعرض كل شركات المكتب — الشركة التي لا مدير لها ليست تيماً.
  *
- * الربط: الايتم المُطابَق بالكتالوج (itemId → Item.scientificCompanyId) أولاً —
- * الأدق؛ وإلا اسم الشركة النصي في الرصيد («HUMANISTurkeyN/A» كما يأتي ملصقاً في
- * ملفات الستوك) بعد تجريد لاحقة الدولة/N-A (extractCompanyFromCode → «HUMANIS»)
- * ثم مطابقته بشركات الناظر (alias محفوظ ← تام ← متجاهل للمسافات ← ضبابي وحيد)،
- * وإن فشل التجريد يُجرَّب الاسم كما ورد. ما لم يُربط يبقى null («غير مصنّف»).
+ * @param {number} officeId
+ * @returns {Promise<{ teams: Array<{id:number,name:string,managerName:string,companyIds:number[]}>,
+ *                     companies: Array<{id:number,name:string}>, teamByCompany: Map<number,number> }>}
+ */
+async function loadOfficeTeams(officeId) {
+  const empty = { teams: [], companies: [], teamByCompany: new Map() };
+  if (officeId == null) return empty;
+
+  const managers = await prisma.user.findMany({
+    where: { officeId, role: 'company_manager', isActive: true },
+    select: { id: true, displayName: true, username: true },
+    orderBy: { id: 'asc' },
+  });
+  if (!managers.length) return empty;
+
+  const assigns = await prisma.userCompanyAssignment.findMany({
+    where: { userId: { in: managers.map(m => m.id) }, company: { isActive: true } },
+    select: { userId: true, isPrimary: true, company: { select: { id: true, name: true } } },
+  });
+  const byManager = new Map();
+  for (const a of assigns) {
+    if (!a.company) continue;
+    if (!byManager.has(a.userId)) byManager.set(a.userId, []);
+    byManager.get(a.userId).push(a);
+  }
+
+  const teams = [];
+  const companyById = new Map();
+  // شركة مشتركة بين مديرين تُنسب لمن هي شركته الرئيسية؛ وإلا لأول مدير يحملها
+  // (الأقدم id) — قرار ثابت كي لا تقفز الشريحة بين تيم وآخر بين طلب وآخر.
+  const teamByCompany = new Map();
+  const primaryClaimed = new Set();
+  for (const m of managers) {
+    const rows = byManager.get(m.id) ?? [];
+    if (!rows.length) continue;
+    const primary = rows.find(r => r.isPrimary) ?? rows[0];
+    teams.push({
+      id: m.id,
+      name: primary.company.name,
+      managerName: m.displayName || m.username,
+      companyIds: rows.map(r => r.company.id),
+    });
+    for (const r of rows) {
+      companyById.set(r.company.id, r.company);
+      const isPrimaryHere = r.company.id === primary.company.id;
+      if (!teamByCompany.has(r.company.id) || (isPrimaryHere && !primaryClaimed.has(r.company.id))) {
+        teamByCompany.set(r.company.id, m.id);
+      }
+      if (isPrimaryHere) primaryClaimed.add(r.company.id);
+    }
+  }
+
+  teams.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  return { teams, companies: [...companyById.values()], teamByCompany };
+}
+
+/**
+ * يربط كل رصيد (مذخر × ايتم) بتيم من تيمات مكتب الناظر — للأدوار المكتبية (مدير
+ * المكتب / HR / موظف المكتب) التي تشرف على المكتب كله وتحتاج تصفية الستوك بتيم
+ * واحد. باقي الأدوار (مدير شركة…) تُرجع قائمة فارغة فلا تظهر الشرائح.
+ *
+ * الربط: الرصيد ← شركة علمية ← تيمها. الشركة تُستخرج من الايتم المُطابَق بالكتالوج
+ * (itemId → Item.scientificCompanyId) أولاً — الأدق؛ وإلا من اسم الشركة النصي في
+ * الرصيد («HUMANISTurkeyN/A» كما يأتي ملصقاً في ملفات الستوك) بعد تجريد لاحقة
+ * الدولة/N-A (extractCompanyFromCode → «HUMANIS») ثم مطابقته بشركات التيمات
+ * (alias محفوظ ← تام ← متجاهل للمسافات ← ضبابي وحيد)، وإن فشل التجريد يُجرَّب
+ * الاسم كما ورد. ما لم يُربط بتيم يبقى null («غير مصنّف») — ويشمل ذلك شركات
+ * المكتب التي لا مدير شركة لها.
  *
  * @param {Array<{itemId:number|null, companyName:string|null}>} balances
  * @param {{id:number, role:string}} viewer
- * @returns {Promise<{ companies: Array<{id:number,name:string,count:number}>, companyIdOf: (b) => number|null }>}
+ * @returns {Promise<{ teams: Array<{id:number,name:string,managerName:string,count:number}>,
+ *                     teamIdOf: (b) => number|null }>}
  */
-export async function resolveBalanceCompanies(balances, viewer) {
-  const none = { companies: [], companyIdOf: () => null };
+export async function resolveBalanceTeams(balances, viewer) {
+  const none = { teams: [], teamIdOf: () => null };
   if (!viewer?.id || !OFFICE_SCOPED_ROLES.has(viewer.role) || !balances.length) return none;
 
-  const assigns = await prisma.userCompanyAssignment.findMany({
-    where: { userId: viewer.id, company: { isActive: true } },
-    select: { company: { select: { id: true, name: true, officeId: true } } },
-  });
-  const companies = assigns.map(a => a.company).filter(Boolean);
-  if (!companies.length) return none;
-  const companyIds = companies.map(c => c.id);
+  const me = await prisma.user.findUnique({ where: { id: viewer.id }, select: { officeId: true } });
+  const { teams, companies, teamByCompany } = await loadOfficeTeams(me?.officeId ?? null);
+  if (!teams.length || !companies.length) return none;
   const byId = new Map(companies.map(c => [c.id, c]));
 
   // ① الايتم المُطابَق بالكتالوج
@@ -988,9 +1048,9 @@ export async function resolveBalanceCompanies(balances, viewer) {
     : [];
   const companyByItem = new Map(items.map(i => [i.id, i.scientificCompanyId]));
 
-  // ② اسم الشركة النصي — سياق مطابقة مقصور على شركات الناظر (لا كل شركات المكتب)
+  // ② اسم الشركة النصي — سياق مطابقة مقصور على شركات التيمات (لا كل شركات المكتب)
   const aliases = await prisma.companyAlias.findMany({
-    where: { companyId: { in: companyIds } }, select: { fromKey: true, companyId: true },
+    where: { companyId: { in: [...byId.keys()] } }, select: { fromKey: true, companyId: true },
   });
   const aliasMap = new Map();
   for (const a of aliases) if (!aliasMap.has(a.fromKey)) aliasMap.set(a.fromKey, a.companyId);
@@ -1011,23 +1071,23 @@ export async function resolveBalanceCompanies(balances, viewer) {
     return id;
   };
 
-  const companyIdOf = (b) => {
+  const teamIdOf = (b) => {
+    let companyId = null;
     if (b.itemId != null) {
       const cid = companyByItem.get(b.itemId);
-      if (cid != null && byId.has(cid)) return cid;
+      if (cid != null && byId.has(cid)) companyId = cid;
     }
-    return companyByName(b.companyName);
+    if (companyId == null) companyId = companyByName(b.companyName);
+    return companyId == null ? null : (teamByCompany.get(companyId) ?? null);
   };
 
-  const counts = new Map(companyIds.map(id => [id, 0]));
+  const counts = new Map(teams.map(t => [t.id, 0]));
   for (const b of balances) {
-    const cid = companyIdOf(b);
-    if (cid != null) counts.set(cid, (counts.get(cid) ?? 0) + 1);
+    const tid = teamIdOf(b);
+    if (tid != null) counts.set(tid, (counts.get(tid) ?? 0) + 1);
   }
   return {
-    companies: companies
-      .map(c => ({ id: c.id, name: c.name, count: counts.get(c.id) ?? 0 }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'ar')),
-    companyIdOf,
+    teams: teams.map(t => ({ id: t.id, name: t.name, managerName: t.managerName, count: counts.get(t.id) ?? 0 })),
+    teamIdOf,
   };
 }
