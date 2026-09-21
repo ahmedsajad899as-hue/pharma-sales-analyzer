@@ -961,10 +961,12 @@ export async function removeBaselineForDeletedStockFile(user, sourceFileId) {
  * @param {number} officeId
  * @returns {Promise<{ teams: Array<{id:number,name:string,managerName:string,companyIds:number[]}>,
  *                     companies: Array<{id:number,name:string}>, teamByCompany: Map<number,number>,
- *                     ambiguous: Array<{companyId:number, companyName:string, candidates:{managerId:number,teamName:string}[]}> }>}
+ *                     ambiguous: Array<{companyId:number, companyName:string, candidates:{managerId:number,teamName:string}[]}>,
+ *                     holders: Map<number, {managerId:number, isPrimary:boolean}[]>,
+ *                     overriddenCompanyIds: Set<number> }>}
  */
 async function loadOfficeTeams(officeId) {
-  const empty = { teams: [], companies: [], teamByCompany: new Map(), ambiguous: [] };
+  const empty = { teams: [], companies: [], teamByCompany: new Map(), ambiguous: [], holders: new Map(), overriddenCompanyIds: new Set() };
   if (officeId == null) return empty;
 
   const managers = await prisma.user.findMany({
@@ -1043,7 +1045,11 @@ async function loadOfficeTeams(officeId) {
   const pendingAmbiguous = ambiguous.filter(a => !decidedIds.has(a.companyId));
 
   teams.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-  return { teams, companies: [...companyById.values()], teamByCompany, ambiguous: pendingAmbiguous };
+  return {
+    teams, companies: [...companyById.values()], teamByCompany, ambiguous: pendingAmbiguous,
+    holders, // خام (قبل الحسم) — يستعملها resolveBalanceTeams لإعادة الحسم لكل ايتم بعد استبعاد المديرين المقيَّدين
+    overriddenCompanyIds: decidedIds, // قرار يدوي محفوظ — أعلى أولوية، يتجاوز حتى تخصيص الايتمات
+  };
 }
 
 /**
@@ -1076,19 +1082,33 @@ export async function saveTeamCompanyLink({ officeId, companyId, managerId }) {
  * المكتب / HR / موظف المكتب) التي تشرف على المكتب كله وتحتاج تصفية الستوك بتيم
  * واحد. باقي الأدوار (مدير شركة…) تُرجع قائمة فارغة فلا تظهر الشرائح.
  *
- * الربط: الرصيد ← شركة علمية ← تيمها. الشركة تُستخرج من الايتم المُطابَق بالكتالوج
- * (itemId → Item.scientificCompanyId) أولاً — الأدق؛ وإلا من اسم الشركة النصي في
- * الرصيد («HUMANISTurkeyN/A» كما يأتي ملصقاً في ملفات الستوك) بعد تجريد لاحقة
- * الدولة/N-A (extractCompanyFromCode → «HUMANIS») ثم مطابقته بشركات التيمات
- * (alias محفوظ ← تام ← متجاهل للمسافات ← ضبابي وحيد)، وإن فشل التجريد يُجرَّب
- * الاسم كما ورد. ما لم يُربط بتيم يبقى null («غير مصنّف») — ويشمل شركات المكتب
- * التي لا مدير شركة لها، وشركات ثانوية (لا رئيسية) عند أكثر من مدير معاً
- * (لا مالك حصري لها في البيانات، فلا تُخمَّن — راجع loadOfficeTeams أعلاه).
+ * الربط، بترتيب أولوية:
+ *   ① قرار يدوي محفوظ لشركة الرصيد (StockTeamCompanyLink) — أقوى إشارة، يفوز
+ *      حتى على تخصيص الايتمات التالي.
+ *   ② الايتمات المخصَّصة لكل مدير من صفحة «الايتمات» بالسوبر أدمن
+ *      (UserItemAssignment) — أدق من ملكية الشركة: مدير له قائمة مقيَّدة (صف
+ *      واحد فأكثر — فارغ=بلا تقييد، نفس اصطلاح UserItemAssignment بكل مكان) لا
+ *      يملك أيّ ايتم خارج قائمته حتى لو كان يملك شركته، ومدير اختار ايتماً
+ *      صراحةً يملكه بصرف النظر عن مَن يملك شركته. هذا ما يحسم فعلياً شركة
+ *      ثانوية مشتركة بين تيمين دون أي قرار يدوي (شوهد فعلياً: DLBEEN ثانوية عند
+ *      humanis وCT معاً، لكن WINFAST/Vigafos مُخصَّصان لـCT وPotafast لـhumanis
+ *      في قوائمهما الشخصية — فيحسمان تلقائياً بلا تعارض).
+ *   ③ الشركة العلمية للرصيد — تُستخرج من الايتم المُطابَق بالكتالوج
+ *      (itemId → Item.scientificCompanyId) أولاً، وإلا من اسم الشركة النصي
+ *      («HUMANISTurkeyN/A» كما يأتي ملصقاً) بعد تجريد لاحقة الدولة/N-A
+ *      (extractCompanyFromCode) ومطابقته بشركات التيمات (alias ← تام ←
+ *      متجاهل للمسافات ← ضبابي وحيد). ثم تُحسم بنفس منطق loadOfficeTeams
+ *      (رئيسية حصراً ← حامل وحيد) بعد استبعاد أي مدير مقيَّد (②) لم يختر هذا
+ *      الايتم صراحةً — لا يُستبعد أحد إن كان الرصيد بلا itemId (بلا معلومة
+ *      كافية للاستبعاد، فالحسم غير المُصفَّى من loadOfficeTeams يُستعمل كما هو).
+ * ما لم يُربط بتيم يبقى null («غير مصنّف») — شركة مكتب لا مدير شركة لها، أو
+ * ايتم استُبعد منه كل الحاملين المؤهَّلين، أو تنازع حقيقي (StockTeamCompanyLink
+ * لم يُحفَظ له قرار بعد — راجع pendingDecisions).
  *
  * @param {Array<{itemId:number|null, companyName:string|null}>} balances
  * @param {{id:number, role:string}} viewer
  * @returns {Promise<{ teams: Array<{id:number,name:string,managerName:string,count:number}>,
- *                     teamIdOf: (b) => number|null }>}
+ *                     teamIdOf: (b) => number|null, pendingDecisions: Array }>}
  */
 export async function resolveBalanceTeams(balances, viewer) {
   const none = { teams: [], teamIdOf: () => null, pendingDecisions: [] };
@@ -1096,9 +1116,10 @@ export async function resolveBalanceTeams(balances, viewer) {
 
   const me = await prisma.user.findUnique({ where: { id: viewer.id }, select: { officeId: true } });
   const officeId = me?.officeId ?? null;
-  const { teams, companies, teamByCompany, ambiguous } = await loadOfficeTeams(officeId);
+  const { teams, companies, teamByCompany, ambiguous, holders, overriddenCompanyIds } = await loadOfficeTeams(officeId);
   if (!teams.length || !companies.length) return none;
   const byId = new Map(companies.map(c => [c.id, c]));
+  const teamIds = teams.map(t => t.id);
 
   // ① الايتم المُطابَق بالكتالوج
   const itemIds = [...new Set(balances.map(b => b.itemId).filter(Boolean))];
@@ -1130,6 +1151,21 @@ export async function resolveBalanceTeams(balances, viewer) {
     return id;
   };
 
+  // ايتمات كل مدير المخصَّصة يدوياً من صفحة «الايتمات» بالسوبر أدمن — يقرأان معاً
+  // فقط بحث واحد أرخص من اثنين، ثم يُفصلان: explicitOwners لحسم ①② أعلاه،
+  // restrictedManagerIds لتصفية حاملي الشركة الافتراضيين في ③ (قائمة غير فارغة
+  // = مدير مقيَّد، «فارغ=بلا تقييد» كبقية أماكن استعمال UserItemAssignment).
+  const itemAssigns = await prisma.userItemAssignment.findMany({
+    where: { userId: { in: teamIds } }, select: { userId: true, itemId: true },
+  });
+  const explicitOwners = new Map(); // itemId → Set<managerId>
+  const restrictedManagerIds = new Set();
+  for (const a of itemAssigns) {
+    restrictedManagerIds.add(a.userId);
+    if (!explicitOwners.has(a.itemId)) explicitOwners.set(a.itemId, new Set());
+    explicitOwners.get(a.itemId).add(a.userId);
+  }
+
   const companyIdOf = (b) => {
     if (b.itemId != null) {
       const cid = companyByItem.get(b.itemId);
@@ -1137,17 +1173,43 @@ export async function resolveBalanceTeams(balances, viewer) {
     }
     return companyByName(b.companyName);
   };
+
+  /** حسم الشركة بعد استبعاد أي مدير مقيَّد لم يختر هذا الايتم صراحةً — نفس منطق
+   *  loadOfficeTeams (رئيسية حصراً ← حامل وحيد) على القائمة المُصفَّاة فقط. */
+  function resolveCompanyForItem(companyId, itemId) {
+    const list = holders.get(companyId) ?? [];
+    const eligible = itemId == null
+      ? list // بلا itemId لا معلومة كافية للاستبعاد — القائمة كاملة كما في loadOfficeTeams
+      : list.filter(h => !restrictedManagerIds.has(h.managerId) || explicitOwners.get(itemId)?.has(h.managerId));
+    const primaries = eligible.filter(h => h.isPrimary);
+    if (primaries.length === 1) return primaries[0].managerId;
+    if (primaries.length === 0 && eligible.length === 1) return eligible[0].managerId;
+    return null;
+  }
+
   const teamIdOf = (b) => {
     const companyId = companyIdOf(b);
-    return companyId == null ? null : (teamByCompany.get(companyId) ?? null);
+    // ① قرار يدوي محفوظ — أقوى إشارة، يتجاوز حتى تخصيص الايتمات
+    if (companyId != null && overriddenCompanyIds.has(companyId)) return teamByCompany.get(companyId) ?? null;
+    // ② تخصيص صريح لهذا الايتم بالذات
+    if (b.itemId != null) {
+      const owners = explicitOwners.get(b.itemId);
+      if (owners?.size === 1) return [...owners][0];
+      if (owners?.size) return null; // تنازع صريح (نادر) — أكثر من مدير اختار نفس الايتم
+    }
+    // ③ الشركة، بعد استبعاد المقيَّدين غير المالكين لهذا الايتم تحديداً
+    if (companyId == null) return null;
+    return b.itemId != null ? resolveCompanyForItem(companyId, b.itemId) : (teamByCompany.get(companyId) ?? null);
   };
 
-  // شركات «تحتاج قرار» يقتصر عرضها على ما له رصيد فعلي ظاهر عند هذا الناظر —
-  // لا كل شركات المكتب المتنازع عليها (قد لا يخصّ بعضها ملفاته/شركاته إطلاقاً).
+  // شركات «تحتاج قرار» يقتصر عرضها على ما له رصيد فعلي غير محسوم ظاهر عند هذا
+  // الناظر — لا كل شركات المكتب المتنازع عليها (قد لا يخصّ بعضها ملفاته إطلاقاً،
+  // وبعضها الآخر قد يكون حُسم فعلياً هنا عبر تخصيص الايتمات رغم بقائه في القائمة
+  // الخام من loadOfficeTeams التي لا تعرف عن تخصيص الايتمات).
   const presentAmbiguousIds = new Set();
   for (const b of balances) {
     const companyId = companyIdOf(b);
-    if (companyId != null && teamByCompany.get(companyId) == null) presentAmbiguousIds.add(companyId);
+    if (companyId != null && teamIdOf(b) == null) presentAmbiguousIds.add(companyId);
   }
   const pendingDecisions = ambiguous.filter(a => presentAmbiguousIds.has(a.companyId));
 
