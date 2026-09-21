@@ -3,15 +3,31 @@
 // UserStockItemAssignment) لصفحة «Stock» (الجدول الخام) و«رصيد المذاخر».
 //
 // مستقل عمداً عن UserCompanyAssignment (تُديره officeScope.js تلقائياً بكل شركات
-// المكتب لمدير/موظف المكتب — إعادة استعماله هنا كانت ستكسر ذلك) وعن
-// UserItemAssignment (نطاق المبيعات — مفهوم مختلف قد يفترقان فيه). نفس اصطلاح
-// itemScope.js: قائمة فارغة = بلا تقييد (كل الشركات/الايتمات)، لا «صفر».
+// المكتب لمدير/موظف المكتب — إعادة استعماله هنا كانت ستكسر ذلك). بُعد الايتمات
+// فقط يرث تلقائياً من UserItemAssignment (نطاق المبيعات، تبويب «الايتمات») متى
+// لم يُضبط نطاق ستوك صريح لهذا المستخدم — راجع resolveStockScope؛ تبويب «📦 نطاق
+// الستوك» يبقى قادراً على تحديد نطاق مختلف يتجاوز هذا الافتراضي متى ضُبط صراحةً.
+// نفس اصطلاح itemScope.js: قائمة فارغة = بلا تقييد (كل الشركات/الايتمات)، لا «صفر».
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from './prisma.js';
 import { normalizeItemKey } from './itemResolver.js';
 import { areSimilar } from './fuzzyMatch.js';
 import { asArray, detectCompanyCol, detectItemNameCol } from './stockMatrix.js';
+
+/**
+ * يوسِّع سطور تعيين ايتمات (itemId + اسمه) إلى {itemIds, itemNameKeys} — نفس الايتم
+ * قد يتكرر كصفوف Item متعددة (كتالوج/مؤقت/لكل حساب) فالتوسيع بالاسم ضروري لالتقاطها كلها.
+ */
+async function expandItemAssignments(assigns) {
+  if (!assigns.length) return { itemIds: null, itemNameKeys: null };
+  const itemNameKeys = new Set(assigns.map(a => normalizeItemKey(a.item?.name || '')).filter(Boolean));
+  const directIds = assigns.map(a => a.itemId);
+  if (!itemNameKeys.size) return { itemIds: [...new Set(directIds)], itemNameKeys };
+  const allItems = await prisma.item.findMany({ select: { id: true, name: true } });
+  const matchingIds = allItems.filter(i => itemNameKeys.has(normalizeItemKey(i.name || ''))).map(i => i.id);
+  return { itemIds: [...new Set([...directIds, ...matchingIds])], itemNameKeys };
+}
 
 /**
  * نطاق ستوك المستخدم — كل بُعد null إن لم يكن مقيَّداً.
@@ -25,24 +41,23 @@ export async function resolveStockScope(userId) {
   const empty = { itemIds: null, itemNameKeys: null, companyIds: null, companyNameKeys: null };
   if (!userId) return empty;
 
-  const [itemAssigns, companyAssigns] = await Promise.all([
+  const [stockItemAssigns, companyAssigns] = await Promise.all([
     prisma.userStockItemAssignment.findMany({ where: { userId }, select: { itemId: true, item: { select: { name: true } } } }),
     prisma.userStockCompanyAssignment.findMany({ where: { userId }, select: { companyId: true, company: { select: { name: true } } } }),
   ]);
 
-  let itemIds = null, itemNameKeys = null;
-  if (itemAssigns.length) {
-    itemNameKeys = new Set(itemAssigns.map(a => normalizeItemKey(a.item?.name || '')).filter(Boolean));
-    const directIds = itemAssigns.map(a => a.itemId);
-    if (itemNameKeys.size) {
-      // توسيع بالاسم — نفس الايتم قد يتكرر كصفوف Item متعددة (كتالوج/مؤقت/لكل حساب)
-      const allItems = await prisma.item.findMany({ select: { id: true, name: true } });
-      const matchingIds = allItems.filter(i => itemNameKeys.has(normalizeItemKey(i.name || ''))).map(i => i.id);
-      itemIds = [...new Set([...directIds, ...matchingIds])];
-    } else {
-      itemIds = [...new Set(directIds)];
-    }
+  // تبويب «📦 نطاق الستوك» له الأولوية دائماً إن ضُبط صراحةً لهذا المستخدم. لو لم
+  // يُضبط إطلاقاً (لا سطر واحد)، نرث نطاق المبيعات العادي (تبويب «الايتمات»،
+  // UserItemAssignment) كافتراضي — أغلب من يعيّن ايتمات مستخدم يفعل ذلك من تبويب
+  // واحد ويتوقع أن يتقيّد به المستخدم في كل الصفحات، لا في المبيعات فقط. كانت
+  // ايتمات مُقيَّدة هناك تظهر كاملة بلا تقييد في Stock/رصيد المذاخر رغم ذلك.
+  let itemAssigns = stockItemAssigns;
+  if (!itemAssigns.length) {
+    itemAssigns = await prisma.userItemAssignment.findMany({
+      where: { userId }, select: { itemId: true, item: { select: { name: true } } },
+    });
   }
+  const { itemIds, itemNameKeys } = await expandItemAssignments(itemAssigns);
 
   let companyIds = null, companyNameKeys = null;
   if (companyAssigns.length) {
