@@ -1456,12 +1456,32 @@ export async function debugWishlist(req, res, next) {
   }
 }
 
+// حذف من «قائمة الطلبات» — إن كان هذا الطبيب مربوطاً بسجل السيرفي الموحّد
+// (MasterSurveyDoctor)، فكل حساب (مدير شركة/قائد فريق) لديه صفّ Doctor خاص به
+// يُمرآة نفس ذلك الطبيب الحقيقي (راجع ensureDoctorRowsForScope في surveyDoctors.js)
+// — فحذفه هنا يمسح كل الإدخالات المرتبطة بأي من تلك المرايا عبر كل الحسابات،
+// لا حساب هذا المستخدم وحده. طبيب مخصَّص بلا رابط سيرفي (masterSurveyDoctorId=null)
+// يبقى حذفه محصوراً بحساب المستخدم كما كان.
 export async function removeWishlist(req, res, next) {
   try {
     const userId   = req.user.id;
     const doctorId = parseInt(req.params.doctorId);
     if (isNaN(doctorId)) return res.status(400).json({ error: 'doctorId غير صالح' });
-    await prisma.doctorWishlist.deleteMany({ where: { userId, doctorId } });
+
+    const doc = await prisma.doctor.findUnique({
+      where: { id: doctorId },
+      select: { masterSurveyDoctorId: true },
+    });
+
+    if (doc?.masterSurveyDoctorId) {
+      const mirrors = await prisma.doctor.findMany({
+        where: { masterSurveyDoctorId: doc.masterSurveyDoctorId },
+        select: { id: true },
+      });
+      await prisma.doctorWishlist.deleteMany({ where: { doctorId: { in: mirrors.map(m => m.id) } } });
+    } else {
+      await prisma.doctorWishlist.deleteMany({ where: { userId, doctorId } });
+    }
     res.json({ ok: true });
   } catch (e) { next(e); }
 }

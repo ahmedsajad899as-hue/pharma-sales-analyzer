@@ -750,64 +750,43 @@ export default function DoctorsPage() {
     localStorage.removeItem('wishedItems');
     localStorage.removeItem('wishedDoctorNames');
 
-    // Load from backend and merge (backend is source of truth)
-    // If backend returns empty but localStorage has data → re-sync localStorage → backend
+    // Load from backend — the backend is authoritative. REPLACE local state with
+    // exactly what it returns instead of unioning into it: a union would silently
+    // resurrect (and even re-POST!) any doctor that was just removed server-side,
+    // including one removed by another manager's global delete on the same
+    // real-world doctor (see removeWishlist's masterSurveyDoctorId cascade) — a
+    // stale localStorage cache must not be able to undo that. Only on a genuine
+    // fetch failure (offline/server error) do we keep showing localStorage as-is.
     fetch(`${API}/api/doctors/wishlist`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
       .then((items: Array<{ doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string }> | null) => {
         if (!Array.isArray(items)) return; // error from backend — keep localStorage
 
-        // ── Always re-sync: push any localStorage IDs that are missing from backend ──
-        const backendIds = new Set(items.map(w => w.doctorId));
-        let localIds: number[] = [];
-        try { localIds = JSON.parse(localStorage.getItem(key) || '[]'); } catch { localIds = []; }
-        const missingIds = localIds.filter(id => !backendIds.has(id));
-        if (missingIds.length > 0) {
-          let localItems: Record<number, string> = {};
-          let localInfo: Record<number, { specialty?: string; pharmacyName?: string; areaName?: string }> = {};
-          try { localItems = JSON.parse(localStorage.getItem(kIt) || '{}'); } catch { localItems = {}; }
-          try { localInfo  = JSON.parse(localStorage.getItem(kInf) || '{}'); } catch { localInfo = {}; }
-          const h = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-          // Fire-and-forget POSTs for missing entries
-          missingIds.forEach(docId => {
-            const info = localInfo[docId] ?? {};
-            fetch(`${API}/api/doctors/wishlist`, {
-              method: 'POST', headers: h,
-              body: JSON.stringify({ doctorId: docId, itemName: localItems[docId] ?? undefined, specialty: info.specialty, pharmacyName: info.pharmacyName, areaName: info.areaName }),
-            }).catch(() => {});
-          });
-        }
+        const ids = items.map(w => w.doctorId);
+        setWishedDoctors(new Set(ids));
+        localStorage.setItem(key, JSON.stringify(ids));
 
-        if (items.length === 0) return; // backend empty — keep localStorage displayed
+        const names: Record<number, string> = {};
+        const wItems: Record<number, string> = {};
+        items.forEach(w => {
+          names[w.doctorId] = w.doctorName;
+          if (w.itemName) wItems[w.doctorId] = w.itemName;
+        });
+        setWishedNames(names);
+        localStorage.setItem(kNm, JSON.stringify(names));
+        setWishedItems(wItems);
+        localStorage.setItem(kIt, JSON.stringify(wItems));
 
-        // Backend has data — merge into state (UNION of backend + local, never wipes local picks)
-        setWishedDoctors(prev => {
-          const merged = new Set([...prev, ...items.map(w => w.doctorId)]);
-          localStorage.setItem(key, JSON.stringify([...merged]));
-          return merged;
-        });
-        setWishedNames(prev => {
-          const next = { ...prev };
-          items.forEach(w => { next[w.doctorId] = w.doctorName; });
-          localStorage.setItem(kNm, JSON.stringify(next));
-          return next;
-        });
-        setWishedItems(prev => {
-          const next = { ...prev };
-          items.forEach(w => { if (w.itemName) next[w.doctorId] = w.itemName; });
-          localStorage.setItem(kIt, JSON.stringify(next));
-          return next;
-        });
         setWishedInfo(prev => {
-          const next = { ...prev };
+          const next: typeof prev = {};
           items.forEach(w => {
-            next[w.doctorId] = { specialty: w.specialty, pharmacyName: w.pharmacyName, areaName: w.areaName, addedBy: next[w.doctorId]?.addedBy };
+            next[w.doctorId] = { specialty: w.specialty, pharmacyName: w.pharmacyName, areaName: w.areaName, addedBy: prev[w.doctorId]?.addedBy };
           });
           localStorage.setItem(kInf, JSON.stringify(next));
           return next;
         });
       })
-      .catch(() => {/* silent fallback to localStorage */});
+      .catch(() => {/* offline/server error — keep whatever localStorage already loaded above */});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
