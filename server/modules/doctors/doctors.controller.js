@@ -1217,36 +1217,61 @@ export async function getManagerSubReps(req, res, next) {
   try {
     const managerId = req.user.id;
     const includeTeamLead = req.user.role === 'company_manager' && req.query.includeTeamLead === '1';
-    const allSubs = await prisma.userManagerAssignment.findMany({
-      where: { managerId },
-      include: {
-        user: {
-          select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
+
+    let subUsers; // { id, displayName, username, linkedRepId, role }[]
+
+    if (OFFICE_SCOPED_ROLES.has(req.user.role)) {
+      // الأدوار المكتبية تشرف على مكتبها كله دفعة واحدة (officeScope.js يمنحها كل
+      // شركات المكتب تلقائياً)، لا على مرؤوسين مُعيَّنين لها شخصياً بـ
+      // UserManagerAssignment — فمصدر أعضاء الفريق هنا شركات المكتب (نفس منطق
+      // الفرع company-scoped في scientific-reps.service.js)، لا جدول التبعية
+      // الإداري الذي قد يبقى فارغاً لحساب كحساب HR لم يُدرَج فيه أحد كمرؤوس
+      // مباشر رغم إشرافه الفعلي على كل مندوبي المكتب مثل مدير المكتب تماماً.
+      const myCompanies = await prisma.userCompanyAssignment.findMany({
+        where: { userId: managerId },
+        select: { companyId: true },
+      });
+      const companyIds = myCompanies.map(c => c.companyId);
+      subUsers = companyIds.length ? await prisma.user.findMany({
+        where: {
+          isActive: true,
+          companyAssignments: { some: { companyId: { in: companyIds } } },
+          role: { notIn: [...MANAGEMENT_ROLES] },
         },
-      },
-      orderBy: { assignedAt: 'asc' },
-    });
-    const subs = allSubs.filter(s =>
-      includeTeamLead && s.user.role === 'team_leader' ? true : !MANAGEMENT_ROLES.has(s.user.role)
-    );
+        select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
+      }) : [];
+    } else {
+      const allSubs = await prisma.userManagerAssignment.findMany({
+        where: { managerId },
+        include: {
+          user: {
+            select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
+          },
+        },
+        orderBy: { assignedAt: 'asc' },
+      });
+      subUsers = allSubs
+        .map(s => s.user)
+        .filter(u => includeTeamLead && u.role === 'team_leader' ? true : !MANAGEMENT_ROLES.has(u.role));
+    }
 
     // «الشركة الرئيسية» لكل عضو فريق — للأدوار المكتبية كلها (مدير/HR/موظف المكتب)،
     // إذ تشرف على شركات المكتب كلها دفعة واحدة (officeScope.js) فتحتاج التجميع؛
     // باقي أدوار المدراء مُقيَّدة أصلاً بشركة واحدة فلا حاجة له.
     let companyByUserId = new Map();
-    if (OFFICE_SCOPED_ROLES.has(req.user.role) && subs.length) {
+    if (OFFICE_SCOPED_ROLES.has(req.user.role) && subUsers.length) {
       const assignments = await prisma.userCompanyAssignment.findMany({
-        where: { userId: { in: subs.map(s => s.user.id) }, isPrimary: true },
+        where: { userId: { in: subUsers.map(u => u.id) }, isPrimary: true },
         select: { userId: true, company: { select: { id: true, name: true } } },
       });
       companyByUserId = new Map(assignments.map(a => [a.userId, a.company]));
     }
 
-    const reps = subs.map(s => ({
-      userId:      s.user.id,
-      name:        s.user.displayName || s.user.username,
-      linkedRepId: s.user.linkedRepId,
-      company:     companyByUserId.get(s.user.id) ?? null,
+    const reps = subUsers.map(u => ({
+      userId:      u.id,
+      name:        u.displayName || u.username,
+      linkedRepId: u.linkedRepId,
+      company:     companyByUserId.get(u.id) ?? null,
     }));
 
     const companiesMap = new Map();

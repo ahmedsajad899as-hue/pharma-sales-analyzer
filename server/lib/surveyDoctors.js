@@ -102,19 +102,40 @@ const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader', ...OFFICE_SC
 // (محافظات كاملة) لأغراض الإشراف العام، لا لأنه يزور أطباءها بنفسه. ضمّه هنا
 // كان يُسرّب كل نطاقه الإداري إلى أي شركة تصادف كونها «شركته الرئيسية» هو
 // شخصياً، فتظهر تلك الشركة بعدد الإجمالي الكامل بدل عدد مندوبيها فقط.
-export async function resolveCompanyMembers(managerId, companyId) {
-  const subs = await prisma.userManagerAssignment.findMany({
-    where: { managerId },
-    include: { user: { select: { id: true, linkedRepId: true, role: true } } },
-  });
-  const candidates = subs.map(s => s.user).filter(u => !MANAGEMENT_ROLES.has(u.role));
-  if (!candidates.length) return [];
+export async function resolveCompanyMembers(managerId, companyId, managerRole = null) {
+  let candidates;
+  let matched;
 
-  const assignments = await prisma.userCompanyAssignment.findMany({
-    where: { userId: { in: candidates.map(c => c.id) }, companyId, isPrimary: true },
-    select: { userId: true },
-  });
-  const matched = new Set(assignments.map(a => a.userId));
+  if (managerRole && OFFICE_SCOPED_ROLES.has(managerRole)) {
+    // الأدوار المكتبية تشرف على مكتبها كله دفعة واحدة (officeScope.js يمنحها كل
+    // شركات المكتب تلقائياً)، لا على مرؤوسين مُعيَّنين لها شخصياً بـ
+    // UserManagerAssignment — فعضوية الفريق هنا كل من «شركته الرئيسية» هي
+    // companyId، بصرف النظر عن تبعيته الإدارية (نفس منطق getManagerSubReps
+    // وscientific-reps.service.js) — وإلا يبقى حساب مثل HR يرى صفراً دائماً
+    // رغم إشرافه الفعلي على نفس فريق مدير المكتب.
+    candidates = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { notIn: [...MANAGEMENT_ROLES] },
+        companyAssignments: { some: { companyId, isPrimary: true } },
+      },
+      select: { id: true, linkedRepId: true, role: true },
+    });
+    matched = new Set(candidates.map(c => c.id));
+  } else {
+    const subs = await prisma.userManagerAssignment.findMany({
+      where: { managerId },
+      include: { user: { select: { id: true, linkedRepId: true, role: true } } },
+    });
+    candidates = subs.map(s => s.user).filter(u => !MANAGEMENT_ROLES.has(u.role));
+    if (!candidates.length) return [];
+
+    const assignments = await prisma.userCompanyAssignment.findMany({
+      where: { userId: { in: candidates.map(c => c.id) }, companyId, isPrimary: true },
+      select: { userId: true },
+    });
+    matched = new Set(assignments.map(a => a.userId));
+  }
 
   const members = [];
   for (const c of candidates) {
@@ -176,7 +197,7 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     addMember(repUserId, repId);
     (await areaIdsForUser(repUserId, repId)).forEach(id => ids.add(id));
   } else if (companyId) {
-    const members = await resolveCompanyMembers(user.id, companyId);
+    const members = await resolveCompanyMembers(user.id, companyId, user.role);
     for (const m of members) {
       addMember(m.userId, m.repId);
       (await areaIdsForUser(m.userId, m.repId)).forEach(id => ids.add(id));
