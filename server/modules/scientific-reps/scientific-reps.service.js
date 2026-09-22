@@ -532,6 +532,34 @@ export async function setBlockingEnabled(userId, enabled) {
   return { enabled: !!enabled };
 }
 
+// ─── Master on/off switch: exclude warehouse (مذخر) sales/returns from sci-rep reports ──
+// Independent of the block-lists feature above — no names to manage, just a flag
+// read directly off the viewer's own account (see resolveSciRepSales/isWarehouseSaleRow).
+export async function getExcludeWarehouseSales(userId) {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { excludeWarehouseSales: true } });
+  return u?.excludeWarehouseSales ?? true;
+}
+
+export async function setExcludeWarehouseSales(userId, enabled) {
+  await prisma.user.update({ where: { id: userId }, data: { excludeWarehouseSales: !!enabled } });
+  return { enabled: !!enabled };
+}
+
+// صف مبيعة/ارجاع "مذخر" لا "صيدلية": بعض الملفات (مثل ملفات ميركاتو) تحمل عمود
+// تصنيف زبون خام (غالباً باسم "صنف") بقيم مثل "مذخر"/"صيدلية1"/"مكتب" لا تُقرأ
+// كعمود منفصل عند الرفع (raw[rc.item]/raw[rc.customer] تُهمله عادة) — لكنها تبقى
+// محفوظة كاملة في Sale.rawData (JSON.stringify للصف الخام كما ورد في الإكسل).
+// هنا نفحصها مباشرة بلا حاجة لتعديل مسار الرفع: أي قيمة خلية تطابق حرفياً
+// "مذخر" (مع بادئة "ال" الاختيارية ولاحقة رقمية اختيارية كـ"مذخر1") تكفي —
+// مطابقة تامة لا احتواء، تفادياً لتصنيف اسم مندوب أو منطقة يتضمن الكلمة خطأً.
+const WAREHOUSE_VALUE_RE = /^(?:ال)?مذخر\d*$/;
+export function isWarehouseSaleRow(rawDataJson) {
+  if (!rawDataJson) return false;
+  let raw;
+  try { raw = JSON.parse(rawDataJson); } catch { return false; }
+  return Object.values(raw).some(v => typeof v === 'string' && WAREHOUSE_VALUE_RE.test(v.trim()));
+}
+
 /**
  * توسّع مالكي الملفات إلى كل من يشاركهم تعيين شركة (UserCompanyAssignment).
  * مدير المكتب (office_manager) يشرف على عدة حسابات مدراء شركات، وكل حساب
@@ -1240,7 +1268,9 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
           ...(recordType ? { recordType } : {}),
           ...salesWhere,
         },
-        select,
+        // rawData يُجلب دائماً هنا (بصرف النظر عن select الأصلي) لأجل فلتر
+        // isWarehouseSaleRow أدناه — يُستبعد من الناتج النهائي إن لم يطلبه المستدعي.
+        select: { ...select, rawData: true },
       });
       rawSales = rawSales.concat(sharedSales);
     }
@@ -1255,7 +1285,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
           ...(recordType ? { recordType } : {}),
           ...salesWhere,
         },
-        select,
+        select: { ...select, rawData: true },
       });
       rawSales = rawSales.concat(nonSharedSales);
     }
@@ -1302,7 +1332,16 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     if (best) deduped.push(...best);
   }
 
-  return { ...meta, rawSales: deduped, sharedFileIds, nonSharedFileIds, linkedUserId: linkedUser?.id ?? null };
+  // استبعاد مبيعات/مرتجعات المذاخر — مفتاح المُشاهِد نفسه (لا الملف)، مُفعّل
+  // افتراضياً. راجع isWarehouseSaleRow أعلاه وgetExcludeWarehouseSales.
+  const excludeWarehouse = viewerId ? await getExcludeWarehouseSales(viewerId) : true;
+  const filtered = excludeWarehouse ? deduped.filter(s => !isWarehouseSaleRow(s.rawData)) : deduped;
+  // rawData هنا مؤقت لأجل الفلتر أعلاه فقط حين لم يطلبه الـselect أصلاً
+  // (REPORT_SALES_SELECT) — لا يُستبعد حين طلبه صراحة (EXPORT_SALES_SELECT
+  // يعتمد عليه لاحقاً في بناء ملف التصدير).
+  const finalSales = select.rawData ? filtered : filtered.map(({ rawData, ...rest }) => rest);
+
+  return { ...meta, rawSales: finalSales, sharedFileIds, nonSharedFileIds, linkedUserId: linkedUser?.id ?? null };
 }
 
 const REPORT_SALES_SELECT = {

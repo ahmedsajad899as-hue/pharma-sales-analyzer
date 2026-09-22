@@ -160,6 +160,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [blockPanelOpen, setBlockPanelOpen] = useState(false);
   const [blockingEnabled, setBlockingEnabled] = useState(true); // master on/off (natural state = on)
   const [blockingToggling, setBlockingToggling] = useState(false);
+  // استبعاد مبيعات/مرتجعات المذاخر عن تقارير المندوبين العلميين — مفتاح مستقل، مُفعّل افتراضياً
+  const [excludeWarehouse, setExcludeWarehouse] = useState(true);
+  const [excludeWarehouseToggling, setExcludeWarehouseToggling] = useState(false);
   const [blockKind, setBlockKind]           = useState<BlockKind>('commercial');
   const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string; enabled: boolean }[]>>({ commercial: [], area: [], item: [], pharmacy: [] });
   // حجب جزئي: مناطق محددة لمندوب تجاري محدد (لا المندوب كاملاً)
@@ -220,6 +223,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       fetch(`${API}/api/scientific-reps/blocking-enabled`, { headers: authH() })
         .then(r => r.json()).then(j => { if (typeof j?.data?.enabled === 'boolean') setBlockingEnabled(j.data.enabled); })
         .catch(() => {});
+      fetch(`${API}/api/scientific-reps/exclude-warehouse-sales`, { headers: authH() })
+        .then(r => r.json()).then(j => { if (typeof j?.data?.enabled === 'boolean') setExcludeWarehouse(j.data.enabled); })
+        .catch(() => {});
 
       const namesOf = async (r: Response) => {
         const j = await r.json().catch(() => ({}));
@@ -245,6 +251,19 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       if (!r.ok) throw new Error('فشل');
     } catch { setBlockingEnabled(!next); }
     finally { setBlockingToggling(false); }
+  };
+
+  const toggleExcludeWarehouse = async () => {
+    const next = !excludeWarehouse;
+    setExcludeWarehouseToggling(true);
+    setExcludeWarehouse(next); // optimistic
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/exclude-warehouse-sales`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ enabled: next }),
+      });
+      if (!r.ok) throw new Error('فشل');
+    } catch { setExcludeWarehouse(!next); }
+    finally { setExcludeWarehouseToggling(false); }
   };
 
   const addBlock = async (rawName: string) => {
@@ -617,7 +636,24 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
 
       {/* ── Global block panel (commercial reps / areas / items) ── */}
       {user?.role !== 'scientific_rep' && (
-        <div style={{ margin: '0 0 18px' }}>
+        <div style={{ margin: '0 0 18px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start' }}>
+          <button onClick={toggleExcludeWarehouse} disabled={excludeWarehouseToggling}
+            title={excludeWarehouse
+              ? 'استبعاد مبيعات ومرتجعات المذاخر عن تقارير المندوبين العلميين — مُفعّل (اضغط للإيقاف)'
+              : 'استبعاد مبيعات ومرتجعات المذاخر متوقّف — اضغط للتفعيل'}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 20,
+              cursor: excludeWarehouseToggling ? 'default' : 'pointer', fontSize: 12, fontWeight: 700,
+              border: `1.5px solid ${excludeWarehouse ? '#16a34a' : '#cbd5e1'}`,
+              background: excludeWarehouse ? '#dcfce7' : '#f1f5f9',
+              color: excludeWarehouse ? '#166534' : '#64748b',
+              opacity: excludeWarehouseToggling ? 0.6 : 1,
+            }}>
+            <span style={{ width: 30, height: 16, borderRadius: 10, background: excludeWarehouse ? '#16a34a' : '#cbd5e1', position: 'relative', flexShrink: 0 }}>
+              <span style={{ position: 'absolute', top: 2, left: excludeWarehouse ? 16 : 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
+            </span>
+            🏬 استبعاد مبيعات المذاخر
+          </button>
           {(() => {
             const totalBlocked = blockedLists.commercial.length + blockedLists.area.length + blockedLists.item.length;
             return !blockPanelOpen ? (

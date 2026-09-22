@@ -17,6 +17,10 @@ router.post('/sync-commercials-by-file', ctrl.syncCommercialsByFile); // must be
 router.get('/blocking-enabled',           ctrl.getBlockingEnabled);
 router.patch('/blocking-enabled',         ctrl.setBlockingEnabled);
 
+// Master on/off switch: exclude warehouse (مذخر) sales/returns from sci-rep reports
+router.get('/exclude-warehouse-sales',    ctrl.getExcludeWarehouseSales);
+router.patch('/exclude-warehouse-sales',  ctrl.setExcludeWarehouseSales);
+
 router.get('/blocked-commercials',        ctrl.listBlockedCommercials);
 router.post('/blocked-commercials',       ctrl.addBlockedCommercial);
 router.patch('/blocked-commercials/:blockId',  ctrl.setBlockedCommercialEnabled); // {enabled} — تعليق/استئناف بلا حذف

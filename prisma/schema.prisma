@@ -126,6 +126,9 @@ model User {
   // Master on/off for this manager's block lists. When false the names are kept
   // but no blocking is applied anywhere. Default on (natural state is enabled).
   blockingEnabled       Boolean                @default(true)
+  // إخفاء مبيعات/مرتجعات المذاخر (لا الصيدليات) عن تقارير المندوبين العلميين —
+  // مُفعّل افتراضياً. راجع isWarehouseSaleRow في scientific-reps.service.js.
+  excludeWarehouseSales Boolean                @default(true)
 
   @@index([officeId])
   @@map("users")

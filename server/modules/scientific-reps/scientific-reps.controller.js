@@ -136,6 +136,21 @@ export async function setBlockingEnabled(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── Master on/off switch: exclude warehouse (مذخر) sales/returns ────────────
+export async function getExcludeWarehouseSales(req, res, next) {
+  try {
+    const enabled = await svc.getExcludeWarehouseSales(req.user.id);
+    res.json({ success: true, data: { enabled } });
+  } catch (err) { next(err); }
+}
+
+export async function setExcludeWarehouseSales(req, res, next) {
+  try {
+    const result = await svc.setExcludeWarehouseSales(req.user.id, !!req.body?.enabled);
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+}
+
 // ── Globally-blocked commercial reps ────────────────────────────────────────
 export async function listBlockedCommercials(req, res, next) {
   try {
