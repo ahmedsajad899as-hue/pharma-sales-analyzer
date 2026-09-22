@@ -37,7 +37,7 @@ import salesRoutes              from './modules/sales/sales.routes.js';
 import representativesRoutes    from './modules/representatives/representatives.routes.js';
 import reportsRoutes            from './modules/reports/reports.routes.js';
 import scientificRepsRoutes     from './modules/scientific-reps/scientific-reps.routes.js';
-import { getRawSalesForExport } from './modules/scientific-reps/scientific-reps.service.js';
+import { getRawSalesForExport, expandOwnerIdsByCompany } from './modules/scientific-reps/scientific-reps.service.js';
 import doctorsRoutes            from './modules/doctors/doctors.routes.js';
 import monthlyPlansRoutes       from './modules/monthly-plans/monthly-plans.routes.js';
 import dailyPlansRoutes         from './modules/daily-plans/daily-plans.routes.js';
@@ -3240,16 +3240,30 @@ app.get('/api/dashboard/stats', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
     const userFilter = userId ? { userId } : {};
+    // Sale/UploadedFile صفوف مملوكة لمن رفعها، وScientificRepresentative لمن
+    // أنشأه — حسابات موظف المكتب/HR المكتب نادراً ما تملك أياً منهما مباشرة،
+    // فهي ترى فقط ملفات شارَكها زميل (FileUserShare) ومندوبين يملكهم زميل بنفس
+    // الشركة. شرط `userId` الخام كان يُصفّر هذه البطاقات رغم أن نفس البيانات
+    // تظهر بشكل صحيح في كل صفحة أخرى بالتطبيق (نفس الفخ في fileScope.js
+    // وrepresentatives.service.js — التوسيع هنا بنفس المنطق).
+    const [repOwnerIds, accessibleFiles] = await Promise.all([
+      userId ? expandOwnerIdsByCompany([userId]) : null,
+      userId ? prisma.uploadedFile.findMany({ where: await fileAccessWhere(userId), select: { id: true } }) : null,
+    ]);
+    const repFilter  = repOwnerIds ? { userId: { in: repOwnerIds } } : userFilter;
+    const fileIds    = accessibleFiles ? accessibleFiles.map(f => f.id) : null;
+    const saleFilter = fileIds ? { uploadedFileId: { in: fileIds } } : userFilter;
+
     // areasCount = مناطق المستخدم المُعيَّنة (UserAreaAssignment) لا Area.userId — المنطقة
     // كتالوج مشترك الآن، فتعيين الحساب صار عبر جدول التعيين لا ملكية الصف نفسه.
     const [sciRepsCount, filesCount, areasCount, totalSales, totalReturns] = await Promise.all([
-      prisma.scientificRepresentative.count({ where: { isActive: true, ...userFilter } }),
-      prisma.uploadedFile.count({ where: userFilter }),
+      prisma.scientificRepresentative.count({ where: { isActive: true, ...repFilter } }),
+      fileIds ? fileIds.length : prisma.uploadedFile.count({ where: userFilter }),
       // النطاق الفعلي لا صفوف التعيين وحدها: المحافظات تُوسَّع وقت الاستعلام،
       // وراية «كل المناطق تلقائياً» تُلغي التعيين اليدوي أصلاً (areaScope.js).
       userId ? resolveEffectiveAreaIds(userId).then(ids => ids.length) : prisma.area.count(),
-      prisma.sale.count({ where: { ...userFilter, isHidden: false, recordType: 'sale' } }),
-      prisma.sale.count({ where: { ...userFilter, isHidden: false, recordType: 'return' } }),
+      prisma.sale.count({ where: { ...saleFilter, isHidden: false, recordType: 'sale' } }),
+      prisma.sale.count({ where: { ...saleFilter, isHidden: false, recordType: 'return' } }),
     ]);
     res.json({ success: true, data: { sciRepsCount, filesCount, areasCount, totalSales, totalReturns } });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -3258,25 +3272,33 @@ app.get('/api/dashboard/stats', async (req, res) => {
 // ── Active-files monetary stats ──────────────────────────────
 app.get('/api/dashboard/active-stats', async (req, res) => {
   try {
-    const userId     = req.user?.id ?? null;
-    const userFilter = userId ? { userId } : {};
-    const rawIds     = req.query.fileIds;
-    const fileIds    = rawIds ? String(rawIds).split(',').map(Number).filter(n => !isNaN(n)) : [];
+    const userId  = req.user?.id ?? null;
+    const rawIds  = req.query.fileIds;
+    const fileIds = rawIds ? String(rawIds).split(',').map(Number).filter(n => !isNaN(n)) : [];
 
     if (fileIds.length === 0) {
       return res.json({ success: true, data: { totalSalesValue: 0, totalReturnsValue: 0, files: [] } });
     }
 
-    const fileFilter = { uploadedFileId: { in: fileIds }, isHidden: false, ...userFilter };
+    // نتحقق من الملفات المسموح بها فعلياً (ملك أو مُشارَكة عبر FileUserShare أو
+    // مع المندوب المرتبط) بدل تصفية Sale بـ userId الخام — وإلا فمجاميع ملف
+    // مُشارَك تظهر صفراً لموظف المكتب/HR رغم أن الملف نفسه قابل للاختيار "نشط"
+    // في لوحة الملفات (fileAccessWhere أعلاه بنفس المنطق).
+    const accessWhere = userId ? await fileAccessWhere(userId) : {};
+    const fileList = await prisma.uploadedFile.findMany({
+      where: { id: { in: fileIds }, ...accessWhere },
+      select: { id: true, originalName: true },
+    });
+    const verifiedIds = fileList.map(f => f.id);
+    const fileFilter  = { uploadedFileId: { in: verifiedIds }, isHidden: false };
 
-    const [salesAgg, returnsAgg, fileList] = await Promise.all([
+    const [salesAgg, returnsAgg] = await Promise.all([
       prisma.sale.aggregate({ where: { ...fileFilter, recordType: 'sale'   }, _sum: { totalValue: true } }),
       prisma.sale.aggregate({ where: { ...fileFilter, recordType: 'return' }, _sum: { totalValue: true } }),
-      prisma.uploadedFile.findMany({ where: { id: { in: fileIds }, ...userFilter }, select: { id: true, originalName: true } }),
     ]);
 
     const files = await Promise.all(fileList.map(async f => {
-      const fw = { uploadedFileId: f.id, isHidden: false, ...(userId ? { userId } : {}) };
+      const fw = { uploadedFileId: f.id, isHidden: false };
       const [sa, ra] = await Promise.all([
         prisma.sale.aggregate({ where: { ...fw, recordType: 'sale'   }, _sum: { totalValue: true } }),
         prisma.sale.aggregate({ where: { ...fw, recordType: 'return' }, _sum: { totalValue: true } }),

@@ -646,8 +646,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // Scientific
   const [sciReps, setSciReps]     = useState<Rep[]>([]);
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
-  // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ويعرض كل ما في الملف.
-  // يسري على الملفات المملوكة فقط — السيرفر يرفضه على الملفات المحوَّلة إليك.
+  // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
+  // في الملف كما يراه صاحبه — يسري على أي ملف لك صلاحية وصول عليه (مالك أو
+  // مُشارَك معك)، لا الملفات المملوكة فقط.
   const [overallRaw, setOverallRaw] = useState(() => sessionStorage.getItem('rpt_overallRaw') === '1');
   const [overallRawBlocked, setOverallRawBlocked] = useState(false);
   const [sciReport, setSciReport]                     = useState<SciReport | null>(null);
@@ -2646,7 +2647,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
           {mode === 'overall' && overallRawBlocked && (
             <span style={{ fontSize: 11, color: '#b45309', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '4px 10px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Icon name="warning" size={11} /> التحليل الكامل يسري على ملفاتك أنت فقط — هذا الملف محوَّل إليك، فبقيت قيود صاحبه
+              <Icon name="warning" size={11} /> لا تملك صلاحية وصول على أحد الملفات المحدَّدة، فتعذَّر عرض بياناتها كاملة
             </span>
           )}
           {/* زر «تحليل كامل» — يظهر في التحليل الشامل فقط */}

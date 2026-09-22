@@ -67,29 +67,32 @@ router.get('/overall', async (req, res) => {
     }
 
     // ── وضع «تحليل كامل» (raw=1) ────────────────────────────────────────────
-    // يتجاوز قائمة ايتمات المستخدم ليعرض كل ما في الملف. مسموح **فقط** على
-    // الملفات التي يملكها الطالب: قيود المناطق والحجب أدناه يضعها صاحب الملف
-    // على من حُوِّل له، وتجاوزها من المستلم كان سيكشف بيانات ليست له.
-    // (الملفات المملوكة لا يُطبَّق عليها فلتر مناطق أو حجب أصلاً — القيد
-    //  الوحيد عليها هو قائمة ايتماته.)
+    // يتجاوز قائمة ايتمات الحساب *ونطاق مناطقه* معاً ليعرض بيانات الملف كاملة
+    // تماماً كما يراها صاحبه. مسموح لأي مستخدم له صلاحية وصول فعلية على كل
+    // الملفات المطلوبة — مالك أو مُشارَك معه عبر FileUserShare (نفس شرط
+    // resolveFileScope في fileScope.js) — بطلب صريح: عند مشاركة ملف مع عدة
+    // أشخاص، «تحليل كامل» يُسوّي بينهم جميعاً وبين صاحب الملف، فلا يبقى كل
+    // واحد مقيَّداً بمناطقه/ايتماته الشخصية عند الضغط على هذا الزر تحديداً.
     const rawRequested = String(req.query.raw ?? '') === '1';
     let rawApplied = false;
     if (rawRequested && userId && parsedFileIds.length > 0) {
-      const ownedCount = await prisma.uploadedFile.count({
-        where: { id: { in: parsedFileIds }, userId },
+      const accessibleCount = await prisma.uploadedFile.count({
+        where: { id: { in: parsedFileIds }, OR: [{ userId }, { fileShares: { some: { userId } } }] },
       });
-      rawApplied = ownedCount === parsedFileIds.length;
+      rawApplied = accessibleCount === parsedFileIds.length;
     }
     const effectiveItemScope = rawApplied ? {} : itemScopeFilter;
     // «التحليل الشامل» مُستثنى عمداً من خاصية الحجب (BlockedArea/Item/
     // CommercialRep/Pharmacy) — بطلب صريح: الحجب يخصّ تقرير «علمي» فقط
     // (resolveSciRepSales في scientific-reps.service.js)، ولا يجوز أن يمسّ
     // نتائج أو بيانات هذه الشاشة إطلاقاً، سواء كان الملف مملوكاً أو مُشارَكاً.
-    // نطاق المناطق (لا علاقة له بالحجب) يبقى مُطبَّقاً على الملفات المُشارَكة:
+    // نطاق المناطق (لا علاقة له بالحجب) يبقى مُطبَّقاً على الملفات المُشارَكة —
+    // إلا حين طُبِّق «تحليل كامل» فعلاً (rawApplied)، فيُلغى هذا القيد أيضاً كي
+    // يرى المُشارَك معه كامل بيانات الملف تماماً كصاحبه، لا مناطقه هو فقط.
     // UserAreaAssignment ∪ ScientificRepArea ∪ مناطق المحافظات المعيّنة —
     // موحَّد في areaScope.js ليشمل توسيع المحافظات، وليعطي اتحاداً بدل «أول
     // مصدر غير فارغ» (مستخدم له مناطق يدوية ومحافظة كان يفقد الثانية).
-    if (userId && parsedFileIds.length > 0) {
+    if (!rawApplied && userId && parsedFileIds.length > 0) {
       const sharedFiles = await prisma.uploadedFile.count({
         where: { id: { in: parsedFileIds }, NOT: { userId }, fileShares: { some: { userId } } },
       });
