@@ -1005,20 +1005,35 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     // اسم متطابق تماماً لكن أكثر من طبيب بالاسم نفسه بالضبط ولا يمكن حسم الفرق
     // بالمنطقة — نعرضه للمستخدم بدل التخمين بينهم (بثقة 100% لكل مرشّح).
     //
-    // المرشّحون غير التامّين (تشابه دون 100%): يُقصَرون على نفس منطقة الصف
-    // حين تكون معروفة — طبيب بنفس الاسم تقريباً في منطقة أخرى كلياً شخص مختلف
-    // غالباً، واقتراحه كان يُشتِّت المستخدم بمرشَّحين لا صلة جغرافية لهم بالزيارة
-    // الفعلية. لا يمسّ فرع exactMatches أعلاه (تطابق حرفي تام لعدة أطباء —
-    // حالة نادرة منفصلة تُعرض كاملة عمداً بلا تصفية جغرافية إضافية).
+    // المرشّحون غير التامّين (تشابه دون 100%): يُقصَرون على نفس منطقة الصف حين
+    // تكون معروفة ووُجد فيها مرشّح فعلاً — طبيب بنفس الاسم تقريباً في منطقة
+    // أخرى كلياً شخص مختلف غالباً، واقتراحه كان يُشتِّت المستخدم بمرشَّحين لا
+    // صلة جغرافية لهم بالزيارة الفعلية. لا يمسّ فرع exactMatches أعلاه (تطابق
+    // حرفي تام لعدة أطباء — حالة نادرة منفصلة تُعرض كاملة عمداً بلا تصفية).
+    //
+    // ⚠️ لكن حين لا يوجد أي مرشّح في نفس المنطقة إطلاقاً، لا نسقط صامتين إلى
+    // "بلا مرشّح" (طبيب جديد بلا سؤال) — فقد يكون هذا فعلاً نفس الطبيب بمنطقة
+    // مسجَّلة خطأً في أحد المصدرين (خطأ إملائي في الملف، أو طبيب سُجِّل سابقاً
+    // بمنطقة غير دقيقة)، فيُنشأ طبيب مكرَّر بصمت بدل سؤال قصير. نستعين حينها
+    // بأفضل مرشّح عام (بصرف النظر عن المنطقة) معلَّماً صراحة بأنه من منطقة
+    // مختلفة (crossArea) كي يقرّر المستخدم بنفسه.
     const rowAreaNorm = g.areaName ? normalizeAreaName(g.areaName) : null;
-    const scored = exactMatches.length > 1
-      ? exactMatches.map(c => ({ ...c, score: 1 }))
-      : candidates
-          .filter(c => !rowAreaNorm || (c.areaName && normalizeAreaName(c.areaName) === rowAreaNorm))
-          .map(c => ({ ...c, score: doctorMatchScore({ name: g.cleanedName, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName }, c) }))
-          .filter(c => c.score >= DOCTOR_ASK_FLOOR)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 5);
+    const scoreCandidates = list => list
+      .map(c => ({ ...c, score: doctorMatchScore({ name: g.cleanedName, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName }, c) }))
+      .filter(c => c.score >= DOCTOR_ASK_FLOOR)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+    let scored;
+    if (exactMatches.length > 1) {
+      scored = exactMatches.map(c => ({ ...c, score: 1 }));
+    } else if (!rowAreaNorm) {
+      scored = scoreCandidates(candidates);
+    } else {
+      const sameArea = scoreCandidates(candidates.filter(c => c.areaName && normalizeAreaName(c.areaName) === rowAreaNorm));
+      scored = sameArea.length > 0
+        ? sameArea
+        : scoreCandidates(candidates).map(c => ({ ...c, crossArea: true }));
+    }
 
     for (const r of g.rows) { r.doctorId = null; r.surveyDoctorId = null; }
     if (scored.length === 0) {
@@ -1038,7 +1053,7 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       const dates = [...new Set(g.rows.map(r => r.date).filter(Boolean))];
       pending.push({
         raw: g.raw, key: g.key, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName, dates,
-        suggestions: scored.map(c => ({ id: c.id, name: c.name, score: c.score, areaId: c.areaId ?? null, areaName: c.areaName, specialty: c.specialty, pharmacyName: c.pharmacyName })),
+        suggestions: scored.map(c => ({ id: c.id, name: c.name, score: c.score, areaId: c.areaId ?? null, areaName: c.areaName, specialty: c.specialty, pharmacyName: c.pharmacyName, crossArea: c.crossArea ?? false })),
       });
     }
   }

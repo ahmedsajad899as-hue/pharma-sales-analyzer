@@ -16,7 +16,7 @@ const API = import.meta.env.VITE_API_URL || '';
 
 interface RepOpt { id: number; name: string }
 interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; score: number }[] }
-interface DoctorSuggestion { id: number; name: string; score: number; areaId?: number | null; areaName: string | null; specialty: string | null; pharmacyName: string | null }
+interface DoctorSuggestion { id: number; name: string; score: number; areaId?: number | null; areaName: string | null; specialty: string | null; pharmacyName: string | null; crossArea?: boolean }
 interface DoctorNameEntry { raw: string; key: string; areaName?: string; specialty?: string; pharmacyName?: string; dates?: string[]; suggestions: DoctorSuggestion[] }
 interface DoctorRow {
   _row: number;
@@ -436,6 +436,12 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>
                                 {s.name} <span style={{ fontWeight: 600, color: '#6366f1' }}>(تشابه {Math.round(s.score * 100)}%)</span>
+                                {s.crossArea && (
+                                  <span title="لا يوجد مرشّح بنفس منطقة هذا الصف — هذا المرشّح من منطقة مختلفة، راجعه بعناية أكبر قبل التأكيد"
+                                    style={{ marginInlineStart: 6, fontSize: 10.5, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fbbf24', borderRadius: 6, padding: '1px 6px' }}>
+                                    ⚠️ منطقة مختلفة
+                                  </span>
+                                )}
                               </div>
                               {(s.areaName || s.specialty || s.pharmacyName) && (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 3, fontSize: 10.5, color: '#64748b' }}>
