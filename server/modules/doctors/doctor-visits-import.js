@@ -27,7 +27,7 @@ import fs from 'fs';
 import { normalizeAreaName, normalizeItemKey, loadResolutionContext, resolveItemNameSync } from '../../lib/itemResolver.js';
 import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { resolveDocOwnerUserId } from './doctors.controller.js';
-import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLinks } from '../scientific-reps/scientific-reps.service.js';
+import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLinks, expandOwnerIdsByCompany } from '../scientific-reps/scientific-reps.service.js';
 import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases } from '../../lib/surveyDoctors.js';
 import { runFeedbackInferenceForImportFile } from './doctor-visit-feedback-ai.js';
 import { enrichDoctorRowsWithPharmacyAI } from './doctor-visit-pharmacy-ai.js';
@@ -760,10 +760,16 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
   const rowsWithName = (doctorRows || []).filter(r => String(r?.doctorName ?? '').trim());
   if (rowsWithName.length === 0) return { doctorNames: { pending: [], resolved: [], unrelated: [] } };
 
-  const [links, existingDoctorsFull, visibleSurveys] = await Promise.all([
+  // نطاق قرارات المطابقة المحفوظة = المالك وزملاؤه في نفس الشركات/المكتب، لا هو
+  // وحده — تماماً كـSciRepNameLink (راجع expandOwnerIdsByCompany). بدون هذا،
+  // كل حساب في المكتب يُسأل من جديد عن اسم طبيب أكّده زميله للتو من ملف آخر،
+  // رغم أن الاسم نفسه والسيرفي نفسه مشتركان بينهما.
+  const doctorLinkScopeIds = await expandOwnerIdsByCompany([ownerUserId]);
+  const [linkRows, existingDoctorsFull, visibleSurveys] = await Promise.all([
     prisma.doctorNameLink.findMany({
-      where: { userId: ownerUserId },
-      select: { fromKey: true, doctorId: true, doctor: { select: { id: true, name: true } } },
+      where: { userId: { in: doctorLinkScopeIds } },
+      select: { userId: true, fromKey: true, doctorId: true, doctor: { select: { id: true, name: true, masterSurveyDoctorId: true } } },
+      orderBy: { id: 'desc' }, // الأحدث أولاً عند تساوي الأولوية
     }),
     prisma.doctor.findMany({
       where: { userId: ownerUserId },
@@ -771,17 +777,24 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     }),
     prisma.masterSurvey.findMany({ where: { isActive: true, hiddenUsers: { none: { userId: ownerUserId } } }, select: { id: true } }),
   ]);
-  const linkByKey = new Map(links.map(l => [l.fromKey, l]));
+  // عند تعدّد قرارات الزملاء لنفس الاسم: قرار المالك نفسه أولاً، ثم رابط فعلي
+  // بطبيب، ثم «ليس أياً منهم» — نفس ترتيب أولوية classifyRepNamesForUser تماماً.
+  const linkRank = l => (l.userId === ownerUserId ? 2 : 0) + (l.doctorId != null ? 1 : 0);
+  const linkByKey = new Map();
+  for (const l of linkRows) {
+    const cur = linkByKey.get(l.fromKey);
+    if (!cur || linkRank(l) > linkRank(cur)) linkByKey.set(l.fromKey, l);
+  }
   // صف Doctor المحلي قد يخلو من المنطقة/الاختصاص/الصيدلية (أُنشئ قديماً أو يدوياً
   // بالاسم فقط) بينما سجل السيرفي المربوط به يحملها — وهي أيضاً «بيانات التطبيق»
   // لا الملف، فتُكمَّل منه؛ وإلا ظهر طبيب مطابَق بمنطقة «—» في شبكة المراجعة رغم
   // أنه مسجَّل في منطقته بالسيرفي.
   const msIds = [...new Set(existingDoctorsFull.map(d => d.masterSurveyDoctorId).filter(Boolean))];
-  const surveyById = new Map((msIds.length
+  const msDoctorById = new Map((msIds.length
     ? await prisma.masterSurveyDoctor.findMany({ where: { id: { in: msIds } }, select: { id: true, areaName: true, specialty: true, pharmacyName: true } })
     : []).map(s => [s.id, s]));
   const candidates = existingDoctorsFull.map(d => {
-    const sd = d.masterSurveyDoctorId ? surveyById.get(d.masterSurveyDoctorId) : null;
+    const sd = d.masterSurveyDoctorId ? msDoctorById.get(d.masterSurveyDoctorId) : null;
     return {
       id: d.id, name: d.name,
       specialty: d.specialty || sd?.specialty || null,
@@ -817,7 +830,9 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       })
     : [];
   const surveyByNorm = new Map();
+  const surveyById = new Map();
   for (const sd of surveyDoctorsVisible) {
+    surveyById.set(sd.id, sd);
     const k = normalizeRepName(cleanDoctorName(sd.name));
     if (!k) continue;
     if (!surveyByNorm.has(k)) surveyByNorm.set(k, []);
@@ -896,13 +911,39 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     // يُطبَّق فوراً هنا عمداً — راجع التعليق أسفل فحص التطابق التام لسبب ذلك.
     const link = linkByKey.get(g.key);
     if (link && link.doctorId) {
-      const linkedDoc = candById.get(link.doctorId) ?? null;
-      for (const r of g.rows) {
-        r.doctorId = link.doctorId;
-        if (linkedDoc) adoptAppDoctorIdentity(r, linkedDoc);
+      if (link.userId === ownerUserId) {
+        // رابط هذا المالك نفسه: doctorId يشير مباشرة لصف Doctor في جدوله الخاص.
+        const linkedDoc = candById.get(link.doctorId) ?? null;
+        for (const r of g.rows) {
+          r.doctorId = link.doctorId;
+          if (linkedDoc) adoptAppDoctorIdentity(r, linkedDoc);
+        }
+        resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: link.doctor ? { id: link.doctor.id, name: link.doctor.name } : null });
+        continue;
       }
-      resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: link.doctor ? { id: link.doctor.id, name: link.doctor.name } : null });
-      continue;
+      // رابط زميل في نفس الشركة/المكتب: doctorId يخص جدول Doctor الخاص بحسابه هو
+      // — مساحة معرّفات مختلفة تماماً عن مساحة هذا المالك، فلا يُستعمَل مباشرة.
+      // نعبر عبر masterSurveyDoctorId (الهوية المشتركة الحقيقية بين الحسابات)
+      // لإيجاد الصف المحلي المكافئ عند هذا المالك، أو تبنّي هوية السيرفي مباشرةً
+      // إن لم يُنشأ له صف بعد (سيُنشأ عند الحفظ كالمعتاد).
+      const sharedId = link.doctor?.masterSurveyDoctorId;
+      if (sharedId) {
+        const localDoc = candBySurveyDoctorId.get(sharedId);
+        if (localDoc) {
+          for (const r of g.rows) adoptAppDoctorIdentity(r, localDoc);
+          resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: { id: localDoc.id, name: localDoc.name } });
+          continue;
+        }
+        const sd = surveyById.get(sharedId);
+        if (sd) {
+          for (const r of g.rows) adoptSurveyDoctorIdentity(r, sd);
+          resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: { id: sd.id, name: sd.name } });
+          continue;
+        }
+      }
+      // طبيب الزميل محلي بحت (لم يُدخَل للسيرفي إطلاقاً) — لا هوية مشتركة يمكن
+      // العبور عبرها بأمان؛ نتجاهل رابطه ونكمل التصنيف العادي لهذا المالك
+      // (تطابق تام/تشابه) بدل ربط خاطئ بمعرّف صف قد يخص طبيباً آخر تماماً عنده.
     }
 
     const surveyAlias = surveyAliasByKey.get(g.key);
