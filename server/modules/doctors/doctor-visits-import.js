@@ -891,11 +891,14 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     // لتجميع/تطبيق قرار المستخدم على صفوفها دون إعادة تنفيذ منطق التطبيع محلياً.
     for (const r of g.rows) r.doctorKey = g.key;
 
+    // رابط إيجابي محفوظ (طبيب محدَّد سابقاً) — تأكيد صريح، يُطبَّق فوراً بلا أي
+    // فحص آخر. رابط سلبي (doctorId: null، أي "ليس أياً من مرشَّحي حينها") لا
+    // يُطبَّق فوراً هنا عمداً — راجع التعليق أسفل فحص التطابق التام لسبب ذلك.
     const link = linkByKey.get(g.key);
-    if (link) {
-      const linkedDoc = link.doctorId ? candById.get(link.doctorId) : null;
+    if (link && link.doctorId) {
+      const linkedDoc = candById.get(link.doctorId) ?? null;
       for (const r of g.rows) {
-        r.doctorId = link.doctorId ?? null;
+        r.doctorId = link.doctorId;
         if (linkedDoc) adoptAppDoctorIdentity(r, linkedDoc);
       }
       resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: link.doctor ? { id: link.doctor.id, name: link.doctor.name } : null });
@@ -956,6 +959,18 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
         resolved.push({ raw: g.raw, key: g.key, status: 'exact', doctor: localDoc ? { id: localDoc.id, name: localDoc.name } : { id: surveyExact.id, name: surveyExact.name } });
         continue;
       }
+    }
+
+    // رابط سلبي محفوظ سابقاً («ليس أياً من مرشَّحي حينها») ولم يظهر أي تطابق
+    // تام جديد الآن (لا محلياً ولا في السيرفي) — نحترم القرار المحفوظ ولا نُعيد
+    // سؤال المستخدم عنه، تماماً كسلوكه الأصلي. لكن أُجِّل هذا الفحص إلى هنا (بعد
+    // محاولة التطابق التام) بدل تطبيقه فوراً عند القراءة: طبيب أُضيف للسيرفي
+    // لاحقاً بنفس الاسم والمنطقة بالضبط بعد هذا القرار كان يبقى بلا تلوين إلى
+    // الأبد رغم كونه تطابقاً تاماً واضحاً الآن — راجع فحص التطابق أعلاه.
+    if (link) {
+      for (const r of g.rows) r.doctorId = null;
+      resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: null });
+      continue;
     }
 
     // اسم متطابق تماماً لكن أكثر من طبيب بالاسم نفسه بالضبط ولا يمكن حسم الفرق
