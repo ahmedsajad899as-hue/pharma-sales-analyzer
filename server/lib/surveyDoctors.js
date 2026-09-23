@@ -19,6 +19,7 @@ import { normalizeAreaName } from './itemResolver.js';
 import { resolveEffectiveAreaIds } from './areaScope.js';
 import { OFFICE_SCOPED_ROLES } from './officeScope.js';
 import { normalizeRepName, repNameScore } from '../modules/scientific-reps/scientific-reps.service.js';
+import { similarity } from './fuzzyMatch.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // مطابقة أسماء الأطباء — مشتركة بين استيراد زيارات الأطباء (doctor-visits-
@@ -50,13 +51,56 @@ export function doctorLinkKey(name, areaName) {
   return `${normalizeRepName(cleanDoctorName(name))}|${normalizeAreaName(areaName || '')}`;
 }
 
+// عتبة تشابه الكلمة الواحدة لاعتمادها "كلمة مشتركة" رغم اختلاف تهجئتها حرفياً
+// («داود» ↔ «داوود» بفارق حرف واحد فقط) — أشد من عتبات fuzzyMatch الافتراضية
+// (0.85/0.55/0.8) عمداً كي لا تخلط بين اسمين مختلفين فعلاً بمصادفة قرب الطول
+// («محمد» ↔ «احمد» تشابهها 0.75 فقط، تحت هذه العتبة تحديداً).
+const DOCTOR_WORD_SIM_FLOOR = 0.8;
+
+/**
+ * نفس فلسفة repNameScore (كلمتان مشتركتان على الأقل، ثم تقاطع×0.7 + تغطية×0.3)
+ * لكن "الكلمة المشتركة" هنا لا تشترط تطابقاً حرفياً تاماً — تُحتسب أيضاً كلمة
+ * قريبة جداً بالتهجئة (تشابه ≥ DOCTOR_WORD_SIM_FLOOR) لكلمة في الاسم الآخر لم
+ * تُستهلك بعد. الحاجة الفعلية: أسماء أطباء مستورَدة من ملفات مختلفة كثيراً ما
+ * تختلف بحرف واحد ضمن كلمة واحدة فقط من الاسم ("اياد داود سلمان" في ملف مقابل
+ * "اياد داوود" في السيرفي) — repNameScore وحدها تشترط تطابقاً حرفياً للكلمة
+ * فتُسقِط "داود"≠"داوود" فيبقى شبه مشترك واحد فقط ("اياد")، فتُرجِع صفراً رغم
+ * قرب الاسمين الواضح، فيقع الصف في "بلا مرشّح" (unrelated) بدل حتى مجرد
+ * السؤال (pending) عنه. لا تُستعمل لمطابقة أسماء المندوبين (repNameScore تبقى
+ * كما هي هناك) — الأطباء وحدهم يستفيدون من هذا التسامح الإضافي.
+ */
+function fuzzyDoctorNameScore(a, b) {
+  const na = normalizeRepName(a), nb = normalizeRepName(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  const ta = na.split(' ').filter(Boolean);
+  const tb = nb.split(' ').filter(Boolean);
+  if (ta.length < 2 || tb.length < 2) return 0; // كلمة واحدة لا تكفي دليلاً هنا أيضاً
+  const usedB = new Set();
+  let shared = 0;
+  for (const t of ta) {
+    let bestIdx = -1, bestSim = 0;
+    tb.forEach((bt, i) => {
+      if (usedB.has(i)) return;
+      const sim = t === bt ? 1 : similarity(t, bt);
+      if (sim > bestSim) { bestSim = sim; bestIdx = i; }
+    });
+    if (bestIdx !== -1 && bestSim >= DOCTOR_WORD_SIM_FLOOR) { shared++; usedB.add(bestIdx); }
+  }
+  if (shared < 2) return 0;
+  const containment = shared / Math.min(ta.length, tb.length);
+  const overall     = shared / Math.max(ta.length, tb.length);
+  return containment * 0.7 + overall * 0.3;
+}
+
 /**
  * درجة تطابق طبيب واحدة (0..1): الاسم هو الأساس (محرك تشابه أسماء المندوبين
- * — كلمتان مشتركتان على الأقل)، وتُضاف نقاط ترجيح عند تطابق المنطقة/
- * الاختصاص/الصيدلية أيضاً.
+ * — كلمتان مشتركتان على الأقل — مع تسامح إضافي بتشابه الكلمة المفردة، راجع
+ * fuzzyDoctorNameScore)، وتُضاف نقاط ترجيح عند تطابق المنطقة/الاختصاص/
+ * الصيدلية أيضاً.
  */
 export function doctorMatchScore(cand, target) {
-  const nameScore = repNameScore(cand.name, target.name);
+  const nameScore = Math.max(repNameScore(cand.name, target.name), fuzzyDoctorNameScore(cand.name, target.name));
   if (nameScore === 0) return 0;
   let bonus = 0;
   if (cand.areaName && target.areaName && normalizeAreaName(cand.areaName) === normalizeAreaName(target.areaName)) bonus += 0.12;
