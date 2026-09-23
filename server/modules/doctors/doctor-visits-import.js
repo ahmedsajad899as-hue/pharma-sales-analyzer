@@ -961,18 +961,6 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       }
     }
 
-    // رابط سلبي محفوظ سابقاً («ليس أياً من مرشَّحي حينها») ولم يظهر أي تطابق
-    // تام جديد الآن (لا محلياً ولا في السيرفي) — نحترم القرار المحفوظ ولا نُعيد
-    // سؤال المستخدم عنه، تماماً كسلوكه الأصلي. لكن أُجِّل هذا الفحص إلى هنا (بعد
-    // محاولة التطابق التام) بدل تطبيقه فوراً عند القراءة: طبيب أُضيف للسيرفي
-    // لاحقاً بنفس الاسم والمنطقة بالضبط بعد هذا القرار كان يبقى بلا تلوين إلى
-    // الأبد رغم كونه تطابقاً تاماً واضحاً الآن — راجع فحص التطابق أعلاه.
-    if (link) {
-      for (const r of g.rows) r.doctorId = null;
-      resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: null });
-      continue;
-    }
-
     // اسم متطابق تماماً لكن أكثر من طبيب بالاسم نفسه بالضبط ولا يمكن حسم الفرق
     // بالمنطقة — نعرضه للمستخدم بدل التخمين بينهم (بثقة 100% لكل مرشّح).
     const scored = exactMatches.length > 1
@@ -985,7 +973,16 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
 
     for (const r of g.rows) { r.doctorId = null; r.surveyDoctorId = null; }
     if (scored.length === 0) {
-      unrelated.push({ raw: g.raw, key: g.key });
+      // رابط سلبي محفوظ سابقاً («ليس أياً من مرشَّحي حينها») ولا يوجد أي مرشّح
+      // معتدّ به الآن أيضاً — نفس نتيجة القرار المحفوظ (طبيب جديد بلا سؤال)،
+      // فنحترمه ونتجنّب تكرار السؤال. أُجِّل فحص الرابط السلبي إلى هنا (بعد
+      // حساب scored) بدل تطبيقه فوراً عمداً: مرشّح جديد قد يتجاوز العتبة الآن
+      // (طبيب أُضيف للسيرفي لاحقاً، أو صار محتسَباً بفضل تسامح إملائي جديد —
+      // راجع fuzzyDoctorNameScore) رغم أن الرابط السلبي سُجِّل حين كان يقيَّم
+      // بمرشَّحين مختلفين تماماً؛ إخفاؤه صامتاً إلى الأبد كان يُبقي الاسم بلا
+      // تلوين رغم وجود مرشّح واثق الآن.
+      if (link) resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: null });
+      else unrelated.push({ raw: g.raw, key: g.key });
     } else {
       pending.push({
         raw: g.raw, key: g.key, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName,
