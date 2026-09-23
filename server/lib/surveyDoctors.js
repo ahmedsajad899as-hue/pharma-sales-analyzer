@@ -137,6 +137,17 @@ async function resolveRepId(userId, linkedRepId) {
 // resolveCompanyMembers، لا شركة فريقها الفعلية فقط.
 const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader', ...OFFICE_SCOPED_ROLES]);
 
+// استثناء: قائد الفريق قد تُنسَب له زيارات فعلية عبر استيراد ملف (خلافاً لبقية
+// أدوار MANAGEMENT_ROLES التي لا تزور أطباء بنفسها إطلاقاً)، ومطلوب احتسابها
+// ضمن إجمالي "الكل"/شركة محددة لمدير الشركة حصراً — لا لمدير المكتب أو موظف
+// المكتب، اللذين يجب ألا يريا زيارات قائد الفريق إطلاقاً (نفس استثناء
+// getManagerSubReps في doctors.controller.js وnفس المبرر).
+function excludedManagementRoles(viewerRole) {
+  return viewerRole === 'company_manager'
+    ? new Set([...MANAGEMENT_ROLES].filter(r => r !== 'team_leader'))
+    : MANAGEMENT_ROLES;
+}
+
 // ── resolveCompanyMembers(managerId, companyId) ──────────────────────────────
 // أعضاء فريق المدير الذين «شركتهم الرئيسية» (UserCompanyAssignment isPrimary)
 // هي companyId — تُستخدم لتصفية شاشة الزيارات حسب «الشركة الرئيسية» لكل
@@ -171,7 +182,8 @@ export async function resolveCompanyMembers(managerId, companyId, managerRole = 
       where: { managerId },
       include: { user: { select: { id: true, linkedRepId: true, role: true } } },
     });
-    candidates = subs.map(s => s.user).filter(u => !MANAGEMENT_ROLES.has(u.role));
+    const excluded = excludedManagementRoles(managerRole);
+    candidates = subs.map(s => s.user).filter(u => !excluded.has(u.role));
     if (!candidates.length) return [];
 
     const assignments = await prisma.userCompanyAssignment.findMany({
@@ -249,7 +261,8 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
   } else {
     // مدير "الكل": مناطقه + كل مندوبي الفريق الفعليين (بلا أدوار الإدارة
     // الوسيطة — مدير الشركة وقائد التيم لا يزوران أطباء بنفسهما، فضمّهما هنا
-    // كان يُحسب أي زيارة مسجَّلة تحت حسابهما الشخصي ضمن إجمالي "الكل").
+    // كان يُحسب أي زيارة مسجَّلة تحت حسابهما الشخصي ضمن إجمالي "الكل"). استثناء
+    // قائد الفريق لمدير الشركة تحديداً — راجع excludedManagementRoles أعلاه.
     const [ownU, allSubs] = await Promise.all([
       prisma.user.findUnique({ where: { id: user.id }, select: { linkedRepId: true } }),
       prisma.userManagerAssignment.findMany({
@@ -257,7 +270,8 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
         include: { user: { select: { id: true, linkedRepId: true, role: true } } },
       }),
     ]);
-    const subs = allSubs.filter(s => !MANAGEMENT_ROLES.has(s.user.role));
+    const excluded = excludedManagementRoles(user.role);
+    const subs = allSubs.filter(s => !excluded.has(s.user.role));
     const ownRepId = await resolveRepId(user.id, ownU?.linkedRepId ?? null);
     addMember(user.id, ownRepId);
     (await areaIdsForUser(user.id, ownRepId)).forEach(id => ids.add(id));
