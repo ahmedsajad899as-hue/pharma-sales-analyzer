@@ -1004,9 +1004,17 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
 
     // اسم متطابق تماماً لكن أكثر من طبيب بالاسم نفسه بالضبط ولا يمكن حسم الفرق
     // بالمنطقة — نعرضه للمستخدم بدل التخمين بينهم (بثقة 100% لكل مرشّح).
+    //
+    // المرشّحون غير التامّين (تشابه دون 100%): يُقصَرون على نفس منطقة الصف
+    // حين تكون معروفة — طبيب بنفس الاسم تقريباً في منطقة أخرى كلياً شخص مختلف
+    // غالباً، واقتراحه كان يُشتِّت المستخدم بمرشَّحين لا صلة جغرافية لهم بالزيارة
+    // الفعلية. لا يمسّ فرع exactMatches أعلاه (تطابق حرفي تام لعدة أطباء —
+    // حالة نادرة منفصلة تُعرض كاملة عمداً بلا تصفية جغرافية إضافية).
+    const rowAreaNorm = g.areaName ? normalizeAreaName(g.areaName) : null;
     const scored = exactMatches.length > 1
       ? exactMatches.map(c => ({ ...c, score: 1 }))
       : candidates
+          .filter(c => !rowAreaNorm || (c.areaName && normalizeAreaName(c.areaName) === rowAreaNorm))
           .map(c => ({ ...c, score: doctorMatchScore({ name: g.cleanedName, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName }, c) }))
           .filter(c => c.score >= DOCTOR_ASK_FLOOR)
           .sort((a, b) => b.score - a.score)
@@ -1025,8 +1033,11 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       if (link) resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: null });
       else unrelated.push({ raw: g.raw, key: g.key });
     } else {
+      // تواريخ زيارات صفوف هذه المجموعة — تُعرض بجانب اسم الطبيب في شبكة
+      // المراجعة لمساعدة المستخدم على تذكّر/تمييز الزيارة عند المقارنة بالمرشَّحين.
+      const dates = [...new Set(g.rows.map(r => r.date).filter(Boolean))];
       pending.push({
-        raw: g.raw, key: g.key, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName,
+        raw: g.raw, key: g.key, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName, dates,
         suggestions: scored.map(c => ({ id: c.id, name: c.name, score: c.score, areaId: c.areaId ?? null, areaName: c.areaName, specialty: c.specialty, pharmacyName: c.pharmacyName })),
       });
     }

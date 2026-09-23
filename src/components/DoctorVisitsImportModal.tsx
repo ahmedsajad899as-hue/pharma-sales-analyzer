@@ -17,7 +17,7 @@ const API = import.meta.env.VITE_API_URL || '';
 interface RepOpt { id: number; name: string }
 interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; score: number }[] }
 interface DoctorSuggestion { id: number; name: string; score: number; areaId?: number | null; areaName: string | null; specialty: string | null; pharmacyName: string | null }
-interface DoctorNameEntry { raw: string; key: string; areaName?: string; specialty?: string; pharmacyName?: string; suggestions: DoctorSuggestion[] }
+interface DoctorNameEntry { raw: string; key: string; areaName?: string; specialty?: string; pharmacyName?: string; dates?: string[]; suggestions: DoctorSuggestion[] }
 interface DoctorRow {
   _row: number;
   repName: string; repId: number | null;
@@ -418,11 +418,12 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
                       <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a' }}>{e.raw}</div>
                       <span style={{ fontSize: 10.5, color: '#94a3b8' }}>({count} صف)</span>
                     </div>
-                    {(e.areaName || e.specialty || e.pharmacyName) && (
+                    {(e.areaName || e.specialty || e.pharmacyName || e.dates?.length) && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, fontSize: 11 }}>
                         {e.areaName && <span style={chipMuted}>📍 {e.areaName}</span>}
                         {e.specialty && <span style={chipMuted}>🩺 {e.specialty}</span>}
                         {e.pharmacyName && <span style={chipMuted}>🏪 {e.pharmacyName}</span>}
+                        {!!e.dates?.length && <span style={chipMuted}>📅 {e.dates.join('، ')}</span>}
                       </div>
                     )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
