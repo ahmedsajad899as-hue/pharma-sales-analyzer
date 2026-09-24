@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import {
-  listAllUsers, getUser, createUser, updateUser,
+  listAllUsers, getUser, getUserPassword, createUser, updateUser,
   setUserCompanies, setUserAreas, setUserProvinces, setUserSubProvinces, setUserItems, setUserLines,
   setUserManagers, setUserSubordinates, setUserInteractions, setUserFeatures, setUserAllAreas,
   setUserStockCompanies, setUserStockItems,
@@ -19,6 +19,7 @@ router.use(requireSuperAdmin);
 router.get('/',            listAllUsers);
 router.get('/:id/rep-info',      getUserRepInfo);
 router.get('/:id/company-items', getUserCompanyItems);
+router.get('/:id/password',      getUserPassword);
 router.post('/import/preview', upload.single('file'), previewUsersImport);
 router.post('/import/commit',  commitUsersImport);
 router.get('/:id',         getUser);

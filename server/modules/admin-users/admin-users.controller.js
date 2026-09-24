@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import prisma from '../../lib/prisma.js';
+import { encryptPassword, decryptPassword } from '../../lib/passwordCrypto.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import {
   syncUserAreaDerivedLinks, resolveEffectiveAreaIds,
@@ -67,6 +68,20 @@ export async function getUser(req, res) {
   });
 }
 
+// ── Get current password (super admin only — راجع passwordCrypto.js) ──────
+export async function getUserPassword(req, res) {
+  const id = parseInt(req.params.id);
+  const user = await prisma.user.findUnique({ where: { id }, select: { passwordEncrypted: true } });
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const password = decryptPassword(user.passwordEncrypted);
+  if (password === null) {
+    return res.status(404).json({
+      error: 'كلمة المرور غير متاحة لهذا الحساب (أُنشئ أو عُدِّل قبل تفعيل هذه الميزة). أعد تعيين كلمة مرور جديدة له لتتمكن من عرضها لاحقاً.',
+    });
+  }
+  res.json({ success: true, password });
+}
+
 // ── Create user ───────────────────────────────────────────────────────────
 // Features disabled by default for every new user — master admin can re-enable them
 export const DEFAULT_DISABLED_FEATURES = ['rep_analysis', 'sales_data', 'distributor_sales', 'users_list'];
@@ -121,6 +136,7 @@ export async function createUser(req, res) {
   const mergedPerms = buildDefaultPermissions(permissions);
 
   const passwordHash = await bcrypt.hash(password, 12);
+  const passwordEncrypted = encryptPassword(password);
   const parsedOfficeId = officeId ? parseInt(officeId) : null;
   let user;
   try {
@@ -128,6 +144,7 @@ export async function createUser(req, res) {
       data: {
         username,
         passwordHash,
+        passwordEncrypted,
         displayName,
         role,
         phone,
@@ -170,7 +187,10 @@ export async function updateUser(req, res) {
     if (phone        !== undefined) data.phone       = phone;
     if (officeId     !== undefined) data.officeId    = officeId ? parseInt(officeId) : null;
     if (permissions  !== undefined) data.permissions = JSON.stringify(permissions);
-    if (password)                   data.passwordHash = await bcrypt.hash(password, 12);
+    if (password) {
+      data.passwordHash = await bcrypt.hash(password, 12);
+      data.passwordEncrypted = encryptPassword(password);
+    }
     if (linkedRepId !== undefined)  data.linkedRepId  = linkedRepId ? parseInt(linkedRepId) : null;
 
     if (data.username) {

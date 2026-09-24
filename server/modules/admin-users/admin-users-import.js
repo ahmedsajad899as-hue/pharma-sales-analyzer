@@ -27,6 +27,7 @@ import { normalizeArabic, normalizeItemKey, normalizeAreaName } from '../../lib/
 import { syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
+import { encryptPassword } from '../../lib/passwordCrypto.js';
 import { buildDefaultPermissions } from './admin-users.controller.js';
 
 // نفس قيم/تسميات ROLES في src/pages/super-admin/UsersPage.tsx — يقبل العمود
@@ -339,9 +340,10 @@ export async function commitUsersImport(req, res) {
       if (exists) throw new Error('اسم المستخدم مستخدم مسبقاً');
 
       const passwordHash = await bcrypt.hash(password, 12);
+      const passwordEncrypted = encryptPassword(password);
       const user = await prisma.user.create({
         data: {
-          username, passwordHash, displayName: displayName || null, phone: phone || null,
+          username, passwordHash, passwordEncrypted, displayName: displayName || null, phone: phone || null,
           role: ROLE_VALUES.has(role) ? role : 'scientific_rep',
           officeId,
           permissions: JSON.stringify(buildDefaultPermissions()),

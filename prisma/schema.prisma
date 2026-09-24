@@ -16,6 +16,10 @@ model User {
   id           Int      @id @default(autoincrement())
   username     String   @unique
   passwordHash String
+  // نسخة مشفّرة (قابلة للفك) من كلمة المرور الحالية — تُقرأ فقط عبر GET
+  // /api/sa/users/:id/password (سوبر أدمن). passwordHash يبقى المصدر الوحيد
+  // للمصادقة الفعلية؛ هذا الحقل موجود فقط لعرض كلمة المرور للماستر أدمن.
+  passwordEncrypted String?
   role         String   @default("user")
   // Legacy roles: "admin" | "manager" | "user"
   // New roles:    "office_manager" | "office_hr" | "office_employee"

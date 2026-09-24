@@ -2770,7 +2770,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
       {form && !detail && (
         <Modal onClose={() => { setForm(null); setError(''); setConflict(null); }} title={form.id ? 'تعديل المستخدم' : 'إضافة مستخدم'}>
-          <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} isEdit={Boolean(form.id)} />
+          <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} isEdit={Boolean(form.id)} token={token} />
           {error && <ErrBox msg={error} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={() => { setForm(null); setError(''); setConflict(null); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
@@ -2782,11 +2782,49 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   );
 }
 
-function UserFormFields({ form, setForm, offices, companies, isEdit }: { form: any; setForm: any; offices: Office[]; companies: Company[]; isEdit: boolean }) {
+function UserFormFields({ form, setForm, offices, companies, isEdit, token }: { form: any; setForm: any; offices: Office[]; companies: Company[]; isEdit: boolean; token?: string }) {
   const officeCompanies = form.officeId ? companies.filter(c => c.officeId === Number(form.officeId)) : [];
+  const [revealedPw, setRevealedPw] = useState<string | null>(null);
+  const [revealErr,  setRevealErr]  = useState('');
+  const [revealBusy, setRevealBusy] = useState(false);
+
+  const revealPassword = async () => {
+    if (revealedPw !== null) { setRevealedPw(null); return; } // toggle off
+    setRevealBusy(true); setRevealErr('');
+    try {
+      const res = await fetch(`/api/sa/users/${form.id}/password`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await res.json();
+      if (!res.ok) { setRevealErr(d.error || 'تعذّر عرض كلمة المرور'); return; }
+      setRevealedPw(d.password);
+    } catch {
+      setRevealErr('تعذّر عرض كلمة المرور');
+    } finally {
+      setRevealBusy(false);
+    }
+  };
+
   return (
     <>
       <Field label="اسم المستخدم *" value={form.username || ''} onChange={v => setForm((f: any) => ({ ...f, username: v }))} />
+      {isEdit && (
+        <div style={{ marginBottom: 10, marginTop: -6 }}>
+          <button type="button" onClick={revealPassword} disabled={revealBusy}
+            style={{
+              fontSize: 12.5, padding: '5px 10px', borderRadius: 7, cursor: 'pointer',
+              border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4338ca',
+            }}>
+            {revealBusy ? '...' : revealedPw !== null ? '🙈 إخفاء كلمة المرور الحالية' : '👁 عرض كلمة المرور الحالية'}
+          </button>
+          {revealedPw !== null && (
+            <div style={{ marginTop: 6, fontSize: 13.5, fontFamily: 'monospace', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 7, padding: '6px 10px', userSelect: 'all' }}>
+              {revealedPw}
+            </div>
+          )}
+          {revealErr && <div style={{ marginTop: 6, fontSize: 12, color: '#b91c1c' }}>{revealErr}</div>}
+        </div>
+      )}
       <Field label={isEdit ? 'كلمة مرور جديدة (اتركها فارغة للإبقاء)' : 'كلمة المرور *'} value={form.password || ''} onChange={v => setForm((f: any) => ({ ...f, password: v }))} type="password" />
       <Field label="الاسم الظاهر" value={form.displayName || ''} onChange={v => setForm((f: any) => ({ ...f, displayName: v }))} />
       <Field label="الهاتف" value={form.phone || ''} onChange={v => setForm((f: any) => ({ ...f, phone: v }))} />
