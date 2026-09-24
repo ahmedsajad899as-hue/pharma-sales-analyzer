@@ -198,7 +198,7 @@ export default function DoctorsPage() {
   const isCommercialRep = user?.role === 'commercial_rep';
   const FIELD_ROLES = ['user', 'scientific_rep', 'supervisor', 'commercial_rep'];
   const isFieldRep  = FIELD_ROLES.includes(user?.role ?? '');
-  const canSeePharmNet = ['company_manager', 'team_leader', 'office_manager', 'office_employee'].includes(user?.role ?? '');
+  const canSeePharmNet = ['company_manager', 'team_leader', 'office_manager', 'office_employee', 'office_hr'].includes(user?.role ?? '');
   // «قائمة الطلبات» (تعليم طبيب لتذكير المدير بتضمينه بالبلان القادم) قرار
   // مدير حصراً — لا تظهر لموظف المكتب ولا أي دور آخر غير هذه الثلاثة.
   const canSeeWishlist = ['team_leader', 'company_manager', 'product_manager'].includes(user?.role ?? '');
