@@ -201,6 +201,7 @@ export async function processUploadedFile(file, options = {}) {
       columnMapping,
       fileType:       'sales',   // matrix output is always treated as sales
       sourceCurrency,
+      rawOriginalName,
     });
   }
 
@@ -385,13 +386,14 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   // ── 3b–7. Shared finishing logic ─────────────────────────
-  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem: isMercatoFile ? 'mercato' : null, unclearCompanyItems: [...unclearCompanyItems] });
+  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem: isMercatoFile ? 'mercato' : null, unclearCompanyItems: [...unclearCompanyItems], rawOriginalName });
 }
 
 // ─── _finishProcessing ─────────────────────────────────────────────────────────
 // Everything from fuzzy normalisation to bulk insert — shared by both the
 // standard tabular path and the matrix (cross-tabular) path.
-async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem = null, unclearCompanyItems = [] }) {
+async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem = null, unclearCompanyItems = [], rawOriginalName = false }) {
+  const fixOriginalName = (name) => rawOriginalName ? name : Buffer.from(name, 'latin1').toString('utf8');
   const validRows = [...salesRows, ...returnsRows];
 
   // ── 3b. Fuzzy-name normalisation ─────────────────────────────────────────────
