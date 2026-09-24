@@ -1354,7 +1354,9 @@ const REPORT_SALES_SELECT = {
   customer: { select: { name: true } },
   // Per-file currency so aggregateSalesWithReps can normalize each row to USD
   // before summing (files may mix USD/IQD — raw sums across them are wrong).
-  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
+  // sourceSystem أيضاً — يُستعمل لفصل مبيع ملف المكتب عن مبيع ميركاتو (bySource
+  // أدناه في getReport) حين يُدمَج ملفا النوعين معاً في نفس التحليل.
+  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true, sourceSystem: true } },
 };
 
 /**
@@ -1385,7 +1387,7 @@ export async function getReport(id, query = {}, viewerId = null) {
       assignedItems: itemLinks.map(l => l.item),
       dateRange: { startDate: query.startDate ?? null, endDate: query.endDate ?? null },
       summary: { totalQuantity: 0, totalValue: 0 },
-      byArea: [], byItem: [], byRep: [],
+      byArea: [], byItem: [], byRep: [], bySource: null,
     };
   }
 
@@ -1403,6 +1405,20 @@ export async function getReport(id, query = {}, viewerId = null) {
   console.log('[SciRep.getReport] aggregated totals:', JSON.stringify(aggregated.totals), 'rows:', rawSales.length);
   const { totals, byArea, byItem, byRep } = aggregated;
 
+  // ── توزيع حسب مصدر الملف (مكتب/ميركاتو) ────────────────────────────────
+  // يُستعمل في الواجهة لعرض صندوق صغير يوضّح مساهمة كل نوع ملف حين يُدمَجان
+  // معاً في نفس التحليل، وفي التصدير لبناء شيت «مبيعات ميركاتو» منفصل.
+  // hasOffice/hasMercato وحدهما يحكمان إظهار ذلك — لا الإجماليات نفسها (قد
+  // تكون قيمة أحد الجانبين صفراً فعلياً وله صفوف حقيقية بالمقابل).
+  const officeRows  = salesForAggregation.filter(s => s.uploadedFile?.sourceSystem !== 'mercato');
+  const mercatoRows = salesForAggregation.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
+  const bySource = (officeRows.length > 0 || mercatoRows.length > 0) ? {
+    office:     { totalQuantity: aggregateSalesWithReps(officeRows).totals.totalQuantity,  totalValue: aggregateSalesWithReps(officeRows).totals.totalValue },
+    mercato:    { totalQuantity: aggregateSalesWithReps(mercatoRows).totals.totalQuantity, totalValue: aggregateSalesWithReps(mercatoRows).totals.totalValue },
+    hasOffice:  officeRows.length > 0,
+    hasMercato: mercatoRows.length > 0,
+  } : null;
+
   return {
     scientificRep: { id: rep.id, name: displayName, isActive: rep.isActive },
     assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
@@ -1413,6 +1429,7 @@ export async function getReport(id, query = {}, viewerId = null) {
     byArea,
     byItem,
     byRep,
+    bySource,
     _debug: {
       fileIds,
       sharedFileIds: resolved.sharedFileIds,
@@ -1438,7 +1455,9 @@ const EXPORT_SALES_SELECT = {
   area: { select: { id: true, name: true, province: { select: { name: true } } } },
   item: { select: { id: true, name: true } },
   representative: { select: { id: true, name: true } },
-  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
+  // sourceSystem: يستعمله الفرونت لفصل صفوف ميركاتو في شيت تصدير منفصل حين
+  // يُدمَج ملف ميركاتو مع ملف مكتب في نفس التصدير — راجع bySource في getReport.
+  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true, sourceSystem: true } },
 };
 
 /**

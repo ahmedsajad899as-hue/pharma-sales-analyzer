@@ -44,6 +44,14 @@ const keepSourceOrder = (headers: string[]): string[] => {
 // Raw-file columns that should never appear in the export (not useful to reps/managers).
 const isExcludedColumn = (h: string): boolean => /حالة.*مذخر|حالة.*طلبي/i.test(h);
 
+// يفصل صفوف ملف ميركاتو عن صفوف ملف المكتب داخل نفس مجموعة صفوف التصدير — يُستعمل
+// لإضافة شيت «مبيعات ميركاتو» منفصل حين يُدمَج ملف ميركاتو مع ملف مكتب في نفس التحليل.
+const splitMercatoSales = (sales: any[]): { office: any[]; mercato: any[]; isMixed: boolean } => {
+  const mercato = sales.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
+  const office  = sales.filter(s => s.uploadedFile?.sourceSystem !== 'mercato');
+  return { office, mercato, isMixed: mercato.length > 0 && office.length > 0 };
+};
+
 /* Excel forbids : \ / ? * [ ] in a sheet name (and caps it at 31 chars) — book_append_sheet
    throws otherwise. Rep display names here can legitimately contain "/" (e.g. combined with
    a team-leader label, "الاسم / ليدر المنطقة"), so every sheet-name build must go through
@@ -613,6 +621,9 @@ interface SciReport {
   byArea: BreakdownRow[];
   byItem: BreakdownRow[];
   byRep: BreakdownRow[];
+  // توزيع مبيع الملف حسب مصدره (مكتب/ميركاتو) — موجود فقط حين يحوي التحليل
+  // الحالي صفوفاً فعلية (سواء من نوع واحد أو من الاثنين معاً).
+  bySource: { office: { totalQty: number; totalValue: number }; mercato: { totalQty: number; totalValue: number }; hasOffice: boolean; hasMercato: boolean } | null;
 }
 
 type Mode = 'commercial' | 'scientific' | 'overall';
@@ -1082,6 +1093,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           byArea: [...salesAreas, ...zeroAreas],
           byItem: [...salesItems, ...zeroItems],
           byRep:  (d.byRep  ?? []).map((r: any) => ({ name: r.repName  ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+          bySource: d.bySource ? {
+            office:  { totalQty: d.bySource.office?.totalQuantity  ?? 0, totalValue: d.bySource.office?.totalValue  ?? 0 },
+            mercato: { totalQty: d.bySource.mercato?.totalQuantity ?? 0, totalValue: d.bySource.mercato?.totalValue ?? 0 },
+            hasOffice:  !!d.bySource.hasOffice,
+            hasMercato: !!d.bySource.hasMercato,
+          } : null,
         };
       };
 
@@ -2034,6 +2051,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       }
       const rows = buildSheet(sales2, sciName);
       result.push({ name: sanitizeSheetName(`${t.reports.exportSciPrefix}-${sciName}`), rows: rows.map(r => r.map(v => String(v ?? ''))) });
+      // ملف ميركاتو مدمج مع ملف مكتب لهذا المندوب العلمي → شيت إضافي بمبيعات ميركاتو وحدها.
+      const { mercato: mercatoSales2, isMixed: isMixed2 } = splitMercatoSales(sales2);
+      if (isMixed2) {
+        result.push({ name: sanitizeSheetName(`مبيعات ميركاتو-${sciName}`), rows: buildSheet(mercatoSales2, sciName).map(r => r.map(v => String(v ?? ''))) });
+      }
       const targets = await fetchRepTargets('scientific', repId);
       perRepSummaries.push({ name: sanitizeSheetName(`ملخص-${sciName}`), rows: toStr(buildSummarySheet(sciName, sales2, { areaCount, targets })), noTotals: true });
     }
@@ -2277,10 +2299,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const summaryRows = buildSummarySheet(repName, sales, { areaCount, targets })
         .map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
 
+      // ملف ميركاتو مدمج مع ملف مكتب في نفس التحليل → شيت إضافي بمبيعات ميركاتو
+      // وحدها، حتى يُميَّز مصدرها بلا حاجة لفتح الملف الأصلي.
+      const { mercato: mercatoSales, isMixed } = splitMercatoSales(sales);
+      const mercatoSheet = isMixed
+        ? [{ name: sanitizeSheetName(`مبيعات ميركاتو-${repName}`), rows: buildMergedSheet(mercatoSales, 'both').map(row => row.map(v => v === null || v === undefined ? '' : String(v))) }]
+        : [];
+
       // Show data in the preview/editor modal — no auto-download; user saves via "تصدير Excel" when ready
       setPreviewFileName(`${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
       setPreviewSheets([
         { name: sanitizeSheetName(repName), rows: stringRows },
+        ...mercatoSheet,
         { name: 'الملخص', rows: summaryRows, noTotals: true },
       ]);
       setShowPreviewModal(true);
@@ -2323,6 +2353,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const ws = XLSX.utils.aoa_to_sheet(rows);
     styleSheet(ws, rows);
     XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(rep.name));
+    // ملف ميركاتو مدمج مع ملف مكتب لهذا المندوب العلمي → شيت إضافي بمبيعات ميركاتو وحدها.
+    if (kind === 'sci') {
+      const { mercato: mercatoSales, isMixed } = splitMercatoSales(sales);
+      if (isMixed) {
+        const mercatoRows = buildSheet(mercatoSales, sciName);
+        const wsM = XLSX.utils.aoa_to_sheet(mercatoRows);
+        styleSheet(wsM, mercatoRows);
+        XLSX.utils.book_append_sheet(wb, wsM, sanitizeSheetName(`مبيعات ميركاتو-${sciName ?? rep.name}`));
+      }
+    }
     // «الملخص» sheet — same format as the رفع الملفات export
     const targets    = await fetchRepTargets(kind === 'comm' ? 'commercial' : 'scientific', rep.id);
     const summaryRows = buildSummarySheet(sciName ?? rep.name, sales, { areaCount, targets });
@@ -2411,6 +2451,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           sales = sJson.data ?? [];
         }
         addSheet(`${t.reports.exportSciPrefix}-${sciName}`, buildSheet(sales, sciName));  // pass sciRepName
+        // ملف ميركاتو مدمج مع ملف مكتب لهذا المندوب العلمي → شيت إضافي بمبيعات ميركاتو وحدها.
+        const { mercato: mercatoSales, isMixed } = splitMercatoSales(sales);
+        if (isMixed) addSheet(`مبيعات ميركاتو-${sciName}`, buildSheet(mercatoSales, sciName));
         const targets = await fetchRepTargets('scientific', repId);
         addSheet(`ملخص-${sciName}`, buildSummarySheet(sciName, sales, { areaCount, targets }));
       }
@@ -3461,6 +3504,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const hasRet = (sciReturnsReport?.totalQty ?? 0) > 0;
         // Net qty per target item, matched tolerantly (slash/space, pack suffixes…) — see itemNameMatch.ts
         const targetActualNet = buildTargetActuals(targetData, sciReport.byItem, sciReturnsReport?.byItem ?? []);
+        // توزيع الصافي حسب مصدر الملف (مكتب/ميركاتو) — يظهر فقط حين يكون التحليل
+        // الحالي مبنياً على دمج ملف مكتب مع ملف ميركاتو معاً (كلاهما له صفوف فعلية).
+        const src = sciReport.bySource;
+        const hasMixedSources = !!(src?.hasOffice && src?.hasMercato);
+        const officeNetVal  = (src?.office.totalValue  ?? 0) - (sciReturnsReport?.bySource?.office.totalValue  ?? 0);
+        const mercatoNetVal = (src?.mercato.totalValue ?? 0) - (sciReturnsReport?.bySource?.mercato.totalValue ?? 0);
         return (
         <>
           {/* Info tags */}
@@ -3482,13 +3531,29 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           <div style={{ marginBottom: 4 }}>
             {renderViewToggle(true, hasRet)}
             {isNet ? (
-              <div style={{ background: netValTotal >= 0 ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${netValTotal >= 0 ? '#6ee7b7' : '#fca5a5'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
+              <div style={{ background: netValTotal >= 0 ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${netValTotal >= 0 ? '#6ee7b7' : '#fca5a5'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
                 <div style={{ background: netValTotal >= 0 ? '#d1fae5' : '#fee2e2', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{netValTotal >= 0 ? <Icon name="checkCircle" size={22} style={{ color: '#065f46' }} /> : <Icon name="warning" size={22} style={{ color: '#991b1b' }} />}</div>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: netValTotal >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtValSigned(netValTotal)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatNet}</div>
                   {hasRet && <div style={{ fontSize: 12, color: netQtyTotal >= 0 ? '#065f46' : '#991b1b', marginTop: 2, fontWeight: 700 }}>صافي الكمية: {fmtSigned(netQtyTotal)}</div>}
                 </div>
+              </div>
+              {hasMixedSources && (
+                <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
+                  title="توزيع صافي القيمة حسب مصدر الملف — ملف مبيعات المكتب مقابل ملف ميركاتو المدمج معه">
+                  <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>حسب مصدر الملف</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ملف المكتب</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: officeNetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(officeNetVal)}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ميركاتو</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: mercatoNetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(mercatoNetVal)}</span>
+                  </div>
+                </div>
+              )}
               </div>
             ) : (
               <div style={{ background: reportView === 'returns' ? '#fef2f2' : '#ecfdf5', border: `1.5px solid ${reportView === 'returns' ? '#fca5a5' : '#6ee7b7'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
