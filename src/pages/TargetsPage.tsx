@@ -12,8 +12,12 @@ interface SavedTarget { id: number; itemId: number; item: NamedItem; target: num
 
 const NOW = new Date();
 
-// Roles allowed to create/sync targets for reps
-const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'office_manager', 'product_manager', 'commercial_supervisor', 'commercial_team_leader', 'office_employee']);
+// Roles allowed to create/sync targets for reps — office_hr كان ناقصاً هنا رغم
+// أنه دور مكتبي بنفس صلاحيات office_manager/office_employee في كل مكان آخر
+// (officeScope.js)، فكان يقع في فرع "عرض تارگتاتي الشخصية" بدل عرض تارگتات
+// فريق المكتب، ويظهر له دوماً "لم يُعيَّن أي تارگت لك" لأنه لا يملك تارگتاً
+// شخصياً أصلاً.
+const MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'office_manager', 'product_manager', 'commercial_supervisor', 'commercial_team_leader', 'office_employee', 'office_hr']);
 
 export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: number[] }) {
   const { token, user } = useAuth();
