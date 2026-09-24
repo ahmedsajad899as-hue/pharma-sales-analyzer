@@ -3421,7 +3421,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       {/* ─── Commercial Rep Report ─── */}
       {mode === 'commercial' && commReport && (() => {
         const viewData    = reportView === 'returns' ? commReturnsReport! : commReport;
-        const netQtyTotal = (commReport?.totalQty ?? 0) - (commReturnsReport?.totalQty ?? 0);
         const netValTotal = (commReport?.totalValue ?? 0) - (commReturnsReport?.totalValue ?? 0);
         const isNet = reportView === 'net';
         const hasRet = (commReturnsReport?.totalQty ?? 0) > 0;
@@ -3438,7 +3437,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: netValTotal >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtValSigned(netValTotal)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatNet}</div>
-                  {hasRet && <div style={{ fontSize: 12, color: netQtyTotal >= 0 ? '#065f46' : '#991b1b', marginTop: 2, fontWeight: 700 }}>صافي الكمية: {fmtSigned(netQtyTotal)}</div>}
                 </div>
                 <div style={{ borderRight: '1.5px dashed #cbd5e1', paddingRight: 14, marginRight: 2, display: 'flex', alignItems: 'center', gap: 8 }} title="عدد الطلبيات الفعلي — صفوف نفس الطلبية (عدة أصناف) تُحسب كطلبية واحدة">
                   <Icon name="checkCircle" size={18} style={{ color: '#1d4ed8' }} />
@@ -3454,7 +3452,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: reportView === 'returns' ? '#991b1b' : '#065f46', lineHeight: 1 }}>{fmtVal(viewData?.totalValue ?? 0)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatTotal}</div>
-                  <div style={{ fontSize: 12, color: '#374151', marginTop: 2, fontWeight: 600 }}>الكمية: {fmt(viewData?.totalQty ?? 0)}</div>
                 </div>
                 <div style={{ borderRight: '1.5px dashed #cbd5e1', paddingRight: 14, marginRight: 2, display: 'flex', alignItems: 'center', gap: 8 }} title="عدد الطلبيات الفعلي — صفوف نفس الطلبية (عدة أصناف) تُحسب كطلبية واحدة">
                   <Icon name="checkCircle" size={18} style={{ color: '#1d4ed8' }} />
@@ -3588,7 +3585,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       {/* ─── Scientific Rep Report ─── */}
       {mode === 'scientific' && sciReport && (() => {
         const viewData    = reportView === 'returns' ? sciReturnsReport! : sciReport;
-        const netQtyTotal = (sciReport?.totalQty ?? 0) - (sciReturnsReport?.totalQty ?? 0);
         const netValTotal = (sciReport?.totalValue ?? 0) - (sciReturnsReport?.totalValue ?? 0);
         const isNet = reportView === 'net';
         const hasRet = (sciReturnsReport?.totalQty ?? 0) > 0;
@@ -3600,6 +3596,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const hasMixedSources = !!(src?.hasOffice && src?.hasMercato);
         const officeNetVal  = (src?.office.totalValue  ?? 0) - (sciReturnsReport?.bySource?.office.totalValue  ?? 0);
         const mercatoNetVal = (src?.mercato.totalValue ?? 0) - (sciReturnsReport?.bySource?.mercato.totalValue ?? 0);
+        // نفس التوزيع لكن لقيمة الخانة المعروضة حالياً فقط (مبيع أو ارجاع) بدل الصافي —
+        // يظهر في كل الخانات لا الصافي وحده، للمقارنة بين الملفين مباشرة أياً كانت الخانة.
+        const viewSrc = viewData?.bySource;
+        const viewHasMixedSources = !!(viewSrc?.hasOffice && viewSrc?.hasMercato);
         return (
         <>
           {/* Info tags */}
@@ -3627,7 +3627,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: netValTotal >= 0 ? '#065f46' : '#991b1b', lineHeight: 1 }}>{fmtValSigned(netValTotal)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatNet}</div>
-                  {hasRet && <div style={{ fontSize: 12, color: netQtyTotal >= 0 ? '#065f46' : '#991b1b', marginTop: 2, fontWeight: 700 }}>صافي الكمية: {fmtSigned(netQtyTotal)}</div>}
                 </div>
                 <div style={{ borderRight: '1.5px dashed #cbd5e1', paddingRight: 14, marginRight: 2, display: 'flex', alignItems: 'center', gap: 8 }} title="عدد الطلبيات الفعلي — صفوف نفس الطلبية (عدة أصناف) تُحسب كطلبية واحدة">
                   <Icon name="checkCircle" size={18} style={{ color: '#1d4ed8' }} />
@@ -3653,12 +3652,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               )}
               </div>
             ) : (
-              <div style={{ background: reportView === 'returns' ? '#fef2f2' : '#ecfdf5', border: `1.5px solid ${reportView === 'returns' ? '#fca5a5' : '#6ee7b7'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
+              <div style={{ background: reportView === 'returns' ? '#fef2f2' : '#ecfdf5', border: `1.5px solid ${reportView === 'returns' ? '#fca5a5' : '#6ee7b7'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
                 <div style={{ background: reportView === 'returns' ? '#fee2e2' : '#d1fae5', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}><Icon name="money" size={22} style={{ color: reportView === 'returns' ? '#991b1b' : '#065f46' }} /></div>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: reportView === 'returns' ? '#991b1b' : '#065f46', lineHeight: 1 }}>{fmtVal(viewData?.totalValue ?? 0)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatTotal}</div>
-                  <div style={{ fontSize: 12, color: '#374151', marginTop: 2, fontWeight: 600 }}>الكمية: {fmt(viewData?.totalQty ?? 0)}</div>
                 </div>
                 <div style={{ borderRight: '1.5px dashed #cbd5e1', paddingRight: 14, marginRight: 2, display: 'flex', alignItems: 'center', gap: 8 }} title="عدد الطلبيات الفعلي — صفوف نفس الطلبية (عدة أصناف) تُحسب كطلبية واحدة">
                   <Icon name="checkCircle" size={18} style={{ color: '#1d4ed8' }} />
@@ -3667,6 +3666,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>عدد الطلبيات</div>
                   </div>
                 </div>
+              </div>
+              {viewHasMixedSources && (
+                <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
+                  title={`توزيع ${reportView === 'returns' ? 'الإرجاع' : 'المبيع'} حسب مصدر الملف — ملف المكتب مقابل ملف ميركاتو المدمج معه`}>
+                  <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>حسب مصدر الملف</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ملف المكتب</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>{fmtVal(viewSrc?.office.totalValue ?? 0)}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ميركاتو</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>{fmtVal(viewSrc?.mercato.totalValue ?? 0)}</span>
+                  </div>
+                </div>
+              )}
               </div>
             )}
           </div>
