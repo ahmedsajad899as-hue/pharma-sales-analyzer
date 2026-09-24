@@ -78,6 +78,14 @@ function dayColor(d: number): { bg: string; color: string } {
   if (d < 60)  return { bg: 'var(--c-warning-bg)', color: 'var(--c-warning)' };
   return              { bg: 'var(--c-danger-bg)', color: 'var(--c-danger)' };
 }
+function pillStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+    border: `1.5px solid ${active ? 'var(--c-accent)' : 'var(--c-border)'}`,
+    background: active ? 'var(--c-accent-light)' : '#fff',
+    color: active ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+  };
+}
 
 const TABS = [
   { id: 'pharmacies',   label: 'الصيدليات',  icon: 'pharmacy' },
@@ -113,6 +121,13 @@ export default function PharmacyAnalysisPage() {
   const [pharmaLoading, setPharmaLoading]   = useState(false);
   const [pharmaSearch, setPharmaSearch]     = useState('');
   const [groupBy, setGroupBy]               = useState<GroupBy>('none');
+
+  // فلترة «الشركة الرئيسية» ثم «المندوب العلمي» — تقتصر الصيدليات المعروضة على
+  // ايتمات الشركة المختارة، وعند اختيار مندوب أيضاً على مناطقه المُعيَّنة فقط.
+  const [companies, setCompanies]                 = useState<{ id: number; name: string }[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
+  const [companyReps, setCompanyReps]             = useState<{ id: number; name: string; areas: { id: number; name: string }[] }[]>([]);
+  const [selectedRepId, setSelectedRepId]         = useState<number | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [pharmaDetail, setPharmaDetail]     = useState<PharmacyDetail | null>(null);
   const [pharmaDetailLoading, setPharmaDetailLoading] = useState(false);
@@ -213,11 +228,30 @@ export default function PharmacyAnalysisPage() {
   const loadPharmacies = useCallback((search = pharmaSearch) => {
     if (selFiles.size === 0) { setPharmacies([]); setPharmaLoading(false); return; }
     setPharmaLoading(true);
-    const q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '');
+    let q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '');
+    if (selectedCompanyId != null) q += `&companyId=${selectedCompanyId}`;
+    if (selectedRepId != null)     q += `&repId=${selectedRepId}`;
     fetch(`${API}/api/pharmacy-analysis/pharmacies${q}`, { headers })
       .then(r => r.json()).then(d => setPharmacies(d.pharmacies || [])).catch(() => {}).finally(() => setPharmaLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileIdsParam, pharmaSearch, token]);
+  }, [fileIdsParam, pharmaSearch, token, selectedCompanyId, selectedRepId]);
+
+  // ── «الشركة الرئيسية»: شركات الايتمات الموجودة فعلاً بالملفات المختارة ────
+  useEffect(() => {
+    if (selFiles.size === 0) { setCompanies([]); setSelectedCompanyId(null); return; }
+    fetch(`${API}/api/pharmacy-analysis/companies${fileQuery}`, { headers })
+      .then(r => r.json()).then(d => setCompanies(d.companies || [])).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileIdsParam]);
+
+  // ── «المندوب»: مندوبو الشركة المختارة (بمناطقهم) ─────────────────────────
+  useEffect(() => {
+    setSelectedRepId(null);
+    if (selectedCompanyId == null) { setCompanyReps([]); return; }
+    fetch(`${API}/api/pharmacy-analysis/reps?companyId=${selectedCompanyId}`, { headers })
+      .then(r => r.json()).then(d => setCompanyReps(d.reps || [])).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCompanyId]);
 
   const loadItems = useCallback((search = itemSearch) => {
     if (selFiles.size === 0) { setItems([]); setItemsLoading(false); return; }
@@ -281,6 +315,7 @@ export default function PharmacyAnalysisPage() {
   }, [fileIdsParam, alertDays, token]);
 
   useEffect(() => { if (tab === 'pharmacies') loadPharmacies(); }, [fileIdsParam]);
+  useEffect(() => { if (tab === 'pharmacies') loadPharmacies(); }, [selectedCompanyId, selectedRepId]);
   useEffect(() => { if (tab === 'items')      loadItems();      }, [fileIdsParam]);
   useEffect(() => { if (tab === 'alerts')     loadAlerts();     }, [fileIdsParam, alertDays]);
   useEffect(() => { if (tab === 'alerts' && !alertSettings) loadAlertSettings(); }, [tab]);
@@ -719,6 +754,47 @@ export default function PharmacyAnalysisPage() {
             </div>
           ) : (
           <>
+          {/* الشركة الرئيسية + المندوب العلمي — تضييق الصيدليات المعروضة على
+              ايتمات شركة محددة، وعند اختيار مندوب على مناطقه فقط */}
+          {companies.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Icon name="navCommercial" size={11} /> الشركة الرئيسية
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button onClick={() => setSelectedCompanyId(null)} style={pillStyle(selectedCompanyId === null)}>الكل</button>
+                {companies.map(c => (
+                  <button key={c.id} onClick={() => setSelectedCompanyId(c.id)} style={pillStyle(selectedCompanyId === c.id)}>{c.name}</button>
+                ))}
+              </div>
+
+              {selectedCompanyId != null && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="person" size={11} /> المندوب
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button onClick={() => setSelectedRepId(null)} style={pillStyle(selectedRepId === null)}>الكل</button>
+                    {companyReps.map(r => (
+                      <button key={r.id} onClick={() => setSelectedRepId(r.id)}
+                        title={r.areas.length > 0 ? r.areas.map(a => a.name).join('، ') : 'بلا مناطق معيّنة'}
+                        style={pillStyle(selectedRepId === r.id)}
+                      >
+                        {r.name}
+                        {r.areas.length > 0 && (
+                          <span style={{ fontWeight: 400, opacity: 0.75 }}> / {r.areas.map(a => a.name).join('، ')}</span>
+                        )}
+                      </button>
+                    ))}
+                    {companyReps.length === 0 && (
+                      <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>لا يوجد مندوبون علميون مرتبطون بهذه الشركة</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Toolbar */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={pharmaSearch} onChange={e => onPharmaSearch(e.target.value)}

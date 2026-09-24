@@ -87,9 +87,13 @@ export async function getScopedSales(userId, fileIds) {
     const tFetch = Date.now();
 
     const ids = (pick) => [...new Set(sales.map(pick).filter(v => v != null))];
-    const [customers, items, areas, reps, files] = await Promise.all([
+    const [customers, itemRows, areas, reps, files] = await Promise.all([
       nameMap(prisma.customer, ids(s => s.customerId)),
-      nameMap(prisma.item, ids(s => s.itemId)),
+      // scientificCompanyId يُجلب هنا أيضاً (لا nameMap العامة) لأجل فلتر «الشركة
+      // الرئيسية» في الفارمسي نت — هو حقل الشركة الفعلي لكتالوج الايتمات الحديث
+      // (ScientificCompany عبر UserCompanyAssignment)، لا Item.companyId القديم
+      // غير المستعمل في نظام الشركات هذا (راجع reports.routes.js/itemResolver.js).
+      prisma.item.findMany({ where: { id: { in: ids(s => s.itemId) } }, select: { id: true, name: true, scientificCompanyId: true } }),
       nameMap(prisma.area, ids(s => s.areaId)),
       nameMap(prisma.medicalRepresentative, ids(s => s.representativeId)),
       prisma.uploadedFile.findMany({
@@ -97,6 +101,8 @@ export async function getScopedSales(userId, fileIds) {
         select: { id: true, currencyMode: true, exchangeRate: true, detectedCurrency: true },
       }),
     ]);
+    const items = new Map(itemRows.map(i => [i.id, i.name]));
+    const itemCompany = new Map(itemRows.map(i => [i.id, i.scientificCompanyId]));
     const fileById = new Map(files.map(f => [f.id, f]));
     const tLookup = Date.now();
 
@@ -127,6 +133,7 @@ export async function getScopedSales(userId, fileIds) {
 
       s._pharmaName = pharmaName;
       s._itemName   = itemName;
+      s._companyId  = itemCompany.get(s.itemId) ?? null;
       s._areaName   = areas.get(s.areaId) || '';
       s._repName    = repName;
       s._normPharma = pharmaName ? norm(pharmaName) : '';

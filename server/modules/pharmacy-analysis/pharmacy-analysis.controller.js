@@ -1,16 +1,78 @@
+import prisma from '../../lib/prisma.js';
+import { list as listScientificReps } from '../scientific-reps/scientific-reps.service.js';
 import { computePharmacyAlerts } from './pharmacy-alerts.service.js';
 import { norm, dedupCrossFile, getScopedSales } from './scoped-sales.js';
+
+// ── GET /api/pharmacy-analysis/companies ───────────────────────
+// الشركات (ScientificCompany — كتالوج الايتمات الحديث) التي تنتمي لها ايتمات
+// ظهرت فعلاً في الملفات المُختارة — لصف أزرار «الشركة الرئيسية» في تبويب
+// الصيدليات. حسابات لا تستعمل نظام الشركات (مدير مستقل بلا كتالوج) لن تجد
+// أي ايتم بـscientificCompanyId فتُرجع قائمة فارغة، فيختفي هذا الفلتر عندها.
+export async function listCompanies(req, res, next) {
+  try {
+    const userId  = req.user.id;
+    const fileIds = req.query.fileIds || null;
+    const sales = await getScopedSales(userId, fileIds);
+    const companyIds = [...new Set(sales.map(s => s._companyId).filter(Boolean))];
+    if (companyIds.length === 0) return res.json({ companies: [] });
+    const companies = await prisma.scientificCompany.findMany({
+      where:   { id: { in: companyIds } },
+      select:  { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    res.json({ companies });
+  } catch (e) { next(e); }
+}
+
+// ── GET /api/pharmacy-analysis/reps ────────────────────────────
+// المندوبون العلميون (بمناطقهم) — مفلترون بشركة عند تمرير companyId، لصف
+// أزرار «المندوب» تحت شريط الشركات في تبويب الصيدليات. companyId هنا هو
+// الشركة الرئيسية لحساب المندوب (UserCompanyAssignment ← ScientificCompany) —
+// نفس فضاء المعرّفات الذي تُرجعه /companies أعلاه. لا علاقة لهذا بجدول
+// ScientificRepCompany (يربط بـCompany القديم، فضاء معرّفات مختلف تماماً).
+export async function listRepsForFilter(req, res, next) {
+  try {
+    const companyId = req.query.companyId ? Number(req.query.companyId) : null;
+    const allReps = await listScientificReps({}, req.user);
+    const reps = allReps
+      .filter(r => !companyId || r.companyId === companyId)
+      .map(r => ({ id: r.id, name: r.name, areas: r.areas || [] }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    res.json({ reps });
+  } catch (e) { next(e); }
+}
 
 // ── GET /api/pharmacy-analysis/pharmacies ─────────────────────
 export async function listPharmacies(req, res, next) {
   try {
-    const userId  = req.user.id;
-    const fileIds = req.query.fileIds || null;
-    const search  = req.query.search ? norm(req.query.search) : null;
+    const userId    = req.user.id;
+    const fileIds   = req.query.fileIds || null;
+    const search    = req.query.search ? norm(req.query.search) : null;
+    const companyId = req.query.companyId ? Number(req.query.companyId) : null;
+    const repId     = req.query.repId ? Number(req.query.repId) : null;
 
     const tStart = Date.now();
-    const sales = await getScopedSales(userId, fileIds);
+    let sales = await getScopedSales(userId, fileIds);
     const tLoad = Date.now();
+
+    // «الشركة الرئيسية»: تقتصر الصفوف على ايتمات هذه الشركة وحدها.
+    if (companyId) sales = sales.filter(s => s._companyId === companyId);
+
+    // «المندوب» (علمي): يقتصر على مناطقه المُعيَّنة — بنفس منطق توسيع الاسم
+    // المطبَّع المستخدم في resolveSciRepSales، لأن نفس المنطقة قد تتكرر بمعرّفات
+    // مختلفة عبر الحسابات/الملفات (راجع مذكرة duplicate-area-bug).
+    if (repId) {
+      const areaLinks = await prisma.scientificRepArea.findMany({ where: { scientificRepId: repId }, select: { areaId: true } });
+      const directIds = areaLinks.map(a => a.areaId);
+      const areaIdSet = new Set(directIds);
+      if (directIds.length > 0) {
+        const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+        const directSet = new Set(directIds);
+        const assignedNorms = new Set(allAreas.filter(a => directSet.has(a.id)).map(a => norm(a.name)));
+        for (const a of allAreas) if (assignedNorms.has(norm(a.name))) areaIdSet.add(a.id);
+      }
+      sales = sales.filter(s => areaIdSet.has(s.areaId));
+    }
 
     // Group by pharmacy name (from customer or rawData)
     const map = new Map(); // pharmacyName → { ... }
