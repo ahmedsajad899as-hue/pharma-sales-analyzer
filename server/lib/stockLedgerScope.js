@@ -20,8 +20,12 @@
 // نفس فلسفة FileUserShare في ملفات المبيعات: مصدر واحد للحقيقة.
 //
 // مكتب فيه أكثر من موظف مكتب: تُقرأ دفاترهم كلها (اتحاد)، ويُكتب في دفتر أقدمهم
-// (أصغر id) — حالة نادرة، والقاعدة ثابتة كي لا يتبعثر الرفع بين دفاتر. مدير بلا
-// أي موظف مكتب في نطاقه (مكتب آخر مثلاً) يبقى على دفتره الخاص كما كان.
+// (أصغر id) — والقاعدة نفسها تسري بين موظفي المكتب أنفسهم لا المدراء فقط
+// (2026-09-24: كان office_employee مستثنى من هذا المسار بالكامل — كل موظف
+// ثانٍ بنفس المكتب يبقى على دفتره الخاص المنفصل، ففُرغت صفحته رغم أن زميله
+// رفع البيانات فعلاً؛ نفس مشكلة النسخ المتباعدة أعلاه لكن بين الموظفين لا بين
+// الموظف ومديره). مدير/موظف بلا أي موظف مكتب آخر في نطاقه (مكتب آخر، أو وحيد
+// في مكتبه) يبقى على دفتره الخاص كما كان.
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from './prisma.js';
@@ -35,32 +39,38 @@ export const STOCK_VIEWER_ROLES = new Set(['office_manager', 'office_hr', 'compa
  *   readIds: number[],            // دفاتر تُقرأ (اتحاد)
  *   writeId: number,              // الدفتر الذي تُكتب فيه رفعاته — وهو أيضاً دفتر
  *                                 //   المطابقة (مذاخر/روابط أسماء/شركات) عند الاستيعاب
- *   viewer: boolean,              // هل يعمل على دفتر غيره (مدير يقرأ دفتر الموظف)
+ *   viewer: boolean,              // هل يعمل على دفتر غيره (مدير/زميل يقرأ دفتر غيره)
  *   ownerName: Map<number,string> // اسم صاحب كل دفتر للعرض في تبويب الدفعات
  * }>}
  */
 export async function resolveLedgerScope(user) {
   const self = user?.id;
   const own = { readIds: self ? [self] : [], writeId: self ?? null, viewer: false, ownerName: new Map() };
-  if (!self || !STOCK_VIEWER_ROLES.has(user.role)) return own;
+  const isEmployee = user?.role === 'office_employee';
+  if (!self || (!isEmployee && !STOCK_VIEWER_ROLES.has(user.role))) return own;
 
   const me = await prisma.user.findUnique({ where: { id: self }, select: { officeId: true } });
-  // نطاق المكتب متى عُرف؛ موظف بلا مكتب (إعداد ناقص) يُضمّ أيضاً كي لا يختفي
-  // دفتره عن مديره كما كان يصله بالتعميم القديم (الذي لم يكن مقيَّداً بمكتب أصلاً).
+  // نطاق المكتب متى عُرف؛ بلا مكتب (إعداد ناقص) يُضمّ الجميع أيضاً كي لا يختفي
+  // الدفتر عن غيره كما كان يصله بالتعميم القديم (الذي لم يكن مقيَّداً بمكتب أصلاً).
+  // لموظف المكتب نفسه: لا نستثنيه من القائمة (id: { not: self } فقط للمدير/HR/
+  // مدير الشركة، الذين ليس لهم دفتر موظف خاص بهم أصلاً) — إدراجه ضروري ليُقارَن
+  // ترتيب معرّفه بزملائه ويُعرَف هل دفتره هو الأقدم (الدفتر المشترك) أم لا.
   const employees = await prisma.user.findMany({
     where: {
-      isActive: true, role: 'office_employee', id: { not: self },
+      isActive: true, role: 'office_employee',
+      ...(isEmployee ? {} : { id: { not: self } }),
       ...(me?.officeId ? { OR: [{ officeId: me.officeId }, { officeId: null }] } : {}),
     },
     select: { id: true, displayName: true, username: true },
     orderBy: { id: 'asc' },
   });
   if (!employees.length) return own;
+  if (isEmployee && employees.length === 1) return own; // موظف وحيد في مكتبه — دفتره كافٍ
 
   return {
     readIds: employees.map(e => e.id),
     writeId: employees[0].id,
-    viewer: true,
+    viewer: employees[0].id !== self,
     ownerName: new Map(employees.map(e => [e.id, e.displayName || e.username])),
   };
 }
