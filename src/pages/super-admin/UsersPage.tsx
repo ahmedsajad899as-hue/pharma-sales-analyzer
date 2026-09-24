@@ -111,6 +111,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     return (saved as any) || 'info';
   });
   const [search,    setSearch]    = useState('');
+  // طيّ افتراضي لمندوبي كل مجموعة شركة في قائمة المستخدمين — يظهر مدراء الشركة
+  // فقط، وسهم يفتح البقية عند الطلب (بدل عرض كل المندوبين دفعة واحدة).
+  const [expandedRepGroups, setExpandedRepGroups] = useState<Set<string>>(new Set());
 
   // ── Draft assignment states (must be at top level — Rules of Hooks) ──────
   const [draftCompanyIds,    setDraftCompanyIds]    = useState<number[]>([]);
@@ -2774,30 +2777,59 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     </div>
                   </div>
                 )}
-                {og.companyGroups.map((cg, ci) => (
-                  <div key={cg.company?.id ?? 'none'} style={{
-                    border: `1.5px solid ${cg.company ? '#a5b4fc' : '#e2e8f0'}`,
-                    borderRadius: 12, overflow: 'hidden',
-                    background: '#fff',
-                  }}>
-                    {/* Company sub-header */}
-                    <div style={{
-                      background: cg.company ? '#eef2ff' : '#f1f5f9',
-                      padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8,
-                      borderBottom: '1px solid #e2e8f0',
+                {og.companyGroups.map((cg, ci) => {
+                  const groupKey = `${og.office.id}-${cg.company?.id ?? 'none'}`;
+                  const sorted   = sortUsers(cg.users);
+                  const managers = sorted.filter(u => u.role === 'company_manager');
+                  const reps     = sorted.filter(u => u.role !== 'company_manager');
+                  const isExpanded = expandedRepGroups.has(groupKey);
+                  const toggleExpanded = () => setExpandedRepGroups(prev => {
+                    const next = new Set(prev);
+                    if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
+                    return next;
+                  });
+                  return (
+                    <div key={cg.company?.id ?? 'none'} style={{
+                      border: `1.5px solid ${cg.company ? '#a5b4fc' : '#e2e8f0'}`,
+                      borderRadius: 12, overflow: 'hidden',
+                      background: '#fff',
                     }}>
-                      <span style={{ fontSize: 16 }}>{cg.company ? '🏭' : '📌'}</span>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: cg.company ? '#4338ca' : '#64748b' }}>
-                        {cg.company ? cg.company.name : 'بدون شركة'}
-                      </span>
-                      <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{cg.users.length} مستخدم</span>
+                      {/* Company sub-header */}
+                      <div style={{
+                        background: cg.company ? '#eef2ff' : '#f1f5f9',
+                        padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8,
+                        borderBottom: '1px solid #e2e8f0',
+                      }}>
+                        <span style={{ fontSize: 16 }}>{cg.company ? '🏭' : '📌'}</span>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: cg.company ? '#4338ca' : '#64748b' }}>
+                          {cg.company ? cg.company.name : 'بدون شركة'}
+                        </span>
+                        <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{cg.users.length} مستخدم</span>
+                      </div>
+                      {/* مدراء الشركة ظاهرون دائماً؛ المندوبون مطويون خلف سهم */}
+                      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                        {managers.map(u => <UserCard key={`${u.id}-${ci}`} u={u} />)}
+                        {reps.length > 0 && (
+                          <>
+                            <button
+                              onClick={toggleExpanded}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 8,
+                                background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8,
+                                padding: '7px 12px', fontSize: 12.5, fontWeight: 600, color: '#475569',
+                                cursor: 'pointer', marginRight: managers.length > 0 ? 28 : 0,
+                              }}
+                            >
+                              <span style={{ fontSize: 11 }}>{isExpanded ? '▼' : '◀'}</span>
+                              <span>{isExpanded ? 'إخفاء المندوبين' : `عرض ${reps.length} مندوب`}</span>
+                            </button>
+                            {isExpanded && reps.map(u => <UserCard key={`${u.id}-${ci}-rep`} u={u} indent />)}
+                          </>
+                        )}
+                      </div>
                     </div>
-                    {/* Users sorted by role */}
-                    <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                      {sortUsers(cg.users).map((u, ui) => <UserCard key={`${u.id}-${ci}`} u={u} indent={ui > 0} />)}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
