@@ -1,44 +1,16 @@
 import prisma from '../../lib/prisma.js';
-import { list as listScientificReps } from '../scientific-reps/scientific-reps.service.js';
+import { getManagerRoster } from '../../lib/managerRoster.js';
 import { computePharmacyAlerts } from './pharmacy-alerts.service.js';
 import { norm, dedupCrossFile, getScopedSales } from './scoped-sales.js';
 
-// ── GET /api/pharmacy-analysis/companies ───────────────────────
-// الشركات (ScientificCompany — كتالوج الايتمات الحديث) التي تنتمي لها ايتمات
-// ظهرت فعلاً في الملفات المُختارة — لصف أزرار «الشركة الرئيسية» في تبويب
-// الصيدليات. حسابات لا تستعمل نظام الشركات (مدير مستقل بلا كتالوج) لن تجد
-// أي ايتم بـscientificCompanyId فتُرجع قائمة فارغة، فيختفي هذا الفلتر عندها.
-export async function listCompanies(req, res, next) {
+// ── GET /api/pharmacy-analysis/roster ──────────────────────────
+// «الشركة الرئيسية ← المندوب» — نفس فريق المدير المعروض في تحليل الكولات
+// (getManagerRoster، مصدر واحد مشترك)، لا كل شركة/مندوب ظهر عرَضاً في ملفات
+// الفارمسي نت. قائمة قصيرة ومُنظَّمة بدل كل شركات النظام.
+export async function getRoster(req, res, next) {
   try {
-    const userId  = req.user.id;
-    const fileIds = req.query.fileIds || null;
-    const sales = await getScopedSales(userId, fileIds);
-    const companyIds = [...new Set(sales.map(s => s._companyId).filter(Boolean))];
-    if (companyIds.length === 0) return res.json({ companies: [] });
-    const companies = await prisma.scientificCompany.findMany({
-      where:   { id: { in: companyIds } },
-      select:  { id: true, name: true },
-      orderBy: { name: 'asc' },
-    });
-    res.json({ companies });
-  } catch (e) { next(e); }
-}
-
-// ── GET /api/pharmacy-analysis/reps ────────────────────────────
-// المندوبون العلميون (بمناطقهم) — مفلترون بشركة عند تمرير companyId، لصف
-// أزرار «المندوب» تحت شريط الشركات في تبويب الصيدليات. companyId هنا هو
-// الشركة الرئيسية لحساب المندوب (UserCompanyAssignment ← ScientificCompany) —
-// نفس فضاء المعرّفات الذي تُرجعه /companies أعلاه. لا علاقة لهذا بجدول
-// ScientificRepCompany (يربط بـCompany القديم، فضاء معرّفات مختلف تماماً).
-export async function listRepsForFilter(req, res, next) {
-  try {
-    const companyId = req.query.companyId ? Number(req.query.companyId) : null;
-    const allReps = await listScientificReps({}, req.user);
-    const reps = allReps
-      .filter(r => !companyId || r.companyId === companyId)
-      .map(r => ({ id: r.id, name: r.name, areas: r.areas || [] }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-    res.json({ reps });
+    const roster = await getManagerRoster(req.user);
+    res.json(roster);
   } catch (e) { next(e); }
 }
 

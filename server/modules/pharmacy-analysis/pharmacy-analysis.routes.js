@@ -8,11 +8,8 @@ const router = Router();
 // GET /api/pharmacy-analysis/pharmacies  — list all pharmacies with summary
 router.get('/pharmacies', ctrl.listPharmacies);
 
-// GET /api/pharmacy-analysis/companies — companies present in the selected files
-router.get('/companies', ctrl.listCompanies);
-
-// GET /api/pharmacy-analysis/reps — scientific reps (+ areas), optionally by company
-router.get('/reps', ctrl.listRepsForFilter);
+// GET /api/pharmacy-analysis/roster — manager's own team, grouped by main company
+router.get('/roster', ctrl.getRoster);
 
 // GET /api/pharmacy-analysis/pharmacy/:name — all orders for a pharmacy (optionally filter by item)
 router.get('/pharmacy/:name', ctrl.pharmacyDetail);
