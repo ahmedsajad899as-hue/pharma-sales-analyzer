@@ -87,6 +87,7 @@ model User {
   invoiceSheets          InvoiceSheet[]
   fmsPlans               FmsPlan[]
   fileShares             FileUserShare[]
+  telegramChatLinks      TelegramChatLink[]
 
   // Commercial module relations
   pharmacies        Pharmacy[]          @relation("PharmacyOwner")
@@ -447,6 +448,24 @@ model FileUserShare {
   @@unique([fileId, userId])
   @@index([userId])
   @@map("file_user_shares")
+}
+
+// ─── Telegram: كروب ↔ حساب مستخدم — لاستيراد ملفات المبيعات تلقائياً ──
+model TelegramChatLink {
+  id           Int      @id @default(autoincrement())
+  chatId       String   @unique // نص لا رقم — أرقام كروبات تلكرام قد تتجاوز safe-integer
+  chatTitle    String?
+  isActive     Boolean  @default(true)
+  // آخر update_id من تلكرام تمت معالجته لهذا الكروب — حارس ضد إعادة إرسال الويب-هوك
+  lastUpdateId Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("telegram_chat_links")
 }
 
 // ─── Filter Presets ───────────────────────────────────────────

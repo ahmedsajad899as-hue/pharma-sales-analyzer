@@ -62,6 +62,8 @@ import targetsRoutes              from './modules/targets/targets.routes.js';
 import bonusSalesRoutes           from './modules/bonus-sales/bonus-sales.routes.js';
 import stockLedgerRoutes         from './modules/stock-ledger/stock-ledger.routes.js';
 import { removeBaselineForDeletedStockFile } from './modules/stock-ledger/stock-ledger.service.js';
+import telegramRoutes            from './modules/telegram/telegram.routes.js';
+import telegramLinksRoutes       from './modules/telegram/telegram-links.routes.js';
 
 dotenv.config();
 
@@ -168,6 +170,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/super-admin',         superAdminRoutes);
 app.use('/api/super-admin/surveys', surveyAdminRoutes);
 app.use('/api/sa/offices',        officesRoutes);
+app.use('/api/sa/telegram-links', telegramLinksRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
 app.use('/api/sa/catalog-import', catalogImportRoutes);
 app.use('/api/sa/users',          adminUsersRoutes);
@@ -951,7 +954,7 @@ app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
 // Skip auth for health check and auth routes (already handled above)
 app.use('/api', (req, res, next) => {
   // Skip JWT for: health-check, auth, commercial webhook, and Gemini key diagnostic
-  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/ai-assistant/test-key') return next();
+  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/telegram/webhook' || req.path === '/ai-assistant/test-key') return next();
   requireAuth(req, res, next);
 });
 
@@ -1119,6 +1122,7 @@ app.use('/api/item-analysis',       itemAnalysisRoutes);
 app.use('/api/targets',           targetsRoutes);
 app.use('/api/bonus-sales',       bonusSalesRoutes);
 app.use('/api/stock-ledger',      stockLedgerRoutes);
+app.use('/api/telegram',          telegramRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────

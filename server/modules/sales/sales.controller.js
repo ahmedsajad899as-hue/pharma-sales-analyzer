@@ -17,7 +17,7 @@ import prisma from '../../lib/prisma.js';
 // pharmacy-analysis.controller.js عُدِّلت لتتحقق من FileUserShare بدل الاكتفاء
 // بملكية userId).
 // filter_page يبقى مستثنى: أداة تنظيف عمل شخصية بلا قيمة تُشارَك.
-async function autoSyncIfOfficeEmployee(user, fileId, fileType) {
+export async function autoSyncIfOfficeEmployee(user, fileId, fileType) {
   if (!user || user.role !== 'office_employee' || !fileId) return;
   if (fileType === 'filter_page') return;
   const targets = await prisma.user.findMany({

@@ -54,8 +54,9 @@ import SuperAdminsPage from './pages/super-admin/SuperAdminsPage';
 import VisitsPage from './pages/super-admin/VisitsPage';
 import MasterSurveyPage from './pages/super-admin/MasterSurveyPage';
 import DoctorChangesPage from './pages/super-admin/DoctorChangesPage';
+import TelegramLinksPage from './pages/super-admin/TelegramLinksPage';
 
-type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes';
+type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'telegram-links';
 
 // لون تمييز واحد فقط للحالة النشطة (بدل لون مختلف لكل عنصر) — يهدّئ الشريط الجانبي
 // ويجعل العين تتبع "أين أنا" بدل التوهان بين تدرّجات ملوّنة متعددة.
@@ -69,6 +70,7 @@ const NAV: { id: Page; label: string; icon: string; masterOnly?: boolean }[] = [
   { id: 'visits',       label: 'الزيارات',      icon: '📋', masterOnly: true },
   { id: 'surveys',      label: 'السيرفيات',     icon: '🗂️', masterOnly: true },
   { id: 'doctor-changes', label: 'سجل الأطباء', icon: '🔔', masterOnly: true },
+  { id: 'telegram-links', label: 'روابط تيليجرام', icon: '🤖', masterOnly: true },
 ];
 const ACCENT = '#4f46e5';
 
@@ -345,6 +347,7 @@ function SuperAdminShell() {
             {page === 'visits'       && <VisitsPage />}
             {page === 'surveys'      && <MasterSurveyPage />}
             {page === 'doctor-changes' && <DoctorChangesPage />}
+            {page === 'telegram-links' && <TelegramLinksPage />}
           </div>
         </main>
       </div>

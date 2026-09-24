@@ -133,12 +133,17 @@ export const COLUMN_ALIASES = {
  * @returns {{ rowCount, skipped, uploadedFile }}
  */
 export async function processUploadedFile(file, options = {}) {
-  const { uploadedBy, columnMapping = {}, userId = null, fileType = 'sales', sourceCurrency = null } = options;
+  // rawOriginalName: يتخطّى تصحيح latin1→utf8 أدناه (مطلوب فقط لأسماء ملفات
+  // multipart القادمة من متصفح/multer — عطل ترميز معروف). مصادر أخرى (تلكرام
+  // مثلاً) ترسل file.originalname كنص UTF-8 صحيح أصلاً؛ تمريره لنفس التحويل
+  // كان سيُفسده بدل تصحيحه.
+  const { uploadedBy, columnMapping = {}, userId = null, fileType = 'sales', sourceCurrency = null, rawOriginalName = false } = options;
+  const fixOriginalName = (name) => rawOriginalName ? name : Buffer.from(name, 'latin1').toString('utf8');
 
   // ── 0. filter_page — just store the file, skip all sales processing ──────────
   if (fileType === 'filter_page') {
     const fileBuffer = file.buffer || readFileSync(file.path);
-    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const originalName = fixOriginalName(file.originalname);
     // Save to disk (best-effort — ephemeral on Railway)
     ensureExcelUploadsDir();
     const safeOriginalName = originalName.replace(/[^a-zA-Z0-9\u0600-\u06FF._-]/g, '_');
@@ -524,7 +529,7 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
   }
 
   // ── 5. Record the file upload ────────────────────────────
-  const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+  const originalName = fixOriginalName(file.originalname);
   const storedFileType = fileType === 'auto'
     ? (salesRows.length > 0 && returnsRows.length > 0 ? 'auto' : returnsRows.length > 0 ? 'returns' : 'sales')
     : (fileType === 'matrix' ? 'sales' : fileType);
