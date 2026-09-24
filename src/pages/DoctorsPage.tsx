@@ -286,6 +286,10 @@ export default function DoctorsPage() {
   const [noAreaStats, setNoAreaStats]       = useState<{ total: number; visited: number; writing: number }>({ total: 0, visited: 0, writing: 0 });
   const [visitLoading, setVisitLoading]     = useState(false);
   const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
+  // يمنع تحميل الزيارات بفلتر "الكل" أولاً ثم إعادته فوراً بفلتر الشهر الافتراضي
+  // بمجرد وصوله (كانا يُطلَقان معاً عند فتح الصفحة فتُستدعى visits-by-area مرتين
+  // متتاليتين — الأولى مهدورة بالكامل — وتضاعف وقت الانتظار الظاهر للمستخدم).
+  const [visitMonthReady, setVisitMonthReady] = useState(false);
   const [showVisitMonthPicker, setShowVisitMonthPicker] = useState(false);
   // ── Rep filter (for managers only) ─────────────────────────
   interface ManagerCompany { id: number; name: string; }
@@ -684,7 +688,7 @@ export default function DoctorsPage() {
   // via the month picker for anyone who wants every month at once.
   const visitMonthDefaultAppliedRef = useRef(false);
   useEffect(() => {
-    if (visitMonthDefaultAppliedRef.current || !showVisitAnalysis) return;
+    if (visitMonthDefaultAppliedRef.current || !showVisitAnalysis) { setVisitMonthReady(true); return; }
     visitMonthDefaultAppliedRef.current = true;
     (async () => {
       try {
@@ -692,6 +696,7 @@ export default function DoctorsPage() {
         const j = await r.json();
         if (j.month && j.year) setVisitMonthFilter({ month: j.month, year: j.year });
       } catch (e) { console.error('[visitsLatestMonth] fetch error:', e); }
+      finally { setVisitMonthReady(true); }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showVisitAnalysis]);
@@ -862,11 +867,15 @@ export default function DoctorsPage() {
     });
   }, [doctors]);
   useEffect(() => {
-    if (activeTab === 'visits') {
-      loadVisits();
-      loadManagerReps();
-    }
-  }, [activeTab, loadVisits, loadManagerReps]);
+    if (activeTab === 'visits') loadManagerReps();
+  }, [activeTab, loadManagerReps]);
+
+  useEffect(() => {
+    // ينتظر استقرار فلتر الشهر الافتراضي أولاً (راجع تعليق visitMonthReady أعلاه)
+    // بدل تحميل "الكل" فوراً ثم استبداله بفلتر الشهر بعد وصوله بلحظات. لا يشمل
+    // loadManagerReps فوق — بياناته (قائمة المندوبين) مستقلة عن فلتر الشهر.
+    if (activeTab === 'visits' && visitMonthReady) loadVisits();
+  }, [activeTab, visitMonthReady, loadVisits]);
 
   // Auto-load + auto-refresh team wishlists for managers (no clicks needed)
   useEffect(() => {

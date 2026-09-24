@@ -193,13 +193,9 @@ export async function resolveCompanyMembers(managerId, companyId, managerRole = 
     matched = new Set(assignments.map(a => a.userId));
   }
 
-  const members = [];
-  for (const c of candidates) {
-    if (!matched.has(c.id)) continue;
-    const repId = await resolveRepId(c.id, c.linkedRepId ?? null);
-    members.push({ userId: c.id, repId });
-  }
-  return members;
+  const matchedCandidates = candidates.filter(c => matched.has(c.id));
+  const repIds = await Promise.all(matchedCandidates.map(c => resolveRepId(c.id, c.linkedRepId ?? null)));
+  return matchedCandidates.map((c, i) => ({ userId: c.id, repId: repIds[i] }));
 }
 
 // ── buildAreaNameIndex(areaRecords) ──────────────────────────────────────────
@@ -254,10 +250,10 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     (await areaIdsForUser(repUserId, repId)).forEach(id => ids.add(id));
   } else if (companyId) {
     const members = await resolveCompanyMembers(user.id, companyId, user.role);
-    for (const m of members) {
-      addMember(m.userId, m.repId);
-      (await areaIdsForUser(m.userId, m.repId)).forEach(id => ids.add(id));
-    }
+    // مُوازٍ لا متسلسل — استعلامات كل عضو مستقلة عن الآخر، وتسلسلها كان يُراكم
+    // زمن ذهاب-وإياب الشبكة عضواً بعد عضو (راجع نفس التعليق في الفرع "الكل" أدناه).
+    const areaIdLists = await Promise.all(members.map(m => areaIdsForUser(m.userId, m.repId)));
+    members.forEach((m, i) => { addMember(m.userId, m.repId); areaIdLists[i].forEach(id => ids.add(id)); });
   } else {
     // مدير "الكل": مناطقه + كل مندوبي الفريق الفعليين (بلا أدوار الإدارة
     // الوسيطة — مدير الشركة وقائد التيم لا يزوران أطباء بنفسهما، فضمّهما هنا
@@ -272,14 +268,18 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     ]);
     const excluded = excludedManagementRoles(user.role);
     const subs = allSubs.filter(s => !excluded.has(s.user.role));
-    const ownRepId = await resolveRepId(user.id, ownU?.linkedRepId ?? null);
-    addMember(user.id, ownRepId);
-    (await areaIdsForUser(user.id, ownRepId)).forEach(id => ids.add(id));
-    for (const s of subs) {
-      const repId = await resolveRepId(s.user.id, s.user.linkedRepId ?? null);
-      addMember(s.user.id, repId);
-      (await areaIdsForUser(s.user.id, repId)).forEach(id => ids.add(id));
-    }
+    // مُوازٍ لا متسلسل — كل عضو فريق يستدعي resolveRepId + areaIdsForUser (عدة
+    // استعلامات مستقلة بذاتها)، وكانت مُنتظَرة عضواً بعد عضو (await داخل for)
+    // فيتراكم زمن ذهاب-وإياب الشبكة خطياً مع عدد أعضاء الفريق — أبطأ خانة في
+    // صفحة تحليل الكولات لمدير بفريق كبير. لا تغيير في النتيجة (Set لاحقاً).
+    const members = [
+      { userId: user.id, linkedRepId: ownU?.linkedRepId ?? null },
+      ...subs.map(s => ({ userId: s.user.id, linkedRepId: s.user.linkedRepId ?? null })),
+    ];
+    const repIds = await Promise.all(members.map(m => resolveRepId(m.userId, m.linkedRepId)));
+    members.forEach((m, i) => addMember(m.userId, repIds[i]));
+    const areaIdLists = await Promise.all(members.map((m, i) => areaIdsForUser(m.userId, repIds[i])));
+    areaIdLists.forEach(list => list.forEach(id => ids.add(id)));
     // شبكة أمان: ضمّ مناطق أطباء المدير الحاليين (حتى لا ينخفض الرقم عن الوضع
     // السابق لو كانت تعيينات مناطق الفريق ناقصة). إضافة فقط — لا تُنقِص التغطية.
     const ownerDoctorAreas = await prisma.doctor.findMany({
