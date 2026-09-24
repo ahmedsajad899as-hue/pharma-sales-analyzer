@@ -3655,33 +3655,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   </div>
                 </div>
               </div>
-              {hasMixedSources && (
-                <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
-                  title="توزيع صافي القيمة حسب مصدر الملف — ملف مبيعات المكتب مقابل ملف ميركاتو المدمج معه">
-                  <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>حسب مصدر الملف</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ملف المكتب</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: officeNetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(officeNetVal)}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ميركاتو</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: mercatoNetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(mercatoNetVal)}</span>
-                  </div>
-                </div>
-              )}
-              {hasMixedSources && (
-                <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
-                  title="توزيع عدد الطلبيات حسب مصدر الملف — ملف المكتب مقابل ملف ميركاتو المدمج معه">
-                  <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>عدد الطلبيات حسب المصدر</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ملف المكتب</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>{fmt(src?.office.orderCount ?? 0)}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ميركاتو</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>{fmt(src?.mercato.orderCount ?? 0)}</span>
-                  </div>
-                </div>
+              {hasMixedSources && renderSourceBox(
+                fmtValSigned(officeNetVal), fmtValSigned(mercatoNetVal),
+                officeNetVal >= 0 ? '#065f46' : '#991b1b', mercatoNetVal >= 0 ? '#065f46' : '#991b1b',
+                src?.office.orderCount ?? 0, src?.mercato.orderCount ?? 0,
               )}
               </div>
             ) : (
@@ -3700,33 +3677,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   </div>
                 </div>
               </div>
-              {viewHasMixedSources && (
-                <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
-                  title={`توزيع ${reportView === 'returns' ? 'الإرجاع' : 'المبيع'} حسب مصدر الملف — ملف المكتب مقابل ملف ميركاتو المدمج معه`}>
-                  <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>حسب مصدر الملف</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ملف المكتب</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>{fmtVal(viewSrc?.office.totalValue ?? 0)}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ميركاتو</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>{fmtVal(viewSrc?.mercato.totalValue ?? 0)}</span>
-                  </div>
-                </div>
-              )}
-              {viewHasMixedSources && (
-                <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
-                  title={`توزيع عدد طلبيات ${reportView === 'returns' ? 'الإرجاع' : 'المبيع'} حسب مصدر الملف — ملف المكتب مقابل ملف ميركاتو المدمج معه`}>
-                  <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>عدد الطلبيات حسب المصدر</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ملف المكتب</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>{fmt(viewSrc?.office.orderCount ?? 0)}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ميركاتو</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>{fmt(viewSrc?.mercato.orderCount ?? 0)}</span>
-                  </div>
-                </div>
+              {viewHasMixedSources && renderSourceBox(
+                fmtVal(viewSrc?.office.totalValue ?? 0), fmtVal(viewSrc?.mercato.totalValue ?? 0),
+                '#1e293b', '#1e293b',
+                viewSrc?.office.orderCount ?? 0, viewSrc?.mercato.orderCount ?? 0,
               )}
               </div>
             )}
