@@ -27,8 +27,23 @@ export async function listPharmacies(req, res, next) {
     let sales = await getScopedSales(userId, fileIds);
     const tLoad = Date.now();
 
-    // «الشركة الرئيسية»: تقتصر الصفوف على ايتمات هذه الشركة وحدها.
-    if (companyId) sales = sales.filter(s => s._companyId === companyId);
+    // «الشركة الرئيسية»: تقتصر الصفوف على ايتمات هذه الشركة وحدها. companyId
+    // الوارد من الواجهة هو معرّف ScientificCompany (فريق المدير — managerRoster.js)،
+    // بينما ايتمات الفارمسي نت تُعلَّم بـItem.companyId من نموذج Company القديم
+    // (عمود «الشركة» بالإكسل، راجع _finishProcessing في sales.service.js) — فضاء
+    // معرّفات مختلف تماماً. نجسر بينهما بمطابقة الاسم المطبَّع (نفس أسلوب
+    // normReportName في ReportsPage: HUMANIS/humanis نفس الشركة بصيغتين).
+    if (companyId) {
+      const sciCompany = await prisma.scientificCompany.findUnique({ where: { id: companyId }, select: { name: true } });
+      const targetNorm = sciCompany ? norm(sciCompany.name) : null;
+      const matchingCompanyIds = targetNorm
+        ? (await prisma.company.findMany({ select: { id: true, name: true } }))
+            .filter(c => norm(c.name) === targetNorm)
+            .map(c => c.id)
+        : [];
+      const matchSet = new Set(matchingCompanyIds);
+      sales = sales.filter(s => s._companyId != null && matchSet.has(s._companyId));
+    }
 
     // «المندوب» (علمي): يقتصر على مناطقه المُعيَّنة — بنفس منطق توسيع الاسم
     // المطبَّع المستخدم في resolveSciRepSales، لأن نفس المنطقة قد تتكرر بمعرّفات
