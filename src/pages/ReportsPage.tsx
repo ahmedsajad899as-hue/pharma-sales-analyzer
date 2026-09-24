@@ -1584,17 +1584,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         );
       })}
     </div>
-    {/* تحذير الارجاعات — عنصر مستقل حتى لا يزيح أزرار Excel/تصدير عن طرف المحاذاة */}
-    {!hasReturns && (
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)',
-        borderRadius: 8, padding: '5px 10px', fontSize: 12, color: 'var(--c-warning)',
-      }}>
-        <Icon name="warning" size={13} />
-        <span>لا يوجد بيانات ارجاعات — ارفع ملف ارجاعات من <strong>رفع الملفات</strong></span>
-      </div>
-    )}
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
       {/* ── Export-all (per-rep) button — relocated here from the page header ── */}
       {user?.role !== 'scientific_rep' && (
