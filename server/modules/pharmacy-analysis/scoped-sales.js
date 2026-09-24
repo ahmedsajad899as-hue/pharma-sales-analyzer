@@ -87,15 +87,9 @@ export async function getScopedSales(userId, fileIds) {
     const tFetch = Date.now();
 
     const ids = (pick) => [...new Set(sales.map(pick).filter(v => v != null))];
-    const [customers, itemRows, areas, reps, files] = await Promise.all([
+    const [customers, items, areas, reps, files] = await Promise.all([
       nameMap(prisma.customer, ids(s => s.customerId)),
-      // companyId (Item ← Company القديم) يُجلب هنا أيضاً لأجل فلتر «الشركة
-      // الرئيسية» في الفارمسي نت. هذا هو حقل الشركة الفعلي المكتوب على ايتمات
-      // ملفات الفارمسي نت تحديداً: عمود «الشركة» بالإكسل → findOrCreateCompany
-      // → prisma.item.updateMany({companyId}) في sales.service.js:_finishProcessing.
-      // Item.scientificCompanyId (الكتالوج الحديث) غالباً فارغ لهذه الايتمات —
-      // ليس المصدر هنا رغم كونه الصحيح لتجميع فريق المدير في managerRoster.js.
-      prisma.item.findMany({ where: { id: { in: ids(s => s.itemId) } }, select: { id: true, name: true, companyId: true } }),
+      nameMap(prisma.item, ids(s => s.itemId)),
       nameMap(prisma.area, ids(s => s.areaId)),
       nameMap(prisma.medicalRepresentative, ids(s => s.representativeId)),
       prisma.uploadedFile.findMany({
@@ -103,8 +97,6 @@ export async function getScopedSales(userId, fileIds) {
         select: { id: true, currencyMode: true, exchangeRate: true, detectedCurrency: true },
       }),
     ]);
-    const items = new Map(itemRows.map(i => [i.id, i.name]));
-    const itemCompany = new Map(itemRows.map(i => [i.id, i.companyId]));
     const fileById = new Map(files.map(f => [f.id, f]));
     const tLookup = Date.now();
 
@@ -135,7 +127,6 @@ export async function getScopedSales(userId, fileIds) {
 
       s._pharmaName = pharmaName;
       s._itemName   = itemName;
-      s._companyId  = itemCompany.get(s.itemId) ?? null;
       s._areaName   = areas.get(s.areaId) || '';
       s._repName    = repName;
       s._normPharma = pharmaName ? norm(pharmaName) : '';

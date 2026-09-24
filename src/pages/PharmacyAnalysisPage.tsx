@@ -132,6 +132,9 @@ export default function PharmacyAnalysisPage() {
   const [rosterCompanies, setRosterCompanies]     = useState<RosterCompany[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
   const [selectedRepId, setSelectedRepId]         = useState<number | null>(null);
+  // معرّف حساب المندوب المُختار (لا سجل ScientificRepresentative) — يُستعمل
+  // فقط حين لا توجد شركات (حسابات بلا هيكل مكتب) كنطاق ايتمات احتياطي.
+  const [selectedRepUserId, setSelectedRepUserId] = useState<number | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [pharmaDetail, setPharmaDetail]     = useState<PharmacyDetail | null>(null);
   const [pharmaDetailLoading, setPharmaDetailLoading] = useState(false);
@@ -229,16 +232,21 @@ export default function PharmacyAnalysisPage() {
     return () => { delete (window as any).__pharmNetDigest; };
   }, [files, selFiles, pharmacies, items]);
 
+  // بنفس صيغة fileQuery — تُلحَق باستدعاءات الصيدليات (القائمة والتفاصيل) كي
+  // يتّسق نطاق الايتمات بينهما (راجع applyRosterFilters في الخادم).
+  const rosterFilterQuery =
+    (selectedCompanyId != null ? `&companyId=${selectedCompanyId}` : '') +
+    (selectedRepId     != null ? `&repId=${selectedRepId}`         : '') +
+    (selectedRepUserId != null ? `&repUserId=${selectedRepUserId}` : '');
+
   const loadPharmacies = useCallback((search = pharmaSearch) => {
     if (selFiles.size === 0) { setPharmacies([]); setPharmaLoading(false); return; }
     setPharmaLoading(true);
-    let q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '');
-    if (selectedCompanyId != null) q += `&companyId=${selectedCompanyId}`;
-    if (selectedRepId != null)     q += `&repId=${selectedRepId}`;
+    const q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '') + rosterFilterQuery;
     fetch(`${API}/api/pharmacy-analysis/pharmacies${q}`, { headers })
       .then(r => r.json()).then(d => setPharmacies(d.pharmacies || [])).catch(() => {}).finally(() => setPharmaLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileIdsParam, pharmaSearch, token, selectedCompanyId, selectedRepId]);
+  }, [fileIdsParam, pharmaSearch, token, rosterFilterQuery]);
 
   // ── «الشركة الرئيسية ← المندوب»: فريق المدير — لا يعتمد على الملفات المختارة،
   // نفس مصدر تحليل الكولات (endpoint واحد مشترك: managerRoster.js). ─────────
@@ -312,7 +320,7 @@ export default function PharmacyAnalysisPage() {
   }, [fileIdsParam, alertDays, token]);
 
   useEffect(() => { if (tab === 'pharmacies') loadPharmacies(); }, [fileIdsParam]);
-  useEffect(() => { if (tab === 'pharmacies') loadPharmacies(); }, [selectedCompanyId, selectedRepId]);
+  useEffect(() => { if (tab === 'pharmacies') loadPharmacies(); }, [rosterFilterQuery]);
   useEffect(() => { if (tab === 'items')      loadItems();      }, [fileIdsParam]);
   useEffect(() => { if (tab === 'alerts')     loadAlerts();     }, [fileIdsParam, alertDays]);
   useEffect(() => { if (tab === 'alerts' && !alertSettings) loadAlertSettings(); }, [tab]);
@@ -352,7 +360,7 @@ export default function PharmacyAnalysisPage() {
     setSelectedPharma(name);
     setDetailItem(itemName || null);
     setPharmaDetailLoading(true);
-    const q = itemName ? `${fileQuery}&item=${encodeURIComponent(itemName)}` : fileQuery;
+    const q = (itemName ? `${fileQuery}&item=${encodeURIComponent(itemName)}` : fileQuery) + rosterFilterQuery;
     fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(name)}${q}`, { headers })
       .then(r => r.json()).then(d => setPharmaDetail(d)).catch(() => {}).finally(() => setPharmaDetailLoading(false));
   };
@@ -760,9 +768,9 @@ export default function PharmacyAnalysisPage() {
                 <Icon name="navCommercial" size={11} /> الشركة الرئيسية
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button onClick={() => { setSelectedCompanyId(null); setSelectedRepId(null); }} style={pillStyle(selectedCompanyId === null)}>الكل</button>
+                <button onClick={() => { setSelectedCompanyId(null); setSelectedRepId(null); setSelectedRepUserId(null); }} style={pillStyle(selectedCompanyId === null)}>الكل</button>
                 {rosterCompanies.map(c => (
-                  <button key={c.id} onClick={() => { setSelectedCompanyId(c.id); setSelectedRepId(null); }} style={pillStyle(selectedCompanyId === c.id)}>{c.name}</button>
+                  <button key={c.id} onClick={() => { setSelectedCompanyId(c.id); setSelectedRepId(null); setSelectedRepUserId(null); }} style={pillStyle(selectedCompanyId === c.id)}>{c.name}</button>
                 ))}
               </div>
             </div>
@@ -778,9 +786,12 @@ export default function PharmacyAnalysisPage() {
                   <Icon name="person" size={11} /> المندوب
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => setSelectedRepId(null)} style={pillStyle(selectedRepId === null)}>الكل</button>
+                  <button onClick={() => { setSelectedRepId(null); setSelectedRepUserId(null); }} style={pillStyle(selectedRepId === null && selectedRepUserId === null)}>الكل</button>
                   {visibleReps.map(r => (
-                    <button key={r.userId} onClick={() => setSelectedRepId(r.linkedRepId)} style={pillStyle(selectedRepId === r.linkedRepId)}>{r.name}</button>
+                    <button key={r.userId}
+                      onClick={() => { setSelectedRepId(r.linkedRepId); setSelectedRepUserId(r.userId); }}
+                      style={pillStyle(selectedRepUserId === r.userId)}
+                    >{r.name}</button>
                   ))}
                 </div>
               </div>

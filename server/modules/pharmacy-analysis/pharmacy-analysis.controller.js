@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
+import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { computePharmacyAlerts } from './pharmacy-alerts.service.js';
 import { norm, dedupCrossFile, getScopedSales } from './scoped-sales.js';
 
@@ -14,6 +15,58 @@ export async function getRoster(req, res, next) {
   } catch (e) { next(e); }
 }
 
+/**
+ * فلترة «الشركة الرئيسية»/«المندوب» على صفوف Sale المُحمَّلة مسبقاً (getScopedSales).
+ *
+ * كل «شركة» في الشريط هي نطاق مدير شركة (company_manager) بعينه ضمن نفس
+ * المكتب — لا نص «الشركة» الحر في عمود الإكسل. لذا اختيار «humanis» يعني:
+ * ايتمات المدير الذي تلك شركته الرئيسية (UserItemAssignment، تماماً كما تعرضه
+ * شاشة «الايتمات» في لوحة السوبر أدمن للمستخدم) — لا مطابقة اسم الشركة.
+ * اختيار مندوب دون شركة (حسابات بلا هيكل مكتب) يستعمل ايتمات المندوب نفسه.
+ *
+ * @param {Array} sales
+ * @param {{companyId?: number|null, repId?: number|null, repUserId?: number|null}} opts
+ */
+async function applyRosterFilters(sales, { companyId, repId, repUserId }) {
+  let itemScopeUserId = null;
+  if (companyId) {
+    const mgrAssignment = await prisma.userCompanyAssignment.findFirst({
+      where: { companyId, isPrimary: true, user: { role: 'company_manager', isActive: true } },
+      select: { userId: true },
+    });
+    if (!mgrAssignment) return []; // شركة بلا مدير قابل للتحديد — لا نُظهر بيانات غير موثوقة النطاق
+    itemScopeUserId = mgrAssignment.userId;
+  } else if (repUserId) {
+    itemScopeUserId = repUserId;
+  }
+
+  if (itemScopeUserId) {
+    const allowedItemIds = await resolveEffectiveItemIds(itemScopeUserId);
+    if (allowedItemIds) { // null = بلا تقييد (كل الايتمات)
+      const idSet = new Set(allowedItemIds);
+      sales = sales.filter(s => idSet.has(s.itemId));
+    }
+  }
+
+  // «المندوب» (علمي): يقتصر على مناطقه المُعيَّنة — بنفس منطق توسيع الاسم
+  // المطبَّع المستخدم في resolveSciRepSales، لأن نفس المنطقة قد تتكرر بمعرّفات
+  // مختلفة عبر الحسابات/الملفات (راجع مذكرة duplicate-area-bug).
+  if (repId) {
+    const areaLinks = await prisma.scientificRepArea.findMany({ where: { scientificRepId: repId }, select: { areaId: true } });
+    const directIds = areaLinks.map(a => a.areaId);
+    const areaIdSet = new Set(directIds);
+    if (directIds.length > 0) {
+      const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+      const directSet = new Set(directIds);
+      const assignedNorms = new Set(allAreas.filter(a => directSet.has(a.id)).map(a => norm(a.name)));
+      for (const a of allAreas) if (assignedNorms.has(norm(a.name))) areaIdSet.add(a.id);
+    }
+    sales = sales.filter(s => areaIdSet.has(s.areaId));
+  }
+
+  return sales;
+}
+
 // ── GET /api/pharmacy-analysis/pharmacies ─────────────────────
 export async function listPharmacies(req, res, next) {
   try {
@@ -22,44 +75,13 @@ export async function listPharmacies(req, res, next) {
     const search    = req.query.search ? norm(req.query.search) : null;
     const companyId = req.query.companyId ? Number(req.query.companyId) : null;
     const repId     = req.query.repId ? Number(req.query.repId) : null;
+    const repUserId = req.query.repUserId ? Number(req.query.repUserId) : null;
 
     const tStart = Date.now();
     let sales = await getScopedSales(userId, fileIds);
     const tLoad = Date.now();
 
-    // «الشركة الرئيسية»: تقتصر الصفوف على ايتمات هذه الشركة وحدها. companyId
-    // الوارد من الواجهة هو معرّف ScientificCompany (فريق المدير — managerRoster.js)،
-    // بينما ايتمات الفارمسي نت تُعلَّم بـItem.companyId من نموذج Company القديم
-    // (عمود «الشركة» بالإكسل، راجع _finishProcessing في sales.service.js) — فضاء
-    // معرّفات مختلف تماماً. نجسر بينهما بمطابقة الاسم المطبَّع (نفس أسلوب
-    // normReportName في ReportsPage: HUMANIS/humanis نفس الشركة بصيغتين).
-    if (companyId) {
-      const sciCompany = await prisma.scientificCompany.findUnique({ where: { id: companyId }, select: { name: true } });
-      const targetNorm = sciCompany ? norm(sciCompany.name) : null;
-      const matchingCompanyIds = targetNorm
-        ? (await prisma.company.findMany({ select: { id: true, name: true } }))
-            .filter(c => norm(c.name) === targetNorm)
-            .map(c => c.id)
-        : [];
-      const matchSet = new Set(matchingCompanyIds);
-      sales = sales.filter(s => s._companyId != null && matchSet.has(s._companyId));
-    }
-
-    // «المندوب» (علمي): يقتصر على مناطقه المُعيَّنة — بنفس منطق توسيع الاسم
-    // المطبَّع المستخدم في resolveSciRepSales، لأن نفس المنطقة قد تتكرر بمعرّفات
-    // مختلفة عبر الحسابات/الملفات (راجع مذكرة duplicate-area-bug).
-    if (repId) {
-      const areaLinks = await prisma.scientificRepArea.findMany({ where: { scientificRepId: repId }, select: { areaId: true } });
-      const directIds = areaLinks.map(a => a.areaId);
-      const areaIdSet = new Set(directIds);
-      if (directIds.length > 0) {
-        const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-        const directSet = new Set(directIds);
-        const assignedNorms = new Set(allAreas.filter(a => directSet.has(a.id)).map(a => norm(a.name)));
-        for (const a of allAreas) if (assignedNorms.has(norm(a.name))) areaIdSet.add(a.id);
-      }
-      sales = sales.filter(s => areaIdSet.has(s.areaId));
-    }
+    sales = await applyRosterFilters(sales, { companyId, repId, repUserId });
 
     // Group by pharmacy name (from customer or rawData)
     const map = new Map(); // pharmacyName → { ... }
@@ -163,8 +185,12 @@ export async function pharmacyDetail(req, res, next) {
     const pharmaQuery = norm(req.params.name);
     const fileIds     = req.query.fileIds || null;
     const itemFilter  = req.query.item ? norm(req.query.item) : null;
+    const companyId   = req.query.companyId ? Number(req.query.companyId) : null;
+    const repId       = req.query.repId ? Number(req.query.repId) : null;
+    const repUserId   = req.query.repUserId ? Number(req.query.repUserId) : null;
 
-    const sales = await getScopedSales(userId, fileIds);
+    let sales = await getScopedSales(userId, fileIds);
+    sales = await applyRosterFilters(sales, { companyId, repId, repUserId });
 
     const matching = sales.filter(s => {
       if (!s._pharmaName || !s._normPharma.includes(pharmaQuery)) return false;
