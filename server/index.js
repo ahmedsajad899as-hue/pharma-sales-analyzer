@@ -12,6 +12,7 @@ import bcrypt from 'bcryptjs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from './lib/prisma.js';
 import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
+import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -3065,15 +3066,24 @@ app.post('/api/sales-data-files', requireAuth, async (req, res) => {
     };
     const file = await prisma.salesDataFile.create({ data: { userId, ...fileData } });
 
-    // موظف المكتب: يُعمَّم ملف الستوك (نفس البيانات) فوراً على حسابات مدير
-    // المكتب / مدير الشركة — كل واحد يحصل على نسخته الخاصة (لا مشاركة/قراءة
-    // موحّدة هنا، مثل رصيد المذاخر تماماً)، فتظهر في صفحة "Stock" عندهم مباشرة.
+    // موظف المكتب: يُعمَّم ملف الستوك (نفس البيانات) فوراً على بقية حسابات نفس
+    // المكتب — مدير المكتب/الشركة وموظفي المكتب الآخرين (زملاؤه) — كل واحد
+    // يحصل على نسخته الخاصة (لا مشاركة/قراءة موحّدة هنا، مثل رصيد المذاخر
+    // تماماً)، فتظهر في صفحة "Stock" عندهم مباشرة. مقصور على نفس officeId
+    // (وإلا لا أهداف إطلاقاً) لمنع تسرّب الملف لمكتب آخر.
     // syncedFromFileId يربط كل نسخة بالملف الأصل — فحذف الأصل (أدناه) يحذفها
     // تلقائياً معه (onDelete: Cascade في الـ schema) من كل تلك الحسابات.
     if (req.user?.role === 'office_employee') {
       try {
+        const uploader = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
+        const officeId = uploader?.officeId ?? null;
         const targets = await prisma.user.findMany({
-          where: { isActive: true, id: { not: userId }, role: { in: ['office_manager', 'office_hr', 'company_manager'] } },
+          where: {
+            isActive: true,
+            id: { not: userId },
+            role: { in: ['office_manager', 'office_hr', 'company_manager', 'office_employee'] },
+            ...(officeId ? { officeId } : { id: -1 }),
+          },
           select: { id: true },
         });
         for (const target of targets) {
@@ -4628,6 +4638,10 @@ if (process.env.VERCEL) {
     ensurePrimaryCompanies()
       .then(n => { if (n) console.log(`✓ تم تعيين شركة رئيسية لـ ${n} مستخدم (backfill)`); })
       .catch(e => console.error('[ensurePrimaryCompanies]', e.message));
+    // ملفات Stock القديمة لموظفي المكتب: تعميم على الزملاء الذين لم تكن أهدافاً بعد
+    backfillSalesDataFileOfficeSync()
+      .then(n => { if (n) console.log(`✓ تم تعميم ${n} ملف Stock على زملاء المكتب (backfill)`); })
+      .catch(e => console.error('[backfillSalesDataFileOfficeSync]', e.message));
     // محافظات العراق الـ18 — idempotent، لا يلمس أي تسمية عدّلها المدير
     startPharmacyAlertScheduler();
     seedProvinces(prisma)
