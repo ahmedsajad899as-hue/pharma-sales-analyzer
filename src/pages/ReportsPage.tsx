@@ -3612,10 +3612,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto', columnGap: 8, rowGap: 5, alignItems: 'center' }}>
               <Icon name="navOrgStructure" size={13} style={{ color: '#64748b' }} />
               <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Office</span>
-              <span style={{ fontSize: 12.5, fontWeight: 800, color: officeColor, whiteSpace: 'nowrap' }}>{officeValStr} <span style={{ fontSize: 10, fontWeight: 700, color: '#1d4ed8' }}>· {fmt(officeCount)}🧾</span></span>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: officeColor, whiteSpace: 'nowrap' }}>{officeValStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(officeCount)}🧾</span></span>
               <Icon name="pharmacy" size={13} style={{ color: '#64748b' }} />
               <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Mercato</span>
-              <span style={{ fontSize: 12.5, fontWeight: 800, color: mercatoColor, whiteSpace: 'nowrap' }}>{mercatoValStr} <span style={{ fontSize: 10, fontWeight: 700, color: '#1d4ed8' }}>· {fmt(mercatoCount)}🧾</span></span>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: mercatoColor, whiteSpace: 'nowrap' }}>{mercatoValStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(mercatoCount)}🧾</span></span>
             </div>
           </div>
         );
