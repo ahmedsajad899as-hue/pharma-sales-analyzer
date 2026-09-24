@@ -3604,6 +3604,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // يظهر في كل الخانات لا الصافي وحده، للمقارنة بين الملفين مباشرة أياً كانت الخانة.
         const viewSrc = viewData?.bySource;
         const viewHasMixedSources = !!(viewSrc?.hasOffice && viewSrc?.hasMercato);
+        // صندوق واحد مدمج (قيمة + عدد طلبيات معاً) لكل مصدر ملف — Office/Mercato
+        // بدل الشرح العربي الطويل، للدلالة المختصرة فقط.
+        const renderSourceBox = (officeValStr: string, mercatoValStr: string, officeColor: string, mercatoColor: string, officeCount: number, mercatoCount: number) => (
+          <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', alignItems: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
+            title="توزيع القيمة وعدد الطلبيات حسب مصدر الملف (Office = ملف المكتب، Mercato = ميركاتو)">
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto', columnGap: 8, rowGap: 5, alignItems: 'center' }}>
+              <Icon name="navOrgStructure" size={13} style={{ color: '#64748b' }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Office</span>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: officeColor, whiteSpace: 'nowrap' }}>{officeValStr} <span style={{ fontSize: 10, fontWeight: 700, color: '#1d4ed8' }}>· {fmt(officeCount)}🧾</span></span>
+              <Icon name="pharmacy" size={13} style={{ color: '#64748b' }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Mercato</span>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: mercatoColor, whiteSpace: 'nowrap' }}>{mercatoValStr} <span style={{ fontSize: 10, fontWeight: 700, color: '#1d4ed8' }}>· {fmt(mercatoCount)}🧾</span></span>
+            </div>
+          </div>
+        );
         return (
         <>
           {/* Info tags */}
