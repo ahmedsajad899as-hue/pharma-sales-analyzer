@@ -4,6 +4,7 @@ import {
   listAllUsers, getUser, getUserPassword, createUser, updateUser,
   setUserCompanies, setUserAreas, setUserProvinces, setUserSubProvinces, setUserItems, setUserLines,
   setUserManagers, setUserSubordinates, setUserInteractions, setUserFeatures, setUserAllAreas,
+  syncManagerScopeToSubordinates,
   setUserStockCompanies, setUserStockItems,
   getUserRepInfo, getUserCompanyItems,
   deleteUser,
@@ -41,6 +42,8 @@ router.put('/:id/stock-items',     setUserStockItems);
 router.put('/:id/lines',        setUserLines);
 router.put('/:id/managers',     setUserManagers);
 router.put('/:id/subordinates', setUserSubordinates);
+// مزامنة شركات/ايتمات هذا الحساب (مدير) على كل من تحته في التسلسل الإداري
+router.post('/:id/sync-to-subordinates', syncManagerScopeToSubordinates);
 router.put('/:id/interactions', setUserInteractions);
 router.put('/:id/features',     setUserFeatures);
 

@@ -160,6 +160,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftDefaultReportView, setDraftDefaultReportView] = useState<'sales' | 'returns' | 'net'>('net');
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
   const [allAreasBusy,       setAllAreasBusy]       = useState(false);
+  // مزامنة الشركات/الايتمات مع كل التابعين (زر تبويب «الموظفون»)
+  const [syncingScope,       setSyncingScope]       = useState(false);
 
   // حفظ الشركات: تطبيق فوري (حفظ تلقائي) + تحقق من النتيجة المحفوظة فعلاً
   const [companySaveState, setCompanySaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -668,6 +670,34 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // مزامنة شركات/ايتمات هذا الحساب على كل من تحته بالتسلسل الإداري (مباشر
+  // وغير مباشر) — تُستبدل قوائمهم الحالية بنفس اختيار هذا المدير بالضبط.
+  const syncManagerScope = async () => {
+    if (!detail) return;
+    if (!confirm(
+      `سيتم استبدال شركات وايتمات كل المستخدمين التابعين لـ ${detail.displayName || detail.username} (مباشرين وغير مباشرين) بنفس شركاته (${draftCompanyIds.length}) وايتماته (${draftItemIds.length}) بالضبط.\n\nهل تريد المتابعة؟`
+    )) return;
+    setSyncingScope(true);
+    try {
+      const res = await fetch(`/api/sa/users/${detail.id}/sync-to-subordinates`, { method: 'POST', headers: H() });
+      if (!res.ok) {
+        if (res.status === 401) { showToast('انتهت صلاحية الجلسة — يرجى إعادة تسجيل الدخول', '#dc2626'); logout(); return; }
+        let errMsg = 'فشلت المزامنة';
+        try { const j = await res.json(); if (j?.error) errMsg = j.error; } catch {}
+        showToast('❌ ' + errMsg, '#dc2626');
+        return;
+      }
+      const j = await res.json().catch(() => null);
+      const count = j?.affectedCount ?? 0;
+      showToast(count > 0 ? `✅ تمت مزامنة ${count} مستخدم/مستخدمين` : 'ℹ️ لا يوجد مستخدمون تابعون للمزامنة');
+    } catch (e) {
+      console.error('syncManagerScope error:', e);
+      showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
+    } finally {
+      setSyncingScope(false);
     }
   };
 
@@ -2060,6 +2090,16 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
                 تعيين عكسي: اختر من هنا كل المستخدمين الذين {detail.displayName || detail.username} مديرهم — بدل الدخول لحساب كل واحد منهم لإضافته من تبويب «المدراء».
               </div>
+              {!OFFICE_SCOPED_ROLES.has(detail.role) && (detail.subordinatesOfUser ?? []).length > 0 && (
+                <div style={{ fontSize: 12.5, color: '#7c2d12', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <span style={{ flex: 1, minWidth: 240 }}>
+                    🔄 مزامنة شركات وايتمات {detail.displayName || detail.username} ({draftCompanyIds.length} شركة، {draftItemIds.length} ايتم) مع <b>كل</b> من تحته بالتسلسل الإداري — مباشرين وغير مباشرين (تشمل قادة الفرق ومدراء المنتج والمندوبين). تستبدل قوائمهم الحالية بالكامل.
+                  </span>
+                  <button onClick={syncManagerScope} disabled={syncingScope} style={btnStyle('#c2410c', true)}>
+                    {syncingScope ? '⏳ جارٍ المزامنة...' : '🔄 مزامنة الشركات والايتمات مع كل التابعين'}
+                  </button>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button onClick={() => setDraftSubIds(employeeCandidates.map(u => u.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
                 <button onClick={() => setDraftSubIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>

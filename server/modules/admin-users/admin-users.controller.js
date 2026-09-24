@@ -740,6 +740,95 @@ export async function setUserSubordinates(req, res) {
   res.json({ success: true });
 }
 
+// ── Sync a manager's companies + items down to their whole subtree ─────────
+// زر «مزامنة» في تبويب «الموظفون»: يأخذ شركات وايتمات هذا الحساب (عادة مدير
+// شركة) ويطبّقها حرفياً على كل من تحته في التسلسل الإداري — مباشرين وغير
+// مباشرين، عبر UserManagerAssignment (BFS بحماية من الحلقات) — بدل الدخول
+// لكل حساب على حدة وتكرار نفس الاختيار يدوياً.
+export async function syncManagerScopeToSubordinates(req, res) {
+  const managerId = parseInt(req.params.id);
+  if (!Number.isInteger(managerId)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
+
+  try {
+    const manager = await prisma.user.findUnique({
+      where: { id: managerId },
+      select: {
+        id: true, role: true,
+        companyAssignments: { select: { companyId: true, isPrimary: true } },
+        itemAssignments: { select: { itemId: true } },
+      },
+    });
+    if (!manager) return res.status(404).json({ error: 'المستخدم غير موجود' });
+    if (isOfficeScopedRole(manager.role)) {
+      return res.status(400).json({ error: 'هذا الدور يعمل على مستوى المكتب — لا شركات يدوية لمزامنتها.' });
+    }
+
+    const companyIds = manager.companyAssignments.map(a => a.companyId);
+    const primaryCompanyId = manager.companyAssignments.find(a => a.isPrimary)?.companyId ?? companyIds[0] ?? null;
+    const itemIds = manager.itemAssignments.map(a => a.itemId);
+
+    // كل التابعين (مباشر وغير مباشر) — BFS على UserManagerAssignment
+    const subordinateIds = new Set();
+    let frontier = [managerId];
+    while (frontier.length) {
+      const rows = await prisma.userManagerAssignment.findMany({
+        where: { managerId: { in: frontier } },
+        select: { userId: true },
+      });
+      const next = [];
+      for (const r of rows) {
+        if (r.userId !== managerId && !subordinateIds.has(r.userId)) {
+          subordinateIds.add(r.userId);
+          next.push(r.userId);
+        }
+      }
+      frontier = next;
+    }
+
+    const targetIds = [...subordinateIds];
+    if (!targetIds.length) {
+      return res.json({ success: true, affectedCount: 0, companyIds, itemIds });
+    }
+
+    const targets = await prisma.user.findMany({
+      where: { id: { in: targetIds } },
+      select: { id: true, role: true },
+    });
+
+    for (const t of targets) {
+      const ops = [];
+      // الأدوار المكتبية تُدار تلقائياً (كل شركات المكتب) — لا نلمس شركاتها هنا
+      if (!isOfficeScopedRole(t.role)) {
+        ops.push(
+          prisma.userCompanyAssignment.deleteMany({ where: { userId: t.id } }),
+          ...(companyIds.length ? [prisma.userCompanyAssignment.createMany({
+            data: companyIds.map(cid => ({ userId: t.id, companyId: cid, isPrimary: cid === primaryCompanyId })),
+            skipDuplicates: true,
+          })] : []),
+        );
+      }
+      ops.push(
+        prisma.userItemAssignment.deleteMany({ where: { userId: t.id } }),
+        ...(itemIds.length ? [prisma.userItemAssignment.createMany({
+          data: itemIds.map(iid => ({ userId: t.id, itemId: iid })),
+          skipDuplicates: true,
+        })] : []),
+      );
+      await prisma.$transaction(ops);
+      try {
+        await syncUserItemDerivedLinks(t.id);
+      } catch (e) {
+        console.warn('[syncManagerScopeToSubordinates] item link sync failed (non-fatal) for user', t.id, e.message);
+      }
+    }
+
+    res.json({ success: true, affectedCount: targets.length, companyIds, itemIds });
+  } catch (err) {
+    console.error('[syncManagerScopeToSubordinates] failed for manager', managerId, err);
+    res.status(500).json({ error: 'فشلت المزامنة — حاول مرة أخرى.' });
+  }
+}
+
 // ── Set user features (enable/disable per-user features) ────────────────────
 export async function setUserFeatures(req, res) {
   const id = parseInt(req.params.id);
