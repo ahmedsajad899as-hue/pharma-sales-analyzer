@@ -1420,9 +1420,13 @@ export async function getReport(id, query = {}, viewerId = null) {
   // تكون قيمة أحد الجانبين صفراً فعلياً وله صفوف حقيقية بالمقابل).
   const officeRows  = salesForAggregation.filter(s => s.uploadedFile?.sourceSystem !== 'mercato');
   const mercatoRows = salesForAggregation.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
+  // عدد الطلبيات لكل مصدر على حدة — من rawSales (لا salesForAggregation) لأن
+  // orderCount أعلاه يُحسب منها أيضاً، ونفس استثناء صفوف الإرجاع.
+  const officeOrderRows  = rawSales.filter(s => s.uploadedFile?.sourceSystem !== 'mercato' && String(s.recordType ?? '').trim().toLowerCase() !== 'return');
+  const mercatoOrderRows = rawSales.filter(s => s.uploadedFile?.sourceSystem === 'mercato'  && String(s.recordType ?? '').trim().toLowerCase() !== 'return');
   const bySource = (officeRows.length > 0 || mercatoRows.length > 0) ? {
-    office:     { totalQuantity: aggregateSalesWithReps(officeRows).totals.totalQuantity,  totalValue: aggregateSalesWithReps(officeRows).totals.totalValue },
-    mercato:    { totalQuantity: aggregateSalesWithReps(mercatoRows).totals.totalQuantity, totalValue: aggregateSalesWithReps(mercatoRows).totals.totalValue },
+    office:     { totalQuantity: aggregateSalesWithReps(officeRows).totals.totalQuantity,  totalValue: aggregateSalesWithReps(officeRows).totals.totalValue,  orderCount: countDistinctOrders(officeOrderRows) },
+    mercato:    { totalQuantity: aggregateSalesWithReps(mercatoRows).totals.totalQuantity, totalValue: aggregateSalesWithReps(mercatoRows).totals.totalValue, orderCount: countDistinctOrders(mercatoOrderRows) },
     hasOffice:  officeRows.length > 0,
     hasMercato: mercatoRows.length > 0,
   } : null;

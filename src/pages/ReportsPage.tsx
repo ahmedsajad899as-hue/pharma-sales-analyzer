@@ -692,7 +692,7 @@ interface SciReport {
   byRep: BreakdownRow[];
   // توزيع مبيع الملف حسب مصدره (مكتب/ميركاتو) — موجود فقط حين يحوي التحليل
   // الحالي صفوفاً فعلية (سواء من نوع واحد أو من الاثنين معاً).
-  bySource: { office: { totalQty: number; totalValue: number }; mercato: { totalQty: number; totalValue: number }; hasOffice: boolean; hasMercato: boolean } | null;
+  bySource: { office: { totalQty: number; totalValue: number; orderCount: number }; mercato: { totalQty: number; totalValue: number; orderCount: number }; hasOffice: boolean; hasMercato: boolean } | null;
 }
 
 type Mode = 'commercial' | 'scientific' | 'overall';
@@ -1165,8 +1165,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           byItem: [...salesItems, ...zeroItems],
           byRep:  (d.byRep  ?? []).map((r: any) => ({ name: r.repName  ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
           bySource: d.bySource ? {
-            office:  { totalQty: d.bySource.office?.totalQuantity  ?? 0, totalValue: d.bySource.office?.totalValue  ?? 0 },
-            mercato: { totalQty: d.bySource.mercato?.totalQuantity ?? 0, totalValue: d.bySource.mercato?.totalValue ?? 0 },
+            office:  { totalQty: d.bySource.office?.totalQuantity  ?? 0, totalValue: d.bySource.office?.totalValue  ?? 0, orderCount: d.bySource.office?.orderCount  ?? 0 },
+            mercato: { totalQty: d.bySource.mercato?.totalQuantity ?? 0, totalValue: d.bySource.mercato?.totalValue ?? 0, orderCount: d.bySource.mercato?.orderCount ?? 0 },
             hasOffice:  !!d.bySource.hasOffice,
             hasMercato: !!d.bySource.hasMercato,
           } : null,
@@ -3650,6 +3650,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   </div>
                 </div>
               )}
+              {hasMixedSources && (
+                <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
+                  title="توزيع عدد الطلبيات حسب مصدر الملف — ملف المكتب مقابل ملف ميركاتو المدمج معه">
+                  <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>عدد الطلبيات حسب المصدر</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ملف المكتب</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>{fmt(src?.office.orderCount ?? 0)}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ميركاتو</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>{fmt(src?.mercato.orderCount ?? 0)}</span>
+                  </div>
+                </div>
+              )}
               </div>
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
@@ -3678,6 +3692,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ميركاتو</span>
                     <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>{fmtVal(viewSrc?.mercato.totalValue ?? 0)}</span>
+                  </div>
+                </div>
+              )}
+              {viewHasMixedSources && (
+                <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
+                  title={`توزيع عدد طلبيات ${reportView === 'returns' ? 'الإرجاع' : 'المبيع'} حسب مصدر الملف — ملف المكتب مقابل ملف ميركاتو المدمج معه`}>
+                  <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>عدد الطلبيات حسب المصدر</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ملف المكتب</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>{fmt(viewSrc?.office.orderCount ?? 0)}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: '#475569', fontWeight: 600, minWidth: 60 }}>ميركاتو</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>{fmt(viewSrc?.mercato.orderCount ?? 0)}</span>
                   </div>
                 </div>
               )}
