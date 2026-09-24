@@ -998,24 +998,63 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   });
   const acceptedNameKeys = new Set([normalizedSciRepName, ...nameLinkRows.map(l => l.fromKey)]);
 
+  // ── تيم ليدر: مبيعات ميركاتو المندوبين العلميين التابعين له تُضاف لمبيعاته هو
+  // عند عرض تقريره (طلب صريح — مبيعاته + مبيعات مندوبيه، لملفات ميركاتو فقط؛
+  // ملفات المكتب تبقى على منطقها القائم بالمناطق/المندوبين التجاريين المعيَّنين
+  // وغير مُمسوسة هنا). التبعية عبر UserManagerAssignment (managerId = حساب قائد
+  // التيم نفسه، لا rep.userId — ذاك مالك السجل/المدير، لا حساب دخول قائد التيم).
+  const teamNameKeys = new Set();
+  if (mercatoFileIds.length > 0) {
+    const linkedUserRow = await prisma.user.findFirst({ where: { linkedRepId: id }, select: { id: true, role: true } });
+    if (linkedUserRow?.role === 'team_leader') {
+      const subRows = await prisma.userManagerAssignment.findMany({
+        where: { managerId: linkedUserRow.id }, select: { userId: true },
+      });
+      const subUserIds = subRows.map(r => r.userId);
+      if (subUserIds.length > 0) {
+        const subUsers = await prisma.user.findMany({
+          where: { id: { in: subUserIds }, linkedRepId: { not: null } },
+          select: { linkedRepId: true },
+        });
+        const subRepIds = [...new Set(subUsers.map(u => u.linkedRepId))];
+        if (subRepIds.length > 0) {
+          const [subReps, subNameLinks] = await Promise.all([
+            prisma.scientificRepresentative.findMany({ where: { id: { in: subRepIds } }, select: { name: true } }),
+            prisma.sciRepNameLink.findMany({ where: { scientificRepId: { in: subRepIds } }, select: { fromKey: true } }),
+          ]);
+          for (const r of subReps) teamNameKeys.add(_normalizeAr(r.name));
+          for (const l of subNameLinks) teamNameKeys.add(l.fromKey);
+        }
+      }
+    }
+  }
+  const mercatoAcceptedNameKeys = teamNameKeys.size > 0 ? new Set([...acceptedNameKeys, ...teamNameKeys]) : acceptedNameKeys;
+
   const allMedReps = await prisma.medicalRepresentative.findMany({ select: { id: true, name: true } });
   const nameMatchCandidates = allMedReps
     .filter(r => acceptedNameKeys.has(_normalizeAr(r.name)))
     .map(r => r.id);
+  const mercatoNameMatchCandidates = teamNameKeys.size > 0
+    ? allMedReps.filter(r => mercatoAcceptedNameKeys.has(_normalizeAr(r.name))).map(r => r.id)
+    : nameMatchCandidates;
 
-  let nameMatchIds = [];
-  if (nameMatchCandidates.length > 0 && fileIds && fileIds.length > 0) {
-    const fileFilter0 = fileIds.length === 1
-      ? { uploadedFileId: fileIds[0] }
-      : { uploadedFileId: { in: fileIds } };
-    // Only keep rep IDs that actually appear in the active files
+  // Only keep rep IDs that actually appear in the active files (name+file scoping
+  // shared by both the sci rep's own matches and the team-expanded Mercato matches).
+  const scopeRepIdsToFiles = async (candidateIds, fIds) => {
+    if (candidateIds.length === 0 || !fIds || fIds.length === 0) return [];
+    const fileFilter0 = fIds.length === 1 ? { uploadedFileId: fIds[0] } : { uploadedFileId: { in: fIds } };
     const repsInFiles = await prisma.sale.findMany({
-      where: { representativeId: { in: nameMatchCandidates }, isHidden: false, ...fileFilter0 },
+      where: { representativeId: { in: candidateIds }, isHidden: false, ...fileFilter0 },
       select: { representativeId: true },
       distinct: ['representativeId'],
     });
-    nameMatchIds = repsInFiles.map(r => r.representativeId);
-  }
+    return repsInFiles.map(r => r.representativeId);
+  };
+
+  let nameMatchIds = await scopeRepIdsToFiles(nameMatchCandidates, fileIds);
+  let mercatoNameMatchIds = teamNameKeys.size > 0
+    ? await scopeRepIdsToFiles(mercatoNameMatchCandidates, mercatoFileIds)
+    : nameMatchIds;
 
   // ── Globally-blocked commercial reps / areas / items ────────────────────────
   // A company manager can globally block commercial reps, areas, or items (from
@@ -1080,8 +1119,9 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
           const rep = allMedReps.find(r => r.id === repId);
           return rep ? blockedNorms.has(_normalizeAr(rep.name)) : false;
         };
-        expandedCommRepIds = expandedCommRepIds.filter(rid => !isBlocked(rid));
-        nameMatchIds       = nameMatchIds.filter(rid => !isBlocked(rid));
+        expandedCommRepIds  = expandedCommRepIds.filter(rid => !isBlocked(rid));
+        nameMatchIds        = nameMatchIds.filter(rid => !isBlocked(rid));
+        mercatoNameMatchIds = mercatoNameMatchIds.filter(rid => !isBlocked(rid));
         // Also drop blocked reps from the displayed «assigned commercial reps» list.
         commercialLinks = commercialLinks.filter(l => !blockedNorms.has(_normalizeAr(l.commercialRep.name)));
       }
@@ -1199,9 +1239,10 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       sourceConds.push(office.length === 1 ? office[0] : { AND: office });
     }
 
-    // (ب) ملفات ميركاتو — مطابقة اسم المندوب العلمي وحدها.
-    if (mercatoFileIds.length > 0 && nameMatchIds.length > 0) {
-      sourceConds.push({ uploadedFileId: { in: mercatoFileIds }, representativeId: { in: nameMatchIds } });
+    // (ب) ملفات ميركاتو — مطابقة اسم المندوب العلمي وحده، أو + مندوبي فريقه إن
+    // كان تيم ليدر (mercatoNameMatchIds — راجع teamNameKeys أعلاه).
+    if (mercatoFileIds.length > 0 && mercatoNameMatchIds.length > 0) {
+      sourceConds.push({ uploadedFileId: { in: mercatoFileIds }, representativeId: { in: mercatoNameMatchIds } });
     }
 
     if (sourceConds.length === 0) return null; // no rep info → return nothing
@@ -1221,7 +1262,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
 
   const meta = {
     rep, commercialLinks, areaLinks, itemLinks,
-    explicitCommRepIds, expandedCommRepIds, nameMatchIds, areaIds, itemIds, fileIds,
+    explicitCommRepIds, expandedCommRepIds, nameMatchIds, mercatoNameMatchIds, areaIds, itemIds, fileIds,
   };
 
   if (!fileIds || fileIds.length === 0) {
@@ -1448,6 +1489,7 @@ export async function getReport(id, query = {}, viewerId = null) {
       nonSharedFileIds: resolved.nonSharedFileIds,
       linkedUserId: resolved.linkedUserId,
       nameMatchIds: resolved.nameMatchIds,
+      mercatoNameMatchIds: resolved.mercatoNameMatchIds,
       explicitCommRepIds: resolved.explicitCommRepIds,
       expandedCommRepIds: resolved.expandedCommRepIds,
       areaIds: resolved.areaIds,
