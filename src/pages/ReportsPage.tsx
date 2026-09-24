@@ -716,6 +716,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [mode, setMode]           = useState<Mode>(() => (sessionStorage.getItem('rpt_mode') as Mode) || 'scientific');
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  // تركيز فوري على جذر الصفحة عند الفتح — بعض المتصفحات/النوافذ لا تمنح أي
+  // عنصر تركيزاً افتراضياً عند التحميل، فتُسقَط أحداث keydown (اختصارات
+  // الأسهم/Enter أدناه) حتى أول نقرة يدوية على الشاشة. tabIndex={-1} يسمح
+  // بالتركيز برمجياً دون إدخاله في ترتيب Tab العادي للصفحة.
+  const pageRootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { pageRootRef.current?.focus({ preventScroll: true }); }, []);
 
   // Commercial
   const [commReps, setCommReps]   = useState<Rep[]>([]);
@@ -2628,7 +2634,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   return (
-    <div className="page">
+    <div className="page" ref={pageRootRef} tabIndex={-1} style={{ outline: 'none' }}>
       {/* Mode toggle */}
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
         {([['overall','تحليل شامل','navReports'], ['scientific',t.reports.modeScientific,'navFms'], ['commercial',t.reports.modeCommercial,'navCommercial']] as [string,string,import('../config/icons').IconName][])
@@ -2668,13 +2674,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {/* Rep / file selector */}
           {mode === 'commercial' ? (
             <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={commRepId}
-              onChange={e => { setCommRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadCommReport(e.target.value); } }}>
+              onChange={e => {
+                // إفلات التركيز فور الاختيار — وإلا يبقى select محتفظاً بالتركيز
+                // (سلوك المتصفح الطبيعي) فتتجاهله اختصارات لوحة المفاتيح أدناه
+                // (الأسهم/Enter) بلا داعٍ حتى ينقر المستخدم مكاناً آخر.
+                e.target.blur();
+                setCommRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadCommReport(e.target.value); }
+              }}>
               <option value="">-- {t.reports.selectCommRep} --</option>
               {commReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           ) : mode === 'scientific' ? (
             <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={sciRepId}
-              onChange={e => { setSciRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadSciReport(e.target.value); } }}>
+              onChange={e => {
+                e.target.blur();
+                setSciRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadSciReport(e.target.value); }
+              }}>
               <option value="">-- {t.reports.selectSciRep} --</option>
               <RepSelectOptions reps={sciReps} />
             </select>
@@ -2738,11 +2753,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {/* Date range */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
             <label style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>من</label>
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+            <input type="date" value={fromDate} onChange={e => { e.target.blur(); setFromDate(e.target.value); }}
               className="form-input"
               style={{ padding: '6px 8px', fontSize: 13, width: 130 }} />
             <label style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>إلى</label>
-            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+            <input type="date" value={toDate} onChange={e => { e.target.blur(); setToDate(e.target.value); }}
               className="form-input"
               style={{ padding: '6px 8px', fontSize: 13, width: 130 }} />
             {(fromDate || toDate) && (
