@@ -52,6 +52,46 @@ const splitMercatoSales = (sales: any[]): { office: any[]; mercato: any[]; isMix
   return { office, mercato, isMixed: mercato.length > 0 && office.length > 0 };
 };
 
+// عدد الطلبيات الفعلي ضمن مجموعة صفوف — سطر منفصل لكل صنف ضمن نفس الطلبية (نفس رقم
+// الطلبية والتاريخ/الوقت والصيدلية والمذخر) يُحسب كطلبية واحدة، لا طلبية لكل سطر. رقم
+// الطلبية والمذخر لا يقابلهما عمود مُهيكَل (يعيشان في rawData فقط)، فالاستخراج يمرّ
+// عبره حصراً — نفس مجموعات الأسماء البديلة المستعملة في buildSheet/buildMergedSheet
+// أعلاه ونفس منطق lib/orderKey.js في الباك-إند (يُبقي صندوق الشاشة وملف Excel متطابقين).
+const ORDER_NO_ALIASES  = ['رقم الفاتورة', 'رقم الفاتوره', 'رقم طلبية المذخر', 'رقم طلبيه المذخر', 'رقم الطلبية', 'رقم الطلبيه', 'رقم الطلب'];
+const ORDER_WAREHOUSE_ALIASES = ['المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع'];
+const ORDER_PHARMACY_ALIASES  = ['الصيدلية', 'اسم الصيدلية', 'العميل', 'اسم العميل', 'الزبون', 'اسم الزبون', 'اسم الشركة', 'اسم الشركه'];
+const ORDER_DATE_ALIASES = ['التاريخ', 'تاريخ', 'تاريخ البيع', 'تاريخ الفاتورة', 'تاريخ الطلب', 'تاريخ العملية',
+  'أنشات بتاريخ', 'انشات بتاريخ', 'أنشأت بتاريخ', 'انشأت بتاريخ', 'تاريخ الانشاء', 'تاريخ الإنشاء'];
+const pickOrderAlias = (raw: Record<string, any>, aliases: string[]): string => {
+  for (const key of Object.keys(raw)) {
+    if (aliases.some(a => a.toLowerCase() === key.trim().toLowerCase())) {
+      const v = raw[key];
+      if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+    }
+  }
+  return '';
+};
+const orderKeyFromRawData = (rawData: any): string | null => {
+  if (!rawData) return null;
+  let raw: any;
+  try { raw = JSON.parse(rawData); } catch { return null; }
+  const orderNo = pickOrderAlias(raw, ORDER_NO_ALIASES);
+  if (!orderNo) return null;
+  const dateVal   = pickOrderAlias(raw, ORDER_DATE_ALIASES);
+  const warehouse = normalizeAr(pickOrderAlias(raw, ORDER_WAREHOUSE_ALIASES));
+  const pharmacy  = normalizeAr(pickOrderAlias(raw, ORDER_PHARMACY_ALIASES));
+  return `${orderNo}|${dateVal}|${pharmacy}|${warehouse}`;
+};
+const countDistinctOrders = (sales: any[]): number => {
+  const keys = new Set<string>();
+  let unkeyed = 0;
+  for (const s of sales) {
+    const key = orderKeyFromRawData(s.rawData);
+    if (key) keys.add(key); else unkeyed++;
+  }
+  return keys.size + unkeyed;
+};
+
 /* Excel forbids : \ / ? * [ ] in a sheet name (and caps it at 31 chars) — book_append_sheet
    throws otherwise. Rep display names here can legitimately contain "/" (e.g. combined with
    a team-leader label, "الاسم / ليدر المنطقة"), so every sheet-name build must go through
@@ -158,6 +198,12 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     const itemCol = header.findIndex(h => ITEM_HEADERS.has(h));
     const qtyCol  = header.findIndex(h => QTY_HEADERS.has(h));
     const rtCol   = header.findIndex(h => /نوع.*سجل|record.?type/i.test(h));
+    // أعمدة مفتاح الطلبية — نفس مجموعات الأسماء البديلة المستعملة في countDistinctOrders
+    // أعلاه (رقم الطلبية/المذخر لا يقابلهما عمود مُهيكَل في الشيت أصلاً غير هذه الأعمدة).
+    const orderNoCol   = header.findIndex(h => ORDER_NO_ALIASES.some(a => a.toLowerCase() === h.toLowerCase()));
+    const orderDateCol = header.findIndex(h => ORDER_DATE_ALIASES.some(a => a.toLowerCase() === h.toLowerCase()));
+    const pharmacyCol  = header.findIndex(h => ORDER_PHARMACY_ALIASES.some(a => a.toLowerCase() === h.toLowerCase()));
+    const warehouseCol = header.findIndex(h => ORDER_WAREHOUSE_ALIASES.some(a => a.toLowerCase() === h.toLowerCase()));
 
     const num = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const fmtT = (n: number) => Math.round(n || 0).toLocaleString('en-US');
@@ -166,6 +212,8 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     // ── Monetary totals (only when a value column is present) ──
     let salesVal = 0, returnsVal = 0;
     const itemNet = new Map<string, number>();
+    const orderKeys = new Set<string>();
+    let unkeyedOrders = 0;
     for (const row of body) {
       const val   = valCol >= 0 ? num(row[valCol]) : 0;
       // Returns are marked either by a record-type column or (raw exports) by a negative value
@@ -174,6 +222,20 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       if (itemCol >= 0 && qtyCol >= 0) {
         const name = norm(row[itemCol]);
         if (name) itemNet.set(name, (itemNet.get(name) || 0) + num(row[qtyCol])); // qty already signed for returns
+      }
+      // عدد الطلبيات: من صفوف المبيع فقط — الإرجاع ليس طلبية جديدة.
+      if (!isRet && orderNoCol >= 0) {
+        const orderNo = norm(row[orderNoCol]);
+        if (!orderNo) { unkeyedOrders++; }
+        else {
+          const key = [
+            orderNo,
+            orderDateCol  >= 0 ? norm(row[orderDateCol]) : '',
+            pharmacyCol   >= 0 ? normalizeAr(norm(row[pharmacyCol])) : '',
+            warehouseCol  >= 0 ? normalizeAr(norm(row[warehouseCol])) : '',
+          ].join('|');
+          orderKeys.add(key);
+        }
       }
     }
 
@@ -192,6 +254,9 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     const salesCell   = valCol >= 0 ? fmtT(salesVal)             : orig('إجمالي قيمة المبيعات');
     const returnsCell = valCol >= 0 ? fmtT(returnsVal)           : orig('إجمالي قيمة المرتجعات');
     const netCell     = valCol >= 0 ? fmtT(salesVal - returnsVal): orig('الصافي');
+    // بلا عمود رقم طلبية في الشيت المُعدَّل (حُذف عمود الملف الخام مثلاً) — أبقِ القيمة
+    // القديمة من الملخص بدل احتسابها صفراً خطأً.
+    const orderCountCell = orderNoCol >= 0 ? String(orderKeys.size + unkeyedOrders) : orig('عدد الطلبيات');
 
     // Per-item NET table — rebuild when item+qty columns exist, else keep the originals
     const itemTable: string[][] = (itemCol >= 0 && qtyCol >= 0)
@@ -211,6 +276,7 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       ['إجمالي قيمة المبيعات',  salesCell],
       ['إجمالي قيمة المرتجعات', returnsCell],
       ['الصافي',                netCell],
+      ['عدد الطلبيات',          orderCountCell],
       [''],
       ['تفصيل الايتمات (النت = المبيع − الإرجاع)'],
       ['الايتم', 'النت مبيع', 'التاركت', 'نسبة التحقيق'],
@@ -241,15 +307,16 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       return updated;
     }
 
-    // ── Case B: single-rep preview = [data sheet, «الملخص»] ──
-    // Recompute the «الملخص» totals + per-item NET from the edited data sheet so any
-    // row deletion / cell edit in the rep's data reflects live in the summary.
-    if (prev.length === 2) {
-      const summaryIdx = prev.findIndex(s => s.rows[0]?.[0] === 'ملخص بيانات المستخدم');
-      if (summaryIdx >= 0 && sheetIdx !== summaryIdx) {
-        const recomputed = recalcUserSummary(prev[summaryIdx].rows, newRows);
-        return updated.map((s, i) => i === summaryIdx ? { ...s, rows: recomputed } : s);
-      }
+    // ── Case B: single-rep preview = [data sheet, (مبيعات ميركاتو؟), «الملخص»] ──
+    // Recompute the «الملخص» totals + per-item NET from the edited MAIN data sheet
+    // (always index 0) so any row deletion / cell edit reflects live in the summary.
+    // Editing the optional «مبيعات ميركاتو» sub-sheet (a supplementary breakdown of
+    // the same data, not its own source of truth) does NOT retrigger this — matches
+    // sheet length varying (2 or 3) whether a Mercato+office file merge added that sheet.
+    const summaryIdx = prev.findIndex(s => s.rows[0]?.[0] === 'ملخص بيانات المستخدم');
+    if (summaryIdx >= 0 && sheetIdx === 0 && sheetIdx !== summaryIdx) {
+      const recomputed = recalcUserSummary(prev[summaryIdx].rows, newRows);
+      return updated.map((s, i) => i === summaryIdx ? { ...s, rows: recomputed } : s);
     }
 
     return updated;
@@ -608,6 +675,7 @@ interface CommReport {
   repName: string;
   totalQty: number;
   totalValue: number;
+  orderCount: number;
   byArea: BreakdownRow[];
   byItem: BreakdownRow[];
 }
@@ -615,6 +683,7 @@ interface SciReport {
   repName: string;
   totalQty: number;
   totalValue: number;
+  orderCount: number;
   assignedAreas: Rep[];
   assignedItems: Rep[];
   assignedCommercialReps: Rep[];
@@ -1026,6 +1095,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         repName:    d.representative?.name ?? '—',
         totalQty:   d.summary?.totalQuantity ?? 0,
         totalValue: d.summary?.totalValue    ?? 0,
+        orderCount: d.summary?.orderCount    ?? 0,
         byArea: (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, repName: r.repName ?? undefined, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byItem: (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
       });
@@ -1087,6 +1157,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           repName:    d.scientificRep?.name ?? '—',
           totalQty:   d.summary?.totalQuantity ?? 0,
           totalValue: d.summary?.totalValue    ?? 0,
+          orderCount: d.summary?.orderCount    ?? 0,
           assignedAreas:          assignedAreasList,
           assignedItems:          assignedItemsList,
           assignedCommercialReps: d.assignedCommercialReps ?? [],
@@ -1990,6 +2061,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         return [name, Math.round(net), tgt > 0 ? Math.round(tgt) : '—', pct];
       });
 
+    // عدد الطلبيات الفعلي (لا عدد أسطر المبيعات — راجع countDistinctOrders أعلاه):
+    // من صفوف المبيع فقط، فالإرجاع ليس طلبية جديدة.
+    const orderCount = countDistinctOrders(saleRows);
+
     // Note: «عدد المناطق المعيّنة» / «إجمالي صفوف المبيعات» / «إجمالي صفوف المرتجعات»
     // were intentionally dropped from the summary per request — only the monetary totals
     // (with thousands separators) and the per-item NET table remain.
@@ -2000,6 +2075,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       ['إجمالي قيمة المبيعات',  fmtThousands(totalSalesVal)],
       ['إجمالي قيمة المرتجعات', fmtThousands(totalReturnsVal)],
       ['الصافي',                fmtThousands(totalSalesVal - totalReturnsVal)],
+      ['عدد الطلبيات',          orderCount],
       [''],
       ['تفصيل الايتمات (النت = المبيع − الإرجاع)'],
       ['الايتم', 'النت مبيع', 'التاركت', 'نسبة التحقيق'],
@@ -3364,6 +3440,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatNet}</div>
                   {hasRet && <div style={{ fontSize: 12, color: netQtyTotal >= 0 ? '#065f46' : '#991b1b', marginTop: 2, fontWeight: 700 }}>صافي الكمية: {fmtSigned(netQtyTotal)}</div>}
                 </div>
+                <div style={{ borderRight: '1.5px dashed #cbd5e1', paddingRight: 14, marginRight: 2, display: 'flex', alignItems: 'center', gap: 8 }} title="عدد الطلبيات الفعلي — صفوف نفس الطلبية (عدة أصناف) تُحسب كطلبية واحدة">
+                  <Icon name="checkCircle" size={18} style={{ color: '#1d4ed8' }} />
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#1d4ed8', lineHeight: 1 }}>{fmt(commReport.orderCount)}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>عدد الطلبيات</div>
+                  </div>
+                </div>
               </div>
             ) : (
               <div style={{ background: reportView === 'returns' ? '#fef2f2' : '#ecfdf5', border: `1.5px solid ${reportView === 'returns' ? '#fca5a5' : '#6ee7b7'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, marginTop: 10, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
@@ -3372,6 +3455,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <div style={{ fontSize: 22, fontWeight: 900, color: reportView === 'returns' ? '#991b1b' : '#065f46', lineHeight: 1 }}>{fmtVal(viewData?.totalValue ?? 0)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatTotal}</div>
                   <div style={{ fontSize: 12, color: '#374151', marginTop: 2, fontWeight: 600 }}>الكمية: {fmt(viewData?.totalQty ?? 0)}</div>
+                </div>
+                <div style={{ borderRight: '1.5px dashed #cbd5e1', paddingRight: 14, marginRight: 2, display: 'flex', alignItems: 'center', gap: 8 }} title="عدد الطلبيات الفعلي — صفوف نفس الطلبية (عدة أصناف) تُحسب كطلبية واحدة">
+                  <Icon name="checkCircle" size={18} style={{ color: '#1d4ed8' }} />
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#1d4ed8', lineHeight: 1 }}>{fmt(viewData?.orderCount ?? 0)}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>عدد الطلبيات</div>
+                  </div>
                 </div>
               </div>
             )}
@@ -3539,6 +3629,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatNet}</div>
                   {hasRet && <div style={{ fontSize: 12, color: netQtyTotal >= 0 ? '#065f46' : '#991b1b', marginTop: 2, fontWeight: 700 }}>صافي الكمية: {fmtSigned(netQtyTotal)}</div>}
                 </div>
+                <div style={{ borderRight: '1.5px dashed #cbd5e1', paddingRight: 14, marginRight: 2, display: 'flex', alignItems: 'center', gap: 8 }} title="عدد الطلبيات الفعلي — صفوف نفس الطلبية (عدة أصناف) تُحسب كطلبية واحدة">
+                  <Icon name="checkCircle" size={18} style={{ color: '#1d4ed8' }} />
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#1d4ed8', lineHeight: 1 }}>{fmt(sciReport.orderCount)}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>عدد الطلبيات</div>
+                  </div>
+                </div>
               </div>
               {hasMixedSources && (
                 <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
@@ -3562,6 +3659,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   <div style={{ fontSize: 22, fontWeight: 900, color: reportView === 'returns' ? '#991b1b' : '#065f46', lineHeight: 1 }}>{fmtVal(viewData?.totalValue ?? 0)}</div>
                   <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>{currStatTotal}</div>
                   <div style={{ fontSize: 12, color: '#374151', marginTop: 2, fontWeight: 600 }}>الكمية: {fmt(viewData?.totalQty ?? 0)}</div>
+                </div>
+                <div style={{ borderRight: '1.5px dashed #cbd5e1', paddingRight: 14, marginRight: 2, display: 'flex', alignItems: 'center', gap: 8 }} title="عدد الطلبيات الفعلي — صفوف نفس الطلبية (عدة أصناف) تُحسب كطلبية واحدة">
+                  <Icon name="checkCircle" size={18} style={{ color: '#1d4ed8' }} />
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#1d4ed8', lineHeight: 1 }}>{fmt(viewData?.orderCount ?? 0)}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>عدد الطلبيات</div>
+                  </div>
                 </div>
               </div>
             )}

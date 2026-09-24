@@ -7,6 +7,7 @@
 import prisma from '../../lib/prisma.js';
 import { resolveItemName, loadResolutionContext } from '../../lib/itemResolver.js';
 import { resolveAreaByName } from '../../lib/areaResolver.js';
+import { countDistinctOrders } from '../../lib/orderKey.js';
 
 /**
  * Normalize Arabic text to a canonical form:
@@ -458,6 +459,9 @@ export async function getSalesAggregates(repId, areaIds, itemIds, dateRange = {}
       totalValue: true,
       area: { select: { id: true, name: true } },
       item: { select: { id: true, name: true } },
+      // rawData: عدد الطلبيات الفعلي (aggregateSales) — راجع lib/orderKey.js.
+      // لا يُعاد في الاستجابة، يُستهلَك هنا فقط قبل أن يُطرح.
+      rawData: true,
       ...FILE_CURRENCY_SELECT,
     },
   });
@@ -663,7 +667,7 @@ function aggregateSales(sales) {
   const byItem = [...itemMap.values()].sort((a, b) => a.itemName.localeCompare(b.itemName));
 
   return {
-    totals: { totalQuantity, totalValue: +totalValue.toFixed(2) },
+    totals: { totalQuantity, totalValue: +totalValue.toFixed(2), orderCount: countDistinctOrders(sales) },
     byArea,
     byItem,
   };

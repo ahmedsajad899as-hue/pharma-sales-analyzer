@@ -263,6 +263,7 @@ export async function getRepresentativeReport(repId, query = {}, viewerId = null
     summary: {
       totalQuantity: totals.totalQuantity,
       totalValue:    totals.totalValue,
+      orderCount:    totals.orderCount ?? 0,
     },
     byArea,
     byItem,

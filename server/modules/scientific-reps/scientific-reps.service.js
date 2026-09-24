@@ -4,6 +4,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
+import { countDistinctOrders } from '../../lib/orderKey.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -1348,6 +1349,9 @@ const REPORT_SALES_SELECT = {
   quantity: true, totalValue: true,
   areaId: true, itemId: true, customerId: true,
   saleDate: true, recordType: true, uploadedFileId: true,
+  // rawData: لأجل عدد الطلبيات الفعلي (countDistinctOrders أدناه في getReport) —
+  // لا يُعاد في استجابة الـ JSON، يُستهلَك محلياً فقط ثم يُطرح.
+  rawData: true,
   area: { select: { id: true, name: true } },
   item: { select: { id: true, name: true } },
   representative: { select: { id: true, name: true } },
@@ -1386,7 +1390,7 @@ export async function getReport(id, query = {}, viewerId = null) {
       assignedAreas: areaLinks.map(l => l.area),
       assignedItems: itemLinks.map(l => l.item),
       dateRange: { startDate: query.startDate ?? null, endDate: query.endDate ?? null },
-      summary: { totalQuantity: 0, totalValue: 0 },
+      summary: { totalQuantity: 0, totalValue: 0, orderCount: 0 },
       byArea: [], byItem: [], byRep: [], bySource: null,
     };
   }
@@ -1404,6 +1408,10 @@ export async function getReport(id, query = {}, viewerId = null) {
   const aggregated = aggregateSalesWithReps(salesForAggregation);
   console.log('[SciRep.getReport] aggregated totals:', JSON.stringify(aggregated.totals), 'rows:', rawSales.length);
   const { totals, byArea, byItem, byRep } = aggregated;
+
+  // عدد الطلبيات الفعلي (لا عدد أسطر المبيعات) — يستثني صفوف الإرجاع دائماً، فهي
+  // ليست طلبيات جديدة. راجع lib/orderKey.js لتفصيل بناء المفتاح.
+  const orderCount = countDistinctOrders(rawSales.filter(s => String(s.recordType ?? '').trim().toLowerCase() !== 'return'));
 
   // ── توزيع حسب مصدر الملف (مكتب/ميركاتو) ────────────────────────────────
   // يُستعمل في الواجهة لعرض صندوق صغير يوضّح مساهمة كل نوع ملف حين يُدمَجان
@@ -1425,7 +1433,7 @@ export async function getReport(id, query = {}, viewerId = null) {
     assignedAreas: areaLinks.map(l => l.area),
     assignedItems: itemLinks.map(l => l.item),
     dateRange: { startDate: query.startDate ?? null, endDate: query.endDate ?? null },
-    summary: { totalQuantity: totals.totalQuantity, totalValue: totals.totalValue },
+    summary: { totalQuantity: totals.totalQuantity, totalValue: totals.totalValue, orderCount },
     byArea,
     byItem,
     byRep,
