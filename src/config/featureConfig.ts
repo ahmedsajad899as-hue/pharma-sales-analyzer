@@ -26,13 +26,13 @@ export interface NavItemDef {
 // نفس القائمة التي تُبنى منها القائمة الجانبية الحقيقية للمستخدم (Sidebar.tsx)
 export const NAV_ITEMS: NavItemDef[] = [
   { id: 'dashboard',         labelAr: 'الرئيسية',                  i18nKey: 'dashboard',    icon: '📊', roles: [] },
-  { id: 'rep-analysis',      labelAr: 'تحليل ملفات المندوبين',      icon: '📂', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','office_employee','office_hr'] },
+  { id: 'rep-analysis',      labelAr: 'تحليل المبيعات',             icon: '📂', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','office_employee','office_hr'] },
   { id: 'doctors',           labelAr: 'تحليل الكولات',              i18nKey: 'doctors',      icon: '🏥', roles: [] },
   { id: 'monthly-plans',     labelAr: 'البلان الشهري',              i18nKey: 'monthlyPlans', icon: '📅', roles: [] },
   { id: 'daily-plan',        labelAr: 'البلان اليومي',              i18nKey: 'dailyPlan',    icon: '📆', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','user','office_employee','office_hr'] },
   { id: 'master-survey',     labelAr: 'سيرفي اوردين',               icon: '🗂️', roles: [] },
   { id: 'fms',               labelAr: 'FMS — عينات شهرية',         icon: '🧪', roles: ['company_manager','admin','manager','office_employee','office_hr'] },
-  { id: 'sales-data',        labelAr: 'Stock',                      icon: '📊', roles: [] },
+  { id: 'sales-data',        labelAr: 'ستوك المذاخر',              icon: '📊', roles: [] },
   { id: 'stock-ledger',      labelAr: 'رصيد المذاخر',             icon: '📉', roles: [] },
   { id: 'distributor-sales', labelAr: 'تحليل الموزعين',             icon: '📦', roles: [] },
   { id: 'file-filter',       labelAr: 'تنقية الملفات',              icon: '🗂️', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','office_employee','office_hr'] },

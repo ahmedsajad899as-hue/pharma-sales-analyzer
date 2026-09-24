@@ -16,14 +16,14 @@ export interface PageHeader {
  */
 export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
   'dashboard':          { title: 'الرئيسية', subtitle: 'نظرة عامة على أداء المندوبين اليوم' },
-  'rep-analysis':       { title: 'تحليل ملفات المندوبين', subtitle: 'رفع وإدارة ملفات المبيعات' },
+  'rep-analysis':       { title: 'تحليل المبيعات', subtitle: 'رفع وإدارة ملفات المبيعات' },
   'upload':             { title: 'رفع الملفات', subtitle: 'رفع وإدارة ملفات المبيعات' },
   'doctors':            { title: 'قائمة السيرفي' },
   'monthly-plans':      { title: 'البلانات الشهرية' },
   'daily-plan':         { title: 'البلان اليومي', subtitle: 'زيارات اليوم ونسبة التحقيق' },
   'master-survey':      { title: 'السيرفيات', subtitle: 'قوائم الأطباء والصيدليات المشتركة من الإدارة' },
   'fms':                { title: 'FMS — عينات شهرية' },
-  'sales-data':         { title: 'بيانات المبيعات', subtitle: 'تحليل ملفات Excel مع البحث المتعدد' },
+  'sales-data':         { title: 'ستوك المذاخر', subtitle: 'تحليل ملفات Excel مع البحث المتعدد' },
   'stock-ledger':       { title: 'رصيد المذاخر', subtitle: 'المتبقّي فعلاً في كل مذخر ومتى يحتاج طلبية جديدة' },
   'distributor-sales':  { title: 'تحليل مبيعات الموزعين', subtitle: 'رفع وتحليل ملفات Excel بتنسيق امازون / فريق' },
   'file-filter':        { title: 'تنقية الملفات' },

@@ -1417,7 +1417,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   };
 
   const quickActions = [
-    { label: 'تحليل ملفات المندوبين', desc: 'رفع البيانات وإدارة المندوبين', icon: 'folder' as IconName, page: 'rep-analysis' as PageId, color: 'var(--c-accent)' },
+    { label: 'تحليل المبيعات', desc: 'رفع البيانات وإدارة المندوبين', icon: 'folder' as IconName, page: 'rep-analysis' as PageId, color: 'var(--c-accent)' },
     { label: t.dashboard.viewReports,  desc: t.dashboard.viewReportsDesc,  icon: 'navReports' as IconName, page: 'reports'       as PageId, color: 'var(--c-success)' },
   ];
 
