@@ -2523,7 +2523,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
         {form && (
           <Modal onClose={() => { setForm(null); setError(''); setConflict(null); }} title="تعديل المستخدم">
-            <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} isEdit />
+            <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} isEdit token={token} />
             {error && <ErrBox msg={error} />}
           {conflict && <ConflictBox existing={conflict} onGo={() => { setForm(null); setError(''); setConflict(null); setSearch(conflict.username); }} />}
             {conflict && <ConflictBox existing={conflict} onGo={() => { setForm(null); setError(''); setConflict(null); setDetail(null); setSearch(conflict.username); }} />}
