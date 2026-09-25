@@ -245,6 +245,12 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     const itemNet = new Map<string, number>();
     const orderKeys = new Set<string>();
     let unkeyedOrders = 0;
+    // تفصيل الطلبيات حسب المصدر (ميركاتو/مكتب) — يُستنتج من عمود «_sheetName» نفسه
+    // عبر classifyRowSource (نفس الدالة المستعملة لتلوين الصفوف)، فيبقى العدّان
+    // متزامنين مع أي تعديل يدوي على الشيت (حذف/تحرير صف) بلا حاجة لحالة منفصلة.
+    const mercatoOrderKeys = new Set<string>();
+    const officeOrderKeys  = new Set<string>();
+    let mercatoUnkeyed = 0, officeUnkeyed = 0;
     for (const row of body) {
       const val   = valCol >= 0 ? num(row[valCol]) : 0;
       // Returns are marked either by a record-type column or (raw exports) by a negative value
@@ -257,8 +263,11 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       // عدد الطلبيات: من صفوف المبيع فقط — الإرجاع ليس طلبية جديدة.
       if (!isRet && orderNoCol >= 0) {
         const orderNo = norm(row[orderNoCol]);
-        if (!orderNo) { unkeyedOrders++; }
-        else {
+        const isMercatoRow = classifyRowSource(dataRows[0], row) === 'mercato';
+        if (!orderNo) {
+          unkeyedOrders++;
+          if (isMercatoRow) mercatoUnkeyed++; else officeUnkeyed++;
+        } else {
           const key = [
             orderNo,
             orderDateCol  >= 0 ? norm(row[orderDateCol]) : '',
@@ -266,6 +275,7 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
             warehouseCol  >= 0 ? normalizeAr(norm(row[warehouseCol])) : '',
           ].join('|');
           orderKeys.add(key);
+          (isMercatoRow ? mercatoOrderKeys : officeOrderKeys).add(key);
         }
       }
     }
@@ -288,6 +298,13 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
     // بلا عمود رقم طلبية في الشيت المُعدَّل (حُذف عمود الملف الخام مثلاً) — أبقِ القيمة
     // القديمة من الملخص بدل احتسابها صفراً خطأً.
     const orderCountCell = orderNoCol >= 0 ? String(orderKeys.size + unkeyedOrders) : orig('عدد الطلبيات');
+    // إظهار تفصيل ميركاتو/مكتب فقط إن كان موجوداً أصلاً بالملخص القديم (الشيت يحوي
+    // طلبيات ميركاتو) أو ظهرت طلبيات ميركاتو الآن ضمن التعديل — يبقى القسم متزامناً
+    // بلا اختفاء/ظهور مفاجئ لسبب لا علاقة له بوجود ميركاتو فعلياً.
+    const hadMercatoBreakdown = summaryRows.some(r => r[0] === 'عدد الطلبيات - ميركاتو');
+    const mercatoOrderCountCell = orderNoCol >= 0 ? String(mercatoOrderKeys.size + mercatoUnkeyed) : orig('عدد الطلبيات - ميركاتو');
+    const officeOrderCountCell  = orderNoCol >= 0 ? String(officeOrderKeys.size + officeUnkeyed)   : orig('عدد الطلبيات - المكتب');
+    const showMercatoBreakdown = hadMercatoBreakdown || (mercatoOrderKeys.size + mercatoUnkeyed) > 0;
 
     // Per-item NET table — rebuild when item+qty columns exist, else keep the originals
     const itemTable: string[][] = (itemCol >= 0 && qtyCol >= 0)
@@ -308,6 +325,10 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       ['إجمالي قيمة المرتجعات', returnsCell],
       ['الصافي',                netCell],
       ['عدد الطلبيات',          orderCountCell],
+      ...(showMercatoBreakdown ? [
+        ['عدد الطلبيات - ميركاتو', mercatoOrderCountCell],
+        ['عدد الطلبيات - المكتب',  officeOrderCountCell],
+      ] : []),
       [''],
       ['تفصيل الايتمات (النت = المبيع − الإرجاع)'],
       ['الايتم', 'النت مبيع', 'التاركت', 'نسبة التحقيق'],
@@ -1764,6 +1785,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // «المدينة» في ميركاتو = نفس مفهوم المحافظة هناك (راجع mercatoColumnMap:
     // province يطابق أي عمود يحوي «مدين») — تُضم هنا لنفس السبب.
     const PROVINCE_GROUP = ['المحافظة', 'محافظة', 'المحافظه', 'محافظه', 'المدينة', 'مدينة'];
+    // نفس مجموعة الايتم أدناه في ALIAS_GROUPS — مرجع واحد كي نستبدل قيمة الخلية
+    // باسم الايتم الموحَّد من قاعدة البيانات (s.item.name) بدل النص الخام كما ورد
+    // في الملف، الذي قد يختلف بين ميركاتو والمكتب لنفس الايتم فعلياً (راجع itemResolver
+    // — التوحيد يحصل وقت الرفع على مستوى قاعدة البيانات، لا في التصدير قبل هذا التعديل).
+    const ITEM_GROUP = ['المادة', 'اسم المادة', 'اسم المادة بالمكتب', 'المنتج', 'اسم المنتج',
+      'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر', 'الايتم', 'ايتم', 'آيتم', 'الآيتم'];
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const allKeys = new Set<string>();
     let hasRaw = false;
@@ -1797,9 +1824,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // كانت تظهر عموداً منفصلاً بجانب «المادة» بدل الاندماج معه.
         // «الصنف»/«اسم الصنف» أُزيلا من هنا عمداً: في ميركاتو «الصنف» هو الشركة
         // المصنّعة لا اسم المادة (راجع mercatoColumnMap) — أُضيفا لمجموعة الشركة أدناه.
-        ['المادة', 'اسم المادة', 'اسم المادة بالمكتب', 'المنتج', 'اسم المنتج',
-         'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر',
-         'الايتم', 'ايتم', 'آيتم', 'الآيتم'],
+        ITEM_GROUP,
         ['الكمية المجانية', 'الكمية المجانيه', 'الكميه المجانية', 'الكميه المجانيه',
          'كمية البونص', 'الكمية البونص', 'كميه البونص', 'البونص'],
         ['الكمية', 'كمية', 'الكميه', 'كميه'],
@@ -1837,6 +1862,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const companyKey    = headers.find(isCompanyKey);
       const itemCodeKey   = headers.find(isItemCodeKey);
       const provinceKey   = headers.find(h => groupOf(h) === PROVINCE_GROUP);
+      const itemKey       = headers.find(h => groupOf(h) === ITEM_GROUP);
       const sciHeader  = t.reports.exportColSciRep;
       const typeHeader = t.reports.exportColRecordType;
       // «رقم الفاتورة → تاريخ → المندوب → … → ملاحظة» first; sciHeader/typeHeader don't
@@ -1870,6 +1896,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             // الفعلي بدل تركه اسماً حرفياً غير مفيد (مثل "Sheet1" لملفات ميركاتو) — نفس
             // القيمة تُستعمل لاحقاً لتلوين الصف (راجع classifyRowSource أعلى الملف).
             if (SHEET_TAG_COL_RE.test(h)) return s.uploadedFile?.sourceSystem === 'mercato' ? 'ميركاتو' : (isRet ? 'ارجاع' : 'مبيع');
+            // اسم الايتم الموحَّد من قاعدة البيانات بدل النص الخام كما ورد في الملف —
+            // نفس الايتم قد يُكتب بصيغتين مختلفتين بين ملف ميركاتو وملف المكتب
+            // (مثلاً "Mantazol 15g Cream" مقابل "MANTAZOL CREAM 1%/0.1% 15G")، فيظهر
+            // كصنفين منفصلين بالتصدير رغم أن itemResolver وحّدهما لنفس Item وقت الرفع.
+            if (h === itemKey) return s.item?.name ?? rawGet(h) ?? '';
             // total-value group is blank on return rows in some source files — fall back to
             // whichever aliased column actually holds the return amount and show it negative
             if (isTotalPriceKey(h)) {
@@ -2096,6 +2127,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // عدد الطلبيات الفعلي (لا عدد أسطر المبيعات — راجع countDistinctOrders أعلاه):
     // من صفوف المبيع فقط، فالإرجاع ليس طلبية جديدة.
     const orderCount = countDistinctOrders(saleRows);
+    // تفصيل عدد الطلبيات حسب المصدر (ميركاتو مقابل المكتب) — يُضاف فقط حين توجد
+    // طلبيات ميركاتو فعلاً، وإلا كان سطراً مكرراً بلا فائدة على الحسابات المكتبية البحتة.
+    const mercatoSaleRows = saleRows.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
+    const hasMercatoOrders = mercatoSaleRows.length > 0;
+    const mercatoOrderCount = hasMercatoOrders ? countDistinctOrders(mercatoSaleRows) : 0;
+    const officeOrderCount  = hasMercatoOrders
+      ? countDistinctOrders(saleRows.filter(s => s.uploadedFile?.sourceSystem !== 'mercato'))
+      : 0;
 
     // Note: «عدد المناطق المعيّنة» / «إجمالي صفوف المبيعات» / «إجمالي صفوف المرتجعات»
     // were intentionally dropped from the summary per request — only the monetary totals
@@ -2108,6 +2147,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       ['إجمالي قيمة المرتجعات', fmtThousands(totalReturnsVal)],
       ['الصافي',                fmtThousands(totalSalesVal - totalReturnsVal)],
       ['عدد الطلبيات',          orderCount],
+      ...(hasMercatoOrders ? [
+        ['عدد الطلبيات - ميركاتو', mercatoOrderCount] as (string | number)[],
+        ['عدد الطلبيات - المكتب',  officeOrderCount]  as (string | number)[],
+      ] : []),
       [''],
       ['تفصيل الايتمات (النت = المبيع − الإرجاع)'],
       ['الايتم', 'النت مبيع', 'التاركت', 'نسبة التحقيق'],
@@ -2195,6 +2238,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // «المدينة» في ميركاتو = نفس مفهوم المحافظة هناك (راجع mercatoColumnMap:
     // province يطابق أي عمود يحوي «مدين») — تُضم هنا لنفس السبب.
     const PROVINCE_GROUP = ['المحافظة', 'محافظة', 'المحافظه', 'محافظه', 'المدينة', 'مدينة'];
+    // نفس مجموعة الايتم أدناه في ALIAS_GROUPS — راجع نفس التعليق في buildSheet أعلاه.
+    const ITEM_GROUP = ['المادة', 'اسم المادة', 'اسم المادة بالمكتب', 'المنتج', 'اسم المنتج',
+      'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر', 'الايتم', 'ايتم', 'آيتم', 'الآيتم'];
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -2225,9 +2271,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // كانت تظهر عموداً منفصلاً بجانب «المادة» بدل الاندماج معه.
         // «الصنف»/«اسم الصنف» أُزيلا من هنا عمداً: في ميركاتو «الصنف» هو الشركة
         // المصنّعة لا اسم المادة (راجع mercatoColumnMap) — أُضيفا لمجموعة الشركة أدناه.
-        ['المادة', 'اسم المادة', 'اسم المادة بالمكتب', 'المنتج', 'اسم المنتج',
-         'الدواء', 'اسم الدواء', 'المستحضر', 'اسم المستحضر',
-         'الايتم', 'ايتم', 'آيتم', 'الآيتم'],
+        ITEM_GROUP,
         ['الكمية المجانية', 'الكمية المجانيه', 'الكميه المجانية', 'الكميه المجانيه',
          'كمية البونص', 'الكمية البونص', 'كميه البونص', 'البونص'],
         ['الكمية', 'كمية', 'الكميه', 'كميه'],
@@ -2285,6 +2329,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const companyKey  = headers.find(isCompanyKey);
       const itemCodeKey = headers.find(isItemCodeKey);
       const provinceKey = headers.find(h => groupOf(h) === PROVINCE_GROUP);
+      const itemKey     = headers.find(h => groupOf(h) === ITEM_GROUP);
       // «رقم الفاتورة → تاريخ → المندوب → … → ملاحظة» first; unrecognised columns fall
       // after «ملاحظة» instead of appearing in their original raw-file order.
       const finalHeaders = keepSourceOrder(headers);
@@ -2301,6 +2346,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           // عمود «_sheetName» الخام يُطبَّع هنا إلى مصدر الصف الفعلي — راجع نفس التعليق
           // في buildSheet أعلاه (يُستعمل أيضاً لتلوين الصف عبر classifyRowSource).
           if (SHEET_TAG_COL_RE.test(k)) return s.uploadedFile?.sourceSystem === 'mercato' ? 'ميركاتو' : (isRet ? 'ارجاع' : 'مبيع');
+          // اسم الايتم الموحَّد من قاعدة البيانات — راجع نفس التعليق في buildSheet أعلاه.
+          if (k === itemKey) return s.item?.name ?? rawGet(k) ?? '';
           // total-value group is blank on return rows in some source files — fall back to
           // whichever aliased column actually holds the return amount and show it negative
           if (isTotalPriceKey(k)) {
