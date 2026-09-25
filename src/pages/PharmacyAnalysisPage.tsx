@@ -78,15 +78,6 @@ function dayColor(d: number): { bg: string; color: string } {
   if (d < 60)  return { bg: 'var(--c-warning-bg)', color: 'var(--c-warning)' };
   return              { bg: 'var(--c-danger-bg)', color: 'var(--c-danger)' };
 }
-function pillStyle(active: boolean): React.CSSProperties {
-  return {
-    padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-    border: `1.5px solid ${active ? 'var(--c-accent)' : 'var(--c-border)'}`,
-    background: active ? 'var(--c-accent-light)' : '#fff',
-    color: active ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-  };
-}
-
 const TABS = [
   { id: 'pharmacies',   label: 'الصيدليات',  icon: 'pharmacy' },
   { id: 'items',        label: 'الايتمات',   icon: 'drug' },
@@ -710,6 +701,53 @@ export default function PharmacyAnalysisPage() {
             </button>
           ))}
         </div>
+
+        {/* الشركة الرئيسية + المندوب — قائمتان منسدلتان مدمجتان، بلا تلوث بصري */}
+        {tab === 'pharmacies' && (rosterCompanies.length > 0 || rosterReps.length > 0) && (() => {
+          const compactSelect: React.CSSProperties = {
+            fontSize: 11, color: 'var(--c-text-muted)', opacity: 0.85,
+            border: '1px solid var(--c-border)', borderRadius: 6,
+            padding: '4px 6px', background: '#fff', cursor: 'pointer', maxWidth: 128,
+          };
+          const visibleReps = selectedCompanyId === null
+            ? rosterReps
+            : rosterReps.filter(r => r.company?.id === selectedCompanyId);
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 14 }}>
+              {rosterCompanies.length > 0 && (
+                <select
+                  value={selectedCompanyId ?? ''}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setSelectedCompanyId(v ? Number(v) : null);
+                    setSelectedRepId(null); setSelectedRepUserId(null);
+                  }}
+                  style={compactSelect}
+                  title="الشركة الرئيسية"
+                >
+                  <option value="">🏢 كل الشركات</option>
+                  {rosterCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              )}
+              {rosterReps.length > 0 && (rosterCompanies.length === 0 || selectedCompanyId !== null) && (
+                <select
+                  value={selectedRepUserId ?? ''}
+                  onChange={e => {
+                    const rep = visibleReps.find(r => String(r.userId) === e.target.value);
+                    setSelectedRepId(rep?.linkedRepId ?? null);
+                    setSelectedRepUserId(rep ? rep.userId : null);
+                  }}
+                  style={compactSelect}
+                  title="المندوب"
+                >
+                  <option value="">👤 كل المندوبين</option>
+                  {visibleReps.map(r => <option key={r.userId} value={r.userId}>{r.name}</option>)}
+                </select>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Currency toggle — pinned to left */}
         <div style={{ marginRight: 'auto', marginBottom: -2, display: 'flex', alignItems: 'center', gap: 6, paddingBottom: 6 }}>
           {showRateEdit && (
@@ -759,45 +797,6 @@ export default function PharmacyAnalysisPage() {
             </div>
           ) : (
           <>
-          {/* الشركة الرئيسية + المندوب — نفس نمط تحليل الكولات بالضبط: شريط
-              الشركة يظهر فقط لمن يشرف على أكثر من شركة، وشريط المندوب يظهر
-              مباشرة إن كانت شركة واحدة، أو بعد اختيار شركة إن تعددت. */}
-          {rosterCompanies.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Icon name="navCommercial" size={11} /> الشركة الرئيسية
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button onClick={() => { setSelectedCompanyId(null); setSelectedRepId(null); setSelectedRepUserId(null); }} style={pillStyle(selectedCompanyId === null)}>الكل</button>
-                {rosterCompanies.map(c => (
-                  <button key={c.id} onClick={() => { setSelectedCompanyId(c.id); setSelectedRepId(null); setSelectedRepUserId(null); }} style={pillStyle(selectedCompanyId === c.id)}>{c.name}</button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {rosterReps.length > 0 && (rosterCompanies.length === 0 || selectedCompanyId !== null) && (() => {
-            const visibleReps = selectedCompanyId === null
-              ? rosterReps
-              : rosterReps.filter(r => r.company?.id === selectedCompanyId);
-            return (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Icon name="person" size={11} /> المندوب
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => { setSelectedRepId(null); setSelectedRepUserId(null); }} style={pillStyle(selectedRepId === null && selectedRepUserId === null)}>الكل</button>
-                  {visibleReps.map(r => (
-                    <button key={r.userId}
-                      onClick={() => { setSelectedRepId(r.linkedRepId); setSelectedRepUserId(r.userId); }}
-                      style={pillStyle(selectedRepUserId === r.userId)}
-                    >{r.name}</button>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
-
           {/* Toolbar */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={pharmaSearch} onChange={e => onPharmaSearch(e.target.value)}
