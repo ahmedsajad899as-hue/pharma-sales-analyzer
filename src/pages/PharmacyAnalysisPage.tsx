@@ -188,10 +188,10 @@ export default function PharmacyAnalysisPage() {
 
   const searchTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  // حفظ موضع التمرير عند الدخول لتفاصيل صيدلية، واستعادته عند «رجوع» — بدل
-  // بقاء scrollTop الحاوية كما هو فيظهر محتوى مختلف الطول من منتصفه/أسفله.
+  // حفظ موضع التمرير عند الدخول لتفاصيل صيدلية، واستعادته عند «رجوع». .app-main
+  // لا يُمرَّر فعلياً هنا (لا ارتفاع مُقيَّد على .app-shell كما في لوحة السوبر أدمن)
+  // — النافذة/المستند هي التي تُمرَّر، فنتعامل مع window.scrollY لا scrollTop عنصر.
   const savedScrollRef = useRef<number>(0);
-  const getMainEl = () => document.querySelector<HTMLElement>('.app-main');
 
   // ── Wrap the shared hook's file mutators so this page's own tab state resets too ──
   const clearAllData = async () => {
@@ -359,21 +359,18 @@ export default function PharmacyAnalysisPage() {
   // itemName: عند الدخول من مجموعة ايتم، التفاصيل تُقصر على ذلك الايتم وحده —
   // وإلا عُرضت كل ايتمات الصيدلية وضاع سياق الايتم الذي جاء منه المستخدم.
   const openPharma = (name: string, itemName?: string | null) => {
-    if (!selectedPharma) {
-      const main = getMainEl();
-      if (main) savedScrollRef.current = main.scrollTop;
-    }
+    if (!selectedPharma) savedScrollRef.current = window.scrollY;
     setSelectedPharma(name);
     setDetailItem(itemName || null);
     setPharmaDetailLoading(true);
-    requestAnimationFrame(() => requestAnimationFrame(() => { const m = getMainEl(); if (m) m.scrollTop = 0; }));
+    requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, 0)));
     const q = (itemName ? `${fileQuery}&item=${encodeURIComponent(itemName)}` : fileQuery) + rosterFilterQuery;
     fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(name)}${q}`, { headers })
       .then(r => r.json()).then(d => setPharmaDetail(d)).catch(() => {}).finally(() => setPharmaDetailLoading(false));
   };
   const closePharma = () => {
     setSelectedPharma(null); setPharmaDetail(null); setDetailItem(null);
-    requestAnimationFrame(() => requestAnimationFrame(() => { const m = getMainEl(); if (m) m.scrollTop = savedScrollRef.current; }));
+    requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, savedScrollRef.current)));
   };
   const openItem = (name: string) => {
     setSelectedItem(name); setItemDetailLoading(true); setItemDetailDaysSort(null);

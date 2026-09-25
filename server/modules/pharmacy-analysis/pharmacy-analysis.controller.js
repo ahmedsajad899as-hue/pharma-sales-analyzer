@@ -17,21 +17,17 @@ export async function getRoster(req, res, next) {
 }
 
 /**
- * فكّ خانة البحث الحرة إلى حدود مستقلة (تفصلها مسافة — أو فاصلة إن كُتبت
- * لأي سبب) — «ابحث عن أكثر من اسم دفعة واحدة، اترك مسافة واكتب الاسم التالي».
- * كل حدّ يُطابَق OR عبر: اسم الصيدلية/المنطقة/الايتم/المندوب التجاري مباشرة
- * من صف المبيعة، أو اسم «الشركة الرئيسية»/المندوب العلمي عبر فريق المدير
- * (managerRoster) بنفس نطاق الايتمات/المناطق المستعمل في applyRosterFilters
- * أعلاه — مصدر واحد للمنطق، لا نسخة موازية منه.
- *
- * أسماء بها مسافة داخلية (مثل منطقة «شارع كندي») تنقسم هي الأخرى إلى كلماتها
- * — فتُطابَق كل كلمة على حدة (OR)، وهو المطلوب فعلياً هنا: بحث أوسع لا أضيق.
+ * يحوّل قائمة نصوص حدود بحث خام إلى حدود مُحلَّلة: كل نص يُطابَق OR عبر اسم
+ * الصيدلية/المنطقة/الايتم/المندوب التجاري مباشرة من صف المبيعة، أو اسم
+ * «الشركة الرئيسية»/المندوب العلمي عبر فريق المدير (managerRoster) بنفس نطاق
+ * الايتمات/المناطق المستعمل في applyRosterFilters أعلاه — مصدر واحد للمنطق،
+ * لا نسخة موازية منه.
  *
  * @returns {Promise<Array<{term:string, itemIds?: number[]|null, areaIds?: Set<number>}>>}
  *   itemIds غائبة = لم يطابق الحدّ اسم شركة، null = طابق شركة بلا تقييد ايتمات.
  */
-async function resolveSearchTerms(rawSearch, user) {
-  const terms = String(rawSearch || '').split(/[,،\s]+/).map(t => norm(t)).filter(Boolean);
+async function resolveTermsList(rawTerms, user) {
+  const terms = [...new Set(rawTerms.map(t => norm(t)).filter(Boolean))];
   if (terms.length === 0) return [];
 
   const { reps, companies } = await getManagerRoster(user);
@@ -58,6 +54,46 @@ async function resolveSearchTerms(rawSearch, user) {
   }));
 }
 
+/**
+ * فكّ خانة البحث الحرة إلى مرشَّحين: «الأساسي» و«الاحتياطي» عند الحاجة.
+ *
+ * أغلب أسماء الصيدليات/المناطق هنا مكوَّنة من أكثر من كلمة («طريق السلام»،
+ * «حارثية شارع كندي») — فتقسيم كل مسافة إلى حدّ منفصل كان يفكّك اسماً واحداً
+ * صحيحاً إلى كلمات OR مستقلة، فيُغرق نتيجة بحث دقيقة بصفوف غير ذات صلة تحوي
+ * كلمة واحدة من الاسم فقط (وهذا ما شعر المستخدم أنه «خلل»). الحل: نص بلا
+ * فاصلة صريحة يُختبر أولاً كعبارة واحدة كاملة (المرشَّح الأساسي)؛ فإن لم يطابق
+ * أي صف إطلاقاً، عندها فقط يُفكَّك لكلماته كحدود OR مستقلة (المرشَّح
+ * الاحتياطي) — وهذا بالضبط ما يعنيه «أكثر من اسم بمسافة واحدة». فاصلة صريحة
+ * (عربية أو إنجليزية) تبقى نيّة قاطعة بعدة حدود فتُقسَّم عليها فوراً بلا
+ * احتياطي.
+ *
+ * @returns {Promise<{primary: Array, fallback: Array|null}>} كل عنصر بشكل
+ *   resolveTermsList أعلاه.
+ */
+async function resolveSearchCandidates(rawSearch, user) {
+  const raw = String(rawSearch || '').trim();
+  if (!raw) return { primary: [], fallback: null };
+
+  let primaryStrings, fallbackStrings = null;
+  if (/[,،]/.test(raw)) {
+    primaryStrings = raw.split(/[,،]+/);
+  } else if (/\s/.test(raw)) {
+    primaryStrings = [raw];
+    fallbackStrings = raw.split(/\s+/);
+  } else {
+    primaryStrings = [raw];
+  }
+
+  const allResolved = await resolveTermsList([...primaryStrings, ...(fallbackStrings || [])], user);
+  const byTerm = new Map(allResolved.map(r => [r.term, r]));
+  const toResolved = strs => [...new Set(strs.map(s => norm(s)).filter(Boolean))].map(t => byTerm.get(t)).filter(Boolean);
+
+  return {
+    primary:  toResolved(primaryStrings),
+    fallback: fallbackStrings ? toResolved(fallbackStrings) : null,
+  };
+}
+
 /** هل يطابق صف مبيعة واحد أيّاً من حدود البحث (OR بين الحدود، وOR بين حقول كل حدّ)؟ */
 function rowMatchesSearch(s, searchTerms) {
   if (searchTerms.length === 0) return true;
@@ -71,6 +107,15 @@ function rowMatchesSearch(s, searchTerms) {
     if (areaIds && areaIds.has(s.areaId)) return true;
     return false;
   });
+}
+
+/** أسماء الصيدليات التي تطابق حدود البحث (أي صف من صفوفها بأي حقل). */
+function findMatchingPharmaNames(deduped, searchTerms) {
+  const names = new Set();
+  for (const s of deduped) {
+    if (!names.has(s._pharmaName) && rowMatchesSearch(s, searchTerms)) names.add(s._pharmaName);
+  }
+  return names;
 }
 
 // ── GET /api/pharmacy-analysis/pharmacies ─────────────────────
