@@ -92,7 +92,7 @@ interface VisitDoctor {
 }
 interface VisitArea {
   id: number | null; name: string;
-  totalDoctors: number; visitedCount: number; writingCount: number;
+  totalDoctors: number; visitedCount: number; writingCount: number; totalVisits: number;
   doctors: VisitDoctor[];
 }
 
@@ -305,7 +305,7 @@ export default function DoctorsPage() {
 
   // ── Visits analysis ─────────────────────────────────────────
   const [visitAreas, setVisitAreas]         = useState<VisitArea[]>([]);
-  const [noAreaStats, setNoAreaStats]       = useState<{ total: number; visited: number; writing: number }>({ total: 0, visited: 0, writing: 0 });
+  const [noAreaStats, setNoAreaStats]       = useState<{ total: number; visited: number; writing: number; totalVisits: number }>({ total: 0, visited: 0, writing: 0, totalVisits: 0 });
   const [visitLoading, setVisitLoading]     = useState(false);
   const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
   // يمنع تحميل الزيارات بفلتر "الكل" أولاً ثم إعادته فوراً بفلتر الشهر الافتراضي
@@ -458,7 +458,7 @@ export default function DoctorsPage() {
   // ── Visit fetch: abort + cache refs (for instant rep-switching) ────────────
   const visitFetchAbortRef      = useRef<AbortController | null>(null);
   const pharmVisitFetchAbortRef = useRef<AbortController | null>(null);
-  const visitCacheRef      = useRef(new Map<string, { areas: VisitArea[]; noAreaStats: { total: number; visited: number; writing: number } }>());
+  const visitCacheRef      = useRef(new Map<string, { areas: VisitArea[]; noAreaStats: { total: number; visited: number; writing: number; totalVisits: number } }>());
   const pharmVisitCacheRef = useRef(new Map<string, PharmAreaGroup[]>());
 
   // ── Survey pharmacies (for commercial rep) ───────────────────
@@ -694,7 +694,7 @@ export default function DoctorsPage() {
       const j = await r.json();
       console.log('[visitsByArea] status:', r.status, 'response:', j);
       const areas = Array.isArray(j.areas) ? j.areas : [];
-      const stats = j.noAreaStats ?? { total: 0, visited: 0, writing: 0 };
+      const stats = j.noAreaStats ?? { total: 0, visited: 0, writing: 0, totalVisits: 0 };
       setVisitAreas(areas);
       setNoAreaStats(stats);
       visitCacheRef.current.set(cacheKey, { areas, noAreaStats: stats });
@@ -2020,6 +2020,7 @@ export default function DoctorsPage() {
             const total   = visitAreas.reduce((s, a) => s + a.totalDoctors, 0) + noAreaStats.total;
             const visited = visitAreas.reduce((s, a) => s + a.visitedCount, 0) + noAreaStats.visited;
             const writing = visitAreas.reduce((s, a) => s + a.writingCount, 0) + noAreaStats.writing;
+            const totalVisits = visitAreas.reduce((s, a) => s + a.totalVisits, 0) + noAreaStats.totalVisits;
             const pct = total > 0 ? Math.round(visited / total * 100) : 0;
             const sortedAreas = [...visitAreas].sort((a, b) => {
               const pa = a.totalDoctors > 0 ? a.visitedCount / a.totalDoctors : 0;
@@ -2029,10 +2030,10 @@ export default function DoctorsPage() {
             return (
               <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
                 {[
-                  { label: 'إجمالي الأطباء', value: total,   icon: 'doctor' as const,      accent: 'var(--c-accent)',  clickable: 'total' },
-                  { label: 'تمت زيارتهم',    value: visited, icon: 'checkCircle' as const, accent: 'var(--c-success)', clickable: 'visited' },
-                  { label: 'يكتبون الايتم',  value: writing, icon: 'edit' as const,        accent: 'var(--c-purple)',  clickable: 'writing' },
-                  { label: 'نسبة التغطية',   value: `${pct}%`, icon: 'navSalesData' as const, accent: 'var(--c-warning)', clickable: 'coverage' },
+                  { label: 'إجمالي الأطباء', value: total,   icon: 'doctor' as const,      accent: 'var(--c-accent)',  clickable: 'total',   sub: undefined as string | undefined },
+                  { label: 'تمت زيارتهم',    value: visited, icon: 'checkCircle' as const, accent: 'var(--c-success)', clickable: 'visited', sub: totalVisits !== visited ? `${totalVisits} زيارة` : undefined },
+                  { label: 'يكتبون الايتم',  value: writing, icon: 'edit' as const,        accent: 'var(--c-purple)',  clickable: 'writing', sub: undefined as string | undefined },
+                  { label: 'نسبة التغطية',   value: `${pct}%`, icon: 'navSalesData' as const, accent: 'var(--c-warning)', clickable: 'coverage', sub: undefined as string | undefined },
                 ].map(s => {
                   const isActiveCard = s.clickable === 'coverage' ? showCoveragePopup : s.clickable === 'writing' ? showWritingPopup : s.clickable === 'visited' ? showVisitedPopup : s.clickable === 'total' ? showTotalPopup : false;
                   const borderColor  = isActiveCard ? s.accent : 'var(--c-border)';
@@ -2055,6 +2056,7 @@ export default function DoctorsPage() {
                     <div style={{ color: s.accent, display: 'flex', justifyContent: 'center' }}><Icon name={s.icon} size={22} /></div>
                     <div style={{ fontSize: 22, fontWeight: 700, color: s.accent, lineHeight: 1.2 }}>{s.value}</div>
                     <div style={{ fontSize: 12, color: 'var(--c-text-muted)', marginTop: 2 }}>{s.label}</div>
+                    {s.sub && <div style={{ fontSize: 11, color: 'var(--c-text-muted)', marginTop: 1 }}>({s.sub})</div>}
                     {s.clickable && <div style={{ fontSize: 10, color: 'var(--c-accent)', marginTop: 3 }}>▾</div>}
 
                     {/* Visited doctors popup */}

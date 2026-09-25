@@ -104,6 +104,9 @@ export async function visitsByArea(req, res, next) {
       totalDoctors: g.doctors.length,
       visitedCount: g.doctors.filter(d => d.visited).length,
       writingCount: g.doctors.filter(d => d.isWriting).length,
+      // مجموع كل زيارات الأطباء (لا الأطباء المميَّزين فقط) — قد يفوق visitedCount
+      // حين يُزار نفس الطبيب أكثر من مرة (زيارات مكرَّرة فعلاً أو مستورَدة أكثر من مرة).
+      totalVisits: g.doctors.reduce((s, d) => s + (d.visits?.length ?? 0), 0),
     });
 
     // For field reps: all doctors were already fetched by exact areaId - no extra filtering needed
@@ -116,6 +119,7 @@ export async function visitsByArea(req, res, next) {
       total:   noAreaDocs.length,
       visited: noAreaDocs.filter(d => d.visited).length,
       writing: noAreaDocs.filter(d => d.isWriting).length,
+      totalVisits: noAreaDocs.reduce((s, d) => s + (d.visits?.length ?? 0), 0),
     };
 
     res.json({ areas, noAreaStats });
