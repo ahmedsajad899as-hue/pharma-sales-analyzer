@@ -62,10 +62,16 @@ const FEEDBACK_OPTS: { value: string; label: string }[] = [
   { value: 'unavailable',    label: '🚫 غير متوفر' },
 ];
 
-export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
+export default function DoctorVisitsImportModal({ token, onClose, onSaved, initialData, onCancelPending }: {
   token: string;
   onClose: () => void;
   onSaved?: (msg: string) => void;
+  // ملف رفعه بوت تلكرام واستُخرج مسبقاً بالخادم (PendingVisitsImport) — يُملأ
+  // مباشرة بلا رفع/استخراج جديد؛ إغلاق المودال العادي لا يحذفه (يبقى معلَّقاً).
+  initialData?: any;
+  // "إلغاء الملف نهائياً" — يظهر فقط حين جاء من initialData؛ الأب يتولى الحذف
+  // بالخادم وإخفاء الشريط.
+  onCancelPending?: () => void;
 }) {
   const authH = { Authorization: `Bearer ${token}` };
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -133,6 +139,48 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
     XLSX.writeFile(wb, 'نموذج_استيراد_زيارات_الأطباء.xlsx');
   };
 
+  // ملف جاء من تلكرام (PendingVisitsImport) — إغلاق عادي لا يحذفه بالخادم.
+  const [fromPendingImport, setFromPendingImport] = useState(false);
+
+  /** يملأ كل حالات المراجعة من ناتج extractVisitsFromExcel — مشترك بين رفع
+   * ملف جديد (import-extract) وتحميل ملف معلَّق جاهز مسبقاً (initialData). */
+  const applyExtractedData = (data: any) => {
+    const dRows: DoctorRow[] = data.doctorRows ?? [];
+    const pRows: PharmacyRow[] = data.pharmacyRows ?? [];
+    setDocRows(dRows);
+    setPharmRows(pRows);
+    setGridTab(dRows.length > 0 || pRows.length === 0 ? 'doctors' : 'pharmacies');
+    setReps(data.repNames?.reps ?? []);
+    setPendingNames(data.repNames?.pending ?? []);
+    setUnrelatedNames(data.repNames?.unrelated ?? []);
+    setPendingDoctorNames(data.doctorNames?.pending ?? []);
+    setItemOptions(Array.isArray(data.itemOptions) ? data.itemOptions : []);
+    if (dRows.length === 0 && pRows.length === 0) {
+      setInfo('لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب (أو أنه بصيغة معروفة).');
+    } else if (dRows.length > 0) {
+      const uniqueDoctors = new Set(dRows.map(r => r.doctorKey || r.doctorName)).size;
+      setInfo(pRows.length > 0
+        ? `اكتُشف ملف يحتوي زيارات أطباء وصيدليات معاً — ${dRows.length} زيارة طبيب (${uniqueDoctors} طبيب) و${pRows.length} زيارة صيدلية.`
+        : `اكتُشف ${dRows.length} زيارة طبيب (${uniqueDoctors} طبيب).`);
+    }
+    // لا حاجة لمطابقة إضافية إن لم تكن هناك أسماء غير محسومة
+    if ((data.repNames?.pending ?? []).length === 0 && (data.repNames?.unrelated ?? []).length === 0) {
+      setNameApplied(true);
+    }
+    if ((data.doctorNames?.pending ?? []).length === 0) {
+      setDoctorNamesApplied(true);
+    }
+  };
+
+  // ملف معلَّق جاء جاهزاً من تلكرام — يُعبَّأ فور فتح المودال بلا رفع/استخراج جديد.
+  useEffect(() => {
+    if (!initialData) return;
+    setFromPendingImport(true);
+    setFileName(initialData.fileName || 'ملف من تلكرام');
+    applyExtractedData(initialData);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialData]);
+
   const onFile = async (fileList: FileList | null) => {
     const file = fileList?.[0];
     if (!file) return;
@@ -145,32 +193,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
       const res = await fetch(`${API}/api/doctors/visits/import-extract`, { method: 'POST', body: fd, headers: authH });
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || j.message || 'فشل قراءة الملف');
-      const data = j.data;
-      const dRows: DoctorRow[] = data.doctorRows ?? [];
-      const pRows: PharmacyRow[] = data.pharmacyRows ?? [];
-      setDocRows(dRows);
-      setPharmRows(pRows);
-      setGridTab(dRows.length > 0 || pRows.length === 0 ? 'doctors' : 'pharmacies');
-      setReps(data.repNames?.reps ?? []);
-      setPendingNames(data.repNames?.pending ?? []);
-      setUnrelatedNames(data.repNames?.unrelated ?? []);
-      setPendingDoctorNames(data.doctorNames?.pending ?? []);
-      setItemOptions(Array.isArray(data.itemOptions) ? data.itemOptions : []);
-      if (dRows.length === 0 && pRows.length === 0) {
-        setInfo('لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب (أو أنه بصيغة معروفة).');
-      } else if (dRows.length > 0) {
-        const uniqueDoctors = new Set(dRows.map(r => r.doctorKey || r.doctorName)).size;
-        setInfo(pRows.length > 0
-          ? `اكتُشف ملف يحتوي زيارات أطباء وصيدليات معاً — ${dRows.length} زيارة طبيب (${uniqueDoctors} طبيب) و${pRows.length} زيارة صيدلية.`
-          : `اكتُشف ${dRows.length} زيارة طبيب (${uniqueDoctors} طبيب).`);
-      }
-      // لا حاجة لمطابقة إضافية إن لم تكن هناك أسماء غير محسومة
-      if ((data.repNames?.pending ?? []).length === 0 && (data.repNames?.unrelated ?? []).length === 0) {
-        setNameApplied(true);
-      }
-      if ((data.doctorNames?.pending ?? []).length === 0) {
-        setDoctorNamesApplied(true);
-      }
+      applyExtractedData(j.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'تعذّرت قراءة الملف');
     } finally {
@@ -654,7 +677,15 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved }: {
               {saving ? '⏳ جاري الحفظ…' : `💾 حفظ ${readyCount} زيارة`}
             </button>
           )}
-          <button onClick={onClose} style={cancelBtn}>إلغاء</button>
+          <button onClick={onClose} style={cancelBtn}>إغلاق</button>
+          {fromPendingImport && onCancelPending && (
+            <button
+              onClick={() => { if (confirm('إلغاء هذا الملف نهائياً بلا حفظ أي شيء منه؟')) onCancelPending(); }}
+              style={{ ...cancelBtn, color: '#dc2626', borderColor: '#fecaca' }}
+            >
+              🗑️ إلغاء الملف نهائياً
+            </button>
+          )}
         </div>
       </div>
     </div>

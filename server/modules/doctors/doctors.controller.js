@@ -1117,7 +1117,27 @@ export async function commitVisitsImport(req, res, next) {
       fileName: typeof fileName === 'string' ? fileName : '',
       user: req.user,
     });
+    // الملف "استُهلك" — يُحذَف أي تعليق سابق لهذا المستخدم (ملف رفعه بوت تلكرام
+    // وكان بانتظار هذه المراجعة بالذات)؛ best-effort، لا يُسقِط نجاح الحفظ.
+    await prisma.pendingVisitsImport.deleteMany({ where: { userId: req.user.id } }).catch(() => {});
     res.json({ success: true, data: result });
+  } catch (e) { next(e); }
+}
+
+// ── GET /visits/pending-import — ملف زيارات رفعه بوت تلكرام بانتظار المراجعة ──
+export async function getPendingVisitsImport(req, res, next) {
+  try {
+    const row = await prisma.pendingVisitsImport.findUnique({ where: { userId: req.user.id } });
+    if (!row) return res.json({ success: true, data: null });
+    res.json({ success: true, data: { ...row.payload, fileName: row.fileName } });
+  } catch (e) { next(e); }
+}
+
+// ── DELETE /visits/pending-import — إلغاء ملف الزيارات المعلَّق بلا حفظ ────────
+export async function deletePendingVisitsImport(req, res, next) {
+  try {
+    await prisma.pendingVisitsImport.deleteMany({ where: { userId: req.user.id } });
+    res.json({ success: true });
   } catch (e) { next(e); }
 }
 

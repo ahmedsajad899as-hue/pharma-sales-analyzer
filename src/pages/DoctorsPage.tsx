@@ -211,7 +211,29 @@ export default function DoctorsPage() {
   const showVisitsImport    = hasFeature('visits_import');
   const [showVisitsImportModal, setShowVisitsImportModal] = useState(false);
   const [visitsImportMsg, setVisitsImportMsg] = useState('');
+  // ملف زيارات رفعه بوت تلكرام واستُخرج بالخادم (PendingVisitsImport) — بانتظار
+  // مراجعة يدوية هنا؛ null = لا يوجد. visitsModalInitialData يُملأ فقط حين يُفتح
+  // المودال عبر زر "إكمال المطابقة" بالشريط (لا عبر زر الرفع اليدوي العادي).
+  const [pendingVisitsImport, setPendingVisitsImport] = useState<any>(null);
+  const [visitsModalInitialData, setVisitsModalInitialData] = useState<any>(null);
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
+
+  useEffect(() => {
+    if (!showVisitsImport || isFieldRep) return;
+    fetch(`${API}/api/doctors/visits/pending-import`, { headers: H() })
+      .then(r => r.json())
+      .then(j => { if (j.success && j.data) setPendingVisitsImport(j.data); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVisitsImport, isFieldRep]);
+
+  // بلا confirm هنا عمداً — كل نقطة استدعاء (الشريط أو زر المودال الداخلي) تؤكّد بنفسها أولاً.
+  const cancelPendingVisitsImport = async () => {
+    try { await fetch(`${API}/api/doctors/visits/pending-import`, { method: 'DELETE', headers: H() }); } catch { /* best-effort */ }
+    setPendingVisitsImport(null);
+    setVisitsModalInitialData(null);
+    setShowVisitsImportModal(false);
+  };
 
   // ── Tab ──────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive'>(() => {
@@ -1812,13 +1834,36 @@ export default function DoctorsPage() {
           {!isFieldRep && showVisitsImport && (
             <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--c-border)' }}>
               <button
-                onClick={() => setShowVisitsImportModal(true)}
+                onClick={() => { setVisitsModalInitialData(null); setShowVisitsImportModal(true); }}
                 title="استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بدل تسجيلها واحدة تلو الأخرى"
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6,
                   padding: '7px 16px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
                   border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
                 }}><Icon name="import" size={13} /> استيراد من إكسل</button>
+            </div>
+          )}
+
+          {!isFieldRep && showVisitsImport && pendingVisitsImport && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
+              marginBottom: 14, padding: '10px 14px', borderRadius: 10,
+              background: 'var(--c-warning-bg, #fffbeb)', border: '1px solid var(--c-warning-border, #fde68a)',
+            }}>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--c-warning, #92400e)' }}>
+                📋 لديك ملف زيارات مرفوع من تلكرام بانتظار المراجعة — "{pendingVisitsImport.fileName}"
+                {' '}({(pendingVisitsImport.doctorRows?.length ?? 0)} طبيب / {(pendingVisitsImport.pharmacyRows?.length ?? 0)} صيدلية)
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => { setVisitsModalInitialData(pendingVisitsImport); setShowVisitsImportModal(true); }}
+                  style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)' }}
+                >إكمال المطابقة</button>
+                <button
+                  onClick={() => { if (confirm('إلغاء ملف الزيارات المعلَّق نهائياً بلا حفظ أي شيء منه؟')) cancelPendingVisitsImport(); }}
+                  style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1.5px solid #fecaca', background: '#fff', color: '#dc2626' }}
+                >إلغاء الملف</button>
+              </div>
             </div>
           )}
 
@@ -4653,9 +4698,13 @@ export default function DoctorsPage() {
       {showVisitsImportModal && (
         <DoctorVisitsImportModal
           token={token ?? ''}
-          onClose={() => { setShowVisitsImportModal(false); loadVisits(true); loadPharmVisits(true); }}
+          initialData={visitsModalInitialData}
+          onCancelPending={cancelPendingVisitsImport}
+          onClose={() => { setShowVisitsImportModal(false); setVisitsModalInitialData(null); loadVisits(true); loadPharmVisits(true); }}
           onSaved={msg => {
             setVisitsImportMsg(msg);
+            setPendingVisitsImport(null);
+            setVisitsModalInitialData(null);
             loadVisits(true);
             loadPharmVisits(true);
             setTimeout(() => setVisitsImportMsg(''), 15000);

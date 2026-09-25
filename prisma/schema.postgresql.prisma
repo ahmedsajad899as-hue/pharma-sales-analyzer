@@ -76,6 +76,7 @@ model User {
   fmsPlans               FmsPlan[]
   fileShares             FileUserShare[]
   telegramChatLinks      TelegramChatLink[]
+  pendingVisitsImport    PendingVisitsImport?
   pharmacies             Pharmacy[]                  @relation("PharmacyOwner")
   assignedInvoices       CommercialInvoice[]         @relation("AssignedInvoices")
   createdInvoices        CommercialInvoice[]         @relation("CreatedInvoices")
@@ -1698,6 +1699,20 @@ model TelegramChatLink {
 
   @@index([userId])
   @@map("telegram_chat_links")
+}
+
+// ─── ملف زيارات أطباء مرفوع من تلكرام بانتظار مراجعة المستخدم بالتطبيق ──
+// (استُخرج فقط عبر extractVisitsFromExcel، لم يُحفَظ بعد — لا مطابقة/قبول تلقائي)
+model PendingVisitsImport {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique // ملف معلَّق واحد فقط في كل لحظة لكل مستخدم
+  fileName  String
+  payload   Json // ناتج extractVisitsFromExcel كاملاً (doctorRows/pharmacyRows/repNames/...)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("pending_visits_imports")
 }
 
 // ─── Filter Presets ─────────────────────────────────────────
