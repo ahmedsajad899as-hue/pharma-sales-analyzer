@@ -177,13 +177,39 @@ export async function cascadePharmacyNameChange(surveyId, oldNames, newName) {
   return { affectedDoctors, affectedVisits };
 }
 
+// ── pharmacyDedupKey(name, areaName) ─────────────────────────────────────────
+// نفس منطق "تطابق تام" في pharmacyNamesVeryClose (a === b بعد cleanPharmacyName
+// + normalizeStr) لكن هنا لمنع إنشاء تكرار حرفي جديد عند الإضافة/الاستيراد —
+// عمداً تطابق تام فقط (لا fuzzy) كي لا نمنع إدخال صيدليتين مختلفتين فعلاً
+// بأسماء متشابهة. المنطقة جزء من المفتاح: نفس الاسم بمنطقتين مختلفتين قد يكون
+// فرعين حقيقيين لنفس السلسلة، لا تكراراً.
+export function pharmacyDedupKey(name, areaName) {
+  const n = normalizeStr(cleanPharmacyName(name));
+  const a = areaName?.trim() ? normalizeAreaName(areaName) : '';
+  return `${n}::${a}`;
+}
+
 // ── createSurveyPharmacy — إنشاء صيدلية سيرفي موحّد (log + منطقة عامة) ───────
 // نظير createSurveyDoctor: ensureGlobalArea يضمن ظهور صيدلية بمنطقة جديدة
 // كلياً لكل الفرق فوراً (بدل أن تبقى غير مرئية للأبد — كانت هذه الخطوة مفقودة
 // من مسار الصيدليات أصلاً وهي سبب رئيسي لعدم تطابق العدد بين لوحة السوبر أدمن
 // وما يظهر عند المستخدمين).
+// منع تكرار حرفي: صيدلية بنفس الاسم+المنطقة (بعد التطبيع) موجودة مسبقاً في هذا
+// السيرفي تُعاد كما هي (_duplicate: true) بدل إنشاء نسخة جديدة — هذا بالضبط ما
+// كان يُنتج صفوفاً متطابقة تُعرض لاحقاً في «اقتراحات دمج ذكية».
 export async function createSurveyPharmacy(surveyId, fields, editedById, areaCache = null) {
   if (fields.areaName?.trim()) await ensureGlobalArea(fields.areaName, areaCache);
+  const key = pharmacyDedupKey(fields.name, fields.areaName);
+  if (key.split('::')[0]) {
+    const existingRows = await prisma.masterSurveyPharmacy.findMany({
+      where: { surveyId }, select: { id: true, name: true, areaName: true },
+    });
+    const hit = existingRows.find(p => pharmacyDedupKey(p.name, p.areaName) === key);
+    if (hit) {
+      const existing = await prisma.masterSurveyPharmacy.findUnique({ where: { id: hit.id } });
+      return { ...existing, _duplicate: true };
+    }
+  }
   const ph = await prisma.masterSurveyPharmacy.create({
     data: {
       surveyId,
@@ -337,9 +363,13 @@ export function findPharmacyMergeSuggestions(pharmacies, doctorCountByKey = new 
     // انضمّوا للمجموعة عبر حلقة وسيطة بعيدة عنه.
     const kept = members.filter(m => m.id === anchor.id || pharmacyNamesVeryClose(anchor._clean, m._clean));
     if (kept.length < 2) continue;
+    // exact: نفس الاسم بالحرف (بعد التطبيع) مقابل الممثّل — تطابق مؤكَّد 100%
+    // بلا أي تخمين، بخلاف عضو انضم عبر تشابه/خطأ إملائي فقط. تُستخدم في
+    // الواجهة لتمييز الحالتين بصرياً بدل عرضهما بنفس الشكل.
+    const anchorNorm = normalizeStr(anchor._clean);
     suggestions.push({
       suggestedKeepId: anchor.id,
-      members: kept.map(({ _clean, _doctorCount, ...rest }) => ({ ...rest, doctorCount: _doctorCount })),
+      members: kept.map(({ _clean, _doctorCount, ...rest }) => ({ ...rest, doctorCount: _doctorCount, exact: normalizeStr(_clean) === anchorNorm })),
     });
   }
 

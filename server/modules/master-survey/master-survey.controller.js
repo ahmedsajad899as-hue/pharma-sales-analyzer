@@ -458,7 +458,8 @@ export async function addPharmacy(req, res, next) {
     const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الصيدلية مطلوب' });
     const ph = await createSurveyPharmacy(surveyId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, req.user.id);
-    res.status(201).json({ success: true, data: ph });
+    const { _duplicate, ...data } = ph;
+    res.status(_duplicate ? 200 : 201).json({ success: true, data, duplicate: !!_duplicate });
   } catch (e) { next(e); }
 }
 

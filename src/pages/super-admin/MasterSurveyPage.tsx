@@ -37,7 +37,7 @@ interface SurveyPharmacy {
   lastEditedAt?: string; lastEditedBy?: { username: string; displayName?: string };
 }
 interface PharmaSuggestionMember {
-  id: number; name: string; areaName?: string | null; ownerName?: string | null; phone?: string | null; doctorCount: number;
+  id: number; name: string; areaName?: string | null; ownerName?: string | null; phone?: string | null; doctorCount: number; exact?: boolean;
 }
 interface PharmaMergeSuggestion { suggestedKeepId: number; members: PharmaSuggestionMember[]; }
 interface PharmaNameCleanupChange { id: number; oldName: string; newName: string; areaName?: string | null; }
@@ -554,6 +554,7 @@ export default function MasterSurveyPage() {
     setImporting(true);
     const BATCH = 500;
     const total = importPharmasPreview.length;
+    let totalSkipped = 0;
     try {
       for (let i = 0; i < total; i += BATCH) {
         const chunk = importPharmasPreview.slice(i, i + BATCH);
@@ -561,10 +562,13 @@ export default function MasterSurveyPage() {
         const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/bulk`, {
           method: 'POST', headers: H(), body: JSON.stringify({ pharmacies: chunk }),
         });
-        if (!r.ok) { const d = await r.json(); throw new Error(d.error || d.message || `خطأ ${r.status}`); }
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || d.message || `خطأ ${r.status}`);
+        totalSkipped += d.skipped || 0;
       }
       setShowPharmasImport(false); setImportPharmasPreview([]);
       fetchSurvey(selectedSurvey.id);
+      if (totalSkipped > 0) alert(`✅ تم الاستيراد. تم تجاهل ${totalSkipped} صيدلية لأنها مكررة (نفس الاسم والمنطقة موجودان مسبقاً).`);
     } catch (e: any) {
       alert(`❌ فشل الاستيراد: ${e.message}`);
     } finally {
@@ -596,15 +600,19 @@ export default function MasterSurveyPage() {
     if (!confirm(`سيتم إضافة ${newPharmacies.length} صيدلية من بيانات الأطباء. تأكيد؟`)) return;
     setFillingFromDoctors(true);
     const BATCH = 500;
+    let totalSkipped = 0;
     try {
       for (let i = 0; i < newPharmacies.length; i += BATCH) {
         const chunk = newPharmacies.slice(i, i + BATCH);
         const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/bulk`, {
           method: 'POST', headers: H(), body: JSON.stringify({ pharmacies: chunk }),
         });
-        if (!r.ok) { const d = await r.json(); throw new Error(d.error || d.message || `خطأ ${r.status}`); }
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || d.message || `خطأ ${r.status}`);
+        totalSkipped += d.skipped || 0;
       }
       fetchSurvey(selectedSurvey.id);
+      if (totalSkipped > 0) alert(`✅ تمت الإضافة. تم تجاهل ${totalSkipped} صيدلية لأنها مكررة (نفس الاسم والمنطقة موجودان مسبقاً).`);
     } catch (e: any) {
       alert(`❌ فشل: ${e.message}`);
     } finally {
@@ -930,7 +938,11 @@ export default function MasterSurveyPage() {
       setSaving(true);
       const url    = editingPharma ? `/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/${editingPharma.id}` : `/api/super-admin/surveys/${selectedSurvey.id}/pharmacies`;
       const method = editingPharma ? 'PUT' : 'POST';
-      await fetch(url, { method, headers: H(), body: JSON.stringify(form) });
+      const r = await fetch(url, { method, headers: H(), body: JSON.stringify(form) });
+      if (!editingPharma && r.ok) {
+        const d = await r.json().catch(() => null);
+        if (d?.duplicate) alert('⚠️ هذه الصيدلية (نفس الاسم والمنطقة) موجودة مسبقاً في هذا السيرفي — لم تُنشأ نسخة جديدة.');
+      }
       setShowPharmaForm(false); setEditingPharma(null);
       fetchSurvey(selectedSurvey.id);
       setSaving(false);
@@ -1014,6 +1026,8 @@ export default function MasterSurveyPage() {
         <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 800, color: '#1e1b4b' }}>💡 اقتراحات دمج ذكية</h3>
         <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
           مجموعات أسماء متقاربة بالشكل أو النطق (بادئة "صيدلية/ص." مختلفة، خطأ إملائي بسيط، أو تكرار) — راجع كل مجموعة، اختر بالدائرة الاسم الذي يبقى، وحدد بصندوق الاختيار أي الأسماء الأخرى تريد دمجها فعلاً معه (يمكن استثناء أسماء ليست نفس الصيدلية)، أو تجاهل المجموعة كاملة إن لم تكن فعلاً متطابقة.
+          <br />
+          <span style={{ color: '#dc2626', fontWeight: 700 }}>تطابق تام</span> = نفس الاسم بالحرف (دمج آمن 100%)، <span style={{ color: '#d97706', fontWeight: 700 }}>تشابه فقط</span> = اسم قريب وليس مطابقاً — راجعه قبل الدمج.
         </p>
         {pharmaSuggestionsLoading ? <Spinner /> : visible.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>
@@ -1068,6 +1082,9 @@ export default function MasterSurveyPage() {
                               {m.areaName ? `📍 ${m.areaName} · ` : ''}👨‍⚕️ {m.doctorCount} طبيب
                             </div>
                           </div>
+                          {!isKeep && (m.exact
+                            ? <Badge text="تطابق تام" color="#dc2626" />
+                            : <Badge text="تشابه فقط" color="#d97706" />)}
                           {isKeep && <Badge text="يبقى" color="#10b981" />}
                         </label>
                       );

@@ -280,7 +280,12 @@ export default function SurveyPage() {
       const method = isNew ? 'POST' : 'PUT';
       const r = await fetch(url, { method, headers: H(), body: JSON.stringify(form) });
       const d = await r.json();
-      if (d.success) { showToast(<><Icon name="checkCircle" size={14} /> {isNew ? 'تم إضافة الصيدلية' : 'تم التعديل'}</>); reloadSurvey(); onClose(); }
+      if (d.success) {
+        showToast(d.duplicate
+          ? <><Icon name="checkCircle" size={14} /> هذه الصيدلية موجودة مسبقاً (نفس الاسم والمنطقة)</>
+          : <><Icon name="checkCircle" size={14} /> {isNew ? 'تم إضافة الصيدلية' : 'تم التعديل'}</>);
+        reloadSurvey(); onClose();
+      }
       else showToast(d.error ?? 'خطأ');
       setSaving(false);
     };

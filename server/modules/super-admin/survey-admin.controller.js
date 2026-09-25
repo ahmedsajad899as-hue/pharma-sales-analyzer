@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, classifySurveyDoctorRows, saveSurveyDoctorAlias, ensureGlobalArea, loadAreaNameIndex, resolveAreaScope } from '../../lib/surveyDoctors.js';
-import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib, deleteSurveyPharmacy, mergeSurveyPharmacies, findPharmacyMergeSuggestions, previewPharmacyNameCleanup, applyPharmacyNameCleanup } from '../../lib/surveyPharmacies.js';
+import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib, deleteSurveyPharmacy, mergeSurveyPharmacies, findPharmacyMergeSuggestions, previewPharmacyNameCleanup, applyPharmacyNameCleanup, pharmacyDedupKey } from '../../lib/surveyPharmacies.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { areaIdsOfProvinces, areaIdsOfSubProvinces } from '../../lib/areaScope.js';
 
@@ -384,7 +384,8 @@ export async function addPharmacy(req, res, next) {
     const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الصيدلية مطلوب' });
     const ph = await createSurveyPharmacy(surveyId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, req.superAdmin?.id ?? null);
-    res.status(201).json({ success: true, data: ph });
+    const { _duplicate, ...data } = ph;
+    res.status(_duplicate ? 200 : 201).json({ success: true, data, duplicate: !!_duplicate });
   } catch (e) { next(e); }
 }
 
@@ -493,9 +494,22 @@ export async function bulkImportPharmacies(req, res, next) {
     for (const p of pharmacies) {
       if (p.areaName?.trim()) await ensureGlobalArea(p.areaName, areaCache);
     }
-    const data = pharmacies
-      .filter(p => p.name?.trim())
-      .map(p => ({
+    // منع تكرار حرفي: صف بنفس الاسم+المنطقة (بعد التطبيع) موجود مسبقاً في هذا
+    // السيرفي — أو مكرَّر داخل نفس دفعة الاستيراد — يُستبعد بدل إدراج نسخة
+    // جديدة. يسمح بإعادة استيراد نفس ملف السيرفي بأمان دون تكديس صفوف متطابقة
+    // (راجع اقتراحات الدمج الذكي — هذا هو مصدرها الأساسي).
+    const existingRows = await prisma.masterSurveyPharmacy.findMany({
+      where: { surveyId }, select: { name: true, areaName: true },
+    });
+    const seenKeys = new Set(existingRows.map(p => pharmacyDedupKey(p.name, p.areaName)));
+    let skipped = 0;
+    const data = [];
+    for (const p of pharmacies) {
+      if (!p.name?.trim()) continue;
+      const key = pharmacyDedupKey(p.name, p.areaName);
+      if (seenKeys.has(key)) { skipped++; continue; }
+      seenKeys.add(key);
+      data.push({
         surveyId,
         name:         p.name.trim(),
         ownerName:    p.ownerName    || null,
@@ -504,9 +518,10 @@ export async function bulkImportPharmacies(req, res, next) {
         address:      p.address      || null,
         areaName:     p.areaName     || null,
         notes:        p.notes        || null,
-      }));
-    const result = await prisma.masterSurveyPharmacy.createMany({ data });
-    res.status(201).json({ success: true, count: result.count });
+      });
+    }
+    const result = data.length ? await prisma.masterSurveyPharmacy.createMany({ data }) : { count: 0 };
+    res.status(201).json({ success: true, count: result.count, skipped });
   } catch (e) { next(e); }
 }
 
