@@ -228,8 +228,9 @@ export default function PharmacyAnalysisPage() {
     return () => { delete (window as any).__pharmNetDigest; };
   }, [files, selFiles, pharmacies, items]);
 
-  // بنفس صيغة fileQuery — تُلحَق باستدعاءات الصيدليات (القائمة والتفاصيل) كي
-  // يتّسق نطاق الايتمات بينهما (راجع applyRosterFilters في الخادم).
+  // بنفس صيغة fileQuery — تُلحَق باستدعاءات التبويبات الثلاثة كلها (صيدليات/
+  // ايتمات/تنبيهات، قائمة وتفاصيل) كي يتّسق نطاق الايتمات بينها (راجع
+  // applyRosterFilters في الخادم).
   const rosterFilterQuery =
     (selectedCompanyId != null ? `&companyId=${selectedCompanyId}` : '') +
     (selectedRepId     != null ? `&repId=${selectedRepId}`         : '') +
@@ -310,15 +311,20 @@ export default function PharmacyAnalysisPage() {
   const loadAlerts = useCallback(() => {
     if (selFiles.size === 0) { setAlerts([]); setAlertsLoading(false); return; }
     setAlertsLoading(true);
-    fetch(`${API}/api/pharmacy-analysis/alerts${fileQuery}&days=${alertDays}`, { headers })
+    fetch(`${API}/api/pharmacy-analysis/alerts${fileQuery}&days=${alertDays}${rosterFilterQuery}`, { headers })
       .then(r => r.json()).then(d => setAlerts(d.alerts || [])).catch(() => {}).finally(() => setAlertsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileIdsParam, alertDays, token]);
+  }, [fileIdsParam, alertDays, token, rosterFilterQuery]);
 
   useEffect(() => { if (tab === 'pharmacies') loadPharmacies(); }, [fileIdsParam]);
-  useEffect(() => { if (tab === 'pharmacies') loadPharmacies(); }, [rosterFilterQuery]);
   useEffect(() => { if (tab === 'items')      loadItems();      }, [fileIdsParam]);
   useEffect(() => { if (tab === 'alerts')     loadAlerts();     }, [fileIdsParam, alertDays]);
+  useEffect(() => {
+    if (tab === 'pharmacies') loadPharmacies();
+    else if (tab === 'items') loadItems();
+    else if (tab === 'alerts') loadAlerts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rosterFilterQuery]);
   useEffect(() => { if (tab === 'alerts' && !alertSettings) loadAlertSettings(); }, [tab]);
   useEffect(() => {
     if (tab === 'pharmacies') loadPharmacies();
@@ -342,13 +348,13 @@ export default function PharmacyAnalysisPage() {
   // أي تغيير في البحث/الترتيب/المدة يبدأ العرض من أول صفحة
   useEffect(() => { setAlertsShown(ALERTS_PAGE); }, [alertSearch, alertSortCol, alertSortDir, alertDays, fileIdsParam]);
 
-  // تغيّر اختيار الملفات ⇒ الصفوف المحمّلة لكل ايتم لم تعد صالحة. تُطوى
-  // المجموعات أيضاً وإلا بقيت مجموعة مفتوحة بلا صفوف ولا إعادة جلب.
+  // تغيّر اختيار الملفات أو الشركة/المندوب ⇒ الصفوف المحمّلة لكل ايتم لم تعد
+  // صالحة. تُطوى المجموعات أيضاً وإلا بقيت مجموعة مفتوحة بلا صفوف ولا إعادة جلب.
   useEffect(() => {
     setItemGroupRows({});
     if (groupBy === 'item') setCollapsedGroups(new Set(items.map(i => i.name)));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileIdsParam]);
+  }, [fileIdsParam, rosterFilterQuery]);
 
   // itemName: عند الدخول من مجموعة ايتم، التفاصيل تُقصر على ذلك الايتم وحده —
   // وإلا عُرضت كل ايتمات الصيدلية وضاع سياق الايتم الذي جاء منه المستخدم.
@@ -371,7 +377,7 @@ export default function PharmacyAnalysisPage() {
   };
   const openItem = (name: string) => {
     setSelectedItem(name); setItemDetailLoading(true); setItemDetailDaysSort(null);
-    fetch(`${API}/api/pharmacy-analysis/item/${encodeURIComponent(name)}${fileQuery}`, { headers })
+    fetch(`${API}/api/pharmacy-analysis/item/${encodeURIComponent(name)}${fileQuery}${rosterFilterQuery}`, { headers })
       .then(r => r.json()).then(d => setItemDetail(d)).catch(() => {}).finally(() => setItemDetailLoading(false));
   };
 
@@ -383,7 +389,7 @@ export default function PharmacyAnalysisPage() {
   // صيدليات ايتم واحد — نفس مصدر تبويب «الايتمات» (بلا سقف على عدد الصيدليات).
   const loadItemGroup = useCallback((itemName: string) => {
     setItemGroupLoading(prev => { const s = new Set(prev); s.add(itemName); return s; });
-    fetch(`${API}/api/pharmacy-analysis/item/${encodeURIComponent(itemName)}${fileQuery}`, { headers })
+    fetch(`${API}/api/pharmacy-analysis/item/${encodeURIComponent(itemName)}${fileQuery}${rosterFilterQuery}`, { headers })
       .then(r => r.json())
       .then(d => {
         const now = Date.now();
@@ -407,7 +413,7 @@ export default function PharmacyAnalysisPage() {
       .catch(() => {})
       .finally(() => setItemGroupLoading(prev => { const s = new Set(prev); s.delete(itemName); return s; }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileQuery, token]);
+  }, [fileQuery, token, rosterFilterQuery]);
 
   const toggleGroup = (key: string) => {
     const wasCollapsed = collapsedGroups.has(key);
