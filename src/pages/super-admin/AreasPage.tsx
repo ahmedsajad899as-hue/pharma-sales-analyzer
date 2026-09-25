@@ -434,7 +434,25 @@ export default function AreasPage() {
               )}
             </span>
 
-            {/* فصل منطقة مندمجة خطأً — يظهر فقط إن كانت عليها بشارة تعارض محافظة */}
+            {/* حسم تعارض المحافظة — ثلاث خيارات تظهر فقط إن كانت على المنطقة بشارة تعارض */}
+            {a.provinceConflict && (() => {
+              const currentProvinceName = provinces.find(p => p.id === a.provinceId)?.name ?? '؟';
+              const conflictProvince = provinces.find(p => p.name === a.provinceConflict);
+              return (
+                <>
+                  <button onClick={() => assignProvince([a.id], a.provinceId)} disabled={busy}
+                    title={`تجاهل التعارض — إبقِ "${a.name}" بكامل بياناتها في «${currentProvinceName}» كما هي، بلا أي نقل بيانات`}
+                    style={{ ...btnStyle('#0d9488', true), fontSize: 11, padding: '3px 8px' }}>📌 تثبيت بـ{currentProvinceName}</button>
+                  {conflictProvince && (
+                    <button onClick={() => assignProvince([a.id], conflictProvince.id)} disabled={busy}
+                      title={`انقل "${a.name}" بكامل بياناتها إلى «${a.provinceConflict}» — استخدمه فقط إن كانت كل بياناتها فعلاً تعود لهذه المحافظة، وليس مكاناً مختلفاً مندمجاً معها`}
+                      style={{ ...btnStyle('#4f46e5', true), fontSize: 11, padding: '3px 8px' }}>↔️ نقل لـ{a.provinceConflict}</button>
+                  )}
+                </>
+              );
+            })()}
+
+            {/* فصل منطقة مندمجة خطأً — لمكانين حقيقيين مختلفين اندمجا بصفّ واحد (خلافاً لـ"نقل" الذي يحرّك كل البيانات معاً) */}
             {a.provinceConflict && (openSplitPicker === a.id ? (
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 <input type="text" autoFocus disabled={busy} value={splitName}
@@ -599,7 +617,7 @@ export default function AreasPage() {
 
       {conflictCount > 0 && (
         <div style={{ marginBottom: 12, border: '1px solid #fca5a5', background: '#fef2f2', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#991b1b' }}>
-          ⚠️ <strong>{conflictCount}</strong> منطقة ورد اسمها في ملف بمحافظة تختلف عن المحفوظة — غالباً مكانان مختلفان اندمجا خطأً بنفس الاسم (مثل "العامرية" بغداد و"عامرية الفلوجة" بالأنبار). اضغط <b>✂️ فصل</b> بجانب المنطقة لفصل بيانات المحافظة الأخرى إلى منطقة جديدة، أو زر المحافظة 🗺️ إن كانت فعلاً نفس المكان.
+          ⚠️ <strong>{conflictCount}</strong> منطقة ورد اسمها في ملف بمحافظة تختلف عن المحفوظة. ثلاثة خيارات بجانب المنطقة: <b>📌 تثبيت</b> يتجاهل التعارض ويُبقيها كما هي بلا نقل بيانات، <b>↔️ نقل</b> يحرّك كل بياناتها للمحافظة الأخرى (فقط إن كان الاسم يمثّل مكاناً واحداً وكانت محافظته المحفوظة خطأً)، و<b>✂️ فصل</b> عند وجود مكانَين حقيقيَّين مختلفَين اندمجا بنفس الاسم (مثل "العامرية" بغداد و"عامرية الفلوجة" بالأنبار) — يُنشئ منطقة جديدة منفصلة وينقل إليها فقط الصفوف المؤكَّدة من المحافظة الأخرى.
         </div>
       )}
 
