@@ -257,11 +257,11 @@ export default function PharmacyAnalysisPage() {
   const loadItems = useCallback((search = itemSearch) => {
     if (selFiles.size === 0) { setItems([]); setItemsLoading(false); return; }
     setItemsLoading(true);
-    const q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '');
+    const q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '') + rosterFilterQuery;
     fetch(`${API}/api/pharmacy-analysis/items${q}`, { headers })
       .then(r => r.json()).then(d => setItems(d.items || [])).catch(() => {}).finally(() => setItemsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileIdsParam, itemSearch, token]);
+  }, [fileIdsParam, itemSearch, token, rosterFilterQuery]);
 
   const loadAlertSettings = useCallback(() => {
     fetch(`${API}/api/pharmacy-analysis/alert-settings`, { headers })
@@ -716,8 +716,10 @@ export default function PharmacyAnalysisPage() {
           ))}
         </div>
 
-        {/* الشركة الرئيسية + المندوب — قائمتان منسدلتان مدمجتان، بلا تلوث بصري */}
-        {tab === 'pharmacies' && (rosterCompanies.length > 0 || rosterReps.length > 0) && (() => {
+        {/* الشركة الرئيسية + المندوب — قائمتان منسدلتان مدمجتان، بلا تلوث بصري.
+            مشتركتان بين التبويبات الثلاثة (صيدليات/ايتمات/تنبيهات): نفس الاختيار
+            يقصر بيانات أيٍّ منها على الشركة/المندوب المختار. */}
+        {(rosterCompanies.length > 0 || rosterReps.length > 0) && (() => {
           const compactSelect: React.CSSProperties = {
             fontSize: 11, color: 'var(--c-text-muted)', opacity: 0.85,
             border: '1px solid var(--c-border)', borderRadius: 6,
@@ -735,6 +737,7 @@ export default function PharmacyAnalysisPage() {
                     const v = e.target.value;
                     setSelectedCompanyId(v ? Number(v) : null);
                     setSelectedRepId(null); setSelectedRepUserId(null);
+                    setSelectedPharma(null); setSelectedItem(null);
                   }}
                   style={compactSelect}
                   title="الشركة الرئيسية"
@@ -750,6 +753,7 @@ export default function PharmacyAnalysisPage() {
                     const rep = visibleReps.find(r => String(r.userId) === e.target.value);
                     setSelectedRepId(rep?.linkedRepId ?? null);
                     setSelectedRepUserId(rep ? rep.userId : null);
+                    setSelectedPharma(null); setSelectedItem(null);
                   }}
                   style={compactSelect}
                   title="المندوب"
@@ -814,8 +818,8 @@ export default function PharmacyAnalysisPage() {
           {/* Toolbar */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={pharmaSearch} onChange={e => onPharmaSearch(e.target.value)}
-              placeholder="بحث ذكي: صيدلية، منطقة، ايتم، مندوب، شركة... (افصل بفاصلة للبحث عن أكثر من اسم)"
-              title="يمكنك كتابة أكثر من اسم مفصولاً بفاصلة (,) — يُبحث في اسم الصيدلية والمنطقة والايتم والمندوب التجاري والمندوب العلمي والشركة الرئيسية معاً"
+              placeholder="بحث ذكي: صيدلية، منطقة، ايتم، مندوب، شركة... (اترك مسافة بين كل اسم واسم)"
+              title="يمكنك كتابة أكثر من اسم — بينها مسافة فقط — ويُبحث في اسم الصيدلية والمنطقة والايتم والمندوب التجاري والمندوب العلمي والشركة الرئيسية معاً"
               style={{ flex: 1, minWidth: 200, maxWidth: 420, padding: '7px 12px', borderRadius: 6, border: '1px solid var(--c-border)', fontSize: 12, background: '#fff' }} />
 
             {/* Group by */}

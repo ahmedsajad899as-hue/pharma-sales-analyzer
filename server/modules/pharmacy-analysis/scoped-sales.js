@@ -8,7 +8,7 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import { buildItemScopeFilter } from '../../lib/itemScope.js';
+import { buildItemScopeFilter, resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { resolveFileScope } from '../../lib/fileScope.js';
 
 /** تطبيع عربي للمطابقة الضبابية. */
@@ -150,4 +150,80 @@ export async function getScopedSales(userId, fileIds) {
   promise.catch(() => salesCache.delete(key)); // لا تُخزَّن نتيجة فاشلة
   setTimeout(() => { if (salesCache.get(key) === entry) salesCache.delete(key); }, SALES_CACHE_TTL_MS + 2000);
   return promise;
+}
+
+/**
+ * ايتمات نطاق «شركة رئيسية» بعينها: مدير الشركة (company_manager) صاحب
+ * التعيين الأساسي (isPrimary) هو مصدر UserItemAssignment — لا مطابقة اسم
+ * الشركة في عمود الإكسل. مُستخرَجة لتُستعمل من applyRosterFilters (اختيار
+ * الشريط) ومن resolveSearchTerms في الكنترولر (كتابة اسم الشركة في خانة
+ * البحث) معاً.
+ *
+ * @returns {Promise<{valid: boolean, itemIds: number[]|null}>} valid=false يعني
+ *   شركة بلا مدير قابل للتحديد؛ itemIds=null (مع valid=true) يعني بلا تقييد.
+ */
+export async function resolveCompanyItemScope(companyId) {
+  const mgrAssignment = await prisma.userCompanyAssignment.findFirst({
+    where: { companyId, isPrimary: true, user: { role: 'company_manager', isActive: true } },
+    select: { userId: true },
+  });
+  if (!mgrAssignment) return { valid: false, itemIds: null };
+  const itemIds = await resolveEffectiveItemIds(mgrAssignment.userId);
+  return { valid: true, itemIds };
+}
+
+/**
+ * مناطق «مندوب علمي» بعينه — بنفس منطق توسيع الاسم المطبَّع المستخدم في
+ * resolveSciRepSales، لأن نفس المنطقة قد تتكرر بمعرّفات مختلفة عبر
+ * الحسابات/الملفات (راجع مذكرة duplicate-area-bug). مُستخرَجة لنفس سبب
+ * resolveCompanyItemScope أعلاه.
+ */
+export async function resolveRepAreaScopeIds(repId) {
+  const areaLinks = await prisma.scientificRepArea.findMany({ where: { scientificRepId: repId }, select: { areaId: true } });
+  const directIds = areaLinks.map(a => a.areaId);
+  const areaIdSet = new Set(directIds);
+  if (directIds.length > 0) {
+    const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+    const directSet = new Set(directIds);
+    const assignedNorms = new Set(allAreas.filter(a => directSet.has(a.id)).map(a => norm(a.name)));
+    for (const a of allAreas) if (assignedNorms.has(norm(a.name))) areaIdSet.add(a.id);
+  }
+  return areaIdSet;
+}
+
+/**
+ * فلترة «الشركة الرئيسية»/«المندوب» على صفوف Sale المُحمَّلة مسبقاً (getScopedSales).
+ *
+ * كل «شركة» في الشريط هي نطاق مدير شركة (company_manager) بعينه ضمن نفس
+ * المكتب — لا نص «الشركة» الحر في عمود الإكسل. اختيار مندوب دون شركة (حسابات
+ * بلا هيكل مكتب) يستعمل ايتمات المندوب نفسه.
+ *
+ * مشتركة بين تبويبات الصيدليات/الايتمات/التنبيهات كلها (وحساب التنبيهات
+ * التلقائية في pharmacy-alerts.service.js) — نفس الشريط، نفس منطق النطاق، لا
+ * نسخة موازية لكل تبويب.
+ *
+ * @param {Array} sales
+ * @param {{companyId?: number|null, repId?: number|null, repUserId?: number|null}} opts
+ */
+export async function applyRosterFilters(sales, { companyId, repId, repUserId }) {
+  let allowedItemIds = null; // null = بلا تقييد
+  if (companyId) {
+    const scope = await resolveCompanyItemScope(companyId);
+    if (!scope.valid) return []; // شركة بلا مدير قابل للتحديد — لا نُظهر بيانات غير موثوقة النطاق
+    allowedItemIds = scope.itemIds;
+  } else if (repUserId) {
+    allowedItemIds = await resolveEffectiveItemIds(repUserId);
+  }
+
+  if (allowedItemIds) { // null = بلا تقييد (كل الايتمات)
+    const idSet = new Set(allowedItemIds);
+    sales = sales.filter(s => idSet.has(s.itemId));
+  }
+
+  if (repId) {
+    const areaIdSet = await resolveRepAreaScopeIds(repId);
+    sales = sales.filter(s => areaIdSet.has(s.areaId));
+  }
+
+  return sales;
 }

@@ -6,7 +6,7 @@
  * اختلافاً صامتاً بين ما يراه المستخدم وما يصله كإشعار.
  */
 
-import { norm, getScopedSales, dedupCrossFile } from './scoped-sales.js';
+import { norm, getScopedSales, dedupCrossFile, applyRosterFilters } from './scoped-sales.js';
 
 export { norm };
 
@@ -25,16 +25,19 @@ export function alertKeyOf(pharmaName, itemName) {
  * (صيدلية، ايتم، تاريخ، كمية، قيمة) — نفس ملفٍ مرفوع مرتين لا يضاعف العدّ.
  *
  * @param {number} userId        مالك الملفات
- * @param {{ fileIds?: string|null, thresholdDays?: number }} opts
+ * @param {{ fileIds?: string|null, thresholdDays?: number, companyId?: number|null, repId?: number|null, repUserId?: number|null }} opts
  * @returns {Promise<Array>} مرتبة تنازلياً حسب الأيام منذ آخر طلبية
  */
 export async function computePharmacyAlerts(userId, opts = {}) {
-  const { fileIds = null, thresholdDays = 30 } = opts;
+  const { fileIds = null, thresholdDays = 30, companyId = null, repId = null, repUserId = null } = opts;
 
   // نفس المُحمِّل المشترك مع تبويبَي الصيدليات والايتمات: استعلام واحد مخزَّن
   // مؤقتاً للنطاق بدل استعلام ثالث مستقل (كان يجلب rawData لكل صف أيضاً).
   const tStart = Date.now();
-  const sales = await getScopedSales(userId, fileIds);
+  const sales0 = await getScopedSales(userId, fileIds);
+  // نفس فلترة «الشركة الرئيسية»/المندوب المستعملة في تبويبَي الصيدليات
+  // والايتمات — شريط الاختيار واحد في الواجهة يخدم التبويبات الثلاثة كلها.
+  const sales = await applyRosterFilters(sales0, { companyId, repId, repUserId });
   const tLoad = Date.now();
 
   // التكرار يُطوى عبر الملفات المتداخلة فقط — كانت النسخة السابقة تُسقط أي

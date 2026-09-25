@@ -1,8 +1,9 @@
-import prisma from '../../lib/prisma.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
-import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { computePharmacyAlerts } from './pharmacy-alerts.service.js';
-import { norm, dedupCrossFile, getScopedSales } from './scoped-sales.js';
+import {
+  norm, dedupCrossFile, getScopedSales,
+  resolveCompanyItemScope, resolveRepAreaScopeIds, applyRosterFilters,
+} from './scoped-sales.js';
 
 // ── GET /api/pharmacy-analysis/roster ──────────────────────────
 // «الشركة الرئيسية ← المندوب» — نفس فريق المدير المعروض في تحليل الكولات
@@ -16,89 +17,21 @@ export async function getRoster(req, res, next) {
 }
 
 /**
- * ايتمات نطاق «شركة رئيسية» بعينها: مدير الشركة (company_manager) صاحب
- * التعيين الأساسي (isPrimary) هو مصدر UserItemAssignment — لا مطابقة اسم
- * الشركة في عمود الإكسل. مُستخرَجة لتُستعمل من applyRosterFilters (اختيار
- * الشريط) ومن resolveSearchTerms (كتابة اسم الشركة في خانة البحث) معاً.
+ * فكّ خانة البحث الحرة إلى حدود مستقلة (تفصلها مسافة — أو فاصلة إن كُتبت
+ * لأي سبب) — «ابحث عن أكثر من اسم دفعة واحدة، اترك مسافة واكتب الاسم التالي».
+ * كل حدّ يُطابَق OR عبر: اسم الصيدلية/المنطقة/الايتم/المندوب التجاري مباشرة
+ * من صف المبيعة، أو اسم «الشركة الرئيسية»/المندوب العلمي عبر فريق المدير
+ * (managerRoster) بنفس نطاق الايتمات/المناطق المستعمل في applyRosterFilters
+ * أعلاه — مصدر واحد للمنطق، لا نسخة موازية منه.
  *
- * @returns {Promise<{valid: boolean, itemIds: number[]|null}>} valid=false يعني
- *   شركة بلا مدير قابل للتحديد؛ itemIds=null (مع valid=true) يعني بلا تقييد.
- */
-async function resolveCompanyItemScope(companyId) {
-  const mgrAssignment = await prisma.userCompanyAssignment.findFirst({
-    where: { companyId, isPrimary: true, user: { role: 'company_manager', isActive: true } },
-    select: { userId: true },
-  });
-  if (!mgrAssignment) return { valid: false, itemIds: null };
-  const itemIds = await resolveEffectiveItemIds(mgrAssignment.userId);
-  return { valid: true, itemIds };
-}
-
-/**
- * مناطق «مندوب علمي» بعينه — بنفس منطق توسيع الاسم المطبَّع المستخدم في
- * resolveSciRepSales، لأن نفس المنطقة قد تتكرر بمعرّفات مختلفة عبر
- * الحسابات/الملفات (راجع مذكرة duplicate-area-bug). مُستخرَجة لنفس سبب
- * resolveCompanyItemScope أعلاه.
- */
-async function resolveRepAreaScopeIds(repId) {
-  const areaLinks = await prisma.scientificRepArea.findMany({ where: { scientificRepId: repId }, select: { areaId: true } });
-  const directIds = areaLinks.map(a => a.areaId);
-  const areaIdSet = new Set(directIds);
-  if (directIds.length > 0) {
-    const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-    const directSet = new Set(directIds);
-    const assignedNorms = new Set(allAreas.filter(a => directSet.has(a.id)).map(a => norm(a.name)));
-    for (const a of allAreas) if (assignedNorms.has(norm(a.name))) areaIdSet.add(a.id);
-  }
-  return areaIdSet;
-}
-
-/**
- * فلترة «الشركة الرئيسية»/«المندوب» على صفوف Sale المُحمَّلة مسبقاً (getScopedSales).
- *
- * كل «شركة» في الشريط هي نطاق مدير شركة (company_manager) بعينه ضمن نفس
- * المكتب — لا نص «الشركة» الحر في عمود الإكسل. اختيار مندوب دون شركة (حسابات
- * بلا هيكل مكتب) يستعمل ايتمات المندوب نفسه.
- *
- * @param {Array} sales
- * @param {{companyId?: number|null, repId?: number|null, repUserId?: number|null}} opts
- */
-async function applyRosterFilters(sales, { companyId, repId, repUserId }) {
-  let allowedItemIds = null; // null = بلا تقييد
-  if (companyId) {
-    const scope = await resolveCompanyItemScope(companyId);
-    if (!scope.valid) return []; // شركة بلا مدير قابل للتحديد — لا نُظهر بيانات غير موثوقة النطاق
-    allowedItemIds = scope.itemIds;
-  } else if (repUserId) {
-    allowedItemIds = await resolveEffectiveItemIds(repUserId);
-  }
-
-  if (allowedItemIds) { // null = بلا تقييد (كل الايتمات)
-    const idSet = new Set(allowedItemIds);
-    sales = sales.filter(s => idSet.has(s.itemId));
-  }
-
-  if (repId) {
-    const areaIdSet = await resolveRepAreaScopeIds(repId);
-    sales = sales.filter(s => areaIdSet.has(s.areaId));
-  }
-
-  return sales;
-}
-
-/**
- * فكّ خانة البحث الحرة إلى حدود مستقلة (يفصلها الفاصلة العربية أو
- * الإنجليزية) — «ابحث عن أكثر من اسم دفعة واحدة». كل حدّ يُطابَق OR عبر: اسم
- * الصيدلية/المنطقة/الايتم/المندوب التجاري مباشرة من صف المبيعة، أو اسم
- * «الشركة الرئيسية»/المندوب العلمي عبر فريق المدير (managerRoster) بنفس نطاق
- * الايتمات/المناطق المستعمل في applyRosterFilters أعلاه — مصدر واحد للمنطق،
- * لا نسخة موازية منه.
+ * أسماء بها مسافة داخلية (مثل منطقة «شارع كندي») تنقسم هي الأخرى إلى كلماتها
+ * — فتُطابَق كل كلمة على حدة (OR)، وهو المطلوب فعلياً هنا: بحث أوسع لا أضيق.
  *
  * @returns {Promise<Array<{term:string, itemIds?: number[]|null, areaIds?: Set<number>}>>}
  *   itemIds غائبة = لم يطابق الحدّ اسم شركة، null = طابق شركة بلا تقييد ايتمات.
  */
 async function resolveSearchTerms(rawSearch, user) {
-  const terms = String(rawSearch || '').split(/[,،]+/).map(t => norm(t)).filter(Boolean);
+  const terms = String(rawSearch || '').split(/[,،\s]+/).map(t => norm(t)).filter(Boolean);
   if (terms.length === 0) return [];
 
   const { reps, companies } = await getManagerRoster(user);
@@ -325,11 +258,15 @@ export async function pharmacyDetail(req, res, next) {
 // ── GET /api/pharmacy-analysis/items ─────────────────────────
 export async function listItems(req, res, next) {
   try {
-    const userId  = req.user.id;
-    const fileIds = req.query.fileIds || null;
-    const search  = req.query.search ? norm(req.query.search) : null;
+    const userId    = req.user.id;
+    const fileIds   = req.query.fileIds || null;
+    const search    = req.query.search ? norm(req.query.search) : null;
+    const companyId = req.query.companyId ? Number(req.query.companyId) : null;
+    const repId     = req.query.repId ? Number(req.query.repId) : null;
+    const repUserId = req.query.repUserId ? Number(req.query.repUserId) : null;
 
-    const sales = await getScopedSales(userId, fileIds);
+    const sales0 = await getScopedSales(userId, fileIds);
+    const sales  = await applyRosterFilters(sales0, { companyId, repId, repUserId });
 
     const map = new Map(); // itemName → { pharmacies, totalQty, totalValue, ... }
     const deduped = dedupCrossFile(
@@ -376,8 +313,12 @@ export async function itemDetail(req, res, next) {
     const userId     = req.user.id;
     const itemQuery  = norm(req.params.name);
     const fileIds    = req.query.fileIds || null;
+    const companyId  = req.query.companyId ? Number(req.query.companyId) : null;
+    const repId      = req.query.repId ? Number(req.query.repId) : null;
+    const repUserId  = req.query.repUserId ? Number(req.query.repUserId) : null;
 
-    const sales = await getScopedSales(userId, fileIds);
+    const sales0 = await getScopedSales(userId, fileIds);
+    const sales  = await applyRosterFilters(sales0, { companyId, repId, repUserId });
 
     const filteredRows = sales.filter(s => s._normItem.includes(itemQuery));
 
@@ -449,6 +390,9 @@ export async function getAlerts(req, res, next) {
     const alerts = await computePharmacyAlerts(req.user.id, {
       fileIds: req.query.fileIds || null,
       thresholdDays,
+      companyId: req.query.companyId ? Number(req.query.companyId) : null,
+      repId:     req.query.repId ? Number(req.query.repId) : null,
+      repUserId: req.query.repUserId ? Number(req.query.repUserId) : null,
     });
     res.json({ alerts, threshold: thresholdDays, total: alerts.length });
   } catch (e) { next(e); }
