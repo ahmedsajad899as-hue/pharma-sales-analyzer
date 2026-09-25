@@ -102,27 +102,58 @@ const sanitizeSheetName = (name: string): string => {
 };
 
 /* Apply the shared export look (teal header, borders, column width) to a freshly-built
-   worksheet. `aoa` is the same array-of-arrays used to build `ws`. Data rows are plain
-   white — no banding. */
+   worksheet. `aoa` is the same array-of-arrays used to build `ws`. Data rows are tinted
+   by source (see classifyRowSource below) — plain white when no source column exists. */
 const HEADER_FILL = 'FF2F8F8F';
 const BORDER_RGB  = 'FFB9C6C6';
+
+/* تمييز كل صف بلون خفيف حسب مصدره: ميركاتو / مبيع مكتب / ارجاع مكتب. يُقرأ من عمود
+   «_sheetName» الخام نفسه — buildSheet/buildMergedSheet يطبّعان قيمته الآن إلى واحدة
+   من "ميركاتو"/"مبيع"/"ارجاع" (بدل اسم شيت الملف الأصلي الحرفي مثل "Sheet1")، فيصير
+   هذا العمود مصدر الحقيقة لكل من العرض والتلوين معاً. ألوان فاتحة جداً كي تبقى العين
+   مرتاحة (لا تلوّث بصري) — RGB مطابق بين نسخة Excel (ARGB) ونسخة الشاشة (CSS). */
+type RowSourceKind = 'mercato' | 'officeSale' | 'officeReturn';
+const RETURN_TAG_RE = /ارجاع|إرجاع|مرتجع|رجيع|return/i;
+const SHEET_TAG_COL_RE = /sheetname/i;
+const ROW_FILL_ARGB: Record<RowSourceKind, string> = {
+  mercato:      'FFEAF2FB',
+  officeSale:   'FFEFF7EF',
+  officeReturn: 'FFFBEBEB',
+};
+const ROW_FILL_CSS: Record<RowSourceKind, string> = {
+  mercato:      '#EAF2FB',
+  officeSale:   '#EFF7EF',
+  officeReturn: '#FBEBEB',
+};
+const classifyRowSource = (headerRow: any[] = [], row: any[] = []): RowSourceKind | null => {
+  const idx = headerRow.findIndex(h => SHEET_TAG_COL_RE.test(String(h ?? '')));
+  if (idx === -1) return null;
+  const tag = String(row?.[idx] ?? '');
+  if (tag.includes('ميركاتو')) return 'mercato';
+  if (RETURN_TAG_RE.test(tag)) return 'officeReturn';
+  return 'officeSale';
+};
+
 const styleSheet = (ws: XLSX.WorkSheet, aoa: any[][], colWidths?: number[]) => {
   const nRows = aoa.length;
   const nCols = aoa.reduce((m, r) => Math.max(m, r.length), 0);
   ws['!cols'] = Array.from({ length: nCols }, (_, i) => ({ wch: colWidths?.[i] ?? 22 }));
   const thinBorder = { style: 'thin', color: { rgb: BORDER_RGB } };
+  const headerRow = aoa[0] ?? [];
   for (let r = 0; r < nRows; r++) {
+    const isHeader = r === 0;
+    const kind = isHeader ? null : classifyRowSource(headerRow, aoa[r]);
+    const rowFill = isHeader ? HEADER_FILL : (kind ? ROW_FILL_ARGB[kind] : 'FFFFFFFF');
     for (let c = 0; c < nCols; c++) {
       const addr = XLSX.utils.encode_cell({ r, c });
       if (!ws[addr]) continue;
-      const isHeader = r === 0;
       ws[addr].s = {
         font: isHeader
           ? { bold: true, sz: 11, color: { rgb: 'FFFFFFFF' } }
           : { sz: 10, color: { rgb: 'FF1F2937' } },
         fill: {
           patternType: 'solid',
-          fgColor: { rgb: isHeader ? HEADER_FILL : 'FFFFFFFF' },
+          fgColor: { rgb: rowFill },
         },
         alignment: { horizontal: isHeader ? 'center' : 'right', vertical: 'center' },
         border: { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder },
@@ -567,8 +598,10 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
             <tbody>
               {sheet.rows.slice(1).map((row, ri) => {
                 const actualRi = ri + 1;
+                const sourceKind = classifyRowSource(sheet.rows[0], row);
+                const rowBg = sourceKind ? ROW_FILL_CSS[sourceKind] : (actualRi % 2 === 0 ? '#f8fafc' : '#fff');
                 return (
-                  <tr key={actualRi} style={{ background: actualRi % 2 === 0 ? '#f8fafc' : '#fff' }}>
+                  <tr key={actualRi} style={{ background: rowBg }}>
                     <td style={{ width: 28, minWidth: 28, textAlign: 'center', borderRight: '1px solid #e5e7eb', color: '#9ca3af', fontSize: 10 }}>
                       <button onClick={() => deleteRow(actualRi)} title="حذف السطر" style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>✕</button>
                     </td>
@@ -1696,8 +1729,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
      أن الصف الخام نفسه يحمل إشارة صريحة (عمود أصل الشيت الداخلي «_sheetName» —
      قيمته اسم شيت الملف الأصلي، مثل «مبيع»/«ارجاع»). نثق بـ recordType أولاً،
      ونستعين بهذه الإشارة الخام كاحتياط حتى تُصدَّر الكمية والسعر الكلي بالإشارة
-     الصحيحة أيضاً على الملفات القديمة التي لم تُصنَّف بشكل صحيح وقت الاستيراد. */
-  const RETURN_TAG_RE = /ارجاع|إرجاع|مرتجع|رجيع|return/i;
+     الصحيحة أيضاً على الملفات القديمة التي لم تُصنَّف بشكل صحيح وقت الاستيراد.
+     RETURN_TAG_RE مُعرَّف على مستوى الملف (بجانب classifyRowSource) ويُستعمل هنا أيضاً. */
   const isReturnSale = (s: any): boolean => {
     if (s.recordType === 'return') return true;
     if (!s.rawData) return false;
@@ -1833,6 +1866,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           return finalHeaders.map(h => {
             if (h === sciHeader) return sciRepName;
             if (h === typeHeader) return typeLabel;
+            // عمود «_sheetName» الخام (اسم شيت الملف الأصلي) يُطبَّع هنا إلى مصدر الصف
+            // الفعلي بدل تركه اسماً حرفياً غير مفيد (مثل "Sheet1" لملفات ميركاتو) — نفس
+            // القيمة تُستعمل لاحقاً لتلوين الصف (راجع classifyRowSource أعلى الملف).
+            if (SHEET_TAG_COL_RE.test(h)) return s.uploadedFile?.sourceSystem === 'mercato' ? 'ميركاتو' : (isRet ? 'ارجاع' : 'مبيع');
             // total-value group is blank on return rows in some source files — fall back to
             // whichever aliased column actually holds the return amount and show it negative
             if (isTotalPriceKey(h)) {
@@ -2261,6 +2298,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           return undefined;
         };
         return finalHeaders.map(k => {
+          // عمود «_sheetName» الخام يُطبَّع هنا إلى مصدر الصف الفعلي — راجع نفس التعليق
+          // في buildSheet أعلاه (يُستعمل أيضاً لتلوين الصف عبر classifyRowSource).
+          if (SHEET_TAG_COL_RE.test(k)) return s.uploadedFile?.sourceSystem === 'mercato' ? 'ميركاتو' : (isRet ? 'ارجاع' : 'مبيع');
           // total-value group is blank on return rows in some source files — fall back to
           // whichever aliased column actually holds the return amount and show it negative
           if (isTotalPriceKey(k)) {
