@@ -254,6 +254,36 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     // زمن ذهاب-وإياب الشبكة عضواً بعد عضو (راجع نفس التعليق في الفرع "الكل" أدناه).
     const areaIdLists = await Promise.all(members.map(m => areaIdsForUser(m.userId, m.repId)));
     members.forEach((m, i) => { addMember(m.userId, m.repId); areaIdLists[i].forEach(id => ids.add(id)); });
+  } else if (OFFICE_SCOPED_ROLES.has(user.role)) {
+    // مدير مكتب/HR/موظف مكتب يختار "الكل": هذه الأدوار تشرف على المكتب كله
+    // (كل شركاته دفعة واحدة عبر officeScope.js) لا على مرؤوسين شخصيين عبر
+    // UserManagerAssignment — نفس فرع OFFICE_SCOPED_ROLES في resolveCompanyMembers
+    // وgetManagerSubReps أعلاه بالضبط. بدون هذا الفرع كانت "الكل" تسقط للفرع
+    // العام أدناه (userManagerAssignment.managerId=هذا الحساب) الذي يبقى شبه
+    // فارغ لهذه الأدوار، فتظهر شركة واحدة فقط (أياً كانت الصدفة) بدل كل شركات
+    // المكتب ومندوبيها معاً.
+    const myCompanies = await prisma.userCompanyAssignment.findMany({
+      where: { userId: user.id }, select: { companyId: true },
+    });
+    const companyIds = myCompanies.map(c => c.companyId);
+    const subUsers = companyIds.length ? await prisma.user.findMany({
+      where: {
+        isActive: true,
+        companyAssignments: { some: { companyId: { in: companyIds } } },
+        role: { notIn: [...MANAGEMENT_ROLES] },
+      },
+      select: { id: true, linkedRepId: true },
+    }) : [];
+    const repIds = await Promise.all(subUsers.map(u => resolveRepId(u.id, u.linkedRepId ?? null)));
+    subUsers.forEach((u, i) => addMember(u.id, repIds[i]));
+    const areaIdLists = await Promise.all(subUsers.map((u, i) => areaIdsForUser(u.id, repIds[i])));
+    areaIdLists.forEach(list => list.forEach(id => ids.add(id)));
+    // نفس شبكة الأمان في الفرع العام أدناه (إضافة فقط، لا تُنقِص التغطية).
+    const ownerDoctorAreas = await prisma.doctor.findMany({
+      where: { userId: user.id, areaId: { not: null } },
+      select: { areaId: true }, distinct: ['areaId'],
+    });
+    ownerDoctorAreas.forEach(d => ids.add(d.areaId));
   } else {
     // مدير "الكل": مناطقه + كل مندوبي الفريق الفعليين (بلا أدوار الإدارة
     // الوسيطة — مدير الشركة وقائد التيم لا يزوران أطباء بنفسهما، فضمّهما هنا
