@@ -128,9 +128,9 @@ export async function listPharmacies(req, res, next) {
     const repUserId = req.query.repUserId ? Number(req.query.repUserId) : null;
 
     const tStart = Date.now();
-    const [sales0, searchTerms] = await Promise.all([
+    const [sales0, searchCandidates] = await Promise.all([
       getScopedSales(userId, fileIds),
-      resolveSearchTerms(req.query.search, req.user),
+      resolveSearchCandidates(req.query.search, req.user),
     ]);
     const tLoad = Date.now();
 
@@ -151,13 +151,13 @@ export async function listPharmacies(req, res, next) {
     // صفوفها بأي حقل)، ثم يُبنى إجمالي كل صيدلية مطابقة من كل صفوفها كاملة —
     // لا من الصفوف المطابقة وحدها، فلا يظهر إجمالي جزئي (مثلاً: قيمة ايتم واحد
     // فقط) حين يكون سبب المطابقة ايتماً أو مندوباً لا اسم الصيدلية نفسه.
+    // المرشَّح الأساسي أولاً (العبارة كاملة)؛ الاحتياطي (كلمات منفصلة) فقط إن
+    // لم يُطابق الأساسي شيئاً — راجع تعليق resolveSearchCandidates.
     let matchingPharmaNames = null;
-    if (searchTerms.length > 0) {
-      matchingPharmaNames = new Set();
-      for (const s of deduped) {
-        if (!matchingPharmaNames.has(s._pharmaName) && rowMatchesSearch(s, searchTerms)) {
-          matchingPharmaNames.add(s._pharmaName);
-        }
+    if (searchCandidates.primary.length > 0) {
+      matchingPharmaNames = findMatchingPharmaNames(deduped, searchCandidates.primary);
+      if (matchingPharmaNames.size === 0 && searchCandidates.fallback) {
+        matchingPharmaNames = findMatchingPharmaNames(deduped, searchCandidates.fallback);
       }
     }
 
