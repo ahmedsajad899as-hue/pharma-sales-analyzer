@@ -90,6 +90,10 @@ interface VisitDoctor {
   visited: boolean; isWriting: boolean;
   visits: VisitRecord[];
 }
+interface HiddenVisit {
+  id: number; visitDate: string; repName: string | null;
+  doctorName: string | null; areaName: string | null; linkedToSurvey: boolean;
+}
 interface VisitArea {
   id: number | null; name: string;
   totalDoctors: number; visitedCount: number; writingCount: number; totalVisits: number;
@@ -306,6 +310,8 @@ export default function DoctorsPage() {
   // ── Visits analysis ─────────────────────────────────────────
   const [visitAreas, setVisitAreas]         = useState<VisitArea[]>([]);
   const [noAreaStats, setNoAreaStats]       = useState<{ total: number; visited: number; writing: number; totalVisits: number }>({ total: 0, visited: 0, writing: 0, totalVisits: 0 });
+  const [hiddenVisits, setHiddenVisits]     = useState<HiddenVisit[]>([]);
+  const [showHiddenVisits, setShowHiddenVisits] = useState(false);
   const [visitLoading, setVisitLoading]     = useState(false);
   const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
   // يمنع تحميل الزيارات بفلتر "الكل" أولاً ثم إعادته فوراً بفلتر الشهر الافتراضي
@@ -458,7 +464,7 @@ export default function DoctorsPage() {
   // ── Visit fetch: abort + cache refs (for instant rep-switching) ────────────
   const visitFetchAbortRef      = useRef<AbortController | null>(null);
   const pharmVisitFetchAbortRef = useRef<AbortController | null>(null);
-  const visitCacheRef      = useRef(new Map<string, { areas: VisitArea[]; noAreaStats: { total: number; visited: number; writing: number; totalVisits: number } }>());
+  const visitCacheRef      = useRef(new Map<string, { areas: VisitArea[]; noAreaStats: { total: number; visited: number; writing: number; totalVisits: number }; hidden: HiddenVisit[] }>());
   const pharmVisitCacheRef = useRef(new Map<string, PharmAreaGroup[]>());
 
   // ── Survey pharmacies (for commercial rep) ───────────────────
@@ -674,6 +680,7 @@ export default function DoctorsPage() {
       if (cached) {
         setVisitAreas(cached.areas);
         setNoAreaStats(cached.noAreaStats);
+        setHiddenVisits(cached.hidden);
         return;
       }
     } else {
@@ -695,9 +702,11 @@ export default function DoctorsPage() {
       console.log('[visitsByArea] status:', r.status, 'response:', j);
       const areas = Array.isArray(j.areas) ? j.areas : [];
       const stats = j.noAreaStats ?? { total: 0, visited: 0, writing: 0, totalVisits: 0 };
+      const hidden: HiddenVisit[] = Array.isArray(j.hiddenVisits) ? j.hiddenVisits : [];
       setVisitAreas(areas);
       setNoAreaStats(stats);
-      visitCacheRef.current.set(cacheKey, { areas, noAreaStats: stats });
+      setHiddenVisits(hidden);
+      visitCacheRef.current.set(cacheKey, { areas, noAreaStats: stats, hidden });
     } catch (e: any) {
       if (e.name !== 'AbortError') console.error('[visitsByArea] fetch error:', e);
     } finally {
@@ -2357,6 +2366,29 @@ export default function DoctorsPage() {
               </div>
             );
           })()}
+
+          {/* Visits saved in scope but whose doctor isn't in any area shown below */}
+          {!visitLoading && hiddenVisits.length > 0 && (
+            <div style={{ marginTop: -8, marginBottom: 16, border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, padding: '8px 12px', direction: 'rtl' }}>
+              <button onClick={() => setShowHiddenVisits(v => !v)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 12.5, fontWeight: 700, color: '#92400e', fontFamily: 'inherit', textAlign: 'right' }}>
+                ⚠️ {hiddenVisits.length} زيارة محفوظة لا تظهر في القائمة — طبيبها خارج مناطق هذا النطاق أو غير مربوط بالسيرفي {showHiddenVisits ? '▲' : '▼'}
+              </button>
+              {showHiddenVisits && (
+                <div style={{ marginTop: 8, maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {hiddenVisits.map(v => (
+                    <div key={v.id} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12, color: '#475569', background: '#fff', borderRadius: 6, padding: '4px 8px' }}>
+                      <span style={{ fontWeight: 700, color: '#1e293b' }}>{v.doctorName || '—'}</span>
+                      <span>📍 {v.areaName || 'بلا منطقة'}</span>
+                      {!v.linkedToSurvey && <span style={{ color: '#b45309' }}>غير مربوط بالسيرفي</span>}
+                      <span>👤 {v.repName || '—'}</span>
+                      <span>{fmt(v.visitDate)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Search + filter */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>

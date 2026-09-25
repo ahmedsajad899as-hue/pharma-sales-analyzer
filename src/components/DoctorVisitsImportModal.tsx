@@ -24,6 +24,8 @@ interface DoctorRow {
   doctorName: string; doctorId: number | null; doctorKey?: string;
   // طبيب مطابَق في السيرفي بلا صف Doctor محلي بعد — يُنشأ ويُربط به عند الحفظ
   surveyDoctorId?: number | null;
+  // المستخدم اختار «ليس أياً منهم» — يُنشأ طبيب جديد عند الحفظ بلا مطابقة تشابه
+  forceNewDoctor?: boolean;
   // صيدلية مستخرَجة من الملف (لا من بيانات الطبيب في التطبيق/السيرفي — كانت فارغة)
   // — تُعرض قابلة للتعديل ومميَّزة للمراجعة؛ إبقاؤها عند الحفظ يحفظها في سجل الطبيب.
   pharmacyFromFile?: boolean;
@@ -266,6 +268,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
       return {
         ...r,
         doctorId: choiceByKey.get(r.doctorKey) ?? null,
+        forceNewDoctor: !doc,
         ...(doc ? {
           rawDoctorName:   r.rawDoctorName   ?? r.doctorName,
           rawSpecialty:    r.rawSpecialty    ?? r.specialty,

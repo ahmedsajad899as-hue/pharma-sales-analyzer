@@ -319,7 +319,7 @@ export async function buildVisitOverlay(scope, dateFilter) {
   if (scope.memberUserIds.length) orClauses.push({ scientificRepId: null, userId: { in: scope.memberUserIds } });
   const bySurveyDocId = new Map();
   const byName = new Map();
-  if (!orClauses.length) return { bySurveyDocId, byName };
+  if (!orClauses.length) return { bySurveyDocId, byName, all: [] };
 
   const visits = await prisma.doctorVisit.findMany({
     // isActive=false → زيارات ملف استيراد إكسل مُعطَّل (VisitImportFile) — تبقى
@@ -328,12 +328,14 @@ export async function buildVisitOverlay(scope, dateFilter) {
     select: {
       id: true, visitDate: true, feedback: true, feedbackSource: true, notes: true, itemName: true, geoCorrect: true,
       item: { select: { id: true, name: true } },
-      doctor: { select: { masterSurveyDoctorId: true, name: true } },
+      doctor: { select: { masterSurveyDoctorId: true, name: true, area: { select: { name: true } }, masterSurveyDoctor: { select: { areaName: true } } } },
       scientificRep: { select: { name: true } },
       user: { select: { displayName: true, username: true } },
     },
     orderBy: { visitDate: 'desc' },
   });
+  // كل زيارات النطاق — ليكشف المستدعي أيّها لم يُلصَق بأي طبيب ظاهر في مناطق النطاق.
+  const all = [];
   for (const v of visits) {
     // ايتم محفوظ نصاً (لا يطابق الكتالوج) يُعرض كأي ايتم آخر — بمعرّف null.
     const item = v.item ?? (v.itemName ? { id: null, name: v.itemName } : null);
@@ -341,6 +343,12 @@ export async function buildVisitOverlay(scope, dateFilter) {
     // الجماعي تحمله)، وإلا مَن سجّلها شخصياً (مدير يسجّل زيارته بنفسه بلا مندوب).
     const repName = v.scientificRep?.name || v.user?.displayName || v.user?.username || null;
     const entry = { id: v.id, visitDate: v.visitDate, feedback: v.feedback, feedbackSource: v.feedbackSource, notes: v.notes, item, geoCorrect: v.geoCorrect, repName };
+    all.push({
+      id: v.id, visitDate: v.visitDate, repName,
+      doctorName: v.doctor?.name ?? null,
+      areaName: v.doctor?.masterSurveyDoctor?.areaName || v.doctor?.area?.name || null,
+      linkedToSurvey: v.doctor?.masterSurveyDoctorId != null,
+    });
     const msId = v.doctor?.masterSurveyDoctorId;
     if (msId != null) {
       if (!bySurveyDocId.has(msId)) bySurveyDocId.set(msId, []);
@@ -352,7 +360,7 @@ export async function buildVisitOverlay(scope, dateFilter) {
       byName.get(nk).push(entry);
     }
   }
-  return { bySurveyDocId, byName };
+  return { bySurveyDocId, byName, all };
 }
 
 // ── getScopedSurveyDoctors(scope) ────────────────────────────────────────────

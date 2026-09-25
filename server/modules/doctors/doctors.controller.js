@@ -122,7 +122,14 @@ export async function visitsByArea(req, res, next) {
       totalVisits: noAreaDocs.reduce((s, d) => s + (d.visits?.length ?? 0), 0),
     };
 
-    res.json({ areas, noAreaStats });
+    // زيارات محفوظة فعلاً في النطاق لكن طبيبها ليس ضمن أطباء مناطق النطاق (منطقة
+    // غير معيَّنة للمندوب، أو طبيب غير مربوط بالسيرفي) — لا تظهر في أي منطقة أعلاه،
+    // فكان عدد الشاشة يقلّ عن الإكسل بلا تفسير. تُعاد صراحةً ليعرضها الفرونت.
+    const attachedIds = new Set();
+    for (const d of doctors) for (const v of d.visits) attachedIds.add(v.id);
+    const hiddenVisits = overlay.all.filter(v => !attachedIds.has(v.id));
+
+    res.json({ areas, noAreaStats, hiddenVisits });
   } catch (e) { next(e); }
 }
 
