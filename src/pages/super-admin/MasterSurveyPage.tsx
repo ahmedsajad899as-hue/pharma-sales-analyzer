@@ -301,6 +301,7 @@ export default function MasterSurveyPage() {
   const [showMergeSuggestions,     setShowMergeSuggestions]     = useState(false);
   const [pharmaSuggestions,        setPharmaSuggestions]        = useState<PharmaMergeSuggestion[]>([]);
   const [pharmaSuggestionsLoading, setPharmaSuggestionsLoading] = useState(false);
+  const [pharmaAutoMerged,         setPharmaAutoMerged]         = useState(0);
   const [ignoredSuggestionKeys,    setIgnoredSuggestionKeys]    = useState<Set<string>>(new Set());
   const [suggestionKeep,           setSuggestionKeep]           = useState<Record<string, number>>({});
   const [suggestionMergeSelection, setSuggestionMergeSelection] = useState<Record<string, Set<number>>>({});
@@ -1029,6 +1030,11 @@ export default function MasterSurveyPage() {
           <br />
           <span style={{ color: '#dc2626', fontWeight: 700 }}>تطابق تام</span> = نفس الاسم بالحرف (دمج آمن 100%)، <span style={{ color: '#d97706', fontWeight: 700 }}>تشابه فقط</span> = اسم قريب وليس مطابقاً — راجعه قبل الدمج.
         </p>
+        {pharmaAutoMerged > 0 && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, fontSize: 12, color: '#166534', fontWeight: 700 }}>
+            ✅ تم دمج {pharmaAutoMerged} مجموعة تلقائياً بالخلفية (نفس الاسم والمنطقة معاً — بلا حاجة لمراجعة).
+          </div>
+        )}
         {pharmaSuggestionsLoading ? <Spinner /> : visible.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>
             {pharmaSuggestions.length > 0 ? 'تمت مراجعة كل الاقتراحات' : 'لا توجد أسماء متشابهة يُقترح دمجها حالياً'}
@@ -1241,7 +1247,7 @@ export default function MasterSurveyPage() {
     try {
       const r = await fetch(`/api/super-admin/surveys/${selectedSurvey.id}/pharmacies/merge-suggestions`, { headers: H() });
       const d = await r.json();
-      if (d.success) setPharmaSuggestions(d.data);
+      if (d.success) { setPharmaSuggestions(d.data); setPharmaAutoMerged(d.autoMerged || 0); }
     } finally {
       setPharmaSuggestionsLoading(false);
     }

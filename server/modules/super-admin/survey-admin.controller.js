@@ -457,7 +457,29 @@ export async function getPharmacyMergeSuggestions(req, res, next) {
       doctorCountByKey.set(k, (doctorCountByKey.get(k) ?? 0) + 1);
     }
     const suggestions = findPharmacyMergeSuggestions(pharmacies, doctorCountByKey);
-    res.json({ success: true, data: suggestions });
+
+    // ── دمج تلقائي فوري بالخلفية للمجموعات المتطابقة 100% (اسم + منطقة معاً) ──
+    // هذي الحالة الوحيدة بلا أي قرار بشري مطلوب: نفس الصف حرفياً مكرر من كل
+    // الجوانب، فدمجه لا يفقد أي معلومة (لا منطقة ولا شيء آخر). المجموعات اللي
+    // الاسم فقط متطابق لكن المنطقة تختلف (قد تكون فرعين حقيقيين، أو خطأ إدخال)
+    // تبقى تحتاج مراجعة يدوية في الواجهة كما هي الآن.
+    const remaining = [];
+    let autoMerged = 0;
+    for (const g of suggestions) {
+      const anchor = g.members.find(m => m.id === g.suggestedKeepId);
+      const anchorKey = anchor ? pharmacyDedupKey(anchor.name, anchor.areaName) : null;
+      const fullyExact = anchorKey && g.members.every(m => pharmacyDedupKey(m.name, m.areaName) === anchorKey);
+      if (fullyExact) {
+        const mergeIds = g.members.filter(m => m.id !== g.suggestedKeepId).map(m => m.id);
+        if (mergeIds.length) {
+          await mergeSurveyPharmacies(surveyId, g.suggestedKeepId, mergeIds, req.superAdmin?.id ?? null);
+          autoMerged++;
+        }
+      } else {
+        remaining.push(g);
+      }
+    }
+    res.json({ success: true, data: remaining, autoMerged });
   } catch (e) { next(e); }
 }
 
