@@ -741,6 +741,18 @@ function extractCrmRows({ rows, headers, repByKey, allAreas }) {
 // server/lib/surveyDoctors.js (مشتركة مع استيراد أطباء السيرفي) — مستوردة أعلى الملف.
 
 /**
+ * منطقتان معروفتان مختلفتان فعلاً = طبيبان مختلفان على الأغلب (نفس الاسم في حيَّين)،
+ * فلا يُربط أحدهما بالآخر تلقائياً. الاحتواء بكلمات كاملة ليس تعارضاً: «العيادة
+ * الثانية - مستشفى الدولي» ↔ «الدولي» نفس المكان. منطقة غائبة في أحدهما لا تعارض.
+ */
+function areasConflict(a, b) {
+  const x = normalizeAreaName(a || ''), y = normalizeAreaName(b || '');
+  if (!x || !y || x === y) return false;
+  const wx = ` ${x} `, wy = ` ${y} `;
+  return !(wx.includes(wy) || wy.includes(wx));
+}
+
+/**
  * تصنّف كل أسماء الأطباء في doctorRows دفعة واحدة (مجموعة واحدة لكل اسم+منطقة
  * مختلفين، لا لكل صف) مقابل أطباء هذا المالك + الروابط المحفوظة مسبقاً، وتملأ
  * doctorId مباشرة في الصفوف عند الحسم. لا تُنشئ ولا تحفظ شيئاً — قراءة فقط.
@@ -766,7 +778,7 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
   const [linkRows, existingDoctorsFull, visibleSurveys] = await Promise.all([
     prisma.doctorNameLink.findMany({
       where: { userId: { in: doctorLinkScopeIds } },
-      select: { userId: true, fromKey: true, doctorId: true, doctor: { select: { id: true, name: true, masterSurveyDoctorId: true } } },
+      select: { userId: true, fromKey: true, doctorId: true, confidence: true, doctor: { select: { id: true, name: true, masterSurveyDoctorId: true } } },
       orderBy: { id: 'desc' }, // الأحدث أولاً عند تساوي الأولوية
     }),
     prisma.doctor.findMany({
@@ -922,7 +934,14 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       // تأكيدات هذا الاسم لطبيب واحد (اسمان متطابقان لطبيبين مختلفين → لا تخمين).
       const byName = ownerPositiveByName.get(g.key.split('|')[0]);
       const only = byName && byName.size === 1 ? [...byName.values()][0] : null;
-      if (only && candById.has(only.doctorId)) link = only;
+      if (only && candById.has(only.doctorId) && !areasConflict(g.areaName, candById.get(only.doctorId).areaName)) link = only;
+    }
+    // رابط «fuzzy» حفظه النظام تلقائياً عند الحفظ (لا المستخدم) لطبيب بمنطقة معارضة
+    // = ربط خاطئ سابق؛ لا يُعاد تطبيقه، والاسم يُصنَّف من جديد. الروابط المؤكَّدة
+    // يدوياً تُحترم دائماً (المستخدم رأى المنطقة المختلفة واختار).
+    if (link && link.doctorId && link.userId === ownerUserId && link.confidence === 'fuzzy'
+        && areasConflict(g.areaName, candById.get(link.doctorId)?.areaName)) {
+      link = null;
     }
     if (link && link.doctorId) {
       if (link.userId === ownerUserId) {
@@ -943,13 +962,13 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       const sharedId = link.doctor?.masterSurveyDoctorId;
       if (sharedId) {
         const localDoc = candBySurveyDoctorId.get(sharedId);
-        if (localDoc) {
+        if (localDoc && !areasConflict(g.areaName, localDoc.areaName)) {
           for (const r of g.rows) adoptAppDoctorIdentity(r, localDoc);
           resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: { id: localDoc.id, name: localDoc.name } });
           continue;
         }
         const sd = surveyById.get(sharedId);
-        if (sd) {
+        if (sd && !areasConflict(g.areaName, sd.areaName)) {
           for (const r of g.rows) adoptSurveyDoctorIdentity(r, sd);
           resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: { id: sd.id, name: sd.name } });
           continue;
@@ -958,8 +977,10 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       // طبيب الزميل غير مربوط بالسيرفي — نعبر باسمه كما سجّله الزميل: طبيب واحد
       // عند هذا المالك بالاسم نفسه تماماً = نفس الشخص. أكثر من واحد أو لا شيء →
       // نكمل التصنيف العادي بدل ربط خاطئ بمعرّف صف قد يخص طبيباً آخر تماماً.
-      const colleagueName = link.doctor?.name ? normalizeRepName(link.doctor.name) : '';
-      const sameNameLocal = colleagueName ? candidates.filter(c => normalizeRepName(c.name) === colleagueName) : [];
+      const colleagueName = link.doctor?.name ? normalizeRepName(cleanDoctorName(link.doctor.name)) : '';
+      const sameNameLocal = colleagueName
+        ? candidates.filter(c => normalizeRepName(cleanDoctorName(c.name)) === colleagueName && !areasConflict(g.areaName, c.areaName))
+        : [];
       if (sameNameLocal.length === 1) {
         for (const r of g.rows) adoptAppDoctorIdentity(r, sameNameLocal[0]);
         resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: { id: sameNameLocal[0].id, name: sameNameLocal[0].name } });
@@ -991,15 +1012,21 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     const cleanNorm = normalizeRepName(g.cleanedName);
     // مرشّح تام واحد من قائمة — وعند التعدّد يُحسم بالمنطقة إن أمكن (نفس القاعدة
     // للأطباء المحليين وأطباء السيرفي).
+    // الاسم وحده لا يكفي حين تتعارض المنطقتان: «سمير محمد رؤوف» في حي الجهاد بالملف
+    // كان يُربط صامتاً بسميّه المسجَّل في حي الجامعة فتظهر الزيارة بمنطقة خاطئة.
+    // مرشّح بمنطقة معارضة لا يُعتمد تلقائياً — يُعرض للسؤال معلَّماً crossArea.
     const pickExact = (list) => {
-      if (list.length === 1) return list[0];
-      if (list.length > 1 && g.areaName) {
-        const byArea = list.filter(c => c.areaName && normalizeAreaName(c.areaName) === normalizeAreaName(g.areaName));
+      const compatible = list.filter(c => !areasConflict(g.areaName, c.areaName));
+      if (compatible.length === 1) return compatible[0];
+      if (compatible.length > 1 && g.areaName) {
+        const byArea = compatible.filter(c => c.areaName && normalizeAreaName(c.areaName) === normalizeAreaName(g.areaName));
         if (byArea.length === 1) return byArea[0];
       }
       return null;
     };
-    const exactMatches = candidates.filter(c => normalizeRepName(c.name) === cleanNorm);
+    // أسماء صفوف قديمة قد تحمل اللقب نفسه («عيادة الدكتورة نادية…» حُفظت قبل
+    // تنظيف البادئات) — تُنظَّف للمقارنة فقط، الاسم المعروض يبقى كما هو.
+    const exactMatches = candidates.filter(c => normalizeRepName(cleanDoctorName(c.name)) === cleanNorm);
     const exact = pickExact(exactMatches);
     if (exact) {
       for (const r of g.rows) adoptAppDoctorIdentity(r, exact);
@@ -1010,7 +1037,7 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
     // لا صف Doctor محلياً بهذا الاسم — لكن قد يكون في السيرفي بالاسم نفسه تماماً
     // (أُدخل من استيراد أطباء السيرفي أو من زيارات مستخدم آخر). يُربط به بلا سؤال؛
     // وإن كان له صف Doctor محلي باسم مختلف (مربوط بالسيرفي) يُستعمل ذلك الصف.
-    if (exactMatches.length === 0) {
+    if (!exactMatches.some(c => !areasConflict(g.areaName, c.areaName))) {
       const surveyExact = pickExact(surveyByNorm.get(cleanNorm) ?? []);
       if (surveyExact) {
         const localDoc = candBySurveyDoctorId.get(surveyExact.id);
@@ -1044,16 +1071,21 @@ async function classifyDoctorRows(doctorRows, ownerUserId) {
       .filter(c => c.score >= DOCTOR_ASK_FLOOR)
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
+    const flagArea = c => (areasConflict(g.areaName, c.areaName) ? { ...c, crossArea: true } : c);
     let scored;
     if (exactMatches.length > 1) {
-      scored = exactMatches.map(c => ({ ...c, score: 1 }));
+      scored = exactMatches.map(c => flagArea({ ...c, score: 1 }));
     } else if (!rowAreaNorm) {
       scored = scoreCandidates(candidates);
     } else {
-      const sameArea = scoreCandidates(candidates.filter(c => c.areaName && normalizeAreaName(c.areaName) === rowAreaNorm));
+      const sameArea = scoreCandidates(candidates.filter(c => c.areaName && !areasConflict(g.areaName, c.areaName)));
       scored = sameArea.length > 0
         ? sameArea
         : scoreCandidates(candidates).map(c => ({ ...c, crossArea: true }));
+      // سميٌّ تام الاسم بمنطقة أخرى يُعرض دائماً للاختيار — لا يُربط ولا يُخفى.
+      for (const c of exactMatches) {
+        if (!scored.some(s => s.id === c.id)) scored.push({ ...c, score: 1, crossArea: true });
+      }
     }
 
     for (const r of g.rows) { r.doctorId = null; r.surveyDoctorId = null; }
@@ -1349,11 +1381,14 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
       const doc = aliasedId ? surveyDoctorsAll.find(d => d.id === aliasedId) : null;
       return { match: doc ?? null, fuzzy: false };
     }
-    const nameNorm = name.trim().toLowerCase();
-    let cands = surveyDoctorsAll.filter(d => d.name.trim().toLowerCase() === nameNorm);
+    // سميٌّ بمنطقة معارضة لمنطقة الصف ليس هو — لا يُربط (لا تامّاً ولا بالتشابه)،
+    // وإلا ظهرت الزيارة تحت طبيب منطقة أخرى (سمير محمد رؤوف: حي الجهاد ↔ حي الجامعة).
+    const pool = surveyDoctorsAll.filter(d => !areasConflict(ctx.areaName, d.areaName));
+    const nameNorm = normalizeRepName(cleanDoctorName(name));
+    let cands = pool.filter(d => normalizeRepName(cleanDoctorName(d.name)) === nameNorm);
     if (cands.length === 0) {
       if (!allowFuzzy) return { match: null, fuzzy: false };
-      return bestFuzzyMatch(name, ctx, surveyDoctorsAll, d => ({ name: d.name, areaName: d.areaName, specialty: d.specialty, pharmacyName: d.pharmacyName }));
+      return bestFuzzyMatch(name, ctx, pool, d => ({ name: d.name, areaName: d.areaName, specialty: d.specialty, pharmacyName: d.pharmacyName }));
     }
     if (cands.length === 1) return { match: cands[0], fuzzy: false };
     const areaN = normalizeAreaName(ctx.areaName || '');
@@ -1366,9 +1401,10 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
     select: { id: true, name: true, areaId: true, specialty: true, pharmacyName: true, masterSurveyDoctorId: true, area: { select: { name: true } } },
   });
   const findExistingDoctor = (name, areaIdLocal, ctx) => {
-    const nameNorm = name.trim().toLowerCase();
-    let cands = existingDoctors.filter(d => d.name.trim().toLowerCase() === nameNorm);
-    if (cands.length === 0) return bestFuzzyMatch(name, ctx, existingDoctors, d => ({ name: d.name, areaName: d.area?.name ?? null, specialty: d.specialty, pharmacyName: d.pharmacyName }));
+    const pool = existingDoctors.filter(d => !areasConflict(ctx.areaName, d.area?.name));
+    const nameNorm = normalizeRepName(cleanDoctorName(name));
+    let cands = pool.filter(d => normalizeRepName(cleanDoctorName(d.name)) === nameNorm);
+    if (cands.length === 0) return bestFuzzyMatch(name, ctx, pool, d => ({ name: d.name, areaName: d.area?.name ?? null, specialty: d.specialty, pharmacyName: d.pharmacyName }));
     if (areaIdLocal) return { match: cands.find(d => d.areaId === areaIdLocal) ?? cands[0], fuzzy: false };
     return { match: cands[0], fuzzy: false };
   };
