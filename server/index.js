@@ -19,10 +19,14 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/authMiddleware.js';
 import { activityMiddleware } from './lib/activityLogger.js';
 import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './lib/fuzzyMatch.js';
-import { normalizeItemKey, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
+import { normalizeItemKey, normalizeAreaName, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
+import { invalidateAreaSnapshot } from './lib/areaResolver.js';
 import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
-import { seedProvinces, autoMatchProvinces, seedSubProvinces, autoMatchSubProvinces } from './lib/provinces.js';
+import {
+  seedProvinces, autoMatchProvinces, seedSubProvinces, autoMatchSubProvinces,
+  PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName, extractRawColumnValue,
+} from './lib/provinces.js';
 import { startPharmacyAlertScheduler } from './modules/pharmacy-analysis/pharmacy-alerts.scheduler.js';
 import { resolveEffectiveAreaIds, resolveEffectiveAreas, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
 import { resolveStockScope, filterStockFiles, loadCompanyLabelResolver, applyCompanyLabelsToFiles } from './lib/stockScope.js';
@@ -715,6 +719,88 @@ app.post('/api/sa/areas/merge', requireSuperAdmin, async (req, res) => {
     res.json({ success: true, data: finalAreas, count: finalAreas.length });
   } catch (err) {
     console.error('[area-merge-pair]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/sa/areas/:id/split-conflict — عكس الدمج: منطقة عليها بشارة
+// provinceConflict تعني أن اسماً وارداً من ملف رُبط (تطابقاً تاماً أو ضبابياً)
+// بهذا الصف رغم كونه مكاناً مختلفاً فعلاً بمحافظة أخرى (مثال حقيقي: "العامرية"
+// في بغداد/الكرخ ابتلعت مبيعات "عامرية الفلوجة" في الأنبار). لا نخمّن أي صفوف
+// تعود للمكان الآخر — نتحقق من عمود المحافظة الخام المحفوظ في Sale.rawData
+// لكل صف (نفس أسلوب autoMatchProvinces)، وننقل فقط الصفوف التي تُثبت انتماءها
+// فعلاً للمحافظة الجديدة إلى منطقة جديدة منفصلة. { newName, newProvinceId }
+app.post('/api/sa/areas/:id/split-conflict', requireSuperAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const newName = String(req.body?.newName ?? '').trim();
+    const newProvinceId = Number(req.body?.newProvinceId);
+    if (!Number.isInteger(id)) return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    if (!newName) return res.status(400).json({ success: false, error: 'اسم المنطقة الجديدة مطلوب' });
+    if (!Number.isInteger(newProvinceId)) return res.status(400).json({ success: false, error: 'يجب اختيار محافظة' });
+
+    const area = await prisma.area.findUnique({
+      where: { id }, select: { id: true, name: true, provinceConflict: true },
+    });
+    if (!area) return res.status(404).json({ success: false, error: 'منطقة غير موجودة' });
+    if (!area.provinceConflict) return res.status(400).json({ success: false, error: 'لا يوجد تعارض محافظة على هذه المنطقة لفصله' });
+
+    const newProvince = await prisma.province.findUnique({ where: { id: newProvinceId }, select: { id: true } });
+    if (!newProvince) return res.status(404).json({ success: false, error: 'المحافظة غير موجودة' });
+
+    if (normalizeArabic(newName) === normalizeArabic(area.name)) {
+      return res.status(400).json({ success: false, error: 'اسم المنطقة الجديدة يجب أن يختلف عن الاسم الحالي حتى لا تتكرر نفس المشكلة' });
+    }
+
+    // 1) حدّد صفوف المبيعات التي تُثبت — من عمود المحافظة الخام في صفّها نفسه
+    //    — انتماءها فعلاً للمحافظة الجديدة، لا لمحافظة المنطقة الحالية.
+    const provinces = await prisma.province.findMany();
+    const provinceLookup = buildProvinceLookup(provinces);
+    const sales = await prisma.sale.findMany({
+      where: { areaId: id, rawData: { not: null } },
+      select: { id: true, rawData: true },
+    });
+
+    const movingIds = [];
+    for (const s of sales) {
+      let raw;
+      try { raw = JSON.parse(s.rawData); } catch { continue; }
+      if (!raw || typeof raw !== 'object') continue;
+      const provinceRaw = extractRawColumnValue(raw, PROVINCE_COLUMN_ALIASES);
+      if (!provinceRaw) continue;
+      const matched = matchProvinceName(provinceRaw, provinceLookup);
+      if (matched && matched.id === newProvinceId) movingIds.push(s.id);
+    }
+
+    if (movingIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'لم يُعثر على أي صفوف مبيعات ضمن هذه المنطقة تُثبت انتماءها لهذه المحافظة — تحقق من المحافظة المختارة',
+      });
+    }
+
+    // 2) أنشئ المنطقة الجديدة المنفصلة وانقل إليها الصفوف المرشَّحة فقط
+    const newArea = await prisma.area.create({
+      data: { name: newName, provinceId: newProvinceId, userId: null, needsReview: false },
+    });
+    await prisma.sale.updateMany({ where: { id: { in: movingIds } }, data: { areaId: newArea.id } });
+
+    // 3) إن كان alias ضبابي يربط هذا الاسم تحديداً بالمنطقة القديمة (سبب
+    //    الدمج الخاطئ أصلاً) وجّهه للمنطقة الجديدة، وإلا سيُعيد أي ملف قادم
+    //    بنفس الاسم نفس الخطأ فوراً رغم إصلاح areaResolver.js نفسه.
+    await prisma.areaAlias.updateMany({
+      where: { areaId: id, fromKey: normalizeAreaName(newName) },
+      data:  { areaId: newArea.id },
+    });
+
+    // 4) التعارض انحسم لهذه المنطقة
+    await prisma.area.update({ where: { id }, data: { provinceConflict: null } });
+    invalidateAreaSnapshot();
+
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, movedSales: movingIds.length, newAreaId: newArea.id });
+  } catch (err) {
+    console.error('[area-split-conflict]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -69,6 +69,20 @@ export function matchProvinceName(rawName, lookup) {
 }
 
 /**
+ * يبحث في صفّ خام (بعد JSON.parse لـ Sale.rawData) عن أول عمود ترويسته ضمن
+ * aliasList، ويُعيد قيمته النصية أو null. نفس منطق البحث المستخدم داخل
+ * autoMatchProvinces أعلاه، مُستخرَج هنا ليُعاد استخدامه (مثلاً لفصل مبيعات
+ * منطقة مندمجة خطأً بمحافظتين — راجع /api/sa/areas/:id/split-conflict).
+ */
+export function extractRawColumnValue(raw, aliasList) {
+  const aliasSet = new Set(aliasList.map(a => String(a).toLowerCase().trim()));
+  for (const [k, v] of Object.entries(raw)) {
+    if (aliasSet.has(String(k).toLowerCase().trim()) && v != null && String(v).trim()) return String(v).trim();
+  }
+  return null;
+}
+
+/**
  * بذر المحافظات الـ18 — idempotent، يُستدعى مرة عند إقلاع السيرفر.
  * التحديث يقتصر على aliases/sortOrder حتى لا يُلغى أي تعديل اسم من المدير.
  */

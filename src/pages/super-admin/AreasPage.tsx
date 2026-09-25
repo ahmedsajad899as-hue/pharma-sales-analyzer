@@ -51,6 +51,8 @@ export default function AreasPage() {
   const [openSubPicker, setOpenSubPicker]           = useState<number | null>(null);
   const [openMergePicker, setOpenMergePicker]       = useState<number | null>(null);
   const [mergeQuery, setMergeQuery]                 = useState('');
+  const [openSplitPicker, setOpenSplitPicker]       = useState<number | null>(null);
+  const [splitName, setSplitName]                   = useState('');
 
   const [mergeSugs, setMergeSugs]     = useState<MergeSuggestion[] | null>(null);
   const [mergeBusy, setMergeBusy]     = useState(false);
@@ -204,6 +206,33 @@ export default function AreasPage() {
       const j2 = await r2.json();
       if (j2.success) { setAreas(j2.data); await refreshProvinceCounts(); showToast('✅ تم النقل'); }
       else showToast('❌ ' + (j2.error || 'فشل تحديد القسم'), '#dc2626');
+    } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
+    finally { setBusy(false); }
+  };
+
+  // عكس الدمج: منطقة عليها بشارة تعارض محافظة تعني أن اسماً من ملف رُبط خطأً
+  // بصفّ منطقة أخرى (مثال حقيقي: "العامرية" بغداد/الكرخ ابتلعت "عامرية
+  // الفلوجة" بالأنبار). الفصل يتحقق من عمود المحافظة الخام في كل صف مبيعات
+  // قبل نقل أي شيء — راجع تعليق /api/sa/areas/:id/split-conflict في السيرفر.
+  const splitConflict = async (a: Area) => {
+    const name = splitName.trim();
+    if (!name || !a.provinceConflict) return;
+    const targetProvince = provinces.find(p => p.name === a.provinceConflict);
+    if (!targetProvince) { showToast('❌ تعذّر تحديد المحافظة المستهدفة', '#dc2626'); return; }
+    if (!confirm(`فصل "${name}" (محافظة ${a.provinceConflict}) عن "${a.name}"؟ ستُنقل فقط صفوف المبيعات التي تُثبت انتماءها فعلاً لهذه المحافظة إلى منطقة جديدة منفصلة — البقية تبقى في "${a.name}". لا يمكن التراجع.`)) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/sa/areas/${a.id}/split-conflict`, {
+        method: 'POST', headers: H(),
+        body: JSON.stringify({ newName: name, newProvinceId: targetProvince.id }),
+      });
+      if (handleAuthError(r)) return;
+      const j = await r.json();
+      if (j.success) {
+        setAreas(j.data); await refreshProvinceCounts();
+        setOpenSplitPicker(null); setSplitName('');
+        showToast(`✅ تم فصل ${j.movedSales} صف مبيعات إلى منطقة "${name}" جديدة`);
+      } else showToast('❌ ' + j.error, '#dc2626');
     } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
     finally { setBusy(false); }
   };
@@ -405,6 +434,29 @@ export default function AreasPage() {
               )}
             </span>
 
+            {/* فصل منطقة مندمجة خطأً — يظهر فقط إن كانت عليها بشارة تعارض محافظة */}
+            {a.provinceConflict && (openSplitPicker === a.id ? (
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <input type="text" autoFocus disabled={busy} value={splitName}
+                  onChange={e => setSplitName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') { setOpenSplitPicker(null); setSplitName(''); }
+                    if (e.key === 'Enter' && splitName.trim()) splitConflict(a);
+                  }}
+                  placeholder={`اسم منطقة "${a.provinceConflict}"...`}
+                  style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #fca5a5', direction: 'rtl', width: 160 }} />
+                <button onClick={() => splitConflict(a)} disabled={busy || !splitName.trim()}
+                  title="أنشئ منطقة منفصلة وانقل إليها فقط صفوف المبيعات المؤكَّدة من هذه المحافظة عبر عمود المحافظة الخام في كل صف"
+                  style={{ ...btnStyle('#b91c1c', true), fontSize: 11, padding: '3px 8px', opacity: (busy || !splitName.trim()) ? 0.5 : 1 }}>✂️ فصل</button>
+                <button onClick={() => { setOpenSplitPicker(null); setSplitName(''); }} disabled={busy} title="إلغاء"
+                  style={{ ...btnStyle('#94a3b8', true), fontSize: 11, padding: '3px 8px' }}>✕</button>
+              </div>
+            ) : (
+              <button onClick={() => { setOpenSplitPicker(a.id); setSplitName(`${a.name} - ${a.provinceConflict}`); }} disabled={busy}
+                title={`هذا الاسم يبدو أنه يمثل مكانَين مختلفَين اندمجا خطأً في صفّ واحد — افصل بيانات محافظة «${a.provinceConflict}» إلى منطقة جديدة منفصلة (المنطقة الحالية تبقى كما هي لبقية البيانات)`}
+                style={{ ...btnStyle('#b91c1c', true), fontSize: 11, padding: '3px 8px' }}>✂️ فصل</button>
+            ))}
+
             {/* نقل بين المحافظات */}
             {provincePickerOpen ? (
               <select autoFocus defaultValue={a.subProvinceId != null ? `${a.provinceId}:${a.subProvinceId}` : (a.provinceId ?? '')} disabled={busy}
@@ -547,7 +599,7 @@ export default function AreasPage() {
 
       {conflictCount > 0 && (
         <div style={{ marginBottom: 12, border: '1px solid #fca5a5', background: '#fef2f2', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#991b1b' }}>
-          ⚠️ <strong>{conflictCount}</strong> منطقة ورد اسمها في ملف بمحافظة تختلف عن المحفوظة. اضغط زر المحافظة بجانب المنطقة لحسم التعارض.
+          ⚠️ <strong>{conflictCount}</strong> منطقة ورد اسمها في ملف بمحافظة تختلف عن المحفوظة — غالباً مكانان مختلفان اندمجا خطأً بنفس الاسم (مثل "العامرية" بغداد و"عامرية الفلوجة" بالأنبار). اضغط <b>✂️ فصل</b> بجانب المنطقة لفصل بيانات المحافظة الأخرى إلى منطقة جديدة، أو زر المحافظة 🗺️ إن كانت فعلاً نفس المكان.
         </div>
       )}
 
