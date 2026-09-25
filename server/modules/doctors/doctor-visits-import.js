@@ -235,15 +235,21 @@ function resolveArea(rawName, allAreas) {
   if (contained.length === 1) return { area: contained[0], confidence: 'high', suggestions: contained };
   if (contained.length > 1)  return { area: null, confidence: 'medium', suggestions: contained };
 
-  // لا احتواء بكلمة كاملة إطلاقاً — تسامح أخطاء إملائية بسيطة بمحرك التشابه
-  // العام (نفس المستعمل للايتمات/الشركات)، يُستشار أخيراً فقط بعد فشل الاحتواء
-  // الدقيق كي لا يُقدَّم على مطابقة أدق منه عند تعارضهما.
+  // لا احتواء بكلمة كاملة إطلاقاً — آخر محاولة عبر محرّك التشابه العام (نفس
+  // المستعمل للايتمات/الشركات). لوحظ إنتاجياً أنه يُخطئ تحديداً في أسماء مناطق
+  // عراقية قصيرة متشابهة الحروف لكنها أماكن مختلفة فعلاً — ليس فقط «الطارمية»↔
+  // «الحارثية» (المذكور أصلاً أعلاه) بل أيضاً «الدولي»↔«الدولعي» (فرق حرف ع واحد،
+  // تشابه 0.86 يتجاوز عتبات areSimilar الافتراضية المصمَّمة لأسماء أدوية/شركات
+  // أطول) — أُلحق «مستشفى الدولي» خطأً بمنطقة «الدولعي» الموجودة فعلاً فظهر طبيب
+  // بمنطقة خاطئة كلياً. تعديل عتبات areSimilar المشتركة (fuzzyMatch.js) يمسّ
+  // مطابقة الايتمات/الشركات أيضاً فهو محفوف بالمخاطر؛ الأسلم هنا تحديداً هو عدم
+  // اعتماد أي مرشّح تلقائياً مهما قلّ عددهم — يُعرض للمستخدم دائماً (medium) بدل
+  // "high"، فلا يُدمَج اسمان مختلفان فعلاً بصمت مهما بدا تشابههما عالياً.
   const fuzzy = allAreas
     .filter(a => areSimilar(name, a.name))
     .map(a => ({ ...a, sim: similarity(norm, normalizeAreaName(a.name)) }))
     .sort((a, b) => b.sim - a.sim);
   if (fuzzy.length === 0) return empty;
-  if (fuzzy.length === 1) return { area: fuzzy[0], confidence: 'high', suggestions: fuzzy };
   return { area: null, confidence: 'medium', suggestions: fuzzy };
 }
 
