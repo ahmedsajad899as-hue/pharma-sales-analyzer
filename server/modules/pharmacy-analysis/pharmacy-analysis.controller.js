@@ -16,55 +16,128 @@ export async function getRoster(req, res, next) {
 }
 
 /**
+ * ايتمات نطاق «شركة رئيسية» بعينها: مدير الشركة (company_manager) صاحب
+ * التعيين الأساسي (isPrimary) هو مصدر UserItemAssignment — لا مطابقة اسم
+ * الشركة في عمود الإكسل. مُستخرَجة لتُستعمل من applyRosterFilters (اختيار
+ * الشريط) ومن resolveSearchTerms (كتابة اسم الشركة في خانة البحث) معاً.
+ *
+ * @returns {Promise<{valid: boolean, itemIds: number[]|null}>} valid=false يعني
+ *   شركة بلا مدير قابل للتحديد؛ itemIds=null (مع valid=true) يعني بلا تقييد.
+ */
+async function resolveCompanyItemScope(companyId) {
+  const mgrAssignment = await prisma.userCompanyAssignment.findFirst({
+    where: { companyId, isPrimary: true, user: { role: 'company_manager', isActive: true } },
+    select: { userId: true },
+  });
+  if (!mgrAssignment) return { valid: false, itemIds: null };
+  const itemIds = await resolveEffectiveItemIds(mgrAssignment.userId);
+  return { valid: true, itemIds };
+}
+
+/**
+ * مناطق «مندوب علمي» بعينه — بنفس منطق توسيع الاسم المطبَّع المستخدم في
+ * resolveSciRepSales، لأن نفس المنطقة قد تتكرر بمعرّفات مختلفة عبر
+ * الحسابات/الملفات (راجع مذكرة duplicate-area-bug). مُستخرَجة لنفس سبب
+ * resolveCompanyItemScope أعلاه.
+ */
+async function resolveRepAreaScopeIds(repId) {
+  const areaLinks = await prisma.scientificRepArea.findMany({ where: { scientificRepId: repId }, select: { areaId: true } });
+  const directIds = areaLinks.map(a => a.areaId);
+  const areaIdSet = new Set(directIds);
+  if (directIds.length > 0) {
+    const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+    const directSet = new Set(directIds);
+    const assignedNorms = new Set(allAreas.filter(a => directSet.has(a.id)).map(a => norm(a.name)));
+    for (const a of allAreas) if (assignedNorms.has(norm(a.name))) areaIdSet.add(a.id);
+  }
+  return areaIdSet;
+}
+
+/**
  * فلترة «الشركة الرئيسية»/«المندوب» على صفوف Sale المُحمَّلة مسبقاً (getScopedSales).
  *
  * كل «شركة» في الشريط هي نطاق مدير شركة (company_manager) بعينه ضمن نفس
- * المكتب — لا نص «الشركة» الحر في عمود الإكسل. لذا اختيار «humanis» يعني:
- * ايتمات المدير الذي تلك شركته الرئيسية (UserItemAssignment، تماماً كما تعرضه
- * شاشة «الايتمات» في لوحة السوبر أدمن للمستخدم) — لا مطابقة اسم الشركة.
- * اختيار مندوب دون شركة (حسابات بلا هيكل مكتب) يستعمل ايتمات المندوب نفسه.
+ * المكتب — لا نص «الشركة» الحر في عمود الإكسل. اختيار مندوب دون شركة (حسابات
+ * بلا هيكل مكتب) يستعمل ايتمات المندوب نفسه.
  *
  * @param {Array} sales
  * @param {{companyId?: number|null, repId?: number|null, repUserId?: number|null}} opts
  */
 async function applyRosterFilters(sales, { companyId, repId, repUserId }) {
-  let itemScopeUserId = null;
+  let allowedItemIds = null; // null = بلا تقييد
   if (companyId) {
-    const mgrAssignment = await prisma.userCompanyAssignment.findFirst({
-      where: { companyId, isPrimary: true, user: { role: 'company_manager', isActive: true } },
-      select: { userId: true },
-    });
-    if (!mgrAssignment) return []; // شركة بلا مدير قابل للتحديد — لا نُظهر بيانات غير موثوقة النطاق
-    itemScopeUserId = mgrAssignment.userId;
+    const scope = await resolveCompanyItemScope(companyId);
+    if (!scope.valid) return []; // شركة بلا مدير قابل للتحديد — لا نُظهر بيانات غير موثوقة النطاق
+    allowedItemIds = scope.itemIds;
   } else if (repUserId) {
-    itemScopeUserId = repUserId;
+    allowedItemIds = await resolveEffectiveItemIds(repUserId);
   }
 
-  if (itemScopeUserId) {
-    const allowedItemIds = await resolveEffectiveItemIds(itemScopeUserId);
-    if (allowedItemIds) { // null = بلا تقييد (كل الايتمات)
-      const idSet = new Set(allowedItemIds);
-      sales = sales.filter(s => idSet.has(s.itemId));
-    }
+  if (allowedItemIds) { // null = بلا تقييد (كل الايتمات)
+    const idSet = new Set(allowedItemIds);
+    sales = sales.filter(s => idSet.has(s.itemId));
   }
 
-  // «المندوب» (علمي): يقتصر على مناطقه المُعيَّنة — بنفس منطق توسيع الاسم
-  // المطبَّع المستخدم في resolveSciRepSales، لأن نفس المنطقة قد تتكرر بمعرّفات
-  // مختلفة عبر الحسابات/الملفات (راجع مذكرة duplicate-area-bug).
   if (repId) {
-    const areaLinks = await prisma.scientificRepArea.findMany({ where: { scientificRepId: repId }, select: { areaId: true } });
-    const directIds = areaLinks.map(a => a.areaId);
-    const areaIdSet = new Set(directIds);
-    if (directIds.length > 0) {
-      const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-      const directSet = new Set(directIds);
-      const assignedNorms = new Set(allAreas.filter(a => directSet.has(a.id)).map(a => norm(a.name)));
-      for (const a of allAreas) if (assignedNorms.has(norm(a.name))) areaIdSet.add(a.id);
-    }
+    const areaIdSet = await resolveRepAreaScopeIds(repId);
     sales = sales.filter(s => areaIdSet.has(s.areaId));
   }
 
   return sales;
+}
+
+/**
+ * فكّ خانة البحث الحرة إلى حدود مستقلة (يفصلها الفاصلة العربية أو
+ * الإنجليزية) — «ابحث عن أكثر من اسم دفعة واحدة». كل حدّ يُطابَق OR عبر: اسم
+ * الصيدلية/المنطقة/الايتم/المندوب التجاري مباشرة من صف المبيعة، أو اسم
+ * «الشركة الرئيسية»/المندوب العلمي عبر فريق المدير (managerRoster) بنفس نطاق
+ * الايتمات/المناطق المستعمل في applyRosterFilters أعلاه — مصدر واحد للمنطق،
+ * لا نسخة موازية منه.
+ *
+ * @returns {Promise<Array<{term:string, itemIds?: number[]|null, areaIds?: Set<number>}>>}
+ *   itemIds غائبة = لم يطابق الحدّ اسم شركة، null = طابق شركة بلا تقييد ايتمات.
+ */
+async function resolveSearchTerms(rawSearch, user) {
+  const terms = String(rawSearch || '').split(/[,،]+/).map(t => norm(t)).filter(Boolean);
+  if (terms.length === 0) return [];
+
+  const { reps, companies } = await getManagerRoster(user);
+
+  return Promise.all(terms.map(async term => {
+    const matchedCompanies = companies.filter(c => norm(c.name).includes(term));
+    const matchedReps      = reps.filter(r => r.linkedRepId && norm(r.name).includes(term));
+
+    let itemIds; // undefined = لا شركة طابقت؛ null = طابقت شركة بلا تقييد؛ Array = طابقت شركة/أكثر بتقييد
+    for (const c of matchedCompanies) {
+      const scope = await resolveCompanyItemScope(c.id);
+      if (!scope.valid) continue;
+      if (scope.itemIds == null) itemIds = null;
+      else if (itemIds !== null) itemIds = [...new Set([...(itemIds || []), ...scope.itemIds])];
+    }
+
+    let areaIds; // undefined = لا مندوب علمي طابق
+    for (const r of matchedReps) {
+      const ids = await resolveRepAreaScopeIds(r.linkedRepId);
+      areaIds = areaIds ? new Set([...areaIds, ...ids]) : ids;
+    }
+
+    return { term, itemIds, areaIds };
+  }));
+}
+
+/** هل يطابق صف مبيعة واحد أيّاً من حدود البحث (OR بين الحدود، وOR بين حقول كل حدّ)؟ */
+function rowMatchesSearch(s, searchTerms) {
+  if (searchTerms.length === 0) return true;
+  const normArea = norm(s._areaName);
+  return searchTerms.some(({ term, itemIds, areaIds }) => {
+    if (s._normPharma.includes(term)) return true;
+    if (normArea.includes(term)) return true;
+    if (s._normItem.includes(term)) return true;
+    if (s._normRep.includes(term)) return true;
+    if (itemIds !== undefined && (itemIds === null || itemIds.includes(s.itemId))) return true;
+    if (areaIds && areaIds.has(s.areaId)) return true;
+    return false;
+  });
 }
 
 // ── GET /api/pharmacy-analysis/pharmacies ─────────────────────
@@ -72,16 +145,18 @@ export async function listPharmacies(req, res, next) {
   try {
     const userId    = req.user.id;
     const fileIds   = req.query.fileIds || null;
-    const search    = req.query.search ? norm(req.query.search) : null;
     const companyId = req.query.companyId ? Number(req.query.companyId) : null;
     const repId     = req.query.repId ? Number(req.query.repId) : null;
     const repUserId = req.query.repUserId ? Number(req.query.repUserId) : null;
 
     const tStart = Date.now();
-    let sales = await getScopedSales(userId, fileIds);
+    const [sales0, searchTerms] = await Promise.all([
+      getScopedSales(userId, fileIds),
+      resolveSearchTerms(req.query.search, req.user),
+    ]);
     const tLoad = Date.now();
 
-    sales = await applyRosterFilters(sales, { companyId, repId, repUserId });
+    const sales = await applyRosterFilters(sales0, { companyId, repId, repUserId });
 
     // Group by pharmacy name (from customer or rawData)
     const map = new Map(); // pharmacyName → { ... }
@@ -94,11 +169,25 @@ export async function listPharmacies(req, res, next) {
     );
     const tDedup = Date.now();
 
+    // بحث ذكي متعدد الحدود: يحدَّد أولاً أي الصيدليات «تطابق» (عبر أي صف من
+    // صفوفها بأي حقل)، ثم يُبنى إجمالي كل صيدلية مطابقة من كل صفوفها كاملة —
+    // لا من الصفوف المطابقة وحدها، فلا يظهر إجمالي جزئي (مثلاً: قيمة ايتم واحد
+    // فقط) حين يكون سبب المطابقة ايتماً أو مندوباً لا اسم الصيدلية نفسه.
+    let matchingPharmaNames = null;
+    if (searchTerms.length > 0) {
+      matchingPharmaNames = new Set();
+      for (const s of deduped) {
+        if (!matchingPharmaNames.has(s._pharmaName) && rowMatchesSearch(s, searchTerms)) {
+          matchingPharmaNames.add(s._pharmaName);
+        }
+      }
+    }
+
     for (const s of deduped) {
       const pharmaName = s._pharmaName;
       const areaName = s._areaName;
 
-      if (search && !s._normPharma.includes(search) && !norm(areaName).includes(search)) continue;
+      if (matchingPharmaNames && !matchingPharmaNames.has(pharmaName)) continue;
 
       if (!map.has(pharmaName)) {
         map.set(pharmaName, {

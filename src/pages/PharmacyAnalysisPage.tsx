@@ -188,6 +188,11 @@ export default function PharmacyAnalysisPage() {
 
   const searchTimer = useRef<ReturnType<typeof setTimeout>>();
 
+  // حفظ موضع التمرير عند الدخول لتفاصيل صيدلية، واستعادته عند «رجوع» — بدل
+  // بقاء scrollTop الحاوية كما هو فيظهر محتوى مختلف الطول من منتصفه/أسفله.
+  const savedScrollRef = useRef<number>(0);
+  const getMainEl = () => document.querySelector<HTMLElement>('.app-main');
+
   // ── Wrap the shared hook's file mutators so this page's own tab state resets too ──
   const clearAllData = async () => {
     await pnClearAllData();
@@ -348,12 +353,21 @@ export default function PharmacyAnalysisPage() {
   // itemName: عند الدخول من مجموعة ايتم، التفاصيل تُقصر على ذلك الايتم وحده —
   // وإلا عُرضت كل ايتمات الصيدلية وضاع سياق الايتم الذي جاء منه المستخدم.
   const openPharma = (name: string, itemName?: string | null) => {
+    if (!selectedPharma) {
+      const main = getMainEl();
+      if (main) savedScrollRef.current = main.scrollTop;
+    }
     setSelectedPharma(name);
     setDetailItem(itemName || null);
     setPharmaDetailLoading(true);
+    requestAnimationFrame(() => requestAnimationFrame(() => { const m = getMainEl(); if (m) m.scrollTop = 0; }));
     const q = (itemName ? `${fileQuery}&item=${encodeURIComponent(itemName)}` : fileQuery) + rosterFilterQuery;
     fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(name)}${q}`, { headers })
       .then(r => r.json()).then(d => setPharmaDetail(d)).catch(() => {}).finally(() => setPharmaDetailLoading(false));
+  };
+  const closePharma = () => {
+    setSelectedPharma(null); setPharmaDetail(null); setDetailItem(null);
+    requestAnimationFrame(() => requestAnimationFrame(() => { const m = getMainEl(); if (m) m.scrollTop = savedScrollRef.current; }));
   };
   const openItem = (name: string) => {
     setSelectedItem(name); setItemDetailLoading(true); setItemDetailDaysSort(null);
@@ -800,8 +814,9 @@ export default function PharmacyAnalysisPage() {
           {/* Toolbar */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={pharmaSearch} onChange={e => onPharmaSearch(e.target.value)}
-              placeholder="بحث باسم الصيدلية أو المنطقة..."
-              style={{ flex: 1, minWidth: 200, maxWidth: 320, padding: '7px 12px', borderRadius: 6, border: '1px solid var(--c-border)', fontSize: 12, background: '#fff' }} />
+              placeholder="بحث ذكي: صيدلية، منطقة، ايتم، مندوب، شركة... (افصل بفاصلة للبحث عن أكثر من اسم)"
+              title="يمكنك كتابة أكثر من اسم مفصولاً بفاصلة (,) — يُبحث في اسم الصيدلية والمنطقة والايتم والمندوب التجاري والمندوب العلمي والشركة الرئيسية معاً"
+              style={{ flex: 1, minWidth: 200, maxWidth: 420, padding: '7px 12px', borderRadius: 6, border: '1px solid var(--c-border)', fontSize: 12, background: '#fff' }} />
 
             {/* Group by */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 4px' }}>
@@ -972,7 +987,7 @@ export default function PharmacyAnalysisPage() {
       {/* ── Pharmacy Detail ───────────────────────────────── */}
       {tab === 'pharmacies' && selectedPharma && (
         <div>
-          <button onClick={() => { setSelectedPharma(null); setPharmaDetail(null); setDetailItem(null); }} style={{ ...BACK_BTN, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="chevronLeft" size={13} /> رجوع</button>
+          <button onClick={closePharma} style={{ ...BACK_BTN, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="chevronLeft" size={13} /> رجوع</button>
           <div style={{ ...CARD, marginTop: 10 }}>
             <h2 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)' }}>{selectedPharma}</h2>
             {detailItem && (
