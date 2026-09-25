@@ -2965,6 +2965,7 @@ export default function DoctorsPage() {
                                   <tr style={{ color: 'var(--c-text-muted)', fontWeight: 600 }}>
                                     <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>#</th>
                                     <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>التاريخ</th>
+                                    <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>المندوب</th>
                                     <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>الايتم</th>
                                     <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 600 }}>الفيدباك</th>
                                     <th style={{ textAlign: 'center', padding: '4px 8px', fontWeight: 600 }}>الموقع</th>
@@ -2978,6 +2979,7 @@ export default function DoctorsPage() {
                                       <tr key={v.id} style={{ borderTop: '1px solid var(--c-border-light)' }}>
                                         <td style={{ padding: '5px 8px', color: 'var(--c-text-muted)' }}>{idx + 1}</td>
                                         <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap' }}>{fmt(v.visitDate)}</td>
+                                        <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap' }}>{v.repName ?? '—'}</td>
                                         <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)' }}>{v.item?.name ?? '—'}</td>
                                         <td style={{ padding: '5px 8px' }}>
                                           <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: vfb.bg, color: vfb.color }}>{vfb.label}</span>
