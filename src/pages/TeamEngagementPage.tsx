@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { NAV_ITEMS } from '../config/featureConfig';
 
-interface DaySeriesPoint { date: string; opens: number; events: number; }
+interface DaySeriesPoint { date: string; opens: number; events: number; minutes: number; }
 interface FeatureCount { module: string; count: number; }
 
 interface MemberEngagement {
@@ -14,6 +14,9 @@ interface MemberEngagement {
   isActive: boolean;
   lastActiveAt: string | null;
   opensToday: number;
+  minutesToday: number;
+  minutesLast7: number;
+  avgMinutesPerActiveDay7: number;
   activeDaysLast7: number;
   activeDaysLast30: number;
   distinctFeaturesLast30: number;
@@ -24,7 +27,7 @@ interface MemberEngagement {
   status: 'very_active' | 'moderate' | 'low' | 'inactive' | 'never';
 }
 
-interface Summary { total: number; activeToday: number; avgScore: number; }
+interface Summary { total: number; activeToday: number; avgScore: number; avgMinutesToday: number; }
 
 const ROLE_LABELS: Record<string, string> = {
   company_manager: '🏭 مدير شركة',
@@ -53,6 +56,13 @@ function relativeTime(iso: string | null): string {
   if (diffD === 1) return 'أمس';
   if (diffD < 30) return `قبل ${diffD} يوم`;
   return new Date(iso).toLocaleDateString('ar-SA');
+}
+
+function formatMinutes(min: number): string {
+  if (min <= 0) return '0 د';
+  if (min < 60) return `${min} د`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? `${h}س ${m}د` : `${h}س`;
 }
 
 function heatColor(events: number): string {
@@ -97,7 +107,7 @@ export default function TeamEngagementPage() {
   const authH = () => ({ Authorization: `Bearer ${token}` });
 
   const [members, setMembers]   = useState<MemberEngagement[]>([]);
-  const [summary, setSummary]   = useState<Summary>({ total: 0, activeToday: 0, avgScore: 0 });
+  const [summary, setSummary]   = useState<Summary>({ total: 0, activeToday: 0, avgScore: 0, avgMinutesToday: 0 });
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
   const [detail, setDetail]     = useState<MemberEngagement | null>(null);
@@ -112,7 +122,7 @@ export default function TeamEngagementPage() {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'فشل تحميل بيانات نشاط الفريق');
       setMembers(j.data ?? []);
-      setSummary(j.summary ?? { total: 0, activeToday: 0, avgScore: 0 });
+      setSummary(j.summary ?? { total: 0, activeToday: 0, avgScore: 0, avgMinutesToday: 0 });
     } catch (err: any) { setError(err.message || 'فشل تحميل بيانات نشاط الفريق'); }
     finally { setLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,7 +142,7 @@ export default function TeamEngagementPage() {
         <div className="loading-spinner">جاري التحميل...</div>
       ) : (
         <>
-          <div className="stats-grid stats-grid--3" style={{ marginBottom: 18 }}>
+          <div className="stats-grid stats-grid--4" style={{ marginBottom: 18 }}>
             <div className="stat-card" style={{ borderTop: '4px solid var(--c-accent)' }}>
               <div className="stat-card-icon stat-card-icon--blue">👥</div>
               <div className="stat-card-body">
@@ -152,6 +162,13 @@ export default function TeamEngagementPage() {
               <div className="stat-card-body">
                 <div className="stat-card-value">{summary.avgScore}%</div>
                 <div className="stat-card-label">متوسط التزام الفريق</div>
+              </div>
+            </div>
+            <div className="stat-card" style={{ borderTop: '4px solid var(--c-purple)' }}>
+              <div className="stat-card-icon stat-card-icon--purple">⏱️</div>
+              <div className="stat-card-body">
+                <div className="stat-card-value">{formatMinutes(summary.avgMinutesToday)}</div>
+                <div className="stat-card-label">متوسط وقت الاستخدام اليوم</div>
               </div>
             </div>
           </div>
@@ -190,6 +207,7 @@ export default function TeamEngagementPage() {
                         <span style={{ fontWeight: 700, color: meta.color }}>{meta.label}</span>
                         {' · '}آخر ظهور: {relativeTime(m.lastActiveAt)}
                         {' · '}فتح التطبيق {m.opensToday} مرة اليوم
+                        {' · '}⏱️ {formatMinutes(m.minutesToday)} استخدام فعلي اليوم
                       </div>
                       <div style={{ marginTop: 8 }}>
                         <MiniHeatmap series={m.dailySeries} />
@@ -215,6 +233,9 @@ export default function TeamEngagementPage() {
             </div>
             <div className="modal-body">
               <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 13, color: '#475569' }}>⏱️ وقت الاستخدام اليوم: <strong>{formatMinutes(detail.minutesToday)}</strong></div>
+                <div style={{ fontSize: 13, color: '#475569' }}>⏱️ إجمالي 7 أيام: <strong>{formatMinutes(detail.minutesLast7)}</strong></div>
+                <div style={{ fontSize: 13, color: '#475569' }}>⏱️ متوسط اليوم النشط: <strong>{formatMinutes(detail.avgMinutesPerActiveDay7)}</strong></div>
                 <div style={{ fontSize: 13, color: '#475569' }}>🗓️ أيام نشاط (7 أيام): <strong>{detail.activeDaysLast7}/7</strong></div>
                 <div style={{ fontSize: 13, color: '#475569' }}>🗓️ أيام نشاط (30 يوم): <strong>{detail.activeDaysLast30}/30</strong></div>
                 <div style={{ fontSize: 13, color: '#475569' }}>🧩 صفحات مختلفة استُخدمت: <strong>{detail.distinctFeaturesLast30}</strong></div>
@@ -245,7 +266,7 @@ export default function TeamEngagementPage() {
                     <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 6, height: 10, overflow: 'hidden' }}>
                       <div style={{ width: `${Math.min(d.events * 10, 100)}%`, height: '100%', background: heatColor(d.events) }} />
                     </div>
-                    <span style={{ width: 74, color: '#334155', textAlign: 'left' }}>{d.opens} فتح / {d.events} حدث</span>
+                    <span style={{ width: 130, color: '#334155', textAlign: 'left' }}>{d.opens} فتح / {formatMinutes(d.minutes)}</span>
                   </div>
                 ))}
               </div>

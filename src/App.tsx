@@ -8,6 +8,7 @@ import { Icon } from './config/icons';
 import { getPageHeader, getPageHeaderIcon } from './config/pageHeaders';
 import { NAV_ITEMS } from './config/featureConfig';
 import { sendEngagementPing } from './lib/engagementPing';
+import { useEngagementHeartbeat } from './hooks/useEngagementHeartbeat';
 import './App.css';
 
 // Lazy-load heavy pages — each becomes its own JS chunk loaded on first visit
@@ -261,6 +262,7 @@ function AppInner() {
     sessionStorage.setItem('engagement_pinged_session', '1');
     sendEngagementPing('app_open');
   }, [user?.id]);
+  useEngagementHeartbeat(activePage, !!user);
   // تفعيل الملفات يُحفظ لكل مستخدم على حدة (وليس بمفتاح واحد مشترك)، ويبقى كما
   // هو عبر الريفرش أو تسجيل الخروج/الدخول لنفس الحساب، إلى أن يغيّره المستخدم بنفسه.
   const [activeFileIds, setActiveFileIds] = useState<number[]>(() => {

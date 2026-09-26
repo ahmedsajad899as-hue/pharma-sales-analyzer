@@ -1,7 +1,10 @@
 import prisma from '../../lib/prisma.js';
 import { logActivity } from '../../lib/activityLogger.js';
 
-const PING_TYPES = new Set(['app_open', 'page_view']);
+const PING_TYPES = new Set(['app_open', 'page_view', 'heartbeat']);
+// سقف دفاعي على الخادم لثواني كل نبضة — يطابق MAX_TICK_SECONDS في
+// src/hooks/useEngagementHeartbeat.ts، ويحمي من نبضة مزوَّرة/معطوبة بقيمة ضخمة.
+const MAX_HEARTBEAT_SECONDS = 90;
 const OFFICE_ENGAGEMENT_ROLES = ['company_manager', 'office_hr', 'office_employee'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -12,11 +15,17 @@ const dayKey = (d) => new Date(d).toISOString().slice(0, 10);
 // visited" events. ActivityLog's global middleware only logs write requests,
 // so these would otherwise never be recorded.
 export async function pingActivity(req, res) {
-  const { type, page } = req.body || {};
+  const { type, page, seconds } = req.body || {};
   if (!PING_TYPES.has(type)) return res.status(400).json({ error: 'نوع غير صالح' });
 
+  let details = null;
+  if (type === 'heartbeat') {
+    const clamped = Math.max(1, Math.min(Number(seconds) || 0, MAX_HEARTBEAT_SECONDS));
+    details = String(clamped);
+  }
+
   req._skipActivity = true; // avoid a duplicate generic "POST /api/engagement/ping" row
-  await logActivity({ userId: req.user.id, action: type, module: page || 'app', req });
+  await logActivity({ userId: req.user.id, action: type, module: page || 'app', details, req });
   res.json({ success: true });
 }
 
@@ -61,7 +70,7 @@ export async function getTeamEngagement(req, res) {
   const logs = memberIds.length
     ? await prisma.activityLog.findMany({
         where: { userId: { in: memberIds }, createdAt: { gte: cutoff30 } },
-        select: { userId: true, action: true, module: true, createdAt: true },
+        select: { userId: true, action: true, module: true, details: true, createdAt: true },
       })
     : [];
 
@@ -77,11 +86,13 @@ export async function getTeamEngagement(req, res) {
 
     let lastActiveAt = null;
     let opensToday = 0;
+    let secondsToday = 0;
+    let secondsLast7 = 0;
     const activeDaySet7 = new Set();
     const activeDaySet30 = new Set();
     const featureCounts = {};
     let interactionsLast30 = 0;
-    const dayBuckets = new Map(last14Days.map(d => [d, { opens: 0, events: 0 }]));
+    const dayBuckets = new Map(last14Days.map(d => [d, { opens: 0, events: 0, seconds: 0 }]));
 
     for (const log of userLogs) {
       const ts = log.createdAt;
@@ -92,10 +103,17 @@ export async function getTeamEngagement(req, res) {
       if (key >= last7Cutoff) activeDaySet7.add(key);
       if (key === todayKey && log.action === 'app_open') opensToday++;
 
+      const heartbeatSeconds = log.action === 'heartbeat' ? (parseInt(log.details, 10) || 0) : 0;
+      if (heartbeatSeconds) {
+        if (key === todayKey) secondsToday += heartbeatSeconds;
+        if (key >= last7Cutoff) secondsLast7 += heartbeatSeconds;
+      }
+
       const bucket = dayBuckets.get(key);
       if (bucket) {
         bucket.events++;
         if (log.action === 'app_open') bucket.opens++;
+        bucket.seconds += heartbeatSeconds;
       }
 
       const isWriteAction = /^(POST|PUT|PATCH|DELETE)\s/.test(log.action);
@@ -119,6 +137,9 @@ export async function getTeamEngagement(req, res) {
       interactionsLast30,
     });
 
+    const minutesToday = Math.round(secondsToday / 60);
+    const minutesLast7 = Math.round(secondsLast7 / 60);
+
     return {
       id: member.id,
       username: member.username,
@@ -127,12 +148,18 @@ export async function getTeamEngagement(req, res) {
       isActive: member.isActive,
       lastActiveAt,
       opensToday,
+      minutesToday,
+      minutesLast7,
+      avgMinutesPerActiveDay7: activeDaySet7.size ? Math.round(minutesLast7 / activeDaySet7.size) : 0,
       activeDaysLast7: activeDaySet7.size,
       activeDaysLast30: activeDaySet30.size,
       distinctFeaturesLast30,
       interactionsLast30,
       topFeatures,
-      dailySeries: last14Days.map(d => ({ date: d, ...dayBuckets.get(d) })),
+      dailySeries: last14Days.map(d => {
+        const b = dayBuckets.get(d);
+        return { date: d, opens: b.opens, events: b.events, minutes: Math.round(b.seconds / 60) };
+      }),
       score,
       status,
     };
@@ -142,10 +169,11 @@ export async function getTeamEngagement(req, res) {
 
   const activeToday = data.filter(u => u.opensToday > 0).length;
   const avgScore = data.length ? Math.round(data.reduce((s, u) => s + u.score, 0) / data.length) : 0;
+  const avgMinutesToday = data.length ? Math.round(data.reduce((s, u) => s + u.minutesToday, 0) / data.length) : 0;
 
   res.json({
     success: true,
     data,
-    summary: { total: data.length, activeToday, avgScore },
+    summary: { total: data.length, activeToday, avgScore, avgMinutesToday },
   });
 }
