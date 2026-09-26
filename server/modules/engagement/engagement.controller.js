@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { logActivity } from '../../lib/activityLogger.js';
 
-const PING_TYPES = new Set(['app_open', 'page_view', 'heartbeat']);
+const PING_TYPES = new Set(['app_open', 'page_view', 'heartbeat', 'search', 'calculate']);
 // سقف دفاعي على الخادم لثواني كل نبضة — يطابق MAX_TICK_SECONDS في
 // src/hooks/useEngagementHeartbeat.ts، ويحمي من نبضة مزوَّرة/معطوبة بقيمة ضخمة.
 const MAX_HEARTBEAT_SECONDS = 90;
@@ -117,11 +117,14 @@ export async function getTeamEngagement(req, res) {
       }
 
       const isWriteAction = /^(POST|PUT|PATCH|DELETE)\s/.test(log.action);
-      if (log.action === 'page_view' || isWriteAction) {
+      // 'search'/'calculate' هي نبضات صريحة من الواجهة (بحث باسم/مندوب، تشغيل تحليل)
+      // ولا تُطابق isWriteAction لأنها GET أصلاً — لكنها حركة فعلية يجب احتسابها.
+      const isPingInteraction = log.action === 'search' || log.action === 'calculate';
+      if (log.action === 'page_view' || isWriteAction || isPingInteraction) {
         const feat = log.module || 'other';
         featureCounts[feat] = (featureCounts[feat] ?? 0) + 1;
       }
-      if (isWriteAction) interactionsLast30++;
+      if (isWriteAction || isPingInteraction) interactionsLast30++;
     }
 
     const distinctFeaturesLast30 = Object.keys(featureCounts).length;

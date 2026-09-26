@@ -1,6 +1,6 @@
 // إشارات خفيفة "فتح تطبيق"/"زيارة صفحة"/"نبضة وقت استخدام فعلي" — راجع server/modules/engagement.
 // fire-and-forget بالكامل: لا تنتظر النتيجة ولا تُفشل أي شيء عند تعذّرها.
-type PingType = 'app_open' | 'page_view' | 'heartbeat';
+type PingType = 'app_open' | 'page_view' | 'heartbeat' | 'search' | 'calculate';
 
 export function sendEngagementPing(type: PingType, page?: string, seconds?: number) {
   try {
