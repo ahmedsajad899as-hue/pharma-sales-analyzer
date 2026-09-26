@@ -107,6 +107,12 @@ const sanitizeSheetName = (name: string): string => {
    by source (see classifyRowSource below) — plain white when no source column exists. */
 const HEADER_FILL = 'FF2F8F8F';
 const BORDER_RGB  = 'FFB9C6C6';
+// كود تنسيق إكسل قياسي للفواصل بين كل 3 أرقام — الحرف الظاهر فعلياً (نقطة أو
+// فاصلة) يعتمد على إعدادات النظام الإقليمية لدى المستخدم لا على هذا الكود.
+const NUM_FMT_THOUSANDS = '#,##0';
+const applyNumFmt = (ws: XLSX.WorkSheet, addr: string, fmt: string = NUM_FMT_THOUSANDS) => {
+  if (ws[addr]) ws[addr].s = { ...ws[addr].s, numFmt: fmt };
+};
 
 /* تمييز كل صف بلون خفيف حسب مصدره: ميركاتو / مبيع مكتب / ارجاع مكتب. يُقرأ من عمود
    «_sheetName» الخام نفسه — buildSheet/buildMergedSheet يطبّعان قيمته الآن إلى واحدة
@@ -135,11 +141,12 @@ const classifyRowSource = (headerRow: any[] = [], row: any[] = []): RowSourceKin
   return 'officeSale';
 };
 
-/* لوحة ألوان هادئة لتمييز كل شركة في رأس عمود «كل المندوبين العلميين» — نفس
-   عائلة السليت الأساسية (صبغة ~205°-240°، تشبّع منخفض) لكل الشركات، بانزياح
-   صبغة طفيف جداً لكل واحدة (لا تشبّع/إضاءة مختلفَين) كي تبقى الألوان متقاربة
-   جداً/هادئة بدل قوس قزح متضارب — قابلة للتمييز جنباً إلى جنب فقط. hex بدل
-   hsl() مباشرة كي يُستعمل نفسه في تدرّج CSS على الشاشة وفي تعبئة ARGB بالإكسل. */
+/* لوحة ألوان هادئة لتمييز كل شركة في رأس عمود «كل المندوبين العلميين» — تشبّع
+   معتدل (بدل الرمادي شبه الموحَّد سابقاً الذي كان يبدو بلا فرق فعلي داخل
+   إكسل) مع خطوة صبغة كبيرة نسبياً (زاوية ذهبية تقريباً) بين كل شركة والتالية
+   لضمان تباين واضح جنباً إلى جنب، وإضاءة متوسطة موحَّدة تبقيها عائلة هادئة
+   واحدة لا قوس قزح صارخ. hex بدل hsl() مباشرة كي يُستعمل نفسه في تدرّج CSS
+   على الشاشة وفي تعبئة ARGB بالإكسل. */
 const hslToHex = (h: number, s: number, l: number): string => {
   const sf = s / 100, lf = l / 100;
   const k = (n: number) => (n + h / 30) % 12;
@@ -149,8 +156,8 @@ const hslToHex = (h: number, s: number, l: number): string => {
   return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
 };
 const companyColorPair = (index: number): [light: string, dark: string] => {
-  const hue = 205 + ((index * 7) % 35);
-  return [hslToHex(hue, 20, 58), hslToHex(hue, 19, 43)];
+  const hue = (index * 47) % 360;
+  return [hslToHex(hue, 40, 62), hslToHex(hue, 34, 44)];
 };
 const hexToARGB = (hex: string): string => 'FF' + hex.replace('#', '').toUpperCase();
 
@@ -2881,6 +2888,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           if (ws[addr]) ws[addr].s = { ...ws[addr].s, fill };
         }
       });
+      // فواصل الآلاف لأعمدة القيمة (صافي المبيع لكل مندوب، وإجمالي صافي القيمة
+      // لكل صف/الإجمالي الكلي) — أعمدة العدّ (الطلبيات) تبقى بلا تنسيق، أرقامها
+      // صغيرة ولا تحتاج فواصل.
+      cols.forEach((_, ci) => applyNumFmt(ws, XLSX.utils.encode_cell({ r: 2, c: 1 + ci })));
+      for (let r = 3; r < 3 + body.length; r++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: totalCol2 }));
+      applyNumFmt(ws, XLSX.utils.encode_cell({ r: aoa.length - 1, c: totalCol2 }));
       XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('مذخر × مندوب'));
     } else {
       const cv = (n: number) => +convertVal(n).toFixed(2);
@@ -2894,6 +2907,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const aoa = [header, ...body];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       styleSheet(ws, aoa, [5, 18, 26, 16, 14, 14, 12, 55]);
+      // فواصل الآلاف لعمود صافي المبيع (index 3) فقط
+      for (let r = 1; r < aoa.length; r++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: 3 }));
       XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('كل المندوبين العلميين'));
     }
     XLSX.writeFile(wb, `مكتب-مذخر-المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
