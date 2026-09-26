@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { CSSProperties } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { NAV_ITEMS } from '../config/featureConfig';
@@ -44,6 +45,14 @@ const STATUS_META: Record<MemberEngagement['status'], { label: string; color: st
 };
 
 const FEATURE_LABEL: Record<string, string> = Object.fromEntries(NAV_ITEMS.map(n => [n.id, n.labelAr]));
+
+// شارة خفيفة لعناصر سطر الملخص داخل بطاقة العضو — تفصل كل معلومة بمساحة
+// واضحة بدل نص متلاصق بفواصل "·"، وبخط رفيع يقلّل الزحمة البصرية.
+const metaChipStyle: CSSProperties = {
+  fontSize: 11.5, fontWeight: 400, color: '#94a3b8',
+  background: '#f8fafc', border: '1px solid #eef1f6',
+  borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap',
+};
 
 function relativeTime(iso: string | null): string {
   if (!iso) return 'لم يدخل إطلاقاً';
@@ -203,11 +212,11 @@ export default function TeamEngagementPage() {
                         <span style={{ fontSize: 12, color: '#6366f1' }}>{ROLE_LABELS[m.role] ?? m.role}</span>
                         {!m.isActive && <span style={{ fontSize: 11, color: '#ef4444' }}>● حساب معطّل</span>}
                       </div>
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
-                        <span style={{ fontWeight: 700, color: meta.color }}>{meta.label}</span>
-                        {' · '}آخر ظهور: {relativeTime(m.lastActiveAt)}
-                        {' · '}فتح التطبيق {m.opensToday} مرة اليوم
-                        {' · '}⏱️ {formatMinutes(m.minutesToday)} استخدام فعلي اليوم
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 5 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: meta.color }}>{meta.label}</span>
+                        <span style={metaChipStyle}>{relativeTime(m.lastActiveAt)}</span>
+                        <span style={metaChipStyle}>🔓 {m.opensToday} اليوم</span>
+                        <span style={metaChipStyle}>⏱️ {formatMinutes(m.minutesToday)}</span>
                       </div>
                       <div style={{ marginTop: 8 }}>
                         <MiniHeatmap series={m.dailySeries} />
