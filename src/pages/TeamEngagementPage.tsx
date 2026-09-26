@@ -112,7 +112,11 @@ function MiniHeatmap({ series }: { series: DaySeriesPoint[] }) {
 }
 
 export default function TeamEngagementPage() {
-  const { token } = useAuth();
+  const { token, hasFeature } = useAuth();
+  const canOpenDetail = hasFeature('team_engagement_member_detail');
+  const showTimeStats = hasFeature('team_engagement_time');
+  const showDaysStats = hasFeature('team_engagement_days');
+  const showTopPages  = hasFeature('team_engagement_top_pages');
   const authH = () => ({ Authorization: `Bearer ${token}` });
 
   const [members, setMembers]   = useState<MemberEngagement[]>([]);
@@ -192,10 +196,10 @@ export default function TeamEngagementPage() {
               {members.map(m => {
                 const meta = STATUS_META[m.status];
                 return (
-                  <div key={m.id} onClick={() => setDetail(m)} style={{
+                  <div key={m.id} onClick={() => canOpenDetail && setDetail(m)} style={{
                     background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
                     padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 16,
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)', cursor: 'pointer',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)', cursor: canOpenDetail ? 'pointer' : 'default',
                   }}>
                     <div style={{
                       width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
@@ -233,7 +237,7 @@ export default function TeamEngagementPage() {
       )}
 
       {/* ── Detail Modal ── */}
-      {detail && (
+      {detail && canOpenDetail && (
         <div className="modal-overlay" onClick={() => setDetail(null)}>
           <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -241,44 +245,56 @@ export default function TeamEngagementPage() {
               <button className="modal-close" onClick={() => setDetail(null)}>✕</button>
             </div>
             <div className="modal-body">
-              <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 13, color: '#475569' }}>⏱️ وقت الاستخدام اليوم: <strong>{formatMinutes(detail.minutesToday)}</strong></div>
-                <div style={{ fontSize: 13, color: '#475569' }}>⏱️ إجمالي 7 أيام: <strong>{formatMinutes(detail.minutesLast7)}</strong></div>
-                <div style={{ fontSize: 13, color: '#475569' }}>⏱️ متوسط اليوم النشط: <strong>{formatMinutes(detail.avgMinutesPerActiveDay7)}</strong></div>
-                <div style={{ fontSize: 13, color: '#475569' }}>🗓️ أيام نشاط (7 أيام): <strong>{detail.activeDaysLast7}/7</strong></div>
-                <div style={{ fontSize: 13, color: '#475569' }}>🗓️ أيام نشاط (30 يوم): <strong>{detail.activeDaysLast30}/30</strong></div>
-                <div style={{ fontSize: 13, color: '#475569' }}>🧩 صفحات مختلفة استُخدمت: <strong>{detail.distinctFeaturesLast30}</strong></div>
-                <div style={{ fontSize: 13, color: '#475569' }}>✍️ إجراءات فعلية (30 يوم): <strong>{detail.interactionsLast30}</strong></div>
-              </div>
-
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 8 }}>أكثر الصفحات استخداماً</h3>
-              {detail.topFeatures.length === 0 ? (
-                <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>لا يوجد استخدام مسجَّل لأي صفحة بعد.</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
-                  {detail.topFeatures.map(f => (
-                    <div key={f.module} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, background: '#f8fafc', borderRadius: 8, padding: '6px 10px' }}>
-                      <span>{FEATURE_LABEL[f.module] ?? f.module}</span>
-                      <strong style={{ color: '#6366f1' }}>{f.count}</strong>
-                    </div>
-                  ))}
+              {(showTimeStats || showDaysStats || showTopPages) && (
+                <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+                  {showTimeStats && <>
+                    <div style={{ fontSize: 13, color: '#475569' }}>⏱️ وقت الاستخدام اليوم: <strong>{formatMinutes(detail.minutesToday)}</strong></div>
+                    <div style={{ fontSize: 13, color: '#475569' }}>⏱️ إجمالي 7 أيام: <strong>{formatMinutes(detail.minutesLast7)}</strong></div>
+                    <div style={{ fontSize: 13, color: '#475569' }}>⏱️ متوسط اليوم النشط: <strong>{formatMinutes(detail.avgMinutesPerActiveDay7)}</strong></div>
+                  </>}
+                  {showDaysStats && <>
+                    <div style={{ fontSize: 13, color: '#475569' }}>🗓️ أيام نشاط (7 أيام): <strong>{detail.activeDaysLast7}/7</strong></div>
+                    <div style={{ fontSize: 13, color: '#475569' }}>🗓️ أيام نشاط (30 يوم): <strong>{detail.activeDaysLast30}/30</strong></div>
+                  </>}
+                  {showTopPages && <>
+                    <div style={{ fontSize: 13, color: '#475569' }}>🧩 صفحات مختلفة استُخدمت: <strong>{detail.distinctFeaturesLast30}</strong></div>
+                    <div style={{ fontSize: 13, color: '#475569' }}>✍️ إجراءات فعلية (30 يوم): <strong>{detail.interactionsLast30}</strong></div>
+                  </>}
                 </div>
               )}
 
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 8 }}>آخر 14 يوماً</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {[...detail.dailySeries].reverse().map(d => (
-                  <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                    <span style={{ width: 78, color: '#64748b' }}>
-                      {new Date(d.date).toLocaleDateString('ar-SA', { weekday: 'short', day: 'numeric', month: 'numeric' })}
-                    </span>
-                    <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 6, height: 10, overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.min(d.events * 10, 100)}%`, height: '100%', background: heatColor(d.events) }} />
-                    </div>
-                    <span style={{ width: 130, color: '#334155', textAlign: 'left' }}>{d.opens} فتح / {formatMinutes(d.minutes)}</span>
+              {showTopPages && <>
+                <h3 style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 8 }}>أكثر الصفحات استخداماً</h3>
+                {detail.topFeatures.length === 0 ? (
+                  <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>لا يوجد استخدام مسجَّل لأي صفحة بعد.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+                    {detail.topFeatures.map(f => (
+                      <div key={f.module} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, background: '#f8fafc', borderRadius: 8, padding: '6px 10px' }}>
+                        <span>{FEATURE_LABEL[f.module] ?? f.module}</span>
+                        <strong style={{ color: '#6366f1' }}>{f.count}</strong>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )}
+              </>}
+
+              {showDaysStats && <>
+                <h3 style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 8 }}>آخر 14 يوماً</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {[...detail.dailySeries].reverse().map(d => (
+                    <div key={d.date} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                      <span style={{ width: 78, color: '#64748b' }}>
+                        {new Date(d.date).toLocaleDateString('ar-SA', { weekday: 'short', day: 'numeric', month: 'numeric' })}
+                      </span>
+                      <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 6, height: 10, overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.min(d.events * 10, 100)}%`, height: '100%', background: heatColor(d.events) }} />
+                      </div>
+                      <span style={{ width: 130, color: '#334155', textAlign: 'left' }}>{d.opens} فتح / {formatMinutes(d.minutes)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>}
             </div>
             <div className="modal-footer">
               <button className="btn btn--secondary" onClick={() => setDetail(null)}>إغلاق</button>

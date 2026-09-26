@@ -161,6 +161,12 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'stock_ledger_export',          label: 'تصدير Excel',            icon: '⬇️', desc: 'تصدير الأرصدة وقائمة الطلبيات المطلوبة' },
     { key: 'stock_ledger_delete',          label: 'حذف دفعة',                 icon: '🗑️', desc: 'حذف دفعة مرفوعة وإعادة حساب الأرصدة' },
   ],
+  'team-engagement': [
+    { key: 'team_engagement_member_detail', label: 'تفاصيل العضو عند الضغط على الاسم', icon: '🔍', desc: 'فتح نافذة التفاصيل عند الضغط على اسم/صف عضو الفريق' },
+    { key: 'team_engagement_time',          label: 'إحصائيات الوقت',                  icon: '⏱️', desc: 'وقت الاستخدام اليوم وآخر 7 أيام ومتوسط اليوم النشط داخل تفاصيل العضو' },
+    { key: 'team_engagement_days',          label: 'إحصائيات الأيام',                 icon: '🗓️', desc: 'أيام النشاط خلال 7/30 يوماً وتفصيل آخر 14 يوماً داخل تفاصيل العضو' },
+    { key: 'team_engagement_top_pages',     label: 'أكثر الصفحات استخداماً',          icon: '📊', desc: 'قائمة أكثر الصفحات استخداماً وعدد الصفحات المختلفة والإجراءات الفعلية داخل تفاصيل العضو' },
+  ],
   'sales-data': [
     { key: 'sales_data_upload',    label: 'رفع ملف / استيراد',           icon: '📥', desc: 'زر استيراد ملف Excel جديد وإضافته للقائمة'            },
     { key: 'sales_data_delete',    label: 'حذف الملف',                    icon: '🗑️', desc: 'حذف الملف من القائمة والخادم'                          },
