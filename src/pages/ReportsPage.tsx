@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import { buildTargetActuals, normalizeItemName, fuzzyItemMatch } from '../utils/itemNameMatch';
 import { useAuth } from '../context/AuthContext';
@@ -725,11 +725,10 @@ function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; 
 interface Rep extends GroupableRep { phone?: string | null }
 
 interface WarehouseBreakdown { name: string; orderCount: number; }
-interface BreakdownRow {
-  name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; companyName?: string;
-  // تفصيل مكتب/مذخر — موجود فقط على صفوف «حسب المندوب التجاري» بتقرير علمي (byRep).
-  officeOrderCount?: number; warehouseOrderCount?: number; warehouses?: WarehouseBreakdown[];
-}
+// ملخص صافي المبيع + طلبيات المكتب/المذخر + أسماء المذاخر لمندوب علمي واحد —
+// صف واحد من القائمة الثانوية «كل المندوبين العلميين».
+interface RepWarehouseSummary { id: number; name: string; netValue: number; officeOrderCount: number; warehouseOrderCount: number; warehouses: WarehouseBreakdown[]; }
+interface BreakdownRow { name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; companyName?: string; }
 interface CommReport {
   repName: string;
   totalQty: number;
@@ -806,8 +805,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [error, setError]         = useState('');
   const [activeTab, setActiveTab] = useState<'area' | 'item' | 'rep'>('area');
   const [showInfoTags, setShowInfoTags] = useState(false);
-  // تفاصيل مكتب/مذخر لمندوب تجاري واحد — يفتحها زر «تفاصيل» بتبويب «حسب المندوب التجاري»
-  const [repDetailModal, setRepDetailModal] = useState<{ name: string; netVal: number; officeOrderCount: number; warehouseOrderCount: number; warehouses: WarehouseBreakdown[] } | null>(null);
+  // تفاصيل مكتب/مذخر لكل المندوبين العلميين دفعة واحدة — يفتحها زر «كل المندوبين العلميين»
+  const [showAllRepsWarehouseModal, setShowAllRepsWarehouseModal] = useState(false);
+  const [allRepsWarehouseLoading, setAllRepsWarehouseLoading]     = useState(false);
+  const [allRepsWarehouseData, setAllRepsWarehouseData]           = useState<RepWarehouseSummary[] | null>(null);
+  const [expandedWarehouseRepId, setExpandedWarehouseRepId]       = useState<number | null>(null);
   const [reportView, setReportView] = useState<ReportView>(() => (sessionStorage.getItem('rpt_view') as ReportView) || getDefaultReportView());
   const [exporting, setExporting]           = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
@@ -1230,11 +1232,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           assignedCommercialReps: d.assignedCommercialReps ?? [],
           byArea: [...salesAreas, ...zeroAreas],
           byItem: [...salesItems, ...zeroItems],
-          byRep:  (d.byRep  ?? []).map((r: any) => ({
-            name: r.repName  ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0,
-            officeOrderCount: r.officeOrderCount ?? 0, warehouseOrderCount: r.warehouseOrderCount ?? 0,
-            warehouses: (r.warehouses ?? []).map((w: any) => ({ name: w.name, orderCount: w.orderCount ?? 0 })),
-          })),
+          byRep:  (d.byRep  ?? []).map((r: any) => ({ name: r.repName  ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
           bySource: d.bySource ? {
             office:  { totalQty: d.bySource.office?.totalQuantity  ?? 0, totalValue: d.bySource.office?.totalValue  ?? 0, orderCount: d.bySource.office?.orderCount  ?? 0 },
             mercato: { totalQty: d.bySource.mercato?.totalQuantity ?? 0, totalValue: d.bySource.mercato?.totalValue ?? 0, orderCount: d.bySource.mercato?.orderCount ?? 0 },
@@ -1258,6 +1256,25 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       setTargetData([]);
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
+  };
+
+  // ملخص صافي المبيع + طلبيات المكتب/المذخر لكل المندوبين العلميين المرئيين
+  // للمستخدم دفعة واحدة — القائمة الثانوية «كل المندوبين العلميين».
+  const loadAllRepsWarehouseSummary = async () => {
+    if (sciReps.length === 0) { setAllRepsWarehouseData([]); return; }
+    setAllRepsWarehouseLoading(true); setAllRepsWarehouseData(null); setExpandedWarehouseRepId(null);
+    try {
+      const params = new URLSearchParams();
+      params.set('repIds', sciReps.map(r => r.id).join(','));
+      if (fromDate) params.set('startDate', fromDate);
+      if (toDate)   params.set('endDate', toDate);
+      if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
+      const res = await fetch(`/api/scientific-reps/warehouse-summary?${params}`, { headers: authH() });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || t.reports.errLoad);
+      setAllRepsWarehouseData(json.data ?? []);
+    } catch (err: any) { setError(err.message); setAllRepsWarehouseData([]); }
+    finally { setAllRepsWarehouseLoading(false); }
   };
 
   // تبديل وضع «تحليل كامل» يعيد التحليل فوراً — الزر بلا أثر مرئي لولا ذلك.
@@ -1433,9 +1450,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const activeKeys = excludedKeys ? allKeys.filter(k => !excludedKeys.has(k)) : allKeys;
     const effShowQty = forceMode ? (forceMode === 'qty' || forceMode === 'both') : !hideQtyCols;
     const effShowVal = forceMode ? (forceMode === 'value' || forceMode === 'both') : hideQtyCols;
-    // زر «تفاصيل» (مكتب/مذخر + أسماء المذاخر) — فقط على تبويب «حسب المندوب التجاري»
-    const showDetailCol = rowType === 'rep';
-    const colSpanEmpty = (hasRep ? 3 : 2) + 3 + (showDetailCol ? 1 : 0);
+    const colSpanEmpty = (hasRep ? 3 : 2) + 3;
 
     // ── PharmacyNet-style table styles ──────────────────────
     const thStyle: React.CSSProperties = {
@@ -1473,14 +1488,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {effShowVal && <col style={{ width: isMobile ? 60 : undefined }} />}
               {effShowQty && <col style={{ width: isMobile ? 50 : undefined }} />}
               {effShowVal && <col style={{ width: isMobile ? 60 : undefined }} />}
-              {showDetailCol && <col style={{ width: isMobile ? 40 : 54 }} />}
             </colgroup>
             <thead>
               <tr style={{ background: '#1e40af' }}>
                 <th style={{ ...thStyle, textAlign: 'center', width: isMobile ? 26 : 40 }}>#</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>{nameLabel}</th>
                 {hasRep && <th style={thStyle}><Icon name="person" size={13} /></th>}
-                {showDetailCol && <th style={thStyle} title="تفاصيل المكتب/المذخر"><Icon name="view" size={13} /></th>}
                 {effShowQty && (
                   <th style={thStyle} title={t.reports.colSalesQty}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
@@ -1571,22 +1584,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         </span>
                       </td>
                     )}
-                    {showDetailCol && (
-                      <td style={tdStyle}>
-                        {salesMap[key] ? (
-                          <button
-                            onClick={e => { e.stopPropagation(); setRepDetailModal({
-                              name: row.name, netVal,
-                              officeOrderCount: salesMap[key].officeOrderCount ?? 0,
-                              warehouseOrderCount: salesMap[key].warehouseOrderCount ?? 0,
-                              warehouses: salesMap[key].warehouses ?? [],
-                            }); }}
-                            title="تفاصيل المكتب/المذخر"
-                            style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#1d4ed8', display: 'inline-flex', alignItems: 'center' }}
-                          ><Icon name="view" size={13} /></button>
-                        ) : '—'}
-                      </td>
-                    )}
                   </tr>
                 );
               })}
@@ -1620,7 +1617,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     {effShowVal && <td style={{ ...ftd, color: '#92400e' }}>{fmtVal(totRetVal)}</td>}
                     {effShowQty && <td style={{ ...ftd, color: tNetQty >= 0 ? '#065f46' : '#991b1b' }}>{fmtSigned(tNetQty)}</td>}
                     {effShowVal && <td style={{ ...ftd, color: tNetVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(tNetVal)}</td>}
-                    {showDetailCol && <td></td>}
                   </tr>
                 </tfoot>
               );
@@ -2658,15 +2654,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     }
   };
 
-  const renderBreakdownTable = (rows: BreakdownRow[], totalValue: number, nameLabel: string, hideQtyCols = false, forceMode?: 'qty' | 'value', rowType?: 'area' | 'item' | 'rep') => {
+  const renderBreakdownTable = (rows: BreakdownRow[], totalValue: number, nameLabel: string, hideQtyCols = false, forceMode?: 'qty' | 'value') => {
     const hasRep   = rows.some(r => r.repName);
     const salesRows = rows.filter(r => !r.isZero);
     const zeroRows  = rows.filter(r => r.isZero);
     const effShowQtyBD = forceMode ? forceMode === 'qty' : !hideQtyCols;
     const effShowValBD = forceMode ? forceMode === 'value' : hideQtyCols;
-    // زر «تفاصيل» (مكتب/مذخر + أسماء المذاخر) — فقط على تبويب «حسب المندوب التجاري»
-    const showDetailCol = rowType === 'rep';
-    const colCount = (hasRep ? 4 : 3) + (showDetailCol ? 1 : 0);
+    const colCount = hasRep ? 4 : 3;
     const thBD: React.CSSProperties = isMobile
       ? { fontSize: 11, padding: '6px 5px', whiteSpace: 'nowrap', verticalAlign: 'middle', textAlign: 'center' }
       : { fontSize: 13, padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 700, verticalAlign: 'middle', textAlign: 'center' };
@@ -2689,7 +2683,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {hasRep && <col style={{ width: isMobile ? 60 : undefined }} />}
           {effShowQtyBD && <col style={{ width: isMobile ? 64 : undefined }} />}
           {effShowValBD && <col style={{ width: isMobile ? 80 : undefined }} />}
-          {showDetailCol && <col style={{ width: isMobile ? 40 : 54 }} />}
         </colgroup>
         <thead>
           <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
@@ -2698,7 +2691,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {hasRep && <th style={{ ...thBD, textAlign: 'center' }}><Icon name="person" size={13} /></th>}
             {effShowQtyBD && <th style={{ ...thBD, background: '#dbeafe', color: '#1e40af' }}>{t.reports.colQty}</th>}
             {effShowValBD && <th style={{ ...thBD, background: '#fffbeb', color: '#b45309' }}>{currColHeader}</th>}
-            {showDetailCol && <th style={thBD} title="تفاصيل المكتب/المذخر"><Icon name="view" size={13} /></th>}
           </tr>
         </thead>
         <tbody>
@@ -2710,20 +2702,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 {hasRep && <td style={tdRepBD}>{row.repName ?? '—'}</td>}
                 {effShowQtyBD && <td style={{ ...tdBD, color: '#1d4ed8' }}>{fmt(row.totalQty)}</td>}
                 {effShowValBD && <td style={{ ...tdBD, background: '#fffbeb', color: '#92400e' }}>{fmtVal(row.totalValue)}</td>}
-                {showDetailCol && (
-                  <td style={tdBD}>
-                    <button
-                      onClick={() => setRepDetailModal({
-                        name: row.name, netVal: row.totalValue,
-                        officeOrderCount: row.officeOrderCount ?? 0,
-                        warehouseOrderCount: row.warehouseOrderCount ?? 0,
-                        warehouses: row.warehouses ?? [],
-                      })}
-                      title="تفاصيل المكتب/المذخر"
-                      style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#1d4ed8', display: 'inline-flex', alignItems: 'center' }}
-                    ><Icon name="view" size={13} /></button>
-                  </td>
-                )}
               </tr>
             );
           })}
@@ -2761,7 +2739,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {hasRep && <td style={{ ...tdRepBD, color: '#94a3b8', fontWeight: 400 }}>—</td>}
               {effShowQtyBD && <td style={{ ...tdBD, color: '#94a3b8' }}>0</td>}
               {effShowValBD && <td style={{ ...tdBD, color: '#94a3b8' }}>0</td>}
-              {showDetailCol && <td></td>}
             </tr>
           ))}
         </tbody>
@@ -2945,6 +2922,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           >
             {loading ? <><Icon name="loading" size={13} className="icon-spin" /> جاري...</> : <><Icon name="search" size={13} /> تحليل</>}
           </button>
+
+          {/* كل المندوبين العلميين دفعة واحدة — مكتب/مذخر + أسماء المذاخر */}
+          {mode === 'scientific' && (
+            <button
+              onClick={() => { setShowAllRepsWarehouseModal(true); loadAllRepsWarehouseSummary(); }}
+              style={{
+                padding: '7px 14px', border: '1px solid #bfdbfe', borderRadius: 6, flexShrink: 0,
+                background: '#eff6ff', color: '#1d4ed8', fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+              }}
+            ><Icon name="pharmacy" size={13} /> كل المندوبين العلميين</button>
+          )}
 
         </div>
       </div>
@@ -3853,7 +3842,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             <>
               {activeTab === 'area' && renderBreakdownTable(viewData?.byArea ?? [], viewData?.totalValue ?? 0, t.reports.colArea, false, sciViewMode)}
               {activeTab === 'item' && renderBreakdownTable(viewData?.byItem ?? [], viewData?.totalValue ?? 0, t.reports.colItem, false, sciViewMode)}
-              {activeTab === 'rep'  && renderBreakdownTable(viewData?.byRep  ?? [], viewData?.totalValue ?? 0, t.reports.colCommRep, false, sciViewMode, 'rep')}
+              {activeTab === 'rep'  && renderBreakdownTable(viewData?.byRep  ?? [], viewData?.totalValue ?? 0, t.reports.colCommRep, false, sciViewMode)}
             </>
           )}
           {activeTab === 'item' && sciRepId && (
@@ -4093,58 +4082,73 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         />
       )}
 
-      {/* ── تفاصيل مكتب/مذخر لمندوب تجاري واحد ── */}
-      {repDetailModal && (
-        <div className="modal-overlay" onClick={() => setRepDetailModal(null)}>
-          <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+      {/* ── كل المندوبين العلميين دفعة واحدة: صافي + مكتب/مذخر + أسماء المذاخر ── */}
+      {showAllRepsWarehouseModal && (
+        <div className="modal-overlay" onClick={() => setShowAllRepsWarehouseModal(false)}>
+          <div className="modal modal--wide" style={{ maxWidth: 760 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 className="modal-title">{repDetailModal.name}</h2>
-              <button className="modal-close" onClick={() => setRepDetailModal(null)}><Icon name="close" size={16} /></button>
+              <h2 className="modal-title">كل المندوبين العلميين — مكتب / مذخر</h2>
+              <button className="modal-close" onClick={() => setShowAllRepsWarehouseModal(false)}><Icon name="close" size={16} /></button>
             </div>
-            <div style={{ padding: '18px 22px 22px' }}>
-              <div style={{
-                background: repDetailModal.netVal >= 0 ? '#ecfdf5' : '#fef2f2',
-                border: `1.5px solid ${repDetailModal.netVal >= 0 ? '#6ee7b7' : '#fca5a5'}`,
-                borderRadius: 10, padding: '12px 16px', marginBottom: 14,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              }}>
-                <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 700 }}>صافي المبيع</span>
-                <span style={{ fontSize: 18, fontWeight: 900, color: repDetailModal.netVal >= 0 ? '#065f46' : '#991b1b' }}>
-                  {fmtValSigned(repDetailModal.netVal)}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-                <div style={{ flex: 1, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, color: '#64748b', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-                    <Icon name="navOrgStructure" size={13} /> عدد طلبيات المكتب
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: '#1d4ed8' }}>{fmt(repDetailModal.officeOrderCount)}</div>
+            <div style={{ padding: '14px 22px 22px' }}>
+              {allRepsWarehouseLoading ? (
+                <div style={{ textAlign: 'center', padding: '50px 0', color: '#6b7280', fontSize: 13 }}>
+                  <Icon name="loading" size={20} className="icon-spin" /><div style={{ marginTop: 8 }}>جاري التحميل...</div>
                 </div>
-                <div style={{ flex: 1, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, color: '#64748b', fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-                    <Icon name="pharmacy" size={13} /> عدد طلبيات المذخر
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: '#1d4ed8' }}>{fmt(repDetailModal.warehouseOrderCount)}</div>
-                </div>
-              </div>
-
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8 }}>أسماء المذاخر</div>
-              {repDetailModal.warehouses.length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, padding: '18px 0' }}>لا توجد طلبيات عبر مذاخر</div>
+              ) : !allRepsWarehouseData || allRepsWarehouseData.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا يوجد مندوبون علميون بيانات</div>
               ) : (
-                <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                  {repDetailModal.warehouses.map((w, i) => (
-                    <div key={i} style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '8px 12px', fontSize: 13,
-                      background: i % 2 === 0 ? '#fff' : '#f9fafb',
-                      borderBottom: i < repDetailModal.warehouses.length - 1 ? '1px solid #f1f5f9' : 'none',
-                    }}>
-                      <span style={{ fontWeight: 600, color: '#1e293b' }}>{w.name}</span>
-                      <span style={{ background: '#eff6ff', color: '#1d4ed8', borderRadius: 5, padding: '2px 8px', fontWeight: 800, fontSize: 12 }}>{fmt(w.orderCount)}</span>
-                    </div>
-                  ))}
+                <div style={{ maxHeight: '65vh', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#1e40af', position: 'sticky', top: 0, zIndex: 1 }}>
+                        <th style={{ padding: '9px 10px', color: '#fff', textAlign: 'center', width: 34 }}>#</th>
+                        <th style={{ padding: '9px 10px', color: '#fff', textAlign: 'right' }}>المندوب العلمي</th>
+                        <th style={{ padding: '9px 10px', color: '#fff', textAlign: 'center' }}>صافي المبيع</th>
+                        <th style={{ padding: '9px 10px', color: '#fff', textAlign: 'center' }}>طلبيات المكتب</th>
+                        <th style={{ padding: '9px 10px', color: '#fff', textAlign: 'center' }}>طلبيات المذخر</th>
+                        <th style={{ padding: '9px 10px', color: '#fff', textAlign: 'center', width: 30 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allRepsWarehouseData.map((r, i) => {
+                        const isExpanded = expandedWarehouseRepId === r.id;
+                        return (
+                          <Fragment key={r.id}>
+                            <tr
+                              onClick={() => setExpandedWarehouseRepId(isExpanded ? null : r.id)}
+                              style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb', cursor: 'pointer', borderBottom: isExpanded ? 'none' : '1px solid #f1f5f9' }}
+                            >
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8' }}>{i + 1}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#1e293b' }}>{r.name}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: r.netValue >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(r.netValue)}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600 }}>{fmt(r.officeOrderCount)}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600 }}>{fmt(r.warehouseOrderCount)}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8', fontSize: 11 }}>{isExpanded ? '▲' : '▼'}</td>
+                            </tr>
+                            {isExpanded && (
+                              <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td colSpan={6} style={{ background: '#f8fafc', padding: '10px 16px' }}>
+                                  {r.warehouses.length === 0 ? (
+                                    <span style={{ color: '#94a3b8', fontSize: 12 }}>لا توجد طلبيات عبر مذاخر لهذا المندوب</span>
+                                  ) : (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                      {r.warehouses.map((w, wi) => (
+                                        <span key={wi} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '4px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                          <strong style={{ color: '#1e293b' }}>{w.name}</strong>
+                                          <span style={{ color: '#1d4ed8', fontWeight: 800 }}>{fmt(w.orderCount)}</span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

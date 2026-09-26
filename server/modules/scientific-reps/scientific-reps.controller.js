@@ -304,3 +304,19 @@ export async function getRepReport(req, res, next) {
     next(err);
   }
 }
+
+// ── ملخص صافي المبيع + طلبيات المكتب/المذخر لكل المندوبين العلميين دفعة
+// واحدة — القائمة الثانوية «كل المندوبين العلميين» في تحليل التقارير ──────
+export async function getWarehouseSummaryAll(req, res, next) {
+  try {
+    const repIds = String(req.query.repIds || '').split(',').map(Number).filter(Number.isInteger);
+    if (repIds.length === 0) return res.json({ success: true, data: [] });
+    const query = {
+      startDate: req.query.startDate || undefined,
+      endDate:   req.query.endDate   || undefined,
+      fileIds:   parseFileIds(req.query.fileIds || req.query.fileId),
+    };
+    const data = await svc.getWarehouseSummaryForReps(repIds, query, req.user?.id ?? null);
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+}

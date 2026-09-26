@@ -37,6 +37,9 @@ router.post('/blocked-rep-areas',       ctrl.addBlockedRepArea);       // { repN
 router.patch('/blocked-rep-areas/:blockId',  ctrl.setBlockedRepAreaEnabled); // {enabled}
 router.delete('/blocked-rep-areas/:blockId', ctrl.removeBlockedRepArea);
 
+// ملخص صافي المبيع + طلبيات المكتب/المذخر لكل المندوبين العلميين دفعة واحدة — قبل /:id
+router.get('/warehouse-summary', ctrl.getWarehouseSummaryAll); // ?repIds=1,2,3
+
 router.get('/:id/effective-items',  ctrl.getEffectiveItems);
 router.get('/blocked/:kind',        ctrl.listBlockedEntities);   // kind: area | item | pharmacy
 router.post('/blocked/:kind',       ctrl.addBlockedEntity);

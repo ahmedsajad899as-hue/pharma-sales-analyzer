@@ -1432,7 +1432,7 @@ export async function getReport(id, query = {}, viewerId = null) {
       assignedItems: itemLinks.map(l => l.item),
       dateRange: { startDate: query.startDate ?? null, endDate: query.endDate ?? null },
       summary: { totalQuantity: 0, totalValue: 0, orderCount: 0 },
-      byArea: [], byItem: [], byRep: [], bySource: null,
+      byArea: [], byItem: [], byRep: [], bySource: null, warehouses: [],
     };
   }
 
@@ -1472,34 +1472,11 @@ export async function getReport(id, query = {}, viewerId = null) {
     hasMercato: mercatoRows.length > 0,
   } : null;
 
-  // ── نفس تفصيل مكتب/مذخر أعلاه لكن لكل مندوب تجاري على حدة، مع أسماء
-  // المذاخر وعدد طلبيات كل واحد منها — يُستهلك من زر «تفاصيل» بتبويب «حسب
-  // المندوب التجاري». يُبنى من officeOrderRows/mercatoOrderRows نفسها (تستثني
-  // صفوف الإرجاع دائماً، كـ orderCount أعلاه) مبوَّبة حسب معرّف المندوب.
-  const officeRowsByRepId  = new Map();
-  const mercatoRowsByRepId = new Map();
-  for (const row of officeOrderRows) {
-    const repId = row.representative?.id;
-    if (repId == null) continue;
-    if (!officeRowsByRepId.has(repId)) officeRowsByRepId.set(repId, []);
-    officeRowsByRepId.get(repId).push(row);
-  }
-  for (const row of mercatoOrderRows) {
-    const repId = row.representative?.id;
-    if (repId == null) continue;
-    if (!mercatoRowsByRepId.has(repId)) mercatoRowsByRepId.set(repId, []);
-    mercatoRowsByRepId.get(repId).push(row);
-  }
-  const byRepWithDetail = byRep.map(r => {
-    const officeRepRows  = officeRowsByRepId.get(r.repId)  ?? [];
-    const mercatoRepRows = mercatoRowsByRepId.get(r.repId) ?? [];
-    return {
-      ...r,
-      officeOrderCount:    countDistinctOrders(officeRepRows),
-      warehouseOrderCount: countDistinctOrders(mercatoRepRows),
-      warehouses:          groupOrdersByWarehouse(mercatoRepRows),
-    };
-  });
+  // أسماء المذاخر (مكتب لا يملك مذاخر أصلاً) وعدد طلبيات كل واحد منها، على
+  // مستوى المندوب العلمي كاملاً (كل مناديبه التجاريين معاً) — يُستهلك من
+  // القائمة الثانوية «كل المندوبين العلميين». من mercatoOrderRows نفسها
+  // (تستثني صفوف الإرجاع دائماً، كـ bySource.mercato.orderCount أعلاه).
+  const warehouses = groupOrdersByWarehouse(mercatoOrderRows);
 
   return {
     scientificRep: { id: rep.id, name: displayName, isActive: rep.isActive },
@@ -1510,8 +1487,9 @@ export async function getReport(id, query = {}, viewerId = null) {
     summary: { totalQuantity: totals.totalQuantity, totalValue: totals.totalValue, orderCount },
     byArea,
     byItem,
-    byRep: byRepWithDetail,
+    byRep,
     bySource,
+    warehouses,
     _debug: {
       fileIds,
       sharedFileIds: resolved.sharedFileIds,
@@ -1527,6 +1505,32 @@ export async function getReport(id, query = {}, viewerId = null) {
       totals,
     },
   };
+}
+
+/**
+ * ملخص صافي المبيع + طلبيات المكتب/المذخر + أسماء المذاخر لكل مندوب علمي من
+ * قائمة معرّفات، دفعة واحدة — يُستهلك من القائمة الثانوية «كل المندوبين
+ * العلميين» بدل فتح كل مندوب على حدة. يُعيد استعمال getReport() (وبالتالي كل
+ * فحوصات نطاق/مشاركة الملفات فيها) لكل مندوب — بلا recordType محدَّد فالقيمة
+ * الناتجة صافية (مبيع ناقص إرجاع) مباشرة من استدعاء واحد لكل مندوب.
+ */
+export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = null) {
+  const results = await Promise.all(repIds.map(async (id) => {
+    try {
+      const r = await getReport(id, query, viewerId);
+      return {
+        id: r.scientificRep.id,
+        name: r.scientificRep.name,
+        netValue: r.summary.totalValue,
+        officeOrderCount: r.bySource?.office.orderCount ?? 0,
+        warehouseOrderCount: r.bySource?.mercato.orderCount ?? 0,
+        warehouses: r.warehouses ?? [],
+      };
+    } catch {
+      return { id, name: `#${id}`, netValue: 0, officeOrderCount: 0, warehouseOrderCount: 0, warehouses: [] };
+    }
+  }));
+  return results.sort((a, b) => b.netValue - a.netValue);
 }
 
 const EXPORT_SALES_SELECT = {
