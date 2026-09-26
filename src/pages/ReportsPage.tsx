@@ -135,6 +135,25 @@ const classifyRowSource = (headerRow: any[] = [], row: any[] = []): RowSourceKin
   return 'officeSale';
 };
 
+/* لوحة ألوان هادئة لتمييز كل شركة في رأس عمود «كل المندوبين العلميين» — نفس
+   عائلة السليت الأساسية (صبغة ~205°-240°، تشبّع منخفض) لكل الشركات، بانزياح
+   صبغة طفيف جداً لكل واحدة (لا تشبّع/إضاءة مختلفَين) كي تبقى الألوان متقاربة
+   جداً/هادئة بدل قوس قزح متضارب — قابلة للتمييز جنباً إلى جنب فقط. hex بدل
+   hsl() مباشرة كي يُستعمل نفسه في تدرّج CSS على الشاشة وفي تعبئة ARGB بالإكسل. */
+const hslToHex = (h: number, s: number, l: number): string => {
+  const sf = s / 100, lf = l / 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = sf * Math.min(lf, 1 - lf);
+  const f = (n: number) => lf - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const toHex = (x: number) => Math.round(x * 255).toString(16).padStart(2, '0');
+  return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+};
+const companyColorPair = (index: number): [light: string, dark: string] => {
+  const hue = 205 + ((index * 7) % 35);
+  return [hslToHex(hue, 20, 58), hslToHex(hue, 19, 43)];
+};
+const hexToARGB = (hex: string): string => 'FF' + hex.replace('#', '').toUpperCase();
+
 const styleSheet = (ws: XLSX.WorkSheet, aoa: any[][], colWidths?: number[], headerRows = 1) => {
   const nRows = aoa.length;
   const nCols = aoa.reduce((m, r) => Math.max(m, r.length), 0);
@@ -2816,16 +2835,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       // خلايا totalCol1/totalCol2 مدمجة رأسياً (الصفوف 0-2)، فنصّها الظاهر
       // يجب أن يكون في الصف الأول (companyRow) — المحتوى بصفوف الدمج التالية
       // يبقى فارغاً وإلا اختفى بصرياً خلف الدمج.
-      const companyRow = ['اسم المذخر', ...cols.map(() => ''), 'إجمالي الطلبيات', 'إجمالي صافي القيمة'];
+      // صافي المبيع محفوظ بالخادم بالدولار دائماً (توحيد عملات الملفات) — بلا
+      // تحويل هنا يصدَّر الرقم الخام بالدولار فوق عمود اسمه «دينار»، فيبدو
+      // مضاعَفاً/مغلوطاً حين يكون وضع العرض الحالي ديناراً. نفس convertVal
+      // المستعملة في fmtVal لعرض الشاشة (fileCurrencyMode/fileSourceCurrency).
+      const cv = (n: number) => +convertVal(n).toFixed(2);
+      const valueColLabel = `إجمالي صافي القيمة (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`;
+      const companyRow = ['اسم المذخر', ...cols.map(() => ''), 'إجمالي الطلبيات', valueColLabel];
       spans.forEach(s => { companyRow[1 + s.start] = s.company; });
       const nameRow  = ['', ...cols.map(c => c.name), '', ''];
-      const netRow   = ['', ...cols.map(c => +c.netValue.toFixed(2)), '', ''];
-      const body = rows.map(row => [row.name, ...row.cells.map(blank), row.total, +row.valueTotal.toFixed(2)]);
+      const netRow   = ['', ...cols.map(c => cv(c.netValue)), '', ''];
+      const body = rows.map(row => [row.name, ...row.cells.map(blank), row.total, cv(row.valueTotal)]);
       const officeGrand    = cols.reduce((s, c) => s + c.officeOrderCount, 0);
       const warehouseGrand = cols.reduce((s, c) => s + c.warehouseOrderCount, 0);
       const footerOffice    = ['إجمالي المكتب',  ...cols.map(c => blank(c.officeOrderCount)),    officeGrand,    ''];
       const footerWarehouse = ['إجمالي المذاخر', ...cols.map(c => blank(c.warehouseOrderCount)), warehouseGrand, ''];
-      const footerTotal     = ['الإجمالي الكلي', ...colTotals, grandTotal, +grandValueTotal.toFixed(2)];
+      const footerTotal     = ['الإجمالي الكلي', ...colTotals, grandTotal, cv(grandValueTotal)];
       const aoa = [companyRow, nameRow, netRow, ...body, footerOffice, footerWarehouse, footerTotal];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       styleSheet(ws, aoa, [24, ...cols.map(() => 15), 15, 18], 3);
@@ -2835,12 +2860,23 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         { s: { r: 0, c: totalCol2 }, e: { r: 2, c: totalCol2 } },
         ...spans.filter(s => s.count > 1).map(s => ({ s: { r: 0, c: 1 + s.start }, e: { r: 0, c: s.start + s.count } })),
       ];
+      // نفس ألوان الشركات الهادئة المستعملة على الشاشة، لكل خلايا صف الشركة
+      // (الصف صفر) ضمن عمود كل شركة — كي يظهر الدمج بلون موحَّد ولا يعتمد
+      // على عرض الخلية الأولى فقط في بعض قارئات الإكسل.
+      spans.forEach((s, si) => {
+        const fill = { patternType: 'solid', fgColor: { rgb: hexToARGB(companyColorPair(si)[1]) } };
+        for (let c = 1 + s.start; c < 1 + s.start + s.count; c++) {
+          const addr = XLSX.utils.encode_cell({ r: 0, c });
+          if (ws[addr]) ws[addr].s = { ...ws[addr].s, fill };
+        }
+      });
       XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('مذخر × مندوب'));
     } else {
+      const cv = (n: number) => +convertVal(n).toFixed(2);
       const companyById = new Map(sciReps.map(r => [r.id, r.company || 'بدون شركة']));
-      const header = ['#', 'الشركة', 'المندوب العلمي', 'صافي المبيع', 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', 'أسماء المذاخر'];
+      const header = ['#', 'الشركة', 'المندوب العلمي', `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`, 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', 'أسماء المذاخر'];
       const body = cols.map((r, i) => [
-        i + 1, companyById.get(r.id) || '', r.name, +r.netValue.toFixed(2), r.officeOrderCount, r.warehouseOrderCount,
+        i + 1, companyById.get(r.id) || '', r.name, cv(r.netValue), r.officeOrderCount, r.warehouseOrderCount,
         r.officeOrderCount + r.warehouseOrderCount,
         r.warehouses.map(w => `${w.name} (${w.orderCount})`).join('، '),
       ]);
@@ -4219,8 +4255,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               ) : !allRepsWarehouseData || allRepsWarehouseData.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا يوجد مندوبون علميون بيانات</div>
               ) : warehouseViewMode === 'list' ? (() => {
-                const { cols } = getOrderedWarehouseColumns(allRepsWarehouseData);
+                const { cols, spans } = getOrderedWarehouseColumns(allRepsWarehouseData);
                 const companyById = new Map(sciReps.map(r => [r.id, r.company || '']));
+                // نفس لون شركة العمود بالجدول المحوري — يسهل ربط الشركة بين الشكلين
+                const companyColorByName = new Map(spans.map((s, si) => [s.company, companyColorPair(si)[1]]));
                 return (
                 <div style={{ maxHeight: '65vh', overflowY: 'auto', border: '1px solid #e5e9ef', borderRadius: 12 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -4249,7 +4287,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                               <td style={{ padding: '8px 10px', textAlign: 'center', color: '#b0b8c4' }}>{i + 1}</td>
                               <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#334155' }}>
                                 {r.name}
-                                {company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 600, background: '#eef2f9', color: '#64748b', borderRadius: 10, padding: '1px 8px' }}>{company}</span>}
+                                {company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 700, background: '#f1f3f7', color: companyColorByName.get(company) || '#64748b', borderRadius: 10, padding: '1px 8px' }}>{company}</span>}
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: r.netValue >= 0 ? '#0d9488' : '#c2410c' }}>{fmtValSigned(r.netValue)}</td>
                               <td style={{ padding: '8px 10px', textAlign: 'center', color: '#3b6fd6', fontWeight: 600 }}>{fmt(r.officeOrderCount)}</td>
@@ -4300,9 +4338,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         {/* صف الشركة: يمتد فوق كل أعمدة مندوبيها — يوضّح فوراً كل شخص تابع لأي شركة */}
                         <tr>
                           <th rowSpan={2} style={{ ...pivotTh, textAlign: 'right', top: 0, right: 0, zIndex: 3 }}>اسم المذخر</th>
-                          {spans.map(s => (
-                            <th key={s.company + s.start} colSpan={s.count} style={{ ...pivotTh, top: 0, height: 34, boxSizing: 'border-box', background: 'linear-gradient(135deg,#7c8aa5,#5c6b87)', fontSize: 11.5 }}>{s.company}</th>
-                          ))}
+                          {spans.map((s, si) => {
+                            const [light, dark] = companyColorPair(si);
+                            return (
+                              <th key={s.company + s.start} colSpan={s.count} style={{ ...pivotTh, top: 0, height: 34, boxSizing: 'border-box', background: `linear-gradient(135deg,${light},${dark})`, fontSize: 11.5 }}>{s.company}</th>
+                            );
+                          })}
                           <th rowSpan={2} style={{ ...pivotTh, top: 0, background: '#334155' }}>الإجمالي<br />(طلبيات)</th>
                           <th rowSpan={2} style={{ ...pivotTh, top: 0, background: '#334155' }}>الإجمالي<br />(صافي القيمة)</th>
                         </tr>
