@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
 import { Icon } from '../config/icons';
-import RepSelectOptions, { type GroupableRep } from '../components/RepSelectOptions';
+import RepSelectOptions, { type GroupableRep, groupRepsByTeam } from '../components/RepSelectOptions';
 import { sendEngagementPing } from '../lib/engagementPing';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
@@ -135,14 +135,14 @@ const classifyRowSource = (headerRow: any[] = [], row: any[] = []): RowSourceKin
   return 'officeSale';
 };
 
-const styleSheet = (ws: XLSX.WorkSheet, aoa: any[][], colWidths?: number[]) => {
+const styleSheet = (ws: XLSX.WorkSheet, aoa: any[][], colWidths?: number[], headerRows = 1) => {
   const nRows = aoa.length;
   const nCols = aoa.reduce((m, r) => Math.max(m, r.length), 0);
   ws['!cols'] = Array.from({ length: nCols }, (_, i) => ({ wch: colWidths?.[i] ?? 22 }));
   const thinBorder = { style: 'thin', color: { rgb: BORDER_RGB } };
-  const headerRow = aoa[0] ?? [];
+  const headerRow = aoa[headerRows - 1] ?? [];
   for (let r = 0; r < nRows; r++) {
-    const isHeader = r === 0;
+    const isHeader = r < headerRows;
     const kind = isHeader ? null : classifyRowSource(headerRow, aoa[r]);
     const rowFill = isHeader ? HEADER_FILL : (kind ? ROW_FILL_ARGB[kind] : 'FFFFFFFF');
     for (let c = 0; c < nCols; c++) {
@@ -2750,10 +2750,38 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     );
   };
 
-  // يحوّل بيانات القائمة (مندوب لكل صف) إلى شكل جدول محوري: صف لكل مذخر
-  // (+ صف «مكتب» للطلبيات بلا مذخر محدَّد) وعمود لكل مندوب علمي — بنفس شكل
-  // شيت الإكسل المرجعي (اسم المذخر أفقياً في الأعلى… هنا عمودياً بالأسماء
-  // بالأعلى كأعمدة، والمذاخر كصفوف، كما طلب المستخدم).
+  // يرتّب مندوبي القائمة الثانوية حسب الشركة (نفس تجميع قائمة اختيار المندوب
+  // RepSelectOptions — قائد الفريق ثم مندوبوه، فالباقون، لكل شركة بالترتيب
+  // الأبجدي) بدل ترتيب صافي المبيع العشوائي، فيتضح فوراً كل شخص تابع لأي
+  // شركة. يُرجع النسخة المُرتَّبة من allRepsWarehouseData + حدود كل شركة
+  // (البداية وعدد الأعمدة) لعرض رأس عمود مُجمَّع (Company) يمتد فوق أعمدتها.
+  const getOrderedWarehouseColumns = (data: RepWarehouseSummary[]) => {
+    const byId = new Map(data.map(r => [r.id, r]));
+    const groups = groupRepsByTeam(sciReps.filter(r => byId.has(r.id)));
+    const cols: RepWarehouseSummary[] = [];
+    const spans: { company: string; start: number; count: number }[] = [];
+    for (const g of groups) {
+      const start = cols.length;
+      for (const row of g.rows) {
+        const d = byId.get(row.rep.id);
+        if (d) cols.push(d);
+      }
+      const count = cols.length - start;
+      if (count > 0) spans.push({ company: g.company || 'بدون شركة', start, count });
+    }
+    // أي بيانات لم تُطابَق (احتياط — يُفترض ألا يحدث فعلياً، فـ allRepsWarehouseData
+    // يُبنى من نفس معرّفات sciReps) تُلحَق في النهاية ضمن مجموعة خاصة بها، كي يبقى
+    // مجموع أعمدة spans مطابقاً دائماً لعدد أعمدة cols (وإلا انزاح رأس الجدول).
+    const seen = new Set(cols.map(c => c.id));
+    const leftoverStart = cols.length;
+    for (const r of data) if (!seen.has(r.id)) cols.push(r);
+    if (cols.length > leftoverStart) spans.push({ company: 'أخرى', start: leftoverStart, count: cols.length - leftoverStart });
+    return { cols, spans };
+  };
+
+  // يحوّل بيانات القائمة (مندوب لكل صف، بعد ترتيبها حسب الشركة) إلى شكل جدول
+  // محوري: صف لكل مذخر (+ صف «مكتب» للطلبيات بلا مذخر محدَّد) وعمود لكل
+  // مندوب علمي — بنفس شكل شيت الإكسل المرجعي.
   const buildWarehousePivot = (data: RepWarehouseSummary[]) => {
     const warehouseNames = new Set<string>();
     data.forEach(r => r.warehouses.forEach(w => warehouseNames.add(w.name)));
@@ -2773,27 +2801,52 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   // تصدير جدول «كل المندوبين العلميين» (بشكله الحالي — قائمة أو محوري) إلى إكسل.
+  // بلا أصفار ظاهرة بالخلايا الفردية (فراغ بدلها)، مرتَّب حسب الشركة، ورأس
+  // العمود بالجدول المحوري ثلاثي (الشركة/الاسم/صافي المبيع) بدمج خلايا حقيقي.
   const exportWarehouseSummaryToExcel = () => {
     if (!allRepsWarehouseData || allRepsWarehouseData.length === 0) return;
+    const { cols, spans } = getOrderedWarehouseColumns(allRepsWarehouseData);
     const wb = XLSX.utils.book_new();
+    const blank = (n: number) => (n === 0 ? '' : n);
     if (warehouseViewMode === 'pivot') {
-      const { rows, colTotals, grandTotal, grandValueTotal } = buildWarehousePivot(allRepsWarehouseData);
-      const header = ['اسم المذخر', ...allRepsWarehouseData.map(r => r.name), 'إجمالي الطلبيات', 'إجمالي صافي القيمة'];
-      const body = rows.map(row => [row.name, ...row.cells, row.total, +row.valueTotal.toFixed(2)]);
-      const footer = ['الإجمالي', ...colTotals, grandTotal, +grandValueTotal.toFixed(2)];
-      const aoa = [header, ...body, footer];
+      const { rows, colTotals, grandTotal, grandValueTotal } = buildWarehousePivot(cols);
+      const nameCol = 0;
+      const totalCol1 = 1 + cols.length;
+      const totalCol2 = 2 + cols.length;
+      // خلايا totalCol1/totalCol2 مدمجة رأسياً (الصفوف 0-2)، فنصّها الظاهر
+      // يجب أن يكون في الصف الأول (companyRow) — المحتوى بصفوف الدمج التالية
+      // يبقى فارغاً وإلا اختفى بصرياً خلف الدمج.
+      const companyRow = ['اسم المذخر', ...cols.map(() => ''), 'إجمالي الطلبيات', 'إجمالي صافي القيمة'];
+      spans.forEach(s => { companyRow[1 + s.start] = s.company; });
+      const nameRow  = ['', ...cols.map(c => c.name), '', ''];
+      const netRow   = ['', ...cols.map(c => +c.netValue.toFixed(2)), '', ''];
+      const body = rows.map(row => [row.name, ...row.cells.map(blank), row.total, +row.valueTotal.toFixed(2)]);
+      const officeGrand    = cols.reduce((s, c) => s + c.officeOrderCount, 0);
+      const warehouseGrand = cols.reduce((s, c) => s + c.warehouseOrderCount, 0);
+      const footerOffice    = ['إجمالي المكتب',  ...cols.map(c => blank(c.officeOrderCount)),    officeGrand,    ''];
+      const footerWarehouse = ['إجمالي المذاخر', ...cols.map(c => blank(c.warehouseOrderCount)), warehouseGrand, ''];
+      const footerTotal     = ['الإجمالي الكلي', ...colTotals, grandTotal, +grandValueTotal.toFixed(2)];
+      const aoa = [companyRow, nameRow, netRow, ...body, footerOffice, footerWarehouse, footerTotal];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      styleSheet(ws, aoa, [24, ...allRepsWarehouseData.map(() => 15), 15, 18]);
+      styleSheet(ws, aoa, [24, ...cols.map(() => 15), 15, 18], 3);
+      ws['!merges'] = [
+        { s: { r: 0, c: nameCol },   e: { r: 2, c: nameCol } },
+        { s: { r: 0, c: totalCol1 }, e: { r: 2, c: totalCol1 } },
+        { s: { r: 0, c: totalCol2 }, e: { r: 2, c: totalCol2 } },
+        ...spans.filter(s => s.count > 1).map(s => ({ s: { r: 0, c: 1 + s.start }, e: { r: 0, c: s.start + s.count } })),
+      ];
       XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('مذخر × مندوب'));
     } else {
-      const header = ['#', 'المندوب العلمي', 'صافي المبيع', 'طلبيات المكتب', 'طلبيات المذخر', 'أسماء المذاخر'];
-      const body = allRepsWarehouseData.map((r, i) => [
-        i + 1, r.name, +r.netValue.toFixed(2), r.officeOrderCount, r.warehouseOrderCount,
+      const companyById = new Map(sciReps.map(r => [r.id, r.company || 'بدون شركة']));
+      const header = ['#', 'الشركة', 'المندوب العلمي', 'صافي المبيع', 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', 'أسماء المذاخر'];
+      const body = cols.map((r, i) => [
+        i + 1, companyById.get(r.id) || '', r.name, +r.netValue.toFixed(2), r.officeOrderCount, r.warehouseOrderCount,
+        r.officeOrderCount + r.warehouseOrderCount,
         r.warehouses.map(w => `${w.name} (${w.orderCount})`).join('، '),
       ]);
       const aoa = [header, ...body];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      styleSheet(ws, aoa, [5, 26, 16, 14, 14, 55]);
+      styleSheet(ws, aoa, [5, 18, 26, 16, 14, 14, 12, 55]);
       XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('كل المندوبين العلميين'));
     }
     XLSX.writeFile(wb, `مكتب-مذخر-المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -4165,24 +4218,28 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 </div>
               ) : !allRepsWarehouseData || allRepsWarehouseData.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا يوجد مندوبون علميون بيانات</div>
-              ) : warehouseViewMode === 'list' ? (
+              ) : warehouseViewMode === 'list' ? (() => {
+                const { cols } = getOrderedWarehouseColumns(allRepsWarehouseData);
+                const companyById = new Map(sciReps.map(r => [r.id, r.company || '']));
+                return (
                 <div style={{ maxHeight: '65vh', overflowY: 'auto', border: '1px solid #e5e9ef', borderRadius: 12 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
                       <tr>
-                        {['#', 'المندوب العلمي', 'صافي المبيع', 'طلبيات المكتب', 'طلبيات المذخر', ''].map((h, hi) => (
+                        {['#', 'المندوب العلمي', 'صافي المبيع', 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', ''].map((h, hi) => (
                           <th key={hi} style={{
                             padding: '10px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc',
                             textAlign: hi === 1 ? 'right' : 'center', fontWeight: 700, letterSpacing: '.2px',
-                            width: hi === 0 ? 34 : hi === 5 ? 30 : undefined,
+                            width: hi === 0 ? 34 : hi === 6 ? 30 : undefined,
                             position: 'sticky', top: 0, zIndex: 1,
                           }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {allRepsWarehouseData.map((r, i) => {
+                      {cols.map((r, i) => {
                         const isExpanded = expandedWarehouseRepId === r.id;
+                        const company = companyById.get(r.id);
                         return (
                           <Fragment key={r.id}>
                             <tr
@@ -4190,15 +4247,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                               style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', cursor: 'pointer', borderBottom: isExpanded ? 'none' : '1px solid #f1f5f9' }}
                             >
                               <td style={{ padding: '8px 10px', textAlign: 'center', color: '#b0b8c4' }}>{i + 1}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#334155' }}>{r.name}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#334155' }}>
+                                {r.name}
+                                {company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 600, background: '#eef2f9', color: '#64748b', borderRadius: 10, padding: '1px 8px' }}>{company}</span>}
+                              </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: r.netValue >= 0 ? '#0d9488' : '#c2410c' }}>{fmtValSigned(r.netValue)}</td>
                               <td style={{ padding: '8px 10px', textAlign: 'center', color: '#3b6fd6', fontWeight: 600 }}>{fmt(r.officeOrderCount)}</td>
                               <td style={{ padding: '8px 10px', textAlign: 'center', color: '#3b6fd6', fontWeight: 600 }}>{fmt(r.warehouseOrderCount)}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#0d6b4f', fontWeight: 800, background: '#eefaf4' }}>{fmt(r.officeOrderCount + r.warehouseOrderCount)}</td>
                               <td style={{ padding: '8px 10px', textAlign: 'center', color: '#b0b8c4', fontSize: 11 }}>{isExpanded ? '▲' : '▼'}</td>
                             </tr>
                             {isExpanded && (
                               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td colSpan={6} style={{ background: '#f8fafc', padding: '10px 16px' }}>
+                                <td colSpan={7} style={{ background: '#f8fafc', padding: '10px 16px' }}>
                                   {r.warehouses.length === 0 ? (
                                     <span style={{ color: '#94a3b8', fontSize: 12 }}>لا توجد طلبيات عبر مذاخر لهذا المندوب</span>
                                   ) : (
@@ -4221,27 +4282,37 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     </tbody>
                   </table>
                 </div>
-              ) : (() => {
-                const { rows, colTotals, grandTotal, grandValueTotal } = buildWarehousePivot(allRepsWarehouseData);
+                );
+              })() : (() => {
+                const { cols, spans } = getOrderedWarehouseColumns(allRepsWarehouseData);
+                const { rows, colTotals, grandTotal, grandValueTotal } = buildWarehousePivot(cols);
                 if (rows.length === 0) {
                   return <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا توجد طلبيات لعرضها</div>;
                 }
-                const pivotTh: React.CSSProperties = { padding: '9px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', top: 0, zIndex: 2, whiteSpace: 'nowrap' };
+                const officeGrand    = cols.reduce((s, c) => s + c.officeOrderCount, 0);
+                const warehouseGrand = cols.reduce((s, c) => s + c.warehouseOrderCount, 0);
+                const pivotTh: React.CSSProperties = { padding: '8px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', zIndex: 2, whiteSpace: 'nowrap' };
                 const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap' };
                 return (
                   <div style={{ maxHeight: '70vh', overflow: 'auto', border: '1px solid #e5e9ef', borderRadius: 12 }}>
                     <table style={{ borderCollapse: 'collapse', fontSize: 12.5 }}>
                       <thead>
+                        {/* صف الشركة: يمتد فوق كل أعمدة مندوبيها — يوضّح فوراً كل شخص تابع لأي شركة */}
                         <tr>
-                          <th style={{ ...pivotTh, textAlign: 'right', position: 'sticky', top: 0, right: 0, zIndex: 3 }}>اسم المذخر</th>
-                          {allRepsWarehouseData.map(r => (
-                            <th key={r.id} style={pivotTh}>
+                          <th rowSpan={2} style={{ ...pivotTh, textAlign: 'right', top: 0, right: 0, zIndex: 3 }}>اسم المذخر</th>
+                          {spans.map(s => (
+                            <th key={s.company + s.start} colSpan={s.count} style={{ ...pivotTh, top: 0, height: 34, boxSizing: 'border-box', background: 'linear-gradient(135deg,#7c8aa5,#5c6b87)', fontSize: 11.5 }}>{s.company}</th>
+                          ))}
+                          <th rowSpan={2} style={{ ...pivotTh, top: 0, background: '#334155' }}>الإجمالي<br />(طلبيات)</th>
+                          <th rowSpan={2} style={{ ...pivotTh, top: 0, background: '#334155' }}>الإجمالي<br />(صافي القيمة)</th>
+                        </tr>
+                        <tr>
+                          {cols.map(r => (
+                            <th key={r.id} style={{ ...pivotTh, top: 34 }}>
                               <div>{r.name}</div>
                               <div style={{ fontSize: 10.5, fontWeight: 600, marginTop: 2, color: r.netValue >= 0 ? '#a7f3d0' : '#fecaca' }}>{fmtValSigned(r.netValue)}</div>
                             </th>
                           ))}
-                          <th style={{ ...pivotTh, background: '#334155' }}>الإجمالي<br />(طلبيات)</th>
-                          <th style={{ ...pivotTh, background: '#334155' }}>الإجمالي<br />(صافي القيمة)</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4260,8 +4331,25 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                             <td style={{ ...pivotTd, fontWeight: 800, color: '#92400e', background: '#fdf6e8' }}>{fmtValSigned(row.valueTotal)}</td>
                           </tr>
                         ))}
+                        {/* 3 صفوف إجمالي بدل صف واحد: مكتب + مذاخر = الإجمالي الكلي، لكل مندوب */}
+                        <tr style={{ background: '#475569' }}>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: '#f1f5f9', position: 'sticky', right: 0, background: '#475569' }}>إجمالي المكتب</td>
+                          {cols.map((c, ci) => (
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, color: '#e2e8f0' }}>{c.officeOrderCount > 0 ? fmt(c.officeOrderCount) : '—'}</td>
+                          ))}
+                          <td style={{ ...pivotTd, fontWeight: 800, color: '#fff', background: '#0d6b4f' }}>{fmt(officeGrand)}</td>
+                          <td style={{ ...pivotTd, background: '#475569' }}></td>
+                        </tr>
+                        <tr style={{ background: '#475569' }}>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: '#f1f5f9', position: 'sticky', right: 0, background: '#475569' }}>إجمالي المذاخر</td>
+                          {cols.map((c, ci) => (
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, color: '#e2e8f0' }}>{c.warehouseOrderCount > 0 ? fmt(c.warehouseOrderCount) : '—'}</td>
+                          ))}
+                          <td style={{ ...pivotTd, fontWeight: 800, color: '#fff', background: '#0d6b4f' }}>{fmt(warehouseGrand)}</td>
+                          <td style={{ ...pivotTd, background: '#475569' }}></td>
+                        </tr>
                         <tr style={{ background: '#334155' }}>
-                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, color: '#fff', position: 'sticky', right: 0, background: '#334155' }}>الإجمالي</td>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, color: '#fff', position: 'sticky', right: 0, background: '#334155' }}>الإجمالي الكلي</td>
                           {colTotals.map((c, ci) => (
                             <td key={ci} style={{ ...pivotTd, fontWeight: 800, color: '#e2e8f0' }}>{fmt(c)}</td>
                           ))}
