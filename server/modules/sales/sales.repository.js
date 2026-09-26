@@ -410,6 +410,7 @@ export async function bulkCreateSales(rows, uploadedFileId, userId = null, recor
       saleDate:         r.saleDate ?? undefined,
       uploadedFileId,
       rawData:          r.rawData ?? null,
+      customerInfoNorm: r.customerInfoNorm ?? null,
       userId,
       recordType,
     })),

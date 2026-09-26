@@ -17,6 +17,7 @@ import {
   bulkCreateSales,
   createUploadedFile,
   getAllCompanies,
+  normalizeArabic,
 } from './sales.repository.js';
 import { buildNormalizationMap, areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
@@ -117,6 +118,15 @@ export const COLUMN_ALIASES = {
     'شركة', 'شركه', 'اسم الشركة', 'اسم الشركه', 'الشركة', 'الشركه',
     'المورد', 'مورد', 'اسم المورد', 'المصنع', 'مصنع', 'اسم المصنع',
     'الشركة المصنعة', 'اسم الشركه المصنعه',
+  ],
+  // حقل حر منفصل عن «customer» أعلاه (اسم الصيدلية/العميل نفسه) — يُستعمل فقط
+  // لتغذية Sale.customerInfoNorm الذي يطابقه «حجب أسماء داخل معلومات الزبون».
+  // عبارات مركّبة عمداً (لا كلمات مفردة كـ«الزبون») كي لا تتزاحم مع partial
+  // matching لحقل customer حين لا يوجد عمود «العميل/الزبون» منفصل بالملف.
+  customerInfo: [
+    'معلومات الزبون', 'معلومات العميل', 'بيانات الزبون', 'بيانات العميل',
+    'تفاصيل الزبون', 'تفاصيل العميل', 'وصف الزبون', 'وصف العميل',
+    'customer info', 'customer information', 'customer details',
   ],
 };
 
@@ -353,6 +363,10 @@ export async function processUploadedFile(file, options = {}) {
       quantity:   qty,
       totalValue: totalVal,
       customer:   (String(raw[rc.customer] || '').trim()) || undefined,
+      customerInfoNorm: (() => {
+        const v = String(raw[rc.customerInfo] || '').trim();
+        return v ? normalizeArabic(v) : undefined;
+      })(),
       date:       parseExcelDate(raw[rc.date]),
       rawData:    JSON.stringify(raw),
     };
@@ -575,6 +589,7 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
     saleDate:         r.date ?? undefined,
     uploadedFileId:   uploadedFile.id,
     rawData:          r.rawData ?? null,
+    customerInfoNorm: r.customerInfoNorm ?? null,
   }));
 
   if (salesRows.length > 0) {

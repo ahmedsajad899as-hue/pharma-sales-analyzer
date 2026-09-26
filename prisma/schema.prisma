@@ -121,11 +121,12 @@ model User {
 
   // Globally-blocked commercial reps / areas / items (hidden from scientific-rep
   // reports always, and from the overall analysis for transferred-file recipients)
-  blockedCommercialReps BlockedCommercialRep[]
-  blockedAreas          BlockedArea[]
-  blockedPharmacies     BlockedPharmacy[]
-  blockedItems          BlockedItem[]
-  blockedRepAreas       BlockedRepArea[]
+  blockedCommercialReps  BlockedCommercialRep[]
+  blockedAreas           BlockedArea[]
+  blockedPharmacies      BlockedPharmacy[]
+  blockedItems           BlockedItem[]
+  blockedRepAreas        BlockedRepArea[]
+  blockedCustomerInfoNames BlockedCustomerInfoName[]
   sciRepNameLinks       SciRepNameLink[]
   doctorNameLinks       DoctorNameLink[]
   visitImportFiles      VisitImportFile[]
@@ -346,6 +347,10 @@ model Sale {
   uploadedFileId   Int?
   createdAt        DateTime @default(now())
   rawData          String? // JSON-encoded original Excel row
+  // نص العمود الحر «معلومات الزبون» (حين يوجد) بعد تطبيع الحروف العربية —
+  // يُستعمل حصراً لمطابقة «حجب أسماء داخل معلومات الزبون» (BlockedCustomerInfoName)
+  // بمطابقة «يحتوي على» لا مساواة تامة، لأن قيمة الحقل نص حر يختلف سطراً لآخر.
+  customerInfoNorm String?
   recordType       String   @default("sale") // "sale" | "return"
   // فلترة الأعمدة داخل «تعديل الملف» (مثل AutoFilter بالإكسل): يُحسب من
   // FileColumnFilter عند أي تغيير في الفلتر، ثم يُستثنى من كل استعلامات
@@ -776,6 +781,24 @@ model BlockedPharmacy {
 
   @@unique([userId, name])
   @@map("blocked_pharmacies")
+}
+
+// حجب أسماء داخل الحقل الحر «معلومات الزبون» (لا حقلاً بنيوياً كالصيدلية/المنطقة
+// أعلاه): قيمة هذا الحقل نص حر قد يضم اسم مندوب سابق أو ملاحظة تعريف مع اسم
+// الصيدلية، فمطابقته «يحتوي على» (substring) بعد التطبيع على Sale.customerInfoNorm،
+// لا مساواة تامة. نفس نطاق وقواعد الحجب الأخرى (تعليق/استئناف عبر enabled،
+// مقيَّد بمالكي الملفات النشطة). راجع resolveSciRepSales في scientific-reps.service.js.
+model BlockedCustomerInfoName {
+  id        Int      @id @default(autoincrement())
+  name      String
+  enabled   Boolean  @default(true)
+  userId    Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("blocked_customer_info_names")
 }
 
 // مطابقة أسماء المندوبين في ملفات ميركاتو مع سجلات المندوبين العلميين.

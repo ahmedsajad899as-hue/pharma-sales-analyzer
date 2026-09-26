@@ -34,6 +34,9 @@ export const ExcelRowSchema = z.object({
   quantity:   z.number().nonnegative('Quantity must be >= 0'),
   totalValue: z.number().nonnegative('Total value must be >= 0'),
   customer:   z.string().optional(),   // optional: pharmacy / clinic / hospital name
+  // نص عمود «معلومات الزبون» الحر بعد التطبيع — لمطابقة حجب الأسماء الحرة فقط،
+  // لا يُعرض ولا يُستعمل كاسم عميل.
+  customerInfoNorm: z.string().optional(),
   date:       z.date().optional(),     // optional: parsed sale date from Excel
   rawData:    z.string().optional(),   // full original Excel row as JSON string
 });

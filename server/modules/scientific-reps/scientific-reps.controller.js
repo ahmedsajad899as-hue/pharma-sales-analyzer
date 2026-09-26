@@ -183,7 +183,7 @@ export async function setBlockedCommercialEnabled(req, res, next) {
 }
 
 // ── Globally-blocked areas / items ──────────────────────────────────────────
-const BLOCK_KINDS = new Set(['area', 'item', 'pharmacy']);
+const BLOCK_KINDS = new Set(['area', 'item', 'pharmacy', 'customerInfo']);
 
 export async function listBlockedEntities(req, res, next) {
   try {

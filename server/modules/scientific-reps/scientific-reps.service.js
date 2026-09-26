@@ -596,6 +596,7 @@ const BLOCK_MODELS = {
   area: prisma.blockedArea,
   item: prisma.blockedItem,
   pharmacy: prisma.blockedPharmacy,
+  customerInfo: prisma.blockedCustomerInfoName,
 };
 
 function blockModel(kind) {
@@ -1056,9 +1057,10 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     ? await scopeRepIdsToFiles(mercatoNameMatchCandidates, mercatoFileIds)
     : nameMatchIds;
 
-  // ── Globally-blocked commercial reps / areas / items ────────────────────────
-  // A company manager can globally block commercial reps, areas, or items (from
-  // ScientificRepsPage). The matching sales/returns must be hidden from EVERY
+  // ── Globally-blocked commercial reps / areas / items / customer-info names ──
+  // A company manager can globally block commercial reps, areas, items, or
+  // substrings of the free-text «معلومات الزبون» column (from ScientificRepsPage).
+  // The matching sales/returns must be hidden from EVERY
   // scientific-rep report. NOT applied to the manager's own comprehensive-analysis
   // view of their own files — but IS applied to the comprehensive analysis when
   // viewed by a user a file was transferred to (see the mirrored block-resolution
@@ -1070,6 +1072,9 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   let blockedAreaIds = [];
   let blockedItemIds = [];
   let blockedCustomerIds = [];
+  // حجب أسماء داخل الحقل الحر «معلومات الزبون» — مطابقة «يحتوي على» بعد
+  // التطبيع على Sale.customerInfoNorm، لا قائمة IDs ككل بقية أنواع الحجب أعلاه.
+  let blockedCustomerInfoNorms = [];
   // حجب جزئي: [{representativeId:{in:[...]}, areaId:{in:[...]}}, ...] — كل عنصر
   // يمثّل مندوباً تجارياً محجوباً في مجموعة مناطق محددة له فقط، لا كل المناطق.
   let blockedRepAreaConds = [];
@@ -1105,12 +1110,13 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       // Only apply block lists of owners who have blocking ENABLED (master switch)
       // AND the block row itself isn't temporarily paused (enabled=false).
       const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true }, enabled: true };
-      const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows, blockedRepAreaRows] = await Promise.all([
+      const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows, blockedRepAreaRows, blockedCustomerInfoRows] = await Promise.all([
         prisma.blockedCommercialRep.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedArea.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedItem.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedPharmacy.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedRepArea.findMany({ where: blockWhere, select: { commercialRepName: true, areaName: true } }),
+        prisma.blockedCustomerInfoName.findMany({ where: blockWhere, select: { name: true } }),
       ]);
 
       const blockedNorms = new Set(blockedRepRows.map(b => _normalizeAr(b.name)).filter(Boolean));
@@ -1145,6 +1151,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
         const allCustomers = await prisma.customer.findMany({ select: { id: true, name: true } });
         blockedCustomerIds = allCustomers.filter(c => blockedPharmNorms.has(normalizeArabic(c.name))).map(c => c.id);
       }
+
+      blockedCustomerInfoNorms = [...new Set(blockedCustomerInfoRows.map(b => normalizeArabic(b.name)).filter(Boolean))];
 
       // حجب جزئي (مندوب × منطقة): نجمع مناطق كل مندوب محجوب جزئياً معاً، فتصير
       // شرطاً واحداً لكل مندوب بدل شرط منفصل لكل زوج (مندوب، منطقة).
@@ -1254,6 +1262,11 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     if (blockedAreaIds.length) conditions.push({ NOT: { areaId: { in: blockedAreaIds } } });
     if (blockedItemIds.length) conditions.push({ NOT: { itemId: { in: blockedItemIds } } });
     if (blockedCustomerIds.length) conditions.push({ NOT: { customerId: { in: blockedCustomerIds } } });
+    // حجب أسماء داخل «معلومات الزبون»: أي اسم محجوب يظهر كجزء من نص الحقل
+    // (لا مساواة تامة) يُخفي الصف، بصرف النظر عن باقي أعمدته.
+    if (blockedCustomerInfoNorms.length) {
+      conditions.push({ NOT: { OR: blockedCustomerInfoNorms.map(n => ({ customerInfoNorm: { contains: n } })) } });
+    }
     // حجب جزئي: يستبعد فقط صفوف (هذا المندوب AND إحدى مناطقه المحجوبة) معاً —
     // بقية مناطقه، وبقية المندوبين في نفس المناطق، يبقون ظاهرين.
     if (blockedRepAreaConds.length) conditions.push({ NOT: { OR: blockedRepAreaConds } });

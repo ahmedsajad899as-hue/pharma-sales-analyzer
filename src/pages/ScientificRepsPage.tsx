@@ -64,12 +64,16 @@ type AreaViewMode = 'flat' | 'byRep';
 interface CommercialWithAreas { id: number; name: string; areas: NamedItem[]; }
 
 // ─── Global block panel — kinds a manager can hide from scientific-rep reports ──
-type BlockKind = 'commercial' | 'area' | 'item' | 'pharmacy';
-const BLOCK_KIND_CONFIG: Record<BlockKind, { label: string; icon: string; placeholder: string; endpoint: string }> = {
-  commercial: { label: 'مندوب تجاري', icon: '👤', placeholder: 'اكتب اسم مندوب تجاري…', endpoint: 'blocked-commercials' },
-  area:       { label: 'منطقة',       icon: '📍', placeholder: 'اكتب اسم منطقة…',        endpoint: 'blocked/area' },
-  item:       { label: 'آيتم',        icon: '💊', placeholder: 'اكتب اسم آيتم…',          endpoint: 'blocked/item' },
-  pharmacy:   { label: 'صيدلية',      icon: '🏥', placeholder: 'اكتب اسم صيدلية…',        endpoint: 'blocked/pharmacy' },
+type BlockKind = 'commercial' | 'area' | 'item' | 'pharmacy' | 'customerInfo';
+const BLOCK_KIND_CONFIG: Record<BlockKind, { label: string; icon: string; placeholder: string; endpoint: string; hint?: string }> = {
+  commercial:   { label: 'مندوب تجاري',      icon: '👤', placeholder: 'اكتب اسم مندوب تجاري…',              endpoint: 'blocked-commercials' },
+  area:         { label: 'منطقة',            icon: '📍', placeholder: 'اكتب اسم منطقة…',                    endpoint: 'blocked/area' },
+  item:         { label: 'آيتم',             icon: '💊', placeholder: 'اكتب اسم آيتم…',                      endpoint: 'blocked/item' },
+  pharmacy:     { label: 'صيدلية',           icon: '🏥', placeholder: 'اكتب اسم صيدلية…',                    endpoint: 'blocked/pharmacy' },
+  // حجب جزئي داخل حقل حر: أي اسم يُكتب هنا يُخفي كل صف يحتوي حقل «معلومات
+  // الزبون» فيه على هذا الاسم كجزء من نصه — لا مطابقة تامة كبقية الأنواع أعلاه.
+  customerInfo: { label: 'معلومات الزبون',   icon: '📇', placeholder: 'اكتب اسماً لحجبه من حقل معلومات الزبون…', endpoint: 'blocked/customerInfo',
+    hint: 'يُخفي أي صف يحتوي حقل «معلومات الزبون» فيه على هذا الاسم، ولو كان جزءاً من نص أطول.' },
 };
 
 export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileIds?: number[] }) {
@@ -164,14 +168,14 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [excludeWarehouse, setExcludeWarehouse] = useState(true);
   const [excludeWarehouseToggling, setExcludeWarehouseToggling] = useState(false);
   const [blockKind, setBlockKind]           = useState<BlockKind>('commercial');
-  const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string; enabled: boolean }[]>>({ commercial: [], area: [], item: [], pharmacy: [] });
+  const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string; enabled: boolean }[]>>({ commercial: [], area: [], item: [], pharmacy: [], customerInfo: [] });
   // حجب جزئي: مناطق محددة لمندوب تجاري محدد (لا المندوب كاملاً)
   const [blockedRepAreas, setBlockedRepAreas] = useState<{ id: number; commercialRepName: string; areaName: string; enabled: boolean }[]>([]);
   const [repAreaPickerRepId, setRepAreaPickerRepId] = useState<number | ''>('');
   const [blockInput, setBlockInput]         = useState('');
   const [blockSaving, setBlockSaving]       = useState(false);
   const [blockError, setBlockError]         = useState('');
-  const [blockSuggestSources, setBlockSuggestSources] = useState<Record<BlockKind, string[]>>({ commercial: [], area: [], item: [], pharmacy: [] });
+  const [blockSuggestSources, setBlockSuggestSources] = useState<Record<BlockKind, string[]>>({ commercial: [], area: [], item: [], pharmacy: [], customerInfo: [] });
   const [showBlockSuggest, setShowBlockSuggest] = useState(false);
   const blockSuggestRef                     = useRef<HTMLDivElement>(null);
   // ─── Load ──────────────────────────────────────────────────
@@ -202,21 +206,22 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         const j = await r.json().catch(() => ({}));
         return r.ok && Array.isArray(j.data) ? j.data : [];
       };
-      const [bComm, bArea, bItem, bPharm, bRepArea, cRes, aRes, iRes, pRes] = await Promise.all([
-        fetch(`${API}/api/scientific-reps/blocked-commercials`, { headers: authH() }),
-        fetch(`${API}/api/scientific-reps/blocked/area`,        { headers: authH() }),
-        fetch(`${API}/api/scientific-reps/blocked/item`,        { headers: authH() }),
-        fetch(`${API}/api/scientific-reps/blocked/pharmacy`,    { headers: authH() }),
-        fetch(`${API}/api/scientific-reps/blocked-rep-areas`,   { headers: authH() }),
-        fetch(`${API}/api/representatives`,                     { headers: authH() }),
+      const [bComm, bArea, bItem, bPharm, bCustInfo, bRepArea, cRes, aRes, iRes, pRes] = await Promise.all([
+        fetch(`${API}/api/scientific-reps/blocked-commercials`,  { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked/area`,         { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked/item`,         { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked/pharmacy`,     { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked/customerInfo`, { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked-rep-areas`,    { headers: authH() }),
+        fetch(`${API}/api/representatives`,                      { headers: authH() }),
         fetch(`${API}/api/areas`,                                { headers: authH() }),
         fetch(`${API}/api/items`,                                { headers: authH() }),
         fetch(`${API}/api/customers`,                            { headers: authH() }),
       ]);
-      const [commList, areaBlockList, itemBlockList, pharmBlockList, repAreaList] = await Promise.all([
-        parseList(bComm), parseList(bArea), parseList(bItem), parseList(bPharm), parseList(bRepArea),
+      const [commList, areaBlockList, itemBlockList, pharmBlockList, customerInfoBlockList, repAreaList] = await Promise.all([
+        parseList(bComm), parseList(bArea), parseList(bItem), parseList(bPharm), parseList(bCustInfo), parseList(bRepArea),
       ]);
-      setBlockedLists({ commercial: commList, area: areaBlockList, item: itemBlockList, pharmacy: pharmBlockList });
+      setBlockedLists({ commercial: commList, area: areaBlockList, item: itemBlockList, pharmacy: pharmBlockList, customerInfo: customerInfoBlockList });
       setBlockedRepAreas(repAreaList);
 
       // master on/off state
@@ -235,7 +240,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       const [commNames, areaNames, itemNames, pharmNames] = await Promise.all([
         namesOf(cRes), namesOf(aRes), namesOf(iRes), namesOf(pRes),
       ]);
-      setBlockSuggestSources({ commercial: commNames, area: areaNames, item: itemNames, pharmacy: pharmNames });
+      setBlockSuggestSources({ commercial: commNames, area: areaNames, item: itemNames, pharmacy: pharmNames, customerInfo: [] });
     } catch { /* non-fatal */ }
   }, [token]);
   useEffect(() => { loadBlocked(); }, [loadBlocked]);
@@ -655,11 +660,11 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
             🏬 استبعاد مبيعات المذاخر
           </button>
           {(() => {
-            const totalBlocked = blockedLists.commercial.length + blockedLists.area.length + blockedLists.item.length;
+            const totalBlocked = Object.values(blockedLists).reduce((sum, list) => sum + list.length, 0);
             return !blockPanelOpen ? (
               <button
                 onClick={() => { setBlockPanelOpen(true); if (allCommercialWithAreas.length === 0) loadAllOptions(); }}
-                title="حجب مندوب تجاري / منطقة / آيتم عن تقارير المندوبين العلميين، وعن التحليل الشامل للملفات المحوّلة لهم"
+                title="حجب مندوب تجاري / منطقة / آيتم / صيدلية / اسم داخل معلومات الزبون عن تقارير المندوبين العلميين، وعن التحليل الشامل للملفات المحوّلة لهم"
                 style={{
                   display: 'flex', alignItems: 'center', gap: 7,
                   background: '#fef2f2', border: '1.5px solid #fecaca', color: '#b91c1c',
@@ -769,6 +774,11 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     );
                   })()}
                 </div>
+                {BLOCK_KIND_CONFIG[blockKind].hint && (
+                  <div style={{ fontSize: 11.5, color: '#9a3412', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '5px 10px', marginTop: 6 }}>
+                    💡 {BLOCK_KIND_CONFIG[blockKind].hint}
+                  </div>
+                )}
                 {blockError && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 6 }}>{blockError}</div>}
                 {blockedLists[blockKind].length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
