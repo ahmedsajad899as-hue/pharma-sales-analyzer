@@ -37,6 +37,12 @@ router.post('/blocked-rep-areas',       ctrl.addBlockedRepArea);       // { repN
 router.patch('/blocked-rep-areas/:blockId',  ctrl.setBlockedRepAreaEnabled); // {enabled}
 router.delete('/blocked-rep-areas/:blockId', ctrl.removeBlockedRepArea);
 
+// حجب جزئي: آيتم محدد مرتبط باسم معيّن داخل «معلومات الزبون» — قبل /:id
+router.get('/blocked-customer-info-items',        ctrl.listBlockedCustomerInfoItems);
+router.post('/blocked-customer-info-items',       ctrl.addBlockedCustomerInfoItem);       // { customerInfoName, itemName }
+router.patch('/blocked-customer-info-items/:blockId',  ctrl.setBlockedCustomerInfoItemEnabled); // {enabled}
+router.delete('/blocked-customer-info-items/:blockId', ctrl.removeBlockedCustomerInfoItem);
+
 // ملخص صافي المبيع + طلبيات المكتب/المذخر لكل المندوبين العلميين دفعة واحدة — قبل /:id
 router.get('/warehouse-summary', ctrl.getWarehouseSummaryAll); // ?repIds=1,2,3
 

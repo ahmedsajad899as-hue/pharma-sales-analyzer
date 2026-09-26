@@ -172,6 +172,11 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   // حجب جزئي: مناطق محددة لمندوب تجاري محدد (لا المندوب كاملاً)
   const [blockedRepAreas, setBlockedRepAreas] = useState<{ id: number; commercialRepName: string; areaName: string; enabled: boolean }[]>([]);
   const [repAreaPickerRepId, setRepAreaPickerRepId] = useState<number | ''>('');
+  // حجب جزئي: آيتم محدد مرتبط باسم معيّن داخل «معلومات الزبون» (لا الاسم كاملاً)
+  const [blockedCustomerInfoItems, setBlockedCustomerInfoItems] = useState<{ id: number; customerInfoName: string; itemName: string; enabled: boolean }[]>([]);
+  const [ciItemPickerName, setCiItemPickerName] = useState('');
+  const [ciItemsForPicked, setCiItemsForPicked] = useState<{ id: number; name: string }[]>([]);
+  const [ciItemsLoading, setCiItemsLoading] = useState(false);
   const [blockInput, setBlockInput]         = useState('');
   const [blockSaving, setBlockSaving]       = useState(false);
   const [blockError, setBlockError]         = useState('');
@@ -206,24 +211,26 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         const j = await r.json().catch(() => ({}));
         return r.ok && Array.isArray(j.data) ? j.data : [];
       };
-      const [bComm, bArea, bItem, bPharm, bCustInfo, bRepArea, cRes, aRes, iRes, pRes, ciRes] = await Promise.all([
+      const [bComm, bArea, bItem, bPharm, bCustInfo, bRepArea, bCustInfoItem, cRes, aRes, iRes, pRes, ciRes] = await Promise.all([
         fetch(`${API}/api/scientific-reps/blocked-commercials`,  { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/area`,         { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/item`,         { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/pharmacy`,     { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/customerInfo`, { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked-rep-areas`,    { headers: authH() }),
+        fetch(`${API}/api/scientific-reps/blocked-customer-info-items`, { headers: authH() }),
         fetch(`${API}/api/representatives`,                      { headers: authH() }),
         fetch(`${API}/api/areas`,                                { headers: authH() }),
         fetch(`${API}/api/items`,                                { headers: authH() }),
         fetch(`${API}/api/customers`,                            { headers: authH() }),
         fetch(`${API}/api/customer-info-values`,                 { headers: authH() }),
       ]);
-      const [commList, areaBlockList, itemBlockList, pharmBlockList, customerInfoBlockList, repAreaList] = await Promise.all([
-        parseList(bComm), parseList(bArea), parseList(bItem), parseList(bPharm), parseList(bCustInfo), parseList(bRepArea),
+      const [commList, areaBlockList, itemBlockList, pharmBlockList, customerInfoBlockList, repAreaList, customerInfoItemList] = await Promise.all([
+        parseList(bComm), parseList(bArea), parseList(bItem), parseList(bPharm), parseList(bCustInfo), parseList(bRepArea), parseList(bCustInfoItem),
       ]);
       setBlockedLists({ commercial: commList, area: areaBlockList, item: itemBlockList, pharmacy: pharmBlockList, customerInfo: customerInfoBlockList });
       setBlockedRepAreas(repAreaList);
+      setBlockedCustomerInfoItems(customerInfoItemList);
 
       // master on/off state
       fetch(`${API}/api/scientific-reps/blocking-enabled`, { headers: authH() })
@@ -343,6 +350,50 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       if (!r.ok) loadBlocked();
     } catch { loadBlocked(); }
   };
+
+  // ─── حجب جزئي: آيتم محدد مرتبط باسم معيّن داخل «معلومات الزبون» ────────────
+  const addBlockedCustomerInfoItem = async (customerInfoName: string, itemName: string) => {
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/blocked-customer-info-items`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...authH() },
+        body: JSON.stringify({ customerInfoName, itemName }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.data) setBlockedCustomerInfoItems(prev => (prev.some(b => b.id === j.data.id) ? prev : [...prev, j.data]));
+      else loadBlocked();
+    } catch { loadBlocked(); }
+  };
+
+  const removeBlockedCustomerInfoItem = async (id: number) => {
+    setBlockedCustomerInfoItems(prev => prev.filter(b => b.id !== id)); // optimistic
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/blocked-customer-info-items/${id}`, { method: 'DELETE', headers: authH() });
+      if (!r.ok) loadBlocked();
+    } catch { loadBlocked(); }
+  };
+
+  const toggleBlockedCustomerInfoItem = async (id: number, next: boolean) => {
+    setBlockedCustomerInfoItems(prev => prev.map(b => (b.id === id ? { ...b, enabled: next } : b))); // optimistic
+    try {
+      const r = await fetch(`${API}/api/scientific-reps/blocked-customer-info-items/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ enabled: next }),
+      });
+      if (!r.ok) loadBlocked();
+    } catch { loadBlocked(); }
+  };
+
+  // Fetch items that actually appear (contains-match) with the picked customer-info
+  // value — powers the item checkboxes below, on-demand (no broad preload like
+  // allCommercialWithAreas, since the universe of customer-info values can be large).
+  useEffect(() => {
+    if (!ciItemPickerName) { setCiItemsForPicked([]); return; }
+    setCiItemsLoading(true);
+    fetch(`${API}/api/customer-info-items?name=${encodeURIComponent(ciItemPickerName)}`, { headers: authH() })
+      .then(r => r.json())
+      .then(j => setCiItemsForPicked(Array.isArray(j.data) ? j.data : []))
+      .catch(() => setCiItemsForPicked([]))
+      .finally(() => setCiItemsLoading(false));
+  }, [ciItemPickerName, token]);
 
   // Close the block-suggestions dropdown on outside click — without this, it stays
   // open (nothing else dismisses it) and its absolutely-positioned overlay can sit on
@@ -874,6 +925,93 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                                     {b.enabled ? '📍' : '⏸️'} {b.areaName}
                                   </span>
                                   <button onClick={() => removeBlockedRepArea(b.id)} title="حذف نهائي"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, fontSize: 12, fontWeight: 800, opacity: 0.7 }}>✕</button>
+                                </span>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* ── حجب جزئي: آيتمات محددة لاسم معيّن داخل معلومات الزبون (بدل حجبه بالكامل) ── */}
+                {blockKind === 'customerInfo' && (
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px dashed #fecaca' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, color: '#9a3412', marginBottom: 8 }}>
+                      🧩 أو حجب آيتمات محددة لهذا الاسم فقط (بدل حجب كل مبيعاته)
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <select className="form-input" style={{ fontSize: 13, minWidth: 220 }}
+                        value={ciItemPickerName}
+                        onChange={e => setCiItemPickerName(e.target.value)}>
+                        <option value="">اختر اسماً من معلومات الزبون…</option>
+                        {blockSuggestSources.customerInfo.map(n => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {ciItemPickerName && (
+                      ciItemsLoading ? (
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 10 }}>...جاري التحميل</div>
+                      ) : ciItemsForPicked.length === 0 ? (
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 10 }}>لا توجد آيتمات مرتبطة بهذا الاسم في بياناتك.</div>
+                      ) : (() => {
+                        const nameNorm = normalizeAr(ciItemPickerName);
+                        const rowByItemNorm = new Map(
+                          blockedCustomerInfoItems.filter(b => normalizeAr(b.customerInfoName) === nameNorm).map(b => [normalizeAr(b.itemName), b]),
+                        );
+                        return (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                            {ciItemsForPicked.map(it => {
+                              const row = rowByItemNorm.get(normalizeAr(it.name));
+                              const blocked = !!row;
+                              return (
+                                <label key={it.id}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                    background: blocked ? '#fff7ed' : '#fff',
+                                    color: blocked ? '#9a3412' : '#475569',
+                                    border: `1px solid ${blocked ? '#fdba74' : '#e2e8f0'}`,
+                                  }}>
+                                  <input type="checkbox" checked={blocked}
+                                    onChange={() => (row ? removeBlockedCustomerInfoItem(row.id) : addBlockedCustomerInfoItem(ciItemPickerName, it.name))}
+                                    style={{ margin: 0 }} />
+                                  💊 {it.name}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()
+                    )}
+
+                    {blockedCustomerInfoItems.length > 0 && (() => {
+                      const byName = new Map<string, typeof blockedCustomerInfoItems>();
+                      for (const b of blockedCustomerInfoItems) {
+                        const key = b.customerInfoName;
+                        if (!byName.has(key)) byName.set(key, []);
+                        byName.get(key)!.push(b);
+                      }
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+                          {[...byName.entries()].map(([name, list]) => (
+                            <div key={name} style={{ fontSize: 12, color: '#334155', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                              <strong>📇 {name}:</strong>
+                              {list.map(b => (
+                                <span key={b.id} title={b.enabled ? 'اضغط لتعليق حجب هذا الآيتم مؤقتاً' : 'مُعلَّق — اضغط لإعادة التفعيل'}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 700,
+                                    background: b.enabled ? '#fff7ed' : '#f8fafc',
+                                    color: b.enabled ? '#9a3412' : '#94a3b8',
+                                    border: `1px solid ${b.enabled ? '#fdba74' : '#e2e8f0'}`,
+                                  }}>
+                                  <span onClick={() => toggleBlockedCustomerInfoItem(b.id, !b.enabled)}
+                                    style={{ cursor: 'pointer', textDecoration: b.enabled ? 'none' : 'line-through' }}>
+                                    {b.enabled ? '💊' : '⏸️'} {b.itemName}
+                                  </span>
+                                  <button onClick={() => removeBlockedCustomerInfoItem(b.id)} title="حذف نهائي"
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, fontSize: 12, fontWeight: 800, opacity: 0.7 }}>✕</button>
                                 </span>
                               ))}

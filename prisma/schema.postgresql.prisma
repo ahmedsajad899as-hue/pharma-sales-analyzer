@@ -143,6 +143,7 @@ model User {
   blockedItems           BlockedItem[]
   blockedRepAreas        BlockedRepArea[]
   blockedCustomerInfoNames BlockedCustomerInfoName[]
+  blockedCustomerInfoItems BlockedCustomerInfoItem[]
   sciRepNameLinks       SciRepNameLink[]
   doctorNameLinks       DoctorNameLink[]
   visitImportFiles      VisitImportFile[]
@@ -730,6 +731,26 @@ model BlockedRepArea {
 
   @@unique([userId, commercialRepName, areaName])
   @@map("blocked_rep_areas")
+}
+
+// حجب جزئي: آيتم محدد مرتبط باسم معيّن داخل حقل «معلومات الزبون» (لا الاسم
+// كاملاً) — مثال: اسم «فارمسي لاين» محجوب جزئياً بحيث يُخفى آيتم "X" حين يظهر
+// معه فقط، بينما تبقى بقية آيتمات «فارمسي لاين» وبقية القيم الأخرى لنفس الآيتم
+// ظاهرة. customerInfoName يُطابَق بـ«يحتوي على» بعد التطبيع (كـ
+// BlockedCustomerInfoName)، والآيتم بمساواة تامة بعد التطبيع (كبقية أنواع
+// الحجب). راجع resolveSciRepSales في scientific-reps.service.js.
+model BlockedCustomerInfoItem {
+  id               Int      @id @default(autoincrement())
+  customerInfoName String
+  itemName         String
+  enabled          Boolean  @default(true)
+  userId           Int
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, customerInfoName, itemName])
+  @@map("blocked_customer_info_items")
 }
 
 // ─── Doctor Survey (السيرفي) ──────────────────────────────────

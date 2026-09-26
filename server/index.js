@@ -1347,6 +1347,39 @@ app.get('/api/customer-info-values', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// GET /api/customer-info-items?name=... — آيتمات ظهرت فعلياً مع قيمة معيّنة
+// (بعد التطبيع «يحتوي على») لعمود «معلومات الزبون» في ملفات هذا المستخدم —
+// تُغذّي منتقي «حجب جزئي: آيتم لهذا الاسم فقط» في تبويب معلومات الزبون بلوحة
+// الحجب، بنفس منطق مطابقة الحجب نفسه (contains) كي تُطابق ما سيُخفى فعلاً.
+app.get('/api/customer-info-items', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const name = String(req.query.name || '').trim();
+    if (!name) return res.json({ success: true, data: [] });
+    const norm = normalizeArabic(name);
+    const rows = await prisma.sale.findMany({
+      where: { customerInfoNorm: { contains: norm }, ...(userId ? { userId } : {}) },
+      select: { item: { select: { id: true, name: true } } },
+      distinct: ['itemId'],
+      take: 500,
+    });
+    const seen = new Set();
+    const data = [];
+    for (const r of rows) {
+      if (!r.item) continue;
+      const k = normalizeArabic(r.item.name);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      data.push({ id: r.item.id, name: r.item.name });
+    }
+    data.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[customer-info-items]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 app.post('/api/areas', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;

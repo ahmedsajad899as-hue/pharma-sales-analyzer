@@ -665,6 +665,36 @@ export async function setBlockedRepAreaEnabled(userId, blockId, enabled) {
   return { ok: true };
 }
 
+// ─── حجب جزئي: آيتم محدد مرتبط باسم معيّن داخل «معلومات الزبون» ───────────────
+// نفس فكرة حجب (مندوب × منطقة) أعلاه لكن (اسم معلومات الزبون × آيتم). نموذج
+// مستقل عن BLOCK_MODELS لنفس السبب (مفتاحان لا واحد).
+export async function listBlockedCustomerInfoItems(userId) {
+  return prisma.blockedCustomerInfoItem.findMany({
+    where: { userId },
+    orderBy: [{ customerInfoName: 'asc' }, { itemName: 'asc' }],
+    select: { id: true, customerInfoName: true, itemName: true, enabled: true, createdAt: true },
+  });
+}
+
+export async function addBlockedCustomerInfoItem(userId, customerInfoName, itemName) {
+  return prisma.blockedCustomerInfoItem.upsert({
+    where: { userId_customerInfoName_itemName: { userId, customerInfoName, itemName } },
+    update: { enabled: true },
+    create: { userId, customerInfoName, itemName },
+    select: { id: true, customerInfoName: true, itemName: true, enabled: true, createdAt: true },
+  });
+}
+
+export async function removeBlockedCustomerInfoItem(userId, blockId) {
+  await prisma.blockedCustomerInfoItem.deleteMany({ where: { id: blockId, userId } });
+  return { ok: true };
+}
+
+export async function setBlockedCustomerInfoItemEnabled(userId, blockId, enabled) {
+  await prisma.blockedCustomerInfoItem.updateMany({ where: { id: blockId, userId }, data: { enabled: !!enabled } });
+  return { ok: true };
+}
+
 // ─── Report ──────────────────────────────────────────────────
 
 /**
@@ -1075,6 +1105,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // حجب أسماء داخل الحقل الحر «معلومات الزبون» — مطابقة «يحتوي على» بعد
   // التطبيع على Sale.customerInfoNorm، لا قائمة IDs ككل بقية أنواع الحجب أعلاه.
   let blockedCustomerInfoNorms = [];
+  // حجب جزئي (اسم معلومات الزبون × آيتم): [{customerInfoNorm:{contains}, itemId:{in:[...]}}]
+  let blockedCustomerInfoItemConds = [];
   // حجب جزئي: [{representativeId:{in:[...]}, areaId:{in:[...]}}, ...] — كل عنصر
   // يمثّل مندوباً تجارياً محجوباً في مجموعة مناطق محددة له فقط، لا كل المناطق.
   let blockedRepAreaConds = [];
@@ -1110,13 +1142,14 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       // Only apply block lists of owners who have blocking ENABLED (master switch)
       // AND the block row itself isn't temporarily paused (enabled=false).
       const blockWhere = { userId: { in: ownerIds }, user: { blockingEnabled: true }, enabled: true };
-      const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows, blockedRepAreaRows, blockedCustomerInfoRows] = await Promise.all([
+      const [blockedRepRows, blockedAreaRows, blockedItemRows, blockedPharmRows, blockedRepAreaRows, blockedCustomerInfoRows, blockedCustomerInfoItemRows] = await Promise.all([
         prisma.blockedCommercialRep.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedArea.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedItem.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedPharmacy.findMany({ where: blockWhere, select: { name: true } }),
         prisma.blockedRepArea.findMany({ where: blockWhere, select: { commercialRepName: true, areaName: true } }),
         prisma.blockedCustomerInfoName.findMany({ where: blockWhere, select: { name: true } }),
+        prisma.blockedCustomerInfoItem.findMany({ where: blockWhere, select: { customerInfoName: true, itemName: true } }),
       ]);
 
       const blockedNorms = new Set(blockedRepRows.map(b => _normalizeAr(b.name)).filter(Boolean));
@@ -1169,6 +1202,24 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
           const areaIdsForBlock = allAreasForRepBlock.filter(a => areaNormsSet.has(normalizeArabic(a.name))).map(a => a.id);
           if (repIdsForBlock.length > 0 && areaIdsForBlock.length > 0) {
             blockedRepAreaConds.push({ representativeId: { in: repIdsForBlock }, areaId: { in: areaIdsForBlock } });
+          }
+        }
+      }
+
+      // حجب جزئي (اسم معلومات الزبون × آيتم): نجمع آيتمات كل اسم محجوب جزئياً
+      // معاً، فتصير شرطاً واحداً لكل اسم بدل شرط منفصل لكل زوج (اسم، آيتم).
+      if (blockedCustomerInfoItemRows.length > 0) {
+        const allItemsForCustomerInfoBlock = await prisma.item.findMany({ select: { id: true, name: true } });
+        const itemsByCustomerInfoNorm = new Map(); // اسم معلومات الزبون المطبَّع → Set(اسم الآيتم المطبَّع)
+        for (const row of blockedCustomerInfoItemRows) {
+          const ck = normalizeArabic(row.customerInfoName);
+          if (!itemsByCustomerInfoNorm.has(ck)) itemsByCustomerInfoNorm.set(ck, new Set());
+          itemsByCustomerInfoNorm.get(ck).add(normalizeArabic(row.itemName));
+        }
+        for (const [customerInfoNorm, itemNormsSet] of itemsByCustomerInfoNorm) {
+          const itemIdsForBlock = allItemsForCustomerInfoBlock.filter(i => itemNormsSet.has(normalizeArabic(i.name))).map(i => i.id);
+          if (customerInfoNorm && itemIdsForBlock.length > 0) {
+            blockedCustomerInfoItemConds.push({ customerInfoNorm: { contains: customerInfoNorm }, itemId: { in: itemIdsForBlock } });
           }
         }
       }
@@ -1270,6 +1321,9 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     // حجب جزئي: يستبعد فقط صفوف (هذا المندوب AND إحدى مناطقه المحجوبة) معاً —
     // بقية مناطقه، وبقية المندوبين في نفس المناطق، يبقون ظاهرين.
     if (blockedRepAreaConds.length) conditions.push({ NOT: { OR: blockedRepAreaConds } });
+    // حجب جزئي: يستبعد فقط صفوف (اسم معلومات الزبون هذا AND أحد آيتماته المحجوبة)
+    // معاً — بقية آيتمات نفس الاسم، وبقية القيم الأخرى لنفس الآيتم، يبقون ظاهرين.
+    if (blockedCustomerInfoItemConds.length) conditions.push({ NOT: { OR: blockedCustomerInfoItemConds } });
     return conditions.length === 1 ? conditions[0] : { AND: conditions };
   };
 

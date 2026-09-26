@@ -278,6 +278,38 @@ export async function setBlockedRepAreaEnabled(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// ── حجب جزئي: آيتم محدد مرتبط باسم معيّن داخل «معلومات الزبون» ──────────────
+export async function listBlockedCustomerInfoItems(req, res, next) {
+  try {
+    const rows = await svc.listBlockedCustomerInfoItems(req.user.id);
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+}
+
+export async function addBlockedCustomerInfoItem(req, res, next) {
+  try {
+    const customerInfoName = String(req.body?.customerInfoName || '').trim();
+    const itemName          = String(req.body?.itemName || '').trim();
+    if (!customerInfoName || !itemName) return res.status(400).json({ error: 'الاسم والآيتم مطلوبان' });
+    const row = await svc.addBlockedCustomerInfoItem(req.user.id, customerInfoName, itemName);
+    res.status(201).json({ success: true, data: row });
+  } catch (err) { next(err); }
+}
+
+export async function removeBlockedCustomerInfoItem(req, res, next) {
+  try {
+    await svc.removeBlockedCustomerInfoItem(req.user.id, +req.params.blockId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
+export async function setBlockedCustomerInfoItemEnabled(req, res, next) {
+  try {
+    await svc.setBlockedCustomerInfoItemEnabled(req.user.id, +req.params.blockId, !!req.body?.enabled);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+}
+
 // ── ايتمات المندوب الفعلية (تُستعمل في التارگت الشهري) ─────────────────────
 export async function getEffectiveItems(req, res, next) {
   try {
