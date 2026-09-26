@@ -1,8 +1,8 @@
 import prisma from '../../lib/prisma.js';
 
 const PING_TYPES = new Set(['app_open', 'page_view', 'heartbeat', 'search', 'calculate']);
-// سقف دفاعي على الخادم لثواني كل نبضة — يطابق MAX_TICK_SECONDS في
-// src/hooks/useEngagementHeartbeat.ts، ويحمي من نبضة مزوَّرة/معطوبة بقيمة ضخمة.
+// سقف دفاعي على الخادم لثواني كل نبضة (كل نبضة تمثّل دقيقة كاملة = 60 من
+// src/hooks/useEngagementHeartbeat.ts) — يحمي من نبضة مزوَّرة/معطوبة بقيمة ضخمة.
 const MAX_HEARTBEAT_SECONDS = 90;
 const OFFICE_ENGAGEMENT_ROLES = ['company_manager', 'office_hr', 'office_employee'];
 

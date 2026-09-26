@@ -1,52 +1,37 @@
 import { useEffect, useRef } from 'react';
 import { sendEngagementPing } from '../lib/engagementPing';
 
-// كل كم ثانية نرسل نبضة "وقت استخدام فعلي" — راجع server/modules/engagement.
-const TICK_MS = 60_000;
-// إن مرّت هذه المدة بلا أي تفاعل (فأرة/لوحة مفاتيح/لمس) نعتبر المستخدم متروكاً
-// أمام الشاشة لا "يستخدم" التطبيق فعلاً، فلا نحتسب الوقت.
-const IDLE_THRESHOLD_MS = 3 * 60_000;
-// سقف لكل نبضة يحمي من قفزة ضخمة بعد نوم الجهاز/الجهاز معلّق (الوقت الفعلي
-// المنقضي قد يكون ساعات رغم أن المؤقّت جدولته بعد 60 ثانية فقط).
-const MAX_TICK_SECONDS = 90;
+// أي تفاعل فعلي (حركة ماوس/ضغط مفتاح/سكرول/لمس) يُحتسب دقيقة كاملة فوراً —
+// لا ننتظر مرور 60 ثانية متواصلة من الاستخدام لنبدأ الاحتساب. الدقيقة نفسها
+// تبقى "مفتوحة" لمدة 60 ثانية من لحظة احتسابها فلا تُحتسب دقيقة جديدة أثناءها
+// حتى لو تكرر التفاعل؛ وبعد انتهائها، أول تفاعل جديد يفتح دقيقة أخرى فوراً —
+// حتى لو كانت المدة الفعلية للاستخدام في تلك اللحظة ثوانٍ معدودة فقط.
+const MINUTE_MS = 60_000;
 
-/**
- * يحسب "الوقت المستغرق داخل التطبيق" فعلياً (لا مجرد بقاء التبويب مفتوحاً):
- * التبويب ظاهر + النافذة تملك التركيز + تفاعل حقيقي خلال آخر IDLE_THRESHOLD_MS.
- */
 export function useEngagementHeartbeat(activePage: string, enabled: boolean) {
-  const lastInteractionRef = useRef(Date.now());
-  const lastTickRef = useRef(Date.now());
+  const lastCreditRef = useRef<number | null>(null);
   const pageRef = useRef(activePage);
   pageRef.current = activePage;
 
   useEffect(() => {
     if (!enabled) return;
 
-    const markInteraction = () => { lastInteractionRef.current = Date.now(); };
-    const events: (keyof WindowEventMap)[] = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
-    events.forEach(e => window.addEventListener(e, markInteraction, { passive: true }));
-
-    const timer = setInterval(() => {
-      const now = Date.now();
-      const elapsedSec = Math.min((now - lastTickRef.current) / 1000, MAX_TICK_SECONDS);
-      lastTickRef.current = now;
-
+    const onInteraction = () => {
       const isVisible = document.visibilityState === 'visible' && document.hasFocus();
-      const isIdle = now - lastInteractionRef.current > IDLE_THRESHOLD_MS;
-      if (!isVisible || isIdle) return;
+      if (!isVisible) return;
 
-      sendEngagementPing('heartbeat', pageRef.current, Math.round(elapsedSec));
-    }, TICK_MS);
+      const now = Date.now();
+      if (lastCreditRef.current !== null && now - lastCreditRef.current < MINUTE_MS) return;
 
-    // لا نحتسب فترة الغياب عن التبويب عند العودة إليه — إعادة ضبط نقطة البداية فقط
-    const onVisible = () => { if (document.visibilityState === 'visible') lastTickRef.current = Date.now(); };
-    document.addEventListener('visibilitychange', onVisible);
+      lastCreditRef.current = now;
+      sendEngagementPing('heartbeat', pageRef.current, 60);
+    };
+
+    const events: (keyof WindowEventMap)[] = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach(e => window.addEventListener(e, onInteraction, { passive: true }));
 
     return () => {
-      clearInterval(timer);
-      events.forEach(e => window.removeEventListener(e, markInteraction));
-      document.removeEventListener('visibilitychange', onVisible);
+      events.forEach(e => window.removeEventListener(e, onInteraction));
     };
   }, [enabled]);
 }
