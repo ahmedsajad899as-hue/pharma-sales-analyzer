@@ -1327,6 +1327,26 @@ app.get('/api/customers', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// GET /api/customer-info-values — قيم عمود «معلومات الزبون» الفريدة (بعد التطبيع)
+// من ملفات هذا المستخدم — تُستعمل فقط كاقتراحات إكمال تلقائي في تبويب حجب
+// «معلومات الزبون» بلوحة الحجب، تماماً كـ /api/customers أعلاه للصيدليات.
+app.get('/api/customer-info-values', async (req, res) => {
+  try {
+    const userId = req.user?.id ?? null;
+    const rows = await prisma.sale.findMany({
+      where: { customerInfoNorm: { not: null }, ...(userId ? { userId } : {}) },
+      select: { customerInfoNorm: true },
+      distinct: ['customerInfoNorm'],
+      orderBy: { customerInfoNorm: 'asc' },
+      take: 2000,
+    });
+    res.json({ success: true, data: rows.map(r => ({ name: r.customerInfoNorm })) });
+  } catch (err) {
+    console.error('[customer-info-values]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 app.post('/api/areas', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;

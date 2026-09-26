@@ -206,7 +206,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         const j = await r.json().catch(() => ({}));
         return r.ok && Array.isArray(j.data) ? j.data : [];
       };
-      const [bComm, bArea, bItem, bPharm, bCustInfo, bRepArea, cRes, aRes, iRes, pRes] = await Promise.all([
+      const [bComm, bArea, bItem, bPharm, bCustInfo, bRepArea, cRes, aRes, iRes, pRes, ciRes] = await Promise.all([
         fetch(`${API}/api/scientific-reps/blocked-commercials`,  { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/area`,         { headers: authH() }),
         fetch(`${API}/api/scientific-reps/blocked/item`,         { headers: authH() }),
@@ -217,6 +217,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         fetch(`${API}/api/areas`,                                { headers: authH() }),
         fetch(`${API}/api/items`,                                { headers: authH() }),
         fetch(`${API}/api/customers`,                            { headers: authH() }),
+        fetch(`${API}/api/customer-info-values`,                 { headers: authH() }),
       ]);
       const [commList, areaBlockList, itemBlockList, pharmBlockList, customerInfoBlockList, repAreaList] = await Promise.all([
         parseList(bComm), parseList(bArea), parseList(bItem), parseList(bPharm), parseList(bCustInfo), parseList(bRepArea),
@@ -237,10 +238,10 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         const list = Array.isArray(j.data) ? j.data : (Array.isArray(j) ? j : []);
         return [...new Set(list.map((x: any) => x.name).filter(Boolean))] as string[];
       };
-      const [commNames, areaNames, itemNames, pharmNames] = await Promise.all([
-        namesOf(cRes), namesOf(aRes), namesOf(iRes), namesOf(pRes),
+      const [commNames, areaNames, itemNames, pharmNames, customerInfoNames] = await Promise.all([
+        namesOf(cRes), namesOf(aRes), namesOf(iRes), namesOf(pRes), namesOf(ciRes),
       ]);
-      setBlockSuggestSources({ commercial: commNames, area: areaNames, item: itemNames, pharmacy: pharmNames, customerInfo: [] });
+      setBlockSuggestSources({ commercial: commNames, area: areaNames, item: itemNames, pharmacy: pharmNames, customerInfo: customerInfoNames });
     } catch { /* non-fatal */ }
   }, [token]);
   useEffect(() => { loadBlocked(); }, [loadBlocked]);
