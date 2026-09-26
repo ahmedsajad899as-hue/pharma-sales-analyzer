@@ -56,3 +56,35 @@ export function countDistinctOrders(sales) {
   }
   return keys.size + unkeyed;
 }
+
+/** اسم المذخر كما ورد حرفياً في rawData (بدون تطبيع) — للعرض فقط. */
+export function warehouseNameFromRawData(rawData) {
+  if (!rawData) return '';
+  let raw;
+  try { raw = JSON.parse(rawData); } catch { return ''; }
+  return pick(raw, WAREHOUSE_ALIASES);
+}
+
+/**
+ * يجمّع صفوف Sale حسب المذخر الذي مرّت عبره الطلبية، ويُرجع عدد الطلبيات
+ * الفعلي (لا عدد الأسطر) لكل مذخر — نفس منطق countDistinctOrders، لكن
+ * مبوَّباً باسم المذخر (مطبَّعاً للتجميع، مع إبقاء أول تهجئة خام وُجدت
+ * للعرض). صف بلا رقم طلبية يُحتسب طلبية منفردة (كـ countDistinctOrders).
+ */
+export function groupOrdersByWarehouse(sales) {
+  const seenOrderKeys = new Set();
+  const byNorm = new Map(); // normalized warehouse -> { name, orderCount }
+  let unkeyedIndex = 0;
+  for (const s of sales) {
+    const key = orderKeyFromRawData(s.rawData);
+    const dedupeKey = key ?? `__unkeyed_${unkeyedIndex++}`;
+    if (seenOrderKeys.has(dedupeKey)) continue;
+    seenOrderKeys.add(dedupeKey);
+
+    const displayName = warehouseNameFromRawData(s.rawData);
+    const normKey = normLoose(displayName) || '—';
+    if (!byNorm.has(normKey)) byNorm.set(normKey, { name: displayName || 'غير محدد', orderCount: 0 });
+    byNorm.get(normKey).orderCount += 1;
+  }
+  return [...byNorm.values()].sort((a, b) => b.orderCount - a.orderCount);
+}

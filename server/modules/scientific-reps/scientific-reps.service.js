@@ -4,7 +4,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
-import { countDistinctOrders } from '../../lib/orderKey.js';
+import { countDistinctOrders, groupOrdersByWarehouse } from '../../lib/orderKey.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -1472,6 +1472,35 @@ export async function getReport(id, query = {}, viewerId = null) {
     hasMercato: mercatoRows.length > 0,
   } : null;
 
+  // ── نفس تفصيل مكتب/مذخر أعلاه لكن لكل مندوب تجاري على حدة، مع أسماء
+  // المذاخر وعدد طلبيات كل واحد منها — يُستهلك من زر «تفاصيل» بتبويب «حسب
+  // المندوب التجاري». يُبنى من officeOrderRows/mercatoOrderRows نفسها (تستثني
+  // صفوف الإرجاع دائماً، كـ orderCount أعلاه) مبوَّبة حسب معرّف المندوب.
+  const officeRowsByRepId  = new Map();
+  const mercatoRowsByRepId = new Map();
+  for (const row of officeOrderRows) {
+    const repId = row.representative?.id;
+    if (repId == null) continue;
+    if (!officeRowsByRepId.has(repId)) officeRowsByRepId.set(repId, []);
+    officeRowsByRepId.get(repId).push(row);
+  }
+  for (const row of mercatoOrderRows) {
+    const repId = row.representative?.id;
+    if (repId == null) continue;
+    if (!mercatoRowsByRepId.has(repId)) mercatoRowsByRepId.set(repId, []);
+    mercatoRowsByRepId.get(repId).push(row);
+  }
+  const byRepWithDetail = byRep.map(r => {
+    const officeRepRows  = officeRowsByRepId.get(r.repId)  ?? [];
+    const mercatoRepRows = mercatoRowsByRepId.get(r.repId) ?? [];
+    return {
+      ...r,
+      officeOrderCount:    countDistinctOrders(officeRepRows),
+      warehouseOrderCount: countDistinctOrders(mercatoRepRows),
+      warehouses:          groupOrdersByWarehouse(mercatoRepRows),
+    };
+  });
+
   return {
     scientificRep: { id: rep.id, name: displayName, isActive: rep.isActive },
     assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
@@ -1481,7 +1510,7 @@ export async function getReport(id, query = {}, viewerId = null) {
     summary: { totalQuantity: totals.totalQuantity, totalValue: totals.totalValue, orderCount },
     byArea,
     byItem,
-    byRep,
+    byRep: byRepWithDetail,
     bySource,
     _debug: {
       fileIds,
