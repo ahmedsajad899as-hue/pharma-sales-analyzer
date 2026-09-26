@@ -725,10 +725,10 @@ function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; 
 
 interface Rep extends GroupableRep { phone?: string | null }
 
-interface WarehouseBreakdown { name: string; orderCount: number; }
+interface WarehouseBreakdown { name: string; orderCount: number; value: number; }
 // ملخص صافي المبيع + طلبيات المكتب/المذخر + أسماء المذاخر لمندوب علمي واحد —
 // صف واحد من القائمة الثانوية «كل المندوبين العلميين».
-interface RepWarehouseSummary { id: number; name: string; netValue: number; officeOrderCount: number; warehouseOrderCount: number; warehouses: WarehouseBreakdown[]; }
+interface RepWarehouseSummary { id: number; name: string; netValue: number; officeOrderCount: number; officeValue: number; warehouseOrderCount: number; warehouses: WarehouseBreakdown[]; }
 interface BreakdownRow { name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; companyName?: string; }
 interface CommReport {
   repName: string;
@@ -2760,13 +2760,43 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const rowNames = ['مكتب', ...[...warehouseNames].sort()];
     const rows = rowNames.map(name => {
       const cells = data.map(r => name === 'مكتب' ? r.officeOrderCount : (r.warehouses.find(w => w.name === name)?.orderCount ?? 0));
+      const valueCells = data.map(r => name === 'مكتب' ? r.officeValue : (r.warehouses.find(w => w.name === name)?.value ?? 0));
       const total = cells.reduce((a, b) => a + b, 0);
-      return { name, cells, total };
+      const valueTotal = valueCells.reduce((a, b) => a + b, 0);
+      return { name, cells, total, valueTotal };
     }).filter(row => row.total > 0)
       .sort((a, b) => a.name === 'مكتب' ? -1 : b.name === 'مكتب' ? 1 : b.total - a.total);
     const colTotals = data.map((_, i) => rows.reduce((s, row) => s + row.cells[i], 0));
     const grandTotal = colTotals.reduce((a, b) => a + b, 0);
-    return { rows, colTotals, grandTotal };
+    const grandValueTotal = rows.reduce((s, row) => s + row.valueTotal, 0);
+    return { rows, colTotals, grandTotal, grandValueTotal };
+  };
+
+  // تصدير جدول «كل المندوبين العلميين» (بشكله الحالي — قائمة أو محوري) إلى إكسل.
+  const exportWarehouseSummaryToExcel = () => {
+    if (!allRepsWarehouseData || allRepsWarehouseData.length === 0) return;
+    const wb = XLSX.utils.book_new();
+    if (warehouseViewMode === 'pivot') {
+      const { rows, colTotals, grandTotal, grandValueTotal } = buildWarehousePivot(allRepsWarehouseData);
+      const header = ['اسم المذخر', ...allRepsWarehouseData.map(r => r.name), 'إجمالي الطلبيات', 'إجمالي صافي القيمة'];
+      const body = rows.map(row => [row.name, ...row.cells, row.total, +row.valueTotal.toFixed(2)]);
+      const footer = ['الإجمالي', ...colTotals, grandTotal, +grandValueTotal.toFixed(2)];
+      const aoa = [header, ...body, footer];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      styleSheet(ws, aoa, [24, ...allRepsWarehouseData.map(() => 15), 15, 18]);
+      XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('مذخر × مندوب'));
+    } else {
+      const header = ['#', 'المندوب العلمي', 'صافي المبيع', 'طلبيات المكتب', 'طلبيات المذخر', 'أسماء المذاخر'];
+      const body = allRepsWarehouseData.map((r, i) => [
+        i + 1, r.name, +r.netValue.toFixed(2), r.officeOrderCount, r.warehouseOrderCount,
+        r.warehouses.map(w => `${w.name} (${w.orderCount})`).join('، '),
+      ]);
+      const aoa = [header, ...body];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      styleSheet(ws, aoa, [5, 26, 16, 14, 14, 55]);
+      XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('كل المندوبين العلميين'));
+    }
+    XLSX.writeFile(wb, `مكتب-مذخر-المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   return (
@@ -4106,39 +4136,48 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       {/* ── كل المندوبين العلميين دفعة واحدة: صافي + مكتب/مذخر + أسماء المذاخر ── */}
       {showAllRepsWarehouseModal && (
         <div className="modal-overlay" onClick={() => setShowAllRepsWarehouseModal(false)}>
-          <div className="modal modal--wide" style={{ maxWidth: warehouseViewMode === 'pivot' ? '95vw' : 760 }} onClick={e => e.stopPropagation()}>
+          <div className="modal modal--wide" style={{ maxWidth: warehouseViewMode === 'pivot' ? '95vw' : 780 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="modal-title">كل المندوبين العلميين — مكتب / مذخر</h2>
               <button className="modal-close" onClick={() => setShowAllRepsWarehouseModal(false)}><Icon name="close" size={16} /></button>
             </div>
             <div style={{ padding: '14px 22px 22px' }}>
-              {/* تبديل شكل العرض: قائمة (صف لكل مندوب) أو جدول محوري بشكل الإكسل (صف لكل مذخر، عمود لكل مندوب) */}
-              <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-                <button onClick={() => setWarehouseViewMode('list')}
-                  style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${warehouseViewMode === 'list' ? '#1d4ed8' : '#d1d5db'}`, background: warehouseViewMode === 'list' ? '#eff6ff' : '#fff', color: warehouseViewMode === 'list' ? '#1d4ed8' : '#6b7280', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                ><Icon name="menu" size={12} /> قائمة</button>
-                <button onClick={() => setWarehouseViewMode('pivot')}
-                  style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${warehouseViewMode === 'pivot' ? '#1d4ed8' : '#d1d5db'}`, background: warehouseViewMode === 'pivot' ? '#eff6ff' : '#fff', color: warehouseViewMode === 'pivot' ? '#1d4ed8' : '#6b7280', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                ><Icon name="excel" size={12} /> جدول (مذخر × مندوب)</button>
+              {/* تبديل شكل العرض + تصدير */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => setWarehouseViewMode('list')}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${warehouseViewMode === 'list' ? '#64748b' : '#e2e8f0'}`, background: warehouseViewMode === 'list' ? '#f1f5f9' : '#fff', color: warehouseViewMode === 'list' ? '#334155' : '#94a3b8', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  ><Icon name="menu" size={12} /> قائمة</button>
+                  <button onClick={() => setWarehouseViewMode('pivot')}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${warehouseViewMode === 'pivot' ? '#64748b' : '#e2e8f0'}`, background: warehouseViewMode === 'pivot' ? '#f1f5f9' : '#fff', color: warehouseViewMode === 'pivot' ? '#334155' : '#94a3b8', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  ><Icon name="excel" size={12} /> جدول (مذخر × مندوب)</button>
+                </div>
+                {allRepsWarehouseData && allRepsWarehouseData.length > 0 && (
+                  <button onClick={exportWarehouseSummaryToExcel}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #a7d7c5', background: '#f0fbf6', color: '#0d6b4f', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  ><Icon name="export" size={12} /> تصدير Excel</button>
+                )}
               </div>
 
               {allRepsWarehouseLoading ? (
-                <div style={{ textAlign: 'center', padding: '50px 0', color: '#6b7280', fontSize: 13 }}>
+                <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>
                   <Icon name="loading" size={20} className="icon-spin" /><div style={{ marginTop: 8 }}>جاري التحميل...</div>
                 </div>
               ) : !allRepsWarehouseData || allRepsWarehouseData.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا يوجد مندوبون علميون بيانات</div>
               ) : warehouseViewMode === 'list' ? (
-                <div style={{ maxHeight: '65vh', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+                <div style={{ maxHeight: '65vh', overflowY: 'auto', border: '1px solid #e5e9ef', borderRadius: 12 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
                       <tr>
-                        <th style={{ padding: '9px 10px', background: '#1e40af', color: '#fff', textAlign: 'center', width: 34, position: 'sticky', top: 0, zIndex: 1 }}>#</th>
-                        <th style={{ padding: '9px 10px', background: '#1e40af', color: '#fff', textAlign: 'right', position: 'sticky', top: 0, zIndex: 1 }}>المندوب العلمي</th>
-                        <th style={{ padding: '9px 10px', background: '#1e40af', color: '#fff', textAlign: 'center', position: 'sticky', top: 0, zIndex: 1 }}>صافي المبيع</th>
-                        <th style={{ padding: '9px 10px', background: '#1e40af', color: '#fff', textAlign: 'center', position: 'sticky', top: 0, zIndex: 1 }}>طلبيات المكتب</th>
-                        <th style={{ padding: '9px 10px', background: '#1e40af', color: '#fff', textAlign: 'center', position: 'sticky', top: 0, zIndex: 1 }}>طلبيات المذخر</th>
-                        <th style={{ padding: '9px 10px', background: '#1e40af', color: '#fff', textAlign: 'center', width: 30, position: 'sticky', top: 0, zIndex: 1 }}></th>
+                        {['#', 'المندوب العلمي', 'صافي المبيع', 'طلبيات المكتب', 'طلبيات المذخر', ''].map((h, hi) => (
+                          <th key={hi} style={{
+                            padding: '10px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc',
+                            textAlign: hi === 1 ? 'right' : 'center', fontWeight: 700, letterSpacing: '.2px',
+                            width: hi === 0 ? 34 : hi === 5 ? 30 : undefined,
+                            position: 'sticky', top: 0, zIndex: 1,
+                          }}>{h}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
@@ -4148,14 +4187,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           <Fragment key={r.id}>
                             <tr
                               onClick={() => setExpandedWarehouseRepId(isExpanded ? null : r.id)}
-                              style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb', cursor: 'pointer', borderBottom: isExpanded ? 'none' : '1px solid #f1f5f9' }}
+                              style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', cursor: 'pointer', borderBottom: isExpanded ? 'none' : '1px solid #f1f5f9' }}
                             >
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8' }}>{i + 1}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#1e293b' }}>{r.name}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: r.netValue >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(r.netValue)}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600 }}>{fmt(r.officeOrderCount)}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#1d4ed8', fontWeight: 600 }}>{fmt(r.warehouseOrderCount)}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8', fontSize: 11 }}>{isExpanded ? '▲' : '▼'}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#b0b8c4' }}>{i + 1}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#334155' }}>{r.name}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: r.netValue >= 0 ? '#0d9488' : '#c2410c' }}>{fmtValSigned(r.netValue)}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#3b6fd6', fontWeight: 600 }}>{fmt(r.officeOrderCount)}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#3b6fd6', fontWeight: 600 }}>{fmt(r.warehouseOrderCount)}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#b0b8c4', fontSize: 11 }}>{isExpanded ? '▲' : '▼'}</td>
                             </tr>
                             {isExpanded && (
                               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -4165,9 +4204,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                                   ) : (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                                       {r.warehouses.map((w, wi) => (
-                                        <span key={wi} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '4px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                          <strong style={{ color: '#1e293b' }}>{w.name}</strong>
-                                          <span style={{ color: '#1d4ed8', fontWeight: 800 }}>{fmt(w.orderCount)}</span>
+                                        <span key={wi} style={{ background: '#eef2f9', border: '1px solid #dce3ee', borderRadius: 6, padding: '4px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                          <strong style={{ color: '#334155' }}>{w.name}</strong>
+                                          <span style={{ color: '#3b6fd6', fontWeight: 800 }}>{fmt(w.orderCount)}</span>
+                                          <span style={{ color: '#0d9488', fontWeight: 700 }}>{fmtValSigned(w.value)}</span>
                                         </span>
                                       ))}
                                     </div>
@@ -4182,45 +4222,51 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   </table>
                 </div>
               ) : (() => {
-                const { rows, colTotals, grandTotal } = buildWarehousePivot(allRepsWarehouseData);
+                const { rows, colTotals, grandTotal, grandValueTotal } = buildWarehousePivot(allRepsWarehouseData);
                 if (rows.length === 0) {
                   return <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا توجد طلبيات لعرضها</div>;
                 }
-                const pivotTh: React.CSSProperties = { padding: '8px 10px', background: '#1e40af', color: '#fff', textAlign: 'center', position: 'sticky', top: 0, zIndex: 2, whiteSpace: 'nowrap' };
+                const pivotTh: React.CSSProperties = { padding: '9px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', top: 0, zIndex: 2, whiteSpace: 'nowrap' };
                 const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap' };
                 return (
-                  <div style={{ maxHeight: '70vh', overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+                  <div style={{ maxHeight: '70vh', overflow: 'auto', border: '1px solid #e5e9ef', borderRadius: 12 }}>
                     <table style={{ borderCollapse: 'collapse', fontSize: 12.5 }}>
                       <thead>
                         <tr>
                           <th style={{ ...pivotTh, textAlign: 'right', position: 'sticky', top: 0, right: 0, zIndex: 3 }}>اسم المذخر</th>
                           {allRepsWarehouseData.map(r => (
-                            <th key={r.id} style={pivotTh}>{r.name}</th>
+                            <th key={r.id} style={pivotTh}>
+                              <div>{r.name}</div>
+                              <div style={{ fontSize: 10.5, fontWeight: 600, marginTop: 2, color: r.netValue >= 0 ? '#a7f3d0' : '#fecaca' }}>{fmtValSigned(r.netValue)}</div>
+                            </th>
                           ))}
-                          <th style={{ ...pivotTh, background: '#111827' }}>الإجمالي</th>
+                          <th style={{ ...pivotTh, background: '#334155' }}>الإجمالي<br />(طلبيات)</th>
+                          <th style={{ ...pivotTh, background: '#334155' }}>الإجمالي<br />(صافي القيمة)</th>
                         </tr>
                       </thead>
                       <tbody>
                         {rows.map((row, ri) => (
-                          <tr key={row.name} style={{ background: ri % 2 === 0 ? '#fff' : '#f9fafb', borderBottom: '1px solid #f1f5f9' }}>
+                          <tr key={row.name} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{
                               ...pivotTd, textAlign: 'right', fontWeight: 700,
-                              color: row.name === 'مكتب' ? '#b45309' : '#1e293b',
+                              color: row.name === 'مكتب' ? '#b45309' : '#334155',
                               position: 'sticky', right: 0, zIndex: 1,
-                              background: ri % 2 === 0 ? '#fff' : '#f9fafb',
+                              background: ri % 2 === 0 ? '#fff' : '#f8fafc',
                             }}>{row.name}</td>
                             {row.cells.map((c, ci) => (
-                              <td key={ci} style={{ ...pivotTd, color: c > 0 ? '#1d4ed8' : '#d1d5db', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? fmt(c) : '—'}</td>
+                              <td key={ci} style={{ ...pivotTd, color: c > 0 ? '#3b6fd6' : '#d8dee6', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? fmt(c) : '—'}</td>
                             ))}
-                            <td style={{ ...pivotTd, fontWeight: 800, color: '#065f46', background: '#f0fdf4' }}>{fmt(row.total)}</td>
+                            <td style={{ ...pivotTd, fontWeight: 800, color: '#0d6b4f', background: '#eefaf4' }}>{fmt(row.total)}</td>
+                            <td style={{ ...pivotTd, fontWeight: 800, color: '#92400e', background: '#fdf6e8' }}>{fmtValSigned(row.valueTotal)}</td>
                           </tr>
                         ))}
-                        <tr style={{ background: '#111827' }}>
-                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, color: '#fff', position: 'sticky', right: 0, background: '#111827' }}>الإجمالي</td>
+                        <tr style={{ background: '#334155' }}>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, color: '#fff', position: 'sticky', right: 0, background: '#334155' }}>الإجمالي</td>
                           {colTotals.map((c, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, color: '#fff' }}>{fmt(c)}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, color: '#e2e8f0' }}>{fmt(c)}</td>
                           ))}
-                          <td style={{ ...pivotTd, fontWeight: 900, color: '#fff', background: '#065f46' }}>{fmt(grandTotal)}</td>
+                          <td style={{ ...pivotTd, fontWeight: 900, color: '#fff', background: '#0d6b4f' }}>{fmt(grandTotal)}</td>
+                          <td style={{ ...pivotTd, fontWeight: 900, color: '#fff', background: '#8a5a12' }}>{fmtValSigned(grandValueTotal)}</td>
                         </tr>
                       </tbody>
                     </table>

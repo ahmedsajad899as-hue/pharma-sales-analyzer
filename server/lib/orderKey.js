@@ -67,24 +67,40 @@ export function warehouseNameFromRawData(rawData) {
 
 /**
  * يجمّع صفوف Sale حسب المذخر الذي مرّت عبره الطلبية، ويُرجع عدد الطلبيات
- * الفعلي (لا عدد الأسطر) لكل مذخر — نفس منطق countDistinctOrders، لكن
- * مبوَّباً باسم المذخر (مطبَّعاً للتجميع، مع إبقاء أول تهجئة خام وُجدت
- * للعرض). صف بلا رقم طلبية يُحتسب طلبية منفردة (كـ countDistinctOrders).
+ * الفعلي (لا عدد الأسطر) وصافي القيمة لكل مذخر.
+ *
+ * عدد الطلبيات يُحسب من orderRows حصراً (نفس منطق countDistinctOrders —
+ * صفوف نفس الطلبية «عدة أصناف» تُحسب كطلبية واحدة، وصف بلا رقم طلبية
+ * يُحتسب طلبية منفردة) — orderRows يُفترض أن تستثني صفوف الإرجاع (لا
+ * "طلبية جديدة"). القيمة تُحسب من valueRows بشكل منفصل (كل الصفوف تُجمع
+ * بلا استبعاد تكرار — القيمة لا تُضخَّم بتكرار السطر، كل سطر صنف مساهمته
+ * الفعلية)، وتُمرَّر مُطبَّعة مسبقاً بإشارة موجبة/سالبة (مبيع/إرجاع) عبر
+ * حقل value على كل صف — هكذا يبقى الناتج صافياً حين تحوي valueRows صفوف
+ * إرجاع أيضاً. القيمتان تُبوَّبان باسم المذخر نفسه (نفس normLoose) كي لا
+ * يفترق التبويبان عن بعض.
  */
-export function groupOrdersByWarehouse(sales) {
+export function groupOrdersByWarehouse(orderRows, valueRows = orderRows) {
+  const byNorm = new Map(); // normalized warehouse -> { name, orderCount, value }
+  const bucket = (rawData) => {
+    const displayName = warehouseNameFromRawData(rawData);
+    const normKey = normLoose(displayName) || '—';
+    if (!byNorm.has(normKey)) byNorm.set(normKey, { name: displayName || 'غير محدد', orderCount: 0, value: 0 });
+    return byNorm.get(normKey);
+  };
+
   const seenOrderKeys = new Set();
-  const byNorm = new Map(); // normalized warehouse -> { name, orderCount }
   let unkeyedIndex = 0;
-  for (const s of sales) {
+  for (const s of orderRows) {
     const key = orderKeyFromRawData(s.rawData);
     const dedupeKey = key ?? `__unkeyed_${unkeyedIndex++}`;
     if (seenOrderKeys.has(dedupeKey)) continue;
     seenOrderKeys.add(dedupeKey);
-
-    const displayName = warehouseNameFromRawData(s.rawData);
-    const normKey = normLoose(displayName) || '—';
-    if (!byNorm.has(normKey)) byNorm.set(normKey, { name: displayName || 'غير محدد', orderCount: 0 });
-    byNorm.get(normKey).orderCount += 1;
+    bucket(s.rawData).orderCount += 1;
   }
+
+  for (const s of valueRows) {
+    bucket(s.rawData).value += Number(s.value) || 0;
+  }
+
   return [...byNorm.values()].sort((a, b) => b.orderCount - a.orderCount);
 }

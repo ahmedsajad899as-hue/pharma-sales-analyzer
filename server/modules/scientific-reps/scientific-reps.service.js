@@ -1,5 +1,5 @@
 import * as repo from './scientific-reps.repository.js';
-import { findOrCreateArea, findOrCreateItem, aggregateSalesWithReps, getSalesForScientificRep, getReturnsForSciRepScope, normalizeArabic } from '../sales/sales.repository.js';
+import { findOrCreateArea, findOrCreateItem, aggregateSalesWithReps, getSalesForScientificRep, getReturnsForSciRepScope, normalizeArabic, saleValueUSD } from '../sales/sales.repository.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
@@ -1472,11 +1472,16 @@ export async function getReport(id, query = {}, viewerId = null) {
     hasMercato: mercatoRows.length > 0,
   } : null;
 
-  // أسماء المذاخر (مكتب لا يملك مذاخر أصلاً) وعدد طلبيات كل واحد منها، على
+  // أسماء المذاخر (مكتب لا يملك مذاخر أصلاً) وعدد طلبياتها وصافي قيمتها، على
   // مستوى المندوب العلمي كاملاً (كل مناديبه التجاريين معاً) — يُستهلك من
-  // القائمة الثانوية «كل المندوبين العلميين». من mercatoOrderRows نفسها
-  // (تستثني صفوف الإرجاع دائماً، كـ bySource.mercato.orderCount أعلاه).
-  const warehouses = groupOrdersByWarehouse(mercatoOrderRows);
+  // القائمة الثانوية «كل المندوبين العلميين». عدد الطلبيات من mercatoOrderRows
+  // (تستثني الإرجاع، كـ bySource.mercato.orderCount أعلاه)، والقيمة من
+  // mercatoRows (مبيع + إرجاع بإشارة معكوسة، كـ bySource.mercato.totalValue
+  // أعلاه) فتبقى صافية لا مبيع خام.
+  const warehouses = groupOrdersByWarehouse(
+    mercatoOrderRows,
+    mercatoRows.map(s => ({ rawData: s.rawData, value: saleValueUSD(s) })),
+  );
 
   return {
     scientificRep: { id: rep.id, name: displayName, isActive: rep.isActive },
@@ -1523,11 +1528,12 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
         name: r.scientificRep.name,
         netValue: r.summary.totalValue,
         officeOrderCount: r.bySource?.office.orderCount ?? 0,
+        officeValue: r.bySource?.office.totalValue ?? 0,
         warehouseOrderCount: r.bySource?.mercato.orderCount ?? 0,
         warehouses: r.warehouses ?? [],
       };
     } catch {
-      return { id, name: `#${id}`, netValue: 0, officeOrderCount: 0, warehouseOrderCount: 0, warehouses: [] };
+      return { id, name: `#${id}`, netValue: 0, officeOrderCount: 0, officeValue: 0, warehouseOrderCount: 0, warehouses: [] };
     }
   }));
   return results.sort((a, b) => b.netValue - a.netValue);
