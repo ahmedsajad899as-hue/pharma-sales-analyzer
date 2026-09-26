@@ -68,6 +68,7 @@ import stockLedgerRoutes         from './modules/stock-ledger/stock-ledger.route
 import { removeBaselineForDeletedStockFile } from './modules/stock-ledger/stock-ledger.service.js';
 import telegramRoutes            from './modules/telegram/telegram.routes.js';
 import telegramLinksRoutes       from './modules/telegram/telegram-links.routes.js';
+import engagementRoutes          from './modules/engagement/engagement.routes.js';
 
 dotenv.config();
 
@@ -1209,6 +1210,7 @@ app.use('/api/targets',           targetsRoutes);
 app.use('/api/bonus-sales',       bonusSalesRoutes);
 app.use('/api/stock-ledger',      stockLedgerRoutes);
 app.use('/api/telegram',          telegramRoutes);
+app.use('/api/engagement',        engagementRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────

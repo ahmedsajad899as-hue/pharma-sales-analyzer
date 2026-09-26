@@ -45,6 +45,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'commercial',        labelAr: 'التجاري',                    icon: '💰', roles: ['commercial_rep','commercial_team_leader','commercial_supervisor','office_manager','admin','manager','office_employee','office_hr'] },
   { id: 'org-structure',     labelAr: 'الهيكلية',                   icon: '🏗️', roles: ['company_manager','admin','manager','office_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader','office_employee','office_hr'] },
   { id: 'aqdar-export',      labelAr: 'أقدر',                       icon: '📤', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','office_employee','office_hr'] },
+  { id: 'team-engagement',   labelAr: 'نشاط الفريق',                icon: '📈', roles: ['office_manager'] },
 ];
 
 // مفتاح ميزة ← يخفي هذا المفتاح صفحة كاملة عند تعطيله (يمكن لعدة مفاتيح أن تشير لنفس الصفحة)
@@ -69,6 +70,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   commercial_page:    'commercial',
   org_structure:      'org-structure',
   aqdar_export:       'aqdar-export',
+  team_engagement:    'team-engagement',
 };
 
 // وصف كل صفحة يظهر للأدمن في شاشة المميزات
@@ -93,6 +95,7 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'commercial':        'صفحة التجاري — متابعة مبيعات وزيارات المندوبين التجاريين',
   'org-structure':     'صفحة الهيكلية — عرض الهيكل التنظيمي للمكتب/الشركة',
   'aqdar-export':      'صفحة أقدر — تحويل ملف البلان الشهري (طبيب/تخصص/كلاس/صيدلية/منطقة/ايتم) إلى ملف Excel بصيغة أقدر (task-type, rep-name, rep-id, client-id, schedule, note)',
+  'team-engagement':   'صفحة نشاط الفريق — متابعة مدى استخدام مدير الشركة والموارد البشرية وموظفي المكتب للتطبيق (مدير المكتب فقط)',
 };
 
 // ── مجموعات أدوار يُعاد استخدامها في تقييد ميزات فرعية معيّنة ──────────────

@@ -10,7 +10,7 @@ import {
   Phone, RefreshCw, History, Banknote, Tag, Hash, FileText, Calendar,
   Scale, FileSpreadsheet, Target, Eye, Mic, Folder, Home, Crown, Shield,
   Rocket, Monitor, Ban, Repeat, Mail, ThumbsUp, ThumbsDown, DoorOpen,
-  Plane, HelpCircle, Menu, MoreHorizontal, PackageMinus,
+  Plane, HelpCircle, Menu, MoreHorizontal, PackageMinus, Activity,
 } from 'lucide-react';
 
 /**
@@ -40,6 +40,7 @@ export const ICONS = {
   navCommercial: Wallet,
   navOrgStructure: Building2,
   navAqdarExport: Send,
+  navTeamEngagement: Activity,
 
   // شيل عام
   chevronLeft: ChevronLeft,
@@ -136,6 +137,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'commercial': 'navCommercial',
   'org-structure': 'navOrgStructure',
   'aqdar-export': 'navAqdarExport',
+  'team-engagement': 'navTeamEngagement',
 };
 
 interface IconProps {

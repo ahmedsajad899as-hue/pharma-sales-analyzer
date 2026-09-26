@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage';
 import { Icon } from './config/icons';
 import { getPageHeader, getPageHeaderIcon } from './config/pageHeaders';
 import { NAV_ITEMS } from './config/featureConfig';
+import { sendEngagementPing } from './lib/engagementPing';
 import './App.css';
 
 // Lazy-load heavy pages — each becomes its own JS chunk loaded on first visit
@@ -48,6 +49,7 @@ const _importBonusSales          = () => import('./pages/BonusSalesPage');
 const _importOrgStructure        = () => import('./pages/OrgStructurePage');
 const _importAccountBuilder      = () => import('./pages/AccountBuilderPage');
 const _importAqdarExport         = () => import('./pages/AqdarExportPage');
+const _importTeamEngagement      = () => import('./pages/TeamEngagementPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -73,6 +75,7 @@ const BonusSalesPage          = lazyWithRetry(_importBonusSales);
 const OrgStructurePage        = lazyWithRetry(_importOrgStructure);
 const AccountBuilderPage      = lazyWithRetry(_importAccountBuilder);
 const AqdarExportPage         = lazyWithRetry(_importAqdarExport);
+const TeamEngagementPage      = lazyWithRetry(_importTeamEngagement);
 
 // Minimal spinner shown while a page chunk is loading
 function PageLoader() {
@@ -115,7 +118,8 @@ export type PageId =
   | 'item-analysis'
   | 'bonus-sales'
   | 'account-builder'
-  | 'aqdar-export';
+  | 'aqdar-export'
+  | 'team-engagement';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -249,6 +253,14 @@ function AppInner() {
   });
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
   const [showAI, setShowAI]               = useState(() => localStorage.getItem('showAIAssistant') !== 'false');
+
+  // إشارة "فتح تطبيق" مرة واحدة فقط لكل جلسة تبويب — راجع src/lib/engagementPing.ts
+  useEffect(() => {
+    if (!user) return;
+    if (sessionStorage.getItem('engagement_pinged_session') === '1') return;
+    sessionStorage.setItem('engagement_pinged_session', '1');
+    sendEngagementPing('app_open');
+  }, [user?.id]);
   // تفعيل الملفات يُحفظ لكل مستخدم على حدة (وليس بمفتاح واحد مشترك)، ويبقى كما
   // هو عبر الريفرش أو تسجيل الخروج/الدخول لنفس الحساب، إلى أن يغيّره المستخدم بنفسه.
   const [activeFileIds, setActiveFileIds] = useState<number[]>(() => {
@@ -414,6 +426,7 @@ function AppInner() {
       _importRepAnalysis, _importCommercial, _importSurvey, _importFMS, _importSalesData,
       _importDistributorSales, _importFileFilter, _importPharmacyAnalysis, _importItemAnalysis,
       _importBonusSales, _importOrgStructure, _importAccountBuilder, _importAqdarExport,
+      _importTeamEngagement,
     ];
 
     // على شبكة بطيئة أو وضع توفير البيانات، سحب ~6MB من الشيفرة مقدّماً يضرّ أكثر
@@ -444,6 +457,7 @@ function AppInner() {
     // Pushing same-page entries creates orphan entries that cause false exit triggers.
     if (page !== activePageRef.current) {
       history.pushState({ page, navEntry: true }, '');
+      sendEngagementPing('page_view', page);
     }
     setActivePage(page);
     // Keep-alive with an LRU cap so recently-used pages stay instant to return to
@@ -499,6 +513,7 @@ function AppInner() {
     { id: 'org-structure',      node: <OrgStructurePage /> },
     { id: 'account-builder',    node: <AccountBuilderPage /> },
     { id: 'aqdar-export',       node: <AqdarExportPage /> },
+    { id: 'team-engagement',    node: <TeamEngagementPage /> },
   ];
 
   return (
