@@ -891,6 +891,18 @@ model BlockedCustomerInfoItem {
   @@map("blocked_customer_info_items")
 }
 
+// علامة تنفيذ مرة واحدة لدوال backfill عند إقلاع الخادم (server/lib/backfill*.js)
+// — بديل عن مسح جدول كبير (مثل Sale) بحثاً عن صفوف «لم تُعالَج بعد» عند كل
+// إقلاع، حين يبقى شرط «لم تُعالَج» صحيحاً للأبد لصفوف لا تملك العمود المطلوب
+// أصلاً (لا فقط لصفوف انتظرت المعالجة). كل backfill يتحقق من مفتاحه هنا أولاً
+// فيتحول تشغيله بعد أول مرة إلى استعلام واحد بسيط بلا مسح فعلي.
+model MigrationFlag {
+  key    String   @id
+  doneAt DateTime @default(now())
+
+  @@map("migration_flags")
+}
+
 // ─── Doctor Survey (السيرفي) ──────────────────────────────────
 model Doctor {
   id           Int      @id @default(autoincrement())

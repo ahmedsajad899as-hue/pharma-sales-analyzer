@@ -13,6 +13,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from './lib/prisma.js';
 import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
+import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -4787,6 +4788,10 @@ if (process.env.VERCEL) {
     backfillSalesDataFileOfficeSync()
       .then(n => { if (n) console.log(`✓ تم تعميم ${n} ملف Stock على زملاء المكتب (backfill)`); })
       .catch(e => console.error('[backfillSalesDataFileOfficeSync]', e.message));
+    // معلومات الزبون للملفات المرفوعة قبل ميزة الحجب بهذا الحقل — idempotent (MigrationFlag)
+    backfillCustomerInfoNorm()
+      .then(n => { if (n) console.log(`✓ تم تعبئة معلومات الزبون لـ ${n} صف مبيعات قديم (backfill)`); })
+      .catch(e => console.error('[backfillCustomerInfoNorm]', e.message));
     // محافظات العراق الـ18 — idempotent، لا يلمس أي تسمية عدّلها المدير
     startPharmacyAlertScheduler();
     seedProvinces(prisma)
