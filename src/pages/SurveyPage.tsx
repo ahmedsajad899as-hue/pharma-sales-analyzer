@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { Icon } from '../config/icons';
+import { sendEngagementPing } from '../lib/engagementPing';
 
 // ── Types ────────────────────────────────────────────────────
 interface Survey {
@@ -115,6 +116,7 @@ export default function SurveyPage() {
 
   // ── Fetch drug entries ──
   const loadDrugEntries = useCallback(async (id: number, search = '', page = 1) => {
+    sendEngagementPing(search ? 'search' : 'calculate', 'master-survey');
     setDrugEntriesLoading(true);
     try {
       const qs = new URLSearchParams({ page: String(page), limit: '100' });
@@ -160,6 +162,7 @@ export default function SurveyPage() {
   const repParam = selectedRepId ? `?repId=${selectedRepId}` : '';
 
   const openSurvey = async (id: number) => {
+    sendEngagementPing('calculate', 'master-survey');
     const r = await fetch(`/api/master-surveys/${id}${repParam}`, { headers: H() });
     const d = await r.json();
     if (d.success) {
@@ -181,6 +184,7 @@ export default function SurveyPage() {
   const handleRepChange = async (repId: number | null) => {
     setSelectedRepId(repId);
     if (!selectedSurvey) return;
+    sendEngagementPing('calculate', 'master-survey');
     const param = repId ? `?repId=${repId}` : '';
     const r = await fetch(`/api/master-surveys/${selectedSurvey.id}${param}`, { headers: H() });
     const d = await r.json();

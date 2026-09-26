@@ -1,5 +1,4 @@
 import prisma from '../../lib/prisma.js';
-import { logActivity } from '../../lib/activityLogger.js';
 
 const PING_TYPES = new Set(['app_open', 'page_view', 'heartbeat', 'search', 'calculate']);
 // سقف دفاعي على الخادم لثواني كل نبضة — يطابق MAX_TICK_SECONDS في
@@ -8,7 +7,11 @@ const MAX_HEARTBEAT_SECONDS = 90;
 const OFFICE_ENGAGEMENT_ROLES = ['company_manager', 'office_hr', 'office_employee'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const dayKey = (d) => new Date(d).toISOString().slice(0, 10);
+// المستخدمون في العراق (UTC+3، بلا توقيت صيفي) — "اليوم" في التقرير يجب أن يطابق
+// يومهم المحلي لا يوم UTC الخام، وإلا فروق التوقيت قرب منتصف الليل تُظهر نشاط
+// اليوم على أنه أمس أو العكس.
+const BAGHDAD_OFFSET_MS = 3 * 60 * 60 * 1000;
+const dayKey = (d) => new Date(new Date(d).getTime() + BAGHDAD_OFFSET_MS).toISOString().slice(0, 10);
 
 // ── POST /api/engagement/ping ───────────────────────────────────
 // Lightweight explicit signal from the frontend: real "app opened" / "page
@@ -17,6 +20,7 @@ const dayKey = (d) => new Date(d).toISOString().slice(0, 10);
 export async function pingActivity(req, res) {
   const { type, page, seconds } = req.body || {};
   if (!PING_TYPES.has(type)) return res.status(400).json({ error: 'نوع غير صالح' });
+  if (!req.user?.id) return res.status(401).json({ error: 'غير مصرح' });
 
   let details = null;
   if (type === 'heartbeat') {
@@ -25,7 +29,17 @@ export async function pingActivity(req, res) {
   }
 
   req._skipActivity = true; // avoid a duplicate generic "POST /api/engagement/ping" row
-  await logActivity({ userId: req.user.id, action: type, module: page || 'app', details, req });
+  // نكتب مباشرة عبر prisma بدل logActivity() هنا تحديداً: تلك الدالة تبتلع أي
+  // خطأ كتابة صامتاً بتصميمها (كي لا تُسقط الطلبات الأصلية)، فلو فشلت الكتابة
+  // لسبب ما لن يظهر أي أثر لا عند العميل ولا في سجلات الخادم — وهذا بالذبط ما
+  // يمنع تشخيص مشكلة "الأرقام لا تتحرك". هنا نسجّل الخطأ صراحة عند فشله.
+  try {
+    await prisma.activityLog.create({
+      data: { userId: req.user.id, action: type, module: page || 'app', details },
+    });
+  } catch (err) {
+    console.error('[engagement/ping] write failed:', err?.message || err);
+  }
   res.json({ success: true });
 }
 

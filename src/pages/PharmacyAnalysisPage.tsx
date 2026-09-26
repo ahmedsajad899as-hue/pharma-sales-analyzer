@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePharmacyNetFiles } from '../hooks/usePharmacyNetFiles';
 import * as XLSX from 'xlsx';
 import { Icon } from '../config/icons';
+import { sendEngagementPing } from '../lib/engagementPing';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -238,6 +239,7 @@ export default function PharmacyAnalysisPage() {
 
   const loadPharmacies = useCallback((search = pharmaSearch) => {
     if (selFiles.size === 0) { setPharmacies([]); setPharmaLoading(false); return; }
+    sendEngagementPing(search ? 'search' : 'calculate', 'pharmacy-analysis');
     setPharmaLoading(true);
     const q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '') + rosterFilterQuery;
     fetch(`${API}/api/pharmacy-analysis/pharmacies${q}`, { headers })
@@ -257,6 +259,7 @@ export default function PharmacyAnalysisPage() {
 
   const loadItems = useCallback((search = itemSearch) => {
     if (selFiles.size === 0) { setItems([]); setItemsLoading(false); return; }
+    sendEngagementPing(search ? 'search' : 'calculate', 'pharmacy-analysis');
     setItemsLoading(true);
     const q = fileQuery + (search ? `&search=${encodeURIComponent(search)}` : '') + rosterFilterQuery;
     fetch(`${API}/api/pharmacy-analysis/items${q}`, { headers })
@@ -310,6 +313,7 @@ export default function PharmacyAnalysisPage() {
 
   const loadAlerts = useCallback(() => {
     if (selFiles.size === 0) { setAlerts([]); setAlertsLoading(false); return; }
+    sendEngagementPing('calculate', 'pharmacy-analysis');
     setAlertsLoading(true);
     fetch(`${API}/api/pharmacy-analysis/alerts${fileQuery}&days=${alertDays}${rosterFilterQuery}`, { headers })
       .then(r => r.json()).then(d => setAlerts(d.alerts || [])).catch(() => {}).finally(() => setAlertsLoading(false));

@@ -6,6 +6,7 @@ import { useLanguage } from '../context/LanguageContext';
 import type { PageId } from '../App';
 import { Icon } from '../config/icons';
 import RepSelectOptions, { type GroupableRep } from '../components/RepSelectOptions';
+import { sendEngagementPing } from '../lib/engagementPing';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
    drop tatweel/diacritics, strip the definite article «ال», and collapse separators
@@ -2911,7 +2912,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
           {/* Generate button */}
           <button
-            onClick={() => mode === 'commercial' ? loadCommReport() : mode === 'scientific' ? loadSciReport() : loadOverallReport()}
+            onClick={() => { sendEngagementPing('calculate', 'rep-analysis'); mode === 'commercial' ? loadCommReport() : mode === 'scientific' ? loadSciReport() : loadOverallReport(); }}
             disabled={loading}
             style={{
               padding: '7px 18px', border: '1px solid #374151', borderRadius: 6, flexShrink: 0,

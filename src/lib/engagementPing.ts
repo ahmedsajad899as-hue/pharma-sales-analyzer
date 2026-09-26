@@ -13,8 +13,19 @@ export function sendEngagementPing(type: PingType, page?: string, seconds?: numb
       keepalive: true,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ type, page, seconds }),
-    }).catch(() => {});
+    })
+      .then(r => { if (!r.ok) console.warn('[engagement] ping rejected', type, r.status); })
+      .catch(() => {});
   } catch {
     // تجاهل أي بيئة لا تدعم storage/fetch
   }
+}
+
+// نبضة "بحث باسم" مؤجَّلة — بعض صناديق البحث (SmartSearch) تُصفّي محلياً بلا
+// أي طلب للسيرفر، فنؤخّر النبضة كي لا نُسجّل حركة واحدة لكل ضغطة حرف أثناء الكتابة.
+const searchDebounceTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
+export function sendSearchPingDebounced(page: string, key: string = page) {
+  clearTimeout(searchDebounceTimers[key]);
+  searchDebounceTimers[key] = setTimeout(() => sendEngagementPing('search', page), 500);
 }

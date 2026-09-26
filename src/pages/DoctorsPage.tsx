@@ -3,6 +3,7 @@ import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import DoctorVisitsImportModal from '../components/DoctorVisitsImportModal';
 import { Icon } from '../config/icons';
+import { sendEngagementPing, sendSearchPingDebounced } from '../lib/engagementPing';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -668,6 +669,7 @@ export default function DoctorsPage() {
   }, [token]);
 
   const loadVisits = useCallback(async (forceRefresh = false) => {
+    sendEngagementPing('calculate', 'doctors');
     // Cancel any previous in-flight request
     if (visitFetchAbortRef.current) visitFetchAbortRef.current.abort();
     const ctrl = new AbortController();
@@ -986,6 +988,7 @@ export default function DoctorsPage() {
   }, [pharmComparePopup?.exact?.name]);
 
   const loadPharmVisits = useCallback(async (forceRefresh = false) => {
+    sendEngagementPing('calculate', 'doctors');
     // Cancel any previous in-flight request
     if (pharmVisitFetchAbortRef.current) pharmVisitFetchAbortRef.current.abort();
     const ctrl = new AbortController();
@@ -1727,7 +1730,7 @@ export default function DoctorsPage() {
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <SmartSearch
           value={search}
-          onChange={setSearch}
+          onChange={v => { setSearch(v); sendSearchPingDebounced('doctors', 'doctors-name'); }}
           placeholder="🔍 بحث..."
           suggestions={doctorNameSuggestions}
           style={{ maxWidth: 260, minWidth: 180 }}
@@ -2394,7 +2397,7 @@ export default function DoctorsPage() {
           <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
             <SmartSearch
               value={visitSearch}
-              onChange={setVisitSearch}
+              onChange={v => { setVisitSearch(v); sendSearchPingDebounced('doctors', 'doctors-visit'); }}
               placeholder="بحث..."
               suggestions={visitAreas.flatMap(a => a.doctors.map((d: any) => d.name))}
               style={{ maxWidth: 260, minWidth: 180 }}
@@ -3111,7 +3114,7 @@ export default function DoctorsPage() {
               <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
                 <SmartSearch
                   value={pharmSearch}
-                  onChange={setPharmSearch}
+                  onChange={v => { setPharmSearch(v); sendSearchPingDebounced('doctors', 'doctors-pharm'); }}
                   placeholder="بحث..."
                   suggestions={pharmVisitAreas.flatMap(a => a.pharmacies.map((p: any) => p.name))}
                   style={{ maxWidth: 260, minWidth: 180 }}
