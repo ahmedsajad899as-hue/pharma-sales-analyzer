@@ -1329,14 +1329,23 @@ app.get('/api/customers', async (req, res) => {
   }
 });
 
+// صفوف Sale المملوكة للمستخدم مباشرة، أو التابعة لملف شارَكه معه مالكه
+// (FileUserShare) — ملفات المكتب تُعمَّم هكذا وSale.userId يبقى لرافع الملف
+// الأصلي، فشرط userId الخام وحده يُخفي بيانات الملفات المُشارَكة تماماً (نفس
+// الفخّ الموثَّق في fileScope.js، هنا كشرط Sale مباشر بلا حاجة لمعرّفات ملفات
+// صريحة من الواجهة).
+function saleOwnedOrSharedWith(userId) {
+  return userId ? { OR: [{ userId }, { uploadedFile: { fileShares: { some: { userId } } } }] } : {};
+}
+
 // GET /api/customer-info-values — قيم عمود «معلومات الزبون» الفريدة (بعد التطبيع)
-// من ملفات هذا المستخدم — تُستعمل فقط كاقتراحات إكمال تلقائي في تبويب حجب
-// «معلومات الزبون» بلوحة الحجب، تماماً كـ /api/customers أعلاه للصيدليات.
+// من الملفات التي يحقّ لهذا المستخدم رؤيتها — تُستعمل فقط كاقتراحات إكمال
+// تلقائي في تبويب حجب «معلومات الزبون» بلوحة الحجب.
 app.get('/api/customer-info-values', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
     const rows = await prisma.sale.findMany({
-      where: { customerInfoNorm: { not: null }, ...(userId ? { userId } : {}) },
+      where: { customerInfoNorm: { not: null }, ...saleOwnedOrSharedWith(userId) },
       select: { customerInfoNorm: true },
       distinct: ['customerInfoNorm'],
       orderBy: { customerInfoNorm: 'asc' },
@@ -1350,9 +1359,9 @@ app.get('/api/customer-info-values', async (req, res) => {
 });
 
 // GET /api/customer-info-items?name=... — آيتمات ظهرت فعلياً مع قيمة معيّنة
-// (بعد التطبيع «يحتوي على») لعمود «معلومات الزبون» في ملفات هذا المستخدم —
-// تُغذّي منتقي «حجب جزئي: آيتم لهذا الاسم فقط» في تبويب معلومات الزبون بلوحة
-// الحجب، بنفس منطق مطابقة الحجب نفسه (contains) كي تُطابق ما سيُخفى فعلاً.
+// (بعد التطبيع «يحتوي على») لعمود «معلومات الزبون» — تُغذّي منتقي «حجب جزئي:
+// آيتم لهذا الاسم فقط» بتبويب معلومات الزبون، بنفس منطق مطابقة الحجب نفسه
+// (contains) كي تُطابق ما سيُخفى فعلاً.
 app.get('/api/customer-info-items', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
@@ -1360,7 +1369,7 @@ app.get('/api/customer-info-items', async (req, res) => {
     if (!name) return res.json({ success: true, data: [] });
     const norm = normalizeArabic(name);
     const rows = await prisma.sale.findMany({
-      where: { customerInfoNorm: { contains: norm }, ...(userId ? { userId } : {}) },
+      where: { customerInfoNorm: { contains: norm }, ...saleOwnedOrSharedWith(userId) },
       select: { item: { select: { id: true, name: true } } },
       distinct: ['itemId'],
       take: 500,
