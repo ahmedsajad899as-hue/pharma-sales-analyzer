@@ -2785,9 +2785,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const groups = groupRepsByTeam(sciReps.filter(r => byId.has(r.id)));
     const cols: RepWarehouseSummary[] = [];
     const spans: { company: string; start: number; count: number }[] = [];
+    // كل من ظهر ضمن أي مجموعة (بصرف النظر عن فلترة isLeader أدناه) — يُميَّزه
+    // عن التائه فعلاً (لم يرد في sciReps أصلاً)، كي لا يُعاد إقحام قادة الفرق
+    // المُستبعَدين عمداً هنا ضمن دلو «أخرى» في آخر الجدول (كانا يظهران معاً).
+    const matchedIds = new Set<number>();
     for (const g of groups) {
       const start = cols.length;
       for (const row of g.rows) {
+        matchedIds.add(row.rep.id);
         if (row.isLeader !== leadersOnly) continue;
         const d = byId.get(row.rep.id);
         if (d) cols.push(d);
@@ -2795,14 +2800,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const count = cols.length - start;
       if (count > 0) spans.push({ company: g.company || 'بدون شركة', start, count });
     }
-    // أي بيانات لم تُطابَق (احتياط — يُفترض ألا يحدث فعلياً، فـ allRepsWarehouseData
-    // يُبنى من نفس معرّفات sciReps) تُلحَق في النهاية ضمن مجموعة خاصة بها، كي يبقى
-    // مجموع أعمدة spans مطابقاً دائماً لعدد أعمدة cols (وإلا انزاح رأس الجدول).
-    // في وضع TL (leadersOnly) لا تُلحَق — ليست قادة فرق أصلاً.
-    const seen = new Set(cols.map(c => c.id));
-    const leftoverStart = cols.length;
     if (leadersOnly) return { cols, spans };
-    for (const r of data) if (!seen.has(r.id)) cols.push(r);
+    // أي بيانات لم تَرِد في sciReps أصلاً (احتياط — نادر) تُلحَق في النهاية ضمن
+    // مجموعة خاصة بها، كي يبقى مجموع أعمدة spans مطابقاً دائماً لعدد أعمدة cols.
+    const leftoverStart = cols.length;
+    for (const r of data) if (!matchedIds.has(r.id)) cols.push(r);
     if (cols.length > leftoverStart) spans.push({ company: 'أخرى', start: leftoverStart, count: cols.length - leftoverStart });
     return { cols, spans };
   };
