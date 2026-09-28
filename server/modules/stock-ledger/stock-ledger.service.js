@@ -264,7 +264,7 @@ export async function saveWarehouseNameLinks(userId, links) {
  * (classifyWarehouseRows + saveWarehouseNameLinks) أولاً؛ أي رابط يُحفظ هناك
  * يُحمَّل هنا تلقائياً (linkByKey) في الاستيعاب التالي فلا يتكرّر السؤال.
  */
-function makeWarehouseResolver(existing, userId, links = []) {
+export function makeWarehouseResolver(existing, userId, links = []) {
   const linkByKey = new Map((links || []).map(l => [l.fromKey, l]));
   const idIndex = new Map(existing.map(w => [w.id, w]));
   const pool = [...existing]; // يكبر مع كل مذخر جديد يُنشأ ضمن نفس الاستيعاب

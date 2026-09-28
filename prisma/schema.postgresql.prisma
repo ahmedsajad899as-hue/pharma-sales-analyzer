@@ -52,6 +52,7 @@ model User {
   doctors            Doctor[]
   monthlyPlans       MonthlyPlan[]
   assignedPlans      MonthlyPlan[]              @relation("AssignedPlans")
+  smartPlans         SmartPlan[]
   doctorVisits       DoctorVisit[]
   pharmacyVisits     PharmacyVisit[]
   visitLikes         VisitLike[]
@@ -487,6 +488,7 @@ model ScientificRepresentative {
   locationPoints       RepLocationPoint[]
   sharedFiles          UploadedFile[]                     @relation("FileSharedWithRep")
   nameLinks            SciRepNameLink[]
+  smartPlans           SmartPlan[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -786,11 +788,12 @@ model Doctor {
   targetItem         Item?               @relation(fields: [targetItemId], references: [id])
   masterSurveyDoctor MasterSurveyDoctor? @relation(fields: [masterSurveyDoctorId], references: [id], onDelete: SetNull)
 
-  planEntries      PlanEntry[]
-  visits           DoctorVisit[]
-  wishlists        DoctorWishlist[]
-  dailyPlanEntries DailyPlanEntry[]
-  nameLinks        DoctorNameLink[]
+  planEntries         PlanEntry[]
+  visits              DoctorVisit[]
+  wishlists           DoctorWishlist[]
+  dailyPlanEntries    DailyPlanEntry[]
+  nameLinks           DoctorNameLink[]
+  smartPlanCandidates SmartPlanCandidate[]
 
   @@index([userId])
   @@index([areaId])
@@ -2294,10 +2297,12 @@ model StockWarehouse {
   regionKey String
   createdAt DateTime @default(now())
 
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  balances  StockBalance[]
-  movements StockMovement[]
-  nameLinks WarehouseNameLink[]
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balances   StockBalance[]
+  movements  StockMovement[]
+  nameLinks  WarehouseNameLink[]
+  stockCounts StockCount[]
+  teamSales   WarehouseTeamSale[]
 
   @@unique([userId, regionKey, nameKey])
   @@index([userId])
@@ -2460,4 +2465,128 @@ model StockTeamCompanyLink {
 
   @@unique([officeId, companyId])
   @@map("stock_team_company_links")
+}
+
+// ─── تحريك المذاخر (دورات الستوك الشهرية + توزيع الحركة بين الفرق) ───────
+// نقطة عدّ إجمالي (كل الايتمات معاً) لمذخر بتاريخ معيّن. كل عدّتين متتاليتين
+// لنفس المذخر (بالتاريخ) تشكّلان "دورة": الأولى = الستوك الافتتاحي، الثانية =
+// الستوك الثانوي. التعزيز خلال الدورة يُشتق تلقائياً من StockMovement
+// (direction='in') الواقعة بين تاريخي العدّتين — لا يُدخَل هنا. الحساب:
+//   الكمية المتحركة = الافتتاحي + التعزيز − الثانوي
+//   مباشر (مذخر) = المتحركة − تجاري (WarehouseTeamSale) − علمي (WarehouseTeamSale)
+model StockCount {
+  id          Int      @id @default(autoincrement())
+  userId      Int // دفتر الكتابة — نفس نطاق دفتر رصيد المذاخر (resolveLedgerScope)
+  warehouseId Int
+  countDate   DateTime // تاريخ العدّ الفعلي (بداية الشهر عادة)
+  qty         Float // إجمالي الستوك المعدود لكل الايتمات في هذا المذخر
+  note        String?
+  createdAt   DateTime @default(now())
+
+  warehouse StockWarehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, countDate])
+  @@index([userId])
+  @@map("warehouse_stock_counts")
+}
+
+// مبيع فريق (تجاري/علمي) مرفوع لمذخر عن دورة تنتهي بتاريخ عدّ ختامي محدد —
+// asOfDate يطابق StockCount.countDate لنقطة إغلاق الدورة نفسها.
+model WarehouseTeamSale {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  warehouseId Int
+  asOfDate    DateTime
+  team        String // 'commercial' | 'scientific'
+  qty         Float
+  sourceLabel String? // اسم الملف الذي رُفع منه — للتتبع والحذف بالجملة
+  uploadedAt  DateTime @default(now())
+
+  warehouse StockWarehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, asOfDate, team])
+  @@index([userId])
+  @@map("warehouse_team_sales")
+}
+
+// ─── Smart Monthly Plan (البلان الشهري الذكي) ────────────────────────────
+// مسار مستقل تماماً عن MonthlyPlan/PlanEntry الكلاسيكي — لا يقرأ منها ولا
+// يكتب إليها. يبني بلاناً شهرياً من حتى 4 ملفات Excel (موصفين/مرشحين/سيرفي
+// اختياري/صيدليات مفتوحة) بنسب فئات مرنة قابلة للتعديل، مع مطابقة حتمية +
+// مساعدة Gemini للأسماء الملتبسة وترتيب "الأفضل" داخل كل فئة. الإخراج
+// النهائي تصدير Excel فقط (لا ربط بالبلان الكلاسيكي).
+model SmartPlan {
+  id                Int       @id @default(autoincrement())
+  userId            Int // منشئ الجلسة (مندوب أو مديره)
+  scientificRepId   Int // مطلوب — كل جلسة لمندوب واحد محدد
+  month             Int // 1-12
+  year              Int
+  title             String?
+  status            String    @default("draft") // 'draft' | 'resolving' | 'ready' | 'exported'
+  targetDoctorCount Int       @default(75)
+  ratioConfig       Json // [{ key, label, percent, sourceTag }] — مصفوفة مفتوحة، لا فئات مُقفلة
+  resultSummary     Json? // آخر ناتج حساب الـbuckets (quota/filled/shortfall) لعرض سريع
+  lastRunAt         DateTime?
+  exportedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scientificRep ScientificRepresentative @relation(fields: [scientificRepId], references: [id])
+
+  uploads    SmartPlanUpload[]
+  candidates SmartPlanCandidate[]
+
+  @@index([userId])
+  @@index([scientificRepId])
+  @@map("smart_plans")
+}
+
+// ─── Smart Plan Upload (توثيق كل ملف Excel رُفع لجلسة) ───────────────────
+model SmartPlanUpload {
+  id           Int      @id @default(autoincrement())
+  smartPlanId  Int
+  kind         String // 'prescribers' | 'candidates' | 'survey' | 'openPharmacies'
+  fileName     String
+  rowCount     Int      @default(0)
+  matchedCount Int      @default(0)
+  data         Json? // حمولة خاصة بالنوع — مثلاً قائمة أسماء الصيدليات المفتوحة المُنظَّفة
+  createdAt    DateTime @default(now())
+
+  smartPlan SmartPlan @relation(fields: [smartPlanId], references: [id], onDelete: Cascade)
+
+  @@index([smartPlanId])
+  @@map("smart_plan_uploads")
+}
+
+// ─── Smart Plan Candidate (مرشَّح داخل تجمّع البلان الذكي) ───────────────
+// doctorId يبقى null فقط في حالة "ask" قبل تأكيد/حسم المطابقة؛ كل مرشَّح
+// selected=true يجب أن يملك doctorId قبل السماح بالتصدير.
+model SmartPlanCandidate {
+  id                 Int      @id @default(autoincrement())
+  smartPlanId        Int
+  doctorId           Int?
+  rawName            String
+  pharmacyName       String?
+  areaName           String?
+  resolvedAreaId     Int?
+  items              Json? // string[] — أسماء ايتمات مُطبَّعة من ملف الموصفين
+  sourceFlags        Json // { prescriberLinked, openPharmacyLinked, inSurvey, inCandidateList, ... }
+  eligibleBucketKeys Json // string[] — كل الـbuckets المؤهَّل لها هذا المرشَّح
+  assignedBucketKey  String? // bucket نهائي واحد بعد الخوارزمية الحتمية
+  matchConfidence    Float?
+  matchTier          String? // 'linked' | 'exact' | 'ai_resolved' | 'ask' | 'new'
+  selected           Boolean  @default(false) // فائز نهائي ضمن bucket ـه
+  aiScore            Float?
+  aiReason           String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  smartPlan SmartPlan @relation(fields: [smartPlanId], references: [id], onDelete: Cascade)
+  doctor    Doctor?   @relation(fields: [doctorId], references: [id], onDelete: SetNull)
+
+  @@unique([smartPlanId, doctorId])
+  @@index([smartPlanId])
+  @@index([doctorId])
+  @@map("smart_plan_candidates")
 }

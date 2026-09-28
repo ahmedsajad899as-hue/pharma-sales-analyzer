@@ -10,7 +10,7 @@ import {
   Phone, RefreshCw, History, Banknote, Tag, Hash, FileText, Calendar,
   Scale, FileSpreadsheet, Target, Eye, Mic, Folder, Home, Crown, Shield,
   Rocket, Monitor, Ban, Repeat, Mail, ThumbsUp, ThumbsDown, DoorOpen,
-  Plane, HelpCircle, Menu, MoreHorizontal, PackageMinus, Activity,
+  Plane, HelpCircle, Menu, MoreHorizontal, PackageMinus, Activity, GitBranch,
 } from 'lucide-react';
 
 /**
@@ -29,6 +29,7 @@ export const ICONS = {
   navFms: TestTube,
   navSalesData: BarChart3,
   navStockLedger: PackageMinus,
+  navStockFlow: GitBranch,
   navDistributorSales: Package,
   navFileFilter: Filter,
   navPharmacyAnalysis: FlaskConical,
@@ -126,6 +127,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'fms': 'navFms',
   'sales-data': 'navSalesData',
   'stock-ledger': 'navStockLedger',
+  'stock-flow': 'navStockFlow',
   'distributor-sales': 'navDistributorSales',
   'file-filter': 'navFileFilter',
   'pharmacy-analysis': 'navPharmacyAnalysis',

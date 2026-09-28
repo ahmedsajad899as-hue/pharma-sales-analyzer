@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import voiceStartSrc from '../assets/voice-start.mp3';
 import voiceStopSrc  from '../assets/voice-stop.mp3';
 import { Icon } from '../config/icons';
+import SmartMonthlyPlanPage from './smart-monthly-plan/SmartMonthlyPlanPage';
 
 // --- Voice beep: fetch audio buffer once, play via AudioContext (works on iOS/Android) ---
 let _audioCtx: AudioContext | null = null;
@@ -144,6 +145,8 @@ export default function MonthlyPlansPage() {
 
   // Create plan
   const [showCreate, setShowCreate] = useState(false);
+  // بلان ذكي — مسار مستقل تماماً (راجع src/pages/smart-monthly-plan/)
+  const [showSmartPlan, setShowSmartPlan] = useState(false);
   const [cRepId, setCRepId]     = useState(() => String(authUser?.linkedRepId ?? ''));
   const [cMonth, setCMonth]     = useState(new Date().getMonth() + 1);
   const [cYear,  setCYear]      = useState(new Date().getFullYear());
@@ -1495,6 +1498,8 @@ export default function MonthlyPlansPage() {
     });
   })() : [], [activePlan, visitFilter, voiceNewEntries, searchQuery]);
 
+  if (showSmartPlan) return <SmartMonthlyPlanPage onBack={() => setShowSmartPlan(false)} />;
+
   return (
     <div className="mp-shell" style={{ flexDirection: 'column', height: '100%' }}>
 
@@ -1635,6 +1640,7 @@ export default function MonthlyPlansPage() {
         </select>
 
         <button onClick={() => setShowCreate(true)} style={btnStyle('var(--c-accent)', true)}>+ جديد</button>
+        <button onClick={() => setShowSmartPlan(true)} style={btnStyle('var(--c-purple)', true)}>✨ بلان ذكي</button>
         <button
           onClick={async () => { setRefreshing(true); invalidateCache('/api/monthly-plans'); await load(); setRefreshing(false); }}
           disabled={refreshing}

@@ -772,7 +772,7 @@ function areasConflict(a, b) {
  *   ask    → مرشّحون بدرجة معتد بها لكن بلا حسم (أو أكثر من مطابقة تامة بلا تمييز) → يُعرض للمستخدم مع كل تفاصيله
  *   none   → لا مرشّح على الإطلاق → طبيب جديد بلا سؤال
  */
-async function classifyDoctorRows(doctorRows, ownerUserId) {
+export async function classifyDoctorRows(doctorRows, ownerUserId) {
   const rowsWithName = (doctorRows || []).filter(r => String(r?.doctorName ?? '').trim());
   if (rowsWithName.length === 0) return { doctorNames: { pending: [], resolved: [], unrelated: [] } };
 

@@ -25,6 +25,7 @@ export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
   'fms':                { title: 'FMS — عينات شهرية' },
   'sales-data':         { title: 'ستوك المذاخر', subtitle: 'تحليل ملفات Excel مع البحث المتعدد' },
   'stock-ledger':       { title: 'رصيد المذاخر', subtitle: 'المتبقّي فعلاً في كل مذخر ومتى يحتاج طلبية جديدة' },
+  'stock-flow':         { title: 'تحريك المذاخر', subtitle: 'الافتتاحي + التعزيز − الثانوي = الكمية المتحركة، موزّعة بين تجاري / علمي / مباشر' },
   'distributor-sales':  { title: 'تحليل مبيعات الموزعين', subtitle: 'رفع وتحليل ملفات Excel بتنسيق امازون / فريق' },
   'file-filter':        { title: 'تنقية الملفات' },
   'pharmacy-analysis':  { title: 'تحليل الصيدليات والمبيعات' },
