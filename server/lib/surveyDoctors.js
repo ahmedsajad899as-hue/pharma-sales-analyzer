@@ -123,7 +123,7 @@ async function areaIdsForUser(userId, linkedRepId) {
 }
 
 // حل معرّف المندوب العلمي لمستخدم (linkedRepId ثم fallback عبر ScientificRepresentative.userId)
-async function resolveRepId(userId, linkedRepId) {
+export async function resolveRepId(userId, linkedRepId) {
   if (linkedRepId) return linkedRepId;
   const own = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
   return own?.id ?? null;

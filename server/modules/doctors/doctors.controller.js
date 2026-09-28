@@ -6,7 +6,7 @@ import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 import {
   resolveAreaScope, getScopedSurveyDoctors, buildVisitOverlay,
-  ensureDoctorRowsForScope, isFieldRole,
+  ensureDoctorRowsForScope, isFieldRole, resolveRepId, buildAreaNameIndex,
 } from '../../lib/surveyDoctors.js';
 import { getScopedSurveyPharmacies } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES } from '../../lib/officeScope.js';
@@ -1244,72 +1244,247 @@ const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader', ...OFFICE_SC
 // أدوار MANAGEMENT_ROLES)، ومطلوب أن يظهر كشريحة «مندوب» منفصلة — لكن لمدير
 // الشركة حصراً (?includeTeamLead=1 من صفحة تحليل الكولات فقط)، لا لمدير
 // المكتب/موظف المكتب الذين يجب ألا يروا زيارات قائد الفريق إطلاقاً.
+// ── resolveTeamReps(user, { includeTeamLead }) ───────────────────────────────
+// نفس منطق getManagerSubReps (أدناه) مستخرَج كدالة قابلة لإعادة الاستخدام —
+// يحتاجه أيضاً allRepsVisitsSummary (ملخص كل المندوبين دفعة واحدة في خانة
+// الزيارات) بلا تكرار الاستعلامات نفسها.
+async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
+  const managerId = user.id;
+  let subUsers; // { id, displayName, username, linkedRepId, role }[]
+
+  if (OFFICE_SCOPED_ROLES.has(user.role)) {
+    // الأدوار المكتبية تشرف على مكتبها كله دفعة واحدة (officeScope.js يمنحها كل
+    // شركات المكتب تلقائياً)، لا على مرؤوسين مُعيَّنين لها شخصياً بـ
+    // UserManagerAssignment — فمصدر أعضاء الفريق هنا شركات المكتب (نفس منطق
+    // الفرع company-scoped في scientific-reps.service.js)، لا جدول التبعية
+    // الإداري الذي قد يبقى فارغاً لحساب كحساب HR لم يُدرَج فيه أحد كمرؤوس
+    // مباشر رغم إشرافه الفعلي على كل مندوبي المكتب مثل مدير المكتب تماماً.
+    const myCompanies = await prisma.userCompanyAssignment.findMany({
+      where: { userId: managerId },
+      select: { companyId: true },
+    });
+    const companyIds = myCompanies.map(c => c.companyId);
+    subUsers = companyIds.length ? await prisma.user.findMany({
+      where: {
+        isActive: true,
+        companyAssignments: { some: { companyId: { in: companyIds } } },
+        role: { notIn: [...MANAGEMENT_ROLES] },
+      },
+      select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
+    }) : [];
+  } else {
+    const allSubs = await prisma.userManagerAssignment.findMany({
+      where: { managerId },
+      include: {
+        user: {
+          select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
+        },
+      },
+      orderBy: { assignedAt: 'asc' },
+    });
+    subUsers = allSubs
+      .map(s => s.user)
+      .filter(u => includeTeamLead && u.role === 'team_leader' ? true : !MANAGEMENT_ROLES.has(u.role));
+  }
+
+  // «الشركة الرئيسية» لكل عضو فريق — للأدوار المكتبية كلها (مدير/HR/موظف المكتب)،
+  // إذ تشرف على شركات المكتب كلها دفعة واحدة (officeScope.js) فتحتاج التجميع؛
+  // باقي أدوار المدراء مُقيَّدة أصلاً بشركة واحدة فلا حاجة له.
+  let companyByUserId = new Map();
+  if (OFFICE_SCOPED_ROLES.has(user.role) && subUsers.length) {
+    const assignments = await prisma.userCompanyAssignment.findMany({
+      where: { userId: { in: subUsers.map(u => u.id) }, isPrimary: true },
+      select: { userId: true, company: { select: { id: true, name: true } } },
+    });
+    companyByUserId = new Map(assignments.map(a => [a.userId, a.company]));
+  }
+
+  const reps = subUsers.map(u => ({
+    userId:      u.id,
+    name:        u.displayName || u.username,
+    linkedRepId: u.linkedRepId,
+    company:     companyByUserId.get(u.id) ?? null,
+  }));
+
+  const companiesMap = new Map();
+  for (const r of reps) if (r.company) companiesMap.set(r.company.id, r.company);
+  const companies = [...companiesMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+
+  return { reps, companies };
+}
+
 export async function getManagerSubReps(req, res, next) {
   try {
-    const managerId = req.user.id;
     const includeTeamLead = req.user.role === 'company_manager' && req.query.includeTeamLead === '1';
-
-    let subUsers; // { id, displayName, username, linkedRepId, role }[]
-
-    if (OFFICE_SCOPED_ROLES.has(req.user.role)) {
-      // الأدوار المكتبية تشرف على مكتبها كله دفعة واحدة (officeScope.js يمنحها كل
-      // شركات المكتب تلقائياً)، لا على مرؤوسين مُعيَّنين لها شخصياً بـ
-      // UserManagerAssignment — فمصدر أعضاء الفريق هنا شركات المكتب (نفس منطق
-      // الفرع company-scoped في scientific-reps.service.js)، لا جدول التبعية
-      // الإداري الذي قد يبقى فارغاً لحساب كحساب HR لم يُدرَج فيه أحد كمرؤوس
-      // مباشر رغم إشرافه الفعلي على كل مندوبي المكتب مثل مدير المكتب تماماً.
-      const myCompanies = await prisma.userCompanyAssignment.findMany({
-        where: { userId: managerId },
-        select: { companyId: true },
-      });
-      const companyIds = myCompanies.map(c => c.companyId);
-      subUsers = companyIds.length ? await prisma.user.findMany({
-        where: {
-          isActive: true,
-          companyAssignments: { some: { companyId: { in: companyIds } } },
-          role: { notIn: [...MANAGEMENT_ROLES] },
-        },
-        select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
-      }) : [];
-    } else {
-      const allSubs = await prisma.userManagerAssignment.findMany({
-        where: { managerId },
-        include: {
-          user: {
-            select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
-          },
-        },
-        orderBy: { assignedAt: 'asc' },
-      });
-      subUsers = allSubs
-        .map(s => s.user)
-        .filter(u => includeTeamLead && u.role === 'team_leader' ? true : !MANAGEMENT_ROLES.has(u.role));
-    }
-
-    // «الشركة الرئيسية» لكل عضو فريق — للأدوار المكتبية كلها (مدير/HR/موظف المكتب)،
-    // إذ تشرف على شركات المكتب كلها دفعة واحدة (officeScope.js) فتحتاج التجميع؛
-    // باقي أدوار المدراء مُقيَّدة أصلاً بشركة واحدة فلا حاجة له.
-    let companyByUserId = new Map();
-    if (OFFICE_SCOPED_ROLES.has(req.user.role) && subUsers.length) {
-      const assignments = await prisma.userCompanyAssignment.findMany({
-        where: { userId: { in: subUsers.map(u => u.id) }, isPrimary: true },
-        select: { userId: true, company: { select: { id: true, name: true } } },
-      });
-      companyByUserId = new Map(assignments.map(a => [a.userId, a.company]));
-    }
-
-    const reps = subUsers.map(u => ({
-      userId:      u.id,
-      name:        u.displayName || u.username,
-      linkedRepId: u.linkedRepId,
-      company:     companyByUserId.get(u.id) ?? null,
-    }));
-
-    const companiesMap = new Map();
-    for (const r of reps) if (r.company) companiesMap.set(r.company.id, r.company);
-    const companies = [...companiesMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-
+    const { reps, companies } = await resolveTeamReps(req.user, { includeTeamLead });
     res.json({ reps, companies });
+  } catch (e) { next(e); }
+}
+
+// ─── ملخص كل المندوبين دفعة واحدة: زيارات الأطباء/الصيدليات + نسبة التغطية +
+// تفصيل لكل منطقة — لخانة «تحليل الكولات» (زر «كل المندوبين» يفتحه). نفس فكرة
+// زر «كل المندوبين العلميين» في التقارير (مذخر/مكتب) لكن لبيانات الزيارات.
+// استعلام واحد لكل مصدر بيانات لكل الفريق دفعة واحدة (لا حلقة استعلامات لكل
+// مندوب) — راجع تعليق الأداء في resolveAreaScope (فرع «الكل») لنفس السبب.
+export async function allRepsVisitsSummary(req, res, next) {
+  try {
+    if (isFieldRole(req.user.role)) return res.status(403).json({ message: 'هذه الخانة متاحة للمدراء فقط' });
+
+    const filterMonth = req.query.month ? parseInt(req.query.month) : null;
+    const filterYear  = req.query.year  ? parseInt(req.query.year)  : null;
+    const dateFilter  = (filterMonth && filterYear) ? {
+      gte: new Date(filterYear, filterMonth - 1, 1),
+      lt:  new Date(filterYear, filterMonth, 1),
+    } : undefined;
+
+    const { reps: allReps, companies } = await resolveTeamReps(req.user);
+    const companyIdsFilter = String(req.query.companyIds ?? '').split(',').map(s => parseInt(s)).filter(n => Number.isFinite(n));
+    const reps = companyIdsFilter.length ? allReps.filter(r => r.company && companyIdsFilter.includes(r.company.id)) : allReps;
+
+    if (!reps.length) return res.json({ reps: [], companies });
+
+    // معرّف المندوب العلمي + مناطقه الفعلية لكل عضو فريق — مُوازٍ لا متسلسل
+    // (نفس تحسين resolveAreaScope أعلاه، تفادياً لتراكم زمن ذهاب-وإياب الشبكة
+    // عضواً بعد عضو).
+    const [repIds, areaIdLists] = await Promise.all([
+      Promise.all(reps.map(r => resolveRepId(r.userId, r.linkedRepId ?? null))),
+      Promise.all(reps.map(r => resolveEffectiveAreaIds(r.userId, { linkedRepId: r.linkedRepId ?? null }))),
+    ]);
+    reps.forEach((r, i) => { r.repId = repIds[i]; r.areaIds = areaIdLists[i]; });
+
+    const unionAreaIds = [...new Set(areaIdLists.flat())];
+    const areaRecords = unionAreaIds.length
+      ? await prisma.area.findMany({ where: { id: { in: unionAreaIds } }, select: { id: true, name: true } })
+      : [];
+    const normToArea = await buildAreaNameIndex(areaRecords);
+    const areaById = new Map(areaRecords.map(a => [a.id, a]));
+
+    reps.forEach(r => {
+      const names = new Set();
+      r.areaIds.forEach(id => { const a = areaById.get(id); if (a) names.add(normalizeAreaName(a.name)); });
+      r.normAreaNames = names;
+    });
+
+    const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
+    const unionScope = { surveyIds: surveys.map(s => s.id), normAreaNames: [...normToArea.keys()] };
+
+    const [scopedDocs, scopedPharms] = await Promise.all([
+      getScopedSurveyDoctors(unionScope),
+      getScopedSurveyPharmacies(unionScope),
+    ]);
+
+    // فهرسة أطباء/صيدليات النطاق الموحّد حسب اسم المنطقة المطبَّع — مرة واحدة،
+    // بدل حلقة (مستند × مندوب) لكل مندوب.
+    const docsByAreaNorm = new Map();
+    for (const d of scopedDocs) {
+      const key = normalizeAreaName(d.areaName ?? '');
+      if (!docsByAreaNorm.has(key)) docsByAreaNorm.set(key, []);
+      docsByAreaNorm.get(key).push(d);
+    }
+    const pharmsByAreaNorm = new Map();
+    for (const p of scopedPharms) {
+      const key = normalizeAreaName(p.areaName ?? '');
+      if (!pharmsByAreaNorm.has(key)) pharmsByAreaNorm.set(key, []);
+      pharmsByAreaNorm.get(key).push(p);
+    }
+
+    const memberRepIds  = repIds.filter(Boolean);
+    const memberUserIds = reps.map(r => r.userId);
+    const orClauses = pharmacyVisitOrClauses({ memberRepIds, memberUserIds });
+
+    const [doctorVisits, pharmacyVisits] = await Promise.all([
+      orClauses.length ? prisma.doctorVisit.findMany({
+        where: { OR: orClauses, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) },
+        select: {
+          id: true, scientificRepId: true, userId: true,
+          doctor: { select: { masterSurveyDoctorId: true, name: true, area: { select: { name: true } }, masterSurveyDoctor: { select: { areaName: true } } } },
+        },
+      }) : [],
+      orClauses.length ? prisma.pharmacyVisit.findMany({
+        where: { OR: orClauses, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) },
+        select: { id: true, scientificRepId: true, userId: true, area: { select: { name: true } }, areaName: true },
+      }) : [],
+    ]);
+
+    const repByRepId  = new Map(reps.filter(r => r.repId != null).map(r => [r.repId, r]));
+    const repByUserId = new Map(reps.map(r => [r.userId, r]));
+    const findRepForVisit = v => (v.scientificRepId != null ? repByRepId.get(v.scientificRepId) : repByUserId.get(v.userId)) ?? null;
+
+    const perRep = new Map(reps.map(r => [r.userId, { areas: new Map() }]));
+    const getAreaBucket = (repUserId, areaNameRaw) => {
+      const bag = perRep.get(repUserId);
+      const key = areaNameRaw ? normalizeAreaName(areaNameRaw) : '';
+      if (!bag.areas.has(key)) bag.areas.set(key, {
+        areaName: areaNameRaw || 'بدون منطقة',
+        totalDoctors: 0, visitedDocKeys: new Set(), doctorVisitCount: 0,
+        totalPharmacies: 0, pharmacyVisitCount: 0,
+      });
+      return bag.areas.get(key);
+    };
+
+    // 1) سقف كل منطقة لكل مندوب (عدد أطباء/صيدليات السيرفي ضمن مناطقه هو تحديداً)
+    for (const rep of reps) {
+      for (const areaNorm of rep.normAreaNames) {
+        const docs = docsByAreaNorm.get(areaNorm) ?? [];
+        const pharms = pharmsByAreaNorm.get(areaNorm) ?? [];
+        if (!docs.length && !pharms.length) continue;
+        const areaName = docs[0]?.areaName ?? pharms[0]?.areaName ?? null;
+        const bucket = getAreaBucket(rep.userId, areaName);
+        bucket.totalDoctors += docs.length;
+        bucket.totalPharmacies += pharms.length;
+      }
+    }
+
+    // 2) زيارات الأطباء الفعلية — تُنسَب لمن قام بها تحديداً (scientificRepId
+    // المحسوم، وإلا userId مَن سجّلها) لا لكل عضو نطاق مثل الشاشة التجميعية.
+    for (const v of doctorVisits) {
+      const rep = findRepForVisit(v);
+      if (!rep) continue;
+      const areaName = v.doctor?.masterSurveyDoctor?.areaName || v.doctor?.area?.name || null;
+      const bucket = getAreaBucket(rep.userId, areaName);
+      bucket.doctorVisitCount++;
+      const docKey = v.doctor?.masterSurveyDoctorId != null ? `id:${v.doctor.masterSurveyDoctorId}` : (v.doctor?.name ? `name:${normalizeAreaName(v.doctor.name)}` : null);
+      if (docKey) bucket.visitedDocKeys.add(docKey);
+    }
+
+    // 3) زيارات الصيدليات الفعلية — نفس المبدأ
+    for (const v of pharmacyVisits) {
+      const rep = findRepForVisit(v);
+      if (!rep) continue;
+      const areaName = v.area?.name || v.areaName || null;
+      const bucket = getAreaBucket(rep.userId, areaName);
+      bucket.pharmacyVisitCount++;
+    }
+
+    const result = reps.map(r => {
+      const bag = perRep.get(r.userId);
+      const areas = [...bag.areas.values()]
+        .map(a => ({
+          areaName: a.areaName,
+          totalDoctors: a.totalDoctors,
+          visitedDoctors: a.visitedDocKeys.size,
+          doctorVisitCount: a.doctorVisitCount,
+          totalPharmacies: a.totalPharmacies,
+          pharmacyVisitCount: a.pharmacyVisitCount,
+        }))
+        .sort((x, y) => (y.doctorVisitCount + y.pharmacyVisitCount) - (x.doctorVisitCount + x.pharmacyVisitCount));
+
+      const totalDoctors       = areas.reduce((s, a) => s + a.totalDoctors, 0);
+      const visitedDoctors     = areas.reduce((s, a) => s + a.visitedDoctors, 0);
+      const doctorVisitCount   = areas.reduce((s, a) => s + a.doctorVisitCount, 0);
+      const totalPharmacies    = areas.reduce((s, a) => s + a.totalPharmacies, 0);
+      const pharmacyVisitCount = areas.reduce((s, a) => s + a.pharmacyVisitCount, 0);
+      const coveragePct = totalDoctors > 0 ? Math.round((visitedDoctors / totalDoctors) * 100) : 0;
+
+      return {
+        userId: r.userId, name: r.name, company: r.company,
+        totalDoctors, visitedDoctors, doctorVisitCount,
+        totalPharmacies, pharmacyVisitCount, coveragePct,
+        areas,
+      };
+    }).sort((a, b) => (b.doctorVisitCount + b.pharmacyVisitCount) - (a.doctorVisitCount + a.pharmacyVisitCount));
+
+    res.json({ reps: result, companies });
   } catch (e) { next(e); }
 }
 

@@ -12,6 +12,7 @@ router.get('/visits-by-area',         ctrl.visitsByArea);
 router.get('/visits-latest-month',    ctrl.visitsLatestMonth);
 router.get('/pharmacy-visits-by-area', ctrl.pharmacyVisitsByArea);
 router.get('/pharmacy-visits-latest-month', ctrl.pharmacyVisitsLatestMonth);
+router.get('/visits/all-reps-summary', ctrl.allRepsVisitsSummary);
 router.get('/sub-reps',               ctrl.getManagerSubReps);
 router.get('/wishlist',               ctrl.getWishlist);
 router.get('/wishlist/debug',          ctrl.debugWishlist);

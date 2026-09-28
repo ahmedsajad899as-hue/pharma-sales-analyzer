@@ -1,11 +1,28 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import DoctorVisitsImportModal from '../components/DoctorVisitsImportModal';
 import { Icon } from '../config/icons';
 import { sendEngagementPing, sendSearchPingDebounced } from '../lib/engagementPing';
+import * as XLSX from 'xlsx';
 
 const API = import.meta.env.VITE_API_URL || '';
+
+// لوحة ألوان هادئة لتمييز كل شركة في رأس عمود جدول «كل المندوبين» المحوري —
+// نفس فكرة الجدول المحوري في خانة التقارير (مذخر × مندوب): نطاق أزرق←بنفسجي
+// فقط، بعيداً عن الأخضر/الأحمر كي لا يتصادم مع دلالتيهما (نجاح/خطر) بباقي الشاشة.
+const hslToHexRepsSummary = (h: number, s: number, l: number): string => {
+  const sf = s / 100, lf = l / 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = sf * Math.min(lf, 1 - lf);
+  const f = (n: number) => lf - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const toHex = (x: number) => Math.round(x * 255).toString(16).padStart(2, '0');
+  return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+};
+const repsSummaryCompanyColor = (index: number): [string, string] => {
+  const hue = 200 + ((index * 26) % 120);
+  return [hslToHexRepsSummary(hue, 27, 63), hslToHexRepsSummary(hue, 23, 46)];
+};
 
 // ── Smart Search Component ─────────────────────────────────────
 function SmartSearch({ value, onChange, suggestions, placeholder, style }: {
@@ -329,6 +346,27 @@ export default function DoctorsPage() {
   // فلترة إضافية بـ«الشركة الرئيسية» — للأدوار المكتبية (مدير/HR/موظف المكتب) التي تشرف على أكثر من شركة.
   // اختيار شركة يُظهر زيارات كل مندوبيها مجتمعة، ويضيّق قائمة شرائح المندوبين أدناه.
   const [visitCompanyFilter, setVisitCompanyFilter] = useState<number | null>(null); // null = all companies
+
+  // ── ملخص كل المندوبين دفعة واحدة (زر «كل المندوبين» — نظير زر «كل المندوبين
+  // العلميين» في خانة التقارير لكن لبيانات الزيارات لا المبيعات) ──────────────
+  interface RepVisitsAreaRow {
+    areaName: string; totalDoctors: number; visitedDoctors: number; doctorVisitCount: number;
+    totalPharmacies: number; pharmacyVisitCount: number;
+  }
+  interface RepVisitsSummaryRow {
+    userId: number; name: string; company: ManagerCompany | null;
+    totalDoctors: number; visitedDoctors: number; doctorVisitCount: number;
+    totalPharmacies: number; pharmacyVisitCount: number; coveragePct: number;
+    areas: RepVisitsAreaRow[];
+  }
+  const [showRepsSummaryModal, setShowRepsSummaryModal]           = useState(false);
+  const [repsSummaryLoading, setRepsSummaryLoading]               = useState(false);
+  const [repsSummaryData, setRepsSummaryData]                     = useState<RepVisitsSummaryRow[] | null>(null);
+  const [repsSummaryCompanies, setRepsSummaryCompanies]           = useState<ManagerCompany[]>([]);
+  const [repsSummaryCompanyFilter, setRepsSummaryCompanyFilter]   = useState<Set<number>>(new Set()); // فارغ = كل الشركات
+  const [repsSummaryViewMode, setRepsSummaryViewMode]             = useState<'list' | 'pivot'>('list');
+  const [repsSummaryMetric, setRepsSummaryMetric]                 = useState<'doctors' | 'pharmacies'>('doctors');
+  const [expandedRepsSummaryUserId, setExpandedRepsSummaryUserId] = useState<number | null>(null);
   // Manager wishlist view — show each rep's wishlist
   interface RepWishEntry { doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string; }
   interface RepWishData  { rep: { id: number; name: string }; wishlist: RepWishEntry[]; loading: boolean; open: boolean; openDetails: Set<number>; }
@@ -747,6 +785,112 @@ export default function DoctorsPage() {
     } catch (e) { console.error('[sub-reps] fetch error:', e); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // ملخص زيارات كل المندوبين دفعة واحدة — يفتحه زر «كل المندوبين». نفس فلتر
+  // الشهر المطبَّق حالياً على خانة الزيارات (visitMonthFilter)، بلا حاجة لإعادة اختياره.
+  const loadRepsVisitsSummary = async () => {
+    setRepsSummaryLoading(true); setRepsSummaryData(null); setExpandedRepsSummaryUserId(null);
+    try {
+      const ps = new URLSearchParams();
+      if (repsSummaryCompanyFilter.size > 0) ps.set('companyIds', [...repsSummaryCompanyFilter].join(','));
+      if (visitMonthFilter) { ps.set('month', String(visitMonthFilter.month)); ps.set('year', String(visitMonthFilter.year)); }
+      const r = await fetch(`${API}/api/doctors/visits/all-reps-summary?${ps}`, { headers: H() });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message || 'فشل تحميل ملخص المندوبين');
+      setRepsSummaryData(Array.isArray(j.reps) ? j.reps : []);
+      setRepsSummaryCompanies(Array.isArray(j.companies) ? j.companies : []);
+    } catch (e) { console.error('[all-reps-summary] fetch error:', e); setRepsSummaryData([]); }
+    finally { setRepsSummaryLoading(false); }
+  };
+
+  // أعمدة الجدول (مندوب واحد لكل عمود) مرتَّبة حسب الشركة (تُجمَّع فيزيائياً)
+  // ثم بالاسم أبجدياً ضمن كل شركة — نفس فكرة getOrderedWarehouseColumns في خانة
+  // التقارير، لكن هنا العمود نفسه هو صف بيانات المندوب (RepVisitsSummaryRow) لا
+  // ملخص طلبيات، فلا حاجة لدالة منفصلة لبناء "الأعمدة" غير هذا الترتيب/التجميع.
+  const getOrderedRepsSummaryColumns = (data: RepVisitsSummaryRow[], companyFilter: Set<number>) => {
+    const filtered = companyFilter.size > 0 ? data.filter(r => r.company && companyFilter.has(r.company.id)) : data;
+    const byCompany = new Map<string, RepVisitsSummaryRow[]>();
+    for (const r of filtered) {
+      const key = r.company ? String(r.company.id) : '__none__';
+      if (!byCompany.has(key)) byCompany.set(key, []);
+      byCompany.get(key)!.push(r);
+    }
+    const companyKeys = [...byCompany.keys()].sort((a, b) => {
+      if (a === '__none__') return 1;
+      if (b === '__none__') return -1;
+      return byCompany.get(a)![0].company!.name.localeCompare(byCompany.get(b)![0].company!.name, 'ar');
+    });
+    const cols: RepVisitsSummaryRow[] = [];
+    const spans: { company: string; start: number; count: number }[] = [];
+    for (const key of companyKeys) {
+      const group = [...byCompany.get(key)!].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+      spans.push({ company: key === '__none__' ? 'بدون شركة' : group[0].company!.name, start: cols.length, count: group.length });
+      cols.push(...group);
+    }
+    return { cols, spans };
+  };
+
+  // جدول محوري منطقة × مندوب لمقياس واحد (زيارات الأطباء أو الصيدليات) — يُخفي
+  // مناطق بلا أي زيارة إطلاقاً عبر كل الأعمدة كي لا يطول الجدول بصفوف فارغة.
+  const buildRepsAreaPivot = (cols: RepVisitsSummaryRow[], metric: 'doctors' | 'pharmacies') => {
+    const areaNames = new Set<string>();
+    for (const c of cols) for (const a of c.areas) areaNames.add(a.areaName);
+    const rows = [...areaNames]
+      .map(areaName => {
+        const cells = cols.map(c => {
+          const a = c.areas.find(x => x.areaName === areaName);
+          if (!a) return 0;
+          return metric === 'doctors' ? a.doctorVisitCount : a.pharmacyVisitCount;
+        });
+        return { name: areaName, cells, total: cells.reduce((s, v) => s + v, 0) };
+      })
+      .filter(r => r.total > 0)
+      .sort((a, b) => b.total - a.total);
+    const colTotals = cols.map((_, ci) => rows.reduce((s, r) => s + r.cells[ci], 0));
+    const grandTotal = colTotals.reduce((s, v) => s + v, 0);
+    return { rows, colTotals, grandTotal };
+  };
+
+  // تصدير ملخص كل المندوبين إلى Excel: شيت ملخص لكل مندوب + شيتان محوريان
+  // (منطقة × مندوب) لزيارات الأطباء والصيدليات كلٌّ على حدة.
+  const exportRepsSummaryToExcel = () => {
+    if (!repsSummaryData || repsSummaryData.length === 0) return;
+    const { cols } = getOrderedRepsSummaryColumns(repsSummaryData, repsSummaryCompanyFilter);
+    if (cols.length === 0) return;
+    const wb = XLSX.utils.book_new();
+
+    const header1 = ['#', 'الشركة', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'إجمالي الأطباء', 'أطباء تمت زيارتهم', 'نسبة التغطية %', 'إجمالي الصيدليات'];
+    const body1 = cols.map((r, i) => [
+      i + 1, r.company?.name || '', r.name, r.doctorVisitCount, r.pharmacyVisitCount,
+      r.totalDoctors, r.visitedDoctors, r.coveragePct, r.totalPharmacies,
+    ]);
+    const ws1 = XLSX.utils.aoa_to_sheet([header1, ...body1]);
+    ws1['!cols'] = [5, 18, 22, 14, 15, 12, 16, 14, 14].map(w => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, ws1, 'ملخص المندوبين');
+
+    const buildPivotSheet = (metric: 'doctors' | 'pharmacies', name: string) => {
+      const { rows, colTotals, grandTotal } = buildRepsAreaPivot(cols, metric);
+      const header = ['المنطقة', ...cols.map(c => c.name), 'الإجمالي'];
+      const body = rows.map(r => [r.name, ...r.cells, r.total]);
+      const footer = ['الإجمالي الكلي', ...colTotals, grandTotal];
+      const ws = XLSX.utils.aoa_to_sheet([header, ...body, footer]);
+      ws['!cols'] = [22, ...cols.map(() => 12), 14].map(w => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    };
+    buildPivotSheet('doctors', 'مناطق × مندوب (أطباء)');
+    buildPivotSheet('pharmacies', 'مناطق × مندوب (صيدليات)');
+
+    XLSX.writeFile(wb, `ملخص_زيارات_المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  // إعادة التحميل عند فتح المودال أو تغيير فلتر الشركات — لا عند تغيير
+  // repsSummaryCompanyFilter نفسه بمعزل عن استدعاء مباشر (يتفادى مشكلة القراءة
+  // من نسخة قديمة من الحالة لو نُودي التحميل مباشرة بعد setRepsSummaryCompanyFilter).
+  useEffect(() => {
+    if (!showRepsSummaryModal) return;
+    loadRepsVisitsSummary();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showRepsSummaryModal, repsSummaryCompanyFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1961,6 +2105,19 @@ export default function DoctorsPage() {
                 background: visitAnalysisType === 'pharmacies' ? 'var(--c-accent-light)' : 'var(--c-bg)',
                 color: visitAnalysisType === 'pharmacies' ? 'var(--c-accent)' : 'var(--c-text-secondary)',
               }}><Icon name="pharmacy" size={14} /> الصيدليات</button>
+
+            {/* ملخص كل المندوبين دفعة واحدة — زيارات الأطباء/الصيدليات + نسبة
+                التغطية + تفصيل كل منطقة، بدل فتح كل مندوب على حدة */}
+            {!isFieldRep && (
+              <button
+                onClick={() => setShowRepsSummaryModal(true)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '6px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                  border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
+                }}
+              ><Icon name="menu" size={14} /> كل المندوبين</button>
+            )}
           </div>
 
           {/* ─── DOCTORS ANALYSIS ───────────────────────────── */}
@@ -4750,6 +4907,226 @@ export default function DoctorsPage() {
           }}
         />
       )}
+
+      {/* ── ملخص كل المندوبين دفعة واحدة (زيارات أطباء/صيدليات + نسبة تغطية + تفصيل مناطق) ── */}
+      {showRepsSummaryModal && (
+        <div style={overlayStyle} onClick={() => setShowRepsSummaryModal(false)}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 16, border: '1px solid var(--c-border)',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.22)',
+              width: repsSummaryViewMode === 'pivot' ? '95vw' : 'min(94vw, 920px)',
+              maxWidth: repsSummaryViewMode === 'pivot' ? 1400 : 920,
+              maxHeight: '90vh', display: 'flex', flexDirection: 'column', direction: 'rtl', overflow: 'hidden',
+            }}
+          >
+            <div style={{ padding: '16px 20px 14px', borderBottom: '1px solid var(--c-border-light)', background: 'var(--c-bg)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="person" size={16} />
+                <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text-primary)' }}>ملخص زيارات كل المندوبين</span>
+              </div>
+              <button onClick={() => setShowRepsSummaryModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', display: 'flex' }}>
+                <Icon name="close" size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '14px 20px 20px', overflowY: 'auto', flex: 1 }}>
+              {/* فلتر الشركات — اختيار واحدة أو أكثر، فارغ = الكل */}
+              {repsSummaryCompanies.length > 1 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="navOrgStructure" size={11} /> الشركات المعروضة
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => setRepsSummaryCompanyFilter(new Set())}
+                      style={{
+                        padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        border: `1.5px solid ${repsSummaryCompanyFilter.size === 0 ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                        background: repsSummaryCompanyFilter.size === 0 ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                        color: repsSummaryCompanyFilter.size === 0 ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+                      }}
+                    >الكل</button>
+                    {repsSummaryCompanies.map(c => {
+                      const active = repsSummaryCompanyFilter.has(c.id);
+                      return (
+                        <button key={c.id}
+                          onClick={() => setRepsSummaryCompanyFilter(prev => {
+                            const next = new Set(prev);
+                            if (next.has(c.id)) next.delete(c.id); else next.add(c.id);
+                            return next;
+                          })}
+                          style={{
+                            padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            border: `1.5px solid ${active ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                            background: active ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                            color: active ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+                          }}
+                        >{c.name}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* شريط أدوات: شكل العرض + المقياس (محوري فقط) + تصدير */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => setRepsSummaryViewMode('list')}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${repsSummaryViewMode === 'list' ? 'var(--c-accent)' : 'var(--c-border)'}`, background: repsSummaryViewMode === 'list' ? 'var(--c-accent-light)' : '#fff', color: repsSummaryViewMode === 'list' ? 'var(--c-accent)' : 'var(--c-text-muted)', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  ><Icon name="menu" size={12} /> قائمة</button>
+                  <button onClick={() => setRepsSummaryViewMode('pivot')}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${repsSummaryViewMode === 'pivot' ? 'var(--c-accent)' : 'var(--c-border)'}`, background: repsSummaryViewMode === 'pivot' ? 'var(--c-accent-light)' : '#fff', color: repsSummaryViewMode === 'pivot' ? 'var(--c-accent)' : 'var(--c-text-muted)', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  ><Icon name="excel" size={12} /> جدول (منطقة × مندوب)</button>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {repsSummaryViewMode === 'pivot' && (
+                    <button onClick={() => setRepsSummaryMetric(m => m === 'doctors' ? 'pharmacies' : 'doctors')}
+                      style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${repsSummaryMetric === 'doctors' ? 'var(--c-accent)' : 'var(--c-success-border)'}`, background: repsSummaryMetric === 'doctors' ? 'var(--c-accent-light)' : 'var(--c-success-bg)', color: repsSummaryMetric === 'doctors' ? 'var(--c-accent)' : 'var(--c-success)', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    >{repsSummaryMetric === 'doctors' ? <><Icon name="doctor" size={12} /> زيارات الأطباء</> : <><Icon name="pharmacy" size={12} /> زيارات الصيدليات</>}</button>
+                  )}
+                  {repsSummaryData && repsSummaryData.length > 0 && (
+                    <button onClick={exportRepsSummaryToExcel}
+                      style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid var(--c-success-border)', background: 'var(--c-success-bg)', color: 'var(--c-success)', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    ><Icon name="export" size={12} /> تصدير Excel</button>
+                  )}
+                </div>
+              </div>
+
+              {repsSummaryLoading ? (
+                <div style={{ textAlign: 'center', padding: '50px 0', color: 'var(--c-text-muted)', fontSize: 13 }}>
+                  <Icon name="loading" size={20} className="icon-spin" /><div style={{ marginTop: 8 }}>جاري التحميل...</div>
+                </div>
+              ) : !repsSummaryData || repsSummaryData.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '50px 0', color: 'var(--c-text-muted)', fontSize: 13 }}>لا يوجد مندوبون لعرضهم</div>
+              ) : (() => {
+                const { cols, spans } = getOrderedRepsSummaryColumns(repsSummaryData, repsSummaryCompanyFilter);
+                if (cols.length === 0) {
+                  return <div style={{ textAlign: 'center', padding: '50px 0', color: 'var(--c-text-muted)', fontSize: 13 }}>لا يوجد مندوبون ضمن الشركات المحددة</div>;
+                }
+
+                if (repsSummaryViewMode === 'list') return (
+                  <div style={{ maxHeight: '60vh', overflowY: 'auto', border: '1px solid var(--c-border)', borderRadius: 12 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          {['#', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'نسبة التغطية', 'الإجمالي', ''].map((h, hi) => (
+                            <th key={hi} style={{
+                              padding: '10px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc',
+                              textAlign: hi === 1 ? 'right' : 'center', fontWeight: 700,
+                              width: hi === 0 ? 34 : hi === 6 ? 30 : undefined,
+                              position: 'sticky', top: 0, zIndex: 1,
+                            }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cols.map((r, i) => {
+                          const isExpanded = expandedRepsSummaryUserId === r.userId;
+                          const coverageColor = r.coveragePct >= 70 ? 'var(--c-success)' : r.coveragePct >= 40 ? 'var(--c-accent)' : 'var(--c-danger)';
+                          return (
+                            <Fragment key={r.userId}>
+                              <tr
+                                onClick={() => setExpandedRepsSummaryUserId(isExpanded ? null : r.userId)}
+                                style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)', cursor: 'pointer', borderBottom: isExpanded ? 'none' : '1px solid var(--c-border-light)' }}
+                              >
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-text-muted)' }}>{i + 1}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: 'var(--c-text-primary)' }}>
+                                  {r.name}
+                                  {r.company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 700, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 10, padding: '1px 8px' }}>{r.company.name}</span>}
+                                </td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-accent)', fontWeight: 700 }}>{r.doctorVisitCount}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-success)', fontWeight: 700 }}>{r.pharmacyVisitCount}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                  <span style={{ background: coverageColor + '22', color: coverageColor, borderRadius: 6, padding: '2px 10px', fontWeight: 800 }}>{r.coveragePct}%</span>
+                                  <div style={{ fontSize: 10, color: 'var(--c-text-muted)', marginTop: 2 }}>{r.visitedDoctors}/{r.totalDoctors}</div>
+                                </td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: 'var(--c-success)', background: 'var(--c-success-bg)' }}>{r.doctorVisitCount + r.pharmacyVisitCount}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-text-muted)', fontSize: 11 }}>{isExpanded ? '▲' : '▼'}</td>
+                              </tr>
+                              {isExpanded && (
+                                <tr style={{ borderBottom: '1px solid var(--c-border-light)' }}>
+                                  <td colSpan={7} style={{ background: 'var(--c-bg)', padding: '10px 16px' }}>
+                                    {r.areas.length === 0 ? (
+                                      <span style={{ color: 'var(--c-text-muted)', fontSize: 12 }}>لا توجد زيارات مسجَّلة لهذا المندوب</span>
+                                    ) : (
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                        {r.areas.map((a, ai) => (
+                                          <span key={ai} style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                            <strong style={{ color: 'var(--c-text-primary)' }}>{a.areaName}</strong>
+                                            <span style={{ color: 'var(--c-accent)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="doctor" size={10} /> {a.doctorVisitCount}</span>
+                                            <span style={{ color: 'var(--c-success)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="pharmacy" size={10} /> {a.pharmacyVisitCount}</span>
+                                            {a.totalDoctors > 0 && <span style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>({a.visitedDoctors}/{a.totalDoctors} تغطية)</span>}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+
+                const { rows, colTotals, grandTotal } = buildRepsAreaPivot(cols, repsSummaryMetric);
+                if (rows.length === 0) {
+                  return <div style={{ textAlign: 'center', padding: '50px 0', color: 'var(--c-text-muted)', fontSize: 13 }}>لا توجد زيارات لعرضها</div>;
+                }
+                const pivotTh: React.CSSProperties = { padding: '8px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', zIndex: 2, whiteSpace: 'nowrap' };
+                const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap' };
+                return (
+                  <div style={{ maxHeight: '68vh', overflow: 'auto', border: '1px solid var(--c-border)', borderRadius: 12 }}>
+                    <table style={{ borderCollapse: 'collapse', fontSize: 12.5 }}>
+                      <thead>
+                        <tr>
+                          <th rowSpan={2} style={{ ...pivotTh, textAlign: 'right', top: 0, right: 0, zIndex: 3 }}>المنطقة</th>
+                          {spans.map((s, si) => {
+                            const [light, dark] = repsSummaryCompanyColor(si);
+                            return (
+                              <th key={s.company + s.start} colSpan={s.count} style={{ ...pivotTh, top: 0, height: 34, boxSizing: 'border-box', background: `linear-gradient(135deg,${light},${dark})`, fontSize: 11.5 }}>{s.company}</th>
+                            );
+                          })}
+                          <th rowSpan={2} style={{ ...pivotTh, top: 0, background: '#334155' }}>الإجمالي</th>
+                        </tr>
+                        <tr>
+                          {cols.map(c => (
+                            <th key={c.userId} style={{ ...pivotTh, top: 34 }}>{c.name}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row, ri) => (
+                          <tr key={row.name} style={{ background: ri % 2 === 0 ? '#fff' : 'var(--c-bg)', borderBottom: '1px solid var(--c-border-light)' }}>
+                            <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: 'var(--c-text-primary)', position: 'sticky', right: 0, background: ri % 2 === 0 ? '#fff' : 'var(--c-bg)' }}>{row.name}</td>
+                            {row.cells.map((c, ci) => (
+                              <td key={ci} style={{ ...pivotTd, color: c > 0 ? 'var(--c-accent)' : 'var(--c-border)', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? c : '—'}</td>
+                            ))}
+                            <td style={{ ...pivotTd, fontWeight: 800, color: 'var(--c-success)', background: 'var(--c-success-bg)' }}>{row.total}</td>
+                          </tr>
+                        ))}
+                        <tr style={{ background: '#334155' }}>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, color: '#fff', position: 'sticky', right: 0, background: '#334155' }}>الإجمالي الكلي</td>
+                          {colTotals.map((c, ci) => (
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, color: '#e2e8f0' }}>{c}</td>
+                          ))}
+                          <td style={{ ...pivotTd, fontWeight: 900, color: '#fff', background: 'var(--c-success)' }}>{grandTotal}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {visitsImportMsg && (
         <div style={{
           position: 'fixed', bottom: 20, insetInlineStart: 20, zIndex: 10001, maxWidth: 380,
