@@ -1341,19 +1341,21 @@ function saleOwnedOrSharedWith(userId) {
 // GET /api/customer-info-values — قيم عمود «معلومات الزبون» الفريدة (بعد التطبيع)
 // من الملفات التي يحقّ لهذا المستخدم رؤيتها — تُستعمل فقط كاقتراحات إكمال
 // تلقائي في تبويب حجب «معلومات الزبون» بلوحة الحجب.
-// كثير من الملفات تملأ هذا العمود بنفس اسم الصيدلية/العميل حرفياً (لا بمعلومة
-// إضافية فعلية) — نستبعد أي قيمة تطابق اسم صيدلية معروفاً كي لا تُغرق القائمة
-// بأسماء صيدليات مكرّرة أصلاً موجودة بتبويب «صيدلية» المخصّص لها.
+// كثير من الملفات تملأ هذا العمود بنفس اسم الصيدلية أو اسم شخص (مندوب التوصيل/
+// المسؤول بالصيدلية) حرفياً لا بمعلومة تصنيفية فعلية — مطابقة الاسم مقابل جدول
+// Customer وحدها كانت تفوّت هذا (تطابق فقط ما هو مسجَّل كصيدلية بالاسم نفسه
+// تماماً، فتترك كل الأسماء الشخصية وأي صيدلية غير مطابَقة normalization تتسرّب).
+// البديل الأوثق: قيمة «معلومات الزبون» الحقيقية (نوع طلب/قناة) تتكرر عبر عشرات
+// أو مئات الصيدليات المختلفة، بعكس نص يكرر هوية صيدلية/شخص بعينه فلا يظهر إلا
+// مع صيدلية واحدة أو اثنتين — نحسب عدد الصيدليات (customerId) المميزة وراء كل
+// قيمة ونستبعد ما دون الحد الأدنى، ونرتّب الأعم أولاً.
 app.get('/api/customer-info-values', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
     const [rows, customers] = await Promise.all([
       prisma.sale.findMany({
         where: { customerInfoNorm: { not: null }, ...saleOwnedOrSharedWith(userId) },
-        select: { customerInfoNorm: true },
-        distinct: ['customerInfoNorm'],
-        orderBy: { customerInfoNorm: 'asc' },
-        take: 2000,
+        select: { customerInfoNorm: true, customerId: true },
       }),
       prisma.customer.findMany({
         where: userId ? { OR: [{ userId }, { sales: { some: { userId } } }] } : {},
@@ -1361,10 +1363,19 @@ app.get('/api/customer-info-values', async (req, res) => {
       }),
     ]);
     const pharmacyNamesNorm = new Set(customers.map(c => normalizeArabic(c.name || '')).filter(Boolean));
-    const data = rows
-      .map(r => r.customerInfoNorm)
-      .filter(v => v && !pharmacyNamesNorm.has(normalizeArabic(v)))
-      .map(name => ({ name }));
+    const byValue = new Map(); // customerInfoNorm -> Set(customerId) رآها
+    for (const r of rows) {
+      if (!r.customerInfoNorm) continue;
+      let ids = byValue.get(r.customerInfoNorm);
+      if (!ids) { ids = new Set(); byValue.set(r.customerInfoNorm, ids); }
+      if (r.customerId != null) ids.add(r.customerId);
+    }
+    const MIN_DISTINCT_PHARMACIES = 3;
+    const data = [...byValue.entries()]
+      .filter(([name, ids]) => ids.size >= MIN_DISTINCT_PHARMACIES && !pharmacyNamesNorm.has(normalizeArabic(name)))
+      .sort((a, b) => b[1].size - a[1].size)
+      .slice(0, 500)
+      .map(([name]) => ({ name }));
     res.json({ success: true, data });
   } catch (err) {
     console.error('[customer-info-values]', err);
