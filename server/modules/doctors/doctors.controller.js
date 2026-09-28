@@ -1396,13 +1396,13 @@ export async function allRepsVisitsSummary(req, res, next) {
       orClauses.length ? prisma.doctorVisit.findMany({
         where: { OR: orClauses, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) },
         select: {
-          id: true, scientificRepId: true, userId: true,
+          id: true, scientificRepId: true, userId: true, visitDate: true,
           doctor: { select: { masterSurveyDoctorId: true, name: true, area: { select: { name: true } }, masterSurveyDoctor: { select: { areaName: true } } } },
         },
       }) : [],
       orClauses.length ? prisma.pharmacyVisit.findMany({
         where: { OR: orClauses, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) },
-        select: { id: true, scientificRepId: true, userId: true, area: { select: { name: true } }, areaName: true },
+        select: { id: true, scientificRepId: true, userId: true, visitDate: true, area: { select: { name: true } }, areaName: true },
       }) : [],
     ]);
 
@@ -1410,7 +1410,11 @@ export async function allRepsVisitsSummary(req, res, next) {
     const repByUserId = new Map(reps.map(r => [r.userId, r]));
     const findRepForVisit = v => (v.scientificRepId != null ? repByRepId.get(v.scientificRepId) : repByUserId.get(v.userId)) ?? null;
 
-    const perRep = new Map(reps.map(r => [r.userId, { areas: new Map() }]));
+    // نسبة تغطية الأطباء لكل مندوب مبنية على تارگت ثابت — لا على عدد أطباء
+    // السيرفي في مناطقه (كان يجعلها تختلف باختلاف حجم منطقة كل مندوب).
+    const MONTHLY_DOCTOR_VISIT_TARGET = 150;
+
+    const perRep = new Map(reps.map(r => [r.userId, { areas: new Map(), days: new Map() }]));
     const getAreaBucket = (repUserId, areaNameRaw) => {
       const bag = perRep.get(repUserId);
       const key = areaNameRaw ? normalizeAreaName(areaNameRaw) : '';
@@ -1420,6 +1424,13 @@ export async function allRepsVisitsSummary(req, res, next) {
         totalPharmacies: 0, pharmacyVisitCount: 0,
       });
       return bag.areas.get(key);
+    };
+    // يوم الزيارة بالشهر (1..31) — لتوزيع عدد الكولات على أيام الشهر بدل مناطقه
+    // بالجدول المحوري («جدول (يوم × مندوب)»).
+    const getDayBucket = (repUserId, day) => {
+      const bag = perRep.get(repUserId);
+      if (!bag.days.has(day)) bag.days.set(day, { doctorVisitCount: 0, pharmacyVisitCount: 0 });
+      return bag.days.get(day);
     };
 
     // 1) سقف كل منطقة لكل مندوب (عدد أطباء/صيدليات السيرفي ضمن مناطقه هو تحديداً)
@@ -1445,6 +1456,7 @@ export async function allRepsVisitsSummary(req, res, next) {
       bucket.doctorVisitCount++;
       const docKey = v.doctor?.masterSurveyDoctorId != null ? `id:${v.doctor.masterSurveyDoctorId}` : (v.doctor?.name ? `name:${normalizeAreaName(v.doctor.name)}` : null);
       if (docKey) bucket.visitedDocKeys.add(docKey);
+      getDayBucket(rep.userId, v.visitDate.getDate()).doctorVisitCount++;
     }
 
     // 3) زيارات الصيدليات الفعلية — نفس المبدأ
@@ -1454,6 +1466,7 @@ export async function allRepsVisitsSummary(req, res, next) {
       const areaName = v.area?.name || v.areaName || null;
       const bucket = getAreaBucket(rep.userId, areaName);
       bucket.pharmacyVisitCount++;
+      getDayBucket(rep.userId, v.visitDate.getDate()).pharmacyVisitCount++;
     }
 
     const result = reps.map(r => {
@@ -1468,19 +1481,25 @@ export async function allRepsVisitsSummary(req, res, next) {
           pharmacyVisitCount: a.pharmacyVisitCount,
         }))
         .sort((x, y) => (y.doctorVisitCount + y.pharmacyVisitCount) - (x.doctorVisitCount + x.pharmacyVisitCount));
+      // 1..31 دائماً (حتى الأيام بلا أي زيارة) — عرض تقويمي كامل للشهر لا قائمة
+      // بالأيام النشطة فقط.
+      const days = Array.from({ length: 31 }, (_, i) => {
+        const d = bag.days.get(i + 1);
+        return { day: i + 1, doctorVisitCount: d?.doctorVisitCount ?? 0, pharmacyVisitCount: d?.pharmacyVisitCount ?? 0 };
+      });
 
       const totalDoctors       = areas.reduce((s, a) => s + a.totalDoctors, 0);
       const visitedDoctors     = areas.reduce((s, a) => s + a.visitedDoctors, 0);
       const doctorVisitCount   = areas.reduce((s, a) => s + a.doctorVisitCount, 0);
       const totalPharmacies    = areas.reduce((s, a) => s + a.totalPharmacies, 0);
       const pharmacyVisitCount = areas.reduce((s, a) => s + a.pharmacyVisitCount, 0);
-      const coveragePct = totalDoctors > 0 ? Math.round((visitedDoctors / totalDoctors) * 100) : 0;
+      const coveragePct = Math.round((doctorVisitCount / MONTHLY_DOCTOR_VISIT_TARGET) * 100);
 
       return {
         userId: r.userId, name: r.name, company: r.company,
         totalDoctors, visitedDoctors, doctorVisitCount,
         totalPharmacies, pharmacyVisitCount, coveragePct,
-        areas,
+        areas, days,
       };
     }).sort((a, b) => (b.doctorVisitCount + b.pharmacyVisitCount) - (a.doctorVisitCount + a.pharmacyVisitCount));
 

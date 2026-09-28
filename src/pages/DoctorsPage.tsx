@@ -353,11 +353,12 @@ export default function DoctorsPage() {
     areaName: string; totalDoctors: number; visitedDoctors: number; doctorVisitCount: number;
     totalPharmacies: number; pharmacyVisitCount: number;
   }
+  interface RepVisitsDayRow { day: number; doctorVisitCount: number; pharmacyVisitCount: number; }
   interface RepVisitsSummaryRow {
     userId: number; name: string; company: ManagerCompany | null;
     totalDoctors: number; visitedDoctors: number; doctorVisitCount: number;
     totalPharmacies: number; pharmacyVisitCount: number; coveragePct: number;
-    areas: RepVisitsAreaRow[];
+    areas: RepVisitsAreaRow[]; days: RepVisitsDayRow[];
   }
   const [showRepsSummaryModal, setShowRepsSummaryModal]           = useState(false);
   const [repsSummaryLoading, setRepsSummaryLoading]               = useState(false);
@@ -830,55 +831,52 @@ export default function DoctorsPage() {
     return { cols, spans };
   };
 
-  // جدول محوري منطقة × مندوب لمقياس واحد (زيارات الأطباء أو الصيدليات) — يُخفي
-  // مناطق بلا أي زيارة إطلاقاً عبر كل الأعمدة كي لا يطول الجدول بصفوف فارغة.
-  const buildRepsAreaPivot = (cols: RepVisitsSummaryRow[], metric: 'doctors' | 'pharmacies') => {
-    const areaNames = new Set<string>();
-    for (const c of cols) for (const a of c.areas) areaNames.add(a.areaName);
-    const rows = [...areaNames]
-      .map(areaName => {
-        const cells = cols.map(c => {
-          const a = c.areas.find(x => x.areaName === areaName);
-          if (!a) return 0;
-          return metric === 'doctors' ? a.doctorVisitCount : a.pharmacyVisitCount;
-        });
-        return { name: areaName, cells, total: cells.reduce((s, v) => s + v, 0) };
-      })
-      .filter(r => r.total > 0)
-      .sort((a, b) => b.total - a.total);
+  // جدول محوري يوم الشهر (1-31) × مندوب لمقياس واحد (زيارات الأطباء أو
+  // الصيدليات) — يوزّع عدد الكولات على أيام الشهر بدل المناطق. كل الأيام 1-31
+  // تظهر دائماً (حتى بلا أي زيارة) لأنه عرض تقويمي كامل لا قائمة بالأيام النشطة فقط.
+  const buildRepsDayPivot = (cols: RepVisitsSummaryRow[], metric: 'doctors' | 'pharmacies') => {
+    const rows = Array.from({ length: 31 }, (_, i) => {
+      const day = i + 1;
+      const cells = cols.map(c => {
+        const d = c.days.find(x => x.day === day);
+        if (!d) return 0;
+        return metric === 'doctors' ? d.doctorVisitCount : d.pharmacyVisitCount;
+      });
+      return { name: String(day), cells, total: cells.reduce((s, v) => s + v, 0) };
+    });
     const colTotals = cols.map((_, ci) => rows.reduce((s, r) => s + r.cells[ci], 0));
     const grandTotal = colTotals.reduce((s, v) => s + v, 0);
     return { rows, colTotals, grandTotal };
   };
 
   // تصدير ملخص كل المندوبين إلى Excel: شيت ملخص لكل مندوب + شيتان محوريان
-  // (منطقة × مندوب) لزيارات الأطباء والصيدليات كلٌّ على حدة.
+  // (يوم الشهر × مندوب) لزيارات الأطباء والصيدليات كلٌّ على حدة.
   const exportRepsSummaryToExcel = () => {
     if (!repsSummaryData || repsSummaryData.length === 0) return;
     const { cols } = getOrderedRepsSummaryColumns(repsSummaryData, repsSummaryCompanyFilter);
     if (cols.length === 0) return;
     const wb = XLSX.utils.book_new();
 
-    const header1 = ['#', 'الشركة', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'إجمالي الأطباء', 'أطباء تمت زيارتهم', 'نسبة التغطية %', 'إجمالي الصيدليات'];
+    const header1 = ['#', 'الشركة', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'نسبة التغطية % (هدف 150 زيارة/شهر)', 'إجمالي الأطباء', 'أطباء تمت زيارتهم', 'إجمالي الصيدليات'];
     const body1 = cols.map((r, i) => [
       i + 1, r.company?.name || '', r.name, r.doctorVisitCount, r.pharmacyVisitCount,
-      r.totalDoctors, r.visitedDoctors, r.coveragePct, r.totalPharmacies,
+      r.coveragePct, r.totalDoctors, r.visitedDoctors, r.totalPharmacies,
     ]);
     const ws1 = XLSX.utils.aoa_to_sheet([header1, ...body1]);
-    ws1['!cols'] = [5, 18, 22, 14, 15, 12, 16, 14, 14].map(w => ({ wch: w }));
+    ws1['!cols'] = [5, 18, 22, 14, 15, 20, 12, 16, 14].map(w => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, ws1, 'ملخص المندوبين');
 
     const buildPivotSheet = (metric: 'doctors' | 'pharmacies', name: string) => {
-      const { rows, colTotals, grandTotal } = buildRepsAreaPivot(cols, metric);
-      const header = ['المنطقة', ...cols.map(c => c.name), 'الإجمالي'];
-      const body = rows.map(r => [r.name, ...r.cells, r.total]);
+      const { rows, colTotals, grandTotal } = buildRepsDayPivot(cols, metric);
+      const header = ['اليوم', ...cols.map(c => c.name), 'الإجمالي'];
+      const body = rows.map(r => [`يوم ${r.name}`, ...r.cells, r.total]);
       const footer = ['الإجمالي الكلي', ...colTotals, grandTotal];
       const ws = XLSX.utils.aoa_to_sheet([header, ...body, footer]);
-      ws['!cols'] = [22, ...cols.map(() => 12), 14].map(w => ({ wch: w }));
+      ws['!cols'] = [12, ...cols.map(() => 12), 14].map(w => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, ws, name);
     };
-    buildPivotSheet('doctors', 'مناطق × مندوب (أطباء)');
-    buildPivotSheet('pharmacies', 'مناطق × مندوب (صيدليات)');
+    buildPivotSheet('doctors', 'أيام الشهر × مندوب (أطباء)');
+    buildPivotSheet('pharmacies', 'أيام الشهر × مندوب (صيدليات)');
 
     XLSX.writeFile(wb, `ملخص_زيارات_المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
@@ -4933,11 +4931,11 @@ export default function DoctorsPage() {
             </div>
 
             <div style={{ padding: '14px 20px 20px', overflowY: 'auto', flex: 1 }}>
-              {/* فلتر الشركات — اختيار واحدة أو أكثر، فارغ = الكل */}
+              {/* فلتر الشركات — شركة واحدة فقط أو الكل (اختيار شركة جديدة يستبدل السابقة) */}
               {repsSummaryCompanies.length > 1 && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Icon name="navOrgStructure" size={11} /> الشركات المعروضة
+                    <Icon name="navOrgStructure" size={11} /> الشركة المعروضة
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <button
@@ -4953,11 +4951,7 @@ export default function DoctorsPage() {
                       const active = repsSummaryCompanyFilter.has(c.id);
                       return (
                         <button key={c.id}
-                          onClick={() => setRepsSummaryCompanyFilter(prev => {
-                            const next = new Set(prev);
-                            if (next.has(c.id)) next.delete(c.id); else next.add(c.id);
-                            return next;
-                          })}
+                          onClick={() => setRepsSummaryCompanyFilter(active ? new Set() : new Set([c.id]))}
                           style={{
                             padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                             border: `1.5px solid ${active ? 'var(--c-accent)' : 'var(--c-border)'}`,
@@ -4979,7 +4973,7 @@ export default function DoctorsPage() {
                   ><Icon name="menu" size={12} /> قائمة</button>
                   <button onClick={() => setRepsSummaryViewMode('pivot')}
                     style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${repsSummaryViewMode === 'pivot' ? 'var(--c-accent)' : 'var(--c-border)'}`, background: repsSummaryViewMode === 'pivot' ? 'var(--c-accent-light)' : '#fff', color: repsSummaryViewMode === 'pivot' ? 'var(--c-accent)' : 'var(--c-text-muted)', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                  ><Icon name="excel" size={12} /> جدول (منطقة × مندوب)</button>
+                  ><Icon name="excel" size={12} /> جدول (يوم × مندوب)</button>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   {repsSummaryViewMode === 'pivot' && (
@@ -5012,11 +5006,11 @@ export default function DoctorsPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                       <thead>
                         <tr>
-                          {['#', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'نسبة التغطية', 'الإجمالي', ''].map((h, hi) => (
+                          {['#', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'نسبة التغطية', ''].map((h, hi) => (
                             <th key={hi} style={{
                               padding: '10px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc',
                               textAlign: hi === 1 ? 'right' : 'center', fontWeight: 700,
-                              width: hi === 0 ? 34 : hi === 6 ? 30 : undefined,
+                              width: hi === 0 ? 34 : hi === 5 ? 30 : undefined,
                               position: 'sticky', top: 0, zIndex: 1,
                             }}>{h}</th>
                           ))}
@@ -5025,7 +5019,7 @@ export default function DoctorsPage() {
                       <tbody>
                         {cols.map((r, i) => {
                           const isExpanded = expandedRepsSummaryUserId === r.userId;
-                          const coverageColor = r.coveragePct >= 70 ? 'var(--c-success)' : r.coveragePct >= 40 ? 'var(--c-accent)' : 'var(--c-danger)';
+                          const coverageColor = r.coveragePct >= 100 ? 'var(--c-success)' : r.coveragePct >= 60 ? 'var(--c-accent)' : 'var(--c-danger)';
                           return (
                             <Fragment key={r.userId}>
                               <tr
@@ -5041,14 +5035,13 @@ export default function DoctorsPage() {
                                 <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-success)', fontWeight: 700 }}>{r.pharmacyVisitCount}</td>
                                 <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                                   <span style={{ background: coverageColor + '22', color: coverageColor, borderRadius: 6, padding: '2px 10px', fontWeight: 800 }}>{r.coveragePct}%</span>
-                                  <div style={{ fontSize: 10, color: 'var(--c-text-muted)', marginTop: 2 }}>{r.visitedDoctors}/{r.totalDoctors}</div>
+                                  <div style={{ fontSize: 10, color: 'var(--c-text-muted)', marginTop: 2 }}>{r.doctorVisitCount}/150</div>
                                 </td>
-                                <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: 'var(--c-success)', background: 'var(--c-success-bg)' }}>{r.doctorVisitCount + r.pharmacyVisitCount}</td>
                                 <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-text-muted)', fontSize: 11 }}>{isExpanded ? '▲' : '▼'}</td>
                               </tr>
                               {isExpanded && (
                                 <tr style={{ borderBottom: '1px solid var(--c-border-light)' }}>
-                                  <td colSpan={7} style={{ background: 'var(--c-bg)', padding: '10px 16px' }}>
+                                  <td colSpan={6} style={{ background: 'var(--c-bg)', padding: '10px 16px' }}>
                                     {r.areas.length === 0 ? (
                                       <span style={{ color: 'var(--c-text-muted)', fontSize: 12 }}>لا توجد زيارات مسجَّلة لهذا المندوب</span>
                                     ) : (
@@ -5074,10 +5067,7 @@ export default function DoctorsPage() {
                   </div>
                 );
 
-                const { rows, colTotals, grandTotal } = buildRepsAreaPivot(cols, repsSummaryMetric);
-                if (rows.length === 0) {
-                  return <div style={{ textAlign: 'center', padding: '50px 0', color: 'var(--c-text-muted)', fontSize: 13 }}>لا توجد زيارات لعرضها</div>;
-                }
+                const { rows, colTotals, grandTotal } = buildRepsDayPivot(cols, repsSummaryMetric);
                 const pivotTh: React.CSSProperties = { padding: '8px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', zIndex: 2, whiteSpace: 'nowrap' };
                 const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap' };
                 return (
@@ -5085,7 +5075,7 @@ export default function DoctorsPage() {
                     <table style={{ borderCollapse: 'collapse', fontSize: 12.5 }}>
                       <thead>
                         <tr>
-                          <th rowSpan={2} style={{ ...pivotTh, textAlign: 'right', top: 0, right: 0, zIndex: 3 }}>المنطقة</th>
+                          <th rowSpan={2} style={{ ...pivotTh, textAlign: 'right', top: 0, right: 0, zIndex: 3 }}>اليوم</th>
                           {spans.map((s, si) => {
                             const [light, dark] = repsSummaryCompanyColor(si);
                             return (
