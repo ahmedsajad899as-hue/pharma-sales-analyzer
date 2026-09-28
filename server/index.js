@@ -1372,18 +1372,21 @@ app.get('/api/customer-info-values', async (req, res) => {
   }
 });
 
-// GET /api/customer-info-items?name=... — آيتمات ظهرت فعلياً مع قيمة معيّنة
-// (بعد التطبيع «يحتوي على») لعمود «معلومات الزبون» — تُغذّي منتقي «حجب جزئي:
-// آيتم لهذا الاسم فقط» بتبويب معلومات الزبون، بنفس منطق مطابقة الحجب نفسه
-// (contains) كي تُطابق ما سيُخفى فعلاً.
+// GET /api/customer-info-items?names=a&names=b (أو name=a وحيداً للتوافق) —
+// آيتمات ظهرت فعلياً مع أي من القيم المختارة (بعد التطبيع «يحتوي على») لعمود
+// «معلومات الزبون» — تُغذّي منتقي «حجب جزئي: آيتم لاسم/أسماء مختارة» بتبويب
+// معلومات الزبون، بنفس منطق مطابقة الحجب نفسه (contains) كي تُطابق ما سيُخفى فعلاً.
 app.get('/api/customer-info-items', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
-    const name = String(req.query.name || '').trim();
-    if (!name) return res.json({ success: true, data: [] });
-    const norm = normalizeArabic(name);
+    const rawNames = req.query.names ?? req.query.name;
+    const names = (Array.isArray(rawNames) ? rawNames : [rawNames]).map(n => String(n || '').trim()).filter(Boolean);
+    if (names.length === 0) return res.json({ success: true, data: [] });
+    const norms = [...new Set(names.map(normalizeArabic))];
     const rows = await prisma.sale.findMany({
-      where: { customerInfoNorm: { contains: norm, mode: 'insensitive' }, ...saleOwnedOrSharedWith(userId) },
+      // AND (لا سبريد مباشر): saleOwnedOrSharedWith نفسه قد يرجّع مفتاح OR — سبريده
+      // بجانب OR أسماء المطابقة كان سيُسقط أحدهما (آخر مفتاح يفوز بمفتاح مكرر بالكائن).
+      where: { AND: [{ OR: norms.map(norm => ({ customerInfoNorm: { contains: norm, mode: 'insensitive' } })) }, saleOwnedOrSharedWith(userId)] },
       select: { item: { select: { id: true, name: true } } },
       distinct: ['itemId'],
       take: 500,

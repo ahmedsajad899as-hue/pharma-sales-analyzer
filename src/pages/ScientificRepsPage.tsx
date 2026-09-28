@@ -175,9 +175,13 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [repAreaPickerRepId, setRepAreaPickerRepId] = useState<number | ''>('');
   // حجب جزئي: آيتم محدد مرتبط باسم معيّن داخل «معلومات الزبون» (لا الاسم كاملاً)
   const [blockedCustomerInfoItems, setBlockedCustomerInfoItems] = useState<{ id: number; customerInfoName: string; itemName: string; enabled: boolean }[]>([]);
-  // مربوط مباشرة بـ blockInput (بلا اختيار اسم منفصل ثانية) — انظر تعليق
-  // الـ debounce effect بالأسفل
-  const [ciDebouncedName, setCiDebouncedName] = useState('');
+  // منتقي أسماء متعدد مستقل عن blockInput فوق — يعرض كل القيم الفعلية الموجودة
+  // بحقل «معلومات الزبون» (كفلتر إكسل) ليختار المستخدم منها اسماً أو أكثر دفعة
+  // واحدة، فتُجلب الآيتمات المشتركة بين كل الأسماء المختارة معاً.
+  const [ciSelectedNames, setCiSelectedNames] = useState<string[]>([]);
+  const [ciNameInput, setCiNameInput] = useState('');
+  const [showCiNameSuggest, setShowCiNameSuggest] = useState(false);
+  const ciNameSuggestRef = useRef<HTMLDivElement>(null);
   const [ciItemsForPicked, setCiItemsForPicked] = useState<{ id: number; name: string }[]>([]);
   const [ciItemsLoading, setCiItemsLoading] = useState(false);
   const [blockInput, setBlockInput]         = useState('');
@@ -385,27 +389,53 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
     } catch { loadBlocked(); }
   };
 
-  // اسم «معلومات الزبون» المُستعمل لجلب آيتماته هو نفس الحقل الرئيسي (blockInput)
-  // بدل اختيار منفصل ثانية — debounce لأنه يتغيّر مع كل ضغطة حرف بالحقل.
+  // إفراغ الاختيار عند مغادرة تبويب «معلومات الزبون»
   useEffect(() => {
-    if (blockKind !== 'customerInfo') { setCiDebouncedName(''); return; }
-    const name = blockInput.trim();
-    const t = setTimeout(() => setCiDebouncedName(name), 350);
-    return () => clearTimeout(t);
-  }, [blockInput, blockKind]);
+    if (blockKind !== 'customerInfo') { setCiSelectedNames([]); setCiNameInput(''); setShowCiNameSuggest(false); }
+  }, [blockKind]);
 
-  // Fetch items that actually appear (contains-match) with the typed customer-info
-  // value — powers the item checkboxes below, on-demand (no broad preload like
+  // Fetch items that actually appear (contains-match) across ALL selected customer-info
+  // values — powers the item checkboxes below, on-demand (no broad preload like
   // allCommercialWithAreas, since the universe of customer-info values can be large).
   useEffect(() => {
-    if (!ciDebouncedName) { setCiItemsForPicked([]); return; }
+    if (ciSelectedNames.length === 0) { setCiItemsForPicked([]); return; }
     setCiItemsLoading(true);
-    fetch(`${API}/api/customer-info-items?name=${encodeURIComponent(ciDebouncedName)}`, { headers: authH() })
+    const qs = ciSelectedNames.map(n => `names=${encodeURIComponent(n)}`).join('&');
+    fetch(`${API}/api/customer-info-items?${qs}`, { headers: authH() })
       .then(r => r.json())
       .then(j => setCiItemsForPicked(Array.isArray(j.data) ? j.data : []))
       .catch(() => setCiItemsForPicked([]))
       .finally(() => setCiItemsLoading(false));
-  }, [ciDebouncedName, token]);
+  }, [ciSelectedNames, token]);
+
+  // Close the customer-info name suggestion dropdown on outside click (same
+  // rationale as the blockSuggestRef effect below it).
+  useEffect(() => {
+    if (!showCiNameSuggest) return;
+    const handler = (e: MouseEvent) => {
+      if (ciNameSuggestRef.current && !ciNameSuggestRef.current.contains(e.target as Node)) setShowCiNameSuggest(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showCiNameSuggest]);
+
+  const toggleCiSelectedName = (name: string) => {
+    setCiSelectedNames(prev => (
+      prev.some(n => normalizeAr(n) === normalizeAr(name)) ? prev.filter(n => normalizeAr(n) !== normalizeAr(name)) : [...prev, name]
+    ));
+  };
+
+  // آيتم واحد قد يكون محجوباً جزئياً لبعض الأسماء المختارة دون الأخرى — التفعيل
+  // يحجبه لكل الأسماء المختارة معاً، والإلغاء يزيل كل أزواجه القائمة معها.
+  const toggleItemForSelectedNames = (itemName: string) => {
+    const pairs = ciSelectedNames.map(name => ({
+      name,
+      row: blockedCustomerInfoItems.find(b => normalizeAr(b.customerInfoName) === normalizeAr(name) && normalizeAr(b.itemName) === normalizeAr(itemName)),
+    }));
+    const allBlocked = pairs.every(p => p.row);
+    if (allBlocked) pairs.forEach(p => p.row && removeBlockedCustomerInfoItem(p.row.id));
+    else pairs.forEach(p => { if (!p.row) addBlockedCustomerInfoItem(p.name, itemName); });
+  };
 
   // Close the block-suggestions dropdown on outside click — without this, it stays
   // open (nothing else dismisses it) and its absolutely-positioned overlay can sit on
@@ -948,47 +978,94 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                   </div>
                 )}
 
-                {/* ── حجب جزئي: آيتمات محددة لاسم معيّن داخل معلومات الزبون (بدل حجبه بالكامل) ──
-                     مدموج مع الحقل الرئيسي فوق (blockInput) بلا اختيار اسم منفصل ثانية. */}
+                {/* ── حجب جزئي: آيتمات محددة لاسم أو أكثر داخل معلومات الزبون (بدل حجبها بالكامل) ──
+                     منتقي مستقل بالكامل عن الحقل الرئيسي فوق — يعرض كل القيم الفعلية
+                     كفلتر إكسل ويدعم اختيار أكثر من اسم دفعة واحدة. */}
                 {blockKind === 'customerInfo' && (
                   <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px dashed #fecaca' }}>
                     <div style={{ fontSize: 12.5, fontWeight: 800, color: '#9a3412', marginBottom: 8 }}>
-                      🧩 أو حجب آيتمات محددة فقط للاسم المكتوب أعلاه (بدل حجب كل مبيعاته)
+                      🧩 أو حجب آيتمات محددة فقط لاسم/أسماء مختارة (بدل حجب كل مبيعاتها)
                     </div>
-                    {!blockInput.trim() ? (
-                      <div style={{ fontSize: 12, color: '#94a3b8' }}>اكتب اسماً بالحقل فوق ليظهر لك الآيتمات المرتبطة به هنا.</div>
+
+                    <div ref={ciNameSuggestRef} style={{ position: 'relative' }}>
+                      <input
+                        className="form-input"
+                        style={{ width: '100%', fontSize: 13 }}
+                        placeholder="اختر اسماً واحداً أو أكثر من قيم حقل معلومات الزبون…"
+                        value={ciNameInput}
+                        onChange={e => { setCiNameInput(e.target.value); setShowCiNameSuggest(true); }}
+                        onFocus={() => setShowCiNameSuggest(true)}
+                      />
+                      {showCiNameSuggest && (() => {
+                        const q = normalizeAr(ciNameInput);
+                        const pool = blockSuggestSources.customerInfo;
+                        const list = (q ? pool.filter(n => normalizeAr(n).includes(q)) : pool).slice(0, 200);
+                        if (list.length === 0) {
+                          return (
+                            <div style={{ position: 'absolute', top: '105%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: '8px 12px', fontSize: 12, color: '#94a3b8' }}>
+                              لا قيم مطابقة في بياناتك.
+                            </div>
+                          );
+                        }
+                        return (
+                          <div style={{ position: 'absolute', top: '105%', right: 0, left: 0, zIndex: 50, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 240, overflowY: 'auto' }}>
+                            {list.map(n => {
+                              const checked = ciSelectedNames.some(s => normalizeAr(s) === normalizeAr(n));
+                              return (
+                                <label key={n}
+                                  onMouseDown={e => e.preventDefault()}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid #f1f5f9', background: checked ? '#fef2f2' : '#fff' }}>
+                                  <input type="checkbox" checked={checked} onChange={() => toggleCiSelectedName(n)} style={{ margin: 0 }} />
+                                  {n}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {ciSelectedNames.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                        {ciSelectedNames.map(n => (
+                          <span key={n}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 700, background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' }}>
+                            📇 {n}
+                            <button onClick={() => toggleCiSelectedName(n)} title="إزالة من الاختيار"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 0, lineHeight: 1, fontSize: 13, fontWeight: 800, opacity: 0.7 }}>✕</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {ciSelectedNames.length === 0 ? (
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>اختر اسماً واحداً أو أكثر أعلاه ليظهر لك الآيتمات المرتبطة بها هنا.</div>
                     ) : ciItemsLoading ? (
-                      <div style={{ fontSize: 12, color: '#94a3b8' }}>...جاري التحميل</div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>...جاري التحميل</div>
                     ) : ciItemsForPicked.length === 0 ? (
-                      <div style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد آيتمات مرتبطة بهذا الاسم في بياناتك.</div>
-                    ) : (() => {
-                      const nameNorm = normalizeAr(ciDebouncedName);
-                      const rowByItemNorm = new Map(
-                        blockedCustomerInfoItems.filter(b => normalizeAr(b.customerInfoName) === nameNorm).map(b => [normalizeAr(b.itemName), b]),
-                      );
-                      return (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                          {ciItemsForPicked.map(it => {
-                            const row = rowByItemNorm.get(normalizeAr(it.name));
-                            const blocked = !!row;
-                            return (
-                              <label key={it.id}
-                                style={{
-                                  display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                  background: blocked ? '#fff7ed' : '#fff',
-                                  color: blocked ? '#9a3412' : '#475569',
-                                  border: `1px solid ${blocked ? '#fdba74' : '#e2e8f0'}`,
-                                }}>
-                                <input type="checkbox" checked={blocked}
-                                  onChange={() => (row ? removeBlockedCustomerInfoItem(row.id) : addBlockedCustomerInfoItem(ciDebouncedName, it.name))}
-                                  style={{ margin: 0 }} />
-                                💊 {it.name}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>لا توجد آيتمات مرتبطة بهذه الأسماء في بياناتك.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                        {ciItemsForPicked.map(it => {
+                          const blockedForAll = ciSelectedNames.every(name =>
+                            blockedCustomerInfoItems.some(b => normalizeAr(b.customerInfoName) === normalizeAr(name) && normalizeAr(b.itemName) === normalizeAr(it.name)),
+                          );
+                          return (
+                            <label key={it.id}
+                              title={ciSelectedNames.length > 1 ? 'يحجب هذا الآيتم لكل الأسماء المختارة معاً' : undefined}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                background: blockedForAll ? '#fff7ed' : '#fff',
+                                color: blockedForAll ? '#9a3412' : '#475569',
+                                border: `1px solid ${blockedForAll ? '#fdba74' : '#e2e8f0'}`,
+                              }}>
+                              <input type="checkbox" checked={blockedForAll} onChange={() => toggleItemForSelectedNames(it.name)} style={{ margin: 0 }} />
+                              💊 {it.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     {blockedCustomerInfoItems.length > 0 && (() => {
                       const byName = new Map<string, typeof blockedCustomerInfoItems>();
