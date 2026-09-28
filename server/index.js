@@ -1341,17 +1341,31 @@ function saleOwnedOrSharedWith(userId) {
 // GET /api/customer-info-values — قيم عمود «معلومات الزبون» الفريدة (بعد التطبيع)
 // من الملفات التي يحقّ لهذا المستخدم رؤيتها — تُستعمل فقط كاقتراحات إكمال
 // تلقائي في تبويب حجب «معلومات الزبون» بلوحة الحجب.
+// كثير من الملفات تملأ هذا العمود بنفس اسم الصيدلية/العميل حرفياً (لا بمعلومة
+// إضافية فعلية) — نستبعد أي قيمة تطابق اسم صيدلية معروفاً كي لا تُغرق القائمة
+// بأسماء صيدليات مكرّرة أصلاً موجودة بتبويب «صيدلية» المخصّص لها.
 app.get('/api/customer-info-values', async (req, res) => {
   try {
     const userId = req.user?.id ?? null;
-    const rows = await prisma.sale.findMany({
-      where: { customerInfoNorm: { not: null }, ...saleOwnedOrSharedWith(userId) },
-      select: { customerInfoNorm: true },
-      distinct: ['customerInfoNorm'],
-      orderBy: { customerInfoNorm: 'asc' },
-      take: 2000,
-    });
-    res.json({ success: true, data: rows.map(r => ({ name: r.customerInfoNorm })) });
+    const [rows, customers] = await Promise.all([
+      prisma.sale.findMany({
+        where: { customerInfoNorm: { not: null }, ...saleOwnedOrSharedWith(userId) },
+        select: { customerInfoNorm: true },
+        distinct: ['customerInfoNorm'],
+        orderBy: { customerInfoNorm: 'asc' },
+        take: 2000,
+      }),
+      prisma.customer.findMany({
+        where: userId ? { OR: [{ userId }, { sales: { some: { userId } } }] } : {},
+        select: { name: true },
+      }),
+    ]);
+    const pharmacyNamesNorm = new Set(customers.map(c => normalizeArabic(c.name || '')).filter(Boolean));
+    const data = rows
+      .map(r => r.customerInfoNorm)
+      .filter(v => v && !pharmacyNamesNorm.has(normalizeArabic(v)))
+      .map(name => ({ name }));
+    res.json({ success: true, data });
   } catch (err) {
     console.error('[customer-info-values]', err);
     res.status(500).json({ error: err.message });
@@ -1369,7 +1383,7 @@ app.get('/api/customer-info-items', async (req, res) => {
     if (!name) return res.json({ success: true, data: [] });
     const norm = normalizeArabic(name);
     const rows = await prisma.sale.findMany({
-      where: { customerInfoNorm: { contains: norm }, ...saleOwnedOrSharedWith(userId) },
+      where: { customerInfoNorm: { contains: norm, mode: 'insensitive' }, ...saleOwnedOrSharedWith(userId) },
       select: { item: { select: { id: true, name: true } } },
       distinct: ['itemId'],
       take: 500,

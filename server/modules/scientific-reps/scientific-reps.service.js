@@ -1219,7 +1219,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
         for (const [customerInfoNorm, itemNormsSet] of itemsByCustomerInfoNorm) {
           const itemIdsForBlock = allItemsForCustomerInfoBlock.filter(i => itemNormsSet.has(normalizeArabic(i.name))).map(i => i.id);
           if (customerInfoNorm && itemIdsForBlock.length > 0) {
-            blockedCustomerInfoItemConds.push({ customerInfoNorm: { contains: customerInfoNorm }, itemId: { in: itemIdsForBlock } });
+            blockedCustomerInfoItemConds.push({ customerInfoNorm: { contains: customerInfoNorm, mode: 'insensitive' }, itemId: { in: itemIdsForBlock } });
           }
         }
       }
@@ -1316,7 +1316,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     // حجب أسماء داخل «معلومات الزبون»: أي اسم محجوب يظهر كجزء من نص الحقل
     // (لا مساواة تامة) يُخفي الصف، بصرف النظر عن باقي أعمدته.
     if (blockedCustomerInfoNorms.length) {
-      conditions.push({ NOT: { OR: blockedCustomerInfoNorms.map(n => ({ customerInfoNorm: { contains: n } })) } });
+      conditions.push({ NOT: { OR: blockedCustomerInfoNorms.map(n => ({ customerInfoNorm: { contains: n, mode: 'insensitive' } })) } });
     }
     // حجب جزئي: يستبعد فقط صفوف (هذا المندوب AND إحدى مناطقه المحجوبة) معاً —
     // بقية مناطقه، وبقية المندوبين في نفس المناطق، يبقون ظاهرين.

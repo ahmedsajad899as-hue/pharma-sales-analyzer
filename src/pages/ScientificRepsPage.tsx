@@ -8,6 +8,7 @@ const API = import.meta.env.VITE_API_URL || '';
 /** Normalize Arabic for fuzzy comparison: strip ال, unify أإآ→ا, ة/ه→ه, ى→ي, no diacritics */
 const normalizeAr = (s: string): string =>
   s.trim()
+    .toLowerCase()
     .replace(/[\u0623\u0625\u0622\u0671]/g, '\u0627')  // أ إ آ → ا
     .replace(/[\u0629\u0647]/g, '\u0647')               // ة/ه → ه
     .replace(/\u0649/g, '\u064A')                        // ى → ي
