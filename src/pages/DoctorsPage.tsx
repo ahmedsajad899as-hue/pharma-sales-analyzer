@@ -5082,12 +5082,17 @@ export default function DoctorsPage() {
                 const { rows, colTotals, grandTotal } = buildRepsDayPivot(cols, repsSummaryMetric);
                 const pivotTh: React.CSSProperties = { padding: '8px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', zIndex: 2, whiteSpace: 'nowrap' };
                 const pivotTd: React.CSSProperties = { padding: '7px 6px', textAlign: 'center', whiteSpace: 'nowrap' };
-                // خط أصغر + التفاف سطرين بدل عمود عريض واحد لكل اسم مندوب — كي
-                // تظهر كل الأسماء بلا حاجة للتمرير يمين/يسار عند اختيار شركة واحدة.
-                const pivotRepTh: React.CSSProperties = {
-                  ...pivotTh, top: 34, fontSize: 10, fontWeight: 600, lineHeight: 1.25,
-                  whiteSpace: 'normal', wordBreak: 'break-word', padding: '6px 3px', maxWidth: 74,
-                };
+                // خط أصغر + التفاف سطرين بدل عمود عريض واحد لكل اسم مندوب — فقط
+                // عند اختيار شركة واحدة (حيث يحقق فعلاً هدف عرض كل الأسماء بلا
+                // تمرير). عند «الكل» يبقى الخط الأصلي — عدد المندوبين هناك قد
+                // يتجاوز ما يسع الشاشة أياً كان حجم الخط، فلا فائدة من التصغير،
+                // ويبقى الخط الأصلي أوضح للقراءة.
+                const pivotRepTh: React.CSSProperties = repsSummaryCompanyFilter.size > 0
+                  ? {
+                      ...pivotTh, top: 34, fontSize: 10, fontWeight: 600, lineHeight: 1.25,
+                      whiteSpace: 'normal', wordBreak: 'break-word', padding: '6px 3px', maxWidth: 74,
+                    }
+                  : { ...pivotTh, top: 34 };
                 return (
                   <div style={{ maxHeight: '68vh', overflow: 'auto', border: '1px solid var(--c-border)', borderRadius: 12 }}>
                     <table style={{ borderCollapse: 'collapse', fontSize: 12.5 }}>
