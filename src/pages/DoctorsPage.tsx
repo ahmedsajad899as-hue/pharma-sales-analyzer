@@ -831,6 +831,18 @@ export default function DoctorsPage() {
     return { cols, spans };
   };
 
+  // اسم يوم الأسبوع (الأحد..السبت) لرقم يوم بالشهر — يعتمد الشهر/السنة
+  // المحدَّدين حالياً بأعلى الصفحة (visitMonthFilter)، وإلا الشهر الحالي فعلياً
+  // كافتراض معقول حين لا فلتر شهر محدَّد ("الكل"). يرجع null لرقم يوم لا وجود
+  // له فعلياً بذلك الشهر (مثل 30/31 بشهر فبراير) — لا يُعرض له اسم يوم.
+  const ARABIC_WEEKDAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+  const getDayWeekday = (day: number): string | null => {
+    const ctx = visitMonthFilter ?? { month: new Date().getMonth() + 1, year: new Date().getFullYear() };
+    const daysInMonth = new Date(ctx.year, ctx.month, 0).getDate();
+    if (day > daysInMonth) return null;
+    return ARABIC_WEEKDAYS[new Date(ctx.year, ctx.month - 1, day).getDay()];
+  };
+
   // جدول محوري يوم الشهر (1-31) × مندوب لمقياس واحد (زيارات الأطباء أو
   // الصيدليات) — يوزّع عدد الكولات على أيام الشهر بدل المناطق. كل الأيام 1-31
   // تظهر دائماً (حتى بلا أي زيارة) لأنه عرض تقويمي كامل لا قائمة بالأيام النشطة فقط.
@@ -842,7 +854,7 @@ export default function DoctorsPage() {
         if (!d) return 0;
         return metric === 'doctors' ? d.doctorVisitCount : d.pharmacyVisitCount;
       });
-      return { name: String(day), cells, total: cells.reduce((s, v) => s + v, 0) };
+      return { name: String(day), weekday: getDayWeekday(day), cells, total: cells.reduce((s, v) => s + v, 0) };
     });
     const colTotals = cols.map((_, ci) => rows.reduce((s, r) => s + r.cells[ci], 0));
     const grandTotal = colTotals.reduce((s, v) => s + v, 0);
@@ -869,7 +881,7 @@ export default function DoctorsPage() {
     const buildPivotSheet = (metric: 'doctors' | 'pharmacies', name: string) => {
       const { rows, colTotals, grandTotal } = buildRepsDayPivot(cols, metric);
       const header = ['اليوم', ...cols.map(c => c.name), 'الإجمالي'];
-      const body = rows.map(r => [`يوم ${r.name}`, ...r.cells, r.total]);
+      const body = rows.map(r => [`يوم ${r.name}${r.weekday ? ' - ' + r.weekday : ''}`, ...r.cells, r.total]);
       const footer = ['الإجمالي الكلي', ...colTotals, grandTotal];
       const ws = XLSX.utils.aoa_to_sheet([header, ...body, footer]);
       ws['!cols'] = [12, ...cols.map(() => 12), 14].map(w => ({ wch: w }));
@@ -5099,7 +5111,10 @@ export default function DoctorsPage() {
                       <tbody>
                         {rows.map((row, ri) => (
                           <tr key={row.name} style={{ background: ri % 2 === 0 ? '#fff' : 'var(--c-bg)', borderBottom: '1px solid var(--c-border-light)' }}>
-                            <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: 'var(--c-text-primary)', position: 'sticky', right: 0, background: ri % 2 === 0 ? '#fff' : 'var(--c-bg)' }}>{row.name}</td>
+                            <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: 'var(--c-text-primary)', position: 'sticky', right: 0, background: ri % 2 === 0 ? '#fff' : 'var(--c-bg)' }}>
+                              {row.name}
+                              {row.weekday && <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--c-text-muted)' }}>{row.weekday}</div>}
+                            </td>
                             {row.cells.map((c, ci) => (
                               <td key={ci} style={{ ...pivotTd, color: c > 0 ? 'var(--c-accent)' : 'var(--c-border)', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? c : '—'}</td>
                             ))}
