@@ -165,7 +165,7 @@ export async function removeCount(id, readIds) {
  */
 export async function buildCycles(readIds) {
   const warehouses = await getWarehouses(readIds);
-  if (!warehouses.length) return { cycles: [], openCycles: [], unlinkedTeamSales: [], warehouses: [] };
+  if (!warehouses.length) return { cycles: [], openCycles: [], unlinkedTeamSales: [], teamSales: [], warehouses: [] };
 
   const warehouseIds = warehouses.map(w => w.id);
   const whById = new Map(warehouses.map(w => [w.id, w]));
@@ -232,15 +232,18 @@ export async function buildCycles(readIds) {
     }
   }
 
-  const unlinkedTeamSales = teamSales
-    .filter(t => !closeDateKeys.has(`${t.warehouseId}|${+new Date(t.asOfDate)}`))
-    .map(t => ({
-      id: t.id, warehouseId: t.warehouseId, warehouse: whById.get(t.warehouseId)?.name ?? '—',
-      asOfDate: t.asOfDate, team: t.team, qty: t.qty, sourceLabel: t.sourceLabel,
-    }));
+  // كل صفوف مبيعات الفرق كما هي — مع علم «مرتبطة بدورة» — لتبويب «مبيعات
+  // الفرق» (إدارة/حذف) ولتنبيه الصفوف غير المرتبطة بعد في تبويب «الدورات».
+  const teamSalesAll = teamSales.map(t => ({
+    id: t.id, warehouseId: t.warehouseId, warehouse: whById.get(t.warehouseId)?.name ?? '—',
+    region: whById.get(t.warehouseId)?.region ?? '',
+    asOfDate: t.asOfDate, team: t.team, qty: t.qty, sourceLabel: t.sourceLabel, uploadedAt: t.uploadedAt,
+    linked: closeDateKeys.has(`${t.warehouseId}|${+new Date(t.asOfDate)}`),
+  }));
+  const unlinkedTeamSales = teamSalesAll.filter(t => !t.linked);
 
   cycles.sort((a, b) => new Date(b.closeDate) - new Date(a.closeDate));
   openCycles.sort((a, b) => a.warehouse.localeCompare(b.warehouse, 'ar'));
 
-  return { cycles, openCycles, unlinkedTeamSales, warehouses };
+  return { cycles, openCycles, unlinkedTeamSales, teamSales: teamSalesAll, warehouses };
 }

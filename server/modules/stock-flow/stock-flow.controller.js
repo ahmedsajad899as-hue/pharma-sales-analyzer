@@ -80,7 +80,10 @@ export async function extractTeamSales(req, res) {
     }
     const { writeId } = await resolveLedgerScope(req.user);
     const { pending } = await service.classifyTeamSalesRows(rows, writeId);
-    res.json({ success: true, data: { rows, pending, skipped, fileName: utf8Name(req.file) } });
+    // شكل PendingMatches نفسه المستعمَل في StockMovementImportModal (رصيد المذاخر) —
+    // إعادة استعمال المكوّن نفسه بلا أي تعديل عليه؛ لا ايتمات ولا شركات في ملف الفرق.
+    const pendingMatches = { warehouses: pending, items: [], companies: [] };
+    res.json({ success: true, data: { rows, pending: pendingMatches, skipped, fileName: utf8Name(req.file) } });
   } catch (err) { fail(res, err, 400); }
 }
 
