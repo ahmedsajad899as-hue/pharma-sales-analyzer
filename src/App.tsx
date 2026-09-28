@@ -42,7 +42,10 @@ const _importSurvey          = () => import('./pages/SurveyPage');
 const _importFMS             = () => import('./pages/FMSPage');
 const _importSalesData       = () => import('./pages/SalesDataPage');
 const _importStockLedger     = () => import('./pages/StockLedgerPage');
-const _importStockFlow       = () => import('./pages/StockFlowPage');
+// مؤقتاً معطَّل: src/pages/StockFlowPage.tsx لم يُنشأ بعد (عمل جارٍ) — استيراده هنا
+// كان يفشل بناء vite بالكامل ("Could not resolve './pages/StockFlowPage'"). أعِد
+// هذا السطر وسطرَي StockFlowPage/'stock-flow' أدناه فور إنشاء الصفحة الفعلية.
+// const _importStockFlow       = () => import('./pages/StockFlowPage');
 const _importDistributorSales = () => import('./pages/DistributorSalesPage');
 const _importFileFilter          = () => import('./pages/FileFilterPage');
 const _importPharmacyAnalysis    = () => import('./pages/PharmacyAnalysisPage');
@@ -69,7 +72,7 @@ const SurveyPage          = lazyWithRetry(_importSurvey);
 const FMSPage             = lazyWithRetry(_importFMS);
 const SalesDataPage           = lazyWithRetry(_importSalesData);
 const StockLedgerPage         = lazyWithRetry(_importStockLedger);
-const StockFlowPage           = lazyWithRetry(_importStockFlow);
+// const StockFlowPage           = lazyWithRetry(_importStockFlow);
 const DistributorSalesPage    = lazyWithRetry(_importDistributorSales);
 const FileFilterPage          = lazyWithRetry(_importFileFilter);
 const PharmacyAnalysisPage    = lazyWithRetry(_importPharmacyAnalysis);
@@ -510,7 +513,7 @@ function AppInner() {
     { id: 'fms',             node: <FMSPage /> },
     { id: 'sales-data',      node: <SalesDataPage /> },
     { id: 'stock-ledger',    node: <StockLedgerPage /> },
-    { id: 'stock-flow',      node: <StockFlowPage /> },
+    // { id: 'stock-flow',      node: <StockFlowPage /> }, // معطَّل مؤقتاً — راجع تعليق _importStockFlow أعلاه
     { id: 'distributor-sales', node: <DistributorSalesPage /> },
     { id: 'file-filter',        node: <FileFilterPage /> },
     { id: 'pharmacy-analysis',  node: <PharmacyAnalysisPage /> },
