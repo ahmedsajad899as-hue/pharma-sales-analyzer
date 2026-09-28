@@ -5069,7 +5069,13 @@ export default function DoctorsPage() {
 
                 const { rows, colTotals, grandTotal } = buildRepsDayPivot(cols, repsSummaryMetric);
                 const pivotTh: React.CSSProperties = { padding: '8px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', zIndex: 2, whiteSpace: 'nowrap' };
-                const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap' };
+                const pivotTd: React.CSSProperties = { padding: '7px 6px', textAlign: 'center', whiteSpace: 'nowrap' };
+                // خط أصغر + التفاف سطرين بدل عمود عريض واحد لكل اسم مندوب — كي
+                // تظهر كل الأسماء بلا حاجة للتمرير يمين/يسار عند اختيار شركة واحدة.
+                const pivotRepTh: React.CSSProperties = {
+                  ...pivotTh, top: 34, fontSize: 10, fontWeight: 600, lineHeight: 1.25,
+                  whiteSpace: 'normal', wordBreak: 'break-word', padding: '6px 3px', maxWidth: 74,
+                };
                 return (
                   <div style={{ maxHeight: '68vh', overflow: 'auto', border: '1px solid var(--c-border)', borderRadius: 12 }}>
                     <table style={{ borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -5086,7 +5092,7 @@ export default function DoctorsPage() {
                         </tr>
                         <tr>
                           {cols.map(c => (
-                            <th key={c.userId} style={{ ...pivotTh, top: 34 }}>{c.name}</th>
+                            <th key={c.userId} style={pivotRepTh}>{c.name}</th>
                           ))}
                         </tr>
                       </thead>
