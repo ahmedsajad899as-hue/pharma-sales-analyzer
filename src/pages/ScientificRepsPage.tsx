@@ -174,7 +174,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [repAreaPickerRepId, setRepAreaPickerRepId] = useState<number | ''>('');
   // حجب جزئي: آيتم محدد مرتبط باسم معيّن داخل «معلومات الزبون» (لا الاسم كاملاً)
   const [blockedCustomerInfoItems, setBlockedCustomerInfoItems] = useState<{ id: number; customerInfoName: string; itemName: string; enabled: boolean }[]>([]);
-  const [ciItemPickerName, setCiItemPickerName] = useState('');
+  // مربوط مباشرة بـ blockInput (بلا اختيار اسم منفصل ثانية) — انظر تعليق
+  // الـ debounce effect بالأسفل
+  const [ciDebouncedName, setCiDebouncedName] = useState('');
   const [ciItemsForPicked, setCiItemsForPicked] = useState<{ id: number; name: string }[]>([]);
   const [ciItemsLoading, setCiItemsLoading] = useState(false);
   const [blockInput, setBlockInput]         = useState('');
@@ -382,18 +384,27 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
     } catch { loadBlocked(); }
   };
 
-  // Fetch items that actually appear (contains-match) with the picked customer-info
+  // اسم «معلومات الزبون» المُستعمل لجلب آيتماته هو نفس الحقل الرئيسي (blockInput)
+  // بدل اختيار منفصل ثانية — debounce لأنه يتغيّر مع كل ضغطة حرف بالحقل.
+  useEffect(() => {
+    if (blockKind !== 'customerInfo') { setCiDebouncedName(''); return; }
+    const name = blockInput.trim();
+    const t = setTimeout(() => setCiDebouncedName(name), 350);
+    return () => clearTimeout(t);
+  }, [blockInput, blockKind]);
+
+  // Fetch items that actually appear (contains-match) with the typed customer-info
   // value — powers the item checkboxes below, on-demand (no broad preload like
   // allCommercialWithAreas, since the universe of customer-info values can be large).
   useEffect(() => {
-    if (!ciItemPickerName) { setCiItemsForPicked([]); return; }
+    if (!ciDebouncedName) { setCiItemsForPicked([]); return; }
     setCiItemsLoading(true);
-    fetch(`${API}/api/customer-info-items?name=${encodeURIComponent(ciItemPickerName)}`, { headers: authH() })
+    fetch(`${API}/api/customer-info-items?name=${encodeURIComponent(ciDebouncedName)}`, { headers: authH() })
       .then(r => r.json())
       .then(j => setCiItemsForPicked(Array.isArray(j.data) ? j.data : []))
       .catch(() => setCiItemsForPicked([]))
       .finally(() => setCiItemsLoading(false));
-  }, [ciItemPickerName, token]);
+  }, [ciDebouncedName, token]);
 
   // Close the block-suggestions dropdown on outside click — without this, it stays
   // open (nothing else dismisses it) and its absolutely-positioned overlay can sit on
@@ -936,56 +947,47 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                   </div>
                 )}
 
-                {/* ── حجب جزئي: آيتمات محددة لاسم معيّن داخل معلومات الزبون (بدل حجبه بالكامل) ── */}
+                {/* ── حجب جزئي: آيتمات محددة لاسم معيّن داخل معلومات الزبون (بدل حجبه بالكامل) ──
+                     مدموج مع الحقل الرئيسي فوق (blockInput) بلا اختيار اسم منفصل ثانية. */}
                 {blockKind === 'customerInfo' && (
                   <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px dashed #fecaca' }}>
                     <div style={{ fontSize: 12.5, fontWeight: 800, color: '#9a3412', marginBottom: 8 }}>
-                      🧩 أو حجب آيتمات محددة لهذا الاسم فقط (بدل حجب كل مبيعاته)
+                      🧩 أو حجب آيتمات محددة فقط للاسم المكتوب أعلاه (بدل حجب كل مبيعاته)
                     </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <select className="form-input" style={{ fontSize: 13, minWidth: 220 }}
-                        value={ciItemPickerName}
-                        onChange={e => setCiItemPickerName(e.target.value)}>
-                        <option value="">اختر اسماً من معلومات الزبون…</option>
-                        {blockSuggestSources.customerInfo.map(n => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {ciItemPickerName && (
-                      ciItemsLoading ? (
-                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 10 }}>...جاري التحميل</div>
-                      ) : ciItemsForPicked.length === 0 ? (
-                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 10 }}>لا توجد آيتمات مرتبطة بهذا الاسم في بياناتك.</div>
-                      ) : (() => {
-                        const nameNorm = normalizeAr(ciItemPickerName);
-                        const rowByItemNorm = new Map(
-                          blockedCustomerInfoItems.filter(b => normalizeAr(b.customerInfoName) === nameNorm).map(b => [normalizeAr(b.itemName), b]),
-                        );
-                        return (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                            {ciItemsForPicked.map(it => {
-                              const row = rowByItemNorm.get(normalizeAr(it.name));
-                              const blocked = !!row;
-                              return (
-                                <label key={it.id}
-                                  style={{
-                                    display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                    background: blocked ? '#fff7ed' : '#fff',
-                                    color: blocked ? '#9a3412' : '#475569',
-                                    border: `1px solid ${blocked ? '#fdba74' : '#e2e8f0'}`,
-                                  }}>
-                                  <input type="checkbox" checked={blocked}
-                                    onChange={() => (row ? removeBlockedCustomerInfoItem(row.id) : addBlockedCustomerInfoItem(ciItemPickerName, it.name))}
-                                    style={{ margin: 0 }} />
-                                  💊 {it.name}
-                                </label>
-                              );
-                            })}
-                          </div>
-                        );
-                      })()
-                    )}
+                    {!blockInput.trim() ? (
+                      <div style={{ fontSize: 12, color: '#94a3b8' }}>اكتب اسماً بالحقل فوق ليظهر لك الآيتمات المرتبطة به هنا.</div>
+                    ) : ciItemsLoading ? (
+                      <div style={{ fontSize: 12, color: '#94a3b8' }}>...جاري التحميل</div>
+                    ) : ciItemsForPicked.length === 0 ? (
+                      <div style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد آيتمات مرتبطة بهذا الاسم في بياناتك.</div>
+                    ) : (() => {
+                      const nameNorm = normalizeAr(ciDebouncedName);
+                      const rowByItemNorm = new Map(
+                        blockedCustomerInfoItems.filter(b => normalizeAr(b.customerInfoName) === nameNorm).map(b => [normalizeAr(b.itemName), b]),
+                      );
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                          {ciItemsForPicked.map(it => {
+                            const row = rowByItemNorm.get(normalizeAr(it.name));
+                            const blocked = !!row;
+                            return (
+                              <label key={it.id}
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                                  background: blocked ? '#fff7ed' : '#fff',
+                                  color: blocked ? '#9a3412' : '#475569',
+                                  border: `1px solid ${blocked ? '#fdba74' : '#e2e8f0'}`,
+                                }}>
+                                <input type="checkbox" checked={blocked}
+                                  onChange={() => (row ? removeBlockedCustomerInfoItem(row.id) : addBlockedCustomerInfoItem(ciDebouncedName, it.name))}
+                                  style={{ margin: 0 }} />
+                                💊 {it.name}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
 
                     {blockedCustomerInfoItems.length > 0 && (() => {
                       const byName = new Map<string, typeof blockedCustomerInfoItems>();
