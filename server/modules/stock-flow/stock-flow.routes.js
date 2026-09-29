@@ -7,7 +7,9 @@ import { Router } from 'express';
 import multer from 'multer';
 import {
   listCycles,
-  listCounts, addCount, deleteCountHandler,
+  listCounts, extractCountsUpload, commitCountsUpload,
+  extractCountsFromStockFile, commitCountsFromStockFile,
+  manualCountHandler, deleteCountHandler,
   extractTeamSales, commitTeamSalesHandler, manualTeamSalesHandler, deleteTeamSaleHandler,
 } from './stock-flow.controller.js';
 
@@ -15,7 +17,7 @@ const router = Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 },
+  limits: { fileSize: 30 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (file.originalname.match(/\.(xlsx|xls|csv)$/i)) cb(null, true);
     else cb(new Error('يُسمح بملفات Excel (.xlsx, .xls) وCSV فقط'));
@@ -25,12 +27,16 @@ const upload = multer({
 // ─── الدورات (محسوبة بالكامل من نقاط العدّ + التعزيز + مبيعات الفرق) ──
 router.get('/cycles', listCycles);
 
-// ─── نقاط العدّ (الستوك الافتتاحي/الثانوي) ────────────────────
+// ─── نقاط العدّ (الستوك الافتتاحي/الثانوي) — لكل مذخر × ايتم ──
 router.get('/counts', listCounts); // ?warehouseId=
-router.post('/counts', addCount);
+router.post('/counts/upload/extract', upload.single('file'), extractCountsUpload); // ملف Excel طولي مباشر
+router.post('/counts/upload/commit', commitCountsUpload);
+router.post('/counts/from-stock-file/extract', extractCountsFromStockFile); // من ملف Stock محفوظ سلفاً
+router.post('/counts/from-stock-file', commitCountsFromStockFile);
+router.post('/counts/manual', manualCountHandler); // إدخال يدوي سريع لزوج واحد
 router.delete('/counts/:id', deleteCountHandler);
 
-// ─── مبيعات الفرق (تجاري/علمي) ─────────────────────────────────
+// ─── مبيعات الفرق (تجاري/علمي) — لكل مذخر × ايتم ───────────────
 router.post('/team-sales/extract', upload.single('file'), extractTeamSales);
 router.post('/team-sales/commit', commitTeamSalesHandler);
 router.post('/team-sales/manual', manualTeamSalesHandler);

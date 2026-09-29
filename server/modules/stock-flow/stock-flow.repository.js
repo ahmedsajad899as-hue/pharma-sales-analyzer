@@ -1,5 +1,6 @@
 /**
  * Stock Flow Repository — كل عمليات قاعدة البيانات لصفحة «تحريك المذاخر».
+ * كل صف (ستوك أو مبيع فريق) مفتاحه (مذخر × ايتم) — نفس تفصيل «رصيد المذاخر».
  */
 
 import prisma from '../../lib/prisma.js';
@@ -10,15 +11,15 @@ const ownerWhere = (userIds) => Array.isArray(userIds) ? { userId: { in: userIds
 export async function getCounts(warehouseIds) {
   return prisma.stockCount.findMany({
     where: { warehouseId: { in: warehouseIds } },
-    orderBy: [{ warehouseId: 'asc' }, { countDate: 'asc' }],
+    orderBy: [{ warehouseId: 'asc' }, { itemKey: 'asc' }, { countDate: 'asc' }],
   });
 }
 
-export async function upsertCount({ userId, warehouseId, countDate, qty, note }) {
+export async function upsertCount({ userId, warehouseId, itemKey, itemName, companyName, itemId, countDate, qty, note }) {
   return prisma.stockCount.upsert({
-    where: { warehouseId_countDate: { warehouseId, countDate } },
-    update: { qty, note: note ?? null },
-    create: { userId, warehouseId, countDate, qty, note: note ?? null },
+    where: { warehouseId_itemKey_countDate: { warehouseId, itemKey, countDate } },
+    update: { qty, itemName, companyName: companyName ?? null, itemId: itemId ?? null, note: note ?? null },
+    create: { userId, warehouseId, itemKey, itemName, companyName: companyName ?? null, itemId: itemId ?? null, countDate, qty, note: note ?? null },
   });
 }
 
@@ -34,7 +35,7 @@ export async function deleteCount(id) {
 export async function getInMovements(warehouseIds) {
   return prisma.stockMovement.findMany({
     where: { warehouseId: { in: warehouseIds }, direction: 'in' },
-    select: { warehouseId: true, qty: true, movementDate: true },
+    select: { warehouseId: true, itemKey: true, qty: true, movementDate: true },
   });
 }
 
@@ -46,11 +47,11 @@ export async function getTeamSales(warehouseIds) {
   });
 }
 
-export async function upsertTeamSale({ userId, warehouseId, asOfDate, team, qty, sourceLabel }) {
+export async function upsertTeamSale({ userId, warehouseId, itemKey, itemName, companyName, itemId, asOfDate, team, qty, sourceLabel }) {
   return prisma.warehouseTeamSale.upsert({
-    where: { warehouseId_asOfDate_team: { warehouseId, asOfDate, team } },
-    update: { qty, sourceLabel: sourceLabel ?? null, uploadedAt: new Date() },
-    create: { userId, warehouseId, asOfDate, team, qty, sourceLabel: sourceLabel ?? null },
+    where: { warehouseId_itemKey_asOfDate_team: { warehouseId, itemKey, asOfDate, team } },
+    update: { qty, itemName, companyName: companyName ?? null, itemId: itemId ?? null, sourceLabel: sourceLabel ?? null, uploadedAt: new Date() },
+    create: { userId, warehouseId, itemKey, itemName, companyName: companyName ?? null, itemId: itemId ?? null, asOfDate, team, qty, sourceLabel: sourceLabel ?? null },
   });
 }
 

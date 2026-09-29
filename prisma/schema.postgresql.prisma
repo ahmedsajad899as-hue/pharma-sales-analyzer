@@ -2467,35 +2467,45 @@ model StockTeamCompanyLink {
   @@map("stock_team_company_links")
 }
 
-// ─── تحريك المذاخر (دورات الستوك الشهرية + توزيع الحركة بين الفرق) ───────
-// نقطة عدّ إجمالي (كل الايتمات معاً) لمذخر بتاريخ معيّن. كل عدّتين متتاليتين
-// لنفس المذخر (بالتاريخ) تشكّلان "دورة": الأولى = الستوك الافتتاحي، الثانية =
-// الستوك الثانوي. التعزيز خلال الدورة يُشتق تلقائياً من StockMovement
-// (direction='in') الواقعة بين تاريخي العدّتين — لا يُدخَل هنا. الحساب:
+// ─── تحريك المذاخر (دورات الستوك الشهرية لكل مذخر × ايتم + توزيع الحركة) ──
+// نقطة عدّ (مذخر + ايتم) بتاريخ معيّن — تُستورد بالجملة من ملف Stock (نفس صيغة
+// صفحة "ستوك المذاخر") أو ملف طولي، تماماً كالستوك الافتتاحي في "رصيد المذاخر".
+// كل عدّتين متتاليتين لنفس الزوج (مذخر+ايتم) تشكّلان "دورة": الأولى = الستوك
+// الافتتاحي، الثانية = الستوك الثانوي. التعزيز خلال الدورة يُشتق تلقائياً من
+// StockMovement (direction='in') الواقعة بين تاريخي العدّتين لنفس الزوج. الحساب:
 //   الكمية المتحركة = الافتتاحي + التعزيز − الثانوي
 //   مباشر (مذخر) = المتحركة − تجاري (WarehouseTeamSale) − علمي (WarehouseTeamSale)
 model StockCount {
   id          Int      @id @default(autoincrement())
   userId      Int // دفتر الكتابة — نفس نطاق دفتر رصيد المذاخر (resolveLedgerScope)
   warehouseId Int
+  itemKey     String // normalizeItemKey(الاسم القانوني) — مفتاح المطابقة الفعلي
+  itemName    String // الاسم كما يُعرض
+  companyName String?
+  itemId      Int? // ربط بكتالوج Item عند نجاح resolveItemName
   countDate   DateTime // تاريخ العدّ الفعلي (بداية الشهر عادة)
-  qty         Float // إجمالي الستوك المعدود لكل الايتمات في هذا المذخر
+  qty         Float
   note        String?
   createdAt   DateTime @default(now())
 
   warehouse StockWarehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
 
-  @@unique([warehouseId, countDate])
+  @@unique([warehouseId, itemKey, countDate])
   @@index([userId])
+  @@index([warehouseId, itemKey])
   @@map("warehouse_stock_counts")
 }
 
-// مبيع فريق (تجاري/علمي) مرفوع لمذخر عن دورة تنتهي بتاريخ عدّ ختامي محدد —
-// asOfDate يطابق StockCount.countDate لنقطة إغلاق الدورة نفسها.
+// مبيع فريق (تجاري/علمي) مرفوع لزوج (مذخر+ايتم) عن دورة تنتهي بتاريخ عدّ ختامي
+// محدد — asOfDate يطابق StockCount.countDate لنقطة إغلاق الدورة نفسها.
 model WarehouseTeamSale {
   id          Int      @id @default(autoincrement())
   userId      Int
   warehouseId Int
+  itemKey     String
+  itemName    String
+  companyName String?
+  itemId      Int?
   asOfDate    DateTime
   team        String // 'commercial' | 'scientific'
   qty         Float
@@ -2504,8 +2514,9 @@ model WarehouseTeamSale {
 
   warehouse StockWarehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
 
-  @@unique([warehouseId, asOfDate, team])
+  @@unique([warehouseId, itemKey, asOfDate, team])
   @@index([userId])
+  @@index([warehouseId, itemKey])
   @@map("warehouse_team_sales")
 }
 

@@ -1,19 +1,21 @@
 /**
- * صفحة «تحريك المذاخر» — دورة شهرية لكل مذخر: كم تحرّك فعلاً، وكيف توزّع.
+ * صفحة «تحريك المذاخر» — دورة شهرية لكل مذخر × ايتم: كم تحرّك فعلاً، وكيف توزّع.
  *
  *   الكمية المتحركة = الستوك الافتتاحي + التعزيز − الستوك الثانوي
  *   مباشر (مذخر)     = المتحركة − مبيع التجاري − مبيع العلمي
  *
  * التعزيز يُشتق تلقائياً من حركات «تعزيز» المسجّلة أصلاً في صفحة رصيد المذاخر
- * (لا إدخال مكرَّر). مبيع التجاري والعلمي يُرفعان هنا بملف Excel مستقل لكل
- * فريق (مذخر + كمية)، والافتتاحي/الثانوي يُدخَلان هنا كنقطتي عدّ بتاريخ حر.
+ * (لا إدخال مكرَّر). الستوك الافتتاحي/الثانوي ومبيعات الفرق تُستورد بالجملة —
+ * إما من ملف Stock محفوظ سلفاً (نفس صفحة «ستوك المذاخر») أو برفع ملف Excel
+ * طولي (مذخر/منطقة/شركة/ايتم/كمية)، مع نفس نافذة تأكيد الأسماء المستعملة في
+ * «رصيد المذاخر» عند الالتباس (مذاخر/ايتمات/شركات معاً).
  *
  * صفحة مستقلة تماماً عن «رصيد المذاخر» (لا تعديل عليها) — نفس الهوية البصرية
- * (App.css، فئات sl-*) ونفس هوية المذخر (StockWarehouse) ونفس دفتر المكتب
- * المشترك، لكن حساب ومسار بيانات مختلفَين بالكامل.
+ * (App.css، فئات sl-*) ونفس هوية المذخر/الايتم ونفس دفتر المكتب المشترك، لكن
+ * حساب ومسار بيانات مختلفَين بالكامل.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Icon } from '../config/icons';
 import type { IconName } from '../config/icons';
@@ -27,13 +29,16 @@ function authHeaders(): Record<string, string> {
   const t = localStorage.getItem('auth_token');
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
+const emptyChoices = (): StockNameChoices => ({ warehouseChoices: [], itemChoices: [], companyChoices: [] });
 
 // ── الأنواع ────────────────────────────────────────────────────
 interface Warehouse { id: number; name: string; region: string }
+interface StockFile { id: number; name: string; uploadedAt: string }
 type Team = 'commercial' | 'scientific';
 
 interface Cycle {
   warehouseId: number; warehouse: string; region: string;
+  itemKey: string; itemName: string; companyName: string | null;
   openId: number; openDate: string; opening: number;
   closeId: number; closeDate: string; closing: number;
   reinforcement: number; movedQty: number;
@@ -41,10 +46,12 @@ interface Cycle {
 }
 interface OpenCycle {
   warehouseId: number; warehouse: string; region: string;
+  itemKey: string; itemName: string; companyName: string | null;
   openId: number; openDate: string; opening: number; reinforcementSoFar: number;
 }
 interface TeamSaleRow {
   id: number; warehouseId: number; warehouse: string; region: string;
+  itemKey: string; itemName: string;
   asOfDate: string; team: Team; qty: number; sourceLabel: string | null;
   uploadedAt: string; linked: boolean;
 }
@@ -52,7 +59,13 @@ interface CyclesData {
   cycles: Cycle[]; openCycles: OpenCycle[];
   unlinkedTeamSales: TeamSaleRow[]; teamSales: TeamSaleRow[];
 }
-interface StockCountRow { id: number; warehouseId: number; countDate: string; qty: number; note: string | null }
+interface StockCountRow { id: number; warehouseId: number; itemKey: string; itemName: string; companyName: string | null; countDate: string; qty: number; note: string | null }
+
+/** مراجعة معلَّقة بانتظار تأكيد أسماء مشكوك فيها — مصدرها ملف مرفوع مباشرة أو ملف Stock محفوظ سلفاً */
+type PendingReview =
+  | { source: 'upload'; kind: 'counts'; countDate: string; rows: unknown[]; fileName: string; pending: PendingMatches }
+  | { source: 'stock-file'; kind: 'counts'; salesDataFileId: number; countDate: string; pending: PendingMatches; label: string }
+  | { source: 'upload'; kind: 'teams'; team: Team; asOfDate: string; rows: unknown[]; fileName: string; pending: PendingMatches };
 
 const TEAM_META: Record<Team, { label: string; color: string; icon: IconName }> = {
   commercial: { label: 'تجاري', color: 'var(--c-accent)', icon: 'money' },
@@ -74,6 +87,7 @@ export default function StockFlowPage() {
   const [tab, setTab] = useState<'cycles' | 'counts' | 'teams'>('cycles');
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [itemNames, setItemNames] = useState<string[]>([]);
   const [data, setData] = useState<CyclesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -85,6 +99,12 @@ export default function StockFlowPage() {
     const r = await fetch(`${API}/api/stock-ledger/warehouses`, { headers: authHeaders() });
     const j = await r.json();
     if (j.success) setWarehouses(j.data.warehouses);
+  }, []);
+
+  const loadItemNames = useCallback(async () => {
+    const r = await fetch(`${API}/api/items`, { headers: authHeaders() });
+    const j = await r.json();
+    if (j.success) setItemNames([...new Set((j.data as { name: string }[]).map(i => i.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar')));
   }, []);
 
   const loadCycles = useCallback(async () => {
@@ -101,7 +121,7 @@ export default function StockFlowPage() {
     finally { setLoading(false); }
   }, [loadWarehouses, loadCycles]);
 
-  useEffect(() => { reloadAll(); }, [reloadAll]);
+  useEffect(() => { reloadAll(); loadItemNames(); }, [reloadAll, loadItemNames]);
 
   const kpis = useMemo(() => {
     const cycles = data?.cycles ?? [];
@@ -127,7 +147,7 @@ export default function StockFlowPage() {
       {/* ── شريط المؤشرات ── */}
       <div className="sl-kpis">
         <Kpi label="مذاخر لها دورات" value={fmtNum(kpis.warehouses)} />
-        <Kpi label="دورات مكتملة" value={fmtNum(kpis.cycles)} />
+        <Kpi label="دورات مكتملة (مذخر×ايتم)" value={fmtNum(kpis.cycles)} />
         <Kpi label="إجمالي المتحرك" value={fmtNum(kpis.moved)} />
         <SplitKpi label="تجاري" value={kpis.commercial} pctOf={kpis.moved} color={TEAM_META.commercial.color} />
         <SplitKpi label="علمي" value={kpis.scientific} pctOf={kpis.moved} color={TEAM_META.scientific.color} />
@@ -161,7 +181,7 @@ export default function StockFlowPage() {
       )}
       {!loading && tab === 'counts' && (
         <CountsTab
-          warehouses={warehouses}
+          warehouses={warehouses} itemNames={itemNames}
           canEdit={hasFeature('stock_flow_counts')}
           canDelete={hasFeature('stock_flow_delete')}
           flash={flash} setErr={setErr} reloadAll={reloadAll}
@@ -169,7 +189,7 @@ export default function StockFlowPage() {
       )}
       {!loading && tab === 'teams' && (
         <TeamsTab
-          data={data} warehouses={warehouses}
+          data={data} warehouses={warehouses} itemNames={itemNames}
           canUpload={hasFeature('stock_flow_team_upload')}
           canDelete={hasFeature('stock_flow_delete')}
           flash={flash} setErr={setErr} reloadAll={reloadAll}
@@ -226,6 +246,7 @@ function CyclesTab(p: {
   const [fWarehouse, setFWarehouse] = useState<number | 'all'>('all');
   const [search, setSearch] = useState('');
   const [detail, setDetail] = useState<Cycle | null>(null);
+  const [limit, setLimit] = useState(200);
 
   const cycles = p.data?.cycles ?? [];
   const openCycles = p.data?.openCycles ?? [];
@@ -237,7 +258,7 @@ function CyclesTab(p: {
       if (fRegion !== 'all' && c.region !== fRegion) return false;
       if (fWarehouse !== 'all' && c.warehouseId !== fWarehouse) return false;
       if (terms.length) {
-        const hay = `${c.warehouse} ${c.region}`.toLowerCase();
+        const hay = `${c.warehouse} ${c.region} ${c.itemName} ${c.companyName ?? ''}`.toLowerCase();
         if (!terms.every(t => hay.includes(t))) return false;
       }
       return true;
@@ -246,7 +267,7 @@ function CyclesTab(p: {
 
   const exportXlsx = () => {
     const rows = filtered.map(c => ({
-      'المنطقة': c.region, 'المذخر': c.warehouse,
+      'المنطقة': c.region, 'المذخر': c.warehouse, 'الشركة': c.companyName ?? '', 'الايتم': c.itemName,
       'تاريخ الافتتاحي': fmtDate(c.openDate), 'الافتتاحي': c.opening,
       'تعزيز': c.reinforcement,
       'تاريخ الثانوي': fmtDate(c.closeDate), 'الثانوي': c.closing,
@@ -265,7 +286,7 @@ function CyclesTab(p: {
       <div className="sl-filters">
         <div className="sl-field sl-field--grow">
           <label className="sl-label">بحث</label>
-          <input className="form-input sl-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="مذخر أو منطقة…" />
+          <input className="form-input sl-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="مذخر أو منطقة أو ايتم أو شركة…" />
         </div>
         <div className="sl-field">
           <label className="sl-label">المنطقة</label>
@@ -292,30 +313,32 @@ function CyclesTab(p: {
 
       {(p.data?.unlinkedTeamSales.length ?? 0) > 0 && (
         <div className="alert alert--error sl-alert" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <span><Icon name="warning" size={14} /> {p.data!.unlinkedTeamSales.length} صف مبيعات فريق مرفوع لتاريخ لا يطابق أي دورة مغلقة بعد — تأكد من إدخال الستوك الثانوي لنفس التاريخ.</span>
+          <span><Icon name="warning" size={14} /> {p.data!.unlinkedTeamSales.length} صف مبيعات فريق مرفوع لتاريخ/ايتم لا يطابق أي دورة مغلقة بعد.</span>
           <button className="btn btn--secondary btn--sm" onClick={p.onGoToTeams}>عرض</button>
         </div>
       )}
 
       {!filtered.length ? (
         <div className="sl-empty">
-          {cycles.length ? 'لا توجد دورات مطابقة للفلاتر الحالية.' : 'لا توجد دورات مكتملة بعد — أدخل نقطتي عدّ متتاليتين (افتتاحي وثانوي) لأي مذخر من تبويب «نقاط الستوك».'}
+          {cycles.length ? 'لا توجد دورات مطابقة للفلاتر الحالية.' : 'لا توجد دورات مكتملة بعد — استورد ستوكاً افتتاحياً ثم ثانوياً لنفس المذاخر من تبويب «نقاط الستوك».'}
         </div>
       ) : (
         <div className="table-wrapper sl-table-wrap">
           <table className="data-table sl-table">
             <thead>
               <tr>
-                <th>المنطقة</th><th>المذخر</th>
+                <th>المنطقة</th><th>المذخر</th><th>الشركة</th><th>الايتم</th>
                 <th>الافتتاحي</th><th>تعزيز</th><th>الثانوي</th><th>المتحركة</th>
                 <th>تجاري</th><th>علمي</th><th>مباشر</th><th>التوزيع</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c, i) => (
+              {filtered.slice(0, limit).map((c, i) => (
                 <tr key={i} className="sl-row" onClick={() => setDetail(c)} title="عرض تفاصيل الدورة">
                   <td className="sl-dim">{c.region}</td>
                   <td className="sl-strong">{c.warehouse}</td>
+                  <td className="sl-dim">{c.companyName ?? '—'}</td>
+                  <td>{c.itemName}</td>
                   <td>{fmtNum(c.opening)}<div className="sl-dim" style={{ fontSize: 11 }}>{fmtDate(c.openDate)}</div></td>
                   <td className={c.reinforcement ? 'sl-in' : 'sl-dim'}>{fmtNum(c.reinforcement)}</td>
                   <td>{fmtNum(c.closing)}<div className="sl-dim" style={{ fontSize: 11 }}>{fmtDate(c.closeDate)}</div></td>
@@ -328,20 +351,27 @@ function CyclesTab(p: {
               ))}
             </tbody>
           </table>
+          <div className="sl-table-foot">
+            <span>عرض {Math.min(limit, filtered.length)} من {fmtNum(filtered.length)} — انقر أي صف لتفاصيله</span>
+            {limit < filtered.length && (
+              <button className="btn btn--secondary btn--sm" onClick={() => setLimit(l => l + 200)}>عرض المزيد</button>
+            )}
+          </div>
         </div>
       )}
 
       {openCycles.length > 0 && (
         <div className="sl-parent-companies" style={{ marginTop: 16 }}>
           <div className="sl-label sl-parent-companies-label"><Icon name="history" size={11} /> دورات قيد التقدم — بانتظار الستوك الثانوي ({openCycles.length})</div>
-          <div className="table-wrapper sl-table-wrap">
+          <div className="table-wrapper sl-table-wrap sl-table-wrap--scroll">
             <table className="data-table sl-table">
-              <thead><tr><th>المنطقة</th><th>المذخر</th><th>تاريخ الافتتاحي</th><th>الافتتاحي</th><th>تعزيز حتى الآن</th></tr></thead>
+              <thead><tr><th>المنطقة</th><th>المذخر</th><th>الايتم</th><th>تاريخ الافتتاحي</th><th>الافتتاحي</th><th>تعزيز حتى الآن</th></tr></thead>
               <tbody>
-                {openCycles.map((o, i) => (
+                {openCycles.slice(0, 300).map((o, i) => (
                   <tr key={i}>
                     <td className="sl-dim">{o.region}</td>
                     <td className="sl-strong">{o.warehouse}</td>
+                    <td>{o.itemName}</td>
                     <td className="sl-dim">{fmtDate(o.openDate)}</td>
                     <td>{fmtNum(o.opening)}</td>
                     <td className={o.reinforcementSoFar ? 'sl-in' : 'sl-dim'}>{fmtNum(o.reinforcementSoFar)}</td>
@@ -364,8 +394,8 @@ function CycleDetailModal({ cycle: c, onClose }: { cycle: Cycle; onClose: () => 
       <div className="modal" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div>
-            <div style={{ fontWeight: 700 }}>{c.warehouse}</div>
-            <div className="sl-hint">{c.region} — {fmtDate(c.openDate)} → {fmtDate(c.closeDate)}</div>
+            <div style={{ fontWeight: 700 }}>{c.itemName}</div>
+            <div className="sl-hint">{c.warehouse} — {c.region} · {fmtDate(c.openDate)} → {fmtDate(c.closeDate)}</div>
           </div>
           <button className="btn-icon btn-icon--red" onClick={onClose}><Icon name="close" size={16} /></button>
         </div>
@@ -414,19 +444,37 @@ function CycleDetailModal({ cycle: c, onClose }: { cycle: Cycle; onClose: () => 
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  تبويب نقاط الستوك (الافتتاحي/الثانوي)
+//  تبويب نقاط الستوك (الافتتاحي/الثانوي) — استيراد بالجملة لكل مذخر × ايتم
 // ═══════════════════════════════════════════════════════════════
 function CountsTab(p: {
-  warehouses: Warehouse[]; canEdit: boolean; canDelete: boolean;
+  warehouses: Warehouse[]; itemNames: string[]; canEdit: boolean; canDelete: boolean;
   flash: (t: string) => void; setErr: (t: string) => void; reloadAll: () => Promise<void>;
 }) {
-  const [warehouseId, setWarehouseId] = useState<number | ''>('');
   const [countDate, setCountDate] = useState(todayISO());
-  const [qty, setQty] = useState('');
-  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [review, setReview] = useState<PendingReview | null>(null);
+
+  // استيراد من ملف Stock محفوظ سلفاً
+  const [stockFiles, setStockFiles] = useState<StockFile[]>([]);
+  const [stockFileId, setStockFileId] = useState<number | ''>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // إدخال يدوي سريع
+  const [showManual, setShowManual] = useState(false);
+  const [mWarehouse, setMWarehouse] = useState<number | ''>('');
+  const [mItem, setMItem] = useState('');
+  const [mQty, setMQty] = useState('');
+  const [mNote, setMNote] = useState('');
+
+  // تصفّح السجل لمذخر واحد
+  const [hWarehouse, setHWarehouse] = useState<number | ''>('');
   const [history, setHistory] = useState<StockCountRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/api/stock-ledger/stock-files`, { headers: authHeaders() })
+      .then(r => r.json()).then(j => { if (j.success) setStockFiles(j.data); }).catch(() => {});
+  }, []);
 
   const loadHistory = useCallback(async (whId: number) => {
     setHistoryLoading(true);
@@ -436,37 +484,117 @@ function CountsTab(p: {
       setHistory(j.success ? j.data : []);
     } finally { setHistoryLoading(false); }
   }, []);
+  useEffect(() => { if (hWarehouse) loadHistory(hWarehouse); else setHistory([]); }, [hWarehouse, loadHistory]);
 
-  useEffect(() => { if (warehouseId) loadHistory(warehouseId); else setHistory([]); }, [warehouseId, loadHistory]);
+  const afterWrite = async (label: string, res: any) => {
+    const u = res?.unmatched;
+    const notes: string[] = [];
+    if (u?.warehouses?.created?.length) notes.push(`${u.warehouses.created.length} مذخر جديد`);
+    p.flash(`${label}: ${fmtNum(res?.saved ?? 0)} صف${notes.length ? ' — ' + notes.join('، ') : ''}`);
+    if (hWarehouse) await loadHistory(hWarehouse);
+    await p.reloadAll();
+  };
 
-  const submit = async () => {
-    if (!warehouseId) { p.setErr('اختر مذخر'); return; }
-    const q = Number(qty);
-    if (!(q >= 0)) { p.setErr('أدخل كمية صالحة'); return; }
+  // ── من ملف Stock موجود ──────────────────────────────────────
+  const importFromStockFile = async () => {
+    if (!stockFileId) { p.setErr('اختر ملف ستوك'); return; }
     setBusy(true); p.setErr('');
     try {
-      const r = await fetch(`${API}/api/stock-flow/counts`, {
-        method: 'POST',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ warehouseId, countDate, qty: q, note: note || undefined }),
+      const r = await fetch(`${API}/api/stock-flow/counts/from-stock-file/extract`, {
+        method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salesDataFileId: stockFileId }),
       });
       const j = await r.json();
-      if (!j.success) throw new Error(j.error || 'فشل الحفظ');
-      p.flash('حُفظت نقطة الستوك');
-      setQty(''); setNote('');
-      await Promise.all([loadHistory(warehouseId), p.reloadAll()]);
+      if (!j.success) throw new Error(j.error || 'فشلت معاينة الملف');
+      const label = stockFiles.find(f => f.id === stockFileId)?.name ?? '';
+      if (isPendingEmpty(j.data.pending)) await commitFromStockFile(stockFileId, countDate, emptyChoices());
+      else { setReview({ source: 'stock-file', kind: 'counts', salesDataFileId: stockFileId, countDate, pending: j.data.pending, label }); setBusy(false); }
+    } catch (e: any) { p.setErr(e.message); setBusy(false); }
+  };
+  const commitFromStockFile = async (fileId: number, date: string, choices: StockNameChoices) => {
+    setBusy(true); p.setErr('');
+    try {
+      const r = await fetch(`${API}/api/stock-flow/counts/from-stock-file`, {
+        method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salesDataFileId: fileId, countDate: date, ...choices }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'فشل الاستيراد');
+      await afterWrite('استُورد الستوك', j.data);
+      setReview(null);
     } catch (e: any) { p.setErr(e.message); }
     finally { setBusy(false); }
   };
 
-  const remove = async (id: number) => {
-    if (!confirm('حذف نقطة الستوك هذه؟ ستُعاد حسبة الدورات المرتبطة بها.')) return;
+  // ── رفع ملف Excel طولي ──────────────────────────────────────
+  const onUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true); p.setErr('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('countDate', countDate);
+      const r = await fetch(`${API}/api/stock-flow/counts/upload/extract`, { method: 'POST', headers: authHeaders(), body: fd });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'فشل رفع الملف');
+      const { rows, pending, fileName } = j.data;
+      if (isPendingEmpty(pending)) await commitUpload(rows, countDate, fileName, emptyChoices());
+      else { setReview({ source: 'upload', kind: 'counts', countDate, rows, fileName, pending }); setBusy(false); }
+    } catch (e: any) { p.setErr(e.message); setBusy(false); }
+  };
+  const commitUpload = async (rows: unknown[], date: string, fileName: string, choices: StockNameChoices) => {
+    setBusy(true); p.setErr('');
+    try {
+      const r = await fetch(`${API}/api/stock-flow/counts/upload/commit`, {
+        method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ countDate: date, rows, ...choices }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'فشل الحفظ');
+      await afterWrite('حُفظ الستوك', j.data);
+      setReview(null);
+    } catch (e: any) { p.setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const confirmReview = (choices: StockNameChoices) => {
+    if (!review || review.kind !== 'counts') return;
+    if (review.source === 'stock-file') commitFromStockFile(review.salesDataFileId, review.countDate, choices);
+    else commitUpload(review.rows, review.countDate, review.fileName, choices);
+  };
+
+  // ── إدخال يدوي ───────────────────────────────────────────────
+  const manualAdd = async () => {
+    if (!mWarehouse) { p.setErr('اختر مذخر'); return; }
+    if (!mItem.trim()) { p.setErr('اكتب اسم الايتم'); return; }
+    const q = Number(mQty);
+    if (!(q >= 0)) { p.setErr('أدخل كمية صالحة'); return; }
+    setBusy(true); p.setErr('');
+    try {
+      const r = await fetch(`${API}/api/stock-flow/counts/manual`, {
+        method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ warehouseId: mWarehouse, itemName: mItem.trim(), countDate, qty: q, note: mNote || undefined }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'فشل الحفظ');
+      p.flash('حُفظت نقطة الستوك');
+      setMItem(''); setMQty(''); setMNote('');
+      if (hWarehouse === mWarehouse) await loadHistory(mWarehouse);
+      await p.reloadAll();
+    } catch (e: any) { p.setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const removeCount = async (id: number) => {
+    if (!confirm('حذف نقطة الستوك هذه؟ ستُعاد حسبة الدورة المرتبطة بها.')) return;
     try {
       const r = await fetch(`${API}/api/stock-flow/counts/${id}`, { method: 'DELETE', headers: authHeaders() });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || 'فشل الحذف');
       p.flash('حُذفت نقطة الستوك');
-      if (warehouseId) await loadHistory(warehouseId);
+      if (hWarehouse) await loadHistory(hWarehouse);
       await p.reloadAll();
     } catch (e: any) { p.setErr(e.message); }
   };
@@ -474,54 +602,102 @@ function CountsTab(p: {
   return (
     <>
       <div className="sl-hint sl-hint--block">
-        أدخل نقطة عدّ (كامل ستوك المذخر لكل الايتمات) عند بداية كل شهر. كل نقطتين متتاليتين لنفس المذخر تشكّلان دورة تُحسب تلقائياً في تبويب «الدورات».
+        استورد ستوك كل الايتمات لكل المذاخر دفعة واحدة عند بداية كل شهر (ستوك افتتاحي)، ثم مجدداً عند بداية الشهر التالي (ستوك ثانوي) — كل عدّتين متتاليتين لنفس (مذخر+ايتم) تُكوّنان دورة تُحسب تلقائياً في تبويب «الدورات».
       </div>
 
       {p.canEdit && (
         <div className="table-wrapper sl-table-wrap" style={{ padding: 14, marginBottom: 16 }}>
-          <div className="sl-toolbar-row" style={{ flexWrap: 'wrap' }}>
-            <div className="sl-field">
-              <label className="sl-label">المذخر</label>
-              <select className="form-input sl-input" value={warehouseId} onChange={e => setWarehouseId(e.target.value ? Number(e.target.value) : '')}>
-                <option value="">اختر مذخر…</option>
-                {p.warehouses.map(w => <option key={w.id} value={w.id}>{w.name} — {w.region}</option>)}
-              </select>
-            </div>
+          <div className="sl-toolbar-row">
             <div className="sl-field sl-field--sm">
               <label className="sl-label">تاريخ العدّ</label>
               <input className="form-input sl-input" type="date" value={countDate} onChange={e => setCountDate(e.target.value)} />
             </div>
-            <div className="sl-field sl-field--sm">
-              <label className="sl-label">الكمية</label>
-              <input className="form-input sl-input" type="number" min={0} value={qty} onChange={e => setQty(e.target.value)} placeholder="إجمالي الستوك" />
-            </div>
+          </div>
+
+          <div className="sl-toolbar-divider" />
+
+          <div className="sl-toolbar-row" style={{ flexWrap: 'wrap' }}>
             <div className="sl-field sl-field--grow">
-              <label className="sl-label">ملاحظة (اختياري)</label>
-              <input className="form-input sl-input" value={note} onChange={e => setNote(e.target.value)} placeholder="مثال: عدّ بداية سبتمبر" />
+              <label className="sl-label">استيراد من ملف Stock موجود (صفحة «ستوك المذاخر»)</label>
+              <div className="sl-inline sl-inline--nowrap">
+                <select className="form-input sl-input sl-select-grow" value={stockFileId} onChange={e => setStockFileId(e.target.value ? Number(e.target.value) : '')}>
+                  <option value="">اختر ملف…</option>
+                  {stockFiles.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+                <button className="btn btn--primary btn--sm" disabled={!stockFileId || busy} onClick={importFromStockFile}>
+                  <Icon name={busy ? 'refresh' : 'import'} size={13} className={busy ? 'sl-spin' : undefined} /> استيراد
+                </button>
+              </div>
             </div>
-            <button className="btn btn--primary btn--sm" onClick={submit} disabled={busy} style={{ alignSelf: 'flex-end' }}>
-              <Icon name={busy ? 'refresh' : 'add'} size={13} className={busy ? 'sl-spin' : undefined} /> حفظ
+            <div className="sl-field">
+              <label className="sl-label">أو رفع ملف Excel جديد</label>
+              <input ref={fileInputRef} className="form-input sl-input" type="file" accept=".xlsx,.xls,.csv" onChange={onUpload} disabled={busy} />
+            </div>
+            <button className="btn btn--secondary btn--sm" onClick={() => setShowManual(s => !s)} style={{ alignSelf: 'flex-end' }}>
+              <Icon name="edit" size={13} /> إدخال يدوي
             </button>
           </div>
+
+          {showManual && (
+            <>
+              <div className="sl-toolbar-divider" />
+              <div className="sl-toolbar-row" style={{ flexWrap: 'wrap' }}>
+                <div className="sl-field">
+                  <label className="sl-label">المذخر</label>
+                  <select className="form-input sl-input" value={mWarehouse} onChange={e => setMWarehouse(e.target.value ? Number(e.target.value) : '')}>
+                    <option value="">اختر مذخر…</option>
+                    {p.warehouses.map(w => <option key={w.id} value={w.id}>{w.name} — {w.region}</option>)}
+                  </select>
+                </div>
+                <div className="sl-field sl-field--grow">
+                  <label className="sl-label">الايتم</label>
+                  <input className="form-input sl-input" list="sf-item-names" value={mItem} onChange={e => setMItem(e.target.value)} placeholder="اسم الايتم" />
+                </div>
+                <div className="sl-field sl-field--sm">
+                  <label className="sl-label">الكمية</label>
+                  <input className="form-input sl-input" type="number" min={0} value={mQty} onChange={e => setMQty(e.target.value)} />
+                </div>
+                <div className="sl-field sl-field--grow">
+                  <label className="sl-label">ملاحظة (اختياري)</label>
+                  <input className="form-input sl-input" value={mNote} onChange={e => setMNote(e.target.value)} />
+                </div>
+                <button className="btn btn--secondary btn--sm" onClick={manualAdd} disabled={busy} style={{ alignSelf: 'flex-end' }}>
+                  <Icon name="add" size={13} /> حفظ
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      {warehouseId ? (
+      <datalist id="sf-item-names">{p.itemNames.map(n => <option key={n} value={n} />)}</datalist>
+
+      <div className="sl-field" style={{ maxWidth: 320, marginBottom: 10 }}>
+        <label className="sl-label">عرض سجل مذخر</label>
+        <select className="form-input sl-input" value={hWarehouse} onChange={e => setHWarehouse(e.target.value ? Number(e.target.value) : '')}>
+          <option value="">اختر مذخر…</option>
+          {p.warehouses.map(w => <option key={w.id} value={w.id}>{w.name} — {w.region}</option>)}
+        </select>
+      </div>
+
+      {hWarehouse ? (
         historyLoading ? <div className="sl-empty">جارٍ التحميل…</div> : !history.length ? (
           <div className="sl-empty">لا توجد نقاط ستوك مسجَّلة لهذا المذخر بعد.</div>
         ) : (
           <div className="table-wrapper sl-table-wrap">
             <table className="data-table sl-table">
-              <thead><tr><th>التاريخ</th><th>الكمية</th><th>ملاحظة</th>{p.canDelete && <th></th>}</tr></thead>
+              <thead><tr><th>الايتم</th><th>الشركة</th><th>التاريخ</th><th>الكمية</th><th>ملاحظة</th>{p.canDelete && <th></th>}</tr></thead>
               <tbody>
                 {history.map(h => (
                   <tr key={h.id}>
-                    <td className="sl-strong">{fmtDate(h.countDate)}</td>
+                    <td className="sl-strong">{h.itemName}</td>
+                    <td className="sl-dim">{h.companyName ?? '—'}</td>
+                    <td>{fmtDate(h.countDate)}</td>
                     <td>{fmtNum(h.qty)}</td>
                     <td className="sl-dim">{h.note || '—'}</td>
                     {p.canDelete && (
                       <td>
-                        <button className="btn-icon btn-icon--red" onClick={() => remove(h.id)} title="حذف">
+                        <button className="btn-icon btn-icon--red" onClick={() => removeCount(h.id)} title="حذف">
                           <Icon name="delete" size={14} />
                         </button>
                       </td>
@@ -533,26 +709,36 @@ function CountsTab(p: {
           </div>
         )
       ) : (
-        <div className="sl-empty">اختر مذخر لعرض نقاط الستوك المسجَّلة له.</div>
+        <div className="sl-empty">اختر مذخر لعرض نقاط الستوك المسجَّلة له (كل الايتمات).</div>
+      )}
+
+      {review && review.kind === 'counts' && (
+        <StockMovementImportModal
+          pending={review.pending}
+          busy={busy}
+          onCancel={() => setReview(null)}
+          onConfirm={confirmReview}
+        />
       )}
     </>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  تبويب مبيعات الفرق (تجاري/علمي)
+//  تبويب مبيعات الفرق (تجاري/علمي) — لكل مذخر × ايتم
 // ═══════════════════════════════════════════════════════════════
 function TeamsTab(p: {
-  data: CyclesData | null; warehouses: Warehouse[]; canUpload: boolean; canDelete: boolean;
+  data: CyclesData | null; warehouses: Warehouse[]; itemNames: string[]; canUpload: boolean; canDelete: boolean;
   flash: (t: string) => void; setErr: (t: string) => void; reloadAll: () => Promise<void>;
 }) {
   const [team, setTeam] = useState<Team>('commercial');
   const [asOfDate, setAsOfDate] = useState(todayISO());
   const [busy, setBusy] = useState(false);
-  const [review, setReview] = useState<{ pending: PendingMatches; rows: { warehouse: string; qty: number }[]; fileName: string } | null>(null);
+  const [review, setReview] = useState<PendingReview | null>(null);
 
   // إدخال يدوي سريع
   const [mWarehouse, setMWarehouse] = useState<number | ''>('');
+  const [mItem, setMItem] = useState('');
   const [mQty, setMQty] = useState('');
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -564,16 +750,17 @@ function TeamsTab(p: {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('team', team);
+      fd.append('asOfDate', asOfDate);
       const r = await fetch(`${API}/api/stock-flow/team-sales/extract`, { method: 'POST', headers: authHeaders(), body: fd });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || 'فشل رفع الملف');
       const { rows, pending, fileName } = j.data;
-      if (isPendingEmpty(pending)) await commit(rows, fileName, { warehouseChoices: [], itemChoices: [], companyChoices: [] });
-      else { setReview({ pending, rows, fileName }); setBusy(false); }
+      if (isPendingEmpty(pending)) await commit(rows, fileName, emptyChoices());
+      else { setReview({ source: 'upload', kind: 'teams', team, asOfDate, rows, fileName, pending }); setBusy(false); }
     } catch (e: any) { p.setErr(e.message); setBusy(false); }
   };
 
-  const commit = async (rows: { warehouse: string; qty: number }[], fileName: string, choices: StockNameChoices) => {
+  const commit = async (rows: unknown[], fileName: string, choices: StockNameChoices) => {
     setBusy(true); p.setErr('');
     try {
       const r = await fetch(`${API}/api/stock-flow/team-sales/commit`, {
@@ -585,17 +772,22 @@ function TeamsTab(p: {
       if (!j.success) throw new Error(j.error || 'فشل الحفظ');
       const u = j.data?.unmatched;
       const notes: string[] = [];
-      if (u?.created?.length) notes.push(`${u.created.length} مذخر جديد`);
-      if (u?.fuzzyLinked?.length) notes.push(`${u.fuzzyLinked.length} رُبط بالتشابه`);
-      p.flash(`حُفظت ${j.data?.saved ?? 0} مذخر${notes.length ? ' — ' + notes.join('، ') : ''}`);
+      if (u?.warehouses?.created?.length) notes.push(`${u.warehouses.created.length} مذخر جديد`);
+      p.flash(`حُفظت ${fmtNum(j.data?.saved ?? 0)} صف${notes.length ? ' — ' + notes.join('، ') : ''}`);
       setReview(null);
       await p.reloadAll();
     } catch (e: any) { p.setErr(e.message); }
     finally { setBusy(false); }
   };
 
+  const confirmReview = (choices: StockNameChoices) => {
+    if (!review || review.kind !== 'teams') return;
+    commit(review.rows, review.fileName, choices);
+  };
+
   const manualAdd = async () => {
     if (!mWarehouse) { p.setErr('اختر مذخر'); return; }
+    if (!mItem.trim()) { p.setErr('اكتب اسم الايتم'); return; }
     const q = Number(mQty);
     if (!(q >= 0)) { p.setErr('أدخل كمية صالحة'); return; }
     setBusy(true); p.setErr('');
@@ -603,12 +795,12 @@ function TeamsTab(p: {
       const r = await fetch(`${API}/api/stock-flow/team-sales/manual`, {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team, asOfDate, warehouseId: mWarehouse, qty: q }),
+        body: JSON.stringify({ team, asOfDate, warehouseId: mWarehouse, itemName: mItem.trim(), qty: q }),
       });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || 'فشل الحفظ');
       p.flash('حُفظت الكمية');
-      setMQty('');
+      setMItem(''); setMQty('');
       await p.reloadAll();
     } catch (e: any) { p.setErr(e.message); }
     finally { setBusy(false); }
@@ -630,7 +822,7 @@ function TeamsTab(p: {
   return (
     <>
       <div className="sl-hint sl-hint--block">
-        ملف Excel بعمودين: المذخر والكمية — رقم إجمالي واحد لكل مذخر عن الدورة المنتهية بالتاريخ المحدّد. التاريخ يجب أن يطابق تاريخ الستوك الثانوي لنفس الدورة في تبويب «نقاط الستوك».
+        ملف Excel طولي: مذخر + ايتم + كمية (ويُفضَّل منطقة/شركة) — لكل مذخر×ايتم رقم واحد عن الدورة المنتهية بالتاريخ المحدّد. التاريخ يجب أن يطابق تاريخ الستوك الثانوي لنفس الدورة في تبويب «نقاط الستوك».
       </div>
 
       {p.canUpload && (
@@ -648,7 +840,7 @@ function TeamsTab(p: {
               <input className="form-input sl-input" type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)} />
             </div>
             <div className="sl-field">
-              <label className="sl-label">رفع ملف Excel (مذخر + كمية)</label>
+              <label className="sl-label">رفع ملف Excel (مذخر + ايتم + كمية)</label>
               <input className="form-input sl-input" type="file" accept=".xlsx,.xls,.csv" onChange={onFile} disabled={busy} />
             </div>
           </div>
@@ -663,6 +855,10 @@ function TeamsTab(p: {
                 {p.warehouses.map(w => <option key={w.id} value={w.id}>{w.name} — {w.region}</option>)}
               </select>
             </div>
+            <div className="sl-field sl-field--grow">
+              <label className="sl-label">الايتم</label>
+              <input className="form-input sl-input" list="sf-item-names" value={mItem} onChange={e => setMItem(e.target.value)} placeholder="اسم الايتم" />
+            </div>
             <div className="sl-field sl-field--sm">
               <label className="sl-label">الكمية</label>
               <input className="form-input sl-input" type="number" min={0} value={mQty} onChange={e => setMQty(e.target.value)} />
@@ -674,13 +870,15 @@ function TeamsTab(p: {
         </div>
       )}
 
+      <datalist id="sf-item-names">{p.itemNames.map(n => <option key={n} value={n} />)}</datalist>
+
       {!rows.length ? (
         <div className="sl-empty">لا توجد مبيعات فرق مرفوعة بعد.</div>
       ) : (
         <div className="table-wrapper sl-table-wrap">
           <table className="data-table sl-table">
             <thead>
-              <tr><th>الفريق</th><th>المذخر</th><th>المنطقة</th><th>تاريخ الدورة</th><th>الكمية</th><th>المصدر</th><th>الحالة</th>{p.canDelete && <th></th>}</tr>
+              <tr><th>الفريق</th><th>المذخر</th><th>المنطقة</th><th>الايتم</th><th>تاريخ الدورة</th><th>الكمية</th><th>المصدر</th><th>الحالة</th>{p.canDelete && <th></th>}</tr>
             </thead>
             <tbody>
               {rows.map(t => (
@@ -688,13 +886,14 @@ function TeamsTab(p: {
                   <td><span style={{ color: TEAM_META[t.team].color }}><Icon name={TEAM_META[t.team].icon} size={13} /> {TEAM_META[t.team].label}</span></td>
                   <td className="sl-strong">{t.warehouse}</td>
                   <td className="sl-dim">{t.region}</td>
+                  <td>{t.itemName}</td>
                   <td className="sl-dim">{fmtDate(t.asOfDate)}</td>
                   <td>{fmtNum(t.qty)}</td>
                   <td className="sl-dim">{t.sourceLabel || 'يدوي'}</td>
                   <td>
                     {t.linked
                       ? <span className="badge badge--green">مرتبطة بدورة</span>
-                      : <span className="badge badge--gray" title="لا توجد عدّة ثانوية لهذا التاريخ بعد">بانتظار الثانوي</span>}
+                      : <span className="badge badge--gray" title="لا توجد عدّة ثانوية لهذا الزوج/التاريخ بعد">بانتظار الثانوي</span>}
                   </td>
                   {p.canDelete && (
                     <td><button className="btn-icon btn-icon--red" onClick={() => removeRow(t.id)} title="حذف"><Icon name="delete" size={14} /></button></td>
@@ -706,12 +905,12 @@ function TeamsTab(p: {
         </div>
       )}
 
-      {review && (
+      {review && review.kind === 'teams' && (
         <StockMovementImportModal
           pending={review.pending}
           busy={busy}
           onCancel={() => setReview(null)}
-          onConfirm={(choices) => commit(review.rows, review.fileName, choices)}
+          onConfirm={confirmReview}
         />
       )}
     </>
