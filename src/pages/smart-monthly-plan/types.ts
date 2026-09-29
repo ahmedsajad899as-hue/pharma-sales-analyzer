@@ -44,18 +44,22 @@ export interface AreaDoctor {
   key: string;
   name: string;
   specialty: string | null;
-  pharmacyName: string | null;
   className: string | null;
   phone: string | null;
+  included: boolean;
+}
+
+export interface AreaPharmacy {
+  name: string | null; // null = أطباء بلا صيدلية مسجَّلة
   openPharmacy: boolean;
   matchedOpenPharmacy: string | null;
-  included: boolean;
+  doctors: AreaDoctor[];
 }
 
 export interface AreaWithDoctors {
   areaId: number;
   areaName: string;
-  doctors: AreaDoctor[];
+  pharmacies: AreaPharmacy[];
 }
 
 export interface SmartPlanUpload {

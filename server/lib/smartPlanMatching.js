@@ -12,7 +12,8 @@ import prisma from './prisma.js';
 import { buildAreaNameIndex, getScopedSurveyDoctors, doctorLinkKey, cleanDoctorName } from './surveyDoctors.js';
 import { resolveAreaByName } from './areaResolver.js';
 import { normalizeAreaName } from './itemResolver.js';
-import { findClosestPharmacyName, cleanPharmacyName } from './surveyPharmacies.js';
+import { cleanPharmacyName } from './surveyPharmacies.js';
+import { similarity } from './fuzzyMatch.js';
 import { classifyDoctorRows, saveDoctorNameLinks } from '../modules/doctors/doctor-visits-import.js';
 import { resolveDocOwnerUserId } from '../modules/doctors/doctors.controller.js';
 
@@ -356,14 +357,39 @@ export async function applyAiCandidateMatch(smartPlanId, ownerUserId, candidateI
  * فنفحص التطابق التام بعد التنظيف أولاً ثم نرجع للتطابق الضبابي.
  * @returns {string|null} اسم الصيدلية المفتوحة المطابقة أو null
  */
+// مطابقة صارمة عمداً: الضبابية العامة (areSimilar: بادئة/تداخل كلمات) صُمّمت
+// لدمج تهجئات نفس الاسم وتُنتج مطابقات كاذبة بين أسماء صيدليات قصيرة تتشارك
+// كلمة (مثل اسم المنطقة «الحارثية») فتظهر صيدليات "مفتوحة" وهي ليست في الملف.
+const PHARMACY_NOISE_WORDS = new Set(['صيدليه', 'الصيدليه', 'صيدلية', 'الصيدلية', 'ص', 'مذخر', 'المذخر']);
+function pharmacyTokens(name) {
+  const s = String(name ?? '').toLowerCase()
+    .replace(/[ً-ٟـ]/g, '')
+    .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ');
+  return s.split(/\s+/).filter(Boolean)
+    .filter(w => !PHARMACY_NOISE_WORDS.has(w))
+    .map(w => (w.length > 3 && w.startsWith('ال')) ? w.slice(2) : w);
+}
+
 export function matchOpenPharmacy(pharmacyName, openNames) {
   if (!pharmacyName?.trim() || !openNames?.length) return null;
-  const key = normalizeAreaName(cleanPharmacyName(pharmacyName) || '');
-  if (key) {
-    const exact = openNames.find(n => normalizeAreaName(cleanPharmacyName(n) || '') === key);
-    if (exact) return exact;
+  const tokens = pharmacyTokens(pharmacyName);
+  if (!tokens.length) return null;
+  const flat = tokens.join('');
+  const sortedKey = [...tokens].sort().join(' ');
+  let best = null, bestScore = 0;
+  for (const cand of openNames) {
+    const ct = pharmacyTokens(cand);
+    if (!ct.length) continue;
+    const cflat = ct.join('');
+    if (cflat === flat || [...ct].sort().join(' ') === sortedKey) return cand; // تطابق تام (بعد التطبيع/ترتيب الكلمات)
+    // خطأ إملائي بسيط فقط: اسم طويل نسبياً وتشابه عالٍ جداً
+    if (Math.min(flat.length, cflat.length) >= 7) {
+      const sim = similarity(flat, cflat);
+      if (sim >= 0.9 && sim > bestScore) { bestScore = sim; best = cand; }
+    }
   }
-  return findClosestPharmacyName(pharmacyName, openNames);
+  return best;
 }
 
 /** مفتاح استبعاد طبيب — نفس مفتاح ربط الأسماء المستعمل لدمج المرشّحين. */
@@ -386,21 +412,34 @@ export async function getAreaDoctorsOverview(plan) {
   const openNames = upload?.data?.pharmacyNames || [];
   const excluded = excludedKeySet(plan);
 
-  const byArea = new Map(scope.areaRecords.map(a => [a.id, { areaId: a.id, areaName: a.name, doctors: [] }]));
+  // منطقة → صيدلية → أطباء (الأطباء بلا صيدلية تحت مجموعة اسمها null)
+  const byArea = new Map(scope.areaRecords.map(a => [a.id, { areaId: a.id, areaName: a.name, pharmacyMap: new Map() }]));
+  const matchCache = new Map();
   for (const d of docs) {
     const area = scope.normToArea.get(normalizeAreaName(d.areaName ?? ''));
     const bucket = area && byArea.get(area.id);
     if (!bucket) continue;
     const key = doctorLinkKey(d.name, d.areaName);
-    const matched = matchOpenPharmacy(d.pharmacyName, openNames);
-    bucket.doctors.push({
+    const pharmName = d.pharmacyName?.trim() || null;
+    const pKey = pharmName ? pharmacyTokens(pharmName).join('') || pharmName : '';
+    let group = bucket.pharmacyMap.get(pKey);
+    if (!group) {
+      if (pharmName && !matchCache.has(pharmName)) matchCache.set(pharmName, matchOpenPharmacy(pharmName, openNames));
+      const matched = pharmName ? matchCache.get(pharmName) : null;
+      group = { name: pharmName, openPharmacy: !!matched, matchedOpenPharmacy: matched, doctors: [] };
+      bucket.pharmacyMap.set(pKey, group);
+    }
+    group.doctors.push({
       id: d.id, key, name: d.name, specialty: d.specialty || null,
-      pharmacyName: d.pharmacyName || null, className: d.className || null, phone: d.phone || null,
-      openPharmacy: !!matched, matchedOpenPharmacy: matched,
+      className: d.className || null, phone: d.phone || null,
       included: !excluded.has(key),
     });
   }
-  const areas = [...byArea.values()].sort((a, b) => a.areaName.localeCompare(b.areaName, 'ar'));
+  const areas = [...byArea.values()].map(({ pharmacyMap, ...a }) => ({
+    ...a,
+    pharmacies: [...pharmacyMap.values()].sort((x, y) =>
+      (x.name ? 0 : 1) - (y.name ? 0 : 1) || (x.name || '').localeCompare(y.name || '', 'ar')),
+  })).sort((a, b) => a.areaName.localeCompare(b.areaName, 'ar'));
   return { areas, hasOpenPharmaciesFile: openNames.length > 0, openPharmacyNamesCount: openNames.length };
 }
 
