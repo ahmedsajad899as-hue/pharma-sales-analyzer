@@ -117,6 +117,10 @@ export default function TeamEngagementPage() {
   const showTimeStats = hasFeature('team_engagement_time');
   const showDaysStats = hasFeature('team_engagement_days');
   const showTopPages  = hasFeature('team_engagement_top_pages');
+  const showListLastSeen = hasFeature('team_engagement_list_last_seen');
+  const showListOpens    = hasFeature('team_engagement_list_opens');
+  const showListMinutes  = hasFeature('team_engagement_list_minutes');
+  const showListHeatmap  = hasFeature('team_engagement_list_heatmap');
   const authH = () => ({ Authorization: `Bearer ${token}` });
 
   const [members, setMembers]   = useState<MemberEngagement[]>([]);
@@ -218,13 +222,15 @@ export default function TeamEngagementPage() {
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 5 }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: meta.color }}>{meta.label}</span>
-                        <span style={metaChipStyle}>{relativeTime(m.lastActiveAt)}</span>
-                        <span style={metaChipStyle}>🔓 {m.opensToday} اليوم</span>
-                        <span style={metaChipStyle}>⏱️ {formatMinutes(m.minutesToday)}</span>
+                        {showListLastSeen && <span style={metaChipStyle}>{relativeTime(m.lastActiveAt)}</span>}
+                        {showListOpens && <span style={metaChipStyle}>🔓 {m.opensToday} اليوم</span>}
+                        {showListMinutes && <span style={metaChipStyle}>⏱️ {formatMinutes(m.minutesToday)}</span>}
                       </div>
-                      <div style={{ marginTop: 8 }}>
-                        <MiniHeatmap series={m.dailySeries} />
-                      </div>
+                      {showListHeatmap && (
+                        <div style={{ marginTop: 8 }}>
+                          <MiniHeatmap series={m.dailySeries} />
+                        </div>
+                      )}
                     </div>
 
                     <ScoreRing score={m.score} color={meta.color} />

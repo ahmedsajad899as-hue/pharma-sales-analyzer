@@ -171,10 +171,14 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'stock_flow_export',       label: 'تصدير Excel',              icon: '⬇️', desc: 'تصدير جدول الدورات إلى Excel' },
   ],
   'team-engagement': [
-    { key: 'team_engagement_member_detail', label: 'تفاصيل العضو عند الضغط على الاسم', icon: '🔍', desc: 'فتح نافذة التفاصيل عند الضغط على اسم/صف عضو الفريق' },
-    { key: 'team_engagement_time',          label: 'إحصائيات الوقت',                  icon: '⏱️', desc: 'وقت الاستخدام اليوم وآخر 7 أيام ومتوسط اليوم النشط داخل تفاصيل العضو' },
-    { key: 'team_engagement_days',          label: 'إحصائيات الأيام',                 icon: '🗓️', desc: 'أيام النشاط خلال 7/30 يوماً وتفصيل آخر 14 يوماً داخل تفاصيل العضو' },
-    { key: 'team_engagement_top_pages',     label: 'أكثر الصفحات استخداماً',          icon: '📊', desc: 'قائمة أكثر الصفحات استخداماً وعدد الصفحات المختلفة والإجراءات الفعلية داخل تفاصيل العضو' },
+    { key: 'team_engagement_member_detail',  label: 'تفاصيل العضو عند الضغط على الاسم', icon: '🔍', desc: 'فتح نافذة التفاصيل عند الضغط على اسم/صف عضو الفريق' },
+    { key: 'team_engagement_time',           label: 'إحصائيات الوقت',                  icon: '⏱️', desc: 'وقت الاستخدام اليوم وآخر 7 أيام ومتوسط اليوم النشط داخل تفاصيل العضو' },
+    { key: 'team_engagement_days',           label: 'إحصائيات الأيام',                 icon: '🗓️', desc: 'أيام النشاط خلال 7/30 يوماً وتفصيل آخر 14 يوماً داخل تفاصيل العضو' },
+    { key: 'team_engagement_top_pages',      label: 'أكثر الصفحات استخداماً',          icon: '📊', desc: 'قائمة أكثر الصفحات استخداماً وعدد الصفحات المختلفة والإجراءات الفعلية داخل تفاصيل العضو' },
+    { key: 'team_engagement_list_last_seen', label: 'آخر ظهور في بطاقة العضو',          icon: '🕓', desc: 'شارة "قبل كذا يوم/ساعة/دقيقة" داخل بطاقة العضو بالقائمة الرئيسية' },
+    { key: 'team_engagement_list_opens',     label: 'عدد مرات الدخول في بطاقة العضو',   icon: '🔓', desc: 'شارة عدد مرات فتح التطبيق اليوم داخل بطاقة العضو بالقائمة الرئيسية' },
+    { key: 'team_engagement_list_minutes',   label: 'وقت الاستخدام في بطاقة العضو',     icon: '⏱️', desc: 'شارة دقائق الاستخدام اليوم داخل بطاقة العضو بالقائمة الرئيسية' },
+    { key: 'team_engagement_list_heatmap',   label: 'المخطط الحراري المصغر',            icon: '🟦', desc: 'صف المربعات الملوّنة (آخر 14 يوماً) داخل بطاقة العضو بالقائمة الرئيسية' },
   ],
   'sales-data': [
     { key: 'sales_data_upload',    label: 'رفع ملف / استيراد',           icon: '📥', desc: 'زر استيراد ملف Excel جديد وإضافته للقائمة'            },
