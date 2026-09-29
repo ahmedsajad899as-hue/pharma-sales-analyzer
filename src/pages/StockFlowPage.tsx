@@ -18,7 +18,7 @@ import * as XLSX from 'xlsx';
 import { Icon } from '../config/icons';
 import type { IconName } from '../config/icons';
 import { useAuth } from '../context/AuthContext';
-import StockMovementImportModal, { isPendingEmpty, emptyPending } from '../components/StockMovementImportModal';
+import StockMovementImportModal, { isPendingEmpty } from '../components/StockMovementImportModal';
 import type { PendingMatches, StockNameChoices } from '../components/StockMovementImportModal';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -193,7 +193,7 @@ function SplitKpi({ label, value, pctOf, color }: { label: string; value: number
   return (
     <div className="sl-kpi">
       <div className="sl-kpi-value" style={{ color }}>{fmtNum(value)}</div>
-      <div className="sl-kpi-label">{label} <span className="sl-dim">({pct(value, pctOf)}%)</span></div>
+      <div className="sl-kpi-label">{label} ({pct(value, pctOf)}%)</div>
     </div>
   );
 }
@@ -201,7 +201,7 @@ function SplitKpi({ label, value, pctOf, color }: { label: string; value: number
 /** شريط توزيع أفقي مصغّر — ثلاث شرائح بنسب تجاري/علمي/مباشر من الكمية المتحركة */
 function SplitBar({ commercial, scientific, direct }: { commercial: number; scientific: number; direct: number }) {
   const total = Math.max(0, commercial) + Math.max(0, scientific) + Math.max(0, direct);
-  if (total <= 0) return <span className="sl-dim">—</span>;
+  if (total <= 0) return <span style={{ color: 'var(--c-text-secondary)' }}>—</span>;
   const segs: { qty: number; color: string }[] = [
     { qty: Math.max(0, commercial), color: TEAM_META.commercial.color },
     { qty: Math.max(0, scientific), color: TEAM_META.scientific.color },
