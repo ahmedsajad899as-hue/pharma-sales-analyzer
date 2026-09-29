@@ -107,6 +107,10 @@ export default function AreaDoctorsPanel({
   const totalOpen = areas.reduce((s, a) => s + a.pharmacies.filter(p => p.openPharmacy).length, 0);
   const totalIncluded = allDocs.filter(x => !excluded.has(x.d.key)).length;
   const allKeys = allDocs.map(x => x.d.key);
+  const openPharmCount = totalOpen;
+  const closedPharmCount = totalPharmacies - totalOpen;
+  const openDocCount = allDocs.filter(x => x.open).length;
+  const closedDocCount = allDocs.length - openDocCount;
 
   return (
     <div style={panel}>
@@ -149,9 +153,9 @@ export default function AreaDoctorsPanel({
                   value={search} onChange={e => setSearch(e.target.value)}
                   style={{ flex: 1, minWidth: 200, padding: '7px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--c-border)', fontSize: 13 }}
                 />
-                <button style={chip(filter === 'all')} onClick={() => setFilter('all')}>الكل</button>
-                {hasOpenFile && <button style={chip(filter === 'open')} onClick={() => setFilter('open')}>🏬 مفتوحة</button>}
-                {hasOpenFile && <button style={chip(filter === 'closed')} onClick={() => setFilter('closed')}>غير مفتوحة</button>}
+                <button style={chip(filter === 'all')} onClick={() => setFilter('all')}>الكل ({totalPharmacies} صيدلية · {allDocs.length} طبيب)</button>
+                {hasOpenFile && <button style={chip(filter === 'open')} onClick={() => setFilter('open')}>🏬 مفتوحة ({openPharmCount} صيدلية · {openDocCount} طبيب)</button>}
+                {hasOpenFile && <button style={chip(filter === 'closed')} onClick={() => setFilter('closed')}>غير مفتوحة ({closedPharmCount} صيدلية · {closedDocCount} طبيب)</button>}
                 <button style={miniBtn} onClick={() => setMany(allKeys, true)}>تحديد الكل</button>
                 <button style={miniBtn} onClick={() => setMany(allKeys, false)}>إلغاء الكل</button>
                 {hasOpenFile && (
@@ -166,22 +170,22 @@ export default function AreaDoctorsPanel({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 620, overflowY: 'auto' }}>
                 {visibleAreas.map(a => {
                   if ((q || filter !== 'all') && a.shown.length === 0) return null;
-                  const areaKeys = a.pharmacies.flatMap(p => p.doctors.map(d => d.key));
-                  const areaSelected = areaKeys.filter(k => !excluded.has(k)).length;
                   const areaCollapsed = collapsedAreas.has(a.areaId);
-                  const pharmacyCount = a.pharmacies.filter(p => p.name).length;
+                  const pharmacyCount = a.shown.filter(p => p.name).length;
+                  const shownKeys = a.shown.flatMap(p => p.doctors.map(d => d.key));
+                  const shownSelected = shownKeys.filter(k => !excluded.has(k)).length;
                   return (
-                    <div key={a.areaId} style={{ border: '1px solid var(--c-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                    <div key={a.areaId} style={{ border: '1px solid var(--c-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0 }}>
                       <div
                         onClick={() => setCollapsedAreas(prev => { const n = new Set(prev); n.has(a.areaId) ? n.delete(a.areaId) : n.add(a.areaId); return n; })}
                         style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--c-bg)', cursor: 'pointer' }}
                       >
                         <strong style={{ fontSize: 14, color: 'var(--c-text-primary)' }}>{a.areaName}</strong>
                         <span style={pill('var(--c-accent-light)', 'var(--c-accent)')}>🏬 {pharmacyCount} صيدلية</span>
-                        <span style={pill('var(--c-success-bg)', 'var(--c-success)')}>👨‍⚕️ {areaSelected}/{areaKeys.length} طبيب</span>
+                        <span style={pill('var(--c-success-bg)', 'var(--c-success)')}>👨‍⚕️ {shownSelected}/{shownKeys.length} طبيب</span>
                         <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 6, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
-                          <button style={miniBtn} onClick={() => setMany(areaKeys, true)}>تحديد المنطقة</button>
-                          <button style={miniBtn} onClick={() => setMany(areaKeys, false)}>إلغاء</button>
+                          <button style={miniBtn} onClick={() => setMany(shownKeys, true)}>تحديد المنطقة</button>
+                          <button style={miniBtn} onClick={() => setMany(shownKeys, false)}>إلغاء</button>
                         </span>
                         <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>{areaCollapsed ? '▼' : '▲'}</span>
                       </div>
