@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { sendEngagementPing } from '../lib/engagementPing';
+import { sendEngagementPing, pingAppOpenIfNewDay } from '../lib/engagementPing';
 
 // أي تفاعل فعلي (حركة ماوس/ضغط مفتاح/سكرول/لمس) يُحتسب دقيقة كاملة فوراً —
 // لا ننتظر مرور 60 ثانية متواصلة من الاستخدام لنبدأ الاحتساب. الدقيقة نفسها
@@ -8,10 +8,12 @@ import { sendEngagementPing } from '../lib/engagementPing';
 // حتى لو كانت المدة الفعلية للاستخدام في تلك اللحظة ثوانٍ معدودة فقط.
 const MINUTE_MS = 60_000;
 
-export function useEngagementHeartbeat(activePage: string, enabled: boolean) {
+export function useEngagementHeartbeat(activePage: string, enabled: boolean, userId?: number | string) {
   const lastCreditRef = useRef<number | null>(null);
   const pageRef = useRef(activePage);
   pageRef.current = activePage;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
 
   useEffect(() => {
     if (!enabled) return;
@@ -24,6 +26,9 @@ export function useEngagementHeartbeat(activePage: string, enabled: boolean) {
       if (lastCreditRef.current !== null && now - lastCreditRef.current < MINUTE_MS) return;
 
       lastCreditRef.current = now;
+      // يغطي تبويباً بقي مفتوحاً من يوم سابق بلا إعادة تحميل — أول تفاعل في
+      // يوم جديد يسجّل "فتح تطبيق" حتى لو لم تُعَد الصفحة.
+      pingAppOpenIfNewDay(userIdRef.current);
       sendEngagementPing('heartbeat', pageRef.current, 60);
     };
 

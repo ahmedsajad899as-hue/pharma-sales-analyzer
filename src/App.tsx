@@ -7,7 +7,7 @@ import LoginPage from './pages/LoginPage';
 import { Icon } from './config/icons';
 import { getPageHeader, getPageHeaderIcon } from './config/pageHeaders';
 import { NAV_ITEMS } from './config/featureConfig';
-import { sendEngagementPing } from './lib/engagementPing';
+import { sendEngagementPing, pingAppOpenIfNewDay } from './lib/engagementPing';
 import { useEngagementHeartbeat } from './hooks/useEngagementHeartbeat';
 import './App.css';
 
@@ -258,14 +258,12 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
   const [showAI, setShowAI]               = useState(() => localStorage.getItem('showAIAssistant') !== 'false');
 
-  // إشارة "فتح تطبيق" مرة واحدة فقط لكل جلسة تبويب — راجع src/lib/engagementPing.ts
+  // إشارة "فتح تطبيق" مرة واحدة لكل يوم لكل مستخدم — راجع src/lib/engagementPing.ts
   useEffect(() => {
     if (!user) return;
-    if (sessionStorage.getItem('engagement_pinged_session') === '1') return;
-    sessionStorage.setItem('engagement_pinged_session', '1');
-    sendEngagementPing('app_open');
+    pingAppOpenIfNewDay(user.id);
   }, [user?.id]);
-  useEngagementHeartbeat(activePage, !!user);
+  useEngagementHeartbeat(activePage, !!user, user?.id);
   // تفعيل الملفات يُحفظ لكل مستخدم على حدة (وليس بمفتاح واحد مشترك)، ويبقى كما
   // هو عبر الريفرش أو تسجيل الخروج/الدخول لنفس الحساب، إلى أن يغيّره المستخدم بنفسه.
   const [activeFileIds, setActiveFileIds] = useState<number[]>(() => {
