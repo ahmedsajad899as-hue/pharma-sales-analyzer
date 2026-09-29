@@ -1,4 +1,4 @@
-import type { AmbiguousGroup, SmartPlan, SmartPlanCandidate, SmartPlanUpload, UploadKind } from './types';
+import type { AmbiguousGroup, AreaWithDoctors,SmartPlan, SmartPlanCandidate, SmartPlanUpload, UploadKind } from './types';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -44,6 +44,14 @@ export const smartPlanApi = {
 
   clearUpload: (token: string, id: number, kind: UploadKind) =>
     req(token, `/${id}/uploads/${kind}`, { method: 'DELETE' }),
+
+  getAreaDoctors: (token: string, id: number) =>
+    req(token, `/${id}/area-doctors`) as Promise<{
+      areas: AreaWithDoctors[]; hasOpenPharmaciesFile: boolean; openPharmacyNamesCount: number;
+    }>,
+
+  saveDoctorSelection: (token: string, id: number, excludedKeys: string[]) =>
+    jsonReq(token, `/${id}/doctor-selection`, 'PUT', { excludedKeys }) as Promise<{ excludedCount: number }>,
 
   resolve: (token: string, id: number) =>
     req(token, `/${id}/resolve`, { method: 'POST' }) as Promise<{ linked: number; exact: number; ask: number; created: number }>,

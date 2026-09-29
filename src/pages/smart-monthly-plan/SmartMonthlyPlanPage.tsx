@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { smartPlanApi } from './api';
 import UploadStep from './UploadStep';
+import AreaDoctorsPanel from './AreaDoctorsPanel';
 import RatioEditor from './RatioEditor';
 import ResultsView from './ResultsView';
 import { exportSmartPlan } from './exportSmartPlan';
@@ -190,6 +191,12 @@ export default function SmartMonthlyPlanPage({ onBack }: { onBack: () => void })
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <UploadStep token={token!} planId={activePlan.id} uploads={uploads} onChanged={refreshActivePlan} />
+
+        <AreaDoctorsPanel
+          token={token!}
+          planId={activePlan.id}
+          refreshKey={uploads.map(u => `${u.kind}:${u.id}`).join('|')}
+        />
 
         <RatioEditor
           buckets={activePlan.ratioConfig}

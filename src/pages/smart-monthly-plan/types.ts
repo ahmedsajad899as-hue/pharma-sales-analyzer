@@ -39,6 +39,25 @@ export interface SmartPlan {
   scientificRep?: SmartRep;
 }
 
+export interface AreaDoctor {
+  id: number;
+  key: string;
+  name: string;
+  specialty: string | null;
+  pharmacyName: string | null;
+  className: string | null;
+  phone: string | null;
+  openPharmacy: boolean;
+  matchedOpenPharmacy: string | null;
+  included: boolean;
+}
+
+export interface AreaWithDoctors {
+  areaId: number;
+  areaName: string;
+  doctors: AreaDoctor[];
+}
+
 export interface SmartPlanUpload {
   id: number;
   smartPlanId: number;

@@ -18,6 +18,9 @@ router.get('/:id',               ctrl.getOne);
 router.patch('/:id',             ctrl.update);
 router.delete('/:id',            ctrl.remove);
 
+router.get('/:id/area-doctors',       ctrl.getAreaDoctors);
+router.put('/:id/doctor-selection',   ctrl.saveDoctorSelection);
+
 router.post('/:id/uploads/:kind',   upload.single('file'), ctrl.uploadFile);
 router.delete('/:id/uploads/:kind', ctrl.clearUpload);
 

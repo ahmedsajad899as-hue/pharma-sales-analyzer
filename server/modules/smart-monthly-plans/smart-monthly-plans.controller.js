@@ -12,7 +12,9 @@ import {
   resolveSmartPlanOwnerUserId, ingestCandidateDrafts, ensureSurveyFallback,
   resolveSmartPlanCandidates, confirmCandidateMatch, applyOpenPharmacyLinks,
   cleanOpenPharmacyNames, computeBucketPlan, getAmbiguousCandidates,
+  getAreaDoctorsOverview, excludedKeySet,
 } from '../../lib/smartPlanMatching.js';
+import { doctorLinkKey } from '../../lib/surveyDoctors.js';
 import { aiResolveSmartPlanCandidates } from './smart-plan-name-ai.js';
 import { curateBucket } from './smart-plan-curator-ai.js';
 
@@ -131,6 +133,35 @@ export async function remove(req, res) {
     res.json({ success: true });
   } catch (e) {
     console.error('[smart-monthly-plans] remove', e);
+    fail(res, 500, e.message);
+  }
+}
+
+// ── مناطق المندوب + أطباؤها + اختيار الأطباء المسموحين ──────────────────────
+
+export async function getAreaDoctors(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const overview = await getAreaDoctorsOverview(plan);
+    res.json({ success: true, ...overview });
+  } catch (e) {
+    console.error('[smart-monthly-plans] getAreaDoctors', e);
+    fail(res, 500, e.message);
+  }
+}
+
+export async function saveDoctorSelection(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const keys = req.body?.excludedKeys;
+    if (!Array.isArray(keys)) return fail(res, 400, 'excludedKeys يجب أن تكون مصفوفة');
+    const cleaned = Array.from(new Set(keys.filter(k => typeof k === 'string' && k)));
+    await prisma.smartPlan.update({ where: { id: plan.id }, data: { excludedDoctorKeys: cleaned } });
+    res.json({ success: true, excludedCount: cleaned.length });
+  } catch (e) {
+    console.error('[smart-monthly-plans] saveDoctorSelection', e);
     fail(res, 500, e.message);
   }
 }
@@ -275,9 +306,17 @@ export async function compute(req, res) {
     if (!plan) return fail(res, 404, 'البلان غير موجود');
     await applyOpenPharmacyLinks(plan.id); // دفاعياً — قد تغيّرت قائمة الصيدليات المفتوحة منذ آخر resolve
 
-    const resolvedCandidates = await prisma.smartPlanCandidate.findMany({
+    const allResolved = await prisma.smartPlanCandidate.findMany({
       where: { smartPlanId: plan.id, doctorId: { not: null } },
+      include: { doctor: { select: { name: true, area: { select: { name: true } } } } },
     });
+    // أطباء استبعدهم المستخدم يدوياً (من لوحة مناطق المندوب) لا يدخلون الاختيار
+    const excluded = excludedKeySet(plan);
+    const resolvedCandidates = excluded.size
+      ? allResolved.filter(c =>
+          !excluded.has(doctorLinkKey(c.rawName, c.areaName)) &&
+          !(c.doctor && excluded.has(doctorLinkKey(c.doctor.name, c.doctor.area?.name ?? c.areaName))))
+      : allResolved;
     const { buckets, finalByBucket, unassignable, summary } = computeBucketPlan(plan.targetDoctorCount, plan.ratioConfig, resolvedCandidates);
 
     // إعادة ضبط الاختيار السابق قبل تطبيق الجولة الجديدة

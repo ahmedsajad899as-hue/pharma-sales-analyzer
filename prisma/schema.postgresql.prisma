@@ -2537,6 +2537,7 @@ model SmartPlan {
   targetDoctorCount Int       @default(75)
   ratioConfig       Json // [{ key, label, percent, sourceTag }] — مصفوفة مفتوحة، لا فئات مُقفلة
   resultSummary     Json? // آخر ناتج حساب الـbuckets (quota/filled/shortfall) لعرض سريع
+  excludedDoctorKeys Json? // string[] — مفاتيح (doctorLinkKey) أطباء استبعدهم المستخدم يدوياً من الاختيار؛ null/فارغ = الكل مسموح
   lastRunAt         DateTime?
   exportedAt        DateTime?
   createdAt         DateTime  @default(now())

@@ -350,6 +350,60 @@ export async function applyAiCandidateMatch(smartPlanId, ownerUserId, candidateI
  * kind='openPharmacies'). idempotent وآمن التكرار — يُستدعى بعد resolve وأيضاً
  * دفاعياً في بداية compute.
  */
+/**
+ * يطابق اسم صيدلية طبيب مع قائمة الصيدليات المفتوحة. findClosestPharmacyName
+ * تتخطّى التطابق الحرفي (cand === name) لأنها مصمّمة لأسماء صيدليات "محذوفة"،
+ * فنفحص التطابق التام بعد التنظيف أولاً ثم نرجع للتطابق الضبابي.
+ * @returns {string|null} اسم الصيدلية المفتوحة المطابقة أو null
+ */
+export function matchOpenPharmacy(pharmacyName, openNames) {
+  if (!pharmacyName?.trim() || !openNames?.length) return null;
+  const key = normalizeAreaName(cleanPharmacyName(pharmacyName) || '');
+  if (key) {
+    const exact = openNames.find(n => normalizeAreaName(cleanPharmacyName(n) || '') === key);
+    if (exact) return exact;
+  }
+  return findClosestPharmacyName(pharmacyName, openNames);
+}
+
+/** مفتاح استبعاد طبيب — نفس مفتاح ربط الأسماء المستعمل لدمج المرشّحين. */
+export function excludedKeySet(plan) {
+  return new Set(Array.isArray(plan?.excludedDoctorKeys) ? plan.excludedDoctorKeys : []);
+}
+
+/**
+ * نظرة "مناطق المندوب وأطباؤها" للبلان: كل منطقة مُعيَّنة لهذا المندوب مع أطباء
+ * السيرفي فيها (اختصاص/صيدلية/كلاس) — نفس مصدر تحليل الزيارات — مع علامة هل
+ * صيدلية كل طبيب مطابقة لأحد الصيدليات المفتوحة المرفوعة، وهل هو مستبعد يدوياً.
+ */
+export async function getAreaDoctorsOverview(plan) {
+  const scope = await buildRepAreaScope(plan.scientificRepId);
+  const docs = await getScopedSurveyDoctors(scope);
+  const upload = await prisma.smartPlanUpload.findFirst({
+    where: { smartPlanId: plan.id, kind: 'openPharmacies' },
+    orderBy: { id: 'desc' },
+  });
+  const openNames = upload?.data?.pharmacyNames || [];
+  const excluded = excludedKeySet(plan);
+
+  const byArea = new Map(scope.areaRecords.map(a => [a.id, { areaId: a.id, areaName: a.name, doctors: [] }]));
+  for (const d of docs) {
+    const area = scope.normToArea.get(normalizeAreaName(d.areaName ?? ''));
+    const bucket = area && byArea.get(area.id);
+    if (!bucket) continue;
+    const key = doctorLinkKey(d.name, d.areaName);
+    const matched = matchOpenPharmacy(d.pharmacyName, openNames);
+    bucket.doctors.push({
+      id: d.id, key, name: d.name, specialty: d.specialty || null,
+      pharmacyName: d.pharmacyName || null, className: d.className || null, phone: d.phone || null,
+      openPharmacy: !!matched, matchedOpenPharmacy: matched,
+      included: !excluded.has(key),
+    });
+  }
+  const areas = [...byArea.values()].sort((a, b) => a.areaName.localeCompare(b.areaName, 'ar'));
+  return { areas, hasOpenPharmaciesFile: openNames.length > 0, openPharmacyNamesCount: openNames.length };
+}
+
 export async function applyOpenPharmacyLinks(smartPlanId) {
   const upload = await prisma.smartPlanUpload.findFirst({
     where: { smartPlanId, kind: 'openPharmacies' },
@@ -363,7 +417,7 @@ export async function applyOpenPharmacyLinks(smartPlanId) {
 
   let linkedCount = 0;
   for (const c of candidates) {
-    const isLinked = !!(openNames.length && c.pharmacyName?.trim() && findClosestPharmacyName(c.pharmacyName, openNames));
+    const isLinked = !!matchOpenPharmacy(c.pharmacyName, openNames);
     const current = c.sourceFlags || {};
     if (!!current.openPharmacyLinked === isLinked) continue; // لا تغيير — تفادي كتابة غير ضرورية
     await prisma.smartPlanCandidate.update({
