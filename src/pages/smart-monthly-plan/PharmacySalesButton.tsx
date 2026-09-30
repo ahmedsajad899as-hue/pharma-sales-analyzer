@@ -72,7 +72,13 @@ export function usePharmacyNet(token: string) {
     return { exact, similar };
   }, [exactMap, byArea, pharmacies]);
 
-  return useMemo(() => ({ find, fileIds }), [find, fileIds]);
+  /** مطابقة تامة فقط — رخيصة بما يكفي لتُستدعى لكل صيدلية عند الفلترة بالمبيع. */
+  const lookup = useCallback((pharmName: string) => exactMap.get(norm(pharmName)) ?? null, [exactMap]);
+
+  return useMemo(
+    () => ({ find, lookup, fileIds, ready: pharmacies.length > 0 }),
+    [find, lookup, fileIds, pharmacies.length],
+  );
 }
 
 type Net = ReturnType<typeof usePharmacyNet>;

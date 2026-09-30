@@ -1,8 +1,14 @@
 import { useState } from 'react';
+import { Icon } from '../../config/icons';
+import { btnMini, inputStyle, panel, sectionTitle } from './ui';
 import type { RatioBucket } from './types';
 
 let nextTempId = 1;
 
+// ألوان هادئة رسمية للفئات — تُستعمل في شريط النسب وفي نقطة كل صف
+const BUCKET_COLORS = ['#1a56db', '#0d9f6e', '#5a6a8a', '#7c93c3', '#0e7490', '#9333ea'];
+
+/** محرّر نسب الفئات — شريط نسب بصري + حصّة كل فئة بالأرقام لا بالنسبة فقط. */
 export default function RatioEditor({
   buckets, onChange, targetDoctorCount, onTargetChange,
 }: {
@@ -16,8 +22,7 @@ export default function RatioEditor({
   const balanced = Math.round(total) === 100;
 
   const update = (idx: number, patch: Partial<RatioBucket>) => {
-    const next = buckets.map((b, i) => (i === idx ? { ...b, ...patch } : b));
-    onChange(next);
+    onChange(buckets.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
   };
   const remove = (idx: number) => onChange(buckets.filter((_, i) => i !== idx));
   const add = () => {
@@ -26,62 +31,91 @@ export default function RatioEditor({
     onChange([...buckets, { key, label, percent: 0, sourceTag: key }]);
     setNewLabel('');
   };
+  /** توزيع المتبقّي بالتساوي حتى يصبح المجموع 100% — اختصار للحالة الشائعة. */
+  const balance = () => {
+    if (!buckets.length) return;
+    const even = Math.floor(100 / buckets.length);
+    const rest = 100 - even * buckets.length;
+    onChange(buckets.map((b, i) => ({ ...b, percent: even + (i === 0 ? rest : 0) })));
+  };
 
   return (
-    <div style={{ background: 'var(--c-surface)', border: '1px solid var(--c-border)', borderRadius: 'var(--radius-md)', padding: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <strong style={{ fontSize: 14, color: 'var(--c-text-primary)' }}>نسب الفئات في البلان</strong>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--c-text-secondary)' }}>
-          إجمالي عدد الأطباء المستهدَف
+    <div style={panel}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <h3 style={sectionTitle}>
+          <Icon name="category" size={15} style={{ color: 'var(--c-accent)' }} />
+          نسب الفئات في البلان
+        </h3>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--c-text-secondary)', fontWeight: 600 }}>
+          عدد الأطباء المستهدَف
           <input
             type="number" min={1} value={targetDoctorCount}
             onChange={e => onTargetChange(Math.max(1, parseInt(e.target.value) || 1))}
-            style={{ width: 70, padding: '4px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--c-border)' }}
+            style={{ ...inputStyle, width: 74, padding: '6px 8px', textAlign: 'center', fontWeight: 700 }}
           />
         </label>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {buckets.map((b, idx) => (
-          <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              value={b.label}
-              onChange={e => update(idx, { label: e.target.value })}
-              style={{ flex: 1, minWidth: 120, padding: '6px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--c-border)', fontSize: 13 }}
-            />
-            <input
-              type="number" min={0} max={100} value={b.percent}
-              onChange={e => update(idx, { percent: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
-              style={{ width: 64, padding: '6px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--c-border)', fontSize: 13, textAlign: 'center' }}
-            />
-            <span style={{ fontSize: 13, color: 'var(--c-text-muted)' }}>%</span>
-            <button
-              onClick={() => remove(idx)}
-              title="حذف الفئة"
-              style={{ border: 'none', background: 'transparent', color: 'var(--c-danger)', cursor: 'pointer', fontSize: 14 }}
-            >✕</button>
-          </div>
+      {/* شريط النسب */}
+      <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', background: 'var(--c-border-light)', marginBottom: 12 }}>
+        {buckets.map((b, i) => (
+          <div
+            key={b.key}
+            title={`${b.label} — ${b.percent}%`}
+            style={{ width: `${Math.max(0, Math.min(100, b.percent))}%`, background: BUCKET_COLORS[i % BUCKET_COLORS.length], transition: 'width 0.2s' }}
+          />
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <input
-          value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="اسم فئة جديدة..."
-          style={{ flex: 1, padding: '6px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--c-border)', fontSize: 13 }}
-        />
-        <button
-          onClick={add}
-          style={{ padding: '6px 14px', borderRadius: 'var(--radius-sm)', border: 'none', background: 'var(--c-accent-light)', color: 'var(--c-accent)', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}
-        >
-          + إضافة فئة
-        </button>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+        {buckets.map((b, idx) => {
+          const quota = Math.round((Number(b.percent) || 0) / 100 * targetDoctorCount);
+          return (
+            <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, flexShrink: 0, background: BUCKET_COLORS[idx % BUCKET_COLORS.length] }} />
+              <input
+                value={b.label}
+                onChange={e => update(idx, { label: e.target.value })}
+                style={{ ...inputStyle, flex: 1, minWidth: 110, padding: '6px 9px', fontSize: 12.5 }}
+              />
+              <input
+                type="number" min={0} max={100} value={b.percent}
+                onChange={e => update(idx, { percent: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+                style={{ ...inputStyle, width: 62, padding: '6px 8px', fontSize: 12.5, textAlign: 'center' }}
+              />
+              <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>%</span>
+              <span style={{ fontSize: 11.5, color: 'var(--c-text-secondary)', minWidth: 58, fontWeight: 600 }}>≈ {quota} طبيب</span>
+              <button
+                onClick={() => remove(idx)}
+                title="حذف الفئة"
+                style={{ border: 'none', background: 'transparent', color: 'var(--c-text-muted)', cursor: 'pointer', display: 'flex', padding: 3 }}
+              ><Icon name="close" size={14} /></button>
+            </div>
+          );
+        })}
       </div>
 
-      <div style={{
-        marginTop: 12, fontSize: 13, fontWeight: 600,
-        color: balanced ? 'var(--c-success)' : 'var(--c-danger)',
-      }}>
-        المجموع: {total}% {balanced ? '✓' : '— يجب أن يساوي المجموع 100%'}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="اسم فئة جديدة…"
+          style={{ ...inputStyle, flex: 1, minWidth: 140, padding: '6px 9px', fontSize: 12.5 }}
+        />
+        <button onClick={add} style={{ ...btnMini, padding: '7px 12px', fontSize: 12 }}>
+          <Icon name="add" size={12} /> إضافة فئة
+        </button>
+        {!balanced && (
+          <button onClick={balance} style={{ ...btnMini, padding: '7px 12px', fontSize: 12 }}>
+            توزيع متساوٍ
+          </button>
+        )}
+        <span style={{
+          marginInlineStart: 'auto', fontSize: 12, fontWeight: 700,
+          color: balanced ? 'var(--c-success)' : 'var(--c-danger)',
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+        }}>
+          <Icon name={balanced ? 'checkCircle' : 'warning'} size={13} />
+          المجموع {total}%{balanced ? '' : ' — يجب أن يساوي 100%'}
+        </span>
       </div>
     </div>
   );
