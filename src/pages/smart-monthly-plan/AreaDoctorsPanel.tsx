@@ -130,6 +130,10 @@ export default function AreaDoctorsPanel({
   const allKeys = allDocs.map(x => x.d.key);
   const withSalesCount = net.ready ? allPharms.filter(p => (salesOf(p.name) ?? 0) > 0).length : 0;
   const noSalesCount = net.ready ? totalPharmacies - withSalesCount : 0;
+  // غير مفتوحة ولا لها مبيع بنفس الوقت — صيدليات بلا أي نشاط مسجَّل، تحتاج أهم متابعة
+  const deadCount = (hasOpenFile && net.ready)
+    ? allPharms.filter(p => !p.openPharmacy && (salesOf(p.name) ?? 0) === 0).length
+    : 0;
 
   const shownPharmCount = visibleAreas.reduce((s, a) => s + a.shown.filter(p => p.name).length, 0);
   const shownKeysAll = visibleAreas.flatMap(a => a.shown.flatMap(p => p.doctors.map(d => d.key)));
@@ -212,6 +216,7 @@ export default function AreaDoctorsPanel({
                 <Stat label="صيدليات" value={totalPharmacies} />
                 {hasOpenFile && <Stat label="مفتوحة" value={totalOpen} tone="success" />}
                 {net.ready && <Stat label="لها مبيع" value={withSalesCount} tone="success" />}
+                {hasOpenFile && net.ready && <Stat label="غير مفتوحة وبلا مبيع" value={deadCount} tone="danger" />}
                 <Stat label="أطباء" value={allDocs.length} />
                 <Stat label="محدَّد للبلان" value={totalIncluded} tone="accent" />
               </div>
@@ -361,7 +366,6 @@ export default function AreaDoctorsPanel({
                               >
                                 <span style={{ fontSize: 10, color: 'var(--c-text-muted)', width: 10 }}>{expanded ? '▲' : '▼'}</span>
                                 <strong style={{ fontSize: 13, color: 'var(--c-text-primary)' }}>{p.name ?? 'أطباء بلا صيدلية مسجَّلة'}</strong>
-                                {p.name && <PharmacySalesButton token={token} net={net} pharmName={p.name} areaName={a.areaName} />}
                                 {/* المفتوحة = علامة صح خضراء فقط، وغير المفتوحة بلا أي إشارة */}
                                 {hasOpenFile && p.name && p.openPharmacy && (
                                   <span
@@ -378,7 +382,8 @@ export default function AreaDoctorsPanel({
                                     onDone={() => setReloadTick(t => t + 1)} onError={setError}
                                   />
                                 )}
-                                <span style={{ marginInlineStart: 'auto' }}>
+                                <span style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  {p.name && <PharmacySalesButton token={token} net={net} pharmName={p.name} areaName={a.areaName} />}
                                   <Tag tone={sel > 0 ? 'accent' : 'neutral'}>{sel}/{keys.length} طبيب</Tag>
                                 </span>
                               </div>
