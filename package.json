@@ -12,6 +12,7 @@
     "start": "node server/index.js",
     "test:survey-sync": "node scripts/test-survey-sync.mjs",
     "test:survey-sheet": "node scripts/test-survey-sheet.mjs",
+    "test:pharmacy-match": "node scripts/test-pharmacy-match.mjs",
     "postinstall": "prisma generate --schema prisma/schema.postgresql.prisma",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",

@@ -67,6 +67,18 @@ export interface AreaWithDoctors {
   pharmacies: AreaPharmacy[];
 }
 
+/**
+ * اسم صيدلية معروف في سيرفي مناطق المندوب — مجموعة البحث الذكي عند ربط صيدلية
+ * مفتوحة غير موجودة في السيرفي. أوسع من AreaWithDoctors.pharmacies: يشمل صيدليات
+ * سيرفي بلا أي طبيب وصيدليات وردت عند الأطباء بلا صف سيرفي مستقل.
+ */
+export interface SurveyPharmacyRef {
+  name: string;
+  areaId: number;
+  areaName: string;
+  doctorCount: number;
+}
+
 export interface SmartPlanUpload {
   id: number;
   smartPlanId: number;

@@ -611,7 +611,39 @@ export async function getAreaDoctorsOverview(plan) {
     pharmacies: [...pharmacyMap.values()].sort((x, y) =>
       (x.name ? 0 : 1) - (y.name ? 0 : 1) || (x.name || '').localeCompare(y.name || '', 'ar')),
   })).sort((a, b) => a.areaName.localeCompare(b.areaName, 'ar'));
-  return { areas, hasOpenPharmaciesFile: entries.length > 0, openPharmacyNamesCount: entries.length };
+
+  // فهرس صيدليات السيرفي الكامل لمناطق المندوب — مصدر «البحث الذكي» في الواجهة حين
+  // تُربَط صيدلية مفتوحة غير موجودة في السيرفي. أوسع عمداً من صيدليات اللوحة أعلاه:
+  // اللوحة تعرض من لها طبيب أو من وردت في ملف المفتوحة فقط، بينما هدف البحث هو كل
+  // اسم صيدلية معروف في السيرفي — بما فيه صيدلية مسجَّلة بلا أي طبيب (لن تظهر في
+  // اللوحة أبداً فيستحيل اقتراحها) وصيدلية ذُكِرت عند طبيب بلا صف MasterSurveyPharmacy.
+  const pharmDocCount = new Map();
+  for (const d of docs) {
+    const id = areaIdOf(d.areaName);
+    const nm = d.pharmacyName?.trim();
+    if (!id || !nm) continue;
+    const k = `${id}|${pKeyOf(nm)}`;
+    pharmDocCount.set(k, (pharmDocCount.get(k) || 0) + 1);
+  }
+  const pharmacyIndex = new Map();
+  const addToIndex = (rawName, areaId) => {
+    const nm = rawName?.trim();
+    const bucket = areaId && byArea.get(areaId);
+    if (!nm || !bucket) return;
+    const k = `${areaId}|${pKeyOf(nm)}`;
+    if (pharmacyIndex.has(k)) return;
+    pharmacyIndex.set(k, { name: nm, areaId, areaName: bucket.areaName, doctorCount: pharmDocCount.get(k) || 0 });
+  };
+  // أسماء MasterSurveyPharmacy أولاً — هي الاسم المعتمد عند وجود صفّين للاسم نفسه
+  for (const sp of surveyPharmacies) addToIndex(sp.name, areaIdOf(sp.areaName));
+  for (const d of docs) addToIndex(d.pharmacyName, areaIdOf(d.areaName));
+
+  return {
+    areas,
+    surveyPharmacies: [...pharmacyIndex.values()],
+    hasOpenPharmaciesFile: entries.length > 0,
+    openPharmacyNamesCount: entries.length,
+  };
 }
 
 export async function applyOpenPharmacyLinks(smartPlanId) {

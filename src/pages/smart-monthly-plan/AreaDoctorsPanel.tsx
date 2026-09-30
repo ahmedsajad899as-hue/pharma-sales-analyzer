@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { smartPlanApi } from './api';
+import PharmacyLinkChip from './PharmacyLinkChip';
 import PharmacyTools from './PharmacyTools';
 import PharmacySalesButton, { usePharmacyNet } from './PharmacySalesButton';
-import type { AreaWithDoctors } from './types';
+import type { AreaWithDoctors, SurveyPharmacyRef } from './types';
 
 const panel: React.CSSProperties = {
   background: 'var(--c-surface)', border: '1px solid var(--c-border)', borderRadius: 'var(--radius-lg)',
@@ -37,6 +38,7 @@ export default function AreaDoctorsPanel({
   token: string; planId: number; refreshKey: string;
 }) {
   const [areas, setAreas] = useState<AreaWithDoctors[]>([]);
+  const [surveyPharmacies, setSurveyPharmacies] = useState<SurveyPharmacyRef[]>([]);
   const [hasOpenFile, setHasOpenFile] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -46,7 +48,7 @@ export default function AreaDoctorsPanel({
   const [expandedAreas, setExpandedAreas] = useState<Set<number>>(new Set());
   const [openPharmacies, setOpenPharmacies] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'open' | 'closed'>('all');
+  const [filter, setFilter] = useState<'all' | 'open' | 'closed' | 'link'>('all');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
   const [reloadTick, setReloadTick] = useState(0);
@@ -59,6 +61,7 @@ export default function AreaDoctorsPanel({
       .then(r => {
         if (cancelled) return;
         setAreas(r.areas);
+        setSurveyPharmacies(r.surveyPharmacies ?? []);
         setHasOpenFile(r.hasOpenPharmaciesFile);
         // لا نستبدل اختياراً محلياً لم يُحفَظ بعد عند إعادة التحميل بسبب رفع ملف
         if (!dirty.current) {
@@ -101,6 +104,7 @@ export default function AreaDoctorsPanel({
     shown: a.pharmacies.map((p, idx) => ({ ...p, idx })).filter(p => {
       if (filter === 'open' && !p.openPharmacy) return false;
       if (filter === 'closed' && p.openPharmacy) return false;
+      if (filter === 'link' && !(p.name && p.notInSurvey && !p.separate)) return false;
       if (!q) return true;
       return p.name?.toLowerCase().includes(q) || p.doctors.some(d => d.name.toLowerCase().includes(q) || d.specialty?.toLowerCase().includes(q));
     }),
@@ -109,6 +113,8 @@ export default function AreaDoctorsPanel({
   const allDocs = areas.flatMap(a => a.pharmacies.flatMap(p => p.doctors.map(d => ({ d, open: p.openPharmacy }))));
   const totalPharmacies = areas.reduce((s, a) => s + a.pharmacies.filter(p => p.name).length, 0);
   const totalOpen = areas.reduce((s, a) => s + a.pharmacies.filter(p => p.openPharmacy).length, 0);
+  // صيدليات ينتظر النظام قراراً بشأنها — صارت شريحة صغيرة داخل الصف، فتحتاج مدخلاً سريعاً
+  const needLinkCount = areas.reduce((s, a) => s + a.pharmacies.filter(p => p.name && p.notInSurvey && !p.separate).length, 0);
   const totalIncluded = allDocs.filter(x => selected.has(x.d.key)).length;
   const allKeys = allDocs.map(x => x.d.key);
   const openPharmCount = totalOpen;
@@ -160,6 +166,12 @@ export default function AreaDoctorsPanel({
                 <button style={chip(filter === 'all')} onClick={() => setFilter('all')}>الكل ({totalPharmacies} صيدلية · {allDocs.length} طبيب)</button>
                 {hasOpenFile && <button style={chip(filter === 'open')} onClick={() => setFilter('open')}>🏬 مفتوحة ({openPharmCount} صيدلية · {openDocCount} طبيب)</button>}
                 {hasOpenFile && <button style={chip(filter === 'closed')} onClick={() => setFilter('closed')}>غير مفتوحة ({closedPharmCount} صيدلية · {closedDocCount} طبيب)</button>}
+                {needLinkCount > 0 && (
+                  <button
+                    style={{ ...chip(filter === 'link'), ...(filter === 'link' ? null : { borderColor: 'var(--c-warning)', color: 'var(--c-warning)' }) }}
+                    onClick={() => setFilter('link')}
+                  >🔗 تحتاج ربطاً بالسيرفي ({needLinkCount})</button>
+                )}
                 <button style={miniBtn} onClick={() => setMany(allKeys, true)}>تحديد الكل</button>
                 <button style={miniBtn} onClick={() => setMany(allKeys, false)}>إلغاء الكل</button>
                 {hasOpenFile && (
@@ -219,7 +231,13 @@ export default function AreaDoctorsPanel({
                                 {hasOpenFile && p.name && (p.openPharmacy
                                   ? <span title={p.matchedOpenPharmacy ?? ''} style={pill('var(--c-success-bg)', 'var(--c-success)')}>✓ مفتوحة</span>
                                   : <span style={pill('var(--c-border-light, var(--c-bg))', 'var(--c-text-muted)')}>✗ غير مفتوحة</span>)}
-                                {p.notInSurvey && <span title="الصيدلية مفتوحة في الملف لكنها غير مسجَّلة في السيرفي بهذا الاسم" style={pill('var(--c-danger-bg)', 'var(--c-danger)')}>غير موجودة في السيرفي</span>}
+                                {p.name && (
+                                  <PharmacyLinkChip
+                                    token={token} planId={planId} area={a} pharmacy={p}
+                                    surveyPharmacies={surveyPharmacies}
+                                    onDone={() => setReloadTick(t => t + 1)} onError={setError}
+                                  />
+                                )}
                                 <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
                                   <span style={pill('var(--c-accent-light)', 'var(--c-accent)')}>{sel}/{keys.length} طبيب ▾</span>
                                 </span>

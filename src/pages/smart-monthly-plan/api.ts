@@ -1,4 +1,4 @@
-import type { AmbiguousGroup, AreaWithDoctors,SmartPlan, SmartPlanCandidate, SmartPlanUpload, UploadKind } from './types';
+import type { AmbiguousGroup, AreaWithDoctors,SmartPlan, SmartPlanCandidate, SmartPlanUpload, SurveyPharmacyRef, UploadKind } from './types';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -47,7 +47,8 @@ export const smartPlanApi = {
 
   getAreaDoctors: (token: string, id: number) =>
     req(token, `/${id}/area-doctors`) as Promise<{
-      areas: AreaWithDoctors[]; hasOpenPharmaciesFile: boolean; openPharmacyNamesCount: number;
+      areas: AreaWithDoctors[]; surveyPharmacies: SurveyPharmacyRef[];
+      hasOpenPharmaciesFile: boolean; openPharmacyNamesCount: number;
     }>,
 
   saveDoctorSelection: (token: string, id: number, selectedKeys: string[]) =>

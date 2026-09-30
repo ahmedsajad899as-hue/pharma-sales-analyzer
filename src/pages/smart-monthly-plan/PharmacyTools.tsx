@@ -15,26 +15,17 @@ const box: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 8,
 };
 
-const chipBtn: React.CSSProperties = {
-  padding: '4px 11px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid var(--c-border)',
-};
-
-const roundBtn: React.CSSProperties = {
-  width: 30, height: 30, borderRadius: '50%', fontSize: 14, cursor: 'pointer', lineHeight: 1,
-  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  border: '1px solid var(--c-border)', background: 'var(--c-surface)', color: 'var(--c-text-secondary)',
-};
-
 const select: React.CSSProperties = {
   padding: '5px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--c-border)', fontSize: 12, minWidth: 200,
 };
 
 /**
- * أدوات الصيدلية داخل البلان الذكي:
- *  - صيدلية مفتوحة في الملف لكنها غير معروفة في السيرفي → "هل هي نفس صيدلية كذا؟"
- *    والجواب يُحفَظ كتعريف عالمي لكل الحسابات فلا يتكرر السؤال.
+ * أدوات صيدليات السيرفي داخل البلان الذكي:
  *  - صيدليات سيرفي متشابهة → اقتراح دمج.
  *  - تعديل اسم صيدلية / دمجها في السيرفي الأصلي.
+ *
+ * ربط صيدلية «مفتوحة في الملف لكنها غير موجودة في السيرفي» انتقل إلى
+ * PharmacyLinkChip: شريحة داخل صف الصيدلية تفتح نافذة بحث ذكي.
  */
 export default function PharmacyTools({
   token, planId, area, pharmacy: p, expanded, onDone, onError,
@@ -42,7 +33,7 @@ export default function PharmacyTools({
   token: string; planId: number; area: AreaWithDoctors; pharmacy: AreaPharmacy;
   expanded: boolean; onDone: () => void; onError: (m: string) => void;
 }) {
-  const [mode, setMode] = useState<null | 'rename' | 'merge' | 'link'>(null);
+  const [mode, setMode] = useState<null | 'rename' | 'merge'>(null);
   const [newName, setNewName] = useState(p.name ?? '');
   const [other, setOther] = useState('');
   const [keep, setKeep] = useState<'this' | 'other'>('this');
@@ -57,14 +48,6 @@ export default function PharmacyTools({
     catch (e: any) { onError(e.message); }
     finally { setBusy(false); }
   };
-
-  const link = (toName: string | null) => run(() => smartPlanApi.savePharmacyLink(token, planId, {
-    fromName: p.fileEntry?.name ?? p.name!, areaName: p.fileEntry?.areaName ?? area.areaName, toName,
-  }));
-
-  const unlink = () => run(() => smartPlanApi.removePharmacyLink(token, planId, {
-    fromName: p.fileEntry?.name ?? p.name!, areaName: p.fileEntry?.areaName ?? area.areaName,
-  }));
 
   const doRename = () => {
     const name = newName.trim();
@@ -81,66 +64,10 @@ export default function PharmacyTools({
     run(() => smartPlanApi.mergePharmacies(token, planId, { areaId: area.areaId, keepName, mergeNames: [mergeName] }));
   };
 
-  const askLink = p.notInSurvey && !p.separate;
   const similar = p.similar ?? [];
 
   return (
     <>
-      {askLink && (
-        <div
-          onClick={e => e.stopPropagation()}
-          style={{
-            margin: '0 14px 10px', padding: '8px 10px', borderRadius: 'var(--radius-md)',
-            background: 'linear-gradient(90deg, var(--c-warning-bg), var(--c-surface))',
-            border: '1px solid var(--c-border)', borderInlineStart: '3px solid var(--c-warning)',
-            display: 'flex', flexDirection: 'column', gap: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span title="غير موجودة في السيرفي — هل هي نفس صيدلية موجودة؟" style={{ fontSize: 16, lineHeight: 1 }}>🔗❓</span>
-            {similar.map(s => (
-              <button key={s.name} disabled={busy} onClick={() => link(s.name)}
-                title={`نعم، هي «${s.name}»`}
-                style={{ ...chipBtn, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderColor: 'var(--c-accent)' }}>
-                ✓ {s.name} <span style={{ opacity: 0.7 }}>· 👨‍⚕️{s.doctorCount}</span>
-              </button>
-            ))}
-            <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 6 }}>
-              <button disabled={busy} title="اختيار صيدلية أخرى من السيرفي" aria-label="اختيار صيدلية أخرى"
-                onClick={() => setMode(mode === 'link' ? null : 'link')}
-                style={{ ...roundBtn, ...(mode === 'link' ? { background: 'var(--c-accent)', color: '#fff', borderColor: 'var(--c-accent)' } : null) }}>🔎</button>
-              <button disabled={busy} title="صيدلية مستقلة — لا تسأل مجدداً (يُطبَّق على كل الحسابات)" aria-label="صيدلية مستقلة"
-                onClick={() => link(null)}
-                style={{ ...roundBtn, color: 'var(--c-danger)', borderColor: 'var(--c-danger-border)', background: 'var(--c-danger-bg)' }}>🚫</button>
-            </span>
-          </div>
-          {mode === 'link' && (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <select value={other} onChange={e => setOther(e.target.value)} style={{ ...select, flex: 1 }}>
-                <option value="">📍 {area.areaName}</option>
-                {options.map(o => <option key={o.name!} value={o.name!}>{o.name} · 👨‍⚕️{o.doctors.length}</option>)}
-              </select>
-              <button disabled={busy || !other} title="تأكيد" aria-label="تأكيد" onClick={() => link(other)}
-                style={{ ...roundBtn, background: 'var(--c-accent)', color: '#fff', borderColor: 'var(--c-accent)', opacity: !other ? 0.5 : 1 }}>✓</button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {p.separate && (
-        <div style={{ ...box, flexDirection: 'row', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
-          <span style={{ color: 'var(--c-text-muted)' }}>مؤكَّدة كصيدلية مستقلة غير موجودة في السيرفي.</span>
-          <button disabled={busy} style={btn()} onClick={unlink}>إعادة السؤال</button>
-        </div>
-      )}
-
-      {p.linkedFrom && (
-        <div style={{ ...box, flexDirection: 'row', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
-          <span style={{ color: 'var(--c-text-secondary)' }}>🔗 مربوطة بالاسم «{p.linkedFrom}» من ملف المفتوحة (تعريف محفوظ لكل الحسابات).</span>
-          <button disabled={busy} style={btn('danger')} onClick={unlink}>فك الربط</button>
-        </div>
-      )}
-
       {!p.notInSurvey && similar.length > 0 && mode !== 'merge' && (
         <div style={{ ...box, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }} onClick={e => e.stopPropagation()}>
           <span style={{ color: 'var(--c-text-secondary)' }}>🔁 قد تكون نفس:</span>
