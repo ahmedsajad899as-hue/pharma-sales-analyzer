@@ -60,6 +60,11 @@ export const smartPlanApi = {
   removePharmacyLink: (token: string, id: number, data: { fromName: string; areaName: string | null }) =>
     jsonReq(token, `/${id}/pharmacy-links`, 'DELETE', data),
 
+  registerPharmacyInSurvey: (token: string, id: number, data: { name: string; areaName: string }) =>
+    jsonReq(token, `/${id}/pharmacies/register`, 'POST', data) as Promise<{
+      duplicate: boolean; pharmacy: { id: number; name: string; areaName: string | null };
+    }>,
+
   lookupPharmacy: (token: string, id: number, name: string) =>
     req(token, `/${id}/pharmacy-lookup?name=${encodeURIComponent(name)}`) as Promise<{
       results: PharmacyLookupHit[]; repAreaNames: string[];

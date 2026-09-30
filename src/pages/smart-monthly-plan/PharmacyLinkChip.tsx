@@ -239,6 +239,28 @@ export default function PharmacyLinkChip({
                       <Icon name="search" size={11} /> أين يوجد هذا الاسم؟
                     </div>
                     <div style={{ fontSize: 11.5, color: tone, lineHeight: 1.7 }}>{verdict}</div>
+                    {/* لا صفّ لها في السيرفي أصلاً: الربط عديم الفائدة، والحل تسجيلها مرة واحدة */}
+                    {!lookupBusy && surveyHits.length === 0 && (
+                      <button
+                        disabled={busy}
+                        onClick={() => {
+                          const regName = visitOnly[0]?.name || name;
+                          if (!window.confirm(
+                            `تسجيل «${regName}» في السيرفي ضمن منطقة «${area.areaName}»؟\n`
+                            + 'ستظهر لكل الحسابات كصيدلية مسجَّلة، ويمكن إضافة أطبائها لاحقاً.',
+                          )) return;
+                          run(() => smartPlanApi.registerPharmacyInSurvey(token, planId, { name: regName, areaName: area.areaName }));
+                        }}
+                        style={{
+                          marginTop: 8, width: '100%', border: '1px solid var(--c-accent)', background: 'var(--c-accent)',
+                          color: '#fff', borderRadius: 8, padding: '7px 10px', fontSize: 12, fontWeight: 700,
+                          cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                        }}
+                      >
+                        <Icon name="add" size={12} /> سجّلها في السيرفي — منطقة {area.areaName}
+                      </button>
+                    )}
                     {hits.length > 0 && (
                       <div style={{ marginTop: 7, display: 'flex', flexDirection: 'column', gap: 5 }}>
                         {hits.slice(0, 5).map(h => {

@@ -17,6 +17,7 @@ import {
 } from '../../lib/smartPlanMatching.js';
 import { doctorLinkKey } from '../../lib/surveyDoctors.js';
 import { renameOrMergePharmacies } from '../../lib/smartPlanPharmacyEdit.js';
+import { createSurveyPharmacy } from '../../lib/surveyPharmacies.js';
 import { aiResolveSmartPlanCandidates } from './smart-plan-name-ai.js';
 import { curateBucket } from './smart-plan-curator-ai.js';
 
@@ -211,6 +212,38 @@ export async function removePharmacyLink(req, res) {
     res.json({ success: true });
   } catch (e) {
     console.error('[smart-monthly-plans] removePharmacyLink', e);
+    fail(res, 500, e.message);
+  }
+}
+
+/**
+ * تسجيل صيدلية «مفتوحة في الملف» داخل السيرفي النشط بمنطقتها — الإجراء المقابل
+ * لحالة «معروفة من الزيارات فقط / غير موجودة إطلاقاً»: الربط لا ينفع لأن لا صفّ
+ * لها أصلاً، فالحل أن تُسجَّل مرة واحدة فيراها كل الحسابات ويصير بالإمكان إضافة
+ * أطبائها لاحقاً. createSurveyPharmacy يتكفّل بمنع التكرار + ensureGlobalArea + السجل.
+ */
+export async function registerPharmacyInSurvey(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const name = String(req.body?.name ?? '').trim();
+    const areaName = String(req.body?.areaName ?? '').trim();
+    if (!name) return fail(res, 400, 'اسم الصيدلية مطلوب');
+    if (!areaName) return fail(res, 400, 'منطقة الصيدلية مطلوبة');
+
+    const survey = await prisma.masterSurvey.findFirst({
+      where: { isActive: true }, orderBy: { id: 'desc' }, select: { id: true },
+    });
+    if (!survey) return fail(res, 400, 'لا يوجد سيرفي نشط لتسجيل الصيدلية فيه');
+
+    const ph = await createSurveyPharmacy(survey.id, { name, areaName }, req.user.id);
+    res.json({
+      success: true,
+      duplicate: !!ph._duplicate,
+      pharmacy: { id: ph.id, name: ph.name, areaName: ph.areaName },
+    });
+  } catch (e) {
+    console.error('[smart-monthly-plans] registerPharmacyInSurvey', e);
     fail(res, 500, e.message);
   }
 }
