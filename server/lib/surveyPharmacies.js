@@ -183,14 +183,14 @@ export async function cascadePharmacyNameChange(surveyId, oldNames, newName, opt
   const trimmedNew = String(newName ?? '').trim();
   const names = [...new Set((oldNames || []).map(n => String(n ?? '').trim()).filter(Boolean))]
     .filter(n => n.toLowerCase() !== trimmedNew.toLowerCase());
-  if (!names.length) return { affectedDoctors: 0, affectedVisits: 0, affectedLinks: 0 };
+  if (!names.length) return { affectedDoctors: 0, affectedVisits: 0, affectedLinks: 0, affectedCandidates: 0 };
 
   const normAreas = (areaNames || []).map(a => normalizeAreaName(String(a ?? ''))).filter(Boolean);
   const scoped = normAreas.length > 0;
   const areaNameSet = new Set(normAreas);
   const areaIdSet = scoped ? (opts.areaIdSet ?? await buildPharmacyAreaIdSet(normAreas)) : null;
 
-  let affectedDoctors = 0, affectedVisits = 0, affectedLinks = 0;
+  let affectedDoctors = 0, affectedVisits = 0, affectedLinks = 0, affectedCandidates = 0;
   for (const oldName of names) {
     const docs = await prisma.masterSurveyDoctor.findMany({
       where: { surveyId, pharmacyName: { equals: oldName, mode: 'insensitive' } },
@@ -229,8 +229,25 @@ export async function cascadePharmacyNameChange(surveyId, oldNames, newName, opt
       const r = await prisma.openPharmacyLink.updateMany({ where: linkWhere, data: { toName: trimmedNew } });
       affectedLinks += r.count;
     }
+
+    // مرشّحو البلان الذكي مربوطون باسم الصيدلية نصاً أيضاً. مسار تعديل الصيدلية
+    // داخل البلان (afterPharmacyEdit) يتكفّل بهم، لكن إعادة التسمية من جهة
+    // السيرفي لم تكن تمسّهم إطلاقاً — فينفصل تأشير «مفتوحة» عن مرشّحيه بصمت.
+    // لم يكن ذلك ظاهراً حين كانت إعادة التسمية عملية فردية نادرة؛ صار ظاهراً
+    // مع التحديث الجماعي من ملف الإكسل.
+    const candRows = await prisma.smartPlanCandidate.findMany({
+      where: { pharmacyName: { equals: oldName, mode: 'insensitive' } },
+      select: { id: true, areaName: true },
+    });
+    const candIds = scoped
+      ? candRows.filter(c => areaNameSet.has(normalizeAreaName(c.areaName ?? ''))).map(c => c.id)
+      : candRows.map(c => c.id);
+    if (candIds.length && !dryRun) {
+      await prisma.smartPlanCandidate.updateMany({ where: { id: { in: candIds } }, data: { pharmacyName: trimmedNew } });
+    }
+    affectedCandidates += candIds.length;
   }
-  return { affectedDoctors, affectedVisits, affectedLinks };
+  return { affectedDoctors, affectedVisits, affectedLinks, affectedCandidates };
 }
 
 // ── pharmacyDedupKey(name, areaName) ─────────────────────────────────────────
