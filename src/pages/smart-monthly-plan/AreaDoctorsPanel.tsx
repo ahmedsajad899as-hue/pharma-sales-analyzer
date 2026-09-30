@@ -350,7 +350,6 @@ export default function AreaDoctorsPanel({
                           const expanded = openPharmacies.has(pid) || (!!q && p.doctors.some(d => d.name.toLowerCase().includes(q)));
                           const keys = p.doctors.map(d => d.key);
                           const sel = keys.filter(k => selected.has(k)).length;
-                          const saleValue = salesOf(p.name);
                           return (
                             <div key={pid} style={{ borderTop: '1px solid var(--c-border-light)' }}>
                               <div
@@ -363,13 +362,14 @@ export default function AreaDoctorsPanel({
                                 <span style={{ fontSize: 10, color: 'var(--c-text-muted)', width: 10 }}>{expanded ? '▲' : '▼'}</span>
                                 <strong style={{ fontSize: 13, color: 'var(--c-text-primary)' }}>{p.name ?? 'أطباء بلا صيدلية مسجَّلة'}</strong>
                                 {p.name && <PharmacySalesButton token={token} net={net} pharmName={p.name} areaName={a.areaName} />}
-                                {hasOpenFile && p.name && (p.openPharmacy
-                                  ? <Tag tone="success" title={p.matchedOpenPharmacy ?? ''}>مفتوحة</Tag>
-                                  : <Tag>غير مفتوحة</Tag>)}
-                                {saleValue !== null && saleValue > 0 && (
-                                  <Tag tone="success" title="لهذه الصيدلية مبيع في ملف الصيدليات نت">
-                                    مبيع {saleValue.toLocaleString()}
-                                  </Tag>
+                                {/* المفتوحة = علامة صح خضراء فقط، وغير المفتوحة بلا أي إشارة */}
+                                {hasOpenFile && p.name && p.openPharmacy && (
+                                  <span
+                                    title={p.matchedOpenPharmacy ? `صيدلية مفتوحة — ${p.matchedOpenPharmacy}` : 'صيدلية مفتوحة'}
+                                    style={{ display: 'inline-flex', color: 'var(--c-success)', flexShrink: 0 }}
+                                  >
+                                    <Icon name="checkCircle" size={15} />
+                                  </span>
                                 )}
                                 {p.name && (
                                   <PharmacyLinkChip
