@@ -13,8 +13,10 @@ import {
   resolveSmartPlanCandidates, confirmCandidateMatch, applyOpenPharmacyLinks,
   cleanOpenPharmacyEntries, computeBucketPlan, getAmbiguousCandidates,
   getAreaDoctorsOverview, selectedKeySet, getScopedDoctorKeySet, loadKnownAreaNameChecker,
+  saveOpenPharmacyLink, deleteOpenPharmacyLink,
 } from '../../lib/smartPlanMatching.js';
 import { doctorLinkKey } from '../../lib/surveyDoctors.js';
+import { renameOrMergePharmacies } from '../../lib/smartPlanPharmacyEdit.js';
 import { aiResolveSmartPlanCandidates } from './smart-plan-name-ai.js';
 import { curateBucket } from './smart-plan-curator-ai.js';
 
@@ -162,6 +164,82 @@ export async function saveDoctorSelection(req, res) {
     res.json({ success: true, selectedCount: cleaned.length });
   } catch (e) {
     console.error('[smart-monthly-plans] saveDoctorSelection', e);
+    fail(res, 500, e.message);
+  }
+}
+
+// ── تعريف/دمج/تعديل أسماء الصيدليات ────────────────────────────────────────
+
+/** تعريف عالمي: صيدلية من ملف المفتوحة = صيدلية سيرفي X (أو toName=null: صيدلية مستقلة). */
+export async function savePharmacyLink(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const { fromName, areaName, toName } = req.body || {};
+    if (!String(fromName ?? '').trim()) return fail(res, 400, 'اسم الصيدلية مطلوب');
+    await saveOpenPharmacyLink({ fromName, areaName, toName }, req.user.id);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[smart-monthly-plans] savePharmacyLink', e);
+    fail(res, 500, e.message);
+  }
+}
+
+export async function removePharmacyLink(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const { fromName, areaName } = req.body || {};
+    await deleteOpenPharmacyLink({ fromName, areaName });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[smart-monthly-plans] removePharmacyLink', e);
+    fail(res, 500, e.message);
+  }
+}
+
+async function afterPharmacyEdit(plan, oldNames, newName) {
+  // مرشّحو هذا البلان يتبعون الاسم الجديد كي لا ينفصل تأشير "مفتوحة" عنهم
+  const olds = oldNames.map(n => String(n).trim()).filter(Boolean);
+  if (olds.length) {
+    await prisma.smartPlanCandidate.updateMany({
+      where: { smartPlanId: plan.id, OR: olds.map(n => ({ pharmacyName: { equals: n, mode: 'insensitive' } })) },
+      data: { pharmacyName: newName },
+    });
+  }
+  await applyOpenPharmacyLinks(plan.id);
+}
+
+/** تعديل اسم صيدلية في السيرفي الأصلي (يُطبَّق على أطبائها وزياراتها داخل المنطقة). */
+export async function renamePharmacy(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const { areaId, oldName, newName } = req.body || {};
+    if (!Number.isInteger(areaId) || !String(oldName ?? '').trim() || !String(newName ?? '').trim()) return fail(res, 400, 'بيانات غير مكتملة');
+    const result = await renameOrMergePharmacies(plan.scientificRepId, areaId, [oldName], newName, req.user.id);
+    if (result.error) return fail(res, 400, result.error === 'area_not_in_scope' ? 'المنطقة ليست من مناطق هذا المندوب' : 'لا تغيير');
+    await afterPharmacyEdit(plan, [oldName], String(newName).trim());
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('[smart-monthly-plans] renamePharmacy', e);
+    fail(res, 500, e.message);
+  }
+}
+
+/** دمج صيدليات سيرفي في واحدة (keepName تبقى، mergeNames تُدمَج فيها). */
+export async function mergePharmacies(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const { areaId, keepName, mergeNames } = req.body || {};
+    if (!Number.isInteger(areaId) || !String(keepName ?? '').trim() || !Array.isArray(mergeNames) || !mergeNames.length) return fail(res, 400, 'بيانات غير مكتملة');
+    const result = await renameOrMergePharmacies(plan.scientificRepId, areaId, mergeNames, keepName, req.user.id);
+    if (result.error) return fail(res, 400, result.error === 'area_not_in_scope' ? 'المنطقة ليست من مناطق هذا المندوب' : 'لا تغيير');
+    await afterPharmacyEdit(plan, mergeNames, String(keepName).trim());
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('[smart-monthly-plans] mergePharmacies', e);
     fail(res, 500, e.message);
   }
 }

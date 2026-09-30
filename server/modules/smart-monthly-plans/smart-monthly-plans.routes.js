@@ -20,6 +20,10 @@ router.delete('/:id',            ctrl.remove);
 
 router.get('/:id/area-doctors',       ctrl.getAreaDoctors);
 router.put('/:id/doctor-selection',   ctrl.saveDoctorSelection);
+router.post('/:id/pharmacy-links',    ctrl.savePharmacyLink);
+router.delete('/:id/pharmacy-links',  ctrl.removePharmacyLink);
+router.post('/:id/pharmacies/rename', ctrl.renamePharmacy);
+router.post('/:id/pharmacies/merge',  ctrl.mergePharmacies);
 
 router.post('/:id/uploads/:kind',   upload.single('file'), ctrl.uploadFile);
 router.delete('/:id/uploads/:kind', ctrl.clearUpload);

@@ -54,6 +54,10 @@ export interface AreaPharmacy {
   openPharmacy: boolean;
   matchedOpenPharmacy: string | null;
   notInSurvey: boolean; // مفتوحة في الملف لكنها غير مسجَّلة في السيرفي
+  separate?: boolean; // أكّد مستخدم أنها صيدلية مستقلة (لا تُقترح لها روابط)
+  linkedFrom?: string | null; // اسمها كما في ملف المفتوحة إن رُبطت يدوياً باسم آخر
+  fileEntry?: { name: string; areaName: string | null } | null; // القيمة الأصلية في الملف (لفك/حفظ التعريف)
+  similar?: { name: string; doctorCount: number }[]; // صيدليات سيرفي قريبة اسماً في نفس المنطقة
   doctors: AreaDoctor[];
 }
 

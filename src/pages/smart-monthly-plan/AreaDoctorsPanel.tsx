@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { smartPlanApi } from './api';
+import PharmacyTools from './PharmacyTools';
 import type { AreaWithDoctors } from './types';
 
 const panel: React.CSSProperties = {
@@ -47,6 +48,7 @@ export default function AreaDoctorsPanel({
   const [filter, setFilter] = useState<'all' | 'open' | 'closed'>('all');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,7 +66,7 @@ export default function AreaDoctorsPanel({
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token, planId, refreshKey]);
+  }, [token, planId, refreshKey, reloadTick]);
 
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
 
@@ -217,6 +219,12 @@ export default function AreaDoctorsPanel({
                                   <span style={pill('var(--c-accent-light)', 'var(--c-accent)')}>{sel}/{keys.length} طبيب ▾</span>
                                 </span>
                               </div>
+
+                              <PharmacyTools
+                                key={`${pid}:${p.name}`}
+                                token={token} planId={planId} area={a} pharmacy={p} expanded={expanded}
+                                onDone={() => setReloadTick(t => t + 1)} onError={setError}
+                              />
 
                               {expanded && (
                                 <div style={{ background: 'var(--c-bg)', padding: '4px 14px 10px' }}>

@@ -2594,3 +2594,21 @@ model SmartPlanCandidate {
   @@index([doctorId])
   @@map("smart_plan_candidates")
 }
+
+// تعريف عالمي (لكل الحسابات) لاسم صيدلية من ملف "الصيدليات المفتوحة" بصيدلية السيرفي
+// الحقيقية — يُحفَظ مرة واحدة فلا يُسأل عنه أي حساب آخر. toName=null يعني "أكّد
+// المستخدم أنها صيدلية مستقلة غير موجودة في السيرفي" (يوقف اقتراحات الربط لها).
+model OpenPharmacyLink {
+  id          Int      @id @default(autoincrement())
+  fromKey     String // مفتاح مطابقة الاسم كما في الملف (pharmacyLooseKey)
+  areaKey     String   @default("") // normalizeAreaName(منطقة الصيدلية في الملف) أو ""
+  fromName    String
+  areaName    String?
+  toName      String? // اسم صيدلية السيرفي المُعرَّف كنفسها
+  createdById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([fromKey, areaKey])
+  @@map("open_pharmacy_links")
+}

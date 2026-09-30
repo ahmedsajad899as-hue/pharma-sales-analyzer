@@ -371,17 +371,41 @@ function pharmacyTokens(name) {
     .map(w => (w.length > 3 && w.startsWith('ال')) ? w.slice(2) : w);
 }
 
+/** مفتاح مطابقة متساهل بالمسافات وأداة التعريف: يُسقِط «ال» أينما وردت («عبدالقادر» = «عبد القادر»). */
+export function pharmacyLooseKey(name) {
+  return pharmacyTokens(name).join('').replace(/ال/g, '');
+}
+
+/**
+ * هل اسما صيدليتين "قريبان" بما يكفي لاقتراح ربط/دمج على المستخدم (لا ربط تلقائي)؟
+ * تطابق بعد إسقاط «ال»، أو تشابه إملائي عالٍ، أو اسم من كلمتين+ محتوى كاملاً داخل الآخر
+ * («رنا فارس» ⊂ «رنا فارس سلمان»).
+ */
+export function pharmacyNamesClose(a, b) {
+  const ta = pharmacyTokens(a), tb = pharmacyTokens(b);
+  if (!ta.length || !tb.length) return false;
+  const la = ta.join('').replace(/ال/g, ''), lb = tb.join('').replace(/ال/g, '');
+  if (la === lb) return true;
+  if (Math.min(la.length, lb.length) >= 6 && similarity(la, lb) >= 0.88) return true;
+  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  if (short.length >= 2 && short.length < long.length) {
+    const longSet = new Set(long.map(t => t.replace(/ال/g, '')));
+    return short.every(t => longSet.has(t.replace(/ال/g, '')));
+  }
+  return false;
+}
+
 export function matchOpenPharmacy(pharmacyName, openNames) {
   if (!pharmacyName?.trim() || !openNames?.length) return null;
   const tokens = pharmacyTokens(pharmacyName);
   if (!tokens.length) return null;
-  const flat = tokens.join('');
+  const flat = tokens.join('').replace(/ال/g, '');
   const sortedKey = [...tokens].sort().join(' ');
   let best = null, bestScore = 0;
   for (const cand of openNames) {
     const ct = pharmacyTokens(cand);
     if (!ct.length) continue;
-    const cflat = ct.join('');
+    const cflat = ct.join('').replace(/ال/g, '');
     if (cflat === flat || [...ct].sort().join(' ') === sortedKey) return cand; // تطابق تام (بعد التطبيع/ترتيب الكلمات)
     // خطأ إملائي بسيط فقط: اسم طويل نسبياً وتشابه عالٍ جداً
     if (Math.min(flat.length, cflat.length) >= 7) {
@@ -418,6 +442,48 @@ function openEntriesOf(upload) {
 }
 
 /**
+ * إدخالات الصيدليات المفتوحة بعد تطبيق التعريفات العالمية المحفوظة (OpenPharmacyLink):
+ * اسم في الملف عُرِّف على أنه صيدلية سيرفي X يُستبدل باسم X (والأصلي يبقى في fileName)،
+ * و separate = أكّد مستخدم أنها صيدلية مستقلة (بلا اقتراحات ربط).
+ */
+async function loadOpenEntries(upload) {
+  const raw = openEntriesOf(upload);
+  if (!raw.length) return raw;
+  const links = await prisma.openPharmacyLink.findMany();
+  const byKey = new Map(links.map(l => [`${l.fromKey}|${l.areaKey}`, l]));
+  return raw.map(e => {
+    const fk = pharmacyLooseKey(e.name);
+    const ak = e.areaName ? normalizeAreaName(e.areaName) : '';
+    const link = byKey.get(`${fk}|${ak}`) || byKey.get(`${fk}|`);
+    if (!link) return { ...e, fileName: e.name };
+    return link.toName
+      ? { ...e, fileName: e.name, name: link.toName, linked: true }
+      : { ...e, fileName: e.name, separate: true };
+  });
+}
+
+/** يحفظ تعريفاً عالمياً: اسم صيدلية من الملف = صيدلية سيرفي toName (أو null = مستقلة). */
+export async function saveOpenPharmacyLink({ fromName, areaName, toName }, userId) {
+  const fromKey = pharmacyLooseKey(fromName);
+  if (!fromKey) return null;
+  const areaKey = areaName ? normalizeAreaName(areaName) : '';
+  const data = { fromName: String(fromName).trim(), areaName: areaName?.trim() || null, toName: toName?.trim() || null, createdById: userId ?? null };
+  return prisma.openPharmacyLink.upsert({
+    where: { fromKey_areaKey: { fromKey, areaKey } },
+    update: data,
+    create: { fromKey, areaKey, ...data },
+  });
+}
+
+export async function deleteOpenPharmacyLink({ fromName, areaName }) {
+  const fromKey = pharmacyLooseKey(fromName);
+  if (!fromKey) return 0;
+  const areaKey = areaName ? normalizeAreaName(areaName) : '';
+  const r = await prisma.openPharmacyLink.deleteMany({ where: { fromKey, areaKey } });
+  return r.count;
+}
+
+/**
  * الصيدليات المفتوحة المسموح مطابقتها لمنطقة معيّنة: إدخالات نفس المنطقة + الإدخالات
  * بلا منطقة. إن لم يحمل الملف أي معلومة منطقة يكون الكل مسموحاً (السلوك السابق).
  * المطابقة داخل المنطقة تمنع صيدلية بنفس الاسم في منطقة أخرى من إسقاط "مفتوحة" خطأً.
@@ -449,7 +515,7 @@ export async function getAreaDoctorsOverview(plan) {
     prisma.smartPlanUpload.findFirst({ where: { smartPlanId: plan.id, kind: 'openPharmacies' }, orderBy: { id: 'desc' } }),
     prisma.areaAlias.findMany({ where: { areaId: { in: scope.areaIds } }, select: { fromKey: true, areaId: true } }),
   ]);
-  const entries = openEntriesOf(upload);
+  const entries = await loadOpenEntries(upload);
   const anyAreaInfo = entries.some(e => e.areaName);
   const selected = selectedKeySet(plan);
 
@@ -482,7 +548,13 @@ export async function getAreaDoctorsOverview(plan) {
     let group = bucket.pharmacyMap.get(pKey);
     if (!group) {
       const matched = pharmName ? openMatch(bucket, pharmName) : null;
-      group = { name: pharmName, openPharmacy: !!matched, matchedOpenPharmacy: matched, notInSurvey: false, doctors: [] };
+      const entry = matched ? bucket.entries.find(e => e.name === matched) : null;
+      group = {
+        name: pharmName, openPharmacy: !!matched, matchedOpenPharmacy: matched, notInSurvey: false,
+        linkedFrom: entry?.linked ? entry.fileName : null,
+        fileEntry: entry?.linked ? { name: entry.fileName, areaName: entry.areaName || null } : null,
+        doctors: [],
+      };
       bucket.pharmacyMap.set(pKey, group);
     }
     group.doctors.push({
@@ -509,8 +581,28 @@ export async function getAreaDoctorsOverview(plan) {
       const displayName = sp?.name || e.name;
       const pKey = pKeyOf(displayName);
       const existing = bucket.pharmacyMap.get(pKey);
-      if (existing) { existing.openPharmacy = true; existing.matchedOpenPharmacy = e.name; continue; }
-      bucket.pharmacyMap.set(pKey, { name: displayName, openPharmacy: true, matchedOpenPharmacy: e.name, notInSurvey: !sp, doctors: [] });
+      const fileEntry = { name: e.fileName || e.name, areaName: e.areaName || null };
+      if (existing) {
+        existing.openPharmacy = true; existing.matchedOpenPharmacy = e.name;
+        if (e.linked) { existing.linkedFrom = e.fileName; existing.fileEntry = fileEntry; }
+        continue;
+      }
+      bucket.pharmacyMap.set(pKey, {
+        name: displayName, openPharmacy: true, matchedOpenPharmacy: e.name, notInSurvey: !sp && !e.linked,
+        separate: !!e.separate, linkedFrom: e.linked ? e.fileName : null, fileEntry,
+        doctors: [],
+      });
+    }
+  }
+
+  // اقتراحات "هل هي نفسها؟/دمج": صيدليات السيرفي القريبة اسماً داخل نفس المنطقة
+  for (const bucket of byArea.values()) {
+    const groups = [...bucket.pharmacyMap.values()].filter(g => g.name);
+    for (const g of groups) {
+      g.similar = g.separate ? [] : groups
+        .filter(o => o !== g && !o.notInSurvey && pharmacyNamesClose(g.name, o.name))
+        .slice(0, 4)
+        .map(o => ({ name: o.name, doctorCount: o.doctors.length }));
     }
   }
 
@@ -527,7 +619,7 @@ export async function applyOpenPharmacyLinks(smartPlanId) {
     where: { smartPlanId, kind: 'openPharmacies' },
     orderBy: { id: 'desc' },
   });
-  const entries = openEntriesOf(upload);
+  const entries = await loadOpenEntries(upload);
   const candidates = await prisma.smartPlanCandidate.findMany({
     where: { smartPlanId, doctorId: { not: null } },
     select: { id: true, pharmacyName: true, areaName: true, sourceFlags: true },

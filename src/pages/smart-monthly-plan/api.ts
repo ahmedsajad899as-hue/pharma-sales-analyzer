@@ -53,6 +53,18 @@ export const smartPlanApi = {
   saveDoctorSelection: (token: string, id: number, selectedKeys: string[]) =>
     jsonReq(token, `/${id}/doctor-selection`, 'PUT', { selectedKeys }) as Promise<{ selectedCount: number }>,
 
+  savePharmacyLink: (token: string, id: number, data: { fromName: string; areaName: string | null; toName: string | null }) =>
+    jsonReq(token, `/${id}/pharmacy-links`, 'POST', data),
+
+  removePharmacyLink: (token: string, id: number, data: { fromName: string; areaName: string | null }) =>
+    jsonReq(token, `/${id}/pharmacy-links`, 'DELETE', data),
+
+  renamePharmacy: (token: string, id: number, data: { areaId: number; oldName: string; newName: string }) =>
+    jsonReq(token, `/${id}/pharmacies/rename`, 'POST', data) as Promise<{ doctors: number; pharmacyRows: number; visits: number }>,
+
+  mergePharmacies: (token: string, id: number, data: { areaId: number; keepName: string; mergeNames: string[] }) =>
+    jsonReq(token, `/${id}/pharmacies/merge`, 'POST', data) as Promise<{ doctors: number; pharmacyRows: number; visits: number }>,
+
   resolve: (token: string, id: number) =>
     req(token, `/${id}/resolve`, { method: 'POST' }) as Promise<{ linked: number; exact: number; ask: number; created: number }>,
 
