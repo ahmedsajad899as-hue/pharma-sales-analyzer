@@ -78,6 +78,10 @@ export async function applyPharmacyNameCleanup(surveyId, ids, editedById) {
   if (!idSet.length) return { updated: 0, affectedDoctors: 0, affectedVisits: 0, failedIds: [] };
 
   const pharmacies = await prisma.masterSurveyPharmacy.findMany({ where: { surveyId, id: { in: idSet } } });
+  // فهرس المناطق يُبنى مرة واحدة لكل الدفعة لا مرة لكل صف: كل صف يمرّ على
+  // cascadePharmacyNameChange التي تحتاجه، وقراءة جدول Area مئات المرات كانت
+  // تُضاف بلا داعٍ فوق مسح PharmacyVisit نفسه.
+  const areaIdSet = await buildPharmacyAreaIdSet(pharmacies.map(p => p.areaName));
   let updated = 0, affectedDoctors = 0, affectedVisits = 0;
   const failedIds = [];
   for (const old of pharmacies) {
@@ -89,7 +93,10 @@ export async function applyPharmacyNameCleanup(surveyId, ids, editedById) {
         data: { name: cleaned, lastEditedById: editedById ?? null, lastEditedAt: new Date() },
       });
       await logSurveyEdit(surveyId, 'pharmacy', old.id, 'update', old, updatedRow, editedById);
-      const cascade = await cascadePharmacyNameChange(surveyId, [old.name], cleaned);
+      const cascade = await cascadePharmacyNameChange(surveyId, [old.name], cleaned, {
+        areaNames: [old.areaName].filter(Boolean),
+        areaIdSet,
+      });
       affectedDoctors += cascade.affectedDoctors;
       affectedVisits += cascade.affectedVisits;
       updated++;
@@ -128,7 +135,7 @@ export async function getScopedSurveyPharmacies(scope) {
   const { surveyIds, normAreaNames } = scope;
   if (!surveyIds.length || !normAreaNames.length) return [];
   const all = await prisma.masterSurveyPharmacy.findMany({
-    where: { surveyId: { in: surveyIds } },
+    where: { surveyId: { in: surveyIds }, isActive: true },
     select: {
       id: true, name: true, ownerName: true, pharmacyName: true,
       phone: true, address: true, areaName: true, notes: true,
@@ -139,22 +146,51 @@ export async function getScopedSurveyPharmacies(scope) {
   return all.filter(p => p.areaName?.trim() && set.has(normalizeAreaName(p.areaName)));
 }
 
-// ── cascadePharmacyNameChange(surveyId, oldNames, newName) ──────────────────
-// صيدلية غيّرت اسمها (تعديل) أو اندمجت باسم آخر (دمج) أو حُذفت مع نقل الأطباء
-// لأقرب بديل (حذف): الأطباء الذين اسم صيدليتهم كان أحد oldNames يتبعون الاسم
-// الجديد في MasterSurveyDoctor + كل صفوف Doctor المرتبطة (نفس فكرة cascade في
-// updateSurveyDoctor)، وزيارات الصيدليات المسجَّلة بأحد الأسماء القديمة
-// (PharmacyVisit.pharmacyName نص خام بلا FK — خلافاً لـ DoctorVisit المربوطة
-// بـ doctorId) تتبع الاسم الجديد أيضاً كي لا تنفصل عن صيدليتها في تحليل
-// الزيارات. newName فارغ/null (حذف بلا بديل مشابه) يُبقي الزيارات كما هي —
-// PharmacyVisit.pharmacyName غير قابل لـ null أصلاً في الـ schema.
-export async function cascadePharmacyNameChange(surveyId, oldNames, newName) {
+// ── cascadePharmacyNameChange(surveyId, oldNames, newName, opts) ────────────
+// صيدلية غيّرت اسمها (تعديل) أو اندمجت باسم آخر (دمج) أو عُطِّلت: الأطباء الذين
+// اسم صيدليتهم كان أحد oldNames يتبعون الاسم الجديد في MasterSurveyDoctor + كل
+// صفوف Doctor المرتبطة (نفس فكرة cascade في updateSurveyDoctor)، وزيارات
+// الصيدليات المسجَّلة بأحد الأسماء القديمة (PharmacyVisit.pharmacyName نص خام
+// بلا FK — خلافاً لـ DoctorVisit المربوطة بـ doctorId) تتبع الاسم الجديد أيضاً،
+// وكذلك تعريفات الصيدليات المفتوحة (OpenPharmacyLink.toName).
+//
+// ⚠️ opts.areaNames هو الفرق الجوهري عن النسخة السابقة: خطوتا الأطباء مقيَّدتان
+// بـ surveyId، أما تحديث الزيارات فكان **بلا أي نطاق إطلاقاً** — مطابقة اسم
+// عالمية عبر كل المكاتب وكل السيرفيات. صيدليتان تحملان نفس الاسم في محافظتين
+// («صيدلية النور» ليست اسماً نادراً) كانت إعادة تسمية إحداهما تُعيد تسمية زيارات
+// الأخرى بصمت. الآن: متى عُرفت منطقة الصيدلية تُمسّ زياراتها وحدها؛ ويبقى
+// السلوك العالمي فقط للصيدليات بلا منطقة مسجَّلة (لا يمكن تمييزها أصلاً).
+// المطابقة بالاسم المطبَّع لا بـ areaId واحد، لأن Area مُعرَّفة لكل حساب على حدة
+// (@@unique([name, userId])) فنفس المنطقة قد تكون عدة صفوف مشروعة.
+//
+// opts.dryRun = true يحسب الأثر بلا أي كتابة — تستخدمه شاشة مراجعة التحديثات
+// لعرض «سيتأثر ١٢ طبيباً و٣٤٠ زيارة» قبل الاعتماد لا بعده.
+// opts.areaIdSet يتيح تمرير فهرس معرَّفات المناطق مبنياً مسبقاً لتفادي إعادة
+// قراءة جدول Area مرة لكل صف داخل دفعة تطبيق جماعية.
+//
+// newName فارغ/null (تعطيل بلا بديل) يُبقي الزيارات كما هي — pharmacyName غير
+// قابل لـ null أصلاً في الـ schema.
+export async function buildPharmacyAreaIdSet(areaNames) {
+  const norm = (areaNames || []).map(a => normalizeAreaName(String(a ?? ''))).filter(Boolean);
+  if (!norm.length) return null;
+  const wanted = new Set(norm);
+  const rows = await prisma.area.findMany({ select: { id: true, name: true } });
+  return new Set(rows.filter(a => wanted.has(normalizeAreaName(a.name))).map(a => a.id));
+}
+
+export async function cascadePharmacyNameChange(surveyId, oldNames, newName, opts = {}) {
+  const { areaNames = null, dryRun = false } = opts;
   const trimmedNew = String(newName ?? '').trim();
   const names = [...new Set((oldNames || []).map(n => String(n ?? '').trim()).filter(Boolean))]
     .filter(n => n.toLowerCase() !== trimmedNew.toLowerCase());
-  if (!names.length) return { affectedDoctors: 0, affectedVisits: 0 };
+  if (!names.length) return { affectedDoctors: 0, affectedVisits: 0, affectedLinks: 0 };
 
-  let affectedDoctors = 0, affectedVisits = 0;
+  const normAreas = (areaNames || []).map(a => normalizeAreaName(String(a ?? ''))).filter(Boolean);
+  const scoped = normAreas.length > 0;
+  const areaNameSet = new Set(normAreas);
+  const areaIdSet = scoped ? (opts.areaIdSet ?? await buildPharmacyAreaIdSet(normAreas)) : null;
+
+  let affectedDoctors = 0, affectedVisits = 0, affectedLinks = 0;
   for (const oldName of names) {
     const docs = await prisma.masterSurveyDoctor.findMany({
       where: { surveyId, pharmacyName: { equals: oldName, mode: 'insensitive' } },
@@ -162,19 +198,39 @@ export async function cascadePharmacyNameChange(surveyId, oldNames, newName) {
     });
     if (docs.length) {
       const ids = docs.map(d => d.id);
-      await prisma.masterSurveyDoctor.updateMany({ where: { id: { in: ids } }, data: { pharmacyName: trimmedNew || null } });
-      await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: { in: ids } }, data: { pharmacyName: trimmedNew || null } });
+      if (!dryRun) {
+        await prisma.masterSurveyDoctor.updateMany({ where: { id: { in: ids } }, data: { pharmacyName: trimmedNew || null } });
+        await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: { in: ids } }, data: { pharmacyName: trimmedNew || null } });
+      }
       affectedDoctors += ids.length;
     }
-    if (trimmedNew) {
-      const result = await prisma.pharmacyVisit.updateMany({
-        where: { pharmacyName: { equals: oldName, mode: 'insensitive' } },
-        data: { pharmacyName: trimmedNew },
-      });
-      affectedVisits += result.count;
+
+    if (!trimmedNew) continue;
+
+    const visitRows = await prisma.pharmacyVisit.findMany({
+      where: { pharmacyName: { equals: oldName, mode: 'insensitive' } },
+      select: { id: true, areaId: true, areaName: true },
+    });
+    const targetIds = scoped
+      ? visitRows
+          .filter(v => (v.areaId != null && areaIdSet.has(v.areaId)) ||
+                       (v.areaId == null && areaNameSet.has(normalizeAreaName(v.areaName ?? ''))))
+          .map(v => v.id)
+      : visitRows.map(v => v.id);
+    if (targetIds.length && !dryRun) {
+      await prisma.pharmacyVisit.updateMany({ where: { id: { in: targetIds } }, data: { pharmacyName: trimmedNew } });
+    }
+    affectedVisits += targetIds.length;
+
+    const linkWhere = { toName: { equals: oldName, mode: 'insensitive' } };
+    if (dryRun) {
+      affectedLinks += await prisma.openPharmacyLink.count({ where: linkWhere });
+    } else {
+      const r = await prisma.openPharmacyLink.updateMany({ where: linkWhere, data: { toName: trimmedNew } });
+      affectedLinks += r.count;
     }
   }
-  return { affectedDoctors, affectedVisits };
+  return { affectedDoctors, affectedVisits, affectedLinks };
 }
 
 // ── pharmacyDedupKey(name, areaName) ─────────────────────────────────────────
@@ -202,10 +258,14 @@ export async function createSurveyPharmacy(surveyId, fields, editedById, areaCac
   const key = pharmacyDedupKey(fields.name, fields.areaName);
   if (key.split('::')[0]) {
     const existingRows = await prisma.masterSurveyPharmacy.findMany({
-      where: { surveyId }, select: { id: true, name: true, areaName: true },
+      where: { surveyId }, select: { id: true, name: true, areaName: true, isActive: true },
     });
     const hit = existingRows.find(p => pharmacyDedupKey(p.name, p.areaName) === key);
     if (hit) {
+      // صف معطَّل بنفس الاسم+المنطقة يُرجَع للعمل بدل إنشاء نسخة ثانية بجانبه —
+      // وإلا لأنتج كل تعطيل ثم إعادة إضافة صفّين متطابقين يظهران لاحقاً في
+      // «اقتراحات دمج ذكية»، وهو بالضبط ما تتفاداه فحوصات التكرار هنا.
+      if (!hit.isActive) return reactivateSurveyPharmacy(surveyId, hit.id, editedById);
       const existing = await prisma.masterSurveyPharmacy.findUnique({ where: { id: hit.id } });
       return { ...existing, _duplicate: true };
     }
@@ -243,7 +303,11 @@ export async function updateSurveyPharmacy(surveyId, pharmaId, fields, editedByI
   await logSurveyEdit(surveyId, 'pharmacy', pharmaId, 'update', old, updated, editedById);
 
   if (data.name !== undefined && data.name !== old.name) {
-    await cascadePharmacyNameChange(surveyId, [old.name], data.name);
+    // نطاق المناطق يضم القديمة والجديدة معاً: الزيارات سُجِّلت تحت المنطقة
+    // القديمة، وقد يكون نفس التعديل غيَّر المنطقة أيضاً.
+    await cascadePharmacyNameChange(surveyId, [old.name], data.name, {
+      areaNames: [old.areaName, data.areaName].filter(Boolean),
+    });
   }
 
   return { old, updated };
@@ -255,10 +319,12 @@ export async function deleteSurveyPharmacy(surveyId, pharmaId, editedById) {
   if (!old || old.surveyId !== surveyId) return { error: 'not_found' };
 
   const remainingPharmacies = await prisma.masterSurveyPharmacy.findMany({
-    where: { surveyId, id: { not: pharmaId } }, select: { name: true },
+    where: { surveyId, id: { not: pharmaId }, isActive: true }, select: { name: true },
   });
   const replacement = findClosestPharmacyName(old.name, remainingPharmacies.map(p => p.name));
-  const { affectedDoctors } = await cascadePharmacyNameChange(surveyId, [old.name], replacement);
+  const { affectedDoctors } = await cascadePharmacyNameChange(surveyId, [old.name], replacement, {
+    areaNames: [old.areaName].filter(Boolean),
+  });
 
   await prisma.masterSurveyPharmacy.delete({ where: { id: pharmaId } });
   await logSurveyEdit(surveyId, 'pharmacy', pharmaId, 'delete', old, null, editedById);
@@ -274,7 +340,9 @@ export async function mergeSurveyPharmacies(surveyId, keepId, mergeIds, editedBy
   const mergePharmas = await prisma.masterSurveyPharmacy.findMany({ where: { id: { in: mergeIds }, surveyId } });
   if (mergePharmas.length === 0) return { error: 'not_found' };
 
-  const { affectedDoctors } = await cascadePharmacyNameChange(surveyId, mergePharmas.map(p => p.name), keepPharma.name);
+  const { affectedDoctors } = await cascadePharmacyNameChange(surveyId, mergePharmas.map(p => p.name), keepPharma.name, {
+    areaNames: [keepPharma.areaName, ...mergePharmas.map(p => p.areaName)].filter(Boolean),
+  });
 
   const mergedIds = mergePharmas.map(p => p.id);
   await prisma.masterSurveyPharmacy.deleteMany({ where: { id: { in: mergedIds } } });
@@ -374,4 +442,170 @@ export function findPharmacyMergeSuggestions(pharmacies, doctorCountByKey = new 
   }
 
   return suggestions.sort((a, b) => b.members.length - a.members.length);
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// التعطيل بدل الحذف
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── deactivateSurveyPharmacy / reactivateSurveyPharmacy ─────────────────────
+// البديل الآمن لـ deleteSurveyPharmacy في كل المسارات العادية. الفرق جوهري:
+// deleteSurveyPharmacy يمحو الصف ويُخمّن «أقرب اسم بديل» لينقل إليه الأطباء
+// والزيارات — تخمين لا رجعة فيه. التعطيل لا يلمس أي اسم: الصف يبقى بكل
+// زياراته وروابطه، ويختفي فقط من getScopedSurveyPharmacies ومن قوائم
+// المستخدمين، ويمكن إرجاعه بضغطة. هذا ما يجعل «طلب حذف» من مندوب عبر ملف
+// الإكسل عملية قابلة للتراجع بالكامل.
+export async function deactivateSurveyPharmacy(surveyId, pharmaId, editedById) {
+  const old = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
+  if (!old || old.surveyId !== surveyId) return { error: 'not_found' };
+  if (!old.isActive) return { old, updated: old, alreadyInactive: true };
+
+  const updated = await prisma.masterSurveyPharmacy.update({
+    where: { id: pharmaId },
+    data: { isActive: false, deactivatedAt: new Date(), deactivatedById: editedById ?? null },
+  });
+  await logSurveyEdit(surveyId, 'pharmacy', pharmaId, 'deactivate', old, updated, editedById);
+  return { old, updated };
+}
+
+export async function reactivateSurveyPharmacy(surveyId, pharmaId, editedById) {
+  const old = await prisma.masterSurveyPharmacy.findUnique({ where: { id: pharmaId } });
+  if (!old || old.surveyId !== surveyId) return { error: 'not_found' };
+  if (old.isActive) return { old, updated: old, alreadyActive: true };
+
+  const updated = await prisma.masterSurveyPharmacy.update({
+    where: { id: pharmaId },
+    data: { isActive: true, deactivatedAt: null, deactivatedById: null },
+  });
+  await logSurveyEdit(surveyId, 'pharmacy', pharmaId, 'reactivate', old, updated, editedById);
+  return { old, updated };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// مطابقة أسماء الصيدليات + ذاكرة القرار (MasterSurveyPharmacyAlias)
+// ────────────────────────────────────────────────────────────────────────────
+// كان مسار الصيدليات بلا أي ذاكرة مطابقة إطلاقاً — خلافاً للأطباء — فكان كل رفع
+// ملف يُعيد سؤال السوبر أدمن عن نفس الأسماء غير المطابقة إلى الأبد، ولم يكن
+// للاستيراد الجماعي سوى تطابق تام (pharmacyDedupKey) يتخطّى ما عداه بصمت.
+// ════════════════════════════════════════════════════════════════════════════
+
+// عتبة أعلى من نظيرتها عند الأطباء (0.45): أسماء الصيدليات العربية كلمة أو
+// كلمتان، فالتشابه العابر بينها أسهل بكثير وأكثر خداعاً.
+export const PHARMACY_ASK_FLOOR = 0.55;
+
+export function pharmacyMatchScore(cand, target) {
+  const tClean = cleanPharmacyName(target?.name);
+  const cClean = cleanPharmacyName(cand?.name);
+  const a = normalizeStr(tClean), b = normalizeStr(cClean);
+  if (!a || !b) return 0;
+
+  let score = pharmacyNamesVeryClose(tClean, cClean) ? 0.92 : similarity(a, b);
+
+  // المنطقة مرجّح قوي هنا: فرعان لنفس السلسلة في منطقتين صيدليتان مختلفتان
+  // فعلاً، لا تهجئتان لاسم واحد — لذا اختلاف المنطقة يخصم لا يُتجاهل.
+  const tArea = target?.areaName ? normalizeAreaName(target.areaName) : '';
+  const cArea = cand?.areaName ? normalizeAreaName(cand.areaName) : '';
+  if (tArea && cArea) score += (tArea === cArea) ? 0.12 : -0.10;
+
+  if (target?.ownerName && cand?.ownerName &&
+      normalizeStr(target.ownerName) === normalizeStr(cand.ownerName)) score += 0.06;
+
+  return Math.min(1, Math.max(0, score));
+}
+
+// ── classifySurveyPharmacyRows(surveyId, rows) ──────────────────────────────
+// نظير classifySurveyDoctorRows تماماً: تصنّف صفوفاً مرفوعة مقابل صيدليات هذا
+// السيرفي + الروابط المحفوظة، بلا أي كتابة.
+//   resolved (linked|exact) → قرار محفوظ سابقاً أو تطابق تام لا لبس فيه.
+//   pending   → مرشّحون معتدّ بهم بلا حسم → يُعرض للسوبر أدمن.
+//   unrelated → لا مرشّح إطلاقاً → صيدلية جديدة بلا سؤال.
+export async function classifySurveyPharmacyRows(surveyId, rows) {
+  const rowsWithName = (rows || []).filter(r => String(r?.name ?? '').trim());
+  if (rowsWithName.length === 0) return { resolved: [], pending: [], unrelated: [] };
+
+  const [aliases, existing] = await Promise.all([
+    prisma.masterSurveyPharmacyAlias.findMany({
+      where: { surveyId },
+      select: { fromKey: true, surveyPharmacyId: true },
+    }),
+    prisma.masterSurveyPharmacy.findMany({
+      where: { surveyId, isActive: true },
+      select: { id: true, name: true, ownerName: true, pharmacyName: true, phone: true, address: true, areaName: true, notes: true },
+    }),
+  ]);
+  const aliasByKey = new Map(aliases.map(a => [a.fromKey, a]));
+  const candById = new Map(existing.map(p => [p.id, p]));
+
+  const groups = new Map();
+  for (const r of rowsWithName) {
+    const key = pharmacyDedupKey(r.name, r.areaName);
+    if (!groups.has(key)) {
+      groups.set(key, { key, raw: r.name, areaName: r.areaName || '', ownerName: r.ownerName || '', rows: [] });
+    }
+    groups.get(key).rows.push(r);
+  }
+
+  const resolved = [], pending = [], unrelated = [];
+
+  for (const g of groups.values()) {
+    for (const r of g.rows) r.rowKey = g.key;
+
+    const alias = aliasByKey.get(g.key);
+    if (alias) {
+      const p = alias.surveyPharmacyId ? candById.get(alias.surveyPharmacyId) : null;
+      for (const r of g.rows) r.matchedPharmacyId = alias.surveyPharmacyId ?? null;
+      resolved.push({ raw: g.raw, key: g.key, status: 'linked', pharmacy: p ? { id: p.id, name: p.name } : null });
+      continue;
+    }
+
+    const exactMatches = existing.filter(c => pharmacyDedupKey(c.name, c.areaName) === g.key);
+    if (exactMatches.length === 1) {
+      for (const r of g.rows) r.matchedPharmacyId = exactMatches[0].id;
+      resolved.push({ raw: g.raw, key: g.key, status: 'exact', pharmacy: { id: exactMatches[0].id, name: exactMatches[0].name } });
+      continue;
+    }
+
+    const scored = existing
+      .map(c => ({ ...c, score: pharmacyMatchScore(c, { name: g.raw, areaName: g.areaName, ownerName: g.ownerName }) }))
+      .filter(c => c.score >= PHARMACY_ASK_FLOOR)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    for (const r of g.rows) r.matchedPharmacyId = null;
+    if (scored.length === 0) {
+      unrelated.push({ raw: g.raw, key: g.key, areaName: g.areaName, ownerName: g.ownerName });
+    } else {
+      pending.push({
+        raw: g.raw, key: g.key, areaName: g.areaName, ownerName: g.ownerName,
+        suggestions: scored.map(c => ({ id: c.id, name: c.name, score: c.score, areaName: c.areaName, ownerName: c.ownerName })),
+      });
+    }
+  }
+
+  const byName = (a, b) => a.raw.localeCompare(b.raw, 'ar');
+  return { resolved: resolved.sort(byName), pending: pending.sort(byName), unrelated: unrelated.sort(byName) };
+}
+
+// ── saveSurveyPharmacyAlias / loadSurveyPharmacyAliases ─────────────────────
+// surveyPharmacyId = null يعني «مؤكَّد أنه ليس أياً من الموجودين» — يُحفظ أيضاً
+// كي لا يتكرّر السؤال، وسيُنشأ صف جديد دائماً لهذا الاسم.
+export async function saveSurveyPharmacyAlias(surveyId, { fromName, areaName, surveyPharmacyId, confidence = 'confirmed', createdById = null }) {
+  const name = String(fromName ?? '').trim();
+  if (!name || !normalizeStr(cleanPharmacyName(name))) return null;
+  const fromKey = pharmacyDedupKey(name, areaName);
+  return prisma.masterSurveyPharmacyAlias.upsert({
+    where:  { surveyId_fromKey: { surveyId, fromKey } },
+    update: { fromName: name, areaName: areaName || null },
+    create: { surveyId, fromKey, fromName: name, areaName: areaName || null, surveyPharmacyId: surveyPharmacyId ?? null, confidence, createdById },
+  });
+}
+
+export async function loadSurveyPharmacyAliases(surveyIds) {
+  if (!surveyIds?.length) return new Map();
+  const rows = await prisma.masterSurveyPharmacyAlias.findMany({
+    where: { surveyId: { in: surveyIds } },
+    select: { fromKey: true, surveyPharmacyId: true },
+  });
+  return new Map(rows.map(r => [r.fromKey, r.surveyPharmacyId]));
 }

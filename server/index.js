@@ -217,7 +217,7 @@ async function countSurveyDoctorsByAreaName(areaId) {
   if (!area) return 0;
   const target = normalizeArabic(area.name);
   const rows = await prisma.masterSurveyDoctor.findMany({
-    where: { areaName: { not: null } },
+    where: { areaName: { not: null }, isActive: true },
     select: { areaName: true },
   });
   return rows.filter(r => normalizeArabic(r.areaName || '') === target).length;

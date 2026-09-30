@@ -1123,6 +1123,9 @@ model PharmacyVisit {
   @@index([userId])
   @@index([scientificRepId])
   @@index([visitDate])
+  // إعادة تسمية صيدلية تنفّذ updateMany بمطابقة غير حسّاسة لحالة الأحرف على
+  // هذا العمود، مرة لكل اسم — كان مسحاً كاملاً للجدول في كل مرة قبل هذا الفهرس.
+  @@index([pharmacyName])
   @@index([visitImportFileId])
   @@map("pharmacy_visits")
 }
@@ -1620,6 +1623,10 @@ model MasterSurvey {
   drugEntries   DrugPriceSurveyEntry[]
   aiAnalysis    SurveyAIAnalysis?
 
+  pharmacyAliases MasterSurveyPharmacyAlias[]
+  syncExports     SurveyExport[]
+  syncBatches     SurveySyncBatch[]
+
   @@map("master_surveys")
 }
 
@@ -1682,6 +1689,14 @@ model MasterSurveyDoctor {
 
   lastEditedById Int?
   lastEditedAt   DateTime?
+
+  // التعطيل بدل الحذف: طلب «حذف» من مندوب أو سوبر أدمن يُخفي الصف من كل
+  // القوائم والتحاليل لكنه يُبقي الصف وكل ما يتفرّع عنه (زيارات، روابط أسماء،
+  // سجل تعديلات) سليماً وقابلاً للإرجاع. الحذف الفعلي لم يعد يُستخدم في أي
+  // مسار عادي — راجع deactivateSurveyDoctor / deactivateSurveyPharmacy.
+  isActive        Boolean   @default(true)
+  deactivatedAt   DateTime?
+  deactivatedById Int?
 
   survey          MasterSurvey         @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   lastEditedBy    User?                @relation("SurveyDoctorEditor", fields: [lastEditedById], references: [id])
@@ -1757,11 +1772,45 @@ model MasterSurveyPharmacy {
   lastEditedById Int?
   lastEditedAt   DateTime?
 
+  // التعطيل بدل الحذف: طلب «حذف» من مندوب أو سوبر أدمن يُخفي الصف من كل
+  // القوائم والتحاليل لكنه يُبقي الصف وكل ما يتفرّع عنه (زيارات، روابط أسماء،
+  // سجل تعديلات) سليماً وقابلاً للإرجاع. الحذف الفعلي لم يعد يُستخدم في أي
+  // مسار عادي — راجع deactivateSurveyDoctor / deactivateSurveyPharmacy.
+  isActive        Boolean   @default(true)
+  deactivatedAt   DateTime?
+  deactivatedById Int?
+
   survey       MasterSurvey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   lastEditedBy User?        @relation("SurveyPharmacyEditor", fields: [lastEditedById], references: [id])
+  aliases      MasterSurveyPharmacyAlias[]
 
   @@index([surveyId])
   @@map("master_survey_pharmacies")
+}
+
+// ─── Master Survey Pharmacy Alias (تطابق أسماء صيدليات مؤكَّد) ───────────────
+// نظير MasterSurveyDoctorAlias تماماً، وكان غائباً كلياً عن مسار الصيدليات:
+// كل رفع ملف كان يُعيد سؤال السوبر أدمن عن نفس الأسماء غير المطابقة إلى الأبد
+// لأن قراره لم يكن يُحفظ في أي مكان. المفتاح fromKey = pharmacyDedupKey(name, areaName).
+// surveyPharmacyId = null يعني «تأكَّد أنه ليس أياً من الموجودين» فيُحفظ أيضاً
+// كي لا يتكرّر السؤال، وسيُنشأ صف صيدلية جديد دائماً لهذا الاسم.
+model MasterSurveyPharmacyAlias {
+  id               Int      @id @default(autoincrement())
+  surveyId         Int
+  fromKey          String
+  fromName         String
+  areaName         String?
+  surveyPharmacyId Int?
+  confidence       String   @default("confirmed") // 'fuzzy' | 'confirmed'
+  createdById      Int?
+  createdAt        DateTime @default(now())
+
+  survey         MasterSurvey          @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  surveyPharmacy MasterSurveyPharmacy? @relation(fields: [surveyPharmacyId], references: [id], onDelete: Cascade)
+
+  @@unique([surveyId, fromKey])
+  @@index([surveyPharmacyId])
+  @@map("master_survey_pharmacy_aliases")
 }
 
 // ─── Master Survey Edit Log (سجل تعديلات السيرفي) ───────────
@@ -1784,6 +1833,84 @@ model MasterSurveyEditLog {
   @@index([editedById])
   @@index([editedAt])
   @@map("master_survey_edit_logs")
+}
+
+// ════════════════════════════════════════════════════════════
+// SURVEY SYNC — دورة تحديث السيرفي عبر إكسل مُرمَّز
+// تصدير ملف يحمل رمزاً ثابتاً لكل صف (D-000123 / P-000456، مشتق من id لا
+// مُخزَّن) ← المندوب يعدّل ← رفع ← مقارنة ثلاثية الأطراف ← مراجعة السوبر
+// أدمن ← تطبيق. لا تُكتب أي بيانات على السيرفي قبل الاعتماد.
+// ════════════════════════════════════════════════════════════
+
+// ─── Survey Export (لقطة تصدير) ─────────────────────────────
+// rowHashes هي جوهر كشف التعارض: بصمة قصيرة لكل صف وقت التصدير. عند الرفع،
+// إن اختلفت بصمة الصف الحالي عن المحفوظة هنا فمعناه أن شخصاً آخر عدّل نفس
+// الصف داخل التطبيق بعد التصدير — فيُعلَّم الصف conflict بدل أن يُدهس بصمت.
+// نحفظ البصمة فقط لا القيم: ~25 بايت للصف بدل ~150 (قرص السيرفر ضيّق).
+model SurveyExport {
+  id          Int      @id @default(autoincrement())
+  token       String   @unique
+  surveyId    Int
+  entryType   String // 'doctor' | 'pharmacy'
+  forUserId   Int? // المندوب المستهدف (null = السيرفي كامل)
+  areaNames   String? // JSON: أسماء المناطق المصدَّرة
+  rowHashes   String // JSON { "<id>": "<8-hex>" }
+  rowCount    Int      @default(0)
+  createdById Int?
+  createdAt   DateTime @default(now())
+
+  survey  MasterSurvey      @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  batches SurveySyncBatch[]
+
+  @@index([surveyId])
+  @@index([forUserId])
+  @@index([createdAt])
+  @@map("survey_exports")
+}
+
+// ─── Survey Sync Batch (ملف مرفوع بانتظار المراجعة) ─────────
+model SurveySyncBatch {
+  id           Int       @id @default(autoincrement())
+  surveyId     Int
+  entryType    String // 'doctor' | 'pharmacy'
+  exportId     Int? // null = ملف بلا رمز تصدير (مسار احتياطي بالمطابقة الضبابية)
+  fileName     String
+  uploadedById Int?
+  status       String    @default("pending") // pending | applied | discarded
+  counts       String // JSON {unchanged,update,move,new,delete,conflict,unmatched}
+  createdAt    DateTime  @default(now())
+  reviewedAt   DateTime?
+
+  survey       MasterSurvey    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  sourceExport SurveyExport?   @relation(fields: [exportId], references: [id], onDelete: SetNull)
+  rows         SurveySyncRow[]
+
+  @@index([surveyId, status])
+  @@index([uploadedById])
+  @@map("survey_sync_batches")
+}
+
+// ─── Survey Sync Row (صف واحد من الملف مع تصنيفه وقراره) ────
+// يبقى محفوظاً بعد التطبيق — هو السجل الدائم لـ «أي اسم تغيّر وماذا ومن قرّر».
+model SurveySyncRow {
+  id          Int       @id @default(autoincrement())
+  batchId     Int
+  entryId     Int? // MasterSurveyDoctor/Pharmacy.id — null للصفوف الجديدة
+  rowNumber   Int // رقم الصف داخل الملف كما يراه المندوب
+  changeType  String // unchanged | update | move | new | delete | conflict | unmatched
+  incoming    String // JSON: ما جاء في الملف
+  current     String? // JSON: قيمة قاعدة البيانات لحظة الرفع
+  diffs       String? // JSON [{field, from, to}] + الأثر الجانبي المحسوب مسبقاً
+  candidates  String? // JSON: مرشّحو المطابقة لصفوف unmatched
+  decision    String    @default("pending") // pending | approved | rejected
+  decidedById Int?
+  appliedAt   DateTime?
+
+  batch SurveySyncBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, changeType])
+  @@index([batchId, decision])
+  @@map("survey_sync_rows")
 }
 
 // ─── Master Survey Hidden User (إخفاء لمستخدم) ──────────────

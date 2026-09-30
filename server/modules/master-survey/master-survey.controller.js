@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaNames } from '../../lib/areaScope.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { resolveAreaScope, ensureDoctorRowsForScope, ensureGlobalArea } from '../../lib/surveyDoctors.js';
+import { resolveAreaScope, ensureDoctorRowsForScope, createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib } from '../../lib/surveyDoctors.js';
 import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib } from '../../lib/surveyPharmacies.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 
@@ -31,21 +31,6 @@ async function getUserAssignedAreaNames(userId) {
   return resolveEffectiveAreaNames(userId);
 }
 
-// ── Log helper ───────────────────────────────────────────────
-function logEntry(surveyId, entryType, entryId, action, oldData, newData, editedById) {
-  return prisma.masterSurveyEditLog.create({
-    data: {
-      surveyId,
-      entryType,
-      entryId,
-      action,
-      oldData:    oldData  ? JSON.stringify(oldData)  : null,
-      newData:    newData  ? JSON.stringify(newData)  : null,
-      editedById: editedById ?? null,
-    },
-  });
-}
-
 // ── GET /api/master-surveys ──────────────────────────────────
 export async function listSurveys(req, res, next) {
   try {
@@ -53,7 +38,7 @@ export async function listSurveys(req, res, next) {
       where: visibleWhere(req.user),
       orderBy: { createdAt: 'desc' },
       include: {
-        _count: { select: { doctors: true, pharmacies: true, drugEntries: true } },
+        _count: { select: { doctors: { where: { isActive: true } }, pharmacies: { where: { isActive: true } }, drugEntries: true } },
       },
     });
 
@@ -64,8 +49,8 @@ export async function listSurveys(req, res, next) {
     const normAreaSet = new Set(scope.normAreaNames);
     await Promise.all(surveys.map(async survey => {
       const [allDocs, allPharmas] = await Promise.all([
-        prisma.masterSurveyDoctor.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
-        prisma.masterSurveyPharmacy.findMany({ where: { surveyId: survey.id }, select: { areaName: true } }),
+        prisma.masterSurveyDoctor.findMany({ where: { surveyId: survey.id, isActive: true }, select: { areaName: true } }),
+        prisma.masterSurveyPharmacy.findMany({ where: { surveyId: survey.id, isActive: true }, select: { areaName: true } }),
       ]);
       // نفس شرط getScopedSurveyDoctors: يستبعد الأطباء بلا اسم منطقة أيضاً
       survey._count.doctors    = allDocs.filter(d => d.areaName?.trim() && normAreaSet.has(normAreaKey(d.areaName))).length;
@@ -173,16 +158,10 @@ export async function addDoctor(req, res, next) {
     await assertVisible(surveyId, req.user, res);
     const { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الطبيب مطلوب' });
-    if (areaName?.trim()) await ensureGlobalArea(areaName);
-    const doc = await prisma.masterSurveyDoctor.create({
-      data: {
-        surveyId,
-        name: name.trim(), specialty, areaName, pharmacyName, className, zoneName, phone, notes,
-        lastEditedById: req.user.id,
-        lastEditedAt:   new Date(),
-      },
-    });
-    await logEntry(surveyId, 'doctor', doc.id, 'create', null, doc, req.user.id);
+    // الإنشاء + ensureGlobalArea + السجل كلها في المكتبة (مصدر واحد مشترك مع
+    // لوحة السوبر أدمن)؛ ما يخصّ هذا المسار وحده هو نشر الطبيب في جداول
+    // Doctor لكل المدراء المعنيين بالمنطقة، ويبقى أدناه.
+    const doc = await createSurveyDoctor(surveyId, { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes }, req.user.id);
 
     // ── Sync Survey → Doctor table ──────────────────────────
     // Add this doctor to all managers who have reps assigned to this area
@@ -243,58 +222,19 @@ export async function addDoctor(req, res, next) {
 }
 
 // ── PUT /api/master-surveys/:id/doctors/:docId ───────────────
+// كان هنا نسخة ثالثة كاملة من منطق التعديل + الـ cascade + السجل (النسختان
+// الأخريان في surveyDoctors.js و survey-admin.controller.js، وقد تباعدت عنهما
+// فعلاً). كلها مسار واحد الآن: أي إصلاح في الـ cascade يسري على تعديل المندوب
+// والسوبر أدمن معاً.
 export async function updateDoctor(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const docId    = parseInt(req.params.docId);
     await assertVisible(surveyId, req.user, res);
-    const old = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
-    if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
     const { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes } = req.body;
-    const data = { lastEditedById: req.user.id, lastEditedAt: new Date() };
-    if (name         !== undefined) data.name         = name.trim();
-    if (specialty    !== undefined) data.specialty    = specialty;
-    if (areaName     !== undefined) data.areaName     = areaName;
-    if (pharmacyName !== undefined) data.pharmacyName = pharmacyName;
-    if (className    !== undefined) data.className    = className;
-    if (zoneName     !== undefined) data.zoneName     = zoneName;
-    if (phone        !== undefined) data.phone        = phone;
-    if (notes        !== undefined) data.notes        = notes;
-    if (data.areaName?.trim()) await ensureGlobalArea(data.areaName);
-    const updated = await prisma.masterSurveyDoctor.update({ where: { id: docId }, data });
-    await logEntry(surveyId, 'doctor', docId, 'update', old, updated, req.user.id);
-
-    // Cascade: propagate changes to all Doctor records imported from this survey doctor
-    const cascadeData = {};
-    if (data.name         !== undefined) cascadeData.name         = data.name;
-    if (data.specialty    !== undefined) cascadeData.specialty    = data.specialty;
-    if (data.pharmacyName !== undefined) cascadeData.pharmacyName = data.pharmacyName;
-    if (data.notes        !== undefined) cascadeData.notes        = data.notes;
-    if (Object.keys(cascadeData).length > 0 || data.areaName !== undefined) {
-      if (data.areaName !== undefined) {
-        const linkedDoctors = await prisma.doctor.findMany({
-          where: { masterSurveyDoctorId: docId },
-          select: { id: true, userId: true },
-        });
-        const userGroups = new Map();
-        for (const d of linkedDoctors) {
-          const key = d.userId ?? null;
-          if (!userGroups.has(key)) userGroups.set(key, []);
-          userGroups.get(key).push(d.id);
-        }
-        for (const [uid, ids] of userGroups) {
-          const resolvedAreaId = uid ? await resolveAreaId(data.areaName, uid) : null;
-          await prisma.doctor.updateMany({
-            where: { id: { in: ids } },
-            data: { ...cascadeData, areaId: resolvedAreaId },
-          });
-        }
-      } else {
-        await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: docId }, data: cascadeData });
-      }
-    }
-
-    res.json({ success: true, data: updated });
+    const result = await updateSurveyDoctorLib(surveyId, docId, { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes }, req.user.id);
+    if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
+    res.json({ success: true, data: result.updated });
   } catch (e) { next(e); }
 }
 
@@ -363,7 +303,7 @@ export async function importAllDoctors(req, res, next) {
     const userAreaNames = FIELD_ROLES.has(req.user.role) ? await getUserAssignedAreaNames(areaRefId) : [];
     const normAreaSet   = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
 
-    const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: { surveyId } });
+    const allSurveyDoctors = await prisma.masterSurveyDoctor.findMany({ where: { surveyId, isActive: true } });
     const surveyDoctors = normAreaSet
       ? allSurveyDoctors.filter(d => !d.areaName?.trim() || normAreaSet.has(normAreaKey(d.areaName)))
       : allSurveyDoctors;
@@ -497,7 +437,7 @@ export async function importAllPharmacies(req, res, next) {
     const userAreaNames = FIELD_ROLES.has(req.user.role) ? await getUserAssignedAreaNames(areaRefId) : [];
     const normAreaSet   = userAreaNames.length > 0 ? new Set(userAreaNames.map(normAreaKey)) : null;
 
-    const allSurveyPharmacies = await prisma.masterSurveyPharmacy.findMany({ where: { surveyId } });
+    const allSurveyPharmacies = await prisma.masterSurveyPharmacy.findMany({ where: { surveyId, isActive: true } });
     const surveyPharmacies = normAreaSet
       ? allSurveyPharmacies.filter(p => !p.areaName?.trim() || normAreaSet.has(normAreaKey(p.areaName)))
       : allSurveyPharmacies;

@@ -1,31 +1,17 @@
 import prisma from '../../lib/prisma.js';
-import { findOrCreateArea } from '../sales/sales.repository.js';
-import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, classifySurveyDoctorRows, saveSurveyDoctorAlias, ensureGlobalArea, loadAreaNameIndex, resolveAreaScope } from '../../lib/surveyDoctors.js';
-import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib, deleteSurveyPharmacy, mergeSurveyPharmacies, findPharmacyMergeSuggestions, previewPharmacyNameCleanup, applyPharmacyNameCleanup, pharmacyDedupKey } from '../../lib/surveyPharmacies.js';
+import { createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib, deactivateSurveyDoctor, reactivateSurveyDoctor, classifySurveyDoctorRows, saveSurveyDoctorAlias, ensureGlobalArea, loadAreaNameIndex, resolveAreaScope } from '../../lib/surveyDoctors.js';
+import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib, deactivateSurveyPharmacy, reactivateSurveyPharmacy, mergeSurveyPharmacies, findPharmacyMergeSuggestions, previewPharmacyNameCleanup, applyPharmacyNameCleanup, pharmacyDedupKey } from '../../lib/surveyPharmacies.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { areaIdsOfProvinces, areaIdsOfSubProvinces } from '../../lib/areaScope.js';
 
-// ── Shared helpers ────────────────────────────────────────────
-// Find or create an Area by name (shared catalog) and link it to this user
-async function resolveAreaId(areaName, userId) {
-  if (!areaName?.trim()) return null;
-  return (await findOrCreateArea(areaName, userId)).id;
-}
-
-// ── Helpers ──────────────────────────────────────────────────
-function logEntry(surveyId, entryType, entryId, action, oldData, newData, editedById) {
-  return prisma.masterSurveyEditLog.create({
-    data: {
-      surveyId,
-      entryType,
-      entryId,
-      action,
-      oldData:  oldData  ? JSON.stringify(oldData)  : null,
-      newData:  newData  ? JSON.stringify(newData)  : null,
-      editedById: editedById ?? null,
-    },
-  });
-}
+// ── مَن قام بالتعديل (editedById) ─────────────────────────────
+// MasterSurveyEditLog.editedById و lastEditedById كلاهما مفتاح أجنبي إلى **User**
+// لا إلى SuperAdmin. تمرير req.superAdmin.id هنا كان يعني أحد أمرين، كلاهما خطأ:
+// نسبة التعديل لمستخدم عشوائي يصادف أن رقمه مطابق، أو خرق قيد المفتاح الأجنبي.
+// والاصطلاح المعتمد في كل مكتبات السيرفي صريح: null = السوبر أدمن. تغذية 🔔
+// «سجل الأطباء» تعتمد عليه حرفياً (editedById != null تعني «مندوب غيّر هذا»)،
+// فأي قيمة غير null هنا كانت تُظهر تعديلات السوبر أدمن كأنها تعديلات مندوبين.
+const SA_EDITOR = null;
 
 // ── Survey CRUD ──────────────────────────────────────────────
 export async function listSurveys(req, res, next) {
@@ -33,7 +19,7 @@ export async function listSurveys(req, res, next) {
     const surveys = await prisma.masterSurvey.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
-        _count: { select: { doctors: true, pharmacies: true } },
+        _count: { select: { doctors: { where: { isActive: true } }, pharmacies: { where: { isActive: true } } } },
         createdBy: { select: { username: true, displayName: true } },
       },
     });
@@ -44,11 +30,15 @@ export async function listSurveys(req, res, next) {
 export async function getSurvey(req, res, next) {
   try {
     const id = parseInt(req.params.id);
+    // المعطَّلون مُستبعَدون افتراضياً حتى في لوحة السوبر أدمن كي يطابق العدد ما
+    // يراه المستخدمون؛ ?includeInactive=1 يُظهرهم لمراجعتهم أو إرجاعهم.
+    const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';
+    const rowFilter = includeInactive ? {} : { where: { isActive: true } };
     const survey = await prisma.masterSurvey.findUnique({
       where: { id },
       include: {
-        doctors:    { orderBy: { createdAt: 'asc' }, include: { lastEditedBy: { select: { username: true, displayName: true } } } },
-        pharmacies: { orderBy: { createdAt: 'asc' }, include: { lastEditedBy: { select: { username: true, displayName: true } } } },
+        doctors:    { ...rowFilter, orderBy: { createdAt: 'asc' }, include: { lastEditedBy: { select: { username: true, displayName: true } } } },
+        pharmacies: { ...rowFilter, orderBy: { createdAt: 'asc' }, include: { lastEditedBy: { select: { username: true, displayName: true } } } },
         _count: { select: { hiddenUsers: true, hiddenOffices: true, drugEntries: true } },
       },
     });
@@ -67,7 +57,7 @@ export async function createSurvey(req, res, next) {
         description: description?.trim() ?? null,
         isActive: isActive !== false,
         surveyType: surveyType === 'drug_prices' ? 'drug_prices' : 'general',
-        createdById: req.superAdmin?.id ?? null,
+        createdById: req.superAdmin?.id ?? null, // هذا الحقل فعلاً مفتاح إلى SuperAdmin
       },
     });
     res.status(201).json({ success: true, data: survey });
@@ -97,16 +87,16 @@ export async function deleteSurvey(req, res, next) {
 }
 
 // ── Survey Doctors ───────────────────────────────────────────
+// كل العمليات تمرّ عبر server/lib/surveyDoctors.js. كانت هذه الدوال تحمل نسخة
+// ثانية من منطق الإنشاء/التعديل/الـ cascade/السجل (ونسخة ثالثة في
+// master-survey.controller.js) وتباعدت النسخ فعلاً: نسخة السوبر أدمن لم تكن
+// تضبط lastEditedById إطلاقاً. المكتبة هي المصدر الوحيد الآن.
 export async function addDoctor(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الطبيب مطلوب' });
-    if (areaName) await ensureGlobalArea(areaName);
-    const doc = await prisma.masterSurveyDoctor.create({
-      data: { surveyId, name: name.trim(), specialty, areaName, pharmacyName, className, zoneName, phone, notes },
-    });
-    await logEntry(surveyId, 'doctor', doc.id, 'create', null, doc, req.superAdmin?.id ? null : null);
+    const doc = await createSurveyDoctor(surveyId, { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes }, SA_EDITOR);
     res.status(201).json({ success: true, data: doc });
   } catch (e) { next(e); }
 }
@@ -115,73 +105,34 @@ export async function updateDoctor(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const docId    = parseInt(req.params.docId);
-    const old = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
-    if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
     const { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes } = req.body;
-    const data = {};
-    if (name         !== undefined) data.name         = name.trim();
-    if (specialty    !== undefined) data.specialty    = specialty;
-    if (areaName     !== undefined) data.areaName     = areaName;
-    if (pharmacyName !== undefined) data.pharmacyName = pharmacyName;
-    if (className    !== undefined) data.className    = className;
-    if (zoneName     !== undefined) data.zoneName     = zoneName;
-    if (phone        !== undefined) data.phone        = phone;
-    if (notes        !== undefined) data.notes        = notes;
-    if (data.areaName) await ensureGlobalArea(data.areaName);
-    const updated = await prisma.masterSurveyDoctor.update({ where: { id: docId }, data });
-    await logEntry(surveyId, 'doctor', docId, 'update', old, updated, null);
-
-    // Cascade: propagate changes to all Doctor records imported from this survey doctor
-    const cascadeData = {};
-    if (data.name         !== undefined) cascadeData.name         = data.name;
-    if (data.specialty    !== undefined) cascadeData.specialty    = data.specialty;
-    if (data.pharmacyName !== undefined) cascadeData.pharmacyName = data.pharmacyName;
-    if (data.notes        !== undefined) cascadeData.notes        = data.notes;
-    if (Object.keys(cascadeData).length > 0 || data.areaName !== undefined) {
-      if (data.areaName !== undefined) {
-        const linkedDoctors = await prisma.doctor.findMany({
-          where: { masterSurveyDoctorId: docId },
-          select: { id: true, userId: true },
-        });
-        const userGroups = new Map();
-        for (const d of linkedDoctors) {
-          const key = d.userId ?? null;
-          if (!userGroups.has(key)) userGroups.set(key, []);
-          userGroups.get(key).push(d.id);
-        }
-        for (const [uid, ids] of userGroups) {
-          const resolvedAreaId = uid ? await resolveAreaId(data.areaName, uid) : null;
-          await prisma.doctor.updateMany({
-            where: { id: { in: ids } },
-            data: { ...cascadeData, areaId: resolvedAreaId },
-          });
-        }
-      } else {
-        await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: docId }, data: cascadeData });
-      }
-    }
-
-    res.json({ success: true, data: updated });
+    const result = await updateSurveyDoctorLib(surveyId, docId, { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes }, SA_EDITOR);
+    if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
+    res.json({ success: true, data: result.updated });
   } catch (e) { next(e); }
 }
 
+// حذف = تعطيل. راجع deactivateSurveyDoctor: الحذف الفعلي كان يمحو معه كل
+// MasterSurveyDoctorAlias المرتبطة بالطبيب (ذاكرة المطابقة المتراكمة) ويفصل
+// تاريخ الزيارات عن مصدره. الصف المعطَّل يظهر في اللوحة عبر includeInactive
+// ويُرجَع بضغطة من المسار أدناه.
 export async function deleteDoctor(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const docId    = parseInt(req.params.docId);
-    const old = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
-    if (!old || old.surveyId !== surveyId) return res.status(404).json({ success: false, error: 'غير موجود' });
-    await prisma.masterSurveyDoctor.delete({ where: { id: docId } });
-    await logEntry(surveyId, 'doctor', docId, 'delete', old, null, null);
+    const result = await deactivateSurveyDoctor(surveyId, docId, SA_EDITOR);
+    if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
+    res.json({ success: true, deactivated: true, affectedDoctorRows: result.affectedDoctorRows ?? 0 });
+  } catch (e) { next(e); }
+}
 
-    // Cascade: soft-delete all Doctor records imported from this survey doctor
-    // (preserves visit history; removes them from active lists and analysis)
-    await prisma.doctor.updateMany({
-      where: { masterSurveyDoctorId: docId },
-      data:  { isActive: false },
-    });
-
-    res.json({ success: true });
+export async function restoreDoctor(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const docId    = parseInt(req.params.docId);
+    const result = await reactivateSurveyDoctor(surveyId, docId, SA_EDITOR);
+    if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
+    res.json({ success: true, data: result.updated });
   } catch (e) { next(e); }
 }
 
@@ -212,7 +163,7 @@ export async function commitDoctorImport(req, res, next) {
     if (!Array.isArray(rows) || rows.length === 0)
       return res.status(400).json({ success: false, error: 'لا يوجد بيانات' });
 
-    const editedById = req.superAdmin?.id ?? null;
+    const editedById = SA_EDITOR;
     const areaCache = await loadAreaNameIndex();
     let created = 0, matched = 0;
 
@@ -283,7 +234,7 @@ export async function coverageCheck(req, res, next) {
     const [docs, areas, users] = await Promise.all([
       prisma.masterSurveyDoctor.findMany({
         where:  { surveyId },
-        select: { id: true, name: true, areaName: true },
+        select: { id: true, name: true, areaName: true, isActive: true },
       }),
       prisma.area.findMany({ select: { id: true, name: true } }),
       prisma.user.findMany({
@@ -326,6 +277,7 @@ export async function coverageCheck(req, res, next) {
     }
 
     const bump = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
+    const deactivated = [];            // معطَّل — مخفي عمداً، ليس عطل ظهور
     const noArea = [];                 // بلا اسم منطقة أصلاً — لا يراه أحد
     const notInCatalog   = new Map();  // اسم منطقة بلا صف Area مطابق
     const unassignedAll  = new Map();  // المنطقة موجودة لكن غير مُسندة لأي مستخدم
@@ -333,6 +285,9 @@ export async function coverageCheck(req, res, next) {
     let visibleToTarget = 0, visibleToSomeone = 0;
 
     for (const d of docs) {
+      // المعطَّل يُصنَّف أولاً: بدونه يظهر ضمن أحد أسباب «لا يراه أحد» فيبدو
+      // عطلاً في الظهور بينما هو إخفاء مقصود قابل للإرجاع.
+      if (!d.isActive) { deactivated.push({ id: d.id, name: d.name, areaName: d.areaName ?? null }); continue; }
       const raw = d.areaName?.trim();
       if (!raw) { noArea.push({ id: d.id, name: d.name }); continue; }
       const norm = normalizeAreaName(raw);
@@ -354,7 +309,9 @@ export async function coverageCheck(req, res, next) {
       success: true,
       data: {
         total: docs.length,
+        active: docs.length - deactivated.length,
         visibleToSomeone,
+        deactivated: { count: deactivated.length, sample: deactivated.slice(0, 50) },
         noArea: { count: noArea.length, sample: noArea.slice(0, 50) },
         notInCatalog:  toList(notInCatalog),
         unassignedAll: toList(unassignedAll),
@@ -383,7 +340,7 @@ export async function addPharmacy(req, res, next) {
     const surveyId = parseInt(req.params.id);
     const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الصيدلية مطلوب' });
-    const ph = await createSurveyPharmacy(surveyId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, req.superAdmin?.id ?? null);
+    const ph = await createSurveyPharmacy(surveyId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, SA_EDITOR);
     const { _duplicate, ...data } = ph;
     res.status(_duplicate ? 200 : 201).json({ success: true, data, duplicate: !!_duplicate });
   } catch (e) { next(e); }
@@ -394,19 +351,32 @@ export async function updatePharmacy(req, res, next) {
     const surveyId = parseInt(req.params.id);
     const pharmaId = parseInt(req.params.pharmaId);
     const { name, ownerName, pharmacyName, phone, address, areaName, notes } = req.body;
-    const result = await updateSurveyPharmacyLib(surveyId, pharmaId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, req.superAdmin?.id ?? null);
+    const result = await updateSurveyPharmacyLib(surveyId, pharmaId, { name, ownerName, pharmacyName, phone, address, areaName, notes }, SA_EDITOR);
     if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
     res.json({ success: true, data: result.updated });
   } catch (e) { next(e); }
 }
 
+// حذف = تعطيل. الحذف الفعلي (deleteSurveyPharmacy) كان يُخمّن «أقرب اسم بديل»
+// بين الصيدليات المتبقية وينقل إليه أطباء الصيدلية المحذوفة وزياراتها — تخمين
+// لا رجعة فيه على بيانات ميدانية. التعطيل لا يلمس أي اسم.
 export async function deletePharmacy(req, res, next) {
   try {
     const surveyId = parseInt(req.params.id);
     const pharmaId = parseInt(req.params.pharmaId);
-    const result = await deleteSurveyPharmacy(surveyId, pharmaId, req.superAdmin?.id ?? null);
+    const result = await deactivateSurveyPharmacy(surveyId, pharmaId, SA_EDITOR);
     if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
-    res.json({ success: true, reassignedDoctors: result.reassignedDoctors });
+    res.json({ success: true, deactivated: true });
+  } catch (e) { next(e); }
+}
+
+export async function restorePharmacy(req, res, next) {
+  try {
+    const surveyId = parseInt(req.params.id);
+    const pharmaId = parseInt(req.params.pharmaId);
+    const result = await reactivateSurveyPharmacy(surveyId, pharmaId, SA_EDITOR);
+    if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
+    res.json({ success: true, data: result.updated });
   } catch (e) { next(e); }
 }
 
@@ -427,7 +397,7 @@ export async function mergePharmacies(req, res, next) {
     if (!keepId || mergeIds.length === 0)
       return res.status(400).json({ success: false, error: 'اختر صيدلية للإبقاء عليها وصيدلية واحدة على الأقل لدمجها' });
 
-    const result = await mergeSurveyPharmacies(surveyId, keepId, mergeIds, req.superAdmin?.id ?? null);
+    const result = await mergeSurveyPharmacies(surveyId, keepId, mergeIds, SA_EDITOR);
     if (result.error) return res.status(404).json({ success: false, error: 'غير موجود' });
     res.json({ success: true, reassignedDoctors: result.reassignedDoctors, mergedCount: result.mergedCount, data: result.data });
   } catch (e) { next(e); }
@@ -442,11 +412,11 @@ export async function getPharmacyMergeSuggestions(req, res, next) {
     const surveyId = parseInt(req.params.id);
     const [pharmacies, docsWithPharma] = await Promise.all([
       prisma.masterSurveyPharmacy.findMany({
-        where: { surveyId },
+        where: { surveyId, isActive: true },
         select: { id: true, name: true, areaName: true, ownerName: true, phone: true },
       }),
       prisma.masterSurveyDoctor.findMany({
-        where: { surveyId, pharmacyName: { not: null } },
+        where: { surveyId, pharmacyName: { not: null }, isActive: true },
         select: { pharmacyName: true },
       }),
     ]);
@@ -472,7 +442,7 @@ export async function getPharmacyMergeSuggestions(req, res, next) {
       if (fullyExact) {
         const mergeIds = g.members.filter(m => m.id !== g.suggestedKeepId).map(m => m.id);
         if (mergeIds.length) {
-          await mergeSurveyPharmacies(surveyId, g.suggestedKeepId, mergeIds, req.superAdmin?.id ?? null);
+          await mergeSurveyPharmacies(surveyId, g.suggestedKeepId, mergeIds, SA_EDITOR);
           autoMerged++;
         }
       } else {
@@ -499,7 +469,7 @@ export async function applyPharmacyNameCleanupCtrl(req, res, next) {
     const surveyId = parseInt(req.params.id);
     const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
     if (!ids.length) return res.status(400).json({ success: false, error: 'اختر اسماً واحداً على الأقل' });
-    const result = await applyPharmacyNameCleanup(surveyId, ids, req.superAdmin?.id ?? null);
+    const result = await applyPharmacyNameCleanup(surveyId, ids, SA_EDITOR);
     res.json({ success: true, ...result });
   } catch (e) { next(e); }
 }

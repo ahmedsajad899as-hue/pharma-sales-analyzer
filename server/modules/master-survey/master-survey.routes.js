@@ -4,6 +4,7 @@ import {
   addDoctor, updateDoctor, importAllDoctors, importDoctor,
   addPharmacy, updatePharmacy, importAllPharmacies, importPharmacy,
 } from './master-survey.controller.js';
+import { repExport, repUpload, repMyBatches } from '../survey-sync/survey-sync.controller.js';
 
 const router = Router();
 
@@ -24,5 +25,12 @@ router.post('/:id/pharmacies',                       addPharmacy);
 router.put('/:id/pharmacies/:pharmaId',              updatePharmacy);
 router.post('/:id/pharmacies/import-all',            importAllPharmacies);
 router.post('/:id/pharmacies/:pharmaId/import',      importPharmacy);
+
+// ── دورة تحديث السيرفي (جانب المندوب) ───────────────────────
+// تنزيل ملف مناطقه وحدها، ورفعه بعد التعديل. الرفع لا يكتب على السيرفي —
+// ينشئ دفعة تنتظر مراجعة السوبر أدمن، ومن هنا يتابع حالتها.
+router.get('/:id/sync/my-batches',        repMyBatches);
+router.post('/:id/sync/upload',           repUpload);
+router.get('/:id/sync/:entryType/export', repExport);
 
 export default router;

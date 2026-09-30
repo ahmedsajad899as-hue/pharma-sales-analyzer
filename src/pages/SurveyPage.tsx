@@ -3,6 +3,7 @@ import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { Icon } from '../config/icons';
 import { sendEngagementPing } from '../lib/engagementPing';
+import SurveySyncRepBar from '../components/SurveySyncRepBar';
 
 // ── Types ────────────────────────────────────────────────────
 interface Survey {
@@ -490,6 +491,13 @@ export default function SurveyPage() {
       </div>
 
       {/* Doctors Table */}
+      {tab === 'doctors' && selectedSurvey.surveyType !== 'drug_prices' && (
+        <SurveySyncRepBar
+          surveyId={selectedSurvey.id} surveyName={selectedSurvey.name}
+          entryType="doctor" H={H} onApplied={reloadSurvey}
+        />
+      )}
+
       {tab === 'doctors' && (
         selectedSurvey.doctors.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--c-text-muted)', background: 'var(--c-bg)', borderRadius: 14, border: '1.5px dashed var(--c-border)' }}>
@@ -531,6 +539,13 @@ export default function SurveyPage() {
       )}
 
       {/* Pharmacies Table */}
+      {tab === 'pharmacies' && selectedSurvey.surveyType !== 'drug_prices' && (
+        <SurveySyncRepBar
+          surveyId={selectedSurvey.id} surveyName={selectedSurvey.name}
+          entryType="pharmacy" H={H} onApplied={reloadSurvey}
+        />
+      )}
+
       {tab === 'pharmacies' && (
         selectedSurvey.pharmacies.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--c-text-muted)', background: 'var(--c-bg)', borderRadius: 14, border: '1.5px dashed var(--c-border)' }}>

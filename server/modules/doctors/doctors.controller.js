@@ -468,7 +468,7 @@ export async function list(req, res, next) {
             if (activeSurvey && repAreaNormNames.length > 0) {
               // كل أطباء السيرفي في مناطق المندوب
               const allSurveyDocs = await prisma.masterSurveyDoctor.findMany({
-                where: { surveyId: activeSurvey.id, areaName: { not: null } },
+                where: { surveyId: activeSurvey.id, areaName: { not: null }, isActive: true },
                 select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
               });
               const surveyDocsInAreas = allSurveyDocs.filter(d =>
@@ -554,7 +554,7 @@ export async function list(req, res, next) {
       });
       if (activeSurvey) {
         const surveyMatches = await prisma.masterSurveyDoctor.findMany({
-          where: { surveyId: activeSurvey.id, name: { contains: q.trim() } },
+          where: { surveyId: activeSurvey.id, name: { contains: q.trim() }, isActive: true },
           select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
           take: 30,
         });
@@ -651,7 +651,7 @@ export async function list(req, res, next) {
         });
         if (activeSurveyForArea) {
           const surveyRows = await prisma.masterSurveyDoctor.findMany({
-            where: { surveyId: activeSurveyForArea.id, name: { in: noAreaDocs.map(d => d.name.trim()) } },
+            where: { surveyId: activeSurveyForArea.id, name: { in: noAreaDocs.map(d => d.name.trim()) }, isActive: true },
             select: { name: true, areaName: true },
           });
           const surveyAreaMap = new Map();
@@ -693,7 +693,7 @@ export async function list(req, res, next) {
       });
       if (activeSurvey) {
         const surveyDocs = await prisma.masterSurveyDoctor.findMany({
-          where: { surveyId: activeSurvey.id }, select: { name: true },
+          where: { surveyId: activeSurvey.id, isActive: true }, select: { name: true },
         });
         const surveyNamesSet = new Set(surveyDocs.map(d =>
           d.name.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
@@ -774,7 +774,7 @@ export async function create(req, res, next) {
         const areaNameStr = areaRow?.name ?? areaName ?? null;
         // Find existing survey doctor by normalized name
         const allSurveyDocs = await prisma.masterSurveyDoctor.findMany({
-          where: { surveyId: activeSurvey.id }, select: { id: true, name: true },
+          where: { surveyId: activeSurvey.id }, select: { id: true, name: true, isActive: true },
         });
         const existing = allSurveyDocs.find(d => normN(d.name) === normN(name));
         if (existing) {
@@ -786,6 +786,7 @@ export async function create(req, res, next) {
               ...(specialty    ? { specialty }    : {}),
               ...(pharmacyName ? { pharmacyName } : {}),
               ...(areaNameStr  ? { areaName: areaNameStr } : {}),
+              ...(existing.isActive ? {} : { isActive: true, deactivatedAt: null, deactivatedById: null }),
             },
           });
         } else {
@@ -897,11 +898,12 @@ export async function update(req, res, next) {
           } else {
             // Find by normalized name and link
             const allSurveyDocs = await prisma.masterSurveyDoctor.findMany({
-              where: { surveyId: activeSurvey.id }, select: { id: true, name: true },
+              where: { surveyId: activeSurvey.id }, select: { id: true, name: true, isActive: true },
             });
             const match = allSurveyDocs.find(d => normN(d.name) === normN(updatedDoc.name));
             if (match) {
-              await prisma.masterSurveyDoctor.update({ where: { id: match.id }, data: surveyUpdateData });
+              const revive = match.isActive ? {} : { isActive: true, deactivatedAt: null, deactivatedById: null };
+              await prisma.masterSurveyDoctor.update({ where: { id: match.id }, data: { ...surveyUpdateData, ...revive } });
               await prisma.doctor.update({ where: { id }, data: { masterSurveyDoctorId: match.id } });
             } else {
               // Not in survey yet — add it

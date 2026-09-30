@@ -1,7 +1,26 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import * as XLSX from 'xlsx';
+import {
+  buildHeaderMap as buildSharedHeaderMap,
+  detectDocField, detectPharmaField, normalizeHdr,
+} from '../../lib/surveySheet';
+import SurveySyncPanel from '../../components/SurveySyncPanel';
+
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { parseExcelFile } from '../../services/excelParser';
+
+// خانة «إظهار المعطَّلين»: «حذف» صار تعطيلاً لا محواً — الصف يبقى بكل زياراته
+// وروابطه ويختفي من القوائم فقط. هذه هي الشاشة الوحيدة التي تُظهره ثانيةً
+// وتتيح إرجاعه، فبدونها يبدو الحذف نهائياً وهو ليس كذلك.
+function InactiveToggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#64748b', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+      <input type="checkbox" checked={on} onChange={e => onChange(e.target.checked)} />
+      إظهار المعطَّلين
+    </label>
+  );
+}
+const inactiveRowStyle: React.CSSProperties = { background: '#fef2f2', opacity: 0.75 };
 
 // ── Types ────────────────────────────────────────────────────
 interface DocImportRow { name: string; specialty: string; areaName: string; pharmacyName: string; className: string; zoneName: string; phone: string; notes: string; }
@@ -29,11 +48,13 @@ interface DrugEntry {
 interface SurveyDoctor {
   id: number; surveyId: number; name: string; specialty?: string; areaName?: string;
   pharmacyName?: string; className?: string; zoneName?: string; phone?: string; notes?: string;
+  isActive?: boolean;
   lastEditedAt?: string; lastEditedBy?: { username: string; displayName?: string };
 }
 interface SurveyPharmacy {
   id: number; surveyId: number; name: string; ownerName?: string; pharmacyName?: string; phone?: string;
   address?: string; areaName?: string; notes?: string;
+  isActive?: boolean;
   lastEditedAt?: string; lastEditedBy?: { username: string; displayName?: string };
 }
 interface PharmaSuggestionMember {
@@ -62,73 +83,16 @@ interface EditLog {
 }
 
 // ── Smart Excel column detection ──────────────────────────────
+// الخرائط والكشف في src/lib/surveySheet.ts — مصدر واحد يخدم هذا الاستيراد
+// وتصدير/رفع ملف مراجعة السيرفي معاً.
 type DocField   = keyof DocImportRow;
 type PharmaField = keyof PharmaImportRow;
 
-const DOC_FIELD_KEYWORDS: Array<[DocField, string[]]> = [
-  ['name',         ['اسم الطبيب','الطبيب','الدكتور','الاسم الكامل','الاسم','اسم الدكتور','doctor','name','physician']],
-  ['specialty',    ['الاختصاص','التخصص','تخصص','اختصاص','specialty','speciality','speciality_1','spec']],
-  ['areaName',     ['المنطقه','منطقه','اسم المنطقه','الحي','حي','zone','sector','zone name','zone_name']],
-  ['pharmacyName', ['اسم الصيدليه','اسم الصيدلية','الصيدليه','الصيدلية','صيدليه','صيدلية','اسم الدكان','الدكان','دكان','pharmacy name','pharmacy_name','pharmacyname','pharmacy','pharmcy','pharmc','clinic']],
-  ['className',    ['الكلاس','كلاس','التصنيف','تصنيف','الفئه','فئه','class','classification','cat','category']],
-  ['zoneName',     ['الزون','زون','القطاع','قطاع','منطقه فرعيه','area','region','area name']],
-  ['phone',        ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','تلفون','phone','mobile','tel','phone number','mobile number']],
-  ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note','remarks']],
-];
-const PHARMA_FIELD_KEYWORDS: Array<[PharmaField, string[]]> = [
-  ['name',         ['اسم الصيدلية','اسم الدكان','الصيدلية','صيدلية','الدكان','دكان','الاسم الكامل','الاسم','اسم','pharmacy name','pharmacy_name','pharmacyname','pharmacy','name']],
-  ['ownerName',    ['صاحب الصيدلية','صاحب الدكان','المالك','صاحب','المدير','مدير','owner','ownername','owner name']],
-  ['pharmacyName', ['الفرع','فرع','الماركة','ماركة','السلسلة','chain','brand','branch']],
-  ['phone',        ['الهاتف','رقم الهاتف','الجوال','رقم الجوال','موبايل','جوال','هاتف','تلفون','phone','mobile','tel','phone number','mobile number']],
-  ['address',      ['العنوان','عنوان','الموقع','address','location','street']],
-  ['areaName',     ['المنطقة','المنطقه','منطقة','اسم المنطقة','area','region','area name']],
-  ['notes',        ['ملاحظات','ملاحظه','تعليق','تعليقات','notes','note','remarks']],
-];
-
-function normalizeHdr(h: string): string {
-  return h.trim().toLowerCase()
-    .replace(/[_\-]/g, ' ')        // underscore/dash → space
-    .replace(/\s+/g, ' ')          // collapse spaces
-    .replace(/ة/g, 'ه')            // normalize ة → ه (Arabic taa marbuta)
-    .replace(/[\u064B-\u065F]/g,''); // strip Arabic diacritics
-}
-function detectDocField(header: string): DocField | null {
-  const h = normalizeHdr(header);
-  for (const [field, kws] of DOC_FIELD_KEYWORDS) {
-    for (const kw of kws) {
-      const nkw = normalizeHdr(kw);
-      if (h === nkw || h.includes(nkw) || nkw.includes(h)) return field;
-    }
-  }
-  return null;
-}
-function detectPharmaField(header: string): PharmaField | null {
-  const h = normalizeHdr(header);
-  for (const [field, kws] of PHARMA_FIELD_KEYWORDS) {
-    for (const kw of kws) {
-      const nkw = normalizeHdr(kw);
-      if (h === nkw || h.includes(nkw) || nkw.includes(h)) return field;
-    }
-  }
-  return null;
-}
 function buildDocHeaderMap(row: Record<string,unknown>): Record<string, DocField> {
-  const map: Record<string, DocField> = {};
-  const used = new Set<DocField>();
-  for (const header of Object.keys(row)) {
-    const field = detectDocField(header);
-    if (field && !used.has(field)) { map[header] = field; used.add(field); }
-  }
-  return map;
+  return buildSharedHeaderMap('doctor', Object.keys(row)) as Record<string, DocField>;
 }
 function buildPharmaHeaderMap(row: Record<string,unknown>): Record<string, PharmaField> {
-  const map: Record<string, PharmaField> = {};
-  const used = new Set<PharmaField>();
-  for (const header of Object.keys(row)) {
-    const field = detectPharmaField(header);
-    if (field && !used.has(field)) { map[header] = field; used.add(field); }
-  }
-  return map;
+  return buildSharedHeaderMap('pharmacy', Object.keys(row)) as Record<string, PharmaField>;
 }
 function smartMapDocRow(row: Record<string,unknown>, headerMap: Record<string, DocField>): DocImportRow {
   const r: DocImportRow = { name:'', specialty:'', areaName:'', pharmacyName:'', className:'', zoneName:'', phone:'', notes:'' };
@@ -287,7 +251,10 @@ export default function MasterSurveyPage() {
   const [loading,        setLoading]        = useState(true);
   const [apiError,       setApiError]       = useState<string | null>(null);
   const [selectedSurvey, setSelectedSurvey] = useState<(Survey & { doctors: SurveyDoctor[]; pharmacies: SurveyPharmacy[]; drugEntries?: DrugEntry[] }) | null>(null);
-  const [tab,            setTab]            = useState<'doctors' | 'pharmacies' | 'drug_prices' | 'visibility' | 'logs'>('doctors');
+  const [tab,            setTab]            = useState<'doctors' | 'pharmacies' | 'sync' | 'drug_prices' | 'visibility' | 'logs'>('doctors');
+  // الصفوف المعطَّلة مستبعَدة افتراضياً حتى هنا كي يطابق العدد ما يراه
+  // المستخدمون فعلاً؛ هذه الخانة هي المدخل الوحيد لمراجعتها وإرجاعها.
+  const [showInactive,   setShowInactive]   = useState(false);
 
   // modals
   const [showSurveyForm,   setShowSurveyForm]   = useState(false);
@@ -387,11 +354,20 @@ export default function MasterSurveyPage() {
   useEffect(() => { fetchSurveys(); }, [fetchSurveys]);
 
   // ── Fetch selected survey detail ──
-  const fetchSurvey = useCallback(async (id: number) => {
-    const r = await fetch(`/api/super-admin/surveys/${id}`, { headers: H() });
+  const fetchSurvey = useCallback(async (id: number, withInactive = showInactive) => {
+    const qs = withInactive ? '?includeInactive=1' : '';
+    const r = await fetch(`/api/super-admin/surveys/${id}${qs}`, { headers: H() });
     const d = await r.json();
     if (d.success) setSelectedSurvey(d.data);
-  }, [H]);
+  }, [H, showInactive]);
+
+  // إرجاع صف معطَّل (طبيب أو صيدلية) للعمل
+  const restoreRow = useCallback(async (kind: 'doctors' | 'pharmacies', id: number) => {
+    const sid = selectedSurvey?.id;
+    if (!sid) return;
+    const r = await fetch(`/api/super-admin/surveys/${sid}/${kind}/${id}/restore`, { method: 'POST', headers: H() });
+    if (r.ok) fetchSurvey(sid); else alert('تعذّر الإرجاع');
+  }, [H, selectedSurvey?.id, fetchSurvey]);
 
   // ── فحص الظهور ──
   const loadCoverage = useCallback(async (surveyId: number, userId: number | '') => {
@@ -449,6 +425,7 @@ export default function MasterSurveyPage() {
   useEffect(() => {
     if (!selectedSurvey) return;
     if (tab === 'visibility')  fetchVisibility(selectedSurvey.id);
+    void showInactive; // إعادة الجلب تتم من onChange الخاص بالخانة أدناه
     if (tab === 'logs')        fetchLogs(selectedSurvey.id);
     if (tab === 'drug_prices') { setDrugEntrySearch(''); setDrugEntriesPage(1); fetchDrugEntries(selectedSurvey.id, '', 1); }
   }, [tab, selectedSurvey?.id]);
@@ -1499,6 +1476,7 @@ export default function MasterSurveyPage() {
     : [
         { id: 'doctors',    label: `الأطباء (${selectedSurvey.doctors.length})`,       icon: '🩺' },
         { id: 'pharmacies', label: `الصيدليات (${selectedSurvey.pharmacies.length})`,  icon: '🏪' },
+        { id: 'sync',       label: 'التحديثات الواردة',                                  icon: '🔄' },
         { id: 'visibility', label: 'الصلاحيات',                                         icon: '👁️' },
         { id: 'logs',       label: 'سجل التعديلات',                                     icon: '📋' },
       ];
@@ -1554,6 +1532,7 @@ export default function MasterSurveyPage() {
                 onClick={() => { setShowCoverage(true); loadCoverage(selectedSurvey.id, coverageUserId); }}
                 style={{ ...btnSecondary, padding: '9px 18px', borderColor: '#f59e0b', color: '#b45309' }}
               >🔍 فحص الظهور</button>
+              <InactiveToggle on={showInactive} onChange={v => { setShowInactive(v); fetchSurvey(selectedSurvey.id, v); }} />
               <button onClick={() => downloadTemplate('doctors')} style={{ ...btnSecondary, padding: '9px 18px' }}>📄 نموذج Excel</button>
               <button onClick={() => docFileRef.current?.click()} style={{ ...btnSecondary, padding: '9px 18px' }}>📥 استيراد Excel</button>
               <input ref={docFileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleDocExcel} />
@@ -1590,7 +1569,7 @@ export default function MasterSurveyPage() {
                 </thead>
                 <tbody>
                   {filtered.map(d => (
-                    <tr key={d.id} style={{ borderBottom: '1px solid #f1f5f9' }}
+                    <tr key={d.id} style={{ borderBottom: '1px solid #f1f5f9', ...(d.isActive === false ? inactiveRowStyle : {}) }}
                       onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                       onMouseLeave={e => (e.currentTarget.style.background = '')}>
                       <td style={{ padding: '10px 12px', fontWeight: 700, color: '#1e293b' }}>{d.name}</td>
@@ -1607,8 +1586,12 @@ export default function MasterSurveyPage() {
                       </td>
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ display: 'flex', gap: 6 }}>
-                          <button onClick={() => { setEditingDoc(d); setShowDocForm(true); }} style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }}>تعديل</button>
-                          <button onClick={() => deleteDoc(d.id)} style={{ ...btnDanger, padding: '4px 10px', fontSize: 11 }}>حذف</button>
+                          {(d as any).isActive === false ? (
+                            <button onClick={() => restoreRow('doctors', d.id)} style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11, borderColor: '#86efac', color: '#047857' }}>إرجاع</button>
+                          ) : (<>
+                            <button onClick={() => { setEditingDoc(d); setShowDocForm(true); }} style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }}>تعديل</button>
+                            <button onClick={() => deleteDoc(d.id)} style={{ ...btnDanger, padding: '4px 10px', fontSize: 11 }}>حذف</button>
+                          </>)}
                         </div>
                       </td>
                     </tr>
@@ -1632,6 +1615,7 @@ export default function MasterSurveyPage() {
               placeholder="🔍 بحث باسم الصيدلية أو المنطقة..."
               style={{ flex: 1, minWidth: 220, padding: '9px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, outline: 'none', direction: 'rtl' }}
             />
+            <InactiveToggle on={showInactive} onChange={v => { setShowInactive(v); fetchSurvey(selectedSurvey.id, v); }} />
             {pharmaSearch && (
               <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 600, whiteSpace: 'nowrap' }}>
                 {selectedSurvey.pharmacies.filter(p => {
@@ -1713,7 +1697,7 @@ export default function MasterSurveyPage() {
                     const expanded = expandedPharmaIds.has(p.id);
                     return (
                     <Fragment key={p.id}>
-                    <tr style={{ borderBottom: expanded ? 'none' : '1px solid #f1f5f9', background: selectedPharmaIds.has(p.id) ? '#eef2ff' : undefined }}
+                    <tr style={{ borderBottom: expanded ? 'none' : '1px solid #f1f5f9', background: selectedPharmaIds.has(p.id) ? '#eef2ff' : undefined, ...(p.isActive === false ? inactiveRowStyle : {}) }}
                       onMouseEnter={e => { if (!selectedPharmaIds.has(p.id)) e.currentTarget.style.background = '#f8fafc'; }}
                       onMouseLeave={e => { if (!selectedPharmaIds.has(p.id)) e.currentTarget.style.background = ''; }}>
                       <td style={{ padding: '10px 12px' }}>
@@ -1761,7 +1745,9 @@ export default function MasterSurveyPage() {
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button onClick={() => { setEditingPharma(p); setShowPharmaForm(true); }} style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }}>تعديل</button>
-                          <button onClick={() => deletePharma(p.id)} style={{ ...btnDanger, padding: '4px 10px', fontSize: 11 }}>حذف</button>
+                          {(p as any).isActive === false
+                            ? <button onClick={() => restoreRow('pharmacies', p.id)} style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11, borderColor: '#86efac', color: '#047857' }}>إرجاع</button>
+                            : <button onClick={() => deletePharma(p.id)} style={{ ...btnDanger, padding: '4px 10px', fontSize: 11 }}>حذف</button>}
                         </div>
                       </td>
                     </tr>
@@ -1799,6 +1785,10 @@ export default function MasterSurveyPage() {
       )}
 
       {/* Visibility Tab */}
+      {tab === 'sync' && (
+        <SurveySyncPanel surveyId={selectedSurvey.id} surveyName={selectedSurvey.name} H={H} />
+      )}
+
       {tab === 'visibility' && (
         <div>
           {visLoading ? <Spinner /> : (

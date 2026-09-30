@@ -850,7 +850,7 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
   // كطبيب محلي متطابق الاسم؛ التشابه غير التام يبقى لمرحلة الحفظ (عتبة 0.92).
   const surveyDoctorsVisible = visibleSurveys.length
     ? await prisma.masterSurveyDoctor.findMany({
-        where: { surveyId: { in: visibleSurveys.map(s => s.id) } },
+        where: { surveyId: { in: visibleSurveys.map(s => s.id) }, isActive: true },
         select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true },
       })
     : [];
@@ -1354,7 +1354,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
   });
   const surveyDoctorsAll = visibleSurveys.length
     ? await prisma.masterSurveyDoctor.findMany({
-        where: { surveyId: { in: visibleSurveys.map(s => s.id) } },
+        where: { surveyId: { in: visibleSurveys.map(s => s.id) }, isActive: true },
         select: { id: true, name: true, areaName: true, specialty: true, pharmacyName: true },
       })
     : [];

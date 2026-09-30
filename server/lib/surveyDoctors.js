@@ -401,7 +401,7 @@ export async function getScopedSurveyDoctors(scope) {
   const { surveyIds, normAreaNames } = scope;
   if (!surveyIds.length || !normAreaNames.length) return [];
   const all = await prisma.masterSurveyDoctor.findMany({
-    where: { surveyId: { in: surveyIds } },
+    where: { surveyId: { in: surveyIds }, isActive: true },
     select: {
       id: true, name: true, specialty: true, areaName: true,
       pharmacyName: true, className: true, phone: true, zoneName: true,
@@ -591,6 +591,48 @@ export async function updateSurveyDoctor(surveyId, docId, fields, editedById, ar
   return { old, updated };
 }
 
+// ── deactivateSurveyDoctor / reactivateSurveyDoctor ──────────────────────────
+// البديل الآمن للحذف في كل المسارات العادية. الحذف الفعلي لصف السيرفي يمحو معه
+// كل MasterSurveyDoctorAlias المرتبطة (onDelete: Cascade) — أي ذاكرة المطابقة
+// التي بُنيت لهذا الاسم عبر كل الاستيرادات السابقة — ويصفّر
+// Doctor.masterSurveyDoctorId فينفصل تاريخ الزيارات عن مصدره. التعطيل لا يفقد
+// أياً من ذلك: الصف يبقى كما هو ويختفي فقط من getScopedSurveyDoctors ومن كل
+// قوائم المستخدمين، مع تعطيل صفوف Doctor المرتبطة (نفس ما كان deleteDoctor
+// يفعله بها أصلاً) كي تختفي من التحاليل بلا أن تُمسّ زياراتها.
+export async function deactivateSurveyDoctor(surveyId, docId, editedById) {
+  const old = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
+  if (!old || old.surveyId !== surveyId) return { error: 'not_found' };
+  if (!old.isActive) return { old, updated: old, alreadyInactive: true };
+
+  const updated = await prisma.masterSurveyDoctor.update({
+    where: { id: docId },
+    data: { isActive: false, deactivatedAt: new Date(), deactivatedById: editedById ?? null },
+  });
+  await logSurveyEdit(surveyId, 'doctor', docId, 'deactivate', old, updated, editedById);
+  const { count } = await prisma.doctor.updateMany({
+    where: { masterSurveyDoctorId: docId },
+    data:  { isActive: false },
+  });
+  return { old, updated, affectedDoctorRows: count };
+}
+
+export async function reactivateSurveyDoctor(surveyId, docId, editedById) {
+  const old = await prisma.masterSurveyDoctor.findUnique({ where: { id: docId } });
+  if (!old || old.surveyId !== surveyId) return { error: 'not_found' };
+  if (old.isActive) return { old, updated: old, alreadyActive: true };
+
+  const updated = await prisma.masterSurveyDoctor.update({
+    where: { id: docId },
+    data: { isActive: true, deactivatedAt: null, deactivatedById: null },
+  });
+  await logSurveyEdit(surveyId, 'doctor', docId, 'reactivate', old, updated, editedById);
+  const { count } = await prisma.doctor.updateMany({
+    where: { masterSurveyDoctorId: docId },
+    data:  { isActive: true },
+  });
+  return { old, updated, affectedDoctorRows: count };
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // استيراد أطباء السيرفي من Excel — مطابقة ضد أطباء هذا السيرفي + الروابط
 // (MasterSurveyDoctorAlias) المحفوظة مسبقاً، بنفس فلسفة classifyDoctorRows
@@ -618,7 +660,7 @@ export async function classifySurveyDoctorRows(surveyId, rows) {
       select: { fromKey: true, surveyDoctorId: true },
     }),
     prisma.masterSurveyDoctor.findMany({
-      where: { surveyId },
+      where: { surveyId, isActive: true },
       select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true, className: true, zoneName: true, phone: true, notes: true },
     }),
   ]);

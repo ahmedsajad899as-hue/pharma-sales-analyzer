@@ -142,7 +142,7 @@ export async function getSurveyDoctors(req, res, next) {
 
     // Fetch all doctors from visible surveys
     const doctors = await prisma.masterSurveyDoctor.findMany({
-      where: { surveyId: { in: surveyIds } },
+      where: { surveyId: { in: surveyIds }, isActive: true },
       select: { id: true, name: true, specialty: true, areaName: true, pharmacyName: true, className: true },
       orderBy: { name: 'asc' },
     });
@@ -364,7 +364,7 @@ export async function importFromVisits(req, res, next) {
         const surveyIds = surveys.map(s => s.id);
         if (surveyIds.length > 0) {
           const allDocs = await prisma.masterSurveyDoctor.findMany({
-            where: { surveyId: { in: surveyIds } },
+            where: { surveyId: { in: surveyIds }, isActive: true },
             select: { id: true, areaName: true },
           });
           surveyDoctorIds = allDocs
