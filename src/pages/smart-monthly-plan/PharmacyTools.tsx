@@ -15,6 +15,16 @@ const box: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 8,
 };
 
+const chipBtn: React.CSSProperties = {
+  padding: '4px 11px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid var(--c-border)',
+};
+
+const roundBtn: React.CSSProperties = {
+  width: 30, height: 30, borderRadius: '50%', fontSize: 14, cursor: 'pointer', lineHeight: 1,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  border: '1px solid var(--c-border)', background: 'var(--c-surface)', color: 'var(--c-text-secondary)',
+};
+
 const select: React.CSSProperties = {
   padding: '5px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--c-border)', fontSize: 12, minWidth: 200,
 };
@@ -77,29 +87,43 @@ export default function PharmacyTools({
   return (
     <>
       {askLink && (
-        <div style={{ ...box, borderColor: 'var(--c-danger-border)', background: 'var(--c-danger-bg)' }} onClick={e => e.stopPropagation()}>
-          <div style={{ color: 'var(--c-text-primary)' }}>
-            ❓ «<strong>{p.name}</strong>» مفتوحة في الملف لكنها غير موجودة في السيرفي بهذا الاسم. هل هي نفس إحدى صيدليات السيرفي؟
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            margin: '0 14px 10px', padding: '8px 10px', borderRadius: 'var(--radius-md)',
+            background: 'linear-gradient(90deg, var(--c-warning-bg), var(--c-surface))',
+            border: '1px solid var(--c-border)', borderInlineStart: '3px solid var(--c-warning)',
+            display: 'flex', flexDirection: 'column', gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span title="غير موجودة في السيرفي — هل هي نفس صيدلية موجودة؟" style={{ fontSize: 16, lineHeight: 1 }}>🔗❓</span>
             {similar.map(s => (
-              <button key={s.name} disabled={busy} style={btn('primary')} onClick={() => link(s.name)}>
-                ✓ نعم، هي «{s.name}» ({s.doctorCount} طبيب)
+              <button key={s.name} disabled={busy} onClick={() => link(s.name)}
+                title={`نعم، هي «${s.name}»`}
+                style={{ ...chipBtn, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderColor: 'var(--c-accent)' }}>
+                ✓ {s.name} <span style={{ opacity: 0.7 }}>· 👨‍⚕️{s.doctorCount}</span>
               </button>
             ))}
-            <button disabled={busy} style={btn()} onClick={() => setMode(mode === 'link' ? null : 'link')}>🔎 اختيار صيدلية أخرى</button>
-            <button disabled={busy} style={btn('danger')} onClick={() => link(null)}>✗ صيدلية مستقلة (لا تسأل مجدداً)</button>
+            <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 6 }}>
+              <button disabled={busy} title="اختيار صيدلية أخرى من السيرفي" aria-label="اختيار صيدلية أخرى"
+                onClick={() => setMode(mode === 'link' ? null : 'link')}
+                style={{ ...roundBtn, ...(mode === 'link' ? { background: 'var(--c-accent)', color: '#fff', borderColor: 'var(--c-accent)' } : null) }}>🔎</button>
+              <button disabled={busy} title="صيدلية مستقلة — لا تسأل مجدداً (يُطبَّق على كل الحسابات)" aria-label="صيدلية مستقلة"
+                onClick={() => link(null)}
+                style={{ ...roundBtn, color: 'var(--c-danger)', borderColor: 'var(--c-danger-border)', background: 'var(--c-danger-bg)' }}>🚫</button>
+            </span>
           </div>
           {mode === 'link' && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <select value={other} onChange={e => setOther(e.target.value)} style={select}>
-                <option value="">اختر صيدلية السيرفي في {area.areaName}...</option>
-                {options.map(o => <option key={o.name!} value={o.name!}>{o.name} ({o.doctors.length} طبيب)</option>)}
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <select value={other} onChange={e => setOther(e.target.value)} style={{ ...select, flex: 1 }}>
+                <option value="">📍 {area.areaName}</option>
+                {options.map(o => <option key={o.name!} value={o.name!}>{o.name} · 👨‍⚕️{o.doctors.length}</option>)}
               </select>
-              <button disabled={busy || !other} style={btn('primary')} onClick={() => link(other)}>تأكيد التعريف</button>
+              <button disabled={busy || !other} title="تأكيد" aria-label="تأكيد" onClick={() => link(other)}
+                style={{ ...roundBtn, background: 'var(--c-accent)', color: '#fff', borderColor: 'var(--c-accent)', opacity: !other ? 0.5 : 1 }}>✓</button>
             </div>
           )}
-          <div style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>التعريف يُحفَظ ويُطبَّق على كل الحسابات — لن يُسأل عنها أحد مرة أخرى.</div>
         </div>
       )}
 
