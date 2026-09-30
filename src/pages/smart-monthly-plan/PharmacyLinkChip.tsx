@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../config/icons';
 import { pharmacyKey, rankPharmacies } from '../../lib/pharmacyMatch';
 import { smartPlanApi } from './api';
-import type { AreaPharmacy, AreaWithDoctors, SurveyPharmacyRef } from './types';
+import type { AreaPharmacy, AreaWithDoctors, PharmacyLookupHit, SurveyPharmacyRef } from './types';
 
 /**
  * حالة ربط صيدلية «مفتوحة في الملف» بالسيرفي — شريحة واحدة داخل صف الصيدلية
@@ -27,6 +27,8 @@ export default function PharmacyLinkChip({
   const [query, setQuery] = useState('');
   const [allAreas, setAllAreas] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [lookup, setLookup] = useState<{ results: PharmacyLookupHit[]; repAreaNames: string[] } | null>(null);
+  const [lookupBusy, setLookupBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const name = p.name ?? '';
@@ -51,6 +53,19 @@ export default function PharmacyLinkChip({
     () => (askLink ? rankPharmacies({ pool: sameArea, sourceName: name, limit: 20, minScore: 0.62 }).length : 0),
     [askLink, sameArea, name],
   );
+
+  // عند فتح النافذة: نسأل الخادم أين يوجد هذا الاسم فعلاً (بلا قيد منطقة) — هذا
+  // ما يفسّر «أراها في تحليل الكولات لكنها هنا غير موجودة في السيرفي».
+  useEffect(() => {
+    if (!open || !name) return;
+    let cancelled = false;
+    setLookupBusy(true); setLookup(null);
+    smartPlanApi.lookupPharmacy(token, planId, name)
+      .then(r => { if (!cancelled) setLookup({ results: r.results, repAreaNames: r.repAreaNames }); })
+      .catch(() => { /* التشخيص إضافي — فشله لا يمنع الربط اليدوي */ })
+      .finally(() => { if (!cancelled) setLookupBusy(false); });
+    return () => { cancelled = true; };
+  }, [open, name, token, planId]);
 
   useEffect(() => {
     if (!open) { setQuery(''); setAllAreas(false); return; }
@@ -194,6 +209,78 @@ export default function PharmacyLinkChip({
             </div>
 
             <div style={{ overflowY: 'auto', flex: 1, padding: '12px 16px' }}>
+              {/* ── تشخيص: أين يوجد هذا الاسم فعلاً؟ ──────────────────────── */}
+              {(lookupBusy || lookup) && (() => {
+                const hits = lookup?.results ?? [];
+                const surveyHits = hits.filter(h => h.inSurvey || h.doctorCount > 0);
+                const outOfScope = surveyHits.filter(h => !h.inRepScope);
+                const visitOnly = hits.filter(h => !h.inSurvey && h.doctorCount === 0 && h.visitCount > 0);
+                let verdict = '';
+                let tone = 'var(--c-text-muted)';
+                if (lookupBusy) verdict = 'جارٍ فحص مصادر هذا الاسم…';
+                else if (surveyHits.some(h => h.inRepScope)) {
+                  verdict = 'الاسم موجود في السيرفي ضمن مناطق هذا المندوب — اختره من القائمة ليُربَط.';
+                  tone = 'var(--c-success)';
+                } else if (outOfScope.length) {
+                  verdict = `مسجَّلة في السيرفي لكن ضمن منطقة «${outOfScope[0].areaName || 'بلا منطقة'}» وهي ليست من مناطق هذا المندوب — لذلك لا تظهر هنا.`;
+                  tone = 'var(--c-warning)';
+                } else if (visitOnly.length) {
+                  verdict = 'هذا الاسم معروف من زيارات الصيدليات فقط ولا صف له في السيرفي — لذلك لا أطباء له في البلان.';
+                  tone = 'var(--c-warning)';
+                } else {
+                  verdict = 'لم يُعثر على هذا الاسم في السيرفي ولا في زيارات الصيدليات — صيدلية جديدة على النظام.';
+                }
+                return (
+                  <div style={{
+                    background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 10,
+                    padding: '9px 11px', marginBottom: 10,
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                      <Icon name="search" size={11} /> أين يوجد هذا الاسم؟
+                    </div>
+                    <div style={{ fontSize: 11.5, color: tone, lineHeight: 1.7 }}>{verdict}</div>
+                    {hits.length > 0 && (
+                      <div style={{ marginTop: 7, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                        {hits.slice(0, 5).map(h => {
+                          const linkable = h.inSurvey || h.doctorCount > 0;
+                          return (
+                            <div key={`${h.name}|${h.areaName}`} style={{
+                              display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+                              background: 'var(--c-surface)', border: '1px solid var(--c-border)',
+                              borderRadius: 8, padding: '5px 8px', fontSize: 11,
+                            }}>
+                              <span style={{ fontWeight: 700, color: 'var(--c-text-primary)' }}>{h.name}</span>
+                              <span style={{ color: h.inRepScope ? 'var(--c-text-muted)' : 'var(--c-warning)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                <Icon name="location" size={10} /> {h.areaName || 'بلا منطقة'}{h.inRepScope ? '' : ' (خارج مناطق المندوب)'}
+                              </span>
+                              {h.inSurvey && <span style={{ color: 'var(--c-success)' }}>في السيرفي</span>}
+                              {h.doctorCount > 0 && <span style={{ color: 'var(--c-text-secondary)' }}>{h.doctorCount} طبيب</span>}
+                              {h.visitCount > 0 && <span style={{ color: 'var(--c-text-secondary)' }}>{h.visitCount} زيارة</span>}
+                              {linkable && (
+                                <button
+                                  disabled={busy}
+                                  onClick={() => {
+                                    if (!h.inRepScope && !window.confirm(
+                                      `«${h.name}» مسجَّلة في منطقة «${h.areaName || 'بلا منطقة'}» خارج مناطق هذا المندوب.\n`
+                                      + 'سيُحفَظ الربط بالاسم، لكن أطباءها لن يدخلوا البلان ما لم تُضَف تلك المنطقة للمندوب أو تُصحَّح منطقتها في السيرفي. متابعة؟',
+                                    )) return;
+                                    link(h.name);
+                                  }}
+                                  style={{
+                                    marginInlineStart: 'auto', border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)',
+                                    color: 'var(--c-accent)', borderRadius: 6, padding: '2px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                                  }}
+                                >ربط بهذه</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {ranked.length === 0 ? (
                 <div style={{ padding: '18px 12px', textAlign: 'center', fontSize: 12, color: 'var(--c-text-muted)', lineHeight: 1.9 }}>
                   {query ? 'لا نتائج مطابقة.' : 'لا توجد صيدلية قريبة من هذا الاسم في المنطقة.'}

@@ -1,4 +1,4 @@
-import type { AmbiguousGroup, AreaWithDoctors,SmartPlan, SmartPlanCandidate, SmartPlanUpload, SurveyPharmacyRef, UploadKind } from './types';
+import type { AmbiguousGroup, AreaWithDoctors, PharmacyLookupHit, SmartPlan, SmartPlanCandidate, SmartPlanUpload, SurveyPharmacyRef, UploadKind } from './types';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -59,6 +59,11 @@ export const smartPlanApi = {
 
   removePharmacyLink: (token: string, id: number, data: { fromName: string; areaName: string | null }) =>
     jsonReq(token, `/${id}/pharmacy-links`, 'DELETE', data),
+
+  lookupPharmacy: (token: string, id: number, name: string) =>
+    req(token, `/${id}/pharmacy-lookup?name=${encodeURIComponent(name)}`) as Promise<{
+      results: PharmacyLookupHit[]; repAreaNames: string[];
+    }>,
 
   renamePharmacy: (token: string, id: number, data: { areaId: number; oldName: string; newName: string }) =>
     jsonReq(token, `/${id}/pharmacies/rename`, 'POST', data) as Promise<{ doctors: number; pharmacyRows: number; visits: number }>,

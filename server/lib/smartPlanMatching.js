@@ -838,3 +838,86 @@ export function computeBucketPlan(targetDoctorCount, ratioConfig, resolvedCandid
 
   return { buckets, quotas, finalByBucket, unassignable, summary };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// «أين يوجد هذا الاسم؟» — تشخيص صيدلية ظهرت «غير موجودة في السيرفي»
+// ────────────────────────────────────────────────────────────────────────────
+// notInSurvey تعني حرفياً: لم نجد لهذا الاسم صفّاً في سيرفي **مناطق هذا المندوب**.
+// لكن الاسم قد يكون معروفاً للنظام من مصدر آخر، وحينها يظن المستخدم أن التأشير
+// خاطئ (يراه في تحليل الكولات مثلاً). هذه الدالة تبحث بلا أي قيد منطقة عبر
+// المصادر الثلاثة وتُرجع أين وُجد بالضبط:
+//   • صيدليات السيرفي (MasterSurveyPharmacy)
+//   • أسماء صيدليات الأطباء في السيرفي (MasterSurveyDoctor.pharmacyName)
+//   • زيارات الصيدليات (PharmacyVisit) — اسم قد لا يكون مسجَّلاً في السيرفي إطلاقاً
+// فيظهر السبب الحقيقي: منطقة خارج نطاق المندوب، أو معروفة من الزيارات فقط،
+// أو غير موجودة في أي مصدر.
+// ════════════════════════════════════════════════════════════════════════════
+export async function lookupPharmacyEverywhere(plan, rawName) {
+  const name = String(rawName ?? '').trim();
+  const scope = await buildRepAreaScope(plan.scientificRepId);
+  const repAreaNames = scope.areaRecords.map(a => a.name);
+  if (!name) return { results: [], repAreaNames };
+
+  const inScope = new Set(scope.normAreaNames);
+  const selfKey = pharmacyLooseKey(name);
+
+  const [pharmRows, docRows, visitGroups] = await Promise.all([
+    prisma.masterSurveyPharmacy.findMany({
+      where: { surveyId: { in: scope.surveyIds }, isActive: true },
+      select: { name: true, areaName: true },
+    }),
+    prisma.masterSurveyDoctor.findMany({
+      where: { surveyId: { in: scope.surveyIds }, isActive: true, NOT: { pharmacyName: null } },
+      select: { pharmacyName: true, areaName: true },
+    }),
+    // groupBy لا findMany: الجدول كبير ونحتاج الأسماء المميّزة فقط مع عدد الزيارات
+    prisma.pharmacyVisit.groupBy({
+      by: ['pharmacyName', 'areaId', 'areaName'],
+      where: { isActive: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const areaIds = [...new Set(visitGroups.map(g => g.areaId).filter(Boolean))];
+  const areaRows = areaIds.length
+    ? await prisma.area.findMany({ where: { id: { in: areaIds } }, select: { id: true, name: true } })
+    : [];
+  const areaNameById = new Map(areaRows.map(a => [a.id, a.name]));
+
+  const out = new Map();
+  const add = (candName, candArea, patch) => {
+    const nm = String(candName ?? '').trim();
+    if (!nm || !pharmacyNamesClose(name, nm)) return;
+    const areaName = String(candArea ?? '').trim() || null;
+    const areaNorm = areaName ? normalizeAreaName(areaName) : '';
+    const key = `${pharmacyLooseKey(nm)}|${areaNorm}`;
+    const row = out.get(key) || {
+      name: nm, areaName,
+      inSurvey: false, doctorCount: 0, visitCount: 0,
+      inRepScope: !!areaNorm && inScope.has(areaNorm),
+      exact: pharmacyLooseKey(nm) === selfKey,
+    };
+    if (patch.inSurvey) row.inSurvey = true;
+    row.doctorCount += patch.doctorCount || 0;
+    row.visitCount += patch.visitCount || 0;
+    if (!row.areaName && areaName) row.areaName = areaName;
+    out.set(key, row);
+  };
+
+  for (const p of pharmRows) add(p.name, p.areaName, { inSurvey: true });
+  for (const d of docRows) add(d.pharmacyName, d.areaName, { doctorCount: 1 });
+  for (const g of visitGroups) {
+    add(g.pharmacyName, areaNameById.get(g.areaId) || g.areaName, { visitCount: g._count?._all || 0 });
+  }
+
+  const results = [...out.values()]
+    .sort((a, b) =>
+      Number(b.exact) - Number(a.exact)
+      || Number(b.inRepScope) - Number(a.inRepScope)
+      || Number(b.inSurvey) - Number(a.inSurvey)
+      || b.doctorCount - a.doctorCount
+      || b.visitCount - a.visitCount)
+    .slice(0, 15);
+
+  return { results, repAreaNames };
+}

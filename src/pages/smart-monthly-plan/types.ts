@@ -156,3 +156,17 @@ export const UPLOAD_KIND_META: Record<UploadKind, { label: string; hint: string;
     icon: '🏬',
   },
 };
+
+/**
+ * نتيجة «أين يوجد هذا الاسم؟» — بحث بلا قيد منطقة عبر صيدليات السيرفي وأسماء
+ * صيدليات الأطباء وزيارات الصيدليات، لتفسير سبب ظهور الصيدلية «غير موجودة».
+ */
+export interface PharmacyLookupHit {
+  name: string;
+  areaName: string | null;
+  inSurvey: boolean;      // لها صف MasterSurveyPharmacy
+  doctorCount: number;    // أطباء سيرفي مسجَّلون بهذا الاسم
+  visitCount: number;     // زيارات صيدليات مسجَّلة بهذا الاسم
+  inRepScope: boolean;    // منطقتها ضمن مناطق هذا المندوب
+  exact: boolean;         // مطابقة تامة للاسم بعد التطبيع
+}

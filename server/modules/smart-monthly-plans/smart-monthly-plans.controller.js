@@ -13,7 +13,7 @@ import {
   resolveSmartPlanCandidates, confirmCandidateMatch, applyOpenPharmacyLinks,
   cleanOpenPharmacyEntries, computeBucketPlan, getAmbiguousCandidates,
   getAreaDoctorsOverview, selectedKeySet, getScopedDoctorKeySet, loadKnownAreaNameChecker,
-  saveOpenPharmacyLink, deleteOpenPharmacyLink,
+  saveOpenPharmacyLink, deleteOpenPharmacyLink, lookupPharmacyEverywhere,
 } from '../../lib/smartPlanMatching.js';
 import { doctorLinkKey } from '../../lib/surveyDoctors.js';
 import { renameOrMergePharmacies } from '../../lib/smartPlanPharmacyEdit.js';
@@ -181,6 +181,23 @@ export async function savePharmacyLink(req, res) {
     res.json({ success: true });
   } catch (e) {
     console.error('[smart-monthly-plans] savePharmacyLink', e);
+    fail(res, 500, e.message);
+  }
+}
+
+/**
+ * تشخيص «ليش تظهر غير موجودة في السيرفي؟» — يبحث عن الاسم بلا قيد منطقة في
+ * صيدليات السيرفي وأسماء صيدليات الأطباء وزيارات الصيدليات، ليتبيّن إن كانت في
+ * منطقة خارج نطاق المندوب أو معروفة من الزيارات فقط أو غير موجودة إطلاقاً.
+ */
+export async function lookupPharmacy(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const out = await lookupPharmacyEverywhere(plan, req.query.name);
+    res.json({ success: true, ...out });
+  } catch (e) {
+    console.error('[smart-monthly-plans] lookupPharmacy', e);
     fail(res, 500, e.message);
   }
 }

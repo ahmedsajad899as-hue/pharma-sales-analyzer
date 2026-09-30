@@ -22,6 +22,7 @@ router.get('/:id/area-doctors',       ctrl.getAreaDoctors);
 router.put('/:id/doctor-selection',   ctrl.saveDoctorSelection);
 router.post('/:id/pharmacy-links',    ctrl.savePharmacyLink);
 router.delete('/:id/pharmacy-links',  ctrl.removePharmacyLink);
+router.get('/:id/pharmacy-lookup',    ctrl.lookupPharmacy);
 router.post('/:id/pharmacies/rename', ctrl.renamePharmacy);
 router.post('/:id/pharmacies/merge',  ctrl.mergePharmacies);
 
