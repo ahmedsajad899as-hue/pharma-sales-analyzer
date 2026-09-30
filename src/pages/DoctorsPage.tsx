@@ -25,12 +25,15 @@ const repsSummaryCompanyColor = (index: number): [string, string] => {
 };
 
 // ── Smart Search Component ─────────────────────────────────────
-function SmartSearch({ value, onChange, suggestions, placeholder, style }: {
+function SmartSearch({ value, onChange, suggestions, placeholder, style, inputStyle, onKeyDown, autoFocus }: {
   value: string;
   onChange: (v: string) => void;
   suggestions: string[];
   placeholder?: string;
   style?: React.CSSProperties;
+  inputStyle?: React.CSSProperties;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  autoFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -51,10 +54,12 @@ function SmartSearch({ value, onChange, suggestions, placeholder, style }: {
     <div ref={ref} style={{ position: 'relative', ...style }}>
       <input
         value={value}
+        autoFocus={autoFocus}
         onChange={e => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
+        onKeyDown={onKeyDown}
         placeholder={placeholder || 'بحث...'}
-        style={{ width: '100%', padding: '7px 12px', borderRadius: 8, border: '1.5px solid var(--c-border)', fontSize: 13, outline: 'none', boxSizing: 'border-box', direction: 'rtl' }}
+        style={{ width: '100%', padding: '7px 12px', borderRadius: 8, border: '1.5px solid var(--c-border)', fontSize: 13, outline: 'none', boxSizing: 'border-box', direction: 'rtl', ...inputStyle }}
       />
       {open && filtered.length > 0 && (
         <div style={{
@@ -1528,6 +1533,12 @@ export default function DoctorsPage() {
   useEffect(() => {
     if (showAddModal) { loadSurveyDoctors(); }
   }, [showAddModal, loadSurveyDoctors]);
+  // Also load them for the "طبيب جديد" modal's name/pharmacy suggestions — keeps
+  // duplicate/pharmacy-name matching aware of the whole survey, not just the
+  // currently-scoped tab. Skipped once already loaded (survey rarely changes shape).
+  useEffect(() => {
+    if (showNewDocForm && surveyDoctors.length === 0 && !surveyDocLoading) loadSurveyDoctors();
+  }, [showNewDocForm, surveyDoctors.length, surveyDocLoading, loadSurveyDoctors]);
   useEffect(() => {
     if (!showCoveragePopup) return;
     const handler = (e: MouseEvent) => {
@@ -1661,6 +1672,30 @@ export default function DoctorsPage() {
     () => doctors.flatMap(d => [d.name, d.specialty ?? '', d.pharmacyName ?? '']).filter(Boolean) as string[],
     [doctors]
   );
+
+  // Suggestions for the "طبيب جديد" modal — merged from every doctor list already
+  // in memory (الزيارات + الأرشيف + كامل قائمة السيرفي) so existing names surface
+  // as the user types, whichever tab the "+" was opened from, catching duplicates
+  // that live in areas other than the one being edited.
+  const newDocNameSuggestions = useMemo(() => {
+    const names = new Set<string>();
+    visitAreas.forEach(a => a.doctors.forEach(d => names.add(d.name)));
+    archiveAreas.forEach(a => a.doctors.forEach(d => names.add(d.name)));
+    surveyDoctors.forEach(d => names.add(d.name));
+    return [...names];
+  }, [visitAreas, archiveAreas, surveyDoctors]);
+
+  // Pharmacy-name suggestions — prefers the canonical Pharmacy Net list (real sales
+  // data) when visible, plus every pharmacy name already typed against a doctor,
+  // so the new doctor gets linked to the correctly-spelled existing pharmacy.
+  const newDocPharmacySuggestions = useMemo(() => {
+    const names = new Set<string>();
+    if (canSeePharmNet) netPharmacies.forEach(p => p.name && names.add(p.name));
+    visitAreas.forEach(a => a.doctors.forEach(d => d.pharmacyName && names.add(d.pharmacyName)));
+    archiveAreas.forEach(a => a.doctors.forEach(d => d.pharmacyName && names.add(d.pharmacyName)));
+    surveyDoctors.forEach(d => d.pharmacyName && names.add(d.pharmacyName));
+    return [...names];
+  }, [canSeePharmNet, netPharmacies, visitAreas, archiveAreas, surveyDoctors]);
 
   // Fast normalised lookup map for pharmacy net — rebuilt only when netPharmacies changes
   const netPharmNormMap = useMemo(() => {
@@ -4284,9 +4319,12 @@ export default function DoctorsPage() {
           const [shorter, longer] = wa.length <= wb.length ? [wa, wb] : [wb, wa];
           return shorter.every(w => longer.includes(w));
         };
-        const dupPool: { name: string; areaName: string | null }[] = newDocOrigin === 'visits'
-          ? visitAreas.flatMap(a => a.doctors.map(d => ({ name: d.name, areaName: d.area?.name ?? null })))
-          : archiveAreas.flatMap(a => a.doctors.map(d => ({ name: d.name, areaName: d.areaName })));
+        const dupPool: { name: string; areaName: string | null }[] = [
+          ...(newDocOrigin === 'visits'
+            ? visitAreas.flatMap(a => a.doctors.map(d => ({ name: d.name, areaName: d.area?.name ?? null })))
+            : archiveAreas.flatMap(a => a.doctors.map(d => ({ name: d.name, areaName: d.areaName })))),
+          ...surveyDoctors.map(d => ({ name: d.name, areaName: d.areaName })),
+        ];
         const dupMatch = newDocName.trim().length > 1
           ? dupPool.find(d => namesOverlap(d.name, newDocName))
           : null;
@@ -4304,9 +4342,10 @@ export default function DoctorsPage() {
                 {/* Name */}
                 <div>
                   <label style={{ fontSize: 11, color: 'var(--c-text-secondary)', fontWeight: 600, display: 'block', marginBottom: 4 }}>الاسم *</label>
-                  <input autoFocus value={newDocName} onChange={e => setNewDocName(e.target.value)}
+                  <SmartSearch autoFocus value={newDocName} onChange={setNewDocName}
+                    suggestions={newDocNameSuggestions}
                     onKeyDown={e => e.key === 'Enter' && submitCustomDoctor()}
-                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: `1px solid ${dupMatch ? 'var(--c-warning)' : newDocErr && !newDocName.trim() ? 'var(--c-danger)' : 'var(--c-border)'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: 'var(--c-bg)' }}
+                    inputStyle={{ padding: '7px 10px', borderRadius: 7, border: `1px solid ${dupMatch ? 'var(--c-warning)' : newDocErr && !newDocName.trim() ? 'var(--c-danger)' : 'var(--c-border)'}`, background: 'var(--c-bg)' }}
                     placeholder="اسم الطبيب" />
                   {dupMatch && (
                     <div style={{ marginTop: 5, fontSize: 11, color: 'var(--c-warning)', background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)', borderRadius: 6, padding: '5px 9px', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -4348,8 +4387,9 @@ export default function DoctorsPage() {
                 {/* Pharmacy */}
                 <div>
                   <label style={{ fontSize: 11, color: 'var(--c-text-secondary)', fontWeight: 600, display: 'block', marginBottom: 4 }}>الصيدلية</label>
-                  <input value={newDocPharmacy} onChange={e => setNewDocPharmacy(e.target.value)}
-                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid var(--c-border)', fontSize: 13, outline: 'none', boxSizing: 'border-box', background: 'var(--c-bg)' }}
+                  <SmartSearch value={newDocPharmacy} onChange={setNewDocPharmacy}
+                    suggestions={newDocPharmacySuggestions}
+                    inputStyle={{ padding: '7px 10px', borderRadius: 7, border: '1px solid var(--c-border)', background: 'var(--c-bg)' }}
                     placeholder="اسم الصيدلية" />
                 </div>
 
