@@ -11,8 +11,8 @@ import { parseSmartPlanExcel } from './smart-plan-excel.js';
 import {
   resolveSmartPlanOwnerUserId, ingestCandidateDrafts, ensureSurveyFallback,
   resolveSmartPlanCandidates, confirmCandidateMatch, applyOpenPharmacyLinks,
-  cleanOpenPharmacyNames, computeBucketPlan, getAmbiguousCandidates,
-  getAreaDoctorsOverview, excludedKeySet,
+  cleanOpenPharmacyEntries, computeBucketPlan, getAmbiguousCandidates,
+  getAreaDoctorsOverview, selectedKeySet, getScopedDoctorKeySet, loadKnownAreaNameChecker,
 } from '../../lib/smartPlanMatching.js';
 import { doctorLinkKey } from '../../lib/surveyDoctors.js';
 import { aiResolveSmartPlanCandidates } from './smart-plan-name-ai.js';
@@ -155,11 +155,11 @@ export async function saveDoctorSelection(req, res) {
   try {
     const plan = await getOwnedPlan(req, req.params.id);
     if (!plan) return fail(res, 404, 'البلان غير موجود');
-    const keys = req.body?.excludedKeys;
-    if (!Array.isArray(keys)) return fail(res, 400, 'excludedKeys يجب أن تكون مصفوفة');
+    const keys = req.body?.selectedKeys;
+    if (!Array.isArray(keys)) return fail(res, 400, 'selectedKeys يجب أن تكون مصفوفة');
     const cleaned = Array.from(new Set(keys.filter(k => typeof k === 'string' && k)));
-    await prisma.smartPlan.update({ where: { id: plan.id }, data: { excludedDoctorKeys: cleaned } });
-    res.json({ success: true, excludedCount: cleaned.length });
+    await prisma.smartPlan.update({ where: { id: plan.id }, data: { selectedDoctorKeys: cleaned } });
+    res.json({ success: true, selectedCount: cleaned.length });
   } catch (e) {
     console.error('[smart-monthly-plans] saveDoctorSelection', e);
     fail(res, 500, e.message);
@@ -178,7 +178,8 @@ export async function uploadFile(req, res) {
 
     let parsed;
     try {
-      parsed = parseSmartPlanExcel(req.file.path, kind);
+      const isAreaName = kind === 'openPharmacies' ? await loadKnownAreaNameChecker() : undefined;
+      parsed = parseSmartPlanExcel(req.file.path, kind, { isAreaName });
     } catch (e) {
       return fail(res, 400, e.message);
     } finally {
@@ -186,16 +187,16 @@ export async function uploadFile(req, res) {
     }
 
     if (kind === 'openPharmacies') {
-      const cleanedNames = cleanOpenPharmacyNames(parsed.pharmacyNames);
+      const cleanedEntries = cleanOpenPharmacyEntries(parsed.pharmacyEntries);
       await prisma.smartPlanUpload.create({
         data: {
           smartPlanId: plan.id, kind, fileName: req.file.originalname,
-          rowCount: parsed.rowCount, matchedCount: cleanedNames.length,
-          data: { pharmacyNames: cleanedNames },
+          rowCount: parsed.rowCount, matchedCount: cleanedEntries.length,
+          data: { pharmacyNames: cleanedEntries.map(e => e.name), pharmacyEntries: cleanedEntries },
         },
       });
       const linkResult = await applyOpenPharmacyLinks(plan.id);
-      return res.json({ success: true, rowCount: parsed.rowCount, pharmacyNamesCount: cleanedNames.length, ...linkResult });
+      return res.json({ success: true, rowCount: parsed.rowCount, pharmacyNamesCount: cleanedEntries.length, hasAreaInfo: parsed.hasAreaInfo, ...linkResult });
     }
 
     const flagName = SOURCE_FLAG_BY_KIND[kind];
@@ -310,13 +311,21 @@ export async function compute(req, res) {
       where: { smartPlanId: plan.id, doctorId: { not: null } },
       include: { doctor: { select: { name: true, area: { select: { name: true } } } } },
     });
-    // أطباء استبعدهم المستخدم يدوياً (من لوحة مناطق المندوب) لا يدخلون الاختيار
-    const excluded = excludedKeySet(plan);
-    const resolvedCandidates = excluded.size
-      ? allResolved.filter(c =>
-          !excluded.has(doctorLinkKey(c.rawName, c.areaName)) &&
-          !(c.doctor && excluded.has(doctorLinkKey(c.doctor.name, c.doctor.area?.name ?? c.areaName))))
-      : allResolved;
+    // إن حدّد المستخدم أطباء من لوحة المناطق: كل طبيب داخل عالم اللوحة (أطباء السيرفي
+    // بمناطق المندوب) يجب أن يكون مُحدَّداً؛ أما مرشّحو الملفات المرفوعة خارج ذلك
+    // العالم فلا يتأثرون. لم يحدّد أحداً → لا قيد إطلاقاً.
+    const selected = selectedKeySet(plan);
+    let resolvedCandidates = allResolved;
+    if (selected.size) {
+      const universe = await getScopedDoctorKeySet(plan.scientificRepId);
+      resolvedCandidates = allResolved.filter(c => {
+        const keys = [doctorLinkKey(c.rawName, c.areaName)];
+        if (c.doctor) keys.push(doctorLinkKey(c.doctor.name, c.doctor.area?.name ?? c.areaName));
+        const inUniverse = keys.some(k => universe.has(k));
+        return !inUniverse || keys.some(k => selected.has(k));
+      });
+    }
+
     const { buckets, finalByBucket, unassignable, summary } = computeBucketPlan(plan.targetDoctorCount, plan.ratioConfig, resolvedCandidates);
 
     // إعادة ضبط الاختيار السابق قبل تطبيق الجولة الجديدة

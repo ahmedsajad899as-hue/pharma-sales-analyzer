@@ -46,13 +46,14 @@ export interface AreaDoctor {
   specialty: string | null;
   className: string | null;
   phone: string | null;
-  included: boolean;
+  included: boolean; // محدَّد يدوياً للاختيار في البلان
 }
 
 export interface AreaPharmacy {
   name: string | null; // null = أطباء بلا صيدلية مسجَّلة
   openPharmacy: boolean;
   matchedOpenPharmacy: string | null;
+  notInSurvey: boolean; // مفتوحة في الملف لكنها غير مسجَّلة في السيرفي
   doctors: AreaDoctor[];
 }
 

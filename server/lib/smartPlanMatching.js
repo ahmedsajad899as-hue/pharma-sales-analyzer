@@ -12,7 +12,7 @@ import prisma from './prisma.js';
 import { buildAreaNameIndex, getScopedSurveyDoctors, doctorLinkKey, cleanDoctorName } from './surveyDoctors.js';
 import { resolveAreaByName } from './areaResolver.js';
 import { normalizeAreaName } from './itemResolver.js';
-import { cleanPharmacyName } from './surveyPharmacies.js';
+import { cleanPharmacyName, getScopedSurveyPharmacies } from './surveyPharmacies.js';
 import { similarity } from './fuzzyMatch.js';
 import { classifyDoctorRows, saveDoctorNameLinks } from '../modules/doctors/doctor-visits-import.js';
 import { resolveDocOwnerUserId } from '../modules/doctors/doctors.controller.js';
@@ -392,55 +392,134 @@ export function matchOpenPharmacy(pharmacyName, openNames) {
   return best;
 }
 
-/** مفتاح استبعاد طبيب — نفس مفتاح ربط الأسماء المستعمل لدمج المرشّحين. */
-export function excludedKeySet(plan) {
-  return new Set(Array.isArray(plan?.excludedDoctorKeys) ? plan.excludedDoctorKeys : []);
+/** مفاتيح الأطباء الذين حدّدهم المستخدم (فارغة = لم يحدّد أحداً بعد). */
+export function selectedKeySet(plan) {
+  return new Set(Array.isArray(plan?.selectedDoctorKeys) ? plan.selectedDoctorKeys : []);
+}
+
+/** كل أسماء المناطق المعروفة (Area + AreaAlias) مطبَّعة — لكشف صفوف عناوين المناطق في ملف الصيدليات المفتوحة. */
+export async function loadKnownAreaNameChecker() {
+  const [areas, aliases] = await Promise.all([
+    prisma.area.findMany({ select: { name: true } }),
+    prisma.areaAlias.findMany({ select: { fromName: true } }),
+  ]);
+  const set = new Set();
+  for (const a of areas) set.add(normalizeAreaName(a.name));
+  for (const a of aliases) set.add(normalizeAreaName(a.fromName));
+  set.delete('');
+  return t => set.has(normalizeAreaName(t));
+}
+
+/** إدخالات الصيدليات المفتوحة [{name, areaName|null}] — متوافقة مع الرفع القديم (أسماء فقط). */
+function openEntriesOf(upload) {
+  const d = upload?.data || {};
+  if (Array.isArray(d.pharmacyEntries)) return d.pharmacyEntries;
+  return (d.pharmacyNames || []).map(name => ({ name, areaName: null }));
 }
 
 /**
- * نظرة "مناطق المندوب وأطباؤها" للبلان: كل منطقة مُعيَّنة لهذا المندوب مع أطباء
- * السيرفي فيها (اختصاص/صيدلية/كلاس) — نفس مصدر تحليل الزيارات — مع علامة هل
- * صيدلية كل طبيب مطابقة لأحد الصيدليات المفتوحة المرفوعة، وهل هو مستبعد يدوياً.
+ * الصيدليات المفتوحة المسموح مطابقتها لمنطقة معيّنة: إدخالات نفس المنطقة + الإدخالات
+ * بلا منطقة. إن لم يحمل الملف أي معلومة منطقة يكون الكل مسموحاً (السلوك السابق).
+ * المطابقة داخل المنطقة تمنع صيدلية بنفس الاسم في منطقة أخرى من إسقاط "مفتوحة" خطأً.
+ */
+function entriesForArea(entries, areaNorm) {
+  const anyAreaInfo = entries.some(e => e.areaName);
+  if (!anyAreaInfo) return entries;
+  return entries.filter(e => !e.areaName || normalizeAreaName(e.areaName) === areaNorm);
+}
+
+/** مفاتيح كل أطباء السيرفي ضمن مناطق المندوب (عالم اللوحة) — لتطبيق الاختيار على من هم داخله فقط. */
+export async function getScopedDoctorKeySet(scientificRepId) {
+  const scope = await buildRepAreaScope(scientificRepId);
+  const docs = await getScopedSurveyDoctors(scope);
+  return new Set(docs.map(d => doctorLinkKey(d.name, d.areaName)));
+}
+
+/**
+ * نظرة "مناطق المندوب → صيدلياتها → أطباؤها": أطباء السيرفي (اختصاص/كلاس — نفس
+ * مصدر تحليل الزيارات) مجمَّعون بصيدلياتهم، مع تأشير الصيدليات المفتوحة. كل صيدلية
+ * مفتوحة في الملف تظهر دائماً ضمن منطقتها حتى لو لا طبيب لها في السيرفي (أو لا
+ * توجد فيه أصلاً — عندها notInSurvey).
  */
 export async function getAreaDoctorsOverview(plan) {
   const scope = await buildRepAreaScope(plan.scientificRepId);
-  const docs = await getScopedSurveyDoctors(scope);
-  const upload = await prisma.smartPlanUpload.findFirst({
-    where: { smartPlanId: plan.id, kind: 'openPharmacies' },
-    orderBy: { id: 'desc' },
-  });
-  const openNames = upload?.data?.pharmacyNames || [];
-  const excluded = excludedKeySet(plan);
+  const [docs, surveyPharmacies, upload, aliasRows] = await Promise.all([
+    getScopedSurveyDoctors(scope),
+    getScopedSurveyPharmacies(scope),
+    prisma.smartPlanUpload.findFirst({ where: { smartPlanId: plan.id, kind: 'openPharmacies' }, orderBy: { id: 'desc' } }),
+    prisma.areaAlias.findMany({ where: { areaId: { in: scope.areaIds } }, select: { fromKey: true, areaId: true } }),
+  ]);
+  const entries = openEntriesOf(upload);
+  const anyAreaInfo = entries.some(e => e.areaName);
+  const selected = selectedKeySet(plan);
 
-  // منطقة → صيدلية → أطباء (الأطباء بلا صيدلية تحت مجموعة اسمها null)
-  const byArea = new Map(scope.areaRecords.map(a => [a.id, { areaId: a.id, areaName: a.name, pharmacyMap: new Map() }]));
-  const matchCache = new Map();
+  // اسم منطقة (مطبَّع) → areaId ، مع مرادفات AreaAlias
+  const normToAreaId = new Map([...scope.normToArea.entries()].map(([k, a]) => [k, a.id]));
+  for (const al of aliasRows) if (!normToAreaId.has(al.fromKey)) normToAreaId.set(al.fromKey, al.areaId);
+  const areaIdOf = name => normToAreaId.get(normalizeAreaName(name ?? '')) ?? null;
+
+  const entriesWithArea = entries.map(e => ({ ...e, areaId: e.areaName ? areaIdOf(e.areaName) : null }));
+  const byArea = new Map(scope.areaRecords.map(a => [a.id, {
+    areaId: a.id, areaName: a.name, pharmacyMap: new Map(),
+    entries: anyAreaInfo ? entriesWithArea.filter(e => !e.areaName || e.areaId === a.id) : entriesWithArea,
+    matchedEntryNames: new Set(),
+  }]));
+  const pKeyOf = n => (n ? pharmacyTokens(n).join('') || n : '');
+
+  const openMatch = (bucket, pharmName) => {
+    const m = matchOpenPharmacy(pharmName, bucket.entries.map(e => e.name));
+    if (m) bucket.matchedEntryNames.add(m);
+    return m;
+  };
+
   for (const d of docs) {
-    const area = scope.normToArea.get(normalizeAreaName(d.areaName ?? ''));
-    const bucket = area && byArea.get(area.id);
+    const areaId = areaIdOf(d.areaName);
+    const bucket = areaId && byArea.get(areaId);
     if (!bucket) continue;
     const key = doctorLinkKey(d.name, d.areaName);
     const pharmName = d.pharmacyName?.trim() || null;
-    const pKey = pharmName ? pharmacyTokens(pharmName).join('') || pharmName : '';
+    const pKey = pKeyOf(pharmName);
     let group = bucket.pharmacyMap.get(pKey);
     if (!group) {
-      if (pharmName && !matchCache.has(pharmName)) matchCache.set(pharmName, matchOpenPharmacy(pharmName, openNames));
-      const matched = pharmName ? matchCache.get(pharmName) : null;
-      group = { name: pharmName, openPharmacy: !!matched, matchedOpenPharmacy: matched, doctors: [] };
+      const matched = pharmName ? openMatch(bucket, pharmName) : null;
+      group = { name: pharmName, openPharmacy: !!matched, matchedOpenPharmacy: matched, notInSurvey: false, doctors: [] };
       bucket.pharmacyMap.set(pKey, group);
     }
     group.doctors.push({
       id: d.id, key, name: d.name, specialty: d.specialty || null,
       className: d.className || null, phone: d.phone || null,
-      included: !excluded.has(key),
+      included: selected.has(key),
     });
   }
-  const areas = [...byArea.values()].map(({ pharmacyMap, ...a }) => ({
+
+  // صيدليات مفتوحة لم تُربَط بأي طبيب: نبحث عنها في صيدليات السيرفي (لها منطقتها)
+  // وإلا تُدرَج بأسمائها من الملف نفسه، كي لا تختفي أي صيدلية مفتوحة من اللوحة.
+  const spByArea = new Map();
+  for (const sp of surveyPharmacies) {
+    const id = areaIdOf(sp.areaName);
+    if (!id) continue;
+    if (!spByArea.has(id)) spByArea.set(id, []);
+    spByArea.get(id).push(sp);
+  }
+  for (const bucket of byArea.values()) {
+    for (const e of bucket.entries) {
+      if (!e.areaName) continue; // إدخال بلا منطقة لا يُنسَب لمنطقة بعينها
+      if (bucket.matchedEntryNames.has(e.name)) continue;
+      const sp = (spByArea.get(bucket.areaId) || []).find(x => matchOpenPharmacy(x.name, [e.name]));
+      const displayName = sp?.name || e.name;
+      const pKey = pKeyOf(displayName);
+      const existing = bucket.pharmacyMap.get(pKey);
+      if (existing) { existing.openPharmacy = true; existing.matchedOpenPharmacy = e.name; continue; }
+      bucket.pharmacyMap.set(pKey, { name: displayName, openPharmacy: true, matchedOpenPharmacy: e.name, notInSurvey: !sp, doctors: [] });
+    }
+  }
+
+  const areas = [...byArea.values()].map(({ pharmacyMap, entries: _e, matchedEntryNames: _m, ...a }) => ({
     ...a,
     pharmacies: [...pharmacyMap.values()].sort((x, y) =>
       (x.name ? 0 : 1) - (y.name ? 0 : 1) || (x.name || '').localeCompare(y.name || '', 'ar')),
   })).sort((a, b) => a.areaName.localeCompare(b.areaName, 'ar'));
-  return { areas, hasOpenPharmaciesFile: openNames.length > 0, openPharmacyNamesCount: openNames.length };
+  return { areas, hasOpenPharmaciesFile: entries.length > 0, openPharmacyNamesCount: entries.length };
 }
 
 export async function applyOpenPharmacyLinks(smartPlanId) {
@@ -448,15 +527,16 @@ export async function applyOpenPharmacyLinks(smartPlanId) {
     where: { smartPlanId, kind: 'openPharmacies' },
     orderBy: { id: 'desc' },
   });
-  const openNames = upload?.data?.pharmacyNames || [];
+  const entries = openEntriesOf(upload);
   const candidates = await prisma.smartPlanCandidate.findMany({
     where: { smartPlanId, doctorId: { not: null } },
-    select: { id: true, pharmacyName: true, sourceFlags: true },
+    select: { id: true, pharmacyName: true, areaName: true, sourceFlags: true },
   });
 
   let linkedCount = 0;
   for (const c of candidates) {
-    const isLinked = !!matchOpenPharmacy(c.pharmacyName, openNames);
+    const pool = c.areaName ? entriesForArea(entries, normalizeAreaName(c.areaName)) : entries;
+    const isLinked = !!matchOpenPharmacy(c.pharmacyName, pool.map(e => e.name));
     const current = c.sourceFlags || {};
     if (!!current.openPharmacyLinked === isLinked) continue; // لا تغيير — تفادي كتابة غير ضرورية
     await prisma.smartPlanCandidate.update({
@@ -465,20 +545,21 @@ export async function applyOpenPharmacyLinks(smartPlanId) {
     });
     if (isLinked) linkedCount++;
   }
-  return { openPharmacyNamesCount: openNames.length, linkedCount };
+  return { openPharmacyNamesCount: entries.length, linkedCount };
 }
 
-/** ينظّف قائمة أسماء صيدليات خام (من ملف الصيدليات المفتوحة) — تطبيع + إزالة تكرار. */
-export function cleanOpenPharmacyNames(rawNames) {
+/** ينظّف إدخالات الصيدليات المفتوحة [{name, areaName}] — تنظيف الاسم + إزالة تكرار (اسم+منطقة). */
+export function cleanOpenPharmacyEntries(rawEntries) {
   const seen = new Set();
   const out = [];
-  for (const raw of rawNames || []) {
-    const cleaned = cleanPharmacyName(raw);
-    if (!cleaned) continue;
-    const key = normalizeAreaName(cleaned); // تطبيع عام كافٍ هنا (لا حاجة لمفتاح صيدليات مخصّص لمجرّد إزالة تكرار)
+  for (const raw of rawEntries || []) {
+    const name = cleanPharmacyName(raw?.name);
+    if (!name) continue;
+    const areaName = raw?.areaName?.trim() || null;
+    const key = `${areaName ? normalizeAreaName(areaName) : ''}|${pharmacyTokens(name).join('') || name}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(cleaned);
+    out.push({ name, areaName });
   }
   return out;
 }

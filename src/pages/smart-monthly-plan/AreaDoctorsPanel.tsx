@@ -38,10 +38,10 @@ export default function AreaDoctorsPanel({
   const [hasOpenFile, setHasOpenFile] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [open, setOpen] = useState(true);
-  const [collapsedAreas, setCollapsedAreas] = useState<Set<number>>(new Set());
+  const [expandedAreas, setExpandedAreas] = useState<Set<number>>(new Set());
   const [openPharmacies, setOpenPharmacies] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'open' | 'closed'>('all');
@@ -58,7 +58,7 @@ export default function AreaDoctorsPanel({
         setHasOpenFile(r.hasOpenPharmaciesFile);
         // لا نستبدل اختياراً محلياً لم يُحفَظ بعد عند إعادة التحميل بسبب رفع ملف
         if (!dirty.current) {
-          setExcluded(new Set(r.areas.flatMap(a => a.pharmacies.flatMap(p => p.doctors.filter(d => !d.included).map(d => d.key)))));
+          setSelected(new Set(r.areas.flatMap(a => a.pharmacies.flatMap(p => p.doctors.filter(d => d.included).map(d => d.key)))));
         }
       })
       .catch(e => { if (!cancelled) setError(e.message); })
@@ -69,7 +69,7 @@ export default function AreaDoctorsPanel({
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
 
   const persist = (next: Set<string>) => {
-    setExcluded(next);
+    setSelected(next);
     dirty.current = true;
     setSaving('saving');
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -83,8 +83,8 @@ export default function AreaDoctorsPanel({
   };
 
   const setMany = (keys: string[], include: boolean) => {
-    const next = new Set(excluded);
-    for (const k of keys) include ? next.delete(k) : next.add(k);
+    const next = new Set(selected);
+    for (const k of keys) include ? next.add(k) : next.delete(k);
     persist(next);
   };
 
@@ -105,7 +105,7 @@ export default function AreaDoctorsPanel({
   const allDocs = areas.flatMap(a => a.pharmacies.flatMap(p => p.doctors.map(d => ({ d, open: p.openPharmacy }))));
   const totalPharmacies = areas.reduce((s, a) => s + a.pharmacies.filter(p => p.name).length, 0);
   const totalOpen = areas.reduce((s, a) => s + a.pharmacies.filter(p => p.openPharmacy).length, 0);
-  const totalIncluded = allDocs.filter(x => !excluded.has(x.d.key)).length;
+  const totalIncluded = allDocs.filter(x => selected.has(x.d.key)).length;
   const allKeys = allDocs.map(x => x.d.key);
   const openPharmCount = totalOpen;
   const closedPharmCount = totalPharmacies - totalOpen;
@@ -160,8 +160,8 @@ export default function AreaDoctorsPanel({
                 <button style={miniBtn} onClick={() => setMany(allKeys, false)}>إلغاء الكل</button>
                 {hasOpenFile && (
                   <button style={miniBtn} onClick={() => {
-                    const next = new Set(excluded);
-                    for (const x of allDocs) x.open ? next.delete(x.d.key) : next.add(x.d.key);
+                    const next = new Set(selected);
+                    for (const x of allDocs) x.open ? next.add(x.d.key) : next.delete(x.d.key);
                     persist(next);
                   }}>أطباء المفتوحة فقط</button>
                 )}
@@ -170,14 +170,14 @@ export default function AreaDoctorsPanel({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 620, overflowY: 'auto' }}>
                 {visibleAreas.map(a => {
                   if ((q || filter !== 'all') && a.shown.length === 0) return null;
-                  const areaCollapsed = collapsedAreas.has(a.areaId);
+                  const areaCollapsed = !expandedAreas.has(a.areaId) && !q;
                   const pharmacyCount = a.shown.filter(p => p.name).length;
                   const shownKeys = a.shown.flatMap(p => p.doctors.map(d => d.key));
-                  const shownSelected = shownKeys.filter(k => !excluded.has(k)).length;
+                  const shownSelected = shownKeys.filter(k => selected.has(k)).length;
                   return (
                     <div key={a.areaId} style={{ border: '1px solid var(--c-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0 }}>
                       <div
-                        onClick={() => setCollapsedAreas(prev => { const n = new Set(prev); n.has(a.areaId) ? n.delete(a.areaId) : n.add(a.areaId); return n; })}
+                        onClick={() => setExpandedAreas(prev => { const n = new Set(prev); n.has(a.areaId) ? n.delete(a.areaId) : n.add(a.areaId); return n; })}
                         style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--c-bg)', cursor: 'pointer' }}
                       >
                         <strong style={{ fontSize: 14, color: 'var(--c-text-primary)' }}>{a.areaName}</strong>
@@ -197,7 +197,7 @@ export default function AreaDoctorsPanel({
                           const pid = `${a.areaId}:${p.idx}`;
                           const expanded = openPharmacies.has(pid) || (!!q && p.doctors.some(d => d.name.toLowerCase().includes(q)));
                           const keys = p.doctors.map(d => d.key);
-                          const sel = keys.filter(k => !excluded.has(k)).length;
+                          const sel = keys.filter(k => selected.has(k)).length;
                           return (
                             <div key={pid} style={{ borderTop: '1px solid var(--c-border-light, var(--c-border))' }}>
                               <div
@@ -212,6 +212,7 @@ export default function AreaDoctorsPanel({
                                 {hasOpenFile && p.name && (p.openPharmacy
                                   ? <span title={p.matchedOpenPharmacy ?? ''} style={pill('var(--c-success-bg)', 'var(--c-success)')}>✓ مفتوحة</span>
                                   : <span style={pill('var(--c-border-light, var(--c-bg))', 'var(--c-text-muted)')}>✗ غير مفتوحة</span>)}
+                                {p.notInSurvey && <span title="الصيدلية مفتوحة في الملف لكنها غير مسجَّلة في السيرفي بهذا الاسم" style={pill('var(--c-danger-bg)', 'var(--c-danger)')}>غير موجودة في السيرفي</span>}
                                 <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
                                   <span style={pill('var(--c-accent-light)', 'var(--c-accent)')}>{sel}/{keys.length} طبيب ▾</span>
                                 </span>
@@ -219,12 +220,15 @@ export default function AreaDoctorsPanel({
 
                               {expanded && (
                                 <div style={{ background: 'var(--c-bg)', padding: '4px 14px 10px' }}>
+                                  {p.doctors.length === 0 && (
+                                    <div style={{ fontSize: 12, color: 'var(--c-text-muted)', padding: '8px 0' }}>لا أطباء مسجَّلون لهذه الصيدلية في السيرفي.</div>
+                                  )}
                                   <div style={{ display: 'flex', gap: 6, padding: '4px 0 6px' }}>
                                     <button style={miniBtn} onClick={() => setMany(keys, true)}>تحديد الكل</button>
                                     <button style={miniBtn} onClick={() => setMany(keys, false)}>إلغاء الكل</button>
                                   </div>
                                   {p.doctors.map(d => {
-                                    const on = !excluded.has(d.key);
+                                    const on = selected.has(d.key);
                                     return (
                                       <div
                                         key={d.id}

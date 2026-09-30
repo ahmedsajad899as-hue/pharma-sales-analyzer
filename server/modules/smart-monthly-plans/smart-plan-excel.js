@@ -32,9 +32,59 @@ function findCol(headers, keywords) {
  * @param {'prescribers'|'candidates'|'survey'|'openPharmacies'} kind
  * @returns {{ rows?: {doctorName,areaName,pharmacyName,specialty,items}[], pharmacyNames?: string[], rowCount: number }}
  */
-export function parseSmartPlanExcel(filePath, kind) {
+/**
+ * ملف الصيدليات المفتوحة غالباً قائمة عمود واحد مقسَّمة بصفوف عناوين مناطق
+ * («البياع» ثم صيدلياتها، ثم «الدورة» ...). نقرأ الورقة مصفوفةً خام: أي خلية
+ * نصّها اسم منطقة معروفة (isAreaName) تصير المنطقة الحالية، وكل اسم في عمود
+ * الصيدليات بعدها يُنسَب إليها. عمود الصيدليات = عنوان «الصيدلية» إن وُجد، وإلا
+ * العمود الأكثر خلايا نصية. عمود «المنطقة» الصريح إن وُجد يُفضَّل على العناوين.
+ */
+function parseOpenPharmacies(ws, isAreaName) {
+  const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
+  const text = v => String(v ?? '').trim();
+  const isNumeric = t => /^[\d\s.,+\-()]+$/.test(t);
+
+  const exactPharm = new Set(COL_KEYWORDS.pharmacy.map(k => k.toLowerCase()));
+  const exactArea = new Set(COL_KEYWORDS.area.map(k => k.toLowerCase()));
+  let pharmCol = -1, areaCol = -1, dataStart = 0;
+  for (let r = 0; r < Math.min(matrix.length, 15) && pharmCol === -1; r++) {
+    const row = matrix[r] || [];
+    for (let c = 0; c < row.length; c++) {
+      if (exactPharm.has(text(row[c]).toLowerCase())) { pharmCol = c; dataStart = r + 1; }
+    }
+    if (pharmCol !== -1) {
+      for (let c = 0; c < row.length; c++) if (exactArea.has(text(row[c]).toLowerCase())) areaCol = c;
+    }
+  }
+  if (pharmCol === -1) {
+    const counts = new Map();
+    for (const row of matrix) {
+      (row || []).forEach((v, c) => {
+        const t = text(v);
+        if (t && !isNumeric(t) && !isAreaName(t)) counts.set(c, (counts.get(c) || 0) + 1);
+      });
+    }
+    pharmCol = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
+  }
+
+  const entries = [];
+  let currentArea = null, sawAreaHeader = false;
+  for (let r = dataStart; r < matrix.length; r++) {
+    const row = matrix[r] || [];
+    const areaHeader = row.map(text).find(t => t && isAreaName(t));
+    if (areaHeader) { currentArea = areaHeader; sawAreaHeader = true; continue; }
+    const name = text(row[pharmCol]);
+    if (!name || isNumeric(name)) continue;
+    const explicitArea = areaCol !== -1 ? text(row[areaCol]) : '';
+    entries.push({ name, areaName: explicitArea || currentArea });
+  }
+  return { pharmacyEntries: entries, pharmacyNames: entries.map(e => e.name), rowCount: entries.length, hasAreaInfo: sawAreaHeader || areaCol !== -1 };
+}
+
+export function parseSmartPlanExcel(filePath, kind, { isAreaName = () => false } = {}) {
   const wb = XLSX.readFile(filePath);
   const ws = wb.Sheets[wb.SheetNames[0]];
+  if (kind === 'openPharmacies') return parseOpenPharmacies(ws, isAreaName);
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
   if (!rows.length) return kind === 'openPharmacies' ? { pharmacyNames: [], rowCount: 0 } : { rows: [], rowCount: 0 };
 

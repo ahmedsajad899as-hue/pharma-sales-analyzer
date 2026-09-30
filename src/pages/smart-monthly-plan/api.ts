@@ -50,8 +50,8 @@ export const smartPlanApi = {
       areas: AreaWithDoctors[]; hasOpenPharmaciesFile: boolean; openPharmacyNamesCount: number;
     }>,
 
-  saveDoctorSelection: (token: string, id: number, excludedKeys: string[]) =>
-    jsonReq(token, `/${id}/doctor-selection`, 'PUT', { excludedKeys }) as Promise<{ excludedCount: number }>,
+  saveDoctorSelection: (token: string, id: number, selectedKeys: string[]) =>
+    jsonReq(token, `/${id}/doctor-selection`, 'PUT', { selectedKeys }) as Promise<{ selectedCount: number }>,
 
   resolve: (token: string, id: number) =>
     req(token, `/${id}/resolve`, { method: 'POST' }) as Promise<{ linked: number; exact: number; ask: number; created: number }>,
