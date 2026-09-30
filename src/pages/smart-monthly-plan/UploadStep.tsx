@@ -7,8 +7,20 @@ const KINDS: UploadKind[] = ['prescribers', 'candidates', 'survey', 'openPharmac
 
 const card: React.CSSProperties = {
   background: 'var(--c-surface)', border: '1px solid var(--c-border)', borderRadius: 'var(--radius-md)',
-  padding: 16, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 240, flex: '1 1 240px',
+  padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0,
 };
+
+const hintStyle: React.CSSProperties = {
+  fontSize: 11, color: 'var(--c-text-muted)', lineHeight: 1.5, minHeight: 33,
+  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+};
+
+const statusBox = (auto: boolean): React.CSSProperties => ({
+  display: 'flex', alignItems: 'center', gap: 6, minWidth: 0,
+  background: auto ? 'var(--c-accent-light)' : 'var(--c-success-bg)',
+  border: `1px solid ${auto ? 'var(--c-border)' : 'var(--c-success-border)'}`,
+  borderRadius: 'var(--radius-sm)', padding: '5px 8px', fontSize: 11, color: 'var(--c-text-primary)',
+});
 
 export default function UploadStep({
   token, planId, uploads, onChanged,
@@ -50,7 +62,7 @@ export default function UploadStep({
   };
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
       {KINDS.map(kind => {
         const meta = UPLOAD_KIND_META[kind];
         const upload = uploadByKind.get(kind);
@@ -59,30 +71,25 @@ export default function UploadStep({
         return (
           <div key={kind} style={card}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 20 }}>{meta.icon}</span>
-              <strong style={{ color: 'var(--c-text-primary)', fontSize: 14 }}>{meta.label}</strong>
+              <span style={{ fontSize: 17 }}>{meta.icon}</span>
+              <strong style={{ color: 'var(--c-text-primary)', fontSize: 13, lineHeight: 1.3 }}>{meta.label}</strong>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--c-text-muted)', lineHeight: 1.6 }}>{meta.hint}</div>
+            <div style={hintStyle} title={meta.hint}>{meta.hint}</div>
 
             {upload && !auto && (
-              <div style={{
-                background: 'var(--c-success-bg)', border: '1px solid var(--c-success-border)',
-                borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontSize: 12, color: 'var(--c-text-primary)',
-              }}>
-                📄 {upload.fileName}<br />
-                {upload.rowCount} صف — {upload.matchedCount} مطابَق/جديد
+              <div style={statusBox(false)} title={`${upload.fileName} — ${upload.rowCount} صف`}>
+                <span>📄</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>{upload.fileName}</span>
+                <span style={{ color: 'var(--c-text-muted)', whiteSpace: 'nowrap' }}>{upload.rowCount} صف</span>
               </div>
             )}
             {auto && (
-              <div style={{
-                background: 'var(--c-accent-light)', border: '1px solid var(--c-purple-border,var(--c-border))',
-                borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontSize: 12, color: 'var(--c-text-primary)',
-              }}>
-                ✨ يُستخدَم تلقائياً من بيانات السيرفي ({upload!.rowCount} طبيب ضمن مناطق المندوب)
+              <div style={statusBox(true)}>
+                ✨ <span>تلقائي من السيرفي ({upload!.rowCount} طبيب)</span>
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+            <div style={{ display: 'flex', gap: 6, marginTop: 'auto' }}>
               <input
                 ref={el => { inputRefs.current[kind] = el; }}
                 type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
@@ -92,11 +99,11 @@ export default function UploadStep({
                 disabled={busy}
                 onClick={() => inputRefs.current[kind]?.click()}
                 style={{
-                  flex: 1, padding: '7px 10px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer',
+                  flex: 1, padding: '5px 10px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer',
                   background: 'var(--c-accent)', color: '#fff', fontSize: 12, fontWeight: 600, opacity: busy ? 0.6 : 1,
                 }}
               >
-                {busy ? 'جارٍ الرفع...' : upload && !auto ? 'استبدال الملف' : 'رفع ملف'}
+                {busy ? 'جارٍ الرفع...' : upload && !auto ? '⟳ استبدال' : '⬆ رفع ملف'}
               </button>
               {upload && (
                 <button
@@ -104,11 +111,11 @@ export default function UploadStep({
                   onClick={() => handleClear(kind)}
                   title="حذف"
                   style={{
-                    padding: '7px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--c-danger-border)',
+                    padding: '5px 9px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--c-danger-border)',
                     background: 'var(--c-danger-bg)', color: 'var(--c-danger)', cursor: 'pointer', fontSize: 12,
                   }}
                 >
-                  حذف
+                  🗑
                 </button>
               )}
             </div>

@@ -248,6 +248,8 @@ export async function mergePharmacies(req, res) {
 
 export async function uploadFile(req, res) {
   try {
+    // multer يفك ترميز اسم الملف كـ latin1 فيتشوّه العربي — نعيده إلى UTF-8
+    if (req.file?.originalname) req.file.originalname = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
     const plan = await getOwnedPlan(req, req.params.id);
     const kind = req.params.kind;
     if (!plan) { if (req.file) fs.unlink(req.file.path, () => {}); return fail(res, 404, 'البلان غير موجود'); }
