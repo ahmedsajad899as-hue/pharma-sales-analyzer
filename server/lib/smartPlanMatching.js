@@ -660,7 +660,14 @@ export async function applyOpenPharmacyLinks(smartPlanId) {
   let linkedCount = 0;
   for (const c of candidates) {
     const pool = c.areaName ? entriesForArea(entries, normalizeAreaName(c.areaName)) : entries;
-    const isLinked = !!matchOpenPharmacy(c.pharmacyName, pool.map(e => e.name));
+    let isLinked = !!matchOpenPharmacy(c.pharmacyName, pool.map(e => e.name));
+    // الملف المصدر أحياناً ينسب صيدلية لمنطقة خاطئة بالكامل (بلا أي رمز غموض يكتشفه
+    // parseOpenPharmacies) — إن لم تُطابَق داخل منطقة الطبيب، جرّب كل الإدخالات بالاسم
+    // قبل اعتبارها غير مفتوحة. matchOpenPharmacy صارم أصلاً (تطابق تام أو تشابه ≥90%
+    // لأسماء طويلة) فخطر مطابقة صيدلية مختلفة بنفس الاسم بمنطقة أخرى محدود.
+    if (!isLinked && pool.length < entries.length) {
+      isLinked = !!matchOpenPharmacy(c.pharmacyName, entries.map(e => e.name));
+    }
     const current = c.sourceFlags || {};
     if (!!current.openPharmacyLinked === isLinked) continue; // لا تغيير — تفادي كتابة غير ضرورية
     await prisma.smartPlanCandidate.update({
