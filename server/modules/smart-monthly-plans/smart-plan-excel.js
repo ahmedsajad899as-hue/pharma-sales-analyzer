@@ -39,10 +39,23 @@ function findCol(headers, keywords) {
  * الصيدليات بعدها يُنسَب إليها. عمود الصيدليات = عنوان «الصيدلية» إن وُجد، وإلا
  * العمود الأكثر خلايا نصية. عمود «المنطقة» الصريح إن وُجد يُفضَّل على العناوين.
  */
+// عناوين المناطق بالملف المصدر أحياناً تُحاط بنجوم للتمييز البصري («*الدورة*») —
+// تُزال قبل مطابقة isAreaName وإلا يُعامَل العنوان كاسم صيدلية فعلي (ويبقى
+// currentArea عالقاً على العنوان السابق فتُنسَب كل الصيدليات تحته خطأً).
+const stripDeco = t => t.replace(/^\*+\s*|\s*\*+$/g, '').trim();
+// موصلات شائعة تجمع أكثر من اسم منطقة بخلية عنوان واحدة («حي الجامعة و النفق») —
+// الصيدليات تحتها قد تتبع أياً من المنطقتين، وليس منطقة مركّبة جديدة اسمها هذا النص.
+const AREA_CONNECTORS = /\s+(?:و|أو|or)\s+|[,،/]+/;
+const isCompoundAreaHeader = (t, isAreaName) => {
+  const parts = t.split(AREA_CONNECTORS).map(s => s.trim()).filter(Boolean);
+  return parts.length >= 2 && parts.every(p => isAreaName(p));
+};
+
 function parseOpenPharmacies(ws, isAreaName) {
   const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
   const text = v => String(v ?? '').trim();
   const isNumeric = t => /^[\d\s.,+\-()]+$/.test(t);
+  const isAreaLikeCell = t => { const d = stripDeco(t); return isAreaName(d) || isCompoundAreaHeader(d, isAreaName); };
 
   const exactPharm = new Set(COL_KEYWORDS.pharmacy.map(k => k.toLowerCase()));
   const exactArea = new Set(COL_KEYWORDS.area.map(k => k.toLowerCase()));
@@ -61,7 +74,7 @@ function parseOpenPharmacies(ws, isAreaName) {
     for (const row of matrix) {
       (row || []).forEach((v, c) => {
         const t = text(v);
-        if (t && !isNumeric(t) && !isAreaName(t)) counts.set(c, (counts.get(c) || 0) + 1);
+        if (t && !isNumeric(t) && !isAreaLikeCell(t)) counts.set(c, (counts.get(c) || 0) + 1);
       });
     }
     pharmCol = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
@@ -71,8 +84,16 @@ function parseOpenPharmacies(ws, isAreaName) {
   let currentArea = null, sawAreaHeader = false;
   for (let r = dataStart; r < matrix.length; r++) {
     const row = matrix[r] || [];
-    const areaHeader = row.map(text).find(t => t && isAreaName(t));
-    if (areaHeader) { currentArea = areaHeader; sawAreaHeader = true; continue; }
+    const cellsDeco = row.map(text).map(stripDeco).filter(Boolean);
+    const singleAreaHeader = cellsDeco.find(t => isAreaName(t));
+    if (singleAreaHeader) { currentArea = singleAreaHeader; sawAreaHeader = true; continue; }
+    const compoundHeader = cellsDeco.find(t => isCompoundAreaHeader(t, isAreaName));
+    if (compoundHeader) {
+      // عنوان يجمع منطقتين معروفتين — لا نعرف أياً منهما تخص الصيدليات التالية،
+      // فتُترك بلا نسبة (بدل نسبها خطأً لمنطقة العنوان السابق) لحين مطابقتها
+      // بالاسم يدوياً أو عبر البحث في السيرفي.
+      currentArea = null; sawAreaHeader = true; continue;
+    }
     const name = text(row[pharmCol]);
     if (!name || isNumeric(name)) continue;
     const explicitArea = areaCol !== -1 ? text(row[areaCol]) : '';
