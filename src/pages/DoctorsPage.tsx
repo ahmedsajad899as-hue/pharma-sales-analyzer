@@ -583,6 +583,11 @@ export default function DoctorsPage() {
   const [notesEditVal, setNotesEditVal]           = useState('');
   // Custom new doctor form
   const [showNewDocForm, setShowNewDocForm]       = useState(false);
+  // Where the form was opened from: 'archive' tab's own button, or a per-area
+  // "+" in the الزيارات tab — decides which list refreshes after saving and
+  // which area names feed the dropdown/duplicate-check.
+  const [newDocOrigin, setNewDocOrigin]           = useState<'archive' | 'visits'>('archive');
+  const [newDocAreaKey, setNewDocAreaKey]         = useState<string | null>(null); // visitAreas key to auto-expand after saving
   const [newDocName, setNewDocName]               = useState('');
   const [newDocSpecialty, setNewDocSpecialty]     = useState('');
   const [newDocArea, setNewDocArea]               = useState('');
@@ -1303,9 +1308,25 @@ export default function DoctorsPage() {
       if (!j.success) throw new Error(j.error ?? 'فشل الحفظ');
       setShowNewDocForm(false);
       setNewDocName(''); setNewDocSpecialty(''); setNewDocArea(''); setNewDocPharmacy(''); setNewDocClass(''); setNewDocErr('');
-      loadArchive();
+      // الطبيب يُنشأ داخل السيرفي الأصلي (createSurveyDoctor) ويُشارك مع الجميع تلقائياً
+      // حسب نطاق منطقته؛ فقط نحدّث القائمة التي فتحنا منها النموذج.
+      if (newDocOrigin === 'visits') {
+        loadVisits(true);
+        if (newDocAreaKey) setExpandedAreas(prev => new Set(prev).add(newDocAreaKey));
+      } else loadArchive();
     } catch (e: any) { setNewDocErr(e.message); }
     finally { setNewDocSaving(false); }
+  };
+
+  // Opens the "new doctor" modal pre-scoped to one area from the الزيارات tab —
+  // reuses the same custom-doctor endpoint as the أرشيف tab's button, which
+  // creates the doctor inside the original master survey (شارك مع الجميع).
+  const openAddDoctorToArea = (areaKey: string, areaName: string) => {
+    setNewDocOrigin('visits');
+    setNewDocName(''); setNewDocSpecialty(''); setNewDocPharmacy(''); setNewDocClass(''); setNewDocErr('');
+    setNewDocArea(areaName);
+    setNewDocAreaKey(areaKey);
+    setShowNewDocForm(true);
   };
 
   const openEditDoc = (doc: Pick<ArchiveDoctor, 'surveyDoctorId' | 'name' | 'specialty' | 'areaName' | 'pharmacyName' | 'className'>) => {
@@ -1783,7 +1804,7 @@ export default function DoctorsPage() {
               className="btn-icon btn-icon--blue" style={{ opacity: importingFromVisits ? 0.7 : 1 }}>
               {importingFromVisits ? <Icon name="loading" /> : <Icon name="import" />}
             </button>
-            <button onClick={() => setShowNewDocForm(true)}
+            <button onClick={() => { setNewDocOrigin('archive'); setShowNewDocForm(true); }}
               title="إضافة طبيب جديد"
               className="btn-icon" style={{ background: 'var(--c-text-secondary)', color: '#fff' }}>
               <Icon name="add" />
@@ -2993,6 +3014,11 @@ export default function DoctorsPage() {
                       </span>
                     </div>
                   </div>
+                  <button onClick={e => { e.stopPropagation(); openAddDoctorToArea(key, area.name); }}
+                    title="إضافة طبيب جديد لهذه المنطقة"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 8, border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)', cursor: 'pointer', flexShrink: 0 }}>
+                    <Icon name="add" size={14} />
+                  </button>
                   {canSeePharmNet && (() => {
                     const stats = visitAreaStatsMap.get(area.name);
                     if (!stats || stats.total === 0) return null;
@@ -4247,7 +4273,7 @@ export default function DoctorsPage() {
 
       {/* ── New Custom Doctor Modal ────────────────────────── */}
       {showNewDocForm && (() => {
-        const areaOptions = [...new Set(archiveAreas.map(a => a.name))].sort();
+        const areaOptions = [...new Set((newDocOrigin === 'visits' ? visitAreas : archiveAreas).map(a => a.name))].sort();
         const normN = (s: string) => s.trim().toLowerCase()
           .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
           .replace(/[ًٌٍَُِّْ]/g, '').replace(/\s+/g, ' ').trim();
@@ -4258,14 +4284,19 @@ export default function DoctorsPage() {
           const [shorter, longer] = wa.length <= wb.length ? [wa, wb] : [wb, wa];
           return shorter.every(w => longer.includes(w));
         };
+        const dupPool: { name: string; areaName: string | null }[] = newDocOrigin === 'visits'
+          ? visitAreas.flatMap(a => a.doctors.map(d => ({ name: d.name, areaName: d.area?.name ?? null })))
+          : archiveAreas.flatMap(a => a.doctors.map(d => ({ name: d.name, areaName: d.areaName })));
         const dupMatch = newDocName.trim().length > 1
-          ? archiveAreas.flatMap(a => a.doctors).find(d => namesOverlap(d.name, newDocName))
+          ? dupPool.find(d => namesOverlap(d.name, newDocName))
           : null;
         return (
           <div style={overlayStyle} onClick={() => { setShowNewDocForm(false); setNewDocErr(''); }}>
             <div style={{ ...modalStyle, maxWidth: 400 }} onClick={e => e.stopPropagation()} dir="rtl">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text-primary)' }}>طبيب جديد</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text-primary)' }}>
+                  طبيب جديد{newDocOrigin === 'visits' && newDocArea ? ` — ${newDocArea}` : ''}
+                </span>
                 <button onClick={() => { setShowNewDocForm(false); setNewDocErr(''); }} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--c-text-muted)', lineHeight: 1, display: 'flex' }}><Icon name="close" size={18} /></button>
               </div>
 
@@ -4279,7 +4310,7 @@ export default function DoctorsPage() {
                     placeholder="اسم الطبيب" />
                   {dupMatch && (
                     <div style={{ marginTop: 5, fontSize: 11, color: 'var(--c-warning)', background: 'var(--c-warning-bg)', border: '1px solid var(--c-warning-border)', borderRadius: 6, padding: '5px 9px', display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <Icon name="warning" size={11} /> الاسم موجود مسبقاً في {dupMatch.areaName || 'الأرشيف'}
+                      <Icon name="warning" size={11} /> الاسم موجود مسبقاً في {dupMatch.areaName || (newDocOrigin === 'visits' ? 'القائمة' : 'الأرشيف')}
                     </div>
                   )}
                 </div>
