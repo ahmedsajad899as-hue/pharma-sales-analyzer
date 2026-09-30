@@ -131,8 +131,8 @@ export default function PharmacyTools({
       {(expanded || mode === 'merge' || mode === 'rename') && !p.notInSurvey && (
         <div style={{ ...box, background: 'var(--c-bg)' }} onClick={e => e.stopPropagation()}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button style={btn(mode === 'rename' ? 'primary' : 'ghost')} onClick={() => { setNewName(p.name ?? ''); setMode(mode === 'rename' ? null : 'rename'); }}>✏️ تعديل الاسم في السيرفي</button>
-            <button style={btn(mode === 'merge' ? 'primary' : 'ghost')} onClick={() => setMode(mode === 'merge' ? null : 'merge')}>🔗 دمج مع صيدلية أخرى</button>
+            <button title="تعديل الاسم في السيرفي" aria-label="تعديل الاسم في السيرفي" style={{ ...btn(mode === 'rename' ? 'primary' : 'ghost'), padding: '3px 8px', fontSize: 13 }} onClick={() => { setNewName(p.name ?? ''); setMode(mode === 'rename' ? null : 'rename'); }}>✏️</button>
+            <button title="دمج مع صيدلية أخرى" aria-label="دمج مع صيدلية أخرى" style={{ ...btn(mode === 'merge' ? 'primary' : 'ghost'), padding: '3px 8px', fontSize: 13 }} onClick={() => setMode(mode === 'merge' ? null : 'merge')}>🔗</button>
           </div>
 
           {mode === 'rename' && (
