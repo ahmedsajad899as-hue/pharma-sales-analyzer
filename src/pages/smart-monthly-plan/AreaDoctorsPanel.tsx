@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { smartPlanApi } from './api';
 import PharmacyTools from './PharmacyTools';
+import PharmacySalesButton, { usePharmacyNet } from './PharmacySalesButton';
 import type { AreaWithDoctors } from './types';
 
 const panel: React.CSSProperties = {
@@ -49,6 +50,7 @@ export default function AreaDoctorsPanel({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
   const [reloadTick, setReloadTick] = useState(0);
+  const net = usePharmacyNet(token);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,6 +178,8 @@ export default function AreaDoctorsPanel({
                   const pharmacyCount = a.shown.filter(p => p.name).length;
                   const shownKeys = a.shown.flatMap(p => p.doctors.map(d => d.key));
                   const shownSelected = shownKeys.filter(k => selected.has(k)).length;
+                  const openPharmaciesInArea = a.shown.filter(p => p.name && p.openPharmacy).length;
+                  const openDoctorsInArea = a.shown.filter(p => p.openPharmacy).reduce((s, p) => s + p.doctors.length, 0);
                   return (
                     <div key={a.areaId} style={{ border: '1px solid var(--c-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0 }}>
                       <div
@@ -183,8 +187,8 @@ export default function AreaDoctorsPanel({
                         style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--c-bg)', cursor: 'pointer' }}
                       >
                         <strong style={{ fontSize: 14, color: 'var(--c-text-primary)' }}>{a.areaName}</strong>
-                        <span style={pill('var(--c-accent-light)', 'var(--c-accent)')}>🏬 {pharmacyCount} صيدلية</span>
-                        <span style={pill('var(--c-success-bg)', 'var(--c-success)')}>👨‍⚕️ {shownSelected}/{shownKeys.length} طبيب</span>
+                        <span style={pill('var(--c-accent-light)', 'var(--c-accent)')}>🏬 {pharmacyCount} صيدلية{hasOpenFile && ` · ${openPharmaciesInArea} مفتوحة`}</span>
+                        <span style={pill('var(--c-success-bg)', 'var(--c-success)')}>👨‍⚕️ {shownSelected}/{shownKeys.length} طبيب{hasOpenFile && ` · ${openDoctorsInArea} مفتوح`}</span>
                         <span style={{ marginInlineStart: 'auto', display: 'flex', gap: 6, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                           <button style={miniBtn} onClick={() => setMany(shownKeys, true)}>تحديد المنطقة</button>
                           <button style={miniBtn} onClick={() => setMany(shownKeys, false)}>إلغاء</button>
@@ -211,6 +215,7 @@ export default function AreaDoctorsPanel({
                                   background: !hasOpenFile ? 'var(--c-accent)' : p.openPharmacy ? 'var(--c-success)' : 'var(--c-border)',
                                 }} />
                                 <strong style={{ fontSize: 13, color: 'var(--c-text-primary)' }}>{p.name ?? 'أطباء بلا صيدلية مسجَّلة'}</strong>
+                                {p.name && <PharmacySalesButton token={token} net={net} pharmName={p.name} areaName={a.areaName} />}
                                 {hasOpenFile && p.name && (p.openPharmacy
                                   ? <span title={p.matchedOpenPharmacy ?? ''} style={pill('var(--c-success-bg)', 'var(--c-success)')}>✓ مفتوحة</span>
                                   : <span style={pill('var(--c-border-light, var(--c-bg))', 'var(--c-text-muted)')}>✗ غير مفتوحة</span>)}
