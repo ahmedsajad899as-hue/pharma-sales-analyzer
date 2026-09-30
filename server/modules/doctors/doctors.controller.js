@@ -236,10 +236,19 @@ export async function pharmacyVisitsByArea(req, res, next) {
       items: v.items.map(i => ({ id: i.id, name: i.item?.name ?? i.itemName ?? '—' })),
     });
 
+    // مفتاح المنطقة القانوني: كل تهجئة/مرادف (AreaAlias) يُحلّ لنفس سجل Area يجب أن
+    // يعطي نفس المفتاح، وإلا تنقسم المنطقة الواحدة إلى بطاقات متعددة بنفس الاسم
+    // (كل تهجئة في السيرفي كانت تُنشئ مجموعة مستقلة تحمل اسم المنطقة الرسمي نفسه).
+    const canonAreaKey = (name) => {
+      const k = normArea(name);
+      const resolved = scope.normToArea.get(k);
+      return resolved ? `area#${resolved.id}` : k;
+    };
+
     // فهرسة الزيارات باسم الصيدلية المطبَّع + منطقتها — مفتاح المطابقة مع صيدلية السيرفي
     const visitsByKey = new Map();
     for (const v of visits) {
-      const key = `${normPharm(v.pharmacyName)}|${normArea(v.area?.name ?? v.areaName ?? '')}`;
+      const key = `${normPharm(v.pharmacyName)}|${canonAreaKey(v.area?.name ?? v.areaName ?? '')}`;
       if (!visitsByKey.has(key)) visitsByKey.set(key, []);
       visitsByKey.get(key).push(v);
     }
@@ -250,8 +259,8 @@ export async function pharmacyVisitsByArea(req, res, next) {
 
     for (const p of scopedPharms) {
       const areaName = p.areaName.trim(); // مضمون غير فارغ — مُصفّى في getScopedSurveyPharmacies
-      const areaKey = normArea(areaName);
-      const resolvedArea = scope.normToArea.get(areaKey);
+      const areaKey = canonAreaKey(areaName);
+      const resolvedArea = scope.normToArea.get(normArea(areaName));
       if (!areaMap.has(areaKey)) areaMap.set(areaKey, newAreaGroup(resolvedArea?.id ?? null, resolvedArea?.name ?? areaName));
       const g = areaMap.get(areaKey);
       const matched = visitsByKey.get(`${normPharm(p.name)}|${areaKey}`) ?? [];
@@ -275,7 +284,7 @@ export async function pharmacyVisitsByArea(req, res, next) {
     for (const v of visits) {
       if (claimedVisitIds.has(v.id)) continue;
       const areaLabel = v.area?.name ?? v.areaName ?? 'بدون منطقة';
-      const areaKey = normArea(areaLabel);
+      const areaKey = canonAreaKey(areaLabel);
       if (!areaMap.has(areaKey)) areaMap.set(areaKey, newAreaGroup(v.area?.id ?? null, areaLabel));
       const g = areaMap.get(areaKey);
       const nameKey = normPharm(v.pharmacyName);
