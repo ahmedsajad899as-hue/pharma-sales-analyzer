@@ -80,8 +80,60 @@ function parseOpenPharmacies(ws, isAreaName) {
     pharmCol = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
   }
 
+  // ── كشف «عمود منطقة مخصَّص» بلا عنوان صريح ────────────────────────────────
+  // كثير من الملفات تكتب اسم المنطقة في عمود جانبي (مرة واحدة أعلى الكتلة، أو
+  // بخلية مدموجة) وتترك أسماء الصيدليات في عمودها. هذا الكشف حاسم: بوجود عمود
+  // منطقة، **لا تُعامَل أي خلية في عمود الصيدليات كعنوان منطقة إطلاقاً** — وإلا
+  // فصيدلية اسمها يصادف اسم منطقة («الداوودي»، «الينبوع»، «الامنية») تُلتهَم
+  // كعنوان وتسحب معها كل الصيدليات التي بعدها إلى منطقة خاطئة.
+  let pharmacyRowCount = 0;
+  const areaStats = new Map(); // عمود → { total, areaLike }
+  for (let r = dataStart; r < matrix.length; r++) {
+    const row = matrix[r] || [];
+    const nm = text(row[pharmCol]);
+    if (nm && !isNumeric(nm)) pharmacyRowCount++;
+    row.forEach((v, c) => {
+      if (c === pharmCol) return;
+      const t = text(v);
+      if (!t || isNumeric(t)) return;
+      const st = areaStats.get(c) || { total: 0, areaLike: 0 };
+      st.total++;
+      if (isAreaLikeCell(t)) st.areaLike++;
+      areaStats.set(c, st);
+    });
+  }
+  if (areaCol === -1) {
+    const best = [...areaStats.entries()]
+      .filter(([, st]) => st.areaLike > 0 && st.areaLike / st.total >= 0.6)
+      .sort((a, b) => b[1].areaLike - a[1].areaLike)[0];
+    if (best) areaCol = best[0];
+  }
+
   const entries = [];
   let currentArea = null, sawAreaHeader = false;
+
+  if (areaCol !== -1) {
+    // عمود منطقة كامل لكل صف (≥80% مملوء) يعني «فراغ = بلا منطقة»؛ أما العمود
+    // المتناثر فهو تسمية كتلة (أو خلية مدموجة) تسري على ما تحتها حتى التسمية التالية.
+    const filled = areaStats.get(areaCol)?.total ?? 0;
+    const perRow = pharmacyRowCount > 0 && filled / pharmacyRowCount >= 0.8;
+    for (let r = dataStart; r < matrix.length; r++) {
+      const row = matrix[r] || [];
+      const areaCell = stripDeco(text(row[areaCol]));
+      if (areaCell) {
+        currentArea = isCompoundAreaHeader(areaCell, isAreaName) ? null : areaCell;
+        sawAreaHeader = true;
+      } else if (perRow) {
+        currentArea = null;
+      }
+      const name = text(row[pharmCol]);
+      if (!name || isNumeric(name)) continue;
+      entries.push({ name, areaName: currentArea });
+    }
+    return { pharmacyEntries: entries, pharmacyNames: entries.map(e => e.name), rowCount: entries.length, hasAreaInfo: true };
+  }
+
+  // بلا عمود منطقة: أسماء المناطق تأتي كعناوين كتل داخل عمود الصيدليات نفسه
   for (let r = dataStart; r < matrix.length; r++) {
     const row = matrix[r] || [];
     const cellsDeco = row.map(text).map(stripDeco).filter(Boolean);
@@ -96,10 +148,9 @@ function parseOpenPharmacies(ws, isAreaName) {
     }
     const name = text(row[pharmCol]);
     if (!name || isNumeric(name)) continue;
-    const explicitArea = areaCol !== -1 ? text(row[areaCol]) : '';
-    entries.push({ name, areaName: explicitArea || currentArea });
+    entries.push({ name, areaName: currentArea });
   }
-  return { pharmacyEntries: entries, pharmacyNames: entries.map(e => e.name), rowCount: entries.length, hasAreaInfo: sawAreaHeader || areaCol !== -1 };
+  return { pharmacyEntries: entries, pharmacyNames: entries.map(e => e.name), rowCount: entries.length, hasAreaInfo: sawAreaHeader };
 }
 
 export function parseSmartPlanExcel(filePath, kind, { isAreaName = () => false } = {}) {
