@@ -65,6 +65,11 @@ export const smartPlanApi = {
       duplicate: boolean; pharmacy: { id: number; name: string; areaName: string | null };
     }>,
 
+  registerAllOpenPharmacies: (token: string, id: number) =>
+    req(token, `/${id}/pharmacies/register-all`, { method: 'POST' }) as Promise<{
+      created: number; duplicate: number; failed: number; total: number; names: string[];
+    }>,
+
   lookupPharmacy: (token: string, id: number, name: string) =>
     req(token, `/${id}/pharmacy-lookup?name=${encodeURIComponent(name)}`) as Promise<{
       results: PharmacyLookupHit[]; repAreaNames: string[];

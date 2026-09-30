@@ -14,6 +14,7 @@ import {
   cleanOpenPharmacyEntries, computeBucketPlan, getAmbiguousCandidates,
   getAreaDoctorsOverview, selectedKeySet, getScopedDoctorKeySet, loadKnownAreaNameChecker,
   saveOpenPharmacyLink, deleteOpenPharmacyLink, lookupPharmacyEverywhere,
+  registerOpenPharmaciesInSurvey,
 } from '../../lib/smartPlanMatching.js';
 import { doctorLinkKey } from '../../lib/surveyDoctors.js';
 import { renameOrMergePharmacies } from '../../lib/smartPlanPharmacyEdit.js';
@@ -244,6 +245,19 @@ export async function registerPharmacyInSurvey(req, res) {
     });
   } catch (e) {
     console.error('[smart-monthly-plans] registerPharmacyInSurvey', e);
+    fail(res, 500, e.message);
+  }
+}
+
+/** تسجيل جماعي لكل الصيدليات المفتوحة المؤشَّرة «غير موجودة في السيرفي». */
+export async function registerAllOpenPharmacies(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const result = await registerOpenPharmaciesInSurvey(plan, req.user.id);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('[smart-monthly-plans] registerAllOpenPharmacies', e);
     fail(res, 500, e.message);
   }
 }

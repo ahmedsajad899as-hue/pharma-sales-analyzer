@@ -12,7 +12,7 @@ import prisma from './prisma.js';
 import { buildAreaNameIndex, getScopedSurveyDoctors, doctorLinkKey, cleanDoctorName } from './surveyDoctors.js';
 import { resolveAreaByName } from './areaResolver.js';
 import { normalizeAreaName } from './itemResolver.js';
-import { cleanPharmacyName, getScopedSurveyPharmacies } from './surveyPharmacies.js';
+import { cleanPharmacyName, createSurveyPharmacy, getScopedSurveyPharmacies } from './surveyPharmacies.js';
 import { similarity } from './fuzzyMatch.js';
 import { classifyDoctorRows, saveDoctorNameLinks } from '../modules/doctors/doctor-visits-import.js';
 import { resolveDocOwnerUserId } from '../modules/doctors/doctors.controller.js';
@@ -920,4 +920,64 @@ export async function lookupPharmacyEverywhere(plan, rawName) {
     .slice(0, 15);
 
   return { results, repAreaNames };
+}
+
+/**
+ * تسجيل جماعي: كل صيدلية مفتوحة في الملف مؤشَّرة «غير موجودة في السيرفي» (وغير
+ * مؤكَّدة كمستقلة) تُسجَّل صفّاً في السيرفي النشط ضمن منطقتها من الملف.
+ *
+ * الاسم المُسجَّل يُفضَّل أخذه من زيارات الصيدليات إن وُجدت زيارة بنفس الاسم في
+ * نفس المنطقة — كي تلتحم الزيارات السابقة بالصف الجديد بدل بقائها اسماً حراً.
+ * createSurveyPharmacy يتكفّل بمنع التكرار وإعادة تفعيل صفّ معطَّل وensureGlobalArea
+ * والسجل، فتكرار الضغط لا يُنتج نسخاً.
+ */
+export async function registerOpenPharmaciesInSurvey(plan, editedById) {
+  const survey = await prisma.masterSurvey.findFirst({
+    where: { isActive: true }, orderBy: { id: 'desc' }, select: { id: true },
+  });
+  if (!survey) throw new Error('لا يوجد سيرفي نشط لتسجيل الصيدليات فيه');
+
+  const { areas } = await getAreaDoctorsOverview(plan);
+  const targets = areas.flatMap(a => a.pharmacies
+    .filter(p => p.name && p.notInSurvey && !p.separate)
+    .map(p => ({ name: p.name, areaName: a.areaName })));
+  if (!targets.length) return { created: 0, duplicate: 0, failed: 0, total: 0, names: [] };
+
+  // فهرس أسماء الزيارات مرة واحدة (groupBy لا findMany — الجدول كبير)
+  const visitGroups = await prisma.pharmacyVisit.groupBy({
+    by: ['pharmacyName', 'areaId', 'areaName'],
+    where: { isActive: true },
+    _count: { _all: true },
+  });
+  const areaIds = [...new Set(visitGroups.map(g => g.areaId).filter(Boolean))];
+  const areaRows = areaIds.length
+    ? await prisma.area.findMany({ where: { id: { in: areaIds } }, select: { id: true, name: true } })
+    : [];
+  const areaNameById = new Map(areaRows.map(a => [a.id, a.name]));
+  const visitNameByKey = new Map();
+  for (const g of visitGroups) {
+    const nm = String(g.pharmacyName ?? '').trim();
+    const an = areaNameById.get(g.areaId) || g.areaName;
+    if (!nm || !an) continue;
+    const key = `${pharmacyLooseKey(nm)}|${normalizeAreaName(an)}`;
+    const prev = visitNameByKey.get(key);
+    const count = g._count?._all || 0;
+    if (!prev || count > prev.count) visitNameByKey.set(key, { name: nm, count });
+  }
+
+  const areaCache = new Map();
+  let created = 0, duplicate = 0, failed = 0;
+  const names = [];
+  for (const t of targets) {
+    const key = `${pharmacyLooseKey(t.name)}|${normalizeAreaName(t.areaName)}`;
+    const name = visitNameByKey.get(key)?.name || t.name;
+    try {
+      const ph = await createSurveyPharmacy(survey.id, { name, areaName: t.areaName }, editedById, areaCache);
+      if (ph?._duplicate) duplicate++; else { created++; names.push(`${name} — ${t.areaName}`); }
+    } catch (e) {
+      failed++;
+      console.error('[smartPlan] registerOpenPharmacies', name, t.areaName, e.message);
+    }
+  }
+  return { created, duplicate, failed, total: targets.length, names: names.slice(0, 30) };
 }

@@ -38,6 +38,8 @@ export default function AreaDoctorsPanel({
   const [salesFilter, setSalesFilter] = useState<SalesFilter>('all');
   const [linkOnly, setLinkOnly] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const [registerMsg, setRegisterMsg] = useState('');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirty = useRef(false);
   const [reloadTick, setReloadTick] = useState(0);
@@ -273,6 +275,41 @@ export default function AreaDoctorsPanel({
                   </button>
                 )}
 
+                {/* تسجيل جماعي: أغلب هذه الصيدليات ليست في السيرفي أصلاً، فالربط لا يفيدها */}
+                {needLinkCount > 0 && (
+                  <button
+                    disabled={registering}
+                    title="تسجيل كل صيدلية مفتوحة غير موجودة في السيرفي كصفّ سيرفي ضمن منطقتها"
+                    onClick={async () => {
+                      if (!window.confirm(
+                        `سيتم تسجيل ${needLinkCount} صيدلية مفتوحة غير موجودة في السيرفي، كلٌّ ضمن منطقتها من الملف.\n\n`
+                        + 'الصيدليات الموجودة مسبقاً لن تتكرّر، والاسم يُؤخذ من زيارات الصيدليات إن وُجدت.\n'
+                        + 'ستظهر لكل الحسابات ويمكن تعطيل أي منها لاحقاً من صفحة السيرفي. متابعة؟',
+                      )) return;
+                      setRegistering(true); setRegisterMsg(''); setError('');
+                      try {
+                        const r = await smartPlanApi.registerAllOpenPharmacies(token, planId);
+                        setRegisterMsg(
+                          `تم تسجيل ${r.created} صيدلية`
+                          + (r.duplicate ? ` · ${r.duplicate} كانت موجودة مسبقاً` : '')
+                          + (r.failed ? ` · تعذّر ${r.failed}` : ''),
+                        );
+                        setReloadTick(t => t + 1);
+                      } catch (e: any) { setError(e.message); }
+                      finally { setRegistering(false); }
+                    }}
+                    style={{
+                      ...btnMini, padding: '7px 12px', fontSize: 12,
+                      border: '1px solid var(--c-accent)', background: 'var(--c-accent)', color: '#fff',
+                      opacity: registering ? 0.6 : 1,
+                    }}
+                  >
+                    {registering
+                      ? <><Icon name="loading" size={12} className="icon-spin" /> جارٍ التسجيل…</>
+                      : <><Icon name="add" size={12} /> سجّلها كلها في السيرفي</>}
+                  </button>
+                )}
+
                 <button
                   onClick={() => setExpandedAreas(allExpanded ? new Set() : new Set(areas.map(a => a.areaId)))}
                   style={{ ...btnMini, padding: '7px 12px', fontSize: 12 }}
@@ -309,6 +346,16 @@ export default function AreaDoctorsPanel({
                   )}
                 </div>
               </div>
+
+              {registerMsg && (
+                <div style={{
+                  fontSize: 12, color: 'var(--c-success)', background: 'var(--c-success-bg)',
+                  border: '1px solid var(--c-success-border)', borderRadius: 9, padding: '7px 11px', marginBottom: 8,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <Icon name="checkCircle" size={13} /> {registerMsg}
+                </div>
+              )}
 
               <div style={{ fontSize: 11.5, color: 'var(--c-text-muted)', marginBottom: 12 }}>
                 {filtersActive
