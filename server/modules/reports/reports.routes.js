@@ -17,6 +17,53 @@ import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue } from '../../lib/provin
 
 const router = Router();
 
+/**
+ * «تيمات» المكتب: كل حساب «مدير شركة» (company_manager) في نفس officeId
+ * الطالب، باسم عرض = شركته الرئيسية، ومعرّفات كل شركاته العلمية (رئيسية
+ * وثانوية — ScientificCompany، مساحة معرّفات UserCompanyAssignment). هذا هو
+ * تعريف «الشركة الرئيسية/الكروب» الفعلي في التطبيق: كروب قد يضمّ أكثر من
+ * ScientificCompany وأكثر من ايتم، يمثّله مدير شركة واحد — لا اسم الشركة
+ * الخام المستخرَج من كل ايتم على حدة. مشتركة بين /overall-teams (شرائح
+ * الفلترة) و/overall (تجميع «محافظة × شركة رئيسية»، راجع تعليق provinceCompanyMap).
+ */
+async function loadOfficeTeams(userId) {
+  if (!userId) return [];
+  const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
+  if (viewer?.officeId == null) return [];
+
+  const managers = await prisma.user.findMany({
+    where: { officeId: viewer.officeId, role: 'company_manager', isActive: true },
+    select: { id: true, displayName: true, username: true },
+    orderBy: { id: 'asc' },
+  });
+  if (managers.length === 0) return [];
+
+  const assignments = await prisma.userCompanyAssignment.findMany({
+    where: { userId: { in: managers.map(m => m.id) } },
+    select: { userId: true, isPrimary: true, company: { select: { id: true, name: true } } },
+  });
+  const byManager = new Map();
+  for (const a of assignments) {
+    if (!byManager.has(a.userId)) byManager.set(a.userId, []);
+    byManager.get(a.userId).push(a);
+  }
+
+  return managers
+    .map(m => {
+      const rows = byManager.get(m.id) ?? [];
+      if (rows.length === 0) return null;
+      const primary = rows.find(r => r.isPrimary) ?? rows[0];
+      return {
+        managerId: m.id,
+        managerName: m.displayName || m.username,
+        name: primary.company.name,
+        companyIds: rows.map(r => r.company.id),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+}
+
 router.get('/representative/:id', getRepresentativeReport);
 
 /**
@@ -66,6 +113,15 @@ router.get('/overall', async (req, res) => {
         teamItemScope = await buildItemScopeFilter(mgrId);
       }
     }
+
+    // «الشركة الرئيسية» لتبويب المحافظة × الشركة: اسم الكروب الذي يمثّله مدير
+    // الشركة (قد يضمّ أكثر من ScientificCompany وأكثر من ايتم) — لا اسم الشركة
+    // الخام المستخرَج من كل صف. راجع loadOfficeTeams. ايتم بلا scientificCompanyId
+    // ضمن أي تيم (شركة لم تُسنَد بعد لمدير) يبقى باسمه الخام الموجود أصلاً —
+    // لا يُسقَط، فقط لا يُنسَب لكروب بعينه.
+    const officeTeams = await loadOfficeTeams(userId);
+    const companyIdToTeamName = new Map();
+    for (const team of officeTeams) for (const cid of team.companyIds) companyIdToTeamName.set(cid, team.name);
 
     // ── وضع «تحليل كامل» (raw=1) ────────────────────────────────────────────
     // يتجاوز قائمة ايتمات الحساب *ونطاق مناطقه* معاً ليعرض بيانات الملف كاملة
@@ -350,10 +406,16 @@ router.get('/overall', async (req, res) => {
           const cr = companyMap.get(company.key);
           cr.totalQuantity += qty;
           cr.totalValue    += val;
-          // محافظة × شركة — لجدول «كل المحافظات» (شركة + صافي مبيع لكل محافظة)
+          // محافظة × شركة رئيسية — لجدول «كل المحافظات والشركات». هنا تحديداً
+          // «الشركة» = الكروب الذي يمثّله مدير الشركة (officeTeams) حين يكون
+          // ايتم الصف منتمياً لأحد تيمات المكتب، لا اسم الشركة الخام المستخرَج
+          // لكل ايتم على حدة (ذاك يبقى لتبويب «الشركة» العادي بلا تغيير). ايتم
+          // خارج كل التيمات (شركة لم تُسنَد بعد لمدير) يُنسَب باسمه الخام كما كان.
+          const teamName = s.item.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null;
+          const groupName = teamName ?? company.display;
           if (provinceName) {
-            const pcKey = `${provinceName}::${company.key}`;
-            if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: company.display, totalQuantity: 0, totalValue: 0 });
+            const pcKey = `${provinceName}::${normalizeItemKey(groupName)}`;
+            if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: groupName, totalQuantity: 0, totalValue: 0 });
             const pcr = provinceCompanyMap.get(pcKey);
             pcr.totalQuantity += qty;
             pcr.totalValue    += val;
@@ -402,44 +464,7 @@ router.get('/overall', async (req, res) => {
  */
 router.get('/overall-teams', async (req, res) => {
   try {
-    const userId = req.user?.id ?? null;
-    if (!userId) return res.json({ success: true, data: { teams: [] } });
-
-    const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
-    if (viewer?.officeId == null) return res.json({ success: true, data: { teams: [] } });
-
-    const managers = await prisma.user.findMany({
-      where: { officeId: viewer.officeId, role: 'company_manager', isActive: true },
-      select: { id: true, displayName: true, username: true },
-      orderBy: { id: 'asc' },
-    });
-    if (managers.length === 0) return res.json({ success: true, data: { teams: [] } });
-
-    const assignments = await prisma.userCompanyAssignment.findMany({
-      where: { userId: { in: managers.map(m => m.id) } },
-      select: { userId: true, isPrimary: true, company: { select: { id: true, name: true } } },
-    });
-    const byManager = new Map();
-    for (const a of assignments) {
-      if (!byManager.has(a.userId)) byManager.set(a.userId, []);
-      byManager.get(a.userId).push(a);
-    }
-
-    const teams = managers
-      .map(m => {
-        const rows = byManager.get(m.id) ?? [];
-        if (rows.length === 0) return null;
-        const primary = rows.find(r => r.isPrimary) ?? rows[0];
-        return {
-          managerId: m.id,
-          managerName: m.displayName || m.username,
-          name: primary.company.name,
-          companyIds: rows.map(r => r.company.id),
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-
+    const teams = await loadOfficeTeams(req.user?.id ?? null);
     res.json({ success: true, data: { teams } });
   } catch (err) {
     res.status(500).json({ error: err.message });

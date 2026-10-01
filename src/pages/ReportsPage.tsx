@@ -861,9 +861,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [modalOverallQuery, setModalOverallQuery] = useState('');;
   const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company' | 'province'>('area');
   const [overallExcluded, setOverallExcluded] = useState<Set<string>>(new Set());
-  // «كل المحافظات والشركات» — جدول محوري (محافظة × شركة) يظهر مباشرة تحت
-  // تبويب المحافظة بالصفحة نفسها، لا في نافذة منبثقة (راجع buildProvinceCompanyPivot).
-  const [showProvincePivot, setShowProvincePivot] = useState(false);
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('qty');
   // Overall mode supports analysing several files at once — their matching areas/items/
   // companies are summed together (the backend aggregates by the shared area/item records).
@@ -3369,14 +3366,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           ? aggCompanies(retTaggedRows, overallReturns?.byItem ?? [])
           : filterRowsByText(overallReturns?.byCompany ?? []);
 
-        // Province tab: عرض مباشر لتجميع الخادم (اعتماداً على عمود المحافظة في
-        // الملف، وإلا اسم المنطقة نفسه — راجع reports.routes.js) بلا تداخل مع
-        // نظام استبعاد الصفوف المشترك بين تبويبات المنطقة/الايتم/الشركة: اسم
-        // محافظة قد يطابق حرفياً اسم منطقة (حالة الـfallback)، فربطه بنفس مجموعة
-        // الاستبعاد كان يُخفي صفاً هنا لمجرّد استبعاد غير مقصود في تبويب آخر.
-        const salesProvinceFiltered = filterRowsByText(overallSales.byProvince);
-        const retProvinceFiltered   = filterRowsByText(overallReturns?.byProvince ?? []);
-
         // ─── Cross-tab exclusion propagation ──────────────────────────────────
         // Classify each excluded key (normalised — see normReportName) by which tab it
         // came from, and collect every RAW name variant that maps to it — the same
@@ -3726,22 +3715,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${overallViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: overallViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: overallViewMode === 'qty' ? '#1e40af' : '#b45309', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   {overallViewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
                 </button>
-                {overallTab === 'province' && (
-                  <button onClick={() => setShowProvincePivot(v => !v)}
-                    style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${showProvincePivot ? '#1d4ed8' : '#bfdbfe'}`, background: showProvincePivot ? '#dbeafe' : '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <Icon name="navCommercial" size={12} /> كل المحافظات والشركات {showProvincePivot ? '▲' : '▼'}
-                  </button>
-                )}
               </div>
             </div>
 
             {overallTab === 'area'    && renderNetTable(finalSalesAreas,   finalRetAreas,   t.reports.colArea, false, overallViewMode, overallExcluded, toggleExcluded)}
             {overallTab === 'item'    && renderNetTable(finalSalesItems,   finalRetItems,   t.reports.colItem, false, overallViewMode, overallExcluded, toggleExcluded)}
             {overallTab === 'company' && renderNetTable(finalSalesCompany, finalRetCompany, 'الشركة',          false, overallViewMode, overallExcluded, toggleExcluded)}
-            {overallTab === 'province' && renderNetTable(salesProvinceFiltered, retProvinceFiltered, 'المحافظة', false, overallViewMode)}
 
-            {/* ── كل المحافظات والشركات: جدول محوري (محافظة × شركة) داخل الصفحة نفسها ── */}
-            {overallTab === 'province' && showProvincePivot && (() => {
+            {/* ── تبويب المحافظة: جدول محوري (محافظة × شركة رئيسية) دائماً ظاهر —
+                 لا جدول مبسَّط منفصل ولا قائمة تُطوى/تُفتح، طلب صريح. ── */}
+            {overallTab === 'province' && (() => {
               const { companies, companyTotals, rows, grandTotal } = buildProvinceCompanyPivot();
               if (rows.length === 0) {
                 return <div style={{ marginTop: 14, textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد بيانات شركات مطابَقة لعرضها محافظةً بمحافظة</div>;
@@ -3756,7 +3739,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #a7d7c5', background: '#f0fbf6', color: '#0d6b4f', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                     ><Icon name="export" size={12} /> تصدير Excel</button>
                   </div>
-                  <div style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid #e5e9ef', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+                  <div style={{ maxHeight: '80vh', overflow: 'auto', border: '1px solid #e5e9ef', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
                     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <thead>
                         <tr>
