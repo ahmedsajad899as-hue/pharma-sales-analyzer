@@ -2266,7 +2266,7 @@ export default function DoctorsPage() {
               <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
                 {[
                   { label: 'إجمالي الأطباء', value: total,   icon: 'doctor' as const,      accent: 'var(--c-accent)',  clickable: 'total',   sub: undefined as string | undefined },
-                  { label: 'تمت زيارتهم',    value: visited, icon: 'checkCircle' as const, accent: 'var(--c-success)', clickable: 'visited', sub: totalVisits !== visited ? `${totalVisits} زيارة` : undefined },
+                  { label: 'تمت زيارتهم',    value: totalVisits, icon: 'checkCircle' as const, accent: 'var(--c-success)', clickable: 'visited', sub: totalVisits !== visited ? `${visited} طبيب` : undefined },
                   { label: 'يكتبون الايتم',  value: writing, icon: 'edit' as const,        accent: 'var(--c-purple)',  clickable: 'writing', sub: undefined as string | undefined },
                   { label: 'نسبة التغطية',   value: `${pct}%`, icon: 'navSalesData' as const, accent: 'var(--c-warning)', clickable: 'coverage', sub: undefined as string | undefined },
                 ].map(s => {
