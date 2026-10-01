@@ -287,6 +287,7 @@ router.get('/overall', async (req, res) => {
     const areaItemMap = new Map(); // key: "areaName::itemName"
     const companyMap  = new Map(); // key: مفتاح موحَّد (طبّع + قُطعت لاحقة الدولة)
     const provinceMap = new Map(); // key: اسم المحافظة (أو اسم المنطقة حين لا محافظة في الملف)
+    const provinceCompanyMap = new Map(); // key: "اسم المحافظة::مفتاح الشركة الموحَّد"
     // اسم عرض واحد لكل شركة موحَّدة — أول صيغة تُصادَف تصير العرض الثابت لبقية
     // الصفوف. بدونها: نفس الشركة تظهر DevaTurkeyN/A و deva و DEVA في 3 صفوف
     // منفصلة، لأن رقم المادة الخام وحقل «الشركة» يُكتَبان بصيغ مختلفة صفاً
@@ -318,6 +319,20 @@ router.get('/overall', async (req, res) => {
         if (!maxDate || s.saleDate > maxDate) maxDate = s.saleDate;
       }
 
+      // ترتيب الأولوية: (1) عمود المحافظة في الملف نفسه — الأدقّ، يعكس الملف
+      // حرفياً. (2) محافظة المنطقة المُسنَدة فعلاً في النظام (Area.provinceId —
+      // تُحسَم تلقائياً أو يدوياً عبر السوبر أدمن، راجع server/lib/provinces.js)
+      // — هذه ما تجعل «الحارثية»/«المنصور»/«حي العامل»... تُجمَّع تحت «بغداد» بدل
+      // أن تظهر كل منطقة صفاً مستقلاً باسمها حين يخلو الملف من عمود محافظة.
+      // (3) لا يوجد أي مصدر — اسم المنطقة نفسه، طلب صريح بدل إسقاط الصف.
+      const provinceName = extractProvinceFromRaw(s.rawData) || s.area?.province?.name || s.area?.name || null;
+      if (provinceName) {
+        if (!provinceMap.has(provinceName)) provinceMap.set(provinceName, { provinceName, totalQuantity: 0, totalValue: 0 });
+        const pr = provinceMap.get(provinceName);
+        pr.totalQuantity += qty;
+        pr.totalValue    += val;
+      }
+
       if (s.item) {
         const key = s.item.id;
         // Priority: DB company relation → scientificCompany relation → rawData column
@@ -335,6 +350,14 @@ router.get('/overall', async (req, res) => {
           const cr = companyMap.get(company.key);
           cr.totalQuantity += qty;
           cr.totalValue    += val;
+          // محافظة × شركة — لجدول «كل المحافظات» (شركة + صافي مبيع لكل محافظة)
+          if (provinceName) {
+            const pcKey = `${provinceName}::${company.key}`;
+            if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: company.display, totalQuantity: 0, totalValue: 0 });
+            const pcr = provinceCompanyMap.get(pcKey);
+            pcr.totalQuantity += qty;
+            pcr.totalValue    += val;
+          }
         }
       }
       if (s.area) {
@@ -351,20 +374,6 @@ router.get('/overall', async (req, res) => {
         r.totalQuantity += qty;
         r.totalValue    += val;
       }
-
-      // ترتيب الأولوية: (1) عمود المحافظة في الملف نفسه — الأدقّ، يعكس الملف
-      // حرفياً. (2) محافظة المنطقة المُسنَدة فعلاً في النظام (Area.provinceId —
-      // تُحسَم تلقائياً أو يدوياً عبر السوبر أدمن، راجع server/lib/provinces.js)
-      // — هذه ما تجعل «الحارثية»/«المنصور»/«حي العامل»... تُجمَّع تحت «بغداد» بدل
-      // أن تظهر كل منطقة صفاً مستقلاً باسمها حين يخلو الملف من عمود محافظة.
-      // (3) لا يوجد أي مصدر — اسم المنطقة نفسه، طلب صريح بدل إسقاط الصف.
-      const provinceName = extractProvinceFromRaw(s.rawData) || s.area?.province?.name || s.area?.name || null;
-      if (provinceName) {
-        if (!provinceMap.has(provinceName)) provinceMap.set(provinceName, { provinceName, totalQuantity: 0, totalValue: 0 });
-        const pr = provinceMap.get(provinceName);
-        pr.totalQuantity += qty;
-        pr.totalValue    += val;
-      }
     }
 
     const undatedExcluded = noDateFileFilter ? Math.max(0, countWithUndated - sales.length) : 0;
@@ -374,8 +383,10 @@ router.get('/overall', async (req, res) => {
     const byAreaItem = [...areaItemMap.values()];
     const byCompany  = [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byProvince = [...provinceMap.values()].sort((a, b) => b.totalValue - a.totalValue);
+    const byProvinceCompany = [...provinceCompanyMap.values()].sort((a, b) =>
+      a.provinceName.localeCompare(b.provinceName, 'ar') || b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

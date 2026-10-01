@@ -784,7 +784,8 @@ interface SciReport {
 type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
+interface ProvinceCompanyRow { provinceName: string; companyName: string; totalQty: number; totalValue: number; }
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; byProvinceCompany: ProvinceCompanyRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
 
 // مطابقة اسم متسامحة مع حالة الأحرف والتشكيل العربي — الشركة/المنطقة/الايتم قد
 // تصل بحالة أحرف مختلفة بين استعلام المبيعات واستعلام الإرجاع المنفصلين
@@ -860,6 +861,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [modalOverallQuery, setModalOverallQuery] = useState('');;
   const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company' | 'province'>('area');
   const [overallExcluded, setOverallExcluded] = useState<Set<string>>(new Set());
+  // «كل المحافظات والشركات» — جدول منفصل لتبويب المحافظة: اسم الشركة وصافي
+  // مبيعها داخل كل محافظة (راجع renderProvinceCompanyModal أدناه).
+  const [showProvinceCompanyModal, setShowProvinceCompanyModal] = useState(false);
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('qty');
   // Overall mode supports analysing several files at once — their matching areas/items/
   // companies are summed together (the backend aggregates by the shared area/item records).
@@ -1340,6 +1344,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         byAreaItem: (d.byAreaItem ?? []).map((r: any) => ({ areaName: r.areaName ?? '', itemName: r.itemName ?? '', totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byCompany: (d.byCompany ?? []).map((r: any) => ({ name: r.companyName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byProvince: (d.byProvince ?? []).map((r: any) => ({ name: r.provinceName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        byProvinceCompany: (d.byProvinceCompany ?? []).map((r: any) => ({ provinceName: r.provinceName, companyName: r.companyName, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         minDate: d.minDate ?? null,
         maxDate: d.maxDate ?? null,
         recordCount: d.recordCount ?? null,
@@ -2920,6 +2925,52 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     XLSX.writeFile(wb, `مكتب-مذخر-المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  // «كل المحافظات والشركات» — صافي (مبيع - ارجاع) لكل زوج (محافظة، شركة) من
+  // byProvinceCompany، مُجمَّعاً بالمحافظة للعرض/التصدير. نفس منطق صافي صفوف
+  // renderNetTable (مفتاح موحَّد بين المبيع والارجاع) لكن ببعدين لا بعد واحد.
+  const buildProvinceCompanyGroups = () => {
+    if (!overallSales) return [];
+    const rowKey = (r: ProvinceCompanyRow) => `${normReportName(r.provinceName)}::${normReportName(r.companyName)}`;
+    const salesRows = overallSales.byProvinceCompany ?? [];
+    const retRows   = overallReturns?.byProvinceCompany ?? [];
+    const salesMap  = new Map(salesRows.map(r => [rowKey(r), r]));
+    const retMap    = new Map(retRows.map(r => [rowKey(r), r]));
+    const allKeys   = new Set([...salesRows.map(rowKey), ...retRows.map(rowKey)]);
+
+    const byProvince = new Map<string, { provinceName: string; rows: { companyName: string; netValue: number }[]; totalNet: number }>();
+    for (const key of allKeys) {
+      const s = salesMap.get(key), r = retMap.get(key);
+      const info = s ?? r!;
+      const netValue = (s?.totalValue ?? 0) - (r?.totalValue ?? 0);
+      if (netValue === 0) continue;
+      const pKey = normReportName(info.provinceName);
+      if (!byProvince.has(pKey)) byProvince.set(pKey, { provinceName: info.provinceName, rows: [], totalNet: 0 });
+      const g = byProvince.get(pKey)!;
+      g.rows.push({ companyName: info.companyName, netValue });
+      g.totalNet += netValue;
+    }
+    const groups = [...byProvince.values()].sort((a, b) => b.totalNet - a.totalNet);
+    for (const g of groups) g.rows.sort((a, b) => b.netValue - a.netValue);
+    return groups;
+  };
+
+  const exportProvinceCompanyToExcel = () => {
+    const groups = buildProvinceCompanyGroups();
+    if (groups.length === 0) return;
+    const cv = (n: number) => +convertVal(n).toFixed(2);
+    const header = ['#', 'المحافظة', 'الشركة', `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`];
+    const body: (string | number)[][] = [];
+    let i = 1;
+    for (const g of groups) for (const row of g.rows) body.push([i++, g.provinceName, row.companyName, cv(row.netValue)]);
+    const aoa = [header, ...body];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    styleSheet(ws, aoa, [5, 20, 22, 18]);
+    for (let r = 1; r < aoa.length; r++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: 3 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('المحافظات والشركات'));
+    XLSX.writeFile(wb, `المحافظات-والشركات_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   return (
     <div className="page" ref={pageRootRef} tabIndex={-1} style={{ outline: 'none' }}>
       {/* Mode toggle */}
@@ -3656,6 +3707,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${overallViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: overallViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: overallViewMode === 'qty' ? '#1e40af' : '#b45309', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   {overallViewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
                 </button>
+                {overallTab === 'province' && (
+                  <button onClick={() => setShowProvinceCompanyModal(true)}
+                    style={{ padding: '5px 14px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <Icon name="navCommercial" size={12} /> كل المحافظات والشركات
+                  </button>
+                )}
               </div>
             </div>
 
@@ -4482,6 +4539,55 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </div>
         </div>
       )}
+
+      {/* ── كل المحافظات والشركات: صافي المبيع فقط، مُجمَّع بالمحافظة ── */}
+      {showProvinceCompanyModal && (() => {
+        const groups = buildProvinceCompanyGroups();
+        return (
+          <div className="modal-overlay" onClick={() => setShowProvinceCompanyModal(false)}>
+            <div className="modal modal--wide" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">كل المحافظات والشركات — صافي المبيع</h2>
+                <button className="modal-close" onClick={() => setShowProvinceCompanyModal(false)}><Icon name="close" size={16} /></button>
+              </div>
+              <div style={{ padding: '14px 22px 22px' }}>
+                {groups.length > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+                    <button onClick={exportProvinceCompanyToExcel}
+                      style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #a7d7c5', background: '#f0fbf6', color: '#0d6b4f', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    ><Icon name="export" size={12} /> تصدير Excel</button>
+                  </div>
+                )}
+                {groups.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات</div>
+                ) : (
+                  <div style={{ maxHeight: '65vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {groups.map(g => (
+                      <div key={g.provinceName} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', background: '#f1f5f9' }}>
+                          <span style={{ fontWeight: 800, fontSize: 13.5, color: '#1e293b' }}>{g.provinceName}</span>
+                          <span style={{ fontWeight: 800, fontSize: 13, color: g.totalNet >= 0 ? '#0d6b4f' : '#991b1b' }}>{fmtValSigned(g.totalNet)}</span>
+                        </div>
+                        <div>
+                          {g.rows.map((row, ri) => {
+                            const [light, dark] = companyColorPair(ri);
+                            return (
+                              <div key={ri} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 14px', borderTop: '1px solid #f1f5f9', background: ri % 2 === 0 ? '#fff' : '#fafbfc' }}>
+                                <span style={{ fontSize: 12.5, fontWeight: 700, color: dark, background: light, borderRadius: 10, padding: '2px 10px' }}>{row.companyName}</span>
+                                <span style={{ fontSize: 12.5, fontWeight: 700, color: row.netValue >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(row.netValue)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Bottom warning bar when no file is active ── */}
       {activeFileIds.length === 0 && (
