@@ -887,7 +887,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       else sessionStorage.removeItem('rpt_autoDates');
     } catch { /* ignore */ }
   };
-  const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string}[]>([]);
+  const [availableFiles, setAvailableFiles] = useState<{id: number; filename: string; rowCount?: number; uploadedAt?: string; isMercato: boolean}[]>([]);
 
   // Preview modal state
   const [showPreviewModal, setShowPreviewModal]   = useState(false);
@@ -975,17 +975,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const allFiles: any[] = Array.isArray(json.data) ? json.data : [];
         // Filter to only active files and store for overall mode file picker
         const activeFiles = allFiles.filter((f: any) => activeFileIds.includes(f.id));
-        setAvailableFiles(activeFiles.map((f: any) => ({
+        const mappedFiles = activeFiles.map((f: any) => ({
           id: f.id,
           filename: f.originalName || f.filename || `ملف ${f.id}`,
           rowCount: f._count?.sales ?? f.rowCount,
           uploadedAt: f.uploadedAt,
-        })));
-        // Default to selecting ALL active files for overall analysis (user can
-        // uncheck files afterwards). Also clear stale dates so the backend
-        // auto-detects the combined date range across the selected files.
-        if (activeFiles.length > 0) {
-          setOverallFileIds(activeFiles.map((f: any) => f.id));
+          isMercato: f.sourceSystem === 'mercato',
+        }));
+        setAvailableFiles(mappedFiles);
+        // Default to selecting all files of ONE source only — mixing مكتب
+        // وميركاتو بنفس التحليل الشامل يعطي أرقاماً غير قابلة للمقارنة
+        // (عملات/وحدات مختلفة)، فنفضّل ملفات المكتب حين تتوفر، وإلا كل ميركاتو.
+        const officeFiles = mappedFiles.filter(f => !f.isMercato);
+        const defaultGroup = officeFiles.length > 0 ? officeFiles : mappedFiles.filter(f => f.isMercato);
+        if (defaultGroup.length > 0) {
+          setOverallFileIds(defaultGroup.map(f => f.id));
           setFromDate('');
           setToDate('');
         }
@@ -3006,26 +3010,50 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   {/* click-outside backdrop */}
                   <div onClick={() => setOverallFilesOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 199 }} />
                   <div style={{ position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 200, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, marginTop: 4, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: 300, overflowY: 'auto' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #eee', fontSize: 12, position: 'sticky', top: 0, background: '#fff' }}>
-                      <button type="button" onClick={() => { setOverallFileIds(availableFiles.map(f => f.id)); setOverallSales(null); setOverallReturns(null); setFromDate(''); setToDate(''); }} style={{ background: 'none', border: 'none', color: '#059669', cursor: 'pointer', fontWeight: 700 }}>تحديد الكل</button>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px', borderBottom: '1px solid #eee', fontSize: 12, position: 'sticky', top: 0, background: '#fff' }}>
                       <button type="button" onClick={() => { setOverallFileIds([]); setOverallSales(null); setOverallReturns(null); }} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontWeight: 700 }}>إلغاء الكل</button>
                     </div>
                     {availableFiles.length === 0
                       ? <div style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>لا توجد ملفات مفعّلة — فعّل ملفات من «رفع الملفات»</div>
-                      : availableFiles.map(f => {
-                        const checked = overallFileIds.includes(f.id);
-                        return (
-                          <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: checked ? '#f0fdf4' : '#fff', borderBottom: '1px solid #f3f4f6' }}>
-                            <input type="checkbox" checked={checked} onChange={e => {
-                              setOverallFileIds(prev => e.target.checked ? [...prev, f.id] : prev.filter(id => id !== f.id));
+                      : [
+                        { key: 'office', label: '📄 ملفات المكتب', files: availableFiles.filter(f => !f.isMercato) },
+                        { key: 'mercato', label: '🛒 ملفات ميركاتو', files: availableFiles.filter(f => f.isMercato) },
+                      ].filter(g => g.files.length > 0).map(group => (
+                        <div key={group.key}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px', background: '#f9fafb', fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                            <span>{group.label}</span>
+                            <button type="button" onClick={() => {
+                              // اختيار ملفات مجموعة واحدة فقط (مكتب أو ميركاتو) — لا
+                              // نخلطهما بنفس التحليل الشامل لأن الأرقام غير قابلة للمقارنة
+                              setOverallFileIds(group.files.map(f => f.id));
                               setOverallSales(null); setOverallReturns(null); setFromDate(''); setToDate('');
-                            }} />
-                            <span style={{ fontSize: 13 }}>
-                              {f.filename}{f.rowCount != null ? ` (صفوف: ${f.rowCount.toLocaleString()})` : ''}{f.uploadedAt ? ` — ${new Date(f.uploadedAt).toLocaleDateString('ar-IQ')}` : ''}
-                            </span>
-                          </label>
-                        );
-                      })}
+                            }} style={{ background: 'none', border: 'none', color: '#059669', cursor: 'pointer', fontWeight: 700, fontSize: 12 }}>تحديد الكل</button>
+                          </div>
+                          {group.files.map(f => {
+                            const checked = overallFileIds.includes(f.id);
+                            return (
+                              <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: checked ? '#f0fdf4' : '#fff', borderBottom: '1px solid #f3f4f6' }}>
+                                <input type="checkbox" checked={checked} onChange={e => {
+                                  setOverallFileIds(prev => {
+                                    if (!e.target.checked) return prev.filter(id => id !== f.id);
+                                    // منع خلط مكتب/ميركاتو: اختيار ملف من مجموعة مختلفة
+                                    // يستبدل التحديد الحالي بدل إضافته إليه
+                                    const prevFromOtherGroup = prev.some(id => {
+                                      const pf = availableFiles.find(af => af.id === id);
+                                      return pf && pf.isMercato !== f.isMercato;
+                                    });
+                                    return prevFromOtherGroup ? [f.id] : [...prev, f.id];
+                                  });
+                                  setOverallSales(null); setOverallReturns(null); setFromDate(''); setToDate('');
+                                }} />
+                                <span style={{ fontSize: 13 }}>
+                                  {f.filename}{f.rowCount != null ? ` (صفوف: ${f.rowCount.toLocaleString()})` : ''}{f.uploadedAt ? ` — ${new Date(f.uploadedAt).toLocaleDateString('ar-IQ')}` : ''}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ))}
                   </div>
                 </>
               )}
