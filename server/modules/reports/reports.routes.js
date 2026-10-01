@@ -254,10 +254,10 @@ router.get('/overall', async (req, res) => {
       return null;
     };
 
-    // المحافظة: تُقرأ مباشرة من عمود الملف الخام (rawData) لكل صف — لا من
-    // Area.provinceId المُسنَد مسبقاً (ذاك مقيَّد بقائمة الـ18 محافظة الرسمية
-    // ويُحدَّث يدوياً من السوبر أدمن، فقد يتخلّف عن نص الملف الفعلي). منطقة بلا
-    // عمود محافظة في ملفها تُعامَل كمحافظتها هي اسمها — طلب صريح من المستخدم.
+    // المحافظة لكل صف: تُقرأ أولاً من عمود الملف الخام (rawData) — الأدقّ حين
+    // يوجد، يعكس الملف حرفياً. الأولوية الثانية (Area.provinceId) أسفل في حلقة
+    // التجميع تتكفّل بمنطقة بلا عمود محافظة في ملفها لكن مُسنَدة فعلاً لمحافظة في
+    // النظام، والأخيرة اسم المنطقة نفسه حين لا مصدر إطلاقاً.
     const extractProvinceFromRaw = (rawData) => {
       if (!rawData) return null;
       try {
@@ -273,7 +273,7 @@ router.get('/overall', async (req, res) => {
         totalValue: true,
         saleDate:   true,
         rawData:    true,
-        area: { select: { id: true, name: true } },
+        area: { select: { id: true, name: true, province: { select: { name: true } } } },
         item: { select: { id: true, name: true, company: { select: { id: true, name: true } }, scientificCompany: { select: { id: true, name: true } } } },
         // Per-file currency → normalize each row to USD before summing, so mixing
         // files of different currencies (USD + IQD) produces a correct total.
@@ -352,7 +352,13 @@ router.get('/overall', async (req, res) => {
         r.totalValue    += val;
       }
 
-      const provinceName = extractProvinceFromRaw(s.rawData) || s.area?.name || null;
+      // ترتيب الأولوية: (1) عمود المحافظة في الملف نفسه — الأدقّ، يعكس الملف
+      // حرفياً. (2) محافظة المنطقة المُسنَدة فعلاً في النظام (Area.provinceId —
+      // تُحسَم تلقائياً أو يدوياً عبر السوبر أدمن، راجع server/lib/provinces.js)
+      // — هذه ما تجعل «الحارثية»/«المنصور»/«حي العامل»... تُجمَّع تحت «بغداد» بدل
+      // أن تظهر كل منطقة صفاً مستقلاً باسمها حين يخلو الملف من عمود محافظة.
+      // (3) لا يوجد أي مصدر — اسم المنطقة نفسه، طلب صريح بدل إسقاط الصف.
+      const provinceName = extractProvinceFromRaw(s.rawData) || s.area?.province?.name || s.area?.name || null;
       if (provinceName) {
         if (!provinceMap.has(provinceName)) provinceMap.set(provinceName, { provinceName, totalQuantity: 0, totalValue: 0 });
         const pr = provinceMap.get(provinceName);

@@ -73,11 +73,23 @@ export function matchProvinceName(rawName, lookup) {
  * aliasList، ويُعيد قيمته النصية أو null. نفس منطق البحث المستخدم داخل
  * autoMatchProvinces أعلاه، مُستخرَج هنا ليُعاد استخدامه (مثلاً لفصل مبيعات
  * منطقة مندمجة خطأً بمحافظتين — راجع /api/sa/areas/:id/split-conflict).
+ *
+ * طبقتان كـ`resolveColumns.resolveField` في sales.service.js (نفس مصدر rc.province
+ * الذي يحسم عمود المحافظة فعلياً وقت الرفع): تطابق تام أولاً، ثم احتواء جزئي
+ * (ترويسة تتضمّن الاسم البديل أو العكس) — وإلا فمحافظة بترويسة مثل «اسم المحافظة»
+ * أو «محافظة العميل» (لا تساوي أي بديل حرفياً) كانت تفشل هنا صامتة فتسقط كل
+ * صفوفها إلى اسم المنطقة، رغم أن resolveColumns حسمها بنجاح وقت الرفع.
  */
 export function extractRawColumnValue(raw, aliasList) {
-  const aliasSet = new Set(aliasList.map(a => String(a).toLowerCase().trim()));
-  for (const [k, v] of Object.entries(raw)) {
-    if (aliasSet.has(String(k).toLowerCase().trim()) && v != null && String(v).trim()) return String(v).trim();
+  const aliasesLower = aliasList.map(a => String(a).toLowerCase().trim());
+  const aliasSet = new Set(aliasesLower);
+  const entries = Object.entries(raw).map(([k, v]) => [k, String(k).toLowerCase().trim(), v]);
+  for (const [, kLower, v] of entries) {
+    if (aliasSet.has(kLower) && v != null && String(v).trim()) return String(v).trim();
+  }
+  for (const [, kLower, v] of entries) {
+    if (v == null || !String(v).trim()) continue;
+    if (aliasesLower.some(a => kLower.includes(a) || a.includes(kLower))) return String(v).trim();
   }
   return null;
 }
