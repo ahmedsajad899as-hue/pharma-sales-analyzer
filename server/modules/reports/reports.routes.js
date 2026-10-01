@@ -58,6 +58,10 @@ async function loadOfficeTeams(userId) {
         managerName: m.displayName || m.username,
         name: primary.company.name,
         companyIds: rows.map(r => r.company.id),
+        // أسماء كل شركات التيم (رئيسية وثانوية) — بعض الايتمات لم تُربط بعد
+        // بـScientificCompany (companyId القديم/Company فقط، أو نص rawData)،
+        // فمطابقة الاسم هنا تلتقطها بدل الاقتصار على مطابقة المعرّف وحده.
+        companyNames: rows.map(r => r.company.name),
       };
     })
     .filter(Boolean)
@@ -116,12 +120,21 @@ router.get('/overall', async (req, res) => {
 
     // «الشركة الرئيسية» لتبويب المحافظة × الشركة: اسم الكروب الذي يمثّله مدير
     // الشركة (قد يضمّ أكثر من ScientificCompany وأكثر من ايتم) — لا اسم الشركة
-    // الخام المستخرَج من كل صف. راجع loadOfficeTeams. ايتم بلا scientificCompanyId
-    // ضمن أي تيم (شركة لم تُسنَد بعد لمدير) يبقى باسمه الخام الموجود أصلاً —
-    // لا يُسقَط، فقط لا يُنسَب لكروب بعينه.
+    // الخام المستخرَج من كل صف. راجع loadOfficeTeams. فهرسان: بالمعرّف
+    // (scientificCompanyId، الأدقّ) وبالاسم المطبَّع (ايتمات لم تُربط بعد
+    // بـScientificCompany — عبرها فقط Company القديم أو نص rawData — فيفشل
+    // فهرس المعرّف رغم أن اسم الشركة نفسه مطابق تماماً لاسم شركة في التيم،
+    // وكانت هذه الشركة تختفي كاملةً من هذا الجدول رغم وجود بيانات فعلية لها).
     const officeTeams = await loadOfficeTeams(userId);
     const companyIdToTeamName = new Map();
-    for (const team of officeTeams) for (const cid of team.companyIds) companyIdToTeamName.set(cid, team.name);
+    const companyNameToTeamName = new Map();
+    for (const team of officeTeams) {
+      for (const cid of team.companyIds) companyIdToTeamName.set(cid, team.name);
+      for (const cname of team.companyNames) {
+        const k = normalizeItemKey(cname);
+        if (k) companyNameToTeamName.set(k, team.name);
+      }
+    }
 
     // ── وضع «تحليل كامل» (raw=1) ────────────────────────────────────────────
     // يتجاوز قائمة ايتمات الحساب *ونطاق مناطقه* معاً ليعرض بيانات الملف كاملة
@@ -413,7 +426,8 @@ router.get('/overall', async (req, res) => {
         // القائمة بعينها (osel/Marcyrl/humanis/deva/CT…)، فايتم خارج كل تيمات
         // المكتب يُستبعَد من هذا الجدول تماماً بدل أن يُضيف عموداً إضافياً باسمه
         // الخام (كان يُغرق الجدول بعشرات الأعمدة غير ذات الصلة).
-        const teamName = s.item.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null;
+        const teamName = (s.item.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null)
+          ?? (company ? companyNameToTeamName.get(company.key) : null);
         if (teamName && provinceName) {
           const pcKey = `${provinceName}::${normalizeItemKey(teamName)}`;
           if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: teamName, totalQuantity: 0, totalValue: 0 });
