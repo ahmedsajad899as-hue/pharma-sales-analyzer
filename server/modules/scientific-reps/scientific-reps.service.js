@@ -764,39 +764,12 @@ export async function getSciRepEffectiveItems(id) {
   });
   return { items, restricted: itemIds !== null };
 }
-/**
- * تطبيع اسم شخص للمطابقة: توحيد الألف والتاء المربوطة، حذف التطويل والتشكيل،
- * وطيّ المسافات. مصدر واحد للحقيقة يستعمله كل من مطابقة الأسماء المخزَّنة
- * (SciRepNameLink.fromKey) ومطابقة صفوف المبيعات، فلا ينفرط المفتاحان.
- * مطابق حرفياً لِما كان مضمَّناً داخل resolveSciRepSales قبلاً — لا تغيّره وحده.
- */
-export const normalizeRepName = s => String(s ?? '').trim()
-  .replace(/[أإآٱ]/g, 'ا')
-  .replace(/ة/g, 'ه')
-  .replace(/ـ/g, '')
-  .replace(/[ً-ٟ]/g, '')
-  .replace(/\s+/g, ' ')
-  .trim();
-
-/**
- * درجة تشابه اسمَي شخص (0..1) على أساس الكلمات المشتركة لا الحروف:
- * «محمد باقر» ⊂ «محمد باقر مرتضى» → احتواء تام. نشترط كلمتين مشتركتين على
- * الأقل، وإلا لطابق كل «محمد» كل «محمد» آخر.
- * @returns {number} 0 = لا تشابه يُعتد به
- */
-export function repNameScore(a, b) {
-  const na = normalizeRepName(a), nb = normalizeRepName(b);
-  if (!na || !nb) return 0;
-  if (na === nb) return 1;
-  const ta = na.split(' ').filter(Boolean);
-  const tb = nb.split(' ').filter(Boolean);
-  const setB = new Set(tb);
-  const shared = ta.filter(t => setB.has(t)).length;
-  if (shared < 2) return 0; // كلمة واحدة مشتركة (اسم أول شائع) ليست دليلاً
-  const containment = shared / Math.min(ta.length, tb.length); // 1 = الأقصر داخل الأطول
-  const overall     = shared / Math.max(ta.length, tb.length);
-  return containment * 0.7 + overall * 0.3;
-}
+// المطابقة النصّية لأسماء المندوبين (تطبيع/نواة/درجة تشابه/فهرسة) تعيش في
+// server/lib/repNameMatch.js — منطق نقيّ بلا قاعدة بيانات له اختبار مستقل
+// (scripts/test-rep-name-match.mjs). يُعاد تصديرها هنا لأن مستهلكيها الحاليين
+// يستوردونها من هذه الخدمة.
+export { normalizeRepName, repNameScore, repCoreName } from '../../lib/repNameMatch.js';
+import { normalizeRepName, buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 
 /**
  * يصنّف قائمة أسماء حرة (من أي مصدر — ملف ميركاتو، ملف زيارات مستوردة…) مقابل
@@ -825,8 +798,10 @@ export async function classifyRepNamesForUser(names, user = null) {
 
   // سجلات المندوبين العلميين كما يراها هذا المستخدم (نفس نطاق صفحة المندوبين)
   const repList = await list({}, user ?? null, {});
+  // الشركة جزء من هوية المرشَّح لا زينة: نفس الشخص قد يملك حساباً لكل شركة في
+  // المكتب بنفس الاسم تماماً، فبدونها يختار المستخدم بين خيارين متطابقين نصّاً.
   const reps = repList
-    .map(r => ({ id: r.id, name: r.name }))
+    .map(r => ({ id: r.id, name: r.name, company: r.company ?? null }))
     .filter(r => Number.isInteger(r.id) && r.name);
 
   const userId = user?.id ?? null;
@@ -856,11 +831,7 @@ export async function classifyRepNamesForUser(names, user = null) {
     const cur = linkByKey.get(l.fromKey);
     if (!cur || linkRank(l) > linkRank(cur)) linkByKey.set(l.fromKey, l);
   }
-  const repByKey  = new Map();
-  for (const r of reps) {
-    const k = normalizeRepName(r.name);
-    if (k && !repByKey.has(k)) repByKey.set(k, r);
-  }
+  const index = buildRepIndex(reps);
 
   const entries = uniqueNames.map(raw => {
     const key = normalizeRepName(raw);
@@ -874,15 +845,8 @@ export async function classifyRepNamesForUser(names, user = null) {
         suggestions: [],
       };
     }
-    const exact = repByKey.get(key);
-    if (exact) return { raw, key, status: 'exact', rep: exact, suggestions: [] };
-
-    const suggestions = reps
-      .map(r => ({ id: r.id, name: r.name, score: repNameScore(raw, r.name) }))
-      .filter(s => s.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-    return { raw, key, status: suggestions.length > 0 ? 'ask' : 'none', rep: null, suggestions };
+    const { status, rep, suggestions } = matchRepName(raw, index);
+    return { raw, key, status, rep, suggestions };
   });
 
   const byName = (a, b) => a.raw.localeCompare(b.raw, 'ar');

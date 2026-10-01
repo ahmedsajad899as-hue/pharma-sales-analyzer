@@ -14,8 +14,8 @@ import VisitImportFilesPanel from './VisitImportFilesPanel';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-interface RepOpt { id: number; name: string }
-interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; score: number }[] }
+interface RepOpt { id: number; name: string; company?: string | null }
+interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; company?: string | null; score: number }[] }
 interface DoctorSuggestion { id: number; name: string; score: number; areaId?: number | null; areaName: string | null; specialty: string | null; pharmacyName: string | null; crossArea?: boolean }
 interface DoctorNameEntry { raw: string; key: string; areaName?: string; specialty?: string; pharmacyName?: string; dates?: string[]; suggestions: DoctorSuggestion[] }
 interface DoctorRow {
@@ -318,6 +318,19 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
 
   const save = async () => {
     if (totalRows === 0) return;
+    // صف بلا مندوب لا يُحفَظ إطلاقاً. كان يُهمَل صامتاً فتظهر أعداد الزيارات أقل
+    // من الملف بلا سبب ظاهر — يُسأل عنه صراحةً مع أسماء المندوبين المتأثرين.
+    if (missingRepCount > 0) {
+      const byName = new Map<string, number>();
+      for (const r of [...docRows, ...pharmRows]) {
+        if (r.repId) continue;
+        const who = (r.repName || '').trim() || '(بلا اسم مندوب)';
+        byName.set(who, (byName.get(who) ?? 0) + 1);
+      }
+      const lines = [...byName.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)
+        .map(([n, c]) => `• ${n}: ${c} صف`).join('\n');
+      if (!confirm(`⚠️ ${missingRepCount} صف بلا مندوب مطابَق ولن يُحفَظ:\n\n${lines}\n\nالأفضل الرجوع وتطابق هذه الأسماء أولاً. متابعة الحفظ بدونها؟`)) return;
+    }
     setSaving(true); setError('');
     try {
       const rememberRepLinks = rememberChoices
@@ -342,7 +355,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
       const d = j.data;
       onSaved?.(`تمت إضافة ${d.imported} زيارة (${d.doctor?.imported ?? 0} طبيب، ${d.pharmacy?.imported ?? 0} صيدلية)`
         + `${d.skipped > 0 ? ` — تم تجاهل ${d.skipped} صف` : ''}.`
-        + (d.errors?.length ? `\n${d.errors.slice(0, 5).join('\n')}` : ''));
+        + (d.errors?.length ? `\n${d.errors.slice(0, 12).join('\n')}` : ''));
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'فشل الحفظ');
@@ -404,10 +417,12 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
                       style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 12.5, fontFamily: 'inherit' }}>
                       <option value="">— اختر —</option>
                       {e.suggestions.map(s => (
-                        <option key={s.id} value={s.id}>{s.name} (تشابه {Math.round(s.score * 100)}%)</option>
+                        <option key={s.id} value={s.id}>
+                          {s.name}{s.company ? ` — ${s.company}` : ''} (تشابه {Math.round(s.score * 100)}%)
+                        </option>
                       ))}
                       {reps.filter(r => !e.suggestions.some(s => s.id === r.id)).map(r => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
+                        <option key={r.id} value={r.id}>{r.name}{r.company ? ` — ${r.company}` : ''}</option>
                       ))}
                       <option value="none">🚫 ليس مندوباً — تجاهل صفوفه</option>
                     </select>

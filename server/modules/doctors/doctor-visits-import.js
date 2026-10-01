@@ -1418,6 +1418,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
   let imported = 0, skipped = 0;
   const errors = [];
   const doctorCache = new Map(); // "الاسم|areaId" → doctorId (يمنع تكرار الإنشاء لنفس الطبيب عبر صفوف الملف)
+  const missingRepByName = new Map(); // اسم المندوب كما في الملف → عدد صفوفه المُهمَلة
   let unlinkedNote = false;
   let ambiguousAreaNote = false;
 
@@ -1425,7 +1426,14 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
     try {
       const doctorName = String(r?.doctorName ?? '').trim();
       if (!doctorName) { skipped++; continue; }
-      if (!r?.repId) { skipped++; errors.push(`طبيب — صف ${r?._row ?? '?'}: بلا مندوب مؤكَّد (${r?.repName || doctorName})`); continue; }
+      // تُجمَّع باسم المندوب لا بسطر لكل صف: اسم واحد غير محسوم يعني مئات الصفوف،
+      // فكانت رسائله تملأ سقف الأخطاء (30) وتُخفي كم فُقِد فعلاً ولمن.
+      if (!r?.repId) {
+        skipped++;
+        const who = String(r?.repName || '').trim() || '(بلا اسم مندوب في الملف)';
+        missingRepByName.set(who, (missingRepByName.get(who) ?? 0) + 1);
+        continue;
+      }
 
       let areaId = r.areaId ?? null;
       const areaName = String(r?.areaName ?? '').trim();
@@ -1600,6 +1608,10 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
     }
   }
 
+  for (const [name, count] of [...missingRepByName.entries()].sort((a, b) => b[1] - a[1])) {
+    errors.push(`❌ «${name}» — ${count} زيارة طبيب لم تُحفَظ: اسم المندوب لم يُطابَق بحساب. أعد الرفع وطابِق الاسم في خطوة «طابِق أسماء المندوبين».`);
+  }
+
   if (unlinkedNote) {
     errors.push('تنبيه: لا توجد قائمة سيرفي متاحة لهذا الحساب — بعض الأطباء الجدد أُنشئوا بلا ربط بالسيرفي ولن يظهروا في شاشة «الزيارات» حتى تُربط لاحقاً.');
   }
@@ -1623,13 +1635,19 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
 
   let imported = 0, skipped = 0;
   const errors = [];
+  const missingRepByName = new Map(); // راجع commitDoctorRows — تجميع لا سطر لكل صف
   let ambiguousAreaNote = false;
 
   for (const r of (Array.isArray(rows) ? rows : [])) {
     try {
       const pharmacyName = String(r?.pharmacyName ?? '').trim();
       if (!pharmacyName) { skipped++; continue; }
-      if (!r?.repId) { skipped++; errors.push(`صيدلية — صف ${r?._row ?? '?'}: بلا مندوب مؤكَّد (${r?.repName || pharmacyName})`); continue; }
+      if (!r?.repId) {
+        skipped++;
+        const who = String(r?.repName || '').trim() || '(بلا اسم مندوب في الملف)';
+        missingRepByName.set(who, (missingRepByName.get(who) ?? 0) + 1);
+        continue;
+      }
 
       let areaId = r.areaId ?? null;
       const areaName = String(r?.areaName ?? '').trim();
@@ -1675,6 +1693,10 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
       skipped++;
       errors.push(`صيدلية — صف ${r?._row ?? '?'}: ${e.message}`);
     }
+  }
+
+  for (const [name, count] of [...missingRepByName.entries()].sort((a, b) => b[1] - a[1])) {
+    errors.push(`❌ «${name}» — ${count} زيارة صيدلية لم تُحفَظ: اسم المندوب لم يُطابَق بحساب. أعد الرفع وطابِق الاسم في خطوة «طابِق أسماء المندوبين».`);
   }
 
   if (ambiguousAreaNote) {

@@ -14,6 +14,7 @@
     "test:survey-sheet": "node scripts/test-survey-sheet.mjs",
     "test:pharmacy-match": "node scripts/test-pharmacy-match.mjs",
     "test:open-pharmacies": "node scripts/test-open-pharmacies.mjs",
+    "test:rep-name-match": "node scripts/test-rep-name-match.mjs",
     "postinstall": "prisma generate --schema prisma/schema.postgresql.prisma",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
