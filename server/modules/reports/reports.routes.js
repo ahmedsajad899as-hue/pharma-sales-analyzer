@@ -128,13 +128,40 @@ router.get('/overall', async (req, res) => {
     const officeTeams = await loadOfficeTeams(userId);
     const companyIdToTeamName = new Map();
     const companyNameToTeamName = new Map();
+    // [{ key, tight (بلا أي مسافات), teamName }] — طبقتا المطابقة المتسامحة أدناه
+    const looseTeamNames = [];
     for (const team of officeTeams) {
       for (const cid of team.companyIds) companyIdToTeamName.set(cid, team.name);
       for (const cname of team.companyNames) {
         const k = normalizeItemKey(cname);
-        if (k) companyNameToTeamName.set(k, team.name);
+        if (!k) continue;
+        companyNameToTeamName.set(k, team.name);
+        looseTeamNames.push({ key: k, tight: k.replace(/\s+/g, ''), teamName: team.name });
       }
     }
+    /**
+     * مطابقتان متسامحتان أخيرتان حين يفشل التطابق التام بعد التطبيع:
+     *  1) احتواء نصي بين اسم الشركة المسجَّل للتيم واسم الشركة المستخرَج من
+     *     الصف (بأي اتجاه) — ضرورية حين يسجَّل الاسم في UserCompanyAssignment
+     *     بصيغة أطول/أقصر من النص الفعلي في الملف («Marcyrl Pharmaceutical
+     *     Industries» مقابل «Marcyrl» الخام).
+     *  2) تطابق بعد حذف كل المسافات — بعض الأكواد المستخرَجة من رمز المادة
+     *     (extractCompanyFromCode) تُدخل مسافة لم تكن في الاسم الأصلي («C T»
+     *     من «CTItalyN/A» مقابل «CT» المسجَّلة اسماً للتيم).
+     * بلا هذا، تبقى شركة بلا بيانات في هذا الجدول تحديداً رغم توفّرها فعلاً
+     * تحت تبويب «الشركة» العادي (مطابقة أرخّ هناك). لا تُعتمَد حين تتعارض
+     * شركتان مختلفتان على نفس الاحتواء/التطابق — نادر لعدد شركات المكتب المحدود.
+     */
+    const resolveTeamByLooseName = (key) => {
+      if (!key) return null;
+      let hits = looseTeamNames.filter(t => t.key.includes(key) || key.includes(t.key));
+      if (hits.length === 0) {
+        const tight = key.replace(/\s+/g, '');
+        hits = looseTeamNames.filter(t => t.tight === tight);
+      }
+      const uniqueTeams = new Set(hits.map(h => h.teamName));
+      return uniqueTeams.size === 1 ? hits[0].teamName : null;
+    };
 
     // ── وضع «تحليل كامل» (raw=1) ────────────────────────────────────────────
     // يتجاوز قائمة ايتمات الحساب *ونطاق مناطقه* معاً ليعرض بيانات الملف كاملة
@@ -427,7 +454,8 @@ router.get('/overall', async (req, res) => {
         // المكتب يُستبعَد من هذا الجدول تماماً بدل أن يُضيف عموداً إضافياً باسمه
         // الخام (كان يُغرق الجدول بعشرات الأعمدة غير ذات الصلة).
         const teamName = (s.item.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null)
-          ?? (company ? companyNameToTeamName.get(company.key) : null);
+          ?? (company ? companyNameToTeamName.get(company.key) : null)
+          ?? (company ? resolveTeamByLooseName(company.key) : null);
         if (teamName && provinceName) {
           const pcKey = `${provinceName}::${normalizeItemKey(teamName)}`;
           if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: teamName, totalQuantity: 0, totalValue: 0 });
