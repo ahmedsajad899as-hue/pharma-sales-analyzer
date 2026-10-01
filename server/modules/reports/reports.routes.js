@@ -13,6 +13,7 @@ import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import { buildItemScopeFilter } from '../../lib/itemScope.js';
 import { extractCompanyFromCode, isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { normalizeItemKey } from '../../lib/itemResolver.js';
+import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue } from '../../lib/provinces.js';
 
 const router = Router();
 
@@ -253,6 +254,18 @@ router.get('/overall', async (req, res) => {
       return null;
     };
 
+    // المحافظة: تُقرأ مباشرة من عمود الملف الخام (rawData) لكل صف — لا من
+    // Area.provinceId المُسنَد مسبقاً (ذاك مقيَّد بقائمة الـ18 محافظة الرسمية
+    // ويُحدَّث يدوياً من السوبر أدمن، فقد يتخلّف عن نص الملف الفعلي). منطقة بلا
+    // عمود محافظة في ملفها تُعامَل كمحافظتها هي اسمها — طلب صريح من المستخدم.
+    const extractProvinceFromRaw = (rawData) => {
+      if (!rawData) return null;
+      try {
+        const raw = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+        return extractRawColumnValue(raw, PROVINCE_COLUMN_ALIASES);
+      } catch { return null; }
+    };
+
     const sales = await prisma.sale.findMany({
       where,
       select: {
@@ -273,6 +286,7 @@ router.get('/overall', async (req, res) => {
     const areaMap     = new Map();
     const areaItemMap = new Map(); // key: "areaName::itemName"
     const companyMap  = new Map(); // key: مفتاح موحَّد (طبّع + قُطعت لاحقة الدولة)
+    const provinceMap = new Map(); // key: اسم المحافظة (أو اسم المنطقة حين لا محافظة في الملف)
     // اسم عرض واحد لكل شركة موحَّدة — أول صيغة تُصادَف تصير العرض الثابت لبقية
     // الصفوف. بدونها: نفس الشركة تظهر DevaTurkeyN/A و deva و DEVA في 3 صفوف
     // منفصلة، لأن رقم المادة الخام وحقل «الشركة» يُكتَبان بصيغ مختلفة صفاً
@@ -337,6 +351,14 @@ router.get('/overall', async (req, res) => {
         r.totalQuantity += qty;
         r.totalValue    += val;
       }
+
+      const provinceName = extractProvinceFromRaw(s.rawData) || s.area?.name || null;
+      if (provinceName) {
+        if (!provinceMap.has(provinceName)) provinceMap.set(provinceName, { provinceName, totalQuantity: 0, totalValue: 0 });
+        const pr = provinceMap.get(provinceName);
+        pr.totalQuantity += qty;
+        pr.totalValue    += val;
+      }
     }
 
     const undatedExcluded = noDateFileFilter ? Math.max(0, countWithUndated - sales.length) : 0;
@@ -345,8 +367,9 @@ router.get('/overall', async (req, res) => {
     const byArea     = [...areaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byAreaItem = [...areaItemMap.values()];
     const byCompany  = [...companyMap.values()].sort((a, b) => b.totalValue - a.totalValue);
+    const byProvince = [...provinceMap.values()].sort((a, b) => b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

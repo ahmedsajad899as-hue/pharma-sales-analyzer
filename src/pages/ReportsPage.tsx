@@ -784,7 +784,7 @@ interface SciReport {
 type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
 
 // مطابقة اسم متسامحة مع حالة الأحرف والتشكيل العربي — الشركة/المنطقة/الايتم قد
 // تصل بحالة أحرف مختلفة بين استعلام المبيعات واستعلام الإرجاع المنفصلين
@@ -858,7 +858,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallSelectedTags, setOverallSelectedTags] = useState<{name: string; type: 'item'|'area'|'company'}[]>([]);
   const [showOverallModal, setShowOverallModal] = useState(false);
   const [modalOverallQuery, setModalOverallQuery] = useState('');;
-  const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company'>('area');
+  const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company' | 'province'>('area');
   const [overallExcluded, setOverallExcluded] = useState<Set<string>>(new Set());
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('qty');
   // Overall mode supports analysing several files at once — their matching areas/items/
@@ -1119,7 +1119,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         return;
       }
 
-      const tabs: Array<'area' | 'item' | 'company'> = ['area', 'item', 'company'];
+      const tabs: Array<'area' | 'item' | 'company' | 'province'> = ['area', 'item', 'company', 'province'];
       e.preventDefault();
       setOverallTab(prev => {
         let idx = tabs.indexOf(prev);
@@ -1339,6 +1339,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         byArea: (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byAreaItem: (d.byAreaItem ?? []).map((r: any) => ({ areaName: r.areaName ?? '', itemName: r.itemName ?? '', totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byCompany: (d.byCompany ?? []).map((r: any) => ({ name: r.companyName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        byProvince: (d.byProvince ?? []).map((r: any) => ({ name: r.provinceName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         minDate: d.minDate ?? null,
         maxDate: d.maxDate ?? null,
         recordCount: d.recordCount ?? null,
@@ -3298,6 +3299,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           ? aggCompanies(retTaggedRows, overallReturns?.byItem ?? [])
           : filterRowsByText(overallReturns?.byCompany ?? []);
 
+        // Province tab: عرض مباشر لتجميع الخادم (اعتماداً على عمود المحافظة في
+        // الملف، وإلا اسم المنطقة نفسه — راجع reports.routes.js) بلا تداخل مع
+        // نظام استبعاد الصفوف المشترك بين تبويبات المنطقة/الايتم/الشركة: اسم
+        // محافظة قد يطابق حرفياً اسم منطقة (حالة الـfallback)، فربطه بنفس مجموعة
+        // الاستبعاد كان يُخفي صفاً هنا لمجرّد استبعاد غير مقصود في تبويب آخر.
+        const salesProvinceFiltered = filterRowsByText(overallSales.byProvince);
+        const retProvinceFiltered   = filterRowsByText(overallReturns?.byProvince ?? []);
+
         // ─── Cross-tab exclusion propagation ──────────────────────────────────
         // Classify each excluded key (normalised — see normReportName) by which tab it
         // came from, and collect every RAW name variant that maps to it — the same
@@ -3624,8 +3633,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {/* Sub-tabs: area / item / company */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
               <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
-                {([['area', 'location', t.reports.colArea], ['item', 'drug', t.reports.colItem], ['company', 'navCommercial', 'الشركة']] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => (
-                  <button key={id} onClick={() => setOverallTab(id as 'area' | 'item' | 'company')} style={{
+                {([['area', 'location', t.reports.colArea], ['item', 'drug', t.reports.colItem], ['company', 'navCommercial', 'الشركة'], ['province', 'language', 'المحافظة']] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => (
+                  <button key={id} onClick={() => setOverallTab(id as 'area' | 'item' | 'company' | 'province')} style={{
                     padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
                     background: overallTab === id ? '#fff' : 'transparent',
                     color: overallTab === id ? '#1e40af' : '#6b7280',
@@ -3653,6 +3662,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {overallTab === 'area'    && renderNetTable(finalSalesAreas,   finalRetAreas,   t.reports.colArea, false, overallViewMode, overallExcluded, toggleExcluded)}
             {overallTab === 'item'    && renderNetTable(finalSalesItems,   finalRetItems,   t.reports.colItem, false, overallViewMode, overallExcluded, toggleExcluded)}
             {overallTab === 'company' && renderNetTable(finalSalesCompany, finalRetCompany, 'الشركة',          false, overallViewMode, overallExcluded, toggleExcluded)}
+            {overallTab === 'province' && renderNetTable(salesProvinceFiltered, retProvinceFiltered, 'المحافظة', false, overallViewMode)}
 
             {/* ── Target vs Net comparison — shown only for scientific_rep in Items tab ── */}
             {overallTab === 'item' && user?.role === 'scientific_rep' && sciRepId && (
