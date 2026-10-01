@@ -861,9 +861,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [modalOverallQuery, setModalOverallQuery] = useState('');;
   const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company' | 'province'>('area');
   const [overallExcluded, setOverallExcluded] = useState<Set<string>>(new Set());
-  // «كل المحافظات والشركات» — جدول منفصل لتبويب المحافظة: اسم الشركة وصافي
-  // مبيعها داخل كل محافظة (راجع renderProvinceCompanyModal أدناه).
-  const [showProvinceCompanyModal, setShowProvinceCompanyModal] = useState(false);
+  // «كل المحافظات والشركات» — جدول محوري (محافظة × شركة) يظهر مباشرة تحت
+  // تبويب المحافظة بالصفحة نفسها، لا في نافذة منبثقة (راجع buildProvinceCompanyPivot).
+  const [showProvincePivot, setShowProvincePivot] = useState(false);
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('qty');
   // Overall mode supports analysing several files at once — their matching areas/items/
   // companies are summed together (the backend aggregates by the shared area/item records).
@@ -2925,11 +2925,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     XLSX.writeFile(wb, `مكتب-مذخر-المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  // «كل المحافظات والشركات» — صافي (مبيع - ارجاع) لكل زوج (محافظة، شركة) من
-  // byProvinceCompany، مُجمَّعاً بالمحافظة للعرض/التصدير. نفس منطق صافي صفوف
-  // renderNetTable (مفتاح موحَّد بين المبيع والارجاع) لكن ببعدين لا بعد واحد.
-  const buildProvinceCompanyGroups = () => {
-    if (!overallSales) return [];
+  // جدول محوري محافظة × شركة: أعمدة = الشركات، أسطر = المحافظات، كل خلية =
+  // صافي (مبيع - ارجاع) تلك الشركة في تلك المحافظة. مبني من byProvinceCompany
+  // بنفس منطق صافي renderNetTable (مفتاح موحَّد بين المبيع والارجاع).
+  const buildProvinceCompanyPivot = () => {
+    const EMPTY = { companies: [] as string[], companyTotals: [] as number[], rows: [] as { provinceName: string; cells: number[]; rowTotal: number }[], grandTotal: 0 };
+    if (!overallSales) return EMPTY;
     const rowKey = (r: ProvinceCompanyRow) => `${normReportName(r.provinceName)}::${normReportName(r.companyName)}`;
     const salesRows = overallSales.byProvinceCompany ?? [];
     const retRows   = overallReturns?.byProvinceCompany ?? [];
@@ -2937,35 +2938,53 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const retMap    = new Map(retRows.map(r => [rowKey(r), r]));
     const allKeys   = new Set([...salesRows.map(rowKey), ...retRows.map(rowKey)]);
 
-    const byProvince = new Map<string, { provinceName: string; rows: { companyName: string; netValue: number }[]; totalNet: number }>();
+    // net لكل (محافظة، شركة) + إجمالي لكل محافظة ولكل شركة — لحساب الترتيب
+    // (الأكبر أولاً) قبل بناء مصفوفة الخلايا النهائية.
+    const netByKey = new Map<string, { provinceName: string; companyName: string; netValue: number }>();
+    const provinceTotal = new Map<string, number>();
+    const companyTotal  = new Map<string, number>();
     for (const key of allKeys) {
       const s = salesMap.get(key), r = retMap.get(key);
       const info = s ?? r!;
       const netValue = (s?.totalValue ?? 0) - (r?.totalValue ?? 0);
       if (netValue === 0) continue;
-      const pKey = normReportName(info.provinceName);
-      if (!byProvince.has(pKey)) byProvince.set(pKey, { provinceName: info.provinceName, rows: [], totalNet: 0 });
-      const g = byProvince.get(pKey)!;
-      g.rows.push({ companyName: info.companyName, netValue });
-      g.totalNet += netValue;
+      netByKey.set(key, { provinceName: info.provinceName, companyName: info.companyName, netValue });
+      const pKey = normReportName(info.provinceName), cKey = normReportName(info.companyName);
+      provinceTotal.set(pKey, (provinceTotal.get(pKey) ?? 0) + netValue);
+      companyTotal.set(cKey, (companyTotal.get(cKey) ?? 0) + netValue);
     }
-    const groups = [...byProvince.values()].sort((a, b) => b.totalNet - a.totalNet);
-    for (const g of groups) g.rows.sort((a, b) => b.netValue - a.netValue);
-    return groups;
+
+    const provinceNames = new Map<string, string>(); // normalized → عرض
+    const companyNames  = new Map<string, string>();
+    for (const { provinceName, companyName } of netByKey.values()) {
+      provinceNames.set(normReportName(provinceName), provinceName);
+      companyNames.set(normReportName(companyName), companyName);
+    }
+    const provinceOrder = [...provinceNames.keys()].sort((a, b) => (provinceTotal.get(b) ?? 0) - (provinceTotal.get(a) ?? 0));
+    const companyOrder  = [...companyNames.keys()].sort((a, b) => (companyTotal.get(b) ?? 0) - (companyTotal.get(a) ?? 0));
+
+    const rows = provinceOrder.map(pKey => {
+      const cells = companyOrder.map(cKey => netByKey.get(`${pKey}::${cKey}`)?.netValue ?? 0);
+      return { provinceName: provinceNames.get(pKey)!, cells, rowTotal: provinceTotal.get(pKey) ?? 0 };
+    });
+    const companies     = companyOrder.map(k => companyNames.get(k)!);
+    const companyTotals = companyOrder.map(k => companyTotal.get(k) ?? 0);
+    const grandTotal     = companyTotals.reduce((s, v) => s + v, 0);
+    return { companies, companyTotals, rows, grandTotal };
   };
 
   const exportProvinceCompanyToExcel = () => {
-    const groups = buildProvinceCompanyGroups();
-    if (groups.length === 0) return;
+    const { companies, companyTotals, rows, grandTotal } = buildProvinceCompanyPivot();
+    if (rows.length === 0) return;
     const cv = (n: number) => +convertVal(n).toFixed(2);
-    const header = ['#', 'المحافظة', 'الشركة', `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`];
-    const body: (string | number)[][] = [];
-    let i = 1;
-    for (const g of groups) for (const row of g.rows) body.push([i++, g.provinceName, row.companyName, cv(row.netValue)]);
-    const aoa = [header, ...body];
+    const valueColLabel = `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`;
+    const header = ['المحافظة', ...companies, `الإجمالي (${valueColLabel})`];
+    const body = rows.map(row => [row.provinceName, ...row.cells.map(cv), cv(row.rowTotal)]);
+    const footer = ['الإجمالي الكلي', ...companyTotals.map(cv), cv(grandTotal)];
+    const aoa = [header, ...body, footer];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    styleSheet(ws, aoa, [5, 20, 22, 18]);
-    for (let r = 1; r < aoa.length; r++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: 3 }));
+    styleSheet(ws, aoa, [20, ...companies.map(() => 16), 18]);
+    for (let r = 1; r < aoa.length; r++) for (let c = 1; c <= companies.length + 1; c++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('المحافظات والشركات'));
     XLSX.writeFile(wb, `المحافظات-والشركات_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -3708,9 +3727,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   {overallViewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
                 </button>
                 {overallTab === 'province' && (
-                  <button onClick={() => setShowProvinceCompanyModal(true)}
-                    style={{ padding: '5px 14px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <Icon name="navCommercial" size={12} /> كل المحافظات والشركات
+                  <button onClick={() => setShowProvincePivot(v => !v)}
+                    style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${showProvincePivot ? '#1d4ed8' : '#bfdbfe'}`, background: showProvincePivot ? '#dbeafe' : '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <Icon name="navCommercial" size={12} /> كل المحافظات والشركات {showProvincePivot ? '▲' : '▼'}
                   </button>
                 )}
               </div>
@@ -3720,6 +3739,62 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {overallTab === 'item'    && renderNetTable(finalSalesItems,   finalRetItems,   t.reports.colItem, false, overallViewMode, overallExcluded, toggleExcluded)}
             {overallTab === 'company' && renderNetTable(finalSalesCompany, finalRetCompany, 'الشركة',          false, overallViewMode, overallExcluded, toggleExcluded)}
             {overallTab === 'province' && renderNetTable(salesProvinceFiltered, retProvinceFiltered, 'المحافظة', false, overallViewMode)}
+
+            {/* ── كل المحافظات والشركات: جدول محوري (محافظة × شركة) داخل الصفحة نفسها ── */}
+            {overallTab === 'province' && showProvincePivot && (() => {
+              const { companies, companyTotals, rows, grandTotal } = buildProvinceCompanyPivot();
+              if (rows.length === 0) {
+                return <div style={{ marginTop: 14, textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد بيانات شركات مطابَقة لعرضها محافظةً بمحافظة</div>;
+              }
+              const pivotTh: React.CSSProperties = { padding: '9px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', top: 0, zIndex: 2, whiteSpace: 'nowrap', fontSize: 12 };
+              const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: 12.5 };
+              return (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>صافي المبيع — محافظة × شركة</span>
+                    <button onClick={exportProvinceCompanyToExcel}
+                      style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #a7d7c5', background: '#f0fbf6', color: '#0d6b4f', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    ><Icon name="export" size={12} /> تصدير Excel</button>
+                  </div>
+                  <div style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid #e5e9ef', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+                    <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...pivotTh, textAlign: 'right', right: 0, zIndex: 3 }}>المحافظة</th>
+                          {companies.map((c, ci) => {
+                            const [light, dark] = companyColorPair(ci);
+                            return <th key={c} style={{ ...pivotTh, background: `linear-gradient(135deg,${light},${dark})` }}>{c}</th>;
+                          })}
+                          <th style={{ ...pivotTh, background: '#334155' }}>الإجمالي</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row, ri) => (
+                          <tr key={row.provinceName} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: '#1e293b', position: 'sticky', right: 0, background: ri % 2 === 0 ? '#fff' : '#f8fafc' }}>{row.provinceName}</td>
+                            {row.cells.map((v, ci) => (
+                              <td key={ci} style={{ ...pivotTd, color: v !== 0 ? (v > 0 ? '#065f46' : '#991b1b') : '#d8dee6', fontWeight: v !== 0 ? 700 : 400 }}>
+                                {v !== 0 ? fmtValSigned(v) : '—'}
+                              </td>
+                            ))}
+                            <td style={{ ...pivotTd, fontWeight: 800, color: row.rowTotal >= 0 ? '#065f46' : '#991b1b', background: '#eefaf4' }}>{fmtValSigned(row.rowTotal)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#334155' }}>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, color: '#fff', position: 'sticky', right: 0, background: '#334155' }}>الإجمالي الكلي</td>
+                          {companyTotals.map((v, ci) => (
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, color: '#e2e8f0' }}>{fmtValSigned(v)}</td>
+                          ))}
+                          <td style={{ ...pivotTd, fontWeight: 900, color: '#fff', background: '#0d6b4f' }}>{fmtValSigned(grandTotal)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── Target vs Net comparison — shown only for scientific_rep in Items tab ── */}
             {overallTab === 'item' && user?.role === 'scientific_rep' && sciRepId && (
@@ -4539,55 +4614,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </div>
         </div>
       )}
-
-      {/* ── كل المحافظات والشركات: صافي المبيع فقط، مُجمَّع بالمحافظة ── */}
-      {showProvinceCompanyModal && (() => {
-        const groups = buildProvinceCompanyGroups();
-        return (
-          <div className="modal-overlay" onClick={() => setShowProvinceCompanyModal(false)}>
-            <div className="modal modal--wide" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2 className="modal-title">كل المحافظات والشركات — صافي المبيع</h2>
-                <button className="modal-close" onClick={() => setShowProvinceCompanyModal(false)}><Icon name="close" size={16} /></button>
-              </div>
-              <div style={{ padding: '14px 22px 22px' }}>
-                {groups.length > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
-                    <button onClick={exportProvinceCompanyToExcel}
-                      style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #a7d7c5', background: '#f0fbf6', color: '#0d6b4f', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                    ><Icon name="export" size={12} /> تصدير Excel</button>
-                  </div>
-                )}
-                {groups.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا توجد بيانات</div>
-                ) : (
-                  <div style={{ maxHeight: '65vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {groups.map(g => (
-                      <div key={g.provinceName} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', background: '#f1f5f9' }}>
-                          <span style={{ fontWeight: 800, fontSize: 13.5, color: '#1e293b' }}>{g.provinceName}</span>
-                          <span style={{ fontWeight: 800, fontSize: 13, color: g.totalNet >= 0 ? '#0d6b4f' : '#991b1b' }}>{fmtValSigned(g.totalNet)}</span>
-                        </div>
-                        <div>
-                          {g.rows.map((row, ri) => {
-                            const [light, dark] = companyColorPair(ri);
-                            return (
-                              <div key={ri} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 14px', borderTop: '1px solid #f1f5f9', background: ri % 2 === 0 ? '#fff' : '#fafbfc' }}>
-                                <span style={{ fontSize: 12.5, fontWeight: 700, color: dark, background: light, borderRadius: 10, padding: '2px 10px' }}>{row.companyName}</span>
-                                <span style={{ fontSize: 12.5, fontWeight: 700, color: row.netValue >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(row.netValue)}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ── Bottom warning bar when no file is active ── */}
       {activeFileIds.length === 0 && (
