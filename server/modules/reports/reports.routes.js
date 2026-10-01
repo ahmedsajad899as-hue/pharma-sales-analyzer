@@ -406,20 +406,20 @@ router.get('/overall', async (req, res) => {
           const cr = companyMap.get(company.key);
           cr.totalQuantity += qty;
           cr.totalValue    += val;
-          // محافظة × شركة رئيسية — لجدول «كل المحافظات والشركات». هنا تحديداً
-          // «الشركة» = الكروب الذي يمثّله مدير الشركة (officeTeams) حين يكون
-          // ايتم الصف منتمياً لأحد تيمات المكتب، لا اسم الشركة الخام المستخرَج
-          // لكل ايتم على حدة (ذاك يبقى لتبويب «الشركة» العادي بلا تغيير). ايتم
-          // خارج كل التيمات (شركة لم تُسنَد بعد لمدير) يُنسَب باسمه الخام كما كان.
-          const teamName = s.item.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null;
-          const groupName = teamName ?? company.display;
-          if (provinceName) {
-            const pcKey = `${provinceName}::${normalizeItemKey(groupName)}`;
-            if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: groupName, totalQuantity: 0, totalValue: 0 });
-            const pcr = provinceCompanyMap.get(pcKey);
-            pcr.totalQuantity += qty;
-            pcr.totalValue    += val;
-          }
+        }
+        // محافظة × شركة رئيسية — لجدول «كل المحافظات والشركات» حصراً. «الشركة»
+        // هنا = شرائح «الشركة الرئيسية» نفسها (officeTeams/overall-teams، كروب
+        // مدير الشركة) لا أي اسم شركة خام آخر — طلب صريح: يقتصر العمود على هذه
+        // القائمة بعينها (osel/Marcyrl/humanis/deva/CT…)، فايتم خارج كل تيمات
+        // المكتب يُستبعَد من هذا الجدول تماماً بدل أن يُضيف عموداً إضافياً باسمه
+        // الخام (كان يُغرق الجدول بعشرات الأعمدة غير ذات الصلة).
+        const teamName = s.item.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null;
+        if (teamName && provinceName) {
+          const pcKey = `${provinceName}::${normalizeItemKey(teamName)}`;
+          if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: teamName, totalQuantity: 0, totalValue: 0 });
+          const pcr = provinceCompanyMap.get(pcKey);
+          pcr.totalQuantity += qty;
+          pcr.totalValue    += val;
         }
       }
       if (s.area) {
