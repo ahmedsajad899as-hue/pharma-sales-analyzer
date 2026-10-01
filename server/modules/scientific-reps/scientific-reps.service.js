@@ -1160,7 +1160,13 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
         };
         expandedCommRepIds  = expandedCommRepIds.filter(rid => !isBlocked(rid));
         nameMatchIds        = nameMatchIds.filter(rid => !isBlocked(rid));
-        mercatoNameMatchIds = mercatoNameMatchIds.filter(rid => !isBlocked(rid));
+        // ملاحظة: mercatoNameMatchIds لا تُفلتر هنا عمداً. «حجب مندوب تجاري»
+        // يقصد مندوباً تجارياً في ملفات المكتب — أما في ميركاتو فـ«اسم المندوب»
+        // هو المندوب العلمي نفسه (أو أحد مندوبي فريقه)، ونفس الاسم/المعرّف قد
+        // يتكرر بين الجدولين (MedicalRepresentative واحد للاثنين). حجبُ مندوبٍ
+        // تجاري يتصادف اسمه مع مندوب علمي كان يُسقط مبيعات ميركاتو الذاتية لذلك
+        // المندوب العلمي بلا أي علاقة بنية الحاجب — وهو بالضبط ما أبلغ عنه حساب
+        // وليد (مبيعات ميركاتو صفر رغم تفعيل الملف، إلى أن أُوقف الحجب فظهرت).
         // Also drop blocked reps from the displayed «assigned commercial reps» list.
         commercialLinks = commercialLinks.filter(l => !blockedNorms.has(_normalizeAr(l.commercialRep.name)));
       }
@@ -1295,6 +1301,11 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       // لا نضيف قيد الملف إلا عند وجود ملف ميركاتو فعلاً، حفاظاً على السلوك
       // السابق حرفياً حين تكون كل الملفات من المكتب.
       if (mercatoFileIds.length > 0) office.push({ uploadedFileId: { in: officeFileIds } });
+      // حجب جزئي (مندوب تجاري × منطقة) يُطبَّق هنا فقط — داخل فرع ملفات المكتب —
+      // لا عالمياً على كل الفروع. نفس سبب استثناء mercatoNameMatchIds أعلاه من
+      // blockedNorms: الهوية المحجوبة «مندوب تجاري × منطقة» مفهوم مكتبي بحت، وقد
+      // يتصادف معرّف المندوب مع مندوب علمي في ميركاتو فيُسقط مبيعاته الذاتية ظلماً.
+      if (blockedRepAreaConds.length) office.push({ NOT: { OR: blockedRepAreaConds } });
       sourceConds.push(office.length === 1 ? office[0] : { AND: office });
     }
 
@@ -1318,9 +1329,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     if (blockedCustomerInfoNorms.length) {
       conditions.push({ NOT: { OR: blockedCustomerInfoNorms.map(n => ({ customerInfoNorm: { contains: n, mode: 'insensitive' } })) } });
     }
-    // حجب جزئي: يستبعد فقط صفوف (هذا المندوب AND إحدى مناطقه المحجوبة) معاً —
-    // بقية مناطقه، وبقية المندوبين في نفس المناطق، يبقون ظاهرين.
-    if (blockedRepAreaConds.length) conditions.push({ NOT: { OR: blockedRepAreaConds } });
+    // ملاحظة: حجب (مندوب تجاري × منطقة) الجزئي انتقل ليُطبَّق داخل فرع ملفات
+    // المكتب فقط أعلاه — لا هنا عالمياً — لنفس سبب استثناء mercatoNameMatchIds.
     // حجب جزئي: يستبعد فقط صفوف (اسم معلومات الزبون هذا AND أحد آيتماته المحجوبة)
     // معاً — بقية آيتمات نفس الاسم، وبقية القيم الأخرى لنفس الآيتم، يبقون ظاهرين.
     if (blockedCustomerInfoItemConds.length) conditions.push({ NOT: { OR: blockedCustomerInfoItemConds } });
