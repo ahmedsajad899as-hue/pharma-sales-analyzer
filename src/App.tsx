@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Sidebar from './components/layout/Sidebar';
 import LoginPage from './pages/LoginPage';
+import RepNameMatchModal from './components/RepNameMatchModal';
 import { Icon } from './config/icons';
 import { getPageHeader, getPageHeaderIcon } from './config/pageHeaders';
 import { NAV_ITEMS } from './config/featureConfig';
@@ -276,6 +277,8 @@ function AppInner() {
   });
   // إعادة تحميل تفعيل الملفات الخاص بالحساب الحالي عند تغيّر المستخدم المسجّل
   // دخوله (تبديل حساب، أو خروج ثم دخول) دون الحاجة لإعادة تحميل الصفحة بالكامل.
+  // ملفات ميركاتو تحتاج تأكيد مطابقة أسماء مندوبيها — راجع الـuseEffect أدناه.
+  const [mercatoRepNameCheckIds, setMercatoRepNameCheckIds] = useState<number[] | null>(null);
   const activeFileIdsUserRef = useRef<number | null | undefined>(user?.id ?? null);
   useEffect(() => {
     const uid = user?.id ?? null;
@@ -299,6 +302,24 @@ function AppInner() {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileIds: activeFileIds }),
       }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [activeFileIds, token]);
+
+  // مطابقة أسماء مندوبي ميركاتو: كانت تُفحص فقط لحظة الرفع من صفحة «رفع الملفات»
+  // (UploadPage) — فأي ملف ميركاتو يُفعَّل لاحقاً من صفحة أخرى (أو يصل عبر بوت
+  // تيليغرام الذي لا يمر بتلك الصفحة إطلاقاً) كان يبقى بأسماء غير محسومة للأبد:
+  // مبيعاته غير منسوبة لأي مندوب علمي فتظهر تقاريره صفراً رغم تفعيل الملف. الفحص
+  // هنا يعمل عند أي تغيّر في مجموعة الملفات المفعّلة أياً كانت الصفحة التي فعّلتها.
+  useEffect(() => {
+    if (!token || activeFileIds.length === 0) return;
+    const t = setTimeout(() => {
+      fetch(`/api/scientific-reps/rep-names/check?fileIds=${activeFileIds.join(',')}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.json())
+        .then(j => { if ((j.data?.pending ?? []).length > 0) setMercatoRepNameCheckIds(activeFileIds); })
+        .catch(() => {});
     }, 800);
     return () => clearTimeout(t);
   }, [activeFileIds, token]);
@@ -571,6 +592,13 @@ function AppInner() {
         <Suspense fallback={null}>
           <AIAssistant activePage={activePage} navigateTo={navigateTo} />
         </Suspense>
+      )}
+      {mercatoRepNameCheckIds && token && (
+        <RepNameMatchModal
+          token={token}
+          fileIds={mercatoRepNameCheckIds}
+          onClose={() => setMercatoRepNameCheckIds(null)}
+        />
       )}
     </div>
   );
