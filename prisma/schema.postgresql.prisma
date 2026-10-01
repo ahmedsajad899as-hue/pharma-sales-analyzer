@@ -703,6 +703,10 @@ model DoctorNameLink {
   fromName    String
   areaName    String?
   doctorId    Int?
+  // معرّفات المرشّحين الذين عُرضوا على المستخدم حين أجاب «ليس أياً منهم» (مفصولة
+  // بفواصل). بدونها لا نعرف إن كان سؤال اليوم هو نفسه سؤال الأمس، فإمّا نُعيد
+  // السؤال أبداً أو نُخفي مرشّحاً جديداً ظهر لاحقاً — راجع classifyDoctorRows.
+  rejectedIds String?
   confidence  String   @default("confirmed") // 'fuzzy' | 'confirmed'
   needsReview Boolean  @default(true)
   userId      Int

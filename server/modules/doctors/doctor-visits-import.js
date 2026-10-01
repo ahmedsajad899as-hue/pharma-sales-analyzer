@@ -784,7 +784,7 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
   const [linkRows, existingDoctorsFull, visibleSurveys] = await Promise.all([
     prisma.doctorNameLink.findMany({
       where: { userId: { in: doctorLinkScopeIds } },
-      select: { userId: true, fromKey: true, doctorId: true, confidence: true, doctor: { select: { id: true, name: true, masterSurveyDoctorId: true } } },
+      select: { userId: true, fromKey: true, doctorId: true, rejectedIds: true, confidence: true, doctor: { select: { id: true, name: true, masterSurveyDoctorId: true } } },
       orderBy: { id: 'desc' }, // الأحدث أولاً عند تساوي الأولوية
     }),
     prisma.doctor.findMany({
@@ -801,13 +801,19 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
   // المنطقة، وهذا النص قد يتغيّر بين رفعتين (منطقة أُنشئت عند الحفظ الأول فصارت
   // تُحسم باسمها القانوني في الرفع التالي)، فيضيع الرابط ويُعاد السؤال.
   const ownerPositiveByName = new Map(); // name → Map(doctorId → link)
+  // ونفس العلّة تصيب القرار السلبي («ليس أياً منهم») بل أشدّ: لا طبيبَ مربوطاً
+  // يُنقذه لاحقاً بتطابق الاسم، فيُعاد السؤال عنه في كل رفع كلما تغيّر نص المنطقة.
+  const ownerNegativeByName = new Map(); // name → link
   for (const l of linkRows) {
     const cur = linkByKey.get(l.fromKey);
     if (!cur || linkRank(l) > linkRank(cur)) linkByKey.set(l.fromKey, l);
-    if (l.userId === ownerUserId && l.doctorId != null) {
-      const namePart = l.fromKey.split('|')[0];
+    if (l.userId !== ownerUserId) continue;
+    const namePart = l.fromKey.split('|')[0];
+    if (l.doctorId != null) {
       if (!ownerPositiveByName.has(namePart)) ownerPositiveByName.set(namePart, new Map());
       ownerPositiveByName.get(namePart).set(l.doctorId, l);
+    } else if (!ownerNegativeByName.has(namePart)) {
+      ownerNegativeByName.set(namePart, l); // linkRows مرتَّبة تنازلياً — الأحدث يغلب
     }
   }
   // صف Doctor المحلي قد يخلو من المنطقة/الاختصاص/الصيدلية (أُنشئ قديماً أو يدوياً
@@ -938,9 +944,13 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
     if (!link) {
       // نفس الاسم مؤكَّد سابقاً بمنطقة مكتوبة بشكل آخر — يُعتمد فقط حين تشير كل
       // تأكيدات هذا الاسم لطبيب واحد (اسمان متطابقان لطبيبين مختلفين → لا تخمين).
-      const byName = ownerPositiveByName.get(g.key.split('|')[0]);
+      const namePart = g.key.split('|')[0];
+      const byName = ownerPositiveByName.get(namePart);
       const only = byName && byName.size === 1 ? [...byName.values()][0] : null;
       if (only && candById.has(only.doctorId) && !areasConflict(g.areaName, candById.get(only.doctorId).areaName)) link = only;
+      // لا تأكيد إيجابي لهذا الاسم إطلاقاً لكن له رفض صريح سابق — يُسترجَع بالاسم
+      // وحده أيضاً، وإلا ضاع القرار لمجرّد اختلاف نص المنطقة بين ملف وآخر.
+      if (!link && !byName) link = ownerNegativeByName.get(namePart) ?? null;
     }
     // رابط «fuzzy» حفظه النظام تلقائياً عند الحفظ (لا المستخدم) لطبيب بمنطقة معارضة
     // = ربط خاطئ سابق؛ لا يُعاد تطبيقه، والاسم يُصنَّف من جديد. الروابط المؤكَّدة
@@ -1095,6 +1105,22 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
     }
 
     for (const r of g.rows) { r.doctorId = null; r.surveyDoctorId = null; }
+
+    // رفض صريح سابق لهذا الاسم ولم يظهر مرشّح جديد بعده → لا يُعاد السؤال.
+    // كان السؤال يتكرّر في كل رفع ما دام أي مرشّح يتجاوز العتبة، فيُجيب المستخدم
+    // «ليس أياً منهم» عن الأسماء نفسها إلى الأبد. المقارنة بالمرشَّحين المحفوظين
+    // تُبقي المقصد الأصلي: مرشّح لم يكن معروضاً حين القرار (طبيب أُضيف لاحقاً)
+    // يستحق سؤالاً جديداً فعلاً. رابط قديم بلا قائمة محفوظة (ما قبل هذه الميزة)
+    // يُحترم كما هو — تكرار السؤال إلى الأبد هو العطل الذي نُصلحه.
+    if (link && link.doctorId == null && scored.length > 0) {
+      const rejected = new Set(String(link.rejectedIds ?? '').split(',').map(Number).filter(Number.isInteger));
+      const nothingNew = rejected.size === 0 || scored.every(c => rejected.has(c.id));
+      if (nothingNew) {
+        resolved.push({ raw: g.raw, key: g.key, status: 'linked', doctor: null });
+        continue;
+      }
+    }
+
     if (scored.length === 0) {
       // رابط سلبي محفوظ سابقاً («ليس أياً من مرشَّحي حينها») ولا يوجد أي مرشّح
       // معتدّ به الآن أيضاً — نفس نتيجة القرار المحفوظ (طبيب جديد بلا سؤال)،
@@ -1142,12 +1168,17 @@ export async function saveDoctorNameLinks(userId, links) {
     const fromKey = doctorLinkKey(fromName, l?.areaName);
     if (!fromName || !normalizeRepName(cleanDoctorName(fromName))) continue;
     const doctorId = Number.isInteger(l?.doctorId) ? l.doctorId : null;
+    // «ليس أياً منهم» = رفض للمرشّحين الذين عُرضوا حينها تحديداً، لا لكل مرشّح
+    // محتمل إلى الأبد — فتُحفظ معه قائمتهم ليُعرف لاحقاً إن كان السؤال قد تغيّر.
+    const rejectedIds = doctorId == null && Array.isArray(l?.rejectedIds)
+      ? [...new Set(l.rejectedIds.filter(Number.isInteger))].sort((a, b) => a - b).join(',') || null
+      : null;
     // أحدث قرار صريح يَغلب — كان update يُبقي doctorId القديم (مثلاً «ليس أياً منهم»
     // محفوظاً من مرة سابقة)، فيُعاد السؤال عن نفس الاسم في كل رفع رغم التأكيد.
     await prisma.doctorNameLink.upsert({
       where:  { userId_fromKey: { userId, fromKey } },
-      update: { fromName, areaName: l?.areaName || null, doctorId, confidence: 'confirmed' },
-      create: { userId, fromKey, fromName, areaName: l?.areaName || null, doctorId, confidence: 'confirmed', needsReview: doctorId != null },
+      update: { fromName, areaName: l?.areaName || null, doctorId, rejectedIds, confidence: 'confirmed' },
+      create: { userId, fromKey, fromName, areaName: l?.areaName || null, doctorId, rejectedIds, confidence: 'confirmed', needsReview: doctorId != null },
     });
     saved++;
   }

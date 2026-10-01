@@ -344,6 +344,9 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
             fromName: e.raw,
             areaName: e.areaName || null,
             doctorId: doctorChoice[e.key] === 'new' ? null : Number(doctorChoice[e.key]),
+            // «ليس أياً منهم» يرفض المرشّحين المعروضين الآن تحديداً — تُحفظ قائمتهم
+            // كي لا يُعاد السؤال نفسه، ويُعاد فقط إن ظهر مرشّح جديد لاحقاً.
+            rejectedIds: doctorChoice[e.key] === 'new' ? e.suggestions.map(s => s.id) : undefined,
           }))
         : [];
       const res = await fetch(`${API}/api/doctors/visits/import-commit`, {
