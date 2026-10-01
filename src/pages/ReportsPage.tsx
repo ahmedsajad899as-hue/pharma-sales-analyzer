@@ -4422,7 +4422,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 >TL</button>
                 {allRepsWarehouseData && allRepsWarehouseData.length > 0 && (
                   <button onClick={exportWarehouseSummaryToExcel}
-                    style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #a7d7c5', background: '#f0fbf6', color: '#0d6b4f', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                   ><Icon name="export" size={12} /> تصدير Excel</button>
                 )}
               </div>
@@ -4514,73 +4514,73 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 }
                 const officeGrand    = cols.reduce((s, c) => s + c.officeOrderCount, 0);
                 const warehouseGrand = cols.reduce((s, c) => s + c.warehouseOrderCount, 0);
-                const pivotTh: React.CSSProperties = { padding: '8px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', zIndex: 2, whiteSpace: 'nowrap' };
-                const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap' };
+                // تصميم رسمي صافٍ (مطابق لجدول «صافي المبيع — محافظة × شركة»):
+                // أبيض/أسود/رمادي فقط، بلا تدرّجات ألوان لكل شركة ولا شارات — حدود
+                // رفيعة كاملة كجدول دفتر. مجموعات الشركات تتمايز بظلّين رماديين فقط.
+                const BORDER = '1px solid #cbd5e1';
+                const pivotTh: React.CSSProperties = { padding: '8px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', position: 'sticky', zIndex: 2, whiteSpace: 'nowrap', fontWeight: 700, border: BORDER };
+                const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap', color: '#111827', border: BORDER };
                 return (
-                  <div style={{ maxHeight: '70vh', overflow: 'auto', border: '1px solid #e5e9ef', borderRadius: 12 }}>
-                    <table style={{ borderCollapse: 'collapse', fontSize: 12.5 }}>
+                  <div style={{ maxHeight: '70vh', overflow: 'auto', border: '1px solid #94a3b8' }}>
+                    <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%' }}>
                       <thead>
                         {/* صف الشركة: يمتد فوق كل أعمدة مندوبيها — يوضّح فوراً كل شخص تابع لأي شركة */}
                         <tr>
                           <th rowSpan={2} style={{ ...pivotTh, textAlign: 'right', top: 0, right: 0, zIndex: 3 }}>اسم المذخر</th>
-                          {spans.map((s, si) => {
-                            const [light, dark] = companyColorPair(si);
-                            return (
-                              <th key={s.company + s.start} colSpan={s.count} style={{ ...pivotTh, top: 0, height: 34, boxSizing: 'border-box', background: `linear-gradient(135deg,${light},${dark})`, fontSize: 11.5 }}>{s.company}</th>
-                            );
-                          })}
-                          <th rowSpan={2} style={{ ...pivotTh, top: 0, background: '#334155' }}>الإجمالي<br />(طلبيات)</th>
-                          <th rowSpan={2} style={{ ...pivotTh, top: 0, background: '#334155' }}>الإجمالي<br />(صافي القيمة)</th>
+                          {spans.map((s, si) => (
+                            <th key={s.company + s.start} colSpan={s.count} style={{ ...pivotTh, top: 0, height: 34, boxSizing: 'border-box', background: si % 2 === 0 ? '#f1f5f9' : '#e2e8f0', fontSize: 11.5 }}>{s.company}</th>
+                          ))}
+                          <th rowSpan={2} style={{ ...pivotTh, top: 0 }}>الإجمالي<br />(طلبيات)</th>
+                          <th rowSpan={2} style={{ ...pivotTh, top: 0 }}>الإجمالي<br />(صافي القيمة)</th>
                         </tr>
                         <tr>
                           {cols.map(r => (
                             <th key={r.id} style={{ ...pivotTh, top: 34 }}>
                               <div>{r.name}</div>
-                              <div style={{ fontSize: 10.5, fontWeight: 600, marginTop: 2, color: r.netValue >= 0 ? '#a7f3d0' : '#fecaca' }}>{fmtValSigned(r.netValue)}</div>
+                              <div style={{ fontSize: 10.5, fontWeight: 600, marginTop: 2, color: '#475569' }}>{fmtValSigned(r.netValue)}</div>
                             </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {rows.map((row, ri) => (
-                          <tr key={row.name} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                          <tr key={row.name}>
                             <td style={{
                               ...pivotTd, textAlign: 'right', fontWeight: 700,
-                              color: row.name === 'مكتب' ? '#b45309' : '#334155',
                               position: 'sticky', right: 0, zIndex: 1,
                               background: ri % 2 === 0 ? '#fff' : '#f8fafc',
                             }}>{row.name}</td>
                             {row.cells.map((c, ci) => (
-                              <td key={ci} style={{ ...pivotTd, color: c > 0 ? '#3b6fd6' : '#d8dee6', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? fmt(c) : '—'}</td>
+                              <td key={ci} style={{ ...pivotTd, background: ri % 2 === 0 ? '#fff' : '#f8fafc', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? fmt(c) : '—'}</td>
                             ))}
-                            <td style={{ ...pivotTd, fontWeight: 800, color: '#0d6b4f', background: '#eefaf4' }}>{fmt(row.total)}</td>
-                            <td style={{ ...pivotTd, fontWeight: 800, color: '#92400e', background: '#fdf6e8' }}>{fmtValSigned(row.valueTotal)}</td>
+                            <td style={{ ...pivotTd, fontWeight: 800, background: '#f8fafc' }}>{fmt(row.total)}</td>
+                            <td style={{ ...pivotTd, fontWeight: 800, background: '#f8fafc' }}>{fmtValSigned(row.valueTotal)}</td>
                           </tr>
                         ))}
                         {/* 3 صفوف إجمالي بدل صف واحد: مكتب + مذاخر = الإجمالي الكلي، لكل مندوب */}
-                        <tr style={{ background: '#475569' }}>
-                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: '#f1f5f9', position: 'sticky', right: 0, background: '#475569' }}>إجمالي المكتب</td>
+                        <tr>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#f1f5f9' }}>إجمالي المكتب</td>
                           {cols.map((c, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, color: '#e2e8f0' }}>{c.officeOrderCount > 0 ? fmt(c.officeOrderCount) : '—'}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, background: '#f1f5f9' }}>{c.officeOrderCount > 0 ? fmt(c.officeOrderCount) : '—'}</td>
                           ))}
-                          <td style={{ ...pivotTd, fontWeight: 800, color: '#fff', background: '#0d6b4f' }}>{fmt(officeGrand)}</td>
-                          <td style={{ ...pivotTd, background: '#475569' }}></td>
+                          <td style={{ ...pivotTd, fontWeight: 800, background: '#e2e8f0' }}>{fmt(officeGrand)}</td>
+                          <td style={{ ...pivotTd, background: '#f1f5f9' }}></td>
                         </tr>
-                        <tr style={{ background: '#475569' }}>
-                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: '#f1f5f9', position: 'sticky', right: 0, background: '#475569' }}>إجمالي المذاخر</td>
+                        <tr>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#f1f5f9' }}>إجمالي المذاخر</td>
                           {cols.map((c, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, color: '#e2e8f0' }}>{c.warehouseOrderCount > 0 ? fmt(c.warehouseOrderCount) : '—'}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, background: '#f1f5f9' }}>{c.warehouseOrderCount > 0 ? fmt(c.warehouseOrderCount) : '—'}</td>
                           ))}
-                          <td style={{ ...pivotTd, fontWeight: 800, color: '#fff', background: '#0d6b4f' }}>{fmt(warehouseGrand)}</td>
-                          <td style={{ ...pivotTd, background: '#475569' }}></td>
+                          <td style={{ ...pivotTd, fontWeight: 800, background: '#e2e8f0' }}>{fmt(warehouseGrand)}</td>
+                          <td style={{ ...pivotTd, background: '#f1f5f9' }}></td>
                         </tr>
-                        <tr style={{ background: '#334155' }}>
-                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, color: '#fff', position: 'sticky', right: 0, background: '#334155' }}>الإجمالي الكلي</td>
+                        <tr>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, position: 'sticky', right: 0, background: '#e2e8f0' }}>الإجمالي الكلي</td>
                           {colTotals.map((c, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, color: '#e2e8f0' }}>{fmt(c)}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, background: '#e2e8f0' }}>{fmt(c)}</td>
                           ))}
-                          <td style={{ ...pivotTd, fontWeight: 900, color: '#fff', background: '#0d6b4f' }}>{fmt(grandTotal)}</td>
-                          <td style={{ ...pivotTd, fontWeight: 900, color: '#fff', background: '#8a5a12' }}>{fmtValSigned(grandValueTotal)}</td>
+                          <td style={{ ...pivotTd, fontWeight: 900, background: '#cbd5e1' }}>{fmt(grandTotal)}</td>
+                          <td style={{ ...pivotTd, fontWeight: 900, background: '#cbd5e1' }}>{fmtValSigned(grandValueTotal)}</td>
                         </tr>
                       </tbody>
                     </table>
