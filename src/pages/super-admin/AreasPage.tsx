@@ -7,7 +7,8 @@ interface Province { id: number; name: string; sortOrder?: number; areaCount?: n
 interface SubProvince { id: number; name: string; provinceId: number; sortOrder?: number; areaCount?: number; }
 interface MergeSuggestion { a: { id: number; name: string; sales: number }; b: { id: number; name: string; sales: number } }
 interface ReviewQueueItem extends Area { suggestions: { id: number; name: string; score: number }[] }
-interface DeleteInfo { id: number; name: string; usage: Record<string, number>; total: number; blocking: boolean }
+interface PharmacyVisitDetail { repName: string | null; pharmacyName: string; visitDate: string }
+interface DeleteInfo { id: number; name: string; usage: Record<string, number>; total: number; blocking: boolean; pharmacyVisitDetails: PharmacyVisitDetail[] }
 
 // توست خفيف — نفس النمط المستخدم في UsersPage.tsx، معزول هنا لأن هذه صفحة مستقلة.
 function showToast(msg: string, color: string = '#16a34a') {
@@ -258,7 +259,7 @@ export default function AreasPage() {
       const j = await r.json();
       if (!j.success) { showToast('❌ ' + j.error, '#dc2626'); return; }
       setDeleteTransferTo('');
-      setDeleteInfo({ id, name, usage: j.usage, total: j.total, blocking: j.blocking });
+      setDeleteInfo({ id, name, usage: j.usage, total: j.total, blocking: j.blocking, pharmacyVisitDetails: j.pharmacyVisitDetails || [] });
     } catch { showToast('❌ تعذّر الاتصال بالخادم', '#dc2626'); }
     finally { setBusy(false); }
   };
@@ -751,6 +752,16 @@ export default function AreasPage() {
                       {rows.map(([k, v]) => <li key={k}>{USAGE_LABELS[k] || k}: <b>{v}</b></li>)}
                     </ul>
                   </div>
+                  {deleteInfo.pharmacyVisitDetails.length > 0 && (
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, marginBottom: 14 }}>
+                      <strong style={{ fontSize: 12.5, color: '#334155' }}>🧾 تفاصيل زيارات الصيدليات:</strong>
+                      <ul style={{ margin: '6px 0 0', paddingInlineStart: 18, fontSize: 12.5, color: '#475569', maxHeight: 140, overflowY: 'auto' }}>
+                        {deleteInfo.pharmacyVisitDetails.map((v, i) => (
+                          <li key={i}>{v.repName ?? 'مندوب غير معروف'} — {v.pharmacyName} <span style={{ color: '#94a3b8' }}>({new Date(v.visitDate).toLocaleDateString('ar-IQ')})</span></li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {deleteInfo.blocking && (
                     <p style={{ fontSize: 12.5, color: '#b91c1c', margin: '0 0 12px' }}>
                       ⛔ لوجود مبيعات مرتبطة لا يمكن «تصفير» المنطقة — يجب <b>نقل</b> بياناتها إلى منطقة أخرى قبل الحذف.

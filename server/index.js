@@ -896,7 +896,26 @@ app.get('/api/sa/areas/:id/usage', requireSuperAdmin, async (req, res) => {
     const total = Object.values(usage).reduce((a, b) => a + b, 0);
     // sales (required FK) cannot be nulled → only a transfer can free the area.
     const blocking = sales > 0;
-    res.json({ success: true, area, usage, total, blocking });
+
+    // تفاصيل زيارات الصيدليات (مندوب + صيدلية) — ليعرف المدير قبل الحذف من زار
+    // ماذا بالضبط، بدل رقم مجرّد. لا يوجد طبيب على PharmacyVisit أصلاً (فقط اسم
+    // الصيدلية)، فلا داعي لجلب أي شيء متعلق بالأطباء هنا.
+    let pharmacyVisitDetails = [];
+    if (pharmacyVisits > 0) {
+      const visits = await prisma.pharmacyVisit.findMany({
+        where: { areaId: id, isActive: true },
+        select: { pharmacyName: true, visitDate: true, scientificRep: { select: { name: true } } },
+        orderBy: { visitDate: 'desc' },
+        take: 50,
+      });
+      pharmacyVisitDetails = visits.map(v => ({
+        repName: v.scientificRep?.name ?? null,
+        pharmacyName: v.pharmacyName,
+        visitDate: v.visitDate,
+      }));
+    }
+
+    res.json({ success: true, area, usage, total, blocking, pharmacyVisitDetails });
   } catch (err) {
     console.error('[area-usage]', err);
     res.status(500).json({ success: false, error: err.message });
