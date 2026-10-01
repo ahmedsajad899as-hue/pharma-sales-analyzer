@@ -2925,6 +2925,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // جدول محوري محافظة × شركة: أعمدة = الشركات، أسطر = المحافظات، كل خلية =
   // صافي (مبيع - ارجاع) تلك الشركة في تلك المحافظة. مبني من byProvinceCompany
   // بنفس منطق صافي renderNetTable (مفتاح موحَّد بين المبيع والارجاع).
+  // الأعمدة = شركات المكتب الرئيسية كلها (overallTeams، نفس شرائح «الشركة
+  // الرئيسية» الظاهرة أعلى الصفحة) — ثابتة دائماً بصرف النظر عمّن له مبيع في
+  // التقرير الحالي، فتظهر كل شركة بعمودها حتى لو صفراً («كل مدير شركة تظهر
+  // مبيعاته» — طلب صريح). الأسطر: محافظات لها صافي فعلي مع إحدى هذه الشركات.
   const buildProvinceCompanyPivot = () => {
     const EMPTY = { companies: [] as string[], companyTotals: [] as number[], rows: [] as { provinceName: string; cells: number[]; rowTotal: number }[], grandTotal: 0 };
     if (!overallSales) return EMPTY;
@@ -2935,38 +2939,28 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const retMap    = new Map(retRows.map(r => [rowKey(r), r]));
     const allKeys   = new Set([...salesRows.map(rowKey), ...retRows.map(rowKey)]);
 
-    // net لكل (محافظة، شركة) + إجمالي لكل محافظة ولكل شركة — لحساب الترتيب
-    // (الأكبر أولاً) قبل بناء مصفوفة الخلايا النهائية.
-    const netByKey = new Map<string, { provinceName: string; companyName: string; netValue: number }>();
-    const provinceTotal = new Map<string, number>();
-    const companyTotal  = new Map<string, number>();
+    const netByKey = new Map<string, number>(); // "pKey::cKey" → صافي
+    const provinceNames = new Map<string, string>(); // pKey → اسم للعرض
     for (const key of allKeys) {
       const s = salesMap.get(key), r = retMap.get(key);
-      const info = s ?? r!;
       const netValue = (s?.totalValue ?? 0) - (r?.totalValue ?? 0);
       if (netValue === 0) continue;
-      netByKey.set(key, { provinceName: info.provinceName, companyName: info.companyName, netValue });
-      const pKey = normReportName(info.provinceName), cKey = normReportName(info.companyName);
-      provinceTotal.set(pKey, (provinceTotal.get(pKey) ?? 0) + netValue);
-      companyTotal.set(cKey, (companyTotal.get(cKey) ?? 0) + netValue);
+      netByKey.set(key, netValue);
+      const pKey = key.split('::')[0];
+      provinceNames.set(pKey, (s ?? r)!.provinceName);
     }
 
-    const provinceNames = new Map<string, string>(); // normalized → عرض
-    const companyNames  = new Map<string, string>();
-    for (const { provinceName, companyName } of netByKey.values()) {
-      provinceNames.set(normReportName(provinceName), provinceName);
-      companyNames.set(normReportName(companyName), companyName);
-    }
-    const provinceOrder = [...provinceNames.keys()].sort((a, b) => (provinceTotal.get(b) ?? 0) - (provinceTotal.get(a) ?? 0));
-    const companyOrder  = [...companyNames.keys()].sort((a, b) => (companyTotal.get(b) ?? 0) - (companyTotal.get(a) ?? 0));
+    const companies   = overallTeams.map(t => t.name);
+    const companyKeys = companies.map(normReportName);
+    const provinceOrder = [...provinceNames.keys()];
 
     const rows = provinceOrder.map(pKey => {
-      const cells = companyOrder.map(cKey => netByKey.get(`${pKey}::${cKey}`)?.netValue ?? 0);
-      return { provinceName: provinceNames.get(pKey)!, cells, rowTotal: provinceTotal.get(pKey) ?? 0 };
-    });
-    const companies     = companyOrder.map(k => companyNames.get(k)!);
-    const companyTotals = companyOrder.map(k => companyTotal.get(k) ?? 0);
-    const grandTotal     = companyTotals.reduce((s, v) => s + v, 0);
+      const cells = companyKeys.map(cKey => netByKey.get(`${pKey}::${cKey}`) ?? 0);
+      const rowTotal = cells.reduce((s, v) => s + v, 0);
+      return { provinceName: provinceNames.get(pKey)!, cells, rowTotal };
+    }).sort((a, b) => b.rowTotal - a.rowTotal);
+    const companyTotals = companyKeys.map((_, ci) => rows.reduce((s, row) => s + row.cells[ci], 0));
+    const grandTotal = companyTotals.reduce((s, v) => s + v, 0);
     return { companies, companyTotals, rows, grandTotal };
   };
 
@@ -3729,48 +3723,48 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               if (rows.length === 0) {
                 return <div style={{ marginTop: 14, textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد بيانات شركات مطابَقة لعرضها محافظةً بمحافظة</div>;
               }
-              const pivotTh: React.CSSProperties = { padding: '9px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', top: 0, zIndex: 2, whiteSpace: 'nowrap', fontSize: 12 };
-              const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: 12.5 };
+              // تصميم رسمي صافٍ بطلب المستخدم: أبيض/أسود/رمادي فقط، بلا تدرّجات
+              // ألوان ولا شارات ولا انتقالات حركية — حدود رفيعة كاملة كجدول دفتر.
+              const BORDER = '1px solid #cbd5e1';
+              const pivotTh: React.CSSProperties = { padding: '9px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', position: 'sticky', top: 0, whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 700, border: BORDER };
+              const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: 12.5, color: '#111827', border: BORDER };
               return (
                 <div style={{ marginTop: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>صافي المبيع — محافظة × شركة</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>صافي المبيع — محافظة × شركة</span>
                     <button onClick={exportProvinceCompanyToExcel}
-                      style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #a7d7c5', background: '#f0fbf6', color: '#0d6b4f', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                      style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                     ><Icon name="export" size={12} /> تصدير Excel</button>
                   </div>
-                  <div style={{ maxHeight: '80vh', overflow: 'auto', border: '1px solid #e5e9ef', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+                  <div style={{ maxHeight: '80vh', overflow: 'auto', border: '1px solid #94a3b8' }}>
                     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <thead>
                         <tr>
-                          <th style={{ ...pivotTh, textAlign: 'right', right: 0, zIndex: 3 }}>المحافظة</th>
-                          {companies.map((c, ci) => {
-                            const [light, dark] = companyColorPair(ci);
-                            return <th key={c} style={{ ...pivotTh, background: `linear-gradient(135deg,${light},${dark})` }}>{c}</th>;
-                          })}
-                          <th style={{ ...pivotTh, background: '#334155' }}>الإجمالي</th>
+                          <th style={{ ...pivotTh, textAlign: 'right', right: 0 }}>المحافظة</th>
+                          {companies.map(c => <th key={c} style={pivotTh}>{c}</th>)}
+                          <th style={pivotTh}>الإجمالي</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map((row, ri) => (
-                          <tr key={row.provinceName} style={{ background: ri % 2 === 0 ? '#fff' : '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: '#1e293b', position: 'sticky', right: 0, background: ri % 2 === 0 ? '#fff' : '#f8fafc' }}>{row.provinceName}</td>
+                        {rows.map(row => (
+                          <tr key={row.provinceName}>
+                            <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#fff' }}>{row.provinceName}</td>
                             {row.cells.map((v, ci) => (
-                              <td key={ci} style={{ ...pivotTd, color: v !== 0 ? (v > 0 ? '#065f46' : '#991b1b') : '#d8dee6', fontWeight: v !== 0 ? 700 : 400 }}>
+                              <td key={ci} style={{ ...pivotTd, fontWeight: v !== 0 ? 700 : 400 }}>
                                 {v !== 0 ? fmtValSigned(v) : '—'}
                               </td>
                             ))}
-                            <td style={{ ...pivotTd, fontWeight: 800, color: row.rowTotal >= 0 ? '#065f46' : '#991b1b', background: '#eefaf4' }}>{fmtValSigned(row.rowTotal)}</td>
+                            <td style={{ ...pivotTd, fontWeight: 800, background: '#f8fafc' }}>{fmtValSigned(row.rowTotal)}</td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
-                        <tr style={{ background: '#334155' }}>
-                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, color: '#fff', position: 'sticky', right: 0, background: '#334155' }}>الإجمالي الكلي</td>
+                        <tr>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, position: 'sticky', right: 0, background: '#f1f5f9' }}>الإجمالي الكلي</td>
                           {companyTotals.map((v, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, color: '#e2e8f0' }}>{fmtValSigned(v)}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, background: '#f1f5f9' }}>{fmtValSigned(v)}</td>
                           ))}
-                          <td style={{ ...pivotTd, fontWeight: 900, color: '#fff', background: '#0d6b4f' }}>{fmtValSigned(grandTotal)}</td>
+                          <td style={{ ...pivotTd, fontWeight: 900, background: '#e2e8f0' }}>{fmtValSigned(grandTotal)}</td>
                         </tr>
                       </tfoot>
                     </table>
