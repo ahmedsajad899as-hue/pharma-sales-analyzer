@@ -2928,7 +2928,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // الأعمدة = شركات المكتب الرئيسية كلها (overallTeams، نفس شرائح «الشركة
   // الرئيسية» الظاهرة أعلى الصفحة) — ثابتة دائماً بصرف النظر عمّن له مبيع في
   // التقرير الحالي، فتظهر كل شركة بعمودها حتى لو صفراً («كل مدير شركة تظهر
-  // مبيعاته» — طلب صريح). الأسطر: محافظات لها صافي فعلي مع إحدى هذه الشركات.
+  // مبيعاته» — طلب صريح) — يليها أي اسم آخر ورد في البيانات ولم يُطابَق أي تيم
+  // («غير مصنّف» من الخادم)، كي يبقى مجموع كل سطر = صافي المحافظة الحقيقي ولا
+  // يختفي أي مبيع بصمت. الأسطر: كل محافظة لها صافي فعلي.
   const buildProvinceCompanyPivot = () => {
     const EMPTY = { companies: [] as string[], companyTotals: [] as number[], rows: [] as { provinceName: string; cells: number[]; rowTotal: number }[], grandTotal: 0 };
     if (!overallSales) return EMPTY;
@@ -2941,16 +2943,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
     const netByKey = new Map<string, number>(); // "pKey::cKey" → صافي
     const provinceNames = new Map<string, string>(); // pKey → اسم للعرض
+    const extraNames = new Map<string, string>();    // cKey ليس تيماً → اسم للعرض
+    const teamKeys = new Set(overallTeams.map(t => normReportName(t.name)));
     for (const key of allKeys) {
       const s = salesMap.get(key), r = retMap.get(key);
       const netValue = (s?.totalValue ?? 0) - (r?.totalValue ?? 0);
       if (netValue === 0) continue;
       netByKey.set(key, netValue);
-      const pKey = key.split('::')[0];
-      provinceNames.set(pKey, (s ?? r)!.provinceName);
+      const info = (s ?? r)!;
+      provinceNames.set(normReportName(info.provinceName), info.provinceName);
+      const cKey = normReportName(info.companyName);
+      if (!teamKeys.has(cKey)) extraNames.set(cKey, info.companyName);
     }
 
-    const companies   = overallTeams.map(t => t.name);
+    const companies   = [...overallTeams.map(t => t.name), ...extraNames.values()];
     const companyKeys = companies.map(normReportName);
     const provinceOrder = [...provinceNames.keys()];
 
@@ -3728,6 +3734,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const BORDER = '1px solid #cbd5e1';
               const pivotTh: React.CSSProperties = { padding: '9px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', position: 'sticky', top: 0, whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 700, border: BORDER };
               const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: 12.5, color: '#111827', border: BORDER };
+              // تحقّق ذاتي: مجموع الجدول يجب أن يساوي صافي كل المحافظات كما يحسبه
+              // الخادم مستقلاً (byProvince). فرق معتدّ به = مبيع ضاع في الطريق،
+              // يُعرض صراحةً بدل أن يظهر الجدول ناقصاً بلا تفسير.
+              const provinceNetTotal =
+                overallSales.byProvince.reduce((s, p) => s + p.totalValue, 0)
+                - (overallReturns?.byProvince ?? []).reduce((s, p) => s + p.totalValue, 0);
+              const coverageGap = provinceNetTotal - grandTotal;
               return (
                 <div style={{ marginTop: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -3769,6 +3782,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       </tfoot>
                     </table>
                   </div>
+                  {Math.abs(coverageGap) > 1 && (
+                    <div style={{ marginTop: 8, padding: '8px 12px', border: '1px solid #94a3b8', background: '#f8fafc', fontSize: 12, color: '#111827' }}>
+                      تنبيه: مجموع الجدول ({fmtValSigned(grandTotal)}) يقلّ عن صافي كل المحافظات ({fmtValSigned(provinceNetTotal)}) بمقدار {fmtValSigned(coverageGap)} — مبيع لم يُنسَب لأي شركة.
+                    </div>
+                  )}
                 </div>
               );
             })()}

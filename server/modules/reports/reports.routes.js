@@ -17,6 +17,9 @@ import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue } from '../../lib/provin
 
 const router = Router();
 
+/** عمود «غير مصنّف» في جدول محافظة × شركة: مبيع لم يُطابَق أي تيم مكتب. */
+const UNASSIGNED_COMPANY = 'غير مصنّف';
+
 /**
  * «تيمات» المكتب: كل حساب «مدير شركة» (company_manager) في نفس officeId
  * الطالب، باسم عرض = شركته الرئيسية، ومعرّفات كل شركاته العلمية (رئيسية
@@ -429,6 +432,7 @@ router.get('/overall', async (req, res) => {
         pr.totalValue    += val;
       }
 
+      let rowCompany = null; // الشركة المحسومة لهذا الصف — تُستعمل أدناه خارج هذا الفرع
       if (s.item) {
         const key = s.item.id;
         // Priority: DB company relation → scientificCompany relation → rawData column
@@ -447,23 +451,31 @@ router.get('/overall', async (req, res) => {
           cr.totalQuantity += qty;
           cr.totalValue    += val;
         }
-        // محافظة × شركة رئيسية — لجدول «كل المحافظات والشركات» حصراً. «الشركة»
-        // هنا = شرائح «الشركة الرئيسية» نفسها (officeTeams/overall-teams، كروب
-        // مدير الشركة) لا أي اسم شركة خام آخر — طلب صريح: يقتصر العمود على هذه
-        // القائمة بعينها (osel/Marcyrl/humanis/deva/CT…)، فايتم خارج كل تيمات
-        // المكتب يُستبعَد من هذا الجدول تماماً بدل أن يُضيف عموداً إضافياً باسمه
-        // الخام (كان يُغرق الجدول بعشرات الأعمدة غير ذات الصلة).
-        const teamName = (s.item.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null)
-          ?? (company ? companyNameToTeamName.get(company.key) : null)
-          ?? (company ? resolveTeamByLooseName(company.key) : null);
-        if (teamName && provinceName) {
-          const pcKey = `${provinceName}::${normalizeItemKey(teamName)}`;
-          if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: teamName, totalQuantity: 0, totalValue: 0 });
-          const pcr = provinceCompanyMap.get(pcKey);
-          pcr.totalQuantity += qty;
-          pcr.totalValue    += val;
-        }
+        rowCompany = company;
       }
+
+      // محافظة × شركة رئيسية — لجدول «كل المحافظات والشركات». «الشركة» هنا =
+      // شرائح «الشركة الرئيسية» نفسها (officeTeams، كروب مدير الشركة) لا اسم
+      // الشركة الخام لكل ايتم.
+      //
+      // ⚠️ ما لا يُطابق أي تيم لا يُحذف: يُجمَّع تحت UNASSIGNED_COMPANY. إسقاطه
+      // صامتاً كان يجعل مجموع كل محافظة أقل من مبيعها الحقيقي بلا تفسير («نقص
+      // بالمبيعات»)، ويُخفي تماماً أن شركةً ما لم تُطابَق أصلاً. ولهذا أيضاً
+      // يقع هذا التجميع خارج `if (s.item)`: شرطُ byProvince أعلاه هو
+      // provinceName وحده، فأي صف يُحتسب هناك ولا يُحتسب هنا يكسر التطابق
+      // ويُظهر الجدول ناقصاً. الشرطان الآن متطابقان حرفياً.
+      if (provinceName) {
+        const teamName = (s.item?.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null)
+          ?? (rowCompany ? companyNameToTeamName.get(rowCompany.key) : null)
+          ?? (rowCompany ? resolveTeamByLooseName(rowCompany.key) : null)
+          ?? UNASSIGNED_COMPANY;
+        const pcKey = `${provinceName}::${normalizeItemKey(teamName)}`;
+        if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: teamName, totalQuantity: 0, totalValue: 0 });
+        const pcr = provinceCompanyMap.get(pcKey);
+        pcr.totalQuantity += qty;
+        pcr.totalValue    += val;
+      }
+
       if (s.area) {
         const key = s.area.id;
         if (!areaMap.has(key)) areaMap.set(key, { areaName: s.area.name, totalQuantity: 0, totalValue: 0 });
