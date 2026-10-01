@@ -5160,7 +5160,8 @@ export default function DoctorsPage() {
                 // تعدد الشركات فعلاً («الكل») يبقى الخط الأصلي — عدد المندوبين
                 // هناك قد يتجاوز ما يسع الشاشة أياً كان حجم الخط، فلا فائدة من
                 // التصغير، ويبقى الخط الأصلي أوضح للقراءة.
-                const pivotRepTh: React.CSSProperties = (repsSummaryCompanyFilter.size > 0 || spans.length <= 1)
+                const isSingleCompanyPivot = repsSummaryCompanyFilter.size > 0 || spans.length <= 1;
+                const pivotRepTh: React.CSSProperties = isSingleCompanyPivot
                   ? {
                       ...pivotTh, top: 34, fontSize: 10, fontWeight: 600, lineHeight: 1.25,
                       whiteSpace: 'normal', wordBreak: 'break-word', padding: '6px 3px', maxWidth: 74,
@@ -5168,7 +5169,7 @@ export default function DoctorsPage() {
                   : { ...pivotTh, top: 34 };
                 return (
                   <div style={{ maxHeight: '68vh', overflow: 'auto', border: '1px solid var(--c-border)', borderRadius: 12 }}>
-                    <table style={{ borderCollapse: 'collapse', fontSize: 12.5 }}>
+                    <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: isSingleCompanyPivot ? '100%' : undefined }}>
                       <thead>
                         <tr>
                           <th rowSpan={2} style={{ ...pivotTh, textAlign: 'right', top: 0, right: 0, zIndex: 3 }}>اليوم</th>
