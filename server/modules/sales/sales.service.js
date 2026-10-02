@@ -26,6 +26,8 @@ import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks } from '../../lib/
 import { loadResolutionContext, resolveItemName, normalizeItemKey } from '../../lib/itemResolver.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
+import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
+import { getWarehouses } from '../stock-ledger/stock-ledger.repository.js';
 import { buildWarehouseGapWorkbook, parseWarehouseGapWorkbook } from '../../lib/warehouseGapTemplate.js';
 import { syncCommercialsForNewSales } from '../scientific-reps/scientific-reps.service.js';
 import { ExcelRowSchema } from './sales.dto.js';
@@ -1515,17 +1517,20 @@ export async function getWarehouseGapItemCatalog(userId) {
 }
 
 export async function getWarehouseGapScope(user) {
-  const [userCompanies, itemCatalog, roster] = await Promise.all([
+  const [userCompanies, itemCatalog, roster, ledgerWarehouses] = await Promise.all([
     prisma.userCompanyAssignment.findMany({ where: { userId: user.id }, select: { company: { select: { name: true } } } }),
     getWarehouseGapItemCatalog(user.id),
     getManagerRoster(user, { includeTeamLead: true }),
+    // قائمة مذاخر اقتراحية فقط (دفتر رصيد المذاخر) — لا تقييد، راجع buildWarehouseGapWorkbook.
+    resolveLedgerScope(user).then(({ readIds }) => readIds.length ? getWarehouses(readIds) : []).catch(() => []),
   ]);
 
   const companies = [...new Set(userCompanies.map(c => c.company?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
   const items = [...new Set(itemCatalog.map(i => i.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
   const reps = [...new Set(roster.reps.map(r => r.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+  const warehouses = [...new Set(ledgerWarehouses.map(w => w.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
 
-  return { reps, items, companies };
+  return { reps, items, companies, warehouses };
 }
 
 /**

@@ -7,9 +7,8 @@
 // استخدام نفس منطق الحل/الإنشاء والربط بالمندوبين والمناطق والايتمات بلا تكرار.
 //
 // البناء يستعمل exceljs (لا xlsx) لأن مكتبة xlsx (SheetJS CE) المستعملة في
-// باقي المشروع لا تكتب Data Validation — وهذا النموذج يحتاج قوائم منسدلة
-// حقيقية (اختيار لا كتابة) لأعمدة المندوب/الشركة/الايتم. القراءة عند الرفع
-// تبقى بمكتبة xlsx كسابقاً (قراءة عادية، لا علاقة لها بالتحقق).
+// باقي المشروع لا تكتب Data Validation ولا صيغاً حيّة (Formulas) — وهذا النموذج
+// يحتاج كليهما. القراءة عند الرفع تبقى بمكتبة xlsx كسابقاً.
 // ════════════════════════════════════════════════════════════════════════════
 
 import ExcelJS from 'exceljs';
@@ -18,32 +17,42 @@ import * as XLSX from 'xlsx';
 export const DATA_SHEET = 'البيانات';
 const INSTR_SHEET = 'تعليمات';
 const REF_SHEET   = 'القوائم المرجعية';
+const MAX_ROWS    = 300; // عدد صفوف البيانات المدعومة بالقوائم المنسدلة والصيغة التلقائية
 
-// ترتيب وتسميات أعمدة تبويب البيانات — ثابتة، يعتمد عليها القارئ أدناه.
-const HEADERS = [
-  'التاريخ', 'اسم الصيدلية', 'المنطقة', 'المندوب', 'الشركة', 'الايتم',
-  'الكمية', 'سعر الوحدة (اختياري)', 'القيمة الإجمالية (اختياري)', 'اسم المذخر', 'رقم الفاتورة', 'ملاحظات',
-];
-// فهرس أعمدة تحتاج قائمة منسدلة (1-based، كما تتوقعه exceljs) + اسم عمودها بتبويب القوائم المرجعية
-const DROPDOWN_COLS = [
-  { col: 4, refCol: 'A', label: 'المندوب' },  // المندوب
-  { col: 5, refCol: 'B', label: 'الشركة' },   // الشركة
-  { col: 6, refCol: 'C', label: 'الايتم' },   // الايتم
-];
-const MAX_ROWS = 300; // عدد صفوف البيانات المدعومة بالقائمة المنسدلة
+// صفوف اليوم (1-31) كقائمة منسدلة مُضمَّنة — لا حاجة لنطاق مرجعي لهذه فقط.
+const DAY_LIST_FORMULA = `"${Array.from({ length: 31 }, (_, i) => i + 1).join(',')}"`;
 
 function normalizeHeader(s) {
   return String(s ?? '').trim().replace(/\s+/g, ' ');
 }
+// يُزيل أي ملاحظة بين قوسين من آخر الترويسة ("اليوم (شهر 10/2026)" → "اليوم")
+// كي تبقى مطابقة الأعمدة عند القراءة غير مرتبطة بنص الملاحظة الديناميكي.
+function headerKey(s) {
+  return normalizeHeader(s).replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
 
 /**
- * يبني ملف إكسل (Buffer) مخصّصاً لمستخدم واحد — أعمدة المندوب/الشركة/الايتم
- * قوائم منسدلة حقيقية (اختيار فقط، الكتابة اليدوية تُرفض بخطأ Excel) مبنية من
- * تبويب "القوائم المرجعية" المملوء بنطاق ذلك المستخدم.
- * @param {{ reps: string[], items: string[], companies: string[] }} scope
+ * يبني ملف إكسل (Buffer) مخصّصاً لمستخدم واحد:
+ *   - المندوب/الشركة/الايتم: قوائم منسدلة صارمة (اختيار فقط، الكتابة اليدوية تُرفض).
+ *   - اليوم: قائمة منسدلة سريعة 1-31 (الشهر مكتوب في الترويسة)، مع السماح بكتابة
+ *     تاريخ كامل بدلاً منها لمبيعة من شهر آخر.
+ *   - المذخر: قائمة منسدلة من مذاخر دفتر "رصيد المذاخر" الخاص بالمستخدم، مع
+ *     السماح بكتابة اسم مختلف غير موجود فيها (قائمة اقتراح لا تقييد).
+ *   - القيمة الإجمالية: صيغة حيّة = الكمية × سعر الوحدة، تتحدّث تلقائياً.
+ * @param {{ reps: string[], items: string[], companies: string[], warehouses?: string[] }} scope
  * @returns {Promise<Buffer>}
  */
-export async function buildWarehouseGapWorkbook({ reps = [], items = [], companies = [] }) {
+export async function buildWarehouseGapWorkbook({ reps = [], items = [], companies = [], warehouses = [] }) {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const monthLabel = now.toLocaleDateString('ar-IQ', { month: 'long', year: 'numeric' });
+
+  const HEADERS = [
+    `اليوم (شهر ${mm}/${yyyy})`, 'اسم الصيدلية', 'المنطقة', 'المندوب', 'الشركة', 'الايتم',
+    'الكمية', 'سعر الوحدة (اختياري)', 'القيمة الإجمالية (تُحسب تلقائياً)', 'اسم المذخر', 'رقم الفاتورة', 'ملاحظات',
+  ];
+
   const wb = new ExcelJS.Workbook();
 
   // ── 1) تبويب البيانات ──
@@ -51,24 +60,27 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
   dataSheet.addRow(HEADERS);
   dataSheet.getRow(1).font = { bold: true };
   dataSheet.columns = [
-    { width: 12 }, { width: 24 }, { width: 16 }, { width: 20 }, { width: 20 }, { width: 24 },
-    { width: 10 }, { width: 16 }, { width: 18 }, { width: 16 }, { width: 14 }, { width: 24 },
+    { width: 16 }, { width: 24 }, { width: 16 }, { width: 20 }, { width: 20 }, { width: 24 },
+    { width: 10 }, { width: 16 }, { width: 20 }, { width: 18 }, { width: 14 }, { width: 24 },
   ];
 
   // ── 2) تبويب القوائم المرجعية — مصدر القوائم المنسدلة ──
   const refSheet = wb.addWorksheet(REF_SHEET, { views: [{ rightToLeft: true }] });
-  refSheet.addRow(['المندوب', 'الشركة', 'الايتم']);
+  refSheet.addRow(['المندوب', 'الشركة', 'الايتم', 'المذخر']);
   refSheet.getRow(1).font = { bold: true };
-  const maxLen = Math.max(reps.length, items.length, companies.length, 1);
+  const maxLen = Math.max(reps.length, items.length, companies.length, warehouses.length, 1);
   for (let i = 0; i < maxLen; i++) {
-    refSheet.addRow([reps[i] ?? '', companies[i] ?? '', items[i] ?? '']);
+    refSheet.addRow([reps[i] ?? '', companies[i] ?? '', items[i] ?? '', warehouses[i] ?? '']);
   }
-  refSheet.columns = [{ width: 22 }, { width: 22 }, { width: 26 }];
+  refSheet.columns = [{ width: 22 }, { width: 22 }, { width: 26 }, { width: 22 }];
 
-  // ── قوائم منسدلة حقيقية على تبويب البيانات (اختيار فقط) ──
-  const lists = { A: reps, B: companies, C: items };
-  for (const { col, refCol, label } of DROPDOWN_COLS) {
-    const len = lists[refCol].length;
+  // ── قوائم منسدلة صارمة (اختيار فقط) على المندوب/الشركة/الايتم ──
+  const strictCols = [
+    { col: 4, refCol: 'A', len: reps.length, label: 'المندوب' },
+    { col: 5, refCol: 'B', len: companies.length, label: 'الشركة' },
+    { col: 6, refCol: 'C', len: items.length, label: 'الايتم' },
+  ];
+  for (const { col, refCol, len, label } of strictCols) {
     if (len === 0) continue; // لا قائمة متاحة لهذا المستخدم — يبقى العمود نصاً حراً كاحتياط
     const formula = `'${REF_SHEET}'!$${refCol}$2:$${refCol}$${len + 1}`;
     for (let r = 2; r <= MAX_ROWS + 1; r++) {
@@ -84,6 +96,26 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
     }
   }
 
+  // ── قوائم منسدلة مرنة (اقتراح لا تقييد — اختيار أو كتابة شيء مختلف) ──
+  // اليوم (عمود 1): قائمة 1-31 مُضمَّنة، بلا نطاق مرجعي.
+  for (let r = 2; r <= MAX_ROWS + 1; r++) {
+    dataSheet.getCell(r, 1).dataValidation = { type: 'list', allowBlank: true, formulae: [DAY_LIST_FORMULA] };
+  }
+  // المذخر (عمود 10): قائمة من دفتر رصيد المذاخر إن وُجدت.
+  if (warehouses.length > 0) {
+    const formula = `'${REF_SHEET}'!$D$2:$D$${warehouses.length + 1}`;
+    for (let r = 2; r <= MAX_ROWS + 1; r++) {
+      dataSheet.getCell(r, 10).dataValidation = { type: 'list', allowBlank: true, formulae: [formula] };
+    }
+  }
+
+  // ── صيغة حيّة: القيمة الإجمالية (عمود 9) = الكمية (G) × سعر الوحدة (H) ──
+  // تظهر فارغة ما لم يُدخَل الحقلان معاً، وتتحدّث تلقائياً مع أي تعديل رقمي —
+  // بلا حاجة لأي حساب يدوي من المستخدم.
+  for (let r = 2; r <= MAX_ROWS + 1; r++) {
+    dataSheet.getCell(r, 9).value = { formula: `IF(AND(G${r}<>"",H${r}<>""),G${r}*H${r},"")` };
+  }
+
   // ── 3) تبويب التعليمات ──
   const instrSheet = wb.addWorksheet(INSTR_SHEET, { views: [{ rightToLeft: true }] });
   const instrRows = [
@@ -92,18 +124,31 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
     ['1', 'هذا الملف خاص بك: يحتوي فقط على شركاتك وايتماتك المعيّنة وأسماء مندوبي فريقك.'],
     ['2', 'استخدمه لتسجيل مبيعات صيدليات تمّت فعلاً عبر أحد المذاخر، لكنها لم تظهر ضمن ملف ميركاتو.'],
     ['3', 'في تبويب "' + DATA_SHEET + '" — صف واحد = عملية بيع واحدة. لا تُغيّر أسماء الأعمدة أو ترتيبها.'],
-    ['4', 'أعمدة المندوب والشركة والايتم قوائم منسدلة — اضغط على الخلية واختر منها، لا تكتب فيها يدوياً.'],
-    ['5', 'اترك "سعر الوحدة" و"القيمة الإجمالية" فارغين إن لم تعرفهما — سيستخدم التطبيق سعر المذخر المسجَّل لهذا الايتم تلقائياً عند الحفظ.'],
-    ['6', 'إن لم يكن للايتم سعر مذخر مسجَّل عند التطبيق، سيُطلب منك إدخال السعر يدوياً قبل الحفظ (تنبيه يظهر بعد الرفع).'],
-    ['7', 'الحقول الإلزامية: التاريخ، اسم الصيدلية، المندوب، الايتم، الكمية.'],
-    ['8', 'بعد التعبئة احفظ الملف وارفعه من نفس الشاشة التي حمّلت منها هذا النموذج.'],
-    ['9', 'ستُحتسب هذه المبيعات تلقائياً ضمن مبيعات ميركاتو في كل التقارير بعد الرفع — لا حاجة لأي خطوة إضافية.'],
+    ['4', 'أعمدة المندوب والشركة والايتم قوائم منسدلة إلزامية — اضغط على الخلية واختر منها، لا تكتب فيها يدوياً.'],
+    ['5', `عمود "اليوم": اختر رقم اليوم فقط من القائمة (1-31) — الشهر ${monthLabel} مكتوب تلقائياً في عنوان العمود. لمبيعة من شهر آخر، اكتب تاريخاً كاملاً بصيغة YYYY-MM-DD في نفس الخانة بدل اختيار يوم.`],
+    ['6', 'عمود "اسم المذخر": قائمة اقتراحية من مذاخرك المسجَّلة في رصيد المذاخر — يمكن اختيار أحدها أو كتابة اسم مختلف إن كان المذخر غير مُدرَج.'],
+    ['7', 'اترك "سعر الوحدة" فارغاً إن لم تعرفه — يُستكمل تلقائياً من سعر المذخر المسجَّل لهذا الايتم عند الحفظ. إن أدخلته، يظهر "القيمة الإجمالية" تلقائياً (الكمية × السعر) بلا حاجة لحسابه يدوياً.'],
+    ['8', 'إن لم يكن للايتم سعر مذخر مسجَّل عند التطبيق ولم تُدخل سعراً، سيُطلب منك إدخال السعر يدوياً قبل الحفظ (تنبيه يظهر بعد الرفع).'],
+    ['9', 'الحقول الإلزامية: اليوم، اسم الصيدلية، المندوب، الايتم، الكمية.'],
+    ['10', 'بعد التعبئة احفظ الملف وارفعه من نفس الشاشة التي حمّلت منها هذا النموذج — ستُحتسب هذه المبيعات تلقائياً ضمن ميركاتو في كل التقارير.'],
   ];
   instrSheet.addRows(instrRows);
   instrSheet.columns = [{ width: 4 }, { width: 100 }];
 
   const arrayBuffer = await wb.xlsx.writeBuffer();
   return Buffer.from(arrayBuffer);
+}
+
+/** يحوّل قيمة خانة "اليوم" إلى تاريخ: رقم يوم (1-31) يُركَّب مع شهر/سنة الترويسة،
+ * أو أي قيمة أخرى (تاريخ كامل مكتوب، أو رقم تسلسلي من إكسل) تمر كما هي لتُفسَّر
+ * لاحقاً عبر parseExcelDate (sales.service.js) الذي يفهم كلا الشكلين أصلاً. */
+function resolveDayCell(raw, year, month) {
+  if (raw === null || raw === undefined || raw === '') return undefined;
+  const asDay = Number(raw);
+  if (Number.isInteger(asDay) && asDay >= 1 && asDay <= 31 && String(raw).trim().length <= 2) {
+    return new Date(Date.UTC(year, month - 1, asDay));
+  }
+  return raw;
 }
 
 /**
@@ -124,11 +169,20 @@ export function parseWarehouseGapWorkbook(buffer) {
   const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
   if (raw.length < 1) return { rows: [], warnings: ['الملف فارغ.'] };
 
-  const headerRow = raw[0].map(h => normalizeHeader(h).replace(/\s*\(اختياري\)\s*$/, ''));
+  const headerRowRaw = raw[0];
+  const headerRow = headerRowRaw.map(headerKey);
   const colIdx = name => headerRow.findIndex(h => h === name);
 
+  // الشهر/السنة المضمَّنان في ترويسة عمود اليوم، مثل "اليوم (شهر 10/2026)".
+  const dayHeaderIdx = colIdx('اليوم');
+  let ymYear = new Date().getFullYear(), ymMonth = new Date().getMonth() + 1;
+  if (dayHeaderIdx !== -1) {
+    const m = normalizeHeader(headerRowRaw[dayHeaderIdx]).match(/شهر\s*(\d{1,2})\s*\/\s*(\d{4})/);
+    if (m) { ymMonth = parseInt(m[1], 10); ymYear = parseInt(m[2], 10); }
+  }
+
   const idx = {
-    date:          colIdx('التاريخ'),
+    date:          dayHeaderIdx,
     pharmacy:      colIdx('اسم الصيدلية'),
     area:          colIdx('المنطقة'),
     repName:       colIdx('المندوب'),
@@ -172,7 +226,7 @@ export function parseWarehouseGapWorkbook(buffer) {
       pharmacy:      idx.pharmacy      !== -1 ? (String(r[idx.pharmacy]      ?? '').trim() || undefined) : undefined,
       warehouse:     idx.warehouse     !== -1 ? (String(r[idx.warehouse]     ?? '').trim() || undefined) : undefined,
       area:          idx.area          !== -1 ? (String(r[idx.area]         ?? '').trim() || undefined) : undefined,
-      date:          idx.date          !== -1 ? (r[idx.date] || undefined) : undefined,
+      date:          idx.date          !== -1 ? resolveDayCell(r[idx.date], ymYear, ymMonth) : undefined,
       invoiceNumber: idx.invoiceNumber !== -1 ? (String(r[idx.invoiceNumber] ?? '').trim() || undefined) : undefined,
       notes:         idx.notes         !== -1 ? (String(r[idx.notes]        ?? '').trim() || undefined) : undefined,
     });

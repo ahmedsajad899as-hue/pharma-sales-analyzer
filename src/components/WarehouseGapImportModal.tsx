@@ -80,7 +80,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
       const parsed: any[] = j.data?.rows ?? [];
       setWarnings(j.data?.warnings ?? []);
       setRows(parsed.map(r => ({
-        date: String(r.date ?? ''), pharmacy: String(r.pharmacy ?? ''), area: String(r.area ?? ''),
+        date: String(r.date ?? '').slice(0, 10), pharmacy: String(r.pharmacy ?? ''), area: String(r.area ?? ''),
         repName: String(r.repName ?? ''), company: String(r.company ?? ''), item: String(r.item ?? ''),
         quantity: r.quantity != null ? String(num(r.quantity)) : '',
         unitPrice: r.unitPrice != null ? String(num(r.unitPrice)) : '',
@@ -267,9 +267,11 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
 
         <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b', lineHeight: 1.7 }}>
           مبيعات صيدليات تمّت فعلاً عبر أحد المذاخر لكنها لم توثَّق ضمن ملف ميركاتو. حمّل نموذج الإكسل الخاص بك
-          (مبني على شركاتك وايتماتك وأسماء فريقك — المندوب والشركة والايتم قوائم منسدلة جاهزة للاختيار)، املأه، ثم
-          ارفعه هنا. اترك السعر فارغاً إن لم تعرفه — يُستكمل تلقائياً من سعر المذخر المسجَّل لكل ايتم. ستُحتسب هذه
-          المبيعات تلقائياً ضمن ميركاتو في كل التقارير.
+          (مبني على شركاتك وايتماتك وأسماء فريقك). في الملف: المندوب والشركة والايتم قوائم منسدلة جاهزة للاختيار،
+          اليوم يُختار برقم فقط (1-31، الشهر مكتوب بعنوان العمود)، المذخر قائمة اقتراحية يمكن تجاوزها بالكتابة،
+          والقيمة الإجمالية تُحسب وتتحدّث تلقائياً داخل الملف بمجرد إدخال الكمية والسعر. اترك السعر فارغاً إن لم
+          تعرفه — يُستكمل تلقائياً من سعر المذخر المسجَّل لكل ايتم. ستُحتسب هذه المبيعات تلقائياً ضمن ميركاتو في كل
+          التقارير.
         </p>
 
         <div style={topBar}>
