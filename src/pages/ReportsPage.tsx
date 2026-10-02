@@ -4468,24 +4468,29 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               ) : !allRepsWarehouseData || allRepsWarehouseData.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا يوجد مندوبون علميون بيانات</div>
               ) : warehouseViewMode === 'list' ? (() => {
-                const { cols, spans } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders);
+                const { cols } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders);
                 const companyById = new Map(sciReps.map(r => [r.id, r.company || '']));
-                // نفس لون شركة العمود بالجدول المحوري — يسهل ربط الشركة بين الشكلين
-                const companyColorByName = new Map(spans.map((s, si) => [s.company, companyColorPair(si)[1]]));
                 if (cols.length === 0) {
                   return <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>{warehouseShowLeaders ? 'لا يوجد قادة فرق' : 'لا يوجد مندوبون'}</div>;
                 }
+                // تصميم رسمي صافٍ (مطابق لجدول «مذخر × مندوب» المحوري وجدول «صافي
+                // المبيع — محافظة × شركة»): أبيض/أسود/رمادي فقط، بلا تدرّجات ألوان
+                // ولا شارات شركة ملوَّنة — حدود رفيعة كاملة كجدول دفتر. القيمة
+                // السالبة وحدها تُميَّز بخلفية حمراء شفافة (نفس اصطلاح الجداول
+                // الأخرى)، لا بلونَي تيل/برتقالي كما كان سابقاً.
+                const BORDER = '1px solid #cbd5e1';
+                const listTh: React.CSSProperties = { padding: '9px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', fontWeight: 700, border: BORDER, position: 'sticky', top: 0, zIndex: 1 };
+                const listTd: React.CSSProperties = { padding: '8px 10px', textAlign: 'center', color: '#111827', border: BORDER };
                 return (
-                <div style={{ maxHeight: '65vh', overflowY: 'auto', border: '1px solid #e5e9ef', borderRadius: 12 }}>
+                <div style={{ maxHeight: '65vh', overflowY: 'auto', border: '1px solid #94a3b8' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
                       <tr>
                         {['#', 'المندوب العلمي', 'صافي المبيع', 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', ''].map((h, hi) => (
                           <th key={hi} style={{
-                            padding: '10px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc',
-                            textAlign: hi === 1 ? 'right' : 'center', fontWeight: 700, letterSpacing: '.2px',
+                            ...listTh,
+                            textAlign: hi === 1 ? 'right' : 'center',
                             width: hi === 0 ? 34 : hi === 6 ? 30 : undefined,
-                            position: 'sticky', top: 0, zIndex: 1,
                           }}>{h}</th>
                         ))}
                       </tr>
@@ -4494,35 +4499,33 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       {cols.map((r, i) => {
                         const isExpanded = expandedWarehouseRepId === r.id;
                         const company = companyById.get(r.id);
+                        const rowBg = i % 2 === 0 ? '#fff' : '#f8fafc';
                         return (
                           <Fragment key={r.id}>
-                            <tr
-                              onClick={() => setExpandedWarehouseRepId(isExpanded ? null : r.id)}
-                              style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', cursor: 'pointer', borderBottom: isExpanded ? 'none' : '1px solid #f1f5f9' }}
-                            >
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#b0b8c4' }}>{i + 1}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#334155' }}>
+                            <tr onClick={() => setExpandedWarehouseRepId(isExpanded ? null : r.id)} style={{ cursor: 'pointer' }}>
+                              <td style={{ ...listTd, background: rowBg, color: '#64748b' }}>{i + 1}</td>
+                              <td style={{ ...listTd, textAlign: 'right', fontWeight: 700, background: rowBg }}>
                                 {r.name}
-                                {company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 700, background: '#f1f3f7', color: companyColorByName.get(company) || '#64748b', borderRadius: 10, padding: '1px 8px' }}>{company}</span>}
+                                {company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#334155', border: BORDER, borderRadius: 4, padding: '1px 8px' }}>{company}</span>}
                               </td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 800, color: r.netValue >= 0 ? '#0d9488' : '#c2410c' }}>{fmtValSigned(r.netValue)}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#3b6fd6', fontWeight: 600 }}>{fmt(r.officeOrderCount)}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#3b6fd6', fontWeight: 600 }}>{fmt(r.warehouseOrderCount)}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#0d6b4f', fontWeight: 800, background: '#eefaf4' }}>{fmt(r.officeOrderCount + r.warehouseOrderCount)}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#b0b8c4', fontSize: 11 }}>{isExpanded ? '▲' : '▼'}</td>
+                              <td style={{ ...listTd, fontWeight: 800, background: r.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : rowBg }}>{fmtValSigned(r.netValue)}</td>
+                              <td style={{ ...listTd, fontWeight: 600, background: rowBg }}>{r.officeOrderCount > 0 ? fmt(r.officeOrderCount) : ''}</td>
+                              <td style={{ ...listTd, fontWeight: 600, background: rowBg }}>{r.warehouseOrderCount > 0 ? fmt(r.warehouseOrderCount) : ''}</td>
+                              <td style={{ ...listTd, fontWeight: 800, background: '#f1f5f9' }}>{fmt(r.officeOrderCount + r.warehouseOrderCount)}</td>
+                              <td style={{ ...listTd, color: '#94a3b8', fontSize: 11, background: rowBg }}>{isExpanded ? '▲' : '▼'}</td>
                             </tr>
                             {isExpanded && (
-                              <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td colSpan={7} style={{ background: '#f8fafc', padding: '10px 16px' }}>
+                              <tr>
+                                <td colSpan={7} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
                                   {r.warehouses.length === 0 ? (
                                     <span style={{ color: '#94a3b8', fontSize: 12 }}>لا توجد طلبيات عبر مذاخر لهذا المندوب</span>
                                   ) : (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                                       {r.warehouses.map((w, wi) => (
-                                        <span key={wi} style={{ background: '#eef2f9', border: '1px solid #dce3ee', borderRadius: 6, padding: '4px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                          <strong style={{ color: '#334155' }}>{w.name}</strong>
-                                          <span style={{ color: '#3b6fd6', fontWeight: 800 }}>{fmt(w.orderCount)}</span>
-                                          <span style={{ color: '#0d9488', fontWeight: 700 }}>{fmtValSigned(w.value)}</span>
+                                        <span key={wi} style={{ background: w.value < 0 ? 'rgba(239, 68, 68, 0.12)' : '#fff', border: BORDER, borderRadius: 4, padding: '4px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                          <strong style={{ color: '#111827' }}>{w.name}</strong>
+                                          <span style={{ color: '#111827', fontWeight: 800 }}>{fmt(w.orderCount)}</span>
+                                          <span style={{ color: '#111827', fontWeight: 700 }}>{fmtValSigned(w.value)}</span>
                                         </span>
                                       ))}
                                     </div>
@@ -4585,7 +4588,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                               background: ri % 2 === 0 ? '#fff' : '#f8fafc',
                             }}>{row.name}</td>
                             {row.cells.map((c, ci) => (
-                              <td key={ci} style={{ ...pivotTd, background: ri % 2 === 0 ? '#fff' : '#f8fafc', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? fmt(c) : '—'}</td>
+                              <td key={ci} style={{ ...pivotTd, background: ri % 2 === 0 ? '#fff' : '#f8fafc', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? fmt(c) : ''}</td>
                             ))}
                             <td style={{ ...pivotTd, fontWeight: 800, background: '#f8fafc' }}>{fmt(row.total)}</td>
                             <td style={{ ...pivotTd, fontWeight: 800, background: '#f8fafc' }}>{fmtValSigned(row.valueTotal)}</td>
@@ -4595,7 +4598,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         <tr>
                           <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#f1f5f9' }}>إجمالي المكتب</td>
                           {cols.map((c, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, background: '#f1f5f9' }}>{c.officeOrderCount > 0 ? fmt(c.officeOrderCount) : '—'}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, background: '#f1f5f9' }}>{c.officeOrderCount > 0 ? fmt(c.officeOrderCount) : ''}</td>
                           ))}
                           <td style={{ ...pivotTd, fontWeight: 800, background: '#e2e8f0' }}>{fmt(officeGrand)}</td>
                           <td style={{ ...pivotTd, background: '#f1f5f9' }}></td>
@@ -4603,7 +4606,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         <tr>
                           <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#f1f5f9' }}>إجمالي المذاخر</td>
                           {cols.map((c, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, background: '#f1f5f9' }}>{c.warehouseOrderCount > 0 ? fmt(c.warehouseOrderCount) : '—'}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 700, background: '#f1f5f9' }}>{c.warehouseOrderCount > 0 ? fmt(c.warehouseOrderCount) : ''}</td>
                           ))}
                           <td style={{ ...pivotTd, fontWeight: 800, background: '#e2e8f0' }}>{fmt(warehouseGrand)}</td>
                           <td style={{ ...pivotTd, background: '#f1f5f9' }}></td>
