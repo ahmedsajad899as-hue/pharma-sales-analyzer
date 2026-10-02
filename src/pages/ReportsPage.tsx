@@ -3765,7 +3765,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                     ><Icon name="export" size={12} /> تصدير Excel</button>
                   </div>
-                  <div style={{ maxHeight: '80vh', overflow: 'auto', border: '1px solid #94a3b8' }}>
+                  {/* بلا قيد ارتفاع ولا تمرير داخلي بطلب صريح: عدد المحافظات ثابت
+                      وقليل (≤19)، فالجدول كاملاً + سطر الإجمالي يظهران دفعة واحدة
+                      بلا حاجة للنزول. overflowX وحده يبقى للشاشات الضيقة. */}
+                  <div style={{ overflowX: 'auto', border: '1px solid #94a3b8' }}>
                     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <thead>
                         <tr>
