@@ -5,68 +5,105 @@
 // عند إعادة رفعه بنفس ترتيب الأعمدة الثابت الذي يُنشئه buildWarehouseGapWorkbook.
 // الصفوف الناتجة بنفس شكل صفوف insertManualSales (sales.service.js) لإعادة
 // استخدام نفس منطق الحل/الإنشاء والربط بالمندوبين والمناطق والايتمات بلا تكرار.
+//
+// البناء يستعمل exceljs (لا xlsx) لأن مكتبة xlsx (SheetJS CE) المستعملة في
+// باقي المشروع لا تكتب Data Validation — وهذا النموذج يحتاج قوائم منسدلة
+// حقيقية (اختيار لا كتابة) لأعمدة المندوب/الشركة/الايتم. القراءة عند الرفع
+// تبقى بمكتبة xlsx كسابقاً (قراءة عادية، لا علاقة لها بالتحقق).
 // ════════════════════════════════════════════════════════════════════════════
 
+import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
 
-export const DATA_SHEET  = 'البيانات';
-const INSTR_SHEET  = 'تعليمات';
-const REF_SHEET    = 'القوائم المرجعية';
+export const DATA_SHEET = 'البيانات';
+const INSTR_SHEET = 'تعليمات';
+const REF_SHEET   = 'القوائم المرجعية';
 
 // ترتيب وتسميات أعمدة تبويب البيانات — ثابتة، يعتمد عليها القارئ أدناه.
 const HEADERS = [
   'التاريخ', 'اسم الصيدلية', 'المنطقة', 'المندوب', 'الشركة', 'الايتم',
-  'الكمية', 'سعر الوحدة', 'القيمة الإجمالية', 'اسم المذخر', 'رقم الفاتورة', 'ملاحظات',
+  'الكمية', 'سعر الوحدة (اختياري)', 'القيمة الإجمالية (اختياري)', 'اسم المذخر', 'رقم الفاتورة', 'ملاحظات',
 ];
+// فهرس أعمدة تحتاج قائمة منسدلة (1-based، كما تتوقعه exceljs) + اسم عمودها بتبويب القوائم المرجعية
+const DROPDOWN_COLS = [
+  { col: 4, refCol: 'A', label: 'المندوب' },  // المندوب
+  { col: 5, refCol: 'B', label: 'الشركة' },   // الشركة
+  { col: 6, refCol: 'C', label: 'الايتم' },   // الايتم
+];
+const MAX_ROWS = 300; // عدد صفوف البيانات المدعومة بالقائمة المنسدلة
 
 function normalizeHeader(s) {
   return String(s ?? '').trim().replace(/\s+/g, ' ');
 }
 
 /**
- * يبني ملف إكسل (Buffer) مخصّصاً لمستخدم واحد.
+ * يبني ملف إكسل (Buffer) مخصّصاً لمستخدم واحد — أعمدة المندوب/الشركة/الايتم
+ * قوائم منسدلة حقيقية (اختيار فقط، الكتابة اليدوية تُرفض بخطأ Excel) مبنية من
+ * تبويب "القوائم المرجعية" المملوء بنطاق ذلك المستخدم.
  * @param {{ reps: string[], items: string[], companies: string[] }} scope
- * @returns {Buffer}
+ * @returns {Promise<Buffer>}
  */
-export function buildWarehouseGapWorkbook({ reps = [], items = [], companies = [] }) {
-  const wb = XLSX.utils.book_new();
+export async function buildWarehouseGapWorkbook({ reps = [], items = [], companies = [] }) {
+  const wb = new ExcelJS.Workbook();
 
-  // ── 1) تبويب البيانات — فارغ عدا الترويسة، هو ما يُقرأ عند الرفع ──
-  const dataSheet = XLSX.utils.aoa_to_sheet([HEADERS]);
-  dataSheet['!cols'] = [
-    { wch: 12 }, { wch: 24 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 24 },
-    { wch: 10 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 24 },
+  // ── 1) تبويب البيانات ──
+  const dataSheet = wb.addWorksheet(DATA_SHEET, { views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }] });
+  dataSheet.addRow(HEADERS);
+  dataSheet.getRow(1).font = { bold: true };
+  dataSheet.columns = [
+    { width: 12 }, { width: 24 }, { width: 16 }, { width: 20 }, { width: 20 }, { width: 24 },
+    { width: 10 }, { width: 16 }, { width: 18 }, { width: 16 }, { width: 14 }, { width: 24 },
   ];
-  XLSX.utils.book_append_sheet(wb, dataSheet, DATA_SHEET);
 
-  // ── 2) تبويب التعليمات ──
+  // ── 2) تبويب القوائم المرجعية — مصدر القوائم المنسدلة ──
+  const refSheet = wb.addWorksheet(REF_SHEET, { views: [{ rightToLeft: true }] });
+  refSheet.addRow(['المندوب', 'الشركة', 'الايتم']);
+  refSheet.getRow(1).font = { bold: true };
+  const maxLen = Math.max(reps.length, items.length, companies.length, 1);
+  for (let i = 0; i < maxLen; i++) {
+    refSheet.addRow([reps[i] ?? '', companies[i] ?? '', items[i] ?? '']);
+  }
+  refSheet.columns = [{ width: 22 }, { width: 22 }, { width: 26 }];
+
+  // ── قوائم منسدلة حقيقية على تبويب البيانات (اختيار فقط) ──
+  const lists = { A: reps, B: companies, C: items };
+  for (const { col, refCol, label } of DROPDOWN_COLS) {
+    const len = lists[refCol].length;
+    if (len === 0) continue; // لا قائمة متاحة لهذا المستخدم — يبقى العمود نصاً حراً كاحتياط
+    const formula = `'${REF_SHEET}'!$${refCol}$2:$${refCol}$${len + 1}`;
+    for (let r = 2; r <= MAX_ROWS + 1; r++) {
+      dataSheet.getCell(r, col).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [formula],
+        showErrorMessage: true,
+        errorStyle: 'error',
+        errorTitle: 'قيمة غير متاحة',
+        error: `اختر ${label} من القائمة المنسدلة فقط — لا تتم الكتابة يدوياً.`,
+      };
+    }
+  }
+
+  // ── 3) تبويب التعليمات ──
+  const instrSheet = wb.addWorksheet(INSTR_SHEET, { views: [{ rightToLeft: true }] });
   const instrRows = [
     ['تعليمات تعبئة نموذج مبيعات المذاخر الناقصة من ميركاتو'],
     [''],
     ['1', 'هذا الملف خاص بك: يحتوي فقط على شركاتك وايتماتك المعيّنة وأسماء مندوبي فريقك.'],
     ['2', 'استخدمه لتسجيل مبيعات صيدليات تمّت فعلاً عبر أحد المذاخر، لكنها لم تظهر ضمن ملف ميركاتو.'],
     ['3', 'في تبويب "' + DATA_SHEET + '" — صف واحد = عملية بيع واحدة. لا تُغيّر أسماء الأعمدة أو ترتيبها.'],
-    ['4', 'اكتب اسم المندوب والشركة والمادة بالضبط كما وردت في تبويب "' + REF_SHEET + '" (انسخ منه مباشرة لتفادي الأخطاء الإملائية).'],
-    ['5', 'يكفي تعبئة "سعر الوحدة" أو "القيمة الإجمالية" — الحقل الناقص يُحسب تلقائياً من الآخر.'],
-    ['6', 'الحقول الإلزامية: التاريخ، اسم الصيدلية، المندوب، الايتم، الكمية، وأحد حقلي السعر.'],
-    ['7', 'بعد التعبئة احفظ الملف وارفعه من نفس الشاشة التي حمّلت منها هذا النموذج.'],
-    ['8', 'ستُحتسب هذه المبيعات تلقائياً ضمن مبيعات ميركاتو في كل التقارير بعد الرفع — لا حاجة لأي خطوة إضافية.'],
+    ['4', 'أعمدة المندوب والشركة والايتم قوائم منسدلة — اضغط على الخلية واختر منها، لا تكتب فيها يدوياً.'],
+    ['5', 'اترك "سعر الوحدة" و"القيمة الإجمالية" فارغين إن لم تعرفهما — سيستخدم التطبيق سعر المذخر المسجَّل لهذا الايتم تلقائياً عند الحفظ.'],
+    ['6', 'إن لم يكن للايتم سعر مذخر مسجَّل عند التطبيق، سيُطلب منك إدخال السعر يدوياً قبل الحفظ (تنبيه يظهر بعد الرفع).'],
+    ['7', 'الحقول الإلزامية: التاريخ، اسم الصيدلية، المندوب، الايتم، الكمية.'],
+    ['8', 'بعد التعبئة احفظ الملف وارفعه من نفس الشاشة التي حمّلت منها هذا النموذج.'],
+    ['9', 'ستُحتسب هذه المبيعات تلقائياً ضمن مبيعات ميركاتو في كل التقارير بعد الرفع — لا حاجة لأي خطوة إضافية.'],
   ];
-  const instrSheet = XLSX.utils.aoa_to_sheet(instrRows);
-  instrSheet['!cols'] = [{ wch: 4 }, { wch: 100 }];
-  XLSX.utils.book_append_sheet(wb, instrSheet, INSTR_SHEET);
+  instrSheet.addRows(instrRows);
+  instrSheet.columns = [{ width: 4 }, { width: 100 }];
 
-  // ── 3) تبويب القوائم المرجعية — للنسخ منه ──
-  const maxLen = Math.max(reps.length, items.length, companies.length, 1);
-  const refRows = [['المندوب', 'الشركة', 'الايتم']];
-  for (let i = 0; i < maxLen; i++) {
-    refRows.push([reps[i] ?? '', companies[i] ?? '', items[i] ?? '']);
-  }
-  const refSheet = XLSX.utils.aoa_to_sheet(refRows);
-  refSheet['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 26 }];
-  XLSX.utils.book_append_sheet(wb, refSheet, REF_SHEET);
-
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const arrayBuffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
 /**
@@ -87,7 +124,7 @@ export function parseWarehouseGapWorkbook(buffer) {
   const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
   if (raw.length < 1) return { rows: [], warnings: ['الملف فارغ.'] };
 
-  const headerRow = raw[0].map(normalizeHeader);
+  const headerRow = raw[0].map(h => normalizeHeader(h).replace(/\s*\(اختياري\)\s*$/, ''));
   const colIdx = name => headerRow.findIndex(h => h === name);
 
   const idx = {

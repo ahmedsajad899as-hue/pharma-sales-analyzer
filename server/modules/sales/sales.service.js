@@ -1497,15 +1497,32 @@ export async function checkManualNames({ rows, userId = null }) {
  * @param {{id:number, role:string}} user
  * @returns {Promise<{ reps: string[], items: string[], companies: string[] }>}
  */
+/**
+ * ايتمات المستخدم المعيّنة مع سعر المذخر المعروف لكل منها (Item.warehousePrice،
+ * وإلا Item.price كبديل) — تُستعمل لملء السعر تلقائياً حين يُترك حقلا السعر
+ * فارغين في نموذج المذاخر، فلا حاجة لكتابة سعر معروف أصلاً عند التطبيق.
+ * @param {number} userId
+ * @returns {Promise<{name:string, unitPrice:number|null}[]>}
+ */
+export async function getWarehouseGapItemCatalog(userId) {
+  const assigned = await getAssignedItemsCatalog(userId);
+  if (!assigned || assigned.length === 0) return [];
+  const rows = await prisma.item.findMany({
+    where:  { id: { in: assigned.map(a => a.id) } },
+    select: { name: true, price: true, warehousePrice: true },
+  });
+  return rows.map(r => ({ name: r.name, unitPrice: r.warehousePrice ?? r.price ?? null }));
+}
+
 export async function getWarehouseGapScope(user) {
-  const [userCompanies, assignedItems, roster] = await Promise.all([
+  const [userCompanies, itemCatalog, roster] = await Promise.all([
     prisma.userCompanyAssignment.findMany({ where: { userId: user.id }, select: { company: { select: { name: true } } } }),
-    getAssignedItemsCatalog(user.id),
+    getWarehouseGapItemCatalog(user.id),
     getManagerRoster(user, { includeTeamLead: true }),
   ]);
 
   const companies = [...new Set(userCompanies.map(c => c.company?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
-  const items = [...new Set((assignedItems ?? []).map(i => i.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+  const items = [...new Set(itemCatalog.map(i => i.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
   const reps = [...new Set(roster.reps.map(r => r.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
 
   return { reps, items, companies };
@@ -1517,7 +1534,7 @@ export async function getWarehouseGapScope(user) {
  */
 export async function buildWarehouseGapTemplateForUser(user) {
   const scope = await getWarehouseGapScope(user);
-  const buffer = buildWarehouseGapWorkbook(scope);
+  const buffer = await buildWarehouseGapWorkbook(scope);
   const who = (user.displayName || user.username || 'مستخدم').replace(/[\\/:*?"<>|]/g, '').trim();
   return { buffer, filename: `نموذج مبيعات مذاخر - ${who}.xlsx` };
 }
@@ -1525,10 +1542,36 @@ export async function buildWarehouseGapTemplateForUser(user) {
 /**
  * يقرأ ملف نموذج المذاخر المُعبَّأ ويُرجع صفوفاً بشكل صفوف insertManualSales —
  * بلا كتابة في قاعدة البيانات (معاينة فقط، يُستدعى قبل /api/sales/manual).
+ *
+ * للصفوف التي تُركت فيها "سعر الوحدة" و"القيمة الإجمالية" فارغتين معاً (لأن
+ * الايتم يُختار من قائمة منسدلة، لا حاجة لمعرفة سعره يدوياً)، يُستكمل السعر من
+ * Item.warehousePrice/price المسجَّل لذلك الايتم ضمن ايتمات المستخدم المعيّنة.
+ * إن لم يكن له سعر مسجَّل، يبقى الحقلان فارغين مع تنبيه يطلب إدخال السعر يدوياً.
+ *
  * @param {Buffer} buffer
+ * @param {number|null} userId
  */
-export function parseWarehouseGapFile(buffer) {
-  return parseWarehouseGapWorkbook(buffer);
+export async function parseWarehouseGapFile(buffer, userId = null) {
+  const { rows, warnings } = parseWarehouseGapWorkbook(buffer);
+  if (rows.length === 0 || !userId) return { rows, warnings };
+
+  const needsPrice = rows.some(r => !r.unitPrice && !r.totalValue);
+  if (!needsPrice) return { rows, warnings };
+
+  const catalog = await getWarehouseGapItemCatalog(userId);
+  const priceByKey = new Map(catalog.map(i => [normalizeItemKey(i.name), i.unitPrice]).filter(([, p]) => p != null));
+
+  const enriched = rows.map(r => {
+    if (r.unitPrice || r.totalValue) return r;
+    const price = priceByKey.get(normalizeItemKey(r.item));
+    if (price == null) {
+      warnings.push(`الايتم "${r.item}" (${r.pharmacy || 'بلا اسم صيدلية'}): لا يوجد سعر مذخر مسجَّل له — أدخل السعر يدوياً قبل الحفظ.`);
+      return r;
+    }
+    return { ...r, unitPrice: price, totalValue: price * r.quantity };
+  });
+
+  return { rows: enriched, warnings };
 }
 
 /**

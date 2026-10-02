@@ -197,7 +197,7 @@ export async function downloadWarehouseGapTemplate(req, res, next) {
 export async function parseWarehouseGapUpload(req, res, next) {
   try {
     if (!req.file) throw new AppError('لم يتم إرفاق ملف.', 400, 'NO_FILE');
-    const data = parseWarehouseGapFile(req.file.buffer);
+    const data = await parseWarehouseGapFile(req.file.buffer, req.user?.id ?? null);
     return res.json({ success: true, data });
   } catch (err) {
     next(err);

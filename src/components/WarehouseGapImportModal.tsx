@@ -205,8 +205,8 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
     { key: 'company', label: 'الشركة', w: 120 },
     { key: 'item', label: 'الايتم*', w: 180 },
     { key: 'quantity', label: 'الكمية*', w: 64, numeric: true },
-    { key: 'unitPrice', label: 'سعر الوحدة', w: 80, numeric: true },
-    { key: 'totalValue', label: 'القيمة الإجمالية', w: 100, numeric: true },
+    { key: 'unitPrice', label: 'سعر الوحدة (اختياري)', w: 100, numeric: true },
+    { key: 'totalValue', label: 'الإجمالي (اختياري)', w: 100, numeric: true },
     { key: 'warehouse', label: 'المذخر', w: 110 },
     { key: 'invoiceNumber', label: 'رقم الفاتورة', w: 90 },
     { key: 'notes', label: 'ملاحظات', w: 140 },
@@ -267,8 +267,9 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
 
         <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b', lineHeight: 1.7 }}>
           مبيعات صيدليات تمّت فعلاً عبر أحد المذاخر لكنها لم توثَّق ضمن ملف ميركاتو. حمّل نموذج الإكسل الخاص بك
-          (مبني على شركاتك وايتماتك وأسماء فريقك)، املأه، ثم ارفعه هنا — ستُحتسب هذه المبيعات تلقائياً ضمن ميركاتو
-          في كل التقارير.
+          (مبني على شركاتك وايتماتك وأسماء فريقك — المندوب والشركة والايتم قوائم منسدلة جاهزة للاختيار)، املأه، ثم
+          ارفعه هنا. اترك السعر فارغاً إن لم تعرفه — يُستكمل تلقائياً من سعر المذخر المسجَّل لكل ايتم. ستُحتسب هذه
+          المبيعات تلقائياً ضمن ميركاتو في كل التقارير.
         </p>
 
         <div style={topBar}>
