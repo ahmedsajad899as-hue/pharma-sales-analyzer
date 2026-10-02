@@ -65,6 +65,20 @@ export function warehouseNameFromRawData(rawData) {
   return pick(raw, WAREHOUSE_ALIASES);
 }
 
+/**
+ * اسم العميل/الصيدلية كما ورد حرفياً في rawData — للعرض فقط. لصف "مذخر" (راجع
+ * isWarehouseSaleRow أدناه) هذا الحقل هو هوية المذخر الفعلية (مثل "ناقوس"/
+ * "عناية"/"اسبرين") لا عمود WAREHOUSE_ALIASES («المخزن»)، الذي قد يحمل بدلاً
+ * منه تصنيفاً داخلياً للمكتب («الرئيسي»/«الثانوي») لا علاقة له بهوية المذخر —
+ * راجع ذاكرة project_pharma_baghdad_warehouse_identity.
+ */
+export function pharmacyNameFromRawData(rawData) {
+  if (!rawData) return '';
+  let raw;
+  try { raw = JSON.parse(rawData); } catch { return ''; }
+  return pick(raw, PHARMACY_ALIASES);
+}
+
 // صف مبيعة/ارجاع "مذخر" لا "صيدلية": بعض الملفات (مثل ملفات ميركاتو) تحمل عمود
 // تصنيف زبون خام (غالباً باسم "صنف") بقيم مثل "مذخر"/"صيدلية1"/"مكتب" لا تُقرأ
 // كعمود منفصل عند الرفع (raw[rc.item]/raw[rc.customer] تُهمله عادة) — لكنها تبقى

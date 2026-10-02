@@ -14,7 +14,7 @@ import { buildItemScopeFilter } from '../../lib/itemScope.js';
 import { extractCompanyFromCode, isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { normalizeItemKey } from '../../lib/itemResolver.js';
 import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
-import { isWarehouseSaleRow, warehouseNameFromRawData } from '../../lib/orderKey.js';
+import { isWarehouseSaleRow, pharmacyNameFromRawData } from '../../lib/orderKey.js';
 
 const router = Router();
 
@@ -502,8 +502,12 @@ router.get('/overall', async (req, res) => {
       }
 
       if (provinceName === 'بغداد' && isWarehouseSaleRow(s.rawData)) {
-        const repName       = s.representative?.name || 'غير محدد';
-        const warehouseName = warehouseNameFromRawData(s.rawData) || 'غير محدد';
+        const repName = s.representative?.name || 'غير محدد';
+        // هوية المذخر = عمود العميل/الصيدلية الخام (ناقوس/عناية/اسبرين...) لا عمود
+        // «المخزن» (WAREHOUSE_ALIASES) الذي قد يحمل بدلاً منه تصنيفاً داخلياً
+        // («الرئيسي»/«الثانوي») لا يميّز مذخراً عن آخر — طلب صريح: لا فرق بينهما،
+        // فتُدمَج كل صفوفهما تحت اسم المذخر الفعلي الواحد بلا عمود «المخزن» إطلاقاً.
+        const warehouseName = pharmacyNameFromRawData(s.rawData) || 'غير محدد';
         const itemName      = s.item?.name || 'غير محدد';
         const bwKey = `${repName}::${warehouseName}::${itemName}`;
         if (!baghdadWarehouseMap.has(bwKey)) {
