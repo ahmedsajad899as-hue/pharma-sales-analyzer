@@ -149,13 +149,11 @@ router.get('/overall', async (req, res) => {
     // العمود يُنسَب بالملكية، فشريحة «humanis» تعرض مبيع deva/osel/Marcyrl
     // ضمنها ثم يوزّعه الجدول على أعمدتها — رقمان مختلفان لنفس المحافظة.
     // يُبنى بمعرّفات الشركة الحقيقية لا بمطابقة اسم نصي (أسماء مكرَّرة بحالة
-    // أحرف مختلفة: HUMANIS/humanis). كما نستعمل itemScopeFilter الخاص بمدير
-    // الشركة نفسه (لا الطالب) كي تُطابق الأرقام ما يراه هو لو فتح نفس الملفات.
+    // أحرف مختلفة: HUMANIS/humanis).
     const mgrId = teamManagerId ? Number(teamManagerId) : 0;
     // officeTeams محصورة أصلاً بمدراء الشركات النشطين في مكتب الطالب، فالعضوية
     // فيها هي نفسها فحص الصلاحية الذي كان يتم باستعلام منفصل.
     const selectedTeam = mgrId ? (officeTeams.find(t => t.managerId === mgrId) ?? null) : null;
-    const teamItemScope = selectedTeam ? await buildItemScopeFilter(mgrId) : null;
     const companyIdToTeamName = new Map();
     const companyNameToTeamName = new Map();
     // [{ key, tight (بلا أي مسافات), teamName }] — طبقتا المطابقة المتسامحة أدناه
@@ -295,9 +293,6 @@ router.get('/overall', async (req, res) => {
         ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
       },
     } : {};
-    // تيم مُحدَّد: نطاق ايتماته يحل محل نطاق الطالب (لا تقاطع معه) — المطلوب أن
-    // ترى بالضبط ما يراه مدير الشركة المستهدَف، بغضّ النظر عمن يطلب الشاشة.
-    const finalItemScope = teamItemScope ?? effectiveItemScope;
     // تيم مختار بلا شركة مملوكة = لا صفوف له (`in: []`) — لا «بلا فلتر». الفرق
     // جوهري: الحالة الثانية كانت ستعرض مبيع المكتب كله تحت اسم ذلك التيم.
     const teamCompanyFilter = selectedTeam ? { item: { scientificCompanyId: { in: selectedTeam.companyIds } } } : {};
@@ -306,7 +301,14 @@ router.get('/overall', async (req, res) => {
       ...fileFilter,
       ...userOwnershipFilter,
       ...areaFilter,
-      ...finalItemScope,
+      // نطاق ايتمات الطالب وحده يُطبَّق — حتى مع اختيار شريحة تيم. سابقاً كانت
+      // الشريحة تستبدل به قائمة ايتمات ذلك المدير الشخصية («ليرى الطالبُ ما
+      // يراه هو»)، وهذا ما كان يُفرّغ شريحة deva تماماً: مديرها مُسنَد على 27
+      // ايتماً من كتالوج شركته بينما مبيع الملفات يشير لصفوف Item أخرى لنفس
+      // الشركة — فتعود الشريحة بصفر رغم وجود مبيع فعلي لها. عزلُ التيم يتم
+      // بشركاته المملوكة (teamCompanyFilter) وهو كافٍ ودقيق، كما يضمن أن
+      // مجموع الشرائح = «الكل» بدل أن يتبدّل نطاق الايتمات مع كل شريحة.
+      ...effectiveItemScope,
       ...teamCompanyFilter,
       ...(recordType ? { recordType } : {}),
     };
