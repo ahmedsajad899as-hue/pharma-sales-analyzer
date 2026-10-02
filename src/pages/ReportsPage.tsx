@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, useMemo, Fragment } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import { buildTargetActuals, normalizeItemName, fuzzyItemMatch } from '../utils/itemNameMatch';
 import { useAuth } from '../context/AuthContext';
@@ -1029,6 +1029,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   useEffect(() => { sessionStorage.setItem('rpt_toDate', toDate); }, [toDate]);
   useEffect(() => { sessionStorage.setItem('rpt_view', reportView); }, [reportView]);
 
+  // ترتيب المندوبين العلميين كما يظهر فعلياً في قائمة RepSelectOptions
+  // (قائد الفريق ثم مندوبوه، فالباقون، لكل شركة أبجدياً) — يُستخدم للتنقّل
+  // بالأسهم فوق/تحت كي يطابق تسلسل القائمة المعروضة بدل ترتيب الجلب الخام.
+  const sciRepsOrdered = useMemo(
+    () => groupRepsByTeam(sciReps).flatMap(g => g.rows.map(row => row.rep)) as Rep[],
+    [sciReps]
+  );
+
   // ── Keyboard shortcuts for the commercial/scientific reports ──
   // Up/Down arrows  → navigate between reps (auto-loads each new rep's report).
   // Left/Right arrows → cycle the view toggle (مبيعات / ارجاعات / نت); skips ارجاعات
@@ -1049,7 +1057,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       // ── Up/Down: navigate reps ──
       if (isNav) {
-        const reps = mode === 'commercial' ? commReps : sciReps;
+        // نفس ترتيب القائمة المعروضة فعلياً (RepSelectOptions يجمّع المندوب
+        // العلمي حسب الشركة/الفريق)، لا ترتيب sciReps الخام — وإلا يقفز
+        // السهم بين أسماء غير متتالية بصرياً.
+        const reps = mode === 'commercial' ? commReps : sciRepsOrdered;
         if (reps.length === 0) return;
         e.preventDefault();
         const currentId = mode === 'commercial' ? commRepId : sciRepId;
@@ -1095,7 +1106,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, commReps, sciReps, commRepId, sciRepId, commReport, sciReport, commReturnsReport, sciReturnsReport]);
+  }, [mode, commReps, sciRepsOrdered, commRepId, sciRepId, commReport, sciReport, commReturnsReport, sciReturnsReport]);
 
   // ── Keyboard shortcuts for the OVERALL analysis («تحليل شامل») only ──
   //  • Left/Right arrows cycle the sub-tabs المنطقة → الايتم → الشركة
