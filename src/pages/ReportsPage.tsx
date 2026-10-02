@@ -3042,13 +3042,29 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // ترتيب عناصر (ايتم بصافي كمية/قيمة) حسب الشركة: مجموعة شركة كاملة قبل
   // التالية — ترتيب الشركات بصافي قيمتها الإجمالية تنازلياً، والايتمات داخل كل
   // شركة بصافي قيمتها تنازلياً أيضاً. طلب صريح: «كل ايتمات شركة قبل الأخرى».
+  // تطبيع اسم الشركة قبل التجميع — ضروري لأن المبيع والارجاع يُجلَبان باستدعاءين
+  // منفصلين (overallSales بـrecordType=sale وoverallReturns بـrecordType=return)،
+  // ولكل استدعاء ذاكرة "أول صيغة واردة" خاصة به على الخادم (companyDisplayByKey
+  // في reports.routes.js) — فقد تصل الشركة نفسها بصيغتين مختلفتين حرفياً (مثلاً
+  // "DEVA" من جهة المبيع و"Deva" من جهة الارجاع)، فيُقسَّم ايتماتها خطأً إلى
+  // قسمين منفصلين بدل قسم واحد. التطبيع هنا (نفس normReportName المستعملة أصلاً
+  // لمطابقة المندوب/المذخر/الايتم بين الاستدعاءين) يوحّدهما، وصيغة العرض الثابتة
+  // = أول صيغة وردت بعد الترتيب الأصلي للمصفوفة.
   const sortByCompanyGroup = <T extends { companyName: string; netValue: number }>(items: T[]): T[] => {
-    const companyTotals = new Map<string, number>();
-    for (const it of items) companyTotals.set(it.companyName, (companyTotals.get(it.companyName) ?? 0) + it.netValue);
-    return [...items].sort((a, b) =>
-      (companyTotals.get(b.companyName)! - companyTotals.get(a.companyName)!) ||
-      a.companyName.localeCompare(b.companyName, 'ar') ||
-      (b.netValue - a.netValue));
+    const companyTotals  = new Map<string, number>(); // مفتاح مطبَّع → مجموع صافي القيمة
+    const companyDisplay = new Map<string, string>();  // مفتاح مطبَّع → صيغة العرض الثابتة
+    for (const it of items) {
+      const key = normReportName(it.companyName);
+      companyTotals.set(key, (companyTotals.get(key) ?? 0) + it.netValue);
+      if (!companyDisplay.has(key)) companyDisplay.set(key, it.companyName);
+    }
+    return items
+      .map(it => { const key = normReportName(it.companyName); return { it, key, display: companyDisplay.get(key)! }; })
+      .sort((a, b) =>
+        (companyTotals.get(b.key)! - companyTotals.get(a.key)!) ||
+        a.display.localeCompare(b.display, 'ar') ||
+        (b.it.netValue - a.it.netValue))
+      .map(({ it, display }) => ({ ...it, companyName: display }));
   };
 
   const buildBaghdadWarehouseRows = () => {
@@ -4017,23 +4033,36 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           </tr>
                         </thead>
                         <tbody>
-                          {itemRows.map((it, ii) => {
-                            const newCompany = ii === 0 || itemRows[ii - 1].companyName !== it.companyName;
-                            return (
-                              <Fragment key={ii}>
-                                {newCompany && (
-                                  <tr style={{ background: '#eef2ff' }}>
-                                    <td colSpan={3} style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#3730a3', padding: '6px 10px' }}>{it.companyName}</td>
+                          {(() => {
+                            let companyQty = 0, companyValue = 0;
+                            return itemRows.map((it, ii) => {
+                              const newCompany = ii === 0 || itemRows[ii - 1].companyName !== it.companyName;
+                              if (newCompany) { companyQty = 0; companyValue = 0; }
+                              companyQty += it.netQty; companyValue += it.netValue;
+                              const isLastOfCompany = ii === itemRows.length - 1 || itemRows[ii + 1].companyName !== it.companyName;
+                              return (
+                                <Fragment key={ii}>
+                                  {newCompany && (
+                                    <tr style={{ background: '#eef2ff' }}>
+                                      <td colSpan={3} style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#3730a3', padding: '6px 10px' }}>{it.companyName}</td>
+                                    </tr>
+                                  )}
+                                  <tr>
+                                    <td style={{ ...pivotTd, textAlign: 'right' }}><span>{it.itemName}</span></td>
+                                    <td style={pivotTd}>{it.netQty}</td>
+                                    <td style={{ ...pivotTd, fontWeight: 700, background: it.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(it.netValue)}</td>
                                   </tr>
-                                )}
-                                <tr>
-                                  <td style={{ ...pivotTd, textAlign: 'right' }}><span>{it.itemName}</span></td>
-                                  <td style={pivotTd}>{it.netQty}</td>
-                                  <td style={{ ...pivotTd, fontWeight: 700, background: it.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(it.netValue)}</td>
-                                </tr>
-                              </Fragment>
-                            );
-                          })}
+                                  {isLastOfCompany && (
+                                    <tr style={{ background: '#f8fafc' }}>
+                                      <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: '#475569' }}>إجمالي {it.companyName}</td>
+                                      <td style={{ ...pivotTd, fontWeight: 700, color: '#475569' }}>{companyQty}</td>
+                                      <td style={{ ...pivotTd, fontWeight: 800, color: '#334155' }}>{fmtValSigned(companyValue)}</td>
+                                    </tr>
+                                  )}
+                                </Fragment>
+                              );
+                            });
+                          })()}
                         </tbody>
                         <tfoot>
                           <tr>
@@ -4079,24 +4108,38 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                                 <td style={pivotTd}>{row.netQty}</td>
                                 <td style={{ ...pivotTd, fontWeight: 800, background: row.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(row.netValue)}</td>
                               </tr>
-                              {expanded && row.items.map((it, ii) => {
-                                const newCompany = ii === 0 || row.items[ii - 1].companyName !== it.companyName;
-                                return (
-                                  <Fragment key={ii}>
-                                    {newCompany && (
-                                      <tr style={{ background: '#eef2ff' }}>
-                                        <td colSpan={5} style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#3730a3', padding: '6px 10px' }}>{it.companyName}</td>
+                              {expanded && (() => {
+                                let companyQty = 0, companyValue = 0;
+                                return row.items.map((it, ii) => {
+                                  const newCompany = ii === 0 || row.items[ii - 1].companyName !== it.companyName;
+                                  if (newCompany) { companyQty = 0; companyValue = 0; }
+                                  companyQty += it.netQty; companyValue += it.netValue;
+                                  const isLastOfCompany = ii === row.items.length - 1 || row.items[ii + 1].companyName !== it.companyName;
+                                  return (
+                                    <Fragment key={ii}>
+                                      {newCompany && (
+                                        <tr style={{ background: '#eef2ff' }}>
+                                          <td colSpan={5} style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#3730a3', padding: '6px 10px' }}>{it.companyName}</td>
+                                        </tr>
+                                      )}
+                                      <tr style={{ background: '#fafbfc' }}>
+                                        <td style={pivotTd}></td>
+                                        <td style={pivotTd} colSpan={2}><span style={{ color: '#6b7280', fontSize: 12 }}>{it.itemName}</span></td>
+                                        <td style={{ ...pivotTd, color: '#6b7280' }}>{it.netQty}</td>
+                                        <td style={{ ...pivotTd, color: '#6b7280' }}>{fmtValSigned(it.netValue)}</td>
                                       </tr>
-                                    )}
-                                    <tr style={{ background: '#fafbfc' }}>
-                                      <td style={pivotTd}></td>
-                                      <td style={pivotTd} colSpan={2}><span style={{ color: '#6b7280', fontSize: 12 }}>{it.itemName}</span></td>
-                                      <td style={{ ...pivotTd, color: '#6b7280' }}>{it.netQty}</td>
-                                      <td style={{ ...pivotTd, color: '#6b7280' }}>{fmtValSigned(it.netValue)}</td>
-                                    </tr>
-                                  </Fragment>
-                                );
-                              })}
+                                      {isLastOfCompany && (
+                                        <tr style={{ background: '#f1f5f9' }}>
+                                          <td style={pivotTd}></td>
+                                          <td style={{ ...pivotTd, fontWeight: 700, color: '#475569' }} colSpan={2}>إجمالي {it.companyName}</td>
+                                          <td style={{ ...pivotTd, fontWeight: 700, color: '#475569' }}>{companyQty}</td>
+                                          <td style={{ ...pivotTd, fontWeight: 800, color: '#334155' }}>{fmtValSigned(companyValue)}</td>
+                                        </tr>
+                                      )}
+                                    </Fragment>
+                                  );
+                                });
+                              })()}
                             </Fragment>
                           );
                         })}
