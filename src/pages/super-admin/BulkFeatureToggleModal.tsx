@@ -1,6 +1,6 @@
-import { useMemo, useState, Fragment } from 'react';
+import { useMemo, useState } from 'react';
 import { btnStyle } from './OfficesPage';
-import { FEATURE_TREE } from '../../config/featureConfig';
+import { FEATURE_TREE, NAV_ITEMS, STANDALONE_FEATURES } from '../../config/featureConfig';
 import type { FeatureNode } from '../../config/featureConfig';
 
 const ROLES: Record<string, string> = {
@@ -24,24 +24,10 @@ interface UserRow {
   officeId?: number; office?: { id: number; name: string }; permissions?: string | null;
 }
 
-// يُبنى مرة واحدة: خانة لكل صفحة (المفتاح الأم) + optgroup لميزاتها الفرعية إن وُجدت
-const FEATURE_BLOCKS = FEATURE_TREE
-  .map(node => ({
-    groupLabel: node.label,
-    groupIcon:  node.icon,
-    parent:     node.key ? { key: node.key, label: node.label, icon: node.icon } : null,
-    children:   (node.children ?? []).filter((c): c is FeatureNode & { key: string } => !!c.key),
-  }))
-  .filter(b => b.parent || b.children.length > 0);
-
-const FEATURE_LABEL_BY_KEY: Record<string, string> = {};
-const FEATURE_DESC_BY_KEY: Record<string, string | undefined> = {};
-for (const node of FEATURE_TREE) {
-  if (node.key) { FEATURE_LABEL_BY_KEY[node.key] = `${node.icon} ${node.label}`; FEATURE_DESC_BY_KEY[node.key] = node.desc; }
-  for (const c of node.children ?? []) {
-    if (c.key) { FEATURE_LABEL_BY_KEY[c.key] = `${node.icon} ${node.label} ‹ ${c.icon} ${c.label}`; FEATURE_DESC_BY_KEY[c.key] = c.desc; }
-  }
-}
+// صفحات NAV_ITEMS مقرونة بخانتها الأم في FEATURE_TREE (نفس الترتيب تماماً — راجع
+// buildFeatureTree في featureConfig.ts) — بلا أي فلترة حسب دور، لأن هذه الخريطة
+// عامة لكل الحسابات دفعة واحدة وليست لحساب بعينه.
+const PAGES: { id: string; node: FeatureNode }[] = NAV_ITEMS.map((item, i) => ({ id: item.id, node: FEATURE_TREE[i] }));
 
 function isEnabledFor(u: UserRow, featureKey: string): boolean {
   if (!featureKey) return true;
@@ -56,13 +42,34 @@ export default function BulkFeatureToggleModal({ users, token, onClose, onApplie
 }) {
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
-  const [featureKey, setFeatureKey] = useState('');
-  const [search,     setSearch]     = useState('');
-  const [roleFilter, setRoleFilter] = useState('');
-  const [selected,   setSelected]   = useState<Set<number>>(new Set());
-  const [applying,   setApplying]   = useState<'' | 'enable' | 'disable'>('');
-  const [result,     setResult]     = useState<{ updated: number; failed: number } | null>(null);
-  const [error,      setError]      = useState('');
+  const [featSection, setFeatSection] = useState<string>(PAGES[0]?.id || '');
+  const [featureKey,  setFeatureKey]  = useState('');
+  const [search,      setSearch]      = useState('');
+  const [roleFilter,  setRoleFilter]  = useState('');
+  const [selected,    setSelected]    = useState<Set<number>>(new Set());
+  const [applying,    setApplying]    = useState<'' | 'enable' | 'disable'>('');
+  const [result,      setResult]      = useState<{ updated: number; failed: number } | null>(null);
+  const [error,       setError]       = useState('');
+
+  // ── نسبة التفعيل الحالية لمفتاح معيّن عبر كل الحسابات — تلوّن نقطة كل صف في الخريطة ──
+  const dotFor = (key?: string): { color: string } | null => {
+    if (!key) return null;
+    let on = 0, off = 0;
+    for (const u of users) { if (isEnabledFor(u, key)) on++; else off++; }
+    if (off === 0) return { color: '#22c55e' };
+    if (on === 0)  return { color: '#ef4444' };
+    return { color: '#f59e0b' };
+  };
+
+  const pickFeature = (key?: string) => {
+    if (!key) return;
+    setFeatureKey(key);
+    setResult(null); setError('');
+  };
+
+  const activeNode = PAGES.find(p => p.id === featSection)?.node
+    ?? STANDALONE_FEATURES.find(n => (n.key || n.label) === featSection)
+    ?? null;
 
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -106,45 +113,163 @@ export default function BulkFeatureToggleModal({ users, token, onClose, onApplie
     }
   };
 
+  const SectionLabel = ({ text }: { text: string }) => (
+    <div style={{ fontSize: 9, fontWeight: 800, color: '#4b5d7c', padding: '4px 8px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>{text}</div>
+  );
+
+  // صف في الخريطة الجانبية: الضغط عليه يفتح تفاصيله يميناً، وإن كان له مفتاح
+  // خاص به (خانة أم قابلة للتعطيل) يصبح هو المستهدف بالتفعيل/التعطيل الجماعي فوراً.
+  const SidebarBtn = ({ id, icon, label, node }: { id: string; icon: string; label: string; node: FeatureNode }) => {
+    const dot = dotFor(node.key);
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => { setFeatSection(id); pickFeature(node.key); }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFeatSection(id); pickFeature(node.key); } }}
+        className={`sidebar-nav-item${featSection === id ? ' sidebar-nav-item--active' : ''}`}
+        style={{ marginBottom: 2 }}
+      >
+        <span className="sidebar-nav-icon">{icon}</span>
+        <span className="sidebar-nav-label">{label}</span>
+        {dot
+          ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot.color, flexShrink: 0 }} />
+          : (!node.children?.length && <span style={{ fontSize: 9, background: 'rgba(255,255,255,0.08)', color: '#64748b', borderRadius: 4, padding: '1px 5px', flexShrink: 0, whiteSpace: 'nowrap' }}>دائماً</span>)
+        }
+      </div>
+    );
+  };
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
-      <div style={{ background: '#fff', borderRadius: 16, padding: 26, width: '100%', maxWidth: 820, maxHeight: '90vh', overflowY: 'auto', direction: 'rtl', display: 'flex', flexDirection: 'column', gap: 16 }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 22, width: '100%', maxWidth: 980, maxHeight: '94vh', overflowY: 'auto', direction: 'rtl', display: 'flex', flexDirection: 'column', gap: 14 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#0f172a' }}>⚡ تفعيل / تعطيل ميزة بالجملة</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8' }}>✕</button>
         </div>
-        <div style={{ fontSize: 12.5, color: '#64748b' }}>
-          اختر الميزة، ثم حدّد مجموعة الحسابات التي تريد تفعيلها أو تعطيلها عندهم دفعة واحدة — بدل الدخول لكل حساب على حدة.
+        <div style={{ fontSize: 11.5, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          🪟 نفس خريطة الميزات التي تظهر عند فتح حساب مستخدم — اضغط على أي صفحة أو ميزة فرعية لتحديدها، ثم اختر الحسابات أسفل وطبّق التفعيل/التعطيل عليها دفعة واحدة.
+          <span style={{ marginRight: 'auto', display: 'flex', gap: 10 }}>
+            <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#22c55e', marginLeft: 4 }} />مفعّلة للجميع</span>
+            <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', marginLeft: 4 }} />متفاوتة</span>
+            <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#ef4444', marginLeft: 4 }} />معطّلة للجميع</span>
+          </span>
         </div>
 
-        {/* ── اختيار الميزة ── */}
-        <div>
-          <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 5 }}>الميزة</label>
-          <select
-            value={featureKey}
-            onChange={e => { setFeatureKey(e.target.value); setResult(null); setError(''); }}
-            style={{ width: '100%', padding: '9px 12px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13.5, boxSizing: 'border-box' }}
-          >
-            <option value="">اختر ميزة...</option>
-            {FEATURE_BLOCKS.map(b => (
-              <Fragment key={b.groupLabel}>
-                {b.parent && <option value={b.parent.key}>{b.parent.icon} {b.parent.label}</option>}
-                {b.children.length > 0 && (
-                  <optgroup label={`${b.groupIcon} ${b.groupLabel}`}>
-                    {b.children.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
-                  </optgroup>
-                )}
-              </Fragment>
-            ))}
-          </select>
-          {featureKey && FEATURE_DESC_BY_KEY[featureKey] && (
-            <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 5 }}>{FEATURE_DESC_BY_KEY[featureKey]}</div>
-          )}
+        {/* ════ خريطة الميزات (نسخة من الشريط الجانبي الحقيقي) ════ */}
+        <div style={{ display: 'flex', borderRadius: 12, overflow: 'hidden', border: '1.5px solid #e2e8f0', minHeight: 420 }}>
+          {/* LEFT: sidebar */}
+          <div style={{ width: 230, background: 'linear-gradient(180deg, #0f1e35 0%, #0a1628 100%)', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+            <div className="sidebar-brand" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+              <span className="sidebar-brand-icon">🔷</span>
+              <span className="sidebar-brand-text">Ordine</span>
+            </div>
+            <div style={{ padding: '0 8px' }}><SectionLabel text="صفحات التطبيق" /></div>
+            <nav className="sidebar-nav" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 8px' }}>
+              {PAGES.map(({ id, node }) => (
+                <SidebarBtn key={node.key || id} id={id} icon={node.icon} label={node.label} node={node} />
+              ))}
+            </nav>
+            {STANDALONE_FEATURES.length > 0 && (
+              <>
+                <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 12px' }} />
+                <div style={{ padding: '4px 8px 0' }}><SectionLabel text="ميزات عامة" /></div>
+                <div style={{ padding: '0 8px 10px' }}>
+                  {STANDALONE_FEATURES.map(node => (
+                    <SidebarBtn key={node.key || node.label} id={node.key || node.label} icon={node.icon} label={node.label} node={node} />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* RIGHT: تفاصيل الصفحة/الميزة المختارة */}
+          <div style={{ flex: 1, overflowY: 'auto', background: '#f8fafc', padding: '18px 20px' }}>
+            {activeNode && (() => {
+              const kids = activeNode.children ?? [];
+              const parentDot = dotFor(activeNode.key);
+              return (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+                    <div style={{ width: 50, height: 50, borderRadius: 14, background: '#eef2ff', border: '2px solid #c7d2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, flexShrink: 0 }}>
+                      {activeNode.icon}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginBottom: 2 }}>{activeNode.label}</div>
+                      {activeNode.desc && <div style={{ fontSize: 11.5, color: '#64748b' }}>{activeNode.desc}</div>}
+                    </div>
+                    {activeNode.key
+                      ? (
+                        <button
+                          onClick={() => pickFeature(activeNode.key)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                            border: `1.5px solid ${featureKey === activeNode.key ? '#4f46e5' : '#e2e8f0'}`,
+                            background: featureKey === activeNode.key ? '#eef2ff' : '#fff',
+                            borderRadius: 20, padding: '6px 14px', fontSize: 12, fontWeight: 700, color: '#334155',
+                          }}
+                        >
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: parentDot?.color }} />
+                          {featureKey === activeNode.key ? 'مُحدَّدة الآن' : 'اختيار هذه الخانة'}
+                        </button>
+                      )
+                      : <span style={{ background: '#e2e8f0', color: '#475569', borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 700 }}>دائماً متاح</span>
+                    }
+                  </div>
+
+                  {kids.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 2, paddingRight: 4 }}>الميزات الفرعية — اضغط لتحديدها</div>
+                      {kids.map(child => {
+                        if (!child.key) return null;
+                        const dot = dotFor(child.key);
+                        const active = featureKey === child.key;
+                        return (
+                          <div
+                            key={child.key}
+                            role="button" tabIndex={0}
+                            onClick={() => pickFeature(child.key)}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFeature(child.key); } }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer',
+                              background: active ? '#eef2ff' : '#fff',
+                              border: `1.5px solid ${active ? '#4f46e5' : '#e2e8f0'}`,
+                              borderRadius: 10, transition: 'all 0.15s',
+                            }}
+                          >
+                            <div style={{ width: 34, height: 34, borderRadius: 9, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flexShrink: 0 }}>
+                              {child.icon}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600, fontSize: 12.5, color: '#1e293b' }}>{child.label}</div>
+                              {child.desc && <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 1 }}>{child.desc}</div>}
+                            </div>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot?.color, flexShrink: 0 }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {kids.length === 0 && !activeNode.key && (
+                    <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, padding: '32px 0' }}>لا توجد ميزات قابلة للتعطيل هنا</div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         </div>
 
+        {/* ════ المستهدَف الآن + اختيار الحسابات وتطبيق التغيير ════ */}
+        {!featureKey && (
+          <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, padding: '10px 0' }}>اضغط على أي صفحة أو ميزة فرعية في الخريطة أعلاه لتبدأ</div>
+        )}
         {featureKey && (
           <>
-            {/* ── فلاتر وبحث ── */}
+            <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 10, padding: '8px 14px', fontSize: 12.5, color: '#3730a3', fontWeight: 600 }}>
+              الميزة المستهدَفة الآن: {featureKey}
+            </div>
+
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input
                 value={search} onChange={e => setSearch(e.target.value)}
@@ -163,8 +288,7 @@ export default function BulkFeatureToggleModal({ users, token, onClose, onApplie
               <button onClick={() => selectVisibleWhere('enabled')} style={{ ...btnStyle('#22c55e', true), fontSize: 12, padding: '4px 10px' }}>تحديد من هي مفعّلة عندهم حالياً</button>
             </div>
 
-            {/* ── قائمة المستخدمين ── */}
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, maxHeight: 320, overflowY: 'auto' }}>
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, maxHeight: 260, overflowY: 'auto' }}>
               {filteredUsers.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>لا يوجد مستخدمون مطابقون</div>}
               {filteredUsers.map(u => {
                 const enabled = isEnabledFor(u, featureKey);
@@ -187,14 +311,13 @@ export default function BulkFeatureToggleModal({ users, token, onClose, onApplie
               </div>
             )}
 
-            {/* ── أزرار التطبيق ── */}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ fontSize: 12.5, color: '#64748b' }}>{selected.size} حساب محدّد</div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => apply(false)} disabled={!featureKey || selected.size === 0 || !!applying} style={btnStyle('#dc2626', true)}>
+                <button onClick={() => apply(false)} disabled={selected.size === 0 || !!applying} style={btnStyle('#dc2626', true)}>
                   {applying === 'disable' ? '...' : '🚫 تعطيل للمحددين'}
                 </button>
-                <button onClick={() => apply(true)} disabled={!featureKey || selected.size === 0 || !!applying} style={btnStyle('#16a34a', true)}>
+                <button onClick={() => apply(true)} disabled={selected.size === 0 || !!applying} style={btnStyle('#16a34a', true)}>
                   {applying === 'enable' ? '...' : '✅ تفعيل للمحددين'}
                 </button>
               </div>
