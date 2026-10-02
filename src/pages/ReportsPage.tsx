@@ -788,7 +788,7 @@ interface ProvinceCompanyRow { provinceName: string; companyName: string; totalQ
 // مذاخر بغداد: صف واحد لكل (مندوب تجاري × مذخر × ايتم) — دقة أعلى من اللازم لجدول
 // (مندوب×مذخر) الرئيسي عمداً، كي يُبنى منها أيضاً تفصيل الايتمات داخل كل مذخر
 // بلا طلب خادم إضافي. راجع byBaghdadWarehouse في server/modules/reports/reports.routes.js.
-interface BaghdadWarehouseRow { repName: string; warehouseName: string; itemName: string; totalQty: number; totalValue: number; }
+interface BaghdadWarehouseRow { repName: string; warehouseName: string; itemName: string; companyName: string; totalQty: number; totalValue: number; }
 interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; byProvinceCompany: ProvinceCompanyRow[]; byBaghdadWarehouse: BaghdadWarehouseRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
 
 // مطابقة اسم متسامحة مع حالة الأحرف والتشكيل العربي — الشركة/المنطقة/الايتم قد
@@ -1359,7 +1359,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         byCompany: (d.byCompany ?? []).map((r: any) => ({ name: r.companyName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byProvince: (d.byProvince ?? []).map((r: any) => ({ name: r.provinceName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byProvinceCompany: (d.byProvinceCompany ?? []).map((r: any) => ({ provinceName: r.provinceName, companyName: r.companyName, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
-        byBaghdadWarehouse: (d.byBaghdadWarehouse ?? []).map((r: any) => ({ repName: r.repName, warehouseName: r.warehouseName, itemName: r.itemName, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        byBaghdadWarehouse: (d.byBaghdadWarehouse ?? []).map((r: any) => ({ repName: r.repName, warehouseName: r.warehouseName, itemName: r.itemName, companyName: r.companyName ?? 'غير مصنّف', totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         minDate: d.minDate ?? null,
         maxDate: d.maxDate ?? null,
         recordCount: d.recordCount ?? null,
@@ -3012,7 +3012,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // بين الاستدعاءين (overallSales/overallReturns byBaghdadWarehouse)، وصفوف
   // صافيها صفر تُستبعد كبقية جداول هذه الصفحة.
   const buildBaghdadWarehouseRows = () => {
-    type ItemBreakdown = { itemName: string; netQty: number; netValue: number };
+    type ItemBreakdown = { itemName: string; companyName: string; netQty: number; netValue: number };
     type WhRow = { key: string; repName: string; warehouseName: string; netQty: number; netValue: number; items: ItemBreakdown[] };
     if (!overallSales) return [] as WhRow[];
     const rowKey = (r: BaghdadWarehouseRow) => `${normReportName(r.repName)}::${normReportName(r.warehouseName)}::${normReportName(r.itemName)}`;
@@ -3036,12 +3036,38 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const row = byWarehouse.get(whKey)!;
       row.netQty   += netQty;
       row.netValue += netValue;
-      row.items.push({ itemName: info.itemName, netQty, netValue });
+      row.items.push({ itemName: info.itemName, companyName: info.companyName || 'غير مصنّف', netQty, netValue });
     }
 
-    return [...byWarehouse.values()]
-      .map(row => ({ ...row, items: row.items.sort((a, b) => b.netValue - a.netValue) }))
-      .sort((a, b) => b.netValue - a.netValue);
+    // ترتيب الايتمات داخل كل مذخر: مجموعة شركة كاملة قبل التالية — ترتيب
+    // الشركات نفسها بصافي قيمتها داخل هذا المذخر تنازلياً، والايتمات داخل كل
+    // شركة بصافي قيمتها تنازلياً أيضاً. طلب صريح: «كل ايتمات شركة قبل الأخرى».
+    const sortItemsByCompany = (items: ItemBreakdown[]): ItemBreakdown[] => {
+      const companyTotals = new Map<string, number>();
+      for (const it of items) companyTotals.set(it.companyName, (companyTotals.get(it.companyName) ?? 0) + it.netValue);
+      return [...items].sort((a, b) =>
+        (companyTotals.get(b.companyName)! - companyTotals.get(a.companyName)!) ||
+        a.companyName.localeCompare(b.companyName, 'ar') ||
+        (b.netValue - a.netValue));
+    };
+
+    const warehouseRows = [...byWarehouse.values()].map(row => ({ ...row, items: sortItemsByCompany(row.items) }));
+
+    // تجميع المذاخر بالتوالي تحت مندوبها: كل مندوب وكل مذاخره تباعاً قبل الانتقال
+    // لمندوب آخر — طلب صريح. ترتيب المندوبين فيما بينهم بمجموع صافي مبيعهم
+    // تنازلياً، وترتيب مذاخر كل مندوب بصافي قيمتها تنازلياً (نفس الترتيب القديم
+    // لكن ضمن حدود المندوب لا عبر كل الصفوف).
+    const byRep = new Map<string, { repName: string; total: number; rows: WhRow[] }>();
+    for (const row of warehouseRows) {
+      const rKey = normReportName(row.repName);
+      if (!byRep.has(rKey)) byRep.set(rKey, { repName: row.repName, total: 0, rows: [] });
+      const g = byRep.get(rKey)!;
+      g.total += row.netValue;
+      g.rows.push(row);
+    }
+    return [...byRep.values()]
+      .sort((a, b) => b.total - a.total)
+      .flatMap(g => g.rows.sort((a, b) => b.netValue - a.netValue));
   };
 
   const exportBaghdadWarehouseToExcel = () => {
@@ -3059,12 +3085,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     for (let r = 1; r < summaryAoa.length; r++) { applyNumFmt(summaryWs, XLSX.utils.encode_cell({ r, c: 3 })); applyNumFmt(summaryWs, XLSX.utils.encode_cell({ r, c: 4 })); }
     XLSX.utils.book_append_sheet(wb, summaryWs, sanitizeSheetName('مذاخر بغداد'));
 
-    const itemHeader = ['المندوب التجاري', 'المذخر', 'الايتم', 'صافي الكمية', valueColLabel];
-    const itemBody = rows.flatMap(row => row.items.map(it => [row.repName, row.warehouseName, it.itemName, it.netQty, cv(it.netValue)]));
+    const itemHeader = ['المندوب التجاري', 'المذخر', 'الشركة', 'الايتم', 'صافي الكمية', valueColLabel];
+    const itemBody = rows.flatMap(row => row.items.map(it => [row.repName, row.warehouseName, it.companyName, it.itemName, it.netQty, cv(it.netValue)]));
     const itemAoa = [itemHeader, ...itemBody];
     const itemWs = XLSX.utils.aoa_to_sheet(itemAoa);
-    styleSheet(itemWs, itemAoa, [22, 22, 24, 14, 18]);
-    for (let r = 1; r < itemAoa.length; r++) { applyNumFmt(itemWs, XLSX.utils.encode_cell({ r, c: 3 })); applyNumFmt(itemWs, XLSX.utils.encode_cell({ r, c: 4 })); }
+    styleSheet(itemWs, itemAoa, [22, 22, 18, 24, 14, 18]);
+    for (let r = 1; r < itemAoa.length; r++) { applyNumFmt(itemWs, XLSX.utils.encode_cell({ r, c: 4 })); applyNumFmt(itemWs, XLSX.utils.encode_cell({ r, c: 5 })); }
     XLSX.utils.book_append_sheet(wb, itemWs, sanitizeSheetName('تفصيل الايتمات'));
 
     XLSX.writeFile(wb, `مذاخر-بغداد_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -3941,14 +3967,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                                 <td style={pivotTd}>{row.netQty}</td>
                                 <td style={{ ...pivotTd, fontWeight: 800, background: row.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(row.netValue)}</td>
                               </tr>
-                              {expanded && row.items.map((it, ii) => (
-                                <tr key={ii} style={{ background: '#fafbfc' }}>
-                                  <td style={pivotTd}></td>
-                                  <td style={pivotTd} colSpan={2}><span style={{ color: '#6b7280', fontSize: 12 }}>{it.itemName}</span></td>
-                                  <td style={{ ...pivotTd, color: '#6b7280' }}>{it.netQty}</td>
-                                  <td style={{ ...pivotTd, color: '#6b7280' }}>{fmtValSigned(it.netValue)}</td>
-                                </tr>
-                              ))}
+                              {expanded && row.items.map((it, ii) => {
+                                const newCompany = ii === 0 || row.items[ii - 1].companyName !== it.companyName;
+                                return (
+                                  <tr key={ii} style={{ background: '#fafbfc' }}>
+                                    <td style={pivotTd}></td>
+                                    <td style={pivotTd} colSpan={2}>
+                                      {newCompany && <div style={{ color: '#94a3b8', fontSize: 10.5, fontWeight: 700, marginBottom: 2 }}>{it.companyName}</div>}
+                                      <span style={{ color: '#6b7280', fontSize: 12 }}>{it.itemName}</span>
+                                    </td>
+                                    <td style={{ ...pivotTd, color: '#6b7280' }}>{it.netQty}</td>
+                                    <td style={{ ...pivotTd, color: '#6b7280' }}>{fmtValSigned(it.netValue)}</td>
+                                  </tr>
+                                );
+                              })}
                             </Fragment>
                           );
                         })}

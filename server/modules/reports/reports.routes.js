@@ -509,9 +509,13 @@ router.get('/overall', async (req, res) => {
         // فتُدمَج كل صفوفهما تحت اسم المذخر الفعلي الواحد بلا عمود «المخزن» إطلاقاً.
         const warehouseName = pharmacyNameFromRawData(s.rawData) || 'غير محدد';
         const itemName      = s.item?.name || 'غير محدد';
+        // اسم الشركة لهذا الايتم — نفس rowCompany المحسوم أعلاه لنفس الصف (DB
+        // company/scientificCompany → عمود rawData) — يُستعمل فقط لتجميع/ترتيب
+        // الايتمات داخل كل مذخر عند عرض التفاصيل، لا للتجميع نفسه.
+        const itemCompanyName = rowCompany?.display || 'غير مصنّف';
         const bwKey = `${repName}::${warehouseName}::${itemName}`;
         if (!baghdadWarehouseMap.has(bwKey)) {
-          baghdadWarehouseMap.set(bwKey, { repName, warehouseName, itemName, totalQuantity: 0, totalValue: 0 });
+          baghdadWarehouseMap.set(bwKey, { repName, warehouseName, itemName, companyName: itemCompanyName, totalQuantity: 0, totalValue: 0 });
         }
         const bwr = baghdadWarehouseMap.get(bwKey);
         bwr.totalQuantity += qty;
