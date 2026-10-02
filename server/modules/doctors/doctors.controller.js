@@ -155,6 +155,47 @@ export async function visitsLatestMonth(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ─── تعديل ايتم زيارة طبيب يدوياً ───────────────────────────────────────────
+// الايتم المستورَد من ملفات CRM قد يبقى فارغاً (لا يوجد في report-details مثلاً)
+// أو مطابَقاً نصاً خاماً بتهجئة الملف — يتيح هذا للمدير تصحيحه من نفس شاشة
+// الكولات بدل الذهاب للوحة السوبر أدمن. النطاق نفسه المستخدم لعرض الزيارة أصلاً
+// (resolveAreaScope + نفس منطق pharmacyVisitOrClauses أعلاه): لا يجوز تعديل زيارة
+// خارج نطاق إشراف/عمل المستخدم حتى لو عرف رقم معرّفها.
+export async function updateVisitItem(req, res, next) {
+  try {
+    const visitId = parseInt(req.params.id);
+    if (!Number.isInteger(visitId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+    const visit = await prisma.doctorVisit.findUnique({
+      where: { id: visitId },
+      select: { id: true, userId: true, scientificRepId: true },
+    });
+    if (!visit) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+
+    const scope = await resolveAreaScope(req.user, {});
+    const inScope = (visit.scientificRepId && scope.memberRepIds.includes(visit.scientificRepId))
+      || (!visit.scientificRepId && visit.userId && scope.memberUserIds.includes(visit.userId));
+    if (!inScope) return res.status(403).json({ error: 'لا صلاحية لتعديل هذه الزيارة' });
+
+    const { itemId, itemName } = req.body;
+    let data;
+    if (itemId === null || itemId === undefined || itemId === '') {
+      // بلا ايتم من الكتالوج — إمّا مسح كامل أو اسم نصّي حرّ لم يُطابَق بعد.
+      data = { itemId: null, itemName: itemName ? String(itemName).trim() : null };
+    } else {
+      const item = await prisma.item.findUnique({ where: { id: parseInt(itemId) }, select: { id: true } });
+      if (!item) return res.status(400).json({ error: 'ايتم غير موجود' });
+      data = { itemId: item.id, itemName: null };
+    }
+
+    const updated = await prisma.doctorVisit.update({
+      where: { id: visitId }, data,
+      select: { id: true, itemId: true, itemName: true, item: { select: { id: true, name: true } } },
+    });
+    res.json({ success: true, data: updated });
+  } catch (e) { next(e); }
+}
+
 // نطاق زيارات الصيدليات — نفس نطاق «المصدر الموحّد» المستخدم للأطباء تماماً
 // (resolveAreaScope: مندوب ميداني → مناطقه، مدير + repUserId/companyId → مناطق
 // ذاك المندوب/الشركة، مدير «الكل» → كل مناطق الفريق). موحَّد هنا بدل منطق منفصل

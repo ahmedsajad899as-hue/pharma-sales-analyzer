@@ -348,7 +348,9 @@ const WAREHOUSE_NAME_RE = /^\s*(مذخر|مخزن)/;
  */
 
 const NOTE_TS_RE      = /\(\s*(\d{1,2}\/\d{1,2}\/\d{4}[^)]*)\)/g;         // (19/08/2026 11:19 PM)
-const NOTE_META_RE    = /(?:associated\s+client|client|status|assigned\s*to|type)\s*:/i; // ذيل يولّده CRM
+// ذيل يولّده CRM آلياً خلف نص الكاتب الحر (راجع buildNotesFromTaskNotes لأمثلة
+// فعلية: "Status: Pending -> Completed Client: ... Schedule date: ... Class: ...").
+const NOTE_META_RE    = /(?:associated\s+client|client|status|assigned\s*to|type|schedule\s*date|class)\s*:/i;
 const NOTE_ITEM_KW_RE = /(?:من\s*اجل\s*مادة|بخصوص\s*مادة|مادة\s*ال|مادة|بخصوص)\s*(?:ال\s*)?([A-Za-z][A-Za-z0-9.\- ]{1,40})/i;
 
 /** مقطع «الكاتب» بين نجمتين: «محمود بلال / الكرخ / فارماكتف» — يُطرح من الملاحظات. */
@@ -641,20 +643,111 @@ function parseCrmNote(rawNote, itemCtx = EMPTY_ITEM_CTX) {
   return { itemName: item ? item.name : itemText, itemId: item?.id ?? null, rawItemName: itemText, itemSuggestion, pharmacyName: planPharmacy, notes, timestamp };
 }
 
+/**
+ * تصديرات CRM الحديثة تضع عمود "note" الرئيسي كرابط واجهة فحسب ("View notes (2)")
+ * بدل المحتوى الفعلي — المحتوى الحقيقي ينتقل إلى ورقة إكسل ثانية منفصلة ("Task
+ * Notes" عادة: task_id/timestamp/author/message) تُربَط بعمود "id" بالورقة
+ * الرئيسية. يبحث عن أول ورقة غير الورقة الأولى تحمل عمودَي معرّف مهمة ورسالة
+ * ويبنيها خريطة task_id → كل رسائلها الخام. ورقة غائبة أو بلا الأعمدة المتوقَّعة
+ * (ملفات أقدم ما زالت تضع النص مباشرة في note) → خريطة فارغة، بلا كسر.
+ */
+export function buildTaskNotesMap(workbook) {
+  const map = new Map();
+  for (const sheetName of workbook.SheetNames.slice(1)) {
+    const json = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+    if (json.length === 0) continue;
+    const sheetHeaders = Object.keys(json[0]);
+    const idCol  = findCol(sheetHeaders, ['task_id', 'task-id', 'taskid']);
+    const msgCol = findCol(sheetHeaders, ['message', 'note', 'notes']);
+    if (!idCol || !msgCol) continue;
+    for (const r of json) {
+      const tid = String(r[idCol] ?? '').trim();
+      const msg = String(r[msgCol] ?? '').trim();
+      if (!tid || !msg) continue;
+      if (!map.has(tid)) map.set(tid, []);
+      map.get(tid).push(msg);
+    }
+    if (map.size > 0) return map; // وُجدت الورقة الصحيحة — لا داعي لفحص البقية
+  }
+  return map;
+}
+
+/**
+ * يُنظّف رسائل ورقة Task Notes لمهمة واحدة ويضمّها: يُسقط "Created by …" (سطر
+ * نظام بحت بلا محتوى) وذيل بيانات CRM الآلي (NOTE_META_RE) من كل رسالة، ويُسقط
+ * ما يصبح فارغاً تماماً بعد ذلك (رسائل حالة بحتة مثل "Status: Pending ->
+ * Completed" بلا أي نص كتبه المندوب).
+ */
+export function buildNotesFromTaskNotes(messages) {
+  const texts = [];
+  for (const raw of messages ?? []) {
+    if (!raw || /^created\s+by\s+/i.test(raw)) continue;
+    const cleaned = stripNoteMeta(raw).replace(/\s{2,}/g, ' ').trim();
+    if (cleaned) texts.push(cleaned);
+  }
+  return texts.join(' | ').trim();
+}
+
+/**
+ * يحلّل عمود "report-details" — صيغة CRM حديثة تخزّن فيها بيانات بنيوية اختارها
+ * المندوب فعلاً من واجهة تطبيقه (لا تخميناً من نص حرّ): مقاطع "*** Detailing
+ * Item ***" أو "*** Follow Up ***" متبوعة باسم الايتم ثم سطر فيدباك بين قوسين
+ * ("Interested"/"Not Interested"). زيارة واحدة قد تحوي أكثر من مقطع (أكثر من
+ * ايتم) — راجع parseReportDetails لكيفية التعامل مع ذلك.
+ */
+export function parseReportDetailsBlocks(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return [];
+  const segs = text.split(/\*{3,}/).map(s => s.trim()).filter(Boolean);
+  const blocks = [];
+  for (let i = 0; i + 1 < segs.length; i += 2) {
+    const lines = segs[i + 1].split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const fbLine = lines.find(l => /^\(.+\)$/.test(l));
+    const feedback = fbLine ? fbLine.slice(1, -1).trim() : null;
+    const itemText = lines.filter(l => l !== fbLine).join(' ').replace(/\s{2,}/g, ' ').trim();
+    if (itemText) blocks.push({ itemText, feedback });
+  }
+  return blocks;
+}
+
+const CRM_FEEDBACK_MAP = { interested: 'interested', 'not interested': 'not_interested' };
+const mapCrmFeedback = fb => (fb ? CRM_FEEDBACK_MAP[fb.trim().toLowerCase()] ?? null : null);
+
+/**
+ * DoctorVisit تحمل ايتماً واحداً فقط (خلافاً لـPharmacyVisitItem) — أول مقطع هو
+ * "الايتم الأساسي" للزيارة وفيدبكه هو فيدباك الزيارة، وبقية المقاطع (زيارة
+ * تفصيلية بأكثر من ايتم) تُلحَق كنص إضافي بالملاحظات كي لا تضيع بدل تكرار
+ * الزيارة نفسها بعدة صفوف (يُضخّم عدد الزيارات الفعلي زوراً).
+ */
+export function parseReportDetails(raw, itemCtx) {
+  const blocks = parseReportDetailsBlocks(raw);
+  if (!blocks.length) return { item: null, itemText: '', feedback: null, extraNote: '' };
+  const [primary, ...rest] = blocks;
+  const extraNote = rest.map(b => (b.feedback ? `${b.itemText} (${b.feedback})` : b.itemText)).join(' | ');
+  return {
+    item: matchItemByText(itemCtx, primary.itemText),
+    itemText: primary.itemText,
+    feedback: mapCrmFeedback(primary.feedback),
+    extraNote,
+  };
+}
+
 /** يقرأ صفوف صيغة CRM ويقسّمها إلى زيارات أطباء وزيارات صيدليات منفصلة. */
-function extractCrmRows({ rows, headers, repByKey, allAreas }) {
+export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EMPTY_ITEM_CTX, taskNotesMap }) {
   const col = {
-    taskTo:      findCol(headers, ['task-to']),
-    client:      findCol(headers, ['client']),
-    category:    findCol(headers, ['client-category']),
-    subcategory: findCol(headers, ['client-subcategory']),
-    address:     findCol(headers, ['client-address']),
-    city:        findCol(headers, ['client-city']),
-    associated:  findCol(headers, ['associated-client']),
-    type:        findCol(headers, ['type']),
-    created:     findCol(headers, ['created']),
-    note:        findCol(headers, ['note']),
-    correctGeo:  findCol(headers, ['correct-geo']),
+    id:            findCol(headers, ['id']),
+    taskTo:        findCol(headers, ['task-to']),
+    client:        findCol(headers, ['client']),
+    category:      findCol(headers, ['client-category']),
+    subcategory:   findCol(headers, ['client-subcategory']),
+    address:       findCol(headers, ['client-address']),
+    city:          findCol(headers, ['client-city']),
+    associated:    findCol(headers, ['associated-client']),
+    type:          findCol(headers, ['type']),
+    created:       findCol(headers, ['created']),
+    note:          findCol(headers, ['note']),
+    reportDetails: findCol(headers, ['report-details']),
+    correctGeo:    findCol(headers, ['correct-geo']),
   };
   const get = (row, key) => (col[key] ? String(row[col[key]] ?? '').trim() : '');
 
@@ -685,20 +778,29 @@ function extractCrmRows({ rows, headers, repByKey, allAreas }) {
     // الوصف الخام؛ التباس حقيقي أو بلا مرشّح إطلاقاً → يبقى النص الخام كما هو
     // (سيُعاد فحصه بنفس المنطق عند الحفظ، وتُنشأ منطقة جديدة عندها فقط إن لزم).
     const areaResolvedName = areaMatch.area ? areaMatch.area.name : areaRaw;
-    // حقل note ثريّ: منه الايتم المستهدف والملاحظات، ومنه أيضاً توقيت يصلح
-    // تاريخاً للزيارة حين يغيب عمود created (بعض التصديرات لا تتضمنه أصلاً).
-    const parsedNote = parseCrmNote(get(row, 'note'));
+    // عمود note بات في التصديرات الحديثة مجرّد رابط واجهة ("View notes (2)")
+    // بلا أي محتوى فعلي — المحتوى الحقيقي في ورقة Task Notes المرفقة (تُربَط
+    // بعمود id)، فلو وُجدت هذه الورقة في الملف لا داعي لقراءة note إطلاقاً (بل
+    // ضارّ: نص placeholder حرفي لا محتوى حقيقي خلفه، خصوصاً حين تكون كل رسائل
+    // المهمة نظامية بحتة بعد الفلترة فلا يبقى نص بشري — زيارة توثّق فعلاً
+    // بلا ملاحظة، لا "View notes" حرفياً). غياب الورقة (ملف أقدم ما زال يضع
+    // النص مباشرة في note) → نرجع لتحليل note القديم كما كان بالضبط.
+    const hasTaskNotesSheet = (taskNotesMap?.size ?? 0) > 0;
+    const taskId = col.id ? get(row, 'id') : '';
+    const joinedTaskNotes = hasTaskNotesSheet ? buildNotesFromTaskNotes(taskNotesMap.get(taskId) ?? []) : '';
+    const parsedNote = hasTaskNotesSheet ? { notes: '', timestamp: '' } : parseCrmNote(get(row, 'note'));
     const dateVal = parseVisitDate(get(row, 'created')) || parseVisitDate(parsedNote.timestamp);
     const date = toDateInput(dateVal) || '';
     const time = toTimeInput(dateVal);
     const isDoubleVisit = get(row, 'type') === 'Double Visit';
-    const notes = parsedNote.notes;
+    const notes = hasTaskNotesSheet ? joinedTaskNotes : parsedNote.notes;
     const geoCorrect = parseYesNo(get(row, 'correctGeo'));
     const _row = i + 2;
 
-    // الايتم والصيدلية لا يُستخرَجان من ملف CRM إطلاقاً (لا من note ولا بالذكاء
+    // الصيدلية لا يُستخرَج لها ايتم من ملف CRM إطلاقاً (لا من note ولا بالذكاء
     // الاصطناعي) — التخمين من النص الحر أنتج قيَماً واقتراحات خاطئة (اسم شركة
-    // كصيدلية، ايتم غير المقصود). تُترك فارغة ويملؤها المستخدم يدوياً إن أراد.
+    // كصيدلية). تُترك فارغة ويملؤها المستخدم يدوياً إن أراد. (الأطباء يختلفون:
+    // عمود report-details أدناه بيانات بنيوية اختارها المندوب فعلاً، لا تخميناً.)
     if (category.includes('صيدل')) {
       pharmacyRows.push({
         _row, repName, repId: rep?.id ?? null,
@@ -717,17 +819,23 @@ function extractCrmRows({ rows, headers, repByKey, allAreas }) {
       // المطابقة الفعلية (تامة/تشابه/سؤال المستخدم) تتم لاحقاً دفعة واحدة عبر
       // classifyDoctorRows — هنا فقط تنظيف الاسم.
       const doctorName = cleanDoctorName(clientName);
+      const parsedRD = parseReportDetails(get(row, 'reportDetails'), itemCtx);
+      const itemSuggestion = (!parsedRD.item && parsedRD.itemText) ? suggestItemMatch(itemCtx, parsedRD.itemText) : null;
       doctorRows.push({
         _row, repName, repId: rep?.id ?? null,
         doctorName, doctorId: null,
         specialty: get(row, 'subcategory'),
         areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
         pharmacyName: '',
-        itemName: '', itemId: null, rawItemName: '',
-        itemSuggestionId: null, itemSuggestionName: null,
+        itemName: parsedRD.item ? parsedRD.item.name : parsedRD.itemText,
+        itemId: parsedRD.item?.id ?? null,
+        rawItemName: parsedRD.itemText,
+        itemSuggestionId: itemSuggestion?.id ?? null,
+        itemSuggestionName: itemSuggestion?.name ?? null,
         date, time,
-        feedback: 'pending', // لا مصدر واثق للفيدباك في نص هذه الصيغة الحر
-        notes, isDoubleVisit,
+        feedback: parsedRD.feedback ?? 'pending', // report-details واثق حين موجود؛ وإلا لا مصدر واثق فتبقى pending
+        notes: [notes, parsedRD.extraNote].filter(Boolean).join(' | '),
+        isDoubleVisit,
         lat: null, lng: null, geoCorrect,
       });
     }
@@ -1237,10 +1345,13 @@ export async function extractVisitsFromExcel(file, user) {
   // يُخزَّن أي إكسل على الخادم، المحفوظ هو صفوف قاعدة البيانات فقط. الحذف في
   // finally كي لا يبقى ملف يتيم حين يفشل التحليل (ملف تالف/صيغة غير مدعومة).
   let rows;
+  let taskNotesMap = new Map();
   try {
     const workbook = XLSX.readFile(file.path);
     const sheet    = workbook.Sheets[workbook.SheetNames[0]];
     rows           = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    // ورقة Task Notes المرفقة (إن وُجدت) — راجع buildTaskNotesMap لسبب الحاجة إليها.
+    if (workbook.SheetNames.length > 1) taskNotesMap = buildTaskNotesMap(workbook);
   } finally {
     fs.unlink(file.path, () => {});
   }
@@ -1289,7 +1400,7 @@ export async function extractVisitsFromExcel(file, user) {
   const itemOptions = itemCtx.catalog.map(c => c.name).sort((a, b) => a.localeCompare(b));
 
   if (isCrm) {
-    const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas });
+    const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx, taskNotesMap });
     applyLooseRepFallback(doctorRows, looseRepIndex);
     applyLooseRepFallback(pharmacyRows, looseRepIndex);
     const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);

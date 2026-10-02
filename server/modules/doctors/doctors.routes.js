@@ -9,6 +9,7 @@ router.get('/',                       ctrl.list);
 router.get('/specialties',            ctrl.specialtySuggestions);
 router.get('/pharmacy-names',         ctrl.pharmacyNameSuggestions);
 router.get('/visits-by-area',         ctrl.visitsByArea);
+router.patch('/visits/:id/item',      ctrl.updateVisitItem);
 router.get('/visits-latest-month',    ctrl.visitsLatestMonth);
 router.get('/pharmacy-visits-by-area', ctrl.pharmacyVisitsByArea);
 router.get('/pharmacy-visits-latest-month', ctrl.pharmacyVisitsLatestMonth);

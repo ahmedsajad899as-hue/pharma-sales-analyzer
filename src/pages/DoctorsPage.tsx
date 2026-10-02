@@ -402,6 +402,8 @@ export default function DoctorsPage() {
   const [showTotalPopup, setShowTotalPopup] = useState(false);
   const totalCardRef = useRef<HTMLDivElement>(null);
   const [expandedVisits, setExpandedVisits] = useState<Set<number>>(new Set());
+  const [editingVisitItemId, setEditingVisitItemId] = useState<number | null>(null);
+  const [savingVisitItemId, setSavingVisitItemId] = useState<number | null>(null);
   const [openItemDropdowns, setOpenItemDropdowns] = useState<Set<number>>(new Set());
   const toggleItemDrop = (id: number, force?: boolean) => setOpenItemDropdowns(prev => {
     const next = new Set(prev);
@@ -679,6 +681,24 @@ export default function DoctorsPage() {
   const toggleVisitExpand = (id: number) => setExpandedVisits(prev => {
     const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next;
   });
+  // تعديل ايتم زيارة مستورَدة من CRM يدوياً — بعضها يصل بلا ايتم محسوم (راجع
+  // report-details في doctor-visits-import.js)، فيتيح هذا للمدير تصحيحه مباشرة
+  // من نفس جدول الزيارات بدل لوحة السوبر أدمن.
+  const saveVisitItem = async (visitId: number, itemId: number | null) => {
+    setSavingVisitItemId(visitId);
+    try {
+      const r = await fetch(`${API}/api/doctors/visits/${visitId}/item`, {
+        method: 'PATCH', headers: H(), body: JSON.stringify({ itemId }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error ?? `خطأ ${r.status}`); }
+      await loadVisits(true);
+    } catch (e: any) {
+      alert(e.message ?? 'تعذّر حفظ الايتم');
+    } finally {
+      setSavingVisitItemId(null);
+      setEditingVisitItemId(null);
+    }
+  };
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
@@ -3195,7 +3215,29 @@ export default function DoctorsPage() {
                                         <td style={{ padding: '5px 8px', color: 'var(--c-text-muted)' }}>{idx + 1}</td>
                                         <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap' }}>{fmt(v.visitDate)}</td>
                                         <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap' }}>{v.repName ?? '—'}</td>
-                                        <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)' }}>{v.item?.name ?? '—'}</td>
+                                        <td style={{ padding: '5px 8px', color: 'var(--c-text-secondary)' }}>
+                                          {editingVisitItemId === v.id ? (
+                                            <select
+                                              autoFocus
+                                              disabled={savingVisitItemId === v.id}
+                                              defaultValue={v.item?.id ?? ''}
+                                              onChange={e => saveVisitItem(v.id, e.target.value ? parseInt(e.target.value) : null)}
+                                              onBlur={() => setEditingVisitItemId(null)}
+                                              style={{ fontSize: 12, padding: '2px 4px', maxWidth: 160 }}
+                                            >
+                                              <option value="">— بلا ايتم —</option>
+                                              {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                                            </select>
+                                          ) : (
+                                            <span
+                                              onClick={() => setEditingVisitItemId(v.id)}
+                                              title="اضغط لتعديل الايتم"
+                                              style={{ cursor: 'pointer', borderBottom: '1px dashed var(--c-border)' }}
+                                            >
+                                              {savingVisitItemId === v.id ? '...' : (v.item?.name ?? '—')}
+                                            </span>
+                                          )}
+                                        </td>
                                         <td style={{ padding: '5px 8px' }}>
                                           <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: vfb.bg, color: vfb.color }}>{vfb.label}</span>
                                           {v.feedbackSource === 'import_ai' && (
