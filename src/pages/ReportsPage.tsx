@@ -866,6 +866,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company' | 'province' | 'baghdadWarehouse'>('area');
   // صفوف مفتوحة (تفصيل الايتمات) في جدول «مذاخر بغداد» — مفتاح الصف = مندوب::مذخر.
   const [expandedBaghdadWarehouses, setExpandedBaghdadWarehouses] = useState<Set<string>>(new Set());
+  // طريقة عرض تبويب «مذاخر بغداد»: مندوب×مذخر (تفصيلي) أو حسب الايتم (تجميعي
+  // عبر كل المذاخر معاً — «كم بِيع من هذا الايتم بكل بغداد»).
+  const [baghdadViewMode, setBaghdadViewMode] = useState<'repWarehouse' | 'byItem'>('repWarehouse');
   const [overallExcluded, setOverallExcluded] = useState<Set<string>>(new Set());
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('qty');
   // Overall mode supports analysing several files at once — their matching areas/items/
@@ -3011,10 +3014,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // الثابتة هناك. صافي = مبيع - ارجاع بنفس مفتاح (مندوب::مذخر::ايتم) الموحَّد
   // بين الاستدعاءين (overallSales/overallReturns byBaghdadWarehouse)، وصفوف
   // صافيها صفر تُستبعد كبقية جداول هذه الصفحة.
-  const buildBaghdadWarehouseRows = () => {
-    type ItemBreakdown = { itemName: string; companyName: string; netQty: number; netValue: number };
-    type WhRow = { key: string; repName: string; warehouseName: string; netQty: number; netValue: number; items: ItemBreakdown[] };
-    if (!overallSales) return [] as WhRow[];
+  type BaghdadNetRow = { repName: string; warehouseName: string; itemName: string; companyName: string; netQty: number; netValue: number };
+  // صافي (مبيع - ارجاع) كل صف (مندوب × مذخر × ايتم) بمحافظة بغداد — القاعدة
+  // المشتركة خلف تبويبي «مندوب × مذخر» و«حسب الايتم» أدناه، فلا يتكرر منطق
+  // التصفية بينهما. صفوف صافيها صفر تُستبعد كبقية جداول هذه الصفحة.
+  const buildBaghdadWarehouseNetRows = (): BaghdadNetRow[] => {
+    if (!overallSales) return [];
     const rowKey = (r: BaghdadWarehouseRow) => `${normReportName(r.repName)}::${normReportName(r.warehouseName)}::${normReportName(r.itemName)}`;
     const salesRows = overallSales.byBaghdadWarehouse ?? [];
     const retRows    = overallReturns?.byBaghdadWarehouse ?? [];
@@ -3022,36 +3027,47 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const retMap     = new Map(retRows.map(r => [rowKey(r), r]));
     const allKeys    = new Set([...salesRows.map(rowKey), ...retRows.map(rowKey)]);
 
-    const byWarehouse = new Map<string, WhRow>(); // "مندوب::مذخر" → صف
+    const out: BaghdadNetRow[] = [];
     for (const key of allKeys) {
       const s = salesMap.get(key), r = retMap.get(key);
       const netQty   = (s?.totalQty   ?? 0) - (r?.totalQty   ?? 0);
       const netValue = (s?.totalValue ?? 0) - (r?.totalValue ?? 0);
       if (netQty === 0 && netValue === 0) continue;
       const info = (s ?? r)!;
+      out.push({ repName: info.repName, warehouseName: info.warehouseName, itemName: info.itemName, companyName: info.companyName || 'غير مصنّف', netQty, netValue });
+    }
+    return out;
+  };
+
+  // ترتيب عناصر (ايتم بصافي كمية/قيمة) حسب الشركة: مجموعة شركة كاملة قبل
+  // التالية — ترتيب الشركات بصافي قيمتها الإجمالية تنازلياً، والايتمات داخل كل
+  // شركة بصافي قيمتها تنازلياً أيضاً. طلب صريح: «كل ايتمات شركة قبل الأخرى».
+  const sortByCompanyGroup = <T extends { companyName: string; netValue: number }>(items: T[]): T[] => {
+    const companyTotals = new Map<string, number>();
+    for (const it of items) companyTotals.set(it.companyName, (companyTotals.get(it.companyName) ?? 0) + it.netValue);
+    return [...items].sort((a, b) =>
+      (companyTotals.get(b.companyName)! - companyTotals.get(a.companyName)!) ||
+      a.companyName.localeCompare(b.companyName, 'ar') ||
+      (b.netValue - a.netValue));
+  };
+
+  const buildBaghdadWarehouseRows = () => {
+    type ItemBreakdown = { itemName: string; companyName: string; netQty: number; netValue: number };
+    type WhRow = { key: string; repName: string; warehouseName: string; netQty: number; netValue: number; items: ItemBreakdown[] };
+
+    const byWarehouse = new Map<string, WhRow>(); // "مندوب::مذخر" → صف
+    for (const info of buildBaghdadWarehouseNetRows()) {
       const whKey = `${normReportName(info.repName)}::${normReportName(info.warehouseName)}`;
       if (!byWarehouse.has(whKey)) {
         byWarehouse.set(whKey, { key: whKey, repName: info.repName, warehouseName: info.warehouseName, netQty: 0, netValue: 0, items: [] });
       }
       const row = byWarehouse.get(whKey)!;
-      row.netQty   += netQty;
-      row.netValue += netValue;
-      row.items.push({ itemName: info.itemName, companyName: info.companyName || 'غير مصنّف', netQty, netValue });
+      row.netQty   += info.netQty;
+      row.netValue += info.netValue;
+      row.items.push({ itemName: info.itemName, companyName: info.companyName, netQty: info.netQty, netValue: info.netValue });
     }
 
-    // ترتيب الايتمات داخل كل مذخر: مجموعة شركة كاملة قبل التالية — ترتيب
-    // الشركات نفسها بصافي قيمتها داخل هذا المذخر تنازلياً، والايتمات داخل كل
-    // شركة بصافي قيمتها تنازلياً أيضاً. طلب صريح: «كل ايتمات شركة قبل الأخرى».
-    const sortItemsByCompany = (items: ItemBreakdown[]): ItemBreakdown[] => {
-      const companyTotals = new Map<string, number>();
-      for (const it of items) companyTotals.set(it.companyName, (companyTotals.get(it.companyName) ?? 0) + it.netValue);
-      return [...items].sort((a, b) =>
-        (companyTotals.get(b.companyName)! - companyTotals.get(a.companyName)!) ||
-        a.companyName.localeCompare(b.companyName, 'ar') ||
-        (b.netValue - a.netValue));
-    };
-
-    const warehouseRows = [...byWarehouse.values()].map(row => ({ ...row, items: sortItemsByCompany(row.items) }));
+    const warehouseRows = [...byWarehouse.values()].map(row => ({ ...row, items: sortByCompanyGroup(row.items) }));
 
     // تجميع المذاخر بالتوالي تحت مندوبها: كل مندوب وكل مذاخره تباعاً قبل الانتقال
     // لمندوب آخر — طلب صريح. ترتيب المندوبين فيما بينهم بمجموع صافي مبيعهم
@@ -3068,6 +3084,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return [...byRep.values()]
       .sort((a, b) => b.total - a.total)
       .flatMap(g => g.rows.sort((a, b) => b.netValue - a.netValue));
+  };
+
+  // تبويب «حسب الايتم»: نفس بيانات مذاخر بغداد لكن مجمَّعة بالايتم عبر كل
+  // المذاخر/المندوبين معاً — "كم بِيع من هذا الايتم بكل مذاخر بغداد مجتمعة"،
+  // بدل تفصيله مذخراً بمذخر. مجمّعة بالشركة بنفس منطق تفصيل الايتمات أعلاه.
+  const buildBaghdadItemRows = () => {
+    type ItemRow = { itemName: string; companyName: string; netQty: number; netValue: number };
+    const byItem = new Map<string, ItemRow>();
+    for (const info of buildBaghdadWarehouseNetRows()) {
+      const iKey = normReportName(info.itemName);
+      if (!byItem.has(iKey)) byItem.set(iKey, { itemName: info.itemName, companyName: info.companyName, netQty: 0, netValue: 0 });
+      const row = byItem.get(iKey)!;
+      row.netQty   += info.netQty;
+      row.netValue += info.netValue;
+    }
+    return sortByCompanyGroup([...byItem.values()]);
   };
 
   const exportBaghdadWarehouseToExcel = () => {
@@ -3094,6 +3126,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     XLSX.utils.book_append_sheet(wb, itemWs, sanitizeSheetName('تفصيل الايتمات'));
 
     XLSX.writeFile(wb, `مذاخر-بغداد_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const exportBaghdadItemsToExcel = () => {
+    const rows = buildBaghdadItemRows();
+    if (rows.length === 0) return;
+    const cv = (n: number) => +convertVal(n).toFixed(2);
+    const valueColLabel = `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`;
+    const header = ['#', 'الشركة', 'الايتم', 'صافي الكمية', valueColLabel];
+    const body = rows.map((row, i) => [i + 1, row.companyName, row.itemName, row.netQty, cv(row.netValue)]);
+    const aoa = [header, ...body];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    styleSheet(ws, aoa, [6, 20, 28, 14, 18]);
+    for (let r = 1; r < aoa.length; r++) { applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: 3 })); applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: 4 })); }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('مذاخر بغداد - حسب الايتم'));
+    XLSX.writeFile(wb, `مذاخر-بغداد-حسب-الايتم_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   return (
@@ -3923,27 +3971,87 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                  عمود الصنف الخام — جدول مسطَّح (مندوب × مذخر) قابل لتوسيع كل صف لعرض
                  تفصيل الايتمات وكمياتها، بنفس تصميم جدول «محافظة × شركة» الرسمي. ── */}
             {overallTab === 'baghdadWarehouse' && (() => {
-              const rows = buildBaghdadWarehouseRows();
-              if (rows.length === 0) {
-                return <div style={{ marginTop: 14, textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد مبيعات مذاخر في بغداد ضمن النطاق الحالي</div>;
-              }
               const BORDER = '1px solid #cbd5e1';
               const pivotTh: React.CSSProperties = { padding: '9px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', position: 'sticky', top: 0, whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 700, border: BORDER };
               const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: 12.5, color: '#111827', border: BORDER };
-              const grandTotal = rows.reduce((s, r) => s + r.netValue, 0);
               const toggleRow = (key: string) => setExpandedBaghdadWarehouses(prev => {
                 const next = new Set(prev);
                 if (next.has(key)) next.delete(key); else next.add(key);
                 return next;
               });
+
+              const viewToggle = (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button onClick={() => setBaghdadViewMode('repWarehouse')}
+                      style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${baghdadViewMode === 'repWarehouse' ? '#4f46e5' : '#e2e8f0'}`, background: baghdadViewMode === 'repWarehouse' ? '#eef2ff' : '#fff', color: baghdadViewMode === 'repWarehouse' ? '#4338ca' : '#6b7280', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                    >مندوب × مذخر</button>
+                    <button onClick={() => setBaghdadViewMode('byItem')}
+                      style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${baghdadViewMode === 'byItem' ? '#4f46e5' : '#e2e8f0'}`, background: baghdadViewMode === 'byItem' ? '#eef2ff' : '#fff', color: baghdadViewMode === 'byItem' ? '#4338ca' : '#6b7280', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                    >حسب الايتم</button>
+                  </div>
+                  <button onClick={baghdadViewMode === 'repWarehouse' ? exportBaghdadWarehouseToExcel : exportBaghdadItemsToExcel}
+                    style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  ><Icon name="export" size={12} /> تصدير Excel</button>
+                </div>
+              );
+
+              if (baghdadViewMode === 'byItem') {
+                const itemRows = buildBaghdadItemRows();
+                if (itemRows.length === 0) {
+                  return <div style={{ marginTop: 14 }}>{viewToggle}<div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد مبيعات مذاخر في بغداد ضمن النطاق الحالي</div></div>;
+                }
+                const grandQty   = itemRows.reduce((s, r) => s + r.netQty, 0);
+                const grandValue = itemRows.reduce((s, r) => s + r.netValue, 0);
+                return (
+                  <div style={{ marginTop: 14 }}>
+                    {viewToggle}
+                    <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700, color: '#111827' }}>صافي المبيع — مذاخر بغداد حسب الايتم (كل المذاخر مجتمعة)</div>
+                    <div style={{ overflowX: 'auto', border: '1px solid #94a3b8' }}>
+                      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ ...pivotTh, textAlign: 'right' }}>الايتم</th>
+                            <th style={pivotTh}>صافي الكمية</th>
+                            <th style={pivotTh}>صافي المبيع</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {itemRows.map((it, ii) => {
+                            const newCompany = ii === 0 || itemRows[ii - 1].companyName !== it.companyName;
+                            return (
+                              <tr key={ii}>
+                                <td style={{ ...pivotTd, textAlign: 'right' }}>
+                                  {newCompany && <div style={{ color: '#94a3b8', fontSize: 10.5, fontWeight: 700, marginBottom: 2 }}>{it.companyName}</div>}
+                                  <span>{it.itemName}</span>
+                                </td>
+                                <td style={pivotTd}>{it.netQty}</td>
+                                <td style={{ ...pivotTd, fontWeight: 700, background: it.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(it.netValue)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, background: '#f1f5f9' }}>الإجمالي الكلي</td>
+                            <td style={{ ...pivotTd, fontWeight: 800, background: '#f1f5f9' }}>{grandQty}</td>
+                            <td style={{ ...pivotTd, fontWeight: 900, background: grandValue < 0 ? 'rgba(239, 68, 68, 0.2)' : '#e2e8f0' }}>{fmtValSigned(grandValue)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                );
+              }
+
+              const rows = buildBaghdadWarehouseRows();
+              if (rows.length === 0) {
+                return <div style={{ marginTop: 14 }}>{viewToggle}<div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد مبيعات مذاخر في بغداد ضمن النطاق الحالي</div></div>;
+              }
+              const grandTotal = rows.reduce((s, r) => s + r.netValue, 0);
               return (
                 <div style={{ marginTop: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>صافي المبيع — مذاخر بغداد (مندوب تجاري × مذخر)</span>
-                    <button onClick={exportBaghdadWarehouseToExcel}
-                      style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                    ><Icon name="export" size={12} /> تصدير Excel</button>
-                  </div>
+                  {viewToggle}
                   <div style={{ overflowX: 'auto', border: '1px solid #94a3b8' }}>
                     <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <thead>
