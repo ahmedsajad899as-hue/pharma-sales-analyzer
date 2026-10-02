@@ -3692,18 +3692,34 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {/* Sub-tabs: area / item / company */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
               <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
-                {([['area', 'location', t.reports.colArea], ['item', 'drug', t.reports.colItem], ['company', 'navCommercial', 'الشركة'], ['province', 'language', 'المحافظة']] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => (
-                  <button key={id} onClick={() => setOverallTab(id as 'area' | 'item' | 'company' | 'province')} style={{
-                    padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
-                    background: overallTab === id ? '#fff' : 'transparent',
-                    color: overallTab === id ? '#1e40af' : '#6b7280',
-                    fontWeight: overallTab === id ? 700 : 500, fontSize: 13,
-                    borderBottom: overallTab === id ? '2px solid #1e40af' : '2px solid transparent',
-                    marginBottom: -2, display: 'flex', alignItems: 'center', gap: 4,
-                  }}>
-                    <Icon name={icon} size={13} /><span>{label}</span>
-                  </button>
-                ))}
+                {([['area', 'location', t.reports.colArea], ['item', 'drug', t.reports.colItem], ['company', 'navCommercial', 'الشركة'], ['province', 'language', 'المحافظات']] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => {
+                  const active = overallTab === id;
+                  // «المحافظات» تبويب مُميَّز بطلب صريح: حبّة بتدرّج بنفسجي تبقى
+                  // ظاهرة حتى وهي غير مختارة، بدل التبويب الرمادي المسطّح.
+                  const featured = id === 'province';
+                  return (
+                    <button key={id} onClick={() => setOverallTab(id as 'area' | 'item' | 'company' | 'province')} style={{
+                      padding: featured ? '7px 18px' : '7px 16px', cursor: 'pointer',
+                      border: featured && !active ? '1px solid #c7d2fe' : 'none',
+                      borderRadius: featured ? '12px 12px 5px 5px' : '6px 6px 0 0',
+                      background: featured
+                        ? (active ? 'linear-gradient(135deg, #4f46e5, #7c3aed)' : 'linear-gradient(135deg, #eef2ff, #f5f3ff)')
+                        : (active ? '#fff' : 'transparent'),
+                      color: featured ? (active ? '#fff' : '#4338ca') : (active ? '#1e40af' : '#6b7280'),
+                      fontWeight: featured || active ? 700 : 500, fontSize: 13,
+                      borderBottom: featured
+                        ? `2px solid ${active ? '#4f46e5' : '#c7d2fe'}`
+                        : (active ? '2px solid #1e40af' : '2px solid transparent'),
+                      boxShadow: featured
+                        ? (active ? '0 4px 14px rgba(79, 70, 229, 0.35)' : '0 1px 4px rgba(79, 70, 229, 0.14)')
+                        : 'none',
+                      marginBottom: -2, display: 'flex', alignItems: 'center', gap: 5,
+                      transition: 'background .18s ease, box-shadow .18s ease, color .18s ease',
+                    }}>
+                      <Icon name={icon} size={featured ? 14 : 13} /><span>{label}</span>
+                    </button>
+                  );
+                })}
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 4 }}>
                 {overallExcluded.size > 0 && (
