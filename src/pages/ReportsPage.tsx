@@ -868,7 +868,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallFilesOpen, setOverallFilesOpen] = useState(false);
   // تيمات المكتب (كل تيم = حساب مدير شركة + كل شركاته) — شرائح لعزل مبيع/ارجاع
   // تيم واحد بالضبط كما يراه مديره، بدل كل أسماء الشركات الخام من الملف.
-  interface OverallTeam { managerId: number; managerName: string; name: string; companyIds: number[] }
+  interface OverallTeam { managerId: number; managerName: string; name: string }
   const [overallTeams, setOverallTeams] = useState<OverallTeam[]>([]);
   const [overallTeamId, setOverallTeamId] = useState<number | null>(null);
   // Remembers the last AUTO-populated date range so we can tell it apart from dates the

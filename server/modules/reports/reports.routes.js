@@ -22,12 +22,15 @@ const UNASSIGNED_COMPANY = 'غير مصنّف';
 
 /**
  * «تيمات» المكتب: كل حساب «مدير شركة» (company_manager) في نفس officeId
- * الطالب، باسم عرض = شركته الرئيسية، ومعرّفات كل شركاته العلمية (رئيسية
- * وثانوية — ScientificCompany، مساحة معرّفات UserCompanyAssignment). هذا هو
- * تعريف «الشركة الرئيسية/الكروب» الفعلي في التطبيق: كروب قد يضمّ أكثر من
- * ScientificCompany وأكثر من ايتم، يمثّله مدير شركة واحد — لا اسم الشركة
- * الخام المستخرَج من كل ايتم على حدة. مشتركة بين /overall-teams (شرائح
- * الفلترة) و/overall (تجميع «محافظة × شركة رئيسية»، راجع تعليق provinceCompanyMap).
+ * الطالب، باسم عرض = شركته الرئيسية (UserCompanyAssignment.isPrimary)، و
+ * `itemIds` = الايتمات المُسنَدة له عبر «الايتمات» في السوبر أدمن
+ * (UserItemAssignment) — وهي وحدها ما يُحتسب مبيعاً لذلك التيم.
+ *
+ * الشركة تحدّد **اسم** التيم فقط، لا مبيعه: «مبيع الشركة المختارة = ايتمات
+ * مديرها حصراً لا كل ايتمات الشركة» (طلب صريح). فايتم من شركة deva مُسنَد
+ * لمدير humanis يُحتسب لـhumanis، وايتم deva غير مُسنَد لأحد لا يُحتسب لأحد.
+ *
+ * مشتركة بين /overall-teams (شرائح الفلترة) و/overall (تجميع «محافظة × شركة»).
  */
 async function loadOfficeTeams(userId) {
   if (!userId) return [];
@@ -52,44 +55,16 @@ async function loadOfficeTeams(userId) {
   }
 
   /**
-   * مالك الشركة = التيم الذي هي شركته **الرئيسية** (isPrimary)، لا كل مدير
-   * مُنِح وصولاً إليها. UserCompanyAssignment مفتاحه [userId, companyId] فالشركة
-   * الواحدة تُسنَد لعدة مدراء: الإسناد الثانوي صلاحية اطّلاع لا ملكية.
-   *
-   * ⚠️ العطل الذي يعالجه هذا: كانت خريطة «معرّف الشركة ← اسم التيم» تُبنى
-   * بالكتابة فوق بعضها (آخر تيم يكتب يفوز، والترتيب أبجدي)، فشركة «deva»
-   * المُسنَدة ثانوياً لمديري humanis و osel كانت تُنسَب لـ osel (الأخير أبجدياً)
-   * ويختفي عمود deva فارغاً تماماً من جدول محافظة×شركة رغم أن له 36 ايتماً
-   * ومبيعات فعلية — كل مبيعه كان يُحتسب لـ osel. والفلترة بشريحة «الشركة
-   * الرئيسية» كانت تعاني العكس: مدير له إسنادات ثانوية كثيرة تُظهر شريحته
-   * مبيعَ كل الشركات التي يراها لا مبيع شركته، فلا يتطابق رقم الشريحة مع
-   * عمودها في نفس الجدول.
-   *
-   * شركة لا يملكها أحد كـ«رئيسية» تؤول لأقدم مدير مُسنَدة له (أصغر id) — قرار
-   * ثابت لا يتبدّل بترتيب العرض، بدل أن تُترك بلا تيم فتختفي مبيعاتها.
+   * ايتم مُسنَد لأكثر من مدير (غير موجود حالياً في بيانات المكتب): يفوز مالك
+   * شركته — التيم الذي هي شركته الرئيسية — وإلا أصغر id. قرار ثابت لا يتبدّل
+   * بترتيب العرض، فلا يُحتسب مبيع الايتم نفسه لتيمين.
    */
-  const claimsByCompany = new Map();
+  const ownerByCompany = new Map(); // companyId -> managerId (للترجيح فقط)
   for (const a of assignments) {
-    const cid = a.company.id;
-    if (!claimsByCompany.has(cid)) claimsByCompany.set(cid, []);
-    claimsByCompany.get(cid).push(a);
-  }
-  const ownerByCompany = new Map(); // companyId -> managerId
-  for (const [cid, rows] of claimsByCompany) {
-    const ordered = [...rows].sort((x, y) => x.userId - y.userId);
-    const owner = ordered.find(r => r.isPrimary) ?? ordered[0];
-    ownerByCompany.set(cid, owner.userId);
+    const prev = ownerByCompany.get(a.company.id);
+    if (prev == null || (a.isPrimary && prev !== a.userId)) ownerByCompany.set(a.company.id, a.userId);
   }
 
-  /**
-   * ملكية الايتم تسبق ملكية الشركة: ايتم مُسنَد لمدير عبر «الايتمات» في السوبر
-   * أدمن (UserItemAssignment) يُحسب مبيعه له، لا لمالك شركته — طلب صريح.
-   * مثال حقيقي: منتجات AMOKLAVIN الثلاثة شركتها deva لكنها مُسنَدة لمدير
-   * humanis، فمبيعها (1.22 مليار) يخصّه هو لا مدير deva. ما لم يُسنَد لأحد
-   * (مثل DEVIT-3 ORAL DAMLA، أكبر ايتمات deva) يرجع لمالك شركته.
-   *
-   * تعارض (ايتم لمديرين — غير موجود حالياً): يفوز مالك شركة الايتم، وإلا أصغر id.
-   */
   const itemAssignments = await prisma.userItemAssignment.findMany({
     where: { userId: { in: managers.map(m => m.id) } },
     select: { userId: true, item: { select: { id: true, scientificCompanyId: true } } },
@@ -99,37 +74,25 @@ async function loadOfficeTeams(userId) {
     if (!claimsByItem.has(a.item.id)) claimsByItem.set(a.item.id, []);
     claimsByItem.get(a.item.id).push(a);
   }
-  const ownerByItem = new Map(); // itemId -> managerId
+  const ownedItemsByManager = new Map();
   for (const [iid, rows] of claimsByItem) {
     const ordered = [...rows].sort((x, y) => x.userId - y.userId);
     const companyOwnerId = ownerByCompany.get(ordered[0].item.scientificCompanyId);
     const owner = ordered.find(r => r.userId === companyOwnerId) ?? ordered[0];
-    ownerByItem.set(iid, owner.userId);
-  }
-  const ownedItemsByManager = new Map();
-  for (const [iid, uid] of ownerByItem) {
-    if (!ownedItemsByManager.has(uid)) ownedItemsByManager.set(uid, []);
-    ownedItemsByManager.get(uid).push(iid);
+    if (!ownedItemsByManager.has(owner.userId)) ownedItemsByManager.set(owner.userId, []);
+    ownedItemsByManager.get(owner.userId).push(iid);
   }
 
   return managers
     .map(m => {
       const rows = byManager.get(m.id) ?? [];
       if (rows.length === 0) return null;
-      // اسم العرض يبقى شركته الرئيسية حتى لو آلت ملكيتها لغيره (حالة نادرة:
-      // مديران يعلّمان نفس الشركة رئيسية) — التيم يظل معروفاً باسمه.
       const primary = rows.find(r => r.isPrimary) ?? rows[0];
-      const owned = rows.filter(r => ownerByCompany.get(r.company.id) === m.id);
       return {
         managerId: m.id,
         managerName: m.displayName || m.username,
         name: primary.company.name,
-        companyIds: owned.map(r => r.company.id),
-        // أسماء شركات التيم المملوكة — بعض الايتمات لم تُربط بعد
-        // بـScientificCompany (companyId القديم/Company فقط، أو نص rawData)،
-        // فمطابقة الاسم هنا تلتقطها بدل الاقتصار على مطابقة المعرّف وحده.
-        companyNames: owned.map(r => r.company.name),
-        // ايتمات يملكها هذا التيم بالاسناد المباشر — تسبق ملكية الشركة.
+        // ايتمات هذا المدير — المصدر الوحيد لمبيع تيمه.
         itemIds: ownedItemsByManager.get(m.id) ?? [],
       };
     })
@@ -188,44 +151,14 @@ router.get('/overall', async (req, res) => {
     // officeTeams محصورة أصلاً بمدراء الشركات النشطين في مكتب الطالب، فالعضوية
     // فيها هي نفسها فحص الصلاحية الذي كان يتم باستعلام منفصل.
     const selectedTeam = mgrId ? (officeTeams.find(t => t.managerId === mgrId) ?? null) : null;
+    // مصدر النسبة الوحيد: الايتم مُسنَد لمدير عبر «الايتمات» في السوبر أدمن.
+    // لا رجوع لشركة الايتم ولا لاسمها النصي — طلب صريح: «مبيع الشركة المختارة =
+    // ايتمات مديرها حصراً، لا كل ايتمات الشركة». ايتم غير مُسنَد لأي مدير لا
+    // يُنسَب لأحد (ويسقط من تبويب المحافظة كبقية غير المصنّف).
     const itemIdToTeamName = new Map();
-    const companyIdToTeamName = new Map();
-    const companyNameToTeamName = new Map();
-    // [{ key, tight (بلا أي مسافات), teamName }] — طبقتا المطابقة المتسامحة أدناه
-    const looseTeamNames = [];
     for (const team of officeTeams) {
       for (const iid of team.itemIds) itemIdToTeamName.set(iid, team.name);
-      for (const cid of team.companyIds) companyIdToTeamName.set(cid, team.name);
-      for (const cname of team.companyNames) {
-        const k = normalizeItemKey(cname);
-        if (!k) continue;
-        companyNameToTeamName.set(k, team.name);
-        looseTeamNames.push({ key: k, tight: k.replace(/\s+/g, ''), teamName: team.name });
-      }
     }
-    /**
-     * مطابقتان متسامحتان أخيرتان حين يفشل التطابق التام بعد التطبيع:
-     *  1) احتواء نصي بين اسم الشركة المسجَّل للتيم واسم الشركة المستخرَج من
-     *     الصف (بأي اتجاه) — ضرورية حين يسجَّل الاسم في UserCompanyAssignment
-     *     بصيغة أطول/أقصر من النص الفعلي في الملف («Marcyrl Pharmaceutical
-     *     Industries» مقابل «Marcyrl» الخام).
-     *  2) تطابق بعد حذف كل المسافات — بعض الأكواد المستخرَجة من رمز المادة
-     *     (extractCompanyFromCode) تُدخل مسافة لم تكن في الاسم الأصلي («C T»
-     *     من «CTItalyN/A» مقابل «CT» المسجَّلة اسماً للتيم).
-     * بلا هذا، تبقى شركة بلا بيانات في هذا الجدول تحديداً رغم توفّرها فعلاً
-     * تحت تبويب «الشركة» العادي (مطابقة أرخّ هناك). لا تُعتمَد حين تتعارض
-     * شركتان مختلفتان على نفس الاحتواء/التطابق — نادر لعدد شركات المكتب المحدود.
-     */
-    const resolveTeamByLooseName = (key) => {
-      if (!key) return null;
-      let hits = looseTeamNames.filter(t => t.key.includes(key) || key.includes(t.key));
-      if (hits.length === 0) {
-        const tight = key.replace(/\s+/g, '');
-        hits = looseTeamNames.filter(t => t.tight === tight);
-      }
-      const uniqueTeams = new Set(hits.map(h => h.teamName));
-      return uniqueTeams.size === 1 ? hits[0].teamName : null;
-    };
 
     // ── وضع «تحليل كامل» (raw=1) ────────────────────────────────────────────
     // يتجاوز قائمة ايتمات الحساب *ونطاق مناطقه* معاً ليعرض بيانات الملف كاملة
@@ -329,31 +262,16 @@ router.get('/overall', async (req, res) => {
         ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
       },
     } : {};
-    // فلتر الشريحة = نفس قاعدة نسبة الصف لتيم في حلقة التجميع أدناه، حرفياً:
-    //   (ايتم يملكه التيم)  أو  (ايتم من شركة يملكها التيم ولم يُسنَد لتيم آخر)
-    // الشرط الثاني يستثني ايتمات التيمات الأخرى صراحةً، وإلا عادت ايتمات
-    // AMOKLAVIN (شركتها deva، مُسنَدة لمدير humanis) ضمن شريحة deva أيضاً
-    // فيُحتسب مبيعها مرتين بين الشريحتين.
+    // فلتر الشريحة = نفس قاعدة النسبة أدناه حرفياً: ايتمات ذلك المدير وحدها.
+    // تيم بلا ايتمات مُسنَدة = لا صفوف له (`in: []`) — لا «بلا فلتر»؛ الثانية
+    // كانت ستعرض مبيع المكتب كله تحت اسم ذلك التيم.
     //
-    // تيم مختار بلا شركة ولا ايتم = لا صفوف له (`in: []`) — لا «بلا فلتر». الفرق
-    // جوهري: الحالة الثانية كانت ستعرض مبيع المكتب كله تحت اسم ذلك التيم.
-    //
-    // ⚠️ يُغلَّف بـ`AND` لا بـ`OR` مباشرة: مفتاح `OR` أعلى المستوى محجوز
-    // لـnoDateFileFilter، ونشرهما في نفس الكائن يُلغي أحدهما بصمت.
-    const othersItemIds = selectedTeam
-      ? officeTeams.filter(t => t.managerId !== selectedTeam.managerId).flatMap(t => t.itemIds)
-      : [];
-    const teamCompanyFilter = selectedTeam ? {
-      AND: [{
-        OR: [
-          { itemId: { in: selectedTeam.itemIds } },
-          {
-            item:   { scientificCompanyId: { in: selectedTeam.companyIds } },
-            itemId: { notIn: othersItemIds },
-          },
-        ],
-      }],
-    } : {};
+    // ⚠️ يُغلَّف بـ`AND`: المفتاح `itemId` مشغول أصلاً بنطاق ايتمات الطالب
+    // (effectiveItemScope) المنشور في نفس الكائن، ونشر مفتاحين متطابقين يُلغي
+    // أحدهما بصمت. نفس السبب يمنع استعمال `OR` هنا (محجوز لـnoDateFileFilter).
+    const teamCompanyFilter = selectedTeam
+      ? { AND: [{ itemId: { in: selectedTeam.itemIds } }] }
+      : {};
     const baseWhere = {
       isHidden: false,
       ...fileFilter,
@@ -554,18 +472,11 @@ router.get('/overall', async (req, res) => {
       // هنا = شرائح «الشركة الرئيسية» نفسها (officeTeams، كروب مدير الشركة) لا
       // اسم الشركة الخام لكل ايتم.
       //
-      // ترتيب النسبة (نفس ترتيب فلتر الشريحة أعلاه): (1) الايتم مُسنَد لمدير
-      // عبر «الايتمات» في السوبر أدمن — يسبق كل شيء. (2) شركة الايتم المملوكة
-      // لتيم. (3) اسم الشركة نصياً حين لا علاقة ScientificCompany للايتم.
-      //
-      // ⚠️ ما لا يُطابق أي تيم من الشركات الخمس الرئيسية (deva/osel/humanis/
-      // ct/marcyrl) يُستبعَد بالكامل من هذا التبويب تحديداً — بطلب صريح: لا
-      // عمود/قيمة «غير مصنّف» ولا ضمن إجمالي المحافظة. هذا استبعاد مقصود
-      // يخصّ تبويب المحافظة وحده؛ لا يمسّ byItem/byArea/byCompany أعلاه.
+      // النسبة بالايتم المُسنَد وحده (نفس فلتر الشريحة أعلاه). ايتم لم يُسنَد
+      // لأي مدير يُستبعَد بالكامل من هذا التبويب — بطلب صريح: لا عمود/قيمة
+      // «غير مصنّف» ولا ضمن إجمالي المحافظة. استبعاد مقصود يخصّ تبويب المحافظة
+      // وحده؛ لا يمسّ byItem/byArea/byCompany أعلاه.
       const teamName = (s.item?.id != null ? itemIdToTeamName.get(s.item.id) : null)
-        ?? (s.item?.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null)
-        ?? (rowCompany ? companyNameToTeamName.get(rowCompany.key) : null)
-        ?? (rowCompany ? resolveTeamByLooseName(rowCompany.key) : null)
         ?? UNASSIGNED_COMPANY;
 
       if (provinceName && teamName !== UNASSIGNED_COMPANY) {
