@@ -404,6 +404,7 @@ export default function DoctorsPage() {
   const [expandedVisits, setExpandedVisits] = useState<Set<number>>(new Set());
   const [editingVisitItemId, setEditingVisitItemId] = useState<number | null>(null);
   const [savingVisitItemId, setSavingVisitItemId] = useState<number | null>(null);
+  const [renamingPharmNotesId, setRenamingPharmNotesId] = useState<number | null>(null);
   const [openItemDropdowns, setOpenItemDropdowns] = useState<Set<number>>(new Set());
   const toggleItemDrop = (id: number, force?: boolean) => setOpenItemDropdowns(prev => {
     const next = new Set(prev);
@@ -697,6 +698,25 @@ export default function DoctorsPage() {
     } finally {
       setSavingVisitItemId(null);
       setEditingVisitItemId(null);
+    }
+  };
+  // استبدال اسم الصيدلية الحالي للطبيب باسم أدق لاحظه المستخدم داخل نص ملاحظات
+  // الزيارة — تحديد نص داخل خانة الملاحظات ثم تأكيد يستبدله في كل مكان عبر
+  // السيرفي (الخادم يعيد اشتقاق الاسم القديم من الطبيب نفسه، لا من الواجهة).
+  const renamePharmacyFromNotes = async (visitId: number, oldName: string, newName: string) => {
+    if (!window.confirm(`استبدال اسم الصيدلية "${oldName}" بـ "${newName}" لكل المستخدمين والسيرفي؟`)) return;
+    setRenamingPharmNotesId(visitId);
+    try {
+      const r = await fetch(`${API}/api/doctors/visits/${visitId}/pharmacy-name`, {
+        method: 'PATCH', headers: H(), body: JSON.stringify({ newName }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error ?? `خطأ ${r.status}`);
+      await Promise.all([load(), loadVisits(true)]);
+    } catch (e: any) {
+      alert(e.message ?? 'تعذّر تبديل اسم الصيدلية');
+    } finally {
+      setRenamingPharmNotesId(null);
     }
   };
   const load = useCallback(async () => {
@@ -3254,12 +3274,23 @@ export default function DoctorsPage() {
                                           )}
                                         </td>
                                         <td
+                                          title={doc.pharmacyName ? 'حدِّد اسم الصيدلية الصحيح هنا لاستبدال الاسم الحالي به في كل مكان' : undefined}
+                                          onMouseUp={() => {
+                                            if (!doc.pharmacyName || renamingPharmNotesId === v.id) return;
+                                            const sel = window.getSelection();
+                                            const text = sel?.toString().trim();
+                                            if (!text || text.length < 2) return;
+                                            if (text.toLowerCase() === doc.pharmacyName.trim().toLowerCase()) return;
+                                            sel?.removeAllRanges();
+                                            renamePharmacyFromNotes(v.id, doc.pharmacyName, text);
+                                          }}
                                           style={{
                                             padding: '5px 8px', color: 'var(--c-text-secondary)',
                                             whiteSpace: 'normal', wordBreak: 'break-word', minWidth: 220,
+                                            cursor: doc.pharmacyName ? 'text' : 'default',
                                           }}
                                         >
-                                          {v.notes ?? '—'}
+                                          {renamingPharmNotesId === v.id ? '... جارٍ الاستبدال' : (v.notes ?? '—')}
                                         </td>
                                       </tr>
                                     );

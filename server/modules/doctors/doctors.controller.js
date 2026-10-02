@@ -8,7 +8,7 @@ import {
   resolveAreaScope, getScopedSurveyDoctors, buildVisitOverlay,
   ensureDoctorRowsForScope, isFieldRole, resolveRepId, buildAreaNameIndex,
 } from '../../lib/surveyDoctors.js';
-import { getScopedSurveyPharmacies } from '../../lib/surveyPharmacies.js';
+import { getScopedSurveyPharmacies, renameSurveyPharmacyByName } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES } from '../../lib/officeScope.js';
 import * as importVisits from './doctor-visits-import.js';
 
@@ -193,6 +193,71 @@ export async function updateVisitItem(req, res, next) {
       select: { id: true, itemId: true, itemName: true, item: { select: { id: true, name: true } } },
     });
     res.json({ success: true, data: updated });
+  } catch (e) { next(e); }
+}
+
+// ── PATCH /api/doctors/visits/:id/pharmacy-name ──────────────────────────────
+// استبدال اسم الصيدلية الحالي المرتبط بطبيب هذه الزيارة (Doctor.pharmacyName)
+// باسم جديد لاحظه المستخدم داخل نص ملاحظات الزيارة — دمج كامل عبر السيرفي
+// (نفس آلية تعديل صيدلية من لوحة السوبر أدمن: cascadePharmacyNameChange تمسّ
+// MasterSurveyDoctor/Doctor/PharmacyVisit/OpenPharmacyLink/SmartPlanCandidate
+// معاً) لا تعديل محلي لهذا الطبيب فقط. نفس فحص النطاق المستخدم في updateVisitItem
+// أعلاه: لا يجوز تعديل زيارة خارج نطاق إشراف/عمل المستخدم.
+export async function renameVisitPharmacy(req, res, next) {
+  try {
+    const visitId = parseInt(req.params.id);
+    if (!Number.isInteger(visitId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+    const visit = await prisma.doctorVisit.findUnique({
+      where: { id: visitId },
+      select: {
+        id: true, userId: true, scientificRepId: true,
+        doctor: {
+          select: {
+            id: true, pharmacyName: true,
+            area: { select: { name: true } },
+            masterSurveyDoctor: { select: { surveyId: true } },
+          },
+        },
+      },
+    });
+    if (!visit || !visit.doctor) return res.status(404).json({ error: 'الزيارة غير موجودة' });
+
+    const scope = await resolveAreaScope(req.user, {});
+    const inScope = (visit.scientificRepId && scope.memberRepIds.includes(visit.scientificRepId))
+      || (!visit.scientificRepId && visit.userId && scope.memberUserIds.includes(visit.userId));
+    if (!inScope) return res.status(403).json({ error: 'لا صلاحية لتعديل هذه الزيارة' });
+
+    const oldName = visit.doctor.pharmacyName?.trim();
+    if (!oldName) return res.status(400).json({ error: 'لا يوجد اسم صيدلية مرتبط حالياً بهذا الطبيب' });
+
+    const newName = String(req.body.newName ?? '').trim();
+    if (!newName) return res.status(400).json({ error: 'الاسم الجديد مطلوب' });
+    if (newName.toLowerCase() === oldName.toLowerCase()) return res.status(400).json({ error: 'الاسم الجديد مطابق للاسم الحالي' });
+
+    let surveyId = visit.doctor.masterSurveyDoctor?.surveyId ?? null;
+    if (!surveyId) {
+      const survey = await prisma.masterSurvey.findFirst({
+        where: {
+          surveyType: 'general', isActive: true,
+          hiddenUsers:   { none: { userId: req.user.id } },
+          hiddenOffices: req.user.officeId ? { none: { officeId: req.user.officeId } } : undefined,
+        },
+        select: { id: true },
+      });
+      surveyId = survey?.id ?? null;
+    }
+    if (!surveyId) return res.status(404).json({ error: 'لم يُعثر على سيرفي متاح' });
+
+    const areaName = visit.doctor.area?.name ?? null;
+    const result = await renameSurveyPharmacyByName(surveyId, { oldName, newName, areaName, editedById: req.user.id });
+    if (result.error) return res.status(409).json({ error: 'تعذّر تنفيذ التبديل' });
+
+    // يضمن تحديث هذا الطبيب بالذات حتى لو لم يكن مرتبطاً بصف MasterSurveyDoctor
+    // (طبيب أُضيف محلياً بلا ربط سيرفي) — cascadePharmacyNameChange لا تطاله حينها.
+    await prisma.doctor.update({ where: { id: visit.doctor.id }, data: { pharmacyName: newName } });
+
+    res.json({ success: true, data: { oldName, newName, ...result } });
   } catch (e) { next(e); }
 }
 

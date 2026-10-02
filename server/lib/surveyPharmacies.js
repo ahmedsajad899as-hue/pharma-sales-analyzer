@@ -250,6 +250,40 @@ export async function cascadePharmacyNameChange(surveyId, oldNames, newName, opt
   return { affectedDoctors, affectedVisits, affectedLinks, affectedCandidates };
 }
 
+// ── renameSurveyPharmacyByName(surveyId, {oldName, newName, areaName, editedById}) ──
+// إعادة تسمية صيدلية بالاسم (لا بمعرّف كتالوج) — تُستخدم من شاشة تحليل الكولات
+// حين يلاحظ المستخدم في ملاحظات زيارة اسماً أدق من اسم الصيدلية المسجَّل حالياً
+// عند الطبيب. إن وُجد صف كتالوج مطابق (MasterSurveyPharmacy) تُستدعى
+// updateSurveyPharmacy العادية (نفس تسجيل السجل + cascade)؛ وإلا (اسم حرّ بلا
+// صف كتالوج) يُطبَّق cascadePharmacyNameChange مباشرة — خطواتها لا تتطلب وجود
+// صف كتالوج أصلاً (تمسّ MasterSurveyDoctor/Doctor/PharmacyVisit بالاسم النصي فقط).
+export async function renameSurveyPharmacyByName(surveyId, { oldName, newName, areaName, editedById }) {
+  const trimmedOld = String(oldName ?? '').trim();
+  const trimmedNew = String(newName ?? '').trim();
+  if (!trimmedOld || !trimmedNew) return { error: 'invalid' };
+  if (trimmedOld.toLowerCase() === trimmedNew.toLowerCase()) return { error: 'same_name' };
+
+  const existing = await prisma.masterSurveyPharmacy.findFirst({
+    where: {
+      surveyId, isActive: true,
+      name: { equals: trimmedOld, mode: 'insensitive' },
+      ...(areaName ? { areaName } : {}),
+    },
+  });
+
+  if (existing) {
+    const result = await updateSurveyPharmacy(surveyId, existing.id, { name: trimmedNew }, editedById);
+    if (result.error) return result;
+    return { pharmacyId: existing.id };
+  }
+
+  const cascade = await cascadePharmacyNameChange(surveyId, [trimmedOld], trimmedNew, {
+    areaNames: areaName ? [areaName] : [],
+  });
+  await logSurveyEdit(surveyId, 'pharmacy', null, 'rename_free_text', { name: trimmedOld }, { name: trimmedNew }, editedById);
+  return cascade;
+}
+
 // ── pharmacyDedupKey(name, areaName) ─────────────────────────────────────────
 // نفس منطق "تطابق تام" في pharmacyNamesVeryClose (a === b بعد cleanPharmacyName
 // + normalizeStr) لكن هنا لمنع إنشاء تكرار حرفي جديد عند الإضافة/الاستيراد —
