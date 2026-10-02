@@ -81,6 +81,37 @@ async function loadOfficeTeams(userId) {
     ownerByCompany.set(cid, owner.userId);
   }
 
+  /**
+   * ملكية الايتم تسبق ملكية الشركة: ايتم مُسنَد لمدير عبر «الايتمات» في السوبر
+   * أدمن (UserItemAssignment) يُحسب مبيعه له، لا لمالك شركته — طلب صريح.
+   * مثال حقيقي: منتجات AMOKLAVIN الثلاثة شركتها deva لكنها مُسنَدة لمدير
+   * humanis، فمبيعها (1.22 مليار) يخصّه هو لا مدير deva. ما لم يُسنَد لأحد
+   * (مثل DEVIT-3 ORAL DAMLA، أكبر ايتمات deva) يرجع لمالك شركته.
+   *
+   * تعارض (ايتم لمديرين — غير موجود حالياً): يفوز مالك شركة الايتم، وإلا أصغر id.
+   */
+  const itemAssignments = await prisma.userItemAssignment.findMany({
+    where: { userId: { in: managers.map(m => m.id) } },
+    select: { userId: true, item: { select: { id: true, scientificCompanyId: true } } },
+  });
+  const claimsByItem = new Map();
+  for (const a of itemAssignments) {
+    if (!claimsByItem.has(a.item.id)) claimsByItem.set(a.item.id, []);
+    claimsByItem.get(a.item.id).push(a);
+  }
+  const ownerByItem = new Map(); // itemId -> managerId
+  for (const [iid, rows] of claimsByItem) {
+    const ordered = [...rows].sort((x, y) => x.userId - y.userId);
+    const companyOwnerId = ownerByCompany.get(ordered[0].item.scientificCompanyId);
+    const owner = ordered.find(r => r.userId === companyOwnerId) ?? ordered[0];
+    ownerByItem.set(iid, owner.userId);
+  }
+  const ownedItemsByManager = new Map();
+  for (const [iid, uid] of ownerByItem) {
+    if (!ownedItemsByManager.has(uid)) ownedItemsByManager.set(uid, []);
+    ownedItemsByManager.get(uid).push(iid);
+  }
+
   return managers
     .map(m => {
       const rows = byManager.get(m.id) ?? [];
@@ -98,6 +129,8 @@ async function loadOfficeTeams(userId) {
         // بـScientificCompany (companyId القديم/Company فقط، أو نص rawData)،
         // فمطابقة الاسم هنا تلتقطها بدل الاقتصار على مطابقة المعرّف وحده.
         companyNames: owned.map(r => r.company.name),
+        // ايتمات يملكها هذا التيم بالاسناد المباشر — تسبق ملكية الشركة.
+        itemIds: ownedItemsByManager.get(m.id) ?? [],
       };
     })
     .filter(Boolean)
@@ -142,8 +175,9 @@ router.get('/overall', async (req, res) => {
     const officeTeams = await loadOfficeTeams(userId);
 
     // ── فلتر «التيم» (اختياري) — عزل مبيع/ارجاع تيم واحد داخل المكتب ─────────
-    // تيم = حساب مدير شركة (company_manager) واحد + الشركات التي **يملكها**
-    // (راجع ownerByCompany في loadOfficeTeams) — لا كل شركة مُنِح وصولاً إليها.
+    // تيم = حساب مدير شركة (company_manager) واحد + ما **يملكه**: ايتماته
+    // المُسنَدة مباشرةً، ثم شركاته (راجع ownerByItem/ownerByCompany في
+    // loadOfficeTeams) — لا كل شركة أو ايتم مُنِح وصولاً إليه.
     // هذا ما يجعل رقم الشريحة ورقم عمودها في جدول محافظة×شركة من مصدر واحد:
     // سابقاً كانت الشريحة تُفلتر بكل إسنادات المدير (الثانوية أيضاً) بينما
     // العمود يُنسَب بالملكية، فشريحة «humanis» تعرض مبيع deva/osel/Marcyrl
@@ -154,11 +188,13 @@ router.get('/overall', async (req, res) => {
     // officeTeams محصورة أصلاً بمدراء الشركات النشطين في مكتب الطالب، فالعضوية
     // فيها هي نفسها فحص الصلاحية الذي كان يتم باستعلام منفصل.
     const selectedTeam = mgrId ? (officeTeams.find(t => t.managerId === mgrId) ?? null) : null;
+    const itemIdToTeamName = new Map();
     const companyIdToTeamName = new Map();
     const companyNameToTeamName = new Map();
     // [{ key, tight (بلا أي مسافات), teamName }] — طبقتا المطابقة المتسامحة أدناه
     const looseTeamNames = [];
     for (const team of officeTeams) {
+      for (const iid of team.itemIds) itemIdToTeamName.set(iid, team.name);
       for (const cid of team.companyIds) companyIdToTeamName.set(cid, team.name);
       for (const cname of team.companyNames) {
         const k = normalizeItemKey(cname);
@@ -293,9 +329,31 @@ router.get('/overall', async (req, res) => {
         ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
       },
     } : {};
-    // تيم مختار بلا شركة مملوكة = لا صفوف له (`in: []`) — لا «بلا فلتر». الفرق
+    // فلتر الشريحة = نفس قاعدة نسبة الصف لتيم في حلقة التجميع أدناه، حرفياً:
+    //   (ايتم يملكه التيم)  أو  (ايتم من شركة يملكها التيم ولم يُسنَد لتيم آخر)
+    // الشرط الثاني يستثني ايتمات التيمات الأخرى صراحةً، وإلا عادت ايتمات
+    // AMOKLAVIN (شركتها deva، مُسنَدة لمدير humanis) ضمن شريحة deva أيضاً
+    // فيُحتسب مبيعها مرتين بين الشريحتين.
+    //
+    // تيم مختار بلا شركة ولا ايتم = لا صفوف له (`in: []`) — لا «بلا فلتر». الفرق
     // جوهري: الحالة الثانية كانت ستعرض مبيع المكتب كله تحت اسم ذلك التيم.
-    const teamCompanyFilter = selectedTeam ? { item: { scientificCompanyId: { in: selectedTeam.companyIds } } } : {};
+    //
+    // ⚠️ يُغلَّف بـ`AND` لا بـ`OR` مباشرة: مفتاح `OR` أعلى المستوى محجوز
+    // لـnoDateFileFilter، ونشرهما في نفس الكائن يُلغي أحدهما بصمت.
+    const othersItemIds = selectedTeam
+      ? officeTeams.filter(t => t.managerId !== selectedTeam.managerId).flatMap(t => t.itemIds)
+      : [];
+    const teamCompanyFilter = selectedTeam ? {
+      AND: [{
+        OR: [
+          { itemId: { in: selectedTeam.itemIds } },
+          {
+            item:   { scientificCompanyId: { in: selectedTeam.companyIds } },
+            itemId: { notIn: othersItemIds },
+          },
+        ],
+      }],
+    } : {};
     const baseWhere = {
       isHidden: false,
       ...fileFilter,
@@ -496,11 +554,16 @@ router.get('/overall', async (req, res) => {
       // هنا = شرائح «الشركة الرئيسية» نفسها (officeTeams، كروب مدير الشركة) لا
       // اسم الشركة الخام لكل ايتم.
       //
+      // ترتيب النسبة (نفس ترتيب فلتر الشريحة أعلاه): (1) الايتم مُسنَد لمدير
+      // عبر «الايتمات» في السوبر أدمن — يسبق كل شيء. (2) شركة الايتم المملوكة
+      // لتيم. (3) اسم الشركة نصياً حين لا علاقة ScientificCompany للايتم.
+      //
       // ⚠️ ما لا يُطابق أي تيم من الشركات الخمس الرئيسية (deva/osel/humanis/
       // ct/marcyrl) يُستبعَد بالكامل من هذا التبويب تحديداً — بطلب صريح: لا
       // عمود/قيمة «غير مصنّف» ولا ضمن إجمالي المحافظة. هذا استبعاد مقصود
       // يخصّ تبويب المحافظة وحده؛ لا يمسّ byItem/byArea/byCompany أعلاه.
-      const teamName = (s.item?.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null)
+      const teamName = (s.item?.id != null ? itemIdToTeamName.get(s.item.id) : null)
+        ?? (s.item?.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null)
         ?? (rowCompany ? companyNameToTeamName.get(rowCompany.key) : null)
         ?? (rowCompany ? resolveTeamByLooseName(rowCompany.key) : null)
         ?? UNASSIGNED_COMPANY;
