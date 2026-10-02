@@ -3779,11 +3779,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           <tr key={row.provinceName}>
                             <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#fff' }}>{row.provinceName}</td>
                             {row.cells.map((v, ci) => (
-                              <td key={ci} style={{ ...pivotTd, fontWeight: v !== 0 ? 700 : 400 }}>
+                              <td key={ci} style={{ ...pivotTd, fontWeight: v !== 0 ? 700 : 400, background: v < 0 ? 'rgba(239, 68, 68, 0.12)' : undefined }}>
                                 {v !== 0 ? fmtValSigned(v) : '—'}
                               </td>
                             ))}
-                            <td style={{ ...pivotTd, fontWeight: 800, background: '#f8fafc' }}>{fmtValSigned(row.rowTotal)}</td>
+                            <td style={{ ...pivotTd, fontWeight: 800, background: row.rowTotal < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(row.rowTotal)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -3791,9 +3791,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                         <tr>
                           <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, position: 'sticky', right: 0, background: '#f1f5f9' }}>الإجمالي الكلي</td>
                           {companyTotals.map((v, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, background: '#f1f5f9' }}>{fmtValSigned(v)}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, background: v < 0 ? 'rgba(239, 68, 68, 0.16)' : '#f1f5f9' }}>{fmtValSigned(v)}</td>
                           ))}
-                          <td style={{ ...pivotTd, fontWeight: 900, background: '#e2e8f0' }}>{fmtValSigned(grandTotal)}</td>
+                          <td style={{ ...pivotTd, fontWeight: 900, background: grandTotal < 0 ? 'rgba(239, 68, 68, 0.2)' : '#e2e8f0' }}>{fmtValSigned(grandTotal)}</td>
                         </tr>
                       </tfoot>
                     </table>
