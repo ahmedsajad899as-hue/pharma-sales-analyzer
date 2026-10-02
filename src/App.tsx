@@ -126,6 +126,14 @@ export type PageId =
   | 'aqdar-export'
   | 'team-engagement';
 
+// خطأ ناتج عن ترجمة المتصفّح التلقائية للصفحة (Edge/Chrome Translate)
+function isTranslationDomError(msg: string): boolean {
+  return (
+    (msg.includes('removeChild') || msg.includes('insertBefore')) &&
+    (msg.includes('not a child') || msg.includes('NotFoundError'))
+  );
+}
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
     super(props);
@@ -153,6 +161,19 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
         return;
       }
     }
+    // Browser auto-translation (Edge/Chrome) swaps React's text nodes for its own,
+    // so React later fails to remove a node it no longer owns:
+    //   NotFoundError: Failed to execute 'removeChild' on 'Node'
+    // index.html carries notranslate markers, but a user may still be on an older
+    // cached page — reload once, then show a clear message.
+    if (isTranslationDomError(msg)) {
+      const reloadKey = 'domErrReload';
+      if (!sessionStorage.getItem(reloadKey)) {
+        sessionStorage.setItem(reloadKey, '1');
+        window.location.reload();
+        return;
+      }
+    }
     // eslint-disable-next-line no-console
     console.error('React ErrorBoundary:', error, info);
   }
@@ -168,6 +189,23 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
           <div style={{ padding: 32, textAlign: 'center', color: '#6366f1' }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>🔄</div>
             <p style={{ fontSize: 15, fontWeight: 600 }}>جاري إعادة تحميل التطبيق...</p>
+          </div>
+        );
+      }
+      if (isTranslationDomError(msg)) {
+        return (
+          <div translate="no" className="notranslate" style={{ padding: 32, color: '#92400e', background: '#fffbeb', fontSize: 16, textAlign: 'center', direction: 'rtl' }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>🌐</div>
+            <h2 style={{ margin: '0 0 10px' }}>ترجمة المتصفّح توقِف التطبيق</h2>
+            <p style={{ fontSize: 15, lineHeight: 1.9, maxWidth: 520, margin: '0 auto' }}>
+              المتصفّح يترجِم صفحات التطبيق تلقائيًا، وهذا يُفسِد بنية الصفحة ويوقِفها.
+              <br />من شريط العنوان اضغط على أيقونة الترجمة ثم اختر <b>إظهار النص الأصلي</b>،
+              أو عطّل ترجمة هذا الموقع نهائيًا، ثم أعد التحميل.
+            </p>
+            <button onClick={() => { try { sessionStorage.removeItem('domErrReload'); } catch {} window.location.reload(); }}
+              style={{ marginTop: 18, padding: '10px 24px', borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              🔄 إعادة التحميل
+            </button>
           </div>
         );
       }
@@ -193,6 +231,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
     }
     // Clear the reload guard once the app loads successfully
     sessionStorage.removeItem('chunkErrReload');
+    sessionStorage.removeItem('domErrReload');
     return this.props.children;
   }
 }
