@@ -4020,14 +4020,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                           {itemRows.map((it, ii) => {
                             const newCompany = ii === 0 || itemRows[ii - 1].companyName !== it.companyName;
                             return (
-                              <tr key={ii}>
-                                <td style={{ ...pivotTd, textAlign: 'right' }}>
-                                  {newCompany && <div style={{ color: '#94a3b8', fontSize: 10.5, fontWeight: 700, marginBottom: 2 }}>{it.companyName}</div>}
-                                  <span>{it.itemName}</span>
-                                </td>
-                                <td style={pivotTd}>{it.netQty}</td>
-                                <td style={{ ...pivotTd, fontWeight: 700, background: it.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(it.netValue)}</td>
-                              </tr>
+                              <Fragment key={ii}>
+                                {newCompany && (
+                                  <tr style={{ background: '#eef2ff' }}>
+                                    <td colSpan={3} style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#3730a3', padding: '6px 10px' }}>{it.companyName}</td>
+                                  </tr>
+                                )}
+                                <tr>
+                                  <td style={{ ...pivotTd, textAlign: 'right' }}><span>{it.itemName}</span></td>
+                                  <td style={pivotTd}>{it.netQty}</td>
+                                  <td style={{ ...pivotTd, fontWeight: 700, background: it.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(it.netValue)}</td>
+                                </tr>
+                              </Fragment>
                             );
                           })}
                         </tbody>
@@ -4078,15 +4082,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                               {expanded && row.items.map((it, ii) => {
                                 const newCompany = ii === 0 || row.items[ii - 1].companyName !== it.companyName;
                                 return (
-                                  <tr key={ii} style={{ background: '#fafbfc' }}>
-                                    <td style={pivotTd}></td>
-                                    <td style={pivotTd} colSpan={2}>
-                                      {newCompany && <div style={{ color: '#94a3b8', fontSize: 10.5, fontWeight: 700, marginBottom: 2 }}>{it.companyName}</div>}
-                                      <span style={{ color: '#6b7280', fontSize: 12 }}>{it.itemName}</span>
-                                    </td>
-                                    <td style={{ ...pivotTd, color: '#6b7280' }}>{it.netQty}</td>
-                                    <td style={{ ...pivotTd, color: '#6b7280' }}>{fmtValSigned(it.netValue)}</td>
-                                  </tr>
+                                  <Fragment key={ii}>
+                                    {newCompany && (
+                                      <tr style={{ background: '#eef2ff' }}>
+                                        <td colSpan={5} style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#3730a3', padding: '6px 10px' }}>{it.companyName}</td>
+                                      </tr>
+                                    )}
+                                    <tr style={{ background: '#fafbfc' }}>
+                                      <td style={pivotTd}></td>
+                                      <td style={pivotTd} colSpan={2}><span style={{ color: '#6b7280', fontSize: 12 }}>{it.itemName}</span></td>
+                                      <td style={{ ...pivotTd, color: '#6b7280' }}>{it.netQty}</td>
+                                      <td style={{ ...pivotTd, color: '#6b7280' }}>{fmtValSigned(it.netValue)}</td>
+                                    </tr>
+                                  </Fragment>
                                 );
                               })}
                             </Fragment>
