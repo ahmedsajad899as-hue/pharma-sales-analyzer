@@ -438,8 +438,8 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
                 <input type="checkbox" checked={rememberChoices} onChange={e => setRememberChoices(e.target.checked)} />
                 تذكّر هذه المطابقة لملفات لاحقة (ميركاتو والاستيراد القادم)
               </label>
-              <button onClick={applyNameMatching} disabled={decidedCount === 0} style={{ ...applyBtn, opacity: decidedCount === 0 ? 0.5 : 1, marginInlineStart: 'auto' }}>
-                تطبيق المطابقة على الجدول ({decidedCount})
+              <button onClick={applyNameMatching} style={{ ...applyBtn, marginInlineStart: 'auto' }}>
+                {decidedCount > 0 ? `تطبيق المطابقة على الجدول (${decidedCount})` : 'متابعة بدون مطابقة'}
               </button>
             </div>
           </div>
@@ -513,8 +513,8 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
                 <input type="checkbox" checked={rememberDoctorChoices} onChange={e => setRememberDoctorChoices(e.target.checked)} />
                 تذكّر هذه المطابقة لملفات لاحقة بنفس الاسم (حتى لو كُتب بصيغة مختلفة قليلاً)
               </label>
-              <button onClick={applyDoctorMatching} disabled={doctorDecidedCount === 0} style={{ ...applyBtn, opacity: doctorDecidedCount === 0 ? 0.5 : 1, marginInlineStart: 'auto' }}>
-                تطبيق المطابقة على الجدول ({doctorDecidedCount})
+              <button onClick={applyDoctorMatching} style={{ ...applyBtn, marginInlineStart: 'auto' }}>
+                {doctorDecidedCount > 0 ? `تطبيق المطابقة على الجدول (${doctorDecidedCount})` : 'متابعة بدون مطابقة'}
               </button>
             </div>
           </div>
