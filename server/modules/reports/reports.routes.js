@@ -51,20 +51,53 @@ async function loadOfficeTeams(userId) {
     byManager.get(a.userId).push(a);
   }
 
+  /**
+   * مالك الشركة = التيم الذي هي شركته **الرئيسية** (isPrimary)، لا كل مدير
+   * مُنِح وصولاً إليها. UserCompanyAssignment مفتاحه [userId, companyId] فالشركة
+   * الواحدة تُسنَد لعدة مدراء: الإسناد الثانوي صلاحية اطّلاع لا ملكية.
+   *
+   * ⚠️ العطل الذي يعالجه هذا: كانت خريطة «معرّف الشركة ← اسم التيم» تُبنى
+   * بالكتابة فوق بعضها (آخر تيم يكتب يفوز، والترتيب أبجدي)، فشركة «deva»
+   * المُسنَدة ثانوياً لمديري humanis و osel كانت تُنسَب لـ osel (الأخير أبجدياً)
+   * ويختفي عمود deva فارغاً تماماً من جدول محافظة×شركة رغم أن له 36 ايتماً
+   * ومبيعات فعلية — كل مبيعه كان يُحتسب لـ osel. والفلترة بشريحة «الشركة
+   * الرئيسية» كانت تعاني العكس: مدير له إسنادات ثانوية كثيرة تُظهر شريحته
+   * مبيعَ كل الشركات التي يراها لا مبيع شركته، فلا يتطابق رقم الشريحة مع
+   * عمودها في نفس الجدول.
+   *
+   * شركة لا يملكها أحد كـ«رئيسية» تؤول لأقدم مدير مُسنَدة له (أصغر id) — قرار
+   * ثابت لا يتبدّل بترتيب العرض، بدل أن تُترك بلا تيم فتختفي مبيعاتها.
+   */
+  const claimsByCompany = new Map();
+  for (const a of assignments) {
+    const cid = a.company.id;
+    if (!claimsByCompany.has(cid)) claimsByCompany.set(cid, []);
+    claimsByCompany.get(cid).push(a);
+  }
+  const ownerByCompany = new Map(); // companyId -> managerId
+  for (const [cid, rows] of claimsByCompany) {
+    const ordered = [...rows].sort((x, y) => x.userId - y.userId);
+    const owner = ordered.find(r => r.isPrimary) ?? ordered[0];
+    ownerByCompany.set(cid, owner.userId);
+  }
+
   return managers
     .map(m => {
       const rows = byManager.get(m.id) ?? [];
       if (rows.length === 0) return null;
+      // اسم العرض يبقى شركته الرئيسية حتى لو آلت ملكيتها لغيره (حالة نادرة:
+      // مديران يعلّمان نفس الشركة رئيسية) — التيم يظل معروفاً باسمه.
       const primary = rows.find(r => r.isPrimary) ?? rows[0];
+      const owned = rows.filter(r => ownerByCompany.get(r.company.id) === m.id);
       return {
         managerId: m.id,
         managerName: m.displayName || m.username,
         name: primary.company.name,
-        companyIds: rows.map(r => r.company.id),
-        // أسماء كل شركات التيم (رئيسية وثانوية) — بعض الايتمات لم تُربط بعد
+        companyIds: owned.map(r => r.company.id),
+        // أسماء شركات التيم المملوكة — بعض الايتمات لم تُربط بعد
         // بـScientificCompany (companyId القديم/Company فقط، أو نص rawData)،
         // فمطابقة الاسم هنا تلتقطها بدل الاقتصار على مطابقة المعرّف وحده.
-        companyNames: rows.map(r => r.company.name),
+        companyNames: owned.map(r => r.company.name),
       };
     })
     .filter(Boolean)
@@ -99,28 +132,6 @@ router.get('/overall', async (req, res) => {
     // والإرجاع يُحسبان عليها فقط. فارغة = بلا تقييد.
     const itemScopeFilter = await buildItemScopeFilter(userId);
 
-    // ── فلتر «التيم» (اختياري) — عزل مبيع/ارجاع تيم واحد داخل المكتب ─────────
-    // تيم = حساب مدير شركة (company_manager) واحد + كل شركاته (رئيسية وثانوية،
-    // UserCompanyAssignment). يُبنى بمعرّفات الشركة الحقيقية (ScientificCompany
-    // ∪ Company) لا بمطابقة اسم نصي — لأن الأخير ينتج أسماء مكرَّرة بحالة أحرف
-    // مختلفة (HUMANIS/humanis) حين لا يكون لبعض الصفوف علاقة شركة فعلية في
-    // القاعدة. كما نستعمل itemScopeFilter الخاص بمدير الشركة نفسه (لا الطالب)
-    // كي تُطابق الأرقام تماماً ما يراه هو لو فتح نفس الملفات.
-    let teamCompanyIds = [];
-    let teamItemScope = null;
-    const mgrId = teamManagerId ? Number(teamManagerId) : 0;
-    if (mgrId && userId) {
-      const [viewer, target] = await Promise.all([
-        prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } }),
-        prisma.user.findUnique({ where: { id: mgrId }, select: { id: true, officeId: true, role: true } }),
-      ]);
-      if (target && target.role === 'company_manager' && viewer?.officeId != null && target.officeId === viewer.officeId) {
-        const rows = await prisma.userCompanyAssignment.findMany({ where: { userId: mgrId }, select: { companyId: true } });
-        teamCompanyIds = rows.map(r => r.companyId);
-        teamItemScope = await buildItemScopeFilter(mgrId);
-      }
-    }
-
     // «الشركة الرئيسية» لتبويب المحافظة × الشركة: اسم الكروب الذي يمثّله مدير
     // الشركة (قد يضمّ أكثر من ScientificCompany وأكثر من ايتم) — لا اسم الشركة
     // الخام المستخرَج من كل صف. راجع loadOfficeTeams. فهرسان: بالمعرّف
@@ -129,6 +140,22 @@ router.get('/overall', async (req, res) => {
     // فهرس المعرّف رغم أن اسم الشركة نفسه مطابق تماماً لاسم شركة في التيم،
     // وكانت هذه الشركة تختفي كاملةً من هذا الجدول رغم وجود بيانات فعلية لها).
     const officeTeams = await loadOfficeTeams(userId);
+
+    // ── فلتر «التيم» (اختياري) — عزل مبيع/ارجاع تيم واحد داخل المكتب ─────────
+    // تيم = حساب مدير شركة (company_manager) واحد + الشركات التي **يملكها**
+    // (راجع ownerByCompany في loadOfficeTeams) — لا كل شركة مُنِح وصولاً إليها.
+    // هذا ما يجعل رقم الشريحة ورقم عمودها في جدول محافظة×شركة من مصدر واحد:
+    // سابقاً كانت الشريحة تُفلتر بكل إسنادات المدير (الثانوية أيضاً) بينما
+    // العمود يُنسَب بالملكية، فشريحة «humanis» تعرض مبيع deva/osel/Marcyrl
+    // ضمنها ثم يوزّعه الجدول على أعمدتها — رقمان مختلفان لنفس المحافظة.
+    // يُبنى بمعرّفات الشركة الحقيقية لا بمطابقة اسم نصي (أسماء مكرَّرة بحالة
+    // أحرف مختلفة: HUMANIS/humanis). كما نستعمل itemScopeFilter الخاص بمدير
+    // الشركة نفسه (لا الطالب) كي تُطابق الأرقام ما يراه هو لو فتح نفس الملفات.
+    const mgrId = teamManagerId ? Number(teamManagerId) : 0;
+    // officeTeams محصورة أصلاً بمدراء الشركات النشطين في مكتب الطالب، فالعضوية
+    // فيها هي نفسها فحص الصلاحية الذي كان يتم باستعلام منفصل.
+    const selectedTeam = mgrId ? (officeTeams.find(t => t.managerId === mgrId) ?? null) : null;
+    const teamItemScope = selectedTeam ? await buildItemScopeFilter(mgrId) : null;
     const companyIdToTeamName = new Map();
     const companyNameToTeamName = new Map();
     // [{ key, tight (بلا أي مسافات), teamName }] — طبقتا المطابقة المتسامحة أدناه
@@ -271,7 +298,9 @@ router.get('/overall', async (req, res) => {
     // تيم مُحدَّد: نطاق ايتماته يحل محل نطاق الطالب (لا تقاطع معه) — المطلوب أن
     // ترى بالضبط ما يراه مدير الشركة المستهدَف، بغضّ النظر عمن يطلب الشاشة.
     const finalItemScope = teamItemScope ?? effectiveItemScope;
-    const teamCompanyFilter = teamCompanyIds.length > 0 ? { item: { scientificCompanyId: { in: teamCompanyIds } } } : {};
+    // تيم مختار بلا شركة مملوكة = لا صفوف له (`in: []`) — لا «بلا فلتر». الفرق
+    // جوهري: الحالة الثانية كانت ستعرض مبيع المكتب كله تحت اسم ذلك التيم.
+    const teamCompanyFilter = selectedTeam ? { item: { scientificCompanyId: { in: selectedTeam.companyIds } } } : {};
     const baseWhere = {
       isHidden: false,
       ...fileFilter,
