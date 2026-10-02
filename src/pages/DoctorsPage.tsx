@@ -8,22 +8,6 @@ import * as XLSX from 'xlsx';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-// لوحة ألوان هادئة لتمييز كل شركة في رأس عمود جدول «كل المندوبين» المحوري —
-// نفس فكرة الجدول المحوري في خانة التقارير (مذخر × مندوب): نطاق أزرق←بنفسجي
-// فقط، بعيداً عن الأخضر/الأحمر كي لا يتصادم مع دلالتيهما (نجاح/خطر) بباقي الشاشة.
-const hslToHexRepsSummary = (h: number, s: number, l: number): string => {
-  const sf = s / 100, lf = l / 100;
-  const k = (n: number) => (n + h / 30) % 12;
-  const a = sf * Math.min(lf, 1 - lf);
-  const f = (n: number) => lf - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  const toHex = (x: number) => Math.round(x * 255).toString(16).padStart(2, '0');
-  return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
-};
-const repsSummaryCompanyColor = (index: number): [string, string] => {
-  const hue = 200 + ((index * 26) % 120);
-  return [hslToHexRepsSummary(hue, 27, 63), hslToHexRepsSummary(hue, 23, 46)];
-};
-
 // ── Smart Search Component ─────────────────────────────────────
 function SmartSearch({ value, onChange, suggestions, placeholder, style, inputStyle, onKeyDown, autoFocus }: {
   value: string;
@@ -5084,17 +5068,25 @@ export default function DoctorsPage() {
                   return <div style={{ textAlign: 'center', padding: '50px 0', color: 'var(--c-text-muted)', fontSize: 13 }}>لا يوجد مندوبون ضمن الشركات المحددة</div>;
                 }
 
+                // تصميم رسمي صافٍ (مطابق لجداول التحليل الشامل: «صافي المبيع —
+                // محافظة × شركة» وجدول «مذخر × مندوب»): أبيض/أسود/رمادي فقط، بلا
+                // تدرّجات ألوان ولا شارات شركة ملوَّنة — حدود رفيعة كاملة كجدول
+                // دفتر. نسبة التغطية وحدها تبقى مُلوَّنة لأنها مؤشّر حالة فعلي
+                // (كالقيمة السالبة في الجداول الأخرى)، لا زخرفة.
+                const listBorder = '1px solid #cbd5e1';
+                const listTh: React.CSSProperties = { padding: '9px 10px', background: '#f1f5f9', color: '#111827', fontWeight: 700, border: listBorder, position: 'sticky', top: 0, zIndex: 1 };
+                const listTd: React.CSSProperties = { padding: '8px 10px', textAlign: 'center', color: '#111827', border: listBorder };
+
                 if (repsSummaryViewMode === 'list') return (
-                  <div style={{ maxHeight: '60vh', overflowY: 'auto', border: '1px solid var(--c-border)', borderRadius: 12 }}>
+                  <div style={{ maxHeight: '60vh', overflowY: 'auto', border: '1px solid #94a3b8' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                       <thead>
                         <tr>
                           {['#', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'نسبة التغطية', ''].map((h, hi) => (
                             <th key={hi} style={{
-                              padding: '10px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc',
-                              textAlign: hi === 1 ? 'right' : 'center', fontWeight: 700,
+                              ...listTh,
+                              textAlign: hi === 1 ? 'right' : 'center',
                               width: hi === 0 ? 34 : hi === 5 ? 30 : undefined,
-                              position: 'sticky', top: 0, zIndex: 1,
                             }}>{h}</th>
                           ))}
                         </tr>
@@ -5102,39 +5094,38 @@ export default function DoctorsPage() {
                       <tbody>
                         {cols.map((r, i) => {
                           const isExpanded = expandedRepsSummaryUserId === r.userId;
-                          const coverageColor = r.coveragePct >= 100 ? 'var(--c-success)' : r.coveragePct >= 60 ? 'var(--c-accent)' : 'var(--c-danger)';
+                          const coverageColor = r.coveragePct >= 100 ? '#047857' : r.coveragePct >= 60 ? '#1e40af' : '#b91c1c';
+                          const coverageBg = r.coveragePct >= 100 ? 'rgba(16, 185, 129, 0.14)' : r.coveragePct >= 60 ? 'rgba(59, 130, 246, 0.12)' : 'rgba(239, 68, 68, 0.14)';
+                          const rowBg = i % 2 === 0 ? '#fff' : '#f8fafc';
                           return (
                             <Fragment key={r.userId}>
-                              <tr
-                                onClick={() => setExpandedRepsSummaryUserId(isExpanded ? null : r.userId)}
-                                style={{ background: i % 2 === 0 ? '#fff' : 'var(--c-bg)', cursor: 'pointer', borderBottom: isExpanded ? 'none' : '1px solid var(--c-border-light)' }}
-                              >
-                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-text-muted)' }}>{i + 1}</td>
-                                <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: 'var(--c-text-primary)' }}>
+                              <tr onClick={() => setExpandedRepsSummaryUserId(isExpanded ? null : r.userId)} style={{ cursor: 'pointer' }}>
+                                <td style={{ ...listTd, background: rowBg, color: '#64748b' }}>{i + 1}</td>
+                                <td style={{ ...listTd, textAlign: 'right', fontWeight: 700, background: rowBg }}>
                                   {r.name}
-                                  {r.company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 700, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 10, padding: '1px 8px' }}>{r.company.name}</span>}
+                                  {r.company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#334155', border: listBorder, borderRadius: 4, padding: '1px 8px' }}>{r.company.name}</span>}
                                 </td>
-                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-accent)', fontWeight: 700 }}>{r.doctorVisitCount}</td>
-                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-success)', fontWeight: 700 }}>{r.pharmacyVisitCount}</td>
-                                <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                  <span style={{ background: coverageColor + '22', color: coverageColor, borderRadius: 6, padding: '2px 10px', fontWeight: 800 }}>{r.coveragePct}%</span>
-                                  <div style={{ fontSize: 10, color: 'var(--c-text-muted)', marginTop: 2 }}>{r.doctorVisitCount}/150</div>
+                                <td style={{ ...listTd, fontWeight: 700, background: rowBg }}>{r.doctorVisitCount || ''}</td>
+                                <td style={{ ...listTd, fontWeight: 700, background: rowBg }}>{r.pharmacyVisitCount || ''}</td>
+                                <td style={{ ...listTd, background: rowBg }}>
+                                  <span style={{ background: coverageBg, color: coverageColor, borderRadius: 4, padding: '2px 10px', fontWeight: 800 }}>{r.coveragePct}%</span>
+                                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{r.doctorVisitCount}/150</div>
                                 </td>
-                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--c-text-muted)', fontSize: 11 }}>{isExpanded ? '▲' : '▼'}</td>
+                                <td style={{ ...listTd, color: '#94a3b8', fontSize: 11, background: rowBg }}>{isExpanded ? '▲' : '▼'}</td>
                               </tr>
                               {isExpanded && (
-                                <tr style={{ borderBottom: '1px solid var(--c-border-light)' }}>
-                                  <td colSpan={6} style={{ background: 'var(--c-bg)', padding: '10px 16px' }}>
+                                <tr>
+                                  <td colSpan={6} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
                                     {r.areas.length === 0 ? (
-                                      <span style={{ color: 'var(--c-text-muted)', fontSize: 12 }}>لا توجد زيارات مسجَّلة لهذا المندوب</span>
+                                      <span style={{ color: '#94a3b8', fontSize: 12 }}>لا توجد زيارات مسجَّلة لهذا المندوب</span>
                                     ) : (
                                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                                         {r.areas.map((a, ai) => (
-                                          <span key={ai} style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                                            <strong style={{ color: 'var(--c-text-primary)' }}>{a.areaName}</strong>
-                                            <span style={{ color: 'var(--c-accent)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="doctor" size={10} /> {a.doctorVisitCount}</span>
-                                            <span style={{ color: 'var(--c-success)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="pharmacy" size={10} /> {a.pharmacyVisitCount}</span>
-                                            {a.totalDoctors > 0 && <span style={{ color: 'var(--c-text-muted)', fontSize: 11 }}>({a.visitedDoctors}/{a.totalDoctors} تغطية)</span>}
+                                          <span key={ai} style={{ background: '#fff', border: listBorder, borderRadius: 4, padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                            <strong style={{ color: '#111827' }}>{a.areaName}</strong>
+                                            <span style={{ color: '#111827', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="doctor" size={10} /> {a.doctorVisitCount}</span>
+                                            <span style={{ color: '#111827', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="pharmacy" size={10} /> {a.pharmacyVisitCount}</span>
+                                            {a.totalDoctors > 0 && <span style={{ color: '#64748b', fontSize: 11 }}>({a.visitedDoctors}/{a.totalDoctors} تغطية)</span>}
                                           </span>
                                         ))}
                                       </div>
@@ -5151,8 +5142,10 @@ export default function DoctorsPage() {
                 );
 
                 const { rows, colTotals, grandTotal } = buildRepsDayPivot(cols, repsSummaryMetric);
-                const pivotTh: React.CSSProperties = { padding: '8px 10px', background: 'linear-gradient(135deg,#64748b,#475569)', color: '#f8fafc', textAlign: 'center', position: 'sticky', zIndex: 2, whiteSpace: 'nowrap' };
-                const pivotTd: React.CSSProperties = { padding: '7px 6px', textAlign: 'center', whiteSpace: 'nowrap' };
+                // نفس التصميم الرسمي أعلاه: رأس رمادي ثابت بلا تدرّجات، حدود كاملة،
+                // ومجموعات الشركات تتمايز بظلّين رماديين فقط (كجدول «مذخر × مندوب»).
+                const pivotTh: React.CSSProperties = { padding: '8px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', position: 'sticky', zIndex: 2, whiteSpace: 'nowrap', fontWeight: 700, border: listBorder };
+                const pivotTd: React.CSSProperties = { padding: '7px 6px', textAlign: 'center', whiteSpace: 'nowrap', color: '#111827', border: listBorder };
                 // خط أصغر + التفاف سطرين بدل عمود عريض واحد لكل اسم مندوب — عند
                 // اختيار شركة واحدة، أو حين لا توجد أصلاً أكثر من مجموعة شركة
                 // واحدة بالبيانات (مثل حساب مدير الشركة: شركته فقط/بدون شركة،
@@ -5168,18 +5161,15 @@ export default function DoctorsPage() {
                     }
                   : { ...pivotTh, top: 34 };
                 return (
-                  <div style={{ maxHeight: '68vh', overflow: 'auto', border: '1px solid var(--c-border)', borderRadius: 12 }}>
+                  <div style={{ maxHeight: '68vh', overflow: 'auto', border: '1px solid #94a3b8' }}>
                     <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: isSingleCompanyPivot ? '100%' : undefined }}>
                       <thead>
                         <tr>
                           <th rowSpan={2} style={{ ...pivotTh, textAlign: 'right', top: 0, right: 0, zIndex: 3 }}>اليوم</th>
-                          {spans.map((s, si) => {
-                            const [light, dark] = repsSummaryCompanyColor(si);
-                            return (
-                              <th key={s.company + s.start} colSpan={s.count} style={{ ...pivotTh, top: 0, height: 34, boxSizing: 'border-box', background: `linear-gradient(135deg,${light},${dark})`, fontSize: 11.5 }}>{s.company}</th>
-                            );
-                          })}
-                          <th rowSpan={2} style={{ ...pivotTh, top: 0, background: '#334155' }}>الإجمالي</th>
+                          {spans.map((s, si) => (
+                            <th key={s.company + s.start} colSpan={s.count} style={{ ...pivotTh, top: 0, height: 34, boxSizing: 'border-box', background: si % 2 === 0 ? '#f1f5f9' : '#e2e8f0', fontSize: 11.5 }}>{s.company}</th>
+                          ))}
+                          <th rowSpan={2} style={{ ...pivotTh, top: 0 }}>الإجمالي</th>
                         </tr>
                         <tr>
                           {cols.map(c => (
@@ -5189,23 +5179,23 @@ export default function DoctorsPage() {
                       </thead>
                       <tbody>
                         {rows.map((row, ri) => (
-                          <tr key={row.name} style={{ background: ri % 2 === 0 ? '#fff' : 'var(--c-bg)', borderBottom: '1px solid var(--c-border-light)' }}>
-                            <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: 'var(--c-text-primary)', position: 'sticky', right: 0, background: ri % 2 === 0 ? '#fff' : 'var(--c-bg)' }}>
+                          <tr key={row.name}>
+                            <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: ri % 2 === 0 ? '#fff' : '#f8fafc' }}>
                               {row.name}
-                              {row.weekday && <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--c-text-muted)' }}>{row.weekday}</div>}
+                              {row.weekday && <div style={{ fontSize: 10, fontWeight: 400, color: '#64748b' }}>{row.weekday}</div>}
                             </td>
                             {row.cells.map((c, ci) => (
-                              <td key={ci} style={{ ...pivotTd, color: c > 0 ? 'var(--c-accent)' : 'var(--c-border)', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? c : '—'}</td>
+                              <td key={ci} style={{ ...pivotTd, background: ri % 2 === 0 ? '#fff' : '#f8fafc', fontWeight: c > 0 ? 700 : 400 }}>{c > 0 ? c : ''}</td>
                             ))}
-                            <td style={{ ...pivotTd, fontWeight: 800, color: 'var(--c-success)', background: 'var(--c-success-bg)' }}>{row.total}</td>
+                            <td style={{ ...pivotTd, fontWeight: 800, background: '#f8fafc' }}>{row.total}</td>
                           </tr>
                         ))}
-                        <tr style={{ background: '#334155' }}>
-                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, color: '#fff', position: 'sticky', right: 0, background: '#334155' }}>الإجمالي الكلي</td>
+                        <tr>
+                          <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, position: 'sticky', right: 0, background: '#f1f5f9' }}>الإجمالي الكلي</td>
                           {colTotals.map((c, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, color: '#e2e8f0' }}>{c}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, background: '#f1f5f9' }}>{c || ''}</td>
                           ))}
-                          <td style={{ ...pivotTd, fontWeight: 900, color: '#fff', background: 'var(--c-success)' }}>{grandTotal}</td>
+                          <td style={{ ...pivotTd, fontWeight: 900, background: '#e2e8f0' }}>{grandTotal}</td>
                         </tr>
                       </tbody>
                     </table>
