@@ -13,7 +13,7 @@ import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import { buildItemScopeFilter } from '../../lib/itemScope.js';
 import { extractCompanyFromCode, isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { normalizeItemKey } from '../../lib/itemResolver.js';
-import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue } from '../../lib/provinces.js';
+import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
 
 const router = Router();
 
@@ -353,16 +353,27 @@ router.get('/overall', async (req, res) => {
       return null;
     };
 
-    // المحافظة لكل صف: تُقرأ أولاً من عمود الملف الخام (rawData) — الأدقّ حين
-    // يوجد، يعكس الملف حرفياً. الأولوية الثانية (Area.provinceId) أسفل في حلقة
-    // التجميع تتكفّل بمنطقة بلا عمود محافظة في ملفها لكن مُسنَدة فعلاً لمحافظة في
-    // النظام، والأخيرة اسم المنطقة نفسه حين لا مصدر إطلاقاً.
+    // المحافظة لكل صف: المصدر الأول دائماً Area.provinceId — تصنيف السوبر أدمن
+    // الرسمي في خانة «المناطق» (server/lib/provinces.js)، لأنه الثابت المعتمَد
+    // ومحافظاته الـ18 أسماء رسمية واحدة. عمود المحافظة الخام في الملف نفسه كان
+    // يفوز سابقاً فيُنتج صفوفاً مكرَّرة لنفس المحافظة بصياغات مختلفة («بصرة» و
+    // «البصرة» معاً، أو «الموصل»/«الديوانية» بدل الاسم الرسمي «نينوى»/«القادسية»)
+    // رغم أن المنطقة نفسها مُسنَدة فعلاً لمحافظتها الصحيحة. الآن هو احتياطي فقط
+    // لمنطقة لم تُسنَد بعد لأي محافظة في النظام — ويُمرَّر عبر نفس جدول محافظات
+    // السوبر أدمن (matchProvinceName) ليُطبَّع لاسمها الرسمي بدل نصّه الخام حرفياً
+    // حين يطابق اسماً أو alias معروفاً. الأخير إطلاقاً: اسم المنطقة نفسه.
     const extractProvinceFromRaw = (rawData) => {
       if (!rawData) return null;
       try {
         const raw = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
         return extractRawColumnValue(raw, PROVINCE_COLUMN_ALIASES);
       } catch { return null; }
+    };
+    const provinceLookup = buildProvinceLookup(await prisma.province.findMany());
+    const resolveRawProvinceName = (rawData) => {
+      const raw = extractProvinceFromRaw(rawData);
+      if (!raw) return null;
+      return matchProvinceName(raw, provinceLookup)?.name ?? raw;
     };
 
     const sales = await prisma.sale.findMany({
@@ -418,19 +429,15 @@ router.get('/overall', async (req, res) => {
         if (!maxDate || s.saleDate > maxDate) maxDate = s.saleDate;
       }
 
-      // ترتيب الأولوية: (1) عمود المحافظة في الملف نفسه — الأدقّ، يعكس الملف
-      // حرفياً. (2) محافظة المنطقة المُسنَدة فعلاً في النظام (Area.provinceId —
-      // تُحسَم تلقائياً أو يدوياً عبر السوبر أدمن، راجع server/lib/provinces.js)
-      // — هذه ما تجعل «الحارثية»/«المنصور»/«حي العامل»... تُجمَّع تحت «بغداد» بدل
-      // أن تظهر كل منطقة صفاً مستقلاً باسمها حين يخلو الملف من عمود محافظة.
-      // (3) لا يوجد أي مصدر — اسم المنطقة نفسه، طلب صريح بدل إسقاط الصف.
-      const provinceName = extractProvinceFromRaw(s.rawData) || s.area?.province?.name || s.area?.name || null;
-      if (provinceName) {
-        if (!provinceMap.has(provinceName)) provinceMap.set(provinceName, { provinceName, totalQuantity: 0, totalValue: 0 });
-        const pr = provinceMap.get(provinceName);
-        pr.totalQuantity += qty;
-        pr.totalValue    += val;
-      }
+      // ترتيب الأولوية: (1) محافظة المنطقة المُسنَدة فعلاً في النظام
+      // (Area.provinceId — تُحسَم تلقائياً أو يدوياً عبر السوبر أدمن، راجع
+      // server/lib/provinces.js) — هذه ما تجعل «الحارثية»/«المنصور»/«حي
+      // العامل»... تُجمَّع تحت «بغداد» بالاسم الرسمي الموحَّد حتى لو خلا
+      // الملف من عمود محافظة أصلاً، أو حمل اسماً مختلفاً عنه. (2) عمود
+      // المحافظة الخام في الملف نفسه — فقط حين لا تملك المنطقة محافظة مُسنَدة
+      // بعد — مُطبَّعاً لاسمه الرسمي عبر جدول محافظات السوبر أدمن. (3) لا يوجد
+      // أي مصدر — اسم المنطقة نفسه، طلب صريح بدل إسقاط الصف.
+      const provinceName = s.area?.province?.name || resolveRawProvinceName(s.rawData) || s.area?.name || null;
 
       let rowCompany = null; // الشركة المحسومة لهذا الصف — تُستعمل أدناه خارج هذا الفرع
       if (s.item) {
@@ -454,21 +461,25 @@ router.get('/overall', async (req, res) => {
         rowCompany = company;
       }
 
-      // محافظة × شركة رئيسية — لجدول «كل المحافظات والشركات». «الشركة» هنا =
-      // شرائح «الشركة الرئيسية» نفسها (officeTeams، كروب مدير الشركة) لا اسم
-      // الشركة الخام لكل ايتم.
+      // محافظة (الإجمالي) ومحافظة × شركة رئيسية — لتبويب «المحافظة». «الشركة»
+      // هنا = شرائح «الشركة الرئيسية» نفسها (officeTeams، كروب مدير الشركة) لا
+      // اسم الشركة الخام لكل ايتم.
       //
-      // ⚠️ ما لا يُطابق أي تيم لا يُحذف: يُجمَّع تحت UNASSIGNED_COMPANY. إسقاطه
-      // صامتاً كان يجعل مجموع كل محافظة أقل من مبيعها الحقيقي بلا تفسير («نقص
-      // بالمبيعات»)، ويُخفي تماماً أن شركةً ما لم تُطابَق أصلاً. ولهذا أيضاً
-      // يقع هذا التجميع خارج `if (s.item)`: شرطُ byProvince أعلاه هو
-      // provinceName وحده، فأي صف يُحتسب هناك ولا يُحتسب هنا يكسر التطابق
-      // ويُظهر الجدول ناقصاً. الشرطان الآن متطابقان حرفياً.
-      if (provinceName) {
-        const teamName = (s.item?.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null)
-          ?? (rowCompany ? companyNameToTeamName.get(rowCompany.key) : null)
-          ?? (rowCompany ? resolveTeamByLooseName(rowCompany.key) : null)
-          ?? UNASSIGNED_COMPANY;
+      // ⚠️ ما لا يُطابق أي تيم من الشركات الخمس الرئيسية (deva/osel/humanis/
+      // ct/marcyrl) يُستبعَد بالكامل من هذا التبويب تحديداً — بطلب صريح: لا
+      // عمود/قيمة «غير مصنّف» ولا ضمن إجمالي المحافظة. هذا استبعاد مقصود
+      // يخصّ تبويب المحافظة وحده؛ لا يمسّ byItem/byArea/byCompany أعلاه.
+      const teamName = (s.item?.scientificCompany?.id != null ? companyIdToTeamName.get(s.item.scientificCompany.id) : null)
+        ?? (rowCompany ? companyNameToTeamName.get(rowCompany.key) : null)
+        ?? (rowCompany ? resolveTeamByLooseName(rowCompany.key) : null)
+        ?? UNASSIGNED_COMPANY;
+
+      if (provinceName && teamName !== UNASSIGNED_COMPANY) {
+        if (!provinceMap.has(provinceName)) provinceMap.set(provinceName, { provinceName, totalQuantity: 0, totalValue: 0 });
+        const pr = provinceMap.get(provinceName);
+        pr.totalQuantity += qty;
+        pr.totalValue    += val;
+
         const pcKey = `${provinceName}::${normalizeItemKey(teamName)}`;
         if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: teamName, totalQuantity: 0, totalValue: 0 });
         const pcr = provinceCompanyMap.get(pcKey);
