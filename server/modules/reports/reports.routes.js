@@ -14,6 +14,7 @@ import { buildItemScopeFilter } from '../../lib/itemScope.js';
 import { extractCompanyFromCode, isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { normalizeItemKey } from '../../lib/itemResolver.js';
 import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
+import { isWarehouseSaleRow, warehouseNameFromRawData } from '../../lib/orderKey.js';
 
 const router = Router();
 
@@ -392,6 +393,7 @@ router.get('/overall', async (req, res) => {
         rawData:    true,
         area: { select: { id: true, name: true, province: { select: { name: true } } } },
         item: { select: { id: true, name: true, company: { select: { id: true, name: true } }, scientificCompany: { select: { id: true, name: true } } } },
+        representative: { select: { id: true, name: true } },
         // Per-file currency → normalize each row to USD before summing, so mixing
         // files of different currencies (USD + IQD) produces a correct total.
         uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
@@ -405,6 +407,13 @@ router.get('/overall', async (req, res) => {
     const companyMap  = new Map(); // key: مفتاح موحَّد (طبّع + قُطعت لاحقة الدولة)
     const provinceMap = new Map(); // key: اسم المحافظة (أو اسم المنطقة حين لا محافظة في الملف)
     const provinceCompanyMap = new Map(); // key: "اسم المحافظة::مفتاح الشركة الموحَّد"
+    // مذاخر بغداد: صفوف مبيع تجارية بمحافظة بغداد وُسِمَت "مذخر" في عمود الصنف
+    // الخام (isWarehouseSaleRow) — لا علاقة لها بتبويب «المحافظة» أعلاه (ذاك
+    // يستبعد الايتمات غير المُسنَدة لتيم؛ هذا يشمل كل الصفوف بلا قيد تيم، لأن
+    // الطلب هنا هو مندوب × مذخر لا شركة). مفتاح: اسم المندوب × اسم المذخر ×
+    // اسم الايتم، كي يبني الفرونت-إند منه كلاً من إجمالي كل (مندوب، مذخر) وتفصيل
+    // الايتمات داخله دون استعلام إضافي.
+    const baghdadWarehouseMap = new Map(); // key: "المندوب::المذخر::الايتم"
     // اسم عرض واحد لكل شركة موحَّدة — أول صيغة تُصادَف تصير العرض الثابت لبقية
     // الصفوف. بدونها: نفس الشركة تظهر DevaTurkeyN/A و deva و DEVA في 3 صفوف
     // منفصلة، لأن رقم المادة الخام وحقل «الشركة» يُكتَبان بصيغ مختلفة صفاً
@@ -492,6 +501,19 @@ router.get('/overall', async (req, res) => {
         pcr.totalValue    += val;
       }
 
+      if (provinceName === 'بغداد' && isWarehouseSaleRow(s.rawData)) {
+        const repName       = s.representative?.name || 'غير محدد';
+        const warehouseName = warehouseNameFromRawData(s.rawData) || 'غير محدد';
+        const itemName      = s.item?.name || 'غير محدد';
+        const bwKey = `${repName}::${warehouseName}::${itemName}`;
+        if (!baghdadWarehouseMap.has(bwKey)) {
+          baghdadWarehouseMap.set(bwKey, { repName, warehouseName, itemName, totalQuantity: 0, totalValue: 0 });
+        }
+        const bwr = baghdadWarehouseMap.get(bwKey);
+        bwr.totalQuantity += qty;
+        bwr.totalValue    += val;
+      }
+
       if (s.area) {
         const key = s.area.id;
         if (!areaMap.has(key)) areaMap.set(key, { areaName: s.area.name, totalQuantity: 0, totalValue: 0 });
@@ -517,8 +539,10 @@ router.get('/overall', async (req, res) => {
     const byProvince = [...provinceMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byProvinceCompany = [...provinceCompanyMap.values()].sort((a, b) =>
       a.provinceName.localeCompare(b.provinceName, 'ar') || b.totalValue - a.totalValue);
+    const byBaghdadWarehouse = [...baghdadWarehouseMap.values()].sort((a, b) =>
+      a.repName.localeCompare(b.repName, 'ar') || a.warehouseName.localeCompare(b.warehouseName, 'ar') || b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byBaghdadWarehouse, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

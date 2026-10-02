@@ -785,7 +785,11 @@ type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
 interface ProvinceCompanyRow { provinceName: string; companyName: string; totalQty: number; totalValue: number; }
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; byProvinceCompany: ProvinceCompanyRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
+// مذاخر بغداد: صف واحد لكل (مندوب تجاري × مذخر × ايتم) — دقة أعلى من اللازم لجدول
+// (مندوب×مذخر) الرئيسي عمداً، كي يُبنى منها أيضاً تفصيل الايتمات داخل كل مذخر
+// بلا طلب خادم إضافي. راجع byBaghdadWarehouse في server/modules/reports/reports.routes.js.
+interface BaghdadWarehouseRow { repName: string; warehouseName: string; itemName: string; totalQty: number; totalValue: number; }
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; byProvinceCompany: ProvinceCompanyRow[]; byBaghdadWarehouse: BaghdadWarehouseRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
 
 // مطابقة اسم متسامحة مع حالة الأحرف والتشكيل العربي — الشركة/المنطقة/الايتم قد
 // تصل بحالة أحرف مختلفة بين استعلام المبيعات واستعلام الإرجاع المنفصلين
@@ -859,7 +863,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallSelectedTags, setOverallSelectedTags] = useState<{name: string; type: 'item'|'area'|'company'}[]>([]);
   const [showOverallModal, setShowOverallModal] = useState(false);
   const [modalOverallQuery, setModalOverallQuery] = useState('');;
-  const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company' | 'province'>('area');
+  const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company' | 'province' | 'baghdadWarehouse'>('area');
+  // صفوف مفتوحة (تفصيل الايتمات) في جدول «مذاخر بغداد» — مفتاح الصف = مندوب::مذخر.
+  const [expandedBaghdadWarehouses, setExpandedBaghdadWarehouses] = useState<Set<string>>(new Set());
   const [overallExcluded, setOverallExcluded] = useState<Set<string>>(new Set());
   const [overallViewMode, setOverallViewMode] = useState<'qty' | 'value'>('qty');
   // Overall mode supports analysing several files at once — their matching areas/items/
@@ -1131,7 +1137,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         return;
       }
 
-      const tabs: Array<'area' | 'item' | 'company' | 'province'> = ['area', 'item', 'company', 'province'];
+      const tabs: Array<'area' | 'item' | 'company' | 'province' | 'baghdadWarehouse'> = ['area', 'item', 'company', 'province', 'baghdadWarehouse'];
       e.preventDefault();
       setOverallTab(prev => {
         let idx = tabs.indexOf(prev);
@@ -1353,6 +1359,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         byCompany: (d.byCompany ?? []).map((r: any) => ({ name: r.companyName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byProvince: (d.byProvince ?? []).map((r: any) => ({ name: r.provinceName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byProvinceCompany: (d.byProvinceCompany ?? []).map((r: any) => ({ provinceName: r.provinceName, companyName: r.companyName, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        byBaghdadWarehouse: (d.byBaghdadWarehouse ?? []).map((r: any) => ({ repName: r.repName, warehouseName: r.warehouseName, itemName: r.itemName, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         minDate: d.minDate ?? null,
         maxDate: d.maxDate ?? null,
         recordCount: d.recordCount ?? null,
@@ -2998,6 +3005,71 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     XLSX.writeFile(wb, `المحافظات-والشركات_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  // مذاخر بغداد: صفوف مبيع تجارية بمحافظة بغداد وُسِمَت "مذخر" في عمود الصنف الخام
+  // (isWarehouseSaleRow بالخادم) — جدول مسطَّح (مندوب × مذخر) لا محوري كجدول
+  // المحافظات، لأن تراكيب (مندوب، مذخر) كثيرة ومتغيّرة بخلاف قائمة الشركات
+  // الثابتة هناك. صافي = مبيع - ارجاع بنفس مفتاح (مندوب::مذخر::ايتم) الموحَّد
+  // بين الاستدعاءين (overallSales/overallReturns byBaghdadWarehouse)، وصفوف
+  // صافيها صفر تُستبعد كبقية جداول هذه الصفحة.
+  const buildBaghdadWarehouseRows = () => {
+    type ItemBreakdown = { itemName: string; netQty: number; netValue: number };
+    type WhRow = { key: string; repName: string; warehouseName: string; netQty: number; netValue: number; items: ItemBreakdown[] };
+    if (!overallSales) return [] as WhRow[];
+    const rowKey = (r: BaghdadWarehouseRow) => `${normReportName(r.repName)}::${normReportName(r.warehouseName)}::${normReportName(r.itemName)}`;
+    const salesRows = overallSales.byBaghdadWarehouse ?? [];
+    const retRows    = overallReturns?.byBaghdadWarehouse ?? [];
+    const salesMap   = new Map(salesRows.map(r => [rowKey(r), r]));
+    const retMap     = new Map(retRows.map(r => [rowKey(r), r]));
+    const allKeys    = new Set([...salesRows.map(rowKey), ...retRows.map(rowKey)]);
+
+    const byWarehouse = new Map<string, WhRow>(); // "مندوب::مذخر" → صف
+    for (const key of allKeys) {
+      const s = salesMap.get(key), r = retMap.get(key);
+      const netQty   = (s?.totalQty   ?? 0) - (r?.totalQty   ?? 0);
+      const netValue = (s?.totalValue ?? 0) - (r?.totalValue ?? 0);
+      if (netQty === 0 && netValue === 0) continue;
+      const info = (s ?? r)!;
+      const whKey = `${normReportName(info.repName)}::${normReportName(info.warehouseName)}`;
+      if (!byWarehouse.has(whKey)) {
+        byWarehouse.set(whKey, { key: whKey, repName: info.repName, warehouseName: info.warehouseName, netQty: 0, netValue: 0, items: [] });
+      }
+      const row = byWarehouse.get(whKey)!;
+      row.netQty   += netQty;
+      row.netValue += netValue;
+      row.items.push({ itemName: info.itemName, netQty, netValue });
+    }
+
+    return [...byWarehouse.values()]
+      .map(row => ({ ...row, items: row.items.sort((a, b) => b.netValue - a.netValue) }))
+      .sort((a, b) => b.netValue - a.netValue);
+  };
+
+  const exportBaghdadWarehouseToExcel = () => {
+    const rows = buildBaghdadWarehouseRows();
+    if (rows.length === 0) return;
+    const cv = (n: number) => +convertVal(n).toFixed(2);
+    const valueColLabel = `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`;
+    const wb = XLSX.utils.book_new();
+
+    const summaryHeader = ['#', 'المندوب التجاري', 'المذخر', 'صافي الكمية', valueColLabel];
+    const summaryBody = rows.map((row, i) => [i + 1, row.repName, row.warehouseName, row.netQty, cv(row.netValue)]);
+    const summaryAoa = [summaryHeader, ...summaryBody];
+    const summaryWs = XLSX.utils.aoa_to_sheet(summaryAoa);
+    styleSheet(summaryWs, summaryAoa, [6, 22, 22, 14, 18]);
+    for (let r = 1; r < summaryAoa.length; r++) { applyNumFmt(summaryWs, XLSX.utils.encode_cell({ r, c: 3 })); applyNumFmt(summaryWs, XLSX.utils.encode_cell({ r, c: 4 })); }
+    XLSX.utils.book_append_sheet(wb, summaryWs, sanitizeSheetName('مذاخر بغداد'));
+
+    const itemHeader = ['المندوب التجاري', 'المذخر', 'الايتم', 'صافي الكمية', valueColLabel];
+    const itemBody = rows.flatMap(row => row.items.map(it => [row.repName, row.warehouseName, it.itemName, it.netQty, cv(it.netValue)]));
+    const itemAoa = [itemHeader, ...itemBody];
+    const itemWs = XLSX.utils.aoa_to_sheet(itemAoa);
+    styleSheet(itemWs, itemAoa, [22, 22, 24, 14, 18]);
+    for (let r = 1; r < itemAoa.length; r++) { applyNumFmt(itemWs, XLSX.utils.encode_cell({ r, c: 3 })); applyNumFmt(itemWs, XLSX.utils.encode_cell({ r, c: 4 })); }
+    XLSX.utils.book_append_sheet(wb, itemWs, sanitizeSheetName('تفصيل الايتمات'));
+
+    XLSX.writeFile(wb, `مذاخر-بغداد_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   return (
     <div className="page" ref={pageRootRef} tabIndex={-1} style={{ outline: 'none' }}>
       {/* Mode toggle */}
@@ -3703,13 +3775,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             {/* Sub-tabs: area / item / company */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
               <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
-                {([['area', 'location', t.reports.colArea], ['item', 'drug', t.reports.colItem], ['company', 'navCommercial', 'الشركة'], ['province', 'language', 'المحافظات']] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => {
+                {([['area', 'location', t.reports.colArea], ['item', 'drug', t.reports.colItem], ['company', 'navCommercial', 'الشركة'], ['province', 'language', 'المحافظات'], ['baghdadWarehouse', 'navStockLedger', 'مذاخر بغداد']] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => {
                   const active = overallTab === id;
-                  // «المحافظات» تبويب مُميَّز بطلب صريح: حبّة بتدرّج بنفسجي تبقى
-                  // ظاهرة حتى وهي غير مختارة، بدل التبويب الرمادي المسطّح.
-                  const featured = id === 'province';
+                  // «المحافظات» و«مذاخر بغداد» تبويبان مُميَّزان بطلب صريح: حبّة بتدرّج
+                  // بنفسجي تبقى ظاهرة حتى وهي غير مختارة، بدل التبويب الرمادي المسطّح.
+                  const featured = id === 'province' || id === 'baghdadWarehouse';
                   return (
-                    <button key={id} onClick={() => setOverallTab(id as 'area' | 'item' | 'company' | 'province')} style={{
+                    <button key={id} onClick={() => setOverallTab(id as 'area' | 'item' | 'company' | 'province' | 'baghdadWarehouse')} style={{
                       padding: featured ? '7px 18px' : '7px 16px', cursor: 'pointer',
                       border: featured && !active ? '1px solid #c7d2fe' : 'none',
                       borderRadius: featured ? '12px 12px 5px 5px' : '6px 6px 0 0',
@@ -3817,6 +3889,79 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       تنبيه: مجموع الجدول ({fmtValSigned(grandTotal)}) يقلّ عن صافي كل المحافظات ({fmtValSigned(provinceNetTotal)}) بمقدار {fmtValSigned(coverageGap)} — مبيع لم يُنسَب لأي شركة.
                     </div>
                   )}
+                </div>
+              );
+            })()}
+
+            {/* ── تبويب «مذاخر بغداد»: صفوف مبيع تجارية بمحافظة بغداد وُسِمَت "مذخر" في
+                 عمود الصنف الخام — جدول مسطَّح (مندوب × مذخر) قابل لتوسيع كل صف لعرض
+                 تفصيل الايتمات وكمياتها، بنفس تصميم جدول «محافظة × شركة» الرسمي. ── */}
+            {overallTab === 'baghdadWarehouse' && (() => {
+              const rows = buildBaghdadWarehouseRows();
+              if (rows.length === 0) {
+                return <div style={{ marginTop: 14, textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد مبيعات مذاخر في بغداد ضمن النطاق الحالي</div>;
+              }
+              const BORDER = '1px solid #cbd5e1';
+              const pivotTh: React.CSSProperties = { padding: '9px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', position: 'sticky', top: 0, whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 700, border: BORDER };
+              const pivotTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: 12.5, color: '#111827', border: BORDER };
+              const grandTotal = rows.reduce((s, r) => s + r.netValue, 0);
+              const toggleRow = (key: string) => setExpandedBaghdadWarehouses(prev => {
+                const next = new Set(prev);
+                if (next.has(key)) next.delete(key); else next.add(key);
+                return next;
+              });
+              return (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>صافي المبيع — مذاخر بغداد (مندوب تجاري × مذخر)</span>
+                    <button onClick={exportBaghdadWarehouseToExcel}
+                      style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    ><Icon name="export" size={12} /> تصدير Excel</button>
+                  </div>
+                  <div style={{ overflowX: 'auto', border: '1px solid #94a3b8' }}>
+                    <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...pivotTh, width: 28 }}></th>
+                          <th style={{ ...pivotTh, textAlign: 'right' }}>المندوب التجاري</th>
+                          <th style={{ ...pivotTh, textAlign: 'right' }}>المذخر</th>
+                          <th style={pivotTh}>صافي الكمية</th>
+                          <th style={pivotTh}>صافي المبيع</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(row => {
+                          const expanded = expandedBaghdadWarehouses.has(row.key);
+                          return (
+                            <Fragment key={row.key}>
+                              <tr onClick={() => toggleRow(row.key)} style={{ cursor: 'pointer' }}>
+                                <td style={{ ...pivotTd, color: '#64748b' }}>{expanded ? '▾' : '◂'}</td>
+                                <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700 }}>{row.repName}</td>
+                                <td style={{ ...pivotTd, textAlign: 'right' }}>{row.warehouseName}</td>
+                                <td style={pivotTd}>{row.netQty}</td>
+                                <td style={{ ...pivotTd, fontWeight: 800, background: row.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(row.netValue)}</td>
+                              </tr>
+                              {expanded && row.items.map((it, ii) => (
+                                <tr key={ii} style={{ background: '#fafbfc' }}>
+                                  <td style={pivotTd}></td>
+                                  <td style={pivotTd} colSpan={2}><span style={{ color: '#6b7280', fontSize: 12 }}>{it.itemName}</span></td>
+                                  <td style={{ ...pivotTd, color: '#6b7280' }}>{it.netQty}</td>
+                                  <td style={{ ...pivotTd, color: '#6b7280' }}>{fmtValSigned(it.netValue)}</td>
+                                </tr>
+                              ))}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan={3} style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, background: '#f1f5f9' }}>الإجمالي الكلي</td>
+                          <td style={{ ...pivotTd, fontWeight: 800, background: '#f1f5f9' }}>{rows.reduce((s, r) => s + r.netQty, 0)}</td>
+                          <td style={{ ...pivotTd, fontWeight: 900, background: grandTotal < 0 ? 'rgba(239, 68, 68, 0.2)' : '#e2e8f0' }}>{fmtValSigned(grandTotal)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
               );
             })()}

@@ -65,6 +65,21 @@ export function warehouseNameFromRawData(rawData) {
   return pick(raw, WAREHOUSE_ALIASES);
 }
 
+// صف مبيعة/ارجاع "مذخر" لا "صيدلية": بعض الملفات (مثل ملفات ميركاتو) تحمل عمود
+// تصنيف زبون خام (غالباً باسم "صنف") بقيم مثل "مذخر"/"صيدلية1"/"مكتب" لا تُقرأ
+// كعمود منفصل عند الرفع (raw[rc.item]/raw[rc.customer] تُهمله عادة) — لكنها تبقى
+// محفوظة كاملة في Sale.rawData (JSON.stringify للصف الخام كما ورد في الإكسل).
+// هنا نفحصها مباشرة بلا حاجة لتعديل مسار الرفع: أي قيمة خلية تطابق حرفياً
+// "مذخر" (مع بادئة "ال" الاختيارية ولاحقة رقمية اختيارية كـ"مذخر1") تكفي —
+// مطابقة تامة لا احتواء، تفادياً لتصنيف اسم مندوب أو منطقة يتضمن الكلمة خطأً.
+const WAREHOUSE_VALUE_RE = /^(?:ال)?مذخر\d*$/;
+export function isWarehouseSaleRow(rawDataJson) {
+  if (!rawDataJson) return false;
+  let raw;
+  try { raw = JSON.parse(rawDataJson); } catch { return false; }
+  return Object.values(raw).some(v => typeof v === 'string' && WAREHOUSE_VALUE_RE.test(v.trim()));
+}
+
 /**
  * يجمّع صفوف Sale حسب المذخر الذي مرّت عبره الطلبية، ويُرجع عدد الطلبيات
  * الفعلي (لا عدد الأسطر) وصافي القيمة لكل مذخر.

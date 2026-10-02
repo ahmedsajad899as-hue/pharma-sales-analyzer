@@ -4,7 +4,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
-import { countDistinctOrders, groupOrdersByWarehouse } from '../../lib/orderKey.js';
+import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -546,20 +546,10 @@ export async function setExcludeWarehouseSales(userId, enabled) {
   return { enabled: !!enabled };
 }
 
-// صف مبيعة/ارجاع "مذخر" لا "صيدلية": بعض الملفات (مثل ملفات ميركاتو) تحمل عمود
-// تصنيف زبون خام (غالباً باسم "صنف") بقيم مثل "مذخر"/"صيدلية1"/"مكتب" لا تُقرأ
-// كعمود منفصل عند الرفع (raw[rc.item]/raw[rc.customer] تُهمله عادة) — لكنها تبقى
-// محفوظة كاملة في Sale.rawData (JSON.stringify للصف الخام كما ورد في الإكسل).
-// هنا نفحصها مباشرة بلا حاجة لتعديل مسار الرفع: أي قيمة خلية تطابق حرفياً
-// "مذخر" (مع بادئة "ال" الاختيارية ولاحقة رقمية اختيارية كـ"مذخر1") تكفي —
-// مطابقة تامة لا احتواء، تفادياً لتصنيف اسم مندوب أو منطقة يتضمن الكلمة خطأً.
-const WAREHOUSE_VALUE_RE = /^(?:ال)?مذخر\d*$/;
-export function isWarehouseSaleRow(rawDataJson) {
-  if (!rawDataJson) return false;
-  let raw;
-  try { raw = JSON.parse(rawDataJson); } catch { return false; }
-  return Object.values(raw).some(v => typeof v === 'string' && WAREHOUSE_VALUE_RE.test(v.trim()));
-}
+// isWarehouseSaleRow انتقلت إلى lib/orderKey.js (مُعاد تصديرها هنا كي لا ينكسر
+// أي مستورد قائم) — نفس الفحص الحرفي بلا تغيير، وأصبحت مصدراً مشتركاً بعد أن
+// احتاجه أيضاً تبويب «مذاخر بغداد» في reports.routes.js.
+export { isWarehouseSaleRow };
 
 /**
  * توسّع مالكي الملفات إلى كل من يشاركهم تعيين شركة (UserCompanyAssignment).
