@@ -3,7 +3,7 @@ import multer from 'multer';
 import {
   listAllUsers, getUser, getUserPassword, createUser, updateUser,
   setUserCompanies, setUserAreas, setUserProvinces, setUserSubProvinces, setUserItems, setUserLines,
-  setUserManagers, setUserSubordinates, setUserInteractions, setUserFeatures, setUserAllAreas,
+  setUserManagers, setUserSubordinates, setUserInteractions, setUserFeatures, bulkSetUserFeature, setUserAllAreas,
   syncManagerScopeToSubordinates,
   setUserStockCompanies, setUserStockItems,
   getUserRepInfo, getUserCompanyItems,
@@ -23,6 +23,8 @@ router.get('/:id/company-items', getUserCompanyItems);
 router.get('/:id/password',      getUserPassword);
 router.post('/import/preview', upload.single('file'), previewUsersImport);
 router.post('/import/commit',  commitUsersImport);
+// قبل '/:id' كي لا يُفسَّر "bulk-features" كمعرّف مستخدم
+router.put('/bulk-features', bulkSetUserFeature);
 router.get('/:id',         getUser);
 router.post('/',           createUser);
 router.put('/:id',         updateUser);

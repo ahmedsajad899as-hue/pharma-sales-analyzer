@@ -4,6 +4,7 @@ import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
 import { getVisiblePageNodes, STANDALONE_FEATURES } from '../../config/featureConfig';
 import type { FeatureNode } from '../../config/featureConfig';
 import UsersBulkImportModal from './UsersBulkImportModal';
+import BulkFeatureToggleModal from './BulkFeatureToggleModal';
 
 const ROLES = [
   { value: 'office_manager',          label: 'مدير مكتب' },
@@ -101,6 +102,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   const [form,      setForm]      = useState<any | null>(null);
   const [showBulkImport, setShowBulkImport] = useState(false);
+  const [showBulkFeature, setShowBulkFeature] = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [error,     setError]     = useState('');
   // الحساب الذي يحجز اسم المستخدم عند خطأ 409 — يُعرض مع زر ينقل إليه في القائمة،
@@ -2714,6 +2716,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>👥 المستخدمون</h2>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setShowBulkFeature(true)} style={btnStyle('#7c3aed')}>⚡ تفعيل جماعي للميزات</button>
           <button onClick={() => setShowBulkImport(true)} style={btnStyle('#0ea5e9')}>📥 استيراد من إكسل</button>
           <button onClick={() => setForm({ username: '', password: '', displayName: '', role: 'scientific_rep', officeId: '', phone: '' })} style={btnStyle('#0f172a')}>+ إضافة مستخدم</button>
         </div>
@@ -2724,6 +2727,14 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           token={token}
           onClose={() => setShowBulkImport(false)}
           onImported={() => load(true)}
+        />
+      )}
+      {showBulkFeature && (
+        <BulkFeatureToggleModal
+          users={users}
+          token={token}
+          onClose={() => setShowBulkFeature(false)}
+          onApplied={() => load(true)}
         />
       )}
       <input

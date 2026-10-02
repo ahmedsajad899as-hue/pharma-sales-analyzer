@@ -863,6 +863,41 @@ export async function setUserFeatures(req, res) {
   res.json({ success: true, data: user });
 }
 
+// ── تفعيل/تعطيل ميزة واحدة لعدد من الحسابات دفعة واحدة ─────────────────────
+// PUT /api/sa/users/bulk-features  { userIds: number[], featureKey: string, enabled: boolean }
+// يُضيف/يُزيل featureKey فقط من disabledFeatures لكل حساب (لا يمسّ باقي ميزاته
+// المحفوظة)، بخلاف setUserFeatures أعلاه الذي يستبدل القائمة كاملة لحساب واحد.
+export async function bulkSetUserFeature(req, res) {
+  const { userIds, featureKey, enabled } = req.body;
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return res.status(400).json({ error: 'اختر حساباً واحداً على الأقل' });
+  }
+  if (!featureKey || typeof featureKey !== 'string') {
+    return res.status(400).json({ error: 'ميزة غير صالحة' });
+  }
+  const ids = userIds.map(id => parseInt(id)).filter(Number.isInteger);
+
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, permissions: true } });
+  const failed = [];
+  for (const u of users) {
+    try {
+      let perms = {};
+      try { perms = JSON.parse(u.permissions || '{}'); } catch {}
+      const current = new Set(perms.disabledFeatures ?? []);
+      if (enabled) current.delete(featureKey); else current.add(featureKey);
+      perms.disabledFeatures = Array.from(current);
+      await prisma.user.update({ where: { id: u.id }, data: { permissions: JSON.stringify(perms) } });
+      invalidateAllAreasFlag(u.id);
+    } catch (e) {
+      failed.push({ id: u.id, error: e.message });
+    }
+  }
+  const foundIds = new Set(users.map(u => u.id));
+  for (const id of ids) { if (!foundIds.has(id)) failed.push({ id, error: 'غير موجود' }); }
+
+  res.json({ success: true, updated: users.length - failed.length, failed });
+}
+
 // ── تفعيل/إطفاء «كل المناطق والمحافظات تلقائياً» ───────────────────────────
 // PUT /api/sa/users/:id/all-areas  { enabled: boolean }
 //
