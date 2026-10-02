@@ -3,6 +3,7 @@ import { useBackHandler } from '../hooks/useBackHandler';
 import FileRowsEditor from '../components/FileRowsEditor';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import ManualSalesModal from '../components/ManualSalesModal';
+import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
 import RepNameMatchModal from '../components/RepNameMatchModal';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -69,6 +70,9 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
 
   // Manual / invoice-image sales entry
   const [showManualModal, setShowManualModal] = useState(false);
+  // مبيعات مذاخر ناقصة من ميركاتو (نموذج إكسل مخصّص لمدير الشركة/قائد الفريق)
+  const [showWarehouseGapModal, setShowWarehouseGapModal] = useState(false);
+  const [warehouseGapMsg, setWarehouseGapMsg] = useState('');
   // مطابقة أسماء المندوبين لملف ميركاتو — يحمل معرّفات الملفات المراد فحصها
   const [repNameFileIds, setRepNameFileIds] = useState<number[] | null>(null);
   const [manualMsg, setManualMsg]             = useState('');
@@ -816,6 +820,40 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '9px 14px', fontSize: 13, color: '#065f46', fontWeight: 600 }}>
           <Icon name="checkCircle" size={13} style={{ verticalAlign: 'middle', marginLeft: 4 }} /> {manualMsg}
         </div>
+      )}
+
+      {/* ── مبيعات مذاخر ناقصة من ميركاتو (مدير الشركة / قائد الفريق) ──── */}
+      {hasFeature('warehouse_gap_import') && (
+      <div style={{ ...CARD, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--c-accent-light)', borderColor: 'var(--c-accent)' }}>
+        <div style={{ fontSize: 12.5, color: '#075985', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="file" size={18} />
+          <span>مبيعات صيدليات تمّت عبر المذاخر ولم تظهر في ملف ميركاتو؟ وثّقها عبر نموذج إكسل خاص بفريقك.</span>
+        </div>
+        <button onClick={() => { setWarehouseGapMsg(''); setShowWarehouseGapModal(true); }}
+          style={{ padding: '9px 18px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="add" size={15} /> نموذج المذاخر
+        </button>
+      </div>
+      )}
+
+      {warehouseGapMsg && (
+        <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', padding: '9px 14px', fontSize: 13, color: '#065f46', fontWeight: 600 }}>
+          <Icon name="checkCircle" size={13} style={{ verticalAlign: 'middle', marginLeft: 4 }} /> {warehouseGapMsg}
+        </div>
+      )}
+
+      {hasFeature('warehouse_gap_import') && showWarehouseGapModal && (
+        <WarehouseGapImportModal
+          token={token ?? ''}
+          onClose={() => setShowWarehouseGapModal(false)}
+          onSaved={async (msg, fileId) => {
+            setShowWarehouseGapModal(false);
+            setWarehouseGapMsg(msg);
+            if (fileId && !activeFileIds.includes(fileId)) onFileActivated(fileId);
+            await loadFiles();
+            setTimeout(() => setWarehouseGapMsg(''), 12000);
+          }}
+        />
       )}
 
       {hasFeature('manual_sales_entry') && showManualModal && (

@@ -25,6 +25,8 @@ import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName } from 
 import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
 import { loadResolutionContext, resolveItemName, normalizeItemKey } from '../../lib/itemResolver.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
+import { getManagerRoster } from '../../lib/managerRoster.js';
+import { buildWarehouseGapWorkbook, parseWarehouseGapWorkbook } from '../../lib/warehouseGapTemplate.js';
 import { syncCommercialsForNewSales } from '../scientific-reps/scientific-reps.service.js';
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
@@ -1484,6 +1486,51 @@ export async function checkManualNames({ rows, userId = null }) {
 
   return { items, companies, scope };
 }
+
+/**
+ * يجمع نطاق مدير الشركة/قائد الفريق (شركاته، ايتماته المعيّنة، أسماء فريقه)
+ * لبناء نموذج إكسل مذاخر خاص به — نفس مصادر النطاق المستعملة في فحص الأسماء
+ * أعلاه (UserCompanyAssignment و getAssignedItemsCatalog) بالإضافة لفريق
+ * المدير عبر getManagerRoster (managerRoster.js) الذي يحدّد نطاق الاستيراد
+ * بالفعل في صفحات أخرى (Pharmacy Net، تحليل الكولات).
+ *
+ * @param {{id:number, role:string}} user
+ * @returns {Promise<{ reps: string[], items: string[], companies: string[] }>}
+ */
+export async function getWarehouseGapScope(user) {
+  const [userCompanies, assignedItems, roster] = await Promise.all([
+    prisma.userCompanyAssignment.findMany({ where: { userId: user.id }, select: { company: { select: { name: true } } } }),
+    getAssignedItemsCatalog(user.id),
+    getManagerRoster(user, { includeTeamLead: true }),
+  ]);
+
+  const companies = [...new Set(userCompanies.map(c => c.company?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+  const items = [...new Set((assignedItems ?? []).map(i => i.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+  const reps = [...new Set(roster.reps.map(r => r.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+
+  return { reps, items, companies };
+}
+
+/**
+ * يبني ملف الإكسل الخاص بمستخدم واحد (Buffer جاهز للتنزيل).
+ * @param {{id:number, role:string, displayName?:string, username?:string}} user
+ */
+export async function buildWarehouseGapTemplateForUser(user) {
+  const scope = await getWarehouseGapScope(user);
+  const buffer = buildWarehouseGapWorkbook(scope);
+  const who = (user.displayName || user.username || 'مستخدم').replace(/[\\/:*?"<>|]/g, '').trim();
+  return { buffer, filename: `نموذج مبيعات مذاخر - ${who}.xlsx` };
+}
+
+/**
+ * يقرأ ملف نموذج المذاخر المُعبَّأ ويُرجع صفوفاً بشكل صفوف insertManualSales —
+ * بلا كتابة في قاعدة البيانات (معاينة فقط، يُستدعى قبل /api/sales/manual).
+ * @param {Buffer} buffer
+ */
+export function parseWarehouseGapFile(buffer) {
+  return parseWarehouseGapWorkbook(buffer);
+}
+
 /**
  * Persist manual / invoice-extracted sale rows as Sale records — merged into an
  * existing UploadedFile or into a new one. Reuses the same normalization,
@@ -1522,7 +1569,8 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
       unitPrice:     unitPrice || null,
       bonus:         r.bonus ?? null,
       company:       r.company ?? null,
-      source:        'manual-invoice',
+      notes:         r.notes ?? null,
+      source:        r.source || 'manual-invoice',
     });
 
     validRows.push({
@@ -1626,6 +1674,10 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
       fileType:         'sales',
       detectedCurrency,
       currencyMode:     detectedCurrency,
+      // مبيعات مذاخر أُدخلت لتعويض نقص ملف ميركاتو تُعلَّم sourceSystem='mercato'
+      // صراحةً كي تُحتسب مع بقية ملفات ميركاتو في كل تقارير المناديب العلميين
+      // (bySource.mercato في scientific-reps.service.js) بدل أن تُحسب "مكتب".
+      sourceSystem:     target.sourceSystem === 'mercato' ? 'mercato' : null,
     });
   }
 

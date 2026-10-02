@@ -5,7 +5,8 @@
 
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadSales, extractInvoice, addManualSales, checkNames } from './sales.controller.js';
+import { uploadSales, extractInvoice, addManualSales, checkNames,
+  downloadWarehouseGapTemplate, parseWarehouseGapUpload } from './sales.controller.js';
 import {
   getFileRows, saveFileRows, restoreFileRows,
   getColumnFilters, setColumnFilter, clearColumnFilters,
@@ -74,6 +75,18 @@ router.post('/sales/manual', addManualSales);
  * JSON: { rows: [{ item, company }] }. يُرجع الأسماء المتشابهة التي تحتاج تأكيداً.
  */
 router.post('/sales/check-names', checkNames);
+
+/**
+ * GET /api/sales/warehouse-gap-template
+ * يُنزّل نموذج إكسل مخصّص للمستخدم الحالي لتوثيق مبيعات مذاخر غابت عن ميركاتو.
+ */
+router.get('/sales/warehouse-gap-template', downloadWarehouseGapTemplate);
+
+/**
+ * POST /api/sales/warehouse-gap-parse
+ * Multipart: file (النموذج أعلاه بعد تعبئته). يُرجع صفوفاً للمعاينة فقط.
+ */
+router.post('/sales/warehouse-gap-parse', upload.single('file'), parseWarehouseGapUpload);
 
 /**
  * محرّر الملف المرفوع — تعديل صفوف الإكسل بعد رفعه.

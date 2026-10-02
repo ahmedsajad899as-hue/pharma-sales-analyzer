@@ -5,7 +5,7 @@
  */
 
 import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
-  checkManualNames } from './sales.service.js';
+  checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 
@@ -165,6 +165,39 @@ export async function checkNames(req, res, next) {
   try {
     const { rows } = req.body || {};
     const data = await checkManualNames({ rows, userId: req.user?.id ?? null });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/sales/warehouse-gap-template
+ * يُنزّل ملف إكسل خاص بالمستخدم الحالي (شركاته/ايتماته/فريقه) لتوثيق مبيعات
+ * مذاخر غابت عن ملف ميركاتو. يُملأ ويُعاد رفعه عبر /api/sales/warehouse-gap-parse.
+ */
+export async function downloadWarehouseGapTemplate(req, res, next) {
+  try {
+    if (!req.user) throw new AppError('غير مصرّح.', 401, 'UNAUTHORIZED');
+    const { buffer, filename } = await buildWarehouseGapTemplateForUser(req.user);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    return res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/sales/warehouse-gap-parse
+ * Multipart: file (نموذج المذاخر المُعبَّأ). معاينة فقط — لا يكتب في قاعدة
+ * البيانات؛ الحفظ الفعلي يتم بعدها عبر POST /api/sales/manual (نفس مسار
+ * المبيعات اليدوية) بعد مراجعة المستخدم وفحص الأسماء.
+ */
+export async function parseWarehouseGapUpload(req, res, next) {
+  try {
+    if (!req.file) throw new AppError('لم يتم إرفاق ملف.', 400, 'NO_FILE');
+    const data = parseWarehouseGapFile(req.file.buffer);
     return res.json({ success: true, data });
   } catch (err) {
     next(err);
