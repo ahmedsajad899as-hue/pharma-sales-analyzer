@@ -98,7 +98,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
                   padding: '10px 20px',
                   border: 'none',
                   borderBottom: isActive ? '2px solid #4f46e5' : '2px solid transparent',
-                  background: isHighlighted ? (isActive ? 'rgba(79,70,229,0.08)' : 'rgba(79,70,229,0.04)') : 'transparent',
+                  background: isHighlighted ? (isActive ? 'rgba(79,70,229,0.16)' : 'rgba(79,70,229,0.09)') : 'transparent',
                   borderRadius: isHighlighted ? '8px 8px 0 0' : 0,
                   fontSize: 14,
                   fontWeight: isActive ? 600 : 400,
