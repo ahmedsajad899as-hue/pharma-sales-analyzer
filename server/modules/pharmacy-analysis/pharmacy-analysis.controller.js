@@ -279,14 +279,25 @@ export async function pharmacyDetail(req, res, next) {
       saleDate:   s.saleDate,
       recordType: s.recordType,
       uploadedFileId: s.uploadedFileId,
+      source: s._source,
     }));
+
+    // إجمالي كل مصدر (مكتب/ميركاتو) — لشريط التقسيم في الواجهة. الصافي للمبيع
+    // والارجاع يُفصل بنوع الصف نفسه، فيبقى المجموع مطابقاً لـ totalValue أعلاه.
+    const sourceTotals = { office: { orders: 0, sales: 0, returns: 0 }, mercato: { orders: 0, sales: 0, returns: 0 } };
+    for (const r of dedupedRows) {
+      const t = sourceTotals[r.source];
+      t.orders += 1;
+      if (r.recordType === 'return') t.returns += r.totalValue;
+      else t.sales += r.totalValue;
+    }
 
     // Group by item
     const byItem = new Map();
     for (const r of dedupedRows) {
       if (!byItem.has(r.itemName)) byItem.set(r.itemName, { name: r.itemName, orders: [], totalQty: 0, totalValue: 0 });
       const b = byItem.get(r.itemName);
-      b.orders.push({ date: r.saleDate, qty: r.quantity, value: r.totalValue, rep: r.repName, type: r.recordType });
+      b.orders.push({ date: r.saleDate, qty: r.quantity, value: r.totalValue, rep: r.repName, type: r.recordType, source: r.source });
       b.totalQty   += r.quantity;
       b.totalValue += r.totalValue;
     }
@@ -294,6 +305,7 @@ export async function pharmacyDetail(req, res, next) {
     res.json({
       pharmacyName: req.params.name,
       totalOrders: dedupedRows.length,
+      sourceTotals,
       orders: dedupedRows,
       byItem: [...byItem.values()].sort((a, b) => b.totalQty - a.totalQty),
     });

@@ -94,7 +94,7 @@ export async function getScopedSales(userId, fileIds) {
       nameMap(prisma.medicalRepresentative, ids(s => s.representativeId)),
       prisma.uploadedFile.findMany({
         where:  { id: { in: ids(s => s.uploadedFileId) } },
-        select: { id: true, currencyMode: true, exchangeRate: true, detectedCurrency: true },
+        select: { id: true, currencyMode: true, exchangeRate: true, detectedCurrency: true, sourceSystem: true },
       }),
     ]);
     const fileById = new Map(files.map(f => [f.id, f]));
@@ -134,6 +134,8 @@ export async function getScopedSales(userId, fileIds) {
       s._normRep    = repName ? norm(repName) : '';
       s._day        = dayKey(s.saleDate);
       s._iqd        = toIQD(s.totalValue, fileById.get(s.uploadedFileId));
+      // مصدر الطلبية: ملف ميركاتو/المذخر أو ملف مبيعات المكتب (علامة على الملف كله)
+      s._source     = fileById.get(s.uploadedFileId)?.sourceSystem === 'mercato' ? 'mercato' : 'office';
       s._isReturn   = s.recordType === 'return';
       // مقارنات التواريخ في حلقات التجميع كانت تُنشئ كائنَي Date لكل صف
       // (‏new Date(a) > new Date(b)‎) — أي عشرات آلاف الكائنات لكل طلب.
