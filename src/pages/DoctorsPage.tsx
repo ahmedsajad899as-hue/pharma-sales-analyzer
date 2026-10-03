@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'rea
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import DoctorVisitsImportModal from '../components/DoctorVisitsImportModal';
-import { SourceChip, SourceSplit, type Src, type SourceTotals } from '../components/PharmacySourceBits';
+import { type Src, type SourceTotals } from '../components/PharmacySourceBits';
+import PharmacyComparePopup, { type ComparePopupState } from '../components/PharmacyComparePopup';
+import { pharmacyKey, matchNetPharmacies } from '../lib/pharmacyKey';
 import { Icon } from '../config/icons';
 import { sendEngagementPing, sendSearchPingDebounced } from '../lib/engagementPing';
 import * as XLSX from 'xlsx';
@@ -131,19 +133,11 @@ interface NetPharm {
 
 interface PharmOrderEntry { date: string; qty: number; value: number; rep: string; type: string; source?: Src; }
 interface PharmByItem { name: string; orders: PharmOrderEntry[]; totalQty: number; totalValue: number; }
-interface PharmDetailData { byItem: PharmByItem[]; totalOrders: number; sourceTotals?: SourceTotals; }
+interface PharmDetailData { byItem: PharmByItem[]; totalOrders: number; sourceTotals?: SourceTotals; mergedFrom?: { id: number; fromName: string }[]; }
 
+// مفتاح المطابقة الموحّد للصيدليات — نفس قواعد السيرفر (server/lib/pharmacyKey.js)
 function normPharm(s: string) {
-  let r = String(s || '').trim()
-    .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-    .replace(/[ًٌٍَُِّْٰ]/g, '').replace(/ـ/g, '')
-    .replace(/\s+/g, ' ').toLowerCase();
-  // Step 1: strip full named noise words at start (after normalisation so ة→ه applied)
-  r = r.replace(/^(الصيدليه|صيدليه|العميل|الزبون|الاسم)\s*/, '').trim();
-  // Step 2: strip "ص" used as abbreviation for صيدلية — only when NOT followed by
-  //         another Arabic letter (so "صوفيا" is safe), strip any trailing punctuation/slashes
-  r = r.replace(/^ص(?!\p{L})[\s/\\.,،:;*\-]*/u, '').trim();
-  return r;
+  return pharmacyKey(s);
 }
 
 function findNetMatches(pharmName: string, list: NetPharm[], areaName?: string | null): { exact: NetPharm | null; similar: NetPharm[] } {
@@ -1175,6 +1169,49 @@ export default function DoctorsPage() {
     loadPharmDetail(pharmComparePopup.exact.name);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pharmComparePopup?.exact?.name]);
+
+  // معاينة صيدلية متشابهة — حالة مستقلة لا تستبدل تفاصيل الصيدلية الأساسية
+  const fetchPharmPreview = useCallback(async (name: string): Promise<PharmDetailData | null> => {
+    const fileParam = netPharmFileIds ? `?fileIds=${netPharmFileIds}` : '';
+    try {
+      const r = await fetch(`${API}/api/pharmacy-analysis/pharmacy/${encodeURIComponent(name)}${fileParam}`, { headers: H() });
+      return r.ok ? await r.json() : null;
+    } catch { return null; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, netPharmFileIds]);
+
+  // بعد الدمج أو فكّه: نُعيد جلب قائمة المبيع ونُعيد حساب المطابقة للنافذة المفتوحة
+  const refreshNetAfterAlias = useCallback(async (popup: ComparePopupState) => {
+    try {
+      const r = await fetch(`${API}/api/pharmacy-analysis/pharmacies?fileIds=${netPharmFileIds}`, { headers: H() });
+      const d = r.ok ? await r.json() : { pharmacies: [] };
+      const fresh: NetPharm[] = d.pharmacies || [];
+      setNetPharmacies(fresh);
+      const m = matchNetPharmacies(fresh, popup.pharmName, popup.areaName);
+      setPharmComparePopup(p => (p ? { ...p, exact: m.exact, similar: m.similar } : p));
+      if (m.exact) loadPharmDetail(m.exact.name);
+    } catch { /* تبقى النافذة كما هي */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, netPharmFileIds, loadPharmDetail]);
+
+  const handlePharmMerge = useCallback(async (fromName: string, toName: string): Promise<boolean> => {
+    const r = await fetch(`${API}/api/pharmacy-analysis/pharmacy-aliases`, {
+      method: 'POST', headers: { ...H(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromName, toName }),
+    });
+    if (!r.ok) return false;
+    if (pharmComparePopup) await refreshNetAfterAlias(pharmComparePopup);
+    return true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, pharmComparePopup, refreshNetAfterAlias]);
+
+  const handlePharmUnmerge = useCallback(async (id: number): Promise<boolean> => {
+    const r = await fetch(`${API}/api/pharmacy-analysis/pharmacy-aliases/${id}`, { method: 'DELETE', headers: H() });
+    if (!r.ok) return false;
+    if (pharmComparePopup) await refreshNetAfterAlias(pharmComparePopup);
+    return true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, pharmComparePopup, refreshNetAfterAlias]);
 
   const loadPharmVisits = useCallback(async (forceRefresh = false) => {
     sendEngagementPing('calculate', 'doctors');
@@ -4846,189 +4883,17 @@ export default function DoctorsPage() {
 
       {/* ── Pharmacy Net Comparison Popup ──────────────────────── */}
       {pharmComparePopup && canSeePharmNet && (
-        <>
-          <div onClick={() => setPharmComparePopup(null)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1200 }} />
-          <div onClick={e => e.stopPropagation()}
-            style={{
-              position: 'fixed', top: '50%', left: '50%',
-              transform: 'translate(-50%,-50%)',
-              background: '#fff', borderRadius: 16, border: '1px solid var(--c-border)',
-              boxShadow: '0 16px 48px rgba(0,0,0,0.22)', zIndex: 1201,
-              width: 'min(94vw,440px)', maxHeight: '85vh',
-              display: 'flex', flexDirection: 'column', direction: 'rtl',
-              overflow: 'hidden',
-            }}>
-            {/* Header */}
-            <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--c-border-light)', background: 'var(--c-bg)', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="navSalesData" size={13} /> مقارنة بيانات المبيع</div>
-                  <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginTop: 3 }}>د. {pharmComparePopup.docName}</div>
-                </div>
-                <button onClick={() => setPharmComparePopup(null)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted)', fontSize: 22, lineHeight: 1, padding: '0 4px', display: 'flex' }}><Icon name="close" size={20} /></button>
-              </div>
-              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, background: 'var(--c-accent-light)', color: 'var(--c-accent)', borderRadius: 6, padding: '2px 8px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <Icon name="pharmacy" size={11} /> {pharmComparePopup.pharmName}
-                </span>
-                {pharmComparePopup.areaName && (
-                  <span style={{ fontSize: 11, background: 'var(--c-bg)', color: 'var(--c-text-secondary)', borderRadius: 6, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <Icon name="location" size={11} /> {pharmComparePopup.areaName}
-                  </span>
-                )}
-              </div>
-            </div>
-            {/* Body */}
-            <div style={{ overflowY: 'auto', flex: 1, padding: '14px 16px 16px' }}>
-              {pharmComparePopup.exact ? (
-                <>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-success)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Icon name="checkCircle" size={14} /> تم العثور على الصيدلية في بيانات المبيع
-                  </div>
-                  {/* Summary cards */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                    {([
-                      { label: 'عدد الطلبيات', value: String(pharmComparePopup.exact.totalOrders), color: 'var(--c-accent)', bg: 'var(--c-accent-light)' },
-                      { label: 'إجمالي المبيع', value: pharmComparePopup.exact.totalValue > 0 ? `${pharmComparePopup.exact.totalValue.toLocaleString()} د.ع` : '—', color: 'var(--c-success)', bg: 'var(--c-success-bg)' },
-                      { label: 'إجمالي الارجاع', value: pharmComparePopup.exact.returnsValue > 0 ? `${pharmComparePopup.exact.returnsValue.toLocaleString()} د.ع` : '—', color: 'var(--c-danger)', bg: 'var(--c-danger-bg)' },
-                      { label: 'آخر طلبية', value: pharmComparePopup.exact.lastOrder ? fmt(pharmComparePopup.exact.lastOrder) : '—', color: 'var(--c-warning)', bg: 'var(--c-warning-bg)' },
-                    ] as { label: string; value: string; color: string; bg: string }[]).map(card => (
-                      <div key={card.label} style={{ background: card.bg, borderRadius: 10, padding: '10px 12px' }}>
-                        <div style={{ fontSize: 10, color: 'var(--c-text-muted)', marginBottom: 3 }}>{card.label}</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: card.color }}>{card.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                  {pharmComparePopup.exact.areaName && (
-                    <div style={{ fontSize: 11, color: 'var(--c-text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <Icon name="location" size={11} /> المنطقة في ملف المبيع: <strong>{pharmComparePopup.exact.areaName}</strong>
-                    </div>
-                  )}
-                  {/* Item breakdown with dates */}
-                  {pharmDetailLoading && pharmDetailFor === pharmComparePopup.exact.name ? (
-                    <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--c-text-muted)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="loading" size={12} className="icon-spin" /> جاري تحميل تفاصيل الطلبيات...</div>
-                  ) : pharmDetail && pharmDetailFor === pharmComparePopup.exact.name && pharmDetail.byItem.length > 0 ? (
-                    <div>
-                      {pharmDetail.sourceTotals && <SourceSplit totals={pharmDetail.sourceTotals} />}
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <Icon name="file" size={12} /> تفاصيل الإيتمات والطلبيات
-                      </div>
-                      {pharmDetail.byItem.map((item, idx) => {
-                        const salesOrders   = item.orders.filter(o => o.type !== 'return');
-                        const returnOrders  = item.orders.filter(o => o.type === 'return');
-                        return (
-                          <div key={idx} style={{ background: 'var(--c-bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, border: '1px solid var(--c-border)' }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={11} /> {item.name}</div>
-                            {salesOrders.length > 0 && (
-                              <div style={{ marginBottom: returnOrders.length > 0 ? 6 : 0 }}>
-                                <div style={{ fontSize: 10, color: 'var(--c-success)', fontWeight: 700, marginBottom: 3 }}>مبيع ({salesOrders.length})</div>
-                                {salesOrders.map((o, i) => (
-                                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 8px', background: 'var(--c-success-bg)', borderRadius: 6, marginBottom: 2 }}>
-                                    <span style={{ color: 'var(--c-text-secondary)' }}>{fmt(o.date)}</span>
-                                    <span style={{ color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>كمية: {o.qty} <SourceChip src={o.source} small /></span>
-                                    <span style={{ color: 'var(--c-success)', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {returnOrders.length > 0 && (
-                              <div>
-                                <div style={{ fontSize: 10, color: 'var(--c-danger)', fontWeight: 700, marginBottom: 3 }}>ارجاع ({returnOrders.length})</div>
-                                {returnOrders.map((o, i) => (
-                                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 8px', background: 'var(--c-danger-bg)', borderRadius: 6, marginBottom: 2 }}>
-                                    <span style={{ color: 'var(--c-text-secondary)' }}>{fmt(o.date)}</span>
-                                    <span style={{ color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>كمية: {o.qty} <SourceChip src={o.source} small /></span>
-                                    <span style={{ color: 'var(--c-danger)', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <div style={{ padding: '12px', background: 'var(--c-warning-bg)', borderRadius: 10, marginBottom: 12, fontSize: 12, color: 'var(--c-warning)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <Icon name="warning" size={15} style={{ flexShrink: 0 }} />
-                  <span>لم يتم العثور على هذه الصيدلية بشكل مباشر في بيانات المبيع</span>
-                </div>
-              )}
-              {/* Similar pharmacies */}
-              {pharmComparePopup.similar.length > 0 && (
-                <div style={{ marginTop: pharmComparePopup.exact ? 8 : 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-accent)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <Icon name="search" size={12} /> صيدليات مشابهة في الاسم ({pharmComparePopup.similar.length})
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {pharmComparePopup.similar.map((p, i) => (
-                      <div key={i} style={{ background: 'var(--c-bg)', borderRadius: 10, padding: '10px 12px', border: '1px solid var(--c-border)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="pharmacy" size={11} /> {p.name}</div>
-                          <button onClick={() => loadPharmDetail(p.name)}
-                            style={{ background: pharmDetailFor === p.name ? 'var(--c-accent-light)' : 'none', border: '1px solid var(--c-accent)', borderRadius: 6, padding: '2px 8px', fontSize: 10, color: 'var(--c-accent)', cursor: 'pointer', flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}>
-                            {pharmDetailFor === p.name && pharmDetailLoading ? <Icon name="loading" size={10} className="icon-spin" /> : 'تفاصيل'}
-                          </button>
-                        </div>
-                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-                          {p.totalValue > 0 && <span style={{ fontSize: 11, color: 'var(--c-success)', fontWeight: 600 }}>مبيع: {p.totalValue.toLocaleString()} د.ع</span>}
-                          {p.returnsValue > 0 && <span style={{ fontSize: 11, color: 'var(--c-danger)', fontWeight: 600 }}>ارجاع: {p.returnsValue.toLocaleString()} د.ع</span>}
-                          {p.areaName && <span style={{ fontSize: 11, color: 'var(--c-text-muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="location" size={10} /> {p.areaName}</span>}
-                        </div>
-                        {/* Inline detail for this similar pharmacy */}
-                        {pharmDetailFor === p.name && !pharmDetailLoading && pharmDetail && pharmDetail.byItem.length > 0 && (
-                          <div style={{ marginTop: 6 }}>
-                            {pharmDetail.byItem.map((item, idx) => {
-                              const salesOrders  = item.orders.filter(o => o.type !== 'return');
-                              const returnOrders = item.orders.filter(o => o.type === 'return');
-                              return (
-                                <div key={idx} style={{ background: '#fff', borderRadius: 8, padding: '8px 10px', marginBottom: 6, border: '1px solid var(--c-border)' }}>
-                                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-primary)', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={10} /> {item.name}</div>
-                                  {salesOrders.length > 0 && (
-                                    <div style={{ marginBottom: returnOrders.length > 0 ? 5 : 0 }}>
-                                      <div style={{ fontSize: 10, color: 'var(--c-success)', fontWeight: 700, marginBottom: 2 }}>مبيع ({salesOrders.length})</div>
-                                      {salesOrders.map((o, oi) => (
-                                        <div key={oi} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 6px', background: 'var(--c-success-bg)', borderRadius: 5, marginBottom: 2 }}>
-                                          <span style={{ color: 'var(--c-text-secondary)' }}>{fmt(o.date)}</span>
-                                          <span style={{ color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>كمية: {o.qty} <SourceChip src={o.source} small /></span>
-                                          <span style={{ color: 'var(--c-success)', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {returnOrders.length > 0 && (
-                                    <div>
-                                      <div style={{ fontSize: 10, color: 'var(--c-danger)', fontWeight: 700, marginBottom: 2 }}>ارجاع ({returnOrders.length})</div>
-                                      {returnOrders.map((o, oi) => (
-                                        <div key={oi} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 6px', background: 'var(--c-danger-bg)', borderRadius: 5, marginBottom: 2 }}>
-                                          <span style={{ color: 'var(--c-text-secondary)' }}>{fmt(o.date)}</span>
-                                          <span style={{ color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>كمية: {o.qty} <SourceChip src={o.source} small /></span>
-                                          <span style={{ color: 'var(--c-danger)', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {!pharmComparePopup.exact && pharmComparePopup.similar.length === 0 && (
-                <div style={{ textAlign: 'center', color: 'var(--c-text-muted)', padding: '20px 0', fontSize: 13 }}>
-                  لا توجد بيانات مبيع مرتبطة بهذه الصيدلية
-                </div>
-              )}
-            </div>
-          </div>
-        </>
+        <PharmacyComparePopup
+          popup={pharmComparePopup}
+          detail={pharmDetail}
+          detailLoading={pharmDetailLoading}
+          detailFor={pharmDetailFor}
+          onClose={() => setPharmComparePopup(null)}
+          onPreview={fetchPharmPreview}
+          onMerge={handlePharmMerge}
+          onUnmerge={handlePharmUnmerge}
+          fmtDate={fmt}
+        />
       )}
 
       {showVisitsImportModal && (

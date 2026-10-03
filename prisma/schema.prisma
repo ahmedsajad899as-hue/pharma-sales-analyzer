@@ -215,6 +215,21 @@ model Area {
 // استيراد لاحق. يُستخدم من areaResolver.js (المطابقة عند الإنشاء)،
 // mergeAreas.js (تسجيل تلقائي عند أي دمج)، وresolveAreaScope (مطابقة عند
 // القراءة لأطباء/صيدليات السيرفي المخزَّنة بالاسم النصي لا بمعرّف).
+// دمج أسماء الصيدليات في المبيعات — مدى الحفظ حساب المستخدم (راجع pharmacyResolver.js)
+model PharmacyAlias {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  fromKey   String   // pharmacyKey(الاسم المدموج)
+  fromName  String   // الاسم الأصلي كما ظهر (للعرض والفك)
+  toKey     String   // pharmacyKey(الهدف النهائي)
+  toName    String   // اسم الهدف للعرض
+  createdAt DateTime @default(now())
+
+  @@unique([userId, fromKey])
+  @@index([userId, toKey])
+  @@map("pharmacy_aliases")
+}
+
 model AreaAlias {
   id          Int      @id @default(autoincrement())
   fromKey     String   @unique // normalizeAreaName(fromName) — مفتاح المطابقة

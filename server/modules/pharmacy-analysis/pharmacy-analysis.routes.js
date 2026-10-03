@@ -14,6 +14,11 @@ router.get('/roster', ctrl.getRoster);
 // GET /api/pharmacy-analysis/pharmacy/:name — all orders for a pharmacy (optionally filter by item)
 router.get('/pharmacy/:name', ctrl.pharmacyDetail);
 
+// اقتراحات دمج أسماء الصيدليات + الدمج المحفوظ (PharmacyAlias)
+router.get('/pharmacy-matches', ctrl.getPharmacyMatches);
+router.post('/pharmacy-aliases', ctrl.createPharmacyAlias);
+router.delete('/pharmacy-aliases/:id', ctrl.deletePharmacyAlias);
+
 // GET /api/pharmacy-analysis/items — list all items with pharmacy-level breakdown
 router.get('/items', ctrl.listItems);
 

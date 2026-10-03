@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../config/icons';
 import { SourceChip, SourceSplit, type Src, type SourceTotals } from '../../components/PharmacySourceBits';
+import { pharmacyKey } from '../../lib/pharmacyKey';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -14,16 +15,8 @@ interface OrderEntry { date: string; qty: number; value: number; rep: string; ty
 interface ByItem { name: string; orders: OrderEntry[]; totalQty: number; totalValue: number }
 interface Detail { byItem: ByItem[]; totalOrders: number; sourceTotals?: SourceTotals }
 
-// نفس تطبيع أسماء الصيدليات المستعمل في تحليل الكولات — لتطابق أسماء السيرفي مع ملف المبيع
-function norm(s: string | null | undefined) {
-  let r = String(s || '').trim()
-    .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
-    .replace(/[ًٌٍَُِّْٰ]/g, '').replace(/ـ/g, '')
-    .replace(/\s+/g, ' ').toLowerCase();
-  r = r.replace(/^(الصيدليه|صيدليه|العميل|الزبون|الاسم)\s*/, '').trim();
-  r = r.replace(/^ص(?!\p{L})[\s/\\.,،:;*\-]*/u, '').trim();
-  return r;
-}
+// مفتاح المطابقة الموحّد للصيدليات (نفس قواعد السيرفر)
+const norm = (s: string | null | undefined) => pharmacyKey(s);
 
 const fmtDate = (d: string) => { try { return new Date(d).toLocaleDateString('en-GB'); } catch { return d; } };
 

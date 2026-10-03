@@ -10,6 +10,8 @@
 import prisma from '../../lib/prisma.js';
 import { buildItemScopeFilter, resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { resolveFileScope } from '../../lib/fileScope.js';
+import { pharmacyKey } from '../../lib/pharmacyKey.js';
+import { loadPharmacyAliasMap } from '../../lib/pharmacyResolver.js';
 
 /** تطبيع عربي للمطابقة الضبابية. */
 export function norm(s = '') {
@@ -57,6 +59,9 @@ const nameMap = async (model, ids) => {
 const SALES_CACHE_TTL_MS = 15000;
 const salesCache = new Map(); // `${userId}|${fileIds}` -> { expiresAt, promise }
 
+/** يُفرَّغ بعد أي دمج/فك دمج كي لا تُقرأ هويات قديمة من الذاكرة المؤقتة. */
+export function clearSalesCache() { salesCache.clear(); }
+
 /**
  * صفوف المبيعات ضمن نطاق (مستخدم × ملفات) مع كل الحقول المشتقّة محسوبة مسبقاً.
  *
@@ -87,7 +92,7 @@ export async function getScopedSales(userId, fileIds) {
     const tFetch = Date.now();
 
     const ids = (pick) => [...new Set(sales.map(pick).filter(v => v != null))];
-    const [customers, items, areas, reps, files] = await Promise.all([
+    const [customers, items, areas, reps, files, aliasMap] = await Promise.all([
       nameMap(prisma.customer, ids(s => s.customerId)),
       nameMap(prisma.item, ids(s => s.itemId)),
       nameMap(prisma.area, ids(s => s.areaId)),
@@ -96,6 +101,7 @@ export async function getScopedSales(userId, fileIds) {
         where:  { id: { in: ids(s => s.uploadedFileId) } },
         select: { id: true, currencyMode: true, exchangeRate: true, detectedCurrency: true, sourceSystem: true },
       }),
+      loadPharmacyAliasMap(userId),
     ]);
     const fileById = new Map(files.map(f => [f.id, f]));
     const tLookup = Date.now();
@@ -125,11 +131,10 @@ export async function getScopedSales(userId, fileIds) {
       const itemName = items.get(s.itemId) || '';
       const repName  = reps.get(s.representativeId) || '';
 
-      s._pharmaName = pharmaName;
+      s._rawPharma  = pharmaName;
       s._itemName   = itemName;
       s._areaName   = areas.get(s.areaId) || '';
       s._repName    = repName;
-      s._normPharma = pharmaName ? norm(pharmaName) : '';
       s._normItem   = norm(itemName);
       s._normRep    = repName ? norm(repName) : '';
       s._day        = dayKey(s.saleDate);
@@ -140,6 +145,38 @@ export async function getScopedSales(userId, fileIds) {
       // مقارنات التواريخ في حلقات التجميع كانت تُنشئ كائنَي Date لكل صف
       // (‏new Date(a) > new Date(b)‎) — أي عشرات آلاف الكائنات لكل طلب.
       s._ts         = s.saleDate ? s.saleDate.getTime() : 0;
+    }
+    // ── هوية الصيدلية: المفتاح الموحّد + الدمج اليدوي (PharmacyAlias) ─────────
+    // كل اسم خام يُختزل إلى pharmacyKey، ثم يُتبع الدمج إلى الهدف النهائي. الاسم
+    // المعروض لكل هدف = أكثر الأسماء ورودًا بين أسمائه الأصلية (أو اسم الهدف
+    // المحفوظ). وإن اختزل الاسم إلى مفتاح فارغ (كلمات عامة فقط) نعود لتطبيعه الأصلي.
+    const keyMemo = new Map();
+    const keyOf = (raw) => {
+      let k = keyMemo.get(raw);
+      if (k === undefined) { k = pharmacyKey(raw) || norm(raw); keyMemo.set(raw, k); }
+      return k;
+    };
+    const ownNames = new Map(); // هدف → Map(اسم خام → عدد) للأسماء التي مفتاحها هو الهدف نفسه
+    for (const s of sales) {
+      if (!s._rawPharma) continue;
+      const own = keyOf(s._rawPharma);
+      const canon = aliasMap.get(own)?.toKey ?? own;
+      s._pharmKey = canon;
+      if (own === canon) {
+        if (!ownNames.has(canon)) ownNames.set(canon, new Map());
+        const c = ownNames.get(canon);
+        c.set(s._rawPharma, (c.get(s._rawPharma) || 0) + 1);
+      }
+    }
+    const displayOf = new Map();
+    for (const [canon, names] of ownNames) {
+      displayOf.set(canon, [...names].sort((a, b) => b[1] - a[1])[0][0]);
+    }
+    for (const a of aliasMap.values()) if (!displayOf.has(a.toKey)) displayOf.set(a.toKey, a.toName);
+    for (const s of sales) {
+      if (!s._rawPharma) { s._pharmaName = null; s._normPharma = ''; continue; }
+      s._pharmaName = displayOf.get(s._pharmKey) ?? s._rawPharma;
+      s._normPharma = s._pharmKey;
     }
     const tDerive = Date.now();
 

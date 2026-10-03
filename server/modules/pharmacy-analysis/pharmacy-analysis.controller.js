@@ -1,9 +1,14 @@
 import { getManagerRoster } from '../../lib/managerRoster.js';
 import { computePharmacyAlerts } from './pharmacy-alerts.service.js';
 import {
-  norm, dedupCrossFile, getScopedSales,
+  norm, dedupCrossFile, getScopedSales, clearSalesCache,
   resolveCompanyItemScope, resolveRepAreaScopeIds, applyRosterFilters,
 } from './scoped-sales.js';
+import { pharmacyKey } from '../../lib/pharmacyKey.js';
+import {
+  mergePharmacyAlias, removePharmacyAlias, suggestPharmacyMerges,
+} from '../../lib/pharmacyResolver.js';
+import prisma from '../../lib/prisma.js';
 
 // ── GET /api/pharmacy-analysis/roster ──────────────────────────
 // «الشركة الرئيسية ← المندوب» — نفس فريق المدير المعروض في تحليل الكولات
@@ -170,6 +175,7 @@ export async function listPharmacies(req, res, next) {
       if (!map.has(pharmaName)) {
         map.set(pharmaName, {
           name: pharmaName,
+          key: s._normPharma,
           areaName,
           repName: s._repName,
           totalOrders: 0,
@@ -219,6 +225,7 @@ export async function listPharmacies(req, res, next) {
     const now = Date.now();
     const result = [...map.values()].map(p => ({
       name:          p.name,
+      key:           p.key,
       areaName:      p.areaName,
       repName:       p.repName || '',
       totalOrders:   p.totalOrders,
@@ -249,7 +256,8 @@ export async function listPharmacies(req, res, next) {
 export async function pharmacyDetail(req, res, next) {
   try {
     const userId      = req.user.id;
-    const pharmaQuery = norm(req.params.name);
+    // مطابقة تامة على المفتاح الموحّد (لا احتواء): «نور» لا تسحب «نور الهدى»
+    const pharmaQuery = pharmacyKey(req.params.name) || norm(req.params.name);
     const fileIds     = req.query.fileIds || null;
     const itemFilter  = req.query.item ? norm(req.query.item) : null;
     const companyId   = req.query.companyId ? Number(req.query.companyId) : null;
@@ -260,7 +268,7 @@ export async function pharmacyDetail(req, res, next) {
     sales = await applyRosterFilters(sales, { companyId, repId, repUserId });
 
     const matching = sales.filter(s => {
-      if (!s._pharmaName || !s._normPharma.includes(pharmaQuery)) return false;
+      if (!s._pharmaName || s._normPharma !== pharmaQuery) return false;
       if (itemFilter && !s._normItem.includes(itemFilter)) return false;
       return true;
     });
@@ -302,13 +310,73 @@ export async function pharmacyDetail(req, res, next) {
       b.totalValue += r.totalValue;
     }
 
+    // الأسماء المدموجة في هذه الصيدلية — لعرضها وفكّ الدمج عند الحاجة
+    const mergedFrom = await prisma.pharmacyAlias.findMany({
+      where: { userId, toKey: pharmaQuery },
+      select: { id: true, fromName: true },
+      orderBy: { createdAt: 'asc' },
+    }).catch(() => []); // الجدول قد لا يكون موجوداً بعد — لا يعطّل التفاصيل
+
     res.json({
       pharmacyName: req.params.name,
+      pharmacyKey: pharmaQuery,
+      mergedFrom,
       totalOrders: dedupedRows.length,
       sourceTotals,
       orders: dedupedRows,
       byItem: [...byItem.values()].sort((a, b) => b.totalQty - a.totalQty),
     });
+  } catch (e) { next(e); }
+}
+
+// ── GET /api/pharmacy-analysis/pharmacy-matches ──────────────
+// اقتراحات دمج بين صيدليات المبيعات الحالية + الدمج المحفوظ لهذا الحساب.
+export async function getPharmacyMatches(req, res, next) {
+  try {
+    const userId  = req.user.id;
+    const fileIds = req.query.fileIds || null;
+    const sales   = await getScopedSales(userId, fileIds);
+
+    const groups = new Map();
+    for (const s of sales) {
+      if (!s._pharmaName || !s._normPharma) continue;
+      let g = groups.get(s._normPharma);
+      if (!g) { g = { key: s._normPharma, name: s._pharmaName, orders: 0, value: 0 }; groups.set(s._normPharma, g); }
+      g.orders += 1;
+      g.value  += s._iqd;
+    }
+    const pick = g => ({ key: g.key, name: g.name, orders: g.orders, value: Math.round(g.value) });
+    const suggestions = suggestPharmacyMerges([...groups.values()].map(pick))
+      .map(x => ({ score: x.score, a: x.a, b: x.b }));
+
+    const aliases = await prisma.pharmacyAlias.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, fromName: true, toName: true, createdAt: true },
+    }).catch(() => []);
+    res.json({ suggestions, aliases });
+  } catch (e) { next(e); }
+}
+
+// ── POST /api/pharmacy-analysis/pharmacy-aliases  { fromName, toName } ──
+// «from» تُدمج داخل «to». الدمج يخصّ هذا الحساب فقط ويُفرَّغ الكاش فوراً.
+export async function createPharmacyAlias(req, res, next) {
+  try {
+    const fromName = String(req.body?.fromName ?? '').trim();
+    const toName   = String(req.body?.toName ?? '').trim();
+    if (!fromName || !toName) return res.status(400).json({ error: 'fromName و toName مطلوبان' });
+    const result = await mergePharmacyAlias({ userId: req.user.id, fromName, toName });
+    if (result.merged) clearSalesCache();
+    res.json(result);
+  } catch (e) { next(e); }
+}
+
+// ── DELETE /api/pharmacy-analysis/pharmacy-aliases/:id ──────────
+export async function deletePharmacyAlias(req, res, next) {
+  try {
+    const ok = await removePharmacyAlias({ userId: req.user.id, id: Number(req.params.id) });
+    if (ok) clearSalesCache();
+    res.json({ ok });
   } catch (e) { next(e); }
 }
 
