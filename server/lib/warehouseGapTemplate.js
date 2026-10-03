@@ -74,9 +74,9 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
   }
   refSheet.columns = [{ width: 22 }, { width: 22 }, { width: 26 }, { width: 22 }];
 
-  // ── قوائم منسدلة صارمة (اختيار فقط) على المندوب/الشركة/الايتم، مع رسالة
-  // توجيهية (Input Message) تظهر تلقائياً بمجرد الدخول للخلية — أقرب ما يمكن
-  // تحقيقه داخل إكسل نفسه لـ"عرض اقتراح فور التركيز" (بلا حساب بالتطبيق). ──
+  // ── قوائم منسدلة صارمة (اختيار فقط) على المندوب/الشركة/الايتم. بلا رسالة
+  // توجيهية (Input Message): جُرِّبت وأُزيلت — المستخدم وجدها معيقة (تغطي
+  // الخلية المجاورة وتتطلّب إغلاقها يدوياً)، وفتح القائمة أهم. ──
   const strictCols = [
     { col: 4, refCol: 'A', len: reps.length, label: 'المندوب' },
     { col: 5, refCol: 'B', len: companies.length, label: 'الشركة' },
@@ -94,9 +94,6 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
         errorStyle: 'error',
         errorTitle: 'قيمة غير متاحة',
         error: `اختر ${label} من القائمة المنسدلة فقط — لا تتم الكتابة يدوياً.`,
-        showInputMessage: true,
-        promptTitle: label,
-        prompt: `ابدأ الكتابة فيُقترَح عليك تلقائياً ما يطابقها (ميزة الإكمال التلقائي لخانات إكسل)، أو اضغط ▼ لعرض كل القائمة. الاختيار من القائمة إلزامي.`,
       };
     }
   }
@@ -104,21 +101,13 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
   // ── قوائم منسدلة مرنة (اقتراح لا تقييد — اختيار أو كتابة شيء مختلف) ──
   // اليوم (عمود 1): قائمة 1-31 مُضمَّنة، بلا نطاق مرجعي.
   for (let r = 2; r <= MAX_ROWS + 1; r++) {
-    dataSheet.getCell(r, 1).dataValidation = {
-      type: 'list', allowBlank: true, formulae: [DAY_LIST_FORMULA],
-      showInputMessage: true, promptTitle: 'اليوم',
-      prompt: `اختر رقم اليوم من القائمة (1-31) — الشهر ${monthLabel} مكتوب أعلاه تلقائياً. لمبيعة من شهر آخر، اكتب تاريخاً كاملاً بصيغة YYYY-MM-DD بدل اختيار يوم.`,
-    };
+    dataSheet.getCell(r, 1).dataValidation = { type: 'list', allowBlank: true, formulae: [DAY_LIST_FORMULA] };
   }
   // المذخر (عمود 10): قائمة من دفتر رصيد المذاخر إن وُجدت.
-  const warehousePrompt = 'ابدأ الكتابة فيُقترَح عليك تلقائياً ما يطابقها، أو اضغط ▼ لعرض القائمة. يمكن أيضاً كتابة اسم مذخر مختلف غير مُدرَج.';
   if (warehouses.length > 0) {
     const formula = `'${REF_SHEET}'!$D$2:$D$${warehouses.length + 1}`;
     for (let r = 2; r <= MAX_ROWS + 1; r++) {
-      dataSheet.getCell(r, 10).dataValidation = {
-        type: 'list', allowBlank: true, formulae: [formula],
-        showInputMessage: true, promptTitle: 'اسم المذخر', prompt: warehousePrompt,
-      };
+      dataSheet.getCell(r, 10).dataValidation = { type: 'list', allowBlank: true, formulae: [formula] };
     }
   }
 
@@ -136,7 +125,6 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
       type: 'whole', operator: 'greaterThan', formulae: [0], allowBlank: true,
       showErrorMessage: true, errorStyle: 'error', errorTitle: 'كمية غير صالحة',
       error: 'أدخل رقماً صحيحاً أكبر من صفر.',
-      showInputMessage: true, promptTitle: 'الكمية', prompt: 'أدخل رقماً صحيحاً أكبر من صفر.',
     };
   }
 
@@ -179,7 +167,7 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
     ['6', 'عمود "اسم المذخر": قائمة اقتراحية من مذاخرك المسجَّلة في رصيد المذاخر — يمكن اختيار أحدها أو كتابة اسم مختلف إن كان المذخر غير مُدرَج.'],
     ['7', 'اترك "سعر الوحدة" فارغاً إن لم تعرفه — يُستكمل تلقائياً من سعر المذخر المسجَّل لهذا الايتم عند الحفظ. إن أدخلته، يظهر "القيمة الإجمالية" تلقائياً (الكمية × السعر) بلا حاجة لحسابه يدوياً.'],
     ['8', 'إن لم يكن للايتم سعر مذخر مسجَّل عند التطبيق ولم تُدخل سعراً، سيُطلب منك إدخال السعر يدوياً قبل الحفظ (تنبيه يظهر بعد الرفع).'],
-    ['9', 'عند الكتابة في أي خانة قائمة (مندوب/شركة/ايتم/مذخر)، تظهر رسالة توضيحية تلقائياً، واقتراحات إكسل أثناء الكتابة (تكتب حرفاً أو حرفين فتظهر القيم المطابقة) — هذه ميزة إكسل نفسه، تعمل بلا أي حساب أو إنترنت.'],
+    ['9', 'عند الكتابة في خانة مندوب/شركة/ايتم/مذخر، يقترح إكسل تلقائياً القيم المطابقة لما تكتبه (تكتب حرفاً أو حرفين فتظهر القيم المطابقة) — هذه ميزة إكسل نفسه، تعمل بلا أي حساب أو إنترنت. لعرض القائمة كاملة فوراً بلا كتابة، اضغط ▼ يمين الخلية أو Alt+↓.'],
     ['10', 'الورقة محمية جزئياً لمنع تغيير الترويسات أو القوائم بالخطأ — خانات التعبئة فقط (صفوف البيانات) قابلة للتحرير، وهذا لا يمنعك من إدخال أي بيع.'],
     ['11', 'الحقول الإلزامية: اليوم، اسم الصيدلية، المندوب، الايتم، الكمية.'],
     ['12', 'بعد التعبئة احفظ الملف وارفعه من نفس الشاشة التي حمّلت منها هذا النموذج (أو أرسله لمن يملك حساباً في التطبيق ليرفعه) — ستُحتسب هذه المبيعات تلقائياً ضمن ميركاتو في كل التقارير.'],
