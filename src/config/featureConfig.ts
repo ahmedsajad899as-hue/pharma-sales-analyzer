@@ -144,7 +144,7 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'currency_convert', label: 'تحويل العملة في التحليل',    icon: '💱', desc: 'تحويل أسعار الملفات من الدينار إلى الدولار عند التحليل — يُضبط لكل ملف على حدة', onlyRoles: REP_ROLES },
     { key: 'targets_tab',      label: 'التارگت الشهري',             icon: '🎯', desc: 'تبويب إدارة التارگت الشهري للمندوبين ومقارنته بالمبيعات' },
     { key: 'manual_sales_entry', label: 'إضافة مبيعات يدوياً',      icon: '🧾', desc: 'إضافة مبيعات فواتير المذاخر غير الموجودة في الملفات، من صورة الفاتورة أو يدوياً', onlyRoles: REP_ROLES },
-    { key: 'warehouse_gap_import', label: 'مبيعات مذاخر ناقصة من ميركاتو', icon: '📑', desc: 'تنزيل نموذج إكسل خاص بالشركات والايتمات والمندوبين، لتوثيق مبيعات مذاخر لم تظهر في ملف ميركاتو، ثم رفعها لتُحتسب ضمنه', onlyRoles: ['company_manager', 'team_leader'] },
+    { key: 'warehouse_gap_import', label: 'مبيعات مذاخر ناقصة من ميركاتو', icon: '📑', desc: 'تنزيل نموذج إكسل خاص بالشركات والايتمات والمندوبين، لتوثيق مبيعات مذاخر لم تظهر في ملف ميركاتو، ثم رفعها لتُحتسب ضمنه', onlyRoles: ['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager', 'commercial_supervisor', 'commercial_team_leader'] },
   ],
   'reports': [
     { key: 'export_report', label: 'تصدير التقارير', icon: '⬇️', desc: 'إمكانية تصدير وطباعة التقارير' },

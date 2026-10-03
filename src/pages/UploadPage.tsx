@@ -822,7 +822,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         </div>
       )}
 
-      {/* ── مبيعات مذاخر ناقصة من ميركاتو (مدير الشركة / قائد الفريق) ──── */}
+      {/* ── مبيعات مذاخر ناقصة من ميركاتو (أدوار الإدارة) ──── */}
       {hasFeature('warehouse_gap_import') && (
       <div style={{ ...CARD, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--c-accent-light)', borderColor: 'var(--c-accent)' }}>
         <div style={{ fontSize: 12.5, color: '#075985', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
