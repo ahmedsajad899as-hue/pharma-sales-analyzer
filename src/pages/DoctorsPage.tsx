@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'rea
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import DoctorVisitsImportModal from '../components/DoctorVisitsImportModal';
+import { SourceChip, SourceSplit, type Src, type SourceTotals } from '../components/PharmacySourceBits';
 import { Icon } from '../config/icons';
 import { sendEngagementPing, sendSearchPingDebounced } from '../lib/engagementPing';
 import * as XLSX from 'xlsx';
@@ -128,9 +129,9 @@ interface NetPharm {
   lastOrder: string | null;
 }
 
-interface PharmOrderEntry { date: string; qty: number; value: number; rep: string; type: string; }
+interface PharmOrderEntry { date: string; qty: number; value: number; rep: string; type: string; source?: Src; }
 interface PharmByItem { name: string; orders: PharmOrderEntry[]; totalQty: number; totalValue: number; }
-interface PharmDetailData { byItem: PharmByItem[]; totalOrders: number; }
+interface PharmDetailData { byItem: PharmByItem[]; totalOrders: number; sourceTotals?: SourceTotals; }
 
 function normPharm(s: string) {
   let r = String(s || '').trim()
@@ -4910,6 +4911,7 @@ export default function DoctorsPage() {
                     <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--c-text-muted)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="loading" size={12} className="icon-spin" /> جاري تحميل تفاصيل الطلبيات...</div>
                   ) : pharmDetail && pharmDetailFor === pharmComparePopup.exact.name && pharmDetail.byItem.length > 0 ? (
                     <div>
+                      {pharmDetail.sourceTotals && <SourceSplit totals={pharmDetail.sourceTotals} />}
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--c-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
                         <Icon name="file" size={12} /> تفاصيل الإيتمات والطلبيات
                       </div>
@@ -4925,7 +4927,7 @@ export default function DoctorsPage() {
                                 {salesOrders.map((o, i) => (
                                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 8px', background: 'var(--c-success-bg)', borderRadius: 6, marginBottom: 2 }}>
                                     <span style={{ color: 'var(--c-text-secondary)' }}>{fmt(o.date)}</span>
-                                    <span style={{ color: 'var(--c-text-secondary)' }}>كمية: {o.qty}</span>
+                                    <span style={{ color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>كمية: {o.qty} <SourceChip src={o.source} small /></span>
                                     <span style={{ color: 'var(--c-success)', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
                                   </div>
                                 ))}
@@ -4937,7 +4939,7 @@ export default function DoctorsPage() {
                                 {returnOrders.map((o, i) => (
                                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, padding: '3px 8px', background: 'var(--c-danger-bg)', borderRadius: 6, marginBottom: 2 }}>
                                     <span style={{ color: 'var(--c-text-secondary)' }}>{fmt(o.date)}</span>
-                                    <span style={{ color: 'var(--c-text-secondary)' }}>كمية: {o.qty}</span>
+                                    <span style={{ color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>كمية: {o.qty} <SourceChip src={o.source} small /></span>
                                     <span style={{ color: 'var(--c-danger)', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
                                   </div>
                                 ))}
@@ -4991,7 +4993,7 @@ export default function DoctorsPage() {
                                       {salesOrders.map((o, oi) => (
                                         <div key={oi} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 6px', background: 'var(--c-success-bg)', borderRadius: 5, marginBottom: 2 }}>
                                           <span style={{ color: 'var(--c-text-secondary)' }}>{fmt(o.date)}</span>
-                                          <span style={{ color: 'var(--c-text-secondary)' }}>كمية: {o.qty}</span>
+                                          <span style={{ color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>كمية: {o.qty} <SourceChip src={o.source} small /></span>
                                           <span style={{ color: 'var(--c-success)', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
                                         </div>
                                       ))}
@@ -5003,7 +5005,7 @@ export default function DoctorsPage() {
                                       {returnOrders.map((o, oi) => (
                                         <div key={oi} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 6px', background: 'var(--c-danger-bg)', borderRadius: 5, marginBottom: 2 }}>
                                           <span style={{ color: 'var(--c-text-secondary)' }}>{fmt(o.date)}</span>
-                                          <span style={{ color: 'var(--c-text-secondary)' }}>كمية: {o.qty}</span>
+                                          <span style={{ color: 'var(--c-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>كمية: {o.qty} <SourceChip src={o.source} small /></span>
                                           <span style={{ color: 'var(--c-danger)', fontWeight: 600 }}>{o.value.toLocaleString()} د.ع</span>
                                         </div>
                                       ))}
