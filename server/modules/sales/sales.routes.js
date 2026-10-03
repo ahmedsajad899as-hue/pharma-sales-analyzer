@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { uploadSales, extractInvoice, addManualSales, checkNames,
-  downloadWarehouseGapTemplate, parseWarehouseGapUpload } from './sales.controller.js';
+  downloadWarehouseGapTemplate, parseWarehouseGapUpload, getWarehouseGapScopeJson } from './sales.controller.js';
 import {
   getFileRows, saveFileRows, restoreFileRows,
   getColumnFilters, setColumnFilter, clearColumnFilters,
@@ -75,6 +75,12 @@ router.post('/sales/manual', addManualSales);
  * JSON: { rows: [{ item, company }] }. يُرجع الأسماء المتشابهة التي تحتاج تأكيداً.
  */
 router.post('/sales/check-names', checkNames);
+
+/**
+ * GET /api/sales/warehouse-gap-scope
+ * JSON: { reps, items, companies, warehouses } لتغذية اقتراحات الإدخال المباشر.
+ */
+router.get('/sales/warehouse-gap-scope', getWarehouseGapScopeJson);
 
 /**
  * GET /api/sales/warehouse-gap-template

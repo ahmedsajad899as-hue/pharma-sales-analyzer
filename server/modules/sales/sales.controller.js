@@ -5,7 +5,7 @@
  */
 
 import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
-  checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile } from './sales.service.js';
+  checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 
@@ -165,6 +165,22 @@ export async function checkNames(req, res, next) {
   try {
     const { rows } = req.body || {};
     const data = await checkManualNames({ rows, userId: req.user?.id ?? null });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/sales/warehouse-gap-scope
+ * يُرجع نطاق المستخدم (شركاته/ايتماته/فريقه/مذاخره الاقتراحية) بصيغة JSON —
+ * لتغذية اقتراحات ذكية (كتابة حرّة + فلترة فورية) في واجهة الإدخال المباشر
+ * داخل التطبيق، بعكس /warehouse-gap-template الذي يبني ملف إكسل للتنزيل.
+ */
+export async function getWarehouseGapScopeJson(req, res, next) {
+  try {
+    if (!req.user) throw new AppError('غير مصرّح.', 401, 'UNAUTHORIZED');
+    const data = await getWarehouseGapScope(req.user);
     return res.json({ success: true, data });
   } catch (err) {
     next(err);

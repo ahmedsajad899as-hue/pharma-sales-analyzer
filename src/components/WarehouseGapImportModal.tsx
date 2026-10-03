@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import SmartSuggestInput from './SmartSuggestInput';
 
 /**
  * Modal for company_manager / team_leader: download a personal Excel template
@@ -31,6 +32,9 @@ type NameCheck = {
 };
 
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
+const emptyRow = (): GapRow => ({ date: '', pharmacy: '', area: '', repName: '', company: '', item: '', quantity: '', unitPrice: '', totalValue: '', warehouse: '', invoiceNumber: '', notes: '' });
+
+interface Scope { reps: string[]; items: string[]; companies: string[]; warehouses: string[]; }
 
 export default function WarehouseGapImportModal({ token, onClose, onSaved }: Props) {
   const authH = { Authorization: `Bearer ${token}` };
@@ -47,6 +51,19 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
   const [currency, setCurrency] = useState<'IQD' | 'USD'>('IQD');
   const [nameAsk, setNameAsk] = useState<{ items: NameCheck[]; companies: NameCheck[] } | null>(null);
   const [choice, setChoice] = useState<Record<string, string>>({});
+  // نطاق المستخدم (شركاته/ايتماته/فريقه/مذاخره) لتغذية الاقتراحات الذكية في
+  // جدول المراجعة — نفس البيانات المبنيّة منها نموذج الإكسل، بصيغة JSON.
+  const [scope, setScope] = useState<Scope>({ reps: [], items: [], companies: [], warehouses: [] });
+
+  useEffect(() => {
+    fetch(`${API}/api/sales/warehouse-gap-scope`, { headers: authH })
+      .then(r => r.json())
+      .then(j => { if (j?.data) setScope(j.data); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addManualRow = () => setRows(rs => [...rs, emptyRow()]);
 
   const downloadTemplate = async () => {
     setError(''); setDownloading(true);
@@ -282,6 +299,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
           <button onClick={() => fileRef.current?.click()} disabled={parsing} style={uploadBtn}>
             {parsing ? '⏳ جاري القراءة…' : '📤 رفع الملف المعبّأ'}
           </button>
+          <button onClick={addManualRow} style={addBtn}>✍️ إضافة صف يدوياً هنا</button>
         </div>
 
         {warnings.length > 0 && (
@@ -307,6 +325,14 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
                         <td key={c.key} style={td}>
                           {c.key === 'date' ? (
                             <input type="date" value={r.date} onChange={e => setCell(i, 'date', e.target.value)} style={cell} />
+                          ) : c.key === 'repName' ? (
+                            <SmartSuggestInput value={r.repName} onChange={v => setCell(i, 'repName', v)} options={scope.reps} />
+                          ) : c.key === 'company' ? (
+                            <SmartSuggestInput value={r.company} onChange={v => setCell(i, 'company', v)} options={scope.companies} />
+                          ) : c.key === 'item' ? (
+                            <SmartSuggestInput value={r.item} onChange={v => setCell(i, 'item', v)} options={scope.items} />
+                          ) : c.key === 'warehouse' ? (
+                            <SmartSuggestInput value={r.warehouse} onChange={v => setCell(i, 'warehouse', v)} options={scope.warehouses} />
                           ) : c.numeric ? (
                             <input value={r[c.key]} inputMode="decimal" onChange={e => setCell(i, c.key, e.target.value)} style={{ ...cell, textAlign: 'left' }} />
                           ) : (
@@ -355,6 +381,7 @@ const xBtn: React.CSSProperties = { background: 'none', border: 'none', fontSize
 const topBar: React.CSSProperties = { display: 'flex', gap: 10, flexWrap: 'wrap' };
 const downloadBtn: React.CSSProperties = { padding: '9px 18px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
 const uploadBtn: React.CSSProperties = { padding: '9px 18px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
+const addBtn: React.CSSProperties = { padding: '9px 18px', background: '#f1f5f9', color: '#334155', border: '1px dashed #cbd5e1', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
 const th: React.CSSProperties = { padding: '8px 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'right', whiteSpace: 'nowrap' };
 const td: React.CSSProperties = { padding: '3px 4px', verticalAlign: 'top' };
 const cell: React.CSSProperties = { width: '100%', padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, direction: 'rtl', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' };

@@ -22,8 +22,8 @@ import {
 import { buildNormalizationMap, areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
-import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
-import { loadResolutionContext, resolveItemName, normalizeItemKey } from '../../lib/itemResolver.js';
+import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks, resolveEffectiveAreaIds } from '../../lib/areaScope.js';
+import { loadResolutionContext, resolveItemName, normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
 import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
@@ -1516,6 +1516,31 @@ export async function getWarehouseGapItemCatalog(userId) {
   return rows.map(r => ({ name: r.name, unitPrice: r.warehousePrice ?? r.price ?? null }));
 }
 
+/**
+ * محافظة/محافظات عمل فريق المدير — تُشتق من مناطق مندوبيه الفعلية
+ * (resolveEffectiveAreaIds لكل مندوب ← Area.province)، لا من إعداد صريح، لأن
+ * لا تعيين محافظة مباشر على المدير نفسه. تُستعمل حصراً لتضييق قائمة اقتراح
+ * المذاخر (StockWarehouse.region نص حر بلا ربط بـArea/Province) على محافظة
+ * الفريق بدل كل مذاخر المكتب المشترك (قد تضم محافظات فرق أخرى بنفس المكتب).
+ * @param {{userId:number, linkedRepId:number|null}[]} reps
+ * @returns {Promise<{id:number,name:string}[]>}
+ */
+async function provincesForRoster(reps) {
+  if (!reps || reps.length === 0) return [];
+  const areaIdSets = await Promise.all(
+    reps.map(r => resolveEffectiveAreaIds(r.userId, { linkedRepId: r.linkedRepId }).catch(() => [])),
+  );
+  const areaIds = [...new Set(areaIdSets.flat())];
+  if (areaIds.length === 0) return [];
+  const areas = await prisma.area.findMany({
+    where:  { id: { in: areaIds } },
+    select: { province: { select: { id: true, name: true } } },
+  });
+  const map = new Map();
+  for (const a of areas) if (a.province) map.set(a.province.id, a.province);
+  return [...map.values()];
+}
+
 export async function getWarehouseGapScope(user) {
   const [userCompanies, itemCatalog, roster, ledgerWarehouses] = await Promise.all([
     prisma.userCompanyAssignment.findMany({ where: { userId: user.id }, select: { company: { select: { name: true } } } }),
@@ -1528,7 +1553,20 @@ export async function getWarehouseGapScope(user) {
   const companies = [...new Set(userCompanies.map(c => c.company?.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
   const items = [...new Set(itemCatalog.map(i => i.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
   const reps = [...new Set(roster.reps.map(r => r.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
-  const warehouses = [...new Set(ledgerWarehouses.map(w => w.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+
+  // تضييق المذاخر على محافظة فريق المدير إن أمكن تحديدها — وإلا كل مذاخر
+  // الدفتر المشترك كما كانت (احتياط آمن، لا قائمة فارغة بسبب بيانات ناقصة).
+  let scopedWarehouses = ledgerWarehouses;
+  const teamProvinces = await provincesForRoster(roster.reps).catch(() => []);
+  if (teamProvinces.length > 0) {
+    const targetKeys = teamProvinces.map(p => normalizeAreaName(p.name));
+    const filtered = ledgerWarehouses.filter(w => {
+      const regionKey = normalizeAreaName(w.region || '');
+      return regionKey && targetKeys.some(t => regionKey.includes(t) || t.includes(regionKey));
+    });
+    if (filtered.length > 0) scopedWarehouses = filtered;
+  }
+  const warehouses = [...new Set(scopedWarehouses.map(w => w.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
 
   return { reps, items, companies, warehouses };
 }
