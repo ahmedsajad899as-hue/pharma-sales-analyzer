@@ -1511,9 +1511,17 @@ export async function getWarehouseGapItemCatalog(userId) {
   if (!assigned || assigned.length === 0) return [];
   const rows = await prisma.item.findMany({
     where:  { id: { in: assigned.map(a => a.id) } },
-    select: { name: true, price: true, warehousePrice: true },
+    select: {
+      name: true, price: true, warehousePrice: true,
+      scientificCompany: { select: { name: true } },
+      company:           { select: { name: true } },
+    },
   });
-  return rows.map(r => ({ name: r.name, unitPrice: r.warehousePrice ?? r.price ?? null }));
+  return rows.map(r => ({
+    name:        r.name,
+    unitPrice:   r.warehousePrice ?? r.price ?? null,
+    companyName: r.scientificCompany?.name ?? r.company?.name ?? null,
+  }));
 }
 
 /**
@@ -1568,7 +1576,16 @@ export async function getWarehouseGapScope(user) {
   }
   const warehouses = [...new Set(scopedWarehouses.map(w => w.name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
 
-  return { reps, items, companies, warehouses };
+  // ربط الايتم بشركته (لعمود الشركة التلقائي في النموذج) — أول شركة لكل ايتم.
+  const itemCompanyMap = new Map();
+  for (const i of itemCatalog) {
+    if (i.name && i.companyName && !itemCompanyMap.has(i.name)) itemCompanyMap.set(i.name, i.companyName);
+  }
+  const itemCompanies = [...itemCompanyMap.entries()]
+    .map(([item, company]) => ({ item, company }))
+    .sort((a, b) => a.item.localeCompare(b.item, 'ar'));
+
+  return { reps, items, companies, warehouses, itemCompanies };
 }
 
 /**
@@ -1598,20 +1615,25 @@ export async function parseWarehouseGapFile(buffer, userId = null) {
   const { rows, warnings } = parseWarehouseGapWorkbook(buffer);
   if (rows.length === 0 || !userId) return { rows, warnings };
 
-  const needsPrice = rows.some(r => !r.unitPrice && !r.totalValue);
-  if (!needsPrice) return { rows, warnings };
+  const needsPrice   = rows.some(r => !r.unitPrice && !r.totalValue);
+  const needsCompany = rows.some(r => !r.company);
+  if (!needsPrice && !needsCompany) return { rows, warnings };
 
   const catalog = await getWarehouseGapItemCatalog(userId);
-  const priceByKey = new Map(catalog.map(i => [normalizeItemKey(i.name), i.unitPrice]).filter(([, p]) => p != null));
+  const byKey = new Map(catalog.map(i => [normalizeItemKey(i.name), i]));
 
+  // الشركة تُستكمل من الايتم إن تُركت فارغة (احتياط لو لم تُحسب الصيغة عند التعبئة)،
+  // والسعر يُستكمل كما كان.
   const enriched = rows.map(r => {
-    if (r.unitPrice || r.totalValue) return r;
-    const price = priceByKey.get(normalizeItemKey(r.item));
+    const cat = byKey.get(normalizeItemKey(r.item));
+    const withCompany = !r.company && cat?.companyName ? { ...r, company: cat.companyName } : r;
+    if (withCompany.unitPrice || withCompany.totalValue) return withCompany;
+    const price = cat?.unitPrice;
     if (price == null) {
       warnings.push(`الايتم "${r.item}" (${r.pharmacy || 'بلا اسم صيدلية'}): لا يوجد سعر مذخر مسجَّل له — أدخل السعر يدوياً قبل الحفظ.`);
-      return r;
+      return withCompany;
     }
-    return { ...r, unitPrice: price, totalValue: price * r.quantity };
+    return { ...withCompany, unitPrice: price, totalValue: price * r.quantity };
   });
 
   return { rows: enriched, warnings };

@@ -39,19 +39,21 @@ function headerKey(s) {
  *   - المذخر: قائمة منسدلة من مذاخر دفتر "رصيد المذاخر" الخاص بالمستخدم، مع
  *     السماح بكتابة اسم مختلف غير موجود فيها (قائمة اقتراح لا تقييد).
  *   - القيمة الإجمالية: صيغة حيّة = الكمية × سعر الوحدة، تتحدّث تلقائياً.
- * @param {{ reps: string[], items: string[], companies: string[], warehouses?: string[] }} scope
+ * @param {{ reps: string[], items: string[], companies: string[], warehouses?: string[], itemCompanies?: {item: string, company: string}[] }} scope
  * @returns {Promise<Buffer>}
  */
-export async function buildWarehouseGapWorkbook({ reps = [], items = [], companies = [], warehouses = [] }) {
+export async function buildWarehouseGapWorkbook({ reps = [], items = [], companies = [], warehouses = [], itemCompanies = [] }) {
   const now = new Date();
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const yyyy = now.getFullYear();
   const monthLabel = now.toLocaleDateString('ar-IQ', { month: 'long', year: 'numeric' });
 
+  // الايتم قبل الشركة: الشركة تُملأ تلقائياً من الايتم المختار (عمود الشركة صيغة).
   const HEADERS = [
-    `اليوم (شهر ${mm}/${yyyy})`, 'اسم الصيدلية', 'المنطقة', 'المندوب', 'الشركة', 'الايتم',
+    `اليوم (شهر ${mm}/${yyyy})`, 'اسم الصيدلية', 'المنطقة', 'المندوب', 'الايتم', 'الشركة',
     'الكمية', 'سعر الوحدة (اختياري)', 'القيمة الإجمالية (تُحسب تلقائياً)', 'اسم المذخر', 'رقم الفاتورة', 'ملاحظات',
   ];
+  const COL_ITEM = 5, COL_COMPANY = 6;
 
   const wb = new ExcelJS.Workbook();
 
@@ -60,27 +62,32 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
   dataSheet.addRow(HEADERS);
   dataSheet.getRow(1).font = { bold: true };
   dataSheet.columns = [
-    { width: 16 }, { width: 24 }, { width: 16 }, { width: 20 }, { width: 20 }, { width: 24 },
+    { width: 16 }, { width: 24 }, { width: 16 }, { width: 20 }, { width: 24 }, { width: 20 },
     { width: 10 }, { width: 16 }, { width: 20 }, { width: 18 }, { width: 14 }, { width: 24 },
   ];
 
   // ── 2) تبويب القوائم المرجعية — مصدر القوائم المنسدلة ──
+  // الأعمدة E/F = جدول ربط (ايتم ← شركته) تستعمله صيغة عمود الشركة بـ INDEX/MATCH.
   const refSheet = wb.addWorksheet(REF_SHEET, { views: [{ rightToLeft: true }] });
-  refSheet.addRow(['المندوب', 'الشركة', 'الايتم', 'المذخر']);
+  refSheet.addRow(['المندوب', 'الشركة', 'الايتم', 'المذخر', 'ربط: الايتم', 'ربط: الشركة']);
   refSheet.getRow(1).font = { bold: true };
-  const maxLen = Math.max(reps.length, items.length, companies.length, warehouses.length, 1);
+  const maxLen = Math.max(reps.length, items.length, companies.length, warehouses.length, itemCompanies.length, 1);
   for (let i = 0; i < maxLen; i++) {
-    refSheet.addRow([reps[i] ?? '', companies[i] ?? '', items[i] ?? '', warehouses[i] ?? '']);
+    refSheet.addRow([
+      reps[i] ?? '', companies[i] ?? '', items[i] ?? '', warehouses[i] ?? '',
+      itemCompanies[i]?.item ?? '', itemCompanies[i]?.company ?? '',
+    ]);
   }
-  refSheet.columns = [{ width: 22 }, { width: 22 }, { width: 26 }, { width: 22 }];
+  refSheet.columns = [{ width: 22 }, { width: 22 }, { width: 26 }, { width: 22 }, { width: 26 }, { width: 22 }];
 
   // ── قوائم منسدلة صارمة (اختيار فقط) على المندوب/الشركة/الايتم. بلا رسالة
   // توجيهية (Input Message): جُرِّبت وأُزيلت — المستخدم وجدها معيقة (تغطي
   // الخلية المجاورة وتتطلّب إغلاقها يدوياً)، وفتح القائمة أهم. ──
+  // الشركة: تبقى قائمة صارمة كاحتياط عند تعذّر ربط الايتم (تُكتب يدوياً من القائمة فقط).
   const strictCols = [
     { col: 4, refCol: 'A', len: reps.length, label: 'المندوب' },
-    { col: 5, refCol: 'B', len: companies.length, label: 'الشركة' },
-    { col: 6, refCol: 'C', len: items.length, label: 'الايتم' },
+    { col: COL_COMPANY, refCol: 'B', len: companies.length, label: 'الشركة' },
+    { col: COL_ITEM, refCol: 'C', len: items.length, label: 'الايتم' },
   ];
   for (const { col, refCol, len, label } of strictCols) {
     if (len === 0) continue; // لا قائمة متاحة لهذا المستخدم — يبقى العمود نصاً حراً كاحتياط
@@ -108,6 +115,20 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
     const formula = `'${REF_SHEET}'!$D$2:$D$${warehouses.length + 1}`;
     for (let r = 2; r <= MAX_ROWS + 1; r++) {
       dataSheet.getCell(r, 10).dataValidation = { type: 'list', allowBlank: true, formulae: [formula] };
+    }
+  }
+
+  // ── صيغة الشركة تلقائياً من الايتم المختار (عمود E ← جدول الربط في القوائم
+  // المرجعية E/F). فارغة إن لم يُعثر على الايتم في الجدول — يبقى للمستخدم
+  // الاختيار يدوياً من قائمة الشركات (الاحتياط). الخلية غير مقفلة فيمكن تعديلها.
+  if (itemCompanies.length > 0) {
+    const lastLinkRow = itemCompanies.length + 1;
+    const itemRange = `'${REF_SHEET}'!$E$2:$E$${lastLinkRow}`;
+    const compRange = `'${REF_SHEET}'!$F$2:$F$${lastLinkRow}`;
+    for (let r = 2; r <= MAX_ROWS + 1; r++) {
+      dataSheet.getCell(r, COL_COMPANY).value = {
+        formula: `IFERROR(INDEX(${compRange},MATCH(E${r},${itemRange},0)),"")`,
+      };
     }
   }
 
@@ -142,7 +163,7 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
   // كل الأسماء الصالحة في نفس العمود (ولو مخفية)، يبدأ إكسل باقتراحها فور
   // كتابة أول حرف مطابق — أقرب سلوك ممكن لاقتراح فوري بلا حاجة لحساب بالتطبيق.
   const seedStart = MAX_ROWS + 5;
-  const seedLists = { 4: reps, 5: companies, 6: items, 10: warehouses };
+  const seedLists = { 4: reps, 5: items, 6: companies, 10: warehouses };
   let seedMaxLen = 0;
   for (const list of Object.values(seedLists)) seedMaxLen = Math.max(seedMaxLen, list.length);
   for (let i = 0; i < seedMaxLen; i++) {
@@ -162,14 +183,15 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
     ['1', 'هذا الملف خاص بك: يحتوي فقط على شركاتك وايتماتك المعيّنة وأسماء مندوبي فريقك.'],
     ['2', 'استخدمه لتسجيل مبيعات صيدليات تمّت فعلاً عبر أحد المذاخر، لكنها لم تظهر ضمن ملف ميركاتو.'],
     ['3', 'في تبويب "' + DATA_SHEET + '" — صف واحد = عملية بيع واحدة. لا تُغيّر أسماء الأعمدة أو ترتيبها.'],
-    ['4', 'أعمدة المندوب والشركة والايتم قوائم منسدلة إلزامية — اضغط على الخلية واختر منها، لا تكتب فيها يدوياً.'],
+    ['4', 'أعمدة المندوب والايتم قوائم منسدلة إلزامية — اضغط على الخلية واختر منها، لا تكتب فيها يدوياً.'],
+    ['4-أ', 'عمود "الشركة" يُملأ تلقائياً عند اختيار الايتم (لا تحتاج لإدخاله). إن ظهر فارغاً لايتم معيّن، اختر الشركة يدوياً من قائمتها.'],
     ['5', `عمود "اليوم": اختر رقم اليوم فقط من القائمة (1-31) — الشهر ${monthLabel} مكتوب تلقائياً في عنوان العمود. لمبيعة من شهر آخر، اكتب تاريخاً كاملاً بصيغة YYYY-MM-DD في نفس الخانة بدل اختيار يوم.`],
     ['6', 'عمود "اسم المذخر": قائمة اقتراحية من مذاخرك المسجَّلة في رصيد المذاخر — يمكن اختيار أحدها أو كتابة اسم مختلف إن كان المذخر غير مُدرَج.'],
     ['7', 'اترك "سعر الوحدة" فارغاً إن لم تعرفه — يُستكمل تلقائياً من سعر المذخر المسجَّل لهذا الايتم عند الحفظ. إن أدخلته، يظهر "القيمة الإجمالية" تلقائياً (الكمية × السعر) بلا حاجة لحسابه يدوياً.'],
     ['8', 'إن لم يكن للايتم سعر مذخر مسجَّل عند التطبيق ولم تُدخل سعراً، سيُطلب منك إدخال السعر يدوياً قبل الحفظ (تنبيه يظهر بعد الرفع).'],
     ['9', 'عند الكتابة في خانة مندوب/شركة/ايتم/مذخر، يقترح إكسل تلقائياً القيم المطابقة لما تكتبه (تكتب حرفاً أو حرفين فتظهر القيم المطابقة) — هذه ميزة إكسل نفسه، تعمل بلا أي حساب أو إنترنت. لعرض القائمة كاملة فوراً بلا كتابة، اضغط ▼ يمين الخلية أو Alt+↓.'],
     ['10', 'الورقة محمية جزئياً لمنع تغيير الترويسات أو القوائم بالخطأ — خانات التعبئة فقط (صفوف البيانات) قابلة للتحرير، وهذا لا يمنعك من إدخال أي بيع.'],
-    ['11', 'الحقول الإلزامية: اليوم، اسم الصيدلية، المندوب، الايتم، الكمية.'],
+    ['11', 'الحقول الإلزامية: اليوم، اسم الصيدلية، المندوب، الايتم، الكمية. (الشركة تُحسب تلقائياً من الايتم.)'],
     ['12', 'بعد التعبئة احفظ الملف وارفعه من نفس الشاشة التي حمّلت منها هذا النموذج (أو أرسله لمن يملك حساباً في التطبيق ليرفعه) — ستُحتسب هذه المبيعات تلقائياً ضمن ميركاتو في كل التقارير.'],
   ];
   instrSheet.addRows(instrRows);
