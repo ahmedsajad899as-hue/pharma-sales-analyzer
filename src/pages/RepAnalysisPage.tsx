@@ -25,6 +25,9 @@ const TABS: { id: TabId; label: string; desc: string }[] = [
   { id: 'targets',         label: '🎯 التارگت',          desc: 'إدارة التارگت الشهري للمندوبين ومقارنته بالمبيعات' },
 ];
 
+// تبويبات تحصل على تظليل خلفية خفيف لتمييزها بصرياً عن البقية
+const HIGHLIGHTED_TABS = new Set<TabId>(['upload', 'reports', 'targets']);
+
 export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavigate }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const saved = localStorage.getItem('rep_analysis_tab');
@@ -85,6 +88,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
         <div className="ra-tabs" style={{ display: 'flex', gap: 0 }}>
           {TABS.map(tab => {
             const isActive = activeTab === tab.id;
+            const isHighlighted = HIGHLIGHTED_TABS.has(tab.id);
             return (
               <button
                 key={tab.id}
@@ -94,7 +98,8 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
                   padding: '10px 20px',
                   border: 'none',
                   borderBottom: isActive ? '2px solid #4f46e5' : '2px solid transparent',
-                  background: 'transparent',
+                  background: isHighlighted ? (isActive ? 'rgba(79,70,229,0.08)' : 'rgba(79,70,229,0.04)') : 'transparent',
+                  borderRadius: isHighlighted ? '8px 8px 0 0' : 0,
                   fontSize: 14,
                   fontWeight: isActive ? 600 : 400,
                   color: isActive ? '#4f46e5' : '#64748b',
