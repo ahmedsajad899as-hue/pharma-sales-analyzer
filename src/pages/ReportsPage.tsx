@@ -785,11 +785,12 @@ type Mode = 'commercial' | 'scientific' | 'overall';
 type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
 interface ProvinceCompanyRow { provinceName: string; companyName: string; totalQty: number; totalValue: number; }
+interface ProvinceItemRow { provinceName: string; itemName: string; totalQty: number; }
 // مذاخر بغداد: صف واحد لكل (مندوب تجاري × مذخر × ايتم) — دقة أعلى من اللازم لجدول
 // (مندوب×مذخر) الرئيسي عمداً، كي يُبنى منها أيضاً تفصيل الايتمات داخل كل مذخر
 // بلا طلب خادم إضافي. راجع byBaghdadWarehouse في server/modules/reports/reports.routes.js.
 interface BaghdadWarehouseRow { repName: string; warehouseName: string; itemName: string; companyName: string; totalQty: number; totalValue: number; }
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; byProvinceCompany: ProvinceCompanyRow[]; byBaghdadWarehouse: BaghdadWarehouseRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; byProvinceCompany: ProvinceCompanyRow[]; byProvinceItem: ProvinceItemRow[]; byBaghdadWarehouse: BaghdadWarehouseRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
 
 // مطابقة اسم متسامحة مع حالة الأحرف والتشكيل العربي — الشركة/المنطقة/الايتم قد
 // تصل بحالة أحرف مختلفة بين استعلام المبيعات واستعلام الإرجاع المنفصلين
@@ -866,6 +867,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [overallTab, setOverallTab]         = useState<'area' | 'item' | 'company' | 'province' | 'baghdadWarehouse'>('area');
   // صفوف مفتوحة (تفصيل الايتمات) في جدول «مذاخر بغداد» — مفتاح الصف = مندوب::مذخر.
   const [expandedBaghdadWarehouses, setExpandedBaghdadWarehouses] = useState<Set<string>>(new Set());
+  const [showProvinceItemTable, setShowProvinceItemTable] = useState(false);
   // طريقة عرض تبويب «مذاخر بغداد»: مندوب×مذخر (تفصيلي) أو حسب الايتم (تجميعي
   // عبر كل المذاخر معاً — «كم بِيع من هذا الايتم بكل بغداد»).
   const [baghdadViewMode, setBaghdadViewMode] = useState<'repWarehouse' | 'byItem'>('repWarehouse');
@@ -1362,6 +1364,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         byCompany: (d.byCompany ?? []).map((r: any) => ({ name: r.companyName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byProvince: (d.byProvince ?? []).map((r: any) => ({ name: r.provinceName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byProvinceCompany: (d.byProvinceCompany ?? []).map((r: any) => ({ provinceName: r.provinceName, companyName: r.companyName, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+        byProvinceItem: (d.byProvinceItem ?? []).map((r: any) => ({ provinceName: r.provinceName, itemName: r.itemName, totalQty: r.totalQuantity ?? 0 })),
         byBaghdadWarehouse: (d.byBaghdadWarehouse ?? []).map((r: any) => ({ repName: r.repName, warehouseName: r.warehouseName, itemName: r.itemName, companyName: r.companyName ?? 'غير مصنّف', totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         minDate: d.minDate ?? null,
         maxDate: d.maxDate ?? null,
@@ -2991,6 +2994,41 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     return { companies, companyTotals, rows, grandTotal };
   };
 
+  // جدول محافظة × ايتم بالكمية الصافية (مبيع - مرتجع) — نفس شرط تبويب المحافظة
+  // (الايتم المُسنَد لتيم فقط). الأعمدة: الايتمات التي لها صافي غير صفري.
+  const buildProvinceItemPivot = () => {
+    const EMPTY = { items: [] as string[], itemTotals: [] as number[], rows: [] as { provinceName: string; cells: number[]; rowTotal: number }[], grandTotal: 0 };
+    if (!overallSales) return EMPTY;
+    const keyOf = (provinceName: string, itemName: string) => `${normReportName(provinceName)}::${normReportName(itemName)}`;
+    const netByKey = new Map<string, number>();
+    const provinceNames = new Map<string, string>();
+    const itemNames = new Map<string, string>();
+    const apply = (rows: ProvinceItemRow[], sign: number) => {
+      for (const r of rows) {
+        const k = keyOf(r.provinceName, r.itemName);
+        netByKey.set(k, (netByKey.get(k) ?? 0) + sign * r.totalQty);
+        provinceNames.set(normReportName(r.provinceName), r.provinceName);
+        itemNames.set(normReportName(r.itemName), r.itemName);
+      }
+    };
+    apply(overallSales.byProvinceItem ?? [], 1);
+    apply(overallReturns?.byProvinceItem ?? [], -1);
+
+    const itemKeys = [...itemNames.keys()]
+      .map(iKey => ({ iKey, total: [...provinceNames.keys()].reduce((s, pKey) => s + (netByKey.get(`${pKey}::${iKey}`) ?? 0), 0) }))
+      .filter(x => [...provinceNames.keys()].some(pKey => (netByKey.get(`${pKey}::${x.iKey}`) ?? 0) !== 0))
+      .sort((a, b) => b.total - a.total)
+      .map(x => x.iKey);
+    const rows = [...provinceNames.keys()].map(pKey => {
+      const cells = itemKeys.map(iKey => netByKey.get(`${pKey}::${iKey}`) ?? 0);
+      return { provinceName: provinceNames.get(pKey)!, cells, rowTotal: cells.reduce((s, v) => s + v, 0) };
+    }).filter(row => row.rowTotal !== 0).sort((a, b) => b.rowTotal - a.rowTotal);
+    const items = itemKeys.map(iKey => itemNames.get(iKey)!);
+    const itemTotals = itemKeys.map((_, ci) => rows.reduce((s, row) => s + row.cells[ci], 0));
+    const grandTotal = itemTotals.reduce((s, v) => s + v, 0);
+    return { items, itemTotals, rows, grandTotal };
+  };
+
   const exportProvinceCompanyToExcel = () => {
     const { companies, companyTotals, rows, grandTotal } = buildProvinceCompanyPivot();
     if (rows.length === 0) return;
@@ -3932,8 +3970,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const coverageGap = provinceNetTotal - grandTotal;
               return (
                 <div style={{ marginTop: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>صافي المبيع — محافظة × شركة</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#111827' }}>صافي المبيع — محافظة × شركة</span>
+                      <button onClick={() => setShowProvinceItemTable(v => !v)}
+                        style={{ padding: '6px 14px', borderRadius: 4, border: `1px solid ${showProvinceItemTable ? '#4f46e5' : '#94a3b8'}`, background: showProvinceItemTable ? '#eef2ff' : '#fff', color: showProvinceItemTable ? '#4338ca' : '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                      ><Icon name="count" size={12} /> {showProvinceItemTable ? 'إخفاء المحافظات × الايتمات' : 'المحافظات × الايتمات (كمية)'}</button>
+                    </div>
                     <button onClick={exportProvinceCompanyToExcel}
                       style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                     ><Icon name="export" size={12} /> تصدير Excel</button>
@@ -3979,6 +4022,53 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       تنبيه: مجموع الجدول ({fmtValSigned(grandTotal)}) يقلّ عن صافي كل المحافظات ({fmtValSigned(provinceNetTotal)}) بمقدار {fmtValSigned(coverageGap)} — مبيع لم يُنسَب لأي شركة.
                     </div>
                   )}
+                  {showProvinceItemTable && (() => {
+                    const { items, itemTotals, rows: itemRows, grandTotal: itemGrand } = buildProvinceItemPivot();
+                    if (itemRows.length === 0) {
+                      return <div style={{ marginTop: 10, textAlign: 'center', padding: 24, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد كميات صافية لعرضها</div>;
+                    }
+                    const qtyBorder = '1px solid #cbd5e1';
+                    const qtyTh: React.CSSProperties = { padding: '9px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', position: 'sticky', top: 0, whiteSpace: 'nowrap', fontSize: 12.5, fontWeight: 700, border: qtyBorder };
+                    const qtyTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: 12.5, color: '#111827', border: qtyBorder };
+                    return (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700, color: '#111827' }}>الكمية الصافية (قطع نت) — محافظة × ايتم</div>
+                        <div style={{ overflowX: 'auto', border: '1px solid #94a3b8' }}>
+                          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                            <thead>
+                              <tr>
+                                <th style={{ ...qtyTh, textAlign: 'right', right: 0 }}>المحافظة</th>
+                                {items.map(name => <th key={name} style={qtyTh}>{name}</th>)}
+                                <th style={qtyTh}>الإجمالي</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {itemRows.map(row => (
+                                <tr key={row.provinceName}>
+                                  <td style={{ ...qtyTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#fff' }}>{row.provinceName}</td>
+                                  {row.cells.map((v, ci) => (
+                                    <td key={ci} style={{ ...qtyTd, fontWeight: v !== 0 ? 700 : 400, background: v < 0 ? 'rgba(239, 68, 68, 0.12)' : undefined }}>
+                                      {v !== 0 ? v : '—'}
+                                    </td>
+                                  ))}
+                                  <td style={{ ...qtyTd, fontWeight: 800, background: row.rowTotal < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{row.rowTotal}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr>
+                                <td style={{ ...qtyTd, textAlign: 'right', fontWeight: 800, position: 'sticky', right: 0, background: '#f1f5f9' }}>الإجمالي الكلي</td>
+                                {itemTotals.map((v, ci) => (
+                                  <td key={ci} style={{ ...qtyTd, fontWeight: 800, background: v < 0 ? 'rgba(239, 68, 68, 0.16)' : '#f1f5f9' }}>{v}</td>
+                                ))}
+                                <td style={{ ...qtyTd, fontWeight: 900, background: itemGrand < 0 ? 'rgba(239, 68, 68, 0.2)' : '#e2e8f0' }}>{itemGrand}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}

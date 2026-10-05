@@ -407,6 +407,7 @@ router.get('/overall', async (req, res) => {
     const companyMap  = new Map(); // key: مفتاح موحَّد (طبّع + قُطعت لاحقة الدولة)
     const provinceMap = new Map(); // key: اسم المحافظة (أو اسم المنطقة حين لا محافظة في الملف)
     const provinceCompanyMap = new Map(); // key: "اسم المحافظة::مفتاح الشركة الموحَّد"
+    const provinceItemMap = new Map(); // key: "اسم المحافظة::مفتاح الايتم"
     // مذاخر بغداد: صفوف مبيع تجارية بمحافظة بغداد وُسِمَت "مذخر" في عمود الصنف
     // الخام (isWarehouseSaleRow) — لا علاقة لها بتبويب «المحافظة» أعلاه (ذاك
     // يستبعد الايتمات غير المُسنَدة لتيم؛ هذا يشمل كل الصفوف بلا قيد تيم، لأن
@@ -499,6 +500,12 @@ router.get('/overall', async (req, res) => {
         const pcr = provinceCompanyMap.get(pcKey);
         pcr.totalQuantity += qty;
         pcr.totalValue    += val;
+
+        if (s.item) {
+          const piKey = `${provinceName}::${normalizeItemKey(s.item.name)}`;
+          if (!provinceItemMap.has(piKey)) provinceItemMap.set(piKey, { provinceName, itemName: s.item.name, totalQuantity: 0 });
+          provinceItemMap.get(piKey).totalQuantity += qty;
+        }
       }
 
       if (provinceName === 'بغداد' && isWarehouseSaleRow(s.rawData)) {
@@ -547,10 +554,11 @@ router.get('/overall', async (req, res) => {
     const byProvince = [...provinceMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byProvinceCompany = [...provinceCompanyMap.values()].sort((a, b) =>
       a.provinceName.localeCompare(b.provinceName, 'ar') || b.totalValue - a.totalValue);
+    const byProvinceItem = [...provinceItemMap.values()];
     const byBaghdadWarehouse = [...baghdadWarehouseMap.values()].sort((a, b) =>
       a.repName.localeCompare(b.repName, 'ar') || a.warehouseName.localeCompare(b.warehouseName, 'ar') || b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byBaghdadWarehouse, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byProvinceItem, byBaghdadWarehouse, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
