@@ -2997,7 +2997,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // جدول محافظة × ايتم بالكمية الصافية (مبيع - مرتجع) — نفس شرط تبويب المحافظة
   // (الايتم المُسنَد لتيم فقط). الأعمدة: الايتمات التي لها صافي غير صفري.
   const buildProvinceItemPivot = () => {
-    const EMPTY = { items: [] as string[], itemTotals: [] as number[], rows: [] as { provinceName: string; cells: number[]; rowTotal: number }[], grandTotal: 0 };
+    const EMPTY = { provinces: [] as string[], provinceTotals: [] as number[], itemRows: [] as { itemName: string; cells: number[]; rowTotal: number }[], grandTotal: 0 };
     if (!overallSales) return EMPTY;
     const keyOf = (provinceName: string, itemName: string) => `${normReportName(provinceName)}::${normReportName(itemName)}`;
     const netByKey = new Map<string, number>();
@@ -3014,19 +3014,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     apply(overallSales.byProvinceItem ?? [], 1);
     apply(overallReturns?.byProvinceItem ?? [], -1);
 
-    const itemKeys = [...itemNames.keys()]
-      .map(iKey => ({ iKey, total: [...provinceNames.keys()].reduce((s, pKey) => s + (netByKey.get(`${pKey}::${iKey}`) ?? 0), 0) }))
-      .filter(x => [...provinceNames.keys()].some(pKey => (netByKey.get(`${pKey}::${x.iKey}`) ?? 0) !== 0))
+    const provinceKeys = [...provinceNames.keys()]
+      .map(pKey => ({ pKey, total: [...itemNames.keys()].reduce((s, iKey) => s + (netByKey.get(`${pKey}::${iKey}`) ?? 0), 0) }))
+      .filter(x => x.total !== 0)
       .sort((a, b) => b.total - a.total)
-      .map(x => x.iKey);
-    const rows = [...provinceNames.keys()].map(pKey => {
-      const cells = itemKeys.map(iKey => netByKey.get(`${pKey}::${iKey}`) ?? 0);
-      return { provinceName: provinceNames.get(pKey)!, cells, rowTotal: cells.reduce((s, v) => s + v, 0) };
+      .map(x => x.pKey);
+    const itemRows = [...itemNames.keys()].map(iKey => {
+      const cells = provinceKeys.map(pKey => netByKey.get(`${pKey}::${iKey}`) ?? 0);
+      return { itemName: itemNames.get(iKey)!, cells, rowTotal: cells.reduce((s, v) => s + v, 0) };
     }).filter(row => row.rowTotal !== 0).sort((a, b) => b.rowTotal - a.rowTotal);
-    const items = itemKeys.map(iKey => itemNames.get(iKey)!);
-    const itemTotals = itemKeys.map((_, ci) => rows.reduce((s, row) => s + row.cells[ci], 0));
-    const grandTotal = itemTotals.reduce((s, v) => s + v, 0);
-    return { items, itemTotals, rows, grandTotal };
+    const provinces = provinceKeys.map(pKey => provinceNames.get(pKey)!);
+    const provinceTotals = provinceKeys.map((_, ci) => itemRows.reduce((s, row) => s + row.cells[ci], 0));
+    const grandTotal = provinceTotals.reduce((s, v) => s + v, 0);
+    return { provinces, provinceTotals, itemRows, grandTotal };
   };
 
   const exportProvinceCompanyToExcel = () => {
@@ -4023,7 +4023,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     </div>
                   )}
                   {showProvinceItemTable && (() => {
-                    const { items, itemTotals, rows: itemRows, grandTotal: itemGrand } = buildProvinceItemPivot();
+                    const { provinces, provinceTotals, itemRows, grandTotal: itemGrand } = buildProvinceItemPivot();
                     if (itemRows.length === 0) {
                       return <div style={{ marginTop: 10, textAlign: 'center', padding: 24, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد كميات صافية لعرضها</div>;
                     }
@@ -4032,20 +4032,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     const qtyTd: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: 12.5, color: '#111827', border: qtyBorder };
                     return (
                       <div style={{ marginTop: 14 }}>
-                        <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700, color: '#111827' }}>الكمية الصافية (قطع نت) — محافظة × ايتم</div>
+                        <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700, color: '#111827' }}>الكمية الصافية (قطع نت) — ايتم × محافظة</div>
                         <div style={{ overflowX: 'auto', border: '1px solid #94a3b8' }}>
                           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                             <thead>
                               <tr>
-                                <th style={{ ...qtyTh, textAlign: 'right', right: 0 }}>المحافظة</th>
-                                {items.map(name => <th key={name} style={qtyTh}>{name}</th>)}
+                                <th style={{ ...qtyTh, textAlign: 'right', right: 0 }}>الايتم</th>
+                                {provinces.map(name => <th key={name} style={qtyTh}>{name}</th>)}
                                 <th style={qtyTh}>الإجمالي</th>
                               </tr>
                             </thead>
                             <tbody>
                               {itemRows.map(row => (
-                                <tr key={row.provinceName}>
-                                  <td style={{ ...qtyTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#fff' }}>{row.provinceName}</td>
+                                <tr key={row.itemName}>
+                                  <td style={{ ...qtyTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#fff' }}>{row.itemName}</td>
                                   {row.cells.map((v, ci) => (
                                     <td key={ci} style={{ ...qtyTd, fontWeight: v !== 0 ? 700 : 400, background: v < 0 ? 'rgba(239, 68, 68, 0.12)' : undefined }}>
                                       {v !== 0 ? v : '—'}
@@ -4058,7 +4058,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                             <tfoot>
                               <tr>
                                 <td style={{ ...qtyTd, textAlign: 'right', fontWeight: 800, position: 'sticky', right: 0, background: '#f1f5f9' }}>الإجمالي الكلي</td>
-                                {itemTotals.map((v, ci) => (
+                                {provinceTotals.map((v, ci) => (
                                   <td key={ci} style={{ ...qtyTd, fontWeight: 800, background: v < 0 ? 'rgba(239, 68, 68, 0.16)' : '#f1f5f9' }}>{v}</td>
                                 ))}
                                 <td style={{ ...qtyTd, fontWeight: 900, background: itemGrand < 0 ? 'rgba(239, 68, 68, 0.2)' : '#e2e8f0' }}>{itemGrand}</td>
