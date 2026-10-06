@@ -6,8 +6,8 @@ import { useAuth } from '../context/AuthContext';
 // سيرفي المندوب العلمي الميداني
 // — المندوب: يسجّل أطباء وصيدليات منطقته، وموقع كل اسم إلزامي بدقة عالية.
 // — مدير الشركة / قائد الفريق: يرى سجلات مندوبيه كاملة للاطلاع والتصدير.
-// أرشيف توثيقي؛ لا يرتبط بالمبيعات أو الزيارات. الطبيب الذي له صيدلية قريبة
-// يُنشر في سيرفي الأطباء الرئيسي (يحدده الخادم).
+// أرشيف توثيقي معزول: لا يرتبط بالمبيعات أو الزيارات، ولا يقرأ من السيرفي
+// الرئيسي ولا يكتب فيه.
 // ════════════════════════════════════════════════════════════════════════════
 
 type Kind = 'doctor' | 'pharmacy';
@@ -27,7 +27,6 @@ interface Entry {
   accuracy: number | null;
   nearPharmacies: string[];
   pharmacyIds: number[];
-  publishedToDoctorSurvey: boolean;
   createdAt: string;
   editedAt: string | null;
 }
@@ -35,7 +34,7 @@ interface Entry {
 interface RepOption { userId: number; name: string; company: string | null }
 interface NearbyRow { name: string; specialty: string; className: string }
 interface Coords { latitude: number; longitude: number; accuracy: number }
-interface DupMatch { source: 'own' | 'survey'; id: number; name: string; areaName: string; nearPharmacies: string[] }
+interface DupMatch { id: number; name: string; areaName: string; nearPharmacies: string[] }
 interface DupState { kind: Kind; endpoint: string; body: Record<string, unknown>; matches: DupMatch[] }
 interface Notice { kind: Kind; name: string; lines: string[] }
 
@@ -144,26 +143,11 @@ function NearChips({ value, onChange, placeholder }: { value: string[]; onChange
 }
 
 function describeSave(kind: Kind, data: any): string[] {
-  const lines: string[] = [];
   if (kind === 'doctor') {
-    if (data.merged) {
-      lines.push('أُضيفت الصيدليات إلى الطبيب الموجود — بقي طبيباً واحداً.');
-    }
-    const status = data.publish?.status as string | undefined;
-    if (status === 'published') lines.push('نُشر في سيرفي الأطباء.');
-    if (status === 'linked') lines.push('مرتبط بطبيب موجود مسبقاً في سيرفي الأطباء.');
-    if (status === 'failed') lines.push('تعذّر النشر في سيرفي الأطباء — حُفظ في الأرشيف.');
-    if (status === 'no-survey') lines.push('لا يوجد سيرفي أطباء نشط — حُفظ في الأرشيف فقط.');
-    if (status === 'skipped') lines.push('بدون صيدلية قريبة فلا يُنشر في سيرفي الأطباء (حُفظ في الأرشيف).');
-    return lines;
+    return data.merged ? ['أُضيفت الصيدليات إلى الطبيب الموجود — بقي طبيباً واحداً.'] : [];
   }
-  lines.push(data.nearbyCount ? `مع ${data.nearbyCount} طبيب قريب.` : 'بدون أطباء قريبين.');
+  const lines: string[] = [data.nearbyCount ? `مع ${data.nearbyCount} طبيب قريب.` : 'بدون أطباء قريبين.'];
   if (data.nearby?.linkedOwn) lines.push(`ربط ${data.nearby.linkedOwn} من أطبائك المسجَّلين سابقاً بهذه الصيدلية.`);
-  const p = data.publish ?? {};
-  if (p.published) lines.push(`نُشر ${p.published} طبيب في سيرفي الأطباء.`);
-  if (p.linkedSurvey) lines.push(`${p.linkedSurvey} مرتبط بأطباء موجودين مسبقاً في السيرفي.`);
-  if (p.failed) lines.push(`تعذّر نشر ${p.failed} طبيب.`);
-  if (p.hostSurvey === false && data.nearbyCount) lines.push('لا يوجد سيرفي أطباء نشط — حُفظ في الأرشيف فقط.');
   return lines;
 }
 
@@ -460,7 +444,6 @@ export default function RepFieldSurveyPage() {
       'رابط الخريطة': mapsUrl(e.latitude, e.longitude),
       'تاريخ ووقت التسجيل': fmtDateTime(e.createdAt),
       'آخر تعديل': e.editedAt ? fmtDateTime(e.editedAt) : '',
-      'منشور في سيرفي الأطباء': e.publishedToDoctorSurvey ? 'نعم' : 'لا',
       'ملاحظات': e.notes ?? '',
     }));
     const summary = areaSummary.map(a => ({
@@ -588,7 +571,6 @@ export default function RepFieldSurveyPage() {
             <div className="rfs-nearby">
               <div className="form-label">الصيدليات القريبة من الطبيب</div>
               <div className="rfs-muted">اكتب كل صيدلية قريبة ثم اضغط إضافة. الطبيب يبقى سجلاً واحداً مهما عددت صيدلياته.</div>
-              <div className="rfs-muted">الطبيب الذي له صيدلية قريبة يُنشر في سيرفي الأطباء.</div>
               <div style={{ marginTop: 8 }}>
                 <NearChips value={doctorNear} onChange={setDoctorNear} placeholder="اسم الصيدلية القريبة" />
               </div>
@@ -600,7 +582,7 @@ export default function RepFieldSurveyPage() {
               <div className="rfs-nearby-head">
                 <div>
                   <div className="form-label">الأطباء القريبون من الصيدلية</div>
-                  <div className="rfs-muted">يُحفظون كأطباء في سيرفي الأطباء أيضاً، بنفس موقع الصيدلية. الطبيب المسجَّل مسبقاً بنفس الاسم يُربط بهذه الصيدلية.</div>
+                  <div className="rfs-muted">يُحفظون في الأرشيف بنفس موقع الصيدلية. الطبيب المسجَّل مسبقاً بنفس الاسم يُربط بهذه الصيدلية.</div>
                 </div>
                 <button className="btn btn--secondary btn--sm" onClick={() => setNearby([...nearby, { name: '', specialty: '', className: '' }])}>+ إضافة طبيب</button>
               </div>
@@ -650,15 +632,14 @@ export default function RepFieldSurveyPage() {
               <strong>الاسم «{String(dup.body.name ?? '')}» موجود بالفعل:</strong>
               <ul className="rfs-dup-list">
                 {dup.matches.map(m => (
-                  <li key={`${m.source}-${m.id}`}>
+                  <li key={m.id}>
                     {m.name} · {m.areaName}
                     {m.nearPharmacies.length > 0 && <span className="rfs-muted"> · قرب: {m.nearPharmacies.join('، ')}</span>}
-                    <span className="rfs-muted"> ({m.source === 'own' ? 'سجلاتك' : 'سيرفي الأطباء'})</span>
                   </li>
                 ))}
               </ul>
               <div className="rfs-dup-actions">
-                {dup.kind === 'doctor' && dup.matches.filter(m => m.source === 'own').map(m => (
+                {dup.kind === 'doctor' && dup.matches.map(m => (
                   <button key={m.id} className="btn btn--primary btn--sm" disabled={saving} onClick={() => resolveDup({ mergeIntoId: m.id })}>
                     إضافة الصيدليات إلى «{m.name}»
                   </button>
@@ -816,7 +797,6 @@ export default function RepFieldSurveyPage() {
                 <dt>دقة الموقع</dt><dd>{viewing.accuracy != null ? `±${Math.round(viewing.accuracy)} م` : '—'}</dd>
                 <dt>تاريخ ووقت التسجيل</dt><dd>{fmtDateTime(viewing.createdAt)}</dd>
                 <dt>آخر تعديل</dt><dd>{viewing.editedAt ? fmtDateTime(viewing.editedAt) : 'لم يُعدَّل'}</dd>
-                <dt>سيرفي الأطباء الرئيسي</dt><dd>{viewing.publishedToDoctorSurvey ? 'منشور' : 'أرشيف فقط'}</dd>
               </dl>
 
               {viewing.kind === 'pharmacy' && (
@@ -830,7 +810,6 @@ export default function RepFieldSurveyPage() {
                         <li key={d.id}>
                           <strong>{d.name}</strong>
                           <span className="rfs-muted"> · {[d.specialty, d.className].filter(Boolean).join(' · ') || 'بدون اختصاص/كلاس'}</span>
-                          {d.publishedToDoctorSurvey && <span className="badge badge--blue rfs-mini-badge">سيرفي الأطباء</span>}
                         </li>
                       ))}
                     </ul>
@@ -857,9 +836,6 @@ export default function RepFieldSurveyPage() {
               <button className="modal-close" onClick={() => setEditing(null)} disabled={editSaving}>✕</button>
             </div>
             <div className="modal-body">
-              {editing.publishedToDoctorSurvey && (
-                <div className="rfs-muted">هذا الاسم منشور في سيرفي الأطباء الرئيسي؛ التعديل هنا لا يغيّر السيرفي الرئيسي.</div>
-              )}
               {editing.kind === 'pharmacy' && (
                 <div className="rfs-muted">تعديل الاسم أو المنطقة أو الموقع ينتقل إلى الأطباء المرتبطين بهذه الصيدلية بالاسم.</div>
               )}
