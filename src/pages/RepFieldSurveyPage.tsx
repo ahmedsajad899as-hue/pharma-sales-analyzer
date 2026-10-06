@@ -54,6 +54,29 @@ const normArea = (s: string) => s.trim().replace(/\s+/g, ' ');
 
 const EMPTY_FORM = { name: '', specialty: '', className: '', areaName: '', notes: '' };
 
+// تذكّر المنطقة الأخيرة لمدة 4 ساعات من آخر اختيار لها (تفضيل على هذا المتصفح فقط)
+const AREA_MEMORY_KEY = 'rfs-remembered-area';
+const AREA_MEMORY_MS = 4 * 60 * 60 * 1000;
+
+function readRememberedArea(): string {
+  try {
+    const raw = window.localStorage.getItem(AREA_MEMORY_KEY);
+    if (!raw) return '';
+    const { area, savedAt } = JSON.parse(raw);
+    if (typeof area === 'string' && area && Date.now() - Number(savedAt) < AREA_MEMORY_MS) return area;
+    window.localStorage.removeItem(AREA_MEMORY_KEY);
+  } catch { /* وضع خاص أو تخزين معطّل */ }
+  return '';
+}
+
+function rememberArea(area: string) {
+  const clean = area.trim();
+  if (!clean) return;
+  try {
+    window.localStorage.setItem(AREA_MEMORY_KEY, JSON.stringify({ area: clean, savedAt: Date.now() }));
+  } catch { /* وضع خاص أو تخزين معطّل */ }
+}
+
 // قراءة متواصلة للموقع حتى تبلغ الدقة الهدف (أو تنتهي المهلة فنأخذ الأفضل)
 function captureBestLocation(onLive: (acc: number) => void): Promise<Coords> {
   return new Promise((resolve, reject) => {
@@ -228,7 +251,7 @@ export default function RepFieldSurveyPage() {
 
   // ── نموذج التسجيل (للمندوب فقط) ────────────────────────────────────────
   const [kind, setKind]           = useState<Kind>('doctor');
-  const [form, setForm]           = useState(EMPTY_FORM);
+  const [form, setForm]           = useState(() => ({ ...EMPTY_FORM, areaName: readRememberedArea() }));
   const [doctorNear, setDoctorNear] = useState<string[]>([]);
   const [nearby, setNearby]       = useState<NearbyRow[]>([]);
   const [coords, setCoords]       = useState<Coords | null>(null);
@@ -291,6 +314,7 @@ export default function RepFieldSurveyPage() {
         return;
       }
       if (!r.ok || !j.success) throw new Error(j.message || 'تعذّر الحفظ.');
+      rememberArea(String(body.areaName ?? ''));
       setNotice({ kind: k, name, lines: describeSave(k, j.data) });
       resetAfterSave();
       setDup(null);
@@ -544,7 +568,7 @@ export default function RepFieldSurveyPage() {
             </div>
             <div className="form-group">
               <label className="form-label">المنطقة *</label>
-              <input className="form-input" list="rfs-area-options" value={form.areaName} onChange={e => setField('areaName', e.target.value)} placeholder="اختر أو اكتب اسم المنطقة" />
+              <input className="form-input" list="rfs-area-options" value={form.areaName} onChange={e => { setField('areaName', e.target.value); if (areaOptions.includes(e.target.value)) rememberArea(e.target.value); }} placeholder="اختر أو اكتب اسم المنطقة" />
               <datalist id="rfs-area-options">
                 {areaOptions.map(a => <option key={a} value={a} />)}
               </datalist>
