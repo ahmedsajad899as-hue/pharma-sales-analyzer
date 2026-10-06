@@ -3629,3 +3629,4 @@ select.comm-input { cursor: pointer; }
   .rfs-nearby-row { grid-template-columns: 1fr; }
   .rfs-filters .form-input { min-width: 0; width: 100%; }
 }
+.rfs-modal { max-width: 640px; }

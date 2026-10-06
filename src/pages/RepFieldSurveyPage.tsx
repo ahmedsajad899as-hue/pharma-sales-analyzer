@@ -30,6 +30,7 @@ interface Entry {
   parentName: string | null;
   publishedToDoctorSurvey: boolean;
   createdAt: string;
+  editedAt: string | null;
 }
 
 interface RepOption { userId: number; name: string; company: string | null }
@@ -215,6 +216,92 @@ export default function RepFieldSurveyPage() {
       setFormError(e.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ── تعديل سجل (المندوب على سجلاته فقط) ──────────────────────────────────
+  const [editing, setEditing]   = useState<Entry | null>(null);
+  const [editForm, setEditForm] = useState(EMPTY_FORM);
+  const [editCoords, setEditCoords] = useState<Coords | null>(null); // null = يبقى الموقع الحالي
+  const [editLoc, setEditLoc]   = useState<'idle' | 'loading' | 'error'>('idle');
+  const [editLocError, setEditLocError] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError]   = useState('');
+
+  const openEdit = (e: Entry) => {
+    setEditing(e);
+    setEditForm({
+      name: e.name,
+      specialty: e.specialty ?? '',
+      className: e.className ?? '',
+      pharmacyName: e.pharmacyName ?? '',
+      areaName: e.areaName,
+      notes: e.notes ?? '',
+    });
+    setEditCoords(null);
+    setEditLoc('idle');
+    setEditLocError('');
+    setEditError('');
+  };
+
+  const captureEditLocation = () => {
+    if (!navigator.geolocation) {
+      setEditLoc('error');
+      setEditLocError('المتصفح لا يدعم تحديد الموقع.');
+      return;
+    }
+    setEditLoc('loading');
+    setEditLocError('');
+    navigator.geolocation.getCurrentPosition(
+      p => {
+        setEditCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy ?? null });
+        setEditLoc('idle');
+      },
+      err => {
+        setEditLoc('error');
+        setEditLocError(err.code === 1
+          ? 'تم رفض إذن الموقع. فعّله من إعدادات المتصفح ثم أعد المحاولة.'
+          : 'تعذّر تحديد الموقع. تأكد من تفعيل GPS وحاول في مكان مفتوح.');
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setEditError('');
+    if (!editForm.name.trim()) { setEditError(editing.kind === 'doctor' ? 'اسم الطبيب مطلوب.' : 'اسم الصيدلية مطلوب.'); return; }
+    if (!editForm.areaName.trim()) { setEditError('المنطقة مطلوبة.'); return; }
+
+    const body: Record<string, unknown> = {
+      name: editForm.name.trim(),
+      areaName: editForm.areaName.trim(),
+      notes: editForm.notes.trim() || null,
+    };
+    if (editing.kind === 'doctor') {
+      body.specialty = editForm.specialty.trim() || null;
+      body.className = editForm.className.trim() || null;
+      if (!editing.parentId) body.pharmacyName = editForm.pharmacyName.trim() || null;
+    }
+    if (editCoords) {
+      body.latitude = editCoords.latitude;
+      body.longitude = editCoords.longitude;
+      body.accuracy = editCoords.accuracy;
+    }
+
+    setEditSaving(true);
+    try {
+      const r = await fetch(`/api/rep-field-survey/entries/${editing.id}`, {
+        method: 'PATCH', headers: H(), body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.message || 'تعذّر حفظ التعديل.');
+      setEditing(null);
+      load();
+    } catch (err: any) {
+      setEditError(err.message);
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -496,6 +583,7 @@ export default function RepFieldSurveyPage() {
                   {!isRep && <th>المندوب</th>}
                   <th>الموقع</th>
                   <th>تاريخ ووقت التسجيل</th>
+                  {isRep && <th></th>}
                 </tr>
               </thead>
               <tbody>
@@ -522,7 +610,17 @@ export default function RepFieldSurveyPage() {
                     <td>
                       <a href={mapsUrl(e.latitude, e.longitude)} target="_blank" rel="noreferrer">عرض</a>
                     </td>
-                    <td className="rfs-muted">{fmtDateTime(e.createdAt)}</td>
+                    <td className="rfs-muted">
+                      {fmtDateTime(e.createdAt)}
+                      {e.editedAt && <div>معدّل: {fmtDateTime(e.editedAt)}</div>}
+                    </td>
+                    {isRep && (
+                      <td>
+                        {e.userId === user?.id && (
+                          <button className="btn btn--secondary btn--sm" onClick={() => openEdit(e)}>تعديل</button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -530,6 +628,88 @@ export default function RepFieldSurveyPage() {
           </div>
         )}
       </section>
+
+      {editing && (
+        <div className="modal-overlay" onClick={() => !editSaving && setEditing(null)}>
+          <div className="modal rfs-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>تعديل {editing.kind === 'doctor' ? 'الطبيب' : 'الصيدلية'}</h2>
+              <button className="modal-close" onClick={() => setEditing(null)} disabled={editSaving}>✕</button>
+            </div>
+            <div className="modal-body">
+              {editing.publishedToDoctorSurvey && (
+                <div className="rfs-muted">هذا الاسم منشور في سيرفي الأطباء الرئيسي؛ التعديل هنا لا يغيّر السيرفي الرئيسي.</div>
+              )}
+              {editing.kind === 'pharmacy' && (
+                <div className="rfs-muted">تعديل الاسم أو المنطقة أو الموقع ينتقل إلى الأطباء القريبين الذين يرثون بيانات هذه الصيدلية.</div>
+              )}
+              <div className="rfs-form-grid">
+                <div className="form-group">
+                  <label className="form-label">{editing.kind === 'doctor' ? 'اسم الطبيب' : 'اسم الصيدلية'} *</label>
+                  <input className="form-input" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">المنطقة *</label>
+                  <input className="form-input" list="rfs-area-options" value={editForm.areaName} onChange={e => setEditForm({ ...editForm, areaName: e.target.value })} />
+                </div>
+                {editing.kind === 'doctor' && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">الاختصاص</label>
+                      <input className="form-input" value={editForm.specialty} onChange={e => setEditForm({ ...editForm, specialty: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">الكلاس</label>
+                      <input className="form-input" value={editForm.className} onChange={e => setEditForm({ ...editForm, className: e.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">اسم الصيدلية / العيادة</label>
+                      <input className="form-input" value={editForm.pharmacyName} disabled={!!editing.parentId}
+                        onChange={e => setEditForm({ ...editForm, pharmacyName: e.target.value })} />
+                      {editing.parentId && <span className="rfs-muted">يتبع الصيدلية الأم</span>}
+                    </div>
+                  </>
+                )}
+                <div className="form-group rfs-span-full">
+                  <label className="form-label">ملاحظات</label>
+                  <input className="form-input" value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
+                </div>
+              </div>
+
+              <div className={`rfs-location ${editLoc === 'error' ? 'rfs-location--err' : editCoords ? 'rfs-location--ok' : ''}`}>
+                <div className="rfs-location-text">
+                  {editCoords ? (
+                    <>
+                      <strong>✓ سيُحفظ الموقع الجديد</strong>
+                      <div className="rfs-muted">دقة ±{editCoords.accuracy != null ? Math.round(editCoords.accuracy) : '?'} م</div>
+                    </>
+                  ) : editLoc === 'error' ? (
+                    <span>{editLocError}</span>
+                  ) : (
+                    <>
+                      <span>الموقع الحالي محفوظ.</span>
+                      <div className="rfs-muted">
+                        <a href={mapsUrl(editing.latitude, editing.longitude)} target="_blank" rel="noreferrer">عرض على الخارطة</a>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button className="btn btn--secondary btn--sm" onClick={captureEditLocation} disabled={editLoc === 'loading'}>
+                  {editLoc === 'loading' ? 'جارٍ التحديد…' : '📍 إعادة تحديد الموقع'}
+                </button>
+              </div>
+
+              {editError && <div className="alert alert--error">{editError}</div>}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn--secondary" onClick={() => setEditing(null)} disabled={editSaving}>إلغاء</button>
+              <button className="btn btn--primary" onClick={saveEdit} disabled={editSaving}>
+                {editSaving ? 'جارٍ الحفظ…' : 'حفظ التعديل'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

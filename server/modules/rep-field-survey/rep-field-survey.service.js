@@ -171,6 +171,59 @@ export async function createPharmacyEntry(user, body) {
   return { entry: pharmacy, nearbyCount: pharmacy.children.length, publish };
 }
 
+// ─── Update ──────────────────────────────────────────────────
+
+/**
+ * تعديل سجل يملكه المندوب نفسه فقط. الحقل الذي لا يُرسَل يبقى كما هو.
+ * - تعديل اسم الصيدلية أو منطقتها أو موقعها يسري إلى أطبائها القريبين
+ *   (الذين يرثون بياناتها). موقع الطبيب القريب المختلف عن موقع صيدليته لا يُمس.
+ * - الطبيب القريب لا يغيّر اسم صيدليته، فهو يتبع الصيدلية الأم.
+ * - الصف المنشور في سيرفي الأطباء الرئيسي لا يُعدَّل تلقائياً.
+ */
+export async function updateEntry(user, entryId, body) {
+  assertFieldRep(user);
+  const current = await prisma.repFieldSurveyEntry.findUnique({ where: { id: entryId } });
+  if (!current || current.userId !== user.id) {
+    throw new AppError('السجل غير موجود أو لا تملك صلاحية تعديله', 404, 'NOT_FOUND');
+  }
+
+  const data = { editedAt: new Date() };
+  if (body?.name !== undefined) {
+    data.name = requireText(body.name, current.kind === 'doctor' ? 'اسم الطبيب مطلوب' : 'اسم الصيدلية مطلوب');
+  }
+  if (body?.areaName !== undefined) data.areaName = requireText(body.areaName, 'المنطقة مطلوبة');
+  if (body?.notes !== undefined) data.notes = optionalText(body.notes, 1000);
+  if (current.kind === 'doctor') {
+    if (body?.specialty !== undefined) data.specialty = optionalText(body.specialty);
+    if (body?.className !== undefined) data.className = optionalText(body.className, 100);
+    if (!current.parentId && body?.pharmacyName !== undefined) data.pharmacyName = optionalText(body.pharmacyName);
+  }
+  // الموقع: إن أُرسل أي إحداثي يجب أن تكون الإحداثيات كاملة وصالحة
+  if (body?.latitude !== undefined || body?.longitude !== undefined) {
+    Object.assign(data, requireCoords(body));
+  }
+
+  return prisma.$transaction(async tx => {
+    const row = await tx.repFieldSurveyEntry.update({ where: { id: entryId }, data });
+    if (current.kind === 'pharmacy') {
+      const kidData = {};
+      if (data.name !== undefined) kidData.pharmacyName = data.name;
+      if (data.areaName !== undefined) kidData.areaName = data.areaName;
+      if (Object.keys(kidData).length) {
+        await tx.repFieldSurveyEntry.updateMany({ where: { parentId: entryId }, data: kidData });
+      }
+      if (data.latitude !== undefined) {
+        // الأطباء الذين يرثون موقع الصيدلية فقط ينتقلون معها
+        await tx.repFieldSurveyEntry.updateMany({
+          where: { parentId: entryId, latitude: current.latitude, longitude: current.longitude },
+          data: { latitude: data.latitude, longitude: data.longitude, accuracy: data.accuracy },
+        });
+      }
+    }
+    return { entry: row, publishedToDoctorSurvey: row.masterSurveyDoctorId != null };
+  });
+}
+
 // ─── Read ────────────────────────────────────────────────────
 
 /**
@@ -237,6 +290,7 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
       parentName:   r.parent?.name ?? null,
       publishedToDoctorSurvey: r.masterSurveyDoctorId != null,
       createdAt:    r.createdAt,
+      editedAt:     r.editedAt,
     })),
     // قائمة المندوبين للفلتر — للمدير فقط (المندوب لا يحتاجها)
     reps: reps.map(r => ({ userId: r.userId, name: r.name, company: r.company?.name ?? null })),

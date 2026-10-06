@@ -25,3 +25,13 @@ export async function createPharmacy(req, res, next) {
     res.status(201).json({ success: true, data });
   } catch (err) { next(err); }
 }
+
+// PATCH /api/rep-field-survey/entries/:id — تعديل سجل يملكه المندوب
+export async function updateEntry(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: 'معرّف غير صالح' });
+    const data = await svc.updateEntry(req.user, id, req.body);
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+}
