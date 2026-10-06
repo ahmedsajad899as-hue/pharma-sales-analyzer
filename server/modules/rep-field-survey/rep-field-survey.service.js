@@ -1,19 +1,24 @@
 // ════════════════════════════════════════════════════════════════════════════
 // rep-field-survey.service.js — سيرفي المندوب العلمي الميداني
 // ────────────────────────────────────────────────────────────────────────────
-// أرشيف توثيقي فقط: أطباء وصيدليات يسجّلها المندوب العلمي بمنطقته مع موقع
-// إلزامي لكل اسم. لا يُقرأ من المبيعات ولا الزيارات ولا التحليلات.
+// أرشيف توثيقي: أطباء وصيدليات يسجّلها المندوب بمنطقته مع موقع إلزامي ودقة
+// محددة. لا يُقرأ من المبيعات ولا الزيارات ولا التحليلات.
 //
-// الاستثناء الوحيد للربط: أطباء «القريبين من صيدلية» يُنشرون في سيرفي الأطباء
-// الرئيسي (MasterSurveyDoctor) فيُعتبرون أطباء فعلاً كما تُعامل أي إضافة.
+// الطبيب قد يرتبط بعدة صيدليات قريبة (طبيب واحد). الطبيب الذي له صيدلية قريبة
+// واحدة على الأقل يُنشر في سيرفي الأطباء الرئيسي، فيُعتبر طبيباً فعلياً.
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
-import { createSurveyDoctor, publishSurveyDoctorToOwners, doctorLinkKey } from '../../lib/surveyDoctors.js';
+import { createSurveyDoctor, publishSurveyDoctorToOwners, doctorLinkKey, cleanDoctorName } from '../../lib/surveyDoctors.js';
+import { normalizeRepName } from '../scientific-reps/scientific-reps.service.js';
 
 export const FIELD_REP_ROLE = 'scientific_rep';
+
+// أقصى خطأ مقبول في دقة الموقع (متر). أي قراءة أسوأ تُرفض ولا تُحفظ.
+export const MAX_ACCURACY_M = 50;
+const MAX_NEAR_PHARMACIES = 20;
 
 // الأدوار التي ترى سيرفي مندوبيها (عرض فقط). الأدمن يرى الكل.
 const VIEWER_ROLES = new Set([
@@ -34,9 +39,9 @@ function optionalText(value, max = 200) {
   return s ? s.slice(0, max) : null;
 }
 
-// الموقع إلزامي: بلا إحداثيات صالحة لا يُحفظ الاسم مطلقاً.
+// الموقع إلزامي، ودقته يجب أن تكون ضمن الحد. بلا ذلك لا يُحفظ الاسم.
 function requireCoords(body) {
-  const latitude  = Number(body?.latitude);
+  const latitude = Number(body?.latitude);
   const longitude = Number(body?.longitude);
   const ok = Number.isFinite(latitude) && Number.isFinite(longitude)
     && latitude >= -90 && latitude <= 90
@@ -45,14 +50,46 @@ function requireCoords(body) {
   if (!ok) {
     throw new AppError('الموقع الجغرافي مطلوب — لا يمكن حفظ الاسم بدون تحديد موقعه على الخارطة', 400, 'LOCATION_REQUIRED');
   }
-  const acc = Number(body?.accuracy);
-  return { latitude, longitude, accuracy: Number.isFinite(acc) && acc >= 0 ? acc : null };
+  const accuracy = Number(body?.accuracy);
+  if (!Number.isFinite(accuracy) || accuracy < 0) {
+    throw new AppError('دقة الموقع غير معروفة — أعد تحديد الموقع', 400, 'LOCATION_REQUIRED');
+  }
+  if (accuracy > MAX_ACCURACY_M) {
+    throw new AppError(`دقة الموقع ±${Math.round(accuracy)} م غير كافية (المطلوب ${MAX_ACCURACY_M} م أو أدق). اخرج إلى مكان مفتوح أو استخدم الهاتف مع GPS`, 400, 'LOW_ACCURACY');
+  }
+  return { latitude, longitude, accuracy };
 }
 
 function assertFieldRep(user) {
   if (user?.role !== FIELD_REP_ROLE) {
     throw new AppError('هذه الصفحة للتسجيل متاحة لحساب المندوب العلمي فقط', 403, 'FORBIDDEN');
   }
+}
+
+// مفاتيح المقارنة: الاسم بعد إزالة «د.» وتطبيع العربية، والصيدلية بتطبيع الاسم فقط
+const doctorKey = (name) => normalizeRepName(cleanDoctorName(name));
+const plainKey = (name) => normalizeRepName(String(name ?? '').trim());
+
+// إزالة التكرار (بالتطبيع) دون حد — تُستعمل عند القراءة لتفادي رفض بيانات قديمة
+function dedupeNames(list) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(list) ? list : []) {
+    const name = String(raw ?? '').trim().slice(0, 200);
+    const k = plainKey(name);
+    if (!name || seen.has(k)) continue;
+    seen.add(k);
+    out.push(name);
+  }
+  return out;
+}
+
+function cleanNearPharmacies(list) {
+  const out = dedupeNames(list);
+  if (out.length > MAX_NEAR_PHARMACIES) {
+    throw new AppError(`عدد الصيدليات القريبة كبير جداً (الحد ${MAX_NEAR_PHARMACIES})`, 400, 'VALIDATION_ERROR');
+  }
+  return out;
 }
 
 // ─── Survey host (نفس منطق اختيار السيرفي المضيف في addDoctor/الاستيراد) ──────
@@ -71,113 +108,224 @@ async function hostSurveyIdFor(userId) {
   return survey?.id ?? null;
 }
 
-// ─── Create ──────────────────────────────────────────────────
+async function loadMasterDoctors(hostId) {
+  if (!hostId) return [];
+  return prisma.masterSurveyDoctor.findMany({
+    where: { surveyId: hostId, isActive: true },
+    select: { id: true, name: true, areaName: true, pharmacyName: true },
+  });
+}
 
-/** تسجيل طبيب مستقل — أرشيف فقط، لا نشر في سيرفي الأطباء. */
-export async function createDoctorEntry(user, body) {
-  assertFieldRep(user);
-  const data = {
-    userId:       user.id,
-    kind:         'doctor',
-    name:         requireText(body?.name, 'اسم الطبيب مطلوب'),
-    specialty:    optionalText(body?.specialty),
-    className:    optionalText(body?.className, 100),
-    pharmacyName: optionalText(body?.pharmacyName),
-    areaName:     requireText(body?.areaName, 'المنطقة مطلوبة'),
-    notes:        optionalText(body?.notes, 1000),
-    ...requireCoords(body),
-  };
-  const entry = await prisma.repFieldSurveyEntry.create({ data });
-  return { entry };
+// الارتباط القديم (parentId) يُدمج في قائمة الصيدليات قبل أي تعديل عليها
+async function migrateLegacyParent(row) {
+  if (!row.parentId) return row;
+  const parent = await prisma.repFieldSurveyEntry.findUnique({ where: { id: row.parentId }, select: { name: true } });
+  return { ...row, nearPharmacies: dedupeNames([...row.nearPharmacies, parent?.name]), parentId: null };
 }
 
 /**
- * تسجيل صيدلية + أطبائها القريبين. كل طبيب قريب يرث موقع الصيدلية الملتقط لحظة
- * التسجيل (موقع واحد لكل زيارة ميدانية)، ويُنشر في سيرفي الأطباء الرئيسي.
+ * ينشر طبيباً له صيدلية قريبة واحدة على الأقل في سيرفي الأطباء الرئيسي.
+ * إن وُجد طبيب بنفس الاسم والمنطقة فيه يُربط به بدل التكرار.
+ * @returns {'published'|'linked'|'skipped'|'no-survey'|'already'|'failed'}
  */
-export async function createPharmacyEntry(user, body) {
-  assertFieldRep(user);
-  const name     = requireText(body?.name, 'اسم الصيدلية مطلوب');
-  const areaName = requireText(body?.areaName, 'المنطقة مطلوبة');
-  const notes    = optionalText(body?.notes, 1000);
-  const coords   = requireCoords(body);
-
-  // تجاهل الصفوف الفارغة، وأسقط المكرر داخل نفس الدفعة (نفس الاسم بعد التطبيع)
-  const seen = new Set();
-  const nearby = [];
-  for (const d of Array.isArray(body?.doctors) ? body.doctors : []) {
-    const dName = String(d?.name ?? '').trim();
-    if (!dName) continue;
-    const key = doctorLinkKey(dName, areaName);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    nearby.push({
-      name:      dName.slice(0, 200),
-      specialty: optionalText(d?.specialty),
-      className: optionalText(d?.className, 100),
-    });
+async function ensurePublished(user, hostId, entry, masterRows) {
+  if (!hostId) return 'no-survey';
+  if (entry.masterSurveyDoctorId) return 'already';
+  if (!entry.nearPharmacies.length) return 'skipped';
+  try {
+    const key = doctorLinkKey(entry.name, entry.areaName);
+    const hit = masterRows.find(d => doctorLinkKey(d.name, d.areaName) === key);
+    let masterId;
+    let status;
+    if (hit) {
+      masterId = hit.id;
+      status = 'linked';
+    } else {
+      const doc = await createSurveyDoctor(hostId, {
+        name: entry.name,
+        specialty: entry.specialty,
+        areaName: entry.areaName,
+        pharmacyName: entry.nearPharmacies.join('، '),
+        className: entry.className,
+      }, user.id);
+      await publishSurveyDoctorToOwners(doc);
+      masterRows.push({ id: doc.id, name: doc.name, areaName: doc.areaName, pharmacyName: doc.pharmacyName });
+      masterId = doc.id;
+      status = 'published';
+    }
+    await prisma.repFieldSurveyEntry.update({ where: { id: entry.id }, data: { masterSurveyDoctorId: masterId } });
+    return status;
+  } catch (err) {
+    console.error('[rep-field-survey] publish failed', entry.id, err?.message);
+    return 'failed';
   }
+}
 
-  const pharmacy = await prisma.repFieldSurveyEntry.create({
-    data: {
-      userId: user.id, kind: 'pharmacy', name, areaName, notes, ...coords,
-      children: {
-        create: nearby.map(d => ({
-          userId: user.id, kind: 'doctor', areaName, pharmacyName: name, ...d, ...coords,
-        })),
-      },
-    },
-    include: { children: true },
+// الأسماء المكررة: سجلات المندوب نفسه، وللأطباء أيضاً سيرفي الأطباء
+async function findNameMatches(userId, kind, name, hostId) {
+  const key = kind === 'doctor' ? doctorKey(name) : plainKey(name);
+  const own = await prisma.repFieldSurveyEntry.findMany({
+    where: { userId, kind },
+    select: { id: true, name: true, areaName: true, nearPharmacies: true },
   });
-
-  // ── نشر أطباء الصيدلية في سيرفي الأطباء الرئيسي ──────────────────────────
-  const hostId = await hostSurveyIdFor(user.id);
-  const publish = { hostSurvey: !!hostId, published: 0, linkedExisting: 0, failed: 0 };
-
-  if (hostId && pharmacy.children.length) {
-    const existing = await prisma.masterSurveyDoctor.findMany({
-      where: { surveyId: hostId, isActive: true },
-      select: { id: true, name: true, areaName: true },
-    });
-    const byKey = new Map(existing.map(d => [doctorLinkKey(d.name, d.areaName), d.id]));
-
-    for (const child of pharmacy.children) {
-      try {
-        const key = doctorLinkKey(child.name, areaName);
-        let masterId = byKey.get(key);
-        if (masterId) {
-          publish.linkedExisting++;
-        } else {
-          const doc = await createSurveyDoctor(hostId, {
-            name: child.name, specialty: child.specialty, areaName,
-            pharmacyName: name, className: child.className,
-          }, user.id);
-          await publishSurveyDoctorToOwners(doc);
-          masterId = doc.id;
-          byKey.set(key, masterId);
-          publish.published++;
-        }
-        await prisma.repFieldSurveyEntry.update({
-          where: { id: child.id },
-          data: { masterSurveyDoctorId: masterId },
-        });
-      } catch (err) {
-        publish.failed++;
-        console.error('[rep-field-survey] publish doctor failed', child.id, err?.message);
+  const matches = own
+    .filter(e => (kind === 'doctor' ? doctorKey(e.name) : plainKey(e.name)) === key)
+    .map(e => ({ source: 'own', id: e.id, name: e.name, areaName: e.areaName, nearPharmacies: e.nearPharmacies }));
+  if (kind === 'doctor') {
+    for (const d of await loadMasterDoctors(hostId)) {
+      if (doctorKey(d.name) === key) {
+        matches.push({ source: 'survey', id: d.id, name: d.name, areaName: d.areaName, nearPharmacies: d.pharmacyName ? [d.pharmacyName] : [] });
       }
     }
   }
+  return matches;
+}
 
-  return { entry: pharmacy, nearbyCount: pharmacy.children.length, publish };
+// ─── Create ──────────────────────────────────────────────────
+
+/**
+ * تسجيل طبيب. الصيدليات القريبة (قائمة) تُربط بالطبيب الواحد.
+ * - اسم مكرر: يُرجع { duplicate, matches } ولا يحفظ، إلا إذا أُرسل allowDuplicate.
+ * - mergeIntoId: يضيف الصيدليات إلى طبيب موجود لديك بدل إنشاء سجل ثانٍ.
+ */
+export async function createDoctorEntry(user, body) {
+  assertFieldRep(user);
+  const name = requireText(body?.name, 'اسم الطبيب مطلوب');
+  const areaName = requireText(body?.areaName, 'المنطقة مطلوبة');
+  const coords = requireCoords(body);
+  const nearPharmacies = cleanNearPharmacies([
+    ...(Array.isArray(body?.nearPharmacies) ? body.nearPharmacies : []),
+    body?.pharmacyName,
+  ]);
+  const hostId = await hostSurveyIdFor(user.id);
+
+  const mergeIntoId = Number(body?.mergeIntoId) || null;
+  if (mergeIntoId) {
+    const target = await prisma.repFieldSurveyEntry.findUnique({ where: { id: mergeIntoId } });
+    if (!target || target.userId !== user.id || target.kind !== 'doctor') {
+      throw new AppError('الطبيب المراد الدمج معه غير موجود', 404, 'NOT_FOUND');
+    }
+    const base = await migrateLegacyParent(target);
+    const entry = await prisma.repFieldSurveyEntry.update({
+      where: { id: mergeIntoId },
+      data: {
+        nearPharmacies: cleanNearPharmacies([...base.nearPharmacies, ...nearPharmacies]),
+        parentId: null,
+        editedAt: new Date(),
+      },
+    });
+    const status = await ensurePublished(user, hostId, entry, await loadMasterDoctors(hostId));
+    return { entry, merged: true, publish: { status } };
+  }
+
+  if (!body?.allowDuplicate) {
+    const matches = await findNameMatches(user.id, 'doctor', name, hostId);
+    if (matches.length) return { duplicate: true, matches };
+  }
+
+  const entry = await prisma.repFieldSurveyEntry.create({
+    data: {
+      userId: user.id,
+      kind: 'doctor',
+      name,
+      specialty: optionalText(body?.specialty),
+      className: optionalText(body?.className, 100),
+      areaName,
+      notes: optionalText(body?.notes, 1000),
+      nearPharmacies,
+      ...coords,
+    },
+  });
+  const status = await ensurePublished(user, hostId, entry, await loadMasterDoctors(hostId));
+  return { entry, merged: false, publish: { status } };
+}
+
+/**
+ * تسجيل صيدلية + أطبائها القريبين.
+ * طبيب مسجَّل لديك بنفس الاسم يُربط بهذه الصيدلية (بدون تغيير موقعه) بدل التكرار.
+ * الطبيب الجديد يرث موقع الصيدلية الملتقط لحظة التسجيل.
+ */
+export async function createPharmacyEntry(user, body) {
+  assertFieldRep(user);
+  const name = requireText(body?.name, 'اسم الصيدلية مطلوب');
+  const areaName = requireText(body?.areaName, 'المنطقة مطلوبة');
+  const notes = optionalText(body?.notes, 1000);
+  const coords = requireCoords(body);
+  const hostId = await hostSurveyIdFor(user.id);
+
+  if (!body?.allowDuplicate) {
+    const matches = await findNameMatches(user.id, 'pharmacy', name, hostId);
+    if (matches.length) return { duplicate: true, matches };
+  }
+
+  // أطباء الدفعة الواحدة بلا تكرار
+  const nearbyInput = [];
+  const seenKeys = new Set();
+  for (const d of Array.isArray(body?.doctors) ? body.doctors : []) {
+    const dName = String(d?.name ?? '').trim().slice(0, 200);
+    if (!dName) continue;
+    const k = doctorKey(dName);
+    if (seenKeys.has(k)) continue;
+    seenKeys.add(k);
+    nearbyInput.push({ name: dName, specialty: optionalText(d?.specialty), className: optionalText(d?.className, 100) });
+  }
+
+  const pharmacy = await prisma.repFieldSurveyEntry.create({
+    data: { userId: user.id, kind: 'pharmacy', name, areaName, notes, ...coords },
+  });
+
+  const ownDoctors = await prisma.repFieldSurveyEntry.findMany({ where: { userId: user.id, kind: 'doctor' } });
+  const masterRows = await loadMasterDoctors(hostId);
+  const counts = { created: 0, linkedOwn: 0 };
+  const publish = { hostSurvey: !!hostId, published: 0, linkedSurvey: 0, failed: 0 };
+
+  for (const d of nearbyInput) {
+    try {
+      const k = doctorKey(d.name);
+      const own = ownDoctors.find(o => doctorKey(o.name) === k);
+      let doctor;
+      if (own) {
+        const base = await migrateLegacyParent(own);
+        doctor = await prisma.repFieldSurveyEntry.update({
+          where: { id: own.id },
+          data: { nearPharmacies: dedupeNames([...base.nearPharmacies, name]), parentId: null, editedAt: new Date() },
+        });
+        counts.linkedOwn++;
+      } else {
+        doctor = await prisma.repFieldSurveyEntry.create({
+          data: {
+            userId: user.id,
+            kind: 'doctor',
+            name: d.name,
+            specialty: d.specialty,
+            className: d.className,
+            areaName,
+            nearPharmacies: [name],
+            ...coords,
+          },
+        });
+        ownDoctors.push(doctor);
+        counts.created++;
+      }
+      const status = await ensurePublished(user, hostId, doctor, masterRows);
+      if (status === 'published') publish.published++;
+      if (status === 'linked') publish.linkedSurvey++;
+      if (status === 'failed') publish.failed++;
+    } catch (err) {
+      publish.failed++;
+      console.error('[rep-field-survey] nearby doctor failed', d.name, err?.message);
+    }
+  }
+
+  return { entry: pharmacy, nearbyCount: nearbyInput.length, nearby: counts, publish };
 }
 
 // ─── Update ──────────────────────────────────────────────────
 
 /**
  * تعديل سجل يملكه المندوب نفسه فقط. الحقل الذي لا يُرسَل يبقى كما هو.
- * - تعديل اسم الصيدلية أو منطقتها أو موقعها يسري إلى أطبائها القريبين
- *   (الذين يرثون بياناتها). موقع الطبيب القريب المختلف عن موقع صيدليته لا يُمس.
- * - الطبيب القريب لا يغيّر اسم صيدليته، فهو يتبع الصيدلية الأم.
+ * - تغيير اسم الصيدلية يُحدِّث الأطباء الذين يذكرونها.
+ * - تعديل منطقة الصيدلية أو موقعها يسري إلى الأطباء المرتبطين بها بالطريقة القديمة فقط.
  * - الصف المنشور في سيرفي الأطباء الرئيسي لا يُعدَّل تلقائياً.
  */
 export async function updateEntry(user, entryId, body) {
@@ -196,32 +344,50 @@ export async function updateEntry(user, entryId, body) {
   if (current.kind === 'doctor') {
     if (body?.specialty !== undefined) data.specialty = optionalText(body.specialty);
     if (body?.className !== undefined) data.className = optionalText(body.className, 100);
-    if (!current.parentId && body?.pharmacyName !== undefined) data.pharmacyName = optionalText(body.pharmacyName);
+    if (body?.nearPharmacies !== undefined) {
+      data.nearPharmacies = cleanNearPharmacies(body.nearPharmacies);
+      data.parentId = null;
+    }
   }
-  // الموقع: إن أُرسل أي إحداثي يجب أن تكون الإحداثيات كاملة وصالحة
   if (body?.latitude !== undefined || body?.longitude !== undefined) {
     Object.assign(data, requireCoords(body));
   }
 
-  return prisma.$transaction(async tx => {
-    const row = await tx.repFieldSurveyEntry.update({ where: { id: entryId }, data });
+  const row = await prisma.$transaction(async tx => {
+    const updated = await tx.repFieldSurveyEntry.update({ where: { id: entryId }, data });
     if (current.kind === 'pharmacy') {
-      const kidData = {};
-      if (data.name !== undefined) kidData.pharmacyName = data.name;
-      if (data.areaName !== undefined) kidData.areaName = data.areaName;
-      if (Object.keys(kidData).length) {
-        await tx.repFieldSurveyEntry.updateMany({ where: { parentId: entryId }, data: kidData });
+      // الأطباء المرتبطون بالطريقة القديمة (parentId) يتبعون الصيدلية في منطقتها وموقعها
+      if (data.areaName !== undefined) {
+        await tx.repFieldSurveyEntry.updateMany({ where: { parentId: entryId }, data: { areaName: data.areaName } });
       }
       if (data.latitude !== undefined) {
-        // الأطباء الذين يرثون موقع الصيدلية فقط ينتقلون معها
         await tx.repFieldSurveyEntry.updateMany({
           where: { parentId: entryId, latitude: current.latitude, longitude: current.longitude },
           data: { latitude: data.latitude, longitude: data.longitude, accuracy: data.accuracy },
         });
       }
+      // تغيير الاسم يُحدِّث الأطباء الذين يذكرون الصيدلية بالاسم القديم
+      if (data.name !== undefined && plainKey(data.name) !== plainKey(current.name)) {
+        const owned = await tx.repFieldSurveyEntry.findMany({
+          where: { userId: user.id, kind: 'doctor' },
+          select: { id: true, nearPharmacies: true },
+        });
+        for (const d of owned) {
+          if (!d.nearPharmacies.some(p => plainKey(p) === plainKey(current.name))) continue;
+          const renamed = dedupeNames(d.nearPharmacies.map(p => (plainKey(p) === plainKey(current.name) ? data.name : p)));
+          await tx.repFieldSurveyEntry.update({ where: { id: d.id }, data: { nearPharmacies: renamed } });
+        }
+      }
     }
-    return { entry: row, publishedToDoctorSurvey: row.masterSurveyDoctorId != null };
+    return updated;
   });
+
+  let publish = null;
+  if (current.kind === 'doctor' && data.nearPharmacies !== undefined) {
+    const hostId = await hostSurveyIdFor(user.id);
+    publish = { status: await ensurePublished(user, hostId, row, await loadMasterDoctors(hostId)) };
+  }
+  return { entry: row, publishedToDoctorSurvey: row.masterSurveyDoctorId != null, publish };
 }
 
 // ─── Read ────────────────────────────────────────────────────
@@ -264,7 +430,14 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
     include: { parent: { select: { name: true } } },
   });
 
-  // أسماء المندوبين للعرض في سجلات المدير (المندوب يرى اسمه فقط)
+  // صيدليات كل مندوب بمفتاح الاسم — لربط الطبيب بالصيدليات المسجَّلة فعلاً
+  const pharmaIdsByKey = new Map();
+  for (const r of rows) {
+    if (r.kind !== 'pharmacy') continue;
+    const k = `${r.userId}|${plainKey(r.name)}`;
+    pharmaIdsByKey.set(k, [...(pharmaIdsByKey.get(k) ?? []), r.id]);
+  }
+
   const ownerIds = [...new Set(rows.map(r => r.userId))];
   const owners = ownerIds.length
     ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, displayName: true, username: true } })
@@ -272,26 +445,34 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
   const ownerName = new Map(owners.map(o => [o.id, o.displayName || o.username]));
 
   return {
-    entries: rows.map(r => ({
-      id:           r.id,
-      userId:       r.userId,
-      repName:      ownerName.get(r.userId) ?? null,
-      kind:         r.kind,
-      name:         r.name,
-      specialty:    r.specialty,
-      className:    r.className,
-      pharmacyName: r.pharmacyName,
-      areaName:     r.areaName,
-      notes:        r.notes,
-      latitude:     r.latitude,
-      longitude:    r.longitude,
-      accuracy:     r.accuracy,
-      parentId:     r.parentId,
-      parentName:   r.parent?.name ?? null,
-      publishedToDoctorSurvey: r.masterSurveyDoctorId != null,
-      createdAt:    r.createdAt,
-      editedAt:     r.editedAt,
-    })),
+    entries: rows.map(r => {
+      const isDoctor = r.kind === 'doctor';
+      // الصيدليات القريبة = المخزَّنة + الصيدلية القديمة المرتبطة بالمعرّف (إن وُجدت)
+      const nearPharmacies = isDoctor ? dedupeNames([...r.nearPharmacies, r.parent?.name]) : [];
+      const pharmacyIds = isDoctor ? [...new Set([
+        ...(r.parentId ? [r.parentId] : []),
+        ...nearPharmacies.flatMap(p => pharmaIdsByKey.get(`${r.userId}|${plainKey(p)}`) ?? []),
+      ])] : [];
+      return {
+        id:           r.id,
+        userId:       r.userId,
+        repName:      ownerName.get(r.userId) ?? null,
+        kind:         r.kind,
+        name:         r.name,
+        specialty:    r.specialty,
+        className:    r.className,
+        areaName:     r.areaName,
+        notes:        r.notes,
+        latitude:     r.latitude,
+        longitude:    r.longitude,
+        accuracy:     r.accuracy,
+        nearPharmacies,
+        pharmacyIds,
+        publishedToDoctorSurvey: r.masterSurveyDoctorId != null,
+        createdAt:    r.createdAt,
+        editedAt:     r.editedAt,
+      };
+    }),
     // قائمة المندوبين للفلتر — للمدير فقط (المندوب لا يحتاجها)
     reps: reps.map(r => ({ userId: r.userId, name: r.name, company: r.company?.name ?? null })),
   };

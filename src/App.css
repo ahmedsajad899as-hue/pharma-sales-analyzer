@@ -3637,3 +3637,10 @@ select.comm-input { cursor: pointer; }
 .rfs-nearby-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
 .rfs-mini-badge { margin-inline-start: 8px; }
 .rfs-actions-cell { white-space: nowrap; display: flex; gap: 6px; }
+.rfs-chips { display: flex; flex-direction: column; gap: 8px; }
+.rfs-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.rfs-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--c-accent-light); color: var(--c-accent); font-size: 13px; font-weight: 600; }
+.rfs-chip button { border: 0; background: transparent; color: var(--c-accent); cursor: pointer; font-size: 12px; padding: 0; line-height: 1; }
+.rfs-dup { border-right-color: var(--c-accent); background: var(--c-accent-light); color: var(--c-text-primary); border: 1px solid var(--c-purple-border); margin-top: 14px; }
+.rfs-dup-list { margin: 8px 0 10px; padding-inline-start: 18px; font-size: 13.5px; display: flex; flex-direction: column; gap: 4px; }
+.rfs-dup-actions { display: flex; flex-wrap: wrap; gap: 8px; }

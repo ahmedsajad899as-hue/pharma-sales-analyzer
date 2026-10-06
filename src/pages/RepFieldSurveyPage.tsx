@@ -4,10 +4,10 @@ import { useAuth } from '../context/AuthContext';
 
 // ════════════════════════════════════════════════════════════════════════════
 // سيرفي المندوب العلمي الميداني
-// — المندوب: يسجّل أطباء وصيدليات منطقته، وموقع كل اسم إلزامي (يُلتقط لحظة التسجيل).
-// — مدير الشركة: يرى سجلات مندوبيه للاطلاع والتصدير فقط.
-// أرشيف توثيقي؛ لا يرتبط بالمبيعات أو الزيارات. أطباء الصيدليات القريبون
-// يُنشرون في سيرفي الأطباء الرئيسي (يحدده الخادم).
+// — المندوب: يسجّل أطباء وصيدليات منطقته، وموقع كل اسم إلزامي بدقة عالية.
+// — مدير الشركة / قائد الفريق: يرى سجلات مندوبيه كاملة للاطلاع والتصدير.
+// أرشيف توثيقي؛ لا يرتبط بالمبيعات أو الزيارات. الطبيب الذي له صيدلية قريبة
+// يُنشر في سيرفي الأطباء الرئيسي (يحدده الخادم).
 // ════════════════════════════════════════════════════════════════════════════
 
 type Kind = 'doctor' | 'pharmacy';
@@ -20,14 +20,13 @@ interface Entry {
   name: string;
   specialty: string | null;
   className: string | null;
-  pharmacyName: string | null;
   areaName: string;
   notes: string | null;
   latitude: number;
   longitude: number;
   accuracy: number | null;
-  parentId: number | null;
-  parentName: string | null;
+  nearPharmacies: string[];
+  pharmacyIds: number[];
   publishedToDoctorSurvey: boolean;
   createdAt: string;
   editedAt: string | null;
@@ -35,8 +34,15 @@ interface Entry {
 
 interface RepOption { userId: number; name: string; company: string | null }
 interface NearbyRow { name: string; specialty: string; className: string }
-interface Coords { latitude: number; longitude: number; accuracy: number | null }
-interface SaveNotice { kind: Kind; name: string; nearbyCount?: number; publish?: { hostSurvey: boolean; published: number; linkedExisting: number; failed: number } }
+interface Coords { latitude: number; longitude: number; accuracy: number }
+interface DupMatch { source: 'own' | 'survey'; id: number; name: string; areaName: string; nearPharmacies: string[] }
+interface DupState { kind: Kind; endpoint: string; body: Record<string, unknown>; matches: DupMatch[] }
+interface Notice { kind: Kind; name: string; lines: string[] }
+
+// دقة الموقع: ننتظر حتى تتحسن القراءة، ونرفض ما هو أسوأ من الحد
+const TARGET_ACC_M = 15;
+const WAIT_MS = 25000;
+const MAX_ACC_M = 50; // يطابق الحد في الخادم
 
 const fmtDateTime = (iso: string) =>
   new Date(iso).toLocaleString('ar-IQ', {
@@ -45,10 +51,121 @@ const fmtDateTime = (iso: string) =>
   });
 
 const mapsUrl = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
-
 const normArea = (s: string) => s.trim().replace(/\s+/g, ' ');
 
-const EMPTY_FORM = { name: '', specialty: '', className: '', pharmacyName: '', areaName: '', notes: '' };
+const EMPTY_FORM = { name: '', specialty: '', className: '', areaName: '', notes: '' };
+
+// قراءة متواصلة للموقع حتى تبلغ الدقة الهدف (أو تنتهي المهلة فنأخذ الأفضل)
+function captureBestLocation(onLive: (acc: number) => void): Promise<Coords> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('المتصفح لا يدعم تحديد الموقع.'));
+      return;
+    }
+    let best: GeolocationPosition | null = null;
+    let watchId: number | null = null;
+    let timer: number | undefined;
+    let finished = false;
+
+    const stop = () => {
+      finished = true;
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+    const finish = () => {
+      if (finished) return;
+      stop();
+      if (!best) {
+        reject(new Error('تعذّر تحديد الموقع. تأكد من تفعيل GPS وحاول في مكان مفتوح.'));
+        return;
+      }
+      const acc = best.coords.accuracy;
+      if (acc > MAX_ACC_M) {
+        reject(new Error(`الدقة الحالية ±${Math.round(acc)} م غير كافية. اخرج إلى مكان مفتوح أو استخدم الهاتف مع GPS ثم أعد المحاولة.`));
+        return;
+      }
+      resolve({ latitude: best.coords.latitude, longitude: best.coords.longitude, accuracy: acc });
+    };
+
+    watchId = navigator.geolocation.watchPosition(
+      p => {
+        if (finished) return;
+        onLive(p.coords.accuracy);
+        if (!best || p.coords.accuracy < best.coords.accuracy) best = p;
+        if (p.coords.accuracy <= TARGET_ACC_M) finish();
+      },
+      err => {
+        if (finished) return;
+        if (err.code === 1) {
+          stop();
+          reject(new Error('تم رفض إذن الموقع. فعّله من إعدادات المتصفح ثم أعد المحاولة.'));
+        }
+        // أخطاء مؤقتة (إشارة ضعيفة): ننتظر قراءة أخرى حتى المهلة
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: WAIT_MS },
+    );
+    timer = window.setTimeout(finish, WAIT_MS);
+  });
+}
+
+// حقل قائمة صيدليات: كل اسم يُكتب ثم يُضاف كشريحة
+function NearChips({ value, onChange, placeholder }: { value: string[]; onChange: (v: string[]) => void; placeholder: string }) {
+  const [draft, setDraft] = useState('');
+  const add = () => {
+    const t = draft.trim();
+    setDraft('');
+    if (!t || value.includes(t)) return;
+    onChange([...value, t]);
+  };
+  return (
+    <div className="rfs-chips">
+      {value.length > 0 && (
+        <div className="rfs-chip-list">
+          {value.map(v => (
+            <span key={v} className="rfs-chip">
+              {v}
+              <button type="button" aria-label="حذف" onClick={() => onChange(value.filter(x => x !== v))}>✕</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="input-row">
+        <input
+          className="form-input"
+          placeholder={placeholder}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+        />
+        <button type="button" className="btn btn--secondary btn--sm" onClick={add}>+ إضافة</button>
+      </div>
+    </div>
+  );
+}
+
+function describeSave(kind: Kind, data: any): string[] {
+  const lines: string[] = [];
+  if (kind === 'doctor') {
+    if (data.merged) {
+      lines.push('أُضيفت الصيدليات إلى الطبيب الموجود — بقي طبيباً واحداً.');
+    }
+    const status = data.publish?.status as string | undefined;
+    if (status === 'published') lines.push('نُشر في سيرفي الأطباء.');
+    if (status === 'linked') lines.push('مرتبط بطبيب موجود مسبقاً في سيرفي الأطباء.');
+    if (status === 'failed') lines.push('تعذّر النشر في سيرفي الأطباء — حُفظ في الأرشيف.');
+    if (status === 'no-survey') lines.push('لا يوجد سيرفي أطباء نشط — حُفظ في الأرشيف فقط.');
+    if (status === 'skipped') lines.push('بدون صيدلية قريبة فلا يُنشر في سيرفي الأطباء (حُفظ في الأرشيف).');
+    return lines;
+  }
+  lines.push(data.nearbyCount ? `مع ${data.nearbyCount} طبيب قريب.` : 'بدون أطباء قريبين.');
+  if (data.nearby?.linkedOwn) lines.push(`ربط ${data.nearby.linkedOwn} من أطبائك المسجَّلين سابقاً بهذه الصيدلية.`);
+  const p = data.publish ?? {};
+  if (p.published) lines.push(`نُشر ${p.published} طبيب في سيرفي الأطباء.`);
+  if (p.linkedSurvey) lines.push(`${p.linkedSurvey} مرتبط بأطباء موجودين مسبقاً في السيرفي.`);
+  if (p.failed) lines.push(`تعذّر نشر ${p.failed} طبيب.`);
+  if (p.hostSurvey === false && data.nearbyCount) lines.push('لا يوجد سيرفي أطباء نشط — حُفظ في الأرشيف فقط.');
+  return lines;
+}
 
 export default function RepFieldSurveyPage() {
   const { user, token } = useAuth();
@@ -56,13 +173,13 @@ export default function RepFieldSurveyPage() {
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   // ── بيانات ─────────────────────────────────────────────────────────────
-  const [entries, setEntries]   = useState<Entry[]>([]);
-  const [reps, setReps]         = useState<RepOption[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const [entries, setEntries]     = useState<Entry[]>([]);
+  const [reps, setReps]           = useState<RepOption[]>([]);
+  const [loading, setLoading]     = useState(true);
   const [loadError, setLoadError] = useState('');
   const [repFilter, setRepFilter] = useState<number | ''>('');
   const [kindFilter, setKindFilter] = useState<'all' | Kind>('all');
-  const [search, setSearch]     = useState('');
+  const [search, setSearch]       = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,6 +210,9 @@ export default function RepFieldSurveyPage() {
       .catch(() => setAreaOptions([]));
   }, [isRep, H]);
 
+  const repCompany = useMemo(() => new Map(reps.map(r => [r.userId, r.company])), [reps]);
+  const nearbyOf = (pharmacyId: number) => entries.filter(x => x.kind === 'doctor' && x.pharmacyIds.includes(pharmacyId));
+
   // ── الإحصاء حسب المنطقة ────────────────────────────────────────────────
   const areaSummary = useMemo(() => {
     const map = new Map<string, { area: string; doctors: number; pharmacies: number }>();
@@ -117,69 +237,91 @@ export default function RepFieldSurveyPage() {
     return entries.filter(e => {
       if (kindFilter !== 'all' && e.kind !== kindFilter) return false;
       if (!q) return true;
-      return [e.name, e.areaName, e.pharmacyName, e.parentName, e.specialty, e.repName]
+      return [e.name, e.areaName, e.specialty, e.repName, ...e.nearPharmacies]
         .some(v => (v ?? '').toLowerCase().includes(q));
     });
   }, [entries, kindFilter, search]);
 
   // ── نموذج التسجيل (للمندوب فقط) ────────────────────────────────────────
-  const [kind, setKind]         = useState<Kind>('doctor');
-  const [form, setForm]         = useState(EMPTY_FORM);
-  const [nearby, setNearby]     = useState<NearbyRow[]>([]);
-  const [coords, setCoords]     = useState<Coords | null>(null);
-  const [locState, setLocState] = useState<'idle' | 'loading' | 'error'>('idle');
-  const [locError, setLocError] = useState('');
-  const [saving, setSaving]     = useState(false);
+  const [kind, setKind]           = useState<Kind>('doctor');
+  const [form, setForm]           = useState(EMPTY_FORM);
+  const [doctorNear, setDoctorNear] = useState<string[]>([]);
+  const [nearby, setNearby]       = useState<NearbyRow[]>([]);
+  const [coords, setCoords]       = useState<Coords | null>(null);
+  const [locState, setLocState]   = useState<'idle' | 'loading' | 'error'>('idle');
+  const [locError, setLocError]   = useState('');
+  const [liveAcc, setLiveAcc]     = useState<number | null>(null);
+  const [saving, setSaving]       = useState(false);
   const [formError, setFormError] = useState('');
-  const [notice, setNotice]     = useState<SaveNotice | null>(null);
+  const [notice, setNotice]       = useState<Notice | null>(null);
+  const [dup, setDup]             = useState<DupState | null>(null);
 
   const setField = (k: keyof typeof EMPTY_FORM, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const resetAfterSave = () => {
+    setForm(f => ({ ...EMPTY_FORM, areaName: f.areaName }));
+    setDoctorNear([]);
+    setNearby([]);
+    setCoords(null);
+    setLocState('idle');
+    setLocError('');
+    setLiveAcc(null);
+  };
 
   const switchKind = (k: Kind) => {
     setKind(k);
     setForm(f => ({ ...EMPTY_FORM, areaName: f.areaName }));
+    setDoctorNear([]);
     setNearby([]);
     setCoords(null);
     setLocState('idle');
     setLocError('');
+    setLiveAcc(null);
     setFormError('');
     setNotice(null);
+    setDup(null);
   };
 
-  const captureLocation = () => {
-    if (!navigator.geolocation) {
-      setLocState('error');
-      setLocError('المتصفح لا يدعم تحديد الموقع.');
-      return;
-    }
+  const captureLocation = async () => {
     setLocState('loading');
     setLocError('');
-    navigator.geolocation.getCurrentPosition(
-      p => {
-        setCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy ?? null });
-        setLocState('idle');
-      },
-      err => {
-        setLocState('error');
-        setLocError(err.code === 1
-          ? 'تم رفض إذن الموقع. فعّله من إعدادات المتصفح ثم أعد المحاولة.'
-          : 'تعذّر تحديد الموقع. تأكد من تفعيل GPS وحاول في مكان مفتوح.');
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    );
+    setLiveAcc(null);
+    try {
+      setCoords(await captureBestLocation(setLiveAcc));
+      setLocState('idle');
+    } catch (e: any) {
+      setCoords(null);
+      setLocState('error');
+      setLocError(e.message);
+    }
   };
 
-  const resetAfterSave = () => {
-    setForm(f => ({ ...EMPTY_FORM, areaName: f.areaName }));
-    setNearby([]);
-    setCoords(null);
-    setLocState('idle');
-    setLocError('');
+  // إرسال تسجيل جديد. الاسم المكرر لا يُحفظ: يظهر تنبيه بالسجلات المطابقة
+  const send = async (k: Kind, endpoint: string, body: Record<string, unknown>, name: string) => {
+    setSaving(true);
+    try {
+      const r = await fetch(endpoint, { method: 'POST', headers: H(), body: JSON.stringify(body) });
+      const j = await r.json();
+      if (r.status === 409 && j.code === 'DUPLICATE_NAME') {
+        setDup({ kind: k, endpoint, body, matches: j.matches ?? [] });
+        return;
+      }
+      if (!r.ok || !j.success) throw new Error(j.message || 'تعذّر الحفظ.');
+      setNotice({ kind: k, name, lines: describeSave(k, j.data) });
+      resetAfterSave();
+      setDup(null);
+      load();
+    } catch (e: any) {
+      setFormError(e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const submit = async () => {
     setFormError('');
     setNotice(null);
+    setDup(null);
     if (!form.name.trim()) { setFormError(kind === 'doctor' ? 'اسم الطبيب مطلوب.' : 'اسم الصيدلية مطلوب.'); return; }
     if (!form.areaName.trim()) { setFormError('المنطقة مطلوبة.'); return; }
     if (!coords) { setFormError('يجب تحديد الموقع على الخارطة قبل الحفظ.'); return; }
@@ -192,44 +334,43 @@ export default function RepFieldSurveyPage() {
       longitude: coords.longitude,
       accuracy: coords.accuracy,
     };
-
-    setSaving(true);
-    try {
-      const body = kind === 'doctor'
-        ? { ...base, specialty: form.specialty.trim() || null, className: form.className.trim() || null, pharmacyName: form.pharmacyName.trim() || null }
-        : { ...base, doctors: nearby.filter(d => d.name.trim()) };
-      const r = await fetch(kind === 'doctor' ? '/api/rep-field-survey/doctors' : '/api/rep-field-survey/pharmacies', {
-        method: 'POST', headers: H(), body: JSON.stringify(body),
-      });
-      const j = await r.json();
-      if (!r.ok || !j.success) throw new Error(j.message || 'تعذّر الحفظ.');
-
-      setNotice({
-        kind,
-        name: base.name,
-        nearbyCount: j.data.nearbyCount,
-        publish: j.data.publish,
-      });
-      resetAfterSave();
-      load();
-    } catch (e: any) {
-      setFormError(e.message);
-    } finally {
-      setSaving(false);
+    if (kind === 'doctor') {
+      await send('doctor', '/api/rep-field-survey/doctors', {
+        ...base,
+        specialty: form.specialty.trim() || null,
+        className: form.className.trim() || null,
+        nearPharmacies: doctorNear,
+      }, base.name);
+    } else {
+      await send('pharmacy', '/api/rep-field-survey/pharmacies', {
+        ...base,
+        doctors: nearby.filter(d => d.name.trim()),
+      }, base.name);
     }
+  };
+
+  // قرار المستخدم عند الاسم المكرر: دمج الصيدليات مع الموجود، أو حفظه كسجل جديد
+  const resolveDup = (choice: { mergeIntoId: number } | 'new') => {
+    if (!dup) return;
+    const body = choice === 'new'
+      ? { ...dup.body, allowDuplicate: true }
+      : { ...dup.body, mergeIntoId: choice.mergeIntoId };
+    const name = String(dup.body.name ?? '');
+    setDup(null);
+    send(dup.kind, dup.endpoint, body, name);
   };
 
   // ── تفاصيل سجل (للجميع، للقراءة) ──────────────────────────────────────
   const [viewing, setViewing] = useState<Entry | null>(null);
-  const repCompany = useMemo(() => new Map(reps.map(r => [r.userId, r.company])), [reps]);
-  const nearbyOf = (pharmacyId: number) => entries.filter(x => x.parentId === pharmacyId);
 
   // ── تعديل سجل (المندوب على سجلاته فقط) ──────────────────────────────────
-  const [editing, setEditing]   = useState<Entry | null>(null);
-  const [editForm, setEditForm] = useState(EMPTY_FORM);
-  const [editCoords, setEditCoords] = useState<Coords | null>(null); // null = يبقى الموقع الحالي
-  const [editLoc, setEditLoc]   = useState<'idle' | 'loading' | 'error'>('idle');
+  const [editing, setEditing]       = useState<Entry | null>(null);
+  const [editForm, setEditForm]     = useState(EMPTY_FORM);
+  const [editNear, setEditNear]     = useState<string[]>([]);
+  const [editCoords, setEditCoords] = useState<Coords | null>(null);
+  const [editLoc, setEditLoc]       = useState<'idle' | 'loading' | 'error'>('idle');
   const [editLocError, setEditLocError] = useState('');
+  const [editLiveAcc, setEditLiveAcc]   = useState<number | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError]   = useState('');
 
@@ -239,37 +380,29 @@ export default function RepFieldSurveyPage() {
       name: e.name,
       specialty: e.specialty ?? '',
       className: e.className ?? '',
-      pharmacyName: e.pharmacyName ?? '',
       areaName: e.areaName,
       notes: e.notes ?? '',
     });
+    setEditNear(e.nearPharmacies);
     setEditCoords(null);
     setEditLoc('idle');
     setEditLocError('');
+    setEditLiveAcc(null);
     setEditError('');
   };
 
-  const captureEditLocation = () => {
-    if (!navigator.geolocation) {
-      setEditLoc('error');
-      setEditLocError('المتصفح لا يدعم تحديد الموقع.');
-      return;
-    }
+  const captureEditLocation = async () => {
     setEditLoc('loading');
     setEditLocError('');
-    navigator.geolocation.getCurrentPosition(
-      p => {
-        setEditCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy ?? null });
-        setEditLoc('idle');
-      },
-      err => {
-        setEditLoc('error');
-        setEditLocError(err.code === 1
-          ? 'تم رفض إذن الموقع. فعّله من إعدادات المتصفح ثم أعد المحاولة.'
-          : 'تعذّر تحديد الموقع. تأكد من تفعيل GPS وحاول في مكان مفتوح.');
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    );
+    setEditLiveAcc(null);
+    try {
+      setEditCoords(await captureBestLocation(setEditLiveAcc));
+      setEditLoc('idle');
+    } catch (e: any) {
+      setEditCoords(null);
+      setEditLoc('error');
+      setEditLocError(e.message);
+    }
   };
 
   const saveEdit = async () => {
@@ -286,7 +419,7 @@ export default function RepFieldSurveyPage() {
     if (editing.kind === 'doctor') {
       body.specialty = editForm.specialty.trim() || null;
       body.className = editForm.className.trim() || null;
-      if (!editing.parentId) body.pharmacyName = editForm.pharmacyName.trim() || null;
+      body.nearPharmacies = editNear;
     }
     if (editCoords) {
       body.latitude = editCoords.latitude;
@@ -317,15 +450,16 @@ export default function RepFieldSurveyPage() {
       'الاسم': e.name,
       'الاختصاص': e.specialty ?? '',
       'الكلاس': e.className ?? '',
-      'الصيدلية / العيادة': e.pharmacyName ?? '',
-      'ضمن صيدلية': e.parentName ?? '',
+      'الصيدليات القريبة': e.nearPharmacies.join('، '),
       'المنطقة': e.areaName,
       'المندوب': e.repName ?? '',
+      'الشركة': e.repName ? (repCompany.get(e.userId) ?? '') : '',
       'خط العرض': e.latitude,
       'خط الطول': e.longitude,
       'الدقة (م)': e.accuracy != null ? Math.round(e.accuracy) : '',
       'رابط الخريطة': mapsUrl(e.latitude, e.longitude),
       'تاريخ ووقت التسجيل': fmtDateTime(e.createdAt),
+      'آخر تعديل': e.editedAt ? fmtDateTime(e.editedAt) : '',
       'منشور في سيرفي الأطباء': e.publishedToDoctorSurvey ? 'نعم' : 'لا',
       'ملاحظات': e.notes ?? '',
     }));
@@ -348,6 +482,9 @@ export default function RepFieldSurveyPage() {
 
   // ── عرض ────────────────────────────────────────────────────────────────
   const nameLabel = kind === 'doctor' ? 'اسم الطبيب' : 'اسم الصيدلية';
+  const detailText = (e: Entry) => e.kind === 'doctor'
+    ? [e.specialty, e.className, e.nearPharmacies.length ? `قرب: ${e.nearPharmacies.join('، ')}` : ''].filter(Boolean).join(' · ') || '—'
+    : `${nearbyOf(e.id).length} طبيب قريب${e.notes ? ` · ${e.notes}` : ''}`;
 
   return (
     <div className="page rfs-page">
@@ -356,7 +493,7 @@ export default function RepFieldSurveyPage() {
           <h1 className="page-title">سيرفي المندوب العلمي</h1>
           <div className="page-subtitle">
             {isRep
-              ? 'سجّل الأطباء والصيدليات في مناطقك، مع تحديد موقع كل اسم على الخارطة.'
+              ? 'سجّل الأطباء والصيدليات في مناطقك، مع تحديد موقع كل اسم بدقة.'
               : 'السجلات الميدانية لمندوبي فريقك — للاطلاع والتصدير.'}
           </div>
         </div>
@@ -413,17 +550,7 @@ export default function RepFieldSurveyPage() {
           {notice && (
             <div className="alert rfs-notice">
               <strong>تم حفظ {notice.kind === 'doctor' ? 'الطبيب' : 'الصيدلية'} «{notice.name}»</strong>
-              {notice.kind === 'pharmacy' && (
-                <div className="rfs-muted">
-                  {notice.nearbyCount ? `مع ${notice.nearbyCount} طبيب قريب` : 'بدون أطباء قريبين'}
-                  {notice.publish && (
-                    notice.publish.hostSurvey
-                      ? ` · نُشر ${notice.publish.published} طبيب في سيرفي الأطباء${notice.publish.linkedExisting ? ` (${notice.publish.linkedExisting} موجودون مسبقاً)` : ''}`
-                      : ' · لا يوجد سيرفي أطباء نشط — حُفظ في الأرشيف فقط'
-                  )}
-                  {notice.publish && notice.publish.failed > 0 && ` · تعذّر نشر ${notice.publish.failed}`}
-                </div>
-              )}
+              {notice.lines.map((l, i) => <div key={i} className="rfs-muted">{l}</div>)}
             </div>
           )}
 
@@ -449,10 +576,6 @@ export default function RepFieldSurveyPage() {
                   <label className="form-label">الكلاس</label>
                   <input className="form-input" value={form.className} onChange={e => setField('className', e.target.value)} />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">اسم الصيدلية / العيادة</label>
-                  <input className="form-input" value={form.pharmacyName} onChange={e => setField('pharmacyName', e.target.value)} />
-                </div>
               </>
             )}
             <div className="form-group rfs-span-full">
@@ -461,12 +584,23 @@ export default function RepFieldSurveyPage() {
             </div>
           </div>
 
+          {kind === 'doctor' && (
+            <div className="rfs-nearby">
+              <div className="form-label">الصيدليات القريبة من الطبيب</div>
+              <div className="rfs-muted">اكتب كل صيدلية قريبة ثم اضغط إضافة. الطبيب يبقى سجلاً واحداً مهما عددت صيدلياته.</div>
+              <div className="rfs-muted">الطبيب الذي له صيدلية قريبة يُنشر في سيرفي الأطباء.</div>
+              <div style={{ marginTop: 8 }}>
+                <NearChips value={doctorNear} onChange={setDoctorNear} placeholder="اسم الصيدلية القريبة" />
+              </div>
+            </div>
+          )}
+
           {kind === 'pharmacy' && (
             <div className="rfs-nearby">
               <div className="rfs-nearby-head">
                 <div>
                   <div className="form-label">الأطباء القريبون من الصيدلية</div>
-                  <div className="rfs-muted">يُحفظون كأطباء في سيرفي الأطباء أيضاً، بنفس موقع الصيدلية.</div>
+                  <div className="rfs-muted">يُحفظون كأطباء في سيرفي الأطباء أيضاً، بنفس موقع الصيدلية. الطبيب المسجَّل مسبقاً بنفس الاسم يُربط بهذه الصيدلية.</div>
                 </div>
                 <button className="btn btn--secondary btn--sm" onClick={() => setNearby([...nearby, { name: '', specialty: '', className: '' }])}>+ إضافة طبيب</button>
               </div>
@@ -487,18 +621,23 @@ export default function RepFieldSurveyPage() {
           {/* ── الموقع (إلزامي) ── */}
           <div className={`rfs-location ${coords ? 'rfs-location--ok' : locState === 'error' ? 'rfs-location--err' : ''}`}>
             <div className="rfs-location-text">
-              {coords ? (
+              {locState === 'loading' ? (
+                <>
+                  <strong>جارٍ تحديد الموقع بدقة…</strong>
+                  <div className="rfs-muted">الدقة الحالية: {liveAcc != null ? `±${Math.round(liveAcc)} م` : 'بانتظار الإشارة'} · الهدف ±{TARGET_ACC_M} م</div>
+                </>
+              ) : coords ? (
                 <>
                   <strong>✓ تم تحديد الموقع</strong>
                   <div className="rfs-muted">
-                    دقة ±{coords.accuracy != null ? Math.round(coords.accuracy) : '?'} م ·{' '}
+                    دقة ±{Math.round(coords.accuracy)} م ·{' '}
                     <a href={mapsUrl(coords.latitude, coords.longitude)} target="_blank" rel="noreferrer">عرض على الخارطة</a>
                   </div>
                 </>
               ) : locState === 'error' ? (
                 <span>{locError}</span>
               ) : (
-                <span className="rfs-muted">الموقع إلزامي — سيُلتقط من جهازك لحظة الحفظ على هذا الاسم.</span>
+                <span className="rfs-muted">الموقع إلزامي — يُلتقط بقراءات متواصلة حتى تتحسن الدقة، وأفضل نتيجة عند الهاتف مع GPS مفعّل.</span>
               )}
             </div>
             <button className="btn btn--secondary btn--sm" onClick={captureLocation} disabled={locState === 'loading'}>
@@ -506,10 +645,34 @@ export default function RepFieldSurveyPage() {
             </button>
           </div>
 
+          {dup && (
+            <div className="alert rfs-dup">
+              <strong>الاسم «{String(dup.body.name ?? '')}» موجود بالفعل:</strong>
+              <ul className="rfs-dup-list">
+                {dup.matches.map(m => (
+                  <li key={`${m.source}-${m.id}`}>
+                    {m.name} · {m.areaName}
+                    {m.nearPharmacies.length > 0 && <span className="rfs-muted"> · قرب: {m.nearPharmacies.join('، ')}</span>}
+                    <span className="rfs-muted"> ({m.source === 'own' ? 'سجلاتك' : 'سيرفي الأطباء'})</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="rfs-dup-actions">
+                {dup.kind === 'doctor' && dup.matches.filter(m => m.source === 'own').map(m => (
+                  <button key={m.id} className="btn btn--primary btn--sm" disabled={saving} onClick={() => resolveDup({ mergeIntoId: m.id })}>
+                    إضافة الصيدليات إلى «{m.name}»
+                  </button>
+                ))}
+                <button className="btn btn--secondary btn--sm" disabled={saving} onClick={() => resolveDup('new')}>حفظه كسجل جديد</button>
+                <button className="btn btn--secondary btn--sm" disabled={saving} onClick={() => setDup(null)}>تعديل الاسم</button>
+              </div>
+            </div>
+          )}
+
           {formError && <div className="alert alert--error">{formError}</div>}
 
           <div className="rfs-submit">
-            <button className="btn btn--primary" onClick={submit} disabled={saving || !coords}>
+            <button className="btn btn--primary" onClick={submit} disabled={saving || !coords || !!dup}>
               {saving ? 'جارٍ الحفظ…' : `حفظ ${kind === 'doctor' ? 'الطبيب' : 'الصيدلية'}`}
             </button>
           </div>
@@ -568,7 +731,7 @@ export default function RepFieldSurveyPage() {
                 </button>
               ))}
             </div>
-            <input className="form-input" placeholder="بحث بالاسم أو المنطقة…" value={search} onChange={e => setSearch(e.target.value)} />
+            <input className="form-input" placeholder="بحث بالاسم أو المنطقة أو الصيدلية…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
 
@@ -593,24 +756,15 @@ export default function RepFieldSurveyPage() {
               </thead>
               <tbody>
                 {visible.map(e => (
-                  <tr key={e.id} className={e.parentId ? 'rfs-child-row' : ''}>
+                  <tr key={e.id}>
                     <td>
                       <span className={`badge ${e.kind === 'doctor' ? 'badge--blue' : 'badge--gray'}`}>
                         {e.kind === 'doctor' ? 'طبيب' : 'صيدلية'}
                       </span>
                     </td>
-                    <td>
-                      {e.parentId && <span className="rfs-muted">↳ </span>}
-                      {e.name}
-                    </td>
+                    <td>{e.name}</td>
                     <td>{e.areaName}</td>
-                    <td className="rfs-muted">
-                      {e.parentName
-                        ? `ضمن: ${e.parentName}${e.specialty ? ` · ${e.specialty}` : ''}`
-                        : e.kind === 'doctor'
-                          ? [e.specialty, e.className, e.pharmacyName].filter(Boolean).join(' · ') || '—'
-                          : e.notes || '—'}
-                    </td>
+                    <td className="rfs-muted">{detailText(e)}</td>
                     {!isRep && <td>{e.repName ?? '—'}</td>}
                     <td>
                       <a href={mapsUrl(e.latitude, e.longitude)} target="_blank" rel="noreferrer">عرض</a>
@@ -633,6 +787,7 @@ export default function RepFieldSurveyPage() {
         )}
       </section>
 
+      {/* ── نافذة التفاصيل (للقراءة) ── */}
       {viewing && (
         <div className="modal-overlay" onClick={() => setViewing(null)}>
           <div className="modal rfs-modal" onClick={e => e.stopPropagation()}>
@@ -643,13 +798,14 @@ export default function RepFieldSurveyPage() {
             <div className="modal-body">
               <dl className="rfs-details">
                 <dt>الاسم</dt><dd>{viewing.name}</dd>
-                <dt>النوع</dt><dd>{viewing.kind === 'doctor' ? 'طبيب' : 'صيدلية'}{viewing.parentName ? ` · ضمن: ${viewing.parentName}` : ''}</dd>
+                <dt>النوع</dt><dd>{viewing.kind === 'doctor' ? 'طبيب' : 'صيدلية'}</dd>
                 <dt>المنطقة</dt><dd>{viewing.areaName}</dd>
                 <dt>المندوب</dt><dd>{viewing.repName ?? '—'}{repCompany.get(viewing.userId) ? ` · ${repCompany.get(viewing.userId)}` : ''}</dd>
                 {viewing.kind === 'doctor' && <>
                   <dt>الاختصاص</dt><dd>{viewing.specialty || '—'}</dd>
                   <dt>الكلاس</dt><dd>{viewing.className || '—'}</dd>
-                  <dt>الصيدلية / العيادة</dt><dd>{viewing.pharmacyName || '—'}</dd>
+                  <dt>الصيدليات القريبة</dt>
+                  <dd>{viewing.nearPharmacies.length ? viewing.nearPharmacies.join('، ') : '—'}</dd>
                 </>}
                 <dt>الملاحظات</dt><dd>{viewing.notes || '—'}</dd>
                 <dt>الموقع</dt>
@@ -692,6 +848,7 @@ export default function RepFieldSurveyPage() {
         </div>
       )}
 
+      {/* ── نافذة التعديل ── */}
       {editing && (
         <div className="modal-overlay" onClick={() => !editSaving && setEditing(null)}>
           <div className="modal rfs-modal" onClick={e => e.stopPropagation()}>
@@ -704,7 +861,7 @@ export default function RepFieldSurveyPage() {
                 <div className="rfs-muted">هذا الاسم منشور في سيرفي الأطباء الرئيسي؛ التعديل هنا لا يغيّر السيرفي الرئيسي.</div>
               )}
               {editing.kind === 'pharmacy' && (
-                <div className="rfs-muted">تعديل الاسم أو المنطقة أو الموقع ينتقل إلى الأطباء القريبين الذين يرثون بيانات هذه الصيدلية.</div>
+                <div className="rfs-muted">تعديل الاسم أو المنطقة أو الموقع ينتقل إلى الأطباء المرتبطين بهذه الصيدلية بالاسم.</div>
               )}
               <div className="rfs-form-grid">
                 <div className="form-group">
@@ -725,12 +882,6 @@ export default function RepFieldSurveyPage() {
                       <label className="form-label">الكلاس</label>
                       <input className="form-input" value={editForm.className} onChange={e => setEditForm({ ...editForm, className: e.target.value })} />
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">اسم الصيدلية / العيادة</label>
-                      <input className="form-input" value={editForm.pharmacyName} disabled={!!editing.parentId}
-                        onChange={e => setEditForm({ ...editForm, pharmacyName: e.target.value })} />
-                      {editing.parentId && <span className="rfs-muted">يتبع الصيدلية الأم</span>}
-                    </div>
                   </>
                 )}
                 <div className="form-group rfs-span-full">
@@ -739,12 +890,26 @@ export default function RepFieldSurveyPage() {
                 </div>
               </div>
 
+              {editing.kind === 'doctor' && (
+                <div className="rfs-nearby">
+                  <div className="form-label">الصيدليات القريبة</div>
+                  <div style={{ marginTop: 8 }}>
+                    <NearChips value={editNear} onChange={setEditNear} placeholder="اسم الصيدلية القريبة" />
+                  </div>
+                </div>
+              )}
+
               <div className={`rfs-location ${editLoc === 'error' ? 'rfs-location--err' : editCoords ? 'rfs-location--ok' : ''}`}>
                 <div className="rfs-location-text">
-                  {editCoords ? (
+                  {editLoc === 'loading' ? (
+                    <>
+                      <strong>جارٍ تحديد الموقع بدقة…</strong>
+                      <div className="rfs-muted">الدقة الحالية: {editLiveAcc != null ? `±${Math.round(editLiveAcc)} م` : 'بانتظار الإشارة'}</div>
+                    </>
+                  ) : editCoords ? (
                     <>
                       <strong>✓ سيُحفظ الموقع الجديد</strong>
-                      <div className="rfs-muted">دقة ±{editCoords.accuracy != null ? Math.round(editCoords.accuracy) : '?'} م</div>
+                      <div className="rfs-muted">دقة ±{Math.round(editCoords.accuracy)} م</div>
                     </>
                   ) : editLoc === 'error' ? (
                     <span>{editLocError}</span>

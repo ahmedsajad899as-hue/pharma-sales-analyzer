@@ -2786,6 +2786,7 @@ model RepFieldSurveyEntry {
   longitude   Float
   accuracy    Float?
   parentId    Int?
+  nearPharmacies String[] @default([])
   masterSurveyDoctorId Int?
   createdAt   DateTime @default(now())
   editedAt    DateTime?
