@@ -2153,7 +2153,10 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
             // fKeys بدل مفتاح واحد: يسمح لنفس المكوّن بأن يكون تبديلاً لمفتاح فرعي واحد
             // أو زر تشغيل/إيقاف كلي يضبط عدة مفاتيح معاً (الأم + كل الفرعية) بضغطة واحدة.
-            const MiniToggle = ({ fKeys, size = 'md' }: { fKeys: string[]; size?: 'sm' | 'md' | 'lg' }) => {
+            // ⚠️ هذه دوال تُستدعى مباشرة (لا تُستخدم كـ <Component />): تعريف مكوّن داخل
+            // الـ render يُنشئ نوعاً جديداً في كل ضغطة فيفكّ React الشجرة ويعيد بناءها
+            // فيقفز التمرير لأعلى الصفحة.
+            const renderMiniToggle = (fKeys: string[], size: 'sm' | 'md' | 'lg' = 'md') => {
               const allOn = fKeys.length > 0 && fKeys.every(k => !draftDisabledFeats.includes(k));
               const dims = size === 'lg' ? { w: 56, h: 30, ball: 22 } : size === 'sm' ? { w: 38, h: 22, ball: 16 } : { w: 46, h: 26, ball: 20 };
               return (
@@ -2187,10 +2190,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
             // (وكل ميزاتها الفرعية) دون الحاجة لفتحها أولاً. عنصر <div role="button">
             // بدل <button> لأن التبديل هو input متداخل داخل الصف، والمتصفح لا يسمح
             // بعنصر تفاعلي (input) داخل <button> فعلياً.
-            const SidebarBtn = ({ id, icon, label, dot, node }: { id: string; icon: string; label: string; dot?: { color: string } | null; node?: FeatureNode }) => {
+            const renderSidebarBtn = ({ id, icon, label, dot, node }: { id: string; icon: string; label: string; dot?: { color: string } | null; node?: FeatureNode }) => {
               const keys = node ? nodeAllKeys(node) : [];
               return (
                 <div
+                  key={id}
                   role="button"
                   tabIndex={0}
                   onClick={() => setFeatSection(id)}
@@ -2204,13 +2208,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot.color, flexShrink: 0 }} />
                     : (!node && <span style={{ fontSize: 9, background: 'rgba(255,255,255,0.08)', color: '#64748b', borderRadius: 4, padding: '1px 5px', flexShrink: 0, whiteSpace: 'nowrap' }}>دائماً</span>)
                   }
-                  {keys.length > 0 && <MiniToggle fKeys={keys} size="sm" />}
+                  {keys.length > 0 && renderMiniToggle(keys, 'sm')}
                 </div>
               );
             };
 
-            const SectionLabel = ({ text }: { text: string }) => (
-              <div style={{ fontSize: 9, fontWeight: 800, color: '#4b5d7c', padding: '4px 8px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>{text}</div>
+            const renderSectionLabel = (text: string) => (
+              <div key={text} style={{ fontSize: 9, fontWeight: 800, color: '#4b5d7c', padding: '4px 8px 6px', letterSpacing: 1.2, textTransform: 'uppercase' }}>{text}</div>
             );
 
             return (
@@ -2240,32 +2244,29 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     </div>
 
                     {/* Settings section */}
-                    <div style={{ padding: '8px 8px 0' }}><SectionLabel text="الإعدادات" /></div>
+                    <div style={{ padding: '8px 8px 0' }}>{renderSectionLabel('الإعدادات')}</div>
                     <div className="sidebar-nav" style={{ flex: 'none', padding: '0 8px' }}>
-                      <SidebarBtn id="gps"           icon="📍" label="GPS / الموقع"  dot={{ color: draftRequireGps ? '#f97316' : '#22c55e' }} />
-                      <SidebarBtn id="activity_log"  icon="🕵️" label="سجل الحركات"  dot={{ color: draftDisableActLog ? '#94a3b8' : '#22c55e' }} />
-                      <SidebarBtn id="doctor_filter" icon="🔍" label="فلتر الأطباء"  dot={{ color: '#6366f1' }} />
-                      <SidebarBtn id="report_view"   icon="📊" label="عرض التقارير"  dot={{ color: '#0d9f6e' }} />
-                      <SidebarBtn id="org_chart"     icon="🏗️" label="الهيكلية"      dot={{ color: draftHiddenOrgChart ? '#94a3b8' : '#22c55e' }} />
+                      {renderSidebarBtn({ id: 'gps',           icon: '📍', label: 'GPS / الموقع',  dot: { color: draftRequireGps ? '#f97316' : '#22c55e' } })}
+                      {renderSidebarBtn({ id: 'activity_log',  icon: '🕵️', label: 'سجل الحركات',  dot: { color: draftDisableActLog ? '#94a3b8' : '#22c55e' } })}
+                      {renderSidebarBtn({ id: 'doctor_filter', icon: '🔍', label: 'فلتر الأطباء',  dot: { color: '#6366f1' } })}
+                      {renderSidebarBtn({ id: 'report_view',   icon: '📊', label: 'عرض التقارير',  dot: { color: '#0d9f6e' } })}
+                      {renderSidebarBtn({ id: 'org_chart',     icon: '🏗️', label: 'الهيكلية',      dot: { color: draftHiddenOrgChart ? '#94a3b8' : '#22c55e' } })}
                     </div>
 
                     <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '8px 12px' }} />
 
                     {/* Real nav pages — same order/labels/icons the user actually sees */}
-                    <div style={{ padding: '0 8px' }}><SectionLabel text="صفحات الحساب" /></div>
+                    <div style={{ padding: '0 8px' }}>{renderSectionLabel('صفحات الحساب')}</div>
                     <nav className="sidebar-nav" style={{ flex: 1, minHeight: 0, padding: '0 8px' }}>
                       {visiblePages.map(({ node }) => {
                         const st = getNodeStatus(node);
-                        return (
-                          <SidebarBtn
-                            key={node.key || node.label}
-                            id={node.key || node.label}
-                            icon={node.icon}
-                            label={node.label}
-                            dot={st === 'always' ? null : { color: DOT_COLOR[st] }}
-                            node={node}
-                          />
-                        );
+                        return renderSidebarBtn({
+                          id: node.key || node.label,
+                          icon: node.icon,
+                          label: node.label,
+                          dot: st === 'always' ? null : { color: DOT_COLOR[st] },
+                          node,
+                        });
                       })}
                       {visiblePages.length === 0 && (
                         <div style={{ color: '#4b5d7c', fontSize: 11.5, padding: '8px' }}>لا توجد صفحات مرئية لهذا الدور</div>
@@ -2276,20 +2277,17 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     {visibleStandalone.length > 0 && (
                       <>
                         <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 12px' }} />
-                        <div style={{ padding: '4px 8px 0' }}><SectionLabel text="ميزات عامة" /></div>
+                        <div style={{ padding: '4px 8px 0' }}>{renderSectionLabel('ميزات عامة')}</div>
                         <div style={{ padding: '0 8px 6px' }}>
                           {visibleStandalone.map(node => {
                             const st = getNodeStatus(node);
-                            return (
-                              <SidebarBtn
-                                key={node.key || node.label}
-                                id={node.key || node.label}
-                                icon={node.icon}
-                                label={node.label}
-                                dot={st === 'always' ? null : { color: DOT_COLOR[st] }}
-                                node={node}
-                              />
-                            );
+                            return renderSidebarBtn({
+                              id: node.key || node.label,
+                              icon: node.icon,
+                              label: node.label,
+                              dot: st === 'always' ? null : { color: DOT_COLOR[st] },
+                              node,
+                            });
                           })}
                         </div>
                       </>
@@ -2515,7 +2513,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             {parentOff && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontWeight: 600 }}>⛔ هذه الصفحة / الميزة معطّلة بالكامل</div>}
                           </div>
                           {nodeAllKeys(activeNode).length > 0
-                            ? <MiniToggle fKeys={nodeAllKeys(activeNode)} size="lg" />
+                            ? renderMiniToggle(nodeAllKeys(activeNode), 'lg')
                             : <span style={{ background: '#e2e8f0', color: '#475569', borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 700 }}>دائماً متاح</span>
                           }
                         </div>
@@ -2543,7 +2541,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                     <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{child.label}</div>
                                     {child.desc && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{child.desc}</div>}
                                   </div>
-                                  {child.key && <MiniToggle fKeys={[child.key]} size="sm" />}
+                                  {child.key && renderMiniToggle([child.key], 'sm')}
                                 </div>
                               );
                             })}
