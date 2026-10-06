@@ -123,6 +123,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'doctors': 'navDoctors',
   'monthly-plans': 'navMonthlyPlans',
   'daily-plan': 'navDailyPlan',
+  'rep-field-survey': 'navMasterSurvey',
   'master-survey': 'navMasterSurvey',
   'fms': 'navFms',
   'sales-data': 'navSalesData',

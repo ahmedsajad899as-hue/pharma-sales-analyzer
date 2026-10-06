@@ -43,6 +43,7 @@ import salesRoutes              from './modules/sales/sales.routes.js';
 import representativesRoutes    from './modules/representatives/representatives.routes.js';
 import reportsRoutes            from './modules/reports/reports.routes.js';
 import scientificRepsRoutes     from './modules/scientific-reps/scientific-reps.routes.js';
+import repFieldSurveyRoutes     from './modules/rep-field-survey/rep-field-survey.routes.js';
 import { getRawSalesForExport, expandOwnerIdsByCompany } from './modules/scientific-reps/scientific-reps.service.js';
 import doctorsRoutes            from './modules/doctors/doctors.routes.js';
 import monthlyPlansRoutes       from './modules/monthly-plans/monthly-plans.routes.js';
@@ -1215,6 +1216,7 @@ app.use('/api/admin/users', usersRoutes);
 // ── New Module Routes ────────────────────────────────────────
 app.use('/api/representatives',   representativesRoutes);
 app.use('/api/scientific-reps',   scientificRepsRoutes);
+app.use('/api/rep-field-survey',   repFieldSurveyRoutes);
 app.use('/api/reports',           reportsRoutes);
 app.use('/api/doctors',           doctorsRoutes);
 app.use('/api/monthly-plans',     monthlyPlansRoutes);

@@ -53,6 +53,7 @@ const _importOrgStructure        = () => import('./pages/OrgStructurePage');
 const _importAccountBuilder      = () => import('./pages/AccountBuilderPage');
 const _importAqdarExport         = () => import('./pages/AqdarExportPage');
 const _importTeamEngagement      = () => import('./pages/TeamEngagementPage');
+const _importRepFieldSurvey      = () => import('./pages/RepFieldSurveyPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -80,6 +81,7 @@ const OrgStructurePage        = lazyWithRetry(_importOrgStructure);
 const AccountBuilderPage      = lazyWithRetry(_importAccountBuilder);
 const AqdarExportPage         = lazyWithRetry(_importAqdarExport);
 const TeamEngagementPage      = lazyWithRetry(_importTeamEngagement);
+const RepFieldSurveyPage      = lazyWithRetry(_importRepFieldSurvey);
 
 // Minimal spinner shown while a page chunk is loading
 function PageLoader() {
@@ -113,6 +115,7 @@ export type PageId =
   | 'rep-analysis'
   | 'commercial'
   | 'master-survey'
+  | 'rep-field-survey'
   | 'fms'
   | 'sales-data'
   | 'stock-ledger'
@@ -565,6 +568,7 @@ function AppInner() {
     { id: 'rep-analysis',    node: <RepAnalysisPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} /> },
     { id: 'commercial',      node: <CommercialRepPage /> },
     { id: 'master-survey',   node: <SurveyPage /> },
+    { id: 'rep-field-survey', node: <RepFieldSurveyPage /> },
     { id: 'fms',             node: <FMSPage /> },
     { id: 'sales-data',      node: <SalesDataPage /> },
     { id: 'stock-ledger',    node: <StockLedgerPage /> },

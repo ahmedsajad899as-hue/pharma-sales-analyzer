@@ -2766,3 +2766,33 @@ model OpenPharmacyLink {
   @@unique([fromKey, areaKey])
   @@map("open_pharmacy_links")
 }
+
+// ─── استمارة المندوب العلمي الميدانية (أرشيف توثيقي، غير مرتبطة بالمبيعات/الزيارات) ───
+// kind = 'doctor' | 'pharmacy'. طبيب «قريب من صيدلية» يحمل parentId = صف الصيدلية.
+// إحداثيات الموقع إلزامية لكل صف (تُلتقط من جهاز المندوب لحظة التسجيل).
+// لا توجد علاقة FK بالمستخدم عمداً: حذف حساب لا يجب أن يمحو الأرشيف.
+// masterSurveyDoctorId = طبيب سيرفي الأطباء الذي نُشر منه (لطبيب الصيدلية فقط).
+model RepFieldSurveyEntry {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  kind        String
+  name        String
+  specialty   String?
+  className   String?
+  pharmacyName String?
+  areaName    String
+  notes       String?
+  latitude    Float
+  longitude   Float
+  accuracy    Float?
+  parentId    Int?
+  masterSurveyDoctorId Int?
+  createdAt   DateTime @default(now())
+
+  parent   RepFieldSurveyEntry?  @relation("RepFieldNearby", fields: [parentId], references: [id], onDelete: Cascade)
+  children RepFieldSurveyEntry[] @relation("RepFieldNearby")
+
+  @@index([userId, kind])
+  @@index([parentId])
+  @@map("rep_field_survey_entries")
+}

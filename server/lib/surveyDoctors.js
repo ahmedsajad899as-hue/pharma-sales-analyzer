@@ -545,6 +545,61 @@ export async function createSurveyDoctor(surveyId, fields, editedById, areaCache
   return doc;
 }
 
+// ── publishSurveyDoctorToOwners — نشر طبيب سيرفي جديد في جداول Doctor ─────────
+// كان هذا الكود داخل addDoctor (master-survey.controller.js) فقط؛ استُخرج هنا
+// ليستعمله أيضاً مسار «أطباء الصيدليات» في السيرفي الميداني للمندوب العلمي —
+// فيصبح الطبيب المُسجَّل ضمن صيدلية طبيباً فعلياً في سيرفي الأطباء بنفس ما يحدث
+// لأي طبيب يُضاف من السيرفي. يضيف الطبيب لكل مدير لديه أطباء في منطقته.
+// فشل النشر لا يُفشل إنشاء صف السيرفي نفسه (سلوك addDoctor الأصلي).
+export async function publishSurveyDoctorToOwners(doc) {
+  if (!doc?.areaName?.trim()) return;
+  try {
+    const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+    const matchingAreaIds = allAreas
+      .filter(a => normalizeAreaName(a.name) === normalizeAreaName(doc.areaName))
+      .map(a => a.id);
+    if (matchingAreaIds.length === 0) return;
+
+    // Find all users (managers) who have doctors in these areas
+    const ownerRows = await prisma.doctor.findMany({
+      where: { areaId: { in: matchingAreaIds } },
+      select: { userId: true },
+      distinct: ['userId'],
+    });
+    const ownerUserIds = ownerRows.map(r => r.userId).filter(Boolean);
+
+    for (const ownerUserId of ownerUserIds) {
+      // Check if doctor already exists for this user
+      const existingDoc = await prisma.doctor.findFirst({
+        where: { userId: ownerUserId, name: { equals: doc.name } },
+        select: { id: true, masterSurveyDoctorId: true },
+      });
+      if (existingDoc) {
+        // Link to survey if not already linked
+        if (!existingDoc.masterSurveyDoctorId) {
+          await prisma.doctor.update({
+            where: { id: existingDoc.id },
+            data: { masterSurveyDoctorId: doc.id },
+          });
+        }
+      } else {
+        // Create new doctor for this manager
+        await prisma.doctor.create({
+          data: {
+            name:                 doc.name,
+            specialty:            doc.specialty    ?? null,
+            pharmacyName:         doc.pharmacyName ?? null,
+            notes:                doc.notes        ?? null,
+            areaId:               matchingAreaIds[0],
+            userId:               ownerUserId,
+            masterSurveyDoctorId: doc.id,
+          },
+        });
+      }
+    }
+  } catch (_) { /* sync failure should not block survey doctor creation */ }
+}
+
 // ── updateSurveyDoctor — تعديل طبيب سيرفي موحّد (cascade + log) ───────────────
 // يُطبّق التغيير على MasterSurveyDoctor + كل صفوف Doctor المرتبطة + يسجّل الحركة.
 export async function updateSurveyDoctor(surveyId, docId, fields, editedById, areaCache = null) {

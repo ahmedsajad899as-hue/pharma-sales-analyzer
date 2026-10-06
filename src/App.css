@@ -3598,3 +3598,34 @@ select.comm-input { cursor: pointer; }
   .sl-inline--nowrap { flex-wrap: wrap; }
   .sl-date-input, .sl-select-grow { width: 100%; }
 }
+
+/* ── سيرفي المندوب العلمي (RepFieldSurveyPage) ─────────────────────────── */
+.rfs-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rfs-card { margin-bottom: 18px; padding: 20px 22px; }
+.rfs-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.rfs-card-head .section-title { margin: 0; }
+.rfs-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.rfs-span-full { grid-column: 1 / -1; }
+.rfs-muted { color: var(--c-text-muted); font-size: 12px; }
+.rfs-muted a { color: var(--c-accent); }
+.rfs-notice { background: var(--c-success-bg); color: var(--c-text-primary); border: 1px solid var(--c-success-border); border-right: 3px solid var(--c-success); margin-bottom: 14px; }
+.rfs-nearby { margin-top: 18px; padding: 14px; background: var(--c-bg); border-radius: var(--radius-md); }
+.rfs-nearby-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.rfs-nearby-row { display: grid; grid-template-columns: 2fr 1.2fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.rfs-location { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 18px; padding: 12px 14px; border: 1px dashed var(--c-border); border-radius: var(--radius-md); background: var(--c-bg); }
+.rfs-location--ok { border-style: solid; border-color: var(--c-success-border); background: var(--c-success-bg); }
+.rfs-location--err { border-style: solid; border-color: var(--c-danger-border); background: var(--c-danger-bg); }
+.rfs-location-text { font-size: 13.5px; color: var(--c-text-primary); min-width: 0; }
+.rfs-submit { margin-top: 16px; display: flex; justify-content: flex-start; }
+.rfs-total-row td { font-weight: 700; background: var(--c-accent-light); }
+.rfs-child-row td { background: #fafbfe; }
+.rfs-list-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.rfs-list-controls .section-title { margin: 0; }
+.rfs-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rfs-filters .form-input { min-width: 180px; }
+.rfs-filters .tabs { margin: 0; }
+@media (max-width: 640px) {
+  .rfs-card { padding: 16px; }
+  .rfs-nearby-row { grid-template-columns: 1fr; }
+  .rfs-filters .form-input { min-width: 0; width: 100%; }
+}

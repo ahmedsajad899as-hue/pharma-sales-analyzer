@@ -22,6 +22,7 @@ export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
   'monthly-plans':      { title: 'البلانات الشهرية' },
   'daily-plan':         { title: 'البلان اليومي', subtitle: 'زيارات اليوم ونسبة التحقيق' },
   'master-survey':      { title: 'السيرفيات', subtitle: 'قوائم الأطباء والصيدليات المشتركة من الإدارة' },
+  'rep-field-survey':  { title: 'سيرفي المندوب العلمي', subtitle: 'أطباء وصيدليات منطقتك مع موقع كل اسم' },
   'fms':                { title: 'FMS — عينات شهرية' },
   'sales-data':         { title: 'ستوك المذاخر', subtitle: 'تحليل ملفات Excel مع البحث المتعدد' },
   'stock-ledger':       { title: 'رصيد المذاخر', subtitle: 'المتبقّي فعلاً في كل مذخر ومتى يحتاج طلبية جديدة' },

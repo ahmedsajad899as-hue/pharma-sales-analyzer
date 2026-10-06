@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaNames } from '../../lib/areaScope.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { resolveAreaScope, ensureDoctorRowsForScope, createSurveyDoctor, updateSurveyDoctor as updateSurveyDoctorLib } from '../../lib/surveyDoctors.js';
+import { resolveAreaScope, ensureDoctorRowsForScope, createSurveyDoctor, publishSurveyDoctorToOwners, updateSurveyDoctor as updateSurveyDoctorLib } from '../../lib/surveyDoctors.js';
 import { createSurveyPharmacy, updateSurveyPharmacy as updateSurveyPharmacyLib } from '../../lib/surveyPharmacies.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 
@@ -159,63 +159,11 @@ export async function addDoctor(req, res, next) {
     const { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, error: 'اسم الطبيب مطلوب' });
     // الإنشاء + ensureGlobalArea + السجل كلها في المكتبة (مصدر واحد مشترك مع
-    // لوحة السوبر أدمن)؛ ما يخصّ هذا المسار وحده هو نشر الطبيب في جداول
-    // Doctor لكل المدراء المعنيين بالمنطقة، ويبقى أدناه.
+    // لوحة السوبر أدمن)؛ النشر في جداول Doctor يتم أدناه.
     const doc = await createSurveyDoctor(surveyId, { name, specialty, areaName, pharmacyName, className, zoneName, phone, notes }, req.user.id);
 
-    // ── Sync Survey → Doctor table ──────────────────────────
-    // Add this doctor to all managers who have reps assigned to this area
-    try {
-      if (areaName?.trim()) {
-        // Find all areas matching this areaName (normalized)
-        const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-        const normN = normalizeAreaName;
-        const matchingAreaIds = allAreas
-          .filter(a => normN(a.name) === normN(areaName))
-          .map(a => a.id);
-
-        if (matchingAreaIds.length > 0) {
-          // Find all users (managers) who have doctors in these areas
-          const ownerRows = await prisma.doctor.findMany({
-            where: { areaId: { in: matchingAreaIds } },
-            select: { userId: true },
-            distinct: ['userId'],
-          });
-          const ownerUserIds = ownerRows.map(r => r.userId).filter(Boolean);
-
-          for (const ownerUserId of ownerUserIds) {
-            // Check if doctor already exists for this user
-            const existingDoc = await prisma.doctor.findFirst({
-              where: { userId: ownerUserId, name: { equals: name.trim() } },
-              select: { id: true, masterSurveyDoctorId: true },
-            });
-            if (existingDoc) {
-              // Link to survey if not already linked
-              if (!existingDoc.masterSurveyDoctorId) {
-                await prisma.doctor.update({
-                  where: { id: existingDoc.id },
-                  data: { masterSurveyDoctorId: doc.id },
-                });
-              }
-            } else {
-              // Create new doctor for this manager
-              const resolvedAreaId = matchingAreaIds[0];
-              await prisma.doctor.create({
-                data: {
-                  name:                name.trim(),
-                  specialty:           specialty    ?? null,
-                  pharmacyName:        pharmacyName ?? null,
-                  notes:               notes        ?? null,
-                  areaId:              resolvedAreaId,
-                  userId:              ownerUserId,
-                  masterSurveyDoctorId: doc.id,
-                },
-              });
-            }
-          }
-        }
-      }
-    } catch (_) { /* sync failure should not block survey doctor creation */ }
+    // نشر الطبيب في جداول Doctor للمدراء المعنيين بالمنطقة (مشترك مع السيرفي الميداني)
+    await publishSurveyDoctorToOwners(doc);
 
     res.status(201).json({ success: true, data: doc });
   } catch (e) { next(e); }
