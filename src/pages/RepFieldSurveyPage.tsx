@@ -219,6 +219,11 @@ export default function RepFieldSurveyPage() {
     }
   };
 
+  // ── تفاصيل سجل (للجميع، للقراءة) ──────────────────────────────────────
+  const [viewing, setViewing] = useState<Entry | null>(null);
+  const repCompany = useMemo(() => new Map(reps.map(r => [r.userId, r.company])), [reps]);
+  const nearbyOf = (pharmacyId: number) => entries.filter(x => x.parentId === pharmacyId);
+
   // ── تعديل سجل (المندوب على سجلاته فقط) ──────────────────────────────────
   const [editing, setEditing]   = useState<Entry | null>(null);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
@@ -583,7 +588,7 @@ export default function RepFieldSurveyPage() {
                   {!isRep && <th>المندوب</th>}
                   <th>الموقع</th>
                   <th>تاريخ ووقت التسجيل</th>
-                  {isRep && <th></th>}
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -614,13 +619,12 @@ export default function RepFieldSurveyPage() {
                       {fmtDateTime(e.createdAt)}
                       {e.editedAt && <div>معدّل: {fmtDateTime(e.editedAt)}</div>}
                     </td>
-                    {isRep && (
-                      <td>
-                        {e.userId === user?.id && (
-                          <button className="btn btn--secondary btn--sm" onClick={() => openEdit(e)}>تعديل</button>
-                        )}
-                      </td>
-                    )}
+                    <td className="rfs-actions-cell">
+                      <button className="btn btn--secondary btn--sm" onClick={() => setViewing(e)}>تفاصيل</button>
+                      {e.userId === user?.id && (
+                        <button className="btn btn--secondary btn--sm" onClick={() => openEdit(e)}>تعديل</button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -628,6 +632,65 @@ export default function RepFieldSurveyPage() {
           </div>
         )}
       </section>
+
+      {viewing && (
+        <div className="modal-overlay" onClick={() => setViewing(null)}>
+          <div className="modal rfs-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>تفاصيل {viewing.kind === 'doctor' ? 'الطبيب' : 'الصيدلية'}</h2>
+              <button className="modal-close" onClick={() => setViewing(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <dl className="rfs-details">
+                <dt>الاسم</dt><dd>{viewing.name}</dd>
+                <dt>النوع</dt><dd>{viewing.kind === 'doctor' ? 'طبيب' : 'صيدلية'}{viewing.parentName ? ` · ضمن: ${viewing.parentName}` : ''}</dd>
+                <dt>المنطقة</dt><dd>{viewing.areaName}</dd>
+                <dt>المندوب</dt><dd>{viewing.repName ?? '—'}{repCompany.get(viewing.userId) ? ` · ${repCompany.get(viewing.userId)}` : ''}</dd>
+                {viewing.kind === 'doctor' && <>
+                  <dt>الاختصاص</dt><dd>{viewing.specialty || '—'}</dd>
+                  <dt>الكلاس</dt><dd>{viewing.className || '—'}</dd>
+                  <dt>الصيدلية / العيادة</dt><dd>{viewing.pharmacyName || '—'}</dd>
+                </>}
+                <dt>الملاحظات</dt><dd>{viewing.notes || '—'}</dd>
+                <dt>الموقع</dt>
+                <dd>
+                  {viewing.latitude.toFixed(6)}, {viewing.longitude.toFixed(6)}
+                  {' · '}<a href={mapsUrl(viewing.latitude, viewing.longitude)} target="_blank" rel="noreferrer">عرض على الخارطة</a>
+                </dd>
+                <dt>دقة الموقع</dt><dd>{viewing.accuracy != null ? `±${Math.round(viewing.accuracy)} م` : '—'}</dd>
+                <dt>تاريخ ووقت التسجيل</dt><dd>{fmtDateTime(viewing.createdAt)}</dd>
+                <dt>آخر تعديل</dt><dd>{viewing.editedAt ? fmtDateTime(viewing.editedAt) : 'لم يُعدَّل'}</dd>
+                <dt>سيرفي الأطباء الرئيسي</dt><dd>{viewing.publishedToDoctorSurvey ? 'منشور' : 'أرشيف فقط'}</dd>
+              </dl>
+
+              {viewing.kind === 'pharmacy' && (
+                <div className="rfs-nearby-view">
+                  <div className="form-label">الأطباء القريبون ({nearbyOf(viewing.id).length})</div>
+                  {nearbyOf(viewing.id).length === 0 ? (
+                    <div className="rfs-muted">لا يوجد أطباء مسجلون قرب هذه الصيدلية.</div>
+                  ) : (
+                    <ul className="rfs-nearby-list">
+                      {nearbyOf(viewing.id).map(d => (
+                        <li key={d.id}>
+                          <strong>{d.name}</strong>
+                          <span className="rfs-muted"> · {[d.specialty, d.className].filter(Boolean).join(' · ') || 'بدون اختصاص/كلاس'}</span>
+                          {d.publishedToDoctorSurvey && <span className="badge badge--blue rfs-mini-badge">سيرفي الأطباء</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              {viewing.userId === user?.id && (
+                <button className="btn btn--secondary" onClick={() => { const e = viewing; setViewing(null); openEdit(e); }}>تعديل</button>
+              )}
+              <button className="btn btn--primary" onClick={() => setViewing(null)}>إغلاق</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editing && (
         <div className="modal-overlay" onClick={() => !editSaving && setEditing(null)}>
