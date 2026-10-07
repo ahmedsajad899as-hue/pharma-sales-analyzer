@@ -890,7 +890,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // الشامل (طلب صريح) — يبقى بإمكانه التبديل لـ«الكل» أو شركة غيره يدوياً.
   // يُستخدم كبوابة ثانية (مع overallFilesReady) أمام التشغيل التلقائي كي لا
   // يُحسب أول تقرير بـ«الكل» ثم يُستبدَل لاحقاً بشريحته (نفس سباق overallFilesReady).
-  const overallTeamDefaultReady = useRef(user?.role !== 'company_manager');
+  // تبدأ false دائماً — تبديل الحساب من الشريط الجانبي لا يُعيد تركيب هذا
+  // المكوّن، فقيمة useRef الابتدائية المشتقة من أول user تبقى عالقة بعد
+  // التبديل؛ الـ effect أدناه (معتمِد على token) يعيد ضبطها فعلياً عند كل تبديل.
+  const overallTeamDefaultReady = useRef(false);
   // Remembers the last AUTO-populated date range so we can tell it apart from dates the
   // user typed. Auto dates must NOT be sent as a hard filter (they'd re-exclude a file
   // whose rows are all date-defaulted); only user-chosen dates filter the result.
@@ -960,6 +963,20 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const list = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : []);
         setSciReps(list);
       }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  // يعيد ضبط حالة شريحة «التيم» عند تبديل الحساب من الشريط الجانبي (بلا إعادة
+  // تحميل الصفحة) — وإلا تبقى شريحة/بيانات الحساب القديم عالقة على الشاشة
+  // لحظياً (أو تُرسَل مع الحساب الجديد كـteamManagerId لا ينتمي لمكتبه، فيفشل
+  // selectedTeam بالباك إند ويُحسب المجموع الكلي بلا تقييد تيم) قبل أن تصل
+  // بيانات تيمات الحساب الجديد وتُصحِّحها.
+  useEffect(() => {
+    overallTeamDefaultReady.current = user?.role !== 'company_manager';
+    setOverallTeamId(null);
+    setOverallSales(null);
+    setOverallReturns(null);
+    overallAutoRan.current = '';
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
