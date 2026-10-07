@@ -81,6 +81,7 @@ export default function RepFieldSurveyMap({ entries }: Props) {
   const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [geoError, setGeoError] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
+  const watchIdRef = useRef<number | null>(null);
 
   const located = useMemo(() => entries.filter(e => Number.isFinite(e.latitude) && Number.isFinite(e.longitude)), [entries]);
 
@@ -103,9 +104,13 @@ export default function RepFieldSurveyMap({ entries }: Props) {
     if (!mapDivRef.current || mapRef.current) return;
     const map = L.map(mapDivRef.current, { zoomControl: true, attributionControl: true });
     map.setView([33.3152, 44.3661], 11); // بغداد افتراضياً حتى تُحسب الحدود
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
-      maxZoom: 19, subdomains: 'abcd',
+    // خرائط OpenStreetMap القياسية — مجانية بالكامل بلا مفتاح API (نفس مزوّد
+    // RepTrackingMap.tsx في هذا المشروع). خلفية CARTO الملوّنة أُزيلت لأن CARTO
+    // أوقفت السماح المجاني بخلفيتها الرصدية بلا مفتاح API، فكانت تظهر عليها
+    // علامة "API KEY REQUIRED" بدل الخريطة.
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
     }).addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
@@ -144,14 +149,26 @@ export default function RepFieldSurveyMap({ entries }: Props) {
   }, [located, me]);
 
   // ── موقعي الحالي: تتبّع مستمر + دائرة الدقة ──────────────────────────────
-  useEffect(() => {
+  // دالة قابلة لإعادة الاستدعاء من زر صريح بنقرة المستخدم: المتصفحات تتعامل
+  // مع طلب موقع ناتج عن نقرة فعلية بثقة أكبر من طلب تلقائي عند فتح الصفحة،
+  // وقد يكون سبب الرفض الأول أن النافذة لم تظهر أصلاً عند التحميل التلقائي.
+  const startWatch = () => {
     if (!navigator.geolocation) { setGeoError('المتصفح لا يدعم تحديد الموقع.'); return; }
-    const watchId = navigator.geolocation.watchPosition(
+    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+    watchIdRef.current = navigator.geolocation.watchPosition(
       p => { setMe({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); setGeoError(''); },
-      err => setGeoError(err.code === 1 ? 'لم يُسمح بالوصول لموقعك.' : 'تعذّر تحديد موقعك الحالي.'),
+      err => {
+        if (err.code === 1) setGeoError('لم يُسمح بالوصول لموقعك. فعّله من أيقونة القفل/الموقع بجانب عنوان الصفحة، ثم اضغط «إعادة المحاولة».');
+        else if (err.code === 3) setGeoError('انتهت مهلة تحديد الموقع. تأكد من تفعيل GPS وحاول مجدداً.');
+        else setGeoError('تعذّر تحديد موقعك الحالي. حاول مجدداً.');
+      },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 },
     );
-    return () => navigator.geolocation.clearWatch(watchId);
+  };
+
+  useEffect(() => {
+    startWatch();
+    return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, []);
 
   useEffect(() => {
@@ -196,7 +213,12 @@ export default function RepFieldSurveyMap({ entries }: Props) {
               <span><i style={{ background: COLOR_DOCTOR }} /> {totalDoctors} طبيب</span>
               <span><i style={{ background: COLOR_PHARMACY }} /> {totalPharmacies} صيدلية</span>
             </div>
-            {geoError && <div className="rfs-map-geo-error">{geoError}</div>}
+            {geoError && (
+              <div className="rfs-map-geo-error">
+                <div>{geoError}</div>
+                <button className="rfs-map-retry-btn" onClick={startWatch}>🔄 إعادة المحاولة</button>
+              </div>
+            )}
             {me && (
               <button className="rfs-map-me-btn" onClick={recenterOnMe}>
                 📍 اذهب إلى موقعي (دقة ±{Math.round(me.accuracy)} م)
