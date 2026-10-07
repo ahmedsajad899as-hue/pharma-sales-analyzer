@@ -243,6 +243,12 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [currSaveMsg, setCurrSaveMsg] = useState('');
 
+  // Rename file (originalName) — shown to all accounts the file is shared with
+  const [renameModal, setRenameModal] = useState<UploadedFile | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [savingRename, setSavingRename] = useState(false);
+  const [renameSaveMsg, setRenameSaveMsg] = useState('');
+
   // File-rep sharing state (old: ScientificRep)
   const [shareModalFile, setShareModalFile] = useState<UploadedFile | null>(null);
   const [sciReps, setSciReps] = useState<{ id: number; name: string }[]>([]);
@@ -350,6 +356,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
     [autoDedup !== null,    () => setAutoDedup(null)],
     [shareModalFile !== null, () => setShareModalFile(null)],
     [currencyModal !== null, () => setCurrencyModal(null)],
+    [renameModal !== null,   () => setRenameModal(null)],
     [analyzeFile !== null,   () => setAnalyzeFile(null)],
     [showNorm,               () => setShowNorm(false)],
   ]);
@@ -639,6 +646,35 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
       setCurrSaveMsg(t.upload.currencySaveFailed);
     } finally {
       setSavingCurrency(false);
+    }
+  };
+
+  const openRenameModal = (f: UploadedFile) => {
+    setRenameModal(f);
+    setRenameValue(f.originalName);
+    setRenameSaveMsg('');
+  };
+
+  const saveRename = async () => {
+    if (!renameModal) return;
+    const name = renameValue.trim();
+    if (!name) return;
+    setSavingRename(true);
+    setRenameSaveMsg('');
+    try {
+      const res = await fetch(`${API}/api/files/${renameModal.id}/rename`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error();
+      setRenameSaveMsg('تم الحفظ');
+      await loadFiles();
+      setTimeout(() => setRenameModal(null), 700);
+    } catch {
+      setRenameSaveMsg('فشل الحفظ');
+    } finally {
+      setSavingRename(false);
     }
   };
 
@@ -1122,6 +1158,13 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                             </button>
                           )}
 
+                          {/* إعادة تسمية — للمالك فقط، يظهر الاسم الجديد لكل من شارَكهم الملف */}
+                          {f.userId === user?.id && (
+                            <button onClick={() => { openRenameModal(f); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="edit" size={13} /> إعادة تسمية
+                            </button>
+                          )}
+
                           {/* Currency convert */}
                           {hasFeature('currency_convert') && (
                             <button onClick={() => { openCurrencyModal(f); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1378,6 +1421,55 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                 disabled={savingCurrency}
               >
                 {savingCurrency ? <Icon name="loading" size={13} className="icon-spin" /> : <Icon name="checkCircle" size={13} />} {savingCurrency ? t.upload.currencySaving : t.upload.currencySave}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Modal */}
+      {renameModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setRenameModal(null)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 16, padding: '2rem', minWidth: 340, maxWidth: 420, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', direction: 'rtl' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.1rem', fontWeight: 700 }}>إعادة تسمية الملف</h3>
+
+            <input
+              type="text"
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !savingRename && renameValue.trim()) saveRename(); }}
+              autoFocus
+              style={{
+                width: '100%', padding: '0.55rem 0.75rem', border: '1px solid #d1d5db',
+                borderRadius: 8, fontSize: '0.95rem', outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+
+            {renameSaveMsg && (
+              <p style={{ color: renameSaveMsg === 'تم الحفظ' ? 'var(--c-success)' : 'var(--c-danger)', fontSize: '0.85rem', margin: '0.75rem 0 0', fontWeight: 600 }}>
+                {renameSaveMsg}
+              </p>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1.25rem' }}>
+              <button
+                style={{ padding: '7px 18px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: '0.9rem' }}
+                onClick={() => setRenameModal(null)}
+              >
+                {t.upload.cancel}
+              </button>
+              <button
+                style={{ padding: '7px 20px', background: 'var(--c-accent)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem', opacity: (savingRename || !renameValue.trim()) ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                onClick={saveRename}
+                disabled={savingRename || !renameValue.trim()}
+              >
+                {savingRename ? <Icon name="loading" size={13} className="icon-spin" /> : <Icon name="checkCircle" size={13} />} {savingRename ? 'جارٍ الحفظ...' : 'حفظ'}
               </button>
             </div>
           </div>

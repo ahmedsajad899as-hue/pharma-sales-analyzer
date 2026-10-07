@@ -3401,6 +3401,24 @@ async function fileAccessWhere(userId) {
   return { OR: orClauses };
 }
 
+// PATCH /api/files/:id/rename  body: { name }
+// Owner-only. originalName is the single field the file list reads for every
+// account that can see this file (owner + fileShares + sharedWithRepId), so
+// updating it here is all that's needed for the new name to show everywhere.
+app.patch('/api/files/:id/rename', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const name = (req.body?.name ?? '').trim();
+  if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
+  if (name.length > 255) return res.status(400).json({ error: 'الاسم طويل جداً' });
+  try {
+    const file = await prisma.uploadedFile.findFirst({ where: { id, userId: req.user?.id } });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
+    await prisma.uploadedFile.update({ where: { id }, data: { originalName: name } });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Currency settings per file ───────────────────────────────
 // PATCH /api/files/:id/currency  body: { currencyMode, exchangeRate, sourceCurrency? }
 app.patch('/api/files/:id/currency', requireAuth, async (req, res) => {  const id = parseInt(req.params.id);
