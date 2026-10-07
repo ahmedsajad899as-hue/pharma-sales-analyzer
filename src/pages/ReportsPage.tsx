@@ -893,7 +893,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // تبدأ false دائماً — تبديل الحساب من الشريط الجانبي لا يُعيد تركيب هذا
   // المكوّن، فقيمة useRef الابتدائية المشتقة من أول user تبقى عالقة بعد
   // التبديل؛ الـ effect أدناه (معتمِد على token) يعيد ضبطها فعلياً عند كل تبديل.
+  // حالة (لإعادة تشغيل التحميل التلقائي عند الحسم) + مرآة ref تقرأها
+  // loadOverallReport لحظياً دون انتظار إعادة التصيير.
+  const [overallTeamReady, setOverallTeamReady] = useState(false);
   const overallTeamDefaultReady = useRef(false);
+  const markTeamReady = (v: boolean) => { overallTeamDefaultReady.current = v; setOverallTeamReady(v); };
+  // رقم تسلسلي لكل طلب «تحليل شامل» — نتيجة طلب أقدم تُهمَل إن كان طلب أحدث قد
+  // انطلق بعده (طلبان متزامنان بنطاقين مختلفين كان أبطأهما يفوز على الشاشة).
+  const overallReqSeq = useRef(0);
   // Remembers the last AUTO-populated date range so we can tell it apart from dates the
   // user typed. Auto dates must NOT be sent as a hard filter (they'd re-exclude a file
   // whose rows are all date-defaulted); only user-chosen dates filter the result.
@@ -972,7 +979,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // selectedTeam بالباك إند ويُحسب المجموع الكلي بلا تقييد تيم) قبل أن تصل
   // بيانات تيمات الحساب الجديد وتُصحِّحها.
   useEffect(() => {
-    overallTeamDefaultReady.current = user?.role !== 'company_manager';
+    markTeamReady(user?.role !== 'company_manager');
     setOverallTeamId(null);
     setOverallSales(null);
     setOverallReturns(null);
@@ -991,10 +998,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         if (user?.role === 'company_manager') {
           const own = teams.find(t => t.managerId === user.id);
           if (own) setOverallTeamId(own.managerId);
-          overallTeamDefaultReady.current = true;
+          markTeamReady(true);
         }
       })
-      .catch(() => { overallTeamDefaultReady.current = true; });
+      .catch(() => { markTeamReady(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -1390,9 +1397,17 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // القيمة المُمرَّرة مباشرة — ضروري لأن onClick الشريحة يستدعي setOverallTeamId
   // ثم يطلب تحميلاً فورياً قبل أن تُحدَّث الحالة (إغلاق قديم/stale closure).
   const loadOverallReport = async (teamOverride?: number | null) => {
+    // بوابة مركزية — لا في الـ effects: مُطلِقات هذه الدالة متعددة (تشغيل تلقائي،
+    // تبديل «تحليل كامل»، زر «تحليل»)، وكان يكفي أن يفلت واحد منها قبل وصول
+    // تيمات المكتب ليخرج الطلب بلا teamManagerId وبكل الملفات المفعّلة، فيُحتسب
+    // مبيع الملف كله ويطغى على نتيجة الشريحة الصحيحة التي سبقته.
+    // الاستدعاء الصريح (بـ teamOverride، ولو null من زر «الكل») يمرّ دائماً.
+    if (teamOverride === undefined && !overallTeamDefaultReady.current) return;
     // Selected files (multi). Fall back to all active files when none explicitly picked.
     const fileIds = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
     if (fileIds.length === 0) { setError('يرجى اختيار ملف للتحليل'); return; }
+    // حارس تسلسل: استجابة طلب أقدم يجب ألا تكتب فوق نتيجة طلب أحدث سبقها وصولاً.
+    const myReq = ++overallReqSeq.current;
     setError(''); setLoading(true); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); setTargetData([]);
     try {
       const parseOverall = (d: any): OverallReport => ({
@@ -1432,6 +1447,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         fetch(`/api/reports/overall?${params}&recordType=return`, { headers: authH() }),
       ]);
       const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
+      if (myReq !== overallReqSeq.current) return; // انطلق طلب أحدث — أهمِل هذه النتيجة
       if (!salesRes.ok) throw new Error(salesJson.message || salesJson.error || 'فشل تحميل البيانات');
       const salesData = salesJson.data ?? salesJson;
       // السيرفر يرفض الوضع الكامل على ملف محوَّل إليك — نعرض ذلك بصدق بدل
@@ -1457,8 +1473,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       }
       setOverallSales(parseOverall(salesData));
       setOverallReturns(returnsRes.ok ? parseOverall(returnsJson.data ?? returnsJson) : null);
-    } catch (err: any) { setError(err.message); }
-    finally { setLoading(false); }
+    } catch (err: any) { if (myReq === overallReqSeq.current) setError(err.message); }
+    finally { if (myReq === overallReqSeq.current) setLoading(false); }
   };
 
   // ── تشغيل «التحليل الشامل» تلقائياً بمجرد دخول التبويب ──────────────────
@@ -1473,7 +1489,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (!overallFilesReady.current) return;
     // ولا قبل تحديد شريحة شركة مدير الشركة الافتراضية (أعلاه) — وإلا يُحسب أول
     // تقرير بـ«الكل» ثم تُستبدَل الشريحة لاحقاً دون إعادة التحميل تلقائياً.
-    if (!overallTeamDefaultReady.current) return;
+    if (!overallTeamReady) return;
     const ids = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
     if (ids.length === 0) return;
     const key = `${[...ids].sort((a, b) => a - b).join(',')}|${overallTeamId ?? ''}`;
@@ -1482,7 +1498,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (loading) return; // طلب جارٍ بالفعل — لا تُعده
     loadOverallReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, overallFileIds.join(','), activeFileIds.join(','), overallTeamId]);
+  }, [mode, overallFileIds.join(','), activeFileIds.join(','), overallTeamId, overallTeamReady]);
 
   const fmt = (n: number) => Math.round(n || 0).toLocaleString('ar-IQ-u-nu-latn');
 
