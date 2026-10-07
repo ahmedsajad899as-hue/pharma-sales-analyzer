@@ -3612,6 +3612,20 @@ select.comm-input { cursor: pointer; }
 .rfs-nearby { margin-top: 18px; padding: 14px; background: var(--c-bg); border-radius: var(--radius-md); }
 .rfs-nearby-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .rfs-nearby-row { display: grid; grid-template-columns: 2fr 1.2fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.rfs-add-more {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px;
+  border: 1px dashed var(--c-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--c-accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.rfs-add-more:hover { background: var(--c-accent-light); border-color: var(--c-accent); }
 .rfs-location { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 18px; padding: 12px 14px; border: 1px dashed var(--c-border); border-radius: var(--radius-md); background: var(--c-bg); }
 .rfs-location--ok { border-style: solid; border-color: var(--c-success-border); background: var(--c-success-bg); }
 .rfs-location--err { border-style: solid; border-color: var(--c-danger-border); background: var(--c-danger-bg); }

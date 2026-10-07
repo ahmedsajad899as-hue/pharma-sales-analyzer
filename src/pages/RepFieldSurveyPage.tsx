@@ -637,6 +637,9 @@ export default function RepFieldSurveyPage() {
                   <button className="btn btn--secondary btn--sm" title="حذف" onClick={() => setNearby(nearby.filter((_, j) => j !== i))}>✕</button>
                 </div>
               ))}
+              <button type="button" className="rfs-add-more" onClick={() => setNearby([...nearby, { name: '', specialty: '', className: '' }])}>
+                + إضافة طبيب آخر قريب من الصيدلية
+              </button>
             </div>
           )}
 
