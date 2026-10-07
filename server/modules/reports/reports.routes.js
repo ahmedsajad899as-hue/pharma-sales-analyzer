@@ -113,6 +113,7 @@ router.get('/overall', async (req, res) => {
   try {
     const { fileIds, startDate, endDate, recordType, teamManagerId } = req.query;
     const userId = req.user?.id ?? null;
+    const userRole = req.user?.role ?? null;
 
     const parsedFileIds = fileIds
       ? String(fileIds).split(',').map(Number).filter(Boolean)
@@ -176,7 +177,13 @@ router.get('/overall', async (req, res) => {
       });
       rawApplied = accessibleCount === parsedFileIds.length;
     }
-    const effectiveItemScope = rawApplied ? {} : itemScopeFilter;
+    // مدير الشركة (company_manager) يرى هنا مبيع كل الشركات/التيمات الأخرى في
+    // مكتبه أيضاً (طلب صريح) — لا فقط ايتماته الخاصة. نطاق الايتمات (itemScopeFilter)
+    // هو بالضبط ما كان يحجب ذلك (تقاطع ايتماته مع ايتمات تيم آخر = صفر صفوف عند
+    // اختيار شريحة شركة غيره)، فيُستثنى دوره من هذا التقييد في هذه الشاشة فقط —
+    // teamCompanyFilter أدناه يبقى يعزل مبيع الشريحة المختارة عند الحاجة.
+    const isCompanyManager = userRole === 'company_manager';
+    const effectiveItemScope = (rawApplied || isCompanyManager) ? {} : itemScopeFilter;
     // «التحليل الشامل» مُستثنى عمداً من خاصية الحجب (BlockedArea/Item/
     // CommercialRep/Pharmacy) — بطلب صريح: الحجب يخصّ تقرير «علمي» فقط
     // (resolveSciRepSales في scientific-reps.service.js)، ولا يجوز أن يمسّ
