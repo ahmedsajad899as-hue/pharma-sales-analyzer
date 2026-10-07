@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
+import RepFieldSurveyMap from '../components/RepFieldSurveyMap';
 
 // ════════════════════════════════════════════════════════════════════════════
 // سيرفي المندوب العلمي الميداني
@@ -12,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 
 type Kind = 'doctor' | 'pharmacy';
 
-interface Entry {
+export interface Entry {
   id: number;
   userId: number;
   repName: string | null;
@@ -179,6 +180,7 @@ export default function RepFieldSurveyPage() {
   const [loadError, setLoadError] = useState('');
   const [repFilter, setRepFilter] = useState<number | ''>('');
   const [kindFilter, setKindFilter] = useState<'all' | Kind>('all');
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [search, setSearch]       = useState('');
 
   const load = useCallback(async () => {
@@ -727,6 +729,10 @@ export default function RepFieldSurveyPage() {
         <div className="rfs-list-controls">
           <div className="section-title">السجلات</div>
           <div className="rfs-filters">
+            <div className="tabs">
+              <button className={`tab ${viewMode === 'list' ? 'tab--active' : ''}`} onClick={() => setViewMode('list')}>📋 قائمة</button>
+              <button className={`tab ${viewMode === 'map' ? 'tab--active' : ''}`} onClick={() => setViewMode('map')}>🗺️ خريطة</button>
+            </div>
             {!isRep && (
               <select className="form-input" value={repFilter} onChange={e => setRepFilter(e.target.value ? Number(e.target.value) : '')}>
                 <option value="">كل المندوبين</option>
@@ -750,6 +756,8 @@ export default function RepFieldSurveyPage() {
           <div className="empty-row">جارٍ التحميل…</div>
         ) : visible.length === 0 ? (
           <div className="empty-row">{entries.length ? 'لا توجد نتائج مطابقة.' : 'لم يتم تسجيل أي اسم بعد.'}</div>
+        ) : viewMode === 'map' ? (
+          <RepFieldSurveyMap entries={visible} />
         ) : (
           <div className="table-wrapper">
             <table>

@@ -3655,3 +3655,88 @@ select.comm-input { cursor: pointer; }
 .rfs-dup { border-right-color: var(--c-accent); background: var(--c-accent-light); color: var(--c-text-primary); border: 1px solid var(--c-purple-border); margin-top: 14px; }
 .rfs-dup-list { margin: 8px 0 10px; padding-inline-start: 18px; font-size: 13.5px; display: flex; flex-direction: column; gap: 4px; }
 .rfs-dup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ── سيرفي المندوب العلمي: خريطة السجلات (RepFieldSurveyMap) ──────────────── */
+.rfs-map-shell {
+  display: flex;
+  gap: 0;
+  height: 560px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--c-border-light);
+  box-shadow: var(--shadow-sm);
+}
+.rfs-map-canvas { flex: 1; min-width: 0; background: #e9edf3; }
+.rfs-map-panel {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--c-surface);
+  border-inline-start: 1px solid var(--c-border-light);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 2;
+}
+.rfs-map-panel--collapsed { width: 40px; }
+.rfs-map-panel-toggle {
+  border: 0;
+  background: var(--c-bg);
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 6px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--c-border-light);
+  text-align: center;
+}
+.rfs-map-panel-toggle:hover { background: var(--c-accent-light); color: var(--c-accent); }
+.rfs-map-panel-body { padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.rfs-map-legend { display: flex; gap: 12px; font-size: 12.5px; font-weight: 600; color: var(--c-text-secondary); flex-wrap: wrap; }
+.rfs-map-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.rfs-map-legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.rfs-map-me-btn {
+  border: 1px solid var(--c-success-border);
+  background: var(--c-success-bg);
+  color: #0b7a53;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: center;
+}
+.rfs-map-me-btn:hover { filter: brightness(0.97); }
+.rfs-map-geo-error { font-size: 12px; color: var(--c-danger); background: var(--c-danger-bg); border-radius: var(--radius-sm); padding: 6px 8px; }
+.rfs-map-area-title { font-size: 12px; font-weight: 700; color: var(--c-text-muted); text-transform: uppercase; letter-spacing: 0.02em; margin-top: 4px; }
+.rfs-map-area-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.rfs-map-area-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--c-text-primary);
+  text-align: start;
+}
+.rfs-map-area-row:hover { background: var(--c-accent-light); }
+.rfs-map-area-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rfs-map-area-counts { display: flex; gap: 4px; flex-shrink: 0; }
+.rfs-map-count { min-width: 18px; text-align: center; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 6px; color: #fff; }
+.rfs-map-count--doctor { background: #2a78d6; }
+.rfs-map-count--pharmacy { background: #eb6834; }
+@keyframes rfs-map-pulse {
+  0%   { transform: scale(0.4); opacity: 0.9; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+.rfs-map-pulse { animation: rfs-map-pulse 1.8s ease-out infinite; }
+@media (max-width: 640px) {
+  .rfs-map-shell { flex-direction: column; height: 620px; }
+  .rfs-map-panel { width: 100%; border-inline-start: 0; border-bottom: 1px solid var(--c-border-light); max-height: 200px; }
+  .rfs-map-panel--collapsed { width: 100%; max-height: none; }
+  .rfs-map-canvas { flex: 1; }
+}
