@@ -571,7 +571,8 @@ export default function RepFieldSurveyPage() {
           <div className="rfs-form-grid">
             <div className="form-group">
               <label className="form-label">{nameLabel} *</label>
-              <input className="form-input" value={form.name} onChange={e => setField('name', e.target.value)} placeholder={kind === 'doctor' ? 'مثال: د. أحمد علي' : 'مثال: صيدلية الأمل'} />
+              <input className="form-input" value={form.name} onChange={e => setField('name', e.target.value)} placeholder={kind === 'doctor' ? 'مثال: أحمد علي' : 'مثال: الأمل'} />
+              <div className="rfs-muted">{kind === 'doctor' ? 'اكتب الاسم مباشرة بدون «د.» أو «دكتور».' : 'اكتب الاسم مباشرة بدون كلمة «صيدلية».'}</div>
             </div>
             <div className="form-group">
               <label className="form-label">المنطقة *</label>

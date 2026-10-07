@@ -39,6 +39,34 @@ function optionalText(value, max = 200) {
   return s ? s.slice(0, max) : null;
 }
 
+// المندوب لا يحتاج كتابة «د./دكتور» أو «صيدلية» — إن كتبها من عادة تُزال تلقائياً
+// عند الحفظ بدل أن تبقى مكررة داخل الاسم المخزَّن.
+const DOCTOR_NAME_PREFIX_RE = /^\s*(الدكتورة|الدكتور|دكتورة|دكتور|د\.?)\s+/i;
+const PHARMACY_NAME_PREFIX_RE = /^\s*(صيدلية|صيدليه)\s+/i;
+
+function stripDoctorPrefix(name) {
+  let s = String(name ?? '').trim();
+  for (let i = 0; i < 3 && DOCTOR_NAME_PREFIX_RE.test(s); i++) s = s.replace(DOCTOR_NAME_PREFIX_RE, '').trim();
+  return s;
+}
+
+function stripPharmacyPrefix(name) {
+  return String(name ?? '').trim().replace(PHARMACY_NAME_PREFIX_RE, '').trim();
+}
+
+// نظيرا requireText مع إزالة البادئة — الاسم الفارغ بعد الإزالة (مثلاً "د." وحدها) يُرفض أيضاً
+function requireDoctorName(value, max = 200) {
+  const s = stripDoctorPrefix(value).slice(0, max);
+  if (!s) throw new AppError('اسم الطبيب مطلوب', 400, 'VALIDATION_ERROR');
+  return s;
+}
+
+function requirePharmacyName(value, max = 200) {
+  const s = stripPharmacyPrefix(value).slice(0, max);
+  if (!s) throw new AppError('اسم الصيدلية مطلوب', 400, 'VALIDATION_ERROR');
+  return s;
+}
+
 // الموقع إلزامي، ودقته يجب أن تكون ضمن الحد. بلا ذلك لا يُحفظ الاسم.
 function requireCoords(body) {
   const latitude = Number(body?.latitude);
@@ -120,7 +148,7 @@ async function findOwnNameMatches(userId, kind, name) {
  */
 export async function createDoctorEntry(user, body) {
   assertFieldRep(user);
-  const name = requireText(body?.name, 'اسم الطبيب مطلوب');
+  const name = requireDoctorName(body?.name);
   const areaName = requireText(body?.areaName, 'المنطقة مطلوبة');
   const coords = requireCoords(body);
   const nearPharmacies = cleanNearPharmacies([
@@ -174,7 +202,7 @@ export async function createDoctorEntry(user, body) {
  */
 export async function createPharmacyEntry(user, body) {
   assertFieldRep(user);
-  const name = requireText(body?.name, 'اسم الصيدلية مطلوب');
+  const name = requirePharmacyName(body?.name);
   const areaName = requireText(body?.areaName, 'المنطقة مطلوبة');
   const notes = optionalText(body?.notes, 1000);
   const coords = requireCoords(body);
@@ -188,7 +216,7 @@ export async function createPharmacyEntry(user, body) {
   const nearbyInput = [];
   const seenKeys = new Set();
   for (const d of Array.isArray(body?.doctors) ? body.doctors : []) {
-    const dName = String(d?.name ?? '').trim().slice(0, 200);
+    const dName = stripDoctorPrefix(d?.name).slice(0, 200);
     if (!dName) continue;
     const k = doctorKey(dName);
     if (seenKeys.has(k)) continue;
@@ -255,7 +283,7 @@ export async function updateEntry(user, entryId, body) {
 
   const data = { editedAt: new Date() };
   if (body?.name !== undefined) {
-    data.name = requireText(body.name, current.kind === 'doctor' ? 'اسم الطبيب مطلوب' : 'اسم الصيدلية مطلوب');
+    data.name = current.kind === 'doctor' ? requireDoctorName(body.name) : requirePharmacyName(body.name);
   }
   if (body?.areaName !== undefined) data.areaName = requireText(body.areaName, 'المنطقة مطلوبة');
   if (body?.notes !== undefined) data.notes = optionalText(body.notes, 1000);
