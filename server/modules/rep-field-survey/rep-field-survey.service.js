@@ -127,6 +127,36 @@ async function migrateLegacyParent(row) {
   return { ...row, nearPharmacies: dedupeNames([...row.nearPharmacies, parent?.name]), parentId: null };
 }
 
+/**
+ * الصيدليات القريبة المكتوبة مع طبيب ولا وجود لها كصيدلية مسجَّلة لدى هذا
+ * المندوب تُنشأ الآن صفاً صيدلية حقيقياً (بموقع الطبيب نفسه لحظة تسجيله) — فتظهر
+ * في خانة الصيدليات أيضاً. الربط بالاسم (pharmacyIds في listEntries) يلتقطها
+ * تلقائياً بلا أي تغيير إضافي، لأنه مبني على تطابق الاسم لا على معرّف صريح.
+ */
+async function ensureOwnPharmacies(userId, names, areaName, coords) {
+  if (!names.length) return 0;
+  const own = await prisma.repFieldSurveyEntry.findMany({
+    where: { userId, kind: 'pharmacy' },
+    select: { name: true },
+  });
+  const ownKeys = new Set(own.map(p => plainKey(p.name)));
+  let created = 0;
+  for (const name of names) {
+    const k = plainKey(name);
+    if (ownKeys.has(k)) continue;
+    ownKeys.add(k);
+    try {
+      await prisma.repFieldSurveyEntry.create({
+        data: { userId, kind: 'pharmacy', name, areaName, notes: null, ...coords },
+      });
+      created++;
+    } catch (err) {
+      console.error('[rep-field-survey] auto-create pharmacy failed', name, err?.message);
+    }
+  }
+  return created;
+}
+
 // الأسماء المكررة داخل سجلات المندوب نفسه فقط
 async function findOwnNameMatches(userId, kind, name) {
   const key = kind === 'doctor' ? doctorKey(name) : plainKey(name);
@@ -171,7 +201,10 @@ export async function createDoctorEntry(user, body) {
         editedAt: new Date(),
       },
     });
-    return { entry, merged: true };
+    const pharmaciesCreated = await ensureOwnPharmacies(user.id, entry.nearPharmacies, entry.areaName, {
+      latitude: entry.latitude, longitude: entry.longitude, accuracy: entry.accuracy,
+    });
+    return { entry, merged: true, pharmaciesCreated };
   }
 
   if (!body?.allowDuplicate) {
@@ -192,7 +225,8 @@ export async function createDoctorEntry(user, body) {
       ...coords,
     },
   });
-  return { entry, merged: false };
+  const pharmaciesCreated = await ensureOwnPharmacies(user.id, nearPharmacies, areaName, coords);
+  return { entry, merged: false, pharmaciesCreated };
 }
 
 /**
@@ -328,7 +362,13 @@ export async function updateEntry(user, entryId, body) {
     return updated;
   });
 
-  return { entry: row };
+  let pharmaciesCreated = 0;
+  if (current.kind === 'doctor' && data.nearPharmacies !== undefined) {
+    pharmaciesCreated = await ensureOwnPharmacies(user.id, row.nearPharmacies, row.areaName, {
+      latitude: row.latitude, longitude: row.longitude, accuracy: row.accuracy,
+    });
+  }
+  return { entry: row, pharmaciesCreated };
 }
 
 // ─── Read ────────────────────────────────────────────────────

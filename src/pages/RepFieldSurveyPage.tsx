@@ -161,7 +161,10 @@ function PharmacyFields({ value, onChange, placeholder }: { value: string[]; onC
 
 function describeSave(kind: Kind, data: any): string[] {
   if (kind === 'doctor') {
-    return data.merged ? ['أُضيفت الصيدليات إلى الطبيب الموجود — بقي طبيباً واحداً.'] : [];
+    const lines: string[] = [];
+    if (data.merged) lines.push('أُضيفت الصيدليات إلى الطبيب الموجود — بقي طبيباً واحداً.');
+    if (data.pharmaciesCreated) lines.push(`أُنشئت ${data.pharmaciesCreated} صيدلية جديدة في الأرشيف وربطت بهذا الطبيب.`);
+    return lines;
   }
   const lines: string[] = [data.nearbyCount ? `مع ${data.nearbyCount} طبيب قريب.` : 'بدون أطباء قريبين.'];
   if (data.nearby?.linkedOwn) lines.push(`ربط ${data.nearby.linkedOwn} من أطبائك المسجَّلين سابقاً بهذه الصيدلية.`);
