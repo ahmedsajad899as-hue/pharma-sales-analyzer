@@ -137,37 +137,23 @@ function captureBestLocation(onLive: (acc: number) => void): Promise<Coords> {
   });
 }
 
-// حقل قائمة صيدليات: كل اسم يُكتب ثم يُضاف كشريحة
-function NearChips({ value, onChange, placeholder }: { value: string[]; onChange: (v: string[]) => void; placeholder: string }) {
-  const [draft, setDraft] = useState('');
-  const add = () => {
-    const t = draft.trim();
-    setDraft('');
-    if (!t || value.includes(t)) return;
-    onChange([...value, t]);
-  };
+// حقل قائمة صيدليات: كل ما يُكتب في الحقل هو الاسم مباشرة — لا حاجة لضغط زر
+// لتثبيته. "+ إضافة" يفتح حقلاً إضافياً لصيدلية ثانية، لا يُستخدم لتأكيد الأولى.
+function PharmacyFields({ value, onChange, placeholder }: { value: string[]; onChange: (v: string[]) => void; placeholder: string }) {
+  const rows = value.length ? value : [''];
+  const update = (i: number, v: string) => onChange(rows.map((x, j) => (j === i ? v : x)));
+  const remove = (i: number) => onChange(rows.filter((_, j) => j !== i));
   return (
-    <div className="rfs-chips">
-      {value.length > 0 && (
-        <div className="rfs-chip-list">
-          {value.map(v => (
-            <span key={v} className="rfs-chip">
-              {v}
-              <button type="button" aria-label="حذف" onClick={() => onChange(value.filter(x => x !== v))}>✕</button>
-            </span>
-          ))}
+    <div className="rfs-pharmacy-fields">
+      {rows.map((v, i) => (
+        <div className="input-row" key={i}>
+          <input className="form-input" placeholder={placeholder} value={v} onChange={e => update(i, e.target.value)} />
+          {rows.length > 1 && (
+            <button type="button" className="btn btn--secondary btn--sm" title="حذف" onClick={() => remove(i)}>✕</button>
+          )}
         </div>
-      )}
-      <div className="input-row">
-        <input
-          className="form-input"
-          placeholder={placeholder}
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
-        />
-        <button type="button" className="btn btn--secondary btn--sm" onClick={add}>+ إضافة</button>
-      </div>
+      ))}
+      <button type="button" className="rfs-add-more" onClick={() => onChange([...rows, ''])}>+ إضافة صيدلية أخرى</button>
     </div>
   );
 }
@@ -354,7 +340,7 @@ export default function RepFieldSurveyPage() {
         ...base,
         specialty: form.specialty.trim() || null,
         className: form.className.trim() || null,
-        nearPharmacies: doctorNear,
+        nearPharmacies: doctorNear.filter(p => p.trim()),
       }, base.name);
     } else {
       await send('pharmacy', '/api/rep-field-survey/pharmacies', {
@@ -434,7 +420,7 @@ export default function RepFieldSurveyPage() {
     if (editing.kind === 'doctor') {
       body.specialty = editForm.specialty.trim() || null;
       body.className = editForm.className.trim() || null;
-      body.nearPharmacies = editNear;
+      body.nearPharmacies = editNear.filter(p => p.trim());
     }
     if (editCoords) {
       body.latitude = editCoords.latitude;
@@ -610,7 +596,7 @@ export default function RepFieldSurveyPage() {
               <div className="form-label">الصيدليات القريبة من الطبيب</div>
               <div className="rfs-muted">اكتب كل صيدلية قريبة ثم اضغط إضافة. الطبيب يبقى سجلاً واحداً مهما عددت صيدلياته.</div>
               <div style={{ marginTop: 8 }}>
-                <NearChips value={doctorNear} onChange={setDoctorNear} placeholder="اسم الصيدلية القريبة" />
+                <PharmacyFields value={doctorNear} onChange={setDoctorNear} placeholder="اسم الصيدلية القريبة" />
               </div>
             </div>
           )}
@@ -917,7 +903,7 @@ export default function RepFieldSurveyPage() {
                 <div className="rfs-nearby">
                   <div className="form-label">الصيدليات القريبة</div>
                   <div style={{ marginTop: 8 }}>
-                    <NearChips value={editNear} onChange={setEditNear} placeholder="اسم الصيدلية القريبة" />
+                    <PharmacyFields value={editNear} onChange={setEditNear} placeholder="اسم الصيدلية القريبة" />
                   </div>
                 </div>
               )}
