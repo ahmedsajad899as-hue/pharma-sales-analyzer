@@ -194,7 +194,10 @@ router.get('/overall', async (req, res) => {
     // UserAreaAssignment ∪ ScientificRepArea ∪ مناطق المحافظات المعيّنة —
     // موحَّد في areaScope.js ليشمل توسيع المحافظات، وليعطي اتحاداً بدل «أول
     // مصدر غير فارغ» (مستخدم له مناطق يدوية ومحافظة كان يفقد الثانية).
-    if (!rawApplied && userId && parsedFileIds.length > 0) {
+    // مدير الشركة مُستثنى من قيد المناطق أيضاً هنا (نفس استثناء نطاق الايتمات
+    // أعلاه) — وإلا يبقى مقيَّداً بمناطقه الشخصية على ملف مُشارَك معه لا يملكه،
+    // فيعرض رقماً أقل من مبيع شركته/تيمه الفعلي رغم اختيار شريحته هو تحديداً.
+    if (!rawApplied && !isCompanyManager && userId && parsedFileIds.length > 0) {
       const sharedFiles = await prisma.uploadedFile.count({
         where: { id: { in: parsedFileIds }, NOT: { userId }, fileShares: { some: { userId } } },
       });

@@ -3386,13 +3386,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             )}
           </div>
 
-          {mode === 'overall' && overallRawBlocked && (
+          {/* مدير الشركة يرى كل بيانات شركته/تيمه دائماً دون حاجة لـ«تحليل كامل»
+              (نفس استثناء نطاق الايتمات/المناطق في الباك إند) — فالزر وتحذيره
+              غير ذَوَي صلة له ويُخفَيان كي لا يظهر تحذير وصول مُربِك بلا داعٍ. */}
+          {mode === 'overall' && overallRawBlocked && user?.role !== 'company_manager' && (
             <span style={{ fontSize: 11, color: '#b45309', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '4px 10px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Icon name="warning" size={11} /> لا تملك صلاحية وصول على أحد الملفات المحدَّدة، فتعذَّر عرض بياناتها كاملة
             </span>
           )}
           {/* زر «تحليل كامل» — يظهر في التحليل الشامل فقط */}
-          {mode === 'overall' && (
+          {mode === 'overall' && user?.role !== 'company_manager' && (
             <button
               onClick={() => setOverallRaw(v => !v)}
               disabled={loading}
