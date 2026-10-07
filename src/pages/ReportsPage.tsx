@@ -886,6 +886,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   interface OverallTeam { managerId: number; managerName: string; name: string }
   const [overallTeams, setOverallTeams] = useState<OverallTeam[]>([]);
   const [overallTeamId, setOverallTeamId] = useState<number | null>(null);
+  // مدير الشركة: نختار شريحة شركته هو افتراضياً بدل «الكل» عند دخول التحليل
+  // الشامل (طلب صريح) — يبقى بإمكانه التبديل لـ«الكل» أو شركة غيره يدوياً.
+  // يُستخدم كبوابة ثانية (مع overallFilesReady) أمام التشغيل التلقائي كي لا
+  // يُحسب أول تقرير بـ«الكل» ثم يُستبدَل لاحقاً بشريحته (نفس سباق overallFilesReady).
+  const overallTeamDefaultReady = useRef(user?.role !== 'company_manager');
   // Remembers the last AUTO-populated date range so we can tell it apart from dates the
   // user typed. Auto dates must NOT be sent as a hard filter (they'd re-exclude a file
   // whose rows are all date-defaulted); only user-chosen dates filter the result.
@@ -963,8 +968,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   useEffect(() => {
     fetch('/api/reports/overall-teams', { headers: authH() })
       .then(r => r.json())
-      .then(json => setOverallTeams(Array.isArray(json?.data?.teams) ? json.data.teams : []))
-      .catch(() => {});
+      .then(json => {
+        const teams: OverallTeam[] = Array.isArray(json?.data?.teams) ? json.data.teams : [];
+        setOverallTeams(teams);
+        if (user?.role === 'company_manager') {
+          const own = teams.find(t => t.managerId === user.id);
+          if (own) setOverallTeamId(own.managerId);
+          overallTeamDefaultReady.current = true;
+        }
+      })
+      .catch(() => { overallTeamDefaultReady.current = true; });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -1441,15 +1454,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // لا تُشغّل بـ activeFileIds الخام (مكتب+ميركاتو معاً) قبل أن يُحدَّد overallFileIds
     // الافتراضي (ملفات مصدر واحد فقط) في الـ effect أعلاه — وإلا تُحتسب مجموعة مختلطة.
     if (!overallFilesReady.current) return;
+    // ولا قبل تحديد شريحة شركة مدير الشركة الافتراضية (أعلاه) — وإلا يُحسب أول
+    // تقرير بـ«الكل» ثم تُستبدَل الشريحة لاحقاً دون إعادة التحميل تلقائياً.
+    if (!overallTeamDefaultReady.current) return;
     const ids = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
     if (ids.length === 0) return;
-    const key = [...ids].sort((a, b) => a - b).join(',');
+    const key = `${[...ids].sort((a, b) => a - b).join(',')}|${overallTeamId ?? ''}`;
     if (overallAutoRan.current === key) return;
     overallAutoRan.current = key;
     if (loading) return; // طلب جارٍ بالفعل — لا تُعده
     loadOverallReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, overallFileIds.join(','), activeFileIds.join(',')]);
+  }, [mode, overallFileIds.join(','), activeFileIds.join(','), overallTeamId]);
 
   const fmt = (n: number) => Math.round(n || 0).toLocaleString('ar-IQ-u-nu-latn');
 
