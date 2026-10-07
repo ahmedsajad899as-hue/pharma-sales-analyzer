@@ -54,6 +54,13 @@ const normArea = (s: string) => s.trim().replace(/\s+/g, ' ');
 
 const EMPTY_FORM = { name: '', specialty: '', className: '', areaName: '', notes: '' };
 
+// الكلاس: خيارات ثابتة فقط. الاختصاص: نفس القائمة لكن تقبل كتابة اسم جديد أيضاً
+const CLASS_OPTIONS = ['A', 'B', 'C'];
+const SPECIALTY_OPTIONS = [
+  'باطنية', 'قلبية', 'نسائية', 'تنفسية', 'كسور', 'مفاصل',
+  'جراحة أعصاب', 'استشارة أعصاب', 'أطفال', 'جراحة', 'أورام', 'ENT',
+];
+
 // تذكّر المنطقة الأخيرة لمدة 4 ساعات من آخر اختيار لها (تفضيل على هذا المتصفح فقط)
 const AREA_MEMORY_KEY = 'rfs-remembered-area';
 const AREA_MEMORY_MS = 4 * 60 * 60 * 1000;
@@ -577,11 +584,14 @@ export default function RepFieldSurveyPage() {
               <>
                 <div className="form-group">
                   <label className="form-label">الاختصاص</label>
-                  <input className="form-input" value={form.specialty} onChange={e => setField('specialty', e.target.value)} />
+                  <input className="form-input" list="rfs-specialty-options" value={form.specialty} onChange={e => setField('specialty', e.target.value)} placeholder="اختر أو اكتب اختصاصاً جديداً" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">الكلاس</label>
-                  <input className="form-input" value={form.className} onChange={e => setField('className', e.target.value)} />
+                  <select className="form-input" value={form.className} onChange={e => setField('className', e.target.value)}>
+                    <option value="">—</option>
+                    {CLASS_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
                 </div>
               </>
             )}
@@ -590,6 +600,9 @@ export default function RepFieldSurveyPage() {
               <input className="form-input" value={form.notes} onChange={e => setField('notes', e.target.value)} />
             </div>
           </div>
+          <datalist id="rfs-specialty-options">
+            {SPECIALTY_OPTIONS.map(s => <option key={s} value={s} />)}
+          </datalist>
 
           {kind === 'doctor' && (
             <div className="rfs-nearby">
@@ -614,10 +627,13 @@ export default function RepFieldSurveyPage() {
                 <div className="rfs-nearby-row" key={i}>
                   <input className="form-input" placeholder="اسم الطبيب" value={d.name}
                     onChange={e => setNearby(nearby.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
-                  <input className="form-input" placeholder="الاختصاص" value={d.specialty}
+                  <input className="form-input" list="rfs-specialty-options" placeholder="الاختصاص" value={d.specialty}
                     onChange={e => setNearby(nearby.map((x, j) => j === i ? { ...x, specialty: e.target.value } : x))} />
-                  <input className="form-input" placeholder="الكلاس" value={d.className}
-                    onChange={e => setNearby(nearby.map((x, j) => j === i ? { ...x, className: e.target.value } : x))} />
+                  <select className="form-input" value={d.className}
+                    onChange={e => setNearby(nearby.map((x, j) => j === i ? { ...x, className: e.target.value } : x))}>
+                    <option value="">كلاس</option>
+                    {CLASS_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
                   <button className="btn btn--secondary btn--sm" title="حذف" onClick={() => setNearby(nearby.filter((_, j) => j !== i))}>✕</button>
                 </div>
               ))}
@@ -876,11 +892,14 @@ export default function RepFieldSurveyPage() {
                   <>
                     <div className="form-group">
                       <label className="form-label">الاختصاص</label>
-                      <input className="form-input" value={editForm.specialty} onChange={e => setEditForm({ ...editForm, specialty: e.target.value })} />
+                      <input className="form-input" list="rfs-specialty-options" value={editForm.specialty} onChange={e => setEditForm({ ...editForm, specialty: e.target.value })} placeholder="اختر أو اكتب اختصاصاً جديداً" />
                     </div>
                     <div className="form-group">
                       <label className="form-label">الكلاس</label>
-                      <input className="form-input" value={editForm.className} onChange={e => setEditForm({ ...editForm, className: e.target.value })} />
+                      <select className="form-input" value={editForm.className} onChange={e => setEditForm({ ...editForm, className: e.target.value })}>
+                        <option value="">—</option>
+                        {CLASS_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
                     </div>
                   </>
                 )}
