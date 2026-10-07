@@ -877,6 +877,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // companies are summed together (the backend aggregates by the shared area/item records).
   const [overallFileIds, setOverallFileIds] = useState<number[]>([]);
   const [overallFilesOpen, setOverallFilesOpen] = useState(false);
+  // True once the office-vs-Mercato default group (below) has resolved for the
+  // current activeFileIds — the auto-run effect waits on this so it never fires
+  // with the raw (mixed office+Mercato) activeFileIds while that's in flight.
+  const overallFilesReady = useRef(false);
   // تيمات المكتب (كل تيم = حساب مدير شركة + كل شركاته) — شرائح لعزل مبيع/ارجاع
   // تيم واحد بالضبط كما يراه مديره، بدل كل أسماء الشركات الخام من الملف.
   interface OverallTeam { managerId: number; managerName: string; name: string }
@@ -973,11 +977,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     setSciReturnsReport(null);
     setOverallSales(null);
     setOverallReturns(null);
+    // Block the "تحليل شامل" auto-run effect until the office-vs-Mercato default
+    // group below has been resolved, so it never falls back to the full
+    // (mixed-source) activeFileIds while this fetch is still in flight.
+    overallFilesReady.current = false;
     if (activeFileIds.length === 0) {
       setCommReps([]);
       setFileCurrencyMode('IQD');
       setFileSourceCurrency('IQD');
       setFileExchangeRate(1470);
+      overallFilesReady.current = true;
       return;
     }
     // Load currency settings from the first active file
@@ -1005,6 +1014,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           setFromDate('');
           setToDate('');
         }
+        overallFilesReady.current = true;
         const activeFile = allFiles.find((f: any) => activeFileIds.includes(f.id));
         if (activeFile) {
           setFileCurrencyMode(activeFile.currencyMode === 'USD' ? 'USD' : 'IQD');
@@ -1020,7 +1030,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           setFileSourceCurrency('IQD');
           setFileExchangeRate(1470);
         }
-      }).catch(() => {});
+      }).catch(() => { overallFilesReady.current = true; });
 
     const repsUrl = `/api/representatives?fileIds=${activeFileIds.join(',')}`;
     fetch(repsUrl, { headers: authH() })
@@ -1428,12 +1438,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const overallAutoRan = useRef('');
   useEffect(() => {
     if (mode !== 'overall') return;
+    // لا تُشغّل بـ activeFileIds الخام (مكتب+ميركاتو معاً) قبل أن يُحدَّد overallFileIds
+    // الافتراضي (ملفات مصدر واحد فقط) في الـ effect أعلاه — وإلا تُحتسب مجموعة مختلطة.
+    if (!overallFilesReady.current) return;
     const ids = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
     if (ids.length === 0) return;
     const key = [...ids].sort((a, b) => a - b).join(',');
     if (overallAutoRan.current === key) return;
     overallAutoRan.current = key;
-    if (loading || overallSales) return; // تقرير معروض بالفعل أو طلب جارٍ — لا تُعده
+    if (loading) return; // طلب جارٍ بالفعل — لا تُعده
     loadOverallReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, overallFileIds.join(','), activeFileIds.join(',')]);
