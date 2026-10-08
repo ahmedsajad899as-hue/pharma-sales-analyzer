@@ -14,6 +14,8 @@ import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { buildRepIndex, matchRepName, repCoreName } from '../../lib/repNameMatch.js';
+import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
+import { loadResolutionContext, resolveItemName } from '../../lib/itemResolver.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +43,95 @@ export function orderSourceHash({ userId, text, mediaKeys = [] }) {
   const normText = String(text ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
   const keys = [...mediaKeys].map(String).sort().join(',');
   return crypto.createHash('sha256').update(`${userId}|${normText}|${keys}`).digest('hex');
+}
+
+// ─── مطابقة الايتمات وتعبئة الشركة والسعر ───────────────────────────────────
+
+/**
+ * نطاق مطابقة الايتمات: الايتمات المعيَّنة للمستخدم إن وُجدت (وهي ما يعنيه
+ * المستخدم بـ«ايتمات المندوب»)، وإلا كتالوج شركاته العلمية — نفس اصطلاح
+ * checkManualNames وresolveEffectiveItemIds: تعيين فارغ لا يعني صفر ايتمات.
+ */
+async function buildItemContext(userId) {
+  if (!userId) return null;
+  const assigned = await getAssignedItemsCatalog(userId);
+  if (assigned && assigned.length > 0) {
+    return {
+      catalog: assigned,
+      catalogById: new Map(assigned.map(c => [c.id, c])),
+      aliasMap: new Map(),
+      scope: 'assigned',
+    };
+  }
+  const ua = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+  const ids = ua.map(c => c.companyId).filter(Boolean);
+  const ctx = await loadResolutionContext({ scientificCompanyIds: ids, userId });
+  return { ...ctx, scope: ids.length > 0 ? 'catalog' : 'user-items' };
+}
+
+/**
+ * يطابق اسم كل صنف بكتالوج المستخدم، ويملأ الشركة وسعر الوحدة من بطاقة الايتم.
+ *
+ * يُطبَّق على **الصفوف غير المحفوظة** قبل دخولها الطابور، فكل ما يكتبه هنا يبقى
+ * قابلاً لتعديل المراجِع في الشبكة — لا حفظ ولا إنشاء ايتم جديد في أي حال.
+ *
+ * الربط التلقائي يقتصر على ثقة alias/exact/high (نفس سلّم itemResolver): المتشابه
+ * الملتبس (medium) يُترك كما كُتب وتُرفَق مرشّحاته في `_itemMatch` ليسأل عنه مسار
+ * check-names عند الحفظ — لا نحسم اللبس صامتين فنُسند مبيعات لايتم خاطئ.
+ *
+ * السعر: «سعر المكتب» (Item.price) أولاً لأنه السعر الذي تُقاس به مبيعات النظام،
+ * ثم «سعر المذخر» (warehousePrice) إن لم يوجد. ولا يُكتب فوق سعر ذكره المرسِل.
+ */
+export async function enrichRowsFromCatalog(rows, userId) {
+  if (!Array.isArray(rows) || rows.length === 0 || !userId) return rows;
+
+  let ctx = null;
+  try {
+    ctx = await buildItemContext(userId);
+  } catch (e) {
+    console.error('[orders] تعذّر تحميل كتالوج الايتمات:', e?.message);
+    return rows; // المطابقة تحسين لا شرط — فشلها لا يُسقط الطلبية
+  }
+  if (!ctx || !ctx.catalog?.length) return rows;
+
+  const names = [...new Set(rows.map(r => String(r.item ?? '').trim()).filter(Boolean))];
+  const resolved = new Map();
+  for (const name of names) {
+    try { resolved.set(name, await resolveItemName(name, ctx)); } catch { /* يبقى كما كُتب */ }
+  }
+
+  const ids = [...new Set([...resolved.values()].map(r => r?.canonicalItem?.id).filter(Boolean))];
+  const details = ids.length
+    ? await prisma.item.findMany({
+        where:  { id: { in: ids } },
+        select: { id: true, name: true, price: true, warehousePrice: true, company: { select: { name: true } } },
+      })
+    : [];
+  const byId = new Map(details.map(d => [d.id, d]));
+
+  for (const row of rows) {
+    const key = String(row.item ?? '').trim();
+    const r = resolved.get(key);
+    if (!r) continue;
+
+    row._itemMatch = { confidence: r.confidence, suggestions: (r.suggestions || []).slice(0, 5) };
+    const autoLink = r.confidence === 'alias' || r.confidence === 'exact' || r.confidence === 'high';
+    if (!autoLink || !r.canonicalItem) continue;
+
+    row.item    = r.canonicalItem.name; // توحيد الاسم مع الكتالوج
+    row._itemId = r.canonicalItem.id;
+
+    const d = byId.get(r.canonicalItem.id);
+    if (!d) continue;
+    if (!row.company && d.company?.name) row.company = d.company.name;
+
+    const catalogPrice = d.price ?? d.warehousePrice ?? null;
+    if (row.unitPrice == null && catalogPrice != null) row.unitPrice = catalogPrice;
+    if (row.total == null && row.quantity != null && row.unitPrice != null) {
+      row.total = Number(row.quantity) * Number(row.unitPrice);
+    }
+  }
+  return rows;
 }
 
 /** عدد صفوف الطلبية المعلَّقة — يُعرَض في الشريط وفي ردّ البوت. */

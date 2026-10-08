@@ -50,6 +50,18 @@ export function stripBotCommandSuffix(token) {
   return String(token ?? '').replace(/@[\w_]+$/, '');
 }
 
+/**
+ * يُسقط الكلمة المفتاحية من بداية النص إن وُجدت.
+ * لازم لأن سطر الزبون كثيراً ما يُكتب ملتصقاً بها («طلبية صيدلية النور - الكرخ»)
+ * فتتسرّب «طلبية» إلى اسم الصيدلية. حتميّ هنا بدل الاعتماد على الموديل.
+ */
+export function stripTriggerPrefix(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return s;
+  const [first, ...rest] = s.split(/\s+/);
+  return hasTriggerWord(first) ? rest.join(' ').trim() : s;
+}
+
 /** هل أول كلمة في النص كلمة مفتاحية؟ (الشرطة المائلة في /order تُسقَط بالتطبيع) */
 export function hasTriggerWord(text) {
   const first = stripBotCommandSuffix(String(text ?? '').trim().split(/\s+/)[0] || '');

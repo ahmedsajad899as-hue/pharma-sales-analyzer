@@ -71,6 +71,10 @@ type NameCheck = {
 };
 type NameAsk = { items: NameCheck[]; companies: NameCheck[]; rows: any[] };
 
+/** مفتاح تطابق صف مستخرَج — لكشف إعادة استخراج نفس الطلبية (نصّاً ثم صورةً). */
+const rowKey = (r: Row) =>
+  [r.item, r.quantity, r.pharmacy].map(v => String(v ?? '').trim().toLowerCase()).join('|');
+
 const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
@@ -206,6 +210,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   // تُحفَظ المبيعات إلا بنفس مسار الإدخال اليدوي. مسوّدة localStorage لا لزوم لها
   // هنا: الطلبية محفوظة في الخادم أصلاً وهذا أقوى من مسوّدة متصفح.
   const [fromPendingOrder, setFromPendingOrder] = useState(false);
+  const appliedOrderIdRef = useRef<number | null>(null);
   const [repName, setRepName] = useState('');            // shared: chosen by the user
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [images, setImages] = useState<string[]>([]);    // object URLs of uploaded invoice photos
@@ -270,7 +275,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
    * مشتركة بين رفع صورة جديدة هنا وتحميل طلبية بوت جاهزة من الخادم — نفس عقد
    * الصف في الحالتين، فلا تفريع ولا تحويل ثانٍ.
    */
-  const applyExtractedRows = useCallback((extracted: any[], baseIndex: number): Row[] => {
+  const applyExtractedRows = useCallback((extracted: any[], baseIndex: number, mode: 'append' | 'replace' = 'append'): { mapped: Row[]; skipped: number } => {
     const mapped: Row[] = extracted.map(r => ({
       warehouse:     str(r.warehouse),
       invoiceNumber: str(r.invoiceNumber),
@@ -288,17 +293,44 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
       boxHeader:     Array.isArray(r._boxHeader) ? r._boxHeader : null,
     }));
+    if (mode === 'replace') {
+      setRows(mapped.length ? mapped : [emptyRow()]);
+      return { mapped, skipped: 0 };
+    }
+
     // الصفوف الفارغة تُستبدل بالمستخرَج بدل أن تتراكم فوقه؛ وإن كان الجدول
     // كلّه فارغاً صار المستخرَج هو محتواه.
-    setRows(rs => [...rs.filter(rowHasData), ...mapped]);
-    return mapped;
+    //
+    // ويُتجاهَل أي صف مطابق لصف موجود (نفس المادة والكمية والصيدلية): الحالة
+    // الواقعية أن تصل الطلبية نصّاً من البوت ثم يرفع المراجِع صورتها نفسها
+    // للتأكد — فتُضاف الأصناف مرتين بلا أن ينتبه. إضافة فاتورة مختلفة فعلاً لا
+    // تتأثر لأن صفوفها تختلف في الكمية أو الصيدلية أو المادة.
+    let skipped = 0;
+    setRows(rs => {
+      const kept = rs.filter(rowHasData);
+      const seen = new Set(kept.map(rowKey));
+      const fresh: Row[] = [];
+      for (const m of mapped) {
+        const k = rowKey(m);
+        if (seen.has(k)) { skipped++; continue; }
+        seen.add(k);
+        fresh.push(m);
+      }
+      return [...kept, ...fresh];
+    });
+    return { mapped, skipped };
   }, []);
 
   // ── طلبية بوت جاهزة: تعبئة فورية بلا رفع ولا نداء ذكاء ──
   useEffect(() => {
     if (!initialOrder) return;
+    // حارس التطبيق مرة واحدة لكل طلبية: أي إعادة تشغيل للتأثير (تغيّر مرجع
+    // الكائن، إعادة تركيب) كانت ستُضيف صفوف الطلبية ثانيةً فتظهر مكرّرة.
+    if (appliedOrderIdRef.current === initialOrder.id) return;
+    appliedOrderIdRef.current = initialOrder.id;
     setFromPendingOrder(true);
-    applyExtractedRows(initialOrder.rows || [], 0);
+    // 'replace' لا 'append': صفوف الطلبية هي محتوى الشبكة كلّه عند فتحها.
+    applyExtractedRows(initialOrder.rows || [], 0, 'replace');
     if (initialOrder.repName) setRepName(initialOrder.repName);
     // ملف الهدف: شهر واحد في ملف واحد بدل عشرات ملفات بصفّين.
     if (!files.length) {
@@ -349,8 +381,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           : 'لم يتم استخراج أي صف من الصورة. جرّب صورة أوضح أو أدخل يدوياً.');
         return;
       }
-      const mapped = applyExtractedRows(extracted, baseIndex);
+      const { mapped, skipped } = applyExtractedRows(extracted, baseIndex);
       setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`
+        + (skipped > 0 ? ` (تم تجاهل ${skipped} صف مكرّر موجود أصلاً في الجدول)` : '')
         + (droppedCount > 0 ? ` (تم تجاهل ${droppedCount} ايتم غير معيّن لك)` : ''));
     } catch (e: any) {
       setError(e.message || 'تعذّر تحليل الصورة');

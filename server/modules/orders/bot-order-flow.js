@@ -19,7 +19,7 @@
 import { extractInvoiceRows } from '../sales/sales.service.js';
 import { extractOrderRowsFromText } from './order-extract.js';
 import { isOrderTrigger } from './order-trigger.js';
-import { ingestBotOrder } from './orders.service.js';
+import { ingestBotOrder, enrichRowsFromCatalog } from './orders.service.js';
 
 /** يردّ بتعديل رسالة «⏳» حيث تدعم المنصة ذلك، وإلا برسالة جديدة (فايبر). */
 async function reply(transport, ctx, text) {
@@ -91,6 +91,10 @@ export async function handleIncomingOrderMessage({
     } else {
       rows = await extractOrderRowsFromText(text, { todayISO: new Date().toISOString().slice(0, 10) });
     }
+
+    // مطابقة الأصناف بكتالوج المستخدم وتعبئة الشركة والسعر — لكلا المسارين
+    // (نصّ وصورة) كي لا يفترق سلوكهما. لا يرمي ولا يحفظ شيئاً.
+    await enrichRowsFromCatalog(rows, user.id);
 
     if (!rows.length) {
       await reply(transport, ctx,
