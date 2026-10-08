@@ -17,27 +17,33 @@ const CUR_YEAR = new Date().getFullYear();
 
 console.log('\n── اسم قبل الكلمة المفتاحية ──');
 check('محمد باقر مبيع شهر 9', parseSalesQuery('محمد باقر مبيع شهر 9'),
-  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null });
+  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null, detailed: false });
 check('محمد باقر مبيعات شهر 9', parseSalesQuery('محمد باقر مبيعات شهر 9'),
-  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null });
+  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null, detailed: false });
 check('أرقام هندية ٩', parseSalesQuery('محمد باقر مبيع شهر ٩'),
-  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null });
+  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null, detailed: false });
 
 console.log('\n── الكلمة المفتاحية أولاً ──');
 check('مبيع محمد باقر شهر 9', parseSalesQuery('مبيع محمد باقر شهر 9'),
-  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null });
+  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null, detailed: false });
 check('مبيعات محمد باقر لشهر 9', parseSalesQuery('مبيعات محمد باقر لشهر 9'),
-  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null });
+  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null, detailed: false });
 
 console.log('\n── سنة صريحة ──');
 check('محمد باقر مبيع شهر 9 سنة 2026', parseSalesQuery('محمد باقر مبيع شهر 9 سنة 2026'),
-  { repNameRaw: 'محمد باقر', month: 9, year: 2026, qualifier: null });
+  { repNameRaw: 'محمد باقر', month: 9, year: 2026, qualifier: null, detailed: false });
 check('محمد باقر مبيع شهر 9 2025', parseSalesQuery('محمد باقر مبيع شهر 9 2025'),
-  { repNameRaw: 'محمد باقر', month: 9, year: 2025, qualifier: null });
+  { repNameRaw: 'محمد باقر', month: 9, year: 2025, qualifier: null, detailed: false });
 
 console.log('\n── مؤهِّل الشركة/المكتب عند تعدّد المرشحين ──');
 check('محمد باقر مبيع شهر 9 مكتب الكرخ', parseSalesQuery('محمد باقر مبيع شهر 9 مكتب الكرخ'),
-  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: 'مكتب الكرخ' });
+  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: 'مكتب الكرخ', detailed: false });
+
+console.log('\n── وضع «تفاصيل» ──');
+check('تفاصيل لا تتسرّب إلى الاسم', parseSalesQuery('محمد باقر مبيع شهر 9 تفاصيل'),
+  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null, detailed: true });
+check('تفاصيل في أول الرسالة', parseSalesQuery('تفاصيل محمد باقر مبيع شهر 9'),
+  { repNameRaw: 'محمد باقر', month: 9, year: CUR_YEAR, qualifier: null, detailed: true });
 
 console.log('\n── حالات ترفض ──');
 check('بلا شهر', parseSalesQuery('محمد باقر مبيع كثير هذا الشهر'), null);

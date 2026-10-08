@@ -10,6 +10,25 @@ import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, ins
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 
+/**
+ * PUT /api/active-files — يحفظ «الملفات المفعّلة» لهذا الحساب على السيرفر.
+ *
+ * التفعيل حالة متصفح (localStorage) لا يراها السيرفر إلا حين ترسلها الصفحة مع
+ * كل طلب تقرير. أي ميزة تعمل بلا متصفح — بوت تلكرام تحديداً — لم يكن أمامها إلا
+ * افتراض «كل ملفات المكتب»، فتخرج بأرقام أعلى من التطبيق لأنها تضمّ ملفات لم
+ * يفعّلها المستخدم. هذه الصورة المحفوظة تُغلق الفجوة: البوت يقرأ نفس المجموعة.
+ */
+export async function saveActiveFiles(req, res, next) {
+  try {
+    const ids = Array.isArray(req.body?.fileIds)
+      ? [...new Set(req.body.fileIds.map(Number).filter(Number.isInteger))]
+      : null;
+    if (!ids) return res.status(400).json({ success: false, error: 'fileIds مطلوبة كمصفوفة' });
+    await prisma.user.update({ where: { id: req.user.id }, data: { activeFileIds: JSON.stringify(ids) } });
+    res.json({ success: true, count: ids.length });
+  } catch (err) { next(err); }
+}
+
 // موظف المكتب: كل ملف يرفعه يُعمَّم فوراً على حسابات مدير المكتب / HR المكتب /
 // مدير الشركة وباقي موظفي المكتب (زملاؤه) — بلا خطوة "مشاركة" يدوية (نفس أثر
 // الضغط على "تحديد الكل" في UploadPage، حيث أصبحت القائمة هناك أيضاً بنفس هذه

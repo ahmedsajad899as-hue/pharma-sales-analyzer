@@ -27,12 +27,17 @@ const trimPunct = (s) => stripTrailingConnectors(String(s ?? '').replace(/^[-–
 
 /**
  * @param {string} rawText
- * @returns {{repNameRaw:string, month:number, year:number, qualifier:string|null}|null}
+ * @returns {{repNameRaw:string, month:number, year:number, qualifier:string|null, detailed:boolean}|null}
  */
 export function parseSalesQuery(rawText) {
-  const text = toLatinDigits(String(rawText ?? '').trim());
+  let text = toLatinDigits(String(rawText ?? '').trim());
   if (!text) return null;
   if (text.length > 300) return null; // سؤال فعلي قصير دوماً — نص طويل ليس سؤالاً
+
+  // «تفاصيل» = اطلب كشفاً بالمدخلات مع الجواب (الملفات، الحساب، استبعاد المذاخر).
+  // تُنزع من النص قبل أي استخراج كي لا تتسرّب إلى اسم المندوب.
+  const detailed = /تفاصيل/.test(text);
+  if (detailed) text = text.replace(/تفاصيل/g, ' ').replace(/\s+/g, ' ').trim();
 
   const kwMatch = text.match(/مبيع(ات)?/);
   if (!kwMatch) return null;
@@ -62,5 +67,5 @@ export function parseSalesQuery(rawText) {
 
   const qualifier = trimPunct(text.slice(phraseEnd)) || null;
 
-  return { repNameRaw, month, year, qualifier };
+  return { repNameRaw, month, year, qualifier, detailed };
 }

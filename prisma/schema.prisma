@@ -140,6 +140,11 @@ model User {
   // إخفاء مبيعات/مرتجعات المذاخر (لا الصيدليات) عن تقارير المندوبين العلميين —
   // مُفعّل افتراضياً. راجع isWarehouseSaleRow في scientific-reps.service.js.
   excludeWarehouseSales Boolean                @default(true)
+  // صورة من «الملفات المفعّلة» في متصفح هذا الحساب (JSON: مصفوفة معرّفات).
+  // التفعيل أصلاً حالة محلية في localStorage لا يراها السيرفر، فأي ميزة تعمل بلا
+  // متصفح (بوت تلكرام) كانت تحسب على «كل ملفات المكتب» فتخرج بأرقام أكبر من
+  // التطبيق. يكتبها الفرونت عند كل تغيير تفعيل — راجع App.tsx و/api/active-files.
+  activeFileIds         String?
 
   @@index([officeId])
   @@map("users")

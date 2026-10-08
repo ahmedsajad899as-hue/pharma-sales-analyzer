@@ -26,15 +26,42 @@ function monthRange(year, month) {
 
 const fmtUSD = (v) => `$${Math.round(v || 0).toLocaleString('en-US')}`;
 
-/** كل ملفات مبيعات حساب الكروب + زملائه بالشركة (لا تقتصر على «المفعّلة» —
- * لا يوجد سياق متصفح هنا) + الملفات المشارَكة معه مباشرة. */
-async function filesForOwnerScope(userId) {
-  const ownerIds = await sciRepSvc.expandOwnerIdsByCompany([userId]);
-  const [ownFiles, sharedFiles] = await Promise.all([
-    prisma.uploadedFile.findMany({ where: { userId: { in: ownerIds } }, select: { id: true } }),
-    prisma.fileUserShare.findMany({ where: { userId }, select: { fileId: true } }),
+/**
+ * الملفات التي يحسب عليها البوت.
+ *
+ * الأصل: «الملفات المفعّلة» لهذا الحساب كما يراها التطبيق — تُزامَن من المتصفح
+ * إلى User.activeFileIds (راجع /api/active-files). بدونها كان البوت يحسب على كل
+ * ملفات المكتب بينما التطبيق يحسب على المفعّلة وحدها، فتظهر أرقام البوت أعلى.
+ * الارتداد إلى كل الملفات يبقى فقط لحساب لم يُزامَن بعد (أو كانت قائمته فارغة)،
+ * وإلا صمت البوت بلا سبب مفهوم.
+ */
+async function resolveBotFileIds(userId) {
+  const [me, ownerIds] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { activeFileIds: true } }),
+    sciRepSvc.expandOwnerIdsByCompany([userId]),
   ]);
-  return [...new Set([...ownFiles.map((f) => f.id), ...sharedFiles.map((s) => s.fileId)])];
+  const [ownFiles, sharedFiles] = await Promise.all([
+    prisma.uploadedFile.findMany({ where: { userId: { in: ownerIds } }, select: { id: true, originalName: true } }),
+    prisma.fileUserShare.findMany({ where: { userId }, select: { file: { select: { id: true, originalName: true } } } }),
+  ]);
+
+  const inScope = new Map();
+  for (const f of ownFiles) inScope.set(f.id, f.originalName);
+  for (const s of sharedFiles) if (s.file) inScope.set(s.file.id, s.file.originalName);
+
+  let active = null;
+  try {
+    const saved = me?.activeFileIds ? JSON.parse(me.activeFileIds) : null;
+    // التقاطع مع النطاق إلزامي: القائمة المحفوظة قد تشير لملف حُذف لاحقاً.
+    if (Array.isArray(saved)) active = saved.filter((id) => inScope.has(id));
+  } catch { /* JSON تالف — نرتدّ لكل الملفات */ }
+
+  const ids = active && active.length ? active : [...inScope.keys()];
+  return {
+    ids,
+    source: active && active.length ? 'المفعّلة في التطبيق' : 'كل ملفات المكتب (لم تُزامَن بعد)',
+    names: ids.map((id) => inScope.get(id) || `#${id}`),
+  };
 }
 
 function formatReport(repName, month, year, report) {
@@ -51,10 +78,10 @@ function formatReport(repName, month, year, report) {
 }
 
 /**
- * @param {{actorUser:object, repNameRaw:string, month:number, year:number, qualifier:string|null}} params
+ * @param {{actorUser:object, repNameRaw:string, month:number, year:number, qualifier:string|null, detailed:boolean}} params
  * @returns {Promise<string|null>} نص الرد، أو null إذا لزم الصمت (لا مرشّح يشبه الاسم إطلاقاً)
  */
-export async function answerSalesQuery({ actorUser, repNameRaw, month, year, qualifier }) {
+export async function answerSalesQuery({ actorUser, repNameRaw, month, year, qualifier, detailed = false }) {
   const reps = await sciRepSvc.list({}, actorUser, {});
   const candidates = reps
     .map((r) => ({ id: r.id, name: r.name, company: r.company ?? null }))
@@ -84,15 +111,32 @@ export async function answerSalesQuery({ actorUser, repNameRaw, month, year, qua
     ].join('\n');
   }
 
-  const fileIds = await filesForOwnerScope(actorUser.id);
-  if (fileIds.length === 0) return `لا توجد ملفات مبيعات مرفوعة لهذا الحساب بعد.`;
+  const files = await resolveBotFileIds(actorUser.id);
+  if (files.ids.length === 0) return `لا توجد ملفات مبيعات مفعّلة لهذا الحساب.`;
 
   const { start, end } = monthRange(year, month);
   const report = await sciRepSvc.getReport(
     rep.id,
-    { fileIds, startDate: start.toISOString(), endDate: end.toISOString() },
+    { fileIds: files.ids, startDate: start.toISOString(), endDate: end.toISOString() },
     actorUser.id,
   );
 
-  return formatReport(rep.name, month, year, report);
+  const answer = formatReport(rep.name, month, year, report);
+  if (!detailed) return answer;
+
+  // وضع «تفاصيل»: يكشف المدخلات التي تصنع أي فرق عن شاشة التطبيق — مجموعة
+  // الملفات، وحساب المُشاهِد (مفاتيح الحجب واستبعاد المذاخر شخصية لكل حساب).
+  const excludeWarehouse = await sciRepSvc.getExcludeWarehouseSales(actorUser.id);
+  const shown = files.names.slice(0, 10).map((n) => `   • ${n}`).join('\n');
+  return [
+    answer,
+    '',
+    '— تفاصيل الحساب —',
+    `الحساب: ${actorUser.displayName || actorUser.username} (#${actorUser.id})`,
+    `استبعاد مبيعات المذاخر: ${excludeWarehouse ? 'نعم' : 'لا'}`,
+    `مصدر الملفات: ${files.source}`,
+    `الملفات (${files.ids.length}):`,
+    shown + (files.names.length > 10 ? `\n   • … و${files.names.length - 10} غيرها` : ''),
+    `صفوف مطابقة: ${report._debug?.rawRowCount ?? '—'}`,
+  ].join('\n');
 }

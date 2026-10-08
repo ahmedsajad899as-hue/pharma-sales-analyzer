@@ -332,6 +332,21 @@ function AppInner() {
     } catch { setActiveFileIds([]); }
   }, [user?.id]);
 
+  // مزامنة «الملفات المفعّلة» إلى السيرفر. التفعيل حالة متصفح بحتة، فبوت تلكرام
+  // (يعمل بلا متصفح) كان مضطراً لافتراض «كل ملفات المكتب» فيخرج بأرقام أعلى مما
+  // يعرضه التطبيق. تُرسَل عند كل تغيير وعند أول تحميل كي تبقى الصورة حيّة.
+  useEffect(() => {
+    if (!token || !user?.id) return;
+    const t = setTimeout(() => {
+      fetch('/api/active-files', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileIds: activeFileIds }),
+      }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [activeFileIds, token, user?.id]);
+
   // Re-derive each scientific rep's commercial reps from the ACTIVE file(s) whenever
   // the active set changes. Different files attribute commercial reps to areas
   // differently, so a rep belongs to a sci-rep only if they have a sale/return in

@@ -6,7 +6,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { uploadSales, extractInvoice, addManualSales, checkNames,
-  downloadWarehouseGapTemplate, parseWarehouseGapUpload, getWarehouseGapScopeJson } from './sales.controller.js';
+  downloadWarehouseGapTemplate, parseWarehouseGapUpload, getWarehouseGapScopeJson,
+  saveActiveFiles } from './sales.controller.js';
 import {
   getFileRows, saveFileRows, restoreFileRows,
   getColumnFilters, setColumnFilter, clearColumnFilters,
@@ -93,6 +94,13 @@ router.get('/sales/warehouse-gap-template', downloadWarehouseGapTemplate);
  * Multipart: file (النموذج أعلاه بعد تعبئته). يُرجع صفوفاً للمعاينة فقط.
  */
 router.post('/sales/warehouse-gap-parse', upload.single('file'), parseWarehouseGapUpload);
+
+/**
+ * PUT /api/active-files
+ * JSON: { fileIds: number[] } — صورة «الملفات المفعّلة» بمتصفح هذا الحساب، كي
+ * تستعملها الميزات التي تعمل بلا متصفح (بوت تلكرام) فتطابق أرقام التطبيق.
+ */
+router.put('/active-files', saveActiveFiles);
 
 /**
  * محرّر الملف المرفوع — تعديل صفوف الإكسل بعد رفعه.
