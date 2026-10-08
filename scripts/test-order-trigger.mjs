@@ -12,7 +12,7 @@
 
 import {
   isOrderTrigger, hasTriggerWord, stripBotCommandSuffix, normalizeAr,
-  ORDER_TEXT_MODES, MAX_ORDER_TEXT_LEN,
+  isExplicitOrderIntent, ORDER_TEXT_MODES, MAX_ORDER_TEXT_LEN,
 } from '../server/modules/orders/order-trigger.js';
 
 let failed = 0;
@@ -97,6 +97,25 @@ const CHATTER = [
   'شكرا على الطلبية وصلت تمام',
 ];
 CHATTER.forEach((t, i) => check(`دردشة #${i + 1} تُتجاهل`, isOrderTrigger(t, 'trigger'), false));
+
+// ── 10) وضع all بلا كلمة مفتاحية — ما طلبه صاحب المشروع ────────────────────
+console.log('\n── all: طلبيات بلا كلمة «طلبية» ──');
+const NO_KEYWORD = [
+  'سر الدواء/ الحارثية\nPantactive40  50\nNospactive  20',
+  'صيدلية النور - الكرخ\nبانادول علبتين\nزنتاك شريط',   // كميات بالحروف بلا أرقام
+  'ابو احمد الدورة\nدافلون 10+1',
+];
+NO_KEYWORD.forEach((t, i) => check(`طلبية بلا كلمة مفتاحية #${i + 1} تُقبل في all`, isOrderTrigger(t, 'all'), true));
+NO_KEYWORD.forEach((t, i) => check(`نفسها تُرفض في trigger #${i + 1}`, isOrderTrigger(t, 'trigger'), false));
+check('دردشة بلا أرقام ولا كميات تُرفض في all', isOrderTrigger('اوكي خلص نشوفكم باچر انشالله', 'all'), false);
+check('«تمام» قصيرة تُرفض في all', isOrderTrigger('تمام', 'all'), false);
+
+// ── 11) النيّة الصريحة — تحكم هل يردّ البوت حين لا يجد أصنافاً ──────────
+console.log('\n── النيّة الصريحة ──');
+check('كلمة مفتاحية = نيّة صريحة',   isExplicitOrderIntent('طلبية صيدلية النور'), true);
+check('ردّ على البوت = نيّة صريحة',  isExplicitOrderIntent('بانادول 5', { isReplyToBot: true }), true);
+check('رسالة التقطها all ليست صريحة', isExplicitOrderIntent('صيدلية النور بانادول 5 علبة'), false);
+check('نصّ فارغ ليس صريحاً',          isExplicitOrderIntent(''), false);
 
 console.log(failed === 0 ? '\n✅ كل الاختبارات نجحت' : `\n❌ فشل ${failed} اختبار`);
 process.exit(failed === 0 ? 0 : 1);

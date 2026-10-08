@@ -18,7 +18,7 @@
 
 import { extractInvoiceRows } from '../sales/sales.service.js';
 import { extractOrderRowsFromText } from './order-extract.js';
-import { isOrderTrigger } from './order-trigger.js';
+import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
 import { ingestBotOrder, enrichRowsFromCatalog } from './orders.service.js';
 
 /** يردّ بتعديل رسالة «⏳» حيث تدعم المنصة ذلك، وإلا برسالة جديدة (فايبر). */
@@ -57,12 +57,19 @@ export async function handleIncomingOrderMessage({
   const hasMedia = mediaRefs.length > 0;
   if (!isOrderTrigger(text, link?.orderTextMode, { isReplyToBot, hasMedia })) return false;
 
-  // من هنا الرسالة طلبية بنيّة المستخدم — كل خروج لاحق يجب أن يُخبره بشيء.
+  // نيّة صريحة (كلمة «طلبية» أو ردّ على البوت) مقابل رسالة التقطها وضع «كل
+  // الرسائل». الفرق يحكم مدى ثرثرة البوت:
+  //  • صريحة → «⏳» فوراً وردّ على كل حال، حتى حين لا يجد أصنافاً.
+  //  • غير صريحة → **صمت تام** ما لم يُستخرج شيء فعلاً. وإلا لامتلأ كروب المبيعات
+  //    بردود «لم أتعرّف على أصناف» على كل رسالة فيها رقم.
+  const explicit = isExplicitOrderIntent(text, { isReplyToBot });
   const ctx = { chatId, messageId: null };
-  try {
-    ctx.messageId = await transport.sendText(chatId, '⏳ جاري قراءة الطلبية…');
-  } catch (e) {
-    console.error(`[orders] تعذّر إرسال رسالة الانتظار على ${transport.name}:`, e?.message);
+  if (explicit) {
+    try {
+      ctx.messageId = await transport.sendText(chatId, '⏳ جاري قراءة الطلبية…');
+    } catch (e) {
+      console.error(`[orders] تعذّر إرسال رسالة الانتظار على ${transport.name}:`, e?.message);
+    }
   }
 
   try {
@@ -78,6 +85,7 @@ export async function handleIncomingOrderMessage({
       )).filter(Boolean);
 
       if (!imageBuffers.length) {
+        // فشل تنزيل يُبلَّغ عنه دائماً: المستخدم أرسل صورة فعلاً وينتظر نتيجة.
         await reply(transport, ctx, '⚠️ تعذّر تنزيل الصورة من المحادثة — أعد إرسالها.');
         return true;
       }
@@ -97,10 +105,14 @@ export async function handleIncomingOrderMessage({
     await enrichRowsFromCatalog(rows, user.id);
 
     if (!rows.length) {
-      await reply(transport, ctx,
-        '⚠️ لم أتعرّف على أصناف وكميات في هذه الرسالة.\n'
-        + 'اكتب الطلبية بسطر لكل صنف مع كميته، مثال:\n'
-        + 'طلبية صيدلية النور - الكرخ\nبانادول 5 علبة');
+      // صورة مُرسَلة عمداً تستحق ردّاً حتى بلا كلمة مفتاحية؛ أما نصّ التقطه وضع
+      // «كل الرسائل» فيُترك بصمت — دردشة عادية لا تحتاج اعتذاراً من البوت.
+      if (explicit || hasMedia) {
+        await reply(transport, ctx,
+          '⚠️ لم أتعرّف على أصناف وكميات في هذه الرسالة.\n'
+          + 'اكتب الطلبية بسطر لكل صنف مع كميته، مثال:\n'
+          + 'صيدلية النور - الكرخ\nبانادول 5 علبة');
+      }
       return true;
     }
 
@@ -119,6 +131,7 @@ export async function handleIncomingOrderMessage({
     // نصّ AppError التشغيلي مفهوم للمستخدم ويُعرَض كما هو؛ غيره يُخفى كي لا يصل
     // stack trace إلى كروب مبيعات. نفس نمط handleCallbackQuery في تلكرام.
     console.error('[orders] فشل استقبال الطلبية:', err);
+    // الأخطاء الفعلية تُبلَّغ دائماً — صمتٌ هنا يعني طلبية ضاعت بلا أن يعلم أحد.
     await reply(transport, ctx,
       `⚠️ ${err?.isOperational ? err.message : 'تعذّر قراءة الطلبية. جرّب إعادة إرسالها، أو أدخلها يدوياً من التطبيق.'}`);
   }

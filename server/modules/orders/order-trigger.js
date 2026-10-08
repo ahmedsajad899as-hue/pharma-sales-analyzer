@@ -69,6 +69,10 @@ export function hasTriggerWord(text) {
   return norm.length > 0 && TRIGGER_WORDS.has(norm);
 }
 
+// كميات مكتوبة بالحروف — دليل كمية حين لا يوجد رقم. مطبَّعة (ة→ه) لأنها
+// تُقارَن بنصّ مرّ على normalizeAr.
+const QUANTITY_WORD_RE = /(علبه|علبتين|علب|حبه|حبتين|شريط|شريطين|درزن|قنينه|كرتون|نص دزن)/;
+
 /**
  * القرار النهائي: هل نعالج هذه الرسالة كطلبية؟
  *
@@ -79,6 +83,15 @@ export function hasTriggerWord(text) {
  * @param {boolean} opts.hasMedia      معها صورة (فتُقبل بلا حدّ طول نصّي)
  * @returns {boolean}
  */
+/**
+ * نيّة صريحة = المستخدم قصد الطلبية فعلاً (كلمة مفتاحية أو ردّ على البوت)،
+ * مقابل رسالة التقطها وضع «كل الرسائل» وحده. الفرق يحكم هل يردّ البوت حين لا
+ * يجد أصنافاً: الردّ على نيّة صريحة مفيد، والردّ على كل رسالة بالكروب إزعاج.
+ */
+export function isExplicitOrderIntent(text, { isReplyToBot = false } = {}) {
+  return Boolean(isReplyToBot) || hasTriggerWord(text);
+}
+
 export function isOrderTrigger(text, mode, { isReplyToBot = false, hasMedia = false } = {}) {
   const m = ORDER_TEXT_MODES.includes(mode) ? mode : DEFAULT_ORDER_TEXT_MODE;
   if (m === 'off') return false;
@@ -93,7 +106,10 @@ export function isOrderTrigger(text, mode, { isReplyToBot = false, hasMedia = fa
   if (m === 'trigger') return false;
 
   // mode === 'all' — مُرشِّح رخيص بلا نداء ذكاء: صورة تُقبل دائماً، والنص يلزمه
-  // طول معقول ورقم واحد على الأقل (طلبية بلا أي كمية ليست طلبية).
+  // طول معقول + دليل كمية: رقم، أو كلمة عدّ مكتوبة بالحروف. الاكتفاء بالرقم
+  // وحده كان يُسقط طلبيات حقيقية مثل «صيدلية النور بانادول علبتين».
   if (hasMedia) return true;
-  return raw.length >= MIN_ORDER_TEXT_LEN && /\d/.test(normalizeAr(raw));
+  if (raw.length < MIN_ORDER_TEXT_LEN) return false;
+  const norm = normalizeAr(raw);
+  return /\d/.test(norm) || QUANTITY_WORD_RE.test(norm);
 }
