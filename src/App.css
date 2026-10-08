@@ -3731,6 +3731,12 @@ select.comm-input { cursor: pointer; }
 .rfs-map-count { min-width: 18px; text-align: center; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 6px; color: #fff; }
 .rfs-map-count--doctor { background: #2a78d6; }
 .rfs-map-count--pharmacy { background: #eb6834; }
+.rfs-map-link-btn { border: 0; background: transparent; padding: 0; color: var(--c-accent); font-size: 12px; font-weight: 700; cursor: pointer; text-decoration: underline; }
+.rfs-map-route-info { font-size: 12px; color: #0b57c6; background: #eaf1fd; border: 1px solid #c7dcfb; border-radius: var(--radius-sm); padding: 8px; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; }
+/* زرّا الفلترة السريعة (🩺/💊) داخل الخريطة — leaflet-bar يمنحهما شكل أزرار
+   التحكّم الجاهزة (26×26، خلفية بيضاء، حدود) فلا حاجة لإعادة تعريفها هنا. */
+.rfs-map-kind-btn { font-size: 15px !important; }
+.rfs-map-kind-btn--active { background: var(--c-accent-light) !important; box-shadow: inset 0 0 0 2px var(--c-accent); }
 @keyframes rfs-map-pulse {
   0%   { transform: scale(0.4); opacity: 0.9; }
   100% { transform: scale(1.9); opacity: 0; }

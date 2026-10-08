@@ -18,6 +18,7 @@ import type { Entry } from '../pages/RepFieldSurveyPage';
 const COLOR_DOCTOR = '#2a78d6';
 const COLOR_PHARMACY = '#eb6834';
 const COLOR_ME = '#1baf7a';
+const COLOR_ROUTE = '#1a73e8';
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
@@ -32,13 +33,19 @@ function fmtDistance(m: number): string {
   return m < 1000 ? `${Math.round(m)} م` : `${(m / 1000).toFixed(1)} كم`;
 }
 
+function fmtDuration(s: number): string {
+  const min = Math.round(s / 60);
+  if (min < 60) return `${min} د`;
+  return `${Math.floor(min / 60)} س ${min % 60} د`;
+}
+
 // صيدلية أُنشئت تلقائياً من "قريب" طبيب (أو العكس) ترث نفس إحداثيات الأصل
 // حرفياً (راجع ensureOwnPharmacies في الخادم) — فيقع الدبوسان على نفس
 // البكسل بالضبط ويختفي أحدهما خلف الآخر تماماً. بدمج النوعين معاً (زر "الكل")
 // يتضاعف هذا التطابق فيبدو العدد الظاهر على الخريطة أقل من الحقيقي رغم أن كل
 // نقطة مرسومة فعلياً. الحل: توزيع النقاط المتطابقة إحداثياً على دائرة صغيرة
 // جداً حول نفس المكان الحقيقي (للعرض فقط — "فتح في خرائط Google" وحساب
-// المسافة يستعملان إحداثيات السجل الأصلية غير المُزاحة).
+// المسافة/الملاحة يستعملان إحداثيات السجل الأصلية غير المُزاحة).
 function offsetLatLng(lat: number, lng: number, index: number, total: number, radiusMeters = 9): [number, number] {
   if (total <= 1) return [lat, lng];
   const angle = (2 * Math.PI * index) / total;
@@ -68,6 +75,12 @@ function pinIcon(color: string, glyph: string, size = 34): L.DivIcon {
   });
 }
 
+// الأيقونتان ثابتتان دائماً (لون/رمز كل نوع لا يتغيران) — تُبنيان مرة واحدة هنا
+// بدل استدعاء pinIcon() من جديد لكل دبوس في حلقة الرسم (كان يُنشئ مئات عناصر
+// L.DivIcon المتطابقة فعلياً عند كل إعادة رسم، وهو أثقل جزء في بناء الدبوس).
+const DOCTOR_ICON = pinIcon(COLOR_DOCTOR, '🩺');
+const PHARMACY_ICON = pinIcon(COLOR_PHARMACY, '💊');
+
 function meIcon(): L.DivIcon {
   return L.divIcon({
     className: '',
@@ -88,7 +101,9 @@ interface Props { entries: Entry[]; }
 
 // محتوى النافذة المنبثقة — دالة منفصلة لأنها تُستدعى مرتين: عند إنشاء الدبوس
 // (بآخر موقع معروف وقتها) وعند فتح النافذة فعلياً (بأحدث موقع، ليبقى "يبعد
-// عنك" دقيقاً دون الحاجة لإعادة رسم كل الدبابيس حين يتحرك موقعي الحي).
+// عنك" دقيقاً دون الحاجة لإعادة رسم كل الدبابيس حين يتحرك موقعي الحي). زر
+// "ملاحة" يحمل data-rfs-nav ليُربط بمستمع نقر بعد إدراج النافذة في الصفحة
+// (المحتوى HTML خام، فلا يمكن تمرير onClick من React مباشرة).
 function buildPopupHtml(e: Entry, me: { lat: number; lng: number } | null): string {
   const dist = me ? haversineMeters(me.lat, me.lng, e.latitude, e.longitude) : null;
   const detailsLine = e.kind === 'doctor'
@@ -100,7 +115,10 @@ function buildPopupHtml(e: Entry, me: { lat: number; lng: number } | null): stri
       <div style="color:#5a6a8a; font-size:12.5px; margin-bottom:4px;">${escapeHtml(e.areaName)}${e.repName ? ' · ' + escapeHtml(e.repName) : ''}</div>
       ${detailsLine ? `<div style="font-size:12.5px; color:#1a2332; margin-bottom:4px;">${escapeHtml(detailsLine)}</div>` : ''}
       ${dist != null ? `<div style="font-size:12.5px; font-weight:700; color:${COLOR_ME}; margin-bottom:4px;">📍 يبعد عنك ${fmtDistance(dist)}</div>` : ''}
-      <a href="${mapsUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="font-size:12px;">فتح في خرائط Google ↗</a>
+      <div style="display:flex; align-items:center; gap:10px; margin-top:2px; flex-wrap:wrap;">
+        <a href="${mapsUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="font-size:12px;">فتح في خرائط Google ↗</a>
+        <button type="button" data-rfs-nav="1" style="font-size:12px; font-weight:700; color:${COLOR_ROUTE}; background:#eaf1fd; border:1px solid #c7dcfb; border-radius:6px; padding:3px 9px; cursor:pointer;">🧭 ملاحة</button>
+      </div>
     </div>`;
 }
 
@@ -110,6 +128,8 @@ export default function RepFieldSurveyMap({ entries }: Props) {
   const layerRef = useRef<L.LayerGroup | null>(null);
   const meMarkerRef = useRef<L.Marker | null>(null);
   const meCircleRef = useRef<L.Circle | null>(null);
+  const routeLayerRef = useRef<L.Polyline | null>(null);
+  const kindBtnsRef = useRef<{ doctorBtn: HTMLElement; pharmacyBtn: HTMLElement } | null>(null);
 
   const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [geoError, setGeoError] = useState('');
@@ -120,11 +140,22 @@ export default function RepFieldSurveyMap({ entries }: Props) {
   // تصفّح المستخدم الحالي؛ إعادة التركيز بعدها تتم فقط بزر «اذهب إلى موقعي».
   const meFittedOnceRef = useRef(false);
   // نسخة قابلة للقراءة الفورية من آخر موقع معروف — تُقرأ عند فتح نافذة أي
-  // دبوس دون إدراج `me` ضمن تبعيات رسم الدبابيس (راجع التعليق أسفله).
+  // دبوس أو رسم مسار دون إدراج `me` ضمن تبعيات رسم الدبابيس.
   const meRef = useRef<{ lat: number; lng: number; accuracy: number } | null>(null);
   useEffect(() => { meRef.current = me; }, [me]);
 
-  const located = useMemo(() => entries.filter(e => Number.isFinite(e.latitude) && Number.isFinite(e.longitude)), [entries]);
+  // فلتر سريع من داخل الخريطة نفسها (زرّا 🩺/💊 قرب أزرار التكبير)، إضافة إلى
+  // فلتر الصفحة الخارجي الذي يُحدِّد أصلاً ما يصل إلى entries.
+  const [mapKind, setMapKind] = useState<'all' | 'doctor' | 'pharmacy'>('all');
+
+  const located = useMemo(
+    () => entries.filter(e => Number.isFinite(e.latitude) && Number.isFinite(e.longitude) && (mapKind === 'all' || e.kind === mapKind)),
+    [entries, mapKind],
+  );
+  // نسخة فورية من located يقرأها الرسم الذي قد يُستدعى من مستمع حدث خريطة
+  // (moveend/zoomend) مربوط مرة واحدة فقط عند إنشاء الخريطة.
+  const locatedRef = useRef<Entry[]>(located);
+  locatedRef.current = located;
 
   const areaGroups = useMemo<AreaGroup[]>(() => {
     const map = new Map<string, AreaGroup & { sumLat: number; sumLng: number; n: number }>();
@@ -139,6 +170,87 @@ export default function RepFieldSurveyMap({ entries }: Props) {
       .map(g => ({ area: g.area, doctors: g.doctors, pharmacies: g.pharmacies, lat: g.sumLat / g.n, lng: g.sumLng / g.n }))
       .sort((a, b) => (b.doctors + b.pharmacies) - (a.doctors + a.pharmacies));
   }, [located]);
+
+  // ── الملاحة: جلب مسار من OSRM المجاني (بلا مفتاح API، نفس نهج بلاطات
+  // OpenStreetMap في هذا الملف) ورسمه كخط على الخريطة ──────────────────────
+  const [route, setRoute] = useState<{ toName: string; distanceM: number; durationS: number } | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState('');
+
+  const clearRoute = () => {
+    if (routeLayerRef.current) { routeLayerRef.current.remove(); routeLayerRef.current = null; }
+    setRoute(null);
+    setRouteError('');
+  };
+
+  const drawRoute = async (e: Entry) => {
+    const map = mapRef.current;
+    const start = meRef.current;
+    if (!map) return;
+    if (!start) {
+      setRouteError('فعّل تحديد موقعك الحالي أولاً (زر «اذهب إلى موقعي») لرسم طريق الوصول.');
+      return;
+    }
+    setRouteError('');
+    setRouteLoading(true);
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${e.longitude},${e.latitude}?overview=full&geometries=geojson`;
+      const r = await fetch(url);
+      const j = await r.json();
+      if (!r.ok || j.code !== 'Ok' || !j.routes?.length) throw new Error('تعذّر رسم الطريق حالياً. حاول مجدداً.');
+      const latlngs = (j.routes[0].geometry.coordinates as [number, number][]).map(c => [c[1], c[0]] as [number, number]);
+      if (routeLayerRef.current) { routeLayerRef.current.remove(); routeLayerRef.current = null; }
+      const line = L.polyline(latlngs, { color: COLOR_ROUTE, weight: 5, opacity: 0.85 }).addTo(map);
+      routeLayerRef.current = line;
+      map.fitBounds(line.getBounds(), { padding: [48, 48] });
+      setRoute({ toName: e.name, distanceM: j.routes[0].distance, durationS: j.routes[0].duration });
+    } catch (err: any) {
+      setRouteError(err.message || 'تعذّر رسم الطريق حالياً. تحقّق من الاتصال وحاول مجدداً.');
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
+  // ── رسم نقاط السجلات ضمن حدود العرض الحالية فقط (+ هامش) ─────────────────
+  // لا تُرسم كل السجلات دائماً: عند التكبير على منطقة ضيقة لا حاجة لمئات
+  // دبابيس خارج الشاشة في DOM — هذا يُخفّف العبء أثناء التفاعل. يُعاد بناء
+  // هذه الدالة كل تصيير (closure حديث على located/me/drawRoute) وتُستدعى عبر
+  // drawMarkersRef حتى يقرأها مستمع الخريطة المربوط مرة واحدة فقط بأحدث نسخة.
+  function drawMarkersImpl() {
+    const map = mapRef.current;
+    const layer = layerRef.current;
+    if (!map || !layer) return;
+    layer.clearLayers();
+
+    const viewBounds = map.getBounds().pad(0.5);
+    const within = locatedRef.current.filter(e => viewBounds.contains([e.latitude, e.longitude]));
+
+    // تجميع النقاط المتطابقة الإحداثيات حرفياً (دقة 6 منازل عشرية ≈ أقل من
+    // متر) قبل الرسم، ثم توزيعها بإزاحة بصرية صغيرة إن تجاوز العدد واحداً.
+    const groups = new Map<string, Entry[]>();
+    for (const e of within) {
+      const key = `${e.latitude.toFixed(6)},${e.longitude.toFixed(6)}`;
+      const g = groups.get(key);
+      if (g) g.push(e); else groups.set(key, [e]);
+    }
+
+    for (const group of groups.values()) {
+      group.forEach((e, i) => {
+        const [lat, lng] = offsetLatLng(e.latitude, e.longitude, i, group.length);
+        const icon = e.kind === 'doctor' ? DOCTOR_ICON : PHARMACY_ICON;
+        const marker = L.marker([lat, lng], { icon, riseOnHover: true }).addTo(layer);
+        marker.bindPopup(buildPopupHtml(e, meRef.current), { autoPan: true });
+        marker.on('popupopen', () => {
+          marker.setPopupContent(buildPopupHtml(e, meRef.current));
+          const popupEl = marker.getPopup()?.getElement();
+          const navBtn = popupEl?.querySelector('[data-rfs-nav]') as HTMLButtonElement | null;
+          if (navBtn) navBtn.onclick = ev => { ev.preventDefault(); drawRoute(e); };
+        });
+      });
+    }
+  }
+  const drawMarkersRef = useRef(drawMarkersImpl);
+  drawMarkersRef.current = drawMarkersImpl;
 
   // ── إنشاء الخريطة مرة واحدة ──────────────────────────────────────────────
   useEffect(() => {
@@ -169,52 +281,68 @@ export default function RepFieldSurveyMap({ entries }: Props) {
       updateWhenZooming: false,
     }).addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
+
+    // زرّا فلترة سريعة (🩺 أطباء / 💊 صيدليات) قرب أزرار التكبير/التصغير —
+    // leaflet-bar يمنحهما نفس شكل أزرار التحكّم الجاهزة في الخريطة مباشرة.
+    const KindControl = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const box = L.DomUtil.create('div', 'leaflet-bar rfs-map-kind-control');
+        const doctorBtn = L.DomUtil.create('a', 'rfs-map-kind-btn', box);
+        doctorBtn.href = '#';
+        doctorBtn.title = 'عرض الأطباء فقط';
+        doctorBtn.innerHTML = '🩺';
+        const pharmacyBtn = L.DomUtil.create('a', 'rfs-map-kind-btn', box);
+        pharmacyBtn.href = '#';
+        pharmacyBtn.title = 'عرض الصيدليات فقط';
+        pharmacyBtn.innerHTML = '💊';
+        L.DomEvent.disableClickPropagation(box);
+        L.DomEvent.on(doctorBtn, 'click', (ev: Event) => { L.DomEvent.preventDefault(ev); setMapKind(k => (k === 'doctor' ? 'all' : 'doctor')); });
+        L.DomEvent.on(pharmacyBtn, 'click', (ev: Event) => { L.DomEvent.preventDefault(ev); setMapKind(k => (k === 'pharmacy' ? 'all' : 'pharmacy')); });
+        kindBtnsRef.current = { doctorBtn, pharmacyBtn };
+        return box;
+      },
+    });
+    new KindControl().addTo(map);
+
+    // يُعاد رسم الدبابيس بعد انتهاء كل سحب/تكبير (لا أثناءه) ليعكس حدود
+    // العرض الجديدة — العمل الفعلي خفيف (تصفية + دبابيس ضمن الشاشة فقط).
+    const onMoveEnd = () => drawMarkersRef.current();
+    map.on('moveend zoomend', onMoveEnd);
+
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; layerRef.current = null; meMarkerRef.current = null; meCircleRef.current = null; };
+    return () => {
+      map.off('moveend zoomend', onMoveEnd);
+      map.remove();
+      mapRef.current = null;
+      layerRef.current = null;
+      meMarkerRef.current = null;
+      meCircleRef.current = null;
+      routeLayerRef.current = null;
+      kindBtnsRef.current = null;
+    };
   }, []);
 
-  // ── رسم نقاط السجلات — يعتمد على بيانات السجلات فقط ──────────────────────
-  // لا يعتمد على `me`: كان رسم كل الدبابيس من جديد (clearLayers) يتكرر مع كل
-  // نبضة GPS من watchPosition (كل بضع ثوانٍ)، فيحذف الدبوس المفتوحة نافذته
-  // فوراً (النافذة تختفي بسرعة) ويُسبب تقطّعاً أثناء السحب/التكبير بسبب إعادة
-  // بناء مئات عناصر DOM بلا داعٍ. المسافة "يبعد عنك" تُحدَّث بدلاً من ذلك عند
-  // فتح النافذة فعلياً (أحدث موقع من meRef)، لا عند كل تحديث حي للموقع.
+  // ── تفعيل زرّي الفلترة السريعة بصرياً حسب mapKind ─────────────────────────
+  useEffect(() => {
+    const btns = kindBtnsRef.current;
+    if (!btns) return;
+    btns.doctorBtn.classList.toggle('rfs-map-kind-btn--active', mapKind === 'doctor');
+    btns.pharmacyBtn.classList.toggle('rfs-map-kind-btn--active', mapKind === 'pharmacy');
+  }, [mapKind]);
+
+  // ── ضبط حدود العرض عند تغيّر بيانات السجلات (أو الفلتر) — يستدعي الرسم
+  // فوراً، ولا يعتمد على `me` في تبعياته حتى لا يتكرر مع كل نبضة GPS لاحقة
+  // من watchPosition ويسحب الخريطة بعيداً عن تصفّح المستخدم اليدوي ────────
   useEffect(() => {
     const map = mapRef.current;
-    const layer = layerRef.current;
-    if (!map || !layer) return;
-    layer.clearLayers();
-
-    // تجميع النقاط المتطابقة الإحداثيات حرفياً (دقة 6 منازل عشرية ≈ أقل من
-    // متر) قبل الرسم، ثم توزيعها بإزاحة بصرية صغيرة إن تجاوز العدد واحداً.
-    const groups = new Map<string, Entry[]>();
-    for (const e of located) {
-      const key = `${e.latitude.toFixed(6)},${e.longitude.toFixed(6)}`;
-      const g = groups.get(key);
-      if (g) g.push(e); else groups.set(key, [e]);
+    if (!map) return;
+    if (located.length) {
+      const bounds = L.latLngBounds(located.map(e => [e.latitude, e.longitude] as [number, number]));
+      if (meRef.current) bounds.extend([meRef.current.lat, meRef.current.lng]);
+      map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 });
     }
-
-    for (const group of groups.values()) {
-      group.forEach((e, i) => {
-        const [lat, lng] = offsetLatLng(e.latitude, e.longitude, i, group.length);
-        const icon = pinIcon(e.kind === 'doctor' ? COLOR_DOCTOR : COLOR_PHARMACY, e.kind === 'doctor' ? '🩺' : '💊');
-        const marker = L.marker([lat, lng], { icon, riseOnHover: true }).addTo(layer);
-        marker.bindPopup(buildPopupHtml(e, meRef.current), { autoPan: true });
-        marker.on('popupopen', () => marker.setPopupContent(buildPopupHtml(e, meRef.current)));
-      });
-    }
-  }, [located]);
-
-  // ── ضبط حدود العرض عند تغيّر بيانات السجلات فقط — لا يتكرر مع كل نبضة GPS
-  // لاحقة من watchPosition، حتى لا "تسحب" الخريطة المستخدم بعيداً عن المكان
-  // الذي يتصفّحه يدوياً (تمرير/تكبير) كلما تحرّك موقعه الفعلي.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !located.length) return;
-    const bounds = L.latLngBounds(located.map(e => [e.latitude, e.longitude] as [number, number]));
-    if (me) bounds.extend([me.lat, me.lng]);
-    map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    drawMarkersRef.current();
   }, [located]);
 
   // ── أول تثبيت لموقعي فقط يُعيد ضبط الحدود لتشمله — بعدها لا إعادة تركيز
@@ -230,6 +358,7 @@ export default function RepFieldSurveyMap({ entries }: Props) {
     } else {
       map.setView([me.lat, me.lng], 14);
     }
+    drawMarkersRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
 
@@ -298,6 +427,9 @@ export default function RepFieldSurveyMap({ entries }: Props) {
               <span><i style={{ background: COLOR_DOCTOR }} /> {totalDoctors} طبيب</span>
               <span><i style={{ background: COLOR_PHARMACY }} /> {totalPharmacies} صيدلية</span>
             </div>
+            {mapKind !== 'all' && (
+              <div className="rfs-muted">عرض {mapKind === 'doctor' ? 'الأطباء' : 'الصيدليات'} فقط (من أزرار الخريطة) · <button className="rfs-map-link-btn" onClick={() => setMapKind('all')}>عرض الكل</button></div>
+            )}
             {geoError && (
               <div className="rfs-map-geo-error">
                 <div>{geoError}</div>
@@ -308,6 +440,19 @@ export default function RepFieldSurveyMap({ entries }: Props) {
               <button className="rfs-map-me-btn" onClick={recenterOnMe}>
                 📍 اذهب إلى موقعي (دقة ±{Math.round(me.accuracy)} م)
               </button>
+            )}
+            {routeLoading && <div className="rfs-map-route-info">جارٍ حساب الطريق…</div>}
+            {routeError && (
+              <div className="rfs-map-geo-error">
+                <div>{routeError}</div>
+              </div>
+            )}
+            {route && (
+              <div className="rfs-map-route-info">
+                <div><strong>🧭 الطريق إلى «{route.toName}»</strong></div>
+                <div className="rfs-muted">{fmtDistance(route.distanceM)} · {fmtDuration(route.durationS)} تقريباً</div>
+                <button className="rfs-map-retry-btn" onClick={clearRoute}>✕ إلغاء المسار</button>
+              </div>
             )}
             <div className="rfs-map-area-title">المناطق ({areaGroups.length})</div>
             <div className="rfs-map-area-list">
