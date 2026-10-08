@@ -278,18 +278,42 @@ const isReplyToBotMsg = (message) => message?.reply_to_message?.from?.is_bot ===
  * مع وصول النصوص صار إزعاجاً في كل كروب غير مربوط عند كل رسالة — فنُعلن فقط حين
  * تكون النيّة واضحة: ملف، أو كلمة «طلبية»، أو ردّ على البوت.
  */
+// ردّ الاكتشاف في كروب غير مربوط: يُعلن رقم الكروب ليربطه الأدمن. لا يجوز ربطه
+// بوجود كلمة «طلبية» — كروب جديد يُرسَل فيه أول طلبية بلا كلمة مفتاحية كان يُقابَل
+// بصمت تامّ، فلا يعرف أحد رقمه ولا سبب عدم عمل البوت (حدث فعلاً). ولا يجوز الردّ
+// على كل رسالة أيضاً. الحلّ: إعلان واحد لكل كروب كل نصف ساعة، تتخطّاه النيّة
+// الصريحة (كلمة مفتاحية أو ردّ على البوت) لأنها سؤال مباشر يستحق جواباً فورياً.
+const ANNOUNCE_COOLDOWN_MS = 30 * 60 * 1000;
+const announcedAt = new Map(); // chatId → ts
+function shouldAnnounce(chatId, force) {
+  const now = Date.now();
+  if (!force && now - (announcedAt.get(chatId) ?? 0) < ANNOUNCE_COOLDOWN_MS) return false;
+  announcedAt.set(chatId, now);
+  while (announcedAt.size > 200) announcedAt.delete(announcedAt.keys().next().value);
+  return true;
+}
+
 async function resolveActor(message, { announce }) {
   const chatId = String(message.chat.id);
   const link = await prisma.telegramChatLink.findUnique({ where: { chatId } });
 
   if (!link) {
-    if (announce) {
-      await sendMessage(chatId, `هذا الكروب غير مربوط بأي حساب بعد.\nشارك هذا الرقم مع الأدمن ليربطه: ${chatId}`);
+    if (shouldAnnounce(chatId, announce)) {
+      const title = message.chat.title ? ` «${message.chat.title}»` : '';
+      await sendMessage(chatId, [
+        `⚠️ هذا الكروب${title} غير مربوط بأي حساب، فلن تُقرأ أي طلبية فيه.`,
+        '',
+        `رقم الكروب: ${chatId}`,
+        '',
+        'أرسل هذا الرقم للأدمن ليربطه من: لوحة الماستر أدمن ← روابط تيليجرام.',
+      ].join('\n'));
     }
     return null;
   }
   if (!link.isActive) {
-    if (announce) await sendMessage(chatId, 'الربط معطّل حالياً لهذا الكروب — تواصل مع الأدمن.');
+    if (shouldAnnounce(chatId, announce)) {
+      await sendMessage(chatId, 'الربط معطّل حالياً لهذا الكروب — تواصل مع الأدمن.');
+    }
     return null;
   }
 
