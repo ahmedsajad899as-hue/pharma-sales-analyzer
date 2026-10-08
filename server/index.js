@@ -1523,7 +1523,8 @@ app.get('/api/export/raw-sales', async (req, res) => {
       ...(startDate || endDate ? {
         saleDate: {
           ...(startDate ? { gte: new Date(startDate) } : {}),
-          ...(endDate   ? { lte: new Date(endDate)   } : {}),
+          // آخر اليوم لا بدايته — راجع نفس الإصلاح في scientific-reps.service.js::resolveSciRepSales.
+          ...(endDate   ? { lte: (() => { const d = new Date(endDate); d.setUTCHours(23, 59, 59, 999); return d; })() } : {}),
         },
       } : {}),
       // Filter by recordType if explicitly provided; otherwise export ALL (sales + returns)

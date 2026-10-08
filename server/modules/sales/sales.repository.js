@@ -530,7 +530,9 @@ function buildDateFilter({ startDate, endDate }) {
   if (!startDate && !endDate) return {};
   const filter = {};
   if (startDate) filter.gte = new Date(startDate);
-  if (endDate)   filter.lte = new Date(endDate);
+  // آخر اليوم لا بدايته — راجع نفس الإصلاح وتعليقه في
+  // scientific-reps.service.js::resolveSciRepSales وreports.routes.js.
+  if (endDate) { const d = new Date(endDate); d.setUTCHours(23, 59, 59, 999); filter.lte = d; }
   return { saleDate: filter };
 }
 

@@ -1301,7 +1301,13 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   }
 
   const startDate  = query.startDate ? new Date(query.startDate) : null;
-  const endDate    = query.endDate   ? new Date(query.endDate)   : null;
+  // آخر اليوم لا بدايته: «2026-09-30» بلا وقت تُقرأ كمنتصف ليل UTC، فتستبعد lte
+  // كل مبيعات ذلك اليوم المخزَّنة بوقت لاحق (منتصف ليل محلي بتوقيت العراق UTC+3
+  // ≈ 21:00 اليوم السابق UTC، وما بعدها). نفس الإصلاح المطبَّق في reports.routes.js
+  // (endpoint «التحليل الشامل») — بدونه يبخس هذا التقرير آخر يوم من أي مدى تاريخ.
+  const endDate = query.endDate
+    ? (() => { const d = new Date(query.endDate); d.setUTCHours(23, 59, 59, 999); return d; })()
+    : null;
   const recordType = query.recordType || null;
 
   // ── 4b. Detect files directly shared with this sci rep's linked user account ──
