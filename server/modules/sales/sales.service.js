@@ -1269,7 +1269,14 @@ const PHARMACY_PREFIX_RE = /^\s*(ص\.?|صيدلية|الصيدلية|صيدلي�
 export function cleanPharmacyName(name) {
   let s = String(name ?? '').trim();
   // Strip repeatedly in case of stacked prefixes (e.g. "اسم الزبون ...")
-  for (let i = 0; i < 3 && PHARMACY_PREFIX_RE.test(s); i++) s = s.replace(PHARMACY_PREFIX_RE, '').trim();
+  // ويُسقَط بينها أي فاصل طرفي: تُكتب خانة الزبون كثيراً «ص / ماء الرسيل / سيدية»،
+  // فبعد إسقاط «ص» يبقى «/ ماء الرسيل» بشرطة مائلة مُعلّقة في أول الاسم.
+  for (let i = 0; i < 4; i++) {
+    const before = s;
+    s = s.replace(PHARMACY_PREFIX_RE, '').trim();
+    s = s.replace(/^[/\-\u2013،,.|]+/, '').trim().replace(/[/\-\u2013،,|]+$/, '').trim();
+    if (s === before) break;
+  }
   return s;
 }
 
@@ -1685,6 +1692,9 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
       bonus:         r.bonus ?? null,
       company:       r.company ?? null,
       notes:         r.notes ?? null,
+      // المندوب العلمي صاحب الطلبية (من طلبيات البوت) — لا عمود مُهيكَل له في
+      // Sale، فيُحفَظ في rawData كبقية حقول الفاتورة (المذخر/البونص/رقم الفاتورة).
+      scientificRep: r.scientificRep ?? null,
       source:        r.source || 'manual-invoice',
     });
 

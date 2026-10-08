@@ -19,7 +19,7 @@
 import { extractInvoiceRows } from '../sales/sales.service.js';
 import { extractOrderRowsFromText } from './order-extract.js';
 import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
-import { ingestBotOrder, enrichRowsFromCatalog } from './orders.service.js';
+import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess } from './orders.service.js';
 
 /** يردّ بتعديل رسالة «⏳» حيث تدعم المنصة ذلك، وإلا برسالة جديدة (فايبر). */
 async function reply(transport, ctx, text) {
@@ -103,6 +103,8 @@ export async function handleIncomingOrderMessage({
     // مطابقة الأصناف بكتالوج المستخدم وتعبئة الشركة والسعر — لكلا المسارين
     // (نصّ وصورة) كي لا يفترق سلوكهما. لا يرمي ولا يحفظ شيئاً.
     await enrichRowsFromCatalog(rows, user.id);
+    // التخمين بعد المطابقة لأنه يعتمد على معرّف الصنف وشركته العلمية.
+    await attachScientificRepGuess(rows, user);
 
     if (!rows.length) {
       // صورة مُرسَلة عمداً تستحق ردّاً حتى بلا كلمة مفتاحية؛ أما نصّ التقطه وضع

@@ -28,6 +28,10 @@ interface Row {
   bonus: string;
   pharmacy: string;
   area: string;
+  /** المندوب العلمي صاحب الطلبية — يُخمَّن بالخادم من (شركة الصنف + منطقة
+   *  الصيدلية + تعيين الصنف)، ويبقى قابلاً للتعديل هنا. */
+  scientificRep: string;
+  repCandidates: { id: number; name: string }[];
   imageIndex: number | null; // index into `images` this row was extracted from
   box: number[] | null;          // [ymin,xmin,ymax,xmax] 0-1000: this item's row in the image
   boxCustomer: number[] | null;  // pharmacy/area block in the image
@@ -75,7 +79,7 @@ type NameAsk = { items: NameCheck[]; companies: NameCheck[]; rows: any[] };
 const rowKey = (r: Row) =>
   [r.item, r.quantity, r.pharmacy].map(v => String(v ?? '').trim().toLowerCase()).join('|');
 
-const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
+const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', scientificRep: '', repCandidates: [], imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
 /**
@@ -274,7 +278,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     const last = rs[rs.length - 1];
     // Carry over per-invoice header fields so entering several items of one invoice is fast
     const seed = last
-      ? { ...emptyRow(), warehouse: last.warehouse, invoiceNumber: last.invoiceNumber, date: last.date, pharmacy: last.pharmacy, area: last.area }
+      ? { ...emptyRow(), warehouse: last.warehouse, invoiceNumber: last.invoiceNumber, date: last.date, pharmacy: last.pharmacy, area: last.area, scientificRep: last.scientificRep, repCandidates: last.repCandidates }
       : emptyRow();
     return [...rs, seed];
   });
@@ -307,6 +311,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       bonus:         r.bonus != null ? String(num(r.bonus)) : '',
       pharmacy:      str(r.pharmacy),
       area:          str(r.area),
+      scientificRep: str(r.scientificRep),
+      repCandidates: Array.isArray(r._repCandidates) ? r._repCandidates : [],
       imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
       box:           Array.isArray(r._box) ? r._box : null,
       boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
@@ -466,6 +472,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         bonus:         r.bonus !== '' ? Number(r.bonus) : undefined,
         pharmacy:      r.pharmacy.trim() || undefined,
         area:          r.area.trim() || undefined,
+        scientificRep: r.scientificRep.trim() || undefined,
       }));
     if (payloadRows.length === 0) { setError('أضف صفاً واحداً على الأقل باسم مادة وكمية أكبر من صفر.'); return; }
     if (!repName.trim()) { setError('اختر أو اكتب اسم المندوب المسؤول عن هذه المبيعات.'); return; }
@@ -627,7 +634,14 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     { key: 'bonus',         label: 'البونص',       w: 60,  numeric: true },
     { key: 'pharmacy',      label: 'الصيدلية',     w: 150 },
     { key: 'area',          label: 'المنطقة',      w: 120 },
+    { key: 'scientificRep', label: 'المندوب العلمي', w: 160 },
   ];
+
+  // قائمة اقتراحات المندوبين — اتحاد مرشّحي كل الصفوف. تُعرض كـdatalist واحدة
+  // بدل واحدة لكل صف (نفس الطلبية = نفس دائرة المرشّحين عملياً).
+  const repSuggestions = Array.from(
+    new Map(rows.flatMap(r => r.repCandidates || []).map(c => [c.id, c.name])).values(),
+  );
 
   const askList = nameAsk
     ? [
@@ -746,6 +760,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                 <input list="rep-suggestions" value={repName} onChange={e => setRepName(e.target.value)}
                   placeholder="اسم المندوب" style={inp} />
                 <datalist id="rep-suggestions">{reps.map(r => <option key={r.id} value={r.name} />)}</datalist>
+            {/* اقتراحات المندوب العلمي لخانات الجدول — مُعرَّفة مرة واحدة هنا. */}
+            <datalist id="scirep-suggestions">{repSuggestions.map(n => <option key={n} value={n} />)}</datalist>
               </>
             )}
           </label>
@@ -832,6 +848,14 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                               else setCell(i, c.key, val);
                             }}
                             style={{ ...cs, textAlign: 'left' }} />
+                        ) : c.key === 'scientificRep' ? (
+                          <input list="scirep-suggestions" value={r.scientificRep}
+                            onChange={e => setCell(i, 'scientificRep', e.target.value)}
+                            placeholder={r.repCandidates?.length ? 'اختر من المرشّحين' : 'غير معروف'}
+                            title={r.repCandidates?.length
+                              ? `مرشّحون: ${r.repCandidates.map(c => c.name).join(' ، ')}`
+                              : 'لم يُعرَف مندوب من المنطقة والشركة'}
+                            style={{ ...cs, ...(r.scientificRep ? null : { background: '#fff7ed' }) }} />
                         ) : (
                           <input value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
                             title={r[c.key] as string} style={cs} />

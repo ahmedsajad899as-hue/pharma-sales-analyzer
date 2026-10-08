@@ -15,7 +15,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { buildRepIndex, matchRepName, repCoreName } from '../../lib/repNameMatch.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
-import { loadResolutionContext, resolveItemName } from '../../lib/itemResolver.js';
+import { loadResolutionContext, resolveItemName, normalizeAreaName } from '../../lib/itemResolver.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
 
@@ -106,6 +106,7 @@ export async function enrichRowsFromCatalog(rows, userId) {
         where:  { id: { in: ids } },
         select: {
           id: true, name: true, price: true, warehousePrice: true,
+          scientificCompanyId: true,
           company:           { select: { name: true } },
           scientificCompany: { select: { name: true } },
         },
@@ -127,11 +128,13 @@ export async function enrichRowsFromCatalog(rows, userId) {
 
     const d = byId.get(r.canonicalItem.id);
     if (!d) continue;
-    // الشركة العلمية بديلاً عن حقل الشركة: في كتالوج الإنتاج 234 ايتم بلا
-    // companyId لكن لهم scientificCompanyId، مقابل 11 فقط فيهم companyId — فحقل
-    // الشركة وحده كان يترك خانة الشركة فارغة في كل الطلبيات تقريباً. والاسمان
-    // متطابقان حيث يوجدان معاً (humanis/humanis).
-    if (!row.company) row.company = d.company?.name || d.scientificCompany?.name || row.company;
+    // **الشركة العلمية أولاً** — وهي ما تعرضه صفحة «الايتمات» بالماستر أدمن
+    // (تُجمَّع الايتمات تحت ScientificCompany)، وهي أيضاً ما تشير إليه
+    // UserCompanyAssignment.companyId. حقل Company منفصل وقد يختلف للايتم نفسه
+    // («Moreserc 16 mg»: Company = HEJHEZ بينما ScientificCompany = HELPA) —
+    // فتفضيله كان يعرض اسماً لا يراه المستخدم في أي مكان آخر بالتطبيق.
+    row.company = d.scientificCompany?.name || d.company?.name || row.company || null;
+    row._scientificCompanyId = d.scientificCompanyId ?? null;
 
     // سعر المذخر أولاً (طلب صريح من صاحب المشروع) ثم سعر المكتب بديلاً — ملء
     // الخانة بسعر المكتب أفضل من تركها فارغة، وسعر المذخر مملوء في ايتم واحد
@@ -141,6 +144,92 @@ export async function enrichRowsFromCatalog(rows, userId) {
     if (row.total == null && row.quantity != null && row.unitPrice != null) {
       row.total = Number(row.quantity) * Number(row.unitPrice);
     }
+  }
+  return rows;
+}
+
+// ─── تخمين المندوب العلمي صاحب الطلبية ──────────────────────────────────────
+
+/**
+ * يخمّن المندوب العلمي الذي تخصّه الطلبية من ثلاثة أدلة متقاطعة:
+ * الشركة العلمية للصنف + منطقة الصيدلية + تعيين الصنف نفسه للمندوب.
+ *
+ * التخمين **لا يُحسم إلا حين يبقى مرشّح واحد**؛ وجود أكثر من مرشّح يترك الحقل
+ * فارغاً مع قائمة المرشّحين في `_repCandidates` ليختار المراجِع — إسناد طلبية
+ * لمندوب خاطئ أسوأ من خانة فارغة، وهو خطأ لا يظهر إلا بعد شهور في التقارير.
+ *
+ * النطاق: مندوبو **نفس المكتب العلمي** للحساب المربوط بالكروب فقط.
+ */
+export async function attachScientificRepGuess(rows, actingUser) {
+  if (!Array.isArray(rows) || rows.length === 0 || !actingUser) return rows;
+
+  const itemIds = [...new Set(rows.map(r => r._itemId).filter(Boolean))];
+  const areaNames = [...new Set(rows.map(r => r.area).filter(Boolean).map(normalizeAreaName).filter(Boolean))];
+  if (itemIds.length === 0 && areaNames.length === 0) return rows;
+
+  try {
+    const [reps, areas] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          role: 'scientific_rep',
+          isActive: true,
+          ...(actingUser.officeId ? { officeId: actingUser.officeId } : {}),
+        },
+        select: {
+          id: true, username: true, displayName: true,
+          areaAssignments:    { select: { areaId: true } },
+          companyAssignments: { select: { companyId: true } },
+          itemAssignments:    { select: { itemId: true } },
+        },
+      }),
+      areaNames.length
+        ? prisma.area.findMany({ select: { id: true, name: true } })
+        : Promise.resolve([]),
+    ]);
+    if (!reps.length) return rows;
+
+    // اسم المنطقة قد يتكرّر كصفوف Area متعدّدة (المنطقة لكل حساب لا عالمية —
+    // راجع ذاكرة project_pharma_area_account_scoping)، فنجمع كل المعرّفات.
+    const areaIdsByName = new Map();
+    for (const a of areas) {
+      const k = normalizeAreaName(a.name);
+      if (!k) continue;
+      if (!areaIdsByName.has(k)) areaIdsByName.set(k, new Set());
+      areaIdsByName.get(k).add(a.id);
+    }
+
+    const index = reps.map(r => ({
+      id: r.id,
+      name: r.displayName?.trim() || r.username,
+      areas:     new Set(r.areaAssignments.map(a => a.areaId)),
+      companies: new Set(r.companyAssignments.map(c => c.companyId)),
+      items:     new Set(r.itemAssignments.map(i => i.itemId)),
+    }));
+
+    for (const row of rows) {
+      const sciId = row._scientificCompanyId ?? null;
+      const areaKey = row.area ? normalizeAreaName(row.area) : '';
+      const areaIds = areaKey ? (areaIdsByName.get(areaKey) ?? new Set()) : new Set();
+
+      let candidates = index;
+      // المنطقة أقوى دليل — تُطبَّق أولاً حين نعرفها فعلاً.
+      if (areaIds.size > 0) {
+        candidates = candidates.filter(c => [...areaIds].some(id => c.areas.has(id)));
+      }
+      if (sciId != null) {
+        const byCompany = candidates.filter(c => c.companies.has(sciId));
+        if (byCompany.length > 0) candidates = byCompany;
+      }
+      if (row._itemId) {
+        const byItem = candidates.filter(c => c.items.size === 0 || c.items.has(row._itemId));
+        if (byItem.length > 0) candidates = byItem;
+      }
+
+      row._repCandidates = candidates.slice(0, 6).map(c => ({ id: c.id, name: c.name }));
+      row.scientificRep = candidates.length === 1 ? candidates[0].name : null;
+    }
+  } catch (e) {
+    console.error('[orders] تعذّر تخمين المندوب العلمي:', e?.message);
   }
   return rows;
 }
