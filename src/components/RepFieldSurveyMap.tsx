@@ -71,6 +71,24 @@ interface AreaGroup { area: string; doctors: number; pharmacies: number; lat: nu
 
 interface Props { entries: Entry[]; }
 
+// محتوى النافذة المنبثقة — دالة منفصلة لأنها تُستدعى مرتين: عند إنشاء الدبوس
+// (بآخر موقع معروف وقتها) وعند فتح النافذة فعلياً (بأحدث موقع، ليبقى "يبعد
+// عنك" دقيقاً دون الحاجة لإعادة رسم كل الدبابيس حين يتحرك موقعي الحي).
+function buildPopupHtml(e: Entry, me: { lat: number; lng: number } | null): string {
+  const dist = me ? haversineMeters(me.lat, me.lng, e.latitude, e.longitude) : null;
+  const detailsLine = e.kind === 'doctor'
+    ? [e.specialty, e.className, e.nearPharmacies.length ? `قرب: ${e.nearPharmacies.join('، ')}` : ''].filter(Boolean).join(' · ')
+    : e.notes ?? '';
+  return `
+    <div style="min-width:200px; font-family:inherit; direction:rtl; text-align:right;">
+      <div style="font-weight:700; font-size:14px; margin-bottom:2px;">${e.kind === 'doctor' ? '🩺' : '💊'} ${escapeHtml(e.name)}</div>
+      <div style="color:#5a6a8a; font-size:12.5px; margin-bottom:4px;">${escapeHtml(e.areaName)}${e.repName ? ' · ' + escapeHtml(e.repName) : ''}</div>
+      ${detailsLine ? `<div style="font-size:12.5px; color:#1a2332; margin-bottom:4px;">${escapeHtml(detailsLine)}</div>` : ''}
+      ${dist != null ? `<div style="font-size:12.5px; font-weight:700; color:${COLOR_ME}; margin-bottom:4px;">📍 يبعد عنك ${fmtDistance(dist)}</div>` : ''}
+      <a href="${mapsUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="font-size:12px;">فتح في خرائط Google ↗</a>
+    </div>`;
+}
+
 export default function RepFieldSurveyMap({ entries }: Props) {
   const mapDivRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -86,6 +104,10 @@ export default function RepFieldSurveyMap({ entries }: Props) {
   // لموقعي الحي (أثناء watchPosition) لا يجب أن "تسحب" الخريطة بعيداً عن مكان
   // تصفّح المستخدم الحالي؛ إعادة التركيز بعدها تتم فقط بزر «اذهب إلى موقعي».
   const meFittedOnceRef = useRef(false);
+  // نسخة قابلة للقراءة الفورية من آخر موقع معروف — تُقرأ عند فتح نافذة أي
+  // دبوس دون إدراج `me` ضمن تبعيات رسم الدبابيس (راجع التعليق أسفله).
+  const meRef = useRef<{ lat: number; lng: number; accuracy: number } | null>(null);
+  useEffect(() => { meRef.current = me; }, [me]);
 
   const located = useMemo(() => entries.filter(e => Number.isFinite(e.latitude) && Number.isFinite(e.longitude)), [entries]);
 
@@ -106,22 +128,42 @@ export default function RepFieldSurveyMap({ entries }: Props) {
   // ── إنشاء الخريطة مرة واحدة ──────────────────────────────────────────────
   useEffect(() => {
     if (!mapDivRef.current || mapRef.current) return;
-    const map = L.map(mapDivRef.current, { zoomControl: true, attributionControl: true });
+    // fadeAnimation معطّل عمداً: تلاشي البلاطات عند كل سحب/تكبير هو ما يُشعر
+    // بالتقطّع على هواتف متوسطة الأداء؛ تعطيله يجعل التنقل يبدو فورياً وأخف.
+    // wheelPxPerZoomLevel أصغر = استجابة أسرع لعجلة الفأرة بلا قفزات كبيرة.
+    const map = L.map(mapDivRef.current, {
+      zoomControl: true,
+      attributionControl: true,
+      fadeAnimation: false,
+      markerZoomAnimation: true,
+      wheelPxPerZoomLevel: 90,
+      inertia: true,
+    });
     map.setView([33.3152, 44.3661], 11); // بغداد افتراضياً حتى تُحسب الحدود
     // خرائط OpenStreetMap القياسية — مجانية بالكامل بلا مفتاح API (نفس مزوّد
     // RepTrackingMap.tsx في هذا المشروع). خلفية CARTO الملوّنة أُزيلت لأن CARTO
     // أوقفت السماح المجاني بخلفيتها الرصدية بلا مفتاح API، فكانت تظهر عليها
     // علامة "API KEY REQUIRED" بدل الخريطة.
+    // keepBuffer أكبر + updateWhenZooming معطّل: بلاطات الجوار تبقى محمَّلة
+    // سلفاً فلا تُرى مربعات فارغة أثناء السحب السريع، ولا يُعاد طلب بلاطات
+    // جديدة في منتصف حركة التكبير (فقط بعد استقرارها) فيبقى التفاعل سلساً.
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
+      keepBuffer: 6,
+      updateWhenZooming: false,
     }).addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; layerRef.current = null; meMarkerRef.current = null; meCircleRef.current = null; };
   }, []);
 
-  // ── رسم نقاط السجلات + ضبط الحدود عند تغيّر البيانات ─────────────────────
+  // ── رسم نقاط السجلات — يعتمد على بيانات السجلات فقط ──────────────────────
+  // لا يعتمد على `me`: كان رسم كل الدبابيس من جديد (clearLayers) يتكرر مع كل
+  // نبضة GPS من watchPosition (كل بضع ثوانٍ)، فيحذف الدبوس المفتوحة نافذته
+  // فوراً (النافذة تختفي بسرعة) ويُسبب تقطّعاً أثناء السحب/التكبير بسبب إعادة
+  // بناء مئات عناصر DOM بلا داعٍ. المسافة "يبعد عنك" تُحدَّث بدلاً من ذلك عند
+  // فتح النافذة فعلياً (أحدث موقع من meRef)، لا عند كل تحديث حي للموقع.
   useEffect(() => {
     const map = mapRef.current;
     const layer = layerRef.current;
@@ -130,22 +172,11 @@ export default function RepFieldSurveyMap({ entries }: Props) {
 
     for (const e of located) {
       const icon = pinIcon(e.kind === 'doctor' ? COLOR_DOCTOR : COLOR_PHARMACY, e.kind === 'doctor' ? '🩺' : '💊');
-      const dist = me ? haversineMeters(me.lat, me.lng, e.latitude, e.longitude) : null;
-      const detailsLine = e.kind === 'doctor'
-        ? [e.specialty, e.className, e.nearPharmacies.length ? `قرب: ${e.nearPharmacies.join('، ')}` : ''].filter(Boolean).join(' · ')
-        : e.notes ?? '';
-      const popup = `
-        <div style="min-width:200px; font-family:inherit; direction:rtl; text-align:right;">
-          <div style="font-weight:700; font-size:14px; margin-bottom:2px;">${e.kind === 'doctor' ? '🩺' : '💊'} ${escapeHtml(e.name)}</div>
-          <div style="color:#5a6a8a; font-size:12.5px; margin-bottom:4px;">${escapeHtml(e.areaName)}${e.repName ? ' · ' + escapeHtml(e.repName) : ''}</div>
-          ${detailsLine ? `<div style="font-size:12.5px; color:#1a2332; margin-bottom:4px;">${escapeHtml(detailsLine)}</div>` : ''}
-          ${dist != null ? `<div style="font-size:12.5px; font-weight:700; color:${COLOR_ME}; margin-bottom:4px;">📍 يبعد عنك ${fmtDistance(dist)}</div>` : ''}
-          <a href="${mapsUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="font-size:12px;">فتح في خرائط Google ↗</a>
-        </div>`;
-      L.marker([e.latitude, e.longitude], { icon }).bindPopup(popup).addTo(layer);
+      const marker = L.marker([e.latitude, e.longitude], { icon, riseOnHover: true }).addTo(layer);
+      marker.bindPopup(buildPopupHtml(e, meRef.current), { autoPan: true });
+      marker.on('popupopen', () => marker.setPopupContent(buildPopupHtml(e, meRef.current)));
     }
-
-  }, [located, me]);
+  }, [located]);
 
   // ── ضبط حدود العرض عند تغيّر بيانات السجلات فقط — لا يتكرر مع كل نبضة GPS
   // لاحقة من watchPosition، حتى لا "تسحب" الخريطة المستخدم بعيداً عن المكان
