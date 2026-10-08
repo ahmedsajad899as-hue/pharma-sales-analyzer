@@ -140,7 +140,9 @@ function captureBestLocation(onLive: (acc: number) => void): Promise<Coords> {
 
 // حقل قائمة صيدليات: كل ما يُكتب في الحقل هو الاسم مباشرة — لا حاجة لضغط زر
 // لتثبيته. "+ إضافة" يفتح حقلاً إضافياً لصيدلية ثانية، لا يُستخدم لتأكيد الأولى.
-function PharmacyFields({ value, onChange, placeholder }: { value: string[]; onChange: (v: string[]) => void; placeholder: string }) {
+// listId: اقتراحات بأسماء الصيدليات المسجَّلة فعلاً — تمنع كتابة اسم قريب
+// (خطأ إملائي بسيط) يُنشئ سجلاً مكرراً بدل الربط بالصيدلية الموجودة.
+function PharmacyFields({ value, onChange, placeholder, listId }: { value: string[]; onChange: (v: string[]) => void; placeholder: string; listId?: string }) {
   const rows = value.length ? value : [''];
   const update = (i: number, v: string) => onChange(rows.map((x, j) => (j === i ? v : x)));
   const remove = (i: number) => onChange(rows.filter((_, j) => j !== i));
@@ -148,7 +150,7 @@ function PharmacyFields({ value, onChange, placeholder }: { value: string[]; onC
     <div className="rfs-pharmacy-fields">
       {rows.map((v, i) => (
         <div className="input-row" key={i}>
-          <input className="form-input" placeholder={placeholder} value={v} onChange={e => update(i, e.target.value)} />
+          <input className="form-input" list={listId} placeholder={placeholder} value={v} onChange={e => update(i, e.target.value)} />
           {rows.length > 1 && (
             <button type="button" className="btn btn--secondary btn--sm" title="حذف" onClick={() => remove(i)}>✕</button>
           )}
@@ -217,6 +219,18 @@ export default function RepFieldSurveyPage() {
 
   const repCompany = useMemo(() => new Map(reps.map(r => [r.userId, r.company])), [reps]);
   const nearbyOf = (pharmacyId: number) => entries.filter(x => x.kind === 'doctor' && x.pharmacyIds.includes(pharmacyId));
+
+  // أسماء الأطباء/الصيدليات المسجَّلة فعلاً — تُقترح أثناء الكتابة في أي حقل
+  // اسم (مباشر أو "قريب من") لمنع اسم قريب إملائياً من إنشاء سجل مكرر بدل
+  // الربط بالاسم الموجود فعلاً.
+  const knownDoctorNames = useMemo(
+    () => [...new Set(entries.filter(e => e.kind === 'doctor').map(e => e.name))].sort((a, b) => a.localeCompare(b, 'ar')),
+    [entries],
+  );
+  const knownPharmacyNames = useMemo(
+    () => [...new Set(entries.filter(e => e.kind === 'pharmacy').map(e => e.name))].sort((a, b) => a.localeCompare(b, 'ar')),
+    [entries],
+  );
 
   // ── الإحصاء حسب المنطقة ────────────────────────────────────────────────
   const areaSummary = useMemo(() => {
@@ -562,8 +576,8 @@ export default function RepFieldSurveyPage() {
           <div className="rfs-form-grid">
             <div className="form-group">
               <label className="form-label">{nameLabel} *</label>
-              <input className="form-input" value={form.name} onChange={e => setField('name', e.target.value)} placeholder={kind === 'doctor' ? 'مثال: أحمد علي' : 'مثال: الأمل'} />
-              <div className="rfs-muted">{kind === 'doctor' ? 'اكتب الاسم مباشرة بدون «د.» أو «دكتور».' : 'اكتب الاسم مباشرة بدون كلمة «صيدلية».'}</div>
+              <input className="form-input" list={kind === 'doctor' ? 'rfs-doctor-names' : 'rfs-pharmacy-names'} value={form.name} onChange={e => setField('name', e.target.value)} placeholder={kind === 'doctor' ? 'مثال: أحمد علي' : 'مثال: الأمل'} />
+              <div className="rfs-muted">{kind === 'doctor' ? 'اكتب الاسم مباشرة بدون «د.» أو «دكتور».' : 'اكتب الاسم مباشرة بدون كلمة «صيدلية».'} إن ظهر الاسم ضمن الاقتراحات فاختره لتفادي تكرار نفس الاسم بصياغة مختلفة.</div>
             </div>
             <div className="form-group">
               <label className="form-label">المنطقة *</label>
@@ -595,13 +609,19 @@ export default function RepFieldSurveyPage() {
           <datalist id="rfs-specialty-options">
             {SPECIALTY_OPTIONS.map(s => <option key={s} value={s} />)}
           </datalist>
+          <datalist id="rfs-doctor-names">
+            {knownDoctorNames.map(n => <option key={n} value={n} />)}
+          </datalist>
+          <datalist id="rfs-pharmacy-names">
+            {knownPharmacyNames.map(n => <option key={n} value={n} />)}
+          </datalist>
 
           {kind === 'doctor' && (
             <div className="rfs-nearby">
               <div className="form-label">الصيدليات القريبة من الطبيب</div>
               <div className="rfs-muted">اكتب كل صيدلية قريبة ثم اضغط إضافة. الطبيب يبقى سجلاً واحداً مهما عددت صيدلياته.</div>
               <div style={{ marginTop: 8 }}>
-                <PharmacyFields value={doctorNear} onChange={setDoctorNear} placeholder="اسم الصيدلية القريبة" />
+                <PharmacyFields value={doctorNear} onChange={setDoctorNear} placeholder="اسم الصيدلية القريبة" listId="rfs-pharmacy-names" />
               </div>
             </div>
           )}
@@ -617,7 +637,7 @@ export default function RepFieldSurveyPage() {
               </div>
               {nearby.map((d, i) => (
                 <div className="rfs-nearby-row" key={i}>
-                  <input className="form-input" placeholder="اسم الطبيب" value={d.name}
+                  <input className="form-input" list="rfs-doctor-names" placeholder="اسم الطبيب" value={d.name}
                     onChange={e => setNearby(nearby.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
                   <input className="form-input" list="rfs-specialty-options" placeholder="الاختصاص" value={d.specialty}
                     onChange={e => setNearby(nearby.map((x, j) => j === i ? { ...x, specialty: e.target.value } : x))} />
@@ -883,7 +903,7 @@ export default function RepFieldSurveyPage() {
               <div className="rfs-form-grid">
                 <div className="form-group">
                   <label className="form-label">{editing.kind === 'doctor' ? 'اسم الطبيب' : 'اسم الصيدلية'} *</label>
-                  <input className="form-input" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
+                  <input className="form-input" list={editing.kind === 'doctor' ? 'rfs-doctor-names' : 'rfs-pharmacy-names'} value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">المنطقة *</label>
@@ -914,7 +934,7 @@ export default function RepFieldSurveyPage() {
                 <div className="rfs-nearby">
                   <div className="form-label">الصيدليات القريبة</div>
                   <div style={{ marginTop: 8 }}>
-                    <PharmacyFields value={editNear} onChange={setEditNear} placeholder="اسم الصيدلية القريبة" />
+                    <PharmacyFields value={editNear} onChange={setEditNear} placeholder="اسم الصيدلية القريبة" listId="rfs-pharmacy-names" />
                   </div>
                 </div>
               )}

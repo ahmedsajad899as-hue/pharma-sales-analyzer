@@ -82,6 +82,10 @@ export default function RepFieldSurveyMap({ entries }: Props) {
   const [geoError, setGeoError] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
   const watchIdRef = useRef<number | null>(null);
+  // أول تثبيت لموقعي فقط يُدخَل في حساب الحدود الابتدائية — التحديثات اللاحقة
+  // لموقعي الحي (أثناء watchPosition) لا يجب أن "تسحب" الخريطة بعيداً عن مكان
+  // تصفّح المستخدم الحالي؛ إعادة التركيز بعدها تتم فقط بزر «اذهب إلى موقعي».
+  const meFittedOnceRef = useRef(false);
 
   const located = useMemo(() => entries.filter(e => Number.isFinite(e.latitude) && Number.isFinite(e.longitude)), [entries]);
 
@@ -141,12 +145,35 @@ export default function RepFieldSurveyMap({ entries }: Props) {
       L.marker([e.latitude, e.longitude], { icon }).bindPopup(popup).addTo(layer);
     }
 
+  }, [located, me]);
+
+  // ── ضبط حدود العرض عند تغيّر بيانات السجلات فقط — لا يتكرر مع كل نبضة GPS
+  // لاحقة من watchPosition، حتى لا "تسحب" الخريطة المستخدم بعيداً عن المكان
+  // الذي يتصفّحه يدوياً (تمرير/تكبير) كلما تحرّك موقعه الفعلي.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !located.length) return;
+    const bounds = L.latLngBounds(located.map(e => [e.latitude, e.longitude] as [number, number]));
+    if (me) bounds.extend([me.lat, me.lng]);
+    map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [located]);
+
+  // ── أول تثبيت لموقعي فقط يُعيد ضبط الحدود لتشمله — بعدها لا إعادة تركيز
+  // تلقائية إطلاقاً؛ فقط زر «اذهب إلى موقعي» يفعل ذلك.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !me || meFittedOnceRef.current) return;
+    meFittedOnceRef.current = true;
     if (located.length) {
       const bounds = L.latLngBounds(located.map(e => [e.latitude, e.longitude] as [number, number]));
-      if (me) bounds.extend([me.lat, me.lng]);
+      bounds.extend([me.lat, me.lng]);
       map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 });
+    } else {
+      map.setView([me.lat, me.lng], 14);
     }
-  }, [located, me]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
 
   // ── موقعي الحالي: تتبّع مستمر + دائرة الدقة ──────────────────────────────
   // دالة قابلة لإعادة الاستدعاء من زر صريح بنقرة المستخدم: المتصفحات تتعامل
