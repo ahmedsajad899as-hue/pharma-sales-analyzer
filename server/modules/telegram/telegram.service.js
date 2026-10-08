@@ -59,7 +59,9 @@ async function telegramApi(method, body) {
   }
 }
 
-const sendMessage        = (chatId, text, replyMarkup) => telegramApi('sendMessage', { chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) });
+const sendMessage        = (chatId, text, replyMarkup, parseMode) => telegramApi('sendMessage', { chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}), ...(parseMode ? { parse_mode: parseMode } : {}) });
+/** تأمين نصّ داخل رسالة parse_mode=HTML — يُستعمل فقط حيث نمرّر HTML عمداً. */
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const editMessageText     = (chatId, messageId, text, replyMarkup) => telegramApi('editMessageText', { chat_id: chatId, message_id: messageId, text, reply_markup: replyMarkup || { inline_keyboard: [] } });
 const answerCallbackQuery = (id, text) => telegramApi('answerCallbackQuery', { callback_query_id: id, ...(text ? { text } : {}) });
 
@@ -295,18 +297,38 @@ function shouldAnnounce(chatId, force) {
 
 async function resolveActor(message, { announce }) {
   const chatId = String(message.chat.id);
-  const link = await prisma.telegramChatLink.findUnique({ where: { chatId } });
+  let link = await prisma.telegramChatLink.findUnique({ where: { chatId } });
+
+  // معرّفات الكروبات سالبة دائماً (-100…)، والنقر المزدوج على الرقم في تلكرام
+  // يُظلّل الأرقام وحدها فتسقط الإشارة عند اللصق في صفحة الربط — خطأ صامت
+  // ومكلف: الكروب يبدو مربوطاً في اللوحة بينما لا تُقرأ فيه طلبية واحدة.
+  // نلتقطه هنا ونُصحّح الصفّ نفسه كي لا يتكرّر البحث المزدوج.
+  if (!link && chatId.startsWith('-')) {
+    const unsigned = chatId.slice(1);
+    link = await prisma.telegramChatLink.findUnique({ where: { chatId: unsigned } });
+    if (link) {
+      await prisma.telegramChatLink.update({ where: { id: link.id }, data: { chatId } })
+        .then(() => console.log(`[telegram] صُحِّح رقم الكروب المحفوظ: ${unsigned} → ${chatId}`))
+        .catch(e => console.error('[telegram] تعذّر تصحيح رقم الكروب:', e?.message));
+      link = { ...link, chatId };
+    }
+  }
 
   if (!link) {
     if (shouldAnnounce(chatId, announce)) {
-      const title = message.chat.title ? ` «${message.chat.title}»` : '';
+      const title = message.chat.title ? ` «${esc(message.chat.title)}»` : '';
+      // الرقم داخل <code>: نقرة واحدة تنسخه **كاملاً بإشارة السالب**. النسخ
+      // اليدوي يُسقط الإشارة فيبدو الكروب مربوطاً وهو ليس كذلك.
       await sendMessage(chatId, [
         `⚠️ هذا الكروب${title} غير مربوط بأي حساب، فلن تُقرأ أي طلبية فيه.`,
         '',
-        `رقم الكروب: ${chatId}`,
+        'رقم الكروب (انقر عليه لنسخه كاملاً):',
+        `<code>${esc(chatId)}</code>`,
         '',
-        'أرسل هذا الرقم للأدمن ليربطه من: لوحة الماستر أدمن ← روابط تيليجرام.',
-      ].join('\n'));
+        '⚠️ انسخه كما هو <b>بإشارة السالب</b> — بدونها لن يعمل الربط.',
+        '',
+        'ثم: لوحة الماستر أدمن ← روابط تيليجرام ← ربط كروب جديد.',
+      ].join('\n'), undefined, 'HTML');
     }
     return null;
   }

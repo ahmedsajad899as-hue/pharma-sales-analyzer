@@ -6,6 +6,18 @@ import { ORDER_TEXT_MODES, DEFAULT_ORDER_TEXT_MODE } from '../orders/order-trigg
 // الرسائل» وهو لم يفعّل شيئاً. الرفض الصريح أفضل من ارتداد صامت.
 const pickOrderTextMode = (v) => (ORDER_TEXT_MODES.includes(v) ? v : null);
 
+/**
+ * يُطبّع رقم الكروب المُلصَق. معرّفات الكروبات/السوبرغروب في تلكرام تبدأ بـ«-100»
+ * وطولها 13 رقماً، والنقر المزدوج على الرقم في المحادثة يُظلّل الأرقام وحدها
+ * فتسقط الإشارة — فيبدو الكروب مربوطاً في اللوحة ولا تُقرأ فيه طلبية واحدة.
+ * نُعيد الإشارة حين يكون الشكل قاطعاً فقط؛ أرقام المحادثات الخاصة (موجبة وأقصر)
+ * لا تُمسّ.
+ */
+const normalizeChatId = (v) => {
+  const s = String(v ?? '').trim().replace(/[\u200e\u200f\s]/g, '');
+  return /^100[0-9]{10,}$/.test(s) ? `-${s}` : s;
+};
+
 // ── List all chat↔user links ────────────────────────────────────────────
 export async function listLinks(req, res) {
   const links = await prisma.telegramChatLink.findMany({
@@ -28,7 +40,7 @@ export async function createLink(req, res) {
 
   const link = await prisma.telegramChatLink.create({
     data: {
-      chatId: String(chatId), chatTitle: chatTitle || null,
+      chatId: normalizeChatId(chatId), chatTitle: chatTitle || null,
       userId: parseInt(userId), orderTextMode: mode,
     },
   });
