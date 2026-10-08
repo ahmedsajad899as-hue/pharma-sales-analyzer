@@ -1266,7 +1266,7 @@ const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر 
 // Common prefixes/titles that get typed before a pharmacy/customer name on
 // Iraqi invoices. We strip them so the stored customer is the clean name.
 const PHARMACY_PREFIX_RE = /^\s*(ص\.?|صيدلية|الصيدلية|صيدليه|الصيدليه|زبون|الزبون|عميل|العميل|اسم|الاسم|د\.?|دكتور|dr\.?)\s+/i;
-function cleanPharmacyName(name) {
+export function cleanPharmacyName(name) {
   let s = String(name ?? '').trim();
   // Strip repeatedly in case of stacked prefixes (e.g. "اسم الزبون ...")
   for (let i = 0; i < 3 && PHARMACY_PREFIX_RE.test(s); i++) s = s.replace(PHARMACY_PREFIX_RE, '').trim();
@@ -1277,7 +1277,7 @@ function cleanPharmacyName(name) {
 // "اروى علي احمد - التاجي". Split on the LAST " - " (or " / "): the tail is the
 // area, the head is the pharmacy. The tail wins over a mis-read area because the
 // invoice puts the area right after the pharmacy name.
-function splitPharmacyArea(pharmacy, area) {
+export function splitPharmacyArea(pharmacy, area) {
   let ph = cleanPharmacyName(pharmacy);
   let ar = String(area ?? '').trim();
   const m = ph.match(/^(.*\S)\s*[-\/–]\s*(\S.*)$/); // last " - " or " / " separator
@@ -1294,7 +1294,7 @@ function splitPharmacyArea(pharmacy, area) {
 }
 
 /** Validate a Gemini bounding box → [ymin, xmin, ymax, xmax] in 0-1000, or null. */
-function normalizeBox(b) {
+export function normalizeBox(b) {
   if (!Array.isArray(b) || b.length !== 4) return null;
   const n = b.map(Number);
   if (n.some(v => !isFinite(v))) return null;
@@ -1302,7 +1302,7 @@ function normalizeBox(b) {
 }
 
 /** Parse Gemini's reply into an array of invoice rows (mirrors analyzeSurveyEntriesBatched). */
-function parseInvoiceJson(raw) {
+export function parseInvoiceJson(raw) {
   if (!raw) return [];
   let cleaned = String(raw).replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
   const match = cleaned.match(/\[[\s\S]*\]/); // first [...] block if wrapped in prose
@@ -1317,9 +1317,12 @@ function parseInvoiceJson(raw) {
  * Extract sale rows from one or more invoice images via Gemini vision.
  * Returns flat, UNSAVED rows for the user to review before saving.
  * @param {{ mimeType: string, base64: string }[]} images
+ * @param {{ extraContext?: string }} [opts] extraContext = نص حرّ أرسله صاحب الصورة
+ *        مع الصورة (كابشن رسالة بوت مثلاً) يُلحَق بالبرومبت كسياق مساعد. حين لا
+ *        يُمرَّر يبقى نص البرومبت مطابقاً حرفياً لما كان — مسار /extract-invoice سليم.
  * @returns {Promise<object[]>}
  */
-export async function extractInvoiceRows(images) {
+export async function extractInvoiceRows(images, { extraContext } = {}) {
   if (!Array.isArray(images) || images.length === 0) {
     throw new AppError('لم يتم إرسال أي صورة.', 400, 'NO_IMAGES');
   }
@@ -1338,7 +1341,11 @@ export async function extractInvoiceRows(images) {
     if (elapsed >= OVERALL_BUDGET_MS) break;
     try {
       const parts = [
-        INVOICE_PROMPT,
+        extraContext
+          ? `${INVOICE_PROMPT}
+
+ملاحظة من مُرسِل الصورة (نصّ حرّ قد يصحّح أو يكمل ما في الصورة — اعتمده حين يتعارض مع قراءة غير واضحة): «${extraContext}»`
+          : INVOICE_PROMPT,
         { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } },
       ];
       const text = await callGeminiSmart(parts, {

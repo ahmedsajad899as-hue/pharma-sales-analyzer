@@ -78,6 +78,8 @@ model User {
   fileShares             FileUserShare[]
   telegramChatLinks      TelegramChatLink[]
   pendingVisitsImport    PendingVisitsImport?
+  pendingBotOrders       PendingBotOrder[]
+  viberChatLinks         ViberChatLink[]
   pharmacies             Pharmacy[]                  @relation("PharmacyOwner")
   assignedInvoices       CommercialInvoice[]         @relation("AssignedInvoices")
   createdInvoices        CommercialInvoice[]         @relation("CreatedInvoices")
@@ -1901,6 +1903,9 @@ model TelegramChatLink {
   isActive     Boolean  @default(true)
   // آخر update_id من تلكرام تمت معالجته لهذا الكروب — حارس ضد إعادة إرسال الويب-هوك
   lastUpdateId Int?
+  // متى يُعتبر نص الكروب طلبية: off = تجاهل، trigger = يلزم كلمة «طلبية» في أول
+  // الرسالة (أو ردّ على رسالة البوت)، all = كل رسالة فيها رقم (لكروب طلبيات مخصّص).
+  orderTextMode String @default("trigger")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -1909,6 +1914,27 @@ model TelegramChatLink {
 
   @@index([userId])
   @@map("telegram_chat_links")
+}
+
+// ─── Viber: محادثة/كروب ↔ حساب مستخدم. خامد حتى يُضبط VIBER_AUTH_TOKEN ──────
+model ViberChatLink {
+  id         Int     @id @default(autoincrement())
+  receiverId String  @unique // user_id أو group_id من فايبر — نص لا رقم
+  chatTitle  String?
+  isActive   Boolean @default(true)
+  // message_token من فايبر رقم ضخم (~19 خانة) يتجاوز Number.MAX_SAFE_INTEGER فلزم
+  // أن يكون نصاً. وهو ليس عدّاداً تصاعدياً كـupdate_id بتلكرام فلا يصحّ مقارنته
+  // بـ«أكبر من»: التكرار الفعلي يحرسه PendingBotOrder.sourceHash — هذا للتشخيص فقط.
+  lastMessageToken String?
+  orderTextMode    String  @default("trigger") // off | trigger | all
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("viber_chat_links")
 }
 
 // ─── ملف زيارات أطباء مرفوع من تلكرام بانتظار مراجعة المستخدم بالتطبيق ──
@@ -1923,6 +1949,41 @@ model PendingVisitsImport {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("pending_visits_imports")
+}
+
+// ─── طلبية صيدلية وصلت عبر بوت (تلكرام/فايبر) بانتظار مراجعة المستخدم بالتطبيق ─
+// استُخرجت بـGemini فقط ولم تُحفَظ كمبيعات. الحفظ النهائي يمرّ حصراً بمسار الإدخال
+// اليدوي القائم (insertManualSales عبر POST /api/sales/manual) بعد تأكيد المستخدم —
+// لا دورة حياة طلبية ولا حالات، والصف يُحذَف بمجرد حفظه أو إلغائه.
+// عدة طلبيات معلَّقة لكل مستخدم مسموحة (بخلاف PendingVisitsImport) — الطلبيات تصل
+// عدة مرات باليوم ولكل واحدة صيدلية وتاريخ مستقلّان فلا دلالة دمج بينها؛ الحدّ هو
+// MAX_PENDING_ORDERS_PER_USER بالخدمة لا @unique على userId.
+model PendingBotOrder {
+  id         Int     @id @default(autoincrement())
+  userId     Int
+  source     String // telegram | viber
+  chatId     String // chatId (تلكرام) / receiverId (فايبر) — للتشخيص والعرض فقط
+  chatTitle  String?
+  senderName String? // من كتب الطلبية فعلاً بالكروب (from.first_name / sender.name)
+  repName    String? // repCoreName(displayName || username) — قابل للتعديل بالمراجعة
+  repId      Int? // مندوب مطابَق بثقة عبر repNameMatch.js، أو null = يختاره المراجِع
+  kind       String  @default("text") // text | photo
+  sourceText String? // النص الحرّ/الكابشن كما وصل — مرجع المراجعة البصري
+  imageFiles Json? // string[] أسماء ملفات داخل server/uploads/bot-orders/
+  // { rows, extractedAt } — صفوف جاهزة لشبكة المراجعة بنفس شكل مخرجات
+  // extractInvoiceRows (ملاحظة: حقل القيمة اسمه total لا totalValue)
+  payload    Json
+  rowCount   Int     @default(0)
+  // sha256(userId | النص المطبَّع | معرّفات الصور مرتَّبة) — الحارس الفعلي ضد التكرار،
+  // مستقلّ عن حارس update_id/message_token (لا يصمد أمام الألبومات ولا أمام فايبر).
+  sourceHash String
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceHash])
+  @@index([userId, createdAt])
+  @@map("pending_bot_orders")
 }
 
 // ─── Filter Presets ─────────────────────────────────────────

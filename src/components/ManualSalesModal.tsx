@@ -34,11 +34,32 @@ interface Row {
   boxHeader: number[] | null;    // whole header block (warehouse + invoice# + date)
 }
 
+/** طلبية وصلت عبر بوت (PendingBotOrder) استُخرجت بالخادم وتنتظر مراجعة هنا. */
+export interface PendingOrderDetail {
+  id: number;
+  source: string;            // telegram | viber
+  kind: string;              // text | photo
+  rows: any[];               // بنفس شكل مخرجات extractInvoiceRows
+  repName?: string | null;
+  repId?: number | null;
+  sourceText?: string | null;
+  senderName?: string | null;
+  chatTitle?: string | null;
+  imageCount?: number;
+  createdAt?: string;
+}
+
 interface Props {
   token: string;
   files: FileOpt[];
   onClose: () => void;
   onSaved: (msg: string, fileId?: number) => void;
+  /** طلبية بوت جاهزة — تُعبَّأ فور الفتح بلا رفع/استخراج جديد. إغلاق المودال
+   *  العادي لا يحذفها (تبقى معلَّقة في الطابور ويظهر شريطها مرة أخرى). */
+  initialOrder?: PendingOrderDetail | null;
+  /** «إلغاء هذه الطلبية نهائياً» — يظهر فقط مع initialOrder؛ الأب يتولّى الحذف
+   *  بالخادم وإخفاء الشريط. */
+  onCancelPending?: () => void;
 }
 
 /** نتيجة فحص اسم واحد كما يُرجعها /api/sales/check-names. */
@@ -178,9 +199,13 @@ function DraggableImage({ src, focusBox, dockX, onClose }: { src: string; focusB
 }
 const hdrBtn: React.CSSProperties = { background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 13, lineHeight: 1, width: 22, height: 22, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 
-export default function ManualSalesModal({ token, files, onClose, onSaved }: Props) {
+export default function ManualSalesModal({ token, files, onClose, onSaved, initialOrder, onCancelPending }: Props) {
   const authH = { Authorization: `Bearer ${token}` };
 
+  // طلبية بوت قيد المراجعة — يُغيّر نصوص الواجهة ويُظهر زر الإلغاء النهائي، ولا
+  // تُحفَظ المبيعات إلا بنفس مسار الإدخال اليدوي. مسوّدة localStorage لا لزوم لها
+  // هنا: الطلبية محفوظة في الخادم أصلاً وهذا أقوى من مسوّدة متصفح.
+  const [fromPendingOrder, setFromPendingOrder] = useState(false);
   const [repName, setRepName] = useState('');            // shared: chosen by the user
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [images, setImages] = useState<string[]>([]);    // object URLs of uploaded invoice photos
@@ -240,6 +265,68 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
     }));
   };
 
+  /**
+   * يحوّل مخرجات الاستخراج (صورة أو نصّ طلبية) إلى صفوف الشبكة ويضيفها.
+   * مشتركة بين رفع صورة جديدة هنا وتحميل طلبية بوت جاهزة من الخادم — نفس عقد
+   * الصف في الحالتين، فلا تفريع ولا تحويل ثانٍ.
+   */
+  const applyExtractedRows = useCallback((extracted: any[], baseIndex: number): Row[] => {
+    const mapped: Row[] = extracted.map(r => ({
+      warehouse:     str(r.warehouse),
+      invoiceNumber: str(r.invoiceNumber),
+      date:          normDate(r.date),
+      item:          str(r.item),
+      company:       str(r.company),
+      quantity:      r.quantity != null ? String(num(r.quantity)) : '',
+      unitPrice:     r.unitPrice != null ? String(num(r.unitPrice)) : '',
+      total:         r.total != null ? String(num(r.total)) : '',
+      bonus:         r.bonus != null ? String(num(r.bonus)) : '',
+      pharmacy:      str(r.pharmacy),
+      area:          str(r.area),
+      imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
+      box:           Array.isArray(r._box) ? r._box : null,
+      boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
+      boxHeader:     Array.isArray(r._boxHeader) ? r._boxHeader : null,
+    }));
+    // الصفوف الفارغة تُستبدل بالمستخرَج بدل أن تتراكم فوقه؛ وإن كان الجدول
+    // كلّه فارغاً صار المستخرَج هو محتواه.
+    setRows(rs => [...rs.filter(rowHasData), ...mapped]);
+    return mapped;
+  }, []);
+
+  // ── طلبية بوت جاهزة: تعبئة فورية بلا رفع ولا نداء ذكاء ──
+  useEffect(() => {
+    if (!initialOrder) return;
+    setFromPendingOrder(true);
+    applyExtractedRows(initialOrder.rows || [], 0);
+    if (initialOrder.repName) setRepName(initialOrder.repName);
+    // ملف الهدف: شهر واحد في ملف واحد بدل عشرات ملفات بصفّين.
+    if (!files.length) {
+      const d = new Date(initialOrder.createdAt || Date.now());
+      setNewFileName(`طلبيات البوت — ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    // صور الطلبية تُجلب بمصادقة (نقطة مقيَّدة بالملكية، لا مسار /uploads الساكن)
+    // ثم تُحوَّل إلى object URLs كي يعمل نفس عارض الصور ومسار التأكيد الذكي.
+    const count = initialOrder.imageCount ?? 0;
+    if (count > 0) {
+      let cancelled = false;
+      (async () => {
+        const urls: string[] = [];
+        for (let i = 0; i < count; i++) {
+          try {
+            const res = await fetch(`${API}/api/orders/pending/${initialOrder.id}/image/${i}`, { headers: authH });
+            if (!res.ok) continue;
+            urls.push(URL.createObjectURL(await res.blob()));
+          } catch { /* صورة مفقودة لا تُسقط المراجعة */ }
+        }
+        if (cancelled) { urls.forEach(u => URL.revokeObjectURL(u)); return; }
+        if (urls.length) setImages(prev => [...prev, ...urls]);
+      })();
+      return () => { cancelled = true; };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOrder]);
+
   // ── AI extraction from invoice images ──
   const onImages = useCallback(async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -262,29 +349,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
           : 'لم يتم استخراج أي صف من الصورة. جرّب صورة أوضح أو أدخل يدوياً.');
         return;
       }
-      const mapped: Row[] = extracted.map(r => ({
-        warehouse:     str(r.warehouse),
-        invoiceNumber: str(r.invoiceNumber),
-        date:          normDate(r.date),
-        item:          str(r.item),
-        company:       str(r.company),
-        quantity:      r.quantity != null ? String(num(r.quantity)) : '',
-        unitPrice:     r.unitPrice != null ? String(num(r.unitPrice)) : '',
-        total:         r.total != null ? String(num(r.total)) : '',
-        bonus:         r.bonus != null ? String(num(r.bonus)) : '',
-        pharmacy:      str(r.pharmacy),
-        area:          str(r.area),
-        imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
-        box:           Array.isArray(r._box) ? r._box : null,
-        boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
-        boxHeader:     Array.isArray(r._boxHeader) ? r._boxHeader : null,
-      }));
-      // الصفوف الفارغة تُستبدل بالمستخرَج بدل أن تتراكم فوقه؛ وإن كان الجدول
-      // كلّه فارغاً صار المستخرَج هو محتواه.
-      setRows(rs => {
-        const kept = rs.filter(rowHasData);
-        return [...kept, ...mapped];
-      });
+      const mapped = applyExtractedRows(extracted, baseIndex);
       setInfo(`تم استخراج ${mapped.length} صف — راجعها وصحّحها قبل الحفظ.`
         + (droppedCount > 0 ? ` (تم تجاهل ${droppedCount} ايتم غير معيّن لك)` : ''));
     } catch (e: any) {
@@ -311,7 +376,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
       const res = await fetch(`${API}/api/sales/manual`, {
         method: 'POST',
         headers: { ...authH, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: payloadRows, target, rememberItems }),
+        body: JSON.stringify({ rows: payloadRows, target, rememberItems, pendingOrderId: initialOrder?.id }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.message || j.error || 'فشل الحفظ');
@@ -334,8 +399,12 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
       .filter(r => r.item.trim() && Number(r.quantity) > 0)
       .map(r => ({
         repName,
+        // أثر المصدر في rawData.source، ورقم تركيبي حين لا رقم فاتورة كي تتشارك
+        // صفوف الطلبية مفتاحاً واحداً في عدّ الطلبيات (server/lib/orderKey.js).
+        source:        initialOrder ? `${initialOrder.source}-order` : undefined,
         warehouse:     r.warehouse.trim() || undefined,
-        invoiceNumber: r.invoiceNumber.trim() || undefined,
+        invoiceNumber: r.invoiceNumber.trim()
+          || (initialOrder ? `BOT-${initialOrder.id}` : undefined),
         date:          r.date || undefined,
         item:          r.item.trim(),
         company:       r.company.trim() || undefined,
@@ -588,7 +657,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
         </div>
 
         <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
-          للمبيعات التي تأتي من فواتير المذاخر ولا تظهر في ملفات Excel. ارفع صورة الفاتورة ليستخرجها الذكاء الاصطناعي، أو اكتب الصفوف يدوياً — كل فاتورة تحتفظ بتفاصيلها الخاصة. راجعها ثم احفظها.
+          {fromPendingOrder
+            ? 'طلبية وصلت عبر البوت واستُخرجت بالذكاء الاصطناعي. لم يُحفَظ منها شيء بعد — راجع الأصناف والكميات واسم الصيدلية، واختر المندوب والملف، ثم احفظ.'
+            : 'للمبيعات التي تأتي من فواتير المذاخر ولا تظهر في ملفات Excel. ارفع صورة الفاتورة ليستخرجها الذكاء الاصطناعي، أو اكتب الصفوف يدوياً — كل فاتورة تحتفظ بتفاصيلها الخاصة. راجعها ثم احفظها.'}
         </p>
 
         {/* Image upload + rep */}
@@ -607,11 +678,42 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
             </label>
           </div>
           <label style={lbl}>المندوب*
-            <input list="rep-suggestions" value={repName} onChange={e => setRepName(e.target.value)}
-              placeholder="اسم المندوب" style={inp} />
-            <datalist id="rep-suggestions">{reps.map(r => <option key={r.id} value={r.name} />)}</datalist>
+            {/* طلبية بوت ⇒ منسدلة لا حقل حرّ. findOrCreateRep في الخادم يُنشئ
+                مندوباً جديداً صامتاً عند أي فرق حرف، فينشقّ تاريخ المندوب على
+                صفّين في كل تقرير. الاختيار من القائمة يضمن اسماً قائماً حرفياً. */}
+            {fromPendingOrder ? (
+              <select value={repName} onChange={e => setRepName(e.target.value)} style={inp}>
+                <option value="">— اختر المندوب —</option>
+                {reps.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                {repName && !reps.some(r => r.name === repName) && (
+                  <option value={repName}>{repName} (من حساب الكروب)</option>
+                )}
+              </select>
+            ) : (
+              <>
+                <input list="rep-suggestions" value={repName} onChange={e => setRepName(e.target.value)}
+                  placeholder="اسم المندوب" style={inp} />
+                <datalist id="rep-suggestions">{reps.map(r => <option key={r.id} value={r.name} />)}</datalist>
+              </>
+            )}
           </label>
         </div>
+
+        {/* نصّ الطلبية كما وصل — مرجع المراجِع ليقابل الصفوف المستخرَجة بالأصل.
+            للطلبيات النصية هو ما يقابل عارض الصورة في طلبيات الفواتير. */}
+        {fromPendingOrder && initialOrder?.sourceText && (
+          <div style={srcPanel}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
+              📩 نصّ الطلبية كما وصل
+              {initialOrder.senderName ? ` — من ${initialOrder.senderName}` : ''}
+              {initialOrder.chatTitle ? ` (${initialOrder.chatTitle})` : ''}
+            </div>
+            <div style={srcText}>{initialOrder.sourceText}</div>
+            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
+              قابِل الصفوف أدناه بالنصّ، وصحّح ما أخطأ فيه الاستخراج قبل الحفظ.
+            </div>
+          </div>
+        )}
 
         {/* Uploaded invoice thumbnails */}
         {images.length > 0 && (
@@ -740,7 +842,19 @@ export default function ManualSalesModal({ token, files, onClose, onSaved }: Pro
           <button onClick={onSave} disabled={saving || extracting || checking} style={saveBtn}>
             {checking ? '🔎 جاري فحص الأسماء…' : saving ? '⏳ جاري الحفظ…' : '💾 حفظ المبيعات'}
           </button>
-          <button onClick={onClose} style={cancelBtn}>إلغاء</button>
+          <button onClick={onClose} style={cancelBtn}>
+            {fromPendingOrder ? 'إغلاق (تبقى الطلبية معلَّقة)' : 'إلغاء'}
+          </button>
+          {/* window.confirm لا confirm: الاسم محجوب في هذا الملف بحالة مؤشّر
+              خطوة التأكيد الذكي (const [confirm, setConfirm] أعلاه). */}
+          {fromPendingOrder && onCancelPending && (
+            <button
+              onClick={() => { if (window.confirm('إلغاء هذه الطلبية نهائياً بلا حفظ أي شيء منها؟')) onCancelPending(); }}
+              style={{ ...cancelBtn, color: '#dc2626', borderColor: '#fecaca', marginInlineStart: 'auto' }}
+            >
+              🗑️ إلغاء هذه الطلبية
+            </button>
+          )}
         </div>
       </div>
 
@@ -804,5 +918,7 @@ const navBtnP: React.CSSProperties = { padding: '5px 14px', background: '#f59e0b
 const radio: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155', cursor: 'pointer' };
 const errBox: React.CSSProperties = { marginTop: 12, padding: '9px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 13 };
 const infoBox: React.CSSProperties = { marginTop: 12, padding: '9px 14px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, color: '#166534', fontSize: 13 };
+const srcPanel: React.CSSProperties = { background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 12px', marginBottom: 12 };
+const srcText: React.CSSProperties = { whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, color: '#1f2937', maxHeight: 160, overflowY: 'auto' };
 const saveBtn: React.CSSProperties = { padding: '10px 24px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' };
 const cancelBtn: React.CSSProperties = { padding: '10px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 10, fontWeight: 600, fontSize: 14, cursor: 'pointer' };

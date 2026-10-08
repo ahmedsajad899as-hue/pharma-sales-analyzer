@@ -2,7 +2,7 @@
 import { useBackHandler } from '../hooks/useBackHandler';
 import FileRowsEditor from '../components/FileRowsEditor';
 import AnalysisRenderer from '../components/AnalysisRenderer';
-import ManualSalesModal from '../components/ManualSalesModal';
+import ManualSalesModal, { type PendingOrderDetail } from '../components/ManualSalesModal';
 import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
 import RepNameMatchModal from '../components/RepNameMatchModal';
 import { useAuth } from '../context/AuthContext';
@@ -70,12 +70,20 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
 
   // Manual / invoice-image sales entry
   const [showManualModal, setShowManualModal] = useState(false);
+  const ordersFeature = hasFeature('bot_orders_review');
+  // مرجع للعدّ كي يقرأه مؤقّت الاستقصاء بلا أن يُعاد بناؤه عند كل تغيّر بالقائمة.
+  const pendingOrdersCountRef = useRef(0);
   // مبيعات مذاخر ناقصة من ميركاتو (نموذج إكسل مخصّص لمدير الشركة/قائد الفريق)
   const [showWarehouseGapModal, setShowWarehouseGapModal] = useState(false);
   const [warehouseGapMsg, setWarehouseGapMsg] = useState('');
   // مطابقة أسماء المندوبين لملف ميركاتو — يحمل معرّفات الملفات المراد فحصها
   const [repNameFileIds, setRepNameFileIds] = useState<number[] | null>(null);
   const [manualMsg, setManualMsg]             = useState('');
+  // طلبيات وصلت عبر بوت (تلكرام/فايبر) واستُخرجت بالخادم — معلَّقة بانتظار مراجعة
+  // هنا. null/[] = لا يوجد. التفصيل يُجلب عند الضغط على «مراجعة» فقط.
+  const [pendingOrders, setPendingOrders]     = useState<any[]>([]);
+  const [orderDetail, setOrderDetail]         = useState<PendingOrderDetail | null>(null);
+  const [loadingOrder, setLoadingOrder]       = useState<number | null>(null);
 
   // Use a ref so loadFiles doesn't re-run when activeFileIds changes (avoids re-fetch on toggle)
   const activeFileIdsRef = useRef<number[]>(activeFileIds);
@@ -96,6 +104,77 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   }, [token]); // removed activeFileIds & onFileActivated — refs keep them up-to-date without re-triggering
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
+
+  // ── طلبيات البوت المعلَّقة ───────────────────────────────────────────────
+  const loadPendingOrders = useCallback(async () => {
+    if (!ordersFeature || !token) return;
+    try {
+      const res = await fetch(`${API}/api/orders/pending`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      if (j.success && Array.isArray(j.data)) setPendingOrders(j.data);
+    } catch { /* الشريط ليس حرجاً — فشل الجلب يُترك صامتاً */ }
+  }, [ordersFeature, token]);
+
+  useEffect(() => { loadPendingOrders(); }, [loadPendingOrders]);
+  useEffect(() => { pendingOrdersCountRef.current = pendingOrders.length; }, [pendingOrders]);
+
+  // App.tsx يُبقي الصفحات مُركَّبة بعد أول زيارة (keep-alive بسعة MAX_ALIVE)، فجلبُ
+  // التركيب يعمل **مرة واحدة في الجلسة لا مرة كل زيارة**. طلبية تصل والتطبيق
+  // مفتوح ما كانت ستظهر أبداً — وهذا بالضبط ما يحدث اليوم لشريط زيارات تلكرام في
+  // DoctorsPage. فنُضيف استقصاءً كل دقيقة على نقطة العدّ (نداء count وحده، ~1ms)
+  // مقيَّداً بكون التبويب مرئياً، مع إعادة جلب فورية عند العودة إليه.
+  useEffect(() => {
+    if (!ordersFeature || !token) return;
+    let stop = false;
+
+    const syncCount = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const res = await fetch(`${API}/api/orders/pending/count`, { headers: { Authorization: `Bearer ${token}` } });
+        const j = await res.json();
+        if (stop || !j.success) return;
+        if ((j.data?.count ?? 0) !== pendingOrdersCountRef.current) await loadPendingOrders();
+      } catch { /* تجاهل */ }
+    };
+
+    const id = setInterval(syncCount, 60_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') syncCount(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      stop = true;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [ordersFeature, token, loadPendingOrders]);
+
+  /** يفتح طلبية للمراجعة — التفصيل (الصفوف) يُجلب عند الحاجة لا مع القائمة. */
+  const reviewOrder = useCallback(async (id: number) => {
+    setLoadingOrder(id);
+    setManualMsg('');
+    try {
+      const res = await fetch(`${API}/api/orders/pending/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error || 'تعذّر فتح الطلبية');
+      setOrderDetail(j.data);
+      setShowManualModal(true);
+    } catch (e: any) {
+      setError(e.message || 'تعذّر فتح الطلبية');
+    } finally {
+      setLoadingOrder(null);
+    }
+  }, [token]);
+
+  // بلا confirm هنا عمداً — كل نقطة استدعاء (الشريط أو زر المودال) تؤكّد بنفسها.
+  const cancelPendingOrder = useCallback(async (id: number) => {
+    try {
+      await fetch(`${API}/api/orders/pending/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    } catch { /* best-effort */ }
+    setPendingOrders(prev => prev.filter(o => o.id !== id));
+    setOrderDetail(null);
+    setShowManualModal(false);
+  }, [token]);
 
   const uploadFile = useCallback(async (file: File, sourceCurrency: 'IQD' | 'USD') => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
@@ -838,6 +917,45 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         )}
       </div>
 
+      {/* ── طلبيات وصلت عبر البوت بانتظار المراجعة ──────────── */}
+      {ordersFeature && pendingOrders.length > 0 && (
+        <div style={{ ...CARD, padding: '12px 16px', background: 'var(--c-warning-bg, #fffbeb)', borderColor: 'var(--c-warning-border, #fde68a)' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--c-warning, #92400e)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>📋 لديك {pendingOrders.length} طلبية وصلت عبر البوت بانتظار المراجعة</span>
+            <span style={{ fontWeight: 500, fontSize: 11.5, color: '#b45309' }}>
+              لا تُحفَظ كمبيعات حتى تراجعها وتؤكدها
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {pendingOrders.map(o => (
+              <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fff', border: '1px solid #fde68a', borderRadius: 8, padding: '7px 10px' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#1f2937' }}>
+                  {o.kind === 'photo' ? '🖼️' : '💬'} {o.rowCount} صنف
+                </span>
+                {o.senderName && <span style={{ fontSize: 11.5, color: '#64748b' }}>من {o.senderName}</span>}
+                {o.chatTitle && <span style={{ fontSize: 11.5, color: '#94a3b8' }}>({o.chatTitle})</span>}
+                {o.preview && (
+                  <span style={{ fontSize: 11.5, color: '#475569', flex: 1, minWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {o.preview}
+                  </span>
+                )}
+                <span style={{ fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                  {new Date(o.createdAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <button onClick={() => reviewOrder(o.id)} disabled={loadingOrder === o.id}
+                  style={{ padding: '6px 14px', background: 'var(--c-purple)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', marginInlineStart: 'auto' }}>
+                  {loadingOrder === o.id ? '⏳' : 'مراجعة'}
+                </button>
+                <button onClick={() => { if (window.confirm('إلغاء هذه الطلبية نهائياً بلا حفظ أي شيء منها؟')) cancelPendingOrder(o.id); }}
+                  style={{ padding: '6px 10px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  إلغاء
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Add manual / invoice-image sales ─────────────────── */}
       {hasFeature('manual_sales_entry') && (
       <div style={{ ...CARD, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'var(--c-purple-bg)', borderColor: 'var(--c-purple-border)' }}>
@@ -892,14 +1010,22 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         />
       )}
 
-      {hasFeature('manual_sales_entry') && showManualModal && (
+      {/* مراجعة طلبية بوت تفتح نفس المودال بـinitialOrder — الإدخال اليدوي قد
+          يكون معطَّلاً بالمميزات ومع ذلك تبقى مراجعة الطلبيات متاحة بمفتاحها. */}
+      {(hasFeature('manual_sales_entry') || (ordersFeature && orderDetail)) && showManualModal && (
         <ManualSalesModal
           token={token ?? ''}
           files={files.map(f => ({ id: f.id, originalName: f.originalName, detectedCurrency: f.detectedCurrency, rowCount: f.rowCount, uploadedAt: f.uploadedAt }))}
-          onClose={() => setShowManualModal(false)}
+          initialOrder={orderDetail}
+          onCancelPending={orderDetail ? () => cancelPendingOrder(orderDetail.id) : undefined}
+          onClose={() => { setShowManualModal(false); setOrderDetail(null); }}
           onSaved={async (msg, fileId) => {
             setShowManualModal(false);
             setManualMsg(msg);
+            // الصف المعلَّق يحذفه الخادم بعد الحفظ (pendingOrderId) — نُزيله محلياً
+            // كي يختفي الشريط فوراً بلا انتظار الاستقصاء.
+            if (orderDetail) setPendingOrders(prev => prev.filter(o => o.id !== orderDetail.id));
+            setOrderDetail(null);
             // بلا هذا يبقى ملف الفواتير اليدوية خارج «الملفات المفعّلة»، فتغيب
             // مبيعاته عن كل تقرير يعتمد عليها (الشامل، العلمي، لوحة التحكم) —
             // بخلاف الرفع العادي الذي يُفعّل ملفه الجديد تلقائياً (أعلاه).

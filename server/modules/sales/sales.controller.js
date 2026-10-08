@@ -4,6 +4,7 @@
  * Delegates all business logic to the service layer.
  */
 
+import { consumePendingOrder } from '../orders/orders.service.js';
 import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
   checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
@@ -126,12 +127,15 @@ export async function extractInvoice(req, res, next) {
  * Body (application/json):
  *   rows:   [{ repName, item, company?, quantity, totalValue, unitPrice?, pharmacy?, warehouse?, area?, date?, invoiceNumber?, bonus? }]
  *   target: { fileId } | { newFileName, sourceCurrency? }
+ *   pendingOrderId?: صفّ PendingBotOrder الذي رُوجعت صفوفه هنا — يُستهلَك (يُحذَف)
+ *       بعد نجاح الحفظ. الحذف من السيرفر لا من العميل عمداً: لو مات التبويب بين
+ *       الـ201 وطلب الحذف يبقى صفّ يتيم فتُحفَظ الطلبية مرتين.
  *
  * Response 201: { success, data: { addedCount, merged, unknownItems, uploadedFile } }
  */
 export async function addManualSales(req, res, next) {
   try {
-    const { rows, target, rememberItems } = req.body || {};
+    const { rows, target, rememberItems, pendingOrderId } = req.body || {};
     if (!Array.isArray(rows) || rows.length === 0) {
       throw new AppError('لا توجد صفوف للحفظ.', 400, 'NO_ROWS');
     }
@@ -147,6 +151,8 @@ export async function addManualSales(req, res, next) {
     } catch (syncErr) {
       console.error('[autoSyncIfOfficeEmployee]', syncErr);
     }
+    // الطلبية "استُهلكت" — نفس نمط commitVisitsImport، best-effort لا يُسقط الحفظ.
+    if (pendingOrderId && req.user?.id) await consumePendingOrder(req.user.id, pendingOrderId);
     return res.status(201).json({ success: true, data: result });
   } catch (err) {
     next(err);

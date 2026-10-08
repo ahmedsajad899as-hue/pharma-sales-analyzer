@@ -55,8 +55,9 @@ import VisitsPage from './pages/super-admin/VisitsPage';
 import MasterSurveyPage from './pages/super-admin/MasterSurveyPage';
 import DoctorChangesPage from './pages/super-admin/DoctorChangesPage';
 import TelegramLinksPage from './pages/super-admin/TelegramLinksPage';
+import ViberLinksPage from './pages/super-admin/ViberLinksPage';
 
-type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'telegram-links';
+type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'telegram-links' | 'viber-links';
 
 // لون تمييز واحد فقط للحالة النشطة (بدل لون مختلف لكل عنصر) — يهدّئ الشريط الجانبي
 // ويجعل العين تتبع "أين أنا" بدل التوهان بين تدرّجات ملوّنة متعددة.
@@ -71,6 +72,7 @@ const NAV: { id: Page; label: string; icon: string; masterOnly?: boolean }[] = [
   { id: 'surveys',      label: 'السيرفيات',     icon: '🗂️', masterOnly: true },
   { id: 'doctor-changes', label: 'سجل الأطباء', icon: '🔔', masterOnly: true },
   { id: 'telegram-links', label: 'روابط تيليجرام', icon: '🤖', masterOnly: true },
+  { id: 'viber-links',  label: 'روابط فايبر',   icon: '📞', masterOnly: true },
 ];
 const ACCENT = '#4f46e5';
 
@@ -348,6 +350,7 @@ function SuperAdminShell() {
             {page === 'surveys'      && <MasterSurveyPage />}
             {page === 'doctor-changes' && <DoctorChangesPage />}
             {page === 'telegram-links' && <TelegramLinksPage />}
+        {page === 'viber-links' && <ViberLinksPage />}
           </div>
         </main>
       </div>

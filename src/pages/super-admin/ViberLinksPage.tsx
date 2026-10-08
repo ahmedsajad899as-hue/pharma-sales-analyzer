@@ -4,32 +4,32 @@ import { Spinner, ErrBox, Modal, Field, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
 
 interface UserOption { id: number; username: string; displayName?: string; role: string }
-interface TelegramLink {
-  id: number; chatId: string; chatTitle?: string | null; isActive: boolean; userId: number;
+interface ViberLink {
+  id: number; receiverId: string; chatTitle?: string | null; isActive: boolean; userId: number;
   orderTextMode?: OrderTextMode;
+  lastMessageToken?: string | null;
   user?: UserOption;
 }
 
-const EMPTY: Partial<TelegramLink> = { chatId: '', chatTitle: '', userId: undefined, orderTextMode: 'trigger' };
+const EMPTY: Partial<ViberLink> = { receiverId: '', chatTitle: '', userId: undefined, orderTextMode: 'trigger' };
 
-// صفحة إدارة كروبات تلكرام المربوطة بحسابات — أي ملف Excel يُرسل بكروب مربوط
-// يُستورَد تلقائياً لحساب المستخدم المختار (راجع server/modules/telegram/).
-// اكتشاف رقم الكروب: أضف البوت للكروب وأرسل فيه أي ملف — يرد البوت برقمه إن
-// كان غير مربوط بعد، الصقه هنا.
-export default function TelegramLinksPage() {
+// صفحة إدارة محادثات فايبر المربوطة بحسابات. مرآة لصفحة روابط تيليجرام، إلا أن
+// بوت فايبر **خامد** حتى يُضبط VIBER_AUTH_TOKEN في بيئة السيرفر ويُسجَّل
+// الويب-هوك — قبل ذلك تعمل هذه الصفحة وتُخزَّن الروابط، لكن لا رسالة تصل.
+export default function ViberLinksPage() {
   const { token } = useSuperAdmin();
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
-  const [links, setLinks]     = useState<TelegramLink[]>([]);
+  const [links, setLinks]     = useState<ViberLink[]>([]);
   const [users, setUsers]     = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm]       = useState<Partial<TelegramLink> | null>(null);
+  const [form, setForm]       = useState<Partial<ViberLink> | null>(null);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState('');
 
   const load = () => {
     setLoading(true);
-    fetch('/api/sa/telegram-links', { headers: H() })
+    fetch('/api/sa/viber-links', { headers: H() })
       .then(r => r.json())
       .then(d => { if (d.success) setLinks(d.data); })
       .finally(() => setLoading(false));
@@ -42,11 +42,11 @@ export default function TelegramLinksPage() {
   }, []);
 
   const save = async () => {
-    if (!form?.chatId?.trim()) { setError('رقم الكروب (chatId) مطلوب'); return; }
+    if (!form?.receiverId?.trim()) { setError('معرّف المحادثة (receiverId) مطلوب'); return; }
     if (!form?.userId) { setError('اختر الحساب المرتبط'); return; }
     setSaving(true); setError('');
     const isEdit = Boolean(form.id);
-    const res = await fetch(isEdit ? `/api/sa/telegram-links/${form.id}` : '/api/sa/telegram-links', {
+    const res = await fetch(isEdit ? `/api/sa/viber-links/${form.id}` : '/api/sa/viber-links', {
       method: isEdit ? 'PUT' : 'POST',
       headers: H(),
       body: JSON.stringify(form),
@@ -56,14 +56,14 @@ export default function TelegramLinksPage() {
     setSaving(false); setForm(null); load();
   };
 
-  const toggle = async (l: TelegramLink) => {
-    await fetch(`/api/sa/telegram-links/${l.id}`, { method: 'PUT', headers: H(), body: JSON.stringify({ isActive: !l.isActive }) });
+  const toggle = async (l: ViberLink) => {
+    await fetch(`/api/sa/viber-links/${l.id}`, { method: 'PUT', headers: H(), body: JSON.stringify({ isActive: !l.isActive }) });
     load();
   };
 
-  const del = async (l: TelegramLink) => {
-    if (!confirm(`حذف ربط الكروب "${l.chatTitle || l.chatId}"؟`)) return;
-    await fetch(`/api/sa/telegram-links/${l.id}`, { method: 'DELETE', headers: H() });
+  const del = async (l: ViberLink) => {
+    if (!confirm(`حذف ربط المحادثة "${l.chatTitle || l.receiverId}"؟`)) return;
+    await fetch(`/api/sa/viber-links/${l.id}`, { method: 'DELETE', headers: H() });
     load();
   };
 
@@ -72,13 +72,20 @@ export default function TelegramLinksPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>روابط تيليجرام</h2>
-        <button onClick={() => setForm(EMPTY)} style={btnStyle('#1e293b')}>+ ربط كروب جديد</button>
+        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>روابط فايبر</h2>
+        <button onClick={() => setForm(EMPTY)} style={btnStyle('#1e293b')}>+ ربط محادثة جديدة</button>
       </div>
       <div style={{ fontSize: 12.5, color: UI.faint, marginBottom: 18, lineHeight: 1.6 }}>
-        أي ملف Excel يُرسَل بكروب مربوط يُستورَد تلقائياً لحساب المستخدم المختار له.
-        لمعرفة رقم كروب جديد: أضف البوت له وأرسل أي ملف — يرد البوت برقم الكروب
-        إن لم يكن مربوطاً بعد.
+        الطلبيات التي تُرسَل لبوت فايبر (كلاماً أو صورة) تُقرأ بالذكاء الاصطناعي
+        وتنتظر مراجعة المستخدم في التطبيق. لمعرفة معرّف محادثة: أرسل «طلبية» للبوت
+        — يردّ بالمعرّف إن لم تكن مربوطة بعد، الصقه هنا.
+      </div>
+
+      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 18, fontSize: 12.5, color: '#92400e', lineHeight: 1.7 }}>
+        ⚠️ بوت فايبر غير مُفعَّل بعد. التفعيل يحتاج حساب Viber Public Account،
+        ثم إضافة <code>VIBER_AUTH_TOKEN</code> لبيئة السيرفر وإعادة تشغيله،
+        ثم تسجيل الويب-هوك على <code>/api/viber/webhook</code>. قبل ذلك يمكنك
+        إضافة الروابط هنا وستعمل لحظة التفعيل بلا نشر جديد.
       </div>
 
       {loading ? <Spinner /> : (
@@ -88,7 +95,7 @@ export default function TelegramLinksPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 14.5, color: UI.ink }}>{l.chatTitle || 'بلا تسمية'}</div>
-                  <div style={{ fontSize: 11.5, color: UI.faint, marginTop: 2 }}>chat_id: {l.chatId}</div>
+                  <div style={{ fontSize: 11.5, color: UI.faint, marginTop: 2 }}>receiver: {l.receiverId}</div>
                   <div style={{ fontSize: 11.5, color: UI.faint }}>الحساب: {userLabel(l.user)}</div>
                   <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 3, fontWeight: 600 }}>
                     {ORDER_MODE_SHORT[(l.orderTextMode || 'trigger') as OrderTextMode]}
@@ -105,14 +112,14 @@ export default function TelegramLinksPage() {
               </div>
             </div>
           ))}
-          {links.length === 0 && <div style={{ color: UI.faint, padding: 32, textAlign: 'center', gridColumn: '1/-1' }}>لا توجد كروبات مربوطة بعد</div>}
+          {links.length === 0 && <div style={{ color: UI.faint, padding: 32, textAlign: 'center', gridColumn: '1/-1' }}>لا توجد محادثات مربوطة بعد</div>}
         </div>
       )}
 
       {form && (
-        <Modal onClose={() => { setForm(null); setError(''); }} title={form.id ? 'تعديل الربط' : 'ربط كروب جديد'}>
-          <Field label="رقم الكروب (chat_id) *" value={form.chatId || ''} onChange={v => setForm(f => ({ ...f!, chatId: v }))} placeholder="مثال: -1001234567890" />
-          <Field label="تسمية (اختياري)" value={form.chatTitle || ''} onChange={v => setForm(f => ({ ...f!, chatTitle: v }))} placeholder="مثال: مبيعات بغداد" />
+        <Modal onClose={() => { setForm(null); setError(''); }} title={form.id ? 'تعديل الربط' : 'ربط محادثة جديدة'}>
+          <Field label="معرّف المحادثة (receiver id) *" value={form.receiverId || ''} onChange={v => setForm(f => ({ ...f!, receiverId: v }))} placeholder="مثال: 01234567890A=" />
+          <Field label="تسمية (اختياري)" value={form.chatTitle || ''} onChange={v => setForm(f => ({ ...f!, chatTitle: v }))} placeholder="مثال: طلبيات صيدلية النور" />
           <OrderTextModeField value={form.orderTextMode} onChange={v => setForm(f => ({ ...f!, orderTextMode: v }))} />
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 5 }}>الحساب المرتبط *</label>

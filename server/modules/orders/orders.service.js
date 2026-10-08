@@ -1,0 +1,254 @@
+// ════════════════════════════════════════════════════════════════════════════
+// orders.service.js — طابور الطلبيات الواردة من البوتات (PendingBotOrder).
+//
+// الطلبية تُستخرَج بالذكاء ثم **تنتظر** هنا. لا شيء يصل جدول Sale إلا بعد أن يفتح
+// المستخدم شبكة المراجعة في التطبيق ويؤكّد — فالحفظ النهائي يمرّ حصراً بمسار
+// insertManualSales القائم (POST /api/sales/manual) ومن هناك يُحذَف الصف المعلَّق.
+// نفس عقد PendingVisitsImport، إلا في شيء واحد: هنا عدة صفوف لكل مستخدم مسموحة.
+// ════════════════════════════════════════════════════════════════════════════
+
+import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import prisma from '../../lib/prisma.js';
+import { AppError } from '../../middleware/errorHandler.js';
+import { buildRepIndex, matchRepName, repCoreName } from '../../lib/repNameMatch.js';
+
+const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
+
+// صور الطلبيات. **ليس** داخل server/uploads: ذاك المجلد يُخدَم ساكناً من
+// server/index.js فوق بوابة JWT، فأي ملف فيه مقروء للعالم بمعرفة اسمه. هذا المجلد
+// (جذر المشروع/uploads) خاص — نفس مكان ملفات الإكسل المحفوظة — ويُقرأ حصراً عبر
+// نقطة مصادَقة تفحص ملكية الصف أولاً. وهو أيضاً خارج أرشيف النشر (deploy.ps1
+// يحزم server/ وprisma/ فقط) فلا تُنشَر صور التطوير للإنتاج.
+const BOT_ORDER_IMAGES_DIR = path.join(__dirname3, '..', '..', '..', 'uploads', 'bot-orders');
+
+/** حدّ الطلبيات المعلَّقة لكل مستخدم — حارس تكلفة وقاعدة بيانات، لا قيد منطقي. */
+export const MAX_PENDING_ORDERS_PER_USER = 30;
+
+/** تُقلَّم الصفوف الأقدم من هذا تلقائياً عند أول قراءة للقائمة. */
+const PRUNE_AFTER_DAYS = 30;
+
+const ALLOWED_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+
+/**
+ * بصمة الطلبية — الحارس الفعلي ضد التكرار، مستقلّ عن حارس update_id في تلكرام
+ * (لا يصمد أمام الألبومات) وعن message_token في فايبر (ليس عدّاداً تصاعدياً).
+ * النص يُطبَّع بإسقاط المسافات وحالة الأحرف فإعادة لصق نفس الطلبية تُكتشف.
+ */
+export function orderSourceHash({ userId, text, mediaKeys = [] }) {
+  const normText = String(text ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const keys = [...mediaKeys].map(String).sort().join(',');
+  return crypto.createHash('sha256').update(`${userId}|${normText}|${keys}`).digest('hex');
+}
+
+/** عدد صفوف الطلبية المعلَّقة — يُعرَض في الشريط وفي ردّ البوت. */
+export async function countPendingOrders(userId) {
+  return prisma.pendingBotOrder.count({ where: { userId } });
+}
+
+/**
+ * يحلّ مندوب الطلبية من حساب الكروب المربوط (قرار المستخدم: الاسم من الحساب لا
+ * من نص الرسالة). repCoreName يُسقط لاحقة «/ المنطقة ph» التي تحملها أسماء
+ * الحسابات الفعلية، ثم تُطابَق النتيجة بمندوبي ذلك الحساب. عند اللبس يبقى repId
+ * فارغاً ويختار المراجِع من المنسدلة — لا نُنشئ مندوباً تلقائياً هنا أبداً.
+ */
+async function resolveRep(user) {
+  const core = repCoreName(user.displayName?.trim() || user.username || '');
+  if (!core) return { repName: null, repId: null };
+  try {
+    const reps = await prisma.medicalRepresentative.findMany({
+      where: { userId: user.id }, select: { id: true, name: true },
+    });
+    if (reps.length) {
+      const m = matchRepName(core, buildRepIndex(reps));
+      if (m.status === 'exact' && m.rep) return { repName: m.rep.name, repId: m.rep.id };
+    }
+  } catch (e) {
+    console.error('[orders] تعذّر مطابقة المندوب:', e?.message);
+  }
+  return { repName: core, repId: null };
+}
+
+async function saveImages(buffers) {
+  if (!buffers?.length) return [];
+  await fs.mkdir(BOT_ORDER_IMAGES_DIR, { recursive: true });
+  const names = [];
+  for (const buf of buffers) {
+    if (!buf?.length) continue;
+    const name = `${Date.now()}_${crypto.randomBytes(8).toString('hex')}.jpg`;
+    await fs.writeFile(path.join(BOT_ORDER_IMAGES_DIR, name), buf);
+    names.push(name);
+  }
+  return names;
+}
+
+/** حذف صور صفٍّ — best-effort، فشلها لا يُسقط حذف الصف نفسه. */
+async function unlinkImages(imageFiles) {
+  for (const name of toImageList(imageFiles)) {
+    await fs.unlink(path.join(BOT_ORDER_IMAGES_DIR, name)).catch(() => {});
+  }
+}
+
+/** يُعيد أسماء ملفات آمنة فقط — حارس ضد اجتياز المسار من قيمة Json مشوّهة. */
+function toImageList(imageFiles) {
+  if (!Array.isArray(imageFiles)) return [];
+  return imageFiles.filter(n =>
+    typeof n === 'string' && n === path.basename(n) && ALLOWED_IMAGE_EXT.has(path.extname(n).toLowerCase()),
+  );
+}
+
+/**
+ * يُسجّل طلبية مستخرَجة في الطابور ويُعيد نصّ ردّ البوت بالعربية.
+ * يرمي AppError تشغيلياً (isOperational) فيصل نصّه للكروب كما هو.
+ */
+export async function ingestBotOrder({
+  user, source, chatId, chatTitle = null, senderName = null,
+  kind, sourceText = null, rows, imageBuffers = [], mediaKeys = [],
+}) {
+  if (!rows?.length) throw new AppError('لم أتعرّف على أي صنف في هذه الطلبية.', 422, 'NO_ORDER_ROWS');
+
+  const pending = await countPendingOrders(user.id);
+  if (pending >= MAX_PENDING_ORDERS_PER_USER) {
+    throw new AppError(
+      `لديك ${pending} طلبية بانتظار المراجعة — راجِعها أو ألغِ بعضها من التطبيق أولاً.`,
+      409, 'PENDING_ORDERS_FULL',
+    );
+  }
+
+  const { repName, repId } = await resolveRep(user);
+  const sourceHash = orderSourceHash({ userId: user.id, text: sourceText, mediaKeys });
+
+  // الصور تُكتب قبل الصف كي لا يُنشأ صف يشير لملفات غير موجودة؛ وإن فشل الصف
+  // (تكرار مثلاً) تُحذَف الملفات في catch أدناه.
+  const imageFiles = await saveImages(imageBuffers);
+
+  let created;
+  try {
+    created = await prisma.pendingBotOrder.create({
+      data: {
+        userId: user.id, source, chatId: String(chatId), chatTitle, senderName,
+        repName, repId, kind,
+        sourceText: sourceText || null,
+        imageFiles: imageFiles.length ? imageFiles : null,
+        payload: { rows, extractedAt: new Date().toISOString() },
+        rowCount: rows.length,
+        sourceHash,
+      },
+      select: { id: true },
+    });
+  } catch (err) {
+    await unlinkImages(imageFiles);
+    if (err?.code === 'P2002') {
+      throw new AppError('هذه الطلبية مُسجَّلة مسبقاً بانتظار المراجعة.', 409, 'DUPLICATE_ORDER');
+    }
+    throw err;
+  }
+
+  const pharmacies = [...new Set(rows.map(r => r.pharmacy).filter(Boolean))];
+  const who = pharmacies.length ? ` — ${pharmacies.slice(0, 2).join(' / ')}` : '';
+  return [
+    `📋 طلبية جديدة بانتظار المراجعة (${rows.length} صنف)${who}`,
+    `بانتظارك في التطبيق: صفحة رفع الملفات ← «مراجعة الطلبيات». المجموع المعلَّق: ${pending + 1}.`,
+    'لا يُحفَظ أي شيء كمبيعات حتى تراجعها وتؤكدها هناك.',
+    `#${created.id}`,
+  ].join('\n');
+}
+
+/** قائمة خفيفة للشريط — بلا payload.rows (قد تكون عشرات الصفوف). */
+export async function listPendingOrders(userId) {
+  // تقليم كسول: لا setInterval (لا نفترض عدد نسخ PM2) وidempotent بطبعه.
+  const cutoff = new Date(Date.now() - PRUNE_AFTER_DAYS * 86_400_000);
+  const stale = await prisma.pendingBotOrder.findMany({
+    where: { userId, createdAt: { lt: cutoff } }, select: { id: true, imageFiles: true },
+  });
+  if (stale.length) {
+    await prisma.pendingBotOrder.deleteMany({ where: { id: { in: stale.map(s => s.id) } } });
+    for (const s of stale) await unlinkImages(s.imageFiles);
+  }
+
+  const rows = await prisma.pendingBotOrder.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true, source: true, chatTitle: true, senderName: true, repName: true,
+      kind: true, sourceText: true, rowCount: true, imageFiles: true, createdAt: true,
+    },
+  });
+
+  return rows.map(r => ({
+    ...r,
+    imageFiles: undefined,
+    imageCount: toImageList(r.imageFiles).length,
+    // أول صيدلية للعرض في الشريط بلا تحميل كل الصفوف
+    preview: (r.sourceText || '').replace(/\s+/g, ' ').slice(0, 120) || null,
+  }));
+}
+
+/**
+ * طلبية واحدة للمراجعة. يُسطّح payload ويحقن الحقول المساعدة كي يصبح الردّ
+ * متوافق الشكل مع ما يبنيه المودال من استخراج طازج — نفس خدعة
+ * getPendingVisitsImport في doctors.controller.js التي تجعل مساراً واحداً يخدم
+ * طريقَي الدخول بلا تفريع.
+ */
+export async function getPendingOrder(userId, id) {
+  const row = await prisma.pendingBotOrder.findFirst({ where: { id: Number(id), userId } });
+  if (!row) throw new AppError('الطلبية غير موجودة أو لا تخصّك.', 404, 'ORDER_NOT_FOUND');
+  const payload = row.payload || {};
+  return {
+    id: row.id,
+    source: row.source,
+    kind: row.kind,
+    rows: Array.isArray(payload.rows) ? payload.rows : [],
+    extractedAt: payload.extractedAt ?? null,
+    repName: row.repName,
+    repId: row.repId,
+    sourceText: row.sourceText,
+    senderName: row.senderName,
+    chatTitle: row.chatTitle,
+    imageCount: toImageList(row.imageFiles).length,
+    createdAt: row.createdAt,
+  };
+}
+
+/** مسار صورة على القرص بعد التحقق من ملكية الصف — للبثّ عبر نقطة مصادَقة. */
+export async function getPendingOrderImagePath(userId, id, index) {
+  const row = await prisma.pendingBotOrder.findFirst({
+    where: { id: Number(id), userId }, select: { imageFiles: true },
+  });
+  if (!row) throw new AppError('الطلبية غير موجودة أو لا تخصّك.', 404, 'ORDER_NOT_FOUND');
+  const names = toImageList(row.imageFiles);
+  const name = names[Number(index)];
+  if (!name) throw new AppError('الصورة غير موجودة.', 404, 'IMAGE_NOT_FOUND');
+  return path.join(BOT_ORDER_IMAGES_DIR, name);
+}
+
+/** إلغاء طلبية معلَّقة بلا حفظ أي شيء منها. */
+export async function deletePendingOrder(userId, id) {
+  const row = await prisma.pendingBotOrder.findFirst({
+    where: { id: Number(id), userId }, select: { id: true, imageFiles: true },
+  });
+  if (!row) throw new AppError('الطلبية غير موجودة أو لا تخصّك.', 404, 'ORDER_NOT_FOUND');
+  await prisma.pendingBotOrder.delete({ where: { id: row.id } });
+  await unlinkImages(row.imageFiles);
+  return true;
+}
+
+/**
+ * يُستهلَك الصف بعد حفظ ناجح في insertManualSales — يُستدعى من
+ * sales.controller.js. best-effort بالكامل: فشله لا يُسقط نجاح الحفظ.
+ */
+export async function consumePendingOrder(userId, id) {
+  if (!id) return;
+  try {
+    const row = await prisma.pendingBotOrder.findFirst({
+      where: { id: Number(id), userId }, select: { id: true, imageFiles: true },
+    });
+    if (!row) return;
+    await prisma.pendingBotOrder.delete({ where: { id: row.id } });
+    await unlinkImages(row.imageFiles);
+  } catch (e) {
+    console.error('[orders] تعذّر حذف الطلبية المعلَّقة بعد الحفظ:', e?.message);
+  }
+}

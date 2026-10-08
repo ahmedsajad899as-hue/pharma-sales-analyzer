@@ -15,6 +15,7 @@
     "test:pharmacy-match": "node scripts/test-pharmacy-match.mjs",
     "test:open-pharmacies": "node scripts/test-open-pharmacies.mjs",
     "test:rep-name-match": "node scripts/test-rep-name-match.mjs",
+    "test:order-trigger": "node scripts/test-order-trigger.mjs",
     "postinstall": "prisma generate --schema prisma/schema.postgresql.prisma",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",

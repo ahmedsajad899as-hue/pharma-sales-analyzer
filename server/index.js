@@ -72,6 +72,9 @@ import { removeBaselineForDeletedStockFile } from './modules/stock-ledger/stock-
 import stockFlowRoutes           from './modules/stock-flow/stock-flow.routes.js';
 import telegramRoutes            from './modules/telegram/telegram.routes.js';
 import telegramLinksRoutes       from './modules/telegram/telegram-links.routes.js';
+import ordersRoutes              from './modules/orders/orders.routes.js';
+import viberRoutes               from './modules/viber/viber.routes.js';
+import viberLinksRoutes          from './modules/viber/viber-links.routes.js';
 import engagementRoutes          from './modules/engagement/engagement.routes.js';
 
 dotenv.config();
@@ -119,7 +122,15 @@ app.use(cors());
 // عدة ميغابايت خام لكل جلسة جديدة، وهو أوضح سبب لبطء فتح الصفحات على اتصال ضعيف.
 // threshold: لا فائدة من ضغط الردود الصغيرة (تكلفة CPU بلا مكسب) على سيرفر صغير.
 app.use(compression({ threshold: 1024 }));
-app.use(express.json({ limit: '50mb' }));
+// توقيع فايبر (X-Viber-Content-Signature) يُحسَب على الجسم **الخام** الذي يستهلكه
+// express.json ويرميه. نحفظه لذلك المسار وحده كي لا نُبقي 50 ميجا في الذاكرة على
+// كل طلب عادي. راجع server/modules/viber/viber.controller.js.
+app.use(express.json({
+  limit: '50mb',
+  verify: (req, _res, buf) => {
+    if (req.originalUrl === '/api/viber/webhook') req.rawBody = buf;
+  },
+}));
 app.use(activityMiddleware); // Log non-GET authenticated actions
 
 // ── Serve React frontend in production (BEFORE auth) ─────────
@@ -180,6 +191,7 @@ app.use('/api/super-admin',         superAdminRoutes);
 app.use('/api/super-admin/surveys', surveyAdminRoutes);
 app.use('/api/sa/offices',        officesRoutes);
 app.use('/api/sa/telegram-links', telegramLinksRoutes);
+app.use('/api/sa/viber-links',    viberLinksRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
 app.use('/api/sa/catalog-import', catalogImportRoutes);
 app.use('/api/sa/users',          adminUsersRoutes);
@@ -1064,7 +1076,7 @@ app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
 // Skip auth for health check and auth routes (already handled above)
 app.use('/api', (req, res, next) => {
   // Skip JWT for: health-check, auth, commercial webhook, and Gemini key diagnostic
-  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/telegram/webhook' || req.path === '/ai-assistant/test-key') return next();
+  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/telegram/webhook' || req.path === '/viber/webhook' || req.path === '/ai-assistant/test-key') return next();
   requireAuth(req, res, next);
 });
 
@@ -1236,6 +1248,8 @@ app.use('/api/bonus-sales',       bonusSalesRoutes);
 app.use('/api/stock-ledger',      stockLedgerRoutes);
 app.use('/api/stock-flow',        stockFlowRoutes);
 app.use('/api/telegram',          telegramRoutes);
+app.use('/api/orders',            ordersRoutes);
+app.use('/api/viber',             viberRoutes);
 app.use('/api/engagement',        engagementRoutes);
 app.use('/api',                   salesRoutes);
 
