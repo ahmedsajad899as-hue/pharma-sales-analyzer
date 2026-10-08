@@ -57,9 +57,11 @@ async function resolveBotFileIds(userId) {
   } catch { /* JSON تالف — نرتدّ لكل الملفات */ }
 
   const ids = active && active.length ? active : [...inScope.keys()];
+  const synced = Boolean(active && active.length);
   return {
     ids,
-    source: active && active.length ? 'المفعّلة في التطبيق' : 'كل ملفات المكتب (لم تُزامَن بعد)',
+    synced,
+    source: synced ? 'المفعّلة في التطبيق' : 'كل ملفات المكتب (لم تُزامَن بعد)',
     names: ids.map((id) => inScope.get(id) || `#${id}`),
   };
 }
@@ -121,7 +123,17 @@ export async function answerSalesQuery({ actorUser, repNameRaw, month, year, qua
     actorUser.id,
   );
 
-  const answer = formatReport(rep.name, month, year, report);
+  let answer = formatReport(rep.name, month, year, report);
+
+  // بلا مزامنة، الحساب يجري على كل ملفات المكتب — وهي غالباً متداخلة (نفس
+  // الطلبية في ملف شهري وآخر مجمَّع)، فيخرج رقم أعلى مما تعرضه الشاشة. منع
+  // التكرار لا ينقذ هنا: لا يُسقط إلا الصفوف المتطابقة حرفياً. نقولها صراحةً
+  // بدل تسليم رقم منتفخ بصمت.
+  if (!files.synced) {
+    answer += `\n\n⚠️ محسوب على كل ملفات المكتب (${files.ids.length} ملف) وقد يتضمّن تكراراً بين ملفات متداخلة.`
+      + `\nافتح التطبيق بهذا الحساب مرة واحدة لتُزامَن «الملفات المفعّلة» فيطابق الرقم شاشة التحليل.`;
+  }
+
   if (!detailed) return answer;
 
   // وضع «تفاصيل»: يكشف المدخلات التي تصنع أي فرق عن شاشة التطبيق — مجموعة
