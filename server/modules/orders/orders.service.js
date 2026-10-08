@@ -337,14 +337,8 @@ export async function ingestBotOrder({
     throw err;
   }
 
-  const pharmacies = [...new Set(rows.map(r => r.pharmacy).filter(Boolean))];
-  const who = pharmacies.length ? ` — ${pharmacies.slice(0, 2).join(' / ')}` : '';
-  return [
-    `📋 طلبية جديدة بانتظار المراجعة (${rows.length} صنف)${who}`,
-    `بانتظارك في التطبيق: صفحة رفع الملفات ← «مراجعة الطلبيات». المجموع المعلَّق: ${pending + 1}.`,
-    'لا يُحفَظ أي شيء كمبيعات حتى تراجعها وتؤكدها هناك.',
-    `#${created.id}`,
-  ].join('\n');
+  // ردّ مختصر بطلب صاحب المشروع: الكروب كروب عمل، والتفاصيل مكانها التطبيق.
+  return `تم الاستلام والتحليل #${created.id}`;
 }
 
 /** قائمة خفيفة للشريط — بلا payload.rows (قد تكون عشرات الصفوف). */
