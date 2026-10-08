@@ -79,8 +79,8 @@ async function buildItemContext(userId) {
  * الملتبس (medium) يُترك كما كُتب وتُرفَق مرشّحاته في `_itemMatch` ليسأل عنه مسار
  * check-names عند الحفظ — لا نحسم اللبس صامتين فنُسند مبيعات لايتم خاطئ.
  *
- * السعر: «سعر المكتب» (Item.price) أولاً لأنه السعر الذي تُقاس به مبيعات النظام،
- * ثم «سعر المذخر» (warehousePrice) إن لم يوجد. ولا يُكتب فوق سعر ذكره المرسِل.
+ * السعر: «سعر المذخر» (Item.warehousePrice) أولاً ثم «سعر المكتب» (Item.price)
+ * بديلاً. ولا يُكتب فوق سعر ذكره المرسِل في نصّ الطلبية.
  */
 export async function enrichRowsFromCatalog(rows, userId) {
   if (!Array.isArray(rows) || rows.length === 0 || !userId) return rows;
@@ -104,7 +104,11 @@ export async function enrichRowsFromCatalog(rows, userId) {
   const details = ids.length
     ? await prisma.item.findMany({
         where:  { id: { in: ids } },
-        select: { id: true, name: true, price: true, warehousePrice: true, company: { select: { name: true } } },
+        select: {
+          id: true, name: true, price: true, warehousePrice: true,
+          company:           { select: { name: true } },
+          scientificCompany: { select: { name: true } },
+        },
       })
     : [];
   const byId = new Map(details.map(d => [d.id, d]));
@@ -123,9 +127,16 @@ export async function enrichRowsFromCatalog(rows, userId) {
 
     const d = byId.get(r.canonicalItem.id);
     if (!d) continue;
-    if (!row.company && d.company?.name) row.company = d.company.name;
+    // الشركة العلمية بديلاً عن حقل الشركة: في كتالوج الإنتاج 234 ايتم بلا
+    // companyId لكن لهم scientificCompanyId، مقابل 11 فقط فيهم companyId — فحقل
+    // الشركة وحده كان يترك خانة الشركة فارغة في كل الطلبيات تقريباً. والاسمان
+    // متطابقان حيث يوجدان معاً (humanis/humanis).
+    if (!row.company) row.company = d.company?.name || d.scientificCompany?.name || row.company;
 
-    const catalogPrice = d.price ?? d.warehousePrice ?? null;
+    // سعر المذخر أولاً (طلب صريح من صاحب المشروع) ثم سعر المكتب بديلاً — ملء
+    // الخانة بسعر المكتب أفضل من تركها فارغة، وسعر المذخر مملوء في ايتم واحد
+    // فقط من 153 حتى الآن. المراجِع يصحّح أي سعر قبل الحفظ على أي حال.
+    const catalogPrice = d.warehousePrice ?? d.price ?? null;
     if (row.unitPrice == null && catalogPrice != null) row.unitPrice = catalogPrice;
     if (row.total == null && row.quantity != null && row.unitPrice != null) {
       row.total = Number(row.quantity) * Number(row.unitPrice);

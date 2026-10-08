@@ -78,6 +78,23 @@ const rowKey = (r: Row) =>
 const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
+/**
+ * عرض الأسعار بفاصل آلاف نقطة («7631» → «7.631») — طلب صاحب المشروع، وهو عرف
+ * كتابة الأسعار بالعراق.
+ *
+ * **عرضٌ فقط**: الحالة (state) تبقى أرقاماً خاماً دائماً، والفاصل يظهر في قيمة
+ * الحقل حين لا يكون مُركَّزاً عليه فقط. بهذا لا يلمس الحفظ ولا الحسابات أي نص
+ * منسَّق — `Number('7.631')` كان سيساوي 7.631 لا 7631، وهو خطأ صامت يُفسد قيمة
+ * المبيعة كلها.
+ */
+const fmtThousands = (v: string) => {
+  const s = String(v ?? '').trim();
+  if (s === '' || !/^\d+(\.\d+)?$/.test(s)) return s; // فارغ أو غير رقمي → كما هو
+  const [int, frac] = s.split('.');
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return frac ? `${grouped},${frac}` : grouped;
+};
+
 // Floating, DRAGGABLE, non-modal invoice preview — small/medium so the user can
 // keep it beside the grid and compare the photo against the extracted rows.
 function DraggableImage({ src, focusBox, dockX, onClose }: { src: string; focusBox?: number[] | null; dockX?: number | null; onClose: () => void }) {
@@ -211,6 +228,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   // هنا: الطلبية محفوظة في الخادم أصلاً وهذا أقوى من مسوّدة متصفح.
   const [fromPendingOrder, setFromPendingOrder] = useState(false);
   const appliedOrderIdRef = useRef<number | null>(null);
+  // الخانة الرقمية قيد التحرير — تُعرض خاماً أثناء الكتابة ومنسَّقة بعد الخروج.
+  const [editingCell, setEditingCell] = useState<string | null>(null);
   const [repName, setRepName] = useState('');            // shared: chosen by the user
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [images, setImages] = useState<string[]>([]);    // object URLs of uploaded invoice photos
@@ -797,8 +816,21 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                         ) : c.key === 'date' ? (
                           <input type="date" value={r.date} onChange={e => setCell(i, 'date', e.target.value)} style={cs} />
                         ) : c.numeric ? (
-                          <input value={r[c.key] as string} inputMode="decimal"
-                            onChange={e => (c.key === 'quantity' || c.key === 'unitPrice') ? onQtyPrice(i, c.key, e.target.value) : setCell(i, c.key, e.target.value)}
+                          <input
+                            value={(() => {
+                              const v = r[c.key] as string;
+                              const money = c.key === 'unitPrice' || c.key === 'total';
+                              return money && editingCell !== `${i}:${c.key}` ? fmtThousands(v) : v;
+                            })()}
+                            inputMode="decimal"
+                            onFocus={() => setEditingCell(`${i}:${c.key}`)}
+                            onBlur={() => setEditingCell(cur => (cur === `${i}:${c.key}` ? null : cur))}
+                            onChange={e => {
+                              // تُسقَط فواصل الآلاف من أي لصق — الحالة أرقام خام دائماً.
+                              const val = e.target.value.replace(/\./g, '').replace(/,/g, '.');
+                              if (c.key === 'quantity' || c.key === 'unitPrice') onQtyPrice(i, c.key, val);
+                              else setCell(i, c.key, val);
+                            }}
                             style={{ ...cs, textAlign: 'left' }} />
                         ) : (
                           <input value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
