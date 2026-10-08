@@ -1161,6 +1161,11 @@ model VisitImportFile {
   ownerUserId  Int // نطاق Doctor/DoctorVisit الفعلي (resolveDocOwnerUserId) — قد يختلف عن رافع الملف
   createdAt    DateTime @default(now())
 
+  // بصمة يولّدها المتصفّح لكل عملية حفظ — تمنع الاستيراد المزدوج حين يفشل
+  // إيصال الردّ (انقطاع شبكة/مهلة بوّابة) بينما نجح الحفظ فعلاً: إعادة الإرسال
+  // بنفس البصمة تُعيد نتيجة العملية الأولى بدل تكرار آلاف الزيارات.
+  clientToken String? @unique
+
   userId Int // رافع الملف الفعلي
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

@@ -1231,7 +1231,7 @@ export async function extractVisitsImport(req, res, next) {
 //         rememberDoctorLinks?: [{fromName, areaName|null, doctorId|null}], fileName?: string }
 export async function commitVisitsImport(req, res, next) {
   try {
-    const { doctorRows, pharmacyRows, rememberRepLinks, rememberDoctorLinks, fileName } = req.body || {};
+    const { doctorRows, pharmacyRows, rememberRepLinks, rememberDoctorLinks, fileName, clientToken } = req.body || {};
     const dRows = Array.isArray(doctorRows) ? doctorRows : [];
     const pRows = Array.isArray(pharmacyRows) ? pharmacyRows : [];
     if (dRows.length === 0 && pRows.length === 0) {
@@ -1243,6 +1243,7 @@ export async function commitVisitsImport(req, res, next) {
       rememberRepLinks: Array.isArray(rememberRepLinks) ? rememberRepLinks : [],
       rememberDoctorLinks: Array.isArray(rememberDoctorLinks) ? rememberDoctorLinks : [],
       fileName: typeof fileName === 'string' ? fileName : '',
+      clientToken: typeof clientToken === 'string' ? clientToken : '',
       user: req.user,
     });
     // الملف "استُهلك" — يُحذَف أي تعليق سابق لهذا المستخدم (ملف رفعه بوت تلكرام

@@ -14,6 +14,23 @@ import VisitImportFilesPanel from './VisitImportFilesPanel';
 
 const API = import.meta.env.VITE_API_URL || '';
 
+/**
+ * مسودة المراجعة في المتصفّح. مطابقة أسماء 1700 صف عمل بشري طويل، وكان يُفقد
+ * بالكامل عند أي انقطاع اتصال أو إغلاق/تحديث للصفحة لأن كل شيء كان في ذاكرة
+ * React فقط. تُحفظ الحالة كلها محلياً بعد كل تعديل، فتُستأنف من حيث توقّفت.
+ * محلية بالكامل (localStorage) — لا تُرسل للخادم ولا تُشارَك بين الحسابات.
+ */
+const DRAFT_KEY = 'pharma.visitsImportDraft.v1';
+const readDraft = (): any | null => {
+  try { const raw = localStorage.getItem(DRAFT_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
+};
+const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch { /* تخزين ممتلئ/محظور */ } };
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+/** بصمة عملية حفظ — تُعاد مع كل محاولة تلقائية لنفس الدفعة فلا تتكرّر بالخادم. */
+const newSaveToken = () =>
+  (globalThis.crypto?.randomUUID?.() ?? `t${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
 interface RepOpt { id: number; name: string; company?: string | null }
 interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; company?: string | null; score: number }[] }
 interface DoctorSuggestion { id: number; name: string; score: number; areaId?: number | null; areaName: string | null; specialty: string | null; pharmacyName: string | null; crossArea?: boolean }
@@ -143,6 +160,63 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
 
   // ملف جاء من تلكرام (PendingVisitsImport) — إغلاق عادي لا يحذفه بالخادم.
   const [fromPendingImport, setFromPendingImport] = useState(false);
+
+  // مسودة مراجعة سابقة وُجدت في المتصفّح وتنتظر قرار المستخدم (استئناف/تجاهل)
+  const [draftFound, setDraftFound] = useState<any | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+
+  // ── استعادة المسودة ──────────────────────────────────────────────────────
+  // تُعرض فقط حين فُتح المودال فارغاً (لا ملف تلكرام جاهز) — أي الحالة التي
+  // كان المستخدم يُضطر فيها لإعادة رفع الملف ومطابقة كل الأسماء من الصفر.
+  useEffect(() => {
+    if (initialData) return;
+    const d = readDraft();
+    if (d && ((d.docRows?.length ?? 0) + (d.pharmRows?.length ?? 0)) > 0) setDraftFound(d);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const restoreDraft = () => {
+    const d = draftFound;
+    if (!d) return;
+    setFileName(d.fileName ?? '');
+    setDocRows(d.docRows ?? []);
+    setPharmRows(d.pharmRows ?? []);
+    setGridTab(d.gridTab ?? 'doctors');
+    setReps(d.reps ?? []);
+    setPendingNames(d.pendingNames ?? []);
+    setUnrelatedNames(d.unrelatedNames ?? []);
+    setNameChoice(d.nameChoice ?? {});
+    setNameApplied(!!d.nameApplied);
+    setPendingDoctorNames(d.pendingDoctorNames ?? []);
+    setDoctorChoice(d.doctorChoice ?? {});
+    setDoctorNamesApplied(!!d.doctorNamesApplied);
+    setItemOptions(d.itemOptions ?? []);
+    setRememberChoices(d.rememberChoices ?? true);
+    setRememberDoctorChoices(d.rememberDoctorChoices ?? true);
+    setInfo(d.info ?? '');
+    setDraftFound(null);
+  };
+
+  const discardDraft = () => { clearDraft(); setDraftFound(null); };
+
+  // ── حفظ المسودة تلقائياً بعد كل تعديل (بتأخير بسيط كي لا يُكتب مع كل ضغطة) ──
+  useEffect(() => {
+    if (totalRows === 0) return;
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({
+          savedAt: Date.now(), fileName, docRows, pharmRows, gridTab, reps,
+          pendingNames, unrelatedNames, nameChoice, nameApplied,
+          pendingDoctorNames, doctorChoice, doctorNamesApplied,
+          itemOptions, rememberChoices, rememberDoctorChoices, info,
+        }));
+        setDraftSavedAt(Date.now());
+      } catch { /* تخزين المتصفّح ممتلئ — المسودة ترف لا شرط لعمل الاستيراد */ }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [totalRows, fileName, docRows, pharmRows, gridTab, reps, pendingNames, unrelatedNames,
+      nameChoice, nameApplied, pendingDoctorNames, doctorChoice, doctorNamesApplied,
+      itemOptions, rememberChoices, rememberDoctorChoices, info]);
 
   /** يملأ كل حالات المراجعة من ناتج extractVisitsFromExcel — مشترك بين رفع
    * ملف جديد (import-extract) وتحميل ملف معلَّق جاهز مسبقاً (initialData). */
@@ -349,14 +423,63 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
             rejectedIds: doctorChoice[e.key] === 'new' ? e.suggestions.map(s => s.id) : undefined,
           }))
         : [];
-      const res = await fetch(`${API}/api/doctors/visits/import-commit`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...authH },
-        body: JSON.stringify({ doctorRows: docRows, pharmacyRows: pharmRows, rememberRepLinks, rememberDoctorLinks, fileName }),
+      // بصمة واحدة لكل ضغطة «حفظ» — تُعاد مع المحاولات التلقائية لنفس الدفعة
+      // فيتعرّف الخادم أنها هي نفسها ولا يكرّرها؛ ضغطة حفظ جديدة تولّد بصمة جديدة.
+      const clientToken = newSaveToken();
+      const body = JSON.stringify({
+        doctorRows: docRows, pharmacyRows: pharmRows,
+        rememberRepLinks, rememberDoctorLinks, fileName, clientToken,
       });
-      const j = await res.json();
-      if (!res.ok || !j.success) throw new Error(j.error || j.message || 'فشل الحفظ');
+
+      // الخلل الذي كان يُفقِد العمل: انقطاع اتصال لحظي أثناء الحفظ يرفع
+      // «Failed to fetch» الخام من المتصفّح (الطلب لا يصل الخادم إطلاقاً)، فتبدو
+      // الرسالة وكأنها خطأ في البيانات بينما هي انقطاع شبكة. تُعاد المحاولة
+      // تلقائياً، ويُشرح السبب بالعربية إن فشلت كل المحاولات.
+      const ATTEMPTS = 3;
+      let j: any = null;
+      let netErr: Error | null = null;
+      for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+        try {
+          const res = await fetch(`${API}/api/doctors/visits/import-commit`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', ...authH }, body,
+          });
+          // 502/504 من البوّابة يعودان HTML لا JSON — قراءة الردّ نصاً أولاً
+          // تمنع استبدال السبب الحقيقي بخطأ تحليل JSON غامض.
+          const text = await res.text();
+          let parsed: any = null;
+          try { parsed = text ? JSON.parse(text) : null; } catch { /* ردّ غير JSON */ }
+
+          if (res.ok && parsed?.success) { j = parsed; break; }
+
+          const msg = parsed?.error || parsed?.message
+            || (res.status === 502 || res.status === 504
+                ? 'انتهت مهلة الخادم أثناء الحفظ'
+                : `فشل الحفظ (رمز ${res.status})`);
+          // أخطاء الخادم المؤقّتة فقط تُعاد محاولتها؛ أخطاء البيانات (4xx) لا.
+          if (res.status < 500) throw new Error(msg);
+          netErr = new Error(msg);
+        } catch (e) {
+          // رفض fetch نفسه = انقطاع اتصال/تعذّر وصول، لا ردّ من الخادم إطلاقاً.
+          if (e instanceof TypeError) netErr = new Error('تعذّر الوصول إلى الخادم (انقطاع اتصال)');
+          else throw e;
+        }
+        if (attempt < ATTEMPTS) {
+          setInfo(`⚠️ تعذّر الوصول إلى الخادم — إعادة المحاولة تلقائياً (${attempt}/${ATTEMPTS - 1})…`);
+          await sleep(2500 * attempt);
+        }
+      }
+      if (!j) {
+        throw new Error(
+          `${netErr?.message || 'فشل الحفظ'}.\n\n`
+          + '✅ لم يُفقد شيء: مراجعتك ومطابقة الأسماء محفوظة في هذا المتصفّح — '
+          + 'حتى لو أغلقت الصفحة أو حدّثتها ستُستأنف من حيث توقّفت. '
+          + 'تحقّق من الاتصال بالإنترنت ثم اضغط «حفظ» مرة أخرى.'
+        );
+      }
       const d = j.data;
-      onSaved?.(`تمت إضافة ${d.imported} زيارة (${d.doctor?.imported ?? 0} طبيب، ${d.pharmacy?.imported ?? 0} صيدلية)`
+      clearDraft(); // حُفِظت فعلاً — المسودة لم تعد تمثّل عملاً غير محفوظ
+      onSaved?.((d.alreadyImported ? 'هذه الدفعة كانت محفوظة مسبقاً — ' : '')
+        + `تمت إضافة ${d.imported} زيارة (${d.doctor?.imported ?? 0} طبيب، ${d.pharmacy?.imported ?? 0} صيدلية)`
         + `${d.skipped > 0 ? ` — تم تجاهل ${d.skipped} صف` : ''}.`
         + (d.errors?.length ? `\n${d.errors.slice(0, 12).join('\n')}` : ''));
       onClose();
@@ -380,7 +503,28 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
           <br />يمكنك أيضاً لصق الملف مباشرة (Ctrl+V) — سواء كان منسوخاً من الواتساب أو من الحاسوب.
         </p>
 
-        {totalRows === 0 && (
+        {totalRows === 0 && draftFound && (
+          <div style={draftBox}>
+            <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 4 }}>
+              🕓 لديك مراجعة لم تُحفَظ بعد
+            </div>
+            <div style={{ fontSize: 12.2, lineHeight: 1.7, marginBottom: 9 }}>
+              ملف «{draftFound.fileName || 'بدون اسم'}» —{' '}
+              {(draftFound.docRows?.length ?? 0) + (draftFound.pharmRows?.length ?? 0)} صف
+              {draftFound.savedAt ? ` (آخر حفظ محلي: ${new Date(draftFound.savedAt).toLocaleString('ar-IQ')})` : ''}.
+              <br />استأنفها لتعود كل مطابقات أسماء المندوبين والأطباء كما تركتها — بلا إعادة رفع الملف.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={restoreDraft} style={applyBtn}>↩️ استئناف المراجعة</button>
+              <button onClick={() => { if (confirm('حذف المراجعة المحفوظة نهائياً والبدء من ملف جديد؟')) discardDraft(); }}
+                style={{ ...cancelBtn, padding: '7px 14px', fontSize: 12.5 }}>
+                🗑️ تجاهلها والبدء من جديد
+              </button>
+            </div>
+          </div>
+        )}
+
+        {totalRows === 0 && !draftFound && (
           <>
             <VisitImportFilesPanel token={token} />
             <div style={dropZone}>
@@ -699,6 +843,12 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
             </button>
           )}
           <button onClick={onClose} style={cancelBtn}>إغلاق</button>
+          {totalRows > 0 && draftSavedAt && (
+            <span title="المراجعة محفوظة في هذا المتصفّح — لن تُفقد عند تحديث الصفحة أو انقطاع الاتصال"
+              style={{ alignSelf: 'center', fontSize: 11.5, color: '#16a34a', fontWeight: 700 }}>
+              ✓ المراجعة محفوظة محلياً
+            </span>
+          )}
           {fromPendingImport && onCancelPending && (
             <button
               onClick={() => { if (confirm('إلغاء هذا الملف نهائياً بلا حفظ أي شيء منه؟')) onCancelPending(); }}
@@ -748,6 +898,7 @@ const cellInp: React.CSSProperties = { width: '100%', padding: '5px 7px', border
 const delBtn: React.CSSProperties = { background: 'none', border: '1px solid #fecaca', color: '#f87171', borderRadius: 6, padding: '1px 8px', cursor: 'pointer', fontSize: 13, lineHeight: 1.4 };
 const bulkBtn: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 8, padding: '5px 11px', fontSize: 11.5, fontWeight: 700, color: '#334155', cursor: 'pointer', fontFamily: 'inherit' };
 const applyBtn: React.CSSProperties = { border: 'none', background: '#4f46e5', color: '#fff', borderRadius: 8, padding: '7px 16px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' };
+const draftBox: React.CSSProperties = { marginTop: 10, padding: '12px 14px', background: '#fffbeb', border: '1.5px solid #fcd34d', borderRadius: 12, color: '#78350f' };
 const errBox: React.CSSProperties = { marginTop: 10, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 12.5, whiteSpace: 'pre-line' };
 const infoBox: React.CSSProperties = { marginTop: 10, padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, color: '#1d4ed8', fontSize: 12.5 };
 const cancelBtn: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, color: '#475569', cursor: 'pointer', fontFamily: 'inherit' };

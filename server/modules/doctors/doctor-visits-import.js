@@ -1855,14 +1855,35 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
  * واحدة من "الملفات المرفوعة")، ثم تستورد صفوف الأطباء والصيدليات معاً
  * (أي منهما قد يكون فارغاً حسب صيغة الملف) مربوطة به.
  */
-export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], rememberRepLinks = [], rememberDoctorLinks = [], fileName = '', user }) {
+export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], rememberRepLinks = [], rememberDoctorLinks = [], fileName = '', clientToken = '', user }) {
   const ownerUserId = await resolveDocOwnerUserId(user.id);
+
+  // حماية من الاستيراد المزدوج: الواجهة تعيد إرسال نفس الطلب حين تنقطع الشبكة
+  // أو تنتهي مهلة البوّابة — وهما حالتان قد يكون الحفظ فيهما نجح فعلاً ولم يصل
+  // الردّ. البصمة تحسم ذلك: إن وُجد ملف بنفسها فالعملية تمّت، تُعاد نتيجتها.
+  const token = String(clientToken || '').trim() || null;
+  if (token) {
+    const prior = await prisma.visitImportFile.findUnique({
+      where: { clientToken: token },
+      include: { _count: { select: { doctorVisits: true, pharmacyVisits: true } } },
+    });
+    if (prior) {
+      return {
+        alreadyImported: true,
+        imported: prior._count.doctorVisits + prior._count.pharmacyVisits,
+        skipped: 0,
+        errors: ['ℹ️ هذه الدفعة كانت قد حُفظت فعلاً (انقطع الاتصال قبل وصول الردّ فقط) — لم تُكرَّر.'],
+        doctor:   { imported: prior._count.doctorVisits, skipped: 0, errors: [] },
+        pharmacy: { imported: prior._count.pharmacyVisits, skipped: 0, errors: [] },
+      };
+    }
+  }
 
   if (rememberRepLinks.length) await saveRepNameLinks(user.id, rememberRepLinks);
   if (rememberDoctorLinks.length) await saveDoctorNameLinks(ownerUserId, rememberDoctorLinks);
 
   const importFile = await prisma.visitImportFile.create({
-    data: { originalName: fileName?.trim() || 'ملف بدون اسم', userId: user.id, ownerUserId },
+    data: { originalName: fileName?.trim() || 'ملف بدون اسم', userId: user.id, ownerUserId, clientToken: token },
   });
 
   const [doctorResult, pharmacyResult] = await Promise.all([
