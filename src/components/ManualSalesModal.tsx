@@ -362,27 +362,39 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       const d = new Date(initialOrder.createdAt || Date.now());
       setNewFileName(`طلبيات البوت — ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     }
-    // صور الطلبية تُجلب بمصادقة (نقطة مقيَّدة بالملكية، لا مسار /uploads الساكن)
-    // ثم تُحوَّل إلى object URLs كي يعمل نفس عارض الصور ومسار التأكيد الذكي.
-    const count = initialOrder.imageCount ?? 0;
-    if (count > 0) {
-      let cancelled = false;
-      (async () => {
-        const urls: string[] = [];
-        for (let i = 0; i < count; i++) {
-          try {
-            const res = await fetch(`${API}/api/orders/pending/${initialOrder.id}/image/${i}`, { headers: authH });
-            if (!res.ok) continue;
-            urls.push(URL.createObjectURL(await res.blob()));
-          } catch { /* صورة مفقودة لا تُسقط المراجعة */ }
-        }
-        if (cancelled) { urls.forEach(u => URL.revokeObjectURL(u)); return; }
-        if (urls.length) setImages(prev => [...prev, ...urls]);
-      })();
-      return () => { cancelled = true; };
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOrder]);
+
+  // ── صور الطلبية: تأثير **مستقل** عمداً ───────────────────────────────────
+  // كان التحميل داخل تأثير التعبئة أعلاه، فأعاد شغلُه تشغيلَ دالة تنظيف تُلغي
+  // النتيجة (`cancelled = true`) بينما يمنع حارسُ «طبّق مرة واحدة» إعادةَ
+  // المحاولة — فتصل الصورة من الخادم (مُثبَت في سجل nginx: 200 و77KB) ثم
+  // تُرمى قبل العرض، وتبقى خانة الصورة «—» بلا أي خطأ ظاهر.
+  //
+  // هنا: حارس خاص بالصور بحسب رقم الطلبية، **وبلا دالة تنظيف تُلغي** — التحميل
+  // الجاري يُكمَل دائماً. وإعادة التشغيل لنفس الطلبية لا تفعل شيئاً.
+  const imagesLoadedForRef = useRef<number | null>(null);
+  useEffect(() => {
+    const id = initialOrder?.id;
+    const count = initialOrder?.imageCount ?? 0;
+    if (!id || count <= 0) return;
+    if (imagesLoadedForRef.current === id) return;
+    imagesLoadedForRef.current = id;
+    (async () => {
+      const urls: string[] = [];
+      for (let i = 0; i < count; i++) {
+        try {
+          const res = await fetch(`${API}/api/orders/pending/${id}/image/${i}`, { headers: authH });
+          if (!res.ok) continue;
+          urls.push(URL.createObjectURL(await res.blob()));
+        } catch { /* صورة مفقودة لا تُسقط المراجعة */ }
+      }
+      if (urls.length) setImages(prev => [...prev, ...urls]);
+      // فشل صامت كان هو المشكلة أصلاً — الآن يُقال للمستخدم.
+      else setInfo('تعذّر تحميل صورة الطلبية. أعد فتح الطلبية، وإن تكرّر فأبلغ الأدمن.');
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOrder?.id, initialOrder?.imageCount]);
 
   // ── AI extraction from invoice images ──
   const onImages = useCallback(async (fileList: FileList | null) => {
