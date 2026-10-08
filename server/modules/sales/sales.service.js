@@ -1289,7 +1289,12 @@ export function splitPharmacyArea(pharmacy, area) {
   // «ـ» (تطويل) تُستعمل في فواتير المذاخر كشرطة فاصلة: «نديم عدنان ـ الطارمية».
   // تُحوَّل إلى شرطة عادية **فقط حين تكون محاطة بمسافات** — التطويل داخل الكلمة
   // زخرفة لا فاصل، وتقسيمُه كان سيشطر أسماء الأدوية («دافـلون»).
-  const dashed = String(pharmacy ?? '').replace(/\s+\u0640+\s+/g, ' - ');
+  const dashed = String(pharmacy ?? '').replace(/\s+\u0640+\s+/g, ' - ')
+    // لاحقة المندوب تُسقَط من **المدخل** لا من الناتج: في «محمد فارس محسن -
+    // حي المستنصرية م محمد علي» تجعل اللاحقةُ الذيلَ خمس كلمات فيتجاوز حدّ
+    // الأربع أدناه، فلا ينفصل شيء ويدخل السطر كلّه في خانة الصيدلية.
+    .replace(/\s+م(?:\s+[^\s\d]{2,}){1,3}\s*$/, '')
+    .trim();
   let ph = cleanPharmacyName(dashed);
   let ar = String(area ?? '').trim();
   const m = ph.match(/^(.*\S)\s*[-\/–]\s*(\S.*)$/); // last " - " or " / " separator
@@ -1303,9 +1308,10 @@ export function splitPharmacyArea(pharmacy, area) {
     }
   }
   // لاحقة المندوب في سطر الزبون: «الطارمية م بشار» ⇒ المنطقة «الطارمية».
-  // «م» هنا اختصار «مندوب». الشرط ضيّق عمداً: كلمة «م» منفردة يتبعها اسم بحروف
-  // لا أرقام — كي لا تُؤكل منطقة حقيقية مثل «حي الجامعة م 304» حيث «م» محلّة.
-  ar = ar.replace(/\s+م\s+[^\s\d]{2,}\s*$/, '').trim();
+  // «م» هنا اختصار «مندوب»، ويتبعها اسم من كلمة إلى ثلاث («م محمد عباس»).
+  // الشرط يستثني الأرقام عمداً كي تبقى منطقة حقيقية مثل «حي الجامعة م 304»
+  // سليمة، حيث «م» هناك اختصار «محلّة» لا «مندوب».
+  ar = ar.replace(/\s+م(?:\s+[^\s\d]{2,}){1,3}\s*$/, '').trim();
 
   return { pharmacy: ph, area: ar };
 }
@@ -1328,6 +1334,79 @@ export function parseInvoiceJson(raw) {
   try { arr = JSON.parse(cleaned); } catch { return []; }
   if (!Array.isArray(arr)) return [];
   return arr.filter(r => r && typeof r === 'object');
+}
+
+// ─── نداء ثانٍ مركَّز: سطر الزبون وحده ──────────────────────────────────────
+// سطر الزبون في «طلبية المكاتب» سطرٌ صغير باهت أعلى الورقة فوق الباركود، بلا
+// عنوان حقل. قياساً على فواتير حقيقية: البرومبت الكامل يُعيده فارغاً باستمرار
+// مهما شُدِّدت قاعدته — فهو تفصيل صغير وسط تعليمات كثيرة. النداء المركَّز يقرأه
+// بموثوقية، ولا يُستدعى إلا حين تفشل القراءة الأولى، فكلفته صفر في الحالة
+// الطبيعية.
+const buildCustomerLinePrompt = (warehouse) => `هذه صورة «طلبية مكاتب» من مذخر أدوية عراقي.
+
+مهمتك **قراءة سطر واحد فقط**: سطر الزبون. يقع عادةً في **أعلى الورقة**، فوق الباركود وفوق اسم المذخر الكبير، بخط صغير وربما على خلفية رمادية فاتحة. مثال حقيقي:
+«ص محمد عبد الامير الرفيعي ـ العطيفية م محمد عباس»
+
+انظر إلى أعلى الصورة بتمعّن واقرأ ذلك السطر، ثم أعِد **كائن JSON فقط** بلا أي نص آخر وبلا أسوار:
+{"line":"السطر كما هو حرفياً","pharmacy":"اسم الصيدلية فقط","area":"المنطقة"}
+
+قواعد:
+- «ص» أو «ص.» أو «صيدلية» في أول السطر بادئة — تُحذف من pharmacy.
+- الفاصل بين اسم الصيدلية والمنطقة قد يكون «-» أو «ـ» أو «/» أو «،». ما قبله اسم الصيدلية وما بعده المنطقة.
+- ما يأتي بعد «م» منفردة هو **اسم المندوب** — لا تضعه في pharmacy ولا في area.
+- لا تخلط بين هذا السطر واسم المذخر ولا مع «طلبية المكاتب» ولا مع أي عنوان مطبوع في الترويسة.${warehouse ? `\n- **اسم المذخر في هذه الفاتورة بالذات هو «${warehouse}» — هذا هو البائع وليس الزبون. ممنوع منعاً باتاً أن تُعيده في pharmacy.**` : ''}
+- المذخر يُكتب بخط كبير عريض بجانب الباركود. أما الزبون فسطر صغير **فوقه**.
+- اكتب الكلمات **متصلة** كما هي في الورقة — لا تُدخل مسافة داخل الكلمة الواحدة («روعة» لا «رو عة»)، فالاسم يُطابَق لاحقاً بقائمة صيدليات والمسافة الزائدة تُنشئ زبوناً مكرّراً.
+- إن لم تجد سطراً كهذا إطلاقاً فأعِد {"line":null,"pharmacy":null,"area":null}.`;
+
+/** يلتقط أول كائن JSON من ردّ Gemini (نظير parseInvoiceJson للمصفوفات). */
+function parseJsonObject(raw) {
+  if (!raw) return null;
+  let cleaned = String(raw).replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  const m = cleaned.match(/\{[\s\S]*\}/);
+  if (m) cleaned = m[0];
+  try {
+    const o = JSON.parse(cleaned);
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : null;
+  } catch { return null; }
+}
+
+/**
+ * يقرأ سطر الزبون من صورة فاتورة. يُعيد { pharmacy, area } أو null.
+ * لا يرمي أبداً — فشله يترك الحقلين فارغين ليملأهما المراجِع.
+ */
+async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse = '' } = {}) {
+  try {
+    const text = await callGeminiSmart(
+      [buildCustomerLinePrompt(warehouse), { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }],
+      { timeoutMs, thinkingBudget: 0 },
+    );
+    const o = parseJsonObject(text);
+    if (!o) return null;
+
+    // لاحقة المندوب تُسقَط **قبل** الفصل لا بعده: في «محمد فارس محسن - حي
+    // المستنصرية م محمد علي» تجعل اللاحقةُ الذيلَ خمس كلمات، فيتجاوز حدّ
+    // splitPharmacyArea (أربع كلمات) ولا ينفصل شيء إطلاقاً.
+    const line = String(o.line ?? '').trim().replace(/\s+م(?:\s+[^\s\d]{2,}){1,3}\s*$/, '').trim();
+    const split = line
+      ? splitPharmacyArea(line, o.area ?? '')
+      : splitPharmacyArea(o.pharmacy ?? '', o.area ?? '');
+    if (!split.pharmacy) return null;
+
+    // حارس: النداء المركَّز يُعيد أحياناً اسم المذخر (البائع) بدل الزبون. كتابة
+    // المذخر في خانة الصيدلية أسوأ من تركها فارغة — تُنشئ زبوناً وهمياً باسم
+    // مذخر يلتصق بالمبيعات، فنرفضه.
+    const looksLikeWarehouse = /مذخر|مخزن|مستودع/.test(split.pharmacy)
+      || (warehouse && normalizeItemKey(split.pharmacy) === normalizeItemKey(warehouse));
+    if (looksLikeWarehouse) {
+      console.error('[invoice-extract] رُفض سطر زبون يطابق المذخر:', split.pharmacy);
+      return null;
+    }
+    return split;
+  } catch (err) {
+    console.error('[invoice-extract] فشل قراءة سطر الزبون:', String(err?.message || '').slice(0, 150));
+    return null;
+  }
 }
 
 /**
@@ -1370,17 +1449,35 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
         maxTotalMs: OVERALL_BUDGET_MS - elapsed,
         thinkingBudget: 0,
       });
+      const imageRows = [];
       for (const row of parseInvoiceJson(text)) {
         const split = splitPharmacyArea(row.pharmacy, row.area); // clean prefixes + split "name - area"
         row.pharmacy = split.pharmacy;
         row.area = split.area;
         row._imageIndex = idx;
+        imageRows.push(row);
         row._box = normalizeBox(row.box);                  // this item's whole row in the image
         row._boxCustomer = normalizeBox(row.box_customer); // pharmacy/area block
         row._boxHeader = normalizeBox(row.box_header);     // whole header block (warehouse+invoice#+date)
         delete row.box; delete row.box_customer; delete row.box_header;
-        allRows.push(row);
       }
+
+      // احتياطي سطر الزبون: نداء مركَّز واحد للصورة حين لم تُقرأ الصيدلية.
+      // الشرط ضيّق — لا يُستدعى إلا عند الفشل الفعلي، فلا كلفة في الحالة العادية.
+      if (imageRows.length > 0 && !imageRows.some(r => r.pharmacy)) {
+        const cust = await extractCustomerLine(img, {
+          timeoutMs: Math.min(45_000, Math.max(10_000, OVERALL_BUDGET_MS - (Date.now() - started))),
+          warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
+        });
+        if (cust) {
+          for (const r of imageRows) {
+            if (!r.pharmacy) r.pharmacy = cust.pharmacy;
+            if (!r.area) r.area = cust.area;
+          }
+        }
+      }
+
+      allRows.push(...imageRows);
       processed++;
     } catch (err) {
       lastErr = err;
