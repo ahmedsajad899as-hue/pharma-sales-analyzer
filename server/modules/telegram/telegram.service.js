@@ -24,6 +24,8 @@ import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
 import { extractVisitsFromExcel } from '../doctors/doctor-visits-import.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
 import { hasTriggerWord } from '../orders/order-trigger.js';
+import { parseSalesQuery } from '../orders/sales-query-trigger.js';
+import { answerSalesQuery } from './sales-query.js';
 
 const BOT_TOKEN  = process.env.TELEGRAM_BOT_TOKEN;
 const API_BASE   = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -474,7 +476,8 @@ export async function handleUpdate(update) {
   if (!kind) return; // ستيكر/رسالة خدمة/صوت — تجاهل بصمت
 
   const intentText = kind === 'photo' ? String(message.caption || '') : String(message.text || '');
-  const announce = kind === 'document' || hasTriggerWord(intentText) || isReplyToBotMsg(message);
+  const salesQuery = kind === 'text' ? parseSalesQuery(message.text) : null;
+  const announce = kind === 'document' || hasTriggerWord(intentText) || isReplyToBotMsg(message) || Boolean(salesQuery);
 
   const actor = await resolveActor(message, { announce });
   if (!actor) return;
@@ -482,6 +485,21 @@ export async function handleUpdate(update) {
   if (kind === 'document') {
     if (await isDuplicateUpdate(actor.link, update.update_id, { deferWrite: false })) return;
     await handleDocumentMessage(actor, message);
+    return;
+  }
+
+  // ── سؤال مبيعات نصّي («فلان مبيع شهر 9») — قراءة فقط، لا علاقة بمسار الطلبيات ──
+  if (salesQuery && actor.link.salesQueryEnabled !== false) {
+    if (await isDuplicateUpdate(actor.link, update.update_id, { deferWrite: true })) return;
+    try {
+      const reply = await answerSalesQuery({ actorUser: actor.user, ...salesQuery });
+      if (reply) await sendMessage(actor.chatId, reply);
+    } catch (err) {
+      console.error('[telegram] sales-query crashed:', err);
+      await sendMessage(actor.chatId, '⚠️ تعذّر جلب بيانات المبيعات، حاول مرة أخرى.');
+    } finally {
+      await markUpdateConsumed(actor.link, update.update_id);
+    }
     return;
   }
 

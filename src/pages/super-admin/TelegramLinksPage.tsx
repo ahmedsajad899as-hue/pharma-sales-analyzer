@@ -7,10 +7,11 @@ interface UserOption { id: number; username: string; displayName?: string; role:
 interface TelegramLink {
   id: number; chatId: string; chatTitle?: string | null; isActive: boolean; userId: number;
   orderTextMode?: OrderTextMode;
+  salesQueryEnabled?: boolean;
   user?: UserOption;
 }
 
-const EMPTY: Partial<TelegramLink> = { chatId: '', chatTitle: '', userId: undefined, orderTextMode: 'trigger' };
+const EMPTY: Partial<TelegramLink> = { chatId: '', chatTitle: '', userId: undefined, orderTextMode: 'trigger', salesQueryEnabled: true };
 
 // صفحة إدارة كروبات تلكرام المربوطة بحسابات — أي ملف Excel يُرسل بكروب مربوط
 // يُستورَد تلقائياً لحساب المستخدم المختار (راجع server/modules/telegram/).
@@ -61,6 +62,11 @@ export default function TelegramLinksPage() {
     load();
   };
 
+  const toggleSalesQuery = async (l: TelegramLink) => {
+    await fetch(`/api/sa/telegram-links/${l.id}`, { method: 'PUT', headers: H(), body: JSON.stringify({ salesQueryEnabled: !(l.salesQueryEnabled ?? true) }) });
+    load();
+  };
+
   const del = async (l: TelegramLink) => {
     if (!confirm(`حذف ربط الكروب "${l.chatTitle || l.chatId}"؟`)) return;
     await fetch(`/api/sa/telegram-links/${l.id}`, { method: 'DELETE', headers: H() });
@@ -78,7 +84,8 @@ export default function TelegramLinksPage() {
       <div style={{ fontSize: 12.5, color: UI.faint, marginBottom: 18, lineHeight: 1.6 }}>
         أي ملف Excel يُرسَل بكروب مربوط يُستورَد تلقائياً لحساب المستخدم المختار له.
         لمعرفة رقم كروب جديد: أضف البوت له وأرسل أي ملف — يرد البوت برقم الكروب
-        إن لم يكن مربوطاً بعد.
+        إن لم يكن مربوطاً بعد. «سؤال المبيعات» يسمح بكتابة مثل «محمد باقر مبيع
+        شهر 9» في الكروب فيردّ البوت بمبيعات ذلك المندوب لذلك الشهر (مكتب + ميركاتو).
       </div>
 
       {loading ? <Spinner /> : (
@@ -93,6 +100,9 @@ export default function TelegramLinksPage() {
                   <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 3, fontWeight: 600 }}>
                     {ORDER_MODE_SHORT[(l.orderTextMode || 'trigger') as OrderTextMode]}
                   </div>
+                  <div style={{ fontSize: 11, color: (l.salesQueryEnabled ?? true) ? '#0891b2' : '#94a3b8', marginTop: 3, fontWeight: 600 }}>
+                    {(l.salesQueryEnabled ?? true) ? '📊 سؤال المبيعات: مفعّل' : '📊 سؤال المبيعات: معطّل'}
+                  </div>
                 </div>
                 <span style={{ background: l.isActive ? '#f0fdf4' : '#fef2f2', color: l.isActive ? '#16a34a' : '#b91c1c', borderRadius: 20, padding: '2px 9px', fontSize: 10.5, fontWeight: 600 }}>
                   {l.isActive ? 'نشط' : 'معطل'}
@@ -101,6 +111,9 @@ export default function TelegramLinksPage() {
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button onClick={() => setForm({ ...l })} style={btnStyle('#3b82f6', true)}>تعديل</button>
                 <button onClick={() => toggle(l)} style={btnStyle(l.isActive ? '#d97706' : '#16a34a', true)}>{l.isActive ? 'تعطيل' : 'تفعيل'}</button>
+                <button onClick={() => toggleSalesQuery(l)} style={btnStyle((l.salesQueryEnabled ?? true) ? '#64748b' : '#0891b2', true)}>
+                  {(l.salesQueryEnabled ?? true) ? 'تعطيل سؤال المبيعات' : 'تفعيل سؤال المبيعات'}
+                </button>
                 <button onClick={() => del(l)} style={btnStyle('#dc2626', true)}>حذف</button>
               </div>
             </div>
@@ -114,6 +127,14 @@ export default function TelegramLinksPage() {
           <Field label="رقم الكروب (chat_id) *" value={form.chatId || ''} onChange={v => setForm(f => ({ ...f!, chatId: v }))} placeholder="مثال: -1001234567890" />
           <Field label="تسمية (اختياري)" value={form.chatTitle || ''} onChange={v => setForm(f => ({ ...f!, chatTitle: v }))} placeholder="مثال: مبيعات بغداد" />
           <OrderTextModeField value={form.orderTextMode} onChange={v => setForm(f => ({ ...f!, orderTextMode: v }))} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 14, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={form.salesQueryEnabled ?? true}
+              onChange={e => setForm(f => ({ ...f!, salesQueryEnabled: e.target.checked }))}
+            />
+            تفعيل سؤال المبيعات النصّي («فلان مبيع شهر 9»)
+          </label>
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 5 }}>الحساب المرتبط *</label>
             <select

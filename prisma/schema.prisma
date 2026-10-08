@@ -486,6 +486,9 @@ model TelegramChatLink {
   // متى يُعتبر نص الكروب طلبية: off = تجاهل، trigger = يلزم كلمة «طلبية» في أول
   // الرسالة (أو ردّ على رسالة البوت)، all = كل رسالة فيها رقم (لكروب طلبيات مخصّص).
   orderTextMode String @default("trigger")
+  // سؤال مبيعات نصّي («محمد باقر مبيع شهر 9») — بحث واستخراج بلا Gemini (راجع
+  // server/modules/telegram/sales-query.js). مفعّل افتراضياً لكل كروب قائم.
+  salesQueryEnabled Boolean @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

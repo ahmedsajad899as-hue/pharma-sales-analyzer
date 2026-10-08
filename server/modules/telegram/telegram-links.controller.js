@@ -29,7 +29,7 @@ export async function listLinks(req, res) {
 
 // ── Create a link (admin pastes the chat_id the bot replied with) ──────
 export async function createLink(req, res) {
-  const { chatId, chatTitle, userId, orderTextMode } = req.body;
+  const { chatId, chatTitle, userId, orderTextMode, salesQueryEnabled } = req.body;
   if (!chatId || !userId) return res.status(400).json({ error: 'chatId و userId مطلوبان' });
 
   let mode = DEFAULT_ORDER_TEXT_MODE;
@@ -42,6 +42,7 @@ export async function createLink(req, res) {
     data: {
       chatId: normalizeChatId(chatId), chatTitle: chatTitle || null,
       userId: parseInt(userId), orderTextMode: mode,
+      ...(salesQueryEnabled !== undefined ? { salesQueryEnabled: Boolean(salesQueryEnabled) } : {}),
     },
   });
   res.status(201).json({ success: true, data: link });
@@ -50,7 +51,7 @@ export async function createLink(req, res) {
 // ── Update a link (label / active toggle / re-point to another user) ───
 export async function updateLink(req, res) {
   const id = parseInt(req.params.id);
-  const { chatTitle, isActive, userId, orderTextMode } = req.body;
+  const { chatTitle, isActive, userId, orderTextMode, salesQueryEnabled } = req.body;
 
   const data = {};
   if (chatTitle !== undefined) data.chatTitle = chatTitle;
@@ -61,6 +62,7 @@ export async function updateLink(req, res) {
     if (!mode) return res.status(400).json({ error: `orderTextMode يجب أن يكون أحد: ${ORDER_TEXT_MODES.join(' | ')}` });
     data.orderTextMode = mode;
   }
+  if (salesQueryEnabled !== undefined) data.salesQueryEnabled = Boolean(salesQueryEnabled);
 
   const link = await prisma.telegramChatLink.update({ where: { id }, data });
   res.json({ success: true, data: link });
