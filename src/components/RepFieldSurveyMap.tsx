@@ -32,6 +32,21 @@ function fmtDistance(m: number): string {
   return m < 1000 ? `${Math.round(m)} م` : `${(m / 1000).toFixed(1)} كم`;
 }
 
+// صيدلية أُنشئت تلقائياً من "قريب" طبيب (أو العكس) ترث نفس إحداثيات الأصل
+// حرفياً (راجع ensureOwnPharmacies في الخادم) — فيقع الدبوسان على نفس
+// البكسل بالضبط ويختفي أحدهما خلف الآخر تماماً. بدمج النوعين معاً (زر "الكل")
+// يتضاعف هذا التطابق فيبدو العدد الظاهر على الخريطة أقل من الحقيقي رغم أن كل
+// نقطة مرسومة فعلياً. الحل: توزيع النقاط المتطابقة إحداثياً على دائرة صغيرة
+// جداً حول نفس المكان الحقيقي (للعرض فقط — "فتح في خرائط Google" وحساب
+// المسافة يستعملان إحداثيات السجل الأصلية غير المُزاحة).
+function offsetLatLng(lat: number, lng: number, index: number, total: number, radiusMeters = 9): [number, number] {
+  if (total <= 1) return [lat, lng];
+  const angle = (2 * Math.PI * index) / total;
+  const dLat = (radiusMeters * Math.sin(angle)) / 111320;
+  const dLng = (radiusMeters * Math.cos(angle)) / (111320 * Math.cos((lat * Math.PI) / 180) || 1);
+  return [lat + dLat, lng + dLng];
+}
+
 const mapsUrl = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
 
 // دبوس خريطة كلاسيكي (دائرة + رأس مدبَّب) بلون النوع ورمز داخله — الهوية لا
@@ -170,11 +185,23 @@ export default function RepFieldSurveyMap({ entries }: Props) {
     if (!map || !layer) return;
     layer.clearLayers();
 
+    // تجميع النقاط المتطابقة الإحداثيات حرفياً (دقة 6 منازل عشرية ≈ أقل من
+    // متر) قبل الرسم، ثم توزيعها بإزاحة بصرية صغيرة إن تجاوز العدد واحداً.
+    const groups = new Map<string, Entry[]>();
     for (const e of located) {
-      const icon = pinIcon(e.kind === 'doctor' ? COLOR_DOCTOR : COLOR_PHARMACY, e.kind === 'doctor' ? '🩺' : '💊');
-      const marker = L.marker([e.latitude, e.longitude], { icon, riseOnHover: true }).addTo(layer);
-      marker.bindPopup(buildPopupHtml(e, meRef.current), { autoPan: true });
-      marker.on('popupopen', () => marker.setPopupContent(buildPopupHtml(e, meRef.current)));
+      const key = `${e.latitude.toFixed(6)},${e.longitude.toFixed(6)}`;
+      const g = groups.get(key);
+      if (g) g.push(e); else groups.set(key, [e]);
+    }
+
+    for (const group of groups.values()) {
+      group.forEach((e, i) => {
+        const [lat, lng] = offsetLatLng(e.latitude, e.longitude, i, group.length);
+        const icon = pinIcon(e.kind === 'doctor' ? COLOR_DOCTOR : COLOR_PHARMACY, e.kind === 'doctor' ? '🩺' : '💊');
+        const marker = L.marker([lat, lng], { icon, riseOnHover: true }).addTo(layer);
+        marker.bindPopup(buildPopupHtml(e, meRef.current), { autoPan: true });
+        marker.on('popupopen', () => marker.setPopupContent(buildPopupHtml(e, meRef.current)));
+      });
     }
   }, [located]);
 
