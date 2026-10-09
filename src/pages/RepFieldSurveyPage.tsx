@@ -390,6 +390,7 @@ export default function RepFieldSurveyPage() {
   const [editing, setEditing]       = useState<Entry | null>(null);
   const [editForm, setEditForm]     = useState(EMPTY_FORM);
   const [editNear, setEditNear]     = useState<string[]>([]);
+  const [editAddDoctors, setEditAddDoctors] = useState<NearbyRow[]>([]);
   const [editCoords, setEditCoords] = useState<Coords | null>(null);
   const [editLoc, setEditLoc]       = useState<'idle' | 'loading' | 'error'>('idle');
   const [editLocError, setEditLocError] = useState('');
@@ -407,6 +408,7 @@ export default function RepFieldSurveyPage() {
       notes: e.notes ?? '',
     });
     setEditNear(e.nearPharmacies);
+    setEditAddDoctors([]);
     setEditCoords(null);
     setEditLoc('idle');
     setEditLocError('');
@@ -443,6 +445,9 @@ export default function RepFieldSurveyPage() {
       body.specialty = editForm.specialty.trim() || null;
       body.className = editForm.className.trim() || null;
       body.nearPharmacies = editNear.filter(p => p.trim());
+    } else {
+      const addDoctors = editAddDoctors.filter(d => d.name.trim());
+      if (addDoctors.length) body.addDoctors = addDoctors;
     }
     if (editCoords) {
       body.latitude = editCoords.latitude;
@@ -952,6 +957,35 @@ export default function RepFieldSurveyPage() {
                   <div style={{ marginTop: 8 }}>
                     <PharmacyFields value={editNear} onChange={setEditNear} placeholder="اسم الصيدلية القريبة" listId="rfs-pharmacy-names" />
                   </div>
+                </div>
+              )}
+
+              {editing.kind === 'pharmacy' && (
+                <div className="rfs-nearby">
+                  <div className="rfs-nearby-head">
+                    <div>
+                      <div className="form-label">الأطباء القريبون ({nearbyOf(editing.id).length})</div>
+                      <div className="rfs-muted">
+                        {nearbyOf(editing.id).length ? nearbyOf(editing.id).map(d => d.name).join('، ') : 'لا يوجد أطباء مرتبطون بعد.'}
+                      </div>
+                      <div className="rfs-muted">الطبيب الجديد يُحفظ بموقع الصيدلية؛ والمسجَّل مسبقاً بنفس الاسم يُربط بها فقط.</div>
+                    </div>
+                    <button type="button" className="btn btn--secondary btn--sm" onClick={() => setEditAddDoctors([...editAddDoctors, { name: '', specialty: '', className: '' }])}>+ إضافة طبيب</button>
+                  </div>
+                  {editAddDoctors.map((d, i) => (
+                    <div className="rfs-nearby-row" key={i}>
+                      <input className="form-input" list="rfs-doctor-names" placeholder="اسم الطبيب" value={d.name}
+                        onChange={e => setEditAddDoctors(editAddDoctors.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                      <input className="form-input" list="rfs-specialty-options" placeholder="الاختصاص" value={d.specialty}
+                        onChange={e => setEditAddDoctors(editAddDoctors.map((x, j) => j === i ? { ...x, specialty: e.target.value } : x))} />
+                      <select className="form-input" value={d.className}
+                        onChange={e => setEditAddDoctors(editAddDoctors.map((x, j) => j === i ? { ...x, className: e.target.value } : x))}>
+                        <option value="">كلاس</option>
+                        {CLASS_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <button type="button" className="btn btn--secondary btn--sm" title="حذف" onClick={() => setEditAddDoctors(editAddDoctors.filter((_, j) => j !== i))}>✕</button>
+                    </div>
+                  ))}
                 </div>
               )}
 

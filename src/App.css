@@ -3705,6 +3705,7 @@ select.comm-input { cursor: pointer; }
 }
 .rfs-map-tool-btn:hover:not(:disabled) { background: var(--c-accent-light); }
 .rfs-map-tool-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.rfs-map-tool-btn--on { background: var(--c-accent-light); box-shadow: inset 0 0 0 2px var(--c-accent); }
 .rfs-map-tool-btn--stop { background: var(--c-danger); border-color: var(--c-danger); color: #fff; }
 .rfs-map-tool-btn--stop:hover { background: var(--c-danger); filter: brightness(0.92); }
 /* زر التكبير + سهم فلترة المناطق مُجمَّعان بفجوة أصغر فيُقرأان كعنصر واحد

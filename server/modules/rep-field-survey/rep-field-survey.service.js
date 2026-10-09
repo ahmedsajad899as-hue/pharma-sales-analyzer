@@ -405,10 +405,22 @@ export async function createPharmacyEntry(user, body) {
     if (matches.length) return { duplicate: true, matches };
   }
 
-  // أطباء الدفعة الواحدة بلا تكرار
+  const pharmacy = await prisma.repFieldSurveyEntry.create({
+    data: { userId: user.id, kind: 'pharmacy', name, areaName, notes, ...coords },
+  });
+  const { nearbyCount, counts } = await attachNearbyDoctors(user.id, name, areaName, coords, body?.doctors);
+  return { entry: pharmacy, nearbyCount, nearby: counts };
+}
+
+/**
+ * يربط/ينشئ أطباء قرب صيدلية تحت حساب ownerId (عند تسجيل صيدلية جديدة أو
+ * تعديل صيدلية قائمة). طبيب مسجَّل لدى المالك بنفس الاسم تُضاف إليه الصيدلية
+ * (بلا تغيير موقعه) بدل التكرار؛ الطبيب الجديد يرث منطقة الصيدلية وموقعها.
+ */
+async function attachNearbyDoctors(ownerId, pharmacyName, areaName, coords, doctorsInput) {
   const nearbyInput = [];
   const seenKeys = new Set();
-  for (const d of Array.isArray(body?.doctors) ? body.doctors : []) {
+  for (const d of Array.isArray(doctorsInput) ? doctorsInput : []) {
     const dName = stripDoctorPrefix(d?.name).slice(0, 200);
     if (!dName) continue;
     const k = doctorKey(dName);
@@ -416,14 +428,10 @@ export async function createPharmacyEntry(user, body) {
     seenKeys.add(k);
     nearbyInput.push({ name: dName, specialty: optionalText(d?.specialty), className: optionalText(d?.className, 100) });
   }
-
-  const pharmacy = await prisma.repFieldSurveyEntry.create({
-    data: { userId: user.id, kind: 'pharmacy', name, areaName, notes, ...coords },
-  });
-
-  const ownDoctors = await prisma.repFieldSurveyEntry.findMany({ where: { userId: user.id, kind: 'doctor' } });
   const counts = { created: 0, linkedOwn: 0, failed: 0 };
+  if (!nearbyInput.length) return { nearbyCount: 0, counts };
 
+  const ownDoctors = await prisma.repFieldSurveyEntry.findMany({ where: { userId: ownerId, kind: 'doctor' } });
   for (const d of nearbyInput) {
     try {
       const k = doctorKey(d.name);
@@ -432,19 +440,19 @@ export async function createPharmacyEntry(user, body) {
         const base = await migrateLegacyParent(own);
         await prisma.repFieldSurveyEntry.update({
           where: { id: own.id },
-          data: { nearPharmacies: dedupeNames([...base.nearPharmacies, name]), parentId: null, editedAt: new Date() },
+          data: { nearPharmacies: dedupeNames([...base.nearPharmacies, pharmacyName]), parentId: null, editedAt: new Date() },
         });
         counts.linkedOwn++;
       } else {
         const doctor = await prisma.repFieldSurveyEntry.create({
           data: {
-            userId: user.id,
+            userId: ownerId,
             kind: 'doctor',
             name: d.name,
             specialty: d.specialty,
             className: d.className,
             areaName,
-            nearPharmacies: [name],
+            nearPharmacies: [pharmacyName],
             ...coords,
           },
         });
@@ -456,8 +464,7 @@ export async function createPharmacyEntry(user, body) {
       console.error('[rep-field-survey] nearby doctor failed', d.name, err?.message);
     }
   }
-
-  return { entry: pharmacy, nearbyCount: nearbyInput.length, nearby: counts };
+  return { nearbyCount: nearbyInput.length, counts };
 }
 
 // ─── Update ──────────────────────────────────────────────────
@@ -535,7 +542,15 @@ export async function updateEntry(user, entryId, body) {
       latitude: row.latitude, longitude: row.longitude, accuracy: row.accuracy,
     });
   }
-  return { entry: row, pharmaciesCreated };
+  // إضافة أطباء قرب صيدلية قائمة من نافذة التعديل — بالاسم والمنطقة والموقع
+  // بعد التعديل (لو غُيّر اسم الصيدلية في نفس الحفظ يُربط الطبيب بالاسم الجديد)
+  let nearby = null;
+  if (current.kind === 'pharmacy' && Array.isArray(body?.addDoctors) && body.addDoctors.length) {
+    nearby = (await attachNearbyDoctors(ownerId, row.name, row.areaName, {
+      latitude: row.latitude, longitude: row.longitude, accuracy: row.accuracy,
+    }, body.addDoctors)).counts;
+  }
+  return { entry: row, pharmaciesCreated, nearby };
 }
 
 // ─── Read ────────────────────────────────────────────────────

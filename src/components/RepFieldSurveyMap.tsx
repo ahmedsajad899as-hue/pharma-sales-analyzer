@@ -40,6 +40,20 @@ function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number)
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+// حدود تأطير منطقة تتجاهل النقاط الشاذّة: سجلّ واحد التُقط موقعه من مكان آخر
+// كان يمدّ حدود منطقة صغيرة على بغداد كلها. الشاذّ = أبعد من 4 أضعاف وسيط
+// البُعد عن المركز الوسيط (وبحد أدنى 1.5 كم). يؤثر على التأطير فقط لا العرض.
+function coreBounds(pts: [number, number][]): L.LatLngBounds {
+  if (pts.length < 4) return L.latLngBounds(pts);
+  const median = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+  const cLat = median(pts.map(p => p[0]));
+  const cLng = median(pts.map(p => p[1]));
+  const dist = pts.map(p => haversineMeters(cLat, cLng, p[0], p[1]));
+  const limit = Math.max(1500, median(dist) * 4);
+  const core = pts.filter((_, i) => dist[i] <= limit);
+  return L.latLngBounds(core.length ? core : pts);
+}
+
 function fmtDistance(m: number): string {
   return m < 1000 ? `${Math.round(m)} م` : `${(m / 1000).toFixed(1)} كم`;
 }
@@ -228,6 +242,12 @@ function meIcon(): L.DivIcon {
 
 interface AreaGroup { area: string; doctors: number; pharmacies: number; lat: number; lng: number; }
 
+type BaseStyle = 'standard' | 'formal';
+const BASE_STYLE_KEY = 'rfsMapBaseStyle';
+function readBaseStyle(): BaseStyle {
+  try { return localStorage.getItem(BASE_STYLE_KEY) === 'formal' ? 'formal' : 'standard'; } catch { return 'standard'; }
+}
+
 interface Props { entries: Entry[]; onEdit?: (entry: Entry) => void; }
 
 // محتوى النافذة المنبثقة. أزرار "ملاحة"/"تعديل" تحمل data-rfs-nav/data-rfs-edit
@@ -269,6 +289,8 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
   const kindBtnsRef = useRef<{ doctorBtn: HTMLElement; pharmacyBtn: HTMLElement } | null>(null);
   const dotLayerRef = useRef<L.LayerGroup | null>(null);
   const dotRendererRef = useRef<L.Canvas | null>(null);
+  const tileLayersRef = useRef<Record<BaseStyle, L.TileLayer> | null>(null);
+  const [baseStyle, setBaseStyle] = useState<BaseStyle>(readBaseStyle);
 
   const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [geoError, setGeoError] = useState('');
@@ -589,12 +611,26 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
     // أوقفت السماح المجاني بخلفيتها الرصدية بلا مفتاح API.
     // keepBuffer أكبر + updateWhenZooming معطّل: بلاطات الجوار تبقى محمَّلة
     // سلفاً فلا تُرى مربعات فارغة أثناء السحب السريع.
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19,
-      keepBuffer: 6,
-      updateWhenZooming: false,
-    }).addTo(map);
+    // «رسمي»: Esri Light Gray Canvas — رمادي هادئ بلا ألوان ولا كتابات، يعمل
+    // بلا مفتاح API (تُحقِّق منه 2026-10-09؛ بديل CARTO Positron صار يُرجع
+    // بلاطة "API KEY REQUIRED"). بلاطاته الأصلية حتى تقريب 16 وتُكبَّر بعدها.
+    const tiles = {
+      standard: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+        keepBuffer: 6,
+        updateWhenZooming: false,
+      }),
+      formal: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+        maxNativeZoom: 16,
+        maxZoom: 19,
+        keepBuffer: 6,
+        updateWhenZooming: false,
+      }),
+    };
+    tiles[baseStyle].addTo(map);
+    tileLayersRef.current = tiles;
     layerRef.current = L.layerGroup().addTo(map);
     // tolerance: يوسّع مساحة اللمس حول كل دائرة صغيرة — النقر بالإصبع على الهاتف
     dotRendererRef.current = L.canvas({ padding: 0.5, tolerance: 8 });
@@ -639,6 +675,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
       layerRef.current = null;
       dotLayerRef.current = null;
       dotRendererRef.current = null;
+      tileLayersRef.current = null;
       markersRef.current.clear();
       meMarkerRef.current = null;
       meCircleRef.current = null;
@@ -648,6 +685,18 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
       kindBtnsRef.current = null;
     };
   }, []);
+
+  // ── تبديل شكل الخريطة (عادي ملوّن ↔ رسمي رمادي) + حفظ الاختيار على الجهاز ──
+  useEffect(() => {
+    const map = mapRef.current;
+    const tiles = tileLayersRef.current;
+    if (!map || !tiles) return;
+    const on = tiles[baseStyle];
+    const off = tiles[baseStyle === 'formal' ? 'standard' : 'formal'];
+    if (!map.hasLayer(on)) on.addTo(map);
+    if (map.hasLayer(off)) off.remove();
+    try { localStorage.setItem(BASE_STYLE_KEY, baseStyle); } catch { /* تخزين غير متاح — يبقى للجلسة فقط */ }
+  }, [baseStyle]);
 
   // ── تفعيل زرّي الفلترة السريعة بصرياً حسب mapKind ─────────────────────────
   useEffect(() => {
@@ -664,11 +713,19 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
     const map = mapRef.current;
     if (!map) return;
     if (located.length && !navRef.current) {
-      const bounds = L.latLngBounds(located.map(e => [e.latitude, e.longitude] as [number, number]));
-      if (meRef.current) bounds.extend([meRef.current.lat, meRef.current.lng]);
-      map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 });
+      const pts = located.map(e => [e.latitude, e.longitude] as [number, number]);
+      if (areaFilter) {
+        // منطقة مختارة: تأطير نقاطها وحدها — بلا موقعي (لو كنت بعيداً عنها
+        // كان يوسّع الإطار لبغداد كلها) وبلا النقاط الشاذّة
+        map.fitBounds(coreBounds(pts), { padding: [40, 40], maxZoom: 16 });
+      } else {
+        const bounds = L.latLngBounds(pts);
+        if (meRef.current) bounds.extend([meRef.current.lat, meRef.current.lng]);
+        map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 });
+      }
     }
     syncMarkersRef.current(true); // إعادة بناء كاملة: البيانات نفسها تغيّرت
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [located]);
 
   // ── أول تثبيت لموقعي فقط يُعيد ضبط الحدود لتشمله ─────────────────────────
@@ -676,6 +733,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
     const map = mapRef.current;
     if (!map || !me || meFittedOnceRef.current || navRef.current) return;
     meFittedOnceRef.current = true;
+    if (areaFilter) return; // لا نسحب الإطار بعيداً عن المنطقة المختارة
     if (located.length) {
       const bounds = L.latLngBounds(located.map(e => [e.latitude, e.longitude] as [number, number]));
       bounds.extend([me.lat, me.lng]);
@@ -755,7 +813,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
     const map = mapRef.current;
     if (!map) return;
     const pts = locatedByKind.filter(e => e.areaName.trim() === g.area).map(e => [e.latitude, e.longitude] as [number, number]);
-    if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), { padding: [48, 48], maxZoom: 16 });
+    if (pts.length > 1) map.fitBounds(coreBounds(pts), { padding: [48, 48], maxZoom: 16 });
     else map.setView([g.lat, g.lng], 16);
   };
 
@@ -952,6 +1010,14 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
             title={me ? 'الانتقال إلى موقعي الحالي' : 'تفعيل تحديد موقعي'}
           >
             📍
+          </button>
+          <button
+            type="button"
+            className={`rfs-map-tool-btn ${baseStyle === 'formal' ? 'rfs-map-tool-btn--on' : ''}`}
+            onClick={() => setBaseStyle(s => (s === 'formal' ? 'standard' : 'formal'))}
+            title={baseStyle === 'formal' ? 'الرجوع لشكل الخريطة الملوّن' : 'شكل رسمي هادئ بلا ألوان ولا كتابات'}
+          >
+            🗺️
           </button>
           {nav && (
             <button
