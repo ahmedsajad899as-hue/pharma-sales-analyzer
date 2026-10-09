@@ -776,18 +776,42 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
       </div>
       <div className="rfs-map-canvas-wrap">
         <div className="rfs-map-canvas" ref={mapDivRef} />
-        <button
-          type="button"
-          className="rfs-map-fullscreen-btn"
-          onClick={() => setFullscreen(v => {
-            const next = !v;
-            if (next) setPanelOpen(false); // أقصى مساحة للخريطة عند الدخول لملء الشاشة — يبقى قابلاً للفتح يدوياً
-            return next;
-          })}
-          title={fullscreen ? 'تصغير الخريطة' : 'تكبير الخريطة لملء الشاشة'}
-        >
-          {fullscreen ? '✕' : '⛶'}
-        </button>
+        {/* عنقود أزرار عائم بالزاوية اليمنى العلوية الفعلية للخريطة (right الفيزيائي
+            لا inset-inline-end) — عكس زاوية أزرار Leaflet الأصلية (تكبير/تصغير +
+            فلترة 🩺/💊) التي تلتصق دوماً بزاوية الخريطة اليسرى الفعلية بصرف النظر
+            عن اتجاه الصفحة RTL، فلا تداخل بين المجموعتين مهما كانت حالة اللوحة. */}
+        <div className="rfs-map-toolbar">
+          <button
+            type="button"
+            className="rfs-map-tool-btn"
+            onClick={() => setFullscreen(v => {
+              const next = !v;
+              if (next) setPanelOpen(false); // أقصى مساحة للخريطة عند الدخول لملء الشاشة — يبقى قابلاً للفتح يدوياً
+              return next;
+            })}
+            title={fullscreen ? 'تصغير الخريطة' : 'تكبير الخريطة لملء الشاشة'}
+          >
+            {fullscreen ? '✕' : '⛶'}
+          </button>
+          <button
+            type="button"
+            className="rfs-map-tool-btn rfs-map-tool-btn--waze"
+            disabled={!nav}
+            onClick={() => nav && window.open(wazeNavUrl(nav.toLat, nav.toLng), '_blank', 'noopener')}
+            title={nav ? `فتح الملاحة إلى «${nav.toName}» في Waze` : 'اضغط «🧭 ابدأ الملاحة» من أي نقطة على الخريطة أولاً'}
+          >
+            W
+          </button>
+          <button
+            type="button"
+            className="rfs-map-tool-btn rfs-map-tool-btn--gmaps"
+            disabled={!nav || !me}
+            onClick={() => nav && me && window.open(gmapsNavUrl(me, nav.toLat, nav.toLng), '_blank', 'noopener')}
+            title={nav ? `فتح الملاحة إلى «${nav.toName}» في Google Maps` : 'اضغط «🧭 ابدأ الملاحة» من أي نقطة على الخريطة أولاً'}
+          >
+            📍
+          </button>
+        </div>
       </div>
     </div>
   );
