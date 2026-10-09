@@ -278,13 +278,53 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
 
   // فلتر سريع من داخل الخريطة نفسها (زرّا 🩺/💊 قرب أزرار التكبير)
   const [mapKind, setMapKind] = useState<'all' | 'doctor' | 'pharmacy'>('all');
+  // فلتر منطقة من قائمة السهم المنسدلة — منطقة واحدة أو الكل (null)
+  const [areaFilter, setAreaFilter] = useState<string | null>(null);
+  const [areaMenuOpen, setAreaMenuOpen] = useState(false);
+  const areaMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const located = useMemo(
+  // بلا فلتر المنطقة نفسه — تُستعمل لتعبئة قائمة السهم المنسدلة فتبقى كل
+  // المناطق قابلة للاختيار دوماً، حتى بعد تضييق العرض على منطقة واحدة.
+  const locatedByKind = useMemo(
     () => entries.filter(e => Number.isFinite(e.latitude) && Number.isFinite(e.longitude) && (mapKind === 'all' || e.kind === mapKind)),
     [entries, mapKind],
   );
+  const located = useMemo(
+    () => (areaFilter ? locatedByKind.filter(e => e.areaName.trim() === areaFilter) : locatedByKind),
+    [locatedByKind, areaFilter],
+  );
   const locatedRef = useRef<Entry[]>(located);
   locatedRef.current = located;
+
+  const allAreaGroups = useMemo<AreaGroup[]>(() => {
+    const map = new Map<string, AreaGroup & { sumLat: number; sumLng: number; n: number }>();
+    for (const e of locatedByKind) {
+      const key = e.areaName.trim();
+      const g = map.get(key) ?? { area: key, doctors: 0, pharmacies: 0, lat: 0, lng: 0, sumLat: 0, sumLng: 0, n: 0 };
+      if (e.kind === 'doctor') g.doctors++; else g.pharmacies++;
+      g.sumLat += e.latitude; g.sumLng += e.longitude; g.n++;
+      map.set(key, g);
+    }
+    return [...map.values()]
+      .map(g => ({ area: g.area, doctors: g.doctors, pharmacies: g.pharmacies, lat: g.sumLat / g.n, lng: g.sumLng / g.n }))
+      .sort((a, b) => a.area.localeCompare(b.area, 'ar'));
+  }, [locatedByKind]);
+
+  // تصفير فلتر المنطقة تلقائياً لو اختفت المنطقة المختارة من البيانات (تغيّر
+  // ملف/فلتر آخر) حتى لا تبقى الخريطة فارغة بصمت بمنطقة لم تعد موجودة.
+  useEffect(() => {
+    if (areaFilter && !allAreaGroups.some(g => g.area === areaFilter)) setAreaFilter(null);
+  }, [areaFilter, allAreaGroups]);
+
+  // إغلاق قائمة المناطق عند الضغط خارجها
+  useEffect(() => {
+    if (!areaMenuOpen) return;
+    const onDocClick = (ev: MouseEvent) => {
+      if (areaMenuRef.current && !areaMenuRef.current.contains(ev.target as Node)) setAreaMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [areaMenuOpen]);
 
   // مواضع العرض (مع إزاحة المتطابقات) — تُحسب من كامل البيانات مرة واحدة فتبقى
   // ثابتة مهما تحرّكت الشاشة.
@@ -665,13 +705,20 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
   const flyToArea = (g: AreaGroup) => {
     const map = mapRef.current;
     if (!map) return;
-    const pts = located.filter(e => e.areaName.trim() === g.area).map(e => [e.latitude, e.longitude] as [number, number]);
+    const pts = locatedByKind.filter(e => e.areaName.trim() === g.area).map(e => [e.latitude, e.longitude] as [number, number]);
     if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), { padding: [48, 48], maxZoom: 16 });
     else map.setView([g.lat, g.lng], 16);
   };
 
   const recenterOnMe = () => {
     if (me && mapRef.current) mapRef.current.setView([me.lat, me.lng], 16);
+  };
+
+  const goToMyLocation = () => { if (me) recenterOnMe(); else startWatch(); };
+
+  const selectAreaFilter = (area: string | null) => {
+    setAreaFilter(area);
+    setAreaMenuOpen(false);
   };
 
   // ── وضع ملء الشاشة: يحوّل حاوية الخريطة لتغطية الشاشة كاملة (كبرنامج ملاحة
@@ -715,6 +762,12 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
               <div className="rfs-muted">
                 عرض {mapKind === 'doctor' ? 'الأطباء' : 'الصيدليات'} فقط (من أزرار الخريطة) ·{' '}
                 <button className="rfs-map-link-btn" onClick={() => setMapKind('all')}>عرض الكل</button>
+              </div>
+            )}
+            {areaFilter && (
+              <div className="rfs-muted">
+                تصفية بمنطقة «{areaFilter}» (من ▾ أعلى الخريطة) ·{' '}
+                <button className="rfs-map-link-btn" onClick={() => setAreaFilter(null)}>عرض كل المناطق</button>
               </div>
             )}
 
@@ -792,18 +845,75 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
             معطّلين بانتظار بدء الملاحة الداخلية أولاً — وهذا أيضاً يمنع تراكبهما
             بصرياً مع صندوق النافذة المنبثقة نفسه. */}
         <div className="rfs-map-toolbar">
+          {/* زر التكبير وسهم فلترة المناطق مُجمَّعان بصرياً (فجوة أصغر بينهما)
+              فيبدوان عنصراً واحداً ذا سهم ثانوي أسفله، والقائمة المنسدلة تفتح
+              من أسفل هذا السهم تحديداً. */}
+          <div className="rfs-map-tool-group" ref={areaMenuRef}>
+            <button
+              type="button"
+              className="rfs-map-tool-btn"
+              onClick={() => setFullscreen(v => {
+                const next = !v;
+                if (next) setPanelOpen(false); // أقصى مساحة للخريطة عند الدخول لملء الشاشة — يبقى قابلاً للفتح يدوياً
+                return next;
+              })}
+              title={fullscreen ? 'تصغير الخريطة' : 'تكبير الخريطة لملء الشاشة'}
+            >
+              {fullscreen ? '✕' : '⛶'}
+            </button>
+            <button
+              type="button"
+              className="rfs-map-tool-btn rfs-map-tool-btn--caret"
+              onClick={() => setAreaMenuOpen(v => !v)}
+              title="تصفية حسب المنطقة"
+              aria-expanded={areaMenuOpen}
+            >
+              {areaMenuOpen ? '▴' : '▾'}
+            </button>
+            {areaMenuOpen && (
+              <div className="rfs-map-area-menu">
+                <button
+                  className={`rfs-map-area-row ${!areaFilter ? 'rfs-map-area-row--active' : ''}`}
+                  onClick={() => selectAreaFilter(null)}
+                >
+                  <span className="rfs-map-area-name">كل المناطق</span>
+                  <span className="rfs-muted">{locatedByKind.length}</span>
+                </button>
+                {allAreaGroups.map(g => (
+                  <button
+                    key={g.area}
+                    className={`rfs-map-area-row ${areaFilter === g.area ? 'rfs-map-area-row--active' : ''}`}
+                    onClick={() => selectAreaFilter(g.area)}
+                  >
+                    <span className="rfs-map-area-name">{g.area}</span>
+                    <span className="rfs-map-area-counts">
+                      {g.doctors > 0 && <span className="rfs-map-count rfs-map-count--doctor">{g.doctors}</span>}
+                      {g.pharmacies > 0 && <span className="rfs-map-count rfs-map-count--pharmacy">{g.pharmacies}</span>}
+                    </span>
+                  </button>
+                ))}
+                {allAreaGroups.length === 0 && <div className="rfs-muted" style={{ padding: 8 }}>لا توجد مناطق.</div>}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="rfs-map-tool-btn"
-            onClick={() => setFullscreen(v => {
-              const next = !v;
-              if (next) setPanelOpen(false); // أقصى مساحة للخريطة عند الدخول لملء الشاشة — يبقى قابلاً للفتح يدوياً
-              return next;
-            })}
-            title={fullscreen ? 'تصغير الخريطة' : 'تكبير الخريطة لملء الشاشة'}
+            onClick={goToMyLocation}
+            title={me ? 'الانتقال إلى موقعي الحالي' : 'تفعيل تحديد موقعي'}
           >
-            {fullscreen ? '✕' : '⛶'}
+            📍
           </button>
+          {nav && (
+            <button
+              type="button"
+              className="rfs-map-tool-btn rfs-map-tool-btn--stop"
+              onClick={stopNav}
+              title="إيقاف الملاحة"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </div>
     </div>

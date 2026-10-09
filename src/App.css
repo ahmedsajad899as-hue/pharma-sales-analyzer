@@ -3700,6 +3700,31 @@ select.comm-input { cursor: pointer; }
 }
 .rfs-map-tool-btn:hover:not(:disabled) { background: var(--c-accent-light); }
 .rfs-map-tool-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.rfs-map-tool-btn--stop { background: var(--c-danger); border-color: var(--c-danger); color: #fff; }
+.rfs-map-tool-btn--stop:hover { background: var(--c-danger); filter: brightness(0.92); }
+/* زر التكبير + سهم فلترة المناطق مُجمَّعان بفجوة أصغر فيُقرأان كعنصر واحد
+   بسهم ثانوي أسفله (القائمة المنسدلة تنبثق من تحت هذا السهم تحديداً). */
+.rfs-map-tool-group { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.rfs-map-tool-btn--caret { height: 20px; font-size: 11px; }
+.rfs-map-area-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  width: 230px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-light);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 1001;
+}
+.rfs-map-area-row--active { background: var(--c-accent-light); font-weight: 700; }
 body.rfs-map-fullscreen-lock { overflow: hidden; }
 .rfs-map-shell.rfs-map-shell--fullscreen {
   position: fixed;
