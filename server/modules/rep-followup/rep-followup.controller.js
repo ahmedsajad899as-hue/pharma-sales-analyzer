@@ -17,13 +17,8 @@ import {
   countOverdueDoctors, findIdleAreas,
 } from './rep-followup.digest.js';
 
-const FOLLOWUP_MANAGER_ROLES = new Set([
-  'admin', 'manager', 'company_manager', 'team_leader', 'supervisor',
-  'office_manager', 'product_manager', 'commercial_supervisor',
-  'commercial_team_leader', 'office_employee', 'office_hr',
-]);
-
-const isManager = (role) => FOLLOWUP_MANAGER_ROLES.has(role);
+// مصدر الأدوار واحد في rep-followup.service.js — تُستعمل هنا وفي مسار البوت.
+const isManager = (role) => svc.FOLLOWUP_MANAGER_ROLES.has(role);
 
 function periodFromQuery(query) {
   const b = baghdadNow();

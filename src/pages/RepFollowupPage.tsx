@@ -1030,6 +1030,23 @@ function StandardsTab({ standards, overrides, headers, onSaved, onOverridesChang
           كل الأوقات بتوقيت بغداد. اللقطات تُحسب تلقائياً كل ليلة الساعة 03:00 لكل من حفظ معاييره.
         </div>
 
+        {/* طلب التقرير من البوت — ميزة غير مكتشفة إن لم تُكتب هنا */}
+        <div style={{ marginTop: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>🤖 اطلب التقرير من البوت بأي وقت</div>
+          <div style={{ fontSize: 12, color: '#475569', lineHeight: 2 }}>
+            اكتب في كروب تلكرام المربوط بحسابك:
+            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <code style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 5, padding: '4px 8px', width: 'fit-content' }}>متابعة محمد باقر</code>
+              <code style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 5, padding: '4px 8px', width: 'fit-content' }}>متابعة محمد باقر شهر 9</code>
+              <code style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 5, padding: '4px 8px', width: 'fit-content' }}>محمد باقر مبيع شهر 9</code>
+            </div>
+            <div style={{ marginTop: 6, color: '#64748b' }}>
+              «متابعة/تقييم/مستوى» يعطي تقرير المتابعة، و«مبيع شهر N» يعطي المبيع والطلبيات.
+              الشهر اختياري في المتابعة (الافتراضي: الشهر الحالي). المندوب يكتب «متابعتي» فيستلم تقييمه هو فقط.
+            </div>
+          </div>
+        </div>
+
         {tg && (
           <div style={{ marginTop: 12, fontSize: 12, color: '#475569', lineHeight: 1.9 }}>
             <b>الربط بتلكرام:</b> {tg.linkedCount} من {tg.totalCount} مندوباً مربوط ·{' '}

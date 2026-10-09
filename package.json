@@ -22,7 +22,8 @@
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
     "test:pharmacy-key": "node scripts/test-pharmacy-key.mjs",
-    "test:rep-followup": "node scripts/test-rep-followup.mjs"
+    "test:rep-followup": "node scripts/test-rep-followup.mjs",
+    "test:followup-query": "node scripts/test-followup-query.mjs"
   },
   "keywords": [
     "pharmaceutical",

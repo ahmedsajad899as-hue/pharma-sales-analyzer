@@ -30,6 +30,20 @@ import { effectiveFor, parseRestWeekdays, workingDaysElapsed, workingDaysInMonth
 const pad2 = (n) => String(n).padStart(2, '0');
 export const periodKeyOf = (year, month) => `${year}-${pad2(month)}`;
 
+/**
+ * الأدوار التي ترى فريقاً كاملاً (لا نفسها وحدها).
+ *
+ * تطابق MANAGER_ROLES في صفحة التارگت بالواجهة، وتضمّ office_employee و
+ * office_hr عمداً: المجموعة المشتركة في middleware/authMiddleware.js تُسقطهما،
+ * وهذا بالضبط ما أفرغ صفحة التارگت لحساب office_hr سابقاً. مصدر واحد هنا كي لا
+ * تنجرف نسخة الواجهة عن نسخة البوت عن نسخة الـAPI.
+ */
+export const FOLLOWUP_MANAGER_ROLES = new Set([
+  'admin', 'manager', 'company_manager', 'team_leader', 'supervisor',
+  'office_manager', 'product_manager', 'commercial_supervisor',
+  'commercial_team_leader', 'office_employee', 'office_hr',
+]);
+
 /** بغداد UTC+3 بلا توقيت صيفي — «اليوم» يجب أن يطابق يوم المستخدم لا يوم UTC. */
 const BAGHDAD_OFFSET_MS = 3 * 60 * 60 * 1000;
 export const baghdadNow = (d = new Date()) => new Date(d.getTime() + BAGHDAD_OFFSET_MS);
