@@ -12,6 +12,10 @@ import { getStandards, upsertStandards, listOverrides, upsertOverride, deleteOve
 import { resolveDocOwnerUserId } from '../doctors/doctors.controller.js';
 import * as svc from './rep-followup.service.js';
 import { baghdadNow } from './rep-followup.service.js';
+import {
+  formatRepDigest, formatManagerDigest, deliverDigest,
+  countOverdueDoctors, findIdleAreas,
+} from './rep-followup.digest.js';
 
 const FOLLOWUP_MANAGER_ROLES = new Set([
   'admin', 'manager', 'company_manager', 'team_leader', 'supervisor',
@@ -133,6 +137,155 @@ export async function recomputeHandler(req, res, next) {
       persist: true,
     });
     res.json({ success: true, ...result });
+  } catch (e) { next(e); }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// الملخّص: معاينة · تجربة · حالة الربط بتلكرام
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * يبني نصّ الملخّص من **اللقطة المحفوظة** لا بحساب جديد — فالمعاينة يجب أن تُظهر
+ * ما سيُرسَل فعلاً بالضبط، لا رقماً أحدث منه.
+ * repUserId = null → ملخّص المدير.
+ */
+async function buildDigestMessage(ownerUserId, periodKey, repUserId) {
+  const standards = await getStandards(ownerUserId);
+
+  if (repUserId == null) {
+    const cards = await svc.getSnapshots(ownerUserId, periodKey);
+    const b = baghdadNow();
+    return { msg: formatManagerDigest(cards, standards, { dayOfMonth: b.getUTCDate() }), kind: 'manager', standards };
+  }
+
+  // النطاق محروس هنا: اللقطة تُقرأ بـ ownerUserId، فلا يستطيع مدير أن يُراسل
+  // مستخدماً خارج فريقه (لا لقطة له عنده ← لا رسالة).
+  const card = await svc.getSnapshotForRep(ownerUserId, repUserId, periodKey);
+  if (!card) return { msg: null, kind: 'rep', standards, missing: true };
+
+  const [overdueDoctors, idleAreas] = await Promise.all([
+    countOverdueDoctors(card, standards.doctorRevisitDays),
+    findIdleAreas(card, standards.areaIdleDays),
+  ]);
+  return { msg: formatRepDigest(card, standards, { overdueDoctors, idleAreas }), kind: 'rep', standards, card };
+}
+
+// ── GET /api/rep-followup/digest/preview?repUserId= ───────────────────────
+export async function previewDigestHandler(req, res, next) {
+  try {
+    if (!isManager(req.user.role)) return res.status(403).json({ error: 'متاح للمدراء فقط' });
+    const ownerUserId = await resolveDocOwnerUserId(req.user.id);
+    const { periodKey } = periodFromQuery(req.query);
+    const repUserId = req.query.repUserId ? parseInt(req.query.repUserId) : null;
+    if (req.query.repUserId && !Number.isFinite(repUserId)) {
+      return res.status(400).json({ error: 'معرّف المندوب غير صالح' });
+    }
+
+    const { msg, kind, standards, missing } = await buildDigestMessage(ownerUserId, periodKey, repUserId);
+    const recipientId = repUserId ?? ownerUserId;
+    const links = await prisma.telegramChatLink.findMany({
+      where: { userId: recipientId, isActive: true },
+      select: { chatTitle: true },
+    });
+
+    res.json({
+      success: true,
+      kind,
+      periodKey,
+      // msg=null ليس خطأً: «لا شيء يستحق رسالة اليوم» حالة مقصودة (صمت لا رسالة فارغة).
+      empty: !msg,
+      missingSnapshot: Boolean(missing),
+      title: msg?.title ?? null,
+      body: msg?.body ?? null,
+      channels: standards.digestChannels,
+      digestEnabled: standards.digestEnabled,
+      telegramLinked: links.length > 0,
+      telegramChats: links.map(l => l.chatTitle).filter(Boolean),
+    });
+  } catch (e) { next(e); }
+}
+
+// ── POST /api/rep-followup/digest/send-test ───────────────────────────────
+/**
+ * إرسال تجربة فوري. إلى المدير نفسه افتراضياً؛ وإلى مندوب فقط عند تمرير
+ * repUserId صراحةً — الواجهة تستأذن قبلها لأن الرسالة تصل شخصاً آخر.
+ * لا تستهلك حصّة اليوم (راجع deliverDigest: test=true لا يكتب سجلاً).
+ */
+export async function sendTestDigestHandler(req, res, next) {
+  try {
+    if (!isManager(req.user.role)) return res.status(403).json({ error: 'متاح للمدراء فقط' });
+    const ownerUserId = await resolveDocOwnerUserId(req.user.id);
+    const { periodKey } = periodFromQuery(req.body ?? {});
+    const raw = (req.body ?? {}).repUserId;
+    const repUserId = raw === null || raw === undefined || raw === '' ? null : parseInt(raw);
+    if (raw !== null && raw !== undefined && raw !== '' && !Number.isFinite(repUserId)) {
+      return res.status(400).json({ error: 'معرّف المندوب غير صالح' });
+    }
+
+    const { msg, kind, standards, missing } = await buildDigestMessage(ownerUserId, periodKey, repUserId);
+    if (missing) return res.status(404).json({ error: 'لا توجد لقطة محسوبة لهذا المندوب في هذه الفترة — اضغط «احسب الآن» أولاً' });
+    if (!msg) return res.json({ success: true, sent: false, empty: true, message: 'لا يوجد ما يستحق رسالة اليوم لهذا المستلم' });
+
+    const result = await deliverDigest({
+      ownerUserId,
+      recipientId: repUserId ?? ownerUserId,
+      kind,
+      title: msg.title,
+      body: msg.body,
+      lineCount: msg.lineCount,
+      channels: standards.digestChannels,
+      test: true,
+    });
+
+    res.json({
+      success: true,
+      sent: result.sent,
+      channels: result.channels ?? [],
+      reason: result.reason ?? null,
+      title: msg.title,
+      body: msg.body,
+    });
+  } catch (e) { next(e); }
+}
+
+// ── GET /api/rep-followup/digest/telegram-status ──────────────────────────
+/**
+ * مَن من الفريق مربوط بتلكرام فعلاً. بدون هذا كان المندوب غير المربوط يسقط
+ * بصمت إلى إشعار التطبيق وحده، والمدير يظنّ أن الرسالة وصلته.
+ */
+export async function telegramStatusHandler(req, res, next) {
+  try {
+    if (!isManager(req.user.role)) return res.status(403).json({ error: 'متاح للمدراء فقط' });
+    const ownerUserId = await resolveDocOwnerUserId(req.user.id);
+    const { periodKey } = periodFromQuery(req.query);
+    const snaps = await svc.getSnapshots(ownerUserId, periodKey);
+    const ids = [...new Set([ownerUserId, ...snaps.map(s => s.repUserId)])];
+
+    const links = ids.length
+      ? await prisma.telegramChatLink.findMany({
+          where: { userId: { in: ids }, isActive: true },
+          select: { userId: true, chatTitle: true },
+        })
+      : [];
+    const byUser = new Map();
+    for (const l of links) {
+      if (!byUser.has(l.userId)) byUser.set(l.userId, []);
+      byUser.get(l.userId).push(l.chatTitle || 'كروب بلا اسم');
+    }
+
+    res.json({
+      success: true,
+      managerLinked: byUser.has(ownerUserId),
+      managerChats: byUser.get(ownerUserId) ?? [],
+      reps: snaps.map(s => ({
+        repUserId: s.repUserId,
+        repName: s.repName,
+        linked: byUser.has(s.repUserId),
+        chats: byUser.get(s.repUserId) ?? [],
+      })),
+      linkedCount: snaps.filter(s => byUser.has(s.repUserId)).length,
+      totalCount: snaps.length,
+    });
   } catch (e) { next(e); }
 }
 

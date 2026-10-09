@@ -91,6 +91,20 @@ interface Card {
   computedAt: string;
 }
 
+interface TelegramStatus {
+  managerLinked: boolean; managerChats: string[];
+  reps: { repUserId: number; repName: string; linked: boolean; chats: string[] }[];
+  linkedCount: number; totalCount: number;
+}
+
+interface DigestPreview {
+  kind: 'rep' | 'manager';
+  empty: boolean; missingSnapshot: boolean;
+  title: string | null; body: string | null;
+  channels: string; digestEnabled: boolean;
+  telegramLinked: boolean; telegramChats: string[];
+}
+
 const fmtNum = (v: number | null | undefined) => Math.round(v || 0).toLocaleString('en-US');
 const fmtUSD = (v: number | null | undefined) => `$${fmtNum(v)}`;
 const pctText = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v}%`);
@@ -115,6 +129,7 @@ export default function RepFollowupPage() {
   const [err, setErr] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [myCard, setMyCard] = useState<Card | null>(null);
+  const [tg, setTg] = useState<TelegramStatus | null>(null);
 
   // ── تحميل اللقطات (قراءة فقط) ─────────────────────────────────────────────
   const loadScorecards = useCallback(() => {
@@ -152,9 +167,18 @@ export default function RepFollowupPage() {
       .catch(() => {});
   }, [token, headers, month, year, isManager]);
 
+  const loadTelegramStatus = useCallback(() => {
+    if (!token || !isManager) return;
+    fetch(`${API}/api/rep-followup/digest/telegram-status?month=${month}&year=${year}`, { headers, cache: 'no-store' })
+      .then(r => r.json())
+      .then(j => { if (j.success) setTg(j); })
+      .catch(() => {});
+  }, [token, headers, month, year, isManager]);
+
   useEffect(() => { loadScorecards(); }, [loadScorecards]);
   useEffect(() => { loadStandards(); }, [loadStandards]);
   useEffect(() => { loadMine(); }, [loadMine]);
+  useEffect(() => { loadTelegramStatus(); }, [loadTelegramStatus]);
 
   // ── احسب الآن ─────────────────────────────────────────────────────────────
   const recompute = async () => {
@@ -172,6 +196,7 @@ export default function RepFollowupPage() {
       setStandards(j.standards ?? null);
       setComputedAt(j.computedAt ?? null);
       setFileScope(j.fileScope ?? null);
+      loadTelegramStatus();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'فشل الحساب');
     } finally {
@@ -252,6 +277,15 @@ export default function RepFollowupPage() {
         </div>
       )}
 
+      {/* حالة الربط بتلكرام — السبب الأول لعدم وصول الرسائل */}
+      {isManager && tg && standards?.digestEnabled && tg.totalCount > 0 && tg.linkedCount < tg.totalCount && (
+        <div className="info-banner" style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e' }}>
+          📨 الملخّص مفعّل، لكن {tg.totalCount - tg.linkedCount} من {tg.totalCount} مندوباً غير مربوط بكروب تلكرام —
+          هؤلاء سيستلمون الإشعار داخل التطبيق فقط. الربط: يُضاف البوت لكروب المندوب، فيردّ البوت برقم الكروب،
+          ثم لوحة الماستر أدمن ← روابط تيليجرام ← ربط كروب جديد بحساب ذلك المندوب.
+        </div>
+      )}
+
       {/* ══ عرض المندوب لنفسه ══════════════════════════════════════════ */}
       {!isManager && (
         myCard
@@ -328,6 +362,13 @@ export default function RepFollowupPage() {
                                   معيار خاص
                                 </span>
                               )}
+                              {tg && (() => {
+                                const row = tg.reps.find(r => r.repUserId === c.repUserId);
+                                if (!row) return null;
+                                return row.linked
+                                  ? <span title={`تلكرام: ${row.chats.join('، ')}`} style={{ marginRight: 6, fontSize: 10 }}>📨</span>
+                                  : <span title="غير مربوط بتلكرام — يستلم إشعار التطبيق فقط" style={{ marginRight: 6, fontSize: 10, opacity: 0.45 }}>🚫📨</span>;
+                              })()}
                             </td>
                             <td>
                               <span style={{ background: meta.bg, color: meta.color, borderRadius: 4, padding: '2px 10px', fontWeight: 800 }}>{c.score}</span>
@@ -383,6 +424,8 @@ export default function RepFollowupPage() {
                                   canEditOverride
                                   existingOverride={overrides.find(o => o.scientificRepId === c.scientificRepId) ?? null}
                                   onOverridesChanged={setOverrides}
+                                  month={month}
+                                  year={year}
                                 />
                               </td>
                             </tr>
@@ -406,6 +449,9 @@ export default function RepFollowupPage() {
           headers={headers}
           onSaved={(s) => { setStandards(s); loadStandards(); }}
           onOverridesChanged={(list) => setOverrides(list)}
+          tg={tg}
+          month={month}
+          year={year}
         />
       )}
     </div>
@@ -421,12 +467,14 @@ const COMPONENT_LABELS: Record<string, string> = {
   growth: 'التطوّر', discipline: 'الانضباط',
 };
 
-function CardDetail({ card, headers, canEditOverride, existingOverride, onOverridesChanged }: {
+function CardDetail({ card, headers, canEditOverride, existingOverride, onOverridesChanged, month, year }: {
   card: Card;
   headers?: Record<string, string>;
   canEditOverride?: boolean;
   existingOverride?: OverrideRow | null;
   onOverridesChanged?: (list: OverrideRow[]) => void;
+  month?: number;
+  year?: number;
 }) {
   const m = card.metrics;
   return (
@@ -542,12 +590,116 @@ function CardDetail({ card, headers, canEditOverride, existingOverride, onOverri
       )}
 
       {canEditOverride && headers && (
-        <OverrideEditor
-          card={card}
-          headers={headers}
-          existing={existingOverride ?? null}
-          onChanged={onOverridesChanged}
-        />
+        <>
+          <DigestTester headers={headers} repUserId={card.repUserId} repName={card.repName} month={month} year={year} />
+          <OverrideEditor
+            card={card}
+            headers={headers}
+            existing={existingOverride ?? null}
+            onChanged={onOverridesChanged}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── معاينة رسالة الملخّص وإرسال تجربة ──────────────────────────────────────
+// المعاينة تُبنى من اللقطة المحفوظة نفسها، فما يُعرض هنا هو ما يُرسَل حرفياً.
+// الإرسال لمندوب يستأذن أولاً: الرسالة تصل شخصاً آخر ولا تُسترَدّ.
+function DigestTester({ headers, repUserId, repName, month, year }: {
+  headers: Record<string, string>;
+  repUserId: number | null;   // null = ملخّص المدير لنفسه
+  repName?: string;
+  month?: number;
+  year?: number;
+}) {
+  const [preview, setPreview] = useState<DigestPreview | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const qs = useMemo(() => {
+    const p = new URLSearchParams();
+    if (month) p.set('month', String(month));
+    if (year) p.set('year', String(year));
+    if (repUserId != null) p.set('repUserId', String(repUserId));
+    return p.toString();
+  }, [month, year, repUserId]);
+
+  const load = async () => {
+    setLoading(true); setMsg(null);
+    try {
+      const r = await fetch(`${API}/api/rep-followup/digest/preview?${qs}`, { headers, cache: 'no-store' });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'تعذّرت المعاينة');
+      setPreview(j);
+    } catch (e: unknown) {
+      setMsg(`⚠️ ${e instanceof Error ? e.message : 'تعذّرت المعاينة'}`);
+    } finally { setLoading(false); }
+  };
+
+  const send = async () => {
+    if (repUserId != null) {
+      const ok = window.confirm(`سترسل رسالة تجربة الآن إلى ${repName ?? 'هذا المندوب'} — سيستلمها فعلاً على تلكرام/التطبيق. متابعة؟`);
+      if (!ok) return;
+    }
+    setSending(true); setMsg(null);
+    try {
+      const r = await fetch(`${API}/api/rep-followup/digest/send-test`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month, year, repUserId }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'فشل الإرسال');
+      if (j.empty) setMsg('ℹ️ لا يوجد ما يستحق رسالة اليوم لهذا المستلم — صمت مقصود لا خطأ.');
+      else if (!j.sent) {
+        setMsg(j.reason === 'no-telegram-link'
+          ? '⚠️ لم يُرسَل: لا كروب تلكرام مربوط بهذا الحساب (وقناة التطبيق غير مفعّلة في الإعدادات).'
+          : '⚠️ لم تنجح أي قناة — راجع القنوات في تبويب المعايير.');
+      } else setMsg(`✅ أُرسلت التجربة على: ${(j.channels ?? []).join('، ')} — ولم تُستهلك رسالة اليوم الحقيقية.`);
+    } catch (e: unknown) {
+      setMsg(`⚠️ ${e instanceof Error ? e.message : 'فشل الإرسال'}`);
+    } finally { setSending(false); }
+  };
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button className="btn btn--secondary btn--sm" onClick={load} disabled={loading}>
+          {loading ? '⏳' : '👁 معاينة الرسالة'}
+        </button>
+        <button className="btn btn--primary btn--sm" onClick={send} disabled={sending}>
+          {sending ? '⏳ جاري الإرسال…' : repUserId == null ? '📤 أرسل لي تجربة الآن' : '📤 أرسل تجربة له الآن'}
+        </button>
+        {msg && <span style={{ fontSize: 11, fontWeight: 700 }}>{msg}</span>}
+      </div>
+
+      {preview && (
+        <div style={{ marginTop: 10 }}>
+          {!preview.digestEnabled && (
+            <div style={{ fontSize: 11, color: '#92400e', marginBottom: 6 }}>
+              ⚠️ الملخّص اليومي معطّل حالياً — التجربة تعمل، لكن لا شيء يُرسَل تلقائياً حتى تُفعّله من تبويب المعايير.
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>
+            القنوات: {preview.channels} ·{' '}
+            {preview.telegramLinked
+              ? `تلكرام مربوط (${preview.telegramChats.join('، ') || 'كروب'})`
+              : 'تلكرام غير مربوط لهذا الحساب'}
+          </div>
+          {preview.missingSnapshot ? (
+            <div style={{ fontSize: 12, color: '#b45309' }}>لا توجد لقطة محسوبة لهذا المندوب في هذه الفترة — اضغط «احسب الآن».</div>
+          ) : preview.empty ? (
+            <div style={{ fontSize: 12, color: '#64748b' }}>لا يوجد ما يستحق رسالة اليوم — الملخّص يصمت بدل أن يُرسل رسالة فارغة.</div>
+          ) : (
+            <pre style={{
+              margin: 0, padding: 10, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6,
+              fontSize: 12, lineHeight: 1.9, whiteSpace: 'pre-wrap', fontFamily: 'inherit', textAlign: 'right',
+            }}>{preview.title}{'\n\n'}{preview.body}</pre>
+          )}
+        </div>
       )}
     </div>
   );
@@ -714,12 +866,15 @@ const WEIGHT_FIELDS: { key: keyof Standards; label: string }[] = [
   { key: 'weightDiscipline', label: 'الانضباط' },
 ];
 
-function StandardsTab({ standards, overrides, headers, onSaved, onOverridesChanged }: {
+function StandardsTab({ standards, overrides, headers, onSaved, onOverridesChanged, tg, month, year }: {
   standards: Standards;
   overrides: OverrideRow[];
   headers: Record<string, string>;
   onSaved: (s: Standards) => void;
   onOverridesChanged: (list: OverrideRow[]) => void;
+  tg: TelegramStatus | null;
+  month: number;
+  year: number;
 }) {
   const [form, setForm] = useState<Standards>(standards);
   const [saving, setSaving] = useState(false);
@@ -873,6 +1028,22 @@ function StandardsTab({ standards, overrides, headers, onSaved, onOverridesChang
         </div>
         <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>
           كل الأوقات بتوقيت بغداد. اللقطات تُحسب تلقائياً كل ليلة الساعة 03:00 لكل من حفظ معاييره.
+        </div>
+
+        {tg && (
+          <div style={{ marginTop: 12, fontSize: 12, color: '#475569', lineHeight: 1.9 }}>
+            <b>الربط بتلكرام:</b> {tg.linkedCount} من {tg.totalCount} مندوباً مربوط ·{' '}
+            حسابك {tg.managerLinked ? `مربوط (${tg.managerChats.join('، ') || 'كروب'})` : 'غير مربوط'}
+            {tg.reps.some(r => !r.linked) && (
+              <div style={{ color: '#92400e' }}>
+                غير مربوطين: {tg.reps.filter(r => !r.linked).map(r => r.repName).join('، ')}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ marginTop: 12 }}>
+          <DigestTester headers={headers} repUserId={null} month={month} year={year} />
         </div>
       </div>
 

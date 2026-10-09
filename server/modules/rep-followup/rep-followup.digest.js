@@ -238,10 +238,14 @@ function normName(s) {
 /**
  * يُسلّم ملخّصاً واحداً على القنوات المطلوبة ويسجّله. يرجع false إن كان قد أُرسل
  * اليوم (الحارس) أو لم تنجح أي قناة.
+ *
+ * `test: true` (إرسال تجربة يدوي من المدير): يتجاوز الحارس **ولا يكتب سجلاً**.
+ * الكتابة كانت ستُستهلك حصّة اليوم فلا تصل الرسالة الحقيقية في موعدها — وهذا
+ * أسوأ من عدم وجود زرّ تجربة أصلاً. والتكرار يحدّه الإنسان لا الكود هنا.
  */
-export async function deliverDigest({ ownerUserId, recipientId, kind, title, body, lineCount, channels }) {
+export async function deliverDigest({ ownerUserId, recipientId, kind, title, body, lineCount, channels, test = false }) {
   const dayKey = baghdadDayKey();
-  const already = await prisma.repFollowupDigestLog.findUnique({
+  const already = test ? null : await prisma.repFollowupDigestLog.findUnique({
     where: { recipientId_kind_dayKey: { recipientId, kind, dayKey } },
   });
   if (already) return { sent: false, reason: 'already-sent-today' };
@@ -256,9 +260,9 @@ export async function deliverDigest({ ownerUserId, recipientId, kind, title, bod
           userId: recipientId,
           fromUserId: kind === 'rep' ? ownerUserId : null,
           type: kind === 'rep' ? 'followup_rep_digest' : 'followup_manager_digest',
-          title,
+          title: test ? `${title} — (تجربة)` : title,
           body,
-          data: JSON.stringify({ kind, dayKey, lineCount }),
+          data: JSON.stringify({ kind, dayKey, lineCount, test }),
         },
       });
       done.push('app');
@@ -267,19 +271,30 @@ export async function deliverDigest({ ownerUserId, recipientId, kind, title, bod
     }
   }
 
+  let telegramLinks = 0;
   if (wanted.includes('telegram')) {
     try {
-      const res = await sendTextToUser(recipientId, `${title}\n\n${body}`);
+      const res = await sendTextToUser(recipientId, test ? `🧪 (رسالة تجربة)\n\n${title}\n\n${body}` : `${title}\n\n${body}`);
+      telegramLinks = res.links;
       if (res.sent > 0) done.push('telegram');
     } catch (e) {
       console.error('[followup-digest] فشل تلكرام لـ %d: %s', recipientId, e.message);
     }
   }
 
-  if (!done.length) return { sent: false, reason: 'no-channel-succeeded' };
+  // لا قناة نجحت = لا شيء يُسجَّل، فتُعاد المحاولة في الدورة التالية.
+  if (!done.length) {
+    return {
+      sent: false,
+      // السبب الأكثر شيوعاً عملياً: المندوب غير مربوط بأي كروب تلكرام.
+      reason: wanted.includes('telegram') && telegramLinks === 0 ? 'no-telegram-link' : 'no-channel-succeeded',
+    };
+  }
 
-  await prisma.repFollowupDigestLog.create({
-    data: { ownerUserId, recipientId, kind, dayKey, channels: done.join(','), lineCount },
-  });
-  return { sent: true, channels: done };
+  if (!test) {
+    await prisma.repFollowupDigestLog.create({
+      data: { ownerUserId, recipientId, kind, dayKey, channels: done.join(','), lineCount },
+    });
+  }
+  return { sent: true, channels: done, telegramLinks };
 }
