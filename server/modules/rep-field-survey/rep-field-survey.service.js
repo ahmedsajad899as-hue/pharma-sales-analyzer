@@ -480,16 +480,14 @@ export async function updateEntry(user, entryId, body) {
   const current = await prisma.repFieldSurveyEntry.findUnique({ where: { id: entryId } });
   if (!current) throw new AppError('السجل غير موجود أو لا تملك صلاحية تعديله', 404, 'NOT_FOUND');
   if (isManager) {
-    // المدير: سجلات مندوبي فريقه فقط (نفس قائمة العرض)، والأدمن الكل
+    // المدير ينزل للميدان أيضاً فيعدّل كالمندوب تماماً — لكن على سجلات مندوبي
+    // فريقه فقط (نفس قائمة العرض)، والأدمن الكل
     if (user.role !== 'admin') {
       const roster = await getManagerRoster(user);
       if (!roster.reps.some(r => r.userId === current.userId)) {
         throw new AppError('السجل غير موجود أو لا تملك صلاحية تعديله', 404, 'NOT_FOUND');
       }
     }
-    // تصحيح الاسم فقط — لا موقع (جهاز المدير ليس في الميدان) ولا منطقة ولا روابط
-    if (body?.name === undefined) throw new AppError('الاسم مطلوب', 400, 'VALIDATION_ERROR');
-    body = { name: body.name };
   } else if (current.userId !== user.id) {
     const scope = await resolveRepSharedScope(user);
     if (!(await inSharedScope(scope, current))) {
@@ -681,13 +679,10 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
         createdAt:    r.createdAt,
         editedAt:     r.editedAt,
         editedByName: r.editedById ? (ownerName.get(r.editedById) ?? null) : null,
-        // التعديل الكامل متاح للمالك ولزملاء المكتب في مناطقه المشتركة. المدير
-        // لا يُحسب له canEdit (له canRename فقط). rows أصلاً مُصفّاة
-        // لتشمل فقط سجلات المالك أو سجلات ضمن النطاق المشترك (الفلتر أعلاه)،
-        // فكل صفّ هنا مؤهَّل للتعديل متى كان scope موجوداً أصلاً.
-        canEdit:      scope != null,
-        // المدير/الأدمن: تصحيح الاسم فقط (rows لديه مُصفّاة أصلاً لفريقه)
-        canRename:    scope == null,
+        // التعديل متاح للمالك ولزملاء المكتب في مناطقه المشتركة، وللمدير على
+        // سجلات فريقه. rows أصلاً مُصفّاة لهذا النطاق (المندوب: الفلتر أعلاه،
+        // المدير: getManagerRoster) فكل صفّ هنا قابل للتعديل.
+        canEdit:      true,
       };
     }),
     reps: repsOut,
