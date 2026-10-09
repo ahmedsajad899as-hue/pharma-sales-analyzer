@@ -20,9 +20,17 @@ const COLOR_PHARMACY = '#eb6834';
 const COLOR_ME = '#1baf7a';
 const COLOR_ROUTE = '#1a73e8';
 const COLOR_ROUTE_DONE = '#9bb0c9';
-// الشكل الرسمي: الطرق السريعة رمادي متوسط، والجسور أغمق فتُميَّز فوق النهر
-const COLOR_FORMAL_HIGHWAY = '#a3aab3';
-const COLOR_FORMAL_BRIDGE = '#6f7782';
+// الشكل الرسمي: الطريق السريع كما في الخرائط الواقعية — طريق أبيض أعرض قليلاً
+// بحافة رمادية فاتحة جداً، من ألوان الخريطة نفسها (لا لون جديد)
+const COLOR_FORMAL_HWY_EDGE = '#c4c8ce';
+const COLOR_FORMAL_HWY_FILL = '#ffffff';
+// عرض [الحافة، الطريق] حسب التقريب — رفيع عند الابتعاد حتى لا يُثقل المدينة
+function highwayWeights(zoom: number): [number, number] {
+  if (zoom <= 11) return [2.5, 1.2];
+  if (zoom <= 13) return [4, 2.4];
+  if (zoom <= 15) return [6, 4];
+  return [8, 5.5];
+}
 
 const EARTH_M_PER_DEG = 111320;
 // تحت هذا التقريب تُرسم النقاط دوائرَ على Canvas واحد (آلاف النقاط بكلفة رسم
@@ -297,6 +305,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
   const baseStyleRef = useRef(baseStyle);
   baseStyleRef.current = baseStyle;
   const roadsLayerRef = useRef<L.LayerGroup | null>(null);
+  const roadsEdgeRef = useRef<L.FeatureGroup | null>(null);
   const roadsLoadingRef = useRef(false);
 
   const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
@@ -690,6 +699,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
       dotRendererRef.current = null;
       tileLayersRef.current = null;
       roadsLayerRef.current = null;
+      roadsEdgeRef.current = null;
       markersRef.current.clear();
       meMarkerRef.current = null;
       meCircleRef.current = null;
@@ -712,27 +722,53 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
     try { localStorage.setItem(BASE_STYLE_KEY, baseStyle); } catch { /* تخزين غير متاح — يبقى للجلسة فقط */ }
   }, [baseStyle]);
 
-  // ── الطرق السريعة والجسور للشكل الرسمي: خطوط رمادية بلا أي أسماء ──────────
-  // من بيانات OpenStreetMap (motorway/trunk + جسور primary/secondary في العراق،
-  // مبسَّطة لدقة ~8 م) — ملف ثابت public/data/iq-highways.json يُجلب مرة واحدة
-  // عند أول تفعيل للشكل الرسمي. طبقة Esri للطرق أُزيلت لأن أسماءها مطبوعة
-  // داخل صورها ولا يمكن فصلها.
+  // ── الطرق السريعة للشكل الرسمي: بلا أي أسماء ──────────────────────────────
+  // من بيانات OpenStreetMap (motorway/trunk في العراق مع جسورها، مبسَّطة لدقة
+  // ~8 م) — ملف ثابت public/data/iq-highways.json يُجلب مرة واحدة عند أول
+  // تفعيل للشكل الرسمي. طبقة Esri للطرق أُزيلت لأن أسماءها مطبوعة داخل صورها؛
+  // وجسور الشوارع الأصغر استُبعدت لأنها تظهر مقاطع قصيرة متناثرة.
+  const applyHighwayWeights = () => {
+    const map = mapRef.current;
+    const g = roadsLayerRef.current;
+    if (!map || !g || !map.hasLayer(g)) return;
+    const [edge, fill] = highwayWeights(map.getZoom());
+    g.eachLayer(sub => (sub as L.FeatureGroup).setStyle({ weight: sub === roadsEdgeRef.current ? edge : fill }));
+  };
+  const applyHighwayWeightsRef = useRef(applyHighwayWeights);
+  applyHighwayWeightsRef.current = applyHighwayWeights;
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onZoom = () => applyHighwayWeightsRef.current();
+    map.on('zoomend', onZoom);
+    return () => { map.off('zoomend', onZoom); };
+  }, []);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     if (baseStyle !== 'formal') { roadsLayerRef.current?.remove(); return; }
-    if (roadsLayerRef.current) { roadsLayerRef.current.addTo(map); return; }
+    if (roadsLayerRef.current) {
+      roadsLayerRef.current.addTo(map);
+      applyHighwayWeights(); // التقريب قد يكون تغيّر أثناء إخفائها
+      return;
+    }
     if (roadsLoadingRef.current) return;
     roadsLoadingRef.current = true;
     fetch('/data/iq-highways.json')
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { h: [number, number][][]; b: [number, number][][] }) => {
+      .then((d: { h: [number, number][][] }) => {
         const m = mapRef.current;
         if (!m) return;
         const renderer = L.canvas({ pane: 'rfs-roads', padding: 0.5 });
-        const group = L.layerGroup();
-        for (const line of d.h) L.polyline(line, { renderer, color: COLOR_FORMAL_HIGHWAY, weight: 3, interactive: false, smoothFactor: 1.5 }).addTo(group);
-        for (const line of d.b) L.polyline(line, { renderer, color: COLOR_FORMAL_BRIDGE, weight: 4, interactive: false, smoothFactor: 1.5 }).addTo(group);
+        const [edge, fill] = highwayWeights(m.getZoom());
+        const opts = { renderer, interactive: false, smoothFactor: 1.5, lineCap: 'round' as const, lineJoin: 'round' as const };
+        // كل الحواف أولاً ثم كل الطرق فوقها — فتلتحم التقاطعات كطريق واحد
+        const edges = L.featureGroup(d.h.map(line => L.polyline(line, { ...opts, color: COLOR_FORMAL_HWY_EDGE, weight: edge })));
+        const fills = L.featureGroup(d.h.map(line => L.polyline(line, { ...opts, color: COLOR_FORMAL_HWY_FILL, weight: fill })));
+        roadsEdgeRef.current = edges;
+        const group = L.layerGroup([edges, fills]);
         roadsLayerRef.current = group;
         if (baseStyleRef.current === 'formal') group.addTo(m);
       })
