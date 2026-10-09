@@ -179,6 +179,8 @@ function describeSave(kind: Kind, data: any): string[] {
 export default function RepFieldSurveyPage() {
   const { user, token } = useAuth();
   const isRep = user?.role === 'scientific_rep';
+  // التصدير محجوب عن المندوب العلمي وقائد الفريق — للإدارة فقط
+  const canExport = user?.role !== 'scientific_rep' && user?.role !== 'team_leader';
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   // ── بيانات ─────────────────────────────────────────────────────────────
@@ -560,12 +562,14 @@ export default function RepFieldSurveyPage() {
           <div className="page-subtitle">
             {isRep
               ? 'سجّل الأطباء والصيدليات في مناطقك، مع تحديد موقع كل اسم بدقة. تظهر لك أيضاً أسماء زملاء مكتبك المسجَّلة في نفس مناطقك، ويمكنكم تعديلها جميعاً.'
-              : 'السجلات الميدانية لمندوبي فريقك — للاطلاع والتصدير.'}
+              : `السجلات الميدانية لمندوبي فريقك — للاطلاع${canExport ? ' والتصدير' : ''}.`}
           </div>
         </div>
         <div className="rfs-actions">
           <button className="btn btn--secondary btn--sm" onClick={load} disabled={loading}>تحديث</button>
-          <button className="btn btn--primary btn--sm" onClick={exportExcel} disabled={!visible.length}>تصدير Excel</button>
+          {canExport && (
+            <button className="btn btn--primary btn--sm" onClick={exportExcel} disabled={!visible.length}>تصدير Excel</button>
+          )}
         </div>
       </div>
 
