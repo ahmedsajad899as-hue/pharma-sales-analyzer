@@ -391,8 +391,8 @@ export default function RepFieldSurveyPage() {
   const [editForm, setEditForm]     = useState(EMPTY_FORM);
   const [editNear, setEditNear]     = useState<string[]>([]);
   const [editAddDoctors, setEditAddDoctors] = useState<NearbyRow[]>([]);
-  // إعادة تسمية أطباء الصيدلية من نافذة تعديلها: id الطبيب ← الاسم الجديد
-  const [editDoctorNames, setEditDoctorNames] = useState<Record<number, string>>({});
+  // تعديل أطباء الصيدلية من نافذة تعديلها: id الطبيب ← الاسم والاختصاص الجديدان
+  const [editDoctorNames, setEditDoctorNames] = useState<Record<number, { name: string; specialty: string }>>({});
   const [editCoords, setEditCoords] = useState<Coords | null>(null);
   const [editLoc, setEditLoc]       = useState<'idle' | 'loading' | 'error'>('idle');
   const [editLocError, setEditLocError] = useState('');
@@ -468,15 +468,22 @@ export default function RepFieldSurveyPage() {
 
       // أسماء الأطباء المعدَّلة — كلٌّ عبر نفس مسار تعديل السجل (يتحقق الخادم من الصلاحية)
       const renames = editing.kind === 'pharmacy'
-        ? nearbyOf(editing.id)
-            .map(d => ({ d, name: (editDoctorNames[d.id] ?? '').trim() }))
-            .filter(x => x.name && x.name !== x.d.name)
+        ? nearbyOf(editing.id).flatMap(d => {
+            const v = editDoctorNames[d.id];
+            if (!v) return [];
+            const patch: Record<string, unknown> = {};
+            const name = v.name.trim();
+            const specialty = v.specialty.trim();
+            if (name && name !== d.name) patch.name = name;
+            if (specialty !== (d.specialty ?? '')) patch.specialty = specialty || null;
+            return Object.keys(patch).length ? [{ d, patch }] : [];
+          })
         : [];
       const failed: string[] = [];
-      for (const { d, name } of renames) {
+      for (const { d, patch } of renames) {
         try {
           const rr = await fetch(`/api/rep-field-survey/entries/${d.id}`, {
-            method: 'PATCH', headers: H(), body: JSON.stringify({ name }),
+            method: 'PATCH', headers: H(), body: JSON.stringify(patch),
           });
           const jj = await rr.json();
           if (!rr.ok || !jj.success) throw new Error(jj.message);
@@ -488,7 +495,7 @@ export default function RepFieldSurveyPage() {
       if (failed.length) {
         setEditDoctorNames({});
         setEditAddDoctors([]); // حُفظوا مع الصيدلية — لا يُعاد إرسالهم
-        throw new Error(`حُفظت الصيدلية، لكن تعذّر تعديل اسم: ${failed.join('، ')}`);
+        throw new Error(`حُفظت الصيدلية، لكن تعذّر تعديل الطبيب: ${failed.join('، ')}`);
       }
       setEditing(null);
     } catch (err: any) {
@@ -1000,14 +1007,22 @@ export default function RepFieldSurveyPage() {
                                 <span>🩺</span>
                                 <input
                                   className="rfs-doctor-chip-input"
-                                  value={editDoctorNames[d.id]}
+                                  placeholder="اسم الطبيب"
+                                  value={editDoctorNames[d.id].name}
                                   autoFocus
-                                  onChange={e => setEditDoctorNames({ ...editDoctorNames, [d.id]: e.target.value })}
+                                  onChange={e => setEditDoctorNames({ ...editDoctorNames, [d.id]: { ...editDoctorNames[d.id], name: e.target.value } })}
+                                />
+                                <input
+                                  className="rfs-doctor-chip-input rfs-doctor-chip-input--sub"
+                                  list="rfs-specialty-options"
+                                  placeholder="الاختصاص"
+                                  value={editDoctorNames[d.id].specialty}
+                                  onChange={e => setEditDoctorNames({ ...editDoctorNames, [d.id]: { ...editDoctorNames[d.id], specialty: e.target.value } })}
                                 />
                                 <button
                                   type="button"
                                   className="rfs-doctor-chip-btn"
-                                  title="تراجع عن تعديل الاسم"
+                                  title="تراجع عن التعديل"
                                   onClick={() => { const next = { ...editDoctorNames }; delete next[d.id]; setEditDoctorNames(next); }}
                                 >↶</button>
                               </li>
@@ -1019,8 +1034,8 @@ export default function RepFieldSurveyPage() {
                                   <button
                                     type="button"
                                     className="rfs-doctor-chip-btn"
-                                    title="تعديل اسم الطبيب"
-                                    onClick={() => setEditDoctorNames({ ...editDoctorNames, [d.id]: d.name })}
+                                    title="تعديل اسم الطبيب واختصاصه"
+                                    onClick={() => setEditDoctorNames({ ...editDoctorNames, [d.id]: { name: d.name, specialty: d.specialty ?? '' } })}
                                   >✎</button>
                                 )}
                               </li>

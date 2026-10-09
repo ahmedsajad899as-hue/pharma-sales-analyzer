@@ -20,6 +20,9 @@ const COLOR_PHARMACY = '#eb6834';
 const COLOR_ME = '#1baf7a';
 const COLOR_ROUTE = '#1a73e8';
 const COLOR_ROUTE_DONE = '#9bb0c9';
+// الشكل الرسمي: الطرق السريعة رمادي متوسط، والجسور أغمق فتُميَّز فوق النهر
+const COLOR_FORMAL_HIGHWAY = '#a3aab3';
+const COLOR_FORMAL_BRIDGE = '#6f7782';
 
 const EARTH_M_PER_DEG = 111320;
 // تحت هذا التقريب تُرسم النقاط دوائرَ على Canvas واحد (آلاف النقاط بكلفة رسم
@@ -291,6 +294,10 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
   const dotRendererRef = useRef<L.Canvas | null>(null);
   const tileLayersRef = useRef<Record<BaseStyle, L.Layer> | null>(null);
   const [baseStyle, setBaseStyle] = useState<BaseStyle>(readBaseStyle);
+  const baseStyleRef = useRef(baseStyle);
+  baseStyleRef.current = baseStyle;
+  const roadsLayerRef = useRef<L.LayerGroup | null>(null);
+  const roadsLoadingRef = useRef(false);
 
   const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [geoError, setGeoError] = useState('');
@@ -621,29 +628,22 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
         keepBuffer: 6,
         updateWhenZooming: false,
       }),
-      formal: L.layerGroup([
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-          attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
-          className: 'rfs-tiles-formal',
-          maxNativeZoom: 16,
-          maxZoom: 19,
-          keepBuffer: 6,
-          updateWhenZooming: false,
-        }),
-        // طبقة الطرق الشفافة من Esri (مصنَّفة: الطرق السريعة أعرض) — تُحوَّل
-        // رمادية بالـCSS فتبرز الطرق السريعة والجسور خطوطاً داكنة، والشوارع
-        // الفرعية تذوب في شوارع الأساس البيضاء. تحمل أسماء الطرق الرئيسية.
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
-          className: 'rfs-tiles-formal-roads',
-          maxZoom: 19,
-          keepBuffer: 6,
-          updateWhenZooming: false,
-          zIndex: 2,
-        }),
-      ]),
+      formal: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+        className: 'rfs-tiles-formal',
+        maxNativeZoom: 16,
+        maxZoom: 19,
+        keepBuffer: 6,
+        updateWhenZooming: false,
+      }),
     };
     tiles[baseStyle].addTo(map);
     tileLayersRef.current = tiles;
+    // طبقة الطرق السريعة/الجسور (الشكل الرسمي) تحت النقاط وفوق البلاطات، ولا
+    // تلتقط اللمس — تمرّ النقرات للخريطة والنقاط
+    const roadsPane = map.createPane('rfs-roads');
+    roadsPane.style.zIndex = '350';
+    roadsPane.style.pointerEvents = 'none';
     layerRef.current = L.layerGroup().addTo(map);
     // tolerance: يوسّع مساحة اللمس حول كل دائرة صغيرة — النقر بالإصبع على الهاتف
     dotRendererRef.current = L.canvas({ padding: 0.5, tolerance: 8 });
@@ -689,6 +689,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
       dotLayerRef.current = null;
       dotRendererRef.current = null;
       tileLayersRef.current = null;
+      roadsLayerRef.current = null;
       markersRef.current.clear();
       meMarkerRef.current = null;
       meCircleRef.current = null;
@@ -709,6 +710,34 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
     if (!map.hasLayer(on)) on.addTo(map);
     if (map.hasLayer(off)) off.remove();
     try { localStorage.setItem(BASE_STYLE_KEY, baseStyle); } catch { /* تخزين غير متاح — يبقى للجلسة فقط */ }
+  }, [baseStyle]);
+
+  // ── الطرق السريعة والجسور للشكل الرسمي: خطوط رمادية بلا أي أسماء ──────────
+  // من بيانات OpenStreetMap (motorway/trunk + جسور primary/secondary في العراق،
+  // مبسَّطة لدقة ~8 م) — ملف ثابت public/data/iq-highways.json يُجلب مرة واحدة
+  // عند أول تفعيل للشكل الرسمي. طبقة Esri للطرق أُزيلت لأن أسماءها مطبوعة
+  // داخل صورها ولا يمكن فصلها.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (baseStyle !== 'formal') { roadsLayerRef.current?.remove(); return; }
+    if (roadsLayerRef.current) { roadsLayerRef.current.addTo(map); return; }
+    if (roadsLoadingRef.current) return;
+    roadsLoadingRef.current = true;
+    fetch('/data/iq-highways.json')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { h: [number, number][][]; b: [number, number][][] }) => {
+        const m = mapRef.current;
+        if (!m) return;
+        const renderer = L.canvas({ pane: 'rfs-roads', padding: 0.5 });
+        const group = L.layerGroup();
+        for (const line of d.h) L.polyline(line, { renderer, color: COLOR_FORMAL_HIGHWAY, weight: 3, interactive: false, smoothFactor: 1.5 }).addTo(group);
+        for (const line of d.b) L.polyline(line, { renderer, color: COLOR_FORMAL_BRIDGE, weight: 4, interactive: false, smoothFactor: 1.5 }).addTo(group);
+        roadsLayerRef.current = group;
+        if (baseStyleRef.current === 'formal') group.addTo(m);
+      })
+      .catch(() => { /* بلا طبقة الطرق — يبقى الأساس الرسمي وحده صالحاً */ })
+      .finally(() => { roadsLoadingRef.current = false; });
   }, [baseStyle]);
 
   // ── تفعيل زرّي الفلترة السريعة بصرياً حسب mapKind ─────────────────────────
