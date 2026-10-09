@@ -260,6 +260,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
   const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [geoError, setGeoError] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
+  const [fullscreen, setFullscreen] = useState(false);
   const watchIdRef = useRef<number | null>(null);
   // أول تثبيت لموقعي فقط يُدخَل في حساب الحدود الابتدائية — التحديثات اللاحقة
   // لموقعي الحي لا يجب أن "تسحب" الخريطة بعيداً عن تصفّح المستخدم (إلا في وضع
@@ -666,11 +667,33 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
     if (me && mapRef.current) mapRef.current.setView([me.lat, me.lng], 16);
   };
 
+  // ── وضع ملء الشاشة: يحوّل حاوية الخريطة لتغطية الشاشة كاملة (كبرنامج ملاحة
+  // مستقل). Leaflet يحسب أبعاد اللوحة عند الإنشاء فقط، فيجب استدعاء
+  // invalidateSize() بعد تغيّر أبعاد الحاوية فعلياً في الـDOM (بعد إطار واحد
+  // على الأقل)، وإلا تبقى المناطق الجديدة من الخريطة فارغة حتى أول سحب/تكبير.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const t = window.setTimeout(() => map.invalidateSize(), 80);
+    return () => window.clearTimeout(t);
+  }, [fullscreen, panelOpen]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    document.body.classList.add('rfs-map-fullscreen-lock');
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.classList.remove('rfs-map-fullscreen-lock');
+    };
+  }, [fullscreen]);
+
   const totalDoctors = located.filter(e => e.kind === 'doctor').length;
   const totalPharmacies = located.filter(e => e.kind === 'pharmacy').length;
 
   return (
-    <div className="rfs-map-shell">
+    <div className={`rfs-map-shell ${fullscreen ? 'rfs-map-shell--fullscreen' : ''}`}>
       <div className={`rfs-map-panel ${panelOpen ? '' : 'rfs-map-panel--collapsed'}`}>
         <button className="rfs-map-panel-toggle" onClick={() => setPanelOpen(v => !v)}>
           {panelOpen ? '‹ طيّ' : 'المناطق ›'}
@@ -751,7 +774,21 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
           </div>
         )}
       </div>
-      <div className="rfs-map-canvas" ref={mapDivRef} />
+      <div className="rfs-map-canvas-wrap">
+        <div className="rfs-map-canvas" ref={mapDivRef} />
+        <button
+          type="button"
+          className="rfs-map-fullscreen-btn"
+          onClick={() => setFullscreen(v => {
+            const next = !v;
+            if (next) setPanelOpen(false); // أقصى مساحة للخريطة عند الدخول لملء الشاشة — يبقى قابلاً للفتح يدوياً
+            return next;
+          })}
+          title={fullscreen ? 'تصغير الخريطة' : 'تكبير الخريطة لملء الشاشة'}
+        >
+          {fullscreen ? '✕' : '⛶'}
+        </button>
+      </div>
     </div>
   );
 }
