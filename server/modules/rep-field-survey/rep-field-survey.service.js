@@ -12,6 +12,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
 import { resolveEffectiveAreaNames } from '../../lib/areaScope.js';
+import { resolveAreaByName } from '../../lib/areaResolver.js';
 import { cleanDoctorName } from '../../lib/surveyDoctors.js';
 import { normalizeRepName } from '../scientific-reps/scientific-reps.service.js';
 
@@ -98,7 +99,6 @@ function assertFieldRep(user) {
 // مفاتيح المقارنة: الاسم بعد إزالة «د.» وتطبيع العربية، والصيدلية بتطبيع الاسم فقط
 const doctorKey = (name) => normalizeRepName(cleanDoctorName(name));
 const plainKey = (name) => normalizeRepName(String(name ?? '').trim());
-const areaKey = (name) => normalizeRepName(String(name ?? '').trim());
 
 // ════════════════════════════════════════════════════════════════════════════
 // المشاركة بين مندوبي المكتب الواحد على المناطق المشتركة
@@ -107,9 +107,15 @@ const areaKey = (name) => normalizeRepName(String(name ?? '').trim());
 // شركات مختلفة — يرون أسماء بعضهم في تلك المنطقة ويعدّلون تفاصيلها، بدل أن
 // يُعيد كلٌّ منهم تسجيل نفس الطبيب/الصيدلية من الصفر.
 //
-// المطابقة باسم المنطقة المطبَّع لا بمعرّفها: Area مُفهرسة @@unique([name,userId])
-// فلكل حساب صفٌّ منفصل لنفس المنطقة (راجع areaScope.js) — ومقارنة المعرّفات بين
-// حسابَين مختلفين تُرجع «لا تقاطع» دائماً حتى لو كانا على نفس الزون حرفياً.
+// مطابقة المناطق تمرّ عبر areaResolver.js — نفس المحرّك الذي يعتمده السوبر أدمن
+// لكتالوج المناطق (AreasPage) ولكل استيراد سيرفي/مبيعات — لا بمقارنة نصّية خام:
+// 1) يحذف "ال" التعريف وفروق ة/ه وى/ي والتشكيل (normalizeAreaName)، فـ"الشعب"
+//    و"شعب" يتطابقان بدل أن يظهرا كمنطقتين مختلفتين.
+// 2) يقرأ ذاكرة AreaAlias — كل دمج مناطق فعله السوبر أدمن سابقاً (مثلاً
+//    "وزيرية" ← "الوزيرية") يُطبَّق هنا تلقائياً دون تكراره.
+// 3) مطابقة ضبابية صارمة كملاذ أخير، تُسجَّل alias تلقائياً لما بعدها.
+// النتيجة: اسما منطقة "في نفس النطاق" إن حُلّا لنفس معرّف Area القانوني، بصرف
+// النظر عن تهجئة كلٍّ من المندوبين لها.
 //
 // الحدّ: المكتب. مندوبان في مكتبين مختلفين لا يريان بعضهما ولو تشابهت أسماء
 // مناطقهما.
@@ -129,21 +135,48 @@ async function officeIdsOf(userId) {
   ])];
 }
 
+/** معرّف المنطقة القانوني (كتالوج السوبر أدمن + AreaAlias) لاسم منطقة واحد. */
+async function resolveAreaId(name) {
+  const trimmed = String(name ?? '').trim();
+  if (!trimmed) return null;
+  const r = await resolveAreaByName(trimmed);
+  return r?.area.id ?? null;
+}
+
 /**
- * زملاء المندوب في نفس المكتب + أسماء مناطقه المطبّعة.
+ * يحلّ دفعة أسماء مناطق خام إلى معرّفاتها القانونية دفعة واحدة (Promise.all) —
+ * resolveAreaByName يُسلسل استدعاءاته داخلياً ويُفرِّغ لقطة كتالوج المناطق كلما
+ * عاد عداد الاستدعاءات المتزامنة للصفر، فاستدعاؤها بالتتابع (await في حلقة)
+ * بدل دفعة واحدة كان يعيد تحميل كتالوج المناطق كاملاً مع كل اسم.
+ * @returns {Promise<Map<string, number>>} الاسم (مقلَّص الفراغات) → معرّف المنطقة
+ */
+async function canonicalAreaIdMap(rawNames) {
+  const unique = [...new Set(rawNames.map(n => String(n ?? '').trim()).filter(Boolean))];
+  if (!unique.length) return new Map();
+  const resolved = await Promise.all(unique.map(n => resolveAreaByName(n)));
+  const map = new Map();
+  unique.forEach((n, i) => { if (resolved[i]) map.set(n, resolved[i].area.id); });
+  return map;
+}
+
+/**
+ * زملاء المندوب في نفس المكتب + معرّفات مناطقه القانونية (لا أسماؤها الخام).
  * بلا مكتب أو بلا مناطق مُعيَّنة → لا مشاركة (يرى سجلاته وحدها كما كان).
- * @returns {Promise<{ peerIds: Set<number>, areaKeys: Set<string> }>}
+ * @returns {Promise<{ peerIds: Set<number>, areaIds: Set<number> }>}
  */
 export async function resolveRepSharedScope(user) {
-  const empty = { peerIds: new Set(), areaKeys: new Set() };
+  const empty = { peerIds: new Set(), areaIds: new Set() };
   if (user?.role !== FIELD_REP_ROLE) return empty;
 
   const [officeIds, areaNames] = await Promise.all([
     officeIdsOf(user.id),
     resolveEffectiveAreaNames(user.id),
   ]);
-  const areaKeys = new Set(areaNames.map(areaKey).filter(Boolean));
-  if (!officeIds.length || areaKeys.size === 0) return { peerIds: new Set(), areaKeys };
+  if (!officeIds.length || !areaNames.length) return empty;
+
+  const nameToId = await canonicalAreaIdMap(areaNames);
+  const areaIds = new Set(nameToId.values());
+  if (areaIds.size === 0) return { peerIds: new Set(), areaIds };
 
   const officeCompanies = await prisma.scientificCompany.findMany({
     where: { officeId: { in: officeIds } },
@@ -163,12 +196,24 @@ export async function resolveRepSharedScope(user) {
     },
     select: { id: true },
   });
-  return { peerIds: new Set(peers.map(p => p.id)), areaKeys };
+  return { peerIds: new Set(peers.map(p => p.id)), areaIds };
 }
 
-/** هل يرى/يعدّل هذا المندوبُ سجلاً ليس له؟ نعم إن كان لزميل مكتب في منطقة من مناطقه. */
-function inSharedScope(scope, entry) {
-  return scope.peerIds.has(entry.userId) && scope.areaKeys.has(areaKey(entry.areaName));
+/** هل معرّف منطقة معيَّن يقع ضمن نطاق مناطق المندوب؟ */
+function scopeHasArea(scope, areaId) {
+  return areaId != null && scope.areaIds.has(areaId);
+}
+
+/**
+ * هل يرى/يعدّل هذا المندوبُ سجلاً ليس له؟ نعم إن كان لزميل مكتب في منطقة
+ * (قانونياً) من مناطقه. يحلّ اسم منطقة السجل عند كل استدعاء — مناسب لمواضع
+ * سجل واحد (دمج/تعديل)، لا لحلقة على مئات السجلات (استعمل canonicalAreaIdMap
+ * دفعة واحدة هناك بدلاً منها).
+ */
+async function inSharedScope(scope, entry) {
+  if (!scope.peerIds.has(entry.userId)) return false;
+  const areaId = await resolveAreaId(entry.areaName);
+  return scopeHasArea(scope, areaId);
 }
 
 // إزالة التكرار (بالتطبيع) دون حد — تُستعمل عند القراءة لتفادي رفض بيانات قديمة
@@ -238,15 +283,27 @@ async function ensureOwnPharmacies(userId, names, areaName, coords) {
  */
 async function findNameMatches(user, kind, name, areaName, scope) {
   const key = kind === 'doctor' ? doctorKey(name) : plainKey(name);
-  const newAreaKey = areaKey(areaName);
   const candidateIds = [user.id, ...scope.peerIds];
   const rows = await prisma.repFieldSurveyEntry.findMany({
     where: { userId: { in: candidateIds }, kind },
     select: { id: true, userId: true, name: true, areaName: true, nearPharmacies: true },
   });
-  const matches = rows
-    .filter(e => (kind === 'doctor' ? doctorKey(e.name) : plainKey(e.name)) === key)
-    .filter(e => e.userId === user.id || (inSharedScope(scope, e) && areaKey(e.areaName) === newAreaKey));
+  const nameMatches = rows.filter(e => (kind === 'doctor' ? doctorKey(e.name) : plainKey(e.name)) === key);
+  if (!nameMatches.length) return [];
+
+  // منطقة السجل الجديد + مناطق كل مرشّحي الزملاء تُحلّ دفعة واحدة إلى معرّفات
+  // قانونية (لا بمقارنة نصّية خام) — فتطابق "اسم في نفس المنطقة فعلياً" حتى لو
+  // اختلفت التهجئة بينهما بـ"ال" التعريف أو ة/ه أو دمج سابق في AreasPage.
+  const newAreaId = await resolveAreaId(areaName);
+  const peerCandidates = nameMatches.filter(e => e.userId !== user.id);
+  const areaIdByName = peerCandidates.length ? await canonicalAreaIdMap(peerCandidates.map(e => e.areaName)) : new Map();
+
+  const matches = nameMatches.filter(e => {
+    if (e.userId === user.id) return true;
+    if (!scope.peerIds.has(e.userId)) return false;
+    const eAreaId = areaIdByName.get(String(e.areaName ?? '').trim());
+    return eAreaId != null && eAreaId === newAreaId;
+  });
   if (!matches.length) return [];
 
   const otherIds = [...new Set(matches.map(m => m.userId).filter(id => id !== user.id))];
@@ -287,7 +344,7 @@ export async function createDoctorEntry(user, body) {
     const target = await prisma.repFieldSurveyEntry.findUnique({ where: { id: mergeIntoId } });
     // الدمج متاح مع طبيب زميل في منطقة مشتركة أيضاً — وهو المقصود أصلاً من
     // عرض التكرار عبر المكتب: اسم واحد بدل اسمين.
-    if (!target || target.kind !== 'doctor' || (target.userId !== user.id && !inSharedScope(scope, target))) {
+    if (!target || target.kind !== 'doctor' || (target.userId !== user.id && !(await inSharedScope(scope, target)))) {
       throw new AppError('الطبيب المراد الدمج معه غير موجود', 404, 'NOT_FOUND');
     }
     const base = await migrateLegacyParent(target);
@@ -416,7 +473,7 @@ export async function updateEntry(user, entryId, body) {
   if (!current) throw new AppError('السجل غير موجود أو لا تملك صلاحية تعديله', 404, 'NOT_FOUND');
   if (current.userId !== user.id) {
     const scope = await resolveRepSharedScope(user);
-    if (!inSharedScope(scope, current)) {
+    if (!(await inSharedScope(scope, current))) {
       throw new AppError('السجل غير موجود أو لا تملك صلاحية تعديله', 404, 'NOT_FOUND');
     }
   }
@@ -524,10 +581,16 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
     include: { parent: { select: { name: true } } },
   });
 
-  // من سجلات الزملاء لا يظهر إلا ما يقع في مناطق هذا المندوب — سجلاته هو تظهر
-  // كاملة مهما كانت منطقتها (قد تكون سجّل في منطقة قبل نقلها عنه).
+  // من سجلات الزملاء لا يظهر إلا ما يقع في مناطق هذا المندوب (بالمعرّف القانوني
+  // لا بمقارنة نصّية — راجع canonicalAreaIdMap) — سجلاته هو تظهر كاملة مهما
+  // كانت منطقتها (قد تكون سجّل في منطقة قبل نقلها عنه). الأسماء الخام تُحلّ
+  // دفعة واحدة هنا بدل استدعاء inSharedScope لكل صفّ (كان سيعيد تحميل كتالوج
+  // المناطق مع كل صفّ).
+  const peerAreaIdByName = scope
+    ? await canonicalAreaIdMap(allRows.filter(r => r.userId !== user.id).map(r => r.areaName))
+    : new Map();
   const rows = scope
-    ? allRows.filter(r => r.userId === user.id || scope.areaKeys.has(areaKey(r.areaName)))
+    ? allRows.filter(r => r.userId === user.id || scopeHasArea(scope, peerAreaIdByName.get(String(r.areaName ?? '').trim())))
     : allRows;
 
   // صيدليات كل مندوب بمفتاح الاسم — لربط الطبيب بالصيدليات المسجَّلة فعلاً
@@ -592,8 +655,10 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
         editedAt:     r.editedAt,
         editedByName: r.editedById ? (ownerName.get(r.editedById) ?? null) : null,
         // التعديل متاح للمالك ولزملاء المكتب في مناطقه المشتركة. المدير يطّلع
-        // ويصدّر فقط (كما كان) — فلا يُحسب له canEdit.
-        canEdit:      scope ? (r.userId === user.id || inSharedScope(scope, r)) : false,
+        // ويصدّر فقط (كما كان) — فلا يُحسب له canEdit. rows أصلاً مُصفّاة
+        // لتشمل فقط سجلات المالك أو سجلات ضمن النطاق المشترك (الفلتر أعلاه)،
+        // فكل صفّ هنا مؤهَّل للتعديل متى كان scope موجوداً أصلاً.
+        canEdit:      scope != null,
       };
     }),
     reps: repsOut,
