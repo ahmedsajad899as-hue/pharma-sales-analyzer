@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import type { Entry } from '../pages/RepFieldSurveyPage';
 
 // ════════════════════════════════════════════════════════════════════════════
-// RepFieldSurveyMap — خريطة سجلات سيرفي المندوب العلمي
+// RepFieldSurveyMap — خريطة سجلات سيرفي المندوب العلمي + ملاحة حيّة
 // ────────────────────────────────────────────────────────────────────────────
 // تعرض كل نقطة مسجَّلة (طبيب/صيدلية) بلون حسب النوع فقط — ليس حسب المنطقة،
 // لأن عدد المناطق قد يتجاوز بسهولة ما يمكن تمييزه بالألوان لعين عمياء الألوان
@@ -19,6 +19,13 @@ const COLOR_DOCTOR = '#2a78d6';
 const COLOR_PHARMACY = '#eb6834';
 const COLOR_ME = '#1baf7a';
 const COLOR_ROUTE = '#1a73e8';
+const COLOR_ROUTE_DONE = '#9bb0c9';
+
+const EARTH_M_PER_DEG = 111320;
+// خارج المسار بأكثر من هذا (متر) = المستخدم غيّر الطريق فعلاً، لا مجرّد خطأ GPS
+const OFF_ROUTE_M = 45;
+const ARRIVE_M = 30;
+const REROUTE_COOLDOWN_MS = 8000;
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
@@ -34,27 +41,144 @@ function fmtDistance(m: number): string {
 }
 
 function fmtDuration(s: number): string {
-  const min = Math.round(s / 60);
+  const min = Math.max(1, Math.round(s / 60));
   if (min < 60) return `${min} د`;
   return `${Math.floor(min / 60)} س ${min % 60} د`;
 }
 
+// أقرب نقطة على المسار المرسوم + بُعدها بالمتر. الإسقاط مستوٍ محلي (كافٍ تماماً
+// على مقاييس بضعة كيلومترات) ويُستعمل في: كشف الخروج عن المسار، حساب المتبقّي،
+// وتظليل الجزء المقطوع من الطريق.
+function nearestOnPath(lat: number, lng: number, path: [number, number][]) {
+  const kx = Math.cos((lat * Math.PI) / 180) * EARTH_M_PER_DEG;
+  const px = lng * kx;
+  const py = lat * EARTH_M_PER_DEG;
+  let best = { index: 0, dist: Infinity, point: [lat, lng] as [number, number] };
+  for (let i = 0; i < path.length - 1; i++) {
+    const ax = path[i][1] * kx, ay = path[i][0] * EARTH_M_PER_DEG;
+    const bx = path[i + 1][1] * kx, by = path[i + 1][0] * EARTH_M_PER_DEG;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + t * dx, cy = ay + t * dy;
+    const d = Math.hypot(px - cx, py - cy);
+    if (d < best.dist) best = { index: i, dist: d, point: [cy / EARTH_M_PER_DEG, cx / kx] };
+  }
+  return best;
+}
+
+// طول ما تبقّى من المسار ابتداءً من نقطة على القطعة رقم idx وحتى untilIndex
+function remainingAlongPath(
+  path: [number, number][],
+  idx: number,
+  point: [number, number],
+  untilIndex = path.length - 1,
+): number {
+  if (!path.length) return 0;
+  const end = Math.min(untilIndex, path.length - 1);
+  if (idx >= end) return haversineMeters(point[0], point[1], path[end][0], path[end][1]);
+  let total = haversineMeters(point[0], point[1], path[idx + 1][0], path[idx + 1][1]);
+  for (let i = idx + 1; i < end; i++) total += haversineMeters(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1]);
+  return total;
+}
+
+const MODIFIER_AR: Record<string, string> = {
+  'uturn': 'استدر عائداً',
+  'sharp right': 'انعطف يميناً بحدّة',
+  'right': 'انعطف يميناً',
+  'slight right': 'مِل يميناً',
+  'straight': 'واصل مستقيماً',
+  'slight left': 'مِل يساراً',
+  'left': 'انعطف يساراً',
+  'sharp left': 'انعطف يساراً بحدّة',
+};
+
+const MODIFIER_GLYPH: Record<string, string> = {
+  'uturn': '🔄',
+  'sharp right': '↪️',
+  'right': '➡️',
+  'slight right': '↗️',
+  'straight': '⬆️',
+  'slight left': '↖️',
+  'left': '⬅️',
+  'sharp left': '↩️',
+};
+
+function stepText(s: any): string {
+  const road = s?.name ? ` نحو ${s.name}` : '';
+  const type = s?.maneuver?.type as string | undefined;
+  const mod = s?.maneuver?.modifier as string | undefined;
+  const turn = (mod && MODIFIER_AR[mod]) || 'واصل';
+  if (type === 'depart') return `انطلق${road}`;
+  if (type === 'arrive') return 'وصلت إلى الوجهة';
+  if (type === 'roundabout' || type === 'rotary') {
+    return `ادخل الدوّار${s?.maneuver?.exit ? ` واخرج عند المخرج ${s.maneuver.exit}` : ''}${road}`;
+  }
+  if (type === 'merge') return `اندمج ${turn}${road}`;
+  if (type === 'on ramp') return `اسلك المدخل${road}`;
+  if (type === 'off ramp') return `اسلك المخرج${road}`;
+  if (type === 'fork') return `عند التفرّع: ${turn}${road}`;
+  if (type === 'end of road') return `في نهاية الطريق: ${turn}${road}`;
+  if (type === 'continue') return `${turn}${road}`;
+  return `${turn}${road}`;
+}
+
+function stepGlyph(s: any): string {
+  const type = s?.maneuver?.type as string | undefined;
+  if (type === 'arrive') return '🏁';
+  if (type === 'depart') return '🚗';
+  if (type === 'roundabout' || type === 'rotary') return '🔃';
+  const mod = s?.maneuver?.modifier as string | undefined;
+  return (mod && MODIFIER_GLYPH[mod]) || '⬆️';
+}
+
+interface NavStep { text: string; glyph: string; distance: number; atIndex: number }
+interface NavRoute { path: [number, number][]; steps: NavStep[]; distanceM: number; durationS: number }
+interface NavState extends NavRoute { entryId: number; toName: string; toLat: number; toLng: number }
+
+/**
+ * OSRM العام (بلا مفتاح API — نفس نهج بلاطات OpenStreetMap هنا) مع steps=true
+ * للحصول على تعليمات الانعطاف خطوة بخطوة لا مجرّد خط على الخريطة.
+ */
+async function fetchRoute(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<NavRoute> {
+  const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}`
+    + '?overview=full&geometries=geojson&steps=true&annotations=false';
+  const r = await fetch(url);
+  const j = await r.json();
+  if (!r.ok || j.code !== 'Ok' || !j.routes?.length) throw new Error('تعذّر حساب الطريق حالياً. حاول مجدداً.');
+  const route = j.routes[0];
+  const path = (route.geometry.coordinates as [number, number][]).map(c => [c[1], c[0]] as [number, number]);
+  const steps: NavStep[] = (route.legs?.[0]?.steps ?? []).map((s: any) => {
+    const loc = s?.maneuver?.location as [number, number] | undefined;
+    return {
+      text: stepText(s),
+      glyph: stepGlyph(s),
+      distance: Number(s?.distance) || 0,
+      atIndex: loc ? nearestOnPath(loc[1], loc[0], path).index : 0,
+    };
+  });
+  return { path, steps, distanceM: Number(route.distance) || 0, durationS: Number(route.duration) || 0 };
+}
+
 // صيدلية أُنشئت تلقائياً من "قريب" طبيب (أو العكس) ترث نفس إحداثيات الأصل
 // حرفياً (راجع ensureOwnPharmacies في الخادم) — فيقع الدبوسان على نفس
-// البكسل بالضبط ويختفي أحدهما خلف الآخر تماماً. بدمج النوعين معاً (زر "الكل")
-// يتضاعف هذا التطابق فيبدو العدد الظاهر على الخريطة أقل من الحقيقي رغم أن كل
-// نقطة مرسومة فعلياً. الحل: توزيع النقاط المتطابقة إحداثياً على دائرة صغيرة
-// جداً حول نفس المكان الحقيقي (للعرض فقط — "فتح في خرائط Google" وحساب
-// المسافة/الملاحة يستعملان إحداثيات السجل الأصلية غير المُزاحة).
+// البكسل بالضبط ويختفي أحدهما خلف الآخر تماماً. التوزيع بإزاحة صغيرة يحلّ ذلك،
+// ويُحسب من مجموعة البيانات الكاملة لا من المرئي حالياً، وإلا تغيّر موضع الدبوس
+// كلما دخل/خرج جاره من الشاشة. (للعرض فقط — الملاحة والمسافة وروابط الخرائط
+// تستعمل إحداثيات السجل الأصلية.)
 function offsetLatLng(lat: number, lng: number, index: number, total: number, radiusMeters = 9): [number, number] {
   if (total <= 1) return [lat, lng];
   const angle = (2 * Math.PI * index) / total;
-  const dLat = (radiusMeters * Math.sin(angle)) / 111320;
-  const dLng = (radiusMeters * Math.cos(angle)) / (111320 * Math.cos((lat * Math.PI) / 180) || 1);
+  const dLat = (radiusMeters * Math.sin(angle)) / EARTH_M_PER_DEG;
+  const dLng = (radiusMeters * Math.cos(angle)) / (EARTH_M_PER_DEG * Math.cos((lat * Math.PI) / 180) || 1);
   return [lat + dLat, lng + dLng];
 }
 
 const mapsUrl = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
+const gmapsNavUrl = (from: { lat: number; lng: number }, lat: number, lng: number) =>
+  `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${lat},${lng}&travelmode=driving&dir_action=navigate`;
+const wazeNavUrl = (lat: number, lng: number) => `https://waze.com/ul?ll=${lat}%2C${lng}&navigate=yes`;
 
 // دبوس خريطة كلاسيكي (دائرة + رأس مدبَّب) بلون النوع ورمز داخله — الهوية لا
 // تعتمد على اللون وحده، فكل نوع له رمزه الخاص أيضاً.
@@ -76,8 +200,7 @@ function pinIcon(color: string, glyph: string, size = 34): L.DivIcon {
 }
 
 // الأيقونتان ثابتتان دائماً (لون/رمز كل نوع لا يتغيران) — تُبنيان مرة واحدة هنا
-// بدل استدعاء pinIcon() من جديد لكل دبوس في حلقة الرسم (كان يُنشئ مئات عناصر
-// L.DivIcon المتطابقة فعلياً عند كل إعادة رسم، وهو أثقل جزء في بناء الدبوس).
+// بدل استدعاء pinIcon() من جديد لكل دبوس في حلقة الرسم.
 const DOCTOR_ICON = pinIcon(COLOR_DOCTOR, '🩺');
 const PHARMACY_ICON = pinIcon(COLOR_PHARMACY, '💊');
 
@@ -99,25 +222,22 @@ interface AreaGroup { area: string; doctors: number; pharmacies: number; lat: nu
 
 interface Props { entries: Entry[]; }
 
-// محتوى النافذة المنبثقة — دالة منفصلة لأنها تُستدعى مرتين: عند إنشاء الدبوس
-// (بآخر موقع معروف وقتها) وعند فتح النافذة فعلياً (بأحدث موقع، ليبقى "يبعد
-// عنك" دقيقاً دون الحاجة لإعادة رسم كل الدبابيس حين يتحرك موقعي الحي). زر
-// "ملاحة" يحمل data-rfs-nav ليُربط بمستمع نقر بعد إدراج النافذة في الصفحة
-// (المحتوى HTML خام، فلا يمكن تمرير onClick من React مباشرة).
+// محتوى النافذة المنبثقة. زر "ملاحة" يحمل data-rfs-nav ليُربط بمستمع نقر بعد
+// إدراج النافذة في الصفحة (المحتوى HTML خام، فلا يمكن تمرير onClick من React).
 function buildPopupHtml(e: Entry, me: { lat: number; lng: number } | null): string {
   const dist = me ? haversineMeters(me.lat, me.lng, e.latitude, e.longitude) : null;
   const detailsLine = e.kind === 'doctor'
     ? [e.specialty, e.className, e.nearPharmacies.length ? `قرب: ${e.nearPharmacies.join('، ')}` : ''].filter(Boolean).join(' · ')
     : e.notes ?? '';
   return `
-    <div style="min-width:200px; font-family:inherit; direction:rtl; text-align:right;">
+    <div style="min-width:210px; font-family:inherit; direction:rtl; text-align:right;">
       <div style="font-weight:700; font-size:14px; margin-bottom:2px;">${e.kind === 'doctor' ? '🩺' : '💊'} ${escapeHtml(e.name)}</div>
       <div style="color:#5a6a8a; font-size:12.5px; margin-bottom:4px;">${escapeHtml(e.areaName)}${e.repName ? ' · ' + escapeHtml(e.repName) : ''}</div>
       ${detailsLine ? `<div style="font-size:12.5px; color:#1a2332; margin-bottom:4px;">${escapeHtml(detailsLine)}</div>` : ''}
       ${dist != null ? `<div style="font-size:12.5px; font-weight:700; color:${COLOR_ME}; margin-bottom:4px;">📍 يبعد عنك ${fmtDistance(dist)}</div>` : ''}
-      <div style="display:flex; align-items:center; gap:10px; margin-top:2px; flex-wrap:wrap;">
-        <a href="${mapsUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="font-size:12px;">فتح في خرائط Google ↗</a>
-        <button type="button" data-rfs-nav="1" style="font-size:12px; font-weight:700; color:${COLOR_ROUTE}; background:#eaf1fd; border:1px solid #c7dcfb; border-radius:6px; padding:3px 9px; cursor:pointer;">🧭 ملاحة</button>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap;">
+        <button type="button" data-rfs-nav="1" style="font-size:12.5px; font-weight:700; color:#fff; background:${COLOR_ROUTE}; border:0; border-radius:6px; padding:5px 11px; cursor:pointer;">🧭 ابدأ الملاحة</button>
+        <a href="${mapsUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="font-size:12px;">خرائط Google ↗</a>
       </div>
     </div>`;
 }
@@ -126,9 +246,12 @@ export default function RepFieldSurveyMap({ entries }: Props) {
   const mapDivRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
+  const markersRef = useRef<Map<number, L.Marker>>(new Map());
   const meMarkerRef = useRef<L.Marker | null>(null);
   const meCircleRef = useRef<L.Circle | null>(null);
   const routeLayerRef = useRef<L.Polyline | null>(null);
+  const routeDoneRef = useRef<L.Polyline | null>(null);
+  const destMarkerRef = useRef<L.Marker | null>(null);
   const kindBtnsRef = useRef<{ doctorBtn: HTMLElement; pharmacyBtn: HTMLElement } | null>(null);
 
   const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
@@ -136,26 +259,39 @@ export default function RepFieldSurveyMap({ entries }: Props) {
   const [panelOpen, setPanelOpen] = useState(true);
   const watchIdRef = useRef<number | null>(null);
   // أول تثبيت لموقعي فقط يُدخَل في حساب الحدود الابتدائية — التحديثات اللاحقة
-  // لموقعي الحي (أثناء watchPosition) لا يجب أن "تسحب" الخريطة بعيداً عن مكان
-  // تصفّح المستخدم الحالي؛ إعادة التركيز بعدها تتم فقط بزر «اذهب إلى موقعي».
+  // لموقعي الحي لا يجب أن "تسحب" الخريطة بعيداً عن تصفّح المستخدم (إلا في وضع
+  // الملاحة، حيث المتابعة مقصودة وتتوقف فور سحب المستخدم للخريطة يدوياً).
   const meFittedOnceRef = useRef(false);
-  // نسخة قابلة للقراءة الفورية من آخر موقع معروف — تُقرأ عند فتح نافذة أي
-  // دبوس أو رسم مسار دون إدراج `me` ضمن تبعيات رسم الدبابيس.
   const meRef = useRef<{ lat: number; lng: number; accuracy: number } | null>(null);
   useEffect(() => { meRef.current = me; }, [me]);
 
-  // فلتر سريع من داخل الخريطة نفسها (زرّا 🩺/💊 قرب أزرار التكبير)، إضافة إلى
-  // فلتر الصفحة الخارجي الذي يُحدِّد أصلاً ما يصل إلى entries.
+  // فلتر سريع من داخل الخريطة نفسها (زرّا 🩺/💊 قرب أزرار التكبير)
   const [mapKind, setMapKind] = useState<'all' | 'doctor' | 'pharmacy'>('all');
 
   const located = useMemo(
     () => entries.filter(e => Number.isFinite(e.latitude) && Number.isFinite(e.longitude) && (mapKind === 'all' || e.kind === mapKind)),
     [entries, mapKind],
   );
-  // نسخة فورية من located يقرأها الرسم الذي قد يُستدعى من مستمع حدث خريطة
-  // (moveend/zoomend) مربوط مرة واحدة فقط عند إنشاء الخريطة.
   const locatedRef = useRef<Entry[]>(located);
   locatedRef.current = located;
+
+  // مواضع العرض (مع إزاحة المتطابقات) — تُحسب من كامل البيانات مرة واحدة فتبقى
+  // ثابتة مهما تحرّكت الشاشة.
+  const displayPos = useMemo(() => {
+    const groups = new Map<string, Entry[]>();
+    for (const e of located) {
+      const key = `${e.latitude.toFixed(6)},${e.longitude.toFixed(6)}`;
+      const g = groups.get(key);
+      if (g) g.push(e); else groups.set(key, [e]);
+    }
+    const pos = new Map<number, [number, number]>();
+    for (const group of groups.values()) {
+      group.forEach((e, i) => pos.set(e.id, offsetLatLng(e.latitude, e.longitude, i, group.length)));
+    }
+    return pos;
+  }, [located]);
+  const displayPosRef = useRef(displayPos);
+  displayPosRef.current = displayPos;
 
   const areaGroups = useMemo<AreaGroup[]>(() => {
     const map = new Map<string, AreaGroup & { sumLat: number; sumLng: number; n: number }>();
@@ -171,93 +307,177 @@ export default function RepFieldSurveyMap({ entries }: Props) {
       .sort((a, b) => (b.doctors + b.pharmacies) - (a.doctors + a.pharmacies));
   }, [located]);
 
-  // ── الملاحة: جلب مسار من OSRM المجاني (بلا مفتاح API، نفس نهج بلاطات
-  // OpenStreetMap في هذا الملف) ورسمه كخط على الخريطة ──────────────────────
-  const [route, setRoute] = useState<{ toName: string; distanceM: number; durationS: number } | null>(null);
-  const [routeLoading, setRouteLoading] = useState(false);
-  const [routeError, setRouteError] = useState('');
+  // ── حالة الملاحة ─────────────────────────────────────────────────────────
+  const [nav, setNav] = useState<NavState | null>(null);
+  const navRef = useRef<NavState | null>(null);
+  navRef.current = nav;
+  const [navProgress, setNavProgress] = useState<{
+    remainingM: number; remainingS: number; stepText: string; stepGlyph: string;
+    stepDistM: number; offRoute: boolean; arrived: boolean;
+  } | null>(null);
+  const [navLoading, setNavLoading] = useState(false);
+  const [navError, setNavError] = useState('');
+  const [rerouted, setRerouted] = useState(false);
+  const [follow, setFollow] = useState(true);
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  const lastRerouteRef = useRef(0);
+  const offRouteCountRef = useRef(0);
 
-  const clearRoute = () => {
-    if (routeLayerRef.current) { routeLayerRef.current.remove(); routeLayerRef.current = null; }
-    setRoute(null);
-    setRouteError('');
+  const renderRouteLines = (path: [number, number][], near: { index: number; point: [number, number] } | null) => {
+    const map = mapRef.current;
+    if (!map || path.length < 2) return;
+    const remaining = near ? [near.point, ...path.slice(near.index + 1)] : path;
+    if (routeLayerRef.current) routeLayerRef.current.setLatLngs(remaining);
+    else routeLayerRef.current = L.polyline(remaining, { color: COLOR_ROUTE, weight: 6, opacity: 0.9, lineJoin: 'round' }).addTo(map);
+
+    const done = near ? [...path.slice(0, near.index + 1), near.point] : [];
+    if (done.length > 1) {
+      if (routeDoneRef.current) routeDoneRef.current.setLatLngs(done);
+      else routeDoneRef.current = L.polyline(done, { color: COLOR_ROUTE_DONE, weight: 5, opacity: 0.65 }).addTo(map);
+    } else if (routeDoneRef.current) {
+      routeDoneRef.current.remove();
+      routeDoneRef.current = null;
+    }
   };
 
-  const drawRoute = async (e: Entry) => {
-    const map = mapRef.current;
+  const updateProgress = (pos: { lat: number; lng: number }) => {
+    const n = navRef.current;
+    if (!n || n.path.length < 2) return;
+    const near = nearestOnPath(pos.lat, pos.lng, n.path);
+    renderRouteLines(n.path, near);
+    const remainingM = remainingAlongPath(n.path, near.index, near.point);
+    const ratio = n.distanceM > 0 ? Math.min(1, remainingM / n.distanceM) : 0;
+    const step = n.steps.find(s => s.atIndex > near.index) ?? n.steps[n.steps.length - 1] ?? null;
+    setNavProgress({
+      remainingM,
+      remainingS: n.durationS * ratio,
+      stepText: step?.text ?? '',
+      stepGlyph: step?.glyph ?? '',
+      stepDistM: step ? remainingAlongPath(n.path, near.index, near.point, step.atIndex) : 0,
+      offRoute: near.dist > OFF_ROUTE_M,
+      arrived: haversineMeters(pos.lat, pos.lng, n.toLat, n.toLng) <= ARRIVE_M,
+    });
+  };
+
+  const startNav = async (e: Entry) => {
     const start = meRef.current;
-    if (!map) return;
     if (!start) {
-      setRouteError('فعّل تحديد موقعك الحالي أولاً (زر «اذهب إلى موقعي») لرسم طريق الوصول.');
+      setNavError('فعّل تحديد موقعك الحالي أولاً (زر «اذهب إلى موقعي») لبدء الملاحة.');
       return;
     }
-    setRouteError('');
-    setRouteLoading(true);
+    setNavError('');
+    setNavLoading(true);
     try {
-      const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${e.longitude},${e.latitude}?overview=full&geometries=geojson`;
-      const r = await fetch(url);
-      const j = await r.json();
-      if (!r.ok || j.code !== 'Ok' || !j.routes?.length) throw new Error('تعذّر رسم الطريق حالياً. حاول مجدداً.');
-      const latlngs = (j.routes[0].geometry.coordinates as [number, number][]).map(c => [c[1], c[0]] as [number, number]);
-      if (routeLayerRef.current) { routeLayerRef.current.remove(); routeLayerRef.current = null; }
-      const line = L.polyline(latlngs, { color: COLOR_ROUTE, weight: 5, opacity: 0.85 }).addTo(map);
-      routeLayerRef.current = line;
-      map.fitBounds(line.getBounds(), { padding: [48, 48] });
-      setRoute({ toName: e.name, distanceM: j.routes[0].distance, durationS: j.routes[0].duration });
+      const r = await fetchRoute(start, { lat: e.latitude, lng: e.longitude });
+      const state: NavState = { ...r, entryId: e.id, toName: e.name, toLat: e.latitude, toLng: e.longitude };
+      navRef.current = state;
+      setNav(state);
+      renderRouteLines(r.path, null);
+      const map = mapRef.current;
+      if (map) {
+        if (destMarkerRef.current) destMarkerRef.current.remove();
+        destMarkerRef.current = L.marker([e.latitude, e.longitude], {
+          icon: L.divIcon({ className: '', html: '<div style="font-size:26px; line-height:1;">🏁</div>', iconSize: [26, 26], iconAnchor: [13, 24] }),
+          zIndexOffset: 900,
+        }).addTo(map);
+        map.closePopup();
+        map.setView([start.lat, start.lng], Math.max(map.getZoom(), 16));
+      }
+      setFollow(true);
+      offRouteCountRef.current = 0;
+      lastRerouteRef.current = Date.now();
+      updateProgress(start);
+      startWatch(); // تردد أعلى أثناء الملاحة
     } catch (err: any) {
-      setRouteError(err.message || 'تعذّر رسم الطريق حالياً. تحقّق من الاتصال وحاول مجدداً.');
+      setNavError(err?.message || 'تعذّر حساب الطريق حالياً. تحقّق من الاتصال وحاول مجدداً.');
     } finally {
-      setRouteLoading(false);
+      setNavLoading(false);
     }
   };
 
-  // ── رسم نقاط السجلات ضمن حدود العرض الحالية فقط (+ هامش) ─────────────────
-  // لا تُرسم كل السجلات دائماً: عند التكبير على منطقة ضيقة لا حاجة لمئات
-  // دبابيس خارج الشاشة في DOM — هذا يُخفّف العبء أثناء التفاعل. يُعاد بناء
-  // هذه الدالة كل تصيير (closure حديث على located/me/drawRoute) وتُستدعى عبر
-  // drawMarkersRef حتى يقرأها مستمع الخريطة المربوط مرة واحدة فقط بأحدث نسخة.
-  function drawMarkersImpl() {
+  // إعادة حساب المسار من الموقع الحالي — تُستدعى تلقائياً عند الخروج عن الطريق
+  // المرسوم، وأيضاً يدوياً من زر في لوحة الملاحة.
+  const recalcRoute = async () => {
+    const n = navRef.current;
+    const start = meRef.current;
+    if (!n || !start) return;
+    try {
+      const r = await fetchRoute(start, { lat: n.toLat, lng: n.toLng });
+      const next: NavState = { ...n, ...r };
+      navRef.current = next;
+      setNav(next);
+      renderRouteLines(r.path, null);
+      updateProgress(start);
+      setRerouted(true);
+      window.setTimeout(() => setRerouted(false), 4000);
+    } catch {
+      // نُبقي المسار السابق معروضاً بدل إفراغ الشاشة عند فشل مؤقت في الشبكة
+    }
+  };
+
+  const stopNav = () => {
+    navRef.current = null;
+    setNav(null);
+    setNavProgress(null);
+    setNavError('');
+    if (routeLayerRef.current) { routeLayerRef.current.remove(); routeLayerRef.current = null; }
+    if (routeDoneRef.current) { routeDoneRef.current.remove(); routeDoneRef.current = null; }
+    if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null; }
+    startWatch(); // رجوع لتردد الموقع الاعتيادي
+  };
+
+  // ── مزامنة الدبابيس: إضافة/إزالة فقط، بلا هدم وإعادة بناء ────────────────
+  // السبب: layer.clearLayers() عند كل moveend كان يحذف الدبوس الذي فُتحت نافذته
+  // للتو — وفتح أي نافذة يُحرّك الخريطة قليلاً (autoPan) فيُطلق moveend — فكانت
+  // التفاصيل تومض وتختفي إلا إذا كان التقريب كبيراً بما يكفي ليتسع للنافذة بلا
+  // تحريك. المزامنة التفاضلية تُبقي الدبوس المفتوح (وكل الدبابيس القائمة) حياً،
+  // وهي أخف أيضاً لأنها لا تُنشئ مئات العناصر من جديد مع كل حركة.
+  function syncMarkersImpl(rebuild = false) {
     const map = mapRef.current;
     const layer = layerRef.current;
     if (!map || !layer) return;
-    layer.clearLayers();
+    if (rebuild) {
+      layer.clearLayers();
+      markersRef.current.clear();
+    }
+    const pos = displayPosRef.current;
+    const list = locatedRef.current;
+    const view = map.getBounds().pad(0.5);
 
-    const viewBounds = map.getBounds().pad(0.5);
-    const within = locatedRef.current.filter(e => viewBounds.contains([e.latitude, e.longitude]));
-
-    // تجميع النقاط المتطابقة الإحداثيات حرفياً (دقة 6 منازل عشرية ≈ أقل من
-    // متر) قبل الرسم، ثم توزيعها بإزاحة بصرية صغيرة إن تجاوز العدد واحداً.
-    const groups = new Map<string, Entry[]>();
-    for (const e of within) {
-      const key = `${e.latitude.toFixed(6)},${e.longitude.toFixed(6)}`;
-      const g = groups.get(key);
-      if (g) g.push(e); else groups.set(key, [e]);
+    const want = new Map<number, Entry>();
+    for (const e of list) {
+      const p = pos.get(e.id) ?? ([e.latitude, e.longitude] as [number, number]);
+      if (view.contains(p)) want.set(e.id, e);
     }
 
-    for (const group of groups.values()) {
-      group.forEach((e, i) => {
-        const [lat, lng] = offsetLatLng(e.latitude, e.longitude, i, group.length);
-        const icon = e.kind === 'doctor' ? DOCTOR_ICON : PHARMACY_ICON;
-        const marker = L.marker([lat, lng], { icon, riseOnHover: true }).addTo(layer);
-        marker.bindPopup(buildPopupHtml(e, meRef.current), { autoPan: true });
-        marker.on('popupopen', () => {
-          marker.setPopupContent(buildPopupHtml(e, meRef.current));
-          const popupEl = marker.getPopup()?.getElement();
-          const navBtn = popupEl?.querySelector('[data-rfs-nav]') as HTMLButtonElement | null;
-          if (navBtn) navBtn.onclick = ev => { ev.preventDefault(); drawRoute(e); };
-        });
+    for (const [id, marker] of markersRef.current) {
+      if (want.has(id) || marker.isPopupOpen()) continue;
+      layer.removeLayer(marker);
+      markersRef.current.delete(id);
+    }
+
+    for (const [id, e] of want) {
+      if (markersRef.current.has(id)) continue;
+      const p = pos.get(id) ?? ([e.latitude, e.longitude] as [number, number]);
+      const marker = L.marker(p, { icon: e.kind === 'doctor' ? DOCTOR_ICON : PHARMACY_ICON, riseOnHover: true }).addTo(layer);
+      marker.bindPopup(buildPopupHtml(e, meRef.current), { autoPan: true, autoPanPadding: [40, 40] });
+      marker.on('popupopen', () => {
+        marker.setPopupContent(buildPopupHtml(e, meRef.current));
+        const navBtn = marker.getPopup()?.getElement()?.querySelector('[data-rfs-nav]') as HTMLButtonElement | null;
+        if (navBtn) navBtn.onclick = ev => { ev.preventDefault(); startNav(e); };
       });
+      markersRef.current.set(id, marker);
     }
   }
-  const drawMarkersRef = useRef(drawMarkersImpl);
-  drawMarkersRef.current = drawMarkersImpl;
+  const syncMarkersRef = useRef(syncMarkersImpl);
+  syncMarkersRef.current = syncMarkersImpl;
 
   // ── إنشاء الخريطة مرة واحدة ──────────────────────────────────────────────
   useEffect(() => {
     if (!mapDivRef.current || mapRef.current) return;
     // fadeAnimation معطّل عمداً: تلاشي البلاطات عند كل سحب/تكبير هو ما يُشعر
     // بالتقطّع على هواتف متوسطة الأداء؛ تعطيله يجعل التنقل يبدو فورياً وأخف.
-    // wheelPxPerZoomLevel أصغر = استجابة أسرع لعجلة الفأرة بلا قفزات كبيرة.
     const map = L.map(mapDivRef.current, {
       zoomControl: true,
       attributionControl: true,
@@ -269,11 +489,9 @@ export default function RepFieldSurveyMap({ entries }: Props) {
     map.setView([33.3152, 44.3661], 11); // بغداد افتراضياً حتى تُحسب الحدود
     // خرائط OpenStreetMap القياسية — مجانية بالكامل بلا مفتاح API (نفس مزوّد
     // RepTrackingMap.tsx في هذا المشروع). خلفية CARTO الملوّنة أُزيلت لأن CARTO
-    // أوقفت السماح المجاني بخلفيتها الرصدية بلا مفتاح API، فكانت تظهر عليها
-    // علامة "API KEY REQUIRED" بدل الخريطة.
+    // أوقفت السماح المجاني بخلفيتها الرصدية بلا مفتاح API.
     // keepBuffer أكبر + updateWhenZooming معطّل: بلاطات الجوار تبقى محمَّلة
-    // سلفاً فلا تُرى مربعات فارغة أثناء السحب السريع، ولا يُعاد طلب بلاطات
-    // جديدة في منتصف حركة التكبير (فقط بعد استقرارها) فيبقى التفاعل سلساً.
+    // سلفاً فلا تُرى مربعات فارغة أثناء السحب السريع.
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
@@ -282,8 +500,7 @@ export default function RepFieldSurveyMap({ entries }: Props) {
     }).addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
 
-    // زرّا فلترة سريعة (🩺 أطباء / 💊 صيدليات) قرب أزرار التكبير/التصغير —
-    // leaflet-bar يمنحهما نفس شكل أزرار التحكّم الجاهزة في الخريطة مباشرة.
+    // زرّا فلترة سريعة (🩺 أطباء / 💊 صيدليات) قرب أزرار التكبير/التصغير
     const KindControl = L.Control.extend({
       options: { position: 'topleft' },
       onAdd() {
@@ -305,20 +522,26 @@ export default function RepFieldSurveyMap({ entries }: Props) {
     });
     new KindControl().addTo(map);
 
-    // يُعاد رسم الدبابيس بعد انتهاء كل سحب/تكبير (لا أثناءه) ليعكس حدود
-    // العرض الجديدة — العمل الفعلي خفيف (تصفية + دبابيس ضمن الشاشة فقط).
-    const onMoveEnd = () => drawMarkersRef.current();
+    const onMoveEnd = () => syncMarkersRef.current();
     map.on('moveend zoomend', onMoveEnd);
+    // سحب المستخدم يدوياً أثناء الملاحة يوقف المتابعة التلقائية — فلا تتصارع
+    // الخريطة معه، ويظهر زر لاستئنافها متى شاء.
+    const onDragStart = () => { if (navRef.current) setFollow(false); };
+    map.on('dragstart', onDragStart);
 
     mapRef.current = map;
     return () => {
       map.off('moveend zoomend', onMoveEnd);
+      map.off('dragstart', onDragStart);
       map.remove();
       mapRef.current = null;
       layerRef.current = null;
+      markersRef.current.clear();
       meMarkerRef.current = null;
       meCircleRef.current = null;
       routeLayerRef.current = null;
+      routeDoneRef.current = null;
+      destMarkerRef.current = null;
       kindBtnsRef.current = null;
     };
   }, []);
@@ -331,25 +554,24 @@ export default function RepFieldSurveyMap({ entries }: Props) {
     btns.pharmacyBtn.classList.toggle('rfs-map-kind-btn--active', mapKind === 'pharmacy');
   }, [mapKind]);
 
-  // ── ضبط حدود العرض عند تغيّر بيانات السجلات (أو الفلتر) — يستدعي الرسم
-  // فوراً، ولا يعتمد على `me` في تبعياته حتى لا يتكرر مع كل نبضة GPS لاحقة
-  // من watchPosition ويسحب الخريطة بعيداً عن تصفّح المستخدم اليدوي ────────
+  // ── ضبط حدود العرض عند تغيّر بيانات السجلات (أو الفلتر) ──────────────────
+  // لا يعتمد على `me` حتى لا يتكرر مع كل نبضة GPS ويسحب الخريطة أثناء التصفّح.
+  // أثناء الملاحة لا تُعاد المواءمة إطلاقاً حتى لا تقفز الشاشة بعيداً عن الطريق.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (located.length) {
+    if (located.length && !navRef.current) {
       const bounds = L.latLngBounds(located.map(e => [e.latitude, e.longitude] as [number, number]));
       if (meRef.current) bounds.extend([meRef.current.lat, meRef.current.lng]);
       map.fitBounds(bounds, { padding: [36, 36], maxZoom: 15 });
     }
-    drawMarkersRef.current();
+    syncMarkersRef.current(true); // إعادة بناء كاملة: البيانات نفسها تغيّرت
   }, [located]);
 
-  // ── أول تثبيت لموقعي فقط يُعيد ضبط الحدود لتشمله — بعدها لا إعادة تركيز
-  // تلقائية إطلاقاً؛ فقط زر «اذهب إلى موقعي» يفعل ذلك.
+  // ── أول تثبيت لموقعي فقط يُعيد ضبط الحدود لتشمله ─────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !me || meFittedOnceRef.current) return;
+    if (!map || !me || meFittedOnceRef.current || navRef.current) return;
     meFittedOnceRef.current = true;
     if (located.length) {
       const bounds = L.latLngBounds(located.map(e => [e.latitude, e.longitude] as [number, number]));
@@ -358,14 +580,39 @@ export default function RepFieldSurveyMap({ entries }: Props) {
     } else {
       map.setView([me.lat, me.lng], 14);
     }
-    drawMarkersRef.current();
+    syncMarkersRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me]);
+
+  // ── الملاحة الحيّة: تقدّم على المسار + متابعة + تصحيح تلقائي عند تغيير الطريق
+  useEffect(() => {
+    const n = navRef.current;
+    const map = mapRef.current;
+    if (!n || !me || !map) return;
+    updateProgress(me);
+    // متابعة بالتحريك فقط (panTo) لا setView بمستوى تكبير ثابت: لو غيّر المستخدم
+    // التكبير أثناء الملاحة يبقى على اختياره ولا تُعيده كل نبضة GPS قسراً.
+    if (followRef.current) map.panTo([me.lat, me.lng], { animate: true, duration: 0.6 });
+    const near = nearestOnPath(me.lat, me.lng, n.path);
+    if (near.dist > OFF_ROUTE_M) {
+      offRouteCountRef.current += 1;
+      // قراءتان متتاليتان خارج المسار (لا واحدة) حتى لا يُعاد الحساب لمجرد قفزة
+      // GPS عابرة، مع فترة تهدئة بين كل إعادة حساب وأخرى.
+      if (offRouteCountRef.current >= 2 && Date.now() - lastRerouteRef.current > REROUTE_COOLDOWN_MS) {
+        lastRerouteRef.current = Date.now();
+        offRouteCountRef.current = 0;
+        recalcRoute();
+      }
+    } else {
+      offRouteCountRef.current = 0;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me]);
 
   // ── موقعي الحالي: تتبّع مستمر + دائرة الدقة ──────────────────────────────
   // دالة قابلة لإعادة الاستدعاء من زر صريح بنقرة المستخدم: المتصفحات تتعامل
-  // مع طلب موقع ناتج عن نقرة فعلية بثقة أكبر من طلب تلقائي عند فتح الصفحة،
-  // وقد يكون سبب الرفض الأول أن النافذة لم تظهر أصلاً عند التحميل التلقائي.
+  // مع طلب موقع ناتج عن نقرة فعلية بثقة أكبر من طلب تلقائي عند فتح الصفحة.
+  // أثناء الملاحة نطلب قراءات أحدث (maximumAge منخفض) ليكون التتبّع سلساً.
   const startWatch = () => {
     if (!navigator.geolocation) { setGeoError('المتصفح لا يدعم تحديد الموقع.'); return; }
     if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
@@ -376,13 +623,14 @@ export default function RepFieldSurveyMap({ entries }: Props) {
         else if (err.code === 3) setGeoError('انتهت مهلة تحديد الموقع. تأكد من تفعيل GPS وحاول مجدداً.');
         else setGeoError('تعذّر تحديد موقعك الحالي. حاول مجدداً.');
       },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 },
+      { enableHighAccuracy: true, maximumAge: navRef.current ? 1000 : 10000, timeout: 20000 },
     );
   };
 
   useEffect(() => {
     startWatch();
     return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -428,31 +676,58 @@ export default function RepFieldSurveyMap({ entries }: Props) {
               <span><i style={{ background: COLOR_PHARMACY }} /> {totalPharmacies} صيدلية</span>
             </div>
             {mapKind !== 'all' && (
-              <div className="rfs-muted">عرض {mapKind === 'doctor' ? 'الأطباء' : 'الصيدليات'} فقط (من أزرار الخريطة) · <button className="rfs-map-link-btn" onClick={() => setMapKind('all')}>عرض الكل</button></div>
+              <div className="rfs-muted">
+                عرض {mapKind === 'doctor' ? 'الأطباء' : 'الصيدليات'} فقط (من أزرار الخريطة) ·{' '}
+                <button className="rfs-map-link-btn" onClick={() => setMapKind('all')}>عرض الكل</button>
+              </div>
             )}
+
+            {/* ── لوحة الملاحة ── */}
+            {navLoading && <div className="rfs-map-route-info">جارٍ حساب الطريق…</div>}
+            {navError && <div className="rfs-map-geo-error"><div>{navError}</div></div>}
+            {nav && navProgress && (
+              <div className="rfs-nav-card">
+                <div className="rfs-nav-step">
+                  <span className="rfs-nav-glyph">{navProgress.arrived ? '🏁' : navProgress.stepGlyph}</span>
+                  <span>
+                    <strong>{navProgress.arrived ? `وصلت إلى «${nav.toName}»` : navProgress.stepText}</strong>
+                    {!navProgress.arrived && navProgress.stepDistM > 0 && (
+                      <div className="rfs-muted">بعد {fmtDistance(navProgress.stepDistM)}</div>
+                    )}
+                  </span>
+                </div>
+                <div className="rfs-nav-meta">
+                  <span>🏁 {nav.toName}</span>
+                  <span>{fmtDistance(navProgress.remainingM)} · {fmtDuration(navProgress.remainingS)}</span>
+                </div>
+                {navProgress.offRoute && <div className="rfs-nav-warn">خارج المسار — يُعاد حساب الطريق تلقائياً…</div>}
+                {rerouted && <div className="rfs-nav-ok">تم تصحيح المسار حسب طريقك الجديد.</div>}
+                <div className="rfs-nav-actions">
+                  {!follow && <button className="rfs-map-me-btn" onClick={() => setFollow(true)}>🎯 استئناف المتابعة</button>}
+                  <button className="rfs-map-retry-btn" onClick={recalcRoute}>🔄 إعادة حساب المسار</button>
+                  <button className="rfs-map-retry-btn" onClick={stopNav}>✕ إيقاف الملاحة</button>
+                </div>
+                {me && (
+                  <div className="rfs-nav-external">
+                    للملاحة الصوتية خطوة بخطوة:{' '}
+                    <a href={gmapsNavUrl(me, nav.toLat, nav.toLng)} target="_blank" rel="noreferrer">Google Maps ↗</a>
+                    {' · '}
+                    <a href={wazeNavUrl(nav.toLat, nav.toLng)} target="_blank" rel="noreferrer">Waze ↗</a>
+                  </div>
+                )}
+              </div>
+            )}
+
             {geoError && (
               <div className="rfs-map-geo-error">
                 <div>{geoError}</div>
                 <button className="rfs-map-retry-btn" onClick={startWatch}>🔄 إعادة المحاولة</button>
               </div>
             )}
-            {me && (
+            {me && !nav && (
               <button className="rfs-map-me-btn" onClick={recenterOnMe}>
                 📍 اذهب إلى موقعي (دقة ±{Math.round(me.accuracy)} م)
               </button>
-            )}
-            {routeLoading && <div className="rfs-map-route-info">جارٍ حساب الطريق…</div>}
-            {routeError && (
-              <div className="rfs-map-geo-error">
-                <div>{routeError}</div>
-              </div>
-            )}
-            {route && (
-              <div className="rfs-map-route-info">
-                <div><strong>🧭 الطريق إلى «{route.toName}»</strong></div>
-                <div className="rfs-muted">{fmtDistance(route.distanceM)} · {fmtDuration(route.durationS)} تقريباً</div>
-                <button className="rfs-map-retry-btn" onClick={clearRoute}>✕ إلغاء المسار</button>
-              </div>
             )}
             <div className="rfs-map-area-title">المناطق ({areaGroups.length})</div>
             <div className="rfs-map-area-list">
