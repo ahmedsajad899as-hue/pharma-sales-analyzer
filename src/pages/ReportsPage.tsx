@@ -847,6 +847,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [warehouseViewMode, setWarehouseViewMode] = useState<'list' | 'pivot'>('list');
   // زر TL: يبدّل بين مندوبي المبيع العاديين (الافتراضي، بلا قادة فرق) وقادة الفرق أنفسهم
   const [warehouseShowLeaders, setWarehouseShowLeaders] = useState(false);
+  // فلتر الشركة المعروضة داخل القائمة الثانوية — '' = كل الشركات (نفس سلوك
+  // شرائح الشركات في «ملخص زيارات كل المندوبين»: شركة واحدة أو الكل)
+  const [warehouseCompanyFilter, setWarehouseCompanyFilter] = useState('');
   const [reportView, setReportView] = useState<ReportView>(() => (sessionStorage.getItem('rpt_view') as ReportView) || getDefaultReportView());
   const [exporting, setExporting]           = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
@@ -2881,7 +2884,21 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // leadersOnly=false (الافتراضي): يستبعد قادة الفرق تماماً من الجدول العادي —
   // بطلب المستخدم، لا يظهرون بين المندوبين. leadersOnly=true: يعرض قادة الفرق
   // فقط (زر TL) بنفس شكل الجدول/القائمة.
-  const getOrderedWarehouseColumns = (data: RepWarehouseSummary[], leadersOnly = false) => {
+  //
+  // companyFilter: اسم شركة واحدة ('' = الكل) — يُطبَّق على المجموعات الجاهزة
+  // لا على الصفوف، فتبقى حدود spans مطابقة لعدد أعمدة cols دائماً.
+  const getOrderedWarehouseColumns = (data: RepWarehouseSummary[], leadersOnly = false, companyFilter = '') => {
+    const keepCompany = (cols: RepWarehouseSummary[], spans: { company: string; start: number; count: number }[]) => {
+      if (!companyFilter) return { cols, spans };
+      const outCols: RepWarehouseSummary[] = [];
+      const outSpans: { company: string; start: number; count: number }[] = [];
+      for (const s of spans) {
+        if (s.company !== companyFilter) continue;
+        outSpans.push({ company: s.company, start: outCols.length, count: s.count });
+        outCols.push(...cols.slice(s.start, s.start + s.count));
+      }
+      return { cols: outCols, spans: outSpans };
+    };
     const byId = new Map(data.map(r => [r.id, r]));
     const groups = groupRepsByTeam(sciReps.filter(r => byId.has(r.id)));
     const cols: RepWarehouseSummary[] = [];
@@ -2901,13 +2918,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const count = cols.length - start;
       if (count > 0) spans.push({ company: g.company || 'بدون شركة', start, count });
     }
-    if (leadersOnly) return { cols, spans };
+    if (leadersOnly) return keepCompany(cols, spans);
     // أي بيانات لم تَرِد في sciReps أصلاً (احتياط — نادر) تُلحَق في النهاية ضمن
     // مجموعة خاصة بها، كي يبقى مجموع أعمدة spans مطابقاً دائماً لعدد أعمدة cols.
     const leftoverStart = cols.length;
     for (const r of data) if (!matchedIds.has(r.id)) cols.push(r);
     if (cols.length > leftoverStart) spans.push({ company: 'أخرى', start: leftoverStart, count: cols.length - leftoverStart });
-    return { cols, spans };
+    return keepCompany(cols, spans);
   };
 
   // يحوّل بيانات القائمة (مندوب لكل صف، بعد ترتيبها حسب الشركة) إلى شكل جدول
@@ -2936,7 +2953,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // العمود بالجدول المحوري ثلاثي (الشركة/الاسم/صافي المبيع) بدمج خلايا حقيقي.
   const exportWarehouseSummaryToExcel = () => {
     if (!allRepsWarehouseData || allRepsWarehouseData.length === 0) return;
-    const { cols, spans } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders);
+    const { cols, spans } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders, warehouseCompanyFilter);
     const wb = XLSX.utils.book_new();
     const blank = (n: number) => (n === 0 ? '' : n);
     if (warehouseViewMode === 'pivot') {
@@ -3465,7 +3482,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           {/* كل المندوبين العلميين دفعة واحدة — مكتب/مذخر + أسماء المذاخر */}
           {mode === 'scientific' && (
             <button
-              onClick={() => { setShowAllRepsWarehouseModal(true); loadAllRepsWarehouseSummary(); }}
+              onClick={() => { setShowAllRepsWarehouseModal(true); setWarehouseCompanyFilter(''); loadAllRepsWarehouseSummary(); }}
               style={{
                 padding: '7px 14px', border: '1px solid #bfdbfe', borderRadius: 6, flexShrink: 0,
                 background: '#eff6ff', color: '#1d4ed8', fontSize: 13, fontWeight: 600,
@@ -4944,6 +4961,37 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <button className="modal-close" onClick={() => setShowAllRepsWarehouseModal(false)}><Icon name="close" size={16} /></button>
             </div>
             <div style={{ padding: '14px 22px 22px' }}>
+              {/* فلتر الشركات — شركة واحدة فقط أو الكل (نفس شرائح «ملخص زيارات
+                  كل المندوبين»). الأسماء مأخوذة من تجميع الشركات نفسه الذي
+                  يرتّب الجدول، بلا فلترة، كي تبقى كل الشركات معروضة دائماً. */}
+              {(() => {
+                if (allRepsWarehouseLoading || !allRepsWarehouseData || allRepsWarehouseData.length === 0) return null;
+                const companies = [...new Set(getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders).spans.map(s => s.company))];
+                if (companies.length <= 1) return null;
+                const chip = (active: boolean): React.CSSProperties => ({
+                  padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: `1.5px solid ${active ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                  background: active ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                  color: active ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+                });
+                return (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="navOrgStructure" size={11} /> الشركة المعروضة
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => { setWarehouseCompanyFilter(''); setExpandedWarehouseRepId(null); }}
+                        style={chip(warehouseCompanyFilter === '')}>الكل</button>
+                      {companies.map(c => (
+                        <button key={c}
+                          onClick={() => { setWarehouseCompanyFilter(warehouseCompanyFilter === c ? '' : c); setExpandedWarehouseRepId(null); }}
+                          style={chip(warehouseCompanyFilter === c)}>{c}</button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* تبديل شكل العرض + مندوبين/قادة فرق + تصدير */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                 <div style={{ display: 'flex', gap: 6 }}>
@@ -4955,7 +5003,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                   ><Icon name="excel" size={12} /> جدول (مذخر × مندوب)</button>
                 </div>
                 {/* قادة الفرق مستبعَدون من الجدول العادي — هذا الزر يعرض بياناتهم هم فقط بدلاً منهم */}
-                <button onClick={() => { setWarehouseShowLeaders(v => !v); setExpandedWarehouseRepId(null); }}
+                <button onClick={() => { setWarehouseShowLeaders(v => !v); setExpandedWarehouseRepId(null); setWarehouseCompanyFilter(''); }}
                   title={warehouseShowLeaders ? 'الرجوع لعرض المندوبين' : 'عرض قادة الفرق (Team Leaders)'}
                   style={{ padding: '6px 18px', borderRadius: 8, border: `1.5px solid ${warehouseShowLeaders ? '#b45309' : '#e2e8f0'}`, background: warehouseShowLeaders ? '#fffbeb' : '#fff', color: warehouseShowLeaders ? '#b45309' : '#94a3b8', fontSize: 12, fontWeight: 800, letterSpacing: '.4px', cursor: 'pointer' }}
                 >TL</button>
@@ -4973,10 +5021,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               ) : !allRepsWarehouseData || allRepsWarehouseData.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا يوجد مندوبون علميون بيانات</div>
               ) : warehouseViewMode === 'list' ? (() => {
-                const { cols } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders);
+                const { cols } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders, warehouseCompanyFilter);
                 const companyById = new Map(sciReps.map(r => [r.id, r.company || '']));
                 if (cols.length === 0) {
-                  return <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>{warehouseShowLeaders ? 'لا يوجد قادة فرق' : 'لا يوجد مندوبون'}</div>;
+                  return <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>{warehouseCompanyFilter ? `لا يوجد ${warehouseShowLeaders ? 'قادة فرق' : 'مندوبون'} ضمن شركة ${warehouseCompanyFilter}` : (warehouseShowLeaders ? 'لا يوجد قادة فرق' : 'لا يوجد مندوبون')}</div>;
                 }
                 // تصميم رسمي صافٍ (مطابق لجدول «مذخر × مندوب» المحوري وجدول «صافي
                 // المبيع — محافظة × شركة»): أبيض/أسود/رمادي فقط، بلا تدرّجات ألوان
@@ -5046,9 +5094,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 </div>
                 );
               })() : (() => {
-                const { cols, spans } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders);
+                const { cols, spans } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders, warehouseCompanyFilter);
                 if (cols.length === 0) {
-                  return <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>{warehouseShowLeaders ? 'لا يوجد قادة فرق' : 'لا يوجد مندوبون'}</div>;
+                  return <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>{warehouseCompanyFilter ? `لا يوجد ${warehouseShowLeaders ? 'قادة فرق' : 'مندوبون'} ضمن شركة ${warehouseCompanyFilter}` : (warehouseShowLeaders ? 'لا يوجد قادة فرق' : 'لا يوجد مندوبون')}</div>;
                 }
                 const { rows, colTotals, grandTotal, grandValueTotal } = buildWarehousePivot(cols);
                 if (rows.length === 0) {
