@@ -278,7 +278,9 @@ function buildPopupHtml(e: Entry, me: { lat: number; lng: number } | null): stri
       ${dist != null ? `<div style="font-size:12.5px; font-weight:700; color:${COLOR_ME}; margin-bottom:4px;">📍 يبعد عنك ${fmtDistance(dist)}</div>` : ''}
       <div style="display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap;">
         <button type="button" data-rfs-nav="1" style="font-size:12.5px; font-weight:700; color:#fff; background:${COLOR_ROUTE}; border:0; border-radius:6px; padding:5px 11px; cursor:pointer;">🧭 ابدأ الملاحة (داخل الخريطة)</button>
-        ${e.canEdit ? `<button type="button" data-rfs-edit="1" style="font-size:12.5px; font-weight:700; color:${COLOR_ROUTE}; background:#fff; border:1px solid ${COLOR_ROUTE}; border-radius:6px; padding:4px 11px; cursor:pointer;">✎ تعديل</button>` : ''}
+        ${e.canEdit ? `<button type="button" data-rfs-edit="1" style="font-size:12.5px; font-weight:700; color:${COLOR_ROUTE}; background:#fff; border:1px solid ${COLOR_ROUTE}; border-radius:6px; padding:4px 11px; cursor:pointer;">✎ تعديل</button>`
+          : e.canRename ? `<button type="button" data-rfs-edit="1" title="تعديل الاسم" style="font-size:13px; line-height:1; color:${COLOR_ROUTE}; background:#fff; border:1px solid #c7dcfb; border-radius:50%; width:28px; height:28px; padding:0; cursor:pointer;">✎</button>`
+          : ''}
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
         <a href="${wazeNavUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700; color:#fff; background:#05c8f7; border-radius:6px; padding:4px 10px; text-decoration:none;">Waze ↗</a>

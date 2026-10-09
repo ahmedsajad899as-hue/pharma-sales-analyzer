@@ -3644,6 +3644,25 @@ select.comm-input { cursor: pointer; }
   .rfs-filters .form-input { min-width: 0; width: 100%; }
 }
 .rfs-modal { max-width: 640px; }
+.rfs-rename-modal { max-width: 380px; }
+/* زر صغير لتصحيح الاسم (المدير) */
+.rfs-rename-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #c7dcfb;
+  background: #fff;
+  color: var(--c-accent);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+.rfs-rename-btn:hover { background: var(--c-accent-light); }
 /* فوق خريطة ملء الشاشة (z-index 10000) — نافذة «تعديل» تُفتح من داخل الخريطة */
 .modal-overlay.rfs-modal-overlay { z-index: 10001; }
 .rfs-details { display: grid; grid-template-columns: max-content 1fr; gap: 10px 18px; margin: 0; font-size: 13.5px; }

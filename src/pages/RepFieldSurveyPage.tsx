@@ -33,6 +33,8 @@ export interface Entry {
   editedByName: string | null;
   // المالك أو زميل مكتب يشاركه نفس المنطقة — الخادم هو من يقرّر
   canEdit: boolean;
+  // المدير/الأدمن: تصحيح الاسم فقط
+  canRename: boolean;
 }
 
 interface RepOption { userId: number; name: string; company: string | null }
@@ -400,7 +402,42 @@ export default function RepFieldSurveyPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError]   = useState('');
 
+  // ── تصحيح الاسم (للمدير) ────────────────────────────────────────────────
+  const [renaming, setRenaming]         = useState<Entry | null>(null);
+  const [renameValue, setRenameValue]   = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError]   = useState('');
+
+  const openRename = (e: Entry) => {
+    setRenaming(e);
+    setRenameValue(e.name);
+    setRenameError('');
+  };
+
+  const saveRename = async () => {
+    if (!renaming) return;
+    const name = renameValue.trim();
+    if (!name) { setRenameError('الاسم مطلوب.'); return; }
+    if (name === renaming.name) { setRenaming(null); return; }
+    setRenameSaving(true);
+    setRenameError('');
+    try {
+      const r = await fetch(`/api/rep-field-survey/entries/${renaming.id}`, {
+        method: 'PATCH', headers: H(), body: JSON.stringify({ name }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.message || 'تعذّر حفظ الاسم.');
+      setRenaming(null);
+      load();
+    } catch (err: any) {
+      setRenameError(err.message);
+    } finally {
+      setRenameSaving(false);
+    }
+  };
+
   const openEdit = (e: Entry) => {
+    if (!e.canEdit) { if (e.canRename) openRename(e); return; }
     setEditing(e);
     setEditForm({
       name: e.name,
@@ -865,6 +902,9 @@ export default function RepFieldSurveyPage() {
                       {e.canEdit && (
                         <button className="btn btn--secondary btn--sm" onClick={() => openEdit(e)}>تعديل</button>
                       )}
+                      {!e.canEdit && e.canRename && (
+                        <button className="rfs-rename-btn" title="تعديل الاسم" onClick={() => openRename(e)}>✎</button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -932,7 +972,39 @@ export default function RepFieldSurveyPage() {
               {viewing.canEdit && (
                 <button className="btn btn--secondary" onClick={() => { const e = viewing; setViewing(null); openEdit(e); }}>تعديل</button>
               )}
+              {!viewing.canEdit && viewing.canRename && (
+                <button className="rfs-rename-btn" title="تعديل الاسم" onClick={() => { const e = viewing; setViewing(null); openRename(e); }}>✎</button>
+              )}
               <button className="btn btn--primary" onClick={() => setViewing(null)}>إغلاق</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── نافذة تصحيح الاسم (للمدير) ── */}
+      {renaming && (
+        <div className="modal-overlay rfs-modal-overlay" onClick={() => !renameSaving && setRenaming(null)}>
+          <div className="modal rfs-rename-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>تعديل اسم {renaming.kind === 'doctor' ? 'الطبيب' : 'الصيدلية'}</h2>
+              <button className="modal-close" onClick={() => setRenaming(null)} disabled={renameSaving}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="rfs-muted" style={{ marginBottom: 8 }}>
+                {renaming.areaName}{renaming.repName ? ` · ${renaming.repName}` : ''}
+              </div>
+              <input
+                className="form-input"
+                value={renameValue}
+                autoFocus
+                onChange={e => setRenameValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveRename(); }}
+              />
+              {renameError && <div className="alert alert--error" style={{ marginTop: 10 }}>{renameError}</div>}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn--secondary" onClick={() => setRenaming(null)} disabled={renameSaving}>إلغاء</button>
+              <button className="btn btn--primary" onClick={saveRename} disabled={renameSaving}>{renameSaving ? 'جارٍ الحفظ…' : 'حفظ'}</button>
             </div>
           </div>
         </div>
