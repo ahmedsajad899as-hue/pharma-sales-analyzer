@@ -22,6 +22,10 @@ const COLOR_ROUTE = '#1a73e8';
 const COLOR_ROUTE_DONE = '#9bb0c9';
 
 const EARTH_M_PER_DEG = 111320;
+// تحت هذا التقريب تُرسم النقاط دوائرَ على Canvas واحد (آلاف النقاط بكلفة رسم
+// صورة واحدة، والتكبير يحرّك طبقة واحدة لا مئات العناصر)؛ عنده وفوقه — حيث
+// النقاط داخل الشاشة قليلة — تُعرض الدبابيس الكاملة برموزها 🩺/💊.
+const DETAIL_ZOOM = 15;
 // خارج المسار بأكثر من هذا (متر) = المستخدم غيّر الطريق فعلاً، لا مجرّد خطأ GPS
 const OFF_ROUTE_M = 45;
 const ARRIVE_M = 30;
@@ -263,6 +267,8 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
   const routeDoneRef = useRef<L.Polyline | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
   const kindBtnsRef = useRef<{ doctorBtn: HTMLElement; pharmacyBtn: HTMLElement } | null>(null);
+  const dotLayerRef = useRef<L.LayerGroup | null>(null);
+  const dotRendererRef = useRef<L.Canvas | null>(null);
 
   const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
   const [geoError, setGeoError] = useState('');
@@ -484,14 +490,59 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
   // التفاصيل تومض وتختفي إلا إذا كان التقريب كبيراً بما يكفي ليتسع للنافذة بلا
   // تحريك. المزامنة التفاضلية تُبقي الدبوس المفتوح (وكل الدبابيس القائمة) حياً،
   // وهي أخف أيضاً لأنها لا تُنشئ مئات العناصر من جديد مع كل حركة.
+  // المحتوى دالة تُقيَّم عند الفتح فقط: لا يُبنى HTML النافذة لآلاف النقاط مسبقاً،
+  // والمسافة "يبعد عنك" تُحسب من موقعي الحالي لحظة الفتح.
+  const bindEntryPopup = (layer: L.Marker | L.CircleMarker, e: Entry) => {
+    layer.bindPopup(() => buildPopupHtml(e, meRef.current), { autoPan: true, autoPanPadding: [40, 40] });
+    layer.on('popupopen', () => {
+      const popupEl = layer.getPopup()?.getElement();
+      const navBtn = popupEl?.querySelector('[data-rfs-nav]') as HTMLButtonElement | null;
+      if (navBtn) navBtn.onclick = ev => { ev.preventDefault(); startNav(e); };
+      const editBtn = popupEl?.querySelector('[data-rfs-edit]') as HTMLButtonElement | null;
+      if (editBtn) editBtn.onclick = ev => { ev.preventDefault(); onEdit?.(e); };
+    });
+  };
+
+  const rebuildDots = () => {
+    const dots = dotLayerRef.current;
+    const renderer = dotRendererRef.current;
+    if (!dots || !renderer) return;
+    dots.clearLayers();
+    const pos = displayPosRef.current;
+    for (const e of locatedRef.current) {
+      const p = pos.get(e.id) ?? ([e.latitude, e.longitude] as [number, number]);
+      const dot = L.circleMarker(p, {
+        renderer,
+        radius: 7,
+        color: '#fff',
+        weight: 2,
+        fillColor: e.kind === 'doctor' ? COLOR_DOCTOR : COLOR_PHARMACY,
+        fillOpacity: 1,
+      });
+      bindEntryPopup(dot, e);
+      dots.addLayer(dot);
+    }
+  };
+
   function syncMarkersImpl(rebuild = false) {
     const map = mapRef.current;
     const layer = layerRef.current;
-    if (!map || !layer) return;
+    const dots = dotLayerRef.current;
+    if (!map || !layer || !dots) return;
     if (rebuild) {
       layer.clearLayers();
       markersRef.current.clear();
+      rebuildDots();
     }
+    if (map.getZoom() < DETAIL_ZOOM) {
+      if (!map.hasLayer(dots)) dots.addTo(map);
+      if (markersRef.current.size) {
+        layer.clearLayers();
+        markersRef.current.clear();
+      }
+      return;
+    }
+    if (map.hasLayer(dots)) dots.remove();
     const pos = displayPosRef.current;
     const list = locatedRef.current;
     const view = map.getBounds().pad(0.5);
@@ -512,15 +563,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
       if (markersRef.current.has(id)) continue;
       const p = pos.get(id) ?? ([e.latitude, e.longitude] as [number, number]);
       const marker = L.marker(p, { icon: e.kind === 'doctor' ? DOCTOR_ICON : PHARMACY_ICON, riseOnHover: true }).addTo(layer);
-      marker.bindPopup(buildPopupHtml(e, meRef.current), { autoPan: true, autoPanPadding: [40, 40] });
-      marker.on('popupopen', () => {
-        marker.setPopupContent(buildPopupHtml(e, meRef.current));
-        const popupEl = marker.getPopup()?.getElement();
-        const navBtn = popupEl?.querySelector('[data-rfs-nav]') as HTMLButtonElement | null;
-        if (navBtn) navBtn.onclick = ev => { ev.preventDefault(); startNav(e); };
-        const editBtn = popupEl?.querySelector('[data-rfs-edit]') as HTMLButtonElement | null;
-        if (editBtn) editBtn.onclick = ev => { ev.preventDefault(); onEdit?.(e); };
-      });
+      bindEntryPopup(marker, e);
       markersRef.current.set(id, marker);
     }
   }
@@ -553,6 +596,9 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
       updateWhenZooming: false,
     }).addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
+    // tolerance: يوسّع مساحة اللمس حول كل دائرة صغيرة — النقر بالإصبع على الهاتف
+    dotRendererRef.current = L.canvas({ padding: 0.5, tolerance: 8 });
+    dotLayerRef.current = L.layerGroup();
 
     // زرّا فلترة سريعة (🩺 أطباء / 💊 صيدليات) قرب أزرار التكبير/التصغير
     const KindControl = L.Control.extend({
@@ -576,8 +622,9 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
     });
     new KindControl().addTo(map);
 
+    // moveend وحده يكفي: كل تكبير يُطلق moveend أيضاً، و'zoomend' معه كان يضاعف المزامنة
     const onMoveEnd = () => syncMarkersRef.current();
-    map.on('moveend zoomend', onMoveEnd);
+    map.on('moveend', onMoveEnd);
     // سحب المستخدم يدوياً أثناء الملاحة يوقف المتابعة التلقائية — فلا تتصارع
     // الخريطة معه، ويظهر زر لاستئنافها متى شاء.
     const onDragStart = () => { if (navRef.current) setFollow(false); };
@@ -585,11 +632,13 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
 
     mapRef.current = map;
     return () => {
-      map.off('moveend zoomend', onMoveEnd);
+      map.off('moveend', onMoveEnd);
       map.off('dragstart', onDragStart);
       map.remove();
       mapRef.current = null;
       layerRef.current = null;
+      dotLayerRef.current = null;
+      dotRendererRef.current = null;
       markersRef.current.clear();
       meMarkerRef.current = null;
       meCircleRef.current = null;
