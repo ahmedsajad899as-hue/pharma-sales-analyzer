@@ -15,7 +15,7 @@ import * as sciRepSvc from '../scientific-reps/scientific-reps.service.js';
 import { buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import { resolveDocOwnerUserId } from '../doctors/doctors.controller.js';
 import { getStandards } from '../../lib/followupStandards.js';
-import { getSnapshots, getSnapshotForRep, periodKeyOf, baghdadNow, FOLLOWUP_MANAGER_ROLES } from './rep-followup.service.js';
+import { getSnapshotsForViewer, getSnapshotForViewerRep, periodKeyOf, baghdadNow, FOLLOWUP_MANAGER_ROLES } from './rep-followup.service.js';
 import { formatRepDigest, countOverdueDoctors, findIdleAreas } from './rep-followup.digest.js';
 
 const MONTH_NAMES_AR = ['', 'كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
@@ -36,7 +36,7 @@ export async function answerFollowupQuery({ actorUser, repNameRaw, month, year, 
 
   // ── تقييم السائل نفسه ───────────────────────────────────────────────────
   if (self || !isManager) {
-    const card = await getSnapshotForRep(ownerUserId, actorUser.id, periodKey);
+    const card = await getSnapshotForViewerRep(actorUser.id, actorUser.id, periodKey);
     if (!card) {
       // المدير الذي يسأل «متابعتي» ليس له لقطة (اللقطات لمندوبيه) — نوجّهه لا نصمت.
       return self && isManager
@@ -82,7 +82,7 @@ export async function answerFollowupQuery({ actorUser, repNameRaw, month, year, 
 
   // اللقطات مفتاحها repUserId (حساب الدخول)، والمطابقة أعطتنا سجل المندوب
   // العلمي — نربط بينهما بـ scientificRepId المحفوظ في اللقطة.
-  const all = await getSnapshots(ownerUserId, periodKey);
+  const all = await getSnapshotsForViewer(actorUser, periodKey);
   const card = all.find(c => c.scientificRepId === rep.id);
   if (!card) {
     return [

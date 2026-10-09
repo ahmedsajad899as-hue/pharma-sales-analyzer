@@ -22,7 +22,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from '../../lib/prisma.js';
-import { computeRepsVisitsSummary, loadFollowupForViewer } from '../doctors/doctors.controller.js';
+import { computeRepsVisitsSummary, loadFollowupForViewer, resolveTeamReps, resolveDocOwnerUserId } from '../doctors/doctors.controller.js';
 import { getReport } from '../scientific-reps/scientific-reps.service.js';
 import { resolveActiveFileIds } from '../../lib/activeFiles.js';
 import { effectiveFor, parseRestWeekdays, workingDaysElapsed, workingDaysInMonth } from '../../lib/followupStandards.js';
@@ -466,7 +466,7 @@ async function persistSnapshots(ownerUserId, periodKey, cards, fileScope) {
   }
 }
 
-/** اللقطات المحفوظة — هذا ما تقرأه الصفحة، فلا تحسب شيئاً عند كل فتح. */
+/** اللقطات المحفوظة لمالك واحد — الاستعمال المباشر نادر، راجع getSnapshotsForViewer. */
 export async function getSnapshots(ownerUserId, periodKey) {
   const rows = await prisma.repScorecardSnapshot.findMany({
     where: { ownerUserId, periodType: 'month', periodKey },
@@ -478,6 +478,61 @@ export async function getSnapshots(ownerUserId, periodKey) {
 export async function getSnapshotForRep(ownerUserId, repUserId, periodKey) {
   const row = await prisma.repScorecardSnapshot.findUnique({
     where: { ownerUserId_repUserId_periodType_periodKey: { ownerUserId, repUserId, periodType: 'month', periodKey } },
+  });
+  return row ? hydrateSnapshot(row) : null;
+}
+
+// ── القراءة على مستوى المكتب ────────────────────────────────────────────────
+/**
+ * اللقطة تُكتب تحت حساب مَن حسبها، والمكتب الواحد فيه عدة حسابات إدارية. حين
+ * يحسب مدير المكتب وتسأل أنت (موظف المكتب، أو بوت مربوط بحسابك) كانت القراءة
+ * تعود فارغة: «لا توجد لقطة» بينما الصفحة تعرضها أمام زميلك. فالقراءة صارت على
+ * كل حسابات المكتب — نفس مبدأ دفتر الستوك الموحّد لكل مكتب.
+ *
+ * الكتابة تبقى تحت حساب الحاسب وحده (لا تتغيّر) — فقد يوجد صفّان لنفس المندوب
+ * من حاسبين مختلفين، ونأخذ الأحدث.
+ */
+export async function resolveSnapshotOwnerIds(viewerUserId) {
+  const ownerUserId = await resolveDocOwnerUserId(viewerUserId);
+  const me = await prisma.user.findUnique({ where: { id: viewerUserId }, select: { officeId: true } });
+  if (!me?.officeId) return [...new Set([viewerUserId, ownerUserId])];
+  const peers = await prisma.user.findMany({ where: { officeId: me.officeId }, select: { id: true } });
+  return [...new Set([viewerUserId, ownerUserId, ...peers.map(p => p.id)])];
+}
+
+/**
+ * لقطات الفترة كما يراها هذا المستخدم: مقروءة من كل المكتب، لكن **محدودة
+ * بمندوبي فريقه هو**. بلا هذا الحدّ كان مدير شركة يرى فريق المكتب كله لمجرّد أن
+ * زميله حسبه — توسيع نطاق لم يطلبه أحد.
+ */
+export async function getSnapshotsForViewer(viewerUser, periodKey, { restrictToRoster = true } = {}) {
+  const ownerIds = await resolveSnapshotOwnerIds(viewerUser.id);
+  const rows = await prisma.repScorecardSnapshot.findMany({
+    where: { ownerUserId: { in: ownerIds }, periodType: 'month', periodKey },
+    orderBy: { computedAt: 'desc' }, // الأحدث أولاً ليفوز عند تكرار نفس المندوب
+  });
+
+  const byRep = new Map();
+  for (const r of rows) if (!byRep.has(r.repUserId)) byRep.set(r.repUserId, r);
+  let list = [...byRep.values()];
+
+  if (restrictToRoster) {
+    const { reps } = await resolveTeamReps(viewerUser);
+    const allowed = new Set(reps.map(r => r.userId));
+    // صاحب الحساب نفسه مسموح دائماً (مندوب يقرأ لقطته).
+    allowed.add(viewerUser.id);
+    list = list.filter(r => allowed.has(r.repUserId));
+  }
+
+  return list.map(hydrateSnapshot).sort((a, b) => b.score - a.score);
+}
+
+/** لقطة مندوب واحد كما يراها هذا المستخدم (نفس توسيع المكتب، بلا فلترة فريق). */
+export async function getSnapshotForViewerRep(viewerUserId, repUserId, periodKey) {
+  const ownerIds = await resolveSnapshotOwnerIds(viewerUserId);
+  const row = await prisma.repScorecardSnapshot.findFirst({
+    where: { ownerUserId: { in: ownerIds }, repUserId, periodType: 'month', periodKey },
+    orderBy: { computedAt: 'desc' },
   });
   return row ? hydrateSnapshot(row) : null;
 }

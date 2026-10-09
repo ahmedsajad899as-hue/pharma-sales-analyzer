@@ -400,7 +400,7 @@ export default function RepFollowupPage() {
                             <td>
                               {m ? <>
                                 <div style={{ fontWeight: 700 }}>{pctText(m.coverage.doctorCoveragePct)}</div>
-                                <div style={{ fontSize: 10, color: '#64748b' }}>{fmtNum(m.coverage.visitedDoctors)}/{fmtNum(m.coverage.totalDoctors)}</div>
+                                <div style={{ fontSize: 10, color: '#64748b' }}>{fmtNum(m.coverage.visitedDoctors)} من {fmtNum(m.coverage.totalDoctors)}</div>
                               </> : '—'}
                             </td>
                             <td>
@@ -516,10 +516,17 @@ function CardDetail({ card, headers, canEditOverride, existingOverride, onOverri
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, fontSize: 12 }}>
             <Fact label="صافي المبيع" value={fmtUSD(m.sales.netValue)} sub={`الشهر الماضي ${fmtUSD(m.sales.prevNetValue)}`} />
             <Fact label="عدد الطلبيات" value={fmtNum(m.sales.orderCount)} sub={m.growth.orderGrowthPct !== null ? `${m.growth.orderGrowthPct >= 0 ? '+' : ''}${m.growth.orderGrowthPct}% عن الماضي` : undefined} />
-            <Fact label="التارجت (كمية)" value={`${fmtNum(m.target.achieved)} / ${fmtNum(m.target.total)}`} sub={m.target.gapQty > 0 ? `ناقص ${fmtNum(m.target.gapQty)} — ${fmtNum(m.target.neededPerDay)} باليوم` : 'مكتمل'} />
-            <Fact label="أيام العمل" value={`${m.visits.workDaysElapsed} / ${m.visits.workDaysTotal}`} sub={`مرّ ${m.visits.monthProgressPct}% من الشهر`} />
+            {/* «س / ص» ينقلب بصرياً في RTL فيُقرأ مقلوباً — نكتبها «س من ص» */}
+            <Fact
+              label="التارجت (كمية)"
+              value={m.target.total > 0 ? `${fmtNum(m.target.achieved)} من ${fmtNum(m.target.total)}` : '—'}
+              sub={m.target.total > 0
+                ? (m.target.gapQty > 0 ? `ناقص ${fmtNum(m.target.gapQty)} — ${fmtNum(m.target.neededPerDay)} باليوم` : 'مكتمل')
+                : 'لا تارجت مُدخَل لهذا الشهر'}
+            />
+            <Fact label="أيام العمل" value={`${m.visits.workDaysElapsed} من ${m.visits.workDaysTotal}`} sub={`مرّ ${m.visits.monthProgressPct}% من الشهر`} />
             <Fact label="أيام بلا زيارة" value={fmtNum(m.visits.zeroDays)} sub={m.visits.zeroDayList.length ? `أيام ${m.visits.zeroDayList.join('، ')}` : undefined} danger={m.visits.zeroDays > 0} />
-            <Fact label="تغطية الصيدليات" value={pctText(m.coverage.pharmacyCoveragePct)} sub={`${fmtNum(m.coverage.visitedPharmacies)}/${fmtNum(m.coverage.totalPharmacies)}`} />
+            <Fact label="تغطية الصيدليات" value={pctText(m.coverage.pharmacyCoveragePct)} sub={`${fmtNum(m.coverage.visitedPharmacies)} من ${fmtNum(m.coverage.totalPharmacies)}`} />
             <Fact label="التزام البلان" value={pctText(m.discipline.adherencePct)} sub={m.discipline.hasData ? `${m.discipline.visited}/${m.discipline.planned} مدخلاً` : 'لا بلان مُسجَّل'} />
             <Fact label="المناطق" value={fmtNum(m.coverage.areaCount)} sub={m.coverage.areasWithNoVisits.length ? `${m.coverage.areasWithNoVisits.length} بلا زيارة` : 'كلها مزارة'} danger={m.coverage.areasWithNoVisits.length > 0} />
           </div>
@@ -568,9 +575,9 @@ function CardDetail({ card, headers, canEditOverride, existingOverride, onOverri
                     {m.coverage.areas.map((a, i) => (
                       <tr key={i} style={{ background: (a.doctorVisitCount + a.pharmacyVisitCount) === 0 ? 'rgba(239,68,68,0.06)' : undefined }}>
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>{a.areaName}</td>
-                        <td>{a.totalDoctors > 0 ? `${a.visitedDoctors}/${a.totalDoctors}` : '—'}</td>
+                        <td>{a.totalDoctors > 0 ? `${a.visitedDoctors} من ${a.totalDoctors}` : '—'}</td>
                         <td>{a.doctorVisitCount || '—'}</td>
-                        <td>{a.totalPharmacies > 0 ? `${a.visitedPharmacies}/${a.totalPharmacies}` : '—'}</td>
+                        <td>{a.totalPharmacies > 0 ? `${a.visitedPharmacies} من ${a.totalPharmacies}` : '—'}</td>
                         <td>{a.pharmacyVisitCount || '—'}</td>
                         <td style={{ fontSize: 11, color: '#64748b' }}>{a.lastVisitAt ?? 'بلا زيارة'}</td>
                       </tr>

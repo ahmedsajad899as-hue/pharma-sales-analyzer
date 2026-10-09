@@ -1367,7 +1367,7 @@ const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader', ...OFFICE_SC
 // نفس منطق getManagerSubReps (أدناه) مستخرَج كدالة قابلة لإعادة الاستخدام —
 // يحتاجه أيضاً allRepsVisitsSummary (ملخص كل المندوبين دفعة واحدة في خانة
 // الزيارات) بلا تكرار الاستعلامات نفسها.
-async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
+export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
   const managerId = user.id;
   let subUsers; // { id, displayName, username, linkedRepId, role }[]
 

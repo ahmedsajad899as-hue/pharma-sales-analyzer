@@ -106,7 +106,7 @@ export async function getScorecardsHandler(req, res, next) {
     const ownerUserId = await resolveDocOwnerUserId(req.user.id);
     const { month, year, periodKey } = periodFromQuery(req.query);
     const [reps, standards] = await Promise.all([
-      svc.getSnapshots(ownerUserId, periodKey),
+      svc.getSnapshotsForViewer(req.user, periodKey),
       getStandards(ownerUserId),
     ]);
     res.json({
@@ -144,18 +144,19 @@ export async function recomputeHandler(req, res, next) {
  * ما سيُرسَل فعلاً بالضبط، لا رقماً أحدث منه.
  * repUserId = null → ملخّص المدير.
  */
-async function buildDigestMessage(ownerUserId, periodKey, repUserId) {
+async function buildDigestMessage(viewerUser, ownerUserId, periodKey, repUserId) {
   const standards = await getStandards(ownerUserId);
 
   if (repUserId == null) {
-    const cards = await svc.getSnapshots(ownerUserId, periodKey);
+    const cards = await svc.getSnapshotsForViewer(viewerUser, periodKey);
     const b = baghdadNow();
     return { msg: formatManagerDigest(cards, standards, { dayOfMonth: b.getUTCDate() }), kind: 'manager', standards };
   }
 
-  // النطاق محروس هنا: اللقطة تُقرأ بـ ownerUserId، فلا يستطيع مدير أن يُراسل
-  // مستخدماً خارج فريقه (لا لقطة له عنده ← لا رسالة).
-  const card = await svc.getSnapshotForRep(ownerUserId, repUserId, periodKey);
+  // النطاق محروس هنا: اللقطة تُقرأ ضمن مكتب المُشاهِد ومحدودة بفريقه، فلا يستطيع
+  // مدير أن يُراسل مستخدماً خارج فريقه (لا لقطة له ← لا رسالة).
+  const inScope = await svc.getSnapshotsForViewer(viewerUser, periodKey);
+  const card = inScope.find(c => c.repUserId === repUserId) ?? null;
   if (!card) return { msg: null, kind: 'rep', standards, missing: true };
 
   const [overdueDoctors, idleAreas] = await Promise.all([
@@ -176,7 +177,7 @@ export async function previewDigestHandler(req, res, next) {
       return res.status(400).json({ error: 'معرّف المندوب غير صالح' });
     }
 
-    const { msg, kind, standards, missing } = await buildDigestMessage(ownerUserId, periodKey, repUserId);
+    const { msg, kind, standards, missing } = await buildDigestMessage(req.user, ownerUserId, periodKey, repUserId);
     const recipientId = repUserId ?? ownerUserId;
     const links = await prisma.telegramChatLink.findMany({
       where: { userId: recipientId, isActive: true },
@@ -217,7 +218,7 @@ export async function sendTestDigestHandler(req, res, next) {
       return res.status(400).json({ error: 'معرّف المندوب غير صالح' });
     }
 
-    const { msg, kind, standards, missing } = await buildDigestMessage(ownerUserId, periodKey, repUserId);
+    const { msg, kind, standards, missing } = await buildDigestMessage(req.user, ownerUserId, periodKey, repUserId);
     if (missing) return res.status(404).json({ error: 'لا توجد لقطة محسوبة لهذا المندوب في هذه الفترة — اضغط «احسب الآن» أولاً' });
     if (!msg) return res.json({ success: true, sent: false, empty: true, message: 'لا يوجد ما يستحق رسالة اليوم لهذا المستلم' });
 
@@ -253,7 +254,7 @@ export async function telegramStatusHandler(req, res, next) {
     if (!isManager(req.user.role)) return res.status(403).json({ error: 'متاح للمدراء فقط' });
     const ownerUserId = await resolveDocOwnerUserId(req.user.id);
     const { periodKey } = periodFromQuery(req.query);
-    const snaps = await svc.getSnapshots(ownerUserId, periodKey);
+    const snaps = await svc.getSnapshotsForViewer(req.user, periodKey);
     const ids = [...new Set([ownerUserId, ...snaps.map(s => s.repUserId)])];
 
     const links = ids.length
@@ -295,7 +296,7 @@ export async function getMyScorecardHandler(req, res, next) {
     const ownerUserId = await resolveDocOwnerUserId(req.user.id);
     const { month, year, periodKey } = periodFromQuery(req.query);
     const [card, standards] = await Promise.all([
-      svc.getSnapshotForRep(ownerUserId, req.user.id, periodKey),
+      svc.getSnapshotForViewerRep(req.user.id, req.user.id, periodKey),
       getStandards(ownerUserId),
     ]);
     res.json({ success: true, periodKey, month, year, standards, card });
