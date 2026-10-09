@@ -27,6 +27,18 @@ import {
 const TICK_MS = 60 * 1000;
 const NIGHTLY_HOUR = 3; // بغداد
 
+/**
+ * هل أُغلق هذا المفتاح لهذا الحساب من شاشة «المميزات»؟
+ * نفس عقد hasFeature في الواجهة: permissions.disabledFeatures مصفوفة مفاتيح،
+ * والغياب = مُفعَّل. JSON تالف ⇒ نعتبرها مُفعَّلة (لا نُسكِت ميزة بسبب حقل معطوب).
+ */
+function isFeatureDisabled(permissionsJson, key) {
+  try {
+    const p = JSON.parse(permissionsJson || '{}');
+    return Array.isArray(p.disabledFeatures) && p.disabledFeatures.includes(key);
+  } catch { return false; }
+}
+
 /** هل حان وقت هذه الساعة اليوم ولم يُنفَّذ بعد؟ */
 export function isDueAtHour(hour, lastRunAt, now = new Date()) {
   const b = baghdadNow(now);
@@ -59,9 +71,14 @@ async function markRan(ownerUserId, kind, lineCount = 0) {
 async function computeForOwner(ownerUserId) {
   const owner = await prisma.user.findUnique({
     where: { id: ownerUserId },
-    select: { id: true, role: true, isActive: true },
+    select: { id: true, role: true, isActive: true, permissions: true },
   });
   if (!owner || !owner.isActive) return null;
+
+  // ميزة مُغلقة من شاشة «المميزات» عند الأدمن ⇒ لا حساب ولا رسائل. بدون هذا
+  // الفحص كانت الصفحة تختفي من حساب المدير بينما تستمر رسائل الملخّص بالوصول
+  // إليه وإلى مندوبيه — تعطيل بنصف مفعول يُربك أكثر مما ينظّم.
+  if (isFeatureDisabled(owner.permissions, 'rep_followup')) return null;
 
   const b = baghdadNow();
   return computeScorecards(owner, {

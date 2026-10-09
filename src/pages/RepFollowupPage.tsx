@@ -110,9 +110,14 @@ const fmtUSD = (v: number | null | undefined) => `$${fmtNum(v)}`;
 const pctText = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v}%`);
 
 export default function RepFollowupPage() {
-  const { token, user } = useAuth();
+  const { token, user, hasFeature } = useAuth();
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
   const isManager = MANAGER_ROLES.has(user?.role ?? '');
+  // مفاتيح شاشة «المميزات» عند الأدمن (featureConfig.ts) — إغلاق أيٍّ منها يُخفي
+  // جزءه فقط، والصفحة كاملة تُخفى بمفتاح rep_followup من الشريط الجانبي.
+  const canEditStandards = hasFeature('rep_followup_standards');
+  const canUseDigest     = hasFeature('rep_followup_digest');
+  const canRecompute     = hasFeature('rep_followup_recompute');
 
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -230,7 +235,9 @@ export default function RepFollowupPage() {
       {isManager && (
         <div className="tabs">
           <button className={`tab ${tab === 'team' ? 'tab--active' : ''}`} onClick={() => setTab('team')}>📊 الفريق</button>
-          <button className={`tab ${tab === 'standards' ? 'tab--active' : ''}`} onClick={() => setTab('standards')}>⚙️ المعايير</button>
+          {canEditStandards && (
+            <button className={`tab ${tab === 'standards' ? 'tab--active' : ''}`} onClick={() => setTab('standards')}>⚙️ المعايير</button>
+          )}
         </div>
       )}
 
@@ -250,7 +257,7 @@ export default function RepFollowupPage() {
             ))}
           </select>
         </div>
-        {isManager && (
+        {isManager && canRecompute && (
           <button className="btn btn--primary" onClick={recompute} disabled={computing}>
             {computing ? '⏳ جاري الحساب…' : '🔄 احسب الآن'}
           </button>
@@ -278,7 +285,7 @@ export default function RepFollowupPage() {
       )}
 
       {/* حالة الربط بتلكرام — السبب الأول لعدم وصول الرسائل */}
-      {isManager && tg && standards?.digestEnabled && tg.totalCount > 0 && tg.linkedCount < tg.totalCount && (
+      {isManager && canUseDigest && tg && standards?.digestEnabled && tg.totalCount > 0 && tg.linkedCount < tg.totalCount && (
         <div className="info-banner" style={{ background: 'rgba(245,158,11,0.12)', color: '#92400e' }}>
           📨 الملخّص مفعّل، لكن {tg.totalCount - tg.linkedCount} من {tg.totalCount} مندوباً غير مربوط بكروب تلكرام —
           هؤلاء سيستلمون الإشعار داخل التطبيق فقط. الربط: يُضاف البوت لكروب المندوب، فيردّ البوت برقم الكروب،
@@ -421,11 +428,12 @@ export default function RepFollowupPage() {
                                 <CardDetail
                                   card={c}
                                   headers={headers}
-                                  canEditOverride
                                   existingOverride={overrides.find(o => o.scientificRepId === c.scientificRepId) ?? null}
                                   onOverridesChanged={setOverrides}
                                   month={month}
                                   year={year}
+                                  canUseDigest={canUseDigest}
+                                  canEditOverride={canEditStandards}
                                 />
                               </td>
                             </tr>
@@ -442,7 +450,7 @@ export default function RepFollowupPage() {
       )}
 
       {/* ══ تبويب المعايير ════════════════════════════════════════════ */}
-      {isManager && tab === 'standards' && standards && (
+      {isManager && canEditStandards && tab === 'standards' && standards && (
         <StandardsTab
           standards={standards}
           overrides={overrides}
@@ -452,6 +460,7 @@ export default function RepFollowupPage() {
           tg={tg}
           month={month}
           year={year}
+          canUseDigest={canUseDigest}
         />
       )}
     </div>
@@ -467,7 +476,7 @@ const COMPONENT_LABELS: Record<string, string> = {
   growth: 'التطوّر', discipline: 'الانضباط',
 };
 
-function CardDetail({ card, headers, canEditOverride, existingOverride, onOverridesChanged, month, year }: {
+function CardDetail({ card, headers, canEditOverride, existingOverride, onOverridesChanged, month, year, canUseDigest }: {
   card: Card;
   headers?: Record<string, string>;
   canEditOverride?: boolean;
@@ -475,6 +484,7 @@ function CardDetail({ card, headers, canEditOverride, existingOverride, onOverri
   onOverridesChanged?: (list: OverrideRow[]) => void;
   month?: number;
   year?: number;
+  canUseDigest?: boolean;
 }) {
   const m = card.metrics;
   return (
@@ -596,16 +606,16 @@ function CardDetail({ card, headers, canEditOverride, existingOverride, onOverri
         </>
       )}
 
+      {headers && canUseDigest && (
+        <DigestTester headers={headers} repUserId={card.repUserId} repName={card.repName} month={month} year={year} />
+      )}
       {canEditOverride && headers && (
-        <>
-          <DigestTester headers={headers} repUserId={card.repUserId} repName={card.repName} month={month} year={year} />
-          <OverrideEditor
-            card={card}
-            headers={headers}
-            existing={existingOverride ?? null}
-            onChanged={onOverridesChanged}
-          />
-        </>
+        <OverrideEditor
+          card={card}
+          headers={headers}
+          existing={existingOverride ?? null}
+          onChanged={onOverridesChanged}
+        />
       )}
     </div>
   );
@@ -873,7 +883,7 @@ const WEIGHT_FIELDS: { key: keyof Standards; label: string }[] = [
   { key: 'weightDiscipline', label: 'الانضباط' },
 ];
 
-function StandardsTab({ standards, overrides, headers, onSaved, onOverridesChanged, tg, month, year }: {
+function StandardsTab({ standards, overrides, headers, onSaved, onOverridesChanged, tg, month, year, canUseDigest }: {
   standards: Standards;
   overrides: OverrideRow[];
   headers: Record<string, string>;
@@ -882,6 +892,7 @@ function StandardsTab({ standards, overrides, headers, onSaved, onOverridesChang
   tg: TelegramStatus | null;
   month: number;
   year: number;
+  canUseDigest?: boolean;
 }) {
   const [form, setForm] = useState<Standards>(standards);
   const [saving, setSaving] = useState(false);
@@ -993,6 +1004,7 @@ function StandardsTab({ standards, overrides, headers, onSaved, onOverridesChang
       </div>
 
       {/* الملخّص اليومي */}
+      {canUseDigest && (
       <div className="card">
         <div className="section-title">الملخّص اليومي — «المدير الآلي»</div>
         <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10, lineHeight: 1.8 }}>
@@ -1070,6 +1082,7 @@ function StandardsTab({ standards, overrides, headers, onSaved, onOverridesChang
           <DigestTester headers={headers} repUserId={null} month={month} year={year} />
         </div>
       </div>
+      )}
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <button className="btn btn--primary" onClick={save} disabled={saving}>{saving ? '⏳ جاري الحفظ…' : '💾 حفظ المعايير'}</button>
