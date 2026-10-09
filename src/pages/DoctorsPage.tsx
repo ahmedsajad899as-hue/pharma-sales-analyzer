@@ -342,6 +342,9 @@ export default function DoctorsPage() {
     userId: number; name: string; company: ManagerCompany | null;
     totalDoctors: number; visitedDoctors: number; doctorVisitCount: number;
     totalPharmacies: number; pharmacyVisitCount: number; coveragePct: number;
+    /** المتوقَّع الشهري من معايير المكتب (زيارات/يوم × أيام العمل) — كان 150 مزروعاً */
+    expectedDoctorVisits?: number;
+    visitedPharmacies?: number; activeDays?: number; repId?: number | null;
     areas: RepVisitsAreaRow[]; days: RepVisitsDayRow[];
   }
   const [showRepsSummaryModal, setShowRepsSummaryModal]           = useState(false);
@@ -898,7 +901,11 @@ export default function DoctorsPage() {
     if (cols.length === 0) return;
     const wb = XLSX.utils.book_new();
 
-    const header1 = ['#', 'الشركة', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'نسبة التغطية % (هدف 150 زيارة/شهر)', 'إجمالي الأطباء', 'أطباء تمت زيارتهم', 'إجمالي الصيدليات'];
+    // الهدف الشهري يأتي من معايير المكتب، وقد يُستثنى مندوب برقم خاص — فالعنوان
+    // يذكر الرقم فقط حين يكون موحّداً للكل، وإلا أشار إلى أنه متغيّر لكل مندوب.
+    const expectedSet = new Set(cols.map(c => c.expectedDoctorVisits ?? 150));
+    const targetLabel = expectedSet.size === 1 ? `هدف ${[...expectedSet][0]} زيارة/شهر` : 'هدف خاص لكل مندوب';
+    const header1 = ['#', 'الشركة', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', `نسبة التغطية % (${targetLabel})`, 'إجمالي الأطباء', 'أطباء تمت زيارتهم', 'إجمالي الصيدليات'];
     const body1 = cols.map((r, i) => [
       i + 1, r.company?.name || '', r.name, r.doctorVisitCount, r.pharmacyVisitCount,
       r.coveragePct, r.totalDoctors, r.visitedDoctors, r.totalPharmacies,
@@ -5049,7 +5056,7 @@ export default function DoctorsPage() {
                                 <td style={{ ...listTd, fontWeight: 700, background: rowBg }}>{r.pharmacyVisitCount || ''}</td>
                                 <td style={{ ...listTd, background: rowBg }}>
                                   <span style={{ background: coverageBg, color: coverageColor, borderRadius: 4, padding: '2px 10px', fontWeight: 800 }}>{r.coveragePct}%</span>
-                                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{r.doctorVisitCount}/150</div>
+                                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{r.doctorVisitCount}/{r.expectedDoctorVisits ?? 150}</div>
                                 </td>
                                 <td style={{ ...listTd, color: '#94a3b8', fontSize: 11, background: rowBg }}>{isExpanded ? '▲' : '▼'}</td>
                               </tr>

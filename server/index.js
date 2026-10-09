@@ -29,6 +29,7 @@ import {
   PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName, extractRawColumnValue,
 } from './lib/provinces.js';
 import { startPharmacyAlertScheduler } from './modules/pharmacy-analysis/pharmacy-alerts.scheduler.js';
+import { startRepFollowupScheduler } from './modules/rep-followup/rep-followup.scheduler.js';
 import { resolveEffectiveAreaIds, resolveEffectiveAreas, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
 import { resolveStockScope, filterStockFiles, loadCompanyLabelResolver, applyCompanyLabelsToFiles } from './lib/stockScope.js';
 import {
@@ -76,6 +77,7 @@ import ordersRoutes              from './modules/orders/orders.routes.js';
 import viberRoutes               from './modules/viber/viber.routes.js';
 import viberLinksRoutes          from './modules/viber/viber-links.routes.js';
 import engagementRoutes          from './modules/engagement/engagement.routes.js';
+import repFollowupRoutes         from './modules/rep-followup/rep-followup.routes.js';
 
 dotenv.config();
 
@@ -1251,6 +1253,7 @@ app.use('/api/telegram',          telegramRoutes);
 app.use('/api/orders',            ordersRoutes);
 app.use('/api/viber',             viberRoutes);
 app.use('/api/engagement',        engagementRoutes);
+app.use('/api/rep-followup',      repFollowupRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────
@@ -4889,6 +4892,7 @@ if (process.env.VERCEL) {
       .catch(e => console.error('[backfillCustomerInfoNorm]', e.message));
     // محافظات العراق الـ18 — idempotent، لا يلمس أي تسمية عدّلها المدير
     startPharmacyAlertScheduler();
+    startRepFollowupScheduler();
     seedProvinces(prisma)
       .then(async n => {
         console.log(`✓ المحافظات جاهزة (${n})`);

@@ -14,6 +14,7 @@
 import prisma from '../../lib/prisma.js';
 import * as sciRepSvc from '../scientific-reps/scientific-reps.service.js';
 import { buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
+import { resolveActiveFileIds } from '../../lib/activeFiles.js';
 
 const MONTH_NAMES_AR = ['', 'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
@@ -26,45 +27,10 @@ function monthRange(year, month) {
 
 const fmtUSD = (v) => `$${Math.round(v || 0).toLocaleString('en-US')}`;
 
-/**
- * الملفات التي يحسب عليها البوت.
- *
- * الأصل: «الملفات المفعّلة» لهذا الحساب كما يراها التطبيق — تُزامَن من المتصفح
- * إلى User.activeFileIds (راجع /api/active-files). بدونها كان البوت يحسب على كل
- * ملفات المكتب بينما التطبيق يحسب على المفعّلة وحدها، فتظهر أرقام البوت أعلى.
- * الارتداد إلى كل الملفات يبقى فقط لحساب لم يُزامَن بعد (أو كانت قائمته فارغة)،
- * وإلا صمت البوت بلا سبب مفهوم.
- */
-async function resolveBotFileIds(userId) {
-  const [me, ownerIds] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { activeFileIds: true } }),
-    sciRepSvc.expandOwnerIdsByCompany([userId]),
-  ]);
-  const [ownFiles, sharedFiles] = await Promise.all([
-    prisma.uploadedFile.findMany({ where: { userId: { in: ownerIds } }, select: { id: true, originalName: true } }),
-    prisma.fileUserShare.findMany({ where: { userId }, select: { file: { select: { id: true, originalName: true } } } }),
-  ]);
-
-  const inScope = new Map();
-  for (const f of ownFiles) inScope.set(f.id, f.originalName);
-  for (const s of sharedFiles) if (s.file) inScope.set(s.file.id, s.file.originalName);
-
-  let active = null;
-  try {
-    const saved = me?.activeFileIds ? JSON.parse(me.activeFileIds) : null;
-    // التقاطع مع النطاق إلزامي: القائمة المحفوظة قد تشير لملف حُذف لاحقاً.
-    if (Array.isArray(saved)) active = saved.filter((id) => inScope.has(id));
-  } catch { /* JSON تالف — نرتدّ لكل الملفات */ }
-
-  const ids = active && active.length ? active : [...inScope.keys()];
-  const synced = Boolean(active && active.length);
-  return {
-    ids,
-    synced,
-    source: synced ? 'المفعّلة في التطبيق' : 'كل ملفات المكتب (لم تُزامَن بعد)',
-    names: ids.map((id) => inScope.get(id) || `#${id}`),
-  };
-}
+// الملفات التي يحسب عليها البوت = «الملفات المفعّلة» لهذا الحساب كما يراها
+// التطبيق. المنطق مشترك في lib/activeFiles.js لأن كل حاسب بلا واجهة (البوت،
+// ملخّص متابعة المندوبين، اللقطة الليلية) يجب أن يحسب على نفس الملفات.
+const resolveBotFileIds = resolveActiveFileIds;
 
 function formatReport(repName, month, year, report) {
   const lines = [`📊 مبيعات ${repName} — ${MONTH_NAMES_AR[month]} ${year}`, ''];

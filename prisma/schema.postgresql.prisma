@@ -2875,3 +2875,120 @@ model RepFieldSurveyEntry {
   @@index([parentId])
   @@map("rep_field_survey_entries")
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// متابعة المندوبين (Rep Followup) — ثلاث جداول:
+//   1) RepFollowupStandard  معايير المكتب (الأرقام التي يُحاسَب عليها المندوب)
+//   2) RepFollowupOverride  استثناء لمندوب واحد (حقل فارغ = يورث الافتراضي)
+//   3) RepScorecardSnapshot لقطة محسوبة لكل مندوب/شهر — تُحسب ليلاً وتُقرأ جاهزة
+//   4) RepFollowupDigestLog سجل إرسال الملخّص اليومي (حارس ضد الإرسال المزدوج)
+//
+// كل المعرّفات هنا scalar بلا relation على User — نفس نمط PharmacyAlertLog:
+// حذف حساب لا يجوز أن يُسقط لقطات تاريخية بـ cascade، والقراءة دائماً مُنطّقة
+// بـ ownerUserId أصلاً.
+// ════════════════════════════════════════════════════════════════════════════
+
+model RepFollowupStandard {
+  id          Int @id @default(autoincrement())
+  ownerUserId Int @unique // حساب المدير المالك للمعايير
+
+  // ── معايير الزيارات ──────────────────────────────────────────
+  doctorVisitsPerDay   Int    @default(8) // كم طبيباً في اليوم
+  pharmacyVisitsPerDay Int    @default(4) // كم صيدلية في اليوم
+  workDaysPerMonth     Int    @default(26) // أيام العمل الشهرية (للمتوقَّع)
+  restWeekdays         String @default("5") // أيام الراحة: 0=الأحد … 6=السبت، مفصولة بفواصل
+  doctorRevisitDays    Int    @default(30) // كل كم يوم يُزار الطبيب مرة أخرى
+
+  // ── معايير التغطية ───────────────────────────────────────────
+  doctorCoverageTargetPct   Int @default(80) // % أطباء السيرفي في مناطقه
+  pharmacyCoverageTargetPct Int @default(70)
+  areaIdleDays              Int @default(30) // منطقة بلا زيارة = مهجورة
+
+  // ── معايير المبيع ────────────────────────────────────────────
+  targetAchievementMinPct Int @default(90) // أدنى تحقّق مقبول للتارجت
+  growthTargetPct         Int @default(10) // نمو شهر/شهر المطلوب
+
+  // ── أوزان المؤشر (يُفضَّل أن يكون المجموع 100) ────────────────
+  weightSales      Int @default(40)
+  weightVisits     Int @default(25)
+  weightCoverage   Int @default(20)
+  weightGrowth     Int @default(10)
+  weightDiscipline Int @default(5)
+
+  // ── الملخّص اليومي («المدير الآلي») ───────────────────────────
+  digestEnabled     Boolean   @default(false)
+  digestRepHour     Int       @default(8) // ساعة بغداد لملخّص المندوب
+  digestManagerHour Int       @default(18) // ساعة بغداد لملخّص المدير
+  digestChannels    String    @default("app,telegram") // app | telegram | كلاهما
+  maxLinesPerDigest Int       @default(6) // سقف البنود في الرسالة (مكافحة الملل)
+  lastRepRunAt      DateTime?
+  lastManagerRunAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("rep_followup_standards")
+}
+
+model RepFollowupOverride {
+  id              Int @id @default(autoincrement())
+  ownerUserId     Int
+  scientificRepId Int
+
+  // كل الحقول nullable: null = يورث قيمة المكتب من RepFollowupStandard
+  doctorVisitsPerDay        Int?
+  pharmacyVisitsPerDay      Int?
+  workDaysPerMonth          Int?
+  doctorRevisitDays         Int?
+  doctorCoverageTargetPct   Int?
+  pharmacyCoverageTargetPct Int?
+  areaIdleDays              Int?
+  targetAchievementMinPct   Int?
+  growthTargetPct           Int?
+  note                      String? // سبب الاستثناء (منطقة صعبة، مندوب جديد…)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ownerUserId, scientificRepId])
+  @@index([ownerUserId])
+  @@map("rep_followup_overrides")
+}
+
+model RepScorecardSnapshot {
+  id              Int     @id @default(autoincrement())
+  ownerUserId     Int // المدير الذي وُلّدت اللقطة من نطاقه
+  repUserId       Int // حساب المندوب (المفتاح الثابت — قد لا يكون له سجل علمي)
+  scientificRepId Int?
+  repName         String
+  companyId       Int?
+  companyName     String?
+  periodType      String // month (أسبوع/يوم لاحقاً)
+  periodKey       String // "2026-10"
+  score           Int     @default(0)
+  status          String  @default("watch") // excellent | good | watch | behind
+  metrics         String // JSON: كل المقاييس الخام والمحسوبة
+  reasons         String // JSON: أسباب الحالة بالعربي (أسطر قصيرة)
+  fileScope       String? // JSON: الملفات التي حُسب عليها + هل كانت مُزامَنة
+  computedAt      DateTime @default(now())
+
+  @@unique([ownerUserId, repUserId, periodType, periodKey])
+  @@index([ownerUserId, periodKey])
+  @@index([repUserId])
+  @@map("rep_scorecard_snapshots")
+}
+
+model RepFollowupDigestLog {
+  id          Int      @id @default(autoincrement())
+  ownerUserId Int
+  recipientId Int
+  kind        String // rep | manager
+  dayKey      String // "YYYY-MM-DD" بتوقيت بغداد
+  channels    String // القنوات التي نجح الإرسال عليها فعلاً
+  lineCount   Int      @default(0)
+  sentAt      DateTime @default(now())
+
+  @@unique([recipientId, kind, dayKey])
+  @@index([ownerUserId, dayKey])
+  @@map("rep_followup_digest_logs")
+}

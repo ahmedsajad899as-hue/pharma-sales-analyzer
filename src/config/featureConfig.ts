@@ -48,6 +48,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'org-structure',     labelAr: 'الهيكلية',                   icon: '🏗️', roles: ['company_manager','admin','manager','office_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader','office_employee','office_hr'] },
   { id: 'aqdar-export',      labelAr: 'أقدر',                       icon: '📤', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','office_employee','office_hr'] },
   { id: 'team-engagement',   labelAr: 'نشاط الفريق',                icon: '📈', roles: ['office_manager'] },
+  { id: 'rep-followup',      labelAr: 'متابعة المندوبين',           icon: '🎯', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
 ];
 
 // مفتاح ميزة ← يخفي هذا المفتاح صفحة كاملة عند تعطيله (يمكن لعدة مفاتيح أن تشير لنفس الصفحة)

@@ -10,6 +10,7 @@ import {
 } from '../../lib/surveyDoctors.js';
 import { getScopedSurveyPharmacies, renameSurveyPharmacyByName } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES } from '../../lib/officeScope.js';
+import { getStandards, listOverrides, effectiveFor } from '../../lib/followupStandards.js';
 import * as importVisits from './doctor-visits-import.js';
 
 // Field reps never own Doctor rows under their own userId — doctors belong to
@@ -1444,22 +1445,30 @@ export async function getManagerSubReps(req, res, next) {
 // زر «كل المندوبين العلميين» في التقارير (مذخر/مكتب) لكن لبيانات الزيارات.
 // استعلام واحد لكل مصدر بيانات لكل الفريق دفعة واحدة (لا حلقة استعلامات لكل
 // مندوب) — راجع تعليق الأداء في resolveAreaScope (فرع «الكل») لنفس السبب.
-export async function allRepsVisitsSummary(req, res, next) {
-  try {
-    if (isFieldRole(req.user.role)) return res.status(403).json({ message: 'هذه الخانة متاحة للمدراء فقط' });
-
-    const filterMonth = req.query.month ? parseInt(req.query.month) : null;
-    const filterYear  = req.query.year  ? parseInt(req.query.year)  : null;
+// ── ملخّص زيارات الفريق — محرّك مشترك ───────────────────────────────────────
+// استُخرج من المعالج ليُستهلك أيضاً من صفحة «متابعة المندوبين» (لقطة السكوركارد)
+// بلا تكرار منطق النطاق: مَن هم أعضاء الفريق، ما مناطق كل واحد فعلاً، ومَن يملك
+// أطباء/صيدليات السيرفي فيها. أي تعديل هنا يصل الشاشتين معاً — وهذا المقصود،
+// فرقمان مختلفان لنفس «تغطية المندوب» في نفس التطبيق يُفقدان الثقة بكليهما.
+//
+// `followup` = { standards, overridesByRepId } من lib/followupStandards.js.
+// بتمريره يصبح المتوقَّع الشهري مقروءاً من معايير المكتب القابلة للتغيير؛ بدونه
+// يرتدّ إلى LEGACY_MONTHLY_DOCTOR_VISIT_TARGET حفاظاً على أي مستدعٍ قديم.
+export async function computeRepsVisitsSummary(user, {
+  month = null, year = null, companyIds = [], followup = null, includeTeamLead = false,
+} = {}) {
+    const filterMonth = month ? parseInt(month) : null;
+    const filterYear  = year  ? parseInt(year)  : null;
     const dateFilter  = (filterMonth && filterYear) ? {
       gte: new Date(filterYear, filterMonth - 1, 1),
       lt:  new Date(filterYear, filterMonth, 1),
     } : undefined;
 
-    const { reps: allReps, companies } = await resolveTeamReps(req.user);
-    const companyIdsFilter = String(req.query.companyIds ?? '').split(',').map(s => parseInt(s)).filter(n => Number.isFinite(n));
+    const { reps: allReps, companies } = await resolveTeamReps(user, { includeTeamLead });
+    const companyIdsFilter = (companyIds ?? []).filter(n => Number.isFinite(n));
     const reps = companyIdsFilter.length ? allReps.filter(r => r.company && companyIdsFilter.includes(r.company.id)) : allReps;
 
-    if (!reps.length) return res.json({ reps: [], companies });
+    if (!reps.length) return { reps: [], companies };
 
     // معرّف المندوب العلمي + مناطقه الفعلية لكل عضو فريق — مُوازٍ لا متسلسل
     // (نفس تحسين resolveAreaScope أعلاه، تفادياً لتراكم زمن ذهاب-وإياب الشبكة
@@ -1520,7 +1529,7 @@ export async function allRepsVisitsSummary(req, res, next) {
       }) : [],
       orClauses.length ? prisma.pharmacyVisit.findMany({
         where: { OR: orClauses, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) },
-        select: { id: true, scientificRepId: true, userId: true, visitDate: true, area: { select: { name: true } }, areaName: true },
+        select: { id: true, scientificRepId: true, userId: true, visitDate: true, pharmacyName: true, area: { select: { name: true } }, areaName: true },
       }) : [],
     ]);
 
@@ -1528,9 +1537,22 @@ export async function allRepsVisitsSummary(req, res, next) {
     const repByUserId = new Map(reps.map(r => [r.userId, r]));
     const findRepForVisit = v => (v.scientificRepId != null ? repByRepId.get(v.scientificRepId) : repByUserId.get(v.userId)) ?? null;
 
-    // نسبة تغطية الأطباء لكل مندوب مبنية على تارگت ثابت — لا على عدد أطباء
-    // السيرفي في مناطقه (كان يجعلها تختلف باختلاف حجم منطقة كل مندوب).
-    const MONTHLY_DOCTOR_VISIT_TARGET = 150;
+    // «نسبة التغطية» في هذا الجدول = الزيارات المنجزة مقابل المتوقَّع الشهري، لا
+    // نسبة أطباء السيرفي الذين زارهم (تلك تُحسب منفصلة في صفحة المتابعة باسمها
+    // الصحيح). المتوقَّع كان رقماً مزروعاً (150) فصار مقروءاً من معايير المكتب:
+    // زيارات/يوم × أيام العمل الشهرية، مع احتمال استثناء لمندوب معيّن.
+    // ملاحظة: المتوقَّع هنا **شهري كامل** (زيارات/يوم × أيام العمل الشهرية)،
+    // بينما صفحة «متابعة المندوبين» تقيس على الأيام المنقضية حتى اليوم. الرقمان
+    // مختلفان بقصد ومُسمّيان بوضوح في كل شاشة («هدف شهري» مقابل «حتى اليوم») —
+    // الحكم على مندوب في يوم ٥ من الشهر بتارجت شهر كامل يُظهر الفريق كله متأخراً.
+    const LEGACY_MONTHLY_DOCTOR_VISIT_TARGET = 150;
+    const expectedDoctorVisitsFor = (repId) => {
+      if (!followup?.standards) return LEGACY_MONTHLY_DOCTOR_VISIT_TARGET;
+      const eff = effectiveFor(followup.standards, followup.overridesByRepId?.get(repId) ?? null);
+      const expected = (eff.doctorVisitsPerDay || 0) * (eff.workDaysPerMonth || 0);
+      // معيار صفري (مدير صفّر الرقم) لا يصحّ أن يصير قسمة على صفر → ارتداد.
+      return expected > 0 ? expected : LEGACY_MONTHLY_DOCTOR_VISIT_TARGET;
+    };
 
     const perRep = new Map(reps.map(r => [r.userId, { areas: new Map(), days: new Map() }]));
     const getAreaBucket = (repUserId, areaNameRaw) => {
@@ -1539,7 +1561,8 @@ export async function allRepsVisitsSummary(req, res, next) {
       if (!bag.areas.has(key)) bag.areas.set(key, {
         areaName: areaNameRaw || 'بدون منطقة',
         totalDoctors: 0, visitedDocKeys: new Set(), doctorVisitCount: 0,
-        totalPharmacies: 0, pharmacyVisitCount: 0,
+        totalPharmacies: 0, pharmacyVisitCount: 0, visitedPharmKeys: new Set(),
+        lastVisitAt: null,
       });
       return bag.areas.get(key);
     };
@@ -1572,6 +1595,7 @@ export async function allRepsVisitsSummary(req, res, next) {
       const areaName = v.doctor?.masterSurveyDoctor?.areaName || v.doctor?.area?.name || null;
       const bucket = getAreaBucket(rep.userId, areaName);
       bucket.doctorVisitCount++;
+      if (!bucket.lastVisitAt || v.visitDate > bucket.lastVisitAt) bucket.lastVisitAt = v.visitDate;
       const docKey = v.doctor?.masterSurveyDoctorId != null ? `id:${v.doctor.masterSurveyDoctorId}` : (v.doctor?.name ? `name:${normalizeAreaName(v.doctor.name)}` : null);
       if (docKey) bucket.visitedDocKeys.add(docKey);
       getDayBucket(rep.userId, v.visitDate.getDate()).doctorVisitCount++;
@@ -1584,6 +1608,10 @@ export async function allRepsVisitsSummary(req, res, next) {
       const areaName = v.area?.name || v.areaName || null;
       const bucket = getAreaBucket(rep.userId, areaName);
       bucket.pharmacyVisitCount++;
+      if (!bucket.lastVisitAt || v.visitDate > bucket.lastVisitAt) bucket.lastVisitAt = v.visitDate;
+      // اسم الصيدلية نصّ حرّ (لا FK) — المفتاح مطبَّع كي لا تُحتسب «صيدلية النور»
+      // و«صيدليه النور» تغطيتين منفصلتين.
+      if (v.pharmacyName) bucket.visitedPharmKeys.add(normalizeAreaName(v.pharmacyName));
       getDayBucket(rep.userId, v.visitDate.getDate()).pharmacyVisitCount++;
     }
 
@@ -1597,6 +1625,8 @@ export async function allRepsVisitsSummary(req, res, next) {
           doctorVisitCount: a.doctorVisitCount,
           totalPharmacies: a.totalPharmacies,
           pharmacyVisitCount: a.pharmacyVisitCount,
+          visitedPharmacies: a.visitedPharmKeys.size,
+          lastVisitAt: a.lastVisitAt ? a.lastVisitAt.toISOString().slice(0, 10) : null,
         }))
         .sort((x, y) => (y.doctorVisitCount + y.pharmacyVisitCount) - (x.doctorVisitCount + x.pharmacyVisitCount));
       // 1..31 دائماً (حتى الأيام بلا أي زيارة) — عرض تقويمي كامل للشهر لا قائمة
@@ -1611,18 +1641,57 @@ export async function allRepsVisitsSummary(req, res, next) {
       const doctorVisitCount   = areas.reduce((s, a) => s + a.doctorVisitCount, 0);
       const totalPharmacies    = areas.reduce((s, a) => s + a.totalPharmacies, 0);
       const pharmacyVisitCount = areas.reduce((s, a) => s + a.pharmacyVisitCount, 0);
-      const coveragePct = Math.round((doctorVisitCount / MONTHLY_DOCTOR_VISIT_TARGET) * 100);
+      const visitedPharmacies  = areas.reduce((s, a) => s + a.visitedPharmacies, 0);
+      const expectedDoctorVisits = expectedDoctorVisitsFor(r.repId);
+      const coveragePct = Math.round((doctorVisitCount / expectedDoctorVisits) * 100);
+      // أيام فيها زيارة واحدة على الأقل (أي نوع) — مقام «الأيام الصفرية».
+      const activeDays = days.filter(d => (d.doctorVisitCount + d.pharmacyVisitCount) > 0).length;
 
       return {
         userId: r.userId, name: r.name, company: r.company,
+        repId: r.repId ?? null,
         totalDoctors, visitedDoctors, doctorVisitCount,
-        totalPharmacies, pharmacyVisitCount, coveragePct,
+        totalPharmacies, pharmacyVisitCount, visitedPharmacies,
+        coveragePct, expectedDoctorVisits, activeDays,
         areas, days,
       };
     }).sort((a, b) => (b.doctorVisitCount + b.pharmacyVisitCount) - (a.doctorVisitCount + a.pharmacyVisitCount));
 
-    res.json({ reps: result, companies });
+    return { reps: result, companies };
+}
+
+// ── GET /api/doctors/all-reps-visits-summary — المعالج الرقيق ───────────────
+export async function allRepsVisitsSummary(req, res, next) {
+  try {
+    if (isFieldRole(req.user.role)) return res.status(403).json({ message: 'هذه الخانة متاحة للمدراء فقط' });
+
+    const companyIds = String(req.query.companyIds ?? '').split(',').map(x => parseInt(x)).filter(n => Number.isFinite(n));
+    const followup = await loadFollowupForViewer(req.user.id);
+    const data = await computeRepsVisitsSummary(req.user, {
+      month: req.query.month ?? null,
+      year:  req.query.year  ?? null,
+      companyIds,
+      followup,
+    });
+    res.json({ ...data, standards: followup?.standards ?? null });
   } catch (e) { next(e); }
+}
+
+/**
+ * معايير المتابعة المطبَّقة على فريق هذا المشاهد + استثناءات مندوبيه.
+ * يُستدعى مرة واحدة لكل طلب لا لكل مندوب.
+ */
+export async function loadFollowupForViewer(viewerUserId) {
+  const ownerUserId = await resolveDocOwnerUserId(viewerUserId);
+  const [standards, overrides] = await Promise.all([
+    getStandards(ownerUserId),
+    listOverrides(ownerUserId),
+  ]);
+  return {
+    ownerUserId,
+    standards,
+    overridesByRepId: new Map(overrides.map(o => [o.scientificRepId, o])),
+  };
 }
 
 export async function pharmacyNameSuggestions(req, res, next) {

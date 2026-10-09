@@ -512,3 +512,32 @@ export async function handleUpdate(update) {
     if (!message.media_group_id) await markUpdateConsumed(actor.link, update.update_id);
   }
 }
+
+// ─── إرسال خارجي: رسالة من النظام إلى مستخدم (لا رداً على رسالته) ──────────
+/**
+ * يُرسل نصاً إلى كل كروبات تلكرام المرتبطة بهذا الحساب والمفعّلة.
+ *
+ * ملاحظة مقصودة: الربط في هذا النظام هو «كروب ↔ حساب» لا «شخص ↔ حساب»، فرسالة
+ * المتابعة تصل الكروب الذي ربطه المستخدم بنفسه. مَن لا يريد ذلك يُلغي قناة
+ * telegram من إعدادات الملخّص ويبقى الإشعار داخل التطبيق.
+ *
+ * لا يرفع استثناءً: فشل التلكرام لا يجوز أن يُسقط مسار الملخّص كاملاً.
+ * @returns {Promise<{ sent:number, failed:number, links:number }>}
+ */
+export async function sendTextToUser(userId, text) {
+  const links = await prisma.telegramChatLink.findMany({
+    where: { userId, isActive: true },
+    select: { chatId: true },
+  });
+  let sent = 0, failed = 0;
+  for (const l of links) {
+    try {
+      const res = await sendMessage(l.chatId, text);
+      if (res?.ok) sent++; else failed++;
+    } catch (e) {
+      failed++;
+      console.error('[telegram] sendTextToUser فشل chat=%s: %s', l.chatId, e?.message);
+    }
+  }
+  return { sent, failed, links: links.length };
+}
