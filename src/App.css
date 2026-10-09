@@ -3700,10 +3700,6 @@ select.comm-input { cursor: pointer; }
 }
 .rfs-map-tool-btn:hover:not(:disabled) { background: var(--c-accent-light); }
 .rfs-map-tool-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.rfs-map-tool-btn--waze { background: #05c8f7; border-color: #05c8f7; color: #fff; font-size: 15px; }
-.rfs-map-tool-btn--waze:hover:not(:disabled) { filter: brightness(0.95); background: #05c8f7; }
-.rfs-map-tool-btn--waze:disabled { background: #bfeefc; border-color: #bfeefc; color: #fff; }
-.rfs-map-tool-btn--gmaps { font-size: 18px; }
 body.rfs-map-fullscreen-lock { overflow: hidden; }
 .rfs-map-shell.rfs-map-shell--fullscreen {
   position: fixed;

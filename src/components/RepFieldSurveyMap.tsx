@@ -175,9 +175,13 @@ function offsetLatLng(lat: number, lng: number, index: number, total: number, ra
   return [lat + dLat, lng + dLng];
 }
 
-const mapsUrl = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat},${lng}`;
 const gmapsNavUrl = (from: { lat: number; lng: number }, lat: number, lng: number) =>
   `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${lat},${lng}&travelmode=driving&dir_action=navigate`;
+// نفس رابط الملاحة لكن بلا origin — يُستعمل من نافذة أي نقطة مباشرة بلا شرط
+// توفّر موقعي الحي (me)؛ يفتح Google Maps محدّداً الوجهة فقط وهو نفسه يعتمد
+// موقع الجهاز الحالي كنقطة انطلاق للملاحة.
+const gmapsNavUrlAuto = (lat: number, lng: number) =>
+  `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving&dir_action=navigate`;
 const wazeNavUrl = (lat: number, lng: number) => `https://waze.com/ul?ll=${lat}%2C${lng}&navigate=yes`;
 
 // دبوس خريطة كلاسيكي (دائرة + رأس مدبَّب) بلون النوع ورمز داخله — الهوية لا
@@ -238,9 +242,12 @@ function buildPopupHtml(e: Entry, me: { lat: number; lng: number } | null): stri
       ${detailsLine ? `<div style="font-size:12.5px; color:#1a2332; margin-bottom:4px;">${escapeHtml(detailsLine)}</div>` : ''}
       ${dist != null ? `<div style="font-size:12.5px; font-weight:700; color:${COLOR_ME}; margin-bottom:4px;">📍 يبعد عنك ${fmtDistance(dist)}</div>` : ''}
       <div style="display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap;">
-        <button type="button" data-rfs-nav="1" style="font-size:12.5px; font-weight:700; color:#fff; background:${COLOR_ROUTE}; border:0; border-radius:6px; padding:5px 11px; cursor:pointer;">🧭 ابدأ الملاحة</button>
+        <button type="button" data-rfs-nav="1" style="font-size:12.5px; font-weight:700; color:#fff; background:${COLOR_ROUTE}; border:0; border-radius:6px; padding:5px 11px; cursor:pointer;">🧭 ابدأ الملاحة (داخل الخريطة)</button>
         ${e.canEdit ? `<button type="button" data-rfs-edit="1" style="font-size:12.5px; font-weight:700; color:${COLOR_ROUTE}; background:#fff; border:1px solid ${COLOR_ROUTE}; border-radius:6px; padding:4px 11px; cursor:pointer;">✎ تعديل</button>` : ''}
-        <a href="${mapsUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="font-size:12px;">خرائط Google ↗</a>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
+        <a href="${wazeNavUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700; color:#fff; background:#05c8f7; border-radius:6px; padding:4px 10px; text-decoration:none;">Waze ↗</a>
+        <a href="${gmapsNavUrlAuto(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700; color:${COLOR_ROUTE}; background:#fff; border:1px solid ${COLOR_ROUTE}; border-radius:6px; padding:3px 10px; text-decoration:none;">Google Maps ↗</a>
       </div>
     </div>`;
 }
@@ -776,10 +783,14 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
       </div>
       <div className="rfs-map-canvas-wrap">
         <div className="rfs-map-canvas" ref={mapDivRef} />
-        {/* عنقود أزرار عائم بالزاوية اليمنى العلوية الفعلية للخريطة (right الفيزيائي
-            لا inset-inline-end) — عكس زاوية أزرار Leaflet الأصلية (تكبير/تصغير +
+        {/* زر وحيد بالزاوية اليمنى العلوية الفعلية للخريطة (right الفيزيائي لا
+            inset-inline-end) — عكس زاوية أزرار Leaflet الأصلية (تكبير/تصغير +
             فلترة 🩺/💊) التي تلتصق دوماً بزاوية الخريطة اليسرى الفعلية بصرف النظر
-            عن اتجاه الصفحة RTL، فلا تداخل بين المجموعتين مهما كانت حالة اللوحة. */}
+            عن اتجاه الصفحة RTL، فلا تداخل مع تلك المجموعة. خياري Waze/Google Maps
+            انتقلا إلى داخل نافذة كل نقطة نفسها (buildPopupHtml) بدل هنا: الفكرة
+            أن يفتحا فور الضغط على اسم الطبيب/الصيدلية وعرض تفاصيله، لا أن يبقيا
+            معطّلين بانتظار بدء الملاحة الداخلية أولاً — وهذا أيضاً يمنع تراكبهما
+            بصرياً مع صندوق النافذة المنبثقة نفسه. */}
         <div className="rfs-map-toolbar">
           <button
             type="button"
@@ -792,24 +803,6 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
             title={fullscreen ? 'تصغير الخريطة' : 'تكبير الخريطة لملء الشاشة'}
           >
             {fullscreen ? '✕' : '⛶'}
-          </button>
-          <button
-            type="button"
-            className="rfs-map-tool-btn rfs-map-tool-btn--waze"
-            disabled={!nav}
-            onClick={() => nav && window.open(wazeNavUrl(nav.toLat, nav.toLng), '_blank', 'noopener')}
-            title={nav ? `فتح الملاحة إلى «${nav.toName}» في Waze` : 'اضغط «🧭 ابدأ الملاحة» من أي نقطة على الخريطة أولاً'}
-          >
-            W
-          </button>
-          <button
-            type="button"
-            className="rfs-map-tool-btn rfs-map-tool-btn--gmaps"
-            disabled={!nav || !me}
-            onClick={() => nav && me && window.open(gmapsNavUrl(me, nav.toLat, nav.toLng), '_blank', 'noopener')}
-            title={nav ? `فتح الملاحة إلى «${nav.toName}» في Google Maps` : 'اضغط «🧭 ابدأ الملاحة» من أي نقطة على الخريطة أولاً'}
-          >
-            📍
           </button>
         </div>
       </div>
