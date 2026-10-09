@@ -650,6 +650,21 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
     };
     tiles[baseStyle].addTo(map);
     tileLayersRef.current = tiles;
+    // نَسَب مزوّدي الخرائط شرط ترخيص (OSM/Esri) فلا يُحذف — يُطوى إلى «i» صغير
+    // يُفتح باللمس (مسموح في إرشادات OSM للشاشات الصغيرة). بادئة Leaflet والعلم
+    // اختيارية فتُزال.
+    if (map.attributionControl) {
+      map.attributionControl.setPrefix(false);
+      const attribEl = map.attributionControl.getContainer();
+      if (attribEl) {
+        attribEl.classList.add('rfs-attrib');
+        attribEl.title = 'مصادر الخريطة';
+        L.DomEvent.on(attribEl, 'click', (ev: Event) => {
+          if ((ev.target as HTMLElement).closest('a')) return; // روابط المصادر تعمل حين يكون مفتوحاً
+          attribEl.classList.toggle('rfs-attrib--open');
+        });
+      }
+    }
     // طبقة الطرق السريعة/الجسور (الشكل الرسمي) تحت النقاط وفوق البلاطات، ولا
     // تلتقط اللمس — تمرّ النقرات للخريطة والنقاط
     const roadsPane = map.createPane('rfs-roads');

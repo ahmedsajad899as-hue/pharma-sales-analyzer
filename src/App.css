@@ -3772,6 +3772,30 @@ select.comm-input { cursor: pointer; }
    (b−0.5)·c+0.5 = 1 عند الأبيض: 0.78/1.8 ⇒ خلفية 0.90→0.86، نهر 0.80→0.72.
    فلتر CSS مسرَّع بالـGPU على حاوية الطبقة كلها لا على كل بلاطة. */
 .rfs-tiles-formal { filter: brightness(0.78) contrast(1.8); }
+/* نَسَب الخريطة مطويّ إلى «i» صغير؛ اللمس يُظهر النص كاملاً */
+.rfs-map-shell .leaflet-control-attribution.rfs-attrib { cursor: pointer; }
+.rfs-map-shell .leaflet-control-attribution.rfs-attrib:not(.rfs-attrib--open) {
+  font-size: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0 6px 6px 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rfs-map-shell .leaflet-control-attribution.rfs-attrib:not(.rfs-attrib--open) a { pointer-events: none; }
+.rfs-map-shell .leaflet-control-attribution.rfs-attrib:not(.rfs-attrib--open)::before {
+  content: 'i';
+  font-size: 11px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, serif;
+  color: #5a6a8a;
+}
 .rfs-map-tool-btn--on { background: var(--c-accent-light); box-shadow: inset 0 0 0 2px var(--c-accent); }
 .rfs-map-tool-btn--stop { background: var(--c-danger); border-color: var(--c-danger); color: #fff; }
 .rfs-map-tool-btn--stop:hover { background: var(--c-danger); filter: brightness(0.92); }
