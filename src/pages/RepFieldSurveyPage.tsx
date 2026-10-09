@@ -30,12 +30,15 @@ export interface Entry {
   pharmacyIds: number[];
   createdAt: string;
   editedAt: string | null;
+  editedByName: string | null;
+  // المالك أو زميل مكتب يشاركه نفس المنطقة — الخادم هو من يقرّر
+  canEdit: boolean;
 }
 
 interface RepOption { userId: number; name: string; company: string | null }
 interface NearbyRow { name: string; specialty: string; className: string }
 interface Coords { latitude: number; longitude: number; accuracy: number }
-interface DupMatch { id: number; name: string; areaName: string; nearPharmacies: string[] }
+interface DupMatch { id: number; name: string; areaName: string; nearPharmacies: string[]; repName?: string | null }
 interface DupState { kind: Kind; endpoint: string; body: Record<string, unknown>; matches: DupMatch[] }
 interface Notice { kind: Kind; name: string; lines: string[] }
 
@@ -512,7 +515,7 @@ export default function RepFieldSurveyPage() {
           <h1 className="page-title">سيرفي المندوب العلمي</h1>
           <div className="page-subtitle">
             {isRep
-              ? 'سجّل الأطباء والصيدليات في مناطقك، مع تحديد موقع كل اسم بدقة.'
+              ? 'سجّل الأطباء والصيدليات في مناطقك، مع تحديد موقع كل اسم بدقة. تظهر لك أيضاً أسماء زملاء مكتبك المسجَّلة في نفس مناطقك، ويمكنكم تعديلها جميعاً.'
               : 'السجلات الميدانية لمندوبي فريقك — للاطلاع والتصدير.'}
           </div>
         </div>
@@ -689,6 +692,7 @@ export default function RepFieldSurveyPage() {
                 {dup.matches.map(m => (
                   <li key={m.id}>
                     {m.name} · {m.areaName}
+                    {m.repName && <span className="rfs-muted"> · مسجَّل لدى {m.repName}</span>}
                     {m.nearPharmacies.length > 0 && <span className="rfs-muted"> · قرب: {m.nearPharmacies.join('، ')}</span>}
                   </li>
                 ))}
@@ -756,11 +760,13 @@ export default function RepFieldSurveyPage() {
               <button className={`tab ${viewMode === 'list' ? 'tab--active' : ''}`} onClick={() => setViewMode('list')}>📋 قائمة</button>
               <button className={`tab ${viewMode === 'map' ? 'tab--active' : ''}`} onClick={() => setViewMode('map')}>🗺️ خريطة</button>
             </div>
-            {!isRep && (
+            {reps.length > 1 && (
               <select className="form-input" value={repFilter} onChange={e => setRepFilter(e.target.value ? Number(e.target.value) : '')}>
                 <option value="">كل المندوبين</option>
                 {reps.map(r => (
-                  <option key={r.userId} value={r.userId}>{r.name}{r.company ? ` — ${r.company}` : ''}</option>
+                  <option key={r.userId} value={r.userId}>
+                    {r.userId === user?.id ? `${r.name} (أنا)` : r.name}{r.company ? ` — ${r.company}` : ''}
+                  </option>
                 ))}
               </select>
             )}
@@ -790,7 +796,7 @@ export default function RepFieldSurveyPage() {
                   <th>الاسم</th>
                   <th>المنطقة</th>
                   <th>التفاصيل</th>
-                  {!isRep && <th>المندوب</th>}
+                  <th>المندوب</th>
                   <th>الموقع</th>
                   <th>تاريخ ووقت التسجيل</th>
                   <th></th>
@@ -807,7 +813,7 @@ export default function RepFieldSurveyPage() {
                     <td>{e.name}</td>
                     <td>{e.areaName}</td>
                     <td className="rfs-muted">{detailText(e)}</td>
-                    {!isRep && <td>{e.repName ?? '—'}</td>}
+                    <td>{e.userId === user?.id ? 'أنا' : (e.repName ?? '—')}</td>
                     <td>
                       <a href={mapsUrl(e.latitude, e.longitude)} target="_blank" rel="noreferrer">عرض</a>
                     </td>
@@ -817,7 +823,7 @@ export default function RepFieldSurveyPage() {
                     </td>
                     <td className="rfs-actions-cell">
                       <button className="btn btn--secondary btn--sm" onClick={() => setViewing(e)}>تفاصيل</button>
-                      {e.userId === user?.id && (
+                      {e.canEdit && (
                         <button className="btn btn--secondary btn--sm" onClick={() => openEdit(e)}>تعديل</button>
                       )}
                     </td>
@@ -857,7 +863,12 @@ export default function RepFieldSurveyPage() {
                 </dd>
                 <dt>دقة الموقع</dt><dd>{viewing.accuracy != null ? `±${Math.round(viewing.accuracy)} م` : '—'}</dd>
                 <dt>تاريخ ووقت التسجيل</dt><dd>{fmtDateTime(viewing.createdAt)}</dd>
-                <dt>آخر تعديل</dt><dd>{viewing.editedAt ? fmtDateTime(viewing.editedAt) : 'لم يُعدَّل'}</dd>
+                <dt>آخر تعديل</dt>
+                <dd>
+                  {viewing.editedAt
+                    ? `${fmtDateTime(viewing.editedAt)}${viewing.editedByName ? ` · بواسطة ${viewing.editedByName}` : ''}`
+                    : 'لم يُعدَّل'}
+                </dd>
               </dl>
 
               {viewing.kind === 'pharmacy' && (
@@ -879,7 +890,7 @@ export default function RepFieldSurveyPage() {
               )}
             </div>
             <div className="modal-footer">
-              {viewing.userId === user?.id && (
+              {viewing.canEdit && (
                 <button className="btn btn--secondary" onClick={() => { const e = viewing; setViewing(null); openEdit(e); }}>تعديل</button>
               )}
               <button className="btn btn--primary" onClick={() => setViewing(null)}>إغلاق</button>
@@ -897,6 +908,11 @@ export default function RepFieldSurveyPage() {
               <button className="modal-close" onClick={() => setEditing(null)} disabled={editSaving}>✕</button>
             </div>
             <div className="modal-body">
+              {editing.userId !== user?.id && (
+                <div className="alert rfs-notice">
+                  هذا السجل مسجَّل لدى <strong>{editing.repName ?? 'زميل في مكتبك'}</strong> ضمن منطقة مشتركة معك — تعديلك يظهر للجميع باسمك.
+                </div>
+              )}
               {editing.kind === 'pharmacy' && (
                 <div className="rfs-muted">تعديل الاسم أو المنطقة أو الموقع ينتقل إلى الأطباء المرتبطين بهذه الصيدلية بالاسم.</div>
               )}

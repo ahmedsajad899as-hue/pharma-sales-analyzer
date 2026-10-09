@@ -11,6 +11,7 @@
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
+import { resolveEffectiveAreaNames } from '../../lib/areaScope.js';
 import { cleanDoctorName } from '../../lib/surveyDoctors.js';
 import { normalizeRepName } from '../scientific-reps/scientific-reps.service.js';
 
@@ -97,6 +98,78 @@ function assertFieldRep(user) {
 // مفاتيح المقارنة: الاسم بعد إزالة «د.» وتطبيع العربية، والصيدلية بتطبيع الاسم فقط
 const doctorKey = (name) => normalizeRepName(cleanDoctorName(name));
 const plainKey = (name) => normalizeRepName(String(name ?? '').trim());
+const areaKey = (name) => normalizeRepName(String(name ?? '').trim());
+
+// ════════════════════════════════════════════════════════════════════════════
+// المشاركة بين مندوبي المكتب الواحد على المناطق المشتركة
+// ────────────────────────────────────────────────────────────────────────────
+// أربعة مندوبين في مكتب واحد يعملون جميعاً على «مدينة الصدر» — ولو كانوا على
+// شركات مختلفة — يرون أسماء بعضهم في تلك المنطقة ويعدّلون تفاصيلها، بدل أن
+// يُعيد كلٌّ منهم تسجيل نفس الطبيب/الصيدلية من الصفر.
+//
+// المطابقة باسم المنطقة المطبَّع لا بمعرّفها: Area مُفهرسة @@unique([name,userId])
+// فلكل حساب صفٌّ منفصل لنفس المنطقة (راجع areaScope.js) — ومقارنة المعرّفات بين
+// حسابَين مختلفين تُرجع «لا تقاطع» دائماً حتى لو كانا على نفس الزون حرفياً.
+//
+// الحدّ: المكتب. مندوبان في مكتبين مختلفين لا يريان بعضهما ولو تشابهت أسماء
+// مناطقهما.
+// ════════════════════════════════════════════════════════════════════════════
+
+async function officeIdsOf(userId) {
+  const [u, assignments] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } }),
+    prisma.userCompanyAssignment.findMany({
+      where: { userId },
+      select: { company: { select: { officeId: true } } },
+    }),
+  ]);
+  return [...new Set([
+    ...(u?.officeId ? [u.officeId] : []),
+    ...assignments.map(a => a.company?.officeId).filter(Boolean),
+  ])];
+}
+
+/**
+ * زملاء المندوب في نفس المكتب + أسماء مناطقه المطبّعة.
+ * بلا مكتب أو بلا مناطق مُعيَّنة → لا مشاركة (يرى سجلاته وحدها كما كان).
+ * @returns {Promise<{ peerIds: Set<number>, areaKeys: Set<string> }>}
+ */
+export async function resolveRepSharedScope(user) {
+  const empty = { peerIds: new Set(), areaKeys: new Set() };
+  if (user?.role !== FIELD_REP_ROLE) return empty;
+
+  const [officeIds, areaNames] = await Promise.all([
+    officeIdsOf(user.id),
+    resolveEffectiveAreaNames(user.id),
+  ]);
+  const areaKeys = new Set(areaNames.map(areaKey).filter(Boolean));
+  if (!officeIds.length || areaKeys.size === 0) return { peerIds: new Set(), areaKeys };
+
+  const officeCompanies = await prisma.scientificCompany.findMany({
+    where: { officeId: { in: officeIds } },
+    select: { id: true },
+  });
+  const companyIds = officeCompanies.map(c => c.id);
+
+  const peers = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      id: { not: user.id },
+      role: FIELD_REP_ROLE,
+      OR: [
+        { officeId: { in: officeIds } },
+        ...(companyIds.length ? [{ companyAssignments: { some: { companyId: { in: companyIds } } } }] : []),
+      ],
+    },
+    select: { id: true },
+  });
+  return { peerIds: new Set(peers.map(p => p.id)), areaKeys };
+}
+
+/** هل يرى/يعدّل هذا المندوبُ سجلاً ليس له؟ نعم إن كان لزميل مكتب في منطقة من مناطقه. */
+function inSharedScope(scope, entry) {
+  return scope.peerIds.has(entry.userId) && scope.areaKeys.has(areaKey(entry.areaName));
+}
 
 // إزالة التكرار (بالتطبيع) دون حد — تُستعمل عند القراءة لتفادي رفض بيانات قديمة
 function dedupeNames(list) {
@@ -157,16 +230,38 @@ async function ensureOwnPharmacies(userId, names, areaName, coords) {
   return created;
 }
 
-// الأسماء المكررة داخل سجلات المندوب نفسه فقط
-async function findOwnNameMatches(userId, kind, name) {
+/**
+ * الأسماء المكررة: كل سجلات المندوب نفسه (بأي منطقة)، إضافة إلى سجلات زملاء
+ * المكتب في نفس المنطقة المُدخَلة — فلا يُعيد مندوبان تسجيل نفس الطبيب في
+ * «مدينة الصدر» كلٌّ على حِدة. تقييد مطابقة الزملاء بالمنطقة مقصود: نفس الاسم
+ * في منطقة أخرى غالباً شخص آخر، والتنبيه عنه ضجيج.
+ */
+async function findNameMatches(user, kind, name, areaName, scope) {
   const key = kind === 'doctor' ? doctorKey(name) : plainKey(name);
-  const own = await prisma.repFieldSurveyEntry.findMany({
-    where: { userId, kind },
-    select: { id: true, name: true, areaName: true, nearPharmacies: true },
+  const newAreaKey = areaKey(areaName);
+  const candidateIds = [user.id, ...scope.peerIds];
+  const rows = await prisma.repFieldSurveyEntry.findMany({
+    where: { userId: { in: candidateIds }, kind },
+    select: { id: true, userId: true, name: true, areaName: true, nearPharmacies: true },
   });
-  return own
+  const matches = rows
     .filter(e => (kind === 'doctor' ? doctorKey(e.name) : plainKey(e.name)) === key)
-    .map(e => ({ id: e.id, name: e.name, areaName: e.areaName, nearPharmacies: e.nearPharmacies }));
+    .filter(e => e.userId === user.id || (inSharedScope(scope, e) && areaKey(e.areaName) === newAreaKey));
+  if (!matches.length) return [];
+
+  const otherIds = [...new Set(matches.map(m => m.userId).filter(id => id !== user.id))];
+  const owners = otherIds.length
+    ? await prisma.user.findMany({ where: { id: { in: otherIds } }, select: { id: true, displayName: true, username: true } })
+    : [];
+  const ownerName = new Map(owners.map(o => [o.id, o.displayName || o.username]));
+
+  return matches.map(e => ({
+    id: e.id,
+    name: e.name,
+    areaName: e.areaName,
+    nearPharmacies: e.nearPharmacies,
+    repName: e.userId === user.id ? null : (ownerName.get(e.userId) ?? null),
+  }));
 }
 
 // ─── Create ──────────────────────────────────────────────────
@@ -186,10 +281,13 @@ export async function createDoctorEntry(user, body) {
     body?.pharmacyName,
   ]);
 
+  const scope = await resolveRepSharedScope(user);
   const mergeIntoId = Number(body?.mergeIntoId) || null;
   if (mergeIntoId) {
     const target = await prisma.repFieldSurveyEntry.findUnique({ where: { id: mergeIntoId } });
-    if (!target || target.userId !== user.id || target.kind !== 'doctor') {
+    // الدمج متاح مع طبيب زميل في منطقة مشتركة أيضاً — وهو المقصود أصلاً من
+    // عرض التكرار عبر المكتب: اسم واحد بدل اسمين.
+    if (!target || target.kind !== 'doctor' || (target.userId !== user.id && !inSharedScope(scope, target))) {
       throw new AppError('الطبيب المراد الدمج معه غير موجود', 404, 'NOT_FOUND');
     }
     const base = await migrateLegacyParent(target);
@@ -199,16 +297,19 @@ export async function createDoctorEntry(user, body) {
         nearPharmacies: cleanNearPharmacies([...base.nearPharmacies, ...nearPharmacies]),
         parentId: null,
         editedAt: new Date(),
+        editedById: user.id,
       },
     });
-    const pharmaciesCreated = await ensureOwnPharmacies(user.id, entry.nearPharmacies, entry.areaName, {
+    // الصيدليات تُنشأ تحت مالك السجل لا تحت المُدمِج، حتى يبقى الربط بالاسم
+    // (pharmaIdsByKey في listEntries) متسقاً داخل حساب المالك.
+    const pharmaciesCreated = await ensureOwnPharmacies(target.userId, entry.nearPharmacies, entry.areaName, {
       latitude: entry.latitude, longitude: entry.longitude, accuracy: entry.accuracy,
     });
     return { entry, merged: true, pharmaciesCreated };
   }
 
   if (!body?.allowDuplicate) {
-    const matches = await findOwnNameMatches(user.id, 'doctor', name);
+    const matches = await findNameMatches(user, 'doctor', name, areaName, scope);
     if (matches.length) return { duplicate: true, matches };
   }
 
@@ -242,7 +343,8 @@ export async function createPharmacyEntry(user, body) {
   const coords = requireCoords(body);
 
   if (!body?.allowDuplicate) {
-    const matches = await findOwnNameMatches(user.id, 'pharmacy', name);
+    const scope = await resolveRepSharedScope(user);
+    const matches = await findNameMatches(user, 'pharmacy', name, areaName, scope);
     if (matches.length) return { duplicate: true, matches };
   }
 
@@ -311,11 +413,19 @@ export async function createPharmacyEntry(user, body) {
 export async function updateEntry(user, entryId, body) {
   assertFieldRep(user);
   const current = await prisma.repFieldSurveyEntry.findUnique({ where: { id: entryId } });
-  if (!current || current.userId !== user.id) {
-    throw new AppError('السجل غير موجود أو لا تملك صلاحية تعديله', 404, 'NOT_FOUND');
+  if (!current) throw new AppError('السجل غير موجود أو لا تملك صلاحية تعديله', 404, 'NOT_FOUND');
+  if (current.userId !== user.id) {
+    const scope = await resolveRepSharedScope(user);
+    if (!inSharedScope(scope, current)) {
+      throw new AppError('السجل غير موجود أو لا تملك صلاحية تعديله', 404, 'NOT_FOUND');
+    }
   }
+  // كل العمليات التابعة تجري تحت مالك السجل لا تحت المُعدِّل: الطبيب الذي
+  // يذكر صيدليةً، والصيدليات التي تُنشأ تلقائياً، كلها تخص حساب المالك —
+  // وإلا انقسم السجل الواحد بين حسابين عند أول تعديل من زميل.
+  const ownerId = current.userId;
 
-  const data = { editedAt: new Date() };
+  const data = { editedAt: new Date(), editedById: user.id };
   if (body?.name !== undefined) {
     data.name = current.kind === 'doctor' ? requireDoctorName(body.name) : requirePharmacyName(body.name);
   }
@@ -349,7 +459,7 @@ export async function updateEntry(user, entryId, body) {
       // تغيير الاسم يُحدِّث الأطباء الذين يذكرون الصيدلية بالاسم القديم
       if (data.name !== undefined && plainKey(data.name) !== plainKey(current.name)) {
         const owned = await tx.repFieldSurveyEntry.findMany({
-          where: { userId: user.id, kind: 'doctor' },
+          where: { userId: ownerId, kind: 'doctor' },
           select: { id: true, nearPharmacies: true },
         });
         for (const d of owned) {
@@ -364,7 +474,7 @@ export async function updateEntry(user, entryId, body) {
 
   let pharmaciesCreated = 0;
   if (current.kind === 'doctor' && data.nearPharmacies !== undefined) {
-    pharmaciesCreated = await ensureOwnPharmacies(user.id, row.nearPharmacies, row.areaName, {
+    pharmaciesCreated = await ensureOwnPharmacies(ownerId, row.nearPharmacies, row.areaName, {
       latitude: row.latitude, longitude: row.longitude, accuracy: row.accuracy,
     });
   }
@@ -374,15 +484,18 @@ export async function updateEntry(user, entryId, body) {
 // ─── Read ────────────────────────────────────────────────────
 
 /**
- * سيرفي المندوب: المندوب يرى سجلاته فقط. المدير يرى سجلات مندوبي فريقه (نفس
- * قائمة getManagerRoster المستخدمة في تحليل الكولات)، ويمكنه التصفية بمندوب.
+ * سيرفي المندوب: المندوب يرى سجلاته + سجلات زملاء مكتبه في المناطق التي يعمل
+ * عليها هو (resolveRepSharedScope). المدير يرى سجلات مندوبي فريقه (نفس قائمة
+ * getManagerRoster المستخدمة في تحليل الكولات)، ويمكنه التصفية بمندوب.
  */
 export async function listEntries(user, { repUserId = null, kind = null } = {}) {
   let userIds = null; // null = كل المستخدمين (أدمن فقط)
   let reps = [];
+  let scope = null;   // نطاق المشاركة — للمندوب فقط
 
   if (user.role === FIELD_REP_ROLE) {
-    userIds = [user.id];
+    scope = await resolveRepSharedScope(user);
+    userIds = [user.id, ...scope.peerIds];
   } else if (VIEWER_ROLES.has(user.role)) {
     if (user.role !== 'admin') {
       const roster = await getManagerRoster(user);
@@ -405,11 +518,17 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
     ...(kind ? { kind } : {}),
   };
 
-  const rows = userIds && userIds.length === 0 ? [] : await prisma.repFieldSurveyEntry.findMany({
+  const allRows = userIds && userIds.length === 0 ? [] : await prisma.repFieldSurveyEntry.findMany({
     where,
     orderBy: { createdAt: 'desc' },
     include: { parent: { select: { name: true } } },
   });
+
+  // من سجلات الزملاء لا يظهر إلا ما يقع في مناطق هذا المندوب — سجلاته هو تظهر
+  // كاملة مهما كانت منطقتها (قد تكون سجّل في منطقة قبل نقلها عنه).
+  const rows = scope
+    ? allRows.filter(r => r.userId === user.id || scope.areaKeys.has(areaKey(r.areaName)))
+    : allRows;
 
   // صيدليات كل مندوب بمفتاح الاسم — لربط الطبيب بالصيدليات المسجَّلة فعلاً
   const pharmaIdsByKey = new Map();
@@ -419,11 +538,31 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
     pharmaIdsByKey.set(k, [...(pharmaIdsByKey.get(k) ?? []), r.id]);
   }
 
-  const ownerIds = [...new Set(rows.map(r => r.userId))];
-  const owners = ownerIds.length
-    ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, displayName: true, username: true } })
+  const peopleIds = [...new Set([
+    ...rows.map(r => r.userId),
+    ...rows.map(r => r.editedById).filter(Boolean),
+  ])];
+  const people = peopleIds.length
+    ? await prisma.user.findMany({ where: { id: { in: peopleIds } }, select: { id: true, displayName: true, username: true } })
     : [];
-  const ownerName = new Map(owners.map(o => [o.id, o.displayName || o.username]));
+  const ownerName = new Map(people.map(o => [o.id, o.displayName || o.username]));
+
+  // قائمة المندوبين للفلتر: للمدير فريقه، وللمندوب نفسه + زملاء المكتب الذين
+  // يشاركونه مناطقه (مع شركة كلٍّ منهم — فالزملاء قد يكونون على شركات مختلفة).
+  let repsOut = reps.map(r => ({ userId: r.userId, name: r.name, company: r.company?.name ?? null }));
+  if (scope) {
+    const visibleOwnerIds = [...new Set(rows.map(r => r.userId))];
+    const companyRows = visibleOwnerIds.length
+      ? await prisma.userCompanyAssignment.findMany({
+        where: { userId: { in: visibleOwnerIds }, isPrimary: true },
+        select: { userId: true, company: { select: { name: true } } },
+      })
+      : [];
+    const companyOf = new Map(companyRows.map(c => [c.userId, c.company?.name ?? null]));
+    repsOut = visibleOwnerIds
+      .map(id => ({ userId: id, name: ownerName.get(id) ?? '—', company: companyOf.get(id) ?? null }))
+      .sort((a, b) => (a.userId === user.id ? -1 : b.userId === user.id ? 1 : a.name.localeCompare(b.name, 'ar')));
+  }
 
   return {
     entries: rows.map(r => {
@@ -451,9 +590,12 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
         pharmacyIds,
         createdAt:    r.createdAt,
         editedAt:     r.editedAt,
+        editedByName: r.editedById ? (ownerName.get(r.editedById) ?? null) : null,
+        // التعديل متاح للمالك ولزملاء المكتب في مناطقه المشتركة. المدير يطّلع
+        // ويصدّر فقط (كما كان) — فلا يُحسب له canEdit.
+        canEdit:      scope ? (r.userId === user.id || inSharedScope(scope, r)) : false,
       };
     }),
-    // قائمة المندوبين للفلتر — للمدير فقط (المندوب لا يحتاجها)
-    reps: reps.map(r => ({ userId: r.userId, name: r.name, company: r.company?.name ?? null })),
+    reps: repsOut,
   };
 }

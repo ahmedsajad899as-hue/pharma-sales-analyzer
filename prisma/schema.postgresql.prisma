@@ -2864,6 +2864,9 @@ model RepFieldSurveyEntry {
   masterSurveyDoctorId Int?
   createdAt   DateTime @default(now())
   editedAt    DateTime?
+  // مَن عدّل آخر مرة — السجل صار قابلاً للتعديل من كل مندوبي المكتب العاملين
+  // على نفس المنطقة، لا من مالكه وحده، فلا بد من أثر للمسؤولية.
+  editedById  Int?
 
   parent   RepFieldSurveyEntry?  @relation("RepFieldNearby", fields: [parentId], references: [id], onDelete: Cascade)
   children RepFieldSurveyEntry[] @relation("RepFieldNearby")
