@@ -965,9 +965,18 @@ export default function RepFieldSurveyPage() {
                   <div className="rfs-nearby-head">
                     <div>
                       <div className="form-label">الأطباء القريبون ({nearbyOf(editing.id).length})</div>
-                      <div className="rfs-muted">
-                        {nearbyOf(editing.id).length ? nearbyOf(editing.id).map(d => d.name).join('، ') : 'لا يوجد أطباء مرتبطون بعد.'}
-                      </div>
+                      {nearbyOf(editing.id).length ? (
+                        <ul className="rfs-doctor-chips">
+                          {nearbyOf(editing.id).map(d => (
+                            <li key={d.id} className="rfs-doctor-chip">
+                              <span>🩺 {d.name}</span>
+                              {d.specialty && <span className="rfs-doctor-chip-sub">{d.specialty}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="rfs-muted">لا يوجد أطباء مرتبطون بعد.</div>
+                      )}
                       <div className="rfs-muted">الطبيب الجديد يُحفظ بموقع الصيدلية؛ والمسجَّل مسبقاً بنفس الاسم يُربط بها فقط.</div>
                     </div>
                     <button type="button" className="btn btn--secondary btn--sm" onClick={() => setEditAddDoctors([...editAddDoctors, { name: '', specialty: '', className: '' }])}>+ إضافة طبيب</button>
