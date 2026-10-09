@@ -786,7 +786,7 @@ export default function RepFieldSurveyPage() {
         ) : visible.length === 0 ? (
           <div className="empty-row">{entries.length ? 'لا توجد نتائج مطابقة.' : 'لم يتم تسجيل أي اسم بعد.'}</div>
         ) : viewMode === 'map' ? (
-          <RepFieldSurveyMap entries={visible} />
+          <RepFieldSurveyMap entries={visible} onEdit={openEdit} />
         ) : (
           <div className="table-wrapper">
             <table>

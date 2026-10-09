@@ -220,14 +220,16 @@ function meIcon(): L.DivIcon {
 
 interface AreaGroup { area: string; doctors: number; pharmacies: number; lat: number; lng: number; }
 
-interface Props { entries: Entry[]; }
+interface Props { entries: Entry[]; onEdit?: (entry: Entry) => void; }
 
-// محتوى النافذة المنبثقة. زر "ملاحة" يحمل data-rfs-nav ليُربط بمستمع نقر بعد
-// إدراج النافذة في الصفحة (المحتوى HTML خام، فلا يمكن تمرير onClick من React).
+// محتوى النافذة المنبثقة. أزرار "ملاحة"/"تعديل" تحمل data-rfs-nav/data-rfs-edit
+// لتُربط بمستمع نقر بعد إدراج النافذة في الصفحة (المحتوى HTML خام، فلا يمكن
+// تمرير onClick من React مباشرة). "ص" تُسبق كل اسم صيدلية قريبة من الطبيب —
+// حرف دلالة لا كلمة، فلا يُثقل السطر مع تعدد الأسماء.
 function buildPopupHtml(e: Entry, me: { lat: number; lng: number } | null): string {
   const dist = me ? haversineMeters(me.lat, me.lng, e.latitude, e.longitude) : null;
   const detailsLine = e.kind === 'doctor'
-    ? [e.specialty, e.className, e.nearPharmacies.length ? `قرب: ${e.nearPharmacies.join('، ')}` : ''].filter(Boolean).join(' · ')
+    ? [e.specialty, e.className, e.nearPharmacies.length ? e.nearPharmacies.map(p => `ص ${p}`).join('، ') : ''].filter(Boolean).join(' · ')
     : e.notes ?? '';
   return `
     <div style="min-width:210px; font-family:inherit; direction:rtl; text-align:right;">
@@ -237,12 +239,13 @@ function buildPopupHtml(e: Entry, me: { lat: number; lng: number } | null): stri
       ${dist != null ? `<div style="font-size:12.5px; font-weight:700; color:${COLOR_ME}; margin-bottom:4px;">📍 يبعد عنك ${fmtDistance(dist)}</div>` : ''}
       <div style="display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap;">
         <button type="button" data-rfs-nav="1" style="font-size:12.5px; font-weight:700; color:#fff; background:${COLOR_ROUTE}; border:0; border-radius:6px; padding:5px 11px; cursor:pointer;">🧭 ابدأ الملاحة</button>
+        ${e.canEdit ? `<button type="button" data-rfs-edit="1" style="font-size:12.5px; font-weight:700; color:${COLOR_ROUTE}; background:#fff; border:1px solid ${COLOR_ROUTE}; border-radius:6px; padding:4px 11px; cursor:pointer;">✎ تعديل</button>` : ''}
         <a href="${mapsUrl(e.latitude, e.longitude)}" target="_blank" rel="noreferrer" style="font-size:12px;">خرائط Google ↗</a>
       </div>
     </div>`;
 }
 
-export default function RepFieldSurveyMap({ entries }: Props) {
+export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
   const mapDivRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
@@ -464,8 +467,11 @@ export default function RepFieldSurveyMap({ entries }: Props) {
       marker.bindPopup(buildPopupHtml(e, meRef.current), { autoPan: true, autoPanPadding: [40, 40] });
       marker.on('popupopen', () => {
         marker.setPopupContent(buildPopupHtml(e, meRef.current));
-        const navBtn = marker.getPopup()?.getElement()?.querySelector('[data-rfs-nav]') as HTMLButtonElement | null;
+        const popupEl = marker.getPopup()?.getElement();
+        const navBtn = popupEl?.querySelector('[data-rfs-nav]') as HTMLButtonElement | null;
         if (navBtn) navBtn.onclick = ev => { ev.preventDefault(); startNav(e); };
+        const editBtn = popupEl?.querySelector('[data-rfs-edit]') as HTMLButtonElement | null;
+        if (editBtn) editBtn.onclick = ev => { ev.preventDefault(); onEdit?.(e); };
       });
       markersRef.current.set(id, marker);
     }
