@@ -391,6 +391,8 @@ export default function RepFieldSurveyPage() {
   const [editForm, setEditForm]     = useState(EMPTY_FORM);
   const [editNear, setEditNear]     = useState<string[]>([]);
   const [editAddDoctors, setEditAddDoctors] = useState<NearbyRow[]>([]);
+  // إعادة تسمية أطباء الصيدلية من نافذة تعديلها: id الطبيب ← الاسم الجديد
+  const [editDoctorNames, setEditDoctorNames] = useState<Record<number, string>>({});
   const [editCoords, setEditCoords] = useState<Coords | null>(null);
   const [editLoc, setEditLoc]       = useState<'idle' | 'loading' | 'error'>('idle');
   const [editLocError, setEditLocError] = useState('');
@@ -409,6 +411,7 @@ export default function RepFieldSurveyPage() {
     });
     setEditNear(e.nearPharmacies);
     setEditAddDoctors([]);
+    setEditDoctorNames({});
     setEditCoords(null);
     setEditLoc('idle');
     setEditLocError('');
@@ -462,8 +465,32 @@ export default function RepFieldSurveyPage() {
       });
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.message || 'تعذّر حفظ التعديل.');
-      setEditing(null);
+
+      // أسماء الأطباء المعدَّلة — كلٌّ عبر نفس مسار تعديل السجل (يتحقق الخادم من الصلاحية)
+      const renames = editing.kind === 'pharmacy'
+        ? nearbyOf(editing.id)
+            .map(d => ({ d, name: (editDoctorNames[d.id] ?? '').trim() }))
+            .filter(x => x.name && x.name !== x.d.name)
+        : [];
+      const failed: string[] = [];
+      for (const { d, name } of renames) {
+        try {
+          const rr = await fetch(`/api/rep-field-survey/entries/${d.id}`, {
+            method: 'PATCH', headers: H(), body: JSON.stringify({ name }),
+          });
+          const jj = await rr.json();
+          if (!rr.ok || !jj.success) throw new Error(jj.message);
+        } catch (err: any) {
+          failed.push(`${d.name}${err?.message ? ` (${err.message})` : ''}`);
+        }
+      }
       load();
+      if (failed.length) {
+        setEditDoctorNames({});
+        setEditAddDoctors([]); // حُفظوا مع الصيدلية — لا يُعاد إرسالهم
+        throw new Error(`حُفظت الصيدلية، لكن تعذّر تعديل اسم: ${failed.join('، ')}`);
+      }
+      setEditing(null);
     } catch (err: any) {
       setEditError(err.message);
     } finally {
@@ -968,10 +995,36 @@ export default function RepFieldSurveyPage() {
                       {nearbyOf(editing.id).length ? (
                         <ul className="rfs-doctor-chips">
                           {nearbyOf(editing.id).map(d => (
-                            <li key={d.id} className="rfs-doctor-chip">
-                              <span>🩺 {d.name}</span>
-                              {d.specialty && <span className="rfs-doctor-chip-sub">{d.specialty}</span>}
-                            </li>
+                            editDoctorNames[d.id] !== undefined ? (
+                              <li key={d.id} className="rfs-doctor-chip rfs-doctor-chip--editing">
+                                <span>🩺</span>
+                                <input
+                                  className="rfs-doctor-chip-input"
+                                  value={editDoctorNames[d.id]}
+                                  autoFocus
+                                  onChange={e => setEditDoctorNames({ ...editDoctorNames, [d.id]: e.target.value })}
+                                />
+                                <button
+                                  type="button"
+                                  className="rfs-doctor-chip-btn"
+                                  title="تراجع عن تعديل الاسم"
+                                  onClick={() => { const next = { ...editDoctorNames }; delete next[d.id]; setEditDoctorNames(next); }}
+                                >↶</button>
+                              </li>
+                            ) : (
+                              <li key={d.id} className="rfs-doctor-chip">
+                                <span>🩺 {d.name}</span>
+                                {d.specialty && <span className="rfs-doctor-chip-sub">{d.specialty}</span>}
+                                {d.canEdit && (
+                                  <button
+                                    type="button"
+                                    className="rfs-doctor-chip-btn"
+                                    title="تعديل اسم الطبيب"
+                                    onClick={() => setEditDoctorNames({ ...editDoctorNames, [d.id]: d.name })}
+                                  >✎</button>
+                                )}
+                              </li>
+                            )
                           ))}
                         </ul>
                       ) : (

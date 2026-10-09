@@ -3665,6 +3665,27 @@ select.comm-input { cursor: pointer; }
   font-weight: 700;
   color: var(--c-text-primary);
 }
+.rfs-doctor-chip--editing { background: #fff; border-color: var(--c-accent); }
+.rfs-doctor-chip-input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  min-width: 0;
+  width: 14ch;
+}
+.rfs-doctor-chip-btn {
+  border: 0;
+  background: transparent;
+  color: var(--c-accent);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0 2px;
+  cursor: pointer;
+  line-height: 1;
+}
 .rfs-doctor-chip-sub { font-weight: 500; font-size: 12px; color: var(--c-text-secondary); border-inline-start: 1px solid #c7dcfb; padding-inline-start: 6px; }
 .rfs-actions-cell { white-space: nowrap; display: flex; gap: 6px; }
 .rfs-pharmacy-fields { display: flex; flex-direction: column; gap: 8px; }
@@ -3720,10 +3741,13 @@ select.comm-input { cursor: pointer; }
 .rfs-map-tool-btn:hover:not(:disabled) { background: var(--c-accent-light); }
 .rfs-map-tool-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 /* الشكل الرسمي: تمديد خطّي مثبَّت عند الأبيض — الشوارع والجسور (بيضاء) تبقى
-   بيضاء، والخلفية الرمادية ونهر دجلة يغمقان قليلاً فيبرز الفرق بينهما.
-   (b−0.5)·c+0.5 = 1 عند الأبيض: 0.78/1.8 ⇒ خلفية 0.90→0.86، نهر 0.80→0.72.
+   بيضاء، والخلفية الرمادية ونهر دجلة يغمقان فيبرز الفرق بينهما.
+   (b−0.5)·c+0.5 = 1 عند الأبيض: 0.692/2.6 ⇒ خلفية 0.90→0.82، نهر 0.80→0.64.
    فلتر CSS مسرَّع بالـGPU على حاوية الطبقة كلها لا على كل بلاطة. */
-.rfs-tiles-formal { filter: brightness(0.78) contrast(1.8); }
+.rfs-tiles-formal { filter: brightness(0.692) contrast(2.6); }
+/* طبقة الطرق: رمادي، ثم تمديد يجعل الشوارع الفرعية (≈0.87 بعد الرمادي) بيضاء
+   تماماً فتختفي فوق شوارع الأساس، والطرق السريعة (≈0.61) رمادياً داكناً ≈0.45. */
+.rfs-tiles-formal-roads { filter: grayscale(1) brightness(0.794) contrast(2.684); }
 .rfs-map-tool-btn--on { background: var(--c-accent-light); box-shadow: inset 0 0 0 2px var(--c-accent); }
 .rfs-map-tool-btn--stop { background: var(--c-danger); border-color: var(--c-danger); color: #fff; }
 .rfs-map-tool-btn--stop:hover { background: var(--c-danger); filter: brightness(0.92); }

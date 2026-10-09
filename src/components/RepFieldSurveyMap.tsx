@@ -289,7 +289,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
   const kindBtnsRef = useRef<{ doctorBtn: HTMLElement; pharmacyBtn: HTMLElement } | null>(null);
   const dotLayerRef = useRef<L.LayerGroup | null>(null);
   const dotRendererRef = useRef<L.Canvas | null>(null);
-  const tileLayersRef = useRef<Record<BaseStyle, L.TileLayer> | null>(null);
+  const tileLayersRef = useRef<Record<BaseStyle, L.Layer> | null>(null);
   const [baseStyle, setBaseStyle] = useState<BaseStyle>(readBaseStyle);
 
   const [me, setMe] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
@@ -621,14 +621,26 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
         keepBuffer: 6,
         updateWhenZooming: false,
       }),
-      formal: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
-        className: 'rfs-tiles-formal',
-        maxNativeZoom: 16,
-        maxZoom: 19,
-        keepBuffer: 6,
-        updateWhenZooming: false,
-      }),
+      formal: L.layerGroup([
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+          attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ',
+          className: 'rfs-tiles-formal',
+          maxNativeZoom: 16,
+          maxZoom: 19,
+          keepBuffer: 6,
+          updateWhenZooming: false,
+        }),
+        // طبقة الطرق الشفافة من Esri (مصنَّفة: الطرق السريعة أعرض) — تُحوَّل
+        // رمادية بالـCSS فتبرز الطرق السريعة والجسور خطوطاً داكنة، والشوارع
+        // الفرعية تذوب في شوارع الأساس البيضاء. تحمل أسماء الطرق الرئيسية.
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
+          className: 'rfs-tiles-formal-roads',
+          maxZoom: 19,
+          keepBuffer: 6,
+          updateWhenZooming: false,
+          zIndex: 2,
+        }),
+      ]),
     };
     tiles[baseStyle].addTo(map);
     tileLayersRef.current = tiles;
