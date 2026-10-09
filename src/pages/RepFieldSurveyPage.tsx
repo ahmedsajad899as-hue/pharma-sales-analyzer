@@ -837,7 +837,7 @@ export default function RepFieldSurveyPage() {
 
       {/* ── نافذة التفاصيل (للقراءة) ── */}
       {viewing && (
-        <div className="modal-overlay" onClick={() => setViewing(null)}>
+        <div className="modal-overlay rfs-modal-overlay" onClick={() => setViewing(null)}>
           <div className="modal rfs-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>تفاصيل {viewing.kind === 'doctor' ? 'الطبيب' : 'الصيدلية'}</h2>
@@ -901,7 +901,7 @@ export default function RepFieldSurveyPage() {
 
       {/* ── نافذة التعديل ── */}
       {editing && (
-        <div className="modal-overlay" onClick={() => !editSaving && setEditing(null)}>
+        <div className="modal-overlay rfs-modal-overlay" onClick={() => !editSaving && setEditing(null)}>
           <div className="modal rfs-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>تعديل {editing.kind === 'doctor' ? 'الطبيب' : 'الصيدلية'}</h2>
