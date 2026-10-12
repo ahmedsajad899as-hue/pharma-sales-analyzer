@@ -31,7 +31,7 @@ const PHARMACY_SUGGEST = 0.6; // أدنى درجة تُعرض كاقتراح
 // و«مكان» تقصّ أول «مكانة».
 const LABEL_TAIL = String.raw`(?:\s*[:：\-/.]\s*|\s+)`;
 const AREA_LABEL_RE = new RegExp(String.raw`^\s*(?:المنطقه|المنطقة|منطقه|منطقة|الزون|زون|zone|الموقع|موقع|المكان|مكان|العنوان|عنوان|المحله|المحلة|محلة)${LABEL_TAIL}`, 'i');
-const PHARMACY_LABEL_RE = new RegExp(String.raw`^\s*(?:اسم الزبون|اسم العميل|ص|صيدلية|الصيدلية|صيدليه|الصيدليه|زبون|الزبون|عميل|العميل|اسم|الاسم|المشتري)${LABEL_TAIL}`, 'i');
+const PHARMACY_LABEL_RE = new RegExp(String.raw`^\s*(?:السيد|السادة|الساده|حضرة|اسم الزبون|اسم العميل|ص|صيدلية|الصيدلية|صيدليه|الصيدليه|زبون|الزبون|عميل|العميل|اسم|الاسم|المشتري)${LABEL_TAIL}`, 'i');
 
 const CACHE_MS = 5 * 60_000;
 let cache = null; // { at, areas, aliasByKey, pharmacies }
@@ -76,6 +76,19 @@ export function buildMasterIndex(areas, aliases, pharmacies) {
   }));
 
   return { areaByKey, aliasByKey, confirmed, pharmacies: pharmacyIndex };
+}
+
+/**
+ * كم تؤكّد بيانات الماستر قراءةَ زبون: 2 صيدلية سيرفي محسومة، 1 منطقة معروفة فقط،
+ * 0 لا شيء. يُستعمل لاختيار أفضل قراءتين لسطر الزبون من الصورة نفسها.
+ */
+export async function customerKnownScore(pharmacy, area) {
+  if (!String(pharmacy ?? '').trim() && !String(area ?? '').trim()) return 0;
+  let m;
+  try { m = await loadMaster(); } catch { return 0; }
+  const r = resolveOne(String(pharmacy ?? '').trim(), String(area ?? '').trim(), m);
+  if (r.matched) return 2;
+  return r.area ? 1 : 0;
 }
 
 /** يُلغى بعد أي تعديل يعرف أنه يمسّ المناطق/الصيدليات (اختياري — التقادم 5 دقائق). */

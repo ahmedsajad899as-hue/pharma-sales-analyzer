@@ -1,7 +1,7 @@
 // اختبار مطابقة الصيدلية/المنطقة المستخرَجة من الفواتير مع بيانات الماستر.
 // نقيّ بلا قاعدة بيانات: npm run test:invoice-match
 import { buildMasterIndex, resolveOne, matchArea } from '../server/lib/invoiceCustomerMatch.js';
-import { isWarehouseAsPharmacy, foldBonusRows } from '../server/modules/sales/sales.service.js';
+import { isWarehouseAsPharmacy, foldBonusRows, isStaffField, splitPharmacyArea } from '../server/modules/sales/sales.service.js';
 
 const areas = [
   { id: 1, name: 'المنصور', needsReview: false },
@@ -51,6 +51,11 @@ eq('صيدلية جديدة لا تُستبدل', r('بيت الشفاء', 'ال
 eq('المذخر كصيدلية: aspirin', isWarehouseAsPharmacy('aspirin', 'Aspirin Drug store'), true);
 eq('المذخر كصيدلية: مذخر …', isWarehouseAsPharmacy('مذخر الناقوس', ''), true);
 eq('صيدلية عادية ليست مذخراً', isWarehouseAsPharmacy('فوزي', 'Aspirin Drug store'), false);
+
+eq('حقل المجهز ليس صيدلية', isStaffField('المجهز: حسين فالح'), true);
+eq('حقل المندوب برقم هاتف', isStaffField('عبد الرحمن مسلم 07721951402'), true);
+eq('صيدلية عادية ليست حقل موظف', isStaffField('النعيمي'), false);
+eq('السيد : صيدلية النعيمي/ السعوديه', splitPharmacyArea('السيد : صيدلية النعيمي/ السعوديه', ''), { pharmacy: 'النعيمي', area: 'السعوديه' });
 
 const b1 = foldBonusRows([{ item: 'lexur 500mg', quantity: '10+2', unitPrice: 7680, total: 76800, bonus: 0 }]);
 eq('10+2 داخل الكمية', [b1[0].quantity, b1[0].bonus], [10, 2]);

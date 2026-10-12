@@ -4,6 +4,7 @@
  * Orchestrates repository calls — no direct DB access here.
  */
 
+import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
 import XLSX from 'xlsx';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import path from 'path';
@@ -1266,7 +1267,13 @@ async function findOrCreateRep(name, userId) {
 // _finishProcessing).
 // ═══════════════════════════════════════════════════════════════════════════
 
-const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر الأدوية العراقية واستخراج بياناتها.
+// قراءة الفاتورة بـ2.5-flash أولاً لا lite (الافتراضي في callGeminiSmart). مقيس
+// (2026-10-13) على صور بوت حقيقية بنفس الزمن (~2.5 ث): lite أهمل عمود «كمية
+// مجانية» (بونص 0 بدل 2) وأعاد صيدلية فارغة أو مشوّهة في الفاتورة المُدارة 90°،
+// وflash قرأها كلها صحيحة. lite يبقى بديلاً عند الحصّة/المهلة.
+const INVOICE_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
+
+export const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر الأدوية العراقية واستخراج بياناتها.
 الصورة المرفقة فاتورة بيع من مذخر أدوية (البائع) إلى صيدلية/زبون (المشتري). نماذج الفواتير تختلف
 من مذخر لآخر (ترتيب الأعمدة، المسميات، وقد يكون الخط مطبوعاً أو يدوياً) — افهم *معنى* الحقول لا مواضعها.
 
@@ -1274,7 +1281,9 @@ const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر 
 • من ترويسة الفاتورة (تنطبق على كل أصناف هذه الفاتورة): اسم المذخر (البائع، غالباً بأعلى الفاتورة مع الشعار)،
   رقم الفاتورة، التاريخ، اسم الصيدلية/الزبون المشتري، ومنطقة الصيدلية.
 • لكل صنف (سطر) في جدول الفاتورة: اسم المادة/الدواء، الشركة المصنّعة، الكمية،
-  سعر الوحدة (الإفرادي)، السعر الكلي للسطر، والبونص (الكمية المجانية) إن وُجد.
+  سعر الوحدة (الإفرادي/المفرد)، السعر الكلي للسطر، والبونص = الكمية المجانية. **افحص رؤوس أعمدة الجدول كلها:**
+  إن وُجد عمود اسمه «كمية مجانية» أو «مجاني» أو «البونص» أو «بونص» أو «هدية» أو «free» أو «bonus» فقيمته في كل سطر هي bonus
+  (لا تتركه 0 وفيه رقم).
 
 أعِد **مصفوفة JSON فقط** (JSON array) — بلا أي نص أو شرح قبلها أو بعدها — كل عنصر يمثّل صنفاً واحداً
 بهذا الشكل بالضبط:
@@ -1305,7 +1314,8 @@ const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر 
   كل مستطيل أربعة أعداد صحيحة **بمقياس 0 إلى 1000** بالترتيب [ymin, xmin, ymax, xmax] (y من الأعلى للأسفل، x من اليسار لليمين). اجعل المستطيل يحيط بالمنطقة/الكتلة **كاملةً بسخاء** (لا بحقل مفرد ضيّق). إن تعذّر تحديد موضعٍ اجعله null. تُستخدم لتكبير الصورة على كل منطقة عند المراجعة.
 - **اسم المادة (item):** انسخه كاملاً كما هو مكتوب في الفاتورة بلا اختصار أو حذف (الاسم + التركيز + الشكل، مثل "DEVA … 457MG SYRUP").
 - **اسم الصيدلية (pharmacy):** الاسم الفعلي فقط، بلا أي بادئة أو لقب قبله مثل: "ص"، "ص."، "صيدلية"، "الصيدلية"، "صيدليه"، "زبون"، "الزبون"، "عميل"، "العميل"، "اسم"، "الاسم"، "د"، "دكتور"، وبلا المنطقة (انظر القاعدة التالية).
-- **أين تجد اسم الصيدلية:** يأتي عادةً بعد عنوان حقل مثل: «اسم الزبون»، «الزبون»، «الاسم»، «الصيدلية»، «صيدلية»، «ص»، «العميل»، «اسم العميل»، «المشتري» — وقد يُكتب **بلا أي عنوان**. العنوان نفسه ليس جزءاً من الاسم. احذر: «اسم المندوب»، «المندوب»، «الكاشير»، «المجهز»، «السائق» حقول أشخاص من طرف المذخر — **ليست** الصيدلية.
+- **الصورة قد تكون مائلة أو مُدارة 90° أو مقلوبة** — اقرأ النص باتجاهه الصحيح.
+- **أين تجد اسم الصيدلية:** يأتي عادةً بعد عنوان حقل مثل: «اسم الزبون»، «الزبون»، «السيد»، «السادة»، «حضرة»، «الاسم»، «الصيدلية»، «صيدلية»، «ص»، «العميل»، «اسم العميل»، «المشتري» (مثال: «السيد : صيدلية النعيمي/ السعوديه» ⇒ pharmacy=«النعيمي»، area=«السعوديه») — وقد يُكتب **بلا أي عنوان**. العنوان نفسه ليس جزءاً من الاسم. احذر: «اسم المندوب»، «المندوب»، «الكاشير»، «المجهز»، «منظم الفاتورة»، «السائق» حقول أشخاص من طرف المذخر — **ليست** الصيدلية.
 - **أين تجد المنطقة:** بعد عنوان مثل «المنطقة»، «منطقة»، «الزون»، «الموقع»، «المكان»، «المحلة»، «العنوان» — أو **بعد اسم الصيدلية مباشرةً** مفصولة بشرطة «-» أو «/» أو فاصلة أو نقطتين «:»، وأحياناً **بلا فاصل** («فوزي منصور» ⇒ pharmacy=«فوزي»، area=«منصور»). إن كان العنوان «محافظة - حي» («بغداد - منصور») فالمنطقة هي **الحيّ** («منصور») لا المحافظة. انسخ اسم المنطقة كما هو مكتوب ولا تترجمه.
 - **فصل الصيدلية عن المنطقة:** كثيراً ما يُكتب اسم الصيدلية والمنطقة معاً في خانة الزبون مفصولين بشرطة «-» أو فاصلة، مثل «اروى علي احمد - التاجي». في هذه الحالة الجزء الأول («اروى علي احمد») هو اسم الصيدلية (pharmacy)، والجزء الأخير بعد الشرطة («التاجي») هو المنطقة (area). ضع كلاً في حقله المناسب ولا تدمجهما في حقل واحد.
 - **سطر الزبون في نماذج «طلبية المكاتب»:** كثير من مذاخر العراق لا تضع للزبون خانةً مُعنونة، بل تكتبه **سطراً واحداً في أعلى الورقة** — غالباً فوق الباركود وفوق اسم المذخر الكبير. يبدأ بـ«ص» أو «صيدلية»، ثم اسم الصيدلية، ثم فاصل (شرطة «-» أو «ـ» أو «/»)، ثم المنطقة، وقد ينتهي بـ«م» متبوعاً باسم المندوب. مثال حقيقي: «ص نديم عدنان ـ الطارمية م بشار» ⇒ pharmacy = «نديم عدنان»، area = «الطارمية»، واسم المندوب «بشار» **يُهمَل ولا يُوضَع في أي من الحقلين**. ابحث عن هذا السطر دائماً قبل أن تُعيد pharmacy فارغاً، ولا تخلط بينه وبين اسم المذخر الذي يظهر بخط كبير مع الشعار.
@@ -1325,7 +1335,7 @@ const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر 
 
 // Common prefixes/titles that get typed before a pharmacy/customer name on
 // Iraqi invoices. We strip them so the stored customer is the clean name.
-const PHARMACY_PREFIX_RE = /^\s*(ص\.?|صيدلية|الصيدلية|صيدليه|الصيدليه|زبون|الزبون|عميل|العميل|اسم|الاسم|د\.?|دكتور|dr\.?)\s+/i;
+const PHARMACY_PREFIX_RE = /^\s*(السيد|السادة|الساده|حضرة|ص\.?|صيدلية|الصيدلية|صيدليه|الصيدليه|زبون|الزبون|عميل|العميل|اسم|الاسم|د\.?|دكتور|dr\.?)(?:\s*[:：]\s*|\s+)/i;
 export function cleanPharmacyName(name) {
   let s = String(name ?? '').trim();
   // Strip repeatedly in case of stacked prefixes (e.g. "اسم الزبون ...")
@@ -1401,13 +1411,16 @@ export function parseInvoiceJson(raw) {
 // مهما شُدِّدت قاعدته — فهو تفصيل صغير وسط تعليمات كثيرة. النداء المركَّز يقرأه
 // بموثوقية، ولا يُستدعى إلا حين تفشل القراءة الأولى، فكلفته صفر في الحالة
 // الطبيعية.
-const buildCustomerLinePrompt = (warehouse) => `هذه صورة «طلبية مكاتب» من مذخر أدوية عراقي.
+const buildCustomerLinePrompt = (warehouse) => `هذه صورة فاتورة/«طلبية مكاتب» من مذخر أدوية عراقي.
 
-مهمتك **قراءة سطر واحد فقط**: سطر الزبون (الصيدلية المشترية). له شكلان:
+**تنبيه:** الصورة قد تكون مُلتقَطة مائلةً أو مُدارة 90° أو مقلوبة — اقرأ النص باتجاهه الصحيح أياً كان دوران الورقة.
+
+مهمتك **قراءة سطر واحد فقط**: سطر الزبون (الصيدلية المشترية). له أشكال:
 1) حقل مُعنون في ترويسة الفاتورة بعد «اسم الزبون» أو «الزبون» أو «الاسم» أو «الصيدلية» أو «العميل»، مثل: «اسم الزبون : فوزي - منصور» ⇒ line = «فوزي - منصور». (حقل «العنوان» المجاور قد يحمل المنطقة أيضاً: «بغداد - منصور» ⇒ المنطقة «منصور».)
-2) سطر بلا عنوان في **أعلى الورقة**، فوق الباركود وفوق اسم المذخر الكبير، بخط صغير وربما على خلفية رمادية فاتحة. مثال حقيقي:
+2) حقل بعد «السيد» أو «السادة» أو «حضرة» (وقد يتبعه «المحترم»)، مثل: «السيد : صيدلية النعيمي/ السعوديه» ⇒ line = «صيدلية النعيمي/ السعوديه» — ما قبل «/» اسم الصيدلية وما بعدها المنطقة.
+3) سطر بلا عنوان في **أعلى الورقة**، فوق الباركود وفوق اسم المذخر الكبير، بخط صغير وربما على خلفية رمادية فاتحة. مثال حقيقي:
 «ص محمد عبد الامير الرفيعي ـ العطيفية م محمد عباس»
-«اسم المندوب» و«الكاشير» و«المجهز» أشخاص من طرف المذخر — ليسوا الزبون.
+«اسم المندوب» و«الكاشير» و«المجهز» و«منظم الفاتورة» أشخاص من طرف المذخر — ليسوا الزبون ولا المنطقة.
 
 انظر إلى أعلى الصورة بتمعّن واقرأ ذلك السطر، ثم أعِد **كائن JSON فقط** بلا أي نص آخر وبلا أسوار:
 {"line":"السطر كما هو حرفياً","pharmacy":"اسم الصيدلية فقط","area":"المنطقة"}
@@ -1437,11 +1450,11 @@ function parseJsonObject(raw) {
  * يقرأ سطر الزبون من صورة فاتورة. يُعيد { pharmacy, area } أو null.
  * لا يرمي أبداً — فشله يترك الحقلين فارغين ليملأهما المراجِع.
  */
-async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse = '' } = {}) {
+export async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse = '', models, thinkingBudget = 0 } = {}) {
   try {
     const text = await callGeminiSmart(
       [buildCustomerLinePrompt(warehouse), { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }],
-      { timeoutMs, thinkingBudget: 0 },
+      { timeoutMs, thinkingBudget, ...(models ? { models } : {}) },
     );
     const o = parseJsonObject(text);
     if (!o) return null;
@@ -1481,9 +1494,18 @@ const warehouseKey = (s) => normalizeItemKey(String(s ?? '')
  * («Aspirin Drug store») يُقرأ أحياناً كزبون. كتابة المذخر في خانة الصيدلية تُنشئ
  * زبوناً وهمياً يلتصق بالمبيعات — أسوأ من خانة فارغة يكملها النداء المركَّز.
  */
+// حقول أشخاص من طرف المذخر تتسرّب أحياناً لخانة الصيدلية («المجهز: حسين فالح»،
+// «المندوب: عبد الرحمن مسلم 0772…»). رقم هاتف (7 أرقام فأكثر) دليل مثله.
+const STAFF_FIELD_RE = /^\s*(اسم\s+)?(المجهز|مجهز|المندوب|مندوب|الكاشير|كاشير|منظم\s+الفاتور[ةه]|السائق|سائق|الحسابات)\s*[:：]?/;
+export function isStaffField(pharmacy) {
+  const ph = String(pharmacy ?? '').trim();
+  return !!ph && (STAFF_FIELD_RE.test(ph) || /\d{7,}/.test(ph.replace(/\s+/g, '')));
+}
+
 export function isWarehouseAsPharmacy(pharmacy, warehouse) {
   const ph = String(pharmacy ?? '').trim();
   if (!ph) return false;
+  if (isStaffField(ph)) return true;
   if (WAREHOUSE_WORD_RE.test(ph)) return true;
   const a = warehouseKey(ph), b = warehouseKey(warehouse);
   if (!a || !b) return false;
@@ -1519,6 +1541,38 @@ export function foldBonusRows(rows) {
     paid.bonus = (Number(paid.bonus) || 0) + (Number(r.quantity) || 0) + (Number(r.bonus) || 0);
     return false;
   });
+}
+
+/**
+ * ثلاث قراءات مركَّزة متوازية لسطر الزبون (+ قراءة النداء الكامل) ثم تصويت. السطر صغير وقد تكون الصورة
+ * مُدارة، فالقراءة الواحدة تتذبذب («النعيمي» ثم «اللبني») — مقيس على صورة حقيقية
+ * مُدارة 90°: المنطقة ثابتة والاسم صحيح في ~4 من 5. الأغلبية تُسقط الشاذّ،
+ * والتعادل يحسمه ما تؤكّده بيانات الماستر. نداءات lite سريعة (~2 ث معاً).
+ * يُعيد { pharmacy, area, score } أو null.
+ */
+async function extractCustomerLineVoted(img, opts, n = 3, priorRead = null) {
+  const reads = (await Promise.all(Array.from({ length: n }, () => extractCustomerLine(img, opts)))).filter(Boolean);
+  // قراءة النداء الكامل صوتٌ إضافي — كانت صحيحة غالباً فلا تُرمى لمجرّد أنها
+  // غير معروفة في الماستر (صيدلية جديدة).
+  if (priorRead?.pharmacy) reads.push(priorRead);
+  if (!reads.length) return null;
+  const groups = new Map();
+  for (const r of reads) {
+    const k = normalizeItemKey(r.pharmacy);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  }
+  let best = null;
+  for (const list of groups.values()) {
+    const r = list[0];
+    const score = await customerKnownScore(r.pharmacy, r.area);
+    const areaVotes = new Map();
+    for (const x of list) if (x.area) areaVotes.set(x.area, (areaVotes.get(x.area) || 0) + 1);
+    const area = [...areaVotes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? r.area;
+    const cand = { pharmacy: r.pharmacy, area, score, votes: list.length };
+    if (!best || cand.votes > best.votes || (cand.votes === best.votes && cand.score > best.score)) best = cand;
+  }
+  return best;
 }
 
 /**
@@ -1560,6 +1614,7 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
         timeoutMs:  70_000,
         maxTotalMs: OVERALL_BUDGET_MS - elapsed,
         thinkingBudget: 0,
+        models: INVOICE_MODELS,
       });
       let imageRows = [];
       for (const row of parseInvoiceJson(text)) {
@@ -1575,17 +1630,22 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
       }
       imageRows = foldBonusRows(imageRows);
 
-      // احتياطي سطر الزبون: نداء مركَّز واحد للصورة حين لم تُقرأ الصيدلية.
-      // الشرط ضيّق — لا يُستدعى إلا عند الفشل الفعلي، فلا كلفة في الحالة العادية.
-      if (imageRows.length > 0 && !imageRows.some(r => r.pharmacy)) {
-        const cust = await extractCustomerLine(img, {
+      // احتياطي سطر الزبون: نداء مركَّز واحد للصورة حين لم تُقرأ الصيدلية، **أو**
+      // قُرئت لكن الصيدلية غير محسومة في سيرفي الماستر. الحالة الثانية
+      // مقيسة: فاتورة «طريق السلام» المصوَّرة مُدارة 90° أعاد النداء الكامل فيها
+      // «اللحمي»/«**** النقدي» بدل «النعيمي»، بينما قرأ النداء المركَّز السطر صحيحاً.
+      // ثم تُختار القراءة التي تؤكّدها بيانات الماستر أكثر (التعادل للمركَّز).
+      const first = imageRows.find(r => r.pharmacy) || imageRows[0];
+      const firstScore = first?.pharmacy ? await customerKnownScore(first.pharmacy, first.area) : -1;
+      if (imageRows.length > 0 && firstScore < 2) {
+        const cust = await extractCustomerLineVoted(img, {
           timeoutMs: Math.min(45_000, Math.max(10_000, OVERALL_BUDGET_MS - (Date.now() - started))),
           warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
-        });
-        if (cust) {
+        }, 3, first?.pharmacy ? { pharmacy: first.pharmacy, area: first.area } : null);
+        if (cust && cust.score >= Math.max(0, firstScore)) {
           for (const r of imageRows) {
-            if (!r.pharmacy) r.pharmacy = cust.pharmacy;
-            if (!r.area) r.area = cust.area;
+            r.pharmacy = cust.pharmacy;
+            if (cust.area || !r.area) r.area = cust.area;
           }
         }
       }

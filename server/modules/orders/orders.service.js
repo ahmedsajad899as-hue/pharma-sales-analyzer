@@ -351,10 +351,29 @@ export async function ingestBotOrder({
       select: { id: true },
     });
   } catch (err) {
-    await unlinkImages(imageFiles);
     if (err?.code === 'P2002') {
+      // إعادة إرسال طلبية ما زالت معلَّقة = طلب إعادة قراءة (بعد تحسين الاستخراج أو
+      // لأن القراءة الأولى كانت خاطئة). الصف المعلَّق لم يُراجَع بعد — تعديلات
+      // المراجِع لا تُحفَظ فيه — فاستبدال قراءته آمن ولا يُنشئ مبيعات مكرّرة.
+      const existing = await prisma.pendingBotOrder.findFirst({
+        where: { userId: user.id, sourceHash }, select: { id: true, imageFiles: true },
+      });
+      if (existing) {
+        await prisma.pendingBotOrder.update({
+          where: { id: existing.id },
+          data: {
+            payload: { rows, extractedAt: new Date().toISOString() },
+            rowCount: rows.length,
+            imageFiles: imageFiles.length ? imageFiles : null,
+          },
+        });
+        await unlinkImages(existing.imageFiles);
+        return `🔄 أُعيدت قراءة الطلبية #${existing.id}`;
+      }
+      await unlinkImages(imageFiles);
       throw new AppError('هذه الطلبية مُسجَّلة مسبقاً بانتظار المراجعة.', 409, 'DUPLICATE_ORDER');
     }
+    await unlinkImages(imageFiles);
     throw err;
   }
 
