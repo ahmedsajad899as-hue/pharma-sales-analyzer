@@ -3350,7 +3350,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
       {/* Filters Card */}
       <div className="filter-card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
 
           {/* Rep / file selector */}
           {mode === 'commercial' ? (
@@ -3382,12 +3382,25 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               const selRep = sciReps.find(r => String(r.id) === sciRepId);
               const activeCo = quickCompany ?? (selRep ? (selRep.company || 'بدون شركة') : groups[0].company);
               const rows = groups.find(g => g.company === activeCo)?.rows ?? [];
-              const faint = (on: boolean): React.CSSProperties => ({
+              // سطر لكل تيم ليدر: القائد أولاً ثم فاصل صغير ثم مندوبوه. من لا قائد
+              // لهم يُجمعون في سطر أخير بلا قائد.
+              const lines: { leader: Rep | null; members: Rep[] }[] = [];
+              for (const row of rows) {
+                if (row.isLeader) lines.push({ leader: row.rep as Rep, members: [] });
+                else if (row.isMember && lines.length > 0) lines[lines.length - 1].members.push(row.rep as Rep);
+                else {
+                  const last = lines[lines.length - 1];
+                  if (last && !last.leader) last.members.push(row.rep as Rep);
+                  else lines.push({ leader: null, members: [row.rep as Rep] });
+                }
+              }
+              const faint = (on: boolean, leader = false): React.CSSProperties => ({
                 background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer',
-                fontSize: 10.5, lineHeight: 1.5, color: on ? '#475569' : '#94a3b8',
-                opacity: on ? 0.95 : 0.6, fontWeight: on ? 600 : 400,
+                fontSize: 10.5, lineHeight: 1.6, color: on ? '#475569' : '#94a3b8',
+                opacity: on ? 0.95 : leader ? 0.8 : 0.6, fontWeight: on || leader ? 600 : 400,
                 textDecoration: on ? 'underline' : 'none', textUnderlineOffset: 3,
               });
+              const pick = (rep: Rep) => { setSciRepId(String(rep.id)); setReportView(getDefaultReportView()); loadSciReport(String(rep.id)); };
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 8px' }}>
@@ -3395,14 +3408,19 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       <button key={g.company} type="button" style={faint(g.company === activeCo)} onClick={() => setQuickCompany(g.company)}>{g.company}</button>
                     ))}
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 8px', maxHeight: 64, overflowY: 'auto' }}>
-                    {rows.map(({ rep }) => (
-                      <button key={rep.id} type="button" style={faint(String(rep.id) === sciRepId)}
-                        onClick={() => { setSciRepId(String(rep.id)); setReportView(getDefaultReportView()); loadSciReport(String(rep.id)); }}>
-                        {rep.name}
-                      </button>
-                    ))}
-                  </div>
+                  {lines.map((ln, idx) => (
+                    <div key={idx} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 7px' }}>
+                      {ln.leader && (
+                        <>
+                          <button type="button" style={faint(String(ln.leader.id) === sciRepId, true)} onClick={() => pick(ln.leader!)}>{ln.leader.name}</button>
+                          {ln.members.length > 0 && <span style={{ width: 1, height: 9, background: '#cbd5e1', opacity: 0.7 }} />}
+                        </>
+                      )}
+                      {ln.members.map(m => (
+                        <button key={m.id} type="button" style={faint(String(m.id) === sciRepId)} onClick={() => pick(m)}>{m.name}</button>
+                      ))}
+                    </div>
+                  ))}
                 </div>
               );
             })()}
@@ -3571,7 +3589,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               onClick={() => { sendEngagementPing('calculate', 'rep-analysis'); mode === 'commercial' ? loadCommReport() : mode === 'scientific' ? loadSciReport() : loadOverallReport(); }}
               disabled={loading}
               title="تحليل"
-              style={{ padding: '5px 11px', border: 'none', background: 'transparent', color: '#111827', fontSize: 12, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              style={{ padding: '9px 14px', border: 'none', background: 'transparent', color: '#111827', fontSize: 13, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}
             >
               {loading ? <><Icon name="loading" size={12} className="icon-spin" /> جاري…</> : <><Icon name="search" size={12} /> تحليل</>}
             </button>
@@ -3581,8 +3599,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <button
                   onClick={() => { setShowAllRepsWarehouseModal(true); setWarehouseCompanyFilter(''); loadAllRepsWarehouseSummary(); }}
                   title="كل المندوبين العلميين — مكتب/مذخر"
-                  style={{ padding: '5px 9px', border: 'none', background: 'transparent', color: '#1d4ed8', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
-                ><Icon name="pharmacy" size={14} /></button>
+                  style={{ padding: '9px 14px', border: 'none', background: '#eff6ff', color: '#1d4ed8', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+                ><Icon name="pharmacy" size={15} /> كل المندوبين العلميين</button>
               </>
             )}
           </div>
