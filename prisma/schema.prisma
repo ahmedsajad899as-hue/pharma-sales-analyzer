@@ -381,6 +381,21 @@ model Sale {
   // Sale — راجع FileColumnFilter أدناه لتفاصيل الحساب.
   isHidden         Boolean  @default(false)
 
+  // ─── الملف التراكمي: بصمة الصف لمنع تكرار نفس الطلبية ───────────────
+  // كل رفعة جديدة تنصهر داخل ملف تراكمي واحد (راجع UploadedFile.isCumulative).
+  // dedupKey بصمة محتوى الصف (رقم الطلبية + التاريخ + الصيدلية + الايتم +
+  // الشركة + نوع السجل) مع «رقم تكرار» داخل الرفعة الواحدة — راجع
+  // server/lib/saleFingerprint.js. القيد الفريد (uploadedFileId, dedupKey) هو
+  // ما يمنع التكرار فعلياً: createMany({ skipDuplicates: true }) يترك Postgres
+  // يُسقط ما سبق إدخاله بلا تحميل مئات الآلاف من المفاتيح في ذاكرة السيرفر
+  // (RAM السيرفر 951MB — راجع ذاكرة project_pharma_server_capacity).
+  // null للصفوف خارج الملفات التراكمية: في Postgres لا يتعارض NULL مع NULL،
+  // فكل الصفوف التاريخية تبقى كما هي بلا أي أثر.
+  dedupKey     String?
+  // الرفعة (دفعة الدمج) التي جاء منها هذا الصف داخل الملف التراكمي — بلا
+  // علاقة Prisma عمداً كي لا يحبس حذفُ الدفعة حذفَ الملف؛ التنظيف يدوي.
+  mergeBatchId Int?
+
   userId Int?
   user   User? @relation(fields: [userId], references: [id])
 
@@ -403,6 +418,10 @@ model Sale {
   // العمود الذي تفلتر به فعلياً كل صفحات التحليل (uploadedFileId + isHidden)
   // كان بلا فهرس، فكان كل طلب يمسح جدول المبيعات كاملاً.
   @@index([uploadedFileId, isHidden])
+  @@index([dedupKey])
+  @@index([mergeBatchId])
+  // منع تكرار نفس الطلبية داخل الملف التراكمي — راجع dedupKey أعلاه.
+  @@unique([uploadedFileId, dedupKey])
   @@map("sales")
 }
 
@@ -425,6 +444,19 @@ model UploadedFile {
   detectedCurrency String   @default("IQD") // auto-detected from file values on upload
   fileContent      String? // base64-encoded file bytes (for filter_page files — survives Railway ephemeral disk)
 
+  // ─── الملف التراكمي (ملف واحد يبلع رفعات كل الأشهر) ─────────────────
+  // true = هذا الملف ليس رفعة واحدة بل حاوية تراكمية تنصهر فيها كل الرفعات
+  // اللاحقة من نفس المجموعة. mergeGroup هو مفتاح المجموعة:
+  // `${userId}|${sourceSystem||'office'}|${detectedCurrency}` — المصدر
+  // (مكتب/ميركاتو) يفصل لأن نسبة المندوب تُحسب بمنطق مختلف تماماً لكل منهما،
+  // والعملة تفصل لأن التقارير تُطبّع قيمة الصف إلى الدولار بعملة **الملف** لا
+  // الصف (راجع ذاكرة project_pharma_multifile_currency) فخلط ملف IQD بملف USD
+  // داخل حاوية واحدة كان سيقرأ نصف الصفوف بالعملة الخطأ.
+  isCumulative Boolean @default(false)
+  mergeGroup   String?
+
+  mergeBatches FileMergeBatch[]
+
   userId Int?
   user   User? @relation(fields: [userId], references: [id])
 
@@ -442,8 +474,35 @@ model UploadedFile {
 
   @@index([userId])
   @@index([sharedWithRepId])
+  @@index([mergeGroup])
   @@map("uploaded_files")
 }
+
+// ─── دفعة دمج داخل ملف تراكمي ────────────────────────────────
+// كل رفعة إكسل تنصهر في ملف تراكمي تُسجَّل هنا: الاسم الأصلي، كم صفاً أُضيف
+// فعلاً وكم أُسقط كمكرر، وأي أشهر غطّاها. هذا ما يجعل الملف الواحد الكبير
+// مقروءاً للمستخدم («شنو بالضبط موجود جواه؟») ويسمح بالتراجع عن رفعة واحدة
+// بلا مساس بالباقي (حذف الصفوف ذات mergeBatchId المطابق).
+model FileMergeBatch {
+  id           Int      @id @default(autoincrement())
+  fileId       Int
+  file         UploadedFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  originalName String
+  uploadedAt   DateTime @default(now())
+  uploadedBy   String?
+  rowsAdded    Int      @default(0)
+  rowsSkipped  Int      @default(0)
+  // "2026-09,2026-10" — الأشهر التي حملتها هذه الرفعة، للعرض فقط.
+  monthsLabel  String?
+  fileType     String   @default("sales")
+  // اسم ملف الإكسل الأصلي كما حُفظ على القرص — يُبقي «تنزيل الملف الأصلي»
+  // ممكناً لكل رفعة على حدة بعد أن صار الملف الظاهر حاوية تراكمية لا رفعة.
+  storedFilename String?
+
+  @@index([fileId])
+  @@map("file_merge_batches")
+}
+
 
 // ─── فلاتر أعمدة الملف (مثل AutoFilter بالإكسل) ───────────────
 // عند تحديد قيم مستبعدة لعمود ما داخل «تعديل الملف»، تُحفظ هنا، ثم يُعاد

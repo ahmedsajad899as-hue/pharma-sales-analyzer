@@ -7,7 +7,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { uploadSales, extractInvoice, addManualSales, checkNames,
   downloadWarehouseGapTemplate, parseWarehouseGapUpload, getWarehouseGapScopeJson,
-  saveActiveFiles } from './sales.controller.js';
+  saveActiveFiles, getSalesMonths } from './sales.controller.js';
 import {
   getFileRows, saveFileRows, restoreFileRows,
   getColumnFilters, setColumnFilter, clearColumnFilters,
@@ -76,6 +76,12 @@ router.post('/sales/manual', addManualSales);
  * JSON: { rows: [{ item, company }] }. يُرجع الأسماء المتشابهة التي تحتاج تأكيداً.
  */
 router.post('/sales/check-names', checkNames);
+
+/**
+ * GET /api/sales/months?fileIds=1,2
+ * الأشهر الموجودة داخل الملفات المفعّلة — لشرائح اختيار الشهر في شاشات التحليل.
+ */
+router.get('/sales/months', getSalesMonths);
 
 /**
  * GET /api/sales/warehouse-gap-scope

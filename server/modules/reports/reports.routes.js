@@ -15,6 +15,7 @@ import { extractCompanyFromCode, isPlaceholderCompanyValue } from '../../lib/com
 import { normalizeItemKey } from '../../lib/itemResolver.js';
 import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
 import { isWarehouseSaleRow, pharmacyNameFromRawData } from '../../lib/orderKey.js';
+import { buildMonthFilter, UNDATED_CUTOFF } from '../../lib/salesMonths.js';
 
 const router = Router();
 
@@ -111,7 +112,7 @@ router.get('/representative/:id', getRepresentativeReport);
  */
 router.get('/overall', async (req, res) => {
   try {
-    const { fileIds, startDate, endDate, recordType, teamManagerId } = req.query;
+    const { fileIds, startDate, endDate, recordType, teamManagerId, month } = req.query;
     const userId = req.user?.id ?? null;
     const userRole = req.user?.role ?? null;
 
@@ -248,10 +249,17 @@ router.get('/overall', async (req, res) => {
     if (parsedFileIds.length > 0) {
       const fileRecords = await prisma.uploadedFile.findMany({
         where: { id: { in: parsedFileIds } },
-        select: { id: true, uploadedAt: true },
+        select: { id: true, uploadedAt: true, isCumulative: true },
       });
       const orConds = [];
       for (const f of fileRecords) {
+        // ── الملف التراكمي: الحدّ ثابت لا متحرّك ──────────────────────────
+        // مقارنة saleDate بـuploadedAt صالحة للملف المستقل وحده (يُرفع مرة
+        // فيبقى حدّه ثابتاً). الملف التراكمي يُرفع عليه كل شهر فـuploadedAt
+        // يتقدّم باستمرار، وصفوفُ رفعةٍ قديمة بلا تاريخ تصبح فجأة «أقدم من
+        // آخر رفعة» فتتسلّل إلى التحليل بتاريخ وهمي. لذلك صفوفه بلا تاريخ
+        // تُكتب بعلامة حارسة صريحة (راجع salesMonths.js) ويُقصّها هذا الحدّ.
+        if (f.isCumulative) { orConds.push({ uploadedFileId: f.id, saleDate: { gte: UNDATED_CUTOFF } }); continue; }
         if (!f.uploadedAt) { orConds.push({ uploadedFileId: f.id }); continue; }
         const up = new Date(f.uploadedAt);
         // Keep this file's rows dated before its own upload moment. If it has NONE
@@ -267,12 +275,22 @@ router.get('/overall', async (req, res) => {
     // حارس الصفوف بلا تاريخ + المدى الصريح يُطبَّقان معاً (AND): الأول يحدّد ما
     // يُعتدّ بتاريخه أصلاً، والثاني يقصّ داخله. فرعا الـOR يحملان saleDate خاصاً
     // بكل ملف، وهو مستوى مستقل عن saleDate الأعلى فلا يتعارضان.
-    const explicitRange = (effectiveStartDate || effectiveEndDate) ? {
+    const explicitRangeRaw = (effectiveStartDate || effectiveEndDate) ? {
       saleDate: {
         ...(effectiveStartDate ? { gte: effectiveStartDate } : {}),
         ...(effectiveEndDate   ? { lte: effectiveEndDate   } : {}),
       },
     } : {};
+
+    // ── شريحة الشهر (month=2026-09 | none | all) ────────────────────────────
+    // أولوية على المدى الصريح حين تُرسَل: الواجهة ترسل أحدهما لا كليهما، ونشر
+    // المفتاحين معاً كان سيُلغي أحدهما بصمت (كلاهما يكتب `saleDate`).
+    // month=none يطلب صفوف «بلا تاريخ» وحدها — وهي بالضبط ما يستبعده حارس
+    // noDateFileFilter، فيُعطَّل الحارس في هذه الحالة وحدها وإلا رجعت الشريحة
+    // فارغة دائماً.
+    const monthFilter     = buildMonthFilter(month);
+    const undatedOnly     = String(month ?? '') === 'none';
+    const explicitRange   = monthFilter.saleDate ? monthFilter : explicitRangeRaw;
     // فلتر الشريحة = نفس قاعدة النسبة أدناه حرفياً: ايتمات ذلك المدير وحدها.
     // تيم بلا ايتمات مُسنَدة = لا صفوف له (`in: []`) — لا «بلا فلتر»؛ الثانية
     // كانت ستعرض مبيع المكتب كله تحت اسم ذلك التيم.
@@ -301,7 +319,7 @@ router.get('/overall', async (req, res) => {
     };
     const where = {
       ...baseWhere,
-      ...(noDateFileFilter ?? {}),
+      ...(undatedOnly ? {} : (noDateFileFilter ?? {})),
       ...explicitRange,
     };
 

@@ -7,6 +7,7 @@ import type { PageId } from '../App';
 import { Icon } from '../config/icons';
 import RepSelectOptions, { type GroupableRep, groupRepsByTeam } from '../components/RepSelectOptions';
 import { sendEngagementPing } from '../lib/engagementPing';
+import MonthChips, { useSalesMonths } from '../components/MonthChips';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
    drop tatweel/diacritics, strip the definite article «ال», and collapse separators
@@ -879,6 +880,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // Overall mode supports analysing several files at once — their matching areas/items/
   // companies are summed together (the backend aggregates by the shared area/item records).
   const [overallFileIds, setOverallFileIds] = useState<number[]>([]);
+
+  // ── شريحة الشهر ────────────────────────────────────────────────────────────
+  // الملف صار تراكمياً (كل الأشهر داخله)، فالفترة المعروضة تُختار هنا لا بتفعيل
+  // ملف الشهر. الافتراضي = آخر شهر فيه بيانات. تُمرَّر كـ`month` لكل مسارات
+  // التقارير الثلاثة **ولمسارات التصدير معها** — افتراقُ التصدير عن الشاشة علّة
+  // متكررة في هذا المشروع (راجع ذاكرة project_pharma_scirep_report_scope).
+  const monthFileIds = mode === 'overall' && overallFileIds.length > 0 ? overallFileIds : activeFileIds;
+  const monthsState  = useSalesMonths(monthFileIds, token);
+  const { month: selMonth, applyTo: applyMonth } = monthsState;
   const [overallFilesOpen, setOverallFilesOpen] = useState(false);
   // True once the office-vs-Mercato default group (below) has resolved for the
   // current activeFileIds — the auto-run effect waits on this so it never fires
@@ -1267,6 +1277,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (fromDate)    params.set('startDate', fromDate);
       if (toDate)      params.set('endDate', toDate);
       if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
+      applyMonth(params);
 
       const parseReport = (d: any): CommReport => ({
         repName:    d.representative?.name ?? '—',
@@ -1302,6 +1313,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (fromDate)    params.set('startDate', fromDate);
       if (toDate)      params.set('endDate', toDate);
       if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
+      applyMonth(params);
 
       const parseSciReport = (d: any): SciReport => {
         const salesItems = (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
@@ -1377,6 +1389,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (fromDate) params.set('startDate', fromDate);
       if (toDate)   params.set('endDate', toDate);
       if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
+      applyMonth(params);
       const res = await fetch(`/api/scientific-reps/warehouse-summary?${params}`, { headers: authH() });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || t.reports.errLoad);
@@ -1442,6 +1455,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (useUserDates && toDate)   params.set('endDate', toDate);
       // Scope to all selected files — the backend sums matching areas/items/companies.
       params.set('fileIds', fileIds.join(','));
+      applyMonth(params);
       if (overallRaw) params.set('raw', '1');
       const activeTeamId = teamOverride !== undefined ? teamOverride : overallTeamId;
       if (activeTeamId) params.set('teamManagerId', String(activeTeamId));
@@ -1495,13 +1509,30 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (!overallTeamReady) return;
     const ids = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
     if (ids.length === 0) return;
-    const key = `${[...ids].sort((a, b) => a - b).join(',')}|${overallTeamId ?? ''}`;
+    // الشهر المختار جزء من المفتاح: تبديل الشريحة يجب أن يُعيد الحساب، وإلا
+    // بقيت الأرقام على شهرٍ آخر بينما الشريحة تقول غيره.
+    const key = `${[...ids].sort((a, b) => a - b).join(',')}|${overallTeamId ?? ''}|${selMonth}`;
     if (overallAutoRan.current === key) return;
     overallAutoRan.current = key;
     if (loading) return; // طلب جارٍ بالفعل — لا تُعده
     loadOverallReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, overallFileIds.join(','), activeFileIds.join(','), overallTeamId, overallTeamReady]);
+  }, [mode, overallFileIds.join(','), activeFileIds.join(','), overallTeamId, overallTeamReady, selMonth]);
+
+  // تبديل الشهر في وضعَي «علمي»/«تجاري» يُعيد تحميل التقرير المعروض فوراً —
+  // بلا هذا كان على المستخدم الضغط على «عرض» بعد كل شريحة، فيرى أرقام شهر
+  // سابق تحت عنوان شهر آخر.
+  const monthReloadRef = useRef<string>('');
+  useEffect(() => {
+    const key = `${mode}|${selMonth}`;
+    if (monthReloadRef.current === '') { monthReloadRef.current = key; return; }
+    if (monthReloadRef.current === key) return;
+    monthReloadRef.current = key;
+    if (loading) return;
+    if (mode === 'scientific' && sciRepId && sciReport) loadSciReport();
+    if (mode === 'commercial' && commRepId && commReport) loadCommReport();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selMonth, mode]);
 
   const fmt = (n: number) => Math.round(n || 0).toLocaleString('ar-IQ-u-nu-latn');
 
@@ -2320,6 +2351,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (fromDate)    qp.set('startDate', fromDate);
     if (toDate)      qp.set('endDate',   toDate);
     if (activeFileIds.length > 0) qp.set('fileIds', activeFileIds.join(','));
+    applyMonth(qp);
     const qStr = qp.toString();
 
     const result: PreviewSheet[] = [];
@@ -2573,6 +2605,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (fromDate)             qp.set('startDate', fromDate);
       if (toDate)               qp.set('endDate',   toDate);
       if (activeFileIds.length) qp.set('fileIds',   activeFileIds.join(','));
+      applyMonth(qp);
 
       let sales: any[] = [];
       let areaCount: number | null = null;            // assigned areas (scientific only)
@@ -2641,6 +2674,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (fromDate) qp.set('startDate', fromDate);
     if (toDate)   qp.set('endDate',   toDate);
     if (activeFileIds.length > 0) qp.set('fileIds', activeFileIds.join(','));
+    applyMonth(qp);
     const qStr = qp.toString();
 
     let sales: any[] = [];
@@ -2726,6 +2760,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       if (fromDate)    qp.set('startDate', fromDate);
       if (toDate)      qp.set('endDate',   toDate);
       if (activeFileIds.length > 0) qp.set('fileIds', activeFileIds.join(','));
+      applyMonth(qp);
       const qStr = qp.toString();
 
       const addSheet = (name: string, rows: any[][]) => {
@@ -3417,6 +3452,16 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               )}
             </div>
           )}
+
+          {/* شرائح الشهر — المصدر الأساسي لتحديد الفترة بعد أن صار الملف تراكمياً.
+              حقلا «من/إلى» يبقيان لمدى مخصّص داخل شهر أو عبر عدة أشهر. */}
+          <MonthChips
+            months={monthsState.months}
+            undatedCount={monthsState.undatedCount}
+            value={selMonth}
+            onChange={monthsState.setMonth}
+            loading={monthsState.loading}
+          />
 
           {/* Date range */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>

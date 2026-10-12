@@ -6,6 +6,18 @@
 import * as service from './representatives.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
 
+import { monthToRange } from '../../lib/salesMonths.js';
+
+// ── شريحة الشهر ──────────────────────────────────────────────────────────────
+// الواجهة ترسل `month` (2026-09 | none | all)، ونترجمه هنا إلى نفس مدى
+// startDate/endDate الذي يفهمه التقرير أصلاً — فلا يتغيّر توقيع الخدمة ولا
+// منطق الاستعلام. تمرير مدى صريح مع month يفوز فيه month: الواجهة ترسل أحدهما.
+function applyMonth(query, month) {
+  const range = monthToRange(month);
+  if (!range) return query;
+  return { ...query, startDate: range.startDate, endDate: range.endDate };
+}
+
 /** Parse fileIds from query string: '1,2,3' → [1,2,3], '5' → [5], null → null */
 const parseFileIds = (raw) => {
   if (!raw) return null;
@@ -178,7 +190,7 @@ export async function getRepresentativeReport(req, res, next) {
       recordType: req.query.recordType || null,
     };
 
-    const report = await service.getRepresentativeReport(repId, query, req.user?.id ?? null);
+    const report = await service.getRepresentativeReport(repId, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data: report });
   } catch (err) { next(err); }
 }

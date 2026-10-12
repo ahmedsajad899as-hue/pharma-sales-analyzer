@@ -1,5 +1,17 @@
 import * as svc from './scientific-reps.service.js';
 
+import { monthToRange } from '../../lib/salesMonths.js';
+
+// ── شريحة الشهر ──────────────────────────────────────────────────────────────
+// الواجهة ترسل `month` (2026-09 | none | all)، ونترجمه هنا إلى نفس مدى
+// startDate/endDate الذي يفهمه التقرير أصلاً — فلا يتغيّر توقيع الخدمة ولا
+// منطق الاستعلام. تمرير مدى صريح مع month يفوز فيه month: الواجهة ترسل أحدهما.
+function applyMonth(query, month) {
+  const range = monthToRange(month);
+  if (!range) return query;
+  return { ...query, startDate: range.startDate, endDate: range.endDate };
+}
+
 /** Parse fileIds from query string: '1,2,3' → [1,2,3], '5' → [5], null → null */
 const parseFileIds = (raw) => {
   if (!raw) return null;
@@ -329,7 +341,7 @@ export async function getRepReport(req, res, next) {
       fileIds:    parseFileIds(req.query.fileIds || req.query.fileId),
       recordType: req.query.recordType || null,
     };
-    const report = await svc.getReport(id, query, req.user?.id ?? null);
+    const report = await svc.getReport(id, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data: report });
   } catch (err) {
     console.error('[getRepReport] ERROR id=%s query=%j err=%s', req.params.id, req.query, err?.message, err?.stack);
@@ -348,7 +360,7 @@ export async function getWarehouseSummaryAll(req, res, next) {
       endDate:   req.query.endDate   || undefined,
       fileIds:   parseFileIds(req.query.fileIds || req.query.fileId),
     };
-    const data = await svc.getWarehouseSummaryForReps(repIds, query, req.user?.id ?? null);
+    const data = await svc.getWarehouseSummaryForReps(repIds, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data });
   } catch (err) { next(err); }
 }

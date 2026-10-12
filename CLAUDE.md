@@ -17,6 +17,39 @@
 
 كلا الملفين provider = postgresql الآن (وُجد `pharma_sales.db` قديم من زمن SQLite، لكن DATABASE_URL الحالي في `.env` يشير لـ Postgres حتى محلياً). **عند تعديل الـ schema، عدّل الملفين معاً** — لوحظ أنهما غير متطابقين تماماً حالياً (حقول/علاقات مفقودة بين الإثنين، مثل `ActivityLog`, `FilterPreset`, `SalesDataFile`, `commercial module relations`). تحقق بـ `diff prisma/schema.prisma prisma/schema.postgresql.prisma` قبل أي تعديل على الموديلات.
 
+## الملف التراكمي (Cumulative file) — رفع المبيعات/الإرجاع
+
+منذ 2026-10-12 لم تعد كل رفعة إكسل تُنشئ `UploadedFile` مستقلاً. الافتراضي أن الرفعة
+**تنصهر** في ملف تراكمي واحد لكل `(userId × sourceSystem × detectedCurrency)` —
+`UploadedFile.isCumulative=true` + `mergeGroup`. المصدر والعملة يفصلان المجموعات ولا
+يجوز خلطهما (نسبة مندوب ميركاتو ≠ المكتب، والتقارير تُطبّع القيمة بعملة الملف).
+
+- `server/lib/saleFingerprint.js` — بصمة الصف: مفتاح محتوى (رقم الطلبية + نص التاريخ
+  الخام + الصيدلية + الشركة + `itemId` + `recordType` + الكمية والقيمة) **+ رقم تكراره
+  داخل الرفعة**. الترقيم هو ما يُبقي التكرار المشروع داخل الملف الواحد ويُسقط إعادة
+  الرفع بالكامل — راجع `crossFileDedup.js` للدرس المدفوع ثمنه.
+- `Sale.dedupKey` + `@@unique([uploadedFileId, dedupKey])` — منع التكرار يقع في قاعدة
+  البيانات عبر `createMany({ skipDuplicates: true })`، لا بفحص في ذاكرة السيرفر.
+- `server/lib/cumulativeFile.js` — مسار الرفع. `server/lib/cumulativeMerge.js` — دمج
+  الملفات القائمة يدوياً (`POST /api/files/merge`, `GET /api/files/merge-preview`).
+- `FileMergeBatch` — سجلّ كل رفعة داخل الملف (اسمها، كم أُضيف/أُسقط، أشهرها، ملف
+  القرص الأصلي) + تراجع عن رفعة واحدة: `DELETE /api/files/:id/batches/:batchId`.
+- `standalone=1` في `POST /api/upload-sales` يُلغي الانصهار لرفعة بعينها.
+- اختبار: `npm run test:fingerprint`.
+
+### الصفوف بلا تاريخ + شريحة الشهر
+
+`server/lib/salesMonths.js`. الصف الذي لم يحمل الإكسل له تاريخاً كان يأخذ
+`@default(now())` أي لحظة الرفع؛ داخل ملف يُرفع عليه كل شهر هذا يجعله «مبيعاً» في شهر
+الرفع. صار يُكتب بعلامة حارسة صريحة `UNDATED_SENTINEL` (1970-01-01)، وحارسُ «بلا
+تاريخ» في `/api/reports/overall` يستعمل `UNDATED_CUTOFF` للملفات التراكمية بدل مقارنة
+`uploadedAt` (التي تتحرّك مع كل رفعة فتفسد).
+
+شرائح الشهر: `GET /api/sales/months?fileIds=…` + `src/components/MonthChips.tsx`.
+الافتراضي = آخر شهر فيه بيانات. تُمرَّر كـ`month` إلى `/api/reports/overall` و
+`/api/reports/representative/:id` و`/api/scientific-reps/:id/report` **ولمسارات
+التصدير معها** — افتراق التصدير عن الشاشة علّة متكررة هنا.
+
 ## Stack
 
 React 18 + TS + Vite 5 + Tailwind 4 (frontend) · Express.js ESM + Prisma 5 + PostgreSQL (Railway) (backend) · JWT + bcryptjs auth · Gemini (3 مفاتيح API للتوزيع: `GEMINI_API_KEY_1/2/3`) + OpenAI كبديل · Leaflet للخرائط · xlsx لتحليل Excel · PM2 (`ecosystem.config.cjs`) · نشر على Railway عبر nixpacks.

@@ -17,6 +17,8 @@ interface UploadedFile {
   fileType?: string;
   /** 'mercato' = ملف تطبيق ميركاتو (طلبيات عبر المذاخر، المندوب فيه علمي) */
   sourceSystem?: string | null;
+  /** ملف تراكمي: تنصهر فيه رفعات كل الأشهر بدل ملف لكل شهر */
+  isCumulative?: boolean;
   currencyMode?: string;
   exchangeRate?: number;
   detectedCurrency?: string;
@@ -25,7 +27,7 @@ interface UploadedFile {
   sharedWithRep?: { id: number; name: string } | null;
   // Multi-user sharing via junction table
   fileShares?: Array<{ userId: number; user: { id: number; displayName?: string; username: string } }>;
-  _count?: { sales: number; columnFilters?: number };
+  _count?: { sales: number; columnFilters?: number; mergeBatches?: number };
 }
 
 interface Props {
@@ -49,6 +51,21 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   // Pre-upload currency picker
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [preCurrency, setPreCurrency] = useState<'IQD' | 'USD'>('USD');
+  // ── الملف التراكمي ─────────────────────────────────────────────────────────
+  // الدمج هو الافتراضي: رفعة شهر 10 تنصهر داخل نفس الملف الذي يحمل شهر 9، وما
+  // سبق إدخاله يُسقط بلا تكرار. standalone لرفعة يريدها المستخدم معزولة.
+  const [standalone, setStandalone] = useState(false);
+  type MergeBatch = { id: number; originalName: string; uploadedAt: string; uploadedBy: string | null; rowsAdded: number; rowsSkipped: number; monthsLabel: string | null; storedFilename: string | null };
+  const [expandedBatchesId, setExpandedBatchesId] = useState<number | null>(null);
+  const [batches, setBatches] = useState<MergeBatch[]>([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
+  const [deletingBatch, setDeletingBatch] = useState<number | null>(null);
+  type MergeGroup = { group: string; label: string; sourceSystem: string | null; detectedCurrency: string; targetFileId: number | null; totalRows: number; files: Array<{ id: number; originalName: string; rowCount: number; uploadedAt: string; isCumulative: boolean }> };
+  const [mergeGroups, setMergeGroups] = useState<MergeGroup[] | null>(null);
+  const [mergeLoading, setMergeLoading] = useState(false);
+  const [mergingGroup, setMergingGroup] = useState<string | null>(null);
+  const [mergeDoneMsg, setMergeDoneMsg] = useState('');
+  const [mergeInfo, setMergeInfo] = useState<{ added: number; skipped: number; monthsLabel: string; fileName: string; totalRows: number } | null>(null);
   const [uploadResult, setUploadResult] = useState<{
     salesCount?: number;
     returnsCount?: number;
@@ -189,6 +206,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
     formData.append('file', file);
     formData.append('fileType', fileType);
     formData.append('sourceCurrency', sourceCurrency);
+    if (standalone) formData.append('standalone', '1');
     try {
       setProgress(50);
       const res  = await fetch(`${API}/api/upload-sales`, { method: 'POST', body: formData, headers: { Authorization: `Bearer ${token}` } });
@@ -214,7 +232,10 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         unclearCompanyItems,
       });
       setShowNorm(norms.length > 0);
-      setTimeout(() => { setUploadResult(null); setShowNorm(false); }, 18000);
+      // نتيجة الانصهار تُعرض صراحةً: المستخدم يرفع ملفاً فلا يرى ملفاً جديداً في
+      // القائمة، ولا بد أن يعرف أين ذهبت صفوفه وكم صفاً أُسقط لأنه مكرر.
+      setMergeInfo(data.data?.merge ?? null);
+      setTimeout(() => { setUploadResult(null); setShowNorm(false); setMergeInfo(null); }, 18000);
       // toggle-activate the new file (if not already active)
       if (newFileId && !activeFileIds.includes(newFileId)) onFileActivated(newFileId);
       await loadFiles();
@@ -237,7 +258,85 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
       setUploading(false);
       setTimeout(() => setProgress(0), 1000);
     }
-  }, [loadFiles, onFileActivated, fileType, activeFileIds, token]);
+  }, [loadFiles, onFileActivated, fileType, activeFileIds, token, standalone]);
+
+  // ── الملف التراكمي: الرفعات بداخله، ودمج الملفات القائمة ────────────────────
+  const toggleBatches = useCallback(async (fileId: number) => {
+    if (expandedBatchesId === fileId) { setExpandedBatchesId(null); return; }
+    setExpandedBatchesId(fileId);
+    setBatchesLoading(true);
+    setBatches([]);
+    try {
+      const res = await fetch(`${API}/api/files/${fileId}/batches`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      setBatches(Array.isArray(j.data) ? j.data : []);
+    } catch { setBatches([]); }
+    finally { setBatchesLoading(false); }
+  }, [expandedBatchesId, token]);
+
+  const deleteBatch = useCallback(async (fileId: number, batchId: number, name: string) => {
+    if (!window.confirm(`حذف رفعة «${name}» من الملف التراكمي؟ ستُحذف صفوفها وحدها، وتبقى بقية الأشهر كما هي.`)) return;
+    setDeletingBatch(batchId);
+    try {
+      const res = await fetch(`${API}/api/files/${fileId}/batches/${batchId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'تعذّر حذف الرفعة');
+      setBatches(b => b.filter(x => x.id !== batchId));
+      await loadFiles();
+    } catch (e: any) { setError(e.message); }
+    finally { setDeletingBatch(null); }
+  }, [token, loadFiles]);
+
+  // التنزيل عبر fetch لا عبر <a href>: المسار محمي بـAuthorization، والرابط
+  // المباشر لا يحمل الترويسة فيرجع 401.
+  const downloadBatch = useCallback(async (fileId: number, batchId: number, name: string) => {
+    try {
+      const res = await fetch(`${API}/api/files/${fileId}/batches/${batchId}/download`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'تعذّر تنزيل الملف');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) { setError(e.message); }
+  }, [token]);
+
+  const openMergeModal = useCallback(async () => {
+    setMergeLoading(true);
+    setMergeGroups([]);
+    setMergeDoneMsg('');
+    try {
+      const res = await fetch(`${API}/api/files/merge-preview`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      setMergeGroups(Array.isArray(j.data) ? j.data : []);
+    } catch { setMergeGroups([]); }
+    finally { setMergeLoading(false); }
+  }, [token]);
+
+  const runMerge = useCallback(async (g: MergeGroup) => {
+    setMergingGroup(g.group);
+    setMergeDoneMsg('');
+    try {
+      const res = await fetch(`${API}/api/files/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ fileIds: g.files.map(f => f.id) }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'تعذّر الدمج');
+      const d = j.data;
+      setMergeDoneMsg(`تم الدمج في «${d.fileName}» — نُقل ${d.moved.toLocaleString('ar-IQ')} صف، أُسقط ${d.skipped.toLocaleString('ar-IQ')} صف مكرر، إجمالي الملف ${d.totalRows.toLocaleString('ar-IQ')} صف.`);
+      // الملف الهدف يُفعَّل تلقائياً: الملفات المصدر اختفت، ولو كانت إحداها هي
+      // المفعّلة لبقيت الشاشات فارغة بلا سبب ظاهر.
+      if (!activeFileIdsRef.current.includes(d.targetFileId)) onFileActivatedRef.current(d.targetFileId);
+      await loadFiles();
+      await openMergeModal();
+    } catch (e: any) { setError(e.message); }
+    finally { setMergingGroup(null); }
+  }, [token, loadFiles, openMergeModal]);
 
   const requestUpload = (file: File) => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
@@ -1068,6 +1167,22 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         </div>
       )}
 
+      {/* نتيجة الانصهار في الملف التراكمي — أين ذهبت الصفوف، وكم أُسقط كمكرر */}
+      {mergeInfo && (
+        <div style={{ ...CARD, background: 'var(--c-accent-light)', borderColor: 'var(--c-accent)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
+          <Icon name="link" size={15} style={{ color: 'var(--c-accent)' }} />
+          <strong style={{ color: 'var(--c-accent)' }}>دُمج في «{mergeInfo.fileName}»</strong>
+          <span style={{ color: '#065f46' }}>أُضيف {mergeInfo.added.toLocaleString('ar-IQ')} صف</span>
+          {mergeInfo.skipped > 0 && (
+            <span style={{ color: '#b45309' }}>
+              أُسقط {mergeInfo.skipped.toLocaleString('ar-IQ')} صف مكرر (موجود مسبقاً)
+            </span>
+          )}
+          {mergeInfo.monthsLabel && <span style={{ color: '#6b7280' }}>الأشهر: {mergeInfo.monthsLabel}</span>}
+          <span style={{ color: '#6b7280' }}>— إجمالي الملف الآن {mergeInfo.totalRows.toLocaleString('ar-IQ')} صف</span>
+        </div>
+      )}
+
       {/* Normalization panel */}
       {uploadResult?.normalizations && uploadResult.normalizations.length > 0 && (
         <div style={{ ...CARD, background: 'var(--c-warning-bg)', borderColor: '#fcd34d', padding: 0 }}>
@@ -1200,6 +1315,13 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
       <div style={{ marginTop: 20 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 8, borderBottom: '1px solid #e2e8f0', paddingBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Icon name="file" size={14} /> {t.upload.filesTitle}
+          <button
+            onClick={openMergeModal}
+            style={{ marginRight: 'auto', border: '1px solid var(--c-purple-border)', background: 'var(--c-purple-bg)', color: 'var(--c-purple)', borderRadius: 8, padding: '4px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            title="اجمع ملفات الأشهر الحالية في ملف تراكمي واحد لكل مصدر، مع إسقاط الطلبيات المكررة بينها"
+          >
+            <Icon name="transfer" size={12} /> دمج الملفات الحالية
+          </button>
         </div>
 
         {filesLoading ? (
@@ -1335,6 +1457,16 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                         title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. اضغط لمطابقة أسماء المندوبين في الملف مع سجلاتهم في التطبيق."
                       ><Icon name="pharmacy" size={11} /> ميركاتو · مطابقة الأسماء</button>
                     )}
+                    {f.isCumulative && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleBatches(f.id); }}
+                        style={{ ...BADGE('var(--c-purple-bg)', 'var(--c-purple)', 'var(--c-purple-border)'), cursor: 'pointer' }}
+                        title="ملف تراكمي — كل الأشهر بداخله. اضغط لعرض الرفعات التي انصهرت فيه."
+                      >
+                        <Icon name="transfer" size={11} /> تراكمي{f._count?.mergeBatches ? ` · ${f._count.mergeBatches} رفعة` : ''}
+                        <span style={{ fontSize: 10, display: 'inline-block', marginRight: 3, transform: expandedBatchesId === f.id ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+                      </button>
+                    )}
                     {isActive && <span style={BADGE('var(--c-success-bg)', 'var(--c-success)', 'var(--c-success-border)')}><Icon name="checkCircle" size={11} /> {t.upload.statusActive}</span>}
                     {isSharedByMe && (
                       <button
@@ -1357,6 +1489,46 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                           <Icon name="link" size={11} /> {s.user.displayName || s.user.username}
                         </span>
                       ))}
+                    </div>
+                  )}
+
+                  {/* ── الرفعات داخل الملف التراكمي ── */}
+                  {expandedBatchesId === f.id && (
+                    <div onClick={e => e.stopPropagation()} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e2e8f0' }}>
+                      {batchesLoading ? (
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>جاري التحميل…</div>
+                      ) : batches.length === 0 ? (
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد رفعات مسجّلة بعد — الصفوف الحالية كانت في الملف قبل تفعيل التراكم.</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {batches.map(b => (
+                            <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 11.5 }}>
+                              <span style={{ fontWeight: 700, color: '#0f172a', flex: '1 1 140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.originalName}</span>
+                              {b.monthsLabel && <span style={{ color: '#2563eb' }}>🗓️ {b.monthsLabel}</span>}
+                              <span style={{ color: '#065f46' }}>+{b.rowsAdded.toLocaleString('ar-IQ')}</span>
+                              {b.rowsSkipped > 0 && <span style={{ color: '#b45309' }}>مكرر {b.rowsSkipped.toLocaleString('ar-IQ')}</span>}
+                              <span style={{ color: '#94a3b8' }}>{fmtDate(b.uploadedAt)}</span>
+                              {b.storedFilename && (
+                                <button
+                                  onClick={() => downloadBatch(f.id, b.id, b.originalName)}
+                                  title="تنزيل ملف الإكسل الأصلي لهذه الرفعة"
+                                  style={{ border: '1px solid #cbd5e1', background: '#fff', color: '#475569', borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}
+                                >
+                                  تنزيل
+                                </button>
+                              )}
+                              <button
+                                onClick={() => deleteBatch(f.id, b.id, b.originalName)}
+                                disabled={deletingBatch === b.id}
+                                title="حذف هذه الرفعة وحدها من الملف"
+                                style={{ border: '1px solid var(--c-danger-border)', background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}
+                              >
+                                {deletingBatch === b.id ? '…' : 'تراجع'}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1863,6 +2035,32 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
               ))}
             </div>
 
+            {/* دمج تراكمي — مفعّل افتراضياً */}
+            <label
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: '1.2rem', cursor: 'pointer',
+                background: standalone ? '#fff7ed' : 'var(--c-accent-light)',
+                border: `1px solid ${standalone ? '#fdba74' : 'var(--c-accent)'}`,
+                borderRadius: 10, padding: '10px 12px',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={!standalone}
+                onChange={e => setStandalone(!e.target.checked)}
+                style={{ accentColor: 'var(--c-accent)', marginTop: 2 }}
+              />
+              <span style={{ fontSize: 12.5, lineHeight: 1.6, color: '#374151' }}>
+                <b>دمج في الملف التراكمي</b>
+                <br />
+                <span style={{ color: '#6b7280', fontSize: 11.5 }}>
+                  {standalone
+                    ? 'سيُنشأ ملف مستقل لهذه الرفعة — لن يُدمج ولن يُفحص التكرار مع الملفات الأخرى.'
+                    : 'كل الأشهر في ملف واحد، والطلبيات المكررة تُسقَط تلقائياً (رقم الطلبية + التاريخ + الصيدلية + الايتم + الشركة).'}
+                </span>
+              </span>
+            </label>
+
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
               <button
                 style={{ padding: '8px 18px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: '0.9rem' }}
@@ -1875,6 +2073,82 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                 onClick={() => { const f = pendingFile; setPendingFile(null); uploadFile(f, preCurrency); }}
               >
                 {t.upload.preCurrencyConfirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── مودال «دمج الملفات الحالية» ── */}
+      {mergeGroups !== null && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => { if (!mergingGroup) setMergeGroups(null); }}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 12, padding: '20px', minWidth: 340, maxWidth: 620, maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', direction: 'rtl', width: '94%' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <Icon name="transfer" size={16} /> دمج الملفات الحالية
+            </div>
+            <div style={{ fontSize: 11.5, color: '#64748b', lineHeight: 1.7, marginBottom: 14 }}>
+              كل مجموعة تنصهر في ملف تراكمي واحد. الطلبية المكررة بين الملفات تُحذف — تُعرَّف برقم الطلبية والتاريخ
+              واسم الصيدلية والايتم والشركة. ملفات المكتب لا تُدمج مع ملفات ميركاتو، ولا ملفات الدينار مع الدولار
+              (نسبة المندوب والعملة تُحسبان بمنطق مختلف لكل منها).
+            </div>
+
+            {mergeDoneMsg && (
+              <div style={{ background: 'var(--c-success-bg)', border: '1px solid var(--c-success-border)', color: '#065f46', borderRadius: 8, padding: '8px 12px', fontSize: 12, marginBottom: 12, fontWeight: 600 }}>
+                {mergeDoneMsg}
+              </div>
+            )}
+
+            {mergeLoading ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>جاري الفحص…</div>
+            ) : mergeGroups.length === 0 ? (
+              <div style={{ padding: 16, background: '#f8fafc', borderRadius: 8, color: '#64748b', fontSize: 12.5, textAlign: 'center' }}>
+                لا توجد ملفات تحتاج دمجاً — كل مجموعة صارت ملفاً تراكمياً واحداً.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {mergeGroups.map(g => (
+                  <div key={g.group} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>{g.label}</span>
+                      <span style={BADGE('var(--c-accent-light)', 'var(--c-accent)', 'var(--c-accent)')}>
+                        {g.files.length} ملف · {g.totalRows.toLocaleString('ar-IQ')} صف
+                      </span>
+                      <button
+                        onClick={() => runMerge(g)}
+                        disabled={!!mergingGroup}
+                        style={{ marginRight: 'auto', border: 'none', background: 'var(--c-accent)', color: '#fff', borderRadius: 8, padding: '5px 14px', fontSize: 12, fontWeight: 700, cursor: mergingGroup ? 'wait' : 'pointer', opacity: mergingGroup && mergingGroup !== g.group ? 0.5 : 1 }}
+                      >
+                        {mergingGroup === g.group ? 'جاري الدمج…' : 'ادمج'}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {g.files.map(f => (
+                        <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: '#475569' }}>
+                          <span style={{ flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {f.isCumulative ? '📦 ' : '📄 '}{f.originalName}
+                          </span>
+                          <span style={{ color: '#94a3b8' }}>{f.rowCount.toLocaleString('ar-IQ')} صف</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button
+                onClick={() => setMergeGroups(null)}
+                disabled={!!mergingGroup}
+                style={{ padding: '8px 18px', background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, cursor: 'pointer', fontSize: '0.9rem' }}
+              >
+                إغلاق
               </button>
             </div>
           </div>

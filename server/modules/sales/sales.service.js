@@ -26,6 +26,10 @@ import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks, resolveEffectiveA
 import { loadResolutionContext, resolveItemName, normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
+import {
+  isMergeableType, resolveCumulativeTarget, openMergeBatch,
+  appendRowsToCumulative, closeMergeBatch, refreshCumulativeFile,
+} from '../../lib/cumulativeFile.js';
 import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
 import { getWarehouses } from '../stock-ledger/stock-ledger.repository.js';
 import { buildWarehouseGapWorkbook, parseWarehouseGapWorkbook } from '../../lib/warehouseGapTemplate.js';
@@ -151,7 +155,7 @@ export async function processUploadedFile(file, options = {}) {
   // multipart القادمة من متصفح/multer — عطل ترميز معروف). مصادر أخرى (تلكرام
   // مثلاً) ترسل file.originalname كنص UTF-8 صحيح أصلاً؛ تمريره لنفس التحويل
   // كان سيُفسده بدل تصحيحه.
-  const { uploadedBy, columnMapping = {}, userId = null, fileType = 'sales', sourceCurrency = null, rawOriginalName = false } = options;
+  const { uploadedBy, columnMapping = {}, userId = null, fileType = 'sales', sourceCurrency = null, rawOriginalName = false, mergeIntoCumulative = true } = options;
   const fixOriginalName = (name) => rawOriginalName ? name : Buffer.from(name, 'latin1').toString('utf8');
 
   // ── 0. filter_page — just store the file, skip all sales processing ──────────
@@ -216,6 +220,7 @@ export async function processUploadedFile(file, options = {}) {
       fileType:       'sales',   // matrix output is always treated as sales
       sourceCurrency,
       rawOriginalName,
+      mergeIntoCumulative,
     });
   }
 
@@ -404,13 +409,13 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   // ── 3b–7. Shared finishing logic ─────────────────────────
-  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem: isMercatoFile ? 'mercato' : null, unclearCompanyItems: [...unclearCompanyItems], rawOriginalName });
+  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem: isMercatoFile ? 'mercato' : null, unclearCompanyItems: [...unclearCompanyItems], rawOriginalName, mergeIntoCumulative });
 }
 
 // ─── _finishProcessing ─────────────────────────────────────────────────────────
 // Everything from fuzzy normalisation to bulk insert — shared by both the
 // standard tabular path and the matrix (cross-tabular) path.
-async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem = null, unclearCompanyItems = [], rawOriginalName = false }) {
+async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem = null, unclearCompanyItems = [], rawOriginalName = false, mergeIntoCumulative = true }) {
   const fixOriginalName = (name) => rawOriginalName ? name : Buffer.from(name, 'latin1').toString('utf8');
   const validRows = [...salesRows, ...returnsRows];
 
@@ -570,19 +575,10 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
     console.warn('[upload] could not save original file to disk:', e.message);
   }
 
-  const uploadedFile = await createUploadedFile({
-    filename:         savedFilename,
-    originalName:     originalName,
-    rowCount:         validRows.length,
-    uploadedBy:       uploadedBy || null,
-    userId,
-    fileType:         storedFileType,
-    sourceSystem,
-    detectedCurrency: detectedCurrency,
-    currencyMode:     detectedCurrency,
-  });
-
-  // ── 6. Bulk insert (split sales/returns) ────────────────
+  // ── 6. صفوف الإدراج (بلا وجهة بعد — تُحدَّد أدناه) ────────
+  // saleDate يبقى null حين لا يحمل الإكسل تاريخاً: مسار الملف المستقل يحوّله
+  // إلى undefined فيأخذ @default(now()) كما كان دائماً، بينما المسار التراكمي
+  // يكتب UNDATED_SENTINEL صراحةً (راجع salesMonths.js).
   const buildInsert = (rows) => rows.map(r => ({
     representativeId: repMap[r.repName],
     areaId:           areaMap[r.area],
@@ -590,17 +586,68 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
     customerId:       r.customer ? (customerMap[r.customer] ?? null) : null,
     quantity:         r.quantity,
     totalValue:       r.totalValue,
-    saleDate:         r.date ?? undefined,
-    uploadedFileId:   uploadedFile.id,
+    saleDate:         r.date ?? null,
     rawData:          r.rawData ?? null,
     customerInfoNorm: r.customerInfoNorm ?? null,
   }));
 
-  if (salesRows.length > 0) {
-    await bulkCreateSales(buildInsert(salesRows), uploadedFile.id, userId, 'sale');
-  }
-  if (returnsRows.length > 0) {
-    await bulkCreateSales(buildInsert(returnsRows), uploadedFile.id, userId, 'return');
+  // ── 6b. الوجهة: ملف تراكمي (الافتراضي) أم ملف مستقل؟ ────
+  // التراكم هو السلوك الافتراضي: رفعة شهر 10 تنصهر داخل نفس الملف الذي يحمل
+  // شهر 9، والصفوف التي سبق إدخالها تُسقَط بقيد (uploadedFileId, dedupKey)
+  // الفريد — فإعادة رفع الملف نفسه مرتين لا تُضاعف شيئاً. المستخدم يستطيع
+  // إيقافه لرفعة بعينها (standalone=1) حين يريد ملفاً معزولاً يسهل حذفه.
+  const wantsMerge = mergeIntoCumulative && userId != null && isMergeableType(storedFileType);
+  let uploadedFile;
+  let mergeInfo = null;
+
+  if (wantsMerge) {
+    const { file: target, created } = await resolveCumulativeTarget({ userId, sourceSystem, detectedCurrency });
+    const batch = await openMergeBatch({
+      fileId:         target.id,
+      originalName,
+      uploadedBy:     uploadedBy || null,
+      fileType:       storedFileType,
+      storedFilename: savedFilename,
+    });
+    const { added, skipped, monthsLabel } = await appendRowsToCumulative({
+      fileId:     target.id,
+      batchId:    batch.id,
+      saleRows:   buildInsert(salesRows),
+      returnRows: buildInsert(returnsRows),
+      userId,
+    });
+    await closeMergeBatch(batch.id, { rowsAdded: added, rowsSkipped: skipped, monthsLabel });
+    uploadedFile = await refreshCumulativeFile(target.id);
+    mergeInfo = {
+      merged:      true,
+      createdFile: created,
+      batchId:     batch.id,
+      added,
+      skipped,
+      monthsLabel,
+      fileName:    uploadedFile.originalName,
+      totalRows:   uploadedFile.rowCount,
+    };
+    console.log(`[upload] merged into cumulative #${target.id}: +${added} صف، ${skipped} مكرر مُسقط (${monthsLabel})`);
+  } else {
+    uploadedFile = await createUploadedFile({
+      filename:         savedFilename,
+      originalName:     originalName,
+      rowCount:         validRows.length,
+      uploadedBy:       uploadedBy || null,
+      userId,
+      fileType:         storedFileType,
+      sourceSystem,
+      detectedCurrency: detectedCurrency,
+      currencyMode:     detectedCurrency,
+    });
+
+    if (salesRows.length > 0) {
+      await bulkCreateSales(buildInsert(salesRows), uploadedFile.id, userId, 'sale');
+    }
+    if (returnsRows.length > 0) {
+      await bulkCreateSales(buildInsert(returnsRows), uploadedFile.id, userId, 'return');
+    }
   }
 
   // ── 7. Auto-assign areas & items to each rep ────────────
@@ -633,7 +680,11 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
       id:           uploadedFile.id,
       originalName: uploadedFile.originalName,
       uploadedAt:   uploadedFile.uploadedAt,
+      sourceSystem: uploadedFile.sourceSystem ?? null,
+      isCumulative: uploadedFile.isCumulative ?? false,
     },
+    // تفاصيل الانصهار — الواجهة تعرض منها «أُضيف X صف، أُسقط Y مكرر».
+    merge: mergeInfo,
   };
 }
 
@@ -1921,10 +1972,31 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     customerId:       r.customer ? (customerMap[r.customer] ?? null) : null,
     quantity:         r.quantity,
     totalValue:       r.totalValue,
-    saleDate:         r.date ?? undefined,
+    saleDate:         r.date ?? null,
     rawData:          r.rawData,
   }));
-  await bulkCreateSales(built, uploadedFile.id, userId, 'sale');
+
+  // الإدخال اليدوي/فاتورة الصورة داخل ملف تراكمي يمرّ بنفس بوّابة منع التكرار:
+  // نفس الفاتورة إن حُفظت مرتين (تبويب أُعيد إرساله، أو طلبية بوت رُوجعت مرتين)
+  // تُسقَط صفوفها الثانية بدل أن تُضاعف المبيع. rawData هنا يحمل invoiceNumber
+  // وpharmacy بمفاتيح إنجليزية، وهي ضمن أسماء البصمة البديلة أصلاً.
+  let manualAdded = built.length;
+  let manualSkipped = 0;
+  if (uploadedFile.isCumulative) {
+    const batch = await openMergeBatch({
+      fileId:       uploadedFile.id,
+      originalName: `إدخال يدوي — ${new Date().toLocaleDateString('en-GB')}`,
+      uploadedBy:   uploadedBy || null,
+      fileType:     'sales',
+    });
+    const res = await appendRowsToCumulative({ fileId: uploadedFile.id, batchId: batch.id, saleRows: built, userId });
+    await closeMergeBatch(batch.id, { rowsAdded: res.added, rowsSkipped: res.skipped, monthsLabel: res.monthsLabel });
+    await refreshCumulativeFile(uploadedFile.id);
+    manualAdded = res.added;
+    manualSkipped = res.skipped;
+  } else {
+    await bulkCreateSales(built, uploadedFile.id, userId, 'sale');
+  }
 
   // ── 7. Auto-assign areas & items to each rep ──
   const repAreaPairs = [...new Map(validRows.map(r => [`${repMap[r.repName]}-${areaMap[r.area]}`, { representativeId: repMap[r.repName], areaId: areaMap[r.area] }])).values()];
@@ -1944,8 +2016,10 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
   // في الواجهة) — إضافة فقط، لا تحذف أي رابط قائم.
   await syncCommercialsForNewSales(repAreaPairs).catch(() => {}); // لا يُفشل الحفظ لو تعذّرت المزامنة
 
-  // Merging into an existing file → keep its rowCount accurate
-  if (merged) {
+  // Merging into an existing file → keep its rowCount accurate.
+  // الملف التراكمي حُدِّث عدده فعلياً في refreshCumulativeFile أعلاه (عدّ حقيقي
+  // لا زيادة عمياء)، فزيادته هنا كانت ستحتسب حتى الصفوف المُسقطة كمكررة.
+  if (merged && !uploadedFile.isCumulative) {
     await prisma.uploadedFile
       .update({ where: { id: uploadedFile.id }, data: { rowCount: { increment: validRows.length } } })
       .catch(() => {});
@@ -1975,10 +2049,11 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
   }
 
   return {
-    addedCount:   validRows.length,
+    addedCount:   manualAdded,
+    skippedCount: manualSkipped,
     merged,
     unknownItems,
     rememberedCount,
-    uploadedFile: { id: uploadedFile.id, originalName: uploadedFile.originalName },
+    uploadedFile: { id: uploadedFile.id, originalName: uploadedFile.originalName, isCumulative: uploadedFile.isCumulative ?? false },
   };
 }

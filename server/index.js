@@ -23,6 +23,8 @@ import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './l
 import { normalizeItemKey, normalizeAreaName, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import { invalidateAreaSnapshot } from './lib/areaResolver.js';
+import { previewMergeGroups, mergeExistingFiles } from './lib/cumulativeMerge.js';
+import { refreshCumulativeFile } from './lib/cumulativeFile.js';
 import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
 import {
   seedProvinces, autoMatchProvinces, seedSubProvinces, autoMatchSubProvinces,
@@ -2033,12 +2035,13 @@ app.get('/api/files', async (req, res) => {
       select: {
         id: true, originalName: true, rowCount: true, uploadedAt: true, uploadedBy: true, fileType: true,
         sourceSystem: true, // 'mercato' → شارة تمييز في قائمة الملفات
+        isCumulative: true, // ملف تراكمي (تنصهر فيه رفعات كل الأشهر) → شارة + لوحة الرفعات
         currencyMode: true, exchangeRate: true, detectedCurrency: true,
         userId: true,
         sharedWithRepId: true,
         sharedWithRep: { select: { id: true, name: true } },
         fileShares: { select: { userId: true, user: { select: { id: true, displayName: true, username: true } } } },
-        _count: { select: { sales: true, columnFilters: true } },
+        _count: { select: { sales: true, columnFilters: true, mergeBatches: true } },
       },
     });
     res.json({ success: true, data: files });
@@ -2081,6 +2084,76 @@ app.post('/api/files/:id/share-with-rep', requireAuth, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // User-based file sharing (by area assignments from SA panel)
 // ════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════════
+// الملف التراكمي — دمج الملفات القائمة، وقراءة/تراجع الرفعات داخل الملف
+// ════════════════════════════════════════════════════════════════════════════
+
+// GET /api/files/merge-preview
+// مجموعات الدمج المقترحة لحساب الطالب: لكل (مصدر × عملة) الملفات التي ستنصهر
+// في ملف واحد. قراءة فقط — لا تُغيّر شيئاً.
+app.get('/api/files/merge-preview', requireAuth, async (req, res) => {
+  try {
+    const groups = await previewMergeGroups(req.user?.id ?? null);
+    res.json({ success: true, data: groups });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/files/merge   body: { fileIds: number[] }
+// ينفّذ الدمج فعلياً: ينقل صفوف الملفات إلى ملف تراكمي واحد، يحذف المكرر بينها،
+// يورّث المشاركات، ثم يحذف الملفات المصدر (صارت فارغة). المالك فقط.
+app.post('/api/files/merge', requireAuth, async (req, res) => {
+  try {
+    const result = await mergeExistingFiles({
+      userId:  req.user?.id ?? null,
+      fileIds: Array.isArray(req.body?.fileIds) ? req.body.fileIds : [],
+    });
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// GET /api/files/:id/batches — الرفعات التي انصهرت داخل ملف تراكمي.
+// هذا ما يجعل الملف الواحد الكبير مقروءاً: «شنو بالضبط موجود جوّاه؟».
+app.get('/api/files/:id/batches', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const userId = req.user?.id ?? null;
+    const file = await prisma.uploadedFile.findFirst({
+      where: { id, OR: [{ userId }, { fileShares: { some: { userId } } }] },
+      select: { id: true, isCumulative: true },
+    });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
+    const batches = await prisma.fileMergeBatch.findMany({
+      where: { fileId: id },
+      orderBy: { uploadedAt: 'desc' },
+    });
+    res.json({ success: true, data: batches });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/files/:id/batches/:batchId — تراجع عن رفعة واحدة داخل الملف.
+// يحذف صفوف تلك الرفعة وحدها ويترك باقي الأشهر على حالها. المالك فقط: الحذف
+// يمسّ بيانات يراها كل من شورك معه الملف.
+//
+// ⚠️ الصفوف التي أُسقطت كمكررة وقت تلك الرفعة لا تعود: هي أصلاً نُسخة من صفوف
+// رفعة أخرى ما زالت موجودة، فالتراجع لا يفقد بياناتٍ فعلية.
+app.delete('/api/files/:id/batches/:batchId', requireAuth, async (req, res) => {
+  const id      = parseInt(req.params.id);
+  const batchId = parseInt(req.params.batchId);
+  if (isNaN(id) || isNaN(batchId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const file = await prisma.uploadedFile.findFirst({ where: { id, userId: req.user?.id ?? null } });
+    if (!file) return res.status(403).json({ error: 'ليس لديك صلاحية التعديل على هذا الملف' });
+    const batch = await prisma.fileMergeBatch.findFirst({ where: { id: batchId, fileId: id } });
+    if (!batch) return res.status(404).json({ error: 'الرفعة غير موجودة داخل هذا الملف' });
+
+    const removed = await prisma.sale.deleteMany({ where: { uploadedFileId: id, mergeBatchId: batchId } });
+    await prisma.fileMergeBatch.delete({ where: { id: batchId } });
+    const refreshed = await refreshCumulativeFile(id);
+    res.json({ success: true, data: { removed: removed.count, totalRows: refreshed.rowCount } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // GET /api/files/linked-users — list subordinate users (for share modal)
 app.get('/api/files/linked-users', requireAuth, async (req, res) => {
@@ -3079,6 +3152,37 @@ app.get('/api/files/:id/download', requireAuth, async (req, res) => {
     }
 
     return res.status(404).json({ error: 'الملف الأصلي غير متوفر على القرص' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── تنزيل إكسل رفعة بعينها داخل ملف تراكمي ────────────────────
+// GET /api/files/:id/batches/:batchId/download
+// الملف التراكمي لا يقابله ملف واحد على القرص (هو حاوية لعدة رفعات)، فتنزيل
+// «الملف الأصلي» يخصّ الرفعة لا الحاوية. كل رفعة تحتفظ باسم ملفها المحفوظ.
+app.get('/api/files/:id/batches/:batchId/download', requireAuth, async (req, res) => {
+  const id      = parseInt(req.params.id);
+  const batchId = parseInt(req.params.batchId);
+  if (isNaN(id) || isNaN(batchId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const userId = req.user?.id ?? null;
+    const file = await prisma.uploadedFile.findFirst({
+      where: { id, OR: [{ userId }, { fileShares: { some: { userId } } }] },
+      select: { id: true },
+    });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
+    const batch = await prisma.fileMergeBatch.findFirst({ where: { id: batchId, fileId: id } });
+    if (!batch?.storedFilename) return res.status(404).json({ error: 'لا يوجد ملف أصلي محفوظ لهذه الرفعة' });
+
+    const rootDir = path.join(__serverDir, '..');
+    const candidates = [
+      path.join(__serverDir, 'uploads', 'excel-files', batch.storedFilename),
+      path.join(rootDir,     'uploads', 'excel-files', batch.storedFilename),
+      path.join(__serverDir, 'uploads', batch.storedFilename),
+      path.join(rootDir,     'uploads', batch.storedFilename),
+    ];
+    const filePath = candidates.find(p => fs.existsSync(p));
+    if (!filePath) return res.status(404).json({ error: 'الملف الأصلي غير متوفر على القرص' });
+    return res.download(filePath, batch.originalName || batch.storedFilename);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

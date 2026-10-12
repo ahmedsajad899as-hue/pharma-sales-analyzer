@@ -9,6 +9,8 @@ import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, ins
   checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
+import { listSalesMonths } from '../../lib/salesMonths.js';
+import { resolveFileScope } from '../../lib/fileScope.js';
 
 /**
  * PUT /api/active-files — يحفظ «الملفات المفعّلة» لهذا الحساب على السيرفر.
@@ -83,12 +85,17 @@ export async function uploadSales(req, res, next) {
     };
 
     const fileType = req.body.fileType || 'sales';
+    // الافتراضي: الانصهار داخل الملف التراكمي. الواجهة ترسل standalone=1 حين
+    // يطلب المستخدم صراحةً ملفاً مستقلاً لهذه الرفعة (ملف تجريبي أو رفعة يريد
+    // أن يبقى قادراً على حذفها بضغطة واحدة).
+    const standalone = req.body.standalone === 'true' || req.body.standalone === '1';
     const result = await processUploadedFile(req.file, {
       uploadedBy:     req.body.uploadedBy || req.user?.username || null,
       columnMapping,
       userId:         req.user?.id ?? null,
       fileType,
       sourceCurrency: req.body.sourceCurrency || null,  // user-specified: 'IQD' | 'USD' | null
+      mergeIntoCumulative: !standalone,
     });
 
     // لا تُسقط نجاح الرفع لو فشلت خطوة التعميم التلقائي لسبب عابر
@@ -243,4 +250,29 @@ export async function parseWarehouseGapUpload(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+/**
+ * GET /api/sales/months?fileIds=1,2&recordType=sale
+ *
+ * الأشهر الموجودة فعلاً داخل الملفات المفعّلة — تُغذّي شرائح اختيار الشهر في
+ * «التحليل الشامل» و«علمي» و«تجاري». تُرجع أيضاً `latest` (آخر شهر فيه بيانات)
+ * وهو ما تختاره الواجهة افتراضياً، و`undatedCount` لشريحة «بلا تاريخ».
+ *
+ * 200: { success, data: { months: [{ ym, label, short, count }], undatedCount, latest } }
+ */
+export async function getSalesMonths(req, res, next) {
+  try {
+    const ids = String(req.query.fileIds || '').split(',').map(Number).filter(Boolean);
+    if (ids.length === 0) {
+      return res.json({ success: true, data: { months: [], undatedCount: 0, latest: null } });
+    }
+    // نفس بوّابة الوصول التي تحرس كل استعلامات المبيعات: مالك أو مُشارَك معه.
+    // بدونها كان بالإمكان استكشاف أشهر ملفات حسابات أخرى بتخمين المعرّفات.
+    const scope = await resolveFileScope(req.user?.id ?? null, ids.join(','));
+    const allowed = scope?.uploadedFileId?.in ?? (scope?.uploadedFileId ? [scope.uploadedFileId] : []);
+    const recordType = req.query.recordType === 'sale' || req.query.recordType === 'return'
+      ? req.query.recordType : null;
+    const data = await listSalesMonths(prisma, allowed, recordType);
+    return res.json({ success: true, data });
+  } catch (err) { next(err); }
 }
