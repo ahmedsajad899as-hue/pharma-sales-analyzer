@@ -4,6 +4,7 @@
  * Orchestrates repository calls — no direct DB access here.
  */
 
+import { canRotate, rotateJpeg } from '../../lib/invoiceImage.js';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
 import XLSX from 'xlsx';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
@@ -1543,6 +1544,67 @@ export function foldBonusRows(rows) {
   });
 }
 
+// ─── اتجاه الصورة ───────────────────────────────────────────────────────────
+const ORIENT_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+const ORIENTATION_PROMPT = `انظر إلى اتجاه الكتابة في هذه الصورة (ورقة فاتورة من مذخر أدوية).
+السؤال: هل الأسطر المكتوبة أفقية وتُقرأ بشكل طبيعي كما هي (رأس الحروف للأعلى)؟
+- إن كانت كذلك (حتى لو الورقة مائلة قليلاً أقل من 30°) فأعِد {"rotate": 0}.
+- وإلا فاذكر كم درجة يلزم تدوير الصورة **باتجاه عقارب الساعة** لتصبح الأسطر أفقية مقروءة: 90 أو 180 أو 270.
+مثال: إن كانت رؤوس الحروف تتجه نحو **يمين** الصورة فالتدوير 270؛ نحو **يسارها** فالتدوير 90؛ نحو **الأسفل** فالتدوير 180.
+أعِد كائن JSON فقط: {"rotate": 0}`;
+
+/**
+ * يكتشف التدوير اللازم (0/90/180/270 مع عقارب الساعة). ثلاث قراءات والأغلبية —
+ * قراءة واحدة قد تخطئ في الصور المائلة ~45°. يُعيد 0 عند أي فشل (القراءة بلا تدوير).
+ */
+export async function detectInvoiceRotation(img) {
+  try {
+    const parts = [ORIENTATION_PROMPT, { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }];
+    const votes = await Promise.all([1, 2, 3].map(async () => {
+      try {
+        const o = parseJsonObject(await callGeminiSmart(parts, { timeoutMs: 20_000, thinkingBudget: 0, models: ORIENT_MODELS }));
+        const v = Number(o?.rotate);
+        return [0, 90, 180, 270].includes(v) ? v : null;
+      } catch { return null; }
+    }));
+    const tally = new Map();
+    for (const v of votes) if (v != null) tally.set(v, (tally.get(v) || 0) + 1);
+    const best = [...tally.entries()].sort((a, b) => b[1] - a[1])[0];
+    return best && best[1] >= 2 ? best[0] : 0;
+  } catch { return 0; }
+}
+
+/**
+ * يُعيد صندوقاً [ymin,xmin,ymax,xmax] (0-1000) مأخوذاً من صورة مُدارة `deg` درجة مع
+ * عقارب الساعة إلى إحداثيات الصورة الأصلية — بتحويل زواياه ثم أخذ الحدود.
+ */
+export function unrotateBox(box, deg) {
+  if (!box || !deg) return box;
+  const [y1, x1, y2, x2] = box;
+  const pts = [[x1, y1], [x2, y1], [x1, y2], [x2, y2]].map(([nx, ny]) => {
+    if (deg === 90)  return [ny, 1000 - nx];
+    if (deg === 180) return [1000 - nx, 1000 - ny];
+    return [1000 - ny, nx]; // 270
+  });
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  return [Math.min(...ys), Math.min(...xs), Math.max(...ys), Math.max(...xs)].map(v => Math.max(0, Math.min(1000, Math.round(v))));
+}
+
+/** يُدير الصورة للوضع القائم إن لزم. يُعيد { mimeType, base64, rotated }. */
+export async function orientInvoiceImage(img) {
+  try {
+    const buf = Buffer.from(img.base64, 'base64');
+    if (!canRotate(buf)) return { ...img, rotated: 0 };
+    const deg = await detectInvoiceRotation(img);
+    if (!deg) return { ...img, rotated: 0 };
+    const out = rotateJpeg(buf, deg);
+    return { mimeType: 'image/jpeg', base64: out.toString('base64'), rotated: deg };
+  } catch (e) {
+    console.error('[invoice-extract] تعذّر تعديل اتجاه الصورة:', String(e?.message || '').slice(0, 120));
+    return { ...img, rotated: 0 };
+  }
+}
+
 /**
  * ثلاث قراءات مركَّزة متوازية لسطر الزبون (+ قراءة النداء الكامل) ثم تصويت. السطر صغير وقد تكون الصورة
  * مُدارة، فالقراءة الواحدة تتذبذب («النعيمي» ثم «اللبني») — مقيس على صورة حقيقية
@@ -1550,7 +1612,7 @@ export function foldBonusRows(rows) {
  * والتعادل يحسمه ما تؤكّده بيانات الماستر. نداءات lite سريعة (~2 ث معاً).
  * يُعيد { pharmacy, area, score } أو null.
  */
-async function extractCustomerLineVoted(img, opts, n = 3, priorRead = null) {
+async function extractCustomerLineVoted(img, opts, n = 5, priorRead = null) {
   const reads = (await Promise.all(Array.from({ length: n }, () => extractCustomerLine(img, opts)))).filter(Boolean);
   // قراءة النداء الكامل صوتٌ إضافي — كانت صحيحة غالباً فلا تُرمى لمجرّد أنها
   // غير معروفة في الماستر (صيدلية جديدة).
@@ -1598,10 +1660,13 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
   // details (warehouse / invoiceNumber / date / pharmacy / area). `_imageIndex`
   // lets the UI link each row back to the invoice photo it came from.
   for (let idx = 0; idx < images.length; idx++) {
-    const img = images[idx];
     const elapsed = Date.now() - started;
     if (elapsed >= OVERALL_BUDGET_MS) break;
     try {
+      // اتجاه الصورة أولاً: فاتورة مُدارة 90° تُقرأ بتذبذب («النعيمي» بدل «النبض»)
+      // وبعد تدويرها قائمةً تُقرأ صحيحة. صناديق التكبير تُعاد لإحداثيات الأصل أدناه
+      // لأن المراجعة تعرض الصورة الأصلية لا المُدارة.
+      const img = await orientInvoiceImage(images[idx]);
       const parts = [
         extraContext
           ? `${INVOICE_PROMPT}
@@ -1623,9 +1688,9 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
         row.area = split.area;
         row._imageIndex = idx;
         imageRows.push(row);
-        row._box = normalizeBox(row.box);                  // this item's whole row in the image
-        row._boxCustomer = normalizeBox(row.box_customer); // pharmacy/area block
-        row._boxHeader = normalizeBox(row.box_header);     // whole header block (warehouse+invoice#+date)
+        row._box = unrotateBox(normalizeBox(row.box), img.rotated);                  // this item's whole row in the image
+        row._boxCustomer = unrotateBox(normalizeBox(row.box_customer), img.rotated); // pharmacy/area block
+        row._boxHeader = unrotateBox(normalizeBox(row.box_header), img.rotated);     // whole header block (warehouse+invoice#+date)
         delete row.box; delete row.box_customer; delete row.box_header;
       }
       imageRows = foldBonusRows(imageRows);
@@ -1641,7 +1706,7 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
         const cust = await extractCustomerLineVoted(img, {
           timeoutMs: Math.min(45_000, Math.max(10_000, OVERALL_BUDGET_MS - (Date.now() - started))),
           warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
-        }, 3, first?.pharmacy ? { pharmacy: first.pharmacy, area: first.area } : null);
+        }, 5, first?.pharmacy ? { pharmacy: first.pharmacy, area: first.area } : null);
         if (cust && cust.score >= Math.max(0, firstScore)) {
           for (const r of imageRows) {
             r.pharmacy = cust.pharmacy;
