@@ -1,6 +1,6 @@
 import prisma from './prisma.js';
 import { repCoreName } from './repNameMatch.js';
-import { resolveMercatoHeaders, MERCATO_READY_STATUS, cleanPharmacyName, isManualInvoiceSource } from '../modules/sales/sales.service.js';
+import { resolveMercatoHeaders, MERCATO_READY_STATUS, cleanPharmacyName, isManualInvoiceSource, loadFileRepIndex, alignRepToFile } from '../modules/sales/sales.service.js';
 import { findRepByName } from '../modules/sales/sales.repository.js';
 
 const normalizeAr = s => String(s ?? '')
@@ -52,6 +52,7 @@ export async function backfillMercatoManualRows() {
       },
     });
     if (!manual.length) continue;
+    const repIndex = await loadFileRepIndex(file.id).catch(() => null);
     const h = await resolveMercatoHeaders({ fileId: file.id }, file.userId);
     if (!h) { console.log(`[backfillMercatoManualRows] ملف ${file.id}: ليس ميركاتو (${manual.length} صف يدوي تُرك)`); continue; }
 
@@ -59,7 +60,7 @@ export async function backfillMercatoManualRows() {
       try {
         let raw; try { raw = JSON.parse(s.rawData); } catch { continue; }
         if (!isManualInvoiceSource(raw?.source)) continue;
-        const sciRep = raw.scientificRep ? (repCoreName(String(raw.scientificRep)) || String(raw.scientificRep).trim()) : '';
+        const sciRep = raw.scientificRep ? alignRepToFile(raw.scientificRep, repIndex) : '';
         const itemName = s.item?.name ?? '';
         const price = Number(raw.unitPrice) || (s.quantity ? Math.round((s.totalValue / s.quantity) * 100) / 100 : 0);
         const patch = {
@@ -94,5 +95,36 @@ export async function backfillMercatoManualRows() {
       }
     }
   }
-  return fixed;
+
+  // مرحلة ثانية: صفوف رُحّلت/حُفظت بشكل ميركاتو لكن باسم مندوب مختصر — تُطابَق مرة
+  // واحدة (العلامة _repAligned) مع الأسماء الموجودة في الملف.
+  const shaped = await prisma.sale.findMany({
+    where: { OR: MANUAL_SOURCE_FILTERS, rawData: { contains: '_mercatoShaped' }, NOT: { rawData: { contains: '_repAligned' } } },
+    select: { id: true, userId: true, uploadedFileId: true, rawData: true, representative: { select: { name: true } } },
+  });
+  const indexByFile = new Map();
+  let aligned = 0;
+  for (const s of shaped) {
+    try {
+      if (!indexByFile.has(s.uploadedFileId)) indexByFile.set(s.uploadedFileId, await loadFileRepIndex(s.uploadedFileId).catch(() => null));
+      const index = indexByFile.get(s.uploadedFileId);
+      let raw; try { raw = JSON.parse(s.rawData); } catch { continue; }
+      const h = await resolveMercatoHeaders({ fileId: s.uploadedFileId }, s.userId);
+      const current = (h && raw[h.repName]) || s.representative?.name || '';
+      const target = alignRepToFile(current, index);
+      const data = { rawData: JSON.stringify({ ...raw, ...(h ? { [h.repName]: target } : null), _repAligned: true }) };
+      if (target && normalizeAr(target) !== normalizeAr(s.representative?.name)) {
+        const owner = s.userId;
+        const name = normalizeAr(target);
+        const rep = (await findRepByName(name, owner))
+          ?? (await prisma.medicalRepresentative.create({ data: { name, userId: owner } }));
+        data.representativeId = rep.id;
+      }
+      await prisma.sale.update({ where: { id: s.id }, data });
+      aligned++;
+    } catch (e) {
+      console.error('[backfillMercatoManualRows] align sale', s.id, e.message);
+    }
+  }
+  return fixed + aligned;
 }

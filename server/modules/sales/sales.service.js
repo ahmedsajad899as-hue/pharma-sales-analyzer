@@ -6,7 +6,7 @@
 
 import { canRotate, rotateJpeg } from '../../lib/invoiceImage.js';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
-import { repCoreName } from '../../lib/repNameMatch.js';
+import { repCoreName, buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import XLSX from 'xlsx';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import path from 'path';
@@ -2012,6 +2012,37 @@ const MERCATO_DEFAULT_HEADERS = {
 };
 /** حالة طلبية المذخر لكل الفواتير المحلَّلة — «جاهزة للتسليم» تُحتسب مبيعاً في رصيد المذاخر. */
 /**
+ * فهرس أسماء المندوبين الموجودين فعلاً في الملف. المندوب العلمي المختار عند التحليل
+ * يُكتب غالباً مختصراً («حسين قحطان») بينما الملف يحمل الاسم كما يسجّله ميركاتو
+ * («حسين قحطان العبيدي») — فيظهر الاسمان كمندوبَين مختلفَين في الملف ذاته.
+ */
+export async function loadFileRepIndex(fileId) {
+  if (!fileId) return null;
+  const groups = await prisma.sale.groupBy({ by: ['representativeId'], where: { uploadedFileId: Number(fileId) } });
+  const ids = groups.map(g => g.representativeId).filter(Boolean);
+  if (!ids.length) return null;
+  const reps = await prisma.medicalRepresentative.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  return reps.length ? buildRepIndex(reps) : null;
+}
+
+/** الاسم المطابق في الملف إن وُجد مرشّح واحد بلا لبس، وإلا الاسم كما هو. */
+export function alignRepToFile(name, index) {
+  const core = repCoreName(String(name ?? '')) || String(name ?? '').trim();
+  if (!core || !index) return core;
+  const m = matchRepName(core, index);
+  if (m.status === 'exact' && m.rep?.name) return m.rep.name;
+  // «حسين قحطان» ⊂ «حسين قحطان العبيدي»: matchRepName يُعيد 'ask' باقتراحات. نحسم
+  // تلقائياً فقط حين يتفرّد مرشّح (أو يتطابق الاسم الأول والثاني حرفياً كحسابين لنفس
+  // الشخص)، أما لبس بين شخصين مختلفين فيبقى الاسم كما اختاره المراجِع.
+  const top = (m.suggestions || []).filter(x => x.score >= 0.7);
+  if (!top.length) return core;
+  const names = new Set(top.map(x => normalizeItemKey(x.name)));
+  const lead = top[0], second = top.find(x => normalizeItemKey(x.name) !== normalizeItemKey(lead.name));
+  if (names.size === 1 || !second || lead.score - second.score >= 0.15) return lead.name;
+  return core;
+}
+
+/**
  * هل rawData.source يخصّ صفاً أُدخل يدوياً أو من فاتورة/طلبية؟ المسار اليدوي يكتب
  * 'manual-invoice' أما طلبيات البوت فتكتب 'telegram-order' / 'viber-order'
  * (ManualSalesModal يضيف اللاحقة -order). الاقتصار على القيمة الأولى كان يُسقط
@@ -2071,6 +2102,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     .trim();
 
   const mercato = await resolveMercatoHeaders(target, userId);
+  const fileRepIndex = (mercato && target.fileId) ? await loadFileRepIndex(target.fileId).catch(() => null) : null;
 
   // ── 1. Coerce + validate incoming rows ──
   const validRows = [];
@@ -2084,7 +2116,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
 
     // ملف ميركاتو: «اسم المندوب» = المندوب العلمي المختار عند التحليل (لا حساب الكروب).
     // أسماء الحسابات تحمل لاحقة «/ المنطقة ph» فتُسقَط.
-    const sciRep = r.scientificRep ? (repCoreName(String(r.scientificRep)) || String(r.scientificRep).trim()) : '';
+    const sciRep = r.scientificRep ? alignRepToFile(r.scientificRep, fileRepIndex) : '';
     const repForRow = (mercato && sciRep) ? sciRep : r.repName;
     const mercatoRaw = {};
     if (mercato) {
