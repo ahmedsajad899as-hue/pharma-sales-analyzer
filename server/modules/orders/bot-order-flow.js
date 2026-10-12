@@ -17,6 +17,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { extractInvoiceRows } from '../sales/sales.service.js';
+import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { extractOrderRowsFromText } from './order-extract.js';
 import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
 import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess } from './orders.service.js';
@@ -103,6 +104,9 @@ export async function handleIncomingOrderMessage({
     // مطابقة الأصناف بكتالوج المستخدم وتعبئة الشركة والسعر — لكلا المسارين
     // (نصّ وصورة) كي لا يفترق سلوكهما. لا يرمي ولا يحفظ شيئاً.
     await enrichRowsFromCatalog(rows, user.id);
+    // الصيدلية/المنطقة المقروءة ← الأسماء القانونية من الماستر أدمن («منصور» ←
+    // «المنصور»). قبل التخمين لأن المندوب العلمي يُستنتج من المنطقة.
+    await matchInvoiceCustomers(rows);
     // التخمين بعد المطابقة لأنه يعتمد على معرّف الصنف وشركته العلمية.
     await attachScientificRepGuess(rows, user);
 

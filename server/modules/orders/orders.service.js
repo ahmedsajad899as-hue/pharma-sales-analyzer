@@ -16,6 +16,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { buildRepIndex, matchRepName, repCoreName } from '../../lib/repNameMatch.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { loadResolutionContext, resolveItemName, normalizeAreaName } from '../../lib/itemResolver.js';
+import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
 
@@ -234,6 +235,26 @@ export async function attachScientificRepGuess(rows, actingUser) {
   return rows;
 }
 
+/**
+ * كل المندوبين العلميين النشطين في مكتب المستخدم — خيارات خانة «المندوب العلمي»
+ * في شبكة المراجعة حين يمسح المراجِع الاسم المقترح. نفس نطاق
+ * attachScientificRepGuess (نفس المكتب)، فلا يظهر مندوب لا يمكن أن يخصّ الطلبية.
+ */
+export async function listOfficeScientificReps(userId) {
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
+  const reps = await prisma.user.findMany({
+    where: {
+      role: 'scientific_rep',
+      isActive: true,
+      ...(me?.officeId ? { officeId: me.officeId } : {}),
+    },
+    select: { id: true, username: true, displayName: true },
+  });
+  return reps
+    .map(r => ({ id: r.id, name: r.displayName?.trim() || r.username }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+}
+
 /** عدد صفوف الطلبية المعلَّقة — يُعرَض في الشريط وفي ردّ البوت. */
 export async function countPendingOrders(userId) {
   return prisma.pendingBotOrder.count({ where: { userId } });
@@ -381,11 +402,22 @@ export async function getPendingOrder(userId, id) {
   const row = await prisma.pendingBotOrder.findFirst({ where: { id: Number(id), userId } });
   if (!row) throw new AppError('الطلبية غير موجودة أو لا تخصّك.', 404, 'ORDER_NOT_FOUND');
   const payload = row.payload || {};
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  // طلبيات دخلت الطابور قبل مطابقة الماستر (لا تحمل _pharmacyMatched) تُطابَق عند
+  // الفتح — في الذاكرة فقط، فالصف المخزَّن لا يتغيّر قبل تأكيد المراجِع.
+  if (rows.length && rows.every(r => r && r._pharmacyMatched === undefined)) {
+    await matchInvoiceCustomers(rows);
+    const noRep = rows.filter(r => !r.scientificRep);
+    if (noRep.length) {
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true } });
+      if (user) await attachScientificRepGuess(noRep, user);
+    }
+  }
   return {
     id: row.id,
     source: row.source,
     kind: row.kind,
-    rows: Array.isArray(payload.rows) ? payload.rows : [],
+    rows,
     extractedAt: payload.extractedAt ?? null,
     repName: row.repName,
     repId: row.repId,

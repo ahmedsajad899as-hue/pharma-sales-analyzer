@@ -32,6 +32,8 @@ interface Row {
    *  الصيدلية + تعيين الصنف)، ويبقى قابلاً للتعديل هنا. */
   scientificRep: string;
   repCandidates: { id: number; name: string }[];
+  /** صيدليات السيرفي القريبة من الاسم المقروء حين لم يُحسم التطابق تلقائياً. */
+  pharmacyCandidates: { name: string; area: string | null }[];
   imageIndex: number | null; // index into `images` this row was extracted from
   box: number[] | null;          // [ymin,xmin,ymax,xmax] 0-1000: this item's row in the image
   boxCustomer: number[] | null;  // pharmacy/area block in the image
@@ -79,7 +81,7 @@ type NameAsk = { items: NameCheck[]; companies: NameCheck[]; rows: any[] };
 const rowKey = (r: Row) =>
   [r.item, r.quantity, r.pharmacy].map(v => String(v ?? '').trim().toLowerCase()).join('|');
 
-const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', scientificRep: '', repCandidates: [], imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
+const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', scientificRep: '', repCandidates: [], pharmacyCandidates: [], imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
 /**
@@ -246,6 +248,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   const [newCurrency, setNewCurrency] = useState<'IQD' | 'USD'>('IQD');
 
   const [reps, setReps]         = useState<Rep[]>([]);
+  // كل المندوبين العلميين في المكتب — خيارات خانة «المندوب العلمي» بعد مسح المقترح.
+  const [sciReps, setSciReps]   = useState<{ id: number; name: string }[]>([]);
   const [onlyAssignedItems, setOnlyAssignedItems] = useState(false); // فلترة الاستخراج على ايتمات المستخدم المعيّنة فقط
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving]     = useState(false);
@@ -263,6 +267,10 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       .then(r => r.json())
       .then(j => { if (Array.isArray(j.data)) setReps(j.data.map((r: any) => ({ id: r.id, name: r.name }))); })
       .catch(() => {});
+    fetch(`${API}/api/orders/scientific-reps`, { headers: authH })
+      .then(r => r.json())
+      .then(j => { if (Array.isArray(j.data)) setSciReps(j.data); })
+      .catch(() => {});
     return () => { imagesRef.current.forEach(u => URL.revokeObjectURL(u)); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -278,7 +286,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     const last = rs[rs.length - 1];
     // Carry over per-invoice header fields so entering several items of one invoice is fast
     const seed = last
-      ? { ...emptyRow(), warehouse: last.warehouse, invoiceNumber: last.invoiceNumber, date: last.date, pharmacy: last.pharmacy, area: last.area, scientificRep: last.scientificRep, repCandidates: last.repCandidates }
+      ? { ...emptyRow(), warehouse: last.warehouse, invoiceNumber: last.invoiceNumber, date: last.date, pharmacy: last.pharmacy, area: last.area, scientificRep: last.scientificRep, repCandidates: last.repCandidates, pharmacyCandidates: last.pharmacyCandidates }
       : emptyRow();
     return [...rs, seed];
   });
@@ -313,6 +321,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       area:          str(r.area),
       scientificRep: str(r.scientificRep),
       repCandidates: Array.isArray(r._repCandidates) ? r._repCandidates : [],
+      pharmacyCandidates: Array.isArray(r._pharmacyCandidates) ? r._pharmacyCandidates : [],
       imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
       box:           Array.isArray(r._box) ? r._box : null,
       boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
@@ -651,9 +660,12 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
 
   // قائمة اقتراحات المندوبين — اتحاد مرشّحي كل الصفوف. تُعرض كـdatalist واحدة
   // بدل واحدة لكل صف (نفس الطلبية = نفس دائرة المرشّحين عملياً).
-  const repSuggestions = Array.from(
-    new Map(rows.flatMap(r => r.repCandidates || []).map(c => [c.id, c.name])).values(),
-  );
+  // المرشّحون أولاً ثم بقية مندوبي المكتب العلميين — فمسح الاسم المقترح يعرض
+  // القائمة كلها للاختيار.
+  const repSuggestions = Array.from(new Set([
+    ...rows.flatMap(r => r.repCandidates || []).map(c => c.name),
+    ...sciReps.map(r => r.name),
+  ]));
 
   const askList = nameAsk
     ? [
@@ -772,10 +784,12 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                 <input list="rep-suggestions" value={repName} onChange={e => setRepName(e.target.value)}
                   placeholder="اسم المندوب" style={inp} />
                 <datalist id="rep-suggestions">{reps.map(r => <option key={r.id} value={r.name} />)}</datalist>
-            {/* اقتراحات المندوب العلمي لخانات الجدول — مُعرَّفة مرة واحدة هنا. */}
-            <datalist id="scirep-suggestions">{repSuggestions.map(n => <option key={n} value={n} />)}</datalist>
               </>
             )}
+            {/* اقتراحات المندوب العلمي لخانات الجدول — مُعرَّفة مرة واحدة هنا، **خارج**
+                الشرط أعلاه: كانت داخل فرع الإدخال اليدوي فقط، فخانة المندوب العلمي في
+                طلبيات البوت بلا أي خيارات إطلاقاً. */}
+            <datalist id="scirep-suggestions">{repSuggestions.map(n => <option key={n} value={n} />)}</datalist>
           </label>
         </div>
 
@@ -860,13 +874,32 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                               else setCell(i, c.key, val);
                             }}
                             style={{ ...cs, textAlign: 'left' }} />
+                        ) : c.key === 'pharmacy' && r.pharmacyCandidates?.length ? (
+                          <>
+                            <input list={`ph-sugg-${i}`} value={r.pharmacy}
+                              onChange={e => {
+                                const v = e.target.value;
+                                // اختيار صيدلية من السيرفي يجلب منطقتها معها.
+                                const hit = r.pharmacyCandidates.find(p => p.name === v);
+                                setRows(rs => rs.map((x, idx) => (idx === i
+                                  ? { ...x, pharmacy: v, ...(hit?.area ? { area: hit.area } : null) }
+                                  : x)));
+                              }}
+                              title={`صيدليات قريبة في السيرفي: ${r.pharmacyCandidates.map(p => p.area ? `${p.name} (${p.area})` : p.name).join(' ، ')}`}
+                              style={{ ...cs, background: '#fefce8' }} />
+                            <datalist id={`ph-sugg-${i}`}>
+                              {r.pharmacyCandidates.map(p => (
+                                <option key={`${p.name}|${p.area}`} value={p.name}>{p.area || ''}</option>
+                              ))}
+                            </datalist>
+                          </>
                         ) : c.key === 'scientificRep' ? (
                           <input list="scirep-suggestions" value={r.scientificRep}
                             onChange={e => setCell(i, 'scientificRep', e.target.value)}
-                            placeholder={r.repCandidates?.length ? 'اختر من المرشّحين' : 'غير معروف'}
+                            placeholder={r.repCandidates?.length ? 'اختر من المرشّحين' : 'اختر مندوباً'}
                             title={r.repCandidates?.length
                               ? `مرشّحون: ${r.repCandidates.map(c => c.name).join(' ، ')}`
-                              : 'لم يُعرَف مندوب من المنطقة والشركة'}
+                              : 'لم يُعرَف مندوب من المنطقة والشركة — امسح الخانة لعرض كل المندوبين العلميين'}
                             style={{ ...cs, ...(r.scientificRep ? null : { background: '#fff7ed' }) }} />
                         ) : (
                           <input value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}

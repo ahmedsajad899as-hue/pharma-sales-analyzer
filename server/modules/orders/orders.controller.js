@@ -6,7 +6,7 @@
 import fs from 'fs';
 import {
   listPendingOrders, getPendingOrder, deletePendingOrder,
-  countPendingOrders, getPendingOrderImagePath,
+  countPendingOrders, getPendingOrderImagePath, listOfficeScientificReps,
 } from './orders.service.js';
 
 // ── GET /api/orders/pending — قائمة خفيفة للشريط (بلا صفوف الطلبية) ─────────
@@ -51,5 +51,12 @@ export async function deletePending(req, res, next) {
   try {
     await deletePendingOrder(req.user.id, req.params.id);
     res.json({ success: true });
+  } catch (e) { next(e); }
+}
+
+// ── GET /api/orders/scientific-reps — خيارات خانة المندوب العلمي في المراجعة ──
+export async function listScientificReps(req, res, next) {
+  try {
+    res.json({ success: true, data: await listOfficeScientificReps(req.user.id) });
   } catch (e) { next(e); }
 }
