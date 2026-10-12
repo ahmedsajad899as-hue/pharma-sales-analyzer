@@ -1806,7 +1806,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
      currencyMode الملف المحفوظ (ذلك من صفحة رفع الملفات). */
   const renderToolsCapsule = (o: {
     withExport?: boolean;
-    align?: 'flex-start' | 'flex-end';
+    align?: 'flex-start' | 'flex-end' | 'center';
     viewMode: 'qty' | 'value';
     setViewMode: (f: (v: 'qty' | 'value') => 'qty' | 'value') => void;
   }) => {
@@ -1860,7 +1860,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   };
 
   /* ─── Report view toggle ─── */
-  const renderViewToggle = (hasSales: boolean, hasReturns: boolean) => (
+  const renderViewToggle = (hasSales: boolean, hasReturns: boolean, withTools = true) => (
     <div style={{ display: 'flex', gap: 10, margin: '16px 0 0', flexWrap: 'wrap', alignItems: 'flex-end', width: '100%', justifyContent: 'space-between' }}>
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
       {[
@@ -1904,7 +1904,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         );
       })}
     </div>
-    {renderToolsCapsule({
+    {withTools && renderToolsCapsule({
       withExport: true,
       align: 'flex-start',
       viewMode:    mode === 'scientific' ? sciViewMode : commViewMode,
@@ -4770,9 +4770,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         <>
           {/* Info tags */}
           <div style={{ margin: '8px 0 4px' }}>
+            {/* صف واحد: زر التفاصيل (يمين) + كبسولة الأدوات (يسار) بنفس المستوى */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={() => setShowInfoTags(v => !v)} style={{ background: showInfoTags ? '#ede9fe' : '#f3f4f6', border: `1px solid ${showInfoTags ? '#c4b5fd' : '#e5e7eb'}`, borderRadius: 20, padding: '4px 14px', cursor: 'pointer', fontSize: '1rem', color: showInfoTags ? '#6d28d9' : '#6b7280' }} title={showInfoTags ? 'إخفاء التفاصيل' : 'عرض المناطق والمندوبين والأيتمات'}>
               {showInfoTags ? '🔼' : '🔽'}
             </button>
+            {renderToolsCapsule({ withExport: true, align: 'center', viewMode: sciViewMode, setViewMode: setSciViewMode })}
+            </div>
             {showInfoTags && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.6rem' }}>
                 {sciReport.assignedCommercialReps.map(r => (<span key={r.id} className="tag tag--green"><Icon name="money" size={11} /> {r.name}</span>))}
@@ -4785,7 +4789,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
           {/* KPI Cards — Scientific */}
           <div style={{ marginBottom: 4 }}>
-            {renderViewToggle(true, hasRet)}
+            {renderViewToggle(true, hasRet, false)}
             {isNet ? (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
               <div style={{ background: netValTotal >= 0 ? '#ecfdf5' : '#fef2f2', border: `1.5px solid ${netValTotal >= 0 ? '#6ee7b7' : '#fca5a5'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
