@@ -1800,6 +1800,64 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     );
   };
 
+  /* ─── كبسولة الأدوات الموحّدة: تصدير | Excel | كمية/قيمة | $ ↔ د.ع ───────────
+     كل أدوات «عرض/إخراج النتائج» بتصميم واحد وفي مكان واحد. تبديل العملة هنا
+     للعرض في هذه الجلسة فقط: يغيّر fileCurrencyMode محلياً ولا يلمس
+     currencyMode الملف المحفوظ (ذلك من صفحة رفع الملفات). */
+  const renderToolsCapsule = (o: {
+    withExport?: boolean;
+    viewMode: 'qty' | 'value';
+    setViewMode: (f: (v: 'qty' | 'value') => 'qty' | 'value') => void;
+  }) => {
+    const seg: React.CSSProperties = {
+      display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 11px', height: '100%',
+      border: 'none', background: 'transparent', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+    };
+    const sep = <span style={{ width: 1, alignSelf: 'stretch', background: '#e2e8f0' }} />;
+    const showExport = o.withExport && user?.role !== 'scientific_rep';
+    const isUsd = fileCurrencyMode === 'USD';
+    return (
+      <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-end', height: 32, border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+        {showExport && (
+          <>
+            <button
+              onClick={() => setShowExportModal(true)} disabled={exporting}
+              title={exporting ? exportProgress : t.reports.export}
+              style={{ ...seg, color: 'var(--c-success)', opacity: exporting ? 0.6 : 1, cursor: exporting ? 'not-allowed' : 'pointer' }}>
+              <Icon name={exporting ? 'loading' : 'export'} size={13} className={exporting ? 'icon-spin' : undefined} /> تصدير
+            </button>
+            {sep}
+          </>
+        )}
+        {o.withExport && (
+          <>
+            <button
+              title="فتح كامل بيانات المندوب في Excel"
+              disabled={rowPreviewKey === '__top__'}
+              onClick={() => fetchRowPreview('__top__', 'area')}
+              style={{ ...seg, color: 'var(--c-purple)', opacity: rowPreviewKey === '__top__' ? 0.6 : 1, cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer' }}>
+              <Icon name={rowPreviewKey === '__top__' ? 'loading' : 'excel'} size={13} className={rowPreviewKey === '__top__' ? 'icon-spin' : undefined} /> Excel
+            </button>
+            {sep}
+          </>
+        )}
+        <button
+          onClick={() => o.setViewMode(v => v === 'qty' ? 'value' : 'qty')}
+          title={o.viewMode === 'qty' ? 'يعرض الكمية — اضغط لعرض القيمة' : 'يعرض القيمة — اضغط لعرض الكمية'}
+          style={{ ...seg, color: o.viewMode === 'qty' ? '#1e40af' : '#b45309', background: o.viewMode === 'qty' ? '#eff6ff' : '#fffbeb' }}>
+          {o.viewMode === 'qty' ? <><Icon name="count" size={13} /> كمية</> : <><Icon name="money" size={13} /> قيمة</>}
+        </button>
+        {sep}
+        <button
+          onClick={() => setFileCurrencyMode(m => m === 'USD' ? 'IQD' : 'USD')}
+          title={isUsd ? 'العرض بالدولار — اضغط للتحويل إلى الدينار (لهذه الجلسة فقط، عملة الملف لا تتغير)' : 'العرض بالدينار — اضغط للتحويل إلى الدولار (لهذه الجلسة فقط، عملة الملف لا تتغير)'}
+          style={{ ...seg, color: isUsd ? '#15803d' : '#0f172a', fontWeight: 800, minWidth: 62, justifyContent: 'center' }}>
+          {isUsd ? '$ USD' : 'د.ع IQD'}
+        </button>
+      </div>
+    );
+  };
+
   /* ─── Report view toggle ─── */
   const renderViewToggle = (hasSales: boolean, hasReturns: boolean) => (
     <div style={{ display: 'flex', gap: 10, margin: '16px 0 0', flexWrap: 'wrap', alignItems: 'flex-end', width: '100%', justifyContent: 'space-between' }}>
@@ -1845,28 +1903,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         );
       })}
     </div>
-    <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-end', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
-      {/* تصدير الكل (لكل مندوب) + Excel المندوب الحالي — كبسولة واحدة صغيرة */}
-      {user?.role !== 'scientific_rep' && (
-        <button
-          onClick={() => setShowExportModal(true)}
-          disabled={exporting}
-          title={exporting ? exportProgress : t.reports.export}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: 'none', background: 'transparent', color: 'var(--c-success)', fontSize: 11.5, fontWeight: 600, cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1 }}>
-          <Icon name={exporting ? 'loading' : 'export'} size={13} className={exporting ? 'icon-spin' : undefined} />
-          تصدير
-        </button>
-      )}
-      {user?.role !== 'scientific_rep' && <span style={{ width: 1, alignSelf: 'stretch', background: '#e2e8f0' }} />}
-      <button
-        title="فتح كامل بيانات المندوب في Excel"
-        disabled={rowPreviewKey === '__top__'}
-        onClick={() => fetchRowPreview('__top__', 'area')}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: 'none', background: 'transparent', color: 'var(--c-purple)', fontSize: 11.5, fontWeight: 600, cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer', opacity: rowPreviewKey === '__top__' ? 0.6 : 1 }}>
-        <Icon name={rowPreviewKey === '__top__' ? 'loading' : 'excel'} size={13} className={rowPreviewKey === '__top__' ? 'icon-spin' : undefined} />
-        Excel
-      </button>
-    </div>
+    {renderToolsCapsule({
+      withExport: true,
+      viewMode:    mode === 'scientific' ? sciViewMode : commViewMode,
+      setViewMode: mode === 'scientific' ? setSciViewMode : setCommViewMode,
+    })}
     </div>
   );
 
@@ -4134,10 +4175,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                     <Icon name="refresh" size={11} /> إعادة الكل ({overallExcluded.size})
                   </button>
                 )}
-                <button onClick={() => setOverallViewMode(v => v === 'qty' ? 'value' : 'qty')}
-                  style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${overallViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: overallViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: overallViewMode === 'qty' ? '#1e40af' : '#b45309', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  {overallViewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
-                </button>
+                {renderToolsCapsule({ viewMode: overallViewMode, setViewMode: setOverallViewMode })}
               </div>
             </div>
 
@@ -4592,10 +4630,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 }}><Icon name={icon} size={13} /><span>{label}</span></button>
               ))}
             </div>
-            <button onClick={() => setCommViewMode(v => v === 'qty' ? 'value' : 'qty')}
-              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${commViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: commViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: commViewMode === 'qty' ? '#1e40af' : '#b45309', marginBottom: 4, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              {commViewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
-            </button>
           </div>
           {isNet ? (
             <>
@@ -4811,10 +4845,6 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 }}><Icon name={icon} size={13} /><span>{label}</span></button>
               ))}
             </div>
-            <button onClick={() => setSciViewMode(v => v === 'qty' ? 'value' : 'qty')}
-              style={{ padding: '5px 14px', borderRadius: 8, border: `1.5px solid ${sciViewMode === 'qty' ? '#3b82f6' : '#f59e0b'}`, background: sciViewMode === 'qty' ? '#eff6ff' : '#fffbeb', cursor: 'pointer', fontSize: 12, fontWeight: 700, color: sciViewMode === 'qty' ? '#1e40af' : '#b45309', marginBottom: 4, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              {sciViewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
-            </button>
           </div>
           {isNet ? (
             <>

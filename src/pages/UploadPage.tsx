@@ -1449,36 +1449,64 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {f.originalName}
                     </span>
-                    <span style={BADGE(typeMeta.bg, typeMeta.color, typeMeta.border)}>{typeMeta.label}</span>
-                    {f.sourceSystem === 'mercato' && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setRepNameFileIds([f.id]); }}
-                        style={{ ...BADGE('var(--c-warning-bg)', 'var(--c-warning)', 'var(--c-warning-border)'), cursor: 'pointer' }}
-                        title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. اضغط لمطابقة أسماء المندوبين في الملف مع سجلاتهم في التطبيق."
-                      ><Icon name="pharmacy" size={11} /> ميركاتو · مطابقة الأسماء</button>
-                    )}
-                    {f.isCumulative && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleBatches(f.id); }}
-                        style={{ ...BADGE('var(--c-purple-bg)', 'var(--c-purple)', 'var(--c-purple-border)'), cursor: 'pointer' }}
-                        title="ملف تراكمي — كل الأشهر بداخله. اضغط لعرض الرفعات التي انصهرت فيه."
-                      >
-                        <Icon name="transfer" size={11} /> تراكمي{f._count?.mergeBatches ? ` · ${f._count.mergeBatches} رفعة` : ''}
-                        <span style={{ fontSize: 10, display: 'inline-block', marginRight: 3, transform: expandedBatchesId === f.id ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
-                      </button>
-                    )}
-                    {isActive && <span style={BADGE('var(--c-success-bg)', 'var(--c-success)', 'var(--c-success-border)')}><Icon name="checkCircle" size={11} /> {t.upload.statusActive}</span>}
-                    {isSharedByMe && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setExpandedSharesId(expandedSharesId === f.id ? null : f.id); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--c-purple-border)', borderRadius: 20, padding: '2px 10px', background: expandedSharesId === f.id ? 'var(--c-purple-bg)' : 'var(--c-surface)', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: 'var(--c-purple)', flexShrink: 0 }}
-                        title="عرض المندوبين"
-                      >
-                        <Icon name="link" size={11} /> {shareCount} مندوب
-                        <span style={{ fontSize: 10, transition: 'transform 0.2s', display: 'inline-block', transform: expandedSharesId === f.id ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
-                      </button>
-                    )}
-                    {isSharedToMe && <span style={BADGE('#fef3c7', 'var(--c-warning)', '#fcd34d')}><Icon name="import" size={11} /> مشارك معك</span>}
+                    {/* ── حالة الملف: شارات أيقونية صغيرة بتلميحات — كل شارة تحتفظ بوظيفتها ── */}
+                    {(() => {
+                      const chip = (c: string, bg: string, bd: string, clickable = false): React.CSSProperties => ({
+                        display: 'inline-flex', alignItems: 'center', gap: 3, height: 24, padding: '0 7px',
+                        borderRadius: 999, border: `1px solid ${bd}`, background: bg, color: c,
+                        fontSize: 10.5, fontWeight: 700, lineHeight: 1, flexShrink: 0,
+                        cursor: clickable ? 'pointer' : 'default',
+                      });
+                      const typeIcon = f.fileType === 'returns' ? 'uploadReturns' : f.fileType === 'auto' ? 'uploadAuto' : f.fileType === 'matrix' ? 'netBalance' : 'uploadSales';
+                      const chev = (open: boolean) => (
+                        <span style={{ fontSize: 8, display: 'inline-block', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>▼</span>
+                      );
+                      return (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                          <span title={typeMeta.label.replace(/^\S+\s*/, '')} style={chip(typeMeta.color, typeMeta.bg, typeMeta.border)}>
+                            <Icon name={typeIcon as any} size={12} />
+                          </span>
+                          {f.sourceSystem === 'mercato' && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setRepNameFileIds([f.id]); }}
+                              style={chip('var(--c-warning)', 'var(--c-warning-bg)', 'var(--c-warning-border)', true)}
+                              title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. اضغط لمطابقة أسماء المندوبين في الملف مع سجلاتهم في التطبيق."
+                            ><Icon name="pharmacy" size={12} /></button>
+                          )}
+                          {f.isCumulative && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleBatches(f.id); }}
+                              style={chip('var(--c-purple)', 'var(--c-purple-bg)', 'var(--c-purple-border)', true)}
+                              title={`ملف تراكمي — كل الأشهر بداخله${f._count?.mergeBatches ? ` (${f._count.mergeBatches} رفعة)` : ''}. اضغط لعرض الرفعات التي انصهرت فيه.`}
+                            >
+                              <Icon name="transfer" size={12} />
+                              {!!f._count?.mergeBatches && <span>{f._count.mergeBatches}</span>}
+                              {chev(expandedBatchesId === f.id)}
+                            </button>
+                          )}
+                          {isActive && (
+                            <span title={t.upload.statusActive} style={chip('var(--c-success)', 'var(--c-success-bg)', 'var(--c-success-border)')}>
+                              <Icon name="checkCircle" size={12} />
+                            </span>
+                          )}
+                          {isSharedByMe && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setExpandedSharesId(expandedSharesId === f.id ? null : f.id); }}
+                              style={chip('var(--c-purple)', expandedSharesId === f.id ? 'var(--c-purple-bg)' : 'var(--c-surface)', 'var(--c-purple-border)', true)}
+                              title={`مُزامَن مع ${shareCount} مندوب — اضغط لعرضهم`}
+                            >
+                              <Icon name="link" size={12} /><span>{shareCount}</span>
+                              {chev(expandedSharesId === f.id)}
+                            </button>
+                          )}
+                          {isSharedToMe && (
+                            <span title="مشارك معك" style={chip('var(--c-warning)', '#fef3c7', '#fcd34d')}>
+                              <Icon name="import" size={12} />
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })()}
                   </div>
 
                   {/* ── Expanded reps row ── */}
