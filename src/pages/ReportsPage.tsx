@@ -899,6 +899,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const monthsState  = useSalesMonths(monthFileIds, token, syncDatesToMonth);
   const { month: selMonth, applyTo: applyMonth, ready: monthsReady } = monthsState;
   const [showDatePop, setShowDatePop] = useState(false);
+  const [quickCompany, setQuickCompany] = useState<string | null>(null);
   const [overallFilesOpen, setOverallFilesOpen] = useState(false);
   // True once the office-vs-Mercato default group (below) has resolved for the
   // current activeFileIds — the auto-run effect waits on this so it never fires
@@ -1844,39 +1845,26 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         );
       })}
     </div>
-    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-      {/* ── Export-all (per-rep) button — relocated here from the page header ── */}
+    <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-end', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', overflow: 'hidden' }}>
+      {/* تصدير الكل (لكل مندوب) + Excel المندوب الحالي — كبسولة واحدة صغيرة */}
       {user?.role !== 'scientific_rep' && (
         <button
           onClick={() => setShowExportModal(true)}
           disabled={exporting}
           title={exporting ? exportProgress : t.reports.export}
-          style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-            padding: '7px 12px 6px', borderRadius: 12,
-            border: '2.5px solid var(--c-success)', cursor: exporting ? 'not-allowed' : 'pointer',
-            background: exporting ? 'var(--c-success-bg)' : 'var(--c-success-bg)', color: 'var(--c-success)',
-            opacity: exporting ? 0.6 : 1,
-            boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
-          }}>
-          <Icon name={exporting ? 'loading' : 'export'} size={17} className={exporting ? 'icon-spin' : undefined} />
-          <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>تصدير</span>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: 'none', background: 'transparent', color: 'var(--c-success)', fontSize: 11.5, fontWeight: 600, cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.6 : 1 }}>
+          <Icon name={exporting ? 'loading' : 'export'} size={13} className={exporting ? 'icon-spin' : undefined} />
+          تصدير
         </button>
       )}
-      {/* ── Excel export button — pinned to the opposite end of the toggle group ── */}
+      {user?.role !== 'scientific_rep' && <span style={{ width: 1, alignSelf: 'stretch', background: '#e2e8f0' }} />}
       <button
         title="فتح كامل بيانات المندوب في Excel"
         disabled={rowPreviewKey === '__top__'}
         onClick={() => fetchRowPreview('__top__', 'area')}
-        style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-          padding: '7px 12px 6px', borderRadius: 12,
-          border: '2.5px solid var(--c-purple)', cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer',
-          background: 'var(--c-purple-bg)', color: 'var(--c-purple)', opacity: rowPreviewKey === '__top__' ? 0.6 : 1,
-          boxShadow: '0 1px 3px #0001', transition: 'all 0.15s', minWidth: 48,
-        }}>
-        <Icon name={rowPreviewKey === '__top__' ? 'loading' : 'excel'} size={17} className={rowPreviewKey === '__top__' ? 'icon-spin' : undefined} />
-        <span style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 2, opacity: 0.9 }}>Excel</span>
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', border: 'none', background: 'transparent', color: 'var(--c-purple)', fontSize: 11.5, fontWeight: 600, cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer', opacity: rowPreviewKey === '__top__' ? 0.6 : 1 }}>
+        <Icon name={rowPreviewKey === '__top__' ? 'loading' : 'excel'} size={13} className={rowPreviewKey === '__top__' ? 'icon-spin' : undefined} />
+        Excel
       </button>
     </div>
     </div>
@@ -3378,7 +3366,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {commReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           ) : mode === 'scientific' ? (
-            <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={sciRepId}
+            <div style={{ flex: '1 1 160px', maxWidth: 280, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <select className="form-input" style={{ width: '100%' }} value={sciRepId}
               onChange={e => {
                 e.target.blur();
                 setSciRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadSciReport(e.target.value); }
@@ -3386,6 +3375,38 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <option value="">-- {t.reports.selectSciRep} --</option>
               <RepSelectOptions reps={sciReps} />
             </select>
+            {/* شركات ثم مندوبوها — خفيفة وشفافة عمداً كي لا تلوّث الشاشة */}
+            {(() => {
+              const groups = groupRepsByTeam(sciReps).filter(g => g.company);
+              if (groups.length === 0) return null;
+              const selRep = sciReps.find(r => String(r.id) === sciRepId);
+              const activeCo = quickCompany ?? (selRep ? (selRep.company || 'بدون شركة') : groups[0].company);
+              const rows = groups.find(g => g.company === activeCo)?.rows ?? [];
+              const faint = (on: boolean): React.CSSProperties => ({
+                background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer',
+                fontSize: 10.5, lineHeight: 1.5, color: on ? '#475569' : '#94a3b8',
+                opacity: on ? 0.95 : 0.6, fontWeight: on ? 600 : 400,
+                textDecoration: on ? 'underline' : 'none', textUnderlineOffset: 3,
+              });
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 8px' }}>
+                    {groups.map(g => (
+                      <button key={g.company} type="button" style={faint(g.company === activeCo)} onClick={() => setQuickCompany(g.company)}>{g.company}</button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 8px', maxHeight: 64, overflowY: 'auto' }}>
+                    {rows.map(({ rep }) => (
+                      <button key={rep.id} type="button" style={faint(String(rep.id) === sciRepId)}
+                        onClick={() => { setSciRepId(String(rep.id)); setReportView(getDefaultReportView()); loadSciReport(String(rep.id)); }}>
+                        {rep.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            </div>
           ) : (
             <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 420 }}>
               <button
@@ -3544,31 +3565,27 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             </button>
           )}
 
-          {/* Generate button */}
-          <button
-            onClick={() => { sendEngagementPing('calculate', 'rep-analysis'); mode === 'commercial' ? loadCommReport() : mode === 'scientific' ? loadSciReport() : loadOverallReport(); }}
-            disabled={loading}
-            style={{
-              padding: '7px 18px', border: '1px solid #374151', borderRadius: 6, flexShrink: 0,
-              background: '#fff', color: '#111827', fontSize: 13, fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-            }}
-          >
-            {loading ? <><Icon name="loading" size={13} className="icon-spin" /> جاري...</> : <><Icon name="search" size={13} /> تحليل</>}
-          </button>
-
-          {/* كل المندوبين العلميين دفعة واحدة — مكتب/مذخر + أسماء المذاخر */}
-          {mode === 'scientific' && (
+          {/* تحليل + كل المندوبين العلميين — كبسولة واحدة صغيرة */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', overflow: 'hidden', flexShrink: 0 }}>
             <button
-              onClick={() => { setShowAllRepsWarehouseModal(true); setWarehouseCompanyFilter(''); loadAllRepsWarehouseSummary(); }}
-              style={{
-                padding: '7px 14px', border: '1px solid #bfdbfe', borderRadius: 6, flexShrink: 0,
-                background: '#eff6ff', color: '#1d4ed8', fontSize: 13, fontWeight: 600,
-                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
-              }}
-            ><Icon name="pharmacy" size={13} /> كل المندوبين العلميين</button>
-          )}
+              onClick={() => { sendEngagementPing('calculate', 'rep-analysis'); mode === 'commercial' ? loadCommReport() : mode === 'scientific' ? loadSciReport() : loadOverallReport(); }}
+              disabled={loading}
+              title="تحليل"
+              style={{ padding: '5px 11px', border: 'none', background: 'transparent', color: '#111827', fontSize: 12, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              {loading ? <><Icon name="loading" size={12} className="icon-spin" /> جاري…</> : <><Icon name="search" size={12} /> تحليل</>}
+            </button>
+            {mode === 'scientific' && (
+              <>
+                <span style={{ width: 1, alignSelf: 'stretch', background: '#e2e8f0' }} />
+                <button
+                  onClick={() => { setShowAllRepsWarehouseModal(true); setWarehouseCompanyFilter(''); loadAllRepsWarehouseSummary(); }}
+                  title="كل المندوبين العلميين — مكتب/مذخر"
+                  style={{ padding: '5px 9px', border: 'none', background: 'transparent', color: '#1d4ed8', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+                ><Icon name="pharmacy" size={14} /></button>
+              </>
+            )}
+          </div>
 
         </div>
       </div>
