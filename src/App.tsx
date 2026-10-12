@@ -335,6 +335,42 @@ function AppInner() {
     } catch { setActiveFileIds([]); }
   }, [user?.id]);
 
+  // ── تفعيل الملفات التراكمية (مبيعات المكتب / ميركاتو) تلقائياً لكل الحسابات ──
+  // الملف التراكمي هو مصدر المبيعات الأساسي، فيُفعَّل افتراضياً عند الدخول وكلما
+  // عادت النافذة للواجهة (تلتقط ملفاً وصل من حساب زميل أو من بوت). المستخدم حرّ
+  // في تعطيله: تعطيله اليدوي يُسجَّل في `inactiveCumulative_<uid>` فلا يُعاد
+  // تفعيله تلقائياً، إلى أن يُشغّله بنفسه (أو يرفع إليه رفعة جديدة).
+  const cumulativeIdsRef = useRef<Set<number>>(new Set());
+  const activateCumulative = useCallback(async () => {
+    if (!token || !user?.id) return;
+    try {
+      const res = await fetch('/api/files', { headers: { Authorization: `Bearer ${token}` } });
+      const j = await res.json();
+      const files: any[] = Array.isArray(j.data) ? j.data : [];
+      const ids = files.filter(f => f.isCumulative).map(f => f.id as number);
+      cumulativeIdsRef.current = new Set(ids);
+      let off: number[] = [];
+      try { off = JSON.parse(localStorage.getItem(`inactiveCumulative_${user.id}`) || '[]'); } catch {}
+      const toAdd = ids.filter(id => !off.includes(id));
+      if (toAdd.length === 0) return;
+      const key = `activeFileIds_${user.id}`;
+      setActiveFileIds(prev => {
+        const missing = toAdd.filter(id => !prev.includes(id));
+        if (missing.length === 0) return prev;
+        const next = [...prev, ...missing];
+        try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+        return next;
+      });
+    } catch { /* غير حرج — يبقى التفعيل اليدوي متاحاً */ }
+  }, [token, user?.id]);
+
+  useEffect(() => {
+    activateCumulative();
+    const onVisible = () => { if (document.visibilityState === 'visible') activateCumulative(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [activateCumulative]);
+
   // مزامنة «الملفات المفعّلة» إلى السيرفر. التفعيل حالة متصفح بحتة، فبوت تلكرام
   // (يعمل بلا متصفح) كان مضطراً لافتراض «كل ملفات المكتب» فيخرج بأرقام أعلى مما
   // يعرضه التطبيق. تُرسَل عند كل تغيير وعند أول تحميل كي تبقى الصورة حيّة.
@@ -557,13 +593,26 @@ function AppInner() {
 
   const toggleFileActive = useCallback((id: number | null) => {
     const key = user?.id ? `activeFileIds_${user.id}` : 'activeFileIds';
+    const offKey = `inactiveCumulative_${user?.id ?? ''}`;
+    // تعطيل ملف تراكمي يدوياً يُحفظ كي لا يعيد التفعيل التلقائي تشغيله (عمليات
+    // مجموعة idempotent فلا تتأثر بتنفيذ الـupdater مرتين في StrictMode).
+    const setOff = (cid: number, off: boolean) => {
+      try {
+        const cur: number[] = JSON.parse(localStorage.getItem(offKey) || '[]');
+        const next = off ? [...new Set([...cur, cid])] : cur.filter(x => x !== cid);
+        localStorage.setItem(offKey, JSON.stringify(next));
+      } catch {}
+    };
     if (id === null) {
+      cumulativeIdsRef.current.forEach(cid => setOff(cid, true));
       setActiveFileIds([]);
       localStorage.removeItem(key);
       return;
     }
     setActiveFileIds(prev => {
-      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      const wasOn = prev.includes(id);
+      const next = wasOn ? prev.filter(x => x !== id) : [...prev, id];
+      if (cumulativeIdsRef.current.has(id)) setOff(id, wasOn);
       localStorage.setItem(key, JSON.stringify(next));
       return next;
     });
