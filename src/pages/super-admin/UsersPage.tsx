@@ -2146,7 +2146,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               const keys: string[] = [];
               if (node.key) keys.push(node.key);
               for (const c of node.children ?? []) {
-                if (c.key && (!c.onlyRoles || c.onlyRoles.includes(detail.role))) keys.push(c.key);
+                if (c.key) keys.push(c.key);
               }
               return keys;
             };
@@ -2180,7 +2180,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
             // في القائمة الجانبية الفعلية لدوره (مصدرها src/config/featureConfig.ts، وهو
             // نفس الملف الذي تُبنى منه Sidebar.tsx الحقيقية).
             const visiblePages      = getVisiblePageNodes(detail.role);
-            const visibleStandalone = STANDALONE_FEATURES.filter(n => !n.onlyRoles || n.onlyRoles.includes(detail.role));
+            const visibleStandalone = STANDALONE_FEATURES;
             const activeNode = [...visiblePages.map(p => p.node), ...visibleStandalone]
               .find(n => (n.key || n.label) === featSection) ?? null;
 
@@ -2498,7 +2498,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
                   {/* ── Feature Node ── */}
                   {activeNode && (() => {
-                    const kids = (activeNode.children ?? []).filter(c => !c.onlyRoles || c.onlyRoles.includes(detail.role));
+                    const kids = (activeNode.children ?? []);
                     const parentOff = activeNode.key ? draftDisabledFeats.includes(activeNode.key) : false;
                     return (
                       <div>
