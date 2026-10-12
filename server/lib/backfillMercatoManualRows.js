@@ -21,9 +21,18 @@ const normalizeAr = s => String(s ?? '')
  * @returns {Promise<number>} عدد الصفوف المرحَّلة
  */
 export async function backfillMercatoManualRows() {
-  const files = await prisma.uploadedFile.findMany({
-    where: { sourceSystem: 'mercato' }, select: { id: true, userId: true },
+  // ملفات فيها صفوف يدوية غير مرحَّلة — كل الملفات لا الموسومة sourceSystem='mercato'
+  // فقط: ملف ميركاتو التراكمي قد لا يحمل الوسم، والاكتشاف الفعلي من ترويسات صفوفه
+  // (resolveMercatoHeaders) يُعيد null لأي ملف ليس ميركاتو فيُتخطّى.
+  const pending = await prisma.sale.findMany({
+    where: { rawData: { contains: '"source":"manual-invoice"' }, NOT: { rawData: { contains: '_mercatoShaped' } } },
+    select: { uploadedFileId: true }, distinct: ['uploadedFileId'],
   });
+  const fileIds = pending.map(p => p.uploadedFileId).filter(Boolean);
+  const files = fileIds.length
+    ? await prisma.uploadedFile.findMany({ where: { id: { in: fileIds } }, select: { id: true, userId: true } })
+    : [];
+  console.log(`[backfillMercatoManualRows] ملفات فيها صفوف يدوية غير مرحَّلة: ${files.length}`);
   let fixed = 0;
   for (const file of files) {
     const manual = await prisma.sale.findMany({
@@ -40,7 +49,7 @@ export async function backfillMercatoManualRows() {
     });
     if (!manual.length) continue;
     const h = await resolveMercatoHeaders({ fileId: file.id }, file.userId);
-    if (!h) continue;
+    if (!h) { console.log(`[backfillMercatoManualRows] ملف ${file.id}: ليس ميركاتو (${manual.length} صف يدوي تُرك)`); continue; }
 
     for (const s of manual) {
       try {
