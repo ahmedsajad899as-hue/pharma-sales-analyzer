@@ -7,7 +7,7 @@ import type { PageId } from '../App';
 import { Icon } from '../config/icons';
 import RepSelectOptions, { type GroupableRep, groupRepsByTeam } from '../components/RepSelectOptions';
 import { sendEngagementPing } from '../lib/engagementPing';
-import MonthChips, { useSalesMonths } from '../components/MonthChips';
+import MonthChips, { useSalesMonths, monthDateRange, MONTH_CUSTOM } from '../components/MonthChips';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
    drop tatweel/diacritics, strip the definite article «ال», and collapse separators
@@ -887,8 +887,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // التقارير الثلاثة **ولمسارات التصدير معها** — افتراقُ التصدير عن الشاشة علّة
   // متكررة في هذا المشروع (راجع ذاكرة project_pharma_scirep_report_scope).
   const monthFileIds = mode === 'overall' && overallFileIds.length > 0 ? overallFileIds : activeFileIds;
-  const monthsState  = useSalesMonths(monthFileIds, token);
-  const { month: selMonth, applyTo: applyMonth } = monthsState;
+  // اختيار شهر (من المستخدم أو الافتراضي التلقائي) يُزامن حقلَي «من/إلى» في نفس
+  // الدفعة: شهرٌ → أول يوم وآخر يوم منه، «الكل»/«بلا تاريخ» → فارغان. بلا هذا
+  // بقيت الحقول على مدى قديم محفوظ بالجلسة فتناقضت مع الشريحة المضاءة.
+  const syncDatesToMonth = (m: string) => {
+    if (m === MONTH_CUSTOM) return;
+    const r = monthDateRange(m);
+    setFromDate(r?.from ?? ''); setToDate(r?.to ?? '');
+    setAutoDatesRef(null);
+  };
+  const monthsState  = useSalesMonths(monthFileIds, token, syncDatesToMonth);
+  const { month: selMonth, applyTo: applyMonth, ready: monthsReady } = monthsState;
+  const [showDatePop, setShowDatePop] = useState(false);
   const [overallFilesOpen, setOverallFilesOpen] = useState(false);
   // True once the office-vs-Mercato default group (below) has resolved for the
   // current activeFileIds — the auto-run effect waits on this so it never fires
@@ -1225,6 +1235,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const autoLoaded = useRef(false);
   useEffect(() => {
     if (autoLoaded.current) return;
+    // ننتظر حسم الشهر الافتراضي (آخر شهر): التحميل قبله كان يعرض «الكل» أو مدىً
+    // قديماً ثم يتبدّل — وهو سبب ظهور مبيع الشهر السابق/الشهرين معاً عند الفتح.
+    if (!monthsReady) return;
 
     // scientific_rep role: auto-select their linked rep by linkedRepId or name match
     if (user?.role === 'scientific_rep' && sciReps.length > 0) {
@@ -1266,7 +1279,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       loadSciReport(id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commReps, sciReps]);
+  }, [commReps, sciReps, monthsReady]);
 
   const loadCommReport = async (repIdOverride?: string) => {
     const id = repIdOverride ?? commRepId;
@@ -1507,6 +1520,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     // ولا قبل تحديد شريحة شركة مدير الشركة الافتراضية (أعلاه) — وإلا يُحسب أول
     // تقرير بـ«الكل» ثم تُستبدَل الشريحة لاحقاً دون إعادة التحميل تلقائياً.
     if (!overallTeamReady) return;
+    if (!monthsReady || selMonth === MONTH_CUSTOM) return; // الشهر لم يُحسم بعد / مدى يدوي ينتظر «تحليل»
     const ids = overallFileIds.length > 0 ? overallFileIds : activeFileIds;
     if (ids.length === 0) return;
     // الشهر المختار جزء من المفتاح: تبديل الشريحة يجب أن يُعيد الحساب، وإلا
@@ -1517,7 +1531,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (loading) return; // طلب جارٍ بالفعل — لا تُعده
     loadOverallReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, overallFileIds.join(','), activeFileIds.join(','), overallTeamId, overallTeamReady, selMonth]);
+  }, [mode, overallFileIds.join(','), activeFileIds.join(','), overallTeamId, overallTeamReady, selMonth, monthsReady]);
 
   // تبديل الشهر في وضعَي «علمي»/«تجاري» يُعيد تحميل التقرير المعروض فوراً —
   // بلا هذا كان على المستخدم الضغط على «عرض» بعد كل شريحة، فيرى أرقام شهر
@@ -1528,7 +1542,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (monthReloadRef.current === '') { monthReloadRef.current = key; return; }
     if (monthReloadRef.current === key) return;
     monthReloadRef.current = key;
-    if (loading) return;
+    if (loading || !monthsReady || selMonth === MONTH_CUSTOM) return;
     if (mode === 'scientific' && sciRepId && sciReport) loadSciReport();
     if (mode === 'commercial' && commRepId && commReport) loadCommReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3463,21 +3477,41 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             loading={monthsState.loading}
           />
 
-          {/* Date range */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-            <label style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>من</label>
-            <input type="date" value={fromDate} onChange={e => { e.target.blur(); setFromDate(e.target.value); }}
-              className="form-input"
-              style={{ padding: '6px 8px', fontSize: 13, width: 130 }} />
-            <label style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}>إلى</label>
-            <input type="date" value={toDate} onChange={e => { e.target.blur(); setToDate(e.target.value); }}
-              className="form-input"
-              style={{ padding: '6px 8px', fontSize: 13, width: 130 }} />
-            {(fromDate || toDate) && (
-              <button onClick={() => { setFromDate(''); setToDate(''); }}
-                style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 8px', fontSize: 12, color: '#6b7280', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                مسح
-              </button>
+          {/* مدى تواريخ مخصّص — مطويّ افتراضياً (الشرائح كافية في الغالب). تعديل أي
+              حقل يُلغي الشريحة المختارة ويعتمد المدى اليدوي. */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setShowDatePop(v => !v)}
+              title="مدى تواريخ مخصّص"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${selMonth === MONTH_CUSTOM ? 'var(--c-accent, #2563eb)' : '#d1d5db'}`, background: selMonth === MONTH_CUSTOM ? 'var(--c-accent-light, #eff6ff)' : '#fff', color: '#475569', borderRadius: 999, padding: '4px 10px', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              <Icon name="calendar" size={12} />
+              {fromDate || toDate
+                ? `${(fromDate || '…').slice(5).replace('-', '/')} ← ${(toDate || '…').slice(5).replace('-', '/')}`
+                : 'مدى مخصّص'}
+              <span style={{ fontSize: 9 }}>▾</span>
+            </button>
+            {showDatePop && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setShowDatePop(false)} />
+                <div style={{ position: 'absolute', top: 'calc(100% + 6px)', insetInlineStart: 0, zIndex: 41, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 190 }}>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'flex', flexDirection: 'column', gap: 3 }}>من
+                    <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); monthsState.setMonth(MONTH_CUSTOM); }}
+                      className="form-input" style={{ padding: '5px 8px', fontSize: 12.5 }} />
+                  </label>
+                  <label style={{ fontSize: 11, color: '#6b7280', display: 'flex', flexDirection: 'column', gap: 3 }}>إلى
+                    <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); monthsState.setMonth(MONTH_CUSTOM); }}
+                      className="form-input" style={{ padding: '5px 8px', fontSize: 12.5 }} />
+                  </label>
+                  {(fromDate || toDate) && (
+                    <button type="button" onClick={() => { monthsState.setMonth('all'); setShowDatePop(false); }}
+                      style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '4px 8px', fontSize: 12, color: '#6b7280', cursor: 'pointer' }}>
+                      مسح (الكل)
+                    </button>
+                  )}
+                </div>
+              </>
             )}
           </div>
 
