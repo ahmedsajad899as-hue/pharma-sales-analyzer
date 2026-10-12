@@ -1955,6 +1955,14 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
    */
   const enrichRawForExport = (s: any, raw: any): any => {
     if (!raw || raw.source !== 'manual-invoice') return raw;
+    // صف مكتوب بترويسات ميركاتو أصلاً: يمرّ كصف إكسل عادي بلا مفاتيحنا الداخلية.
+    if (raw._mercatoShaped) {
+      const clean: any = {};
+      const INTERNAL = new Set(['invoiceNumber', 'warehouse', 'pharmacy', 'unitPrice', 'bonus', 'company', 'notes', 'scientificRep', 'source']);
+      for (const k of Object.keys(raw)) if (!INTERNAL.has(k) && !k.startsWith('_')) clean[k] = raw[k];
+      clean['المصدر'] = 'فاتورة مصوّرة';
+      return clean;
+    }
     const put = (o: any, k: string, v: any) => {
       if (v !== undefined && v !== null && v !== '') o[k] = v;
     };

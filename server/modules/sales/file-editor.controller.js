@@ -134,6 +134,12 @@ function buildRawKeyMapMulti(allKeys, isMercato = false) {
 function translateManualInvoiceRaw(raw) {
   if (!raw || raw.source !== 'manual-invoice') return raw;
   const out = { ...raw };
+  // صف حُفظ داخل ملف ميركاتو: قيمه مكتوبة أصلاً تحت ترويسات الملف — تُسقَط النظائر
+  // الإنجليزية فقط (لا تُنقَل لمفاتيح عربية عامة تُنشئ أعمدة/تبتلع «اسم الشركة»).
+  if (raw._mercatoShaped) {
+    for (const k of ['invoiceNumber', 'warehouse', 'pharmacy', 'unitPrice', 'bonus', 'company', 'notes', 'scientificRep', 'source']) delete out[k];
+    return out;
+  }
   const move = (from, to) => {
     if (out[from] === undefined) return;
     if (out[to] === undefined && out[from] !== '' && out[from] !== null) out[to] = out[from];
@@ -245,7 +251,7 @@ async function buildFileGrid(fileId, isMercato) {
     });
     // كل التهجئات الممكنة لكل حقل أساسي عبر كل صفوف الملف (لا عيّنة صف واحد)
     const keyMapMulti = buildRawKeyMapMulti(orderedKeys, isMercato);
-    const HIDDEN_KEYS = new Set(['_sheetName', '_addedInEditor']);
+    const HIDDEN_KEYS = new Set(['_sheetName', '_addedInEditor', '_mercatoShaped']);
     // مفتاح rawData ← الحقل الأساسي الذي يمثّله
     const rawToCore = new Map();
     for (const [field, rks] of Object.entries(keyMapMulti)) for (const rk of rks) rawToCore.set(rk, field);

@@ -6,6 +6,7 @@
 
 import { canRotate, rotateJpeg } from '../../lib/invoiceImage.js';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
+import { repCoreName } from '../../lib/repNameMatch.js';
 import XLSX from 'xlsx';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import path from 'path';
@@ -1998,6 +1999,48 @@ export async function parseWarehouseGapFile(buffer, userId = null) {
   return { rows: enriched, warnings };
 }
 
+// ─── مبيعات يدوية داخل ملف ميركاتو: كتابة القيم تحت ترويسات الملف الفعلية ───
+// كانت الصفوف اليدوية تحمل مفاتيح إنجليزية (invoiceNumber/warehouse/…) فتظهر في
+// محرّر ملف ميركاتو أعمدةً فارغة: رقم طلبية المذخر وحالتها والمذخر والبونص
+// والسعر واسم المادة بالمكتب كلها فارغة، والمندوب «وليد» (حساب الكروب) لا العلمي
+// المختار. الآن تُكتب القيم تحت **ترويسات الملف نفسه** (تُقرأ من صفوفه الأصلية).
+const MERCATO_DEFAULT_HEADERS = {
+  orderNumber: 'رقم طلبية المذخر', orderStatus: 'حالة طلبية المذخر', date: 'أنشئت بتاريخ',
+  customer: 'اسم الشركة', area: 'المنطقة', repName: 'اسم المندوب', company: 'الصنف',
+  item: 'اسم المادة بالمكتب', quantity: 'الكمية', bonusQty: 'كمية البونص', unitPrice: 'السعر',
+  totalValue: 'المجموع', warehouse: 'اسم المذخر',
+};
+/** حالة طلبية المذخر لكل الفواتير المحلَّلة — «جاهزة للتسليم» تُحتسب مبيعاً في رصيد المذاخر. */
+export const MERCATO_READY_STATUS = 'جاهزة للتسليم';
+
+/** ترويسات ميركاتو للملف الهدف، أو null إن لم يكن ملف ميركاتو. */
+export async function resolveMercatoHeaders(target, userId) {
+  let sourceSystem = target.sourceSystem === 'mercato' ? 'mercato' : null;
+  const keys = [];
+  if (target.fileId) {
+    const file = await prisma.uploadedFile.findFirst({
+      where: { id: Number(target.fileId), userId }, select: { id: true, sourceSystem: true },
+    });
+    if (!file) return null; // يُرفض لاحقاً بخطأ «الملف غير موجود»
+    sourceSystem = file.sourceSystem || sourceSystem;
+    const sample = await prisma.sale.findMany({
+      where: { uploadedFileId: file.id }, select: { rawData: true }, orderBy: { id: 'asc' }, take: 60,
+    });
+    const seen = new Set();
+    for (const row of sample) {
+      let raw; try { raw = JSON.parse(row.rawData || '{}'); } catch { continue; }
+      if (raw?.source === 'manual-invoice') continue; // مفاتيحنا لا تُحدّد الترويسات
+      for (const k of Object.keys(raw)) if (!k.startsWith('_') && !seen.has(k)) { seen.add(k); keys.push(k); }
+    }
+  }
+  const isMercato = sourceSystem === 'mercato' || (keys.length > 0 && detectMercatoFormat(keys));
+  if (!isMercato) return null;
+  const found = keys.length ? mercatoColumnMap(keys) : {};
+  const warehouseKey = keys.find(h => _mHas(h, 'اسم', 'مذخر') && !_mHas(h, 'رقم') && !_mHas(h, 'حال'));
+  if (warehouseKey) found.warehouse = warehouseKey;
+  return { ...MERCATO_DEFAULT_HEADERS, ...found };
+}
+
 /**
  * Persist manual / invoice-extracted sale rows as Sale records — merged into an
  * existing UploadedFile or into a new one. Reuses the same normalization,
@@ -2019,6 +2062,8 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     .replace(/\s+/g, ' ')
     .trim();
 
+  const mercato = await resolveMercatoHeaders(target, userId);
+
   // ── 1. Coerce + validate incoming rows ──
   const validRows = [];
   for (const r of (Array.isArray(rows) ? rows : [])) {
@@ -2029,7 +2074,34 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     const itemName = String(r.item ?? '').trim();
     if (!itemName || quantity === 0) continue; // every row needs at least an item + quantity
 
+    // ملف ميركاتو: «اسم المندوب» = المندوب العلمي المختار عند التحليل (لا حساب الكروب).
+    // أسماء الحسابات تحمل لاحقة «/ المنطقة ph» فتُسقَط.
+    const sciRep = r.scientificRep ? (repCoreName(String(r.scientificRep)) || String(r.scientificRep).trim()) : '';
+    const repForRow = (mercato && sciRep) ? sciRep : r.repName;
+    const mercatoRaw = {};
+    if (mercato) {
+      const h = mercato;
+      const d = r.date ? parseExcelDate(r.date) : null;
+      const cleanPharmacy = r.pharmacy ? cleanPharmacyName(r.pharmacy) : '';
+      const price = unitPrice || (quantity ? Math.round((totalValue / quantity) * 100) / 100 : 0);
+      mercatoRaw[h.orderNumber] = r.invoiceNumber ?? '';
+      mercatoRaw[h.orderStatus] = MERCATO_READY_STATUS;
+      mercatoRaw[h.date]        = d instanceof Date && !isNaN(d) ? d.toISOString().slice(0, 10) : '';
+      mercatoRaw[h.customer]    = cleanPharmacy;   // «اسم الشركة» في ميركاتو = الصيدلية المشترية
+      mercatoRaw[h.area]        = r.area ?? '';
+      mercatoRaw[h.repName]     = repForRow ?? '';
+      mercatoRaw[h.company]     = itemName;        // «الصنف»
+      mercatoRaw[h.item]        = itemName;        // «اسم المادة بالمكتب»
+      mercatoRaw[h.quantity]    = quantity;
+      mercatoRaw[h.bonusQty]    = Number(r.bonus) || 0; // 0 حين لا بونص
+      mercatoRaw[h.unitPrice]   = price || '';
+      mercatoRaw[h.totalValue]  = totalValue;
+      mercatoRaw[h.warehouse]   = r.warehouse ?? '';
+      mercatoRaw._mercatoShaped = true;
+    }
+
     const rawData = JSON.stringify({
+      ...mercatoRaw,
       invoiceNumber: r.invoiceNumber ?? null,
       warehouse:     r.warehouse ?? null,
       pharmacy:      r.pharmacy ?? null,
@@ -2044,7 +2116,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     });
 
     validRows.push({
-      repName:  normalizeAr(r.repName) || 'غير محدد',
+      repName:  normalizeAr(repForRow) || 'غير محدد',
       area:     normalizeAr(r.area)    || 'غير محدد',
       item:     normalizeAr(itemName),
       company:  (r.company && !isPlaceholderCompanyValue(r.company)) ? normalizeAr(r.company) : undefined,
