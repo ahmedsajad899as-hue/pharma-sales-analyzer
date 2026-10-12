@@ -2437,7 +2437,7 @@ app.get('/api/files/:id/export-user-sales', requireAuth, async (req, res) => {
     // Rows added via the manual / invoice-image entry carry source:'manual-invoice'
     // in rawData. We tint them amber in the main sheets AND collect them into a
     // dedicated sheet, so imported invoice sales are easy to spot in the export.
-    const isManual = (s) => { try { return JSON.parse(s.rawData || '{}').source === 'manual-invoice'; } catch { return false; } };
+    const isManual = (s) => { try { const src = JSON.parse(s.rawData || '{}').source; return src === 'manual-invoice' || /-order$/.test(String(src ?? '')); } catch { return false; } };
     const AMBER = { fill: { patternType: 'solid', fgColor: { rgb: 'FFF3C7' } } };
     const highlightManual = (ws, rowSources) => {
       rowSources.forEach((s, ri) => {

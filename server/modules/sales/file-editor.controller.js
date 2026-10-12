@@ -14,7 +14,7 @@ import prisma from '../../lib/prisma.js';
 import {
   findOrCreateArea, findOrCreateItem, findOrCreateCustomer, findRepByName,
 } from './sales.repository.js';
-import { COLUMN_ALIASES } from './sales.service.js';
+import { COLUMN_ALIASES, isManualInvoiceSource } from './sales.service.js';
 
 const CORE_FIELDS = new Set([
   'repName', 'areaName', 'itemName', 'customerName',
@@ -132,7 +132,7 @@ function buildRawKeyMapMulti(allKeys, isMercato = false) {
  * لا يُستبدَل تعديل حديث بقيمة إنجليزية أقدم.
  */
 function translateManualInvoiceRaw(raw) {
-  if (!raw || raw.source !== 'manual-invoice') return raw;
+  if (!raw || !isManualInvoiceSource(raw.source)) return raw;
   const out = { ...raw };
   // صف حُفظ داخل ملف ميركاتو: قيمه مكتوبة أصلاً تحت ترويسات الملف — تُسقَط النظائر
   // الإنجليزية فقط (لا تُنقَل لمفاتيح عربية عامة تُنشئ أعمدة/تبتلع «اسم الشركة»).
@@ -244,7 +244,7 @@ async function buildFileGrid(fileId, isMercato) {
     const parsed = sales.map(s => {
       let raw = {};
       try { if (s.rawData) raw = JSON.parse(s.rawData); } catch { /* صف بلا rawData صالح */ }
-      const isManual = raw?.source === 'manual-invoice';
+      const isManual = isManualInvoiceSource(raw?.source);
       raw = translateManualInvoiceRaw(raw);
       for (const k of Object.keys(raw)) if (!seenKeys.has(k)) { seenKeys.add(k); orderedKeys.push(k); }
       return { s, raw, isManual };

@@ -2011,6 +2011,14 @@ const MERCATO_DEFAULT_HEADERS = {
   totalValue: 'المجموع', warehouse: 'اسم المذخر',
 };
 /** حالة طلبية المذخر لكل الفواتير المحلَّلة — «جاهزة للتسليم» تُحتسب مبيعاً في رصيد المذاخر. */
+/**
+ * هل rawData.source يخصّ صفاً أُدخل يدوياً أو من فاتورة/طلبية؟ المسار اليدوي يكتب
+ * 'manual-invoice' أما طلبيات البوت فتكتب 'telegram-order' / 'viber-order'
+ * (ManualSalesModal يضيف اللاحقة -order). الاقتصار على القيمة الأولى كان يُسقط
+ * صفوف البوت من ترجمة أعمدة المحرّر ومن التصدير ومن الترحيل.
+ */
+export const isManualInvoiceSource = (src) => src === 'manual-invoice' || /-order$/.test(String(src ?? ''));
+
 export const MERCATO_READY_STATUS = 'جاهزة للتسليم';
 
 /** ترويسات ميركاتو للملف الهدف، أو null إن لم يكن ملف ميركاتو. */
@@ -2029,7 +2037,7 @@ export async function resolveMercatoHeaders(target, userId) {
     const seen = new Set();
     for (const row of sample) {
       let raw; try { raw = JSON.parse(row.rawData || '{}'); } catch { continue; }
-      if (raw?.source === 'manual-invoice') continue; // مفاتيحنا لا تُحدّد الترويسات
+      if (isManualInvoiceSource(raw?.source)) continue; // مفاتيحنا لا تُحدّد الترويسات
       for (const k of Object.keys(raw)) if (!k.startsWith('_') && !seen.has(k)) { seen.add(k); keys.push(k); }
     }
   }

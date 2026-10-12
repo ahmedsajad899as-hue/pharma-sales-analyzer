@@ -1954,7 +1954,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
    * وتملأ الحقول الأساسية من صف المبيعة. صفوف الإكسل تمر كما هي بلا تغيير.
    */
   const enrichRawForExport = (s: any, raw: any): any => {
-    if (!raw || raw.source !== 'manual-invoice') return raw;
+    if (!raw || !(raw.source === 'manual-invoice' || /-order$/.test(String(raw.source ?? '')))) return raw;
     // صف مكتوب بترويسات ميركاتو أصلاً: يمرّ كصف إكسل عادي بلا مفاتيحنا الداخلية.
     if (raw._mercatoShaped) {
       const clean: any = {};

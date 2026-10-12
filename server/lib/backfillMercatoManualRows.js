@@ -1,6 +1,6 @@
 import prisma from './prisma.js';
 import { repCoreName } from './repNameMatch.js';
-import { resolveMercatoHeaders, MERCATO_READY_STATUS, cleanPharmacyName } from '../modules/sales/sales.service.js';
+import { resolveMercatoHeaders, MERCATO_READY_STATUS, cleanPharmacyName, isManualInvoiceSource } from '../modules/sales/sales.service.js';
 import { findRepByName } from '../modules/sales/sales.repository.js';
 
 const normalizeAr = s => String(s ?? '')
@@ -11,6 +11,10 @@ const normalizeAr = s => String(s ?? '')
   .replace(/[ً-ٟ]/g, '')
   .replace(/\s+/g, ' ')
   .trim();
+
+// manual-invoice (يدوي/صورة) + telegram-order/viber-order (طلبيات البوت)
+const MANUAL_SOURCE_FILTERS = ['manual-invoice', 'telegram-order', 'viber-order']
+  .map(v => ({ rawData: { contains: `"source":"${v}"` } }));
 
 /**
  * يرحّل مبيعات الفواتير اليدوية القديمة داخل ملفات ميركاتو إلى الشكل الجديد:
@@ -25,7 +29,7 @@ export async function backfillMercatoManualRows() {
   // فقط: ملف ميركاتو التراكمي قد لا يحمل الوسم، والاكتشاف الفعلي من ترويسات صفوفه
   // (resolveMercatoHeaders) يُعيد null لأي ملف ليس ميركاتو فيُتخطّى.
   const pending = await prisma.sale.findMany({
-    where: { rawData: { contains: '"source":"manual-invoice"' }, NOT: { rawData: { contains: '_mercatoShaped' } } },
+    where: { OR: MANUAL_SOURCE_FILTERS, NOT: { rawData: { contains: '_mercatoShaped' } } },
     select: { uploadedFileId: true }, distinct: ['uploadedFileId'],
   });
   const fileIds = pending.map(p => p.uploadedFileId).filter(Boolean);
@@ -38,7 +42,7 @@ export async function backfillMercatoManualRows() {
     const manual = await prisma.sale.findMany({
       where: {
         uploadedFileId: file.id,
-        rawData: { contains: '"source":"manual-invoice"' },
+        OR: MANUAL_SOURCE_FILTERS,
         NOT: { rawData: { contains: '_mercatoShaped' } },
       },
       select: {
@@ -54,6 +58,7 @@ export async function backfillMercatoManualRows() {
     for (const s of manual) {
       try {
         let raw; try { raw = JSON.parse(s.rawData); } catch { continue; }
+        if (!isManualInvoiceSource(raw?.source)) continue;
         const sciRep = raw.scientificRep ? (repCoreName(String(raw.scientificRep)) || String(raw.scientificRep).trim()) : '';
         const itemName = s.item?.name ?? '';
         const price = Number(raw.unitPrice) || (s.quantity ? Math.round((s.totalValue / s.quantity) * 100) / 100 : 0);
