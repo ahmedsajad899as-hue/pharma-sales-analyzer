@@ -3523,7 +3523,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               type="button"
               onClick={() => setShowDatePop(v => !v)}
               title="مدى تواريخ مخصّص"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${selMonth === MONTH_CUSTOM ? 'var(--c-accent, #2563eb)' : '#d1d5db'}`, background: selMonth === MONTH_CUSTOM ? 'var(--c-accent-light, #eff6ff)' : '#fff', color: '#475569', borderRadius: 999, padding: '4px 10px', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${selMonth === MONTH_CUSTOM ? 'var(--c-accent, #2563eb)' : '#d1d5db'}`, background: selMonth === MONTH_CUSTOM ? 'var(--c-accent-light, #eff6ff)' : '#fff', color: '#475569', borderRadius: 999, padding: '0 10px', height: 32, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
             >
               <Icon name="calendar" size={12} />
               {fromDate || toDate
@@ -3584,12 +3584,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           )}
 
           {/* تحليل + كل المندوبين العلميين — كبسولة واحدة صغيرة */}
-          <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', overflow: 'hidden', flexShrink: 0, height: 32 }}>
             <button
               onClick={() => { sendEngagementPing('calculate', 'rep-analysis'); mode === 'commercial' ? loadCommReport() : mode === 'scientific' ? loadSciReport() : loadOverallReport(); }}
               disabled={loading}
               title="تحليل"
-              style={{ padding: '9px 14px', border: 'none', background: 'transparent', color: '#111827', fontSize: 13, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              style={{ padding: '0 12px', height: '100%', border: 'none', background: 'transparent', color: '#111827', fontSize: 12, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}
             >
               {loading ? <><Icon name="loading" size={12} className="icon-spin" /> جاري…</> : <><Icon name="search" size={12} /> تحليل</>}
             </button>
@@ -3599,8 +3599,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <button
                   onClick={() => { setShowAllRepsWarehouseModal(true); setWarehouseCompanyFilter(''); loadAllRepsWarehouseSummary(); }}
                   title="كل المندوبين العلميين — مكتب/مذخر"
-                  style={{ padding: '9px 14px', border: 'none', background: '#eff6ff', color: '#1d4ed8', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
-                ><Icon name="pharmacy" size={15} /> كل المندوبين العلميين</button>
+                  style={{ padding: '0 10px', height: '100%', border: 'none', background: '#eff6ff', color: '#1d4ed8', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}
+                ><Icon name="pharmacy" size={13} /> كل المندوبين العلميين</button>
               </>
             )}
           </div>
