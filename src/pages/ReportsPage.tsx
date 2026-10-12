@@ -1806,6 +1806,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
      currencyMode الملف المحفوظ (ذلك من صفحة رفع الملفات). */
   const renderToolsCapsule = (o: {
     withExport?: boolean;
+    align?: 'flex-start' | 'flex-end';
     viewMode: 'qty' | 'value';
     setViewMode: (f: (v: 'qty' | 'value') => 'qty' | 'value') => void;
   }) => {
@@ -1817,7 +1818,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const showExport = o.withExport && user?.role !== 'scientific_rep';
     const isUsd = fileCurrencyMode === 'USD';
     return (
-      <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-end', height: 32, border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+      <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: o.align ?? 'flex-end', height: 32, border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', overflow: 'hidden', flexShrink: 0 }}>
         {showExport && (
           <>
             <button
@@ -1905,6 +1906,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     </div>
     {renderToolsCapsule({
       withExport: true,
+      align: 'flex-start',
       viewMode:    mode === 'scientific' ? sciViewMode : commViewMode,
       setViewMode: mode === 'scientific' ? setSciViewMode : setCommViewMode,
     })}
