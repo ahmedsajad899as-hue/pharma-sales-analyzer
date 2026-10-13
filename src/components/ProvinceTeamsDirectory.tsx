@@ -6,6 +6,7 @@
 // GET /api/province-teams/directory — القيم بالدولار، و fmtVal يحوّلها لعملة العرض.
 // ════════════════════════════════════════════════════════════════════════════
 
+import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 interface DirItem { itemId: number | null; name: string; company: string; net: number; qty: number; targetQty: number; personalQty: number; personalNet: number }
@@ -22,6 +23,11 @@ interface Props {
 }
 
 const nf = (n: number) => Math.round(n).toLocaleString('en-US');
+const CO_BG = '#f1f5f9', CO_BG_SOFT = '#f8fafc';
+const REP_BG = '#f3f1f9', REP_BG_SOFT = '#faf9fd';
+const GRP_SEP = '2px solid #fff';
+const grpHead: React.CSSProperties = { padding: '5px 6px', fontSize: 11.5, fontWeight: 700, color: '#475569', textAlign: 'center' };
+const subHead: React.CSSProperties = { padding: '6px 4px', fontWeight: 700 };
 const pctOf = (a: number, b: number) => `${Math.round((a / b) * 100)}%`;
 
 export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmtVal, currencyLabel, onClose }: Props) {
@@ -114,26 +120,31 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                           : (
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                               <thead>
+                                <tr>
+                                  <th style={{ padding: '4px' }} />
+                                  <th colSpan={3} style={{ ...grpHead, background: CO_BG, borderTopRightRadius: 8 }}>مبيع الشركة في المحافظة</th>
+                                  <th colSpan={3} style={{ ...grpHead, background: REP_BG, borderTopLeftRadius: 8, borderRight: GRP_SEP }}>المندوب: {r.repName}</th>
+                                </tr>
                                 <tr style={{ color: '#64748b', textAlign: 'right' }}>
                                   <th style={{ padding: '6px 4px', fontWeight: 700 }}>الايتم</th>
-                                  <th style={{ padding: '6px 4px', fontWeight: 700 }}>الشركة</th>
-                                  <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left' }}>الكمية</th>
-                                  <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left' }}>القيمة ({currencyLabel})</th>
-                                  <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left' }}>التارگت (كمية)</th>
-                                  <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left' }}>الإنجاز</th>
-                                  <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left', color: '#7c3aed' }}>مبيع المندوب شخصياً (كمية · قيمة)</th>
+                                  <th style={{ ...subHead, background: CO_BG }}>الشركة</th>
+                                  <th style={{ ...subHead, background: CO_BG, textAlign: 'left' }}>الكمية</th>
+                                  <th style={{ ...subHead, background: CO_BG, textAlign: 'left' }}>القيمة ({currencyLabel})</th>
+                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left', borderRight: GRP_SEP }}>التارگت (كمية)</th>
+                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left' }}>الإنجاز</th>
+                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left' }}>مبيع شخصي (كمية · قيمة)</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {r.items.map((i, idx) => (
+                                {[...r.items].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true })).map((i, idx) => (
                                   <tr key={i.itemId ?? `n${idx}`} style={{ borderTop: '1px solid #eef2f7' }}>
                                     <td style={{ padding: '6px 4px', fontWeight: 700, color: '#0f172a' }}>{i.name}</td>
-                                    <td style={{ padding: '6px 4px', color: '#64748b' }}>{i.company}</td>
-                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr' }}>{nf(i.qty)}</td>
-                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.net < 0 ? '#be123c' : '#1f4fb4' }}>{fmtVal(i.net)}</td>
-                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr' }}>{i.targetQty > 0 ? nf(i.targetQty) : '—'}</td>
-                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.targetQty > 0 && i.qty >= i.targetQty ? '#0f766e' : '#92400e' }}>{i.targetQty > 0 ? pctOf(i.qty, i.targetQty) : '—'}</td>
-                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', color: '#6d28d9' }}>{i.personalQty ? `${nf(i.personalQty)} · ${fmtVal(i.personalNet)}` : '—'}</td>
+                                    <td style={{ padding: '6px 4px', color: '#64748b', background: CO_BG_SOFT }}>{i.company}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', background: CO_BG_SOFT }}>{nf(i.qty)}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.net < 0 ? '#be123c' : '#334155', background: CO_BG_SOFT }}>{fmtVal(i.net)}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT, borderRight: GRP_SEP }}>{i.targetQty > 0 ? nf(i.targetQty) : '—'}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.targetQty > 0 && i.qty >= i.targetQty ? '#0f766e' : '#64748b', background: REP_BG_SOFT }}>{i.targetQty > 0 ? pctOf(i.qty, i.targetQty) : '—'}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', color: '#475569', background: REP_BG_SOFT }}>{i.personalQty ? `${nf(i.personalQty)} · ${fmtVal(i.personalNet)}` : '—'}</td>
                                   </tr>
                                 ))}
                               </tbody>
