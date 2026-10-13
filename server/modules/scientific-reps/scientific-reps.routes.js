@@ -45,6 +45,7 @@ router.delete('/blocked-customer-info-items/:blockId', ctrl.removeBlockedCustome
 
 // ملخص صافي المبيع + طلبيات المكتب/المذخر لكل المندوبين العلميين دفعة واحدة — قبل /:id
 router.get('/warehouse-summary', ctrl.getWarehouseSummaryAll); // ?repIds=1,2,3
+router.get('/province-map', ctrl.getProvinceMap); // ?repIds=1,2,3 — must be before /:id
 
 router.get('/:id/effective-items',  ctrl.getEffectiveItems);
 router.get('/blocked/:kind',        ctrl.listBlockedEntities);   // kind: area | item | pharmacy

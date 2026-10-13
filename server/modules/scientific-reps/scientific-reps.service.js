@@ -1576,6 +1576,56 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
   return results.sort((a, b) => b.netValue - a.netValue);
 }
 
+/**
+ * خريطة العراق: صافي مبيع كل مندوب علمي موزَّعاً على محافظات مناطقه — باستثناء
+ * بغداد (المندوبون العلميون للمحافظات فقط). يعيد استعمال getReport() لكل مندوب
+ * (نفس نطاق الملفات/المشاركة/الحظر، وبلا recordType فالقيمة صافية)، ثم يوزّع
+ * byArea على Area.province. المندوب بمناطق في عدة محافظات يظهر في كلٍّ منها
+ * بحصّته هناك؛ والمندوب المُسنَد إليه محافظة بلا مبيع يظهر بصفر ليُعرف أنه موجود.
+ */
+export async function getProvinceMapForReps(repIds, query = {}, viewerId = null) {
+  const reports = await Promise.all(repIds.map(async (id) => {
+    try { return await getReport(id, query, viewerId); } catch { return null; }
+  }));
+  const ok = reports.filter(Boolean);
+
+  const areaIds = new Set();
+  for (const r of ok) {
+    for (const a of r.assignedAreas ?? []) areaIds.add(a.id);
+    for (const a of r.byArea ?? []) areaIds.add(a.areaId);
+  }
+  const areas = areaIds.size
+    ? await prisma.area.findMany({ where: { id: { in: [...areaIds] } }, select: { id: true, province: { select: { name: true } } } })
+    : [];
+  const provinceOfArea = new Map(areas.map(a => [a.id, a.province?.name ?? null]));
+  const isBaghdad = (n) => String(n ?? '').trim() === 'بغداد';
+
+  // provinceName -> repId -> { id, name, netValue, orderShare }
+  const byProvince = new Map();
+  const touch = (prov, rep) => {
+    if (!prov || isBaghdad(prov)) return null;
+    if (!byProvince.has(prov)) byProvince.set(prov, new Map());
+    const m = byProvince.get(prov);
+    if (!m.has(rep.scientificRep.id)) {
+      m.set(rep.scientificRep.id, { id: rep.scientificRep.id, name: rep.scientificRep.name, netValue: 0, netQty: 0 });
+    }
+    return m.get(rep.scientificRep.id);
+  };
+  for (const r of ok) {
+    for (const a of r.assignedAreas ?? []) touch(provinceOfArea.get(a.id), r);
+    for (const a of r.byArea ?? []) {
+      const row = touch(provinceOfArea.get(a.areaId), r);
+      if (row) { row.netValue += a.totalValue; row.netQty += a.totalQuantity; }
+    }
+  }
+  return [...byProvince.entries()].map(([provinceName, m]) => {
+    const reps = [...m.values()]
+      .map(x => ({ ...x, netValue: +x.netValue.toFixed(2) }))
+      .sort((a, b) => b.netValue - a.netValue);
+    return { provinceName, totalValue: +reps.reduce((s, x) => s + x.netValue, 0).toFixed(2), reps };
+  }).sort((a, b) => b.totalValue - a.totalValue);
+}
+
 const EXPORT_SALES_SELECT = {
   quantity: true, totalValue: true, recordType: true, saleDate: true, rawData: true,
   areaId: true, itemId: true, customerId: true, uploadedFileId: true,

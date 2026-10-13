@@ -7,6 +7,7 @@ import type { PageId } from '../App';
 import { Icon } from '../config/icons';
 import RepSelectOptions, { type GroupableRep, groupRepsByTeam } from '../components/RepSelectOptions';
 import { sendEngagementPing } from '../lib/engagementPing';
+import IraqRepsMap from '../components/IraqRepsMap';
 import MonthChips, { useSalesMonths, monthDateRange, MONTH_CUSTOM } from '../components/MonthChips';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
@@ -782,7 +783,7 @@ interface SciReport {
   bySource: { office: { totalQty: number; totalValue: number; orderCount: number }; mercato: { totalQty: number; totalValue: number; orderCount: number }; hasOffice: boolean; hasMercato: boolean } | null;
 }
 
-type Mode = 'commercial' | 'scientific' | 'overall';
+type Mode = 'commercial' | 'scientific' | 'overall' | 'provinces';
 type ReportView = 'sales' | 'returns' | 'net';
 interface AreaItemRow { areaName: string; itemName: string; totalQty: number; totalValue: number; }
 interface ProvinceCompanyRow { provinceName: string; companyName: string; totalQty: number; totalValue: number; }
@@ -3369,10 +3370,11 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     <div className="page" ref={pageRootRef} tabIndex={-1} style={{ outline: 'none' }}>
       {/* Mode toggle */}
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
-        {([['overall','تحليل شامل','navReports'], ['scientific',t.reports.modeScientific,'navFms'], ['commercial',t.reports.modeCommercial,'navCommercial']] as [string,string,import('../config/icons').IconName][])
-          .filter(([id]) => !(id === 'commercial' && user?.role === 'scientific_rep'))
+        {([['overall','تحليل شامل','navReports'], ['scientific',t.reports.modeScientific,'navFms'], ['commercial',t.reports.modeCommercial,'navCommercial'], ['provinces','خريطة المحافظات','location']] as [string,string,import('../config/icons').IconName][])
+          .filter(([id]) => !((id === 'commercial' || id === 'provinces') && user?.role === 'scientific_rep'))
           .map(([id, label, icon]) => (
           <button key={id} onClick={() => {
+            if (id === 'provinces') { setMode('provinces'); setError(''); }
             if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); }
             // التبديل كان يمسح التقرير بلا إعادة تحميل، فيبقى التبويب فارغاً حتى
             // يضغط المستخدم «تحليل». نحمّله فوراً بمندوب محفوظ أو بأول مندوب.
@@ -3400,6 +3402,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       </div>
 
       {/* Filters Card */}
+      {mode !== 'provinces' && (
       <div className="filter-card">
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
 
@@ -3658,6 +3661,22 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
         </div>
       </div>
+      )}
+
+      {mode === 'provinces' && (
+        <>
+          <div className="filter-card" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <MonthChips months={monthsState.months} undatedCount={monthsState.undatedCount} value={selMonth} onChange={monthsState.setMonth} loading={monthsState.loading} />
+            <span style={{ flex: 1 }} />
+            <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 999, overflow: 'hidden', background: '#fff' }}>
+              {(['IQD', 'USD'] as const).map(c => (
+                <button key={c} type="button" onClick={() => setFileCurrencyMode(c)} style={{ padding: '5px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: fileCurrencyMode === c ? '#0f172a' : 'transparent', color: fileCurrencyMode === c ? '#fff' : '#475569' }}>{c === 'IQD' ? 'د.ع' : '$'}</button>
+              ))}
+            </div>
+          </div>
+          <IraqRepsMap reps={sciReps} token={token} fileIds={activeFileIds} applyMonth={applyMonth} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} />
+        </>
+      )}
 
       {error && (
         <div style={{

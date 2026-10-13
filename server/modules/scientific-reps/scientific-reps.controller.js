@@ -364,3 +364,18 @@ export async function getWarehouseSummaryAll(req, res, next) {
     res.json({ success: true, data });
   } catch (err) { next(err); }
 }
+
+// ── خريطة العراق: المندوبون العلميون بالمحافظات (بلا بغداد) + صافي مبيعهم ──
+export async function getProvinceMap(req, res, next) {
+  try {
+    const repIds = String(req.query.repIds || '').split(',').map(Number).filter(Number.isInteger);
+    if (repIds.length === 0) return res.json({ success: true, data: [] });
+    const query = {
+      startDate: req.query.startDate || undefined,
+      endDate:   req.query.endDate   || undefined,
+      fileIds:   parseFileIds(req.query.fileIds || req.query.fileId),
+    };
+    const data = await svc.getProvinceMapForReps(repIds, applyMonth(query, req.query.month), req.user?.id ?? null);
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+}
