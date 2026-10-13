@@ -88,6 +88,14 @@ export async function directory(req, res, next) {
       }
     }
 
+    // أسماء ايتمات التارگت (قد لا يكون لها مبيع فلا اسم لها في تغطية المحافظة).
+    const targetItemNames = new Map();
+    if (targetsByRep.size) {
+      const ids = [...new Set([...targetsByRep.keys()].map(k => Number(k.split('|')[1])))];
+      const rows = await prisma.item.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+      for (const r of rows) targetItemNames.set(r.id, r.name);
+    }
+
     // ── مبيع المندوب شخصياً (المعتمد فقط) لكل مندوب×فريق ──────────────────────
     const personalByTeamRep = new Map(); // `${teamId}|${userId}` → rows[]
     if (repIds.length && teams.length) {
@@ -131,7 +139,7 @@ export async function directory(req, res, next) {
           const tq = targetsByRep.get(`${a.repUserId}|${id}`);
           if (!tq || !okItem(id)) continue;
           let cur = r.items.get(id);
-          if (!cur) { cur = newItem(id, c?.byItem?.find(x => x.itemId === id)?.name ?? `#${id}`, a.companyName); r.items.set(id, cur); }
+          if (!cur) { cur = newItem(id, targetItemNames.get(id) ?? `#${id}`, a.companyName); r.items.set(id, cur); }
           if (!cur.targetCounted) { cur.targetQty = tq; cur.targetCounted = true; r.targetQty += tq; }
         }
       }

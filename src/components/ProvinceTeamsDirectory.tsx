@@ -130,9 +130,9 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                                   <th style={{ ...subHead, background: CO_BG }}>الشركة</th>
                                   <th style={{ ...subHead, background: CO_BG, textAlign: 'left' }}>الكمية</th>
                                   <th style={{ ...subHead, background: CO_BG, textAlign: 'left' }}>القيمة ({currencyLabel})</th>
-                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left', borderRight: GRP_SEP }}>التارگت (كمية)</th>
+                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left', borderRight: GRP_SEP }}>مبيع شخصي (كمية · قيمة)</th>
+                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left' }}>التارگت (كمية)</th>
                                   <th style={{ ...subHead, background: REP_BG, textAlign: 'left' }}>الإنجاز</th>
-                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left' }}>مبيع شخصي (كمية · قيمة)</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -142,9 +142,9 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                                     <td style={{ padding: '6px 4px', color: '#64748b', background: CO_BG_SOFT }}>{i.company}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', background: CO_BG_SOFT }}>{nf(i.qty)}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.net < 0 ? '#be123c' : '#334155', background: CO_BG_SOFT }}>{fmtVal(i.net)}</td>
-                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT, borderRight: GRP_SEP }}>{i.targetQty > 0 ? nf(i.targetQty) : '—'}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', color: '#475569', background: REP_BG_SOFT, borderRight: GRP_SEP }}>{i.personalQty ? `${nf(i.personalQty)} · ${fmtVal(i.personalNet)}` : '—'}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT }}>{i.targetQty > 0 ? nf(i.targetQty) : '—'}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.targetQty > 0 && i.qty >= i.targetQty ? '#0f766e' : '#64748b', background: REP_BG_SOFT }}>{i.targetQty > 0 ? pctOf(i.qty, i.targetQty) : '—'}</td>
-                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', color: '#475569', background: REP_BG_SOFT }}>{i.personalQty ? `${nf(i.personalQty)} · ${fmtVal(i.personalNet)}` : '—'}</td>
                                   </tr>
                                 ))}
                               </tbody>
