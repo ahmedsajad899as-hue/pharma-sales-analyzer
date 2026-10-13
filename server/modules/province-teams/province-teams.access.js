@@ -15,7 +15,8 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 
 /** أدوار إدارة المكتب: ترى كل فرق المكتب، تبني الهيكلية، وتعتمد. */
-export const OFFICE_ROLES = new Set(['admin', 'manager', 'office_manager', 'office_hr', 'office_employee']);
+// «user» دور قديم لحسابات المكتب (يرى ما يراه موظف المكتب) — بلا مكتب لا يرى شيئاً أصلاً.
+export const OFFICE_ROLES = new Set(['admin', 'manager', 'office_manager', 'office_hr', 'office_employee', 'user']);
 /** أدوار مُقيَّدة بشركاتها (UserCompanyAssignment). */
 export const COMPANY_ROLES = new Set(['company_manager', 'supervisor', 'product_manager']);
 /** من يصلح مندوباً في فريق محافظة. */

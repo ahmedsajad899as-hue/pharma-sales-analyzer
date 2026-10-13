@@ -552,6 +552,24 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         method: 'PUT', headers: H(), body: JSON.stringify({ companyIds: [form.companyId], primaryCompanyId: form.companyId }),
       });
     }
+    // المحافظة المختارة: مناطقها للمستخدم مباشرة، وإن كان تيم ليدر يصير قائد المحافظة.
+    if (!isEdit && form.provinceId && d.data?.id) {
+      let warn = '';
+      const pr = await fetch(`/api/sa/users/${d.data.id}/provinces`, {
+        method: 'PUT', headers: H(), body: JSON.stringify({ provinceIds: [form.provinceId] }),
+      });
+      if (!pr.ok) warn = 'تعذّر ربط المحافظة بالمستخدم';
+      if (form.role === 'team_leader') {
+        if (!form.officeId) warn = 'اختر مكتباً لتعيينه قائد المحافظة';
+        else {
+          const lr = await fetch('/api/sa/users/province-structure/leader', {
+            method: 'PUT', headers: H(), body: JSON.stringify({ officeId: form.officeId, provinceId: form.provinceId, leaderUserId: d.data.id }),
+          });
+          if (!lr.ok) warn = (await lr.json().catch(() => ({}))).error || 'تعذّر تعيينه قائداً للمحافظة';
+        }
+      }
+      if (warn) alert(`تم إنشاء المستخدم، لكن: ${warn}`);
+    }
     setSaving(false); setForm(null); load(true);
     if (detail?.id === form.id) loadDetail(form.id, { keepTab: true });
   };
@@ -2979,7 +2997,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
       {form && !detail && (
         <Modal onClose={() => { setForm(null); setError(''); setConflict(null); }} title={form.id ? 'تعديل المستخدم' : 'إضافة مستخدم'}>
-          <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} isEdit={Boolean(form.id)} token={token} />
+          <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} provinces={provList} isEdit={Boolean(form.id)} token={token} />
           {error && <ErrBox msg={error} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={() => { setForm(null); setError(''); setConflict(null); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
@@ -2991,7 +3009,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   );
 }
 
-function UserFormFields({ form, setForm, offices, companies, isEdit, token }: { form: any; setForm: any; offices: Office[]; companies: Company[]; isEdit: boolean; token?: string }) {
+function UserFormFields({ form, setForm, offices, companies, provinces = [], isEdit, token }: { form: any; setForm: any; offices: Office[]; companies: Company[]; provinces?: { id: number; name: string }[]; isEdit: boolean; token?: string }) {
   const officeCompanies = form.officeId ? companies.filter(c => c.officeId === Number(form.officeId)) : [];
   const [revealedPw, setRevealedPw] = useState<string | null>(null);
   const [revealErr,  setRevealErr]  = useState('');
@@ -3052,6 +3070,23 @@ function UserFormFields({ form, setForm, offices, companies, isEdit, token }: { 
           {offices.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
       </div>
+      {!isEdit && !OFFICE_SCOPED_ROLES.has(form.role) && provinces.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 5 }}>🗺️ المحافظة (اختياري)</label>
+          <select value={form.provinceId || ''} onChange={e => setForm((f: any) => ({ ...f, provinceId: e.target.value ? Number(e.target.value) : null }))}
+            style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}>
+            <option value="">-- بدون محافظة --</option>
+            {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {form.provinceId ? (
+            <div style={{ marginTop: 6, fontSize: 12, color: '#0e7490', background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: 8, padding: '7px 10px', lineHeight: 1.8 }}>
+              {form.role === 'team_leader'
+                ? 'سيُعيَّن تيم ليدر لهذه المحافظة: كل مناطقها تُضاف له، ويعمل على كل شركات المكتب بلا شركة رئيسية (يتطلب اختيار المكتب).'
+                : 'تُضاف كل مناطق هذه المحافظة للمستخدم مباشرة (الحاليّة والمستقبلية). تعيينه مندوباً بشركة وايتمات من «فرق المحافظات ← الهيكلية».'}
+            </div>
+          ) : null}
+        </div>
+      )}
       {OFFICE_SCOPED_ROLES.has(form.role) ? (
         <div style={{ marginBottom: 14, fontSize: 12.5, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '8px 12px' }}>
           ℹ️ هذا الدور يعمل على مستوى المكتب كله — سيحصل تلقائياً على كل شركات المكتب المختار أعلاه، بلا حاجة لاختيار شركة بعينها.

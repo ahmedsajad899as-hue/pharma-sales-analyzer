@@ -48,6 +48,7 @@ export interface Overview {
   month: string;
   files: { count: number; source: string; names: string[]; excludedMercato: number; currency: 'IQD' | 'USD'; rate: number };
   teams: Team[];
+  provinces?: { id: number; name: string }[];
 }
 
 export interface PersonalSale {

@@ -120,6 +120,9 @@ export async function overview(req, res, next) {
       viewer: { id: viewer.id, name: viewer.name, role: viewer.role, mode: viewer.mode, canEditStructure: viewer.canEditStructure, hasOffice: viewer.officeId != null },
       month,
       files: { count: files.fileIds.length, source: files.source, names: files.names, excludedMercato: files.excludedMercato, currency: files.currency, rate: files.rate },
+      provinces: viewer.mode === 'office' && viewer.officeId
+        ? await prisma.province.findMany({ select: { id: true, name: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] })
+        : [],
       teams: out,
     });
   } catch (e) { next(e); }

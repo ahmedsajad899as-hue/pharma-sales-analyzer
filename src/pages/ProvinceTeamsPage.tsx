@@ -146,6 +146,7 @@ export default function ProvinceTeamsPage({ activeFileIds }: Props) {
             <ProvinceGrid
               loading={loading && !data}
               teams={teams}
+              provinces={data?.provinces ?? []}
               money={money}
               hasOffice={viewer?.hasOffice ?? true}
               canStructure={canStructure}
@@ -178,14 +179,14 @@ export default function ProvinceTeamsPage({ activeFileIds }: Props) {
 
 // ─── شبكة بطاقات المحافظات ───────────────────────────────────────────────────
 
-function ProvinceGrid({ loading, teams, money, hasOffice, canStructure, onOpen, onSetup }: {
-  loading: boolean; teams: Team[]; money: Money; hasOffice: boolean; canStructure: boolean;
+function ProvinceGrid({ loading, teams, provinces, money, hasOffice, canStructure, onOpen, onSetup }: {
+  loading: boolean; teams: Team[]; provinces: { id: number; name: string }[]; money: Money; hasOffice: boolean; canStructure: boolean;
   onOpen: (id: number) => void; onSetup: () => void;
 }) {
   if (loading) {
     return <div className="pt-grid">{[0, 1, 2].map(i => <div key={i} className="pt-skeleton" style={{ height: 230 }} />)}</div>;
   }
-  if (!teams.length) {
+  if (!teams.length && !provinces.length) {
     return (
       <div className="pt-panel">
         <div className="pt-empty">
@@ -205,7 +206,18 @@ function ProvinceGrid({ loading, teams, money, hasOffice, canStructure, onOpen, 
   }
 
   const max = Math.max(...teams.map(t => t.totals.net), 1);
+  const withTeam = new Set(teams.map(t => t.provinceId));
+  const empty = provinces.filter(p => !withTeam.has(p.id));
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    {!teams.length && (
+      <div className="pt-note">
+        <span>🧭</span>
+        <span>
+          لم يُنشأ أي فريق محافظة بعد. اختر محافظة من القائمة أدناه (أو من «الهيكلية») لتعيين تيم ليدرها ومندوبيها. تظهر الأرقام هنا بعد إضافة المندوبين وايتماتهم.
+        </span>
+      </div>
+    )}
     <div className="pt-grid">
       {teams.map(t => {
         const pharm = Math.max(0, t.totals.pharmacyNet);
@@ -261,6 +273,24 @@ function ProvinceGrid({ loading, teams, money, hasOffice, canStructure, onOpen, 
           </button>
         );
       })}
+    </div>
+    {empty.length > 0 && (
+      <div className="pt-panel">
+        <div className="pt-panel__head">
+          <div className="pt-panel__title">محافظات بلا فريق</div>
+          <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{empty.length} محافظة</span>
+        </div>
+        <div className="pt-panel__body">
+          <div className="pt-chips">
+            {empty.map(p => (
+              canStructure
+                ? <button key={p.id} className="pt-chip" style={{ cursor: 'pointer', borderStyle: 'dashed' }} onClick={onSetup} title="إنشاء فريق هذه المحافظة">{p.name}</button>
+                : <span key={p.id} className="pt-chip">{p.name}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 }
