@@ -26,6 +26,8 @@ interface Props {
   fileIds: number[];
   applyMonth: (p: URLSearchParams) => void;
   months?: string[];
+  /** الشهر الافتراضي حُسم (شرائح الأشهر حُمِّلت) — قبله لا جلب. */
+  ready?: boolean;
   monthKey: string;
   fromDate: string;
   toDate: string;
@@ -47,17 +49,43 @@ const LABEL_NUDGE: Record<string, [number, number]> = {
   [norm('القادسية')]: [-4, 24], [norm('واسط')]: [18, 0],
 };
 
-// مخبأ على مستوى الوحدة: يبقى بعد مغادرة الصفحة، فالرجوع للخريطة فوري.
-const MAP_CACHE = new Map<string, { repData: RepProvinceRow[]; salesRows: { prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] }; t: number }>();
+// مخبأ بطبقتين: ذاكرة الوحدة (تبقى بعد مغادرة الصفحة) + localStorage (يبقى بعد
+// إعادة تحميل المتصفح) — فالدخول للخريطة يعرض آخر بيانات فوراً ثم يُجدّدها بصمت.
+type SalesRows = { prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] };
+type CacheEntry = { v: any; t: number };
+const MEM = new Map<string, CacheEntry>();
+const LS_PREFIX = 'iqmap:v1:';
+const LS_MAX = 24;
 const FRESH_MS = 3 * 60 * 1000;
+function cacheGet(k: string): CacheEntry | undefined {
+  const m = MEM.get(k); if (m) return m;
+  try {
+    const s = localStorage.getItem(LS_PREFIX + k);
+    if (s) { const e = JSON.parse(s) as CacheEntry; MEM.set(k, e); return e; }
+  } catch { /* تخزين غير متاح */ }
+  return undefined;
+}
+function cacheSet(k: string, v: any) {
+  const e = { v, t: Date.now() }; MEM.set(k, e);
+  try {
+    localStorage.setItem(LS_PREFIX + k, JSON.stringify(e));
+    const keys: { k: string; t: number }[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(LS_PREFIX)) { try { keys.push({ k: key, t: JSON.parse(localStorage.getItem(key) || '{}').t || 0 }); } catch { keys.push({ k: key, t: 0 }); } }
+    }
+    if (keys.length > LS_MAX) keys.sort((x, y) => x.t - y.t).slice(0, keys.length - LS_MAX).forEach(x => localStorage.removeItem(x.k));
+  } catch { /* امتلاء/حظر — الذاكرة تكفي */ }
+}
+const packSales = (r: SalesRows) => ({ prov: [...r.prov], pc: r.pc });
+const unpackSales = (v: any): SalesRows => ({ prov: new Map(v?.prov ?? []), pc: v?.pc ?? [] });
 
 const RAMP = ['#e0ecff', '#c7dbff', '#a3c2fb', '#78a3f5', '#4f84ea', '#2f66d6', '#1f4fb4', '#173a85'];
 const VB = IRAQ_MAP_VIEWBOX;
 
-export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
+export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
   const [repData, setRepData] = useState<RepProvinceRow[]>([]);
   const [salesRows, setSalesRows] = useState<{ prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] }>({ prov: new Map(), pc: [] });
-  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const [hover, setHover] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
@@ -79,30 +107,48 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const latest = useRef({ applyMonth, fromDate, toDate });
   latest.current = { applyMonth, fromDate, toDate };
 
+  const monthsRef = useRef(months); monthsRef.current = months;
+  const tok = (token || '').slice(-12);
+  const fileKey = fileIds.join(',');
+  const [loadingSales, setLoadingSales] = useState(false);
+  const [loadingReps, setLoadingReps] = useState(false);
+  const loading = loadingSales || loadingReps;
+
+  const paramsFor = (mk: string) => {
+    const p = new URLSearchParams();
+    if (mk === 'custom') {
+      if (latest.current.fromDate) p.set('startDate', latest.current.fromDate);
+      if (latest.current.toDate) p.set('endDate', latest.current.toDate);
+    } else if (mk && mk !== 'all') p.set('month', mk);
+    if (fileIds.length > 0) p.set('fileIds', fileKey);
+    return p;
+  };
+  const prefetchMonths = () => [...monthsRef.current].filter(m => /^\d{4}-\d{2}$/.test(m) && m !== monthKey).sort().reverse().slice(0, 3);
+
+  // ── مبيع المحافظات (لا ينتظر قائمة المندوبين) ──────────────────────────────
   useEffect(() => {
     let dead = false;
     const ac = new AbortController();
-    const fileKey = fileIds.join(',');
     const cacheable = monthKey !== 'custom';
-    const ckey = `${(token || '').slice(-12)}|${repIdsKey}|${fileKey}|${monthKey}`;
+    const keyOf = (mk: string) => `s|${tok}|${fileKey}|${mk}`;
+    const hit = cacheable ? cacheGet(keyOf(monthKey)) : undefined;
+    if (hit) setSalesRows(unpackSales(hit.v));
+    // قبل حسم الشهر الافتراضي لا نجلب شيئاً — كان طلب «الكل» يُطلق ثم يُلغى ويهدر وقت السيرفر.
+    if (!ready || !fileIds.length) {
+      if (!fileIds.length) setSalesRows({ prov: new Map(), pc: [] });
+      return () => { dead = true; };
+    }
 
-    // مخبأ: يُعرض فوراً، وإن كان أقدم من FRESH_MS يُجدَّد بصمت في الخلفية.
-    const hit = cacheable ? MAP_CACHE.get(ckey) : undefined;
-    if (hit) { setRepData(hit.repData); setSalesRows(hit.salesRows); }
-    const fresh = !!hit && Date.now() - hit.t < FRESH_MS;
-
-    const fetchOne = async (p: URLSearchParams) => {
-      const H = { Authorization: `Bearer ${token}` };
-      const rp = new URLSearchParams(p); rp.set('repIds', repIdsKey);
-      const [repRes, saleRes, retRes] = await Promise.all([
-        repIdsKey ? fetch(`/api/scientific-reps/province-map?${rp}`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
-        fileIds.length ? fetch(`/api/reports/overall?${p}&recordType=sale`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
-        fileIds.length ? fetch(`/api/reports/overall?${p}&recordType=return`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
+    const H = { Authorization: `Bearer ${token}` };
+    const fetchSales = async (p: URLSearchParams): Promise<SalesRows> => {
+      const [saleRes, retRes] = await Promise.all([
+        fetch(`/api/reports/overall?${p}&recordType=sale`, { headers: H, signal: ac.signal }),
+        fetch(`/api/reports/overall?${p}&recordType=return`, { headers: H, signal: ac.signal }),
       ]);
       const prov = new Map<string, { name: string; value: number }>();
       const pcMap = new Map<string, { p: string; c: string; v: number }>();
-      const add = async (r: Response | null, sign: number) => {
-        if (!r || !r.ok) return;
+      const add = async (r: Response, sign: number) => {
+        if (!r.ok) return;
         const j = await r.json(); const d = j.data ?? j;
         for (const row of d.byProvince ?? []) {
           const name = row.provinceName ?? row.name; if (!name) continue;
@@ -116,54 +162,81 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           cur.v += sign * (row.totalValue ?? 0); pcMap.set(k, cur);
         }
       };
-      await add(saleRes, 1); await add(retRes, -1);
-      const repJson = repRes && repRes.ok ? await repRes.json() : { data: [] };
-      return { repData: (repJson.data ?? []) as RepProvinceRow[], salesRows: { prov, pc: [...pcMap.values()] }, t: Date.now() };
-    };
-
-    const baseParams = () => {
-      const p = new URLSearchParams();
-      if (monthKey === 'custom') {
-        if (latest.current.fromDate) p.set('startDate', latest.current.fromDate);
-        if (latest.current.toDate) p.set('endDate', latest.current.toDate);
-      } else latest.current.applyMonth(p);
-      if (fileIds.length > 0) p.set('fileIds', fileIds.join(','));
-      return p;
+      await Promise.all([add(saleRes, 1), add(retRes, -1)]);
+      return { prov, pc: [...pcMap.values()] };
     };
 
     (async () => {
-      if (!fresh) {
-        if (!hit) setLoading(true);
+      if (!hit || Date.now() - hit.t >= FRESH_MS) {
+        if (!hit) setLoadingSales(true);
         setErr('');
         try {
-          const r = await fetchOne(baseParams());
+          const r = await fetchSales(paramsFor(monthKey));
           if (dead) return;
-          if (cacheable) MAP_CACHE.set(ckey, r);
-          setRepData(r.repData); setSalesRows(r.salesRows);
+          if (cacheable) cacheSet(keyOf(monthKey), packSales(r));
+          setSalesRows(r);
         } catch (e: any) { if (!dead && e?.name !== 'AbortError') setErr(e.message || 'تعذّر تحميل الخريطة'); }
-        finally { if (!dead) setLoading(false); }
+        finally { if (!dead) setLoadingSales(false); }
       }
       // تحميل مسبق هادئ لأحدث الأشهر الأخرى كي يكون التبديل بينها فورياً.
       if (dead || !cacheable) return;
-      const others = [...months].filter(m => /^\d{4}-\d{2}$/.test(m) && m !== monthKey).sort().reverse().slice(0, 3);
-      for (const ym of others) {
-        const k2 = `${(token || '').slice(-12)}|${repIdsKey}|${fileKey}|${ym}`;
-        const c2 = MAP_CACHE.get(k2);
-        if (c2 && Date.now() - c2.t < FRESH_MS) continue;
+      for (const ym of prefetchMonths()) {
+        const c = cacheGet(keyOf(ym));
+        if (c && Date.now() - c.t < FRESH_MS) continue;
         await new Promise(r => setTimeout(r, 1200));
         if (dead) return;
-        try {
-          const p = new URLSearchParams(); p.set('month', ym);
-          if (fileIds.length > 0) p.set('fileIds', fileKey);
-          const r = await fetchOne(p);
-          if (dead) return;
-          MAP_CACHE.set(k2, r);
-        } catch { return; }
+        try { const r = await fetchSales(paramsFor(ym)); if (dead) return; cacheSet(keyOf(ym), packSales(r)); } catch { return; }
       }
     })();
     return () => { dead = true; ac.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repIdsKey, fileIds.join(','), monthKey, token, months.join(',')]);
+  }, [fileKey, monthKey, tok, ready]);
+
+  // ── المندوبون العلميون بكل محافظة (بالتوازي مع المبيع) ─────────────────────
+  useEffect(() => {
+    let dead = false;
+    const ac = new AbortController();
+    const cacheable = monthKey !== 'custom';
+    const keyOf = (mk: string) => `r|${tok}|${repIdsKey}|${fileKey}|${mk}`;
+    const hit = cacheable && repIdsKey ? cacheGet(keyOf(monthKey)) : undefined;
+    if (hit) setRepData(hit.v);
+    if (!ready || !repIdsKey) {
+      if (!repIdsKey && ready) setRepData([]);
+      return () => { dead = true; };
+    }
+
+    const H = { Authorization: `Bearer ${token}` };
+    const fetchReps = async (p: URLSearchParams): Promise<RepProvinceRow[]> => {
+      p.set('repIds', repIdsKey);
+      const r = await fetch(`/api/scientific-reps/province-map?${p}`, { headers: H, signal: ac.signal });
+      if (!r.ok) return [];
+      const j = await r.json();
+      return j.data ?? [];
+    };
+
+    (async () => {
+      if (!hit || Date.now() - hit.t >= FRESH_MS) {
+        if (!hit) setLoadingReps(true);
+        try {
+          const r = await fetchReps(paramsFor(monthKey));
+          if (dead) return;
+          if (cacheable) cacheSet(keyOf(monthKey), r);
+          setRepData(r);
+        } catch (e: any) { if (!dead && e?.name !== 'AbortError') setErr(e.message || 'تعذّر تحميل المندوبين'); }
+        finally { if (!dead) setLoadingReps(false); }
+      }
+      if (dead || !cacheable) return;
+      for (const ym of prefetchMonths()) {
+        const c = cacheGet(keyOf(ym));
+        if (c && Date.now() - c.t < FRESH_MS) continue;
+        await new Promise(r => setTimeout(r, 1500));
+        if (dead) return;
+        try { const r = await fetchReps(paramsFor(ym)); if (dead) return; cacheSet(keyOf(ym), r); } catch { return; }
+      }
+    })();
+    return () => { dead = true; ac.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repIdsKey, fileKey, monthKey, tok, ready]);
 
   // ── دمج: محافظة ← شركات (مبيع + مندوبون) ─────────────────────────────────
   const cells = useMemo(() => {
