@@ -1595,9 +1595,26 @@ export async function getProvinceMapForReps(repIds, query = {}, viewerId = null)
     for (const a of r.byArea ?? []) areaIds.add(a.areaId);
   }
   const areas = areaIds.size
-    ? await prisma.area.findMany({ where: { id: { in: [...areaIds] } }, select: { id: true, province: { select: { name: true } } } })
+    ? await prisma.area.findMany({ where: { id: { in: [...areaIds] } }, select: { id: true, name: true, province: { select: { name: true } } } })
     : [];
   const provinceOfArea = new Map(areas.map(a => [a.id, a.province?.name ?? null]));
+  // منطقة بلا محافظة لكن لها نسخة بنفس الاسم المطبَّع (Area مُنطاقة لكل حساب) عليها محافظة.
+  if (areas.some(a => !a.province)) {
+    const withProv = await prisma.area.findMany({ where: { provinceId: { not: null } }, select: { name: true, province: { select: { name: true } } } });
+    const provByName = new Map();
+    for (const a of withProv) { const k = normalizeArabic(a.name); if (!provByName.has(k)) provByName.set(k, a.province.name); }
+    for (const a of areas) if (!a.province) provinceOfArea.set(a.id, provByName.get(normalizeArabic(a.name)) ?? null);
+  }
+  // محافظات مُعيَّنة مباشرة لحسابات المندوب (UserProvinceAssignment) — كثيرون يُعيَّنون هكذا لا بمناطق.
+  const assignedProvinces = new Map(); // repId -> محافظات
+  const linkedUsers = await prisma.user.findMany({
+    where: { linkedRepId: { in: ok.map(r => r.scientificRep.id) } },
+    select: { linkedRepId: true, provinceAssignments: { select: { province: { select: { name: true } } } } },
+  });
+  for (const u of linkedUsers) {
+    if (!assignedProvinces.has(u.linkedRepId)) assignedProvinces.set(u.linkedRepId, new Set());
+    for (const pa of u.provinceAssignments ?? []) assignedProvinces.get(u.linkedRepId).add(pa.province.name);
+  }
   const isBaghdad = (n) => String(n ?? '').trim() === 'بغداد';
 
   // provinceName -> repId -> { id, name, netValue, orderShare }
@@ -1613,6 +1630,7 @@ export async function getProvinceMapForReps(repIds, query = {}, viewerId = null)
   };
   for (const r of ok) {
     for (const a of r.assignedAreas ?? []) touch(provinceOfArea.get(a.id), r);
+    for (const pn of assignedProvinces.get(r.scientificRep.id) ?? []) touch(pn, r);
     for (const a of r.byArea ?? []) {
       const row = touch(provinceOfArea.get(a.areaId), r);
       if (row) { row.netValue += a.totalValue; row.netQty += a.totalQuantity; }

@@ -55,7 +55,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
 
   useEffect(() => {
     const el = wrapRef.current; if (!el) return;
-    const ro = new ResizeObserver(() => setWrapW(el.clientWidth));
+    // عتبة 24px: ظهور/اختفاء شريط تمرير الصفحة (≈15px) يغيّر العرض فيتغيّر ارتفاع
+    // المنصّة فيظهر/يختفي الشريط من جديد — حلقة اهتزاز. نتجاهل التغيّرات الصغيرة.
+    const ro = new ResizeObserver(() => setWrapW(prev => Math.abs(el.clientWidth - prev) > 24 ? el.clientWidth : prev));
     ro.observe(el); setWrapW(el.clientWidth);
     return () => ro.disconnect();
   }, []);
@@ -167,13 +169,13 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
 
       {err && <div style={{ color: '#be123c', fontSize: 13, marginBottom: 8 }}>{err}</div>}
 
-      <div ref={wrapRef} style={{ background: 'radial-gradient(1200px 600px at 50% 0%, #f8fafc 0%, #eef2f7 100%)', border: '1px solid #e2e8f0', borderRadius: 20, padding: wide ? 0 : 12, position: 'relative', overflow: 'hidden', minHeight: 200 }}>
+      <div ref={wrapRef} style={{ background: 'radial-gradient(1200px 600px at 50% 0%, #f8fafc 0%, #eef2f7 100%)', border: '1px solid #e2e8f0', borderRadius: 20, padding: wide ? 0 : 12, position: 'relative', overflow: 'hidden', minHeight: 120 }}>
         {loading && <div style={{ position: 'absolute', top: 10, insetInlineEnd: 14, fontSize: 12, color: '#64748b', zIndex: 5 }}>جاري التحميل…</div>}
         {!loading && data && data.length === 0 && !err && (
           <div style={{ padding: 40, textAlign: 'center', color: '#64748b', fontSize: 14 }}>لا يوجد مندوبون علميون بمناطق في المحافظات (خارج بغداد) ضمن النطاق الحالي.</div>
         )}
 
-        {wide ? (
+        {(data ?? []).length === 0 ? null : wide ? (
           <div style={{ height: STAGE_H * scale, position: 'relative' }}>
             <div style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute', left: 0, top: 0 }}>
               <svg width={STAGE_W} height={STAGE_H} style={{ position: 'absolute', inset: 0 }}>
