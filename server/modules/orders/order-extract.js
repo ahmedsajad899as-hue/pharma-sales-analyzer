@@ -14,7 +14,8 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
-import { parseInvoiceJson, splitPharmacyArea } from '../sales/sales.service.js';
+import { parseInvoiceJson, splitPharmacyArea, isCopiedFromPrompt } from '../sales/sales.service.js';
+import { normalizeItemKey } from '../../lib/itemResolver.js';
 import { MAX_ORDER_TEXT_LEN, stripTriggerPrefix } from './order-trigger.js';
 
 /**
@@ -174,6 +175,15 @@ export async function extractOrderRowsFromText(text, { todayISO } = {}) {
     const split = header
       ? splitPharmacyArea(header, r.area)
       : splitPharmacyArea(r.pharmacy, r.area);
+    // حارس النسخ من المثال: صيدلية موجودة في نصّ البرومبت (مثال «سر الدواء/
+    // الحارثية») لكنها غائبة عن رسالة المرسِل نفسها لم تُقرأ من الطلبية.
+    const tight = (v) => normalizeItemKey(v).replace(/\s+/g, '');
+    if (split.pharmacy && isCopiedFromPrompt(split.pharmacy, buildOrderTextPrompt(today))
+        && !tight(raw).includes(tight(split.pharmacy))) {
+      console.error('[orders] رُفضت صيدلية منسوخة من مثال البرومبت:', split.pharmacy);
+      split.pharmacy = '';
+      split.area = '';
+    }
     rows.push({
       item,
       company:       cleanName(r.company),
