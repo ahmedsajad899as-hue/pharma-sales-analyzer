@@ -77,15 +77,33 @@ export async function list(filters, user = null, options = {}) {
       }
     }
 
+    // مندوبو المحافظات (فرق المحافظات) لا يُعيَّنون «رئيسيين» في شركات المدير ولا يتبعونه
+    // بـUserManagerAssignment، فكانوا يغيبون عن التارگت وصفحة المندوبين. يظهرون لمدير
+    // الشركة ومن بمستواه بتعيينهم الفعلي على أي من شركاته (رئيسية أو ثانوية).
+    const provinceRepCompany = new Map(); // userId → { id, name }
+    if (['company_manager', 'supervisor', 'product_manager'].includes(user.role)) {
+      const provRows = await prisma.provinceRepAssignment.findMany({
+        where: { isActive: true, companyId: { in: assignments.map(a => a.companyId) }, team: { isActive: true } },
+        select: { repUserId: true, company: { select: { id: true, name: true } } },
+      });
+      for (const r of provRows) if (!provinceRepCompany.has(r.repUserId)) provinceRepCompany.set(r.repUserId, r.company);
+    }
+    const provinceRepIds = [...provinceRepCompany.keys()];
+
     // Return Users with scientific_rep / team_leader roles assigned to same companies
     const repUsers = await prisma.user.findMany({
       where: {
         role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] },
         isActive: true,
-        // مدير المكتب يرى مندوبي/مدراء هذه الشركات سواء كانت رئيسية أو ثانوية عندهم
-        companyAssignments: { some: isOfficeManager ? { companyId: { in: companyIds } } : { companyId: { in: companyIds }, isPrimary: true } },
-        // If allowedUserIds is set, restrict to those users only
-        ...(allowedUserIds ? { id: { in: [...allowedUserIds] } } : {}),
+        OR: [
+          {
+            // مدير المكتب يرى مندوبي/مدراء هذه الشركات سواء كانت رئيسية أو ثانوية عندهم
+            companyAssignments: { some: isOfficeManager ? { companyId: { in: companyIds } } : { companyId: { in: companyIds }, isPrimary: true } },
+            // If allowedUserIds is set, restrict to those users only
+            ...(allowedUserIds ? { id: { in: [...allowedUserIds] } } : {}),
+          },
+          ...(provinceRepIds.length ? [{ id: { in: provinceRepIds } }] : []),
+        ],
       },
       include: {
         companyAssignments: { include: { company: { select: { id: true, name: true } } } },
@@ -117,7 +135,7 @@ export async function list(filters, user = null, options = {}) {
         phone: u.phone || null,
         email: null,
         // الشركة الرئيسية المُعيَّنة لحساب المستخدم (وليس أول عنصر عشوائي بالمصفوفة)
-        company: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name || null,
+        company: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name || provinceRepCompany.get(u.id)?.name || null,
         notes: null,
         isActive: u.isActive,
         areas:          sciRepData?.areas?.map(a => a.area)          ?? [],
@@ -130,7 +148,8 @@ export async function list(filters, user = null, options = {}) {
         // مدرائه — الاثنان بمعرّفات users، فبهما تُبنى شجرة «قائد فريق ← مندوبوه».
         userId: u.id,
         managerIds: u.managersOfUser.map(m => m.managerId),
-        companyId: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.id ?? null,
+        companyId: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.id ?? provinceRepCompany.get(u.id)?.id ?? null,
+        isProvinceRep: provinceRepCompany.has(u.id),
       };
     }));
 
