@@ -8,8 +8,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-interface DirItem { itemId: number; name: string; company: string; net: number; qty: number }
-interface DirRep { repUserId: number; repName: string; repActive: boolean; companies: string[]; net: number; qty: number; items: DirItem[] }
+interface DirItem { itemId: number | null; name: string; company: string; net: number; qty: number; targetQty: number; personalQty: number; personalNet: number }
+interface DirRep { repUserId: number; repName: string; repActive: boolean; companies: string[]; net: number; qty: number; targetQty: number; personalQty: number; personalNet: number; items: DirItem[] }
 interface DirTeam { id: number; provinceId: number; provinceName: string; leaderName: string | null; reps: DirRep[] }
 
 interface Props {
@@ -22,6 +22,7 @@ interface Props {
 }
 
 const nf = (n: number) => Math.round(n).toLocaleString('en-US');
+const pctOf = (a: number, b: number) => `${Math.round((a / b) * 100)}%`;
 
 export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmtVal, currencyLabel, onClose }: Props) {
   const [teams, setTeams] = useState<DirTeam[]>([]);
@@ -98,7 +99,11 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                       </span>
                       <span style={{ textAlign: 'left', direction: 'ltr' }}>
                         <span style={{ fontWeight: 800, fontSize: 14, color: r.net < 0 ? '#be123c' : '#0f766e' }}>{fmtVal(r.net)} {currencyLabel}</span>
-                        <span style={{ display: 'block', fontSize: 11.5, color: '#64748b' }}>الكمية {nf(r.qty)}</span>
+                        <span style={{ display: 'block', fontSize: 11.5, color: '#64748b' }}>
+                          الكمية {nf(r.qty)}
+                          {r.targetQty > 0 && <> · التارگت {nf(r.targetQty)} ({pctOf(r.qty, r.targetQty)})</>}
+                          {r.personalQty > 0 && <> · شخصي {nf(r.personalQty)}</>}
+                        </span>
                       </span>
                     </button>
 
@@ -114,15 +119,21 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                                   <th style={{ padding: '6px 4px', fontWeight: 700 }}>الشركة</th>
                                   <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left' }}>الكمية</th>
                                   <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left' }}>القيمة ({currencyLabel})</th>
+                                  <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left' }}>التارگت (كمية)</th>
+                                  <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left' }}>الإنجاز</th>
+                                  <th style={{ padding: '6px 4px', fontWeight: 700, textAlign: 'left', color: '#7c3aed' }}>مبيع المندوب شخصياً (كمية · قيمة)</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {r.items.map(i => (
-                                  <tr key={i.itemId} style={{ borderTop: '1px solid #eef2f7' }}>
+                                {r.items.map((i, idx) => (
+                                  <tr key={i.itemId ?? `n${idx}`} style={{ borderTop: '1px solid #eef2f7' }}>
                                     <td style={{ padding: '6px 4px', fontWeight: 700, color: '#0f172a' }}>{i.name}</td>
                                     <td style={{ padding: '6px 4px', color: '#64748b' }}>{i.company}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr' }}>{nf(i.qty)}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.net < 0 ? '#be123c' : '#1f4fb4' }}>{fmtVal(i.net)}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr' }}>{i.targetQty > 0 ? nf(i.targetQty) : '—'}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.targetQty > 0 && i.qty >= i.targetQty ? '#0f766e' : '#92400e' }}>{i.targetQty > 0 ? pctOf(i.qty, i.targetQty) : '—'}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', color: '#6d28d9' }}>{i.personalQty ? `${nf(i.personalQty)} · ${fmtVal(i.personalNet)}` : '—'}</td>
                                   </tr>
                                 ))}
                               </tbody>
