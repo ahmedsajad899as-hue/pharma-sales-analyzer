@@ -9,6 +9,7 @@ import {
 } from '../../lib/areaScope.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
+import { isProvinceLeader, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
 
 const userSelect = {
   id: true, username: true, displayName: true, role: true,
@@ -51,6 +52,43 @@ export async function listAllUsers(req, res) {
     orderBy: { createdAt: 'asc' },
   });
   res.json({ success: true, data: users });
+}
+
+// ── هيكلية المحافظات (للماستر أدمن): فريق لكل محافظة، معزولة عن الشركات ─────
+// قائد المحافظة ومندوبوها يظهرون تحت «المحافظات» لا تحت شركة؛ المندوب المشترك
+// بين شركتين يُرجَع مرة واحدة بقائمة شركاته.
+export async function listProvinceStructure(req, res) {
+  const teams = await prisma.provinceTeam.findMany({
+    where: { isActive: true },
+    orderBy: [{ province: { sortOrder: 'asc' } }, { province: { name: 'asc' } }],
+    select: {
+      id: true, officeId: true, leaderUserId: true,
+      province: { select: { id: true, name: true } },
+      assignments: {
+        where: { isActive: true },
+        orderBy: { id: 'asc' },
+        select: {
+          repUserId: true, allItems: true,
+          company: { select: { id: true, name: true } },
+          _count: { select: { items: true } },
+        },
+      },
+    },
+  });
+  const data = teams.map(t => {
+    const reps = new Map();
+    for (const a of t.assignments) {
+      if (!reps.has(a.repUserId)) reps.set(a.repUserId, { userId: a.repUserId, companies: [] });
+      reps.get(a.repUserId).companies.push({
+        id: a.company.id, name: a.company.name, allItems: a.allItems, itemCount: a._count.items,
+      });
+    }
+    return {
+      id: t.id, officeId: t.officeId, provinceId: t.province.id, provinceName: t.province.name,
+      leaderUserId: t.leaderUserId, reps: [...reps.values()],
+    };
+  });
+  res.json({ success: true, data });
 }
 
 // ── Get single user with full details ─────────────────────────────────────
@@ -374,6 +412,18 @@ export async function setUserCompanies(req, res) {
         success: true,
         autoManaged: true,
         data: ids.map(companyId => ({ companyId, isPrimary: true })),
+        primaryCompanyId: null,
+        dropped: [],
+      });
+    }
+
+    // تيم ليدر محافظة: كل شركات المكتب، كلها غير رئيسية — مُدار تلقائياً.
+    if (user.officeId && await isProvinceLeader(userId)) {
+      const ids = await syncProvinceLeaderCompanies(userId, user.officeId);
+      return res.json({
+        success: true,
+        autoManaged: true,
+        data: ids.map(companyId => ({ companyId, isPrimary: false })),
         primaryCompanyId: null,
         dropped: [],
       });

@@ -1,4 +1,5 @@
 import prisma from './prisma.js';
+import { provinceLeaderIds } from './provinceScope.js';
 
 /**
  * يضمن أن لكل مستخدم لديه تعيينات شركات، شركةً رئيسية واحدة (isPrimary=true).
@@ -18,8 +19,11 @@ export async function ensurePrimaryCompanies() {
     byUser.get(a.userId).push(a);
   }
 
+  // قادة المحافظات يعملون على كل الشركات بلا رئيسية — لا تُفرض عليهم واحدة.
+  const leaders = await provinceLeaderIds();
   let fixed = 0;
   for (const [userId, rows] of byUser) {
+    if (leaders.has(userId)) continue;
     if (rows.some(r => r.isPrimary)) continue; // لديه رئيسية أصلاً
     rows.sort((x, y) =>
       (x.assignedAt?.getTime?.() ?? 0) - (y.assignedAt?.getTime?.() ?? 0) || x.companyId - y.companyId

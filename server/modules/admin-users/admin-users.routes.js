@@ -7,7 +7,7 @@ import {
   syncManagerScopeToSubordinates,
   setUserStockCompanies, setUserStockItems,
   getUserRepInfo, getUserCompanyItems,
-  deleteUser,
+  deleteUser, listProvinceStructure,
 } from './admin-users.controller.js';
 import { previewUsersImport, commitUsersImport } from './admin-users-import.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
@@ -18,6 +18,7 @@ const upload = multer({ dest: 'uploads/' });
 router.use(requireSuperAdmin);
 
 router.get('/',            listAllUsers);
+router.get('/province-structure', listProvinceStructure); // قبل '/:id'
 router.get('/:id/rep-info',      getUserRepInfo);
 router.get('/:id/company-items', getUserCompanyItems);
 router.get('/:id/password',      getUserPassword);

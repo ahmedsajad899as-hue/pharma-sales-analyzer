@@ -12,6 +12,7 @@ import {
   REP_CANDIDATE_ROLES, LEADER_CANDIDATE_ROLES,
 } from './province-teams.access.js';
 import { findItemConflicts, resolveAssignmentItemIds } from './province-teams.rules.js';
+import { syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
 
 const userName = (u) => (u ? (u.displayName || u.username) : null);
 
@@ -172,6 +173,7 @@ export async function createTeam(viewer, { provinceId, leaderUserId = null, note
     : await prisma.provinceTeam.create({
         data: { officeId: viewer.officeId, provinceId: pid, leaderUserId: leaderUserId ? Number(leaderUserId) : null, notes },
       });
+  if (team.leaderUserId) await syncProvinceLeaderCompanies(team.leaderUserId, viewer.officeId);
   return team;
 }
 
@@ -186,7 +188,10 @@ export async function updateTeam(viewer, id, { leaderUserId, notes }) {
   }
   if (notes !== undefined) data.notes = notes || null;
   const updated = await prisma.provinceTeam.update({ where: { id }, data });
-  if (data.leaderUserId) await linkRepsToLeader(data.leaderUserId, team.assignments.map(a => a.repUserId));
+  if (data.leaderUserId) {
+    await linkRepsToLeader(data.leaderUserId, team.assignments.map(a => a.repUserId));
+    await syncProvinceLeaderCompanies(data.leaderUserId, viewer.officeId);
+  }
   return updated;
 }
 
