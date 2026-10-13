@@ -12,6 +12,7 @@ import bcrypt from 'bcryptjs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from './lib/prisma.js';
 import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
+import { autoEnrollAllReps } from './modules/province-teams/province-teams.service.js';
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
@@ -4989,6 +4990,10 @@ if (process.env.VERCEL) {
     ensurePrimaryCompanies()
       .then(n => { if (n) console.log(`✓ تم تعيين شركة رئيسية لـ ${n} مستخدم (backfill)`); })
       .catch(e => console.error('[ensurePrimaryCompanies]', e.message));
+    // مندوبون علميون لهم محافظات سلفاً ← تسجيلهم في فرق محافظاتهم (idempotent، إضافة فقط)
+    autoEnrollAllReps()
+      .then(n => { if (n) console.log(`✓ سُجّل ${n} تعيين مندوب في فرق المحافظات (backfill)`); })
+      .catch(e => console.error('[autoEnrollAllReps]', e.message));
     // ملفات Stock القديمة لموظفي المكتب: تعميم على الزملاء الذين لم تكن أهدافاً بعد
     backfillSalesDataFileOfficeSync()
       .then(n => { if (n) console.log(`✓ تم تعميم ${n} ملف Stock على زملاء المكتب (backfill)`); })

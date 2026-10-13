@@ -156,6 +156,86 @@ async function linkRepsToLeader(leaderUserId, repUserIds) {
   });
 }
 
+/**
+ * تسجيل مندوب علمي تلقائياً في فرق المحافظات المعيَّنة له (UserProvinceAssignment).
+ * تعيين المحافظة للمندوب في «المستخدمين» = إدخاله فريق تلك المحافظة، فلا يُكرَّر
+ * العمل في «الهيكلية». يُنشئ الفريق إن لم يوجد، ويُنشئ تعييناً لكل شركة من شركات
+ * المندوب بايتماته المحددة له (أو «كل ايتمات الشركة» إن لم تُحدَّد ايتمات).
+ *
+ * إضافة فقط وidempotent: لا يعدّل تعييناً قائماً ولا يحذف شيئاً. تعيين يتعارض
+ * ايتماته مع مندوب آخر لنفس الشركة يُتخطّى ويُبلَّغ عنه ولا يُرمى.
+ * @returns {Promise<{enrolled:number, skipped:{province:string, company:string, reason:string}[], reason?:string}>}
+ */
+export async function autoEnrollRep(userId) {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true, role: true, officeId: true, isActive: true,
+      provinceAssignments: { select: { provinceId: true, province: { select: { name: true } } } },
+      companyAssignments: { select: { companyId: true, company: { select: { name: true, officeId: true } } } },
+      itemAssignments: { select: { itemId: true, item: { select: { scientificCompanyId: true } } } },
+    },
+  });
+  const out = { enrolled: 0, skipped: [] };
+  if (!u || u.role !== 'scientific_rep' || !u.officeId || !u.isActive) return { ...out, reason: 'not-eligible' };
+  if (!u.provinceAssignments.length) return { ...out, reason: 'no-province' };
+
+  const companies = u.companyAssignments.filter(c => c.company.officeId === u.officeId);
+  if (!companies.length) return { ...out, reason: 'no-company' };
+  const companyItems = await loadCompanyItems(companies.map(c => c.companyId));
+
+  for (const pa of u.provinceAssignments) {
+    let team = await prisma.provinceTeam.findUnique({ where: { officeId_provinceId: { officeId: u.officeId, provinceId: pa.provinceId } } });
+    if (!team) team = await prisma.provinceTeam.create({ data: { officeId: u.officeId, provinceId: pa.provinceId } });
+    else if (!team.isActive) team = await prisma.provinceTeam.update({ where: { id: team.id }, data: { isActive: true } });
+
+    for (const c of companies) {
+      const exists = await prisma.provinceRepAssignment.findUnique({
+        where: { teamId_repUserId_companyId: { teamId: team.id, repUserId: u.id, companyId: c.companyId } },
+      });
+      if (exists?.isActive) continue; // موجود (ربما يدوياً) — لا نمسّه
+      const mine = u.itemAssignments.filter(i => i.item.scientificCompanyId === c.companyId).map(i => i.itemId);
+      const allItems = mine.length === 0;
+
+      const siblings = await prisma.provinceRepAssignment.findMany({
+        where: { teamId: team.id, companyId: c.companyId, isActive: true },
+        include: { items: { select: { itemId: true } } },
+      });
+      const conflicts = findItemConflicts(
+        { id: exists?.id ?? null, repUserId: u.id, companyId: c.companyId, allItems, itemIds: mine },
+        siblings.map(s => ({ id: s.id, repUserId: s.repUserId, companyId: s.companyId, allItems: s.allItems, itemIds: s.items.map(i => i.itemId) })),
+      );
+      if (conflicts.length) {
+        out.skipped.push({ province: pa.province.name, company: c.company.name, reason: 'مندوب آخر لنفس الشركة معيَّن على ايتمات متقاطعة' });
+        continue;
+      }
+      await prisma.$transaction(async (tx) => {
+        const a = exists
+          ? await tx.provinceRepAssignment.update({ where: { id: exists.id }, data: { isActive: true, allItems } })
+          : await tx.provinceRepAssignment.create({ data: { teamId: team.id, repUserId: u.id, companyId: c.companyId, allItems } });
+        await tx.provinceRepAssignmentItem.deleteMany({ where: { assignmentId: a.id } });
+        if (!allItems) await tx.provinceRepAssignmentItem.createMany({ data: mine.map(itemId => ({ assignmentId: a.id, itemId })) });
+      });
+      out.enrolled++;
+    }
+    await linkRepsToLeader(team.leaderUserId, [u.id]);
+  }
+  return out;
+}
+
+/** تسجيل كل المندوبين الذين لهم محافظات (backfill عند إقلاع الخادم). */
+export async function autoEnrollAllReps() {
+  const reps = await prisma.user.findMany({
+    where: { role: 'scientific_rep', isActive: true, officeId: { not: null }, provinceAssignments: { some: {} } },
+    select: { id: true },
+  });
+  let n = 0;
+  for (const r of reps) {
+    try { n += (await autoEnrollRep(r.id)).enrolled; } catch (e) { console.error('[autoEnrollRep]', r.id, e.message); }
+  }
+  return n;
+}
+
 export async function createTeam(viewer, { provinceId, leaderUserId = null, notes = null }) {
   assertStructureEditor(viewer);
   const pid = Number(provinceId);

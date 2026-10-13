@@ -482,6 +482,10 @@ export async function setUserCompanies(req, res) {
       })] : []),
     ]);
 
+    // مندوب له محافظات ثم أُضيفت له شركات: يُسجَّل في فرق محافظاته الآن.
+    try { await provinceTeamsService.autoEnrollRep(userId); }
+    catch (e) { console.warn('[setUserCompanies] autoEnrollRep failed (non-fatal):', e.message); }
+
     // نقرأ المحفوظ فعلاً ونُرجعه للواجهة لتتحقق من النتيجة (لا تكتفي بـ success)
     const saved = await prisma.userCompanyAssignment.findMany({
       where: { userId },
@@ -612,7 +616,11 @@ export async function setUserProvinces(req, res) {
   }
 
   const effectiveAreaIds = await resolveEffectiveAreaIds(userId);
-  res.json({ success: true, provinceIds: validIds, effectiveAreaCount: effectiveAreaIds.length });
+  // تعيين المحافظة لمندوب علمي = تسجيله في فريق تلك المحافظة (غير حابس للحفظ).
+  let enrollment = null;
+  try { enrollment = await provinceTeamsService.autoEnrollRep(userId); }
+  catch (e) { console.warn('[setUserProvinces] autoEnrollRep failed (non-fatal):', e.message); }
+  res.json({ success: true, provinceIds: validIds, effectiveAreaCount: effectiveAreaIds.length, enrollment });
 }
 
 // ── Set user sub-provinces (أقسام المحافظة: الكرخ/الرصافة) ────────────────
