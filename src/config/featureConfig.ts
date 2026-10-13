@@ -48,6 +48,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'org-structure',     labelAr: 'الهيكلية',                   icon: '🏗️', roles: ['company_manager','admin','manager','office_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader','office_employee','office_hr'] },
   { id: 'aqdar-export',      labelAr: 'أقدر',                       icon: '📤', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','office_employee','office_hr'] },
   { id: 'team-engagement',   labelAr: 'نشاط الفريق',                icon: '📈', roles: ['office_manager'] },
+  { id: 'province-teams',    labelAr: 'فرق المحافظات',              icon: '🗺️', roles: ['admin','manager','office_manager','office_hr','office_employee','company_manager','supervisor','product_manager','team_leader','scientific_rep'] },
   { id: 'rep-followup',      labelAr: 'متابعة المندوبين',           icon: '🎯', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
 ];
 
@@ -77,6 +78,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   aqdar_export:       'aqdar-export',
   team_engagement:    'team-engagement',
   rep_followup:       'rep-followup',
+  province_teams:     'province-teams',
 };
 
 // وصف كل صفحة يظهر للأدمن في شاشة المميزات
@@ -104,6 +106,7 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'org-structure':     'صفحة الهيكلية — عرض الهيكل التنظيمي للمكتب/الشركة',
   'aqdar-export':      'صفحة أقدر — تحويل ملف البلان الشهري (طبيب/تخصص/كلاس/صيدلية/منطقة/ايتم) إلى ملف Excel بصيغة أقدر (task-type, rep-name, rep-id, client-id, schedule, note)',
   'rep-followup':      'صفحة متابعة المندوبين — مؤشّر أداء لكل مندوب علمي من خمس عائلات (التارجت، الزيارات، التغطية، التطوّر، الانضباط) بمعايير يضبطها المدير، مع ملخّص يومي يُرسل للمندوب على التطبيق/تلكرام',
+  'province-teams':    'صفحة فرق المحافظات — هيكلية المكاتب ذات التيم ليدر المشترك لكل محافظة: مندوب علمي لكل شركة (أو مندوب لشركتين بتقسيم الايتمات)، وحسبتان لكل مندوب: تغطية المحافظة من ملفات المكتب، والجهد الشخصي الذي يُدخله المندوب (تطبيق/بوت) ويعتمده التيم ليدر',
   'team-engagement':   'صفحة نشاط الفريق — متابعة مدى استخدام مدير الشركة والموارد البشرية وموظفي المكتب للتطبيق (مدير المكتب فقط)',
 };
 
@@ -187,6 +190,10 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'team_engagement_list_opens',     label: 'عدد مرات الدخول في بطاقة العضو',   icon: '🔓', desc: 'شارة عدد مرات فتح التطبيق اليوم داخل بطاقة العضو بالقائمة الرئيسية' },
     { key: 'team_engagement_list_minutes',   label: 'وقت الاستخدام في بطاقة العضو',     icon: '⏱️', desc: 'شارة دقائق الاستخدام اليوم داخل بطاقة العضو بالقائمة الرئيسية' },
     { key: 'team_engagement_list_heatmap',   label: 'المخطط الحراري المصغر',            icon: '🟦', desc: 'صف المربعات الملوّنة (آخر 14 يوماً) داخل بطاقة العضو بالقائمة الرئيسية' },
+  ],
+  'province-teams': [
+    { key: 'province_teams_personal',  label: 'تبويب الجهد الشخصي', icon: '🧾', desc: 'إدخال ما باعه المندوب بنفسه للصيدليات وطابور اعتماده من التيم ليدر. إغلاقه يُخفي التبويب فقط — مسار البوت («مبيعي») يبقى يسجّل للمراجعة' },
+    { key: 'province_teams_structure', label: 'تبويب الهيكلية',     icon: '🏗️', desc: 'إنشاء فرق المحافظات وتعيين التيم ليدر والمندوبين بشركاتهم وايتماتهم (لإدارة المكتب فقط أصلاً)' },
   ],
   'rep-followup': [
     { key: 'rep_followup_standards', label: 'تبويب المعايير',        icon: '⚙️', desc: 'ضبط الأرقام التي يُحاسَب عليها المندوب (زيارات/يوم، نسب التغطية، أدنى تحقّق تارجت، الأوزان) والاستثناءات الخاصة بمندوب معيّن. إغلاقه يُبقي القياس شغّالاً بالأرقام المحفوظة لكن يمنع تعديلها' },

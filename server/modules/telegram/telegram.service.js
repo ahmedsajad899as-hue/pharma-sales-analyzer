@@ -23,6 +23,7 @@ import { parseMovementFile, ingestRows } from '../stock-ledger/stock-ledger.serv
 import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
 import { extractVisitsFromExcel } from '../doctors/doctor-visits-import.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
+import { hasPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
 import { hasTriggerWord } from '../orders/order-trigger.js';
 import { parseSalesQuery } from '../orders/sales-query-trigger.js';
 import { parseFollowupQuery } from '../rep-followup/followup-query-trigger.js';
@@ -478,11 +479,13 @@ export async function handleUpdate(update) {
   if (!kind) return; // ستيكر/رسالة خدمة/صوت — تجاهل بصمت
 
   const intentText = kind === 'photo' ? String(message.caption || '') : String(message.text || '');
-  const salesQuery = kind === 'text' ? parseSalesQuery(message.text) : null;
+  // «مبيعي …» جهد شخصي لمندوب محافظة — تحوي «مبيع» فتُستثنى من سؤال المبيعات.
+  const personalSale = (kind === 'text' || kind === 'photo') && hasPersonalSaleTrigger(intentText);
+  const salesQuery = kind === 'text' && !personalSale ? parseSalesQuery(message.text) : null;
   // سؤال المتابعة يُحلَّل هنا أيضاً ليدخل في `announce`: كروب غير مربوط يجب أن
   // يُخبر صاحبه بسبب الصمت، لا أن يتجاهل سؤالاً صريحاً.
-  const followupQuery = kind === 'text' && !salesQuery ? parseFollowupQuery(message.text) : null;
-  const announce = kind === 'document' || hasTriggerWord(intentText) || isReplyToBotMsg(message)
+  const followupQuery = kind === 'text' && !salesQuery && !personalSale ? parseFollowupQuery(message.text) : null;
+  const announce = kind === 'document' || hasTriggerWord(intentText) || personalSale || isReplyToBotMsg(message)
     || Boolean(salesQuery) || Boolean(followupQuery);
 
   const actor = await resolveActor(message, { announce });

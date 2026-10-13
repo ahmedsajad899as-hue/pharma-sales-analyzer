@@ -81,6 +81,7 @@ import viberRoutes               from './modules/viber/viber.routes.js';
 import viberLinksRoutes          from './modules/viber/viber-links.routes.js';
 import engagementRoutes          from './modules/engagement/engagement.routes.js';
 import repFollowupRoutes         from './modules/rep-followup/rep-followup.routes.js';
+import provinceTeamsRoutes       from './modules/province-teams/province-teams.routes.js';
 
 dotenv.config();
 
@@ -1257,6 +1258,7 @@ app.use('/api/orders',            ordersRoutes);
 app.use('/api/viber',             viberRoutes);
 app.use('/api/engagement',        engagementRoutes);
 app.use('/api/rep-followup',      repFollowupRoutes);
+app.use('/api/province-teams',    provinceTeamsRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────

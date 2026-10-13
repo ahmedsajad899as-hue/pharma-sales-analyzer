@@ -11,6 +11,7 @@ import {
   Scale, FileSpreadsheet, Target, Eye, Mic, Folder, Home, Crown, Shield,
   Rocket, Monitor, Ban, Repeat, Mail, ThumbsUp, ThumbsDown, DoorOpen,
   Plane, HelpCircle, Menu, MoreHorizontal, PackageMinus, Activity, GitBranch,
+  Map as MapIcon,
 } from 'lucide-react';
 
 /**
@@ -42,6 +43,7 @@ export const ICONS = {
   navOrgStructure: Building2,
   navAqdarExport: Send,
   navTeamEngagement: Activity,
+  navProvinceTeams: MapIcon,
 
   // شيل عام
   chevronLeft: ChevronLeft,
@@ -141,6 +143,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'org-structure': 'navOrgStructure',
   'aqdar-export': 'navAqdarExport',
   'team-engagement': 'navTeamEngagement',
+  'province-teams': 'navProvinceTeams',
 };
 
 interface IconProps {

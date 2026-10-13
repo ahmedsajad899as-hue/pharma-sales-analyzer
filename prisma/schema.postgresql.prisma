@@ -67,6 +67,9 @@ model User {
   stockItemAssignments   UserStockItemAssignment[]
   areaAssignments        UserAreaAssignment[]
   provinceAssignments    UserProvinceAssignment[]
+  provinceTeamsLed       ProvinceTeam[]          @relation("ProvinceTeamLeader")
+  provinceRepAssignments ProvinceRepAssignment[] @relation("ProvinceRepAssignee")
+  personalSales          RepPersonalSale[]       @relation("PersonalSaleRep")
   subProvinceAssignments UserSubProvinceAssignment[]
   pharmacyAlertSettings  PharmacyAlertSettings?      @relation("PharmacyAlertOwner")
   managersOfUser         UserManagerAssignment[]     @relation("UserSubordinates")
@@ -323,6 +326,7 @@ model Item {
   repTargets          RepItemTarget[]
   dailyPlanEntries    DailyPlanEntry[]
   aliases             ItemMergeRule[]         @relation("ItemAliases")
+  provinceRepAssignmentItems ProvinceRepAssignmentItem[]
 
   @@unique([name, userId])
   @@index([userId])
@@ -1219,6 +1223,7 @@ model ScientificOffice {
   areas               Area[]                     @relation("OfficeAreas")
   surveyHiddenOffices MasterSurveyHiddenOffice[] @relation("SurveyHiddenOffice")
   stockTeamCompanyLinks StockTeamCompanyLink[]
+  provinceTeams         ProvinceTeam[]
 
   @@map("scientific_offices")
 }
@@ -1241,6 +1246,7 @@ model ScientificCompany {
   itemAliases            ItemMergeRule[]         @relation("CompanyAliases")
   nameAliases            CompanyAlias[]
   teamLinks              StockTeamCompanyLink[]
+  provinceRepAssignments ProvinceRepAssignment[]
 
   @@unique([name, officeId])
   @@index([officeId])
@@ -2426,6 +2432,7 @@ model Province {
   areas        Area[]
   subProvinces SubProvince[]
   assignments  UserProvinceAssignment[]
+  provinceTeams ProvinceTeam[]
 
   @@map("provinces")
 }
@@ -3050,4 +3057,112 @@ model RepFollowupDigestLog {
   @@unique([recipientId, kind, dayKey])
   @@index([ownerUserId, dayKey])
   @@map("rep_followup_digest_logs")
+}
+
+
+// ═══ فرق المحافظات (هيكلية مكاتب مثل النسق العلمي) ═════════════════════════
+// المحافظة يديرها «تيم ليدر المحافظة» مشترك بين كل شركات المكتب، وتحته مندوبون
+// علميون لكل شركة. المندوب قد يعمل لشركتين معاً — فيُحسب لكلٍّ منهما بايتماتها.
+// راجع server/modules/province-teams/ لمنطق الحساب والصلاحيات.
+
+// فريق محافظة واحد لكل (مكتب × محافظة). القائد اختياري ريثما يُعيَّن.
+model ProvinceTeam {
+  id           Int      @id @default(autoincrement())
+  officeId     Int
+  provinceId   Int
+  leaderUserId Int?
+  notes        String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  office      ScientificOffice        @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  province    Province                @relation(fields: [provinceId], references: [id], onDelete: Cascade)
+  leader      User?                   @relation("ProvinceTeamLeader", fields: [leaderUserId], references: [id], onDelete: SetNull)
+  assignments ProvinceRepAssignment[]
+  personalSales RepPersonalSale[]
+
+  @@unique([officeId, provinceId])
+  @@index([leaderUserId])
+  @@map("province_teams")
+}
+
+// تعيين مندوب × شركة داخل فريق المحافظة. المندوب المشترك بين شركتين = صفّان.
+// ايتمات نفس الشركة داخل نفس الفريق لا تتقاطع بين مندوبين (يُفرض في الخدمة) —
+// هكذا يُنسب كل مبيع في المحافظة لمندوب واحد بالضبط.
+// allItems = كل ايتمات الشركة في الكتالوج (الحاليّة والمستقبلية).
+model ProvinceRepAssignment {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  repUserId Int
+  companyId Int
+  allItems  Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  team    ProvinceTeam                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  rep     User                        @relation("ProvinceRepAssignee", fields: [repUserId], references: [id], onDelete: Cascade)
+  company ScientificCompany           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   ProvinceRepAssignmentItem[]
+
+  @@unique([teamId, repUserId, companyId])
+  @@index([repUserId])
+  @@map("province_rep_assignments")
+}
+
+model ProvinceRepAssignmentItem {
+  assignmentId Int
+  itemId       Int
+
+  assignment ProvinceRepAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  item       Item                  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([assignmentId, itemId])
+  @@index([itemId])
+  @@map("province_rep_assignment_items")
+}
+
+// «الجهد الشخصي»: ما باعه المندوب بنفسه للصيدليات (من مذخر أو من المكتب).
+// مؤشّر منفصل لا يُجمع مع تغطية المحافظة أبداً — نفس الطلبية قد تظهر لاحقاً في
+// ملف المكتب، فالجمع يعني تكراراً. يُحتسب فقط بعد اعتماد التيم ليدر.
+model RepPersonalSale {
+  id           Int       @id @default(autoincrement())
+  officeId     Int?
+  teamId       Int?
+  repUserId    Int? // null = وصلت من البوت ولم يُعرف المندوب — يختاره المراجِع
+  companyId    Int? // ScientificCompany — من الايتم
+  itemId       Int?
+  itemName     String
+  pharmacyName String
+  areaName     String?
+  channel      String    @default("warehouse") // warehouse | office — من أين خرجت البضاعة
+  warehouseName String?
+  quantity     Int
+  bonusQty     Int       @default(0)
+  unitPrice    Float?
+  totalValue   Float     @default(0)
+  currency     String    @default("IQD")
+  saleDate     DateTime
+  invoiceNo    String?
+  notes        String?
+  status       String    @default("pending") // pending | approved | rejected
+  rejectReason String?
+  reviewedById Int?
+  reviewedAt   DateTime?
+  entrySource  String    @default("app") // app | telegram | viber | whatsapp
+  senderName   String?
+  sourceHash   String? // بصمة رسالة البوت — حارس إعادة الإرسال
+  createdById  Int
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  team ProvinceTeam? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  rep  User?         @relation("PersonalSaleRep", fields: [repUserId], references: [id], onDelete: Cascade)
+
+  @@index([repUserId, saleDate])
+  @@index([teamId, status])
+  @@index([officeId, status])
+  @@index([sourceHash])
+  @@map("rep_personal_sales")
 }

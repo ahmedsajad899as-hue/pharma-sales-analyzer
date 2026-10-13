@@ -21,6 +21,8 @@ import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { extractOrderRowsFromText } from './order-extract.js';
 import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
 import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess } from './orders.service.js';
+import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
+import { ingestPersonalSalesFromBot } from '../province-teams/personal-sales.service.js';
 
 /** يردّ بتعديل رسالة «⏳» حيث تدعم المنصة ذلك، وإلا برسالة جديدة (فايبر). */
 async function reply(transport, ctx, text) {
@@ -140,6 +142,66 @@ export async function handleIncomingOrderMessage({
     // الأخطاء الفعلية تُبلَّغ دائماً — صمتٌ هنا يعني طلبية ضاعت بلا أن يعلم أحد.
     await reply(transport, ctx,
       `⚠️ ${err?.isOperational ? err.message : 'تعذّر قراءة الطلبية. جرّب إعادة إرسالها، أو أدخلها يدوياً من التطبيق.'}`);
+  }
+  return true;
+}
+
+/**
+ * «الجهد الشخصي» من البوت: نفس استخراج الطلبية (نص أو صورة + مطابقة الكتالوج
+ * والصيدلية) لكن الصفوف تذهب لطابور اعتماد التيم ليدر (RepPersonalSale) لا
+ * لطابور الطلبيات، ولا تصل جدول Sale أبداً. الكلمة المفتاحية نيّة صريحة دائماً
+ * فيردّ البوت على كل حال. لا يرمي — نفس عقد handleIncomingOrderMessage.
+ */
+async function handlePersonalSaleMessage({ transport, user, chatId, senderName = null, text = '', mediaRefs = [] }) {
+  const ctx = { chatId, messageId: null };
+  try {
+    ctx.messageId = await transport.sendText(chatId, '⏳ جاري تسجيل مبيعك الشخصي…');
+  } catch (e) {
+    console.error(`[personal-sales] تعذّر إرسال رسالة الانتظار على ${transport.name}:`, e?.message);
+  }
+
+  try {
+    const body = stripPersonalSaleTrigger(text);
+    let rows = [];
+    if (mediaRefs.length) {
+      const buffers = (await Promise.all(
+        mediaRefs.map(ref => transport.downloadMedia(ref).catch(() => null)),
+      )).filter(Boolean);
+      if (!buffers.length) {
+        await reply(transport, ctx, '⚠️ تعذّر تنزيل الصورة من المحادثة — أعد إرسالها.');
+        return true;
+      }
+      rows = await extractInvoiceRows(
+        buffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
+        { extraContext: body || undefined },
+      );
+    } else if (body) {
+      rows = await extractOrderRowsFromText(body, { todayISO: new Date().toISOString().slice(0, 10) });
+    }
+
+    await enrichRowsFromCatalog(rows, user.id);
+    await matchInvoiceCustomers(rows);
+
+    if (!rows.length) {
+      await reply(transport, ctx,
+        '⚠️ لم أتعرّف على أصناف وكميات. اكتب المبيع بسطر لكل صنف، مثال:\n'
+        + 'مبيعي\nصيدلية النور - الكرخ\nبانادول 5 علبة');
+      return true;
+    }
+
+    const msg = await ingestPersonalSalesFromBot({
+      user,
+      source: transport.name,
+      senderName,
+      sourceText: String(text ?? '').trim() || null,
+      mediaKeys: mediaRefs.map(r => (typeof r === 'string' ? r : JSON.stringify(r))),
+      rows,
+    });
+    await reply(transport, ctx, msg);
+  } catch (err) {
+    console.error('[personal-sales] فشل تسجيل الجهد الشخصي:', err);
+    await reply(transport, ctx,
+      `⚠️ ${err?.isOperational ? err.message : 'تعذّر تسجيل المبيع. جرّب إعادة إرساله، أو أدخله من التطبيق (فرق المحافظات ← الجهد الشخصي).'}`);
   }
   return true;
 }

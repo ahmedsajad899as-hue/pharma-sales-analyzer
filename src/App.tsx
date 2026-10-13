@@ -55,6 +55,7 @@ const _importAqdarExport         = () => import('./pages/AqdarExportPage');
 const _importTeamEngagement      = () => import('./pages/TeamEngagementPage');
 const _importRepFieldSurvey      = () => import('./pages/RepFieldSurveyPage');
 const _importRepFollowup         = () => import('./pages/RepFollowupPage');
+const _importProvinceTeams       = () => import('./pages/ProvinceTeamsPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -84,6 +85,7 @@ const AqdarExportPage         = lazyWithRetry(_importAqdarExport);
 const TeamEngagementPage      = lazyWithRetry(_importTeamEngagement);
 const RepFieldSurveyPage      = lazyWithRetry(_importRepFieldSurvey);
 const RepFollowupPage         = lazyWithRetry(_importRepFollowup);
+const ProvinceTeamsPage       = lazyWithRetry(_importProvinceTeams);
 
 // Minimal spinner shown while a page chunk is loading
 function PageLoader() {
@@ -127,6 +129,7 @@ export type PageId =
   | 'pharmacy-analysis'
   | 'item-analysis'
   | 'rep-followup'
+  | 'province-teams'
   | 'bonus-sales'
   | 'account-builder'
   | 'aqdar-export'
@@ -546,7 +549,7 @@ function AppInner() {
       _importRepAnalysis, _importCommercial, _importSurvey, _importFMS, _importSalesData,
       _importDistributorSales, _importFileFilter, _importPharmacyAnalysis, _importItemAnalysis,
       _importBonusSales, _importOrgStructure, _importAccountBuilder, _importAqdarExport,
-      _importTeamEngagement, _importRepFollowup,
+      _importTeamEngagement, _importRepFollowup, _importProvinceTeams,
     ];
 
     // على شبكة بطيئة أو وضع توفير البيانات، سحب ~6MB من الشيفرة مقدّماً يضرّ أكثر
@@ -650,6 +653,7 @@ function AppInner() {
     { id: 'aqdar-export',       node: <AqdarExportPage /> },
     { id: 'team-engagement',    node: <TeamEngagementPage /> },
     { id: 'rep-followup',       node: <RepFollowupPage /> },
+    { id: 'province-teams',     node: <ProvinceTeamsPage activeFileIds={activeFileIds} /> },
   ];
 
   return (
