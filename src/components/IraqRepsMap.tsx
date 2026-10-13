@@ -1,25 +1,29 @@
 // ════════════════════════════════════════════════════════════════════════════
-// IraqRepsMap — خريطة العراق: المندوبون العلميون بالمحافظات (بلا بغداد) + صافي مبيعهم.
+// IraqRepsMap — خريطة العراق التفاعلية: لكل محافظة (عدا بغداد) عدد الشركات العاملة
+// فيها، ومبيع كل شركة، والمندوبون العلميون التابعون لكل شركة.
 //
-// الحدود SVG مُسقَطة مسبقاً (src/data/iraqProvinces.ts) فلا مكتبة خرائط ولا بلاطات
-// تُحمَّل. تلوين المحافظة تدرّج لون واحد حسب صافي المبيع، وكل محافظة فيها مندوبون
-// تُرسَم لها بطاقة (اسم المندوب + مبيعه) متصلة بمركزها بخط رفيع. البطاقات تُوزَّع
-// على جانبَي الخريطة وتُرتَّب عمودياً بلا تداخل. الشاشات الضيقة تعرض القائمة فقط.
+// الحدود SVG مُسقَطة مسبقاً (src/data/iraqProvinces.ts) فلا مكتبة خرائط ولا بلاطات.
+// المصادر:
+//   • /api/reports/overall (مبيع − إرجاع) ← byProvince + byProvinceCompany: مبيع الشركات
+//     بالمحافظة من الملفات نفسها — يعمل حتى قبل إنشاء حسابات المندوبين.
+//   • /api/scientific-reps/province-map ← المندوبون العلميون بكل محافظة؛ تُنسَب الشركة
+//     من `company` (الشركة الرئيسية لحساب المندوب) في قائمة reps الممرَّرة.
+//
+// ⚠️ الجلب يتحرّك بالملفات + الشهر فقط. حقلا التواريخ في ReportsPage يتبدّلان
+// تلقائياً (فارغ↔مملوء)، وإدخالهما في الاعتماديات سبّب حلقة جلب لا تنتهي.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { IRAQ_PROVINCE_SHAPES, IRAQ_MAP_VIEWBOX } from '../data/iraqProvinces';
 
-export interface ProvinceRepRow { id: number; name: string; netValue: number; netQty: number }
-export interface ProvinceMapRow { provinceName: string; totalValue: number; reps: ProvinceRepRow[] }
+interface RepRow { id: number; name: string; netValue: number; netQty?: number }
+interface RepProvinceRow { provinceName: string; totalValue: number; reps: RepRow[] }
 
 interface Props {
   reps: { id: number; company?: string | null }[];
   token: string | null;
   fileIds: number[];
-  /** يضيف month/تواريخ الشهر المختار إلى الطلب — نفس دالة الصفحة. */
   applyMonth: (p: URLSearchParams) => void;
-  /** يتغيّر مع الشهر لإعادة الجلب. */
   monthKey: string;
   fromDate: string;
   toDate: string;
@@ -27,45 +31,44 @@ interface Props {
   currencyLabel: string;
 }
 
-// توحيد اسم المحافظة للمطابقة (أ/إ/آ→ا، ى→ي، ة→ه)
+interface CompanyCell { name: string; value: number; reps: RepRow[] }
+interface ProvinceCell { name: string; total: number; companies: CompanyCell[]; repCount: number }
+
 const norm = (s: string) => String(s || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
+const BAGHDAD = norm('بغداد');
+const UNASSIGNED = norm('غير مصنّف');
+const NO_COMPANY = 'بدون شركة';
 
-// الجانب الذي تُعلَّق عليه بطاقة كل محافظة (يقلّل تقاطع الخطوط)
-const LEFT_SIDE = new Set(['نينوى', 'دهوك', 'الأنبار', 'صلاح الدين', 'كربلاء', 'النجف', 'بابل', 'المثنى'].map(norm));
+// إزاحة الدبوس للمحافظات المتلاصقة الصغيرة كي لا تتراكب الأسماء
+const LABEL_NUDGE: Record<string, [number, number]> = {
+  [norm('كربلاء')]: [-30, 0], [norm('بابل')]: [22, -2], [norm('دهوك')]: [0, 10],
+  [norm('القادسية')]: [-4, 24], [norm('واسط')]: [18, 0],
+};
 
-const STAGE_W = 1700, MAP_X = 350;           // الخريطة عرضها 1000 تبدأ عند x=350
-const CARD_W = 270, CARD_GAP = 14, HEAD_H = 40, ROW_H = 26, MAX_ROWS = 5;
-const STAGE_H = IRAQ_MAP_VIEWBOX.h;
-
-// تدرّج أزرق أحادي اللون (فاتح→داكن)
-const RAMP = ['#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#3b82f6', '#2563eb', '#1d4ed8', '#1e3a8a'];
-
-interface Card { key: string; row: ProvinceMapRow; side: 'L' | 'R'; x: number; y: number; h: number; ax: number; ay: number; shown: ProvinceRepRow[]; more: number }
+const RAMP = ['#e0ecff', '#c7dbff', '#a3c2fb', '#78a3f5', '#4f84ea', '#2f66d6', '#1f4fb4', '#173a85'];
+const VB = IRAQ_MAP_VIEWBOX;
 
 export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
-  const [repData, setRepData] = useState<ProvinceMapRow[] | null>(null);
-  // صافي مبيع كل محافظة من بيانات الملفات نفسها (مبيع − إرجاع) — مستقل عن وجود حسابات مندوبين.
-  const [sales, setSales] = useState<Map<string, { name: string; value: number }>>(new Map());
+  const [repData, setRepData] = useState<RepProvinceRow[]>([]);
+  const [salesRows, setSalesRows] = useState<{ prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] }>({ prov: new Map(), pc: [] });
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const [hover, setHover] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapW, setWrapW] = useState(1200);
+
   const repIdsKey = reps.map(r => r.id).join(',');
-  const companyOf = useMemo(() => new Map(reps.map(r => [r.id, r.company || ''])), [reps]);
+  const companyOf = useMemo(() => new Map(reps.map(r => [r.id, (r.company || '').trim() || NO_COMPANY])), [reps]);
 
   useEffect(() => {
     const el = wrapRef.current; if (!el) return;
-    // عتبة 24px: ظهور/اختفاء شريط تمرير الصفحة (≈15px) يغيّر العرض فيتغيّر ارتفاع
-    // المنصّة فيظهر/يختفي الشريط من جديد — حلقة اهتزاز. نتجاهل التغيّرات الصغيرة.
+    // عتبة 24px: ظهور شريط تمرير الصفحة يغيّر العرض قليلاً — تجاهله لتفادي الاهتزاز.
     const ro = new ResizeObserver(() => setWrapW(prev => Math.abs(el.clientWidth - prev) > 24 ? el.clientWidth : prev));
-    ro.observe(el); setWrapW(el.clientWidth);
+    ro.observe(el); if (el.clientWidth > 0) setWrapW(el.clientWidth);
     return () => ro.disconnect();
   }, []);
 
-  // أحدث قيم الصفحة بلا إدخالها في اعتماديات الـeffect: حقلا التواريخ كانا يتبدّلان
-  // تلقائياً (فارغ↔مملوء) فيُعاد الجلب بلا نهاية — الشهر المختار وحده يحرّك الطلب.
   const latest = useRef({ applyMonth, fromDate, toDate });
   latest.current = { applyMonth, fromDate, toDate };
 
@@ -76,129 +79,145 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
       setLoading(true); setErr('');
       try {
         const p = new URLSearchParams();
-        p.set('repIds', repIdsKey);
         if (monthKey === 'custom') {
           if (latest.current.fromDate) p.set('startDate', latest.current.fromDate);
           if (latest.current.toDate) p.set('endDate', latest.current.toDate);
-        }
+        } else latest.current.applyMonth(p);
         if (fileIds.length > 0) p.set('fileIds', fileIds.join(','));
-        if (monthKey !== 'custom') latest.current.applyMonth(p);
-        const H = { Authorization: `Bearer ${token}` }; const sig = ac.signal;
-        const ov = new URLSearchParams(p); ov.delete('repIds');
+        const H = { Authorization: `Bearer ${token}` };
+        const rp = new URLSearchParams(p); rp.set('repIds', repIdsKey);
         const [repRes, saleRes, retRes] = await Promise.all([
-          repIdsKey ? fetch(`/api/scientific-reps/province-map?${p}`, { headers: H, signal: sig }) : Promise.resolve(null),
-          fileIds.length > 0 ? fetch(`/api/reports/overall?${ov}&recordType=sale`, { headers: H, signal: sig }) : Promise.resolve(null),
-          fileIds.length > 0 ? fetch(`/api/reports/overall?${ov}&recordType=return`, { headers: H, signal: sig }) : Promise.resolve(null),
+          repIdsKey ? fetch(`/api/scientific-reps/province-map?${rp}`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
+          fileIds.length ? fetch(`/api/reports/overall?${p}&recordType=sale`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
+          fileIds.length ? fetch(`/api/reports/overall?${p}&recordType=return`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
         ]);
-        const repJson = repRes ? await repRes.json() : { data: [] };
-        if (repRes && !repRes.ok) throw new Error(repJson.message || 'تعذّر تحميل الخريطة');
-        const m = new Map<string, { name: string; value: number }>();
+        const prov = new Map<string, { name: string; value: number }>();
+        const pcMap = new Map<string, { p: string; c: string; v: number }>();
         const add = async (r: Response | null, sign: number) => {
           if (!r || !r.ok) return;
           const j = await r.json(); const d = j.data ?? j;
           for (const row of d.byProvince ?? []) {
             const name = row.provinceName ?? row.name; if (!name) continue;
-            const k = norm(name); const cur = m.get(k) ?? { name, value: 0 };
-            cur.value += sign * (row.totalValue ?? 0); m.set(k, cur);
+            const cur = prov.get(norm(name)) ?? { name, value: 0 };
+            cur.value += sign * (row.totalValue ?? 0); prov.set(norm(name), cur);
+          }
+          for (const row of d.byProvinceCompany ?? []) {
+            if (!row.provinceName || !row.companyName) continue;
+            const k = `${norm(row.provinceName)}::${norm(row.companyName)}`;
+            const cur = pcMap.get(k) ?? { p: row.provinceName, c: row.companyName, v: 0 };
+            cur.v += sign * (row.totalValue ?? 0); pcMap.set(k, cur);
           }
         };
         await add(saleRes, 1); await add(retRes, -1);
-        if (!dead) { setRepData(repJson.data ?? []); setSales(m); }
-      } catch (e: any) { if (!dead) { setErr(e.message); setRepData([]); setSales(new Map()); } }
+        const repJson = repRes && repRes.ok ? await repRes.json() : { data: [] };
+        if (!dead) { setRepData(repJson.data ?? []); setSalesRows({ prov, pc: [...pcMap.values()] }); }
+      } catch (e: any) { if (!dead) setErr(e.message || 'تعذّر تحميل الخريطة'); }
       finally { if (!dead) setLoading(false); }
     }, 300);
     return () => { dead = true; clearTimeout(timer); ac.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repIdsKey, fileIds.join(','), monthKey, token]);
 
-  // دمج: مبيع المحافظة من الملفات + المندوبون إن وُجدوا (بغداد مستثناة).
-  const data = useMemo<ProvinceMapRow[]>(() => {
-    const out = new Map<string, ProvinceMapRow>();
-    for (const r of repData ?? []) out.set(norm(r.provinceName), { ...r });
-    for (const [k, v] of sales) {
-      if (k === norm('بغداد')) continue;
-      const cur = out.get(k);
-      if (cur) cur.totalValue = v.value;
-      else out.set(k, { provinceName: v.name, totalValue: v.value, reps: [] });
+  // ── دمج: محافظة ← شركات (مبيع + مندوبون) ─────────────────────────────────
+  const cells = useMemo(() => {
+    const out = new Map<string, ProvinceCell>();
+    const cell = (name: string) => {
+      const k = norm(name);
+      if (!out.has(k)) out.set(k, { name, total: 0, companies: [], repCount: 0 });
+      return out.get(k)!;
+    };
+    const company = (pc: ProvinceCell, name: string) => {
+      let c = pc.companies.find(x => norm(x.name) === norm(name));
+      if (!c) { c = { name, value: 0, reps: [] }; pc.companies.push(c); }
+      return c;
+    };
+    for (const [k, v] of salesRows.prov) { if (k !== BAGHDAD) cell(v.name).total = v.value; }
+    for (const r of salesRows.pc) {
+      if (norm(r.p) === BAGHDAD || norm(r.c) === UNASSIGNED) continue;
+      company(cell(r.p), r.c).value += r.v;
     }
-    return [...out.values()];
-  }, [repData, sales]);
-  const byProv = useMemo(() => new Map(data.map(r => [norm(r.provinceName), r])), [data]);
-  const maxVal = useMemo(() => Math.max(1, ...data.map(r => r.totalValue)), [data]);
-  const fillOf = (row?: ProvinceMapRow) => {
-    if (!row) return '#eef2f7';
-    if (row.totalValue <= 0) return '#e2e8f0';
-    const t = Math.sqrt(row.totalValue / maxVal);         // sqrt: يُظهر الفروق بين القيم الصغيرة
+    for (const pr of repData) {
+      if (norm(pr.provinceName) === BAGHDAD) continue;
+      const pc = cell(pr.provinceName);
+      for (const rep of pr.reps) company(pc, companyOf.get(rep.id) || NO_COMPANY).reps.push(rep);
+      pc.repCount = pr.reps.length;
+      if (!salesRows.prov.has(norm(pr.provinceName))) pc.total = pr.totalValue;
+    }
+    for (const pc of out.values()) pc.companies.sort((a, b) => b.value - a.value);
+    return out;
+  }, [salesRows, repData, companyOf]);
+
+  const list = useMemo(() => [...cells.values()].sort((a, b) => b.total - a.total), [cells]);
+  const maxVal = Math.max(1, ...list.map(c => c.total));
+  const fillOf = (c?: ProvinceCell) => {
+    if (!c || c.total <= 0) return '#edf1f7';
+    const t = Math.sqrt(c.total / maxVal);
     return RAMP[Math.min(RAMP.length - 1, Math.floor(t * RAMP.length))];
   };
 
-  const cards = useMemo<Card[]>(() => {
-    const out: Card[] = [];
-    for (const s of IRAQ_PROVINCE_SHAPES) {
-      const row = byProv.get(norm(s.name));
-      if (!row) continue;
-      const shown = row.reps.slice(0, MAX_ROWS);
-      const more = row.reps.length - shown.length;
-      const h = HEAD_H + Math.max(1, shown.length) * ROW_H + (more > 0 ? 20 : 0) + 8;
-      const side: 'L' | 'R' = LEFT_SIDE.has(norm(s.name)) ? 'L' : 'R';
-      out.push({ key: s.name, row, side, x: side === 'L' ? 6 : STAGE_W - CARD_W - 6, y: 0, h, ax: MAP_X + s.cx, ay: s.cy, shown, more });
-    }
-    for (const side of ['L', 'R'] as const) {
-      const col = out.filter(c => c.side === side).sort((a, b) => a.ay - b.ay);
-      let prev = -CARD_GAP;
-      for (const c of col) { c.y = Math.max(c.ay - c.h / 2, prev + CARD_GAP); prev = c.y + c.h; }
-      let limit = STAGE_H;                                  // تمرير عكسي: لا تخرج عن الإطار
-      for (let i = col.length - 1; i >= 0; i--) { const c = col[i]; if (c.y + c.h > limit) c.y = limit - c.h; limit = c.y - CARD_GAP; }
-      if (col.length && col[0].y < 0) { let y = 0; for (const c of col) { c.y = Math.max(c.y, y); y = c.y + c.h + CARD_GAP; } }
-    }
-    return out;
-  }, [byProv]);
+  // اختيار افتراضي: أعلى محافظة مبيعاً — كي لا تبدو اللوحة فارغة عند الدخول
+  useEffect(() => {
+    if (sel && cells.has(norm(sel))) return;
+    setSel(list[0]?.name ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list]);
+
+  const active = hover ?? sel;
+  const activeCell = active ? cells.get(norm(active)) : undefined;
+  const selCell = sel ? cells.get(norm(sel)) : undefined;
 
   const totals = useMemo(() => {
-    const rows = data;
-    return { value: rows.reduce((s, r) => s + r.totalValue, 0), reps: new Set(rows.flatMap(r => r.reps.map(x => x.id))).size, provinces: rows.length };
-  }, [data]);
-  const ranking = useMemo(() => [...data].sort((a, b) => b.totalValue - a.totalValue), [data]);
+    const cos = new Set<string>(); const rp = new Set<number>(); let v = 0;
+    for (const c of list) { v += c.total; c.companies.forEach(x => { cos.add(norm(x.name)); x.reps.forEach(r => rp.add(r.id)); }); }
+    return { value: v, companies: cos.size, reps: rp.size, provinces: list.filter(c => c.total !== 0 || c.repCount > 0).length };
+  }, [list]);
 
-  const wide = wrapW >= 980;
-  const scale = wrapW / STAGE_W;
-  const active = sel ?? hover;
-  const activeRow = active ? byProv.get(norm(active)) : undefined;
+  const side = wrapW >= 940;
+  const shapeOf = (name: string) => IRAQ_PROVINCE_SHAPES.find(s => norm(s.name) === norm(name));
+  const hoverShape = hover ? shapeOf(hover) : undefined;
 
-  const rankList = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {ranking.map((r, i) => (
-        <div key={r.provinceName} onMouseEnter={() => setHover(r.provinceName)} onMouseLeave={() => setHover(null)}
-          onClick={() => setSel(s => s === r.provinceName ? null : r.provinceName)}
-          style={{ background: '#fff', border: `1px solid ${active && norm(active) === norm(r.provinceName) ? '#2563eb' : '#e2e8f0'}`, borderRadius: 12, padding: '10px 12px', cursor: 'pointer' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontWeight: 800, fontSize: 13, color: '#0f172a' }}><span style={{ color: '#94a3b8', fontWeight: 600, marginInlineEnd: 6 }}>{i + 1}</span>{r.provinceName}</span>
-            <span style={{ fontWeight: 800, fontSize: 13, color: r.totalValue < 0 ? '#be123c' : '#1d4ed8' }}>{fmtVal(r.totalValue)}</span>
-          </div>
-          <div style={{ height: 4, borderRadius: 4, background: '#eef2f7', margin: '7px 0' }}>
-            <div style={{ height: '100%', width: `${Math.max(2, Math.min(100, (r.totalValue / maxVal) * 100))}%`, background: fillOf(r) === '#dbeafe' ? '#93c5fd' : fillOf(r), borderRadius: 4 }} />
-          </div>
-          {r.reps.map(p => (
-            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#475569', padding: '1px 0' }}>
-              <span>{p.name}{companyOf.get(p.id) ? <span style={{ color: '#94a3b8' }}> · {companyOf.get(p.id)}</span> : null}</span>
-              <span style={{ fontWeight: 700, color: '#0f172a' }}>{fmtVal(p.netValue)}</span>
+  const companyPanel = (c: ProvinceCell) => {
+    const cmax = Math.max(1, ...c.companies.map(x => Math.abs(x.value)));
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {c.companies.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13 }}>لا توجد شركات مسجّلة في هذه المحافظة للفترة المختارة.</div>}
+        {c.companies.map(co => (
+          <div key={co.name} style={{ border: '1px solid #e6ebf2', borderRadius: 14, padding: '10px 12px', background: '#fbfcfe' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>{co.name}</span>
+              <span style={{ fontWeight: 800, fontSize: 14, color: co.value < 0 ? '#be123c' : '#1f4fb4', direction: 'ltr' }}>{fmtVal(co.value)}</span>
             </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
+            <div style={{ height: 5, borderRadius: 5, background: '#e9eef5', margin: '8px 0' }}>
+              <div style={{ height: '100%', width: `${Math.max(3, (Math.abs(co.value) / cmax) * 100)}%`, background: 'linear-gradient(90deg,#2f66d6,#78a3f5)', borderRadius: 5 }} />
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {co.reps.length === 0
+                ? <span style={{ fontSize: 12, color: '#94a3b8' }}>لا يوجد مندوب علمي بعد</span>
+                : co.reps.map(r => (
+                  <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 999, padding: '3px 10px' }}>
+                    <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#0f172a', color: '#fff', fontSize: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{r.name.trim().charAt(0)}</span>
+                    {r.name}
+                  </span>
+                ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
-    <div style={{ marginTop: 14 }}>
+    <div ref={wrapRef} style={{ marginTop: 14 }}>
       {/* شريط ملخص */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-        {[
-          ['صافي مبيع المحافظات', `${fmtVal(totals.value)} ${currencyLabel}`, '#1d4ed8'],
-          ['المندوبون العلميون', String(totals.reps), '#0f766e'],
-          ['المحافظات المغطّاة', `${totals.provinces} / 17`, '#7c3aed'],
-        ].map(([l, v, c]) => (
-          <div key={l} style={{ flex: '1 1 160px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '10px 14px', borderTop: `3px solid ${c}` }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 12 }}>
+        {([
+          ['صافي مبيع المحافظات', `${fmtVal(totals.value)} ${currencyLabel}`, '#2f66d6'],
+          ['الشركات', String(totals.companies), '#0f766e'],
+          ['المندوبون العلميون', String(totals.reps), '#7c3aed'],
+          ['المحافظات النشطة', `${totals.provinces} / 17`, '#ea580c'],
+        ] as const).map(([l, v, c]) => (
+          <div key={l} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '10px 14px', position: 'relative', overflow: 'hidden' }}>
+            <span style={{ position: 'absolute', insetInlineStart: 0, top: 0, bottom: 0, width: 4, background: c }} />
             <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>{l}</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>{v}</div>
           </div>
@@ -207,111 +226,130 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
 
       {err && <div style={{ color: '#be123c', fontSize: 13, marginBottom: 8 }}>{err}</div>}
 
-      <div ref={wrapRef} style={{ background: 'radial-gradient(1200px 600px at 50% 0%, #f8fafc 0%, #eef2f7 100%)', border: '1px solid #e2e8f0', borderRadius: 20, padding: wide ? 0 : 12, position: 'relative', overflow: 'hidden', minHeight: 120 }}>
-        {loading && <div style={{ position: 'absolute', top: 10, insetInlineEnd: 14, fontSize: 12, color: '#64748b', zIndex: 5 }}>جاري التحميل…</div>}
-
-        {wide ? (
-          <div style={{ height: STAGE_H * scale, position: 'relative' }}>
-            <div style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute', left: 0, top: 0 }}>
-              <svg width={STAGE_W} height={STAGE_H} style={{ position: 'absolute', inset: 0 }}>
-                <defs>
-                  <filter id="iqShadow" x="-5%" y="-5%" width="110%" height="115%"><feDropShadow dx="0" dy="6" stdDeviation="8" floodColor="#0f172a" floodOpacity="0.14" /></filter>
-                </defs>
-                <g transform={`translate(${MAP_X} 0)`} filter="url(#iqShadow)">
-                  {IRAQ_PROVINCE_SHAPES.map(s => {
-                    const row = byProv.get(norm(s.name));
-                    const isBaghdad = norm(s.name) === norm('بغداد');
-                    const on = active && norm(active) === norm(s.name);
-                    return (
-                      <path key={s.name} d={s.d} fillRule="evenodd"
-                        fill={isBaghdad ? '#f1f5f9' : fillOf(row)}
-                        stroke={on ? '#0f172a' : '#fff'} strokeWidth={on ? 3 : 2} strokeLinejoin="round"
-                        style={{ cursor: row ? 'pointer' : 'default', transition: 'fill .2s, stroke-width .2s', opacity: active && !on ? 0.78 : 1 }}
-                        onMouseEnter={() => row && setHover(s.name)} onMouseLeave={() => setHover(null)}
-                        onClick={() => row && setSel(v => v === s.name ? null : s.name)}>
-                        <title>{s.name}</title>
-                      </path>
-                    );
-                  })}
-                </g>
-                {/* أسماء المحافظات التي بلا بطاقة */}
-                {IRAQ_PROVINCE_SHAPES.filter(s => !cards.some(c => c.key === s.name)).map(s => (
-                  <text key={s.name} x={MAP_X + s.cx} y={s.cy} textAnchor="middle" dominantBaseline="middle"
-                    style={{ fontSize: 15, fontWeight: 700, fill: norm(s.name) === norm('بغداد') ? '#94a3b8' : '#94a3b8', pointerEvents: 'none' }}>{s.name}{norm(s.name) === norm('بغداد') ? ' (مستثناة)' : ''}</text>
-                ))}
-                {/* خطوط الربط */}
-                {cards.map(c => {
-                  const ex = c.side === 'L' ? c.x + CARD_W : c.x;
-                  const ey = c.y + HEAD_H / 2;
-                  const on = active && norm(active) === norm(c.key);
+      <div style={{ display: 'grid', gridTemplateColumns: side ? 'minmax(0, 1.55fr) minmax(300px, 1fr)' : '1fr', gap: 14, alignItems: 'start' }}>
+        {/* ── الخريطة ── */}
+        <div style={{ position: 'relative', background: 'radial-gradient(900px 500px at 40% 20%, #ffffff 0%, #eef3fa 70%)', border: '1px solid #e2e8f0', borderRadius: 22, padding: '14px 10px 10px', overflow: 'hidden' }}>
+          {loading && (
+            <div style={{ position: 'absolute', top: 12, insetInlineStart: 14, zIndex: 3, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', background: 'rgba(255,255,255,.9)', border: '1px solid #e2e8f0', borderRadius: 999, padding: '4px 10px' }}>
+              جاري التحميل…
+            </div>
+          )}
+          <div style={{ position: 'relative', width: '100%', maxWidth: 820, margin: '0 auto' }}>
+            <svg viewBox={`-20 -20 ${VB.w + 40} ${VB.h + 40}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="خريطة محافظات العراق">
+              <defs>
+                <filter id="iqMapShadow" x="-10%" y="-10%" width="120%" height="120%">
+                  <feDropShadow dx="0" dy="8" stdDeviation="10" floodColor="#1e3a8a" floodOpacity="0.16" />
+                </filter>
+                <pattern id="iqHatch" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                  <rect width="10" height="10" fill="#f1f5f9" /><line x1="0" y1="0" x2="0" y2="10" stroke="#cbd5e1" strokeWidth="3" />
+                </pattern>
+              </defs>
+              <g filter="url(#iqMapShadow)">
+                {IRAQ_PROVINCE_SHAPES.map(s => {
+                  const k = norm(s.name);
+                  const c = cells.get(k);
+                  const isB = k === BAGHDAD;
+                  const on = active && norm(active) === k;
                   return (
-                    <g key={c.key} style={{ pointerEvents: 'none' }}>
-                      <path d={`M${ex} ${ey} C ${(ex + c.ax) / 2} ${ey}, ${(ex + c.ax) / 2} ${c.ay}, ${c.ax} ${c.ay}`} fill="none" stroke={on ? '#0f172a' : '#64748b'} strokeWidth={on ? 2 : 1.2} strokeDasharray={on ? '' : '4 4'} opacity={on ? 1 : 0.7} />
-                      <circle cx={c.ax} cy={c.ay} r={6} fill="#fff" stroke="#0f172a" strokeWidth={2.5} />
-                    </g>
+                    <path key={s.name} d={s.d} fillRule="evenodd"
+                      fill={isB ? 'url(#iqHatch)' : fillOf(c)}
+                      stroke={on ? '#0f172a' : '#ffffff'} strokeWidth={on ? 3.5 : 2} strokeLinejoin="round"
+                      style={{ cursor: isB ? 'default' : 'pointer', transition: 'fill .25s, opacity .2s' }}
+                      opacity={active && !on && !isB ? 0.82 : 1}
+                      onMouseEnter={() => !isB && setHover(s.name)} onMouseLeave={() => setHover(null)}
+                      onClick={() => !isB && setSel(s.name)} />
                   );
                 })}
-              </svg>
-
-              {cards.map(c => {
-                const on = active && norm(active) === norm(c.key);
+              </g>
+              {/* دبابيس المحافظات: عدد الشركات + الاسم + المبيع */}
+              {IRAQ_PROVINCE_SHAPES.map(s => {
+                const k = norm(s.name);
+                const [dx, dy] = LABEL_NUDGE[k] ?? [0, 0];
+                const x = s.cx + dx, y = s.cy + dy;
+                if (k === BAGHDAD) {
+                  return <text key={s.name} x={x} y={y} textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 13, fontWeight: 700, fill: '#94a3b8', pointerEvents: 'none' }}>بغداد</text>;
+                }
+                const c = cells.get(k);
+                const n = c?.companies.length ?? 0;
+                const on = active && norm(active) === k;
+                const dark = !!c && c.total > 0 && Math.sqrt(c.total / maxVal) > 0.55;
                 return (
-                  <div key={c.key} dir="rtl"
-                    onMouseEnter={() => setHover(c.key)} onMouseLeave={() => setHover(null)}
-                    onClick={() => setSel(v => v === c.key ? null : c.key)}
-                    style={{
-                      position: 'absolute', left: c.x, top: c.y, width: CARD_W, height: c.h, boxSizing: 'border-box',
-                      background: 'rgba(255,255,255,0.96)', backdropFilter: 'blur(6px)',
-                      border: `1.5px solid ${on ? '#0f172a' : '#dbe3ee'}`, borderRadius: 14,
-                      boxShadow: on ? '0 10px 28px rgba(15,23,42,.22)' : '0 3px 12px rgba(15,23,42,.08)',
-                      transition: 'box-shadow .2s, border-color .2s', cursor: 'pointer', overflow: 'hidden',
-                    }}>
-                    <div style={{ height: HEAD_H, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', borderBottom: '1px solid #eef2f7', background: '#f8fafc' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontWeight: 800, fontSize: 15, color: '#0f172a' }}>
-                        <span style={{ width: 11, height: 11, borderRadius: 4, background: fillOf(c.row), border: '1px solid rgba(15,23,42,.15)' }} />{c.key}
-                      </span>
-                      <span style={{ fontWeight: 800, fontSize: 14, color: c.row.totalValue < 0 ? '#be123c' : '#1d4ed8' }}>{fmtVal(c.row.totalValue)}</span>
-                    </div>
-                    {c.shown.length === 0 && (
-                      <div style={{ height: ROW_H, display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 12.5, color: '#94a3b8' }}>لا يوجد مندوب علمي بعد</div>
+                  <g key={s.name} style={{ cursor: 'pointer' }} onMouseEnter={() => setHover(s.name)} onMouseLeave={() => setHover(null)} onClick={() => setSel(s.name)}>
+                    <text x={x} y={y - 30} textAnchor="middle" style={{ fontSize: 15, fontWeight: 800, fill: dark ? '#ffffff' : '#1e293b', paintOrder: 'stroke', stroke: dark ? 'rgba(15,23,42,.35)' : 'rgba(255,255,255,.85)', strokeWidth: 3, pointerEvents: 'none' }}>{s.name}</text>
+                    <circle cx={x} cy={y} r={on ? 20 : 17} fill={n > 0 ? '#0f172a' : '#ffffff'} stroke={n > 0 ? '#ffffff' : '#94a3b8'} strokeWidth={3} />
+                    <text x={x} y={y + 1} textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 15, fontWeight: 800, fill: n > 0 ? '#ffffff' : '#94a3b8', pointerEvents: 'none' }}>{n}</text>
+                    {c && c.total !== 0 && (
+                      <text x={x} y={y + 38} textAnchor="middle" style={{ fontSize: 13, fontWeight: 700, fill: dark ? '#ffffff' : '#1f4fb4', paintOrder: 'stroke', stroke: dark ? 'rgba(15,23,42,.35)' : 'rgba(255,255,255,.9)', strokeWidth: 3, pointerEvents: 'none' }}>{fmtVal(c.total)}</text>
                     )}
-                    {c.shown.map(p => (
-                      <div key={p.id} style={{ height: ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 12px', fontSize: 13 }}>
-                        <span style={{ color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={companyOf.get(p.id) || undefined}>{p.name}</span>
-                        <span style={{ fontWeight: 700, color: p.netValue < 0 ? '#be123c' : p.netValue === 0 ? '#94a3b8' : '#0f172a', flexShrink: 0 }}>{fmtVal(p.netValue)}</span>
-                      </div>
-                    ))}
-                    {c.more > 0 && <div style={{ height: 20, padding: '0 12px', fontSize: 12, color: '#64748b' }}>+{c.more} مندوب آخر</div>}
-                  </div>
+                  </g>
                 );
               })}
+            </svg>
 
-              {/* مفتاح الألوان */}
-              <div style={{ position: 'absolute', left: MAP_X + 20, top: STAGE_H - 46, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
-                <span>أقل</span>
-                <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #fff' }}>{RAMP.map(c => <span key={c} style={{ width: 22, height: 10, background: c }} />)}</div>
-                <span>أعلى مبيعاً</span>
+            {/* بطاقة تلميح عائمة عند المرور */}
+            {hoverShape && activeCell && (
+              <div dir="rtl" style={{
+                position: 'absolute', pointerEvents: 'none', zIndex: 4,
+                left: `${((hoverShape.cx + 20) / (VB.w + 40)) * 100}%`, top: `${((hoverShape.cy + 20) / (VB.h + 40)) * 100}%`,
+                transform: `translate(${hoverShape.cx > VB.w * 0.55 ? 'calc(-100% - 26px)' : '26px'}, -50%)`,
+                background: 'rgba(15,23,42,.94)', color: '#fff', borderRadius: 14, padding: '10px 12px', minWidth: 200, maxWidth: 260,
+                boxShadow: '0 12px 30px rgba(15,23,42,.3)', fontSize: 12.5,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontWeight: 800, fontSize: 14, marginBottom: 6 }}>
+                  <span>{activeCell.name}</span><span style={{ direction: 'ltr' }}>{fmtVal(activeCell.total)}</span>
+                </div>
+                {activeCell.companies.slice(0, 5).map(co => (
+                  <div key={co.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '2px 0', color: '#cbd5e1' }}>
+                    <span>{co.name} <span style={{ color: '#64748b' }}>· {co.reps.length} مندوب</span></span>
+                    <span style={{ color: '#fff', fontWeight: 700, direction: 'ltr' }}>{fmtVal(co.value)}</span>
+                  </div>
+                ))}
+                {activeCell.companies.length === 0 && <div style={{ color: '#94a3b8' }}>لا شركات بعد</div>}
               </div>
-            </div>
+            )}
           </div>
-        ) : (
-          rankList
-        )}
-      </div>
 
-      {/* تفاصيل المحافظة المختارة تحت الخريطة (للعرض العريض) */}
-      {wide && activeRow && (
-        <div style={{ marginTop: 12, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '12px 16px' }}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>{activeRow.provinceName} — {fmtVal(activeRow.totalValue)} {currencyLabel}</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {activeRow.reps.map(p => (
-              <span key={p.id} style={{ background: '#f1f5f9', borderRadius: 999, padding: '4px 12px', fontSize: 12.5 }}>
-                {p.name}{companyOf.get(p.id) ? ` · ${companyOf.get(p.id)}` : ''} — <b>{fmtVal(p.netValue)}</b>
-              </span>
-            ))}
+          {/* مفتاح */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 14, fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              أقل <span style={{ display: 'inline-flex', borderRadius: 5, overflow: 'hidden' }}>{RAMP.map(c => <span key={c} style={{ width: 16, height: 9, background: c }} />)}</span> أعلى مبيعاً
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#0f172a', color: '#fff', fontSize: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>n</span> عدد الشركات
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 16, height: 10, borderRadius: 3, background: 'repeating-linear-gradient(45deg,#f1f5f9 0 3px,#cbd5e1 3px 5px)' }} /> بغداد مستثناة
+            </span>
           </div>
         </div>
-      )}
+
+        {/* ── لوحة المحافظة المختارة ── */}
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 22, padding: 16, position: side ? 'sticky' : 'static', top: 12 }}>
+          {selCell ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>المحافظة</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>{selCell.name}</div>
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>صافي المبيع</div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: selCell.total < 0 ? '#be123c' : '#1f4fb4' }}>{fmtVal(selCell.total)} <span style={{ fontSize: 12, color: '#64748b' }}>{currencyLabel}</span></div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, background: '#eef3fd', color: '#1f4fb4', borderRadius: 999, padding: '4px 12px' }}>{selCell.companies.length} شركات</span>
+                <span style={{ fontSize: 12, fontWeight: 700, background: '#f3efff', color: '#6d28d9', borderRadius: 999, padding: '4px 12px' }}>{selCell.companies.reduce((s, x) => s + x.reps.length, 0)} مندوب علمي</span>
+              </div>
+              {companyPanel(selCell)}
+            </>
+          ) : (
+            <div style={{ color: '#64748b', fontSize: 13, padding: 20, textAlign: 'center' }}>
+              {loading ? 'جاري تحميل بيانات المحافظات…' : 'اضغط على محافظة في الخريطة لعرض شركاتها ومندوبيها ومبيعاتها.'}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
