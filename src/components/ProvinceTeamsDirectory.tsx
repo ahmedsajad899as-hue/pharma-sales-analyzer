@@ -28,6 +28,7 @@ const REP_BG = '#f3f1f9', REP_BG_SOFT = '#faf9fd';
 const GRP_SEP = '2px solid #fff';
 const grpHead: React.CSSProperties = { padding: '5px 6px', fontSize: 11.5, fontWeight: 700, color: '#475569', textAlign: 'center' };
 const subHead: React.CSSProperties = { padding: '6px 4px', fontWeight: 700 };
+const achievedOf = (items: DirItem[]) => items.reduce((a, i) => a + (i.targetQty > 0 ? i.personalQty : 0), 0);
 const pctOf = (a: number, b: number) => `${Math.round((a / b) * 100)}%`;
 
 export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmtVal, currencyLabel, onClose }: Props) {
@@ -107,8 +108,8 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                         <span style={{ fontWeight: 800, fontSize: 14, color: r.net < 0 ? '#be123c' : '#0f766e' }}>{fmtVal(r.net)} {currencyLabel}</span>
                         <span style={{ display: 'block', fontSize: 11.5, color: '#64748b' }}>
                           الكمية {nf(r.qty)}
-                          {r.targetQty > 0 && <> · التارگت {nf(r.targetQty)} ({pctOf(r.qty, r.targetQty)})</>}
                           {r.personalQty > 0 && <> · شخصي {nf(r.personalQty)}</>}
+                          {r.targetQty > 0 && <> · التارگت {nf(r.targetQty)} · الإنجاز الكلي {pctOf(achievedOf(r.items), r.targetQty)}</>}
                         </span>
                       </span>
                     </button>
@@ -144,10 +145,21 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.net < 0 ? '#be123c' : '#334155', background: CO_BG_SOFT }}>{fmtVal(i.net)}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', color: '#475569', background: REP_BG_SOFT, borderRight: GRP_SEP }}>{i.personalQty ? `${nf(i.personalQty)} · ${fmtVal(i.personalNet)}` : '—'}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT }}>{i.targetQty > 0 ? nf(i.targetQty) : '—'}</td>
-                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.targetQty > 0 && i.qty >= i.targetQty ? '#0f766e' : '#64748b', background: REP_BG_SOFT }}>{i.targetQty > 0 ? pctOf(i.qty, i.targetQty) : '—'}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.targetQty > 0 && i.personalQty >= i.targetQty ? '#0f766e' : '#64748b', background: REP_BG_SOFT }}>{i.targetQty > 0 ? pctOf(i.personalQty, i.targetQty) : '—'}</td>
                                   </tr>
                                 ))}
                               </tbody>
+                              <tfoot>
+                                <tr style={{ borderTop: '2px solid #e2e8f0', fontWeight: 800, color: '#0f172a' }}>
+                                  <td style={{ padding: '7px 4px' }}>الإجمالي</td>
+                                  <td style={{ background: CO_BG_SOFT }} />
+                                  <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: CO_BG_SOFT }}>{nf(r.qty)}</td>
+                                  <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: CO_BG_SOFT }}>{fmtVal(r.net)}</td>
+                                  <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT, borderRight: GRP_SEP }}>{r.personalQty ? `${nf(r.personalQty)} · ${fmtVal(r.personalNet)}` : '—'}</td>
+                                  <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT }}>{r.targetQty > 0 ? nf(r.targetQty) : '—'}</td>
+                                  <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT, color: r.targetQty > 0 && achievedOf(r.items) >= r.targetQty ? '#0f766e' : '#334155' }}>{r.targetQty > 0 ? pctOf(achievedOf(r.items), r.targetQty) : '—'}</td>
+                                </tr>
+                              </tfoot>
                             </table>
                           )}
                       </div>
