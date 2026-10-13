@@ -64,23 +64,31 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
     return () => ro.disconnect();
   }, []);
 
+  // أحدث قيم الصفحة بلا إدخالها في اعتماديات الـeffect: حقلا التواريخ كانا يتبدّلان
+  // تلقائياً (فارغ↔مملوء) فيُعاد الجلب بلا نهاية — الشهر المختار وحده يحرّك الطلب.
+  const latest = useRef({ applyMonth, fromDate, toDate });
+  latest.current = { applyMonth, fromDate, toDate };
+
   useEffect(() => {
     let dead = false;
-    (async () => {
+    const ac = new AbortController();
+    const timer = setTimeout(async () => {
       setLoading(true); setErr('');
       try {
         const p = new URLSearchParams();
         p.set('repIds', repIdsKey);
-        if (fromDate) p.set('startDate', fromDate);
-        if (toDate) p.set('endDate', toDate);
+        if (monthKey === 'custom') {
+          if (latest.current.fromDate) p.set('startDate', latest.current.fromDate);
+          if (latest.current.toDate) p.set('endDate', latest.current.toDate);
+        }
         if (fileIds.length > 0) p.set('fileIds', fileIds.join(','));
-        applyMonth(p);
-        const H = { Authorization: `Bearer ${token}` };
+        if (monthKey !== 'custom') latest.current.applyMonth(p);
+        const H = { Authorization: `Bearer ${token}` }; const sig = ac.signal;
         const ov = new URLSearchParams(p); ov.delete('repIds');
         const [repRes, saleRes, retRes] = await Promise.all([
-          repIdsKey ? fetch(`/api/scientific-reps/province-map?${p}`, { headers: H }) : Promise.resolve(null),
-          fileIds.length > 0 ? fetch(`/api/reports/overall?${ov}&recordType=sale`, { headers: H }) : Promise.resolve(null),
-          fileIds.length > 0 ? fetch(`/api/reports/overall?${ov}&recordType=return`, { headers: H }) : Promise.resolve(null),
+          repIdsKey ? fetch(`/api/scientific-reps/province-map?${p}`, { headers: H, signal: sig }) : Promise.resolve(null),
+          fileIds.length > 0 ? fetch(`/api/reports/overall?${ov}&recordType=sale`, { headers: H, signal: sig }) : Promise.resolve(null),
+          fileIds.length > 0 ? fetch(`/api/reports/overall?${ov}&recordType=return`, { headers: H, signal: sig }) : Promise.resolve(null),
         ]);
         const repJson = repRes ? await repRes.json() : { data: [] };
         if (repRes && !repRes.ok) throw new Error(repJson.message || 'تعذّر تحميل الخريطة');
@@ -98,10 +106,10 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
         if (!dead) { setRepData(repJson.data ?? []); setSales(m); }
       } catch (e: any) { if (!dead) { setErr(e.message); setRepData([]); setSales(new Map()); } }
       finally { if (!dead) setLoading(false); }
-    })();
-    return () => { dead = true; };
+    }, 300);
+    return () => { dead = true; clearTimeout(timer); ac.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repIdsKey, fileIds.join(','), monthKey, fromDate, toDate, token]);
+  }, [repIdsKey, fileIds.join(','), monthKey, token]);
 
   // دمج: مبيع المحافظة من الملفات + المندوبون إن وُجدوا (بغداد مستثناة).
   const data = useMemo<ProvinceMapRow[]>(() => {

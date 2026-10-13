@@ -1584,9 +1584,14 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
  * بحصّته هناك؛ والمندوب المُسنَد إليه محافظة بلا مبيع يظهر بصفر ليُعرف أنه موجود.
  */
 export async function getProvinceMapForReps(repIds, query = {}, viewerId = null) {
-  const reports = await Promise.all(repIds.map(async (id) => {
-    try { return await getReport(id, query, viewerId); } catch { return null; }
-  }));
+  // دفعات صغيرة: عشرات المندوبين بالتوازي كانت تُحمِّل ذاكرة السيرفر (951MB) دفعة واحدة.
+  const reports = [];
+  for (let i = 0; i < repIds.length; i += 4) {
+    const batch = await Promise.all(repIds.slice(i, i + 4).map(async (id) => {
+      try { return await getReport(id, query, viewerId); } catch { return null; }
+    }));
+    reports.push(...batch);
+  }
   const ok = reports.filter(Boolean);
 
   const areaIds = new Set();
