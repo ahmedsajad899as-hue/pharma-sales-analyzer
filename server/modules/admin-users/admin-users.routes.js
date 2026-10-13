@@ -7,7 +7,7 @@ import {
   syncManagerScopeToSubordinates,
   setUserStockCompanies, setUserStockItems,
   getUserRepInfo, getUserCompanyItems,
-  deleteUser, listProvinceStructure,
+  deleteUser, listProvinceStructure, setProvinceLeader,
 } from './admin-users.controller.js';
 import { previewUsersImport, commitUsersImport } from './admin-users-import.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
@@ -19,6 +19,7 @@ router.use(requireSuperAdmin);
 
 router.get('/',            listAllUsers);
 router.get('/province-structure', listProvinceStructure); // قبل '/:id'
+router.put('/province-structure/leader', setProvinceLeader);
 router.get('/:id/rep-info',      getUserRepInfo);
 router.get('/:id/company-items', getUserCompanyItems);
 router.get('/:id/password',      getUserPassword);

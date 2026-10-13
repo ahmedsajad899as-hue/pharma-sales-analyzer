@@ -104,6 +104,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // هيكلية المحافظات (تيم ليدر + مندوبون) — معزولة عن الشركات ومدراء الشركات.
   const [provTeams, setProvTeams] = useState<ProvTeam[]>([]);
   const [openProvTeams, setOpenProvTeams] = useState<Set<number>>(new Set());
+  const [provList, setProvList] = useState<{ id: number; name: string }[]>([]);
+  const [provSaving, setProvSaving] = useState(false);
   const provLeaderIds = new Set(provTeams.map(t => t.leaderUserId).filter((x): x is number => x != null));
   const provUserIds = new Set<number>([...provLeaderIds, ...provTeams.flatMap(t => t.reps.map(r => r.userId))]);
   const [refsLoading, setRefsLoading] = useState(false);
@@ -197,7 +199,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       fetch('/api/sa/companies', { headers: H() }).then(r => r.json()),
       fetch('/api/sa/users/province-structure', { headers: H() }).then(r => r.json()).catch(() => ({ success: false })),
     ]).then(([u, o, c, pt]) => {
-      if (pt?.success) setProvTeams(pt.data);
+      if (pt?.success) { setProvTeams(pt.data); setProvList(pt.provinces ?? []); }
       if (u.success) setUsers(u.data);
       if (o.success) setOffices(o.data);
       if (c.success) setCompanies(c.data);
@@ -210,6 +212,18 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         }));
       }
     });
+  };
+
+  const setProvinceLeader = async (officeId: number, provinceId: number, leaderUserId: number | null) => {
+    setProvSaving(true);
+    try {
+      const r = await fetch('/api/sa/users/province-structure/leader', {
+        method: 'PUT', headers: H(), body: JSON.stringify({ officeId, provinceId, leaderUserId }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.success === false) { alert(j.error || j.message || 'تعذّر الحفظ'); return; }
+      load(true);
+    } catch { alert('تعذّر الاتصال بالخادم'); } finally { setProvSaving(false); }
   };
 
   const loadRefs = async () => {
@@ -2816,45 +2830,68 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   const q = search.trim().toLowerCase();
                   const userById = new Map(users.map(x => [x.id, x]));
                   const shown = new Set(filtered.map(fu => fu.id));
-                  const matches = (id: number | null) => id != null && shown.has(id);
-                  const teams = provTeams.filter(t => t.officeId === og.office.id
-                    && (!q || t.provinceName.toLowerCase().includes(q) || matches(t.leaderUserId) || t.reps.some(r => matches(r.userId))));
-                  if (!teams.length) return null;
+                  const matches = (id: number | null | undefined) => id != null && shown.has(id);
+                  const teamOf = (pid: number) => provTeams.find(t => t.officeId === og.office.id && t.provinceId === pid) ?? null;
+                  const rows = provList.filter(p => {
+                    if (!q) return true;
+                    const t = teamOf(p.id);
+                    return p.name.toLowerCase().includes(q) || matches(t?.leaderUserId) || !!t?.reps.some(r => matches(r.userId));
+                  });
+                  if (!rows.length) return null;
+                  const leaderChoices = users.filter(x => x.officeId === og.office.id && x.isActive && ['team_leader', 'supervisor', 'scientific_rep'].includes(x.role));
+                  const withTeam = provTeams.filter(t => t.officeId === og.office.id).length;
                   return (
                     <div style={{ border: '1.5px solid #a5f3fc', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
                       <div style={{ background: '#ecfeff', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #e2e8f0' }}>
                         <span style={{ fontSize: 16 }}>🗺️</span>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: '#0e7490' }}>المحافظات (تيم ليدر مشترك لكل الشركات)</span>
-                        <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{teams.length} محافظة</span>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: '#0e7490' }}>المحافظات (تيم ليدر مشترك لكل الشركات — معزولة عن الشركات)</span>
+                        <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{withTeam} محافظة لها فريق من {provList.length}</span>
                       </div>
                       <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                          {teams.map(t => {
-                            const isOpen = openProvTeams.has(t.id);
-                            const leader = t.leaderUserId != null ? userById.get(t.leaderUserId) : null;
+                          {rows.map(p => {
+                            const t = teamOf(p.id);
+                            const key = og.office.id * 1000 + p.id;
+                            const isOpen = openProvTeams.has(key);
+                            const leader = t?.leaderUserId != null ? userById.get(t.leaderUserId) : null;
                             return (
-                              <button key={t.id} type="button"
-                                onClick={() => setOpenProvTeams(prev => { const n = new Set(prev); if (n.has(t.id)) n.delete(t.id); else n.add(t.id); return n; })}
+                              <button key={p.id} type="button"
+                                onClick={() => setOpenProvTeams(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; })}
                                 style={{ textAlign: 'right', cursor: 'pointer', minWidth: 170, padding: '9px 14px', borderRadius: 10, fontFamily: 'inherit',
-                                  border: isOpen ? '1.5px solid #0891b2' : '1.5px solid #e2e8f0', background: isOpen ? '#ecfeff' : '#f8fafc' }}>
-                                <div style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>{t.provinceName}</div>
+                                  border: isOpen ? '1.5px solid #0891b2' : t ? '1.5px solid #a5f3fc' : '1.5px dashed #cbd5e1',
+                                  background: isOpen ? '#ecfeff' : t ? '#f0fdff' : '#f8fafc' }}>
+                                <div style={{ fontWeight: 800, fontSize: 14, color: t ? '#0f172a' : '#64748b' }}>{p.name}</div>
                                 <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                                  {leader ? (leader.displayName || leader.username) : 'بلا تيم ليدر'} · {t.reps.length} مندوب
+                                  {t ? `${leader ? (leader.displayName || leader.username) : 'بلا تيم ليدر'} · ${t.reps.length} مندوب` : 'لا يوجد فريق'}
                                 </div>
                               </button>
                             );
                           })}
                         </div>
-                        {teams.filter(t => openProvTeams.has(t.id)).map(t => {
-                          const leader = t.leaderUserId != null ? userById.get(t.leaderUserId) : null;
+                        {rows.filter(p => openProvTeams.has(og.office.id * 1000 + p.id)).map(p => {
+                          const t = teamOf(p.id);
+                          const leader = t?.leaderUserId != null ? userById.get(t.leaderUserId) : null;
                           return (
-                            <div key={t.id} style={{ border: '1px solid #cffafe', borderRadius: 10, background: '#f8feff', padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                              <div style={{ fontWeight: 800, fontSize: 13, color: '#0e7490' }}>🗺️ {t.provinceName}</div>
-                              <div style={{ fontSize: 11, color: '#64748b' }}>تيم ليدر المحافظة</div>
-                              {leader ? <UserCard u={leader} /> : <div style={{ fontSize: 12.5, color: '#94a3b8', padding: '4px 2px' }}>لم يُعيَّن تيم ليدر لهذه المحافظة بعد</div>}
-                              <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>المندوبون العلميون ({t.reps.length})</div>
-                              {t.reps.length === 0 && <div style={{ fontSize: 12.5, color: '#94a3b8', padding: '4px 2px' }}>لا مندوبين معيَّنين</div>}
-                              {t.reps.map(r => {
+                            <div key={p.id} style={{ border: '1px solid #cffafe', borderRadius: 10, background: '#f8feff', padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                              <div style={{ fontWeight: 800, fontSize: 13, color: '#0e7490' }}>🗺️ {p.name}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>تيم ليدر المحافظة:</span>
+                                <select value={t?.leaderUserId ?? ''} disabled={provSaving}
+                                  onChange={e => setProvinceLeader(og.office.id, p.id, e.target.value ? Number(e.target.value) : null)}
+                                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', minWidth: 220 }}>
+                                  <option value="">— بلا تيم ليدر —</option>
+                                  {leaderChoices.map(x => <option key={x.id} value={x.id}>{x.displayName || x.username}</option>)}
+                                </select>
+                                <span style={{ fontSize: 11, color: '#94a3b8' }}>يعمل على كل شركات المكتب بلا شركة رئيسية</span>
+                              </div>
+                              {leader && <UserCard u={leader} />}
+                              {t && <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>المندوبون العلميون ({t.reps.length})</div>}
+                              {(!t || t.reps.length === 0) && (
+                                <div style={{ fontSize: 12.5, color: '#94a3b8', padding: '4px 2px' }}>
+                                  لا مندوبين معيَّنين — يُضافون من صفحة «فرق المحافظات» ← الهيكلية (المندوب + شركته + ايتماته)
+                                </div>
+                              )}
+                              {t?.reps.map(r => {
                                 const ru = userById.get(r.userId);
                                 if (!ru) return null;
                                 return (

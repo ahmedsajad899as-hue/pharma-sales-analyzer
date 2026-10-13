@@ -10,6 +10,7 @@ import {
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 import { isProvinceLeader, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
+import * as provinceTeamsService from '../province-teams/province-teams.service.js';
 
 const userSelect = {
   id: true, username: true, displayName: true, role: true,
@@ -88,7 +89,37 @@ export async function listProvinceStructure(req, res) {
       leaderUserId: t.leaderUserId, reps: [...reps.values()],
     };
   });
-  res.json({ success: true, data });
+  const provinces = await prisma.province.findMany({
+    select: { id: true, name: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+  });
+  res.json({ success: true, data, provinces });
+}
+
+// ── تعيين/إزالة تيم ليدر محافظة من الماستر أدمن (ينشئ الفريق إن لم يوجد) ─────
+// body: { officeId, provinceId, leaderUserId|null }. القائد يصير على كل شركات
+// المكتب بلا رئيسية (راجع provinceScope.js)، ويُربط به مندوبو الفريق.
+export async function setProvinceLeader(req, res, next) {
+  try {
+    const officeId = parseInt(req.body?.officeId);
+    const provinceId = parseInt(req.body?.provinceId);
+    const leaderUserId = req.body?.leaderUserId ? parseInt(req.body.leaderUserId) : null;
+    if (!Number.isInteger(officeId) || !Number.isInteger(provinceId)) {
+      return res.status(400).json({ error: 'المكتب والمحافظة مطلوبان' });
+    }
+    const asOffice = { officeId, canEditStructure: true };
+    const existing = await prisma.provinceTeam.findUnique({
+      where: { officeId_provinceId: { officeId, provinceId } }, select: { id: true, isActive: true },
+    });
+    if (existing?.isActive) {
+      await provinceTeamsService.updateTeam(asOffice, existing.id, { leaderUserId });
+    } else {
+      await provinceTeamsService.createTeam(asOffice, { provinceId, leaderUserId });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    if (e?.isOperational) return res.status(e.statusCode).json({ error: e.message });
+    next(e);
+  }
 }
 
 // ── Get single user with full details ─────────────────────────────────────
