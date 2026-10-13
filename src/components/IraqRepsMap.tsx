@@ -173,8 +173,6 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
   }, [list]);
 
   const side = wrapW >= 940;
-  const shapeOf = (name: string) => IRAQ_PROVINCE_SHAPES.find(s => norm(s.name) === norm(name));
-  const hoverShape = hover ? shapeOf(hover) : undefined;
 
   const companyPanel = (c: ProvinceCell) => {
     const cmax = Math.max(1, ...c.companies.map(x => Math.abs(x.value)));
@@ -190,16 +188,30 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
             <div style={{ height: 5, borderRadius: 5, background: '#e9eef5', margin: '8px 0' }}>
               <div style={{ height: '100%', width: `${Math.max(3, (Math.abs(co.value) / cmax) * 100)}%`, background: 'linear-gradient(90deg,#2f66d6,#78a3f5)', borderRadius: 5 }} />
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {co.reps.length === 0
-                ? <span style={{ fontSize: 12, color: '#94a3b8' }}>لا يوجد مندوب علمي بعد</span>
-                : co.reps.map(r => (
-                  <span key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 999, padding: '3px 10px' }}>
-                    <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#0f172a', color: '#fff', fontSize: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{r.name.trim().charAt(0)}</span>
-                    {r.name}
-                  </span>
-                ))}
-            </div>
+            {co.reps.length === 0
+              ? <span style={{ fontSize: 12, color: '#94a3b8' }}>لا يوجد مندوب علمي بعد</span>
+              : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {[...co.reps].sort((a, b) => b.netValue - a.netValue).map(r => {
+                    // حصّة المندوب من مبيع الشركة بالمحافظة = إنتاجيته الفعلية
+                    const share = co.value > 0 ? Math.max(0, Math.min(100, (r.netValue / co.value) * 100)) : 0;
+                    return (
+                      <div key={r.id}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#334155', fontWeight: 600 }}>
+                            <span style={{ width: 17, height: 17, borderRadius: '50%', background: '#0f766e', color: '#fff', fontSize: 9.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{r.name.trim().charAt(0)}</span>
+                            {r.name}
+                          </span>
+                          <span style={{ fontWeight: 800, color: r.netValue < 0 ? '#be123c' : '#0f766e' }}>{fmtVal(r.netValue)} <span style={{ color: '#94a3b8', fontWeight: 600 }}>· {share.toFixed(share >= 10 ? 0 : 1)}%</span></span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 4, background: '#e9eef5', marginTop: 4 }}>
+                          <div style={{ height: '100%', width: `${share}%`, minWidth: share > 0 ? 3 : 0, background: 'linear-gradient(90deg,#0f766e,#5eead4)', borderRadius: 4 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
           </div>
         ))}
       </div>
@@ -234,7 +246,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
               جاري التحميل…
             </div>
           )}
-          <div style={{ position: 'relative', width: '100%', maxWidth: 820, margin: '0 auto' }}>
+          <div style={{ position: 'relative', width: side ? '82%' : '100%', maxWidth: 820, marginLeft: 0, marginRight: side ? 'auto' : 'auto' }}>
             <svg viewBox={`-20 -20 ${VB.w + 40} ${VB.h + 40}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="خريطة محافظات العراق">
               <defs>
                 <filter id="iqMapShadow" x="-10%" y="-10%" width="120%" height="120%">
@@ -285,29 +297,34 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
                 );
               })}
             </svg>
-
-            {/* بطاقة تلميح عائمة عند المرور */}
-            {hoverShape && activeCell && (
-              <div dir="rtl" style={{
-                position: 'absolute', pointerEvents: 'none', zIndex: 4,
-                left: `${((hoverShape.cx + 20) / (VB.w + 40)) * 100}%`, top: `${((hoverShape.cy + 20) / (VB.h + 40)) * 100}%`,
-                transform: `translate(${hoverShape.cx > VB.w * 0.55 ? 'calc(-100% - 26px)' : '26px'}, -50%)`,
-                background: 'rgba(15,23,42,.94)', color: '#fff', borderRadius: 14, padding: '10px 12px', minWidth: 200, maxWidth: 260,
-                boxShadow: '0 12px 30px rgba(15,23,42,.3)', fontSize: 12.5,
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontWeight: 800, fontSize: 14, marginBottom: 6 }}>
-                  <span>{activeCell.name}</span><span style={{ direction: 'ltr' }}>{fmtVal(activeCell.total)}</span>
-                </div>
-                {activeCell.companies.slice(0, 5).map(co => (
-                  <div key={co.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '2px 0', color: '#cbd5e1' }}>
-                    <span>{co.name} <span style={{ color: '#64748b' }}>· {co.reps.length} مندوب</span></span>
-                    <span style={{ color: '#fff', fontWeight: 700, direction: 'ltr' }}>{fmtVal(co.value)}</span>
-                  </div>
-                ))}
-                {activeCell.companies.length === 0 && <div style={{ color: '#94a3b8' }}>لا شركات بعد</div>}
-              </div>
-            )}
           </div>
+
+          {/* بطاقة ثابتة أعلى يمين الخريطة: تعرض المحافظة تحت المؤشر، وإلا المختارة */}
+          {activeCell && (
+            <div dir="rtl" style={{
+              position: 'absolute', top: 12, right: 12, zIndex: 4, width: 250, maxHeight: '58%', overflowY: 'auto',
+              background: 'rgba(15,23,42,.95)', color: '#fff', borderRadius: 16, padding: '12px 14px',
+              boxShadow: '0 12px 30px rgba(15,23,42,.28)', fontSize: 12.5,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, fontWeight: 800, fontSize: 15, marginBottom: 2 }}>
+                <span>{activeCell.name}</span><span style={{ direction: 'ltr', color: '#93c5fd' }}>{fmtVal(activeCell.total)}</span>
+              </div>
+              <div style={{ color: '#94a3b8', fontSize: 11.5, marginBottom: 8 }}>{activeCell.companies.length} شركات · {activeCell.companies.reduce((n, x) => n + x.reps.length, 0)} مندوب علمي</div>
+              {activeCell.companies.map(co => (
+                <div key={co.name} style={{ padding: '6px 0', borderTop: '1px solid rgba(148,163,184,.2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontWeight: 700 }}>
+                    <span>{co.name}</span><span style={{ direction: 'ltr' }}>{fmtVal(co.value)}</span>
+                  </div>
+                  {co.reps.map(r => (
+                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: '#5eead4', fontSize: 11.5, paddingTop: 2 }}>
+                      <span>• {r.name}</span><span style={{ direction: 'ltr' }}>{fmtVal(r.netValue)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {activeCell.companies.length === 0 && <div style={{ color: '#94a3b8' }}>لا شركات بعد</div>}
+            </div>
+          )}
 
           {/* مفتاح */}
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 14, fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
