@@ -25,6 +25,7 @@ interface Props {
   token: string | null;
   fileIds: number[];
   applyMonth: (p: URLSearchParams) => void;
+  months?: string[];
   monthKey: string;
   fromDate: string;
   toDate: string;
@@ -46,10 +47,14 @@ const LABEL_NUDGE: Record<string, [number, number]> = {
   [norm('القادسية')]: [-4, 24], [norm('واسط')]: [18, 0],
 };
 
+// مخبأ على مستوى الوحدة: يبقى بعد مغادرة الصفحة، فالرجوع للخريطة فوري.
+const MAP_CACHE = new Map<string, { repData: RepProvinceRow[]; salesRows: { prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] }; t: number }>();
+const FRESH_MS = 3 * 60 * 1000;
+
 const RAMP = ['#e0ecff', '#c7dbff', '#a3c2fb', '#78a3f5', '#4f84ea', '#2f66d6', '#1f4fb4', '#173a85'];
 const VB = IRAQ_MAP_VIEWBOX;
 
-export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
+export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
   const [repData, setRepData] = useState<RepProvinceRow[]>([]);
   const [salesRows, setSalesRows] = useState<{ prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] }>({ prov: new Map(), pc: [] });
   const [loading, setLoading] = useState(false);
@@ -77,48 +82,88 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
   useEffect(() => {
     let dead = false;
     const ac = new AbortController();
-    const timer = setTimeout(async () => {
-      setLoading(true); setErr('');
-      try {
-        const p = new URLSearchParams();
-        if (monthKey === 'custom') {
-          if (latest.current.fromDate) p.set('startDate', latest.current.fromDate);
-          if (latest.current.toDate) p.set('endDate', latest.current.toDate);
-        } else latest.current.applyMonth(p);
-        if (fileIds.length > 0) p.set('fileIds', fileIds.join(','));
-        const H = { Authorization: `Bearer ${token}` };
-        const rp = new URLSearchParams(p); rp.set('repIds', repIdsKey);
-        const [repRes, saleRes, retRes] = await Promise.all([
-          repIdsKey ? fetch(`/api/scientific-reps/province-map?${rp}`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
-          fileIds.length ? fetch(`/api/reports/overall?${p}&recordType=sale`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
-          fileIds.length ? fetch(`/api/reports/overall?${p}&recordType=return`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
-        ]);
-        const prov = new Map<string, { name: string; value: number }>();
-        const pcMap = new Map<string, { p: string; c: string; v: number }>();
-        const add = async (r: Response | null, sign: number) => {
-          if (!r || !r.ok) return;
-          const j = await r.json(); const d = j.data ?? j;
-          for (const row of d.byProvince ?? []) {
-            const name = row.provinceName ?? row.name; if (!name) continue;
-            const cur = prov.get(norm(name)) ?? { name, value: 0 };
-            cur.value += sign * (row.totalValue ?? 0); prov.set(norm(name), cur);
-          }
-          for (const row of d.byProvinceCompany ?? []) {
-            if (!row.provinceName || !row.companyName) continue;
-            const k = `${norm(row.provinceName)}::${norm(row.companyName)}`;
-            const cur = pcMap.get(k) ?? { p: row.provinceName, c: row.companyName, v: 0 };
-            cur.v += sign * (row.totalValue ?? 0); pcMap.set(k, cur);
-          }
-        };
-        await add(saleRes, 1); await add(retRes, -1);
-        const repJson = repRes && repRes.ok ? await repRes.json() : { data: [] };
-        if (!dead) { setRepData(repJson.data ?? []); setSalesRows({ prov, pc: [...pcMap.values()] }); }
-      } catch (e: any) { if (!dead) setErr(e.message || 'تعذّر تحميل الخريطة'); }
-      finally { if (!dead) setLoading(false); }
-    }, 300);
-    return () => { dead = true; clearTimeout(timer); ac.abort(); };
+    const fileKey = fileIds.join(',');
+    const cacheable = monthKey !== 'custom';
+    const ckey = `${(token || '').slice(-12)}|${repIdsKey}|${fileKey}|${monthKey}`;
+
+    // مخبأ: يُعرض فوراً، وإن كان أقدم من FRESH_MS يُجدَّد بصمت في الخلفية.
+    const hit = cacheable ? MAP_CACHE.get(ckey) : undefined;
+    if (hit) { setRepData(hit.repData); setSalesRows(hit.salesRows); }
+    const fresh = !!hit && Date.now() - hit.t < FRESH_MS;
+
+    const fetchOne = async (p: URLSearchParams) => {
+      const H = { Authorization: `Bearer ${token}` };
+      const rp = new URLSearchParams(p); rp.set('repIds', repIdsKey);
+      const [repRes, saleRes, retRes] = await Promise.all([
+        repIdsKey ? fetch(`/api/scientific-reps/province-map?${rp}`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
+        fileIds.length ? fetch(`/api/reports/overall?${p}&recordType=sale`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
+        fileIds.length ? fetch(`/api/reports/overall?${p}&recordType=return`, { headers: H, signal: ac.signal }) : Promise.resolve(null),
+      ]);
+      const prov = new Map<string, { name: string; value: number }>();
+      const pcMap = new Map<string, { p: string; c: string; v: number }>();
+      const add = async (r: Response | null, sign: number) => {
+        if (!r || !r.ok) return;
+        const j = await r.json(); const d = j.data ?? j;
+        for (const row of d.byProvince ?? []) {
+          const name = row.provinceName ?? row.name; if (!name) continue;
+          const cur = prov.get(norm(name)) ?? { name, value: 0 };
+          cur.value += sign * (row.totalValue ?? 0); prov.set(norm(name), cur);
+        }
+        for (const row of d.byProvinceCompany ?? []) {
+          if (!row.provinceName || !row.companyName) continue;
+          const k = `${norm(row.provinceName)}::${norm(row.companyName)}`;
+          const cur = pcMap.get(k) ?? { p: row.provinceName, c: row.companyName, v: 0 };
+          cur.v += sign * (row.totalValue ?? 0); pcMap.set(k, cur);
+        }
+      };
+      await add(saleRes, 1); await add(retRes, -1);
+      const repJson = repRes && repRes.ok ? await repRes.json() : { data: [] };
+      return { repData: (repJson.data ?? []) as RepProvinceRow[], salesRows: { prov, pc: [...pcMap.values()] }, t: Date.now() };
+    };
+
+    const baseParams = () => {
+      const p = new URLSearchParams();
+      if (monthKey === 'custom') {
+        if (latest.current.fromDate) p.set('startDate', latest.current.fromDate);
+        if (latest.current.toDate) p.set('endDate', latest.current.toDate);
+      } else latest.current.applyMonth(p);
+      if (fileIds.length > 0) p.set('fileIds', fileIds.join(','));
+      return p;
+    };
+
+    (async () => {
+      if (!fresh) {
+        if (!hit) setLoading(true);
+        setErr('');
+        try {
+          const r = await fetchOne(baseParams());
+          if (dead) return;
+          if (cacheable) MAP_CACHE.set(ckey, r);
+          setRepData(r.repData); setSalesRows(r.salesRows);
+        } catch (e: any) { if (!dead && e?.name !== 'AbortError') setErr(e.message || 'تعذّر تحميل الخريطة'); }
+        finally { if (!dead) setLoading(false); }
+      }
+      // تحميل مسبق هادئ لأحدث الأشهر الأخرى كي يكون التبديل بينها فورياً.
+      if (dead || !cacheable) return;
+      const others = [...months].filter(m => /^\d{4}-\d{2}$/.test(m) && m !== monthKey).sort().reverse().slice(0, 3);
+      for (const ym of others) {
+        const k2 = `${(token || '').slice(-12)}|${repIdsKey}|${fileKey}|${ym}`;
+        const c2 = MAP_CACHE.get(k2);
+        if (c2 && Date.now() - c2.t < FRESH_MS) continue;
+        await new Promise(r => setTimeout(r, 1200));
+        if (dead) return;
+        try {
+          const p = new URLSearchParams(); p.set('month', ym);
+          if (fileIds.length > 0) p.set('fileIds', fileKey);
+          const r = await fetchOne(p);
+          if (dead) return;
+          MAP_CACHE.set(k2, r);
+        } catch { return; }
+      }
+    })();
+    return () => { dead = true; ac.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repIdsKey, fileIds.join(','), monthKey, token]);
+  }, [repIdsKey, fileIds.join(','), monthKey, token, months.join(',')]);
 
   // ── دمج: محافظة ← شركات (مبيع + مندوبون) ─────────────────────────────────
   const cells = useMemo(() => {

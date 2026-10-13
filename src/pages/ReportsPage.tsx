@@ -3674,7 +3674,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               ))}
             </div>
           </div>
-          <IraqRepsMap reps={sciReps} token={token} fileIds={activeFileIds} applyMonth={applyMonth} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} />
+          <IraqRepsMap reps={sciReps} token={token} fileIds={activeFileIds} applyMonth={applyMonth} months={monthsState.months.map(m => m.ym)} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} />
         </>
       )}
 
