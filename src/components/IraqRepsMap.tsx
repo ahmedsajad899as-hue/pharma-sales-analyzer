@@ -43,7 +43,9 @@ const RAMP = ['#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#3b82f6', '#2563eb', 
 interface Card { key: string; row: ProvinceMapRow; side: 'L' | 'R'; x: number; y: number; h: number; ax: number; ay: number; shown: ProvinceRepRow[]; more: number }
 
 export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
-  const [data, setData] = useState<ProvinceMapRow[] | null>(null);
+  const [repData, setRepData] = useState<ProvinceMapRow[] | null>(null);
+  // صافي مبيع كل محافظة من بيانات الملفات نفسها (مبيع − إرجاع) — مستقل عن وجود حسابات مندوبين.
+  const [sales, setSales] = useState<Map<string, { name: string; value: number }>>(new Map());
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const [hover, setHover] = useState<string | null>(null);
@@ -63,7 +65,6 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
   }, []);
 
   useEffect(() => {
-    if (!repIdsKey) { setData([]); return; }
     let dead = false;
     (async () => {
       setLoading(true); setErr('');
@@ -74,19 +75,48 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
         if (toDate) p.set('endDate', toDate);
         if (fileIds.length > 0) p.set('fileIds', fileIds.join(','));
         applyMonth(p);
-        const res = await fetch(`/api/scientific-reps/province-map?${p}`, { headers: { Authorization: `Bearer ${token}` } });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'تعذّر تحميل الخريطة');
-        if (!dead) setData(json.data ?? []);
-      } catch (e: any) { if (!dead) { setErr(e.message); setData([]); } }
+        const H = { Authorization: `Bearer ${token}` };
+        const ov = new URLSearchParams(p); ov.delete('repIds');
+        const [repRes, saleRes, retRes] = await Promise.all([
+          repIdsKey ? fetch(`/api/scientific-reps/province-map?${p}`, { headers: H }) : Promise.resolve(null),
+          fileIds.length > 0 ? fetch(`/api/reports/overall?${ov}&recordType=sale`, { headers: H }) : Promise.resolve(null),
+          fileIds.length > 0 ? fetch(`/api/reports/overall?${ov}&recordType=return`, { headers: H }) : Promise.resolve(null),
+        ]);
+        const repJson = repRes ? await repRes.json() : { data: [] };
+        if (repRes && !repRes.ok) throw new Error(repJson.message || 'تعذّر تحميل الخريطة');
+        const m = new Map<string, { name: string; value: number }>();
+        const add = async (r: Response | null, sign: number) => {
+          if (!r || !r.ok) return;
+          const j = await r.json(); const d = j.data ?? j;
+          for (const row of d.byProvince ?? []) {
+            const name = row.provinceName ?? row.name; if (!name) continue;
+            const k = norm(name); const cur = m.get(k) ?? { name, value: 0 };
+            cur.value += sign * (row.totalValue ?? 0); m.set(k, cur);
+          }
+        };
+        await add(saleRes, 1); await add(retRes, -1);
+        if (!dead) { setRepData(repJson.data ?? []); setSales(m); }
+      } catch (e: any) { if (!dead) { setErr(e.message); setRepData([]); setSales(new Map()); } }
       finally { if (!dead) setLoading(false); }
     })();
     return () => { dead = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repIdsKey, fileIds.join(','), monthKey, fromDate, toDate, token]);
 
-  const byProv = useMemo(() => new Map((data ?? []).map(r => [norm(r.provinceName), r])), [data]);
-  const maxVal = useMemo(() => Math.max(1, ...(data ?? []).map(r => r.totalValue)), [data]);
+  // دمج: مبيع المحافظة من الملفات + المندوبون إن وُجدوا (بغداد مستثناة).
+  const data = useMemo<ProvinceMapRow[]>(() => {
+    const out = new Map<string, ProvinceMapRow>();
+    for (const r of repData ?? []) out.set(norm(r.provinceName), { ...r });
+    for (const [k, v] of sales) {
+      if (k === norm('بغداد')) continue;
+      const cur = out.get(k);
+      if (cur) cur.totalValue = v.value;
+      else out.set(k, { provinceName: v.name, totalValue: v.value, reps: [] });
+    }
+    return [...out.values()];
+  }, [repData, sales]);
+  const byProv = useMemo(() => new Map(data.map(r => [norm(r.provinceName), r])), [data]);
+  const maxVal = useMemo(() => Math.max(1, ...data.map(r => r.totalValue)), [data]);
   const fillOf = (row?: ProvinceMapRow) => {
     if (!row) return '#eef2f7';
     if (row.totalValue <= 0) return '#e2e8f0';
@@ -98,10 +128,10 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
     const out: Card[] = [];
     for (const s of IRAQ_PROVINCE_SHAPES) {
       const row = byProv.get(norm(s.name));
-      if (!row || row.reps.length === 0) continue;
+      if (!row) continue;
       const shown = row.reps.slice(0, MAX_ROWS);
       const more = row.reps.length - shown.length;
-      const h = HEAD_H + shown.length * ROW_H + (more > 0 ? 20 : 0) + 8;
+      const h = HEAD_H + Math.max(1, shown.length) * ROW_H + (more > 0 ? 20 : 0) + 8;
       const side: 'L' | 'R' = LEFT_SIDE.has(norm(s.name)) ? 'L' : 'R';
       out.push({ key: s.name, row, side, x: side === 'L' ? 6 : STAGE_W - CARD_W - 6, y: 0, h, ax: MAP_X + s.cx, ay: s.cy, shown, more });
     }
@@ -117,10 +147,10 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
   }, [byProv]);
 
   const totals = useMemo(() => {
-    const rows = data ?? [];
+    const rows = data;
     return { value: rows.reduce((s, r) => s + r.totalValue, 0), reps: new Set(rows.flatMap(r => r.reps.map(x => x.id))).size, provinces: rows.length };
   }, [data]);
-  const ranking = useMemo(() => [...(data ?? [])].sort((a, b) => b.totalValue - a.totalValue), [data]);
+  const ranking = useMemo(() => [...data].sort((a, b) => b.totalValue - a.totalValue), [data]);
 
   const wide = wrapW >= 980;
   const scale = wrapW / STAGE_W;
@@ -171,11 +201,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
 
       <div ref={wrapRef} style={{ background: 'radial-gradient(1200px 600px at 50% 0%, #f8fafc 0%, #eef2f7 100%)', border: '1px solid #e2e8f0', borderRadius: 20, padding: wide ? 0 : 12, position: 'relative', overflow: 'hidden', minHeight: 120 }}>
         {loading && <div style={{ position: 'absolute', top: 10, insetInlineEnd: 14, fontSize: 12, color: '#64748b', zIndex: 5 }}>جاري التحميل…</div>}
-        {!loading && data && data.length === 0 && !err && (
-          <div style={{ padding: 40, textAlign: 'center', color: '#64748b', fontSize: 14 }}>لا يوجد مندوبون علميون بمناطق في المحافظات (خارج بغداد) ضمن النطاق الحالي.</div>
-        )}
 
-        {(data ?? []).length === 0 ? null : wide ? (
+        {wide ? (
           <div style={{ height: STAGE_H * scale, position: 'relative' }}>
             <div style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute', left: 0, top: 0 }}>
               <svg width={STAGE_W} height={STAGE_H} style={{ position: 'absolute', inset: 0 }}>
@@ -237,6 +264,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
                       </span>
                       <span style={{ fontWeight: 800, fontSize: 14, color: c.row.totalValue < 0 ? '#be123c' : '#1d4ed8' }}>{fmtVal(c.row.totalValue)}</span>
                     </div>
+                    {c.shown.length === 0 && (
+                      <div style={{ height: ROW_H, display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 12.5, color: '#94a3b8' }}>لا يوجد مندوب علمي بعد</div>
+                    )}
                     {c.shown.map(p => (
                       <div key={p.id} style={{ height: ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 12px', fontSize: 13 }}>
                         <span style={{ color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={companyOf.get(p.id) || undefined}>{p.name}</span>
