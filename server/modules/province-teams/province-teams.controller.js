@@ -7,6 +7,7 @@ import { loadViewer } from './province-teams.access.js';
 import * as structure from './province-teams.service.js';
 import { resolveCoverageFiles, listCoverageMonths, computeCoverage } from './province-coverage.js';
 import * as personal from './personal-sales.service.js';
+import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
@@ -24,6 +25,58 @@ export async function months(req, res, next) {
     const viewer = await loadViewer(req.user);
     const files = await resolveCoverageFiles(viewer, req.query.fileIds);
     res.json({ success: true, ...(await listCoverageMonths(files.fileIds)), fileSource: files.source });
+  } catch (e) { next(e); }
+}
+
+// ── GET /api/province-teams/directory ──────────────────────────────────────
+// دليل مبسّط: محافظة ← تيم ليدر ← مندوبون ← ايتمات (كمية + قيمة) لزر «الفرق» في خريطة المحافظات.
+// مدير الشركة: مندوبو شركاته فقط، والايتمات المقيَّدة بقائمته (UserItemAssignment) — مندوب لا يعمل
+// على أي ايتم من ايتماته لا يظهر له أصلاً. القيم بالدولار (كباقي التقارير) والواجهة تحوّلها.
+export async function directory(req, res, next) {
+  try {
+    const viewer = await loadViewer(req.user);
+    const month = String(req.query.month ?? '').trim() || 'all';
+    const [teams, files] = await Promise.all([
+      structure.loadVisibleTeams(viewer),
+      resolveCoverageFiles(viewer, req.query.fileIds),
+    ]);
+    const coverage = await computeCoverage(teams, { fileIds: files.fileIds, month });
+
+    // null = بلا تقييد. لا يُطبَّق إلا على مدير الشركة ومن بمستواه.
+    const allowed = viewer.mode === 'company' ? await resolveEffectiveItemIds(viewer.id) : null;
+    const allowedSet = allowed ? new Set(allowed) : null;
+
+    const out = [];
+    for (const t of teams) {
+      const cov = coverage.get(t.id);
+      const repsMap = new Map();
+      for (const a of t.assignments) {
+        const c = cov.assignments.get(a.id);
+        const items = (c?.byItem ?? []).filter(i => !allowedSet || allowedSet.has(i.itemId));
+        // المندوب يُعرض لمدير الشركة فقط إن كان يعمل فعلاً على ايتم من ايتماته (حتى بلا مبيع).
+        if (allowedSet && !a.itemIds.some(id => allowedSet.has(id))) continue;
+        if (!repsMap.has(a.repUserId)) {
+          repsMap.set(a.repUserId, { repUserId: a.repUserId, repName: a.repName, repActive: a.repActive, companies: [], net: 0, qty: 0, items: new Map() });
+        }
+        const r = repsMap.get(a.repUserId);
+        if (!r.companies.includes(a.companyName)) r.companies.push(a.companyName);
+        for (const i of items) {
+          const cur = r.items.get(i.itemId) ?? { itemId: i.itemId, name: i.name, company: a.companyName, net: 0, qty: 0 };
+          cur.net += i.net; cur.qty += i.qty;
+          r.items.set(i.itemId, cur);
+          r.net += i.net; r.qty += i.qty;
+        }
+      }
+      const reps = [...repsMap.values()].map(r => ({
+        ...r,
+        net: +r.net.toFixed(2),
+        items: [...r.items.values()].map(i => ({ ...i, net: +i.net.toFixed(2) })).sort((a, b) => b.net - a.net),
+      })).sort((a, b) => b.net - a.net);
+      if (!reps.length && viewer.mode === 'company') continue;
+      out.push({ id: t.id, provinceId: t.provinceId, provinceName: t.provinceName, leaderName: t.leaderName, reps });
+    }
+
+    res.json({ success: true, month, files: { count: files.fileIds.length, currency: files.currency, rate: files.rate }, teams: out });
   } catch (e) { next(e); }
 }
 

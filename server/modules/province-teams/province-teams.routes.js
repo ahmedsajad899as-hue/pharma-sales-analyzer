@@ -6,6 +6,7 @@ const router = Router();
 // العرض: تغطية المحافظة + الجهد الشخصي جنباً إلى جنب
 router.get('/overview', ctrl.overview);
 router.get('/months', ctrl.months);
+router.get('/directory', ctrl.directory);
 
 // الهيكلية (إدارة المكتب)
 router.get('/options', ctrl.options);

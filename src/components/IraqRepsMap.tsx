@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { IRAQ_PROVINCE_SHAPES, IRAQ_MAP_VIEWBOX } from '../data/iraqProvinces';
+import ProvinceTeamsDirectory from './ProvinceTeamsDirectory';
 
 interface RepRow { id: number; name: string; netValue: number; netQty?: number }
 interface RepProvinceRow { provinceName: string; totalValue: number; reps: RepRow[] }
@@ -55,6 +56,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
   const [err, setErr] = useState('');
   const [hover, setHover] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
+  const [teamsOpen, setTeamsOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapW, setWrapW] = useState(1200);
 
@@ -235,6 +237,16 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, monthKey
           </div>
         ))}
       </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 10 }}>
+        <button type="button" onClick={() => setTeamsOpen(true)}
+          style={{ border: '1px solid #cbd5e1', background: '#0f172a', color: '#fff', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+          👥 فرق المحافظات (التيم ليدر والمندوبون)
+        </button>
+      </div>
+      {teamsOpen && (
+        <ProvinceTeamsDirectory token={token} fileIds={fileIds} applyMonth={applyMonth} fmtVal={fmtVal} currencyLabel={currencyLabel} onClose={() => setTeamsOpen(false)} />
+      )}
 
       {err && <div style={{ color: '#be123c', fontSize: 13, marginBottom: 8 }}>{err}</div>}
 
