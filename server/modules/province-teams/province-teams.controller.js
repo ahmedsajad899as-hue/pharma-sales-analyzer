@@ -46,15 +46,25 @@ export async function directory(req, res, next) {
     const allowed = viewer.mode === 'company' ? await resolveEffectiveItemIds(viewer.id) : null;
     const allowedSet = allowed ? new Set(allowed) : null;
 
+    // قائمة «الايتمات» التي عيّنها الماستر أدمن لحساب كل مندوب (null = بلا تقييد).
+    // تعيين المندوب في الفريق قد يكون «كل ايتمات الشركة» فيجب تقييده بها.
+    const repIds = [...new Set(teams.flatMap(t => t.assignments.map(a => a.repUserId)))];
+    const repAllowed = new Map();
+    for (const id of repIds) {
+      const ids = await resolveEffectiveItemIds(id);
+      repAllowed.set(id, ids ? new Set(ids) : null);
+    }
+
     const out = [];
     for (const t of teams) {
       const cov = coverage.get(t.id);
       const repsMap = new Map();
       for (const a of t.assignments) {
         const c = cov.assignments.get(a.id);
-        const items = (c?.byItem ?? []).filter(i => !allowedSet || allowedSet.has(i.itemId));
+        const repSet = repAllowed.get(a.repUserId);
+        const items = (c?.byItem ?? []).filter(i => (!allowedSet || allowedSet.has(i.itemId)) && (!repSet || repSet.has(i.itemId)));
         // المندوب يُعرض لمدير الشركة فقط إن كان يعمل فعلاً على ايتم من ايتماته (حتى بلا مبيع).
-        if (allowedSet && !a.itemIds.some(id => allowedSet.has(id))) continue;
+        if (allowedSet && !a.itemIds.some(id => allowedSet.has(id) && (!repSet || repSet.has(id)))) continue;
         if (!repsMap.has(a.repUserId)) {
           repsMap.set(a.repUserId, { repUserId: a.repUserId, repName: a.repName, repActive: a.repActive, companies: [], net: 0, qty: 0, items: new Map() });
         }
