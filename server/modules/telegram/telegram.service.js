@@ -64,10 +64,31 @@ async function telegramApi(method, body) {
   }
 }
 
-const sendMessage        = (chatId, text, replyMarkup, parseMode) => telegramApi('sendMessage', { chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}), ...(parseMode ? { parse_mode: parseMode } : {}) });
+// ─── وضع الصمت (لكل كروب، من لوحة الماستر أدمن) ────────────────────────────
+// كل ردّ يخرج من هنا (sendMessage/editMessageText) فيُحجب في نقطة واحدة بدل بعثرة
+// شروط في كل معالج. تخزين مؤقت قصير كي لا نسأل القاعدة عند كل رسالة؛ يُبطَل فور
+// تعديل الربط من اللوحة.
+const SILENT_CACHE_TTL_MS = 60 * 1000;
+const silentCache = new Map(); // chatId → { v, ts }
+export const invalidateSilentCache = (chatId) => { if (chatId != null) silentCache.delete(String(chatId)); };
+async function isSilentChat(chatId) {
+  const key = String(chatId);
+  const hit = silentCache.get(key);
+  if (hit && Date.now() - hit.ts < SILENT_CACHE_TTL_MS) return hit.v;
+  let v = false;
+  try {
+    const link = await prisma.telegramChatLink.findUnique({ where: { chatId: key }, select: { silentMode: true } });
+    v = link?.silentMode === true;
+  } catch (e) { console.error('[telegram] isSilentChat:', e?.message); }
+  silentCache.set(key, { v, ts: Date.now() });
+  while (silentCache.size > 500) silentCache.delete(silentCache.keys().next().value);
+  return v;
+}
+
+const sendMessage        = async (chatId, text, replyMarkup, parseMode) => (await isSilentChat(chatId)) ? null : telegramApi('sendMessage', { chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}), ...(parseMode ? { parse_mode: parseMode } : {}) });
 /** تأمين نصّ داخل رسالة parse_mode=HTML — يُستعمل فقط حيث نمرّر HTML عمداً. */
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const editMessageText     = (chatId, messageId, text, replyMarkup) => telegramApi('editMessageText', { chat_id: chatId, message_id: messageId, text, reply_markup: replyMarkup || { inline_keyboard: [] } });
+const editMessageText     = async (chatId, messageId, text, replyMarkup) => (await isSilentChat(chatId)) ? null : telegramApi('editMessageText', { chat_id: chatId, message_id: messageId, text, reply_markup: replyMarkup || { inline_keyboard: [] } });
 const answerCallbackQuery = (id, text) => telegramApi('answerCallbackQuery', { callback_query_id: id, ...(text ? { text } : {}) });
 
 async function downloadDocument(fileId) {
@@ -371,6 +392,12 @@ async function handleDocumentMessage(actor, message) {
 
   try {
     const buffer   = await downloadDocument(document.file_id);
+    // كروب صامت: لا يمكن طرح سؤال «نوع الملف» — يُستورد كـ«مشترك» (auto) مباشرة.
+    if (actor.link.silentMode === true) {
+      try { await processSalesUpload({ user, fileName, buffer }, 'auto'); }
+      catch (e) { console.error('[telegram] silent auto-import failed:', e?.message); }
+      return;
+    }
     const uploadId = crypto.randomBytes(4).toString('hex');
     pendingUploads.set(uploadId, { chatId, user, fileName, buffer, createdAt: Date.now() });
     await sendMessage(chatId, `📎 "${fileName}" — شنو نوع هذا الملف؟`, fileTypeKeyboard(uploadId));

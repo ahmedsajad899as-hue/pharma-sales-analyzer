@@ -1979,6 +1979,8 @@ model TelegramChatLink {
   // سؤال مبيعات نصّي («محمد باقر مبيع شهر 9») — بحث واستخراج بلا Gemini (راجع
   // server/modules/telegram/sales-query.js). مفعّل افتراضياً لكل كروب قائم.
   salesQueryEnabled Boolean @default(true)
+  // صمت كامل: البوت يعالج ما يصله (طلبيات/ملفات/أسئلة) لكن لا يرسل أي رسالة للكروب.
+  silentMode Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

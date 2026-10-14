@@ -8,10 +8,11 @@ interface TelegramLink {
   id: number; chatId: string; chatTitle?: string | null; isActive: boolean; userId: number;
   orderTextMode?: OrderTextMode;
   salesQueryEnabled?: boolean;
+  silentMode?: boolean;
   user?: UserOption;
 }
 
-const EMPTY: Partial<TelegramLink> = { chatId: '', chatTitle: '', userId: undefined, orderTextMode: 'trigger', salesQueryEnabled: true };
+const EMPTY: Partial<TelegramLink> = { chatId: '', chatTitle: '', userId: undefined, orderTextMode: 'trigger', salesQueryEnabled: true, silentMode: false };
 
 // صفحة إدارة كروبات تلكرام المربوطة بحسابات — أي ملف Excel يُرسل بكروب مربوط
 // يُستورَد تلقائياً لحساب المستخدم المختار (راجع server/modules/telegram/).
@@ -67,6 +68,11 @@ export default function TelegramLinksPage() {
     load();
   };
 
+  const toggleSilent = async (l: TelegramLink) => {
+    await fetch(`/api/sa/telegram-links/${l.id}`, { method: 'PUT', headers: H(), body: JSON.stringify({ silentMode: !l.silentMode }) });
+    load();
+  };
+
   const del = async (l: TelegramLink) => {
     if (!confirm(`حذف ربط الكروب "${l.chatTitle || l.chatId}"؟`)) return;
     await fetch(`/api/sa/telegram-links/${l.id}`, { method: 'DELETE', headers: H() });
@@ -103,6 +109,9 @@ export default function TelegramLinksPage() {
                   <div style={{ fontSize: 11, color: (l.salesQueryEnabled ?? true) ? '#0891b2' : '#94a3b8', marginTop: 3, fontWeight: 600 }}>
                     {(l.salesQueryEnabled ?? true) ? '📊 سؤال المبيعات: مفعّل' : '📊 سؤال المبيعات: معطّل'}
                   </div>
+                  <div style={{ fontSize: 11, color: l.silentMode ? '#be123c' : '#94a3b8', marginTop: 3, fontWeight: 600 }}>
+                    {l.silentMode ? '🔇 صامت (لا ردود)' : '🔔 يرد على الرسائل'}
+                  </div>
                 </div>
                 <span style={{ background: l.isActive ? '#f0fdf4' : '#fef2f2', color: l.isActive ? '#16a34a' : '#b91c1c', borderRadius: 20, padding: '2px 9px', fontSize: 10.5, fontWeight: 600 }}>
                   {l.isActive ? 'نشط' : 'معطل'}
@@ -113,6 +122,9 @@ export default function TelegramLinksPage() {
                 <button onClick={() => toggle(l)} style={btnStyle(l.isActive ? '#d97706' : '#16a34a', true)}>{l.isActive ? 'تعطيل' : 'تفعيل'}</button>
                 <button onClick={() => toggleSalesQuery(l)} style={btnStyle((l.salesQueryEnabled ?? true) ? '#64748b' : '#0891b2', true)}>
                   {(l.salesQueryEnabled ?? true) ? 'تعطيل سؤال المبيعات' : 'تفعيل سؤال المبيعات'}
+                </button>
+                <button onClick={() => toggleSilent(l)} style={btnStyle(l.silentMode ? '#16a34a' : '#be123c', true)}>
+                  {l.silentMode ? 'إلغاء الصمت' : 'جعله صامتاً'}
                 </button>
                 <button onClick={() => del(l)} style={btnStyle('#dc2626', true)}>حذف</button>
               </div>
@@ -134,6 +146,14 @@ export default function TelegramLinksPage() {
               onChange={e => setForm(f => ({ ...f!, salesQueryEnabled: e.target.checked }))}
             />
             تفعيل سؤال المبيعات النصّي («فلان مبيع شهر 9»)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 14, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={form.silentMode ?? false}
+              onChange={e => setForm(f => ({ ...f!, silentMode: e.target.checked }))}
+            />
+            🔇 صمت كامل (البوت يعالج بصمت ولا يرد بأي رسالة في هذا الكروب)
           </label>
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 5 }}>الحساب المرتبط *</label>
