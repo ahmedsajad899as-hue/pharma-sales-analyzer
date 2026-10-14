@@ -284,7 +284,6 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   const active = hover ?? sel;
   const activeCell = active ? cells.get(norm(active)) : undefined;
-  const selCell = sel ? cells.get(norm(sel)) : undefined;
 
   const totals = useMemo(() => {
     const cos = new Set<string>(); const rp = new Set<number>(); let v = 0;
@@ -472,23 +471,23 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
         {/* ── لوحة المحافظة المختارة ── */}
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 18, padding: 11, position: side ? 'sticky' : 'static', top: 12 }}>
-          {selCell ? (
+          {activeCell ? (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
                 <div>
                   <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600 }}>المحافظة</div>
-                  <div style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>{selCell.name}</div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>{activeCell.name}</div>
                 </div>
                 <div style={{ textAlign: 'left' }}>
                   <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>صافي المبيع</div>
-                  <div style={{ fontSize: 15, fontWeight: 900, color: selCell.total < 0 ? '#be123c' : '#1f4fb4' }}>{fmtVal(selCell.total)} <span style={{ fontSize: 12, color: '#64748b' }}>{currencyLabel}</span></div>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: activeCell.total < 0 ? '#be123c' : '#1f4fb4' }}>{fmtVal(activeCell.total)} <span style={{ fontSize: 12, color: '#64748b' }}>{currencyLabel}</span></div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, background: '#eef3fd', color: '#1f4fb4', borderRadius: 999, padding: '4px 12px' }}>{selCell.companies.length} شركات</span>
-                <span style={{ fontSize: 12, fontWeight: 700, background: '#f3efff', color: '#6d28d9', borderRadius: 999, padding: '4px 12px' }}>{selCell.companies.reduce((s, x) => s + x.reps.length, 0)} مندوب علمي</span>
+                <span style={{ fontSize: 11, fontWeight: 700, background: '#eef3fd', color: '#1f4fb4', borderRadius: 999, padding: '4px 12px' }}>{activeCell.companies.length} شركات</span>
+                <span style={{ fontSize: 12, fontWeight: 700, background: '#f3efff', color: '#6d28d9', borderRadius: 999, padding: '4px 12px' }}>{activeCell.companies.reduce((s, x) => s + x.reps.length, 0)} مندوب علمي</span>
               </div>
-              {companyPanel(selCell)}
+              {companyPanel(activeCell)}
             </>
           ) : (
             <div style={{ color: '#64748b', fontSize: 13, padding: 20, textAlign: 'center' }}>
