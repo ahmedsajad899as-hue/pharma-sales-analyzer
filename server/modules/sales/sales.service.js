@@ -1297,6 +1297,7 @@ export const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذ
     "unitPrice": 9900,
     "total": 99000,
     "bonus": 0,
+    "priceShown": true,
     "pharmacy": "اسم الصيدلية فقط",
     "warehouse": "اسم المذخر",
     "area": "منطقة الصيدلية أو null",
@@ -1315,7 +1316,7 @@ export const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذ
   • "box_header" = **كتلة ترويسة الفاتورة كاملة** التي تضمّ اسم المذخر ورقم الفاتورة والتاريخ معاً.
   كل مستطيل أربعة أعداد صحيحة **بمقياس 0 إلى 1000** بالترتيب [ymin, xmin, ymax, xmax] (y من الأعلى للأسفل، x من اليسار لليمين). اجعل المستطيل يحيط بالمنطقة/الكتلة **كاملةً بسخاء** (لا بحقل مفرد ضيّق). إن تعذّر تحديد موضعٍ اجعله null. تُستخدم لتكبير الصورة على كل منطقة عند المراجعة.
 - **اسم المادة (item):** انسخه كاملاً كما هو مكتوب في الفاتورة بلا اختصار أو حذف (الاسم + التركيز + الشكل، مثل "DEVA … 457MG SYRUP").
-- **اسم الصيدلية (pharmacy):** الاسم الفعلي فقط، بلا أي بادئة أو لقب قبله مثل: "ص"، "ص."، "صيدلية"، "الصيدلية"، "صيدليه"، "زبون"، "الزبون"، "عميل"، "العميل"، "اسم"، "الاسم"، "د"، "دكتور"، وبلا المنطقة (انظر القاعدة التالية).
+- **اسم الصيدلية (pharmacy):** الاسم الفعلي فقط، بلا أي بادئة أو لقب قبله مثل: "ص"، "ص."، "صيدلية"، "الصيدلية"، "صيدليه"، "زبون"، "الزبون"، "عميل"، "العميل"، "اسم"، "الاسم"، "د"، "دكتور"، ولا عنوان الحقل الإنجليزي "Client name" أو "Customer" (في «Client name : صيدلية ‹اسم›» يكون pharmacy = ‹اسم› فقط)، وبلا المنطقة (انظر القاعدة التالية).
 - **الصورة قد تكون مائلة أو مُدارة 90° أو مقلوبة** — اقرأ النص باتجاهه الصحيح.
 - **أين تجد اسم الصيدلية:** يأتي عادةً بعد عنوان حقل مثل: «اسم الزبون»، «الزبون»، «السيد»، «السادة»، «حضرة»، «الاسم»، «الصيدلية»، «صيدلية»، «ص»، «العميل»، «اسم العميل»، «المشتري» (شكله: «السيد : صيدلية ‹اسم›/ ‹منطقة›» ⇒ pharmacy=‹اسم›، area=‹منطقة›) — وقد يُكتب **بلا أي عنوان**. العنوان نفسه ليس جزءاً من الاسم. احذر: «اسم المندوب»، «المندوب»، «الكاشير»، «المجهز»، «منظم الفاتورة»، «السائق» حقول أشخاص من طرف المذخر — **ليست** الصيدلية.
 - **أين تجد المنطقة:** بعد عنوان مثل «المنطقة»، «منطقة»، «الزون»، «الموقع»، «المكان»، «المحلة»، «العنوان» — أو **بعد اسم الصيدلية مباشرةً** مفصولة بشرطة «-» أو «/» أو فاصلة أو نقطتين «:»، وأحياناً **بلا فاصل** («‹اسم› ‹منطقة›»). إن كان العنوان «محافظة - حي» فالمنطقة هي **الحيّ** لا المحافظة. انسخ اسم المنطقة كما هو مكتوب ولا تترجمه.
@@ -1328,6 +1329,9 @@ export const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذ
   • داخل خانة الكمية بصيغة «10+2» أو «10 + 2» ⇒ quantity = 10، bonus = 2.
   • **سطر مستقل لنفس المادة** سعره صفر أو فارغ (بعد سطرها المدفوع) ⇒ أضف كميته إلى bonus سطرها المدفوع **ولا تُعِده صفاً منفصلاً**.
   لا تضع البونص في quantity، ولا تحسب السعر الكلي عليه. إن لم يوجد فاجعله 0.
+- **priceShown:** هل خانة السعر أو المبلغ **مطبوعة فعلاً بأرقام** في هذا السطر من الصورة؟ إن كانت الخانتان فارغتين فـ priceShown = false و unitPrice = null و total = null —
+  **ممنوع** أن تنسخ سعر سطر آخر أو تحسب المبلغ بنفسك لسطر لا سعر فيه. هذا السطر غالباً سطر البونص.
+- **لا تحذف ولا تدمج الأسطر المتكرّرة:** إن تكرّرت نفس المادة في سطرين (الثاني بلا سعر = بونص) فأعِد السطرين كما هما كلاً بصفّه.
 - انتبه: المبالغ قد تُكتب بفاصل آلاف شكله «'» أو «.» أو «,» («76'800» = 76800، «7'680» = 7680).
 - كرّر قيم الترويسة (warehouse, pharmacy, invoiceNumber, date, area) في كل صف من هذه الفاتورة.
 - الأرقام أرقام حقيقية بلا فواصل آلاف ولا رموز عملة (مثال: 99000 وليس "99,000").
@@ -1337,7 +1341,8 @@ export const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذ
 
 // Common prefixes/titles that get typed before a pharmacy/customer name on
 // Iraqi invoices. We strip them so the stored customer is the clean name.
-const PHARMACY_PREFIX_RE = /^\s*(السيد|السادة|الساده|حضرة|ص\.?|صيدلية|الصيدلية|صيدليه|الصيدليه|زبون|الزبون|عميل|العميل|اسم|الاسم|د\.?|دكتور|dr\.?)(?:\s*[:：]\s*|\s+)/i;
+// العناوين الإنجليزية («Client name :»، «Customer :») تُطبع في فواتير مذاخر ثنائية اللغة.
+const PHARMACY_PREFIX_RE = /^\s*((?:client|customer)\s*name|client|customer|name|اسم\s+الزبون|السيد|السادة|الساده|حضرة|ص\.?|صيدلية|الصيدلية|صيدليه|الصيدليه|زبون|الزبون|عميل|العميل|اسم|الاسم|د\.?|دكتور|dr\.?)(?:\s*[:：]\s*|\s+)/i;
 export function cleanPharmacyName(name) {
   let s = String(name ?? '').trim();
   // Strip repeatedly in case of stacked prefixes (e.g. "اسم الزبون ...")
@@ -1535,6 +1540,11 @@ export function isWarehouseAsPharmacy(pharmacy, warehouse) {
 }
 
 const isZeroish = (v) => v == null || v === '' || !Number(v);
+// قراءة الموديل أن خانتي السعر فارغتان في الصورة. مقيس (2026-10-15) على فاتورة
+// «طريق السلام»: سطر البونص (5 بلا سعر) كان يعود بسعر منسوخ من السطر المدفوع
+// ومبلغ محسوب (6057 × 5)، فلا يتعرّف عليه الطيّ أدناه ويبقى بيعاً مدفوعاً.
+const isPriceless = (r) => r.priceShown === false || r.priceShown === 'false'
+  || (isZeroish(r.total) && isZeroish(r.unitPrice));
 
 /**
  * البونص: (1) «10+2» داخل الكمية ⇒ كمية 10 وبونص 2. (2) سطر مستقل لنفس المادة
@@ -1549,15 +1559,41 @@ export function foldBonusRows(rows) {
       r.bonus = (Number(r.bonus) || 0) + Number(m[2]);
     }
   }
-  const paidByItem = new Map();
+  // علامة نهاية الفاتورة «***** انتهى *****» تُطبع تحت آخر سطر فتلتصق باسمه
+  // («Amoklavin-BID ***** انتهى») فيضيع تطابقه مع سطره المدفوع.
+  for (const r of rows) {
+    if (typeof r.item === 'string') r.item = r.item.replace(/\*{3,}.*$/s, '').replace(/\s*انتهى\s*$/, '').trim() || r.item;
+  }
+  // المادة المكرّرة التي يحمل أحد أسطرها مبلغاً مطبوعاً: ذلك السطر هو المدفوع،
+  // وتكرارها بلا مبلغ بونص حتى لو نسخ الموديل سعر الوحدة إليه أو أخطأ priceShown.
+  const withTotal = new Map();
   for (const r of rows) {
     const k = normalizeItemKey(r.item ?? '');
-    if (k && !(isZeroish(r.total) && isZeroish(r.unitPrice)) && !paidByItem.has(k)) paidByItem.set(k, r);
+    if (k && !isZeroish(r.total) && !withTotal.has(k)) withTotal.set(k, r);
   }
+  const keyOf = (r) => normalizeItemKey(r.item ?? '');
+  const isFree = (r) => {
+    const paid = withTotal.get(keyOf(r));
+    if (paid) return paid !== r && isZeroish(r.total);
+    return isPriceless(r);
+  };
+  const paidByItem = new Map(withTotal);
+  for (const r of rows) {
+    const k = keyOf(r);
+    if (k && !isFree(r) && !paidByItem.has(k)) paidByItem.set(k, r);
+  }
+  // اسم سطر البونص يُقرأ أحياناً مبتوراً («Amoklavin-BID» من «Amoklavin-BID 1000mg
+  // 10 tab deva») — بادئة كلمة كاملة من اسم سطر مدفوع واحد فقط تكفي.
+  const findPaid = (k) => {
+    if (paidByItem.has(k)) return paidByItem.get(k);
+    if (k.length < 5) return null;
+    const hits = [...paidByItem.entries()].filter(([pk]) => pk.startsWith(k + ' ') || k.startsWith(pk + ' '));
+    return hits.length === 1 ? hits[0][1] : null;
+  };
   return rows.filter(r => {
-    const k = normalizeItemKey(r.item ?? '');
-    if (!k || !(isZeroish(r.total) && isZeroish(r.unitPrice))) return true;
-    const paid = paidByItem.get(k);
+    const k = keyOf(r);
+    if (!k || !isFree(r)) return true;
+    const paid = findPaid(k);
     if (!paid || paid === r) return true;
     paid.bonus = (Number(paid.bonus) || 0) + (Number(r.quantity) || 0) + (Number(r.bonus) || 0);
     return false;
@@ -1719,6 +1755,7 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
         delete row.box; delete row.box_customer; delete row.box_header;
       }
       imageRows = foldBonusRows(imageRows);
+      for (const r of imageRows) delete r.priceShown;
 
       // احتياطي سطر الزبون: نداء مركَّز واحد للصورة حين لم تُقرأ الصيدلية، **أو**
       // قُرئت لكن الصيدلية غير محسومة في سيرفي الماستر. الحالة الثانية

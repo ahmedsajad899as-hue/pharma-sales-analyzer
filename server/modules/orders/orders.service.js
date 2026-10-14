@@ -13,7 +13,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
-import { buildRepIndex, matchRepName, repCoreName } from '../../lib/repNameMatch.js';
+import { buildRepIndex, matchRepName, repCoreName, repCoreKey } from '../../lib/repNameMatch.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { loadResolutionContext, resolveItemName, normalizeAreaName } from '../../lib/itemResolver.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
@@ -169,15 +169,12 @@ export async function attachScientificRepGuess(rows, actingUser) {
   if (itemIds.length === 0 && areaNames.length === 0) return rows;
 
   try {
-    const [reps, areas] = await Promise.all([
+    const officeWhere = actingUser.officeId ? { officeId: actingUser.officeId } : { id: actingUser.id };
+    const [reps, areas, repRecords] = await Promise.all([
       prisma.user.findMany({
-        where: {
-          role: 'scientific_rep',
-          isActive: true,
-          ...(actingUser.officeId ? { officeId: actingUser.officeId } : {}),
-        },
+        where: { role: 'scientific_rep', isActive: true, ...officeWhere },
         select: {
-          id: true, username: true, displayName: true,
+          id: true, username: true, displayName: true, linkedRepId: true,
           areaAssignments:    { select: { areaId: true } },
           companyAssignments: { select: { companyId: true } },
           itemAssignments:    { select: { itemId: true } },
@@ -186,8 +183,22 @@ export async function attachScientificRepGuess(rows, actingUser) {
       areaNames.length
         ? prisma.area.findMany({ select: { id: true, name: true } })
         : Promise.resolve([]),
+      // تعيين المناطق الفعلي للمندوب العلمي يعيش غالباً في سجلّ
+      // ScientificRepresentative الذي يملكه المدير (ScientificRepArea)، لا في
+      // UserAreaAssignment لحساب المندوب — فبدونه تُفوَّت «نفق الشرطة» المعيّنة
+      // للمندوب ويبقى الحقل فارغاً.
+      areaNames.length
+        ? prisma.scientificRepresentative.findMany({
+            where: { isActive: true, user: officeWhere },
+            select: {
+              id: true, name: true,
+              areas: { select: { areaId: true } },
+              linkedUsers: { select: { id: true } },
+            },
+          })
+        : Promise.resolve([]),
     ]);
-    if (!reps.length) return rows;
+    if (!reps.length && !repRecords.length) return rows;
 
     // اسم المنطقة قد يتكرّر كصفوف Area متعدّدة (المنطقة لكل حساب لا عالمية —
     // راجع ذاكرة project_pharma_area_account_scoping)، فنجمع كل المعرّفات.
@@ -206,6 +217,25 @@ export async function attachScientificRepGuess(rows, actingUser) {
       companies: new Set(r.companyAssignments.map(c => c.companyId)),
       items:     new Set(r.itemAssignments.map(i => i.itemId)),
     }));
+
+    // دمج مناطق سجلّات المندوبين: المرتبط بحساب يُضاف لمناطق ذلك الحساب، وغير
+    // المرتبط يصير مرشّحاً باسمه (الخانة نصّ حرّ تُطابَق بالاسم عند الحفظ).
+    // نفس الاسم عند أكثر من مدير = مندوب واحد، فيُجمَع بالاسم الجوهري.
+    const byUserId = new Map(index.map(c => [c.id, c]));
+    const byLinkedRep = new Map(reps.filter(r => r.linkedRepId).map(r => [r.linkedRepId, byUserId.get(r.id)]));
+    const byName = new Map(index.map(c => [repCoreKey(c.name), c]));
+    for (const rec of repRecords) {
+      const target = byLinkedRep.get(rec.id)
+        ?? rec.linkedUsers.map(u => byUserId.get(u.id)).find(Boolean)
+        ?? byName.get(repCoreKey(rec.name));
+      if (target) {
+        for (const a of rec.areas) target.areas.add(a.areaId);
+      } else if (rec.areas.length && repCoreKey(rec.name)) {
+        const c = { id: -rec.id, name: rec.name.trim(), areas: new Set(rec.areas.map(a => a.areaId)), companies: new Set(), items: new Set() };
+        index.push(c);
+        byName.set(repCoreKey(rec.name), c);
+      }
+    }
 
     for (const row of rows) {
       const sciId = row._scientificCompanyId ?? null;
@@ -426,11 +456,13 @@ export async function getPendingOrder(userId, id) {
   // الفتح — في الذاكرة فقط، فالصف المخزَّن لا يتغيّر قبل تأكيد المراجِع.
   if (rows.length && rows.every(r => r && r._pharmacyMatched === undefined)) {
     await matchInvoiceCustomers(rows);
-    const noRep = rows.filter(r => !r.scientificRep);
-    if (noRep.length) {
-      const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true } });
-      if (user) await attachScientificRepGuess(noRep, user);
-    }
+  }
+  // التخمين يُعاد عند الفتح لكل صف بلا مندوب — كي تستفيد الطلبيات المعلَّقة من
+  // أي تعيين مناطق جديد (أو إصلاح في التخمين) بلا إعادة إرسالها.
+  const noRep = rows.filter(r => r && !r.scientificRep);
+  if (noRep.length) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true } });
+    if (user) await attachScientificRepGuess(noRep, user);
   }
   return {
     id: row.id,
