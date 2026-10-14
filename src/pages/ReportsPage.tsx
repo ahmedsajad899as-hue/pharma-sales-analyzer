@@ -844,6 +844,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [fromDate, setFromDate]   = useState(() => sessionStorage.getItem('rpt_fromDate') || '');
   const [toDate, setToDate]       = useState(() => sessionStorage.getItem('rpt_toDate') || '');
   const [loading, setLoading]     = useState(false);
+  // خريطة المحافظات: مندوبو المحافظة المضغوطة (جدولهم يظهر تحت الخريطة)
+  const [provReps, setProvReps]   = useState<{ id: number; name: string }[]>([]);
+  const provReportRef = useRef<HTMLDivElement>(null);
   const [error, setError]         = useState('');
   const [activeTab, setActiveTab] = useState<'area' | 'item' | 'rep'>('area');
   const [showInfoTags, setShowInfoTags] = useState(false);
@@ -3380,7 +3383,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           .filter(([id]) => !((id === 'commercial' || id === 'provinces') && user?.role === 'scientific_rep') && (SHOW_COMMERCIAL_MODE || id !== 'commercial'))
           .map(([id, label, icon]) => (
           <button key={id} onClick={() => {
-            if (id === 'provinces') { setMode('provinces'); setError(''); }
+            if (id === 'provinces') { setMode('provinces'); setError(''); setSciReport(null); setSciReturnsReport(null); setProvReps([]); }
             if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); }
             // التبديل كان يمسح التقرير بلا إعادة تحميل، فيبقى التبويب فارغاً حتى
             // يضغط المستخدم «تحليل». نحمّله فوراً بمندوب محفوظ أو بأول مندوب.
@@ -3680,7 +3683,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               ))}
             </div>
           </div>
-          <IraqRepsMap reps={sciReps} token={token} fileIds={activeFileIds} applyMonth={applyMonth} months={monthsState.months.map(m => m.ym)} ready={monthsReady} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} />
+          <IraqRepsMap activeRepId={sciRepId ? Number(sciRepId) : null}
+            onPickProvince={reps => {
+              setProvReps(reps); setSciReport(null); setSciReturnsReport(null);
+              if (reps[0]) { setSciRepId(String(reps[0].id)); loadSciReport(String(reps[0].id)); }
+            }}
+            onPickRep={rep => { setSciRepId(String(rep.id)); loadSciReport(String(rep.id)); }}
+            reps={sciReps} token={token} fileIds={activeFileIds} applyMonth={applyMonth} months={monthsState.months.map(m => m.ym)} ready={monthsReady} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} />
         </>
       )}
 
@@ -4767,7 +4776,18 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       })()}
 
       {/* ─── Scientific Rep Report ─── */}
-      {mode === 'scientific' && sciReport && (() => {
+      {mode === 'provinces' && (provReps.length > 0 || loading) && (
+        <div ref={provReportRef} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', margin: '14px 0 6px', direction: 'rtl' }}>
+          {provReps.map(r => (
+            <button key={r.id} type="button" onClick={() => { setSciRepId(String(r.id)); loadSciReport(String(r.id)); }}
+              style={{ padding: '5px 14px', borderRadius: 999, fontSize: 12.5, cursor: 'pointer', fontWeight: String(r.id) === sciRepId ? 700 : 500,
+                border: '1px solid ' + (String(r.id) === sciRepId ? '#0f766e' : '#cbd5e1'),
+                background: String(r.id) === sciRepId ? '#0f766e' : '#fff', color: String(r.id) === sciRepId ? '#fff' : '#334155' }}>{r.name}</button>
+          ))}
+          {loading && <span style={{ fontSize: 12, color: '#64748b' }}>جاري تحميل تقرير المندوب…</span>}
+        </div>
+      )}
+      {(mode === 'scientific' || mode === 'provinces') && sciReport && (() => {
         const viewData    = reportView === 'returns' ? sciReturnsReport! : sciReport;
         const netValTotal = (sciReport?.totalValue ?? 0) - (sciReturnsReport?.totalValue ?? 0);
         const isNet = reportView === 'net';

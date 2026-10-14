@@ -33,6 +33,11 @@ interface Props {
   toDate: string;
   fmtVal: (n: number) => string;
   currencyLabel: string;
+  /** ضغط محافظة بالخريطة: مندوبوها العلميون (لفتح جدول المندوب مباشرة). */
+  onPickProvince?: (reps: RepRow[]) => void;
+  /** ضغط اسم مندوب بلوحة المحافظة. */
+  onPickRep?: (rep: RepRow) => void;
+  activeRepId?: number | null;
 }
 
 interface CompanyCell { name: string; value: number; reps: RepRow[] }
@@ -83,7 +88,7 @@ const unpackSales = (v: any): SalesRows => ({ prov: new Map(v?.prov ?? []), pc: 
 const RAMP = ['#e0ecff', '#c7dbff', '#a3c2fb', '#78a3f5', '#4f84ea', '#2f66d6', '#1f4fb4', '#173a85'];
 const VB = IRAQ_MAP_VIEWBOX;
 
-export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
+export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel, onPickProvince, onPickRep, activeRepId }: Props) {
   const [repData, setRepData] = useState<RepProvinceRow[]>([]);
   const [salesRows, setSalesRows] = useState<{ prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] }>({ prov: new Map(), pc: [] });
   const [err, setErr] = useState('');
@@ -293,6 +298,15 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   const side = wrapW >= 940;
 
+  const pickProvince = (name: string) => {
+    setSel(name);
+    const c = cells.get(norm(name));
+    const seen = new Set<number>(); const reps: RepRow[] = [];
+    c?.companies.forEach(co => co.reps.forEach(r => { if (!seen.has(r.id)) { seen.add(r.id); reps.push(r); } }));
+    reps.sort((a, b) => b.netValue - a.netValue);
+    onPickProvince?.(reps);
+  };
+
   const companyPanel = (c: ProvinceCell) => {
     const cmax = Math.max(1, ...c.companies.map(x => Math.abs(x.value)));
     return (
@@ -315,7 +329,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                     // حصّة المندوب من مبيع الشركة بالمحافظة = إنتاجيته الفعلية
                     const share = co.value > 0 ? Math.max(0, Math.min(100, (r.netValue / co.value) * 100)) : 0;
                     return (
-                      <div key={r.id}>
+                      <div key={r.id} onClick={() => onPickRep?.(r)} style={{ cursor: onPickRep ? 'pointer' : 'default', borderRadius: 6, background: activeRepId === r.id ? '#ecfdf5' : 'transparent', padding: '2px 3px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12 }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#334155', fontWeight: 600 }}>
                             <span style={{ width: 17, height: 17, borderRadius: '50%', background: '#0f766e', color: '#fff', fontSize: 9.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{r.name.trim().charAt(0)}</span>
@@ -398,7 +412,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                       style={{ cursor: isB ? 'default' : 'pointer', transition: 'fill .25s, opacity .2s' }}
                       opacity={active && !on && !isB ? 0.82 : 1}
                       onMouseEnter={() => !isB && setHover(s.name)} onMouseLeave={() => setHover(null)}
-                      onClick={() => !isB && setSel(s.name)} />
+                      onClick={() => !isB && pickProvince(s.name)} />
                   );
                 })}
               </g>
@@ -415,7 +429,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                 const on = active && norm(active) === k;
                 const dark = !!c && c.total > 0 && Math.sqrt(c.total / maxVal) > 0.55;
                 return (
-                  <g key={s.name} style={{ cursor: 'pointer' }} onMouseEnter={() => setHover(s.name)} onMouseLeave={() => setHover(null)} onClick={() => setSel(s.name)}>
+                  <g key={s.name} style={{ cursor: 'pointer' }} onMouseEnter={() => setHover(s.name)} onMouseLeave={() => setHover(null)} onClick={() => pickProvince(s.name)}>
                     <text x={x} y={y - 30} textAnchor="middle" style={{ fontSize: 15, fontWeight: 800, fill: dark ? '#ffffff' : '#1e293b', paintOrder: 'stroke', stroke: dark ? 'rgba(15,23,42,.35)' : 'rgba(255,255,255,.85)', strokeWidth: 3, pointerEvents: 'none' }}>{s.name}</text>
                     <circle cx={x} cy={y} r={on ? 20 : 17} fill={n > 0 ? '#0f172a' : '#ffffff'} stroke={n > 0 ? '#ffffff' : '#94a3b8'} strokeWidth={3} />
                     <text x={x} y={y + 1} textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 15, fontWeight: 800, fill: n > 0 ? '#ffffff' : '#94a3b8', pointerEvents: 'none' }}>{n}</text>
