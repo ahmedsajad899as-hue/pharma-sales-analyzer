@@ -1,5 +1,5 @@
 import express from 'express';
-import { listLinks, createLink, updateLink, deleteLink, listMembers } from './telegram-links.controller.js';
+import { listLinks, createLink, updateLink, deleteLink, listMembers, setMemberRep } from './telegram-links.controller.js';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 
 const router = express.Router();
@@ -10,6 +10,7 @@ router.use(requireMasterAdmin);
 
 router.get('/',       listLinks);
 router.get('/:id/members', listMembers);
+router.put('/:id/members/:telegramUserId/rep', setMemberRep);
 router.post('/',      createLink);
 router.put('/:id',    updateLink);
 router.delete('/:id', deleteLink);

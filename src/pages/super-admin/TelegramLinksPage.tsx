@@ -4,7 +4,7 @@ import { Spinner, ErrBox, Modal, Field, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
 
 interface TgPerson { telegramUserId: string; firstName?: string | null; lastName?: string | null; username?: string | null; status?: string; lastSeenAt?: string; joinedAt?: string | null }
-interface MembersInfo { memberCount: number | null; admins: TgPerson[] | null; seen: TgPerson[] }
+interface MembersInfo { memberCount: number | null; admins: TgPerson[] | null; seen: TgPerson[]; links: Record<string, number>; reps: { id: number; name: string }[] }
 const personName = (p: TgPerson) => [p.firstName, p.lastName].filter(Boolean).join(' ') || p.username || p.telegramUserId;
 
 interface UserOption { id: number; username: string; displayName?: string; role: string }
@@ -36,6 +36,26 @@ export default function TelegramLinksPage() {
   const [membersFor, setMembersFor] = useState<TelegramLink | null>(null);
   const [members, setMembers]       = useState<MembersInfo | null>(null);
   const [membersLoading, setMembersLoading] = useState(false);
+
+  const setPersonRep = async (p: TgPerson, userId: string) => {
+    if (!membersFor) return;
+    await fetch(`/api/sa/telegram-links/${membersFor.id}/members/${p.telegramUserId}/rep`, {
+      method: 'PUT', headers: H(),
+      body: JSON.stringify({ userId: userId ? Number(userId) : null, firstName: p.firstName, lastName: p.lastName, username: p.username }),
+    });
+    openMembers(membersFor);
+  };
+
+  const RepSelect = ({ p }: { p: TgPerson }) => (
+    <select
+      value={members?.links?.[p.telegramUserId] ?? ''}
+      onChange={e => setPersonRep(p, e.target.value)}
+      style={{ marginInlineStart: 8, padding: '2px 6px', fontSize: 12, border: '1px solid #d8dee8', borderRadius: 6, color: UI.ink }}
+    >
+      <option value="">— غير مربوط بمندوب —</option>
+      {(members?.reps ?? []).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+    </select>
+  );
 
   const openMembers = (l: TelegramLink) => {
     setMembersFor(l); setMembers(null); setMembersLoading(true);
@@ -171,13 +191,13 @@ export default function TelegramLinksPage() {
               </div>
               <div style={{ fontWeight: 700, color: '#0f766e' }}>المشرفون {members.admins ? `(${members.admins.length})` : ''}</div>
               {(members.admins ?? []).map(a => (
-                <div key={a.telegramUserId}>• {personName(a)}{a.username ? ` @${a.username}` : ''} <span style={{ color: UI.faint }}>({a.status === 'creator' ? 'المالك' : 'مشرف'})</span></div>
+                <div key={a.telegramUserId}>• {personName(a)}{a.username ? ` @${a.username}` : ''} <span style={{ color: UI.faint }}>({a.status === 'creator' ? 'المالك' : 'مشرف'})</span><RepSelect p={a} /></div>
               ))}
               {members.admins === null && <div style={{ color: UI.faint }}>تعذّر جلب المشرفين (البوت يحتاج أن يكون مشرفاً أو عضواً بالكروب)</div>}
               <div style={{ fontWeight: 700, color: '#0f766e', marginTop: 12 }}>الذين ظهروا بالكروب ({members.seen.length})</div>
               {members.seen.map(m => (
                 <div key={m.telegramUserId}>• {personName(m)}{m.username ? ` @${m.username}` : ''}
-                  <span style={{ color: UI.faint }}> — آخر ظهور {m.lastSeenAt ? new Date(m.lastSeenAt).toLocaleDateString('ar-IQ') : ''}</span></div>
+                  <span style={{ color: UI.faint }}> — آخر ظهور {m.lastSeenAt ? new Date(m.lastSeenAt).toLocaleDateString('ar-IQ') : ''}</span><RepSelect p={m} /></div>
               ))}
               {(() => {
                 if (members.memberCount == null) return null;
@@ -191,6 +211,7 @@ export default function TelegramLinksPage() {
               })()}
               {members.seen.length === 0 && <div style={{ color: UI.faint }}>لا أحد بعد — يُسجَّل كل من يكتب أو ينضم من الآن فصاعداً.</div>}
               <div style={{ marginTop: 12, fontSize: 11.5, color: UI.faint, lineHeight: 1.6 }}>
+                🔗 اربط كل شخص بمندوبه العلمي: حين يرسل طلبية أو صورة ولم يُعرف المندوب من المنطقة/الشركة/الصنف تُسجَّل الطلبية باسم المندوب المربوط.<br />
                 تلكرام لا يسمح للبوت بسرد كل الأعضاء. القائمة = المشرفون + كل من كتب رسالة أو انضمّ منذ تفعيل هذه الميزة؛ الصامتون لن يظهروا حتى يكتبوا.
               </div>
             </div>

@@ -55,7 +55,7 @@ async function reply(transport, ctx, text) {
  */
 export async function handleIncomingOrderMessage({
   transport, link, user, chatId, chatTitle = null, messageId = null,
-  senderName = null, text = '', mediaRefs = [], isReplyToBot = false,
+  senderName = null, senderId = null, text = '', mediaRefs = [], isReplyToBot = false,
 }) {
   const hasMedia = mediaRefs.length > 0;
   if (!isOrderTrigger(text, link?.orderTextMode, { isReplyToBot, hasMedia })) return false;
@@ -111,6 +111,17 @@ export async function handleIncomingOrderMessage({
     await matchInvoiceCustomers(rows);
     // التخمين بعد المطابقة لأنه يعتمد على معرّف الصنف وشركته العلمية.
     await attachScientificRepGuess(rows, user);
+    // بديل التخمين: الصفوف التي لم تُحسم من المنطقة/الشركة/الصنف تُسجَّل باسم المندوب
+    // الذي أرسلها فعلاً إن كان مربوطاً بحسابه من لوحة الماستر أدمن (👥 الأعضاء).
+    // لا تَطغى على تخمين حُسم، ولا تُطبَّق إن لم يوجد ربط.
+    if (rows.length && transport.resolveSenderRep && senderId != null) {
+      try {
+        const senderRep = await transport.resolveSenderRep(chatId, senderId);
+        if (senderRep) for (const row of rows) if (!row.scientificRep) row.scientificRep = senderRep.name;
+      } catch (e) {
+        console.error('[orders] تعذّر حلّ مندوب المرسل:', e?.message);
+      }
+    }
 
     if (!rows.length) {
       // صورة مُرسَلة عمداً تستحق ردّاً حتى بلا كلمة مفتاحية؛ أما نصّ التقطه وضع

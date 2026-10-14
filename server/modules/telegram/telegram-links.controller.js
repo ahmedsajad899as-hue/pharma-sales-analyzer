@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma.js';
+import { listOfficeScientificReps } from '../orders/orders.service.js';
 import { invalidateSilentCache, getChatMembersInfo } from './telegram.service.js';
 import { ORDER_TEXT_MODES, DEFAULT_ORDER_TEXT_MODE } from '../orders/order-trigger.js';
 
@@ -83,5 +84,30 @@ export async function deleteLink(req, res) {
 export async function listMembers(req, res) {
   const link = await prisma.telegramChatLink.findUnique({ where: { id: parseInt(req.params.id) } });
   if (!link) return res.status(404).json({ error: 'الربط غير موجود' });
-  res.json({ success: true, data: await getChatMembersInfo(link.chatId) });
+  const [info, reps] = await Promise.all([getChatMembersInfo(link.chatId), listOfficeScientificReps(link.userId)]);
+  res.json({ success: true, data: { ...info, reps } });
+}
+
+// ── Link a telegram person to a scientific rep (userId=null to unlink) ───
+export async function setMemberRep(req, res) {
+  const link = await prisma.telegramChatLink.findUnique({ where: { id: parseInt(req.params.id) } });
+  if (!link) return res.status(404).json({ error: 'الربط غير موجود' });
+  const telegramUserId = String(req.params.telegramUserId);
+  const { userId, firstName, lastName, username } = req.body;
+
+  let linkedUserId = null;
+  if (userId != null && userId !== '') {
+    const allowed = await listOfficeScientificReps(link.userId);
+    linkedUserId = parseInt(userId);
+    if (!allowed.some(r => r.id === linkedUserId)) return res.status(400).json({ error: 'المندوب ليس من مندوبي هذا المكتب' });
+  }
+
+  await prisma.telegramChatMember.upsert({
+    where: { chatId_telegramUserId: { chatId: link.chatId, telegramUserId } },
+    update: { linkedUserId },
+    create: { chatId: link.chatId, telegramUserId, firstName: firstName || null, lastName: lastName || null, username: username || null, linkedUserId },
+  });
+  // الشخص واحد عبر كل كروباته
+  await prisma.telegramChatMember.updateMany({ where: { telegramUserId }, data: { linkedUserId } });
+  res.json({ success: true });
 }

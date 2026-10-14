@@ -416,6 +416,7 @@ const telegramTransport = {
   editText: (chatId, messageId, text) => editMessageText(chatId, messageId, text),
   // getFile محيّد لنوع الملف — معرّف صورة يمرّ بنفس المسار بلا تعديل.
   downloadMedia: (fileId) => downloadDocument(fileId),
+  resolveSenderRep: (chatId, senderId) => resolveSenderRep(chatId, senderId),
 };
 
 // ألبوم صور واحد = طلبية واحدة لا N طلبيات. تلكرام يسلّم كل صورة في تحديث منفصل
@@ -435,7 +436,7 @@ async function flushAlbum(groupId) {
       transport: telegramTransport,
       link: g.actor.link, user: g.actor.user,
       chatId: g.actor.chatId, chatTitle: g.actor.chatTitle,
-      senderName: g.senderName,
+      senderName: g.senderName, senderId: g.senderId,
       text: g.caption,
       mediaRefs: g.mediaRefs,
       isReplyToBot: g.isReplyToBot,
@@ -454,7 +455,7 @@ function bufferAlbumPhoto(actor, message, fileId, updateId) {
   if (!g) {
     if (albumBuffer.size >= MAX_ALBUM_GROUPS) return; // حارس ذاكرة — تُهمَل مجموعة جديدة
     g = {
-      actor, senderName: senderNameOf(message), caption: '',
+      actor, senderName: senderNameOf(message), senderId: message.from?.id ?? null, caption: '',
       mediaRefs: [], updateIds: [], isReplyToBot: false, timer: null,
     };
     albumBuffer.set(groupId, g);
@@ -475,7 +476,7 @@ async function handleOrderMessage(actor, message, kind, updateId) {
     transport: telegramTransport,
     link: actor.link, user: actor.user,
     chatId: actor.chatId, chatTitle: actor.chatTitle,
-    senderName: senderNameOf(message),
+    senderName: senderNameOf(message), senderId: message.from?.id ?? null,
     isReplyToBot: isReplyToBotMsg(message),
   };
 
@@ -593,6 +594,19 @@ async function recordChatMembers(message) {
   while (memberSeenAt.size > 5000) memberSeenAt.delete(memberSeenAt.keys().next().value);
 }
 
+/** المندوب العلمي المربوط بشخص تلكرام (أو null). الربط عالمي للشخص عبر كل الكروبات. */
+async function resolveSenderRep(chatId, telegramUserId) {
+  if (telegramUserId == null) return null;
+  const m = await prisma.telegramChatMember.findFirst({
+    where: { telegramUserId: String(telegramUserId), linkedUserId: { not: null } },
+    orderBy: { lastSeenAt: 'desc' }, select: { linkedUserId: true },
+  });
+  if (!m) return null;
+  const u = await prisma.user.findUnique({ where: { id: m.linkedUserId }, select: { id: true, displayName: true, username: true, isActive: true, role: true } });
+  if (!u || !u.isActive || u.role !== 'scientific_rep') return null;
+  return { id: u.id, name: u.displayName?.trim() || u.username };
+}
+
 /** المشرفون وعدد الأعضاء من تلكرام مباشرة (الوحيد المتاح للبوت)، + من سُجّل ظهورهم. */
 export async function getChatMembersInfo(chatId) {
   const [admins, count, seen] = await Promise.all([
@@ -607,6 +621,10 @@ export async function getChatMembersInfo(chatId) {
       username: a.user.username || null, status: a.status,
     })) : null,
     seen,
+    // ربط الأشخاص بمندوبين (عالمي) + خيارات المندوبين يضيفها الكونترولر
+    links: Object.fromEntries((await prisma.telegramChatMember.findMany({
+      where: { linkedUserId: { not: null } }, select: { telegramUserId: true, linkedUserId: true },
+    })).map(r => [r.telegramUserId, r.linkedUserId])),
   };
 }
 
