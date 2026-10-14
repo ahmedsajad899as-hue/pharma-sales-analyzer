@@ -55,9 +55,10 @@ import VisitsPage from './pages/super-admin/VisitsPage';
 import MasterSurveyPage from './pages/super-admin/MasterSurveyPage';
 import DoctorChangesPage from './pages/super-admin/DoctorChangesPage';
 import TelegramLinksPage from './pages/super-admin/TelegramLinksPage';
+import AiUsagePage from './pages/super-admin/AiUsagePage';
 import ViberLinksPage from './pages/super-admin/ViberLinksPage';
 
-type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'telegram-links' | 'viber-links';
+type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'telegram-links' | 'viber-links' | 'ai-usage';
 
 // لون تمييز واحد فقط للحالة النشطة (بدل لون مختلف لكل عنصر) — يهدّئ الشريط الجانبي
 // ويجعل العين تتبع "أين أنا" بدل التوهان بين تدرّجات ملوّنة متعددة.
@@ -73,6 +74,7 @@ const NAV: { id: Page; label: string; icon: string; masterOnly?: boolean }[] = [
   { id: 'doctor-changes', label: 'سجل الأطباء', icon: '🔔', masterOnly: true },
   { id: 'telegram-links', label: 'روابط تيليجرام', icon: '🤖', masterOnly: true },
   { id: 'viber-links',  label: 'روابط فايبر',   icon: '📞', masterOnly: true },
+  { id: 'ai-usage',     label: 'استهلاك الذكاء', icon: '📈', masterOnly: true },
 ];
 const ACCENT = '#4f46e5';
 
@@ -351,6 +353,7 @@ function SuperAdminShell() {
             {page === 'doctor-changes' && <DoctorChangesPage />}
             {page === 'telegram-links' && <TelegramLinksPage />}
         {page === 'viber-links' && <ViberLinksPage />}
+            {page === 'ai-usage' && <AiUsagePage />}
           </div>
         </main>
       </div>

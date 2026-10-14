@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../../lib/prisma.js';
+import { logAiUsage } from '../../lib/aiUsage.js';
 import { resolveEffectiveAreas } from '../../lib/areaScope.js';
 
 // ── Constants ────────────────────────────────────────────────
@@ -2353,6 +2354,8 @@ export async function callGeminiSmart(parts, opts = {}) {
     // prompts (the item-analysis report). Null = leave the model default. Only
     // applied to النماذج التي تقبله (acceptsThinking) — غيرها يرفضه ويفشل النداء.
     thinkingBudget = null,
+    // وسم الميزة في نافذة الاستهلاك (ماستر أدمن). غير الموسوم يظهر «other».
+    feature = 'other',
   } = opts;
   const keys = getAllApiKeys();
   if (!keys.length) throw new Error('No Gemini API key configured');
@@ -2364,6 +2367,7 @@ export async function callGeminiSmart(parts, opts = {}) {
         throw lastErr || new Error(`Gemini total budget ${maxTotalMs}ms exceeded`);
       }
       const key = keys[(_keyIndex + i) % keys.length];
+      const attemptStart = Date.now();
       try {
         const modelParams = { model: modelName };
         if (thinkingBudget != null && acceptsThinking(modelName)) {
@@ -2375,12 +2379,14 @@ export async function callGeminiSmart(parts, opts = {}) {
         const model = new GoogleGenerativeAI(key).getGenerativeModel(modelParams);
         const result = await geminiWithTimeout(model.generateContent(parts), timeoutMs);
         _keyIndex = (_keyIndex + i + 1) % keys.length; // advance for next call
+        logAiUsage({ feature, model: modelName, ok: true, usage: result.response.usageMetadata, durationMs: Date.now() - attemptStart });
         return result.response.text();
       } catch (err) {
         lastErr = err;
         const msg = String(err?.message || '');
         const is429 = msg.includes('429') || err?.status === 429 || msg.includes('quota');
         const isTimeout = msg.includes('timeout');
+        logAiUsage({ feature, model: modelName, ok: false, errorKind: is429 ? '429' : isTimeout ? 'timeout' : 'error', durationMs: Date.now() - attemptStart });
         console.error(`[ai-assistant] ${modelName} key#${i} ${is429 ? '429' : isTimeout ? 'TIMEOUT' : 'err'}:`, msg.slice(0, 200));
         // On timeout or quota, try next model/key. On other errors also continue.
       }

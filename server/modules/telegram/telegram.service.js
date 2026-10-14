@@ -29,6 +29,7 @@ import { parseSalesQuery } from '../orders/sales-query-trigger.js';
 import { parseFollowupQuery } from '../rep-followup/followup-query-trigger.js';
 import { answerFollowupQuery } from '../rep-followup/followup-query.js';
 import { answerSalesQuery } from './sales-query.js';
+import { hasBotTrigger, answerBotChat } from './bot-chat.js';
 
 const BOT_TOKEN  = process.env.TELEGRAM_BOT_TOKEN;
 const API_BASE   = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -514,11 +515,31 @@ export async function handleUpdate(update) {
   // سؤال المتابعة يُحلَّل هنا أيضاً ليدخل في `announce`: كروب غير مربوط يجب أن
   // يُخبر صاحبه بسبب الصمت، لا أن يتجاهل سؤالاً صريحاً.
   const followupQuery = kind === 'text' && !salesQuery && !personalSale ? parseFollowupQuery(message.text) : null;
-  const announce = kind === 'document' || hasTriggerWord(intentText) || personalSale || isReplyToBotMsg(message)
+  // محادثة حرّة: كلمة «بوت» في أي موضع (bot-chat.js). طلب صريح فيستحق إعلان الاكتشاف أيضاً.
+  const botChat = kind === 'text' && !personalSale && hasBotTrigger(message.text);
+  const announce = botChat || kind === 'document' || hasTriggerWord(intentText) || personalSale || isReplyToBotMsg(message)
     || Boolean(salesQuery) || Boolean(followupQuery);
 
   const actor = await resolveActor(message, { announce });
   if (!actor) return;
+
+  // ── محادثة حرّة («بوت اريد مبيعات فلان…») — قبل مسار الطلبيات والأسئلة المنظمة ──
+  // الكروب الصامت لا يُنادى Gemini له أصلاً (لا فائدة من فهمٍ لا يُرسَل جوابه).
+  if (botChat) {
+    if (actor.link.silentMode === true || actor.link.salesQueryEnabled === false) return;
+    if (await isDuplicateUpdate(actor.link, update.update_id, { deferWrite: true })) return;
+    try {
+      telegramApi('sendChatAction', { chat_id: actor.chatId, action: 'typing' });
+      const reply = await answerBotChat({ actorUser: actor.user, chatId: actor.chatId, text: message.text });
+      if (reply) await sendMessage(actor.chatId, reply);
+    } catch (err) {
+      console.error('[telegram] bot-chat crashed:', err);
+      await sendMessage(actor.chatId, '⚠️ تعذّر معالجة طلبك، حاول مرة أخرى بعد قليل.');
+    } finally {
+      await markUpdateConsumed(actor.link, update.update_id);
+    }
+    return;
+  }
 
   if (kind === 'document') {
     if (await isDuplicateUpdate(actor.link, update.update_id, { deferWrite: false })) return;

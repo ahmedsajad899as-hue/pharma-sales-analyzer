@@ -77,6 +77,7 @@ import { removeBaselineForDeletedStockFile } from './modules/stock-ledger/stock-
 import stockFlowRoutes           from './modules/stock-flow/stock-flow.routes.js';
 import telegramRoutes            from './modules/telegram/telegram.routes.js';
 import telegramLinksRoutes       from './modules/telegram/telegram-links.routes.js';
+import aiUsageRoutes             from './modules/telegram/ai-usage.routes.js';
 import ordersRoutes              from './modules/orders/orders.routes.js';
 import viberRoutes               from './modules/viber/viber.routes.js';
 import viberLinksRoutes          from './modules/viber/viber-links.routes.js';
@@ -198,6 +199,7 @@ app.use('/api/super-admin',         superAdminRoutes);
 app.use('/api/super-admin/surveys', surveyAdminRoutes);
 app.use('/api/sa/offices',        officesRoutes);
 app.use('/api/sa/telegram-links', telegramLinksRoutes);
+app.use('/api/sa/ai-usage',       aiUsageRoutes);
 app.use('/api/sa/viber-links',    viberLinksRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
 app.use('/api/sa/catalog-import', catalogImportRoutes);

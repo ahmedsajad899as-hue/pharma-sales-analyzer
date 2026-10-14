@@ -16,21 +16,21 @@ import * as sciRepSvc from '../scientific-reps/scientific-reps.service.js';
 import { buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import { resolveActiveFileIds } from '../../lib/activeFiles.js';
 
-const MONTH_NAMES_AR = ['', 'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+export const MONTH_NAMES_AR = ['', 'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 
-function monthRange(year, month) {
+export function monthRange(year, month) {
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
   // اليوم الأخير من الشهر = يوم 0 من الشهر التالي، بآخر لحظة فيه.
   const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
   return { start, end };
 }
 
-const fmtUSD = (v) => `$${Math.round(v || 0).toLocaleString('en-US')}`;
+export const fmtUSD = (v) => `$${Math.round(v || 0).toLocaleString('en-US')}`;
 
 // الملفات التي يحسب عليها البوت = «الملفات المفعّلة» لهذا الحساب كما يراها
 // التطبيق. المنطق مشترك في lib/activeFiles.js لأن كل حاسب بلا واجهة (البوت،
 // ملخّص متابعة المندوبين، اللقطة الليلية) يجب أن يحسب على نفس الملفات.
-const resolveBotFileIds = resolveActiveFileIds;
+export const resolveBotFileIds = resolveActiveFileIds;
 
 function formatReport(repName, month, year, report) {
   const lines = [`📊 مبيعات ${repName} — ${MONTH_NAMES_AR[month]} ${year}`, ''];
@@ -117,4 +117,35 @@ export async function answerSalesQuery({ actorUser, repNameRaw, month, year, qua
     shown + (files.names.length > 10 ? `\n   • … و${files.names.length - 10} غيرها` : ''),
     `صفوف مطابقة: ${report._debug?.rawRowCount ?? '—'}`,
   ].join('\n');
+}
+
+/** فهرس مندوبي الحساب العلميين (مرة واحدة لكل سؤال، لا لكل اسم). */
+export async function loadRepIndex(actorUser) {
+  const reps = await sciRepSvc.list({}, actorUser, {});
+  const candidates = reps
+    .map((r) => ({ id: r.id, name: r.name, company: r.company ?? null }))
+    .filter((r) => Number.isInteger(r.id) && r.name);
+  return buildRepIndex(candidates);
+}
+
+/**
+ * نسخة «بيانات لا نص» من answerSalesQuery للمحادثة الحرة: تُعيد التقرير الخام
+ * (summary/byItem/bySource) ليركّب المنادي ردّه، بنفس دالة getReport المستعملة في
+ * الشاشة — فلا يتفرّق الرقم. status: ok | ask | none | nofiles.
+ */
+export async function fetchRepSalesReport({ actorUser, index, repNameRaw, month, year, files }) {
+  const { status, rep, suggestions } = matchRepName(repNameRaw, index);
+  if (status === 'none') return { status: 'none' };
+  if (status === 'ask' || !rep) return { status: 'ask', suggestions };
+
+  const fileInfo = files ?? await resolveBotFileIds(actorUser.id);
+  if (fileInfo.ids.length === 0) return { status: 'nofiles' };
+
+  const { start, end } = monthRange(year, month);
+  const report = await sciRepSvc.getReport(
+    rep.id,
+    { fileIds: fileInfo.ids, startDate: start.toISOString(), endDate: end.toISOString() },
+    actorUser.id,
+  );
+  return { status: 'ok', rep, report, files: fileInfo };
 }

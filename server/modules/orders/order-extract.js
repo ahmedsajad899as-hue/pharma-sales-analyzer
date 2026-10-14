@@ -147,7 +147,7 @@ export async function extractOrderRowsFromText(text, { todayISO } = {}) {
     // قاس هذا السلّم بالذات على قراءة الفواتير العربية ويحذّر من الترقية العمياء.
     reply = await callGeminiSmart(
       [buildOrderTextPrompt(today), `نصّ الطلبية:\n«${raw}»`],
-      { timeoutMs: 45_000, thinkingBudget: 0 },
+      { timeoutMs: 45_000, thinkingBudget: 0, feature: 'bot-order-text' },
     );
   } catch (err) {
     console.error('[orders] Gemini فشل في قراءة نص الطلبية:', String(err?.message || '').slice(0, 200));

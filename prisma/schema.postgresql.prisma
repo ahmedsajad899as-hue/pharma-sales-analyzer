@@ -2010,6 +2010,24 @@ model TelegramChatMember {
   @@map("telegram_chat_members")
 }
 
+// ─── استهلاك Gemini: صفّ لكل محاولة نداء (نجاح أو فشل) — يغذّي نافذة الاستهلاك بالماستر أدمن ──
+model AiUsageLog {
+  id           Int      @id @default(autoincrement())
+  feature      String   @default("other")
+  model        String
+  ok           Boolean
+  errorKind    String?
+  promptTokens Int      @default(0)
+  outputTokens Int      @default(0)
+  totalTokens  Int      @default(0)
+  durationMs   Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([feature, createdAt])
+  @@map("ai_usage_logs")
+}
+
 // ─── Viber: محادثة/كروب ↔ حساب مستخدم. خامد حتى يُضبط VIBER_AUTH_TOKEN ──────
 model ViberChatLink {
   id         Int     @id @default(autoincrement())
