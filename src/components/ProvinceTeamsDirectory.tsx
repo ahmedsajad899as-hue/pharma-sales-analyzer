@@ -20,6 +20,8 @@ interface Props {
   fmtVal: (n: number) => string;
   currencyLabel: string;
   onClose: () => void;
+  /** يفتح على هذه المحافظة: يفلتر عليها ويفتح جدول مندوبها مباشرة. */
+  initialProvince?: string | null;
 }
 
 const nf = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -29,13 +31,14 @@ const GRP_SEP = '2px solid #fff';
 const grpHead: React.CSSProperties = { padding: '5px 6px', fontSize: 11.5, fontWeight: 700, color: '#475569', textAlign: 'center' };
 const subHead: React.CSSProperties = { padding: '6px 4px', fontWeight: 700 };
 const achievedOf = (items: DirItem[]) => items.reduce((a, i) => a + (i.targetQty > 0 ? i.personalQty : 0), 0);
+const normP = (x: string) => String(x || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
 const pctOf = (a: number, b: number) => `${Math.round((a / b) * 100)}%`;
 
-export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmtVal, currencyLabel, onClose }: Props) {
+export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmtVal, currencyLabel, onClose, initialProvince }: Props) {
   const [teams, setTeams] = useState<DirTeam[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(initialProvince ?? '');
   const [openRep, setOpenRep] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,6 +52,10 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
         const j = await r.json();
         if (!r.ok || j.success === false) throw new Error(j.message || 'تعذّر تحميل الفرق');
         setTeams(j.teams ?? []);
+        if (initialProvince) {
+          const t = (j.teams ?? []).find((x: DirTeam) => normP(x.provinceName) === normP(initialProvince));
+          if (t?.reps[0]) setOpenRep(`${t.id}:${t.reps[0].repUserId}`);
+        }
       } catch (e: any) { if (e.name !== 'AbortError') setErr(e.message || 'تعذّر تحميل الفرق'); }
       finally { if (!ac.signal.aborted) setLoading(false); }
     })();
@@ -60,6 +67,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
   const shown = useMemo(() => {
     const s = q.trim();
     if (!s) return teams;
+    if (initialProvince && s === initialProvince.trim()) return teams.filter(t => normP(t.provinceName) === normP(s));
     return teams.filter(t =>
       t.provinceName.includes(s) || (t.leaderName ?? '').includes(s) ||
       t.reps.some(r => r.repName.includes(s) || r.companies.some(c => c.includes(s))));

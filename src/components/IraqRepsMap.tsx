@@ -33,11 +33,6 @@ interface Props {
   toDate: string;
   fmtVal: (n: number) => string;
   currencyLabel: string;
-  /** ضغط محافظة بالخريطة: مندوبوها العلميون (لفتح جدول المندوب مباشرة). */
-  onPickProvince?: (reps: RepRow[]) => void;
-  /** ضغط اسم مندوب بلوحة المحافظة. */
-  onPickRep?: (rep: RepRow) => void;
-  activeRepId?: number | null;
 }
 
 interface CompanyCell { name: string; value: number; reps: RepRow[] }
@@ -88,13 +83,15 @@ const unpackSales = (v: any): SalesRows => ({ prov: new Map(v?.prov ?? []), pc: 
 const RAMP = ['#e0ecff', '#c7dbff', '#a3c2fb', '#78a3f5', '#4f84ea', '#2f66d6', '#1f4fb4', '#173a85'];
 const VB = IRAQ_MAP_VIEWBOX;
 
-export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel, onPickProvince, onPickRep, activeRepId }: Props) {
+export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
   const [repData, setRepData] = useState<RepProvinceRow[]>([]);
   const [salesRows, setSalesRows] = useState<{ prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] }>({ prov: new Map(), pc: [] });
   const [err, setErr] = useState('');
   const [hover, setHover] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [teamsOpen, setTeamsOpen] = useState(false);
+  // محافظة ضُغطت من الخريطة → النافذة تفتح على فريقها مباشرة (null = كل الفرق)
+  const [dirProvince, setDirProvince] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapW, setWrapW] = useState(1200);
 
@@ -298,14 +295,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   const side = wrapW >= 940;
 
-  const pickProvince = (name: string) => {
-    setSel(name);
-    const c = cells.get(norm(name));
-    const seen = new Set<number>(); const reps: RepRow[] = [];
-    c?.companies.forEach(co => co.reps.forEach(r => { if (!seen.has(r.id)) { seen.add(r.id); reps.push(r); } }));
-    reps.sort((a, b) => b.netValue - a.netValue);
-    onPickProvince?.(reps);
-  };
+  const pickProvince = (name: string) => { setSel(name); setDirProvince(name); setTeamsOpen(true); };
 
   const companyPanel = (c: ProvinceCell) => {
     const cmax = Math.max(1, ...c.companies.map(x => Math.abs(x.value)));
@@ -329,7 +319,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                     // حصّة المندوب من مبيع الشركة بالمحافظة = إنتاجيته الفعلية
                     const share = co.value > 0 ? Math.max(0, Math.min(100, (r.netValue / co.value) * 100)) : 0;
                     return (
-                      <div key={r.id} onClick={() => onPickRep?.(r)} style={{ cursor: onPickRep ? 'pointer' : 'default', borderRadius: 6, background: activeRepId === r.id ? '#ecfdf5' : 'transparent', padding: '2px 3px' }}>
+                      <div key={r.id}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12 }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#334155', fontWeight: 600 }}>
                             <span style={{ width: 17, height: 17, borderRadius: '50%', background: '#0f766e', color: '#fff', fontSize: 9.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{r.name.trim().charAt(0)}</span>
@@ -370,13 +360,13 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 10 }}>
-        <button type="button" onClick={() => setTeamsOpen(true)}
+        <button type="button" onClick={() => { setDirProvince(null); setTeamsOpen(true); }}
           style={{ border: '1px solid #cbd5e1', background: '#0f172a', color: '#fff', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
           👥 فرق المحافظات (التيم ليدر والمندوبون)
         </button>
       </div>
       {teamsOpen && (
-        <ProvinceTeamsDirectory token={token} fileIds={fileIds} applyMonth={applyMonth} fmtVal={fmtVal} currencyLabel={currencyLabel} onClose={() => setTeamsOpen(false)} />
+        <ProvinceTeamsDirectory initialProvince={dirProvince} token={token} fileIds={fileIds} applyMonth={applyMonth} fmtVal={fmtVal} currencyLabel={currencyLabel} onClose={() => setTeamsOpen(false)} />
       )}
 
       {err && <div style={{ color: '#be123c', fontSize: 13, marginBottom: 8 }}>{err}</div>}
