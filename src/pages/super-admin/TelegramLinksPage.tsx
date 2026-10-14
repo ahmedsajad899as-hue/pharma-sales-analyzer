@@ -32,6 +32,7 @@ export default function TelegramLinksPage() {
   const [form, setForm]       = useState<Partial<TelegramLink> | null>(null);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState('');
+  const [menuFor, setMenuFor] = useState<number | null>(null);
   const [membersFor, setMembersFor] = useState<TelegramLink | null>(null);
   const [members, setMembers]       = useState<MembersInfo | null>(null);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -132,17 +133,28 @@ export default function TelegramLinksPage() {
                   {l.isActive ? 'نشط' : 'معطل'}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 6, position: 'relative' }}>
                 <button onClick={() => setForm({ ...l })} style={btnStyle('#3b82f6', true)}>تعديل</button>
-                <button onClick={() => toggle(l)} style={btnStyle(l.isActive ? '#d97706' : '#16a34a', true)}>{l.isActive ? 'تعطيل' : 'تفعيل'}</button>
-                <button onClick={() => toggleSalesQuery(l)} style={btnStyle((l.salesQueryEnabled ?? true) ? '#64748b' : '#0891b2', true)}>
-                  {(l.salesQueryEnabled ?? true) ? 'تعطيل سؤال المبيعات' : 'تفعيل سؤال المبيعات'}
-                </button>
                 <button onClick={() => openMembers(l)} style={btnStyle('#0f766e', true)}>👥 الأعضاء</button>
-                <button onClick={() => toggleSilent(l)} style={btnStyle(l.silentMode ? '#16a34a' : '#be123c', true)}>
-                  {l.silentMode ? 'إلغاء الصمت' : 'جعله صامتاً'}
-                </button>
-                <button onClick={() => del(l)} style={btnStyle('#dc2626', true)}>حذف</button>
+                <button onClick={() => setMenuFor(menuFor === l.id ? null : l.id)} style={btnStyle('#475569', true)}>⋯ المزيد ▾</button>
+                {menuFor === l.id && (
+                  <>
+                    <div onClick={() => setMenuFor(null)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                    <div style={{ position: 'absolute', top: '100%', insetInlineEnd: 0, marginTop: 4, zIndex: 41, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.12)', minWidth: 190, overflow: 'hidden' }}>
+                      {[
+                        { label: l.isActive ? '⏸ تعطيل الربط' : '▶ تفعيل الربط', color: l.isActive ? '#d97706' : '#16a34a', run: () => toggle(l) },
+                        { label: (l.salesQueryEnabled ?? true) ? '📊 تعطيل سؤال المبيعات' : '📊 تفعيل سؤال المبيعات', color: '#0891b2', run: () => toggleSalesQuery(l) },
+                        { label: l.silentMode ? '🔔 إلغاء الصمت' : '🔇 جعله صامتاً', color: l.silentMode ? '#16a34a' : '#be123c', run: () => toggleSilent(l) },
+                        { label: '🗑 حذف', color: '#dc2626', run: () => del(l) },
+                      ].map(it => (
+                        <button key={it.label} onClick={() => { setMenuFor(null); it.run(); }}
+                          style={{ display: 'block', width: '100%', textAlign: 'start', padding: '9px 14px', background: 'none', border: 'none', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: it.color }}>
+                          {it.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -167,6 +179,16 @@ export default function TelegramLinksPage() {
                 <div key={m.telegramUserId}>• {personName(m)}{m.username ? ` @${m.username}` : ''}
                   <span style={{ color: UI.faint }}> — آخر ظهور {m.lastSeenAt ? new Date(m.lastSeenAt).toLocaleDateString('ar-IQ') : ''}</span></div>
               ))}
+              {(() => {
+                if (members.memberCount == null) return null;
+                const known = new Set([...(members.admins ?? []), ...members.seen].map(p => p.telegramUserId));
+                const unknown = Math.max(0, members.memberCount - 1 - known.size); // -1 = البوت نفسه
+                return unknown > 0 ? (
+                  <div style={{ marginTop: 8, color: '#b45309', fontWeight: 600 }}>
+                    ⚠️ {unknown} عضو لم يكتب بعد — أسماؤهم غير معروفة للبوت حتى يكتبوا رسالة.
+                  </div>
+                ) : null;
+              })()}
               {members.seen.length === 0 && <div style={{ color: UI.faint }}>لا أحد بعد — يُسجَّل كل من يكتب أو ينضم من الآن فصاعداً.</div>}
               <div style={{ marginTop: 12, fontSize: 11.5, color: UI.faint, lineHeight: 1.6 }}>
                 تلكرام لا يسمح للبوت بسرد كل الأعضاء. القائمة = المشرفون + كل من كتب رسالة أو انضمّ منذ تفعيل هذه الميزة؛ الصامتون لن يظهروا حتى يكتبوا.
