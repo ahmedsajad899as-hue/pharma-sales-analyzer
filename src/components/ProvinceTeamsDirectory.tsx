@@ -110,15 +110,9 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                       style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', background: on ? '#eef3fd' : '#fff', border: 'none', cursor: 'pointer', textAlign: 'right' }}>
                       <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <span style={{ fontWeight: 800, fontSize: 14, color: r.repActive ? '#0f172a' : '#94a3b8' }}>{on ? '▾' : '◂'} {r.repName}{r.repActive ? '' : ' (غير نشط)'}</span>
-                        <span style={{ fontSize: 11.5, color: '#64748b' }}>{r.companies.join(' · ')}</span>
                       </span>
                       <span style={{ textAlign: 'left', direction: 'ltr' }}>
                         <span style={{ fontWeight: 800, fontSize: 14, color: r.net < 0 ? '#be123c' : '#0f766e' }}>{fmtVal(r.net)} {currencyLabel}</span>
-                        <span style={{ display: 'block', fontSize: 11.5, color: '#64748b' }}>
-                          الكمية {nf(r.qty)}
-                          {r.personalQty > 0 && <> · شخصي {nf(r.personalQty)}</>}
-                          {r.targetQty > 0 && <> · التارگت {nf(r.targetQty)} · الإنجاز الكلي {pctOf(achievedOf(r.items), r.targetQty)}</>}
-                        </span>
                       </span>
                     </button>
 
