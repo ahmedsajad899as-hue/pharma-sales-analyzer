@@ -25,6 +25,9 @@ const TABS: { id: TabId; label: string; desc: string }[] = [
   { id: 'targets',         label: '🎯 التارگت',          desc: 'إدارة التارگت الشهري للمندوبين ومقارنته بالمبيعات' },
 ];
 
+// صفحات تُفتح بأزرار من داخل تبويب التارگت (ليست تبويبات في الشريط)
+const TARGET_SUBPAGES: TabId[] = ['representatives', 'scientific-reps', 'items'];
+
 // تبويبات تحصل على تظليل خلفية خفيف لتمييزها بصرياً عن البقية
 const HIGHLIGHTED_TABS = new Set<TabId>(['upload', 'reports', 'targets']);
 
@@ -37,7 +40,8 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
 
   // Back button: go to default tab when on a secondary tab (only if this page is active)
   usePageBackHandler('rep-analysis', [
-    [activeTab !== 'upload', () => handleTabChange('upload')],
+    [TARGET_SUBPAGES.includes(activeTab), () => handleTabChange('targets')],
+    [activeTab !== 'upload' && !TARGET_SUBPAGES.includes(activeTab), () => handleTabChange('upload')],
   ]);
 
   const handleTabChange = (id: TabId) => {
@@ -86,8 +90,8 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
       }}>
         {/* Tab bar */}
         <div className="ra-tabs" style={{ display: 'flex', gap: 0 }}>
-          {TABS.map(tab => {
-            const isActive = activeTab === tab.id;
+          {TABS.filter(tab => !TARGET_SUBPAGES.includes(tab.id)).map(tab => {
+            const isActive = activeTab === tab.id || (tab.id === 'targets' && TARGET_SUBPAGES.includes(activeTab));
             const isHighlighted = HIGHLIGHTED_TABS.has(tab.id);
             return (
               <button
@@ -117,6 +121,22 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
 
       {/* ── Content ── */}
       <div key={animKey} style={{ flex: 1, background: '#f8fafc' }}>
+        {(activeTab === 'targets' || TARGET_SUBPAGES.includes(activeTab)) && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', direction: 'rtl', padding: '12px 28px 0' }}>
+            {TABS.filter(tab => TARGET_SUBPAGES.includes(tab.id)).map(tab => {
+              const on = activeTab === tab.id;
+              return (
+                <button key={tab.id} title={tab.desc} onClick={() => handleTabChange(on ? 'targets' : tab.id)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 20, fontSize: 13, cursor: 'pointer',
+                    border: '1px solid ' + (on ? '#4f46e5' : '#e2e8f0'),
+                    background: on ? '#4f46e5' : '#fff', color: on ? '#fff' : '#475569',
+                    fontWeight: on ? 600 : 400,
+                  }}>{tab.label}</button>
+              );
+            })}
+          </div>
+        )}
         {renderContent()}
       </div>
     </div>

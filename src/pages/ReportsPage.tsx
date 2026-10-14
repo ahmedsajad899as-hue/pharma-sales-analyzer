@@ -804,11 +804,17 @@ const normReportName = (s: string) => s.trim()
 
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
 
+// تبويب «تجاري» مخفي مؤقتاً — غيّرها إلى true لإظهاره من جديد.
+const SHOW_COMMERCIAL_MODE = false;
+
 export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const { token, user, getDefaultReportView } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
-  const [mode, setMode]           = useState<Mode>(() => (sessionStorage.getItem('rpt_mode') as Mode) || 'scientific');
+  const [mode, setMode]           = useState<Mode>(() => {
+    const saved = sessionStorage.getItem('rpt_mode') as Mode | null;
+    return (saved && (SHOW_COMMERCIAL_MODE || saved !== 'commercial')) ? saved : 'scientific';
+  });
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
   // تركيز فوري على جذر الصفحة عند الفتح — بعض المتصفحات/النوافذ لا تمنح أي
   // عنصر تركيزاً افتراضياً عند التحميل، فتُسقَط أحداث keydown (اختصارات
@@ -3370,8 +3376,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     <div className="page" ref={pageRootRef} tabIndex={-1} style={{ outline: 'none' }}>
       {/* Mode toggle */}
       <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
-        {([['overall','تحليل شامل','navReports'], ['scientific',t.reports.modeScientific,'navFms'], ['commercial',t.reports.modeCommercial,'navCommercial'], ['provinces','خريطة المحافظات','location']] as [string,string,import('../config/icons').IconName][])
-          .filter(([id]) => !((id === 'commercial' || id === 'provinces') && user?.role === 'scientific_rep'))
+        {([['overall','تحليل شامل','navReports'], ['scientific','علمي بغداد','navFms'], ['commercial',t.reports.modeCommercial,'navCommercial'], ['provinces','علمي محافظات','location']] as [string,string,import('../config/icons').IconName][])
+          .filter(([id]) => !((id === 'commercial' || id === 'provinces') && user?.role === 'scientific_rep') && (SHOW_COMMERCIAL_MODE || id !== 'commercial'))
           .map(([id, label, icon]) => (
           <button key={id} onClick={() => {
             if (id === 'provinces') { setMode('provinces'); setError(''); }
