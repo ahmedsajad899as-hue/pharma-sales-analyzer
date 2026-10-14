@@ -3,6 +3,10 @@ import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
 
+interface TgPerson { telegramUserId: string; firstName?: string | null; lastName?: string | null; username?: string | null; status?: string; lastSeenAt?: string; joinedAt?: string | null }
+interface MembersInfo { memberCount: number | null; admins: TgPerson[] | null; seen: TgPerson[] }
+const personName = (p: TgPerson) => [p.firstName, p.lastName].filter(Boolean).join(' ') || p.username || p.telegramUserId;
+
 interface UserOption { id: number; username: string; displayName?: string; role: string }
 interface TelegramLink {
   id: number; chatId: string; chatTitle?: string | null; isActive: boolean; userId: number;
@@ -28,6 +32,17 @@ export default function TelegramLinksPage() {
   const [form, setForm]       = useState<Partial<TelegramLink> | null>(null);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState('');
+  const [membersFor, setMembersFor] = useState<TelegramLink | null>(null);
+  const [members, setMembers]       = useState<MembersInfo | null>(null);
+  const [membersLoading, setMembersLoading] = useState(false);
+
+  const openMembers = (l: TelegramLink) => {
+    setMembersFor(l); setMembers(null); setMembersLoading(true);
+    fetch(`/api/sa/telegram-links/${l.id}/members`, { headers: H() })
+      .then(r => r.json())
+      .then(d => { if (d.success) setMembers(d.data); })
+      .finally(() => setMembersLoading(false));
+  };
 
   const load = () => {
     setLoading(true);
@@ -123,6 +138,7 @@ export default function TelegramLinksPage() {
                 <button onClick={() => toggleSalesQuery(l)} style={btnStyle((l.salesQueryEnabled ?? true) ? '#64748b' : '#0891b2', true)}>
                   {(l.salesQueryEnabled ?? true) ? 'تعطيل سؤال المبيعات' : 'تفعيل سؤال المبيعات'}
                 </button>
+                <button onClick={() => openMembers(l)} style={btnStyle('#0f766e', true)}>👥 الأعضاء</button>
                 <button onClick={() => toggleSilent(l)} style={btnStyle(l.silentMode ? '#16a34a' : '#be123c', true)}>
                   {l.silentMode ? 'إلغاء الصمت' : 'جعله صامتاً'}
                 </button>
@@ -132,6 +148,32 @@ export default function TelegramLinksPage() {
           ))}
           {links.length === 0 && <div style={{ color: UI.faint, padding: 32, textAlign: 'center', gridColumn: '1/-1' }}>لا توجد كروبات مربوطة بعد</div>}
         </div>
+      )}
+
+      {membersFor && (
+        <Modal onClose={() => setMembersFor(null)} title={`أعضاء «${membersFor.chatTitle || membersFor.chatId}»`}>
+          {membersLoading ? <Spinner /> : !members ? <div style={{ color: UI.faint }}>تعذّر الجلب</div> : (
+            <div style={{ fontSize: 13, lineHeight: 1.9, color: UI.ink }}>
+              <div style={{ marginBottom: 10, fontWeight: 700 }}>
+                العدد الكلي في الكروب: {members.memberCount ?? '—'}
+              </div>
+              <div style={{ fontWeight: 700, color: '#0f766e' }}>المشرفون {members.admins ? `(${members.admins.length})` : ''}</div>
+              {(members.admins ?? []).map(a => (
+                <div key={a.telegramUserId}>• {personName(a)}{a.username ? ` @${a.username}` : ''} <span style={{ color: UI.faint }}>({a.status === 'creator' ? 'المالك' : 'مشرف'})</span></div>
+              ))}
+              {members.admins === null && <div style={{ color: UI.faint }}>تعذّر جلب المشرفين (البوت يحتاج أن يكون مشرفاً أو عضواً بالكروب)</div>}
+              <div style={{ fontWeight: 700, color: '#0f766e', marginTop: 12 }}>الذين ظهروا بالكروب ({members.seen.length})</div>
+              {members.seen.map(m => (
+                <div key={m.telegramUserId}>• {personName(m)}{m.username ? ` @${m.username}` : ''}
+                  <span style={{ color: UI.faint }}> — آخر ظهور {m.lastSeenAt ? new Date(m.lastSeenAt).toLocaleDateString('ar-IQ') : ''}</span></div>
+              ))}
+              {members.seen.length === 0 && <div style={{ color: UI.faint }}>لا أحد بعد — يُسجَّل كل من يكتب أو ينضم من الآن فصاعداً.</div>}
+              <div style={{ marginTop: 12, fontSize: 11.5, color: UI.faint, lineHeight: 1.6 }}>
+                تلكرام لا يسمح للبوت بسرد كل الأعضاء. القائمة = المشرفون + كل من كتب رسالة أو انضمّ منذ تفعيل هذه الميزة؛ الصامتون لن يظهروا حتى يكتبوا.
+              </div>
+            </div>
+          )}
+        </Modal>
       )}
 
       {form && (

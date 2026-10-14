@@ -1991,6 +1991,23 @@ model TelegramChatLink {
   @@map("telegram_chat_links")
 }
 
+// ─── Telegram: من ظهر في كل كروب (البوت لا يستطيع سرد الأعضاء — يرى فقط من كتب/انضم) ──
+model TelegramChatMember {
+  id             Int      @id @default(autoincrement())
+  chatId         String
+  telegramUserId String
+  firstName      String?
+  lastName       String?
+  username       String?
+  joinedAt       DateTime?
+  firstSeenAt    DateTime @default(now())
+  lastSeenAt     DateTime @default(now())
+
+  @@unique([chatId, telegramUserId])
+  @@index([chatId])
+  @@map("telegram_chat_members")
+}
+
 // ─── Viber: محادثة/كروب ↔ حساب مستخدم. خامد حتى يُضبط VIBER_AUTH_TOKEN ──────
 model ViberChatLink {
   id         Int     @id @default(autoincrement())

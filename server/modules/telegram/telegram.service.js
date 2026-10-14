@@ -499,6 +499,7 @@ async function handleOrderMessage(actor, message, kind, updateId) {
  * السر بالكونترولر. لا يرمي أبداً (كل خطأ يُترجم لرد بالكروب بدل تعطيل الويب-هوك).
  */
 export async function handleUpdate(update) {
+  recordChatMembers(update?.message).catch(e => console.error('[telegram] recordChatMembers:', e?.message));
   if (update?.callback_query) { await handleCallbackQuery(update.callback_query, update.update_id); return; }
 
   const message = update?.message;
@@ -565,6 +566,48 @@ export async function handleUpdate(update) {
     // الألبوم يتولّى تقديم أرضيته عند التفريغ — لا نتقدّم هنا كي لا نُسقط بقيته.
     if (!message.media_group_id) await markUpdateConsumed(actor.link, update.update_id);
   }
+}
+
+// ─── سجلّ الأعضاء: البوت لا يملك API لسرد كل أعضاء الكروب، فنسجّل من كتب أو انضمّ ──
+const MEMBER_THROTTLE_MS = 10 * 60 * 1000;
+const memberSeenAt = new Map(); // chatId:userId → ts
+async function recordChatMembers(message) {
+  if (!message?.chat || message.chat.type === 'private') return;
+  const chatId = String(message.chat.id);
+  const joined = Array.isArray(message.new_chat_members) ? message.new_chat_members : [];
+  const people = [...(message.from ? [message.from] : []), ...joined].filter(u => u && !u.is_bot);
+  const now = Date.now();
+  const fresh = people.filter(u => joined.includes(u) || now - (memberSeenAt.get(`${chatId}:${u.id}`) ?? 0) > MEMBER_THROTTLE_MS);
+  if (!fresh.length) return;
+  if (!(await prisma.telegramChatLink.findUnique({ where: { chatId }, select: { id: true } }))) return;
+  for (const u of fresh) {
+    memberSeenAt.set(`${chatId}:${u.id}`, now);
+    const data = { firstName: u.first_name || null, lastName: u.last_name || null, username: u.username || null, lastSeenAt: new Date() };
+    const isJoin = joined.includes(u);
+    await prisma.telegramChatMember.upsert({
+      where: { chatId_telegramUserId: { chatId, telegramUserId: String(u.id) } },
+      update: { ...data, ...(isJoin ? { joinedAt: new Date() } : {}) },
+      create: { chatId, telegramUserId: String(u.id), ...data, ...(isJoin ? { joinedAt: new Date() } : {}) },
+    });
+  }
+  while (memberSeenAt.size > 5000) memberSeenAt.delete(memberSeenAt.keys().next().value);
+}
+
+/** المشرفون وعدد الأعضاء من تلكرام مباشرة (الوحيد المتاح للبوت)، + من سُجّل ظهورهم. */
+export async function getChatMembersInfo(chatId) {
+  const [admins, count, seen] = await Promise.all([
+    telegramApi('getChatAdministrators', { chat_id: chatId }),
+    telegramApi('getChatMemberCount', { chat_id: chatId }),
+    prisma.telegramChatMember.findMany({ where: { chatId: String(chatId) }, orderBy: { lastSeenAt: 'desc' } }),
+  ]);
+  return {
+    memberCount: count?.ok ? count.result : null,
+    admins: admins?.ok ? admins.result.filter(a => !a.user.is_bot).map(a => ({
+      telegramUserId: String(a.user.id), firstName: a.user.first_name || null, lastName: a.user.last_name || null,
+      username: a.user.username || null, status: a.status,
+    })) : null,
+    seen,
+  };
 }
 
 // ─── إرسال خارجي: رسالة من النظام إلى مستخدم (لا رداً على رسالته) ──────────

@@ -1,5 +1,5 @@
 import prisma from '../../lib/prisma.js';
-import { invalidateSilentCache } from './telegram.service.js';
+import { invalidateSilentCache, getChatMembersInfo } from './telegram.service.js';
 import { ORDER_TEXT_MODES, DEFAULT_ORDER_TEXT_MODE } from '../orders/order-trigger.js';
 
 // قائمة بيضاء لا تمرير حرّ: قيمة مكتوبة خطأً («trigerr») كانت ستُخزَّن بهدوء،
@@ -77,4 +77,11 @@ export async function deleteLink(req, res) {
   const id = parseInt(req.params.id);
   await prisma.telegramChatLink.delete({ where: { id } });
   res.json({ success: true });
+}
+
+// ── Members seen in a chat + admins + member count ───────────────────────
+export async function listMembers(req, res) {
+  const link = await prisma.telegramChatLink.findUnique({ where: { id: parseInt(req.params.id) } });
+  if (!link) return res.status(404).json({ error: 'الربط غير موجود' });
+  res.json({ success: true, data: await getChatMembersInfo(link.chatId) });
 }
