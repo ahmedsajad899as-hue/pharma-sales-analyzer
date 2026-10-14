@@ -297,19 +297,19 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const companyPanel = (c: ProvinceCell) => {
     const cmax = Math.max(1, ...c.companies.map(x => Math.abs(x.value)));
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {c.companies.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13 }}>لا توجد شركات مسجّلة في هذه المحافظة للفترة المختارة.</div>}
         {c.companies.map(co => (
-          <div key={co.name} style={{ border: '1px solid #e6ebf2', borderRadius: 14, padding: '10px 12px', background: '#fbfcfe' }}>
+          <div key={co.name} style={{ border: '1px solid #e6ebf2', borderRadius: 10, padding: '6px 9px', background: '#fbfcfe' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-              <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>{co.name}</span>
-              <span style={{ fontWeight: 800, fontSize: 14, color: co.value < 0 ? '#be123c' : '#1f4fb4', direction: 'ltr' }}>{fmtVal(co.value)}</span>
+              <span style={{ fontWeight: 800, fontSize: 12, color: '#0f172a' }}>{co.name}</span>
+              <span style={{ fontWeight: 800, fontSize: 12, color: co.value < 0 ? '#be123c' : '#1f4fb4', direction: 'ltr' }}>{fmtVal(co.value)}</span>
             </div>
-            <div style={{ height: 5, borderRadius: 5, background: '#e9eef5', margin: '8px 0' }}>
+            <div style={{ height: 4, borderRadius: 4, background: '#e9eef5', margin: '5px 0' }}>
               <div style={{ height: '100%', width: `${Math.max(3, (Math.abs(co.value) / cmax) * 100)}%`, background: 'linear-gradient(90deg,#2f66d6,#78a3f5)', borderRadius: 5 }} />
             </div>
             {co.reps.length === 0
-              ? <span style={{ fontSize: 12, color: '#94a3b8' }}>لا يوجد مندوب علمي بعد</span>
+              ? <span style={{ fontSize: 10.5, color: '#94a3b8' }}>لا يوجد مندوب علمي بعد</span>
               : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                   {[...co.reps].sort((a, b) => b.netValue - a.netValue).map(r => {
@@ -432,21 +432,21 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           {/* بطاقة ثابتة أعلى يمين الخريطة: تعرض المحافظة تحت المؤشر، وإلا المختارة */}
           {activeCell && (
             <div dir="rtl" style={{
-              position: 'absolute', top: 12, right: 12, zIndex: 4, width: 250, maxHeight: '58%', overflowY: 'auto',
-              background: 'rgba(15,23,42,.95)', color: '#fff', borderRadius: 16, padding: '12px 14px',
-              boxShadow: '0 12px 30px rgba(15,23,42,.28)', fontSize: 12.5,
+              position: 'absolute', top: 12, right: 12, zIndex: 4, width: 190, maxHeight: '50%', overflowY: 'auto',
+              background: 'rgba(15,23,42,.95)', color: '#fff', borderRadius: 12, padding: '8px 10px',
+              boxShadow: '0 12px 30px rgba(15,23,42,.28)', fontSize: 11,
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, fontWeight: 800, fontSize: 15, marginBottom: 2 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, fontWeight: 800, fontSize: 13, marginBottom: 2 }}>
                 <span>{activeCell.name}</span><span style={{ direction: 'ltr', color: '#93c5fd' }}>{fmtVal(activeCell.total)}</span>
               </div>
-              <div style={{ color: '#94a3b8', fontSize: 11.5, marginBottom: 8 }}>{activeCell.companies.length} شركات · {activeCell.companies.reduce((n, x) => n + x.reps.length, 0)} مندوب علمي</div>
+              <div style={{ color: '#94a3b8', fontSize: 10, marginBottom: 4 }}>{activeCell.companies.length} شركات · {activeCell.companies.reduce((n, x) => n + x.reps.length, 0)} مندوب علمي</div>
               {activeCell.companies.map(co => (
-                <div key={co.name} style={{ padding: '6px 0', borderTop: '1px solid rgba(148,163,184,.2)' }}>
+                <div key={co.name} style={{ padding: '3px 0', borderTop: '1px solid rgba(148,163,184,.2)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontWeight: 700 }}>
                     <span>{co.name}</span><span style={{ direction: 'ltr' }}>{fmtVal(co.value)}</span>
                   </div>
                   {co.reps.map(r => (
-                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: '#5eead4', fontSize: 11.5, paddingTop: 2 }}>
+                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: '#5eead4', fontSize: 10, paddingTop: 1 }}>
                       <span>• {r.name}</span><span style={{ direction: 'ltr' }}>{fmtVal(r.netValue)}</span>
                     </div>
                   ))}
@@ -471,21 +471,21 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         </div>
 
         {/* ── لوحة المحافظة المختارة ── */}
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 22, padding: 16, position: side ? 'sticky' : 'static', top: 12 }}>
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 18, padding: 11, position: side ? 'sticky' : 'static', top: 12 }}>
           {selCell ? (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
                 <div>
-                  <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>المحافظة</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>{selCell.name}</div>
+                  <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600 }}>المحافظة</div>
+                  <div style={{ fontSize: 17, fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>{selCell.name}</div>
                 </div>
                 <div style={{ textAlign: 'left' }}>
                   <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>صافي المبيع</div>
-                  <div style={{ fontSize: 20, fontWeight: 900, color: selCell.total < 0 ? '#be123c' : '#1f4fb4' }}>{fmtVal(selCell.total)} <span style={{ fontSize: 12, color: '#64748b' }}>{currencyLabel}</span></div>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: selCell.total < 0 ? '#be123c' : '#1f4fb4' }}>{fmtVal(selCell.total)} <span style={{ fontSize: 12, color: '#64748b' }}>{currencyLabel}</span></div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, background: '#eef3fd', color: '#1f4fb4', borderRadius: 999, padding: '4px 12px' }}>{selCell.companies.length} شركات</span>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, background: '#eef3fd', color: '#1f4fb4', borderRadius: 999, padding: '4px 12px' }}>{selCell.companies.length} شركات</span>
                 <span style={{ fontSize: 12, fontWeight: 700, background: '#f3efff', color: '#6d28d9', borderRadius: 999, padding: '4px 12px' }}>{selCell.companies.reduce((s, x) => s + x.reps.length, 0)} مندوب علمي</span>
               </div>
               {companyPanel(selCell)}
