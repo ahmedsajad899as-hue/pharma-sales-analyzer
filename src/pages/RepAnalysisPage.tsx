@@ -77,7 +77,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
         .ra-tab:hover { color: #1e293b !important; }
         @media (max-width: 640px) {
           .ra-tabs { overflow-x: auto; flex-wrap: nowrap; }
-          .ra-tab  { font-size: 13px !important; padding: 10px 14px !important; }
+          .ra-tab  { font-size: 13px !important; padding: 10px 14px !important; padding-inline-end: 26px !important; }
         }
       `}</style>
 
@@ -100,6 +100,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
                 onClick={() => handleTabChange(tab.id)}
                 style={{
                   padding: '10px 20px',
+                  paddingInlineEnd: 38, // توسيع الخانة نحو اليسار (RTL: نهاية السطر)
                   border: 'none',
                   borderBottom: isActive ? '2px solid #4f46e5' : '2px solid transparent',
                   background: isHighlighted ? (isActive ? 'rgba(79,70,229,0.16)' : 'rgba(79,70,229,0.09)') : 'transparent',
