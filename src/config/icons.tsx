@@ -135,6 +135,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'file-filter': 'navFileFilter',
   'pharmacy-analysis': 'navPharmacyAnalysis',
   'item-analysis': 'navItemAnalysis',
+  'quiz-assist': 'navItemAnalysis',
   'account-builder': 'navAccountBuilder',
   'bonus-sales': 'navBonusSales',
   'reports': 'navReports',

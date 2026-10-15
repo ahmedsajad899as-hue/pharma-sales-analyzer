@@ -48,6 +48,7 @@ const _importDistributorSales = () => import('./pages/DistributorSalesPage');
 const _importFileFilter          = () => import('./pages/FileFilterPage');
 const _importPharmacyAnalysis    = () => import('./pages/PharmacyAnalysisPage');
 const _importItemAnalysis        = () => import('./pages/ItemAnalysisPage');
+const _importQuizAssist          = () => import('./pages/QuizAssistPage');
 const _importBonusSales          = () => import('./pages/BonusSalesPage');
 const _importOrgStructure        = () => import('./pages/OrgStructurePage');
 const _importAccountBuilder      = () => import('./pages/AccountBuilderPage');
@@ -78,6 +79,7 @@ const DistributorSalesPage    = lazyWithRetry(_importDistributorSales);
 const FileFilterPage          = lazyWithRetry(_importFileFilter);
 const PharmacyAnalysisPage    = lazyWithRetry(_importPharmacyAnalysis);
 const ItemAnalysisPage        = lazyWithRetry(_importItemAnalysis);
+const QuizAssistPage          = lazyWithRetry(_importQuizAssist);
 const BonusSalesPage          = lazyWithRetry(_importBonusSales);
 const OrgStructurePage        = lazyWithRetry(_importOrgStructure);
 const AccountBuilderPage      = lazyWithRetry(_importAccountBuilder);
@@ -128,6 +130,7 @@ export type PageId =
   | 'file-filter'
   | 'pharmacy-analysis'
   | 'item-analysis'
+  | 'quiz-assist'
   | 'rep-followup'
   | 'province-teams'
   | 'bonus-sales'
@@ -647,6 +650,7 @@ function AppInner() {
     { id: 'file-filter',        node: <FileFilterPage /> },
     { id: 'pharmacy-analysis',  node: <PharmacyAnalysisPage /> },
     { id: 'item-analysis',      node: <ItemAnalysisPage /> },
+    { id: 'quiz-assist',        node: <QuizAssistPage /> },
     { id: 'bonus-sales',        node: <BonusSalesPage /> },
     { id: 'org-structure',      node: <OrgStructurePage /> },
     { id: 'account-builder',    node: <AccountBuilderPage /> },
