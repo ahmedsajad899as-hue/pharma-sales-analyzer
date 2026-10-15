@@ -16,6 +16,7 @@ import { autoEnrollAllReps } from './modules/province-teams/province-teams.servi
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
+import { loadConditionSheets, buildConditionWorkbook, migrateRowsToConditionFiles } from './lib/conditionFile.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -29,7 +30,7 @@ import { previewMergeGroups, mergeExistingFiles } from './lib/cumulativeMerge.js
 import {
   refreshCumulativeFile, ensureLegacyBatch, batchDateRanges, releaseBatch, reactivateBatch,
 } from './lib/cumulativeFile.js';
-import { UNDATED_CUTOFF } from './lib/salesMonths.js';
+import { UNDATED_CUTOFF, listSalesMonths } from './lib/salesMonths.js';
 import { resyncHiddenRows } from './modules/sales/file-editor.controller.js';
 import { auditCumulativeFile } from './lib/cumulativeAudit.js';
 import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
@@ -2047,6 +2048,7 @@ app.get('/api/files', async (req, res) => {
         id: true, originalName: true, rowCount: true, uploadedAt: true, uploadedBy: true, fileType: true,
         sourceSystem: true, // 'mercato' → شارة تمييز في قائمة الملفات
         isCumulative: true, // ملف تراكمي (تنصهر فيه رفعات كل الأشهر) → شارة + لوحة الرفعات
+        mergeGroup: true,   // لاحقة '|condition' = ملف الكوديشن (يُعرض ملتصقاً بملف ميركاتو)
         currencyMode: true, exchangeRate: true, detectedCurrency: true,
         userId: true,
         sharedWithRepId: true,
@@ -2164,6 +2166,45 @@ app.get('/api/files/:id/batches', requireAuth, async (req, res) => {
         lastDate:  overall._max.saleDate,
       },
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── ملف الكوديشن: عرض «شيت لكل مندوب» + تصديره إكسل ──────────────
+// GET /api/files/:id/condition-view?month=YYYY-MM
+// GET /api/files/:id/condition-export?month=YYYY-MM
+async function findReadableFile(id, userId) {
+  return prisma.uploadedFile.findFirst({
+    where: { id, OR: [{ userId }, { fileShares: { some: { userId } } }] },
+    select: { id: true, originalName: true, mergeGroup: true },
+  });
+}
+app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const file = await findReadableFile(id, req.user?.id ?? null);
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
+    const [sheets, months] = await Promise.all([
+      loadConditionSheets(id, { month: req.query.month || null }),
+      listSalesMonths(prisma, [id], 'sale'),
+    ]);
+    res.json({ success: true, data: { file, sheets, months } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.get('/api/files/:id/condition-export', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const file = await findReadableFile(id, req.user?.id ?? null);
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
+    const month = req.query.month || null;
+    const sheets = await loadConditionSheets(id, { month });
+    const title = `${file.originalName}${month && month !== 'all' ? ` — ${month}` : ''}`;
+    const buf = buildConditionWorkbook(sheets, { title });
+    const name = `الكوديشن${month && month !== 'all' ? `_${month}` : ''}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="condition.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.send(buf);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -5081,9 +5122,13 @@ if (process.env.VERCEL) {
       .then(n => { if (n) console.log(`✓ تم تعميم ${n} ملف Stock على زملاء المكتب (backfill)`); })
       .catch(e => console.error('[backfillSalesDataFileOfficeSync]', e.message));
     // معلومات الزبون للملفات المرفوعة قبل ميزة الحجب بهذا الحقل — idempotent (MigrationFlag)
+    // بعده (لا بالتوازي): طلبيات البوت/إكسل الكوديشن داخل ملفات ميركاتو ← ملف الكوديشن
     backfillMercatoManualRows()
       .then(n => { if (n) console.log(`✓ تم ترحيل ${n} صف فاتورة يدوية إلى شكل ميركاتو (backfill)`); })
-      .catch(e => console.error('[backfillMercatoManualRows]', e.message));
+      .catch(e => console.error('[backfillMercatoManualRows]', e.message))
+      .then(() => migrateRowsToConditionFiles())
+      .then(n => { if (n) console.log(`✓ نُقل ${n} صف طلبيات بوت/كوديشن إلى ملف الكوديشن`); })
+      .catch(e => console.error('[migrateRowsToConditionFiles]', e.message));
     backfillCustomerInfoNorm()
       .then(n => { if (n) console.log(`✓ تم تعبئة معلومات الزبون لـ ${n} صف مبيعات قديم (backfill)`); })
       .catch(e => console.error('[backfillCustomerInfoNorm]', e.message));

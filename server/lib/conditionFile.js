@@ -1,0 +1,214 @@
+// ════════════════════════════════════════════════════════════════════════════
+// conditionFile.js — «ملف الكوديشن»: مبيعات المذاخر التي لا تأتي من إكسل
+// ميركاتو نفسه — طلبيات بوت تلكرام/فايبر + إكسل الكوديشن (WarehouseGapImportModal).
+//
+// الملف حاوية تراكمية واحدة لكل (حساب × عملة) مصدرها 'mercato' — فكل مؤشرات
+// ميركاتو (bySource.mercato، عدد الطلبيات، رصيد المذاخر…) تحتسبه بلا تعديل —
+// لكنه UploadedFile مستقل فيُفعَّل/يُعطَّل وحده بجانب ملف ميركاتو. يُميَّز بلاحقة
+// mergeGroup (راجع CONDITION_VARIANT في saleFingerprint.js).
+//
+// هنا: قراءة الملف «شيت لكل مندوب» (عرض داخل التطبيق + تصدير إكسل)، وترحيل
+// طلبيات البوت/إكسل الكوديشن القديمة المحفوظة داخل ملفات ميركاتو إليه.
+// ════════════════════════════════════════════════════════════════════════════
+
+import XLSX from 'xlsx';
+import prisma from './prisma.js';
+import { CONDITION_VARIANT, fileVariant, fingerprintRows } from './saleFingerprint.js';
+import { resolveCumulativeTarget, openMergeBatch, closeMergeBatch, refreshCumulativeFile, monthsLabelOf } from './cumulativeFile.js';
+import { UNDATED_CUTOFF, buildMonthFilter } from './salesMonths.js';
+import { repCoreName } from './repNameMatch.js';
+
+export const isConditionFile = (file) => fileVariant(file) === CONDITION_VARIANT;
+
+/** مصادر rawData.source التي تخصّ ملف الكوديشن. */
+const CONDITION_SOURCES = ['telegram-order', 'viber-order', 'warehouse-gap-template'];
+const SOURCE_LABEL = {
+  'telegram-order':         'بوت تلكرام',
+  'viber-order':            'بوت فايبر',
+  'warehouse-gap-template': 'إكسل الكوديشن',
+  'manual-invoice':         'فاتورة يدوية',
+};
+
+const parseRaw = (s) => { try { return JSON.parse(s || '{}') || {}; } catch { return {}; } };
+const NO_REP = 'بلا مندوب';
+
+/**
+ * صفوف الملف مجمّعة حسب المندوب. المندوب = المندوب العلمي المختار عند مراجعة
+ * الطلبية (rawData.scientificRep) وإلا مندوب الصف (إكسل الكوديشن يحمل عموداً له).
+ * الصفوف المخفية (رفعة موقوفة/فلتر أعمدة) مستثناة — كما تراها التقارير.
+ */
+export async function loadConditionSheets(fileId, { month = null } = {}) {
+  const sales = await prisma.sale.findMany({
+    where:   { uploadedFileId: fileId, isHidden: false, recordType: 'sale', ...buildMonthFilter(month) },
+    orderBy: [{ saleDate: 'asc' }, { id: 'asc' }],
+    select: {
+      id: true, quantity: true, totalValue: true, saleDate: true, rawData: true,
+      item: { select: { name: true } }, area: { select: { name: true } },
+      customer: { select: { name: true } }, representative: { select: { name: true } },
+    },
+  });
+
+  const byRep = new Map();
+  for (const s of sales) {
+    const raw = parseRaw(s.rawData);
+    const rep = repCoreName(String(raw.scientificRep || s.representative?.name || '').trim()) || NO_REP;
+    const qty = Number(s.quantity) || 0;
+    const total = Number(s.totalValue) || 0;
+    const row = {
+      id:        s.id,
+      date:      s.saleDate && new Date(s.saleDate) >= UNDATED_CUTOFF ? new Date(s.saleDate).toISOString().slice(0, 10) : '',
+      invoice:   String(raw.invoiceNumber ?? '').trim(),
+      pharmacy:  String(raw.pharmacy || s.customer?.name || '').trim(),
+      area:      s.area?.name && s.area.name !== 'غير محدد' ? s.area.name : '',
+      warehouse: String(raw.warehouse ?? '').trim(),
+      item:      s.item?.name ?? '',
+      company:   String(raw.company ?? '').trim(),
+      quantity:  qty,
+      bonus:     Number(raw.bonus) || 0,
+      unitPrice: Number(raw.unitPrice) || (qty ? Math.round((total / qty) * 100) / 100 : 0),
+      total,
+      source:    SOURCE_LABEL[raw.source] || '',
+    };
+    if (!byRep.has(rep)) byRep.set(rep, { rep, rows: [], quantity: 0, total: 0, orders: new Set() });
+    const g = byRep.get(rep);
+    g.rows.push(row);
+    g.quantity += qty;
+    g.total += total;
+    g.orders.add(row.invoice || `${row.date}|${row.pharmacy}`);
+  }
+
+  return [...byRep.values()]
+    .map(g => ({ rep: g.rep, rows: g.rows, quantity: g.quantity, total: g.total, orders: g.orders.size }))
+    .sort((a, b) => (a.rep === NO_REP) - (b.rep === NO_REP) || b.total - a.total);
+}
+
+const COLUMNS = [
+  ['date', 'التاريخ'], ['invoice', 'رقم الفاتورة'], ['pharmacy', 'الصيدلية'], ['area', 'المنطقة'],
+  ['warehouse', 'المذخر'], ['item', 'الايتم'], ['company', 'الشركة'], ['quantity', 'الكمية'],
+  ['bonus', 'البونص'], ['unitPrice', 'السعر'], ['total', 'القيمة'], ['source', 'المصدر'],
+];
+
+/** اسم شيت صالح وفريد: ≤31 حرفاً وبلا []:*?/\ */
+function sheetName(name, used) {
+  const base = String(name).replace(/[[\]:*?/\\]/g, ' ').trim().slice(0, 28) || 'مندوب';
+  let n = base, i = 2;
+  while (used.has(n)) n = `${base.slice(0, 26)} ${i++}`;
+  used.add(n);
+  return n;
+}
+
+/** إكسل: شيت ملخّص + شيت لكل مندوب بمبيعاته. */
+export function buildConditionWorkbook(sheets, { title = 'ملف الكوديشن' } = {}) {
+  const wb = XLSX.utils.book_new();
+  wb.Workbook = { Views: [{ RTL: true }] };
+  const used = new Set();
+
+  const summary = [
+    [title],
+    [],
+    ['المندوب', 'عدد الطلبيات', 'عدد الصفوف', 'الكمية', 'القيمة'],
+    ...sheets.map(s => [s.rep, s.orders, s.rows.length, s.quantity, s.total]),
+    ['المجموع',
+      sheets.reduce((a, s) => a + s.orders, 0), sheets.reduce((a, s) => a + s.rows.length, 0),
+      sheets.reduce((a, s) => a + s.quantity, 0), sheets.reduce((a, s) => a + s.total, 0)],
+  ];
+  const ws0 = XLSX.utils.aoa_to_sheet(summary);
+  ws0['!cols'] = [{ wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }];
+  ws0['!views'] = [{ RTL: true }];
+  XLSX.utils.book_append_sheet(wb, ws0, sheetName('الملخص', used));
+
+  for (const s of sheets) {
+    const aoa = [
+      COLUMNS.map(c => c[1]),
+      ...s.rows.map(r => COLUMNS.map(([k]) => r[k] ?? '')),
+      COLUMNS.map(([k]) => (k === 'date' ? 'المجموع' : k === 'quantity' ? s.quantity : k === 'total' ? s.total : '')),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = COLUMNS.map(([k]) => ({ wch: ['pharmacy', 'item', 'warehouse'].includes(k) ? 26 : 13 }));
+    ws['!views'] = [{ RTL: true }];
+    XLSX.utils.book_append_sheet(wb, ws, sheetName(s.rep, used));
+  }
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ترحيل: قبل هذه الميزة كانت طلبيات البوت وإكسل الكوديشن تُحفَظ داخل ملفات
+// ميركاتو. تُنقَل صفوفها الظاهرة إلى ملف الكوديشن (نفس الحساب ونفس العملة) —
+// والمخفية تُترك مكانها (رفعة موقوفة/فلتر: نقلها كان سيُظهرها أو يُضيّع سببها).
+// idempotent: بعد أول مرة لا تبقى صفوف بهذه المصادر خارج ملف الكوديشن.
+// إجمالي ميركاتو لا يتغيّر: الصفوف نفسها، بمصدر 'mercato' نفسه، في ملف شقيق.
+// ════════════════════════════════════════════════════════════════════════════
+
+const SOURCE_FILTERS = CONDITION_SOURCES.map(v => ({ rawData: { contains: `"source":"${v}"` } }));
+
+export async function migrateRowsToConditionFiles() {
+  const hits = await prisma.sale.findMany({
+    where:    { isHidden: false, OR: SOURCE_FILTERS, uploadedFile: { sourceSystem: 'mercato' } },
+    select:   { uploadedFileId: true },
+    distinct: ['uploadedFileId'],
+  });
+  const fileIds = hits.map(h => h.uploadedFileId).filter(Boolean);
+  if (!fileIds.length) return 0;
+  const files = (await prisma.uploadedFile.findMany({ where: { id: { in: fileIds } } }))
+    .filter(f => f.userId && !isConditionFile(f));
+
+  let moved = 0;
+  for (const file of files) {
+    try { moved += await moveFileConditionRows(file); }
+    catch (e) { console.error(`[conditionFile] ترحيل الملف #${file.id} فشل:`, e.message); }
+  }
+  return moved;
+}
+
+async function moveFileConditionRows(file) {
+  const rows = (await prisma.sale.findMany({
+    where:   { uploadedFileId: file.id, isHidden: false, OR: SOURCE_FILTERS },
+    orderBy: { id: 'asc' },
+    select:  { id: true, rawData: true, itemId: true, customerId: true, recordType: true, quantity: true, totalValue: true, saleDate: true, mergeBatchId: true },
+  })).filter(r => CONDITION_SOURCES.includes(parseRaw(r.rawData).source));
+  if (!rows.length) return 0;
+
+  const { file: target } = await resolveCumulativeTarget({
+    userId: file.userId, sourceSystem: 'mercato', detectedCurrency: file.detectedCurrency || 'IQD', variant: CONDITION_VARIANT,
+  });
+  const batch = await openMergeBatch({ fileId: target.id, originalName: `منقول من «${file.originalName}»`, fileType: 'sales' });
+
+  const keys = fingerprintRows(rows);
+  const existing = new Set((await prisma.sale.findMany({
+    where: { uploadedFileId: target.id, dedupKey: { in: keys } }, select: { dedupKey: true },
+  })).map(r => r.dedupKey));
+
+  const dupIds = [];
+  const moves = [];
+  rows.forEach((r, i) => (existing.has(keys[i]) ? dupIds.push(r.id) : moves.push({ id: r.id, key: keys[i] })));
+  for (let i = 0; i < moves.length; i += 200) {
+    await prisma.$transaction(moves.slice(i, i + 200).map(m => prisma.sale.update({
+      where: { id: m.id },
+      data:  { uploadedFileId: target.id, dedupKey: m.key, mergeBatchId: batch.id },
+    })));
+  }
+  if (dupIds.length) await prisma.sale.deleteMany({ where: { id: { in: dupIds } } });
+
+  await closeMergeBatch(batch.id, {
+    rowsAdded: moves.length, rowsSkipped: dupIds.length, monthsLabel: monthsLabelOf(rows.map(r => r.saleDate)),
+  });
+  await refreshCumulativeFile(target.id);
+
+  // المصدر: رفعات «إدخال يدوي» التي فرغت تُحذف، والعدّ يُصحَّح، والملف الذي لم
+  // يبقَ فيه شيء (ملف إكسل كوديشن مستقل قديم) يُحذف.
+  const batchIds = [...new Set(rows.map(r => r.mergeBatchId).filter(Boolean))];
+  for (const bid of batchIds) {
+    const left = await prisma.sale.count({ where: { uploadedFileId: file.id, mergeBatchId: bid } });
+    if (left === 0) await prisma.fileMergeBatch.deleteMany({ where: { id: bid, fileId: file.id } });
+  }
+  const remaining = await prisma.sale.count({ where: { uploadedFileId: file.id } });
+  if (remaining === 0 && !file.isCumulative) {
+    await prisma.uploadedFile.delete({ where: { id: file.id } }).catch(() => {});
+  } else if (file.isCumulative) {
+    await refreshCumulativeFile(file.id);
+  } else {
+    await prisma.uploadedFile.update({ where: { id: file.id }, data: { rowCount: remaining } });
+  }
+  console.log(`[conditionFile] #${file.id} → كوديشن #${target.id}: نُقل ${moves.length}، مكرر ${dupIds.length}`);
+  return moves.length;
+}

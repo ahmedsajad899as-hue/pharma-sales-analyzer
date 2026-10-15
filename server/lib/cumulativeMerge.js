@@ -10,7 +10,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from './prisma.js';
-import { fingerprintRows, mergeGroupKey, cumulativeFileName } from './saleFingerprint.js';
+import { fingerprintRows, mergeGroupKey, cumulativeFileName, fileVariant } from './saleFingerprint.js';
 import { UNDATED_SENTINEL } from './salesMonths.js';
 import { auditCumulativeFile } from './cumulativeAudit.js';
 import {
@@ -62,13 +62,14 @@ export async function previewMergeGroups(userId) {
 
   const groups = new Map();
   for (const f of files) {
-    const key = mergeGroupKey({ userId, sourceSystem: f.sourceSystem, detectedCurrency: f.detectedCurrency });
+    const variant = fileVariant(f);
+    const key = mergeGroupKey({ userId, sourceSystem: f.sourceSystem, detectedCurrency: f.detectedCurrency, variant });
     if (!groups.has(key)) {
       groups.set(key, {
         group:            key,
         sourceSystem:     f.sourceSystem || null,
         detectedCurrency: f.detectedCurrency,
-        label:            cumulativeFileName({ sourceSystem: f.sourceSystem, detectedCurrency: f.detectedCurrency }),
+        label:            cumulativeFileName({ sourceSystem: f.sourceSystem, detectedCurrency: f.detectedCurrency, variant }),
         targetFileId:     null,
         files:            [],
         totalRows:        0,
@@ -119,8 +120,9 @@ export async function mergeExistingFiles({ userId, fileIds }) {
 
   // كل الملفات يجب أن تكون من نفس المصدر ونفس العملة — خلطهما يقرأ نصف الصفوف
   // بعملة خاطئة أو ينسب مبيع ميركاتو بمنطق المكتب. راجع mergeGroupKey.
+  // ملف الكوديشن مجموعة مستقلة عن ميركاتو رغم أن مصدرهما واحد.
   const groups = new Set(files.map(f => mergeGroupKey({
-    userId, sourceSystem: f.sourceSystem, detectedCurrency: f.detectedCurrency,
+    userId, sourceSystem: f.sourceSystem, detectedCurrency: f.detectedCurrency, variant: fileVariant(f),
   })));
   if (groups.size > 1) {
     throw new Error('لا يمكن دمج ملفات تختلف في المصدر (مكتب/ميركاتو) أو في العملة — ادمج كل مجموعة على حدة.');
@@ -140,7 +142,7 @@ export async function mergeExistingFiles({ userId, fileIds }) {
       data: {
         isCumulative: true,
         mergeGroup:   group,
-        originalName: cumulativeFileName({ sourceSystem: sample.sourceSystem, detectedCurrency: sample.detectedCurrency }),
+        originalName: cumulativeFileName({ sourceSystem: sample.sourceSystem, detectedCurrency: sample.detectedCurrency, variant: fileVariant(sample) }),
       },
     });
   } else if (!target.mergeGroup) {

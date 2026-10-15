@@ -133,14 +133,28 @@ export function fingerprintRows(rows, counters = new Map()) {
   });
 }
 
-/** مجموعة الدمج التي ينتمي إليها ملف: نفس الحساب + نفس المصدر + نفس العملة. */
-export function mergeGroupKey({ userId, sourceSystem, detectedCurrency }) {
-  return `${userId ?? 0}|${sourceSystem || 'office'}|${detectedCurrency || 'IQD'}`;
+/**
+ * «ملف الكوديشن»: مبيعات مذاخر تُضاف خارج ملف ميركاتو الأصلي (طلبيات بوت
+ * تلكرام + إكسل الكوديشن). مصدره 'mercato' (فيُحتسب في كل مؤشرات ميركاتو بلا
+ * أي تعديل عليها) لكنه حاوية تراكمية مستقلة تُفعَّل/تُعطَّل وحدها. يُميَّز
+ * بلاحقة مجموعة الدمج لا بعمود جديد — فلا ترحيل schema.
+ */
+export const CONDITION_VARIANT = 'condition';
+
+/** متغيّر الملف من مجموعة دمجه ('condition' أو null). */
+export function fileVariant(file) {
+  return String(file?.mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`) ? CONDITION_VARIANT : null;
+}
+
+/** مجموعة الدمج التي ينتمي إليها ملف: نفس الحساب + نفس المصدر + نفس العملة (+ المتغيّر). */
+export function mergeGroupKey({ userId, sourceSystem, detectedCurrency, variant = null }) {
+  const base = `${userId ?? 0}|${sourceSystem || 'office'}|${detectedCurrency || 'IQD'}`;
+  return variant ? `${base}|${variant}` : base;
 }
 
 /** اسم افتراضي للملف التراكمي حسب مصدره وعملته. */
-export function cumulativeFileName({ sourceSystem, detectedCurrency }) {
-  const src = sourceSystem === 'mercato' ? 'ميركاتو' : 'المكتب';
+export function cumulativeFileName({ sourceSystem, detectedCurrency, variant = null }) {
+  const src = variant === CONDITION_VARIANT ? 'الكوديشن' : sourceSystem === 'mercato' ? 'ميركاتو' : 'المكتب';
   const cur = detectedCurrency === 'USD' ? '$' : 'د.ع';
   return `مبيعات ${src} — تراكمي (${cur})`;
 }

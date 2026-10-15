@@ -5,8 +5,8 @@ import SmartSuggestInput from './SmartSuggestInput';
  * Modal for company_manager / team_leader: download a personal Excel template
  * (their companies/items/team-rep names), fill in pharmacy sales that went
  * through a warehouse (مذخر) but never made it into the Mercato file, then
- * re-upload it here. Saved rows become Sale records tagged sourceSystem:
- * 'mercato' (POST /api/sales/manual with target.sourceSystem) so every
+ * re-upload it here. Saved rows go to the account's «ملف الكوديشن» (POST
+ * /api/sales/manual with target.condition) — tagged sourceSystem 'mercato' so every
  * Mercato-based report/KPI counts them automatically — see
  * scientific-reps.service.js's office/mercato split.
  */
@@ -47,7 +47,6 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [newFileName, setNewFileName] = useState(`مبيعات مذاخر ناقصة من ميركاتو ${new Date().toLocaleDateString('en-GB')}`);
   const [currency, setCurrency] = useState<'IQD' | 'USD'>('IQD');
   const [nameAsk, setNameAsk] = useState<{ items: NameCheck[]; companies: NameCheck[] } | null>(null);
   const [choice, setChoice] = useState<Record<string, string>>({});
@@ -136,7 +135,6 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
     }));
 
   const doSave = async (payloadRows: any[]) => {
-    if (!newFileName.trim()) { setError('اكتب اسماً للملف.'); return; }
     setSaving(true); setError('');
     try {
       const res = await fetch(`${API}/api/sales/manual`, {
@@ -144,13 +142,15 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
         headers: { ...authH, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rows: payloadRows,
-          target: { newFileName: newFileName.trim(), sourceCurrency: currency, sourceSystem: 'mercato' },
+          // ملف الكوديشن: حاوية تراكمية واحدة تُعرض ملتصقة بملف ميركاتو وتُحتسب معه.
+          target: { condition: true, sourceCurrency: currency },
         }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.message || j.error || 'فشل الحفظ');
       const added = j.data?.addedCount ?? payloadRows.length;
-      onSaved(`تمت إضافة ${added} عملية بيع ضمن ميركاتو.`, j.data?.uploadedFile?.id);
+      const skipped = j.data?.skippedCount ?? 0;
+      onSaved(`تمت إضافة ${added} عملية بيع إلى ملف الكوديشن${skipped ? ` (أُسقط ${skipped} مكرر)` : ''}.`, j.data?.uploadedFile?.id);
     } catch (e: any) {
       setError(e.message || 'تعذّر الحفظ');
     } finally {
@@ -181,7 +181,6 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
     setError('');
     const payloadRows = buildPayload();
     if (payloadRows.length === 0) { setError('لا توجد صفوف صالحة — كل صف يحتاج مندوباً ومادة وكمية أكبر من صفر.'); return; }
-    if (!newFileName.trim()) { setError('اكتب اسماً للملف.'); return; }
 
     setChecking(true);
     let check: { items: NameCheck[]; companies: NameCheck[] } | null = null;
@@ -350,8 +349,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
             </div>
 
             <div style={{ padding: 14, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>سيُنشأ ملف جديد مُعلَّم كميركاتو:</span>
-              <input value={newFileName} onChange={e => setNewFileName(e.target.value)} style={{ ...cell, minWidth: 260, background: '#fff' }} />
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>تُضاف الصفوف إلى «ملف الكوديشن» (مرتبط بميركاتو، المكرر يُسقَط تلقائياً) — العملة:</span>
               <select value={currency} onChange={e => setCurrency(e.target.value as 'IQD' | 'USD')} style={{ ...cell, background: '#fff' }}>
                 <option value="IQD">IQD</option>
                 <option value="USD">USD</option>
@@ -364,7 +362,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-start', marginTop: 16 }}>
           <button onClick={onSave} disabled={rows.length === 0 || saving || parsing || checking} style={saveBtn}>
-            {checking ? '🔎 جاري فحص الأسماء…' : saving ? '⏳ جاري الحفظ…' : '💾 حفظ ضمن ميركاتو'}
+            {checking ? '🔎 جاري فحص الأسماء…' : saving ? '⏳ جاري الحفظ…' : '💾 حفظ في ملف الكوديشن'}
           </button>
           <button onClick={onClose} style={cancelBtn}>إلغاء</button>
         </div>

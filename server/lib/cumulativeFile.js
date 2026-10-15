@@ -34,15 +34,15 @@ export function isMergeableType(fileType) {
  *
  * @returns {Promise<{ file: object, created: boolean }>}
  */
-export async function resolveCumulativeTarget({ userId, sourceSystem = null, detectedCurrency = 'IQD' }) {
-  const group = mergeGroupKey({ userId, sourceSystem, detectedCurrency });
+export async function resolveCumulativeTarget({ userId, sourceSystem = null, detectedCurrency = 'IQD', variant = null }) {
+  const group = mergeGroupKey({ userId, sourceSystem, detectedCurrency, variant });
   const existing = await prisma.uploadedFile.findFirst({
     where: { userId, isCumulative: true, mergeGroup: group },
     orderBy: { id: 'asc' },
   });
   if (existing) return { file: existing, created: false };
 
-  const name = cumulativeFileName({ sourceSystem, detectedCurrency });
+  const name = cumulativeFileName({ sourceSystem, detectedCurrency, variant });
   const file = await prisma.uploadedFile.create({
     data: {
       filename:         `cumulative_${group.replace(/[^a-zA-Z0-9]/g, '_')}`,

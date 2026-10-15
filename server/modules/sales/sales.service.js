@@ -33,6 +33,7 @@ import {
   isMergeableType, resolveCumulativeTarget, openMergeBatch,
   appendRowsToCumulative, closeMergeBatch, refreshCumulativeFile,
 } from '../../lib/cumulativeFile.js';
+import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
 import { getWarehouses } from '../stock-ledger/stock-ledger.repository.js';
 import { buildWarehouseGapWorkbook, parseWarehouseGapWorkbook } from '../../lib/warehouseGapTemplate.js';
@@ -2109,13 +2110,15 @@ export function alignRepToFile(name, index) {
  * (ManualSalesModal يضيف اللاحقة -order). الاقتصار على القيمة الأولى كان يُسقط
  * صفوف البوت من ترجمة أعمدة المحرّر ومن التصدير ومن الترحيل.
  */
-export const isManualInvoiceSource = (src) => src === 'manual-invoice' || /-order$/.test(String(src ?? ''));
+// 'warehouse-gap-template' = صفوف إكسل الكوديشن (WarehouseGapImportModal) — نفس
+// المفاتيح الإنجليزية المساعدة، فتُعامَل مثلها في المحرّر واكتشاف الترويسات.
+export const isManualInvoiceSource = (src) => src === 'manual-invoice' || src === 'warehouse-gap-template' || /-order$/.test(String(src ?? ''));
 
 export const MERCATO_READY_STATUS = 'جاهزة للتسليم';
 
 /** ترويسات ميركاتو للملف الهدف، أو null إن لم يكن ملف ميركاتو. */
 export async function resolveMercatoHeaders(target, userId) {
-  let sourceSystem = target.sourceSystem === 'mercato' ? 'mercato' : null;
+  let sourceSystem = (target.sourceSystem === 'mercato' || target.condition) ? 'mercato' : null;
   const keys = [];
   if (target.fileId) {
     const file = await prisma.uploadedFile.findFirst({
@@ -2163,7 +2166,15 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     .trim();
 
   const mercato = await resolveMercatoHeaders(target, userId);
-  const fileRepIndex = (mercato && target.fileId) ? await loadFileRepIndex(target.fileId).catch(() => null) : null;
+  // ملف الكوديشن يُطابق أسماء المندوبين بملف ميركاتو الشقيق (هو من يحمل الأسماء
+  // كما يسجّلها ميركاتو)، وإلا ظهر «حسين قحطان» و«حسين قحطان العبيدي» مندوبَين.
+  const repIndexFileId = target.fileId || (target.condition && userId
+    ? (await prisma.uploadedFile.findFirst({
+        where: { userId, sourceSystem: 'mercato', isCumulative: true, NOT: { mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } } },
+        orderBy: { id: 'asc' }, select: { id: true },
+      }))?.id
+    : null);
+  const fileRepIndex = (mercato && repIndexFileId) ? await loadFileRepIndex(repIndexFileId).catch(() => null) : null;
 
   // ── 1. Coerce + validate incoming rows ──
   const validRows = [];
@@ -2302,7 +2313,14 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
   // ── 5. Resolve destination file (existing → merge, else create new) ──
   let uploadedFile;
   let merged = false;
-  if (target.fileId) {
+  if (target.condition && !target.fileId) {
+    // ملف الكوديشن: حاوية تراكمية واحدة لكل (حساب × عملة)، مصدرها ميركاتو كي
+    // تُحتسب في كل مؤشرات ميركاتو، لكنها تُفعَّل/تُعطَّل وحدها.
+    ({ file: uploadedFile } = await resolveCumulativeTarget({
+      userId, sourceSystem: 'mercato', detectedCurrency, variant: CONDITION_VARIANT,
+    }));
+    merged = true;
+  } else if (target.fileId) {
     uploadedFile = await prisma.uploadedFile.findFirst({ where: { id: Number(target.fileId), userId } });
     if (!uploadedFile) throw new AppError('الملف المحدد غير موجود أو لا يخصّك.', 404, 'FILE_NOT_FOUND');
     merged = true;

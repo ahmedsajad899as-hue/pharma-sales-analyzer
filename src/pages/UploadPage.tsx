@@ -6,6 +6,7 @@ import ManualSalesModal, { type PendingOrderDetail } from '../components/ManualS
 import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
 import RepNameMatchModal from '../components/RepNameMatchModal';
 import CumulativeAuditModal from '../components/CumulativeAuditModal';
+import ConditionFileModal from '../components/ConditionFileModal';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Icon } from '../config/icons';
@@ -20,6 +21,8 @@ interface UploadedFile {
   sourceSystem?: string | null;
   /** ملف تراكمي: تنصهر فيه رفعات كل الأشهر بدل ملف لكل شهر */
   isCumulative?: boolean;
+  /** مفتاح مجموعة الدمج — لاحقة '|condition' = «ملف الكوديشن» */
+  mergeGroup?: string | null;
   currencyMode?: string;
   exchangeRate?: number;
   detectedCurrency?: string;
@@ -38,6 +41,13 @@ interface Props {
 }
 
 const API = '';
+
+/** «ملف الكوديشن»: طلبيات البوت + إكسل الكوديشن، مصدره ميركاتو ويُعرض ملتصقاً به. */
+const isConditionFile = (f: UploadedFile) => !!f.mergeGroup?.endsWith('|condition');
+/** ملف ميركاتو التراكمي الذي يرتبط به ملف الكوديشن (نفس المالك والعملة). */
+const isMercatoSiblingOf = (m: UploadedFile, c: UploadedFile) =>
+  m.id !== c.id && m.sourceSystem === 'mercato' && !!m.isCumulative && !isConditionFile(m)
+  && m.userId === c.userId && (m.detectedCurrency || 'IQD') === (c.detectedCurrency || 'IQD');
 
 export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToItems }: Props) {
   const { token, hasFeature, user } = useAuth();
@@ -65,6 +75,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   const [batchesLoading, setBatchesLoading] = useState(false);
   const [deletingBatch, setDeletingBatch] = useState<number | null>(null);
   const [auditFile, setAuditFile] = useState<{ id: number; canFix: boolean } | null>(null);
+  const [conditionView, setConditionView] = useState<UploadedFile | null>(null);
   type MergeGroup = { group: string; label: string; sourceSystem: string | null; detectedCurrency: string; targetFileId: number | null; totalRows: number; files: Array<{ id: number; originalName: string; rowCount: number; uploadedAt: string; isCumulative: boolean }> };
   const [mergeGroups, setMergeGroups] = useState<MergeGroup[] | null>(null);
   const [mergeLoading, setMergeLoading] = useState(false);
@@ -1135,6 +1146,15 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         />
       )}
 
+      {conditionView && (
+        <ConditionFileModal
+          fileId={conditionView.id}
+          fileName={conditionView.originalName}
+          currency={(conditionView.currencyMode ?? conditionView.detectedCurrency) === 'USD' ? 'USD' : 'IQD'}
+          token={token}
+          onClose={() => setConditionView(null)}
+        />
+      )}
       {auditFile && (
         <CumulativeAuditModal
           fileId={auditFile.id}
@@ -1366,8 +1386,23 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           <div style={{ textAlign: 'center', padding: '28px', color: '#94a3b8', background: '#f8fafc', borderRadius: 8, fontSize: 13 }}>{t.upload.noFiles}</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {files.map(f => {
+            {(() => {
+              // ملف الكوديشن يُعرض مباشرةً تحت ملف ميركاتو الشقيق (كأنهما ملف واحد).
+              const conds = files.filter(isConditionFile);
+              const placed = new Set<number>();
+              const out: UploadedFile[] = [];
+              for (const f of files) {
+                if (isConditionFile(f)) continue;
+                out.push(f);
+                for (const c of conds) if (!placed.has(c.id) && isMercatoSiblingOf(f, c)) { out.push(c); placed.add(c.id); }
+              }
+              for (const c of conds) if (!placed.has(c.id)) out.push(c);
+              return out;
+            })().map(f => {
               const isActive = activeFileIds.includes(f.id);
+              const isCond = isConditionFile(f);
+              const mercatoSibling = isCond ? files.find(m => isMercatoSiblingOf(m, f)) : undefined;
+              const condSibling = !isCond ? files.find(c => isConditionFile(c) && isMercatoSiblingOf(f, c)) : undefined;
               const shares = f.fileShares ?? [];
               const isSharedToMe = shares.some(s => s.userId === user?.id) && f.userId !== user?.id;
               const isSharedByMe = f.userId === user?.id && shares.length > 0;
@@ -1389,6 +1424,8 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                   ...CARD,
                   marginBottom: 0,
                   cursor: 'pointer',
+                  // ملتصق بملف ميركاتو أعلاه: إزاحة + خط ربط على جهة البداية.
+                  ...(mercatoSibling ? { marginInlineStart: 28, marginTop: -4, borderInlineStart: '4px solid var(--c-warning-border)' } : {}),
                   borderColor: isActive ? 'var(--c-success-border)' : isSharedToMe ? 'var(--c-warning-border)' : '#e2e8f0',
                   background: isActive ? 'var(--c-success-bg)' : isSharedToMe ? 'var(--c-warning-bg)' : '#fff',
                 }}>
@@ -1434,6 +1471,12 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                           <button onClick={() => { handleAnalyze(f); setOpenMenuId(null); }} disabled={analyzing && analyzeFile?.id === f.id} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
                             <Icon name="aiBot" size={13} /> تحليل الملف
                           </button>
+
+                          {isCond && (
+                            <button onClick={() => { setConditionView(f); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="file" size={13} /> فتح الكوديشن (شيت لكل مندوب)
+                            </button>
+                          )}
 
                           {/* تعديل الملف — للمالك فقط */}
                           {f.userId === user?.id && (
@@ -1484,6 +1527,9 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     {/* File name */}
                     <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {f.originalName}
+                      {mercatoSibling && (
+                        <span style={{ fontSize: 10.5, fontWeight: 600, color: '#92400e', marginInlineStart: 8 }}>🔗 مرتبط بـ«{mercatoSibling.originalName}»</span>
+                      )}
                     </span>
                     {/* ── حالة الملف: شارات أيقونية صغيرة بتلميحات — كل شارة تحتفظ بوظيفتها ── */}
                     {(() => {
@@ -1502,7 +1548,14 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                           <span title={typeMeta.label.replace(/^\S+\s*/, '')} style={chip(typeMeta.color, typeMeta.bg, typeMeta.border)}>
                             <Icon name={typeIcon as any} size={12} />
                           </span>
-                          {f.sourceSystem === 'mercato' && (
+                          {isCond && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setConditionView(f); }}
+                              style={chip('var(--c-warning)', 'var(--c-warning-bg)', 'var(--c-warning-border)', true)}
+                              title="ملف الكوديشن — طلبيات بوت تلكرام وإكسل الكوديشن، تُحتسب مع ميركاتو. اضغط لفتحه (شيت لكل مندوب) أو تصديره إكسل."
+                            ><Icon name="file" size={12} /><span>كوديشن</span></button>
+                          )}
+                          {f.sourceSystem === 'mercato' && !isCond && (
                             <button
                               onClick={(e) => { e.stopPropagation(); setRepNameFileIds([f.id]); }}
                               style={chip('var(--c-warning)', 'var(--c-warning-bg)', 'var(--c-warning-border)', true)}
@@ -1681,6 +1734,24 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     >
                       {isActive ? <><Icon name="checkCircle" size={11} /> نشط</> : <><Icon name="target" size={11} /> تفعيل</>}
                     </button>
+                    {condSibling && (() => {
+                      // ميركاتو + الكوديشن كملف واحد: تفعيل/تعطيل الاثنين بضغطة (كلٌّ يبقى قابلاً للتبديل وحده).
+                      const both = isActive && activeFileIds.includes(condSibling.id);
+                      return (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (both) { onFileActivated(f.id); onFileActivated(condSibling.id); return; }
+                            if (!isActive) onFileActivated(f.id);
+                            if (!activeFileIds.includes(condSibling.id)) onFileActivated(condSibling.id);
+                          }}
+                          title={both ? 'إلغاء تفعيل ميركاتو والكوديشن معاً' : 'تفعيل ميركاتو والكوديشن معاً'}
+                          style={{ border: '1px solid var(--c-warning-border)', borderRadius: 20, padding: '2px 10px', background: both ? 'var(--c-warning-bg)' : '#fff', color: 'var(--c-warning)', cursor: 'pointer', fontSize: 11, fontWeight: 700, flexShrink: 0 }}
+                        >
+                          🔗 {both ? 'إلغاء الاثنين' : 'مع الكوديشن'}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               );

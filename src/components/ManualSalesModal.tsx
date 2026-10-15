@@ -242,7 +242,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   const [preview, setPreview] = useState<string | null>(null);
 
   // Destination
-  const [destMode, setDestMode]     = useState<'existing' | 'new'>(files.length ? 'existing' : 'new');
+  // طلبيات البوت تذهب افتراضياً إلى «ملف الكوديشن» (حاوية تراكمية مرتبطة بميركاتو).
+  const [destMode, setDestMode]     = useState<'condition' | 'existing' | 'new'>(initialOrder ? 'condition' : files.length ? 'existing' : 'new');
   const [destFileId, setDestFileId] = useState<number | ''>(files[0]?.id ?? '');
   const [newFileName, setNewFileName] = useState('');
   const [newCurrency, setNewCurrency] = useState<'IQD' | 'USD'>('IQD');
@@ -277,7 +278,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
 
   const destCurrency = destMode === 'existing'
     ? (files.find(f => f.id === destFileId)?.detectedCurrency || 'IQD')
-    : newCurrency;
+    : newCurrency; // الكوديشن والملف الجديد: العملة المختارة
 
   // ── Row helpers ──
   const setCell = (i: number, key: keyof Row, val: string) =>
@@ -447,7 +448,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   const doSave = async (payloadRows: any[], rememberItems: { from: string; toItemId: number }[]) => {
     if (destMode === 'existing' && !destFileId) { setError('اختر ملفاً للدمج فيه.'); return; }
     if (destMode === 'new' && !newFileName.trim()) { setError('اكتب اسماً للملف الجديد.'); return; }
-    const target = destMode === 'existing'
+    const target = destMode === 'condition'
+      ? { condition: true, sourceCurrency: newCurrency }
+      : destMode === 'existing'
       ? { fileId: destFileId }
       : { newFileName: newFileName.trim(), sourceCurrency: newCurrency };
     setSaving(true);
@@ -461,7 +464,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       if (!res.ok) throw new Error(j.message || j.error || 'فشل الحفظ');
       const added = j.data?.addedCount ?? payloadRows.length;
       const remembered = j.data?.rememberedCount ?? 0;
-      onSaved(`تمت إضافة ${added} عملية بيع${j.data?.merged ? ' ودمجها في الملف المحدد' : ' في ملف جديد'}.`
+      const skipped = j.data?.skippedCount ?? 0;
+      onSaved(`تمت إضافة ${added} عملية بيع${destMode === 'condition' ? ' إلى ملف الكوديشن' : j.data?.merged ? ' ودمجها في الملف المحدد' : ' في ملف جديد'}${skipped ? ` (أُسقط ${skipped} مكرر)` : ''}.`
         + (remembered > 0 ? ` وحُفظ ${remembered} ربط اسم فلن يُسأل عنه مرة أخرى.` : ''),
         j.data?.uploadedFile?.id);
     } catch (e: any) {
@@ -935,6 +939,10 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 10 }}>وجهة الحفظ</div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
             <label style={radio}>
+              <input type="radio" checked={destMode === 'condition'} onChange={() => setDestMode('condition')} />
+              ملف الكوديشن (مرتبط بميركاتو)
+            </label>
+            <label style={radio}>
               <input type="radio" checked={destMode === 'existing'} onChange={() => setDestMode('existing')} disabled={!files.length} />
               دمج في ملف موجود
             </label>
@@ -943,7 +951,17 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
               ملف جديد
             </label>
           </div>
-          {destMode === 'existing' ? (
+          {destMode === 'condition' ? (
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: '#64748b' }}>
+                تُجمع طلبيات البوت وإكسل الكوديشن في ملف واحد بجانب ملف ميركاتو، ويُحتسب معه — المكرر يُسقَط تلقائياً. العملة:
+              </span>
+              <select value={newCurrency} onChange={e => setNewCurrency(e.target.value as 'IQD' | 'USD')} style={inp}>
+                <option value="IQD">IQD</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+          ) : destMode === 'existing' ? (
             <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <select value={destFileId} onChange={e => setDestFileId(Number(e.target.value))} style={{ ...inp, minWidth: 280 }}>
                 {files.map(f => (
