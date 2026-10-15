@@ -11,6 +11,7 @@
  */
 
 import prisma from '../../lib/prisma.js';
+import { reapplyInactiveBatches } from '../../lib/cumulativeFile.js';
 import {
   findOrCreateArea, findOrCreateItem, findOrCreateCustomer, findRepByName,
 } from './sales.repository.js';
@@ -368,6 +369,7 @@ async function recomputeHiddenForFile(fileId, isMercato) {
 
   if (active.length === 0) {
     await prisma.sale.updateMany({ where: { uploadedFileId: fileId, isHidden: true }, data: { isHidden: false } });
+    await reapplyInactiveBatches(fileId);
     return { hiddenCount: 0 };
   }
 
@@ -382,7 +384,20 @@ async function recomputeHiddenForFile(fileId, isMercato) {
     prisma.sale.updateMany({ where: { id: { in: hideIds.length ? hideIds : [-1] } }, data: { isHidden: true } }),
     prisma.sale.updateMany({ where: { id: { in: showIds.length ? showIds : [-1] } }, data: { isHidden: false } }),
   ]);
+  // الإعادة من الصفر أعلاه «تُظهر» صفوف الرفعات الموقوفة في الملف التراكمي — تُخفى ثانيةً.
+  await reapplyInactiveBatches(fileId);
   return { hiddenCount: hideIds.length };
+}
+
+/**
+ * يُعيد حالة isHidden لملف بعد أن أظهر شيءٌ صفوفاً (تفعيل رفعة، توريث صفوف):
+ * فلاتر الأعمدة إن وُجدت، ثم الرفعات الموقوفة.
+ */
+export async function resyncHiddenRows(fileId) {
+  const hasFilters = await prisma.fileColumnFilter.count({ where: { fileId } });
+  if (hasFilters === 0) return reapplyInactiveBatches(fileId);
+  const file = await prisma.uploadedFile.findUnique({ where: { id: fileId }, select: { sourceSystem: true } });
+  return recomputeHiddenForFile(fileId, file?.sourceSystem === 'mercato');
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -494,6 +509,7 @@ export async function clearColumnFilters(req, res) {
 
     await prisma.fileColumnFilter.deleteMany({ where: { fileId } });
     await prisma.sale.updateMany({ where: { uploadedFileId: fileId, isHidden: true }, data: { isHidden: false } });
+    await reapplyInactiveBatches(fileId);
     res.json({ success: true });
   } catch (err) {
     console.error('[file-editor/clearColumnFilters]', err);

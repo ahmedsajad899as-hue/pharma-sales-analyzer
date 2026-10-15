@@ -26,7 +26,12 @@ import { normalizeItemKey, normalizeAreaName, loadCompanyContext, resolveItemNam
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
 import { invalidateAreaSnapshot } from './lib/areaResolver.js';
 import { previewMergeGroups, mergeExistingFiles } from './lib/cumulativeMerge.js';
-import { refreshCumulativeFile } from './lib/cumulativeFile.js';
+import {
+  refreshCumulativeFile, ensureLegacyBatch, batchDateRanges, releaseBatch, reactivateBatch,
+} from './lib/cumulativeFile.js';
+import { UNDATED_CUTOFF } from './lib/salesMonths.js';
+import { resyncHiddenRows } from './modules/sales/file-editor.controller.js';
+import { auditCumulativeFile } from './lib/cumulativeAudit.js';
 import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
 import {
   seedProvinces, autoMatchProvinces, seedSubProvinces, autoMatchSubProvinces,
@@ -2127,14 +2132,91 @@ app.get('/api/files/:id/batches', requireAuth, async (req, res) => {
     const userId = req.user?.id ?? null;
     const file = await prisma.uploadedFile.findFirst({
       where: { id, OR: [{ userId }, { fileShares: { some: { userId } } }] },
+      select: { id: true, isCumulative: true, filename: true, uploadedBy: true, fileType: true },
+    });
+    if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
+    // الملف الأول (المُرقّى إلى حاوية) لا سجل رفعة له — يُنشأ هنا مرة واحدة.
+    await ensureLegacyBatch(file);
+    const [batches, ranges, liveCounts, overall] = await Promise.all([
+      prisma.fileMergeBatch.findMany({ where: { fileId: id }, orderBy: { uploadedAt: 'desc' } }),
+      batchDateRanges(id),
+      prisma.sale.groupBy({ by: ['mergeBatchId'], where: { uploadedFileId: id }, _count: { _all: true } }),
+      // أول/آخر طلبية في الملف كما تراه التقارير (الموقوف والمفلتر مستثنى).
+      prisma.sale.aggregate({
+        where: { uploadedFileId: id, isHidden: false, saleDate: { gte: UNDATED_CUTOFF } },
+        _min: { saleDate: true }, _max: { saleDate: true },
+      }),
+    ]);
+    const countOf = new Map(liveCounts.map(c => [c.mergeBatchId, c._count._all]));
+    const data = batches.map(b => ({
+      ...b,
+      ownedRows: countOf.get(b.id) || 0,
+      firstDate: ranges.get(b.id)?.firstDate ?? null,
+      lastDate:  ranges.get(b.id)?.lastDate ?? null,
+    }));
+    res.json({
+      success: true,
+      data,
+      summary: {
+        total:     batches.length,
+        active:    batches.filter(b => b.isActive).length,
+        firstDate: overall._min.saleDate,
+        lastDate:  overall._max.saleDate,
+      },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PATCH /api/files/:id/batches/:batchId — { active: boolean } إيقاف/تفعيل رفعة.
+// الموقوفة تختفي من كل التقارير كأنها لم تُرفع (صفوفها تُخفى لا تُحذف)، وما
+// تحمله رفعة أخرى فعّالة يبقى ظاهراً عبرها. المالك فقط.
+app.patch('/api/files/:id/batches/:batchId', requireAuth, async (req, res) => {
+  const id      = parseInt(req.params.id);
+  const batchId = parseInt(req.params.batchId);
+  if (isNaN(id) || isNaN(batchId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  if (typeof req.body?.active !== 'boolean') return res.status(400).json({ error: 'حدّد active' });
+  try {
+    const file = await prisma.uploadedFile.findFirst({ where: { id, userId: req.user?.id ?? null }, select: { id: true } });
+    if (!file) return res.status(403).json({ error: 'ليس لديك صلاحية التعديل على هذا الملف' });
+    const result = req.body.active
+      ? await reactivateBatch({ fileId: id, batchId })
+      : await releaseBatch({ fileId: id, batchId, mode: 'deactivate' });
+    // صفوف ظهرت من جديد قد تكون مستبعدة بفلتر عمود — يُعاد تطبيقه.
+    if (req.body.active) await resyncHiddenRows(id);
+    res.json({ success: true, data: result });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+// GET /api/files/:id/audit — تدقيق التكرار داخل ملف تراكمي (معاينة، لا تكتب شيئاً).
+// لكل شهر: المبيع قبل/بعد إزالة المكرر بين الرفعات، ولكل رفعة ما تكرّر منها.
+// راجع server/lib/cumulativeAudit.js لسبب الخلل (بصمة v1 كانت تعتمد itemId).
+app.get('/api/files/:id/audit', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const userId = req.user?.id ?? null;
+    const file = await prisma.uploadedFile.findFirst({
+      where: { id, OR: [{ userId }, { fileShares: { some: { userId } } }] },
       select: { id: true, isCumulative: true },
     });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
-    const batches = await prisma.fileMergeBatch.findMany({
-      where: { fileId: id },
-      orderBy: { uploadedAt: 'desc' },
-    });
-    res.json({ success: true, data: batches });
+    if (!file.isCumulative) return res.status(400).json({ error: 'التدقيق متاح للملف التراكمي فقط' });
+    const report = await auditCumulativeFile(id, { apply: false });
+    res.json({ success: true, data: report });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/files/:id/audit/fix — حذف الصفوف المكررة بين الرفعات + ختم البصمات
+// الجديدة. المالك فقط: الحذف يمسّ ما يراه كل من شورك معه الملف.
+app.post('/api/files/:id/audit/fix', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const file = await prisma.uploadedFile.findFirst({ where: { id, userId: req.user?.id ?? null }, select: { id: true, isCumulative: true } });
+    if (!file) return res.status(403).json({ error: 'الإصلاح متاح لصاحب الملف فقط' });
+    if (!file.isCumulative) return res.status(400).json({ error: 'التدقيق متاح للملف التراكمي فقط' });
+    const report = await auditCumulativeFile(id, { apply: true });
+    res.json({ success: true, data: report });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2142,8 +2224,8 @@ app.get('/api/files/:id/batches', requireAuth, async (req, res) => {
 // يحذف صفوف تلك الرفعة وحدها ويترك باقي الأشهر على حالها. المالك فقط: الحذف
 // يمسّ بيانات يراها كل من شورك معه الملف.
 //
-// ⚠️ الصفوف التي أُسقطت كمكررة وقت تلك الرفعة لا تعود: هي أصلاً نُسخة من صفوف
-// رفعة أخرى ما زالت موجودة، فالتراجع لا يفقد بياناتٍ فعلية.
+// صفوف الرفعة التي تحملها رفعة أخرى باقية تُورَّث لها ولا تُحذف — فلا تفقد
+// الرفعات الباقية شيئاً (راجع releaseBatch في cumulativeFile.js).
 app.delete('/api/files/:id/batches/:batchId', requireAuth, async (req, res) => {
   const id      = parseInt(req.params.id);
   const batchId = parseInt(req.params.batchId);
@@ -2151,14 +2233,12 @@ app.delete('/api/files/:id/batches/:batchId', requireAuth, async (req, res) => {
   try {
     const file = await prisma.uploadedFile.findFirst({ where: { id, userId: req.user?.id ?? null } });
     if (!file) return res.status(403).json({ error: 'ليس لديك صلاحية التعديل على هذا الملف' });
-    const batch = await prisma.fileMergeBatch.findFirst({ where: { id: batchId, fileId: id } });
-    if (!batch) return res.status(404).json({ error: 'الرفعة غير موجودة داخل هذا الملف' });
 
-    const removed = await prisma.sale.deleteMany({ where: { uploadedFileId: id, mergeBatchId: batchId } });
-    await prisma.fileMergeBatch.delete({ where: { id: batchId } });
+    const { handed, released } = await releaseBatch({ fileId: id, batchId, mode: 'delete' });
+    if (handed > 0) await resyncHiddenRows(id);
     const refreshed = await refreshCumulativeFile(id);
-    res.json({ success: true, data: { removed: removed.count, totalRows: refreshed.rowCount } });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    res.json({ success: true, data: { removed: released, handed, totalRows: refreshed.rowCount } });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // GET /api/files/linked-users — list subordinate users (for share modal)

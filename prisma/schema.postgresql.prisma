@@ -519,9 +519,29 @@ model FileMergeBatch {
   // اسم ملف الإكسل الأصلي كما حُفظ على القرص — يُبقي «تنزيل الملف الأصلي»
   // ممكناً لكل رفعة على حدة بعد أن صار الملف الظاهر حاوية تراكمية لا رفعة.
   storedFilename String?
+  // إيقاف رفعة واحدة دون حذفها: صفوفها تُخفى (Sale.isHidden) فتختفي من كل
+  // التقارير كأنها لم تُرفع، وتعود كما هي عند إعادة التفعيل.
+  isActive       Boolean  @default(true)
+  dupKeys        FileMergeBatchDupKey[]
 
   @@index([fileId])
   @@map("file_merge_batches")
+}
+
+// ─── بصمات أسقطتها رفعةٌ كمكررة ──────────────────────────────
+// الصف المكرر لا يُدرج مرتين — يبقى مملوكاً للرفعة الأقدم. هذا السجل يتذكّر أن
+// الرفعة الأحدث «كانت تحمله أيضاً»، فحين تُحذف/تُوقف الرفعة المالكة يُورَّث
+// الصف لهذه الرفعة بدل أن يختفي، فلا تفقد رفعةٌ باقية شيئاً من صفوفها.
+model FileMergeBatchDupKey {
+  id       Int    @id @default(autoincrement())
+  batchId  Int
+  batch    FileMergeBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  fileId   Int
+  dedupKey String
+
+  @@unique([batchId, dedupKey])
+  @@index([fileId, dedupKey])
+  @@map("file_merge_batch_dup_keys")
 }
 
 

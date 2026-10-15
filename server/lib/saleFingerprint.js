@@ -17,12 +17,23 @@
 // التكرار المشروع محفوظ، وإعادة الرفع لا تُضاعف شيئاً.
 //
 // ⚠️ مصدر كل مكوّنات المفتاح متطابق بين المسارين (رفع إكسل جديد / دمج ملفات
-// قديمة موجودة): نقرأ من rawData الخام + itemId + recordType + الكمية والقيمة.
-// عمداً لا نستعمل اسم الايتم ولا اسم المندوب: الأول يتبدّل بتوحيد الكتالوج
-// (itemResolver) فيختلف نص الاسم بين رفعتين لنفس الصف، والثاني يتبدّل بقرارات
-// ربط الأسماء. ولا نستعمل saleDate: الصف بلا تاريخ في الإكسل يأخذ
-// @default(now()) أي لحظة الرفع، فنفس الصف يحمل تاريخين مختلفين في رفعتين —
-// نقرأ نصّ عمود التاريخ كما ورد في الإكسل بدلاً منه.
+// قديمة موجودة): نقرأ من rawData الخام + recordType + الكمية والقيمة. لا نستعمل
+// اسم المندوب (يتبدّل بقرارات ربط الأسماء) ولا saleDate: الصف بلا تاريخ في
+// الإكسل يأخذ @default(now()) أي لحظة الرفع، فنفس الصف يحمل تاريخين مختلفين في
+// رفعتين — نقرأ نصّ عمود التاريخ كما ورد في الإكسل بدلاً منه.
+//
+// ⚠️ الايتم: نصّ اسمه **كما ورد في الإكسل** (rawData) لا itemId (الإصدار 2).
+// الإصدار 1 كان يأخذ itemId، وهذا رقم يتحرّك: دمج ايتمين (نافذة «دمج الايتمات
+// المتشابهة؟» بعد الرفع، أو ربطه من طابور المراجعة) يُعيد توجيه صفوف المبيع
+// القديمة إلى الايتم الهدف بينما تبقى بصمتها محسوبة على الرقم القديم — فرفعة
+// لاحقة لنفس الشهر تحسب للصف ذاته بصمة بالرقم الجديد، فلا تتطابقان، فيدخل الصف
+// مرتين. هذا ما ضخّم مبيع شهر 10 في الملف التراكمي ~20% (2026-10-15) بينما بقي
+// الإرجاع سليماً (رُفع مرة واحدة). نص الإكسل الخام لا يغيّره أي دمج داخل التطبيق.
+// itemId يبقى بديلاً فقط حين لا يحمل الصف عمود ايتم معروفاً (الإدخال اليدوي).
+//
+// البصمة تحمل بادئة الإصدار ("2.") — النقطة ليست من حروف base64url فلا تلتبس
+// بصمة v1 ببصمة v2. ملف تراكمي ما زال يحمل بصمات v1 يُعاد ختمه (مع إسقاط ما
+// تكرّر بسبب الخلل أعلاه) قبل أي رفعة جديدة — راجع cumulativeAudit.js.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { createHash } from 'crypto';
@@ -35,6 +46,18 @@ const DATE_ALIASES     = ['التاريخ', 'تاريخ', 'تاريخ البيع
 // «اسم الشركة» فيها هي الصيدلية المشترية — فالاسمان لا يتبادلان الأدوار هنا:
 // كلاهما يدخل البصمة من عموده الخاص فلا يهمّ أيّهما يعني ماذا، المهم الثبات.
 const COMPANY_ALIASES  = ['الشركة', 'الشركه', 'الشركة المصنعة', 'الشركه المصنعه', 'المجهز', 'الصنف', 'company'];
+// أسماء عمود الايتم الصريحة فقط (نفس الجزء غير الملتبس من COLUMN_ALIASES.item في
+// sales.service.js — لا نستورده تجنّباً لاستيراد دائري). «صنف/الصنف» مستبعدان
+// عمداً: في ميركاتو «الصنف» هو الشركة المصنّعة، وأخذه اسماً للايتم كان سيجعل كل
+// ايتمات الشركة الواحدة بصمة واحدة. حين لا يوجد عمود صريح نرجع إلى itemId.
+const ITEM_ALIASES     = ['item name', 'product name', 'drug name', 'name of item',
+  'اسم المادة', 'المادة', 'اسم الدواء', 'الدواء', 'اسم المنتج', 'المنتج',
+  'اسم الايتم', 'الايتم', 'ايتم', 'آيتم', 'الآيتم', 'المستحضر', 'اسم المستحضر', 'اسم العلاج',
+  'item', 'drug', 'product', 'medicine', 'brand', 'trade name', 'material'];
+
+/** بادئة إصدار البصمة — راجع رأس الملف. */
+export const KEY_VERSION_PREFIX = '2.';
+export const isCurrentKey = (k) => typeof k === 'string' && k.startsWith(KEY_VERSION_PREFIX);
 
 const normLoose = (s) => String(s ?? '').trim().toLowerCase()
   .replace(/[أإآٱ]/g, 'ا').replace(/[ةه]/g, 'ه').replace(/ى/g, 'ي')
@@ -68,7 +91,7 @@ const num = (v) => {
  *
  * @param {object} row
  * @param {string|object|null} row.rawData  نص JSON للصف الخام كما ورد بالإكسل
- * @param {number|null} row.itemId
+ * @param {number|null} row.itemId          بديل فقط حين لا يحمل rawData عمود ايتم
  * @param {number|null} row.customerId      يُستعمل كبديل حين لا يحمل rawData اسم صيدلية
  * @param {string} row.recordType           'sale' | 'return'
  * @param {number} row.quantity
@@ -81,10 +104,12 @@ export function contentKey({ rawData, itemId, customerId, recordType = 'sale', q
   const dateRaw   = normLoose(pick(raw, DATE_ALIASES));
   const pharmacy  = normLoose(pick(raw, PHARMACY_ALIASES)) || (customerId != null ? `#${customerId}` : '');
   const company   = normLoose(pick(raw, COMPANY_ALIASES));
-  return [orderNo, dateRaw, pharmacy, company, itemId ?? '', recordType, num(quantity), num(totalValue)].join('|');
+  const itemName  = normLoose(pick(raw, ITEM_ALIASES));
+  const item      = itemName ? `n:${itemName}` : `#${itemId ?? ''}`;
+  return [orderNo, dateRaw, pharmacy, company, item, recordType, num(quantity), num(totalValue)].join('|');
 }
 
-const hash = (s) => createHash('sha1').update(s, 'utf8').digest('base64url').slice(0, 22);
+const hash = (s) => KEY_VERSION_PREFIX + createHash('sha1').update(s, 'utf8').digest('base64url').slice(0, 22);
 
 /**
  * يُسنِد بصمة لكل صف في دفعة واحدة، مع ترقيم التكرار داخل الدفعة.

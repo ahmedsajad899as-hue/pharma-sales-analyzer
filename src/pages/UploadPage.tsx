@@ -5,6 +5,7 @@ import AnalysisRenderer from '../components/AnalysisRenderer';
 import ManualSalesModal, { type PendingOrderDetail } from '../components/ManualSalesModal';
 import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
 import RepNameMatchModal from '../components/RepNameMatchModal';
+import CumulativeAuditModal from '../components/CumulativeAuditModal';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Icon } from '../config/icons';
@@ -55,11 +56,15 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   // الدمج هو الافتراضي: رفعة شهر 10 تنصهر داخل نفس الملف الذي يحمل شهر 9، وما
   // سبق إدخاله يُسقط بلا تكرار. standalone لرفعة يريدها المستخدم معزولة.
   const [standalone, setStandalone] = useState(false);
-  type MergeBatch = { id: number; originalName: string; uploadedAt: string; uploadedBy: string | null; rowsAdded: number; rowsSkipped: number; monthsLabel: string | null; storedFilename: string | null };
+  type MergeBatch = { id: number; originalName: string; uploadedAt: string; uploadedBy: string | null; rowsAdded: number; rowsSkipped: number; monthsLabel: string | null; storedFilename: string | null; isActive: boolean; ownedRows: number; firstDate: string | null; lastDate: string | null };
+  type BatchSummary = { total: number; active: number; firstDate: string | null; lastDate: string | null };
+  const [batchSummary, setBatchSummary] = useState<BatchSummary | null>(null);
+  const [togglingBatch, setTogglingBatch] = useState<number | null>(null);
   const [expandedBatchesId, setExpandedBatchesId] = useState<number | null>(null);
   const [batches, setBatches] = useState<MergeBatch[]>([]);
   const [batchesLoading, setBatchesLoading] = useState(false);
   const [deletingBatch, setDeletingBatch] = useState<number | null>(null);
+  const [auditFile, setAuditFile] = useState<{ id: number; canFix: boolean } | null>(null);
   type MergeGroup = { group: string; label: string; sourceSystem: string | null; detectedCurrency: string; targetFileId: number | null; totalRows: number; files: Array<{ id: number; originalName: string; rowCount: number; uploadedAt: string; isCumulative: boolean }> };
   const [mergeGroups, setMergeGroups] = useState<MergeGroup[] | null>(null);
   const [mergeLoading, setMergeLoading] = useState(false);
@@ -261,21 +266,43 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   }, [loadFiles, onFileActivated, fileType, activeFileIds, token, standalone]);
 
   // ── الملف التراكمي: الرفعات بداخله، ودمج الملفات القائمة ────────────────────
-  const toggleBatches = useCallback(async (fileId: number) => {
-    if (expandedBatchesId === fileId) { setExpandedBatchesId(null); return; }
-    setExpandedBatchesId(fileId);
-    setBatchesLoading(true);
-    setBatches([]);
+  const loadBatches = useCallback(async (fileId: number, quiet = false) => {
+    if (!quiet) { setBatchesLoading(true); setBatches([]); setBatchSummary(null); }
     try {
       const res = await fetch(`${API}/api/files/${fileId}/batches`, { headers: { Authorization: `Bearer ${token}` } });
       const j = await res.json();
       setBatches(Array.isArray(j.data) ? j.data : []);
-    } catch { setBatches([]); }
+      setBatchSummary(j.summary ?? null);
+    } catch { setBatches([]); setBatchSummary(null); }
     finally { setBatchesLoading(false); }
-  }, [expandedBatchesId, token]);
+  }, [token]);
+
+  const toggleBatches = useCallback(async (fileId: number) => {
+    if (expandedBatchesId === fileId) { setExpandedBatchesId(null); return; }
+    setExpandedBatchesId(fileId);
+    await loadBatches(fileId);
+  }, [expandedBatchesId, loadBatches]);
+
+  // إيقاف رفعة = تختفي من كل التقارير كأنها لم تُرفع، وتعود كما هي عند التفعيل.
+  const toggleBatchActive = useCallback(async (fileId: number, b: MergeBatch) => {
+    const next = !b.isActive;
+    if (!next && !window.confirm(`إيقاف «${b.originalName}»؟ ستختفي بياناته من كل التحليلات كأنه لم يُرفع، ويمكنك إعادة تفعيله لاحقاً.`)) return;
+    setTogglingBatch(b.id);
+    try {
+      const res = await fetch(`${API}/api/files/${fileId}/batches/${b.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: next }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'تعذّر تغيير حالة الرفعة');
+      await Promise.all([loadBatches(fileId, true), loadFiles()]);
+    } catch (e: any) { setError(e.message); }
+    finally { setTogglingBatch(null); }
+  }, [token, loadBatches, loadFiles]);
 
   const deleteBatch = useCallback(async (fileId: number, batchId: number, name: string) => {
-    if (!window.confirm(`حذف رفعة «${name}» من الملف التراكمي؟ ستُحذف صفوفها وحدها، وتبقى بقية الأشهر كما هي.`)) return;
+    if (!window.confirm(`حذف «${name}» نهائياً من الملف التراكمي؟ تُحذف بياناته كأنه لم يُرفع، وما تحمله الملفات الأخرى يبقى عبرها. لا يمكن التراجع.`)) return;
     setDeletingBatch(batchId);
     try {
       const res = await fetch(`${API}/api/files/${fileId}/batches/${batchId}`, {
@@ -283,11 +310,10 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || 'تعذّر حذف الرفعة');
-      setBatches(b => b.filter(x => x.id !== batchId));
-      await loadFiles();
+      await Promise.all([loadBatches(fileId, true), loadFiles()]);
     } catch (e: any) { setError(e.message); }
     finally { setDeletingBatch(null); }
-  }, [token, loadFiles]);
+  }, [token, loadFiles, loadBatches]);
 
   // التنزيل عبر fetch لا عبر <a href>: المسار محمي بـAuthorization، والرابط
   // المباشر لا يحمل الترويسة فيرجع 401.
@@ -1109,6 +1135,16 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         />
       )}
 
+      {auditFile && (
+        <CumulativeAuditModal
+          fileId={auditFile.id}
+          token={token}
+          canFix={auditFile.canFix}
+          onClose={() => setAuditFile(null)}
+          onFixed={() => { loadFiles(); setExpandedBatchesId(null); }}
+        />
+      )}
+
       {/* مراجعة طلبية بوت تفتح نفس المودال بـinitialOrder — الإدخال اليدوي قد
           يكون معطَّلاً بالمميزات ومع ذلك تبقى مراجعة الطلبيات متاحة بمفتاحها. */}
       {(hasFeature('manual_sales_entry') || (ordersFeature && orderDetail)) && showManualModal && (
@@ -1523,19 +1559,58 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                   {/* ── الرفعات داخل الملف التراكمي ── */}
                   {expandedBatchesId === f.id && (
                     <div onClick={e => e.stopPropagation()} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e2e8f0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+                        <button
+                          onClick={() => setAuditFile({ id: f.id, canFix: f.userId === user?.id })}
+                          title="فحص هل دخلت صفوف نفس الإكسل الملف مرتين عبر رفعتين — مع المبيع الصحيح لكل شهر"
+                          style={{ border: '1px solid #fdba74', background: '#fff7ed', color: '#c2410c', borderRadius: 6, padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          🔍 تدقيق التكرار
+                        </button>
+                      </div>
                       {batchesLoading ? (
                         <div style={{ fontSize: 12, color: '#94a3b8' }}>جاري التحميل…</div>
                       ) : batches.length === 0 ? (
                         <div style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد رفعات مسجّلة بعد — الصفوف الحالية كانت في الملف قبل تفعيل التراكم.</div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {batches.map(b => (
-                            <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 11.5 }}>
-                              <span style={{ fontWeight: 700, color: '#0f172a', flex: '1 1 140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.originalName}</span>
+                          {batchSummary && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 12, color: '#334155', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 10px' }}>
+                              <span style={{ fontWeight: 700 }}>📁 {batchSummary.total.toLocaleString('ar-IQ')} ملف مرفوع</span>
+                              {batchSummary.active < batchSummary.total && (
+                                <span style={{ color: '#b45309' }}>({batchSummary.active.toLocaleString('ar-IQ')} مفعّل، {(batchSummary.total - batchSummary.active).toLocaleString('ar-IQ')} موقوف)</span>
+                              )}
+                              {batchSummary.firstDate && batchSummary.lastDate && (
+                                <span title="أول وآخر تاريخ طلبية في الملف (الملفات المفعّلة فقط)">
+                                  🧾 الطلبيات من <b>{fmtDate(batchSummary.firstDate)}</b> إلى <b>{fmtDate(batchSummary.lastDate)}</b>
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {batches.map((b, i) => (
+                            <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: b.isActive ? '#f8fafc' : '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 11.5, opacity: b.isActive ? 1 : 0.6 }}>
+                              <span style={{ color: '#94a3b8', fontWeight: 700 }}>#{(batches.length - i).toLocaleString('ar-IQ')}</span>
+                              <span style={{ fontWeight: 700, color: '#0f172a', flex: '1 1 140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: b.isActive ? 'none' : 'line-through' }}>{b.originalName}</span>
+                              {!b.isActive && <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 999, padding: '1px 8px', fontWeight: 700 }}>موقوف</span>}
                               {b.monthsLabel && <span style={{ color: '#2563eb' }}>🗓️ {b.monthsLabel}</span>}
-                              <span style={{ color: '#065f46' }}>+{b.rowsAdded.toLocaleString('ar-IQ')}</span>
+                              {b.firstDate && b.lastDate && (
+                                <span style={{ color: '#475569' }} title="أول وآخر تاريخ طلبية في هذا الملف">
+                                  🧾 {fmtDate(b.firstDate)} ← {fmtDate(b.lastDate)}
+                                </span>
+                              )}
+                              <span style={{ color: '#065f46' }}>+{Math.max(0, b.rowsAdded).toLocaleString('ar-IQ')}</span>
                               {b.rowsSkipped > 0 && <span style={{ color: '#b45309' }}>مكرر {b.rowsSkipped.toLocaleString('ar-IQ')}</span>}
-                              <span style={{ color: '#94a3b8' }}>{fmtDate(b.uploadedAt)}</span>
+                              <span style={{ color: '#94a3b8' }} title="تاريخ الرفع">{fmtDate(b.uploadedAt)}</span>
+                              {f.userId === user?.id && (
+                                <button
+                                  onClick={() => toggleBatchActive(f.id, b)}
+                                  disabled={togglingBatch === b.id}
+                                  title={b.isActive ? 'إخفاء بيانات هذا الملف من كل التحليلات (بلا حذف)' : 'إعادة بيانات هذا الملف إلى التحليلات'}
+                                  style={{ border: `1px solid ${b.isActive ? '#fcd34d' : '#86efac'}`, background: b.isActive ? '#fffbeb' : '#f0fdf4', color: b.isActive ? '#92400e' : '#166534', borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}
+                                >
+                                  {togglingBatch === b.id ? '…' : b.isActive ? 'إيقاف' : 'تفعيل'}
+                                </button>
+                              )}
                               {b.storedFilename && (
                                 <button
                                   onClick={() => downloadBatch(f.id, b.id, b.originalName)}
@@ -1551,7 +1626,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                                 title="حذف هذه الرفعة وحدها من الملف"
                                 style={{ border: '1px solid var(--c-danger-border)', background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}
                               >
-                                {deletingBatch === b.id ? '…' : 'تراجع'}
+                                {deletingBatch === b.id ? '…' : 'حذف'}
                               </button>
                             </div>
                           ))}

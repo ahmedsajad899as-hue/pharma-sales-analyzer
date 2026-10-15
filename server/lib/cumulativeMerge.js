@@ -12,8 +12,10 @@
 import prisma from './prisma.js';
 import { fingerprintRows, mergeGroupKey, cumulativeFileName } from './saleFingerprint.js';
 import { UNDATED_SENTINEL } from './salesMonths.js';
+import { auditCumulativeFile } from './cumulativeAudit.js';
 import {
   isMergeableType, openMergeBatch, closeMergeBatch, refreshCumulativeFile, monthsLabelOf,
+  ensureLegacyBatch,
 } from './cumulativeFile.js';
 
 /** أسماء أعمدة التاريخ المحتملة — للحكم: هل كان للصف تاريخ في الإكسل أصلاً؟ */
@@ -131,6 +133,7 @@ export async function mergeExistingFiles({ userId, fileIds }) {
   // حالها، ولا يحتاج المستخدم إعادة تفعيل شيء بعد الدمج.
   let target = files.find(f => f.isCumulative)
     ?? await prisma.uploadedFile.findFirst({ where: { userId, isCumulative: true, mergeGroup: group } });
+  const targetWasCumulative = !!target;
   if (!target) {
     target = await prisma.uploadedFile.update({
       where: { id: sample.id },
@@ -146,11 +149,27 @@ export async function mergeExistingFiles({ userId, fileIds }) {
 
   // بصمات الصفوف الموجودة أصلاً في الهدف: تُحسب الآن لأن صفوفه قد تكون من زمن
   // ما قبل هذه الميزة (dedupKey فارغ) فلا شيء يمنع إعادة إدخال ما فيها.
-  const used = new Set();
-  const self = await stampFileRows({ fileId: target.id, targetFileId: target.id, used, batchId: null });
+  //
+  // ⚠️ هدف تراكمي قائم يحمل عدة رفعات: لا يُختم بعدّاد واحد للملف كله (كما
+  // يفعل stampFileRows) — رقم التكرار وقت الرفع كان لكل رفعة على حدة، فالختم
+  // بعدّاد واحد يُنتج بصمات لا تطابق إعادة رفع أي رفعة منها. auditCumulativeFile
+  // يختمه بقواعد الرفع نفسها ويُسقط ما تكرّر بين رفعاته.
+  let used;
+  let skipped = 0;
+  if (targetWasCumulative) {
+    const audit = await auditCumulativeFile(target.id, { apply: true });
+    skipped = audit.removed;
+    used = await loadFileKeys(target.id);
+  } else {
+    used = new Set();
+    const self = await stampFileRows({ fileId: target.id, targetFileId: target.id, used, batchId: null });
+    skipped = self.skipped; // تكرار كان داخل الهدف نفسه
+  }
+  // صفوف الهدف نفسه (الملف الأول المُرقّى) تأخذ سجل رفعة باسمه، كي تظهر في
+  // قائمة الرفعات ويمكن إيقافها/حذفها كأي رفعة أخرى.
+  await ensureLegacyBatch(target);
 
   let moved   = 0;
-  let skipped = self.skipped; // تكرار كان داخل الهدف نفسه
   const deletedFiles = [];
 
   for (const src of files) {
@@ -197,6 +216,22 @@ export async function mergeExistingFiles({ userId, fileIds }) {
   };
 }
 
+/** كل بصمات ملف (بعد ختمها) — مجموعة «المحجوز» التي تُقارَن بها الملفات المصدر. */
+async function loadFileKeys(fileId) {
+  const used = new Set();
+  let cursor = 0;
+  for (;;) {
+    const rows = await prisma.sale.findMany({
+      where: { uploadedFileId: fileId, id: { gt: cursor } },
+      orderBy: { id: 'asc' }, take: 5000, select: { id: true, dedupKey: true },
+    });
+    if (rows.length === 0) break;
+    cursor = rows[rows.length - 1].id;
+    for (const r of rows) if (r.dedupKey) used.add(r.dedupKey);
+  }
+  return used;
+}
+
 /**
  * يمرّ على صفوف ملف دفعةً دفعة: يحسب بصمة كل صف، ينقله إلى الملف الهدف إن كانت
  * بصمته جديدة، ويحذفه إن كانت مستعملة. حين fileId === targetFileId يكتفي بختم
@@ -226,13 +261,14 @@ async function stampFileRows({ fileId, targetFileId, used, batchId }) {
 
     const keys     = fingerprintRows(rows, counters);
     const toDelete = [];
+    const dupKeys  = [];
     const updates  = [];
 
     rows.forEach((row, i) => {
       const key = keys[i];
       // بصمة مستعملة = نفس الصف موجود في الهدف. يُحذف بدل أن يُنقل — وهذا
       // بالضبط «ضمان عدم التكرار» حين يُرفع ملفان متداخلان أو الملف نفسه مرتين.
-      if (used.has(key)) { skipped++; toDelete.push(row.id); return; }
+      if (used.has(key)) { skipped++; toDelete.push(row.id); dupKeys.push(key); return; }
       used.add(key);
       const undated = !rawHasDate(row.rawData);
       dates.push(undated ? UNDATED_SENTINEL : row.saleDate);
@@ -251,6 +287,13 @@ async function stampFileRows({ fileId, targetFileId, used, batchId }) {
     });
 
     if (toDelete.length > 0) await prisma.sale.deleteMany({ where: { id: { in: toDelete } } });
+    // الرفعة «كانت تحمل» هذه الصفوف — ترثها لو أُوقفت/حُذفت الرفعة المالكة.
+    if (batchId != null && dupKeys.length > 0) {
+      await prisma.fileMergeBatchDupKey.createMany({
+        data: dupKeys.map(k => ({ batchId, fileId: targetFileId, dedupKey: k })),
+        skipDuplicates: true,
+      });
+    }
     await bulkUpdateRows(updates, targetFileId, batchId, inPlace);
   }
 
@@ -271,7 +314,7 @@ async function stampFileRows({ fileId, targetFileId, used, batchId }) {
  */
 async function bulkUpdateRows(updates, targetFileId, batchId, inPlace) {
   if (updates.length === 0) return;
-  const KEY_RE = /^[A-Za-z0-9_-]{1,64}$/;
+  const KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/; // النقطة لبادئة الإصدار ("2.")
   const tuples = [];
   for (const u of updates) {
     const id = Number(u.id);
