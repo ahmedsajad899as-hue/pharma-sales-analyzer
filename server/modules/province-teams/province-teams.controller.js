@@ -9,6 +9,7 @@ import { resolveCoverageFiles, listCoverageMonths, computeCoverage } from './pro
 import * as personal from './personal-sales.service.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { buildMonthFilter } from '../../lib/salesMonths.js';
+import { loadConditionSalesForReps } from '../../lib/conditionFile.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
@@ -111,6 +112,14 @@ export async function directory(req, res, next) {
     }
     const toUSD = (r) => (r.currency === 'USD' ? r.totalValue : r.totalValue / (files.rate || 1470));
 
+    // ── مبيعات «ملف الكوديشن» (بوت/إكسل) لمندوبي المحافظات: تُعدّ مبيعاً شخصياً ──
+    const condRepsByUser = new Map();
+    for (const t of teams) for (const a of t.assignments) condRepsByUser.set(a.repUserId, { id: a.repUserId, name: a.repName });
+    const conditionByRep = await loadConditionSalesForReps([...condRepsByUser.values()], {
+      month, officeIds: [...new Set(teams.map(t => t.officeId).filter(Boolean))],
+    }).catch(() => new Map());
+    const conditionUsed = new Set(); // مندوب في أكثر من فريق: يُحتسب في أول فريق فقط
+
     const out = [];
     for (const t of teams) {
       const cov = coverage.get(t.id);
@@ -157,6 +166,19 @@ export async function directory(req, res, next) {
           cur.personalQty += p.quantity; cur.personalNet += toUSD(p);
           r.personalQty += p.quantity; r.personalNet += toUSD(p);
         }
+        if (!conditionUsed.has(r.repUserId)) {
+          conditionUsed.add(r.repUserId);
+          const repSet = repAllowed.get(r.repUserId);
+          for (const c of conditionByRep.get(r.repUserId) ?? []) {
+            if (c.itemId && ((allowedSet && !allowedSet.has(c.itemId)) || (repSet && !repSet.has(c.itemId)))) continue;
+            if (!c.itemId && (allowedSet || repSet)) continue;
+            const key = c.itemId ?? `n:${c.itemName}`;
+            let cur = r.items.get(key);
+            if (!cur) { cur = newItem(c.itemId, c.itemName, (c.itemId && nameByItem.get(c.itemId)) || '—'); r.items.set(key, cur); }
+            cur.personalQty += c.quantity; cur.personalNet += c.valueUSD;
+            r.personalQty += c.quantity; r.personalNet += c.valueUSD;
+          }
+        }
       }
       const reps = [...repsMap.values()].map(({ a_ids, ...r }) => ({
         ...r,
@@ -193,18 +215,45 @@ export async function overview(req, res, next) {
     ]);
     const pendingByTeam = new Map(pendingRows.map(r => [r.teamId, r._count._all]));
 
+    // مبيعات «ملف الكوديشن» (بوت/إكسل) لمندوبي المحافظات تُعدّ مبيعاً شخصياً، موزَّعة
+    // على شركات المندوب بحسب ايتمات تعيينه؛ وغير المطابق يذهب لـ«غير مصنّف».
+    const condReps = new Map();
+    for (const t of teams) for (const a of t.assignments) condReps.set(a.repUserId, { id: a.repUserId, name: a.repName });
+    const conditionByRep = await loadConditionSalesForReps([...condReps.values()], {
+      month, officeIds: [...new Set(teams.map(t => t.officeId).filter(Boolean))],
+    }).catch(() => new Map());
+    const conditionDone = new Set(); // مندوب في أكثر من فريق: يُحتسب في أول فريق فقط
+
     const out = teams.map(t => {
       const cov = coverage.get(t.id);
       const fullView = t.assignments.length === t.allAssignments.length && (viewer.mode === 'office' || t.isLeader);
 
       const repsMap = new Map();
+      const condLeft = new Map(); // repUserId → صفوف كوديشن لم تُوزَّع بعد (هذا الفريق)
       for (const a of t.assignments) {
         if (!repsMap.has(a.repUserId)) {
           repsMap.set(a.repUserId, { repUserId: a.repUserId, repName: a.repName, repActive: a.repActive, companies: [], totalNet: 0, totalQty: 0, personalUSD: 0 });
+          if (!conditionDone.has(a.repUserId)) {
+            conditionDone.add(a.repUserId);
+            condLeft.set(a.repUserId, [...(conditionByRep.get(a.repUserId) ?? [])]);
+          }
         }
         const r = repsMap.get(a.repUserId);
         const c = cov.assignments.get(a.id);
-        const p = personalMap.get(`${a.repUserId}|${a.companyId}`) ?? { valueUSD: 0, qty: 0, rows: 0, pharmacies: 0 };
+        const base = personalMap.get(`${a.repUserId}|${a.companyId}`) ?? { valueUSD: 0, qty: 0, rows: 0, pharmacies: 0 };
+        const p = { ...base };
+        const left = condLeft.get(a.repUserId);
+        if (left?.length) {
+          const mine = left.filter(x => x.itemId && a.itemIds.includes(x.itemId));
+          if (mine.length) {
+            condLeft.set(a.repUserId, left.filter(x => !mine.includes(x)));
+            const ph = new Set(mine.map(x => x.pharmacy).filter(Boolean));
+            p.valueUSD = +(p.valueUSD + mine.reduce((s2, x) => s2 + x.valueUSD, 0)).toFixed(2);
+            p.qty += mine.reduce((s2, x) => s2 + x.quantity, 0);
+            p.rows += mine.length;
+            p.pharmacies += ph.size; // تقريبي: قد يتكرر اسم مع جهد شخصي معتمد
+          }
+        }
         r.companies.push({
           assignmentId: a.id,
           companyId: a.companyId,
@@ -219,7 +268,15 @@ export async function overview(req, res, next) {
       }
       // جهد شخصي لصنف غير مطابَق بالكتالوج (بلا شركة) — يظهر على المندوب لا على شركة.
       for (const r of repsMap.values()) {
-        const loose = personalMap.get(`${r.repUserId}|0`);
+        let loose = personalMap.get(`${r.repUserId}|0`);
+        const rest = condLeft.get(r.repUserId) ?? [];
+        if (rest.length) {
+          loose = { ...(loose ?? { valueUSD: 0, qty: 0, rows: 0, pharmacies: 0 }) };
+          loose.valueUSD = +(loose.valueUSD + rest.reduce((s2, x) => s2 + x.valueUSD, 0)).toFixed(2);
+          loose.qty += rest.reduce((s2, x) => s2 + x.quantity, 0);
+          loose.rows += rest.length;
+          loose.pharmacies += new Set(rest.map(x => x.pharmacy).filter(Boolean)).size;
+        }
         r.personalUnclassified = loose ?? null;
         if (loose && (fullView || r.repUserId === viewer.id)) r.personalUSD += loose.valueUSD;
         r.totalNet = +r.totalNet.toFixed(2); r.personalUSD = +r.personalUSD.toFixed(2);

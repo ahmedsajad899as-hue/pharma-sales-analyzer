@@ -235,3 +235,68 @@ async function moveFileConditionRows(file) {
   console.log(`[conditionFile] #${file.id} → كوديشن #${target.id}: نُقل ${moves.length}، مكرر ${dupIds.length}`);
   return moves.length;
 }
+
+/**
+ * مبيعات الكوديشن منسوبةً لمندوبي المحافظات (حساب مستخدم) — تُعرض كـ«مبيع شخصي».
+ * الكوديشن مصدره ميركاتو فلا تدخل تغطية المحافظة (تستثني ميركاتو) ولا تُعدّ مرتين.
+ * المندوب في الصف = المندوب العلمي المختار (rawData.scientificRep) وإلا مندوب
+ * الصف؛ يُطابَق باسم حساب المندوب: تام/نواة، أو تشابه ≥0.7 بمرشّح واضح.
+ * الملفات المقروءة: ملفات الكوديشن لحسابات المكاتب المعنيّة فقط.
+ *
+ * @param {{id:number,name:string}[]} reps  حسابات مندوبي المحافظات
+ * @param {{month?:string, officeIds?:number[]}} opts
+ * @returns {Promise<Map<number, Array<{itemId:number|null,itemName:string,quantity:number,valueUSD:number,pharmacy:string}>>>}
+ */
+export async function loadConditionSalesForReps(reps, { month = 'all', officeIds = [] } = {}) {
+  const out = new Map();
+  if (!reps.length) return out;
+  const owners = officeIds.length
+    ? (await prisma.user.findMany({ where: { officeId: { in: officeIds } }, select: { id: true } })).map(u => u.id)
+    : [];
+  if (!owners.length) return out;
+  const files = await prisma.uploadedFile.findMany({
+    where: { userId: { in: owners }, mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } },
+    select: { id: true },
+  });
+  if (!files.length) return out;
+
+  const { saleValueUSD } = await import('../modules/sales/sales.repository.js');
+  const sales = await prisma.sale.findMany({
+    where: { uploadedFileId: { in: files.map(f => f.id) }, isHidden: false, recordType: 'sale', ...buildMonthFilter(month) },
+    select: {
+      itemId: true, quantity: true, totalValue: true, rawData: true,
+      item: { select: { name: true } }, customer: { select: { name: true } },
+      representative: { select: { name: true } },
+      uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
+    },
+  });
+
+  const index = buildRepIndex(reps);
+  const cache = new Map();
+  const resolve = (name) => {
+    if (cache.has(name)) return cache.get(name);
+    const m = matchRepName(name, index);
+    let id = null;
+    if (m.status === 'exact') id = m.rep.id;
+    else if (m.status === 'ask' && m.suggestions[0]?.score >= 0.7
+      && (!m.suggestions[1] || m.suggestions[0].score - m.suggestions[1].score >= 0.15)) id = m.suggestions[0].id;
+    cache.set(name, id);
+    return id;
+  };
+  for (const s of sales) {
+    const raw = parseRaw(s.rawData);
+    const name = String(raw.scientificRep || s.representative?.name || '').trim();
+    if (!name) continue;
+    const repId = resolve(name);
+    if (!repId) continue;
+    if (!out.has(repId)) out.set(repId, []);
+    out.get(repId).push({
+      itemId: s.itemId ?? null,
+      itemName: s.item?.name ?? `#${s.itemId}`,
+      quantity: Number(s.quantity) || 0,
+      valueUSD: saleValueUSD(s),
+      pharmacy: String(raw.pharmacy || s.customer?.name || '').trim(),
+    });
+  }
+  return out;
+}
