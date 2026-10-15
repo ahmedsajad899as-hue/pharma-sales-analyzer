@@ -16,7 +16,8 @@ import prisma from './prisma.js';
 import { CONDITION_VARIANT, fileVariant, fingerprintRows } from './saleFingerprint.js';
 import { resolveCumulativeTarget, openMergeBatch, closeMergeBatch, refreshCumulativeFile, monthsLabelOf } from './cumulativeFile.js';
 import { UNDATED_CUTOFF, buildMonthFilter } from './salesMonths.js';
-import { repCoreName } from './repNameMatch.js';
+import { repCoreName, buildRepIndex, matchRepName } from './repNameMatch.js';
+import { getManagerRoster } from './managerRoster.js';
 
 export const isConditionFile = (file) => fileVariant(file) === CONDITION_VARIANT;
 
@@ -80,6 +81,28 @@ export async function loadConditionSheets(fileId, { month = null } = {}) {
   return [...byRep.values()]
     .map(g => ({ rep: g.rep, rows: g.rows, quantity: g.quantity, total: g.total, orders: g.orders.size }))
     .sort((a, b) => (a.rep === NO_REP) - (b.rep === NO_REP) || b.total - a.total);
+}
+
+/** أدوار تُقيَّد رؤيتها بفريقها: لا ترى مبيعات مندوبي مدير آخر في الملف نفسه. */
+const ROSTER_SCOPED_ROLES = new Set(['company_manager', 'team_leader', 'office_manager', 'office_employee', 'office_hr']);
+
+/**
+ * يُبقي شيتات مندوبي فريق المستخدم فقط. الملف قد يحمل مبيعات مندوبين تابعين
+ * لمدير آخر في المكتب نفسه (طلبيات بوت/كوديشن مشتركة)، ولا يجوز أن تظهر عند
+ * غيره. مطابقة الاسم كما في الباقي: تام/نواة، أو تشابه ≥0.7 بمرشّح واحد واضح.
+ * «بلا مندوب» تُخفى عن هذه الأدوار أيضاً — لا تُنسب لفريقهم بدليل.
+ */
+export async function scopeSheetsToRoster(sheets, user) {
+  if (!user || !ROSTER_SCOPED_ROLES.has(user.role)) return sheets;
+  const roster = await getManagerRoster(user, { includeTeamLead: true });
+  const index = buildRepIndex(roster.reps.map(r => ({ id: r.userId, name: r.name })));
+  return sheets.filter(sh => {
+    if (sh.rep === NO_REP) return false;
+    const m = matchRepName(sh.rep, index);
+    if (m.status === 'exact') return true;
+    const top = m.suggestions[0], second = m.suggestions[1];
+    return m.status === 'ask' && !!top && top.score >= 0.7 && (!second || top.score - second.score >= 0.15);
+  });
 }
 
 const COLUMNS = [

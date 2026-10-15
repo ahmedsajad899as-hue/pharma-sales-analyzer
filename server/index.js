@@ -16,7 +16,7 @@ import { autoEnrollAllReps } from './modules/province-teams/province-teams.servi
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
-import { loadConditionSheets, buildConditionWorkbook, migrateRowsToConditionFiles } from './lib/conditionFile.js';
+import { loadConditionSheets, scopeSheetsToRoster, buildConditionWorkbook, migrateRowsToConditionFiles } from './lib/conditionFile.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -2185,7 +2185,7 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
     const file = await findReadableFile(id, req.user?.id ?? null);
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
     const [sheets, months] = await Promise.all([
-      loadConditionSheets(id, { month: req.query.month || null }),
+      loadConditionSheets(id, { month: req.query.month || null }).then(sh => scopeSheetsToRoster(sh, req.user)),
       listSalesMonths(prisma, [id], 'sale'),
     ]);
     res.json({ success: true, data: { file, sheets, months } });
@@ -2198,7 +2198,7 @@ app.get('/api/files/:id/condition-export', requireAuth, async (req, res) => {
     const file = await findReadableFile(id, req.user?.id ?? null);
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
     const month = req.query.month || null;
-    const sheets = await loadConditionSheets(id, { month });
+    const sheets = await scopeSheetsToRoster(await loadConditionSheets(id, { month }), req.user);
     const title = `${file.originalName}${month && month !== 'all' ? ` — ${month}` : ''}`;
     const buf = buildConditionWorkbook(sheets, { title });
     const name = `الكوديشن${month && month !== 'all' ? `_${month}` : ''}.xlsx`;
