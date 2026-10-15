@@ -34,6 +34,7 @@ import {
   appendRowsToCumulative, closeMergeBatch, refreshCumulativeFile,
 } from '../../lib/cumulativeFile.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
+import { UNDATED_SENTINEL } from '../../lib/salesMonths.js';
 import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
 import { getWarehouses } from '../stock-ledger/stock-ledger.repository.js';
 import { buildWarehouseGapWorkbook, parseWarehouseGapWorkbook } from '../../lib/warehouseGapTemplate.js';
@@ -2434,4 +2435,107 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     rememberedCount,
     uploadedFile: { id: uploadedFile.id, originalName: uploadedFile.originalName, isCumulative: uploadedFile.isCumulative ?? false },
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// تعديل صف داخل «ملف الكوديشن» (كل الخانات) وحذفه — للمالك فقط.
+// الصف مخزَّن بشكلين متزامنين: أعمدة Sale (كمية/قيمة/تاريخ/ايتم/منطقة/زبون/مندوب)
+// وrawData (مفاتيح إنجليزية + ترويسات ميركاتو). التعديل يُحدّث الاثنين معاً، وإلا
+// عرض المحرّر/التصدير يقرأ rawData فيُظهر القيمة القديمة. dedupKey لا يُمسّ عمداً:
+// تغييره كان سيُسقط الصف أو يُكرّره عند إعادة إدخال الأصل.
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function loadOwnedConditionRow(fileId, saleId, userId) {
+  const file = await prisma.uploadedFile.findFirst({ where: { id: fileId, userId }, select: { id: true, mergeGroup: true } });
+  if (!file || !String(file.mergeGroup || '').endsWith(`|${CONDITION_VARIANT}`)) {
+    throw new AppError('ملف الكوديشن غير موجود أو لا تملك تعديله.', 404, 'FILE_NOT_FOUND');
+  }
+  const sale = await prisma.sale.findFirst({ where: { id: saleId, uploadedFileId: fileId } });
+  if (!sale) throw new AppError('الصف غير موجود.', 404, 'ROW_NOT_FOUND');
+  return sale;
+}
+
+export async function updateConditionRow({ fileId, saleId, userId, fields }) {
+  const sale = await loadOwnedConditionRow(fileId, saleId, userId);
+  const f = fields || {};
+  const has = k => Object.prototype.hasOwnProperty.call(f, k);
+  const str = k => String(f[k] ?? '').trim();
+  const numOf = k => { const n = Number(String(f[k] ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : null; };
+
+  let raw = {}; try { raw = JSON.parse(sale.rawData || '{}') || {}; } catch { /* */ }
+  const h = await resolveMercatoHeaders({ fileId }, userId);
+  const data = {};
+  const setRaw = (key, val) => { raw[key] = val; };
+
+  // الكمية والقيمة والسعر
+  let qty = sale.quantity, total = sale.totalValue;
+  if (has('quantity')) { const n = numOf('quantity'); if (n == null || n <= 0) throw new AppError('الكمية يجب أن تكون أكبر من صفر.', 422, 'BAD_QTY'); qty = n; data.quantity = n; }
+  if (has('total'))    { const n = numOf('total');    if (n == null || n < 0)  throw new AppError('القيمة غير صالحة.', 422, 'BAD_TOTAL'); total = n; data.totalValue = n; }
+  if (has('unitPrice') && !has('total')) {
+    const n = numOf('unitPrice');
+    if (n == null || n < 0) throw new AppError('السعر غير صالح.', 422, 'BAD_PRICE');
+    total = Math.round(n * qty * 100) / 100; data.totalValue = total;
+  }
+  if (has('quantity') || has('total') || has('unitPrice')) {
+    const price = has('unitPrice') ? numOf('unitPrice') : (qty ? Math.round((total / qty) * 100) / 100 : 0);
+    raw.unitPrice = price || null;
+    if (h) { setRaw(h.quantity, qty); setRaw(h.totalValue, total); setRaw(h.unitPrice, price || ''); }
+  }
+  if (has('bonus')) { const n = numOf('bonus') ?? 0; raw.bonus = n; if (h) setRaw(h.bonusQty, n); }
+
+  // التاريخ
+  if (has('date')) {
+    const v = str('date');
+    const d = v ? parseExcelDate(v) : null;
+    if (v && !(d instanceof Date && !isNaN(d))) throw new AppError('التاريخ غير صالح.', 422, 'BAD_DATE');
+    data.saleDate = d ?? UNDATED_SENTINEL;
+    if (h) setRaw(h.date, d ? d.toISOString().slice(0, 10) : '');
+  }
+  if (has('invoice'))   { raw.invoiceNumber = str('invoice') || null; if (h) setRaw(h.orderNumber, str('invoice')); }
+  if (has('warehouse')) { raw.warehouse = str('warehouse') || null;   if (h) setRaw(h.warehouse, str('warehouse')); }
+  if (has('company'))   { raw.company = str('company') || null; }
+
+  // الكيانات
+  if (has('item')) {
+    const name = str('item');
+    if (!name) throw new AppError('اسم الايتم مطلوب.', 422, 'BAD_ITEM');
+    const userCompanies = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+    const ids = userCompanies.map(c => c.companyId);
+    const ctx = ids.length ? await loadResolutionContext({ scientificCompanyIds: ids, userId }) : null;
+    const item = await findOrCreateItem(name, userId, ids, ctx);
+    data.itemId = item.id;
+    if (h) { setRaw(h.item, item.name); setRaw(h.company, item.name); }
+  }
+  if (has('pharmacy')) {
+    const name = cleanPharmacyName(str('pharmacy'));
+    raw.pharmacy = name || null;
+    data.customerId = name ? (await findOrCreateCustomer(name, userId)).id : null;
+    if (h) setRaw(h.customer, name);
+  }
+  if (has('area')) {
+    const name = str('area');
+    const a = await findOrCreateArea(name || 'غير محدد', userId, null);
+    data.areaId = a.id;
+    if (h) setRaw(h.area, name);
+  }
+  if (has('rep')) {
+    const name = str('rep');
+    if (!name) throw new AppError('اسم المندوب مطلوب.', 422, 'BAD_REP');
+    const idx = await loadFileRepIndex(fileId).catch(() => null);
+    const aligned = alignRepToFile(name, idx) || name;
+    raw.scientificRep = aligned;
+    data.representativeId = (await findOrCreateRep(aligned, userId)).id;
+    if (h) setRaw(h.repName, aligned);
+  }
+
+  data.rawData = JSON.stringify(raw);
+  await prisma.sale.update({ where: { id: saleId }, data });
+  return { id: saleId };
+}
+
+export async function deleteConditionRow({ fileId, saleId, userId }) {
+  await loadOwnedConditionRow(fileId, saleId, userId);
+  await prisma.sale.delete({ where: { id: saleId } });
+  await refreshCumulativeFile(fileId);
+  return { id: saleId };
 }

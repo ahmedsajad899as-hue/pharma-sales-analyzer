@@ -16,6 +16,7 @@ import { autoEnrollAllReps } from './modules/province-teams/province-teams.servi
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
+import { updateConditionRow, deleteConditionRow } from './modules/sales/sales.service.js';
 import { loadConditionSheets, scopeSheetsToRoster, buildConditionWorkbook, migrateRowsToConditionFiles } from './lib/conditionFile.js';
 
 // ── New modules ──────────────────────────────────────────────
@@ -2190,6 +2191,19 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
     ]);
     res.json({ success: true, data: { file, sheets, months } });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// PATCH/DELETE /api/files/:id/condition-rows/:saleId — تعديل/حذف صف (المالك فقط)
+app.patch('/api/files/:id/condition-rows/:saleId', requireAuth, async (req, res) => {
+  try {
+    const out = await updateConditionRow({ fileId: parseInt(req.params.id), saleId: parseInt(req.params.saleId), userId: req.user?.id ?? null, fields: req.body || {} });
+    res.json({ success: true, data: out });
+  } catch (err) { res.status(err.statusCode || err.status || 500).json({ error: err.message }); }
+});
+app.delete('/api/files/:id/condition-rows/:saleId', requireAuth, async (req, res) => {
+  try {
+    const out = await deleteConditionRow({ fileId: parseInt(req.params.id), saleId: parseInt(req.params.saleId), userId: req.user?.id ?? null });
+    res.json({ success: true, data: out });
+  } catch (err) { res.status(err.statusCode || err.status || 500).json({ error: err.message }); }
 });
 app.get('/api/files/:id/condition-export', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id);

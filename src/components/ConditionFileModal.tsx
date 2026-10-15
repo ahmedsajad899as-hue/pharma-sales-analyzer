@@ -18,13 +18,24 @@ interface Props {
   fileName: string;
   currency: string;
   token: string | null;
+  /** مالك الملف فقط يعدّل ويحذف */
+  canEdit?: boolean;
   onClose: () => void;
 }
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 const SUMMARY = '__summary__';
+// عمود الصف ← حقل التعديل في PATCH /api/files/:id/condition-rows/:saleId
+const EDIT_COLS: { key: string; label: string; w: number; num?: boolean }[] = [
+  { key: 'date', label: 'التاريخ', w: 128 }, { key: 'invoice', label: 'رقم الفاتورة', w: 90 },
+  { key: 'pharmacy', label: 'الصيدلية', w: 150 }, { key: 'area', label: 'المنطقة', w: 100 },
+  { key: 'warehouse', label: 'المذخر', w: 130 }, { key: 'item', label: 'الايتم', w: 160 },
+  { key: 'company', label: 'الشركة', w: 100 }, { key: 'rep', label: 'المندوب', w: 120 },
+  { key: 'quantity', label: 'الكمية', w: 64, num: true }, { key: 'bonus', label: 'البونص', w: 56, num: true },
+  { key: 'unitPrice', label: 'السعر', w: 76, num: true }, { key: 'total', label: 'القيمة', w: 90, num: true },
+];
 
-export default function ConditionFileModal({ fileId, fileName, currency, token, onClose }: Props) {
+export default function ConditionFileModal({ fileId, fileName, currency, token, canEdit = false, onClose }: Props) {
   const [sheets, setSheets] = useState<Sheet[]>([]);
   const [months, setMonths] = useState<Month[]>([]);
   const [month, setMonth] = useState('all');
@@ -32,6 +43,8 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  const [savingCell, setSavingCell] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -48,7 +61,7 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [fileId, token, month]);
+  }, [fileId, token, month, reload]);
 
   // تبويب مندوب لم يعد موجوداً بعد تغيير الشهر ← الملخص.
   useEffect(() => {
@@ -74,6 +87,29 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
       URL.revokeObjectURL(url);
     } catch (e: any) { setError(e.message); }
     finally { setExporting(false); }
+  };
+
+  const authJson = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const saveCell = async (row: Row, key: string, value: string) => {
+    setSavingCell(`${row.id}:${key}`); setError('');
+    try {
+      const res = await fetch(`/api/files/${fileId}/condition-rows/${row.id}`, { method: 'PATCH', headers: authJson, body: JSON.stringify({ [key]: value }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || 'تعذّر الحفظ');
+      setReload(n => n + 1);
+    } catch (e: any) { setError(e.message); setReload(n => n + 1); }
+    finally { setSavingCell(null); }
+  };
+  const deleteRow = async (row: Row) => {
+    if (!window.confirm(`حذف هذا الصف نهائياً؟
+${row.item} — ${row.pharmacy || ''}`)) return;
+    setError('');
+    try {
+      const res = await fetch(`/api/files/${fileId}/condition-rows/${row.id}`, { method: 'DELETE', headers: authJson });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || 'تعذّر الحذف');
+      setReload(n => n + 1);
+    } catch (e: any) { setError(e.message); }
   };
 
   const current = sheets.find(s => s.rep === tab);
@@ -152,33 +188,49 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
                 <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e2e8f0' }}>
                   <thead>
                     <tr>
-                      <th style={th}>التاريخ</th><th style={th}>رقم الفاتورة</th><th style={th}>الصيدلية</th><th style={th}>المنطقة</th>
-                      <th style={th}>المذخر</th><th style={th}>الايتم</th><th style={th}>الكمية</th><th style={th}>البونص</th>
-                      <th style={th}>السعر</th><th style={th}>القيمة</th><th style={th}>المصدر</th>
+                      {EDIT_COLS.map(c => <th key={c.key} style={th}>{c.label}</th>)}
+                      <th style={th}>المصدر</th>
+                      {canEdit && <th style={th} />}
                     </tr>
                   </thead>
                   <tbody>
                     {current.rows.map(r => (
                       <tr key={r.id}>
-                        <td style={td}>{r.date || '—'}</td>
-                        <td style={td}>{r.invoice || '—'}</td>
-                        <td style={{ ...td, textAlign: 'right' }}>{r.pharmacy || '—'}</td>
-                        <td style={td}>{r.area || '—'}</td>
-                        <td style={td}>{r.warehouse || '—'}</td>
-                        <td style={{ ...td, textAlign: 'right' }}>{r.item}</td>
-                        <td style={td}>{fmt(r.quantity)}</td>
-                        <td style={td}>{r.bonus ? fmt(r.bonus) : '—'}</td>
-                        <td style={td}>{r.unitPrice ? fmt(r.unitPrice) : '—'}</td>
-                        <td style={{ ...td, fontWeight: 700 }}>{fmt(r.total)}</td>
+                        {EDIT_COLS.map(c => {
+                          const val = c.key === 'rep' ? current.rep : String((r as any)[c.key] ?? '');
+                          const busy = savingCell === `${r.id}:${c.key}`;
+                          return (
+                            <td key={c.key} style={{ ...td, padding: canEdit ? 2 : td.padding, opacity: busy ? 0.5 : 1 }}>
+                              {canEdit ? (
+                                <input
+                                  defaultValue={val === '0' && (c.key === 'bonus' || c.key === 'unitPrice') ? '' : val}
+                                  key={`${r.id}-${c.key}-${val}`}
+                                  type={c.key === 'date' ? 'date' : 'text'}
+                                  inputMode={c.num ? 'decimal' : undefined}
+                                  onBlur={e => { if (e.target.value.trim() !== val.trim() && !(c.num && !e.target.value.trim() && (val === '0' || val === ''))) saveCell(r, c.key, e.target.value); }}
+                                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                  style={{ width: c.w, border: '1px solid transparent', borderRadius: 6, padding: '4px 6px', fontSize: 12, textAlign: c.num ? 'center' : 'right', background: 'transparent' }}
+                                  onFocus={e => { e.target.style.border = '1px solid var(--c-accent)'; e.target.style.background = '#fff'; }}
+                                  onBlurCapture={e => { e.target.style.border = '1px solid transparent'; e.target.style.background = 'transparent'; }}
+                                />
+                              ) : (c.num ? (val && val !== '0' ? fmt(Number(val)) : '—') : (val || '—'))}
+                            </td>
+                          );
+                        })}
                         <td style={{ ...td, color: '#64748b' }}>{r.source || '—'}</td>
+                        {canEdit && (
+                          <td style={td}>
+                            <button onClick={() => deleteRow(r)} title="حذف الصف" style={{ border: '1px solid var(--c-danger-border)', background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>×</button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                     <tr style={{ background: '#f8fafc' }}>
-                      <td style={{ ...td, fontWeight: 800 }} colSpan={6}>المجموع — {fmt(current.orders)} طلبية</td>
+                      <td style={{ ...td, fontWeight: 800 }} colSpan={8}>المجموع — {fmt(current.orders)} طلبية</td>
                       <td style={{ ...td, fontWeight: 800 }}>{fmt(current.quantity)}</td>
                       <td style={td} colSpan={2} />
                       <td style={{ ...td, fontWeight: 800 }}>{fmt(current.total)}</td>
-                      <td style={td} />
+                      <td style={td} colSpan={canEdit ? 2 : 1} />
                     </tr>
                   </tbody>
                 </table>

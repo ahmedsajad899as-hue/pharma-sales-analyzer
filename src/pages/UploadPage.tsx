@@ -1152,6 +1152,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           fileName={conditionView.originalName}
           currency={(conditionView.currencyMode ?? conditionView.detectedCurrency) === 'USD' ? 'USD' : 'IQD'}
           token={token}
+          canEdit={conditionView.userId === user?.id}
           onClose={() => setConditionView(null)}
         />
       )}
