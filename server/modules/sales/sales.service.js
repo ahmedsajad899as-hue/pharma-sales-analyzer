@@ -1598,15 +1598,38 @@ export function foldBonusRows(rows) {
   // «AMOKLAVIN 5» بلا سعر مطبوع عاد بمبلغ محسوب (6.057 × 5 = 30.285) فبقي طلبية
   // ثانية لأن الفحص كان ينظر للمبلغ وحده متى وُجد سطر مدفوع.
   const noPrintedPrice = (r) => r.priceShown === false || r.priceShown === 'false';
+  // مبلغ «مُستعار»: مقيس (2026-10-16، فاتورة طريق السلام 675630) — سطر البونص
+  // «Amoklavin 1000 × 5» بلا سعر عاد بمبلغ السطر التالي (83'400) وسعر وحدة لا
+  // يطابقه (5'693)، مع priceShown=true. المبلغ الحقيقي يساوي الكمية × السعر؛
+  // ومبلغ يتكرّر على سطر آخر يطابقه هناك فهو مبلغ ذلك السطر لا هذا.
+  const consistent = (r) => {
+    const q = Number(r.quantity), u = Number(r.unitPrice), t = Number(r.total);
+    return q > 0 && u > 0 && t > 0 && Math.abs(q * u - t) <= Math.max(1, t * 0.02);
+  };
+  const borrowedTotal = (r) => !isZeroish(r.total) && !consistent(r)
+    && rows.some(o => o !== r && consistent(o) && Math.abs(Number(o.total) - Number(r.total)) < 0.5);
   const withTotal = new Map();
-  for (const r of rows) {
-    const k = normalizeItemKey(r.item ?? '');
-    if (k && !isZeroish(r.total) && !noPrintedPrice(r) && !withTotal.has(k)) withTotal.set(k, r);
+  for (const pass of [true, false]) { // السطر المتّسق حسابياً أولاً
+    for (const r of rows) {
+      const k = normalizeItemKey(r.item ?? '');
+      if (k && !isZeroish(r.total) && !noPrintedPrice(r) && !borrowedTotal(r) && (!pass || consistent(r)) && !withTotal.has(k)) withTotal.set(k, r);
+    }
   }
   const keyOf = (r) => normalizeItemKey(r.item ?? '');
   const isFree = (r) => {
     const paid = withTotal.get(keyOf(r));
-    if (paid) return paid !== r && (isZeroish(r.total) || noPrintedPrice(r));
+    if (paid) {
+      if (paid === r) return false;
+      if (isZeroish(r.total) || noPrintedPrice(r) || borrowedTotal(r)) return true;
+      // تكرار لصنف سطره المدفوع متّسق، وهذا السطر لا يتّسق مبلغه مع كميته وسعره.
+      if (consistent(paid) && !consistent(r) && !isZeroish(r.unitPrice)) return true;
+      // سعر وحدة منسوخ حرفياً من السطر المدفوع ومبلغ محسوب عليه (6 × 4'389 =
+      // 26'334): سطر لاحق بنفس السعر وكمية أقلّ هو سطر البونص في فواتير المذاخر —
+      // الطلبية المدفوعة الثانية لنفس الصنف بنفس السعر تُجمع في سطر واحد.
+      const pu = Number(paid.unitPrice), ru = Number(r.unitPrice);
+      return pu > 0 && Math.abs(pu - ru) <= pu * 0.005
+        && Number(r.quantity) < Number(paid.quantity) && rows.indexOf(r) > rows.indexOf(paid);
+    }
     return isPriceless(r);
   };
   const paidByItem = new Map(withTotal);
