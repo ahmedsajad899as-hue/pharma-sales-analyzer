@@ -1556,13 +1556,6 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                               title="ملف الكوديشن — طلبيات بوت تلكرام وإكسل الكوديشن، تُحتسب مع ميركاتو. اضغط لفتحه (شيت لكل مندوب) أو تصديره إكسل."
                             ><Icon name="file" size={12} /><span>كوديشن</span></button>
                           )}
-                          {isCond && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setConditionView(f); }}
-                              style={chip('#fff', 'var(--c-primary, #4f46e5)', 'var(--c-primary, #4f46e5)', true)}
-                              title="فتح الملف — عرض البيانات (شيت لكل مندوب)"
-                            >فتح</button>
-                          )}
                           {f.sourceSystem === 'mercato' && !isCond && (
                             <button
                               onClick={(e) => { e.stopPropagation(); setRepNameFileIds([f.id]); }}
@@ -1742,6 +1735,15 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     >
                       {isActive ? <><Icon name="checkCircle" size={11} /> نشط</> : <><Icon name="target" size={11} /> تفعيل</>}
                     </button>
+                    {isCond && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConditionView(f); }}
+                        title="فتح الملف — عرض البيانات (شيت لكل مندوب)"
+                        style={{ border: '1px solid var(--c-warning-border)', borderRadius: 20, padding: '2px 10px', background: '#fff', color: 'var(--c-warning)', cursor: 'pointer', fontSize: 11, fontWeight: 700, flexShrink: 0 }}
+                      >
+                        فتح
+                      </button>
+                    )}
                     {condSibling && (() => {
                       // ميركاتو + الكوديشن كملف واحد: تفعيل/تعطيل الاثنين بضغطة (كلٌّ يبقى قابلاً للتبديل وحده).
                       const both = isActive && activeFileIds.includes(condSibling.id);
