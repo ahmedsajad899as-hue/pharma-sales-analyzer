@@ -15,7 +15,8 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { buildRepIndex, matchRepName, repCoreName, repCoreKey } from '../../lib/repNameMatch.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
-import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItemNameSync, normalizeAreaName, normalizeItemKey } from '../../lib/itemResolver.js';
+import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItemNameSync, normalizeAreaName, normalizeItemKey, normalizeArabic } from '../../lib/itemResolver.js';
+import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
@@ -416,9 +417,63 @@ export async function attachScientificRepGuess(rows, actingUser) {
       } catch (e) { console.error('[orders] mercato history lookup failed:', e?.message); }
     }
 
+    // ── سجلّ الصيدلية نفسها: من يخدم هذه الصيدلية فعلاً ──
+    // مندوبان يتقاسمان منطقة («البياع» معيَّنة لحسين قحطان وعبداللة عمر بنفس الايتمات
+    // والشركات — مقيس 2026-10-16) يتقاسمان صيدلياتها لا ايتماتها، فلا يحسم بينهما
+    // إلا من باع لهذه الصيدلية من قبل.
+    const pharmKey = (p) => normalizeArabic(cleanPharmacyName(p || '')).toLowerCase();
+    const pharmHistory = new Map(); // pharmKey → [{ areaId, repKey, n }]
+    const ambiguousPharms = [...new Set([...ctxByRow].filter(([, c]) => c.candidates.length > 1)
+      .map(([r]) => cleanPharmacyName(r.pharmacy || '').trim()).filter(p => p.length >= 3))];
+    if (ambiguousPharms.length) {
+      try {
+        const variants = new Set();
+        for (const p of ambiguousPharms) { variants.add(p); variants.add(p.replace(/ة/g, 'ه')); variants.add(p.replace(/ه(\s|$)/g, 'ة$1')); }
+        const customers = await prisma.customer.findMany({
+          where: { OR: [...variants].map(v => ({ name: { contains: v } })) },
+          select: { id: true, name: true }, take: 500,
+        });
+        const wanted = new Set(ambiguousPharms.map(pharmKey));
+        const custKey = new Map(customers.map(c => [c.id, pharmKey(c.name)]).filter(([, k]) => wanted.has(k)));
+        if (custKey.size) {
+          const groups = await prisma.sale.groupBy({
+            by: ['representativeId', 'customerId', 'areaId'],
+            where: { isHidden: false, recordType: 'sale', customerId: { in: [...custKey.keys()] }, uploadedFile: { sourceSystem: 'mercato', user: officeWhere } },
+            _count: { _all: true },
+          });
+          const hReps = await prisma.medicalRepresentative.findMany({ where: { id: { in: [...new Set(groups.map(g => g.representativeId))] } }, select: { id: true, name: true } });
+          const repNameById = new Map(hReps.map(r => [r.id, r.name]));
+          for (const g of groups) {
+            const k = custKey.get(g.customerId);
+            if (!pharmHistory.has(k)) pharmHistory.set(k, []);
+            pharmHistory.get(k).push({ areaId: g.areaId, repKey: repCoreKey(repNameById.get(g.representativeId) || ''), n: g._count._all });
+          }
+        }
+      } catch (e) { console.error('[orders] pharmacy history lookup failed:', e?.message); }
+    }
+
+    // الفائز يحتاج تفوّقاً واضحاً (ضعف الوصيف) وإلا يبقى القرار للمراجِع.
+    const pickWinner = (score, minScore) => {
+      const ranked = [...score.entries()].sort((a, b) => b[1] - a[1]);
+      return ranked.length && ranked[0][1] >= minScore && ranked[0][1] >= 2 * (ranked[1]?.[1] || 0) ? ranked[0][0] : null;
+    };
+
+    for (const [row, ctx] of ctxByRow) {
+      if (ctx.candidates.length <= 1) continue;
+      const hist = pharmHistory.get(pharmKey(row.pharmacy)) || [];
+      const score = new Map();
+      for (const h of hist) {
+        if (ctx.areaIds.size && !ctx.areaIds.has(h.areaId)) continue; // نفس الاسم بمنطقة أخرى صيدلية أخرى
+        const c = ctx.candidates.find(x => sameRepKey(repCoreKey(x.name), h.repKey));
+        if (c) score.set(c, (score.get(c) || 0) + h.n);
+      }
+      const w = pickWinner(score, 1);
+      if (w) { ctx.decided = w; ctx.candidates = [w, ...ctx.candidates.filter(c => c !== w)]; }
+    }
+
     for (const [row, ctx] of ctxByRow) {
       let { candidates } = ctx;
-      if (candidates.length > 1 && history.length && ctx.areaIds.size) {
+      if (!ctx.decided && candidates.length > 1 && history.length && ctx.areaIds.size) {
         const score = new Map();
         for (const h of history) {
           if (!ctx.areaIds.has(h.areaId)) continue;
@@ -427,11 +482,11 @@ export async function attachScientificRepGuess(rows, actingUser) {
           const c = candidates.find(x => sameRepKey(repCoreKey(x.name), h.repKey));
           if (c) score.set(c, (score.get(c) || 0) + w * h.n);
         }
-        const ranked = [...score.entries()].sort((a, b) => b[1] - a[1]);
-        if (ranked.length && ranked[0][1] >= 2 && ranked[0][1] >= 2 * (ranked[1]?.[1] || 0)) {
+        const w = pickWinner(score, 2);
+        if (w) {
           // الأرجح أولاً في القائمة، والبقية تبقى للمراجِع.
-          candidates = [ranked[0][0], ...candidates.filter(c => c !== ranked[0][0])];
-          ctx.decided = ranked[0][0];
+          candidates = [w, ...candidates.filter(c => c !== w)];
+          ctx.decided = w;
         }
       }
       ctx.candidates = candidates;

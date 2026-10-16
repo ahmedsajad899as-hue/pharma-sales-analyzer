@@ -1594,15 +1594,19 @@ export function foldBonusRows(rows) {
   }
   // المادة المكرّرة التي يحمل أحد أسطرها مبلغاً مطبوعاً: ذلك السطر هو المدفوع،
   // وتكرارها بلا مبلغ بونص حتى لو نسخ الموديل سعر الوحدة إليه أو أخطأ priceShown.
+  // priceShown=false يغلب أي مبلغ أعاده الموديل: مقيس (2026-10-16) — سطر بونص
+  // «AMOKLAVIN 5» بلا سعر مطبوع عاد بمبلغ محسوب (6.057 × 5 = 30.285) فبقي طلبية
+  // ثانية لأن الفحص كان ينظر للمبلغ وحده متى وُجد سطر مدفوع.
+  const noPrintedPrice = (r) => r.priceShown === false || r.priceShown === 'false';
   const withTotal = new Map();
   for (const r of rows) {
     const k = normalizeItemKey(r.item ?? '');
-    if (k && !isZeroish(r.total) && !withTotal.has(k)) withTotal.set(k, r);
+    if (k && !isZeroish(r.total) && !noPrintedPrice(r) && !withTotal.has(k)) withTotal.set(k, r);
   }
   const keyOf = (r) => normalizeItemKey(r.item ?? '');
   const isFree = (r) => {
     const paid = withTotal.get(keyOf(r));
-    if (paid) return paid !== r && isZeroish(r.total);
+    if (paid) return paid !== r && (isZeroish(r.total) || noPrintedPrice(r));
     return isPriceless(r);
   };
   const paidByItem = new Map(withTotal);
