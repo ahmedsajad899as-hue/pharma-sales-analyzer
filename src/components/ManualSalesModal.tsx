@@ -316,14 +316,14 @@ function ComboCell({ value, onChange, onPick, options, placeholder, title, style
       {open && rect && shown.length > 0 && (
         <div ref={listRef} dir="rtl"
           style={{ position: 'fixed', left: rect.left, top: rect.top, width: rect.width, maxHeight: 260, overflowY: 'auto', zIndex: 10060,
-            background: '#fff', border: '1px solid #c7d2fe', borderRadius: 10, boxShadow: '0 12px 32px rgba(15,23,42,0.18)', padding: 4 }}>
+            background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, boxShadow: '0 8px 24px rgba(15,23,42,0.12)', padding: 4 }}>
           {shown.map((o, k) => (
             <div key={o.value + k}
               onMouseDown={e => { e.preventDefault(); pick(o.value); }}
               onMouseEnter={() => setHi(k)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 9px', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, lineHeight: 1.4,
-                background: k === hi ? '#eef2ff' : o.star ? '#fffbeb' : 'transparent', color: '#0f172a', fontWeight: o.star ? 700 : 500 }}>
-              {o.star && <span title="مرشّح من المنطقة والشركة" style={{ color: '#d97706' }}>★</span>}
+                background: k === hi ? '#f1f5f9' : 'transparent', color: '#0f172a', fontWeight: o.star ? 700 : 500 }}>
+              {o.star && <span title="مرشّح من المنطقة والشركة" style={{ color: '#64748b' }}>★</span>}
               <span style={{ flex: 1 }}>{o.value}</span>
               {o.hint && <span style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>{o.hint}</span>}
             </div>
@@ -762,15 +762,15 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   // يدفع الجدول لتمرير أفقي. العرض بالنسبة المئوية (table-layout: fixed) والنصوص
   // تلتفّ، فيظهر كل شيء بشاشة واحدة والأسماء كاملة.
   const cols: { key: keyof Row; label: string; pct: number; numeric?: boolean }[] = [
-    { key: 'item',          label: 'المادة *',        pct: 21 },
-    { key: 'company',       label: 'الشركة',          pct: 8 },
-    { key: 'quantity',      label: 'الكمية *',        pct: 5.5, numeric: true },
-    { key: 'unitPrice',     label: 'سعر الوحدة',      pct: 7,   numeric: true },
-    { key: 'total',         label: 'السعر الكلي',     pct: 8,   numeric: true },
-    { key: 'bonus',         label: 'البونص',          pct: 5.5, numeric: true },
-    { key: 'pharmacy',      label: 'الصيدلية',        pct: 15 },
+    { key: 'item',          label: 'المادة *',        pct: 20 },
+    { key: 'company',       label: 'الشركة',          pct: 7 },
+    { key: 'quantity',      label: 'الكمية *',        pct: 5,   numeric: true },
+    { key: 'unitPrice',     label: 'سعر الوحدة',      pct: 6.5, numeric: true },
+    { key: 'total',         label: 'السعر الكلي',     pct: 7.5, numeric: true },
+    { key: 'bonus',         label: 'البونص',          pct: 5,   numeric: true },
+    { key: 'pharmacy',      label: 'الصيدلية',        pct: 14 },
     { key: 'area',          label: 'المنطقة',         pct: 10 },
-    { key: 'scientificRep', label: 'المندوب العلمي',  pct: 14 },
+    { key: 'scientificRep', label: 'المندوب العلمي',  pct: 19 },
   ];
   const ACTIONS_PCT = 6;
 
@@ -1017,17 +1017,17 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
             <span style={chip}>💰 {fmtThousands(String(Math.round(grandTotal)))} <small style={{ color: '#64748b' }}>{destCurrency}</small></span>
             <span style={{ flex: 1 }} />
             {missingRep.length > 0 ? (
-              <button onClick={() => focusRow(missingRep[0].i)} style={{ ...chip, ...chipWarn, cursor: 'pointer' }} title="انتقل لأول صف بلا مندوب علمي">
+              <button onClick={() => focusRow(missingRep[0].i)} style={{ ...chip, ...chipWarn, cursor: 'pointer', textDecoration: 'underline' }} title="انتقل لأول صف بلا مندوب علمي">
                 ⚠ {missingRep.length} بلا مندوب علمي — انقر للانتقال
               </button>
             ) : (
-              <span style={{ ...chip, ...chipOk }}>✓ كل الصفوف لها مندوب علمي</span>
+              <span style={chip}>✓ كل الصفوف لها مندوب علمي</span>
             )}
             {badRows > 0 && <span style={{ ...chip, ...chipBad }}>✕ {badRows} صف ينقصه مادة أو كمية</span>}
           </div>
         )}
 
-        <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #dbe2ea', borderRadius: 12, background: '#fff' }}>
+        <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
           <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5, width: '100%', minWidth: 1080, tableLayout: 'fixed' }}>
             <colgroup>
               {cols.map(c => <col key={c.key} style={{ width: `${c.pct}%` }} />)}
@@ -1040,7 +1040,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
               </tr>
             </thead>
             <tbody>
-              {groups.map(g => {
+              {groups.map((g, gi) => {
                 const first = rows[g.idxs[0]];
                 const gRows = g.idxs.map(i => rows[i]).filter(rowHasData);
                 const gTotal = gRows.reduce((s, r) => s + rowValue(r), 0);
@@ -1054,15 +1054,16 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                   </label>
                 );
                 return [
+                  ...(gi > 0 ? [<tr key={`sp-${g.key}-${g.idxs[0]}`}><td colSpan={cols.length + 1} style={gSpacer} /></tr>] : []),
                   <tr key={`h-${g.key}-${g.idxs[0]}`} data-group={g.key}>
                     <td colSpan={cols.length + 1} style={gHdrCell}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'nowrap', overflow: 'hidden' }}>
                         {g.imageIndex != null ? (
                           <button onClick={() => images[g.imageIndex!] && setPreview(images[g.imageIndex!])} style={invBadge} title="عرض صورة الفاتورة">
-                            🧾 فاتورة {g.imageIndex + 1}
+                            فاتورة {g.imageIndex + 1}
                           </button>
                         ) : (
-                          <span style={{ ...invBadge, background: '#475569', cursor: 'default' }}>✍️ إدخال يدوي</span>
+                          <span style={{ ...invBadge, cursor: 'default' }}>إدخال يدوي</span>
                         )}
                         {hdrInput('warehouse', 'المذخر', 170)}
                         {hdrInput('invoiceNumber', 'رقم الفاتورة', 100)}
@@ -1072,18 +1073,17 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                             style={{ ...gHdrInp, width: 140, ...(hdrOn('date') ? hlInp : null) }} />
                         </label>
                         <span style={{ flex: 1 }} />
-                        <span style={gHdrStat}>{gRows.length} صنف</span>
-                        <span style={gHdrStat}>{fmtThousands(String(Math.round(gTotal)))}</span>
-                        {gMissing > 0 && <span style={{ ...gHdrStat, ...chipWarn }}>⚠ {gMissing} بلا مندوب</span>}
+                        <span style={gHdrStat}>{gRows.length} صنف · {fmtThousands(String(Math.round(gTotal)))}</span>
+                        {gMissing > 0 && <span style={{ ...gHdrStat, color: '#b45309' }}>{gMissing} بلا مندوب</span>}
                       </div>
                     </td>
                   </tr>,
                   ...g.idxs.map(i => {
                 const r = rows[i];
                 const st = rowState(r);
-                const stripe = st === 'ok' ? '#10b981' : st === 'warn' ? '#f59e0b' : st === 'bad' ? '#ef4444' : '#e2e8f0';
+                const stripe = st === 'bad' ? '#dc2626' : 'transparent';
                 return (
-                <tr key={i} className="msm-row" style={{ background: i % 2 ? '#fbfcfe' : '#fff' }}>
+                <tr key={i} className="msm-row" style={{ background: '#fff' }}>
                   {cols.map((c, ci) => {
                     const on = cellActive(i, c.key);
                     const cs: React.CSSProperties = on ? hlInp : {};
@@ -1121,7 +1121,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                             title={r.pharmacyCandidates?.length
                               ? `صيدليات قريبة في السيرفي: ${r.pharmacyCandidates.map(p => p.area ? `${p.name} (${p.area})` : p.name).join(' ، ')}`
                               : r.pharmacy}
-                            style={{ ...cs, ...(r.pharmacyCandidates?.length ? candTone : null) }}
+                            style={cs}
                           />
                         ) : c.key === 'scientificRep' ? (
                           <ComboCell
@@ -1133,12 +1133,12 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                             title={r.repCandidates?.length
                               ? `مرشّحون: ${r.repCandidates.map(c => c.name).join(' ، ')}`
                               : 'لم يُعرَف مندوب من المنطقة والشركة — اختر من القائمة'}
-                            style={{ ...cs, ...(r.scientificRep.trim() ? repSetTone : candTone) }}
+                            style={{ ...cs, ...(r.scientificRep.trim() ? null : candTone) }}
                           />
                         ) : (
                           <AutoText value={r[c.key] as string} onChange={v => setCell(i, c.key, v)}
                             title={r[c.key] as string}
-                            style={{ ...cs, ...(c.key === 'item' ? { fontWeight: 600, color: '#0f172a' } : null),
+                            style={{ ...cs, ...(c.key === 'item' ? { fontWeight: 600 } : null),
                               ...(c.key === 'company' ? { direction: 'ltr', textAlign: 'right' } : null) }} />
                         )}
                       </td>
@@ -1147,8 +1147,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                   <td style={{ ...gTd, textAlign: 'center', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                       {r.imageIndex != null && images[r.imageIndex]
-                        ? <button onClick={() => setPreview(images[r.imageIndex!])} title={`عرض صورة الفاتورة ${r.imageIndex + 1}`} style={invMini}>🧾 {r.imageIndex + 1}</button>
-                        : <span style={{ ...invMini, background: '#f1f5f9', color: '#94a3b8', cursor: 'default' }}>✍️</span>}
+                        ? <button onClick={() => setPreview(images[r.imageIndex!])} title={`عرض صورة الفاتورة ${r.imageIndex + 1}`} style={invMini}>ف {r.imageIndex + 1}</button>
+                        : <span style={{ ...invMini, color: '#cbd5e1', cursor: 'default' }}>—</span>}
                       <button onClick={() => removeRow(i)} style={delBtn} title="حذف الصف">×</button>
                     </div>
                   </td>
@@ -1293,30 +1293,29 @@ const thumb: React.CSSProperties = { display: 'flex', alignItems: 'center', gap:
 const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: '#475569', minWidth: 200, justifyContent: 'center' };
 const inp: React.CSSProperties = { padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, direction: 'rtl', outline: 'none', background: '#fafafa' };
 // ── شبكة المراجعة ──
-const gTh: React.CSSProperties = { padding: '10px 8px', fontSize: 11.5, fontWeight: 800, color: '#334155', background: '#f1f5f9', borderBottom: '2px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
-const gTd: React.CSSProperties = { padding: '4px 4px', verticalAlign: 'top', borderBottom: '1px solid #eef2f6' };
+const gTh: React.CSSProperties = { padding: '9px 8px', fontSize: 11.5, fontWeight: 700, color: '#475569', background: '#f8fafc', borderBottom: '1px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const gTd: React.CSSProperties = { padding: '2px 4px', verticalAlign: 'middle', borderBottom: '1px solid #f1f5f9' };
 // الخانة بلا إطار ظاهر حتى المرور/التركيز (CSS .msm-cell) — مظهر جدول رسمي لا نموذج.
 const gCell: React.CSSProperties = { width: '100%', padding: '6px 7px', border: '1px solid transparent', borderRadius: 7, fontSize: 12.5, lineHeight: 1.45, direction: 'rtl', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: 'transparent', color: '#1e293b', display: 'block', minHeight: 32 };
 const hlInp: React.CSSProperties = { background: '#fffbeb', borderColor: '#f59e0b', fontWeight: 700 };
-const candTone: React.CSSProperties = { background: '#fff8eb', border: '1px dashed #fbbf24' };
-const repSetTone: React.CSSProperties = { background: '#f0fdf4', color: '#065f46', fontWeight: 600 };
-const gHdrCell: React.CSSProperties = { padding: '9px 12px', background: 'linear-gradient(90deg, #eef2ff, #f8fafc)', borderTop: '1px solid #c7d2fe', borderBottom: '1px solid #c7d2fe', boxShadow: 'inset -4px 0 0 #4f46e5' };
+const candTone: React.CSSProperties = { borderBottom: '1px dashed #cbd5e1' };
+const gHdrCell: React.CSSProperties = { padding: '6px 10px', background: '#f8fafc', borderTop: '1px solid #cbd5e1', borderBottom: '1px solid #e2e8f0' };
+const gSpacer: React.CSSProperties = { height: 14, padding: 0, background: '#fff', borderBottom: 'none' };
 const gHdrField: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#475569' };
-const gHdrLbl: React.CSSProperties = { fontWeight: 700, color: '#4338ca', whiteSpace: 'nowrap' };
-const gHdrInp: React.CSSProperties = { padding: '5px 8px', border: '1px solid #c7d2fe', borderRadius: 7, fontSize: 12.5, background: '#fff', outline: 'none', fontFamily: 'inherit', color: '#1e1b4b', fontWeight: 600 };
-const gHdrStat: React.CSSProperties = { fontSize: 11.5, fontWeight: 700, color: '#334155', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' };
-const invBadge: React.CSSProperties = { background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' };
-const invMini: React.CSSProperties = { background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 6, padding: '3px 6px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.2 };
+const gHdrLbl: React.CSSProperties = { fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' };
+const gHdrInp: React.CSSProperties = { padding: '4px 6px', border: '1px solid transparent', borderBottom: '1px solid #cbd5e1', borderRadius: 4, fontSize: 12.5, background: 'transparent', outline: 'none', fontFamily: 'inherit', color: '#1e293b', fontWeight: 600 };
+const gHdrStat: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' };
+const invBadge: React.CSSProperties = { background: 'none', color: '#0f172a', border: 'none', padding: 0, fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' };
+const invMini: React.CSSProperties = { background: 'none', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 5, padding: '2px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.2 };
 const statusBar: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 };
-const chip: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: '#1e293b', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 999, padding: '5px 12px', fontFamily: 'inherit' };
-const chipWarn: React.CSSProperties = { background: '#fffbeb', borderColor: '#fcd34d', color: '#92400e' };
-const chipOk: React.CSSProperties = { background: '#ecfdf5', borderColor: '#6ee7b7', color: '#065f46' };
-const chipBad: React.CSSProperties = { background: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c' };
+const chip: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#334155', background: 'none', border: 'none', padding: '2px 4px', fontFamily: 'inherit' };
+const chipWarn: React.CSSProperties = { color: '#b45309' };
+const chipBad: React.CSSProperties = { color: '#b91c1c' };
 const GRID_CSS = `
-.msm-row:hover > td { background: #f5f7ff !important; }
+.msm-row:hover > td { background: #f8fafc !important; }
 .msm-row textarea:hover, .msm-row input:hover { border-color: #cbd5e1 !important; }
-.msm-row textarea:focus, .msm-row input:focus { border-color: #6366f1 !important; border-style: solid !important; background: #fff !important; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
-.msm-row textarea::placeholder { color: #b45309; font-weight: 600; }
+.msm-row textarea:focus, .msm-row input:focus { border-color: #94a3b8 !important; border-style: solid !important; background: #fff !important; box-shadow: none; }
+.msm-row textarea::placeholder { color: #94a3b8; font-weight: 500; }
 `;
 const delBtn: React.CSSProperties = { background: 'none', border: '1px solid #fecaca', color: '#f87171', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 14, lineHeight: 1 };
 const addBtn: React.CSSProperties = { padding: '7px 14px', background: '#f1f5f9', color: '#475569', border: '1px dashed #cbd5e1', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer' };
