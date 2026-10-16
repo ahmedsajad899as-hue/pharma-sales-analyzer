@@ -1303,6 +1303,7 @@ export const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذ
     "pharmacy": "اسم الصيدلية فقط",
     "warehouse": "اسم المذخر",
     "area": "منطقة الصيدلية أو null",
+    "warehouseAddress": "عنوان المذخر المطبوع في ترويسته أو null",
     "date": "2026-08-19",
     "invoiceNumber": "22287",
     "box": [ymin, xmin, ymax, xmax],
@@ -1325,6 +1326,8 @@ export const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذ
 - **فصل الصيدلية عن المنطقة:** كثيراً ما يُكتب اسم الصيدلية والمنطقة معاً في خانة الزبون مفصولين بشرطة «-» أو فاصلة، بالشكل «‹اسم› - ‹منطقة›». الجزء الأول هو اسم الصيدلية (pharmacy)، والجزء الأخير بعد الشرطة هو المنطقة (area). ضع كلاً في حقله المناسب ولا تدمجهما في حقل واحد.
 - **سطر الزبون في نماذج «طلبية المكاتب»:** كثير من مذاخر العراق لا تضع للزبون خانةً مُعنونة، بل تكتبه **سطراً واحداً في أعلى الورقة** — غالباً فوق الباركود وفوق اسم المذخر الكبير. يبدأ بـ«ص» أو «صيدلية»، ثم اسم الصيدلية، ثم فاصل (شرطة «-» أو «ـ» أو «/»)، ثم المنطقة، وقد ينتهي بـ«م» متبوعاً باسم المندوب. شكله: «ص ‹اسم› ـ ‹منطقة› م ‹مندوب›» ⇒ pharmacy = ‹اسم›، area = ‹منطقة›، و‹مندوب› **يُهمَل ولا يُوضَع في أي من الحقلين**. ابحث عن هذا السطر دائماً قبل أن تُعيد pharmacy فارغاً، ولا تخلط بينه وبين اسم المذخر الذي يظهر بخط كبير مع الشعار.
 - **المنطقة (area):** منطقة **الصيدلية المشترية** فقط — تأتي عادةً في خانة خاصة أو مباشرةً بعد اسم الصيدلية (بعد الشرطة). لا تضع فيها عنوان المذخر، ولا اسم الشعبة/المندوب، ولا أي نص من ترويسة البائع.
+- **خانة «المنطقة» المُعنونة تتقدّم على كل شيء:** إن وُجد في كتلة الزبون حقل عنوانه «المنطقة» أو «منطقة» فقيمته هي area حرفياً، حتى لو ظهر اسم حيّ آخر في مكان غيره من الورقة.
+- **عنوان المذخر (warehouseAddress):** المذخر يطبع عنوانه في ترويسته قرب اسمه وشعاره وأرقام هواتفه («الإدارة»، «كول سنتر»)، غالباً بالشكل «‹محافظة› - ‹حي› - ‹شارع›». انسخه في warehouseAddress — وهذا العنوان **ليس** منطقة الصيدلية أبداً ولا يوضع في area.
 - المذخر (warehouse) هو البائع أعلى الفاتورة، والصيدلية (pharmacy) هي المشتري — لا تخلط بينهما. **اسم المذخر/الشعار (حتى لو كان لاتينياً مثل «Aspirin Drug store») لا يوضع أبداً في pharmacy.**
 - **البونص (bonus) = عدد القطع المجانية** المُجهَّزة مع الصنف بلا سعر. يظهر بأحد الأشكال:
   • عمود مستقل بعنوان مثل «كمية مجانية»، «مجاني»، «البونص»، «بونص»، «هدية»، «free»، «bonus» ⇒ قيمته في bonus.
@@ -1394,6 +1397,25 @@ export function splitPharmacyArea(pharmacy, area) {
   return { pharmacy: ph, area: ar };
 }
 
+/**
+ * هل «المنطقة» المقروءة هي في الحقيقة عنوان المذخر (البائع) من ترويسته؟
+ * حدث فعلاً (2026-10-16): فاتورة «مذخر بوابة عشتار» عنوانه «بغداد - نفق الشرطة -
+ * حي حطين» وخانة الزبون «المنطقة: الدورة» — قُرئت المنطقة «بغداد - نفق الشرطة»
+ * فضاع الحيّ الحقيقي وتعذّر تخمين المندوب. منطقة تطابق جزءاً من عنوان المذخر
+ * تُرمى، وتبقى الخانة فارغة لتُملأ من سيرفي الصيدلية أو يملأها المراجِع.
+ */
+export function isWarehouseAddressArea(area, warehouseAddress) {
+  const key = (s) => normalizeItemKey(String(s ?? '')).replace(/\s+/g, ' ').trim();
+  const a = key(area), w = key(warehouseAddress);
+  if (!a || !w) return false;
+  if (a === w) return true;
+  // منطقة من كلمة واحدة («الدورة») تبقى ولو ورد اسمها في عنوان المذخر — المذخر
+  // والصيدلية قد يكونان في الحيّ نفسه. يُرمى فقط ما يبدو **عنواناً منسوخاً**:
+  // جزءان فأكثر بفاصل («بغداد - نفق الشرطة») كلّها موجودة في عنوان المذخر.
+  const parts = String(area).split(/[-/،,–]/).map(key).filter(x => x.length >= 2);
+  return parts.length >= 2 && parts.every(x => w.includes(x));
+}
+
 /** Validate a Gemini bounding box → [ymin, xmin, ymax, xmax] in 0-1000, or null. */
 export function normalizeBox(b) {
   if (!Array.isArray(b) || b.length !== 4) return null;
@@ -1432,9 +1454,11 @@ const buildCustomerLinePrompt = (warehouse) => `هذه صورة فاتورة/«�
 «اسم المندوب» و«الكاشير» و«المجهز» و«منظم الفاتورة» أشخاص من طرف المذخر — ليسوا الزبون ولا المنطقة.
 
 انظر إلى أعلى الصورة بتمعّن واقرأ ذلك السطر، ثم أعِد **كائن JSON فقط** بلا أي نص آخر وبلا أسوار:
-{"line":"السطر كما هو حرفياً","pharmacy":"اسم الصيدلية فقط","area":"المنطقة"}
+{"line":"السطر كما هو حرفياً","pharmacy":"اسم الصيدلية فقط","area":"المنطقة","areaField":"قيمة حقل «المنطقة» المُعنون في كتلة الزبون أو null"}
 
 قواعد:
+- إن وُجد في كتلة الزبون حقل مُعنون «المنطقة» أو «منطقة» فانسخ قيمته حرفياً في areaField — هو المرجع للمنطقة.
+- عنوان المذخر المطبوع في ترويسته قرب أرقام الهواتف («‹محافظة› - ‹حي› - ‹شارع›») **ليس** منطقة الزبون — لا تضعه في area ولا areaField.
 - «ص» أو «ص.» أو «صيدلية» في أول السطر بادئة — تُحذف من pharmacy.
 - الفاصل بين اسم الصيدلية والمنطقة قد يكون «-» أو «ـ» أو «/» أو «،». ما قبله اسم الصيدلية وما بعده المنطقة.
 - ما يأتي بعد «م» منفردة هو **اسم المندوب** — لا تضعه في pharmacy ولا في area.
@@ -1487,6 +1511,8 @@ export async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse =
     const split = line
       ? splitPharmacyArea(line, o.area ?? '')
       : splitPharmacyArea(o.pharmacy ?? '', o.area ?? '');
+    const areaField = String(o.areaField ?? '').trim().replace(/^(?:المنطقة|المنطقه|منطقة|منطقه)\s*[:：]?\s*/, '');
+    if (areaField && areaField.toLowerCase() !== 'null') split.area = areaField;
     if (!split.pharmacy) return null;
     // رقم من 3 خانات فأكثر = سعر/هاتف/كمية قُرئت من الجدول لا اسم صيدلية.
     if (/\d{3,}/.test(split.pharmacy.replace(/[\s,.'٬]/g, '')) || /[٠-٩]{3,}/.test(split.pharmacy)) return null;
@@ -1744,11 +1770,14 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
         models: INVOICE_MODELS,
       });
       let imageRows = [];
+      let imageWarehouseAddress = '';
       for (const row of parseInvoiceJson(text)) {
+        if (!imageWarehouseAddress && row.warehouseAddress) imageWarehouseAddress = String(row.warehouseAddress);
         const split = splitPharmacyArea(row.pharmacy, row.area); // clean prefixes + split "name - area"
         row.pharmacy = (isWarehouseAsPharmacy(split.pharmacy, row.warehouse) || isCopiedFromPrompt(split.pharmacy, INVOICE_PROMPT))
           ? '' : split.pharmacy;
-        row.area = split.area;
+        row.area = isWarehouseAddressArea(split.area, row.warehouseAddress) ? '' : split.area;
+        delete row.warehouseAddress;
         row._imageIndex = idx;
         imageRows.push(row);
         row._box = unrotateBox(normalizeBox(row.box), img.rotated);                  // this item's whole row in the image
@@ -1765,12 +1794,14 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
       // «اللحمي»/«**** النقدي» بدل «النعيمي»، بينما قرأ النداء المركَّز السطر صحيحاً.
       // ثم تُختار القراءة التي تؤكّدها بيانات الماستر أكثر (التعادل للمركَّز).
       const first = imageRows.find(r => r.pharmacy) || imageRows[0];
+      const whAddress = imageWarehouseAddress;
       const firstScore = first?.pharmacy ? await customerKnownScore(first.pharmacy, first.area) : -1;
       if (imageRows.length > 0 && firstScore < 2) {
         const cust = await extractCustomerLineVoted(img, {
           timeoutMs: Math.min(45_000, Math.max(10_000, OVERALL_BUDGET_MS - (Date.now() - started))),
           warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
         }, 3, first?.pharmacy ? { pharmacy: first.pharmacy, area: first.area } : null);
+        if (cust && isWarehouseAddressArea(cust.area, whAddress)) cust.area = '';
         if (cust && cust.score >= Math.max(0, firstScore)) {
           for (const r of imageRows) {
             r.pharmacy = cust.pharmacy;

@@ -15,7 +15,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { buildRepIndex, matchRepName, repCoreName, repCoreKey } from '../../lib/repNameMatch.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
-import { loadResolutionContext, resolveItemName, normalizeAreaName } from '../../lib/itemResolver.js';
+import { loadResolutionContext, resolveItemName, normalizeAreaName, normalizeItemKey } from '../../lib/itemResolver.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
@@ -83,7 +83,7 @@ async function buildItemContext(userId) {
  * السعر: «سعر المذخر» (Item.warehousePrice) أولاً ثم «سعر المكتب» (Item.price)
  * بديلاً. ولا يُكتب فوق سعر ذكره المرسِل في نصّ الطلبية.
  */
-export async function enrichRowsFromCatalog(rows, userId) {
+export async function enrichRowsFromCatalog(rows, userId, { linkOnly = false } = {}) {
   if (!Array.isArray(rows) || rows.length === 0 || !userId) return rows;
 
   let ctx = null;
@@ -124,10 +124,20 @@ export async function enrichRowsFromCatalog(rows, userId) {
     const autoLink = r.confidence === 'alias' || r.confidence === 'exact' || r.confidence === 'high';
     if (!autoLink || !r.canonicalItem) continue;
 
-    row.item    = r.canonicalItem.name; // توحيد الاسم مع الكتالوج
     row._itemId = r.canonicalItem.id;
-
     const d = byId.get(r.canonicalItem.id);
+    // linkOnly (رفع صورة يدوياً): نربط المعرّف والشركة العلمية فقط لتخمين المندوب
+    // ولا نمسّ ما قُرئ من الفاتورة — توحيد الاسم يتمّ بفحص الأسماء عند الحفظ،
+    // وسعر الكتالوج قد يملأ سطراً بلا سعر في الفاتورة (سطر بونص) خطأً.
+    if (linkOnly) {
+      if (d) {
+        row._scientificCompanyId = d.scientificCompanyId ?? null;
+        if (!String(row.company ?? '').trim()) row.company = d.scientificCompany?.name || d.company?.name || null;
+      }
+      continue;
+    }
+
+    row.item    = r.canonicalItem.name; // توحيد الاسم مع الكتالوج
     if (!d) continue;
     // **الشركة العلمية أولاً** — وهي ما تعرضه صفحة «الايتمات» بالماستر أدمن
     // (تُجمَّع الايتمات تحت ScientificCompany)، وهي أيضاً ما تشير إليه
@@ -164,13 +174,13 @@ export async function enrichRowsFromCatalog(rows, userId) {
 export async function attachScientificRepGuess(rows, actingUser) {
   if (!Array.isArray(rows) || rows.length === 0 || !actingUser) return rows;
 
-  const itemIds = [...new Set(rows.map(r => r._itemId).filter(Boolean))];
   const areaNames = [...new Set(rows.map(r => r.area).filter(Boolean).map(normalizeAreaName).filter(Boolean))];
-  if (itemIds.length === 0 && areaNames.length === 0) return rows;
+  const hasItemEvidence = rows.some(r => r._itemId || String(r.company ?? '').trim());
+  if (!hasItemEvidence && areaNames.length === 0) return rows;
 
   try {
     const officeWhere = actingUser.officeId ? { officeId: actingUser.officeId } : { id: actingUser.id };
-    const [reps, areas, repRecords] = await Promise.all([
+    const [reps, areas, aliases, repRecords, provinceAssignments, sciCompanies] = await Promise.all([
       prisma.user.findMany({
         where: { role: 'scientific_rep', isActive: true, ...officeWhere },
         select: {
@@ -180,22 +190,34 @@ export async function attachScientificRepGuess(rows, actingUser) {
           itemAssignments:    { select: { itemId: true } },
         },
       }),
-      areaNames.length
-        ? prisma.area.findMany({ select: { id: true, name: true } })
-        : Promise.resolve([]),
-      // تعيين المناطق الفعلي للمندوب العلمي يعيش غالباً في سجلّ
-      // ScientificRepresentative الذي يملكه المدير (ScientificRepArea)، لا في
-      // UserAreaAssignment لحساب المندوب — فبدونه تُفوَّت «نفق الشرطة» المعيّنة
-      // للمندوب ويبقى الحقل فارغاً.
-      areaNames.length
-        ? prisma.scientificRepresentative.findMany({
-            where: { isActive: true, user: officeWhere },
-            select: {
-              id: true, name: true,
-              areas: { select: { areaId: true } },
-              linkedUsers: { select: { id: true } },
-            },
+      areaNames.length ? prisma.area.findMany({ select: { id: true, name: true } }) : Promise.resolve([]),
+      // ذاكرة الدمج («دورة جمعه» ← «الدورة») — القراءة من الصورة كثيراً ما تكون
+      // الاسم القديم أو المركَّب لا القانوني.
+      areaNames.length ? prisma.areaAlias.findMany({ select: { fromKey: true, areaId: true } }) : Promise.resolve([]),
+      // سجلّ المندوب العلمي الذي يملكه المدير يحمل التعيين الفعلي غالباً
+      // (المناطق + الايتمات + الشركات) لا حساب المندوب نفسه. كان يُقرأ منه
+      // المناطق فقط، فمندوبان يغطّيان «البياع» بشركتين مختلفتين يبقيان مرشّحَين
+      // معاً وتبقى الخانة فارغة.
+      prisma.scientificRepresentative.findMany({
+        where: { isActive: true, user: officeWhere },
+        select: {
+          id: true, name: true,
+          areas:       { select: { areaId: true } },
+          items:       { select: { itemId: true } },
+          companies:   { select: { company: { select: { name: true } } } },
+          linkedUsers: { select: { id: true } },
+        },
+      }),
+      // فرق المحافظات: مندوب × شركة × ايتمات بلا تقاطع داخل الفريق — أقوى دليل
+      // على صاحب الصنف.
+      actingUser.officeId
+        ? prisma.provinceRepAssignment.findMany({
+            where: { isActive: true, team: { officeId: actingUser.officeId, isActive: true } },
+            select: { repUserId: true, companyId: true, allItems: true, items: { select: { itemId: true } } },
           })
+        : Promise.resolve([]),
+      actingUser.officeId
+        ? prisma.scientificCompany.findMany({ where: { officeId: actingUser.officeId }, select: { id: true, name: true } })
         : Promise.resolve([]),
     ]);
     if (!reps.length && !repRecords.length) return rows;
@@ -203,61 +225,103 @@ export async function attachScientificRepGuess(rows, actingUser) {
     // اسم المنطقة قد يتكرّر كصفوف Area متعدّدة (المنطقة لكل حساب لا عالمية —
     // راجع ذاكرة project_pharma_area_account_scoping)، فنجمع كل المعرّفات.
     const areaIdsByName = new Map();
-    for (const a of areas) {
-      const k = normalizeAreaName(a.name);
-      if (!k) continue;
+    const addAreaKey = (k, id) => {
+      if (!k) return;
       if (!areaIdsByName.has(k)) areaIdsByName.set(k, new Set());
-      areaIdsByName.get(k).add(a.id);
+      areaIdsByName.get(k).add(id);
+    };
+    const areaNameById = new Map(areas.map(a => [a.id, a.name]));
+    for (const a of areas) addAreaKey(normalizeAreaName(a.name), a.id);
+    // الـalias يشير لصفّ واحد؛ نضمّ معه كل صفوف نفس الاسم القانوني.
+    for (const al of aliases) {
+      const canon = areaNameById.get(al.areaId);
+      const ids = (canon && areaIdsByName.get(normalizeAreaName(canon))) || new Set([al.areaId]);
+      for (const id of ids) addAreaKey(al.fromKey, id);
     }
 
-    const index = reps.map(r => ({
-      id: r.id,
-      name: r.displayName?.trim() || r.username,
-      areas:     new Set(r.areaAssignments.map(a => a.areaId)),
-      companies: new Set(r.companyAssignments.map(c => c.companyId)),
-      items:     new Set(r.itemAssignments.map(i => i.itemId)),
-    }));
+    // الشركة العلمية بالاسم — للصفوف التي لم يُربط صنفها بالكتالوج (فلا
+    // _scientificCompanyId) لكن الشركة مقروءة («DEVA»)، ولتحويل شركات سجلّ
+    // المندوب (نموذج Company) إلى ScientificCompany.
+    const sciCompanyByKey = new Map(sciCompanies.map(c => [normalizeItemKey(c.name), c.id]));
+    const sciCompanyIdOf = (name) => {
+      const k = normalizeItemKey(name ?? '');
+      return k ? (sciCompanyByKey.get(k) ?? null) : null;
+    };
 
-    // دمج مناطق سجلّات المندوبين: المرتبط بحساب يُضاف لمناطق ذلك الحساب، وغير
-    // المرتبط يصير مرشّحاً باسمه (الخانة نصّ حرّ تُطابَق بالاسم عند الحفظ).
-    // نفس الاسم عند أكثر من مدير = مندوب واحد، فيُجمَع بالاسم الجوهري.
+    const newCandidate = (id, name) => ({
+      id, name,
+      areas: new Set(), companies: new Set(), items: new Set(),
+      // ايتمات/شركات «مُسنَدة صراحةً» (فريق محافظة / سجلّ المندوب) — تختلف عن
+      // UserItemAssignment العامة التي قد تكون فارغة بمعنى «الكل».
+      ownedItems: new Set(), ownedCompanies: new Set(),
+    });
+    const index = reps.map(r => {
+      const c = newCandidate(r.id, r.displayName?.trim() || r.username);
+      r.areaAssignments.forEach(a => c.areas.add(a.areaId));
+      r.companyAssignments.forEach(x => c.companies.add(x.companyId));
+      r.itemAssignments.forEach(i => c.items.add(i.itemId));
+      return c;
+    });
+
+    // دمج سجلّات المندوبين: المرتبط بحساب يُضاف لذلك الحساب، وغير المرتبط يصير
+    // مرشّحاً باسمه (الخانة نصّ حرّ تُطابَق بالاسم عند الحفظ). نفس الاسم عند أكثر
+    // من مدير = مندوب واحد، فيُجمَع بالاسم الجوهري.
     const byUserId = new Map(index.map(c => [c.id, c]));
     const byLinkedRep = new Map(reps.filter(r => r.linkedRepId).map(r => [r.linkedRepId, byUserId.get(r.id)]));
     const byName = new Map(index.map(c => [repCoreKey(c.name), c]));
     for (const rec of repRecords) {
-      const target = byLinkedRep.get(rec.id)
+      let target = byLinkedRep.get(rec.id)
         ?? rec.linkedUsers.map(u => byUserId.get(u.id)).find(Boolean)
         ?? byName.get(repCoreKey(rec.name));
-      if (target) {
-        for (const a of rec.areas) target.areas.add(a.areaId);
-      } else if (rec.areas.length && repCoreKey(rec.name)) {
-        const c = { id: -rec.id, name: rec.name.trim(), areas: new Set(rec.areas.map(a => a.areaId)), companies: new Set(), items: new Set() };
-        index.push(c);
-        byName.set(repCoreKey(rec.name), c);
+      if (!target) {
+        if (!rec.areas.length || !repCoreKey(rec.name)) continue;
+        target = newCandidate(-rec.id, rec.name.trim());
+        index.push(target);
+        byName.set(repCoreKey(rec.name), target);
+      }
+      for (const a of rec.areas) target.areas.add(a.areaId);
+      for (const i of rec.items) target.ownedItems.add(i.itemId);
+      for (const c of rec.companies) {
+        const sid = sciCompanyIdOf(c.company?.name);
+        if (sid != null) target.ownedCompanies.add(sid);
       }
     }
+    for (const pa of provinceAssignments) {
+      const target = byUserId.get(pa.repUserId);
+      if (!target) continue;
+      target.ownedCompanies.add(pa.companyId);
+      for (const i of pa.items) target.ownedItems.add(i.itemId);
+    }
+
+    // تضييق متتالٍ: كل دليل يُطبَّق فقط إن أبقى مرشّحاً واحداً على الأقل — دليل
+    // غائب أو ناقص لا يُفرغ القائمة.
+    const narrow = (list, pred) => { const out = list.filter(pred); return out.length ? out : list; };
 
     for (const row of rows) {
-      const sciId = row._scientificCompanyId ?? null;
+      const itemId = row._itemId ?? null;
+      const sciId = row._scientificCompanyId ?? sciCompanyIdOf(row.company);
       const areaKey = row.area ? normalizeAreaName(row.area) : '';
       const areaIds = areaKey ? (areaIdsByName.get(areaKey) ?? new Set()) : new Set();
 
       let candidates = index;
-      // المنطقة أقوى دليل — تُطبَّق أولاً حين نعرفها فعلاً.
+      // المنطقة أقوى دليل — تُطبَّق أولاً حين نعرفها فعلاً، وبصرامة: مندوب لا
+      // يغطّي المنطقة لا يُقترح لها ولو طابقت شركته.
       if (areaIds.size > 0) {
         candidates = candidates.filter(c => [...areaIds].some(id => c.areas.has(id)));
       }
-      if (sciId != null) {
-        const byCompany = candidates.filter(c => c.companies.has(sciId));
-        if (byCompany.length > 0) candidates = byCompany;
-      }
-      if (row._itemId) {
-        const byItem = candidates.filter(c => c.items.size === 0 || c.items.has(row._itemId));
-        if (byItem.length > 0) candidates = byItem;
+      // الصنف مُسنَد صراحةً لمندوب — يحسم وحده غالباً.
+      if (itemId) candidates = narrow(candidates, c => c.ownedItems.has(itemId) || c.items.has(itemId));
+      if (sciId != null) candidates = narrow(candidates, c => c.companies.has(sciId) || c.ownedCompanies.has(sciId));
+      // من له قائمة ايتمات صريحة لا تضمّ هذا الصنف ليس صاحبه.
+      if (itemId) {
+        candidates = narrow(candidates, c => {
+          const explicit = c.ownedItems.size > 0 ? c.ownedItems : c.items;
+          return explicit.size === 0 || explicit.has(itemId);
+        });
       }
 
-      row._repCandidates = candidates.slice(0, 6).map(c => ({ id: c.id, name: c.name }));
-      row.scientificRep = candidates.length === 1 ? candidates[0].name : null;
+      row._repCandidates = candidates.slice(0, 8).map(c => ({ id: c.id, name: c.name }));
+      if (!row.scientificRep) row.scientificRep = candidates.length === 1 ? candidates[0].name : null;
     }
   } catch (e) {
     console.error('[orders] تعذّر تخمين المندوب العلمي:', e?.message);

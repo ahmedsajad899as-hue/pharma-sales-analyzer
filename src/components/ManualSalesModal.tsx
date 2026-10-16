@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 
 /**
  * Modal for adding sales that don't appear in the uploaded Excel files —
@@ -224,6 +224,116 @@ function DraggableImage({ src, focusBox, dockX, onClose }: { src: string; focusB
     </div>
   );
 }
+/**
+ * خانة نصّ تتمدّد عمودياً مع محتواها — الاسم الطويل (مادة، صيدلية، مندوب) يُعرض
+ * كاملاً بأسطر متعدّدة بدل أن يُقصّ أو يحتاج الجدول تمريراً أفقياً. Enter لا
+ * يُدخل سطراً جديداً: القيم أسماء من سطر واحد، والالتفاف بصري فقط.
+ */
+function AutoText({ value, onChange, style, inputRef, ...rest }: {
+  value: string; onChange: (v: string) => void; style?: React.CSSProperties;
+  inputRef?: React.Ref<HTMLTextAreaElement>;
+} & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange' | 'style'>) {
+  const local = useRef<HTMLTextAreaElement | null>(null);
+  const fit = () => { const el = local.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; };
+  useLayoutEffect(fit, [value]);
+  useEffect(() => { window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); }, []);
+  return (
+    <textarea
+      {...rest}
+      ref={el => {
+        local.current = el;
+        if (typeof inputRef === 'function') inputRef(el);
+        else if (inputRef) (inputRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = el;
+      }}
+      rows={1}
+      value={value}
+      onChange={e => onChange(e.target.value.replace(/\n/g, ' '))}
+      onKeyDown={e => { if (e.key === 'Enter' && !e.defaultPrevented) e.preventDefault(); rest.onKeyDown?.(e); }}
+      style={{ ...gCell, resize: 'none', overflow: 'hidden', ...style }}
+    />
+  );
+}
+
+type ComboOpt = { value: string; hint?: string; star?: boolean };
+const normQ = (s: string) => String(s ?? '').toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, '');
+
+/**
+ * قائمة اقتراحات ذكية فوق خانة نصّ — بديل datalist الذي لا يلتفّ ولا يميّز
+ * المرشّحين. المرشّحون (⭐) أولاً، ثم التصفية بالكتابة، والأسهم + Enter للاختيار.
+ * القائمة position:fixed كي لا يقصّها حاوي الجدول.
+ */
+function ComboCell({ value, onChange, onPick, options, placeholder, title, style }: {
+  value: string; onChange: (v: string) => void; onPick?: (v: string) => void;
+  options: ComboOpt[]; placeholder?: string; title?: string; style?: React.CSSProperties;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const q = normQ(value);
+  const exact = options.some(o => normQ(o.value) === q);
+  const shown = (!q || exact ? options : options.filter(o => normQ(o.value).includes(q) || normQ(o.hint || '').includes(q))).slice(0, 40);
+
+  const place = () => {
+    const el = ref.current; if (!el) return;
+    const r = el.getBoundingClientRect();
+    setRect({ left: r.left, top: r.bottom + 3, width: Math.max(r.width, 220) });
+  };
+  useEffect(() => {
+    if (!open) return;
+    place();
+    const onScroll = (e: Event) => { if (listRef.current && listRef.current.contains(e.target as Node)) return; setOpen(false); };
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', place);
+    return () => { window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', place); };
+  }, [open]);
+  useEffect(() => { setHi(0); }, [value, open]);
+
+  const pick = (v: string) => { onChange(v); onPick?.(v); setOpen(false); };
+
+  return (
+    <>
+      <AutoText
+        inputRef={ref}
+        value={value}
+        onChange={v => { onChange(v); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={e => {
+          if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { setOpen(true); e.preventDefault(); return; }
+          if (!open || !shown.length) return;
+          if (e.key === 'ArrowDown') { setHi(h => Math.min(shown.length - 1, h + 1)); e.preventDefault(); }
+          else if (e.key === 'ArrowUp') { setHi(h => Math.max(0, h - 1)); e.preventDefault(); }
+          else if (e.key === 'Enter') { pick(shown[hi]?.value ?? value); e.preventDefault(); }
+          else if (e.key === 'Escape') { setOpen(false); }
+        }}
+        placeholder={placeholder}
+        title={title}
+        style={style}
+      />
+      {open && rect && shown.length > 0 && (
+        <div ref={listRef} dir="rtl"
+          style={{ position: 'fixed', left: rect.left, top: rect.top, width: rect.width, maxHeight: 260, overflowY: 'auto', zIndex: 10060,
+            background: '#fff', border: '1px solid #c7d2fe', borderRadius: 10, boxShadow: '0 12px 32px rgba(15,23,42,0.18)', padding: 4 }}>
+          {shown.map((o, k) => (
+            <div key={o.value + k}
+              onMouseDown={e => { e.preventDefault(); pick(o.value); }}
+              onMouseEnter={() => setHi(k)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 9px', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, lineHeight: 1.4,
+                background: k === hi ? '#eef2ff' : o.star ? '#fffbeb' : 'transparent', color: '#0f172a', fontWeight: o.star ? 700 : 500 }}>
+              {o.star && <span title="مرشّح من المنطقة والشركة" style={{ color: '#d97706' }}>★</span>}
+              <span style={{ flex: 1 }}>{o.value}</span>
+              {o.hint && <span style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>{o.hint}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 const hdrBtn: React.CSSProperties = { background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 13, lineHeight: 1, width: 22, height: 22, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 
 export default function ManualSalesModal({ token, files, onClose, onSaved, initialOrder, onCancelPending }: Props) {
@@ -647,29 +757,87 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     return `الصنف: ${rows[st.row]?.item || '—'}${inv}`;
   };
 
-  const cols: { key: keyof Row; label: string; w: number; numeric?: boolean; wide?: boolean }[] = [
-    { key: 'warehouse',     label: 'المذخر',       w: 120 },
-    { key: 'invoiceNumber', label: 'رقم الفاتورة', w: 90 },
-    { key: 'date',          label: 'التاريخ',      w: 120 },
-    { key: 'item',          label: 'المادة*',      w: 220, wide: true },
-    { key: 'company',       label: 'الشركة',       w: 100 },
-    { key: 'quantity',      label: 'الكمية*',      w: 64,  numeric: true },
-    { key: 'unitPrice',     label: 'سعر الوحدة',   w: 80,  numeric: true },
-    { key: 'total',         label: 'السعر الكلي',  w: 90,  numeric: true },
-    { key: 'bonus',         label: 'البونص',       w: 60,  numeric: true },
-    { key: 'pharmacy',      label: 'الصيدلية',     w: 150 },
-    { key: 'area',          label: 'المنطقة',      w: 120 },
-    { key: 'scientificRep', label: 'المندوب العلمي', w: 160 },
+  // أعمدة الصفوف. حقول ترويسة الفاتورة (المذخر/رقم الفاتورة/التاريخ) انتقلت إلى
+  // شريط رأس كل فاتورة أدناه — هي واحدة لكل أصنافها، وتكرارها في كل صف هو ما كان
+  // يدفع الجدول لتمرير أفقي. العرض بالنسبة المئوية (table-layout: fixed) والنصوص
+  // تلتفّ، فيظهر كل شيء بشاشة واحدة والأسماء كاملة.
+  const cols: { key: keyof Row; label: string; pct: number; numeric?: boolean }[] = [
+    { key: 'item',          label: 'المادة *',        pct: 21 },
+    { key: 'company',       label: 'الشركة',          pct: 8 },
+    { key: 'quantity',      label: 'الكمية *',        pct: 5.5, numeric: true },
+    { key: 'unitPrice',     label: 'سعر الوحدة',      pct: 7,   numeric: true },
+    { key: 'total',         label: 'السعر الكلي',     pct: 8,   numeric: true },
+    { key: 'bonus',         label: 'البونص',          pct: 5.5, numeric: true },
+    { key: 'pharmacy',      label: 'الصيدلية',        pct: 15 },
+    { key: 'area',          label: 'المنطقة',         pct: 10 },
+    { key: 'scientificRep', label: 'المندوب العلمي',  pct: 14 },
   ];
+  const ACTIONS_PCT = 6;
 
-  // قائمة اقتراحات المندوبين — اتحاد مرشّحي كل الصفوف. تُعرض كـdatalist واحدة
-  // بدل واحدة لكل صف (نفس الطلبية = نفس دائرة المرشّحين عملياً).
-  // المرشّحون أولاً ثم بقية مندوبي المكتب العلميين — فمسح الاسم المقترح يعرض
-  // القائمة كلها للاختيار.
-  const repSuggestions = Array.from(new Set([
-    ...rows.flatMap(r => r.repCandidates || []).map(c => c.name),
-    ...sciReps.map(r => r.name),
-  ]));
+  // خيارات خانة المندوب العلمي لكل صف: مرشّحو الصف (★) أولاً ثم بقية مندوبي المكتب.
+  const repOptionsFor = (r: Row): ComboOpt[] => {
+    const seen = new Set<string>();
+    const out: ComboOpt[] = [];
+    for (const c of r.repCandidates || []) if (!seen.has(c.name)) { seen.add(c.name); out.push({ value: c.name, star: true }); }
+    for (const s of sciReps) if (!seen.has(s.name)) { seen.add(s.name); out.push({ value: s.name }); }
+    return out;
+  };
+
+  /**
+   * اختيار مندوب لصفٍّ يعبّئ تلقائياً الصفوف الفارغة المشابهة (نفس المنطقة ونفس
+   * الشركة) — المندوب يتحدّد عملياً بالمنطقة × الشركة، فلا داعي لاختياره عشر مرات.
+   * لا يمسّ صفاً فيه مندوب، ولا صفاً لا يكون الاسم بين مرشّحيه حين له مرشّحون.
+   */
+  const pickRep = (i: number, name: string) => {
+    const src = rows[i];
+    if (!src || !name.trim()) return;
+    const ak = normQ(src.area), ck = normQ(src.company);
+    const targets = new Set(rows.map((x, idx) => idx).filter(idx => {
+      const x = rows[idx];
+      if (idx === i || x.scientificRep.trim() || !ak || normQ(x.area) !== ak || normQ(x.company) !== ck) return false;
+      return !x.repCandidates?.length || x.repCandidates.some(c => c.name === name);
+    }));
+    targets.add(i);
+    setRows(rs => rs.map((x, idx) => (targets.has(idx) ? { ...x, scientificRep: name } : x)));
+    if (targets.size > 1) setInfo(`✨ عُبّئ «${name}» تلقائياً في ${targets.size - 1} صف مشابه (نفس المنطقة والشركة).`);
+  };
+
+  // مجموعات الفواتير: صفوف متتالية من نفس الصورة = فاتورة واحدة بشريط رأس واحد.
+  type Group = { key: string; imageIndex: number | null; idxs: number[] };
+  const groups: Group[] = [];
+  rows.forEach((r, i) => {
+    const k = r.imageIndex == null ? 'manual' : `img${r.imageIndex}`;
+    const last = groups[groups.length - 1];
+    if (last && last.key === k) last.idxs.push(i);
+    else groups.push({ key: k, imageIndex: r.imageIndex, idxs: [i] });
+  });
+  const setGroupField = (idxs: number[], key: 'warehouse' | 'invoiceNumber' | 'date', val: string) => {
+    const set = new Set(idxs);
+    setRows(rs => rs.map((r, idx) => (set.has(idx) ? { ...r, [key]: val } : r)));
+  };
+  const rowValue = (r: Row) => {
+    if (r.total !== '' && isFinite(Number(r.total))) return Number(r.total);
+    const q = Number(r.quantity), p = Number(r.unitPrice);
+    return isFinite(q) && isFinite(p) ? q * p : 0;
+  };
+  const rowState = (r: Row): 'bad' | 'warn' | 'ok' | 'empty' => {
+    if (!rowHasData(r)) return 'empty';
+    if (!r.item.trim() || !(Number(r.quantity) > 0)) return 'bad';
+    if (!r.scientificRep.trim()) return 'warn';
+    return 'ok';
+  };
+  const dataRows = rows.filter(rowHasData);
+  const missingRep = rows.map((r, i) => ({ r, i })).filter(({ r }) => rowState(r) === 'warn');
+  const badRows = rows.filter(r => rowState(r) === 'bad').length;
+  const grandTotal = dataRows.reduce((s, r) => s + rowValue(r), 0);
+  const focusRow = (i: number, key: keyof Row = 'scientificRep') => {
+    const el = gridRef.current?.querySelector(`[data-cell="${i}:${key}"] textarea, [data-cell="${i}:${key}"] input`) as HTMLElement | null;
+    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => el.focus(), 250); }
+  };
+  const scrollToGroup = (imageIndex: number) => {
+    const el = gridRef.current?.querySelector(`[data-group="img${imageIndex}"]`) as HTMLElement | null;
+    el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
 
   const askList = nameAsk
     ? [
@@ -745,6 +913,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         </div>
       )}
       <div style={panel} dir="rtl">
+        <style>{GRID_CSS}</style>
         <div style={header}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>➕ إضافة مبيعات من فاتورة / يدوياً</h3>
           <button onClick={onClose} style={xBtn}>✕</button>
@@ -790,10 +959,6 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                 <datalist id="rep-suggestions">{reps.map(r => <option key={r.id} value={r.name} />)}</datalist>
               </>
             )}
-            {/* اقتراحات المندوب العلمي لخانات الجدول — مُعرَّفة مرة واحدة هنا، **خارج**
-                الشرط أعلاه: كانت داخل فرع الإدخال اليدوي فقط، فخانة المندوب العلمي في
-                طلبيات البوت بلا أي خيارات إطلاقاً. */}
-            <datalist id="scirep-suggestions">{repSuggestions.map(n => <option key={n} value={n} />)}</datalist>
           </label>
         </div>
 
@@ -816,12 +981,18 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         {/* Uploaded invoice thumbnails */}
         {images.length > 0 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            {images.map((u, i) => (
-              <button key={i} onClick={() => setPreview(u)} title={`عرض الفاتورة ${i + 1}`} style={thumb}>
-                <img src={u} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
-                <span style={{ fontSize: 11, color: '#475569' }}>فاتورة {i + 1}</span>
-              </button>
-            ))}
+            {images.map((u, i) => {
+              const n = rows.filter(r => r.imageIndex === i && rowHasData(r)).length;
+              return (
+                <button key={i} onClick={() => { setPreview(u); scrollToGroup(i); }} title={`عرض الفاتورة ${i + 1} والانتقال لأصنافها`} style={thumb}>
+                  <img src={u} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.3 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: '#1e293b' }}>فاتورة {i + 1}</span>
+                    <span style={{ fontSize: 10.5, color: n ? '#64748b' : '#dc2626' }}>{n ? `${n} صنف` : 'بلا أصناف'}</span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -838,30 +1009,88 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         )}
 
         {/* Editable rows grid */}
-        <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 10 }}>
-          <table style={{ borderCollapse: 'collapse', fontSize: 13 }}>
+        {/* شريط الحالة — ملخّص حيّ وقابل للنقر: يأخذك لأول صف ينقصه مندوب */}
+        {dataRows.length > 0 && (
+          <div style={statusBar}>
+            <span style={chip}>🧾 {groups.filter(g => g.idxs.some(i => rowHasData(rows[i]))).length} فاتورة</span>
+            <span style={chip}>📦 {dataRows.length} صنف</span>
+            <span style={chip}>💰 {fmtThousands(String(Math.round(grandTotal)))} <small style={{ color: '#64748b' }}>{destCurrency}</small></span>
+            <span style={{ flex: 1 }} />
+            {missingRep.length > 0 ? (
+              <button onClick={() => focusRow(missingRep[0].i)} style={{ ...chip, ...chipWarn, cursor: 'pointer' }} title="انتقل لأول صف بلا مندوب علمي">
+                ⚠ {missingRep.length} بلا مندوب علمي — انقر للانتقال
+              </button>
+            ) : (
+              <span style={{ ...chip, ...chipOk }}>✓ كل الصفوف لها مندوب علمي</span>
+            )}
+            {badRows > 0 && <span style={{ ...chip, ...chipBad }}>✕ {badRows} صف ينقصه مادة أو كمية</span>}
+          </div>
+        )}
+
+        <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #dbe2ea', borderRadius: 12, background: '#fff' }}>
+          <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5, width: '100%', minWidth: 1080, tableLayout: 'fixed' }}>
+            <colgroup>
+              {cols.map(c => <col key={c.key} style={{ width: `${c.pct}%` }} />)}
+              <col style={{ width: `${ACTIONS_PCT}%` }} />
+            </colgroup>
             <thead>
-              <tr style={{ background: '#f8fafc' }}>
-                {cols.map(c => <th key={c.key} style={{ ...th, minWidth: c.w }}>{c.label}</th>)}
-                <th style={{ ...th, minWidth: 44 }}>صورة</th>
-                <th style={{ ...th, minWidth: 36 }}></th>
+              <tr>
+                {cols.map(c => <th key={c.key} style={{ ...gTh, textAlign: c.numeric ? 'center' : 'right' }}>{c.label}</th>)}
+                <th style={{ ...gTh, textAlign: 'center' }}>الفاتورة</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  {cols.map(c => {
+              {groups.map(g => {
+                const first = rows[g.idxs[0]];
+                const gRows = g.idxs.map(i => rows[i]).filter(rowHasData);
+                const gTotal = gRows.reduce((s, r) => s + rowValue(r), 0);
+                const gMissing = gRows.filter(r => !r.scientificRep.trim()).length;
+                const hdrOn = (key: keyof Row) => cellActive(g.idxs[0], key);
+                const hdrInput = (key: 'warehouse' | 'invoiceNumber', placeholder: string, w: number) => (
+                  <label style={gHdrField} data-hl={hdrOn(key) ? '1' : undefined}>
+                    <span style={gHdrLbl}>{placeholder}</span>
+                    <input value={first[key]} onChange={e => setGroupField(g.idxs, key, e.target.value)} placeholder="—"
+                      style={{ ...gHdrInp, width: w, ...(hdrOn(key) ? hlInp : null) }} />
+                  </label>
+                );
+                return [
+                  <tr key={`h-${g.key}-${g.idxs[0]}`} data-group={g.key}>
+                    <td colSpan={cols.length + 1} style={gHdrCell}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        {g.imageIndex != null ? (
+                          <button onClick={() => images[g.imageIndex!] && setPreview(images[g.imageIndex!])} style={invBadge} title="عرض صورة الفاتورة">
+                            🧾 فاتورة {g.imageIndex + 1}
+                          </button>
+                        ) : (
+                          <span style={{ ...invBadge, background: '#475569', cursor: 'default' }}>✍️ إدخال يدوي</span>
+                        )}
+                        {hdrInput('warehouse', 'المذخر', 170)}
+                        {hdrInput('invoiceNumber', 'رقم الفاتورة', 100)}
+                        <label style={gHdrField} data-hl={hdrOn('date') ? '1' : undefined}>
+                          <span style={gHdrLbl}>التاريخ</span>
+                          <input type="date" value={first.date} onChange={e => setGroupField(g.idxs, 'date', e.target.value)}
+                            style={{ ...gHdrInp, width: 140, ...(hdrOn('date') ? hlInp : null) }} />
+                        </label>
+                        <span style={{ flex: 1 }} />
+                        <span style={gHdrStat}>{gRows.length} صنف</span>
+                        <span style={gHdrStat}>{fmtThousands(String(Math.round(gTotal)))}</span>
+                        {gMissing > 0 && <span style={{ ...gHdrStat, ...chipWarn }}>⚠ {gMissing} بلا مندوب</span>}
+                      </div>
+                    </td>
+                  </tr>,
+                  ...g.idxs.map(i => {
+                const r = rows[i];
+                const st = rowState(r);
+                const stripe = st === 'ok' ? '#10b981' : st === 'warn' ? '#f59e0b' : st === 'bad' ? '#ef4444' : '#e2e8f0';
+                return (
+                <tr key={i} className="msm-row" style={{ background: i % 2 ? '#fbfcfe' : '#fff' }}>
+                  {cols.map((c, ci) => {
                     const on = cellActive(i, c.key);
-                    const cs: React.CSSProperties = { ...cell, minWidth: c.w, ...(on ? { background: '#fffbeb', borderColor: '#f59e0b', fontWeight: 700 } : null) };
+                    const cs: React.CSSProperties = on ? hlInp : {};
                     return (
-                      <td key={c.key} data-hl={on ? '1' : undefined} style={{ ...td, ...(on ? { background: '#fef9c3', outline: '2px solid #f59e0b' } : null) }}>
-                        {c.wide ? (
-                          <textarea value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
-                            rows={2} title={r[c.key] as string}
-                            style={{ ...cs, resize: 'vertical', lineHeight: 1.35, whiteSpace: 'pre-wrap' }} />
-                        ) : c.key === 'date' ? (
-                          <input type="date" value={r.date} onChange={e => setCell(i, 'date', e.target.value)} style={cs} />
-                        ) : c.numeric ? (
+                      <td key={c.key} data-hl={on ? '1' : undefined} data-cell={`${i}:${c.key}`}
+                        style={{ ...gTd, ...(ci === 0 ? { boxShadow: `inset -3px 0 0 ${stripe}` } : null), ...(on ? { background: '#fef9c3' } : null) }}>
+                        {c.numeric ? (
                           <input
                             value={(() => {
                               const v = r[c.key] as string;
@@ -877,51 +1106,57 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                               if (c.key === 'quantity' || c.key === 'unitPrice') onQtyPrice(i, c.key, val);
                               else setCell(i, c.key, val);
                             }}
-                            style={{ ...cs, textAlign: 'left' }} />
-                        ) : c.key === 'pharmacy' && r.pharmacyCandidates?.length ? (
-                          <>
-                            <input list={`ph-sugg-${i}`} value={r.pharmacy}
-                              onChange={e => {
-                                const v = e.target.value;
-                                // اختيار صيدلية من السيرفي يجلب منطقتها معها.
-                                const hit = r.pharmacyCandidates.find(p => p.name === v);
-                                setRows(rs => rs.map((x, idx) => (idx === i
-                                  ? { ...x, pharmacy: v, ...(hit?.area ? { area: hit.area } : null) }
-                                  : x)));
-                              }}
-                              title={`صيدليات قريبة في السيرفي: ${r.pharmacyCandidates.map(p => p.area ? `${p.name} (${p.area})` : p.name).join(' ، ')}`}
-                              style={{ ...cs, background: '#fefce8' }} />
-                            <datalist id={`ph-sugg-${i}`}>
-                              {r.pharmacyCandidates.map(p => (
-                                <option key={`${p.name}|${p.area}`} value={p.name}>{p.area || ''}</option>
-                              ))}
-                            </datalist>
-                          </>
+                            style={{ ...gCell, ...cs, textAlign: 'center', direction: 'ltr', fontVariantNumeric: 'tabular-nums' }} />
+                        ) : c.key === 'pharmacy' ? (
+                          <ComboCell
+                            value={r.pharmacy}
+                            onChange={v => {
+                              // اختيار صيدلية من السيرفي يجلب منطقتها معها.
+                              const hit = r.pharmacyCandidates?.find(p => p.name === v);
+                              setRows(rs => rs.map((x, idx) => (idx === i
+                                ? { ...x, pharmacy: v, ...(hit?.area ? { area: hit.area } : null) }
+                                : x)));
+                            }}
+                            options={(r.pharmacyCandidates || []).map(p => ({ value: p.name, hint: p.area || undefined, star: true }))}
+                            title={r.pharmacyCandidates?.length
+                              ? `صيدليات قريبة في السيرفي: ${r.pharmacyCandidates.map(p => p.area ? `${p.name} (${p.area})` : p.name).join(' ، ')}`
+                              : r.pharmacy}
+                            style={{ ...cs, ...(r.pharmacyCandidates?.length ? candTone : null) }}
+                          />
                         ) : c.key === 'scientificRep' ? (
-                          <input list="scirep-suggestions" value={r.scientificRep}
-                            onChange={e => setCell(i, 'scientificRep', e.target.value)}
-                            placeholder={r.repCandidates?.length ? 'اختر من المرشّحين' : 'اختر مندوباً'}
+                          <ComboCell
+                            value={r.scientificRep}
+                            onChange={v => setCell(i, 'scientificRep', v)}
+                            onPick={v => pickRep(i, v)}
+                            options={repOptionsFor(r)}
+                            placeholder={r.repCandidates?.length ? `اختر من ${r.repCandidates.length} مرشّحين ▾` : 'اختر مندوباً ▾'}
                             title={r.repCandidates?.length
                               ? `مرشّحون: ${r.repCandidates.map(c => c.name).join(' ، ')}`
-                              : 'لم يُعرَف مندوب من المنطقة والشركة — امسح الخانة لعرض كل المندوبين العلميين'}
-                            style={{ ...cs, ...(r.scientificRep ? null : { background: '#fff7ed' }) }} />
+                              : 'لم يُعرَف مندوب من المنطقة والشركة — اختر من القائمة'}
+                            style={{ ...cs, ...(r.scientificRep.trim() ? repSetTone : candTone) }}
+                          />
                         ) : (
-                          <input value={r[c.key] as string} onChange={e => setCell(i, c.key, e.target.value)}
-                            title={r[c.key] as string} style={cs} />
+                          <AutoText value={r[c.key] as string} onChange={v => setCell(i, c.key, v)}
+                            title={r[c.key] as string}
+                            style={{ ...cs, ...(c.key === 'item' ? { fontWeight: 600, color: '#0f172a' } : null),
+                              ...(c.key === 'company' ? { direction: 'ltr', textAlign: 'right' } : null) }} />
                         )}
                       </td>
                     );
                   })}
-                  <td style={{ ...td, textAlign: 'center' }}>
-                    {r.imageIndex != null && images[r.imageIndex]
-                      ? <button onClick={() => setPreview(images[r.imageIndex!])} title="عرض صورة الفاتورة" style={imgLinkBtn}>🖼️</button>
-                      : <span style={{ color: '#cbd5e1' }}>—</span>}
-                  </td>
-                  <td style={{ ...td, textAlign: 'center' }}>
-                    <button onClick={() => removeRow(i)} style={delBtn} title="حذف الصف">×</button>
+                  <td style={{ ...gTd, textAlign: 'center', verticalAlign: 'middle' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                      {r.imageIndex != null && images[r.imageIndex]
+                        ? <button onClick={() => setPreview(images[r.imageIndex!])} title={`عرض صورة الفاتورة ${r.imageIndex + 1}`} style={invMini}>🧾 {r.imageIndex + 1}</button>
+                        : <span style={{ ...invMini, background: '#f1f5f9', color: '#94a3b8', cursor: 'default' }}>✍️</span>}
+                      <button onClick={() => removeRow(i)} style={delBtn} title="حذف الصف">×</button>
+                    </div>
                   </td>
                 </tr>
-              ))}
+                );
+                  }),
+                ];
+              })}
             </tbody>
           </table>
         </div>
@@ -1048,7 +1283,7 @@ const bulkBtn: React.CSSProperties = { border: '1px solid #cbd5e1', background: 
 const askCancel: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, color: '#475569', cursor: 'pointer', fontFamily: 'inherit' };
 const askOk: React.CSSProperties = { border: 'none', background: '#4f46e5', color: '#fff', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' };
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 9999, padding: '24px 12px', overflowY: 'auto' };
-const panel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 22, width: '100%', maxWidth: 1120, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' };
+const panel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 22, width: '100%', maxWidth: 1560, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' };
 const header: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 };
 const xBtn: React.CSSProperties = { background: 'none', border: 'none', fontSize: 20, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 };
 const topBar: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'stretch', flexWrap: 'wrap', marginBottom: 12 };
@@ -1057,11 +1292,32 @@ const imgBtn: React.CSSProperties = { padding: '9px 18px', background: '#6366f1'
 const thumb: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px 4px 4px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer' };
 const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: '#475569', minWidth: 200, justifyContent: 'center' };
 const inp: React.CSSProperties = { padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, direction: 'rtl', outline: 'none', background: '#fafafa' };
-const th: React.CSSProperties = { padding: '8px 6px', fontSize: 11, fontWeight: 700, color: '#64748b', textAlign: 'right', whiteSpace: 'nowrap' };
-const td: React.CSSProperties = { padding: '3px 4px', verticalAlign: 'top' };
-const cell: React.CSSProperties = { width: '100%', padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, direction: 'rtl', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' };
-const cellNum: React.CSSProperties = { ...cell, textAlign: 'left' };
-const imgLinkBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1 };
+// ── شبكة المراجعة ──
+const gTh: React.CSSProperties = { padding: '10px 8px', fontSize: 11.5, fontWeight: 800, color: '#334155', background: '#f1f5f9', borderBottom: '2px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const gTd: React.CSSProperties = { padding: '4px 4px', verticalAlign: 'top', borderBottom: '1px solid #eef2f6' };
+// الخانة بلا إطار ظاهر حتى المرور/التركيز (CSS .msm-cell) — مظهر جدول رسمي لا نموذج.
+const gCell: React.CSSProperties = { width: '100%', padding: '6px 7px', border: '1px solid transparent', borderRadius: 7, fontSize: 12.5, lineHeight: 1.45, direction: 'rtl', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: 'transparent', color: '#1e293b', display: 'block', minHeight: 32 };
+const hlInp: React.CSSProperties = { background: '#fffbeb', borderColor: '#f59e0b', fontWeight: 700 };
+const candTone: React.CSSProperties = { background: '#fff8eb', border: '1px dashed #fbbf24' };
+const repSetTone: React.CSSProperties = { background: '#f0fdf4', color: '#065f46', fontWeight: 600 };
+const gHdrCell: React.CSSProperties = { padding: '9px 12px', background: 'linear-gradient(90deg, #eef2ff, #f8fafc)', borderTop: '1px solid #c7d2fe', borderBottom: '1px solid #c7d2fe', boxShadow: 'inset -4px 0 0 #4f46e5' };
+const gHdrField: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#475569' };
+const gHdrLbl: React.CSSProperties = { fontWeight: 700, color: '#4338ca', whiteSpace: 'nowrap' };
+const gHdrInp: React.CSSProperties = { padding: '5px 8px', border: '1px solid #c7d2fe', borderRadius: 7, fontSize: 12.5, background: '#fff', outline: 'none', fontFamily: 'inherit', color: '#1e1b4b', fontWeight: 600 };
+const gHdrStat: React.CSSProperties = { fontSize: 11.5, fontWeight: 700, color: '#334155', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' };
+const invBadge: React.CSSProperties = { background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' };
+const invMini: React.CSSProperties = { background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 6, padding: '3px 6px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.2 };
+const statusBar: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 };
+const chip: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: '#1e293b', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 999, padding: '5px 12px', fontFamily: 'inherit' };
+const chipWarn: React.CSSProperties = { background: '#fffbeb', borderColor: '#fcd34d', color: '#92400e' };
+const chipOk: React.CSSProperties = { background: '#ecfdf5', borderColor: '#6ee7b7', color: '#065f46' };
+const chipBad: React.CSSProperties = { background: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c' };
+const GRID_CSS = `
+.msm-row:hover > td { background: #f5f7ff !important; }
+.msm-row textarea:hover, .msm-row input:hover { border-color: #cbd5e1 !important; }
+.msm-row textarea:focus, .msm-row input:focus { border-color: #6366f1 !important; border-style: solid !important; background: #fff !important; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+.msm-row textarea::placeholder { color: #b45309; font-weight: 600; }
+`;
 const delBtn: React.CSSProperties = { background: 'none', border: '1px solid #fecaca', color: '#f87171', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 14, lineHeight: 1 };
 const addBtn: React.CSSProperties = { padding: '7px 14px', background: '#f1f5f9', color: '#475569', border: '1px dashed #cbd5e1', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer' };
 const confirmBtn: React.CSSProperties = { padding: '7px 14px', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' };

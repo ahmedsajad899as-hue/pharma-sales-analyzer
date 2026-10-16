@@ -5,7 +5,7 @@
  */
 
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
-import { consumePendingOrder } from '../orders/orders.service.js';
+import { consumePendingOrder, enrichRowsFromCatalog, attachScientificRepGuess } from '../orders/orders.service.js';
 import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
   checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
@@ -140,6 +140,18 @@ export async function extractInvoice(req, res, next) {
     const onlyAssigned = req.body?.onlyAssignedItems === 'true' || req.body?.onlyAssignedItems === '1';
     if (onlyAssigned) {
       ({ rows, droppedCount } = await filterRowsToAssignedItems(rows, req.user?.id ?? null));
+    }
+    // تخمين المندوب العلمي من (المنطقة + شركة الصنف + تعيين الصنف) — نفس مسار
+    // طلبيات البوت. كان رفع الصورة يدوياً يتخطّاه كلياً فتبقى الخانة فارغة دائماً.
+    // تحسين لا شرط: فشله يُعيد الصفوف كما هي.
+    if (req.user?.id && rows.length) {
+      try {
+        await enrichRowsFromCatalog(rows, req.user.id, { linkOnly: true });
+        const actor = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, officeId: true } });
+        if (actor) await attachScientificRepGuess(rows, actor);
+      } catch (e) {
+        console.error('[extract-invoice] تعذّر تخمين المندوب العلمي:', e?.message);
+      }
     }
     return res.json({ success: true, data: { rows, droppedCount } });
   } catch (err) {
