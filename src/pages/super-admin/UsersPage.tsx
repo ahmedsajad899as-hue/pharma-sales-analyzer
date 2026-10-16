@@ -750,6 +750,45 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     }
   };
 
+  // تطبيق شركات وايتمات هذا التيم ليدر المحفوظة على بقية تيم ليدرية المحافظات
+  const syncProvLeaders = async () => {
+    if (!detail) return;
+    const others = provLeaderIds.size - 1;
+    if (!confirm(
+      `سيتم استبدال شركات وايتمات بقية تيم ليدرية المحافظات (${others}) بنفس شركات وايتمات ${detail.displayName || detail.username} المحفوظة حالياً.\n(يمكن تعديل كل واحد منهم بعدها.)\n\nهل تريد المتابعة؟`
+    )) return;
+    setSyncingScope(true);
+    try {
+      const res = await fetch(`/api/sa/users/${detail.id}/sync-to-province-leaders`, { method: 'POST', headers: H() });
+      if (!res.ok) {
+        if (res.status === 401) { showToast('انتهت صلاحية الجلسة — يرجى إعادة تسجيل الدخول', '#dc2626'); logout(); return; }
+        let errMsg = 'فشل التطبيق';
+        try { const j = await res.json(); if (j?.error) errMsg = j.error; } catch {}
+        showToast('❌ ' + errMsg, '#dc2626');
+        return;
+      }
+      const j = await res.json().catch(() => null);
+      const count = j?.affectedCount ?? 0;
+      showToast(count > 0 ? `✅ طُبّقت الشركات والايتمات على ${count} تيم ليدر` : 'ℹ️ لا يوجد تيم ليدرية آخرون');
+    } catch (e) {
+      console.error('syncProvLeaders error:', e);
+      showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
+    } finally {
+      setSyncingScope(false);
+    }
+  };
+
+  const provLeaderScopeBox = detail ? (
+    <div style={{ fontSize: 12.5, color: '#0e7490', background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <span style={{ flex: 1, minWidth: 240, lineHeight: 1.9 }}>
+        🗺️ <b>تيم ليدر محافظة</b> — بلا شركة رئيسية، وشركاته وايتماته حسب التعيين. يمكنك تطبيق شركاته ({savedCompanyIds.length}) وايتماته المحفوظة على <b>بقية تيم ليدرية المحافظات</b> ثم تعديل كل واحد منهم على حدة. احفظ التغييرات أولاً قبل الضغط.
+      </span>
+      <button onClick={syncProvLeaders} disabled={syncingScope || provLeaderIds.size < 2} style={btnStyle('#0891b2', true)}>
+        {syncingScope ? '⏳ جارٍ التطبيق...' : '🗺️ تطبيق على بقية التيم ليدرية'}
+      </button>
+    </div>
+  ) : null;
+
   // ── Area CRUD handlers ────────────────────────────────────────────────────
   const createArea = async () => {
     const name = newAreaName.trim();
@@ -1235,15 +1274,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
             </div>
             );
           })()}
-          {tab === 'companies' && !OFFICE_SCOPED_ROLES.has(detail.role) && provLeaderIds.has(detail.id) && (
-            <div style={{ fontSize: 13, color: '#0e7490', background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: 8, padding: '12px 16px', lineHeight: 1.9 }}>
-              🗺️ <strong>تيم ليدر محافظة</strong> — يعمل على <strong>كل شركات المكتب</strong> ({companies.filter(c => c.officeId === detail.officeId).length}) تلقائياً،
-              بلا شركة رئيسية ولا ثانوية، ولا يُحسب لشركة بعينها. أي شركة تُضاف للمكتب لاحقاً تصله فوراً.
-              التعيين والمحافظة من صفحة «فرق المحافظات» (الهيكلية).
-            </div>
-          )}
-          {tab === 'companies' && !OFFICE_SCOPED_ROLES.has(detail.role) && !provLeaderIds.has(detail.id) && (
+          {tab === 'companies' && !OFFICE_SCOPED_ROLES.has(detail.role) && (
             <div>
+              {provLeaderIds.has(detail.id) && provLeaderScopeBox}
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button onClick={() => { setDraftCompanyIds(companies.map(c => c.id)); setDraftPrimaryCompanyId(prev => prev ?? companies[0]?.id ?? null); }} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
                 <button onClick={() => { setDraftCompanyIds([]); setDraftPrimaryCompanyId(null); }} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
@@ -1256,16 +1289,18 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 </span>
               </div>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-                {detail.role === 'office_manager' || detail.role === 'product_manager'
-                  ? (detail.role === 'product_manager'
-                      ? 'مدير المنتج: بلا شركة رئيسية — اختر الشركات التي يديرها (ليس شرطاً كلها)، وكلها تابعة له بالتساوي.'
+                {detail.role === 'office_manager' || detail.role === 'product_manager' || provLeaderIds.has(detail.id)
+                  ? (detail.role === 'product_manager' || provLeaderIds.has(detail.id)
+                      ? (provLeaderIds.has(detail.id)
+                          ? 'تيم ليدر محافظة: بلا شركة رئيسية — اختر الشركات المعيَّنة له (ليس شرطاً كلها).'
+                          : 'مدير المنتج: بلا شركة رئيسية — اختر الشركات التي يديرها (ليس شرطاً كلها)، وكلها تابعة له بالتساوي.')
                       : 'مدير المكتب: لا فرق بين شركة رئيسية وثانوية — كل الشركات المختارة تابعة له بالتساوي، وكل مدرائها ومندوبيها يُعتبرون تحت إدارته.')
                   : '⭐ الشركة الرئيسية تُحدَّد على أساسها التيمات والهيكل الإداري وربط المدير. الشركات الثانوية: عمل كامل وتظهر ايتماتها، لكن خارج تكوين الفريق.'}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {companies.map(c => {
                   const checked = draftCompanyIds.includes(c.id);
-                  const noPrimaryRole = detail.role === 'office_manager' || detail.role === 'product_manager';
+                  const noPrimaryRole = detail.role === 'office_manager' || detail.role === 'product_manager' || provLeaderIds.has(detail.id);
                   const isPrimary = noPrimaryRole ? checked : draftPrimaryCompanyId === c.id;
                   return (
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: isPrimary ? '#fef9c3' : '#f8fafc', borderRadius: 8, fontSize: 14, border: isPrimary ? '1.5px solid #eab308' : '1.5px solid transparent' }}>
@@ -1330,6 +1365,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'items' && (
             <div>
+              {provLeaderIds.has(detail.id) && provLeaderScopeBox}
               <div style={{ fontSize: 12.5, color: '#0369a1', marginBottom: 12, lineHeight: 1.9, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 12px' }}>
                 💊 هذه ايتمات الشركات المعيّنة لهذا المستخدم. اختر عدداً منها ليعمل عليها المستخدم فقط.
                 <br />

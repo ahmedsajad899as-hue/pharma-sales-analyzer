@@ -23,10 +23,14 @@ export async function isProvinceLeader(userId) {
 }
 
 /**
- * يستبدل شركات القائد بكل شركات مكتبه، جميعها غير رئيسية.
+ * قائد محافظة جديد (بلا أي شركات) يُمنح كل شركات مكتبه كنقطة بداية، جميعها غير
+ * رئيسية؛ أما من له تعيينات فلا تُمسّ — الشركات تُعدَّل يدوياً حسب التعيين
+ * (ليس شرطاً كل الشركات).
  * @returns {Promise<number[]>}
  */
 export async function syncProvinceLeaderCompanies(userId, officeId) {
+  const existing = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
+  if (existing.length) return existing.map(a => a.companyId);
   const companies = officeId
     ? await prisma.scientificCompany.findMany({ where: { officeId }, select: { id: true } })
     : [];
@@ -41,8 +45,7 @@ export async function syncProvinceLeaderCompanies(userId, officeId) {
   return ids;
 }
 
-/** شركة جديدة في المكتب ← تصل كل قادة المحافظات فوراً. */
-export async function syncProvinceLeadersForOffice(officeId) {
-  if (!officeId) return;
-  for (const uid of await provinceLeaderIds(officeId)) await syncProvinceLeaderCompanies(uid, officeId);
+/** شركة جديدة في المكتب: لم تعد تصل قادة المحافظات تلقائياً (التعيين يدوي). */
+export async function syncProvinceLeadersForOffice(_officeId) {
+  // مقصود: لا شيء. يبقى الاستيراد قائماً لأن companies.controller يستدعيه.
 }

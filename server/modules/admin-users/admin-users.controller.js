@@ -9,7 +9,7 @@ import {
 } from '../../lib/areaScope.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
-import { isProvinceLeader, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
+import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
 
 const userSelect = {
@@ -448,17 +448,8 @@ export async function setUserCompanies(req, res) {
       });
     }
 
-    // تيم ليدر محافظة: كل شركات المكتب، كلها غير رئيسية — مُدار تلقائياً.
-    if (user.officeId && await isProvinceLeader(userId)) {
-      const ids = await syncProvinceLeaderCompanies(userId, user.officeId);
-      return res.json({
-        success: true,
-        autoManaged: true,
-        data: ids.map(companyId => ({ companyId, isPrimary: false })),
-        primaryCompanyId: null,
-        dropped: [],
-      });
-    }
+    // تيم ليدر محافظة: بلا شركة رئيسية، شركاته تُختار يدوياً (ليس شرطاً كلها).
+    const isProvLeader = await isProvinceLeader(userId);
 
     // تجاهل أي شركة محذوفة بدل إسقاط الحفظ كله بخطأ مفتاح أجنبي
     const found = requested.length
@@ -478,7 +469,7 @@ export async function setUserCompanies(req, res) {
     await prisma.$transaction([
       prisma.userCompanyAssignment.deleteMany({ where: { userId } }),
       ...(ids.length ? [prisma.userCompanyAssignment.createMany({
-        data: ids.map(id => ({ userId, companyId: id, isPrimary: isOfficeManager ? true : id === primaryId })),
+        data: ids.map(id => ({ userId, companyId: id, isPrimary: isProvLeader ? false : (isOfficeManager ? true : id === primaryId) })),
         skipDuplicates: true,
       })] : []),
     ]);
@@ -916,6 +907,59 @@ export async function syncManagerScopeToSubordinates(req, res) {
   } catch (err) {
     console.error('[syncManagerScopeToSubordinates] failed for manager', managerId, err);
     res.status(500).json({ error: 'فشلت المزامنة — حاول مرة أخرى.' });
+  }
+}
+
+// ── Copy a province leader's companies + items to the other province leaders ─
+// body: { targetIds?: number[] } — بدونها تُطبَّق على كل قادة المحافظات الآخرين في
+// المكتب. تستبدل شركاتهم وايتماتهم بنفس اختيار هذا القائد (بلا رئيسية)، ويبقى
+// تعديل كل واحد منهم بعدها يدوياً.
+export async function syncProvinceLeaderScope(req, res) {
+  const sourceId = parseInt(req.params.id);
+  if (!Number.isInteger(sourceId)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
+  try {
+    const source = await prisma.user.findUnique({
+      where: { id: sourceId },
+      select: {
+        id: true, officeId: true,
+        companyAssignments: { select: { companyId: true } },
+        itemAssignments: { select: { itemId: true } },
+      },
+    });
+    if (!source) return res.status(404).json({ error: 'المستخدم غير موجود' });
+    if (!source.officeId || !(await isProvinceLeader(sourceId))) {
+      return res.status(400).json({ error: 'هذا الحساب ليس تيم ليدر محافظة.' });
+    }
+    const companyIds = source.companyAssignments.map(a => a.companyId);
+    const itemIds = source.itemAssignments.map(a => a.itemId);
+
+    const leaders = await provinceLeaderIds(source.officeId);
+    leaders.delete(sourceId);
+    let targetIds = [...leaders];
+    if (Array.isArray(req.body?.targetIds)) {
+      const wanted = new Set(req.body.targetIds.map(n => parseInt(n)));
+      targetIds = targetIds.filter(id => wanted.has(id));
+    }
+    for (const uid of targetIds) {
+      await prisma.$transaction([
+        prisma.userCompanyAssignment.deleteMany({ where: { userId: uid } }),
+        ...(companyIds.length ? [prisma.userCompanyAssignment.createMany({
+          data: companyIds.map(companyId => ({ userId: uid, companyId, isPrimary: false })),
+          skipDuplicates: true,
+        })] : []),
+        prisma.userItemAssignment.deleteMany({ where: { userId: uid } }),
+        ...(itemIds.length ? [prisma.userItemAssignment.createMany({
+          data: itemIds.map(itemId => ({ userId: uid, itemId })),
+          skipDuplicates: true,
+        })] : []),
+      ]);
+      try { await syncUserItemDerivedLinks(uid); }
+      catch (e) { console.warn('[syncProvinceLeaderScope] item link sync failed (non-fatal) for user', uid, e.message); }
+    }
+    res.json({ success: true, affectedCount: targetIds.length, companyIds, itemIds });
+  } catch (err) {
+    console.error('[syncProvinceLeaderScope] failed for', sourceId, err);
+    res.status(500).json({ error: 'فشل التطبيق — حاول مرة أخرى.' });
   }
 }
 
