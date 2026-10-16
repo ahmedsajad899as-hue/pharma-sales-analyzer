@@ -15,7 +15,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { buildRepIndex, matchRepName, repCoreName, repCoreKey } from '../../lib/repNameMatch.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
-import { loadResolutionContext, resolveItemName, normalizeAreaName, normalizeItemKey } from '../../lib/itemResolver.js';
+import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItemNameSync, normalizeAreaName, normalizeItemKey } from '../../lib/itemResolver.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
@@ -161,6 +161,18 @@ export async function enrichRowsFromCatalog(rows, userId, { linkOnly = false } =
 
 // ─── تخمين المندوب العلمي صاحب الطلبية ──────────────────────────────────────
 
+/** العلامة التجارية للصنف = أول كلمة حرفية من مفتاحه («amoklavin bid 1000mg» ← «amoklavin»). */
+function itemBrand(itemKey) {
+  const m = String(itemKey || '').match(/[a-z؀-ۿ]{4,}/);
+  return m ? m[0] : '';
+}
+
+/** «حسين قحطان» ≡ «حسين قحطان العبيدي» — أسماء ميركاتو أطول أحياناً من أسماء الحسابات. */
+function sameRepKey(a, b) {
+  if (!a || !b) return false;
+  return a === b || a.startsWith(b + ' ') || b.startsWith(a + ' ');
+}
+
 /**
  * يخمّن المندوب العلمي الذي تخصّه الطلبية من ثلاثة أدلة متقاطعة:
  * الشركة العلمية للصنف + منطقة الصيدلية + تعيين الصنف نفسه للمندوب.
@@ -293,15 +305,59 @@ export async function attachScientificRepGuess(rows, actingUser) {
       for (const i of pa.items) target.ownedItems.add(i.itemId);
     }
 
+    // ── أسماء ايتمات المندوبين: مطابقة بالاسم والعلامة التجارية ──
+    // الصنف كثيراً ما لا يُربط بمعرّف كتالوج (كتالوج المستخدم الرافع ضيّق، أو
+    // الشكل الصيدلاني غير مسجّل: «AMOKLAVIN -BID 457MG SYRUP» والمسجّل أقراص)،
+    // فيسقط دليل الصنف كلياً ويبقى مرشّحان يغطّيان المنطقة. اسم الصنف وعلامته
+    // التجارية («amoklavin») يكفيان لمعرفة من يحمل هذا الدواء.
+    const allItemIds = new Set();
+    for (const c of index) { c.items.forEach(i => allItemIds.add(i)); c.ownedItems.forEach(i => allItemIds.add(i)); }
+    const itemNames = allItemIds.size
+      ? await prisma.item.findMany({ where: { id: { in: [...allItemIds] } }, select: { id: true, name: true } })
+      : [];
+    const itemKeyById = new Map(itemNames.map(i => [i.id, normalizeItemKey(i.name)]));
+    for (const c of index) {
+      c.explicitItems = c.ownedItems.size > 0 ? c.ownedItems : c.items;
+      c.itemKeys = new Set(); c.brands = new Set();
+      for (const id of c.explicitItems) {
+        const k = itemKeyById.get(id);
+        if (!k) continue;
+        c.itemKeys.add(k);
+        const b = itemBrand(k);
+        if (b) c.brands.add(b);
+      }
+    }
+
+    // ربط الصنف بكتالوج **المكتب كله** حين لم يُربط بكتالوج المستخدم الرافع.
+    const officeItemIdByName = new Map();
+    const unlinked = [...new Set(rows.filter(r => !r._itemId && String(r.item ?? '').trim()).map(r => String(r.item).trim()))];
+    if (unlinked.length && sciCompanies.length) {
+      try {
+        const officeCtx = await loadCompanyContext(sciCompanies.map(c => c.id));
+        if (officeCtx.catalog.length) {
+          for (const name of unlinked) {
+            const r = resolveItemNameSync(name, officeCtx);
+            if (r?.canonicalItem && (r.confidence === 'alias' || r.confidence === 'exact' || r.confidence === 'high')) {
+              officeItemIdByName.set(name, r.canonicalItem.id);
+              if (!itemKeyById.has(r.canonicalItem.id)) itemKeyById.set(r.canonicalItem.id, normalizeItemKey(r.canonicalItem.name));
+            }
+          }
+        }
+      } catch (e) { console.error('[orders] office item link failed:', e?.message); }
+    }
+
     // تضييق متتالٍ: كل دليل يُطبَّق فقط إن أبقى مرشّحاً واحداً على الأقل — دليل
     // غائب أو ناقص لا يُفرغ القائمة.
     const narrow = (list, pred) => { const out = list.filter(pred); return out.length ? out : list; };
 
+    const ctxByRow = new Map();
     for (const row of rows) {
-      const itemId = row._itemId ?? null;
+      const itemId = row._itemId ?? officeItemIdByName.get(String(row.item ?? '').trim()) ?? null;
       const sciId = row._scientificCompanyId ?? sciCompanyIdOf(row.company);
       const areaKey = row.area ? normalizeAreaName(row.area) : '';
       const areaIds = areaKey ? (areaIdsByName.get(areaKey) ?? new Set()) : new Set();
+      const itemKey = normalizeItemKey(row.item ?? '');
+      const brand = itemBrand(itemKey);
 
       let candidates = index;
       // المنطقة أقوى دليل — تُطبَّق أولاً حين نعرفها فعلاً، وبصرامة: مندوب لا
@@ -311,17 +367,105 @@ export async function attachScientificRepGuess(rows, actingUser) {
       }
       // الصنف مُسنَد صراحةً لمندوب — يحسم وحده غالباً.
       if (itemId) candidates = narrow(candidates, c => c.ownedItems.has(itemId) || c.items.has(itemId));
+      else if (itemKey) candidates = narrow(candidates, c => c.itemKeys.has(itemKey));
       if (sciId != null) candidates = narrow(candidates, c => c.companies.has(sciId) || c.ownedCompanies.has(sciId));
       // من له قائمة ايتمات صريحة لا تضمّ هذا الصنف ليس صاحبه.
       if (itemId) {
-        candidates = narrow(candidates, c => {
-          const explicit = c.ownedItems.size > 0 ? c.ownedItems : c.items;
-          return explicit.size === 0 || explicit.has(itemId);
-        });
+        candidates = narrow(candidates, c => c.explicitItems.size === 0 || c.explicitItems.has(itemId));
+      }
+      // العلامة التجارية: من قائمته الصريحة لا تحمل «amoklavin» بأي شكل ليس صاحبه.
+      if (brand) {
+        candidates = narrow(candidates, c => c.explicitItems.size === 0 || c.brands.has(brand));
+        candidates = narrow(candidates, c => c.brands.has(brand));
       }
 
+      ctxByRow.set(row, { candidates, areaIds, itemKey, brand, sciId });
+    }
+
+    // ── سجلّ ميركاتو: من باع هذا الصنف في هذه المنطقة فعلاً ──
+    // في ملفات ميركاتو «اسم المندوب» هو المندوب العلمي نفسه، فهي سجلّ حيّ لمن
+    // يملك (منطقة × صنف) — ويتغذّى أيضاً من كل فاتورة تُحفَظ بمندوب مختار.
+    const ambiguousAreaIds = new Set();
+    for (const { candidates, areaIds } of ctxByRow.values()) {
+      if (candidates.length > 1) areaIds.forEach(id => ambiguousAreaIds.add(id));
+    }
+    let history = [];
+    if (ambiguousAreaIds.size) {
+      try {
+        const since = new Date(Date.now() - 365 * 86_400_000);
+        const groups = await prisma.sale.groupBy({
+          by: ['representativeId', 'itemId', 'areaId'],
+          where: {
+            isHidden: false, recordType: 'sale', areaId: { in: [...ambiguousAreaIds] }, saleDate: { gte: since },
+            uploadedFile: { sourceSystem: 'mercato', user: officeWhere },
+          },
+          _count: { _all: true },
+        });
+        if (groups.length) {
+          const [hReps, hItems] = await Promise.all([
+            prisma.medicalRepresentative.findMany({ where: { id: { in: [...new Set(groups.map(g => g.representativeId))] } }, select: { id: true, name: true } }),
+            prisma.item.findMany({ where: { id: { in: [...new Set(groups.map(g => g.itemId))] } }, select: { id: true, name: true } }),
+          ]);
+          const repNameById = new Map(hReps.map(r => [r.id, r.name]));
+          const hItemKey = new Map(hItems.map(i => [i.id, normalizeItemKey(i.name)]));
+          history = groups.map(g => {
+            const k = hItemKey.get(g.itemId) || '';
+            return { areaId: g.areaId, repKey: repCoreKey(repNameById.get(g.representativeId) || ''), itemKey: k, brand: itemBrand(k), n: g._count._all };
+          }).filter(h => h.repKey);
+        }
+      } catch (e) { console.error('[orders] mercato history lookup failed:', e?.message); }
+    }
+
+    for (const [row, ctx] of ctxByRow) {
+      let { candidates } = ctx;
+      if (candidates.length > 1 && history.length && ctx.areaIds.size) {
+        const score = new Map();
+        for (const h of history) {
+          if (!ctx.areaIds.has(h.areaId)) continue;
+          const w = h.itemKey && h.itemKey === ctx.itemKey ? 3 : (ctx.brand && h.brand === ctx.brand ? 1 : 0);
+          if (!w) continue;
+          const c = candidates.find(x => sameRepKey(repCoreKey(x.name), h.repKey));
+          if (c) score.set(c, (score.get(c) || 0) + w * h.n);
+        }
+        const ranked = [...score.entries()].sort((a, b) => b[1] - a[1]);
+        if (ranked.length && ranked[0][1] >= 2 && ranked[0][1] >= 2 * (ranked[1]?.[1] || 0)) {
+          // الأرجح أولاً في القائمة، والبقية تبقى للمراجِع.
+          candidates = [ranked[0][0], ...candidates.filter(c => c !== ranked[0][0])];
+          ctx.decided = ranked[0][0];
+        }
+      }
+      ctx.candidates = candidates;
+    }
+
+    // ── اتّساق الفاتورة: نفس الصيدلية + نفس الشركة = نفس المندوب غالباً ──
+    // صنف حُسم مندوبه يُرجّح بقية أصناف نفس الفاتورة من نفس الشركة حين يكون
+    // ذلك المندوب ضمن مرشّحيها (ولا يُفرَض على من لا يغطّي المنطقة).
+    const invoiceKey = (r) => [normalizeAreaName(r.pharmacy || ''), normalizeAreaName(r.area || ''), String(r.invoiceNumber ?? '').trim()].join('|');
+    const decidedByInvoice = new Map();
+    for (const [row, ctx] of ctxByRow) {
+      const name = row.scientificRep || ctx.decided?.name || (ctx.candidates.length === 1 ? ctx.candidates[0].name : null);
+      if (!name) continue;
+      const k = invoiceKey(row);
+      if (!decidedByInvoice.has(k)) decidedByInvoice.set(k, []);
+      decidedByInvoice.get(k).push({ key: repCoreKey(name), sciId: ctx.sciId });
+    }
+    for (const [row, ctx] of ctxByRow) {
+      if (ctx.decided || ctx.candidates.length <= 1) continue;
+      const decided = decidedByInvoice.get(invoiceKey(row)) || [];
+      const sameCo = decided.filter(d => d.sciId == null || ctx.sciId == null || d.sciId === ctx.sciId);
+      const hits = [...new Set(ctx.candidates.filter(c => sameCo.some(d => sameRepKey(repCoreKey(c.name), d.key))))];
+      if (hits.length === 1) {
+        ctx.decided = hits[0];
+        ctx.candidates = [hits[0], ...ctx.candidates.filter(c => c !== hits[0])];
+      }
+    }
+
+    for (const [row, ctx] of ctxByRow) {
+      const { candidates } = ctx;
       row._repCandidates = candidates.slice(0, 8).map(c => ({ id: c.id, name: c.name }));
-      if (!row.scientificRep) row.scientificRep = candidates.length === 1 ? candidates[0].name : null;
+      if (!row.scientificRep) {
+        row.scientificRep = ctx.decided?.name ?? (candidates.length === 1 ? candidates[0].name : null);
+      }
     }
   } catch (e) {
     console.error('[orders] تعذّر تخمين المندوب العلمي:', e?.message);
@@ -523,10 +667,11 @@ export async function getPendingOrder(userId, id) {
   }
   // التخمين يُعاد عند الفتح لكل صف بلا مندوب — كي تستفيد الطلبيات المعلَّقة من
   // أي تعيين مناطق جديد (أو إصلاح في التخمين) بلا إعادة إرسالها.
-  const noRep = rows.filter(r => r && !r.scientificRep);
-  if (noRep.length) {
+  // كل الصفوف تُمرَّر (لا الفارغة وحدها): المحسومة منها دليل «اتّساق الفاتورة»
+  // لبقية أصنافها، والتخمين لا يكتب فوق مندوب موجود.
+  if (rows.some(r => r && !r.scientificRep)) {
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true } });
-    if (user) await attachScientificRepGuess(noRep, user);
+    if (user) await attachScientificRepGuess(rows.filter(Boolean), user);
   }
   return {
     id: row.id,
