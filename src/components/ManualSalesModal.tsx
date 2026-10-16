@@ -762,17 +762,24 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   // يدفع الجدول لتمرير أفقي. العرض بالنسبة المئوية (table-layout: fixed) والنصوص
   // تلتفّ، فيظهر كل شيء بشاشة واحدة والأسماء كاملة.
   const cols: { key: keyof Row; label: string; pct: number; numeric?: boolean }[] = [
-    { key: 'item',          label: 'المادة *',        pct: 20 },
-    { key: 'company',       label: 'الشركة',          pct: 7 },
-    { key: 'quantity',      label: 'الكمية *',        pct: 5,   numeric: true },
-    { key: 'unitPrice',     label: 'سعر الوحدة',      pct: 6.5, numeric: true },
-    { key: 'total',         label: 'السعر الكلي',     pct: 7.5, numeric: true },
-    { key: 'bonus',         label: 'البونص',          pct: 5,   numeric: true },
-    { key: 'pharmacy',      label: 'الصيدلية',        pct: 14 },
-    { key: 'area',          label: 'المنطقة',         pct: 10 },
-    { key: 'scientificRep', label: 'المندوب العلمي',  pct: 19 },
+    { key: 'item',          label: 'المادة *',        pct: 15 },
+    { key: 'company',       label: 'الشركة',          pct: 6 },
+    { key: 'quantity',      label: 'الكمية *',        pct: 4.5, numeric: true },
+    { key: 'unitPrice',     label: 'سعر الوحدة',      pct: 5.5, numeric: true },
+    { key: 'total',         label: 'السعر الكلي',     pct: 6.5, numeric: true },
+    { key: 'bonus',         label: 'البونص',          pct: 4.5, numeric: true },
+    { key: 'pharmacy',      label: 'الصيدلية',        pct: 11 },
+    { key: 'area',          label: 'المنطقة',         pct: 7.5 },
+    { key: 'scientificRep', label: 'المندوب العلمي',  pct: 13.5 },
   ];
-  const ACTIONS_PCT = 6;
+  // خانات الفاتورة في أول السطر، مدموجة عمودياً على أصناف الفاتورة نفسها.
+  const INV_COLS = [
+    { key: 'inv',           label: 'ف',             pct: 3 },
+    { key: 'warehouse',     label: 'المذخر',        pct: 8.5 },
+    { key: 'invoiceNumber', label: 'رقم الفاتورة',  pct: 5.5 },
+    { key: 'date',          label: 'التاريخ',       pct: 7.5 },
+  ];
+  const ACTIONS_PCT = 2.5;
 
   // خيارات خانة المندوب العلمي لكل صف: مرشّحو الصف (★) أولاً ثم بقية مندوبي المكتب.
   const repOptionsFor = (r: Row): ComboOpt[] => {
@@ -1028,68 +1035,63 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         )}
 
         <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
-          <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5, width: '100%', minWidth: 1080, tableLayout: 'fixed' }}>
+          <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5, width: '100%', minWidth: 1280, tableLayout: 'fixed' }}>
             <colgroup>
+              {INV_COLS.map(c => <col key={c.key} style={{ width: `${c.pct}%` }} />)}
               {cols.map(c => <col key={c.key} style={{ width: `${c.pct}%` }} />)}
               <col style={{ width: `${ACTIONS_PCT}%` }} />
             </colgroup>
             <thead>
               <tr>
+                {INV_COLS.map(c => <th key={c.key} style={{ ...gTh, textAlign: c.key === 'inv' ? 'center' : 'right' }}>{c.label}</th>)}
                 {cols.map(c => <th key={c.key} style={{ ...gTh, textAlign: c.numeric ? 'center' : 'right' }}>{c.label}</th>)}
-                <th style={{ ...gTh, textAlign: 'center' }}>الفاتورة</th>
+                <th style={gTh}></th>
               </tr>
             </thead>
             <tbody>
-              {groups.map((g, gi) => {
-                const first = rows[g.idxs[0]];
-                const gRows = g.idxs.map(i => rows[i]).filter(rowHasData);
-                const gTotal = gRows.reduce((s, r) => s + rowValue(r), 0);
-                const gMissing = gRows.filter(r => !r.scientificRep.trim()).length;
-                const hdrOn = (key: keyof Row) => cellActive(g.idxs[0], key);
-                const hdrInput = (key: 'warehouse' | 'invoiceNumber', placeholder: string, w: number) => (
-                  <label style={gHdrField} data-hl={hdrOn(key) ? '1' : undefined}>
-                    <span style={gHdrLbl}>{placeholder}</span>
-                    <input value={first[key]} onChange={e => setGroupField(g.idxs, key, e.target.value)} placeholder="—"
-                      style={{ ...gHdrInp, width: w, ...(hdrOn(key) ? hlInp : null) }} />
-                  </label>
-                );
-                return [
-                  ...(gi > 0 ? [<tr key={`sp-${g.key}-${g.idxs[0]}`}><td colSpan={cols.length + 1} style={gSpacer} /></tr>] : []),
-                  <tr key={`h-${g.key}-${g.idxs[0]}`} data-group={g.key}>
-                    <td colSpan={cols.length + 1} style={gHdrCell}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'nowrap', overflow: 'hidden' }}>
-                        {g.imageIndex != null ? (
-                          <button onClick={() => images[g.imageIndex!] && setPreview(images[g.imageIndex!])} style={invBadge} title="عرض صورة الفاتورة">
-                            فاتورة {g.imageIndex + 1}
-                          </button>
-                        ) : (
-                          <span style={{ ...invBadge, cursor: 'default' }}>إدخال يدوي</span>
-                        )}
-                        {hdrInput('warehouse', 'المذخر', 170)}
-                        {hdrInput('invoiceNumber', 'رقم الفاتورة', 100)}
-                        <label style={gHdrField} data-hl={hdrOn('date') ? '1' : undefined}>
-                          <span style={gHdrLbl}>التاريخ</span>
-                          <input type="date" value={first.date} onChange={e => setGroupField(g.idxs, 'date', e.target.value)}
-                            style={{ ...gHdrInp, width: 140, ...(hdrOn('date') ? hlInp : null) }} />
-                        </label>
-                        <span style={{ flex: 1 }} />
-                        <span style={gHdrStat}>{gRows.length} صنف · {fmtThousands(String(Math.round(gTotal)))}</span>
-                        {gMissing > 0 && <span style={{ ...gHdrStat, color: '#b45309' }}>{gMissing} بلا مندوب</span>}
-                      </div>
-                    </td>
-                  </tr>,
-                  ...g.idxs.map(i => {
+              {groups.map((g, gi) => g.idxs.map((i, k) => {
                 const r = rows[i];
-                const st = rowState(r);
-                const stripe = st === 'bad' ? '#dc2626' : 'transparent';
+                const first = rows[g.idxs[0]];
+                const span = g.idxs.length;
+                const bad = rowState(r) === 'bad';
+                // فاصل واضح بين فاتورة وأخرى: خط أعرض فوق أول صف من كل فاتورة.
+                const sep: React.CSSProperties = k === 0 && gi > 0 ? { borderTop: '2px solid #94a3b8' } : {};
+                const hdrOn = (key: keyof Row) => cellActive(g.idxs[0], key);
+                // خانات الفاتورة (رقم/مذخر/رقم الفاتورة/تاريخ) تُدمَج عمودياً على أصنافها
+                // (rowSpan) — كل صنف سطر أفقي واحد، ومعلومات الفاتورة لا تتكرّر.
+                const invCell = (key: 'warehouse' | 'invoiceNumber') => (
+                  <td key={key} rowSpan={span} data-hl={hdrOn(key) ? '1' : undefined}
+                    style={{ ...gTd, ...gInvTd, ...sep, ...(hdrOn(key) ? { background: '#fef9c3' } : null) }}>
+                    <AutoText value={first[key]} onChange={v => setGroupField(g.idxs, key, v)} placeholder="—"
+                      style={{ ...(key === 'invoiceNumber' ? { direction: 'ltr', textAlign: 'right' } : null), ...(hdrOn(key) ? hlInp : null) }} />
+                  </td>
+                );
                 return (
-                <tr key={i} className="msm-row" style={{ background: '#fff' }}>
+                <tr key={i} className="msm-row" data-group={k === 0 ? g.key : undefined} style={{ background: '#fff' }}>
+                  {k === 0 && (
+                    <td rowSpan={span} style={{ ...gTd, ...gInvTd, ...sep, textAlign: 'center' }}>
+                      {g.imageIndex != null ? (
+                        <button onClick={() => images[g.imageIndex!] && setPreview(images[g.imageIndex!])} style={invMini} title="عرض صورة الفاتورة">
+                          {g.imageIndex + 1}
+                        </button>
+                      ) : <span style={{ color: '#94a3b8', fontSize: 11 }}>يدوي</span>}
+                    </td>
+                  )}
+                  {k === 0 && invCell('warehouse')}
+                  {k === 0 && invCell('invoiceNumber')}
+                  {k === 0 && (
+                    <td rowSpan={span} data-hl={hdrOn('date') ? '1' : undefined}
+                      style={{ ...gTd, ...gInvTd, ...sep, ...(hdrOn('date') ? { background: '#fef9c3' } : null) }}>
+                      <input type="date" value={first.date} onChange={e => setGroupField(g.idxs, 'date', e.target.value)}
+                        style={{ ...gCell, padding: '6px 4px', ...(hdrOn('date') ? hlInp : null) }} />
+                    </td>
+                  )}
                   {cols.map((c, ci) => {
                     const on = cellActive(i, c.key);
                     const cs: React.CSSProperties = on ? hlInp : {};
                     return (
                       <td key={c.key} data-hl={on ? '1' : undefined} data-cell={`${i}:${c.key}`}
-                        style={{ ...gTd, ...(ci === 0 ? { boxShadow: `inset -3px 0 0 ${stripe}` } : null), ...(on ? { background: '#fef9c3' } : null) }}>
+                        style={{ ...gTd, ...sep, ...(ci === 0 && bad ? { boxShadow: 'inset -2px 0 0 #dc2626' } : null), ...(on ? { background: '#fef9c3' } : null) }}>
                         {c.numeric ? (
                           <input
                             value={(() => {
@@ -1144,19 +1146,12 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                       </td>
                     );
                   })}
-                  <td style={{ ...gTd, textAlign: 'center', verticalAlign: 'middle' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                      {r.imageIndex != null && images[r.imageIndex]
-                        ? <button onClick={() => setPreview(images[r.imageIndex!])} title={`عرض صورة الفاتورة ${r.imageIndex + 1}`} style={invMini}>ف {r.imageIndex + 1}</button>
-                        : <span style={{ ...invMini, color: '#cbd5e1', cursor: 'default' }}>—</span>}
-                      <button onClick={() => removeRow(i)} style={delBtn} title="حذف الصف">×</button>
-                    </div>
+                  <td style={{ ...gTd, ...sep, textAlign: 'center' }}>
+                    <button onClick={() => removeRow(i)} style={delBtn} title="حذف الصف">×</button>
                   </td>
                 </tr>
                 );
-                  }),
-                ];
-              })}
+              }))}
             </tbody>
           </table>
         </div>
@@ -1299,13 +1294,7 @@ const gTd: React.CSSProperties = { padding: '2px 4px', verticalAlign: 'middle', 
 const gCell: React.CSSProperties = { width: '100%', padding: '6px 7px', border: '1px solid transparent', borderRadius: 7, fontSize: 12.5, lineHeight: 1.45, direction: 'rtl', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: 'transparent', color: '#1e293b', display: 'block', minHeight: 32 };
 const hlInp: React.CSSProperties = { background: '#fffbeb', borderColor: '#f59e0b', fontWeight: 700 };
 const candTone: React.CSSProperties = { borderBottom: '1px dashed #cbd5e1' };
-const gHdrCell: React.CSSProperties = { padding: '6px 10px', background: '#f8fafc', borderTop: '1px solid #cbd5e1', borderBottom: '1px solid #e2e8f0' };
-const gSpacer: React.CSSProperties = { height: 14, padding: 0, background: '#fff', borderBottom: 'none' };
-const gHdrField: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#475569' };
-const gHdrLbl: React.CSSProperties = { fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' };
-const gHdrInp: React.CSSProperties = { padding: '4px 6px', border: '1px solid transparent', borderBottom: '1px solid #cbd5e1', borderRadius: 4, fontSize: 12.5, background: 'transparent', outline: 'none', fontFamily: 'inherit', color: '#1e293b', fontWeight: 600 };
-const gHdrStat: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' };
-const invBadge: React.CSSProperties = { background: 'none', color: '#0f172a', border: 'none', padding: 0, fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' };
+const gInvTd: React.CSSProperties = { background: '#fafbfc', borderInlineStart: '1px solid #f1f5f9' };
 const invMini: React.CSSProperties = { background: 'none', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 5, padding: '2px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.2 };
 const statusBar: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 };
 const chip: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#334155', background: 'none', border: 'none', padding: '2px 4px', fontFamily: 'inherit' };
