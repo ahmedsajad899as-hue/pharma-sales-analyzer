@@ -1556,6 +1556,13 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                               title="ملف الكوديشن — طلبيات بوت تلكرام وإكسل الكوديشن، تُحتسب مع ميركاتو. اضغط لفتحه (شيت لكل مندوب) أو تصديره إكسل."
                             ><Icon name="file" size={12} /><span>كوديشن</span></button>
                           )}
+                          {isCond && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setConditionView(f); }}
+                              style={chip('#fff', 'var(--c-primary, #4f46e5)', 'var(--c-primary, #4f46e5)', true)}
+                              title="فتح الملف — عرض البيانات (شيت لكل مندوب)"
+                            >فتح</button>
+                          )}
                           {f.sourceSystem === 'mercato' && !isCond && (
                             <button
                               onClick={(e) => { e.stopPropagation(); setRepNameFileIds([f.id]); }}
