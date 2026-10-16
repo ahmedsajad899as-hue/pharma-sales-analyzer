@@ -897,15 +897,16 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     if (last && last.key === k) last.idxs.push(i);
     else groups.push({ key: k, imageIndex: r.imageIndex, idxs: [i] });
   });
-  // شريط «محفوظة سابقاً» يُرسم فوق أول صف من فاتورة الشبكة التي تبدأ فيها الفاتورة
-  // المكررة — لا وسطها، كي لا يكسر دمج خانات الفاتورة عمودياً (rowSpan).
-  const dupBannersAt = new Map<number, DupGroup[]>();
-  for (const dg of dupNow?.groups ?? []) {
-    const first = rows.findIndex(r => rowHasData(r) && dupGroupKey(r) === dg.group);
-    const gi = groups.findIndex(g => g.idxs.includes(first));
-    if (gi < 0) continue;
-    dupBannersAt.set(gi, [...(dupBannersAt.get(gi) ?? []), dg]);
-  }
+  // التفاصيل تظهر عند تمرير الماوس فقط (title) — بلا شرح مرئي في الجدول.
+  const dupTitle = (i: number): string => {
+    const dr = dupRowByIdx.get(i);
+    const dg = dupNow?.groups.find(x => x.group === dr?.group);
+    if (!dr || !dg) return '';
+    const m = dg.match;
+    const where = m.inBatch ? 'نفس فاتورة أخرى في هذا الجدول'
+      : `محفوظة في «${m.fileName}»: ${[m.invoiceNumber && `فاتورة ${m.invoiceNumber}`, m.pharmacy, m.date].filter(Boolean).join(' · ')}`;
+    return `${dr.level === 'duplicate' ? 'مكرر' : 'ربما مكرر'} — ${where}${dr.sameQty ? '' : ` (الكمية المحفوظة ${dr.existingQty})`}`;
+  };
   const setGroupField = (idxs: number[], key: 'warehouse' | 'invoiceNumber' | 'date', val: string) => {
     const set = new Set(idxs);
     setRows(rs => rs.map((r, idx) => (set.has(idx) ? { ...r, [key]: val } : r)));
@@ -1122,23 +1123,12 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           </div>
         )}
         {/* ملخّص التكرار — الفواتير/الأصناف المحفوظة سابقاً في الملف */}
-        {hasCheckable && (dupChecking && !dupNow ? (
-          <div style={{ ...dupBar, background: '#f8fafc', borderColor: '#e2e8f0', color: '#64748b' }}>🔎 جاري التأكد من عدم وجود هذه الفواتير في الملف سابقاً…</div>
-        ) : dupNow && dupNow.groups.length > 0 ? (
-          <div style={dupBar}>
-            <span style={{ fontWeight: 800 }}>
-              🔁 {dupNow.groups.filter(g => g.level !== 'possible').length} فاتورة مكررة
-              {dupNow.groups.some(g => g.level === 'possible') ? ` · ${dupNow.groups.filter(g => g.level === 'possible').length} محتملة` : ''}
-            </span>
-            <span style={{ color: '#7f1d1d' }}>— {dupDupRows.length} صف محفوظ سابقاً، معلَّم بالأحمر أدناه مع تفاصيل الفاتورة المحفوظة.</span>
-            <span style={{ flex: 1 }} />
-            {dupDupRows.length > 0 && (
-              <button onClick={() => dropDuplicateRows()} style={dupBtn}>🧹 استبعاد كل الصفوف المكررة ({dupDupRows.length})</button>
-            )}
+        {dupDupRows.length > 0 && (
+          <div style={{ marginBottom: 6, fontSize: 12, color: '#b91c1c', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span>🔁 {dupDupRows.length} صف مكرر (بالأحمر)</span>
+            <button onClick={() => dropDuplicateRows()} style={dupBtn}>استبعادها</button>
           </div>
-        ) : dupNow ? (
-          <div style={{ ...dupBar, background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534' }}>✓ لا توجد فاتورة مكررة — لم يُحفظ أيّ منها في الملف سابقاً.</div>
-        ) : null)}
+        )}
 
         <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
           <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5, width: '100%', minWidth: 1100, tableLayout: 'fixed' }}>
@@ -1176,36 +1166,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                 const rowBg = dr?.level === 'duplicate' ? '#fef2f2' : dr?.level === 'possible' ? '#fffbeb' : '#fff';
                 return (
                 <Fragment key={i}>
-                {k === 0 && (dupBannersAt.get(gi) ?? []).map(dg => {
-                  const m = dg.match;
-                  const strong = dg.level !== 'possible';
-                  const title = dg.level === 'duplicate' ? 'هذه الفاتورة محفوظة سابقاً بالكامل'
-                    : dg.level === 'partial' ? `${dg.matchedCount} من ${dg.itemCount} أصناف محفوظة سابقاً — الباقي جديد`
-                    : 'قد تكون محفوظة سابقاً — تحقّق';
-                  return (
-                    <tr key={`dup-${dg.group}`}>
-                      <td colSpan={INV_COLS.length + cols.length + 1}
-                        style={{ ...dupBanner, ...(gi > 0 ? { borderTop: '2px solid #94a3b8' } : null), ...(strong ? null : dupBannerSoft) }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 800 }}>{strong ? '🔁' : '❔'} {title}</span>
-                          <span style={{ fontSize: 12 }}>
-                            {m.inBatch
-                              ? 'نفس فاتورة أخرى في هذا الجدول (صورة مكررة؟)'
-                              : <>في «{m.fileName}»: {[m.invoiceNumber && `فاتورة ${m.invoiceNumber}`, m.pharmacy, m.area, m.date || 'بلا تاريخ', m.warehouse,
-                                  m.itemCount ? `${m.itemCount} صنف` : '', m.source].filter(Boolean).join(' · ')}
-                                {m.savedAt ? ` — حُفظت ${new Date(m.savedAt).toLocaleDateString('en-GB')}` : ''}</>}
-                          </span>
-                          <span style={{ fontSize: 11.5, opacity: 0.85 }}>({dg.reasons.join('، ')})</span>
-                          <span style={{ flex: 1 }} />
-                          {strong && dupDupRows.some(r => r.group === dg.group) && (
-                            <button onClick={() => dropDuplicateRows(dg.group)} style={dupBtn}>استبعاد صفوفها المكررة</button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                <tr className="msm-row" data-group={k === 0 ? g.key : undefined} style={{ background: rowBg }}>
+                <tr className={`msm-row${dr ? (dr.level === 'duplicate' ? ' msm-dup' : ' msm-dup-maybe') : ''}`}
+                  data-group={k === 0 ? g.key : undefined} style={{ background: rowBg }}
+                  title={dr ? dupTitle(i) : undefined}>
                   {k === 0 && (
                     <td rowSpan={span} style={{ ...gTd, ...gInvTd, ...sep, textAlign: 'center' }}>
                       {g.imageIndex != null ? (
@@ -1281,13 +1244,6 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                               title={r[c.key] as string}
                               style={{ ...cs, ...(c.key === 'item' ? { fontWeight: 600 } : null),
                                 ...(c.key === 'company' ? { direction: 'ltr', textAlign: 'right' } : null) }} />
-                            {c.key === 'item' && dr && (
-                              <div style={{ ...dupTag, ...(dr.level === 'possible' ? { color: '#92400e' } : null) }}
-                                title={dr.existingItem ? `المحفوظ: ${dr.existingItem} × ${dr.existingQty}` : undefined}>
-                                {dr.level === 'duplicate' ? '🔁 محفوظ سابقاً' : '❔ ربما محفوظ'}
-                                {!dr.sameQty ? ` (الكمية المحفوظة ${dr.existingQty})` : ''}
-                              </div>
-                            )}
                           </>
                         )}
                       </td>
@@ -1456,6 +1412,8 @@ const dupBannerSoft: React.CSSProperties = { background: '#fef3c7', color: '#783
 const dupTag: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#b91c1c', padding: '0 7px 3px', lineHeight: 1.3 };
 const GRID_CSS = `
 .msm-row:hover > td { background: #f8fafc !important; }
+.msm-row.msm-dup > td { background: #fecaca !important; }
+.msm-row.msm-dup-maybe > td { background: #fef08a !important; }
 .msm-row textarea:hover, .msm-row input:hover { border-color: #cbd5e1 !important; }
 .msm-row textarea:focus, .msm-row input:focus { border-color: #94a3b8 !important; border-style: solid !important; background: #fff !important; box-shadow: none; }
 .msm-row textarea::placeholder { color: #94a3b8; font-weight: 500; }
