@@ -1256,14 +1256,17 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 </span>
               </div>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-                {detail.role === 'office_manager'
-                  ? 'مدير المكتب: لا فرق بين شركة رئيسية وثانوية — كل الشركات المختارة تابعة له بالتساوي، وكل مدرائها ومندوبيها يُعتبرون تحت إدارته.'
+                {detail.role === 'office_manager' || detail.role === 'product_manager'
+                  ? (detail.role === 'product_manager'
+                      ? 'مدير المنتج: بلا شركة رئيسية — اختر الشركات التي يديرها (ليس شرطاً كلها)، وكلها تابعة له بالتساوي.'
+                      : 'مدير المكتب: لا فرق بين شركة رئيسية وثانوية — كل الشركات المختارة تابعة له بالتساوي، وكل مدرائها ومندوبيها يُعتبرون تحت إدارته.')
                   : '⭐ الشركة الرئيسية تُحدَّد على أساسها التيمات والهيكل الإداري وربط المدير. الشركات الثانوية: عمل كامل وتظهر ايتماتها، لكن خارج تكوين الفريق.'}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
                 {companies.map(c => {
                   const checked = draftCompanyIds.includes(c.id);
-                  const isPrimary = detail.role === 'office_manager' ? checked : draftPrimaryCompanyId === c.id;
+                  const noPrimaryRole = detail.role === 'office_manager' || detail.role === 'product_manager';
+                  const isPrimary = noPrimaryRole ? checked : draftPrimaryCompanyId === c.id;
                   return (
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: isPrimary ? '#fef9c3' : '#f8fafc', borderRadius: 8, fontSize: 14, border: isPrimary ? '1.5px solid #eab308' : '1.5px solid transparent' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1 }}>
@@ -1284,7 +1287,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                         }} />
                         {c.name}
                       </label>
-                      {checked && detail.role !== 'office_manager' && (
+                      {checked && !noPrimaryRole && (
                         <button type="button" onClick={() => setDraftPrimaryCompanyId(c.id)} title={isPrimary ? 'الشركة الرئيسية' : 'تعيين كرئيسية'}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, opacity: isPrimary ? 1 : 0.35 }}>
                           {isPrimary ? '⭐ رئيسية' : '☆'}
@@ -2734,7 +2737,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     // الأدوار المكتبية تخدم المكتب كله لا شركة بعينها (كل شركاته معيَّنة لها
     // تلقائياً — راجع officeScope.js) فتظهر في قسم مستقل أعلى قائمة المكتب،
     // لا تحت غطاء أي شركة واحدة بالذات.
-    if (OFFICE_SCOPED_ROLES.has(u.role)) { og.officeLevelUsers.push(u); continue; }
+    if (OFFICE_SCOPED_ROLES.has(u.role) || u.role === 'product_manager') { og.officeLevelUsers.push(u); continue; }
     // قادة المحافظات ومندوبوها يُعرضون في قسم «المحافظات» وحده — معزولين عن الشركات.
     if (provUserIds.has(u.id)) continue;
     const userCompanies = u.companyAssignments ?? [];
@@ -2836,7 +2839,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       borderBottom: '1px solid #e2e8f0',
                     }}>
                       <span style={{ fontSize: 16 }}>🏢</span>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#4338ca' }}>إدارة المكتب (كل الشركات)</span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#4338ca' }}>إدارة المكتب (مدير مكتب · HR · موظف مكتب · مدير منتج)</span>
                       <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{og.officeLevelUsers.length} مستخدم</span>
                     </div>
                     <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>

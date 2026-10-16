@@ -470,7 +470,8 @@ export async function setUserCompanies(req, res) {
 
     // مدير المكتب: لا فرق بين شركة رئيسية وثانوية — كل شركاته تابعة له بالتساوي، فتُحفظ
     // جميعها isPrimary=true (كل مدراء ومندوبي هذه الشركات يُعتبرون تحت إدارته).
-    const isOfficeManager = user.role === 'office_manager';
+    // مدير المنتج كذلك: بلا شركة رئيسية، شركاته المختارة يدوياً متساوية.
+    const isOfficeManager = user.role === 'office_manager' || user.role === 'product_manager';
     let primaryId = req.body?.primaryCompanyId != null ? parseInt(req.body.primaryCompanyId) : null;
     if (!Number.isInteger(primaryId) || !ids.includes(primaryId)) primaryId = ids[0] ?? null; // fallback: الأولى
 
