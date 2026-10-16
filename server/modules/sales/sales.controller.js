@@ -12,6 +12,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { listSalesMonths } from '../../lib/salesMonths.js';
 import { resolveFileScope } from '../../lib/fileScope.js';
+import { checkManualDuplicates } from '../../lib/manualDuplicateCheck.js';
 
 /**
  * PUT /api/active-files — يحفظ «الملفات المفعّلة» لهذا الحساب على السيرفر.
@@ -211,6 +212,28 @@ export async function checkNames(req, res, next) {
   try {
     const { rows } = req.body || {};
     const data = await checkManualNames({ rows, userId: req.user?.id ?? null });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/sales/check-duplicates
+ * هل الفواتير/الطلبيات المراجَعة محفوظة سابقاً (ملف الكوديشن + ملف الوجهة)؟
+ * قراءة فقط — للتنبيه في شبكة المراجعة قبل الحفظ. راجع lib/manualDuplicateCheck.js.
+ *
+ * Body: { rows: [{ group, invoiceNumber, date, pharmacy, area, item, company, quantity }], target?, receivedAt? }
+ * 200: { success, data: { groups, rows, checkedFiles } }
+ */
+export async function checkDuplicates(req, res, next) {
+  try {
+    const { rows, target, receivedAt } = req.body || {};
+    const at = receivedAt ? new Date(receivedAt) : null;
+    const data = await checkManualDuplicates({
+      rows, target: target || {}, userId: req.user?.id ?? null,
+      receivedAt: at && isFinite(at.getTime()) ? at : null,
+    });
     return res.json({ success: true, data });
   } catch (err) {
     next(err);

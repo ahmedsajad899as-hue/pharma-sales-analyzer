@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } from 'react';
 
 /**
  * Modal for adding sales that don't appear in the uploaded Excel files —
@@ -76,6 +76,20 @@ type NameCheck = {
   suggestions: { id: number; name: string; sim: number }[];
 };
 type NameAsk = { items: NameCheck[]; companies: NameCheck[]; rows: any[] };
+
+/** نتيجة /api/sales/check-duplicates — فاتورة/صنف محفوظ سابقاً (راجع server/lib/manualDuplicateCheck.js). */
+type DupLevel = 'duplicate' | 'partial' | 'possible';
+type DupGroup = {
+  group: string; level: DupLevel; reasons: string[]; matchedCount: number; itemCount: number;
+  match: { inBatch: boolean; group?: string; fileName?: string; invoiceNumber?: string; date?: string; savedAt?: string;
+    pharmacy?: string; area?: string; warehouse?: string; source?: string; itemCount?: number };
+};
+type DupRow = { index: number; level: 'duplicate' | 'possible'; group: string; sameQty: boolean; existingQty: number; existingItem: string | null };
+type DupResult = { sig: string; groups: DupGroup[]; rows: DupRow[] };
+
+/** مفتاح فاتورة الصف لفحص التكرار: صورة = فاتورة؛ اليدوي يُفصل برقم الفاتورة والصيدلية. */
+const dupGroupKey = (r: Row) =>
+  r.imageIndex != null ? `img${r.imageIndex}` : `manual|${r.invoiceNumber.trim()}|${r.pharmacy.trim()}`;
 
 /** مفتاح تطابق صف مستخرَج — لكشف إعادة استخراج نفس الطلبية (نصّاً ثم صورةً). */
 const rowKey = (r: Row) =>
@@ -373,6 +387,59 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   const imagesRef = useRef<string[]>([]);
   imagesRef.current = images;
 
+  // ── فحص التكرار مقابل المحفوظ سابقاً ──────────────────────────────────────
+  // بعد كل تحليل/تعديل (بتأخير قصير) يُسأل الخادم: أيّ هذه الفواتير وأصنافها
+  // موجود أصلاً في ملف الكوديشن أو ملف الوجهة؟ النتيجة تُعرض فقط حين تطابق
+  // الجدول الحالي (sig) — تعديل صف يُبطلها حتى يصل الفحص الجديد.
+  const [dup, setDup] = useState<DupResult | null>(null);
+  const [dupChecking, setDupChecking] = useState(false);
+  const dupPayload = rows.map(r => ({
+    group: dupGroupKey(r), invoiceNumber: r.invoiceNumber.trim(), date: r.date, pharmacy: r.pharmacy.trim(),
+    area: r.area.trim(), item: r.item.trim(), company: r.company.trim(), quantity: Number(r.quantity) || 0,
+  }));
+  const dupTarget = destMode === 'existing' && destFileId ? { fileId: destFileId } : destMode === 'condition' ? { condition: true } : {};
+  const dupSig = JSON.stringify([dupTarget, dupPayload]);
+  const dupSigRef = useRef(dupSig);
+  dupSigRef.current = dupSig;
+  const hasCheckable = dupPayload.some(r => r.item && r.quantity > 0);
+
+  const runDupCheck = async (sig: string): Promise<DupResult | null> => {
+    setDupChecking(true);
+    try {
+      const res = await fetch(`${API}/api/sales/check-duplicates`, {
+        method: 'POST',
+        headers: { ...authH, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: dupPayload, target: dupTarget, receivedAt: initialOrder?.createdAt }),
+      });
+      if (!res.ok) return null;
+      const d = (await res.json()).data;
+      const result: DupResult = { sig, groups: d?.groups ?? [], rows: d?.rows ?? [] };
+      if (dupSigRef.current === sig) setDup(result); // ردّ متأخر لجدول تغيّر لا يُعرض
+      return result;
+    } catch {
+      return null; // الفحص تنبيه لا شرط — تعذّره لا يمنع الحفظ
+    } finally {
+      if (dupSigRef.current === sig) setDupChecking(false);
+    }
+  };
+  useEffect(() => {
+    if (!hasCheckable) { setDup(null); return; }
+    if (dup?.sig === dupSig) return;
+    const t = setTimeout(() => { runDupCheck(dupSig); }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dupSig]);
+  const dupNow = dup && dup.sig === dupSig ? dup : null;
+  const dupRowByIdx = new Map((dupNow?.rows ?? []).map(r => [r.index, r]));
+  const dupDupRows = (dupNow?.rows ?? []).filter(r => r.level === 'duplicate');
+  /** يحذف من الجدول الصفوف المحفوظة سابقاً (كلها، أو صفوف فاتورة واحدة). */
+  const dropDuplicateRows = (group?: string) => {
+    const drop = new Set(dupDupRows.filter(r => !group || r.group === group).map(r => r.index));
+    if (!drop.size) return;
+    setRows(rs => { const kept = rs.filter((_, i) => !drop.has(i)); return kept.length ? kept : [emptyRow()]; });
+    setInfo(`🧹 استُبعد ${drop.size} صف محفوظ سابقاً — لن يُحفظ مرة ثانية.`);
+  };
+
   useEffect(() => {
     fetch(`${API}/api/representatives`, { headers: authH })
       .then(r => r.json())
@@ -614,6 +681,17 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     if (destMode === 'existing' && !destFileId) { setError('اختر ملفاً للدمج فيه.'); return; }
     if (destMode === 'new' && !newFileName.trim()) { setError('اكتب اسماً للملف الجديد.'); return; }
 
+    // ── فحص التكرار قبل الحفظ: نتيجة حديثة لهذا الجدول بالضبط، وإلا يُفحص الآن ──
+    const dupRes = dupNow ?? await runDupCheck(dupSig);
+    const stillDup = (dupRes?.rows ?? []).filter(r => r.level === 'duplicate');
+    if (stillDup.length > 0) {
+      const invs = new Set(stillDup.map(r => r.group)).size;
+      const ok = window.confirm(
+        `⚠️ ${stillDup.length} صف (في ${invs} فاتورة) محفوظ سابقاً في الملف — حفظه مرة ثانية يضاعف المبيع.\n\n`
+        + 'موافق = احفظ كل الصفوف رغم ذلك\nإلغاء = ارجع للجدول (يمكنك «استبعاد المكرر»)');
+      if (!ok) return;
+    }
+
     // ── فحص الأسماء قبل الحفظ ──
     // التطابق التام يُوحَّد صامتاً؛ المتشابه غير القاطع يُعرَض للتأكيد؛ وتعذُّر
     // الفحص لا يمنع الحفظ (نمضي بالأسماء كما كُتبت) كي لا يضيع عمل المستخدم.
@@ -819,6 +897,15 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     if (last && last.key === k) last.idxs.push(i);
     else groups.push({ key: k, imageIndex: r.imageIndex, idxs: [i] });
   });
+  // شريط «محفوظة سابقاً» يُرسم فوق أول صف من فاتورة الشبكة التي تبدأ فيها الفاتورة
+  // المكررة — لا وسطها، كي لا يكسر دمج خانات الفاتورة عمودياً (rowSpan).
+  const dupBannersAt = new Map<number, DupGroup[]>();
+  for (const dg of dupNow?.groups ?? []) {
+    const first = rows.findIndex(r => rowHasData(r) && dupGroupKey(r) === dg.group);
+    const gi = groups.findIndex(g => g.idxs.includes(first));
+    if (gi < 0) continue;
+    dupBannersAt.set(gi, [...(dupBannersAt.get(gi) ?? []), dg]);
+  }
   const setGroupField = (idxs: number[], key: 'warehouse' | 'invoiceNumber' | 'date', val: string) => {
     const set = new Set(idxs);
     setRows(rs => rs.map((r, idx) => (set.has(idx) ? { ...r, [key]: val } : r)));
@@ -1034,6 +1121,24 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
             {badRows > 0 && <span style={{ ...chip, ...chipBad }}>✕ {badRows} صف ينقصه مادة أو كمية</span>}
           </div>
         )}
+        {/* ملخّص التكرار — الفواتير/الأصناف المحفوظة سابقاً في الملف */}
+        {hasCheckable && (dupChecking && !dupNow ? (
+          <div style={{ ...dupBar, background: '#f8fafc', borderColor: '#e2e8f0', color: '#64748b' }}>🔎 جاري التأكد من عدم وجود هذه الفواتير في الملف سابقاً…</div>
+        ) : dupNow && dupNow.groups.length > 0 ? (
+          <div style={dupBar}>
+            <span style={{ fontWeight: 800 }}>
+              🔁 {dupNow.groups.filter(g => g.level !== 'possible').length} فاتورة مكررة
+              {dupNow.groups.some(g => g.level === 'possible') ? ` · ${dupNow.groups.filter(g => g.level === 'possible').length} محتملة` : ''}
+            </span>
+            <span style={{ color: '#7f1d1d' }}>— {dupDupRows.length} صف محفوظ سابقاً، معلَّم بالأحمر أدناه مع تفاصيل الفاتورة المحفوظة.</span>
+            <span style={{ flex: 1 }} />
+            {dupDupRows.length > 0 && (
+              <button onClick={() => dropDuplicateRows()} style={dupBtn}>🧹 استبعاد كل الصفوف المكررة ({dupDupRows.length})</button>
+            )}
+          </div>
+        ) : dupNow ? (
+          <div style={{ ...dupBar, background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534' }}>✓ لا توجد فاتورة مكررة — لم يُحفظ أيّ منها في الملف سابقاً.</div>
+        ) : null)}
 
         <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
           <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5, width: '100%', minWidth: 1100, tableLayout: 'fixed' }}>
@@ -1067,8 +1172,40 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                       style={{ ...(key === 'invoiceNumber' ? { direction: 'ltr', textAlign: 'right' } : null), ...(hdrOn(key) ? hlInp : null) }} />
                   </td>
                 );
+                const dr = dupRowByIdx.get(i);
+                const rowBg = dr?.level === 'duplicate' ? '#fef2f2' : dr?.level === 'possible' ? '#fffbeb' : '#fff';
                 return (
-                <tr key={i} className="msm-row" data-group={k === 0 ? g.key : undefined} style={{ background: '#fff' }}>
+                <Fragment key={i}>
+                {k === 0 && (dupBannersAt.get(gi) ?? []).map(dg => {
+                  const m = dg.match;
+                  const strong = dg.level !== 'possible';
+                  const title = dg.level === 'duplicate' ? 'هذه الفاتورة محفوظة سابقاً بالكامل'
+                    : dg.level === 'partial' ? `${dg.matchedCount} من ${dg.itemCount} أصناف محفوظة سابقاً — الباقي جديد`
+                    : 'قد تكون محفوظة سابقاً — تحقّق';
+                  return (
+                    <tr key={`dup-${dg.group}`}>
+                      <td colSpan={INV_COLS.length + cols.length + 1}
+                        style={{ ...dupBanner, ...(gi > 0 ? { borderTop: '2px solid #94a3b8' } : null), ...(strong ? null : dupBannerSoft) }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 800 }}>{strong ? '🔁' : '❔'} {title}</span>
+                          <span style={{ fontSize: 12 }}>
+                            {m.inBatch
+                              ? 'نفس فاتورة أخرى في هذا الجدول (صورة مكررة؟)'
+                              : <>في «{m.fileName}»: {[m.invoiceNumber && `فاتورة ${m.invoiceNumber}`, m.pharmacy, m.area, m.date || 'بلا تاريخ', m.warehouse,
+                                  m.itemCount ? `${m.itemCount} صنف` : '', m.source].filter(Boolean).join(' · ')}
+                                {m.savedAt ? ` — حُفظت ${new Date(m.savedAt).toLocaleDateString('en-GB')}` : ''}</>}
+                          </span>
+                          <span style={{ fontSize: 11.5, opacity: 0.85 }}>({dg.reasons.join('، ')})</span>
+                          <span style={{ flex: 1 }} />
+                          {strong && dupDupRows.some(r => r.group === dg.group) && (
+                            <button onClick={() => dropDuplicateRows(dg.group)} style={dupBtn}>استبعاد صفوفها المكررة</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="msm-row" data-group={k === 0 ? g.key : undefined} style={{ background: rowBg }}>
                   {k === 0 && (
                     <td rowSpan={span} style={{ ...gTd, ...gInvTd, ...sep, textAlign: 'center' }}>
                       {g.imageIndex != null ? (
@@ -1139,10 +1276,19 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                             style={{ ...cs, ...(r.scientificRep.trim() ? null : candTone) }}
                           />
                         ) : (
-                          <AutoText value={r[c.key] as string} onChange={v => setCell(i, c.key, v)}
-                            title={r[c.key] as string}
-                            style={{ ...cs, ...(c.key === 'item' ? { fontWeight: 600 } : null),
-                              ...(c.key === 'company' ? { direction: 'ltr', textAlign: 'right' } : null) }} />
+                          <>
+                            <AutoText value={r[c.key] as string} onChange={v => setCell(i, c.key, v)}
+                              title={r[c.key] as string}
+                              style={{ ...cs, ...(c.key === 'item' ? { fontWeight: 600 } : null),
+                                ...(c.key === 'company' ? { direction: 'ltr', textAlign: 'right' } : null) }} />
+                            {c.key === 'item' && dr && (
+                              <div style={{ ...dupTag, ...(dr.level === 'possible' ? { color: '#92400e' } : null) }}
+                                title={dr.existingItem ? `المحفوظ: ${dr.existingItem} × ${dr.existingQty}` : undefined}>
+                                {dr.level === 'duplicate' ? '🔁 محفوظ سابقاً' : '❔ ربما محفوظ'}
+                                {!dr.sameQty ? ` (الكمية المحفوظة ${dr.existingQty})` : ''}
+                              </div>
+                            )}
+                          </>
                         )}
                       </td>
                     );
@@ -1151,6 +1297,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                     <button onClick={() => removeRow(i)} style={delBtn} title="حذف الصف">×</button>
                   </td>
                 </tr>
+                </Fragment>
                 );
               }))}
             </tbody>
@@ -1301,6 +1448,12 @@ const statusBar: React.CSSProperties = { display: 'flex', alignItems: 'center', 
 const chip: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#334155', background: 'none', border: 'none', padding: '2px 4px', fontFamily: 'inherit' };
 const chipWarn: React.CSSProperties = { color: '#b45309' };
 const chipBad: React.CSSProperties = { color: '#b91c1c' };
+// ── تنبيه التكرار ──
+const dupBar: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, color: '#991b1b', fontSize: 12.5 };
+const dupBtn: React.CSSProperties = { border: '1px solid #fca5a5', background: '#fff', color: '#b91c1c', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' };
+const dupBanner: React.CSSProperties = { padding: '7px 10px', background: '#fee2e2', color: '#7f1d1d', fontSize: 12.5, borderBottom: '1px solid #fecaca' };
+const dupBannerSoft: React.CSSProperties = { background: '#fef3c7', color: '#78350f', borderBottom: '1px solid #fde68a' };
+const dupTag: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#b91c1c', padding: '0 7px 3px', lineHeight: 1.3 };
 const GRID_CSS = `
 .msm-row:hover > td { background: #f8fafc !important; }
 .msm-row textarea:hover, .msm-row input:hover { border-color: #cbd5e1 !important; }

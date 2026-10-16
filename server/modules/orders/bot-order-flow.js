@@ -21,6 +21,7 @@ import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { extractOrderRowsFromText } from './order-extract.js';
 import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
 import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess } from './orders.service.js';
+import { checkManualDuplicates, duplicateWarningText } from '../../lib/manualDuplicateCheck.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
 import { ingestPersonalSalesFromBot } from '../province-teams/personal-sales.service.js';
 
@@ -145,7 +146,19 @@ export async function handleIncomingOrderMessage({
       imageBuffers,
       mediaKeys: mediaRefs.map(r => (typeof r === 'string' ? r : JSON.stringify(r))),
     });
-    await reply(transport, ctx, msg);
+    // تنبيه مبكر: الطلبية نفسها محفوظة سابقاً في ملف الكوديشن؟ (لا يمنع الطابور —
+    // القرار للمراجِع في التطبيق، حيث تُعلَّم الصفوف المكررة أيضاً.)
+    let dupNote = '';
+    try {
+      const dup = await checkManualDuplicates({
+        rows: rows.map(r => ({ ...r, group: r._imageIndex != null ? `img${r._imageIndex}` : 'order' })),
+        target: { condition: true }, userId: user.id, receivedAt: new Date(),
+      });
+      dupNote = duplicateWarningText(dup);
+    } catch (e) {
+      console.error('[orders] تعذّر فحص التكرار:', e?.message);
+    }
+    await reply(transport, ctx, msg + dupNote);
   } catch (err) {
     // نصّ AppError التشغيلي مفهوم للمستخدم ويُعرَض كما هو؛ غيره يُخفى كي لا يصل
     // stack trace إلى كروب مبيعات. نفس نمط handleCallbackQuery في تلكرام.

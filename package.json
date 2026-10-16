@@ -26,7 +26,8 @@
     "test:province-teams": "node scripts/test-province-teams.mjs",
     "test:followup-query": "node scripts/test-followup-query.mjs",
     "test:fingerprint": "node scripts/test-sale-fingerprint.mjs",
-    "test:invoice-match": "node scripts/test-invoice-customer-match.mjs"
+    "test:invoice-match": "node scripts/test-invoice-customer-match.mjs",
+    "test:manual-duplicates": "node scripts/test-manual-duplicates.mjs"
   },
   "keywords": [
     "pharmaceutical",

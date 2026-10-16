@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadSales, extractInvoice, addManualSales, checkNames,
+import { uploadSales, extractInvoice, addManualSales, checkNames, checkDuplicates,
   downloadWarehouseGapTemplate, parseWarehouseGapUpload, getWarehouseGapScopeJson,
   saveActiveFiles, getSalesMonths } from './sales.controller.js';
 import {
@@ -76,6 +76,12 @@ router.post('/sales/manual', addManualSales);
  * JSON: { rows: [{ item, company }] }. يُرجع الأسماء المتشابهة التي تحتاج تأكيداً.
  */
 router.post('/sales/check-names', checkNames);
+
+/**
+ * POST /api/sales/check-duplicates
+ * JSON: { rows, target?, receivedAt? }. أيّ الفواتير/الأصناف محفوظة سابقاً — للتنبيه قبل الحفظ.
+ */
+router.post('/sales/check-duplicates', checkDuplicates);
 
 /**
  * GET /api/sales/months?fileIds=1,2
