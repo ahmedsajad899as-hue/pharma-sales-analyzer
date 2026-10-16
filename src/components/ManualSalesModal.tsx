@@ -762,24 +762,25 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   // يدفع الجدول لتمرير أفقي. العرض بالنسبة المئوية (table-layout: fixed) والنصوص
   // تلتفّ، فيظهر كل شيء بشاشة واحدة والأسماء كاملة.
   const cols: { key: keyof Row; label: string; pct: number; numeric?: boolean }[] = [
-    { key: 'item',          label: 'المادة *',        pct: 15 },
-    { key: 'company',       label: 'الشركة',          pct: 6 },
-    { key: 'quantity',      label: 'الكمية *',        pct: 4.5, numeric: true },
-    { key: 'unitPrice',     label: 'سعر الوحدة',      pct: 5.5, numeric: true },
-    { key: 'total',         label: 'السعر الكلي',     pct: 6.5, numeric: true },
-    { key: 'bonus',         label: 'البونص',          pct: 4.5, numeric: true },
+    { key: 'item',          label: 'المادة *',        pct: 14 },
+    { key: 'company',       label: 'الشركة',          pct: 5.5 },
+    { key: 'quantity',      label: 'الكمية *',        pct: 4, numeric: true },
+    { key: 'unitPrice',     label: 'سعر الوحدة',      pct: 5, numeric: true },
+    { key: 'total',         label: 'السعر الكلي',     pct: 6, numeric: true },
+    { key: 'bonus',         label: 'البونص',          pct: 4, numeric: true },
     { key: 'pharmacy',      label: 'الصيدلية',        pct: 11 },
     { key: 'area',          label: 'المنطقة',         pct: 7.5 },
-    { key: 'scientificRep', label: 'المندوب العلمي',  pct: 13.5 },
+    { key: 'scientificRep', label: 'المندوب العلمي',  pct: 18 },
   ];
   // خانات الفاتورة في أول السطر، مدموجة عمودياً على أصناف الفاتورة نفسها.
   const INV_COLS = [
-    { key: 'inv',           label: 'ف',             pct: 3 },
-    { key: 'warehouse',     label: 'المذخر',        pct: 8.5 },
-    { key: 'invoiceNumber', label: 'رقم الفاتورة',  pct: 5.5 },
-    { key: 'date',          label: 'التاريخ',       pct: 7.5 },
+    { key: 'inv',           label: 'ف',             pct: 2.5 },
+    { key: 'warehouse',     label: 'المذخر',        pct: 7.5 },
+    { key: 'invoiceNumber', label: 'رقم الفاتورة',  pct: 5 },
+    { key: 'date',          label: 'التاريخ',       pct: 7 },
   ];
-  const ACTIONS_PCT = 2.5;
+  // المجموع = 100% بالضبط — تجاوزه (كان 101%) يدفع عمود الحذف خارج الإطار.
+  const ACTIONS_PCT = 3;
 
   // خيارات خانة المندوب العلمي لكل صف: مرشّحو الصف (★) أولاً ثم بقية مندوبي المكتب.
   const repOptionsFor = (r: Row): ComboOpt[] => {
@@ -1035,7 +1036,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         )}
 
         <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
-          <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5, width: '100%', minWidth: 1280, tableLayout: 'fixed' }}>
+          <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5, width: '100%', minWidth: 1100, tableLayout: 'fixed' }}>
             <colgroup>
               {INV_COLS.map(c => <col key={c.key} style={{ width: `${c.pct}%` }} />)}
               {cols.map(c => <col key={c.key} style={{ width: `${c.pct}%` }} />)}
