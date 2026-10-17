@@ -16,6 +16,7 @@ import { autoEnrollAllReps } from './modules/province-teams/province-teams.servi
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
+import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
 import { updateConditionRow, deleteConditionRow } from './modules/sales/sales.service.js';
 import { loadConditionSheets, scopeSheetsToRoster, buildConditionWorkbook, migrateRowsToConditionFiles } from './lib/conditionFile.js';
 
@@ -5145,6 +5146,10 @@ if (process.env.VERCEL) {
       .then(() => migrateRowsToConditionFiles())
       .then(n => { if (n) console.log(`✓ نُقل ${n} صف طلبيات بوت/كوديشن إلى ملف الكوديشن`); })
       .catch(e => console.error('[migrateRowsToConditionFiles]', e.message));
+    // زيارات مكرّرة بين ملفات استيراد مفعّلة رُفعت قبل ميزة منع التكرار — idempotent
+    backfillVisitImportDuplicates()
+      .then(n => { if (n) console.log(`✓ ${n} زيارة مكرّرة بين ملفات الاستيراد لن تُحسب مرتين`); })
+      .catch(e => console.error('[backfillVisitImportDuplicates]', e.message));
     backfillCustomerInfoNorm()
       .then(n => { if (n) console.log(`✓ تم تعبئة معلومات الزبون لـ ${n} صف مبيعات قديم (backfill)`); })
       .catch(e => console.error('[backfillCustomerInfoNorm]', e.message));

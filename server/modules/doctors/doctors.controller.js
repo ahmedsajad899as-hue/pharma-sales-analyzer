@@ -10,6 +10,7 @@ import {
 } from '../../lib/surveyDoctors.js';
 import { getScopedSurveyPharmacies, renameSurveyPharmacyByName } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES } from '../../lib/officeScope.js';
+import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
 import { getStandards, listOverrides, effectiveFor } from '../../lib/followupStandards.js';
 import * as importVisits from './doctor-visits-import.js';
 
@@ -1307,6 +1308,8 @@ export async function setVisitImportFileActive(req, res, next) {
       prisma.doctorVisit.updateMany({ where: { visitImportFileId: id }, data: { isActive } }),
       prisma.pharmacyVisit.updateMany({ where: { visitImportFileId: id }, data: { isActive } }),
     ]);
+    // زيارة موجودة في ملفين مفعّلين تُعدّ مرة واحدة
+    await recomputeVisitImportDuplicates(ownerUserId);
     res.json({ success: true });
   } catch (e) { next(e); }
 }
@@ -1321,6 +1324,8 @@ export async function deleteVisitImportFile(req, res, next) {
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
 
     await prisma.visitImportFile.delete({ where: { id } });
+    // نسخ مكرّرة كانت مخفية في ملفات أخرى لصالح هذا الملف تعود فعّالة
+    await recomputeVisitImportDuplicates(ownerUserId);
     res.json({ success: true });
   } catch (e) { next(e); }
 }

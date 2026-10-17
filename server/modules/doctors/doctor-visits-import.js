@@ -31,6 +31,7 @@ import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLin
 import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases } from '../../lib/surveyDoctors.js';
 import { runFeedbackInferenceForImportFile } from './doctor-visit-feedback-ai.js';
 import { saveItemLinks } from '../stock-ledger/stock-ledger.service.js';
+import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
 const FEEDBACK_RULES = [
@@ -1892,6 +1893,14 @@ export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], r
   ]);
 
   const totalImported = doctorResult.imported + pharmacyResult.imported;
+  // زيارات هذا الملف الموجودة سلفاً في ملف مفعّل أقدم لا تُعدّ مرة ثانية
+  let duplicatesHidden = 0;
+  if (totalImported > 0) {
+    await recomputeVisitImportDuplicates(ownerUserId);
+    const where = { visitImportFileId: importFile.id, isActive: false };
+    const [d, p] = await Promise.all([prisma.doctorVisit.count({ where }), prisma.pharmacyVisit.count({ where })]);
+    duplicatesHidden = d + p;
+  }
   // لا نُبقي سجل ملف فارغاً (كل الصفوف فشلت/تُجوهلت) — يُربك قائمة "الملفات المرفوعة".
   if (totalImported === 0) {
     await prisma.visitImportFile.delete({ where: { id: importFile.id } }).catch(() => {});
@@ -1907,7 +1916,10 @@ export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], r
   return {
     imported: totalImported,
     skipped:  doctorResult.skipped + pharmacyResult.skipped,
-    errors:   [...doctorResult.errors, ...pharmacyResult.errors].slice(0, 30),
+    errors:   [
+      ...(duplicatesHidden ? [`ℹ️ ${duplicatesHidden} زيارة موجودة أصلاً في ملف مفعّل سابق — لن تُحسب مرتين.`] : []),
+      ...doctorResult.errors, ...pharmacyResult.errors,
+    ].slice(0, 30),
     doctor:   doctorResult,
     pharmacy: pharmacyResult,
   };
