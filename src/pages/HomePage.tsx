@@ -266,11 +266,18 @@ function Provinces({ itemId, ym, fileKey, source, token }: {
     .sort((a, b) => Number(!a.active) - Number(!b.active) || b.q - a.q || a.name.localeCompare(b.name, 'ar'));
   if (!list.length) return <div className="hp-prov hp-muted">لا مبيع في هذا الشهر.</div>;
   const max = Math.max(...list.map(r => r.q), 1);
+  // نسبة المحافظة من إجمالي صافي هذا الايتم (مجموع المحافظات)
+  const total = list.reduce((sum, r) => sum + r.q, 0);
+  const pctOf = (q: number) => {
+    if (total <= 0 || !q) return '';
+    const v = (q / total) * 100;
+    return v > 0 && v < 1 ? '<1%' : `${Math.round(v)}%`;
+  };
   return (
     <div className="hp-prov">
       {list.map(r => (
         <div key={r.name} className={`hp-prov-row ${r.active ? '' : 'is-zero'}`}>
-          <span className="hp-prov-name">{r.name}</span>
+          <span className="hp-prov-name">{r.name}{pctOf(r.q) && <small className="hp-prov-pct">{pctOf(r.q)}</small>}</span>
           <span className="hp-prov-track"><span style={{ width: `${r.q > 0 ? Math.max(2, (r.q / max) * 100) : 0}%` }} /></span>
           <span className="hp-prov-val">{fmt(r.q)} قطعة</span>
         </div>
@@ -387,10 +394,11 @@ function HomeStyles() {
 .hp-more:hover { background: var(--c-accent-light); color: var(--c-accent); }
 
 .hp-prov { padding: 6px 18px 16px; display: flex; flex-direction: column; gap: 8px; background: var(--c-accent-light); }
-.hp-prov-row { display: grid; grid-template-columns: 100px 1fr auto; gap: 12px; align-items: center; font-size: 13px; }
+.hp-prov-row { display: grid; grid-template-columns: 140px 1fr auto; gap: 12px; align-items: center; font-size: 13px; }
 .hp-prov-row.is-zero { color: var(--c-text-muted); }
 .hp-prov-row.is-zero .hp-prov-val { font-weight: 500; }
 .hp-prov-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-prov-pct { font-weight: 500; font-size: 11px; color: var(--c-text-muted); margin-inline-start: 6px; direction: ltr; unicode-bidi: isolate; }
 .hp-prov-track { height: 8px; background: rgba(26,86,219,.12); border-radius: 4px; overflow: hidden; display: flex; }
 .hp-prov-track > span { background: var(--c-accent); border-radius: 4px; }
 .hp-prov-val { font-weight: 700; white-space: nowrap; min-width: 90px; text-align: left; }
@@ -418,7 +426,7 @@ function HomeStyles() {
   .hp-head { flex-wrap: wrap; }
   .hp-search { order: 3; flex-basis: 100%; }
   .hp-item-row { gap: 10px; padding: 12px 14px; grid-template-columns: 1fr auto 58px 12px; }
-  .hp-prov-row { grid-template-columns: 80px 1fr auto; }
+  .hp-prov-row { grid-template-columns: 110px 1fr auto; }
   .hp-cmp-table th, .hp-cmp-table td { padding: 8px 10px; }
 }
 `}</style>;
