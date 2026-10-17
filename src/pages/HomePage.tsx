@@ -25,6 +25,8 @@ interface HomeData {
   source?: 'office' | 'mercato';
   currencyMode?: 'USD' | 'IQD';
   exchangeRate?: number;
+  /** مدير شركة بلا ايتمات مُسنَدة في «الايتمات» عند السوبر أدمن */
+  noItems?: boolean;
 }
 interface ProvRow { name: string; m: Record<string, Cell> }
 
@@ -137,7 +139,13 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
 
       {err && <div className="alert alert-error">{err}</div>}
       {loading && !data && <div className="hp-muted hp-center">جاري التحميل…</div>}
-      {data && months.length === 0 && !loading && (
+      {data?.noItems && (
+        <div className="hp-empty">
+          <div className="hp-empty-title">لم تُسنَد لك ايتمات بعد</div>
+          <div className="hp-muted">تظهر هنا مبيعات ايتماتك فقط — اطلب من السوبر أدمن إسنادها لك من تبويب «الايتمات».</div>
+        </div>
+      )}
+      {data && !data.noItems && months.length === 0 && !loading && (
         <div className="hp-empty"><div className="hp-empty-title">لا يوجد مبيع في الملفات المفعّلة</div></div>
       )}
 

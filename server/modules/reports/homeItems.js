@@ -10,8 +10,10 @@
 // النطاق = نفس قواعد /api/reports/overall:
 //   • الملفات المطلوبة يُتحقَّق منها (مالك أو مُشارَك معه — fileScope.js).
 //   • مصدر واحد لا خلط: المكتب افتراضياً، وإلا ميركاتو (مثل ReportsPage).
-//   • نطاق ايتمات المستخدم، ونطاق مناطقه على الملفات المُشارَكة — مدير الشركة
-//     مُستثنى من الاثنين كما في /overall.
+//   • نطاق ايتمات المستخدم (UserItemAssignment) — يشمل مدير الشركة هنا خلافاً
+//     لـ/overall (طلب صريح: يرى ايتماته فقط لا كل ايتمات المكتب). مدير شركة بلا
+//     ايتمات مُسنَدة لا يرى شيئاً (noItems) — ايتم غير مُسنَد لا يُحتسب لأي تيم.
+//   • نطاق المناطق على الملفات المُشارَكة — مدير الشركة مُستثنى منه كما في /overall.
 //   • حارس «بلا تاريخ» لكل ملف: التراكمي بحدّ UNDATED_CUTOFF، والمستقل بما قبل
 //     لحظة رفعه (إن وُجد فيه صفّ مؤرَّخ أصلاً).
 // ════════════════════════════════════════════════════════════════════════════
@@ -19,7 +21,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
-import { buildItemScopeFilter } from '../../lib/itemScope.js';
+import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { UNDATED_CUTOFF } from '../../lib/salesMonths.js';
 
 const UNKNOWN_PROVINCE = 'غير محدد';
@@ -52,17 +54,17 @@ async function resolveHomeScope(user, fileIdsParam, sourceParam) {
   const files = accessible.filter(f => (source === 'mercato') === isMercato(f));
 
   const isCompanyManager = user.role === 'company_manager';
+  const scopedItemIds = await resolveEffectiveItemIds(userId); // null = بلا تقييد
+  if (isCompanyManager && scopedItemIds == null) return { noItems: true };
   const conds = [
     Prisma.sql`s."isHidden" = false`,
     Prisma.sql`s."uploadedFileId" IN (${Prisma.join(files.map(f => f.id))})`,
   ];
 
+  if (Array.isArray(scopedItemIds)) {
+    conds.push(scopedItemIds.length ? Prisma.sql`s."itemId" IN (${Prisma.join(scopedItemIds)})` : Prisma.sql`FALSE`);
+  }
   if (!isCompanyManager) {
-    const itemScope = await buildItemScopeFilter(userId);
-    const scoped = itemScope?.itemId?.in;
-    if (Array.isArray(scoped)) {
-      conds.push(scoped.length ? Prisma.sql`s."itemId" IN (${Prisma.join(scoped)})` : Prisma.sql`FALSE`);
-    }
     if (files.some(f => f.userId !== userId)) {
       const areaIds = await resolveEffectiveAreaIds(userId);
       if (areaIds.length > 0) conds.push(Prisma.sql`s."areaId" IN (${Prisma.join(areaIds)})`);
@@ -114,6 +116,7 @@ export async function getHomeItems(req, res) {
   try {
     const scope = await resolveHomeScope(req.user, req.query.fileIds, req.query.source);
     if (!scope) return res.json({ success: true, data: { months: [], items: [], sources: [], files: [] } });
+    if (scope.noItems) return res.json({ success: true, data: { months: [], items: [], sources: [], files: [], noItems: true } });
 
     const rows = await prisma.$queryRaw`
       SELECT s."itemId" AS "itemId", s."uploadedFileId" AS "fileId", s."recordType" AS "recordType",
@@ -160,7 +163,7 @@ export async function getHomeItemProvinces(req, res) {
     const itemId = Number(req.params.itemId);
     if (!Number.isInteger(itemId) || itemId <= 0) return res.status(400).json({ error: 'itemId غير صالح' });
     const scope = await resolveHomeScope(req.user, req.query.fileIds, req.query.source);
-    if (!scope) return res.json({ success: true, data: { provinces: [] } });
+    if (!scope || scope.noItems) return res.json({ success: true, data: { provinces: [] } });
 
     const rows = await prisma.$queryRaw`
       SELECT p.name AS province, s."uploadedFileId" AS "fileId", s."recordType" AS "recordType",
