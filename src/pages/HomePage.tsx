@@ -110,15 +110,17 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const hasPrev = months.includes(prevMonth);
 
   const itemsById = useMemo(() => new Map((data?.items ?? []).map(i => [i.id, i])), [data]);
-  const ranked = useMemo(() =>
-    [...(data?.items ?? [])].sort((a, b) => netQ(b.m[activeMonth]) - netQ(a.m[activeMonth])),
-  [data, activeMonth]);
+  // الترتيب المعروض دائماً أبجدي (طلب صريح) — لا حسب الكمية. الكمية تُستعمل فقط
+  // لاختيار «أعلى الايتمات» تلقائياً قبل أن يختار المدير ايتماته.
+  const byName = (a: HomeItem, b: HomeItem) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true });
+  const ranked = useMemo(() => [...(data?.items ?? [])].sort(byName), [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const validPinned = pinned.filter(id => itemsById.has(id));
   const isAuto = validPinned.length === 0;
   const watched: HomeItem[] = isAuto
-    ? ranked.filter(i => (i.m[activeMonth]?.[0] ?? 0) > 0).slice(0, AUTO_PIN_COUNT)
-    : validPinned.map(id => itemsById.get(id)!);
+    ? [...ranked].filter(i => (i.m[activeMonth]?.[0] ?? 0) > 0)
+        .sort((a, b) => netQ(b.m[activeMonth]) - netQ(a.m[activeMonth])).slice(0, AUTO_PIN_COUNT).sort(byName)
+    : validPinned.map(id => itemsById.get(id)!).sort(byName);
 
   // بقية الايتمات (غير المعروضة أعلاه) التي لها حركة في الشهر — تُفتح بسهم أسفل القائمة
   const watchedIds = new Set(watched.map(i => i.id));
