@@ -1,5 +1,6 @@
 // ════════════════════════════════════════════════════════════════════════════
-// HomePage — «الرئيسية»: صافي (مبيع − إرجاع) الايتمات المتابَعة في شهر واحد،
+// HomePage — «الرئيسية»: صافي كمية (مبيع − إرجاع) الايتمات المتابَعة في شهر واحد،
+// بلا أي قيمة مالية (طلب صريح — لا تُعِد عرض الفلوس)،
 // من ملفات مبيع المكتب وحدها (لا ميركاتو — طلب صريح)، بأبسط عرض ممكن.
 //
 // • اختيار الشهر (قائمة واحدة) + سطر ملخّص واحد + بطاقة لكل ايتم (القيمة،
@@ -58,7 +59,6 @@ const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 const normAr = (t: string) => t.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
 /** الصافي = مبيع − إرجاع (الإرجاع مخزَّن موجباً) */
 const netQ = (c?: Cell) => (c ? c[0] - c[2] : 0);
-const netV = (c?: Cell) => (c ? c[1] - c[3] : 0);
 
 export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const { token, user } = useAuth();
@@ -72,6 +72,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const [showPicker, setShowPicker] = useState(false);
   const [showRest, setShowRest] = useState(false);
   const [query, setQuery] = useState('');
+  const [compare, setCompare] = useState(false);
 
   // ── الايتمات المتابَعة (لكل حساب) ──────────────────────────────────────────
   const pinKey = `homePinnedItems_${user?.id ?? ''}`;
@@ -107,20 +108,16 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const activeMonth = month && months.includes(month) ? month : (months[months.length - 1] ?? '');
   const prevMonth = activeMonth ? prevYm(activeMonth) : '';
   const hasPrev = months.includes(prevMonth);
-  const cur = data?.currencyMode || 'IQD';
-  const rate = data?.exchangeRate || 1470;
-  const money = (usd: number) => (cur === 'IQD' ? usd * rate : usd);
-  const curLabel = cur === 'IQD' ? 'د.ع' : '$';
 
   const itemsById = useMemo(() => new Map((data?.items ?? []).map(i => [i.id, i])), [data]);
   const ranked = useMemo(() =>
-    [...(data?.items ?? [])].sort((a, b) => netV(b.m[activeMonth]) - netV(a.m[activeMonth])),
+    [...(data?.items ?? [])].sort((a, b) => netQ(b.m[activeMonth]) - netQ(a.m[activeMonth])),
   [data, activeMonth]);
 
   const validPinned = pinned.filter(id => itemsById.has(id));
   const isAuto = validPinned.length === 0;
   const watched: HomeItem[] = isAuto
-    ? ranked.filter(i => (i.m[activeMonth]?.[1] ?? 0) > 0).slice(0, AUTO_PIN_COUNT)
+    ? ranked.filter(i => (i.m[activeMonth]?.[0] ?? 0) > 0).slice(0, AUTO_PIN_COUNT)
     : validPinned.map(id => itemsById.get(id)!);
 
   // بقية الايتمات (غير المعروضة أعلاه) التي لها حركة في الشهر — تُفتح بسهم أسفل القائمة
@@ -136,8 +133,8 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
     : [];
   const shown = searching ? matches : watched;
 
-  const total = shown.reduce((s, it) => s + netV(it.m[activeMonth]), 0);
-  const totalPrev = shown.reduce((s, it) => s + netV(it.p?.[prevMonth]), 0);
+  const total = shown.reduce((s, it) => s + netQ(it.m[activeMonth]), 0);
+  const totalPrev = shown.reduce((s, it) => s + netQ(it.p?.[prevMonth]), 0);
   const cut = data?.cutDay?.[activeMonth];
 
   // ════════════════════════════════════════════════════════════════════════
@@ -164,6 +161,8 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
         </select>
         <input className="form-input hp-search" type="search" placeholder="🔍 بحث عن ايتم أو شركة…"
           value={query} onChange={e => { setQuery(e.target.value); setOpenId(null); }} />
+        <button className={`btn ${compare ? 'btn-primary' : ''}`} onClick={() => setCompare(v => !v)}
+          title="جدول مقارنة كمية هذا الشهر بالشهر السابق">⇄ مقارنة</button>
         <button className="btn" onClick={() => setShowPicker(true)}>⭐ اختيار الايتمات</button>
       </div>
 
@@ -190,7 +189,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
           <div className="hp-summary">
             <div>
               <div className="hp-muted">صافي {searching ? `نتائج «${query.trim()}» (${matches.length} ايتم)` : isAuto ? 'أعلى الايتمات' : 'ايتماتك'} (مبيع − إرجاع) — {monthName(activeMonth)}</div>
-              <div className="hp-summary-value">{fmt(money(total))} <small>{curLabel}</small></div>
+              <div className="hp-summary-value">{fmt(total)} <small>قطعة</small></div>
             </div>
             {hasPrev && (
               <div className="hp-cmp">
@@ -200,6 +199,11 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
             )}
           </div>
 
+          {compare ? (
+            <CompareTable
+              items={searching ? matches : ranked.filter(i => i.m[activeMonth] || i.p?.[prevMonth])}
+              month={activeMonth} prevMonth={prevMonth} cut={cut} />
+          ) : (
           <div className="hp-list">
             {[...shown, ...(showRest && !searching ? rest : [])].map((it, i) => {
               const c = it.m[activeMonth];
@@ -208,14 +212,12 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
                 <div key={it.id} className={`hp-item ${open ? 'is-open' : ''} ${!searching && i === watched.length ? 'is-rest-start' : ''}`}>
                   <button className="hp-item-row" onClick={() => setOpenId(open ? null : it.id)}>
                     <span className="hp-item-name">{it.name}</span>
-                    <span className="hp-item-qty">{fmt(netQ(c))} قطعة</span>
-                    <span className="hp-item-val">{fmt(money(netV(c)))} <small>{curLabel}</small></span>
-                    <span className="hp-item-delta">{hasPrev ? <Delta now={netV(c)} prev={netV(it.p?.[prevMonth])} /> : null}</span>
+                    <span className="hp-item-val">{fmt(netQ(c))} <small>قطعة</small></span>
+                    <span className="hp-item-delta">{hasPrev ? <Delta now={netQ(c)} prev={netQ(it.p?.[prevMonth])} /> : null}</span>
                     <span className="hp-chev">{open ? '▴' : '▾'}</span>
                   </button>
                   {open && (
-                    <Provinces itemId={it.id} ym={activeMonth} fileKey={fileKey} source={data?.source} token={token}
-                      money={money} curLabel={curLabel} />
+                    <Provinces itemId={it.id} ym={activeMonth} fileKey={fileKey} source={data?.source} token={token} />
                   )}
                 </div>
               );
@@ -228,7 +230,8 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
               </button>
             )}
           </div>
-          {isAuto && !searching && <div className="hp-muted hp-center">تُعرض تلقائياً الأعلى مبيعاً — اضغط «⭐ اختيار الايتمات» لتحديد ايتماتك.</div>}
+          )}
+          {isAuto && !searching && !compare && <div className="hp-muted hp-center">تُعرض تلقائياً الأعلى مبيعاً — اضغط «⭐ اختيار الايتمات» لتحديد ايتماتك.</div>}
         </>
       )}
 
@@ -253,9 +256,8 @@ function Delta({ now, prev }: { now: number; prev: number }) {
   );
 }
 
-function Provinces({ itemId, ym, fileKey, source, token, money, curLabel }: {
+function Provinces({ itemId, ym, fileKey, source, token }: {
   itemId: number; ym: string; fileKey: string; source?: string; token: string | null;
-  money: (n: number) => number; curLabel: string;
 }) {
   const key = `${fileKey}|${source ?? ''}|${itemId}`;
   const [rows, setRows] = useState<ProvRow[] | null>(provCache.get(key) ?? null);
@@ -272,21 +274,62 @@ function Provinces({ itemId, ym, fileKey, source, token, money, curLabel }: {
   }, [key, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!rows) return <div className="hp-prov hp-muted">جاري التحميل…</div>;
-  const list = rows.map(r => ({ name: r.name, q: netQ(r.m[ym]), v: netV(r.m[ym]) }))
+  const list = rows.map(r => ({ name: r.name, q: netQ(r.m[ym]), active: !!r.m[ym] }))
     // المحافظات بلا مبيع ولا إرجاع تظهر أيضاً (صفر) — في آخر القائمة
-    .sort((a, b) => Number(!(a.q || a.v)) - Number(!(b.q || b.v)) || b.v - a.v || a.name.localeCompare(b.name, 'ar'));
+    .sort((a, b) => Number(!a.active) - Number(!b.active) || b.q - a.q || a.name.localeCompare(b.name, 'ar'));
   if (!list.length) return <div className="hp-prov hp-muted">لا مبيع في هذا الشهر.</div>;
-  const max = Math.max(...list.map(r => r.v), 1);
+  const max = Math.max(...list.map(r => r.q), 1);
   return (
     <div className="hp-prov">
       {list.map(r => (
-        <div key={r.name} className={`hp-prov-row ${r.q || r.v ? '' : 'is-zero'}`}>
+        <div key={r.name} className={`hp-prov-row ${r.active ? '' : 'is-zero'}`}>
           <span className="hp-prov-name">{r.name}</span>
-          <span className="hp-prov-track"><span style={{ width: `${r.v > 0 ? Math.max(2, (r.v / max) * 100) : 0}%` }} /></span>
-          <span className="hp-prov-qty">{fmt(r.q)} قطعة</span>
-          <span className="hp-prov-val">{fmt(money(r.v))} {curLabel}</span>
+          <span className="hp-prov-track"><span style={{ width: `${r.q > 0 ? Math.max(2, (r.q / max) * 100) : 0}%` }} /></span>
+          <span className="hp-prov-val">{fmt(r.q)} قطعة</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function CompareTable({ items, month, prevMonth, cut }: {
+  items: HomeItem[]; month: string; prevMonth: string; cut?: number;
+}) {
+  // الشهر السابق = نفس الفترة (1–cut) — نفس أساس الأسهم في بقية الصفحة
+  const rows = items.map(it => ({ id: it.id, name: it.name, now: netQ(it.m[month]), prev: netQ(it.p?.[prevMonth]) }));
+  const sumNow = rows.reduce((s, r) => s + r.now, 0);
+  const sumPrev = rows.reduce((s, r) => s + r.prev, 0);
+  if (!rows.length) return <div className="hp-muted hp-center">لا توجد ايتمات للمقارنة.</div>;
+  return (
+    <div className="hp-cmp-table">
+      <table>
+        <thead>
+          <tr>
+            <th>الايتم</th>
+            <th className="num">{monthName(month)}</th>
+            <th className="num">{monthName(prevMonth)}{cut ? ` (1–${cut})` : ''}</th>
+            <th className="num">التغيّر</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td>{r.name}</td>
+              <td className="num">{fmt(r.now)}</td>
+              <td className="num prev">{fmt(r.prev)}</td>
+              <td className="num"><Delta now={r.now} prev={r.prev} /></td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>المجموع</td>
+            <td className="num">{fmt(sumNow)}</td>
+            <td className="num">{fmt(sumPrev)}</td>
+            <td className="num"><Delta now={sumNow} prev={sumPrev} /></td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }
@@ -349,11 +392,10 @@ function HomeStyles() {
 
 .hp-list { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-lg); overflow: hidden; }
 .hp-item + .hp-item { border-top: 1px solid var(--c-border-light); }
-.hp-item-row { width: 100%; display: grid; grid-template-columns: 1fr auto auto 64px 16px; gap: 14px; align-items: center;
+.hp-item-row { width: 100%; display: grid; grid-template-columns: 1fr auto 64px 16px; gap: 14px; align-items: center;
   padding: 14px 18px; background: none; border: 0; cursor: pointer; font-family: inherit; text-align: right; color: var(--c-text-primary); }
 .hp-item-row:hover, .hp-item.is-open .hp-item-row { background: var(--c-accent-light); }
 .hp-item-name { font-weight: 700; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hp-item-qty { color: var(--c-text-secondary); font-size: 13px; white-space: nowrap; }
 .hp-item-val { font-weight: 800; font-size: 15px; white-space: nowrap; }
 .hp-item-val small { font-size: 11.5px; color: var(--c-text-muted); font-weight: 600; }
 .hp-item-delta { text-align: left; }
@@ -365,15 +407,23 @@ function HomeStyles() {
 .hp-more:hover { background: var(--c-accent-light); color: var(--c-accent); }
 
 .hp-prov { padding: 6px 18px 16px; display: flex; flex-direction: column; gap: 8px; background: var(--c-accent-light); }
-.hp-prov-row { display: grid; grid-template-columns: 100px 1fr auto auto; gap: 12px; align-items: center; font-size: 13px; }
+.hp-prov-row { display: grid; grid-template-columns: 100px 1fr auto; gap: 12px; align-items: center; font-size: 13px; }
 .hp-prov-row.is-zero { color: var(--c-text-muted); }
 .hp-prov-row.is-zero .hp-prov-val { font-weight: 500; }
 .hp-prov-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hp-prov-track { height: 8px; background: rgba(26,86,219,.12); border-radius: 4px; overflow: hidden; display: flex; }
 .hp-prov-track > span { background: var(--c-accent); border-radius: 4px; }
-.hp-prov-qty { color: var(--c-text-secondary); white-space: nowrap; }
 .hp-prov-val { font-weight: 700; white-space: nowrap; min-width: 90px; text-align: left; }
 
+.hp-cmp-table { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-lg); overflow: auto; max-height: 70vh; }
+.hp-cmp-table table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.hp-cmp-table th { position: sticky; top: 0; background: var(--c-bg); color: var(--c-text-secondary); font-weight: 700;
+  font-size: 12.5px; padding: 10px 14px; text-align: right; white-space: nowrap; }
+.hp-cmp-table td { padding: 10px 14px; border-top: 1px solid var(--c-border-light); white-space: nowrap; }
+.hp-cmp-table td:first-child { white-space: normal; font-weight: 600; }
+.hp-cmp-table .num { text-align: center; font-weight: 700; }
+.hp-cmp-table td.prev { color: var(--c-text-secondary); font-weight: 600; }
+.hp-cmp-table tfoot td { position: sticky; bottom: 0; background: var(--c-bg); font-weight: 800; border-top: 2px solid var(--c-border); }
 .hp-empty { text-align: center; padding: 50px 20px; background: var(--c-surface); border: 1px dashed var(--c-border);
   border-radius: var(--radius-lg); display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .hp-empty-title { font-size: 16px; font-weight: 700; }
@@ -388,13 +438,9 @@ function HomeStyles() {
   .hp-head { flex-wrap: wrap; }
   .hp-search { order: 3; flex-basis: 100%; }
   .hp-summary-value { font-size: 22px; }
-  .hp-item-row { grid-template-columns: 1fr auto 16px; row-gap: 4px; padding: 12px 14px; }
-  .hp-item-qty { grid-column: 1; grid-row: 2; }
-  .hp-item-val { grid-column: 2; grid-row: 1; }
-  .hp-item-delta { grid-column: 2; grid-row: 2; }
-  .hp-chev { grid-column: 3; grid-row: 1 / span 2; }
+  .hp-item-row { gap: 10px; padding: 12px 14px; grid-template-columns: 1fr auto 58px 12px; }
   .hp-prov-row { grid-template-columns: 80px 1fr auto; }
-  .hp-prov-qty { display: none; }
+  .hp-cmp-table th, .hp-cmp-table td { padding: 8px 10px; }
 }
 `}</style>;
 }
