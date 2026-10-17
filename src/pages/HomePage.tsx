@@ -79,6 +79,15 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const [view, setView] = useState<'list' | 'board'>(() => {
     try { return localStorage.getItem(viewKey) === 'board' ? 'board' : 'list'; } catch { return 'list'; }
   });
+  // اختلاف المنظر (parallax) لخلفية اللوحة: موضع الماوس يُكتب كمتغيّرات CSS مباشرةً
+  // على الجذر — بلا setState، فلا إعادة رسم للصفحة مع كل حركة.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const onSkyMove = (e: React.PointerEvent) => {
+    const el = rootRef.current;
+    if (!el) return;
+    el.style.setProperty('--mx', String(e.clientX / window.innerWidth - 0.5));
+    el.style.setProperty('--my', String(e.clientY / window.innerHeight - 0.5));
+  };
   const toggleView = () => {
     const next = view === 'board' ? 'list' : 'board';
     setView(next);
@@ -163,8 +172,10 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   }
 
   return (
-    <div className="page hp">
+    <div className={`page hp ${view === 'board' ? 'is-board' : ''}`} ref={rootRef}
+      onPointerMove={view === 'board' ? onSkyMove : undefined}>
       <HomeStyles />
+      {view === 'board' && <Sky />}
 
       <div className="hp-head">
         <select className="form-input hp-month" value={activeMonth} onChange={e => { setMonth(e.target.value); setOpenId(null); }} disabled={!months.length}>
@@ -550,7 +561,10 @@ function Box3D({ src, depth, label }: { src: string; depth: number; label: strin
     <div className="b3d-scene" ref={sceneRef} onPointerMove={onMove} onPointerLeave={() => setTilt(null)}>
       {meta && W > 0 && (
         <>
+          <div className="b3d-glow" style={{ width: W * 1.6, height: H * 1.6 }} />
           <div className="b3d-shadow" style={{ width: W * 1.15 }} />
+          {/* طبقة الطفو: العلبة تعلو وتهبط ببطء (والظل يصغر معها) — مستقلة عن التمايل/الميل */}
+          <div className="b3d-bob">
           <div className={`b3d ${tilt ? 'is-tilt' : ''}`} role="img" aria-label={label}
             style={{ width: W, height: H, ...(tilt ? { transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` } : {}) }}>
             {face({ width: W, height: H, transform: `translateZ(${D / 2}px)` },
@@ -565,6 +579,7 @@ function Box3D({ src, depth, label }: { src: string; depth: number; label: strin
               side(meta.top, 'linear-gradient(to top, rgba(255,255,255,.28), rgba(255,255,255,.06))'))}
             {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(-90deg) translateZ(${H / 2}px)` },
               side(meta.bottom, 'linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45))'))}
+          </div>
           </div>
         </>
       )}
@@ -635,6 +650,28 @@ function ItemArt({ name, company }: { name: string; company: string | null }) {
       <text x="38" y="123.5" fontSize="11" fontWeight="800" fill="#fff" direction="ltr">{strength || 'Rx'}</text>
       <rect x="30" y="130" width="160" height="12" fill={hue} opacity=".12" />
     </svg>
+  );
+}
+
+/**
+ * خلفية واجهة اللوحة: نفس أزرق بطاقة الايتم ممتدّاً على الصفحة كلها، مع بقع ضوء
+ * هادئة تنجرف ببطء وتتحرّك قليلاً مع الماوس (--mx/--my)، وذرّات ضوء خافتة تطفو.
+ * ثابتة خلف المحتوى (position: fixed) فتغطي مساحة الصفحة كاملة.
+ */
+const SKY_DOTS = Array.from({ length: 22 }, (_, i) => ({
+  left: (i * 37) % 100, top: (i * 53 + 11) % 100, size: 2 + (i % 3), delay: (i * 0.9) % 12, dur: 14 + (i % 5) * 3,
+}));
+function Sky() {
+  return (
+    <div className="hp-sky" aria-hidden="true">
+      <span className="hp-sky-blob b1" />
+      <span className="hp-sky-blob b2" />
+      <span className="hp-sky-blob b3" />
+      {SKY_DOTS.map((d, i) => (
+        <span key={i} className="hp-sky-dot"
+          style={{ left: `${d.left}%`, top: `${d.top}%`, width: d.size, height: d.size, animationDelay: `${-d.delay}s`, animationDuration: `${d.dur}s` }} />
+      ))}
+    </div>
   );
 }
 
@@ -912,6 +949,59 @@ function HomeStyles() {
 .b3d-shadow { position: absolute; left: 50%; bottom: 8%; height: 26px; transform: translateX(-50%);
   background: radial-gradient(ellipse, rgba(0,0,0,.55), transparent 70%); filter: blur(7px); pointer-events: none; }
 .cf-slot:not(.is-active) .b3d { animation-play-state: paused; }
+
+/* طفو العلبة: صعود وهبوط هادئ، والظل يصغر ويبهت حين تعلو */
+.b3d-bob { transform-style: preserve-3d; animation: b3d-bob 5.5s ease-in-out infinite; }
+@keyframes b3d-bob { 0%, 100% { transform: translateY(6px); } 50% { transform: translateY(-12px); } }
+.b3d-shadow { animation: b3d-shadow 5.5s ease-in-out infinite; }
+@keyframes b3d-shadow { 0%, 100% { transform: translateX(-50%) scale(1); opacity: .9; } 50% { transform: translateX(-50%) scale(.72); opacity: .5; } }
+.b3d-glow { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(96,165,250,.32), transparent 65%); filter: blur(12px); opacity: 0; transition: opacity .8s ease; }
+.cf-slot.is-active .b3d-glow { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .b3d-bob, .b3d-shadow { animation: none; } }
+
+/* ══ واجهة اللوحة: الصفحة كلها بلون خلفية الايتم، والعناصر طافية بلا حدود ══ */
+.hp.is-board { --mx: 0; --my: 0; position: relative; z-index: 0; max-width: 960px; }
+.hp-sky { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 115%, #1d3f78 0%, transparent 60%),
+    linear-gradient(160deg, #0b1526 0%, #0f1e35 35%, #132a4f 70%, #1a3a6b 100%); }
+.hp-sky-blob { position: absolute; border-radius: 50%; filter: blur(70px); will-change: transform; }
+/* translate = اختلاف المنظر مع الماوس، transform = الانجراف البطيء — خاصيتان منفصلتان فلا تتعارضان */
+.hp-sky-blob.b1 { width: 44vw; height: 44vw; left: 6%; top: 8%; background: #1a56db; opacity: .30;
+  translate: calc(var(--mx) * -46px) calc(var(--my) * -34px); animation: sky-drift 28s ease-in-out infinite alternate; }
+.hp-sky-blob.b2 { width: 38vw; height: 38vw; right: 4%; bottom: -6%; background: #0891b2; opacity: .20;
+  translate: calc(var(--mx) * 38px) calc(var(--my) * 30px); animation: sky-drift 34s ease-in-out infinite alternate-reverse; }
+.hp-sky-blob.b3 { width: 30vw; height: 30vw; left: 38%; top: -10%; background: #4f46e5; opacity: .16;
+  translate: calc(var(--mx) * 24px) calc(var(--my) * -20px); animation: sky-drift 40s ease-in-out infinite alternate; }
+@keyframes sky-drift { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(6vw, 5vh) scale(1.18); } }
+.hp-sky-dot { position: absolute; border-radius: 50%; background: rgba(191,219,254,.7); box-shadow: 0 0 8px rgba(191,219,254,.7);
+  translate: calc(var(--mx) * 16px) calc(var(--my) * 16px); animation: sky-float linear infinite; opacity: 0; }
+@keyframes sky-float { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: .7; } 85% { opacity: .7; } 100% { transform: translateY(-110px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .hp-sky-blob, .hp-sky-dot { animation: none; } .hp-sky-dot { opacity: .5; } }
+
+.hp.is-board .hp-month, .hp.is-board .hp-view-btn { background: rgba(255,255,255,.08); color: #e2e8f0;
+  border: 1px solid rgba(255,255,255,.14); backdrop-filter: blur(8px); }
+.hp.is-board .hp-month option { color: var(--c-primary); }
+.hp.is-board .hp-view-btn:hover { background: rgba(255,255,255,.16); }
+.hp.is-board .bb-tabs { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.12); box-shadow: none; backdrop-filter: blur(10px); }
+.hp.is-board .bb-tabs button { color: rgba(226,232,240,.75); }
+.hp.is-board .bb-tabs button.is-on { background: rgba(255,255,255,.92); color: var(--c-primary); }
+.hp.is-board .bb-section { background: none; border: 0; box-shadow: none; overflow: visible; padding: 4px 0 0; }
+.hp.is-board .bb-title { color: #e2e8f0; justify-content: center; }
+.hp.is-board .bb-title-dot { box-shadow: 0 0 0 4px rgba(96,165,250,.2), 0 0 12px rgba(96,165,250,.8); background: #93c5fd; }
+.hp.is-board .bb-title-dot.is-prov { background: #67e8f9; box-shadow: 0 0 0 4px rgba(103,232,249,.18), 0 0 12px rgba(103,232,249,.8); }
+.hp.is-board .bb-title .hp-muted, .hp.is-board > .hp-muted, .hp.is-board .bb-section > .hp-muted { color: rgba(203,213,225,.7); }
+.hp.is-board .cf { overflow-x: clip; overflow-y: visible; }
+.hp.is-board .cf-dot { background: rgba(255,255,255,.22); }
+.hp.is-board .cf-dot.is-on { background: #93c5fd; box-shadow: 0 0 8px rgba(147,197,253,.8); }
+/* البطاقات بلا غلاف: لا خلفية ولا ظل — العلبة والنصوص تطفو مباشرةً فوق الصفحة */
+.hp.is-board .bb-card, .hp.is-board .bb-card.has-photo, .hp.is-board .cf-slot.is-active .bb-card { background: none; box-shadow: none; }
+.hp.is-board .bb-card-item:not(.has-photo) .bb-frame { background: none; box-shadow: none; animation: b3d-bob 5.5s ease-in-out infinite; }
+.hp.is-board .bb-card-prov { animation: b3d-bob 6.5s ease-in-out infinite; }
+.hp.is-board .bb-card-prov .bb-card-name { text-shadow: 0 4px 22px rgba(147,197,253,.5); }
+.hp.is-board .bb-card-prov .bb-card-qty { text-shadow: 0 6px 26px rgba(103,232,249,.35); }
+.hp.is-board .bb-photo-pill { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+.hp.is-board .cf-slot:focus-visible { outline-color: #93c5fd; }
 .bb-photo-top { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1; display: flex; justify-content: space-between; align-items: center; }
 .bb-photo-top .bb-rank { background: rgba(15,30,53,.75); backdrop-filter: blur(4px); }
 .bb-photo-top .hp-delta { box-shadow: 0 2px 8px rgba(0,0,0,.2); }
