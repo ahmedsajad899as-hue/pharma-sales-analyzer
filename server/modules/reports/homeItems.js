@@ -117,7 +117,9 @@ const roundCell = (c) => [Math.round(c[0]), r2(c[1]), Math.round(c[2]), r2(c[3])
 
 /**
  * GET /api/reports/home-items?fileIds=1,2&source=office|mercato
- * → { months, items: [{ id, name, company, m: { 'YYYY-MM': [sq, sv, rq, rv] } }], ...fileMeta }
+ * → { months, cutDay: { 'YYYY-MM': آخر يوم فيه بيانات },
+ *     items: [{ id, name, company, m: { 'YYYY-MM': [sq, sv, rq, rv] },
+ *               p: { 'YYYY-MM': نفس الخلية لكن حتى cutDay للشهر التالي فقط } }], ...fileMeta }
  */
 export async function getHomeItems(req, res) {
   try {
@@ -132,6 +134,41 @@ export async function getHomeItems(req, res) {
         FROM sales s
        WHERE ${Prisma.join(scope.conds, ' AND ')}
        GROUP BY 1, 2, 3, 4`;
+
+    // ── مقارنة «نفس الفترة» ──────────────────────────────────────────────────
+    // الشهر الجاري غالباً ناقص (الملف يصل حتى يوم 15 مثلاً)، فمقارنته بالشهر
+    // السابق كاملاً تُظهر هبوطاً وهمياً. لكل شهر N: cutDay = آخر يوم فيه بيانات
+    // (ضمن نفس النطاق)، ثم يُجمع الشهر السابق P من يومه 1 حتى cutDay فقط.
+    // النتيجة في `p[P]` لكل ايتم (P = الشهر السابق لـN)، و`cutDay[N]` للعرض.
+    const dayOf = Prisma.sql`EXTRACT(DAY FROM (s."saleDate" AT TIME ZONE 'UTC'))`;
+    const ymOf  = Prisma.sql`to_char(date_trunc('month', s."saleDate" AT TIME ZONE 'UTC'), 'YYYY-MM')`;
+    const cutRows = await prisma.$queryRaw`
+      SELECT ${ymOf} AS ym, MAX(${dayOf})::int AS d
+        FROM sales s
+       WHERE ${Prisma.join(scope.conds, ' AND ')}
+       GROUP BY 1`;
+    const cutDay = Object.fromEntries(cutRows.map(r => [r.ym, Number(r.d)]));
+    const partialRows = await prisma.$queryRaw`
+      WITH cut AS (
+        SELECT to_char(date_trunc('month', s."saleDate" AT TIME ZONE 'UTC') - INTERVAL '1 month', 'YYYY-MM') AS pym,
+               MAX(${dayOf}) AS d
+          FROM sales s
+         WHERE ${Prisma.join(scope.conds, ' AND ')}
+         GROUP BY 1
+      )
+      SELECT s."itemId" AS "itemId", s."uploadedFileId" AS "fileId", s."recordType" AS "recordType",
+             ${ymOf} AS ym, SUM(s.quantity)::float AS qty, SUM(s."totalValue")::float AS val
+        FROM sales s
+        JOIN cut ON cut.pym = ${ymOf}
+       WHERE ${Prisma.join(scope.conds, ' AND ')} AND ${dayOf} <= cut.d
+       GROUP BY 1, 2, 3, 4`;
+    const partialByItem = new Map();
+    for (const row of partialRows) {
+      if (!partialByItem.has(row.itemId)) partialByItem.set(row.itemId, {});
+      const m = partialByItem.get(row.itemId);
+      if (!m[row.ym]) m[row.ym] = [0, 0, 0, 0];
+      addRow(m[row.ym], row, scope.rateByFile.get(row.fileId) || 1);
+    }
 
     const byItem = new Map();
     const monthSet = new Set();
@@ -150,10 +187,12 @@ export async function getHomeItems(req, res) {
     const items = itemRecs.map(it => {
       const m = byItem.get(it.id);
       for (const k of Object.keys(m)) m[k] = roundCell(m[k]);
-      return { id: it.id, name: it.name, company: it.scientificCompany?.name ?? it.company?.name ?? null, m };
+      const p = partialByItem.get(it.id) ?? {};
+      for (const k of Object.keys(p)) p[k] = roundCell(p[k]);
+      return { id: it.id, name: it.name, company: it.scientificCompany?.name ?? it.company?.name ?? null, m, p };
     });
 
-    res.json({ success: true, data: { months: [...monthSet].sort(), items, ...fileMeta(scope) } });
+    res.json({ success: true, data: { months: [...monthSet].sort(), cutDay, items, ...fileMeta(scope) } });
   } catch (err) {
     console.error('[home-items]', err);
     res.status(500).json({ error: err.message });

@@ -19,9 +19,15 @@ import type { PageId } from '../App';
 const API = import.meta.env.VITE_API_URL || '';
 
 type Cell = [number, number, number, number]; // [مبيع كمية، مبيع قيمة، إرجاع كمية، إرجاع قيمة]
-interface HomeItem { id: number; name: string; company: string | null; m: Record<string, Cell> }
+interface HomeItem {
+  id: number; name: string; company: string | null; m: Record<string, Cell>;
+  /** الشهر P حتى آخر يوم بيانات في الشهر التالي له فقط — أساس مقارنة «نفس الفترة» */
+  p?: Record<string, Cell>;
+}
 interface HomeData {
   months: string[];
+  /** آخر يوم فيه بيانات لكل شهر */
+  cutDay?: Record<string, number>;
   items: HomeItem[];
   source?: 'office' | 'mercato';
   currencyMode?: 'USD' | 'IQD';
@@ -131,7 +137,8 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const shown = searching ? matches : watched;
 
   const total = shown.reduce((s, it) => s + netV(it.m[activeMonth]), 0);
-  const totalPrev = shown.reduce((s, it) => s + netV(it.m[prevMonth]), 0);
+  const totalPrev = shown.reduce((s, it) => s + netV(it.p?.[prevMonth]), 0);
+  const cut = data?.cutDay?.[activeMonth];
 
   // ════════════════════════════════════════════════════════════════════════
   if (!fileKey) {
@@ -185,7 +192,12 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
               <div className="hp-muted">صافي {searching ? `نتائج «${query.trim()}» (${matches.length} ايتم)` : isAuto ? 'أعلى الايتمات' : 'ايتماتك'} (مبيع − إرجاع) — {monthName(activeMonth)}</div>
               <div className="hp-summary-value">{fmt(money(total))} <small>{curLabel}</small></div>
             </div>
-            {hasPrev && <Delta now={total} prev={totalPrev} />}
+            {hasPrev && (
+              <div className="hp-cmp">
+                <Delta now={total} prev={totalPrev} />
+                {cut && <div>مقابل 1–{cut} {monthName(prevMonth)}</div>}
+              </div>
+            )}
           </div>
 
           <div className="hp-list">
@@ -198,7 +210,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
                     <span className="hp-item-name">{it.name}</span>
                     <span className="hp-item-qty">{fmt(netQ(c))} قطعة</span>
                     <span className="hp-item-val">{fmt(money(netV(c)))} <small>{curLabel}</small></span>
-                    <span className="hp-item-delta">{hasPrev ? <Delta now={netV(c)} prev={netV(it.m[prevMonth])} /> : null}</span>
+                    <span className="hp-item-delta">{hasPrev ? <Delta now={netV(c)} prev={netV(it.p?.[prevMonth])} /> : null}</span>
                     <span className="hp-chev">{open ? '▴' : '▾'}</span>
                   </button>
                   {open && (
@@ -235,7 +247,7 @@ function Delta({ now, prev }: { now: number; prev: number }) {
   const pct = ((now - prev) / Math.abs(prev)) * 100;
   const up = pct >= 0;
   return (
-    <span className={`hp-delta ${up ? 'is-up' : 'is-down'}`} title="مقارنة بالشهر السابق">
+    <span className={`hp-delta ${up ? 'is-up' : 'is-down'}`} title="مقارنة بنفس الفترة من الشهر السابق">
       {up ? '▲' : '▼'} {Math.abs(pct).toFixed(0)}%
     </span>
   );
@@ -328,6 +340,7 @@ function HomeStyles() {
 .hp-summary .hp-muted { color: rgba(255,255,255,.8); }
 .hp-summary-value { font-size: 28px; font-weight: 800; margin-top: 4px; }
 .hp-summary-value small { font-size: 14px; font-weight: 600; opacity: .8; }
+.hp-cmp { text-align: center; font-size: 11.5px; color: rgba(255,255,255,.8); display: flex; flex-direction: column; gap: 5px; align-items: center; }
 .hp-summary .hp-delta { background: rgba(255,255,255,.18); color: #fff; font-size: 13px; padding: 4px 10px; }
 
 .hp-delta { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; direction: ltr; white-space: nowrap; }
