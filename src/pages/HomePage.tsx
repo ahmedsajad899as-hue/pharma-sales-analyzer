@@ -236,15 +236,16 @@ function Provinces({ itemId, ym, fileKey, source, token, money, curLabel }: {
 
   if (!rows) return <div className="hp-prov hp-muted">جاري التحميل…</div>;
   const list = rows.map(r => ({ name: r.name, q: netQ(r.m[ym]), v: netV(r.m[ym]) }))
-    .filter(r => r.q || r.v).sort((a, b) => b.v - a.v);
+    // المحافظات بلا مبيع ولا إرجاع تظهر أيضاً (صفر) — في آخر القائمة
+    .sort((a, b) => Number(!(a.q || a.v)) - Number(!(b.q || b.v)) || b.v - a.v || a.name.localeCompare(b.name, 'ar'));
   if (!list.length) return <div className="hp-prov hp-muted">لا مبيع في هذا الشهر.</div>;
   const max = Math.max(...list.map(r => r.v), 1);
   return (
     <div className="hp-prov">
       {list.map(r => (
-        <div key={r.name} className="hp-prov-row">
+        <div key={r.name} className={`hp-prov-row ${r.q || r.v ? '' : 'is-zero'}`}>
           <span className="hp-prov-name">{r.name}</span>
-          <span className="hp-prov-track"><span style={{ width: `${Math.max(2, (Math.max(0, r.v) / max) * 100)}%` }} /></span>
+          <span className="hp-prov-track"><span style={{ width: `${r.v > 0 ? Math.max(2, (r.v / max) * 100) : 0}%` }} /></span>
           <span className="hp-prov-qty">{fmt(r.q)} قطعة</span>
           <span className="hp-prov-val">{fmt(money(r.v))} {curLabel}</span>
         </div>
@@ -321,6 +322,8 @@ function HomeStyles() {
 
 .hp-prov { padding: 6px 18px 16px; display: flex; flex-direction: column; gap: 8px; background: var(--c-accent-light); }
 .hp-prov-row { display: grid; grid-template-columns: 100px 1fr auto auto; gap: 12px; align-items: center; font-size: 13px; }
+.hp-prov-row.is-zero { color: var(--c-text-muted); }
+.hp-prov-row.is-zero .hp-prov-val { font-weight: 500; }
 .hp-prov-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hp-prov-track { height: 8px; background: rgba(26,86,219,.12); border-radius: 4px; overflow: hidden; display: flex; }
 .hp-prov-track > span { background: var(--c-accent); border-radius: 4px; }

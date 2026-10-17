@@ -183,6 +183,10 @@ export async function getHomeItemProvinces(req, res) {
       if (!m[row.ym]) m[row.ym] = [0, 0, 0, 0];
       addRow(m[row.ym], row, scope.rateByFile.get(row.fileId) || 1);
     }
+    // كل محافظات السوبر أدمن تُعرض حتى بلا مبيع ولا إرجاع (صفر) — طلب صريح
+    for (const p of await prisma.province.findMany({ select: { name: true } })) {
+      if (!byProv.has(p.name)) byProv.set(p.name, {});
+    }
     const provinces = [...byProv.entries()].map(([name, m]) => {
       for (const k of Object.keys(m)) m[k] = roundCell(m[k]);
       return { name, m };
