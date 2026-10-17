@@ -342,10 +342,19 @@ const HOVER_PAUSE_MAX_MS = 60_000;
  */
 // الصورة = الوجه الأمامي لعلبة ثلاثية الأبعاد (Box3D). depth = عمق العلبة نسبةً إلى
 // ارتفاع وجهها — يحاكي العلبة الحقيقية: شريط 10 حبات رفيع، و28 حبة أعمق.
-interface ItemImage { match: (n: string) => boolean; src: string; depth: number }
+// faces = صور الأوجه الحقيقية من تصوير العلبة من كل الجهات، مصحَّحة المنظور إلى
+// مستطيلات (front عرض×ارتفاع، left/right عمق×ارتفاع، top عرض×عمق). اتجاهها:
+// left — عمودها الأيمن يلي الوجه الأمامي؛ right — عمودها الأيسر يليه؛ top — حافتها
+// السفلى تلي الوجه الأمامي. الوجه الناقص يُلوَّن من حواف الصورة الأمامية.
+interface BoxFaces { left?: string; right?: string; top?: string }
+interface ItemImage { match: (n: string) => boolean; src: string; depth: number; faces?: BoxFaces }
 const ITEM_IMAGES: ItemImage[] = [
   { match: n => n.includes('pantactive') && n.includes('40'), src: '/items/pantactive-40.jpg', depth: 0.38 },
-  { match: n => n.includes('amoklavin') && n.includes('1000'), src: '/items/amoklavin-1000.jpg', depth: 0.24 },
+  {
+    match: n => n.includes('amoklavin') && n.includes('1000'),
+    src: '/items/amoklavin-1000/front.jpg', depth: 0.33,
+    faces: { left: '/items/amoklavin-1000/left.jpg', right: '/items/amoklavin-1000/right.jpg', top: '/items/amoklavin-1000/top.jpg' },
+  },
 ];
 const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase())) ?? null;
 
@@ -404,7 +413,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
               // وتميل مع الماوس، والترتيب والسهم أعلى، والكمية شارة على البطاقة.
               if (img) return (
                 <div className="bb-card bb-card-item has-photo">
-                  <Box3D src={img.src} depth={img.depth} label={it.name} />
+                  <Box3D src={img.src} depth={img.depth} faces={img.faces} label={it.name} />
                   <div className="bb-photo-top">
                     <span className="bb-rank">#{i + 1}</span>
                     {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
@@ -529,7 +538,7 @@ function loadBoxMeta(src: string): Promise<BoxMeta> {
 }
 const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
-function Box3D({ src, depth, label }: { src: string; depth: number; label: string }) {
+function Box3D({ src, depth, faces, label }: { src: string; depth: number; faces?: BoxFaces; label: string }) {
   const sceneRef = useRef<HTMLDivElement>(null);
   const [meta, setMeta] = useState<BoxMeta | null>(boxMetaCache.get(src) ?? null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -563,6 +572,10 @@ function Box3D({ src, depth, label }: { src: string; depth: number; label: strin
 
   const face = (style: React.CSSProperties, child: ReactNode) => <div className="b3d-face" style={style}>{child}</div>;
   const side = (c: RGB, overlay: string) => <div style={{ width: '100%', height: '100%', background: `${overlay}, ${rgb(c)}` }} />;
+  // وجه بصورته الحقيقية + طبقة إضاءة خفيفة (الجوانب أظلم قليلاً، السقف مضاء) كي يبقى إحساس العمق
+  const tex = (url: string, overlay: string) => (
+    <><img src={url} alt="" draggable={false} /><div className="b3d-light" style={{ background: overlay }} /></>
+  );
 
   return (
     <div className="b3d-scene" ref={sceneRef} onPointerMove={onMove} onPointerLeave={() => setTilt(null)}>
@@ -579,11 +592,17 @@ function Box3D({ src, depth, label }: { src: string; depth: number; label: strin
             {face({ width: W, height: H, transform: `rotateY(180deg) translateZ(${D / 2}px)` },
               side(meta.bottom, 'linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.35))'))}
             {face({ width: D, height: H, left: (W - D) / 2, transform: `rotateY(90deg) translateZ(${W / 2}px)` },
-              side(meta.right, 'linear-gradient(to right, rgba(0,0,0,.15), rgba(0,0,0,.4))'))}
+              faces?.right
+                ? tex(faces.right, 'linear-gradient(to right, rgba(0,0,0,.08), rgba(0,0,0,.26))')
+                : side(meta.right, 'linear-gradient(to right, rgba(0,0,0,.15), rgba(0,0,0,.4))'))}
             {face({ width: D, height: H, left: (W - D) / 2, transform: `rotateY(-90deg) translateZ(${W / 2}px)` },
-              side(meta.left, 'linear-gradient(to left, rgba(0,0,0,.1), rgba(0,0,0,.32))'))}
+              faces?.left
+                ? tex(faces.left, 'linear-gradient(to left, rgba(0,0,0,.06), rgba(0,0,0,.22))')
+                : side(meta.left, 'linear-gradient(to left, rgba(0,0,0,.1), rgba(0,0,0,.32))'))}
             {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(90deg) translateZ(${H / 2}px)` },
-              side(meta.top, 'linear-gradient(to top, rgba(255,255,255,.28), rgba(255,255,255,.06))'))}
+              faces?.top
+                ? tex(faces.top, 'linear-gradient(to top, rgba(255,255,255,.14), rgba(255,255,255,0))')
+                : side(meta.top, 'linear-gradient(to top, rgba(255,255,255,.28), rgba(255,255,255,.06))'))}
             {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(-90deg) translateZ(${H / 2}px)` },
               side(meta.bottom, 'linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45))'))}
           </div>
@@ -963,6 +982,7 @@ function HomeStyles() {
 @media (prefers-reduced-motion: reduce) { .b3d { animation: none; } }
 .b3d-face { position: absolute; top: 0; left: 0; backface-visibility: hidden; overflow: hidden; }
 .b3d-face img { width: 100%; height: 100%; object-fit: fill; display: block; pointer-events: none; user-select: none; }
+.b3d-light { position: absolute; inset: 0; pointer-events: none; }
 .b3d-sheen { position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(115deg, rgba(255,255,255,.38) 0%, rgba(255,255,255,0) 38%, rgba(0,0,0,.1) 100%); }
 .b3d-shadow { position: absolute; left: 50%; bottom: 8%; height: 26px; transform: translateX(-50%);
