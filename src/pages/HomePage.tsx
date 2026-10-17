@@ -321,6 +321,15 @@ const provSummaryCache = new Map<string, ProvSummary[]>();
 const BOARD_COUNT = 6;
 const ROTATE_MS = 3000;
 
+/**
+ * صور علب الايتمات (public/items/) — مطابقة بالاسم المطبَّع لأن نفس الدواء له عدة
+ * صفوف Item بأسماء متقاربة. تجربة أولى على ايتم واحد؛ الباقي بلا صورة.
+ */
+const ITEM_IMAGES: { match: (n: string) => boolean; src: string }[] = [
+  { match: n => n.includes('pantactive') && n.includes('40'), src: '/items/pantactive-40.jpg' },
+];
+const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase()))?.src ?? null;
+
 function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }: {
   items: HomeItem[]; month: string; prevMonth: string; hasPrev: boolean;
   fileKey: string; source?: string; token: string | null;
@@ -360,8 +369,10 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
           <Coverflow paused={!!detail} count={topItems.length}
             render={(i) => {
               const it = topItems[i];
+              const img = itemImage(it.name);
               return (
-                <div className="bb-card bb-card-item">
+                <div className={`bb-card bb-card-item ${img ? 'has-img' : ''}`}>
+                  {img && <img className="bb-card-img" src={img} alt="" loading="lazy" draggable={false} />}
                   <div className="bb-card-top">
                     <span className="bb-rank">#{i + 1}</span>
                     {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
@@ -637,8 +648,8 @@ function HomeStyles() {
 .bb-title-dot.is-prov { background: #0891b2; box-shadow: 0 0 0 4px #cffafe; }
 
 .cf { position: relative; }
-.cf-stage { position: relative; height: 210px; perspective: 1000px; }
-.cf-slot { --w: min(300px, 64vw); position: absolute; top: 8px; left: calc(50% - var(--w) / 2); width: var(--w); height: 190px;
+.cf-stage { position: relative; height: 228px; perspective: 1000px; }
+.cf-slot { --w: min(300px, 64vw); position: absolute; top: 24px; left: calc(50% - var(--w) / 2); width: var(--w); height: 190px;
   padding: 0; border: 0; background: none; cursor: pointer; font-family: inherit; text-align: right;
   transition: transform .6s cubic-bezier(.2,.8,.2,1), opacity .6s ease, filter .6s ease; }
 .cf-slot:focus-visible { outline: 3px solid var(--c-accent); outline-offset: 3px; border-radius: 18px; }
@@ -647,12 +658,20 @@ function HomeStyles() {
 .cf-dot { width: 7px; height: 7px; border-radius: 4px; border: 0; padding: 0; background: var(--c-border); cursor: pointer; transition: width .3s, background .3s; }
 .cf-dot.is-on { width: 20px; background: var(--c-accent); }
 
-.bb-card { position: relative; height: 100%; border-radius: 18px; padding: 16px 18px; color: #fff; overflow: hidden;
+.bb-card { position: relative; height: 100%; border-radius: 18px; padding: 16px 18px; color: #fff;
   display: flex; flex-direction: column; gap: 4px; box-shadow: 0 10px 28px rgba(15,30,53,.22); }
-.bb-card::after { content: ''; position: absolute; inset: auto -40px -60px auto; width: 160px; height: 160px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(255,255,255,.18), transparent 70%); pointer-events: none; }
-.bb-card-item { background: linear-gradient(140deg, var(--c-primary) 0%, var(--c-primary-mid) 35%, var(--c-accent) 100%); }
-.bb-card-prov { background: linear-gradient(140deg, var(--c-primary) 0%, #0e3a5c 40%, #0891b2 100%); }
+/* التوهّج داخل الخلفية (لا عنصر زائف) كي تبقى البطاقة بلا overflow:hidden فتبرز صورة العلبة خارج حافتها */
+.bb-card-item { background: radial-gradient(circle at 92% 108%, rgba(255,255,255,.18), transparent 38%),
+  linear-gradient(140deg, var(--c-primary) 0%, var(--c-primary-mid) 35%, var(--c-accent) 100%); }
+.bb-card-prov { background: radial-gradient(circle at 92% 108%, rgba(255,255,255,.18), transparent 38%),
+  linear-gradient(140deg, var(--c-primary) 0%, #0e3a5c 40%, #0891b2 100%); }
+.bb-card-img { position: absolute; left: -14px; top: -20px; width: 47%; aspect-ratio: 404 / 328; object-fit: cover;
+  border-radius: 8px; transform: rotate(-6deg); box-shadow: 0 12px 26px rgba(0,0,0,.4), 0 0 0 3px rgba(255,255,255,.9);
+  pointer-events: none; user-select: none; transition: transform .5s ease; }
+.cf-slot.is-active .bb-card-img { transform: rotate(-4deg) scale(1.04); }
+.bb-card.has-img .bb-card-top { justify-content: flex-start; gap: 8px; }
+.bb-card.has-img .bb-card-name, .bb-card.has-img .bb-card-sub { max-width: 54%; margin-right: 0; margin-left: auto; }
+.bb-card.has-img .bb-card-name { margin-top: 26px; }
 .cf-slot.is-active .bb-card { box-shadow: 0 16px 40px rgba(26,86,219,.35); }
 .bb-card-top { display: flex; justify-content: space-between; align-items: center; }
 .bb-rank { font-size: 12px; font-weight: 800; background: rgba(255,255,255,.16); border-radius: 999px; padding: 2px 10px; }
