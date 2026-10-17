@@ -319,7 +319,7 @@ function Provinces({ itemId, ym, fileKey, source, token }: {
 interface ProvSummary { name: string; now: Cell; prev: Cell; items: { id: number; name: string; company: string | null; now: Cell }[] }
 const provSummaryCache = new Map<string, ProvSummary[]>();
 const BOARD_COUNT = 6;
-const ROTATE_MS = 10000;
+const ROTATE_MS = 13000;
 
 /**
  * صور علب الايتمات (public/items/) — مطابقة بالاسم المطبَّع لأن نفس الدواء له عدة
@@ -364,10 +364,21 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
   [provs]);
 
   const [detail, setDetail] = useState<{ kind: 'item'; item: HomeItem } | { kind: 'prov'; prov: ProvSummary } | null>(null);
+  // لوحة واحدة تملأ الشاشة في كل مرة (طلب صريح) — تبديل بين الايتمات والمحافظات
+  const [board, setBoard] = useState<'items' | 'prov'>('items');
 
   return (
     <div className="bb">
-      <section className="bb-section">
+      <div className="bb-tabs" role="tablist">
+        <button role="tab" aria-selected={board === 'items'} className={board === 'items' ? 'is-on' : ''} onClick={() => setBoard('items')}>
+          💊 الايتمات <small>({topItems.length})</small>
+        </button>
+        <button role="tab" aria-selected={board === 'prov'} className={board === 'prov' ? 'is-on' : ''} onClick={() => setBoard('prov')}>
+          📍 المحافظات <small>({topProvs.length})</small>
+        </button>
+      </div>
+
+      {board === 'items' && <section className="bb-section">
         <div className="bb-title"><span className="bb-title-dot" />الأكثر مبيعاً — الايتمات <span className="hp-muted">· {monthName(month)}</span></div>
         {topItems.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
           <Coverflow paused={!!detail} count={topItems.length} variant="item"
@@ -406,13 +417,13 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
             }}
             onOpen={(i) => setDetail({ kind: 'item', item: topItems[i] })} />
         )}
-      </section>
+      </section>}
 
-      <section className="bb-section">
+      {board === 'prov' && <section className="bb-section">
         <div className="bb-title"><span className="bb-title-dot is-prov" />الأكثر مبيعاً — المحافظات <span className="hp-muted">· {monthName(month)}</span></div>
         {!provs ? <div className="hp-muted hp-center">جاري التحميل…</div>
           : topProvs.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
-          <Coverflow paused={!!detail} count={topProvs.length} offsetMs={ROTATE_MS / 2} variant="prov"
+          <Coverflow paused={!!detail} count={topProvs.length} variant="prov"
             render={(i) => {
               const pr = topProvs[i];
               return (
@@ -429,7 +440,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
             }}
             onOpen={(i) => setDetail({ kind: 'prov', prov: topProvs[i] })} />
         )}
-      </section>
+      </section>}
 
       {detail && (
         <div className="modal-overlay" onClick={() => setDetail(null)}>
@@ -838,16 +849,21 @@ function HomeStyles() {
 .hp-view-btn { white-space: nowrap; }
 
 /* ── اللوحة الإعلانية ── */
-.bb { display: flex; flex-direction: column; gap: 22px; }
+.bb { display: flex; flex-direction: column; gap: 14px; }
+.bb-tabs { display: inline-flex; align-self: center; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 999px; padding: 4px; gap: 4px; box-shadow: var(--shadow-sm); }
+.bb-tabs button { border: 0; background: none; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 700; color: var(--c-text-secondary);
+  padding: 8px 22px; border-radius: 999px; transition: background .2s, color .2s; }
+.bb-tabs button small { font-weight: 600; opacity: .7; }
+.bb-tabs button.is-on { background: var(--c-accent); color: #fff; }
 .bb-section { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-lg); padding: 14px 10px 10px; overflow: hidden; }
 .bb-title { font-weight: 800; font-size: 14.5px; color: var(--c-text-primary); display: flex; align-items: center; gap: 8px; padding: 0 8px 4px; }
 .bb-title-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-accent); box-shadow: 0 0 0 4px var(--c-accent-light); }
 .bb-title-dot.is-prov { background: #0891b2; box-shadow: 0 0 0 4px #cffafe; }
 
 .cf { position: relative; }
-.cf { --w: min(340px, 72vw); --h: 230px; }
+.cf { --w: min(640px, 88vw); --h: clamp(340px, calc(100vh - 330px), 620px); }
 /* بطاقة الايتم عريضة (≈16:9) لتطابق صور العلب العريضة فتغطيها الصورة بأقل قصّ */
-.cf-item { --w: min(480px, 84vw); --h: 280px; }
+.cf-item { --w: min(860px, 90vw); --h: clamp(360px, calc(100vh - 330px), 640px); }
 .cf-stage { position: relative; height: calc(var(--h) + 30px); perspective: 1000px; }
 .cf-slot { position: absolute; top: 14px; left: calc(50% - var(--w) / 2); width: var(--w); height: var(--h);
   padding: 0; border: 0; background: none; cursor: pointer; font-family: inherit; text-align: right;
@@ -903,7 +919,22 @@ function HomeStyles() {
 .bb-photo-pill { position: absolute; bottom: 12px; z-index: 1; padding: 6px 14px; border-radius: 14px;
   background: rgba(15,30,53,.78); backdrop-filter: blur(6px); box-shadow: 0 6px 18px rgba(0,0,0,.3);
   font-size: 28px; font-weight: 800; white-space: nowrap; line-height: 1.2; }
-.bb-photo-pill { left: 50%; transform: translateX(-50%); bottom: 10px; font-size: 24px; padding: 4px 14px; }
+.bb-photo-pill { left: 50%; transform: translateX(-50%); bottom: 16px; font-size: 38px; padding: 6px 24px; border-radius: 18px; }
+.bb-photo-pill small { font-size: 16px; }
+/* لوحة بحجم الشاشة: نصوص البطاقات أكبر */
+.bb-card { padding: 22px 26px; border-radius: 24px; }
+.bb-card.has-photo { padding: 0; }
+.bb-photo-top { top: 18px; left: 20px; right: 20px; }
+.bb-photo-top .bb-rank, .bb-card .bb-rank { font-size: 15px; padding: 4px 14px; }
+.bb-card .hp-delta { font-size: 15px; padding: 4px 12px; }
+.bb-card-prov { align-items: center; text-align: center; justify-content: center; gap: 10px; }
+.bb-card-prov .bb-card-top { position: absolute; top: 20px; left: 22px; right: 22px; }
+.bb-card-prov .bb-card-icon { font-size: 52px; margin: 0; }
+.bb-card-prov .bb-card-name { font-size: 44px; margin: 0; text-align: center; }
+.bb-card-prov .bb-card-qty { margin-top: 8px; font-size: 64px; }
+.bb-card-prov .bb-card-qty small { font-size: 20px; }
+.bb-item-name { font-size: 22px; }
+.bb-card-item .bb-card-qty { font-size: 46px; }
 .bb-photo-pill small { font-size: 12px; font-weight: 600; opacity: .8; }
 .bb-art { width: 100%; height: 100%; display: block; transition: transform .6s ease; }
 .cf-slot.is-active .bb-art { transform: scale(1.03); }
