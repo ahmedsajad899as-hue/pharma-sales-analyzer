@@ -460,14 +460,17 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
       {detail && (
         <div className="modal-overlay" onClick={() => setDetail(null)}>
           <div className="modal bb-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
+            <div className="modal-header bb-modal-head">
+              <div style={{ minWidth: 0 }}>
                 <h3 style={{ margin: 0 }}>{detail.kind === 'item' ? detail.item.name : `📍 ${detail.prov.name}`}</h3>
                 <div className="hp-muted">
-                  {detail.kind === 'item'
-                    ? `${detail.item.company ?? '—'} · ${fmt(netQ(detail.item.m[month]))} قطعة · ${monthName(month)}`
-                    : `${fmt(netQ(detail.prov.now))} قطعة · ${monthName(month)}`}
+                  {detail.kind === 'item' ? `${detail.item.company ?? '—'} · ${monthName(month)}` : monthName(month)}
                 </div>
+              </div>
+              {/* الإجمالي بخط كبير في المساحة بين العنوان وزر الإغلاق */}
+              <div className="bb-modal-total">
+                {fmt(detail.kind === 'item' ? netQ(detail.item.m[month]) : netQ(detail.prov.now))}
+                <small>قطعة</small>
               </div>
               <button className="modal-close" onClick={() => setDetail(null)}>✕</button>
             </div>
@@ -1052,6 +1055,10 @@ function HomeStyles() {
 .bb-card-qty small { font-size: 13px; font-weight: 600; opacity: .75; }
 
 .bb-modal { max-width: 560px; width: 100%; display: flex; flex-direction: column; max-height: 85vh; }
+.bb-modal-head { gap: 14px; align-items: center; }
+.bb-modal-total { margin-inline-start: auto; font-size: 34px; font-weight: 800; color: var(--c-accent); line-height: 1;
+  white-space: nowrap; display: flex; align-items: baseline; gap: 6px; }
+.bb-modal-total small { font-size: 13px; font-weight: 600; color: var(--c-text-muted); }
 .bb-modal-body { padding: 12px 20px 18px; overflow-y: auto; }
 .bb-modal .hp-prov { background: none; padding: 0; }
 .bb-prov-row { grid-template-columns: minmax(0, 190px) 1fr auto; }
