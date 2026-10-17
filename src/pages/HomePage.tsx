@@ -606,15 +606,15 @@ function Box3D({ src, depth, faces, label }: { src: string; depth: number; faces
               side(meta.bottom, 'linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.35))'))}
             {face({ width: D, height: H, left: (W - D) / 2, transform: `rotateY(90deg) translateZ(${W / 2}px)` },
               faces?.right
-                ? tex(faces.right, 'linear-gradient(to right, rgba(0,0,0,.08), rgba(0,0,0,.26))')
+                ? tex(faces.right, 'linear-gradient(to right, rgba(0,0,0,.03), rgba(0,0,0,.14))')
                 : side(meta.right, 'linear-gradient(to right, rgba(0,0,0,.15), rgba(0,0,0,.4))'))}
             {face({ width: D, height: H, left: (W - D) / 2, transform: `rotateY(-90deg) translateZ(${W / 2}px)` },
               faces?.left
-                ? tex(faces.left, 'linear-gradient(to left, rgba(0,0,0,.06), rgba(0,0,0,.22))')
+                ? tex(faces.left, 'linear-gradient(to left, rgba(0,0,0,.02), rgba(0,0,0,.12))')
                 : side(meta.left, 'linear-gradient(to left, rgba(0,0,0,.1), rgba(0,0,0,.32))'))}
             {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(90deg) translateZ(${H / 2}px)` },
               faces?.top
-                ? tex(faces.top, 'linear-gradient(to top, rgba(255,255,255,.14), rgba(255,255,255,0))')
+                ? tex(faces.top, 'linear-gradient(to top, rgba(255,255,255,.2), rgba(255,255,255,.04))')
                 : side(meta.top, 'linear-gradient(to top, rgba(255,255,255,.28), rgba(255,255,255,.06))'))}
             {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(-90deg) translateZ(${H / 2}px)` },
               side(meta.bottom, 'linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45))'))}
@@ -999,7 +999,7 @@ function HomeStyles() {
 .b3d-face img { width: 100%; height: 100%; object-fit: fill; display: block; pointer-events: none; user-select: none; }
 .b3d-light { position: absolute; inset: 0; pointer-events: none; }
 .b3d-sheen { position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(115deg, rgba(255,255,255,.38) 0%, rgba(255,255,255,0) 38%, rgba(0,0,0,.1) 100%); }
+  background: linear-gradient(115deg, rgba(255,255,255,.42) 0%, rgba(255,255,255,0) 40%, rgba(0,0,0,.03) 100%); }
 .b3d-shadow { position: absolute; left: 50%; bottom: 8%; height: 26px; transform: translateX(-50%);
   background: radial-gradient(ellipse, rgba(0,0,0,.55), transparent 70%); filter: blur(7px); pointer-events: none; }
 .cf-slot:not(.is-active) .b3d { animation-play-state: paused; }
