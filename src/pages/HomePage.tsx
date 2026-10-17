@@ -133,8 +133,6 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
     : [];
   const shown = searching ? matches : watched;
 
-  const total = shown.reduce((s, it) => s + netQ(it.m[activeMonth]), 0);
-  const totalPrev = shown.reduce((s, it) => s + netQ(it.p?.[prevMonth]), 0);
   const cut = data?.cutDay?.[activeMonth];
 
   // ════════════════════════════════════════════════════════════════════════
@@ -186,19 +184,6 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
 
       {months.length > 0 && data?.source !== 'mercato' && (
         <>
-          <div className="hp-summary">
-            <div>
-              <div className="hp-muted">صافي {searching ? `نتائج «${query.trim()}» (${matches.length} ايتم)` : isAuto ? 'أعلى الايتمات' : 'ايتماتك'} (مبيع − إرجاع) — {monthName(activeMonth)}</div>
-              <div className="hp-summary-value">{fmt(total)} <small>قطعة</small></div>
-            </div>
-            {hasPrev && (
-              <div className="hp-cmp">
-                <Delta now={total} prev={totalPrev} />
-                {cut && <div>مقابل 1–{cut} {monthName(prevMonth)}</div>}
-              </div>
-            )}
-          </div>
-
           {compare ? (
             <CompareTable
               items={searching ? matches : ranked.filter(i => i.m[activeMonth] || i.p?.[prevMonth])}
@@ -378,13 +363,6 @@ function HomeStyles() {
 .hp-month { max-width: 200px; font-weight: 700; }
 .hp-search { flex: 1; min-width: 0; }
 
-.hp-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: linear-gradient(135deg, var(--c-primary), var(--c-accent)); color: #fff; border-radius: var(--radius-lg); padding: 18px 20px; }
-.hp-summary .hp-muted { color: rgba(255,255,255,.8); }
-.hp-summary-value { font-size: 28px; font-weight: 800; margin-top: 4px; }
-.hp-summary-value small { font-size: 14px; font-weight: 600; opacity: .8; }
-.hp-cmp { text-align: center; font-size: 11.5px; color: rgba(255,255,255,.8); display: flex; flex-direction: column; gap: 5px; align-items: center; }
-.hp-summary .hp-delta { background: rgba(255,255,255,.18); color: #fff; font-size: 13px; padding: 4px 10px; }
 
 .hp-delta { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; direction: ltr; white-space: nowrap; }
 .hp-delta.is-up { background: var(--c-success-bg); color: var(--c-success); }
@@ -437,7 +415,6 @@ function HomeStyles() {
 @media (max-width: 600px) {
   .hp-head { flex-wrap: wrap; }
   .hp-search { order: 3; flex-basis: 100%; }
-  .hp-summary-value { font-size: 22px; }
   .hp-item-row { gap: 10px; padding: 12px 14px; grid-template-columns: 1fr auto 58px 12px; }
   .hp-prov-row { grid-template-columns: 80px 1fr auto; }
   .hp-cmp-table th, .hp-cmp-table td { padding: 8px 10px; }
