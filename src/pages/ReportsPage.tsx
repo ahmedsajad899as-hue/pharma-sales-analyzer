@@ -830,7 +830,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   const [commReturnsReport, setCommReturnsReport]     = useState<CommReport | null>(null);
 
   // Scientific
-  const [sciReps, setSciReps]     = useState<Rep[]>([]);
+  const [sciRepsAll, setSciReps]  = useState<Rep[]>([]);
+  // «علمي بغداد» لا تعرض تيم ليدرية/مندوبي المحافظات (فرق المحافظات)؛ الخريطة تبقى بالقائمة الكاملة
+  const sciReps = useMemo(() => sciRepsAll.filter(r => !(r as any).isProvinceMember), [sciRepsAll]);
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
   // في الملف كما يراه صاحبه — يسري على أي ملف لك صلاحية وصول عليه (مالك أو
@@ -3680,7 +3682,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               ))}
             </div>
           </div>
-          <IraqRepsMap reps={sciReps} token={token} fileIds={activeFileIds} applyMonth={applyMonth} months={monthsState.months.map(m => m.ym)} ready={monthsReady} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} />
+          <IraqRepsMap reps={sciRepsAll} token={token} fileIds={activeFileIds} applyMonth={applyMonth} months={monthsState.months.map(m => m.ym)} ready={monthsReady} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} />
         </>
       )}
 

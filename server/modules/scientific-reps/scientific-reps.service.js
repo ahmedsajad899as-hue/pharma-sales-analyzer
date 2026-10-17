@@ -90,6 +90,14 @@ export async function list(filters, user = null, options = {}) {
     }
     const provinceRepIds = [...provinceRepCompany.keys()];
 
+    // كل من ينتمي لفريق محافظة فعّال (تيم ليدر أو مندوب) — يُعلَّم ليُستثنى من «علمي بغداد»
+    // في صفحة التقارير لكل الحسابات (يبقى ظاهراً في بقية الصفحات).
+    const [provTeams, provAssign] = await Promise.all([
+      prisma.provinceTeam.findMany({ where: { isActive: true, leaderUserId: { not: null } }, select: { leaderUserId: true } }),
+      prisma.provinceRepAssignment.findMany({ where: { isActive: true, team: { isActive: true } }, select: { repUserId: true } }),
+    ]);
+    const provinceMemberIds = new Set([...provTeams.map(t => t.leaderUserId), ...provAssign.map(r => r.repUserId)]);
+
     // Return Users with scientific_rep / team_leader roles assigned to same companies
     const repUsers = await prisma.user.findMany({
       where: {
@@ -150,6 +158,7 @@ export async function list(filters, user = null, options = {}) {
         managerIds: u.managersOfUser.map(m => m.managerId),
         companyId: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.id ?? provinceRepCompany.get(u.id)?.id ?? null,
         isProvinceRep: provinceRepCompany.has(u.id),
+        isProvinceMember: provinceMemberIds.has(u.id),
       };
     }));
 
