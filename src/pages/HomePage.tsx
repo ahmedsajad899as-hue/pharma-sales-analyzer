@@ -567,7 +567,8 @@ function Box3D({ src, depth, faces, label }: { src: string; depth: number; faces
     const r = e.currentTarget.getBoundingClientRect();
     const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5..0.5
     const py = (e.clientY - r.top) / r.height - 0.5;
-    setTilt({ x: -10 - py * 22, y: -24 + px * 48 });
+    // متماثل حول الوسط: الماوس يساراً يُظهر الطرف الأيسر كاملاً، ويميناً الأيمن، وأعلى/أسفل يكشف السقف
+    setTilt({ x: -16 - py * 24, y: px * 100 });
   };
 
   const face = (style: React.CSSProperties, child: ReactNode) => <div className="b3d-face" style={style}>{child}</div>;
@@ -973,11 +974,13 @@ function HomeStyles() {
     linear-gradient(140deg, var(--c-primary) 0%, var(--c-primary-mid) 35%, var(--c-accent) 100%); }
 .b3d-scene { position: absolute; inset: 0 0 34px 0; perspective: 900px; display: flex; align-items: center; justify-content: center; }
 .b3d { position: relative; transform-style: preserve-3d; transform: rotateX(-10deg) rotateY(-26deg);
-  animation: b3d-sway 7s ease-in-out infinite alternate; transition: transform .25s ease-out; }
+  animation: b3d-sway 9s ease-in-out infinite alternate; transition: transform .25s ease-out; }
 .b3d.is-tilt { animation: none; }
+/* تمايل متماثل من جهة لأخرى: يُظهر الطرفين الأيسر والأيمن كاملين، مع ميل للأسفل
+   يكشف شيئاً من الوجه العلوي */
 @keyframes b3d-sway {
-  0%   { transform: rotateX(-10deg) rotateY(-34deg); }
-  100% { transform: rotateX(-6deg)  rotateY(-12deg); }
+  0%   { transform: rotateX(-18deg) rotateY(-46deg); }
+  100% { transform: rotateX(-14deg) rotateY(46deg); }
 }
 @media (prefers-reduced-motion: reduce) { .b3d { animation: none; } }
 .b3d-face { position: absolute; top: 0; left: 0; backface-visibility: hidden; overflow: hidden; }
