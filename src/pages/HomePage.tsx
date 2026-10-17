@@ -333,6 +333,8 @@ const BOARD_COUNT = 6;
 const ROTATE_MS = 13000;
 /** تكبير العنصر المعروض في الوسط كي يتركّز عليه النظر (الجانبية 0.74 و0.54) */
 const CF_ACTIVE_SCALE = 1.2;
+/** أقصى مدة يوقف فيها مرورُ الماوس فوق البطاقة المعروضة الدورانَ */
+const HOVER_PAUSE_MAX_MS = 60_000;
 
 /**
  * صور علب الايتمات (public/items/) — مطابقة بالاسم المطبَّع لأن نفس الدواء له عدة
@@ -687,9 +689,18 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   // كل اختيار يدوي يعيد ضبط العدّاد كي لا تقفز البطاقة فور اختيارها
   const [kick, setKick] = useState(0);
   const pick = (i: number) => { setActive(i); setKick(k => k + 1); };
-  // ⚠️ لا إيقاف عند مرور الماوس: البطاقات تملأ الشاشة فيبقى الماوس فوقها دائماً
-  // وكانت الحركة تبدو متوقفة. الإيقاف فقط أثناء فتح نافذة التفاصيل.
-  const stop = paused || count < 2;
+  // الإيقاف عند المرور: فقط حين يدخل الماوس البطاقة المعروضة في الوسط (لا أي مكان في
+  // اللوحة — كان ذلك يبدو توقفاً دائماً)، ويُستأنف بخروجه أو بعد دقيقة كحدّ أقصى.
+  // بعد انقضاء الدقيقة لا يعود المرور يوقف الدوران حتى يغادر الماوس اللوحة كلها،
+  // وإلا لأوقفته البطاقة التالية فور وصولها تحت الماوس الساكن.
+  const [hoverPause, setHoverPause] = useState(false);
+  const hoverCapped = useRef(false);
+  useEffect(() => {
+    if (!hoverPause) return;
+    const t = setTimeout(() => { hoverCapped.current = true; setHoverPause(false); }, HOVER_PAUSE_MAX_MS);
+    return () => clearTimeout(t);
+  }, [hoverPause]);
+  const stop = paused || count < 2 || hoverPause;
   useEffect(() => { if (active >= count) setActive(0); }, [count, active]);
   useEffect(() => {
     if (stop) return;
@@ -703,7 +714,8 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   }, [stop, count, offsetMs, kick]);
 
   return (
-    <div className={`cf cf-${variant}`}>
+    <div className={`cf cf-${variant} ${hoverPause ? 'is-paused' : ''}`}
+      onPointerLeave={() => { hoverCapped.current = false; setHoverPause(false); }}>
       <div className="cf-stage">
         {Array.from({ length: count }, (_, i) => {
           // أقصر مسافة دائرية من النشطة: -2..+2 ظاهرة، والباقي مخفي خلفها
@@ -722,6 +734,8 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
                 pointerEvents: hidden ? 'none' : 'auto',
                 filter: abs ? `blur(${abs * 0.6}px)` : undefined,
               }}
+              onPointerEnter={() => { if (off === 0 && !hoverCapped.current) setHoverPause(true); }}
+              onPointerLeave={() => { if (off === 0) setHoverPause(false); }}
               onClick={() => (off === 0 ? onOpen(i) : pick(i))}
               title={off === 0 ? 'اضغط لعرض التفاصيل' : undefined}>
               {render(i)}
@@ -989,6 +1003,7 @@ function HomeStyles() {
 .hp.is-board .bb-title { justify-content: center; }
 .hp.is-board .cf { overflow-x: clip; overflow-y: visible; }
 .hp.is-board .cf-dot { background: rgba(15,30,53,.14); }
+.cf.is-paused .cf-dot.is-on { opacity: .45; }
 /* البطاقات بلا غلاف: لا خلفية ولا ظل — العلبة والنصوص تطفو مباشرةً فوق الصفحة، بنصوص داكنة */
 .hp.is-board .bb-card, .hp.is-board .bb-card.has-photo, .hp.is-board .cf-slot.is-active .bb-card { background: none; box-shadow: none; color: var(--c-primary); }
 .hp.is-board .bb-card .bb-rank { background: rgba(15,30,53,.08); color: var(--c-primary); }
