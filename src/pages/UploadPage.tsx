@@ -941,19 +941,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '20px 16px', direction: 'rtl', fontFamily: 'inherit' }}>
 
       {/* ── Active files bar ────────────────────────────────── */}
-      {activeFiles.length > 0 ? (
-        <div style={{ ...CARD, background: 'var(--c-success-bg)', borderColor: 'var(--c-success-border)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '8px 14px' }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--c-success)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <Icon name="checkCircle" size={14} /> نشط:
-          </span>
-          {activeFiles.map(f => (
-            <span key={f.id} style={BADGE('var(--c-success-bg)', 'var(--c-success)', 'var(--c-success-border)')}>
-              {f.fileType === 'returns' ? <Icon name="uploadReturns" size={12} /> : f.fileType === 'auto' ? <Icon name="uploadAuto" size={12} /> : <Icon name="uploadSales" size={12} />} {f.originalName}
-            </span>
-          ))}
-          <span style={{ fontSize: 11, color: 'var(--c-success)', marginRight: 'auto' }}>{t.upload.allReportsNote}</span>
-        </div>
-      ) : (
+      {activeFiles.length === 0 && (
         <div style={{ ...CARD, background: 'var(--c-warning-bg)', borderColor: 'var(--c-warning-border)', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' }}>
           <Icon name="warning" size={15} style={{ color: 'var(--c-warning)' }} />
           <span style={{ fontSize: 12, color: 'var(--c-warning)', fontWeight: 600 }}>{t.upload.noActiveFile}</span>
@@ -961,27 +949,27 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         </div>
       )}
 
-      {/* ── Auto-merge toggle ───────────────────────────────── */}
-      <div style={{ ...CARD, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', flexWrap: 'wrap' }}>
-        <Icon name="link" size={16} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginLeft: 'auto', marginRight: 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>الدمج التلقائي للايتمات المتشابهة</span>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>
-            {autoMergeEnabled
-              ? 'مُفعّل — أي دمج تؤكّده يُحفظ ويُطبَّق تلقائياً عند رفع نفس الأسماء لاحقاً'
-              : 'مُعطّل — سيُطلب تأكيد الدمج في كل مرة'}
-          </span>
-        </div>
+      {/* ── Auto-merge toggle (compact) ─────────────────────── */}
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}
+        title={autoMergeEnabled
+          ? 'مُفعّل — أي دمج تؤكّده يُحفظ ويُطبَّق تلقائياً عند رفع نفس الأسماء لاحقاً'
+          : 'مُعطّل — سيُطلب تأكيد الدمج في كل مرة'}
+      >
         <button
           type="button"
           onClick={() => setAutoMergeEnabled(v => !v)}
           role="switch"
           aria-checked={autoMergeEnabled}
-          title={autoMergeEnabled ? 'إيقاف الدمج التلقائي' : 'تفعيل الدمج التلقائي'}
           className={`toggle-switch${autoMergeEnabled ? ' toggle-switch--on' : ''}`}
+          style={{ width: 22, height: 12 }}
         >
-          <span className="toggle-switch-knob" />
+          <span
+            className="toggle-switch-knob"
+            style={{ top: 1, width: 10, height: 10, right: autoMergeEnabled ? 11 : 1 }}
+          />
         </button>
+        <span style={{ fontSize: 10.5, color: '#94a3b8' }}>دمج تلقائي للايتمات</span>
       </div>
 
       {/* Auto-merge applied toast */}
@@ -1041,13 +1029,6 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                   <span>{opt.label}</span>
                 </button>
               ))}
-            </div>
-            <div style={{ marginTop: 14, fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span>📎</span>
-              <span>أو اسحب الملف مباشرة هنا</span>
-              <span style={{ color: '#e2e8f0' }}>·</span>
-              <kbd style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontFamily: 'monospace', color: '#475569' }}>Ctrl+V</kbd>
-              <span>للصق من الحافظة (واتساب / مستكشف الملفات)</span>
             </div>
           </>
         )}
