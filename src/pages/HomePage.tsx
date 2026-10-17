@@ -372,6 +372,22 @@ function texturedBox(match: (n: string) => boolean, dir: string, depth: number):
 }
 const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase())) ?? null;
 
+/** صور معالم المحافظات (public/provinces/*.webp) — بالاسم الرسمي + أسماء المراكز الشائعة. */
+const PROVINCE_IMAGES: Record<string, string> = {
+  'بغداد': 'baghdad', 'البصرة': 'basra', 'بصرة': 'basra', 'نينوى': 'nineveh', 'الموصل': 'nineveh',
+  'أربيل': 'erbil', 'اربيل': 'erbil', 'هولير': 'erbil', 'السليمانية': 'sulaymaniyah', 'سليمانية': 'sulaymaniyah',
+  'دهوك': 'duhok', 'كركوك': 'kirkuk', 'ديالى': 'diyala', 'ديالي': 'diyala', 'بعقوبة': 'diyala',
+  'الأنبار': 'anbar', 'الانبار': 'anbar', 'الرمادي': 'anbar', 'بابل': 'babil', 'الحلة': 'babil',
+  'كربلاء': 'karbala', 'النجف': 'najaf', 'نجف': 'najaf', 'واسط': 'wasit', 'الكوت': 'wasit',
+  'صلاح الدين': 'salahaddin', 'تكريت': 'salahaddin', 'سامراء': 'salahaddin',
+  'القادسية': 'qadisiyah', 'الديوانية': 'qadisiyah', 'ميسان': 'maysan', 'العمارة': 'maysan',
+  'ذي قار': 'dhiqar', 'الناصرية': 'dhiqar', 'المثنى': 'muthanna', 'السماوة': 'muthanna',
+};
+const provinceImage = (name: string) => {
+  const k = PROVINCE_IMAGES[name.trim()];
+  return k ? `/provinces/${k}.webp` : null;
+};
+
 function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }: {
   /** ايتمات اللوحة = نفس ايتمات القائمة المختارة بالضبط (watched في الصفحة الأم) — لا
    *  إعادة احتساب «الأعلى مبيعاً» هنا، وإلا تختلف اللوحة عن اختيار المستخدم الصريح. */
@@ -467,6 +483,21 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
           <Coverflow paused={!!detail} count={topProvs.length} variant="prov"
             render={(i) => {
               const pr = topProvs[i];
+              const pimg = provinceImage(pr.name);
+              if (pimg) return (
+                <div className="bb-card bb-card-prov has-pimg">
+                  <img className="bb-pimg" src={pimg} alt="" loading="lazy" draggable={false} />
+                  <div className="bb-pimg-shade" />
+                  <div className="bb-photo-top">
+                    <span className="bb-rank">#{i + 1}</span>
+                    {hasPrev && <Delta now={netQ(pr.now)} prev={netQ(pr.prev)} />}
+                  </div>
+                  <div className="bb-pimg-text">
+                    <div className="bb-pimg-name">{pr.name}</div>
+                    <div className="bb-pimg-qty">{fmt(netQ(pr.now))} <small>قطعة</small></div>
+                  </div>
+                </div>
+              );
               return (
                 <div className="bb-card bb-card-prov">
                   <div className="bb-card-top">
@@ -1113,6 +1144,17 @@ function HomeStyles() {
 .bb-card-name { font-size: 17px; font-weight: 800; margin-top: 10px; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; direction: ltr; text-align: right; }
 .bb-card-prov .bb-card-name { direction: rtl; font-size: 20px; margin-top: 0; }
 .bb-card-icon { font-size: 22px; margin-top: 6px; }
+/* بطاقة محافظة بصورة معلم: الصورة تملأ البطاقة وتدرّج داكن أسفلها يُبرز الاسم والكمية */
+.bb-card.has-pimg, .hp.is-board .bb-card.has-pimg { padding: 0; overflow: hidden; color: #fff; background: var(--c-primary);
+  box-shadow: 0 10px 28px rgba(15,30,53,.22); }
+.hp.is-board .cf-slot.is-active .bb-card.has-pimg { box-shadow: 0 16px 40px rgba(26,86,219,.35); animation: none; }
+.bb-pimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; user-select: none; }
+.bb-pimg-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15,30,53,.28) 0%, rgba(15,30,53,0) 30%, rgba(15,30,53,.82) 100%); }
+.bb-pimg-text { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; direction: rtl; }
+.bb-pimg-name { font-size: 24px; font-weight: 800; text-shadow: 0 2px 10px rgba(0,0,0,.55); }
+.bb-pimg-qty { font-size: 24px; font-weight: 800; direction: rtl; text-shadow: 0 2px 10px rgba(0,0,0,.55); }
+.bb-pimg-qty small { font-size: 12px; font-weight: 600; opacity: .85; }
+.hp.is-board .bb-card.has-pimg .bb-rank { background: rgba(15,30,53,.75); color: #fff; }
 .bb-card-sub { font-size: 12px; opacity: .75; }
 .bb-card-qty { margin-top: auto; font-size: 30px; font-weight: 800; letter-spacing: -.5px; }
 .bb-card-qty small { font-size: 13px; font-weight: 600; opacity: .75; }
