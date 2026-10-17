@@ -861,9 +861,9 @@ function HomeStyles() {
 .bb-title-dot.is-prov { background: #0891b2; box-shadow: 0 0 0 4px #cffafe; }
 
 .cf { position: relative; }
-.cf { --w: min(640px, 88vw); --h: clamp(340px, calc(100vh - 330px), 620px); }
+.cf { --w: min(340px, 72vw); --h: 230px; }
 /* بطاقة الايتم عريضة (≈16:9) لتطابق صور العلب العريضة فتغطيها الصورة بأقل قصّ */
-.cf-item { --w: min(860px, 90vw); --h: clamp(360px, calc(100vh - 330px), 640px); }
+.cf-item { --w: min(480px, 84vw); --h: 280px; }
 .cf-stage { position: relative; height: calc(var(--h) + 30px); perspective: 1000px; }
 .cf-slot { position: absolute; top: 14px; left: calc(50% - var(--w) / 2); width: var(--w); height: var(--h);
   padding: 0; border: 0; background: none; cursor: pointer; font-family: inherit; text-align: right;
@@ -919,22 +919,7 @@ function HomeStyles() {
 .bb-photo-pill { position: absolute; bottom: 12px; z-index: 1; padding: 6px 14px; border-radius: 14px;
   background: rgba(15,30,53,.78); backdrop-filter: blur(6px); box-shadow: 0 6px 18px rgba(0,0,0,.3);
   font-size: 28px; font-weight: 800; white-space: nowrap; line-height: 1.2; }
-.bb-photo-pill { left: 50%; transform: translateX(-50%); bottom: 16px; font-size: 38px; padding: 6px 24px; border-radius: 18px; }
-.bb-photo-pill small { font-size: 16px; }
-/* لوحة بحجم الشاشة: نصوص البطاقات أكبر */
-.bb-card { padding: 22px 26px; border-radius: 24px; }
-.bb-card.has-photo { padding: 0; }
-.bb-photo-top { top: 18px; left: 20px; right: 20px; }
-.bb-photo-top .bb-rank, .bb-card .bb-rank { font-size: 15px; padding: 4px 14px; }
-.bb-card .hp-delta { font-size: 15px; padding: 4px 12px; }
-.bb-card-prov { align-items: center; text-align: center; justify-content: center; gap: 10px; }
-.bb-card-prov .bb-card-top { position: absolute; top: 20px; left: 22px; right: 22px; }
-.bb-card-prov .bb-card-icon { font-size: 52px; margin: 0; }
-.bb-card-prov .bb-card-name { font-size: 44px; margin: 0; text-align: center; }
-.bb-card-prov .bb-card-qty { margin-top: 8px; font-size: 64px; }
-.bb-card-prov .bb-card-qty small { font-size: 20px; }
-.bb-item-name { font-size: 22px; }
-.bb-card-item .bb-card-qty { font-size: 46px; }
+.bb-photo-pill { left: 50%; transform: translateX(-50%); bottom: 10px; font-size: 24px; padding: 4px 14px; }
 .bb-photo-pill small { font-size: 12px; font-weight: 600; opacity: .8; }
 .bb-art { width: 100%; height: 100%; display: block; transition: transform .6s ease; }
 .cf-slot.is-active .bb-art { transform: scale(1.03); }
