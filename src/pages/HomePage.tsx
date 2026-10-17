@@ -331,6 +331,8 @@ interface ProvSummary { name: string; now: Cell; prev: Cell; items: { id: number
 const provSummaryCache = new Map<string, ProvSummary[]>();
 const BOARD_COUNT = 6;
 const ROTATE_MS = 13000;
+/** تكبير العنصر المعروض في الوسط كي يتركّز عليه النظر (الجانبية 0.74 و0.54) */
+const CF_ACTIVE_SCALE = 1.2;
 
 /**
  * صور علب الايتمات (public/items/) — مطابقة بالاسم المطبَّع لأن نفس الدواء له عدة
@@ -714,7 +716,7 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
             <button key={i} type="button" className={`cf-slot ${off === 0 ? 'is-active' : ''}`}
               aria-hidden={hidden} tabIndex={hidden ? -1 : 0}
               style={{
-                transform: `translateX(${off * -58}%) scale(${1 - abs * 0.16})`,
+                transform: `translateX(${off * -66}%) scale(${abs === 0 ? CF_ACTIVE_SCALE : 1 - abs * 0.2 - 0.06})`,
                 opacity: hidden ? 0 : abs === 0 ? 1 : abs === 1 ? 0.55 : 0.25,
                 zIndex: 10 - abs,
                 pointerEvents: hidden ? 'none' : 'auto',
@@ -960,48 +962,57 @@ function HomeStyles() {
 .cf-slot.is-active .b3d-glow { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .b3d-bob, .b3d-shadow { animation: none; } }
 
-/* ══ واجهة اللوحة: الصفحة كلها بلون خلفية الايتم، والعناصر طافية بلا حدود ══ */
+/* ══ واجهة اللوحة: خلفية فاتحة قريبة من الأبيض، والعناصر طافية بلا حدود ══ */
 .hp.is-board { --mx: 0; --my: 0; position: relative; z-index: 0; max-width: 960px; }
 .hp-sky { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
-  background: radial-gradient(ellipse at 50% 115%, #1d3f78 0%, transparent 60%),
-    linear-gradient(160deg, #0b1526 0%, #0f1e35 35%, #132a4f 70%, #1a3a6b 100%); }
-.hp-sky-blob { position: absolute; border-radius: 50%; filter: blur(70px); will-change: transform; }
+  background: radial-gradient(ellipse at 50% 110%, #dbe7fb 0%, transparent 60%),
+    linear-gradient(160deg, #fbfdff 0%, #f3f7fe 40%, #eaf1fc 75%, #e1ebfa 100%); }
+.hp-sky-blob { position: absolute; border-radius: 50%; filter: blur(80px); will-change: transform; }
 /* translate = اختلاف المنظر مع الماوس، transform = الانجراف البطيء — خاصيتان منفصلتان فلا تتعارضان */
-.hp-sky-blob.b1 { width: 44vw; height: 44vw; left: 6%; top: 8%; background: #1a56db; opacity: .30;
+.hp-sky-blob.b1 { width: 44vw; height: 44vw; left: 6%; top: 8%; background: #bfd5fb; opacity: .55;
   translate: calc(var(--mx) * -46px) calc(var(--my) * -34px); animation: sky-drift 28s ease-in-out infinite alternate; }
-.hp-sky-blob.b2 { width: 38vw; height: 38vw; right: 4%; bottom: -6%; background: #0891b2; opacity: .20;
+.hp-sky-blob.b2 { width: 38vw; height: 38vw; right: 4%; bottom: -6%; background: #c4ecf5; opacity: .5;
   translate: calc(var(--mx) * 38px) calc(var(--my) * 30px); animation: sky-drift 34s ease-in-out infinite alternate-reverse; }
-.hp-sky-blob.b3 { width: 30vw; height: 30vw; left: 38%; top: -10%; background: #4f46e5; opacity: .16;
+.hp-sky-blob.b3 { width: 30vw; height: 30vw; left: 38%; top: -10%; background: #d6dcfb; opacity: .5;
   translate: calc(var(--mx) * 24px) calc(var(--my) * -20px); animation: sky-drift 40s ease-in-out infinite alternate; }
 @keyframes sky-drift { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(6vw, 5vh) scale(1.18); } }
-.hp-sky-dot { position: absolute; border-radius: 50%; background: rgba(191,219,254,.7); box-shadow: 0 0 8px rgba(191,219,254,.7);
+.hp-sky-dot { position: absolute; border-radius: 50%; background: rgba(26,86,219,.28); box-shadow: 0 0 6px rgba(26,86,219,.25);
   translate: calc(var(--mx) * 16px) calc(var(--my) * 16px); animation: sky-float linear infinite; opacity: 0; }
 @keyframes sky-float { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: .7; } 85% { opacity: .7; } 100% { transform: translateY(-110px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .hp-sky-blob, .hp-sky-dot { animation: none; } .hp-sky-dot { opacity: .5; } }
 
-.hp.is-board .hp-month, .hp.is-board .hp-view-btn { background: rgba(255,255,255,.08); color: #e2e8f0;
-  border: 1px solid rgba(255,255,255,.14); backdrop-filter: blur(8px); }
-.hp.is-board .hp-month option { color: var(--c-primary); }
-.hp.is-board .hp-view-btn:hover { background: rgba(255,255,255,.16); }
-.hp.is-board .bb-tabs { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.12); box-shadow: none; backdrop-filter: blur(10px); }
-.hp.is-board .bb-tabs button { color: rgba(226,232,240,.75); }
-.hp.is-board .bb-tabs button.is-on { background: rgba(255,255,255,.92); color: var(--c-primary); }
+.hp.is-board .hp-month, .hp.is-board .hp-view-btn { background: rgba(255,255,255,.7); color: var(--c-primary);
+  border: 1px solid rgba(15,30,53,.08); backdrop-filter: blur(8px); box-shadow: 0 2px 10px rgba(15,30,53,.05); }
+.hp.is-board .hp-view-btn:hover { background: #fff; }
+.hp.is-board .bb-tabs { background: rgba(255,255,255,.65); border-color: rgba(15,30,53,.06); backdrop-filter: blur(10px); }
 .hp.is-board .bb-section { background: none; border: 0; box-shadow: none; overflow: visible; padding: 4px 0 0; }
-.hp.is-board .bb-title { color: #e2e8f0; justify-content: center; }
-.hp.is-board .bb-title-dot { box-shadow: 0 0 0 4px rgba(96,165,250,.2), 0 0 12px rgba(96,165,250,.8); background: #93c5fd; }
-.hp.is-board .bb-title-dot.is-prov { background: #67e8f9; box-shadow: 0 0 0 4px rgba(103,232,249,.18), 0 0 12px rgba(103,232,249,.8); }
-.hp.is-board .bb-title .hp-muted, .hp.is-board > .hp-muted, .hp.is-board .bb-section > .hp-muted { color: rgba(203,213,225,.7); }
+.hp.is-board .bb-title { justify-content: center; }
 .hp.is-board .cf { overflow-x: clip; overflow-y: visible; }
-.hp.is-board .cf-dot { background: rgba(255,255,255,.22); }
-.hp.is-board .cf-dot.is-on { background: #93c5fd; box-shadow: 0 0 8px rgba(147,197,253,.8); }
-/* البطاقات بلا غلاف: لا خلفية ولا ظل — العلبة والنصوص تطفو مباشرةً فوق الصفحة */
-.hp.is-board .bb-card, .hp.is-board .bb-card.has-photo, .hp.is-board .cf-slot.is-active .bb-card { background: none; box-shadow: none; }
-.hp.is-board .bb-card-item:not(.has-photo) .bb-frame { background: none; box-shadow: none; animation: b3d-bob 5.5s ease-in-out infinite; }
-.hp.is-board .bb-card-prov { animation: b3d-bob 6.5s ease-in-out infinite; }
-.hp.is-board .bb-card-prov .bb-card-name { text-shadow: 0 4px 22px rgba(147,197,253,.5); }
-.hp.is-board .bb-card-prov .bb-card-qty { text-shadow: 0 6px 26px rgba(103,232,249,.35); }
-.hp.is-board .bb-photo-pill { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); box-shadow: 0 8px 24px rgba(0,0,0,.25); }
-.hp.is-board .cf-slot:focus-visible { outline-color: #93c5fd; }
+.hp.is-board .cf-dot { background: rgba(15,30,53,.14); }
+/* البطاقات بلا غلاف: لا خلفية ولا ظل — العلبة والنصوص تطفو مباشرةً فوق الصفحة، بنصوص داكنة */
+.hp.is-board .bb-card, .hp.is-board .bb-card.has-photo, .hp.is-board .cf-slot.is-active .bb-card { background: none; box-shadow: none; color: var(--c-primary); }
+.hp.is-board .bb-card .bb-rank { background: rgba(15,30,53,.08); color: var(--c-primary); }
+.hp.is-board .bb-photo-top .bb-rank { background: var(--c-primary); color: #fff; }
+.hp.is-board .bb-card .hp-delta { box-shadow: 0 2px 8px rgba(15,30,53,.08); }
+.hp.is-board .bb-card-item:not(.has-photo) .bb-frame { background: none; box-shadow: none; }
+.hp.is-board .bb-card-prov .bb-card-name { text-shadow: 0 4px 22px rgba(26,86,219,.18); }
+.hp.is-board .bb-card-prov .bb-card-qty { color: var(--c-accent); }
+.hp.is-board .bb-photo-pill { background: var(--c-primary); color: #fff; border: 0; box-shadow: 0 10px 24px rgba(15,30,53,.25); }
+.hp.is-board .b3d-shadow { background: radial-gradient(ellipse, rgba(15,30,53,.35), transparent 70%); }
+.hp.is-board .b3d-glow { background: radial-gradient(circle, rgba(26,86,219,.16), transparent 65%); }
+
+/* ── الطفو للعنصر المعروض في الوسط فقط ── */
+.hp.is-board .cf-slot.is-active .bb-card-item:not(.has-photo) .bb-frame { animation: b3d-bob 5.5s ease-in-out infinite; }
+.hp.is-board .cf-slot.is-active .bb-card-prov { animation: b3d-bob 6.5s ease-in-out infinite; }
+/* البطاقات الجانبية ساكنة تماماً: لا طفو ولا تمايل ولا ميل مع الماوس */
+.cf-slot:not(.is-active) .b3d-bob, .cf-slot:not(.is-active) .b3d-shadow { animation: none; }
+.cf-slot:not(.is-active) .b3d { animation: none; }
+.cf-slot:not(.is-active) .b3d.is-tilt { transform: rotateX(-10deg) rotateY(-26deg) !important; }
+
+/* العنصر المعروض أكبر — المرحلة تتّسع لتكبيره (CF_ACTIVE_SCALE) */
+.hp.is-board .cf-stage { height: calc(var(--h) * 1.22 + 36px); }
+.hp.is-board .cf-slot { top: calc(var(--h) * 0.11 + 16px); }
+.hp.is-board .cf-slot:focus-visible { outline-color: var(--c-accent); }
 .bb-photo-top { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1; display: flex; justify-content: space-between; align-items: center; }
 .bb-photo-top .bb-rank { background: rgba(15,30,53,.75); backdrop-filter: blur(4px); }
 .bb-photo-top .hp-delta { box-shadow: 0 2px 8px rgba(0,0,0,.2); }
