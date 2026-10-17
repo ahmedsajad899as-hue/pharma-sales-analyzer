@@ -350,7 +350,6 @@ const HOVER_PAUSE_MAX_MS = 60_000;
 interface BoxFaces { left?: string; right?: string; top?: string }
 interface ItemImage { match: (n: string) => boolean; src: string; depth: number; faces?: BoxFaces }
 const ITEM_IMAGES: ItemImage[] = [
-  { match: n => n.includes('pantactive') && n.includes('40'), src: '/items/pantactive-40.jpg', depth: 0.38 },
   {
     match: n => n.includes('amoklavin') && n.includes('1000'),
     src: '/items/amoklavin-1000/front.jpg', depth: 0.33,
@@ -359,6 +358,10 @@ const ITEM_IMAGES: ItemImage[] = [
   texturedBox(n => n.includes('amoklavin') && n.includes('625'), 'amoklavin-625', 0.33),
   texturedBox(n => n.includes('ziver'), 'ziver-3', 0.38),
   texturedBox(n => n.includes('pantactive') && /\b20\b|20\s*mg/.test(n), 'pantactive-20', 0.17),
+  texturedBox(n => n.includes('pantactive') && /\b40\b|40\s*mg/.test(n), 'pantactive-40', 0.17),
+  // علبة الشراب واقفة (أطول من عرضها) — النسبة تُقرأ من صورة الوجه الأمامي نفسها
+  texturedBox(n => n.includes('amoklavin') && /457|syr/.test(n), 'amoklavin-457-syrup', 0.95),
+  texturedBox(n => n.includes('mantazol'), 'mantazol', 0.86),
 ];
 /** علبة بصور أوجهها الأربعة في public/items/<dir>/{front,left,right,top}.jpg */
 function texturedBox(match: (n: string) => boolean, dir: string, depth: number): ItemImage {
