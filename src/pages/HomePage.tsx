@@ -48,6 +48,8 @@ const dataCache = new Map<string, HomeData>();
 const provCache = new Map<string, ProvRow[]>();
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
+/** تطبيع للبحث: حروف صغيرة + توحيد الهمزات والتاء المربوطة والياء */
+const normAr = (t: string) => t.trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
 /** الصافي = مبيع − إرجاع (الإرجاع مخزَّن موجباً) */
 const netQ = (c?: Cell) => (c ? c[0] - c[2] : 0);
 const netV = (c?: Cell) => (c ? c[1] - c[3] : 0);
@@ -63,6 +65,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const [openId, setOpenId] = useState<number | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [showRest, setShowRest] = useState(false);
+  const [query, setQuery] = useState('');
 
   // ── الايتمات المتابَعة (لكل حساب) ──────────────────────────────────────────
   const pinKey = `homePinnedItems_${user?.id ?? ''}`;
@@ -118,8 +121,17 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const watchedIds = new Set(watched.map(i => i.id));
   const rest = ranked.filter(i => !watchedIds.has(i.id) && i.m[activeMonth]);
 
-  const total = watched.reduce((s, it) => s + netV(it.m[activeMonth]), 0);
-  const totalPrev = watched.reduce((s, it) => s + netV(it.m[prevMonth]), 0);
+  // البحث: باسم الايتم أو اسم الشركة (كل ايتمات تلك الشركة) — يحلّ محلّ القائمة
+  // والملخّص معاً ما دام فيه نص.
+  const needle = normAr(query);
+  const searching = needle.length > 0;
+  const matches = searching
+    ? ranked.filter(i => normAr(i.name).includes(needle) || normAr(i.company ?? '').includes(needle))
+    : [];
+  const shown = searching ? matches : watched;
+
+  const total = shown.reduce((s, it) => s + netV(it.m[activeMonth]), 0);
+  const totalPrev = shown.reduce((s, it) => s + netV(it.m[prevMonth]), 0);
 
   // ════════════════════════════════════════════════════════════════════════
   if (!fileKey) {
@@ -143,6 +155,8 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
         <select className="form-input hp-month" value={activeMonth} onChange={e => { setMonth(e.target.value); setOpenId(null); }} disabled={!months.length}>
           {[...months].reverse().map(ym => <option key={ym} value={ym}>{monthName(ym)}</option>)}
         </select>
+        <input className="form-input hp-search" type="search" placeholder="🔍 بحث عن ايتم أو شركة…"
+          value={query} onChange={e => { setQuery(e.target.value); setOpenId(null); }} />
         <button className="btn" onClick={() => setShowPicker(true)}>⭐ اختيار الايتمات</button>
       </div>
 
@@ -168,18 +182,18 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
         <>
           <div className="hp-summary">
             <div>
-              <div className="hp-muted">صافي {isAuto ? 'أعلى الايتمات' : 'ايتماتك'} (مبيع − إرجاع) — {monthName(activeMonth)}</div>
+              <div className="hp-muted">صافي {searching ? `نتائج «${query.trim()}» (${matches.length} ايتم)` : isAuto ? 'أعلى الايتمات' : 'ايتماتك'} (مبيع − إرجاع) — {monthName(activeMonth)}</div>
               <div className="hp-summary-value">{fmt(money(total))} <small>{curLabel}</small></div>
             </div>
             {hasPrev && <Delta now={total} prev={totalPrev} />}
           </div>
 
           <div className="hp-list">
-            {[...watched, ...(showRest ? rest : [])].map((it, i) => {
+            {[...shown, ...(showRest && !searching ? rest : [])].map((it, i) => {
               const c = it.m[activeMonth];
               const open = openId === it.id;
               return (
-                <div key={it.id} className={`hp-item ${open ? 'is-open' : ''} ${i === watched.length ? 'is-rest-start' : ''}`}>
+                <div key={it.id} className={`hp-item ${open ? 'is-open' : ''} ${!searching && i === watched.length ? 'is-rest-start' : ''}`}>
                   <button className="hp-item-row" onClick={() => setOpenId(open ? null : it.id)}>
                     <span className="hp-item-name">{it.name}</span>
                     <span className="hp-item-qty">{fmt(netQ(c))} قطعة</span>
@@ -194,15 +208,15 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
                 </div>
               );
             })}
-            {watched.length === 0 && <div className="hp-muted hp-center">لا يوجد مبيع لهذه الايتمات في هذا الشهر.</div>}
-            {rest.length > 0 && (
+            {shown.length === 0 && <div className="hp-muted hp-center">{searching ? 'لا يوجد ايتم أو شركة بهذا الاسم.' : 'لا يوجد مبيع لهذه الايتمات في هذا الشهر.'}</div>}
+            {!searching && rest.length > 0 && (
               <button className="hp-more" onClick={() => setShowRest(v => !v)}
                 title={showRest ? 'إخفاء بقية الايتمات' : `عرض بقية الايتمات (${rest.length})`}>
                 {showRest ? '▴' : <>▾ <span>بقية الايتمات ({rest.length})</span></>}
               </button>
             )}
           </div>
-          {isAuto && <div className="hp-muted hp-center">تُعرض تلقائياً الأعلى مبيعاً — اضغط «⭐ اختيار الايتمات» لتحديد ايتماتك.</div>}
+          {isAuto && !searching && <div className="hp-muted hp-center">تُعرض تلقائياً الأعلى مبيعاً — اضغط «⭐ اختيار الايتمات» لتحديد ايتماتك.</div>}
         </>
       )}
 
@@ -306,7 +320,8 @@ function HomeStyles() {
 .hp-muted { color: var(--c-text-muted); font-size: 13px; }
 .hp-center { text-align: center; padding: 8px; }
 .hp-head { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
-.hp-month { max-width: 220px; font-weight: 700; }
+.hp-month { max-width: 200px; font-weight: 700; }
+.hp-search { flex: 1; min-width: 0; }
 
 .hp-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px;
   background: linear-gradient(135deg, var(--c-primary), var(--c-accent)); color: #fff; border-radius: var(--radius-lg); padding: 18px 20px; }
@@ -357,6 +372,8 @@ function HomeStyles() {
 .hp-picker-row.is-on { background: var(--c-accent-light); font-weight: 600; }
 
 @media (max-width: 600px) {
+  .hp-head { flex-wrap: wrap; }
+  .hp-search { order: 3; flex-basis: 100%; }
   .hp-summary-value { font-size: 22px; }
   .hp-item-row { grid-template-columns: 1fr auto 16px; row-gap: 4px; padding: 12px 14px; }
   .hp-item-qty { grid-column: 1; grid-row: 2; }
