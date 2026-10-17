@@ -355,7 +355,15 @@ const ITEM_IMAGES: ItemImage[] = [
     src: '/items/amoklavin-1000/front.jpg', depth: 0.33,
     faces: { left: '/items/amoklavin-1000/left.jpg', right: '/items/amoklavin-1000/right.jpg', top: '/items/amoklavin-1000/top.jpg' },
   },
+  texturedBox(n => n.includes('amoklavin') && n.includes('625'), 'amoklavin-625', 0.33),
+  texturedBox(n => n.includes('ziver'), 'ziver-3', 0.38),
+  texturedBox(n => n.includes('pantactive') && /\b20\b|20\s*mg/.test(n), 'pantactive-20', 0.17),
 ];
+/** علبة بصور أوجهها الأربعة في public/items/<dir>/{front,left,right,top}.jpg */
+function texturedBox(match: (n: string) => boolean, dir: string, depth: number): ItemImage {
+  const p = (f: string) => `/items/${dir}/${f}.jpg`;
+  return { match, src: p('front'), depth, faces: { left: p('left'), right: p('right'), top: p('top') } };
+}
 const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase())) ?? null;
 
 function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }: {
