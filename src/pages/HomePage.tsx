@@ -62,6 +62,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const [month, setMonth] = useState('');
   const [openId, setOpenId] = useState<number | null>(null);
   const [showPicker, setShowPicker] = useState(false);
+  const [showRest, setShowRest] = useState(false);
 
   // ── الايتمات المتابَعة (لكل حساب) ──────────────────────────────────────────
   const pinKey = `homePinnedItems_${user?.id ?? ''}`;
@@ -112,6 +113,10 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const watched: HomeItem[] = isAuto
     ? ranked.filter(i => (i.m[activeMonth]?.[1] ?? 0) > 0).slice(0, AUTO_PIN_COUNT)
     : validPinned.map(id => itemsById.get(id)!);
+
+  // بقية الايتمات (غير المعروضة أعلاه) التي لها حركة في الشهر — تُفتح بسهم أسفل القائمة
+  const watchedIds = new Set(watched.map(i => i.id));
+  const rest = ranked.filter(i => !watchedIds.has(i.id) && i.m[activeMonth]);
 
   const total = watched.reduce((s, it) => s + netV(it.m[activeMonth]), 0);
   const totalPrev = watched.reduce((s, it) => s + netV(it.m[prevMonth]), 0);
@@ -170,11 +175,11 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
           </div>
 
           <div className="hp-list">
-            {watched.map(it => {
+            {[...watched, ...(showRest ? rest : [])].map((it, i) => {
               const c = it.m[activeMonth];
               const open = openId === it.id;
               return (
-                <div key={it.id} className={`hp-item ${open ? 'is-open' : ''}`}>
+                <div key={it.id} className={`hp-item ${open ? 'is-open' : ''} ${i === watched.length ? 'is-rest-start' : ''}`}>
                   <button className="hp-item-row" onClick={() => setOpenId(open ? null : it.id)}>
                     <span className="hp-item-name">{it.name}</span>
                     <span className="hp-item-qty">{fmt(netQ(c))} قطعة</span>
@@ -190,6 +195,12 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
               );
             })}
             {watched.length === 0 && <div className="hp-muted hp-center">لا يوجد مبيع لهذه الايتمات في هذا الشهر.</div>}
+            {rest.length > 0 && (
+              <button className="hp-more" onClick={() => setShowRest(v => !v)}
+                title={showRest ? 'إخفاء بقية الايتمات' : `عرض بقية الايتمات (${rest.length})`}>
+                {showRest ? '▴' : <>▾ <span>بقية الايتمات ({rest.length})</span></>}
+              </button>
+            )}
           </div>
           {isAuto && <div className="hp-muted hp-center">تُعرض تلقائياً الأعلى مبيعاً — اضغط «⭐ اختيار الايتمات» لتحديد ايتماتك.</div>}
         </>
@@ -319,6 +330,11 @@ function HomeStyles() {
 .hp-item-val small { font-size: 11.5px; color: var(--c-text-muted); font-weight: 600; }
 .hp-item-delta { text-align: left; }
 .hp-chev { color: var(--c-text-muted); font-size: 12px; }
+.hp-item.is-rest-start { border-top: 2px dashed var(--c-border); }
+.hp-more { width: 100%; border: 0; border-top: 1px solid var(--c-border-light); background: none; cursor: pointer; padding: 8px;
+  color: var(--c-text-muted); font-family: inherit; font-size: 13px; }
+.hp-more span { font-size: 12px; }
+.hp-more:hover { background: var(--c-accent-light); color: var(--c-accent); }
 
 .hp-prov { padding: 6px 18px 16px; display: flex; flex-direction: column; gap: 8px; background: var(--c-accent-light); }
 .hp-prov-row { display: grid; grid-template-columns: 100px 1fr auto auto; gap: 12px; align-items: center; font-size: 13px; }
