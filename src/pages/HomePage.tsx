@@ -327,6 +327,7 @@ const ROTATE_MS = 5000;
  */
 const ITEM_IMAGES: { match: (n: string) => boolean; src: string }[] = [
   { match: n => n.includes('pantactive') && n.includes('40'), src: '/items/pantactive-40.jpg' },
+  { match: n => n.includes('amoklavin') && n.includes('1000'), src: '/items/amoklavin-1000.jpg' },
 ];
 const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase()))?.src ?? null;
 
@@ -370,7 +371,26 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
             render={(i) => {
               const it = topItems[i];
               const img = itemImage(it.name);
-              // فوق: الترتيب + الاسم + السهم · الوسط: صورة العلبة داخل إطار · تحت: الكمية
+              // ايتم له صورة: الصورة تملأ البطاقة كاملة (نسخة مموّهة منها خلفيةً كي لا تُقصّ
+              // العلبة العريضة)، والتفاصيل فوقها: الاسم والسهم أعلى، والكمية أسفل.
+              if (img) return (
+                <div className="bb-card bb-card-item has-photo">
+                  <img className="bb-photo-bg" src={img} alt="" aria-hidden="true" draggable={false} />
+                  <img className="bb-photo" src={img} alt={it.name} draggable={false} />
+                  <div className="bb-photo-top">
+                    <div className="bb-item-head">
+                      <span className="bb-rank">#{i + 1}</span>
+                      <span className="bb-item-name" title={it.name}>{it.name}</span>
+                      {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
+                    </div>
+                    <div className="bb-card-sub bb-center">{it.company ?? '—'}</div>
+                  </div>
+                  <div className="bb-photo-bottom">
+                    <div className="bb-card-qty bb-center">{fmt(netQ(it.m[month]))} <small>قطعة</small></div>
+                  </div>
+                </div>
+              );
+              // بلا صورة: الاسم والسهم أعلى، رسمة العلبة داخل إطار في الوسط، الكمية أسفل
               return (
                 <div className="bb-card bb-card-item">
                   <div className="bb-item-head">
@@ -380,9 +400,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
                   </div>
                   <div className="bb-card-sub bb-center">{it.company ?? '—'}</div>
                   <div className="bb-frame">
-                    {img
-                      ? <img src={img} alt={it.name} loading="lazy" draggable={false} />
-                      : <ItemArt name={it.name} company={it.company} />}
+                    <ItemArt name={it.name} company={it.company} />
                   </div>
                   <div className="bb-card-qty bb-center">{fmt(netQ(it.m[month]))} <small>قطعة</small></div>
                 </div>
@@ -756,6 +774,19 @@ function HomeStyles() {
 .bb-frame img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; pointer-events: none; user-select: none;
   transition: transform .6s ease; }
 .cf-slot.is-active .bb-frame img { transform: scale(1.03); }
+/* بطاقة بصورة كاملة: خلفية مموّهة من نفس الصورة + الصورة كاملة في الوسط + تفاصيل فوقها */
+.bb-card.has-photo { padding: 0; overflow: hidden; background: var(--c-primary); }
+.bb-photo-bg { position: absolute; inset: -20px; width: calc(100% + 40px); height: calc(100% + 40px); object-fit: cover;
+  filter: blur(18px) saturate(1.2) brightness(.75); transform: scale(1.1); pointer-events: none; }
+.bb-photo { position: absolute; left: 0; right: 0; top: 50%; width: 100%; max-height: 68%; object-fit: contain;
+  transform: translateY(-50%); box-shadow: 0 12px 30px rgba(0,0,0,.35); pointer-events: none; user-select: none;
+  transition: transform .6s ease; }
+.cf-slot.is-active .bb-photo { transform: translateY(-50%) scale(1.02); }
+.bb-photo-top, .bb-photo-bottom { position: absolute; left: 0; right: 0; padding: 14px 16px; z-index: 1; }
+.bb-photo-top { top: 0; background: linear-gradient(to bottom, rgba(15,30,53,.92), rgba(15,30,53,.55) 70%, transparent); padding-bottom: 26px; }
+.bb-photo-bottom { bottom: 0; background: linear-gradient(to top, rgba(15,30,53,.95), rgba(15,30,53,.6) 70%, transparent); padding-top: 26px; }
+.bb-card.has-photo .bb-card-qty { margin-top: 0; font-size: 32px; }
+.bb-card.has-photo .bb-item-name { font-size: 14.5px; }
 .bb-art { width: 100%; height: 100%; display: block; transition: transform .6s ease; }
 .cf-slot.is-active .bb-art { transform: scale(1.03); }
 .bb-card-item .bb-card-qty { margin-top: 0; font-size: 32px; }
