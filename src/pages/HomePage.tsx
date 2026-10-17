@@ -213,8 +213,9 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
         <div className="hp-empty"><div className="hp-empty-title">لا يوجد مبيع في الملفات المفعّلة</div></div>
       )}
 
+      {/* نفس ايتمات القائمة المختارة (watched) — وليس كل الايتمات — حتى تطابق اللوحة اختيار المستخدم من «⭐ اختيار الايتمات» */}
       {months.length > 0 && data?.source !== 'mercato' && view === 'board' && (
-        <Billboard items={ranked} month={activeMonth} prevMonth={prevMonth} hasPrev={hasPrev}
+        <Billboard items={watched} month={activeMonth} prevMonth={prevMonth} hasPrev={hasPrev}
           fileKey={fileKey} source={data?.source} token={token} />
       )}
 
@@ -367,11 +368,14 @@ function texturedBox(match: (n: string) => boolean, dir: string, depth: number):
 const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase())) ?? null;
 
 function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }: {
+  /** ايتمات اللوحة = نفس ايتمات القائمة المختارة بالضبط (watched في الصفحة الأم) — لا
+   *  إعادة احتساب «الأعلى مبيعاً» هنا، وإلا تختلف اللوحة عن اختيار المستخدم الصريح. */
   items: HomeItem[]; month: string; prevMonth: string; hasPrev: boolean;
   fileKey: string; source?: string; token: string | null;
 }) {
+  // ترتيب عرض فقط (الأعلى كمية أولاً) — بلا فلترة ولا حدّ أقصى، كي يطابق العدد اختيار المستخدم حرفياً.
   const topItems = useMemo(() =>
-    items.filter(i => netQ(i.m[month]) > 0).sort((a, b) => netQ(b.m[month]) - netQ(a.m[month])).slice(0, BOARD_COUNT),
+    [...items].sort((a, b) => netQ(b.m[month]) - netQ(a.m[month])),
   [items, month]);
 
   const provKey = `${fileKey}|${source ?? ''}|${month}`;
