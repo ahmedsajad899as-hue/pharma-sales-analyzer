@@ -13,7 +13,7 @@
 // ⚠️ طلب صريح: الصفحة مختصرة — لا تُضِف إليها جداول/مؤشرات/أزرار تبديل.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type { PageId } from '../App';
 
@@ -73,6 +73,17 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const [showRest, setShowRest] = useState(false);
   const [query, setQuery] = useState('');
   const [compare, setCompare] = useState(false);
+
+  // ── الواجهة: قائمة (الحالية) أو لوحة إعلانية — تُحفظ لكل حساب ──────────────
+  const viewKey = `homeView_${user?.id ?? ''}`;
+  const [view, setView] = useState<'list' | 'board'>(() => {
+    try { return localStorage.getItem(viewKey) === 'board' ? 'board' : 'list'; } catch { return 'list'; }
+  });
+  const toggleView = () => {
+    const next = view === 'board' ? 'list' : 'board';
+    setView(next);
+    try { localStorage.setItem(viewKey, next); } catch { /* تخزين محجوب */ }
+  };
 
   // ── الايتمات المتابَعة (لكل حساب) ──────────────────────────────────────────
   const pinKey = `homePinnedItems_${user?.id ?? ''}`;
@@ -159,11 +170,18 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
         <select className="form-input hp-month" value={activeMonth} onChange={e => { setMonth(e.target.value); setOpenId(null); }} disabled={!months.length}>
           {[...months].reverse().map(ym => <option key={ym} value={ym}>{monthName(ym)}</option>)}
         </select>
-        <input className="form-input hp-search" type="search" placeholder="🔍 بحث عن ايتم أو شركة…"
-          value={query} onChange={e => { setQuery(e.target.value); setOpenId(null); }} />
-        <button className={`btn ${compare ? 'btn-primary' : ''}`} onClick={() => setCompare(v => !v)}
-          title="جدول مقارنة كمية هذا الشهر بالشهر السابق">⇄ مقارنة</button>
-        <button className="btn" onClick={() => setShowPicker(true)}>⭐ اختيار الايتمات</button>
+        {view === 'list' ? (
+          <>
+            <input className="form-input hp-search" type="search" placeholder="🔍 بحث عن ايتم أو شركة…"
+              value={query} onChange={e => { setQuery(e.target.value); setOpenId(null); }} />
+            <button className={`btn ${compare ? 'btn-primary' : ''}`} onClick={() => setCompare(v => !v)}
+              title="جدول مقارنة كمية هذا الشهر بالشهر السابق">⇄ مقارنة</button>
+            <button className="btn" onClick={() => setShowPicker(true)}>⭐ اختيار الايتمات</button>
+          </>
+        ) : <span style={{ flex: 1 }} />}
+        <button className="btn hp-view-btn" onClick={toggleView} title="التبديل بين القائمة واللوحة الإعلانية">
+          {view === 'board' ? '☰ قائمة' : '🖥️ لوحة'}
+        </button>
       </div>
 
       {err && <div className="alert alert-error">{err}</div>}
@@ -184,7 +202,12 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
         <div className="hp-empty"><div className="hp-empty-title">لا يوجد مبيع في الملفات المفعّلة</div></div>
       )}
 
-      {months.length > 0 && data?.source !== 'mercato' && (
+      {months.length > 0 && data?.source !== 'mercato' && view === 'board' && (
+        <Billboard items={ranked} month={activeMonth} prevMonth={prevMonth} hasPrev={hasPrev}
+          fileKey={fileKey} source={data?.source} token={token} />
+      )}
+
+      {months.length > 0 && data?.source !== 'mercato' && view === 'list' && (
         <>
           {compare ? (
             <CompareTable
@@ -278,6 +301,198 @@ function Provinces({ itemId, ym, fileKey, source, token }: {
       {list.map(r => (
         <div key={r.name} className={`hp-prov-row ${r.active ? '' : 'is-zero'}`}>
           <span className="hp-prov-name">{r.name}{pctOf(r.q) && <small className="hp-prov-pct">{pctOf(r.q)}</small>}</span>
+          <span className="hp-prov-track"><span style={{ width: `${r.q > 0 ? Math.max(2, (r.q / max) * 100) : 0}%` }} /></span>
+          <span className="hp-prov-val">{fmt(r.q)} قطعة</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// واجهة «اللوحة الإعلانية»: لوحتان دوّارتان (أعلى 6 ايتمات، أعلى 6 محافظات).
+// البطاقة النشطة في الوسط والبقية على الجانبين أصغر وشفّافة (هرم إعلاني)،
+// وتتقلّب كل 3 ثوانٍ. الضغط على البطاقة النشطة يفتح تفصيلها؛ الضغط على بطاقة
+// جانبية يجلبها للوسط. الدوران يتوقف عند مرور الماوس أو فتح التفصيل.
+// المحافظات من GET /api/reports/home-provinces (نفس النطاق والمقارنة).
+// ════════════════════════════════════════════════════════════════════════════
+interface ProvSummary { name: string; now: Cell; prev: Cell; items: { id: number; name: string; company: string | null; now: Cell }[] }
+const provSummaryCache = new Map<string, ProvSummary[]>();
+const BOARD_COUNT = 6;
+const ROTATE_MS = 3000;
+
+function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }: {
+  items: HomeItem[]; month: string; prevMonth: string; hasPrev: boolean;
+  fileKey: string; source?: string; token: string | null;
+}) {
+  const topItems = useMemo(() =>
+    items.filter(i => netQ(i.m[month]) > 0).sort((a, b) => netQ(b.m[month]) - netQ(a.m[month])).slice(0, BOARD_COUNT),
+  [items, month]);
+
+  const provKey = `${fileKey}|${source ?? ''}|${month}`;
+  const [provs, setProvs] = useState<ProvSummary[] | null>(provSummaryCache.get(provKey) ?? null);
+  useEffect(() => {
+    const hit = provSummaryCache.get(provKey);
+    setProvs(hit ?? null);
+    if (hit || !token || !month) return;
+    const ac = new AbortController();
+    const p = new URLSearchParams({ fileIds: fileKey, month });
+    if (source) p.set('source', source);
+    fetch(`${API}/api/reports/home-provinces?${p}`, { headers: { Authorization: `Bearer ${token}` }, signal: ac.signal })
+      .then(r => r.json())
+      .then(j => { if (j.success) { provSummaryCache.set(provKey, j.data.provinces); setProvs(j.data.provinces); } })
+      .catch(() => { /* إلغاء أو شبكة */ });
+    return () => ac.abort();
+  }, [provKey, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const topProvs = useMemo(() =>
+    (provs ?? []).filter(p => p.name !== 'غير محدد' && netQ(p.now) > 0)
+      .sort((a, b) => netQ(b.now) - netQ(a.now)).slice(0, BOARD_COUNT),
+  [provs]);
+
+  const [detail, setDetail] = useState<{ kind: 'item'; item: HomeItem } | { kind: 'prov'; prov: ProvSummary } | null>(null);
+
+  return (
+    <div className="bb">
+      <section className="bb-section">
+        <div className="bb-title"><span className="bb-title-dot" />الأكثر مبيعاً — الايتمات <span className="hp-muted">· {monthName(month)}</span></div>
+        {topItems.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
+          <Coverflow paused={!!detail} count={topItems.length}
+            render={(i) => {
+              const it = topItems[i];
+              return (
+                <div className="bb-card bb-card-item">
+                  <div className="bb-card-top">
+                    <span className="bb-rank">#{i + 1}</span>
+                    {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
+                  </div>
+                  <div className="bb-card-name" title={it.name}>{it.name}</div>
+                  <div className="bb-card-sub">{it.company ?? '—'}</div>
+                  <div className="bb-card-qty">{fmt(netQ(it.m[month]))} <small>قطعة</small></div>
+                </div>
+              );
+            }}
+            onOpen={(i) => setDetail({ kind: 'item', item: topItems[i] })} />
+        )}
+      </section>
+
+      <section className="bb-section">
+        <div className="bb-title"><span className="bb-title-dot is-prov" />الأكثر مبيعاً — المحافظات <span className="hp-muted">· {monthName(month)}</span></div>
+        {!provs ? <div className="hp-muted hp-center">جاري التحميل…</div>
+          : topProvs.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
+          <Coverflow paused={!!detail} count={topProvs.length} offsetMs={ROTATE_MS / 2}
+            render={(i) => {
+              const pr = topProvs[i];
+              return (
+                <div className="bb-card bb-card-prov">
+                  <div className="bb-card-top">
+                    <span className="bb-rank">#{i + 1}</span>
+                    {hasPrev && <Delta now={netQ(pr.now)} prev={netQ(pr.prev)} />}
+                  </div>
+                  <div className="bb-card-icon">📍</div>
+                  <div className="bb-card-name">{pr.name}</div>
+                  <div className="bb-card-qty">{fmt(netQ(pr.now))} <small>قطعة</small></div>
+                </div>
+              );
+            }}
+            onOpen={(i) => setDetail({ kind: 'prov', prov: topProvs[i] })} />
+        )}
+      </section>
+
+      {detail && (
+        <div className="modal-overlay" onClick={() => setDetail(null)}>
+          <div className="modal bb-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3 style={{ margin: 0 }}>{detail.kind === 'item' ? detail.item.name : `📍 ${detail.prov.name}`}</h3>
+                <div className="hp-muted">
+                  {detail.kind === 'item'
+                    ? `${detail.item.company ?? '—'} · ${fmt(netQ(detail.item.m[month]))} قطعة · ${monthName(month)}`
+                    : `${fmt(netQ(detail.prov.now))} قطعة · ${monthName(month)}`}
+                </div>
+              </div>
+              <button className="modal-close" onClick={() => setDetail(null)}>✕</button>
+            </div>
+            <div className="bb-modal-body">
+              <div className="hp-sub-title">{detail.kind === 'item' ? 'مبيعه في المحافظات' : 'مبيعها من الايتمات'}</div>
+              {detail.kind === 'item'
+                ? <Provinces itemId={detail.item.id} ym={month} fileKey={fileKey} source={source} token={token} />
+                : <ProvinceItems prov={detail.prov} />}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** دوّار بطاقات: النشطة في الوسط، ±1 و±2 على الجانبين أصغر وأشفّ. */
+function Coverflow({ count, render, onOpen, paused, offsetMs = 0 }: {
+  count: number; render: (i: number) => ReactNode; onOpen: (i: number) => void; paused?: boolean; offsetMs?: number;
+}) {
+  const [active, setActive] = useState(0);
+  const [hover, setHover] = useState(false);
+  const stop = paused || hover || count < 2;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { if (active >= count) setActive(0); }, [count, active]);
+  useEffect(() => {
+    if (stop) return;
+    // إزاحة بدء صغيرة للوحة الثانية كي لا تتقلّب اللوحتان في نفس اللحظة
+    timer.current = setTimeout(() => {
+      timer.current = setInterval(() => setActive(a => (a + 1) % count), ROTATE_MS);
+    }, offsetMs || ROTATE_MS);
+    return () => { if (timer.current) { clearTimeout(timer.current); clearInterval(timer.current); } };
+  }, [stop, count, offsetMs]);
+
+  return (
+    <div className="cf" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <div className="cf-stage">
+        {Array.from({ length: count }, (_, i) => {
+          // أقصر مسافة دائرية من النشطة: -2..+2 ظاهرة، والباقي مخفي خلفها
+          let off = i - active;
+          if (off > count / 2) off -= count;
+          if (off < -count / 2) off += count;
+          const abs = Math.abs(off);
+          const hidden = abs > 2;
+          return (
+            <button key={i} type="button" className={`cf-slot ${off === 0 ? 'is-active' : ''}`}
+              aria-hidden={hidden} tabIndex={hidden ? -1 : 0}
+              style={{
+                transform: `translateX(${off * -58}%) scale(${1 - abs * 0.16})`,
+                opacity: hidden ? 0 : abs === 0 ? 1 : abs === 1 ? 0.55 : 0.25,
+                zIndex: 10 - abs,
+                pointerEvents: hidden ? 'none' : 'auto',
+                filter: abs ? `blur(${abs * 0.6}px)` : undefined,
+              }}
+              onClick={() => (off === 0 ? onOpen(i) : setActive(i))}
+              title={off === 0 ? 'اضغط لعرض التفاصيل' : undefined}>
+              {render(i)}
+            </button>
+          );
+        })}
+      </div>
+      <div className="cf-dots">
+        {Array.from({ length: count }, (_, i) => (
+          <button key={i} type="button" className={`cf-dot ${i === active ? 'is-on' : ''}`} onClick={() => setActive(i)} aria-label={`بطاقة ${i + 1}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProvinceItems({ prov }: { prov: ProvSummary }) {
+  const list = prov.items.map(it => ({ ...it, q: netQ(it.now) })).filter(r => r.q !== 0).sort((a, b) => b.q - a.q);
+  if (!list.length) return <div className="hp-muted">لا مبيع.</div>;
+  const total = list.reduce((s, r) => s + r.q, 0);
+  const max = Math.max(...list.map(r => r.q), 1);
+  return (
+    <div className="hp-prov bb-prov">
+      {list.map(r => (
+        <div key={r.id} className="hp-prov-row bb-prov-row">
+          <span className="hp-prov-name" title={r.name}>
+            {r.name}
+            {total > 0 && r.q > 0 && <small className="hp-prov-pct">{(r.q / total) * 100 < 1 ? '<1%' : `${Math.round((r.q / total) * 100)}%`}</small>}
+          </span>
           <span className="hp-prov-track"><span style={{ width: `${r.q > 0 ? Math.max(2, (r.q / max) * 100) : 0}%` }} /></span>
           <span className="hp-prov-val">{fmt(r.q)} قطعة</span>
         </div>
@@ -412,6 +627,49 @@ function HomeStyles() {
 .hp-cmp-table .num { text-align: center; font-weight: 700; }
 .hp-cmp-table td.prev { color: var(--c-text-secondary); font-weight: 600; }
 .hp-cmp-table tfoot td { position: sticky; bottom: 0; background: var(--c-bg); font-weight: 800; border-top: 2px solid var(--c-border); }
+.hp-view-btn { white-space: nowrap; }
+
+/* ── اللوحة الإعلانية ── */
+.bb { display: flex; flex-direction: column; gap: 22px; }
+.bb-section { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-lg); padding: 14px 10px 10px; overflow: hidden; }
+.bb-title { font-weight: 800; font-size: 14.5px; color: var(--c-text-primary); display: flex; align-items: center; gap: 8px; padding: 0 8px 4px; }
+.bb-title-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-accent); box-shadow: 0 0 0 4px var(--c-accent-light); }
+.bb-title-dot.is-prov { background: #0891b2; box-shadow: 0 0 0 4px #cffafe; }
+
+.cf { position: relative; }
+.cf-stage { position: relative; height: 210px; perspective: 1000px; }
+.cf-slot { --w: min(300px, 64vw); position: absolute; top: 8px; left: calc(50% - var(--w) / 2); width: var(--w); height: 190px;
+  padding: 0; border: 0; background: none; cursor: pointer; font-family: inherit; text-align: right;
+  transition: transform .6s cubic-bezier(.2,.8,.2,1), opacity .6s ease, filter .6s ease; }
+.cf-slot:focus-visible { outline: 3px solid var(--c-accent); outline-offset: 3px; border-radius: 18px; }
+@media (prefers-reduced-motion: reduce) { .cf-slot { transition: none; } }
+.cf-dots { display: flex; justify-content: center; gap: 6px; padding-top: 6px; }
+.cf-dot { width: 7px; height: 7px; border-radius: 4px; border: 0; padding: 0; background: var(--c-border); cursor: pointer; transition: width .3s, background .3s; }
+.cf-dot.is-on { width: 20px; background: var(--c-accent); }
+
+.bb-card { position: relative; height: 100%; border-radius: 18px; padding: 16px 18px; color: #fff; overflow: hidden;
+  display: flex; flex-direction: column; gap: 4px; box-shadow: 0 10px 28px rgba(15,30,53,.22); }
+.bb-card::after { content: ''; position: absolute; inset: auto -40px -60px auto; width: 160px; height: 160px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,.18), transparent 70%); pointer-events: none; }
+.bb-card-item { background: linear-gradient(140deg, var(--c-primary) 0%, var(--c-primary-mid) 35%, var(--c-accent) 100%); }
+.bb-card-prov { background: linear-gradient(140deg, var(--c-primary) 0%, #0e3a5c 40%, #0891b2 100%); }
+.cf-slot.is-active .bb-card { box-shadow: 0 16px 40px rgba(26,86,219,.35); }
+.bb-card-top { display: flex; justify-content: space-between; align-items: center; }
+.bb-rank { font-size: 12px; font-weight: 800; background: rgba(255,255,255,.16); border-radius: 999px; padding: 2px 10px; }
+.bb-card .hp-delta { background: rgba(255,255,255,.95); }
+.bb-card-name { font-size: 17px; font-weight: 800; margin-top: 10px; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; direction: ltr; text-align: right; }
+.bb-card-prov .bb-card-name { direction: rtl; font-size: 20px; margin-top: 0; }
+.bb-card-icon { font-size: 22px; margin-top: 6px; }
+.bb-card-sub { font-size: 12px; opacity: .75; }
+.bb-card-qty { margin-top: auto; font-size: 30px; font-weight: 800; letter-spacing: -.5px; }
+.bb-card-qty small { font-size: 13px; font-weight: 600; opacity: .75; }
+
+.bb-modal { max-width: 560px; width: 100%; display: flex; flex-direction: column; max-height: 85vh; }
+.bb-modal-body { padding: 12px 20px 18px; overflow-y: auto; }
+.bb-modal .hp-prov { background: none; padding: 0; }
+.bb-prov-row { grid-template-columns: minmax(0, 190px) 1fr auto; }
+.bb-prov-row .hp-prov-name { direction: ltr; text-align: right; }
+
 .hp-empty { text-align: center; padding: 50px 20px; background: var(--c-surface); border: 1px dashed var(--c-border);
   border-radius: var(--radius-lg); display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .hp-empty-title { font-size: 16px; font-weight: 700; }

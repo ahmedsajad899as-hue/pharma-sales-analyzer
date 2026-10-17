@@ -16,7 +16,7 @@ import { normalizeItemKey } from '../../lib/itemResolver.js';
 import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
 import { isWarehouseSaleRow, pharmacyNameFromRawData } from '../../lib/orderKey.js';
 import { buildMonthFilter, UNDATED_CUTOFF } from '../../lib/salesMonths.js';
-import { getHomeItems, getHomeItemProvinces } from './homeItems.js';
+import { getHomeItems, getHomeItemProvinces, getHomeProvinces } from './homeItems.js';
 
 const router = Router();
 
@@ -108,6 +108,7 @@ router.get('/representative/:id', getRepresentativeReport);
 // الصفحة «الرئيسية» — مبيع الايتمات شهرياً + تفصيل المحافظات (راجع homeItems.js)
 router.get('/home-items', getHomeItems);
 router.get('/home-items/:itemId/provinces', getHomeItemProvinces);
+router.get('/home-provinces', getHomeProvinces);
 
 /**
  * GET /api/reports/overall

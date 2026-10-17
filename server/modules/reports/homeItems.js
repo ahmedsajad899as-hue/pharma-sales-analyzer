@@ -245,3 +245,83 @@ export async function getHomeItemProvinces(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+
+/**
+ * GET /api/reports/home-provinces?fileIds=…&source=…&month=YYYY-MM
+ * لوحة «المحافظات» في واجهة اللوحة الإعلانية: لكل محافظة صافي الشهر المختار،
+ * ونفس الفترة من الشهر السابق (يوم 1 حتى آخر يوم بيانات في الشهر المختار —
+ * نفس أساس مقارنة الايتمات)، وتفصيل الايتمات داخلها للشهر المختار.
+ * → { cutDay, provinces: [{ name, now: Cell, prev: Cell, items: [{ id, name, company, now: Cell }] }] }
+ */
+export async function getHomeProvinces(req, res) {
+  try {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(req.query.month ?? ''));
+    if (!m) return res.status(400).json({ error: 'month مطلوب بصيغة YYYY-MM' });
+    const scope = await resolveHomeScope(req.user, req.query.fileIds, req.query.source);
+    if (!scope || scope.noItems) return res.json({ success: true, data: { cutDay: null, provinces: [] } });
+
+    const y = Number(m[1]), mon = Number(m[2]);
+    const start = new Date(Date.UTC(y, mon - 1, 1));
+    const next  = new Date(Date.UTC(y, mon, 1));
+    const prevStart = new Date(Date.UTC(y, mon - 2, 1));
+    const where = Prisma.join(scope.conds, ' AND ');
+
+    const [cutRow] = await prisma.$queryRaw`
+      SELECT MAX(EXTRACT(DAY FROM (s."saleDate" AT TIME ZONE 'UTC')))::int AS d
+        FROM sales s
+       WHERE ${where} AND s."saleDate" >= ${start} AND s."saleDate" < ${next}`;
+    const cutDay = cutRow?.d ? Number(cutRow.d) : null;
+    // حصري؛ يُقصّ عند بداية الشهر المختار (cutDay=31 مقابل شهر سابق من 30 يوماً لا يتسرّب إليه)
+    const prevEnd = cutDay ? new Date(Math.min(Date.UTC(y, mon - 2, cutDay + 1), start.getTime())) : prevStart;
+
+    const nowRows = await prisma.$queryRaw`
+      SELECT p.name AS province, s."itemId" AS "itemId", s."uploadedFileId" AS "fileId", s."recordType" AS "recordType",
+             SUM(s.quantity)::float AS qty, SUM(s."totalValue")::float AS val
+        FROM sales s
+        LEFT JOIN areas a ON a.id = s."areaId"
+        LEFT JOIN provinces p ON p.id = a."provinceId"
+       WHERE ${where} AND s."saleDate" >= ${start} AND s."saleDate" < ${next}
+       GROUP BY 1, 2, 3, 4`;
+    const prevRows = cutDay ? await prisma.$queryRaw`
+      SELECT p.name AS province, s."uploadedFileId" AS "fileId", s."recordType" AS "recordType",
+             SUM(s.quantity)::float AS qty, SUM(s."totalValue")::float AS val
+        FROM sales s
+        LEFT JOIN areas a ON a.id = s."areaId"
+        LEFT JOIN provinces p ON p.id = a."provinceId"
+       WHERE ${where} AND s."saleDate" >= ${prevStart} AND s."saleDate" < ${prevEnd}
+       GROUP BY 1, 2, 3` : [];
+
+    const byProv = new Map(); // name -> { now, prev, items: Map(itemId -> cell) }
+    const get = (name) => {
+      const k = name || UNKNOWN_PROVINCE;
+      if (!byProv.has(k)) byProv.set(k, { now: [0, 0, 0, 0], prev: [0, 0, 0, 0], items: new Map() });
+      return byProv.get(k);
+    };
+    for (const row of nowRows) {
+      const rate = scope.rateByFile.get(row.fileId) || 1;
+      const pr = get(row.province);
+      addRow(pr.now, row, rate);
+      if (!pr.items.has(row.itemId)) pr.items.set(row.itemId, [0, 0, 0, 0]);
+      addRow(pr.items.get(row.itemId), row, rate);
+    }
+    for (const row of prevRows) addRow(get(row.province).prev, row, scope.rateByFile.get(row.fileId) || 1);
+
+    const itemIds = [...new Set(nowRows.map(r => r.itemId))];
+    const itemRecs = itemIds.length ? await prisma.item.findMany({
+      where: { id: { in: itemIds } },
+      select: { id: true, name: true, company: { select: { name: true } }, scientificCompany: { select: { name: true } } },
+    }) : [];
+    const itemInfo = new Map(itemRecs.map(it => [it.id, { name: it.name, company: it.scientificCompany?.name ?? it.company?.name ?? null }]));
+
+    const provinces = [...byProv.entries()].map(([name, pr]) => ({
+      name,
+      now: roundCell(pr.now),
+      prev: roundCell(pr.prev),
+      items: [...pr.items.entries()].map(([id, c]) => ({ id, ...(itemInfo.get(id) ?? { name: `#${id}`, company: null }), now: roundCell(c) })),
+    }));
+    res.json({ success: true, data: { cutDay, provinces } });
+  } catch (err) {
+    console.error('[home-provinces]', err);
+    res.status(500).json({ error: err.message });
+  }
+}
