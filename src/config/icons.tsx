@@ -120,7 +120,8 @@ export type IconName = keyof typeof ICONS;
 /** يربط معرّف عنصر القائمة الجانبية (NAV_ITEMS[].id) بأيقونة Lucide — بدون لمس featureConfig.ts,
  *  لأن NAV_ITEMS[].icon (إيموجي) يُستهلك أيضاً كنص خام في شاشة صلاحيات السوبر أدمن. */
 export const NAV_ICON_BY_ID: Record<string, IconName> = {
-  'dashboard': 'navDashboard',
+  'home': 'navDashboard',
+  'dashboard': 'fabCall',
   'rep-analysis': 'navRepAnalysis',
   'doctors': 'navDoctors',
   'monthly-plans': 'navMonthlyPlans',

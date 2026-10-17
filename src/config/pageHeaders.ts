@@ -15,7 +15,8 @@ export interface PageHeader {
  * لكن عنوانه الداخلي الفعلي "قائمة السيرفي").
  */
 export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
-  'dashboard':          { title: 'الرئيسية', subtitle: 'نظرة عامة على أداء المندوبين اليوم' },
+  'home':               { title: 'الرئيسية', subtitle: 'آخر تطورات مبيع الايتمات شهراً بشهر' },
+  'dashboard':          { title: 'الكولات اليومية', subtitle: 'نظرة عامة على أداء المندوبين اليوم' },
   'rep-analysis':       { title: 'تحليل المبيعات', subtitle: 'رفع وإدارة ملفات المبيعات' },
   'upload':             { title: 'رفع الملفات', subtitle: 'رفع وإدارة ملفات المبيعات' },
   'doctors':            { title: 'قائمة السيرفي' },

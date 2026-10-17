@@ -7,7 +7,7 @@ const translations = {
     appTagline: 'محلل مبيعات الأدوية',
     toggleLang: 'English',
     nav: {
-      dashboard: 'الرئيسية',
+      dashboard: 'الكولات اليومية',
       upload: 'رفع',
       representatives: 'تجاريون',
       scientificReps: 'علميون',
@@ -537,7 +537,7 @@ const translations = {
     appTagline: 'Pharmaceutical Sales Analyzer',
     toggleLang: 'عربي',
     nav: {
-      dashboard: 'Dashboard',
+      dashboard: 'Daily Calls',
       upload: 'Upload',
       representatives: 'Commercial',
       scientificReps: 'Scientific',

@@ -48,6 +48,7 @@ const _importDistributorSales = () => import('./pages/DistributorSalesPage');
 const _importFileFilter          = () => import('./pages/FileFilterPage');
 const _importPharmacyAnalysis    = () => import('./pages/PharmacyAnalysisPage');
 const _importItemAnalysis        = () => import('./pages/ItemAnalysisPage');
+const _importHome                = () => import('./pages/HomePage');
 const _importQuizAssist          = () => import('./pages/QuizAssistPage');
 const _importBonusSales          = () => import('./pages/BonusSalesPage');
 const _importOrgStructure        = () => import('./pages/OrgStructurePage');
@@ -79,6 +80,7 @@ const DistributorSalesPage    = lazyWithRetry(_importDistributorSales);
 const FileFilterPage          = lazyWithRetry(_importFileFilter);
 const PharmacyAnalysisPage    = lazyWithRetry(_importPharmacyAnalysis);
 const ItemAnalysisPage        = lazyWithRetry(_importItemAnalysis);
+const HomePage                = lazyWithRetry(_importHome);
 const QuizAssistPage          = lazyWithRetry(_importQuizAssist);
 const BonusSalesPage          = lazyWithRetry(_importBonusSales);
 const OrgStructurePage        = lazyWithRetry(_importOrgStructure);
@@ -108,6 +110,7 @@ function PageLoader() {
 }
 
 export type PageId =
+  | 'home'
   | 'dashboard'
   | 'org-structure'
   | 'upload'
@@ -305,7 +308,13 @@ function AppInner() {
       }
     } catch {}
     const saved = localStorage.getItem('lastPage') as PageId | null;
-    return saved ?? 'dashboard';
+    if (saved) return saved;
+    try {
+      const u = JSON.parse(localStorage.getItem('auth_user') || 'null');
+      const homeRoles = NAV_ITEMS.find(n => n.id === 'home')?.roles ?? [];
+      if (u?.role && homeRoles.includes(u.role)) return 'home';
+    } catch {}
+    return 'dashboard';
   });
   const [sidebarOpen, setSidebarOpen]     = useState(() => window.innerWidth >= 768);
   const [showAI, setShowAI]               = useState(() => localStorage.getItem('showAIAssistant') !== 'false');
@@ -547,7 +556,7 @@ function AppInner() {
   // That cost stays on-demand: a page only mounts (and fetches) when actually visited.
   useEffect(() => {
     const importers = [
-      _importDashboard, _importUpload, _importRepresentatives, _importScientificReps,
+      _importHome, _importDashboard, _importUpload, _importRepresentatives, _importScientificReps,
       _importDoctors, _importMonthlyPlans, _importDailyPlan, _importReports, _importUsers,
       _importRepAnalysis, _importCommercial, _importSurvey, _importFMS, _importSalesData,
       _importDistributorSales, _importFileFilter, _importPharmacyAnalysis, _importItemAnalysis,
@@ -629,6 +638,7 @@ function AppInner() {
 
   // Page definitions — each page only mounts once and stays in DOM (hidden when inactive)
   const allPages: { id: PageId; node: React.ReactNode }[] = [
+    { id: 'home',            node: <HomePage activeFileIds={activeFileIds} onNavigate={navigateTo} /> },
     { id: 'dashboard',       node: <DashboardPage onNavigate={navigateTo} activeFileIds={activeFileIds} onFileActivated={toggleFileActive} /> },
     { id: 'upload',          node: <UploadPage activeFileIds={activeFileIds} onFileActivated={toggleFileActive} /> },
     { id: 'representatives', node: <RepresentativesPage activeFileIds={activeFileIds} onNavigate={navigateTo} /> },

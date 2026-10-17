@@ -25,7 +25,8 @@ export interface NavItemDef {
 
 // نفس القائمة التي تُبنى منها القائمة الجانبية الحقيقية للمستخدم (Sidebar.tsx)
 export const NAV_ITEMS: NavItemDef[] = [
-  { id: 'dashboard',         labelAr: 'الرئيسية',                  i18nKey: 'dashboard',    icon: '📊', roles: [] },
+  { id: 'home',              labelAr: 'الرئيسية',                  icon: '🏠', roles: ['admin','manager','company_manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','supervisor','team_leader','office_employee','office_hr'] },
+  { id: 'dashboard',         labelAr: 'الكولات اليومية',           i18nKey: 'dashboard',    icon: '📞', roles: [] },
   { id: 'rep-analysis',      labelAr: 'تحليل المبيعات',             icon: '📂', roles: ['scientific_rep','team_leader','supervisor','company_manager','admin','manager','product_manager','office_manager','commercial_supervisor','commercial_team_leader','user','office_employee','office_hr'] },
   { id: 'doctors',           labelAr: 'تحليل الكولات',              i18nKey: 'doctors',      icon: '🏥', roles: [] },
   { id: 'monthly-plans',     labelAr: 'البلان الشهري',              i18nKey: 'monthlyPlans', icon: '📅', roles: [] },
@@ -55,6 +56,7 @@ export const NAV_ITEMS: NavItemDef[] = [
 
 // مفتاح ميزة ← يخفي هذا المفتاح صفحة كاملة عند تعطيله (يمكن لعدة مفاتيح أن تشير لنفس الصفحة)
 export const FEATURE_PAGE_MAP: Record<string, string> = {
+  home_page:          'home',
   monthly_plans:      'monthly-plans',
   daily_plans:        'daily-plan',
   reports:            'reports',
@@ -84,7 +86,8 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
 
 // وصف كل صفحة يظهر للأدمن في شاشة المميزات
 export const PAGE_DESCRIPTIONS: Record<string, string> = {
-  'dashboard':         'الشاشة الرئيسية — متاحة دائماً لجميع المستخدمين',
+  'home':              'الرئيسية — آخر تطورات مبيع الايتمات المتابَعة شهراً بشهر: الكمية والقيمة لكل ايتم وتوزيعها على المحافظات',
+  'dashboard':         'الكولات اليومية — تسجيل ومتابعة زيارات اليوم (متاحة دائماً لجميع المستخدمين)',
   'rep-analysis':      'صفحة رفع وتحليل ملفات بيانات المندوبين',
   'doctors':           'صفحة إدارة الأطباء والزيارات (قائمة السيرفي) — متاحة لجميع الأدوار',
   'monthly-plans':     'صفحة إنشاء وإدارة البلانات الشهرية',
