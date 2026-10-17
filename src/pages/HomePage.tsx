@@ -1,5 +1,6 @@
 // ════════════════════════════════════════════════════════════════════════════
-// HomePage — «الرئيسية»: مبيع الايتمات المتابَعة في شهر واحد، بأبسط عرض ممكن.
+// HomePage — «الرئيسية»: صافي (مبيع − إرجاع) الايتمات المتابَعة في شهر واحد،
+// من ملفات مبيع المكتب وحدها (لا ميركاتو — طلب صريح)، بأبسط عرض ممكن.
 //
 // • اختيار الشهر (قائمة واحدة) + سطر ملخّص واحد + بطاقة لكل ايتم (القيمة،
 //   الكمية، التغيّر عن الشهر السابق). الضغط على بطاقة يعرض مبيعه بالمحافظات.
@@ -47,6 +48,9 @@ const dataCache = new Map<string, HomeData>();
 const provCache = new Map<string, ProvRow[]>();
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
+/** الصافي = مبيع − إرجاع (الإرجاع مخزَّن موجباً) */
+const netQ = (c?: Cell) => (c ? c[0] - c[2] : 0);
+const netV = (c?: Cell) => (c ? c[1] - c[3] : 0);
 
 export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const { token, user } = useAuth();
@@ -77,7 +81,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
     const ac = new AbortController();
     if (!hit) setLoading(true);
     setErr('');
-    fetch(`${API}/api/reports/home-items?fileIds=${fileKey}`, { headers: { Authorization: `Bearer ${token}` }, signal: ac.signal })
+    fetch(`${API}/api/reports/home-items?fileIds=${fileKey}&source=office`, { headers: { Authorization: `Bearer ${token}` }, signal: ac.signal })
       .then(r => r.json())
       .then(j => {
         if (!j.success) throw new Error(j.error || 'تعذّر تحميل البيانات');
@@ -100,7 +104,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
 
   const itemsById = useMemo(() => new Map((data?.items ?? []).map(i => [i.id, i])), [data]);
   const ranked = useMemo(() =>
-    [...(data?.items ?? [])].sort((a, b) => (b.m[activeMonth]?.[1] ?? 0) - (a.m[activeMonth]?.[1] ?? 0)),
+    [...(data?.items ?? [])].sort((a, b) => netV(b.m[activeMonth]) - netV(a.m[activeMonth])),
   [data, activeMonth]);
 
   const validPinned = pinned.filter(id => itemsById.has(id));
@@ -109,8 +113,8 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
     ? ranked.filter(i => (i.m[activeMonth]?.[1] ?? 0) > 0).slice(0, AUTO_PIN_COUNT)
     : validPinned.map(id => itemsById.get(id)!);
 
-  const total = watched.reduce((s, it) => s + (it.m[activeMonth]?.[1] ?? 0), 0);
-  const totalPrev = watched.reduce((s, it) => s + (it.m[prevMonth]?.[1] ?? 0), 0);
+  const total = watched.reduce((s, it) => s + netV(it.m[activeMonth]), 0);
+  const totalPrev = watched.reduce((s, it) => s + netV(it.m[prevMonth]), 0);
 
   // ════════════════════════════════════════════════════════════════════════
   if (!fileKey) {
@@ -145,15 +149,21 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
           <div className="hp-muted">تظهر هنا مبيعات ايتماتك فقط — اطلب من السوبر أدمن إسنادها لك من تبويب «الايتمات».</div>
         </div>
       )}
-      {data && !data.noItems && months.length === 0 && !loading && (
+      {data && !data.noItems && data.source === 'mercato' && (
+        <div className="hp-empty">
+          <div className="hp-empty-title">لا يوجد ملف مبيع مكتب مفعّل</div>
+          <div className="hp-muted">هذه الصفحة تعرض صافي مبيع ملف المكتب فقط — فعّله من «تحليل المبيعات».</div>
+        </div>
+      )}
+      {data && !data.noItems && data.source !== 'mercato' && months.length === 0 && !loading && (
         <div className="hp-empty"><div className="hp-empty-title">لا يوجد مبيع في الملفات المفعّلة</div></div>
       )}
 
-      {months.length > 0 && (
+      {months.length > 0 && data?.source !== 'mercato' && (
         <>
           <div className="hp-summary">
             <div>
-              <div className="hp-muted">مبيع {isAuto ? 'أعلى الايتمات' : 'ايتماتك'} — {monthName(activeMonth)}</div>
+              <div className="hp-muted">صافي {isAuto ? 'أعلى الايتمات' : 'ايتماتك'} (مبيع − إرجاع) — {monthName(activeMonth)}</div>
               <div className="hp-summary-value">{fmt(money(total))} <small>{curLabel}</small></div>
             </div>
             {hasPrev && <Delta now={total} prev={totalPrev} />}
@@ -167,9 +177,9 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
                 <div key={it.id} className={`hp-item ${open ? 'is-open' : ''}`}>
                   <button className="hp-item-row" onClick={() => setOpenId(open ? null : it.id)}>
                     <span className="hp-item-name">{it.name}</span>
-                    <span className="hp-item-qty">{fmt(c?.[0] ?? 0)} قطعة</span>
-                    <span className="hp-item-val">{fmt(money(c?.[1] ?? 0))} <small>{curLabel}</small></span>
-                    <span className="hp-item-delta">{hasPrev ? <Delta now={c?.[1] ?? 0} prev={it.m[prevMonth]?.[1] ?? 0} /> : null}</span>
+                    <span className="hp-item-qty">{fmt(netQ(c))} قطعة</span>
+                    <span className="hp-item-val">{fmt(money(netV(c)))} <small>{curLabel}</small></span>
+                    <span className="hp-item-delta">{hasPrev ? <Delta now={netV(c)} prev={netV(it.m[prevMonth])} /> : null}</span>
                     <span className="hp-chev">{open ? '▴' : '▾'}</span>
                   </button>
                   {open && (
@@ -225,7 +235,7 @@ function Provinces({ itemId, ym, fileKey, source, token, money, curLabel }: {
   }, [key, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!rows) return <div className="hp-prov hp-muted">جاري التحميل…</div>;
-  const list = rows.map(r => ({ name: r.name, q: r.m[ym]?.[0] ?? 0, v: r.m[ym]?.[1] ?? 0 }))
+  const list = rows.map(r => ({ name: r.name, q: netQ(r.m[ym]), v: netV(r.m[ym]) }))
     .filter(r => r.q || r.v).sort((a, b) => b.v - a.v);
   if (!list.length) return <div className="hp-prov hp-muted">لا مبيع في هذا الشهر.</div>;
   const max = Math.max(...list.map(r => r.v), 1);
@@ -234,7 +244,7 @@ function Provinces({ itemId, ym, fileKey, source, token, money, curLabel }: {
       {list.map(r => (
         <div key={r.name} className="hp-prov-row">
           <span className="hp-prov-name">{r.name}</span>
-          <span className="hp-prov-track"><span style={{ width: `${Math.max(2, (r.v / max) * 100)}%` }} /></span>
+          <span className="hp-prov-track"><span style={{ width: `${Math.max(2, (Math.max(0, r.v) / max) * 100)}%` }} /></span>
           <span className="hp-prov-qty">{fmt(r.q)} قطعة</span>
           <span className="hp-prov-val">{fmt(money(r.v))} {curLabel}</span>
         </div>
