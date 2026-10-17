@@ -178,7 +178,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
       {view === 'board' && <Sky />}
 
       <div className="hp-head">
-        <select className="form-input hp-month" value={activeMonth} onChange={e => { setMonth(e.target.value); setOpenId(null); }} disabled={!months.length}>
+        <select className="form-input hp-month" value={activeMonth} onChange={e => { setMonth(e.target.value); setOpenId(null); e.target.blur(); /* كي لا تبقى القائمة تلتقط أسهم ←/→ فتغيّر الشهر بدل تحريك اللوحة */ }} disabled={!months.length}>
           {[...months].reverse().map(ym => <option key={ym} value={ym}>{monthName(ym)}</option>)}
         </select>
         {view === 'list' ? (
@@ -740,6 +740,29 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   }, [hoverPause]);
   const stop = paused || count < 2 || hoverPause;
   useEffect(() => { if (active >= count) setActive(0); }, [count, active]);
+
+  // ── التحريك بأسهم الكيبورد ←/→ ─────────────────────────────────────────────
+  // الاتجاه بصري: البطاقات التالية تقع على يسار الوسط (translateX سالب)، فسهم اليسار
+  // يجلب التالية للوسط وسهم اليمين يجلب السابقة. يعيد ضبط عدّاد التقليب التلقائي.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      if (paused || count < 2) return;                      // نافذة التفاصيل مفتوحة أو بطاقة واحدة
+      const el = rootRef.current;
+      // الصفحة الرئيسية تبقى محمّلة (display:none) عند زيارة صفحة أخرى — لا نلتقط الأسهم حينها
+      if (!el || el.getClientRects().length === 0) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return; // لا نسرق الكتابة
+      e.preventDefault();
+      const dir = e.key === 'ArrowLeft' ? 1 : -1;
+      setActive(a => (a + dir + count) % count);
+      setKick(k => k + 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [paused, count]);
   useEffect(() => {
     if (stop) return;
     let interval: ReturnType<typeof setInterval> | undefined;
@@ -752,7 +775,7 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   }, [stop, count, offsetMs, kick]);
 
   return (
-    <div className={`cf cf-${variant} ${hoverPause ? 'is-paused' : ''}`}
+    <div className={`cf cf-${variant} ${hoverPause ? 'is-paused' : ''}`} ref={rootRef}
       onPointerLeave={() => { hoverCapped.current = false; setHoverPause(false); }}>
       <div className="cf-stage">
         {Array.from({ length: count }, (_, i) => {
