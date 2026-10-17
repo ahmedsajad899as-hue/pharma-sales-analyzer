@@ -319,7 +319,7 @@ function Provinces({ itemId, ym, fileKey, source, token }: {
 interface ProvSummary { name: string; now: Cell; prev: Cell; items: { id: number; name: string; company: string | null; now: Cell }[] }
 const provSummaryCache = new Map<string, ProvSummary[]>();
 const BOARD_COUNT = 6;
-const ROTATE_MS = 5000;
+const ROTATE_MS = 10000;
 
 /**
  * صور علب الايتمات (public/items/) — مطابقة بالاسم المطبَّع لأن نفس الدواء له عدة
