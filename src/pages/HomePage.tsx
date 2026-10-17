@@ -325,11 +325,14 @@ const ROTATE_MS = 5000;
  * صور علب الايتمات (public/items/) — مطابقة بالاسم المطبَّع لأن نفس الدواء له عدة
  * صفوف Item بأسماء متقاربة. تجربة أولى على ايتم واحد؛ الباقي بلا صورة.
  */
-const ITEM_IMAGES: { match: (n: string) => boolean; src: string }[] = [
-  { match: n => n.includes('pantactive') && n.includes('40'), src: '/items/pantactive-40.jpg' },
-  { match: n => n.includes('amoklavin') && n.includes('1000'), src: '/items/amoklavin-1000.jpg' },
+// pos = موضع القصّ (object-position) كي يبقى اسم الماركة ظاهراً حين تغطي الصورة
+// البطاقة؛ pill = جهة شارة الكمية أسفل البطاقة كي لا تغطي اسم الماركة.
+interface ItemImage { match: (n: string) => boolean; src: string; pos: string; pill: 'left' | 'right' }
+const ITEM_IMAGES: ItemImage[] = [
+  { match: n => n.includes('pantactive') && n.includes('40'), src: '/items/pantactive-40.jpg', pos: 'center 100%', pill: 'right' },
+  { match: n => n.includes('amoklavin') && n.includes('1000'), src: '/items/amoklavin-1000.jpg', pos: '88% 45%', pill: 'left' },
 ];
-const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase()))?.src ?? null;
+const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase())) ?? null;
 
 function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }: {
   items: HomeItem[]; month: string; prevMonth: string; hasPrev: boolean;
@@ -371,22 +374,18 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
             render={(i) => {
               const it = topItems[i];
               const img = itemImage(it.name);
-              // ايتم له صورة: الصورة تملأ البطاقة كاملة (نسخة مموّهة منها خلفيةً كي لا تُقصّ
-              // العلبة العريضة)، والتفاصيل فوقها: الاسم والسهم أعلى، والكمية أسفل.
+              // ايتم له صورة: الصورة هي البطاقة كلها (تغطيها حتى الحواف — طلب صريح)،
+              // والترتيب والسهم شارتان في الأعلى، والاسم والكمية مكتوبان على الصورة أسفلها.
               if (img) return (
                 <div className="bb-card bb-card-item has-photo">
-                  <img className="bb-photo-bg" src={img} alt="" aria-hidden="true" draggable={false} />
-                  <img className="bb-photo" src={img} alt={it.name} draggable={false} />
+                  <img className="bb-photo" src={img.src} alt={it.name} title={it.name} draggable={false}
+                    style={{ objectPosition: img.pos }} />
                   <div className="bb-photo-top">
-                    <div className="bb-item-head">
-                      <span className="bb-rank">#{i + 1}</span>
-                      <span className="bb-item-name" title={it.name}>{it.name}</span>
-                      {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
-                    </div>
-                    <div className="bb-card-sub bb-center">{it.company ?? '—'}</div>
+                    <span className="bb-rank">#{i + 1}</span>
+                    {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
                   </div>
-                  <div className="bb-photo-bottom">
-                    <div className="bb-card-qty bb-center">{fmt(netQ(it.m[month]))} <small>قطعة</small></div>
+                  <div className={`bb-photo-pill is-${img.pill}`}>
+                    {fmt(netQ(it.m[month]))} <small>قطعة</small>
                   </div>
                 </div>
               );
@@ -745,7 +744,8 @@ function HomeStyles() {
 
 .cf { position: relative; }
 .cf { --w: min(340px, 72vw); --h: 230px; }
-.cf-item { --w: min(380px, 78vw); --h: 360px; }
+/* بطاقة الايتم عريضة (≈16:9) لتطابق صور العلب العريضة فتغطيها الصورة بأقل قصّ */
+.cf-item { --w: min(480px, 84vw); --h: 280px; }
 .cf-stage { position: relative; height: calc(var(--h) + 30px); perspective: 1000px; }
 .cf-slot { position: absolute; top: 14px; left: calc(50% - var(--w) / 2); width: var(--w); height: var(--h);
   padding: 0; border: 0; background: none; cursor: pointer; font-family: inherit; text-align: right;
@@ -774,19 +774,21 @@ function HomeStyles() {
 .bb-frame img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; pointer-events: none; user-select: none;
   transition: transform .6s ease; }
 .cf-slot.is-active .bb-frame img { transform: scale(1.03); }
-/* بطاقة بصورة كاملة: خلفية مموّهة من نفس الصورة + الصورة كاملة في الوسط + تفاصيل فوقها */
-.bb-card.has-photo { padding: 0; overflow: hidden; background: var(--c-primary); }
-.bb-photo-bg { position: absolute; inset: -20px; width: calc(100% + 40px); height: calc(100% + 40px); object-fit: cover;
-  filter: blur(18px) saturate(1.2) brightness(.75); transform: scale(1.1); pointer-events: none; }
-.bb-photo { position: absolute; left: 0; right: 0; top: 50%; width: 100%; max-height: 68%; object-fit: contain;
-  transform: translateY(-50%); box-shadow: 0 12px 30px rgba(0,0,0,.35); pointer-events: none; user-select: none;
-  transition: transform .6s ease; }
-.cf-slot.is-active .bb-photo { transform: translateY(-50%) scale(1.02); }
-.bb-photo-top, .bb-photo-bottom { position: absolute; left: 0; right: 0; padding: 14px 16px; z-index: 1; }
-.bb-photo-top { top: 0; background: linear-gradient(to bottom, rgba(15,30,53,.92), rgba(15,30,53,.55) 70%, transparent); padding-bottom: 26px; }
-.bb-photo-bottom { bottom: 0; background: linear-gradient(to top, rgba(15,30,53,.95), rgba(15,30,53,.6) 70%, transparent); padding-top: 26px; }
-.bb-card.has-photo .bb-card-qty { margin-top: 0; font-size: 32px; }
-.bb-card.has-photo .bb-item-name { font-size: 14.5px; }
+/* بطاقة بصورة: الصورة تغطي البطاقة كاملة، والتفاصيل مكتوبة عليها */
+.bb-card.has-photo { padding: 0; overflow: hidden; background: #fff; }
+.bb-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center;
+  pointer-events: none; user-select: none; transition: transform 1.2s ease; }
+.cf-slot.is-active .bb-photo { transform: scale(1.02); }
+.bb-photo-top { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1; display: flex; justify-content: space-between; align-items: center; }
+.bb-photo-top .bb-rank { background: rgba(15,30,53,.75); backdrop-filter: blur(4px); }
+.bb-photo-top .hp-delta { box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+/* شارة الكمية الزجاجية مكتوبة على الصورة نفسها */
+.bb-photo-pill { position: absolute; bottom: 12px; z-index: 1; padding: 6px 14px; border-radius: 14px;
+  background: rgba(15,30,53,.78); backdrop-filter: blur(6px); box-shadow: 0 6px 18px rgba(0,0,0,.3);
+  font-size: 28px; font-weight: 800; white-space: nowrap; line-height: 1.2; }
+.bb-photo-pill.is-left { left: 12px; }
+.bb-photo-pill.is-right { right: 12px; }
+.bb-photo-pill small { font-size: 12px; font-weight: 600; opacity: .8; }
 .bb-art { width: 100%; height: 100%; display: block; transition: transform .6s ease; }
 .cf-slot.is-active .bb-art { transform: scale(1.03); }
 .bb-card-item .bb-card-qty { margin-top: 0; font-size: 32px; }
