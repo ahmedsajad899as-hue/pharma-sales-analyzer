@@ -366,20 +366,25 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
       <section className="bb-section">
         <div className="bb-title"><span className="bb-title-dot" />الأكثر مبيعاً — الايتمات <span className="hp-muted">· {monthName(month)}</span></div>
         {topItems.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
-          <Coverflow paused={!!detail} count={topItems.length}
+          <Coverflow paused={!!detail} count={topItems.length} variant="item"
             render={(i) => {
               const it = topItems[i];
               const img = itemImage(it.name);
+              // فوق: الترتيب + الاسم + السهم · الوسط: صورة العلبة داخل إطار · تحت: الكمية
               return (
-                <div className={`bb-card bb-card-item ${img ? 'has-img' : ''}`}>
-                  {img && <img className="bb-card-img" src={img} alt="" loading="lazy" draggable={false} />}
-                  <div className="bb-card-top">
+                <div className="bb-card bb-card-item">
+                  <div className="bb-item-head">
                     <span className="bb-rank">#{i + 1}</span>
+                    <span className="bb-item-name" title={it.name}>{it.name}</span>
                     {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
                   </div>
-                  <div className="bb-card-name" title={it.name}>{it.name}</div>
-                  <div className="bb-card-sub">{it.company ?? '—'}</div>
-                  <div className="bb-card-qty">{fmt(netQ(it.m[month]))} <small>قطعة</small></div>
+                  <div className="bb-card-sub bb-center">{it.company ?? '—'}</div>
+                  <div className="bb-frame">
+                    {img
+                      ? <img src={img} alt={it.name} loading="lazy" draggable={false} />
+                      : <span className="bb-frame-ph">💊</span>}
+                  </div>
+                  <div className="bb-card-qty bb-center">{fmt(netQ(it.m[month]))} <small>قطعة</small></div>
                 </div>
               );
             }}
@@ -391,7 +396,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
         <div className="bb-title"><span className="bb-title-dot is-prov" />الأكثر مبيعاً — المحافظات <span className="hp-muted">· {monthName(month)}</span></div>
         {!provs ? <div className="hp-muted hp-center">جاري التحميل…</div>
           : topProvs.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
-          <Coverflow paused={!!detail} count={topProvs.length} offsetMs={ROTATE_MS / 2}
+          <Coverflow paused={!!detail} count={topProvs.length} offsetMs={ROTATE_MS / 2} variant="prov"
             render={(i) => {
               const pr = topProvs[i];
               return (
@@ -438,8 +443,10 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
 }
 
 /** دوّار بطاقات: النشطة في الوسط، ±1 و±2 على الجانبين أصغر وأشفّ. */
-function Coverflow({ count, render, onOpen, paused, offsetMs = 0 }: {
+function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   count: number; render: (i: number) => ReactNode; onOpen: (i: number) => void; paused?: boolean; offsetMs?: number;
+  /** يحدّد مقاس البطاقة: item (أطول — فيها صورة) أو prov */
+  variant: 'item' | 'prov';
 }) {
   const [active, setActive] = useState(0);
   const [hover, setHover] = useState(false);
@@ -456,7 +463,7 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0 }: {
   }, [stop, count, offsetMs]);
 
   return (
-    <div className="cf" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <div className={`cf cf-${variant}`} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <div className="cf-stage">
         {Array.from({ length: count }, (_, i) => {
           // أقصر مسافة دائرية من النشطة: -2..+2 ظاهرة، والباقي مخفي خلفها
@@ -648,8 +655,10 @@ function HomeStyles() {
 .bb-title-dot.is-prov { background: #0891b2; box-shadow: 0 0 0 4px #cffafe; }
 
 .cf { position: relative; }
-.cf-stage { position: relative; height: 228px; perspective: 1000px; }
-.cf-slot { --w: min(300px, 64vw); position: absolute; top: 24px; left: calc(50% - var(--w) / 2); width: var(--w); height: 190px;
+.cf { --w: min(340px, 72vw); --h: 230px; }
+.cf-item { --w: min(380px, 78vw); --h: 360px; }
+.cf-stage { position: relative; height: calc(var(--h) + 30px); perspective: 1000px; }
+.cf-slot { position: absolute; top: 14px; left: calc(50% - var(--w) / 2); width: var(--w); height: var(--h);
   padding: 0; border: 0; background: none; cursor: pointer; font-family: inherit; text-align: right;
   transition: transform .6s cubic-bezier(.2,.8,.2,1), opacity .6s ease, filter .6s ease; }
 .cf-slot:focus-visible { outline: 3px solid var(--c-accent); outline-offset: 3px; border-radius: 18px; }
@@ -665,13 +674,19 @@ function HomeStyles() {
   linear-gradient(140deg, var(--c-primary) 0%, var(--c-primary-mid) 35%, var(--c-accent) 100%); }
 .bb-card-prov { background: radial-gradient(circle at 92% 108%, rgba(255,255,255,.18), transparent 38%),
   linear-gradient(140deg, var(--c-primary) 0%, #0e3a5c 40%, #0891b2 100%); }
-.bb-card-img { position: absolute; left: -14px; top: -20px; width: 47%; aspect-ratio: 404 / 328; object-fit: cover;
-  border-radius: 8px; transform: rotate(-6deg); box-shadow: 0 12px 26px rgba(0,0,0,.4), 0 0 0 3px rgba(255,255,255,.9);
-  pointer-events: none; user-select: none; transition: transform .5s ease; }
-.cf-slot.is-active .bb-card-img { transform: rotate(-4deg) scale(1.04); }
-.bb-card.has-img .bb-card-top { justify-content: flex-start; gap: 8px; }
-.bb-card.has-img .bb-card-name, .bb-card.has-img .bb-card-sub { max-width: 54%; margin-right: 0; margin-left: auto; }
-.bb-card.has-img .bb-card-name { margin-top: 26px; }
+/* بطاقة الايتم: رأس (ترتيب + اسم + سهم) ثم إطار الصورة في الوسط ثم الكمية */
+.bb-item-head { display: flex; align-items: center; gap: 8px; }
+.bb-item-name { flex: 1; min-width: 0; font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  direction: ltr; text-align: center; }
+.bb-center { text-align: center; }
+.bb-frame { flex: 1; min-height: 0; margin: 8px 6px 6px; border-radius: 14px; padding: 8px;
+  background: rgba(255,255,255,.96); box-shadow: inset 0 0 0 1px rgba(15,30,53,.08), 0 10px 24px rgba(0,0,0,.28);
+  display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.bb-frame img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; pointer-events: none; user-select: none;
+  transition: transform .6s ease; }
+.cf-slot.is-active .bb-frame img { transform: scale(1.03); }
+.bb-frame-ph { font-size: 54px; opacity: .35; filter: grayscale(.3); }
+.bb-card-item .bb-card-qty { margin-top: 0; font-size: 32px; }
 .cf-slot.is-active .bb-card { box-shadow: 0 16px 40px rgba(26,86,219,.35); }
 .bb-card-top { display: flex; justify-content: space-between; align-items: center; }
 .bb-rank { font-size: 12px; font-weight: 800; background: rgba(255,255,255,.16); border-radius: 999px; padding: 2px 10px; }
