@@ -13,7 +13,7 @@
 // ⚠️ طلب صريح: الصفحة مختصرة — لا تُضِف إليها جداول/مؤشرات/أزرار تبديل.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type { PageId } from '../App';
 
@@ -319,7 +319,7 @@ function Provinces({ itemId, ym, fileKey, source, token }: {
 interface ProvSummary { name: string; now: Cell; prev: Cell; items: { id: number; name: string; company: string | null; now: Cell }[] }
 const provSummaryCache = new Map<string, ProvSummary[]>();
 const BOARD_COUNT = 6;
-const ROTATE_MS = 3000;
+const ROTATE_MS = 5000;
 
 /**
  * صور علب الايتمات (public/items/) — مطابقة بالاسم المطبَّع لأن نفس الدواء له عدة
@@ -382,7 +382,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
                   <div className="bb-frame">
                     {img
                       ? <img src={img} alt={it.name} loading="lazy" draggable={false} />
-                      : <span className="bb-frame-ph">💊</span>}
+                      : <ItemArt name={it.name} company={it.company} />}
                   </div>
                   <div className="bb-card-qty bb-center">{fmt(netQ(it.m[month]))} <small>قطعة</small></div>
                 </div>
@@ -442,6 +442,72 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
   );
 }
 
+/**
+ * رسمة علبة دواء مولَّدة للايتم الذي لا صورة له: علبة ثلاثية الأبعاد بلون ثابت
+ * لكل ايتم (مشتق من اسمه، ضمن ألوان أوردين)، عليها اسم الماركة وشريط الجرعة
+ * والشركة وأيقونة الشكل الصيدلاني (حبوب/كبسول/شراب/أمبول/كريم/قطرة).
+ */
+const ART_HUES = ['#1a56db', '#0891b2', '#4f46e5', '#0f766e', '#2563eb', '#0e7490', '#6d28d9', '#1e40af'];
+function ItemArt({ name, company }: { name: string; company: string | null }) {
+  const hash = [...name].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
+  const hue = ART_HUES[hash % ART_HUES.length];
+  const strength = /(\d+(?:[.,]\d+)?\s*(?:mg|mcg|ml|g|iu|%))/i.exec(name)?.[1]?.replace(/\s+/g, '').toUpperCase() ?? '';
+  // الماركة = الكلمات قبل أول رقم/قوس، ثم تُقصّ بالكلمات حتى ~12 حرفاً كي لا تخرج من وجه العلبة
+  const words = (name.split(/\s+\d|\s*\(|,/)[0] || name).trim().toUpperCase().split(/\s+/);
+  let brand = words[0] ?? '';
+  for (const w of words.slice(1)) { if ((brand + ' ' + w).length > 12) break; brand += ' ' + w; }
+  const n = name.toLowerCase();
+  const form = /syrup|susp|شراب/.test(n) ? 'syrup'
+    : /amp|vial|inj|\bim\b|\biv\b/.test(n) ? 'amp'
+    : /cream|gel|oint|كريم/.test(n) ? 'tube'
+    : /drop|damla|قطر/.test(n) ? 'drop'
+    : /cap/.test(n) ? 'cap' : 'tab';
+  const brandSize = Math.max(11, Math.min(22, 140 / Math.max(brand.length * 0.68, 1)));
+  // أمان إضافي: لو بقي العرض المقدَّر أعرض من الوجه يُضغط النص إلى عرضه
+  const fitText = brand.length * brandSize * 0.68 > 144 ? { textLength: 144, lengthAdjust: 'spacingAndGlyphs' as const } : {};
+  const gid = `ia${hash}`;
+  return (
+    <svg className="bb-art" viewBox="0 0 240 160" role="img" aria-label={name}>
+      <defs>
+        <linearGradient id={`${gid}f`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ffffff" /><stop offset="1" stopColor="#eef2fb" />
+        </linearGradient>
+        <clipPath id={`${gid}c`}><rect x="30" y="40" width="160" height="102" /></clipPath>
+      </defs>
+      {/* ظل أرضي */}
+      <ellipse cx="125" cy="148" rx="92" ry="7" fill="#0f1e35" opacity=".12" />
+      {/* الوجه العلوي والجانبي */}
+      <polygon points="30,40 58,20 218,20 190,40" fill={hue} opacity=".28" />
+      <polygon points="190,40 218,20 218,122 190,142" fill={hue} opacity=".85" />
+      {/* الوجه الأمامي */}
+      <rect x="30" y="40" width="160" height="102" fill={`url(#${gid}f)`} stroke="#0f1e35" strokeOpacity=".08" />
+      {/* أقواس زخرفية مثل علب الأدوية */}
+      <g fill="none" stroke={hue} strokeOpacity=".18" strokeWidth="5" clipPath={`url(#${gid}c)`}>
+        <circle cx="178" cy="52" r="16" /><circle cx="178" cy="52" r="28" /><circle cx="178" cy="52" r="40" />
+      </g>
+      {/* الشركة */}
+      <text x="38" y="54" fontSize="8.5" fontWeight="700" fill={hue} direction="ltr" style={{ textTransform: 'uppercase' }}>
+        {(company ?? '').slice(0, 22)}
+      </text>
+      {/* أيقونة الشكل الصيدلاني */}
+      <g transform="translate(152,50)" fill={hue}>
+        {form === 'tab' && <><circle cx="8" cy="10" r="7" /><circle cx="24" cy="10" r="7" opacity=".55" /></>}
+        {form === 'cap' && <><rect x="0" y="4" width="30" height="12" rx="6" opacity=".55" /><rect x="0" y="4" width="15" height="12" rx="6" /></>}
+        {form === 'syrup' && <><rect x="9" y="0" width="12" height="5" rx="1" /><rect x="5" y="5" width="20" height="18" rx="4" opacity=".8" /></>}
+        {form === 'amp' && <><rect x="11" y="0" width="8" height="6" rx="2" /><rect x="8" y="6" width="14" height="18" rx="3" opacity=".8" /></>}
+        {form === 'tube' && <><rect x="0" y="8" width="24" height="10" rx="2" opacity=".8" /><rect x="24" y="10" width="7" height="6" rx="1" /></>}
+        {form === 'drop' && <path d="M15 0 C 15 0, 4 12, 4 18 a 11 11 0 0 0 22 0 C 26 12, 15 0, 15 0 Z" opacity=".8" />}
+      </g>
+      {/* اسم الماركة */}
+      <text x="38" y="98" fontSize={brandSize} fontWeight="900" fill="#0f1e35" direction="ltr" letterSpacing=".3" {...fitText}>{brand}</text>
+      {/* شريط الجرعة */}
+      <rect x="30" y="108" width="160" height="22" fill={hue} />
+      <text x="38" y="123.5" fontSize="11" fontWeight="800" fill="#fff" direction="ltr">{strength || 'Rx'}</text>
+      <rect x="30" y="130" width="160" height="12" fill={hue} opacity=".12" />
+    </svg>
+  );
+}
+
 /** دوّار بطاقات: النشطة في الوسط، ±1 و±2 على الجانبين أصغر وأشفّ. */
 function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   count: number; render: (i: number) => ReactNode; onOpen: (i: number) => void; paused?: boolean; offsetMs?: number;
@@ -449,21 +515,26 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   variant: 'item' | 'prov';
 }) {
   const [active, setActive] = useState(0);
-  const [hover, setHover] = useState(false);
-  const stop = paused || hover || count < 2;
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // كل اختيار يدوي يعيد ضبط العدّاد كي لا تقفز البطاقة فور اختيارها
+  const [kick, setKick] = useState(0);
+  const pick = (i: number) => { setActive(i); setKick(k => k + 1); };
+  // ⚠️ لا إيقاف عند مرور الماوس: البطاقات تملأ الشاشة فيبقى الماوس فوقها دائماً
+  // وكانت الحركة تبدو متوقفة. الإيقاف فقط أثناء فتح نافذة التفاصيل.
+  const stop = paused || count < 2;
   useEffect(() => { if (active >= count) setActive(0); }, [count, active]);
   useEffect(() => {
     if (stop) return;
-    // إزاحة بدء صغيرة للوحة الثانية كي لا تتقلّب اللوحتان في نفس اللحظة
-    timer.current = setTimeout(() => {
-      timer.current = setInterval(() => setActive(a => (a + 1) % count), ROTATE_MS);
-    }, offsetMs || ROTATE_MS);
-    return () => { if (timer.current) { clearTimeout(timer.current); clearInterval(timer.current); } };
-  }, [stop, count, offsetMs]);
+    let interval: ReturnType<typeof setInterval> | undefined;
+    // إزاحة بدء للوحة الثانية كي لا تتقلّب اللوحتان في نفس اللحظة
+    const start = setTimeout(() => {
+      setActive(a => (a + 1) % count);
+      interval = setInterval(() => setActive(a => (a + 1) % count), ROTATE_MS);
+    }, kick ? ROTATE_MS : (offsetMs || ROTATE_MS));
+    return () => { clearTimeout(start); if (interval) clearInterval(interval); };
+  }, [stop, count, offsetMs, kick]);
 
   return (
-    <div className={`cf cf-${variant}`} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <div className={`cf cf-${variant}`}>
       <div className="cf-stage">
         {Array.from({ length: count }, (_, i) => {
           // أقصر مسافة دائرية من النشطة: -2..+2 ظاهرة، والباقي مخفي خلفها
@@ -482,7 +553,7 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
                 pointerEvents: hidden ? 'none' : 'auto',
                 filter: abs ? `blur(${abs * 0.6}px)` : undefined,
               }}
-              onClick={() => (off === 0 ? onOpen(i) : setActive(i))}
+              onClick={() => (off === 0 ? onOpen(i) : pick(i))}
               title={off === 0 ? 'اضغط لعرض التفاصيل' : undefined}>
               {render(i)}
             </button>
@@ -491,7 +562,7 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
       </div>
       <div className="cf-dots">
         {Array.from({ length: count }, (_, i) => (
-          <button key={i} type="button" className={`cf-dot ${i === active ? 'is-on' : ''}`} onClick={() => setActive(i)} aria-label={`بطاقة ${i + 1}`} />
+          <button key={i} type="button" className={`cf-dot ${i === active ? 'is-on' : ''}`} onClick={() => pick(i)} aria-label={`بطاقة ${i + 1}`} />
         ))}
       </div>
     </div>
@@ -685,7 +756,8 @@ function HomeStyles() {
 .bb-frame img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; pointer-events: none; user-select: none;
   transition: transform .6s ease; }
 .cf-slot.is-active .bb-frame img { transform: scale(1.03); }
-.bb-frame-ph { font-size: 54px; opacity: .35; filter: grayscale(.3); }
+.bb-art { width: 100%; height: 100%; display: block; transition: transform .6s ease; }
+.cf-slot.is-active .bb-art { transform: scale(1.03); }
 .bb-card-item .bb-card-qty { margin-top: 0; font-size: 32px; }
 .cf-slot.is-active .bb-card { box-shadow: 0 16px 40px rgba(26,86,219,.35); }
 .bb-card-top { display: flex; justify-content: space-between; align-items: center; }
