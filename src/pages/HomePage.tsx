@@ -13,7 +13,7 @@
 // ⚠️ طلب صريح: الصفحة مختصرة — لا تُضِف إليها جداول/مؤشرات/أزرار تبديل.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type { PageId } from '../App';
 
@@ -325,12 +325,12 @@ const ROTATE_MS = 5000;
  * صور علب الايتمات (public/items/) — مطابقة بالاسم المطبَّع لأن نفس الدواء له عدة
  * صفوف Item بأسماء متقاربة. تجربة أولى على ايتم واحد؛ الباقي بلا صورة.
  */
-// pos = موضع القصّ (object-position) كي يبقى اسم الماركة ظاهراً حين تغطي الصورة
-// البطاقة؛ pill = جهة شارة الكمية أسفل البطاقة كي لا تغطي اسم الماركة.
-interface ItemImage { match: (n: string) => boolean; src: string; pos: string; pill: 'left' | 'right' }
+// الصورة = الوجه الأمامي لعلبة ثلاثية الأبعاد (Box3D). depth = عمق العلبة نسبةً إلى
+// ارتفاع وجهها — يحاكي العلبة الحقيقية: شريط 10 حبات رفيع، و28 حبة أعمق.
+interface ItemImage { match: (n: string) => boolean; src: string; depth: number }
 const ITEM_IMAGES: ItemImage[] = [
-  { match: n => n.includes('pantactive') && n.includes('40'), src: '/items/pantactive-40.jpg', pos: 'center 100%', pill: 'right' },
-  { match: n => n.includes('amoklavin') && n.includes('1000'), src: '/items/amoklavin-1000.jpg', pos: '88% 45%', pill: 'left' },
+  { match: n => n.includes('pantactive') && n.includes('40'), src: '/items/pantactive-40.jpg', depth: 0.38 },
+  { match: n => n.includes('amoklavin') && n.includes('1000'), src: '/items/amoklavin-1000.jpg', depth: 0.24 },
 ];
 const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase())) ?? null;
 
@@ -374,17 +374,16 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
             render={(i) => {
               const it = topItems[i];
               const img = itemImage(it.name);
-              // ايتم له صورة: الصورة هي البطاقة كلها (تغطيها حتى الحواف — طلب صريح)،
-              // والترتيب والسهم شارتان في الأعلى، والاسم والكمية مكتوبان على الصورة أسفلها.
+              // ايتم له صورة: علبة ثلاثية الأبعاد واقعية (الصورة وجهها الأمامي) تتمايل
+              // وتميل مع الماوس، والترتيب والسهم أعلى، والكمية شارة على البطاقة.
               if (img) return (
                 <div className="bb-card bb-card-item has-photo">
-                  <img className="bb-photo" src={img.src} alt={it.name} title={it.name} draggable={false}
-                    style={{ objectPosition: img.pos }} />
+                  <Box3D src={img.src} depth={img.depth} label={it.name} />
                   <div className="bb-photo-top">
                     <span className="bb-rank">#{i + 1}</span>
                     {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
                   </div>
-                  <div className={`bb-photo-pill is-${img.pill}`}>
+                  <div className="bb-photo-pill">
                     {fmt(netQ(it.m[month]))} <small>قطعة</small>
                   </div>
                 </div>
@@ -454,6 +453,109 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * علبة دواء ثلاثية الأبعاد (CSS 3D بلا مكتبات) من صورة وجهها الأمامي:
+ * - أبعاد الوجه من نسبة الصورة نفسها، والعمق من `depth` — فتحاكي العلبة الحقيقية.
+ * - ألوان الجوانب والسقف تُستخرج من حواف الصورة (canvas) مع تظليل إضاءة.
+ * - تتمايل ببطء وحدها، وتميل مع مؤشر الماوس عند المرور فوقها.
+ * الصور من نفس النطاق (/items) فقراءة بكسلاتها مسموحة.
+ */
+type RGB = [number, number, number];
+interface BoxMeta { aspect: number; top: RGB; bottom: RGB; left: RGB; right: RGB }
+const boxMetaCache = new Map<string, BoxMeta>();
+function loadBoxMeta(src: string): Promise<BoxMeta> {
+  const hit = boxMetaCache.get(src);
+  if (hit) return Promise.resolve(hit);
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => {
+      const S = 48;
+      const c = document.createElement('canvas');
+      c.width = S; c.height = S;
+      const ctx = c.getContext('2d');
+      if (!ctx) return reject(new Error('no canvas'));
+      ctx.drawImage(im, 0, 0, S, S);
+      const avg = (x: number, y: number, w: number, h: number): RGB => {
+        const d = ctx.getImageData(x, y, w, h).data;
+        let r = 0, g = 0, b = 0;
+        const n = d.length / 4;
+        for (let k = 0; k < d.length; k += 4) { r += d[k]; g += d[k + 1]; b += d[k + 2]; }
+        return [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+      };
+      const meta: BoxMeta = {
+        aspect: im.naturalWidth / im.naturalHeight,
+        top: avg(0, 0, S, 3), bottom: avg(0, S - 3, S, 3), left: avg(0, 0, 3, S), right: avg(S - 3, 0, 3, S),
+      };
+      boxMetaCache.set(src, meta);
+      resolve(meta);
+    };
+    im.onerror = reject;
+    im.src = src;
+  });
+}
+const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
+
+function Box3D({ src, depth, label }: { src: string; depth: number; label: string }) {
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const [meta, setMeta] = useState<BoxMeta | null>(boxMetaCache.get(src) ?? null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [tilt, setTilt] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    loadBoxMeta(src).then(m => { if (alive) setMeta(m); }).catch(() => { /* تبقى بلا علبة */ });
+    return () => { alive = false; };
+  }, [src]);
+
+  useEffect(() => {
+    const el = sceneRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // الوجه الأمامي يأخذ أكبر مقاس يتّسع في البطاقة مع ترك مكان للعمق والشارات
+  let W = size.w * 0.6, H = meta ? W / meta.aspect : 0;
+  if (meta && H > size.h * 0.6) { H = size.h * 0.6; W = H * meta.aspect; }
+  const D = H * depth;
+
+  const onMove = (e: React.PointerEvent) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5..0.5
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    setTilt({ x: -10 - py * 22, y: -24 + px * 48 });
+  };
+
+  const face = (style: React.CSSProperties, child: ReactNode) => <div className="b3d-face" style={style}>{child}</div>;
+  const side = (c: RGB, overlay: string) => <div style={{ width: '100%', height: '100%', background: `${overlay}, ${rgb(c)}` }} />;
+
+  return (
+    <div className="b3d-scene" ref={sceneRef} onPointerMove={onMove} onPointerLeave={() => setTilt(null)}>
+      {meta && W > 0 && (
+        <>
+          <div className="b3d-shadow" style={{ width: W * 1.15 }} />
+          <div className={`b3d ${tilt ? 'is-tilt' : ''}`} role="img" aria-label={label}
+            style={{ width: W, height: H, ...(tilt ? { transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` } : {}) }}>
+            {face({ width: W, height: H, transform: `translateZ(${D / 2}px)` },
+              <><img src={src} alt="" draggable={false} /><div className="b3d-sheen" /></>)}
+            {face({ width: W, height: H, transform: `rotateY(180deg) translateZ(${D / 2}px)` },
+              side(meta.bottom, 'linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.35))'))}
+            {face({ width: D, height: H, left: (W - D) / 2, transform: `rotateY(90deg) translateZ(${W / 2}px)` },
+              side(meta.right, 'linear-gradient(to right, rgba(0,0,0,.15), rgba(0,0,0,.4))'))}
+            {face({ width: D, height: H, left: (W - D) / 2, transform: `rotateY(-90deg) translateZ(${W / 2}px)` },
+              side(meta.left, 'linear-gradient(to left, rgba(0,0,0,.1), rgba(0,0,0,.32))'))}
+            {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(90deg) translateZ(${H / 2}px)` },
+              side(meta.top, 'linear-gradient(to top, rgba(255,255,255,.28), rgba(255,255,255,.06))'))}
+            {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(-90deg) translateZ(${H / 2}px)` },
+              side(meta.bottom, 'linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45))'))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -774,11 +876,26 @@ function HomeStyles() {
 .bb-frame img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; pointer-events: none; user-select: none;
   transition: transform .6s ease; }
 .cf-slot.is-active .bb-frame img { transform: scale(1.03); }
-/* بطاقة بصورة: الصورة تغطي البطاقة كاملة، والتفاصيل مكتوبة عليها */
-.bb-card.has-photo { padding: 0; overflow: hidden; background: #fff; }
-.bb-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center;
-  pointer-events: none; user-select: none; transition: transform 1.2s ease; }
-.cf-slot.is-active .bb-photo { transform: scale(1.02); }
+/* بطاقة بعلبة ثلاثية الأبعاد */
+.bb-card.has-photo { padding: 0; overflow: hidden;
+  background: radial-gradient(circle at 50% 115%, rgba(255,255,255,.24), transparent 55%),
+    linear-gradient(140deg, var(--c-primary) 0%, var(--c-primary-mid) 35%, var(--c-accent) 100%); }
+.b3d-scene { position: absolute; inset: 0 0 34px 0; perspective: 900px; display: flex; align-items: center; justify-content: center; }
+.b3d { position: relative; transform-style: preserve-3d; transform: rotateX(-10deg) rotateY(-26deg);
+  animation: b3d-sway 7s ease-in-out infinite alternate; transition: transform .25s ease-out; }
+.b3d.is-tilt { animation: none; }
+@keyframes b3d-sway {
+  0%   { transform: rotateX(-10deg) rotateY(-34deg); }
+  100% { transform: rotateX(-6deg)  rotateY(-12deg); }
+}
+@media (prefers-reduced-motion: reduce) { .b3d { animation: none; } }
+.b3d-face { position: absolute; top: 0; left: 0; backface-visibility: hidden; overflow: hidden; }
+.b3d-face img { width: 100%; height: 100%; object-fit: fill; display: block; pointer-events: none; user-select: none; }
+.b3d-sheen { position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, rgba(255,255,255,.38) 0%, rgba(255,255,255,0) 38%, rgba(0,0,0,.1) 100%); }
+.b3d-shadow { position: absolute; left: 50%; bottom: 8%; height: 26px; transform: translateX(-50%);
+  background: radial-gradient(ellipse, rgba(0,0,0,.55), transparent 70%); filter: blur(7px); pointer-events: none; }
+.cf-slot:not(.is-active) .b3d { animation-play-state: paused; }
 .bb-photo-top { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1; display: flex; justify-content: space-between; align-items: center; }
 .bb-photo-top .bb-rank { background: rgba(15,30,53,.75); backdrop-filter: blur(4px); }
 .bb-photo-top .hp-delta { box-shadow: 0 2px 8px rgba(0,0,0,.2); }
@@ -786,8 +903,7 @@ function HomeStyles() {
 .bb-photo-pill { position: absolute; bottom: 12px; z-index: 1; padding: 6px 14px; border-radius: 14px;
   background: rgba(15,30,53,.78); backdrop-filter: blur(6px); box-shadow: 0 6px 18px rgba(0,0,0,.3);
   font-size: 28px; font-weight: 800; white-space: nowrap; line-height: 1.2; }
-.bb-photo-pill.is-left { left: 12px; }
-.bb-photo-pill.is-right { right: 12px; }
+.bb-photo-pill { left: 50%; transform: translateX(-50%); bottom: 10px; font-size: 24px; padding: 4px 14px; }
 .bb-photo-pill small { font-size: 12px; font-weight: 600; opacity: .8; }
 .bb-art { width: 100%; height: 100%; display: block; transition: transform .6s ease; }
 .cf-slot.is-active .bb-art { transform: scale(1.03); }
