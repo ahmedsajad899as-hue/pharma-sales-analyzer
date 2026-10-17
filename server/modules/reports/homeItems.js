@@ -27,6 +27,13 @@ import { UNDATED_CUTOFF } from '../../lib/salesMonths.js';
 const UNKNOWN_PROVINCE = 'غير محدد';
 const r2 = (n) => Math.round(n * 100) / 100;
 
+/** دهوك / السليمانية / أربيل — بأي صياغة (همزة، «ال»). */
+const HIDDEN_ZERO_PROVINCE_ROOTS = ['دهوك', 'سليماني', 'اربيل'];
+const isHiddenZeroProvince = (name) => {
+  const n = String(name || '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه');
+  return HIDDEN_ZERO_PROVINCE_ROOTS.some(root => n.includes(root.replace(/ة/g, 'ه')));
+};
+
 /**
  * @returns {Promise<null | { files, sources, source, conds: Prisma.Sql[], rateByFile: Map }>}
  *   null = لا ملفات صالحة (الواجهة تعرض حالة فارغة).
@@ -183,9 +190,11 @@ export async function getHomeItemProvinces(req, res) {
       if (!m[row.ym]) m[row.ym] = [0, 0, 0, 0];
       addRow(m[row.ym], row, scope.rateByFile.get(row.fileId) || 1);
     }
-    // كل محافظات السوبر أدمن تُعرض حتى بلا مبيع ولا إرجاع (صفر) — طلب صريح
+    // كل محافظات السوبر أدمن تُعرض حتى بلا مبيع ولا إرجاع (صفر) — طلب صريح،
+    // عدا محافظات الإقليم (لا مبيع لها في ملفات المكتب أصلاً — طلب صريح). تُستثنى
+    // من صفوف الصفر فقط: لو ظهر لها مبيع فعلي يوماً تبقى ظاهرة.
     for (const p of await prisma.province.findMany({ select: { name: true } })) {
-      if (!byProv.has(p.name)) byProv.set(p.name, {});
+      if (!byProv.has(p.name) && !isHiddenZeroProvince(p.name)) byProv.set(p.name, {});
     }
     const provinces = [...byProv.entries()].map(([name, m]) => {
       for (const k of Object.keys(m)) m[k] = roundCell(m[k]);
