@@ -359,9 +359,11 @@ const ITEM_IMAGES: ItemImage[] = [
   texturedBox(n => n.includes('ziver'), 'ziver-3', 0.38),
   texturedBox(n => n.includes('pantactive') && /\b20\b|20\s*mg/.test(n), 'pantactive-20', 0.17),
   texturedBox(n => n.includes('pantactive') && /\b40\b|40\s*mg/.test(n), 'pantactive-40', 0.17),
-  // علبة الشراب واقفة (أطول من عرضها) — النسبة تُقرأ من صورة الوجه الأمامي نفسها
-  texturedBox(n => n.includes('amoklavin') && /457|syr/.test(n), 'amoklavin-457-syrup', 0.95),
-  texturedBox(n => n.includes('mantazol'), 'mantazol', 0.86),
+  // ⚠️ depth نسبةً إلى **ارتفاع** الوجه لا عرضه. علبة الشراب واقفة (عرض≈نصف الارتفاع) ومقطعها
+  // مربّع تقريباً، فعمقها ≈ عرضها ≈ 0.5 من الارتفاع — كانت 0.95 فبدت الجوانب ضعف حجمها.
+  // Mantazol: طرفها في الصور ≈ نصف ارتفاعها (كانت 0.86 فكبر الطرف والسقف عن الواقع).
+  texturedBox(n => n.includes('amoklavin') && /457|syr/.test(n), 'amoklavin-457-syrup', 0.5),
+  texturedBox(n => n.includes('mantazol'), 'mantazol', 0.5),
 ];
 /** علبة بصور أوجهها الأربعة في public/items/<dir>/{front,left,right,top}.jpg */
 function texturedBox(match: (n: string) => boolean, dir: string, depth: number): ItemImage {
