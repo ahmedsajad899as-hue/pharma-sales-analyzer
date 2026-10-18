@@ -1317,14 +1317,22 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     if (blockedCustomerIds.length) conditions.push({ NOT: { customerId: { in: blockedCustomerIds } } });
     // حجب أسماء داخل «معلومات الزبون»: أي اسم محجوب يظهر كجزء من نص الحقل
     // (لا مساواة تامة) يُخفي الصف، بصرف النظر عن باقي أعمدته.
+    // فخّ NULL: صفوف بلا «معلومات الزبون» (كل صفوف ميركاتو) تحمل customerInfoNorm=NULL،
+    // و`NOT (NULL ILIKE …)` في SQL = NULL لا TRUE — فكان الشرط يُسقطها كلها بصمت
+    // (مبيعات ميركاتو صفر في تقرير العلمي لكل حساب لديه حجب أسماء). صف بلا
+    // معلومات زبون لا يحوي اسماً محجوباً أصلاً، فيُبقى صراحةً.
     if (blockedCustomerInfoNorms.length) {
-      conditions.push({ NOT: { OR: blockedCustomerInfoNorms.map(n => ({ customerInfoNorm: { contains: n, mode: 'insensitive' } })) } });
+      conditions.push({ OR: [
+        { customerInfoNorm: null },
+        { NOT: { OR: blockedCustomerInfoNorms.map(n => ({ customerInfoNorm: { contains: n, mode: 'insensitive' } })) } },
+      ] });
     }
     // ملاحظة: حجب (مندوب تجاري × منطقة) الجزئي انتقل ليُطبَّق داخل فرع ملفات
     // المكتب فقط أعلاه — لا هنا عالمياً — لنفس سبب استثناء mercatoNameMatchIds.
     // حجب جزئي: يستبعد فقط صفوف (اسم معلومات الزبون هذا AND أحد آيتماته المحجوبة)
     // معاً — بقية آيتمات نفس الاسم، وبقية القيم الأخرى لنفس الآيتم، يبقون ظاهرين.
-    if (blockedCustomerInfoItemConds.length) conditions.push({ NOT: { OR: blockedCustomerInfoItemConds } });
+    // نفس فخّ NULL أعلاه: صف بلا معلومات زبون + آيتم محجوب كان يُسقط خطأً.
+    if (blockedCustomerInfoItemConds.length) conditions.push({ OR: [{ customerInfoNorm: null }, { NOT: { OR: blockedCustomerInfoItemConds } }] });
     return conditions.length === 1 ? conditions[0] : { AND: conditions };
   };
 
@@ -1452,31 +1460,6 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // افتراضياً. راجع isWarehouseSaleRow أعلاه وgetExcludeWarehouseSales.
   const excludeWarehouse = viewerId ? await getExcludeWarehouseSales(viewerId) : true;
   const filtered = excludeWarehouse ? deduped.filter(s => !isWarehouseSaleRow(s.rawData)) : deduped;
-  {
-    // تشخيص مؤقت: أين تختفي صفوف ميركاتو؟ (صندوق Office/Mercato لا يظهر)
-    const mSet = new Set(mercatoFileIds);
-    const cnt = rows => rows.filter(s => mSet.has(s.uploadedFileId)).length;
-    console.log('[SciRep.srcDiag] rep=%s mercatoFiles=%j officeFiles=%j mercatoNameIds=%d nameIds=%d commReps=%d raw=%d/%d deduped=%d/%d afterWarehouse=%d/%d excludeWh=%s',
-      id, mercatoFileIds, officeFileIds, mercatoNameMatchIds.length, nameMatchIds.length, expandedCommRepIds.length,
-      cnt(rawSales), rawSales.length, cnt(deduped), deduped.length, cnt(filtered), filtered.length, excludeWarehouse);
-    if (mercatoFileIds.length && mercatoNameMatchIds.length && cnt(rawSales) === 0) {
-      const base = { isHidden: false, uploadedFileId: { in: mercatoFileIds }, representativeId: { in: mercatoNameMatchIds },
-        ...((startDate || endDate) ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } } : {}),
-        ...(recordType ? { recordType } : {}) };
-      const c = extra => prisma.sale.count({ where: { AND: [base, ...extra] } });
-      const [b, it, ba, bi, bc, bci, bcii] = await Promise.all([
-        c([]),
-        hasItems ? c([{ itemId: { in: itemIds } }]) : -1,
-        blockedAreaIds.length ? c([{ NOT: { areaId: { in: blockedAreaIds } } }]) : -1,
-        blockedItemIds.length ? c([{ NOT: { itemId: { in: blockedItemIds } } }]) : -1,
-        blockedCustomerIds.length ? c([{ NOT: { customerId: { in: blockedCustomerIds } } }]) : -1,
-        blockedCustomerInfoNorms.length ? c([{ NOT: { OR: blockedCustomerInfoNorms.map(n => ({ customerInfoNorm: { contains: n, mode: 'insensitive' } })) } }]) : -1,
-        blockedCustomerInfoItemConds.length ? c([{ NOT: { OR: blockedCustomerInfoItemConds } }]) : -1,
-      ]);
-      console.log('[SciRep.srcDiag2] rep=%s viewer=%s base=%d items=%d(n=%d) blkArea=%d blkItem=%d(n=%d) blkCust=%d blkInfo=%d(%j) blkInfoItem=%d',
-        id, viewerId, b, it, itemIds?.length ?? 0, ba, bi, blockedItemIds.length, bc, bci, blockedCustomerInfoNorms, bcii);
-    }
-  }
   // rawData هنا مؤقت لأجل الفلتر أعلاه فقط حين لم يطلبه الـselect أصلاً
   // (REPORT_SALES_SELECT) — لا يُستبعد حين طلبه صراحة (EXPORT_SALES_SELECT
   // يعتمد عليه لاحقاً في بناء ملف التصدير).
