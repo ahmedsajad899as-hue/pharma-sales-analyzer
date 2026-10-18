@@ -14,6 +14,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import type { PageId } from '../App';
 
@@ -73,6 +74,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const [showRest, setShowRest] = useState(false);
   const [query, setQuery] = useState('');
   const [compare, setCompare] = useState(false);
+  const [tabSlot, setTabSlot] = useState<HTMLDivElement | null>(null);
 
   // ── الواجهة: قائمة (الحالية) أو لوحة إعلانية — تُحفظ لكل حساب ──────────────
   const viewKey = `homeView_${user?.id ?? ''}`;
@@ -189,7 +191,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
               title="جدول مقارنة كمية هذا الشهر بالشهر السابق">⇄ مقارنة</button>
             <button className="btn" onClick={() => setShowPicker(true)}>⭐ اختيار الايتمات</button>
           </>
-        ) : <span style={{ flex: 1 }} />}
+        ) : <><span style={{ flex: 1 }} /><div className="hp-tab-slot" ref={setTabSlot} /></>}
         <button className="btn hp-view-btn" onClick={toggleView} title="التبديل بين القائمة واللوحة الإعلانية">
           {view === 'board' ? '☰ قائمة' : '🖥️ لوحة'}
         </button>
@@ -216,7 +218,7 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
       {/* نفس ايتمات القائمة المختارة (watched) — وليس كل الايتمات — حتى تطابق اللوحة اختيار المستخدم من «⭐ اختيار الايتمات» */}
       {months.length > 0 && data?.source !== 'mercato' && view === 'board' && (
         <Billboard items={watched} month={activeMonth} prevMonth={prevMonth} hasPrev={hasPrev}
-          fileKey={fileKey} source={data?.source} token={token} />
+          fileKey={fileKey} source={data?.source} token={token} tabSlot={tabSlot} />
       )}
 
       {months.length > 0 && data?.source !== 'mercato' && view === 'list' && (
@@ -348,7 +350,8 @@ const HOVER_PAUSE_MAX_MS = 60_000;
 // left — عمودها الأيمن يلي الوجه الأمامي؛ right — عمودها الأيسر يليه؛ top — حافتها
 // السفلى تلي الوجه الأمامي. الوجه الناقص يُلوَّن من حواف الصورة الأمامية.
 interface BoxFaces { left?: string; right?: string; top?: string }
-interface ItemImage { match: (n: string) => boolean; src: string; depth: number; faces?: BoxFaces }
+// scale = تكبير المجسّم داخل البطاقة (1 = الافتراضي) — للعلب الواقفة التي يحدّها الارتفاع فتبدو صغيرة
+interface ItemImage { match: (n: string) => boolean; src: string; depth: number; faces?: BoxFaces; scale?: number }
 const ITEM_IMAGES: ItemImage[] = [
   {
     match: n => n.includes('amoklavin') && n.includes('1000'),
@@ -362,13 +365,13 @@ const ITEM_IMAGES: ItemImage[] = [
   // ⚠️ depth نسبةً إلى **ارتفاع** الوجه لا عرضه. علبة الشراب واقفة (عرض≈نصف الارتفاع) ومقطعها
   // مربّع تقريباً، فعمقها ≈ عرضها ≈ 0.5 من الارتفاع — كانت 0.95 فبدت الجوانب ضعف حجمها.
   // Mantazol: طرفها في الصور ≈ نصف ارتفاعها (كانت 0.86 فكبر الطرف والسقف عن الواقع).
-  texturedBox(n => n.includes('amoklavin') && /457|syr/.test(n), 'amoklavin-457-syrup', 0.5),
+  texturedBox(n => n.includes('amoklavin') && /457|syr/.test(n), 'amoklavin-457-syrup', 0.5, 1.35),
   texturedBox(n => n.includes('mantazol'), 'mantazol', 0.5),
 ];
 /** علبة بصور أوجهها الأربعة في public/items/<dir>/{front,left,right,top}.jpg */
-function texturedBox(match: (n: string) => boolean, dir: string, depth: number): ItemImage {
+function texturedBox(match: (n: string) => boolean, dir: string, depth: number, scale?: number): ItemImage {
   const p = (f: string) => `/items/${dir}/${f}.jpg`;
-  return { match, src: p('front'), depth, faces: { left: p('left'), right: p('right'), top: p('top') } };
+  return { match, src: p('front'), depth, scale, faces: { left: p('left'), right: p('right'), top: p('top') } };
 }
 const itemImage = (name: string) => ITEM_IMAGES.find(x => x.match(name.toLowerCase())) ?? null;
 
@@ -388,11 +391,13 @@ const provinceImage = (name: string) => {
   return k ? `/provinces/${k}.webp` : null;
 };
 
-function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }: {
+function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, tabSlot }: {
   /** ايتمات اللوحة = نفس ايتمات القائمة المختارة بالضبط (watched في الصفحة الأم) — لا
    *  إعادة احتساب «الأعلى مبيعاً» هنا، وإلا تختلف اللوحة عن اختيار المستخدم الصريح. */
   items: HomeItem[]; month: string; prevMonth: string; hasPrev: boolean;
   fileKey: string; source?: string; token: string | null;
+  /** خانة في شريط الرأس تُنقل إليها أزرار الايتمات/المحافظات */
+  tabSlot?: HTMLElement | null;
 }) {
   // ترتيب عرض فقط (الأعلى كمية أولاً) — بلا فلترة ولا حدّ أقصى، كي يطابق العدد اختيار المستخدم حرفياً.
   const topItems = useMemo(() =>
@@ -424,8 +429,9 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
   // لوحة واحدة تملأ الشاشة في كل مرة (طلب صريح) — تبديل بين الايتمات والمحافظات
   const [board, setBoard] = useState<'items' | 'prov'>('items');
 
-  return (
-    <div className="bb">
+  // أزرار الايتمات/المحافظات صغيرة جداً في رأس الصفحة يساراً (طلب صريح) — تُنقل إلى خانة
+  // في الشريط العلوي عبر portal، وإلا تُعرض هنا احتياطاً.
+  const tabs = (
       <div className="bb-tabs" role="tablist">
         <button role="tab" aria-selected={board === 'items'} className={board === 'items' ? 'is-on' : ''} onClick={() => setBoard('items')}>
           💊 الايتمات <small>({topItems.length})</small>
@@ -434,9 +440,13 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
           📍 المحافظات <small>({topProvs.length})</small>
         </button>
       </div>
+  );
+
+  return (
+    <div className="bb">
+      {tabSlot ? createPortal(tabs, tabSlot) : tabs}
 
       {board === 'items' && <section className="bb-section">
-        <div className="bb-title"><span className="bb-title-dot" />الأكثر مبيعاً — الايتمات <span className="hp-muted">· {monthName(month)}</span></div>
         {topItems.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
           <Coverflow paused={!!detail} count={topItems.length} variant="item"
             render={(i) => {
@@ -446,11 +456,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
               // وتميل مع الماوس، والترتيب والسهم أعلى، والكمية شارة على البطاقة.
               if (img) return (
                 <div className="bb-card bb-card-item has-photo">
-                  <Box3D src={img.src} depth={img.depth} faces={img.faces} label={it.name} />
-                  <div className="bb-photo-top">
-                    <span className="bb-rank">#{i + 1}</span>
-                    {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
-                  </div>
+                  <Box3D src={img.src} depth={img.depth} faces={img.faces} scale={img.scale} label={it.name} />
                   <div className="bb-photo-pill">
                     {fmt(netQ(it.m[month]))} <small>قطعة</small>
                   </div>
@@ -460,9 +466,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
               return (
                 <div className="bb-card bb-card-item">
                   <div className="bb-item-head">
-                    <span className="bb-rank">#{i + 1}</span>
                     <span className="bb-item-name" title={it.name}>{it.name}</span>
-                    {hasPrev && <Delta now={netQ(it.m[month])} prev={netQ(it.p?.[prevMonth])} />}
                   </div>
                   <div className="bb-card-sub bb-center">{it.company ?? '—'}</div>
                   <div className="bb-frame">
@@ -477,7 +481,6 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token }:
       </section>}
 
       {board === 'prov' && <section className="bb-section">
-        <div className="bb-title"><span className="bb-title-dot is-prov" />الأكثر مبيعاً — المحافظات <span className="hp-muted">· {monthName(month)}</span></div>
         {!provs ? <div className="hp-muted hp-center">جاري التحميل…</div>
           : topProvs.length === 0 ? <div className="hp-muted hp-center">لا يوجد مبيع في هذا الشهر.</div> : (
           <Coverflow paused={!!detail} count={topProvs.length} variant="prov"
@@ -586,7 +589,7 @@ function loadBoxMeta(src: string): Promise<BoxMeta> {
 }
 const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
-function Box3D({ src, depth, faces, label }: { src: string; depth: number; faces?: BoxFaces; label: string }) {
+function Box3D({ src, depth, faces, scale = 1, label }: { src: string; depth: number; faces?: BoxFaces; scale?: number; label: string }) {
   const sceneRef = useRef<HTMLDivElement>(null);
   const [meta, setMeta] = useState<BoxMeta | null>(boxMetaCache.get(src) ?? null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -607,8 +610,8 @@ function Box3D({ src, depth, faces, label }: { src: string; depth: number; faces
   }, []);
 
   // الوجه الأمامي يأخذ أكبر مقاس يتّسع في البطاقة مع ترك مكان للعمق والشارات
-  let W = size.w * 0.6, H = meta ? W / meta.aspect : 0;
-  if (meta && H > size.h * 0.6) { H = size.h * 0.6; W = H * meta.aspect; }
+  let W = size.w * 0.6 * scale, H = meta ? W / meta.aspect : 0;
+  if (meta && H > size.h * 0.6 * scale) { H = size.h * 0.6 * scale; W = H * meta.aspect; }
   const D = H * depth;
 
   const onMove = (e: React.PointerEvent) => {
@@ -1125,6 +1128,15 @@ function HomeStyles() {
 .hp.is-board .cf-stage { height: calc(var(--h) * 1.22 + 36px); }
 .hp.is-board .cf-slot { top: calc(var(--h) * 0.11 + 16px); }
 .hp.is-board .cf-slot:focus-visible { outline-color: var(--c-accent); }
+
+/* شاشة صافية: أزرار الرأس صغيرة جداً، وأزرار الايتمات/المحافظات يساراً بجانب «قائمة» */
+.hp.is-board .hp-head { gap: 8px; }
+.hp.is-board .hp-month { max-width: 150px; height: 30px; padding: 2px 10px; font-size: 12px; border-radius: 8px; }
+.hp.is-board .hp-view-btn { height: 30px; padding: 2px 10px; font-size: 12px; border-radius: 8px; }
+.hp-tab-slot { display: flex; }
+.hp.is-board .hp-tab-slot .bb-tabs { align-self: auto; padding: 2px; gap: 2px; box-shadow: none; }
+.hp.is-board .hp-tab-slot .bb-tabs button { font-size: 11.5px; padding: 4px 10px; font-weight: 700; }
+.hp.is-board .hp-tab-slot .bb-tabs button small { font-size: 10px; }
 .bb-photo-top { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1; display: flex; justify-content: space-between; align-items: center; }
 .bb-photo-top .bb-rank { background: rgba(15,30,53,.75); backdrop-filter: blur(4px); }
 .bb-photo-top .hp-delta { box-shadow: 0 2px 8px rgba(0,0,0,.2); }
