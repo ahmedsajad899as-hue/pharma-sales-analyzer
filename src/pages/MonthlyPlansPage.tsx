@@ -7,6 +7,7 @@ import voiceStartSrc from '../assets/voice-start.mp3';
 import voiceStopSrc  from '../assets/voice-stop.mp3';
 import { Icon } from '../config/icons';
 import SmartMonthlyPlanPage from './smart-monthly-plan/SmartMonthlyPlanPage';
+import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope } from '../components/ProvinceRepsToggle';
 
 // --- Voice beep: fetch audio buffer once, play via AudioContext (works on iOS/Android) ---
 let _audioCtx: AudioContext | null = null;
@@ -127,7 +128,11 @@ export default function MonthlyPlansPage() {
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   const [plans, setPlans]         = useState<Plan[]>([]);
-  const [reps, setReps]           = useState<ScientificRep[]>([]);
+  const [repsAll, setReps]        = useState<ScientificRep[]>([]);
+  // بغداد افتراضياً للمدراء؛ زر «مندوبي المحافظات» يعرضهم وبلاناتهم وحدهم.
+  // المندوب الميداني يرى نفسه/فريقه كما هو بلا فصل.
+  const [onlyProvince, setOnlyProvince] = useProvinceRepScope('monthly-plans');
+  const reps = useMemo(() => isFieldRep ? repsAll : filterByProvinceScope(repsAll, onlyProvince), [repsAll, onlyProvince, isFieldRep]);
   const [items, setItems]         = useState<NamedItem[]>([]);
   // Start with loading=false if we already have cached data so no spinner flashes
   const [loading, setLoading]     = useState(() => !getCached('/api/monthly-plans') || !getCached('/api/scientific-reps'));
@@ -1475,8 +1480,13 @@ export default function MonthlyPlansPage() {
   })() : null, [activePlan, pharmVisits]);
 
   const filteredPlans = useMemo(
-    () => filterRep === 'all' ? plans : plans.filter(p => String(p.scientificRepId) === filterRep),
-    [plans, filterRep]
+    () => {
+      if (filterRep !== 'all') return plans.filter(p => String(p.scientificRepId) === filterRep);
+      const provinceIds = new Set(repsAll.filter(r => (r as { isProvinceMember?: boolean }).isProvinceMember).map(r => r.id));
+      if (isFieldRep || provinceIds.size === 0) return plans;
+      return plans.filter(p => provinceIds.has(p.scientificRepId as number) === onlyProvince);
+    },
+    [plans, filterRep, repsAll, onlyProvince, isFieldRep]
   );
 
   const filteredEntries = useMemo(() => activePlan ? (() => {
@@ -1605,6 +1615,9 @@ export default function MonthlyPlansPage() {
             <option value="all">كل المندوبين</option>
             {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
+        )}
+        {!isFieldRep && (
+          <ProvinceRepsToggle reps={repsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setFilterRep('all'); setActivePlan(null); }} compact />
         )}
 
         {/* Area restriction button: company_manager only, when a specific rep is selected */}

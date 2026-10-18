@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import type { PageId } from '../App';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import DailyCallsMap, { type VisitPoint } from '../components/DailyCallsMap';
@@ -6,6 +6,7 @@ const RepTrackingMap = lazy(() => import('../components/RepTrackingMap'));
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Icon, type IconName } from '../config/icons';
+import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope } from '../components/ProvinceRepsToggle';
 
 interface Stats { sciRepsCount: number; filesCount: number; areasCount: number; totalSales: number; totalReturns: number; }
 interface UploadedFile { id: number; originalName: string; rowCount: number; uploadedAt: string; _count?: { sales: number }; }
@@ -55,7 +56,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [callsDateFrom, setCallsDateFrom] = useState<string>(todayStr);
   const [callsDateTo,   setCallsDateTo]   = useState<string>(todayStr);
   const [callsRepId, setCallsRepId]       = useState<number | ''>('');
-  const [callsData, setCallsData]       = useState<DailyCallsData | null>(null);
+  const [rawCallsData, setCallsData]    = useState<DailyCallsData | null>(null);
   const [callsLoading, setCallsLoading] = useState(false);
   const [showMap, setShowMap]           = useState(false);
   const isCompanyManager = ['company_manager', 'team_leader', 'office_manager', 'office_employee', 'office_hr'].includes(user?.role ?? '');
@@ -65,7 +66,23 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const [showCallStats, setShowCallStats] = useState(false);
   const isManagerOrAdmin = useAuth().isManagerOrAdmin;
   // Pre-fetched rep list for managers — shown in dropdown even when today has no visits
-  const [dashReps, setDashReps] = useState<{ id: number; name: string }[]>([]);
+  const [dashRepsAll, setDashReps] = useState<{ id: number; name: string; isProvinceMember?: boolean }[]>([]);
+  // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرض زياراتهم وحدهم. الفلترة على
+  // البيانات نفسها (لا القائمة فقط) كي لا تختلط زيارات المحافظات بـ«كل المندوبين».
+  const [onlyProvince, setOnlyProvince] = useProvinceRepScope('daily-calls');
+  const dashReps = useMemo(() => filterByProvinceScope(dashRepsAll, onlyProvince), [dashRepsAll, onlyProvince]);
+  const callsData = useMemo<DailyCallsData | null>(() => {
+    if (!rawCallsData) return rawCallsData;
+    const provinceIds = new Set(dashRepsAll.filter(r => r.isProvinceMember).map(r => r.id));
+    if (provinceIds.size === 0) return rawCallsData;
+    const keep = (repId: number | null | undefined) => (repId != null && provinceIds.has(repId)) === onlyProvince;
+    const visits = rawCallsData.visits.filter(v => keep(v.scientificRep?.id));
+    return { ...rawCallsData, visits, reps: rawCallsData.reps.filter(r => keep(r.id)), total: visits.length };
+  }, [rawCallsData, dashRepsAll, onlyProvince]);
+  const changeProvinceScope = (v: boolean) => {
+    setOnlyProvince(v);
+    if (callsRepId !== '') { setCallsRepId(''); loadDailyCalls(callsDateFrom, callsDateTo, ''); }
+  };
   const isScientificRep  = ['scientific_rep', 'supervisor'].includes(user?.role ?? '');
   const canHavePlan      = ['user', 'scientific_rep', 'team_leader', 'supervisor', 'commercial_rep'].includes(user?.role ?? '');
   const [likingVisit, setLikingVisit]   = useState<number | null>(null);
@@ -1801,7 +1818,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           </div>
 
           {/* Row 2: Rep filter — company_manager only */}
-          {isCompanyManager && dashReps.length > 0 && (
+          {isCompanyManager && dashRepsAll.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--c-bg)', borderRadius: '8px', padding: '4px 10px', border: '1px solid var(--c-border)', alignSelf: 'flex-start' }}>
               <span style={{ fontSize: '11px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}><Icon name="person" size={12} /> المندوب:</span>
               <select
@@ -1812,6 +1829,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 <option value="">كل المندوبين</option>
                 {dashReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
+              <ProvinceRepsToggle reps={dashRepsAll} value={onlyProvince} onChange={changeProvinceScope} compact />
             </div>
           )}
 
@@ -3552,7 +3570,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             {/* Rep filter — only for admin/manager */}
             {isManagerOrAdmin && (() => {
               const repList = (callsData && callsData.reps.length > 0) ? callsData.reps : dashReps;
-              if (repList.length === 0) return null;
+              if (repList.length === 0 && dashRepsAll.length === 0) return null;
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <label style={{ fontSize: '13px', color: 'var(--c-text-secondary)', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
@@ -3569,6 +3587,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                       <option key={r.id} value={r.id}>{r.name}</option>
                     ))}
                   </select>
+                  <ProvinceRepsToggle reps={dashRepsAll} value={onlyProvince} onChange={changeProvinceScope} compact />
                 </div>
               );
             })()}

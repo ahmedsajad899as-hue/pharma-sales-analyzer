@@ -8,6 +8,7 @@ import { pharmacyKey, matchNetPharmacies } from '../lib/pharmacyKey';
 import { Icon } from '../config/icons';
 import { sendEngagementPing, sendSearchPingDebounced } from '../lib/engagementPing';
 import * as XLSX from 'xlsx';
+import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope, hasProvinceReps } from '../components/ProvinceRepsToggle';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -323,8 +324,13 @@ export default function DoctorsPage() {
   const [showVisitMonthPicker, setShowVisitMonthPicker] = useState(false);
   // ── Rep filter (for managers only) ─────────────────────────
   interface ManagerCompany { id: number; name: string; }
-  interface ManagerRep { userId: number; name: string; linkedRepId: number | null; company: ManagerCompany | null; }
-  const [managerReps, setManagerReps]       = useState<ManagerRep[]>([]);
+  interface ManagerRep { userId: number; name: string; linkedRepId: number | null; company: ManagerCompany | null; isProvinceMember?: boolean; }
+  const [managerRepsAll, setManagerReps]    = useState<ManagerRep[]>([]);
+  // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرضهم وحدهم. يُرسَل للخادم كـ
+  // provinceScope فتُفصل أرقام «الكل» نفسها لا شرائح المندوبين فقط.
+  const [onlyProvince, setOnlyProvince] = useProvinceRepScope('calls-analysis');
+  const managerReps = useMemo(() => filterByProvinceScope(managerRepsAll, onlyProvince), [managerRepsAll, onlyProvince]);
+  const provinceParam: 'baghdad' | 'province' | null = hasProvinceReps(managerRepsAll) ? (onlyProvince ? 'province' : 'baghdad') : null;
   const [managerCompanies, setManagerCompanies] = useState<ManagerCompany[]>([]);
   const [visitRepFilter, setVisitRepFilter] = useState<number | null>(null); // null = all
   // فلترة إضافية بـ«الشركة الرئيسية» — للأدوار المكتبية (مدير/HR/موظف المكتب) التي تشرف على أكثر من شركة.
@@ -747,7 +753,7 @@ export default function DoctorsPage() {
     visitFetchAbortRef.current = ctrl;
 
     // Return cached data instantly if available (unless explicit refresh)
-    const cacheKey = `${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${visitMonthFilter?.month ?? 'all'}_${visitMonthFilter?.year ?? 'all'}`;
+    const cacheKey = `${provinceParam ?? 'any'}_${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${visitMonthFilter?.month ?? 'all'}_${visitMonthFilter?.year ?? 'all'}`;
     if (!forceRefresh) {
       const cached = visitCacheRef.current.get(cacheKey);
       if (cached) {
@@ -770,6 +776,7 @@ export default function DoctorsPage() {
       if (visitMonthFilter) { ps.set('month', String(visitMonthFilter.month)); ps.set('year', String(visitMonthFilter.year)); }
       if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
       else if (visitCompanyFilter !== null) ps.set('companyId', String(visitCompanyFilter));
+      if (visitRepFilter === null && provinceParam) ps.set('provinceScope', provinceParam);
       const r = await fetch(`${API}/api/doctors/visits-by-area?${ps}`, { headers: H(), signal: ctrl.signal });
       const j = await r.json();
       console.log('[visitsByArea] status:', r.status, 'response:', j);
@@ -785,7 +792,7 @@ export default function DoctorsPage() {
     } finally {
       if (!ctrl.signal.aborted) setVisitLoading(false);
     }
-  }, [token, visitMonthFilter, visitRepFilter, visitCompanyFilter]);
+  }, [token, visitMonthFilter, visitRepFilter, visitCompanyFilter, provinceParam]);
 
   // Default the doctors-visits month filter to the current month, or — if it has
   // no reports yet — the most recent month that does. "الكل" stays one click away
@@ -826,6 +833,7 @@ export default function DoctorsPage() {
     try {
       const ps = new URLSearchParams();
       if (repsSummaryCompanyFilter.size > 0) ps.set('companyIds', [...repsSummaryCompanyFilter].join(','));
+      if (provinceParam) ps.set('provinceScope', provinceParam);
       if (visitMonthFilter) { ps.set('month', String(visitMonthFilter.month)); ps.set('year', String(visitMonthFilter.year)); }
       const r = await fetch(`${API}/api/doctors/visits/all-reps-summary?${ps}`, { headers: H() });
       const j = await r.json();
@@ -1228,7 +1236,7 @@ export default function DoctorsPage() {
     pharmVisitFetchAbortRef.current = ctrl;
 
     // Return cached data instantly if available (unless explicit refresh)
-    const cacheKey = `${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${pharmVisitMonthFilter?.month ?? 'all'}_${pharmVisitMonthFilter?.year ?? 'all'}`;
+    const cacheKey = `${provinceParam ?? 'any'}_${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${pharmVisitMonthFilter?.month ?? 'all'}_${pharmVisitMonthFilter?.year ?? 'all'}`;
     if (!forceRefresh) {
       const cached = pharmVisitCacheRef.current.get(cacheKey);
       if (cached) {
@@ -1246,6 +1254,7 @@ export default function DoctorsPage() {
       if (pharmVisitMonthFilter) { ps.set('month', String(pharmVisitMonthFilter.month)); ps.set('year', String(pharmVisitMonthFilter.year)); }
       if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
       else if (visitCompanyFilter !== null) ps.set('companyId', String(visitCompanyFilter));
+      if (visitRepFilter === null && provinceParam) ps.set('provinceScope', provinceParam);
       const r = await fetch(`${API}/api/doctors/pharmacy-visits-by-area?${ps}`, { headers: H(), signal: ctrl.signal });
       const j = await r.json();
       const areas = Array.isArray(j.areas) ? j.areas : [];
@@ -1257,7 +1266,7 @@ export default function DoctorsPage() {
       if (!ctrl.signal.aborted) setPharmVisitLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, pharmVisitMonthFilter, visitRepFilter, visitCompanyFilter]);
+  }, [token, pharmVisitMonthFilter, visitRepFilter, visitCompanyFilter, provinceParam]);
 
   // Same default-month behavior as the doctors visits view, for the pharmacies sub-view.
   const pharmVisitMonthDefaultAppliedRef = useRef(false);
@@ -2161,7 +2170,9 @@ export default function DoctorsPage() {
           {/* Company selector (office roles — oversee multiple main companies; server returns companies only for them) */}
           {!isFieldRep && managerCompanies.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="navOrgStructure" size={11} /> الشركة الرئيسية</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="navOrgStructure" size={11} /> الشركة الرئيسية</span>
+                <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} compact />
+              </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button
                   onClick={() => { setVisitCompanyFilter(null); setVisitRepFilter(null); }}
@@ -2188,13 +2199,15 @@ export default function DoctorsPage() {
           )}
 
           {/* Rep selector (managers only) — hidden until a specific company is chosen when multiple companies exist */}
-          {!isFieldRep && managerReps.length > 0 && (managerCompanies.length === 0 || visitCompanyFilter !== null) && (() => {
+          {!isFieldRep && managerRepsAll.length > 0 && (managerCompanies.length === 0 || visitCompanyFilter !== null) && (() => {
             const visibleReps = visitCompanyFilter === null
               ? managerReps
               : managerReps.filter(rep => rep.company?.id === visitCompanyFilter);
             return (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</span>
+                {managerCompanies.length === 0 && <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} compact />}
+              </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setVisitRepFilter(null)}
@@ -3793,9 +3806,11 @@ export default function DoctorsPage() {
         return (
           <div>
             {/* Rep selector (managers only) */}
-            {!isFieldRep && managerReps.length > 0 && (
+            {!isFieldRep && managerRepsAll.length > 0 && (
               <div style={{ marginBottom: 14, direction: 'rtl' }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</span>
+                  <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); setArchiveAreaFilter('all'); }} compact />
+                </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button
                     onClick={() => { setArchiveRepFilter(null); setArchiveAreaFilter('all'); }}

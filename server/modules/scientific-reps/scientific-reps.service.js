@@ -4,6 +4,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
+import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -101,11 +102,7 @@ export async function list(filters, user = null, options = {}) {
 
     // كل من ينتمي لفريق محافظة فعّال (تيم ليدر أو مندوب) — يُعلَّم ليُستثنى من «علمي بغداد»
     // في صفحة التقارير لكل الحسابات (يبقى ظاهراً في بقية الصفحات).
-    const [provTeams, provAssign] = await Promise.all([
-      prisma.provinceTeam.findMany({ where: { isActive: true, leaderUserId: { not: null } }, select: { leaderUserId: true } }),
-      prisma.provinceRepAssignment.findMany({ where: { isActive: true, team: { isActive: true } }, select: { repUserId: true } }),
-    ]);
-    const provinceMemberIds = new Set([...provTeams.map(t => t.leaderUserId), ...provAssign.map(r => r.repUserId)]);
+    const provinceMemberIds = await provinceMemberUserIds();
 
     // Return Users with scientific_rep / team_leader roles assigned to same companies
     const repUsers = await prisma.user.findMany({

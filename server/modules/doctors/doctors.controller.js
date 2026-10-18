@@ -11,6 +11,15 @@ import {
 import { getScopedSurveyPharmacies, renameSurveyPharmacyByName } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from '../../lib/officeScope.js';
 import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
+import { provinceMemberUserIds } from '../../lib/provinceScope.js';
+
+// زر «مندوبي المحافظات» بالواجهة: ?provinceScope=baghdad|province — يسري على
+// «الكل»/الشركة فقط (مندوب محدَّد بـrepUserId يُعرض كما هو)، وللمدراء وحدهم.
+function provinceScopeOf(req, repUserId) {
+  if (isFieldRole(req.user.role) || repUserId) return null;
+  const v = req.query.provinceScope;
+  return v === 'baghdad' || v === 'province' ? v : null;
+}
 import { getStandards, listOverrides, effectiveFor } from '../../lib/followupStandards.js';
 import * as importVisits from './doctor-visits-import.js';
 
@@ -56,7 +65,7 @@ export async function visitsByArea(req, res, next) {
     // → مناطق أعضاء الفريق تحت هذه الشركة الرئيسية · مدير "الكل" → كل مناطق الفريق
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
-    const scope       = await resolveAreaScope(req.user, { repUserId, companyId });
+    const scope       = await resolveAreaScope(req.user, { repUserId, companyId, provinceScope: provinceScopeOf(req, repUserId) });
     const scopedDocs  = await getScopedSurveyDoctors(scope);
     const overlay     = await buildVisitOverlay(scope, dateFilter);
 
@@ -140,7 +149,7 @@ export async function visitsLatestMonth(req, res, next) {
   try {
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
-    const scope = await resolveAreaScope(req.user, { repUserId, companyId });
+    const scope = await resolveAreaScope(req.user, { repUserId, companyId, provinceScope: provinceScopeOf(req, repUserId) });
     const orClauses = [];
     if (scope.memberRepIds.length)  orClauses.push({ scientificRepId: { in: scope.memberRepIds } });
     // راجع نفس التعليق في buildVisitOverlay/pharmacyVisitOrClauses.
@@ -282,7 +291,7 @@ export async function pharmacyVisitsLatestMonth(req, res, next) {
   try {
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
-    const scope = await resolveAreaScope(req.user, { repUserId, companyId });
+    const scope = await resolveAreaScope(req.user, { repUserId, companyId, provinceScope: provinceScopeOf(req, repUserId) });
     const orClauses = pharmacyVisitOrClauses(scope);
     if (!orClauses.length) return res.json({ month: null, year: null });
 
@@ -326,7 +335,7 @@ export async function pharmacyVisitsByArea(req, res, next) {
 
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
-    const scope = await resolveAreaScope(req.user, { repUserId, companyId });
+    const scope = await resolveAreaScope(req.user, { repUserId, companyId, provinceScope: provinceScopeOf(req, repUserId) });
     const scopedPharms = await getScopedSurveyPharmacies(scope);
 
     const orClauses = pharmacyVisitOrClauses(scope);
@@ -1420,11 +1429,14 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
     companyByUserId = new Map(assignments.map(a => [a.userId, a.company]));
   }
 
+  const provinceMembers = subUsers.length ? await provinceMemberUserIds() : new Set();
   const reps = subUsers.map(u => ({
     userId:      u.id,
     name:        u.displayName || u.username,
     linkedRepId: u.linkedRepId,
     company:     companyByUserId.get(u.id) ?? null,
+    // مندوب/قائد فريق محافظة — الواجهة تفصله عن مندوبي بغداد (زر «مندوبي المحافظات»)
+    isProvinceMember: provinceMembers.has(u.id),
   }));
 
   const companiesMap = new Map();
@@ -1457,7 +1469,7 @@ export async function getManagerSubReps(req, res, next) {
 // بتمريره يصبح المتوقَّع الشهري مقروءاً من معايير المكتب القابلة للتغيير؛ بدونه
 // يرتدّ إلى LEGACY_MONTHLY_DOCTOR_VISIT_TARGET حفاظاً على أي مستدعٍ قديم.
 export async function computeRepsVisitsSummary(user, {
-  month = null, year = null, companyIds = [], followup = null, includeTeamLead = false,
+  month = null, year = null, companyIds = [], followup = null, includeTeamLead = false, provinceScope = null,
 } = {}) {
     const filterMonth = month ? parseInt(month) : null;
     const filterYear  = year  ? parseInt(year)  : null;
@@ -1468,7 +1480,11 @@ export async function computeRepsVisitsSummary(user, {
 
     const { reps: allReps, companies } = await resolveTeamReps(user, { includeTeamLead });
     const companyIdsFilter = (companyIds ?? []).filter(n => Number.isFinite(n));
-    const reps = companyIdsFilter.length ? allReps.filter(r => r.company && companyIdsFilter.includes(r.company.id)) : allReps;
+    const companyReps = companyIdsFilter.length ? allReps.filter(r => r.company && companyIdsFilter.includes(r.company.id)) : allReps;
+    // زر «مندوبي المحافظات»: بغداد وحدها أو فرق المحافظات وحدها (isProvinceMember من resolveTeamReps)
+    const reps = (provinceScope === 'baghdad' || provinceScope === 'province')
+      ? companyReps.filter(r => r.isProvinceMember === (provinceScope === 'province'))
+      : companyReps;
 
     if (!reps.length) return { reps: [], companies };
 
@@ -1674,6 +1690,7 @@ export async function allRepsVisitsSummary(req, res, next) {
       year:  req.query.year  ?? null,
       companyIds,
       followup,
+      provinceScope: provinceScopeOf(req, null),
     });
     res.json({ ...data, standards: followup?.standards ?? null });
   } catch (e) { next(e); }

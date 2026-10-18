@@ -18,6 +18,19 @@ export async function provinceLeaderIds(officeId = null) {
   return new Set(rows.map(r => r.leaderUserId));
 }
 
+/**
+ * كل من ينتمي لفريق محافظة فعّال (تيم ليدر أو مندوب) — تُعلِّم به الواجهة
+ * `isProvinceMember` فتفصل مندوبي المحافظات عن مندوبي بغداد في قوائم الاختيار.
+ * @returns {Promise<Set<number>>} معرّفات users
+ */
+export async function provinceMemberUserIds() {
+  const [teams, assign] = await Promise.all([
+    prisma.provinceTeam.findMany({ where: { isActive: true, leaderUserId: { not: null } }, select: { leaderUserId: true } }),
+    prisma.provinceRepAssignment.findMany({ where: { isActive: true, team: { isActive: true } }, select: { repUserId: true } }),
+  ]);
+  return new Set([...teams.map(t => t.leaderUserId), ...assign.map(r => r.repUserId)]);
+}
+
 export async function isProvinceLeader(userId) {
   return (await prisma.provinceTeam.count({ where: { isActive: true, leaderUserId: userId } })) > 0;
 }

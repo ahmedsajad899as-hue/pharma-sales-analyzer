@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import RepSelectOptions, { type GroupableRep } from '../components/RepSelectOptions';
 import TargetsImportModal from '../components/TargetsImportModal';
 import TargetsMatrix from '../components/TargetsMatrix';
+import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope } from '../components/ProvinceRepsToggle';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -29,6 +30,8 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
 
   const [repType, setRepType] = useState<'scientific' | 'commercial'>('scientific');
   const [sciReps, setSciReps] = useState<ScientificRep[]>([]);
+  // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرضهم وحدهم (راجع ProvinceRepsToggle)
+  const [onlyProvince, setOnlyProvince] = useProvinceRepScope('targets');
   const [commReps, setCommReps] = useState<CommRep[]>([]);
   const [selRepId, setSelRepId] = useState('');
   const [month, setMonth] = useState(NOW.getMonth() + 1);
@@ -249,7 +252,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
     setTimeout(() => { setBroadcastResult(null); setShowBroadcast(false); setBroadcastSel(new Set()); }, 3500);
   };
 
-  const reps = repType === 'scientific' ? sciReps : commReps;
+  const reps = repType === 'scientific' ? filterByProvinceScope(sciReps, onlyProvince) : commReps;
   const months = [
     'يناير','فبراير','مارس','أبريل','مايو','يونيو',
     'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر',
@@ -284,6 +287,9 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
             <button className={view === 'matrix' ? 'on' : ''} onClick={() => setView('matrix')}>جدول شامل</button>
             <button className={view === 'single' ? 'on' : ''} onClick={() => setView('single')}>مندوب واحد</button>
           </div>
+        )}
+        {isManager && repType === 'scientific' && (
+          <ProvinceRepsToggle reps={sciReps} value={onlyProvince} onChange={v => { setOnlyProvince(v); setSelRepId(''); }} compact />
         )}
         {isManager && view === 'single' && (
           <select className="tg-sel tg-sel--rep" value={selRepId} onChange={e => setSelRepId(e.target.value)}>

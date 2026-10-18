@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
+import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope } from '../components/ProvinceRepsToggle';
 
 interface SciRep  { id: number; name: string; }
 interface Item    { id: number; name: string; }
@@ -404,7 +405,10 @@ export default function FMSPage() {
   const { token } = useAuth();
   const authH = useCallback(() => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }), [token]);
 
-  const [sciReps, setSciReps]   = useState<SciRep[]>([]);
+  const [sciRepsAll, setSciReps] = useState<SciRep[]>([]);
+  // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرضهم وحدهم في اختيار المندوبين
+  const [onlyProvince, setOnlyProvince] = useProvinceRepScope('fms');
+  const sciReps = useMemo(() => filterByProvinceScope(sciRepsAll, onlyProvince), [sciRepsAll, onlyProvince]);
   const [items,   setItems]     = useState<Item[]>([]);
   const [plans,   setPlans]     = useState<FmsPlan[]>([]);
   const [loading, setLoading]   = useState(false);
@@ -930,7 +934,7 @@ export default function FMSPage() {
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
                     المندوب العلمي
                     <div style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f8fafc', fontSize: 13, color: '#374151' }}>
-                      {sciReps.find(r => r.id === parseInt(formRepId))?.name ?? '—'}
+                      {sciRepsAll.find(r => r.id === parseInt(formRepId))?.name ?? '—'}
                     </div>
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: '#374151' }}>
@@ -953,6 +957,7 @@ export default function FMSPage() {
                       <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
                         المندوبون العلميون *{formRepIds.size > 0 && <span style={{ color: '#6366f1', marginRight: 4 }}>({formRepIds.size} محدد)</span>}
                       </span>
+                      <ProvinceRepsToggle reps={sciRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setFormRepIds(new Set()); }} compact />
                       <button type="button"
                         onClick={() => setFormRepIds(formRepIds.size === sciReps.length ? new Set() : new Set(sciReps.map(r => r.id)))}
                         style={{ fontSize: 11, color: '#6366f1', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>

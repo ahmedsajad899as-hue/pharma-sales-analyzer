@@ -9,6 +9,7 @@ import ResultsView from './ResultsView';
 import { exportSmartPlan } from './exportSmartPlan';
 import { btnGhost, btnMini, btnPrimary, card, inputStyle, panel, sectionTitle, Tag } from './ui';
 import type { BucketSummary, RatioBucket, SmartPlan, SmartPlanCandidate, SmartPlanUpload, SmartRep } from './types';
+import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope } from '../../components/ProvinceRepsToggle';
 
 const API = import.meta.env.VITE_API_URL || '';
 const MONTHS_AR = ['يناير','فبراير','مارس','ابريل','مايو','يونيو','يوليو','اغسطس','سبتمبر','اكتوبر','نوفمبر','ديسمبر'];
@@ -64,7 +65,10 @@ function StepTabs({ steps, current, onPick }: {
 
 export default function SmartMonthlyPlanPage({ onBack }: { onBack: () => void }) {
   const { token } = useAuth();
-  const [reps, setReps] = useState<SmartRep[]>([]);
+  const [repsAll, setReps] = useState<SmartRep[]>([]);
+  // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرضهم وحدهم
+  const [onlyProvince, setOnlyProvince] = useProvinceRepScope('smart-plan');
+  const reps = filterByProvinceScope(repsAll, onlyProvince);
   const [plans, setPlans] = useState<SmartPlan[]>([]);
   const [loadingList, setLoadingList] = useState(true);
 
@@ -229,6 +233,7 @@ export default function SmartMonthlyPlanPage({ onBack }: { onBack: () => void })
               <option value="">اختر المندوب العلمي…</option>
               {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
+            <ProvinceRepsToggle reps={repsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setNewRepId(''); }} compact />
             <select value={newMonth} onChange={e => setNewMonth(Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer' }}>
               {MONTHS_AR.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
             </select>

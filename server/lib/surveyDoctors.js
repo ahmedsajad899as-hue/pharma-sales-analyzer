@@ -20,6 +20,7 @@ import { resolveEffectiveAreaIds } from './areaScope.js';
 import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from './officeScope.js';
 import { normalizeRepName, repNameScore } from '../modules/scientific-reps/scientific-reps.service.js';
 import { similarity } from './fuzzyMatch.js';
+import { provinceMemberUserIds } from './provinceScope.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // مطابقة أسماء الأطباء — مشتركة بين استيراد زيارات الأطباء (doctor-visits-
@@ -228,8 +229,14 @@ export async function buildAreaNameIndex(areaRecords) {
 //     (المندوبين فقط، بلا المدير نفسه — راجع resolveCompanyMembers) الذين
 //     شركتهم الرئيسية هي هذه.
 //   - مدير (الكل): اتحاد مناطق المدير + كل مندوبي فريقه (UserManagerAssignment).
-export async function resolveAreaScope(user, { repUserId = null, companyId = null } = {}) {
+//   provinceScope ('baghdad'|'province'|null): في فروع «الكل»/الشركة يُبقي مندوبي
+//   بغداد وحدهم أو مندوبي فرق المحافظات وحدهم (زر «مندوبي المحافظات» بالواجهة).
+export async function resolveAreaScope(user, { repUserId = null, companyId = null, provinceScope = null } = {}) {
   const ids = new Set();
+  const provSet = (provinceScope === 'baghdad' || provinceScope === 'province') ? await provinceMemberUserIds() : null;
+  const inScope = uid => !provSet || provSet.has(uid) === (provinceScope === 'province');
+  // شبكة أمان «مناطق أطباء المدير» تخص بغداد — لا تُضاف لعرض المحافظات
+  const ownerSafetyNet = provinceScope !== 'province';
   const memberUserIds = new Set(); // لطبقة الزيارات: مَن تُحتسب زياراتهم
   const memberRepIds  = new Set(); // معرّفات المندوب العلمي المقابلة
 
@@ -249,7 +256,7 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     addMember(repUserId, repId);
     (await areaIdsForUser(repUserId, repId)).forEach(id => ids.add(id));
   } else if (companyId) {
-    const members = await resolveCompanyMembers(user.id, companyId, user.role);
+    const members = (await resolveCompanyMembers(user.id, companyId, user.role)).filter(m => inScope(m.userId));
     // مُوازٍ لا متسلسل — استعلامات كل عضو مستقلة عن الآخر، وتسلسلها كان يُراكم
     // زمن ذهاب-وإياب الشبكة عضواً بعد عضو (راجع نفس التعليق في الفرع "الكل" أدناه).
     const areaIdLists = await Promise.all(members.map(m => areaIdsForUser(m.userId, m.repId)));
@@ -263,23 +270,23 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     // فارغ لهذه الأدوار، فتظهر شركة واحدة فقط (أياً كانت الصدفة) بدل كل شركات
     // المكتب ومندوبيها معاً.
     const companyIds = await getRosterCompanyIds(user);
-    const subUsers = companyIds.length ? await prisma.user.findMany({
+    const subUsers = (companyIds.length ? await prisma.user.findMany({
       where: {
         isActive: true,
         companyAssignments: { some: { companyId: { in: companyIds } } },
         role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] },
       },
       select: { id: true, linkedRepId: true },
-    }) : [];
+    }) : []).filter(u => inScope(u.id));
     const repIds = await Promise.all(subUsers.map(u => resolveRepId(u.id, u.linkedRepId ?? null)));
     subUsers.forEach((u, i) => addMember(u.id, repIds[i]));
     const areaIdLists = await Promise.all(subUsers.map((u, i) => areaIdsForUser(u.id, repIds[i])));
     areaIdLists.forEach(list => list.forEach(id => ids.add(id)));
     // نفس شبكة الأمان في الفرع العام أدناه (إضافة فقط، لا تُنقِص التغطية).
-    const ownerDoctorAreas = await prisma.doctor.findMany({
+    const ownerDoctorAreas = ownerSafetyNet ? await prisma.doctor.findMany({
       where: { userId: user.id, areaId: { not: null } },
       select: { areaId: true }, distinct: ['areaId'],
-    });
+    }) : [];
     ownerDoctorAreas.forEach(d => ids.add(d.areaId));
   } else {
     // مدير "الكل": مناطقه + كل مندوبي الفريق الفعليين (بلا أدوار الإدارة
@@ -302,17 +309,17 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     const members = [
       { userId: user.id, linkedRepId: ownU?.linkedRepId ?? null },
       ...subs.map(s => ({ userId: s.user.id, linkedRepId: s.user.linkedRepId ?? null })),
-    ];
+    ].filter(m => inScope(m.userId));
     const repIds = await Promise.all(members.map(m => resolveRepId(m.userId, m.linkedRepId)));
     members.forEach((m, i) => addMember(m.userId, repIds[i]));
     const areaIdLists = await Promise.all(members.map((m, i) => areaIdsForUser(m.userId, repIds[i])));
     areaIdLists.forEach(list => list.forEach(id => ids.add(id)));
     // شبكة أمان: ضمّ مناطق أطباء المدير الحاليين (حتى لا ينخفض الرقم عن الوضع
     // السابق لو كانت تعيينات مناطق الفريق ناقصة). إضافة فقط — لا تُنقِص التغطية.
-    const ownerDoctorAreas = await prisma.doctor.findMany({
+    const ownerDoctorAreas = ownerSafetyNet ? await prisma.doctor.findMany({
       where: { userId: user.id, areaId: { not: null } },
       select: { areaId: true }, distinct: ['areaId'],
-    });
+    }) : [];
     ownerDoctorAreas.forEach(d => ids.add(d.areaId));
   }
 
