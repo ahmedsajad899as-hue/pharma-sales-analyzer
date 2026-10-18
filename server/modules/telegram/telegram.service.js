@@ -342,6 +342,14 @@ async function resolveActor(message, { announce }) {
   }
 
   if (!link) {
+    // الكروبات غير المربوطة لا يجوز أن يصدر فيها أي ردّ: الربط المخفي يتطلب أن يبقى
+    // البوت صامتاً حتى قبل الربط. رقم الكروب يُسجَّل في لوج السيرفر بدل إعلانه.
+    if (message.chat.type !== 'private') {
+      if (shouldAnnounce(chatId, false)) {
+        console.log(`[telegram] كروب غير مربوط: ${chatId} «${message.chat.title || ''}» — اربطه من لوحة الماستر أدمن`);
+      }
+      return null;
+    }
     if (shouldAnnounce(chatId, announce)) {
       const title = message.chat.title ? ` «${esc(message.chat.title)}»` : '';
       // الرقم داخل <code>: نقرة واحدة تنسخه **كاملاً بإشارة السالب**. النسخ
