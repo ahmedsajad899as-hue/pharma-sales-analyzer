@@ -246,6 +246,57 @@ async function applyManagerAreas(manager, targetUserId, areaIds) {
   return withProvince(dedupeByName(after), await provinceByAreaName());
 }
 
+/**
+ * مناطق كل عضو الفعلية — نفس مصادر resolveEffectiveAreaIds (includeRepAreas:false)
+ * لكن دفعةً واحدة لكل الأعضاء. كانت القائمة تقرأ UserAreaAssignment وحده، فالمندوب
+ * المعيَّن من السوبر أدمن على قسم كامل («الرصافة») أو محافظة يظهر للمدير بمنطقتين
+ * بدل 65 — بينما السوبر أدمن يراها كاملة.
+ */
+async function effectiveAreasByMember(members) {
+  const ids = members.map(m => m.id);
+  const out = new Map(members.map(m => [m.id, m.areaAssignments.map(a => a.area)]));
+  if (!ids.length) return out;
+
+  const [provAssign, subAssign, allFlags] = await Promise.all([
+    prisma.userProvinceAssignment.findMany({ where: { userId: { in: ids } }, select: { userId: true, provinceId: true } }),
+    prisma.userSubProvinceAssignment.findMany({ where: { userId: { in: ids } }, select: { userId: true, subProvinceId: true } }),
+    Promise.all(ids.map(id => userHasAllAreas(id))),
+  ]);
+  const allAreaUsers = new Set(ids.filter((_, i) => allFlags[i]));
+  const provIds = [...new Set(provAssign.map(r => r.provinceId))];
+  const subIds  = [...new Set(subAssign.map(r => r.subProvinceId))];
+  if (!allAreaUsers.size && !provIds.length && !subIds.length) return out;
+
+  const areaRows = await prisma.area.findMany({
+    where: allAreaUsers.size ? {} : {
+      OR: [
+        ...(provIds.length ? [{ provinceId: { in: provIds } }] : []),
+        ...(subIds.length  ? [{ subProvinceId: { in: subIds } }] : []),
+      ],
+    },
+    select: { id: true, name: true, provinceId: true, subProvinceId: true },
+    orderBy: { id: 'asc' },
+  });
+
+  for (const m of members) {
+    const byId = new Map(out.get(m.id).map(a => [a.id, a]));
+    if (allAreaUsers.has(m.id)) {
+      for (const a of areaRows) byId.set(a.id, { id: a.id, name: a.name });
+    } else {
+      const myProv = new Set(provAssign.filter(r => r.userId === m.id).map(r => r.provinceId));
+      const mySub  = new Set(subAssign.filter(r => r.userId === m.id).map(r => r.subProvinceId));
+      if (!myProv.size && !mySub.size) continue;
+      for (const a of areaRows) {
+        if ((a.provinceId != null && myProv.has(a.provinceId)) || (a.subProvinceId != null && mySub.has(a.subProvinceId))) {
+          if (!byId.has(a.id)) byId.set(a.id, { id: a.id, name: a.name });
+        }
+      }
+    }
+    out.set(m.id, [...byId.values()]);
+  }
+  return out;
+}
+
 /** GET /api/company-members — list all users in the manager's companies */
 export async function listCompanyMembers(req, res, next) {
   try {
@@ -289,6 +340,7 @@ export async function listCompanyMembers(req, res, next) {
       orderBy: { username: 'asc' },
     }), provinceByAreaName()]);
 
+    const effective = await effectiveAreasByMember(members);
     const data = members.map(m => ({
       id: m.id,
       username: m.username,
@@ -297,7 +349,7 @@ export async function listCompanyMembers(req, res, next) {
       isActive: m.isActive,
       linkedRepId: m.linkedRepId,
       linkedRep: m.linkedRep,
-      areas: withProvince(dedupeByName(m.areaAssignments.map(a => a.area)), provMap),
+      areas: withProvince(dedupeByName(effective.get(m.id)), provMap),
       companies: m.companyAssignments.map(a => a.company),
     }));
 
