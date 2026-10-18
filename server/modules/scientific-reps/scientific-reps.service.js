@@ -1459,6 +1459,23 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     console.log('[SciRep.srcDiag] rep=%s mercatoFiles=%j officeFiles=%j mercatoNameIds=%d nameIds=%d commReps=%d raw=%d/%d deduped=%d/%d afterWarehouse=%d/%d excludeWh=%s',
       id, mercatoFileIds, officeFileIds, mercatoNameMatchIds.length, nameMatchIds.length, expandedCommRepIds.length,
       cnt(rawSales), rawSales.length, cnt(deduped), deduped.length, cnt(filtered), filtered.length, excludeWarehouse);
+    if (mercatoFileIds.length && mercatoNameMatchIds.length && cnt(rawSales) === 0) {
+      const base = { isHidden: false, uploadedFileId: { in: mercatoFileIds }, representativeId: { in: mercatoNameMatchIds },
+        ...((startDate || endDate) ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } } : {}),
+        ...(recordType ? { recordType } : {}) };
+      const c = extra => prisma.sale.count({ where: { AND: [base, ...extra] } });
+      const [b, it, ba, bi, bc, bci, bcii] = await Promise.all([
+        c([]),
+        hasItems ? c([{ itemId: { in: itemIds } }]) : -1,
+        blockedAreaIds.length ? c([{ NOT: { areaId: { in: blockedAreaIds } } }]) : -1,
+        blockedItemIds.length ? c([{ NOT: { itemId: { in: blockedItemIds } } }]) : -1,
+        blockedCustomerIds.length ? c([{ NOT: { customerId: { in: blockedCustomerIds } } }]) : -1,
+        blockedCustomerInfoNorms.length ? c([{ NOT: { OR: blockedCustomerInfoNorms.map(n => ({ customerInfoNorm: { contains: n, mode: 'insensitive' } })) } }]) : -1,
+        blockedCustomerInfoItemConds.length ? c([{ NOT: { OR: blockedCustomerInfoItemConds } }]) : -1,
+      ]);
+      console.log('[SciRep.srcDiag2] rep=%s viewer=%s base=%d items=%d(n=%d) blkArea=%d blkItem=%d(n=%d) blkCust=%d blkInfo=%d(%j) blkInfoItem=%d',
+        id, viewerId, b, it, itemIds?.length ?? 0, ba, bi, blockedItemIds.length, bc, bci, blockedCustomerInfoNorms, bcii);
+    }
   }
   // rawData هنا مؤقت لأجل الفلتر أعلاه فقط حين لم يطلبه الـselect أصلاً
   // (REPORT_SALES_SELECT) — لا يُستبعد حين طلبه صراحة (EXPORT_SALES_SELECT
