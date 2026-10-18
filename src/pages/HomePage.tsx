@@ -846,28 +846,70 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   // نفس اتجاه الأسهم البصري: السحب يميناً يجرّ البطاقة اليسرى (التالية) للوسط.
   // حركة أفقية ≥ 45px وأوضح من العمودية = تنقّل، ويُلغى النقر الذي يليها كي لا تُفتح
   // التفاصيل خطأً. touch-action: pan-y يُبقي التمرير العمودي للصفحة يعمل على الهاتف.
-  const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
+  // سلاسة: البطاقات تتبع الإصبع لحظياً أثناء السحب (dragDx)، وعند الإفلات يُحسب عدد البطاقات
+  // من **مسافة السحب + سرعته** — سحبة قوية سريعة تعبر عدة ايتمات تتابعياً كالـflick.
+  const swipe = useRef<{ x: number; y: number; id: number; t: number; lx: number; lt: number; v: number; horiz: boolean | null } | null>(null);
   const swiped = useRef(false);
+  const [dragDx, setDragDx] = useState(0);
+  const [flinging, setFlinging] = useState(false);
+  const flingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (flingTimer.current) clearTimeout(flingTimer.current); }, []);
+
   const onSwipeDown = (e: React.PointerEvent) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    swipe.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    const now = performance.now();
+    swipe.current = { x: e.clientX, y: e.clientY, id: e.pointerId, t: now, lx: e.clientX, lt: now, v: 0, horiz: null };
     swiped.current = false;
   };
-  const onSwipeUp = (e: React.PointerEvent) => {
+  const onSwipeMove = (e: React.PointerEvent) => {
     const s = swipe.current;
-    swipe.current = null;
     if (!s || s.id !== e.pointerId || count < 2 || paused) return;
     const dx = e.clientX - s.x, dy = e.clientY - s.y;
-    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    if (s.horiz === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      s.horiz = Math.abs(dx) > Math.abs(dy);               // يُحسم الاتجاه مرة واحدة
+      if (s.horiz) { try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* */ } }
+    }
+    if (!s.horiz) return;
+    const now = performance.now();
+    const dt = now - s.lt;
+    if (dt > 0) s.v = 0.7 * s.v + 0.3 * ((e.clientX - s.lx) / dt); // سرعة لحظية مُنعَّمة (px/ms)
+    s.lx = e.clientX; s.lt = now;
+    setDragDx(dx);
+  };
+  const endSwipe = (e: React.PointerEvent | null) => {
+    const s = swipe.current;
+    swipe.current = null;
+    if (!s || (e && s.id !== e.pointerId)) { setDragDx(0); return; }
+    const dx = e ? e.clientX - s.x : 0;
+    setDragDx(0);
+    if (!s.horiz || count < 2 || paused) return;
+    // سرعة آخر حركة فقط: إصبع توقّف قبل الإفلات = لا دفعة إضافية
+    const v = performance.now() - s.lt > 90 ? 0 : s.v;
+    if (Math.abs(dx) < 40 && Math.abs(v) < 0.5) return;
     swiped.current = true;
-    const dir = dx > 0 ? 1 : -1;
-    setActive(a => (a + dir + count) % count);
+    const unit = step || 220;
+    let n = Math.round(Math.abs(dx) / (unit * 0.8)) + Math.round(Math.max(0, Math.abs(v) - 0.5) * 2.2);
+    n = Math.max(1, Math.min(count - 1, n));
+    const dir = (Math.abs(dx) >= 40 ? dx : v) > 0 ? 1 : -1;
+    if (flingTimer.current) clearTimeout(flingTimer.current);
     setKick(k => k + 1);
+    if (n === 1) { setActive(a => (a + dir + count) % count); return; }
+    // عدة بطاقات: خطوات متتابعة سريعة بانتقال أقصر (يتباطأ تدريجياً قرب النهاية)
+    setFlinging(true);
+    let left = n;
+    const tick = () => {
+      setActive(a => (a + dir + count) % count);
+      left -= 1;
+      if (left > 0) flingTimer.current = setTimeout(tick, 110 + (n - left) * 25);
+      else flingTimer.current = setTimeout(() => setFlinging(false), 260);
+    };
+    tick();
   };
 
   return (
-    <div className={`cf cf-${variant} ${hoverPause ? 'is-paused' : ''}`} ref={rootRef}
-      onPointerDown={onSwipeDown} onPointerUp={onSwipeUp} onPointerCancel={() => { swipe.current = null; }}
+    <div className={`cf cf-${variant} ${hoverPause ? 'is-paused' : ''} ${dragDx ? 'is-dragging' : ''} ${flinging ? 'is-flinging' : ''}`} ref={rootRef}
+      onPointerDown={onSwipeDown} onPointerMove={onSwipeMove} onPointerUp={endSwipe} onPointerCancel={() => endSwipe(null)}
       onClickCapture={e => { if (swiped.current) { swiped.current = false; e.stopPropagation(); e.preventDefault(); } }}
       onDragStart={e => e.preventDefault()}
       onPointerLeave={() => { hoverCapped.current = false; setHoverPause(false); }}>
@@ -883,7 +925,7 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
             <button key={i} type="button" className={`cf-slot ${off === 0 ? 'is-active' : ''}`}
               aria-hidden={hidden} tabIndex={hidden ? -1 : 0}
               style={{
-                transform: `translateX(${step ? `${-off * step}px` : `${off * -84}%`}) scale(${abs === 0 ? CF_ACTIVE_SCALE : abs === 1 ? S1 : S2})`,
+                transform: `translateX(${step ? `${-off * step + dragDx}px` : `calc(${off * -84}% + ${dragDx}px)`}) scale(${abs === 0 ? CF_ACTIVE_SCALE : abs === 1 ? S1 : S2})`,
                 opacity: hidden ? 0 : abs === 0 ? 1 : abs === 1 ? 0.55 : 0.25,
                 zIndex: 10 - abs,
                 pointerEvents: hidden ? 'none' : 'auto',
@@ -1173,6 +1215,10 @@ function HomeStyles() {
   padding: 0; border: 0; background: none; cursor: pointer; font-family: inherit; text-align: right;
   transition: transform .6s cubic-bezier(.2,.8,.2,1), opacity .6s ease, filter .6s ease; }
 .cf-slot:focus-visible { outline: 3px solid var(--c-accent); outline-offset: 3px; border-radius: 18px; }
+/* أثناء السحب: البطاقات تلتصق بالإصبع بلا تأخير. أثناء الـflick: انتقالات أقصر بين الخطوات */
+.cf.is-dragging .cf-slot { transition: opacity .2s ease, filter .2s ease; }
+.cf.is-dragging { cursor: grabbing; }
+.cf.is-flinging .cf-slot { transition: transform .32s cubic-bezier(.25,.8,.3,1), opacity .3s ease, filter .3s ease; }
 @media (prefers-reduced-motion: reduce) { .cf-slot { transition: none; } }
 .cf-dots { display: flex; justify-content: center; gap: 6px; padding-top: 6px; }
 .cf-dot { width: 7px; height: 7px; border-radius: 4px; border: 0; padding: 0; background: var(--c-border); cursor: pointer; transition: width .3s, background .3s; }
