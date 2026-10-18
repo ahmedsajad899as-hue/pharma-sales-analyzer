@@ -32,8 +32,34 @@ async function verifyInSameCompany(managerCompanyIds, targetUserId, officeWide =
   return match !== null;
 }
 
+/**
+ * مدير الشركة يرى فقط من تحته في التسلسل الإداري (UserManagerAssignment) —
+ * مباشرةً أو عبر تيم ليدر/مشرف تحته — لا كل من شركته الرئيسية شركتُه (كان
+ * يُظهر مدير المكتب وموظفي الشركات الأخرى المرتبطين بالشركة).
+ */
+async function hierarchySubordinateIds(managerId) {
+  const seen = new Set();
+  let frontier = [managerId];
+  for (let depth = 0; depth < 8 && frontier.length; depth++) {
+    const rows = await prisma.userManagerAssignment.findMany({
+      where:  { managerId: { in: frontier } },
+      select: { userId: true },
+    });
+    frontier = [];
+    for (const r of rows) {
+      if (r.userId === managerId || seen.has(r.userId)) continue;
+      seen.add(r.userId);
+      frontier.push(r.userId);
+    }
+  }
+  return seen;
+}
+
 async function canManage(manager, targetUserId) {
   if (!targetUserId || targetUserId === manager.id) return false;
+  if (manager.role === 'company_manager') {
+    return (await hierarchySubordinateIds(manager.id)).has(targetUserId);
+  }
   const companyIds = await getManagerCompanyIds(manager.id, manager.role);
   return verifyInSameCompany(companyIds, targetUserId, isOfficeWide(manager.role));
 }
@@ -47,6 +73,27 @@ function dedupeByName(areas) {
   }
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 }
+
+/**
+ * اسم المحافظة لكل اسم منطقة مطبَّع — من أي صف Area بنفس الاسم يحمل محافظة
+ * (صفوف الحسابات الموازية كثيراً ما تكون بلا provinceId، والصف القانوني يحملها).
+ */
+async function provinceByAreaName() {
+  const rows = await prisma.area.findMany({
+    where:  { provinceId: { not: null } },
+    select: { name: true, province: { select: { name: true } } },
+    orderBy: { id: 'asc' },
+  });
+  const map = new Map();
+  for (const r of rows) {
+    const k = normalizeAreaName(r.name);
+    if (!map.has(k) && r.province?.name) map.set(k, r.province.name);
+  }
+  return map;
+}
+
+const withProvince = (areas, provMap) =>
+  areas.map(a => ({ ...a, province: provMap.get(normalizeAreaName(a.name)) ?? null }));
 
 // ════════════════════════════════════════════════════════════════════════════
 // تعديل المدير لمناطق مندوبه
@@ -79,13 +126,14 @@ async function scopeOptions(scope) {
 
 async function buildAreaState(managerId, targetUserId) {
   const scope = await managerScope(managerId);
-  const [options, explicit, effectiveIds] = await Promise.all([
+  const [options, explicit, effectiveIds, provMap] = await Promise.all([
     scopeOptions(scope),
     prisma.userAreaAssignment.findMany({
       where:  { userId: targetUserId },
       select: { area: { select: { id: true, name: true } } },
     }),
     resolveEffectiveAreaIds(targetUserId, { includeRepAreas: false }),
+    provinceByAreaName(),
   ]);
   const explicitAreas = explicit.map(e => e.area);
   const explicitIdSet = new Set(explicitAreas.map(a => a.id));
@@ -111,7 +159,7 @@ async function buildAreaState(managerId, targetUserId) {
   }
 
   return {
-    allAreas: options,
+    allAreas: withProvince(options, provMap),
     assignedAreaIds: [...assigned],
     lockedAreas: [...locked.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar')),
     scopeIsEmpty: !scope.all && scope.names.size === 0,
@@ -171,7 +219,7 @@ async function applyManagerAreas(manager, targetUserId, areaIds) {
     } catch (e) { console.warn('[company-members] activity log failed (non-fatal):', e.message); }
   }
 
-  return dedupeByName(after);
+  return withProvince(dedupeByName(after), await provinceByAreaName());
 }
 
 /** GET /api/company-members — list all users in the manager's companies */
@@ -179,19 +227,26 @@ export async function listCompanyMembers(req, res, next) {
   try {
     const managerId = req.user.id;
     const officeWide = isOfficeWide(req.user.role);
-    const companyIds = await getManagerCompanyIds(managerId, req.user.role);
 
-    if (companyIds.length === 0) {
-      return res.json({ success: true, data: [] });
-    }
-
-    // Find all users (excluding self) whose PRIMARY company is one of the manager's companies
-    // (or any company, primary or secondary, for an office-wide role)
-    const members = await prisma.user.findMany({
-      where: {
+    let where;
+    if (req.user.role === 'company_manager') {
+      // فقط من تحته في التسلسل الإداري
+      const subIds = [...(await hierarchySubordinateIds(managerId))];
+      if (subIds.length === 0) return res.json({ success: true, data: [] });
+      where = { id: { in: subIds } };
+    } else {
+      const companyIds = await getManagerCompanyIds(managerId, req.user.role);
+      if (companyIds.length === 0) return res.json({ success: true, data: [] });
+      // Users (excluding self) whose PRIMARY company is one of the manager's companies
+      // (or any company, primary or secondary, for an office-wide role)
+      where = {
         id: { not: managerId },
         companyAssignments: { some: officeWide ? { companyId: { in: companyIds } } : { companyId: { in: companyIds }, isPrimary: true } },
-      },
+      };
+    }
+
+    const [members, provMap] = await Promise.all([prisma.user.findMany({
+      where,
       select: {
         id: true,
         username: true,
@@ -208,7 +263,7 @@ export async function listCompanyMembers(req, res, next) {
         },
       },
       orderBy: { username: 'asc' },
-    });
+    }), provinceByAreaName()]);
 
     const data = members.map(m => ({
       id: m.id,
@@ -218,7 +273,7 @@ export async function listCompanyMembers(req, res, next) {
       isActive: m.isActive,
       linkedRepId: m.linkedRepId,
       linkedRep: m.linkedRep,
-      areas: dedupeByName(m.areaAssignments.map(a => a.area)),
+      areas: withProvince(dedupeByName(m.areaAssignments.map(a => a.area)), provMap),
       companies: m.companyAssignments.map(a => a.company),
     }));
 

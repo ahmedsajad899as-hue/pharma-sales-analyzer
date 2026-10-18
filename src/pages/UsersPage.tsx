@@ -23,11 +23,25 @@ interface CompanyMember {
   linkedRepId: number | null;
   linkedRep: ScientificRep | null;
   displayName?: string | null;
-  areas: { id: number; name: string }[];
+  areas: AreaItem[];
   companies: { id: number; name: string }[];
 }
 
-interface AreaItem { id: number; name: string; }
+interface AreaItem { id: number; name: string; province?: string | null; }
+
+const NO_PROVINCE = 'بلا محافظة';
+/** تجميع المناطق حسب المحافظة — الأكبر أولاً، «بلا محافظة» آخراً. */
+function groupByProvince<T extends AreaItem>(areas: T[]): { province: string; areas: T[] }[] {
+  const map = new Map<string, T[]>();
+  for (const a of areas) {
+    const k = a.province || NO_PROVINCE;
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(a);
+  }
+  return [...map.entries()]
+    .map(([province, list]) => ({ province, areas: list.sort((x, y) => x.name.localeCompare(y.name, 'ar')) }))
+    .sort((a, b) => (a.province === NO_PROVINCE ? 1 : 0) - (b.province === NO_PROVINCE ? 1 : 0) || b.areas.length - a.areas.length);
+}
 interface LockedArea { name: string; reason: 'outside' | 'province'; }
 
 const ALL_ROLES: { value: string; label: string }[] = [
@@ -80,6 +94,9 @@ export default function UsersPage() {
   const [lockedAreas, setLockedAreas]             = useState<LockedArea[]>([]);
   const [scopeIsEmpty, setScopeIsEmpty]           = useState(false);
   const [areaSearch, setAreaSearch]               = useState('');
+  const [openProvinces, setOpenProvinces]         = useState<Set<string>>(new Set());
+  const [expandedMembers, setExpandedMembers]     = useState<Set<number>>(new Set());
+  const [memberSearch, setMemberSearch]           = useState('');
 
   // Form fields
   const [fUsername,     setFUsername]     = useState('');
@@ -248,8 +265,15 @@ export default function UsersPage() {
       const r = await fetch(`/api/company-members/${member.id}/areas`, { headers: authH() });
       const j = await r.json();
       if (r.ok) {
-        setAllAreas(j.allAreas ?? []);
-        setSelectedAreaIds(new Set(j.assignedAreaIds ?? []));
+        const opts: AreaItem[] = j.allAreas ?? [];
+        const sel = new Set<number>(j.assignedAreaIds ?? []);
+        setAllAreas(opts);
+        setSelectedAreaIds(sel);
+        // افتح فقط المحافظات التي فيها مناطق محددة؛ إن كانت محافظة واحدة افتحها
+        const groups = groupByProvince(opts);
+        const open = new Set(groups.filter(g => g.areas.some(a => sel.has(a.id))).map(g => g.province));
+        if (groups.length === 1) open.add(groups[0].province);
+        setOpenProvinces(open);
         setLockedAreas(j.lockedAreas ?? []);
         setScopeIsEmpty(!!j.scopeIsEmpty);
       } else {
@@ -296,76 +320,111 @@ export default function UsersPage() {
         ) : companyMembers.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>👥</div>
-            <p>لا يوجد أعضاء في شركتك حتى الآن</p>
-            <p style={{ fontSize: 12, marginTop: 4 }}>يمكن للأدمن إضافة مندوبين وربطهم بشركتك</p>
+            <p>لا يوجد موظفون تابعون لك حتى الآن</p>
+            <p style={{ fontSize: 12, marginTop: 4 }}>يربط السوبر أدمن الموظفين بك من تبويب «المدراء» في حساباتهم</p>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {companyMembers.map(member => (
-              <div key={member.id} style={{
-                background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0',
-                padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14,
-                boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-              }}>
-                {/* Avatar */}
-                <div style={{
-                  width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-                  background: '#eef2ff', color: '#4f46e5',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 900, fontSize: 20,
-                }}>
-                  {member.username[0]?.toUpperCase()}
-                </div>
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+              <input
+                value={memberSearch}
+                onChange={e => setMemberSearch(e.target.value)}
+                placeholder="🔍 بحث باسم الموظف أو المنطقة..."
+                style={{ flex: '1 1 240px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13 }}
+              />
+              <span style={{ fontSize: 12, color: '#64748b' }}>{companyMembers.length} موظف</span>
+            </div>
+            <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+              {companyMembers
+                .filter(m => {
+                  const q = memberSearch.trim();
+                  if (!q) return true;
+                  return (m.displayName || '').includes(q) || m.username.includes(q) || m.areas.some(a => a.name.includes(q));
+                })
+                .map((member, idx) => {
+                  const name = member.displayName || member.username;
+                  const groups = groupByProvince(member.areas);
+                  const expanded = expandedMembers.has(member.id);
+                  const toggle = () => setExpandedMembers(prev => {
+                    const next = new Set(prev);
+                    if (next.has(member.id)) next.delete(member.id); else next.add(member.id);
+                    return next;
+                  });
+                  return (
+                    <div key={member.id} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', flexWrap: 'wrap' }}>
+                        <div style={{
+                          width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                          background: '#eef2ff', color: '#4f46e5',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 16,
+                        }}>{name[0]?.toUpperCase()}</div>
 
-                {/* Info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{member.username}</div>
-                  <div style={{ fontSize: 12, color: '#6366f1', marginTop: 2 }}>
-                    {ROLE_LABELS[member.role] ?? member.role}
-                    {!member.isActive && <span style={{ color: '#ef4444', marginRight: 8 }}>● غير نشط</span>}
-                  </div>
-                  {member.linkedRep && (
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                      🔬 {member.linkedRep.name}
-                    </div>
-                  )}
-                  {/* Areas chips */}
-                  {member.areas.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-                      {member.areas.map(a => (
-                        <span key={a.id} style={{
-                          fontSize: 11, padding: '2px 8px', borderRadius: 12,
-                          background: '#e0f2fe', color: '#0369a1', fontWeight: 600,
-                        }}>📍 {a.name}</span>
-                      ))}
-                    </div>
-                  )}
-                  {member.areas.length === 0 && (
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>📍 لم تُحدد مناطق — سيُشمل جميع المناطق في اقتراح البلان</div>
-                  )}
-                </div>
+                        <div style={{ minWidth: 150, flex: '0 1 220px' }}>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{name}</div>
+                          <div style={{ fontSize: 11, color: '#6366f1', marginTop: 2 }}>
+                            {ROLE_LABELS[member.role] ?? member.role}
+                            {!member.isActive && <span style={{ color: '#ef4444', marginRight: 6 }}>● غير نشط</span>}
+                          </div>
+                        </div>
 
-                {/* Actions */}
-                <button
-                  onClick={() => openAreasModal(member)}
-                  style={{
-                    padding: '6px 12px', fontSize: 12, fontWeight: 700,
-                    background: '#eef2ff', color: '#4f46e5',
-                    border: '1px solid #c7d2fe', borderRadius: 8, cursor: 'pointer',
-                    whiteSpace: 'nowrap', flexShrink: 0,
-                  }}
-                >
-                  📍 تحديد المناطق
-                </button>
-              </div>
-            ))}
-          </div>
+                        {/* ملخّص: عدد المناطق + توزيعها على المحافظات */}
+                        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {member.areas.length === 0 ? (
+                            <span style={{ fontSize: 12, color: '#94a3b8' }}>لا مناطق محددة</span>
+                          ) : (
+                            <>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: '#0369a1', background: '#e0f2fe', padding: '3px 10px', borderRadius: 12 }}>
+                                📍 {member.areas.length} منطقة
+                              </span>
+                              {groups.slice(0, 4).map(g => (
+                                <span key={g.province} style={{ fontSize: 11, color: '#475569', background: '#f1f5f9', padding: '3px 8px', borderRadius: 12 }}>
+                                  {g.province} <b>{g.areas.length}</b>
+                                </span>
+                              ))}
+                              {groups.length > 4 && <span style={{ fontSize: 11, color: '#94a3b8' }}>+{groups.length - 4}</span>}
+                            </>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                          {member.areas.length > 0 && (
+                            <button onClick={toggle} style={{
+                              padding: '6px 10px', fontSize: 12, fontWeight: 600, background: '#f8fafc', color: '#475569',
+                              border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer',
+                            }}>{expanded ? '▴ إخفاء' : '▾ عرض'}</button>
+                          )}
+                          <button onClick={() => openAreasModal(member)} style={{
+                            padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#eef2ff', color: '#4f46e5',
+                            border: '1px solid #c7d2fe', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
+                          }}>✏️ تعديل المناطق</button>
+                        </div>
+                      </div>
+
+                      {expanded && (
+                        <div style={{ padding: '0 16px 12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {groups.map(g => (
+                            <div key={g.province} style={{ display: 'flex', gap: 10, alignItems: 'baseline', background: '#f8fafc', borderRadius: 8, padding: '6px 10px' }}>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: '#334155', minWidth: 90, flexShrink: 0 }}>
+                                🗺️ {g.province} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({g.areas.length})</span>
+                              </span>
+                              <span style={{ fontSize: 12, color: '#475569', lineHeight: 1.8 }}>
+                                {g.areas.map(a => a.name).join(' · ')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </>
         )}
 
         {/* ── Areas Modal ── */}
         {areasModalMember && (
           <div className="modal-overlay" onClick={() => setAreasModalMember(null)}>
-            <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div className="modal" style={{ maxWidth: 600, width: '95vw' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>📍 مناطق عمل {areasModalMember.displayName || areasModalMember.username}</h2>
                 <button className="modal-close" onClick={() => setAreasModalMember(null)}>✕</button>
@@ -386,6 +445,11 @@ export default function UsersPage() {
                     </div>
                   </div>
                 )}
+                {!areasLoading && allAreas.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#4f46e5', fontWeight: 700, marginBottom: 6 }}>
+                    المحدد: {selectedAreaIds.size} من {allAreas.length}
+                  </div>
+                )}
                 {!areasLoading && allAreas.length > 8 && (
                   <input
                     value={areaSearch}
@@ -399,30 +463,69 @@ export default function UsersPage() {
                 ) : scopeIsEmpty ? (
                   <div style={{ textAlign: 'center', padding: 20, color: '#b45309' }}>لم تُحدَّد لحسابك مناطق بعد — اطلب من السوبر أدمن تحديد مناطقك أولاً.</div>
                 ) : (
-                  <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {allAreas.filter(a => !areaSearch.trim() || a.name.includes(areaSearch.trim())).map(area => (
-                      <label key={area.id} style={{
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                        borderRadius: 8, cursor: 'pointer',
-                        background: selectedAreaIds.has(area.id) ? '#eef2ff' : '#f8fafc',
-                        border: `1px solid ${selectedAreaIds.has(area.id) ? '#c7d2fe' : '#e2e8f0'}`,
-                      }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedAreaIds.has(area.id)}
-                          onChange={e => {
-                            setSelectedAreaIds(prev => {
-                              const next = new Set(prev);
-                              if (e.target.checked) next.add(area.id);
-                              else next.delete(area.id);
-                              return next;
-                            });
-                          }}
-                          style={{ width: 16, height: 16, accentColor: '#6366f1' }}
-                        />
-                        <span style={{ fontSize: 14, color: '#1e293b' }}>📍 {area.name}</span>
-                      </label>
-                    ))}
+                  <div style={{ maxHeight: 380, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {groupByProvince(allAreas.filter(a => !areaSearch.trim() || a.name.includes(areaSearch.trim()))).map(g => {
+                      const ids = g.areas.map(a => a.id);
+                      const selCount = ids.filter(id => selectedAreaIds.has(id)).length;
+                      const isOpen = !!areaSearch.trim() || openProvinces.has(g.province);
+                      const setAll = (on: boolean) => setSelectedAreaIds(prev => {
+                        const next = new Set(prev);
+                        ids.forEach(id => { if (on) next.add(id); else next.delete(id); });
+                        return next;
+                      });
+                      return (
+                        <div key={g.province} style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', flexShrink: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: selCount ? '#eef2ff' : '#f8fafc' }}>
+                            <input
+                              type="checkbox"
+                              checked={selCount === ids.length}
+                              ref={el => { if (el) el.indeterminate = selCount > 0 && selCount < ids.length; }}
+                              onChange={e => setAll(e.target.checked)}
+                              style={{ width: 16, height: 16, accentColor: '#6366f1' }}
+                              title="تحديد / إلغاء كل مناطق المحافظة"
+                            />
+                            <button
+                              onClick={() => setOpenProvinces(prev => {
+                                const next = new Set(prev);
+                                if (next.has(g.province)) next.delete(g.province); else next.add(g.province);
+                                return next;
+                              })}
+                              style={{ flex: 1, display: 'flex', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 13, fontWeight: 800, color: '#1e293b' }}
+                            >
+                              <span>🗺️ {g.province}</span>
+                              <span style={{ fontSize: 12, color: selCount ? '#4f46e5' : '#94a3b8', fontWeight: 700 }}>
+                                {selCount}/{ids.length} {isOpen ? '▴' : '▾'}
+                              </span>
+                            </button>
+                          </div>
+                          {isOpen && (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 4, padding: 8 }}>
+                              {g.areas.map(area => {
+                                const on = selectedAreaIds.has(area.id);
+                                return (
+                                  <label key={area.id} style={{
+                                    display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
+                                    background: on ? '#eef2ff' : 'transparent', fontSize: 13, color: '#1e293b',
+                                  }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={on}
+                                      onChange={e => setSelectedAreaIds(prev => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) next.add(area.id); else next.delete(area.id);
+                                        return next;
+                                      })}
+                                      style={{ width: 14, height: 14, accentColor: '#6366f1' }}
+                                    />
+                                    {area.name}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
