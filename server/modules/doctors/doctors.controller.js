@@ -9,7 +9,7 @@ import {
   ensureDoctorRowsForScope, isFieldRole, resolveRepId, buildAreaNameIndex,
 } from '../../lib/surveyDoctors.js';
 import { getScopedSurveyPharmacies, renameSurveyPharmacyByName } from '../../lib/surveyPharmacies.js';
-import { OFFICE_SCOPED_ROLES } from '../../lib/officeScope.js';
+import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from '../../lib/officeScope.js';
 import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
 import { getStandards, listOverrides, effectiveFor } from '../../lib/followupStandards.js';
 import * as importVisits from './doctor-visits-import.js';
@@ -1376,23 +1376,20 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
   const managerId = user.id;
   let subUsers; // { id, displayName, username, linkedRepId, role }[]
 
-  if (OFFICE_SCOPED_ROLES.has(user.role)) {
+  if (isOfficeWideRosterRole(user.role)) {
+    // (مدير المنتج يُعامَل هنا كالأدوار المكتبية — راجع isOfficeWideRosterRole)
     // الأدوار المكتبية تشرف على مكتبها كله دفعة واحدة (officeScope.js يمنحها كل
     // شركات المكتب تلقائياً)، لا على مرؤوسين مُعيَّنين لها شخصياً بـ
     // UserManagerAssignment — فمصدر أعضاء الفريق هنا شركات المكتب (نفس منطق
     // الفرع company-scoped في scientific-reps.service.js)، لا جدول التبعية
     // الإداري الذي قد يبقى فارغاً لحساب كحساب HR لم يُدرَج فيه أحد كمرؤوس
     // مباشر رغم إشرافه الفعلي على كل مندوبي المكتب مثل مدير المكتب تماماً.
-    const myCompanies = await prisma.userCompanyAssignment.findMany({
-      where: { userId: managerId },
-      select: { companyId: true },
-    });
-    const companyIds = myCompanies.map(c => c.companyId);
+    const companyIds = await getRosterCompanyIds(user);
     subUsers = companyIds.length ? await prisma.user.findMany({
       where: {
         isActive: true,
         companyAssignments: { some: { companyId: { in: companyIds } } },
-        role: { notIn: [...MANAGEMENT_ROLES] },
+        role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] },
       },
       select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
     }) : [];
@@ -1415,7 +1412,7 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
   // إذ تشرف على شركات المكتب كلها دفعة واحدة (officeScope.js) فتحتاج التجميع؛
   // باقي أدوار المدراء مُقيَّدة أصلاً بشركة واحدة فلا حاجة له.
   let companyByUserId = new Map();
-  if (OFFICE_SCOPED_ROLES.has(user.role) && subUsers.length) {
+  if (isOfficeWideRosterRole(user.role) && subUsers.length) {
     const assignments = await prisma.userCompanyAssignment.findMany({
       where: { userId: { in: subUsers.map(u => u.id) }, isPrimary: true },
       select: { userId: true, company: { select: { id: true, name: true } } },

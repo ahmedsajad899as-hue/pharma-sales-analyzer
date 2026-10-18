@@ -6,7 +6,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from './prisma.js';
-import { OFFICE_SCOPED_ROLES } from './officeScope.js';
+import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from './officeScope.js';
 
 const MANAGEMENT_ROLES = new Set(['company_manager', 'team_leader', ...OFFICE_SCOPED_ROLES]);
 
@@ -22,19 +22,15 @@ export async function getManagerRoster(user, { includeTeamLead = false } = {}) {
   const managerId = user.id;
   let subUsers; // { id, displayName, username, linkedRepId, role }[]
 
-  if (OFFICE_SCOPED_ROLES.has(user.role)) {
+  if (isOfficeWideRosterRole(user.role)) {
     // الأدوار المكتبية تشرف على مكتبها كله دفعة واحدة (officeScope.js يمنحها كل
-    // شركات المكتب تلقائياً)، لا على مرؤوسين مُعيَّنين لها شخصياً.
-    const myCompanies = await prisma.userCompanyAssignment.findMany({
-      where: { userId: managerId },
-      select: { companyId: true },
-    });
-    const companyIds = myCompanies.map(c => c.companyId);
+    // شركات المكتب تلقائياً)، لا على مرؤوسين مُعيَّنين لها شخصياً. مدير المنتج مثلها.
+    const companyIds = await getRosterCompanyIds(user);
     subUsers = companyIds.length ? await prisma.user.findMany({
       where: {
         isActive: true,
         companyAssignments: { some: { companyId: { in: companyIds } } },
-        role: { notIn: [...MANAGEMENT_ROLES] },
+        role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] },
       },
       select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
     }) : [];
@@ -54,7 +50,7 @@ export async function getManagerRoster(user, { includeTeamLead = false } = {}) {
   // «الشركة الرئيسية» لكل عضو فريق — للأدوار المكتبية كلها (تشرف على شركات
   // المكتب دفعة واحدة فتحتاج التجميع)؛ باقي أدوار المدراء مُقيَّدة بشركة واحدة.
   let companyByUserId = new Map();
-  if (OFFICE_SCOPED_ROLES.has(user.role) && subUsers.length) {
+  if (isOfficeWideRosterRole(user.role) && subUsers.length) {
     const assignments = await prisma.userCompanyAssignment.findMany({
       where: { userId: { in: subUsers.map(u => u.id) }, isPrimary: true },
       select: { userId: true, company: { select: { id: true, name: true } } },

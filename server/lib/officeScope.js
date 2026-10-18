@@ -13,6 +13,32 @@ export function isOfficeScopedRole(role) {
 }
 
 /**
+ * مدير المنتج يُعامَل كالأدوار المكتبية في «فريق المدير» (تحليل الكولات وما يشاركه):
+ * يرى مندوبي كل شركات مكتبه، لا مرؤوسيه المُعيَّنين فقط. شركاته تبقى يدوية
+ * (لا يُعاد تعيينها تلقائياً كالأدوار المكتبية)، فيُوسَّع نطاقه عند القراءة فقط.
+ */
+export function isOfficeWideRosterRole(role) {
+  return OFFICE_SCOPED_ROLES.has(role) || role === 'product_manager';
+}
+
+/** شركات النطاق لدور مكتبي/مدير منتج: تعييناته ∪ (لمدير المنتج) كل شركات مكتبه. */
+export async function getRosterCompanyIds(user) {
+  const mine = await prisma.userCompanyAssignment.findMany({
+    where: { userId: user.id },
+    select: { companyId: true },
+  });
+  const ids = new Set(mine.map(c => c.companyId));
+  if (user.role === 'product_manager') {
+    const u = await prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
+    if (u?.officeId) {
+      const all = await prisma.scientificCompany.findMany({ where: { officeId: u.officeId }, select: { id: true } });
+      for (const c of all) ids.add(c.id);
+    }
+  }
+  return [...ids];
+}
+
+/**
  * يستبدل UserCompanyAssignment الخاص بمستخدم بكل شركات مكتبه الحالية (isPrimary
  * للجميع — نفس اصطلاح مدير المكتب في setUserCompanies: لا فرق بين رئيسية
  * وثانوية لهذه الأدوار، كل شركات المكتب تابعة له بالتساوي).

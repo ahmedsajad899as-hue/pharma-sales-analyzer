@@ -17,7 +17,7 @@ import { findOrCreateArea } from '../modules/sales/sales.repository.js';
 import { resolveAreaByName } from './areaResolver.js';
 import { normalizeAreaName } from './itemResolver.js';
 import { resolveEffectiveAreaIds } from './areaScope.js';
-import { OFFICE_SCOPED_ROLES } from './officeScope.js';
+import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from './officeScope.js';
 import { normalizeRepName, repNameScore } from '../modules/scientific-reps/scientific-reps.service.js';
 import { similarity } from './fuzzyMatch.js';
 
@@ -161,7 +161,7 @@ export async function resolveCompanyMembers(managerId, companyId, managerRole = 
   let candidates;
   let matched;
 
-  if (managerRole && OFFICE_SCOPED_ROLES.has(managerRole)) {
+  if (managerRole && isOfficeWideRosterRole(managerRole)) {
     // الأدوار المكتبية تشرف على مكتبها كله دفعة واحدة (officeScope.js يمنحها كل
     // شركات المكتب تلقائياً)، لا على مرؤوسين مُعيَّنين لها شخصياً بـ
     // UserManagerAssignment — فعضوية الفريق هنا كل من «شركته الرئيسية» هي
@@ -171,7 +171,7 @@ export async function resolveCompanyMembers(managerId, companyId, managerRole = 
     candidates = await prisma.user.findMany({
       where: {
         isActive: true,
-        role: { notIn: [...MANAGEMENT_ROLES] },
+        role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] },
         companyAssignments: { some: { companyId, isPrimary: true } },
       },
       select: { id: true, linkedRepId: true, role: true },
@@ -254,7 +254,7 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     // زمن ذهاب-وإياب الشبكة عضواً بعد عضو (راجع نفس التعليق في الفرع "الكل" أدناه).
     const areaIdLists = await Promise.all(members.map(m => areaIdsForUser(m.userId, m.repId)));
     members.forEach((m, i) => { addMember(m.userId, m.repId); areaIdLists[i].forEach(id => ids.add(id)); });
-  } else if (OFFICE_SCOPED_ROLES.has(user.role)) {
+  } else if (isOfficeWideRosterRole(user.role)) {
     // مدير مكتب/HR/موظف مكتب يختار "الكل": هذه الأدوار تشرف على المكتب كله
     // (كل شركاته دفعة واحدة عبر officeScope.js) لا على مرؤوسين شخصيين عبر
     // UserManagerAssignment — نفس فرع OFFICE_SCOPED_ROLES في resolveCompanyMembers
@@ -262,15 +262,12 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     // العام أدناه (userManagerAssignment.managerId=هذا الحساب) الذي يبقى شبه
     // فارغ لهذه الأدوار، فتظهر شركة واحدة فقط (أياً كانت الصدفة) بدل كل شركات
     // المكتب ومندوبيها معاً.
-    const myCompanies = await prisma.userCompanyAssignment.findMany({
-      where: { userId: user.id }, select: { companyId: true },
-    });
-    const companyIds = myCompanies.map(c => c.companyId);
+    const companyIds = await getRosterCompanyIds(user);
     const subUsers = companyIds.length ? await prisma.user.findMany({
       where: {
         isActive: true,
         companyAssignments: { some: { companyId: { in: companyIds } } },
-        role: { notIn: [...MANAGEMENT_ROLES] },
+        role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] },
       },
       select: { id: true, linkedRepId: true },
     }) : [];
