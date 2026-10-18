@@ -22,11 +22,13 @@ interface CompanyMember {
   isActive: boolean;
   linkedRepId: number | null;
   linkedRep: ScientificRep | null;
+  displayName?: string | null;
   areas: { id: number; name: string }[];
   companies: { id: number; name: string }[];
 }
 
 interface AreaItem { id: number; name: string; }
+interface LockedArea { name: string; reason: 'outside' | 'province'; }
 
 const ALL_ROLES: { value: string; label: string }[] = [
   { value: 'user',                   label: '👤 مستخدم' },
@@ -49,7 +51,8 @@ export default function UsersPage() {
   const { user: currentUser, token } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
-  const isCompanyManager = currentUser?.role === 'company_manager';
+  // مدير الشركة و HR المكتب: عرض أعضاء الفريق + تعديل مناطقهم ضمن نطاقهم (company-members)
+  const isCompanyManager = currentUser?.role === 'company_manager' || currentUser?.role === 'office_hr';
 
   const [users, setUsers]     = useState<User[]>([]);
   const [sciReps, setSciReps] = useState<ScientificRep[]>([]);
@@ -74,6 +77,9 @@ export default function UsersPage() {
   const [selectedAreaIds, setSelectedAreaIds]     = useState<Set<number>>(new Set());
   const [areasLoading, setAreasLoading]           = useState(false);
   const [areasSaving, setAreasSaving]             = useState(false);
+  const [lockedAreas, setLockedAreas]             = useState<LockedArea[]>([]);
+  const [scopeIsEmpty, setScopeIsEmpty]           = useState(false);
+  const [areaSearch, setAreaSearch]               = useState('');
 
   // Form fields
   const [fUsername,     setFUsername]     = useState('');
@@ -232,7 +238,11 @@ export default function UsersPage() {
 
   const openAreasModal = async (member: CompanyMember) => {
     setAreasModalMember(member);
-    setSelectedAreaIds(new Set(member.areas.map(a => a.id)));
+    setSelectedAreaIds(new Set());
+    setAllAreas([]);
+    setLockedAreas([]);
+    setScopeIsEmpty(false);
+    setAreaSearch('');
     setAreasLoading(true);
     try {
       const r = await fetch(`/api/company-members/${member.id}/areas`, { headers: authH() });
@@ -240,6 +250,11 @@ export default function UsersPage() {
       if (r.ok) {
         setAllAreas(j.allAreas ?? []);
         setSelectedAreaIds(new Set(j.assignedAreaIds ?? []));
+        setLockedAreas(j.lockedAreas ?? []);
+        setScopeIsEmpty(!!j.scopeIsEmpty);
+      } else {
+        alert(j.error || 'فشل تحميل المناطق');
+        setAreasModalMember(null);
       }
     } catch { /* keep existing */ }
     finally { setAreasLoading(false); }
@@ -352,18 +367,40 @@ export default function UsersPage() {
           <div className="modal-overlay" onClick={() => setAreasModalMember(null)}>
             <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>📍 مناطق عمل {areasModalMember.username}</h2>
+                <h2>📍 مناطق عمل {areasModalMember.displayName || areasModalMember.username}</h2>
                 <button className="modal-close" onClick={() => setAreasModalMember(null)}>✕</button>
               </div>
               <div className="modal-body">
-                <p style={{ fontSize: 13, color: '#64748b', marginBottom: 14 }}>
-                  حدد المناطق المسموح بها لاقتراح بلان هذا المندوب. إذا لم تختر أي منطقة سيُشمل جميع المناطق.
+                <p style={{ fontSize: 13, color: '#64748b', marginBottom: 10 }}>
+                  القائمة تعرض مناطقك أنت فقط. التعديل يُحفظ مباشرةً في نفس مناطق المندوب لدى السوبر أدمن ويظهر لكل الحسابات فوراً.
                 </p>
+                {lockedAreas.length > 0 && (
+                  <div style={{ marginBottom: 10, padding: '8px 10px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8 }}>
+                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>🔒 مناطق أخرى للمندوب (من السوبر أدمن — لا تتأثر بحفظك):</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {lockedAreas.map(a => (
+                        <span key={a.name} title={a.reason === 'province' ? 'عبر تعيين محافظة' : 'خارج نطاق مناطقك'} style={{
+                          fontSize: 11, padding: '2px 8px', borderRadius: 12, background: '#e2e8f0', color: '#475569',
+                        }}>{a.reason === 'province' ? '🗺️' : '🔒'} {a.name}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!areasLoading && allAreas.length > 8 && (
+                  <input
+                    value={areaSearch}
+                    onChange={e => setAreaSearch(e.target.value)}
+                    placeholder="🔍 بحث عن منطقة..."
+                    style={{ width: '100%', padding: '7px 10px', marginBottom: 8, border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}
+                  />
+                )}
                 {areasLoading ? (
                   <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>⏳ جاري التحميل...</div>
+                ) : scopeIsEmpty ? (
+                  <div style={{ textAlign: 'center', padding: 20, color: '#b45309' }}>لم تُحدَّد لحسابك مناطق بعد — اطلب من السوبر أدمن تحديد مناطقك أولاً.</div>
                 ) : (
                   <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {allAreas.map(area => (
+                    {allAreas.filter(a => !areaSearch.trim() || a.name.includes(areaSearch.trim())).map(area => (
                       <label key={area.id} style={{
                         display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
                         borderRadius: 8, cursor: 'pointer',

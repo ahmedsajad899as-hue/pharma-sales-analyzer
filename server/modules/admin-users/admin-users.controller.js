@@ -3,7 +3,7 @@ import prisma from '../../lib/prisma.js';
 import { encryptPassword, decryptPassword } from '../../lib/passwordCrypto.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import {
-  syncUserAreaDerivedLinks, resolveEffectiveAreaIds,
+  syncUserAreaDerivedLinks, resolveEffectiveAreaIds, saveUserAreaAssignments,
   ALL_AREAS_ROLES, isAllAreasRole, readAutoAllAreas, userHasAllAreas,
   invalidateAllAreasFlag,
 } from '../../lib/areaScope.js';
@@ -499,77 +499,10 @@ export async function setUserCompanies(req, res) {
 export async function setUserAreas(req, res) {
   const userId = parseInt(req.params.id);
   const { areaIds = [] } = req.body;
-  const parsedAreaIds = areaIds.map(id => parseInt(id));
-
-  // راية «كل المناطق تلقائياً» مُفعَّلة ⇒ النطاق مُدار آلياً (areaScope.js) ولا
-  // معنى لحفظ قائمة يدوية. لا نلمس التعيينات المحفوظة إطلاقاً كي تعود كما كانت
-  // لحظة إطفاء الراية بدل أن يجدها المشرف ممسوحة.
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
-  if (await userHasAllAreas(userId)) {
-    const effective = await resolveEffectiveAreaIds(userId);
-    return res.json({ success: true, autoManaged: true, effectiveAreaCount: effective.length });
-  }
-
-  // Resolve area IDs: if this user has a manager, also include the equivalent areas
-  // from the manager's account using fuzzy Arabic name matching (handles ة/ه, حي prefix, etc.)
-  //
-  // هذا الوراثة مقصودة للمندوبين وحدهم: صفوف Area مُفهرسة (name,userId) فلكل
-  // حساب صفّه الخاص، ومنطقة المندوب يجب أن تُقابَل بصف المدير ليرى بياناتها.
-  // أما الأدوار الإدارية (مدير/موظف مكتب، مدير شركة) فلا تحتاجها — بل كانت
-  // تنفخ قائمتها بعشرات الصفوف الموازية لمدرائها («خارج السيرفي»)، وهو سبب
-  // اختلاف العدد بين حسابين حُدِّدت لهما «كل المناطق» (163 مقابل 142).
-  let finalAreaIds = [...parsedAreaIds];
-  try {
-    const managerRows = isAllAreasRole(user?.role) ? [] : await prisma.userManagerAssignment.findMany({
-      where: { userId },
-      select: { managerId: true },
-    });
-    const managerIds = managerRows.map(r => r.managerId);
-    if (managerIds.length > 0 && parsedAreaIds.length > 0) {
-      const normA = normalizeAreaName;
-
-      const chosenAreas = await prisma.area.findMany({
-        where: { id: { in: parsedAreaIds } },
-        select: { id: true, name: true },
-      });
-      const allManagerAreas = await prisma.area.findMany({
-        where: { userId: { in: managerIds } },
-        select: { id: true, name: true },
-      });
-      const extraIds = [];
-      for (const chosen of chosenAreas) {
-        const cN = normA(chosen.name);
-        // Inherit the manager's equivalent area ONLY on an exact normalised match.
-        // Substring matching (includes) was too loose — e.g. «الحسينية» (norm: الحسينيه)
-        // matched «حي الحسين» (norm: الحسين), so the manager's «حي الحسين» kept getting
-        // re-added on every save even after the admin explicitly removed it.
-        const match = allManagerAreas.find(m => normA(m.name) === cN);
-        if (match) extraIds.push(match.id);
-      }
-      finalAreaIds = [...new Set([...parsedAreaIds, ...extraIds])];
-    }
-  } catch (e) {
-    console.warn('[setUserAreas] manager area resolution failed (non-fatal):', e.message);
-    finalAreaIds = parsedAreaIds;
-  }
-
-  // Save user area assignments
-  await prisma.$transaction([
-    prisma.userAreaAssignment.deleteMany({ where: { userId } }),
-    ...(finalAreaIds.length ? [prisma.userAreaAssignment.createMany({
-      data: finalAreaIds.map(areaId => ({ userId, areaId })),
-    })] : []),
-  ]);
-
-  // مزامنة الروابط المشتقة (ScientificRepArea + ScientificRepCommercial).
-  // نُقلت إلى areaScope.js لأن تعيين المحافظات صار مُشغّلاً ثانياً لها، ورفعُ
-  // ملفٍ يُنشئ مناطق داخل محافظة معيَّنة مُشغّلاً ثالثاً.
-  try {
-    await syncUserAreaDerivedLinks(userId);
-  } catch (e) {
-    console.warn('[setUserAreas] ScientificRepArea/commercial sync failed (non-fatal):', e.message);
-  }
-
+  // المنطق كله في areaScope.js::saveUserAreaAssignments — مشترك مع حفظ المدير
+  // لمناطق مندوبيه (company-members) كي يبقى للمناطق مسار كتابة واحد.
+  const result = await saveUserAreaAssignments(userId, areaIds);
+  if (result.autoManaged) return res.json({ success: true, ...result });
   res.json({ success: true });
 }
 

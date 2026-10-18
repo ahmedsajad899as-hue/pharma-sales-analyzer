@@ -6,7 +6,7 @@ const router = Router();
 
 // Only company_manager (and admins/managers as fallback) can access these
 function requireCompanyManagerOrAdmin(req, res, next) {
-  const allowed = new Set(['company_manager', 'admin', 'manager']);
+  const allowed = new Set(['company_manager', 'office_hr', 'admin', 'manager']);
   if (!allowed.has(req.user?.role)) {
     return res.status(403).json({ error: 'هذه العملية تتطلب صلاحيات مدير الشركة.' });
   }
