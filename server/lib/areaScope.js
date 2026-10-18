@@ -12,6 +12,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from './prisma.js';
+import { normalizeAreaName } from './itemResolver.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // «كل المناطق تلقائياً» (autoAllAreas)
@@ -388,4 +389,73 @@ export async function usersForAreaIds(areaIds) {
   }
 
   return new Map([...out].map(([k, v]) => [k, [...v]]));
+}
+
+/**
+ * الكتابة الوحيدة لـ UserAreaAssignment — يمرّ بها حفظ السوبر أدمن
+ * (setUserAreas) وحفظ المدير لمناطق مندوبيه (company-members) معاً، كي لا
+ * يتباعد المساران: وراثة صفوف المدير الموازية + مزامنة ScientificRepArea
+ * تحدثان هنا مرة واحدة لكليهما.
+ *
+ * @param {number} userId
+ * @param {number[]} areaIds
+ * @returns {Promise<{ autoManaged: boolean, effectiveAreaCount?: number }>}
+ */
+export async function saveUserAreaAssignments(userId, areaIds) {
+  const parsedAreaIds = [...new Set(areaIds.map(id => parseInt(id)).filter(Number.isInteger))];
+
+  // راية «كل المناطق تلقائياً» مُفعَّلة ⇒ النطاق مُدار آلياً ولا معنى لحفظ قائمة
+  // يدوية. لا نلمس التعيينات المحفوظة كي تعود كما كانت لحظة إطفاء الراية.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (await userHasAllAreas(userId)) {
+    const effective = await resolveEffectiveAreaIds(userId);
+    return { autoManaged: true, effectiveAreaCount: effective.length };
+  }
+
+  // وراثة صف المدير المكافئ (Area مُفهرسة name,userId فلكل حساب صفّه، ومنطقة
+  // المندوب يجب أن تُقابَل بصف المدير ليرى بياناتها). للمندوبين وحدهم: الأدوار
+  // الإدارية كانت تنتفخ قائمتها بصفوف مدرائها (163 مقابل 142).
+  let finalAreaIds = [...parsedAreaIds];
+  try {
+    const managerRows = isAllAreasRole(user?.role) ? [] : await prisma.userManagerAssignment.findMany({
+      where: { userId },
+      select: { managerId: true },
+    });
+    const managerIds = managerRows.map(r => r.managerId);
+    if (managerIds.length > 0 && parsedAreaIds.length > 0) {
+      const [chosenAreas, allManagerAreas] = await Promise.all([
+        prisma.area.findMany({ where: { id: { in: parsedAreaIds } }, select: { id: true, name: true } }),
+        prisma.area.findMany({ where: { userId: { in: managerIds } }, select: { id: true, name: true } }),
+      ]);
+      const extraIds = [];
+      for (const chosen of chosenAreas) {
+        const cN = normalizeAreaName(chosen.name);
+        // تطابق تام بعد التطبيع فقط — includes كان يربط «الحسينية» بـ«حي الحسين»
+        // فيُعيد إضافتها مع كل حفظ رغم حذفها صراحةً.
+        const match = allManagerAreas.find(m => normalizeAreaName(m.name) === cN);
+        if (match) extraIds.push(match.id);
+      }
+      finalAreaIds = [...new Set([...parsedAreaIds, ...extraIds])];
+    }
+  } catch (e) {
+    console.warn('[saveUserAreaAssignments] manager area resolution failed (non-fatal):', e.message);
+    finalAreaIds = parsedAreaIds;
+  }
+
+  await prisma.$transaction([
+    prisma.userAreaAssignment.deleteMany({ where: { userId } }),
+    ...(finalAreaIds.length ? [prisma.userAreaAssignment.createMany({
+      data: finalAreaIds.map(areaId => ({ userId, areaId })),
+      skipDuplicates: true,
+    })] : []),
+  ]);
+
+  // مزامنة الروابط المشتقة (ScientificRepArea).
+  try {
+    await syncUserAreaDerivedLinks(userId);
+  } catch (e) {
+    console.warn('[saveUserAreaAssignments] ScientificRepArea sync failed (non-fatal):', e.message);
+  }
+
+  return { autoManaged: false };
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import RepSelectOptions, { type GroupableRep } from '../components/RepSelectOptions';
+import TargetsImportModal from '../components/TargetsImportModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -44,6 +45,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [broadcastSel, setBroadcastSel]     = useState<Set<number>>(new Set());
   const [broadcasting, setBroadcasting]     = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
 
   // Load MY targets (scientific rep view — read-only)
   useEffect(() => {
@@ -348,7 +350,32 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
             🔄 مزامنة مع مندوبين آخرين
           </button>
         )}
+
+        {/* Excel import — manager only */}
+        {isManager && (
+          <button
+            className="btn btn--secondary"
+            onClick={() => setShowImport(true)}
+            title="استيراد التارگت من ملف إكسل وتعميمه على كل المندوبين أو قسم منهم"
+          >
+            📥 استيراد من إكسل
+          </button>
+        )}
       </div>
+
+      {isManager && showImport && (
+        <TargetsImportModal
+          repType={repType}
+          reps={reps}
+          allItems={allItems}
+          month={month}
+          year={year}
+          monthLabel={months[month - 1]}
+          token={token}
+          onClose={() => setShowImport(false)}
+          onDone={() => { loadTargets(); }}
+        />
+      )}
 
       {/* ── Broadcast Panel — manager only ── */}
       {isManager && showBroadcast && selRepId && rows.length > 0 && (
