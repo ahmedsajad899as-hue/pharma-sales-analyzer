@@ -259,122 +259,61 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
 
   return (
     <div className="page" dir="rtl" style={{ maxWidth: isManager && view === 'matrix' ? 'none' : 1000 }}>
-      <div className="page-header">
-        <div>
-          <div className="page-title">🎯 التارگت الشهري</div>
-          <div className="page-subtitle">
-            {isManager
-              ? 'تحديد ومتابعة الأهداف الشهرية لكل مندوب علمي أو تجاري، ومقارنتها بالمبيع الفعلي'
-              : 'الأهداف الشهرية المعيّنة لك من قبل إدارة الشركة'}
-          </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+        <div className="page-title" style={{ fontSize: 19 }}>التارگت الشهري</div>
+        <div style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>
+          {isManager
+            ? 'أهداف كل مندوب لكل ايتم — تحرير مباشر في الجدول'
+            : 'الأهداف الشهرية المعيّنة لك من قبل إدارة الشركة — للاطلاع فقط'}
         </div>
       </div>
 
-      {/* ── Rep-only banner ── */}
-      {!isManager && (
-        <div className="info-banner" style={{ marginBottom: 20 }}>
-          <span className="info-banner-icon">🎯</span>
-          <div>
-            <strong>تارگتاتك الشهرية</strong>
-            <p>هذه هي التارگتات المعيّنة لك من قبل مدير الشركة — للاطلاع فقط</p>
-          </div>
-        </div>
-      )}
-
-      {/* ── Controls ── */}
-      <div className="filter-card" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-end' }}>
-        {/* Rep type toggle — manager only */}
+      {/* ── Controls (شريط واحد مضغوط) ── */}
+      <div className="tg-bar">
         {isManager && (
-          <div className="form-group">
-            <label className="form-label">نوع المندوب</label>
-            <div className="tabs">
-              {(['scientific', 'commercial'] as const).map(t => (
-                <button
-                  key={t}
-                  className={`tab ${repType === t ? 'tab--active' : ''}`}
-                  onClick={() => setRepType(t)}
-                >
-                  {t === 'scientific' ? '🔬 علمي' : '💼 تجاري'}
-                </button>
-              ))}
-            </div>
+          <div className="tg-seg" title="نوع المندوب">
+            {(['scientific', 'commercial'] as const).map(t => (
+              <button key={t} className={repType === t ? 'on' : ''} onClick={() => setRepType(t)}>
+                {t === 'scientific' ? 'علمي' : 'تجاري'}
+              </button>
+            ))}
           </div>
         )}
-
-        {/* View toggle — manager only */}
         {isManager && (
-          <div className="form-group">
-            <label className="form-label">طريقة العرض</label>
-            <div className="tabs">
-              <button className={`tab ${view === 'matrix' ? 'tab--active' : ''}`} onClick={() => setView('matrix')}>📊 جدول شامل</button>
-              <button className={`tab ${view === 'single' ? 'tab--active' : ''}`} onClick={() => setView('single')}>👤 مندوب واحد</button>
-            </div>
+          <div className="tg-seg" title="طريقة العرض">
+            <button className={view === 'matrix' ? 'on' : ''} onClick={() => setView('matrix')}>جدول شامل</button>
+            <button className={view === 'single' ? 'on' : ''} onClick={() => setView('single')}>مندوب واحد</button>
           </div>
         )}
-
-        {/* Rep selector — manager only */}
         {isManager && view === 'single' && (
-          <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
-            <label className="form-label">المندوب</label>
-            <select
-              className="form-input"
-              value={selRepId}
-              onChange={e => setSelRepId(e.target.value)}
-              style={{ cursor: 'pointer' }}
-            >
-              <option value="">— اختر مندوباً —</option>
-              {/* مرتّبة: شركة ← قائد فريق ← مندوبوه. التجاريون بلا أدوار فتظهر قائمتهم مسطّحة */}
-              <RepSelectOptions reps={reps} />
-            </select>
-          </div>
+          <select className="tg-sel tg-sel--rep" value={selRepId} onChange={e => setSelRepId(e.target.value)}>
+            <option value="">— اختر مندوباً —</option>
+            {/* مرتّبة: شركة ← قائد فريق ← مندوبوه. التجاريون بلا أدوار فتظهر قائمتهم مسطّحة */}
+            <RepSelectOptions reps={reps} />
+          </select>
         )}
-
-        {/* Month */}
-        <div className="form-group">
-          <label className="form-label">الشهر</label>
-          <select
-            className="form-input"
-            value={month}
-            onChange={e => setMonth(parseInt(e.target.value))}
-            style={{ width: 'auto', cursor: 'pointer' }}
-          >
-            {months.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
-          </select>
-        </div>
-
-        {/* Year */}
-        <div className="form-group">
-          <label className="form-label">السنة</label>
-          <select
-            className="form-input"
-            value={year}
-            onChange={e => setYear(parseInt(e.target.value))}
-            style={{ width: 'auto', cursor: 'pointer' }}
-          >
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-
-        {/* Broadcast — manager only */}
+        <span className="tg-sep" />
+        <select className="tg-sel" value={month} onChange={e => setMonth(parseInt(e.target.value))} title="الشهر">
+          {months.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
+        </select>
+        <select className="tg-sel" value={year} onChange={e => setYear(parseInt(e.target.value))} title="السنة">
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <span className="tg-grow" />
         {isManager && view === 'single' && (
           <button
-            className={`btn ${showBroadcast ? 'btn--primary' : 'btn--secondary'}`}
+            className={`tg-btn ${showBroadcast ? 'on' : ''}`}
             onClick={() => { setShowBroadcast(v => !v); setBroadcastSel(new Set()); setBroadcastResult(null); }}
             disabled={!selRepId || rows.length === 0}
             title="مزامنة نفس التارگت مع مندوبين آخرين"
           >
-            🔄 مزامنة مع مندوبين آخرين
+            مزامنة
           </button>
         )}
-
-        {/* Excel import — manager only */}
         {isManager && (
-          <button
-            className="btn btn--secondary"
-            onClick={() => setShowImport(true)}
-            title="استيراد التارگت من ملف إكسل وتعميمه على كل المندوبين أو قسم منهم"
-          >
-            📥 استيراد من إكسل
+          <button className="tg-btn" onClick={() => setShowImport(true)}
+            title="استيراد التارگت من ملف إكسل وتعميمه على كل المندوبين أو قسم منهم">
+            استيراد إكسل
           </button>
         )}
       </div>
