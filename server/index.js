@@ -1749,6 +1749,40 @@ app.get('/api/items', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET /api/items/assigned-scope — شركات المستخدم المعيّنة وايتماته فقط (بلا الايتمات
+// المؤقتة/المملوكة من ملفات الرفع التي يخلطها /api/items). المصدر: تعيينات تبويب
+// «الايتمات» (UserItemAssignment) إن وُجدت، وإلا كتالوج شركاته (UserCompanyAssignment —
+// تُملأ تلقائياً بكل شركات المكتب للأدوار المكتبية مثل office_hr عبر officeScope.js).
+// يُستخدم لنموذج إكسل التارگت كي يحمل ايتمات المدير وأسماء شركاتها فقط.
+app.get('/api/items/assigned-scope', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [companyRows, assignedRows] = await Promise.all([
+      prisma.userCompanyAssignment.findMany({
+        where: { userId },
+        select: { company: { select: { id: true, name: true } } },
+      }),
+      prisma.userItemAssignment.findMany({ where: { userId }, select: { itemId: true } }),
+    ]);
+    const companies = companyRows.map(r => r.company).filter(Boolean);
+    const itemSel = {
+      id: true, name: true,
+      scientificCompany: { select: { id: true, name: true } },
+      company: { select: { id: true, name: true } },
+    };
+    const raw = assignedRows.length
+      ? await prisma.item.findMany({ where: { id: { in: assignedRows.map(r => r.itemId) } }, select: itemSel })
+      : companies.length
+        ? await prisma.item.findMany({ where: { scientificCompanyId: { in: companies.map(c => c.id) }, isTemp: false }, select: itemSel })
+        : [];
+    const items = raw
+      .filter(i => !i.name.includes('(مؤقت)'))
+      .map(i => ({ id: i.id, name: i.name, companyName: i.scientificCompany?.name ?? i.company?.name ?? '' }))
+      .sort((a, b) => a.companyName.localeCompare(b.companyName) || a.name.localeCompare(b.name));
+    res.json({ success: true, data: { companies, items, source: assignedRows.length ? 'items' : 'companies' } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/items-by-files?fileIds=1,2,3 — items that appear in specific uploaded files
 app.get('/api/items-by-files', requireAuth, async (req, res) => {
   try {

@@ -32,6 +32,8 @@ interface Props {
 
 const ITEM_HDR    = ['الايتم', 'ايتم', 'المادة', 'ماده', 'اسم المادة', 'الصنف', 'صنف', 'المنتج', 'اسم الايتم', 'item', 'items', 'product', 'item name'];
 const REP_HDR     = ['المندوب', 'مندوب', 'اسم المندوب', 'rep', 'representative', 'rep name'];
+// عمود مرجعي في النموذج — يُتجاهل عند القراءة (لا يُحسب مندوباً ولا تارگت)
+const COMPANY_HDR = ['الشركة', 'شركة', 'اسم الشركة', 'company', 'company name'];
 const TARGET_HDR  = ['التارگت', 'التاركت', 'التارجت', 'تارگت', 'تاركت', 'الهدف', 'هدف', 'target', 'الكل', 'للكل', 'الكمية', 'كمية', 'qty', 'quantity'];
 
 /** تطبيع عربي/لاتيني خفيف لمطابقة العناوين وأسماء المندوبين. */
@@ -116,7 +118,7 @@ function parseSheet(rows: unknown[][], reps: RepLite[], items: NamedItem[]): Par
 
   if (repCol < 0) {
     hdr.forEach((h, i) => {
-      if (!h || i === itemCol || i === genericCol) return;
+      if (!h || i === itemCol || i === genericCol || hdrIs(h, COMPANY_HDR)) return;
       if (/^(#|ت|م|تسلسل|الرقم|no)$/i.test(norm(h))) return;
       const rep = matchRep(h, reps);
       if (rep) repCols.push({ col: i, rep });
@@ -198,13 +200,49 @@ export default function TargetsImportModal({ repType, reps, allItems, month, yea
     }
   };
 
-  const downloadTemplate = () => {
-    const aoa: (string | number | null)[][] = [['الايتم', 'التارگت']];
-    items.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach(i => aoa.push([i.name, null]));
+  const [downloading, setDownloading] = useState(false);
+
+  /**
+   * النموذج = شركات المستخدم المعيّنة وايتماته فقط (مدير الشركة: ايتماته؛ الأدوار
+   * المكتبية كـ HR: كل شركات المكتب وايتماتها) عبر /api/items/assigned-scope — لا
+   * القائمة الواسعة allItems التي تخلط ايتمات ملفات الرفع. إن لم يكن له أي تعيين
+   * نرجع لـ allItems كي لا يخرج النموذج فارغاً.
+   */
+  const downloadTemplate = async () => {
+    setDownloading(true);
+    let rows: { name: string; companyName: string }[] = [];
+    let companies: { id: number; name: string }[] = [];
+    try {
+      const r = await fetch(`${API}/api/items/assigned-scope`, { headers: H });
+      const j = await r.json();
+      rows = j?.data?.items ?? [];
+      companies = j?.data?.companies ?? [];
+    } catch { /* نرجع للقائمة العامة أدناه */ }
+    if (rows.length === 0) {
+      rows = items.map(i => ({ name: i.name, companyName: (i as any).scientificCompany?.name ?? (i as any).company?.name ?? '' }))
+        .sort((a, b) => a.companyName.localeCompare(b.companyName) || a.name.localeCompare(b.name));
+    }
+    setDownloading(false);
+
+    const aoa: (string | number | null)[][] = [['الشركة', 'الايتم', 'التارگت']];
+    rows.forEach(i => aoa.push([i.companyName || null, i.name, null]));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 40 }, { wch: 14 }];
+    ws['!cols'] = [{ wch: 28 }, { wch: 40 }, { wch: 14 }];
+
+    // ورقة الشركات: كل شركة معيّنة وعدد ايتماتها في النموذج (حتى التي بلا ايتمات)
+    const countBy = new Map<string, number>();
+    rows.forEach(i => countBy.set(i.companyName, (countBy.get(i.companyName) ?? 0) + 1));
+    const companyNames = [...new Set([...companies.map(c => c.name), ...[...countBy.keys()].filter(Boolean)])]
+      .sort((a, b) => a.localeCompare(b));
+    const wsCompanies = XLSX.utils.aoa_to_sheet([
+      ['الشركة', 'عدد الايتمات'],
+      ...companyNames.map(n => [n, countBy.get(n) ?? 0]),
+    ]);
+    wsCompanies['!cols'] = [{ wch: 32 }, { wch: 14 }];
+
     const help = XLSX.utils.aoa_to_sheet([
       ['طريقة الاستخدام'],
+      ['• عمود «الشركة» للمرجع فقط ولا يُقرأ عند الاستيراد — لا حاجة لحذفه.'],
       ['• عمود «التارگت» يُطبَّق على كل المندوبين الذين تختارهم في نافذة الاستيراد.'],
       ['• لتارگت مختلف لمندوب معيّن: أضف عموداً عنوانه اسم المندوب كما هو في البرنامج — قيمته تتقدّم على عمود «التارگت».'],
       ['• أو الصيغة الطولية: أعمدة «المندوب | الايتم | التارگت» صف لكل مندوب وايتم.'],
@@ -213,6 +251,7 @@ export default function TargetsImportModal({ repType, reps, allItems, month, yea
     help['!cols'] = [{ wch: 110 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'التارگت');
+    XLSX.utils.book_append_sheet(wb, wsCompanies, 'الشركات');
     XLSX.utils.book_append_sheet(wb, help, 'تعليمات');
     XLSX.writeFile(wb, `نموذج_تارگت_${monthLabel}_${year}.xlsx`);
   };
@@ -307,7 +346,9 @@ export default function TargetsImportModal({ repType, reps, allItems, month, yea
             <input type="file" accept=".xlsx,.xls,.csv" hidden disabled={running}
               onChange={e => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
           </label>
-          <button className="btn btn--secondary" onClick={downloadTemplate}>⬇ تحميل نموذج</button>
+          <button className="btn btn--secondary" onClick={downloadTemplate} disabled={downloading}>
+            {downloading ? '⏳ جارٍ التحضير…' : '⬇ تحميل نموذج'}
+          </button>
           {fileName && <span style={{ fontSize: 12.5, color: 'var(--c-text-secondary)' }}>{fileName}</span>}
         </div>
 
