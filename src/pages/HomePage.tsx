@@ -426,6 +426,8 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, t
   [provs]);
 
   const [detail, setDetail] = useState<{ kind: 'item'; item: HomeItem } | { kind: 'prov'; prov: ProvSummary } | null>(null);
+  const [showDocs, setShowDocs] = useState(false);
+  useEffect(() => { setShowDocs(false); }, [detail]);
   // لوحة واحدة تملأ الشاشة في كل مرة (طلب صريح) — تبديل بين الايتمات والمحافظات
   const [board, setBoard] = useState<'items' | 'prov'>('items');
 
@@ -525,6 +527,10 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, t
                 <h3 style={{ margin: 0 }}>{detail.kind === 'item' ? detail.item.name : `📍 ${detail.prov.name}`}</h3>
                 <div className="hp-muted">
                   {detail.kind === 'item' ? `${detail.item.company ?? '—'} · ${monthName(month)}` : monthName(month)}
+                  {detail.kind === 'item' && (
+                    <button type="button" className={`bb-docs-btn ${showDocs ? 'is-on' : ''}`} onClick={() => setShowDocs(v => !v)}
+                      title="مرفقات الايتم: صور إضافية، كتب الفحص والتسجيل">📎</button>
+                  )}
                 </div>
               </div>
               {/* الإجمالي بخط كبير في المساحة بين العنوان وزر الإغلاق */}
@@ -535,6 +541,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, t
               <button className="modal-close" onClick={() => setDetail(null)}>✕</button>
             </div>
             <div className="bb-modal-body">
+              {detail.kind === 'item' && showDocs && <ItemDocs itemName={detail.item.name} token={token} />}
               <div className="hp-sub-title">{detail.kind === 'item' ? 'مبيعه في المحافظات' : 'مبيعها من الايتمات'}</div>
               {detail.kind === 'item'
                 ? <Provinces itemId={detail.item.id} ym={month} fileKey={fileKey} source={source} token={token} />
@@ -895,6 +902,102 @@ function ProvinceItems({ prov }: { prov: ProvSummary }) {
   );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// مرفقات الايتم — صور إضافية للمنتج وكتب الفحص والتسجيل (server/modules/reports/itemDocs.js).
+// مربوطة باسم الايتم المطبَّع فتظهر لكل صفوف نفس الدواء. الصور تُصغَّر قبل الرفع.
+// ════════════════════════════════════════════════════════════════════════════
+interface ItemDoc { id: string; url: string; kind: string; title: string; mime: string; at: number; by: number | null; byName: string | null }
+const DOC_KINDS: [string, string][] = [['photo', 'صورة ايتم'], ['test', 'كتاب فحص'], ['registration', 'كتاب تسجيل'], ['other', 'أخرى']];
+const docKindLabel = (k: string) => DOC_KINDS.find(x => x[0] === k)?.[1] ?? 'أخرى';
+
+/** تصغير صورة إلى أقصى 1800px JPEG — يوفّر القرص ويحافظ على وضوح الكتب */
+async function shrinkImage(file: File): Promise<Blob> {
+  if (!file.type.startsWith('image/')) return file;
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
+    const s = Math.min(1, 1800 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise<Blob | null>(ok => c.toBlob(ok, 'image/jpeg', 0.86));
+    return blob && blob.size < file.size ? blob : file;
+  } catch { return file; } finally { URL.revokeObjectURL(url); }
+}
+
+function ItemDocs({ itemName, token }: { itemName: string; token: string | null }) {
+  const { user } = useAuth();
+  const [docs, setDocs] = useState<ItemDoc[] | null>(null);
+  const [kind, setKind] = useState('photo');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const H = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API}/api/reports/item-docs?name=${encodeURIComponent(itemName)}`, { headers: H })
+      .then(r => r.json()).then(j => { if (alive) setDocs(j.success ? j.data : []); })
+      .catch(() => { if (alive) setDocs([]); });
+    return () => { alive = false; };
+  }, [itemName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const upload = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setBusy(true); setErr('');
+    try {
+      for (const f of Array.from(files)) {
+        const blob = await shrinkImage(f);
+        const fd = new FormData();
+        fd.append('name', itemName); fd.append('kind', kind);
+        fd.append('file', blob, blob === f ? f.name : f.name.replace(/\.\w+$/, '') + '.jpg');
+        const j = await fetch(`${API}/api/reports/item-docs`, { method: 'POST', headers: H, body: fd }).then(r => r.json());
+        if (!j.success) throw new Error(j.error || 'فشل الرفع');
+        setDocs(d => [j.data, ...(d ?? [])]);
+      }
+    } catch (e: any) { setErr(e.message || 'فشل الرفع'); }
+    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
+  };
+
+  const remove = async (d: ItemDoc) => {
+    if (!window.confirm('حذف هذا المرفق؟')) return;
+    const j = await fetch(`${API}/api/reports/item-docs/${d.id}?name=${encodeURIComponent(itemName)}`, { method: 'DELETE', headers: H })
+      .then(r => r.json()).catch(() => ({} as any));
+    if (j.success) setDocs(x => (x ?? []).filter(y => y.id !== d.id)); else setErr(j.error || 'تعذّر الحذف');
+  };
+  const canDelete = (d: ItemDoc) => d.by === user?.id || ['admin', 'manager', 'office_manager'].includes(user?.role ?? '');
+
+  return (
+    <div className="bb-docs">
+      <div className="bb-docs-bar">
+        <select className="form-input bb-docs-kind" value={kind} onChange={e => setKind(e.target.value)}>
+          {DOC_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+        <button type="button" className="btn btn-primary bb-docs-add" disabled={busy} onClick={() => fileRef.current?.click()}>
+          {busy ? 'جاري الرفع…' : '+ إضافة'}
+        </button>
+        <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple hidden onChange={e => upload(e.target.files)} />
+      </div>
+      {err && <div className="hp-muted" style={{ color: 'var(--c-danger)' }}>{err}</div>}
+      {!docs ? <div className="hp-muted">جاري التحميل…</div>
+        : docs.length === 0 ? <div className="hp-muted">لا توجد مرفقات بعد.</div>
+        : (
+          <div className="bb-docs-grid">
+            {docs.map(d => (
+              <div key={d.id} className="bb-doc" title={`${docKindLabel(d.kind)}${d.byName ? ` · ${d.byName}` : ''}`}>
+                <a href={d.url} target="_blank" rel="noreferrer">
+                  {d.mime === 'application/pdf' ? <span className="bb-doc-pdf">PDF</span> : <img src={d.url} alt="" loading="lazy" />}
+                </a>
+                <span className="bb-doc-kind">{docKindLabel(d.kind)}</span>
+                {canDelete(d) && <button type="button" className="bb-doc-del" onClick={() => remove(d)} aria-label="حذف">×</button>}
+              </div>
+            ))}
+          </div>
+        )}
+    </div>
+  );
+}
+
 function CompareTable({ items, month, prevMonth, cut }: {
   items: HomeItem[]; month: string; prevMonth: string; cut?: number;
 }) {
@@ -1211,6 +1314,22 @@ function HomeStyles() {
 .bb-modal-total { margin-inline-start: auto; font-size: 34px; font-weight: 800; color: var(--c-accent); line-height: 1;
   white-space: nowrap; display: flex; align-items: baseline; gap: 6px; }
 .bb-modal-total small { font-size: 13px; font-weight: 600; color: var(--c-text-muted); }
+.bb-docs-btn { margin-inline-start: 8px; border: 1px solid var(--c-border); background: var(--c-surface); border-radius: 6px;
+  width: 22px; height: 20px; padding: 0; font-size: 11px; line-height: 1; cursor: pointer; vertical-align: middle; opacity: .75; }
+.bb-docs-btn:hover, .bb-docs-btn.is-on { opacity: 1; border-color: var(--c-accent); background: var(--c-accent-light); }
+.bb-docs { border: 1px dashed var(--c-border); border-radius: 12px; padding: 10px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+.bb-docs-bar { display: flex; gap: 8px; align-items: center; }
+.bb-docs-kind { max-width: 150px; height: 32px; padding: 2px 8px; font-size: 12.5px; }
+.bb-docs-add { height: 32px; padding: 0 14px; font-size: 12.5px; }
+.bb-docs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.bb-doc { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--c-border-light); background: var(--c-bg); aspect-ratio: 1; }
+.bb-doc a { display: block; width: 100%; height: 100%; }
+.bb-doc img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bb-doc-pdf { display: flex; align-items: center; justify-content: center; height: 100%; font-weight: 800; color: var(--c-danger); font-size: 18px; }
+.bb-doc-kind { position: absolute; bottom: 0; left: 0; right: 0; font-size: 10.5px; text-align: center; background: rgba(15,30,53,.7); color: #fff; padding: 2px 0; }
+.bb-doc-del { position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: rgba(220,38,38,.9);
+  color: #fff; cursor: pointer; font-size: 14px; line-height: 1; padding: 0; opacity: 0; transition: opacity .15s; }
+.bb-doc:hover .bb-doc-del { opacity: 1; }
 .bb-modal-body { padding: 12px 20px 18px; overflow-y: auto; }
 .bb-modal .hp-prov { background: none; padding: 0; }
 .bb-prov-row { grid-template-columns: minmax(0, 190px) 1fr auto; }
