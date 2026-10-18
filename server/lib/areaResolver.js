@@ -137,3 +137,31 @@ async function resolveAreaByNameSerial(rawName) {
   if (snapshot) snapshot.push(created);
   return { area: created, matched: 'new' };
 }
+
+/**
+ * خريطة بحث «هل هذا الاسم معروف أصلاً؟» — تطابق تام بعد التطبيع + ذاكرة
+ * AreaAlias، بلا أي إنشاء. يحتاجها كل مسار يُنشئ مناطق دفعةً من أسماء السيرفي
+ * (GET /api/sa/areas، reset-from-survey): كانت تلك المسارات تقارن بالأسماء
+ * الموجودة فقط وتتجاهل AreaAlias، فاسم دُمج يدوياً (وحُذف صفّه) يبقى نصّاً
+ * خاماً في السيرفي ويُعاد إنشاؤه بلا محافظة عند أول فتح لصفحة المستخدمين —
+ * فيعود للظهور تحت «غير محدد» وكأن الدمج لم يحدث.
+ *
+ * @returns {Promise<(name: string) => {id:number,name:string,provinceId:number|null}|null>}
+ */
+export async function buildKnownAreaLookup() {
+  const [areas, aliases] = await Promise.all([
+    prisma.area.findMany({ select: AREA_SELECT, orderBy: { id: 'asc' } }),
+    prisma.areaAlias.findMany({ select: { fromKey: true, areaId: true } }),
+  ]);
+  const byId = new Map(areas.map(a => [a.id, a]));
+  const byKey = new Map();
+  for (const a of areas) {
+    const k = normalizeAreaName(a.name);
+    if (k && !byKey.has(k)) byKey.set(k, a);
+  }
+  for (const al of aliases) {
+    const target = byId.get(al.areaId);
+    if (target && !byKey.has(al.fromKey)) byKey.set(al.fromKey, target);
+  }
+  return name => byKey.get(normalizeAreaName(name)) ?? null;
+}

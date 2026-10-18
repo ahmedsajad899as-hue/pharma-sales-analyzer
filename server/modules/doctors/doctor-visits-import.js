@@ -32,6 +32,7 @@ import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, D
 import { runFeedbackInferenceForImportFile } from './doctor-visit-feedback-ai.js';
 import { saveItemLinks } from '../stock-ledger/stock-ledger.service.js';
 import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
+import { resolveAreaByName } from '../../lib/areaResolver.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
 const FEEDBACK_RULES = [
@@ -276,8 +277,10 @@ async function resolveCommitAreaId(areaName, { allAreas, areaByNorm, linkedAreaI
     } else {
       // كتالوج مشترك مثل الايتمات/الشركات — تُنشأ بلا مالك (userId: null)
       // بدل صف خاص بهذا الحساب، فلا تتكرر إن ذكرها حساب آخر لاحقاً.
-      found = await prisma.area.create({ data: { name: areaName, userId: null } });
-      allAreas.push(found);
+      // عبر المحرك الموحّد: اسم دُمج سابقاً (AreaAlias) يُربط بالمنطقة الباقية
+      // بدل إعادة إنشائه؛ والجديد فعلاً يُعلَّم needsReview.
+      found = (await resolveAreaByName(areaName))?.area ?? null;
+      if (found && !allAreas.some(a => a.id === found.id)) allAreas.push(found);
     }
     if (found) areaByNorm.set(normalizeAreaName(found.name), found);
   }

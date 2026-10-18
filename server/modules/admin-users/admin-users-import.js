@@ -25,6 +25,7 @@ import fs from 'fs';
 import prisma from '../../lib/prisma.js';
 import { normalizeArabic, normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
+import { resolveAreaByName } from '../../lib/areaResolver.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 import { encryptPassword } from '../../lib/passwordCrypto.js';
@@ -324,9 +325,12 @@ export async function commitUsersImport(req, res) {
     const key = normalizeAreaName(rawName);
     const cached = areaCache.get(key);
     if (cached) return cached.id;
-    const createdArea = await prisma.area.create({ data: { name: rawName.trim() } });
-    areaCache.set(key, createdArea);
-    return createdArea.id;
+    // عبر محرك المطابقة الموحّد: يحترم ذاكرة AreaAlias (اسم دُمج سابقاً لا
+    // يُعاد إنشاؤه) ويعلّم الجديد فعلاً بـ needsReview بدل إضافة صامتة.
+    const resolved = await resolveAreaByName(rawName);
+    if (!resolved) return null;
+    areaCache.set(key, resolved.area);
+    return resolved.area.id;
   }
 
   for (const row of rows) {

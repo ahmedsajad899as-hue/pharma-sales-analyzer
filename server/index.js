@@ -28,7 +28,7 @@ import { activityMiddleware } from './lib/activityLogger.js';
 import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './lib/fuzzyMatch.js';
 import { normalizeItemKey, normalizeAreaName, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
 import { mergeAreaInto, mergeDuplicateAreasByName } from './lib/mergeAreas.js';
-import { invalidateAreaSnapshot } from './lib/areaResolver.js';
+import { invalidateAreaSnapshot, buildKnownAreaLookup } from './lib/areaResolver.js';
 import { previewMergeGroups, mergeExistingFiles } from './lib/cumulativeMerge.js';
 import {
   refreshCumulativeFile, ensureLegacyBatch, batchDateRanges, releaseBatch, reactivateBatch,
@@ -578,30 +578,30 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
   // Ensure each survey area exists — but match by Arabic-normalised name so spelling
   // variants (الحارثية/الحارثيه) collapse onto a single canonical Area row instead of
   // re-creating a duplicate every time this endpoint runs.
-  const existing = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { id: 'asc' } });
-  const existingByNorm = new Map(); // normalizedName → first (lowest-id) area row
-  for (const a of existing) {
-    const key = normalizeArabic(a.name);
-    if (!existingByNorm.has(key)) existingByNorm.set(key, a);
+  // المطابقة تشمل ذاكرة AreaAlias أيضاً: اسم سيرفي دمجه السوبر أدمن في منطقة
+  // أخرى (فحُذف صفّه) يجب أن يُعاد للمنطقة الباقية — لا أن يُعاد إنشاؤه هنا بلا
+  // محافظة فيرجع تحت «غير محدد» كلما فُتحت صفحة المستخدمين.
+  let lookup = await buildKnownAreaLookup();
+  const toCreate = [];
+  const pendingKeys = new Set();
+  for (const n of surveyNames) {
+    if (lookup(n)) continue;
+    const key = normalizeAreaName(n);
+    if (pendingKeys.has(key)) continue;
+    pendingKeys.add(key);
+    toCreate.push(n);
   }
-  const toCreate = surveyNames.filter(n => !existingByNorm.has(normalizeArabic(n)));
   if (toCreate.length > 0) {
     await prisma.area.createMany({ data: toCreate.map(name => ({ name })), skipDuplicates: true });
-    const fresh = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { id: 'asc' } });
-    existingByNorm.clear();
-    for (const a of fresh) {
-      const key = normalizeArabic(a.name);
-      if (!existingByNorm.has(key)) existingByNorm.set(key, a);
-    }
+    invalidateAreaSnapshot();
+    lookup = await buildKnownAreaLookup();
   }
-  // Return one canonical area per normalised survey name (deduped).
-  const seenNorm = new Set();
+  // Return one canonical area per survey name (deduped by resolved area id).
+  const seenIds = new Set();
   const result = [];
   for (const n of surveyNames) {
-    const key = normalizeArabic(n);
-    if (seenNorm.has(key)) continue;
-    const area = existingByNorm.get(key);
-    if (area) { result.push(area); seenNorm.add(key); }
+    const area = lookup(n);
+    if (area && !seenIds.has(area.id)) { result.push(area); seenIds.add(area.id); }
   }
   result.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   // If survey has no area data, fall back to all areas in the Area table (deduplicated by name)
@@ -638,12 +638,13 @@ app.post('/api/sa/areas/reset-from-survey', requireSuperAdmin, async (req, res) 
     // «الدورة الطعمة» (وهما اسم واحد بعد التطبيع)، فتُبطل الدمج الذي جرى للتو
     // في الخطوة السابقة. ونطبّع أسماء السيرفي بينها أيضاً كي لا تُنشأ تهجئتان
     // منها في الدفعة نفسها.
-    const existingAfter = await prisma.area.findMany({ select: { name: true } });
-    const existingNorms = new Set(existingAfter.map(a => normalizeArabic(a.name)));
+    // + ذاكرة AreaAlias: اسم دُمج سابقاً لا يُعاد إنشاؤه.
+    const knownArea = await buildKnownAreaLookup();
+    const existingNorms = new Set();
     const toCreate = [];
     for (const n of surveyNames) {
-      const key = normalizeArabic(n);
-      if (existingNorms.has(key)) continue;
+      const key = normalizeAreaName(n);
+      if (knownArea(n) || existingNorms.has(key)) continue;
       existingNorms.add(key);
       toCreate.push(n);
     }
