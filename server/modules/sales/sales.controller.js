@@ -44,8 +44,16 @@ export async function saveActiveFiles(req, res, next) {
 export async function autoSyncIfOfficeEmployee(user, fileId, fileType) {
   if (!user || user.role !== 'office_employee' || !fileId) return;
   if (fileType === 'filter_page') return;
+  // مدير المنتج يُضاف مقيّداً بنفس مكتب الرافع كي لا تتسرّب الملفات بين المكاتب.
+  const uploader = await prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
   const targets = await prisma.user.findMany({
-    where: { isActive: true, id: { not: user.id }, role: { in: ['office_manager', 'office_hr', 'company_manager', 'office_employee'] } },
+    where: {
+      isActive: true, id: { not: user.id },
+      OR: [
+        { role: { in: ['office_manager', 'office_hr', 'company_manager', 'office_employee'] } },
+        ...(uploader?.officeId ? [{ role: 'product_manager', officeId: uploader.officeId }] : []),
+      ],
+    },
     select: { id: true },
   });
   if (targets.length === 0) return;

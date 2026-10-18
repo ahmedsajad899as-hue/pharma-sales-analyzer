@@ -14,6 +14,7 @@ import prisma from './lib/prisma.js';
 import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
 import { autoEnrollAllReps } from './modules/province-teams/province-teams.service.js';
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
+import { backfillProductManagerFileShares } from './lib/backfillProductManagerFileShares.js';
 import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
@@ -2307,8 +2308,15 @@ app.get('/api/files/linked-users', requireAuth, async (req, res) => {
 
     // موظف المكتب ليس مديراً لأحد — يُعمِّم على حسابات مدير المكتب / HR المكتب / مدير الشركة وباقي موظفي المكتب
     if (req.user?.role === 'office_employee') {
+      const me = await prisma.user.findUnique({ where: { id: managerId }, select: { officeId: true } });
       const allUsers = await prisma.user.findMany({
-        where: { isActive: true, id: { not: managerId }, role: { in: ['office_manager', 'office_hr', 'company_manager', 'office_employee'] } },
+        where: {
+          isActive: true, id: { not: managerId },
+          OR: [
+            { role: { in: ['office_manager', 'office_hr', 'company_manager', 'office_employee'] } },
+            ...(me?.officeId ? [{ role: 'product_manager', officeId: me.officeId }] : []),
+          ],
+        },
         select: {
           id: true, username: true, displayName: true, role: true,
           areaAssignments: { select: { areaId: true, area: { select: { name: true } } } },
@@ -2338,7 +2346,7 @@ app.get('/api/files/linked-users', requireAuth, async (req, res) => {
       },
     });
 
-    const REP_ROLES = new Set(['scientific_rep', 'team_leader', 'supervisor', 'manager']);
+    const REP_ROLES = new Set(['scientific_rep', 'team_leader', 'supervisor', 'manager', 'product_manager']);
     const users = assignments
       .map(a => a.user)
       .filter(u => u.isActive && REP_ROLES.has(u.role))
@@ -2398,9 +2406,16 @@ app.post('/api/files/:id/share-with-user', requireAuth, async (req, res) => {
 
     // موظف المكتب يُعمِّم على حسابات مدير المكتب / HR المكتب / مدير الشركة وباقي موظفي المكتب — بلا قيد "مرؤوس"
     if (req.user?.role === 'office_employee') {
+      const me = await prisma.user.findUnique({ where: { id: callerId }, select: { officeId: true } });
       for (const targetId of targetIds) {
         const target = await prisma.user.findFirst({
-          where: { id: targetId, isActive: true, role: { in: ['office_manager', 'office_hr', 'company_manager', 'office_employee'] } },
+          where: {
+            id: targetId, isActive: true,
+            OR: [
+              { role: { in: ['office_manager', 'office_hr', 'company_manager', 'office_employee'] } },
+              ...(me?.officeId ? [{ role: 'product_manager', officeId: me.officeId }] : []),
+            ],
+          },
         });
         if (!target) return res.status(404).json({ error: 'المستخدم غير موجود أو ليس مدير مكتب / HR مكتب / مدير شركة / موظف مكتب' });
       }
@@ -5130,6 +5145,10 @@ if (process.env.VERCEL) {
     ensurePrimaryCompanies()
       .then(n => { if (n) console.log(`✓ تم تعيين شركة رئيسية لـ ${n} مستخدم (backfill)`); })
       .catch(e => console.error('[ensurePrimaryCompanies]', e.message));
+    // ملفات موظفي المكتب القديمة ← مشاركتها مع مديري المنتج في نفس المكتب (idempotent)
+    backfillProductManagerFileShares()
+      .then(n => { if (n) console.log(`✓ شورِكت ${n} ملف مع مديري المنتج (backfill)`); })
+      .catch(e => console.error('[backfillProductManagerFileShares]', e.message));
     // مندوبون علميون لهم محافظات سلفاً ← تسجيلهم في فرق محافظاتهم (idempotent، إضافة فقط)
     autoEnrollAllReps()
       .then(n => { if (n) console.log(`✓ سُجّل ${n} تعيين مندوب في فرق المحافظات (backfill)`); })
