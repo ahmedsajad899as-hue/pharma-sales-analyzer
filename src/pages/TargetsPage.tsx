@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import RepSelectOptions, { type GroupableRep } from '../components/RepSelectOptions';
 import TargetsImportModal from '../components/TargetsImportModal';
+import TargetsMatrix from '../components/TargetsMatrix';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -46,6 +47,10 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [broadcasting, setBroadcasting]     = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
+  // الجدول الشامل (مندوبون × ايتمات) هو العرض الافتراضي للمدير؛ «مندوب واحد» يبقى
+  // لمقارنة التارگت بالمبيع الفعلي لمندوب بعينه
+  const [view, setView] = useState<'matrix' | 'single'>('matrix');
+  const [importKey, setImportKey] = useState(0);
 
   // Load MY targets (scientific rep view — read-only)
   useEffect(() => {
@@ -253,7 +258,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const showActualCols = isManager && !!selRepId && repType === 'scientific';
 
   return (
-    <div className="page" dir="rtl" style={{ maxWidth: 1000 }}>
+    <div className="page" dir="rtl" style={{ maxWidth: isManager && view === 'matrix' ? 'none' : 1000 }}>
       <div className="page-header">
         <div>
           <div className="page-title">🎯 التارگت الشهري</div>
@@ -296,8 +301,19 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           </div>
         )}
 
-        {/* Rep selector — manager only */}
+        {/* View toggle — manager only */}
         {isManager && (
+          <div className="form-group">
+            <label className="form-label">طريقة العرض</label>
+            <div className="tabs">
+              <button className={`tab ${view === 'matrix' ? 'tab--active' : ''}`} onClick={() => setView('matrix')}>📊 جدول شامل</button>
+              <button className={`tab ${view === 'single' ? 'tab--active' : ''}`} onClick={() => setView('single')}>👤 مندوب واحد</button>
+            </div>
+          </div>
+        )}
+
+        {/* Rep selector — manager only */}
+        {isManager && view === 'single' && (
           <div className="form-group" style={{ flex: 1, minWidth: 200 }}>
             <label className="form-label">المندوب</label>
             <select
@@ -340,7 +356,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
         </div>
 
         {/* Broadcast — manager only */}
-        {isManager && (
+        {isManager && view === 'single' && (
           <button
             className={`btn ${showBroadcast ? 'btn--primary' : 'btn--secondary'}`}
             onClick={() => { setShowBroadcast(v => !v); setBroadcastSel(new Set()); setBroadcastResult(null); }}
@@ -373,12 +389,26 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           monthLabel={months[month - 1]}
           token={token}
           onClose={() => setShowImport(false)}
-          onDone={() => { loadTargets(); }}
+          onDone={() => { loadTargets(); setImportKey(k => k + 1); }}
+        />
+      )}
+
+      {isManager && view === 'matrix' && (
+        <TargetsMatrix
+          repType={repType}
+          reps={reps}
+          allItems={allItems}
+          month={month}
+          year={year}
+          monthLabel={months[month - 1]}
+          token={token}
+          reloadKey={importKey}
+          onOpenRep={id => { setSelRepId(String(id)); setView('single'); }}
         />
       )}
 
       {/* ── Broadcast Panel — manager only ── */}
-      {isManager && showBroadcast && selRepId && rows.length > 0 && (
+      {isManager && view === 'single' && showBroadcast && selRepId && rows.length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <div>
@@ -437,18 +467,18 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
       )}
 
       {/* ── Items Table ── */}
-      {isManager && !selRepId && (
+      {isManager && view === 'single' && !selRepId && (
         <div className="card" style={{ textAlign: 'center', padding: 48, color: 'var(--c-text-secondary)' }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}>🎯</div>
           اختر مندوباً لعرض التارگت الخاص به
         </div>
       )}
 
-      {(isManager ? !!selRepId : true) && loading && (
+      {(isManager ? view === 'single' && !!selRepId : true) && loading && (
         <div className="card" style={{ textAlign: 'center', padding: 48, color: 'var(--c-text-secondary)' }}>⏳ جاري التحميل...</div>
       )}
 
-      {(isManager ? !!selRepId : true) && !loading && rows.length === 0 && (
+      {(isManager ? view === 'single' && !!selRepId : true) && !loading && rows.length === 0 && (
         <div className="card" style={{ textAlign: 'center', padding: 48, color: 'var(--c-text-secondary)' }}>
           <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
           <div>{isManager ? 'لا توجد ايتمات مخصصة لهذا المندوب' : 'لم يتم تعيين أي تارگت لك هذا الشهر'}</div>
@@ -456,7 +486,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
         </div>
       )}
 
-      {(isManager ? !!selRepId : true) && !loading && rows.length > 0 && (
+      {(isManager ? view === 'single' && !!selRepId : true) && !loading && rows.length > 0 && (
         <div className="table-wrapper">
           <div style={{ background: 'var(--c-primary)', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <span style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>
@@ -555,7 +585,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           </table>
         </div>
       )}
-      {isManager && !!selRepId && !loading && rows.length > 0 && (
+      {isManager && view === 'single' && !!selRepId && !loading && rows.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16, gap: 12, alignItems: 'center' }}>
           {saved && <span style={{ color: 'var(--c-success)', fontWeight: 700, fontSize: 13 }}>✓ تم الحفظ بنجاح</span>}
           <button

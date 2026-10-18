@@ -1,5 +1,5 @@
 import prisma from '../../lib/prisma.js';
-import { resolveMyRepId } from '../scientific-reps/scientific-reps.service.js';
+import { resolveMyRepId, resolveSciRepItemIds } from '../scientific-reps/scientific-reps.service.js';
 
 // GET /api/targets?repType=scientific&repId=1&month=5&year=2026
 export async function getTargets(req, res, next) {
@@ -100,5 +100,46 @@ export async function getMyTargets(req, res, next) {
       orderBy: { item: { name: 'asc' } },
     });
     res.json({ success: true, data: targets, repId, month, year });
+  } catch (e) { next(e); }
+}
+
+// GET /api/targets/matrix?repType=scientific&month=10&year=2026&repIds=1,2,3
+// جدول المندوبين × الايتمات لشهر واحد بطلب واحد: كل التارگتات المحفوظة + نطاق
+// ايتمات كل مندوب علمي (نفس resolveSciRepItemIds الذي تعرض به الصفحة جدول
+// المندوب الواحد). scope=null ⇒ المندوب يحمل كل الايتمات.
+export async function getTargetsMatrix(req, res, next) {
+  try {
+    const { repType } = req.query;
+    const month = parseInt(req.query.month);
+    const year  = parseInt(req.query.year);
+    const repIds = String(req.query.repIds || '').split(',').map(Number).filter(Number.isInteger);
+    if (!repType || !month || !year)
+      return res.status(400).json({ error: 'repType, month, year required' });
+    if (repIds.length === 0) return res.json({ success: true, data: { targets: [], scopes: {}, scopeItems: [] } });
+
+    const targets = await prisma.repItemTarget.findMany({
+      where: { repType, month, year, repId: { in: repIds } },
+      select: { repId: true, itemId: true, target: true, item: { select: { id: true, name: true } } },
+    });
+
+    const scopes = {};
+    const scopeItemIds = new Set();
+    if (repType === 'scientific') {
+      const resolved = await Promise.all(repIds.map(id => resolveSciRepItemIds(id).then(r => r.itemIds).catch(() => null)));
+      repIds.forEach((id, i) => {
+        scopes[id] = resolved[i];
+        resolved[i]?.forEach(x => scopeItemIds.add(x));
+      });
+    } else {
+      repIds.forEach(id => { scopes[id] = null; });
+    }
+    const scopeItems = scopeItemIds.size
+      ? await prisma.item.findMany({
+          where: { id: { in: [...scopeItemIds] }, isTemp: false },
+          select: { id: true, name: true },
+        })
+      : [];
+
+    res.json({ success: true, data: { targets, scopes, scopeItems } });
   } catch (e) { next(e); }
 }
