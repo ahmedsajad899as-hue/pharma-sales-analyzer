@@ -170,14 +170,22 @@ async function buildAreaState(managerId, targetUserId) {
     if (id) assigned.add(id);
     else locked.set(normalizeAreaName(a.name), { name: a.name, reason: 'outside' });
   }
-  // مناطق داخلة عبر تعيين محافظة/قسم من السوبر أدمن — تُعرض للعلم ولا تُعدَّل هنا.
+  // مناطق داخلة عبر تعيين محافظة/قسم من السوبر أدمن: ما يقع منها داخل نطاق المدير
+  // يظهر محدَّداً وقابلاً للتعديل (كان مقفلاً — فتيم ليدر معيَّن على محافظة كاملة
+  // لا يمكن تعديل أي منطقة له)؛ ما يقع خارج نطاقه يبقى للعلم فقط.
+  // إلغاء أي منها يُحوِّل تعيين المحافظة إلى مناطق صريحة عند الحفظ (applyManagerAreas).
+  const provinceAreaIds = new Set();
   const derivedIds = effectiveIds.filter(id => !explicitIdSet.has(id));
   if (derivedIds.length) {
     const derived = await prisma.area.findMany({ where: { id: { in: derivedIds } }, select: { name: true } });
     for (const a of derived) {
       const k = normalizeAreaName(a.name);
       const id = optionByNorm.get(k);
-      if (id && assigned.has(id)) continue;
+      if (id) {
+        if (!assigned.has(id)) provinceAreaIds.add(id);
+        assigned.add(id);
+        continue;
+      }
       if (!locked.has(k)) locked.set(k, { name: a.name, reason: 'province' });
     }
   }
@@ -185,6 +193,7 @@ async function buildAreaState(managerId, targetUserId) {
   return {
     allAreas: withProvince(options, provMap),
     assignedAreaIds: [...assigned],
+    provinceAreaIds: [...provinceAreaIds],
     lockedAreas: [...locked.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar')),
     scopeIsEmpty: !scope.all && scope.names.size === 0,
   };
@@ -210,21 +219,66 @@ async function applyManagerAreas(manager, targetUserId, areaIds) {
     throw httpError(400, `مناطق خارج نطاقك: ${outside.map(a => a.name).join('، ')}`);
   }
 
+  if (await userHasAllAreas(targetUserId)) {
+    throw httpError(409, 'مناطق هذا الحساب مُدارة تلقائياً («كل المناطق») — تُعدَّل من السوبر أدمن فقط.');
+  }
+
   const before = (await prisma.userAreaAssignment.findMany({
     where:  { userId: targetUserId },
     select: { area: { select: { id: true, name: true } } },
   })).map(b => b.area);
   // ما أعطاه السوبر أدمن (أو مدير آخر) خارج نطاق هذا المدير يبقى كما هو.
   const preserved = before.filter(a => !inScope(scope, a.name));
-  const result = await saveUserAreaAssignments(targetUserId, [...preserved.map(a => a.id), ...requested]);
-  if (result.autoManaged) {
-    throw httpError(409, 'مناطق هذا الحساب مُدارة تلقائياً («كل المناطق») — تُعدَّل من السوبر أدمن فقط.');
+
+  // المناطق الآتية من تعيين محافظة/قسم (لا من صفوف صريحة).
+  const explicitIdSet = new Set(before.map(a => a.id));
+  const derivedIdList = (await resolveEffectiveAreaIds(targetUserId, { includeRepAreas: false }))
+    .filter(id => !explicitIdSet.has(id));
+  const derivedRows = derivedIdList.length
+    ? await prisma.area.findMany({ where: { id: { in: derivedIdList } }, select: { id: true, name: true } })
+    : [];
+  const requestedNorms = new Set(requestedRows.map(a => normalizeAreaName(a.name)));
+  const droppedDerived = derivedRows.filter(a => inScope(scope, a.name) && !requestedNorms.has(normalizeAreaName(a.name)));
+
+  let provinceMaterialized = false;
+  if (droppedDerived.length === 0) {
+    // لم يُلغَ شيء من مناطق المحافظة ⇒ تعيين المحافظة يبقى كما هو (يصل المندوبَ
+    // تلقائياً أي منطقة تُضاف لها لاحقاً)، ولا تُكرَّر مناطقه كصفوف صريحة.
+    const derivedNorms = new Set(derivedRows.map(a => normalizeAreaName(a.name)));
+    const extra = requestedRows.filter(a => !derivedNorms.has(normalizeAreaName(a.name))).map(a => a.id);
+    await saveUserAreaAssignments(targetUserId, [...preserved.map(a => a.id), ...extra]);
+  } else {
+    // إلغاء منطقة من محافظة مُعيَّنة كاملةً لا يتم إلا بتحويل التعيين إلى مناطق
+    // صريحة: كل ما كان عنده (بما فيه ما خارج نطاق هذا المدير) ناقص ما أُلغي.
+    // يُحذف تعيين المحافظة/القسم أولاً كي تُزامِن saveUserAreaAssignments
+    // ScientificRepArea على النطاق الجديد لا القديم؛ ويُعاد إن فشل الحفظ.
+    const [provRows, subRows] = await Promise.all([
+      prisma.userProvinceAssignment.findMany({ where: { userId: targetUserId } }),
+      prisma.userSubProvinceAssignment.findMany({ where: { userId: targetUserId } }),
+    ]);
+    const derivedOutside = derivedRows.filter(a => !inScope(scope, a.name)).map(a => a.id);
+    await prisma.$transaction([
+      prisma.userProvinceAssignment.deleteMany({ where: { userId: targetUserId } }),
+      prisma.userSubProvinceAssignment.deleteMany({ where: { userId: targetUserId } }),
+    ]);
+    try {
+      await saveUserAreaAssignments(targetUserId, [...preserved.map(a => a.id), ...derivedOutside, ...requested]);
+    } catch (e) {
+      await prisma.$transaction([
+        prisma.userProvinceAssignment.createMany({ data: provRows, skipDuplicates: true }),
+        prisma.userSubProvinceAssignment.createMany({ data: subRows, skipDuplicates: true }),
+      ]).catch(re => console.error('[company-members] province restore failed:', re.message));
+      throw e;
+    }
+    provinceMaterialized = true;
   }
 
-  const after = (await prisma.userAreaAssignment.findMany({
-    where:  { userId: targetUserId },
-    select: { area: { select: { id: true, name: true } } },
-  })).map(r => r.area);
+  // النتيجة = النطاق الفعلي (صريح + محافظة) كما تعرضه قائمة الأعضاء.
+  const afterIds = await resolveEffectiveAreaIds(targetUserId, { includeRepAreas: false });
+  const after = afterIds.length
+    ? await prisma.area.findMany({ where: { id: { in: afterIds } }, select: { id: true, name: true } })
+    : [];
+  before.push(...derivedRows);
   const beforeNames = new Set(before.map(a => normalizeAreaName(a.name)));
   const afterNames  = new Set(after.map(a => normalizeAreaName(a.name)));
   const added   = dedupeByName(after.filter(a => !beforeNames.has(normalizeAreaName(a.name)))).map(a => a.name);
@@ -237,7 +291,7 @@ async function applyManagerAreas(manager, targetUserId, areaIds) {
           userId: manager.id,
           action: 'rep_areas_update',
           module: 'company-members',
-          details: JSON.stringify({ targetUserId, added, removed }),
+          details: JSON.stringify({ targetUserId, added, removed, provinceMaterialized }),
         },
       });
     } catch (e) { console.warn('[company-members] activity log failed (non-fatal):', e.message); }

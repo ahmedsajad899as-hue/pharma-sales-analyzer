@@ -163,6 +163,8 @@ export default function UsersPage() {
   const [areasLoading, setAreasLoading]           = useState(false);
   const [areasSaving, setAreasSaving]             = useState(false);
   const [lockedAreas, setLockedAreas]             = useState<LockedArea[]>([]);
+  // مناطق داخلة عبر تعيين محافظة/قسم — محدَّدة وقابلة للتعديل، تُعلَّم بـ🗺️
+  const [provinceAreaIds, setProvinceAreaIds]     = useState<Set<number>>(new Set());
   const [scopeIsEmpty, setScopeIsEmpty]           = useState(false);
   const [areaSearch, setAreaSearch]               = useState('');
   const [openProvinces, setOpenProvinces]         = useState<Set<string>>(new Set());
@@ -329,6 +331,7 @@ export default function UsersPage() {
     setSelectedAreaIds(new Set());
     setAllAreas([]);
     setLockedAreas([]);
+    setProvinceAreaIds(new Set());
     setScopeIsEmpty(false);
     setAreaSearch('');
     setAreasLoading(true);
@@ -346,6 +349,7 @@ export default function UsersPage() {
         if (groups.length === 1) open.add(groups[0].province);
         setOpenProvinces(open);
         setLockedAreas(j.lockedAreas ?? []);
+        setProvinceAreaIds(new Set<number>(j.provinceAreaIds ?? []));
         setScopeIsEmpty(!!j.scopeIsEmpty);
       } else {
         alert(j.error || 'فشل تحميل المناطق');
@@ -532,6 +536,12 @@ export default function UsersPage() {
                     المحدد: {selectedAreaIds.size} من {allAreas.length}
                   </div>
                 )}
+                {!areasLoading && provinceAreaIds.size > 0 && (
+                  <div style={{ fontSize: 11.5, color: '#0f766e', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 8, padding: '6px 10px', marginBottom: 8 }}>
+                    🗺️ {provinceAreaIds.size} منطقة آتية من تعيين محافظة كاملة. إبقاؤها كلها يُبقي التعيين كما هو (تصله المناطق الجديدة تلقائياً)؛
+                    إلغاء أي منها يحوّل التعيين إلى مناطق مفردة.
+                  </div>
+                )}
                 {!areasLoading && allAreas.length > 8 && (
                   <input
                     value={areaSearch}
@@ -600,6 +610,7 @@ export default function UsersPage() {
                                         })}
                                         style={{ width: 14, height: 14, accentColor: '#6366f1' }}
                                       />
+                                      {provinceAreaIds.has(area.id) && <span title="عبر تعيين محافظة" style={{ fontSize: 11 }}>🗺️</span>}
                                       {area.name}
                                     </label>
                                   );
