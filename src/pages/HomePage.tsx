@@ -615,6 +615,9 @@ function Box3D({ src, depth, faces, scale = 1, label }: { src: string; depth: nu
   const D = H * depth;
 
   const onMove = (e: React.PointerEvent) => {
+    // الميل مع الماوس للبطاقة المعروضة في الوسط فقط — الجانبية تبقى ساكنة (بدل فرض وضع ثابت
+    // بـCSS كان يُرجع المجسّم فجأةً لحظة التنقّل بالأسهم والماوس فوقه)
+    if (!e.currentTarget.closest('.cf-slot')?.classList.contains('is-active')) return;
     const r = e.currentTarget.getBoundingClientRect();
     const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5..0.5
     const py = (e.clientY - r.top) / r.height - 0.5;
@@ -1139,12 +1142,16 @@ function HomeStyles() {
 .hp.is-board .b3d-glow { background: radial-gradient(circle, rgba(26,86,219,.16), transparent 65%); }
 
 /* ── الطفو للعنصر المعروض في الوسط فقط ── */
-.hp.is-board .cf-slot.is-active .bb-card-item:not(.has-photo) .bb-frame { animation: b3d-bob 5.5s ease-in-out infinite; }
-.hp.is-board .cf-slot.is-active .bb-card-prov { animation: b3d-bob 6.5s ease-in-out infinite; }
-/* البطاقات الجانبية ساكنة تماماً: لا طفو ولا تمايل ولا ميل مع الماوس */
-.cf-slot:not(.is-active) .b3d-bob, .cf-slot:not(.is-active) .b3d-shadow { animation: none; }
-.cf-slot:not(.is-active) .b3d { animation: none; }
-.cf-slot:not(.is-active) .b3d.is-tilt { transform: rotateX(-10deg) rotateY(-26deg) !important; }
+.hp.is-board .cf-slot .bb-card-item:not(.has-photo) .bb-frame { animation: b3d-bob 5.5s ease-in-out infinite; }
+.hp.is-board .cf-slot .bb-card-prov:not(.has-pimg) { animation: b3d-bob 6.5s ease-in-out infinite; }
+/* البطاقات الجانبية ساكنة تماماً — لكن بـ«إيقاف مؤقت» لا بإلغاء الحركة: الإلغاء (animation:none)
+   كان يُرجع المجسّم فجأةً لوضعه الابتدائي لحظة التنقّل (رجفة/ارتداد)، والبطاقة الجديدة تقفز لأول
+   إطار. الإيقاف يجمّد المجسّم على وضعه الحالي، ويستأنف من نفس الوضع حين يعود للوسط. */
+.cf-slot:not(.is-active) .b3d,
+.cf-slot:not(.is-active) .b3d-bob,
+.cf-slot:not(.is-active) .b3d-shadow,
+.hp.is-board .cf-slot:not(.is-active) .bb-frame,
+.hp.is-board .cf-slot:not(.is-active) .bb-card-prov { animation-play-state: paused; }
 
 /* العنصر المعروض أكبر — المرحلة تتّسع لتكبيره (CF_ACTIVE_SCALE) */
 .hp.is-board .cf-stage { height: calc(var(--h) * 1.4 + 120px); }
