@@ -842,8 +842,34 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
     return () => { clearTimeout(start); if (interval) clearInterval(interval); };
   }, [stop, count, offsetMs, kick]);
 
+  // ── السحب باللمس/الماوس يميناً ويساراً ──────────────────────────────────────
+  // نفس اتجاه الأسهم البصري: السحب يميناً يجرّ البطاقة اليسرى (التالية) للوسط.
+  // حركة أفقية ≥ 45px وأوضح من العمودية = تنقّل، ويُلغى النقر الذي يليها كي لا تُفتح
+  // التفاصيل خطأً. touch-action: pan-y يُبقي التمرير العمودي للصفحة يعمل على الهاتف.
+  const swipe = useRef<{ x: number; y: number; id: number } | null>(null);
+  const swiped = useRef(false);
+  const onSwipeDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    swipe.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    swiped.current = false;
+  };
+  const onSwipeUp = (e: React.PointerEvent) => {
+    const s = swipe.current;
+    swipe.current = null;
+    if (!s || s.id !== e.pointerId || count < 2 || paused) return;
+    const dx = e.clientX - s.x, dy = e.clientY - s.y;
+    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    swiped.current = true;
+    const dir = dx > 0 ? 1 : -1;
+    setActive(a => (a + dir + count) % count);
+    setKick(k => k + 1);
+  };
+
   return (
     <div className={`cf cf-${variant} ${hoverPause ? 'is-paused' : ''}`} ref={rootRef}
+      onPointerDown={onSwipeDown} onPointerUp={onSwipeUp} onPointerCancel={() => { swipe.current = null; }}
+      onClickCapture={e => { if (swiped.current) { swiped.current = false; e.stopPropagation(); e.preventDefault(); } }}
+      onDragStart={e => e.preventDefault()}
       onPointerLeave={() => { hoverCapped.current = false; setHoverPause(false); }}>
       <div className="cf-stage" ref={stageRef}>
         {Array.from({ length: count }, (_, i) => {
@@ -1142,7 +1168,7 @@ function HomeStyles() {
 .cf { --w: min(340px, 72vw); --h: 230px; }
 /* بطاقة الايتم عريضة (≈16:9) لتطابق صور العلب العريضة فتغطيها الصورة بأقل قصّ */
 .cf-item { --w: min(480px, 84vw); --h: 280px; }
-.cf-stage { position: relative; height: calc(var(--h) + 30px); perspective: 1000px; }
+.cf-stage { position: relative; height: calc(var(--h) + 30px); perspective: 1000px; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .cf-slot { position: absolute; top: 14px; left: calc(50% - var(--w) / 2); width: var(--w); height: var(--h);
   padding: 0; border: 0; background: none; cursor: pointer; font-family: inherit; text-align: right;
   transition: transform .6s cubic-bezier(.2,.8,.2,1), opacity .6s ease, filter .6s ease; }
