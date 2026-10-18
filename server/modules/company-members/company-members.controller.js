@@ -75,25 +75,49 @@ function dedupeByName(areas) {
 }
 
 /**
- * اسم المحافظة لكل اسم منطقة مطبَّع — من أي صف Area بنفس الاسم يحمل محافظة
- * (صفوف الحسابات الموازية كثيراً ما تكون بلا provinceId، والصف القانوني يحملها).
+ * المحافظة والقسم (الكرخ/الرصافة) لكل اسم منطقة مطبَّع — من أي صف Area بنفس
+ * الاسم يحملهما (صفوف الحسابات الموازية كثيراً ما تكون بلا provinceId، والصف
+ * القانوني يحملها). القسم يُفضَّل من أول صف يحمله حتى لو سبقه صف بمحافظة فقط.
  */
 async function provinceByAreaName() {
   const rows = await prisma.area.findMany({
     where:  { provinceId: { not: null } },
-    select: { name: true, province: { select: { name: true } } },
+    select: {
+      name: true,
+      province:    { select: { name: true } },
+      subProvince: { select: { name: true, sortOrder: true } },
+    },
     orderBy: { id: 'asc' },
   });
   const map = new Map();
   for (const r of rows) {
+    if (!r.province?.name) continue;
     const k = normalizeAreaName(r.name);
-    if (!map.has(k) && r.province?.name) map.set(k, r.province.name);
+    const cur = map.get(k);
+    if (!cur) {
+      map.set(k, {
+        province: r.province.name,
+        subProvince: r.subProvince?.name ?? null,
+        subProvinceOrder: r.subProvince?.sortOrder ?? null,
+      });
+    } else if (!cur.subProvince && r.subProvince && r.province.name === cur.province) {
+      cur.subProvince = r.subProvince.name;
+      cur.subProvinceOrder = r.subProvince.sortOrder;
+    }
   }
   return map;
 }
 
 const withProvince = (areas, provMap) =>
-  areas.map(a => ({ ...a, province: provMap.get(normalizeAreaName(a.name)) ?? null }));
+  areas.map(a => {
+    const p = provMap.get(normalizeAreaName(a.name));
+    return {
+      ...a,
+      province: p?.province ?? null,
+      subProvince: p?.subProvince ?? null,
+      subProvinceOrder: p?.subProvinceOrder ?? null,
+    };
+  });
 
 // ════════════════════════════════════════════════════════════════════════════
 // تعديل المدير لمناطق مندوبه

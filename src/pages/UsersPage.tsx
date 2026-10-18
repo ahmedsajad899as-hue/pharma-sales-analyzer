@@ -27,9 +27,41 @@ interface CompanyMember {
   companies: { id: number; name: string }[];
 }
 
-interface AreaItem { id: number; name: string; province?: string | null; }
+interface AreaItem {
+  id: number; name: string;
+  province?: string | null;
+  subProvince?: string | null;       // الكرخ / الرصافة
+  subProvinceOrder?: number | null;
+}
 
 const NO_PROVINCE = 'بلا محافظة';
+
+/** «منطقة عمل» = القسم إن وُجد (بغداد — الكرخ) وإلا المحافظة. */
+interface Region<T> { key: string; province: string; sub: string | null; subOrder: number | null; areas: T[]; }
+const regionLabel = (r: { province: string; sub: string | null }) => r.sub ? `${r.province} — ${r.sub}` : r.province;
+const subSort = (a: { sub: string | null; subOrder: number | null }, b: { sub: string | null; subOrder: number | null }) =>
+  (a.sub ? 0 : 1) - (b.sub ? 0 : 1) || (a.subOrder ?? 999) - (b.subOrder ?? 999) || (a.sub || '').localeCompare(b.sub || '', 'ar');
+
+/** تجميع المناطق حسب (المحافظة × القسم): المحافظة الأكبر أولاً، وداخلها الكرخ ثم الرصافة ثم بلا قسم. */
+function groupByRegion<T extends AreaItem>(areas: T[]): Region<T>[] {
+  const map = new Map<string, Region<T>>();
+  const provCount = new Map<string, number>();
+  for (const a of areas) {
+    const province = a.province || NO_PROVINCE;
+    const sub = a.province ? (a.subProvince || null) : null;
+    const key = `${province}|${sub ?? ''}`;
+    if (!map.has(key)) map.set(key, { key, province, sub, subOrder: a.subProvinceOrder ?? null, areas: [] });
+    map.get(key)!.areas.push(a);
+    provCount.set(province, (provCount.get(province) || 0) + 1);
+  }
+  return [...map.values()]
+    .map(r => ({ ...r, areas: r.areas.sort((x, y) => x.name.localeCompare(y.name, 'ar')) }))
+    .sort((a, b) =>
+      (a.province === NO_PROVINCE ? 1 : 0) - (b.province === NO_PROVINCE ? 1 : 0)
+      || (provCount.get(b.province)! - provCount.get(a.province)!)
+      || a.province.localeCompare(b.province, 'ar')
+      || subSort(a, b));
+}
 /** تجميع المناطق حسب المحافظة — الأكبر أولاً، «بلا محافظة» آخراً. */
 function groupByProvince<T extends AreaItem>(areas: T[]): { province: string; areas: T[] }[] {
   const map = new Map<string, T[]>();
@@ -43,6 +75,45 @@ function groupByProvince<T extends AreaItem>(areas: T[]): { province: string; ar
     .sort((a, b) => (a.province === NO_PROVINCE ? 1 : 0) - (b.province === NO_PROVINCE ? 1 : 0) || b.areas.length - a.areas.length);
 }
 interface LockedArea { name: string; reason: 'outside' | 'province'; }
+
+const NO_AREAS_SECTION = 'بلا مناطق';
+const ROLE_RANK: Record<string, number> = { supervisor: 0, team_leader: 1 };
+
+/**
+ * تصفيط الموظفين في أقسام حسب منطقة عملهم الغالبة (أكثر قسم/محافظة فيه
+ * مناطق له): بغداد — الكرخ، بغداد — الرصافة، ثم بقية المحافظات، و«بلا مناطق» آخراً.
+ * داخل القسم: المشرف/التيم ليدر أولاً ثم بالاسم.
+ */
+function memberSections<M extends { areas: AreaItem[]; role: string; username: string; displayName?: string | null }>(members: M[]) {
+  type Sec = { key: string; province: string; sub: string | null; subOrder: number | null; members: M[] };
+  const map = new Map<string, Sec>();
+  for (const m of members) {
+    const regions = groupByRegion(m.areas);
+    const main = regions.reduce<Region<AreaItem> | null>((best, r) => (!best || r.areas.length > best.areas.length ? r : best), null);
+    const key = main ? main.key : NO_AREAS_SECTION;
+    if (!map.has(key)) {
+      map.set(key, main
+        ? { key, province: main.province, sub: main.sub, subOrder: main.subOrder, members: [] }
+        : { key, province: NO_AREAS_SECTION, sub: null, subOrder: null, members: [] });
+    }
+    map.get(key)!.members.push(m);
+  }
+  const provCount = new Map<string, number>();
+  for (const s of map.values()) provCount.set(s.province, (provCount.get(s.province) || 0) + s.members.length);
+  const last = (p: string) => (p === NO_AREAS_SECTION ? 2 : p === NO_PROVINCE ? 1 : 0);
+  return [...map.values()]
+    .map(s => ({
+      ...s,
+      members: s.members.sort((a, b) =>
+        (ROLE_RANK[a.role] ?? 9) - (ROLE_RANK[b.role] ?? 9)
+        || (a.displayName || a.username).localeCompare(b.displayName || b.username, 'ar')),
+    }))
+    .sort((a, b) =>
+      last(a.province) - last(b.province)
+      || provCount.get(b.province)! - provCount.get(a.province)!
+      || a.province.localeCompare(b.province, 'ar')
+      || subSort(a, b));
+}
 
 const ALL_ROLES: { value: string; label: string }[] = [
   { value: 'user',                   label: '👤 مستخدم' },
@@ -334,16 +405,25 @@ export default function UsersPage() {
               />
               <span style={{ fontSize: 12, color: '#64748b' }}>{companyMembers.length} موظف</span>
             </div>
-            <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-              {companyMembers
-                .filter(m => {
-                  const q = memberSearch.trim();
-                  if (!q) return true;
-                  return (m.displayName || '').includes(q) || m.username.includes(q) || m.areas.some(a => a.name.includes(q));
-                })
-                .map((member, idx) => {
+            {memberSections(companyMembers.filter(m => {
+              const q = memberSearch.trim();
+              if (!q) return true;
+              return (m.displayName || '').includes(q) || m.username.includes(q) || m.areas.some(a => a.name.includes(q));
+            })).map(section => (
+              <div key={section.key} style={{ marginBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 4px 8px' }}>
+                  <span style={{ fontSize: 14, fontWeight: 900, color: '#1e293b' }}>
+                    {section.province === NO_AREAS_SECTION ? '⚪' : '🗺️'} {regionLabel(section)}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: '#eef2ff', padding: '2px 8px', borderRadius: 10 }}>
+                    {section.members.length}
+                  </span>
+                  <span style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+                </div>
+                <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                {section.members.map((member, idx) => {
                   const name = member.displayName || member.username;
-                  const groups = groupByProvince(member.areas);
+                  const groups = groupByRegion(member.areas);
                   const expanded = expandedMembers.has(member.id);
                   const toggle = () => setExpandedMembers(prev => {
                     const next = new Set(prev);
@@ -377,8 +457,8 @@ export default function UsersPage() {
                                 📍 {member.areas.length} منطقة
                               </span>
                               {groups.slice(0, 4).map(g => (
-                                <span key={g.province} style={{ fontSize: 11, color: '#475569', background: '#f1f5f9', padding: '3px 8px', borderRadius: 12 }}>
-                                  {g.province} <b>{g.areas.length}</b>
+                                <span key={g.key} title={regionLabel(g)} style={{ fontSize: 11, color: '#475569', background: '#f1f5f9', padding: '3px 8px', borderRadius: 12 }}>
+                                  {g.sub || g.province} <b>{g.areas.length}</b>
                                 </span>
                               ))}
                               {groups.length > 4 && <span style={{ fontSize: 11, color: '#94a3b8' }}>+{groups.length - 4}</span>}
@@ -403,9 +483,9 @@ export default function UsersPage() {
                       {expanded && (
                         <div style={{ padding: '0 16px 12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                           {groups.map(g => (
-                            <div key={g.province} style={{ display: 'flex', gap: 10, alignItems: 'baseline', background: '#f8fafc', borderRadius: 8, padding: '6px 10px' }}>
-                              <span style={{ fontSize: 12, fontWeight: 800, color: '#334155', minWidth: 90, flexShrink: 0 }}>
-                                🗺️ {g.province} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({g.areas.length})</span>
+                            <div key={g.key} style={{ display: 'flex', gap: 10, alignItems: 'baseline', background: '#f8fafc', borderRadius: 8, padding: '6px 10px' }}>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: '#334155', minWidth: 120, flexShrink: 0 }}>
+                                🗺️ {regionLabel(g)} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({g.areas.length})</span>
                               </span>
                               <span style={{ fontSize: 12, color: '#475569', lineHeight: 1.8 }}>
                                 {g.areas.map(a => a.name).join(' · ')}
@@ -417,7 +497,9 @@ export default function UsersPage() {
                     </div>
                   );
                 })}
-            </div>
+                </div>
+              </div>
+            ))}
           </>
         )}
 
@@ -498,31 +580,66 @@ export default function UsersPage() {
                               </span>
                             </button>
                           </div>
-                          {isOpen && (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 4, padding: 8 }}>
-                              {g.areas.map(area => {
-                                const on = selectedAreaIds.has(area.id);
-                                return (
-                                  <label key={area.id} style={{
-                                    display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
-                                    background: on ? '#eef2ff' : 'transparent', fontSize: 13, color: '#1e293b',
-                                  }}>
+                          {isOpen && (() => {
+                            const grid = (list: AreaItem[]) => (
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 4, padding: 8 }}>
+                                {list.map(area => {
+                                  const on = selectedAreaIds.has(area.id);
+                                  return (
+                                    <label key={area.id} style={{
+                                      display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
+                                      background: on ? '#eef2ff' : 'transparent', fontSize: 13, color: '#1e293b',
+                                    }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={on}
+                                        onChange={e => setSelectedAreaIds(prev => {
+                                          const next = new Set(prev);
+                                          if (e.target.checked) next.add(area.id); else next.delete(area.id);
+                                          return next;
+                                        })}
+                                        style={{ width: 14, height: 14, accentColor: '#6366f1' }}
+                                      />
+                                      {area.name}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            );
+                            const subs = groupByRegion(g.areas);
+                            // محافظة بلا أقسام: شبكة واحدة كما هي
+                            if (subs.length === 1 && !subs[0].sub) return grid(g.areas);
+                            // محافظة مقسَّمة (بغداد): الكرخ أولاً ثم الرصافة ثم ما لا قسم له
+                            return subs.map(sg => {
+                              const sIds = sg.areas.map(a => a.id);
+                              const sSel = sIds.filter(id => selectedAreaIds.has(id)).length;
+                              return (
+                                <div key={sg.key} style={{ borderTop: '1px solid #f1f5f9' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px 2px', cursor: 'pointer' }}>
                                     <input
                                       type="checkbox"
-                                      checked={on}
+                                      checked={sSel === sIds.length}
+                                      ref={el => { if (el) el.indeterminate = sSel > 0 && sSel < sIds.length; }}
                                       onChange={e => setSelectedAreaIds(prev => {
                                         const next = new Set(prev);
-                                        if (e.target.checked) next.add(area.id); else next.delete(area.id);
+                                        sIds.forEach(id => { if (e.target.checked) next.add(id); else next.delete(id); });
                                         return next;
                                       })}
-                                      style={{ width: 14, height: 14, accentColor: '#6366f1' }}
+                                      style={{ width: 14, height: 14, accentColor: '#0ea5e9' }}
                                     />
-                                    {area.name}
+                                    <span style={{ fontSize: 12, fontWeight: 800, color: '#0369a1' }}>
+                                      🏙️ {sg.sub || 'بلا قسم'}
+                                    </span>
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: sSel ? '#0369a1' : '#94a3b8' }}>
+                                      {sSel}/{sIds.length}
+                                    </span>
+                                    <span style={{ flex: 1, height: 1, background: '#e0f2fe' }} />
                                   </label>
-                                );
-                              })}
-                            </div>
-                          )}
+                                  {grid(sg.areas)}
+                                </div>
+                              );
+                            });
+                          })()}
                         </div>
                       );
                     })}
