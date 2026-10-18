@@ -1,4 +1,4 @@
-import type { AmbiguousGroup, AreaWithDoctors, PharmacyLookupHit, SmartPlan, SmartPlanCandidate, SmartPlanUpload, SurveyPharmacyRef, UploadKind } from './types';
+import type { AmbiguousGroup, AreaWithDoctors, BucketSummary, RatioBucket, PharmacyLookupHit, SmartPlan, SmartPlanCandidate, SmartPlanUpload, SurveyPharmacyRef, UploadKind } from './types';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -92,6 +92,11 @@ export const smartPlanApi = {
 
   confirmMatches: (token: string, id: number, picks: { candidateId: number; doctorId: number | null }[]) =>
     jsonReq(token, `/${id}/resolve/confirm`, 'POST', { picks }) as Promise<{ confirmed: number; failed: number }>,
+
+  preview: (token: string, id: number, data: { ratioConfig?: RatioBucket[]; targetDoctorCount?: number } = {}) =>
+    jsonReq(token, `/${id}/preview`, 'POST', data) as Promise<{
+      summary: BucketSummary[]; eligibleCount: number; unassignableCount: number; pendingCount: number;
+    }>,
 
   compute: (token: string, id: number) =>
     req(token, `/${id}/compute`, { method: 'POST' }) as Promise<{ summary: any[]; unassignableCount: number }>,

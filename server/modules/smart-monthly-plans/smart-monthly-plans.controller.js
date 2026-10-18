@@ -445,62 +445,93 @@ export async function confirmMatches(req, res) {
 
 // ── حساب توزيع الفئات + تنسيق Gemini ─────────────────────────────────────
 
+/**
+ * المرشّحون المحسومون الداخلون فعلاً في الحساب. إن حدّد المستخدم أطباء من لوحة
+ * المناطق: كل طبيب داخل عالم اللوحة (أطباء السيرفي بمناطق المندوب) يجب أن يكون
+ * مُحدَّداً؛ أما مرشّحو الملفات المرفوعة خارج ذلك العالم فلا يتأثرون. لم يحدّد
+ * أحداً → لا قيد إطلاقاً. مشترك بين compute وpreview حتى تطابق المعاينةُ النتيجة.
+ */
+async function loadComputeCandidates(plan) {
+  const allResolved = await prisma.smartPlanCandidate.findMany({
+    where: { smartPlanId: plan.id, doctorId: { not: null } },
+    include: { doctor: { select: { name: true, area: { select: { name: true } } } } },
+  });
+  const selected = selectedKeySet(plan);
+  if (!selected.size) return allResolved;
+  const universe = await getScopedDoctorKeySet(plan.scientificRepId);
+  return allResolved.filter(c => {
+    const keys = [doctorLinkKey(c.rawName, c.areaName)];
+    if (c.doctor) keys.push(doctorLinkKey(c.doctor.name, c.doctor.area?.name ?? c.areaName));
+    const inUniverse = keys.some(k => universe.has(k));
+    return !inUniverse || keys.some(k => selected.has(k));
+  });
+}
+
+/**
+ * معاينة سريعة قبل التوليد: الحصة والمتاح والنقص لكل فئة — نفس الخوارزمية
+ * الحتمية بلا Gemini وبلا أي كتابة، فيرى المستخدم النقص قبل أن يضغط «توليد».
+ * يقبل نسباً/عدداً غير محفوظين بعد في الجسم (اختياري).
+ */
+export async function preview(req, res) {
+  try {
+    const plan = await getOwnedPlan(req, req.params.id);
+    if (!plan) return fail(res, 404, 'البلان غير موجود');
+    const ratioConfig = Array.isArray(req.body?.ratioConfig) ? req.body.ratioConfig : plan.ratioConfig;
+    const target = Number.isInteger(req.body?.targetDoctorCount) && req.body.targetDoctorCount > 0
+      ? req.body.targetDoctorCount : plan.targetDoctorCount;
+    const candidates = await loadComputeCandidates(plan);
+    const { summary, unassignable } = computeBucketPlan(target, ratioConfig, candidates);
+    const pendingCount = await prisma.smartPlanCandidate.count({ where: { smartPlanId: plan.id, matchTier: 'ask' } });
+    res.json({ success: true, summary, eligibleCount: candidates.length, unassignableCount: unassignable.length, pendingCount });
+  } catch (e) {
+    console.error('[smart-monthly-plans] preview', e);
+    fail(res, 500, e.message);
+  }
+}
+
 export async function compute(req, res) {
   try {
     const plan = await getOwnedPlan(req, req.params.id);
     if (!plan) return fail(res, 404, 'البلان غير موجود');
     await applyOpenPharmacyLinks(plan.id); // دفاعياً — قد تغيّرت قائمة الصيدليات المفتوحة منذ آخر resolve
 
-    const allResolved = await prisma.smartPlanCandidate.findMany({
-      where: { smartPlanId: plan.id, doctorId: { not: null } },
-      include: { doctor: { select: { name: true, area: { select: { name: true } } } } },
-    });
-    // إن حدّد المستخدم أطباء من لوحة المناطق: كل طبيب داخل عالم اللوحة (أطباء السيرفي
-    // بمناطق المندوب) يجب أن يكون مُحدَّداً؛ أما مرشّحو الملفات المرفوعة خارج ذلك
-    // العالم فلا يتأثرون. لم يحدّد أحداً → لا قيد إطلاقاً.
-    const selected = selectedKeySet(plan);
-    let resolvedCandidates = allResolved;
-    if (selected.size) {
-      const universe = await getScopedDoctorKeySet(plan.scientificRepId);
-      resolvedCandidates = allResolved.filter(c => {
-        const keys = [doctorLinkKey(c.rawName, c.areaName)];
-        if (c.doctor) keys.push(doctorLinkKey(c.doctor.name, c.doctor.area?.name ?? c.areaName));
-        const inUniverse = keys.some(k => universe.has(k));
-        return !inUniverse || keys.some(k => selected.has(k));
-      });
-    }
-
+    const resolvedCandidates = await loadComputeCandidates(plan);
     const { buckets, finalByBucket, unassignable, summary } = computeBucketPlan(plan.targetDoctorCount, plan.ratioConfig, resolvedCandidates);
 
-    // إعادة ضبط الاختيار السابق قبل تطبيق الجولة الجديدة
-    await prisma.smartPlanCandidate.updateMany({
-      where: { smartPlanId: plan.id },
-      data: { selected: false, assignedBucketKey: null, aiScore: null, aiReason: null },
-    });
-
+    // الفئات مستقلة تماماً (كل مرشّح في فئة واحدة) → تنسيق Gemini لها بالتوازي
+    // بدل التسلسل؛ الزمن الكلّي = أبطأ فئة لا مجموع الفئات.
     const deadline = Date.now() + 240_000;
-    const finalSummary = [];
-    for (const b of buckets) {
+    const curated = await Promise.all(buckets.map(async b => {
       const pool = finalByBucket.get(b.key) || [];
       const bucketSummary = summary.find(s => s.key === b.key);
       const quota = bucketSummary?.quota ?? 0;
       const picks = quota > 0 && pool.length
         ? await curateBucket(b.label, pool, quota, Math.max(5000, deadline - Date.now()))
         : [];
-      const pickIds = new Set(picks.map(p => p.id));
+      return { b, pool, bucketSummary, picks };
+    }));
 
+    // كل الكتابات في معاملة واحدة: إعادة ضبط الجولة السابقة ثم تطبيق الجديدة
+    const writes = [prisma.smartPlanCandidate.updateMany({
+      where: { smartPlanId: plan.id },
+      data: { selected: false, assignedBucketKey: null, aiScore: null, aiReason: null },
+    })];
+    const finalSummary = [];
+    for (const { b, pool, bucketSummary, picks } of curated) {
+      const pickIds = new Set(picks.map(p => p.id));
       for (const pick of picks) {
-        await prisma.smartPlanCandidate.update({
+        writes.push(prisma.smartPlanCandidate.update({
           where: { id: pick.id },
           data: { selected: true, assignedBucketKey: b.key, aiScore: pick.score, aiReason: pick.reason },
-        });
+        }));
       }
       const leftoverIds = pool.filter(c => !pickIds.has(c.id)).map(c => c.id);
       if (leftoverIds.length) {
-        await prisma.smartPlanCandidate.updateMany({ where: { id: { in: leftoverIds } }, data: { assignedBucketKey: b.key } });
+        writes.push(prisma.smartPlanCandidate.updateMany({ where: { id: { in: leftoverIds } }, data: { assignedBucketKey: b.key } }));
       }
       finalSummary.push({ ...bucketSummary, filledCount: picks.length });
     }
+    await prisma.$transaction(writes);
 
     await prisma.smartPlan.update({
       where: { id: plan.id },

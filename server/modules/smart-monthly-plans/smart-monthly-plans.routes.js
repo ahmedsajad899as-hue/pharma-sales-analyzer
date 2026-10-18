@@ -36,6 +36,7 @@ router.get('/:id/ambiguous',        ctrl.getAmbiguous);
 router.post('/:id/resolve/ai',      ctrl.resolveAi);
 router.post('/:id/resolve/confirm', ctrl.confirmMatches);
 
+router.post('/:id/preview',         ctrl.preview);
 router.post('/:id/compute',         ctrl.compute);
 router.patch('/:id/candidates/:candidateId', ctrl.updateCandidate);
 

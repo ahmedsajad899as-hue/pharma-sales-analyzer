@@ -82,6 +82,58 @@ export function Stat({ label, value, tone = 'neutral' }: { label: string; value:
   );
 }
 
+/**
+ * بطاقة رقم تعمل كفلتر أيضاً — الضغط عليها يعرض تلك الشريحة فقط، والضغط ثانيةً
+ * يلغيها. تختصر شريط الفلاتر المنفصل: الرقم والفلتر صارا عنصراً واحداً.
+ */
+export function FilterStat({
+  label, value, tone = 'neutral', active, onClick, title,
+}: {
+  label: string; value: ReactNode; tone?: Tone; active?: boolean; onClick?: () => void; title?: string;
+}) {
+  const t = TONES[tone];
+  const fg = tone === 'neutral' ? 'var(--c-text-primary)' : t.fg;
+  return (
+    <button
+      type="button" onClick={onClick} title={title} disabled={!onClick}
+      style={{
+        flex: '1 1 110px', minWidth: 96, textAlign: 'start', fontFamily: 'inherit',
+        cursor: onClick ? 'pointer' : 'default',
+        background: active ? 'var(--c-surface)' : tone === 'neutral' ? 'var(--c-bg)' : t.bg,
+        border: `${active ? 2 : 1}px solid ${active ? (tone === 'neutral' ? 'var(--c-accent)' : t.fg) : tone === 'neutral' ? 'var(--c-border)' : t.border}`,
+        borderRadius: 11, padding: active ? '8px 11px' : '9px 12px',
+        boxShadow: active ? 'var(--shadow-sm)' : 'none',
+        transition: 'border-color 0.15s, background 0.15s',
+      }}
+    >
+      <div style={{ fontSize: 10.5, color: 'var(--c-text-muted)', fontWeight: 600, marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: fg, lineHeight: 1.1 }}>{value}</div>
+    </button>
+  );
+}
+
+/** مربع تحديد ثلاثي الحالة (الكل / جزء / لا شيء) — للمنطقة والصيدلية. */
+export function TriCheck({
+  total, selected, onChange, title,
+}: {
+  total: number; selected: number; onChange: (include: boolean) => void; title?: string;
+}) {
+  const all = total > 0 && selected >= total;
+  const some = selected > 0 && !all;
+  return (
+    <input
+      type="checkbox"
+      title={title ?? (all ? 'إلغاء تحديد الكل' : 'تحديد الكل')}
+      disabled={total === 0}
+      checked={all}
+      ref={el => { if (el) el.indeterminate = some; }}
+      onClick={e => e.stopPropagation()}
+      onChange={() => onChange(!all)}
+      style={{ width: 16, height: 16, cursor: total ? 'pointer' : 'default', accentColor: 'var(--c-accent)', flexShrink: 0, margin: 0 }}
+    />
+  );
+}
+
 export interface Segment {
   key: string;
   label: string;

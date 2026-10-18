@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Icon } from '../../config/icons';
 import { btnMini, inputStyle, panel, sectionTitle } from './ui';
-import type { RatioBucket } from './types';
+import type { BucketSummary, RatioBucket } from './types';
 
 let nextTempId = 1;
 
@@ -10,13 +10,18 @@ const BUCKET_COLORS = ['#1a56db', '#0d9f6e', '#5a6a8a', '#7c93c3', '#0e7490', '#
 
 /** محرّر نسب الفئات — شريط نسب بصري + حصّة كل فئة بالأرقام لا بالنسبة فقط. */
 export default function RatioEditor({
-  buckets, onChange, targetDoctorCount, onTargetChange,
+  buckets, onChange, targetDoctorCount, onTargetChange, preview, previewLoading,
 }: {
   buckets: RatioBucket[];
   onChange: (buckets: RatioBucket[]) => void;
   targetDoctorCount: number;
   onTargetChange: (n: number) => void;
+  /** معاينة الخادم: الحصة/المتاح/النقص لكل فئة قبل التوليد — null قبل أول تحميل. */
+  preview?: { summary: BucketSummary[]; eligibleCount: number; pendingCount: number } | null;
+  previewLoading?: boolean;
 }) {
+  const previewByKey = new Map((preview?.summary ?? []).map(s => [s.key, s]));
+  const totalShortfall = (preview?.summary ?? []).reduce((s, b) => s + (b.shortfall || 0), 0);
   const [newLabel, setNewLabel] = useState('');
   const total = buckets.reduce((s, b) => s + (Number(b.percent) || 0), 0);
   const balanced = Math.round(total) === 100;
@@ -85,6 +90,22 @@ export default function RatioEditor({
               />
               <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>%</span>
               <span style={{ fontSize: 11.5, color: 'var(--c-text-secondary)', minWidth: 58, fontWeight: 600 }}>≈ {quota} طبيب</span>
+              {(() => {
+                const pv = previewByKey.get(b.key);
+                if (!pv || !(Number(b.percent) > 0)) return <span style={{ minWidth: 92 }} />;
+                const short = pv.shortfall > 0;
+                return (
+                  <span
+                    title={short ? `المرشّحون المؤهَّلون لهذه الفئة أقل من حصتها بـ${pv.shortfall}` : 'المرشّحون يكفون الحصة'}
+                    style={{
+                      minWidth: 92, fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '2px 8px', textAlign: 'center',
+                      background: short ? 'var(--c-danger-bg)' : 'var(--c-success-bg)',
+                      color: short ? 'var(--c-danger)' : 'var(--c-success)',
+                      border: `1px solid ${short ? 'var(--c-danger-border)' : 'var(--c-success-border)'}`,
+                    }}
+                  >{short ? `نقص ${pv.shortfall}` : `متاح ${pv.poolSize} ✓`}</span>
+                );
+              })()}
               <button
                 onClick={() => remove(idx)}
                 title="حذف الفئة"
@@ -94,6 +115,25 @@ export default function RatioEditor({
           );
         })}
       </div>
+
+      {preview && (
+        <div style={{
+          marginTop: 12, fontSize: 12, borderRadius: 10, padding: '8px 12px',
+          display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap',
+          background: totalShortfall > 0 ? 'var(--c-danger-bg)' : 'var(--c-bg)',
+          border: `1px solid ${totalShortfall > 0 ? 'var(--c-danger-border)' : 'var(--c-border)'}`,
+          color: 'var(--c-text-secondary)', opacity: previewLoading ? 0.6 : 1,
+        }}>
+          <Icon name={totalShortfall > 0 ? 'warning' : 'checkCircle'} size={13}
+            style={{ color: totalShortfall > 0 ? 'var(--c-danger)' : 'var(--c-success)' }} />
+          {totalShortfall > 0
+            ? <span>البلان سيطلع ناقصاً <strong>{totalShortfall}</strong> طبيب بهذه النسب — قلّل نسبة الفئة الناقصة، أو حدّد أطباء أكثر، أو ارفع ملفاً يغذّيها.</span>
+            : <span>المرشّحون ({preview.eligibleCount}) يكفون كل الحصص.</span>}
+          {preview.pendingCount > 0 && (
+            <span style={{ color: 'var(--c-danger)' }}>· {preview.pendingCount} اسم ملتبس غير محسوب بعد (يُراجَع في النتيجة)</span>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <input
