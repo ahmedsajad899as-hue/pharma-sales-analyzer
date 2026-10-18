@@ -335,7 +335,7 @@ const provSummaryCache = new Map<string, ProvSummary[]>();
 const BOARD_COUNT = 6;
 const ROTATE_MS = 13000;
 /** تكبير العنصر المعروض في الوسط كي يتركّز عليه النظر (الجانبية 0.74 و0.54) */
-const CF_ACTIVE_SCALE = 1.2;
+const CF_ACTIVE_SCALE = 1.38;
 /** أقصى مدة يوقف فيها مرورُ الماوس فوق البطاقة المعروضة الدورانَ */
 const HOVER_PAUSE_MAX_MS = 60_000;
 
@@ -825,11 +825,11 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
             <button key={i} type="button" className={`cf-slot ${off === 0 ? 'is-active' : ''}`}
               aria-hidden={hidden} tabIndex={hidden ? -1 : 0}
               style={{
-                transform: `translateX(${off * -66}%) scale(${abs === 0 ? CF_ACTIVE_SCALE : 1 - abs * 0.2 - 0.06})`,
+                transform: `translateX(${off * -84}%) scale(${abs === 0 ? CF_ACTIVE_SCALE : 1 - abs * 0.2 - 0.06})`,
                 opacity: hidden ? 0 : abs === 0 ? 1 : abs === 1 ? 0.55 : 0.25,
                 zIndex: 10 - abs,
                 pointerEvents: hidden ? 'none' : 'auto',
-                filter: abs ? `blur(${abs * 0.6}px)` : undefined,
+                filter: abs ? `blur(${abs * 1.2}px)` : undefined,
               }}
               onPointerEnter={() => { if (off === 0 && !hoverCapped.current) setHoverPause(true); }}
               onPointerLeave={() => { if (off === 0) setHoverPause(false); }}
@@ -1125,8 +1125,14 @@ function HomeStyles() {
 .cf-slot:not(.is-active) .b3d.is-tilt { transform: rotateX(-10deg) rotateY(-26deg) !important; }
 
 /* العنصر المعروض أكبر — المرحلة تتّسع لتكبيره (CF_ACTIVE_SCALE) */
-.hp.is-board .cf-stage { height: calc(var(--h) * 1.22 + 36px); }
-.hp.is-board .cf-slot { top: calc(var(--h) * 0.11 + 16px); }
+.hp.is-board .cf-stage { height: calc(var(--h) * 1.4 + 120px); }
+.hp.is-board .cf-slot { top: calc(var(--h) * 0.2 + 14px); }
+/* الكمية تنزل تحت المجسّم (خارج حدود البطاقة) كي يبقى التركيز على العلبة، والعلبة تأخذ ارتفاع البطاقة كله */
+.hp.is-board .bb-card.has-photo { overflow: visible; }
+.hp.is-board .bb-card.has-photo .b3d-scene { inset: 0; }
+.hp.is-board .bb-photo-pill { bottom: -70px; font-size: 20px; padding: 3px 14px; }
+.hp.is-board .bb-photo-pill small { font-size: 11px; }
+.hp.is-board .cf-dots { padding-top: 26px; }
 .hp.is-board .cf-slot:focus-visible { outline-color: var(--c-accent); }
 
 /* شاشة صافية: أزرار الرأس صغيرة جداً، وأزرار الايتمات/المحافظات يساراً بجانب «قائمة» */
