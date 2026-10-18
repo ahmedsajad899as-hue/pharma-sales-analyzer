@@ -1452,6 +1452,14 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // افتراضياً. راجع isWarehouseSaleRow أعلاه وgetExcludeWarehouseSales.
   const excludeWarehouse = viewerId ? await getExcludeWarehouseSales(viewerId) : true;
   const filtered = excludeWarehouse ? deduped.filter(s => !isWarehouseSaleRow(s.rawData)) : deduped;
+  {
+    // تشخيص مؤقت: أين تختفي صفوف ميركاتو؟ (صندوق Office/Mercato لا يظهر)
+    const mSet = new Set(mercatoFileIds);
+    const cnt = rows => rows.filter(s => mSet.has(s.uploadedFileId)).length;
+    console.log('[SciRep.srcDiag] rep=%s mercatoFiles=%j officeFiles=%j mercatoNameIds=%d nameIds=%d commReps=%d raw=%d/%d deduped=%d/%d afterWarehouse=%d/%d excludeWh=%s',
+      id, mercatoFileIds, officeFileIds, mercatoNameMatchIds.length, nameMatchIds.length, expandedCommRepIds.length,
+      cnt(rawSales), rawSales.length, cnt(deduped), deduped.length, cnt(filtered), filtered.length, excludeWarehouse);
+  }
   // rawData هنا مؤقت لأجل الفلتر أعلاه فقط حين لم يطلبه الـselect أصلاً
   // (REPORT_SALES_SELECT) — لا يُستبعد حين طلبه صراحة (EXPORT_SALES_SELECT
   // يعتمد عليه لاحقاً في بناء ملف التصدير).
