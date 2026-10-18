@@ -780,6 +780,28 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   // ── التحريك بأسهم الكيبورد ←/→ ─────────────────────────────────────────────
   // الاتجاه بصري: البطاقات التالية تقع على يسار الوسط (translateX سالب)، فسهم اليسار
   // يجلب التالية للوسط وسهم اليمين يجلب السابقة. يعيد ضبط عدّاد التقليب التلقائي.
+  // ── هندسة الجانبيين: المسافة تُحسب بالبكسل من عرض اللوحة الفعلي كي تظهر البطاقة الجانبية
+  // كاملة دائماً (بنسبة ثابتة كانت تُقصّ عند حواف الشاشة الأضيق). ±2 تُخفى إن لم تتّسع.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [geo, setGeo] = useState({ stage: 0, card: 0 });
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const measure = () => {
+      const slot = el.querySelector<HTMLElement>('.cf-slot');
+      setGeo({ stage: el.clientWidth, card: slot?.offsetWidth ?? 0 });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [count]);
+  const S1 = 0.74, S2 = 0.54, GAP = 14;
+  const step = geo.card
+    ? Math.max(geo.card * 0.5, Math.min(geo.card * 0.84, geo.stage / 2 - (geo.card * S1) / 2 - GAP))
+    : 0;
+  const fitsSecond = geo.card > 0 && 2 * step + (geo.card * S2) / 2 + GAP <= geo.stage / 2;
+
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -813,23 +835,23 @@ function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   return (
     <div className={`cf cf-${variant} ${hoverPause ? 'is-paused' : ''}`} ref={rootRef}
       onPointerLeave={() => { hoverCapped.current = false; setHoverPause(false); }}>
-      <div className="cf-stage">
+      <div className="cf-stage" ref={stageRef}>
         {Array.from({ length: count }, (_, i) => {
           // أقصر مسافة دائرية من النشطة: -2..+2 ظاهرة، والباقي مخفي خلفها
           let off = i - active;
           if (off > count / 2) off -= count;
           if (off < -count / 2) off += count;
           const abs = Math.abs(off);
-          const hidden = abs > 2;
+          const hidden = abs > 2 || (abs === 2 && !fitsSecond);
           return (
             <button key={i} type="button" className={`cf-slot ${off === 0 ? 'is-active' : ''}`}
               aria-hidden={hidden} tabIndex={hidden ? -1 : 0}
               style={{
-                transform: `translateX(${off * -84}%) scale(${abs === 0 ? CF_ACTIVE_SCALE : 1 - abs * 0.2 - 0.06})`,
+                transform: `translateX(${step ? `${-off * step}px` : `${off * -84}%`}) scale(${abs === 0 ? CF_ACTIVE_SCALE : abs === 1 ? S1 : S2})`,
                 opacity: hidden ? 0 : abs === 0 ? 1 : abs === 1 ? 0.55 : 0.25,
                 zIndex: 10 - abs,
                 pointerEvents: hidden ? 'none' : 'auto',
-                filter: abs ? `blur(${abs * 1.2}px)` : undefined,
+                filter: abs ? `blur(${abs * 0.7}px)` : undefined,
               }}
               onPointerEnter={() => { if (off === 0 && !hoverCapped.current) setHoverPause(true); }}
               onPointerLeave={() => { if (off === 0) setHoverPause(false); }}
@@ -1077,7 +1099,7 @@ function HomeStyles() {
 @media (prefers-reduced-motion: reduce) { .b3d-bob, .b3d-shadow { animation: none; } }
 
 /* ══ واجهة اللوحة: خلفية فاتحة قريبة من الأبيض، والعناصر طافية بلا حدود ══ */
-.hp.is-board { --mx: 0; --my: 0; position: relative; z-index: 0; max-width: 960px; }
+.hp.is-board { --mx: 0; --my: 0; position: relative; z-index: 0; max-width: 1240px; }
 .hp-sky { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none;
   background: radial-gradient(ellipse at 50% 110%, #dbe7fb 0%, transparent 60%),
     linear-gradient(160deg, #fbfdff 0%, #f3f7fe 40%, #eaf1fc 75%, #e1ebfa 100%); }
