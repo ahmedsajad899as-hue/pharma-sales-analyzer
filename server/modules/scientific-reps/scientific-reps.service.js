@@ -42,14 +42,23 @@ export async function list(filters, user = null, options = {}) {
     // ── COMPANY-SCOPED MODE: return user-linked reps ──────────────────────
     // Get this manager's company assignments — التيم على أساس الشركة الرئيسية
     // (باستثناء مدير المكتب: لا فرق عنده بين رئيسية وثانوية — كل شركاته المُعيَّنة تابعة له بالتساوي)
-    const isOfficeManager = user.role === 'office_manager';
+    // مدير المنتج يرى مندوبي كل شركات مكتبه (مثل HR/موظف المكتب) لا شركاته المختارة فقط،
+    // ويُعامَل كمدير المكتب هنا: شركات المكتب رئيسية أو ثانوية سواء.
+    let officeCompanyIds = [];
+    if (user.role === 'product_manager') {
+      const pm = await prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
+      if (pm?.officeId) {
+        officeCompanyIds = (await prisma.scientificCompany.findMany({ where: { officeId: pm.officeId }, select: { id: true } })).map(c => c.id);
+      }
+    }
+    const isOfficeManager = user.role === 'office_manager' || officeCompanyIds.length > 0;
     const assignments = await prisma.userCompanyAssignment.findMany({
       where: { userId: user.id },
       select: { companyId: true, isPrimary: true, company: { select: { id: true, name: true } } },
     });
     const primaryAssignments = assignments.filter(a => a.isPrimary);
     const companyIds = isOfficeManager
-      ? assignments.map(a => a.companyId)
+      ? [...new Set([...assignments.map(a => a.companyId), ...officeCompanyIds])]
       : (primaryAssignments.length ? primaryAssignments : assignments).map(a => a.companyId);
 
     if (companyIds.length === 0) return [];
