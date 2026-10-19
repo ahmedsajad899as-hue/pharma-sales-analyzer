@@ -33,7 +33,7 @@ import { previewMergeGroups, mergeExistingFiles } from './lib/cumulativeMerge.js
 import {
   refreshCumulativeFile, ensureLegacyBatch, batchDateRanges, releaseBatch, reactivateBatch,
 } from './lib/cumulativeFile.js';
-import { UNDATED_CUTOFF, listSalesMonths } from './lib/salesMonths.js';
+import { UNDATED_CUTOFF, listSalesMonths, monthToRange } from './lib/salesMonths.js';
 import { resyncHiddenRows } from './modules/sales/file-editor.controller.js';
 import { auditCumulativeFile } from './lib/cumulativeAudit.js';
 import { resolveAreaScope, isFieldRole } from './lib/surveyDoctors.js';
@@ -1500,7 +1500,13 @@ app.post('/api/areas', async (req, res) => {
 // Optional: sciRepId=X  → apply same area+item filtering as the report endpoint
 app.get('/api/export/raw-sales', async (req, res) => {
   try {
-    const { commRepIds, fileId, fileIds, startDate, endDate, recordType, sciRepId, areaName, itemName } = req.query;
+    const { commRepIds, fileId, fileIds, recordType, sciRepId, areaName, itemName } = req.query;
+    // شريحة الشهر (`month`) تفوز على startDate/endDate — نفس applyMonth في
+    // scientific-reps.controller.js. بدونها كان تصدير «علمي بغداد» يُخرج كل الأشهر
+    // بينما الشاشة تعرض الشهر المختار فقط.
+    const monthRange = monthToRange(req.query.month);
+    const startDate  = monthRange ? monthRange.startDate.toISOString() : req.query.startDate;
+    const endDate    = monthRange ? monthRange.endDate.toISOString()   : req.query.endDate;
 
     // Support both fileIds=1,2,3 (multi) and legacy fileId=1 (single)
     const rawFileIds = fileIds || fileId;
