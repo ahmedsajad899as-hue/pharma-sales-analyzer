@@ -1378,6 +1378,14 @@ export function splitPharmacyArea(pharmacy, area) {
     .trim();
   let ph = cleanPharmacyName(dashed);
   let ar = String(area ?? '').trim();
+  // «الحرية ص. العترة»: سطر المنطقة دُمج قبل سطر الصيدلية (طلبيات الكروبات تكتب
+  // المنطقة سطراً مستقلاً فوق «ص …»). «ص» منفردة بعد كلمة = بداية اسم الصيدلية،
+  // وما قبلها منطقة. «ص» يجب أن تتبعها مسافة أو نقطة كي لا تُقصّ «صباح».
+  const emb = ph.match(/^([^\d/\-–]+?)\s+(?:صيدلي[ةه]|ص)(?:\s*[.:]\s*|\s+)(\S.*)$/);
+  if (emb && emb[1].trim().split(/\s+/).length <= 4) {
+    ph = cleanPharmacyName(emb[2]);
+    ar = emb[1].trim(); // نفس قاعدة الذيل أدناه: منطقة سطر الزبون أوثق من خانة الموديل
+  }
   const m = ph.match(/^(.*\S)\s*[-\/–]\s*(\S.*)$/); // last " - " or " / " separator
   if (m) {
     const head = m[1].trim();

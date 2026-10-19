@@ -18,6 +18,7 @@ import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItemNameSync, normalizeAreaName, normalizeItemKey, normalizeArabic } from '../../lib/itemResolver.js';
 import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
+import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
 
@@ -71,6 +72,33 @@ async function buildItemContext(userId) {
   return { ...ctx, scope: ids.length > 0 ? 'catalog' : 'user-items' };
 }
 
+// ─── بديل «العلامة + الجرعة المختصرة» ────────────────────────────────────────
+// فاصل الآلاف يُدمج **قبل** normalizeItemKey — التطبيع يحوّل «,» مسافة فتصير «50 000» رقمين.
+const doseNumbers = (s) => (normalizeItemKey(String(s ?? '').replace(/(\d)[,'](\d{3})(?!\d)/g, '$1$2')).match(/\d+/g) || []).map(Number);
+
+/**
+ * المندوبون يختصرون الجرعة بالآلاف: «Devit 50» = «Devit 50,000 IU»، و«Devit 5» =
+ * 5000. حارس الجرعة في areSimilar يرى 50 ≠ 50000 فلا يقترح شيئاً إطلاقاً (2026-10-19).
+ * هنا — وفقط حين لم يُطابَق الاسم بأي شكل — نحصر الكتالوج في أصناف **العلامة نفسها**
+ * ونربط إن انفرد صنف واحد بجرعة تساوي الرقم المكتوب أو ألف ضعفه. أكثر من صنف =
+ * اقتراحات بلا ربط (نفس قاعدة «لا حسم مع اللبس»).
+ * نقي — exported للاختبار.
+ */
+export function brandDoseFallback(name, catalog) {
+  const key = normalizeItemKey(name);
+  const brand = (key.match(/[a-z]{4,}/) || [])[0];
+  if (!brand || !Array.isArray(catalog)) return null;
+  const family = catalog.filter(c => normalizeItemKey(c.name).startsWith(brand));
+  if (!family.length) return null;
+  const suggestions = family.map(c => ({ id: c.id, name: c.name, sim: 0.5 }));
+  const q = doseNumbers(name)[0];
+  let hits;
+  if (q == null) hits = family.length === 1 ? family : [];
+  else hits = family.filter(c => doseNumbers(c.name).some(n => n === q || n === q * 1000));
+  if (hits.length === 1) return { canonicalItem: hits[0], confidence: 'high', suggestions, via: 'brand-dose' };
+  return { canonicalItem: null, confidence: 'medium', suggestions };
+}
+
 /**
  * يطابق اسم كل صنف بكتالوج المستخدم، ويملأ الشركة وسعر الوحدة من بطاقة الايتم.
  *
@@ -99,7 +127,11 @@ export async function enrichRowsFromCatalog(rows, userId, { linkOnly = false } =
   const names = [...new Set(rows.map(r => String(r.item ?? '').trim()).filter(Boolean))];
   const resolved = new Map();
   for (const name of names) {
-    try { resolved.set(name, await resolveItemName(name, ctx)); } catch { /* يبقى كما كُتب */ }
+    try {
+      let r = await resolveItemName(name, ctx);
+      if (r.confidence === 'none') r = brandDoseFallback(name, ctx.catalog) || r;
+      resolved.set(name, r);
+    } catch { /* يبقى كما كُتب */ }
   }
 
   const ids = [...new Set([...resolved.values()].map(r => r?.canonicalItem?.id).filter(Boolean))];
@@ -637,7 +669,7 @@ export async function ingestBotOrder({
         repName, repId, kind,
         sourceText: sourceText || null,
         imageFiles: imageFiles.length ? imageFiles : null,
-        payload: { rows, extractedAt: new Date().toISOString() },
+        payload: { rows, extractedAt: new Date().toISOString(), textParse: TEXT_PARSE_VERSION },
         rowCount: rows.length,
         sourceHash,
       },
@@ -655,7 +687,7 @@ export async function ingestBotOrder({
         await prisma.pendingBotOrder.update({
           where: { id: existing.id },
           data: {
-            payload: { rows, extractedAt: new Date().toISOString() },
+            payload: { rows, extractedAt: new Date().toISOString(), textParse: TEXT_PARSE_VERSION },
             rowCount: rows.length,
             imageFiles: imageFiles.length ? imageFiles : null,
           },
@@ -715,9 +747,21 @@ export async function getPendingOrder(userId, id) {
   if (!row) throw new AppError('الطلبية غير موجودة أو لا تخصّك.', 404, 'ORDER_NOT_FOUND');
   const payload = row.payload || {};
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
-  // طلبيات دخلت الطابور قبل مطابقة الماستر (لا تحمل _pharmacyMatched) تُطابَق عند
-  // الفتح — في الذاكرة فقط، فالصف المخزَّن لا يتغيّر قبل تأكيد المراجِع.
-  if (rows.length && rows.every(r => r && r._pharmacyMatched === undefined)) {
+  // طلبية نصّية قُرئت قبل القراءة الحتمية للنص (2026-10-19) تُعاد قراءتها عند الفتح:
+  // ترويسة متعدّدة الأسطر وكمية بين قوسين ← ثم إعادة مطابقة الكتالوج والماستر
+  // والمندوب. في الذاكرة فقط كالمطابقة أدناه.
+  if (rows.length && row.kind === 'text' && row.sourceText && payload.textParse !== TEXT_PARSE_VERSION) {
+    const live = rows.filter(Boolean);
+    const areaBefore = live.map(r => r.area ?? null);
+    // النصّ كما هو: الأسطر هي ما يقرأه المحلّل، وparseOrderText يُسقط سطر «طلبية» بنفسه.
+    await applyTextParse(live, row.sourceText);
+    await enrichRowsFromCatalog(live, userId);
+    await matchInvoiceCustomers(live);
+    // مندوب خُمِّن من منطقة خاطئة يُمسح ليُعاد تخمينه من المنطقة المصحّحة أدناه.
+    live.forEach((r, i) => { if (r.area !== areaBefore[i]) r.scientificRep = null; });
+  } else if (rows.length && rows.every(r => r && r._pharmacyMatched === undefined)) {
+    // طلبيات دخلت الطابور قبل مطابقة الماستر (لا تحمل _pharmacyMatched) تُطابَق عند
+    // الفتح — في الذاكرة فقط، فالصف المخزَّن لا يتغيّر قبل تأكيد المراجِع.
     await matchInvoiceCustomers(rows);
   }
   // التخمين يُعاد عند الفتح لكل صف بلا مندوب — كي تستفيد الطلبيات المعلَّقة من

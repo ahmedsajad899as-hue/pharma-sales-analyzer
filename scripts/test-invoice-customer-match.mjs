@@ -13,6 +13,8 @@ const areas = [
   { id: 5, name: 'حي الجامعة', needsReview: false },
   { id: 6, name: 'الطارمية', needsReview: false },
   { id: 7, name: 'المنصور', needsReview: true }, // نسخة حساب آخر
+  { id: 8, name: 'ابو غريب', needsReview: false },
+  { id: 9, name: 'خان ضاري', needsReview: false },
 ];
 const aliases = [{ fromKey: 'دوره جمعه', areaId: 4 }];
 const pharmacies = [
@@ -39,6 +41,12 @@ eq('بغداد - منصور ← الحيّ', matchArea('بغداد - منصور'
 eq('عنوان حقل يُسقَط: المنطقة: الكرادة', matchArea('المنطقة: الكرادة', m)?.name, 'الكرادة');
 eq('alias محفوظ', matchArea('دورة جمعة', m)?.name, 'الكرادة');
 eq('منطقة مجهولة تبقى null', matchArea('حي العامل', m), null);
+eq('منطقتان بلا فاصل: الأسبق يغلب', matchArea('ابو غريب خان ضاري', m)?.name, 'ابو غريب');
+eq('حي الجامعة م 304 ← حي الجامعة', matchArea('حي الجامعة م 304', m)?.name, 'حي الجامعة');
+eq('دمج سطر المنطقة قبل «ص.»', splitPharmacyArea('الحرية ص. العترة', ''), { pharmacy: 'العترة', area: 'الحرية' });
+eq('دمج سطر المنطقة قبل «ص»', splitPharmacyArea('المنصور ص ابن النفيس', 'المنصور'), { pharmacy: 'ابن النفيس', area: 'المنصور' });
+eq('«صباح» داخل الاسم لا تُقسَم', splitPharmacyArea('نور صباح', ''), { pharmacy: 'نور صباح', area: '' });
+eq('بادئة «ص» في أوّل السطر تبقى كما كانت', splitPharmacyArea('ص نديم عدنان ـ الطارمية', ''), { pharmacy: 'نديم عدنان', area: 'الطارمية' });
 
 eq('الفاتورة: فوزي / منصور', r('فوزي', 'منصور'), ['صيدلية فوزي', 'المنصور']);
 eq('بلا فاصل: فوزي منصور', r('فوزي منصور', ''), ['صيدلية فوزي', 'المنصور']);

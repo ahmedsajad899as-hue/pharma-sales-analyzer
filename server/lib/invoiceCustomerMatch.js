@@ -146,6 +146,25 @@ export function matchArea(raw, m) {
       if (hit) return hit;
     }
   }
+  return matchAreaWords(full, m);
+}
+
+/**
+ * منطقتان بلا فاصل («ابو غريب خان ضاري» = القضاء ثم القرية): يجرّب مجموعات الكلمات
+ * المتتالية **بتطابق تام/alias فقط** (الضبابي على كلمة مفردة يُطابق أي شيء)،
+ * الأطول أولاً، وعند التساوي الأسبق في السطر — المكتوب أولاً هو المنطقة الأعمّ
+ * التي يُسند إليها المندوب.
+ */
+function matchAreaWords(full, m) {
+  const words = stripAreaLabel(full).split(/\s+/).filter(Boolean);
+  if (words.length < 2 || words.length > 6) return null;
+  for (let n = words.length - 1; n >= 1; n--) {
+    for (let i = 0; i + n <= words.length; i++) {
+      const hit = matchAreaOne(words.slice(i, i + n).join(' '), m, { fuzzy: false });
+      // كلمة مفردة قصيرة («حي»، «ابو») ليست دليلاً على منطقة.
+      if (hit && (n > 1 || normalizeAreaName(words[i]).length >= 4)) return { ...hit, how: `${hit.how}-words` };
+    }
+  }
   return null;
 }
 
