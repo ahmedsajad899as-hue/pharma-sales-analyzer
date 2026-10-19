@@ -508,6 +508,15 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       : emptyRow();
     return [...rs, seed];
   });
+  /**
+   * يفرّغ بيانات الصف فقط — الصف يبقى في مكانه ومرتبطاً بطلبيته وصورتها. خانات
+   * الفاتورة المدموجة (المذخر/رقم الفاتورة/التاريخ) تُبقى: هي مشتركة بين أصناف
+   * الفاتورة، وتفريغها من صفّها الأول كان سيمسحها لكل أصنافها.
+   */
+  const clearRow = (i: number) => setRows(rs => rs.map((r, idx) => (idx === i
+    ? { ...emptyRow(), orderId: r.orderId, imageIndex: r.imageIndex, box: r.box, boxCustomer: r.boxCustomer, boxHeader: r.boxHeader,
+        warehouse: r.warehouse, invoiceNumber: r.invoiceNumber, date: r.date }
+    : r)));
   const removeRow = (i: number) => setRows(rs => (rs.length > 1 ? rs.filter((_, idx) => idx !== i) : [emptyRow()]));
   const onQtyPrice = (i: number, key: 'quantity' | 'unitPrice', val: string) => {
     setRows(rs => rs.map((r, idx) => {
@@ -1414,7 +1423,10 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                     );
                   })}
                   <td style={{ ...gTd, ...sep, textAlign: 'center' }}>
-                    <button onClick={() => removeRow(i)} style={delBtn} title="حذف الصف">×</button>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                      <button onClick={() => clearRow(i)} style={clearBtn} title="تفريغ خانات الصف (يبقى الصف فارغاً)">⌫</button>
+                      <button onClick={() => removeRow(i)} style={delBtn} title="حذف الصف">×</button>
+                    </div>
                   </td>
                 </tr>
                 </Fragment>
@@ -1596,12 +1608,13 @@ const dupBannerSoft: React.CSSProperties = { background: '#fef3c7', color: '#783
 const dupTag: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#b91c1c', padding: '0 7px 3px', lineHeight: 1.3 };
 const GRID_CSS = `
 .msm-row:hover > td { background: #f8fafc !important; }
-.msm-row.msm-dup > td { background: #fecaca !important; }
-.msm-row.msm-dup-maybe > td { background: #fef08a !important; }
+.msm-row.msm-dup > td { background: #fef2f2 !important; }
+.msm-row.msm-dup-maybe > td { background: #fffbeb !important; }
 .msm-row textarea:hover, .msm-row input:hover { border-color: #cbd5e1 !important; }
 .msm-row textarea:focus, .msm-row input:focus { border-color: #94a3b8 !important; border-style: solid !important; background: #fff !important; box-shadow: none; }
 .msm-row textarea::placeholder { color: #94a3b8; font-weight: 500; }
 `;
+const clearBtn: React.CSSProperties = { background: 'none', border: '1px solid #cbd5e1', color: '#64748b', borderRadius: 6, padding: '2px 7px', cursor: 'pointer', fontSize: 12, lineHeight: 1.1 };
 const delBtn: React.CSSProperties = { background: 'none', border: '1px solid #fecaca', color: '#f87171', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 14, lineHeight: 1 };
 const addBtn: React.CSSProperties = { padding: '6px 12px', background: '#fff', color: '#334155', border: '1px solid #cbd5e1', borderRadius: 6, fontWeight: 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit' };
 const confirmBtn: React.CSSProperties = { padding: '6px 12px', background: '#fff', color: '#334155', border: '1px solid #cbd5e1', borderRadius: 6, fontWeight: 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit' };
