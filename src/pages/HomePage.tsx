@@ -541,11 +541,15 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, t
               <button className="modal-close" onClick={() => setDetail(null)}>✕</button>
             </div>
             <div className="bb-modal-body">
-              {detail.kind === 'item' && showDocs && <ItemDocs itemName={detail.item.name} token={token} />}
-              <div className="hp-sub-title">{detail.kind === 'item' ? 'مبيعه في المحافظات' : 'مبيعها من الايتمات'}</div>
-              {detail.kind === 'item'
-                ? <Provinces itemId={detail.item.id} ym={month} fileKey={fileKey} source={source} token={token} />
-                : <ProvinceItems prov={detail.prov} />}
+              {/* زر 📎 يبدّل النافذة بين المبيعات وبطاقة الايتم (شرح/تسجيلات/صور) — لا يعرضهما معاً */}
+              {detail.kind === 'item' && showDocs ? <ItemDocs itemName={detail.item.name} token={token} /> : (
+                <>
+                  <div className="hp-sub-title">{detail.kind === 'item' ? 'مبيعه في المحافظات' : 'مبيعها من الايتمات'}</div>
+                  {detail.kind === 'item'
+                    ? <Provinces itemId={detail.item.id} ym={month} fileKey={fileKey} source={source} token={token} />
+                    : <ProvinceItems prov={detail.prov} />}
+                </>
+              )}
             </div>
           </div>
         </div>
