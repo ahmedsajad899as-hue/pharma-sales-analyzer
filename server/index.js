@@ -19,7 +19,7 @@ import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
 import { updateConditionRow, deleteConditionRow } from './modules/sales/sales.service.js';
-import { loadConditionSheets, scopeSheetsToRoster, buildConditionWorkbook, migrateRowsToConditionFiles } from './lib/conditionFile.js';
+import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles } from './lib/conditionFile.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -2224,11 +2224,13 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
   try {
     const file = await findReadableFile(id, req.user?.id ?? null);
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
-    const [sheets, months] = await Promise.all([
-      loadConditionSheets(id, { month: req.query.month || null }).then(sh => scopeSheetsToRoster(sh, req.user)),
+    const [all, months] = await Promise.all([
+      loadConditionSheets(id, { month: req.query.month || null }),
       listSalesMonths(prisma, [id], 'sale'),
     ]);
-    res.json({ success: true, data: { file, sheets, months } });
+    const sheets = await scopeSheetsToRoster(all, req.user);
+    const companySheet = await buildCompanySheet(all, sheets, req.user);
+    res.json({ success: true, data: { file, sheets, companySheet, months } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // PATCH/DELETE /api/files/:id/condition-rows/:saleId — تعديل/حذف صف (المالك فقط)
@@ -2251,9 +2253,11 @@ app.get('/api/files/:id/condition-export', requireAuth, async (req, res) => {
     const file = await findReadableFile(id, req.user?.id ?? null);
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
     const month = req.query.month || null;
-    const sheets = await scopeSheetsToRoster(await loadConditionSheets(id, { month }), req.user);
+    const all = await loadConditionSheets(id, { month });
+    const sheets = await scopeSheetsToRoster(all, req.user);
+    const companySheet = await buildCompanySheet(all, sheets, req.user);
     const title = `${file.originalName}${month && month !== 'all' ? ` — ${month}` : ''}`;
-    const buf = buildConditionWorkbook(sheets, { title });
+    const buf = buildConditionWorkbook(sheets, { title, companySheet });
     const name = `الكوديشن${month && month !== 'all' ? `_${month}` : ''}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="condition.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}`);

@@ -9,8 +9,9 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 type Row = {
   id: number; date: string; invoice: string; pharmacy: string; area: string; warehouse: string;
   item: string; company: string; quantity: number; bonus: number; unitPrice: number; total: number; source: string;
+  rep?: string;
 };
-type Sheet = { rep: string; rows: Row[]; quantity: number; total: number; orders: number };
+type Sheet = { rep: string; rows: Row[]; quantity: number; total: number; orders: number; all?: boolean };
 type Month = { ym: string; label: string; count: number };
 
 interface Props {
@@ -25,6 +26,9 @@ interface Props {
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 const SUMMARY = '__summary__';
+// شيت «كل مبيعات الشركة» — كل صفوف ايتمات الشركة مهما كان المندوب (ومنها «بلا مندوب»).
+const COMPANY = '__company__';
+const NO_REP = 'بلا مندوب';
 // عمود الصف ← حقل التعديل في PATCH /api/files/:id/condition-rows/:saleId
 const EDIT_COLS: { key: string; label: string; w: number; num?: boolean }[] = [
   { key: 'date', label: 'التاريخ', w: 128 }, { key: 'invoice', label: 'رقم الفاتورة', w: 90 },
@@ -37,6 +41,7 @@ const EDIT_COLS: { key: string; label: string; w: number; num?: boolean }[] = [
 
 export default function ConditionFileModal({ fileId, fileName, currency, token, canEdit = false, onClose }: Props) {
   const [sheets, setSheets] = useState<Sheet[]>([]);
+  const [companySheet, setCompanySheet] = useState<Sheet | null>(null);
   const [months, setMonths] = useState<Month[]>([]);
   const [month, setMonth] = useState('all');
   const [tab, setTab] = useState(SUMMARY);
@@ -56,6 +61,7 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
         if (!res.ok) throw new Error(j.error || 'تعذّر فتح الملف');
         if (!alive) return;
         setSheets(j.data.sheets);
+        setCompanySheet(j.data.companySheet ?? null);
         setMonths(j.data.months?.months ?? []);
       } catch (e: any) { if (alive) setError(e.message); }
       finally { if (alive) setLoading(false); }
@@ -65,7 +71,7 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
 
   // تبويب مندوب لم يعد موجوداً بعد تغيير الشهر ← الملخص.
   useEffect(() => {
-    if (tab !== SUMMARY && !sheets.some(s => s.rep === tab)) setTab(SUMMARY);
+    if (tab !== SUMMARY && tab !== COMPANY && !sheets.some(s => s.rep === tab)) setTab(SUMMARY);
   }, [sheets, tab]);
 
   const totals = useMemo(() => sheets.reduce(
@@ -112,7 +118,8 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
     } catch (e: any) { setError(e.message); }
   };
 
-  const current = sheets.find(s => s.rep === tab);
+  const current = tab === COMPANY ? companySheet : sheets.find(s => s.rep === tab);
+  const hasData = sheets.length > 0 || (companySheet?.rows.length ?? 0) > 0;
   const th: CSSProperties = { padding: '6px 8px', background: '#f1f5f9', fontWeight: 700, fontSize: 11.5, whiteSpace: 'nowrap', textAlign: 'center', position: 'sticky', top: 0 };
   const td: CSSProperties = { padding: '5px 8px', borderTop: '1px solid #e2e8f0', fontSize: 12, textAlign: 'center', whiteSpace: 'nowrap' };
   const tabBtn = (active: boolean): CSSProperties => ({
@@ -130,7 +137,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
             <option value="all">كل الأشهر</option>
             {months.map(m => <option key={m.ym} value={m.ym}>{m.label}</option>)}
           </select>
-          <button onClick={exportExcel} disabled={exporting || loading || sheets.length === 0}
+          <button onClick={exportExcel} disabled={exporting || loading || !hasData}
             style={{ border: '1px solid var(--c-success-border)', background: 'var(--c-success-bg)', color: 'var(--c-success)', borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
             {exporting ? '⏳ جاري التصدير…' : '⬇️ تصدير إكسل (شيت لكل مندوب)'}
           </button>
@@ -140,7 +147,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
         {error && <div style={{ color: 'var(--c-danger)', fontSize: 13, marginBottom: 8 }}>{error}</div>}
         {loading ? (
           <div style={{ color: '#64748b', fontSize: 13 }}>جاري التحميل…</div>
-        ) : sheets.length === 0 ? (
+        ) : !hasData ? (
           <div style={{ color: '#94a3b8', fontSize: 13, background: '#f8fafc', borderRadius: 8, padding: 20, textAlign: 'center' }}>
             لا توجد مبيعات في ملف الكوديشن{month !== 'all' ? ' لهذا الشهر' : ''} بعد. تُضاف إليه طلبيات بوت تلكرام عند حفظها وإكسل الكوديشن عند رفعه.
           </div>
@@ -149,6 +156,12 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
             {/* الشيتات: ملخّص + مندوب لكل تبويب */}
             <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid #e2e8f0' }}>
               <button onClick={() => setTab(SUMMARY)} style={tabBtn(tab === SUMMARY)}>📊 الملخص</button>
+              {companySheet && (
+                <button onClick={() => setTab(COMPANY)} style={tabBtn(tab === COMPANY)}
+                  title="كل مبيعات الشركة في الملف مهما كان المندوب — ومنها الطلبيات المحفوظة بلا مندوب">
+                  🏢 كل مبيعات الشركة <span style={{ color: '#94a3b8', fontWeight: 400 }}>({companySheet.rows.length})</span>
+                </button>
+              )}
               {sheets.map(s => (
                 <button key={s.rep} onClick={() => setTab(s.rep)} style={tabBtn(tab === s.rep)}>
                   {s.rep} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({s.rows.length})</span>
@@ -197,17 +210,19 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                     {current.rows.map(r => (
                       <tr key={r.id}>
                         {EDIT_COLS.map(c => {
-                          const val = c.key === 'rep' ? current.rep : String((r as any)[c.key] ?? '');
+                          const val = c.key === 'rep' ? (current.all ? (r.rep || NO_REP) : current.rep) : String((r as any)[c.key] ?? '');
                           const busy = savingCell === `${r.id}:${c.key}`;
                           return (
-                            <td key={c.key} style={{ ...td, padding: canEdit ? 2 : td.padding, opacity: busy ? 0.5 : 1 }}>
+                            <td key={c.key} style={{ ...td, padding: canEdit ? 2 : td.padding, opacity: busy ? 0.5 : 1,
+                              ...(c.key === 'rep' && val === NO_REP ? { background: '#fef3c7', color: '#92400e', fontWeight: 700 } : null) }}>
                               {canEdit ? (
                                 <input
-                                  defaultValue={val === '0' && (c.key === 'bonus' || c.key === 'unitPrice') ? '' : val}
+                                  defaultValue={(val === '0' && (c.key === 'bonus' || c.key === 'unitPrice')) || (c.key === 'rep' && val === NO_REP) ? '' : val}
+                                  placeholder={c.key === 'rep' && val === NO_REP ? NO_REP : undefined}
                                   key={`${r.id}-${c.key}-${val}`}
                                   type={c.key === 'date' ? 'date' : 'text'}
                                   inputMode={c.num ? 'decimal' : undefined}
-                                  onBlur={e => { if (e.target.value.trim() !== val.trim() && !(c.num && !e.target.value.trim() && (val === '0' || val === ''))) saveCell(r, c.key, e.target.value); }}
+                                  onBlur={e => { if (e.target.value.trim() !== (c.key === 'rep' && val === NO_REP ? '' : val.trim()) && !(c.num && !e.target.value.trim() && (val === '0' || val === ''))) saveCell(r, c.key, e.target.value); }}
                                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                                   style={{ width: c.w, border: '1px solid transparent', borderRadius: 6, padding: '4px 6px', fontSize: 12, textAlign: c.num ? 'center' : 'right', background: 'transparent' }}
                                   onFocus={e => { e.target.style.border = '1px solid var(--c-accent)'; e.target.style.background = '#fff'; }}

@@ -44,7 +44,7 @@ export async function loadConditionSheets(fileId, { month = null } = {}) {
     orderBy: [{ saleDate: 'asc' }, { id: 'asc' }],
     select: {
       id: true, quantity: true, totalValue: true, saleDate: true, rawData: true,
-      item: { select: { name: true } }, area: { select: { name: true } },
+      itemId: true, item: { select: { name: true, scientificCompanyId: true } }, area: { select: { name: true } },
       customer: { select: { name: true } }, representative: { select: { name: true } },
     },
   });
@@ -69,6 +69,9 @@ export async function loadConditionSheets(fileId, { month = null } = {}) {
       unitPrice: Number(raw.unitPrice) || (qty ? Math.round((total / qty) * 100) / 100 : 0),
       total,
       source:    SOURCE_LABEL[raw.source] || '',
+      rep,
+      itemId:    s.itemId ?? null,
+      sciCompanyId: s.item?.scientificCompanyId ?? null,
     };
     if (!byRep.has(rep)) byRep.set(rep, { rep, rows: [], quantity: 0, total: 0, orders: new Set() });
     const g = byRep.get(rep);
@@ -105,6 +108,44 @@ export async function scopeSheetsToRoster(sheets, user) {
   });
 }
 
+export const COMPANY_SHEET = 'كل مبيعات الشركة';
+
+/**
+ * شيت «كل مبيعات الشركة» (طلب صاحب المشروع 2026-10-19): كل صفوف الملف التي تخصّ
+ * شركة المستخدم **مهما كان المندوب** — ومنها «بلا مندوب» التي تُخفيها شيتات
+ * المندوبين عن مدير الشركة (طلبية حُفظت بلا مندوب علمي لا تضيع عنه).
+ *
+ * «شركة المستخدم» = ايتماته المُسنَدة (UserItemAssignment) + ايتمات شركاته الرئيسية
+ * (isPrimary). الأدوار غير المقيّدة بفريق ترى كل الصفوف. بلا أي إسناد: صفوف
+ * شيتاته الظاهرة فقط — لا توسيع للرؤية بلا دليل.
+ *
+ * @param {object[]} allSheets   ناتج loadConditionSheets قبل التقييد
+ * @param {object[]} scoped      بعد scopeSheetsToRoster
+ */
+export async function buildCompanySheet(allSheets, scoped, user) {
+  let rows;
+  if (!user || !ROSTER_SCOPED_ROLES.has(user.role) || ['office_manager', 'office_employee', 'office_hr'].includes(user.role)) {
+    rows = allSheets.flatMap(s => s.rows);
+  } else {
+    const [items, companies] = await Promise.all([
+      prisma.userItemAssignment.findMany({ where: { userId: user.id }, select: { itemId: true } }),
+      prisma.userCompanyAssignment.findMany({ where: { userId: user.id, isPrimary: true }, select: { companyId: true } }),
+    ]);
+    const itemIds = new Set(items.map(i => i.itemId));
+    const companyIds = new Set(companies.map(c => c.companyId));
+    rows = (itemIds.size || companyIds.size)
+      ? allSheets.flatMap(s => s.rows).filter(r => itemIds.has(r.itemId) || companyIds.has(r.sciCompanyId))
+      : scoped.flatMap(s => s.rows);
+  }
+  rows = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
+  return {
+    rep: COMPANY_SHEET, all: true, rows,
+    quantity: rows.reduce((a, r) => a + r.quantity, 0),
+    total: rows.reduce((a, r) => a + r.total, 0),
+    orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
+  };
+}
+
 const COLUMNS = [
   ['date', 'التاريخ'], ['invoice', 'رقم الفاتورة'], ['pharmacy', 'الصيدلية'], ['area', 'المنطقة'],
   ['warehouse', 'المذخر'], ['item', 'الايتم'], ['company', 'الشركة'], ['quantity', 'الكمية'],
@@ -121,7 +162,7 @@ function sheetName(name, used) {
 }
 
 /** إكسل: شيت ملخّص + شيت لكل مندوب بمبيعاته. */
-export function buildConditionWorkbook(sheets, { title = 'ملف الكوديشن' } = {}) {
+export function buildConditionWorkbook(sheets, { title = 'ملف الكوديشن', companySheet = null } = {}) {
   const wb = XLSX.utils.book_new();
   wb.Workbook = { Views: [{ RTL: true }] };
   const used = new Set();
@@ -140,14 +181,16 @@ export function buildConditionWorkbook(sheets, { title = 'ملف الكوديش�
   ws0['!views'] = [{ RTL: true }];
   XLSX.utils.book_append_sheet(wb, ws0, sheetName('الملخص', used));
 
-  for (const s of sheets) {
+  for (const s of (companySheet ? [companySheet, ...sheets] : sheets)) {
+    // شيت الشركة يحمل عمود المندوب (صفوفه من كل المندوبين).
+    const cols = s.all ? [...COLUMNS.slice(0, 7), ['rep', 'المندوب'], ...COLUMNS.slice(7)] : COLUMNS;
     const aoa = [
-      COLUMNS.map(c => c[1]),
-      ...s.rows.map(r => COLUMNS.map(([k]) => r[k] ?? '')),
-      COLUMNS.map(([k]) => (k === 'date' ? 'المجموع' : k === 'quantity' ? s.quantity : k === 'total' ? s.total : '')),
+      cols.map(c => c[1]),
+      ...s.rows.map(r => cols.map(([k]) => r[k] ?? '')),
+      cols.map(([k]) => (k === 'date' ? 'المجموع' : k === 'quantity' ? s.quantity : k === 'total' ? s.total : '')),
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = COLUMNS.map(([k]) => ({ wch: ['pharmacy', 'item', 'warehouse'].includes(k) ? 26 : 13 }));
+    ws['!cols'] = cols.map(([k]) => ({ wch: ['pharmacy', 'item', 'warehouse', 'rep'].includes(k) ? 26 : 13 }));
     ws['!views'] = [{ RTL: true }];
     XLSX.utils.book_append_sheet(wb, ws, sheetName(s.rep, used));
   }
