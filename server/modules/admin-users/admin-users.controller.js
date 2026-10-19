@@ -899,7 +899,7 @@ export async function syncProvinceLeaderScope(req, res) {
 // ── Set user features (enable/disable per-user features) ────────────────────
 export async function setUserFeatures(req, res) {
   const id = parseInt(req.params.id);
-  const { disabledFeatures = [], requireGps, disableActivityLog, doctorFilterByArea, doctorFilterPlanMode, doctorFilterSurveyOnly, hiddenFromOrgChart, defaultReportView } = req.body;
+  const { disabledFeatures = [], requireGps, disableActivityLog, doctorFilterByArea, doctorFilterPlanMode, doctorFilterSurveyOnly, hiddenFromOrgChart, defaultReportView, timeTheme } = req.body;
 
   const existing = await prisma.user.findUnique({ where: { id }, select: { permissions: true } });
   if (!existing) return res.status(404).json({ error: 'User not found' });
@@ -920,6 +920,9 @@ export async function setUserFeatures(req, res) {
   // إخفاء بصري بحت من شجرة «الهيكلية» (/api/my-company-org) — لا يمسّ صلاحيات
   // الحساب ولا بياناته ولا نتائجه إطلاقاً. راجع reparentAroundHidden في server/index.js.
   if (hiddenFromOrgChart !== undefined) perms.hiddenFromOrgChart = Boolean(hiddenFromOrgChart);
+  // ثيم الوقت: خلفية تتبع ساعة المستخدم — معطّل افتراضياً، يُفعَّل لحساب بعينه
+  // (راجع src/lib/timeTheme.ts).
+  if (timeTheme !== undefined) perms.timeTheme = Boolean(timeTheme);
 
   const user = await prisma.user.update({
     where: { id },

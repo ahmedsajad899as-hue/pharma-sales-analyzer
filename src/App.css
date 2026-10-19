@@ -322,6 +322,15 @@ tr:hover {
   flex-direction: row-reverse; /* RTL: sidebar on right */
 }
 
+/* ── ثيم الوقت (لكل حساب، يفعّله السوبر أدمن — src/lib/timeTheme.ts) ──
+   ألوان ناعمة جداً خلف كل الصفحات؛ الليل لافندري فاتح لا داكن كي تبقى كل
+   النصوص المكتوبة مباشرة على الخلفية مقروءة في كل الصفحات. */
+.app-shell.tod-on { background-attachment: fixed; transition: background-color 1.5s ease; }
+.app-shell.tod-on[data-tod=dawn]   { background: linear-gradient(170deg, #fdf8f4 0%, #f7f1f0 40%, #eff2f8 100%) fixed; }
+.app-shell.tod-on[data-tod=day]    { background: linear-gradient(170deg, #f6f9fd 0%, #eff3fa 50%, #e9eff8 100%) fixed; }
+.app-shell.tod-on[data-tod=sunset] { background: linear-gradient(170deg, #fcf5f0 0%, #f8eef0 45%, #f0edf7 100%) fixed; }
+.app-shell.tod-on[data-tod=night]  { background: linear-gradient(170deg, #eceef7 0%, #e6e8f4 50%, #e1e3f1 100%) fixed; }
+
 .app-main {
   flex: 1;
   min-width: 0;

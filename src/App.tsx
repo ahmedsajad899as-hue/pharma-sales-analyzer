@@ -10,6 +10,7 @@ import { getPageHeader, getPageHeaderIcon } from './config/pageHeaders';
 import { NAV_ITEMS } from './config/featureConfig';
 import { sendEngagementPing, pingAppOpenIfNewDay } from './lib/engagementPing';
 import { useEngagementHeartbeat } from './hooks/useEngagementHeartbeat';
+import { useTimeOfDay } from './lib/timeTheme';
 import './App.css';
 
 // Lazy-load heavy pages — each becomes its own JS chunk loaded on first visit
@@ -296,6 +297,8 @@ function keepMounted(prev: Set<PageId>, page: PageId): Set<PageId> {
 
 function AppInner() {
   const { user, hasFeature, token } = useAuth();
+  // ثيم الوقت: null ما لم يفعّله السوبر أدمن لهذا الحساب (src/lib/timeTheme.ts)
+  const tod = useTimeOfDay();
   const isImpersonating = sessionStorage.getItem('_is_impersonating') === '1';
 
   // On mobile (< 768px) start with sidebar closed
@@ -675,7 +678,7 @@ function AppInner() {
   ];
 
   return (
-    <div className="app-shell" dir="rtl">
+    <div className={`app-shell ${tod ? 'tod-on' : ''}`} data-tod={tod ?? undefined} dir="rtl">
       <ImpersonationBanner />
       <Sidebar
         activePage={activePage}

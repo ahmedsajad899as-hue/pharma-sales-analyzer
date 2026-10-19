@@ -175,6 +175,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [draftHiddenOrgChart, setDraftHiddenOrgChart] = useState(false);
   // الخانة (مبيعات/ارجاعات/صافي) التي تُفتح تلقائياً عند دخول صفحة التقارير والتحليل
   const [draftDefaultReportView, setDraftDefaultReportView] = useState<'sales' | 'returns' | 'net'>('net');
+  // ثيم الوقت (خلفية تتبع ساعة المستخدم) — معطّل افتراضياً، راجع src/lib/timeTheme.ts
+  const [draftTimeTheme,     setDraftTimeTheme]     = useState(false);
   const [repInfoData,        setRepInfoData]        = useState<any | null>(null);
   const [allAreasBusy,       setAllAreasBusy]       = useState(false);
   // مزامنة الشركات/الايتمات مع كل التابعين (زر تبويب «الموظفون»)
@@ -344,7 +346,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         surveyOnly: p.doctorFilterSurveyOnly === true,
       });
       setDraftDefaultReportView(['sales', 'returns', 'net'].includes(p.defaultReportView) ? p.defaultReportView : 'net');
-    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftHiddenOrgChart(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); setDraftDefaultReportView('net'); }
+      setDraftTimeTheme(p.timeTheme === true);
+    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftHiddenOrgChart(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); setDraftDefaultReportView('net'); setDraftTimeTheme(false); }
   }, [detail?.id]);
 
   // طيّ افتراضي عند فتح مستخدم: نطوي كل مجموعة (محافظة أو «غير محدد») لا صلة لها
@@ -911,6 +914,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           doctorFilterPlanMode: draftDoctorFilter.planMode,
           doctorFilterSurveyOnly: draftDoctorFilter.surveyOnly,
           defaultReportView: draftDefaultReportView,
+          timeTheme: draftTimeTheme,
         }),
       });
       if (!res.ok) {
@@ -2341,6 +2345,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       {renderSidebarBtn({ id: 'doctor_filter', icon: '🔍', label: 'فلتر الأطباء',  dot: { color: '#6366f1' } })}
                       {renderSidebarBtn({ id: 'report_view',   icon: '📊', label: 'عرض التقارير',  dot: { color: '#0d9f6e' } })}
                       {renderSidebarBtn({ id: 'org_chart',     icon: '🏗️', label: 'الهيكلية',      dot: { color: draftHiddenOrgChart ? '#94a3b8' : '#22c55e' } })}
+                      {renderSidebarBtn({ id: 'time_theme',    icon: '🌅', label: 'ثيم الوقت',     dot: { color: draftTimeTheme ? '#f59e0b' : '#94a3b8' } })}
                     </div>
 
                     <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '8px 12px' }} />
@@ -2423,6 +2428,38 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                           <span style={{ position: 'absolute', top: 5, left: draftRequireGps ? 31 : 5, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
                         </label>
                       </div>
+                    </div>
+                  )}
+
+                  {/* ── Time theme ── */}
+                  {featSection === 'time_theme' && (
+                    <div>
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 17, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>🌅 ثيم الوقت</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>ألوان خلفية التطبيق تتغيّر حسب ساعة المستخدم: فجر (5–8) · نهار (8–4) · غروب (4–7) · ليل — مع شمس/قمر في الرئيسية</div>
+                      </div>
+                      <div style={{
+                        borderRadius: 14, border: `2px solid ${draftTimeTheme ? '#f59e0b' : '#e2e8f0'}`,
+                        background: draftTimeTheme ? '#fffbeb' : '#fff',
+                        padding: '18px 20px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: draftTimeTheme ? '#fde68a' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🌅</div>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>تفعيل ثيم الوقت لهذا الحساب</div>
+                            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                              {draftTimeTheme ? '🟡 مفعّل — الخلفية تتبع وقت اليوم في كل الصفحات' : '⚪ معطّل (الافتراضي) — الخلفية الثابتة المعتادة'}
+                            </div>
+                          </div>
+                        </div>
+                        <label style={{ position: 'relative', display: 'inline-block', width: 56, height: 30, cursor: 'pointer', flexShrink: 0 }}>
+                          <input type="checkbox" checked={draftTimeTheme} onChange={e => setDraftTimeTheme(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+                          <span style={{ position: 'absolute', inset: 0, background: draftTimeTheme ? '#f59e0b' : '#e2e8f0', borderRadius: 30, transition: 'background 0.2s' }} />
+                          <span style={{ position: 'absolute', top: 5, left: draftTimeTheme ? 31 : 5, width: 20, height: 20, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.2)' }} />
+                        </label>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 10 }}>يظهر التغيير عند المستخدم بعد تحديث الصفحة أو إعادة تسجيل الدخول.</div>
                     </div>
                   )}
 
