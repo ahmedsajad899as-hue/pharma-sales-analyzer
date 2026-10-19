@@ -24,6 +24,7 @@ import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess } from 
 import { checkManualDuplicates, duplicateWarningText } from '../../lib/manualDuplicateCheck.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
 import { ingestPersonalSalesFromBot } from '../province-teams/personal-sales.service.js';
+import { renderOrderTablePng } from './order-table-image.js';
 
 /** يردّ بتعديل رسالة «⏳» حيث تدعم المنصة ذلك، وإلا برسالة جديدة (فايبر). */
 async function reply(transport, ctx, text) {
@@ -159,6 +160,21 @@ export async function handleIncomingOrderMessage({
       console.error('[orders] تعذّر فحص التكرار:', e?.message);
     }
     await reply(transport, ctx, msg + dupNote);
+
+    // صورة جدول التحليل للكروب (طلب صاحب المشروع): يرى المندوبون كيف قُرئت
+    // طلبيتهم وينبّهون على الخطأ قبل تدقيق المدير. تحسين لا شرط — فشلها صامت.
+    if (transport.sendPhoto) {
+      try {
+        const ids = [...String(msg).matchAll(/#(\d+)/g)].map(m => m[1]);
+        const png = await renderOrderTablePng(rows, {
+          title: ids.length ? `تحليل الطلبية رقم ${ids.join(' و ')}` : 'تحليل الطلبية',
+          footer: 'هذه قراءة الذكاء الاصطناعي قبل تدقيق المدير — إن وجدت خطأ فاكتبه هنا',
+        });
+        await transport.sendPhoto(chatId, png, { replyTo: messageId });
+      } catch (e) {
+        console.error('[orders] تعذّر إرسال صورة الجدول:', e?.message);
+      }
+    }
   } catch (err) {
     // نصّ AppError التشغيلي مفهوم للمستخدم ويُعرَض كما هو؛ غيره يُخفى كي لا يصل
     // stack trace إلى كروب مبيعات. نفس نمط handleCallbackQuery في تلكرام.

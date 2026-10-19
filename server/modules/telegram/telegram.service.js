@@ -90,6 +90,27 @@ const sendMessage        = async (chatId, text, replyMarkup, parseMode) => (awai
 /** تأمين نصّ داخل رسالة parse_mode=HTML — يُستعمل فقط حيث نمرّر HTML عمداً. */
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const editMessageText     = async (chatId, messageId, text, replyMarkup) => (await isSilentChat(chatId)) ? null : telegramApi('editMessageText', { chat_id: chatId, message_id: messageId, text, reply_markup: replyMarkup || { inline_keyboard: [] } });
+/**
+ * صورة إلى المحادثة (multipart — telegramApi يرسل JSON فقط). تحترم وضع الصمت.
+ * replyTo: رسالة المرسِل كي يُعرف أي طلبية يخصّها الجدول.
+ */
+async function sendPhoto(chatId, buffer, { caption = '', replyTo = null } = {}) {
+  if (!BOT_TOKEN || (await isSilentChat(chatId))) return null;
+  try {
+    const fd = new FormData();
+    fd.append('chat_id', String(chatId));
+    if (caption) fd.append('caption', String(caption).slice(0, 1000));
+    if (replyTo) fd.append('reply_parameters', JSON.stringify({ message_id: replyTo, allow_sending_without_reply: true }));
+    fd.append('photo', new Blob([buffer], { type: 'image/png' }), 'order.png');
+    const res = await fetch(`${API_BASE}/sendPhoto`, { method: 'POST', body: fd });
+    const j = await res.json();
+    if (!j.ok) console.error('[telegram] sendPhoto:', j.description);
+    return j;
+  } catch (e) {
+    console.error('[telegram] sendPhoto failed:', e.message);
+    return null;
+  }
+}
 const answerCallbackQuery = (id, text) => telegramApi('answerCallbackQuery', { callback_query_id: id, ...(text ? { text } : {}) });
 
 async function downloadDocument(fileId) {
@@ -426,6 +447,7 @@ const telegramTransport = {
   // getFile محيّد لنوع الملف — معرّف صورة يمرّ بنفس المسار بلا تعديل.
   downloadMedia: (fileId) => downloadDocument(fileId),
   resolveSenderRep: (chatId, senderId) => resolveSenderRep(chatId, senderId),
+  sendPhoto: (chatId, buffer, opts) => sendPhoto(chatId, buffer, opts),
 };
 
 // ألبوم صور واحد = طلبية واحدة لا N طلبيات. تلكرام يسلّم كل صورة في تحديث منفصل
@@ -445,7 +467,7 @@ async function flushAlbum(groupId) {
       transport: telegramTransport,
       link: g.actor.link, user: g.actor.user,
       chatId: g.actor.chatId, chatTitle: g.actor.chatTitle,
-      senderName: g.senderName, senderId: g.senderId,
+      senderName: g.senderName, senderId: g.senderId, messageId: g.messageId,
       text: g.caption,
       mediaRefs: g.mediaRefs,
       isReplyToBot: g.isReplyToBot,
@@ -465,6 +487,7 @@ function bufferAlbumPhoto(actor, message, fileId, updateId) {
     if (albumBuffer.size >= MAX_ALBUM_GROUPS) return; // حارس ذاكرة — تُهمَل مجموعة جديدة
     g = {
       actor, senderName: senderNameOf(message), senderId: message.from?.id ?? null, caption: '',
+      messageId: message.message_id ?? null,
       mediaRefs: [], updateIds: [], isReplyToBot: false, timer: null,
     };
     albumBuffer.set(groupId, g);
@@ -486,6 +509,7 @@ async function handleOrderMessage(actor, message, kind, updateId) {
     link: actor.link, user: actor.user,
     chatId: actor.chatId, chatTitle: actor.chatTitle,
     senderName: senderNameOf(message), senderId: message.from?.id ?? null,
+    messageId: message.message_id ?? null,
     isReplyToBot: isReplyToBotMsg(message),
   };
 
