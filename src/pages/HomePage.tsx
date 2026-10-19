@@ -1500,9 +1500,9 @@ function HomeStyles() {
 @media (prefers-reduced-motion: reduce) { .hp-sky-blob, .hp-sky-dot { animation: none; } .hp-sky-dot { opacity: .5; } }
 
 /* ══ ثيم الوقت (data-tod على .hp): فجر · نهار (الافتراضي أعلاه) · غروب · ليل ══ */
-.hp-sky { transition: background 1.5s ease; }
-.hp-sky-orb { position: absolute; border-radius: 50%; pointer-events: none; transition: all 1.5s ease;
-  translate: calc(var(--mx) * -10px) calc(var(--my) * -8px); }
+/* ثابت تماماً: لا حركة مع الماوس ولا انتقالات — إعادة الرسم المستمرّة كانت تُنزل دقة
+   رسم المجسّمات ثلاثية الأبعاد في Chrome (تبدو العلب مغبّشة). */
+.hp-sky-orb { position: absolute; border-radius: 50%; pointer-events: none; }
 .hp[data-tod=day] .hp-sky-orb { width: 120px; height: 120px; right: 9%; top: 7%;
   background: radial-gradient(circle, #fffbe6 0%, #fff3c4 45%, rgba(255,243,196,0) 70%); opacity: .8; }
 .hp[data-tod=dawn] .hp-sky { background: radial-gradient(ellipse at 18% 108%, #ffd2b0 0%, transparent 55%),
@@ -1536,7 +1536,8 @@ function HomeStyles() {
 .hp.is-board[data-tod=night] .cf-dot { background: rgba(255,255,255,.25); }
 .hp.is-board[data-tod=night] .bb-photo-pill { background: rgba(255,255,255,.94); color: var(--c-primary); box-shadow: 0 10px 28px rgba(0,0,0,.45); }
 .hp.is-board[data-tod=night] .b3d-shadow { background: radial-gradient(ellipse, rgba(0,0,0,.6), transparent 70%); }
-.hp.is-board[data-tod=night] .b3d-glow { background: radial-gradient(circle, rgba(147,197,253,.28), transparent 65%); }
+/* لا توهّج خلف العلبة ليلاً — فوق السماء الداكنة كان يظهر هالة ضبابية حول حوافها */
+.hp.is-board[data-tod=night] .b3d-glow { display: none; }
 
 .hp.is-board .hp-month, .hp.is-board .hp-view-btn { background: rgba(255,255,255,.7); color: var(--c-primary);
   border: 1px solid rgba(15,30,53,.08); backdrop-filter: blur(8px); box-shadow: 0 2px 10px rgba(15,30,53,.05); }
