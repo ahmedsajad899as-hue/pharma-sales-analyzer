@@ -20,7 +20,7 @@ import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
-import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
+import { loadItemOwnerManagers, loadCompanyPrimaryManagers } from '../../lib/itemOwnerManager.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
 
@@ -692,7 +692,8 @@ function toImageList(imageFiles) {
 // ايتم بلا مدير مالك يبقى عند حساب الكروب كما كان.
 
 /** يُرفع عند تغيير قاعدة التقسيم كي تُعاد على الطابور القائم. */
-const ROUTE_VERSION = 1;
+// 2: إعادة قراءة الصفوف القديمة قبل التقسيم + بديل «مدير الشركة الرئيسية» + الدمج.
+const ROUTE_VERSION = 2;
 
 /**
  * يقسّم صفوف طلبية بين حساب الكروب ومدراء الشركات المالكين لأصنافها.
@@ -701,39 +702,59 @@ const ROUTE_VERSION = 1;
 export async function splitRowsByOwner(rows, user) {
   const none = { keep: rows, forwards: [] };
   if (!Array.isArray(rows) || !rows.length || !user?.officeId) return none;
-  let owners;
+  let owners, companyOwners;
   try {
-    owners = await loadItemOwnerManagers(user.officeId);
+    [owners, companyOwners] = await Promise.all([
+      loadItemOwnerManagers(user.officeId),
+      loadCompanyPrimaryManagers(user.officeId),
+    ]);
   } catch (e) {
     console.error('[orders] تعذّر تحميل مالكي الايتمات:', e?.message);
     return none; // التحويل تحسين — فشله يُبقي الطلبية عند حساب الكروب
   }
-  if (!owners.size) return none;
+  if (!owners.size && !companyOwners.size) return none;
 
-  // صنف لم يُربط بكتالوج حساب الكروب يُجرَّب على كتالوج المكتب كله.
+  // صنف لم يُربط بكتالوج حساب الكروب يُجرَّب على كتالوج المكتب كله — بنفس سلّم
+  // enrichRowsFromCatalog (المحلِّل ثم بديل «العلامة + الجرعة»: «Devit 50»).
   const officeIdByName = new Map();
+  const sciCompanies = await prisma.scientificCompany.findMany({ where: { officeId: user.officeId }, select: { id: true, name: true } }).catch(() => []);
   const unlinked = [...new Set(rows.filter(r => r && !r._itemId && String(r.item ?? '').trim()).map(r => String(r.item).trim()))];
-  if (unlinked.length) {
+  if (unlinked.length && sciCompanies.length) {
     try {
-      const sci = await prisma.scientificCompany.findMany({ where: { officeId: user.officeId }, select: { id: true } });
-      const ctx = await loadCompanyContext(sci.map(s => s.id));
+      const ctx = await loadCompanyContext(sciCompanies.map(s => s.id));
       if (ctx.catalog.length) {
         for (const name of unlinked) {
-          const r = resolveItemNameSync(name, ctx);
-          if (r?.canonicalItem && (r.confidence === 'alias' || r.confidence === 'exact' || r.confidence === 'high')) {
-            officeIdByName.set(name, r.canonicalItem.id);
+          let r = resolveItemNameSync(name, ctx);
+          const sure = (x) => x?.canonicalItem && (x.confidence === 'alias' || x.confidence === 'exact' || x.confidence === 'high');
+          if (!sure(r)) {
+            const fb = brandDoseFallback(name, ctx.catalog);
+            if (sure(fb)) r = fb;
           }
+          if (sure(r)) officeIdByName.set(name, r.canonicalItem.id);
         }
       }
     } catch (e) { console.error('[orders] office item link (routing) failed:', e?.message); }
   }
+
+  // الشركة العلمية للصف: من بطاقة الايتم، وإلا اسم الشركة المقروء («deva»).
+  const rowItemIds = [...new Set(rows.map(r => r?._itemId ?? officeIdByName.get(String(r?.item ?? '').trim())).filter(Boolean))];
+  const itemCompany = new Map((rowItemIds.length
+    ? await prisma.item.findMany({ where: { id: { in: rowItemIds } }, select: { id: true, scientificCompanyId: true } }).catch(() => [])
+    : []).map(i => [i.id, i.scientificCompanyId]));
+  const companyIdByName = new Map(sciCompanies.map(c => [normalizeItemKey(c.name), c.id]));
 
   const keep = [];
   const byManager = new Map();
   for (const row of rows) {
     if (!row) continue;
     const itemId = row._itemId ?? officeIdByName.get(String(row.item ?? '').trim()) ?? null;
-    const owner = itemId != null ? owners.get(itemId) : null;
+    // 1) الايتم مُسنَد لمدير (قاعدة التحليل الشامل). 2) وإلا مدير شركته الرئيسية.
+    let owner = itemId != null ? owners.get(itemId) : null;
+    if (!owner) {
+      const sciId = row._scientificCompanyId ?? (itemId != null ? itemCompany.get(itemId) : null)
+        ?? companyIdByName.get(normalizeItemKey(row.company ?? '')) ?? null;
+      owner = sciId != null ? companyOwners.get(sciId) : null;
+    }
     if (!owner || owner.managerId === user.id) { keep.push(row); continue; }
     if (!byManager.has(owner.managerId)) byManager.set(owner.managerId, { ...owner, rows: [] });
     byManager.get(owner.managerId).rows.push(row);
@@ -750,7 +771,7 @@ const displayNameOf = (u) => u?.displayName?.trim() || u?.username || '';
  * لا تُحفَظ فيه — فاستبدال قراءته آمن ولا يُنشئ مبيعات مكرّرة.
  * @returns {Promise<{id:number, replaced:boolean}>}
  */
-async function createOrReplacePending({ ownerId, data, payload, rows, imageFiles }) {
+async function createOrReplacePending({ ownerId, data, payload, rows, imageFiles, merge = false }) {
   try {
     const created = await prisma.pendingBotOrder.create({
       data: {
@@ -771,6 +792,19 @@ async function createOrReplacePending({ ownerId, data, payload, rows, imageFiles
     if (!existing) {
       await unlinkImages(imageFiles);
       throw new AppError('هذه الطلبية مُسجَّلة مسبقاً بانتظار المراجعة.', 409, 'DUPLICATE_ORDER');
+    }
+    if (merge) {
+      // تحويل جزء آخر من **نفس** الطلبية لمدير استلم جزءاً منها سابقاً (مثلاً
+      // Devit بعد أن صار يُعرَف): تُضاف الصفوف لطلبيته ولا تستبدلها، وصوره تبقى.
+      const cur = await prisma.pendingBotOrder.findUnique({ where: { id: existing.id }, select: { payload: true } });
+      const curRows = Array.isArray(cur?.payload?.rows) ? cur.payload.rows : [];
+      const merged = [...curRows, ...rows];
+      await prisma.pendingBotOrder.update({
+        where: { id: existing.id },
+        data: { payload: { ...(cur?.payload || {}), rows: merged }, rowCount: merged.length },
+      });
+      await unlinkImages(imageFiles);
+      return { id: existing.id, replaced: false, merged: true };
     }
     await prisma.pendingBotOrder.update({
       where: { id: existing.id },
@@ -857,6 +891,10 @@ async function routeQueuedOrders(userId) {
       const payload = q.payload || {};
       if (payload.routed === ROUTE_VERSION || payload.originUserId != null) continue;
       const rows = Array.isArray(payload.rows) ? payload.rows.filter(Boolean) : [];
+      // الصفوف المخزّنة قد تكون من قراءة أقدم لم تربط الصنف بكتالوج («Devit 50»،
+      // «pandev 20 (5)») فلا يُعرَف مالكه — تُعاد قراءتها وتُحفَظ قبل التقسيم، بنفس
+      // ما يفعله getPendingOrder عند الفتح (هناك في الذاكرة فقط).
+      await refreshStoredRows(q, rows, user);
       const { keep, forwards } = await splitRowsByOwner(rows, user);
       try {
         for (const f of forwards) {
@@ -870,6 +908,7 @@ async function routeQueuedOrders(userId) {
             rows: f.rows,
             payload: { ...payload, rows: f.rows, routed: ROUTE_VERSION, originUserId: user.id, originName: displayNameOf(user) },
             imageFiles: await copyImages(q.imageFiles),
+            merge: true,
           });
         }
         if (forwards.length && !keep.length) {
@@ -878,7 +917,7 @@ async function routeQueuedOrders(userId) {
         } else {
           await prisma.pendingBotOrder.update({
             where: { id: q.id },
-            data: { payload: { ...payload, rows: keep, routed: ROUTE_VERSION }, rowCount: keep.length },
+            data: { payload: { ...payload, rows: keep, routed: ROUTE_VERSION, textParse: payload.textParse }, rowCount: keep.length },
           });
         }
         if (forwards.length) console.log(`[orders] #${q.id} حُوِّلت: ${forwards.map(f => `${f.managerName}×${f.rows.length}`).join('، ')}`);
@@ -890,6 +929,26 @@ async function routeQueuedOrders(userId) {
     console.error('[orders] تعذّر تحويل الطابور:', e?.message);
   } finally {
     routingInFlight.delete(userId);
+  }
+}
+
+async function refreshStoredRows(q, rows, user) {
+  const payload = q.payload || {};
+  try {
+    if (rows.length && q.kind === 'text' && q.sourceText && payload.textParse !== TEXT_PARSE_VERSION) {
+      const areaBefore = rows.map(r => r.area ?? null);
+      await applyTextParse(rows, q.sourceText);
+      await enrichRowsFromCatalog(rows, user.id);
+      await matchInvoiceCustomers(rows);
+      rows.forEach((r, i) => { if (r.area !== areaBefore[i]) r.scientificRep = null; });
+      payload.textParse = TEXT_PARSE_VERSION;
+    } else {
+      const unlinked = rows.filter(r => !r._itemId);
+      if (unlinked.length) await enrichRowsFromCatalog(unlinked, user.id);
+    }
+    if (rows.some(r => !r.scientificRep)) await attachScientificRepGuess(rows, user);
+  } catch (e) {
+    console.error(`[orders] تعذّر إعادة قراءة الطلبية #${q.id}:`, e?.message);
   }
 }
 

@@ -157,5 +157,21 @@ check('مذخر الموديل بلا سطر واضح يُنظَّف', run('Cola
 check('سطر «اوزون» وحده = مذخر', parseOrderText('العامرية\nص قمر الثلج\nاوزون\npandev 20 (5)').header,
   { pharmacy: 'قمر الثلج', area: 'العامرية', warehouse: 'اوزون', pharmacyLines: 1 });
 
+// ── قاعدة المناطق (2026-10-19): «مدينة الصدر / هيثم عكلة حنو» بلا «ص» (الطلبية #80) ──
+const AREAS = new Map([['مدينه الصدر', 'مدينة الصدر'], ['الاورفلي', 'مدينة الصدر'], ['الداخل', 'مدينة الصدر'], ['الحريه', 'الحرية']]);
+const areaOf = (t) => AREAS.get(String(t).trim().replace(/ة/g, 'ه')) ?? null;
+check('منطقة مسجّلة بلا «ص» ⇒ السطر الآخر صيدلية (#80)',
+  parseOrderText('مدينة الصدر\nهيثم عكلة حنو\nCandexil 16/12.5 (10)\nمذخر العهد الجديد', { areaOf }).header,
+  { pharmacy: 'هيثم عكلة حنو', area: 'مدينة الصدر', warehouse: 'العهد الجديد', pharmacyLines: 1 });
+check('اسم مدموج («الاورفلي») ⇒ مدينة الصدر',
+  parseOrderText('الاورفلي\nص النور\nPandev (3)', { areaOf }).header.area, 'مدينة الصدر');
+check('بلا «ص» وسطران غير منطقة ⇒ لا حسم (الموديل)',
+  parseOrderText('مدينة الصدر\nهيثم عكلة\nالعهد الجديد\nCandexil (10)', { areaOf }).header.pharmacy, null);
+check('#80 كاملة: الموديل قلب الصيدلية والمنطقة', run(
+  'مدينة الصدر\nهيثم عكلة حنو\nCandexil 16/12.5 (10)\nمذخر العهد الجديد',
+  [{ item: 'Candexil plus', quantity: 10, pharmacy: 'مدينة الصدر', area: null, warehouse: 'العهد الجديد' }],
+  { areaOf },
+).map(r => [r.pharmacy, r.area]), [['هيثم عكلة حنو', 'مدينة الصدر']]);
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

@@ -67,3 +67,29 @@ export async function loadItemOwnerManagers(officeId) {
   }
   return out;
 }
+
+/**
+ * بديل لتحويل طلبيات البوت فقط (ليس في التحليل الشامل): ايتم لم يُسنَد لأي مدير
+ * يذهب لمدير شركته العلمية — من هي شركته **الرئيسية** (isPrimary) حصراً، كي لا
+ * تُحوَّل طلبية لمدير لديه الشركة إسناداً ثانوياً للعرض فقط.
+ * @returns {Promise<Map<number, {managerId:number, managerName:string, companyName:string}>>}
+ *          scientificCompanyId → المدير
+ */
+export async function loadCompanyPrimaryManagers(officeId) {
+  const out = new Map();
+  if (officeId == null) return out;
+  const rows = await prisma.userCompanyAssignment.findMany({
+    where: { isPrimary: true, user: { officeId, role: 'company_manager', isActive: true } },
+    select: { userId: true, company: { select: { id: true, name: true } }, user: { select: { displayName: true, username: true } } },
+    orderBy: { userId: 'asc' },
+  });
+  for (const r of rows) {
+    if (out.has(r.company.id)) continue; // أصغر id يفوز — ثابت
+    out.set(r.company.id, {
+      managerId: r.userId,
+      managerName: r.user.displayName?.trim() || r.user.username,
+      companyName: r.company.name,
+    });
+  }
+  return out;
+}

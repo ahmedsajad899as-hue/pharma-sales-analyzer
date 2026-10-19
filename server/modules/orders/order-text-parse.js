@@ -14,6 +14,10 @@
 //
 // القاعدة هنا: ما يقرّره شكل النص بلا لبس (بادئة «ص»، كلمة «مذخر»، «منطقة»،
 // كمية بين قوسين) يُقرَّر بالكود ويَغلِب الموديل. ما فيه لبس يُترك للموديل كما كان.
+//
+// وقاعدة المناطق (السوبر أدمن + أسماؤها المدموجة AreaAlias) دليل حاسم أيضاً: في
+// «مدينة الصدر / هيثم عكلة حنو» بلا «ص» السطر الذي هو منطقة مسجّلة هو المنطقة
+// والآخر الصيدلية — وتُكتب المنطقة باسمها القانوني («الاورفلي» ← «مدينة الصدر»).
 // ════════════════════════════════════════════════════════════════════════════
 
 import { stripTriggerPrefix, hasTriggerWord } from './order-trigger.js';
@@ -131,7 +135,7 @@ const MAX_HEADER_WORDS = 5;
  * @param {string} text
  * @param {{ isKnownWarehouse?: (name:string)=>boolean }} [opts]
  */
-export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => false } = {}) {
+export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => false, areaOf = () => null } = {}) {
   // سطر بلا عنوان هو مذخر إن كان كلّه اسم مذخر معروف (القائمة الثابتة أو دفتر المذاخر).
   const warehouseOf = (t) => findKnownWarehouse(t, { whole: true }) || (isKnownInDb(t) ? t : null);
   const isKnownWarehouse = (t) => warehouseOf(t) != null;
@@ -190,26 +194,49 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
     }
   }
 
+  // الأسطر بلا عنوان قبل أول صنف (عدا المذاخر المعروفة).
+  const inHeader = (l) => firstItemIdx < 0 || l.idx < firstItemIdx;
+  const headerLoose = loose.filter(l => !isKnownWarehouse(l.text) && inHeader(l));
+
+  // بلا سطر «ص»: سطر هو منطقة مسجّلة + سطر واحد غيره ⇒ ذاك الآخر هو الصيدلية.
+  // أكثر من سطر غير منطقة = لبس (صيدلية؟ مذخر؟) فيبقى القرار للموديل.
+  if (header.pharmacy == null && header.pharmacyLines === 0) {
+    const areaLines = headerLoose.filter(l => areaOf(l.text));
+    const others = headerLoose.filter(l => !areaOf(l.text));
+    if (areaLines.length >= 1 && others.length === 1) {
+      header.area ??= areaOf(areaLines[0].text);
+      header.pharmacy = others[0].text;
+      header.pharmacyLines = 1;
+      pharmacyIdx = others[0].idx;
+      // السطر صار صيدلية — لا يُعاد عدّه منطقة/مذخراً أدناه.
+      loose.splice(loose.indexOf(others[0]), 1);
+    }
+  }
+
   // الأسطر بلا عنوان لا تُحسَم إلا بوجود سطر صيدلية مُعلَّم — بدونه لا نعرف أيّها
   // الصيدلية وأيّها المنطقة، فنترك القرار للموديل كما كان.
   if (header.pharmacy && header.pharmacyLines === 1) {
     for (const { text: t } of loose.filter(l => isKnownWarehouse(l.text))) header.warehouse ??= warehouseOf(t);
     // الأسطر بعد أول صنف لا تُعدّ ترويسة (قد تكون صنفاً عربياً بلا كمية أو تعليقاً)
     // — المذخر هناك يُعرف بكلمة «مذخر» أو بقائمة المذاخر المعروفة فقط.
-    const inHeader = (l) => firstItemIdx < 0 || l.idx < firstItemIdx;
-    const rest = loose.filter(l => !isKnownWarehouse(l.text) && inHeader(l));
-    // المنطقة: سطر قبل سطر الصيدلية أولاً (الشكل الغالب)، ثم سطر بعده.
-    const before = rest.filter(l => l.idx < pharmacyIdx);
-    const after = rest.filter(l => l.idx > pharmacyIdx);
+    const rest = loose.filter(l => !isKnownWarehouse(l.text) && inHeader(l) && !(header.area && areaOf(l.text) === header.area));
+    // المنطقة: سطر هو منطقة مسجّلة أولاً، ثم سطر قبل سطر الصيدلية (الشكل الغالب)،
+    // ثم سطر بعده.
+    const known = rest.filter(l => areaOf(l.text));
+    const before = rest.filter(l => l.idx < pharmacyIdx && !known.includes(l));
+    const after = rest.filter(l => l.idx > pharmacyIdx && !known.includes(l));
     const leftovers = [];
-    for (const l of [...before, ...after]) {
-      if (header.area == null) header.area = l.text;
+    for (const l of [...known, ...before, ...after]) {
+      if (header.area == null) header.area = areaOf(l.text) || l.text;
       else leftovers.push(l);
     }
     // المنطقة والصيدلية محسومتان بعناوين ⇒ السطر الباقي الوحيد هو المذخر
     // («ص شمس الرواسي / دواء الكندي / منطقة الامين»).
     if (header.warehouse == null && leftovers.length === 1) header.warehouse = leftovers[0].text;
   }
+
+  // المنطقة باسمها القانوني في السوبر أدمن (والمدموجة باسم ما دُمجت تحته).
+  if (header.area) header.area = areaOf(header.area) || header.area;
 
   if (header.pharmacyLines > 1) {
     // أكثر من صيدلية في رسالة واحدة: لا نعرف أي صنف لأيّها — الموديل يقرّر.

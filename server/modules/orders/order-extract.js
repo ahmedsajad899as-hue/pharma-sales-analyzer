@@ -15,7 +15,7 @@
 
 import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
 import { parseInvoiceJson, splitPharmacyArea, isCopiedFromPrompt } from '../sales/sales.service.js';
-import { normalizeItemKey } from '../../lib/itemResolver.js';
+import { normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { MAX_ORDER_TEXT_LEN, stripTriggerPrefix } from './order-trigger.js';
 import { reconcileRowsWithText, normKey, KNOWN_WAREHOUSES } from './order-text-parse.js';
 import prisma from '../../lib/prisma.js';
@@ -238,7 +238,8 @@ export async function extractOrderRowsFromText(text, { todayISO } = {}) {
 /** نسخة القراءة الحتمية — تُخزَّن في payload فتُعاد قراءة الطلبيات الأقدم عند فتحها. */
 // 2 (2026-10-19): قائمة المذاخر المعروفة + قصّ الملاحظة بعد اسم المذخر.
 // 3: صفّ بلا كمية اسمه مذخر معروف («سنايا اسبرين منارة») يُحذف.
-export const TEXT_PARSE_VERSION = 3;
+// 4: قاعدة المناطق (Area + AreaAlias) تفصل المنطقة عن الصيدلية بلا «ص» وتوحّد الاسم.
+export const TEXT_PARSE_VERSION = 4;
 
 /**
  * القراءة الحتمية للنصّ تغلب اجتهاد الموديل حيث يحسم الشكل: ترويسة متعدّدة الأسطر
@@ -247,11 +248,41 @@ export const TEXT_PARSE_VERSION = 3;
  * كانت ستستبدل اسم الكتالوج بالاسم المكتوب.
  */
 export async function applyTextParse(rows, text) {
-  const known = await loadKnownWarehouseKeys();
+  const [known, areas] = await Promise.all([loadKnownWarehouseKeys(), loadKnownAreaIndex()]);
   return reconcileRowsWithText(rows, text, {
     isKnownWarehouse: (t) => {
       const k = normKey(t);
       return known.has(k) || known.has(normKey(t.replace(/^(?:دواء|ادوية|أدوية)\s+/, '')));
     },
+    areaOf: (t) => areas.get(normalizeAreaName(t)) ?? null,
   });
+}
+
+// أسماء المناطق المسجّلة (Area) + أسماؤها المدموجة (AreaAlias) ← الاسم القانوني.
+// عامة بلا نطاق حساب: نفس الاسم عند أكثر من حساب صفوف مستقلة لكن الاسم واحد.
+let areaCache = null; // { at, map:Map<key, canonicalName> }
+async function loadKnownAreaIndex() {
+  if (areaCache && Date.now() - areaCache.at < WAREHOUSE_CACHE_MS) return areaCache.map;
+  const map = new Map();
+  try {
+    const [areas, aliases] = await Promise.all([
+      prisma.area.findMany({ select: { id: true, name: true } }),
+      prisma.areaAlias.findMany({ select: { fromKey: true, areaId: true } }),
+    ]);
+    const nameById = new Map(areas.map(a => [a.id, String(a.name ?? '').trim()]));
+    for (const a of areas) {
+      const k = normalizeAreaName(a.name ?? '');
+      if (k && !map.has(k)) map.set(k, nameById.get(a.id));
+    }
+    // الاسم المدموج يُترجَم لاسم المنطقة التي دُمج تحتها («الاورفلي» ← «مدينة الصدر»).
+    for (const al of aliases) {
+      const canon = nameById.get(al.areaId);
+      if (al.fromKey && canon) map.set(al.fromKey, canon);
+    }
+    map.delete('');
+  } catch (e) {
+    console.error('[orders] تعذّر تحميل أسماء المناطق:', e?.message);
+  }
+  areaCache = { at: Date.now(), map };
+  return map;
 }
