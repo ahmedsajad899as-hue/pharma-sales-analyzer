@@ -388,6 +388,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   // تُحفَظ المبيعات إلا بنفس مسار الإدخال اليدوي. مسوّدة localStorage لا لزوم لها
   // هنا: الطلبية محفوظة في الخادم أصلاً وهذا أقوى من مسوّدة متصفح.
   const [fromPendingOrder, setFromPendingOrder] = useState(false);
+  const backdropDownRef = useRef(false); // الضغط بدأ على الخلفية (لا داخل الإطار)
   const appliedOrderIdRef = useRef<string | null>(null);
   // الخانة الرقمية قيد التحرير — تُعرض خاماً أثناء الكتابة ومنسَّقة بعد الخروج.
   const [editingCell, setEditingCell] = useState<string | null>(null);
@@ -1042,7 +1043,18 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   const allAnswered = askList.every(({ e, kind }) => choice[kind + '|' + e.raw]);
 
   return (
-    <div style={overlay}>
+    // الضغط على الخلفية خارج الإطار يغلق النافذة. يُشترط أن يبدأ الضغط **وينتهي**
+    // على الخلفية نفسها: سحبُ تحديد نصّ من داخل خانة وإفلاته خارج الإطار يُطلق
+    // click على الخلفية، ولا يجوز أن يغلق النافذة ويضيع التعديل.
+    <div style={overlay}
+      onMouseDown={e => { backdropDownRef.current = e.target === e.currentTarget; }}
+      onClick={e => {
+        if (e.target !== e.currentTarget || !backdropDownRef.current) return;
+        backdropDownRef.current = false;
+        // إدخال يدوي بلا طلبية: الصفوف المكتوبة غير محفوظة في أي مكان — نسأل أولاً.
+        if (!fromPendingOrder && rows.some(rowHasData) && !window.confirm('إغلاق النافذة؟ الصفوف المكتوبة لم تُحفظ بعد.')) return;
+        onClose();
+      }}>
       {nameAsk && (
         <div style={askOverlay} dir="rtl">
           <div style={askPanel}>
