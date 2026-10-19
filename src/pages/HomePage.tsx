@@ -1190,6 +1190,8 @@ function ItemDocs({ itemName, token }: { itemName: string; token: string | null 
   };
   const canDelete = (d: ItemDoc) => d.by === user?.id || ['admin', 'manager', 'office_manager'].includes(user?.role ?? '');
 
+  // اسم الملف عند التنزيل: «الايتم - النوع.امتداد» بدل الاسم العشوائي المخزَّن
+  const dlName = (d: ItemDoc) => `${itemName} - ${docKindLabel(d.kind)}${(d.url.match(/\.\w+$/) ?? [''])[0]}`;
   const audios = (docs ?? []).filter(isAudioDoc);
   const files  = (docs ?? []).filter(d => !isAudioDoc(d));
 
@@ -1212,6 +1214,7 @@ function ItemDocs({ itemName, token }: { itemName: string; token: string | null 
           <div key={d.id} className="bb-audio">
             <audio controls preload="none" src={d.url} />
             <span className="bb-audio-meta">{d.byName ? `${d.byName} · ` : ''}{new Date(d.at).toLocaleDateString('ar-IQ')}</span>
+            <a className="bb-audio-dl" href={d.url} download={dlName(d)} title="تنزيل" aria-label="تنزيل">⬇</a>
             {canDelete(d) && <button type="button" className="bb-audio-del" onClick={() => remove(d)} aria-label="حذف">×</button>}
           </div>
         ))}
@@ -1237,6 +1240,7 @@ function ItemDocs({ itemName, token }: { itemName: string; token: string | null 
                   {d.mime === 'application/pdf' ? <span className="bb-doc-pdf">PDF</span> : <img src={d.url} alt="" loading="lazy" />}
                 </a>
                 <span className="bb-doc-kind">{docKindLabel(d.kind)}</span>
+                <a className="bb-doc-dl" href={d.url} download={dlName(d)} title="تنزيل" aria-label="تنزيل">⬇</a>
                 {canDelete(d) && <button type="button" className="bb-doc-del" onClick={() => remove(d)} aria-label="حذف">×</button>}
               </div>
             ))}
@@ -1587,6 +1591,10 @@ function HomeStyles() {
 .bb-audio { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bb-audio audio { height: 34px; flex: 1 1 220px; min-width: 0; }
 .bb-audio-meta { font-size: 11px; color: var(--c-text-secondary); }
+.bb-audio-dl, .bb-doc-dl { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--c-accent); color: #fff; text-decoration: none; font-size: 13px; font-weight: 800; }
+.bb-doc-dl { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.bb-doc .bb-doc-dl { display: inline-flex; width: 22px; height: 22px; }
 .bb-audio-del { width: 22px; height: 22px; border-radius: 50%; border: 0; background: rgba(220,38,38,.9); color: #fff; cursor: pointer; line-height: 1; }
 .bb-docs-kind { max-width: 150px; height: 32px; padding: 2px 8px; font-size: 12.5px; }
 .bb-docs-add { height: 32px; padding: 0 14px; font-size: 12.5px; }
