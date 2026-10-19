@@ -30,7 +30,7 @@ import { invalidateAreaSnapshot } from './areaResolver.js';
  * @param {number} oldId       – the duplicate area to absorb (will be deleted)
  * @param {number} canonicalId – the surviving area
  */
-export async function mergeAreaInto(prisma, oldId, canonicalId) {
+export async function mergeAreaInto(prisma, oldId, canonicalId, { skipAlias = false } = {}) {
   if (oldId === canonicalId) return;
 
   // Area كتالوج مشترك الآن (مثل الايتمات/الشركات) — دمج صفين بنفس الاسم لحسابين
@@ -107,12 +107,20 @@ export async function mergeAreaInto(prisma, oldId, canonicalId) {
 
   // تسجيل الذاكرة: اسم المنطقة المُمتصّة يُربط تلقائياً بالباقية من الآن
   // فصاعداً — يمنع نفس الاسم من إعادة إنشاء منطقة مكررة في استيراد لاحق.
+  // استثناء: إن بقي صفّ ثالث يحمل نفس الاسم المطبَّع (حيّ «القادسية» في بغداد بعد
+  // دمج صفّ محافظة القادسية في الديوانية) فالـalias سيظلّله — كل ربط بالاسم
+  // (buildAreaNameIndex) سيضم أطباء ذلك الحيّ لنطاق المنطقة الباقية.
   const fromKey = normalizeAreaName(oldOwner.name);
-  await prisma.areaAlias.upsert({
-    where:  { fromKey },
-    update: { fromName: oldOwner.name, areaId: canonicalId, confidence: 'confirmed' },
-    create: { fromKey, fromName: oldOwner.name, areaId: canonicalId, confidence: 'confirmed' },
-  });
+  const shadowsOther = !skipAlias && (await prisma.area.findMany({
+    where: { id: { notIn: [oldId, canonicalId] } }, select: { name: true },
+  })).some(a => normalizeAreaName(a.name) === fromKey);
+  if (!skipAlias && !shadowsOther) {
+    await prisma.areaAlias.upsert({
+      where:  { fromKey },
+      update: { fromName: oldOwner.name, areaId: canonicalId, confidence: 'confirmed' },
+      create: { fromKey, fromName: oldOwner.name, areaId: canonicalId, confidence: 'confirmed' },
+    });
+  }
   // أي alias كان يشير سابقاً للمنطقة المُمتصّة (مثلاً من دمج متسلسل) يُعاد
   // توجيهه للباقية بدل أن يُحذف تعاقبياً (onDelete: Cascade) وتضيع ذاكرته.
   await prisma.areaAlias.updateMany({ where: { areaId: oldId }, data: { areaId: canonicalId } });

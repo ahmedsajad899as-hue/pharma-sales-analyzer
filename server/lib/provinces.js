@@ -182,11 +182,13 @@ export async function autoMatchProvinces(prisma, opts = {}) {
   }
   const matchedFromSales = resolved.size;
 
-  // 2) مطابقة اسم المنطقة نفسه
+  // 2) مطابقة اسم المنطقة نفسه — عدا أحياء بغداد المعروفة: حيّ «القادسية» في
+  // الكرخ يطابق اسم محافظة القادسية حرفياً فكان يُسنَد لها خطأً.
+  const baghdadKeys = new Set(BAGHDAD_SUBPROVINCES.flatMap(sp => sp.areas).map(normalizeAreaName));
   for (const a of areas) {
     if (resolved.has(a.id)) continue;
     const norm = normalizeAreaName(a.name);
-    if (!norm) continue;
+    if (!norm || baghdadKeys.has(norm)) continue;
 
     let hit = lookup.get(norm) || null;
     if (!hit) {

@@ -93,7 +93,7 @@ export async function findOrCreateArea(name, userId, provinceId = null) {
   // معلَّم للمراجعة) موحّدة الآن في areaResolver.js، يشاركها ensureGlobalArea
   // في surveyDoctors.js. هنا نُبقي فقط ما يخص هذا المسار تحديداً: تعارض
   // المحافظة وربط المستخدم بالمنطقة.
-  let { area } = await resolveAreaByName(name);
+  let { area } = await resolveAreaByName(name, { provinceId });
 
   if (provinceId != null && area.provinceId !== provinceId) {
     if (area.provinceId == null) {

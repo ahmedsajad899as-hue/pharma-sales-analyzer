@@ -1,3 +1,4 @@
+import { fixProvinceNamedAreaCollisions } from './lib/provinceNameCollision.js';
 import express from 'express';
 import compression from 'compression';
 import multer from 'multer';
@@ -5227,6 +5228,9 @@ if (process.env.VERCEL) {
         console.log(`✓ المحافظات جاهزة (${n})`);
         const s = await seedSubProvinces(prisma);
         console.log(`✓ أقسام المحافظات جاهزة (${s})`);
+        // منطقة باسم المحافظة نفسها تصطدم بحيّ (القادسية المحافظة ↔ القادسية/الكرخ)
+        const fixed = await fixProvinceNamedAreaCollisions(prisma, mergeAreaInto);
+        for (const f of fixed) console.log(`✓ فُصل تصادم الاسم: «${f.from}» (${f.province}) دُمج في «${f.into}» — أُعيد ${f.returnedSales} صف مبيعات لحيّه`);
       })
       .catch(e => console.error('[seedProvinces]', e.message));
   });

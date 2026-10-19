@@ -23,6 +23,7 @@
 import prisma from './prisma.js';
 import { normalizeAreaName } from './itemResolver.js';
 import { areSimilar, similarity } from './fuzzyMatch.js';
+import { provinceNameKeys, findOrCreateProvinceCenter } from './provinceNameCollision.js';
 
 // عتبات الربط التلقائي الصامت — أشد من fuzzyMatch الافتراضي (0.85/0.55/0.8)
 // عمداً، تفادياً لدمج حيّين مختلفين فعلاً يشتركان جذراً لغوياً واحداً.
@@ -78,9 +79,9 @@ let gate = Promise.resolve();
  * @returns {Promise<{ area: {id:number,name:string,provinceId:number|null}, matched: 'exact'|'alias'|'fuzzy'|'new' }|null>}
  *          null إن كان الاسم فارغاً.
  */
-export function resolveAreaByName(rawName) {
+export function resolveAreaByName(rawName, { provinceId = null } = {}) {
   inFlight++;
-  const run = () => resolveAreaByNameSerial(rawName);
+  const run = () => resolveAreaByNameSerial(rawName, provinceId);
   const result = gate.then(run, run);
   // فشل استدعاء واحد يجب ألا يوقف طابور الانتظار خلفه.
   gate = result.then(() => {}, () => {});
@@ -89,15 +90,30 @@ export function resolveAreaByName(rawName) {
   return result;
 }
 
-async function resolveAreaByNameSerial(rawName) {
+async function resolveAreaByNameSerial(rawName, provinceId = null) {
   const trimmed = String(rawName ?? '').trim();
   if (!trimmed) return null;
   const norm = normalizeAreaName(trimmed);
 
   const allAreas = await loadAreas();
 
-  // 1) تطابق تام
-  const exact = allAreas.find(a => normalizeAreaName(a.name) === norm);
+  // 1) تطابق تام — عند تعدّد الصفوف بنفس الاسم تُفضَّل محافظة الصف القادم من الملف
+  const exacts = allAreas.filter(a => normalizeAreaName(a.name) === norm);
+  const exact = (provinceId != null && exacts.find(a => a.provinceId === provinceId)) || exacts[0];
+
+  // اسم المنطقة = اسم المحافظة نفسها (ملف محافظة القادسية يكتب «القادسية» في عمود
+  // المنطقة) والصف المطابق حيّ بمحافظة أخرى (القادسية/الكرخ) ⇒ مركز المحافظة
+  // (الديوانية) لا الحيّ — راجع provinceNameCollision.js.
+  if (provinceId != null && exact && exact.provinceId != null && exact.provinceId !== provinceId) {
+    const province = await prisma.province.findUnique({ where: { id: provinceId } });
+    if (province && provinceNameKeys(province).has(norm)) {
+      const center = await findOrCreateProvinceCenter(prisma, province, allAreas);
+      if (center) {
+        if (snapshot && !snapshot.some(a => a.id === center.id)) snapshot.push(center);
+        return { area: center, matched: 'exact' };
+      }
+    }
+  }
   if (exact) return { area: exact, matched: 'exact' };
 
   // 2) ذاكرة alias محفوظة سابقاً
