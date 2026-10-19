@@ -172,6 +172,8 @@ if (process.env.NODE_ENV === 'production') {
 
 // ── Serve uploads (images etc.) — always available ─────────────
 app.use('/uploads', express.static(path.join(__serverDir, 'uploads')));
+// جذر المشروع/uploads (مرفقات الايتم وغيرها) — على الإنتاج يخدمه Nginx مباشرةً.
+app.use('/uploads', express.static(path.join(__serverDir, '..', 'uploads')));
 
 // ── Public download for a shared rep report (no auth — link is the secret) ──────
 // Registered before the JWT middleware and the SPA catch-all so the rep can open it

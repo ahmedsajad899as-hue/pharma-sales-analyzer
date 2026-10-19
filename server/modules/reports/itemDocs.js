@@ -16,7 +16,9 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { normalizeItemKey } from '../../lib/itemResolver.js';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'uploads', 'item-docs');
+// <جذر المشروع>/uploads لا server/uploads: Nginx يخدم /uploads/ مباشرةً من جذر
+// المشروع (alias)، فالملفات تحت server/uploads كانت ترجع 404 ولا تنفتح.
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'uploads', 'item-docs');
 const KINDS = new Set(['photo', 'test', 'registration', 'other']);
 const ADMIN_ROLES = new Set(['admin', 'manager', 'office_manager']);
 const MAX_PER_ITEM = 40;
