@@ -203,8 +203,8 @@ export async function handleRevealCommand({ transport, chatId, orderId = null, m
       const pageIds = [...new Set(pages[p].map(r => r._orderId))];
       // العنوان يبدأ بعربي ولا ينتهي بلاتيني (فخّ اتجاه السطر في resvg).
       const title = found.all
-        ? `الطلبيات بانتظار التأكيد: ${found.ids.length} طلبية${pages.length > 1 ? ` — صورة ${p + 1} من ${pages.length}` : ''}`
-        : `تحليل الطلبية رقم ${pageIds.join(' و ')}`;
+        ? `كشف الطلبيات بانتظار التأكيد${pages.length > 1 ? ` — صورة ${p + 1} من ${pages.length}` : ''}`
+        : `كشف الطلبية رقم ${pageIds.join(' و ')}`;
       const png = await renderOrderTablePng(pages[p], {
         title,
         footer: 'هذه قراءة الذكاء الاصطناعي قبل تدقيق المدير — إن وجدت خطأ فاكتبه هنا',
