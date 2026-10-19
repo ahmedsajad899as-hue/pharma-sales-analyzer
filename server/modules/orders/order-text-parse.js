@@ -17,6 +17,74 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { stripTriggerPrefix, hasTriggerWord } from './order-trigger.js';
+import { similarity } from '../../lib/fuzzyMatch.js';
+
+// ─── المذاخر المعروفة في بغداد (قائمة صاحب المشروع، 2026-10-19) ─────────────
+// الاسم الأول في كل مجموعة هو الاسم القانوني المعروض؛ البقية صيغ مختصرة له.
+// تُكمِّلها أسماء دفتر «رصيد المذاخر» من قاعدة البيانات (isKnownWarehouse).
+export const KNOWN_WAREHOUSES = [
+  ['الناقوس'],
+  ['العناية الطبية', 'العناية'],
+  ['الفصول الاربعة', 'الفصول'],
+  ['طريق السلام'],
+  ['طريق اليسر'],
+  ['التفاح الاخضر'],
+  ['مزايا'],
+  ['سنايا'],
+  ['اوزون'],
+  ['بلاتين'],
+  ['مصدر الدواء'],
+  ['اسبرين'],
+  ['شغف'],
+  ['الدواء المتكامل'],
+  ['عدن'],
+  ['صلالة'],
+  ['العربي'],
+  ['ارض البنفسج'],
+  ['الكندي', 'دواء الكندي'],
+];
+// تُبنى عند أول استعمال (normKey يعتمد ثوابت مُعرَّفة أسفل الملف).
+let warehouseVariants = null;
+const getWarehouseVariants = () => (warehouseVariants ??= KNOWN_WAREHOUSES
+  .flatMap(([canon, ...alts]) => [canon, ...alts].map(v => ({ canon, words: normKey(v).split(' ') })))
+  .sort((a, b) => b.words.length - a.words.length)); // الأطول أولاً: «العناية الطبية» قبل «العناية»
+
+/** هل كلمتان متطابقتان مع سماح بخطأ إملائي بسيط («الناقوص»، «اوزن»)؟ */
+const wordEq = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && similarity(a, b) >= 0.8);
+
+/**
+ * أول مذخر معروف يرد في النص (الأسبق موضعاً يغلب — «إن ذُكر أكثر من مذخر يُختار
+ * أول اسم مكتوب»). يُعيد الاسم القانوني أو null.
+ * @param {{ whole?: boolean }} [o] whole: النص كلّه يجب أن يكون اسم المذخر (سطر بلا عنوان)
+ */
+export function findKnownWarehouse(text, { whole = false } = {}) {
+  const words = normKey(text).split(' ').filter(Boolean);
+  if (!words.length) return null;
+  for (let i = 0; i < words.length; i++) {
+    for (const w of getWarehouseVariants()) {
+      const n = w.words.length;
+      if (whole && (i !== 0 || n !== words.length)) continue;
+      if (i + n > words.length) continue;
+      if (w.words.every((x, j) => wordEq(words[i + j], x))) return w.canon;
+    }
+  }
+  return null;
+}
+
+// كلمات تبدأ بها الملاحظة بعد اسم المذخر: «مذخر الناقوس بسبب عدم الانضمام الى ميركاتو».
+const WAREHOUSE_NOTE_RE = /\s+(?:بسبب|لسبب|لعدم|عدم|لان|لأن|لانه|لأنه|كون|حتى|علمود|الى|إلى|ترانزيت|بدل|بدون|حسب|مع|عن طريق)(?:\s|$).*$/;
+
+/**
+ * اسم المذخر من ذيل «مذخر …»: المعروف أولاً، وإلا ما قبل أول كلمة ملاحظة وبحدّ ثلاث كلمات.
+ */
+export function cleanWarehouseName(tail) {
+  const t = tidy(tail);
+  if (!t) return null;
+  const known = findKnownWarehouse(t);
+  if (known) return known;
+  const cut = tidy(t.replace(WAREHOUSE_NOTE_RE, ''));
+  return cut ? cut.split(/\s+/).slice(0, 3).join(' ') : null;
+}
 
 const toLatinDigits = (s) => String(s ?? '').replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660));
 
@@ -63,7 +131,10 @@ const MAX_HEADER_WORDS = 5;
  * @param {string} text
  * @param {{ isKnownWarehouse?: (name:string)=>boolean }} [opts]
  */
-export function parseOrderText(text, { isKnownWarehouse = () => false } = {}) {
+export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => false } = {}) {
+  // سطر بلا عنوان هو مذخر إن كان كلّه اسم مذخر معروف (القائمة الثابتة أو دفتر المذاخر).
+  const warehouseOf = (t) => findKnownWarehouse(t, { whole: true }) || (isKnownInDb(t) ? t : null);
+  const isKnownWarehouse = (t) => warehouseOf(t) != null;
   const lines = toLatinDigits(text).split(/\r?\n/).map(l => tidy(l)).filter(Boolean);
   // «طلبية» وحدها في سطر، أو ملتصقة بأول سطر الزبون.
   if (lines.length && hasTriggerWord(lines[0])) {
@@ -80,7 +151,8 @@ export function parseOrderText(text, { isKnownWarehouse = () => false } = {}) {
   lines.forEach((line, idx) => {
     let m;
     if ((m = line.match(WAREHOUSE_LINE_RE)) && !HAS_LATIN.test(line)) {
-      header.warehouse ??= tidy(m[1]);
+      // «تجهز ترانزيت من مذخر الناقوس بسبب عدم الانضمام…» ← «الناقوس» فقط.
+      header.warehouse ??= cleanWarehouseName(m[1]);
       return;
     }
     if ((m = line.match(PHARMACY_LINE_RE))) {
@@ -121,7 +193,7 @@ export function parseOrderText(text, { isKnownWarehouse = () => false } = {}) {
   // الأسطر بلا عنوان لا تُحسَم إلا بوجود سطر صيدلية مُعلَّم — بدونه لا نعرف أيّها
   // الصيدلية وأيّها المنطقة، فنترك القرار للموديل كما كان.
   if (header.pharmacy && header.pharmacyLines === 1) {
-    for (const { text: t } of loose.filter(l => isKnownWarehouse(l.text))) header.warehouse ??= t;
+    for (const { text: t } of loose.filter(l => isKnownWarehouse(l.text))) header.warehouse ??= warehouseOf(t);
     // الأسطر بعد أول صنف لا تُعدّ ترويسة (قد تكون صنفاً عربياً بلا كمية أو تعليقاً)
     // — المذخر هناك يُعرف بكلمة «مذخر» أو بقائمة المذاخر المعروفة فقط.
     const inHeader = (l) => firstItemIdx < 0 || l.idx < firstItemIdx;
@@ -211,6 +283,8 @@ export function reconcileRowsWithText(rows, text, opts = {}) {
       else if (row.area && [header.pharmacy, header.warehouse].some(v => v && normKey(v) === normKey(row.area))) row.area = null;
     }
     if (header.warehouse) row.warehouse = header.warehouse;
+    // مذخر الموديل حين لم يحسمه الشكل: يُنظَّف من الملاحظات الملتصقة بنفس القاعدة.
+    else if (row.warehouse) row.warehouse = cleanWarehouseName(String(row.warehouse).replace(/^(?:من\s+)?(?:ال)?مذخر\s+/, ''));
   }
 
   // ربط كل صف بسطره: بالعلامة التجارية، بالترتيب، وكل سطر يُستهلك مرة واحدة.

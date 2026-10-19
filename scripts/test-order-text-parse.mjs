@@ -75,7 +75,7 @@ check('6) Devit 50,000 (20)', run(
 check('7) ص شمس الرواسي / دواء الكندي / منطقة الامين', run(
   'ص شمس الرواسي\nدواء الكندي\nمنطقة الامين\npandev 40mg(10p)',
   [{ item: 'Pandev 40mg', quantity: null, pharmacy: 'شمس الرواسي دواء الكندي', area: 'الامين' }],
-), [{ item: 'pandev 40mg', quantity: 10, bonus: 0, pharmacy: 'شمس الرواسي', area: 'الامين', warehouse: 'دواء الكندي' }]);
+), [{ item: 'pandev 40mg', quantity: 10, bonus: 0, pharmacy: 'شمس الرواسي', area: 'الامين', warehouse: 'الكندي' }]);
 
 console.log('\n── حالات لا يجوز أن تتغيّر ──');
 check('سطر واحد «سر الدواء/ الحارثية» بلا «ص» ⇒ لا حسم (الموديل)', parseOrderText('طلبيه\nسر الدواء/ الحارثية\nPantactive40.  50\nمذخر الناقوس').header,
@@ -89,22 +89,58 @@ check('صنف عربي بلا رقم بعد الأصناف لا يصير منط�
 check('صيدليتان في رسالة واحدة ⇒ لا حسم', parseOrderText('ص النور\nAmoxil (5)\nص الشفاء\nPandev (3)').header,
   { pharmacy: null, area: null, warehouse: null, pharmacyLines: 2 });
 check('«صباح» ليست بادئة «ص»', parseOrderText('صباح الخير\nAmoxil (5)').header.pharmacy, null);
-check('مذخر معروف بلا كلمة «مذخر»', parseOrderText('الحرية\nص العترة\nدواء الكندي\nPandev (3)', { isKnownWarehouse: t => t === 'دواء الكندي' }).header,
-  { pharmacy: 'العترة', area: 'الحرية', warehouse: 'دواء الكندي', pharmacyLines: 1 });
+check('مذخر معروف بلا كلمة «مذخر»', parseOrderText('الحرية\nص العترة\nدواء الكندي\nPandev (3)').header,
+  { pharmacy: 'العترة', area: 'الحرية', warehouse: 'الكندي', pharmacyLines: 1 });
+check('مذخر من دفتر رصيد المذاخر', parseOrderText('الحرية\nص العترة\nالنهرين\nPandev (3)', { isKnownWarehouse: t => t === 'النهرين' }).header,
+  { pharmacy: 'العترة', area: 'الحرية', warehouse: 'النهرين', pharmacyLines: 1 });
 
 console.log('\n── العلامة + الجرعة المختصرة (Devit 50 = 50,000) ──');
 const { brandDoseFallback } = await import('../server/modules/orders/orders.service.js');
+// أسماء الكتالوج الفعلية كما في صفحة «الايتمات» بالسوبر أدمن (2026-10-19).
 const cat = [
-  { id: 1, name: 'Devit 50,000 IU Cap' }, { id: 2, name: 'Devit 5000 IU Tab' },
+  { id: 1, name: 'DEVIT 3 50.000IU 8CAP' }, { id: 2, name: 'DEVIT 3 5000 I.U' },
+  { id: 6, name: 'DEVIT 3 10.000IU 30CAP' }, { id: 7, name: 'DEVIT 3 300.000IU 1AMP' },
+  { id: 8, name: 'DEVIT-3 ORAL DAMLA, 15ML' },
   { id: 3, name: 'Pandev 20mg' }, { id: 4, name: 'Pandev 40mg' }, { id: 5, name: 'Candexil plus' },
 ];
 const fb = (n) => { const r = brandDoseFallback(n, cat); return r && [r.confidence, r.canonicalItem?.id ?? null]; };
-check('Devit 50 ← 50,000', fb('Devit 50'), ['high', 1]);
+check('Devit 50 ← 50.000IU', fb('Devit 50'), ['high', 1]);
 check('Devit 5 ← 5000', fb('Devit 5'), ['high', 2]);
-check('Devit 50000 ← 50,000', fb('Devit 50000'), ['high', 1]);
+check('Devit 10 ← 10.000IU', fb('Devit 10'), ['high', 6]);
+check('Devit 300 ← 300.000IU', fb('Devit 300'), ['high', 7]);
+check('Devit 50000 ← 50.000IU', fb('Devit 50000'), ['high', 1]);
+check('Devit 50,000 ← 50.000IU', fb('Devit 50,000'), ['high', 1]);
+check('Devit 3 50 (رقم العلامة يُتجاهل)', fb('Devit 3 50'), ['high', 1]);
+check('خطأ إملائي: Divit 10', fb('Divit 10'), ['high', 6]);
+check('خطأ إملائي: Devet 300', fb('Devet 300'), ['high', 7]);
+check('Devit drops ← DAMLA', fb('Devit drops'), ['high', 8]);
 check('Devit بلا جرعة ⇒ اقتراحات بلا ربط', fb('Devit'), ['medium', null]);
+check('Devit 20 جرعة غير موجودة ⇒ لا ربط', fb('Devit 20'), ['medium', null]);
 check('Pandev 80 جرعة غير موجودة ⇒ لا ربط', fb('Pandev 80'), ['medium', null]);
 check('علامة غير موجودة ⇒ null', fb('Zinnat 500'), null);
+
+console.log('\n── المذاخر ──');
+const { findKnownWarehouse, cleanWarehouseName } = await import('../server/modules/orders/order-text-parse.js');
+check('ملاحظة بعد المذخر تُقصّ', cleanWarehouseName('الناقوس بسبب عدم الانضمام الى ميركاتو'), 'الناقوس');
+check('مذخر مجهول + ملاحظة', cleanWarehouseName('النهرين بسبب عدم الانضمام'), 'النهرين');
+check('العناية ← العناية الطبية', findKnownWarehouse('العنايه'), 'العناية الطبية');
+check('الفصول ← الفصول الاربعة', findKnownWarehouse('الفصول'), 'الفصول الاربعة');
+check('خطأ إملائي بسيط: الناقوص', findKnownWarehouse('الناقوص'), 'الناقوس');
+check('مذخران: الأول يغلب', cleanWarehouseName('اوزون او الناقوس'), 'اوزون');
+check('طلبية الناقوس كاملة', run(
+  'الحارثية\nص محمود وضاح\nColastin 20(30)\nVazkor5(30)\nتجهز ترانزيت من مذخر الناقوس بسبب عدم الانضمام الى ميركاتو',
+  [
+    { item: 'Colastin 20', quantity: 30, pharmacy: 'محمود وضاح', area: 'الحارثية', warehouse: 'الناقوس بسبب عدم الانضمام الى ميركاتو' },
+    { item: 'Vazkor 5', quantity: 30, pharmacy: 'محمود وضاح', area: 'الحارثية', warehouse: 'الناقوس بسبب عدم الانضمام الى ميركاتو' },
+  ],
+).map(r => [r.item, r.quantity, r.pharmacy, r.area, r.warehouse]), [
+  ['Colastin 20', 30, 'محمود وضاح', 'الحارثية', 'الناقوس'],
+  ['Vazkor 5', 30, 'محمود وضاح', 'الحارثية', 'الناقوس'],
+]);
+check('مذخر الموديل بلا سطر واضح يُنظَّف', run('Colastin 20(30)',
+  [{ item: 'Colastin 20', quantity: 30, warehouse: 'مذخر طريق السلام لعدم وجود' }]).map(r => r.warehouse), ['طريق السلام']);
+check('سطر «اوزون» وحده = مذخر', parseOrderText('العامرية\nص قمر الثلج\nاوزون\npandev 20 (5)').header,
+  { pharmacy: 'قمر الثلج', area: 'العامرية', warehouse: 'اوزون', pharmacyLines: 1 });
 
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

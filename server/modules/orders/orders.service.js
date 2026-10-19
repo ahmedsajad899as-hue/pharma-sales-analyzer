@@ -18,6 +18,7 @@ import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItemNameSync, normalizeAreaName, normalizeItemKey, normalizeArabic } from '../../lib/itemResolver.js';
 import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
+import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
@@ -73,28 +74,64 @@ async function buildItemContext(userId) {
 }
 
 // ─── بديل «العلامة + الجرعة المختصرة» ────────────────────────────────────────
-// فاصل الآلاف يُدمج **قبل** normalizeItemKey — التطبيع يحوّل «,» مسافة فتصير «50 000» رقمين.
-const doseNumbers = (s) => (normalizeItemKey(String(s ?? '').replace(/(\d)[,'](\d{3})(?!\d)/g, '$1$2')).match(/\d+/g) || []).map(Number);
+// أرقام الجرعة في اسم صنف. فاصل الآلاف («50.000IU»، «50,000»، «50'000») يُدمج **قبل**
+// normalizeItemKey (التطبيع يحوّل «,» مسافة فتصير رقمين). الرقم الأول غير صفري شرطٌ
+// كي تبقى «0.125mg» عشرية. أعداد العبوة («8CAP»، «1AMP»، «15ML»، «30TAB») ليست جرعة.
+const PACK_RE = /\b\d+\s*(?:x\s*\d+\s*)?(?:tabs?|tablets?|caps?|capsules?|amps?|ampoules?|vials?|sachets?|pcs?|strips?|ml|kapsul|film)\b/gi;
+function doseNumbers(s) {
+  const joined = String(s ?? '').replace(/\b([1-9]\d{0,2})[.,'](\d{3})(?!\d)/g, '$1$2');
+  return (normalizeItemKey(joined).replace(PACK_RE, ' ').match(/\d+/g) || []).map(Number);
+}
+const brandWord = (s) => (normalizeItemKey(s).match(/[a-z؀-ۿ]{3,}/) || [])[0] || '';
+
+// كلمات شكل صيدلاني مترادفة: «قطرة/drops» في الطلبية = «DAMLA/ORAL» في الكتالوج.
+const FORM_SYNONYMS = [
+  ['drop', 'drops', 'damla', 'oral', 'قطره', 'قطرة', 'نقط'],
+  ['amp', 'ampoule', 'inj', 'injection', 'امبول', 'ابره', 'إبرة'],
+  ['cap', 'caps', 'capsule', 'kapsul', 'كبسول'],
+  ['tab', 'tabs', 'tablet', 'حب', 'حبوب'],
+];
+const formOf = (s) => {
+  const words = normalizeItemKey(s).split(/[^a-z؀-ۿ]+/);
+  return FORM_SYNONYMS.findIndex(g => words.some(w => g.includes(w)));
+};
 
 /**
- * المندوبون يختصرون الجرعة بالآلاف: «Devit 50» = «Devit 50,000 IU»، و«Devit 5» =
- * 5000. حارس الجرعة في areSimilar يرى 50 ≠ 50000 فلا يقترح شيئاً إطلاقاً (2026-10-19).
- * هنا — وفقط حين لم يُطابَق الاسم بأي شكل — نحصر الكتالوج في أصناف **العلامة نفسها**
- * ونربط إن انفرد صنف واحد بجرعة تساوي الرقم المكتوب أو ألف ضعفه. أكثر من صنف =
- * اقتراحات بلا ربط (نفس قاعدة «لا حسم مع اللبس»).
+ * بديل حين لم يُطابَق الاسم بأي شكل (2026-10-19). المندوبون:
+ *  • يختصرون الجرعة بالآلاف: «Devit 50» = «DEVIT 3 50.000IU»، و5 = 5000، و300 = 300.000.
+ *  • يخطئون إملائياً قليلاً في العلامة: «Divit»، «Devet».
+ * حارس الجرعة في areSimilar يرى 50 ≠ 50000 فلا يقترح شيئاً. هنا نحصر الكتالوج في
+ * **عائلة العلامة** (أول كلمة متطابقة أو قريبة إملائياً)، ونُسقط الأرقام المشتركة بين
+ * كل أفراد العائلة («3» في «DEVIT 3» جزء من الاسم لا جرعة)، ثم نربط **فقط** إن
+ * انفرد صنف واحد بجرعة = الرقم المكتوب أو ألف ضعفه (أو بشكل صيدلاني إن لم تُكتب جرعة).
+ * أكثر من صنف = اقتراحات بلا ربط — إسناد مبيع لجرعة خاطئة أسوأ من خانة فارغة.
  * نقي — exported للاختبار.
  */
 export function brandDoseFallback(name, catalog) {
-  const key = normalizeItemKey(name);
-  const brand = (key.match(/[a-z]{4,}/) || [])[0];
-  if (!brand || !Array.isArray(catalog)) return null;
-  const family = catalog.filter(c => normalizeItemKey(c.name).startsWith(brand));
+  const brand = brandWord(name);
+  if (brand.length < 4 || !Array.isArray(catalog)) return null;
+  const family = catalog.filter(c => {
+    const b = brandWord(c.name);
+    return b === brand || (b.length >= 4 && similarity(b, brand) >= 0.75);
+  });
   if (!family.length) return null;
   const suggestions = family.map(c => ({ id: c.id, name: c.name, sim: 0.5 }));
-  const q = doseNumbers(name)[0];
+
+  // رقم يحمله **كل** أفراد العائلة جزءٌ من اسم العلامة («DEVIT 3»، «DEVIT-3») — لا جرعة.
+  const famNums = family.map(c => new Set(doseNumbers(c.name)));
+  const shared = family.length > 1
+    ? new Set([...famNums[0]].filter(n => famNums.every(s => s.has(n))))
+    : new Set();
+  const dosesOf = (s) => doseNumbers(s).filter(n => !shared.has(n));
+
+  const q = dosesOf(name)[0];
   let hits;
-  if (q == null) hits = family.length === 1 ? family : [];
-  else hits = family.filter(c => doseNumbers(c.name).some(n => n === q || n === q * 1000));
+  if (q != null) {
+    hits = family.filter(c => dosesOf(c.name).some(n => n === q || n === q * 1000));
+  } else {
+    const f = formOf(name);
+    hits = f >= 0 ? family.filter(c => formOf(c.name) === f) : family;
+  }
   if (hits.length === 1) return { canonicalItem: hits[0], confidence: 'high', suggestions, via: 'brand-dose' };
   return { canonicalItem: null, confidence: 'medium', suggestions };
 }

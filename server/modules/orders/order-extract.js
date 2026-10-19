@@ -235,7 +235,8 @@ export async function extractOrderRowsFromText(text, { todayISO } = {}) {
 }
 
 /** نسخة القراءة الحتمية — تُخزَّن في payload فتُعاد قراءة الطلبيات الأقدم عند فتحها. */
-export const TEXT_PARSE_VERSION = 1;
+// 2 (2026-10-19): قائمة المذاخر المعروفة + قصّ الملاحظة بعد اسم المذخر.
+export const TEXT_PARSE_VERSION = 2;
 
 /**
  * القراءة الحتمية للنصّ تغلب اجتهاد الموديل حيث يحسم الشكل: ترويسة متعدّدة الأسطر
