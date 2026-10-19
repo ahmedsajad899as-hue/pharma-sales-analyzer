@@ -57,6 +57,7 @@ const _importAqdarExport         = () => import('./pages/AqdarExportPage');
 const _importTeamEngagement      = () => import('./pages/TeamEngagementPage');
 const _importRepFieldSurvey      = () => import('./pages/RepFieldSurveyPage');
 const _importRepFollowup         = () => import('./pages/RepFollowupPage');
+const _importMotivation          = () => import('./pages/MotivationPage');
 const _importProvinceTeams       = () => import('./pages/ProvinceTeamsPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
@@ -89,6 +90,7 @@ const AqdarExportPage         = lazyWithRetry(_importAqdarExport);
 const TeamEngagementPage      = lazyWithRetry(_importTeamEngagement);
 const RepFieldSurveyPage      = lazyWithRetry(_importRepFieldSurvey);
 const RepFollowupPage         = lazyWithRetry(_importRepFollowup);
+const MotivationPage          = lazyWithRetry(_importMotivation);
 const ProvinceTeamsPage       = lazyWithRetry(_importProvinceTeams);
 
 // Minimal spinner shown while a page chunk is loading
@@ -135,6 +137,7 @@ export type PageId =
   | 'item-analysis'
   | 'quiz-assist'
   | 'rep-followup'
+  | 'motivation'
   | 'province-teams'
   | 'bonus-sales'
   | 'account-builder'
@@ -561,7 +564,7 @@ function AppInner() {
       _importRepAnalysis, _importCommercial, _importSurvey, _importFMS, _importSalesData,
       _importDistributorSales, _importFileFilter, _importPharmacyAnalysis, _importItemAnalysis,
       _importBonusSales, _importOrgStructure, _importAccountBuilder, _importAqdarExport,
-      _importTeamEngagement, _importRepFollowup, _importProvinceTeams,
+      _importTeamEngagement, _importRepFollowup, _importProvinceTeams, _importMotivation,
     ];
 
     // على شبكة بطيئة أو وضع توفير البيانات، سحب ~6MB من الشيفرة مقدّماً يضرّ أكثر
@@ -667,6 +670,7 @@ function AppInner() {
     { id: 'aqdar-export',       node: <AqdarExportPage /> },
     { id: 'team-engagement',    node: <TeamEngagementPage /> },
     { id: 'rep-followup',       node: <RepFollowupPage /> },
+    { id: 'motivation',         node: <MotivationPage /> },
     { id: 'province-teams',     node: <ProvinceTeamsPage activeFileIds={activeFileIds} /> },
   ];
 

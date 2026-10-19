@@ -132,7 +132,7 @@ async function buildCardForRep(ctx) {
   const eff = effectiveFor(standards, followup.overridesByRepId?.get(rep.repId) ?? null);
 
   // ── المبيع (الشهر الحالي والسابق) ─────────────────────────────────────────
-  let sales = { netValue: 0, orderCount: 0, byItem: [], bySource: null, hasData: false };
+  let sales = { netValue: 0, orderCount: 0, byItem: [], bySource: null, hasData: false, firstOrderAt: null };
   let prevSales = { netValue: 0, orderCount: 0, hasData: false };
   if (rep.repId && files.ids.length) {
     const cur = await getReport(rep.repId, { fileIds: files.ids, startDate, endDate }, ownerUserId);
@@ -142,6 +142,7 @@ async function buildCardForRep(ctx) {
       byItem: cur.byItem ?? [],
       bySource: cur.bySource ?? null,
       hasData: true,
+      firstOrderAt: cur.firstOrderAt ?? null,
     };
     const pv = await getReport(rep.repId, { fileIds: files.ids, startDate: prevBounds.startDate, endDate: prevBounds.endDate }, ownerUserId);
     prevSales = { netValue: pv.summary.totalValue, orderCount: pv.summary.orderCount, hasData: true };
@@ -225,6 +226,7 @@ async function buildCardForRep(ctx) {
     sales: {
       netValue: sales.netValue, orderCount: sales.orderCount, hasData: sales.hasData,
       bySource: sales.bySource,
+      firstOrderAt: sales.firstOrderAt,
       prevNetValue: prevSales.netValue, prevOrderCount: prevSales.orderCount,
     },
     target: {

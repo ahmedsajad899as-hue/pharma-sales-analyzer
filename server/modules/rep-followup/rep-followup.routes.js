@@ -5,6 +5,7 @@ import {
   getScorecardsHandler, recomputeHandler, getMyScorecardHandler,
   previewDigestHandler, sendTestDigestHandler, telegramStatusHandler,
 } from './rep-followup.controller.js';
+import { getRaceHandler } from './race.js';
 
 const router = Router();
 
@@ -23,5 +24,8 @@ router.get('/digest/telegram-status', telegramStatusHandler);
 router.get('/scorecards', getScorecardsHandler);
 router.post('/recompute', recomputeHandler);
 router.get('/me', getMyScorecardHandler);
+
+// صفحة التحفيز: سباق التارگت + الشارات + منصّة التتويج (من نفس اللقطات)
+router.get('/race', getRaceHandler);
 
 export default router;

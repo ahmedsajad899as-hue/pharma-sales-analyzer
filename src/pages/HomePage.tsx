@@ -64,6 +64,7 @@ const netQ = (c?: Cell) => (c ? c[0] - c[2] : 0);
 export default function HomePage({ activeFileIds, onNavigate }: Props) {
   const { token, user } = useAuth();
   const fileKey = [...activeFileIds].sort((a, b) => a - b).join(',');
+  const tod = useTimeOfDay();
 
   const [data, setData] = useState<HomeData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -174,10 +175,10 @@ export default function HomePage({ activeFileIds, onNavigate }: Props) {
   }
 
   return (
-    <div className={`page hp ${view === 'board' ? 'is-board' : ''}`} ref={rootRef}
+    <div className={`page hp ${view === 'board' ? 'is-board' : ''}`} ref={rootRef} data-tod={tod}
       onPointerMove={view === 'board' ? onSkyMove : undefined}>
       <HomeStyles />
-      {view === 'board' && <Sky />}
+      {view === 'board' && <Sky tod={tod} />}
 
       <div className="hp-head">
         <select className="form-input hp-month" value={activeMonth} onChange={e => { setMonth(e.target.value); setOpenId(null); e.target.blur(); /* كي لا تبقى القائمة تلتقط أسهم ←/→ فتغيّر الشهر بدل تحريك اللوحة */ }} disabled={!months.length}>
@@ -753,9 +754,24 @@ function ItemArt({ name, company }: { name: string; company: string | null }) {
 const SKY_DOTS = Array.from({ length: 22 }, (_, i) => ({
   left: (i * 37) % 100, top: (i * 53 + 11) % 100, size: 2 + (i % 3), delay: (i * 0.9) % 12, dur: 14 + (i % 5) * 3,
 }));
-function Sky() {
+
+/** ثيم الوقت: ألوان السماء تتبع ساعة المستخدم — فجر · نهار · غروب · ليل. */
+type TimeOfDay = 'dawn' | 'day' | 'sunset' | 'night';
+const timeOfDay = (h: number): TimeOfDay => (h >= 5 && h < 8 ? 'dawn' : h >= 8 && h < 16 ? 'day' : h >= 16 && h < 19 ? 'sunset' : 'night');
+function useTimeOfDay(): TimeOfDay {
+  const [tod, setTod] = useState<TimeOfDay>(() => timeOfDay(new Date().getHours()));
+  useEffect(() => {
+    const id = window.setInterval(() => setTod(timeOfDay(new Date().getHours())), 5 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return tod;
+}
+const TOD_TITLE: Record<TimeOfDay, string> = { dawn: 'صباح الخير ☀️', day: 'نهارك سعيد 🌤️', sunset: 'مساء الخير 🌇', night: 'مساء النور 🌙' };
+
+function Sky({ tod }: { tod: TimeOfDay }) {
   return (
-    <div className="hp-sky" aria-hidden="true">
+    <div className="hp-sky" aria-hidden="true" title={TOD_TITLE[tod]}>
+      <span className={`hp-sky-orb ${tod === 'night' ? 'is-moon' : ''}`} />
       <span className="hp-sky-blob b1" />
       <span className="hp-sky-blob b2" />
       <span className="hp-sky-blob b3" />
@@ -1482,6 +1498,45 @@ function HomeStyles() {
   translate: calc(var(--mx) * 16px) calc(var(--my) * 16px); animation: sky-float linear infinite; opacity: 0; }
 @keyframes sky-float { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: .7; } 85% { opacity: .7; } 100% { transform: translateY(-110px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .hp-sky-blob, .hp-sky-dot { animation: none; } .hp-sky-dot { opacity: .5; } }
+
+/* ══ ثيم الوقت (data-tod على .hp): فجر · نهار (الافتراضي أعلاه) · غروب · ليل ══ */
+.hp-sky { transition: background 1.5s ease; }
+.hp-sky-orb { position: absolute; border-radius: 50%; pointer-events: none; transition: all 1.5s ease;
+  translate: calc(var(--mx) * -10px) calc(var(--my) * -8px); }
+.hp[data-tod=day] .hp-sky-orb { width: 120px; height: 120px; right: 9%; top: 7%;
+  background: radial-gradient(circle, #fffbe6 0%, #fff3c4 45%, rgba(255,243,196,0) 70%); opacity: .8; }
+.hp[data-tod=dawn] .hp-sky { background: radial-gradient(ellipse at 18% 108%, #ffd2b0 0%, transparent 55%),
+  linear-gradient(170deg, #fff8f1 0%, #fdeee4 35%, #eef2fd 75%, #e4ecfb 100%); }
+.hp[data-tod=dawn] .hp-sky-blob.b1 { background: #ffd6c2; } .hp[data-tod=dawn] .hp-sky-blob.b2 { background: #fde7b0; } .hp[data-tod=dawn] .hp-sky-blob.b3 { background: #e2dcfb; }
+.hp[data-tod=dawn] .hp-sky-orb { width: 150px; height: 150px; left: 7%; bottom: 10%;
+  background: radial-gradient(circle, #fff1d6 0%, #ffc98f 40%, rgba(255,201,143,0) 70%); }
+.hp[data-tod=sunset] .hp-sky { background: radial-gradient(ellipse at 85% 105%, #ffb07a 0%, transparent 55%),
+  linear-gradient(170deg, #fff1e6 0%, #ffdcc8 35%, #f8cad4 68%, #dccdf2 100%); }
+.hp[data-tod=sunset] .hp-sky-blob.b1 { background: #ffbe95; } .hp[data-tod=sunset] .hp-sky-blob.b2 { background: #f9a8c4; } .hp[data-tod=sunset] .hp-sky-blob.b3 { background: #c9b8fd; }
+.hp[data-tod=sunset] .hp-sky-orb { width: 190px; height: 190px; right: 6%; bottom: 4%;
+  background: radial-gradient(circle, #ffe2b8 0%, #ff9f5a 42%, rgba(255,120,80,0) 70%); }
+.hp[data-tod=sunset] .hp-sky-dot { background: rgba(234,88,12,.3); box-shadow: 0 0 6px rgba(234,88,12,.25); }
+.hp[data-tod=night] .hp-sky { background: radial-gradient(ellipse at 50% 112%, #2b3f8f 0%, transparent 60%),
+  linear-gradient(170deg, #0a1430 0%, #111f47 45%, #1a2a5e 80%, #213374 100%); }
+.hp[data-tod=night] .hp-sky-blob { opacity: .35; }
+.hp[data-tod=night] .hp-sky-blob.b1 { background: #3b4fa8; } .hp[data-tod=night] .hp-sky-blob.b2 { background: #1e40af; } .hp[data-tod=night] .hp-sky-blob.b3 { background: #5b21b6; }
+.hp[data-tod=night] .hp-sky-orb.is-moon { width: 74px; height: 74px; left: 8%; top: 8%;
+  background: radial-gradient(circle at 38% 38%, #fffef5 0%, #f1f0e2 55%, #d9d6c3 100%);
+  box-shadow: 0 0 40px 12px rgba(241,240,226,.22), inset -10px -8px 0 rgba(0,0,0,.06); }
+.hp[data-tod=night] .hp-sky-dot { background: #fff; box-shadow: 0 0 6px rgba(255,255,255,.8); animation-name: sky-twinkle; }
+@keyframes sky-twinkle { 0%, 100% { opacity: .15; } 50% { opacity: .95; } }
+/* ليلاً: نصوص اللوحة فاتحة فوق السماء الداكنة */
+.hp.is-board[data-tod=night] { color: #e8eefc; }
+.hp.is-board[data-tod=night] .bb-card, .hp.is-board[data-tod=night] .bb-card.has-photo,
+.hp.is-board[data-tod=night] .cf-slot.is-active .bb-card { color: #e8eefc; }
+.hp.is-board[data-tod=night] .hp-muted, .hp.is-board[data-tod=night] .bb-title { color: #c7d2fe; }
+.hp.is-board[data-tod=night] .bb-card .bb-rank { background: rgba(255,255,255,.14); color: #e8eefc; }
+.hp.is-board[data-tod=night] .bb-card-prov .bb-card-qty { color: #93c5fd; }
+.hp.is-board[data-tod=night] .bb-card-prov .bb-card-name { text-shadow: 0 4px 22px rgba(147,197,253,.35); }
+.hp.is-board[data-tod=night] .cf-dot { background: rgba(255,255,255,.25); }
+.hp.is-board[data-tod=night] .bb-photo-pill { background: rgba(255,255,255,.94); color: var(--c-primary); box-shadow: 0 10px 28px rgba(0,0,0,.45); }
+.hp.is-board[data-tod=night] .b3d-shadow { background: radial-gradient(ellipse, rgba(0,0,0,.6), transparent 70%); }
+.hp.is-board[data-tod=night] .b3d-glow { background: radial-gradient(circle, rgba(147,197,253,.28), transparent 65%); }
 
 .hp.is-board .hp-month, .hp.is-board .hp-view-btn { background: rgba(255,255,255,.7); color: var(--c-primary);
   border: 1px solid rgba(15,30,53,.08); backdrop-filter: blur(8px); box-shadow: 0 2px 10px rgba(15,30,53,.05); }

@@ -1534,6 +1534,15 @@ export async function getReport(id, query = {}, viewerId = null) {
   // عدد الطلبيات الفعلي (لا عدد أسطر المبيعات) — يستثني صفوف الإرجاع دائماً، فهي
   // ليست طلبيات جديدة. راجع lib/orderKey.js لتفصيل بناء المفتاح.
   const orderCount = countDistinctOrders(rawSales.filter(s => String(s.recordType ?? '').trim().toLowerCase() !== 'return'));
+  // أول طلبية مؤرَّخة في المدى (لا إرجاع، لا صفوف «بلا تاريخ» 1970) — لشارة
+  // «أول طلبية بالشهر» في صفحة التحفيز (rep-followup/race.js).
+  let firstOrderAt = null;
+  for (const s of rawSales) {
+    if (String(s.recordType ?? '').trim().toLowerCase() === 'return' || !s.saleDate) continue;
+    const d = new Date(s.saleDate);
+    if (d.getUTCFullYear() < 2000) continue;
+    if (!firstOrderAt || d < firstOrderAt) firstOrderAt = d;
+  }
 
   // ── توزيع حسب مصدر الملف (مكتب/ميركاتو) ────────────────────────────────
   // يُستعمل في الواجهة لعرض صندوق صغير يوضّح مساهمة كل نوع ملف حين يُدمَجان
@@ -1581,6 +1590,7 @@ export async function getReport(id, query = {}, viewerId = null) {
     assignedItems: itemLinks.map(l => l.item),
     dateRange: { startDate: query.startDate ?? null, endDate: query.endDate ?? null },
     summary: { totalQuantity: totals.totalQuantity, totalValue: totals.totalValue, orderCount },
+    firstOrderAt,
     byArea,
     byItem,
     byRep,

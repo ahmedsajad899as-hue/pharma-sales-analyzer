@@ -52,6 +52,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'team-engagement',   labelAr: 'نشاط الفريق',                icon: '📈', roles: ['office_manager'] },
   { id: 'province-teams',    labelAr: 'فرق المحافظات',              icon: '🗺️', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','scientific_rep'] },
   { id: 'rep-followup',      labelAr: 'متابعة المندوبين',           icon: '🎯', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
+  { id: 'motivation',        labelAr: 'التحفيز',                    icon: '🏆', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
 ];
 
 // مفتاح ميزة ← يخفي هذا المفتاح صفحة كاملة عند تعطيله (يمكن لعدة مفاتيح أن تشير لنفس الصفحة)
@@ -81,6 +82,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   aqdar_export:       'aqdar-export',
   team_engagement:    'team-engagement',
   rep_followup:       'rep-followup',
+  motivation_page:    'motivation',
   province_teams:     'province-teams',
 };
 
@@ -110,6 +112,7 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'commercial':        'صفحة التجاري — متابعة مبيعات وزيارات المندوبين التجاريين',
   'org-structure':     'صفحة الهيكلية — عرض الهيكل التنظيمي للمكتب/الشركة',
   'aqdar-export':      'صفحة أقدر — تحويل ملف البلان الشهري (طبيب/تخصص/كلاس/صيدلية/منطقة/ايتم) إلى ملف Excel بصيغة أقدر (task-type, rep-name, rep-id, client-id, schedule, note)',
+  'motivation':        'صفحة التحفيز — سباق المندوبين نحو التارگت، أوسمة وإنجازات (أول طلبية، أطباء جدد، محقق التارگت 3 أشهر…) ومنصّة تتويج أبطال الشهر. الأرقام من لقطات متابعة المندوبين',
   'rep-followup':      'صفحة متابعة المندوبين — مؤشّر أداء لكل مندوب علمي من خمس عائلات (التارجت، الزيارات، التغطية، التطوّر، الانضباط) بمعايير يضبطها المدير، مع ملخّص يومي يُرسل للمندوب على التطبيق/تلكرام',
   'province-teams':    'صفحة فرق المحافظات — هيكلية المكاتب ذات التيم ليدر المشترك لكل محافظة: مندوب علمي لكل شركة (أو مندوب لشركتين بتقسيم الايتمات)، وحسبتان لكل مندوب: تغطية المحافظة من ملفات المكتب، والجهد الشخصي الذي يُدخله المندوب (تطبيق/بوت) ويعتمده التيم ليدر',
   'team-engagement':   'صفحة نشاط الفريق — متابعة مدى استخدام مدير الشركة والموارد البشرية وموظفي المكتب للتطبيق (مدير المكتب فقط)',
