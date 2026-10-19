@@ -780,7 +780,7 @@ interface SciReport {
   byRep: BreakdownRow[];
   // توزيع مبيع الملف حسب مصدره (مكتب/ميركاتو) — موجود فقط حين يحوي التحليل
   // الحالي صفوفاً فعلية (سواء من نوع واحد أو من الاثنين معاً).
-  bySource: { office: { totalQty: number; totalValue: number; orderCount: number }; mercato: { totalQty: number; totalValue: number; orderCount: number }; condition?: { totalQty: number; totalValue: number; orderCount: number }; hasOffice: boolean; hasMercato: boolean; hasCondition?: boolean } | null;
+  bySource: { office: { totalQty: number; totalValue: number; orderCount: number }; mercato: { totalQty: number; totalValue: number; orderCount: number }; condition?: { totalQty: number; totalValue: number; orderCount: number }; mercatoOnly?: { totalQty: number; totalValue: number; orderCount: number }; hasOffice: boolean; hasMercato: boolean; hasCondition?: boolean } | null;
 }
 
 type Mode = 'commercial' | 'scientific' | 'overall' | 'provinces';
@@ -1383,6 +1383,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             hasMercato: !!d.bySource.hasMercato,
             // ملف الكوديشن (Liquidation) — جزء من Mercato أعلاه، سطر فرعي تجريبي.
             condition: { totalQty: d.bySource.condition?.totalQuantity ?? 0, totalValue: d.bySource.condition?.totalValue ?? 0, orderCount: d.bySource.condition?.orderCount ?? 0 },
+            mercatoOnly: { totalQty: d.bySource.mercatoOnly?.totalQuantity ?? 0, totalValue: d.bySource.mercatoOnly?.totalValue ?? 0, orderCount: d.bySource.mercatoOnly?.orderCount ?? 0 },
             hasCondition: !!d.bySource.hasCondition,
           } : null,
         };
@@ -4825,7 +4826,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         const src = sciReport.bySource;
         const hasMixedSources = !!(src?.hasOffice && src?.hasMercato);
         const officeNetVal  = (src?.office.totalValue  ?? 0) - (sciReturnsReport?.bySource?.office.totalValue  ?? 0);
-        const mercatoNetVal = (src?.mercato.totalValue ?? 0) - (sciReturnsReport?.bySource?.mercato.totalValue ?? 0);
+        // حين يوجد كوديشن، سطر Mercato = ميركاتو بدونه، كي تُجمَع الأسطر الثلاثة للإجمالي.
+        const mercOf = (b: any) => (b?.hasCondition && b?.mercatoOnly) ? b.mercatoOnly : b?.mercato;
+        const mercatoNetVal = (mercOf(src)?.totalValue ?? 0) - (mercOf(sciReturnsReport?.bySource)?.totalValue ?? 0);
         // نفس التوزيع لكن لقيمة الخانة المعروضة حالياً فقط (مبيع أو ارجاع) بدل الصافي —
         // يظهر في كل الخانات لا الصافي وحده، للمقارنة بين الملفين مباشرة أياً كانت الخانة.
         const viewSrc = viewData?.bySource;
@@ -4846,7 +4849,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <span style={{ fontSize: 12.5, fontWeight: 800, color: mercatoColor, whiteSpace: 'nowrap' }}>{mercatoValStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(mercatoCount)}🧾</span></span>
               {liq && (<>
                 <Icon name="uploadSales" size={13} style={{ color: '#64748b' }} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }} title="ملف الكوديشن (طلبيات البوت والفواتير) — محسوب ضمن Mercato">Liquidation</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }} title="ملف الكوديشن (طلبيات البوت والفواتير) — مفصول عن Mercato">Liquidation</span>
                 <span style={{ fontSize: 12.5, fontWeight: 800, color: liq.color, whiteSpace: 'nowrap' }}>{liq.valStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(liq.count)}🧾</span></span>
               </>)}
             </div>
@@ -4895,7 +4898,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {hasMixedSources && renderSourceBox(
                 fmtValSigned(officeNetVal), fmtValSigned(mercatoNetVal),
                 officeNetVal >= 0 ? '#065f46' : '#991b1b', mercatoNetVal >= 0 ? '#065f46' : '#991b1b',
-                src?.office.orderCount ?? 0, src?.mercato.orderCount ?? 0,
+                src?.office.orderCount ?? 0, mercOf(src)?.orderCount ?? 0,
                 src?.hasCondition ? { valStr: fmtValSigned(condNetVal), color: condNetVal >= 0 ? '#065f46' : '#991b1b', count: src?.condition?.orderCount ?? 0 } : null,
               )}
               </div>
@@ -4916,9 +4919,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 </div>
               </div>
               {viewHasMixedSources && renderSourceBox(
-                fmtVal(viewSrc?.office.totalValue ?? 0), fmtVal(viewSrc?.mercato.totalValue ?? 0),
+                fmtVal(viewSrc?.office.totalValue ?? 0), fmtVal(mercOf(viewSrc)?.totalValue ?? 0),
                 '#1e293b', '#1e293b',
-                viewSrc?.office.orderCount ?? 0, viewSrc?.mercato.orderCount ?? 0,
+                viewSrc?.office.orderCount ?? 0, mercOf(viewSrc)?.orderCount ?? 0,
                 viewSrc?.hasCondition ? { valStr: fmtVal(viewSrc?.condition?.totalValue ?? 0), color: '#1e293b', count: viewSrc?.condition?.orderCount ?? 0 } : null,
               )}
               </div>

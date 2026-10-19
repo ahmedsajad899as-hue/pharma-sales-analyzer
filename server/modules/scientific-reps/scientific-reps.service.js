@@ -1557,6 +1557,9 @@ export async function getReport(id, query = {}, viewerId = null) {
     condition:  { totalQuantity: aggregateSalesWithReps(conditionRows).totals.totalQuantity, totalValue: aggregateSalesWithReps(conditionRows).totals.totalValue, orderCount: countDistinctOrders(conditionOrderRows) },
     hasOffice:  officeRows.length > 0,
     hasMercato: mercatoRows.length > 0,
+    // ميركاتو بدون الكوديشن — الواجهة تعرضه بدل mercato حين يوجد كوديشن، كي
+    // تُجمَع الأسطر الثلاثة (Office + Mercato + Liquidation) إلى الإجمالي.
+    mercatoOnly: { totalQuantity: aggregateSalesWithReps(mercatoRows.filter(s => !isConditionRow(s))).totals.totalQuantity, totalValue: aggregateSalesWithReps(mercatoRows.filter(s => !isConditionRow(s))).totals.totalValue, orderCount: countDistinctOrders(mercatoOrderRows.filter(s => !isConditionRow(s))) },
     hasCondition: conditionRows.length > 0,
   } : null;
 
