@@ -24,7 +24,7 @@ import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess, findPe
 import { checkManualDuplicates, duplicateWarningText } from '../../lib/manualDuplicateCheck.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
 import { ingestPersonalSalesFromBot } from '../province-teams/personal-sales.service.js';
-import { renderOrderTablePng } from './order-table-image.js';
+import { renderOrderTablePng, paginateOrderRows } from './order-table-image.js';
 
 /** يردّ بتعديل رسالة «⏳» حيث تدعم المنصة ذلك، وإلا برسالة جديدة (فايبر). */
 async function reply(transport, ctx, text) {
@@ -176,7 +176,8 @@ export async function handleIncomingOrderMessage({
 // (طلب صاحب المشروع 2026-10-19) الصورة لا تُرسَل تلقائياً بعد التحليل، بل حين
 // يكتب أحد في الكروب «كشف» — ولو كان الكروب صامتاً: الكلمة طلب صريح.
 // «كشف» ردّاً على رسالة الطلبية (أو ردّ البوت عليها) ← تلك الطلبية؛ «كشف 88» ←
-// الطلبية 88؛ «كشف» وحدها ← آخر طلبية في الكروب.
+// الطلبية 88؛ «كشف» وحدها ← **كل** الطلبيات المعلَّقة في الكروب (صور متتالية
+// بحدّ 40 صنفاً للصورة، بلا شطر طلبية بين صورتين).
 const REVEAL_RE = /^\s*كشف(?:\s*#?\s*(\d+))?\s*[.!؟?]*\s*$/;
 
 /** null إن لم تكن الرسالة أمر «كشف»، وإلا { orderId|null }. */
@@ -197,11 +198,19 @@ export async function handleRevealCommand({ transport, chatId, orderId = null, m
         : '⚠️ لا توجد طلبية بانتظار المراجعة لهذا الطلب (ربما حُفظت أو أُلغيت).', { force: true });
       return;
     }
-    const png = await renderOrderTablePng(found.rows, {
-      title: `تحليل الطلبية رقم ${found.ids.join(' و ')}`,
-      footer: 'هذه قراءة الذكاء الاصطناعي قبل تدقيق المدير — إن وجدت خطأ فاكتبه هنا',
-    });
-    await transport.sendPhoto(chatId, png, { replyTo: messageId, force: true });
+    const pages = paginateOrderRows(found.rows);
+    for (let p = 0; p < pages.length; p++) {
+      const pageIds = [...new Set(pages[p].map(r => r._orderId))];
+      // العنوان يبدأ بعربي ولا ينتهي بلاتيني (فخّ اتجاه السطر في resvg).
+      const title = found.all
+        ? `الطلبيات بانتظار التأكيد: ${found.ids.length} طلبية${pages.length > 1 ? ` — صورة ${p + 1} من ${pages.length}` : ''}`
+        : `تحليل الطلبية رقم ${pageIds.join(' و ')}`;
+      const png = await renderOrderTablePng(pages[p], {
+        title,
+        footer: 'هذه قراءة الذكاء الاصطناعي قبل تدقيق المدير — إن وجدت خطأ فاكتبه هنا',
+      });
+      await transport.sendPhoto(chatId, png, { replyTo: p === 0 ? messageId : null, force: true });
+    }
   } catch (e) {
     console.error('[orders] تعذّر تنفيذ «كشف»:', e?.message);
   }

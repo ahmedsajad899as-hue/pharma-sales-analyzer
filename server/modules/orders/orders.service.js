@@ -1072,10 +1072,12 @@ export async function loadOrderOrigins(reviewerId, ids) {
 /**
  * صفوف طلبية معلَّقة لأمر «كشف» في الكروب. البحث ضمن نفس المحادثة فقط:
  *  1) رقم صريح («كشف 88»)، 2) أرقام #… في ردّ البوت الذي رُدَّ عليه، 3) رسالة
- *  المرسِل التي رُدَّ عليها (payload.sourceMessageId)، 4) وإلا آخر طلبية في الكروب.
+ *  المرسِل التي رُدَّ عليها (payload.sourceMessageId)، 4) وإلا **كل** الطلبيات
+ *  المعلَّقة في الكروب (طلب صاحب المشروع: «كشف» وحدها = كل ما لم يُؤكَّد بعد).
  * أجزاء نفس الطلبية المقسومة على عدة مدراء (نفس sourceHash) تُجمَع في جدول واحد.
  * الطلبية المحفوظة (المُستهلَكة) لم تعد في الطابور — يُعاد null.
- * @returns {Promise<{ ids:number[], rows:any[] } | null>}
+ * الصفوف تحمل _orderId (لترويسة كل طلبية في الصورة).
+ * @returns {Promise<{ ids:number[], rows:any[], all:boolean } | null>}
  */
 export async function findPendingOrderForReveal({ chatId, orderId = null, replyToMessageId = null, replyText = '' }) {
   const all = await prisma.pendingBotOrder.findMany({
@@ -1093,11 +1095,12 @@ export async function findPendingOrderForReveal({ chatId, orderId = null, replyT
   if (!seed && replyToMessageId) seed = all.find(o => Number(o.payload?.sourceMessageId) === Number(replyToMessageId));
   // رقم غير موجود، أو ردّ على رسالة لا تخصّ طلبية معلَّقة ⇒ لا نخمّن طلبية أخرى.
   if (!seed && (orderId || replyToMessageId)) return null;
-  seed ??= all[0];
-  const parts = all.filter(o => o.sourceHash === seed.sourceHash).sort((a, b) => a.id - b.id);
+  const parts = (seed ? all.filter(o => o.sourceHash === seed.sourceHash) : all).sort((a, b) => a.id - b.id);
   return {
+    all: !seed,
     ids: parts.map(o => o.id),
-    rows: parts.flatMap(o => (Array.isArray(o.payload?.rows) ? o.payload.rows.filter(Boolean) : [])),
+    rows: parts.flatMap(o => (Array.isArray(o.payload?.rows) ? o.payload.rows.filter(Boolean) : [])
+      .map(r => ({ ...r, _orderId: o.id }))),
   };
 }
 

@@ -17,7 +17,9 @@ const FONT_FILES = ['Vazirmatn-Regular.ttf', 'Vazirmatn-Bold.ttf'].map(f => path
 const W = 980;          // عرض الصورة بالوحدات (تُرسَم بضعفها للوضوح)
 const PAD = 18;
 const ROW_H = 30;
-const MAX_ROWS = 40;    // صورة بطول معقول؛ الباقي يُذكر عدداً
+// صورة بطول معقول (حدّ تلكرام: العرض+الطول ≤ 10000 بكسل). «كشف» يقسّم الطلبيات
+// الكثيرة صوراً بهذا الحدّ (paginateOrderRows)، وما يزيد في صورة واحدة يُذكر عدداً.
+export const MAX_ROWS = 40;
 
 const escXml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 // نصّ فيه عربي يُسبَق بعلامة RLM كي يكون اتجاه الفقرة يميناً→يسار: بدونها يبدأ
@@ -58,7 +60,7 @@ function groupInvoices(rows) {
   const groups = [];
   const byKey = new Map();
   for (const r of rows) {
-    const k = [r.pharmacy, r.area, r.warehouse, r.invoiceNumber].map(v => String(v ?? '').trim()).join('|');
+    const k = [r._orderId, r.pharmacy, r.area, r.warehouse, r.invoiceNumber].map(v => String(v ?? '').trim()).join('|');
     if (!byKey.has(k)) { const g = { r, rows: [] }; byKey.set(k, g); groups.push(g); }
     byKey.get(k).rows.push(r);
   }
@@ -89,6 +91,7 @@ export function buildOrderTableSvg(rows, { title = 'تحليل الطلبية', 
     const h = g.r;
     // بلا رموز تعبيرية: الخط المضمَّن لا يحملها فتُرسَم مربعات فارغة.
     const head = [
+      h._orderId ? `الطلبية ${h._orderId}` : null,
       `الصيدلية: ${h.pharmacy || 'غير مقروءة'}`,
       `المنطقة: ${h.area || 'غير محددة'}`,
       h.warehouse ? `المذخر: ${h.warehouse}` : null,
@@ -151,6 +154,30 @@ export function buildOrderTableSvg(rows, { title = 'تحليل الطلبية', 
   const H = Math.ceil(y + PAD);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Vazirmatn">`
     + `<rect width="100%" height="100%" fill="#ffffff"/>${parts.join('')}</svg>`;
+}
+
+/**
+ * يقسّم صفوف عدة طلبيات صفحاتٍ لا تتجاوز MAX_ROWS، بلا شطر طلبية بين صفحتين
+ * (إلا طلبية أطول من الحدّ وحدها). الصفوف تحمل _orderId.
+ */
+export function paginateOrderRows(rows) {
+  const byOrder = [];
+  for (const r of rows) {
+    const last = byOrder[byOrder.length - 1];
+    if (last && last.id === r._orderId) last.rows.push(r); else byOrder.push({ id: r._orderId, rows: [r] });
+  }
+  const pages = [];
+  let cur = [];
+  for (const o of byOrder) {
+    if (cur.length && cur.length + o.rows.length > MAX_ROWS) { pages.push(cur); cur = []; }
+    for (let i = 0; i < o.rows.length; i += MAX_ROWS) {
+      const chunk = o.rows.slice(i, i + MAX_ROWS);
+      if (cur.length && cur.length + chunk.length > MAX_ROWS) { pages.push(cur); cur = []; }
+      cur.push(...chunk);
+    }
+  }
+  if (cur.length) pages.push(cur);
+  return pages;
 }
 
 /** PNG جاهز للإرسال. يرمي إن تعذّر الرسم — المستدعي يتعامل (الصورة تحسين لا شرط). */
