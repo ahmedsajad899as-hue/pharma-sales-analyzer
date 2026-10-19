@@ -6,6 +6,7 @@ import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
+import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -1480,7 +1481,8 @@ const REPORT_SALES_SELECT = {
   // before summing (files may mix USD/IQD — raw sums across them are wrong).
   // sourceSystem أيضاً — يُستعمل لفصل مبيع ملف المكتب عن مبيع ميركاتو (bySource
   // أدناه في getReport) حين يُدمَج ملفا النوعين معاً في نفس التحليل.
-  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true, sourceSystem: true } },
+  // mergeGroup: يميّز ملف الكوديشن (Liquidation) داخل مبيع ميركاتو — bySource.condition.
+  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true, sourceSystem: true, mergeGroup: true } },
 };
 
 /**
@@ -1544,11 +1546,18 @@ export async function getReport(id, query = {}, viewerId = null) {
   // orderCount أعلاه يُحسب منها أيضاً، ونفس استثناء صفوف الإرجاع.
   const officeOrderRows  = rawSales.filter(s => s.uploadedFile?.sourceSystem !== 'mercato' && String(s.recordType ?? '').trim().toLowerCase() !== 'return');
   const mercatoOrderRows = rawSales.filter(s => s.uploadedFile?.sourceSystem === 'mercato'  && String(s.recordType ?? '').trim().toLowerCase() !== 'return');
+  const isConditionRow   = s => String(s.uploadedFile?.mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`);
+  const conditionRows    = mercatoRows.filter(isConditionRow);
+  const conditionOrderRows = mercatoOrderRows.filter(isConditionRow);
   const bySource = (officeRows.length > 0 || mercatoRows.length > 0) ? {
     office:     { totalQuantity: aggregateSalesWithReps(officeRows).totals.totalQuantity,  totalValue: aggregateSalesWithReps(officeRows).totals.totalValue,  orderCount: countDistinctOrders(officeOrderRows) },
     mercato:    { totalQuantity: aggregateSalesWithReps(mercatoRows).totals.totalQuantity, totalValue: aggregateSalesWithReps(mercatoRows).totals.totalValue, orderCount: countDistinctOrders(mercatoOrderRows) },
+    // ملف الكوديشن (طلبيات البوت/الفواتير) جزءٌ من ميركاتو أعلاه — يُعرض كسطر
+    // فرعي «Liquidation» للتجربة، ولا يُطرح من mercato.
+    condition:  { totalQuantity: aggregateSalesWithReps(conditionRows).totals.totalQuantity, totalValue: aggregateSalesWithReps(conditionRows).totals.totalValue, orderCount: countDistinctOrders(conditionOrderRows) },
     hasOffice:  officeRows.length > 0,
     hasMercato: mercatoRows.length > 0,
+    hasCondition: conditionRows.length > 0,
   } : null;
 
   // أسماء المذاخر (مكتب لا يملك مذاخر أصلاً) وعدد طلبياتها وصافي قيمتها، على
