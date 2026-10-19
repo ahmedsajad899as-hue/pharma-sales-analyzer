@@ -1109,86 +1109,86 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       <div style={panel} dir="rtl">
         <style>{GRID_CSS}</style>
         <div style={header}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>➕ إضافة مبيعات من فاتورة / يدوياً</h3>
-          <button onClick={onClose} style={xBtn}>✕</button>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#0f172a' }}>
+              {fromPendingOrder
+                ? (orderList.length > 1 ? `مراجعة ${orderList.length} طلبيات` : `مراجعة الطلبية #${initialOrder?.id ?? ''}`)
+                : 'إضافة مبيعات'}
+            </h3>
+            {fromPendingOrder && orderList.length === 1 && initialOrder && (
+              <div style={subLine}>
+                {[initialOrder.senderName, initialOrder.chatTitle, initialOrder.originName ? `محوّلة من ${initialOrder.originName}` : null]
+                  .filter(Boolean).join(' · ')}
+              </div>
+            )}
+          </div>
+          <button onClick={onClose} style={xBtn} title="إغلاق">✕</button>
         </div>
 
-        <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
-          {fromPendingOrder && orderList.length > 1
-            ? `${orderList.length} طلبيات وصلت عبر البوت مجمَّعة في جدول واحد — كل طلبية برقمها في العمود الأول، انقر الرقم لعرض رسالتها الأصلية أعلاه. لم يُحفَظ شيء بعد — راجع وصحّح ثم احفظها كلها مرة واحدة.`
-            : fromPendingOrder
-            ? 'طلبية وصلت عبر البوت واستُخرجت بالذكاء الاصطناعي. لم يُحفَظ منها شيء بعد — راجع الأصناف والكميات واسم الصيدلية، واختر المندوب والملف، ثم احفظ.'
-            : 'للمبيعات التي تأتي من فواتير المذاخر ولا تظهر في ملفات Excel. ارفع صورة الفاتورة ليستخرجها الذكاء الاصطناعي، أو اكتب الصفوف يدوياً — كل فاتورة تحتفظ بتفاصيلها الخاصة. راجعها ثم احفظها.'}
-        </p>
-
-        {/* Image upload + rep */}
+        {/* شريط الأدوات: المندوب + رفع صورة */}
         <div style={topBar}>
-          <div style={dropZone}>
-            <input ref={imgInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
-              onChange={e => onImages(e.target.files)} />
-            <button onClick={() => imgInputRef.current?.click()} disabled={extracting} style={imgBtn}>
-              {extracting ? '⏳ جاري التحليل…' : '📷 رفع صورة فاتورة (تحليل ذكي)'}
-            </button>
-            <span style={{ fontSize: 11.5, color: '#94a3b8' }}>يفهم نماذج مختلفة · عدة صور (كل فاتورة بتفاصيلها)</span>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155', cursor: 'pointer', marginTop: 4 }}
-              title="عند التفعيل: تُستخرج فقط الايتمات المعيّنة لك، وباقي ايتمات الصورة تُهمَل ولا تُعرض. اسم الايتم يُوحَّد تلقائياً مع اسمه المعيّن.">
-              <input type="checkbox" checked={onlyAssignedItems} onChange={e => setOnlyAssignedItems(e.target.checked)} />
-              🎯 استخراج ايتماتي المعيّنة فقط
-            </label>
-          </div>
-          <label style={lbl}>المندوب*
+          <label style={lbl}>
+            <span>المندوب</span>
             {/* طلبية بوت ⇒ منسدلة لا حقل حرّ. findOrCreateRep في الخادم يُنشئ
                 مندوباً جديداً صامتاً عند أي فرق حرف، فينشقّ تاريخ المندوب على
                 صفّين في كل تقرير. الاختيار من القائمة يضمن اسماً قائماً حرفياً. */}
             {fromPendingOrder ? (
-              <select value={repName} onChange={e => setRepName(e.target.value)} style={inp}>
-                <option value="">— اختر المندوب —</option>
+              <select value={repName} onChange={e => setRepName(e.target.value)} style={{ ...inp, minWidth: 180 }}>
+                <option value="">— اختر —</option>
                 {reps.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
                 {repName && !reps.some(r => r.name === repName) && (
-                  <option value={repName}>{repName} (من حساب الكروب)</option>
+                  <option value={repName}>{repName}</option>
                 )}
               </select>
             ) : (
               <>
                 <input list="rep-suggestions" value={repName} onChange={e => setRepName(e.target.value)}
-                  placeholder="اسم المندوب" style={inp} />
+                  placeholder="اسم المندوب" style={{ ...inp, minWidth: 180 }} />
                 <datalist id="rep-suggestions">{reps.map(r => <option key={r.id} value={r.name} />)}</datalist>
               </>
             )}
           </label>
+          <span style={{ flex: 1 }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', cursor: 'pointer' }}
+            title="تُستخرج من الصورة الايتمات المعيّنة لك فقط">
+            <input type="checkbox" checked={onlyAssignedItems} onChange={e => setOnlyAssignedItems(e.target.checked)} />
+            ايتماتي فقط
+          </label>
+          <input ref={imgInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+            onChange={e => onImages(e.target.files)} />
+          <button onClick={() => imgInputRef.current?.click()} disabled={extracting} style={imgBtn}
+            title="تحليل صورة فاتورة بالذكاء الاصطناعي — يمكن اختيار عدة صور">
+            {extracting ? 'جاري التحليل…' : 'رفع صورة فاتورة'}
+          </button>
         </div>
 
-        {/* نصّ الطلبية كما وصل — مرجع المراجِع ليقابل الصفوف المستخرَجة بالأصل.
-            للطلبيات النصية هو ما يقابل عارض الصورة في طلبيات الفواتير. */}
+        {/* نصّ الطلبية كما وصل — مرجع المراجِع ليقابل الصفوف المستخرَجة بالأصل. */}
         {fromPendingOrder && activeOrder && (
           <div ref={srcPanelRef} style={srcPanel}>
-            {orderList.length > 1 && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                {orderList.map(o => {
-                  const on = o.id === activeOrder.id;
-                  const n = rows.filter(r => r.orderId === o.id && rowHasData(r)).length;
-                  return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#64748b' }}>
+                الرسالة الأصلية{orderList.length > 1 ? ` — #${activeOrder.id}` : ''}
+              </span>
+              {orderList.length > 1 && activeOrder.senderName && (
+                <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                  {[activeOrder.senderName, activeOrder.originName ? `محوّلة من ${activeOrder.originName}` : null].filter(Boolean).join(' · ')}
+                </span>
+              )}
+              {orderList.length > 1 && (
+                <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginInlineStart: 'auto' }}>
+                  {orderList.map(o => (
                     <button key={o.id} onClick={() => showOrder(o.id, null)}
                       title={(o.sourceText || '').slice(0, 200)}
-                      style={{ ...ordTab, ...(on ? ordTabOn : null) }}>
-                      #{o.id}{o.kind === 'photo' ? ' 🖼️' : ''} · {n} صنف
+                      style={{ ...ordTab, ...(o.id === activeOrder.id ? ordTabOn : null) }}>
+                      #{o.id}
                     </button>
-                  );
-                })}
-              </div>
-            )}
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
-              📩 نصّ الطلبية{orderList.length > 1 ? ` #${activeOrder.id}` : ''} كما وصل
-              {activeOrder.senderName ? ` — من ${activeOrder.senderName}` : ''}
-              {activeOrder.chatTitle ? ` (${activeOrder.chatTitle})` : ''}
-              {activeOrder.originName ? ` · ↪️ محوَّلة من ${activeOrder.originName}` : ''}
+                  ))}
+                </span>
+              )}
             </div>
             {activeOrder.sourceText
               ? <div style={srcText}>{activeOrder.sourceText}</div>
-              : <div style={{ fontSize: 12.5, color: '#78350f' }}>طلبية صورة بلا نص — انقر رقمها في الجدول لعرض الصورة.</div>}
-            <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
-              قابِل الصفوف أدناه بالنصّ، وصحّح ما أخطأ فيه الاستخراج قبل الحفظ.
-            </div>
+              : <div style={{ fontSize: 12.5, color: '#64748b' }}>طلبية صورة — انقر رقمها في الجدول لعرض الصورة.</div>}
           </div>
         )}
 
@@ -1202,8 +1202,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                 <button key={i} onClick={() => { setPreview(u); scrollToGroup(i); }} title={`عرض الفاتورة ${i + 1} والانتقال لأصنافها`} style={thumb}>
                   <img src={u} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
                   <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.3 }}>
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: '#1e293b' }}>فاتورة {i + 1}</span>
-                    <span style={{ fontSize: 10.5, color: n ? '#64748b' : '#dc2626' }}>{n ? `${n} صنف` : 'بلا أصناف'}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 600, color: '#1e293b' }}>فاتورة {i + 1}</span>
+                    <span style={{ fontSize: 10.5, color: n ? '#64748b' : '#b91c1c' }}>{n ? `${n} صنف` : 'بلا أصناف'}</span>
                   </span>
                 </button>
               );
@@ -1213,9 +1213,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
 
         {/* Smart-confirm control bar */}
         {confirm != null && activeStep && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10, padding: '8px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, position: 'sticky', top: 0, zIndex: 5 }}>
-            <span style={{ fontSize: 13, fontWeight: 800, color: '#92400e' }}>🎯 تأكيد ذكي</span>
-            <span style={{ fontSize: 12, color: '#78350f' }}>{confirm + 1}/{steps.length} — {stepLabel(activeStep)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10, padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, position: 'sticky', top: 0, zIndex: 5 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>التدقيق من الصورة</span>
+            <span style={{ fontSize: 12, color: '#475569' }}>{confirm + 1}/{steps.length} — {stepLabel(activeStep)}</span>
             <span style={{ flex: 1 }} />
             <button onClick={() => setConfirm(c => Math.max(0, (c ?? 0) - 1))} disabled={confirm === 0} style={navBtn}>◀ السابق</button>
             <button onClick={nextStep} disabled={confirm >= steps.length - 1} style={navBtnP}>التالي ▶</button>
@@ -1227,24 +1227,24 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         {/* شريط الحالة — ملخّص حيّ وقابل للنقر: يأخذك لأول صف ينقصه مندوب */}
         {dataRows.length > 0 && (
           <div style={statusBar}>
-            <span style={chip}>🧾 {groups.filter(g => g.idxs.some(i => rowHasData(rows[i]))).length} فاتورة</span>
-            <span style={chip}>📦 {dataRows.length} صنف</span>
-            <span style={chip}>💰 {fmtThousands(String(Math.round(grandTotal)))} <small style={{ color: '#64748b' }}>{destCurrency}</small></span>
+            <span>{groups.filter(g => g.idxs.some(i => rowHasData(rows[i]))).length} فاتورة</span>
+            <span style={dot}>·</span>
+            <span>{dataRows.length} صنف</span>
+            <span style={dot}>·</span>
+            <span style={{ fontWeight: 700, color: '#0f172a' }}>{fmtThousands(String(Math.round(grandTotal)))} {destCurrency}</span>
             <span style={{ flex: 1 }} />
-            {missingRep.length > 0 ? (
+            {missingRep.length > 0 && (
               <button onClick={() => focusRow(missingRep[0].i)} style={{ ...chip, ...chipWarn, cursor: 'pointer', textDecoration: 'underline' }} title="انتقل لأول صف بلا مندوب علمي">
-                ⚠ {missingRep.length} بلا مندوب علمي — انقر للانتقال
+                {missingRep.length} بلا مندوب علمي
               </button>
-            ) : (
-              <span style={chip}>✓ كل الصفوف لها مندوب علمي</span>
             )}
-            {badRows > 0 && <span style={{ ...chip, ...chipBad }}>✕ {badRows} صف ينقصه مادة أو كمية</span>}
+            {badRows > 0 && <span style={{ ...chip, ...chipBad }}>{badRows} صف ينقصه مادة أو كمية</span>}
           </div>
         )}
         {/* ملخّص التكرار — الفواتير/الأصناف المحفوظة سابقاً في الملف */}
         {dupDupRows.length > 0 && (
           <div style={{ marginBottom: 6, fontSize: 12, color: '#b91c1c', display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span>🔁 {dupDupRows.length} صف مكرر (بالأحمر)</span>
+            <span>{dupDupRows.length} صف محفوظ سابقاً (مظلّل)</span>
             <button onClick={() => dropDuplicateRows()} style={dupBtn}>استبعادها</button>
           </div>
         )}
@@ -1292,7 +1292,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                     <td rowSpan={span} style={{ ...gTd, ...gInvTd, ...sep, textAlign: 'center' }}>
                       {g.orderId != null ? (
                         <button onClick={() => showOrder(g.orderId!, g.imageIndex)}
-                          style={{ ...invMini, ...(activeOrder?.id === g.orderId && orderList.length > 1 ? { background: '#f59e0b', color: '#fff', borderColor: '#f59e0b' } : null) }}
+                          style={{ ...invMini, ...(activeOrder?.id === g.orderId && orderList.length > 1 ? { background: '#1e293b', color: '#fff', borderColor: '#1e293b' } : null) }}
                           title="عرض الرسالة الأصلية لهذه الطلبية أعلى الجدول">
                           #{g.orderId}
                         </button>
@@ -1412,46 +1412,33 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           </table>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={addRow} style={addBtn}>＋ صف جديد</button>
+          <button onClick={addRow} style={addBtn}>+ صف</button>
           {steps.length > 0 && confirm == null && (
             <button onClick={startConfirm} style={confirmBtn} title="تكبير الصورة على كل حقل وإبراز خانته للتدقيق">
-              🎯 تأكيد ذكي من الصورة
+              تدقيق من الصورة
             </button>
           )}
         </div>
 
         {/* Destination */}
-        <div style={{ marginTop: 16, padding: 14, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 10 }}>وجهة الحفظ</div>
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-            <label style={radio}>
-              <input type="radio" checked={destMode === 'condition'} onChange={() => setDestMode('condition')} />
-              ملف الكوديشن (مرتبط بميركاتو)
-            </label>
-            <label style={radio}>
-              <input type="radio" checked={destMode === 'existing'} onChange={() => setDestMode('existing')} disabled={!files.length} />
-              دمج في ملف موجود
-            </label>
-            <label style={radio}>
-              <input type="radio" checked={destMode === 'new'} onChange={() => setDestMode('new')} />
-              ملف جديد
-            </label>
-          </div>
-          {destMode === 'condition' ? (
-            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: '#64748b' }}>
-                {originNames.length
-                  ? `↪️ طلبيات محوَّلة إليك: تُحفَظ في ملف كوديشن «${originNames.join('، ')}» (المشترك مع المكتب) وتظهر لكل من أُسنِد له الايتم — المكرر يُسقَط تلقائياً. العملة:`
-                  : 'تُجمع طلبيات البوت وإكسل الكوديشن في ملف واحد بجانب ملف ميركاتو، ويُحتسب معه — المكرر يُسقَط تلقائياً. العملة:'}
-              </span>
-              <select value={newCurrency} onChange={e => setNewCurrency(e.target.value as 'IQD' | 'USD')} style={inp}>
-                <option value="IQD">IQD</option>
-                <option value="USD">USD</option>
-              </select>
-            </div>
-          ) : destMode === 'existing' ? (
-            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <select value={destFileId} onChange={e => setDestFileId(Number(e.target.value))} style={{ ...inp, minWidth: 280 }}>
+        <div style={destBar}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>الحفظ في</span>
+          <label style={radio}>
+            <input type="radio" checked={destMode === 'condition'} onChange={() => setDestMode('condition')} />
+            ملف الكوديشن{originNames.length ? ` (${originNames.join('، ')})` : ''}
+          </label>
+          <label style={radio}>
+            <input type="radio" checked={destMode === 'existing'} onChange={() => setDestMode('existing')} disabled={!files.length} />
+            ملف موجود
+          </label>
+          <label style={radio}>
+            <input type="radio" checked={destMode === 'new'} onChange={() => setDestMode('new')} />
+            ملف جديد
+          </label>
+          <span style={{ flex: 1 }} />
+          {destMode === 'existing' ? (
+            <>
+              <select value={destFileId} onChange={e => setDestFileId(Number(e.target.value))} style={{ ...inp, minWidth: 260 }}>
                 {files.map(f => (
                   <option key={f.id} value={f.id}>
                     {f.originalName}
@@ -1462,37 +1449,39 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                   </option>
                 ))}
               </select>
-              <span style={{ fontSize: 12, color: '#64748b' }}>العملة: <b>{destCurrency}</b> — أدخل القيم بهذه العملة</span>
-            </div>
+              <span style={{ fontSize: 12, color: '#64748b' }}>{destCurrency}</span>
+            </>
           ) : (
-            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input value={newFileName} onChange={e => setNewFileName(e.target.value)} placeholder="اسم الملف الجديد (مثل: فواتير مذاخر — آب)" style={{ ...inp, minWidth: 260 }} />
-              <select value={newCurrency} onChange={e => setNewCurrency(e.target.value as 'IQD' | 'USD')} style={inp}>
+            <>
+              {destMode === 'new' && (
+                <input value={newFileName} onChange={e => setNewFileName(e.target.value)} placeholder="اسم الملف" style={{ ...inp, minWidth: 220 }} />
+              )}
+              <select value={newCurrency} onChange={e => setNewCurrency(e.target.value as 'IQD' | 'USD')} style={inp} title="العملة">
                 <option value="IQD">IQD</option>
                 <option value="USD">USD</option>
               </select>
-            </div>
+            </>
           )}
         </div>
 
         {error && <div style={errBox}>{error}</div>}
         {info && <div style={infoBox}>{info}</div>}
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-start', marginTop: 16 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
           <button onClick={onSave} disabled={saving || extracting || checking} style={saveBtn}>
-            {checking ? '🔎 جاري فحص الأسماء…' : saving ? '⏳ جاري الحفظ…' : '💾 حفظ المبيعات'}
+            {checking ? 'جاري فحص الأسماء…' : saving ? 'جاري الحفظ…' : 'حفظ'}
           </button>
-          <button onClick={onClose} style={cancelBtn}>
-            {fromPendingOrder ? (orderList.length > 1 ? 'إغلاق (تبقى الطلبيات معلَّقة)' : 'إغلاق (تبقى الطلبية معلَّقة)') : 'إلغاء'}
+          <button onClick={onClose} style={cancelBtn} title={fromPendingOrder ? 'تبقى معلَّقة للمراجعة لاحقاً' : undefined}>
+            {fromPendingOrder ? 'إغلاق' : 'إلغاء'}
           </button>
           {/* window.confirm لا confirm: الاسم محجوب في هذا الملف بحالة مؤشّر
               خطوة التأكيد الذكي (const [confirm, setConfirm] أعلاه). */}
           {fromPendingOrder && onCancelPending && (
             <button
               onClick={() => { if (window.confirm(orderList.length > 1 ? `إلغاء الطلبيات المعروضة (${orderList.length}) نهائياً بلا حفظ أي شيء منها؟` : 'إلغاء هذه الطلبية نهائياً بلا حفظ أي شيء منها؟')) onCancelPending(); }}
-              style={{ ...cancelBtn, color: '#dc2626', borderColor: '#fecaca', marginInlineStart: 'auto' }}
+              style={dangerLink}
             >
-              🗑️ {orderList.length > 1 ? `إلغاء الطلبيات المعروضة (${orderList.length})` : 'إلغاء هذه الطلبية'}
+              {orderList.length > 1 ? `حذف الطلبيات (${orderList.length})` : 'حذف الطلبية'}
             </button>
           )}
         </div>
@@ -1566,15 +1555,14 @@ const bulkBtn: React.CSSProperties = { border: '1px solid #cbd5e1', background: 
 const askCancel: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, color: '#475569', cursor: 'pointer', fontFamily: 'inherit' };
 const askOk: React.CSSProperties = { border: 'none', background: '#4f46e5', color: '#fff', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' };
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 9999, padding: '24px 12px', overflowY: 'auto' };
-const panel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 22, width: '100%', maxWidth: 1560, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' };
-const header: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 };
+const panel: React.CSSProperties = { background: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 1560, boxShadow: '0 16px 48px rgba(15,23,42,0.25)' };
+const header: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid #e2e8f0' };
 const xBtn: React.CSSProperties = { background: 'none', border: 'none', fontSize: 20, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 };
-const topBar: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'stretch', flexWrap: 'wrap', marginBottom: 12 };
-const dropZone: React.CSSProperties = { flex: '1 1 320px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', padding: 12, border: '2px dashed #c7d2fe', borderRadius: 12, background: '#eef2ff' };
-const imgBtn: React.CSSProperties = { padding: '9px 18px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap' };
-const thumb: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px 4px 4px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer' };
-const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: '#475569', minWidth: 200, justifyContent: 'center' };
-const inp: React.CSSProperties = { padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, direction: 'rtl', outline: 'none', background: '#fafafa' };
+const topBar: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 };
+const imgBtn: React.CSSProperties = { padding: '7px 14px', background: '#fff', color: '#1e293b', border: '1px solid #cbd5e1', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' };
+const thumb: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px 3px 3px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer' };
+const lbl: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: '#475569' };
+const inp: React.CSSProperties = { padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, direction: 'rtl', outline: 'none', background: '#fff', fontFamily: 'inherit' };
 // ── شبكة المراجعة ──
 const gTh: React.CSSProperties = { padding: '9px 8px', fontSize: 11.5, fontWeight: 700, color: '#475569', background: '#f8fafc', borderBottom: '1px solid #cbd5e1', position: 'sticky', top: 0, zIndex: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 const gTd: React.CSSProperties = { padding: '2px 4px', verticalAlign: 'middle', borderBottom: '1px solid #f1f5f9' };
@@ -1584,7 +1572,7 @@ const hlInp: React.CSSProperties = { background: '#fffbeb', borderColor: '#f59e0
 const candTone: React.CSSProperties = { borderBottom: '1px dashed #cbd5e1' };
 const gInvTd: React.CSSProperties = { background: '#fafbfc', borderInlineStart: '1px solid #f1f5f9' };
 const invMini: React.CSSProperties = { background: 'none', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 5, padding: '2px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.2 };
-const statusBar: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 };
+const statusBar: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6, fontSize: 12.5, color: '#475569' };
 const chip: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#334155', background: 'none', border: 'none', padding: '2px 4px', fontFamily: 'inherit' };
 const chipWarn: React.CSSProperties = { color: '#b45309' };
 const chipBad: React.CSSProperties = { color: '#b91c1c' };
@@ -1603,17 +1591,21 @@ const GRID_CSS = `
 .msm-row textarea::placeholder { color: #94a3b8; font-weight: 500; }
 `;
 const delBtn: React.CSSProperties = { background: 'none', border: '1px solid #fecaca', color: '#f87171', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 14, lineHeight: 1 };
-const addBtn: React.CSSProperties = { padding: '7px 14px', background: '#f1f5f9', color: '#475569', border: '1px dashed #cbd5e1', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer' };
-const confirmBtn: React.CSSProperties = { padding: '7px 14px', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
-const navBtn: React.CSSProperties = { padding: '5px 12px', background: '#fff', color: '#78350f', border: '1px solid #fcd34d', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer' };
-const navBtnP: React.CSSProperties = { padding: '5px 14px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: 'pointer' };
-const radio: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155', cursor: 'pointer' };
-const errBox: React.CSSProperties = { marginTop: 12, padding: '9px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 13 };
-const infoBox: React.CSSProperties = { marginTop: 12, padding: '9px 14px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, color: '#166534', fontSize: 13 };
-const srcPanel: React.CSSProperties = { background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 12px', marginBottom: 12 };
-const srcText: React.CSSProperties = { whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, color: '#1f2937', maxHeight: 160, overflowY: 'auto' };
-const saveBtn: React.CSSProperties = { padding: '10px 24px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' };
-const cancelBtn: React.CSSProperties = { padding: '10px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 10, fontWeight: 600, fontSize: 14, cursor: 'pointer' };
+const addBtn: React.CSSProperties = { padding: '6px 12px', background: '#fff', color: '#334155', border: '1px solid #cbd5e1', borderRadius: 6, fontWeight: 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit' };
+const confirmBtn: React.CSSProperties = { padding: '6px 12px', background: '#fff', color: '#334155', border: '1px solid #cbd5e1', borderRadius: 6, fontWeight: 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit' };
+const navBtn: React.CSSProperties = { padding: '5px 12px', background: '#fff', color: '#334155', border: '1px solid #cbd5e1', borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: 'pointer' };
+const navBtnP: React.CSSProperties = { padding: '5px 14px', background: '#1e293b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: 'pointer' };
+const radio: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: '#334155', cursor: 'pointer' };
+const errBox: React.CSSProperties = { marginTop: 10, padding: '7px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, color: '#b91c1c', fontSize: 12.5 };
+const infoBox: React.CSSProperties = { marginTop: 10, padding: '7px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, color: '#334155', fontSize: 12.5 };
+const srcPanel: React.CSSProperties = { background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', marginBottom: 12 };
+const srcText: React.CSSProperties = { whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.65, color: '#1e293b', maxHeight: 140, overflowY: 'auto' };
+const saveBtn: React.CSSProperties = { padding: '8px 26px', background: '#1e293b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13.5, cursor: 'pointer', fontFamily: 'inherit' };
+const cancelBtn: React.CSSProperties = { padding: '8px 18px', background: '#fff', color: '#334155', border: '1px solid #cbd5e1', borderRadius: 6, fontWeight: 600, fontSize: 13.5, cursor: 'pointer', fontFamily: 'inherit' };
 // أزرار التبديل بين رسائل الطلبيات في المراجعة المجمَّعة.
-const ordTab: React.CSSProperties = { border: '1px solid #fcd34d', background: '#fff', color: '#92400e', borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' };
-const ordTabOn: React.CSSProperties = { background: '#f59e0b', borderColor: '#f59e0b', color: '#fff' };
+const ordTab: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', color: '#334155', borderRadius: 5, padding: '2px 8px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' };
+const ordTabOn: React.CSSProperties = { background: '#1e293b', borderColor: '#1e293b', color: '#fff' };
+const subLine: React.CSSProperties = { fontSize: 12, color: '#64748b', marginTop: 3 };
+const dot: React.CSSProperties = { color: '#cbd5e1' };
+const destBar: React.CSSProperties = { marginTop: 14, padding: '10px 12px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' };
+const dangerLink: React.CSSProperties = { marginInlineStart: 'auto', background: 'none', border: 'none', color: '#b91c1c', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'inherit' };
