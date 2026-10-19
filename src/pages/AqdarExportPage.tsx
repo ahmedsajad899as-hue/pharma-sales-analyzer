@@ -212,7 +212,7 @@ export default function AqdarExportPage() {
   const canExport = rows.length > 0 && repId.trim().length > 0;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc', direction: 'rtl' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--page-bg, #f8fafc)', direction: 'rtl' }}>
       <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '14px 16px', position: 'sticky', top: 0, zIndex: 10 }}>
         <span style={{ fontWeight: 800, fontSize: 15, color: '#0f172a' }}>📤 أقدر — تحويل البلان الشهري</span>
       </div>

@@ -254,7 +254,7 @@ export default function AccountBuilderPage() {
     : 0;
 
   return (
-    <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
+    <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: 'var(--page-bg, #f0f4f8)', minHeight: '100vh', padding: '16px 18px' }}>
 
       {/* ── Delete confirm dialog ─────────────────────────── */}
       {confirmDeleteId && (() => {

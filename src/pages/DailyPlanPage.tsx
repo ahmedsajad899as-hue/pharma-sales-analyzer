@@ -80,7 +80,7 @@ function dateArrowKeyHandler(currentValue: string, setValue: (v: string) => void
 // this stylesheet so the JSX stays declarative and the layout collapses cleanly on phones.
 const STYLES = `
 .dp-root,.dp-root *{ box-sizing:border-box; }
-.dp-root{ font-family:'Segoe UI',Tahoma,Arial,sans-serif; background:var(--c-bg); min-height:100vh; color:var(--c-text-primary); -webkit-tap-highlight-color:transparent; }
+.dp-root{ font-family:'Segoe UI',Tahoma,Arial,sans-serif; background:var(--page-bg, var(--c-bg)); min-height:100vh; color:var(--c-text-primary); -webkit-tap-highlight-color:transparent; }
 .dp-wrap{ max-width:780px; margin:0 auto; padding:0 12px 48px; }
 
 .dp-header{ position:sticky; top:0; z-index:50; background:rgba(238,242,247,.9); backdrop-filter:saturate(180%) blur(12px); -webkit-backdrop-filter:saturate(180%) blur(12px); padding:12px 0 11px; margin-bottom:12px; border-bottom:1px solid var(--c-border); }

@@ -71,7 +71,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
   };
 
   return (
-    <div style={{ minHeight: '100%', background: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100%', background: 'var(--page-bg, #f8fafc)', display: 'flex', flexDirection: 'column' }}>
       <style>{`
         .ra-tab { transition: color 0.15s, border-color 0.15s; }
         .ra-tab:hover { color: #1e293b !important; }

@@ -523,7 +523,7 @@ export default function BonusSalesPage() {
     const myDelivered  = myRows.filter(r => r.bonusDelivered).length;
     const myPending    = myRows.filter(r => !r.bonusDelivered).length;
     return (
-      <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
+      <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: 'var(--page-bg, #f0f4f8)', minHeight: '100vh', padding: '16px 18px' }}>
         {/* KPIs */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
           <BKpi label="إجمالي المعيَّن لي" value={myTotal.toLocaleString('ar-IQ')} />
@@ -592,7 +592,7 @@ export default function BonusSalesPage() {
 
   // ─────────────────────────────────────────────────────────────
   return (
-    <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: '#f0f4f8', minHeight: '100vh', padding: '16px 18px' }}>
+    <div dir="rtl" style={{ fontFamily: 'Segoe UI, Tahoma, Arial, sans-serif', background: 'var(--page-bg, #f0f4f8)', minHeight: '100vh', padding: '16px 18px' }}>
       {/* Upload message */}
       {uploadMsg && (
         <div style={{ background: '#f8fafc', border: `1px solid ${uploadMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 6, padding: '8px 14px', marginBottom: 12, fontSize: 12, color: uploadMsg.startsWith('✅') ? '#15803d' : '#991b1b', display: 'flex', alignItems: 'center', gap: 8 }}>

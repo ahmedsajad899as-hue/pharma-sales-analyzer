@@ -323,13 +323,14 @@ tr:hover {
 }
 
 /* ── ثيم الوقت (لكل حساب، يفعّله السوبر أدمن — src/lib/timeTheme.ts) ──
-   ألوان ناعمة جداً خلف كل الصفحات؛ الليل لافندري فاتح لا داكن كي تبقى كل
+   ألوان ناعمة خلف كل الصفحات (--page-bg تُفرغ خلفية الصفحات التي ترسم خلفيتها
+   الخاصة كي يظهر الثيم تحتها)؛ الليل لافندري فاتح لا داكن كي تبقى كل
    النصوص المكتوبة مباشرة على الخلفية مقروءة في كل الصفحات. */
-.app-shell.tod-on { background-attachment: fixed; transition: background-color 1.5s ease; }
-.app-shell.tod-on[data-tod=dawn]   { background: linear-gradient(170deg, #fdf8f4 0%, #f7f1f0 40%, #eff2f8 100%) fixed; }
-.app-shell.tod-on[data-tod=day]    { background: linear-gradient(170deg, #f6f9fd 0%, #eff3fa 50%, #e9eff8 100%) fixed; }
-.app-shell.tod-on[data-tod=sunset] { background: linear-gradient(170deg, #fcf5f0 0%, #f8eef0 45%, #f0edf7 100%) fixed; }
-.app-shell.tod-on[data-tod=night]  { background: linear-gradient(170deg, #eceef7 0%, #e6e8f4 50%, #e1e3f1 100%) fixed; }
+.app-shell.tod-on { --page-bg: transparent; background-attachment: fixed; }
+.app-shell.tod-on[data-tod=dawn]   { background: linear-gradient(170deg, #fdf3ea 0%, #f6eef0 45%, #ebeef8 100%) fixed; }
+.app-shell.tod-on[data-tod=day]    { background: linear-gradient(170deg, #eef4fd 0%, #e4ecf9 50%, #dde8f7 100%) fixed; }
+.app-shell.tod-on[data-tod=sunset] { background: linear-gradient(170deg, #fcefe6 0%, #f7e5ea 45%, #ebe5f5 100%) fixed; }
+.app-shell.tod-on[data-tod=night]  { background: linear-gradient(170deg, #e6e7f6 0%, #dfe0f2 50%, #d7d9ee 100%) fixed; }
 
 .app-main {
   flex: 1;
