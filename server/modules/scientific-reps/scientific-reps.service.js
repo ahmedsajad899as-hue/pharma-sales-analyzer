@@ -1698,7 +1698,8 @@ const EXPORT_SALES_SELECT = {
   // خانات فارغة فيه) من مطابقة اسم المنطقة نفسها — «الفلوجة» → «الأنبار» مثلاً
   // عبر aliases في provinces.js — بدل تركها فارغة كما وردت حرفياً في الملف.
   area: { select: { id: true, name: true, province: { select: { name: true } } } },
-  item: { select: { id: true, name: true } },
+  // الشركة احتياطٌ لعمود «الصنف» في صفوف الكوديشن/الفواتير اليدوية بالتصدير.
+  item: { select: { id: true, name: true, company: { select: { name: true } }, scientificCompany: { select: { name: true } } } },
   representative: { select: { id: true, name: true } },
   // sourceSystem: يستعمله الفرونت لفصل صفوف ميركاتو في شيت تصدير منفصل حين
   // يُدمَج ملف ميركاتو مع ملف مكتب في نفس التصدير — راجع bySource في getReport.

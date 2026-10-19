@@ -2134,10 +2134,10 @@ export async function parseWarehouseGapFile(buffer, userId = null) {
 // والسعر واسم المادة بالمكتب كلها فارغة، والمندوب «وليد» (حساب الكروب) لا العلمي
 // المختار. الآن تُكتب القيم تحت **ترويسات الملف نفسه** (تُقرأ من صفوفه الأصلية).
 const MERCATO_DEFAULT_HEADERS = {
-  orderNumber: 'رقم طلبية المذخر', orderStatus: 'حالة طلبية المذخر', date: 'أنشئت بتاريخ',
+  orderNumber: 'رقم طلبية المذخر', orderStatus: 'حالة طلبية المذخر', date: 'أنشات بتاريخ',
   customer: 'اسم الشركة', area: 'المنطقة', repName: 'اسم المندوب', company: 'الصنف',
   item: 'اسم المادة بالمكتب', quantity: 'الكمية', bonusQty: 'كمية البونص', unitPrice: 'السعر',
-  totalValue: 'المجموع', warehouse: 'اسم المذخر',
+  totalValue: 'المجموع الكلي', warehouse: 'اسم المذخر',
 };
 /** حالة طلبية المذخر لكل الفواتير المحلَّلة — «جاهزة للتسليم» تُحتسب مبيعاً في رصيد المذاخر. */
 /**
@@ -2269,7 +2269,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
       mercatoRaw[h.customer]    = cleanPharmacy;   // «اسم الشركة» في ميركاتو = الصيدلية المشترية
       mercatoRaw[h.area]        = r.area ?? '';
       mercatoRaw[h.repName]     = repForRow ?? '';
-      mercatoRaw[h.company]     = itemName;        // «الصنف»
+      mercatoRaw[h.company]     = r.company || ''; // «الصنف» = الشركة المصنّعة لا اسم المادة
       mercatoRaw[h.item]        = itemName;        // «اسم المادة بالمكتب»
       mercatoRaw[h.quantity]    = quantity;
       mercatoRaw[h.bonusQty]    = Number(r.bonus) || 0; // 0 حين لا بونص

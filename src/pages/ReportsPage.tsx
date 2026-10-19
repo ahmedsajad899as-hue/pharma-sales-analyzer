@@ -1962,13 +1962,52 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
    * هذه الدالة تُرجع نسخة بمفاتيح عربية قانونية تندمج مع مجموعات الـALIAS،
    * وتملأ الحقول الأساسية من صف المبيعة. صفوف الإكسل تمر كما هي بلا تغيير.
    */
-  const enrichRawForExport = (s: any, raw: any): any => {
-    if (!raw || !(raw.source === 'manual-invoice' || /-order$/.test(String(raw.source ?? '')))) return raw;
+  const isManualRaw = (raw: any) => !!raw && (raw.source === 'manual-invoice' || /-order$/.test(String(raw.source ?? '')));
+  const COMPANY_KEYS = ['الصنف', 'اسم الصنف', 'الشركة', 'الشركه', 'القسم'];
+  /** itemId → اسم الشركة كما يكتبه ملف الإكسل نفسه (عمود «الصنف»/«الشركة») —
+   *  تأخذه صفوف الكوديشن/الفواتير التي لا تحمل الشركة بصيغة الملف. */
+  const buildItemCompanyMap = (sales: any[]): Map<number, string> => {
+    const map = new Map<number, string>();
+    for (const s of sales) {
+      const id = s.itemId ?? s.item?.id;
+      if (!id || map.has(id) || !s.rawData) continue;
+      let raw: any; try { raw = JSON.parse(s.rawData); } catch { continue; }
+      if (isManualRaw(raw)) continue;
+      for (const k of COMPANY_KEYS) {
+        const v = raw[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') { map.set(id, String(v).trim()); break; }
+      }
+    }
+    return map;
+  };
+  const companyForManual = (s: any, raw: any, itemCompany?: Map<number, string>) =>
+    itemCompany?.get(s.itemId ?? s.item?.id)
+    || raw.company || s.item?.company?.name || s.item?.scientificCompany?.name || '';
+
+  const enrichRawForExport = (s: any, raw: any, itemCompany?: Map<number, string>): any => {
+    if (!isManualRaw(raw)) return raw;
     // صف مكتوب بترويسات ميركاتو أصلاً: يمرّ كصف إكسل عادي بلا مفاتيحنا الداخلية.
     if (raw._mercatoShaped) {
       const clean: any = {};
       const INTERNAL = new Set(['invoiceNumber', 'warehouse', 'pharmacy', 'unitPrice', 'bonus', 'company', 'notes', 'scientificRep', 'source']);
-      for (const k of Object.keys(raw)) if (!INTERNAL.has(k) && !k.startsWith('_')) clean[k] = raw[k];
+      // صفوف الكوديشن كُتبت بترويسات افتراضية لا تطابق ملف ميركاتو الفعلي
+      // («أنشئت بتاريخ»/«المجموع») فظهرت أعمدةً منفصلة فارغة بجانب الأصلية.
+      const RENAME: Record<string, string> = { 'أنشئت بتاريخ': 'أنشات بتاريخ', 'المجموع': 'المجموع الكلي' };
+      for (const k of Object.keys(raw)) {
+        if (INTERNAL.has(k) || k.startsWith('_')) continue;
+        const key = RENAME[k] ?? k;
+        if (clean[key] === undefined || clean[key] === '') clean[key] = raw[k];
+      }
+      // «الصنف» = الشركة المصنّعة لا اسم المادة (كانت تُكتب اسم المادة خطأً).
+      const company = companyForManual(s, raw, itemCompany);
+      const companyKey = COMPANY_KEYS.find(k => k in clean) ?? 'الصنف';
+      if (company) clean[companyKey] = company;
+      // تاريخ الطلبية: الصف المخزَّن قد لا يحمل التاريخ نصاً — نأخذه من صف المبيعة.
+      const dateKey = Object.keys(clean).find(k => /تاريخ/.test(k)) ?? 'أنشات بتاريخ';
+      if ((clean[dateKey] === undefined || clean[dateKey] === '') && s.saleDate && new Date(s.saleDate).getFullYear() >= 2000) {
+        clean[dateKey] = s.saleDate;
+      }
+      if (clean['المجموع الكلي'] === undefined || clean['المجموع الكلي'] === '') clean['المجموع الكلي'] = s.totalValue;
       clean['المصدر'] = 'فاتورة مصوّرة';
       return clean;
     }
@@ -1989,7 +2028,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     put(out, 'الصيدلية',     raw.pharmacy ?? s.customer?.name);
     put(out, 'السعر',        raw.unitPrice);
     put(out, 'كمية البونص',  raw.bonus);
-    put(out, 'الشركة',       raw.company);
+    put(out, 'الشركة',       companyForManual(s, raw, itemCompany));
     out['المصدر'] = 'فاتورة مصوّرة';
     return out;
   };
@@ -2042,11 +2081,12 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     const toNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isNaN(n) ? 0 : n; };
     const allKeys = new Set<string>();
     let hasRaw = false;
+    const itemCompany = buildItemCompanyMap(sales);
     sales.forEach(s => {
       if (!s.rawData) return;
       hasRaw = true;
       try {
-        const r = enrichRawForExport(s, JSON.parse(s.rawData));
+        const r = enrichRawForExport(s, JSON.parse(s.rawData), itemCompany);
         Object.keys(r).forEach((k: string) => allKeys.add(k));
       } catch {}
     });
@@ -2127,7 +2167,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         finalHeaders,
         ...sales.map(s => {
           let raw: any = {};
-          try { if (s.rawData) raw = enrichRawForExport(s, JSON.parse(s.rawData)); } catch {}
+          try { if (s.rawData) raw = enrichRawForExport(s, JSON.parse(s.rawData), itemCompany); } catch {}
           const isRet = isReturnSale(s);
           const typeLabel = isRet ? t.reports.exportTypeReturn : t.reports.exportTypeSales;
           const rawGet = (h: string) => {
@@ -2545,9 +2585,10 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       };
 
       const allKeys = new Set<string>();
+      const itemCompany = buildItemCompanyMap(rows);
       const parsed = rows.map(s => {
         let raw: any = {};
-        try { if (s.rawData) raw = enrichRawForExport(s, JSON.parse(s.rawData)); } catch {}
+        try { if (s.rawData) raw = enrichRawForExport(s, JSON.parse(s.rawData), itemCompany); } catch {}
         Object.keys(raw).forEach(k => allKeys.add(k));
         return { s, raw };
       });
