@@ -529,7 +529,7 @@ function Billboard({ items, month, prevMonth, hasPrev, fileKey, source, token, t
                   {detail.kind === 'item' ? `${detail.item.company ?? '—'} · ${monthName(month)}` : monthName(month)}
                   {detail.kind === 'item' && (
                     <button type="button" className={`bb-docs-btn ${showDocs ? 'is-on' : ''}`} onClick={() => setShowDocs(v => !v)}
-                      title="مرفقات الايتم: صور إضافية، كتب الفحص والتسجيل">📎</button>
+                      title="بطاقة الايتم: الشرح، الأطباء المستهدفون، نقاط القوة، التسجيلات الصوتية والمرفقات">📎</button>
                   )}
                 </div>
               </div>
@@ -976,7 +976,135 @@ function ProvinceItems({ prov }: { prov: ProvSummary }) {
 // ════════════════════════════════════════════════════════════════════════════
 interface ItemDoc { id: string; url: string; kind: string; title: string; mime: string; at: number; by: number | null; byName: string | null }
 const DOC_KINDS: [string, string][] = [['photo', 'صورة ايتم'], ['test', 'كتاب فحص'], ['registration', 'كتاب تسجيل'], ['other', 'أخرى']];
-const docKindLabel = (k: string) => DOC_KINDS.find(x => x[0] === k)?.[1] ?? 'أخرى';
+const docKindLabel = (k: string) => k === 'pitch' ? 'تسجيل صوتي' : (DOC_KINDS.find(x => x[0] === k)?.[1] ?? 'أخرى');
+const isAudioDoc = (d: ItemDoc) => d.kind === 'pitch' || !!d.mime?.startsWith('audio/');
+
+// بطاقة معلومات الايتم — مرجع سريع للمندوب قبل زيارة الطبيب (server: itemDocs.js info.json).
+interface ItemInfo { description?: string; targetDoctors?: string; strengths?: string; updatedAt?: number; byName?: string | null }
+const INFO_SECTIONS: { key: 'description' | 'targetDoctors' | 'strengths'; icon: string; label: string; hint: string }[] = [
+  { key: 'description',   icon: '📝', label: 'شرح عن الايتم',      hint: 'الاسم العلمي، التركيبة، الاستطباب، الجرعة…' },
+  { key: 'targetDoctors', icon: '🩺', label: 'الأطباء المستهدفون', hint: 'الاختصاصات المستهدفة، كل سطر اختصاص…' },
+  { key: 'strengths',     icon: '⭐', label: 'أبرز نقاط القوة',    hint: 'كل سطر نقطة: السعر، الفعالية، المقارنة بالمنافس…' },
+];
+
+function ItemInfoCard({ itemName, token }: { itemName: string; token: string | null }) {
+  const [info, setInfo] = useState<ItemInfo | null>(null);
+  const [draft, setDraft] = useState<ItemInfo>({});
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const H = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    let alive = true;
+    setInfo(null); setEditing(false);
+    fetch(`${API}/api/reports/item-docs/info?name=${encodeURIComponent(itemName)}`, { headers: H })
+      .then(r => r.json()).then(j => { if (alive) setInfo(j.success ? j.data : {}); })
+      .catch(() => { if (alive) setInfo({}); });
+    return () => { alive = false; };
+  }, [itemName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async () => {
+    setSaving(true); setErr('');
+    try {
+      const j = await fetch(`${API}/api/reports/item-docs/info`, {
+        method: 'PUT', headers: { ...H, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: itemName, ...draft }),
+      }).then(r => r.json());
+      if (!j.success) throw new Error(j.error || 'تعذّر الحفظ');
+      setInfo(j.data); setEditing(false);
+    } catch (e: any) { setErr(e.message || 'تعذّر الحفظ'); }
+    finally { setSaving(false); }
+  };
+
+  if (!info) return <div className="hp-muted">جاري التحميل…</div>;
+  const empty = INFO_SECTIONS.every(sec => !String(info[sec.key] ?? '').trim());
+  return (
+    <div className="bb-info">
+      <div className="bb-info-head">
+        <span className="bb-info-title">📋 بطاقة الايتم</span>
+        {!editing && <button type="button" className="bb-info-edit" onClick={() => { setDraft(info); setEditing(true); }}>✏️ {empty ? 'إضافة' : 'تعديل'}</button>}
+      </div>
+      {editing ? (
+        <>
+          {INFO_SECTIONS.map(sec => (
+            <label key={sec.key} className="bb-info-sec">
+              <span className="bb-info-label">{sec.icon} {sec.label}</span>
+              <textarea className="form-input bb-info-ta" rows={3} placeholder={sec.hint}
+                value={draft[sec.key] ?? ''} onChange={e => setDraft(d => ({ ...d, [sec.key]: e.target.value }))} />
+            </label>
+          ))}
+          {err && <div className="hp-muted" style={{ color: 'var(--c-danger)' }}>{err}</div>}
+          <div className="bb-info-actions">
+            <button type="button" className="btn btn-primary bb-docs-add" disabled={saving} onClick={save}>{saving ? 'جاري الحفظ…' : 'حفظ'}</button>
+            <button type="button" className="btn bb-docs-add" disabled={saving} onClick={() => setEditing(false)}>إلغاء</button>
+          </div>
+        </>
+      ) : empty ? (
+        <div className="hp-muted">لا توجد معلومات بعد — أضف شرح الايتم والأطباء المستهدفين ونقاط القوة.</div>
+      ) : (
+        INFO_SECTIONS.filter(sec => String(info[sec.key] ?? '').trim()).map(sec => (
+          <div key={sec.key} className="bb-info-sec">
+            <span className="bb-info-label">{sec.icon} {sec.label}</span>
+            <div className="bb-info-text">{info[sec.key]}</div>
+          </div>
+        ))
+      )}
+      {!editing && info.byName && info.updatedAt && (
+        <div className="bb-info-meta">آخر تعديل: {info.byName} · {new Date(info.updatedAt).toLocaleDateString('ar-IQ')}</div>
+      )}
+    </div>
+  );
+}
+
+/** تسجيل صوتي من الميكروفون (MediaRecorder) — يُرفع كمرفق نوعه pitch. */
+function PitchRecorder({ onDone, disabled }: { onDone: (b: Blob) => void; disabled?: boolean }) {
+  const [rec, setRec] = useState<MediaRecorder | null>(null);
+  const [secs, setSecs] = useState(0);
+  const [err, setErr] = useState('');
+  const chunks = useRef<Blob[]>([]);
+  const timer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (timer.current) window.clearInterval(timer.current);
+    rec?.stream.getTracks().forEach(t => t.stop());
+  }, [rec]);
+
+  const start = async () => {
+    setErr('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(m => MediaRecorder.isTypeSupported?.(m)) ?? '';
+      const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunks.current = [];
+      mr.ondataavailable = e => { if (e.data.size) chunks.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (timer.current) { window.clearInterval(timer.current); timer.current = null; }
+        const blob = new Blob(chunks.current, { type: (mr.mimeType || 'audio/webm').split(';')[0] });
+        setRec(null);
+        if (blob.size > 0) onDone(blob);
+      };
+      mr.start();
+      setRec(mr); setSecs(0);
+      // حد 10 دقائق — يوقف التسجيل تلقائياً (القرص محدود)
+      timer.current = window.setInterval(() => setSecs(x => {
+        if (x + 1 >= 600 && mr.state === 'recording') mr.stop();
+        return x + 1;
+      }), 1000);
+    } catch { setErr('تعذّر الوصول للميكروفون — اسمح للمتصفح باستخدامه'); }
+  };
+  const mmss = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  return (
+    <>
+      {rec ? (
+        <button type="button" className="btn bb-docs-add bb-rec-on" onClick={() => rec.state === 'recording' && rec.stop()}>⏹ إيقاف وحفظ · {mmss}</button>
+      ) : (
+        <button type="button" className="btn btn-primary bb-docs-add" disabled={disabled} onClick={start} title="سجّل طريقة الكلام عن الايتم للطبيب">🎙️ تسجيل</button>
+      )}
+      {err && <span className="hp-muted" style={{ color: 'var(--c-danger)' }}>{err}</span>}
+    </>
+  );
+}
 
 /** تصغير صورة إلى أقصى 1800px JPEG — يوفّر القرص ويحافظ على وضوح الكتب */
 async function shrinkImage(file: File): Promise<Blob> {
@@ -1010,21 +1138,31 @@ function ItemDocs({ itemName, token }: { itemName: string; token: string | null 
     return () => { alive = false; };
   }, [itemName]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const send = async (blob: Blob, fileName: string, k: string) => {
+    const fd = new FormData();
+    fd.append('name', itemName); fd.append('kind', k);
+    fd.append('file', blob, fileName);
+    const j = await fetch(`${API}/api/reports/item-docs`, { method: 'POST', headers: H, body: fd }).then(r => r.json());
+    if (!j.success) throw new Error(j.error || 'فشل الرفع');
+    setDocs(d => [j.data, ...(d ?? [])]);
+  };
   const upload = async (files: FileList | null) => {
     if (!files?.length) return;
     setBusy(true); setErr('');
     try {
       for (const f of Array.from(files)) {
         const blob = await shrinkImage(f);
-        const fd = new FormData();
-        fd.append('name', itemName); fd.append('kind', kind);
-        fd.append('file', blob, blob === f ? f.name : f.name.replace(/\.\w+$/, '') + '.jpg');
-        const j = await fetch(`${API}/api/reports/item-docs`, { method: 'POST', headers: H, body: fd }).then(r => r.json());
-        if (!j.success) throw new Error(j.error || 'فشل الرفع');
-        setDocs(d => [j.data, ...(d ?? [])]);
+        await send(blob, blob === f ? f.name : f.name.replace(/\.\w+$/, '') + '.jpg', kind);
       }
     } catch (e: any) { setErr(e.message || 'فشل الرفع'); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
+  };
+  const uploadRecording = async (blob: Blob) => {
+    setBusy(true); setErr('');
+    const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+    try { await send(blob, `pitch-${Date.now()}.${ext}`, 'pitch'); }
+    catch (e: any) { setErr(e.message || 'فشل رفع التسجيل'); }
+    finally { setBusy(false); }
   };
 
   const remove = async (d: ItemDoc) => {
@@ -1035,8 +1173,27 @@ function ItemDocs({ itemName, token }: { itemName: string; token: string | null 
   };
   const canDelete = (d: ItemDoc) => d.by === user?.id || ['admin', 'manager', 'office_manager'].includes(user?.role ?? '');
 
+  const audios = (docs ?? []).filter(isAudioDoc);
+  const files  = (docs ?? []).filter(d => !isAudioDoc(d));
+
   return (
     <div className="bb-docs">
+      <ItemInfoCard itemName={itemName} token={token} />
+      <div className="bb-info">
+        <div className="bb-info-head">
+          <span className="bb-info-title">🎙️ طريقة الكلام عن الايتم للطبيب</span>
+          <PitchRecorder onDone={uploadRecording} disabled={busy} />
+        </div>
+        {docs && audios.length === 0 && <div className="hp-muted">لا توجد تسجيلات بعد — سجّل شرحك كما تقوله للطبيب لتسمعه قبل الزيارة.</div>}
+        {audios.map(d => (
+          <div key={d.id} className="bb-audio">
+            <audio controls preload="none" src={d.url} />
+            <span className="bb-audio-meta">{d.byName ? `${d.byName} · ` : ''}{new Date(d.at).toLocaleDateString('ar-IQ')}</span>
+            {canDelete(d) && <button type="button" className="bb-audio-del" onClick={() => remove(d)} aria-label="حذف">×</button>}
+          </div>
+        ))}
+      </div>
+      <div className="bb-info-title">📎 الصور والمستندات</div>
       <div className="bb-docs-bar">
         <select className="form-input bb-docs-kind" value={kind} onChange={e => setKind(e.target.value)}>
           {DOC_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
@@ -1048,10 +1205,10 @@ function ItemDocs({ itemName, token }: { itemName: string; token: string | null 
       </div>
       {err && <div className="hp-muted" style={{ color: 'var(--c-danger)' }}>{err}</div>}
       {!docs ? <div className="hp-muted">جاري التحميل…</div>
-        : docs.length === 0 ? <div className="hp-muted">لا توجد مرفقات بعد.</div>
+        : files.length === 0 ? <div className="hp-muted">لا توجد مرفقات بعد.</div>
         : (
           <div className="bb-docs-grid">
-            {docs.map(d => (
+            {files.map(d => (
               <div key={d.id} className="bb-doc" title={`${docKindLabel(d.kind)}${d.byName ? ` · ${d.byName}` : ''}`}>
                 <a href={d.url} target="_blank" rel="noreferrer">
                   {d.mime === 'application/pdf' ? <span className="bb-doc-pdf">PDF</span> : <img src={d.url} alt="" loading="lazy" />}
@@ -1391,6 +1548,23 @@ function HomeStyles() {
 .bb-docs-btn:hover, .bb-docs-btn.is-on { opacity: 1; border-color: var(--c-accent); background: var(--c-accent-light); }
 .bb-docs { border: 1px dashed var(--c-border); border-radius: 12px; padding: 10px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
 .bb-docs-bar { display: flex; gap: 8px; align-items: center; }
+.bb-info { border: 1px solid var(--c-border-light); background: var(--c-bg); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.bb-info-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.bb-info-title { font-weight: 800; font-size: 13.5px; color: var(--c-text); }
+.bb-info-edit { border: 1px solid var(--c-border); background: var(--c-surface); border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.bb-info-edit:hover { border-color: var(--c-accent); background: var(--c-accent-light); }
+.bb-info-sec { display: flex; flex-direction: column; gap: 4px; }
+.bb-info-label { font-size: 12px; font-weight: 700; color: var(--c-accent); }
+.bb-info-text { white-space: pre-wrap; font-size: 13px; line-height: 1.7; color: var(--c-text); background: var(--c-surface); border-radius: 8px; padding: 6px 10px; }
+.bb-info-ta { width: 100%; min-height: 64px; resize: vertical; font-size: 13px; line-height: 1.6; padding: 6px 8px; }
+.bb-info-actions { display: flex; gap: 8px; }
+.bb-info-meta { font-size: 10.5px; color: var(--c-text-secondary); }
+.bb-rec-on { background: var(--c-danger); color: #fff; border-color: var(--c-danger); animation: bbPulse 1.2s ease-in-out infinite; }
+@keyframes bbPulse { 50% { opacity: .7; } }
+.bb-audio { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bb-audio audio { height: 34px; flex: 1 1 220px; min-width: 0; }
+.bb-audio-meta { font-size: 11px; color: var(--c-text-secondary); }
+.bb-audio-del { width: 22px; height: 22px; border-radius: 50%; border: 0; background: rgba(220,38,38,.9); color: #fff; cursor: pointer; line-height: 1; }
 .bb-docs-kind { max-width: 150px; height: 32px; padding: 2px 8px; font-size: 12.5px; }
 .bb-docs-add { height: 32px; padding: 0 14px; font-size: 12.5px; }
 .bb-docs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }

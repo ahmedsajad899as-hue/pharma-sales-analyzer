@@ -19,7 +19,10 @@ import { normalizeItemKey } from '../../lib/itemResolver.js';
 // <جذر المشروع>/uploads لا server/uploads: Nginx يخدم /uploads/ مباشرةً من جذر
 // المشروع (alias)، فالملفات تحت server/uploads كانت ترجع 404 ولا تنفتح.
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'uploads', 'item-docs');
-const KINDS = new Set(['photo', 'test', 'registration', 'other']);
+// pitch = تسجيل صوتي لطريقة شرح الايتم للطبيب.
+const KINDS = new Set(['photo', 'test', 'registration', 'other', 'pitch']);
+const AUDIO_EXT = { 'audio/webm': '.webm', 'audio/ogg': '.ogg', 'audio/mp4': '.m4a', 'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/x-wav': '.wav' };
+const baseMime = (m) => String(m || '').split(';')[0].trim().toLowerCase();
 const ADMIN_ROLES = new Set(['admin', 'manager', 'office_manager']);
 const MAX_PER_ITEM = 40;
 
@@ -38,14 +41,17 @@ export const itemDocUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => { fs.mkdirSync(ROOT, { recursive: true }); cb(null, ROOT); },
     filename: (req, file, cb) => {
-      const ext = file.mimetype === 'application/pdf' ? '.pdf' : (path.extname(file.originalname).toLowerCase() || '.jpg');
+      const mime = baseMime(file.mimetype);
+      const ext = mime === 'application/pdf' ? '.pdf'
+        : AUDIO_EXT[mime] ?? (path.extname(file.originalname).toLowerCase() || (mime.startsWith('audio/') ? '.webm' : '.jpg'));
       cb(null, `${crypto.randomBytes(16).toString('hex')}${ext}`);
     },
   }),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: 12 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') cb(null, true);
-    else cb(new Error('الصور أو PDF فقط'), false);
+    const mime = baseMime(file.mimetype);
+    if (mime.startsWith('image/') || mime.startsWith('audio/') || mime === 'application/pdf') cb(null, true);
+    else cb(new Error('الصور أو PDF أو التسجيلات الصوتية فقط'), false);
   },
 });
 
@@ -72,9 +78,9 @@ export function addItemDoc(req, res) {
     const doc = {
       id: crypto.randomBytes(6).toString('hex'),
       file: req.file.filename,
-      kind: KINDS.has(req.body?.kind) ? req.body.kind : 'other',
+      kind: baseMime(req.file.mimetype).startsWith('audio/') ? 'pitch' : (KINDS.has(req.body?.kind) ? req.body.kind : 'other'),
       title: String(req.body?.title ?? '').slice(0, 80),
-      mime: req.file.mimetype,
+      mime: baseMime(req.file.mimetype),
       size: req.file.size,
       at: Date.now(),
       by: req.user?.id ?? null,
@@ -97,5 +103,32 @@ export function deleteItemDoc(req, res) {
     fs.rm(path.join(dir, doc.file), () => {});
     writeIndex(dir, list.filter(d => d.id !== doc.id));
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+// ── بطاقة معلومات الايتم: شرح + الأطباء المستهدفون + نقاط القوة ────────────────
+// في نفس مجلد الايتم (info.json) — تتبع الدواء لا صفاً بعينه، مثل المرفقات.
+const INFO_FIELDS = ['description', 'targetDoctors', 'strengths'];
+const INFO_MAX = 4000;
+
+/** GET /api/reports/item-docs/info?name=… */
+export function getItemInfo(req, res) {
+  const dir = dirFor(req.query.name);
+  if (!dir) return res.status(400).json({ error: 'اسم الايتم مطلوب' });
+  let info = {};
+  try { info = JSON.parse(fs.readFileSync(path.join(dir, 'info.json'), 'utf8')); } catch {}
+  res.json({ success: true, data: info });
+}
+
+/** PUT /api/reports/item-docs/info  { name, description, targetDoctors, strengths } */
+export function saveItemInfo(req, res) {
+  try {
+    const dir = dirFor(req.body?.name);
+    if (!dir) return res.status(400).json({ error: 'اسم الايتم مطلوب' });
+    fs.mkdirSync(dir, { recursive: true });
+    const info = { updatedAt: Date.now(), by: req.user?.id ?? null, byName: req.user?.displayName || req.user?.username || null };
+    for (const f of INFO_FIELDS) info[f] = String(req.body?.[f] ?? '').slice(0, INFO_MAX);
+    fs.writeFileSync(path.join(dir, 'info.json'), JSON.stringify(info));
+    res.json({ success: true, data: info });
   } catch (err) { res.status(500).json({ error: err.message }); }
 }

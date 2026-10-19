@@ -17,7 +17,7 @@ import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue, buildProvinceLookup, ma
 import { isWarehouseSaleRow, pharmacyNameFromRawData } from '../../lib/orderKey.js';
 import { buildMonthFilter, UNDATED_CUTOFF } from '../../lib/salesMonths.js';
 import { getHomeItems, getHomeItemProvinces, getHomeProvinces } from './homeItems.js';
-import { itemDocUpload, listItemDocs, addItemDoc, deleteItemDoc } from './itemDocs.js';
+import { itemDocUpload, listItemDocs, addItemDoc, deleteItemDoc, getItemInfo, saveItemInfo } from './itemDocs.js';
 
 const router = Router();
 
@@ -111,6 +111,8 @@ router.get('/home-items', getHomeItems);
 router.get('/home-items/:itemId/provinces', getHomeItemProvinces);
 router.get('/home-provinces', getHomeProvinces);
 // مرفقات الايتم (صور إضافية + كتب الفحص والتسجيل) — راجع itemDocs.js
+router.get('/item-docs/info', getItemInfo);
+router.put('/item-docs/info', saveItemInfo);
 router.get('/item-docs', listItemDocs);
 router.post('/item-docs', (req, res, next) => itemDocUpload.single('file')(req, res, err => err ? res.status(400).json({ error: err.message }) : next()), addItemDoc);
 router.delete('/item-docs/:id', deleteItemDoc);
