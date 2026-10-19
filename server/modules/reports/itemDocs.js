@@ -21,7 +21,7 @@ import { normalizeItemKey } from '../../lib/itemResolver.js';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'uploads', 'item-docs');
 // pitch = تسجيل صوتي لطريقة شرح الايتم للطبيب.
 const KINDS = new Set(['photo', 'test', 'registration', 'other', 'pitch']);
-const AUDIO_EXT = { 'audio/webm': '.webm', 'audio/ogg': '.ogg', 'audio/mp4': '.m4a', 'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/x-wav': '.wav' };
+const AUDIO_EXT = { 'audio/webm': '.webm', 'audio/ogg': '.ogg', 'audio/mp4': '.m4a', 'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/amr': '.amr', 'audio/3gpp': '.3gp' };
 const baseMime = (m) => String(m || '').split(';')[0].trim().toLowerCase();
 const ADMIN_ROLES = new Set(['admin', 'manager', 'office_manager']);
 const MAX_PER_ITEM = 40;

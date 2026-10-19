@@ -1128,6 +1128,7 @@ function ItemDocs({ itemName, token }: { itemName: string; token: string | null 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
   const H = { Authorization: `Bearer ${token}` };
 
   useEffect(() => {
@@ -1157,6 +1158,22 @@ function ItemDocs({ itemName, token }: { itemName: string; token: string | null 
     } catch (e: any) { setErr(e.message || 'فشل الرفع'); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
+  // ملفات صوتية جاهزة (واتساب، مسجّل الهاتف…). بعض الهواتف ترسلها بلا نوع MIME —
+  // نستنتجه من الامتداد وإلا رفضها السيرفر (يقبل audio/* فقط).
+  const AUDIO_TYPES: Record<string, string> = { m4a: 'audio/mp4', mp4: 'audio/mp4', mp3: 'audio/mpeg', ogg: 'audio/ogg', opus: 'audio/ogg', oga: 'audio/ogg', wav: 'audio/wav', aac: 'audio/aac', webm: 'audio/webm', amr: 'audio/amr', '3gp': 'audio/3gpp' };
+  const uploadAudio = async (list: FileList | null) => {
+    if (!list?.length) return;
+    setBusy(true); setErr('');
+    try {
+      for (const f of Array.from(list)) {
+        const ext = (f.name.split('.').pop() ?? '').toLowerCase();
+        const type = f.type.startsWith('audio/') ? f.type : (AUDIO_TYPES[ext] ?? (f.type.startsWith('video/') ? f.type.replace('video/', 'audio/') : ''));
+        if (!type) throw new Error(`«${f.name}» ليس ملفاً صوتياً`);
+        await send(type === f.type ? f : new Blob([f], { type }), f.name, 'pitch');
+      }
+    } catch (e: any) { setErr(e.message || 'فشل رفع التسجيل'); }
+    finally { setBusy(false); if (audioRef.current) audioRef.current.value = ''; }
+  };
   const uploadRecording = async (blob: Blob) => {
     setBusy(true); setErr('');
     const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
@@ -1182,7 +1199,13 @@ function ItemDocs({ itemName, token }: { itemName: string; token: string | null 
       <div className="bb-info">
         <div className="bb-info-head">
           <span className="bb-info-title">🎙️ طريقة الكلام عن الايتم للطبيب</span>
-          <PitchRecorder onDone={uploadRecording} disabled={busy} />
+          <div className="bb-docs-bar">
+            <PitchRecorder onDone={uploadRecording} disabled={busy} />
+            <button type="button" className="btn bb-docs-add" disabled={busy} onClick={() => audioRef.current?.click()} title="رفع ملف صوتي جاهز (mp3, m4a, ogg, wav…)">
+              {busy ? 'جاري الرفع…' : '⬆️ رفع تسجيل'}
+            </button>
+            <input ref={audioRef} type="file" accept="audio/*,.m4a,.mp3,.ogg,.opus,.wav,.aac,.amr,.webm" multiple hidden onChange={e => uploadAudio(e.target.files)} />
+          </div>
         </div>
         {docs && audios.length === 0 && <div className="hp-muted">لا توجد تسجيلات بعد — سجّل شرحك كما تقوله للطبيب لتسمعه قبل الزيارة.</div>}
         {audios.map(d => (
