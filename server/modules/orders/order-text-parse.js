@@ -273,6 +273,19 @@ export function reconcileRowsWithText(rows, text, opts = {}) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const { header, itemLines } = parseOrderText(text, opts);
 
+  // سطر أسماء مذاخر بعد الأصناف («سنايا اسبرين منارة» — بدائل التجهيز) قرأه الموديل
+  // صنفاً. صفّ **بلا كمية** اسمه عربي ويحوي مذخراً معروفاً = مذخر لا صنف، فيُحذف.
+  // الكمية شرط: «اسبرين 10 علبة» دواء حقيقي ويبقى. (حذف في المكان — المستدعون
+  // يعتمدون على نفس المصفوفة.)
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i];
+    const name = String(r?.item ?? '');
+    if (r && r.quantity == null && !HAS_LATIN.test(name) && !HAS_DIGIT.test(toLatinDigits(name))
+        && findKnownWarehouse(name)) {
+      rows.splice(i, 1);
+    }
+  }
+
   for (const row of rows) {
     if (header.pharmacy) {
       if (row.pharmacy && normKey(row.pharmacy) !== normKey(header.pharmacy)) row._pharmacyModel = row.pharmacy;

@@ -118,6 +118,10 @@ check('Devit بلا جرعة ⇒ اقتراحات بلا ربط', fb('Devit'), [
 check('Devit 20 جرعة غير موجودة ⇒ لا ربط', fb('Devit 20'), ['medium', null]);
 check('Pandev 80 جرعة غير موجودة ⇒ لا ربط', fb('Pandev 80'), ['medium', null]);
 check('علامة غير موجودة ⇒ null', fb('Zinnat 500'), null);
+const cat2 = [{ id: 20, name: 'Azitro 500mg Tab' }, { id: 21, name: 'AZITRO Susp 200mg/5ml' }];
+check('Azitro sus ← AZITRO Susp', brandDoseFallback('Azitro sus', cat2)?.canonicalItem?.id, 21);
+check('Azitro tab 500 ← Tab', brandDoseFallback('Azitro tab 500', cat2)?.canonicalItem?.id, 20);
+check('Azitro بلا جرعة ولا شكل ⇒ لا ربط', brandDoseFallback('Azitro', cat2)?.confidence, 'medium');
 
 console.log('\n── المذاخر ──');
 const { findKnownWarehouse, cleanWarehouseName } = await import('../server/modules/orders/order-text-parse.js');
@@ -137,6 +141,17 @@ check('طلبية الناقوس كاملة', run(
   ['Colastin 20', 30, 'محمود وضاح', 'الحارثية', 'الناقوس'],
   ['Vazkor 5', 30, 'محمود وضاح', 'الحارثية', 'الناقوس'],
 ]);
+check('سطر مذاخر بعد الأصناف ليس صنفاً (الصورة 10)', run(
+  'ابو غريب\nص جوهرة خان ضاري\nAzitro sus (10)\nتجهز ترانزيت من مذخر التفاح الاخضر\nسنايا اسبرين منارة',
+  [
+    { item: 'Azitro sus', quantity: 10, pharmacy: 'جوهرة خان ضاري', area: 'ابو غريب', warehouse: 'التفاح الاخضر' },
+    { item: 'سنايا اسبرين', quantity: null, pharmacy: 'جوهرة خان ضاري', area: 'ابو غريب', warehouse: 'التفاح الاخضر' },
+  ],
+).map(r => [r.item, r.quantity, r.pharmacy, r.area, r.warehouse]), [
+  ['Azitro sus', 10, 'جوهرة خان ضاري', 'ابو غريب', 'التفاح الاخضر'],
+]);
+check('«اسبرين 10 علبة» دواء حقيقي يبقى', run('ص النور\nاسبرين 10 علبة',
+  [{ item: 'اسبرين', quantity: 10, pharmacy: 'النور' }]).map(r => r.item), ['اسبرين']);
 check('مذخر الموديل بلا سطر واضح يُنظَّف', run('Colastin 20(30)',
   [{ item: 'Colastin 20', quantity: 30, warehouse: 'مذخر طريق السلام لعدم وجود' }]).map(r => r.warehouse), ['طريق السلام']);
 check('سطر «اوزون» وحده = مذخر', parseOrderText('العامرية\nص قمر الثلج\nاوزون\npandev 20 (5)').header,

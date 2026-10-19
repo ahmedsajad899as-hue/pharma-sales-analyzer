@@ -90,6 +90,10 @@ const FORM_SYNONYMS = [
   ['amp', 'ampoule', 'inj', 'injection', 'امبول', 'ابره', 'إبرة'],
   ['cap', 'caps', 'capsule', 'kapsul', 'كبسول'],
   ['tab', 'tabs', 'tablet', 'حب', 'حبوب'],
+  ['sus', 'susp', 'suspension', 'syr', 'syrup', 'شراب', 'معلق'],
+  ['gel', 'jel', 'جل'],
+  ['cream', 'crem', 'كريم'],
+  ['supp', 'suppository', 'تحاميل', 'تحميله'],
 ];
 const formOf = (s) => {
   const words = normalizeItemKey(s).split(/[^a-z؀-ۿ]+/);
@@ -126,12 +130,11 @@ export function brandDoseFallback(name, catalog) {
 
   const q = dosesOf(name)[0];
   let hits;
-  if (q != null) {
-    hits = family.filter(c => dosesOf(c.name).some(n => n === q || n === q * 1000));
-  } else {
-    const f = formOf(name);
-    hits = f >= 0 ? family.filter(c => formOf(c.name) === f) : family;
-  }
+  hits = q != null ? family.filter(c => dosesOf(c.name).some(n => n === q || n === q * 1000)) : family;
+  // الشكل الصيدلاني («Azitro sus» ← «AZITRO Susp 200mg/5ml» لا «Azitro 500mg Tab»)
+  // يحسم ما بقي ملتبساً بعد الجرعة.
+  const f = formOf(name);
+  if (hits.length > 1 && f >= 0) hits = hits.filter(c => formOf(c.name) === f);
   if (hits.length === 1) return { canonicalItem: hits[0], confidence: 'high', suggestions, via: 'brand-dose' };
   return { canonicalItem: null, confidence: 'medium', suggestions };
 }
@@ -166,7 +169,12 @@ export async function enrichRowsFromCatalog(rows, userId, { linkOnly = false } =
   for (const name of names) {
     try {
       let r = await resolveItemName(name, ctx);
+      // لا مطابقة → البديل كاملاً (حتى اقتراحاته). لبس (medium) → البديل يُقبل فقط إن حسم.
       if (r.confidence === 'none') r = brandDoseFallback(name, ctx.catalog) || r;
+      else if (r.confidence === 'medium') {
+        const fb = brandDoseFallback(name, ctx.catalog);
+        if (fb?.confidence === 'high') r = fb;
+      }
       resolved.set(name, r);
     } catch { /* يبقى كما كُتب */ }
   }
@@ -792,6 +800,7 @@ export async function getPendingOrder(userId, id) {
     const areaBefore = live.map(r => r.area ?? null);
     // النصّ كما هو: الأسطر هي ما يقرأه المحلّل، وparseOrderText يُسقط سطر «طلبية» بنفسه.
     await applyTextParse(live, row.sourceText);
+    rows.splice(0, rows.length, ...live); // القراءة قد تحذف صفوفاً (سطر مذاخر قُرئ صنفاً)
     await enrichRowsFromCatalog(live, userId);
     await matchInvoiceCustomers(live);
     // مندوب خُمِّن من منطقة خاطئة يُمسح ليُعاد تخمينه من المنطقة المصحّحة أدناه.

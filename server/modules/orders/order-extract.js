@@ -17,7 +17,7 @@ import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
 import { parseInvoiceJson, splitPharmacyArea, isCopiedFromPrompt } from '../sales/sales.service.js';
 import { normalizeItemKey } from '../../lib/itemResolver.js';
 import { MAX_ORDER_TEXT_LEN, stripTriggerPrefix } from './order-trigger.js';
-import { reconcileRowsWithText, normKey } from './order-text-parse.js';
+import { reconcileRowsWithText, normKey, KNOWN_WAREHOUSES } from './order-text-parse.js';
 import prisma from '../../lib/prisma.js';
 
 // أسماء المذاخر المعروفة (دفتر رصيد المذاخر) — تكشف سطر مذخر كُتب بلا كلمة «مذخر»
@@ -93,6 +93,7 @@ export const buildOrderTextPrompt = (todayISO) => `أنت خبير في قراء
     Pantactive40.  50
     Nospactive.     20
     مذخر الناقوس
+  (ملاحظة: أسماء المذاخر — مثل ${KNOWN_WAREHOUSES.map(g => g[0]).join('، ')} — **ليست أصنافاً أبداً** ولو جاءت في سطر وحدها بعد الأصناف؛ لا تُعِد لها صفاً.)
   تكون قيمة customerHeader في **كلا** الصفّين هي «سر الدواء/ الحارثية» بالضبط، و warehouse = «الناقوس»، والصفّان يختلفان في item و quantity فقط.
 - **اسم الصيدلية (pharmacy):** الاسم الفعلي فقط، بلا أي بادئة أو لقب قبله مثل: "ص"، "ص."، "صيدلية"، "الصيدلية"، "صيدليه"، "زبون"، "الزبون"، "عميل"، "العميل"، "اسم"، "الاسم"، "د"، "دكتور"، وبلا المنطقة (انظر القاعدة التالية).
 - **فصل الصيدلية عن المنطقة:** كثيراً ما يُكتب اسم الصيدلية والمنطقة معاً مفصولين بشرطة «-» أو «/»، مثل «صيدلية النور - الكرخ» أو «سر الدواء/ الحارثية». **الجزء الأول دائماً هو اسم الصيدلية (pharmacy)، والجزء الأخير بعد الفاصل هو المنطقة (area).**
@@ -236,7 +237,8 @@ export async function extractOrderRowsFromText(text, { todayISO } = {}) {
 
 /** نسخة القراءة الحتمية — تُخزَّن في payload فتُعاد قراءة الطلبيات الأقدم عند فتحها. */
 // 2 (2026-10-19): قائمة المذاخر المعروفة + قصّ الملاحظة بعد اسم المذخر.
-export const TEXT_PARSE_VERSION = 2;
+// 3: صفّ بلا كمية اسمه مذخر معروف («سنايا اسبرين منارة») يُحذف.
+export const TEXT_PARSE_VERSION = 3;
 
 /**
  * القراءة الحتمية للنصّ تغلب اجتهاد الموديل حيث يحسم الشكل: ترويسة متعدّدة الأسطر
