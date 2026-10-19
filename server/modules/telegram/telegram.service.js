@@ -22,7 +22,7 @@ import { autoSyncIfOfficeEmployee } from '../sales/sales.controller.js';
 import { parseMovementFile, ingestRows } from '../stock-ledger/stock-ledger.service.js';
 import { resolveLedgerScope } from '../../lib/stockLedgerScope.js';
 import { extractVisitsFromExcel } from '../doctors/doctor-visits-import.js';
-import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
+import { handleIncomingOrderMessage, parseRevealCommand, handleRevealCommand } from '../orders/bot-order-flow.js';
 import { hasPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
 import { hasTriggerWord } from '../orders/order-trigger.js';
 import { parseSalesQuery } from '../orders/sales-query-trigger.js';
@@ -94,8 +94,9 @@ const editMessageText     = async (chatId, messageId, text, replyMarkup) => (awa
  * صورة إلى المحادثة (multipart — telegramApi يرسل JSON فقط). تحترم وضع الصمت.
  * replyTo: رسالة المرسِل كي يُعرف أي طلبية يخصّها الجدول.
  */
-async function sendPhoto(chatId, buffer, { caption = '', replyTo = null } = {}) {
-  if (!BOT_TOKEN || (await isSilentChat(chatId))) return null;
+async function sendPhoto(chatId, buffer, { caption = '', replyTo = null, force = false } = {}) {
+  // force: طلب صريح من الكروب («كشف») — يُرسَل ولو كان الكروب صامتاً.
+  if (!BOT_TOKEN || (!force && (await isSilentChat(chatId)))) return null;
   try {
     const fd = new FormData();
     fd.append('chat_id', String(chatId));
@@ -442,7 +443,9 @@ async function handleDocumentMessage(actor, message) {
 /** عقد المنصة الذي يفهمه bot-order-flow — تلكرام يملك تعديل الرسائل. */
 const telegramTransport = {
   name: 'telegram',
-  sendText: async (chatId, text) => (await sendMessage(chatId, text))?.result?.message_id ?? null,
+  // force: ردّ على طلب صريح («كشف») يتخطّى وضع الصمت.
+  sendText: async (chatId, text, { force = false } = {}) =>
+    (force ? await telegramApi('sendMessage', { chat_id: chatId, text }) : await sendMessage(chatId, text))?.result?.message_id ?? null,
   editText: (chatId, messageId, text) => editMessageText(chatId, messageId, text),
   // getFile محيّد لنوع الملف — معرّف صورة يمرّ بنفس المسار بلا تعديل.
   downloadMedia: (fileId) => downloadDocument(fileId),
@@ -549,11 +552,28 @@ export async function handleUpdate(update) {
   const followupQuery = kind === 'text' && !salesQuery && !personalSale ? parseFollowupQuery(message.text) : null;
   // محادثة حرّة: كلمة «بوت» في أي موضع (bot-chat.js). طلب صريح فيستحق إعلان الاكتشاف أيضاً.
   const botChat = kind === 'text' && !personalSale && hasBotTrigger(message.text);
-  const announce = botChat || kind === 'document' || hasTriggerWord(intentText) || personalSale || isReplyToBotMsg(message)
+  // «كشف» — صورة جدول تحليل طلبية (bot-order-flow.js). يعمل ولو كان الكروب صامتاً.
+  const reveal = kind === 'text' ? parseRevealCommand(message.text) : null;
+  const announce = Boolean(reveal) || botChat || kind === 'document' || hasTriggerWord(intentText) || personalSale || isReplyToBotMsg(message)
     || Boolean(salesQuery) || Boolean(followupQuery);
 
   const actor = await resolveActor(message, { announce });
   if (!actor) return;
+
+  if (reveal) {
+    if (await isDuplicateUpdate(actor.link, update.update_id, { deferWrite: true })) return;
+    try {
+      await handleRevealCommand({
+        transport: telegramTransport, chatId: actor.chatId, orderId: reveal.orderId,
+        messageId: message.message_id ?? null,
+        replyToMessageId: message.reply_to_message?.message_id ?? null,
+        replyText: message.reply_to_message?.from?.is_bot ? String(message.reply_to_message.text || '') : '',
+      });
+    } finally {
+      await markUpdateConsumed(actor.link, update.update_id);
+    }
+    return;
+  }
 
   // ── محادثة حرّة («بوت اريد مبيعات فلان…») — قبل مسار الطلبيات والأسئلة المنظمة ──
   // الكروب الصامت لا يُنادى Gemini له أصلاً (لا فائدة من فهمٍ لا يُرسَل جوابه).

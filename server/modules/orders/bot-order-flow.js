@@ -20,7 +20,7 @@ import { extractInvoiceRows } from '../sales/sales.service.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { extractOrderRowsFromText } from './order-extract.js';
 import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
-import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess } from './orders.service.js';
+import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess, findPendingOrderForReveal } from './orders.service.js';
 import { checkManualDuplicates, duplicateWarningText } from '../../lib/manualDuplicateCheck.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
 import { ingestPersonalSalesFromBot } from '../province-teams/personal-sales.service.js';
@@ -146,6 +146,7 @@ export async function handleIncomingOrderMessage({
       rows,
       imageBuffers,
       mediaKeys: mediaRefs.map(r => (typeof r === 'string' ? r : JSON.stringify(r))),
+      sourceMessageId: messageId,
     });
     // تنبيه مبكر: الطلبية نفسها محفوظة سابقاً في ملف الكوديشن؟ (لا يمنع الطابور —
     // القرار للمراجِع في التطبيق، حيث تُعلَّم الصفوف المكررة أيضاً.)
@@ -160,21 +161,6 @@ export async function handleIncomingOrderMessage({
       console.error('[orders] تعذّر فحص التكرار:', e?.message);
     }
     await reply(transport, ctx, msg + dupNote);
-
-    // صورة جدول التحليل للكروب (طلب صاحب المشروع): يرى المندوبون كيف قُرئت
-    // طلبيتهم وينبّهون على الخطأ قبل تدقيق المدير. تحسين لا شرط — فشلها صامت.
-    if (transport.sendPhoto) {
-      try {
-        const ids = [...String(msg).matchAll(/#(\d+)/g)].map(m => m[1]);
-        const png = await renderOrderTablePng(rows, {
-          title: ids.length ? `تحليل الطلبية رقم ${ids.join(' و ')}` : 'تحليل الطلبية',
-          footer: 'هذه قراءة الذكاء الاصطناعي قبل تدقيق المدير — إن وجدت خطأ فاكتبه هنا',
-        });
-        await transport.sendPhoto(chatId, png, { replyTo: messageId });
-      } catch (e) {
-        console.error('[orders] تعذّر إرسال صورة الجدول:', e?.message);
-      }
-    }
   } catch (err) {
     // نصّ AppError التشغيلي مفهوم للمستخدم ويُعرَض كما هو؛ غيره يُخفى كي لا يصل
     // stack trace إلى كروب مبيعات. نفس نمط handleCallbackQuery في تلكرام.
@@ -184,6 +170,41 @@ export async function handleIncomingOrderMessage({
       `⚠️ ${err?.isOperational ? err.message : 'تعذّر قراءة الطلبية. جرّب إعادة إرسالها، أو أدخلها يدوياً من التطبيق.'}`);
   }
   return true;
+}
+
+// ─── «كشف» — صورة جدول التحليل عند الطلب فقط ────────────────────────────────
+// (طلب صاحب المشروع 2026-10-19) الصورة لا تُرسَل تلقائياً بعد التحليل، بل حين
+// يكتب أحد في الكروب «كشف» — ولو كان الكروب صامتاً: الكلمة طلب صريح.
+// «كشف» ردّاً على رسالة الطلبية (أو ردّ البوت عليها) ← تلك الطلبية؛ «كشف 88» ←
+// الطلبية 88؛ «كشف» وحدها ← آخر طلبية في الكروب.
+const REVEAL_RE = /^\s*كشف(?:\s*#?\s*(\d+))?\s*[.!؟?]*\s*$/;
+
+/** null إن لم تكن الرسالة أمر «كشف»، وإلا { orderId|null }. */
+export function parseRevealCommand(text) {
+  const m = String(text ?? '').match(REVEAL_RE);
+  return m ? { orderId: m[1] ? Number(m[1]) : null } : null;
+}
+
+/**
+ * يرسل صورة الجدول للطلبية المقصودة. الإرسال بـforce (تخطّي وضع الصمت). لا يرمي.
+ */
+export async function handleRevealCommand({ transport, chatId, orderId = null, messageId = null, replyToMessageId = null, replyText = '' }) {
+  try {
+    const found = await findPendingOrderForReveal({ chatId, orderId, replyToMessageId, replyText });
+    if (!found || !found.rows.length) {
+      await transport.sendText(chatId, orderId
+        ? `⚠️ لا توجد طلبية #${orderId} بانتظار المراجعة في هذا الكروب (ربما حُفظت أو أُلغيت).`
+        : '⚠️ لا توجد طلبية بانتظار المراجعة لهذا الطلب (ربما حُفظت أو أُلغيت).', { force: true });
+      return;
+    }
+    const png = await renderOrderTablePng(found.rows, {
+      title: `تحليل الطلبية رقم ${found.ids.join(' و ')}`,
+      footer: 'هذه قراءة الذكاء الاصطناعي قبل تدقيق المدير — إن وجدت خطأ فاكتبه هنا',
+    });
+    await transport.sendPhoto(chatId, png, { replyTo: messageId, force: true });
+  } catch (e) {
+    console.error('[orders] تعذّر تنفيذ «كشف»:', e?.message);
+  }
 }
 
 /**
