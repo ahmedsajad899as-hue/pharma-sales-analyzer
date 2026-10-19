@@ -18,6 +18,7 @@ import { resolveCumulativeTarget, openMergeBatch, closeMergeBatch, refreshCumula
 import { UNDATED_CUTOFF, buildMonthFilter } from './salesMonths.js';
 import { repCoreName, buildRepIndex, matchRepName } from './repNameMatch.js';
 import { getManagerRoster } from './managerRoster.js';
+import { loadItemOwnerManagers } from './itemOwnerManager.js';
 
 export const isConditionFile = (file) => fileVariant(file) === CONDITION_VARIANT;
 
@@ -115,9 +116,11 @@ export const COMPANY_SHEET = 'كل مبيعات الشركة';
  * شركة المستخدم **مهما كان المندوب** — ومنها «بلا مندوب» التي تُخفيها شيتات
  * المندوبين عن مدير الشركة (طلبية حُفظت بلا مندوب علمي لا تضيع عنه).
  *
- * «شركة المستخدم» = ايتماته المُسنَدة (UserItemAssignment) + ايتمات شركاته الرئيسية
- * (isPrimary). الأدوار غير المقيّدة بفريق ترى كل الصفوف. بلا أي إسناد: صفوف
- * شيتاته الظاهرة فقط — لا توسيع للرؤية بلا دليل.
+ * «الشركة» = **التيم**: الايتمات المُسنَدة لمدير الشركة في «الايتمات» بالسوبر أدمن
+ * (UserItemAssignment) — لا كل ايتمات الشركة العلمية (تعريف صاحب المشروع الصريح:
+ * ايتم deva غير مُسنَد لمدير deva ليس من «شركة deva»). مدير الشركة: ايتماته المملوكة
+ * بقاعدة التحليل الشامل (ايتم لمديرين يُحسب لواحد). غيره: ايتماته المُسنَدة له.
+ * الأدوار غير المقيّدة بفريق ترى كل الصفوف. بلا أي إسناد: صفوف شيتاته الظاهرة فقط.
  *
  * @param {object[]} allSheets   ناتج loadConditionSheets قبل التقييد
  * @param {object[]} scoped      بعد scopeSheetsToRoster
@@ -127,14 +130,18 @@ export async function buildCompanySheet(allSheets, scoped, user) {
   if (!user || !ROSTER_SCOPED_ROLES.has(user.role) || ['office_manager', 'office_employee', 'office_hr'].includes(user.role)) {
     rows = allSheets.flatMap(s => s.rows);
   } else {
-    const [items, companies] = await Promise.all([
-      prisma.userItemAssignment.findMany({ where: { userId: user.id }, select: { itemId: true } }),
-      prisma.userCompanyAssignment.findMany({ where: { userId: user.id, isPrimary: true }, select: { companyId: true } }),
-    ]);
-    const itemIds = new Set(items.map(i => i.itemId));
-    const companyIds = new Set(companies.map(c => c.companyId));
-    rows = (itemIds.size || companyIds.size)
-      ? allSheets.flatMap(s => s.rows).filter(r => itemIds.has(r.itemId) || companyIds.has(r.sciCompanyId))
+    let itemIds;
+    if (user.role === 'company_manager') {
+      const me = await prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
+      const owners = await loadItemOwnerManagers(me?.officeId ?? null);
+      itemIds = new Set([...owners].filter(([, o]) => o.managerId === user.id).map(([id]) => id));
+    }
+    if (!itemIds?.size) {
+      const items = await prisma.userItemAssignment.findMany({ where: { userId: user.id }, select: { itemId: true } });
+      itemIds = new Set(items.map(i => i.itemId));
+    }
+    rows = itemIds.size
+      ? allSheets.flatMap(s => s.rows).filter(r => itemIds.has(r.itemId))
       : scoped.flatMap(s => s.rows);
   }
   rows = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);

@@ -20,7 +20,7 @@ import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
-import { loadItemOwnerManagers, loadCompanyPrimaryManagers } from '../../lib/itemOwnerManager.js';
+import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
 
@@ -692,7 +692,8 @@ function toImageList(imageFiles) {
 // ايتم بلا مدير مالك يبقى عند حساب الكروب كما كان.
 
 /** يُرفع عند تغيير قاعدة التقسيم كي تُعاد على الطابور القائم. */
-// 2: إعادة قراءة الصفوف القديمة قبل التقسيم + بديل «مدير الشركة الرئيسية» + الدمج.
+// 2: إعادة قراءة الصفوف القديمة قبل التقسيم + الدمج. (بديل «مدير الشركة العلمية»
+//    أُزيل: «الشركة» عند صاحب المشروع = ايتمات المدير المُسنَدة فقط.)
 const ROUTE_VERSION = 2;
 
 /**
@@ -702,17 +703,14 @@ const ROUTE_VERSION = 2;
 export async function splitRowsByOwner(rows, user) {
   const none = { keep: rows, forwards: [] };
   if (!Array.isArray(rows) || !rows.length || !user?.officeId) return none;
-  let owners, companyOwners;
+  let owners;
   try {
-    [owners, companyOwners] = await Promise.all([
-      loadItemOwnerManagers(user.officeId),
-      loadCompanyPrimaryManagers(user.officeId),
-    ]);
+    owners = await loadItemOwnerManagers(user.officeId);
   } catch (e) {
     console.error('[orders] تعذّر تحميل مالكي الايتمات:', e?.message);
     return none; // التحويل تحسين — فشله يُبقي الطلبية عند حساب الكروب
   }
-  if (!owners.size && !companyOwners.size) return none;
+  if (!owners.size) return none;
 
   // صنف لم يُربط بكتالوج حساب الكروب يُجرَّب على كتالوج المكتب كله — بنفس سلّم
   // enrichRowsFromCatalog (المحلِّل ثم بديل «العلامة + الجرعة»: «Devit 50»).
@@ -736,25 +734,14 @@ export async function splitRowsByOwner(rows, user) {
     } catch (e) { console.error('[orders] office item link (routing) failed:', e?.message); }
   }
 
-  // الشركة العلمية للصف: من بطاقة الايتم، وإلا اسم الشركة المقروء («deva»).
-  const rowItemIds = [...new Set(rows.map(r => r?._itemId ?? officeIdByName.get(String(r?.item ?? '').trim())).filter(Boolean))];
-  const itemCompany = new Map((rowItemIds.length
-    ? await prisma.item.findMany({ where: { id: { in: rowItemIds } }, select: { id: true, scientificCompanyId: true } }).catch(() => [])
-    : []).map(i => [i.id, i.scientificCompanyId]));
-  const companyIdByName = new Map(sciCompanies.map(c => [normalizeItemKey(c.name), c.id]));
-
   const keep = [];
   const byManager = new Map();
   for (const row of rows) {
     if (!row) continue;
     const itemId = row._itemId ?? officeIdByName.get(String(row.item ?? '').trim()) ?? null;
-    // 1) الايتم مُسنَد لمدير (قاعدة التحليل الشامل). 2) وإلا مدير شركته الرئيسية.
-    let owner = itemId != null ? owners.get(itemId) : null;
-    if (!owner) {
-      const sciId = row._scientificCompanyId ?? (itemId != null ? itemCompany.get(itemId) : null)
-        ?? companyIdByName.get(normalizeItemKey(row.company ?? '')) ?? null;
-      owner = sciId != null ? companyOwners.get(sciId) : null;
-    }
+    // «الشركة» = تيم المدير: الايتم المُسنَد له فقط (قاعدة التحليل الشامل) — لا
+    // الشركة العلمية للايتم. ايتم غير مُسنَد لأي مدير يبقى عند حساب الكروب.
+    const owner = itemId != null ? owners.get(itemId) : null;
     if (!owner || owner.managerId === user.id) { keep.push(row); continue; }
     if (!byManager.has(owner.managerId)) byManager.set(owner.managerId, { ...owner, rows: [] });
     byManager.get(owner.managerId).rows.push(row);
