@@ -2499,6 +2499,8 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     merged,
     unknownItems,
     rememberedCount,
+    // الايتمات المحفوظة — لمشاركة ملف الكوديشن مع من أُسنِدت لهم (طلبيات البوت).
+    itemIds: [...new Set(validRows.map(r => itemMap[r.item]).filter(Boolean))],
     uploadedFile: { id: uploadedFile.id, originalName: uploadedFile.originalName, isCumulative: uploadedFile.isCumulative ?? false },
   };
 }

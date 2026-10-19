@@ -35,6 +35,8 @@ interface Row {
   /** صيدليات السيرفي القريبة من الاسم المقروء حين لم يُحسم التطابق تلقائياً. */
   pharmacyCandidates: { name: string; area: string | null }[];
   imageIndex: number | null; // index into `images` this row was extracted from
+  /** طلبية البوت التي جاء منها الصف (مراجعة مجمَّعة: عدة طلبيات في جدول واحد). */
+  orderId: number | null;
   box: number[] | null;          // [ymin,xmin,ymax,xmax] 0-1000: this item's row in the image
   boxCustomer: number[] | null;  // pharmacy/area block in the image
   boxHeader: number[] | null;    // whole header block (warehouse + invoice# + date)
@@ -53,6 +55,9 @@ export interface PendingOrderDetail {
   chatTitle?: string | null;
   imageCount?: number;
   createdAt?: string;
+  /** طلبية حُوِّلت لمدير الشركة صاحب الايتم من حساب الكروب — تُحفَظ في ملف كوديشنه. */
+  originUserId?: number | null;
+  originName?: string | null;
 }
 
 interface Props {
@@ -63,8 +68,11 @@ interface Props {
   /** طلبية بوت جاهزة — تُعبَّأ فور الفتح بلا رفع/استخراج جديد. إغلاق المودال
    *  العادي لا يحذفها (تبقى معلَّقة في الطابور ويظهر شريطها مرة أخرى). */
   initialOrder?: PendingOrderDetail | null;
-  /** «إلغاء هذه الطلبية نهائياً» — يظهر فقط مع initialOrder؛ الأب يتولّى الحذف
-   *  بالخادم وإخفاء الشريط. */
+  /** مراجعة مجمَّعة: عدة طلبيات بوت في جدول واحد، كل طلبية مجموعة برقمها وتُعرض
+   *  رسالتها الأصلية أعلى الجدول عند النقر على رقمها. يتقدّم على initialOrder. */
+  initialOrders?: PendingOrderDetail[] | null;
+  /** «إلغاء هذه الطلبية نهائياً» — يظهر فقط مع initialOrder(s)؛ الأب يتولّى الحذف
+   *  بالخادم وإخفاء الشريط (لكل الطلبيات المعروضة). */
   onCancelPending?: () => void;
 }
 
@@ -89,13 +97,14 @@ type DupResult = { sig: string; groups: DupGroup[]; rows: DupRow[] };
 
 /** مفتاح فاتورة الصف لفحص التكرار: صورة = فاتورة؛ اليدوي يُفصل برقم الفاتورة والصيدلية. */
 const dupGroupKey = (r: Row) =>
-  r.imageIndex != null ? `img${r.imageIndex}` : `manual|${r.invoiceNumber.trim()}|${r.pharmacy.trim()}`;
+  r.orderId != null ? `ord${r.orderId}|${r.imageIndex ?? ''}`
+  : r.imageIndex != null ? `img${r.imageIndex}` : `manual|${r.invoiceNumber.trim()}|${r.pharmacy.trim()}`;
 
 /** مفتاح تطابق صف مستخرَج — لكشف إعادة استخراج نفس الطلبية (نصّاً ثم صورةً). */
 const rowKey = (r: Row) =>
   [r.item, r.quantity, r.pharmacy].map(v => String(v ?? '').trim().toLowerCase()).join('|');
 
-const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', scientificRep: '', repCandidates: [], pharmacyCandidates: [], imageIndex: null, box: null, boxCustomer: null, boxHeader: null });
+const emptyRow = (): Row => ({ warehouse: '', invoiceNumber: '', date: '', item: '', company: '', quantity: '', unitPrice: '', total: '', bonus: '', pharmacy: '', area: '', scientificRep: '', repCandidates: [], pharmacyCandidates: [], imageIndex: null, orderId: null, box: null, boxCustomer: null, boxHeader: null });
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
 
 /**
@@ -350,14 +359,26 @@ function ComboCell({ value, onChange, onPick, options, placeholder, title, style
 
 const hdrBtn: React.CSSProperties = { background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 13, lineHeight: 1, width: 22, height: 22, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 
-export default function ManualSalesModal({ token, files, onClose, onSaved, initialOrder, onCancelPending }: Props) {
+export default function ManualSalesModal({ token, files, onClose, onSaved, initialOrder: singleOrder, initialOrders, onCancelPending }: Props) {
   const authH = { Authorization: `Bearer ${token}` };
+  // كل الطلبيات المعروضة (واحدة أو أكثر). initialOrder = الأولى — لما يخصّ الجلسة كلها.
+  const orderList: PendingOrderDetail[] = initialOrders?.length ? initialOrders : singleOrder ? [singleOrder] : [];
+  const initialOrder: PendingOrderDetail | null = orderList[0] ?? null;
+  const orderKey = orderList.map(o => o.id).join(',');
+  const orderById = new Map(orderList.map(o => [o.id, o]));
+  // الطلبية التي تُعرض رسالتها الأصلية أعلى الجدول (تتبدّل بالنقر على رقمها).
+  const [activeOrderId, setActiveOrderId] = useState<number | null>(null);
+  const srcPanelRef = useRef<HTMLDivElement>(null);
+  // أقدم وقت وصول — بديل التاريخ في فحص التكرار.
+  const earliestOrderAt = orderList.map(o => o.createdAt).filter(Boolean).sort()[0];
+  // كل الطلبيات المعروضة محوَّلة من نفس حساب الكروب؟ ← اسمه لنص وجهة الحفظ.
+  const originNames = [...new Set(orderList.map(o => o.originName).filter(Boolean))] as string[];
 
   // طلبية بوت قيد المراجعة — يُغيّر نصوص الواجهة ويُظهر زر الإلغاء النهائي، ولا
   // تُحفَظ المبيعات إلا بنفس مسار الإدخال اليدوي. مسوّدة localStorage لا لزوم لها
   // هنا: الطلبية محفوظة في الخادم أصلاً وهذا أقوى من مسوّدة متصفح.
   const [fromPendingOrder, setFromPendingOrder] = useState(false);
-  const appliedOrderIdRef = useRef<number | null>(null);
+  const appliedOrderIdRef = useRef<string | null>(null);
   // الخانة الرقمية قيد التحرير — تُعرض خاماً أثناء الكتابة ومنسَّقة بعد الخروج.
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [repName, setRepName] = useState('');            // shared: chosen by the user
@@ -409,7 +430,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       const res = await fetch(`${API}/api/sales/check-duplicates`, {
         method: 'POST',
         headers: { ...authH, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: dupPayload, target: dupTarget, receivedAt: initialOrder?.createdAt }),
+        body: JSON.stringify({ rows: dupPayload, target: dupTarget, receivedAt: earliestOrderAt, pendingOrderIds: orderList.map(o => o.id) }),
       });
       if (!res.ok) return null;
       const d = (await res.json()).data;
@@ -464,7 +485,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     const last = rs[rs.length - 1];
     // Carry over per-invoice header fields so entering several items of one invoice is fast
     const seed = last
-      ? { ...emptyRow(), warehouse: last.warehouse, invoiceNumber: last.invoiceNumber, date: last.date, pharmacy: last.pharmacy, area: last.area, scientificRep: last.scientificRep, repCandidates: last.repCandidates, pharmacyCandidates: last.pharmacyCandidates }
+      ? { ...emptyRow(), orderId: last.orderId, warehouse: last.warehouse, invoiceNumber: last.invoiceNumber, date: last.date, pharmacy: last.pharmacy, area: last.area, scientificRep: last.scientificRep, repCandidates: last.repCandidates, pharmacyCandidates: last.pharmacyCandidates }
       : emptyRow();
     return [...rs, seed];
   });
@@ -485,26 +506,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
    * الصف في الحالتين، فلا تفريع ولا تحويل ثانٍ.
    */
   const applyExtractedRows = useCallback((extracted: any[], baseIndex: number, mode: 'append' | 'replace' = 'append'): { mapped: Row[]; skipped: number } => {
-    const mapped: Row[] = extracted.map(r => ({
-      warehouse:     str(r.warehouse),
-      invoiceNumber: str(r.invoiceNumber),
-      date:          normDate(r.date),
-      item:          str(r.item),
-      company:       str(r.company),
-      quantity:      r.quantity != null ? String(num(r.quantity)) : '',
-      unitPrice:     r.unitPrice != null ? String(num(r.unitPrice)) : '',
-      total:         r.total != null ? String(num(r.total)) : '',
-      bonus:         r.bonus != null ? String(num(r.bonus)) : '',
-      pharmacy:      str(r.pharmacy),
-      area:          str(r.area),
-      scientificRep: str(r.scientificRep),
-      repCandidates: Array.isArray(r._repCandidates) ? r._repCandidates : [],
-      pharmacyCandidates: Array.isArray(r._pharmacyCandidates) ? r._pharmacyCandidates : [],
-      imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : baseIndex,
-      box:           Array.isArray(r._box) ? r._box : null,
-      boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
-      boxHeader:     Array.isArray(r._boxHeader) ? r._boxHeader : null,
-    }));
+    const mapped: Row[] = mapExtracted(extracted, baseIndex, baseIndex, null);
     if (mode === 'replace') {
       setRows(mapped.length ? mapped : [emptyRow()]);
       return { mapped, skipped: 0 };
@@ -533,24 +535,35 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     return { mapped, skipped };
   }, []);
 
-  // ── طلبية بوت جاهزة: تعبئة فورية بلا رفع ولا نداء ذكاء ──
+  // ── طلبيات بوت جاهزة: تعبئة فورية بلا رفع ولا نداء ذكاء ──
+  // عدة طلبيات = جدول واحد: صفوف كل طلبية مجموعة برقمها، وصورها تُرقَّم متتالية
+  // (صور الطلبية الثانية تبدأ بعد صور الأولى) بنفس ترتيب تحميلها أدناه.
   useEffect(() => {
-    if (!initialOrder) return;
-    // حارس التطبيق مرة واحدة لكل طلبية: أي إعادة تشغيل للتأثير (تغيّر مرجع
-    // الكائن، إعادة تركيب) كانت ستُضيف صفوف الطلبية ثانيةً فتظهر مكرّرة.
-    if (appliedOrderIdRef.current === initialOrder.id) return;
-    appliedOrderIdRef.current = initialOrder.id;
+    if (!orderList.length) return;
+    // حارس التطبيق مرة واحدة لكل مجموعة طلبيات: أي إعادة تشغيل للتأثير (تغيّر
+    // مرجع الكائن، إعادة تركيب) كانت ستُضيف الصفوف ثانيةً فتظهر مكرّرة.
+    if (appliedOrderIdRef.current === orderKey) return;
+    appliedOrderIdRef.current = orderKey;
     setFromPendingOrder(true);
-    // 'replace' لا 'append': صفوف الطلبية هي محتوى الشبكة كلّه عند فتحها.
-    applyExtractedRows(initialOrder.rows || [], 0, 'replace');
-    if (initialOrder.repName) setRepName(initialOrder.repName);
+    let base = 0;
+    const all: Row[] = [];
+    for (const o of orderList) {
+      const n = o.imageCount ?? 0;
+      all.push(...mapExtracted(o.rows || [], base, n > 0 ? base : null, o.id));
+      base += n;
+    }
+    // الاستبدال لا الإضافة: صفوف الطلبيات هي محتوى الشبكة كلّه عند فتحها.
+    setRows(all.length ? all : [emptyRow()]);
+    setActiveOrderId(orderList[0].id);
+    const rn = orderList.find(o => o.repName)?.repName;
+    if (rn) setRepName(rn);
     // ملف الهدف: شهر واحد في ملف واحد بدل عشرات ملفات بصفّين.
     if (!files.length) {
-      const d = new Date(initialOrder.createdAt || Date.now());
+      const d = new Date(orderList[0].createdAt || Date.now());
       setNewFileName(`طلبيات البوت — ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialOrder]);
+  }, [orderKey]);
 
   // ── صور الطلبية: تأثير **مستقل** عمداً ───────────────────────────────────
   // كان التحميل داخل تأثير التعبئة أعلاه، فأعاد شغلُه تشغيلَ دالة تنظيف تُلغي
@@ -560,28 +573,35 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   //
   // هنا: حارس خاص بالصور بحسب رقم الطلبية، **وبلا دالة تنظيف تُلغي** — التحميل
   // الجاري يُكمَل دائماً. وإعادة التشغيل لنفس الطلبية لا تفعل شيئاً.
-  const imagesLoadedForRef = useRef<number | null>(null);
+  const imagesLoadedForRef = useRef<string | null>(null);
   useEffect(() => {
-    const id = initialOrder?.id;
-    const count = initialOrder?.imageCount ?? 0;
-    if (!id || count <= 0) return;
-    if (imagesLoadedForRef.current === id) return;
-    imagesLoadedForRef.current = id;
+    const total = orderList.reduce((n, o) => n + (o.imageCount ?? 0), 0);
+    if (!orderKey || total <= 0) return;
+    if (imagesLoadedForRef.current === orderKey) return;
+    imagesLoadedForRef.current = orderKey;
     (async () => {
-      const urls: string[] = [];
-      for (let i = 0; i < count; i++) {
-        try {
-          const res = await fetch(`${API}/api/orders/pending/${id}/image/${i}`, { headers: authH });
-          if (!res.ok) continue;
-          urls.push(URL.createObjectURL(await res.blob()));
-        } catch { /* صورة مفقودة لا تُسقط المراجعة */ }
+      // خانات ثابتة بعدد الصور: صورة مفقودة تبقى خانة فارغة كي لا تنزاح أرقام
+      // صور الطلبيات التالية عن صفوفها.
+      const slots: string[] = new Array(total).fill('');
+      let base = 0, ok = 0;
+      for (const o of orderList) {
+        const count = o.imageCount ?? 0;
+        for (let i = 0; i < count; i++) {
+          try {
+            const res = await fetch(`${API}/api/orders/pending/${o.id}/image/${i}`, { headers: authH });
+            if (!res.ok) continue;
+            slots[base + i] = URL.createObjectURL(await res.blob());
+            ok++;
+          } catch { /* صورة مفقودة لا تُسقط المراجعة */ }
+        }
+        base += count;
       }
-      if (urls.length) setImages(prev => [...prev, ...urls]);
+      if (ok) setImages(prev => [...prev, ...slots]);
       // فشل صامت كان هو المشكلة أصلاً — الآن يُقال للمستخدم.
-      else setInfo('تعذّر تحميل صورة الطلبية. أعد فتح الطلبية، وإن تكرّر فأبلغ الأدمن.');
+      if (ok < total) setInfo('تعذّر تحميل بعض صور الطلبيات. أعد فتحها، وإن تكرّر فأبلغ الأدمن.');
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialOrder?.id, initialOrder?.imageCount]);
+  }, [orderKey]);
 
   // ── AI extraction from invoice images ──
   const onImages = useCallback(async (fileList: FileList | null) => {
@@ -635,7 +655,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       const res = await fetch(`${API}/api/sales/manual`, {
         method: 'POST',
         headers: { ...authH, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: payloadRows, target, rememberItems, pendingOrderId: initialOrder?.id }),
+        body: JSON.stringify({ rows: payloadRows, target, rememberItems, pendingOrderIds: orderList.map(o => o.id) }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.message || j.error || 'فشل الحفظ');
@@ -661,10 +681,14 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         repName,
         // أثر المصدر في rawData.source، ورقم تركيبي حين لا رقم فاتورة كي تتشارك
         // صفوف الطلبية مفتاحاً واحداً في عدّ الطلبيات (server/lib/orderKey.js).
-        source:        initialOrder ? `${initialOrder.source}-order` : undefined,
+        // الطلبية صاحبة الصف — الخادم يحفظ صفوف الطلبية المحوَّلة في ملف كوديشن
+        // حساب الكروب الأصلي ويُنهي كل الطلبيات المعروضة بعد الحفظ.
+        pendingOrderId: r.orderId ?? undefined,
+        source:        r.orderId != null ? `${orderById.get(r.orderId)?.source ?? 'telegram'}-order`
+          : initialOrder ? `${initialOrder.source}-order` : undefined,
         warehouse:     r.warehouse.trim() || undefined,
         invoiceNumber: r.invoiceNumber.trim()
-          || (initialOrder ? `BOT-${initialOrder.id}` : undefined),
+          || (r.orderId != null ? `BOT-${r.orderId}` : initialOrder ? `BOT-${initialOrder.id}` : undefined),
         date:          r.date || undefined,
         item:          r.item.trim(),
         company:       r.company.trim() || undefined,
@@ -840,7 +864,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   // يدفع الجدول لتمرير أفقي. العرض بالنسبة المئوية (table-layout: fixed) والنصوص
   // تلتفّ، فيظهر كل شيء بشاشة واحدة والأسماء كاملة.
   const cols: { key: keyof Row; label: string; pct: number; numeric?: boolean }[] = [
-    { key: 'item',          label: 'المادة *',        pct: 14 },
+    { key: 'item',          label: 'المادة *',        pct: 13 },
     { key: 'company',       label: 'الشركة',          pct: 5.5 },
     { key: 'quantity',      label: 'الكمية *',        pct: 4, numeric: true },
     { key: 'unitPrice',     label: 'سعر الوحدة',      pct: 5, numeric: true },
@@ -852,7 +876,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   ];
   // خانات الفاتورة في أول السطر، مدموجة عمودياً على أصناف الفاتورة نفسها.
   const INV_COLS = [
-    { key: 'inv',           label: 'ف',             pct: 2.5 },
+    { key: 'inv',           label: 'ف',             pct: 3.5 },
     { key: 'warehouse',     label: 'المذخر',        pct: 7.5 },
     { key: 'invoiceNumber', label: 'رقم الفاتورة',  pct: 5 },
     { key: 'date',          label: 'التاريخ',       pct: 7 },
@@ -889,14 +913,22 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   };
 
   // مجموعات الفواتير: صفوف متتالية من نفس الصورة = فاتورة واحدة بشريط رأس واحد.
-  type Group = { key: string; imageIndex: number | null; idxs: number[] };
+  // في المراجعة المجمَّعة: صفوف الطلبية الواحدة (ونفس الصورة) مجموعة واحدة.
+  type Group = { key: string; imageIndex: number | null; orderId: number | null; idxs: number[] };
   const groups: Group[] = [];
   rows.forEach((r, i) => {
-    const k = r.imageIndex == null ? 'manual' : `img${r.imageIndex}`;
+    const k = r.orderId != null ? `ord${r.orderId}|${r.imageIndex ?? ''}` : r.imageIndex == null ? 'manual' : `img${r.imageIndex}`;
     const last = groups[groups.length - 1];
     if (last && last.key === k) last.idxs.push(i);
-    else groups.push({ key: k, imageIndex: r.imageIndex, idxs: [i] });
+    else groups.push({ key: k, imageIndex: r.imageIndex, orderId: r.orderId, idxs: [i] });
   });
+  /** النقر على رقم طلبية: رسالتها الأصلية أعلى الجدول، وصورتها إن وُجدت. */
+  const showOrder = (orderId: number, imageIndex: number | null) => {
+    setActiveOrderId(orderId);
+    if (imageIndex != null && images[imageIndex]) setPreview(images[imageIndex]);
+    srcPanelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
+  const activeOrder = (activeOrderId != null ? orderById.get(activeOrderId) : null) ?? initialOrder;
   // التفاصيل تظهر عند تمرير الماوس فقط (title) — بلا شرح مرئي في الجدول.
   const dupTitle = (i: number): string => {
     const dr = dupRowByIdx.get(i);
@@ -931,7 +963,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => el.focus(), 250); }
   };
   const scrollToGroup = (imageIndex: number) => {
-    const el = gridRef.current?.querySelector(`[data-group="img${imageIndex}"]`) as HTMLElement | null;
+    const key = groups.find(g => g.imageIndex === imageIndex)?.key ?? `img${imageIndex}`;
+    const el = gridRef.current?.querySelector(`[data-group="${key}"]`) as HTMLElement | null;
     el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   };
 
@@ -1016,7 +1049,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         </div>
 
         <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
-          {fromPendingOrder
+          {fromPendingOrder && orderList.length > 1
+            ? `${orderList.length} طلبيات وصلت عبر البوت مجمَّعة في جدول واحد — كل طلبية برقمها في العمود الأول، انقر الرقم لعرض رسالتها الأصلية أعلاه. لم يُحفَظ شيء بعد — راجع وصحّح ثم احفظها كلها مرة واحدة.`
+            : fromPendingOrder
             ? 'طلبية وصلت عبر البوت واستُخرجت بالذكاء الاصطناعي. لم يُحفَظ منها شيء بعد — راجع الأصناف والكميات واسم الصيدلية، واختر المندوب والملف، ثم احفظ.'
             : 'للمبيعات التي تأتي من فواتير المذاخر ولا تظهر في ملفات Excel. ارفع صورة الفاتورة ليستخرجها الذكاء الاصطناعي، أو اكتب الصفوف يدوياً — كل فاتورة تحتفظ بتفاصيلها الخاصة. راجعها ثم احفظها.'}
         </p>
@@ -1060,14 +1095,32 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
 
         {/* نصّ الطلبية كما وصل — مرجع المراجِع ليقابل الصفوف المستخرَجة بالأصل.
             للطلبيات النصية هو ما يقابل عارض الصورة في طلبيات الفواتير. */}
-        {fromPendingOrder && initialOrder?.sourceText && (
-          <div style={srcPanel}>
+        {fromPendingOrder && activeOrder && (
+          <div ref={srcPanelRef} style={srcPanel}>
+            {orderList.length > 1 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                {orderList.map(o => {
+                  const on = o.id === activeOrder.id;
+                  const n = rows.filter(r => r.orderId === o.id && rowHasData(r)).length;
+                  return (
+                    <button key={o.id} onClick={() => showOrder(o.id, null)}
+                      title={(o.sourceText || '').slice(0, 200)}
+                      style={{ ...ordTab, ...(on ? ordTabOn : null) }}>
+                      #{o.id}{o.kind === 'photo' ? ' 🖼️' : ''} · {n} صنف
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div style={{ fontSize: 11.5, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
-              📩 نصّ الطلبية كما وصل
-              {initialOrder.senderName ? ` — من ${initialOrder.senderName}` : ''}
-              {initialOrder.chatTitle ? ` (${initialOrder.chatTitle})` : ''}
+              📩 نصّ الطلبية{orderList.length > 1 ? ` #${activeOrder.id}` : ''} كما وصل
+              {activeOrder.senderName ? ` — من ${activeOrder.senderName}` : ''}
+              {activeOrder.chatTitle ? ` (${activeOrder.chatTitle})` : ''}
+              {activeOrder.originName ? ` · ↪️ محوَّلة من ${activeOrder.originName}` : ''}
             </div>
-            <div style={srcText}>{initialOrder.sourceText}</div>
+            {activeOrder.sourceText
+              ? <div style={srcText}>{activeOrder.sourceText}</div>
+              : <div style={{ fontSize: 12.5, color: '#78350f' }}>طلبية صورة بلا نص — انقر رقمها في الجدول لعرض الصورة.</div>}
             <div style={{ fontSize: 11, color: '#b45309', marginTop: 6 }}>
               قابِل الصفوف أدناه بالنصّ، وصحّح ما أخطأ فيه الاستخراج قبل الحفظ.
             </div>
@@ -1078,6 +1131,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         {images.length > 0 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
             {images.map((u, i) => {
+              if (!u) return null; // صورة طلبية تعذّر تحميلها — خانتها محجوزة
               const n = rows.filter(r => r.imageIndex === i && rowHasData(r)).length;
               return (
                 <button key={i} onClick={() => { setPreview(u); scrollToGroup(i); }} title={`عرض الفاتورة ${i + 1} والانتقال لأصنافها`} style={thumb}>
@@ -1171,7 +1225,13 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                   title={dr ? dupTitle(i) : undefined}>
                   {k === 0 && (
                     <td rowSpan={span} style={{ ...gTd, ...gInvTd, ...sep, textAlign: 'center' }}>
-                      {g.imageIndex != null ? (
+                      {g.orderId != null ? (
+                        <button onClick={() => showOrder(g.orderId!, g.imageIndex)}
+                          style={{ ...invMini, ...(activeOrder?.id === g.orderId && orderList.length > 1 ? { background: '#f59e0b', color: '#fff', borderColor: '#f59e0b' } : null) }}
+                          title="عرض الرسالة الأصلية لهذه الطلبية أعلى الجدول">
+                          #{g.orderId}
+                        </button>
+                      ) : g.imageIndex != null ? (
                         <button onClick={() => images[g.imageIndex!] && setPreview(images[g.imageIndex!])} style={invMini} title="عرض صورة الفاتورة">
                           {g.imageIndex + 1}
                         </button>
@@ -1288,7 +1348,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           {destMode === 'condition' ? (
             <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: '#64748b' }}>
-                تُجمع طلبيات البوت وإكسل الكوديشن في ملف واحد بجانب ملف ميركاتو، ويُحتسب معه — المكرر يُسقَط تلقائياً. العملة:
+                {originNames.length
+                  ? `↪️ طلبيات محوَّلة إليك: تُحفَظ في ملف كوديشن «${originNames.join('، ')}» (المشترك مع المكتب) وتظهر لكل من أُسنِد له الايتم — المكرر يُسقَط تلقائياً. العملة:`
+                  : 'تُجمع طلبيات البوت وإكسل الكوديشن في ملف واحد بجانب ملف ميركاتو، ويُحتسب معه — المكرر يُسقَط تلقائياً. العملة:'}
               </span>
               <select value={newCurrency} onChange={e => setNewCurrency(e.target.value as 'IQD' | 'USD')} style={inp}>
                 <option value="IQD">IQD</option>
@@ -1329,16 +1391,16 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
             {checking ? '🔎 جاري فحص الأسماء…' : saving ? '⏳ جاري الحفظ…' : '💾 حفظ المبيعات'}
           </button>
           <button onClick={onClose} style={cancelBtn}>
-            {fromPendingOrder ? 'إغلاق (تبقى الطلبية معلَّقة)' : 'إلغاء'}
+            {fromPendingOrder ? (orderList.length > 1 ? 'إغلاق (تبقى الطلبيات معلَّقة)' : 'إغلاق (تبقى الطلبية معلَّقة)') : 'إلغاء'}
           </button>
           {/* window.confirm لا confirm: الاسم محجوب في هذا الملف بحالة مؤشّر
               خطوة التأكيد الذكي (const [confirm, setConfirm] أعلاه). */}
           {fromPendingOrder && onCancelPending && (
             <button
-              onClick={() => { if (window.confirm('إلغاء هذه الطلبية نهائياً بلا حفظ أي شيء منها؟')) onCancelPending(); }}
+              onClick={() => { if (window.confirm(orderList.length > 1 ? `إلغاء الطلبيات المعروضة (${orderList.length}) نهائياً بلا حفظ أي شيء منها؟` : 'إلغاء هذه الطلبية نهائياً بلا حفظ أي شيء منها؟')) onCancelPending(); }}
               style={{ ...cancelBtn, color: '#dc2626', borderColor: '#fecaca', marginInlineStart: 'auto' }}
             >
-              🗑️ إلغاء هذه الطلبية
+              🗑️ {orderList.length > 1 ? `إلغاء الطلبيات المعروضة (${orderList.length})` : 'إلغاء هذه الطلبية'}
             </button>
           )}
         </div>
@@ -1355,11 +1417,41 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
 // ── small helpers ──
 const str = (v: any) => (v == null ? '' : String(v)).trim();
 /**
+ * مخرجات الاستخراج (صورة أو نصّ طلبية) ← صفوف الشبكة. مشتركة بين رفع صورة هنا
+ * وتحميل طلبيات بوت جاهزة — نفس عقد الصف في الحالتين.
+ * @param baseIndex  إزاحة أرقام الصور (صور هذه الدفعة تبدأ بعدها)
+ * @param fallbackImage  رقم الصورة لصف بلا _imageIndex (null لطلبية نصّية)
+ * @param orderId  طلبية البوت صاحبة الصفوف (null لغير الطلبيات)
+ */
+function mapExtracted(extracted: any[], baseIndex: number, fallbackImage: number | null, orderId: number | null): Row[] {
+  return extracted.map(r => ({
+    warehouse:     str(r.warehouse),
+    invoiceNumber: str(r.invoiceNumber),
+    date:          normDate(r.date),
+    item:          str(r.item),
+    company:       str(r.company),
+    quantity:      r.quantity != null ? String(num(r.quantity)) : '',
+    unitPrice:     r.unitPrice != null ? String(num(r.unitPrice)) : '',
+    total:         r.total != null ? String(num(r.total)) : '',
+    bonus:         r.bonus != null ? String(num(r.bonus)) : '',
+    pharmacy:      str(r.pharmacy),
+    area:          str(r.area),
+    scientificRep: str(r.scientificRep),
+    repCandidates: Array.isArray(r._repCandidates) ? r._repCandidates : [],
+    pharmacyCandidates: Array.isArray(r._pharmacyCandidates) ? r._pharmacyCandidates : [],
+    imageIndex:    typeof r._imageIndex === 'number' ? baseIndex + r._imageIndex : fallbackImage,
+    orderId,
+    box:           Array.isArray(r._box) ? r._box : null,
+    boxCustomer:   Array.isArray(r._boxCustomer) ? r._boxCustomer : null,
+    boxHeader:     Array.isArray(r._boxHeader) ? r._boxHeader : null,
+  }));
+}
+/**
  * حقول وصفية لا يكتبها المستخدم (مرجع الصورة وإحداثيات التأشير) — لا تُحتسب
  * بيانات. كانت قيمها null تمرّ عبر String() فتصير النص "null"، فيبدو الصف
  * الفارغ مملوءاً ويبقى فوق صفوف الفاتورة المستخرَجة بدل أن تحلّ مكانه.
  */
-const META_KEYS = new Set(['imageIndex', 'box', 'boxCustomer', 'boxHeader']);
+const META_KEYS = new Set(['imageIndex', 'orderId', 'box', 'boxCustomer', 'boxHeader']);
 const rowHasData = (r: Row) =>
   Object.entries(r).some(([k, v]) => !META_KEYS.has(k) && v != null && String(v).trim() !== '');
 const normDate = (v: any): string => {
@@ -1430,3 +1522,6 @@ const srcPanel: React.CSSProperties = { background: '#fffbeb', border: '1px soli
 const srcText: React.CSSProperties = { whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, color: '#1f2937', maxHeight: 160, overflowY: 'auto' };
 const saveBtn: React.CSSProperties = { padding: '10px 24px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' };
 const cancelBtn: React.CSSProperties = { padding: '10px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 10, fontWeight: 600, fontSize: 14, cursor: 'pointer' };
+// أزرار التبديل بين رسائل الطلبيات في المراجعة المجمَّعة.
+const ordTab: React.CSSProperties = { border: '1px solid #fcd34d', background: '#fff', color: '#92400e', borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' };
+const ordTabOn: React.CSSProperties = { background: '#f59e0b', borderColor: '#f59e0b', color: '#fff' };

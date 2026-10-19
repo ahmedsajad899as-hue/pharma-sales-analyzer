@@ -5,7 +5,7 @@
  */
 
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
-import { consumePendingOrder, enrichRowsFromCatalog, attachScientificRepGuess } from '../orders/orders.service.js';
+import { consumePendingOrder, enrichRowsFromCatalog, attachScientificRepGuess, loadOrderOrigins } from '../orders/orders.service.js';
 import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
   checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope } from './sales.service.js';
 import { AppError } from '../../middleware/errorHandler.js';
@@ -184,28 +184,105 @@ export async function extractInvoice(req, res, next) {
  */
 export async function addManualSales(req, res, next) {
   try {
-    const { rows, target, rememberItems, pendingOrderId } = req.body || {};
+    const { rows, target, rememberItems, pendingOrderId, pendingOrderIds } = req.body || {};
     if (!Array.isArray(rows) || rows.length === 0) {
       throw new AppError('لا توجد صفوف للحفظ.', 400, 'NO_ROWS');
     }
-    const result = await insertManualSales({
-      rows,
-      target:     target || {},
-      userId:     req.user?.id ?? null,
-      uploadedBy: req.user?.username || null,
-      rememberItems: Array.isArray(rememberItems) ? rememberItems : [],
-    });
-    try {
-      await autoSyncIfOfficeEmployee(req.user, result?.uploadedFile?.id, 'sales');
-    } catch (syncErr) {
-      console.error('[autoSyncIfOfficeEmployee]', syncErr);
+    const reviewerId = req.user?.id ?? null;
+    // مراجعة مجمَّعة: عدة طلبيات بوت في جدول واحد (pendingOrderIds) — والقديم
+    // pendingOrderId (طلبية واحدة) ما زال مقبولاً.
+    const orderIds = [...new Set([...(Array.isArray(pendingOrderIds) ? pendingOrderIds : []), pendingOrderId]
+      .map(Number).filter(n => Number.isFinite(n) && n > 0))];
+    const tgt = target || {};
+
+    // طلبية محوَّلة لمدير الشركة تُحفَظ في ملف كوديشن **حساب الكروب الأصلي**
+    // (الملف المشترك مع إدارة المكتب) لا في ملف شخصي عند المدير. loadOrderOrigins
+    // يفحص أن الطلبية تخصّ المراجِع — فلا يكتب أحد في ملف غيره إلا بطلبية حُوِّلت له.
+    const origins = (tgt.condition && orderIds.length) ? await loadOrderOrigins(reviewerId, orderIds) : new Map();
+    const partitions = new Map(); // ownerId → rows
+    for (const r of rows) {
+      const { pendingOrderId: rowOrderId, ...clean } = r || {};
+      const owner = origins.get(Number(rowOrderId)) ?? reviewerId;
+      if (!partitions.has(owner)) partitions.set(owner, []);
+      partitions.get(owner).push(clean);
     }
+
+    const results = [];
+    let firstPart = true;
+    for (const [ownerId, ownerRows] of partitions) {
+      const result = await insertManualSales({
+        rows:       ownerRows,
+        target:     tgt,
+        userId:     ownerId,
+        uploadedBy: req.user?.username || null,
+        // قرارات التوحيد تُحفَظ مرة واحدة (قواعد بنطاق الشركة لا الحساب).
+        rememberItems: firstPart && Array.isArray(rememberItems) ? rememberItems : [],
+      });
+      firstPart = false;
+      const owner = ownerId === reviewerId
+        ? req.user
+        : await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true, role: true } });
+      try {
+        await autoSyncIfOfficeEmployee(owner, result?.uploadedFile?.id, 'sales');
+      } catch (syncErr) {
+        console.error('[autoSyncIfOfficeEmployee]', syncErr);
+      }
+      if (orderIds.length) {
+        try {
+          await shareWithItemAssignees(result?.uploadedFile?.id, ownerId, reviewerId, result?.itemIds);
+        } catch (shareErr) {
+          console.error('[shareWithItemAssignees]', shareErr);
+        }
+      }
+      results.push(result);
+    }
+
     // الطلبية "استُهلكت" — نفس نمط commitVisitsImport، best-effort لا يُسقط الحفظ.
-    if (pendingOrderId && req.user?.id) await consumePendingOrder(req.user.id, pendingOrderId);
-    return res.status(201).json({ success: true, data: result });
+    if (reviewerId) for (const id of orderIds) await consumePendingOrder(reviewerId, id);
+
+    const first = results[0] || {};
+    const data = results.length <= 1 ? first : {
+      ...first,
+      addedCount:      results.reduce((s, r) => s + (r.addedCount || 0), 0),
+      skippedCount:    results.reduce((s, r) => s + (r.skippedCount || 0), 0),
+      rememberedCount: results.reduce((s, r) => s + (r.rememberedCount || 0), 0),
+      unknownItems:    results.flatMap(r => r.unknownItems || []),
+      // الملف الذي يراه المراجِع: ملفه هو إن وُجد، وإلا الأول (مُشارَك معه أعلاه).
+      uploadedFile:    (results.find((_, i) => [...partitions.keys()][i] === reviewerId) || first).uploadedFile,
+    };
+    return res.status(201).json({ success: true, data });
   } catch (err) {
     next(err);
   }
+}
+
+/**
+ * طلبيات البوت المحفوظة في ملف كوديشن تظهر «عند كل الأشخاص المعنيين الذين أُسنِد
+ * لهم هذا الايتم» (طلب صاحب المشروع): مشاركة الملف (FileUserShare) مع كل مستخدم نشط
+ * في مكتب صاحب الملف له UserItemAssignment على ايتم من المحفوظ، ومع المراجِع نفسه.
+ * المشاركة لا توسّع الرؤية داخل الملف — نطاق ايتمات كل مستخدم يبقى يفلتر صفوفه.
+ */
+async function shareWithItemAssignees(fileId, ownerId, reviewerId, itemIds) {
+  if (!fileId) return;
+  const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { officeId: true } });
+  const ids = Array.isArray(itemIds) ? itemIds.filter(Boolean) : [];
+  const assignees = ids.length
+    ? await prisma.userItemAssignment.findMany({
+        where: {
+          itemId: { in: ids },
+          user: { isActive: true, ...(owner?.officeId != null ? { officeId: owner.officeId } : {}) },
+        },
+        select: { userId: true },
+      })
+    : [];
+  const userIds = new Set(assignees.map(a => a.userId));
+  if (reviewerId) userIds.add(reviewerId);
+  userIds.delete(ownerId);
+  if (!userIds.size) return;
+  await prisma.fileUserShare.createMany({
+    data: [...userIds].map(userId => ({ fileId, userId })),
+    skipDuplicates: true,
+  });
 }
 
 /**
@@ -236,10 +313,17 @@ export async function checkNames(req, res, next) {
  */
 export async function checkDuplicates(req, res, next) {
   try {
-    const { rows, target, receivedAt } = req.body || {};
+    const { rows, target, receivedAt, pendingOrderIds } = req.body || {};
     const at = receivedAt ? new Date(receivedAt) : null;
+    // طلبيات محوَّلة لمدير الشركة تُحفَظ في ملف كوديشن حساب الكروب — فالتكرار
+    // يُفحَص مقابل ذلك الملف لا ملف المدير.
+    let userId = req.user?.id ?? null;
+    if (target?.condition && Array.isArray(pendingOrderIds) && pendingOrderIds.length) {
+      const origins = [...new Set((await loadOrderOrigins(userId, pendingOrderIds)).values())];
+      if (origins.length === 1) userId = origins[0];
+    }
     const data = await checkManualDuplicates({
-      rows, target: target || {}, userId: req.user?.id ?? null,
+      rows, target: target || {}, userId,
       receivedAt: at && isFinite(at.getTime()) ? at : null,
     });
     return res.json({ success: true, data });

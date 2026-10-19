@@ -115,7 +115,9 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   // طلبيات وصلت عبر بوت (تلكرام/فايبر) واستُخرجت بالخادم — معلَّقة بانتظار مراجعة
   // هنا. null/[] = لا يوجد. التفصيل يُجلب عند الضغط على «مراجعة» فقط.
   const [pendingOrders, setPendingOrders]     = useState<any[]>([]);
-  const [orderDetail, setOrderDetail]         = useState<PendingOrderDetail | null>(null);
+  // الطلبيات المفتوحة للمراجعة — واحدة («مراجعة») أو كلها في جدول واحد («مراجعة الكل»).
+  const [orderDetails, setOrderDetails]       = useState<PendingOrderDetail[]>([]);
+  // رقم الطلبية قيد الجلب، أو -1 = جلب الكل.
   const [loadingOrder, setLoadingOrder]       = useState<number | null>(null);
 
   // Use a ref so loadFiles doesn't re-run when activeFileIds changes (avoids re-fetch on toggle)
@@ -182,32 +184,70 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
     };
   }, [ordersFeature, token, loadPendingOrders]);
 
+  const fetchOrderDetail = useCallback(async (id: number): Promise<PendingOrderDetail> => {
+    const res = await fetch(`${API}/api/orders/pending/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    const j = await res.json();
+    if (!res.ok || !j.success) throw new Error(j.error || 'تعذّر فتح الطلبية');
+    return j.data;
+  }, [token]);
+
   /** يفتح طلبية للمراجعة — التفصيل (الصفوف) يُجلب عند الحاجة لا مع القائمة. */
   const reviewOrder = useCallback(async (id: number) => {
     setLoadingOrder(id);
     setManualMsg('');
     try {
-      const res = await fetch(`${API}/api/orders/pending/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-      const j = await res.json();
-      if (!res.ok || !j.success) throw new Error(j.error || 'تعذّر فتح الطلبية');
-      setOrderDetail(j.data);
+      setOrderDetails([await fetchOrderDetail(id)]);
       setShowManualModal(true);
     } catch (e: any) {
       setError(e.message || 'تعذّر فتح الطلبية');
     } finally {
       setLoadingOrder(null);
     }
-  }, [token]);
+  }, [fetchOrderDetail]);
+
+  /**
+   * كل الطلبيات المعلَّقة في جدول مراجعة واحد (الأقدم أولاً) — بدل تدقيق كل
+   * طلبية في نافذة منفصلة. الجلب بدفعات صغيرة كي لا يُغرَق الخادم بعشرات الطلبات.
+   */
+  const reviewAllOrders = useCallback(async () => {
+    const ids = [...pendingOrders]
+      .sort((x, y) => String(x.createdAt).localeCompare(String(y.createdAt)))
+      .map(o => o.id as number);
+    if (!ids.length) return;
+    setLoadingOrder(-1);
+    setManualMsg('');
+    try {
+      const out: PendingOrderDetail[] = [];
+      let failed = 0;
+      for (let i = 0; i < ids.length; i += 4) {
+        const batch = await Promise.allSettled(ids.slice(i, i + 4).map(fetchOrderDetail));
+        for (const b of batch) {
+          if (b.status === 'fulfilled') out.push(b.value);
+          else failed++;
+        }
+      }
+      if (!out.length) throw new Error('تعذّر فتح الطلبيات');
+      if (failed) setError(`تعذّر فتح ${failed} طلبية — بقيت في القائمة.`);
+      setOrderDetails(out);
+      setShowManualModal(true);
+    } catch (e: any) {
+      setError(e.message || 'تعذّر فتح الطلبيات');
+    } finally {
+      setLoadingOrder(null);
+    }
+  }, [pendingOrders, fetchOrderDetail]);
 
   // بلا confirm هنا عمداً — كل نقطة استدعاء (الشريط أو زر المودال) تؤكّد بنفسها.
-  const cancelPendingOrder = useCallback(async (id: number) => {
-    try {
-      await fetch(`${API}/api/orders/pending/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-    } catch { /* best-effort */ }
-    setPendingOrders(prev => prev.filter(o => o.id !== id));
-    setOrderDetail(null);
+  const cancelPendingOrders = useCallback(async (ids: number[]) => {
+    await Promise.all(ids.map(id =>
+      fetch(`${API}/api/orders/pending/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+        .catch(() => { /* best-effort */ })));
+    const gone = new Set(ids);
+    setPendingOrders(prev => prev.filter(o => !gone.has(o.id)));
+    setOrderDetails([]);
     setShowManualModal(false);
   }, [token]);
+  const cancelPendingOrder = useCallback((id: number) => cancelPendingOrders([id]), [cancelPendingOrders]);
 
   const uploadFile = useCallback(async (file: File, sourceCurrency: 'IQD' | 'USD') => {
     if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
@@ -1042,6 +1082,13 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
             <span style={{ fontWeight: 500, fontSize: 11.5, color: '#b45309' }}>
               لا تُحفَظ كمبيعات حتى تراجعها وتؤكدها
             </span>
+            {pendingOrders.length > 1 && (
+              <button onClick={reviewAllOrders} disabled={loadingOrder != null}
+                title="كل الطلبيات في جدول تدقيق واحد — انقر رقم أي طلبية فيه لعرض رسالتها الأصلية"
+                style={{ marginInlineStart: 'auto', padding: '7px 16px', background: 'var(--c-purple)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 800, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {loadingOrder === -1 ? '⏳ جاري التجميع…' : `🗂️ مراجعة الكل في جدول واحد (${pendingOrders.length})`}
+              </button>
+            )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {pendingOrders.map(o => (
@@ -1050,6 +1097,12 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                   {o.kind === 'photo' ? '🖼️' : '💬'} {o.rowCount} صنف
                 </span>
                 {o.senderName && <span style={{ fontSize: 11.5, color: '#64748b' }}>من {o.senderName}</span>}
+                {o.originName && (
+                  <span title="حُوِّلت إليك لأن أصنافها من ايتماتك — تُحفَظ في ملف كوديشن الحساب الأصلي"
+                    style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 999, padding: '1px 8px' }}>
+                    ↪️ محوَّلة من {o.originName}
+                  </span>
+                )}
                 {o.chatTitle && <span style={{ fontSize: 11.5, color: '#94a3b8' }}>({o.chatTitle})</span>}
                 {o.preview && (
                   <span style={{ fontSize: 11.5, color: '#475569', flex: 1, minWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1149,20 +1202,23 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
 
       {/* مراجعة طلبية بوت تفتح نفس المودال بـinitialOrder — الإدخال اليدوي قد
           يكون معطَّلاً بالمميزات ومع ذلك تبقى مراجعة الطلبيات متاحة بمفتاحها. */}
-      {(hasFeature('manual_sales_entry') || (ordersFeature && orderDetail)) && showManualModal && (
+      {(hasFeature('manual_sales_entry') || (ordersFeature && orderDetails.length > 0)) && showManualModal && (
         <ManualSalesModal
           token={token ?? ''}
           files={files.map(f => ({ id: f.id, originalName: f.originalName, detectedCurrency: f.detectedCurrency, rowCount: f.rowCount, uploadedAt: f.uploadedAt }))}
-          initialOrder={orderDetail}
-          onCancelPending={orderDetail ? () => cancelPendingOrder(orderDetail.id) : undefined}
-          onClose={() => { setShowManualModal(false); setOrderDetail(null); }}
+          initialOrders={orderDetails}
+          onCancelPending={orderDetails.length ? () => cancelPendingOrders(orderDetails.map(o => o.id)) : undefined}
+          onClose={() => { setShowManualModal(false); setOrderDetails([]); }}
           onSaved={async (msg, fileId) => {
             setShowManualModal(false);
             setManualMsg(msg);
             // الصف المعلَّق يحذفه الخادم بعد الحفظ (pendingOrderId) — نُزيله محلياً
             // كي يختفي الشريط فوراً بلا انتظار الاستقصاء.
-            if (orderDetail) setPendingOrders(prev => prev.filter(o => o.id !== orderDetail.id));
-            setOrderDetail(null);
+            if (orderDetails.length) {
+              const done = new Set(orderDetails.map(o => o.id));
+              setPendingOrders(prev => prev.filter(o => !done.has(o.id)));
+            }
+            setOrderDetails([]);
             // بلا هذا يبقى ملف الفواتير اليدوية خارج «الملفات المفعّلة»، فتغيب
             // مبيعاته عن كل تقرير يعتمد عليها (الشامل، العلمي، لوحة التحكم) —
             // بخلاف الرفع العادي الذي يُفعّل ملفه الجديد تلقائياً (أعلاه).

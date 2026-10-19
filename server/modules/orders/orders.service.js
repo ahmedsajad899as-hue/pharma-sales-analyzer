@@ -20,6 +20,7 @@ import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
+import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
 
@@ -681,6 +682,105 @@ function toImageList(imageFiles) {
   );
 }
 
+// ─── تحويل الطلبية لمدير الشركة صاحب الايتم ─────────────────────────────────
+// (2026-10-19، طلب صاحب المشروع) طلبية فيها «Pantactive» تخصّ مدير humanis: هو من
+// يدقّقها ويوافق عليها، لا حساب الكروب. الصفوف تُقسَّم بحسب مالك كل ايتم
+// (lib/itemOwnerManager.js — نفس قاعدة التحليل الشامل)، وكل مدير يستلم طلبية معلَّقة
+// باسمه (userId = المدير) فتعمل القائمة والصور والحذف والاستهلاك بلا أي تفريع.
+// الحساب الأصلي يُحفَظ في payload.originUserId: الحفظ يذهب لملف كوديشن **ذلك**
+// الحساب (الملف المشترك أصلاً مع إدارة المكتب) لا لملف شخصي عند المدير.
+// ايتم بلا مدير مالك يبقى عند حساب الكروب كما كان.
+
+/** يُرفع عند تغيير قاعدة التقسيم كي تُعاد على الطابور القائم. */
+const ROUTE_VERSION = 1;
+
+/**
+ * يقسّم صفوف طلبية بين حساب الكروب ومدراء الشركات المالكين لأصنافها.
+ * @returns {Promise<{ keep: any[], forwards: {managerId:number, managerName:string, companyName:string|null, rows:any[]}[] }>}
+ */
+export async function splitRowsByOwner(rows, user) {
+  const none = { keep: rows, forwards: [] };
+  if (!Array.isArray(rows) || !rows.length || !user?.officeId) return none;
+  let owners;
+  try {
+    owners = await loadItemOwnerManagers(user.officeId);
+  } catch (e) {
+    console.error('[orders] تعذّر تحميل مالكي الايتمات:', e?.message);
+    return none; // التحويل تحسين — فشله يُبقي الطلبية عند حساب الكروب
+  }
+  if (!owners.size) return none;
+
+  // صنف لم يُربط بكتالوج حساب الكروب يُجرَّب على كتالوج المكتب كله.
+  const officeIdByName = new Map();
+  const unlinked = [...new Set(rows.filter(r => r && !r._itemId && String(r.item ?? '').trim()).map(r => String(r.item).trim()))];
+  if (unlinked.length) {
+    try {
+      const sci = await prisma.scientificCompany.findMany({ where: { officeId: user.officeId }, select: { id: true } });
+      const ctx = await loadCompanyContext(sci.map(s => s.id));
+      if (ctx.catalog.length) {
+        for (const name of unlinked) {
+          const r = resolveItemNameSync(name, ctx);
+          if (r?.canonicalItem && (r.confidence === 'alias' || r.confidence === 'exact' || r.confidence === 'high')) {
+            officeIdByName.set(name, r.canonicalItem.id);
+          }
+        }
+      }
+    } catch (e) { console.error('[orders] office item link (routing) failed:', e?.message); }
+  }
+
+  const keep = [];
+  const byManager = new Map();
+  for (const row of rows) {
+    if (!row) continue;
+    const itemId = row._itemId ?? officeIdByName.get(String(row.item ?? '').trim()) ?? null;
+    const owner = itemId != null ? owners.get(itemId) : null;
+    if (!owner || owner.managerId === user.id) { keep.push(row); continue; }
+    if (!byManager.has(owner.managerId)) byManager.set(owner.managerId, { ...owner, rows: [] });
+    byManager.get(owner.managerId).rows.push(row);
+  }
+  return { keep, forwards: [...byManager.values()] };
+}
+
+const displayNameOf = (u) => u?.displayName?.trim() || u?.username || '';
+
+/**
+ * ينشئ صفّاً معلَّقاً، أو يستبدل قراءة صفّ بنفس البصمة عند نفس المالك.
+ * إعادة إرسال طلبية ما زالت معلَّقة = طلب إعادة قراءة (بعد تحسين الاستخراج أو
+ * لأن القراءة الأولى كانت خاطئة). الصف المعلَّق لم يُراجَع بعد — تعديلات المراجِع
+ * لا تُحفَظ فيه — فاستبدال قراءته آمن ولا يُنشئ مبيعات مكرّرة.
+ * @returns {Promise<{id:number, replaced:boolean}>}
+ */
+async function createOrReplacePending({ ownerId, data, payload, rows, imageFiles }) {
+  try {
+    const created = await prisma.pendingBotOrder.create({
+      data: {
+        ...data,
+        userId: ownerId,
+        imageFiles: imageFiles.length ? imageFiles : null,
+        payload,
+        rowCount: rows.length,
+      },
+      select: { id: true },
+    });
+    return { id: created.id, replaced: false };
+  } catch (err) {
+    if (err?.code !== 'P2002') { await unlinkImages(imageFiles); throw err; }
+    const existing = await prisma.pendingBotOrder.findFirst({
+      where: { userId: ownerId, sourceHash: data.sourceHash }, select: { id: true, imageFiles: true },
+    });
+    if (!existing) {
+      await unlinkImages(imageFiles);
+      throw new AppError('هذه الطلبية مُسجَّلة مسبقاً بانتظار المراجعة.', 409, 'DUPLICATE_ORDER');
+    }
+    await prisma.pendingBotOrder.update({
+      where: { id: existing.id },
+      data: { payload, rowCount: rows.length, imageFiles: imageFiles.length ? imageFiles : null },
+    });
+    await unlinkImages(existing.imageFiles);
+    return { id: existing.id, replaced: true };
+  }
+}
+
 /**
  * يُسجّل طلبية مستخرَجة في الطابور ويُعيد نصّ ردّ البوت بالعربية.
  * يرمي AppError تشغيلياً (isOperational) فيصل نصّه للكروب كما هو.
@@ -691,64 +791,132 @@ export async function ingestBotOrder({
 }) {
   if (!rows?.length) throw new AppError('لم أتعرّف على أي صنف في هذه الطلبية.', 422, 'NO_ORDER_ROWS');
 
-  const pending = await countPendingOrders(user.id);
-  if (pending >= MAX_PENDING_ORDERS_PER_USER) {
-    throw new AppError(
-      `لديك ${pending} طلبية بانتظار المراجعة — راجِعها أو ألغِ بعضها من التطبيق أولاً.`,
-      409, 'PENDING_ORDERS_FULL',
-    );
+  const { keep, forwards } = await splitRowsByOwner(rows, user);
+
+  // حدّ الطابور يخصّ ما يبقى عند حساب الكروب؛ المحوَّل يذهب لطوابير المدراء.
+  if (keep.length) {
+    const pending = await countPendingOrders(user.id);
+    if (pending >= MAX_PENDING_ORDERS_PER_USER) {
+      throw new AppError(
+        `لديك ${pending} طلبية بانتظار المراجعة — راجِعها أو ألغِ بعضها من التطبيق أولاً.`,
+        409, 'PENDING_ORDERS_FULL',
+      );
+    }
   }
 
   const { repName, repId } = await resolveRep(user);
   const sourceHash = orderSourceHash({ userId: user.id, text: sourceText, mediaKeys });
+  const data = {
+    source, chatId: String(chatId), chatTitle, senderName, repName, repId, kind,
+    sourceText: sourceText || null, sourceHash,
+  };
+  const basePayload = () => ({
+    extractedAt: new Date().toISOString(), textParse: TEXT_PARSE_VERSION, routed: ROUTE_VERSION,
+  });
 
-  // الصور تُكتب قبل الصف كي لا يُنشأ صف يشير لملفات غير موجودة؛ وإن فشل الصف
-  // (تكرار مثلاً) تُحذَف الملفات في catch أدناه.
-  const imageFiles = await saveImages(imageBuffers);
-
-  let created;
-  try {
-    created = await prisma.pendingBotOrder.create({
-      data: {
-        userId: user.id, source, chatId: String(chatId), chatTitle, senderName,
-        repName, repId, kind,
-        sourceText: sourceText || null,
-        imageFiles: imageFiles.length ? imageFiles : null,
-        payload: { rows, extractedAt: new Date().toISOString(), textParse: TEXT_PARSE_VERSION },
-        rowCount: rows.length,
-        sourceHash,
-      },
-      select: { id: true },
+  const lines = [];
+  // الصور تُكتب قبل الصف كي لا يُنشأ صف يشير لملفات غير موجودة؛ وكل صفّ نسخته
+  // الخاصة منها — حذف طلبية عند مدير لا يمسّ صور نسختها عند حساب الكروب.
+  if (keep.length) {
+    const r = await createOrReplacePending({
+      ownerId: user.id, data, rows: keep,
+      payload: { ...basePayload(), rows: keep },
+      imageFiles: await saveImages(imageBuffers),
     });
-  } catch (err) {
-    if (err?.code === 'P2002') {
-      // إعادة إرسال طلبية ما زالت معلَّقة = طلب إعادة قراءة (بعد تحسين الاستخراج أو
-      // لأن القراءة الأولى كانت خاطئة). الصف المعلَّق لم يُراجَع بعد — تعديلات
-      // المراجِع لا تُحفَظ فيه — فاستبدال قراءته آمن ولا يُنشئ مبيعات مكرّرة.
-      const existing = await prisma.pendingBotOrder.findFirst({
-        where: { userId: user.id, sourceHash }, select: { id: true, imageFiles: true },
-      });
-      if (existing) {
-        await prisma.pendingBotOrder.update({
-          where: { id: existing.id },
-          data: {
-            payload: { rows, extractedAt: new Date().toISOString(), textParse: TEXT_PARSE_VERSION },
-            rowCount: rows.length,
-            imageFiles: imageFiles.length ? imageFiles : null,
-          },
-        });
-        await unlinkImages(existing.imageFiles);
-        return `🔄 أُعيدت قراءة الطلبية #${existing.id}`;
-      }
-      await unlinkImages(imageFiles);
-      throw new AppError('هذه الطلبية مُسجَّلة مسبقاً بانتظار المراجعة.', 409, 'DUPLICATE_ORDER');
-    }
-    await unlinkImages(imageFiles);
-    throw err;
+    // ردّ مختصر بطلب صاحب المشروع: الكروب كروب عمل، والتفاصيل مكانها التطبيق.
+    lines.push(r.replaced ? `🔄 أُعيدت قراءة الطلبية #${r.id}` : `تم الاستلام والتحليل #${r.id}`);
   }
+  for (const f of forwards) {
+    const r = await createOrReplacePending({
+      ownerId: f.managerId, data, rows: f.rows,
+      payload: { ...basePayload(), rows: f.rows, originUserId: user.id, originName: displayNameOf(user) },
+      imageFiles: await saveImages(imageBuffers),
+    });
+    lines.push(`${r.replaced ? '🔄' : '↪️'} #${r.id} حُوِّلت لمدير ${f.companyName || 'الشركة'} (${f.managerName}) — ${f.rows.length} صنف`);
+  }
+  if (forwards.length && !keep.length) lines.unshift('تم الاستلام والتحليل');
+  return lines.join('\n');
+}
 
-  // ردّ مختصر بطلب صاحب المشروع: الكروب كروب عمل، والتفاصيل مكانها التطبيق.
-  return `تم الاستلام والتحليل #${created.id}`;
+/**
+ * تقسيم الطابور القائم (طلبيات وصلت قبل خاصية التحويل، أو قبل إسناد ايتم لمدير):
+ * يُطبَّق كسولاً عند فتح الشريط مرة واحدة لكل طلبية (payload.routed). المحوَّل
+ * يحتفظ بوقت وصوله الأصلي ونسخة من صوره.
+ */
+const routingInFlight = new Set();
+async function routeQueuedOrders(userId) {
+  if (routingInFlight.has(userId)) return; // استقصاءان متزامنان لا يحوّلان مرتين
+  routingInFlight.add(userId);
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId }, select: { id: true, officeId: true, displayName: true, username: true },
+    });
+    if (!user?.officeId) return;
+    const queued = await prisma.pendingBotOrder.findMany({ where: { userId } });
+    for (const q of queued) {
+      const payload = q.payload || {};
+      if (payload.routed === ROUTE_VERSION || payload.originUserId != null) continue;
+      const rows = Array.isArray(payload.rows) ? payload.rows.filter(Boolean) : [];
+      const { keep, forwards } = await splitRowsByOwner(rows, user);
+      try {
+        for (const f of forwards) {
+          await createOrReplacePending({
+            ownerId: f.managerId,
+            data: {
+              source: q.source, chatId: q.chatId, chatTitle: q.chatTitle, senderName: q.senderName,
+              repName: q.repName, repId: q.repId, kind: q.kind, sourceText: q.sourceText,
+              sourceHash: q.sourceHash, createdAt: q.createdAt,
+            },
+            rows: f.rows,
+            payload: { ...payload, rows: f.rows, routed: ROUTE_VERSION, originUserId: user.id, originName: displayNameOf(user) },
+            imageFiles: await copyImages(q.imageFiles),
+          });
+        }
+        if (forwards.length && !keep.length) {
+          await prisma.pendingBotOrder.delete({ where: { id: q.id } });
+          await unlinkImages(q.imageFiles);
+        } else {
+          await prisma.pendingBotOrder.update({
+            where: { id: q.id },
+            data: { payload: { ...payload, rows: keep, routed: ROUTE_VERSION }, rowCount: keep.length },
+          });
+        }
+        if (forwards.length) console.log(`[orders] #${q.id} حُوِّلت: ${forwards.map(f => `${f.managerName}×${f.rows.length}`).join('، ')}`);
+      } catch (e) {
+        console.error(`[orders] تعذّر تحويل الطلبية #${q.id}:`, e?.message);
+      }
+    }
+  } catch (e) {
+    console.error('[orders] تعذّر تحويل الطابور:', e?.message);
+  } finally {
+    routingInFlight.delete(userId);
+  }
+}
+
+async function copyImages(imageFiles) {
+  const names = [];
+  for (const src of toImageList(imageFiles)) {
+    const name = `${Date.now()}_${crypto.randomBytes(8).toString('hex')}.jpg`;
+    try {
+      await fs.copyFile(path.join(BOT_ORDER_IMAGES_DIR, src), path.join(BOT_ORDER_IMAGES_DIR, name));
+      names.push(name);
+    } catch { /* صورة مفقودة لا تمنع التحويل */ }
+  }
+  return names;
+}
+
+/**
+ * الحساب الذي يُحفَظ في ملف كوديشنه صفّ طلبية محوَّلة: يُرجع خريطة
+ * pendingOrderId → originUserId للطلبيات المملوكة للمراجِع فقط (فحص الملكية هنا
+ * هو ما يسمح للمدير بالكتابة في ملف حساب الكروب — لا غيره).
+ */
+export async function loadOrderOrigins(reviewerId, ids) {
+  const list = [...new Set((ids || []).map(Number).filter(Number.isFinite))];
+  if (!reviewerId || !list.length) return new Map();
+  const rows = await prisma.pendingBotOrder.findMany({
+    where: { id: { in: list }, userId: reviewerId }, select: { id: true, payload: true },
+  });
+  return new Map(rows.map(r => [r.id, Number(r.payload?.originUserId) || reviewerId]));
 }
 
 /** قائمة خفيفة للشريط — بلا payload.rows (قد تكون عشرات الصفوف). */
@@ -763,17 +931,22 @@ export async function listPendingOrders(userId) {
     for (const s of stale) await unlinkImages(s.imageFiles);
   }
 
+  // صفوف تخصّ ايتمات مدراء الشركات تُحوَّل لهم قبل العرض (مرة لكل طلبية).
+  await routeQueuedOrders(userId);
+
   const rows = await prisma.pendingBotOrder.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
     select: {
       id: true, source: true, chatTitle: true, senderName: true, repName: true,
-      kind: true, sourceText: true, rowCount: true, imageFiles: true, createdAt: true,
+      kind: true, sourceText: true, rowCount: true, imageFiles: true, createdAt: true, payload: true,
     },
   });
 
   return rows.map(r => ({
     ...r,
+    payload: undefined,
+    originName: r.payload?.originUserId ? (r.payload.originName || null) : null,
     imageFiles: undefined,
     imageCount: toImageList(r.imageFiles).length,
     // أول صيدلية للعرض في الشريط بلا تحميل كل الصفوف
@@ -831,6 +1004,9 @@ export async function getPendingOrder(userId, id) {
     chatTitle: row.chatTitle,
     imageCount: toImageList(row.imageFiles).length,
     createdAt: row.createdAt,
+    // طلبية محوَّلة من حساب الكروب: الحفظ في ملف كوديشن ذلك الحساب.
+    originUserId: payload.originUserId ?? null,
+    originName: payload.originUserId ? (payload.originName || null) : null,
   };
 }
 
