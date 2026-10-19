@@ -606,6 +606,108 @@ export async function attachScientificRepGuess(rows, actingUser) {
   return rows;
 }
 
+// ─── تفاعل شبكة المراجعة: تغيير المادة أو المنطقة يُعيد التخمين فوراً ───────────
+// (طلب صاحب المشروع 2026-10-19) المراجِع يغيّر «المنصور» إلى «الكاظمية» ⇒ يتغيّر
+// المندوب العلمي تلقائياً لمندوب الكاظمية؛ ويغيّر المادة ⇒ تتحدّث الشركة والسعر
+// والمندوب. نفس محرّكات استقبال الطلبية (enrichRowsFromCatalog + attachScientificRepGuess)
+// على صفّ واحد في الذاكرة — لا يُحفَظ شيء.
+
+/** ربط الصنف بكتالوج المكتب كله حين لم يُربط بكتالوج المراجِع (ومعه الشركة والسعر). */
+async function linkFromOfficeCatalog(row, user) {
+  const name = String(row.item ?? '').trim();
+  if (!name || !user?.officeId) return;
+  const sci = await prisma.scientificCompany.findMany({ where: { officeId: user.officeId }, select: { id: true } });
+  if (!sci.length) return;
+  const ctx = await loadCompanyContext(sci.map(s => s.id));
+  if (!ctx.catalog.length) return;
+  const sure = (x) => x?.canonicalItem && (x.confidence === 'alias' || x.confidence === 'exact' || x.confidence === 'high');
+  let r = resolveItemNameSync(name, ctx);
+  if (!sure(r)) { const fb = brandDoseFallback(name, ctx.catalog); if (sure(fb)) r = fb; }
+  if (!sure(r)) return;
+  const d = await prisma.item.findUnique({
+    where: { id: r.canonicalItem.id },
+    select: { id: true, name: true, price: true, warehousePrice: true, scientificCompanyId: true,
+      company: { select: { name: true } }, scientificCompany: { select: { name: true } } },
+  });
+  if (!d) return;
+  row._itemId = d.id;
+  row._scientificCompanyId = d.scientificCompanyId ?? null;
+  row.item = d.name;
+  row.company = d.scientificCompany?.name || d.company?.name || row.company || null;
+  if (row.unitPrice == null) row.unitPrice = d.warehousePrice ?? d.price ?? null;
+}
+
+/**
+ * @param {number} userId المراجِع
+ * @param {{ row: object, changed: 'item'|'area' }} p
+ * @returns {Promise<{item, company, unitPrice, scientificRep, repCandidates}>}
+ */
+export async function refreshReviewRow(userId, { row, changed }) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true } });
+  const r = {
+    item: String(row?.item ?? '').trim(), company: String(row?.company ?? '').trim() || null,
+    quantity: row?.quantity ?? null, unitPrice: row?.unitPrice ?? null,
+    pharmacy: row?.pharmacy ?? null, area: String(row?.area ?? '').trim() || null,
+    invoiceNumber: row?.invoiceNumber ?? null, scientificRep: null,
+  };
+  if (changed === 'item') {
+    // مادة جديدة ⇒ شركتها وسعرها من بطاقتها، لا من المادة السابقة.
+    r.company = null; r.unitPrice = null;
+    await enrichRowsFromCatalog([r], userId);
+    if (!r._itemId) await linkFromOfficeCatalog(r, user).catch(e => console.error('[orders] refresh link:', e?.message));
+  } else {
+    // المنطقة تغيّرت: الصنف يُربط فقط (معرّفه وشركته العلمية) ليفيد التخمين.
+    await enrichRowsFromCatalog([r], userId, { linkOnly: true });
+    if (!r._itemId) {
+      const keep = { item: r.item, company: r.company, unitPrice: r.unitPrice };
+      await linkFromOfficeCatalog(r, user).catch(() => {});
+      Object.assign(r, keep); // لا نغيّر ما كتبه المراجِع — المعرّف وحده يكفي
+    }
+  }
+  if (user) await attachScientificRepGuess([r], user);
+  return {
+    item: r.item || null,
+    company: r.company || null,
+    unitPrice: r.unitPrice ?? null,
+    scientificRep: r.scientificRep || null,
+    repCandidates: Array.isArray(r._repCandidates) ? r._repCandidates : [],
+  };
+}
+
+/**
+ * اقتراحات خانات المادة والشركة والمنطقة في شبكة المراجعة: كتالوج المكتب
+ * (ايتمات شركاته العلمية + ايتمات المراجِع المُسنَدة) وأسماء المناطق المسجّلة.
+ * الكتابة الحرّة تبقى مسموحة — هذه اقتراحات لا قيود.
+ */
+export async function catalogSuggestions(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
+  const sci = user?.officeId != null
+    ? await prisma.scientificCompany.findMany({ where: { officeId: user.officeId }, select: { id: true, name: true } })
+    : [];
+  const assigned = await prisma.userItemAssignment.findMany({ where: { userId }, select: { itemId: true } });
+  const items = await prisma.item.findMany({
+    where: { OR: [
+      ...(sci.length ? [{ scientificCompanyId: { in: sci.map(s => s.id) } }] : []),
+      ...(assigned.length ? [{ id: { in: assigned.map(a => a.itemId) } }] : []),
+    ] },
+    select: { name: true, price: true, warehousePrice: true, scientificCompany: { select: { name: true } }, company: { select: { name: true } } },
+    take: 3000,
+  }).catch(() => []);
+  const areas = await prisma.area.findMany({ select: { name: true }, distinct: ['name'], take: 5000 }).catch(() => []);
+  const seen = new Set();
+  const itemList = [];
+  for (const i of items) {
+    const k = i.name.trim().toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    itemList.push({ name: i.name.trim(), company: i.scientificCompany?.name || i.company?.name || null, price: i.warehousePrice ?? i.price ?? null });
+  }
+  itemList.sort((a, b) => a.name.localeCompare(b.name));
+  const companies = [...new Set([...sci.map(s => s.name), ...itemList.map(i => i.company)].filter(Boolean).map(s => s.trim()))].sort();
+  const areaNames = [...new Set(areas.map(a => String(a.name ?? '').trim()).filter(n => n && n !== 'غير محدد'))].sort((a, b) => a.localeCompare(b, 'ar'));
+  return { items: itemList, companies, areas: areaNames };
+}
+
 /**
  * كل المندوبين العلميين النشطين في مكتب المستخدم — خيارات خانة «المندوب العلمي»
  * في شبكة المراجعة حين يمسح المراجِع الاسم المقترح. نفس نطاق

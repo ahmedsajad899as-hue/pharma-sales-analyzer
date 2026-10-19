@@ -6,6 +6,8 @@ const router = Router();
 // JWT مطلوب لكل ما تحت /api (بوابة server/index.js) — لا تخطّي هنا.
 // ترتيب حسّاس: '/pending/count' قبل '/pending/:id' وإلا التقط :id القيمة 'count'.
 router.get   ('/scientific-reps',        ctrl.listScientificReps);
+router.get   ('/catalog-suggest',        ctrl.catalogSuggest);
+router.post  ('/refresh-row',            ctrl.refreshRow);
 router.get   ('/pending/count',          ctrl.getPendingCount);
 router.get   ('/pending',                ctrl.listPending);
 router.get   ('/pending/:id',            ctrl.getPending);

@@ -285,11 +285,14 @@ const normQ = (s: string) => String(s ?? '').toLowerCase().replace(/[أإآ]/g, 
  * المرشّحين. المرشّحون (⭐) أولاً، ثم التصفية بالكتابة، والأسهم + Enter للاختيار.
  * القائمة position:fixed كي لا يقصّها حاوي الجدول.
  */
-function ComboCell({ value, onChange, onPick, options, placeholder, title, style }: {
+function ComboCell({ value, onChange, onPick, onCommit, options, placeholder, title, style }: {
   value: string; onChange: (v: string) => void; onPick?: (v: string) => void;
+  /** يُستدعى عند اختيار اقتراح أو الخروج من الخانة **بعد تغيير قيمتها** — لا عند كل حرف. */
+  onCommit?: (v: string) => void;
   options: ComboOpt[]; placeholder?: string; title?: string; style?: React.CSSProperties;
 }) {
   const [open, setOpen] = useState(false);
+  const focusValRef = useRef<string | null>(null); // القيمة لحظة الدخول للخانة
   const [hi, setHi] = useState(0);
   const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
   const ref = useRef<HTMLTextAreaElement | null>(null);
@@ -314,7 +317,10 @@ function ComboCell({ value, onChange, onPick, options, placeholder, title, style
   }, [open]);
   useEffect(() => { setHi(0); }, [value, open]);
 
-  const pick = (v: string) => { onChange(v); onPick?.(v); setOpen(false); };
+  const pick = (v: string) => {
+    onChange(v); onPick?.(v); setOpen(false);
+    if (onCommit && v.trim() !== String(focusValRef.current ?? '').trim()) { focusValRef.current = v; onCommit(v); }
+  };
 
   return (
     <>
@@ -322,8 +328,12 @@ function ComboCell({ value, onChange, onPick, options, placeholder, title, style
         inputRef={ref}
         value={value}
         onChange={v => { onChange(v); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onFocus={() => { setOpen(true); focusValRef.current = value; }}
+        onBlur={() => {
+          setOpen(false);
+          if (onCommit && focusValRef.current != null && value.trim() !== focusValRef.current.trim()) onCommit(value);
+          focusValRef.current = null;
+        }}
         onKeyDown={e => {
           if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { setOpen(true); e.preventDefault(); return; }
           if (!open || !shown.length) return;
@@ -396,6 +406,10 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   const [reps, setReps]         = useState<Rep[]>([]);
   // كل المندوبين العلميين في المكتب — خيارات خانة «المندوب العلمي» بعد مسح المقترح.
   const [sciReps, setSciReps]   = useState<{ id: number; name: string }[]>([]);
+  // اقتراحات خانات المادة/الشركة/المنطقة (كتالوج المكتب) — الكتابة الحرّة مسموحة.
+  const [suggest, setSuggest] = useState<{ items: { name: string; company: string | null; price: number | null }[]; companies: string[]; areas: string[] }>({ items: [], companies: [], areas: [] });
+  // صفوف يُعاد تخمينها الآن (بعد تغيير مادة/منطقة) — تُعرض باهتة حتى يصل الردّ.
+  const [refreshing, setRefreshing] = useState<Set<number>>(new Set());
   const [onlyAssignedItems, setOnlyAssignedItems] = useState(false); // فلترة الاستخراج على ايتمات المستخدم المعيّنة فقط
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving]     = useState(false);
@@ -469,6 +483,10 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     fetch(`${API}/api/orders/scientific-reps`, { headers: authH })
       .then(r => r.json())
       .then(j => { if (Array.isArray(j.data)) setSciReps(j.data); })
+      .catch(() => {});
+    fetch(`${API}/api/orders/catalog-suggest`, { headers: authH })
+      .then(r => r.json())
+      .then(j => { if (j?.data?.items) setSuggest(j.data); })
       .catch(() => {});
     return () => { imagesRef.current.forEach(u => URL.revokeObjectURL(u)); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -894,6 +912,53 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   };
 
   /**
+   * تغيير المادة أو المنطقة في صفّ ⇒ الخادم يعيد ربط المادة (الشركة والسعر) ويعيد
+   * تخمين المندوب العلمي (المنطقة × الشركة × الصنف) — «المنصور» ← «الكاظمية» يبدّل
+   * المندوب تلقائياً. ردّ متأخر لصفّ تغيّر بعده يُهمَل.
+   */
+  const refreshRow = async (i: number, changed: 'item' | 'area', value: string) => {
+    const base = rows[i];
+    if (!base) return;
+    const r = { ...base, [changed]: value };
+    setRefreshing(s => new Set(s).add(i));
+    try {
+      const res = await fetch(`${API}/api/orders/refresh-row`, {
+        method: 'POST',
+        headers: { ...authH, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ changed, row: {
+          item: r.item, company: r.company, quantity: Number(r.quantity) || null,
+          unitPrice: r.unitPrice !== '' ? Number(r.unitPrice) : null,
+          pharmacy: r.pharmacy, area: r.area, invoiceNumber: r.invoiceNumber,
+        } }),
+      });
+      const d = (await res.json())?.data;
+      if (!res.ok || !d) return;
+      setRows(rs => rs.map((x, idx) => {
+        if (idx !== i || x.item !== r.item || x.area !== r.area) return x; // تغيّر الصف بعد الطلب
+        const next = { ...x, scientificRep: d.scientificRep || '', repCandidates: d.repCandidates || [] };
+        if (changed === 'item') {
+          if (d.item) next.item = d.item;
+          if (d.company) next.company = d.company;
+          if (d.unitPrice != null) {
+            next.unitPrice = String(d.unitPrice);
+            const q = Number(next.quantity);
+            next.total = q ? String(q * Number(d.unitPrice)) : next.total;
+          }
+        }
+        return next;
+      }));
+      if (d.scientificRep && d.scientificRep !== base.scientificRep) {
+        setInfo(`✨ المندوب العلمي صار «${d.scientificRep}» بعد تغيير ${changed === 'item' ? 'المادة' : 'المنطقة'}.`);
+      } else if (!d.scientificRep && (d.repCandidates || []).length) {
+        setInfo(`لم يُحسم مندوب واحد لهذه ${changed === 'item' ? 'المادة' : 'المنطقة'} — اختر من ${d.repCandidates.length} مرشّحين ★.`);
+      }
+    } catch { /* التخمين تحسين — فشله لا يمسّ ما كتبه المراجِع */ }
+    finally {
+      setRefreshing(s => { const n = new Set(s); n.delete(i); return n; });
+    }
+  };
+
+  /**
    * اختيار مندوب لصفٍّ يعبّئ تلقائياً الصفوف الفارغة المشابهة (نفس المنطقة ونفس
    * الشركة) — المندوب يتحدّد عملياً بالمنطقة × الشركة، فلا داعي لاختياره عشر مرات.
    * لا يمسّ صفاً فيه مندوب، ولا صفاً لا يكون الاسم بين مرشّحيه حين له مرشّحون.
@@ -1279,11 +1344,39 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                               setRows(rs => rs.map((x, idx) => (idx === i
                                 ? { ...x, pharmacy: v, ...(hit?.area ? { area: hit.area } : null) }
                                 : x)));
+                              // منطقة جديدة من الصيدلية المختارة ⇒ مندوبها.
+                              if (hit?.area && hit.area !== r.area) setTimeout(() => refreshRow(i, 'area', hit.area!), 0);
                             }}
                             options={(r.pharmacyCandidates || []).map(p => ({ value: p.name, hint: p.area || undefined, star: true }))}
                             title={r.pharmacyCandidates?.length
                               ? `صيدليات قريبة في السيرفي: ${r.pharmacyCandidates.map(p => p.area ? `${p.name} (${p.area})` : p.name).join(' ، ')}`
                               : r.pharmacy}
+                            style={cs}
+                          />
+                        ) : c.key === 'item' ? (
+                          <ComboCell
+                            value={r.item}
+                            onChange={v => setCell(i, 'item', v)}
+                            onCommit={v => refreshRow(i, 'item', v)}
+                            options={suggest.items.map(it => ({ value: it.name, hint: it.company || undefined }))}
+                            title={r.item}
+                            style={{ ...cs, fontWeight: 600 }}
+                          />
+                        ) : c.key === 'company' ? (
+                          <ComboCell
+                            value={r.company}
+                            onChange={v => setCell(i, 'company', v)}
+                            options={suggest.companies.map(v => ({ value: v }))}
+                            title={r.company}
+                            style={{ ...cs, direction: 'ltr', textAlign: 'right' }}
+                          />
+                        ) : c.key === 'area' ? (
+                          <ComboCell
+                            value={r.area}
+                            onChange={v => setCell(i, 'area', v)}
+                            onCommit={v => refreshRow(i, 'area', v)}
+                            options={suggest.areas.map(v => ({ value: v }))}
+                            title={r.area}
                             style={cs}
                           />
                         ) : c.key === 'scientificRep' ? (
@@ -1292,18 +1385,17 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                             onChange={v => setCell(i, 'scientificRep', v)}
                             onPick={v => pickRep(i, v)}
                             options={repOptionsFor(r)}
-                            placeholder={r.repCandidates?.length ? `اختر من ${r.repCandidates.length} مرشّحين ▾` : 'اختر مندوباً ▾'}
+                            placeholder={refreshing.has(i) ? '⏳ جاري التخمين…' : r.repCandidates?.length ? `اختر من ${r.repCandidates.length} مرشّحين ▾` : 'اختر مندوباً ▾'}
                             title={r.repCandidates?.length
                               ? `مرشّحون: ${r.repCandidates.map(c => c.name).join(' ، ')}`
                               : 'لم يُعرَف مندوب من المنطقة والشركة — اختر من القائمة'}
-                            style={{ ...cs, ...(r.scientificRep.trim() ? null : candTone) }}
+                            style={{ ...cs, ...(r.scientificRep.trim() ? null : candTone), ...(refreshing.has(i) ? { opacity: 0.4 } : null) }}
                           />
                         ) : (
                           <>
                             <AutoText value={r[c.key] as string} onChange={v => setCell(i, c.key, v)}
                               title={r[c.key] as string}
-                              style={{ ...cs, ...(c.key === 'item' ? { fontWeight: 600 } : null),
-                                ...(c.key === 'company' ? { direction: 'ltr', textAlign: 'right' } : null) }} />
+                              style={cs} />
                           </>
                         )}
                       </td>

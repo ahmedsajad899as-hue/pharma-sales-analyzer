@@ -7,7 +7,23 @@ import fs from 'fs';
 import {
   listPendingOrders, getPendingOrder, deletePendingOrder,
   countPendingOrders, getPendingOrderImagePath, listOfficeScientificReps,
+  refreshReviewRow, catalogSuggestions,
 } from './orders.service.js';
+
+// ── POST /api/orders/refresh-row — إعادة تخمين صفّ بعد تغيير مادته/منطقته ────
+export async function refreshRow(req, res, next) {
+  try {
+    const changed = req.body?.changed === 'item' ? 'item' : 'area';
+    res.json({ success: true, data: await refreshReviewRow(req.user.id, { row: req.body?.row || {}, changed }) });
+  } catch (e) { next(e); }
+}
+
+// ── GET /api/orders/catalog-suggest — اقتراحات المادة/الشركة/المنطقة ─────────
+export async function catalogSuggest(req, res, next) {
+  try {
+    res.json({ success: true, data: await catalogSuggestions(req.user.id) });
+  } catch (e) { next(e); }
+}
 
 // ── GET /api/orders/pending — قائمة خفيفة للشريط (بلا صفوف الطلبية) ─────────
 export async function listPending(req, res, next) {
