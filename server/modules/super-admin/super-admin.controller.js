@@ -522,6 +522,88 @@ export async function markDoctorChangesSeen(req, res) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// سجل تغييرات المناطق — إشعارات السوبر أدمن حين يعدّل مدير مناطق مندوب/تيم ليدر
+// ────────────────────────────────────────────────────────────────────────────
+// المصدر: ActivityLog حيث action='rep_areas_update' (يكتبه applyManagerAreas في
+// company-members — المسار الوحيد لتعديل المدراء، من «المستخدمين» والبلان الشهري).
+// details = { targetUserId, added[], removed[], provinceMaterialized }
+// ════════════════════════════════════════════════════════════════════════════
+const AREA_CHANGE_WHERE = { action: 'rep_areas_update' };
+
+export async function listAreaChanges(req, res) {
+  try {
+    const page  = Math.max(1, parseInt(req.query.page  ?? '1'));
+    const limit = Math.min(100, parseInt(req.query.limit ?? '50'));
+
+    const [rows, total, admin] = await Promise.all([
+      prisma.activityLog.findMany({
+        where: AREA_CHANGE_WHERE,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit, take: limit,
+        include: { user: { select: { id: true, username: true, displayName: true, role: true } } },
+      }),
+      prisma.activityLog.count({ where: AREA_CHANGE_WHERE }),
+      prisma.superAdmin.findUnique({ where: { id: req.superAdmin.id }, select: { lastSeenAreaChangesAt: true } }),
+    ]);
+
+    const parsed = rows.map(r => {
+      let d = {};
+      try { d = r.details ? JSON.parse(r.details) : {}; } catch {}
+      return { r, d };
+    });
+    const targetIds = [...new Set(parsed.map(p => Number(p.d.targetUserId)).filter(Number.isInteger))];
+    const targets = targetIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: targetIds } },
+          select: { id: true, username: true, displayName: true, role: true },
+        })
+      : [];
+    const targetById = new Map(targets.map(t => [t.id, t]));
+    const lastSeen = admin?.lastSeenAreaChangesAt ? new Date(admin.lastSeenAreaChangesAt) : null;
+
+    const data = parsed.map(({ r, d }) => {
+      const t = targetById.get(Number(d.targetUserId));
+      return {
+        id:          r.id,
+        changedAt:   r.createdAt,
+        isUnread:    lastSeen ? new Date(r.createdAt) > lastSeen : true,
+        manager:     r.user ? (r.user.displayName || r.user.username) : 'غير معروف',
+        managerRole: r.user?.role ?? null,
+        target:      t ? (t.displayName || t.username) : (d.targetUserId ? `#${d.targetUserId}` : 'غير معروف'),
+        targetRole:  t?.role ?? null,
+        added:       Array.isArray(d.added)   ? d.added   : [],
+        removed:     Array.isArray(d.removed) ? d.removed : [],
+        provinceMaterialized: !!d.provinceMaterialized,
+      };
+    });
+
+    res.json({ success: true, data, total, page, limit });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+export async function areaChangesUnreadCount(req, res) {
+  try {
+    const admin = await prisma.superAdmin.findUnique({
+      where: { id: req.superAdmin.id }, select: { lastSeenAreaChangesAt: true },
+    });
+    const where = { ...AREA_CHANGE_WHERE };
+    if (admin?.lastSeenAreaChangesAt) where.createdAt = { gt: admin.lastSeenAreaChangesAt };
+    const count = await prisma.activityLog.count({ where });
+    res.json({ success: true, count });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+export async function markAreaChangesSeen(req, res) {
+  try {
+    await prisma.superAdmin.update({
+      where: { id: req.superAdmin.id },
+      data:  { lastSeenAreaChangesAt: new Date() },
+    });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // طابور مراجعة تطابق أسماء الأطباء — DoctorNameLink حيث needsReview=true.
 // هذه روابط أُنشئت من تشابه اسم (لا تطابق نصي تام) — إما تلقائياً بثقة عالية
 // عند الحفظ، أو باختيار المستخدم لمرشّح لم يكن مؤكَّداً 100% أثناء استيراد

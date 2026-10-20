@@ -23,6 +23,9 @@ import {
   listDoctorChanges,
   doctorChangesUnreadCount,
   markDoctorChangesSeen,
+  listAreaChanges,
+  areaChangesUnreadCount,
+  markAreaChangesSeen,
   listDoctorNameMatches,
   doctorNameMatchesCount,
   resolveDoctorNameMatch,
@@ -68,6 +71,11 @@ router.post('/activity-logging',      requireMasterAdmin, setActivityLoggingStat
 router.get('/doctor-changes',              requireMasterAdmin, listDoctorChanges);
 router.get('/doctor-changes/unread-count', requireMasterAdmin, doctorChangesUnreadCount);
 router.post('/doctor-changes/mark-seen',   requireMasterAdmin, markDoctorChangesSeen);
+
+// Rep area changes by managers (تغييرات مناطق المندوبين من المدراء) — master only
+router.get('/area-changes',              requireMasterAdmin, listAreaChanges);
+router.get('/area-changes/unread-count', requireMasterAdmin, areaChangesUnreadCount);
+router.post('/area-changes/mark-seen',   requireMasterAdmin, markAreaChangesSeen);
 
 // Doctor name-match review queue (تطابقات أسماء أطباء فيها نسبة شك) — master only
 router.get('/doctor-name-matches',                requireMasterAdmin, listDoctorNameMatches);

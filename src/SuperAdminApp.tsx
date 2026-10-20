@@ -54,11 +54,12 @@ import SuperAdminsPage from './pages/super-admin/SuperAdminsPage';
 import VisitsPage from './pages/super-admin/VisitsPage';
 import MasterSurveyPage from './pages/super-admin/MasterSurveyPage';
 import DoctorChangesPage from './pages/super-admin/DoctorChangesPage';
+import AreaChangesPage from './pages/super-admin/AreaChangesPage';
 import TelegramLinksPage from './pages/super-admin/TelegramLinksPage';
 import AiUsagePage from './pages/super-admin/AiUsagePage';
 import ViberLinksPage from './pages/super-admin/ViberLinksPage';
 
-type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'telegram-links' | 'viber-links' | 'ai-usage';
+type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'area-changes' | 'telegram-links' | 'viber-links' | 'ai-usage';
 
 // لون تمييز واحد فقط للحالة النشطة (بدل لون مختلف لكل عنصر) — يهدّئ الشريط الجانبي
 // ويجعل العين تتبع "أين أنا" بدل التوهان بين تدرّجات ملوّنة متعددة.
@@ -72,15 +73,19 @@ const NAV: { id: Page; label: string; icon: string; masterOnly?: boolean }[] = [
   { id: 'visits',       label: 'الزيارات',      icon: '📋', masterOnly: true },
   { id: 'surveys',      label: 'السيرفيات',     icon: '🗂️', masterOnly: true },
   { id: 'doctor-changes', label: 'سجل الأطباء', icon: '🔔', masterOnly: true },
+  { id: 'area-changes', label: 'تغييرات المناطق', icon: '📍', masterOnly: true },
   { id: 'telegram-links', label: 'روابط تيليجرام', icon: '🤖', masterOnly: true },
   { id: 'viber-links',  label: 'روابط فايبر',   icon: '📞', masterOnly: true },
   { id: 'ai-usage',     label: 'استهلاك الذكاء', icon: '📈', masterOnly: true },
 ];
 const ACCENT = '#4f46e5';
 
-// جرس إشعارات تغييرات الأطباء + تطابقات الأسماء بحاجة مراجعة — يظهر للماستر أدمن فقط
-function NotificationBell({ token, refreshKey, onOpen }: { token: string; refreshKey: string; onOpen: () => void }) {
+// جرس إشعارات تغييرات الأطباء + تطابقات الأسماء بحاجة مراجعة + تغييرات المدراء
+// على مناطق المندوبين — يظهر للماستر أدمن فقط. الضغط يفتح تغييرات المناطق إن
+// كان فيها جديد، وإلا سجل الأطباء.
+function NotificationBell({ token, refreshKey, onOpen }: { token: string; refreshKey: string; onOpen: (target: 'doctor-changes' | 'area-changes') => void }) {
   const [count, setCount] = useState(0);
+  const [areaCount, setAreaCount] = useState(0);
   useEffect(() => {
     let alive = true;
     const fetchCount = () => {
@@ -88,9 +93,11 @@ function NotificationBell({ token, refreshKey, onOpen }: { token: string; refres
       Promise.all([
         fetch('/api/super-admin/doctor-changes/unread-count', { headers: H }).then(r => r.json()).catch(() => null),
         fetch('/api/super-admin/doctor-name-matches/count',   { headers: H }).then(r => r.json()).catch(() => null),
-      ]).then(([a, b]) => {
+        fetch('/api/super-admin/area-changes/unread-count',   { headers: H }).then(r => r.json()).catch(() => null),
+      ]).then(([a, b, c]) => {
         if (!alive) return;
         setCount((a?.success ? a.count : 0) + (b?.success ? b.count : 0));
+        setAreaCount(c?.success ? c.count : 0);
       });
     };
     fetchCount();
@@ -98,19 +105,21 @@ function NotificationBell({ token, refreshKey, onOpen }: { token: string; refres
     return () => { alive = false; clearInterval(iv); };
   }, [token, refreshKey]);
 
+  const total = count + areaCount;
   return (
-    <button onClick={onOpen} title="سجل تغييرات الأطباء ومطابقة الأسماء" style={{
+    <button onClick={() => onOpen(areaCount > 0 ? 'area-changes' : 'doctor-changes')}
+      title={areaCount > 0 ? `${areaCount} تغيير مناطق جديد من المدراء` : 'سجل تغييرات الأطباء ومطابقة الأسماء'} style={{
       position: 'relative', width: 34, height: 34, borderRadius: 9,
       background: '#f8fafc', border: '1px solid #e2e8f0', cursor: 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0,
     }}>
       🔔
-      {count > 0 && (
+      {total > 0 && (
         <span style={{
           position: 'absolute', top: -5, insetInlineEnd: -5, minWidth: 16, height: 16, padding: '0 3px',
           borderRadius: 8, background: '#dc2626', color: '#fff', fontSize: 10, fontWeight: 700,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>{count > 99 ? '99+' : count}</span>
+        }}>{total > 99 ? '99+' : total}</span>
       )}
     </button>
   );
@@ -321,7 +330,7 @@ function SuperAdminShell() {
           {/* Right side: bell + date */}
           <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
             {admin.isMaster && (
-              <NotificationBell token={token} refreshKey={page} onOpen={() => setPage('doctor-changes')} />
+              <NotificationBell token={token} refreshKey={page} onOpen={(p) => setPage(p)} />
             )}
             <div style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 500 }}>
               {new Date().toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
@@ -351,6 +360,7 @@ function SuperAdminShell() {
             {page === 'visits'       && <VisitsPage />}
             {page === 'surveys'      && <MasterSurveyPage />}
             {page === 'doctor-changes' && <DoctorChangesPage />}
+            {page === 'area-changes' && <AreaChangesPage />}
             {page === 'telegram-links' && <TelegramLinksPage />}
         {page === 'viber-links' && <ViberLinksPage />}
             {page === 'ai-usage' && <AiUsagePage />}
