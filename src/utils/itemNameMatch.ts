@@ -70,6 +70,21 @@ function hasDifferentCoreNumbers(a: string, b: string): boolean {
   return !shorter.every((n, i) => longer[i] === n);
 }
 
+/** Mirrors hasDifferentRoutes in server/lib/fuzzyMatch.js — IM ≠ IV ≠ SC. */
+const ROUTE_RE = /(?:^|[^a-z])(i\.?m|i\.?v|s\.?c)\.?(?![a-z])/g;
+function routesOf(s: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of s.matchAll(ROUTE_RE)) out.add(m[1].replace(/\./g, ''));
+  return out;
+}
+function hasDifferentRoutes(a: string, b: string): boolean {
+  const ra = routesOf(a), rb = routesOf(b);
+  if (ra.size === 0 || rb.size === 0) return false;
+  if (ra.size !== rb.size) return true;
+  for (const r of ra) if (!rb.has(r)) return true;
+  return false;
+}
+
 // ─── Word overlap ─────────────────────────────────────────────────────────────
 
 /**
@@ -115,6 +130,7 @@ export function fuzzyItemMatch(
   if (a === b) return true;
   // Block when core dose-numbers conflict (e.g. AIRTIDE 100 vs AIRTIDE 500)
   if (hasDifferentCoreNumbers(a, b)) return false;
+  if (hasDifferentRoutes(a, b)) return false;
 
   const shorter = a.length <= b.length ? a : b;
   const longer  = a.length <= b.length ? b : a;

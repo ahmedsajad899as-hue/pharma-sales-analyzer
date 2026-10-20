@@ -104,6 +104,26 @@ function hasDifferentCoreNumbers(a, b) {
 }
 
 /**
+ * طريقة الإعطاء (IM/IV/SC) تفصل ايتمين مختلفين بنفس الاسم والجرعة: «Daytrix 1g IM»
+ * و«Daytrix 1g IV» يختلفان بحرف واحد فقط فيتجاوزان عتبة ليفنشتاين (0.96) ويُدمجان —
+ * فتُجمع مبيعات IV تحت IM. نحجب الدمج فقط حين يحمل الاسمان طريقة إعطاء وتختلفان؛
+ * اسم بلا طريقة إعطاء لا يُحجب (قد يكون أياً منهما).
+ */
+const ROUTE_RE = /(?:^|[^a-z])(i\.?m|i\.?v|s\.?c)\.?(?![a-z])/g;
+export function routesOf(s) {
+  const out = new Set();
+  for (const m of s.matchAll(ROUTE_RE)) out.add(m[1].replace(/\./g, ''));
+  return out;
+}
+export function hasDifferentRoutes(a, b) {
+  const ra = routesOf(a), rb = routesOf(b);
+  if (ra.size === 0 || rb.size === 0) return false;
+  if (ra.size !== rb.size) return true;
+  for (const r of ra) if (!rb.has(r)) return true;
+  return false;
+}
+
+/**
  * Word-overlap ratio between two names, ignoring pure numeric tokens and
  * composite dose tokens (e.g. "25mg", "30tab", "60cap", "50mcg").
  *
@@ -185,6 +205,8 @@ export function areSimilar(nameA, nameB, { lev = 0.85, prefixRatio = 0.55, wordO
 
   // Block if core dose-numbers conflict (e.g. amoxil 250 vs amoxil 500)
   if (hasDifferentCoreNumbers(a, b)) return false;
+  // Block if administration routes conflict (e.g. 1g IM vs 1g IV)
+  if (hasDifferentRoutes(a, b)) return false;
 
   // ── Prefix rule ──────────────────────────────────────────────────────────
   const shorter = a.length <= b.length ? a : b;
