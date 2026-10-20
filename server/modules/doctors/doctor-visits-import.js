@@ -663,13 +663,19 @@ export function buildTaskNotesMap(workbook) {
     const sheetHeaders = Object.keys(json[0]);
     const idCol  = findCol(sheetHeaders, ['task_id', 'task-id', 'taskid']);
     const msgCol = findCol(sheetHeaders, ['message', 'note', 'notes']);
+    const tsCol     = findCol(sheetHeaders, ['timestamp', 'created', 'date']);
+    const authorCol = findCol(sheetHeaders, ['author', 'created-by', 'user']);
     if (!idCol || !msgCol) continue;
     for (const r of json) {
       const tid = String(r[idCol] ?? '').trim();
       const msg = String(r[msgCol] ?? '').trim();
       if (!tid || !msg) continue;
       if (!map.has(tid)) map.set(tid, []);
-      map.get(tid).push(msg);
+      map.get(tid).push({
+        message: msg,
+        timestamp: tsCol ? r[tsCol] : null,
+        author: authorCol ? String(r[authorCol] ?? '').trim() : '',
+      });
     }
     if (map.size > 0) return map; // وُجدت الورقة الصحيحة — لا داعي لفحص البقية
   }
@@ -684,12 +690,45 @@ export function buildTaskNotesMap(workbook) {
  */
 export function buildNotesFromTaskNotes(messages) {
   const texts = [];
-  for (const raw of messages ?? []) {
+  for (const entry of messages ?? []) {
+    const raw = typeof entry === 'string' ? entry : entry?.message;
     if (!raw || /^created\s+by\s+/i.test(raw)) continue;
     const cleaned = stripNoteMeta(raw).replace(/\s{2,}/g, ' ').trim();
     if (cleaned) texts.push(cleaned);
   }
   return texts.join(' | ').trim();
+}
+
+/**
+ * صف Tasks في تصدير CRM ليس زيارة واحدة بل «بطاقة عميل» يعود إليها المندوب كل
+ * زيارة ويكتب ملاحظة جديدة — مثال حقيقي: بطاقة أُنشئت 07/09 وفيها ملاحظات من
+ * المندوب في 07/09 و05/10 و19/10 = ثلاث زيارات. عمود created تاريخ إنشاء البطاقة
+ * فقط، فاعتماده كان يُسقط كل زيارة لاحقة ويضع الوحيدة الباقية في شهر قديم (عبدالله
+ * عمر: 37 زيارة أكتوبر في الملف → 14 في التطبيق). هنا: كل يوم فيه ملاحظة كتبها
+ * مندوب البطاقة نفسه = زيارة بتاريخ ووقت أول ملاحظة في ذلك اليوم. ملاحظات غيره
+ * (مخطِّط/مدير يكتب سطر الخطة) لا تُعدّ زيارة لكنها تُلحَق بنص زيارة يومها.
+ * بطاقة بلا أي ملاحظة من مندوبها → [] فيرجع المستدعي لتاريخ created كما كان.
+ */
+export function repVisitsFromTaskNotes(notes, repName) {
+  const repKey = normalizeRepName(leadingSegment(repName));
+  if (!repKey || !notes?.length) return [];
+  const byDay = new Map(); // "YYYY-MM-DD" → { dateVal, messages[] , byRep }
+  for (const n of notes) {
+    const d = parseVisitDate(n.timestamp);
+    if (!d) continue;
+    const day = toDateInput(d);
+    if (!byDay.has(day)) byDay.set(day, { dateVal: null, messages: [], byRep: false });
+    const g = byDay.get(day);
+    g.messages.push(n);
+    if (normalizeRepName(leadingSegment(n.author)) === repKey) {
+      g.byRep = true;
+      if (!g.dateVal || d < g.dateVal) g.dateVal = d;
+    }
+  }
+  return [...byDay.values()]
+    .filter(g => g.byRep)
+    .sort((a, b) => a.dateVal - b.dateVal)
+    .map(g => ({ dateVal: g.dateVal, notes: buildNotesFromTaskNotes(g.messages) }));
 }
 
 /**
@@ -791,57 +830,68 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
     // النص مباشرة في note) → نرجع لتحليل note القديم كما كان بالضبط.
     const hasTaskNotesSheet = (taskNotesMap?.size ?? 0) > 0;
     const taskId = col.id ? get(row, 'id') : '';
-    const joinedTaskNotes = hasTaskNotesSheet ? buildNotesFromTaskNotes(taskNotesMap.get(taskId) ?? []) : '';
+    const taskNotes = hasTaskNotesSheet ? (taskNotesMap.get(taskId) ?? []) : [];
     const parsedNote = hasTaskNotesSheet ? { notes: '', timestamp: '' } : parseCrmNote(get(row, 'note'));
-    const dateVal = parseVisitDate(get(row, 'created')) || parseVisitDate(parsedNote.timestamp);
-    const date = toDateInput(dateVal) || '';
-    const time = toTimeInput(dateVal);
+    // كل يوم كتب فيه مندوب البطاقة ملاحظة = زيارة مستقلة بتاريخها (راجع
+    // repVisitsFromTaskNotes)؛ بلا ملاحظات منه → زيارة واحدة بتاريخ created كالسابق.
+    let visits = hasTaskNotesSheet ? repVisitsFromTaskNotes(taskNotes, get(row, 'taskTo')) : [];
+    if (!visits.length) {
+      visits = [{
+        dateVal: parseVisitDate(get(row, 'created')) || parseVisitDate(parsedNote.timestamp),
+        notes: hasTaskNotesSheet ? buildNotesFromTaskNotes(taskNotes) : parsedNote.notes,
+      }];
+    }
     const isDoubleVisit = get(row, 'type') === 'Double Visit';
-    const notes = hasTaskNotesSheet ? joinedTaskNotes : parsedNote.notes;
     const geoCorrect = parseYesNo(get(row, 'correctGeo'));
     const _row = i + 2;
 
-    // الصيدلية لا يُستخرَج لها ايتم من ملف CRM إطلاقاً (لا من note ولا بالذكاء
-    // الاصطناعي) — التخمين من النص الحر أنتج قيَماً واقتراحات خاطئة (اسم شركة
-    // كصيدلية). تُترك فارغة ويملؤها المستخدم يدوياً إن أراد. (الأطباء يختلفون:
-    // عمود report-details أدناه بيانات بنيوية اختارها المندوب فعلاً، لا تخميناً.)
-    if (category.includes('صيدل')) {
-      pharmacyRows.push({
-        _row, repName, repId: rep?.id ?? null,
-        pharmacyName: clientName,
-        areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
-        itemName: '', itemId: null, rawItemName: '',
-        itemSuggestionId: null, itemSuggestionName: null,
-        date, time, notes, isDoubleVisit,
-        lat: null, lng: null, geoCorrect,
-      });
-    } else {
-      // فئة غير محسومة (لا "دكتور" صريحة ولا شبه اسم صيدلية) تُعامَل كطبيب
-      // افتراضياً لتبقى قابلة للمراجعة بدل إسقاطها صامتة.
-      // "عيادة الدكتور فلان" → "فلان": الاسم الصافي هو ما يُطابَق ويُخزَّن، وإلا
-      // أُنشئ طبيب مكرَّر بلا صلة بالسجل الصافي الموجود أصلاً لنفس الشخص.
-      // المطابقة الفعلية (تامة/تشابه/سؤال المستخدم) تتم لاحقاً دفعة واحدة عبر
-      // classifyDoctorRows — هنا فقط تنظيف الاسم.
-      const doctorName = cleanDoctorName(clientName);
-      const parsedRD = parseReportDetails(get(row, 'reportDetails'), itemCtx);
-      const itemSuggestion = (!parsedRD.item && parsedRD.itemText) ? suggestItemMatch(itemCtx, parsedRD.itemText) : null;
-      doctorRows.push({
-        _row, repName, repId: rep?.id ?? null,
-        doctorName, doctorId: null,
-        specialty: get(row, 'subcategory'),
-        areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
-        pharmacyName: '',
-        itemName: parsedRD.item ? parsedRD.item.name : parsedRD.itemText,
-        itemId: parsedRD.item?.id ?? null,
-        rawItemName: parsedRD.itemText,
-        itemSuggestionId: itemSuggestion?.id ?? null,
-        itemSuggestionName: itemSuggestion?.name ?? null,
-        date, time,
-        feedback: parsedRD.feedback ?? 'pending', // report-details واثق حين موجود؛ وإلا لا مصدر واثق فتبقى pending
-        notes: [notes, parsedRD.extraNote].filter(Boolean).join(' | '),
-        isDoubleVisit,
-        lat: null, lng: null, geoCorrect,
-      });
+    for (const visit of visits) {
+      const date = toDateInput(visit.dateVal) || '';
+      const time = toTimeInput(visit.dateVal);
+      const notes = visit.notes;
+
+      // الصيدلية لا يُستخرَج لها ايتم من ملف CRM إطلاقاً (لا من note ولا بالذكاء
+      // الاصطناعي) — التخمين من النص الحر أنتج قيَماً واقتراحات خاطئة (اسم شركة
+      // كصيدلية). تُترك فارغة ويملؤها المستخدم يدوياً إن أراد. (الأطباء يختلفون:
+      // عمود report-details أدناه بيانات بنيوية اختارها المندوب فعلاً، لا تخميناً.)
+      if (category.includes('صيدل')) {
+        pharmacyRows.push({
+          _row, repName, repId: rep?.id ?? null,
+          pharmacyName: clientName,
+          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
+          itemName: '', itemId: null, rawItemName: '',
+          itemSuggestionId: null, itemSuggestionName: null,
+          date, time, notes, isDoubleVisit,
+          lat: null, lng: null, geoCorrect,
+        });
+      } else {
+        // فئة غير محسومة (لا "دكتور" صريحة ولا شبه اسم صيدلية) تُعامَل كطبيب
+        // افتراضياً لتبقى قابلة للمراجعة بدل إسقاطها صامتة.
+        // "عيادة الدكتور فلان" → "فلان": الاسم الصافي هو ما يُطابَق ويُخزَّن، وإلا
+        // أُنشئ طبيب مكرَّر بلا صلة بالسجل الصافي الموجود أصلاً لنفس الشخص.
+        // المطابقة الفعلية (تامة/تشابه/سؤال المستخدم) تتم لاحقاً دفعة واحدة عبر
+        // classifyDoctorRows — هنا فقط تنظيف الاسم.
+        const doctorName = cleanDoctorName(clientName);
+        const parsedRD = parseReportDetails(get(row, 'reportDetails'), itemCtx);
+        const itemSuggestion = (!parsedRD.item && parsedRD.itemText) ? suggestItemMatch(itemCtx, parsedRD.itemText) : null;
+        doctorRows.push({
+          _row, repName, repId: rep?.id ?? null,
+          doctorName, doctorId: null,
+          specialty: get(row, 'subcategory'),
+          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
+          pharmacyName: '',
+          itemName: parsedRD.item ? parsedRD.item.name : parsedRD.itemText,
+          itemId: parsedRD.item?.id ?? null,
+          rawItemName: parsedRD.itemText,
+          itemSuggestionId: itemSuggestion?.id ?? null,
+          itemSuggestionName: itemSuggestion?.name ?? null,
+          date, time,
+          feedback: parsedRD.feedback ?? 'pending', // report-details واثق حين موجود؛ وإلا لا مصدر واثق فتبقى pending
+          notes: [notes, parsedRD.extraNote].filter(Boolean).join(' | '),
+          isDoubleVisit,
+          lat: null, lng: null, geoCorrect,
+        });
+      }
     }
   });
 
