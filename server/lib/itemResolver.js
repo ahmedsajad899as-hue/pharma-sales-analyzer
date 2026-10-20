@@ -14,7 +14,7 @@
  */
 
 import prisma from './prisma.js';
-import { similarity, normalizeStr, areSimilar } from './fuzzyMatch.js';
+import { similarity, normalizeStr, areSimilar, hasDifferentRoutes } from './fuzzyMatch.js';
 
 // ─── التطبيع القانوني (عربي + لاتيني) ───────────────────────────────────────────
 /**
@@ -74,7 +74,7 @@ export async function loadCompanyContext(scientificCompanyIds = []) {
   const [catalog, aliasRows] = await Promise.all([
     prisma.item.findMany({
       where: { scientificCompanyId: { in: ids }, isTemp: false },
-      select: { id: true, name: true },
+      select: { id: true, name: true, scientificCompanyId: true },
     }),
     prisma.itemMergeRule.findMany({
       where: { scientificCompanyId: { in: ids } },
@@ -154,7 +154,7 @@ export async function loadResolutionContext({ scientificCompanyIds = [], userId 
   const ids = (scientificCompanyIds || []).filter(Boolean);
   const [companyCatalog, userItems, aliasRows] = await Promise.all([
     ids.length > 0
-      ? prisma.item.findMany({ where: { scientificCompanyId: { in: ids }, isTemp: false }, select: { id: true, name: true } })
+      ? prisma.item.findMany({ where: { scientificCompanyId: { in: ids }, isTemp: false }, select: { id: true, name: true, scientificCompanyId: true } })
       : Promise.resolve([]),
     userId
       ? prisma.item.findMany({ where: { userId, isTemp: false }, select: { id: true, name: true } })
@@ -220,7 +220,19 @@ export function resolveItemNameSync(name, { catalog, catalogById, aliasMap }) {
 
   const key = normalizeItemKey(name);
 
-  // 1) alias محفوظ (نطاق الشركة) → أعلى أولوية
+  // 1) تطابق تام مع ايتم كتالوج قائم يسبق أي alias: القاعدة تُنشأ حين يُدمج ايتم
+  // في آخر (IV ← IM مثلاً)، فإن أُعيدت إضافة الايتم الممتص للكتالوج لاحقاً كانت
+  // القاعدة القديمة تبقى تفوز وتحوّل كل مبيعاته للهدف. اسم موجود في الكتالوج
+  // بعينه لا يحتاج توجيهاً.
+  // ايتمات المستخدم الخاصة (بلا شركة) لا تسبق قاعدة الشركة — تبقى بعدها كما كانت.
+  const exact = catalog.find(c => normalizeItemKey(c.name) === key);
+  if (exact && exact.scientificCompanyId) {
+    result.canonicalItem = exact;
+    result.confidence = 'exact';
+    return result;
+  }
+
+  // 2) alias محفوظ (نطاق الشركة)
   const alias = aliasMap.get(key);
   if (alias) {
     let target = alias.toItemId ? catalogById.get(alias.toItemId) : null;
@@ -228,7 +240,8 @@ export function resolveItemNameSync(name, { catalog, catalogById, aliasMap }) {
       const toKey = normalizeItemKey(alias.toName);
       target = catalog.find(c => normalizeItemKey(c.name) === toKey) || null;
     }
-    if (target) {
+    // قاعدة تربط IV بـIM (دمج خاطئ قديم) لا تُطبَّق — طريقة الإعطاء تفصل الايتمين
+    if (target && !hasDifferentRoutes(normalizeStr(name), normalizeStr(target.name))) {
       result.canonicalItem = target;
       result.confidence = 'alias';
       return result;
@@ -236,15 +249,14 @@ export function resolveItemNameSync(name, { catalog, catalogById, aliasMap }) {
     // القاعدة موجودة لكن الهدف حُذف من الكتالوج → نتجاهلها ونكمل للمطابقة العادية
   }
 
-  // 2) تطابق تام (مفتاح قانوني)
-  const exact = catalog.find(c => normalizeItemKey(c.name) === key);
+  // 3) تطابق تام مع ايتم خاص بالمستخدم
   if (exact) {
     result.canonicalItem = exact;
     result.confidence = 'exact';
     return result;
   }
 
-  // 3) مطابقة ضبابية — نعيد استخدام areSimilar (بحارس الجرعة) + similarity للترتيب
+  // 4) مطابقة ضبابية — نعيد استخدام areSimilar (بحارس الجرعة) + similarity للترتيب
   const candidates = catalog
     .filter(c => areSimilar(name, c.name))
     .map(c => ({ id: c.id, name: c.name, sim: similarity(key, normalizeItemKey(c.name)) }))
