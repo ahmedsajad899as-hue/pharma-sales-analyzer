@@ -20,8 +20,9 @@
 import prisma from './prisma.js';
 import { isWarehouseSaleRow } from './orderKey.js';
 import { normalizeArabic, normalizeAreaName } from './itemResolver.js';
-import { loadCustomerMatchMaster, resolveOne } from './invoiceCustomerMatch.js';
+import { loadCustomerMatchMaster, matchArea, matchPharmacy } from './invoiceCustomerMatch.js';
 import { pharmacyKey } from './pharmacyKey.js';
+import { buildProvinceLookup, matchProvinceName, extractRawColumnValue, PROVINCE_COLUMN_ALIASES } from './provinces.js';
 
 const TRANSIT_RE = /ترانز[يى]?ت|transit/i;
 const NOTE_KEY_RE = /ملاحظ|ملاحض|note|remark|comment/i;
@@ -93,7 +94,9 @@ export function parseTransitRow(rawDataJson, totalValue = null) {
 
   const parsed = parseTransitNote(note);
   if (!parsed) return null;
-  return { note: note.trim(), ...parsed, customerInfo: infoRaw };
+  // محافظة الصف نفسه (محافظة المذخر — والترانزيت يمرّ غالباً بمذخر مدينة الصيدلية).
+  const rowProvince = extractRawColumnValue(raw, PROVINCE_COLUMN_ALIASES) || '';
+  return { note: note.trim(), ...parsed, rowProvince, customerInfo: infoRaw };
 }
 
 // ── منطقة الصيدلية ────────────────────────────────────────────────────────────
@@ -102,13 +105,118 @@ const PLACE_TTL_MS = 10 * 60_000;
 let placeMemo = new Map();
 let placeMemoAt = 0;
 
+/** خرائط المحافظات: اسم/بديل مطبَّع ← محافظة، واسم منطقة مطبَّع ← محافظاتها. */
+async function loadProvinceIndex() {
+  const [provinces, areas] = await Promise.all([
+    prisma.province.findMany({ select: { id: true, name: true, aliases: true } }),
+    prisma.area.findMany({ where: { provinceId: { not: null } }, select: { name: true, provinceId: true } }),
+  ]);
+  const byName = buildProvinceLookup(provinces);
+  const ofArea = new Map(); // normalizeAreaName → Set(provinceId)
+  for (const a of areas) {
+    const k = normalizeAreaName(a.name);
+    if (!ofArea.has(k)) ofArea.set(k, new Set());
+    ofArea.get(k).add(a.provinceId);
+  }
+  return { byName, ofArea };
+}
+
 /**
- * مكان الصيدلية لكل ملاحظة: المنطقة المكتوبة أولاً، ثم صيدليات السيرفي (نفس
- * مطابِق طلبيات البوت)، ثم سجلّ المبيعات (أكثر منطقة بيع لنفس اسم الصيدلية في
- * الملفات المعطاة، إن غلبت بوضوح).
- * @returns {Promise<Map<string, {pharmacy:string, areaId:number|null, areaName:string, areaNorm:string, how:string}>>}
+ * يفصل المحافظة عن تلميح المنطقة/ذيل اسم الصيدلية:
+ * «النموذجية / الديوانية» أو «النموذجية الديوانية» → محافظة القادسية.
+ * المنطقة التي تحمل اسم المحافظة نفسه (مركزها) تبقى تلميحاً للمنطقة أيضاً.
+ */
+function splitProvince(t, pIdx) {
+  let province = null;
+  let pharmacy = t.pharmacy;
+  for (const part of String(t.areaHint || '').split(' - ')) {
+    const p = matchProvinceName(part, pIdx.byName);
+    if (p) { province = p; break; }
+  }
+  const words = pharmacy.split(/\s+/);
+  for (const n of [2, 1]) {
+    if (words.length <= n) continue;
+    const p = matchProvinceName(words.slice(-n).join(' '), pIdx.byName);
+    if (p) {
+      province = province || p;
+      pharmacy = words.slice(0, -n).join(' ');
+      return { province, pharmacy, areaHint: [t.areaHint, words.slice(-n).join(' ')].filter(Boolean).join(' - ') };
+    }
+  }
+  return { province, pharmacy, areaHint: t.areaHint };
+}
+
+const isBaghdad = (p) => p?.name === 'بغداد';
+
+/**
+ * مكان الصيدلية لكل ملاحظة. الترتيب:
+ *   1. المنطقة المكتوبة في الملاحظة.
+ *   2. صيدليات السيرفي (نفس مطابِق طلبيات البوت).
+ *   3. سجلّ المبيعات: أكثر منطقة بيع لنفس اسم الصيدلية، إن غلبت بوضوح.
+ *
+ * 2 و3 بحث بالاسم وحده، والأسماء تتكرّر بين المدن («النموذجية» في بغداد وفي
+ * الديوانية). فلا يُقبل ناتجهما إلا إن وافق ما تقوله الملاحظة:
+ *   • ذكرت محافظة: منطقة من نفس المحافظة فقط. وإلا تُنسب الطلبية للمحافظة
+ *     وحدها (لمندوبي تلك المحافظة).
+ *   • ذكرت منطقة لم تُعرف: لا يُقبل بحث بالاسم أصلاً (يذهب لـ«بلا مندوب»).
+ * @returns {Promise<Map<string, {pharmacy, areaId, areaName, areaNorm, provinceId, provinceName, how}>>}
  *   المفتاح = placeKey(t)
  */
+/**
+ * منطقة مقبولة مع محافظة الملاحظة: نفس المحافظة. محافظتها مجهولة تُقبل من نصّ
+ * الملاحظة فقط (explicit)، لا من بحث بالاسم.
+ */
+const provinceFit = (pIdx) => (areaName, province, explicit) => {
+  if (!province) return true;
+  const ps = pIdx.ofArea.get(normalizeAreaName(areaName)) ?? new Set();
+  return ps.size ? ps.has(province.id) : explicit;
+};
+
+/**
+ * الخطوتان 1 و2 (الملاحظة ثم السيرفي) — نقيّة، تُختبر بفهارس مصنوعة.
+ * @param m    فهرس buildMasterIndex (invoiceCustomerMatch)
+ * @param pIdx { byName: buildProvinceLookup(...), ofArea: Map(normalizeAreaName → Set(provinceId)) }
+ * @returns {{place:object, sp:object, needsSales:boolean}}
+ */
+export function placeFromNote(t, m, pIdx) {
+  const fitsProvince = provinceFit(pIdx);
+  const sp = splitProvince(t, pIdx);
+  // محافظة الملاحظة، وإلا محافظة الصف — تقيّد البحث بالاسم (السيرفي/المبيعات) لا المنطقة المكتوبة.
+  sp.searchProvince = sp.province || matchProvinceName(t.rowProvince, pIdx.byName);
+  // نسب للمحافظة وحدها حين لا تُعرف المنطقة — عدا بغداد (مندوبوها بالمناطق، فتذهب لكلهم).
+  const fallbackProvince = isBaghdad(sp.searchProvince) ? null : sp.searchProvince;
+  const place = {
+    pharmacy: sp.pharmacy || t.pharmacy, areaId: null, areaName: '', areaNorm: '',
+    provinceId: fallbackProvince?.id ?? null, provinceName: fallbackProvince?.name ?? '', how: '',
+  };
+  const setArea = (areaName, how) => Object.assign(place, {
+    areaId: m.areaByKey.get(normalizeAreaName(areaName))?.id ?? null, areaName, areaNorm: normalizeArabic(areaName), how,
+  });
+
+  // 1) المنطقة المكتوبة.
+  if (sp.areaHint) {
+    const a = matchArea(sp.areaHint, m);
+    if (a && fitsProvince(a.name, sp.province, true)) { setArea(a.name, 'note'); return { place, sp, needsSales: false }; }
+  }
+  // منطقة مكتوبة غير معروفة (ليست محافظة): لا تخمين بالاسم.
+  const hintIsOnlyProvince = !!sp.province && String(sp.areaHint || '').split(' - ')
+    .every(p => !p.trim() || matchProvinceName(p, pIdx.byName));
+  if (sp.areaHint && !hintIsOnlyProvince) { place.how = 'unknown-area'; return { place, sp, needsSales: false }; }
+
+  // 2) السيرفي.
+  const pm = matchPharmacy(sp.pharmacy, '', m);
+  if (pm.match?.areaName) {
+    const a = matchArea(pm.match.areaName, m);
+    const areaName = a ? a.name : pm.match.areaName;
+    if (fitsProvince(areaName, sp.searchProvince, false)) {
+      place.pharmacy = pm.match.name;
+      setArea(areaName, 'survey');
+      return { place, sp, needsSales: false };
+    }
+  }
+  return { place, sp, needsSales: true };
+}
+
 async function resolvePlaces(transits, lookupFileIds) {
   if (Date.now() - placeMemoAt > PLACE_TTL_MS) { placeMemo = new Map(); placeMemoAt = Date.now(); }
   const out = new Map();
@@ -121,29 +229,34 @@ async function resolvePlaces(transits, lookupFileIds) {
   }
   if (!pending.length) return out;
 
-  const m = await loadCustomerMatchMaster();
-  const areaIdOf = (name) => m.areaByKey.get(normalizeAreaName(name))?.id ?? null;
+  const [m, pIdx] = await Promise.all([loadCustomerMatchMaster(), loadProvinceIndex()]);
   const unresolved = [];
   for (const t of pending) {
-    const r = resolveOne(t.pharmacy, t.areaHint, m);
-    const place = { pharmacy: r.pharmacy || t.pharmacy, areaId: null, areaName: '', areaNorm: '', how: '' };
-    if (r.area) Object.assign(place, { areaId: areaIdOf(r.area), areaName: r.area, areaNorm: normalizeArabic(r.area), how: r.matched ? 'survey' : 'note' });
+    const { place, sp, needsSales } = placeFromNote(t, m, pIdx);
     out.set(placeKey(t), place);
-    if (!place.areaName) unresolved.push({ t, place });
+    if (needsSales) unresolved.push({ sp, place });
   }
+  const fitsProvince = provinceFit(pIdx);
 
+  // 3) سجلّ المبيعات.
   if (unresolved.length && lookupFileIds?.length) {
-    const byKey = await salesAreaByPharmacy(unresolved.map(u => pharmacyKey(u.t.pharmacy)).filter(Boolean), lookupFileIds);
-    for (const { place, t } of unresolved) {
-      const hit = byKey.get(pharmacyKey(t.pharmacy));
-      if (hit) Object.assign(place, { areaId: hit.areaId, areaName: hit.areaName, areaNorm: normalizeArabic(hit.areaName), how: 'sales' });
+    const byKey = await salesAreaByPharmacy(unresolved.map(u => pharmacyKey(u.sp.pharmacy)).filter(Boolean), lookupFileIds);
+    for (const { place, sp } of unresolved) {
+      const hit = byKey.get(pharmacyKey(sp.pharmacy));
+      if (hit && fitsProvince(hit.areaName, sp.searchProvince, false)) {
+        Object.assign(place, { areaId: hit.areaId, areaName: hit.areaName, areaNorm: normalizeArabic(hit.areaName), how: 'sales' });
+      } else if (place.provinceId) {
+        place.how = 'province';
+      }
     }
+  } else {
+    for (const { place } of unresolved) if (place.provinceId) place.how = 'province';
   }
   for (const t of pending) placeMemo.set(placeKey(t), out.get(placeKey(t)));
   return out;
 }
 
-const placeKey = (t) => `${t.pharmacy}|${t.areaHint}`;
+const placeKey = (t) => `${t.pharmacy}|${t.areaHint}|${t.rowProvince || ''}`;
 
 /** اسم الصيدلية ← المنطقة الغالبة في المبيعات (≥60% من صفوفه) ضمن الملفات. */
 async function salesAreaByPharmacy(keys, fileIds) {
@@ -188,8 +301,9 @@ async function salesAreaByPharmacy(keys, fileIds) {
 
 /**
  * صفوف الترانزيت في ملفات المكتب المعطاة، كلٌّ مع مكان الصيدلية:
- * row.transit = { note, pharmacy, areaId, areaName, areaNorm, how, customerInfo }.
- * areaNorm فارغ = لم تُعرف منطقة الصيدلية (لا تُنسب لمندوب).
+ * row.transit = { note, pharmacy, areaId, areaName, areaNorm, provinceId, provinceName, how, customerInfo }.
+ * areaNorm فارغ مع provinceId = تُعرف المحافظة وحدها (تُنسب لمندوبي المحافظة).
+ * الاثنان فارغان = لم يُعرف المكان (لا تُنسب لمندوب).
  *
  * @param {{officeFileIds:number[], lookupFileIds?:number[], where?:object, select:object}} opts
  *   where يُضاف بـ AND (تاريخ/ايتمات/حجب)، lookupFileIds لبحث منطقة الصيدلية في المبيعات.
@@ -214,7 +328,7 @@ export async function loadTransitSales({ officeFileIds, lookupFileIds = officeFi
   if (!hits.length) return [];
   const places = await resolvePlaces(hits.map(h => h.t), lookupFileIds);
   return hits.map(({ r, t }) => {
-    const p = places.get(placeKey(t)) || { pharmacy: t.pharmacy, areaId: null, areaName: '', areaNorm: '', how: '' };
+    const p = places.get(placeKey(t)) || { pharmacy: t.pharmacy, areaId: null, areaName: '', areaNorm: '', provinceId: null, provinceName: '', how: '' };
     return { ...r, transit: { note: t.note, customerInfo: t.customerInfo, ...p } };
   });
 }

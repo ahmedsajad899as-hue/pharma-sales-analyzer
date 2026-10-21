@@ -1,6 +1,9 @@
 // اختبار طلبيات الترانزيت (server/lib/transitOrders.js) — منطق نقيّ بلا قاعدة بيانات.
 // npm run test:transit
-import { parseTransitNote, parseTransitRow } from '../server/lib/transitOrders.js';
+import { parseTransitNote, parseTransitRow, placeFromNote } from '../server/lib/transitOrders.js';
+import { buildMasterIndex } from '../server/lib/invoiceCustomerMatch.js';
+import { buildProvinceLookup } from '../server/lib/provinces.js';
+import { normalizeAreaName } from '../server/lib/itemResolver.js';
 
 let fail = 0;
 const eq = (name, got, want) => {
@@ -29,6 +32,33 @@ eq('ليس مذخر ✗', parseTransitRow(row({ 'صنف': 'صيدلية' }), 100
 eq('فري ترانزيت ✗', parseTransitRow(row({ 'الملاحظة': 'فري ترانزيت إلى ص/ البصمة ترسل مع الطلبية' }), 0), null);
 eq('قيمة صفر ✗', parseTransitRow(row({}), 0), null);
 eq('بلا ترانزيت ✗', parseTransitRow(row({ 'الملاحظة': 'تسليم سريع' }), 100), null);
+
+// ── مكان الصيدلية (المحافظة تحكم بحث الاسم) ──
+const PROV = [
+  { id: 1, name: 'بغداد', aliases: '[]' },
+  { id: 9, name: 'الأنبار', aliases: '["الانبار","الرمادي","الفلوجة"]' },
+  { id: 15, name: 'القادسية', aliases: '["الديوانية","ديوانية"]' },
+];
+const AREAS = [
+  { id: 10, name: 'الحارثية', provinceId: 1 }, { id: 11, name: 'المنصور', provinceId: 1 },
+  { id: 20, name: 'الفلوجة', provinceId: 9 }, { id: 30, name: 'حي العسكري', provinceId: 15 },
+];
+const m = buildMasterIndex(AREAS.map(a => ({ ...a, needsReview: false })), [],
+  [{ id: 1, name: 'النموذجية', pharmacyName: null, ownerName: null, areaName: 'الحارثية' }]);
+const ofArea = new Map();
+for (const a of AREAS) ofArea.set(normalizeAreaName(a.name), new Set([a.provinceId]));
+const pIdx = { byName: buildProvinceLookup(PROV), ofArea };
+const place = (note, rowProvince = '') => { const t = { ...parseTransitNote(note), rowProvince }; const r = placeFromNote(t, m, pIdx); return [r.place.areaName, r.place.provinceName, r.place.how || (r.needsSales ? 'sales?' : '')]; };
+
+eq('صيدلية بغداد بنفس الاسم لا تُنسب لترانزيت الديوانية', place('ترانزيت الى ص/ النموذجية / الديوانية'), ['', 'القادسية', 'sales?']);
+eq('محافظة ملتصقة بالاسم', place('ترانزيت الى ص/ النموذجية الديوانية'), ['', 'القادسية', 'sales?']);
+eq('بلا تلميح ← السيرفي', place('ترانزيت الى ص/ النموذجية'), ['الحارثية', '', 'survey']);
+eq('منطقة باسم بديل لمحافظة', place('ترانزيت الى صيدلية العامرية المركزية / الفلوجة'), ['الفلوجة', 'الأنبار', 'note']);
+eq('منطقة داخل المحافظة', place('ترانزيت الى ص/ النموذجية / الديوانية - حي العسكري'), ['حي العسكري', 'القادسية', 'note']);
+eq('محافظة الصف تمنع صيدلية بغداد', place('ترانزيت الى ص/ النموذجية', 'الديوانية'), ['', 'القادسية', 'sales?']);
+eq('صف بغداد ← السيرفي في بغداد', place('ترانزيت الى ص/ النموذجية', 'بغداد'), ['الحارثية', '', 'survey']);
+eq('بغداد بلا منطقة لا تُنسب للمحافظة', place('ترانزيت الى ص/ غير موجودة / بغداد'), ['', '', 'sales?']);
+eq('منطقة مكتوبة غير معروفة', place('ترانزيت الى ص/ النموذجية / قرية بعيدة'), ['', '', 'unknown-area']);
 
 console.log(fail ? `\n${fail} فشل` : '\nكل الاختبارات نجحت');
 process.exit(fail ? 1 : 0);

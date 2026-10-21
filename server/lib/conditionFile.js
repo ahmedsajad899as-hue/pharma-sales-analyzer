@@ -140,9 +140,10 @@ async function loadOfficeRepScopes(officeId) {
   const [areaLinks, provRows, allAreas] = await Promise.all([
     prisma.scientificRepArea.findMany({ where: { scientificRepId: { in: repIds } }, select: { scientificRepId: true, areaId: true } }),
     prisma.userProvinceAssignment.findMany({ where: { userId: { in: users.map(u => u.id) } }, select: { userId: true, provinceId: true } }),
-    prisma.area.findMany({ select: { id: true, name: true } }),
+    prisma.area.findMany({ select: { id: true, name: true, provinceId: true } }),
   ]);
   const areaName = new Map(allAreas.map(a => [a.id, a.name]));
+  const areaProvince = new Map(allAreas.map(a => [a.id, a.provinceId]));
   const { resolveSciRepItemIds } = await import('../modules/scientific-reps/scientific-reps.service.js');
   const scopes = [];
   for (const repId of repIds) {
@@ -155,12 +156,17 @@ async function loadOfficeRepScopes(officeId) {
     ];
     const areaNorms = new Set(areaIds.map(id => areaName.get(id)).filter(Boolean).map(n => normalizeArabic(n)));
     if (!areaNorms.size) continue;
+    const provinceIds = new Set([...provIds, ...areaIds.map(id => areaProvince.get(id)).filter(Boolean)]);
     const { itemIds } = await resolveSciRepItemIds(repId, repUsers.map(u => ({ id: u.id })));
-    scopes.push({ name: repUsers[0].displayName || repUsers[0].username, areaNorms, itemIds: itemIds ? new Set(itemIds) : null });
+    scopes.push({ name: repUsers[0].displayName || repUsers[0].username, areaNorms, provinceIds, itemIds: itemIds ? new Set(itemIds) : null });
   }
   return scopes;
 }
 
+const HOW_LABEL = {
+  note: 'من الملاحظة', survey: 'من السيرفي', sales: 'من سجل المبيعات',
+  province: 'غير معروفة — المحافظة من الملاحظة', 'unknown-area': 'المكتوبة غير معروفة في السستم',
+};
 const INVOICE_KEY_RE = /رقم\s*(ال)?(فاتور|طلب)|invoice/i;
 
 /**
@@ -203,8 +209,9 @@ async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFi
     const invoiceKey = Object.keys(raw).find(k => INVOICE_KEY_RE.test(k));
     const qty = Number(s.quantity) || 0;
     const total = inTarget(s);
-    const reps = t.areaNorm
-      ? scopes.filter(r => r.areaNorms.has(t.areaNorm) && (!r.itemIds || r.itemIds.has(s.itemId))).map(r => repCoreName(r.name))
+    const inPlace = (r) => (t.areaNorm ? r.areaNorms.has(t.areaNorm) : !!t.provinceId && r.provinceIds.has(t.provinceId));
+    const reps = (t.areaNorm || t.provinceId)
+      ? scopes.filter(r => inPlace(r) && (!r.itemIds || r.itemIds.has(s.itemId))).map(r => repCoreName(r.name))
       : [];
     return {
       reps: [...new Set(reps)],
@@ -213,7 +220,7 @@ async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFi
         date:      s.saleDate && new Date(s.saleDate) >= UNDATED_CUTOFF ? new Date(s.saleDate).toISOString().slice(0, 10) : '',
         invoice:   invoiceKey ? String(raw[invoiceKey] ?? '').trim() : '',
         pharmacy:  t.pharmacy,
-        area:      t.areaName,
+        area:      t.areaName || (t.provinceName ? `${t.provinceName} (المحافظة)` : ''),
         warehouse: s.customer?.name ?? '',
         item:      s.item?.name ?? '',
         company:   s.item?.scientificCompany?.name || s.item?.company?.name || '',
@@ -223,7 +230,7 @@ async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFi
         total,
         source:    'ترانزيت',
         transit:   true,
-        note:      t.note,
+        note:      `${t.note}${HOW_LABEL[t.how] ? ` — المنطقة ${HOW_LABEL[t.how]}` : ''}`,
         itemId:    s.itemId ?? null,
         sciCompanyId: s.item?.scientificCompanyId ?? null,
       },

@@ -1247,15 +1247,17 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   }
 
   let areaIds = null;
-  // أسماء مناطق المندوب مطبَّعة — تُطابَق بها منطقة صيدلية الترانزيت (اسم لا معرّف).
+  // أسماء مناطق المندوب مطبَّعة — تُطابَق بها منطقة صيدلية الترانزيت (اسم لا معرّف) —
+  // ومحافظاته، لترانزيت عُرفت محافظته وحدها («النموذجية / الديوانية»).
   const areaNormSet = new Set();
+  const provinceIdSet = new Set();
   if (areaLinks.length || provinceAreaIds.length) {
     // Always keep the directly-linked area IDs; also expand by NORMALISED name to
     // catch duplicate area records that spell the same place differently
     // (الشعب/شعب, الحسينية/حسينيه, شارع المغرب/شارع مغرب…). Without this, sales
     // stored under one spelling are missed when the rep is assigned another.
     const directAreaIds = [...areaLinks.map(l => l.areaId), ...provinceAreaIds];
-    const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
+    const allAreas = await prisma.area.findMany({ select: { id: true, name: true, provinceId: true } });
     const directSet = new Set(directAreaIds);
     const assignedNorms = new Set(
       allAreas.filter(a => directSet.has(a.id)).map(a => normalizeArabic(a.name)),
@@ -1263,6 +1265,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     const matchingIds = allAreas.filter(a => assignedNorms.has(normalizeArabic(a.name))).map(a => a.id);
     areaIds = [...new Set([...directAreaIds, ...matchingIds])];
     for (const n of assignedNorms) areaNormSet.add(n);
+    for (const a of allAreas) if (directSet.has(a.id) && a.provinceId) provinceIdSet.add(a.provinceId);
   }
 
   const { itemIds, itemLinks } = await resolveSciRepItemIds(id, repUsers);
@@ -1438,13 +1441,13 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     const blockedAreaSet = new Set(blockedAreaIds);
     for (const s of transit) {
       const t = s.transit;
-      if (!t.areaNorm || !areaNormSet.has(t.areaNorm)) continue;
+      if (t.areaNorm ? !areaNormSet.has(t.areaNorm) : !(t.provinceId && provinceIdSet.has(t.provinceId))) continue;
       if (t.areaId && blockedAreaSet.has(t.areaId)) continue;
       rawSales.push({
         ...s,
         areaId:   t.areaId ?? s.areaId,
         // province: null ← التصدير يملؤها من اسم المنطقة (لا محافظة المذخر).
-        area:     s.area ? { ...s.area, id: t.areaId ?? s.area.id, name: t.areaName, ...('province' in s.area ? { province: null } : {}) } : s.area,
+        area:     s.area ? { ...s.area, id: t.areaId ?? s.area.id, name: t.areaName || `${t.provinceName} (المحافظة)`, ...('province' in s.area ? { province: t.provinceName ? { name: t.provinceName } : null } : {}) } : s.area,
         customer: s.customer ? { ...s.customer, name: t.pharmacy } : s.customer,
         customerId: null,
       });
