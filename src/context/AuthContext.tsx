@@ -79,10 +79,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ~a minute (or instantly when they return to the tab) without a manual reload
   // or re-login. Throttled so rapid focus events don't spam the server.
   useEffect(() => {
-    if (_isImp()) return; // impersonation sessions keep their snapshot
+    const imp = _isImp();
     let lastRun = 0;
     const refresh = () => {
-      const storedToken = localStorage.getItem('auth_token');
+      const storedToken = imp ? sessionStorage.getItem('_imp_token') : localStorage.getItem('auth_token');
       if (!storedToken) return;
       const now = Date.now();
       if (now - lastRun < 15000) return; // at most once / 15s
@@ -90,6 +90,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fetch('/api/auth/me', { headers: { Authorization: `Bearer ${storedToken}` } })
         .then(r => r.json())
         .then(data => {
+          // جلسة «الدخول كحساب»: حدّث نسختها فقط — لا تلمس جلسة الأدمن المحفوظة في localStorage
+          if (imp) {
+            if (data.user) {
+              sessionStorage.setItem('_imp_user', JSON.stringify(data.user));
+              setUser(data.user);
+            }
+            return;
+          }
           if (data.user) {
             localStorage.setItem('auth_user', JSON.stringify(data.user));
             setUser(data.user);
