@@ -44,6 +44,9 @@ const areaKey  = (v) => {
   const s = String(v ?? '').trim();
   return !s || s === 'غير محدد' ? '' : normalizeAreaName(s).replace(/\s+/g, '');
 };
+// «المنارة - بغداد» (ميركاتو) = «مذخر المنارة» (البوت): تُسقط لاحقة المحافظة وكلمة «مذخر» و«ال».
+const whKey    = (v) => normalizeArabic(String(v ?? '').split(/\s+-\s+/)[0])
+  .toLowerCase().replace(/مذاخر|مذخر/g, ' ').split(/\s+/).map(t => t.replace(/^ال(?=..)/, '')).join('');
 const compKey  = (v) => normalizeArabic(String(v ?? '')).toLowerCase().replace(/\s+/g, '');
 
 /** true | false | null (لا يُعرف — أحد الطرفين فارغ). */
@@ -108,6 +111,10 @@ function compareOrder(inc, ex) {
   const invBoth = Boolean(inc.invoice && ex.invoice && !ex.mercato);
   const pharm   = namesMatch(inc.pharmacy, ex.pharmacy);
   if (!invSame && pharm !== true) return null;  // بلا رقم مطابق: الصيدلية شرط
+  // مذخر مختلف = طلبية أخرى (الصيدلية تطلب الأصناف نفسها من مذخرين) — حتى مع رقم مطابق،
+  // فأرقام الفواتير تتكرّر بين المذاخر.
+  const wh      = namesMatch(inc.warehouse, ex.warehouseKey, 0.85);
+  if (wh === false) return null;
   const area    = namesMatch(inc.area, ex.area, 0.85);
   // الطرف بلا تاريخ (طلبية نصية) يُقاس بلحظة وصوله/حفظه بدلاً منه — كي لا
   // تُطابَق طلبية من شهر مضى لمجرد تشابه الصيدلية والأصناف.
@@ -148,6 +155,7 @@ function compareOrder(inc, ex) {
   if (invSame) reasons.push('نفس رقم الفاتورة');
   if (pharm) reasons.push('نفس الصيدلية');
   if (area) reasons.push('نفس المنطقة');
+  if (wh) reasons.push('نفس المذخر');
   if (date === 'same') reasons.push(exactDate ? 'نفس التاريخ' : 'بنفس اليوم');
   else if (date === 'near') reasons.push('تاريخ قريب');
   if (matched) reasons.push(`${sameQty === matched ? matched : `${matched} (${sameQty} بنفس الكمية)`} من ${inc.items.length} أصناف مطابقة`);
@@ -168,6 +176,8 @@ function buildIncomingOrder(groupKey, rows, ctx, fallbackDay) {
     rawInvoice: String(first.invoiceNumber ?? '').trim(),
     pharmacy: pharmKey(rows.find(r => r.pharmacy)?.pharmacy),
     area:     areaKey(rows.find(r => r.area)?.area),
+    warehouse: whKey(rows.find(r => r.warehouse)?.warehouse),
+    warehouseKey: whKey(rows.find(r => r.warehouse)?.warehouse),
     day,
     fallbackDay,
     items: rows.map(r => {
@@ -239,6 +249,7 @@ async function loadSavedOrders(files, dateOr, take = 30000) {
         pharmacy: pk, pharmacyName,
         area: areaKey(s.area?.name), areaName: s.area?.name && s.area.name !== 'غير محدد' ? s.area.name : '',
         warehouse: String(raw.warehouse ?? raw['اسم المذخر'] ?? '').trim(),
+        warehouseKey: whKey(raw.warehouse ?? raw['اسم المذخر']),
         rep: String(raw['اسم المندوب'] ?? raw.scientificRep ?? '').trim(),
         source: SOURCE_LABEL[raw.source] || '',
         day, savedDay: dayOf(s.createdAt), savedAt: s.createdAt,
@@ -359,7 +370,7 @@ export async function checkManualDuplicates({ rows, target = {}, userId, receive
 }
 
 /** للاختبار فقط (scripts/test-manual-duplicates.mjs). */
-export const __test = { compareOrder, buildIncomingOrder, realInvoice, pharmKey, areaKey, dayOf };
+export const __test = { compareOrder, buildIncomingOrder, realInvoice, pharmKey, areaKey, dayOf, whKey };
 
 /** سطر تنبيه قصير لردّ البوت، أو '' إن لم يوجد تكرار يُذكر. */
 export function duplicateWarningText(result) {

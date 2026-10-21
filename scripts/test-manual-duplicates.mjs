@@ -91,5 +91,24 @@ check('ميركاتو: صيدلية أخرى ⇒ جديدة', level([
   { invoiceNumber: '5521', date: '2026-10-16', pharmacy: 'النور', area: 'الدورة', item: 'AMOKLAVIN BID 1000MG 10TAB', quantity: 50 },
 ], mercatoSaved), 'new');
 
+// 11) حالتا 2026-10-21: نفس الصيدلية والصنف والكمية، لكن ميركاتو جهّزها مذخر آخر ⇒ طلبية جديدة
+const mercatoOrder = (pharmacy, warehouse, item, qty) => ({
+  invoice: '', rawInvoice: '', mercato: true, pharmacy: pharmKey(pharmacy), pharmacyName: pharmacy, area: '', areaName: '',
+  warehouse, warehouseKey: __test.whKey(warehouse),
+  day: dayOf(new Date('2026-10-12T00:00:00Z')), savedDay: dayOf(NOW), items: [exItem(item, qty)],
+});
+check('هيثم عكلة: المنارة (ميركاتو) ≠ العهد الجديد (البوت)', level([
+  { date: '2026-10-12', pharmacy: 'هيثم عكلة حنون', area: 'مدينة الصدر', warehouse: 'العهد الجديد', item: 'CANDEXIL PLUS 16/12.5MG 28TAB', quantity: 10 },
+], mercatoOrder('هيثم عكله حنون', 'المنارة - بغداد', 'CANDEXIL PLUS 16/12.5MG 28TAB', 10)), 'new');
+check('شناشيل: طريق السلام (ميركاتو) ≠ سما المحيط (البوت)', level([
+  { date: '2026-10-12', pharmacy: 'شناشيل', area: 'بغداد الجديدة', warehouse: 'سما المحيط', item: 'PANDEV 40MG 14TAB', quantity: 10 },
+], mercatoOrder('الشناشيل', 'طريق السلام - بغداد', 'PANDEV 40MG 14TAB', 10)), 'new');
+check('نفس المذخر بصيغتين («مذخر المنارة» = «المنارة - بغداد») ⇒ مكررة', level([
+  { date: '2026-10-12', pharmacy: 'هيثم عكلة حنون', warehouse: 'مذخر المنارة', item: 'CANDEXIL PLUS 16/12.5MG 28TAB', quantity: 10 },
+], mercatoOrder('هيثم عكله حنون', 'المنارة - بغداد', 'CANDEXIL PLUS 16/12.5MG 28TAB', 10)), 'duplicate');
+check('البوت بلا مذخر ⇒ يبقى التنبيه', level([
+  { date: '2026-10-12', pharmacy: 'هيثم عكلة حنون', item: 'CANDEXIL PLUS 16/12.5MG 28TAB', quantity: 10 },
+], mercatoOrder('هيثم عكله حنون', 'المنارة - بغداد', 'CANDEXIL PLUS 16/12.5MG 28TAB', 10)), 'duplicate');
+
 if (fail) { console.error(`\n${fail} اختبار فشل`); process.exit(1); }
 console.log('\nكل الاختبارات نجحت');

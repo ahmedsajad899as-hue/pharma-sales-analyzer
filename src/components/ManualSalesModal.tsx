@@ -433,7 +433,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   const [dupChecking, setDupChecking] = useState(false);
   const dupPayload = rows.map(r => ({
     group: dupGroupKey(r), invoiceNumber: r.invoiceNumber.trim(), date: r.date, pharmacy: r.pharmacy.trim(),
-    area: r.area.trim(), item: r.item.trim(), company: r.company.trim(), quantity: Number(r.quantity) || 0,
+    area: r.area.trim(), warehouse: r.warehouse.trim(), item: r.item.trim(), company: r.company.trim(), quantity: Number(r.quantity) || 0,
   }));
   const dupTarget = destMode === 'existing' && destFileId ? { fileId: destFileId } : destMode === 'condition' ? { condition: true } : {};
   const dupSig = JSON.stringify([dupTarget, dupPayload]);
