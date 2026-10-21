@@ -117,13 +117,15 @@ function PlexusBackground() {
     const frame = () => {
       ctx.clearRect(0, 0, w, h);
       for (const p of pts) {
+        let nearMouse = false;
         if (mouse.on) {
           const dx = mouse.x - p.x, dy = mouse.y - p.y, d = Math.hypot(dx, dy);
-          if (d < MOUSE_R && d > 1) { p.vx += (dx / d) * 0.003; p.vy += (dy / d) * 0.003; }
+          if (d < MOUSE_R && d > 1) { nearMouse = true; p.vx += (dx / d) * 0.0012; p.vy += (dy / d) * 0.0012; }
         }
-        // سقف سرعة منخفض: التجمّع حول المؤشر والتفرّق بعده يحدثان ببطء وهدوء
+        // سقف سرعة منخفض، وأخفض قرب المؤشر: التجمّع حوله والتفرّق بعده بطيئان جداً
+        const cap = nearMouse ? 0.18 : 0.4;
         const sp = Math.hypot(p.vx, p.vy);
-        if (sp > 0.4) { p.vx *= 0.4 / sp; p.vy *= 0.4 / sp; }
+        if (sp > cap) { p.vx *= cap / sp; p.vy *= cap / sp; }
         else if (sp < 0.12) { p.vx += (Math.random() - 0.5) * 0.04; p.vy += (Math.random() - 0.5) * 0.04; }
         p.x += p.vx; p.y += p.vy;
         if (p.x < 0 || p.x > w) { p.vx *= -1; p.x = Math.max(0, Math.min(w, p.x)); }
