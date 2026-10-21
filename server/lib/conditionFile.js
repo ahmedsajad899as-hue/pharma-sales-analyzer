@@ -161,7 +161,7 @@ export async function transitSourceFiles(viewerId) {
 async function loadOfficeRepScopes(officeId) {
   const users = await prisma.user.findMany({
     where:  { officeId, isActive: true, linkedRepId: { not: null } },
-    select: { id: true, displayName: true, username: true, linkedRepId: true },
+    select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
   });
   if (!users.length) return [];
   const repIds = [...new Set(users.map(u => u.linkedRepId))];
@@ -178,17 +178,32 @@ async function loadOfficeRepScopes(officeId) {
     const repUsers = users.filter(u => u.linkedRepId === repId);
     const userIds = new Set(repUsers.map(u => u.id));
     const provIds = [...new Set(provRows.filter(p => userIds.has(p.userId)).map(p => p.provinceId))];
-    const areaIds = [
-      ...areaLinks.filter(l => l.scientificRepId === repId).map(l => l.areaId),
-      ...await areaIdsOfProvinces(provIds),
-    ];
+    const directAreaIds = areaLinks.filter(l => l.scientificRepId === repId).map(l => l.areaId);
+    const areaIds = [...directAreaIds, ...await areaIdsOfProvinces(provIds)];
     const areaNorms = new Set(areaIds.map(id => areaName.get(id)).filter(Boolean).map(n => normalizeArabic(n)));
+    const directAreaNorms = new Set(directAreaIds.map(id => areaName.get(id)).filter(Boolean).map(n => normalizeArabic(n)));
     if (!areaNorms.size) continue;
     const provinceIds = new Set([...provIds, ...areaIds.map(id => areaProvince.get(id)).filter(Boolean)]);
     const { itemIds } = await resolveSciRepItemIds(repId, repUsers.map(u => ({ id: u.id })));
-    scopes.push({ name: repUsers[0].displayName || repUsers[0].username, areaNorms, provinceIds, wholeProvinceIds: new Set(provIds), itemIds: itemIds ? new Set(itemIds) : null });
+    scopes.push({
+      name: repUsers[0].displayName || repUsers[0].username, areaNorms, directAreaNorms, provinceIds,
+      leader: repUsers.some(u => u.role === 'team_leader'), wholeProvinceIds: new Set(provIds), itemIds: itemIds ? new Set(itemIds) : null });
   }
   return scopes;
+}
+
+/**
+ * من يُسجَّل باسمه طلب الترانزيت من بين كل مَن تشمل مناطقُه وايتماته الصيدلية:
+ * مندوب المنطقة نفسها، ثم مندوب يغطيها بمحافظته، وإلا التيم ليدر — مناطق التيم
+ * ليدر تشمل مناطق مندوبيه، فبلا هذا الترتيب يظهر الطلب باسمه بدل المندوب.
+ */
+export function pickTransitReps(matched, transit) {
+  const tiers = [
+    matched.filter(r => !r.leader && transit.areaNorm && r.directAreaNorms?.has(transit.areaNorm)),
+    matched.filter(r => !r.leader),
+    matched,
+  ];
+  return tiers.find(t => t.length) || [];
 }
 
 const HOW_LABEL = {
@@ -242,7 +257,7 @@ async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFi
       ? r.areaNorms.has(t.areaNorm)
       : !!t.provinceId && (t.provinceStrict ? r.wholeProvinceIds : r.provinceIds).has(t.provinceId));
     const reps = (t.areaNorm || t.provinceId)
-      ? scopes.filter(r => inPlace(r) && (!r.itemIds || r.itemIds.has(s.itemId))).map(r => repCoreName(r.name))
+      ? pickTransitReps(scopes.filter(r => inPlace(r) && (!r.itemIds || r.itemIds.has(s.itemId))), t).map(r => repCoreName(r.name))
       : [];
     return {
       reps: [...new Set(reps)],

@@ -4,6 +4,7 @@ import { parseTransitNote, parseTransitRow, placeFromNote } from '../server/lib/
 import { buildMasterIndex } from '../server/lib/invoiceCustomerMatch.js';
 import { buildProvinceLookup } from '../server/lib/provinces.js';
 import { normalizeAreaName } from '../server/lib/itemResolver.js';
+import { pickTransitReps } from '../server/lib/conditionFile.js';
 
 let fail = 0;
 const eq = (name, got, want) => {
@@ -62,6 +63,18 @@ eq('مذخر في الديوانية يمنع صيدلية بغداد', place('�
 eq('مذخر في بغداد ← السيرفي في بغداد', place('ترانزيت الى ص/ النموذجية', '', 11), ['الحارثية', 'بغداد', 'survey']);
 eq('محافظة الملاحظة تتقدّم على المذخر', place('ترانزيت الى ص/ النموذجية / الديوانية', '', 11), ['', 'القادسية', 'sales?']);
 eq('منطقة مكتوبة غير معروفة', place('ترانزيت الى ص/ النموذجية / قرية بعيدة'), ['', '', 'unknown-area']);
+
+// ── باسم مَن يُسجَّل الترانزيت: مندوب المنطقة قبل التيم ليدر (مناطقه تشمل مناطق مندوبيه) ──
+const harithiya = { areaNorm: 'الحارثيه' };
+const leader = { name: 'سيف سعد', leader: true, directAreaNorms: new Set(['الحارثيه', 'المنصور']) };
+const repH = { name: 'عبدالله سعيد', leader: false, directAreaNorms: new Set(['الحارثيه']) };
+const repProv = { name: 'مندوب بغداد', leader: false, directAreaNorms: new Set() };
+const names = (m, t = harithiya) => pickTransitReps(m, t).map(r => r.name);
+eq('مندوب المنطقة لا التيم ليدر', names([leader, repH]), ['عبدالله سعيد']);
+eq('مندوب المنطقة قبل مندوب المحافظة', names([repProv, repH, leader]), ['عبدالله سعيد']);
+eq('مندوب بالمحافظة قبل التيم ليدر', names([leader, repProv]), ['مندوب بغداد']);
+eq('لا مندوب ⇒ التيم ليدر', names([leader]), ['سيف سعد']);
+eq('لا أحد', names([]), []);
 
 console.log(fail ? `\n${fail} فشل` : '\nكل الاختبارات نجحت');
 process.exit(fail ? 1 : 0);
