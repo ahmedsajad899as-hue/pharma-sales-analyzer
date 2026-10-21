@@ -115,10 +115,11 @@ function PlexusBackground() {
       for (const p of pts) {
         if (mouse.on) {
           const dx = mouse.x - p.x, dy = mouse.y - p.y, d = Math.hypot(dx, dy);
-          if (d < MOUSE_R && d > 1) { p.vx += (dx / d) * 0.012; p.vy += (dy / d) * 0.012; }
+          if (d < MOUSE_R && d > 1) { p.vx += (dx / d) * 0.003; p.vy += (dy / d) * 0.003; }
         }
+        // سقف سرعة منخفض: التجمّع حول المؤشر والتفرّق بعده يحدثان ببطء وهدوء
         const sp = Math.hypot(p.vx, p.vy);
-        if (sp > 0.9) { p.vx *= 0.9 / sp; p.vy *= 0.9 / sp; }
+        if (sp > 0.4) { p.vx *= 0.4 / sp; p.vy *= 0.4 / sp; }
         else if (sp < 0.12) { p.vx += (Math.random() - 0.5) * 0.04; p.vy += (Math.random() - 0.5) * 0.04; }
         p.x += p.vx; p.y += p.vy;
         if (p.x < 0 || p.x > w) { p.vx *= -1; p.x = Math.max(0, Math.min(w, p.x)); }
