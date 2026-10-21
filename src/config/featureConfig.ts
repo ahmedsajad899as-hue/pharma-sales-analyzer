@@ -58,6 +58,7 @@ export const NAV_ITEMS: NavItemDef[] = [
 // مفتاح ميزة ← يخفي هذا المفتاح صفحة كاملة عند تعطيله (يمكن لعدة مفاتيح أن تشير لنفس الصفحة)
 export const FEATURE_PAGE_MAP: Record<string, string> = {
   home_page:          'home',
+  dashboard_page:     'dashboard',
   monthly_plans:      'monthly-plans',
   daily_plans:        'daily-plan',
   reports:            'reports',
@@ -89,7 +90,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
 // وصف كل صفحة يظهر للأدمن في شاشة المميزات
 export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'home':              'الرئيسية — آخر تطورات مبيع الايتمات المتابَعة شهراً بشهر: الكمية والقيمة لكل ايتم وتوزيعها على المحافظات',
-  'dashboard':         'الكولات اليومية — تسجيل ومتابعة زيارات اليوم (متاحة دائماً لجميع المستخدمين)',
+  'dashboard':         'الكولات اليومية — تسجيل ومتابعة زيارات اليوم',
   'rep-analysis':      'صفحة رفع وتحليل ملفات بيانات المندوبين',
   'doctors':           'صفحة إدارة الأطباء والزيارات (قائمة السيرفي) — متاحة لجميع الأدوار',
   'monthly-plans':     'صفحة إنشاء وإدارة البلانات الشهرية',

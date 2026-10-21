@@ -7,7 +7,7 @@ import LoginPage from './pages/LoginPage';
 import RepNameMatchModal from './components/RepNameMatchModal';
 import { Icon } from './config/icons';
 import { getPageHeader, getPageHeaderIcon } from './config/pageHeaders';
-import { NAV_ITEMS } from './config/featureConfig';
+import { NAV_ITEMS, FEATURE_PAGE_MAP } from './config/featureConfig';
 import { sendEngagementPing, pingAppOpenIfNewDay } from './lib/engagementPing';
 import { useEngagementHeartbeat } from './hooks/useEngagementHeartbeat';
 import { useTimeOfDay } from './lib/timeTheme';
@@ -605,6 +605,18 @@ function AppInner() {
     // while stale ones are freed (see keepMounted / MAX_ALIVE).
     setMountedPages(prev => keepMounted(prev, page));
   }, []);
+  // صفحة أُطفئت من «المميزات» لا تُفتح حتى لو كانت آخر صفحة محفوظة (lastPage) —
+  // ننتقل لأول صفحة مسموحة في القائمة الجانبية لهذا الدور.
+  useEffect(() => {
+    const isHidden = (pageId: string) =>
+      Object.entries(FEATURE_PAGE_MAP).some(([k, p]) => p === pageId && !hasFeature(k));
+    if (!user || !isHidden(activePage)) return;
+    const fallback = NAV_ITEMS.find(n =>
+      (n.roles.length === 0 || n.roles.includes(user.role)) && !isHidden(n.id));
+    if (fallback) navigateTo(fallback.id as PageId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage, user]);
+
 
   // Also mount the initial page
   useEffect(() => {
