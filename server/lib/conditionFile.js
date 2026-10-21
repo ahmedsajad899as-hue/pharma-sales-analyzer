@@ -21,7 +21,8 @@ import { getManagerRoster } from './managerRoster.js';
 import { loadItemOwnerManagers } from './itemOwnerManager.js';
 import { loadTransitSales, officeFileIdsOf } from './transitOrders.js';
 import { areaIdsOfProvinces } from './areaScope.js';
-import { normalizeArabic } from './itemResolver.js';
+import { normalizeArabic, normalizeAreaName } from './itemResolver.js';
+import { buildProvinceLookup, matchProvinceName, extractRawColumnValue, PROVINCE_COLUMN_ALIASES } from './provinces.js';
 
 export const isConditionFile = (file) => fileVariant(file) === CONDITION_VARIANT;
 
@@ -45,13 +46,39 @@ const NO_REP = 'بلا مندوب';
  * transit: طلبيات الترانزيت من ملفات المكتب المفعّلة (راجع transitSourceFiles)
  * تُضاف لشيت كل مندوب تخصّه بعلامة «ترانزيت» — للقراءة فقط، صفوفها في ملف المكتب.
  */
+/**
+ * محافظة الصف — لزرّي «بغداد / المحافظات» في عرض الملف. من محافظة منطقته، وإلا
+ * منطقة بنفس الاسم لها محافظة (المناطق لكل حساب)، وإلا عمود المحافظة في الصف.
+ */
+async function loadProvinceResolver() {
+  const [provinces, areas] = await Promise.all([
+    prisma.province.findMany({ select: { id: true, name: true, aliases: true } }),
+    prisma.area.findMany({ where: { provinceId: { not: null } }, select: { name: true, province: { select: { name: true } } } }),
+  ]);
+  const lookup = buildProvinceLookup(provinces);
+  const byArea = new Map();
+  for (const a of areas) {
+    const k = normalizeAreaName(a.name);
+    if (k && !byArea.has(k)) byArea.set(k, a.province.name);
+  }
+  return ({ areaName = '', raw = null } = {}) => {
+    if (areaName) {
+      const p = byArea.get(normalizeAreaName(areaName)) || matchProvinceName(areaName, lookup)?.name;
+      if (p) return p;
+    }
+    const col = raw ? (raw.province || extractRawColumnValue(raw, PROVINCE_COLUMN_ALIASES)) : '';
+    return (col && matchProvinceName(col, lookup)?.name) || '';
+  };
+}
+
 export async function loadConditionSheets(fileId, { month = null, transit = null } = {}) {
+  const provinceOf = await loadProvinceResolver();
   const sales = await prisma.sale.findMany({
     where:   { uploadedFileId: fileId, isHidden: false, recordType: 'sale', ...buildMonthFilter(month) },
     orderBy: [{ saleDate: 'asc' }, { id: 'asc' }],
     select: {
       id: true, quantity: true, totalValue: true, saleDate: true, rawData: true,
-      itemId: true, item: { select: { name: true, scientificCompanyId: true } }, area: { select: { name: true } },
+      itemId: true, item: { select: { name: true, scientificCompanyId: true } }, area: { select: { name: true, province: { select: { name: true } } } },
       customer: { select: { name: true } }, representative: { select: { name: true } },
     },
   });
@@ -68,6 +95,7 @@ export async function loadConditionSheets(fileId, { month = null, transit = null
       invoice:   String(raw.invoiceNumber ?? '').trim(),
       pharmacy:  String(raw.pharmacy || s.customer?.name || '').trim(),
       area:      s.area?.name && s.area.name !== 'غير محدد' ? s.area.name : '',
+      province:  s.area?.province?.name || provinceOf({ areaName: s.area?.name !== 'غير محدد' ? s.area?.name : '', raw }),
       warehouse: String(raw.warehouse ?? '').trim(),
       item:      s.item?.name ?? '',
       company:   String(raw.company ?? '').trim(),
@@ -89,7 +117,7 @@ export async function loadConditionSheets(fileId, { month = null, transit = null
   }
 
   if (transit?.officeFileIds?.length) {
-    const transitRows = await loadTransitConditionRows(fileId, { month, ...transit });
+    const transitRows = await loadTransitConditionRows(fileId, { month, ...transit, provinceOf });
     // نفس المندوب قد يُكتب في صفوف الكوديشن باسم أطول من اسم حسابه.
     const index = buildRepIndex([...byRep.keys()].filter(k => k !== NO_REP).map((k, i) => ({ id: i, name: k })));
     const keyOf = (name) => {
@@ -175,7 +203,7 @@ const INVOICE_KEY_RE = /رقم\s*(ال)?(فاتور|طلب)|invoice/i;
  * منطقة الصيدلية ضمن مناطقه والايتم ضمن ايتماته. القيمة بعملة ملف الكوديشن.
  * @returns {Promise<Array<{reps:string[], row:object}>>}  reps فارغة = لم يُعرف لمن
  */
-async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFileIds }) {
+async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFileIds, provinceOf }) {
   const file = await prisma.uploadedFile.findUnique({
     where:  { id: fileId },
     select: { detectedCurrency: true, exchangeRate: true, user: { select: { officeId: true } } },
@@ -224,6 +252,7 @@ async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFi
         invoice:   invoiceKey ? String(raw[invoiceKey] ?? '').trim() : '',
         pharmacy:  t.pharmacy,
         area:      t.areaName || (t.provinceName ? `${t.provinceName} (المحافظة)` : ''),
+        province:  t.provinceName || (t.areaName ? provinceOf({ areaName: t.areaName }) : ''),
         warehouse: s.customer?.name ?? '',
         item:      s.item?.name ?? '',
         company:   s.item?.scientificCompany?.name || s.item?.company?.name || '',
@@ -264,6 +293,26 @@ export async function scopeSheetsToRoster(sheets, user) {
     const top = m.suggestions[0], second = m.suggestions[1];
     return m.status === 'ask' && !!top && top.score >= 0.7 && (!second || top.score - second.score >= 0.15);
   });
+}
+
+/**
+ * زرّا «بغداد / المحافظات»: يُبقي صفوف النطاق فقط ويُعيد حساب مجاميع كل شيت،
+ * ويُسقط الشيت الذي فرغ. صف بلا محافظة معروفة يُعدّ من «المحافظات» (لا يضيع).
+ * نفس المنطق في ConditionFileModal.tsx (scopeSheet).
+ * @param {'baghdad'|'provinces'|null} scope
+ */
+export function filterSheetsByProvince(sheets, scope) {
+  if (scope !== 'baghdad' && scope !== 'provinces') return sheets;
+  const keep = (r) => (r.province === 'بغداد') === (scope === 'baghdad');
+  return sheets.map(s => {
+    const rows = s.rows.filter(keep);
+    return {
+      ...s, rows,
+      quantity: rows.reduce((a, r) => a + r.quantity, 0),
+      total: rows.reduce((a, r) => a + r.total, 0),
+      orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
+    };
+  }).filter(s => s.rows.length > 0 || s.all);
 }
 
 export const COMPANY_SHEET = 'كل مبيعات الشركة';
@@ -313,7 +362,7 @@ export async function buildCompanySheet(allSheets, scoped, user) {
 }
 
 const COLUMNS = [
-  ['date', 'التاريخ'], ['invoice', 'رقم الفاتورة'], ['pharmacy', 'الصيدلية'], ['area', 'المنطقة'],
+  ['date', 'التاريخ'], ['invoice', 'رقم الفاتورة'], ['pharmacy', 'الصيدلية'], ['area', 'المنطقة'], ['province', 'المحافظة'],
   ['warehouse', 'المذخر'], ['item', 'الايتم'], ['company', 'الشركة'], ['quantity', 'الكمية'],
   ['bonus', 'البونص'], ['unitPrice', 'السعر'], ['total', 'القيمة'], ['source', 'المصدر'],
 ];

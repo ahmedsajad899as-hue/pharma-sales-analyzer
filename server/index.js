@@ -20,7 +20,7 @@ import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
 import { updateConditionRow, deleteConditionRow } from './modules/sales/sales.service.js';
-import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles } from './lib/conditionFile.js';
+import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles, filterSheetsByProvince } from './lib/conditionFile.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -2235,13 +2235,13 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
     // طلبيات الترانزيت من ملفات المكتب المفعّلة للمُشاهِد (lib/transitOrders.js).
     const transit = await transitSourceFiles(req.user?.id ?? null);
-    const [all, months] = await Promise.all([
-      loadConditionSheets(id, { month: req.query.month || null, transit }),
-      listSalesMonths(prisma, [id, ...transit.officeFileIds], 'sale'),
-    ]);
+    const months = await listSalesMonths(prisma, [id, ...transit.officeFileIds], 'sale');
+    // month=latest (الافتراضي في الواجهة) ← آخر شهر فيه بيانات.
+    const month = req.query.month === 'latest' ? (months.latest || 'all') : (req.query.month || null);
+    const all = await loadConditionSheets(id, { month, transit });
     const sheets = await scopeSheetsToRoster(all, req.user);
     const companySheet = await buildCompanySheet(all, sheets, req.user);
-    res.json({ success: true, data: { file, sheets, companySheet, months } });
+    res.json({ success: true, data: { file, sheets, companySheet, months, month: month || 'all' } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // PATCH/DELETE /api/files/:id/condition-rows/:saleId — تعديل/حذف صف (المالك فقط)
@@ -2263,11 +2263,16 @@ app.get('/api/files/:id/condition-export', requireAuth, async (req, res) => {
   try {
     const file = await findReadableFile(id, req.user?.id ?? null);
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
-    const month = req.query.month || null;
-    const all = await loadConditionSheets(id, { month, transit: await transitSourceFiles(req.user?.id ?? null) });
-    const sheets = await scopeSheetsToRoster(all, req.user);
-    const companySheet = await buildCompanySheet(all, sheets, req.user);
-    const title = `${file.originalName}${month && month !== 'all' ? ` — ${month}` : ''}`;
+    const transit = await transitSourceFiles(req.user?.id ?? null);
+    let month = req.query.month || null;
+    if (month === 'latest') month = (await listSalesMonths(prisma, [id, ...transit.officeFileIds], 'sale')).latest || 'all';
+    // ?scope=baghdad|provinces — زرّا «بغداد / المحافظات» في العرض.
+    const scope = req.query.scope || null;
+    const all = await loadConditionSheets(id, { month, transit });
+    const sheets = filterSheetsByProvince(await scopeSheetsToRoster(all, req.user), scope);
+    const [companySheet] = filterSheetsByProvince([await buildCompanySheet(all, sheets, req.user)], scope);
+    const scopeLabel = scope === 'baghdad' ? ' — بغداد' : scope === 'provinces' ? ' — المحافظات' : '';
+    const title = `${file.originalName}${month && month !== 'all' ? ` — ${month}` : ''}${scopeLabel}`;
     const buf = buildConditionWorkbook(sheets, { title, companySheet });
     const name = `الكوديشن${month && month !== 'all' ? `_${month}` : ''}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
