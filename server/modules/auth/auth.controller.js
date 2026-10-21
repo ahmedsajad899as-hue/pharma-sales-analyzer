@@ -60,6 +60,10 @@ export async function me(req, res) {
       where:  { id: req.user.id },
       select: { id: true, username: true, role: true, isActive: true, linkedRepId: true, displayName: true, officeId: true, permissions: true },
     });
+    // حساب معطَّل (من السوبر أدمن أو مديره) — الواجهة تمسح الجلسة حين لا يعود user
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: 'الحساب معطّل أو غير موجود.' });
+    }
     res.json({ success: true, user });
   } catch (err) {
     res.status(500).json({ error: err.message });

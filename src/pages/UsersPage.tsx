@@ -152,9 +152,15 @@ export default function UsersPage() {
   const [membersLoading, setMembersLoading]       = useState(true);
   const [membersError, setMembersError]           = useState('');
   const [areasModalMember, setAreasModalMember]   = useState<CompanyMember | null>(null);
+  // تعديل اسم الموظف + تفعيل/تعطيل حسابه (PATCH /api/company-members/:id)
+  const [accountMember, setAccountMember]         = useState<CompanyMember | null>(null);
+  const [accName, setAccName]                     = useState('');
+  const [accActive, setAccActive]                 = useState(true);
+  const [accSaving, setAccSaving]                 = useState(false);
 
   // Back button: close open modals in priority order
   useBackHandler([
+    [accountMember !== null,    () => setAccountMember(null)],
     [areasModalMember !== null, () => setAreasModalMember(null)],
     [modal !== null,            () => setModal(null)],
   ]);
@@ -380,6 +386,37 @@ export default function UsersPage() {
     finally { setAreasSaving(false); }
   };
 
+  const openAccountModal = (member: CompanyMember) => {
+    setAccountMember(member);
+    setAccName(member.displayName || member.username);
+    setAccActive(member.isActive);
+  };
+
+  const saveAccount = async () => {
+    if (!accountMember) return;
+    const name = accName.replace(/\s+/g, ' ').trim();
+    if (!name) return alert('الاسم لا يمكن أن يكون فارغاً.');
+    if (!accActive && accountMember.isActive &&
+        !confirm(`تعطيل حساب «${name}»؟\nلن يستطيع تسجيل الدخول، ويُسجَّل خروجه خلال دقيقة إن كان متصلاً.`)) return;
+    setAccSaving(true);
+    try {
+      const r = await fetch(`/api/company-members/${accountMember.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authH() },
+        body: JSON.stringify({ displayName: name, isActive: accActive }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'فشل حفظ الحساب');
+      setCompanyMembers(prev => prev.map(m =>
+        m.id === accountMember.id
+          ? { ...m, displayName: j.data?.displayName ?? name, isActive: j.data?.isActive ?? accActive }
+          : m
+      ));
+      setAccountMember(null);
+    } catch (err: any) { alert(err.message || 'فشل حفظ الحساب'); }
+    finally { setAccSaving(false); }
+  };
+
   // ── Company Manager View ─────────────────────────────────────
   if (isCompanyManager) {
     return (
@@ -435,7 +472,7 @@ export default function UsersPage() {
                     return next;
                   });
                   return (
-                    <div key={member.id} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none' }}>
+                    <div key={member.id} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none', background: member.isActive ? undefined : '#fef2f2' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', flexWrap: 'wrap' }}>
                         <div style={{
                           width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
@@ -477,6 +514,10 @@ export default function UsersPage() {
                               border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer',
                             }}>{expanded ? '▴ إخفاء' : '▾ عرض'}</button>
                           )}
+                          <button onClick={() => openAccountModal(member)} style={{
+                            padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#f8fafc', color: '#334155',
+                            border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
+                          }}>👤 تعديل الحساب</button>
                           <button onClick={() => openAreasModal(member)} style={{
                             padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#eef2ff', color: '#4f46e5',
                             border: '1px solid #c7d2fe', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
@@ -505,6 +546,49 @@ export default function UsersPage() {
               </div>
             ))}
           </>
+        )}
+
+        {/* ── Account Modal: الاسم + التفعيل ── */}
+        {accountMember && (
+          <div className="modal-overlay" onClick={() => setAccountMember(null)}>
+            <div className="modal" style={{ maxWidth: 440, width: '95vw' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>👤 تعديل حساب {accountMember.displayName || accountMember.username}</h2>
+                <button className="modal-close" onClick={() => setAccountMember(null)}>✕</button>
+              </div>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">الاسم</label>
+                  <input className="form-input" value={accName} onChange={e => setAccName(e.target.value)} maxLength={120} />
+                  <small style={{ color: '#64748b', fontSize: 12 }}>
+                    يتغيّر الاسم عند السوبر أدمن وفي كل الحسابات والتقارير. اسم الدخول ({accountMember.username}) لا يتغيّر.
+                  </small>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">حالة الحساب</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {[true, false].map(v => (
+                      <button key={String(v)} type="button" onClick={() => setAccActive(v)} style={{
+                        flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                        border: `1.5px solid ${accActive === v ? (v ? '#10b981' : '#ef4444') : '#e2e8f0'}`,
+                        background: accActive === v ? (v ? '#ecfdf5' : '#fef2f2') : '#fff',
+                        color: accActive === v ? (v ? '#047857' : '#b91c1c') : '#64748b',
+                      }}>{v ? '✅ مفعّل' : '🚫 معطّل'}</button>
+                    ))}
+                  </div>
+                  {!accActive && (
+                    <small style={{ color: '#b91c1c', fontSize: 12 }}>الحساب المعطّل لا يستطيع تسجيل الدخول. بياناته ومناطقه تبقى كما هي.</small>
+                  )}
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn--secondary" onClick={() => setAccountMember(null)}>إلغاء</button>
+                <button className="btn btn--primary" onClick={saveAccount} disabled={accSaving}>
+                  {accSaving ? '⏳ جاري الحفظ...' : '💾 حفظ'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ── Areas Modal ── */}

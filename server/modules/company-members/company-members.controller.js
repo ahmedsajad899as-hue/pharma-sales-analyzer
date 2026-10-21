@@ -491,3 +491,63 @@ export async function setRepAreas(req, res, next) {
     next(err);
   }
 }
+
+/**
+ * PATCH /api/company-members/:userId — المدير يعدّل اسم مندوبه و/أو يفعّل/يعطّل حسابه.
+ * نفس كتابة السوبر أدمن (updateUser): User.displayName + اسم سجلات المندوب العلمي
+ * المرتبطة (التقارير والتصديرات تقرأ ScientificRepresentative.name مباشرةً)، فيظهر
+ * التغيير عند السوبر أدمن وكل الحسابات. يُسجَّل في ActivityLog (rep_profile_update)
+ * فيظهر في «تغييرات المناطق» لدى السوبر أدمن.
+ */
+export async function updateMember(req, res, next) {
+  try {
+    const targetUserId = +req.params.userId;
+    if (!(await canManage(req.user, targetUserId))) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية لتعديل هذا المستخدم.' });
+    }
+    const { displayName, isActive } = req.body ?? {};
+    const before = await prisma.user.findUnique({
+      where:  { id: targetUserId },
+      select: { id: true, username: true, displayName: true, isActive: true },
+    });
+    if (!before) return res.status(404).json({ error: 'المستخدم غير موجود.' });
+
+    const data = {};
+    if (displayName !== undefined) {
+      const name = String(displayName ?? '').replace(/\s+/g, ' ').trim();
+      if (!name) return res.status(400).json({ error: 'الاسم لا يمكن أن يكون فارغاً.' });
+      if (name.length > 120) return res.status(400).json({ error: 'الاسم طويل جداً.' });
+      if (name !== (before.displayName ?? '')) data.displayName = name;
+    }
+    if (isActive !== undefined && Boolean(isActive) !== before.isActive) data.isActive = Boolean(isActive);
+    if (!Object.keys(data).length) return res.json({ success: true, data: before });
+
+    const user = await prisma.user.update({
+      where: { id: targetUserId }, data,
+      select: { id: true, username: true, displayName: true, isActive: true },
+    });
+    if (data.displayName !== undefined) {
+      await prisma.scientificRepresentative.updateMany({
+        where: { userId: targetUserId },
+        data:  { name: data.displayName },
+      });
+    }
+
+    try {
+      await prisma.activityLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'rep_profile_update',
+          module: 'company-members',
+          details: JSON.stringify({
+            targetUserId,
+            ...(data.displayName !== undefined ? { oldName: before.displayName || before.username, newName: data.displayName } : {}),
+            ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+          }),
+        },
+      });
+    } catch (e) { console.warn('[company-members] activity log failed (non-fatal):', e.message); }
+
+    res.json({ success: true, data: user });
+  } catch (err) { next(err); }
+}

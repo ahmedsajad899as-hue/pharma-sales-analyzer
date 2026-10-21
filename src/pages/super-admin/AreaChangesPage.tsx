@@ -12,6 +12,10 @@ interface AreaChange {
   added: string[];
   removed: string[];
   provinceMaterialized: boolean;
+  kind?: 'areas' | 'profile';
+  oldName?: string | null;
+  newName?: string | null;
+  isActive?: boolean | null;
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -77,7 +81,7 @@ export default function AreaChangesPage() {
 
   const q = search.trim().toLowerCase();
   const visible = q
-    ? rows.filter(r => [r.manager, r.target, ...r.added, ...r.removed].some(s => s.toLowerCase().includes(q)))
+    ? rows.filter(r => [r.manager, r.target, r.oldName ?? '', r.newName ?? '', ...r.added, ...r.removed].some(s => s.toLowerCase().includes(q)))
     : rows;
 
   return (
@@ -127,16 +131,30 @@ export default function AreaChangesPage() {
                 width: 38, height: 38, borderRadius: 11, flexShrink: 0,
                 background: '#6366f115', color: '#6366f1',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
-              }}>📍</div>
+              }}>{r.kind === 'profile' ? '👤' : '📍'}</div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span>👔 {r.manager}</span>
                   {r.managerRole && <span style={roleChip}>{roleLabel(r.managerRole)}</span>}
-                  <span style={{ color: '#94a3b8', fontWeight: 500 }}>عدّل مناطق</span>
+                  <span style={{ color: '#94a3b8', fontWeight: 500 }}>{r.kind === 'profile' ? 'عدّل حساب' : 'عدّل مناطق'}</span>
                   <span>👤 {r.target}</span>
                   {r.targetRole && <span style={roleChip}>{roleLabel(r.targetRole)}</span>}
                 </div>
+
+                {r.newName && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center', fontSize: 12.5 }}>
+                    <span style={{ fontWeight: 800, color: '#4f46e5' }}>✏️ تغيير الاسم:</span>
+                    <span style={removeChip}>{r.oldName}</span>
+                    <span style={{ color: '#94a3b8' }}>←</span>
+                    <span style={addChip}>{r.newName}</span>
+                  </div>
+                )}
+                {r.isActive != null && (
+                  <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 800, color: r.isActive ? '#059669' : '#dc2626' }}>
+                    {r.isActive ? '✅ تفعيل الحساب' : '🚫 تعطيل الحساب'}
+                  </div>
+                )}
 
                 {r.added.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center' }}>

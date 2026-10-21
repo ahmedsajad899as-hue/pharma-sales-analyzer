@@ -528,7 +528,9 @@ export async function markDoctorChangesSeen(req, res) {
 // company-members — المسار الوحيد لتعديل المدراء، من «المستخدمين» والبلان الشهري).
 // details = { targetUserId, added[], removed[], provinceMaterialized }
 // ════════════════════════════════════════════════════════════════════════════
-const AREA_CHANGE_WHERE = { action: 'rep_areas_update' };
+// rep_profile_update = تغيير اسم المندوب أو تفعيل/تعطيل حسابه من مديره (updateMember)
+// details = { targetUserId, oldName?, newName?, isActive? }
+const AREA_CHANGE_WHERE = { action: { in: ['rep_areas_update', 'rep_profile_update'] } };
 
 export async function listAreaChanges(req, res) {
   try {
@@ -574,6 +576,10 @@ export async function listAreaChanges(req, res) {
         added:       Array.isArray(d.added)   ? d.added   : [],
         removed:     Array.isArray(d.removed) ? d.removed : [],
         provinceMaterialized: !!d.provinceMaterialized,
+        kind:        r.action === 'rep_profile_update' ? 'profile' : 'areas',
+        oldName:     d.oldName ?? null,
+        newName:     d.newName ?? null,
+        isActive:    typeof d.isActive === 'boolean' ? d.isActive : null,
       };
     });
 

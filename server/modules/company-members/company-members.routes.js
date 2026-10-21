@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { listCompanyMembers, getMemberAreas, setMemberAreas, getRepAreas, setRepAreas } from './company-members.controller.js';
+import { listCompanyMembers, getMemberAreas, setMemberAreas, getRepAreas, setRepAreas, updateMember } from './company-members.controller.js';
 import { requireAuth } from '../../middleware/authMiddleware.js';
 
 const router = Router();
@@ -21,5 +21,6 @@ router.get('/by-rep/:repId/areas',  getRepAreas);
 router.put('/by-rep/:repId/areas',  setRepAreas);
 router.get('/:userId/areas',        getMemberAreas);
 router.put('/:userId/areas',        setMemberAreas);
+router.patch('/:userId',            updateMember);
 
 export default router;
