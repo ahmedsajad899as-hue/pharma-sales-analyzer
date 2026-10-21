@@ -90,9 +90,11 @@ type DupLevel = 'duplicate' | 'partial' | 'possible';
 type DupGroup = {
   group: string; level: DupLevel; reasons: string[]; matchedCount: number; itemCount: number;
   match: { inBatch: boolean; group?: string; fileName?: string; invoiceNumber?: string; date?: string; savedAt?: string;
-    pharmacy?: string; area?: string; warehouse?: string; source?: string; itemCount?: number };
+    pharmacy?: string; area?: string; warehouse?: string; source?: string; itemCount?: number;
+    /** المطابِق في إكسل ميركاتو — طلبية جهّزها ميركاتو ثم صُوّرت فاتورتها */
+    mercato?: boolean; rep?: string };
 };
-type DupRow = { index: number; level: 'duplicate' | 'possible'; group: string; sameQty: boolean; existingQty: number; existingItem: string | null };
+type DupRow = { index: number; level: 'duplicate' | 'possible'; group: string; sameQty: boolean; existingQty: number; existingItem: string | null; mercato?: boolean };
 type DupResult = { sig: string; groups: DupGroup[]; rows: DupRow[] };
 
 /** مفتاح فاتورة الصف لفحص التكرار: صورة = فاتورة؛ اليدوي يُفصل برقم الفاتورة والصيدلية. */
@@ -468,6 +470,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   const dupNow = dup && dup.sig === dupSig ? dup : null;
   const dupRowByIdx = new Map((dupNow?.rows ?? []).map(r => [r.index, r]));
   const dupDupRows = (dupNow?.rows ?? []).filter(r => r.level === 'duplicate');
+  const dupMercatoRows = dupDupRows.filter(r => r.mercato).length;
   /** يحذف من الجدول الصفوف المحفوظة سابقاً (كلها، أو صفوف فاتورة واحدة). */
   const dropDuplicateRows = (group?: string) => {
     const drop = new Set(dupDupRows.filter(r => !group || r.group === group).map(r => r.index));
@@ -739,7 +742,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     if (stillDup.length > 0) {
       const invs = new Set(stillDup.map(r => r.group)).size;
       const ok = window.confirm(
-        `⚠️ ${stillDup.length} صف (في ${invs} فاتورة) محفوظ سابقاً في الملف — حفظه مرة ثانية يضاعف المبيع.\n\n`
+        `⚠️ ${stillDup.length} صف (في ${invs} فاتورة) محفوظ سابقاً${stillDup.some(r => r.mercato) ? ' (منها محسوب أصلاً في مبيع ميركاتو)' : ' في الملف'} — حفظه مرة ثانية يضاعف المبيع.\n\n`
         + 'موافق = احفظ كل الصفوف رغم ذلك\nإلغاء = ارجع للجدول (يمكنك «استبعاد المكرر»)');
       if (!ok) return;
     }
@@ -1011,7 +1014,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     if (!dr || !dg) return '';
     const m = dg.match;
     const where = m.inBatch ? 'نفس فاتورة أخرى في هذا الجدول'
-      : `محفوظة في «${m.fileName}»: ${[m.invoiceNumber && `فاتورة ${m.invoiceNumber}`, m.pharmacy, m.date].filter(Boolean).join(' · ')}`;
+      : m.mercato
+        ? `محسوبة أصلاً في مبيع ميركاتو «${m.fileName}»: ${[m.invoiceNumber && `طلبية ${m.invoiceNumber}`, m.pharmacy, m.date, m.warehouse, m.rep].filter(Boolean).join(' · ')}`
+        : `محفوظة في «${m.fileName}»: ${[m.invoiceNumber && `فاتورة ${m.invoiceNumber}`, m.pharmacy, m.date].filter(Boolean).join(' · ')}`;
     return `${dr.level === 'duplicate' ? 'مكرر' : 'ربما مكرر'} — ${where}${dr.sameQty ? '' : ` (الكمية المحفوظة ${dr.existingQty})`}`;
   };
   const setGroupField = (idxs: number[], key: 'warehouse' | 'invoiceNumber' | 'date', val: string) => {
@@ -1265,7 +1270,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         {/* ملخّص التكرار — الفواتير/الأصناف المحفوظة سابقاً في الملف */}
         {dupDupRows.length > 0 && (
           <div style={{ marginBottom: 6, fontSize: 12, color: '#b91c1c', display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span>{dupDupRows.length} صف محفوظ سابقاً (مظلّل)</span>
+            <span>{dupDupRows.length} صف محفوظ سابقاً (مظلّل){dupMercatoRows > 0 && ` — منها ${dupMercatoRows} محسوب أصلاً في مبيع ميركاتو 🏬`}</span>
             <button onClick={() => dropDuplicateRows()} style={dupBtn}>استبعادها</button>
           </div>
         )}

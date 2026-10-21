@@ -10,6 +10,10 @@
 // فهنا مطابقة تقريبية **للعرض والتنبيه فقط** (قراءة فقط، لا تحذف ولا تمنع):
 // رقم الفاتورة أولاً، ثم الصيدلية + المنطقة + التاريخ + الأصناف بكمياتها + الشركة.
 //
+// ويُقارَن أيضاً بملفات ميركاتو: المندوب قد يرفع صورة فاتورة طلبية جُهّزت عبر
+// ميركاتو أصلاً فتُحتسب مرتين. والعكس (الكوديشن محفوظ قبل رفع إكسل ميركاتو)
+// يكشفه flagConditionRowsInMercato في عرض ملف الكوديشن.
+//
 // النتيجة لكل فاتورة واردة (مجموعة صفوف) ولكل صف: duplicate | partial | possible.
 // الصف المطابق يُعلَّم وحده — فطلبية نصية بصنفين حُفظت ثم وصلت صورتها بخمسة
 // أصناف ⇒ صنفان «مكرر» وثلاثة جديدة.
@@ -99,9 +103,11 @@ function matchItems(incItems, exItems) {
  * يقارن فاتورة واردة بطلبية محفوظة. يُرجع null إن لم يكن بينهما ما يُذكر.
  */
 function compareOrder(inc, ex) {
-  const invBoth = inc.invoice && ex.invoice;
-  const invSame = invBoth && inc.invoice === ex.invoice;
+  const invSame = Boolean(inc.invoice && ex.invoice && inc.invoice === ex.invoice);
+  // رقم طلبية ميركاتو ليس رقم فاتورة المذخر المصوَّرة — اختلافهما لا يعني طلبيتين.
+  const invBoth = Boolean(inc.invoice && ex.invoice && !ex.mercato);
   const pharm   = namesMatch(inc.pharmacy, ex.pharmacy);
+  if (!invSame && pharm !== true) return null;  // بلا رقم مطابق: الصيدلية شرط
   const area    = namesMatch(inc.area, ex.area, 0.85);
   // الطرف بلا تاريخ (طلبية نصية) يُقاس بلحظة وصوله/حفظه بدلاً منه — كي لا
   // تُطابَق طلبية من شهر مضى لمجرد تشابه الصيدلية والأصناف.
@@ -122,7 +128,6 @@ function compareOrder(inc, ex) {
     if (date !== 'far' && (pharm !== false || matched > 0)) level = 'duplicate';
     else level = 'possible';
   } else {
-    if (pharm !== true) return null;           // بلا رقم مطابق: الصيدلية شرط
     if (area === false) return null;
     if (date === 'far') return null;
     // رقمان حقيقيان مختلفان من نفس الصيدلية = فاتورتان مختلفتان عادةً؛ لا تُعدّ
@@ -171,7 +176,7 @@ function buildIncomingOrder(groupKey, rows, ctx, fallbackDay) {
       const canon = res?.canonicalItem && ['alias', 'exact', 'high'].includes(res.confidence) ? res.canonicalItem : null;
       return {
         index:   r._index,
-        itemId:  canon?.id ?? null,
+        itemId:  r.itemId ?? canon?.id ?? null,
         keys:    new Set([normalizeItemKey(name), canon ? normalizeItemKey(canon.name) : null].filter(Boolean)),
         qty:     Math.abs(Number(r.quantity) || 0),
         company: compKey(r.company),
@@ -180,15 +185,86 @@ function buildIncomingOrder(groupKey, rows, ctx, fallbackDay) {
   };
 }
 
+const isConditionGroup = (mergeGroup) => String(mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`);
+/** ملف ميركاتو «حقيقي» (إكسل ميركاتو) لا ملف الكوديشن الذي يشاركه sourceSystem. */
+const isMercatoFile = (f) => f.sourceSystem === 'mercato' && !isConditionGroup(f.mergeGroup);
+
 /**
- * الملفات التي يُقارَن بها: ملفات الكوديشن للحساب (كل العملات) + ملف الوجهة
- * المختار إن كان ملفاً قائماً.
+ * الملفات التي يُقارَن بها: ملفات الكوديشن وملفات ميركاتو للحساب (كل العملات)
+ * + ملف الوجهة المختار إن كان ملفاً قائماً.
  */
 async function candidateFiles(userId, target) {
-  const or = [{ userId, mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } }];
+  const or = [{ userId, sourceSystem: 'mercato' }, { userId, mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } }];
   if (target?.fileId) or.push({ id: Number(target.fileId), userId });
-  return prisma.uploadedFile.findMany({ where: { OR: or }, select: { id: true, originalName: true } });
+  return prisma.uploadedFile.findMany({ where: { OR: or }, select: { id: true, originalName: true, sourceSystem: true, mergeGroup: true } });
 }
+
+/**
+ * يجمع صفوف الملفات المحفوظة طلبياتٍ للمقارنة.
+ * هوية الطلبية: الرقم الحقيقي، وإلا (الرفعة + الصيدلية + اليوم) — صفوف الطلبية
+ * الواحدة تُحفظ في رفعة واحدة دائماً.
+ */
+async function loadSavedOrders(files, dateOr, take = 30000) {
+  const sales = await prisma.sale.findMany({
+    where: {
+      uploadedFileId: { in: files.map(f => f.id) }, isHidden: false, recordType: 'sale',
+      OR: dateOr,
+    },
+    select: {
+      id: true, quantity: true, saleDate: true, createdAt: true, rawData: true, uploadedFileId: true,
+      mergeBatchId: true, itemId: true,
+      item: { select: { name: true } }, area: { select: { name: true } }, customer: { select: { name: true } },
+    },
+    orderBy: { id: 'asc' },
+    take,
+  });
+
+  const fileById = new Map(files.map(f => [f.id, f]));
+  const orders = new Map();
+  for (const s of sales) {
+    const raw = parseRaw(s.rawData);
+    const invRaw = String(raw.invoiceNumber ?? raw['رقم طلبية المذخر'] ?? raw['رقم الفاتورة'] ?? '').trim();
+    const pharmacyName = String(raw.pharmacy || s.customer?.name || raw['اسم الشركة'] || '').trim();
+    const inv = realInvoice(invRaw);
+    const pk = pharmKey(pharmacyName);
+    const day = dayOf(s.saleDate);
+    const key = inv ? `${s.uploadedFileId}|i:${inv}` : `${s.uploadedFileId}|b:${s.mergeBatchId ?? ''}|${invRaw}|${pk}|${day ?? ''}`;
+    let o = orders.get(key);
+    if (!o) {
+      const file = fileById.get(s.uploadedFileId);
+      o = {
+        fileId: s.uploadedFileId, fileName: file?.originalName || '',
+        mercato: file ? isMercatoFile(file) : false,
+        invoice: inv, rawInvoice: /^BOT-/i.test(invRaw) ? '' : invRaw,
+        pharmacy: pk, pharmacyName,
+        area: areaKey(s.area?.name), areaName: s.area?.name && s.area.name !== 'غير محدد' ? s.area.name : '',
+        warehouse: String(raw.warehouse ?? raw['اسم المذخر'] ?? '').trim(),
+        rep: String(raw['اسم المندوب'] ?? raw.scientificRep ?? '').trim(),
+        source: SOURCE_LABEL[raw.source] || '',
+        day, savedDay: dayOf(s.createdAt), savedAt: s.createdAt,
+        items: [],
+      };
+      orders.set(key, o);
+    }
+    const itemName = s.item?.name || '';
+    o.items.push({
+      saleId: s.id, itemId: s.itemId, name: itemName,
+      keys: new Set([normalizeItemKey(itemName), raw['اسم المادة بالمكتب'] ? normalizeItemKey(raw['اسم المادة بالمكتب']) : null].filter(Boolean)),
+      qty: Number(s.quantity) || 0,
+      company: compKey(raw.company || raw['الصنف']),
+    });
+  }
+  return [...orders.values()];
+}
+
+/** وصف الطلبية المحفوظة المطابِقة كما تُعرض للمستخدم. */
+const describeMatch = (ex) => ({
+  inBatch: false,
+  fileId: ex.fileId, fileName: ex.fileName, mercato: ex.mercato,
+  invoiceNumber: ex.rawInvoice, date: fmtDay(ex.day), savedAt: ex.savedAt,
+  pharmacy: ex.pharmacyName, area: ex.areaName, warehouse: ex.warehouse, rep: ex.rep, source: ex.source,
+  itemCount: ex.items.length,
+});
 
 /**
  * @param {object} p
@@ -242,55 +318,7 @@ export async function checkManualDuplicates({ rows, target = {}, userId, receive
     // المحفوظ بلا تاريخ (علامة 1970) يُقارَن بلحظة حفظه.
     dateOr.push({ saleDate: { lt: UNDATED_CUTOFF }, createdAt: { gte: new Date(Date.now() - 60 * DAY) } });
 
-    const sales = await prisma.sale.findMany({
-      where: {
-        uploadedFileId: { in: files.map(f => f.id) }, isHidden: false, recordType: 'sale',
-        OR: dateOr,
-      },
-      select: {
-        id: true, quantity: true, saleDate: true, createdAt: true, rawData: true, uploadedFileId: true,
-        mergeBatchId: true, itemId: true,
-        item: { select: { name: true } }, area: { select: { name: true } }, customer: { select: { name: true } },
-      },
-      orderBy: { id: 'asc' },
-      take: 30000,
-    });
-
-    const fileName = new Map(files.map(f => [f.id, f.originalName]));
-    const orders = new Map();
-    for (const s of sales) {
-      const raw = parseRaw(s.rawData);
-      const invRaw = String(raw.invoiceNumber ?? raw['رقم طلبية المذخر'] ?? raw['رقم الفاتورة'] ?? '').trim();
-      const pharmacyName = String(raw.pharmacy || s.customer?.name || raw['اسم الشركة'] || '').trim();
-      const inv = realInvoice(invRaw);
-      const pk = pharmKey(pharmacyName);
-      const day = dayOf(s.saleDate);
-      // هوية الطلبية: الرقم الحقيقي، وإلا (الرفعة + الصيدلية + اليوم) — صفوف
-      // الطلبية الواحدة تُحفظ في رفعة واحدة دائماً.
-      const key = inv ? `${s.uploadedFileId}|i:${inv}` : `${s.uploadedFileId}|b:${s.mergeBatchId ?? ''}|${invRaw}|${pk}|${day ?? ''}`;
-      let o = orders.get(key);
-      if (!o) {
-        o = {
-          fileId: s.uploadedFileId, fileName: fileName.get(s.uploadedFileId) || '',
-          invoice: inv, rawInvoice: /^BOT-/i.test(invRaw) ? '' : invRaw,
-          pharmacy: pk, pharmacyName,
-          area: areaKey(s.area?.name), areaName: s.area?.name && s.area.name !== 'غير محدد' ? s.area.name : '',
-          warehouse: String(raw.warehouse ?? raw['اسم المذخر'] ?? '').trim(),
-          source: SOURCE_LABEL[raw.source] || '',
-          day, savedDay: dayOf(s.createdAt), savedAt: s.createdAt,
-          items: [],
-        };
-        orders.set(key, o);
-      }
-      const itemName = s.item?.name || '';
-      o.items.push({
-        saleId: s.id, itemId: s.itemId, name: itemName,
-        keys: new Set([normalizeItemKey(itemName), raw['اسم المادة بالمكتب'] ? normalizeItemKey(raw['اسم المادة بالمكتب']) : null].filter(Boolean)),
-        qty: Number(s.quantity) || 0,
-        company: compKey(raw.company || raw['الصنف']),
-      });
-    }
-    existing.push(...orders.values());
+    existing.push(...await loadSavedOrders(files, dateOr));
   }
 
   // ── المقارنة: بالمحفوظ، ثم بالفواتير السابقة في نفس الطلب (صورتان لنفس الفاتورة) ──
@@ -316,21 +344,13 @@ export async function checkManualDuplicates({ rows, target = {}, userId, receive
       reasons: c.reasons,
       matchedCount: c.pairs.size,
       itemCount: inc.items.length,
-      match: inBatch
-        ? { inBatch: true, group: ex.group }
-        : {
-            inBatch: false,
-            fileId: ex.fileId, fileName: ex.fileName,
-            invoiceNumber: ex.rawInvoice, date: fmtDay(ex.day), savedAt: ex.savedAt,
-            pharmacy: ex.pharmacyName, area: ex.areaName, warehouse: ex.warehouse, source: ex.source,
-            itemCount: ex.items.length,
-          },
+      match: inBatch ? { inBatch: true, group: ex.group } : describeMatch(ex),
     });
     const rowLevel = c.level === 'possible' ? 'possible' : 'duplicate';
     for (const [i, p] of c.pairs) {
       const idx = inc.items[i].index;
       if (!rowFlags.has(idx)) {
-        rowFlags.set(idx, { index: idx, level: rowLevel, group: inc.group, sameQty: p.sameQty, existingQty: p.ex.qty, existingItem: p.ex.name || null });
+        rowFlags.set(idx, { index: idx, level: rowLevel, group: inc.group, sameQty: p.sameQty, existingQty: p.ex.qty, existingItem: p.ex.name || null, mercato: !inBatch && ex.mercato });
       }
     }
   });
@@ -347,10 +367,79 @@ export function duplicateWarningText(result) {
   if (!g.length) return '';
   const lines = g.slice(0, 3).map(x => {
     const m = x.match;
-    const what = [m.invoiceNumber && `فاتورة ${m.invoiceNumber}`, m.pharmacy, m.date].filter(Boolean).join(' · ');
+    const what = [m.invoiceNumber && `${m.mercato ? 'طلبية' : 'فاتورة'} ${m.invoiceNumber}`, m.pharmacy, m.date, m.mercato && m.warehouse].filter(Boolean).join(' · ');
+    // طلبية جُهّزت عبر ميركاتو ثم رُفعت صورتها — محسوبة أصلاً في مبيع ميركاتو.
+    const where = m.mercato ? 'محسوبة أصلاً في مبيع ميركاتو' : 'محفوظة سابقاً';
     return x.level === 'partial'
-      ? `• ${x.matchedCount} من ${x.itemCount} أصناف محفوظة سابقاً (${what})`
-      : `• محفوظة سابقاً بالكامل (${what})`;
+      ? `• ${x.matchedCount} من ${x.itemCount} أصناف ${where} (${what})`
+      : `• ${where} بالكامل (${what})`;
   });
   return `\n\n⚠️ تنبيه تكرار — راجعها قبل الحفظ:\n${lines.join('\n')}`;
+}
+
+/**
+ * العكس: صفوف ملف الكوديشن (بوت/فواتير) المحسوبة أيضاً في إكسل ميركاتو المرفوع
+ * بعدها — المندوب صوّر فاتورة طلبية جهّزها ميركاتو. يُعلِّم كل صف مطابق بـ
+ * `mercatoMatch` (للتنبيه في العرض؛ الحذف قرار المالك من الشيت نفسه).
+ * صفوف الترانزيت والصفوف بلا تاريخ لا تُفحص.
+ * @param {Array<{rows: object[]}>} sheets  ناتج loadConditionSheets (يُعدَّل في مكانه)
+ * @param {number} ownerId  مالك ملف الكوديشن — ملفات ميركاتو الشقيقة له
+ * @returns {Promise<number>} عدد الصفوف المعلَّمة
+ */
+export async function flagConditionRowsInMercato(sheets, ownerId) {
+  if (!ownerId) return 0;
+  const byId = new Map();
+  for (const s of sheets) for (const r of s.rows) {
+    if (!r.transit && r.date && r.item && Number(r.quantity) > 0) byId.set(r.id, r);
+  }
+  if (!byId.size) return 0;
+
+  const files = (await prisma.uploadedFile.findMany({
+    where: { userId: ownerId, sourceSystem: 'mercato' },
+    select: { id: true, originalName: true, sourceSystem: true, mergeGroup: true },
+  })).filter(isMercatoFile);
+  if (!files.length) return 0;
+
+  const groups = new Map();
+  for (const r of byId.values()) {
+    const inv = realInvoice(r.invoice);
+    const k = inv ? `i:${inv}` : `${r.date}|${pharmKey(r.pharmacy)}|${r.rep ?? ''}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push({ ...r, invoiceNumber: r.invoice, _index: r.id });
+  }
+  const incoming = [...groups.entries()].map(([k, rs]) => buildIncomingOrder(k, rs, null, null)).filter(o => o.day != null);
+  if (!incoming.length) return 0;
+
+  const days = incoming.map(o => o.day);
+  const mercatoOrders = await loadSavedOrders(files, [
+    { saleDate: { gte: new Date(Math.min(...days) - 8 * DAY), lte: new Date(Math.max(...days) + 9 * DAY) } },
+  ], 80000);
+  // فهرس باليوم والرقم كي لا تُقارَن كل طلبية بكل ميركاتو الشهر.
+  const byDay = new Map();
+  const byInv = new Map();
+  for (const o of mercatoOrders) {
+    if (o.day != null) { if (!byDay.has(o.day)) byDay.set(o.day, []); byDay.get(o.day).push(o); }
+    if (o.invoice) { if (!byInv.has(o.invoice)) byInv.set(o.invoice, []); byInv.get(o.invoice).push(o); }
+  }
+
+  let flagged = 0;
+  for (const inc of incoming) {
+    const cands = new Set(inc.invoice ? byInv.get(inc.invoice) || [] : []);
+    for (let d = -7; d <= 7; d++) for (const o of byDay.get(inc.day + d * DAY) || []) cands.add(o);
+    let best = null;
+    for (const ex of cands) {
+      const c = compareOrder(inc, ex);
+      if (c && (!best || c.score > best.c.score)) best = { c, ex };
+    }
+    if (!best) continue;
+    const { c, ex } = best;
+    const match = { ...describeMatch(ex), level: c.level === 'possible' ? 'possible' : 'duplicate', reasons: c.reasons };
+    for (const [i, p] of c.pairs) {
+      const row = byId.get(inc.items[i].index);
+      if (!row || row.mercatoMatch) continue;
+      row.mercatoMatch = { ...match, sameQty: p.sameQty, mercatoQty: p.ex.qty };
+      flagged++;
+    }
+  }
+  return flagged;
 }

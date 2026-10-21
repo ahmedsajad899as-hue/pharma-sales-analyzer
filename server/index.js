@@ -21,6 +21,7 @@ import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
 import { updateConditionRow, deleteConditionRow } from './modules/sales/sales.service.js';
 import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles, filterSheetsByProvince } from './lib/conditionFile.js';
+import { flagConditionRowsInMercato } from './lib/manualDuplicateCheck.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -2224,7 +2225,7 @@ app.get('/api/files/:id/batches', requireAuth, async (req, res) => {
 async function findReadableFile(id, userId) {
   return prisma.uploadedFile.findFirst({
     where: { id, OR: [{ userId }, { fileShares: { some: { userId } } }] },
-    select: { id: true, originalName: true, mergeGroup: true },
+    select: { id: true, originalName: true, mergeGroup: true, userId: true },
   });
 }
 app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
@@ -2239,6 +2240,8 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
     // month=latest (الافتراضي في الواجهة) ← آخر شهر فيه بيانات.
     const month = req.query.month === 'latest' ? (months.latest || 'all') : (req.query.month || null);
     const all = await loadConditionSheets(id, { month, transit });
+    // صفوف محسوبة أيضاً في إكسل ميركاتو (صورة فاتورة طلبية جهّزها ميركاتو) — تنبيه فقط.
+    await flagConditionRowsInMercato(all, file.userId).catch(e => console.error('[condition] فحص ميركاتو:', e?.message));
     const sheets = await scopeSheetsToRoster(all, req.user);
     const companySheet = await buildCompanySheet(all, sheets, req.user);
     res.json({ success: true, data: { file, sheets, companySheet, months, month: month || 'all' } });

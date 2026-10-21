@@ -14,6 +14,11 @@ type Row = {
   province?: string;
   /** طلبية ترانزيت من ملف المكتب — للقراءة فقط هنا */
   transit?: boolean; note?: string;
+  /** الصف محسوب أيضاً في إكسل ميركاتو (flagConditionRowsInMercato في الخادم) */
+  mercatoMatch?: {
+    level: 'duplicate' | 'possible'; fileName: string; invoiceNumber?: string; date?: string;
+    pharmacy?: string; warehouse?: string; rep?: string; sameQty: boolean; mercatoQty: number; reasons: string[];
+  };
 };
 type Sheet = { rep: string; rows: Row[]; quantity: number; total: number; orders: number; all?: boolean };
 type Month = { ym: string; label: string; count: number };
@@ -37,9 +42,9 @@ type Scope = 'baghdad' | 'provinces' | null;
 const UNKNOWN_PROVINCE = 'غير محددة';
 // نفس filterSheetsByProvince في server/lib/conditionFile.js: صف بلا محافظة معروفة يُعدّ من «المحافظات».
 const inScope = (r: Row, scope: Scope) => !scope || ((r.province === 'بغداد') === (scope === 'baghdad'));
-function scopeSheet(s: Sheet, scope: Scope): Sheet {
-  if (!scope) return s;
-  const rows = s.rows.filter(r => inScope(r, scope));
+function scopeSheet(s: Sheet, scope: Scope, mercatoOnly = false): Sheet {
+  if (!scope && !mercatoOnly) return s;
+  const rows = s.rows.filter(r => inScope(r, scope) && (!mercatoOnly || r.mercatoMatch));
   return {
     ...s, rows,
     quantity: rows.reduce((a, r) => a + r.quantity, 0),
@@ -47,6 +52,13 @@ function scopeSheet(s: Sheet, scope: Scope): Sheet {
     orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
   };
 }
+const mercatoTitle = (r: Row) => {
+  const m = r.mercatoMatch;
+  if (!m) return '';
+  return `${m.level === 'duplicate' ? 'محسوب أصلاً في مبيع ميركاتو' : 'ربما محسوب في ميركاتو'} «${m.fileName}»: `
+    + [m.invoiceNumber && `طلبية ${m.invoiceNumber}`, m.pharmacy, m.date, m.warehouse, m.rep].filter(Boolean).join(' · ')
+    + (m.sameQty ? '' : ` (كمية ميركاتو ${m.mercatoQty})`);
+};
 // عمود الصف ← حقل التعديل في PATCH /api/files/:id/condition-rows/:saleId
 const EDIT_COLS: { key: string; label: string; w: number; num?: boolean; ro?: boolean }[] = [
   { key: 'date', label: 'التاريخ', w: 128 }, { key: 'invoice', label: 'رقم الفاتورة', w: 90 },
@@ -66,6 +78,8 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const [month, setMonth] = useState('latest');
   const [resolvedMonth, setResolvedMonth] = useState('all');
   const [scope, setScope] = useState<Scope>(null);
+  // «🏬 المحسوب في ميركاتو فقط» — لمراجعة الصفوف المكررة وحذفها.
+  const [mercatoOnly, setMercatoOnly] = useState(false);
   const [tab, setTab] = useState(SUMMARY);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -93,8 +107,16 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   }, [fileId, token, month, reload]);
 
   // زرّا «بغداد / المحافظات»: تصفية الصفوف ومجاميعها، والشيت الذي فرغ يختفي.
-  const sheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope)).filter(s => s.rows.length > 0), [allSheets, scope]);
-  const companySheet = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, scope) : null), [allCompanySheet, scope]);
+  const sheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope, mercatoOnly)).filter(s => s.rows.length > 0), [allSheets, scope, mercatoOnly]);
+  const companySheet = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, scope, mercatoOnly) : null), [allCompanySheet, scope, mercatoOnly]);
+  // صفوف الكوديشن المحسوبة أيضاً في ميركاتو (المندوب صوّر فاتورة طلبية جهّزها ميركاتو).
+  const mercatoDup = useMemo(() => {
+    const seen = new Map<number, Row>();
+    for (const s of allSheets) for (const r of s.rows) if (r.mercatoMatch && inScope(r, scope)) seen.set(r.id, r);
+    const rows = [...seen.values()];
+    return { rows: rows.length, sure: rows.filter(r => r.mercatoMatch!.level === 'duplicate').length, total: rows.reduce((a, r) => a + r.total, 0) };
+  }, [allSheets, scope]);
+  useEffect(() => { if (mercatoOnly && mercatoDup.rows === 0) setMercatoOnly(false); }, [mercatoOnly, mercatoDup.rows]);
   // تفصيل المحافظات (زر «المحافظات»): مجموع كل محافظة — الصف يُعدّ مرة واحدة.
   const byProvince = useMemo(() => {
     if (scope !== 'provinces') return [];
@@ -196,6 +218,18 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
         </div>
 
         {error && <div style={{ color: 'var(--c-danger)', fontSize: 13, marginBottom: 8 }}>{error}</div>}
+        {!loading && mercatoDup.rows > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', color: 'var(--c-danger)', fontSize: 12.5 }}>
+            <span style={{ flex: '1 1 260px' }}>
+              🏬 {fmt(mercatoDup.rows)} صف ({fmt(mercatoDup.total)} {currency}) محسوب أيضاً في مبيع ميركاتو
+              {mercatoDup.sure < mercatoDup.rows ? ` — ${fmt(mercatoDup.rows - mercatoDup.sure)} منها محتمل فقط` : ''}.
+              غالباً صورة فاتورة طلبية جهّزها ميركاتو — {canEdit ? 'راجعها واحذف المكرر' : 'راجعها مع مالك الملف'}.
+            </span>
+            <button onClick={() => setMercatoOnly(v => !v)} style={{ border: '1px solid var(--c-danger-border)', background: mercatoOnly ? 'var(--c-danger)' : '#fff', color: mercatoOnly ? '#fff' : 'var(--c-danger)', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+              {mercatoOnly ? 'عرض الكل' : 'عرضها فقط'}
+            </button>
+          </div>
+        )}
         {loading ? (
           <div style={{ color: '#64748b', fontSize: 13 }}>جاري التحميل…</div>
         ) : !hasData ? (
@@ -285,7 +319,8 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                       // صف الترانزيت يعيش في ملف المكتب — لا يُعدَّل ولا يُحذف من هنا.
                       const rowEditable = canEdit && !r.transit;
                       return (
-                      <tr key={r.id} style={r.transit ? { background: '#f0f9ff' } : undefined} title={r.transit ? r.note : undefined}>
+                      <tr key={r.id} style={r.transit ? { background: '#f0f9ff' } : r.mercatoMatch ? { background: r.mercatoMatch.level === 'duplicate' ? '#fee2e2' : '#fef3c7' } : undefined}
+                        title={r.transit ? r.note : r.mercatoMatch ? mercatoTitle(r) : undefined}>
                         {EDIT_COLS.map(c => {
                           const val = c.key === 'rep' ? (current.all ? (r.rep || NO_REP) : current.rep) : String((r as any)[c.key] ?? '');
                           const busy = savingCell === `${r.id}:${c.key}`;
@@ -313,7 +348,14 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                         <td style={{ ...td, color: '#64748b' }}>
                           {r.transit
                             ? <span style={{ background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc', borderRadius: 6, padding: '1px 8px', fontWeight: 700 }}>🔁 ترانزيت</span>
-                            : (r.source || '—')}
+                            : <>
+                                {r.source || '—'}
+                                {r.mercatoMatch && (
+                                  <span title={mercatoTitle(r)} style={{ marginInlineStart: 6, background: '#fff', color: r.mercatoMatch.level === 'duplicate' ? 'var(--c-danger)' : '#92400e', border: '1px solid currentColor', borderRadius: 6, padding: '0 6px', fontWeight: 700 }}>
+                                    🏬 {r.mercatoMatch.level === 'duplicate' ? 'في ميركاتو' : 'ربما ميركاتو'}
+                                  </span>
+                                )}
+                              </>}
                         </td>
                         {canEdit && (
                           <td style={td}>

@@ -77,5 +77,19 @@ check('كمية مختلفة', level([
 // 9) BOT-<id> رقم تركيبي لا يُعدّ رقم فاتورة
 check('رقم BOT تركيبي', realInvoice('BOT-55'), '');
 
+// 10) صورة فاتورة المذخر لطلبية جهّزها ميركاتو: رقم الفاتورة غير رقم طلبية ميركاتو،
+//     والفاتورة بعد التجهيز بيومين ⇒ مكررة (رقمان مختلفان لا ينفيان التطابق هنا)
+const mercatoSaved = { ...saved, mercato: true, invoice: realInvoice('M-88123'), rawInvoice: 'M-88123', area: areaKey('الدوره') };
+check('صورة فاتورة طلبية ميركاتو', level([
+  { invoiceNumber: '5521', date: '2026-10-16', pharmacy: 'صيدلية الرشاقة', area: 'الدورة', item: 'AMOKLAVIN BID 1000MG 10TAB', quantity: 50 },
+  { invoiceNumber: '5521', date: '2026-10-16', pharmacy: 'صيدلية الرشاقة', area: 'الدورة', item: 'AMOKLAVIN BID 457MG SYRUP', quantity: 50 },
+], mercatoSaved), 'duplicate');
+check('نفس رقم الفاتورة مع ملف كوديشن ⇒ ما زالت فاتورتين', level([
+  { invoiceNumber: '5521', date: '2026-10-16', pharmacy: 'صيدلية الرشاقة', area: 'الدورة', item: 'AMOKLAVIN BID 1000MG 10TAB', quantity: 50 },
+], { ...mercatoSaved, mercato: false }), 'new');
+check('ميركاتو: صيدلية أخرى ⇒ جديدة', level([
+  { invoiceNumber: '5521', date: '2026-10-16', pharmacy: 'النور', area: 'الدورة', item: 'AMOKLAVIN BID 1000MG 10TAB', quantity: 50 },
+], mercatoSaved), 'new');
+
 if (fail) { console.error(`\n${fail} اختبار فشل`); process.exit(1); }
 console.log('\nكل الاختبارات نجحت');
