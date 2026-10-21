@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import {
   resolveEffectiveAreas, resolveEffectiveAreaIds, userHasAllAreas, saveUserAreaAssignments,
 } from '../../lib/areaScope.js';
@@ -398,7 +399,7 @@ export async function listCompanyMembers(req, res, next) {
       orderBy: { username: 'asc' },
     }), provinceByAreaName()]);
 
-    const effective = await effectiveAreasByMember(members);
+    const [effective, provinceMembers] = await Promise.all([effectiveAreasByMember(members), provinceMemberUserIds()]);
     const data = members.map(m => ({
       id: m.id,
       username: m.username,
@@ -410,6 +411,7 @@ export async function listCompanyMembers(req, res, next) {
       areas: withProvince(dedupeByName(effective.get(m.id)), provMap),
       companies: m.companyAssignments.map(a => ({ ...a.company, isPrimary: a.isPrimary })),
       managerIds: m.managersOfUser.map(a => a.managerId),
+      isProvinceMember: provinceMembers.has(m.id),
     }));
 
     res.json({ success: true, data, canEdit: !READ_ONLY_ROLES.has(req.user.role) });

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import ProvinceRepsToggle, { useProvinceRepScope } from '../components/ProvinceRepsToggle';
 
 interface ScientificRep { id: number; name: string; }
 
@@ -26,6 +27,7 @@ interface CompanyMember {
   areas: AreaItem[];
   companies: { id: number; name: string; isPrimary?: boolean }[];
   managerIds?: number[];
+  isProvinceMember?: boolean;
 }
 
 interface AreaItem {
@@ -117,6 +119,11 @@ function memberSections<M extends { areas: AreaItem[]; role: string; username: s
 }
 
 const NO_COMPANY_SECTION = 'بلا شركة';
+/** عرض المكتب يُظهر الميدان فقط: التيم ليدر والمندوب العلمي — لا إدارة المكتب/الشركات. */
+const OFFICE_VIEW_ROLES = new Set(['team_leader', 'scientific_rep']);
+/** عضو محافظة = معلَّم من فرق المحافظات، أو كل مناطقه خارج بغداد. */
+const isProvinceSide = (m: { isProvinceMember?: boolean; areas: AreaItem[] }) =>
+  !!m.isProvinceMember || (m.areas.length > 0 && !m.areas.some(a => a.province === 'بغداد'));
 const HIER_RANK: Record<string, number> = {
   company_manager: 0, product_manager: 1, supervisor: 2, commercial_supervisor: 2,
   team_leader: 3, commercial_team_leader: 3,
@@ -211,6 +218,7 @@ export default function UsersPage() {
   const [membersLoading, setMembersLoading]       = useState(true);
   const [membersError, setMembersError]           = useState('');
   const [canEditMembers, setCanEditMembers]       = useState(true);
+  const [onlyProvince, setOnlyProvince]           = useProvinceRepScope('users');
   const [areasModalMember, setAreasModalMember]   = useState<CompanyMember | null>(null);
   // تعديل اسم الموظف + تفعيل/تعطيل حسابه (PATCH /api/company-members/:id)
   const [accountMember, setAccountMember]         = useState<CompanyMember | null>(null);
@@ -478,6 +486,14 @@ export default function UsersPage() {
     finally { setAccSaving(false); }
   };
 
+  // عرض المكتب: التيم ليدر + المندوبون العلميون فقط، بغداد افتراضياً و«مندوبي المحافظات» بالزر
+  const officeFieldMembers = companyMembers
+    .filter(m => OFFICE_VIEW_ROLES.has(m.role))
+    .map(m => ({ ...m, isProvinceMember: isProvinceSide(m) }));
+  const visibleMembers = isOfficeView
+    ? officeFieldMembers.filter(m => m.isProvinceMember === onlyProvince)
+    : companyMembers;
+
   // ── Company Manager View ─────────────────────────────────────
   if (isCompanyManager) {
     return (
@@ -505,11 +521,12 @@ export default function UsersPage() {
                 placeholder={isOfficeView ? "🔍 بحث باسم الموظف أو الشركة أو المنطقة..." : "🔍 بحث باسم الموظف أو المنطقة..."}
                 style={{ flex: '1 1 240px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13 }}
               />
-              <span style={{ fontSize: 12, color: '#64748b' }}>{companyMembers.length} موظف</span>
+              {isOfficeView && <ProvinceRepsToggle reps={officeFieldMembers} value={onlyProvince} onChange={setOnlyProvince} />}
+              <span style={{ fontSize: 12, color: '#64748b' }}>{visibleMembers.length} موظف</span>
             </div>
             {(() => {
               const q = memberSearch.trim();
-              const filtered = companyMembers.filter(m =>
+              const filtered = visibleMembers.filter(m =>
                 !q || (m.displayName || '').includes(q) || m.username.includes(q) || m.areas.some(a => a.name.includes(q))
                 || m.companies.some(c => c.name.includes(q)));
 
