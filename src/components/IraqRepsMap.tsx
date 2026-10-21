@@ -94,7 +94,7 @@ function PlexusBackground() {
     const cv = ref.current; const host = cv?.parentElement; if (!cv || !host) return;
     const ctx = cv.getContext('2d'); if (!ctx) return;
     const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const LINK = 110, MOUSE_R = 170;
+    const LINK = 80, MOUSE_R = 140;
     let w = 0, h = 0, raf = 0, visible = true;
     let pts: { x: number; y: number; vx: number; vy: number }[] = [];
     const mouse = { x: -1e4, y: -1e4, on: false };
@@ -131,7 +131,7 @@ function PlexusBackground() {
           const b = pts[j];
           const d = Math.hypot(a.x - b.x, a.y - b.y); if (d > LINK) continue;
           const near = mouse.on ? Math.max(0, 1 - Math.hypot((a.x + b.x) / 2 - mouse.x, (a.y + b.y) / 2 - mouse.y) / MOUSE_R) : 0;
-          ctx.strokeStyle = `rgba(47,102,214,${(1 - d / LINK) * (0.14 + near * 0.5)})`;
+          ctx.strokeStyle = `rgba(47,102,214,${(1 - d / LINK) * (0.09 + near * 0.35)})`;
           ctx.lineWidth = 0.8 + near * 0.6;
           ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
         }
@@ -140,7 +140,7 @@ function PlexusBackground() {
       if (mouse.on) {
         for (const p of pts) {
           const d = Math.hypot(p.x - mouse.x, p.y - mouse.y); if (d > MOUSE_R) continue;
-          ctx.strokeStyle = `rgba(31,79,180,${(1 - d / MOUSE_R) * 0.55})`; ctx.lineWidth = 1;
+          ctx.strokeStyle = `rgba(31,79,180,${(1 - d / MOUSE_R) * 0.4})`; ctx.lineWidth = 1;
           ctx.beginPath(); ctx.moveTo(mouse.x, mouse.y); ctx.lineTo(p.x, p.y); ctx.stroke();
         }
       }
