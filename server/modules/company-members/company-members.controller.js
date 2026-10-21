@@ -5,7 +5,9 @@ import {
 } from '../../lib/areaScope.js';
 
 /** أدوار تشرف على شركات مكتبها كلها (رئيسية وثانوية بالتساوي)، لا على شركتها الرئيسية فقط. */
-const OFFICE_WIDE_ROLES = new Set(['office_manager', 'office_hr']);
+const OFFICE_WIDE_ROLES = new Set(['office_manager', 'office_hr', 'office_employee']);
+/** أدوار ترى القائمة فقط بلا تعديل (مناطق/اسم/تفعيل). */
+const READ_ONLY_ROLES = new Set(['office_employee']);
 const isOfficeWide = role => OFFICE_WIDE_ROLES.has(role);
 
 /** Helper: get the PRIMARY company IDs of the requesting manager.
@@ -57,6 +59,7 @@ async function hierarchySubordinateIds(managerId) {
 
 async function canManage(manager, targetUserId) {
   if (!targetUserId || targetUserId === manager.id) return false;
+  if (READ_ONLY_ROLES.has(manager.role)) return false;
   if (manager.role === 'company_manager') {
     return (await hierarchySubordinateIds(manager.id)).has(targetUserId);
   }
@@ -388,8 +391,9 @@ export async function listCompanyMembers(req, res, next) {
           select: { area: { select: { id: true, name: true } } },
         },
         companyAssignments: {
-          select: { company: { select: { id: true, name: true } } },
+          select: { isPrimary: true, company: { select: { id: true, name: true } } },
         },
+        managersOfUser: { select: { managerId: true } },
       },
       orderBy: { username: 'asc' },
     }), provinceByAreaName()]);
@@ -404,10 +408,11 @@ export async function listCompanyMembers(req, res, next) {
       linkedRepId: m.linkedRepId,
       linkedRep: m.linkedRep,
       areas: withProvince(dedupeByName(effective.get(m.id)), provMap),
-      companies: m.companyAssignments.map(a => a.company),
+      companies: m.companyAssignments.map(a => ({ ...a.company, isPrimary: a.isPrimary })),
+      managerIds: m.managersOfUser.map(a => a.managerId),
     }));
 
-    res.json({ success: true, data });
+    res.json({ success: true, data, canEdit: !READ_ONLY_ROLES.has(req.user.role) });
   } catch (err) { next(err); }
 }
 

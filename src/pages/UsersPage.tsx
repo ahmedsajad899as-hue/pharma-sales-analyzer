@@ -24,7 +24,8 @@ interface CompanyMember {
   linkedRep: ScientificRep | null;
   displayName?: string | null;
   areas: AreaItem[];
-  companies: { id: number; name: string }[];
+  companies: { id: number; name: string; isPrimary?: boolean }[];
+  managerIds?: number[];
 }
 
 interface AreaItem {
@@ -115,6 +116,62 @@ function memberSections<M extends { areas: AreaItem[]; role: string; username: s
       || subSort(a, b));
 }
 
+const NO_COMPANY_SECTION = 'بلا شركة';
+const HIER_RANK: Record<string, number> = {
+  company_manager: 0, product_manager: 1, supervisor: 2, commercial_supervisor: 2,
+  team_leader: 3, commercial_team_leader: 3,
+};
+interface MemberNode<M> { member: M; children: MemberNode<M>[]; }
+
+/**
+ * عرض المكتب: أقسام حسب الشركة (الرئيسية للموظف، وإلا أول شركة)، وداخل كل شركة
+ * شجرة الهيكلية من UserManagerAssignment: مدير الشركة ← التيم ليدر ← المندوبين.
+ * من لا مدير له داخل نفس الشركة يظهر في أعلى الشجرة. موظف المكتب لا يُحتسب مديراً
+ * (يُعيَّن «مديراً» فقط لرؤية الزيارات — نفس منطق getCompanyOrg).
+ */
+function companySections<M extends { id: number; role: string; username: string; displayName?: string | null;
+  companies: { id: number; name: string; isPrimary?: boolean }[]; managerIds?: number[] }>(members: M[]) {
+  const homeOf = (m: M) => m.companies.find(c => c.isPrimary) ?? m.companies[0] ?? null;
+  const byCompany = new Map<string, { key: string; name: string; members: M[] }>();
+  for (const m of members) {
+    const c = homeOf(m);
+    const key = c ? String(c.id) : NO_COMPANY_SECTION;
+    if (!byCompany.has(key)) byCompany.set(key, { key, name: c ? c.name : NO_COMPANY_SECTION, members: [] });
+    byCompany.get(key)!.members.push(m);
+  }
+  const cmp = (a: M, b: M) =>
+    (HIER_RANK[a.role] ?? 9) - (HIER_RANK[b.role] ?? 9)
+    || (a.displayName || a.username).localeCompare(b.displayName || b.username, 'ar');
+
+  return [...byCompany.values()]
+    .map(sec => {
+      const inSec = new Map(sec.members.map(m => [m.id, m]));
+      const nodes = new Map(sec.members.map(m => [m.id, { member: m, children: [] } as MemberNode<M>]));
+      const roots: MemberNode<M>[] = [];
+      for (const m of sec.members) {
+        // أعلى مدير رتبةً داخل نفس الشركة (غير موظف مكتب)
+        const parent = (m.managerIds ?? [])
+          .map(id => inSec.get(id))
+          .filter((p): p is M => !!p && p.id !== m.id && p.role !== 'office_employee')
+          .sort((a, b) => (HIER_RANK[b.role] ?? 9) - (HIER_RANK[a.role] ?? 9))[0];
+        if (parent) nodes.get(parent.id)!.children.push(nodes.get(m.id)!);
+        else roots.push(nodes.get(m.id)!);
+      }
+      // حلقة في الهيكلية (أ مدير ب وب مدير أ): من لم يُصَل إليه من الجذور يصبح جذراً
+      const reached = new Set<number>();
+      const walk = (n: MemberNode<M>) => { if (reached.has(n.member.id)) return; reached.add(n.member.id); n.children.forEach(walk); };
+      roots.forEach(walk);
+      for (const n of nodes.values()) if (!reached.has(n.member.id)) { roots.push(n); walk(n); }
+      const sortTree = (list: MemberNode<M>[]) => { list.sort((a, b) => cmp(a.member, b.member)); list.forEach(n => sortTree(n.children)); };
+      sortTree(roots);
+      return { ...sec, roots };
+    })
+    .sort((a, b) =>
+      (a.key === NO_COMPANY_SECTION ? 1 : 0) - (b.key === NO_COMPANY_SECTION ? 1 : 0)
+      || b.members.length - a.members.length
+      || a.name.localeCompare(b.name, 'ar'));
+}
+
 const ALL_ROLES: { value: string; label: string }[] = [
   { value: 'user',                   label: '👤 مستخدم' },
   { value: 'scientific_rep',         label: '🔬 مندوب علمي' },
@@ -137,7 +194,9 @@ export default function UsersPage() {
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   // مدير الشركة و HR المكتب: عرض أعضاء الفريق + تعديل مناطقهم ضمن نطاقهم (company-members)
-  const isCompanyManager = currentUser?.role === 'company_manager' || currentUser?.role === 'office_hr';
+  // مدير المكتب / موظف المكتب / HR: نفس القائمة لكن مصفوفة حسب الشركة ← التيم ليدر ← المندوبين
+  const isOfficeView = currentUser?.role === 'office_manager' || currentUser?.role === 'office_employee' || currentUser?.role === 'office_hr';
+  const isCompanyManager = currentUser?.role === 'company_manager' || isOfficeView;
 
   const [users, setUsers]     = useState<User[]>([]);
   const [sciReps, setSciReps] = useState<ScientificRep[]>([]);
@@ -151,6 +210,7 @@ export default function UsersPage() {
   const [companyMembers, setCompanyMembers]       = useState<CompanyMember[]>([]);
   const [membersLoading, setMembersLoading]       = useState(true);
   const [membersError, setMembersError]           = useState('');
+  const [canEditMembers, setCanEditMembers]       = useState(true);
   const [areasModalMember, setAreasModalMember]   = useState<CompanyMember | null>(null);
   // تعديل اسم الموظف + تفعيل/تعطيل حسابه (PATCH /api/company-members/:id)
   const [accountMember, setAccountMember]         = useState<CompanyMember | null>(null);
@@ -195,6 +255,7 @@ export default function UsersPage() {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || 'فشل تحميل أعضاء الشركة');
         setCompanyMembers(j.data ?? []);
+        setCanEditMembers(j.canEdit !== false);
       } catch (err: any) { setMembersError(err.message || 'فشل تحميل أعضاء الشركة'); }
       finally { setMembersLoading(false); }
       return;
@@ -441,110 +502,150 @@ export default function UsersPage() {
               <input
                 value={memberSearch}
                 onChange={e => setMemberSearch(e.target.value)}
-                placeholder="🔍 بحث باسم الموظف أو المنطقة..."
+                placeholder={isOfficeView ? "🔍 بحث باسم الموظف أو الشركة أو المنطقة..." : "🔍 بحث باسم الموظف أو المنطقة..."}
                 style={{ flex: '1 1 240px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13 }}
               />
               <span style={{ fontSize: 12, color: '#64748b' }}>{companyMembers.length} موظف</span>
             </div>
-            {memberSections(companyMembers.filter(m => {
+            {(() => {
               const q = memberSearch.trim();
-              if (!q) return true;
-              return (m.displayName || '').includes(q) || m.username.includes(q) || m.areas.some(a => a.name.includes(q));
-            })).map(section => (
-              <div key={section.key} style={{ marginBottom: 18 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 4px 8px' }}>
-                  <span style={{ fontSize: 14, fontWeight: 900, color: '#1e293b' }}>
-                    {section.province === NO_AREAS_SECTION ? '⚪' : '🗺️'} {regionLabel(section)}
-                  </span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: '#eef2ff', padding: '2px 8px', borderRadius: 10 }}>
-                    {section.members.length}
-                  </span>
-                  <span style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
-                </div>
-                <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                {section.members.map((member, idx) => {
-                  const name = member.displayName || member.username;
-                  const groups = groupByRegion(member.areas);
-                  const expanded = expandedMembers.has(member.id);
-                  const toggle = () => setExpandedMembers(prev => {
-                    const next = new Set(prev);
-                    if (next.has(member.id)) next.delete(member.id); else next.add(member.id);
-                    return next;
-                  });
-                  return (
-                    <div key={member.id} style={{ borderTop: idx ? '1px solid #f1f5f9' : 'none', background: member.isActive ? undefined : '#fef2f2' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', flexWrap: 'wrap' }}>
-                        <div style={{
-                          width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-                          background: '#eef2ff', color: '#4f46e5',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 16,
-                        }}>{name[0]?.toUpperCase()}</div>
+              const filtered = companyMembers.filter(m =>
+                !q || (m.displayName || '').includes(q) || m.username.includes(q) || m.areas.some(a => a.name.includes(q))
+                || m.companies.some(c => c.name.includes(q)));
 
-                        <div style={{ minWidth: 150, flex: '0 1 220px' }}>
-                          <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{name}</div>
-                          <div style={{ fontSize: 11, color: '#6366f1', marginTop: 2 }}>
-                            {ROLE_LABELS[member.role] ?? member.role}
-                            {!member.isActive && <span style={{ color: '#ef4444', marginRight: 6 }}>● غير نشط</span>}
-                          </div>
-                        </div>
+              // صف موظف واحد — depth = مستوى التداخل في شجرة الشركة (عرض المكتب)
+              const renderMember = (member: CompanyMember, idx: number, depth = 0, childCount = 0) => {
+                const name = member.displayName || member.username;
+                const groups = groupByRegion(member.areas);
+                const expanded = expandedMembers.has(member.id);
+                const toggle = () => setExpandedMembers(prev => {
+                  const next = new Set(prev);
+                  if (next.has(member.id)) next.delete(member.id); else next.add(member.id);
+                  return next;
+                });
+                const isLead = childCount > 0;
+                return (
+                  <div key={member.id} style={{
+                    borderTop: idx ? '1px solid #f1f5f9' : 'none',
+                    background: !member.isActive ? '#fef2f2' : isLead ? '#fafaff' : undefined,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', paddingInlineStart: 16 + depth * 28, flexWrap: 'wrap' }}>
+                      {depth > 0 && <span style={{ color: '#cbd5e1', fontSize: 14, marginInlineEnd: -6 }}>└</span>}
+                      <div style={{
+                        width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+                        background: isLead ? '#4f46e5' : '#eef2ff', color: isLead ? '#fff' : '#4f46e5',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 16,
+                      }}>{name[0]?.toUpperCase()}</div>
 
-                        {/* ملخّص: عدد المناطق + توزيعها على المحافظات */}
-                        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          {member.areas.length === 0 ? (
-                            <span style={{ fontSize: 12, color: '#94a3b8' }}>لا مناطق محددة</span>
-                          ) : (
-                            <>
-                              <span style={{ fontSize: 12, fontWeight: 800, color: '#0369a1', background: '#e0f2fe', padding: '3px 10px', borderRadius: 12 }}>
-                                📍 {member.areas.length} منطقة
-                              </span>
-                              {groups.slice(0, 4).map(g => (
-                                <span key={g.key} title={regionLabel(g)} style={{ fontSize: 11, color: '#475569', background: '#f1f5f9', padding: '3px 8px', borderRadius: 12 }}>
-                                  {g.sub || g.province} <b>{g.areas.length}</b>
-                                </span>
-                              ))}
-                              {groups.length > 4 && <span style={{ fontSize: 11, color: '#94a3b8' }}>+{groups.length - 4}</span>}
-                            </>
-                          )}
-                        </div>
-
-                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                          {member.areas.length > 0 && (
-                            <button onClick={toggle} style={{
-                              padding: '6px 10px', fontSize: 12, fontWeight: 600, background: '#f8fafc', color: '#475569',
-                              border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer',
-                            }}>{expanded ? '▴ إخفاء' : '▾ عرض'}</button>
-                          )}
-                          <button onClick={() => openAccountModal(member)} style={{
-                            padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#f8fafc', color: '#334155',
-                            border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
-                          }}>👤 تعديل الحساب</button>
-                          <button onClick={() => openAreasModal(member)} style={{
-                            padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#eef2ff', color: '#4f46e5',
-                            border: '1px solid #c7d2fe', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
-                          }}>✏️ تعديل المناطق</button>
+                      <div style={{ minWidth: 150, flex: '0 1 220px' }}>
+                        <div style={{ fontWeight: isLead ? 900 : 700, fontSize: 14, color: '#1e293b' }}>{name}</div>
+                        <div style={{ fontSize: 11, color: '#6366f1', marginTop: 2 }}>
+                          {ROLE_LABELS[member.role] ?? member.role}
+                          {isLead && <span style={{ color: '#64748b', marginRight: 6 }}>· {childCount} تحته</span>}
+                          {!member.isActive && <span style={{ color: '#ef4444', marginRight: 6 }}>● غير نشط</span>}
                         </div>
                       </div>
 
-                      {expanded && (
-                        <div style={{ padding: '0 16px 12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {groups.map(g => (
-                            <div key={g.key} style={{ display: 'flex', gap: 10, alignItems: 'baseline', background: '#f8fafc', borderRadius: 8, padding: '6px 10px' }}>
-                              <span style={{ fontSize: 12, fontWeight: 800, color: '#334155', minWidth: 120, flexShrink: 0 }}>
-                                🗺️ {regionLabel(g)} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({g.areas.length})</span>
+                      {/* ملخّص: عدد المناطق + توزيعها على المحافظات */}
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {member.areas.length === 0 ? (
+                          <span style={{ fontSize: 12, color: '#94a3b8' }}>لا مناطق محددة</span>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: '#0369a1', background: '#e0f2fe', padding: '3px 10px', borderRadius: 12 }}>
+                              📍 {member.areas.length} منطقة
+                            </span>
+                            {groups.slice(0, 4).map(g => (
+                              <span key={g.key} title={regionLabel(g)} style={{ fontSize: 11, color: '#475569', background: '#f1f5f9', padding: '3px 8px', borderRadius: 12 }}>
+                                {g.sub || g.province} <b>{g.areas.length}</b>
                               </span>
-                              <span style={{ fontSize: 12, color: '#475569', lineHeight: 1.8 }}>
-                                {g.areas.map(a => a.name).join(' · ')}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                            ))}
+                            {groups.length > 4 && <span style={{ fontSize: 11, color: '#94a3b8' }}>+{groups.length - 4}</span>}
+                          </>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        {member.areas.length > 0 && (
+                          <button onClick={toggle} style={{
+                            padding: '6px 10px', fontSize: 12, fontWeight: 600, background: '#f8fafc', color: '#475569',
+                            border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer',
+                          }}>{expanded ? '▴ إخفاء' : '▾ عرض'}</button>
+                        )}
+                        {canEditMembers && (
+                          <>
+                            <button onClick={() => openAccountModal(member)} style={{
+                              padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#f8fafc', color: '#334155',
+                              border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
+                            }}>👤 تعديل الحساب</button>
+                            <button onClick={() => openAreasModal(member)} style={{
+                              padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#eef2ff', color: '#4f46e5',
+                              border: '1px solid #c7d2fe', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap',
+                            }}>✏️ تعديل المناطق</button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {expanded && (
+                      <div style={{ padding: '0 16px 12px 16px', paddingInlineStart: 16 + depth * 28, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {groups.map(g => (
+                          <div key={g.key} style={{ display: 'flex', gap: 10, alignItems: 'baseline', background: '#f8fafc', borderRadius: 8, padding: '6px 10px' }}>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: '#334155', minWidth: 120, flexShrink: 0 }}>
+                              🗺️ {regionLabel(g)} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({g.areas.length})</span>
+                            </span>
+                            <span style={{ fontSize: 12, color: '#475569', lineHeight: 1.8 }}>
+                              {g.areas.map(a => a.name).join(' · ')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              };
+
+              const sectionHeader = (icon: string, label: string, count: number) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 4px 8px' }}>
+                  <span style={{ fontSize: 14, fontWeight: 900, color: '#1e293b' }}>{icon} {label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#4f46e5', background: '#eef2ff', padding: '2px 8px', borderRadius: 10 }}>
+                    {count}
+                  </span>
+                  <span style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+                </div>
+              );
+
+              // ── عرض المكتب: الشركة ← التيم ليدر ← المندوبين ──
+              if (isOfficeView) {
+                return companySections(filtered).map(section => {
+                  const rows: JSX.Element[] = [];
+                  const countAll = (n: MemberNode<CompanyMember>): number => n.children.reduce((s, c) => s + 1 + countAll(c), 0);
+                  const walk = (n: MemberNode<CompanyMember>, depth: number) => {
+                    rows.push(renderMember(n.member, rows.length, depth, countAll(n)));
+                    n.children.forEach(c => walk(c, depth + 1));
+                  };
+                  section.roots.forEach(r => walk(r, 0));
+                  return (
+                    <div key={section.key} style={{ marginBottom: 18 }}>
+                      {sectionHeader(section.key === NO_COMPANY_SECTION ? '⚪' : '🏢', section.name, section.members.length)}
+                      <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        {rows}
+                      </div>
                     </div>
                   );
-                })}
+                });
+              }
+
+              // ── عرض مدير الشركة: حسب منطقة العمل ──
+              return memberSections(filtered).map(section => (
+                <div key={section.key} style={{ marginBottom: 18 }}>
+                  {sectionHeader(section.province === NO_AREAS_SECTION ? '⚪' : '🗺️', regionLabel(section), section.members.length)}
+                  <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                    {section.members.map((member, idx) => renderMember(member, idx))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ));
+            })()}
           </>
         )}
 
