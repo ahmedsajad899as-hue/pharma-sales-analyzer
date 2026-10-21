@@ -1831,6 +1831,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           onClick={() => setCurrencyModal(null)}
         >
           <div
+            className="m-dialog"
             style={{ background: '#fff', borderRadius: 16, padding: '2rem', minWidth: 340, maxWidth: 420, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', direction: 'rtl' }}
             onClick={e => e.stopPropagation()}
           >
@@ -1953,6 +1954,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           onClick={() => setRenameModal(null)}
         >
           <div
+            className="m-dialog"
             style={{ background: '#fff', borderRadius: 16, padding: '2rem', minWidth: 340, maxWidth: 420, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', direction: 'rtl' }}
             onClick={e => e.stopPropagation()}
           >
@@ -2189,6 +2191,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           onClick={() => setPendingFile(null)}
         >
           <div
+            className="m-dialog"
             style={{ background: '#fff', borderRadius: 18, padding: '2rem', minWidth: 340, maxWidth: 420, boxShadow: '0 10px 40px rgba(0,0,0,0.22)', direction: 'rtl' }}
             onClick={e => e.stopPropagation()}
           >
@@ -2307,6 +2310,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           onClick={() => { if (!mergingGroup) setMergeGroups(null); }}
         >
           <div
+            className="m-dialog"
             style={{ background: '#fff', borderRadius: 12, padding: '20px', minWidth: 340, maxWidth: 620, maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', direction: 'rtl', width: '94%' }}
             onClick={e => e.stopPropagation()}
           >
@@ -2383,6 +2387,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           onClick={() => setShareModalFile(null)}
         >
           <div
+            className="m-dialog"
             style={{ background: '#fff', borderRadius: 12, padding: '20px 20px 16px', minWidth: 340, maxWidth: 500, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', direction: 'rtl', width: '94%' }}
             onClick={e => e.stopPropagation()}
           >

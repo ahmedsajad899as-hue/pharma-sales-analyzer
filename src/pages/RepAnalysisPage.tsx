@@ -71,18 +71,21 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
   };
 
   return (
-    <div style={{ minHeight: '100%', background: 'var(--page-bg, #f8fafc)', display: 'flex', flexDirection: 'column' }}>
+    <div className="ra-root" style={{ minHeight: '100%', background: 'var(--page-bg, #f8fafc)', display: 'flex', flexDirection: 'column' }}>
       <style>{`
         .ra-tab { transition: color 0.15s, border-color 0.15s; }
         .ra-tab:hover { color: #1e293b !important; }
         @media (max-width: 640px) {
-          .ra-tabs { overflow-x: auto; flex-wrap: nowrap; }
-          .ra-tab  { font-size: 13px !important; padding: 10px 14px !important; padding-inline-end: 44px !important; }
+          .ra-tabs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+          .ra-tabs::-webkit-scrollbar { display: none; }
+          .ra-tab  { font-size: 13px !important; padding: 10px 14px !important; flex: 1 0 auto; }
+          .ra-header { padding: 10px 10px 0 !important; }
+          .ra-subrow { padding: 10px 12px 0 !important; }
         }
       `}</style>
 
       {/* ── Header ── */}
-      <div style={{
+      <div className="ra-header" style={{
         background: '#fff',
         borderBottom: '1px solid #e2e8f0',
         padding: '18px 28px 0',
@@ -123,7 +126,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
       {/* ── Content ── */}
       <div key={animKey} style={{ flex: 1, background: '#f8fafc' }}>
         {(activeTab === 'targets' || TARGET_SUBPAGES.includes(activeTab)) && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', direction: 'rtl', padding: '12px 28px 0' }}>
+          <div className="ra-subrow" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', direction: 'rtl', padding: '12px 28px 0' }}>
             {TABS.filter(tab => TARGET_SUBPAGES.includes(tab.id)).map(tab => {
               const on = activeTab === tab.id;
               return (

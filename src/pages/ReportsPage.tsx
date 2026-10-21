@@ -3422,7 +3422,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   return (
     <div className="page" ref={pageRootRef} tabIndex={-1} style={{ outline: 'none' }}>
       {/* Mode toggle */}
-      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
+      <div className="m-scroll-row" style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
         {([['overall','تحليل شامل','navReports'], ['scientific','علمي بغداد','navFms'], ['commercial',t.reports.modeCommercial,'navCommercial'], ['provinces','علمي محافظات','location']] as [string,string,import('../config/icons').IconName][])
           .filter(([id]) => !((id === 'commercial' || id === 'provinces') && user?.role === 'scientific_rep') && (SHOW_COMMERCIAL_MODE || id !== 'commercial'))
           .map(([id, label, icon]) => (
@@ -3461,7 +3461,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
           {/* Rep / file selector */}
           {mode === 'commercial' ? (
-            <select className="form-input" style={{ flex: '1 1 160px', maxWidth: 280 }} value={commRepId}
+            <select className="form-input m-full" style={{ flex: '1 1 160px', maxWidth: 280 }} value={commRepId}
               onChange={e => {
                 // إفلات التركيز فور الاختيار — وإلا يبقى select محتفظاً بالتركيز
                 // (سلوك المتصفح الطبيعي) فتتجاهله اختصارات لوحة المفاتيح أدناه
@@ -3473,7 +3473,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               {commReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           ) : mode === 'scientific' ? (
-            <div style={{ flex: '1 1 160px', maxWidth: 280, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <div className="m-full" style={{ flex: '1 1 160px', maxWidth: 280, display: 'flex', flexDirection: 'column', gap: 3 }}>
             <select className="form-input" style={{ width: '100%' }} value={sciRepId}
               onChange={e => {
                 e.target.blur();
@@ -3533,7 +3533,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
             })()}
             </div>
           ) : (
-            <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 420 }}>
+            <div className="m-full" style={{ position: 'relative', flex: '1 1 240px', maxWidth: 420 }}>
               <button
                 type="button"
                 className="form-input"
@@ -4146,7 +4146,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                 <div style={{ margin: '12px 0 6px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {/* Search input with suggestions */}
-                    <div style={{ flex: 1, maxWidth: 340, position: 'relative' }}>
+                    <div className="m-grow" style={{ flex: 1, maxWidth: 340, position: 'relative' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: overallSuggOpen && suggItems.length > 0 ? '10px 10px 0 0' : 10, border: `1.5px solid ${overallSearch ? '#6366f1' : '#e2e8f0'}`, background: overallSearch ? '#f5f3ff' : '#f8fafc', boxShadow: overallSearch ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none', transition: 'border-radius 0.1s' }}>
                         <Icon name="search" size={14} />
                         <input
@@ -4221,7 +4221,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
             {/* Sub-tabs: area / item / company */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
-              <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
+              <div className="m-scroll-row" style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
                 {([['area', 'location', t.reports.colArea], ['item', 'drug', t.reports.colItem], ['company', 'navCommercial', 'الشركة'], ['province', 'language', 'المحافظات'], ['baghdadWarehouse', 'navStockLedger', 'مذاخر بغداد']] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => {
                   const active = overallTab === id;
                   // «المحافظات» و«مذاخر بغداد» تبويبان مُميَّزان بطلب صريح: حبّة بتدرّج
@@ -4700,7 +4700,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           </div>
           {/* Sub-tabs — Commercial */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
-            <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
+            <div className="m-scroll-row" style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
               {([['area','location',t.reports.tabByArea], ['item','drug',t.reports.tabByItem]] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => (
                 <button key={id} onClick={() => setActiveTab(id as 'area' | 'item')} title={label} style={{
                   padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',
@@ -4931,7 +4931,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
           {/* Sub-tabs — Scientific */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
-            <div style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
+            <div className="m-scroll-row" style={{ display: 'flex', gap: 2, borderBottom: '2px solid #e2e8f0', alignItems: 'flex-end' }}>
               {([['area','location',t.reports.tabByArea], ['item','drug',t.reports.tabByItem], ['rep','person',t.reports.tabByCommRep]] as [string, import('../config/icons').IconName, string][]).map(([id, icon, label]) => (
                 <button key={id} onClick={() => setActiveTab(id as 'area' | 'item' | 'rep')} title={label} style={{
                   padding: '7px 16px', border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer',

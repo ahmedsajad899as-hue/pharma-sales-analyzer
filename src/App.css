@@ -3914,3 +3914,39 @@ body.rfs-map-fullscreen-lock { overflow: hidden; }
   .rfs-map-panel--collapsed { width: 100%; max-height: none; }
   .rfs-map-canvas-wrap { flex: 1; }
 }
+
+/* =====================================================================
+   MOBILE — تحليل المبيعات / التقارير (≤ 767px فقط)
+   كل الأصناف أدناه (m-*, ra-root) بلا أي قاعدة خارج هذا الشرط، فعرض
+   الحاسبة لا يتأثر إطلاقاً. !important لازمة لأن التنسيق مكتوب inline.
+   ===================================================================== */
+@media (max-width: 767px) {
+  /* لا تمرير أفقي للصفحة كلها — العناصر العريضة تتمرّر داخل إطارها */
+  .ra-root { overflow-x: clip; max-width: 100vw; }
+
+  /* أشرطة تبويبات لا تلتف: تتمرّر أفقياً بالإصبع بدل الخروج عن الشاشة */
+  .m-scroll-row {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .m-scroll-row::-webkit-scrollbar { display: none; }
+  .m-scroll-row > * { flex-shrink: 0; white-space: nowrap; }
+
+  /* حقول اختيار المندوب/الملف: عرض كامل بسطر خاص */
+  .m-full { flex: 1 1 100% !important; max-width: 100% !important; }
+  /* حقل البحث يأخذ كل ما يتبقى بجانب زر التصدير */
+  .m-grow { max-width: none !important; min-width: 0; }
+
+  /* نوافذ التأكيد: داخل الشاشة دائماً مع هامش */
+  .m-dialog {
+    min-width: 0 !important;
+    width: calc(100vw - 24px) !important;
+    padding: 1.25rem !important;
+    max-height: 88vh;
+    overflow-y: auto;
+    box-sizing: border-box;
+  }
+}
