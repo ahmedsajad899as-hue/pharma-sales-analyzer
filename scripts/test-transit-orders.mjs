@@ -47,8 +47,8 @@ const m = buildMasterIndex(AREAS.map(a => ({ ...a, needsReview: false })), [],
   [{ id: 1, name: 'النموذجية', pharmacyName: null, ownerName: null, areaName: 'الحارثية' }]);
 const ofArea = new Map();
 for (const a of AREAS) ofArea.set(normalizeAreaName(a.name), new Set([a.provinceId]));
-const pIdx = { byName: buildProvinceLookup(PROV), ofArea };
-const place = (note, rowProvince = '') => { const t = { ...parseTransitNote(note), rowProvince }; const r = placeFromNote(t, m, pIdx); return [r.place.areaName, r.place.provinceName, r.place.how || (r.needsSales ? 'sales?' : '')]; };
+const pIdx = { byName: buildProvinceLookup(PROV), byId: new Map(PROV.map(p => [p.id, p])), ofArea, nameById: new Map(AREAS.map(a => [a.id, a.name])) };
+const place = (note, rowProvince = '', warehouseAreaId = null) => { const t = { ...parseTransitNote(note), rowProvince, warehouseAreaId }; const r = placeFromNote(t, m, pIdx); return [r.place.areaName, r.place.provinceName, r.place.how || (r.needsSales ? 'sales?' : '')]; };
 
 eq('صيدلية بغداد بنفس الاسم لا تُنسب لترانزيت الديوانية', place('ترانزيت الى ص/ النموذجية / الديوانية'), ['', 'القادسية', 'sales?']);
 eq('محافظة ملتصقة بالاسم', place('ترانزيت الى ص/ النموذجية الديوانية'), ['', 'القادسية', 'sales?']);
@@ -56,8 +56,11 @@ eq('بلا تلميح ← السيرفي', place('ترانزيت الى ص/ ال
 eq('منطقة باسم بديل لمحافظة', place('ترانزيت الى صيدلية العامرية المركزية / الفلوجة'), ['الفلوجة', 'الأنبار', 'note']);
 eq('منطقة داخل المحافظة', place('ترانزيت الى ص/ النموذجية / الديوانية - حي العسكري'), ['حي العسكري', 'القادسية', 'note']);
 eq('محافظة الصف تمنع صيدلية بغداد', place('ترانزيت الى ص/ النموذجية', 'الديوانية'), ['', 'القادسية', 'sales?']);
-eq('صف بغداد ← السيرفي في بغداد', place('ترانزيت الى ص/ النموذجية', 'بغداد'), ['الحارثية', '', 'survey']);
-eq('بغداد بلا منطقة لا تُنسب للمحافظة', place('ترانزيت الى ص/ غير موجودة / بغداد'), ['', '', 'sales?']);
+eq('صف بغداد ← السيرفي في بغداد', place('ترانزيت الى ص/ النموذجية', 'بغداد'), ['الحارثية', 'بغداد', 'survey']);
+eq('بغداد بلا منطقة ← المحافظة (صارمة)', place('ترانزيت الى ص/ غير موجودة / بغداد'), ['', 'بغداد', 'sales?']);
+eq('مذخر في الديوانية يمنع صيدلية بغداد', place('ترانزيت الى ص/ النموذجية', 'بغداد', 30), ['', 'القادسية', 'sales?']);
+eq('مذخر في بغداد ← السيرفي في بغداد', place('ترانزيت الى ص/ النموذجية', '', 11), ['الحارثية', 'بغداد', 'survey']);
+eq('محافظة الملاحظة تتقدّم على المذخر', place('ترانزيت الى ص/ النموذجية / الديوانية', '', 11), ['', 'القادسية', 'sales?']);
 eq('منطقة مكتوبة غير معروفة', place('ترانزيت الى ص/ النموذجية / قرية بعيدة'), ['', '', 'unknown-area']);
 
 console.log(fail ? `\n${fail} فشل` : '\nكل الاختبارات نجحت');

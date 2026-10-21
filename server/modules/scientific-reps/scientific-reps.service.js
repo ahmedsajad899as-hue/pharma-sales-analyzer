@@ -1238,12 +1238,15 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     select: { id: true },
   });
   let provinceAreaIds = [];
+  // محافظات مُسنَدة كاملةً — لترانزيت بغداد بلا منطقة (provinceStrict).
+  const wholeProvinceIdSet = new Set();
   if (repUsers.length) {
     const provRows = await prisma.userProvinceAssignment.findMany({
       where:  { userId: { in: repUsers.map(u => u.id) } },
       select: { provinceId: true },
     });
-    provinceAreaIds = await areaIdsOfProvinces([...new Set(provRows.map(r => r.provinceId))]);
+    for (const r of provRows) wholeProvinceIdSet.add(r.provinceId);
+    provinceAreaIds = await areaIdsOfProvinces([...wholeProvinceIdSet]);
   }
 
   let areaIds = null;
@@ -1441,7 +1444,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     const blockedAreaSet = new Set(blockedAreaIds);
     for (const s of transit) {
       const t = s.transit;
-      if (t.areaNorm ? !areaNormSet.has(t.areaNorm) : !(t.provinceId && provinceIdSet.has(t.provinceId))) continue;
+      const inProvince = t.provinceId && (t.provinceStrict ? wholeProvinceIdSet : provinceIdSet).has(t.provinceId);
+      if (t.areaNorm ? !areaNormSet.has(t.areaNorm) : !inProvince) continue;
       if (t.areaId && blockedAreaSet.has(t.areaId)) continue;
       rawSales.push({
         ...s,

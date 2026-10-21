@@ -158,15 +158,16 @@ async function loadOfficeRepScopes(officeId) {
     if (!areaNorms.size) continue;
     const provinceIds = new Set([...provIds, ...areaIds.map(id => areaProvince.get(id)).filter(Boolean)]);
     const { itemIds } = await resolveSciRepItemIds(repId, repUsers.map(u => ({ id: u.id })));
-    scopes.push({ name: repUsers[0].displayName || repUsers[0].username, areaNorms, provinceIds, itemIds: itemIds ? new Set(itemIds) : null });
+    scopes.push({ name: repUsers[0].displayName || repUsers[0].username, areaNorms, provinceIds, wholeProvinceIds: new Set(provIds), itemIds: itemIds ? new Set(itemIds) : null });
   }
   return scopes;
 }
 
 const HOW_LABEL = {
   note: 'من الملاحظة', survey: 'من السيرفي', sales: 'من سجل المبيعات',
-  province: 'غير معروفة — المحافظة من الملاحظة', 'unknown-area': 'المكتوبة غير معروفة في السستم',
+  province: 'غير معروفة — احتُسبت للمحافظة', 'unknown-area': 'المكتوبة غير معروفة في السستم',
 };
+const PROVINCE_FROM_LABEL = { note: 'من الملاحظة', warehouse: 'من منطقة المذخر', row: 'من عمود المحافظة' };
 const INVOICE_KEY_RE = /رقم\s*(ال)?(فاتور|طلب)|invoice/i;
 
 /**
@@ -209,7 +210,9 @@ async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFi
     const invoiceKey = Object.keys(raw).find(k => INVOICE_KEY_RE.test(k));
     const qty = Number(s.quantity) || 0;
     const total = inTarget(s);
-    const inPlace = (r) => (t.areaNorm ? r.areaNorms.has(t.areaNorm) : !!t.provinceId && r.provinceIds.has(t.provinceId));
+    const inPlace = (r) => (t.areaNorm
+      ? r.areaNorms.has(t.areaNorm)
+      : !!t.provinceId && (t.provinceStrict ? r.wholeProvinceIds : r.provinceIds).has(t.provinceId));
     const reps = (t.areaNorm || t.provinceId)
       ? scopes.filter(r => inPlace(r) && (!r.itemIds || r.itemIds.has(s.itemId))).map(r => repCoreName(r.name))
       : [];
@@ -230,7 +233,10 @@ async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFi
         total,
         source:    'ترانزيت',
         transit:   true,
-        note:      `${t.note}${HOW_LABEL[t.how] ? ` — المنطقة ${HOW_LABEL[t.how]}` : ''}`,
+        note:      [t.note,
+          HOW_LABEL[t.how] && `المنطقة ${HOW_LABEL[t.how]}`,
+          t.provinceName && `المحافظة ${t.provinceName} ${PROVINCE_FROM_LABEL[t.provinceFrom] || ''}`.trim(),
+        ].filter(Boolean).join(' — '),
         itemId:    s.itemId ?? null,
         sciCompanyId: s.item?.scientificCompanyId ?? null,
       },

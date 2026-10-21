@@ -105,20 +105,36 @@ const PLACE_TTL_MS = 10 * 60_000;
 let placeMemo = new Map();
 let placeMemoAt = 0;
 
-/** خرائط المحافظات: اسم/بديل مطبَّع ← محافظة، واسم منطقة مطبَّع ← محافظاتها. */
+/**
+ * خرائط المحافظات: اسم/بديل مطبَّع ← محافظة، معرّف ← محافظة، اسم منطقة مطبَّع ←
+ * محافظاتها، ومعرّف منطقة ← اسمها (لمنطقة المذخر في صف الملف).
+ */
 async function loadProvinceIndex() {
   const [provinces, areas] = await Promise.all([
     prisma.province.findMany({ select: { id: true, name: true, aliases: true } }),
-    prisma.area.findMany({ where: { provinceId: { not: null } }, select: { name: true, provinceId: true } }),
+    prisma.area.findMany({ select: { id: true, name: true, provinceId: true } }),
   ]);
   const byName = buildProvinceLookup(provinces);
+  const byId = new Map(provinces.map(p => [p.id, p]));
   const ofArea = new Map(); // normalizeAreaName → Set(provinceId)
+  const nameById = new Map();
   for (const a of areas) {
+    nameById.set(a.id, a.name);
+    if (!a.provinceId) continue;
     const k = normalizeAreaName(a.name);
     if (!ofArea.has(k)) ofArea.set(k, new Set());
     ofArea.get(k).add(a.provinceId);
   }
-  return { byName, ofArea };
+  return { byName, byId, ofArea, nameById };
+}
+
+/** محافظة منطقة المذخر (Sale.areaId للصف) — فقط حين تدلّ على محافظة واحدة. */
+function warehouseProvince(t, pIdx) {
+  const name = pIdx.nameById?.get(t.warehouseAreaId);
+  if (!name) return null;
+  const ps = pIdx.ofArea.get(normalizeAreaName(name));
+  if (ps?.size === 1) return pIdx.byId?.get([...ps][0]) ?? null;
+  return matchProvinceName(name, pIdx.byName); // منطقة باسم المحافظة نفسها («الديوانية»)
 }
 
 /**
@@ -181,13 +197,18 @@ const provinceFit = (pIdx) => (areaName, province, explicit) => {
 export function placeFromNote(t, m, pIdx) {
   const fitsProvince = provinceFit(pIdx);
   const sp = splitProvince(t, pIdx);
-  // محافظة الملاحظة، وإلا محافظة الصف — تقيّد البحث بالاسم (السيرفي/المبيعات) لا المنطقة المكتوبة.
-  sp.searchProvince = sp.province || matchProvinceName(t.rowProvince, pIdx.byName);
-  // نسب للمحافظة وحدها حين لا تُعرف المنطقة — عدا بغداد (مندوبوها بالمناطق، فتذهب لكلهم).
-  const fallbackProvince = isBaghdad(sp.searchProvince) ? null : sp.searchProvince;
+  // محافظة الطلبية: من الملاحظة، وإلا من منطقة المذخر، وإلا من عمود المحافظة في الصف.
+  // تقيّد البحث بالاسم (السيرفي/المبيعات) لا المنطقة المكتوبة في الملاحظة.
+  const whProv = sp.province ? null : warehouseProvince(t, pIdx);
+  const rowProv = sp.province || whProv ? null : matchProvinceName(t.rowProvince, pIdx.byName);
+  sp.searchProvince = sp.province || whProv || rowProv;
+  const provinceFrom = sp.province ? 'note' : whProv ? 'warehouse' : rowProv ? 'row' : '';
+  // حين لا تُعرف منطقة الصيدلية تُحتسب الطلبية للمحافظة. بغداد مندوبوها بالمناطق،
+  // فتُحتسب فيها لمن أُسنِدت له محافظة بغداد كاملة فقط (provinceStrict).
   const place = {
     pharmacy: sp.pharmacy || t.pharmacy, areaId: null, areaName: '', areaNorm: '',
-    provinceId: fallbackProvince?.id ?? null, provinceName: fallbackProvince?.name ?? '', how: '',
+    provinceId: sp.searchProvince?.id ?? null, provinceName: sp.searchProvince?.name ?? '',
+    provinceStrict: isBaghdad(sp.searchProvince), provinceFrom, how: '',
   };
   const setArea = (areaName, how) => Object.assign(place, {
     areaId: m.areaByKey.get(normalizeAreaName(areaName))?.id ?? null, areaName, areaNorm: normalizeArabic(areaName), how,
@@ -256,7 +277,7 @@ async function resolvePlaces(transits, lookupFileIds) {
   return out;
 }
 
-const placeKey = (t) => `${t.pharmacy}|${t.areaHint}|${t.rowProvince || ''}`;
+const placeKey = (t) => `${t.pharmacy}|${t.areaHint}|${t.rowProvince || ''}|${t.warehouseAreaId ?? ''}`;
 
 /** اسم الصيدلية ← المنطقة الغالبة في المبيعات (≥60% من صفوفه) ضمن الملفات. */
 async function salesAreaByPharmacy(keys, fileIds) {
@@ -302,7 +323,8 @@ async function salesAreaByPharmacy(keys, fileIds) {
 /**
  * صفوف الترانزيت في ملفات المكتب المعطاة، كلٌّ مع مكان الصيدلية:
  * row.transit = { note, pharmacy, areaId, areaName, areaNorm, provinceId, provinceName, how, customerInfo }.
- * areaNorm فارغ مع provinceId = تُعرف المحافظة وحدها (تُنسب لمندوبي المحافظة).
+ * areaNorm فارغ مع provinceId = تُعرف المحافظة وحدها (تُنسب لمندوبي المحافظة؛
+ * provinceStrict = بغداد: لمن أُسنِدت له المحافظة كاملة فقط).
  * الاثنان فارغان = لم يُعرف المكان (لا تُنسب لمندوب).
  *
  * @param {{officeFileIds:number[], lookupFileIds?:number[], where?:object, select:object}} opts
@@ -318,17 +340,17 @@ export async function loadTransitSales({ officeFileIds, lookupFileIds = officeFi
         ...(where ? [where] : []),
       ],
     },
-    select: { ...select, id: true, rawData: true, totalValue: true },
+    select: { ...select, id: true, rawData: true, totalValue: true, areaId: true },
   });
   const hits = [];
   for (const r of rows) {
     const t = parseTransitRow(r.rawData, r.totalValue);
-    if (t) hits.push({ r, t });
+    if (t) hits.push({ r, t: { ...t, warehouseAreaId: r.areaId } });
   }
   if (!hits.length) return [];
   const places = await resolvePlaces(hits.map(h => h.t), lookupFileIds);
   return hits.map(({ r, t }) => {
-    const p = places.get(placeKey(t)) || { pharmacy: t.pharmacy, areaId: null, areaName: '', areaNorm: '', provinceId: null, provinceName: '', how: '' };
+    const p = places.get(placeKey(t)) || { pharmacy: t.pharmacy, areaId: null, areaName: '', areaNorm: '', provinceId: null, provinceName: '', provinceStrict: false, provinceFrom: '', how: '' };
     return { ...r, transit: { note: t.note, customerInfo: t.customerInfo, ...p } };
   });
 }
