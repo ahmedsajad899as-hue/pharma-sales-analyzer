@@ -11,7 +11,8 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-export interface BaghdadMapArea { name: string; value: number; lat: number; lng: number }
+// approx = موقع مستنتج من اسم المنطقة (دليل الأماكن) لا من نقاط GPS فعلية
+export interface BaghdadMapArea { name: string; value: number; lat: number; lng: number; approx?: boolean }
 
 interface Props {
   areas: BaghdadMapArea[];                 // المناطق ذات الموقع فقط
@@ -82,8 +83,8 @@ export default function BaghdadSalesMap({ areas, selArea, onSelectArea, showBubb
       const on = selArea === a.name;
       const r = 5 + 20 * Math.sqrt(a.value / max);
       if (showBubbles) {
-        L.circleMarker([a.lat, a.lng], { radius: r, color: on ? '#fde047' : '#ffffff', weight: on ? 3 : 1.5, fillColor: '#2563eb', fillOpacity: 0.7 })
-          .bindTooltip(`${a.name} — ${fmtVal(a.value)} ${currencyLabel}`, { direction: 'top' })
+        L.circleMarker([a.lat, a.lng], { radius: r, color: on ? '#fde047' : '#ffffff', weight: on ? 3 : 1.5, dashArray: a.approx ? '4 3' : undefined, fillColor: '#2563eb', fillOpacity: a.approx ? 0.5 : 0.7 })
+          .bindTooltip(`${a.name} — ${fmtVal(a.value)} ${currencyLabel}${a.approx ? ' · موقع تقريبي من اسم المنطقة' : ''}`, { direction: 'top' })
           .on('click', (e) => { L.DomEvent.stopPropagation(e); cb.current.onSelectArea(on ? null : a.name); })
           .addTo(grp);
       }

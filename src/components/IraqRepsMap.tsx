@@ -11,7 +11,8 @@
 //     بقية الأدوار ترى كل تيمات المكتب.
 //   • بغداد: الضغط عليها يفتح خريطتها — خريطة حقيقية بأسماء المناطق والشوارع
 //     (Leaflet، BaghdadSalesMap) أو مخطط الكرخ/الرصافة (Area.subProvince). موقع كل
-//     منطقة من سيرفي المندوب (/api/reports/baghdad-area-points).
+//     منطقة: سيرفي المندوب ← GPS الزيارات ← دليل أسماء أماكن بغداد (تقريبي)
+//     (/api/reports/baghdad-area-points).
 //   • /api/scientific-reps/province-map ← المندوبون العلميون بكل محافظة؛ تُنسَب الشركة
 //     من `company` (الشركة الرئيسية لحساب المندوب) في قائمة reps الممرَّرة.
 //
@@ -98,8 +99,10 @@ const BVB = BAGHDAD_MAP_VIEWBOX;
 // مفتاح اسم المنطقة — يطابق areaKey في reports.routes.js (مواقع السيرفي)
 const areaKey = (s: string) => norm(s).replace(/ٱ/g, 'ا').replace(/ـ/g, '').replace(/^حي /, '');
 const sideOf = (sub: string | null) => !sub ? null : norm(sub).includes('كرخ') ? 'الكرخ' : norm(sub).includes('رصاف') ? 'الرصافة' : null;
-// مواقع مناطق بغداد لا تتغيّر بالشهر/الملف — تُجلب مرة لكل جلسة
-let BAGHDAD_POINTS: Promise<Map<string, { lat: number; lng: number; n: number }>> | null = null;
+// مواقع مناطق بغداد: src = survey | visits | gazetteer (الأخير تقريبي من الاسم)
+type BgPoint = { lat: number; lng: number; n: number; src: string };
+// مخبأ جلسة بحسب قائمة أسماء المناطق المطلوبة
+const BAGHDAD_POINTS = new Map<string, Promise<Map<string, BgPoint>>>();
 // البطاقة الداكنة أعلى يمين الخريطة — معطّلة مؤقتاً بطلب المستخدم؛ true لإرجاعها.
 const SHOW_HOVER_CARD = false;
 
@@ -205,7 +208,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const [bgBubbles, setBgBubbles] = useState(true);
   const [bgSide, setBgSide] = useState<string | null>(null);
   const [bgArea, setBgArea] = useState<string | null>(null);
-  const [bgPoints, setBgPoints] = useState<Map<string, { lat: number; lng: number; n: number }> | null>(null);
+  const [bgPoints, setBgPoints] = useState<Map<string, BgPoint> | null>(null);
   const [err, setErr] = useState('');
   const [hover, setHover] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
@@ -420,24 +423,31 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     return { value: v, companies: cos.size, reps: rp.size, provinces: list.filter(c => c.total !== 0 || c.repCount > 0).length };
   }, [list]);
 
-  // مواقع المناطق — عند أول فتح لعرض الفقاعات فقط
+  // مواقع مناطق المبيع — عند فتح بغداد، ولكل قائمة مناطق جديدة (تغيّر الشهر/الملفات)
+  const bgNamesKey = useMemo(() => [...new Set(salesRows.bga.map(x => x.a))].sort().join('|'), [salesRows.bga]);
   useEffect(() => {
-    if (!bgOpen || bgPoints) return;
-    type Pt = { lat: number; lng: number; n: number };
-    const req: Promise<Map<string, Pt>> = BAGHDAD_POINTS ?? fetch('/api/reports/baghdad-area-points', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : { data: [] })
-      .then(j => new Map<string, Pt>((j.data ?? []).map((p: any) => [p.key as string, { lat: p.lat, lng: p.lng, n: p.n }])))
-      .catch(() => { BAGHDAD_POINTS = null; return new Map<string, Pt>(); });
-    BAGHDAD_POINTS = req;
+    if (!bgOpen || !bgNamesKey) return;
+    let req = BAGHDAD_POINTS.get(bgNamesKey);
+    if (!req) {
+      req = fetch('/api/reports/baghdad-area-points', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ areas: bgNamesKey.split('|') }),
+      })
+        .then(r => r.ok ? r.json() : { data: [] })
+        .then(j => new Map<string, BgPoint>((j.data ?? []).map((p: any) => [p.key as string, { lat: p.lat, lng: p.lng, n: p.n, src: p.src }])))
+        .catch(() => { BAGHDAD_POINTS.delete(bgNamesKey); return new Map<string, BgPoint>(); });
+      BAGHDAD_POINTS.set(bgNamesKey, req);
+    }
     let dead = false;
     req.then(m => { if (!dead) setBgPoints(m); });
     return () => { dead = true; };
-  }, [bgOpen, bgPoints, token]);
+  }, [bgOpen, bgNamesKey, token]);
 
   const bg = useMemo(() => {
     const areas = salesRows.bga.map(x => {
       const pt = bgPoints?.get(areaKey(x.a));
-      return { name: x.a, side: sideOf(x.s), value: x.v, lat: pt?.lat, lng: pt?.lng };
+      return { name: x.a, side: sideOf(x.s), value: x.v, lat: pt?.lat, lng: pt?.lng, approx: pt?.src === 'gazetteer' };
     }).sort((a, b) => b.value - a.value);
     const sideTotals = new Map<string, number>();
     for (const a of areas) if (a.side) sideTotals.set(a.side, (sideTotals.get(a.side) ?? 0) + a.value);
@@ -527,14 +537,14 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           <>
             <Suspense fallback={<div style={{ height: side ? 600 : 460, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 13 }}>جاري تحميل خريطة بغداد…</div>}>
               <BaghdadSalesMap
-                areas={located.filter(a => !bgSide || a.side === bgSide).map(a => ({ name: a.name, value: a.value, lat: a.lat!, lng: a.lng! }))}
+                areas={located.filter(a => !bgSide || a.side === bgSide).map(a => ({ name: a.name, value: a.value, lat: a.lat!, lng: a.lng!, approx: a.approx }))}
                 selArea={bgArea} onSelectArea={setBgArea}
                 showBubbles={bgBubbles} fmtVal={fmtVal} currencyLabel={currencyLabel}
                 height={side ? 600 : 460} />
             </Suspense>
             <div style={{ textAlign: 'center', fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
               {!bgPoints ? 'جاري تحميل مواقع المناطق…'
-                : `حجم الفقاعة = صافي المبيع · الموقع من سيرفي المندوب · ${located.length} من ${bg.areas.filter(a => a.value > 0).length} منطقة لها موقع · بدّل الأساس من زر الطبقات أعلى الخريطة`}
+                : `حجم الفقاعة = صافي المبيع · الموقع من السيرفي/الزيارات، والمتقطعة تقريبية من اسم المنطقة · ${located.length} من ${bg.areas.filter(a => a.value > 0).length} منطقة على الخريطة`}
             </div>
           </>
         ) : (

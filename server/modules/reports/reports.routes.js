@@ -5,6 +5,7 @@
  */
 
 import { Router } from 'express';
+import { readFileSync } from 'fs';
 import { getRepresentativeReport } from '../representatives/representatives.controller.js';
 import { COLUMN_ALIASES, detectMercatoFormat } from '../sales/sales.service.js';
 import { saleValueUSD } from '../sales/sales.repository.js';
@@ -115,36 +116,98 @@ router.get('/home-items/:itemId/provinces', getHomeItemProvinces);
 router.get('/home-provinces', getHomeProvinces);
 
 // ── مواقع مناطق بغداد لخريطة الفقاعات («علمي محافظات» → بغداد) ──────────────
-// لا إحداثيات للمنطقة نفسها في النظام؛ موقعها = وسيط نقاط GPS المسجَّلة في
-// سيرفي المندوب الميداني (RepFieldSurveyEntry) بنفس اسم المنطقة. الوسيط لا
-// المتوسط كي لا تسحب نقطة شاذّة واحدة الفقاعة بعيداً. محصور بمستخدمي مكتب
-// الطالب، وداخل مربّع بغداد فقط. يُرجع مراكز مجمَّعة لا نقاطاً فردية.
+// لا إحداثيات للمنطقة نفسها في النظام، فيُستنتج موقعها بثلاث طبقات بالأولوية:
+//   1) survey  — وسيط نقاط سيرفي المندوب الميداني (RepFieldSurveyEntry) بنفس الاسم
+//   2) visits  — وسيط GPS زيارات الأطباء (منطقة الطبيب) والصيدليات (منطقة الزيارة)
+//   3) gazetteer — دليل أسماء أماكن بغداد (GeoNames، server/lib/data/baghdadGazetteer.json)
+//      بمطابقة الاسم — تقريبي، للمناطق التي لا نقاط GPS لها أصلاً.
+// الوسيط لا المتوسط كي لا تسحب نقطة شاذّة الفقاعة بعيداً. النقاط محصورة بمستخدمي
+// مكتب الطالب وداخل مربّع بغداد. يُرجع مراكز مجمَّعة لا نقاطاً فردية.
+// POST body: { areas: string[] } — أسماء مناطق المبيع المطلوب تحديد مواقعها.
 const BAGHDAD_BBOX = { minLat: 32.75, maxLat: 33.8, minLng: 43.8, maxLng: 44.95 };
 const areaKey = (s) => normArName(s).replace(/^حي /, '');
-router.get('/baghdad-area-points', async (req, res) => {
+// مفتاح الدليل: نفس areaKey + حذف التشكيل وبادئة «منطقة»
+const gazKey = (s) => areaKey(s).replace(/[ً-ٟ]/g, '').replace(/^منطقه /, '');
+const stripAl = (s) => s.split(' ').map(w => w.replace(/^ال(?=..)/, '')).join(' ');
+let GAZ = null; // { exact: Map, noAl: Map, keys: string[] (بلا «ال»، الأطول أولاً) }
+function gazetteer() {
+  if (GAZ) return GAZ;
+  const raw = JSON.parse(readFileSync(new URL('../../lib/data/baghdadGazetteer.json', import.meta.url), 'utf8')).places;
+  const exact = new Map(Object.entries(raw));
+  const noAl = new Map();
+  for (const [k, v] of exact) if (!noAl.has(stripAl(k))) noAl.set(stripAl(k), v);
+  const keys = [...noAl.keys()].filter(k => k.length >= 4).sort((a, b) => b.length - a.length);
+  return (GAZ = { exact, noAl, keys });
+}
+function gazLookup(name) {
+  const g = gazetteer();
+  const k = gazKey(name);
+  const hit = g.exact.get(k) ?? g.noAl.get(stripAl(k));
+  if (hit) return hit;
+  // «كراده داخل» ← «كراده»: أطول اسم في الدليل يرد ككلمات كاملة داخل اسم المنطقة
+  const words = ` ${stripAl(k)} `;
+  const sub = g.keys.find(gk => words.includes(` ${gk} `));
+  return sub ? g.noAl.get(sub) : null;
+}
+const median = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+router.post('/baghdad-area-points', async (req, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const wanted = Array.isArray(req.body?.areas) ? req.body.areas.filter(a => typeof a === 'string').slice(0, 500) : [];
     const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
     const userIds = viewer?.officeId != null
       ? (await prisma.user.findMany({ where: { officeId: viewer.officeId }, select: { id: true } })).map(u => u.id)
       : [userId];
-    const rows = await prisma.repFieldSurveyEntry.findMany({
-      where: {
-        userId: { in: userIds },
-        latitude:  { gte: BAGHDAD_BBOX.minLat, lte: BAGHDAD_BBOX.maxLat },
-        longitude: { gte: BAGHDAD_BBOX.minLng, lte: BAGHDAD_BBOX.maxLng },
-      },
-      select: { areaName: true, latitude: true, longitude: true },
-    });
-    const groups = new Map(); // key → { areaName, lats, lngs }
-    for (const r of rows) {
-      const k = areaKey(r.areaName); if (!k) continue;
-      if (!groups.has(k)) groups.set(k, { areaName: r.areaName, lats: [], lngs: [] });
-      const g = groups.get(k); g.lats.push(r.latitude); g.lngs.push(r.longitude);
+    const inBox = {
+      latitude:  { gte: BAGHDAD_BBOX.minLat, lte: BAGHDAD_BBOX.maxLat },
+      longitude: { gte: BAGHDAD_BBOX.minLng, lte: BAGHDAD_BBOX.maxLng },
+    };
+    const [survey, docVisits, phVisits] = await Promise.all([
+      prisma.repFieldSurveyEntry.findMany({ where: { userId: { in: userIds }, ...inBox }, select: { areaName: true, latitude: true, longitude: true } }),
+      prisma.doctorVisit.findMany({
+        where: { userId: { in: userIds }, isActive: true, ...inBox, doctor: { areaId: { not: null } } },
+        select: { latitude: true, longitude: true, doctor: { select: { area: { select: { name: true } } } } },
+        orderBy: { id: 'desc' }, take: 40000,
+      }),
+      prisma.pharmacyVisit.findMany({
+        where: { userId: { in: userIds }, isActive: true, ...inBox },
+        select: { latitude: true, longitude: true, areaName: true, area: { select: { name: true } } },
+        orderBy: { id: 'desc' }, take: 40000,
+      }),
+    ]);
+    const collect = (rows) => {
+      const m = new Map();
+      for (const r of rows) {
+        const k = r.name ? areaKey(r.name) : ''; if (!k) continue;
+        if (!m.has(k)) m.set(k, { lats: [], lngs: [] });
+        const g = m.get(k); g.lats.push(r.lat); g.lngs.push(r.lng);
+      }
+      return m;
+    };
+    const bySurvey = collect(survey.map(r => ({ name: r.areaName, lat: r.latitude, lng: r.longitude })));
+    const byVisits = collect([
+      ...docVisits.map(r => ({ name: r.doctor?.area?.name, lat: r.latitude, lng: r.longitude })),
+      ...phVisits.map(r => ({ name: r.area?.name ?? r.areaName, lat: r.latitude, lng: r.longitude })),
+    ]);
+
+    const data = [];
+    const seen = new Set();
+    for (const name of wanted) {
+      const key = areaKey(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const s = bySurvey.get(key) ?? null;
+      const v = s ? null : byVisits.get(key) ?? null;
+      if (s || v) {
+        const g = s ?? v;
+        data.push({ key, areaName: name, lat: median(g.lats), lng: median(g.lngs), n: g.lats.length, src: s ? 'survey' : 'visits' });
+        continue;
+      }
+      const gz = gazLookup(name);
+      if (gz) data.push({ key, areaName: name, lat: gz[0], lng: gz[1], n: 0, src: 'gazetteer' });
     }
-    const median = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
-    const data = [...groups.entries()].map(([key, g]) => ({ key, areaName: g.areaName, lat: median(g.lats), lng: median(g.lngs), n: g.lats.length }));
     res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ error: err.message });
