@@ -9,10 +9,9 @@
 //   • مدير الشركة (company_manager) يرى مبيع تيمه وحده: teamManagerId = حسابه، نفس
 //     فلتر شريحة «الشركة الرئيسية» في التحليل الشامل (ايتمات التيم المُسنَدة له).
 //     بقية الأدوار ترى كل تيمات المكتب.
-//   • بغداد: الضغط عليها يفتح خريطتها — خريطة حقيقية بالأقضية والنواحي (Leaflet،
-//     BaghdadSalesMap) أو مخطط الكرخ/الرصافة (Area.subProvince). موقع كل منطقة من
-//     سيرفي المندوب (/api/reports/baghdad-area-points)، وناحيتها = الناحية التي
-//     تقع فيها تلك النقطة (nahiyaAt في src/data/baghdadAdmin.ts).
+//   • بغداد: الضغط عليها يفتح خريطتها — خريطة حقيقية بأسماء المناطق والشوارع
+//     (Leaflet، BaghdadSalesMap) أو مخطط الكرخ/الرصافة (Area.subProvince). موقع كل
+//     منطقة من سيرفي المندوب (/api/reports/baghdad-area-points).
 //   • /api/scientific-reps/province-map ← المندوبون العلميون بكل محافظة؛ تُنسَب الشركة
 //     من `company` (الشركة الرئيسية لحساب المندوب) في قائمة reps الممرَّرة.
 //
@@ -24,7 +23,6 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { IRAQ_PROVINCE_SHAPES, IRAQ_MAP_VIEWBOX } from '../data/iraqProvinces';
 import ProvinceTeamsDirectory from './ProvinceTeamsDirectory';
 import { BAGHDAD_SIDE_SHAPES, BAGHDAD_MAP_VIEWBOX } from '../data/baghdadSides';
-import { nahiyaAt } from '../data/baghdadAdmin';
 // Leaflet + صورة القمر الصناعي تُحمَّل فقط عند فتح بغداد
 const BaghdadSalesMap = lazy(() => import('./BaghdadSalesMap'));
 import { useAuth } from '../context/AuthContext';
@@ -205,7 +203,6 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const [bgOpen, setBgOpen] = useState(false);
   const [bgMode, setBgMode] = useState<'map' | 'sides'>('map');
   const [bgBubbles, setBgBubbles] = useState(true);
-  const [bgNahiya, setBgNahiya] = useState<string | null>(null);
   const [bgSide, setBgSide] = useState<string | null>(null);
   const [bgArea, setBgArea] = useState<string | null>(null);
   const [bgPoints, setBgPoints] = useState<Map<string, { lat: number; lng: number; n: number }> | null>(null);
@@ -440,23 +437,18 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const bg = useMemo(() => {
     const areas = salesRows.bga.map(x => {
       const pt = bgPoints?.get(areaKey(x.a));
-      const nh = pt ? nahiyaAt(pt.lat, pt.lng) : null;
-      return { name: x.a, side: sideOf(x.s), value: x.v, lat: pt?.lat, lng: pt?.lng, nahiya: nh?.name ?? null };
+      return { name: x.a, side: sideOf(x.s), value: x.v, lat: pt?.lat, lng: pt?.lng };
     }).sort((a, b) => b.value - a.value);
     const sideTotals = new Map<string, number>();
-    const nahiyaTotals = new Map<string, number>();
-    for (const a of areas) {
-      if (a.side) sideTotals.set(a.side, (sideTotals.get(a.side) ?? 0) + a.value);
-      if (a.nahiya) nahiyaTotals.set(a.nahiya, (nahiyaTotals.get(a.nahiya) ?? 0) + a.value);
-    }
+    for (const a of areas) if (a.side) sideTotals.set(a.side, (sideTotals.get(a.side) ?? 0) + a.value);
     const total = areas.reduce((t, a) => t + a.value, 0);
-    return { areas, sideTotals, nahiyaTotals, total };
+    return { areas, sideTotals, total };
   }, [salesRows.bga, bgPoints]);
 
   const side = wrapW >= 940;
 
   const pickProvince = (name: string) => { setSel(name); setDirProvince(name); setTeamsOpen(true); };
-  const openBaghdad = () => { setBgOpen(true); setBgSide(null); setBgNahiya(null); setBgArea(null); setHover(null); };
+  const openBaghdad = () => { setBgOpen(true); setBgSide(null); setBgArea(null); setHover(null); };
 
   const companyPanel = (c: ProvinceCell) => {
     const cmax = Math.max(1, ...c.companies.map(x => Math.abs(x.value)));
@@ -502,7 +494,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     );
   };
 
-  // ── بغداد: خريطة حقيقية بالأقضية/النواحي (افتراضي) أو مخطط الكرخ/الرصافة ──
+  // ── بغداد: خريطة حقيقية بأسماء المناطق والشوارع (افتراضي) أو مخطط الكرخ/الرصافة ──
   const renderBaghdadMap = () => {
     const sideMax = Math.max(1, ...[...bg.sideTotals.values()].map(Math.abs));
     // قسمان فقط: الأعلى بدرجة 5، والآخر بنسبته منه — كي يظهر الفرق بينهما
@@ -527,24 +519,22 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
             </button>
           )}
           <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 999, overflow: 'hidden', background: '#fff' }}>
-            <button type="button" style={chip(bgMode === 'map')} onClick={() => { setBgMode('map'); setBgSide(null); }}>خريطة بغداد</button>
-            <button type="button" style={chip(bgMode === 'sides')} onClick={() => { setBgMode('sides'); setBgNahiya(null); }}>الكرخ / الرصافة</button>
+            <button type="button" style={chip(bgMode === 'map')} onClick={() => setBgMode('map')}>خريطة بغداد</button>
+            <button type="button" style={chip(bgMode === 'sides')} onClick={() => setBgMode('sides')}>الكرخ / الرصافة</button>
           </div>
         </div>
         {bgMode === 'map' ? (
           <>
             <Suspense fallback={<div style={{ height: side ? 600 : 460, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 13 }}>جاري تحميل خريطة بغداد…</div>}>
               <BaghdadSalesMap
-                areas={located.map(a => ({ name: a.name, value: a.value, lat: a.lat!, lng: a.lng! }))}
-                nahiyaTotals={bg.nahiyaTotals}
-                selNahiya={bgNahiya} onSelectNahiya={n => { setBgNahiya(n); setBgArea(null); }}
+                areas={located.filter(a => !bgSide || a.side === bgSide).map(a => ({ name: a.name, value: a.value, lat: a.lat!, lng: a.lng! }))}
                 selArea={bgArea} onSelectArea={setBgArea}
                 showBubbles={bgBubbles} fmtVal={fmtVal} currencyLabel={currencyLabel}
                 height={side ? 600 : 460} />
             </Suspense>
             <div style={{ textAlign: 'center', fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
               {!bgPoints ? 'جاري تحميل مواقع المناطق…'
-                : `اضغط على ناحية لعرض مناطقها · مبيع الناحية = مناطقها ذات الموقع في سيرفي المندوب · ${located.length} من ${bg.areas.filter(a => a.value > 0).length} منطقة لها موقع`}
+                : `حجم الفقاعة = صافي المبيع · الموقع من سيرفي المندوب · ${located.length} من ${bg.areas.filter(a => a.value > 0).length} منطقة لها موقع · بدّل الأساس من زر الطبقات أعلى الخريطة`}
             </div>
           </>
         ) : (
@@ -585,12 +575,11 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   };
 
   const renderBaghdadPanel = () => {
-    const rows = bg.areas.filter(a => bgMode === 'map' ? (!bgNahiya || a.nahiya === bgNahiya) : (!bgSide || a.side === bgSide));
+    const rows = bg.areas.filter(a => !bgSide || a.side === bgSide);
     const max = Math.max(1, ...rows.map(a => Math.abs(a.value)));
     const sub = rows.reduce((t, a) => t + a.value, 0);
-    const title = bgMode === 'map' ? (bgNahiya ? `ناحية ${bgNahiya}` : 'كل المناطق') : (bgSide ?? 'كل المناطق');
+    const title = bgSide ?? 'كل المناطق';
     const pill = (on: boolean): React.CSSProperties => ({ fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: '4px 12px', cursor: 'pointer', border: 'none', background: on ? '#1f4fb4' : '#eef3fd', color: on ? '#fff' : '#1f4fb4' });
-    const nahiyaList = [...bg.nahiyaTotals.entries()].filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]);
     return (
       <>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
@@ -604,14 +593,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-          {bgMode === 'map' ? (
-            <>
-              <button type="button" style={pill(!bgNahiya)} onClick={() => { setBgNahiya(null); setBgArea(null); }}>الكل</button>
-              {nahiyaList.map(([n, v]) => (
-                <button key={n} type="button" style={pill(bgNahiya === n)} onClick={() => { setBgNahiya(bgNahiya === n ? null : n); setBgArea(null); }}>{n} · {fmtVal(v)}</button>
-              ))}
-            </>
-          ) : ([null, 'الكرخ', 'الرصافة'] as (string | null)[]).map(sd => (
+          {([null, 'الكرخ', 'الرصافة'] as (string | null)[]).map(sd => (
             <button key={sd ?? 'all'} type="button" style={pill(bgSide === sd)} onClick={() => { setBgSide(sd); setBgArea(null); }}>
               {sd ?? 'الكل'}{sd ? ` · ${fmtVal(bg.sideTotals.get(sd) ?? 0)}` : ''}
             </button>
@@ -621,14 +603,13 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           {rows.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13 }}>لا توجد مبيعات هنا في الفترة المختارة.</div>}
           {rows.map(a => {
             const on = bgArea === a.name;
-            const tag = bgMode === 'map' ? (a.nahiya ? null : 'بلا موقع') : (a.side ? null : 'بلا قسم');
+            const tag = bgMode === 'map' ? (a.lat != null ? null : 'بلا موقع') : (a.side ? null : 'بلا قسم');
             return (
               <div key={a.name} onClick={() => setBgArea(on ? null : a.name)}
                 style={{ border: `1px solid ${on ? '#1f4fb4' : '#e6ebf2'}`, borderRadius: 10, padding: '6px 9px', background: on ? '#eef3fd' : '#fbfcfe', cursor: 'pointer' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontWeight: 800, fontSize: 12, color: '#0f172a' }}>{a.name}
                     {tag && <span style={{ fontWeight: 600, fontSize: 10, color: '#94a3b8' }}> · {tag}</span>}
-                    {bgMode === 'map' && !bgNahiya && a.nahiya && <span style={{ fontWeight: 600, fontSize: 10, color: '#64748b' }}> · {a.nahiya}</span>}
                   </span>
                   <span style={{ fontWeight: 800, fontSize: 12, color: a.value < 0 ? '#be123c' : '#1f4fb4', direction: 'ltr' }}>{fmtVal(a.value)}</span>
                 </div>
