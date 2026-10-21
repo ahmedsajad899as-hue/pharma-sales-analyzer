@@ -212,6 +212,25 @@ export default function RepFieldSurveyPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── حذف سجل — لمدير الشركة فقط (الخادم يتحقق أيضاً أن السجل لمندوب من فريقه) ──
+  const canDelete = user?.role === 'company_manager';
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const deleteEntry = async (e: Entry) => {
+    const label = e.kind === 'doctor' ? 'الطبيب' : 'الصيدلية';
+    if (!window.confirm(`حذف ${label} «${e.name}» من السيرفي نهائياً؟`)) return;
+    setDeletingId(e.id);
+    try {
+      const r = await fetch(`/api/rep-field-survey/entries/${e.id}`, { method: 'DELETE', headers: H() });
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.message || 'تعذّر حذف السجل');
+      setEntries(prev => prev.filter(x => x.id !== e.id));
+    } catch (err: any) {
+      window.alert(err.message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   // مناطق المندوب المعيّنة — اقتراحات لحقل المنطقة لتوحيد الأسماء
   const [areaOptions, setAreaOptions] = useState<string[]>([]);
   // المدير ليست له "مناطقي" — يُقترح عليه من مناطق سجلات فريقه الموجودة
@@ -861,6 +880,11 @@ export default function RepFieldSurveyPage() {
                       <button className="btn btn--secondary btn--sm" onClick={() => setViewing(e)}>تفاصيل</button>
                       {e.canEdit && (
                         <button className="btn btn--secondary btn--sm" onClick={() => openEdit(e)}>تعديل</button>
+                      )}
+                      {canDelete && (
+                        <button className="btn btn--danger btn--sm" disabled={deletingId === e.id} onClick={() => deleteEntry(e)}>
+                          {deletingId === e.id ? 'جارٍ الحذف…' : 'حذف'}
+                        </button>
                       )}
                     </td>
                   </tr>

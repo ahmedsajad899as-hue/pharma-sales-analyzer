@@ -688,3 +688,27 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
     reps: repsOut,
   };
 }
+
+// ─── حذف سجل — لمدير الشركة فقط، وعلى سجلات مندوبي فريقه فقط ───────────────
+export async function deleteEntry(user, entryId) {
+  if (user?.role !== 'company_manager') {
+    throw new AppError('حذف سجلات السيرفي متاح لمدير الشركة فقط', 403, 'FORBIDDEN');
+  }
+  const current = await prisma.repFieldSurveyEntry.findUnique({ where: { id: entryId } });
+  if (!current) throw new AppError('السجل غير موجود', 404, 'NOT_FOUND');
+  const roster = await getManagerRoster(user);
+  if (!roster.reps.some(r => r.userId === current.userId)) {
+    throw new AppError('السجل غير موجود', 404, 'NOT_FOUND');
+  }
+  // علاقة parent بـ onDelete: Cascade — حذف صيدلية قديمة (parent) كان سيحذف معها
+  // كل أطبائها. نفكّ الربط أولاً ونحفظ اسمها ضمن الصيدليات القريبة للطبيب.
+  const children = await prisma.repFieldSurveyEntry.findMany({ where: { parentId: entryId } });
+  await prisma.$transaction([
+    ...children.map(c => prisma.repFieldSurveyEntry.update({
+      where: { id: c.id },
+      data:  { parentId: null, nearPharmacies: dedupeNames([...c.nearPharmacies, current.name]) },
+    })),
+    prisma.repFieldSurveyEntry.delete({ where: { id: entryId } }),
+  ]);
+  return { id: entryId };
+}

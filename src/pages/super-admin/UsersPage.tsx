@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
-import { getVisiblePageNodes, STANDALONE_FEATURES } from '../../config/featureConfig';
+import { getVisiblePageNodes, STANDALONE_FEATURES, FEATURE_PAGE_MAP } from '../../config/featureConfig';
 import type { FeatureNode } from '../../config/featureConfig';
 import UsersBulkImportModal from './UsersBulkImportModal';
 import BulkFeatureToggleModal from './BulkFeatureToggleModal';
@@ -2236,6 +2236,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
             // كل مفاتيح ميزة (الأم + الفرعية المرئية لدور هذا المستخدم) — تُستخدم لزر
             // «التشغيل/الإيقاف الكلي» حتى يعطّل/يفعّل الميزة وكل ميزاتها الفرعية دفعة
             // واحدة بدل ترك حالة "جزئي" غامضة (نقطة برتقالية) بعد تعطيل الأم فقط.
+            const pageGateKeys = (node: FeatureNode): string[] => {
+              const pageId = node.key ? FEATURE_PAGE_MAP[node.key] : undefined;
+              return pageId ? Object.keys(FEATURE_PAGE_MAP).filter(k => FEATURE_PAGE_MAP[k] === pageId) : [];
+            };
+
             const nodeAllKeys = (node: FeatureNode): string[] => {
               const keys: string[] = [];
               if (node.key) keys.push(node.key);
@@ -2250,8 +2255,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
             // ⚠️ هذه دوال تُستدعى مباشرة (لا تُستخدم كـ <Component />): تعريف مكوّن داخل
             // الـ render يُنشئ نوعاً جديداً في كل ضغطة فيفكّ React الشجرة ويعيد بناءها
             // فيقفز التمرير لأعلى الصفحة.
-            const renderMiniToggle = (fKeys: string[], size: 'sm' | 'md' | 'lg' = 'md') => {
-              const allOn = fKeys.length > 0 && fKeys.every(k => !draftDisabledFeats.includes(k));
+            // gateKeys: مفاتيح FEATURE_PAGE_MAP التي تخفي الصفحة فعلاً في Sidebar. عند
+            // تمريرها، حالة الزر = «هل الصفحة ظاهرة؟» لا «هل كل الفرعية مفعّلة؟» — وإلا
+            // ظهر الزر مطفأً (نقطة برتقالية) بينما الصفحة لا تزال ظاهرة عند المستخدم.
+            const renderMiniToggle = (fKeys: string[], size: 'sm' | 'md' | 'lg' = 'md', gateKeys: string[] = []) => {
+              const allOn = gateKeys.length > 0
+                ? gateKeys.every(k => !draftDisabledFeats.includes(k))
+                : fKeys.length > 0 && fKeys.every(k => !draftDisabledFeats.includes(k));
               const dims = size === 'lg' ? { w: 56, h: 30, ball: 22 } : size === 'sm' ? { w: 38, h: 22, ball: 16 } : { w: 46, h: 26, ball: 20 };
               return (
                 <label
@@ -2302,7 +2312,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot.color, flexShrink: 0 }} />
                     : (!node && <span style={{ fontSize: 9, background: 'rgba(255,255,255,0.08)', color: '#64748b', borderRadius: 4, padding: '1px 5px', flexShrink: 0, whiteSpace: 'nowrap' }}>دائماً</span>)
                   }
-                  {keys.length > 0 && renderMiniToggle(keys, 'sm')}
+                  {keys.length > 0 && renderMiniToggle(node ? [...new Set([...keys, ...pageGateKeys(node)])] : keys, 'sm', node ? pageGateKeys(node) : [])}
                 </div>
               );
             };
@@ -2640,7 +2650,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             {parentOff && <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontWeight: 600 }}>⛔ هذه الصفحة / الميزة معطّلة بالكامل</div>}
                           </div>
                           {nodeAllKeys(activeNode).length > 0
-                            ? renderMiniToggle(nodeAllKeys(activeNode), 'lg')
+                            ? renderMiniToggle([...new Set([...nodeAllKeys(activeNode), ...pageGateKeys(activeNode)])], 'lg', pageGateKeys(activeNode))
                             : <span style={{ background: '#e2e8f0', color: '#475569', borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 700 }}>دائماً متاح</span>
                           }
                         </div>

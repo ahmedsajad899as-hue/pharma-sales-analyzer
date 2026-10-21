@@ -47,3 +47,13 @@ export async function updateEntry(req, res, next) {
     res.json({ success: true, data });
   } catch (err) { next(err); }
 }
+
+// DELETE /api/rep-field-survey/entries/:id — مدير الشركة فقط
+export async function deleteEntry(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, code: 'VALIDATION_ERROR', message: 'معرّف غير صالح' });
+    const data = await svc.deleteEntry(req.user, id);
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+}
