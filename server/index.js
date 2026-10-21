@@ -20,7 +20,7 @@ import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
 import { updateConditionRow, deleteConditionRow } from './modules/sales/sales.service.js';
-import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles } from './lib/conditionFile.js';
+import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles } from './lib/conditionFile.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -2233,9 +2233,11 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
   try {
     const file = await findReadableFile(id, req.user?.id ?? null);
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
+    // طلبيات الترانزيت من ملفات المكتب المفعّلة للمُشاهِد (lib/transitOrders.js).
+    const transit = await transitSourceFiles(req.user?.id ?? null);
     const [all, months] = await Promise.all([
-      loadConditionSheets(id, { month: req.query.month || null }),
-      listSalesMonths(prisma, [id], 'sale'),
+      loadConditionSheets(id, { month: req.query.month || null, transit }),
+      listSalesMonths(prisma, [id, ...transit.officeFileIds], 'sale'),
     ]);
     const sheets = await scopeSheetsToRoster(all, req.user);
     const companySheet = await buildCompanySheet(all, sheets, req.user);
@@ -2262,7 +2264,7 @@ app.get('/api/files/:id/condition-export', requireAuth, async (req, res) => {
     const file = await findReadableFile(id, req.user?.id ?? null);
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
     const month = req.query.month || null;
-    const all = await loadConditionSheets(id, { month });
+    const all = await loadConditionSheets(id, { month, transit: await transitSourceFiles(req.user?.id ?? null) });
     const sheets = await scopeSheetsToRoster(all, req.user);
     const companySheet = await buildCompanySheet(all, sheets, req.user);
     const title = `${file.originalName}${month && month !== 'all' ? ` — ${month}` : ''}`;

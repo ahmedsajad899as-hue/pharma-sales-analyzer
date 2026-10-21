@@ -10,6 +10,8 @@ type Row = {
   id: number; date: string; invoice: string; pharmacy: string; area: string; warehouse: string;
   item: string; company: string; quantity: number; bonus: number; unitPrice: number; total: number; source: string;
   rep?: string;
+  /** طلبية ترانزيت من ملف المكتب — للقراءة فقط هنا */
+  transit?: boolean; note?: string;
 };
 type Sheet = { rep: string; rows: Row[]; quantity: number; total: number; orders: number; all?: boolean };
 type Month = { ym: string; label: string; count: number };
@@ -149,7 +151,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
           <div style={{ color: '#64748b', fontSize: 13 }}>جاري التحميل…</div>
         ) : !hasData ? (
           <div style={{ color: '#94a3b8', fontSize: 13, background: '#f8fafc', borderRadius: 8, padding: 20, textAlign: 'center' }}>
-            لا توجد مبيعات في ملف الكوديشن{month !== 'all' ? ' لهذا الشهر' : ''} بعد. تُضاف إليه طلبيات بوت تلكرام عند حفظها وإكسل الكوديشن عند رفعه.
+            لا توجد مبيعات في ملف الكوديشن{month !== 'all' ? ' لهذا الشهر' : ''} بعد. تُضاف إليه طلبيات بوت تلكرام عند حفظها وإكسل الكوديشن عند رفعه، وطلبيات الترانزيت من ملف المكتب المفعّل.
           </div>
         ) : (
           <>
@@ -207,15 +209,18 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                     </tr>
                   </thead>
                   <tbody>
-                    {current.rows.map(r => (
-                      <tr key={r.id}>
+                    {current.rows.map(r => {
+                      // صف الترانزيت يعيش في ملف المكتب — لا يُعدَّل ولا يُحذف من هنا.
+                      const editable = canEdit && !r.transit;
+                      return (
+                      <tr key={r.id} style={r.transit ? { background: '#f0f9ff' } : undefined} title={r.transit ? r.note : undefined}>
                         {EDIT_COLS.map(c => {
                           const val = c.key === 'rep' ? (current.all ? (r.rep || NO_REP) : current.rep) : String((r as any)[c.key] ?? '');
                           const busy = savingCell === `${r.id}:${c.key}`;
                           return (
-                            <td key={c.key} style={{ ...td, padding: canEdit ? 2 : td.padding, opacity: busy ? 0.5 : 1,
+                            <td key={c.key} style={{ ...td, padding: editable ? 2 : td.padding, opacity: busy ? 0.5 : 1,
                               ...(c.key === 'rep' && val === NO_REP ? { background: '#fef3c7', color: '#92400e', fontWeight: 700 } : null) }}>
-                              {canEdit ? (
+                              {editable ? (
                                 <input
                                   defaultValue={(val === '0' && (c.key === 'bonus' || c.key === 'unitPrice')) || (c.key === 'rep' && val === NO_REP) ? '' : val}
                                   placeholder={c.key === 'rep' && val === NO_REP ? NO_REP : undefined}
@@ -232,14 +237,19 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                             </td>
                           );
                         })}
-                        <td style={{ ...td, color: '#64748b' }}>{r.source || '—'}</td>
+                        <td style={{ ...td, color: '#64748b' }}>
+                          {r.transit
+                            ? <span style={{ background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc', borderRadius: 6, padding: '1px 8px', fontWeight: 700 }}>🔁 ترانزيت</span>
+                            : (r.source || '—')}
+                        </td>
                         {canEdit && (
                           <td style={td}>
-                            <button onClick={() => deleteRow(r)} title="حذف الصف" style={{ border: '1px solid var(--c-danger-border)', background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>×</button>
+                            {!r.transit && <button onClick={() => deleteRow(r)} title="حذف الصف" style={{ border: '1px solid var(--c-danger-border)', background: 'var(--c-danger-bg)', color: 'var(--c-danger)', borderRadius: 6, padding: '2px 8px', cursor: 'pointer' }}>×</button>}
                           </td>
                         )}
                       </tr>
-                    ))}
+                      );
+                    })}
                     <tr style={{ background: '#f8fafc' }}>
                       <td style={{ ...td, fontWeight: 800 }} colSpan={8}>المجموع — {fmt(current.orders)} طلبية</td>
                       <td style={{ ...td, fontWeight: 800 }}>{fmt(current.quantity)}</td>

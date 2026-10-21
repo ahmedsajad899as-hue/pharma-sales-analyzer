@@ -7,6 +7,7 @@ import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
+import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -1246,6 +1247,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   }
 
   let areaIds = null;
+  // أسماء مناطق المندوب مطبَّعة — تُطابَق بها منطقة صيدلية الترانزيت (اسم لا معرّف).
+  const areaNormSet = new Set();
   if (areaLinks.length || provinceAreaIds.length) {
     // Always keep the directly-linked area IDs; also expand by NORMALISED name to
     // catch duplicate area records that spell the same place differently
@@ -1259,6 +1262,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     );
     const matchingIds = allAreas.filter(a => assignedNorms.has(normalizeArabic(a.name))).map(a => a.id);
     areaIds = [...new Set([...directAreaIds, ...matchingIds])];
+    for (const n of assignedNorms) areaNormSet.add(n);
   }
 
   const { itemIds, itemLinks } = await resolveSciRepItemIds(id, repUsers);
@@ -1374,11 +1378,11 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
 
   let rawSales = [];
   const salesWhere = buildSalesWhere();
+  const dateFilter = (startDate || endDate)
+    ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } }
+    : {};
 
   if (salesWhere) {
-    const dateFilter = (startDate || endDate)
-      ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } }
-      : {};
 
     // ── A. Shared files ────────────────────────────────────────────────────
     if (sharedFileIds.length > 0) {
@@ -1410,6 +1414,40 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
         select: { ...select, rawData: true },
       });
       rawSales = rawSales.concat(nonSharedSales);
+    }
+  }
+
+  // ── طلبيات الترانزيت (lib/transitOrders.js) ───────────────────────────────
+  // صف ملف المكتب المرسَل لمذخر ليحوّله لصيدلية معيّنة. منطقته في الملف منطقة
+  // المذخر، فيُسحب من المسار العادي ويُنسب هنا بمنطقة الصيدلية ∩ مناطق المندوب
+  // والايتم ∩ ايتماته — بلا شرط المندوب التجاري (لا مندوب علمي في ملف المكتب).
+  // يُعرض بمنطقة الصيدلية واسمها، ويُعدّ ضمن الكوديشن (bySource في getReport).
+  rawSales = rawSales.filter(s => !parseTransitRow(s.rawData, s.totalValue));
+  if (areaNormSet.size > 0 && officeFileIds.length > 0 && recordType !== 'return') {
+    const tw = [dateFilter];
+    if (hasItems) tw.push({ itemId: { in: itemIds } });
+    if (blockedItemIds.length) tw.push({ NOT: { itemId: { in: blockedItemIds } } });
+    if (blockedCustomerInfoNorms.length) {
+      tw.push({ OR: [
+        { customerInfoNorm: null },
+        { NOT: { OR: blockedCustomerInfoNorms.map(n => ({ customerInfoNorm: { contains: n, mode: 'insensitive' } })) } },
+      ] });
+    }
+    if (blockedCustomerInfoItemConds.length) tw.push({ OR: [{ customerInfoNorm: null }, { NOT: { OR: blockedCustomerInfoItemConds } }] });
+    const transit = await loadTransitSales({ officeFileIds, lookupFileIds: fileIds, where: { AND: tw }, select: { ...select, rawData: true } });
+    const blockedAreaSet = new Set(blockedAreaIds);
+    for (const s of transit) {
+      const t = s.transit;
+      if (!t.areaNorm || !areaNormSet.has(t.areaNorm)) continue;
+      if (t.areaId && blockedAreaSet.has(t.areaId)) continue;
+      rawSales.push({
+        ...s,
+        areaId:   t.areaId ?? s.areaId,
+        // province: null ← التصدير يملؤها من اسم المنطقة (لا محافظة المذخر).
+        area:     s.area ? { ...s.area, id: t.areaId ?? s.area.id, name: t.areaName, ...('province' in s.area ? { province: null } : {}) } : s.area,
+        customer: s.customer ? { ...s.customer, name: t.pharmacy } : s.customer,
+        customerId: null,
+      });
     }
   }
 
@@ -1457,7 +1495,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // استبعاد مبيعات/مرتجعات المذاخر — مفتاح المُشاهِد نفسه (لا الملف)، مُفعّل
   // افتراضياً. راجع isWarehouseSaleRow أعلاه وgetExcludeWarehouseSales.
   const excludeWarehouse = viewerId ? await getExcludeWarehouseSales(viewerId) : true;
-  const filtered = excludeWarehouse ? deduped.filter(s => !isWarehouseSaleRow(s.rawData)) : deduped;
+  // الترانزيت مبيع لمذخر شكلاً فقط — يبقى.
+  const filtered = excludeWarehouse ? deduped.filter(s => s.transit || !isWarehouseSaleRow(s.rawData)) : deduped;
   // rawData هنا مؤقت لأجل الفلتر أعلاه فقط حين لم يطلبه الـselect أصلاً
   // (REPORT_SALES_SELECT) — لا يُستبعد حين طلبه صراحة (EXPORT_SALES_SELECT
   // يعتمد عليه لاحقاً في بناء ملف التصدير).
@@ -1549,26 +1588,30 @@ export async function getReport(id, query = {}, viewerId = null) {
   // معاً في نفس التحليل، وفي التصدير لبناء شيت «مبيعات ميركاتو» منفصل.
   // hasOffice/hasMercato وحدهما يحكمان إظهار ذلك — لا الإجماليات نفسها (قد
   // تكون قيمة أحد الجانبين صفراً فعلياً وله صفوف حقيقية بالمقابل).
-  const officeRows  = salesForAggregation.filter(s => s.uploadedFile?.sourceSystem !== 'mercato');
+  // طلبيات الترانزيت (صفوف ملف المكتب، s.transit) تُعدّ كوديشن لا Office.
+  const officeRows  = salesForAggregation.filter(s => s.uploadedFile?.sourceSystem !== 'mercato' && !s.transit);
   const mercatoRows = salesForAggregation.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
   // عدد الطلبيات لكل مصدر على حدة — من rawSales (لا salesForAggregation) لأن
   // orderCount أعلاه يُحسب منها أيضاً، ونفس استثناء صفوف الإرجاع.
-  const officeOrderRows  = rawSales.filter(s => s.uploadedFile?.sourceSystem !== 'mercato' && String(s.recordType ?? '').trim().toLowerCase() !== 'return');
-  const mercatoOrderRows = rawSales.filter(s => s.uploadedFile?.sourceSystem === 'mercato'  && String(s.recordType ?? '').trim().toLowerCase() !== 'return');
-  const isConditionRow   = s => String(s.uploadedFile?.mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`);
-  const conditionRows    = mercatoRows.filter(isConditionRow);
-  const conditionOrderRows = mercatoOrderRows.filter(isConditionRow);
-  const bySource = (officeRows.length > 0 || mercatoRows.length > 0) ? {
+  const isOrderRow = s => String(s.recordType ?? '').trim().toLowerCase() !== 'return';
+  const officeOrderRows  = rawSales.filter(s => s.uploadedFile?.sourceSystem !== 'mercato' && !s.transit && isOrderRow(s));
+  const mercatoOrderRows = rawSales.filter(s => s.uploadedFile?.sourceSystem === 'mercato' && isOrderRow(s));
+  const isConditionFileRow = s => String(s.uploadedFile?.mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`);
+  const isConditionRow   = s => !!s.transit || isConditionFileRow(s);
+  const conditionRows    = salesForAggregation.filter(isConditionRow);
+  const conditionOrderRows = rawSales.filter(s => isConditionRow(s) && isOrderRow(s));
+  const bySource = (officeRows.length > 0 || mercatoRows.length > 0 || conditionRows.length > 0) ? {
     office:     { totalQuantity: aggregateSalesWithReps(officeRows).totals.totalQuantity,  totalValue: aggregateSalesWithReps(officeRows).totals.totalValue,  orderCount: countDistinctOrders(officeOrderRows) },
     mercato:    { totalQuantity: aggregateSalesWithReps(mercatoRows).totals.totalQuantity, totalValue: aggregateSalesWithReps(mercatoRows).totals.totalValue, orderCount: countDistinctOrders(mercatoOrderRows) },
     // ملف الكوديشن (طلبيات البوت/الفواتير) جزءٌ من ميركاتو أعلاه — يُعرض كسطر
-    // فرعي «Liquidation» للتجربة، ولا يُطرح من mercato.
+    // فرعي «Liquidation» للتجربة، ولا يُطرح من mercato. + طلبيات الترانزيت من
+    // ملف المكتب (مطروحة من office أعلاه)، فـ office + mercatoOnly + condition = الكل.
     condition:  { totalQuantity: aggregateSalesWithReps(conditionRows).totals.totalQuantity, totalValue: aggregateSalesWithReps(conditionRows).totals.totalValue, orderCount: countDistinctOrders(conditionOrderRows) },
     hasOffice:  officeRows.length > 0,
     hasMercato: mercatoRows.length > 0,
     // ميركاتو بدون الكوديشن — الواجهة تعرضه بدل mercato حين يوجد كوديشن، كي
     // تُجمَع الأسطر الثلاثة (Office + Mercato + Liquidation) إلى الإجمالي.
-    mercatoOnly: { totalQuantity: aggregateSalesWithReps(mercatoRows.filter(s => !isConditionRow(s))).totals.totalQuantity, totalValue: aggregateSalesWithReps(mercatoRows.filter(s => !isConditionRow(s))).totals.totalValue, orderCount: countDistinctOrders(mercatoOrderRows.filter(s => !isConditionRow(s))) },
+    mercatoOnly: { totalQuantity: aggregateSalesWithReps(mercatoRows.filter(s => !isConditionFileRow(s))).totals.totalQuantity, totalValue: aggregateSalesWithReps(mercatoRows.filter(s => !isConditionFileRow(s))).totals.totalValue, orderCount: countDistinctOrders(mercatoOrderRows.filter(s => !isConditionFileRow(s))) },
     hasCondition: conditionRows.length > 0,
   } : null;
 

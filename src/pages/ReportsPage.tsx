@@ -4824,7 +4824,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // توزيع الصافي حسب مصدر الملف (مكتب/ميركاتو) — يظهر فقط حين يكون التحليل
         // الحالي مبنياً على دمج ملف مكتب مع ملف ميركاتو معاً (كلاهما له صفوف فعلية).
         const src = sciReport.bySource;
-        const hasMixedSources = !!(src?.hasOffice && src?.hasMercato);
+        // الكوديشن (ومنه طلبيات الترانزيت من ملف المكتب) يُظهر الصندوق بلا ملف ميركاتو أيضاً.
+        const hasMixedSources = !!(src?.hasOffice && (src?.hasMercato || src?.hasCondition));
         const officeNetVal  = (src?.office.totalValue  ?? 0) - (sciReturnsReport?.bySource?.office.totalValue  ?? 0);
         // حين يوجد كوديشن، سطر Mercato = ميركاتو بدونه، كي تُجمَع الأسطر الثلاثة للإجمالي.
         const mercOf = (b: any) => (b?.hasCondition && b?.mercatoOnly) ? b.mercatoOnly : b?.mercato;
@@ -4832,7 +4833,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
         // نفس التوزيع لكن لقيمة الخانة المعروضة حالياً فقط (مبيع أو ارجاع) بدل الصافي —
         // يظهر في كل الخانات لا الصافي وحده، للمقارنة بين الملفين مباشرة أياً كانت الخانة.
         const viewSrc = viewData?.bySource;
-        const viewHasMixedSources = !!(viewSrc?.hasOffice && viewSrc?.hasMercato);
+        const viewHasMixedSources = !!(viewSrc?.hasOffice && (viewSrc?.hasMercato || viewSrc?.hasCondition));
         // صندوق واحد مدمج (قيمة + عدد طلبيات معاً) لكل مصدر ملف — Office/Mercato
         // بدل الشرح العربي الطويل، للدلالة المختصرة فقط.
         const condNetVal = (src?.condition?.totalValue ?? 0) - (sciReturnsReport?.bySource?.condition?.totalValue ?? 0);
@@ -4849,7 +4850,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
               <span style={{ fontSize: 12.5, fontWeight: 800, color: mercatoColor, whiteSpace: 'nowrap' }}>{mercatoValStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(mercatoCount)}🧾</span></span>
               {liq && (<>
                 <Icon name="uploadSales" size={13} style={{ color: '#64748b' }} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }} title="ملف الكوديشن (طلبيات البوت والفواتير) — مفصول عن Mercato">Liquidation</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }} title="ملف الكوديشن (طلبيات البوت والفواتير) + طلبيات الترانزيت من ملف المكتب — مفصول عن Mercato وOffice">Liquidation</span>
                 <span style={{ fontSize: 12.5, fontWeight: 800, color: liq.color, whiteSpace: 'nowrap' }}>{liq.valStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(liq.count)}🧾</span></span>
               </>)}
             </div>

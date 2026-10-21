@@ -19,6 +19,9 @@ import { UNDATED_CUTOFF, buildMonthFilter } from './salesMonths.js';
 import { repCoreName, buildRepIndex, matchRepName } from './repNameMatch.js';
 import { getManagerRoster } from './managerRoster.js';
 import { loadItemOwnerManagers } from './itemOwnerManager.js';
+import { loadTransitSales, officeFileIdsOf } from './transitOrders.js';
+import { areaIdsOfProvinces } from './areaScope.js';
+import { normalizeArabic } from './itemResolver.js';
 
 export const isConditionFile = (file) => fileVariant(file) === CONDITION_VARIANT;
 
@@ -38,8 +41,11 @@ const NO_REP = 'بلا مندوب';
  * صفوف الملف مجمّعة حسب المندوب. المندوب = المندوب العلمي المختار عند مراجعة
  * الطلبية (rawData.scientificRep) وإلا مندوب الصف (إكسل الكوديشن يحمل عموداً له).
  * الصفوف المخفية (رفعة موقوفة/فلتر أعمدة) مستثناة — كما تراها التقارير.
+ *
+ * transit: طلبيات الترانزيت من ملفات المكتب المفعّلة (راجع transitSourceFiles)
+ * تُضاف لشيت كل مندوب تخصّه بعلامة «ترانزيت» — للقراءة فقط، صفوفها في ملف المكتب.
  */
-export async function loadConditionSheets(fileId, { month = null } = {}) {
+export async function loadConditionSheets(fileId, { month = null, transit = null } = {}) {
   const sales = await prisma.sale.findMany({
     where:   { uploadedFileId: fileId, isHidden: false, recordType: 'sale', ...buildMonthFilter(month) },
     orderBy: [{ saleDate: 'asc' }, { id: 'asc' }],
@@ -82,9 +88,147 @@ export async function loadConditionSheets(fileId, { month = null } = {}) {
     g.orders.add(row.invoice || `${row.date}|${row.pharmacy}`);
   }
 
+  if (transit?.officeFileIds?.length) {
+    const transitRows = await loadTransitConditionRows(fileId, { month, ...transit });
+    // نفس المندوب قد يُكتب في صفوف الكوديشن باسم أطول من اسم حسابه.
+    const index = buildRepIndex([...byRep.keys()].filter(k => k !== NO_REP).map((k, i) => ({ id: i, name: k })));
+    const keyOf = (name) => {
+      if (byRep.has(name)) return name;
+      const m = matchRepName(name, index);
+      return m.status === 'exact' ? m.rep.name : name;
+    };
+    for (const { reps, row } of transitRows) {
+      for (const name of reps.length ? reps : [NO_REP]) {
+        const rep = keyOf(name);
+        if (!byRep.has(rep)) byRep.set(rep, { rep, rows: [], quantity: 0, total: 0, orders: new Set() });
+        const g = byRep.get(rep);
+        g.rows.push({ ...row, rep });
+        g.quantity += row.quantity;
+        g.total += row.total;
+        g.orders.add(row.invoice || `${row.date}|${row.pharmacy}`);
+      }
+    }
+    for (const g of byRep.values()) g.rows.sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
+  }
+
   return [...byRep.values()]
     .map(g => ({ rep: g.rep, rows: g.rows, quantity: g.quantity, total: g.total, orders: g.orders.size }))
     .sort((a, b) => (a.rep === NO_REP) - (b.rep === NO_REP) || b.total - a.total);
+}
+
+// ── طلبيات الترانزيت (lib/transitOrders.js) داخل ملف الكوديشن ─────────────────
+
+/** ملفات المكتب المفعّلة للمُشاهِد — مصدر الترانزيت — وكل ملفاته المفعّلة لبحث منطقة الصيدلية. */
+export async function transitSourceFiles(viewerId) {
+  if (!viewerId) return { officeFileIds: [], lookupFileIds: [] };
+  const { resolveActiveFileIds } = await import('./activeFiles.js');
+  const { ids } = await resolveActiveFileIds(viewerId);
+  return { officeFileIds: await officeFileIdsOf(ids), lookupFileIds: ids };
+}
+
+/**
+ * نطاق كل مندوب علمي (ومنهم التيم ليدر) له حساب في المكتب: أسماء مناطقه مطبَّعة
+ * (مناطقه + مناطق محافظاته) وايتماته (resolveSciRepItemIds — نفس نطاق تقريره).
+ */
+async function loadOfficeRepScopes(officeId) {
+  const users = await prisma.user.findMany({
+    where:  { officeId, isActive: true, linkedRepId: { not: null } },
+    select: { id: true, displayName: true, username: true, linkedRepId: true },
+  });
+  if (!users.length) return [];
+  const repIds = [...new Set(users.map(u => u.linkedRepId))];
+  const [areaLinks, provRows, allAreas] = await Promise.all([
+    prisma.scientificRepArea.findMany({ where: { scientificRepId: { in: repIds } }, select: { scientificRepId: true, areaId: true } }),
+    prisma.userProvinceAssignment.findMany({ where: { userId: { in: users.map(u => u.id) } }, select: { userId: true, provinceId: true } }),
+    prisma.area.findMany({ select: { id: true, name: true } }),
+  ]);
+  const areaName = new Map(allAreas.map(a => [a.id, a.name]));
+  const { resolveSciRepItemIds } = await import('../modules/scientific-reps/scientific-reps.service.js');
+  const scopes = [];
+  for (const repId of repIds) {
+    const repUsers = users.filter(u => u.linkedRepId === repId);
+    const userIds = new Set(repUsers.map(u => u.id));
+    const provIds = [...new Set(provRows.filter(p => userIds.has(p.userId)).map(p => p.provinceId))];
+    const areaIds = [
+      ...areaLinks.filter(l => l.scientificRepId === repId).map(l => l.areaId),
+      ...await areaIdsOfProvinces(provIds),
+    ];
+    const areaNorms = new Set(areaIds.map(id => areaName.get(id)).filter(Boolean).map(n => normalizeArabic(n)));
+    if (!areaNorms.size) continue;
+    const { itemIds } = await resolveSciRepItemIds(repId, repUsers.map(u => ({ id: u.id })));
+    scopes.push({ name: repUsers[0].displayName || repUsers[0].username, areaNorms, itemIds: itemIds ? new Set(itemIds) : null });
+  }
+  return scopes;
+}
+
+const INVOICE_KEY_RE = /رقم\s*(ال)?(فاتور|طلب)|invoice/i;
+
+/**
+ * صفوف الترانزيت بشكل صفوف الكوديشن، كلٌّ مع أسماء المندوبين الذين تخصّهم:
+ * منطقة الصيدلية ضمن مناطقه والايتم ضمن ايتماته. القيمة بعملة ملف الكوديشن.
+ * @returns {Promise<Array<{reps:string[], row:object}>>}  reps فارغة = لم يُعرف لمن
+ */
+async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFileIds }) {
+  const file = await prisma.uploadedFile.findUnique({
+    where:  { id: fileId },
+    select: { detectedCurrency: true, exchangeRate: true, user: { select: { officeId: true } } },
+  });
+  const officeId = file?.user?.officeId;
+  if (!officeId) return [];
+  const [sales, scopes] = await Promise.all([
+    loadTransitSales({
+      officeFileIds, lookupFileIds, where: buildMonthFilter(month),
+      select: {
+        quantity: true, totalValue: true, saleDate: true, itemId: true,
+        item: { select: { name: true, scientificCompanyId: true, scientificCompany: { select: { name: true } }, company: { select: { name: true } } } },
+        customer: { select: { name: true } },
+        uploadedFile: { select: { detectedCurrency: true, exchangeRate: true } },
+      },
+    }),
+    loadOfficeRepScopes(officeId),
+  ]);
+  if (!sales.length) return [];
+
+  const { saleValueUSD } = await import('../modules/sales/sales.repository.js');
+  const target = file.detectedCurrency || 'IQD';
+  const inTarget = (s) => {
+    if ((s.uploadedFile?.detectedCurrency || 'IQD') === target) return Number(s.totalValue) || 0;
+    const usd = saleValueUSD(s);
+    return target === 'IQD' ? usd * (file.exchangeRate || 1470) : usd;
+  };
+
+  return sales.map(s => {
+    const t = s.transit;
+    const raw = parseRaw(s.rawData);
+    const invoiceKey = Object.keys(raw).find(k => INVOICE_KEY_RE.test(k));
+    const qty = Number(s.quantity) || 0;
+    const total = inTarget(s);
+    const reps = t.areaNorm
+      ? scopes.filter(r => r.areaNorms.has(t.areaNorm) && (!r.itemIds || r.itemIds.has(s.itemId))).map(r => repCoreName(r.name))
+      : [];
+    return {
+      reps: [...new Set(reps)],
+      row: {
+        id:        s.id,
+        date:      s.saleDate && new Date(s.saleDate) >= UNDATED_CUTOFF ? new Date(s.saleDate).toISOString().slice(0, 10) : '',
+        invoice:   invoiceKey ? String(raw[invoiceKey] ?? '').trim() : '',
+        pharmacy:  t.pharmacy,
+        area:      t.areaName,
+        warehouse: s.customer?.name ?? '',
+        item:      s.item?.name ?? '',
+        company:   s.item?.scientificCompany?.name || s.item?.company?.name || '',
+        quantity:  qty,
+        bonus:     0,
+        unitPrice: qty ? Math.round((total / qty) * 100) / 100 : 0,
+        total,
+        source:    'ترانزيت',
+        transit:   true,
+        note:      t.note,
+        itemId:    s.itemId ?? null,
+        sciCompanyId: s.item?.scientificCompanyId ?? null,
+      },
+    };
+  });
 }
 
 /** أدوار تُقيَّد رؤيتها بفريقها: لا ترى مبيعات مندوبي مدير آخر في الملف نفسه. */
@@ -144,7 +288,9 @@ export async function buildCompanySheet(allSheets, scoped, user) {
       ? allSheets.flatMap(s => s.rows).filter(r => itemIds.has(r.itemId))
       : scoped.flatMap(s => s.rows);
   }
-  rows = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
+  // صف ترانزيت يتكرّر في شيت كل مندوب يشترك في منطقته — يُعدّ هنا مرة واحدة.
+  rows = [...new Map(rows.map(r => [r.id, r])).values()]
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
   return {
     rep: COMPANY_SHEET, all: true, rows,
     quantity: rows.reduce((a, r) => a + r.quantity, 0),

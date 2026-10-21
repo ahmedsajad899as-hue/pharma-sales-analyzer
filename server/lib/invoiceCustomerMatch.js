@@ -50,6 +50,9 @@ async function loadMaster() {
   return cache;
 }
 
+/** نفس الفهرس المخزَّن مؤقتاً — لمستهلكين آخرين (طلبيات الترانزيت). */
+export { loadMaster as loadCustomerMatchMaster };
+
 /** فهرس المطابقة من صفوف خام — نقيّ، يُستعمل في الاختبار أيضاً. */
 export function buildMasterIndex(areas, aliases, pharmacies) {
   // المنطقة لكل حساب لا عالمية — نفس الاسم عدة صفوف. يكفينا اسم قانوني واحد لكل
