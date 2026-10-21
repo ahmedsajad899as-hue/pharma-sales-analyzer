@@ -19,7 +19,7 @@ import { backfillProductManagerFileShares } from './lib/backfillProductManagerFi
 import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
-import { updateConditionRow, deleteConditionRow } from './modules/sales/sales.service.js';
+import { updateConditionRow, deleteConditionRow, canEditConditionFile } from './modules/sales/sales.service.js';
 import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles, filterSheetsByProvince } from './lib/conditionFile.js';
 import { flagConditionRowsInMercato } from './lib/manualDuplicateCheck.js';
 
@@ -2244,19 +2244,20 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
     await flagConditionRowsInMercato(all, file.userId).catch(e => console.error('[condition] فحص ميركاتو:', e?.message));
     const sheets = await scopeSheetsToRoster(all, req.user);
     const companySheet = await buildCompanySheet(all, sheets, req.user);
-    res.json({ success: true, data: { file, sheets, companySheet, months, month: month || 'all' } });
+    const canEdit = await canEditConditionFile(id, req.user);
+    res.json({ success: true, data: { file, sheets, companySheet, months, month: month || 'all', canEdit } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 // PATCH/DELETE /api/files/:id/condition-rows/:saleId — تعديل/حذف صف (المالك فقط)
 app.patch('/api/files/:id/condition-rows/:saleId', requireAuth, async (req, res) => {
   try {
-    const out = await updateConditionRow({ fileId: parseInt(req.params.id), saleId: parseInt(req.params.saleId), userId: req.user?.id ?? null, fields: req.body || {} });
+    const out = await updateConditionRow({ fileId: parseInt(req.params.id), saleId: parseInt(req.params.saleId), user: req.user, fields: req.body || {} });
     res.json({ success: true, data: out });
   } catch (err) { res.status(err.statusCode || err.status || 500).json({ error: err.message }); }
 });
 app.delete('/api/files/:id/condition-rows/:saleId', requireAuth, async (req, res) => {
   try {
-    const out = await deleteConditionRow({ fileId: parseInt(req.params.id), saleId: parseInt(req.params.saleId), userId: req.user?.id ?? null });
+    const out = await deleteConditionRow({ fileId: parseInt(req.params.id), saleId: parseInt(req.params.saleId), user: req.user });
     res.json({ success: true, data: out });
   } catch (err) { res.status(err.statusCode || err.status || 500).json({ error: err.message }); }
 });

@@ -2506,25 +2506,42 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// تعديل صف داخل «ملف الكوديشن» (كل الخانات) وحذفه — للمالك فقط.
+// تعديل صف داخل «ملف الكوديشن» (كل الخانات) وحذفه — للمالك ولمن شورك الملف معه
+// من غير المندوبين (مدير الشركة/التيم ليدر/المكتب). الكيانات الجديدة (ايتم،
+// صيدلية، منطقة، مندوب) تُنشأ باسم **مالك الملف** لا المُعدِّل — المنطقة لكل حساب،
+// ومنطقة باسم المُعدِّل كانت ستُخرج الصف من تقارير الحساب المالك.
 // الصف مخزَّن بشكلين متزامنين: أعمدة Sale (كمية/قيمة/تاريخ/ايتم/منطقة/زبون/مندوب)
 // وrawData (مفاتيح إنجليزية + ترويسات ميركاتو). التعديل يُحدّث الاثنين معاً، وإلا
 // عرض المحرّر/التصدير يقرأ rawData فيُظهر القيمة القديمة. dedupKey لا يُمسّ عمداً:
 // تغييره كان سيُسقط الصف أو يُكرّره عند إعادة إدخال الأصل.
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function loadOwnedConditionRow(fileId, saleId, userId) {
-  const file = await prisma.uploadedFile.findFirst({ where: { id: fileId, userId }, select: { id: true, mergeGroup: true } });
-  if (!file || !String(file.mergeGroup || '').endsWith(`|${CONDITION_VARIANT}`)) {
+const CONDITION_READONLY_ROLES = new Set(['scientific_rep', 'commercial_rep']);
+
+/** هل يعدّل هذا المستخدم ملف الكوديشن؟ المالك، أو مَن شورك معه وليس مندوباً. */
+export async function canEditConditionFile(fileId, user) {
+  if (!user?.id) return false;
+  const file = await prisma.uploadedFile.findFirst({
+    where: { id: fileId, OR: [{ userId: user.id }, { fileShares: { some: { userId: user.id } } }] },
+    select: { userId: true, mergeGroup: true },
+  });
+  if (!file || !String(file.mergeGroup || '').endsWith(`|${CONDITION_VARIANT}`)) return false;
+  return file.userId === user.id || !CONDITION_READONLY_ROLES.has(user.role);
+}
+
+async function loadEditableConditionRow(fileId, saleId, user) {
+  if (!(await canEditConditionFile(fileId, user))) {
     throw new AppError('ملف الكوديشن غير موجود أو لا تملك تعديله.', 404, 'FILE_NOT_FOUND');
   }
   const sale = await prisma.sale.findFirst({ where: { id: saleId, uploadedFileId: fileId } });
   if (!sale) throw new AppError('الصف غير موجود.', 404, 'ROW_NOT_FOUND');
-  return sale;
+  const { userId: ownerId } = await prisma.uploadedFile.findUnique({ where: { id: fileId }, select: { userId: true } });
+  return { sale, ownerId };
 }
 
-export async function updateConditionRow({ fileId, saleId, userId, fields }) {
-  const sale = await loadOwnedConditionRow(fileId, saleId, userId);
+export async function updateConditionRow({ fileId, saleId, user, fields }) {
+  const { sale, ownerId } = await loadEditableConditionRow(fileId, saleId, user);
+  const userId = ownerId; // الكيانات الجديدة باسم المالك (راجع أعلاه)
   const f = fields || {};
   const has = k => Object.prototype.hasOwnProperty.call(f, k);
   const str = k => String(f[k] ?? '').trim();
@@ -2567,8 +2584,9 @@ export async function updateConditionRow({ fileId, saleId, userId, fields }) {
   if (has('item')) {
     const name = str('item');
     if (!name) throw new AppError('اسم الايتم مطلوب.', 422, 'BAD_ITEM');
-    const userCompanies = await prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } });
-    const ids = userCompanies.map(c => c.companyId);
+    // شركات المالك والمُعدِّل معاً: حساب الكروب المالك قد لا تُسنَد له شركات.
+    const userCompanies = await prisma.userCompanyAssignment.findMany({ where: { userId: { in: [userId, user.id] } }, select: { companyId: true } });
+    const ids = [...new Set(userCompanies.map(c => c.companyId))];
     const ctx = ids.length ? await loadResolutionContext({ scientificCompanyIds: ids, userId }) : null;
     const item = await findOrCreateItem(name, userId, ids, ctx);
     data.itemId = item.id;
@@ -2601,8 +2619,8 @@ export async function updateConditionRow({ fileId, saleId, userId, fields }) {
   return { id: saleId };
 }
 
-export async function deleteConditionRow({ fileId, saleId, userId }) {
-  await loadOwnedConditionRow(fileId, saleId, userId);
+export async function deleteConditionRow({ fileId, saleId, user }) {
+  await loadEditableConditionRow(fileId, saleId, user);
   await prisma.sale.delete({ where: { id: saleId } });
   await refreshCumulativeFile(fileId);
   return { id: saleId };

@@ -2,9 +2,13 @@
 // ConditionFileModal — فتح «ملف الكوديشن» داخل التطبيق: شيت (تبويب) لكل مندوب
 // بمبيعاته من طلبيات البوت وإكسل الكوديشن، + ملخّص، + تصدير إكسل بنفس الشيتات.
 // الخادم: GET /api/files/:id/condition-view و GET /api/files/:id/condition-export.
+// التعديل تفاعلي مثل شبكة مراجعة طلبيات البوت (ComboCell باقتراحات): كل خانة
+// تُحفظ عند الخروج منها (PATCH condition-rows) في جدول المبيعات نفسه، فتأخذ بها
+// التقارير ويراها كل من يفتح الملف.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { AutoText, ComboCell, type ComboOpt } from './ComboCell';
 
 type Row = {
   id: number; date: string; invoice: string; pharmacy: string; area: string; warehouse: string;
@@ -28,7 +32,7 @@ interface Props {
   fileName: string;
   currency: string;
   token: string | null;
-  /** مالك الملف فقط يعدّل ويحذف */
+  /** احتياط حتى يردّ الخادم بـ canEdit (المالك + المدراء المشارَك معهم) */
   canEdit?: boolean;
   onClose: () => void;
 }
@@ -70,7 +74,38 @@ const EDIT_COLS: { key: string; label: string; w: number; num?: boolean; ro?: bo
   { key: 'unitPrice', label: 'السعر', w: 76, num: true }, { key: 'total', label: 'القيمة', w: 90, num: true },
 ];
 
-export default function ConditionFileModal({ fileId, fileName, currency, token, canEdit = false, onClose }: Props) {
+type Suggest = { items: ComboOpt[]; companies: ComboOpt[]; areas: ComboOpt[]; reps: ComboOpt[]; warehouses: ComboOpt[] };
+const NO_SUGGEST: Suggest = { items: [], companies: [], areas: [], reps: [], warehouses: [] };
+
+/**
+ * خانة تعديل واحدة: مسودّة محلية أثناء الكتابة، وحفظ عند الخروج/الاختيار إن تغيّرت.
+ * الخانات النصية بقائمة اقتراحات (ComboCell)، والتاريخ والأرقام حقول عادية.
+ */
+function EditCell({ col, value, options, state, onSave }: {
+  col: typeof EDIT_COLS[number]; value: string; options?: ComboOpt[];
+  state?: 'saving' | 'ok' | 'err'; onSave: (v: string) => void;
+}) {
+  const [v, setV] = useState(value);
+  const base = useRef(value);
+  useEffect(() => { setV(value); base.current = value; }, [value]);
+  const commit = (nv: string) => { if (nv.trim() !== base.current.trim()) { base.current = nv; onSave(nv); } };
+  const tone: CSSProperties = state === 'saving' ? { opacity: 0.45 } : state === 'ok' ? { background: '#dcfce7' } : state === 'err' ? { background: '#fee2e2' } : {};
+  const cs: CSSProperties = { width: col.w, minWidth: col.w, fontSize: 12, textAlign: col.num ? 'center' : 'right', transition: 'background .4s', ...tone };
+  if (col.key === 'date' || col.num) {
+    return (
+      <input value={v} type={col.key === 'date' ? 'date' : 'text'} inputMode={col.num ? 'decimal' : undefined}
+        onChange={e => setV(e.target.value)} onBlur={() => commit(v)}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setV(base.current); }}
+        style={{ border: '1px solid transparent', borderRadius: 6, padding: '5px 6px', background: 'transparent', boxSizing: 'border-box', ...cs }}
+        onFocus={e => { e.target.style.border = '1px solid var(--c-accent)'; }} onBlurCapture={e => { e.target.style.border = '1px solid transparent'; }} />
+    );
+  }
+  return options
+    ? <ComboCell value={v} onChange={setV} onCommit={commit} options={options} title={v} style={cs} />
+    : <AutoText value={v} onChange={setV} onBlur={() => commit(v)} title={v} style={cs} />;
+}
+
+export default function ConditionFileModal({ fileId, fileName, currency, token, canEdit: canEditProp = false, onClose }: Props) {
   const [allSheets, setSheets] = useState<Sheet[]>([]);
   const [allCompanySheet, setCompanySheet] = useState<Sheet | null>(null);
   const [months, setMonths] = useState<Month[]>([]);
@@ -85,12 +120,17 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
-  const [savingCell, setSavingCell] = useState<string | null>(null);
+  const [cellState, setCellState] = useState<Record<string, 'saving' | 'ok' | 'err'>>({});
+  const [canEdit, setCanEdit] = useState(canEditProp);
+  const [suggest, setSuggest] = useState<Suggest>(NO_SUGGEST);
+  // إعادة جلب بعد حفظ خانة: بلا «جاري التحميل…» كي لا يقفز الجدول ويضيع موضع التمرير.
+  const silentRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      setLoading(true); setError('');
+      const silent = silentRef.current; silentRef.current = false;
+      if (!silent) { setLoading(true); setError(''); }
       try {
         const res = await fetch(`/api/files/${fileId}/condition-view?month=${encodeURIComponent(month)}`, { headers: { Authorization: `Bearer ${token}` } });
         const j = await res.json();
@@ -100,11 +140,29 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
         setCompanySheet(j.data.companySheet ?? null);
         setMonths(j.data.months?.months ?? []);
         setResolvedMonth(j.data.month || 'all');
+        if (typeof j.data.canEdit === 'boolean') setCanEdit(j.data.canEdit);
       } catch (e: any) { if (alive) setError(e.message); }
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
   }, [fileId, token, month, reload]);
+
+  // اقتراحات خانات التعديل — نفس مصادر شبكة مراجعة طلبيات البوت.
+  useEffect(() => {
+    if (!canEdit || !token) return;
+    const h = { Authorization: `Bearer ${token}` };
+    const get = (u: string) => fetch(u, { headers: h }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+    const opts = (xs: unknown) => (Array.isArray(xs) ? [...new Set(xs.filter(Boolean) as string[])].map(value => ({ value })) : []);
+    Promise.all([get('/api/orders/catalog-suggest'), get('/api/orders/scientific-reps'), get('/api/sales/warehouse-gap-scope')]).then(([cat, reps, scope]) => {
+      setSuggest({
+        items: (cat?.data?.items ?? []).map((it: any) => ({ value: it.name, hint: it.company || undefined })),
+        companies: opts(cat?.data?.companies),
+        areas: opts(cat?.data?.areas),
+        reps: opts((reps?.data ?? []).map((r: any) => r.name)),
+        warehouses: opts(scope?.data?.warehouses),
+      });
+    });
+  }, [canEdit, token]);
 
   // زرّا «بغداد / المحافظات»: تصفية الصفوف ومجاميعها، والشيت الذي فرغ يختفي.
   const sheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope, mercatoOnly)).filter(s => s.rows.length > 0), [allSheets, scope, mercatoOnly]);
@@ -162,15 +220,47 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   };
 
   const authJson = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  // تحديث متفائل: القيمة تظهر فوراً في كل الشيتات، ثم يُعاد الجلب بصمت (المجاميع،
+  // انتقال الصف لشيت مندوب آخر، الايتم بعد توحيده).
+  const patchLocal = (id: number, ch: Partial<Row>) => {
+    const fix = (s: Sheet): Sheet => ({ ...s, rows: s.rows.map(r => (r.id === id ? { ...r, ...ch } : r)) });
+    setSheets(ss => ss.map(fix));
+    setCompanySheet(cs => (cs ? fix(cs) : cs));
+  };
+  // الصيدليات الموجودة في الملف مع منطقتها — اختيار صيدلية يملأ منطقتها إن كانت فارغة.
+  const pharmacyOpts = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of allSheets) for (const r of s.rows) if (r.pharmacy && !r.transit && !m.has(r.pharmacy)) m.set(r.pharmacy, r.area);
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ar')).map(([value, area]) => ({ value, hint: area || undefined }));
+  }, [allSheets]);
+  const pharmacyArea = useMemo(() => new Map(pharmacyOpts.map(o => [o.value, o.hint || ''])), [pharmacyOpts]);
+  const optionsFor = (key: string): ComboOpt[] | undefined => ({
+    item: suggest.items, company: suggest.companies, area: suggest.areas, rep: suggest.reps,
+    warehouse: suggest.warehouses, pharmacy: pharmacyOpts,
+  } as Record<string, ComboOpt[]>)[key];
+
   const saveCell = async (row: Row, key: string, value: string) => {
-    setSavingCell(`${row.id}:${key}`); setError('');
+    const body: Record<string, string | number> = { [key]: value };
+    const local = { [key]: (EDIT_COLS.find(c => c.key === key)?.num ? Number(value.replace(/,/g, '')) || 0 : value) } as Partial<Row>;
+    // تغيير الكمية يُبقي السعر ويعيد حساب القيمة — كما في شبكة المراجعة.
+    if (key === 'quantity' && row.unitPrice > 0) { body.unitPrice = row.unitPrice; local.total = Math.round(row.unitPrice * (Number(value) || 0)); }
+    if (key === 'unitPrice') local.total = Math.round((Number(value) || 0) * row.quantity);
+    if (key === 'pharmacy' && !row.area && pharmacyArea.get(value)) { body.area = pharmacyArea.get(value)!; local.area = String(body.area); }
+    const ck = `${row.id}:${key}`;
+    setCellState(m => ({ ...m, [ck]: 'saving' })); setError('');
+    patchLocal(row.id, local);
     try {
-      const res = await fetch(`/api/files/${fileId}/condition-rows/${row.id}`, { method: 'PATCH', headers: authJson, body: JSON.stringify({ [key]: value }) });
+      const res = await fetch(`/api/files/${fileId}/condition-rows/${row.id}`, { method: 'PATCH', headers: authJson, body: JSON.stringify(body) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || 'تعذّر الحفظ');
-      setReload(n => n + 1);
-    } catch (e: any) { setError(e.message); setReload(n => n + 1); }
-    finally { setSavingCell(null); }
+      setCellState(m => ({ ...m, [ck]: 'ok' }));
+      setTimeout(() => setCellState(m => { const n = { ...m }; if (n[ck] === 'ok') delete n[ck]; return n; }), 1200);
+    } catch (e: any) {
+      setError(e.message);
+      setCellState(m => ({ ...m, [ck]: 'err' }));
+    }
+    silentRef.current = true;
+    setReload(n => n + 1);
   };
   const deleteRow = async (row: Row) => {
     if (!window.confirm(`حذف هذا الصف نهائياً؟
@@ -323,24 +413,14 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                         title={r.transit ? r.note : r.mercatoMatch ? mercatoTitle(r) : undefined}>
                         {EDIT_COLS.map(c => {
                           const val = c.key === 'rep' ? (current.all ? (r.rep || NO_REP) : current.rep) : String((r as any)[c.key] ?? '');
-                          const busy = savingCell === `${r.id}:${c.key}`;
                           const editable = rowEditable && !c.ro;
+                          const shown = (c.key === 'rep' && val === NO_REP) || (val === '0' && (c.key === 'bonus' || c.key === 'unitPrice')) ? '' : val;
                           return (
-                            <td key={c.key} style={{ ...td, padding: editable ? 2 : td.padding, opacity: busy ? 0.5 : 1,
+                            <td key={c.key} style={{ ...td, padding: editable ? 2 : td.padding,
                               ...(c.key === 'rep' && val === NO_REP ? { background: '#fef3c7', color: '#92400e', fontWeight: 700 } : null) }}>
                               {editable ? (
-                                <input
-                                  defaultValue={(val === '0' && (c.key === 'bonus' || c.key === 'unitPrice')) || (c.key === 'rep' && val === NO_REP) ? '' : val}
-                                  placeholder={c.key === 'rep' && val === NO_REP ? NO_REP : undefined}
-                                  key={`${r.id}-${c.key}-${val}`}
-                                  type={c.key === 'date' ? 'date' : 'text'}
-                                  inputMode={c.num ? 'decimal' : undefined}
-                                  onBlur={e => { if (e.target.value.trim() !== (c.key === 'rep' && val === NO_REP ? '' : val.trim()) && !(c.num && !e.target.value.trim() && (val === '0' || val === ''))) saveCell(r, c.key, e.target.value); }}
-                                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                                  style={{ width: c.w, border: '1px solid transparent', borderRadius: 6, padding: '4px 6px', fontSize: 12, textAlign: c.num ? 'center' : 'right', background: 'transparent' }}
-                                  onFocus={e => { e.target.style.border = '1px solid var(--c-accent)'; e.target.style.background = '#fff'; }}
-                                  onBlurCapture={e => { e.target.style.border = '1px solid transparent'; e.target.style.background = 'transparent'; }}
-                                />
+                                <EditCell col={c} value={shown} options={optionsFor(c.key)} state={cellState[`${r.id}:${c.key}`]}
+                                  onSave={v => saveCell(r, c.key, v)} />
                               ) : (c.num ? (val && val !== '0' ? fmt(Number(val)) : '—') : (val || '—'))}
                             </td>
                           );
