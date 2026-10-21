@@ -82,6 +82,8 @@ const unpackSales = (v: any): SalesRows => ({ prov: new Map(v?.prov ?? []), pc: 
 
 const RAMP = ['#e0ecff', '#c7dbff', '#a3c2fb', '#78a3f5', '#4f84ea', '#2f66d6', '#1f4fb4', '#173a85'];
 const VB = IRAQ_MAP_VIEWBOX;
+// البطاقة الداكنة أعلى يمين الخريطة — معطّلة مؤقتاً بطلب المستخدم؛ true لإرجاعها.
+const SHOW_HOVER_CARD = false;
 
 // ── خلفية شبكية تفاعلية: نقاط تسبح ببطء وتتصل بخطوط فيما بينها، وتنجذب وتتوهّج
 // قرب المؤشر. canvas خلف الخريطة بلا pointer-events — الماوس يُلتقط من العنصر الأب.
@@ -521,7 +523,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           </div>
 
           {/* بطاقة ثابتة أعلى يمين الخريطة: تعرض المحافظة تحت المؤشر، وإلا المختارة */}
-          {activeCell && (
+          {SHOW_HOVER_CARD && activeCell && (
             <div dir="rtl" style={{
               position: 'absolute', top: 12, right: 12, zIndex: 4, width: 190, maxHeight: '50%', overflowY: 'auto',
               background: 'rgba(15,23,42,.95)', color: '#fff', borderRadius: 12, padding: '8px 10px',
