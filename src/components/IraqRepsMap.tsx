@@ -83,6 +83,93 @@ const unpackSales = (v: any): SalesRows => ({ prov: new Map(v?.prov ?? []), pc: 
 const RAMP = ['#e0ecff', '#c7dbff', '#a3c2fb', '#78a3f5', '#4f84ea', '#2f66d6', '#1f4fb4', '#173a85'];
 const VB = IRAQ_MAP_VIEWBOX;
 
+// ── خلفية شبكية تفاعلية: نقاط تسبح ببطء وتتصل بخطوط فيما بينها، وتنجذب وتتوهّج
+// قرب المؤشر. canvas خلف الخريطة بلا pointer-events — الماوس يُلتقط من العنصر الأب.
+// تتوقف عند خروج الخريطة من الشاشة / إخفاء التبويب، وتُعطَّل مع «تقليل الحركة».
+function PlexusBackground() {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current; const host = cv?.parentElement; if (!cv || !host) return;
+    const ctx = cv.getContext('2d'); if (!ctx) return;
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const LINK = 110, MOUSE_R = 170;
+    let w = 0, h = 0, raf = 0, visible = true;
+    let pts: { x: number; y: number; vx: number; vy: number }[] = [];
+    const mouse = { x: -1e4, y: -1e4, on: false };
+
+    const resize = () => {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      w = host.clientWidth; h = host.clientHeight;
+      cv.width = w * dpr; cv.height = h * dpr; cv.style.width = `${w}px`; cv.style.height = `${h}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const n = Math.round(Math.min(90, Math.max(30, (w * h) / 9000)));
+      pts = Array.from({ length: n }, (_, i) => pts[i] ?? {
+        x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.35, vy: (Math.random() - 0.5) * 0.35,
+      });
+    };
+
+    const frame = () => {
+      ctx.clearRect(0, 0, w, h);
+      for (const p of pts) {
+        if (mouse.on) {
+          const dx = mouse.x - p.x, dy = mouse.y - p.y, d = Math.hypot(dx, dy);
+          if (d < MOUSE_R && d > 1) { p.vx += (dx / d) * 0.012; p.vy += (dy / d) * 0.012; }
+        }
+        const sp = Math.hypot(p.vx, p.vy);
+        if (sp > 0.9) { p.vx *= 0.9 / sp; p.vy *= 0.9 / sp; }
+        else if (sp < 0.12) { p.vx += (Math.random() - 0.5) * 0.04; p.vy += (Math.random() - 0.5) * 0.04; }
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 0 || p.x > w) { p.vx *= -1; p.x = Math.max(0, Math.min(w, p.x)); }
+        if (p.y < 0 || p.y > h) { p.vy *= -1; p.y = Math.max(0, Math.min(h, p.y)); }
+      }
+      // خطوط بين النقاط المتقاربة — أوضح كلما اقتربت من المؤشر
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i];
+        for (let j = i + 1; j < pts.length; j++) {
+          const b = pts[j];
+          const d = Math.hypot(a.x - b.x, a.y - b.y); if (d > LINK) continue;
+          const near = mouse.on ? Math.max(0, 1 - Math.hypot((a.x + b.x) / 2 - mouse.x, (a.y + b.y) / 2 - mouse.y) / MOUSE_R) : 0;
+          ctx.strokeStyle = `rgba(47,102,214,${(1 - d / LINK) * (0.14 + near * 0.5)})`;
+          ctx.lineWidth = 0.8 + near * 0.6;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+      }
+      // خطوط من المؤشر إلى النقاط القريبة
+      if (mouse.on) {
+        for (const p of pts) {
+          const d = Math.hypot(p.x - mouse.x, p.y - mouse.y); if (d > MOUSE_R) continue;
+          ctx.strokeStyle = `rgba(31,79,180,${(1 - d / MOUSE_R) * 0.55})`; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(mouse.x, mouse.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+        }
+      }
+      for (const p of pts) {
+        const near = mouse.on ? Math.max(0, 1 - Math.hypot(p.x - mouse.x, p.y - mouse.y) / MOUSE_R) : 0;
+        ctx.fillStyle = `rgba(31,79,180,${0.35 + near * 0.55})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 1.6 + near * 1.6, 0, Math.PI * 2); ctx.fill();
+      }
+      if (!still && visible && !document.hidden) raf = requestAnimationFrame(frame);
+    };
+    const kick = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(frame); };
+
+    const onMove = (e: MouseEvent) => { const r = host.getBoundingClientRect(); mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top; mouse.on = true; if (still) kick(); };
+    const onLeave = () => { mouse.on = false; if (still) kick(); };
+    const onVis = () => { if (!document.hidden && visible) kick(); };
+    const ro = new ResizeObserver(() => { resize(); kick(); });
+    const io = new IntersectionObserver(([en]) => { visible = en.isIntersecting; if (visible) kick(); });
+    ro.observe(host); io.observe(host);
+    host.addEventListener('mousemove', onMove, { passive: true });
+    host.addEventListener('mouseleave', onLeave);
+    document.addEventListener('visibilitychange', onVis);
+    resize(); kick();
+    return () => {
+      cancelAnimationFrame(raf); ro.disconnect(); io.disconnect();
+      host.removeEventListener('mousemove', onMove); host.removeEventListener('mouseleave', onLeave);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, []);
+  return <canvas ref={ref} aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }} />;
+}
+
 export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
   const [repData, setRepData] = useState<RepProvinceRow[]>([]);
   const [salesRows, setSalesRows] = useState<{ prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] }>({ prov: new Map(), pc: [] });
@@ -379,7 +466,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
               جاري التحميل…
             </div>
           )}
-          <div style={{ position: 'relative', width: side ? '82%' : '100%', maxWidth: 820, marginLeft: 0, marginRight: side ? 'auto' : 'auto' }}>
+          <PlexusBackground />
+          <div style={{ position: 'relative', zIndex: 1, width: side ? '82%' : '100%', maxWidth: 820, marginLeft: 0, marginRight: side ? 'auto' : 'auto' }}>
             <svg viewBox={`-20 -20 ${VB.w + 40} ${VB.h + 40}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="خريطة محافظات العراق">
               <defs>
                 <filter id="iqMapShadow" x="-10%" y="-10%" width="120%" height="120%">
@@ -460,7 +548,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           )}
 
           {/* مفتاح */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 14, fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
+          <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 14, fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               أقل <span style={{ display: 'inline-flex', borderRadius: 5, overflow: 'hidden' }}>{RAMP.map(c => <span key={c} style={{ width: 16, height: 9, background: c }} />)}</span> أعلى مبيعاً
             </span>
