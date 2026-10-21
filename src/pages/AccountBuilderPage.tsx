@@ -261,7 +261,7 @@ export default function AccountBuilderPage() {
         const acc = accounts.find(a => a.id === confirmDeleteId);
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setConfirmDeleteId(null)}>
-            <div style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
+            <div className="m-dialog" style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
               <div style={{ fontSize: 26, marginBottom: 8 }}>🗑️</div>
               <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 6 }}>حذف الحساب</div>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 18 }}>سيتم حذف «{acc?.name}» وكل بياناته نهائياً. هل أنت متأكد؟</div>

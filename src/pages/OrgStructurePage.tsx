@@ -51,7 +51,7 @@ export default function OrgStructurePage() {
         const subs     = users.filter(u => sel.subordinateIds.includes(u.id));
         return (
           <div onClick={() => setSel(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 28, minWidth: 320, maxWidth: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', position: 'relative', direction: 'rtl' }}>
+            <div className="m-dialog" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 28, minWidth: 320, maxWidth: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', position: 'relative', direction: 'rtl' }}>
               <button onClick={() => setSel(null)} style={{ position: 'absolute', top: 12, left: 16, background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>✕</button>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
                 <div style={{ width: 52, height: 52, borderRadius: 14, background: m.bg, border: `2px solid ${m.color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>{m.icon}</div>

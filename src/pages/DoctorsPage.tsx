@@ -3272,7 +3272,7 @@ export default function DoctorsPage() {
 
                           {/* Expanded visits */}
                           {isVisitOpen && doc.visits.length > 0 && (
-                            <div style={{ background: 'var(--c-bg)', borderTop: '1px solid var(--c-border-light)', padding: '8px 18px 8px 18px' }}>
+                            <div className="m-xscroll" style={{ background: 'var(--c-bg)', borderTop: '1px solid var(--c-border-light)', padding: '8px 18px 8px 18px' }}>
                               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                                 <thead>
                                   <tr style={{ color: 'var(--c-text-muted)', fontWeight: 600 }}>
@@ -3568,7 +3568,7 @@ export default function DoctorsPage() {
                                 </span>
                               </div>
                               {isExpanded && pharm.visits.length > 0 && (
-                                <div style={{ background: 'var(--c-bg)', borderTop: '1px solid var(--c-border-light)', padding: '8px 18px' }}>
+                                <div className="m-xscroll" style={{ background: 'var(--c-bg)', borderTop: '1px solid var(--c-border-light)', padding: '8px 18px' }}>
                                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, direction: 'rtl' }}>
                                     <thead>
                                       <tr style={{ color: 'var(--c-text-muted)', fontWeight: 600 }}>

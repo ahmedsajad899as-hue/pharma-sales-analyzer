@@ -556,7 +556,7 @@ export default function PharmacyAnalysisPage() {
       {/* ── Pre-upload currency dialog ─────────────────────── */}
       {pendingFile && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl">
+          <div className="m-dialog" style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl">
             <div style={{ fontSize: 22, marginBottom: 6, display: 'flex', justifyContent: 'center' }}><Icon name="money" size={26} /></div>
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--c-text-primary)', marginBottom: 4 }}>عملة الملف</div>
             <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginBottom: 18 }}>{pendingFile.name}</div>
@@ -609,7 +609,7 @@ export default function PharmacyAnalysisPage() {
         {/* Clear confirm dialog */}
         {showClearConfirm && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !clearing && setShowClearConfirm(false)}>
-            <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
+            <div className="m-dialog" style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
               <div style={{ fontSize: 26, marginBottom: 8, display: 'flex', justifyContent: 'center' }}><Icon name="delete" size={28} /></div>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--c-text-primary)', marginBottom: 6 }}>مسح كل البيانات</div>
               <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginBottom: 20 }}>سيتم حذف جميع الملفات ({files.length}) وبياناتها نهائياً. هل أنت متأكد؟</div>
@@ -636,7 +636,7 @@ export default function PharmacyAnalysisPage() {
           const cf = files.find(f => f.id === confirmDeleteFileId);
           return (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => !deletingFileId && setConfirmDeleteFileId(null)}>
-              <div style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
+              <div className="m-dialog" style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', textAlign: 'center' }} dir="rtl" onClick={e => e.stopPropagation()}>
                 <div style={{ fontSize: 26, marginBottom: 8, display: 'flex', justifyContent: 'center' }}><Icon name="delete" size={28} /></div>
                 <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--c-text-primary)', marginBottom: 6 }}>حذف الملف</div>
                 <div style={{ fontSize: 12, color: 'var(--c-text-secondary)', marginBottom: 18, wordBreak: 'break-all' }}>{cf?.originalName}</div>
@@ -870,7 +870,7 @@ export default function PharmacyAnalysisPage() {
           </div>
 
           {pharmaLoading ? <Loader /> : (
-            <div style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div className="m-xscroll" style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden' }}>
               {/* Table header */}
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
@@ -1110,7 +1110,7 @@ export default function PharmacyAnalysisPage() {
             <span style={{ fontSize: 12, color: 'var(--c-text-secondary)' }}>{items.length} ايتم</span>
           </div>
           {itemsLoading ? <Loader /> : (
-            <div style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div className="m-xscroll" style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--c-accent)', color: '#fff' }}>
@@ -1153,7 +1153,7 @@ export default function PharmacyAnalysisPage() {
       {tab === 'items' && selectedItem && (
         <div>
           <button onClick={() => { setSelectedItem(null); setItemDetail(null); }} style={{ ...BACK_BTN, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="chevronLeft" size={13} /> رجوع</button>
-          <div style={{ ...CARD, marginTop: 10 }}>
+          <div className="m-xscroll" style={{ ...CARD, marginTop: 10 }}>
             <h2 style={{ margin: '0 0 14px', fontSize: 16, fontWeight: 700, color: 'var(--c-text-primary)' }}>{selectedItem}</h2>
             {itemDetailLoading ? <Loader /> : itemDetail && (
               <>
@@ -1349,7 +1349,7 @@ export default function PharmacyAnalysisPage() {
           )}
 
           {alertsLoading ? <Loader /> : (
-            <div style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden' }}>
+            <div className="m-xscroll" style={{ background: '#fff', border: '1px solid var(--c-border)', borderRadius: 8, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'var(--c-accent)', color: '#fff' }}>

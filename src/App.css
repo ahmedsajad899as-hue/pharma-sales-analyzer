@@ -3950,3 +3950,16 @@ body.rfs-map-fullscreen-lock { overflow: hidden; }
     box-sizing: border-box;
   }
 }
+
+/* =====================================================================
+   MOBILE — جداول متعددة الأعمدة داخل بطاقات (≤ 767px فقط)
+   البطاقة كانت overflow:hidden فتُقَصّ أعمدة الجدول على الهاتف — هنا
+   تتمرّر أفقياً بالإصبع بدل القص. لا قاعدة للصنف خارج هذا الشرط.
+   ===================================================================== */
+@media (max-width: 767px) {
+  .m-xscroll {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+}
