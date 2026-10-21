@@ -24,6 +24,9 @@ const router = Router();
 /** عمود «غير مصنّف» في جدول محافظة × شركة: مبيع لم يُطابَق أي تيم مكتب. */
 const UNASSIGNED_COMPANY = 'غير مصنّف';
 
+const normArName = (s) => String(s || '').trim().replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/ـ/g, '').replace(/\s+/g, ' ');
+const isBaghdadName = (s) => normArName(s) === 'بغداد';
+
 /**
  * «تيمات» المكتب: كل حساب «مدير شركة» (company_manager) في نفس officeId
  * الطالب، باسم عرض = شركته الرئيسية (UserCompanyAssignment.isPrimary)، و
@@ -110,6 +113,43 @@ router.get('/representative/:id', getRepresentativeReport);
 router.get('/home-items', getHomeItems);
 router.get('/home-items/:itemId/provinces', getHomeItemProvinces);
 router.get('/home-provinces', getHomeProvinces);
+
+// ── مواقع مناطق بغداد لخريطة الفقاعات («علمي محافظات» → بغداد) ──────────────
+// لا إحداثيات للمنطقة نفسها في النظام؛ موقعها = وسيط نقاط GPS المسجَّلة في
+// سيرفي المندوب الميداني (RepFieldSurveyEntry) بنفس اسم المنطقة. الوسيط لا
+// المتوسط كي لا تسحب نقطة شاذّة واحدة الفقاعة بعيداً. محصور بمستخدمي مكتب
+// الطالب، وداخل مربّع بغداد فقط. يُرجع مراكز مجمَّعة لا نقاطاً فردية.
+const BAGHDAD_BBOX = { minLat: 32.75, maxLat: 33.8, minLng: 43.8, maxLng: 44.95 };
+const areaKey = (s) => normArName(s).replace(/^حي /, '');
+router.get('/baghdad-area-points', async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
+    const userIds = viewer?.officeId != null
+      ? (await prisma.user.findMany({ where: { officeId: viewer.officeId }, select: { id: true } })).map(u => u.id)
+      : [userId];
+    const rows = await prisma.repFieldSurveyEntry.findMany({
+      where: {
+        userId: { in: userIds },
+        latitude:  { gte: BAGHDAD_BBOX.minLat, lte: BAGHDAD_BBOX.maxLat },
+        longitude: { gte: BAGHDAD_BBOX.minLng, lte: BAGHDAD_BBOX.maxLng },
+      },
+      select: { areaName: true, latitude: true, longitude: true },
+    });
+    const groups = new Map(); // key → { areaName, lats, lngs }
+    for (const r of rows) {
+      const k = areaKey(r.areaName); if (!k) continue;
+      if (!groups.has(k)) groups.set(k, { areaName: r.areaName, lats: [], lngs: [] });
+      const g = groups.get(k); g.lats.push(r.latitude); g.lngs.push(r.longitude);
+    }
+    const median = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+    const data = [...groups.entries()].map(([key, g]) => ({ key, areaName: g.areaName, lat: median(g.lats), lng: median(g.lngs), n: g.lats.length }));
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // مرفقات الايتم (صور إضافية + كتب الفحص والتسجيل) — راجع itemDocs.js
 router.get('/item-docs/info', getItemInfo);
 router.put('/item-docs/info', saveItemInfo);
@@ -434,7 +474,7 @@ router.get('/overall', async (req, res) => {
         totalValue: true,
         saleDate:   true,
         rawData:    true,
-        area: { select: { id: true, name: true, province: { select: { name: true } } } },
+        area: { select: { id: true, name: true, province: { select: { name: true } }, subProvince: { select: { name: true } } } },
         item: { select: { id: true, name: true, company: { select: { id: true, name: true } }, scientificCompany: { select: { id: true, name: true } } } },
         representative: { select: { id: true, name: true } },
         // Per-file currency → normalize each row to USD before summing, so mixing
@@ -458,6 +498,10 @@ router.get('/overall', async (req, res) => {
     // اسم الايتم، كي يبني الفرونت-إند منه كلاً من إجمالي كل (مندوب، مذخر) وتفصيل
     // الايتمات داخله دون استعلام إضافي.
     const baghdadWarehouseMap = new Map(); // key: "المندوب::المذخر::الايتم"
+    // مناطق بغداد (لخريطة بغداد في «علمي محافظات»): مبيع كل منطقة + قسمها
+    // (الكرخ/الرصافة من Area.subProvince). نفس شرط تبويب المحافظة حرفياً — ايتم
+    // مُسنَد لتيم — كي يساوي مجموعها رقم بغداد في جدول محافظة × شركة.
+    const baghdadAreaMap = new Map(); // key: اسم المنطقة
     // اسم عرض واحد لكل شركة موحَّدة — أول صيغة تُصادَف تصير العرض الثابت لبقية
     // الصفوف. بدونها: نفس الشركة تظهر DevaTurkeyN/A و deva و DEVA في 3 صفوف
     // منفصلة، لأن رقم المادة الخام وحقل «الشركة» يُكتَبان بصيغ مختلفة صفاً
@@ -538,6 +582,14 @@ router.get('/overall', async (req, res) => {
         pr.totalQuantity += qty;
         pr.totalValue    += val;
 
+        if (isBaghdadName(provinceName)) {
+          const areaName = s.area?.name || 'بلا منطقة';
+          if (!baghdadAreaMap.has(areaName)) baghdadAreaMap.set(areaName, { areaName, subProvince: s.area?.subProvince?.name ?? null, totalQuantity: 0, totalValue: 0 });
+          const ba = baghdadAreaMap.get(areaName);
+          ba.totalQuantity += qty;
+          ba.totalValue    += val;
+        }
+
         const pcKey = `${provinceName}::${normalizeItemKey(teamName)}`;
         if (!provinceCompanyMap.has(pcKey)) provinceCompanyMap.set(pcKey, { provinceName, companyName: teamName, totalQuantity: 0, totalValue: 0 });
         const pcr = provinceCompanyMap.get(pcKey);
@@ -598,10 +650,11 @@ router.get('/overall', async (req, res) => {
     const byProvinceCompany = [...provinceCompanyMap.values()].sort((a, b) =>
       a.provinceName.localeCompare(b.provinceName, 'ar') || b.totalValue - a.totalValue);
     const byProvinceItem = [...provinceItemMap.values()];
+    const byBaghdadArea = [...baghdadAreaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byBaghdadWarehouse = [...baghdadWarehouseMap.values()].sort((a, b) =>
       a.repName.localeCompare(b.repName, 'ar') || a.warehouseName.localeCompare(b.warehouseName, 'ar') || b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byProvinceItem, byBaghdadWarehouse, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byProvinceItem, byBaghdadWarehouse, byBaghdadArea, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
