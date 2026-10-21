@@ -6,6 +6,9 @@
 // المصادر:
 //   • /api/reports/overall (مبيع − إرجاع) ← byProvince + byProvinceCompany: مبيع الشركات
 //     بالمحافظة من الملفات نفسها — يعمل حتى قبل إنشاء حسابات المندوبين.
+//   • مدير الشركة (company_manager) يرى مبيع تيمه وحده: teamManagerId = حسابه، نفس
+//     فلتر شريحة «الشركة الرئيسية» في التحليل الشامل (ايتمات التيم المُسنَدة له).
+//     بقية الأدوار ترى كل تيمات المكتب.
 //   • /api/scientific-reps/province-map ← المندوبون العلميون بكل محافظة؛ تُنسَب الشركة
 //     من `company` (الشركة الرئيسية لحساب المندوب) في قائمة reps الممرَّرة.
 //
@@ -16,6 +19,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { IRAQ_PROVINCE_SHAPES, IRAQ_MAP_VIEWBOX } from '../data/iraqProvinces';
 import ProvinceTeamsDirectory from './ProvinceTeamsDirectory';
+import { useAuth } from '../context/AuthContext';
 
 interface RepRow { id: number; name: string; netValue: number; netQty?: number }
 interface RepProvinceRow { provinceName: string; totalValue: number; reps: RepRow[] }
@@ -54,7 +58,7 @@ const LABEL_NUDGE: Record<string, [number, number]> = {
 type SalesRows = { prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] };
 type CacheEntry = { v: any; t: number };
 const MEM = new Map<string, CacheEntry>();
-const LS_PREFIX = 'iqmap:v1:';
+const LS_PREFIX = 'iqmap:v2:';
 const LS_MAX = 24;
 const FRESH_MS = 3 * 60 * 1000;
 function cacheGet(k: string): CacheEntry | undefined {
@@ -174,6 +178,9 @@ function PlexusBackground() {
 }
 
 export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
+  const { user } = useAuth();
+  // مدير الشركة: مبيع تيمه فقط — لا بقية شركات المكتب
+  const ownTeamId = user?.role === 'company_manager' ? user.id : null;
   const [repData, setRepData] = useState<RepProvinceRow[]>([]);
   const [salesRows, setSalesRows] = useState<{ prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[] }>({ prov: new Map(), pc: [] });
   const [err, setErr] = useState('');
@@ -213,6 +220,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       if (latest.current.toDate) p.set('endDate', latest.current.toDate);
     } else if (mk && mk !== 'all') p.set('month', mk);
     if (fileIds.length > 0) p.set('fileIds', fileKey);
+    if (ownTeamId) p.set('teamManagerId', String(ownTeamId));
     return p;
   };
   const prefetchMonths = () => [...monthsRef.current].filter(m => /^\d{4}-\d{2}$/.test(m) && m !== monthKey).sort().reverse().slice(0, 3);
@@ -222,7 +230,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
-    const keyOf = (mk: string) => `s|${tok}|${fileKey}|${mk}`;
+    const keyOf = (mk: string) => `s|${tok}|${ownTeamId ?? ''}|${fileKey}|${mk}`;
     const hit = cacheable ? cacheGet(keyOf(monthKey)) : undefined;
     if (hit) setSalesRows(unpackSales(hit.v));
     // قبل حسم الشهر الافتراضي لا نجلب شيئاً — كان طلب «الكل» يُطلق ثم يُلغى ويهدر وقت السيرفر.
@@ -282,7 +290,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     })();
     return () => { dead = true; ac.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileKey, monthKey, tok, ready]);
+  }, [fileKey, monthKey, tok, ready, ownTeamId]);
 
   // ── المندوبون العلميون بكل محافظة (بالتوازي مع المبيع) ─────────────────────
   useEffect(() => {

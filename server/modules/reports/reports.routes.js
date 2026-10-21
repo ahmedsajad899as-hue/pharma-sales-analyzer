@@ -311,9 +311,11 @@ router.get('/overall', async (req, res) => {
     // ⚠️ يُغلَّف بـ`AND`: المفتاح `itemId` مشغول أصلاً بنطاق ايتمات الطالب
     // (effectiveItemScope) المنشور في نفس الكائن، ونشر مفتاحين متطابقين يُلغي
     // أحدهما بصمت. نفس السبب يمنع استعمال `OR` هنا (محجوز لـnoDateFileFilter).
+    // تيم مطلوب بالاسم لكنه غير موجود ضمن officeTeams (مدير بلا ايتمات مُسنَدة)
+    // = لا صفوف، لا «بلا فلتر» — وإلا يرى مدير الشركة مبيع المكتب كله في خريطته.
     const teamCompanyFilter = selectedTeam
       ? { AND: [{ itemId: { in: selectedTeam.itemIds } }] }
-      : {};
+      : mgrId ? { AND: [{ itemId: { in: [] } }] } : {};
     const baseWhere = {
       isHidden: false,
       ...fileFilter,
