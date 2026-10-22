@@ -91,6 +91,26 @@ export async function updateRep(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// PATCH /:id/pharmacy — { repKind?: 'scientific'|'pharmacy', customerInfoLabels?: string[] }
+export async function setPharmacySettings(req, res, next) {
+  try {
+    // المندوب لا يغيّر نوعه أو تسمياته بنفسه.
+    if (['scientific_rep', 'commercial_rep', 'user'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'غير مسموح' });
+    }
+    const rep = await svc.setPharmacySettings(+req.params.id, req.body || {});
+    res.json({ success: true, data: rep });
+  } catch (err) { next(err); }
+}
+
+// GET /customer-info-values?fileIds=1,2 — قيم «معلومات الزبون» لاختيار تسميات الفارمسي
+export async function listCustomerInfoValues(req, res, next) {
+  try {
+    const data = await svc.listCustomerInfoValues(parseFileIds(req.query.fileIds) || []);
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+}
+
 export async function deleteRep(req, res, next) {
   try {
     await svc.remove(+req.params.id);

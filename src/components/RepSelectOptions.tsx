@@ -20,6 +20,7 @@ export interface GroupableRep {
   company?: string | null;
   userId?: number;
   managerIds?: number[];
+  repKind?: string; // 'pharmacy' = فارمسي لاين
 }
 
 const TEAM_LEADER_ROLES = new Set(['team_leader', 'commercial_team_leader']);
@@ -76,8 +77,10 @@ export function groupRepsByTeam(reps: GroupableRep[]): RepOptionGroup[] {
 
 // إزاحة المندوب تحت قائده: مسافات غير قابلة للطي (المتصفح يطوي المسافة العادية)
 const NBSP_INDENT = '\u00A0\u00A0\u00A0';
-export const repOptionLabel = (row: RepOptionRow) =>
-  row.isLeader ? `\u{1F465} ${row.rep.name}` : row.isMember ? `${NBSP_INDENT}${row.rep.name}` : row.rep.name;
+export const repOptionLabel = (row: RepOptionRow) => {
+  const name = row.rep.repKind === 'pharmacy' ? `${row.rep.name} \u{1F3EA}` : row.rep.name;
+  return row.isLeader ? `\u{1F465} ${name}` : row.isMember ? `${NBSP_INDENT}${name}` : name;
+};
 
 /** خيارات جاهزة للوضع داخل `<select>` — بعد خيار «اختر مندوباً» مباشرةً. */
 export default function RepSelectOptions({ reps }: { reps: GroupableRep[] }) {

@@ -8,6 +8,7 @@ import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
+import { PHARMACY_KIND, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo } from '../../lib/pharmacyRep.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -142,6 +143,7 @@ export async function list(filters, user = null, options = {}) {
           items:          { select: { item:          { select: { id: true, name: true } } } },
           companies:      { select: { company:       { select: { id: true, name: true } } } },
           commercialReps: { select: { commercialRep: { select: { id: true, name: true } } } },
+          repKind: true, customerInfoLabels: true,
         },
       });
 
@@ -158,6 +160,8 @@ export async function list(filters, user = null, options = {}) {
         items:          sciRepData?.items?.map(i => i.item)          ?? [],
         companies:      sciRepData?.companies?.map(c => c.company)   ?? [],
         commercialReps: sciRepData?.commercialReps?.map(l => l.commercialRep) ?? [],
+        repKind: sciRepData?.repKind ?? 'scientific',
+        customerInfoLabels: parseCustomerInfoLabels(sciRepData?.customerInfoLabels),
         _isUser: true,
         role: u.role,
         // معرّف حساب المستخدم (غير id أعلاه = معرّف سجل المندوب العلمي) ومعرّفات
@@ -176,6 +180,7 @@ export async function list(filters, user = null, options = {}) {
   const reps = await repo.listAll(whereFilters);
   return reps.map(r => ({
     ...r,
+    customerInfoLabels: parseCustomerInfoLabels(r.customerInfoLabels),
     areas:           r.areas?.map(a => a.area) ?? [],
     items:           r.items?.map(i => i.item) ?? [],
     companies:       r.companies?.map(c => c.company) ?? [],
@@ -202,6 +207,33 @@ export async function getById(id) {
 export async function update(id, dto) {
   await assertExists(id);
   return repo.updateScientificRep(id, dto);
+}
+
+/** نوع المندوب (علمي/فارمسي لاين) وتسميات «معلومات الزبون» له — lib/pharmacyRep.js. */
+export async function setPharmacySettings(id, { repKind, customerInfoLabels } = {}) {
+  await assertExists(id);
+  const data = {};
+  if (repKind !== undefined) data.repKind = repKind === PHARMACY_KIND ? PHARMACY_KIND : 'scientific';
+  if (customerInfoLabels !== undefined) data.customerInfoLabels = serializeCustomerInfoLabels(customerInfoLabels);
+  const r = await repo.updateScientificRep(id, data);
+  return { ...r, customerInfoLabels: parseCustomerInfoLabels(r.customerInfoLabels) };
+}
+
+/**
+ * قيم «معلومات الزبون» في ملفات المكتب المعطاة مع عدد صفوفها — لاختيار تسميات
+ * مندوب الفارمسي. الفارماسي أولاً (looksLikePharmacyInfo)، ثم البقية بالعدد.
+ */
+export async function listCustomerInfoValues(fileIds) {
+  if (!Array.isArray(fileIds) || fileIds.length === 0) return [];
+  const rows = await prisma.sale.groupBy({
+    by: ['customerInfoNorm'],
+    where: { uploadedFileId: { in: fileIds }, isHidden: false, customerInfoNorm: { not: null } },
+    _count: { _all: true },
+  });
+  return rows
+    .map(r => ({ value: r.customerInfoNorm, count: r._count._all, pharmacy: looksLikePharmacyInfo(r.customerInfoNorm) }))
+    .sort((a, b) => (b.pharmacy - a.pharmacy) || (b.count - a.count))
+    .slice(0, 300);
 }
 
 export async function remove(id) {
@@ -957,8 +989,62 @@ export async function removeRepNameLink(userId, fromKey) {
   return { ok: true };
 }
 
+/**
+ * مناطق مندوب (ScientificRepArea + محافظات حساباته) موسَّعة بالاسم المطبَّع —
+ * نفس توسيع resolveSciRepSales، لأعضاء فريق الفارمسي. null = بلا مناطق.
+ */
+async function resolveRepAreaIdsByName(repId, allAreas) {
+  const [links, users] = await Promise.all([
+    prisma.scientificRepArea.findMany({ where: { scientificRepId: repId }, select: { areaId: true } }),
+    prisma.user.findMany({ where: { linkedRepId: repId }, select: { id: true } }),
+  ]);
+  let provinceAreaIds = [];
+  if (users.length) {
+    const provRows = await prisma.userProvinceAssignment.findMany({
+      where: { userId: { in: users.map(u => u.id) } }, select: { provinceId: true },
+    });
+    provinceAreaIds = await areaIdsOfProvinces([...new Set(provRows.map(r => r.provinceId))]);
+  }
+  const direct = new Set([...links.map(l => l.areaId), ...provinceAreaIds]);
+  if (direct.size === 0) return null;
+  const norms = new Set(allAreas.filter(a => direct.has(a.id)).map(a => normalizeArabic(a.name)));
+  return [...new Set([...direct, ...allAreas.filter(a => norms.has(normalizeArabic(a.name))).map(a => a.id)])];
+}
+
+/**
+ * أعضاء نسب مبيع ملف المكتب لمندوب فارمسي (lib/pharmacyRep.js): هو نفسه، وإن كان
+ * تيم ليدر فمندوبوه أيضاً (UserManagerAssignment) — مبيعه = مجموعهم. لكلٍّ
+ * تسمياته ومناطقه وايتماته؛ عضو بلا مناطق لا يأخذ شيئاً من ملف المكتب.
+ */
+async function resolvePharmacyMembers(rep) {
+  const repIds = [rep.id];
+  const leader = await prisma.user.findFirst({ where: { linkedRepId: rep.id }, select: { id: true, role: true } });
+  if (leader?.role === 'team_leader') {
+    const subRows = await prisma.userManagerAssignment.findMany({ where: { managerId: leader.id }, select: { userId: true } });
+    if (subRows.length) {
+      const subs = await prisma.user.findMany({
+        where: { id: { in: subRows.map(r => r.userId) }, linkedRepId: { not: null } },
+        select: { linkedRepId: true },
+      });
+      for (const u of subs) if (!repIds.includes(u.linkedRepId)) repIds.push(u.linkedRepId);
+    }
+  }
+  const [repRows, allAreas] = await Promise.all([
+    prisma.scientificRepresentative.findMany({ where: { id: { in: repIds } }, select: { id: true, customerInfoLabels: true } }),
+    prisma.area.findMany({ select: { id: true, name: true } }),
+  ]);
+  return Promise.all(repRows.map(async r => ({
+    repId:   r.id,
+    labels:  parseCustomerInfoLabels(r.customerInfoLabels),
+    areaIds: await resolveRepAreaIdsByName(r.id, allAreas),
+    itemIds: (await resolveSciRepItemIds(r.id)).itemIds,
+  })));
+}
+
 async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   const rep = await assertExists(id);
+  const pharmacyMode = isPharmacyRep(rep);
+  const pharmacyMembers = pharmacyMode ? await resolvePharmacyMembers(rep) : [];
 
   // ── Arabic normalizer (unify alef variants, teh marbuta, remove diacritics) ──
   const _normalizeAr = normalizeRepName;
@@ -1293,8 +1379,23 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     // مصدر النسب: فرعان يُجمعان بـ OR حسب نوع الملف.
     const sourceConds = [];
 
+    // (أ-فارمسي) ملفات المكتب لمندوب الفارمسي: «معلومات الزبون» = تسمياته ∩ مناطقه
+    // ∩ ايتماته، لكل عضو (هو، ومندوبوه إن كان تيم ليدر) — بلا مندوبين تجاريين.
+    if (pharmacyMode && officeFileIds.length > 0) {
+      for (const m of pharmacyMembers) {
+        if (!m.areaIds || m.areaIds.length === 0) continue;
+        const office = [
+          { uploadedFileId: { in: officeFileIds } },
+          { areaId: { in: m.areaIds } },
+          customerInfoLabelsWhere(m.labels),
+        ];
+        if (m.itemIds && m.itemIds.length) office.push({ itemId: { in: m.itemIds } });
+        sourceConds.push({ AND: office });
+      }
+    }
+
     // (أ) ملفات سستم المكتب — المنطق القائم: مندوبون تجاريون ∩ المناطق.
-    if (repFilter && (mercatoFileIds.length === 0 || officeFileIds.length > 0)) {
+    if (!pharmacyMode && repFilter && (mercatoFileIds.length === 0 || officeFileIds.length > 0)) {
       const office = [repFilter];
       if (hasAreas) office.push({ areaId: { in: areaIds } });
       // لا نضيف قيد الملف إلا عند وجود ملف ميركاتو فعلاً، حفاظاً على السلوك
@@ -1311,13 +1412,15 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     // (ب) ملفات ميركاتو — مطابقة اسم المندوب العلمي وحده، أو + مندوبي فريقه إن
     // كان تيم ليدر (mercatoNameMatchIds — راجع teamNameKeys أعلاه).
     if (mercatoFileIds.length > 0 && mercatoNameMatchIds.length > 0) {
-      sourceConds.push({ uploadedFileId: { in: mercatoFileIds }, representativeId: { in: mercatoNameMatchIds } });
+      const mercato = { uploadedFileId: { in: mercatoFileIds }, representativeId: { in: mercatoNameMatchIds } };
+      // الفارمسي: ايتمات كل عضو داخل فرعه (أعلاه)، فقيد ايتماته هو يخصّ فرع ميركاتو وحده.
+      sourceConds.push(pharmacyMode && hasItems ? { AND: [mercato, { itemId: { in: itemIds } }] } : mercato);
     }
 
     if (sourceConds.length === 0) return null; // no rep info → return nothing
 
     const conditions = [sourceConds.length === 1 ? sourceConds[0] : { OR: sourceConds }];
-    if (hasItems) conditions.push({ itemId: { in: itemIds } });
+    if (hasItems && !pharmacyMode) conditions.push({ itemId: { in: itemIds } });
     // Globally-blocked areas/items narrow the scope further — excluded regardless
     // of which commercial rep the sale/return belongs to.
     if (blockedAreaIds.length) conditions.push({ NOT: { areaId: { in: blockedAreaIds } } });
@@ -1345,7 +1448,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   };
 
   const meta = {
-    rep, commercialLinks, areaLinks, itemLinks,
+    rep, commercialLinks: pharmacyMode ? [] : commercialLinks, areaLinks, itemLinks,
     explicitCommRepIds, expandedCommRepIds, nameMatchIds, mercatoNameMatchIds, areaIds, itemIds, fileIds,
   };
 
@@ -1429,7 +1532,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // والايتم ∩ ايتماته — بلا شرط المندوب التجاري (لا مندوب علمي في ملف المكتب).
   // يُعرض بمنطقة الصيدلية واسمها، ويُعدّ ضمن الكوديشن (bySource في getReport).
   rawSales = rawSales.filter(s => !parseTransitRow(s.rawData, s.totalValue));
-  if (areaNormSet.size > 0 && officeFileIds.length > 0 && recordType !== 'return') {
+  // الترانزيت (علمي/تجاري فقط) لا يخصّ مندوب الفارمسي.
+  if (!pharmacyMode && areaNormSet.size > 0 && officeFileIds.length > 0 && recordType !== 'return') {
     const tw = [dateFilter];
     if (hasItems) tw.push({ itemId: { in: itemIds } });
     if (blockedItemIds.length) tw.push({ NOT: { itemId: { in: blockedItemIds } } });

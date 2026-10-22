@@ -809,6 +809,10 @@ model ScientificRepresentative {
   company   String?
   isActive  Boolean  @default(true)
   notes     String?
+  // «مندوب فارمسي لاين»: يدخل الصيدليات فقط. مبيعه = ميركاتو باسمه + صفوف ملف
+  // المكتب التي «معلومات الزبون» فيها إحدى customerInfoLabels ∩ مناطقه ∩ ايتماته.
+  repKind            String  @default("scientific") // "scientific" | "pharmacy"
+  customerInfoLabels String? // JSON: قيم «معلومات الزبون» المطبَّعة؛ فارغ = كل ما فيه فارم/pharm
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

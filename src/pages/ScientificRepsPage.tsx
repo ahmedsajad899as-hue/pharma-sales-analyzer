@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import PharmacyRepKindModal from '../components/PharmacyRepKindModal';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -57,6 +58,8 @@ interface ScientificRep {
   id: number; name: string; phone?: string; email?: string; company?: string; notes?: string; isActive: boolean;
   areas: NamedItem[]; items: NamedItem[]; companies: NamedItem[]; commercialReps: NamedItem[];
   _isUser?: boolean; // true for company-linked reps (not standalone)
+  repKind?: string;              // 'pharmacy' = فارمسي لاين (server/lib/pharmacyRep.js)
+  customerInfoLabels?: string[];
 }
 
 type ModalType = 'add' | 'edit' | 'assign' | null;
@@ -86,6 +89,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const [error, setError]       = useState('');
   const [modal, setModal]       = useState<ModalType>(null);
   const [selected, setSelected] = useState<ScientificRep | null>(null);
+  const [kindRep, setKindRep]   = useState<ScientificRep | null>(null); // مودال «فارمسي لاين»
 
   // Form fields
   const [fName, setFName]       = useState('');
@@ -1172,7 +1176,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                 ) : visibleReps.map(rep => (
                   <tr key={rep.id}>
                     <td>{rep.id}</td>
-                    <td><strong>{rep.name}</strong>{rep.notes && <div className="row-note">{rep.notes}</div>}</td>
+                    <td><strong>{rep.name}</strong>{rep.repKind === 'pharmacy' && <span className="tag" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', fontSize: 11, marginInlineStart: 6 }}>🏪 فارمسي لاين</span>}{rep.notes && <div className="row-note">{rep.notes}</div>}</td>
                     <td>{rep.phone || '—'}</td>
                     <td>
                       <div className="tag-list">
@@ -1268,11 +1272,15 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     </td>
                     <td>
                       <div className="tag-list">
-                        {rep.commercialReps.length === 0
+                        {rep.repKind === 'pharmacy'
+                          ? ((rep.customerInfoLabels ?? []).length
+                              ? (rep.customerInfoLabels ?? []).map(l => <span key={l} className="tag" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>📇 {l}</span>)
+                              : <span className="tag" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>📇 كل الفارماسي</span>)
+                          : rep.commercialReps.length === 0
                           ? <span className="tag tag--orange">{t.sciReps.allCommReps}</span>
                           : rep.commercialReps.slice(0, 2).map(c => <span key={c.id} className="tag tag--orange">{c.name}</span>)
                         }
-                        {rep.commercialReps.length > 2 && <span className="tag tag--gray">+{rep.commercialReps.length - 2}</span>}
+                        {rep.repKind !== 'pharmacy' && rep.commercialReps.length > 2 && <span className="tag tag--gray">+{rep.commercialReps.length - 2}</span>}
                       </div>
                     </td>
                     <td>
@@ -1284,6 +1292,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                       <div className="action-btns">
                         <button className="btn-icon btn-icon--blue"   onClick={() => openEdit(rep)}   title={t.sciReps.editTooltip}>✏️</button>
                         <button className="btn-icon btn-icon--green"  onClick={() => openAssign(rep)} title={t.sciReps.assignTooltip}>🔗</button>
+                        <button className="btn-icon" onClick={() => setKindRep(rep)} title="نوع المندوب: علمي / فارمسي لاين">🏪</button>
                         {!rep._isUser && <button className="btn-icon btn-icon--red"    onClick={() => deleteRep(rep.id)} title={t.sciReps.deleteTooltip}>🗑️</button>}
                       </div>
                     </td>
@@ -1301,7 +1310,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
               <div key={rep.id} className="rep-mobile-card">
                 <div className="rep-mobile-card-header">
                   <div>
-                    <div className="rep-mobile-card-name">{rep.name}</div>
+                    <div className="rep-mobile-card-name">{rep.name}{rep.repKind === 'pharmacy' && <span className="tag" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', fontSize: 11, marginInlineStart: 6 }}>🏪 فارمسي لاين</span>}</div>
                     {rep.phone && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{rep.phone}</div>}
                     {rep.notes && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{rep.notes}</div>}
                   </div>
@@ -1312,6 +1321,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     <div className="rep-mobile-card-actions">
                       <button className="btn-icon btn-icon--blue"  onClick={() => openEdit(rep)}    title={t.sciReps.editTooltip}>✏️</button>
                       <button className="btn-icon btn-icon--green" onClick={() => openAssign(rep)}  title={t.sciReps.assignTooltip}>🔗</button>
+                      <button className="btn-icon" onClick={() => setKindRep(rep)} title="نوع المندوب: علمي / فارمسي لاين">🏪</button>
                       {!rep._isUser && <button className="btn-icon btn-icon--red"   onClick={() => deleteRep(rep.id)} title={t.sciReps.deleteTooltip}>🗑️</button>}
                     </div>
                   </div>
@@ -1370,6 +1380,12 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
           </>
           )}
         </>
+      )}
+
+      {kindRep && (
+        <PharmacyRepKindModal rep={kindRep} token={token} activeFileIds={activeFileIds}
+          onClose={() => setKindRep(null)}
+          onSaved={() => { setKindRep(null); load(); }} />
       )}
 
       {/* Add / Edit Modal */}
