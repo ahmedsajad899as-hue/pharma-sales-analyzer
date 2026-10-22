@@ -604,18 +604,17 @@ function loadBoxMeta(src: string): Promise<BoxMeta> {
 const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
 // ── حواف مستديرة للمجسّم (round) ──────────────────────────────────────────────
-// علبة الكرتون الحقيقية حوافها منحنية قليلاً عند الطيّ. كل حافة من الـ12 ربع أسطوانة من
-// ROUND_STRIPS شرائح رفيعة، لونها يتدرّج من «لون الورق» عند حافة الوجه الأول إلى لونه عند
-// حافة الوجه الثاني، مع تظليل يتدرّج بين إضاءتَي الوجهين ولمعة خفيفة في منتصف الانحناء.
+// علبة الكرتون الحقيقية حوافها منحنية قليلاً عند الطيّ. كل حافة من الـ12 وتر لربع دائرة،
+// لونه يتدرّج من «لون الورق» عند حافة الوجه الأول إلى لونه عند حافة الوجه الثاني، مع تظليل
+// يتدرّج بين إضاءتَي الوجهين ولمعة خفيفة في منتصف الانحناء.
 // (اقتطاع شرائح من الصورة نفسها جُرّب وأُسقط: يلتقط أطراف الكتابة والنقاط قرب الحافة فتظهر
 // خطوطاً ملوّنة.) الأوجه تُصغَّر بنصف القطر من كل جهة لتفسح للحواف، وكل زاوية من الثماني
-// تُسدّ بقرص صغير متجه قطرياً.
+// تُسدّ بمثلث بين أطراف حوافها الثلاث.
 type FaceKey = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 type ImgEdge = 'l' | 'r' | 't' | 'b';
 /** حافة الوجه الملاصقة: l/r/t/b بإحداثيات صورة الوجه كما تُرسم عليه */
 interface EdgeSlice { face: FaceKey; edge: ImgEdge }
 type EdgeColors = Record<ImgEdge, RGB>;
-const ROUND_STRIPS = 4;
 /** إضاءة كل وجه (موجب = تعتيم، سالب = إضاءة) — تطابق طبقات الإضاءة على الأوجه نفسها */
 const FACE_SHADE: Record<FaceKey, number> = { front: 0, back: 0.06, right: 0.09, left: 0.07, top: -0.12, bottom: 0.25 };
 type EdgeDef = [number, number, number, EdgeSlice, EdgeSlice];
@@ -680,46 +679,59 @@ function RoundEdges({ W, H, D, r, color }: {
   /** لون الورق عند حافة وجه */
   color: (face: FaceKey, edge: ImgEdge) => RGB;
 }) {
-  const step = 90 / ROUND_STRIPS;
-  // عرض الشريحة = وتر زاويتها + تداخل بسيط كي لا تظهر شقوق
-  const s = 2 * r * Math.tan((step / 2) * Math.PI / 180) * 1.18;
+  // شريحة واحدة لكل حافة على وتر ربع الدائرة: طرفاها يقعان تماماً على حافتَي الوجهين فلا
+  // تبرز خارج العلبة ولا تترك شقّاً بين شرائح متجاورة (الشرائح المتعددة أظهرت خطوط فواصل
+  // رفيعة، والمماسّية برزت فوق الأوجه). الانحناء يُرسم بتدرّج اللون والإضاءة عبر عرضها.
+  // + جزء من بكسل على كل طرف كي يندسّ تحت الوجه ولا يظهر خيط فاصل مضاد للتسنين
+  const chord = r * Math.SQRT2 + 1.2;
+  const dist = r * Math.SQRT1_2;
   const fw = W - 2 * r, fh = H - 2 * r, fd = D - 2 * r;
-  const shade = (a: FaceKey, b: FaceKey, t: number) => {
-    const v = FACE_SHADE[a] + (FACE_SHADE[b] - FACE_SHADE[a]) * t - 0.13 * Math.sin(Math.PI * t);
-    return v >= 0 ? `rgba(0,0,0,${v.toFixed(3)})` : `rgba(255,255,255,${(-v).toFixed(3)})`;
+  const light = (v: number) => (v >= 0 ? `rgba(0,0,0,${v.toFixed(3)})` : `rgba(255,255,255,${(-v).toFixed(3)})`);
+  // إضاءة على طول الوتر: من إضاءة الوجه الأول إلى الثاني مع لمعة في المنتصف
+  const shadeAt = (a: FaceKey, b: FaceKey, t: number) =>
+    FACE_SHADE[a] + (FACE_SHADE[b] - FACE_SHADE[a]) * t - 0.12 * Math.sin(Math.PI * t);
+  // dir = اتجاه الانتقال من الوجه الأول إلى الثاني داخل الشريحة (مشتق من اتجاه زيادة زاوية الدوران)
+  const paint = (A: EdgeSlice, B: EdgeSlice, dir: string) => {
+    const ca = color(A.face, A.edge), cb = color(B.face, B.edge);
+    const stops = [0, 0.5, 1].map(t => `${light(shadeAt(A.face, B.face, t))} ${t * 100}%`).join(', ');
+    return `linear-gradient(${dir}, ${stops}), linear-gradient(${dir}, ${rgb(ca)}, ${rgb(cb)})`;
   };
 
   const out: ReactNode[] = [];
-  const strips = (key: string, edges: EdgeDef[], geo: (a: number, c1: number, c2: number) => { w: number; h: number; left: number; top: number; transform: string }) =>
-    edges.forEach(([a0, c1, c2, A, B], ei) => {
-      const ca = color(A.face, A.edge), cb = color(B.face, B.edge);
-      for (let k = 0; k < ROUND_STRIPS; k++) {
-        const t = (k + 0.5) / ROUND_STRIPS;
-        const g = geo(a0 + t * 90, c1, c2);
-        out.push(
-          <div key={`${key}${ei}-${k}`} className="b3d-face" style={{ width: g.w, height: g.h, left: g.left, top: g.top, transform: g.transform,
-            background: `linear-gradient(${shade(A.face, B.face, t)}, ${shade(A.face, B.face, t)}), ${rgb(mixRGB(ca, cb, t))}` }} />,
-        );
-      }
+  const edges = (key: string, defs: EdgeDef[], dir: string, geo: (a: number, c1: number, c2: number) => { w: number; h: number; left: number; top: number; transform: string }) =>
+    defs.forEach(([a0, c1, c2, A, B], ei) => {
+      const g = geo(a0 + 45, c1, c2);
+      out.push(<div key={`${key}${ei}`} className="b3d-face"
+        style={{ width: g.w, height: g.h, left: g.left, top: g.top, transform: g.transform, background: paint(A, B, dir) }} />);
     });
-  strips('v', V_EDGES, (a, cx, cz) => ({ w: s, h: fh, left: (W - s) / 2, top: r,
-    transform: `translate3d(${cx * (W / 2 - r)}px,0,${cz * (D / 2 - r)}px) rotateY(${a}deg) translateZ(${r}px)` }));
-  strips('x', X_EDGES, (a, cy, cz) => ({ w: fw, h: s, left: r, top: (H - s) / 2,
-    transform: `translate3d(0,${cy * (H / 2 - r)}px,${cz * (D / 2 - r)}px) rotateX(${a}deg) translateZ(${r}px)` }));
-  strips('z', Z_EDGES, (a, cx, cy) => ({ w: fd, h: s, left: (W - fd) / 2, top: (H - s) / 2,
-    transform: `translate3d(${cx * (W / 2 - r)}px,${cy * (H / 2 - r)}px,0) rotateY(90deg) rotateX(${a}deg) translateZ(${r}px)` }));
+  edges('v', V_EDGES, 'to right', (a, cx, cz) => ({ w: chord, h: fh, left: (W - chord) / 2, top: r,
+    transform: `translate3d(${cx * (W / 2 - r)}px,0,${cz * (D / 2 - r)}px) rotateY(${a}deg) translateZ(${dist}px)` }));
+  edges('x', X_EDGES, 'to top', (a, cy, cz) => ({ w: fw, h: chord, left: r, top: (H - chord) / 2,
+    transform: `translate3d(0,${cy * (H / 2 - r)}px,${cz * (D / 2 - r)}px) rotateX(${a}deg) translateZ(${dist}px)` }));
+  edges('z', Z_EDGES, 'to top', (a, cx, cy) => ({ w: fd, h: chord, left: (W - fd) / 2, top: (H - chord) / 2,
+    transform: `translate3d(${cx * (W / 2 - r)}px,${cy * (H / 2 - r)}px,0) rotateY(90deg) rotateX(${a}deg) translateZ(${dist}px)` }));
 
-  // الزوايا الثماني: قرص مماس داخل كرة الزاوية (حافته تبقى ضمن نصف القطر فلا تبرز)
-  const q = r * 1.5;
+  // الزوايا الثماني: مثلث يسدّ تماماً الفراغ بين أطراف الحواف الثلاث (رؤوسه هي أطرافها نفسها)
+  // عبر matrix3d لعنصر 1×1 — لا يتجاوز مستوى أي وجه فلا يتداخل معه
   for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
-    const ay = Math.atan2(sx, sz) * 180 / Math.PI, ax = -sy * 35.26;
+    const c = [W / 2 + sx * (W / 2 - r), H / 2 + sy * (H / 2 - r), sz * (D / 2 - r)];
+    // مكبَّر 30% حول مركزه كي يندسّ طرفه تحت الحواف فلا يظهر خيط حوله
+    const tri = [[c[0] + sx * r, c[1], c[2]], [c[0], c[1] + sy * r, c[2]], [c[0], c[1], c[2] + sz * r]];
+    const g = [0, 1, 2].map(i => (tri[0][i] + tri[1][i] + tri[2][i]) / 3);
+    const [q1, q2, p0] = tri.map(t => t.map((x, i) => g[i] + (x - g[i]) * 1.3));
+    let p1 = q1, p2 = q2;
+    let u = p1.map((v, i) => v - p0[i]), v = p2.map((x, i) => x - p0[i]);
+    const n = [sx, sy, sz].map(x => x / Math.sqrt(3));
+    // اتجاه الوجه الأمامي للعنصر (u×v) يجب أن يشير للخارج وإلا أخفاه backface-visibility
+    const cr = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    if (cr[0] * n[0] + cr[1] * n[1] + cr[2] * n[2] < 0) { [p1, p2] = [p2, p1]; [u, v] = [v, u]; }
     const fz: FaceKey = sz > 0 ? 'front' : 'back', fy: FaceKey = sy < 0 ? 'top' : 'bottom';
-    const c = mixRGB(color(fz, sy < 0 ? 't' : 'b'), color(fy, sz > 0 ? (sy < 0 ? 'b' : 't') : (sy < 0 ? 't' : 'b')), 0.5);
-    const sh = shade(fz, fy, 0.5);
+    const col = mixRGB(color(fz, sy < 0 ? 't' : 'b'), color(fy, sz > 0 ? (sy < 0 ? 'b' : 't') : (sy < 0 ? 't' : 'b')), 0.5);
+    const sh = light(shadeAt(fz, fy, 0.5));
     out.push(
-      <div key={`c${sx}${sy}${sz}`} className="b3d-face" style={{ width: q, height: q, left: (W - q) / 2, top: (H - q) / 2,
-        borderRadius: '50%', background: `linear-gradient(${sh}, ${sh}), ${rgb(c)}`,
-        transform: `translate3d(${sx * (W / 2 - r)}px,${sy * (H / 2 - r)}px,${sz * (D / 2 - r)}px) rotateY(${ay}deg) rotateX(${ax}deg) translateZ(${r * 0.6}px)` }} />,
+      <div key={`c${sx}${sy}${sz}`} className="b3d-face" style={{ width: 1, height: 1, transformOrigin: '0 0',
+        clipPath: 'polygon(0 0, 100% 0, 0 100%)', background: `linear-gradient(${sh}, ${sh}), ${rgb(col)}`,
+        transform: `matrix3d(${u.join(',')},0,${v.join(',')},0,${n.join(',')},0,${p0.join(',')},1)` }} />,
     );
   }
   return <>{out}</>;

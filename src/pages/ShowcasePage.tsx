@@ -23,7 +23,7 @@ interface ShowItem {
 /** عمق اللوحة الرقيقة نسبةً لارتفاعها — تبقى مجسّماً يتمايل لكن بلا «علبة» */
 const FRAME_DEPTH = 0.035;
 /** انحناء حواف العلبة (نسبة من أصغر بُعدَيها) — طيّ الكرتون الحقيقي ليس حادّاً */
-const BOX_ROUND = 0.06;
+const BOX_ROUND = 0.03;
 const effDepth = (it: { shape: Shape; depth: number }) => (it.shape === 'frame' ? FRAME_DEPTH : it.depth);
 const FACE_LABEL: Record<Face, string> = {
   front: 'الوجه الأمامي', left: 'الجانب الأيسر', right: 'الجانب الأيمن', top: 'السقف', back: 'الخلفي', bottom: 'القاعدة',
@@ -43,9 +43,9 @@ const presetBox = (dir: string, title: string, depth: number, faces: Face[], spi
   faces: Object.fromEntries(faces.map(f => [f, `/showcase/${dir}/${f}.jpg`])),
 });
 const PRESETS: ShowItem[] = [
-  // عرض/ارتفاع ≈ 1.58 من الصور المستقيمة. العمق 0.40 من الارتفاع (0.48 المقاس من الصور بدا أعرض من الواقع
-  // لأن الطرفين صُوّرا بقرب فتضخّما). الخلفي = الأمامي (نفس الطباعة)
-  presetBox('potafast-50', 'Potafast 50 mg', 0.40, ['front', 'back', 'left', 'right', 'top', 'bottom'], true),
+  // عرض/ارتفاع ≈ 1.58 من الصور المستقيمة. العمق 0.44 من الارتفاع بمعاينة المستخدم (0.48 المقاس من
+  // الصور بدا أعرض من الواقع، و0.40 أضيق). الخلفي = الأمامي (نفس الطباعة)
+  presetBox('potafast-50', 'Potafast 50 mg', 0.44, ['front', 'back', 'left', 'right', 'top', 'bottom'], true),
 ];
 const isPreset = (it: ShowItem) => it.id.startsWith('preset:');
 
