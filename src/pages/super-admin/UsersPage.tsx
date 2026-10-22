@@ -5,6 +5,7 @@ import { getVisiblePageNodes, STANDALONE_FEATURES, FEATURE_PAGE_MAP } from '../.
 import type { FeatureNode } from '../../config/featureConfig';
 import UsersBulkImportModal from './UsersBulkImportModal';
 import BulkFeatureToggleModal from './BulkFeatureToggleModal';
+import { TabPill, SectionHead, Note, PickerBar, GroupCard, ChipGrid, Chip, ScrollList, Empty, SaveBar, setMany, softBtn, iconBtn, ACCENT } from './AssignUI';
 
 const ROLES = [
   { value: 'office_manager',          label: 'مدير مكتب' },
@@ -156,6 +157,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // «الموظفون»: تعيين عكسي — من حساب المدير نفسه، بدل الدخول لكل حساب على حدة
   const [draftSubIds,        setDraftSubIds]        = useState<number[]>([]);
   const [itemSearch,         setItemSearch]         = useState('');
+  // بحث مشترك لتبويبات التعيين (الشركات/اللاينات/المدراء/الموظفون) — يُصفَّر عند تبديل التبويب
+  const [assignSearch,       setAssignSearch]       = useState('');
   const [areaSearch,         setAreaSearch]         = useState('');
   const [mergeSugs,          setMergeSugs]          = useState<{ a: { id: number; name: string; sales: number }; b: { id: number; name: string; sales: number } }[] | null>(null);
   const [mergeBusy,          setMergeBusy]          = useState(false);
@@ -1140,27 +1143,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     );
     const officeCompaniesForStock = companies.filter(c => c.officeId === detail.officeId);
 
-    const TabBtn = ({ id, label }: { id: typeof tab; label: string }) => (
-      <button onClick={() => setTab(id)} style={{
-        padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-        background: tab === id ? '#0f172a' : '#f1f5f9', color: tab === id ? '#fff' : '#374151',
-      }}>{label}</button>
+    const TabBtn = ({ id, icon, label, count, dirty }: { id: typeof tab; icon: string; label: string; count?: number; dirty?: boolean }) => (
+      <TabPill active={tab === id} icon={icon} label={label} count={count} dirty={dirty} onClick={() => { setTab(id); setAssignSearch(''); }} />
     );
-
-    const CheckList = ({ allItems, selIds, onToggle }: { allItems: { id: number; label: string }[]; selIds: number[]; onToggle: (id: number, checked: boolean) => void }) => (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-        {allItems.map(i => (
-          <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
-            <input type="checkbox" checked={selIds.includes(i.id)} onChange={e => onToggle(i.id, e.target.checked)} />
-            {i.label}
-          </label>
-        ))}
-        {allItems.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13, padding: 8 }}>لا توجد عناصر</div>}
-      </div>
-    );
-
-    const mkToggle = (selIds: number[], setter: (ids: number[]) => void) =>
-      (id: number, checked: boolean) => setter(checked ? [...selIds, id] : selIds.filter(x => x !== id));
 
     return (
       <div>
@@ -1173,19 +1158,19 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           <button onClick={() => setForm({ ...detail, password: '' })} style={btnStyle('#3b82f6', true)}>تعديل البيانات</button>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-          <TabBtn id="info"      label="معلومات" />
-          <TabBtn id="companies" label={`الشركات (${selCompanyIds.length})${companiesDirty ? ' ●' : ''}`} />
-          <TabBtn id="lines"     label={`اللاينات (${selLineIds.length})`} />
-          <TabBtn id="items"     label={`الايتمات (${selItemIds.length})`} />
-          <TabBtn id="stockScope" label={`📦 نطاق الستوك (${selStockCompanyIds.length + selStockItemIds.length})`} />
-          <TabBtn id="areas"     label={`المناطق (${effectiveAreaCount})`} />
-          <TabBtn id="managers"  label={`المدراء (${selMgrIds.length})`} />
-          <TabBtn id="employees" label={`الموظفون (${selSubIds.length})`} />
-          <TabBtn id="features"  label="🎛️ المميزات" />
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', padding: 8, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14 }}>
+          <TabBtn id="info"       icon="ℹ️" label="معلومات" />
+          <TabBtn id="companies"  icon="🏭" label="الشركات"     count={selCompanyIds.length} dirty={companiesDirty} />
+          <TabBtn id="lines"      icon="🧬" label="اللاينات"    count={selLineIds.length} />
+          <TabBtn id="items"      icon="💊" label="الايتمات"    count={selItemIds.length} />
+          <TabBtn id="stockScope" icon="📦" label="نطاق الستوك" count={selStockCompanyIds.length + selStockItemIds.length} />
+          <TabBtn id="areas"      icon="📍" label="المناطق"     count={effectiveAreaCount} />
+          <TabBtn id="managers"   icon="👔" label="المدراء"     count={selMgrIds.length} />
+          <TabBtn id="employees"  icon="👥" label="الموظفون"    count={selSubIds.length} />
+          <TabBtn id="features"   icon="🎛️" label="المميزات" />
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, padding: 22, boxShadow: '0 1px 3px rgba(15,23,42,.05)' }}>
           {tab === 'info' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               {[
@@ -1267,52 +1252,62 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
             const officeCompaniesForDetail = companies.filter(c => c.officeId === detail.officeId);
             return (
             <div>
-              <div style={{ fontSize: 12.5, color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
-                ℹ️ هذا الدور يعمل على مستوى المكتب كله — كل شركات مكتبه ({officeCompaniesForDetail.length}) معيَّنة له تلقائياً ولا يمكن اختيارها يدوياً. أي شركة تُضاف لاحقاً لهذا المكتب تُعيَّن له فوراً كذلك.
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {officeCompaniesForDetail.map(c => (
-                  <div key={c.id} style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 8, fontSize: 14, color: '#334155' }}>{c.name}</div>
-                ))}
+              <SectionHead icon="🏭" title="الشركات" hint="هذا الدور يعمل على مستوى المكتب كله." />
+              <Note>
+                ℹ️ كل شركات مكتبه ({officeCompaniesForDetail.length}) معيَّنة له تلقائياً ولا يمكن اختيارها يدوياً. أي شركة تُضاف لاحقاً لهذا المكتب تُعيَّن له فوراً كذلك.
+              </Note>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 12 }}>
+                <ChipGrid>
+                  {officeCompaniesForDetail.map(c => (
+                    <Chip key={c.id} checked disabled onChange={() => {}} label={c.name} />
+                  ))}
+                </ChipGrid>
               </div>
             </div>
             );
           })()}
-          {tab === 'companies' && !OFFICE_SCOPED_ROLES.has(detail.role) && (
+          {tab === 'companies' && !OFFICE_SCOPED_ROLES.has(detail.role) && (() => {
+            const noPrimaryRole = detail.role === 'office_manager' || detail.role === 'product_manager' || provLeaderIds.has(detail.id);
+            const q = assignSearch.trim().toLowerCase();
+            const shown = companies.filter(c => !q || c.name.toLowerCase().includes(q));
+            return (
             <div>
               {provLeaderIds.has(detail.id) && provLeaderScopeBox}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => { setDraftCompanyIds(companies.map(c => c.id)); setDraftPrimaryCompanyId(prev => prev ?? companies[0]?.id ?? null); }} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => { setDraftCompanyIds([]); setDraftPrimaryCompanyId(null); }} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
-                <span style={{ marginRight: 'auto', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6,
-                  color: companySaveState === 'error' ? '#dc2626' : companiesDirty ? '#d97706' : '#16a34a' }}>
-                  {companySaveState === 'saving' ? '⏳ جارٍ الحفظ...'
-                    : companySaveState === 'error' ? '❌ لم يُحفظ — اضغط «حفظ الآن»'
-                    : companiesDirty ? '● تغييرات غير محفوظة (تُحفظ تلقائياً)'
-                    : `✅ محفوظ (${savedCompanyIds.length})`}
-                </span>
-              </div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-                {detail.role === 'office_manager' || detail.role === 'product_manager' || provLeaderIds.has(detail.id)
+              <SectionHead
+                icon="🏭"
+                title="الشركات المعيَّنة"
+                hint={noPrimaryRole
                   ? (detail.role === 'product_manager' || provLeaderIds.has(detail.id)
                       ? (provLeaderIds.has(detail.id)
                           ? 'تيم ليدر محافظة: بلا شركة رئيسية — اختر الشركات المعيَّنة له (ليس شرطاً كلها).'
                           : 'مدير المنتج: بلا شركة رئيسية — اختر الشركات التي يديرها (ليس شرطاً كلها)، وكلها تابعة له بالتساوي.')
                       : 'مدير المكتب: لا فرق بين شركة رئيسية وثانوية — كل الشركات المختارة تابعة له بالتساوي، وكل مدرائها ومندوبيها يُعتبرون تحت إدارته.')
                   : '⭐ الشركة الرئيسية تُحدَّد على أساسها التيمات والهيكل الإداري وربط المدير. الشركات الثانوية: عمل كامل وتظهر ايتماتها، لكن خارج تكوين الفريق.'}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {companies.map(c => {
-                  const checked = draftCompanyIds.includes(c.id);
-                  const noPrimaryRole = detail.role === 'office_manager' || detail.role === 'product_manager' || provLeaderIds.has(detail.id);
-                  const isPrimary = noPrimaryRole ? checked : draftPrimaryCompanyId === c.id;
-                  return (
-                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: isPrimary ? '#fef9c3' : '#f8fafc', borderRadius: 8, fontSize: 14, border: isPrimary ? '1.5px solid #eab308' : '1.5px solid transparent' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1 }}>
-                        {/* تحديث دالي (prev =>) لا من نسخة الـrender: النقر السريع على عدة مربعات
-                            كان يضيّع اختيارات (قراءة حالة قديمة قبل اكتمال إعادة الرسم — والصفحة ثقيلة). */}
-                        <input type="checkbox" checked={checked} onChange={e => {
-                          const on = e.target.checked;
+              />
+              <PickerBar
+                selected={draftCompanyIds.length}
+                total={companies.length}
+                onAll={() => { setDraftCompanyIds(companies.map(c => c.id)); setDraftPrimaryCompanyId(prev => prev ?? companies[0]?.id ?? null); }}
+                onNone={() => { setDraftCompanyIds([]); setDraftPrimaryCompanyId(null); }}
+                search={assignSearch}
+                onSearch={companies.length > 8 ? setAssignSearch : undefined}
+                placeholder="بحث عن شركة..."
+              />
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, maxHeight: 420, overflowY: 'auto' }}>
+                {shown.length === 0 ? <div style={{ padding: 16, color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>لا توجد شركات مطابقة</div> : (
+                <ChipGrid min={200}>
+                  {shown.map(c => {
+                    const checked = draftCompanyIds.includes(c.id);
+                    const isPrimary = !noPrimaryRole && draftPrimaryCompanyId === c.id;
+                    return (
+                      <Chip
+                        key={c.id}
+                        checked={checked}
+                        label={c.name}
+                        highlight={isPrimary ? '#fef9c3' : undefined}
+                        // تحديث دالي (prev =>) لا من نسخة الـrender: النقر السريع على عدة مربعات
+                        // كان يضيّع اختيارات (قراءة حالة قديمة قبل اكتمال إعادة الرسم — والصفحة ثقيلة).
+                        onChange={on => {
                           setDraftCompanyIds(prev => {
                             const next = on ? (prev.includes(c.id) ? prev : [...prev, c.id]) : prev.filter(x => x !== c.id);
                             setDraftPrimaryCompanyId(p => (on ? (p == null ? c.id : p) : (p === c.id ? (next[0] ?? null) : p)));
@@ -1323,59 +1318,70 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             const gone = new Set(items.filter(i => i.companyId === c.id).map(i => i.id));
                             if (gone.size) setDraftItemIds(prev => prev.filter(x => !gone.has(x)));
                           }
-                        }} />
-                        {c.name}
-                      </label>
-                      {checked && !noPrimaryRole && (
-                        <button type="button" onClick={() => setDraftPrimaryCompanyId(c.id)} title={isPrimary ? 'الشركة الرئيسية' : 'تعيين كرئيسية'}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, opacity: isPrimary ? 1 : 0.35 }}>
-                          {isPrimary ? '⭐ رئيسية' : '☆'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+                        }}
+                        trailing={checked && !noPrimaryRole ? (
+                          <button type="button" onClick={() => setDraftPrimaryCompanyId(c.id)} title={isPrimary ? 'الشركة الرئيسية' : 'تعيين كرئيسية'}
+                            style={{ background: isPrimary ? '#fde68a' : 'none', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: isPrimary ? 11 : 15, fontWeight: 700, color: '#854d0e', padding: '2px 6px', opacity: isPrimary ? 1 : 0.4 }}>
+                            {isPrimary ? '⭐ رئيسية' : '☆'}
+                          </button>
+                        ) : undefined}
+                      />
+                    );
+                  })}
+                </ChipGrid>
+                )}
               </div>
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>
-                  الاختيار يُطبّق ويُحفظ تلقائياً، وتظهر ايتمات الشركة فوراً في تبويب «الايتمات».
-                </span>
-                <button
-                  onClick={() => persistCompanies(draftCompanyIds, draftPrimaryCompanyId)}
-                  disabled={companySaveState === 'saving'}
-                  style={btnStyle(companiesDirty || companySaveState === 'error' ? '#0f172a' : '#64748b', true)}
-                >{companySaveState === 'saving' ? '...' : (companySaveState === 'error' ? '↻ إعادة المحاولة' : 'حفظ الآن')}</button>
-              </div>
+              <SaveBar
+                tone={companySaveState === 'error' ? 'error' : companiesDirty ? 'warn' : 'ok'}
+                status={companySaveState === 'saving' ? '⏳ جارٍ الحفظ...'
+                  : companySaveState === 'error' ? '❌ لم يُحفظ — اضغط «حفظ الآن»'
+                  : companiesDirty ? '● تغييرات غير محفوظة (تُحفظ تلقائياً)'
+                  : `✅ محفوظ (${savedCompanyIds.length}) — الاختيار يُحفظ تلقائياً وتظهر ايتماته فوراً في «الايتمات»`}
+                onSave={() => persistCompanies(draftCompanyIds, draftPrimaryCompanyId)}
+                saving={companySaveState === 'saving'}
+                label={companySaveState === 'error' ? '↻ إعادة المحاولة' : '💾 حفظ الآن'}
+              />
             </div>
-          )}
-          {tab === 'lines' && (
+            );
+          })()}
+          {tab === 'lines' && (() => {
+            const q = assignSearch.trim().toLowerCase();
+            const shown = lines.filter(l => !q || (l.name || '').toLowerCase().includes(q));
+            return (
             <div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => setDraftLineIds(lines.map(l => l.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => setDraftLineIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {lines.map(l => (
-                  <label key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={draftLineIds.includes(l.id)} onChange={e => setDraftLineIds(prev => e.target.checked ? (prev.includes(l.id) ? prev : [...prev, l.id]) : prev.filter(x => x !== l.id))} />
-                    {l.name || `لاين #${l.id}`}
-                  </label>
-                ))}
-              </div>
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={() => saveAssignment('lines', draftLineIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
-              </div>
+              <SectionHead icon="🧬" title="اللاينات" hint="اختر اللاينات التي يعمل عليها هذا المستخدم." />
+              <PickerBar
+                selected={draftLineIds.length}
+                total={lines.length}
+                onAll={() => setDraftLineIds(lines.map(l => l.id))}
+                onNone={() => setDraftLineIds([])}
+                search={assignSearch}
+                onSearch={lines.length > 8 ? setAssignSearch : undefined}
+                placeholder="بحث عن لاين..."
+              />
+              {lines.length === 0 ? <Empty>لا توجد لاينات</Empty> : (
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, maxHeight: 420, overflowY: 'auto' }}>
+                  <ChipGrid>
+                    {shown.map(l => (
+                      <Chip key={l.id} checked={draftLineIds.includes(l.id)} label={l.name || `لاين #${l.id}`}
+                        onChange={on => setDraftLineIds(prev => on ? (prev.includes(l.id) ? prev : [...prev, l.id]) : prev.filter(x => x !== l.id))} />
+                    ))}
+                  </ChipGrid>
+                </div>
+              )}
+              <SaveBar onSave={() => saveAssignment('lines', draftLineIds)} saving={saving} />
             </div>
-          )}
+            );
+          })()}
           {tab === 'items' && (
             <div>
               {provLeaderIds.has(detail.id) && provLeaderScopeBox}
-              <div style={{ fontSize: 12.5, color: '#0369a1', marginBottom: 12, lineHeight: 1.9, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 12px' }}>
-                💊 هذه ايتمات الشركات المعيّنة لهذا المستخدم. اختر عدداً منها ليعمل عليها المستخدم فقط.
-                <br />
-                ℹ️ إذا لم تختر أي ايتم، يعمل المستخدم على <b>كل</b> ايتمات شركاته — وأي ايتم يُضاف للشركة لاحقاً يظهر له تلقائياً.
-              </div>
-              <div style={{ fontSize: 12, color: '#334155', marginBottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <SectionHead
+                icon="💊"
+                title="الايتمات"
+                hint={<>هذه ايتمات الشركات المعيّنة لهذا المستخدم. اختر عدداً منها ليعمل عليها فقط — وإذا لم تختر أي ايتم يعمل على <b>كل</b> ايتمات شركاته، وأي ايتم يُضاف للشركة لاحقاً يظهر له تلقائياً.</>}
+              />
+              <div style={{ fontSize: 12, color: '#334155', marginBottom: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span style={{ fontWeight: 700 }}>شركات هذا المستخدم:</span>
                 {draftCompanyIds.length === 0 && <span style={{ color: '#94a3b8' }}>— لا توجد</span>}
                 {draftCompanyIds.map(cid => {
@@ -1383,160 +1389,153 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   const unsaved = !savedCompanyIds.includes(cid);
                   return (
                     <span key={cid} title={unsaved ? 'غير محفوظة بعد — تُحفظ تلقائياً' : 'محفوظة'}
-                      style={{ background: unsaved ? '#fef3c7' : '#e0f2fe', color: unsaved ? '#92400e' : '#075985',
-                        border: `1px solid ${unsaved ? '#fcd34d' : '#bae6fd'}`, borderRadius: 20, padding: '2px 10px', fontWeight: 600 }}>
+                      style={{ background: unsaved ? '#fef3c7' : '#eef2ff', color: unsaved ? '#92400e' : '#3730a3',
+                        border: `1px solid ${unsaved ? '#fcd34d' : '#c7d2fe'}`, borderRadius: 20, padding: '2px 10px', fontWeight: 600 }}>
                       🏭 {c?.name ?? `#${cid}`}{unsaved ? ' ●' : ''}
                     </span>
                   );
                 })}
               </div>
-              <input
-                type="text"
-                placeholder="🔍 بحث عن ايتم..."
-                value={itemSearch}
-                onChange={e => setItemSearch(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', marginBottom: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
+              <PickerBar
+                selected={draftItemIds.length}
+                total={items.length}
+                onAll={() => setDraftItemIds(items.map(i => i.id))}
+                onNone={() => setDraftItemIds([])}
+                noneLabel="إلغاء الكل (= كل الايتمات)"
+                search={itemSearch}
+                onSearch={setItemSearch}
+                placeholder="بحث عن ايتم..."
               />
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => setDraftItemIds(items.map(i => i.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => setDraftItemIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل (= كل الايتمات)</button>
-              </div>
               {items.length === 0 ? (
-                <div style={{ color: '#94a3b8', fontSize: 13, padding: 20, textAlign: 'center', background: '#f8fafc', borderRadius: 8 }}>
+                <Empty>
                   {draftCompanyIds.length === 0
                     ? 'لا توجد ايتمات — عيّن شركة لهذا المستخدم من تبويب «الشركات»، وستظهر ايتمات كتالوجها هنا فوراً.'
                     : 'لا يوجد أي ايتم في كتالوج الشركات المختارة.'}
-                </div>
+                </Empty>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 360, overflowY: 'auto' }}>
+                <ScrollList>
+                  {itemGroups.length === 0 && <Empty>لا توجد ايتمات مطابقة</Empty>}
                   {itemGroups.map(([companyName, groupItems]) => {
                     const groupIds = groupItems.map(i => i.id);
-                    const allSel = groupIds.every(id => draftItemIds.includes(id));
                     return (
-                      <div key={companyName}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>🏭 {companyName} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({groupItems.length})</span></div>
-                          <button
-                            onClick={() => setDraftItemIds(prev => allSel
-                              ? prev.filter(x => !groupIds.includes(x))
-                              : [...new Set([...prev, ...groupIds])])}
-                            style={{ ...btnStyle(allSel ? '#64748b' : '#2563eb', true), fontSize: 11, padding: '2px 10px' }}>
-                            {allSel ? 'إلغاء الشركة' : 'تحديد الشركة'}
-                          </button>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {groupItems.map(i => {
-                            const on = draftItemIds.includes(i.id);
-                            return (
-                              <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: on ? '#eff6ff' : '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14, border: on ? '1px solid #bfdbfe' : '1px solid transparent' }}>
-                                <input type="checkbox" checked={on} onChange={e => setDraftItemIds(prev => e.target.checked ? (prev.includes(i.id) ? prev : [...prev, i.id]) : prev.filter(x => x !== i.id))} />
-                                {i.name}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
+                      <GroupCard
+                        key={companyName}
+                        icon="🏭"
+                        title={companyName}
+                        sel={groupIds.filter(id => draftItemIds.includes(id)).length}
+                        total={groupIds.length}
+                        onToggleAll={on => setDraftItemIds(prev => setMany(prev, groupIds, on))}
+                        forceOpen={!!itemSearch.trim()}
+                        defaultOpen={itemGroups.length <= 3}
+                      >
+                        <ChipGrid>
+                          {groupItems.map(i => (
+                            <Chip key={i.id} checked={draftItemIds.includes(i.id)} label={i.name} title={i.name}
+                              onChange={on => setDraftItemIds(prev => on ? (prev.includes(i.id) ? prev : [...prev, i.id]) : prev.filter(x => x !== i.id))} />
+                          ))}
+                        </ChipGrid>
+                      </GroupCard>
                     );
                   })}
-                </div>
+                </ScrollList>
               )}
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: draftItemIds.length === 0 ? '#16a34a' : '#64748b', fontWeight: 600 }}>
-                  {draftItemIds.length === 0
-                    ? '✓ لم تُختر ايتمات → المستخدم يعمل على كل ايتمات شركاته'
-                    : `مُختار ${draftItemIds.length} ايتم — المستخدم يعمل عليها فقط`}
-                </span>
-                <button
-                  onClick={async () => {
-                    // القائمة البيضاء لا معنى لها قبل ثبوت شركات المستخدم — نفرّغ أي حفظ شركات مؤجّل أولاً
-                    const ok = await flushCompanySave();
-                    if (!ok) { showToast('❌ لم تُحفظ الشركات — لم يُحفظ اختيار الايتمات', '#dc2626'); return; }
-                    await saveAssignment('items', draftItemIds);
-                  }}
-                  disabled={saving || companySaveState === 'saving'}
-                  style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
-              </div>
+              <SaveBar
+                tone={draftItemIds.length === 0 ? 'ok' : 'muted'}
+                status={draftItemIds.length === 0
+                  ? '✓ لم تُختر ايتمات → المستخدم يعمل على كل ايتمات شركاته'
+                  : `مُختار ${draftItemIds.length} ايتم — المستخدم يعمل عليها فقط`}
+                onSave={async () => {
+                  // القائمة البيضاء لا معنى لها قبل ثبوت شركات المستخدم — نفرّغ أي حفظ شركات مؤجّل أولاً
+                  const ok = await flushCompanySave();
+                  if (!ok) { showToast('❌ لم تُحفظ الشركات — لم يُحفظ اختيار الايتمات', '#dc2626'); return; }
+                  await saveAssignment('items', draftItemIds);
+                }}
+                saving={saving}
+                disabled={companySaveState === 'saving'}
+              />
             </div>
           )}
           {tab === 'stockScope' && (
             <div>
-              <div style={{ fontSize: 12.5, color: '#0369a1', marginBottom: 12, lineHeight: 1.9, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 12px' }}>
-                📦 نطاق خاص بصفحتي «Stock» و«رصيد المذاخر» فقط، منفصل عن تبويب «الشركات»/«الايتمات» أعلاه (نطاق المبيعات). يُستعمل لتقييد ما يراه هذا المستخدم من ملف الستوك المُعمَّم عليه من موظف المكتب.
-                <br />
+              <SectionHead
+                icon="📦"
+                title="نطاق الستوك"
+                hint="نطاق خاص بصفحتي «Stock» و«رصيد المذاخر» فقط، منفصل عن «الشركات»/«الايتمات» (نطاق المبيعات). يقيّد ما يراه هذا المستخدم من ملف الستوك المُعمَّم عليه من موظف المكتب."
+              />
+              <Note>
                 ℹ️ لم تختر شركات هنا؟ يرى المستخدم <b>كل</b> الشركات كما هو الآن.
                 <br />
-                ℹ️ لم تختر ايتمات هنا تحديداً؟ يرث تلقائياً ايتمات تبويب «الايتمات» أعلاه إن كانت مقيَّدة، وإلا يرى المستخدم <b>كل</b> الايتمات.
-              </div>
+                ℹ️ لم تختر ايتمات هنا تحديداً؟ يرث تلقائياً ايتمات تبويب «الايتمات» إن كانت مقيَّدة، وإلا يرى <b>كل</b> الايتمات.
+              </Note>
 
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: '#1e293b' }}>🏭 الشركات</div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => setDraftStockCompanyIds(officeCompaniesForStock.map(c => c.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => setDraftStockCompanyIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل (= كل الشركات)</button>
-              </div>
-              <CheckList
-                allItems={officeCompaniesForStock.map(c => ({ id: c.id, label: c.name }))}
-                selIds={draftStockCompanyIds}
-                onToggle={mkToggle(draftStockCompanyIds, setDraftStockCompanyIds)}
+              <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8, color: '#1e293b' }}>🏭 الشركات</div>
+              <PickerBar
+                selected={draftStockCompanyIds.length}
+                total={officeCompaniesForStock.length}
+                onAll={() => setDraftStockCompanyIds(officeCompaniesForStock.map(c => c.id))}
+                onNone={() => setDraftStockCompanyIds([])}
+                noneLabel="إلغاء الكل (= كل الشركات)"
               />
-
-              <div style={{ fontWeight: 700, fontSize: 13, margin: '18px 0 6px', color: '#1e293b' }}>💊 الايتمات</div>
-              <input
-                type="text"
-                placeholder="🔍 بحث عن ايتم..."
-                value={stockItemSearch}
-                onChange={e => setStockItemSearch(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', marginBottom: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
-              />
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => setDraftStockItemIds(stockCatalogItems.map(i => i.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => setDraftStockItemIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل (= كل الايتمات)</button>
-              </div>
-              {stockCatalogItems.length === 0 ? (
-                <div style={{ color: '#94a3b8', fontSize: 13, padding: 20, textAlign: 'center', background: '#f8fafc', borderRadius: 8 }}>
-                  لا توجد ايتمات في كتالوج شركات هذا المكتب.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 360, overflowY: 'auto' }}>
-                  {stockItemGroups.map(([companyName, groupItems]) => {
-                    const groupIds = groupItems.map(i => i.id);
-                    const allSel = groupIds.every(id => draftStockItemIds.includes(id));
-                    return (
-                      <div key={companyName}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>🏭 {companyName} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({groupItems.length})</span></div>
-                          <button
-                            onClick={() => setDraftStockItemIds(prev => allSel
-                              ? prev.filter(x => !groupIds.includes(x))
-                              : [...new Set([...prev, ...groupIds])])}
-                            style={{ ...btnStyle(allSel ? '#64748b' : '#2563eb', true), fontSize: 11, padding: '2px 10px' }}>
-                            {allSel ? 'إلغاء الشركة' : 'تحديد الشركة'}
-                          </button>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {groupItems.map(i => {
-                            const on = draftStockItemIds.includes(i.id);
-                            return (
-                              <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: on ? '#eff6ff' : '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14, border: on ? '1px solid #bfdbfe' : '1px solid transparent' }}>
-                                <input type="checkbox" checked={on} onChange={e => setDraftStockItemIds(prev => e.target.checked ? (prev.includes(i.id) ? prev : [...prev, i.id]) : prev.filter(x => x !== i.id))} />
-                                {i.name}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
+              {officeCompaniesForStock.length === 0 ? <Empty>لا توجد شركات في هذا المكتب</Empty> : (
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, maxHeight: 260, overflowY: 'auto' }}>
+                  <ChipGrid min={200}>
+                    {officeCompaniesForStock.map(c => (
+                      <Chip key={c.id} checked={draftStockCompanyIds.includes(c.id)} label={c.name}
+                        onChange={on => setDraftStockCompanyIds(prev => setMany(prev, [c.id], on))} />
+                    ))}
+                  </ChipGrid>
                 </div>
               )}
 
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: (draftStockCompanyIds.length === 0 && draftStockItemIds.length === 0) ? '#16a34a' : '#64748b', fontWeight: 600 }}>
-                  {(draftStockCompanyIds.length === 0 && draftStockItemIds.length === 0)
-                    ? '✓ بلا تقييد → المستخدم يرى كل الستوك كما هو الآن'
-                    : `مُقيَّد: ${draftStockCompanyIds.length} شركة، ${draftStockItemIds.length} ايتم`}
-                </span>
-                <button onClick={saveStockScope} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
-              </div>
+              <div style={{ fontWeight: 800, fontSize: 13.5, margin: '20px 0 8px', color: '#1e293b' }}>💊 الايتمات</div>
+              <PickerBar
+                selected={draftStockItemIds.length}
+                total={stockCatalogItems.length}
+                onAll={() => setDraftStockItemIds(stockCatalogItems.map(i => i.id))}
+                onNone={() => setDraftStockItemIds([])}
+                noneLabel="إلغاء الكل (= كل الايتمات)"
+                search={stockItemSearch}
+                onSearch={setStockItemSearch}
+                placeholder="بحث عن ايتم..."
+              />
+              {stockCatalogItems.length === 0 ? (
+                <Empty>لا توجد ايتمات في كتالوج شركات هذا المكتب.</Empty>
+              ) : (
+                <ScrollList maxHeight={380}>
+                  {stockItemGroups.length === 0 && <Empty>لا توجد ايتمات مطابقة</Empty>}
+                  {stockItemGroups.map(([companyName, groupItems]) => {
+                    const groupIds = groupItems.map(i => i.id);
+                    return (
+                      <GroupCard
+                        key={companyName}
+                        icon="🏭"
+                        title={companyName}
+                        sel={groupIds.filter(id => draftStockItemIds.includes(id)).length}
+                        total={groupIds.length}
+                        onToggleAll={on => setDraftStockItemIds(prev => setMany(prev, groupIds, on))}
+                        forceOpen={!!stockItemSearch.trim()}
+                        defaultOpen={false}
+                      >
+                        <ChipGrid>
+                          {groupItems.map(i => (
+                            <Chip key={i.id} checked={draftStockItemIds.includes(i.id)} label={i.name} title={i.name}
+                              onChange={on => setDraftStockItemIds(prev => on ? (prev.includes(i.id) ? prev : [...prev, i.id]) : prev.filter(x => x !== i.id))} />
+                          ))}
+                        </ChipGrid>
+                      </GroupCard>
+                    );
+                  })}
+                </ScrollList>
+              )}
+
+              <SaveBar
+                tone={(draftStockCompanyIds.length === 0 && draftStockItemIds.length === 0) ? 'ok' : 'muted'}
+                status={(draftStockCompanyIds.length === 0 && draftStockItemIds.length === 0)
+                  ? '✓ بلا تقييد → المستخدم يرى كل الستوك كما هو الآن'
+                  : `مُقيَّد: ${draftStockCompanyIds.length} شركة، ${draftStockItemIds.length} ايتم`}
+                onSave={saveStockScope}
+                saving={saving}
+              />
             </div>
           )}
           {tab === 'areas' && (
@@ -1575,7 +1574,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   </label>
                 </div>
               )}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              <SectionHead icon="📍" title="مناطق العمل" hint="أشّر المحافظة أو القسم كاملاً لتعيين ديناميكي (تدخل المناطق الجديدة تلقائياً)، أو أشّر مناطق مفردة لتعيين ثابت." />
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', padding: 10, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12 }}>
+                <span style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 700, alignSelf: 'center', marginInlineEnd: 4 }}>🛠️ أدوات المناطق:</span>
                 <button
                   disabled={saving || mergeBusy}
                   title="دمج المناطق المتطابقة بعد التطبيع (الحارثية = الحارثيه) دون فقدان أي بيانات"
@@ -1592,7 +1593,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       } else { alert('❌ ' + j.error); }
                     } finally { setMergeBusy(false); }
                   }}
-                  style={{ ...btnStyle('#0d9488', true), fontSize: 12, padding: '4px 14px' }}
+                  style={softBtn('#0d9488')}
                 >
                   {mergeBusy ? '...' : '🧹 دمج المكررات'}
                 </button>
@@ -1608,7 +1609,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       else alert('❌ ' + j.error);
                     } finally { setMergeBusy(false); }
                   }}
-                  style={{ ...btnStyle('#d97706', true), fontSize: 12, padding: '4px 14px' }}
+                  style={softBtn('#d97706')}
                 >
                   {mergeBusy ? '...' : '🔍 اقتراحات الدمج'}
                 </button>
@@ -1629,7 +1630,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       }
                     } finally { setSaving(false); }
                   }}
-                  style={{ ...btnStyle('#7c3aed', true), fontSize: 12, padding: '4px 14px' }}
+                  style={softBtn('#7c3aed')}
                 >
                   {saving ? '...' : '🔄 تحديث من السيرفي'}
                 </button>
@@ -1651,7 +1652,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       } else alert('❌ ' + j.error);
                     } finally { setSaving(false); }
                   }}
-                  style={{ ...btnStyle('#0d9488', true), fontSize: 12, padding: '4px 14px' }}
+                  style={softBtn('#0d9488')}
                 >
                   {saving ? '...' : '🗺️ مطابقة المحافظات تلقائياً'}
                 </button>
@@ -1673,7 +1674,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                       } else alert('❌ ' + j.error);
                     } finally { setSaving(false); }
                   }}
-                  style={{ ...btnStyle('#4f46e5', true), fontSize: 12, padding: '4px 14px' }}
+                  style={softBtn('#4f46e5')}
                 >
                   {saving ? '...' : '🏙️ توزيع كرخ/رصافة'}
                 </button>
@@ -1735,20 +1736,23 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 placeholder="🔍 بحث عن منطقة..."
                 value={areaSearch}
                 onChange={e => setAreaSearch(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', marginBottom: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', marginBottom: 10, borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 13.5, direction: 'rtl', outline: 'none' }}
               />
               {refsLoading ? (
                 <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: 14 }}>⏳ جاري تحميل قائمة المناطق...</div>
               ) : (
               <>
               {!autoAllAreas && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+                <span style={{ fontSize: 12.5, color: ACCENT, fontWeight: 800 }}>المحدد: {effectiveAreaCount} من {displayAreas.length}</span>
+                <span style={{ flex: 1 }} />
                 <button
                   onClick={() => { if (displayAreas.length > 0) setDraftAreaIds(displayAreas.map(a => a.id)); }}
                   title="يؤشّر كل المناطق فردياً (ثابت). لتعيين ديناميكي أشّر المحافظة نفسها."
                   disabled={displayAreas.length === 0}
-                  style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px', opacity: displayAreas.length === 0 ? 0.4 : 1 }}
-                >✓ اختيار الكل</button>
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: ACCENT, opacity: displayAreas.length === 0 ? 0.4 : 1 }}
+                >✓ تحديد الكل</button>
+                <span style={{ color: '#cbd5e1' }}>|</span>
                 <button
                   onClick={() => {
                     if ((draftAreaIds.length > 0 || draftProvinceIds.length > 0 || draftSubProvinceIds.length > 0)
@@ -1757,8 +1761,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     setDraftProvinceIds([]);
                     setDraftSubProvinceIds([]);
                   }}
-                  style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}
-                >✗ إلغاء الكل</button>
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#64748b' }}
+                >✕ إلغاء الكل</button>
               </div>
               )}
               {/* ➕ إضافة منطقة جديدة يدوياً */}
@@ -1770,12 +1774,12 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   onChange={e => setNewAreaName(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') createArea(); }}
                   disabled={areaCrudBusy}
-                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, direction: 'rtl' }}
+                  style={{ flex: 1, padding: '9px 12px', borderRadius: 10, border: '1px dashed #cbd5e1', fontSize: 13.5, direction: 'rtl', outline: 'none' }}
                 />
                 <button
                   onClick={createArea}
                   disabled={areaCrudBusy || !newAreaName.trim()}
-                  style={{ ...btnStyle('#16a34a', true), fontSize: 13, padding: '4px 16px', opacity: (areaCrudBusy || !newAreaName.trim()) ? 0.5 : 1 }}
+                  style={{ ...softBtn('#16a34a'), fontSize: 13, opacity: (areaCrudBusy || !newAreaName.trim()) ? 0.5 : 1 }}
                 >{areaCrudBusy ? '...' : '➕ إضافة'}</button>
               </div>
               {/* شريط ملخّص + طيّ/فتح الكل — يعوّض غياب سياق واضح مع ~19 مجموعة محتملة */}
@@ -1815,8 +1819,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   });
 
                   return (
-                    <div key={group.key} style={{ border: `1px solid ${provinceChecked ? '#86efac' : '#e2e8f0'}`, borderRadius: 10, background: provinceChecked ? '#f0fdf4' : '#fff' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 8px', padding: '8px 12px', background: provinceChecked ? '#dcfce7' : '#f8fafc', borderBottom: isCollapsed ? 'none' : '1px solid #e2e8f0', borderRadius: isCollapsed ? 9 : '9px 9px 0 0' }}>
+                    <div key={group.key} style={{ border: `1px solid ${provinceChecked ? '#86efac' : directChecked ? '#c7d2fe' : '#e2e8f0'}`, borderRadius: 12, background: '#fff', flexShrink: 0 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 8px', padding: '8px 12px', background: provinceChecked ? '#dcfce7' : directChecked ? '#eef2ff' : '#f8fafc', borderBottom: isCollapsed ? 'none' : '1px solid #e2e8f0', borderRadius: isCollapsed ? 11 : '11px 11px 0 0' }}>
                         <button
                           onClick={toggleCollapse}
                           title={isCollapsed ? 'عرض المناطق' : 'إخفاء المناطق'}
@@ -1860,7 +1864,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                 : [...new Set([...draftAreaIds, ...groupAreaIds])],
                             )}
                             title={allChecked ? 'إلغاء تحديد مناطق هذه المجموعة' : 'تحديد مناطق هذه المجموعة فقط (ثابت، غير ديناميكي)'}
-                            style={{ ...btnStyle(someChecked ? '#f59e0b' : '#64748b', true), fontSize: 11, padding: '3px 10px', flexShrink: 0 }}
+                            style={{ ...softBtn(someChecked ? '#d97706' : ACCENT), fontSize: 11, padding: '3px 10px', flexShrink: 0 }}
                           >{allChecked ? '✗ إلغاء الكل' : someChecked ? `◐ ${directChecked}/${groupAreaIds.length}` : '✓ تحديد الكل'}</button>
                         )}
 
@@ -1916,8 +1920,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             const subImplied = provinceChecked;
 
                             return (
-                              <div key={sg.subKey} style={{ border: `1px solid ${subChecked ? '#86efac' : '#eef2f7'}`, borderRadius: 8, background: subChecked ? '#f0fdf4' : '#fcfdfe' }}>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', padding: '6px 10px', background: subChecked ? '#dcfce7' : '#f1f5f9', borderBottom: subCollapsed ? 'none' : '1px solid #e8edf3', borderRadius: subCollapsed ? 7 : '7px 7px 0 0' }}>
+                              <div key={sg.subKey} style={{ border: `1px solid ${subChecked ? '#86efac' : '#eef2f7'}`, borderRadius: 10, background: '#fff' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', padding: '6px 10px', background: subChecked ? '#dcfce7' : '#f8fafc', borderBottom: subCollapsed ? 'none' : '1px solid #e8edf3', borderRadius: subCollapsed ? 9 : '9px 9px 0 0' }}>
                                   <button
                                     onClick={toggleSub}
                                     title={subCollapsed ? 'عرض المناطق' : 'إخفاء المناطق'}
@@ -1925,7 +1929,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                   >{subCollapsed ? '◀' : '▼'}</button>
 
                                   {sg.sub ? (
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: subImplied ? 'default' : 'pointer', fontWeight: 600, fontSize: 13, color: '#334155', opacity: subImplied ? 0.7 : 1 }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: subImplied ? 'default' : 'pointer', fontWeight: 800, fontSize: 12.5, color: '#0369a1', opacity: subImplied ? 0.7 : 1 }}>
                                       <input
                                         type="checkbox"
                                         checked={subChecked || subImplied}
@@ -1958,7 +1962,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                           : [...new Set([...draftAreaIds, ...subAreaIds])],
                                       )}
                                       title={subAll ? 'إلغاء تحديد مناطق هذا القسم' : 'تحديد مناطق هذا القسم فقط (ثابت، غير ديناميكي)'}
-                                      style={{ ...btnStyle(subSome ? '#f59e0b' : '#94a3b8', true), fontSize: 10, padding: '2px 8px', flexShrink: 0 }}
+                                      style={{ ...softBtn(subSome ? '#d97706' : '#0369a1'), fontSize: 10.5, padding: '2px 8px', flexShrink: 0 }}
                                     >{subAll ? '✗ إلغاء' : subSome ? `◐ ${subDirect}/${subAreaIds.length}` : '✓ تحديد'}</button>
                                   )}
 
@@ -1992,7 +1996,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                 </div>
 
                                 {!subCollapsed && (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 6 }}>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 4, padding: 8 }}>
                                     {sg.areas.length === 0 && (
                                       <div style={{ fontSize: 11, color: '#94a3b8', padding: '3px 6px' }}>لا توجد مناطق في هذا القسم بعد.</div>
                                     )}
@@ -2001,7 +2005,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             const checked = implied || draftAreaIds.includes(a.id);
                             const pickerOpen = openProvincePicker === a.id;
                             return (
-                              <div key={a.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', padding: '5px 10px', background: checked ? '#f0fdf4' : '#f8fafc', border: `1px solid ${checked ? '#bbf7d0' : 'transparent'}`, borderRadius: 8, fontSize: 14 }}>
+                              <div key={a.id} className="sa-area-chip" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 4px', padding: '4px 6px 4px 4px', background: implied ? '#f0fdf4' : checked ? '#eef2ff' : 'transparent', border: `1px solid ${implied ? '#bbf7d0' : checked ? '#c7d2fe' : 'transparent'}`, borderRadius: 8, fontSize: 13.5 }}>
                                 {editingAreaId === a.id ? (
                                   <>
                                     <input
@@ -2018,16 +2022,17 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                   </>
                                 ) : (
                                   <>
-                                    <label style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 10, cursor: implied ? 'default' : 'pointer', opacity: implied ? 0.75 : 1, color: '#1e293b' }}>
+                                    <label style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px', cursor: implied ? 'default' : 'pointer', opacity: implied ? 0.8 : 1, color: '#1e293b', fontWeight: checked ? 600 : 500 }}>
                                       <input
                                         type="checkbox"
                                         checked={checked}
                                         disabled={implied}
                                         title={implied ? (autoAllAreas ? 'مشمولة تلقائياً — «كل المناطق والمحافظات» مفعّل' : 'مشمولة تلقائياً عبر تعيين المحافظة') : undefined}
                                         onChange={e => setDraftAreaIds(e.target.checked ? [...draftAreaIds, a.id] : draftAreaIds.filter(x => x !== a.id))}
+                                        style={{ width: 15, height: 15, accentColor: implied ? '#16a34a' : ACCENT, flexShrink: 0 }}
                                       />
                                       <span>{a.name}</span>
-                                      {implied && <span style={{ fontSize: 10, color: '#166534', background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: 6, padding: '1px 6px' }}>{autoAllAreas ? '🌍 تلقائي' : 'عبر المحافظة'}</span>}
+                                      {implied && <span title={autoAllAreas ? 'تلقائي' : 'عبر المحافظة/القسم'} style={{ fontSize: 10 }}>{autoAllAreas ? '🌍' : '🗺️'}</span>}
                                       {a.provinceConflict && (
                                         <span title={`ورد اسم هذه المنطقة في ملف بمحافظة «${a.provinceConflict}» تختلف عن المحفوظة — راجعها واحسم التعارض`} style={{ fontSize: 10, fontWeight: 700, color: '#b91c1c', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '1px 6px' }}>⚠️ {a.provinceConflict}</span>
                                       )}
@@ -2056,11 +2061,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                         onClick={() => setOpenProvincePicker(a.id)}
                                         disabled={areaCrudBusy}
                                         title={`المحافظة الحالية: ${a.provinceId != null ? (provinces.find(p => p.id === a.provinceId)?.name ?? '—') : 'بلا محافظة'} — اضغط للتغيير`}
-                                        style={{ ...btnStyle('#64748b', true), fontSize: 11, padding: '3px 8px' }}
-                                      >🗺️ {a.provinceId != null ? (provinces.find(p => p.id === a.provinceId)?.name ?? '؟') : '—'}</button>
+                                        style={iconBtn('#64748b')}
+                                      >🗺️</button>
                                     )}
-                                    <button onClick={() => { setEditingAreaId(a.id); setEditingAreaName(a.name); }} disabled={areaCrudBusy} title="تعديل الاسم" style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 10px' }}>✏️</button>
-                                    <button onClick={() => openDeleteArea(a.id, a.name)} disabled={areaCrudBusy} title="حذف المنطقة" style={{ ...btnStyle('#dc2626', true), fontSize: 12, padding: '4px 10px' }}>🗑️</button>
+                                    <button onClick={() => { setEditingAreaId(a.id); setEditingAreaName(a.name); }} disabled={areaCrudBusy} title="تعديل الاسم" style={iconBtn('#2563eb')}>✏️</button>
+                                    <button onClick={() => openDeleteArea(a.id, a.name)} disabled={areaCrudBusy} title="حذف المنطقة" style={iconBtn('#dc2626')}>🗑️</button>
                                   </>
                                 )}
                               </div>
@@ -2079,7 +2084,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </div>
               </>
               )}
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
                 {autoAllAreas ? (
                   <div style={{ fontSize: 12, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '8px 12px' }}>
                     🌍 النطاق مُدار تلقائياً — لا حاجة للحفظ. أطفئ المفتاح أعلاه للعودة إلى التحديد اليدوي.
@@ -2095,8 +2100,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     saveAreasAndProvinces();
                   }}
                   disabled={saving || refsLoading}
-                  style={btnStyle('#0f172a', true)}
-                >{saving ? '...' : 'حفظ التغييرات'}</button>
+                  style={{ border: 'none', borderRadius: 10, padding: '9px 22px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', background: ACCENT, color: '#fff', opacity: saving || refsLoading ? 0.6 : 1, boxShadow: '0 4px 12px rgba(79,70,229,.25)' }}
+                >{saving ? '⏳ جاري الحفظ...' : '💾 حفظ التغييرات'}</button>
                 )}
               </div>
               {/* 🗑️ نافذة حذف منطقة — تنبيه بالبيانات + نقل أو تصفير */}
@@ -2165,61 +2170,125 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               })()}
             </div>
           )}
-          {tab === 'managers' && (
+          {tab === 'managers' && (() => {
+            const q = assignSearch.trim().toLowerCase();
+            const candidates = users.filter(u => u.id !== detail.id);
+            const shown = candidates.filter(u => !q || (u.displayName || u.username).toLowerCase().includes(q));
+            // تجميع حسب الدور بترتيب ROLES — المدراء الأعلى أولاً
+            const roleOrder = (r: string) => { const i = ROLES.findIndex(x => x.value === r); return i < 0 ? 999 : i; };
+            const groups = Object.entries(shown.reduce<Record<string, UserRow[]>>((acc, u) => { (acc[u.role] ||= []).push(u); return acc; }, {}))
+              .sort(([a], [b]) => roleOrder(a) - roleOrder(b));
+            return (
             <div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => setDraftMgrIds(users.filter(u => u.id !== detail.id).map(u => u.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => setDraftMgrIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
-                {users.filter(u => u.id !== detail.id).map(u => (
-                  <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={draftMgrIds.includes(u.id)} onChange={e => setDraftMgrIds(prev => e.target.checked ? (prev.includes(u.id) ? prev : [...prev, u.id]) : prev.filter(x => x !== u.id))} />
-                    {u.displayName || u.username} ({ROLES.find(r => r.value === u.role)?.label || u.role})
-                  </label>
-                ))}
-              </div>
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={() => saveAssignment('managers', draftMgrIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
-              </div>
+              <SectionHead icon="👔" title="المدراء" hint={`اختر المستخدمين الذين يُعتبرون مدراء لـ ${detail.displayName || detail.username}.`} />
+              <PickerBar
+                selected={draftMgrIds.length}
+                total={candidates.length}
+                onAll={() => setDraftMgrIds(candidates.map(u => u.id))}
+                onNone={() => setDraftMgrIds([])}
+                search={assignSearch}
+                onSearch={setAssignSearch}
+                placeholder="بحث عن مستخدم..."
+              />
+              <ScrollList>
+                {groups.length === 0 && <Empty>لا يوجد مستخدمون مطابقون</Empty>}
+                {groups.map(([role, list]) => {
+                  const ids = list.map(u => u.id);
+                  return (
+                    <GroupCard
+                      key={role}
+                      icon="👤"
+                      title={ROLES.find(r => r.value === role)?.label || role}
+                      sel={ids.filter(id => draftMgrIds.includes(id)).length}
+                      total={ids.length}
+                      onToggleAll={on => setDraftMgrIds(prev => setMany(prev, ids, on))}
+                      forceOpen={!!q}
+                      defaultOpen={ids.some(id => draftMgrIds.includes(id)) || groups.length <= 3}
+                    >
+                      <ChipGrid min={190}>
+                        {list.map(u => (
+                          <Chip key={u.id} checked={draftMgrIds.includes(u.id)} label={u.displayName || u.username}
+                            sub={primaryCompanyNameOf(u) || undefined}
+                            onChange={on => setDraftMgrIds(prev => on ? (prev.includes(u.id) ? prev : [...prev, u.id]) : prev.filter(x => x !== u.id))} />
+                        ))}
+                      </ChipGrid>
+                    </GroupCard>
+                  );
+                })}
+              </ScrollList>
+              <SaveBar onSave={() => saveAssignment('managers', draftMgrIds)} saving={saving} />
             </div>
-          )}
-          {tab === 'employees' && (
+            );
+          })()}
+          {tab === 'employees' && (() => {
+            const q = assignSearch.trim().toLowerCase();
+            const shown = employeeCandidates.filter(u => !q || (u.displayName || u.username).toLowerCase().includes(q));
+            // employeeCandidates مرتّبة مسبقاً (إدارة المكتب ← الشركة ← المدراء قبل المندوبين)،
+            // فالتجميع بالترتيب نفسه يحفظها.
+            const groupKey = (u: UserRow) => OFFICE_SCOPED_ROLES.has(u.role) ? '🏢 إدارة المكتب' : (primaryCompanyNameOf(u) || 'بلا شركة');
+            const groups: [string, UserRow[]][] = [];
+            for (const u of shown) {
+              const k = groupKey(u);
+              const g = groups.find(x => x[0] === k);
+              if (g) g[1].push(u); else groups.push([k, [u]]);
+            }
+            return (
             <div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
-                تعيين عكسي: اختر من هنا كل المستخدمين الذين {detail.displayName || detail.username} مديرهم — بدل الدخول لحساب كل واحد منهم لإضافته من تبويب «المدراء».
-              </div>
+              <SectionHead
+                icon="👥"
+                title="الموظفون التابعون"
+                hint={`تعيين عكسي: اختر كل المستخدمين الذين ${detail.displayName || detail.username} مديرهم — بدل الدخول لحساب كل واحد منهم لإضافته من تبويب «المدراء».`}
+              />
               {!OFFICE_SCOPED_ROLES.has(detail.role) && (detail.subordinatesOfUser ?? []).length > 0 && (
-                <div style={{ fontSize: 12.5, color: '#7c2d12', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <Note tone="warn" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <span style={{ flex: 1, minWidth: 240 }}>
                     🔄 مزامنة شركات وايتمات {detail.displayName || detail.username} ({draftCompanyIds.length} شركة، {draftItemIds.length} ايتم) مع <b>كل</b> من تحته بالتسلسل الإداري — مباشرين وغير مباشرين (تشمل قادة الفرق ومدراء المنتج والمندوبين). تستبدل قوائمهم الحالية بالكامل.
                   </span>
                   <button onClick={syncManagerScope} disabled={syncingScope} style={btnStyle('#c2410c', true)}>
-                    {syncingScope ? '⏳ جارٍ المزامنة...' : '🔄 مزامنة الشركات والايتمات مع كل التابعين'}
+                    {syncingScope ? '⏳ جارٍ المزامنة...' : '🔄 مزامنة مع كل التابعين'}
                   </button>
-                </div>
+                </Note>
               )}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <button onClick={() => setDraftSubIds(employeeCandidates.map(u => u.id))} style={{ ...btnStyle('#2563eb', true), fontSize: 12, padding: '4px 12px' }}>✓ اختيار الكل</button>
-                <button onClick={() => setDraftSubIds([])} style={{ ...btnStyle('#64748b', true), fontSize: 12, padding: '4px 12px' }}>✗ إلغاء الكل</button>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 420, overflowY: 'auto' }}>
-                {employeeCandidates.map(u => {
-                  const companyName = primaryCompanyNameOf(u);
+              <PickerBar
+                selected={draftSubIds.length}
+                total={employeeCandidates.length}
+                onAll={() => setDraftSubIds(employeeCandidates.map(u => u.id))}
+                onNone={() => setDraftSubIds([])}
+                search={assignSearch}
+                onSearch={setAssignSearch}
+                placeholder="بحث عن مستخدم..."
+              />
+              <ScrollList maxHeight={480}>
+                {employeeCandidates.length === 0 && <Empty>لا يوجد مستخدمون آخرون</Empty>}
+                {employeeCandidates.length > 0 && groups.length === 0 && <Empty>لا يوجد مستخدمون مطابقون</Empty>}
+                {groups.map(([key, list]) => {
+                  const ids = list.map(u => u.id);
                   return (
-                    <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
-                      <input type="checkbox" checked={draftSubIds.includes(u.id)} onChange={e => setDraftSubIds(prev => e.target.checked ? (prev.includes(u.id) ? prev : [...prev, u.id]) : prev.filter(x => x !== u.id))} />
-                      {u.displayName || u.username} ({ROLES.find(r => r.value === u.role)?.label || u.role}{companyName ? ` · ${companyName}` : ''})
-                    </label>
+                    <GroupCard
+                      key={key}
+                      icon={key.startsWith('🏢') ? undefined : '🏭'}
+                      title={key}
+                      sel={ids.filter(id => draftSubIds.includes(id)).length}
+                      total={ids.length}
+                      onToggleAll={on => setDraftSubIds(prev => setMany(prev, ids, on))}
+                      forceOpen={!!q}
+                      defaultOpen={ids.some(id => draftSubIds.includes(id)) || groups.length <= 3}
+                    >
+                      <ChipGrid min={190}>
+                        {list.map(u => (
+                          <Chip key={u.id} checked={draftSubIds.includes(u.id)} label={u.displayName || u.username}
+                            sub={ROLES.find(r => r.value === u.role)?.label || u.role}
+                            onChange={on => setDraftSubIds(prev => on ? (prev.includes(u.id) ? prev : [...prev, u.id]) : prev.filter(x => x !== u.id))} />
+                        ))}
+                      </ChipGrid>
+                    </GroupCard>
                   );
                 })}
-                {employeeCandidates.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13, padding: 8 }}>لا يوجد مستخدمون آخرون</div>}
-              </div>
-              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={() => saveAssignment('subordinates', draftSubIds)} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ التغييرات'}</button>
-              </div>
+              </ScrollList>
+              <SaveBar onSave={() => saveAssignment('subordinates', draftSubIds)} saving={saving} />
             </div>
-          )}
+            );
+          })()}
           {tab === 'features' && (() => {
             // ── helpers ──────────────────────────────────────────────────────
             const getNodeStatus = (node: FeatureNode): 'always' | 'on' | 'partial' | 'off' => {
