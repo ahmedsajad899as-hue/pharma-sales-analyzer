@@ -13,27 +13,36 @@ import { Box3D, Coverflow, shrinkImage } from './HomePage';
 const API = import.meta.env.VITE_API_URL || '';
 
 type Shape = 'box' | 'frame';
-type Face = 'front' | 'left' | 'right' | 'top';
+type Face = 'front' | 'left' | 'right' | 'top' | 'back' | 'bottom';
 interface ShowItem {
   id: string; title: string; caption: string; shape: Shape; depth: number; scale: number;
   faces: Partial<Record<Face, string>>; at: number;
+  /** دوران كامل 360° بدل التمايل — يُستحسن معه رفع الأوجه الستة */
+  spin?: boolean;
 }
 /** عمق اللوحة الرقيقة نسبةً لارتفاعها — تبقى مجسّماً يتمايل لكن بلا «علبة» */
 const FRAME_DEPTH = 0.035;
 const effDepth = (it: { shape: Shape; depth: number }) => (it.shape === 'frame' ? FRAME_DEPTH : it.depth);
-const FACE_LABEL: Record<Face, string> = { front: 'الوجه الأمامي', left: 'الجانب الأيسر', right: 'الجانب الأيمن', top: 'السقف' };
+const FACE_LABEL: Record<Face, string> = {
+  front: 'الوجه الأمامي', left: 'الجانب الأيسر', right: 'الجانب الأيمن', top: 'السقف', back: 'الخلفي', bottom: 'القاعدة',
+};
+const SIDE_FACES: Face[] = ['left', 'right', 'top', 'back', 'bottom'];
+/** أوجه Box3D غير الأمامية من مصادر العنصر */
+const boxFaces = (src: (f: Face) => string | undefined) =>
+  ({ left: src('left'), right: src('right'), top: src('top'), back: src('back'), bottom: src('bottom') });
 
 /**
  * مجسّمات جاهزة تُعرض أولاً لكل من فُعّلت له الصفحة — أوجهها في public/showcase/<dir>/
  * مقصوصة ومصحَّحة المنظور يدوياً من صور العلبة (نفس اصطلاح أوجه Box3D في الرئيسية).
  * لا تُعدَّل ولا تُحذف من الصفحة؛ تُضاف/تُزال هنا في الكود.
  */
-const presetBox = (dir: string, title: string, depth: number, faces: Face[]): ShowItem => ({
-  id: `preset:${dir}`, title, caption: '', shape: 'box', depth, scale: 1, at: 0,
+const presetBox = (dir: string, title: string, depth: number, faces: Face[], spin = false): ShowItem => ({
+  id: `preset:${dir}`, title, caption: '', shape: 'box', depth, scale: 1, at: 0, spin,
   faces: Object.fromEntries(faces.map(f => [f, `/showcase/${dir}/${f}.jpg`])),
 });
 const PRESETS: ShowItem[] = [
-  presetBox('potafast-50', 'Potafast 50 mg', 0.71, ['front', 'top']),
+  // الأبعاد من الصور المستقيمة: عرض/ارتفاع ≈ 1.58، والعمق ≈ 0.48 من الارتفاع. الخلفي = الأمامي (نفس الطباعة)
+  presetBox('potafast-50', 'Potafast 50 mg', 0.48, ['front', 'back', 'left', 'right', 'top', 'bottom'], true),
 ];
 const isPreset = (it: ShowItem) => it.id.startsWith('preset:');
 
@@ -110,8 +119,8 @@ export default function ShowcasePage() {
                 const it = list[i];
                 return (
                   <div className="s3d-card">
-                    <Box3D src={it.faces.front!} depth={effDepth(it)} scale={it.scale}
-                      faces={it.shape === 'box' ? { left: it.faces.left, right: it.faces.right, top: it.faces.top } : undefined}
+                    <Box3D src={it.faces.front!} depth={effDepth(it)} scale={it.scale} spin={it.spin}
+                      faces={it.shape === 'box' ? boxFaces(f => it.faces[f]) : undefined}
                       label={it.title || 'صورة'} />
                     {(it.title || it.caption) && (
                       <div className="s3d-pill">
@@ -172,6 +181,7 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
   const [shape, setShape] = useState<Shape>(item?.shape ?? 'box');
   const [depth, setDepth] = useState(item?.depth ?? 0.33);
   const [scale, setScale] = useState(item?.scale ?? 1);
+  const [spin, setSpin] = useState(item?.spin ?? false);
   const [files, setFiles] = useState<Partial<Record<Face, File>>>({});
   const [previews, setPreviews] = useState<Partial<Record<Face, string>>>({});
   const [busy, setBusy] = useState(false);
@@ -201,13 +211,13 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
       if (item) {
         j = await fetch(`${API}/api/showcase/${item.id}`, {
           method: 'PATCH', headers: { ...H, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, caption, shape, depth, scale }),
+          body: JSON.stringify({ title, caption, shape, depth, scale, spin }),
         }).then(r => r.json());
       } else {
         if (!files.front) throw new Error('اختر الصورة الأمامية أولاً');
         const fd = new FormData();
         fd.append('title', title); fd.append('caption', caption); fd.append('shape', shape);
-        fd.append('depth', String(depth)); fd.append('scale', String(scale));
+        fd.append('depth', String(depth)); fd.append('scale', String(scale)); fd.append('spin', String(spin));
         for (const [k, f] of Object.entries(files) as [Face, File][]) {
           if (shape === 'frame' && k !== 'front') continue;
           const blob = await shrinkImage(f);
@@ -240,8 +250,8 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
         <div className="s3d-modal-body">
           <div className="s3d-preview">
             {front ? (
-              <Box3D key={front} src={front} depth={effDepth({ shape, depth })} scale={scale}
-                faces={shape === 'box' ? { left: faceSrc('left'), right: faceSrc('right'), top: faceSrc('top') } : undefined}
+              <Box3D key={front} src={front} depth={effDepth({ shape, depth })} scale={scale} spin={spin}
+                faces={shape === 'box' ? boxFaces(faceSrc) : undefined}
                 label={title || 'معاينة'} />
             ) : <div className="s3d-preview-empty">المعاينة تظهر بعد اختيار الصورة</div>}
           </div>
@@ -254,7 +264,7 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
 
             <div className="s3d-faces">
               {facePicker('front')}
-              {shape === 'box' && (['left', 'right', 'top'] as Face[]).map(facePicker)}
+              {shape === 'box' && SIDE_FACES.map(facePicker)}
             </div>
             {item && <div className="s3d-hint">لتغيير الصور: احذف العنصر وأضفه من جديد.</div>}
             {shape === 'box' && !item && <div className="s3d-hint">بدون صور الجوانب تُلوَّن تلقائياً من حواف الصورة الأمامية.</div>}
@@ -272,6 +282,10 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
             )}
             <label className="s3d-field">الحجم داخل البطاقة <small>×{scale.toFixed(2)}</small>
               <input type="range" min={0.6} max={1.5} step={0.05} value={scale} onChange={e => setScale(Number(e.target.value))} />
+            </label>
+            <label className="s3d-check">
+              <input type="checkbox" checked={spin} onChange={e => setSpin(e.target.checked)} />
+              🔄 دوران كامل 360° <small>(الأفضل مع رفع الأوجه الستة)</small>
             </label>
             {err && <div className="s3d-err">{err}</div>}
           </div>
@@ -341,6 +355,8 @@ const CSS = `
   animation: s3d-sway 9s ease-in-out infinite alternate; transition: transform .25s ease-out; }
 .s3d .b3d.is-tilt { animation: none; }
 @keyframes s3d-sway { 0% { transform: rotateX(-18deg) rotateY(-46deg); } 100% { transform: rotateX(-14deg) rotateY(46deg); } }
+.s3d .b3d.is-spin { animation: s3d-spin 16s linear infinite; }
+@keyframes s3d-spin { from { transform: rotateX(-16deg) rotateY(0deg); } to { transform: rotateX(-16deg) rotateY(-360deg); } }
 .s3d .b3d-face { position: absolute; top: 0; left: 0; backface-visibility: hidden; overflow: hidden; }
 .s3d .b3d-face img { width: 100%; height: 100%; object-fit: fill; display: block; pointer-events: none; user-select: none; }
 .s3d .b3d-light { position: absolute; inset: 0; pointer-events: none; }
@@ -377,7 +393,9 @@ const CSS = `
 .s3d-seg { display: flex; gap: 4px; background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 12px; padding: 4px; }
 .s3d-seg button { flex: 1; border: 0; background: none; padding: 8px 6px; border-radius: 9px; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 13px; color: var(--c-text-secondary); }
 .s3d-seg button.is-on { background: var(--c-accent); color: #fff; }
-.s3d-faces { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.s3d-faces { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.s3d-check { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.s3d-check small { font-weight: 500; color: var(--c-text-secondary); }
 .s3d-face-pick { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; }
 .s3d-face-pick > span, .s3d-face-pick > img { width: 100%; aspect-ratio: 1; border-radius: 10px; border: 2px dashed var(--c-border);
   display: flex; align-items: center; justify-content: center; font-size: 22px; color: var(--c-text-secondary); object-fit: cover; }

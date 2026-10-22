@@ -351,7 +351,8 @@ const HOVER_PAUSE_MAX_MS = 60_000;
 // مستطيلات (front عرض×ارتفاع، left/right عمق×ارتفاع، top عرض×عمق). اتجاهها:
 // left — عمودها الأيمن يلي الوجه الأمامي؛ right — عمودها الأيسر يليه؛ top — حافتها
 // السفلى تلي الوجه الأمامي. الوجه الناقص يُلوَّن من حواف الصورة الأمامية.
-export interface BoxFaces { left?: string; right?: string; top?: string }
+// back/bottom اختيارية لمجسّمات تدور 360° (صفحة العرض ثلاثي الأبعاد) — بدونها يُلوَّنان من الحواف
+export interface BoxFaces { left?: string; right?: string; top?: string; back?: string; bottom?: string }
 // scale = تكبير المجسّم داخل البطاقة (1 = الافتراضي) — للعلب الواقفة التي يحدّها الارتفاع فتبدو صغيرة
 interface ItemImage { match: (n: string) => boolean; src: string; depth: number; faces?: BoxFaces; scale?: number }
 const ITEM_IMAGES: ItemImage[] = [
@@ -602,7 +603,8 @@ function loadBoxMeta(src: string): Promise<BoxMeta> {
 }
 const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
-export function Box3D({ src, depth, faces, scale = 1, label }: { src: string; depth: number; faces?: BoxFaces; scale?: number; label: string }) {
+/** spin = دوران كامل 360° بدل التمايل (CSS ‎.b3d.is-spin في الصفحة المستضيفة) — الميل مع الماوس يتعطّل معه */
+export function Box3D({ src, depth, faces, scale = 1, label, spin }: { src: string; depth: number; faces?: BoxFaces; scale?: number; label: string; spin?: boolean }) {
   const sceneRef = useRef<HTMLDivElement>(null);
   const [meta, setMeta] = useState<BoxMeta | null>(boxMetaCache.get(src) ?? null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -630,7 +632,7 @@ export function Box3D({ src, depth, faces, scale = 1, label }: { src: string; de
   const onMove = (e: React.PointerEvent) => {
     // الميل مع الماوس للبطاقة المعروضة في الوسط فقط — الجانبية تبقى ساكنة (بدل فرض وضع ثابت
     // بـCSS كان يُرجع المجسّم فجأةً لحظة التنقّل بالأسهم والماوس فوقه)
-    if (!e.currentTarget.closest('.cf-slot')?.classList.contains('is-active')) return;
+    if (spin || !e.currentTarget.closest('.cf-slot')?.classList.contains('is-active')) return;
     const r = e.currentTarget.getBoundingClientRect();
     const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5..0.5
     const py = (e.clientY - r.top) / r.height - 0.5;
@@ -653,12 +655,14 @@ export function Box3D({ src, depth, faces, scale = 1, label }: { src: string; de
           <div className="b3d-shadow" style={{ width: W * 1.15 }} />
           {/* طبقة الطفو: العلبة تعلو وتهبط ببطء (والظل يصغر معها) — مستقلة عن التمايل/الميل */}
           <div className="b3d-bob">
-          <div className={`b3d ${tilt ? 'is-tilt' : ''}`} role="img" aria-label={label}
+          <div className={`b3d ${tilt ? 'is-tilt' : ''} ${spin ? 'is-spin' : ''}`} role="img" aria-label={label}
             style={{ width: W, height: H, ...(tilt ? { transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` } : {}) }}>
             {face({ width: W, height: H, transform: `translateZ(${D / 2}px)` },
               <><img src={src} alt="" draggable={false} /><div className="b3d-sheen" /></>)}
             {face({ width: W, height: H, transform: `rotateY(180deg) translateZ(${D / 2}px)` },
-              side(meta.bottom, 'linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.35))'))}
+              faces?.back
+                ? tex(faces.back, 'linear-gradient(rgba(0,0,0,.06), rgba(0,0,0,.06))')
+                : side(meta.bottom, 'linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.35))'))}
             {face({ width: D, height: H, left: (W - D) / 2, transform: `rotateY(90deg) translateZ(${W / 2}px)` },
               faces?.right
                 ? tex(faces.right, 'linear-gradient(to right, rgba(0,0,0,.03), rgba(0,0,0,.14))')
@@ -672,7 +676,9 @@ export function Box3D({ src, depth, faces, scale = 1, label }: { src: string; de
                 ? tex(faces.top, 'linear-gradient(to top, rgba(255,255,255,.2), rgba(255,255,255,.04))')
                 : side(meta.top, 'linear-gradient(to top, rgba(255,255,255,.28), rgba(255,255,255,.06))'))}
             {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(-90deg) translateZ(${H / 2}px)` },
-              side(meta.bottom, 'linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45))'))}
+              faces?.bottom
+                ? tex(faces.bottom, 'linear-gradient(rgba(0,0,0,.25), rgba(0,0,0,.25))')
+                : side(meta.bottom, 'linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45))'))}
           </div>
           </div>
         </>

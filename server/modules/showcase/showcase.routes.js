@@ -16,7 +16,7 @@ import multer from 'multer';
 
 // <جذر المشروع>/uploads — Nginx يخدم /uploads/ من جذر المشروع (راجع itemDocs.js)
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'uploads', 'showcase');
-const FACES = ['front', 'left', 'right', 'top'];
+const FACES = ['front', 'left', 'right', 'top', 'back', 'bottom'];
 const SHAPES = new Set(['box', 'frame']);
 const MAX_PER_USER = 60;
 
@@ -39,6 +39,7 @@ const pickMeta = (body, prev = {}) => ({
   shape:   SHAPES.has(body.shape) ? body.shape : (prev.shape ?? 'box'),
   depth:   body.depth !== undefined ? clampNum(body.depth, 0.01, 1.2, 0.33) : (prev.depth ?? 0.33),
   scale:   body.scale !== undefined ? clampNum(body.scale, 0.5, 1.6, 1)    : (prev.scale ?? 1),
+  spin:    body.spin  !== undefined ? body.spin === true || body.spin === 'true' : (prev.spin ?? false),
 });
 
 const upload = multer({
@@ -66,7 +67,7 @@ router.get('/', (req, res) => {
   res.json({ success: true, data: readIndex(dir).map(e => withUrls(dir, e)) });
 });
 
-/** POST /api/showcase (multipart: front + left/right/top اختيارية، title, caption, shape, depth, scale) */
+/** POST /api/showcase (multipart: front + left/right/top/back/bottom اختيارية، title, caption, shape, depth, scale, spin) */
 router.post('/', uploadFaces, (req, res) => {
   const tmp = Object.values(req.files ?? {}).flat();
   const fail = (code, msg) => { for (const f of tmp) fs.rm(f.path, () => {}); res.status(code).json({ error: msg }); };
@@ -102,7 +103,7 @@ router.put('/order', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/** PATCH /api/showcase/:id { title?, caption?, shape?, depth?, scale? } */
+/** PATCH /api/showcase/:id { title?, caption?, shape?, depth?, scale?, spin? } */
 router.patch('/:id', (req, res) => {
   try {
     const dir = dirFor(req.user.id);
