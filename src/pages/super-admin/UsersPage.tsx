@@ -16,12 +16,26 @@ const ROLES = [
   { value: 'product_manager',         label: 'مدير منتج' },
   { value: 'team_leader',             label: 'قائد فريق' },
   { value: 'scientific_rep',          label: 'مندوب علمي' },
+  { value: 'pharmacy_rep',            label: 'مندوب فارمسي لاين' },
+  { value: 'pharmacy_team_leader',    label: 'قائد فريق فارمسي' },
   { value: 'commercial_supervisor',   label: 'مشرف تجاري' },
   { value: 'commercial_team_leader',  label: 'قائد فريق تجاري' },
   { value: 'commercial_rep',          label: 'مندوب تجاري' },
   { value: 'admin',                   label: 'مدير (admin)' },
   { value: 'manager',                 label: 'مدير (manager)' },
 ];
+
+// «فارمسي لاين» خيار بالواجهة فقط: الدور الفعلي scientific_rep/team_leader و
+// repKind='pharmacy' على سجل المندوب المرتبط (server/lib/pharmacyRep.js).
+const PHARMACY_FORM_ROLES: Record<string, string> = { pharmacy_rep: 'scientific_rep', pharmacy_team_leader: 'team_leader' };
+const formRoleOf = (u: { role: string; linkedRep?: { repKind?: string } | null }) =>
+  u.linkedRep?.repKind === 'pharmacy'
+    ? (u.role === 'scientific_rep' ? 'pharmacy_rep' : u.role === 'team_leader' ? 'pharmacy_team_leader' : u.role)
+    : u.role;
+const roleLabelOf = (u: { role: string; linkedRep?: { repKind?: string } | null }) => {
+  const r = formRoleOf(u);
+  return ROLES.find(x => x.value === r)?.label || u.role;
+};
 
 // الأدوار المكتبية — لا تُربط بشركة معيّنة، تحصل تلقائياً على كل شركات مكتبها
 // (راجع server/lib/officeScope.js) لتتفاعل مع كل بيانات المكتب لا شركة بعينها.
@@ -46,10 +60,11 @@ interface UserRow  {
   _count?: { companyAssignments: number; areas: number; };
   companyAssignments?: { companyId: number; isPrimary?: boolean; company: { id: number; name: string } }[];
   managersOfUser?:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
+  linkedRep?:          { id?: number; name?: string; repKind?: string } | null;
 }
 interface UserDetail extends UserRow {
   linkedRepId?: number | null;
-  linkedRep?:   { id: number; name: string } | null;
+  linkedRep?:   { id: number; name: string; repKind?: string } | null;
   companyAssignments: { companyId: number; isPrimary?: boolean; company: { id: number; name: string } }[];
   lineAssignments:    { lineId: number;    line:    { name?: string; companyId: number } }[];
   itemAssignments:    { itemId: number;    item:    { name: string } }[];
@@ -537,7 +552,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     if (!form.id && !form.password?.trim()) { setError('كلمة المرور مطلوبة'); return; }
     setSaving(true); setError(''); setConflict(null);
     const isEdit = Boolean(form.id);
-    const payload: any = { username: form.username, displayName: form.displayName, role: form.role, phone: form.phone, officeId: form.officeId || null };
+    const realRole = PHARMACY_FORM_ROLES[form.role] || form.role;
+    const payload: any = { username: form.username, displayName: form.displayName, role: realRole, phone: form.phone, officeId: form.officeId || null };
+    if (realRole === 'scientific_rep' || realRole === 'team_leader') payload.repKind = PHARMACY_FORM_ROLES[form.role] ? 'pharmacy' : 'scientific';
     if (form.password) payload.password = form.password;
     const res = await fetch(isEdit ? `/api/sa/users/${form.id}` : '/api/sa/users', {
       method: isEdit ? 'PUT' : 'POST', headers: H(), body: JSON.stringify(payload),
@@ -565,7 +582,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         method: 'PUT', headers: H(), body: JSON.stringify({ provinceIds: [form.provinceId] }),
       });
       if (!pr.ok) warn = 'تعذّر ربط المحافظة بالمستخدم';
-      if (form.role === 'team_leader') {
+      if (realRole === 'team_leader') {
         if (!form.officeId) warn = 'اختر مكتباً لتعيينه قائد المحافظة';
         else {
           const lr = await fetch('/api/sa/users/province-structure/leader', {
@@ -1154,9 +1171,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>👤 {detail.displayName || detail.username}</h2>
-            <span style={{ fontSize: 12, color: '#64748b' }}>{detail.username} · {ROLES.find(r => r.value === detail.role)?.label || detail.role} · {detail.office?.name || '—'}</span>
+            <span style={{ fontSize: 12, color: '#64748b' }}>{detail.username} · {roleLabelOf(detail)} · {detail.office?.name || '—'}</span>
           </div>
-          <button onClick={() => setForm({ ...detail, password: '' })} style={btnStyle('#3b82f6', true)}>تعديل البيانات</button>
+          <button onClick={() => setForm({ ...detail, role: formRoleOf(detail), password: '' })} style={btnStyle('#3b82f6', true)}>تعديل البيانات</button>
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', padding: 8, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14 }}>
@@ -1177,7 +1194,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               {[
                 ['اسم المستخدم', detail.username],
                 ['الاسم الظاهر', detail.displayName || '—'],
-                ['الدور', ROLES.find(r => r.value === detail.role)?.label || detail.role],
+                ['الدور', roleLabelOf(detail)],
                 ['الهاتف', detail.phone || '—'],
                 ['المكتب', detail.office?.name || '—'],
                 ['الحالة', detail.isActive ? '🟢 نشط' : '🔴 معطل'],
@@ -2854,7 +2871,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginRight: 8 }}>
           <span style={{ background: rc.bg, color: rc.color, border: `1px solid ${rc.color}33`, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
-            {ROLES.find(r => r.value === u.role)?.label || u.role}
+            {roleLabelOf(u)}
           </span>
           <span style={{ background: u.isActive ? '#dcfce7' : '#fee2e2', color: u.isActive ? '#16a34a' : '#dc2626', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>
             {u.isActive ? 'نشط' : 'معطل'}
@@ -2862,7 +2879,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         </div>
         <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
           <button onClick={() => viewAsUser(u)} title="مراقبة" style={btnStyle('#0ea5e9', true)}>👁️</button>
-          <button onClick={() => setForm({ ...u, password: '' })} style={btnStyle('#3b82f6', true)}>تعديل</button>
+          <button onClick={() => setForm({ ...u, role: formRoleOf(u), password: '' })} style={btnStyle('#3b82f6', true)}>تعديل</button>
           <button onClick={() => toggleUser(u)} style={btnStyle(u.isActive ? '#f59e0b' : '#10b981', true)}>{u.isActive ? 'تعطيل' : 'تفعيل'}</button>
           <button onClick={() => delUser(u)} style={btnStyle('#ef4444', true)}>حذف</button>
         </div>
@@ -3236,7 +3253,7 @@ function UserFormFields({ form, setForm, offices, companies, provinces = [], isE
           </select>
           {form.provinceId ? (
             <div style={{ marginTop: 6, fontSize: 12, color: '#0e7490', background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: 8, padding: '7px 10px', lineHeight: 1.8 }}>
-              {form.role === 'team_leader'
+              {(PHARMACY_FORM_ROLES[form.role] || form.role) === 'team_leader'
                 ? 'سيُعيَّن تيم ليدر لهذه المحافظة: كل مناطقها تُضاف له، ويعمل على كل شركات المكتب بلا شركة رئيسية (يتطلب اختيار المكتب).'
                 : 'تُضاف كل مناطق هذه المحافظة للمستخدم مباشرة (الحاليّة والمستقبلية). تعيينه مندوباً بشركة وايتمات من «فرق المحافظات ← الهيكلية».'}
             </div>

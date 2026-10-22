@@ -5,8 +5,9 @@ import { normalizeAreaName } from '../../lib/itemResolver.js';
 import {
   syncUserAreaDerivedLinks, resolveEffectiveAreaIds, saveUserAreaAssignments,
   ALL_AREAS_ROLES, isAllAreasRole, readAutoAllAreas, userHasAllAreas,
-  invalidateAllAreasFlag,
+  invalidateAllAreasFlag, ensureLinkedRepId,
 } from '../../lib/areaScope.js';
+import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
@@ -18,7 +19,7 @@ const userSelect = {
   linkedRepId: true,
   createdAt: true,
   office: { select: { id: true, name: true } },
-  linkedRep: { select: { id: true, name: true } },
+  linkedRep: { select: { id: true, name: true, repKind: true } },
   companyAssignments: { include: { company: { select: { id: true, name: true } } } },
   lineAssignments:    { include: { line:    { select: { id: true, name: true, companyId: true } } } },
   itemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
@@ -45,6 +46,7 @@ export async function listAllUsers(req, res) {
     select: {
       id: true, username: true, displayName: true, role: true,
       isActive: true, phone: true, officeId: true, linkedRepId: true,
+      linkedRep: { select: { repKind: true } },
       office: { select: { id: true, name: true } },
       _count: { select: { companyAssignments: true, doctorVisits: true } },
       companyAssignments: { include: { company: { select: { id: true, name: true } } } },
@@ -239,7 +241,25 @@ export async function createUser(req, res) {
     user = await prisma.user.findUnique({ where: { id: user.id }, select: userSelect });
   }
 
+  if (req.body.repKind === PHARMACY_KIND && REP_KIND_ROLES.has(role)) {
+    await applyRepKind(user.id, role, req.body.repKind);
+    user = await prisma.user.findUnique({ where: { id: user.id }, select: userSelect });
+  }
+
   res.status(201).json({ success: true, data: user });
+}
+
+// «مندوب فارمسي لاين» / «قائد فريق فارمسي» في نموذج الحساب = scientific_rep /
+// team_leader + repKind على سجل المندوب المرتبط (lib/pharmacyRep.js) — لا دور جديد.
+const REP_KIND_ROLES = new Set(['scientific_rep', 'team_leader']);
+async function applyRepKind(userId, role, repKind) {
+  if (repKind === undefined || !REP_KIND_ROLES.has(role)) return;
+  const kind = repKind === PHARMACY_KIND ? PHARMACY_KIND : 'scientific';
+  // لا ننشئ سجل مندوب لمجرد «علمي» — الافتراضي علمي أصلاً.
+  const repId = kind === PHARMACY_KIND
+    ? await ensureLinkedRepId(userId)
+    : (await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } }))?.linkedRepId;
+  if (repId) await prisma.scientificRepresentative.update({ where: { id: repId }, data: { repKind: kind } });
 }
 
 // ── Update user ───────────────────────────────────────────────────────────
@@ -285,6 +305,11 @@ export async function updateUser(req, res) {
         where: { userId: id },
         data: { name: displayName || user.username },
       });
+    }
+
+    if (req.body.repKind !== undefined) {
+      await applyRepKind(id, user.role, req.body.repKind);
+      user = await prisma.user.findUnique({ where: { id }, select: userSelect });
     }
 
     res.json({ success: true, data: user });
