@@ -41,8 +41,9 @@ const presetBox = (dir: string, title: string, depth: number, faces: Face[], spi
   faces: Object.fromEntries(faces.map(f => [f, `/showcase/${dir}/${f}.jpg`])),
 });
 const PRESETS: ShowItem[] = [
-  // الأبعاد من الصور المستقيمة: عرض/ارتفاع ≈ 1.58، والعمق ≈ 0.48 من الارتفاع. الخلفي = الأمامي (نفس الطباعة)
-  presetBox('potafast-50', 'Potafast 50 mg', 0.48, ['front', 'back', 'left', 'right', 'top', 'bottom'], true),
+  // عرض/ارتفاع ≈ 1.58 من الصور المستقيمة. العمق 0.40 من الارتفاع (0.48 المقاس من الصور بدا أعرض من الواقع
+  // لأن الطرفين صُوّرا بقرب فتضخّما). الخلفي = الأمامي (نفس الطباعة)
+  presetBox('potafast-50', 'Potafast 50 mg', 0.40, ['front', 'back', 'left', 'right', 'top', 'bottom'], true),
 ];
 const isPreset = (it: ShowItem) => it.id.startsWith('preset:');
 
@@ -355,8 +356,10 @@ const CSS = `
   animation: s3d-sway 9s ease-in-out infinite alternate; transition: transform .25s ease-out; }
 .s3d .b3d.is-tilt { animation: none; }
 @keyframes s3d-sway { 0% { transform: rotateX(-18deg) rotateY(-46deg); } 100% { transform: rotateX(-14deg) rotateY(46deg); } }
-.s3d .b3d.is-spin { animation: s3d-spin 16s linear infinite; }
-@keyframes s3d-spin { from { transform: rotateX(-16deg) rotateY(0deg); } to { transform: rotateX(-16deg) rotateY(-360deg); } }
+/* دوران spin يُدار بـJS في Box3D (كي يُسحب بالماوس) — لا animation ولا transition تعيق التحديث لكل إطار */
+.s3d .b3d.is-spin { animation: none; transition: none; }
+.s3d .b3d-scene.is-draggable { cursor: grab; touch-action: pan-y; }
+.s3d .b3d-scene.is-draggable:active { cursor: grabbing; }
 .s3d .b3d-face { position: absolute; top: 0; left: 0; backface-visibility: hidden; overflow: hidden; }
 .s3d .b3d-face img { width: 100%; height: 100%; object-fit: fill; display: block; pointer-events: none; user-select: none; }
 .s3d .b3d-light { position: absolute; inset: 0; pointer-events: none; }

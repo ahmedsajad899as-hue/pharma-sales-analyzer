@@ -603,12 +603,39 @@ function loadBoxMeta(src: string): Promise<BoxMeta> {
 }
 const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
-/** spin = دوران كامل 360° بدل التمايل (CSS ‎.b3d.is-spin في الصفحة المستضيفة) — الميل مع الماوس يتعطّل معه */
+/** سرعة الدوران الذاتي لمجسّم spin: لفّة كاملة كل 36 ثانية */
+const SPIN_DEG_PER_MS = 360 / 36_000;
+
+/**
+ * spin = دوران كامل 360° بدل التمايل، يُدار بـJS (لا CSS animation) كي يُسحب بالماوس/الإصبع
+ * ثم يكمل الدوران من الزاوية التي تُرك عندها. يحلّ السحب محلّ الميل مع الماوس.
+ */
 export function Box3D({ src, depth, faces, scale = 1, label, spin }: { src: string; depth: number; faces?: BoxFaces; scale?: number; label: string; spin?: boolean }) {
   const sceneRef = useRef<HTMLDivElement>(null);
   const [meta, setMeta] = useState<BoxMeta | null>(boxMetaCache.get(src) ?? null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [tilt, setTilt] = useState<{ x: number; y: number } | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const rot = useRef({ x: -16, y: 0, moved: false, drag: null as null | { id: number; px: number; py: number; x: number; y: number } });
+  // السحب والدوران للبطاقة المعروضة في الوسط فقط (أو خارج الدوّار كالمعاينة)
+  const isActive = (el: Element) => { const slot = el.closest('.cf-slot'); return !slot || slot.classList.contains('is-active'); };
+
+  useEffect(() => {
+    if (!spin) return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    let raf = 0, prev = performance.now();
+    const tick = (t: number) => {
+      const dt = Math.min(t - prev, 100); prev = t;
+      const r = rot.current, el = boxRef.current;
+      if (el) {
+        if (!r.drag && !reduce && isActive(el)) r.y -= dt * SPIN_DEG_PER_MS;
+        el.style.transform = `rotateX(${r.x}deg) rotateY(${r.y}deg)`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [spin]);
 
   useEffect(() => {
     let alive = true;
@@ -629,7 +656,32 @@ export function Box3D({ src, depth, faces, scale = 1, label, spin }: { src: stri
   if (meta && H > size.h * 0.6 * scale) { H = size.h * 0.6 * scale; W = H * meta.aspect; }
   const D = H * depth;
 
+  // ── سحب مجسّم spin: يوقف الدوران الذاتي ويُوقف انتشار الحدث كي لا يقلّب الدوّار البطاقات ──
+  const onDown = (e: React.PointerEvent) => {
+    if (!spin || (e.pointerType === 'mouse' && e.button !== 0) || !isActive(e.currentTarget)) return;
+    e.stopPropagation();
+    const r = rot.current;
+    r.drag = { id: e.pointerId, px: e.clientX, py: e.clientY, x: r.x, y: r.y };
+    r.moved = false;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* */ }
+  };
+  const endDrag = (e: React.PointerEvent) => {
+    const r = rot.current;
+    if (!r.drag || r.drag.id !== e.pointerId) return;
+    r.drag = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* */ }
+  };
+
   const onMove = (e: React.PointerEvent) => {
+    const d = rot.current.drag;
+    if (spin && d && d.id === e.pointerId) {
+      e.stopPropagation();
+      const dx = e.clientX - d.px, dy = e.clientY - d.py;
+      if (Math.abs(dx) + Math.abs(dy) > 4) rot.current.moved = true;
+      rot.current.y = d.y + dx * 0.5;
+      rot.current.x = Math.max(-75, Math.min(45, d.x - dy * 0.4));
+      return;
+    }
     // الميل مع الماوس للبطاقة المعروضة في الوسط فقط — الجانبية تبقى ساكنة (بدل فرض وضع ثابت
     // بـCSS كان يُرجع المجسّم فجأةً لحظة التنقّل بالأسهم والماوس فوقه)
     if (spin || !e.currentTarget.closest('.cf-slot')?.classList.contains('is-active')) return;
@@ -648,14 +700,18 @@ export function Box3D({ src, depth, faces, scale = 1, label, spin }: { src: stri
   );
 
   return (
-    <div className="b3d-scene" ref={sceneRef} onPointerMove={onMove} onPointerLeave={() => setTilt(null)}>
+    <div className={`b3d-scene ${spin ? 'is-draggable' : ''}`} ref={sceneRef}
+      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={endDrag} onPointerCancel={endDrag}
+      // نقرة تنتهي بها عملية سحب لا تفتح التفاصيل
+      onClickCapture={e => { if (rot.current.moved) { rot.current.moved = false; e.stopPropagation(); e.preventDefault(); } }}
+      onPointerLeave={() => setTilt(null)}>
       {meta && W > 0 && (
         <>
           <div className="b3d-glow" style={{ width: W * 1.6, height: H * 1.6 }} />
           <div className="b3d-shadow" style={{ width: W * 1.15 }} />
           {/* طبقة الطفو: العلبة تعلو وتهبط ببطء (والظل يصغر معها) — مستقلة عن التمايل/الميل */}
           <div className="b3d-bob">
-          <div className={`b3d ${tilt ? 'is-tilt' : ''} ${spin ? 'is-spin' : ''}`} role="img" aria-label={label}
+          <div ref={boxRef} className={`b3d ${tilt ? 'is-tilt' : ''} ${spin ? 'is-spin' : ''}`} role="img" aria-label={label}
             style={{ width: W, height: H, ...(tilt ? { transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` } : {}) }}>
             {face({ width: W, height: H, transform: `translateZ(${D / 2}px)` },
               <><img src={src} alt="" draggable={false} /><div className="b3d-sheen" /></>)}
