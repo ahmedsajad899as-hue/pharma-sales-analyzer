@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { shrinkImage } from '../lib/shrinkImage';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -50,7 +51,7 @@ export default function QuizAssistPage() {
     setError(''); setItems([]); setBusy(true);
     try {
       const fd = new FormData();
-      files.forEach(f => fd.append('images', f));
+      for (const f of await Promise.all(files.map(shrinkImage))) fd.append('images', f);
       if (text.trim()) fd.append('text', text.trim());
       const res = await fetch(`${API}/api/quiz-assist/answer`, {
         method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` },

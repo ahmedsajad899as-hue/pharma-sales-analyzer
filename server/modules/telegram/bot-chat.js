@@ -10,7 +10,7 @@
 // الكروب. ذاكرة قصيرة لكل كروب لمتابعة مثل «وعبدالله؟».
 // ════════════════════════════════════════════════════════════════════════════
 
-import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { callAI } from '../../lib/claudeAi.js';
 import { parseInvoiceJson } from '../sales/sales.service.js';
 import { buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import {
@@ -95,7 +95,7 @@ function sanitizeQuery(raw, today) {
 
 async function understand(text, chatId, today) {
   const previous = getContext(chatId);
-  const reply = await callGeminiSmart(
+  const reply = await callAI(
     [buildPrompt(today, previous), `رسالة المستخدم:\n«${text}»`],
     { timeoutMs: 25_000, thinkingBudget: 0, feature: 'telegram-bot-chat' },
   );

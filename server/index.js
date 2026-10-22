@@ -10,7 +10,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from './lib/prisma.js';
 import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
 import { autoEnrollAllReps } from './modules/province-teams/province-teams.service.js';
@@ -73,7 +72,6 @@ import catalogImportRoutes      from './modules/companies/catalog-import.routes.
 import adminUsersRoutes         from './modules/admin-users/admin-users.routes.js';
 import aiAssistantRoutes        from './modules/ai-assistant/ai-assistant.routes.js';
 import quizAssistRoutes         from './modules/quiz-assist/quiz-assist.routes.js';
-import { GEMINI_DEFAULT_MODEL } from './modules/ai-assistant/ai-assistant.controller.js';
 import commercialRoutes          from './modules/commercial/commercial.routes.js';
 import trackingRoutes             from './modules/tracking/tracking.routes.js';
 import masterSurveyRoutes        from './modules/master-survey/master-survey.routes.js';
@@ -1100,8 +1098,8 @@ app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
 // ── All /api routes below require a valid JWT ────────────────
 // Skip auth for health check and auth routes (already handled above)
 app.use('/api', (req, res, next) => {
-  // Skip JWT for: health-check, auth, commercial webhook, and Gemini key diagnostic
-  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/telegram/webhook' || req.path === '/viber/webhook' || req.path === '/ai-assistant/test-key') return next();
+  // Skip JWT for: health-check, auth, commercial webhook
+  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/telegram/webhook' || req.path === '/viber/webhook') return next();
   requireAuth(req, res, next);
 });
 
@@ -3895,9 +3893,7 @@ app.get('/api/dashboard/active-stats', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Legacy AI Analysis Routes ────────────────────────────────
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3 || process.env.GOOGLE_API_KEY || '');
-const geminiModel = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
+// ── Legacy Analysis Routes ───────────────────────────────────
 
 // رفع الملف وقراءة البيانات
 app.post('/api/upload', upload.single('file'), async (req, res) => {
@@ -4127,84 +4123,14 @@ app.post('/api/analyze', async (req, res) => {
     // التحليل المحلي الأساسي (كاحتياط)
     const localAnalysis = analyzePharmaSalesData(data, filters);
 
-    // محاولة التحليل بالذكاء الاصطناعي عبر Gemini
-    let aiAnalysis = '';
-    try {
-      if (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY_1) {
-        const columns = Object.keys(data[0] || {});
-        
-        const prompt = `أنت محلل بيانات مبيعات أدوية متخصص. قم بتحليل البيانات التالية وقدم تقريراً شاملاً ومفصلاً باللغة العربية.
+    // كان هنا تحليل Gemini يرسل كل صفوف الملف في نداء واحد — أُزيل (تكلفة غير محدودة
+    // على الملفات الكبيرة، ولا استخدام فعلي منذ تقاعد النموذج). يبقى التحليل المحلي.
+    const finalAnalysis = localAnalysis;
 
-📋 معلومات البيانات:
-- عدد السجلات الكلي: ${data.length}
-- الأعمدة: ${columns.join(', ')}
-- الفلاتر المطبقة: ${JSON.stringify(filters)}
-- وحدة القيمة النقدية: ${
-  fileCurrencyMode === fileSourceCurrency
-    ? (fileCurrencyMode === 'USD' ? 'دولار أمريكي ($)' : 'دينار عراقي (IQD)')
-    : fileCurrencyMode === 'USD'
-      ? 'دولار أمريكي ($) — تم تحويل الأسعار من الدينار العراقي بسعر ' + fileExchangeRate + ' دينار/دولار'
-      : 'دينار عراقي (IQD) — تم تحويل الأسعار من الدولار الأمريكي بسعر ' + fileExchangeRate + ' دينار/دولار'
-}
-
-⚠️ مهم: استخدم وحدة العملة الصحيحة أعلاه في جميع الجداول والأرقام التي تعرضها.
-
-📊 البيانات الكاملة:
-${JSON.stringify(data, null, 2)}
-
-المطلوب تحليله بالتفصيل:
-
-1. 👤 المبيعات حسب المندوب:
-   - اعرض جدولاً لكل مندوب يتضمن:
-     • اسم كل مادة (صنف/دواء) باعها المندوب
-     • الكمية المباعة من كل مادة (عدد الوحدات)
-     • القيمة الرقمية للمبيعات (المبلغ) لكل مادة
-     • إجمالي كمية المبيعات للمندوب
-     • إجمالي قيمة المبيعات للمندوب
-
-2. 💊 المبيعات حسب الصنف (الآيتم/المادة):
-   - اعرض جدولاً لكل مادة/صنف/دواء يتضمن:
-     • إجمالي الكمية المباعة من هذه المادة
-     • إجمالي القيمة الرقمية للمبيعات
-     • أي مندوب باع أكثر كمية من هذه المادة
-     • أي منطقة فيها أعلى مبيعات لهذه المادة
-   - رتّب الأصناف من الأعلى مبيعاً للأقل
-
-3. 📍 المبيعات حسب المنطقة:
-   - اعرض جدولاً لكل منطقة يتضمن:
-     • اسم كل مادة مباعة في المنطقة مع الكمية والقيمة
-     • عدد المندوبين في المنطقة
-     • إجمالي كمية مبيعات المنطقة
-     • إجمالي قيمة مبيعات المنطقة
-   - رتّب المناطق من الأعلى مبيعاً للأقل
-
-4. 📊 ملخص عام:
-   - إجمالي الكمية الكلية لجميع المبيعات
-   - إجمالي القيمة الكلية لجميع المبيعات
-   - أفضل مندوب (كمية وقيمة)
-   - أفضل منطقة (كمية وقيمة)
-   - أكثر مادة مبيعاً (كمية وقيمة)
-
-ملاحظة مهمة: المبيعات تشمل دائماً بُعدين: الكمية (عدد الوحدات) والقيمة (المبلغ الرقمي). اعرض كليهما في كل جدول.
-قدم التقرير بتنسيق واضح ومنظم مع استخدام الأيقونات والجداول.`;
-
-        const result = await geminiModel.generateContent(prompt);
-        const response = await result.response;
-        aiAnalysis = response.text();
-      }
-    } catch (aiError) {
-      console.error('AI Analysis error (falling back to local):', aiError.message);
-    }
-
-    // إرسال التحليل الذكي أو المحلي
-    const finalAnalysis = aiAnalysis 
-      ? `🤖 تحليل بالذكاء الاصطناعي (Google Gemini)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${aiAnalysis}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${localAnalysis}`
-      : localAnalysis;
-    
     res.json({ 
       success: true,
       analysis: finalAnalysis,
-      aiPowered: !!aiAnalysis
+      aiPowered: false
     });
   } catch (error) {
     console.error('Analysis error:', error);
@@ -4641,225 +4567,6 @@ app.post('/api/doctor-visits', async (req, res) => {
     res.status(201).json(visit);
   } catch (e) {
     console.error('[POST /api/doctor-visits] error:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ── POST /api/doctor-visits/voice-record — transcribe audio, no plan needed ──
-app.post('/api/doctor-visits/voice-record', upload.single('audio'), async (req, res) => {
-  try {
-    const userId = req.user?.id ?? null;
-    const role   = req.user?.role ?? '';
-    if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
-
-    // Fetch items accessible to this user
-    let allItems;
-    if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
-      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-      if (rep) {
-        const ri = await prisma.scientificRepItem.findMany({ where: { scientificRepId: rep.id }, include: { item: { select: { id: true, name: true } } } });
-        allItems = ri.map(r => r.item);
-      } else { allItems = []; }
-    } else {
-      allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
-    }
-
-    const audioData   = fs.readFileSync(req.file.path);
-    const audioBase64 = audioData.toString('base64');
-    const mimeType    = req.file.mimetype || 'audio/webm';
-    fs.unlinkSync(req.file.path);
-
-    const itemNames     = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
-    const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
-
-    const prompt = `أنت متخصص في تحويل التسجيلات الصوتية لمناديب المبيعات الطبية إلى بيانات منظمة.
-
-القاعدة الذهبية: اكتب ما سمعته بالضبط — لا تستبدل أي اسم بأسماء من أي قائمة.
-
-[اسم الطبيب]
-• doctorName: اكتب الاسم كما نُطق في التسجيل تماماً — لا تستبدله بأسماء من أي قائمة
-• إذا لم يُذكر اسم طبيب → أرجع {"visits":[]}
-
-[الأيتمات]
-• itemName: اكتب اسم الدواء كما نُطق في التسجيل
-• itemId: أرجعه فقط إذا كنت متأكداً 100% أنه من قائمة الأيتمات أدناه — وإلا null
-
-[الفيدباك]
-• feedback: ${feedbackValues.join(' | ')}
-• إذا لم يُذكر فيدباك → "pending"
-• specialty / pharmacyName / areaName: فقط إذا ذُكرت صراحةً — وإلا ""
-• إذا التسجيل فارغ أو غير مفهوم → أرجع {"visits":[]}
-
-قائمة الأيتمات (للمساعدة في itemId فقط):
-${itemNames || '(لا توجد أيتمات)'}
-
-أرجع JSON فقط:
-{"visits":[{"doctorName":"الاسم كما نُطق","itemId":null,"itemName":"الايتم كما نُطق","feedback":"pending","notes":"","specialty":"","pharmacyName":"","areaName":""}]}`;
-
-    const apiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3 || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-    if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
-
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI  = new GoogleGenerativeAI(apiKey);
-    const model  = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
-    const result = await model.generateContent([
-      { inlineData: { mimeType, data: audioBase64 } },
-      prompt,
-    ]);
-    const responseText = result.response.text();
-    const jsonMatch    = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الصوت', raw: responseText });
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const itemMap   = new Map(allItems.map(it => [normalize(it.name), it]));
-    const findItem  = rawName => {
-      const n = normalize(rawName);
-      if (!n) return null;
-      if (itemMap.has(n)) return itemMap.get(n);
-      for (const [key, item] of itemMap) {
-        if (key.includes(n) || n.includes(key)) return item;
-      }
-      return null;
-    };
-
-    const visits = (parsed.visits || []).map(v => {
-      let itemId   = v.itemId || null;
-      let itemName = v.itemName || '';
-      if (itemName && !itemId) {
-        const match = findItem(itemName);
-        if (match) { itemId = match.id; itemName = match.name; }
-      }
-      return {
-        entryId:      null,    // no plan — always null
-        doctorName:   v.doctorName   || '',
-        itemId, itemName,
-        feedback:     feedbackValues.includes(v.feedback) ? v.feedback : 'pending',
-        notes:        v.notes        || '',
-        specialty:    v.specialty    || '',
-        pharmacyName: v.pharmacyName || '',
-        areaName:     v.areaName     || '',
-      };
-    });
-
-    res.json({ visits, raw: responseText });
-  } catch (e) {
-    console.error('[POST /api/doctor-visits/voice-record] error:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// POST /api/pharmacy-visits/voice-record — transcribe audio and parse pharmacy visit data
-app.post('/api/pharmacy-visits/voice-record', upload.single('audio'), async (req, res) => {
-  try {
-    const userId = req.user?.id ?? null;
-    const role   = req.user?.role ?? '';
-    if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
-
-    // scientific_rep items come from ScientificRepItem junction, not direct userId ownership
-    let allItems;
-    if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
-      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-      if (rep) {
-        const repItems = await prisma.scientificRepItem.findMany({
-          where: { scientificRepId: rep.id },
-          include: { item: { select: { id: true, name: true } } },
-        });
-        allItems = repItems.map(ri => ri.item);
-      } else {
-        allItems = [];
-      }
-    } else {
-      allItems = await prisma.item.findMany({ where: userId ? { userId } : {}, select: { id: true, name: true } });
-    }
-    const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
-
-    const audioData   = fs.readFileSync(req.file.path);
-    const audioBase64 = audioData.toString('base64');
-    const mimeType    = req.file.mimetype || 'audio/webm';
-    fs.unlinkSync(req.file.path);
-
-    const itemNames = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
-    const areaNames = allAreas.map(a => `${a.name} (id:${a.id})`).join('\n');
-
-    const prompt = `أنت مساعد ذكي لتحليل كلام مندوب طبي. هذا الكول خاص بزيارة صيدلية (وليس طبيب).
-استمع للتسجيل الصوتي واستخرج بيانات زيارة الصيدلية.
-
-قواعد:
-1. إذا التسجيل فارغ أو غير واضح → أرجع {"pharmacyName":"","areaName":"","items":[]} فوراً
-2. استخرج اسم الصيدلية واسم المنطقة إذا ذُكرا
-3. استخرج قائمة الأصناف المذكورة — كل صنف قد يكون معه ملاحظات خاصة
-4. لا تخترع معلومات لم تُذكر صراحةً
-
-قائمة الأيتمات/الأدوية للمطابقة:
-${itemNames}
-
-قائمة المناطق للمطابقة:
-${areaNames}
-
-أرجع JSON فقط بدون أي نص آخر:
-{"pharmacyName":"اسم الصيدلية","areaName":"اسم المنطقة","items":[{"itemId":123,"itemName":"...","notes":"..."},{"itemId":null,"itemName":"صنف غير موجود","notes":""}]}
-
-ملاحظة: itemId يكون null إذا لم يُطابق أي صنف من القائمة`;
-
-    const apiKey = process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_2 || process.env.GEMINI_API_KEY_3 || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-    if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
-
-    const genAI  = new GoogleGenerativeAI(apiKey);
-    const model  = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
-    const result = await model.generateContent([
-      { inlineData: { mimeType, data: audioBase64 } },
-      prompt,
-    ]);
-    const responseText = result.response.text();
-    const jsonMatch    = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الصوت', raw: responseText });
-
-    const parsed = JSON.parse(jsonMatch[0]);
-
-    // Normalize + fuzzy-match items
-    const normalize = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const itemMap   = new Map(allItems.map(it => [normalize(it.name), it]));
-    const areaMap   = new Map(allAreas.map(a => [normalize(a.name), a]));
-
-    const findItem = rawName => {
-      const n = normalize(rawName);
-      if (!n) return null;
-      if (itemMap.has(n)) return itemMap.get(n);
-      for (const [key, item] of itemMap) {
-        if (key.includes(n) || n.includes(key)) return item;
-      }
-      return null;
-    };
-    const findArea = rawName => {
-      const n = normalize(rawName);
-      if (!n) return null;
-      if (areaMap.has(n)) return areaMap.get(n);
-      for (const [key, area] of areaMap) {
-        if (key.includes(n) || n.includes(key)) return area;
-      }
-      return null;
-    };
-
-    const matchedArea = findArea(parsed.areaName || '');
-    const items = (parsed.items || []).map(it => {
-      const matched = it.itemId ? allItems.find(i => i.id === it.itemId) : findItem(it.itemName || '');
-      return {
-        itemId:   matched ? matched.id : null,
-        itemName: matched ? matched.name : (it.itemName || ''),
-        notes:    it.notes || '',
-      };
-    });
-
-    res.json({
-      pharmacyName: parsed.pharmacyName || '',
-      areaName:     parsed.areaName     || '',
-      areaId:       matchedArea ? matchedArea.id : null,
-      items,
-      raw: responseText,
-    });
-  } catch (e) {
-    console.error('Pharmacy voice parse error:', e);
     res.status(500).json({ error: e.message });
   }
 });

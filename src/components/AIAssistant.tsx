@@ -668,34 +668,6 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   // إغلاق الجلسة عند إزالة المكوّن (إخفاء المساعد/تسجيل خروج) — لا يبقى المايك مفتوحاً
   useEffect(() => () => { if (recActiveRef.current) stopRecordingRef.current(); }, []);
 
-  // المسطرة (Space): ضغطة تبدأ جلسة الاستماع المستمر، وضغطة ثانية تُنهيها.
-  // لا تعمل أثناء الكتابة في حقل نص، ولا مع Ctrl/Alt/Shift.
-  useEffect(() => {
-    const isTyping = (el: Element | null) => {
-      if (!el) return false;
-      const tag = el.tagName;
-      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable;
-    };
-    const isSpace = (e: KeyboardEvent) => e.code === 'Space' || e.key === ' ';
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!isSpace(e) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
-      if (isTyping(document.activeElement)) return;
-      e.preventDefault(); // يمنع تمرير الصفحة وتفعيل الزر المُركَّز عليه
-      if (e.repeat) return;
-      if (recActiveRef.current) { stopRecordingRef.current(); return; }
-      startRecordingRef.current(); // النافذة تُفتح فقط عند نتيجة تحتاج عرضاً
-    };
-    // الزر المُركَّز عليه يُنفَّذ نقره عند رفع المسطرة — نمنعه هنا أيضاً
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (!isSpace(e) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
-      if (isTyping(document.activeElement)) return;
-      e.preventDefault();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
-  }, []);
-
   const sendText = async (text: string) => {
     if (!text.trim()) return;
     reset();
@@ -913,41 +885,14 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
             {/* ── Main content (hidden when history is shown) ── */}
             {!showHistory && <>
 
-            {/* Voice + Text controls */}
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={isProcessing}
-              style={{
-                width: '100%',
-                padding: '9px 0',
-                borderRadius: 10,
-                border: 'none',
-                background: isRecording
-                  ? 'linear-gradient(135deg, #ef4444, #dc2626)'
-                  : 'linear-gradient(135deg, var(--c-accent), var(--c-accent-hover))',
-                color: '#fff',
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: isProcessing ? 'not-allowed' : 'pointer',
-                opacity: isProcessing ? 0.6 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-              }}
-            >
-              {isRecording
-                ? <><span style={{ width: 9, height: 9, borderRadius: '50%', background: '#fecaca', display: 'inline-block', animation: 'pulse 1s infinite' }} />إيقاف التسجيل</>
-                : <><Icon name="mic" size={14} />تحدث الآن</>}
-            </button>
-
+            {/* Text controls — أُلغي الإدخال الصوتي */}
             <div style={{ display: 'flex', gap: 6 }}>
               <input
                 type="text"
                 value={textInput}
                 onChange={e => setTextInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') sendText(textInput); }}
-                placeholder="أو اكتب أمرك هنا..."
+                placeholder="اكتب أمرك هنا..."
                 disabled={isProcessing || isRecording}
                 style={{
                   flex: 1, border: '1.5px solid var(--c-purple-border)', borderRadius: 8,

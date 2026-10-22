@@ -3370,24 +3370,16 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
           </div>
         )}
 
-        {/* ── Floating Action Button: tap = call log / hold 2s = voice ── */}
+        {/* ── Floating Action Button: tap = call log ── */}
         {hasFeature('call_log') && !showCallLog && (
           <div className="fab-ring">
             <button
               onMouseDown={() => {
                 fabLongFiredRef.current = false;
-                fabHoldTimerRef.current = setTimeout(() => {
-                  fabLongFiredRef.current = true;
-                  if (hasFeature('voice_visit')) openVoicePanel();
-                }, 600);
               }}
               onTouchStart={e => {
                 e.preventDefault();
                 fabLongFiredRef.current = false;
-                fabHoldTimerRef.current = setTimeout(() => {
-                  fabLongFiredRef.current = true;
-                  if (hasFeature('voice_visit')) openVoicePanel();
-                }, 600);
               }}
               onMouseUp={() => { if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; } }}
               onMouseLeave={() => { if (fabHoldTimerRef.current) { clearTimeout(fabHoldTimerRef.current); fabHoldTimerRef.current = null; } }}
@@ -3397,7 +3389,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 if (!fabLongFiredRef.current) { try { navigator.vibrate?.(40); } catch {} openCallLog(); }
               }}
               onClick={() => { if (!fabLongFiredRef.current) { try { navigator.vibrate?.(40); } catch {} openCallLog(); } }}
-              title="اضغط: تسجيل زيارة | اضغط مطوّل: زيارة صوتية"
+              title="اضغط: تسجيل زيارة"
               className="fab-btn fab-btn--accent"
               style={{
                 fontSize: 28,

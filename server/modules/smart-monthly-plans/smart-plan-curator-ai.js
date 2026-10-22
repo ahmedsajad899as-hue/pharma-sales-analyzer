@@ -11,9 +11,8 @@
  * أمان MAX_POOL يمنع نداءً ضخماً غير متوقَّع.
  */
 
-import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { callAI } from '../../lib/claudeAi.js';
 
-const AI_CURATOR_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
 const MAX_POOL = 300; // سقف أمان — لا يُتوقَّع بلوغه عملياً لفئة واحدة ضمن بلان شهري
 
 function buildCuratorPrompt(bucketLabel, quota, pool) {
@@ -53,8 +52,8 @@ export async function curateBucket(bucketLabel, candidates, quota, deadlineMs = 
   const deadline = Date.now() + deadlineMs;
 
   try {
-    const raw = await callGeminiSmart([{ text: buildCuratorPrompt(bucketLabel, quota, pool) }], {
-      models: AI_CURATOR_MODELS, thinkingBudget: 0, timeoutMs: 55_000, maxTotalMs: deadline - Date.now(),
+    const raw = await callAI([{ text: buildCuratorPrompt(bucketLabel, quota, pool) }], {
+      thinkingBudget: 0, timeoutMs: 55_000, feature: 'smart-plan-curator', maxTotalMs: deadline - Date.now(),
     });
     const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     const arr = JSON.parse(cleaned);

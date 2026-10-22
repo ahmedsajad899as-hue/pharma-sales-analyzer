@@ -4,7 +4,7 @@
  */
 import { Router } from 'express';
 import multer from 'multer';
-import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { callAI } from '../../lib/claudeAi.js';
 
 const router = Router();
 const imageUpload = multer({
@@ -13,7 +13,6 @@ const imageUpload = multer({
   fileFilter: (_req, file, cb) => (/^image\//.test(file.mimetype) ? cb(null, true) : cb(new Error('Only image files are allowed.'))),
 });
 
-const QUIZ_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
 
 const QUIZ_PROMPT = `أنت مساعد يقرأ أسئلة الاختيار من متعدد (من لقطة شاشة و/أو نص) ويقترح الجواب الأصح.
 قد تحتوي الصورة على أكثر من سؤال — عالجها كلها بالترتيب الذي تظهر به.
@@ -47,9 +46,9 @@ router.post('/answer', imageUpload.array('images', 5), async (req, res, next) =>
     for (const f of files) {
       parts.push({ inlineData: { mimeType: f.mimetype, data: f.buffer.toString('base64') } });
     }
-    const raw = await callGeminiSmart(parts, {
+    const raw = await callAI(parts, {
       timeoutMs: 60_000, maxTotalMs: 150_000, thinkingBudget: 1024,
-      models: QUIZ_MODELS, feature: 'quiz-assist',
+      feature: 'quiz-assist',
     });
     const items = parseJsonArray(raw).map(q => ({
       question:    String(q?.question ?? ''),

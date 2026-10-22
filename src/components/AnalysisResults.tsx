@@ -171,7 +171,7 @@ export function AnalysisResults({ data, filters }: AnalysisResultsProps) {
             </div>
             {aiPowered && (
               <span className="bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 text-xs px-3 py-1.5 rounded-full font-semibold border border-purple-200">
-                🤖 Gemini AI
+                🤖 AI
               </span>
             )}
           </div>

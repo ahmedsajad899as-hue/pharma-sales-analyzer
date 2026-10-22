@@ -44,7 +44,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@anthropic-ai/sdk": "^1.1.0",
     "@prisma/client": "^5.22.0",
     "@resvg/resvg-js": "2.6.2",
     "@types/leaflet": "^1.9.21",

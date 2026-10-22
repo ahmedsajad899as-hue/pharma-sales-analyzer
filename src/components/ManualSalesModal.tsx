@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } from 'react';
 import { AutoText, ComboCell, normQ, gCell, type ComboOpt } from './ComboCell';
+import { shrinkImage } from '../lib/shrinkImage';
 
 /**
  * Modal for adding sales that don't appear in the uploaded Excel files —
@@ -524,7 +525,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     setImages(prev => [...prev, ...newUrls]);
     try {
       const fd = new FormData();
-      Array.from(fileList).forEach(f => fd.append('images', f));
+      for (const f of await Promise.all(Array.from(fileList).map(shrinkImage))) fd.append('images', f);
       if (onlyAssignedItems) fd.append('onlyAssignedItems', 'true');
       const res = await fetch(`${API}/api/sales/extract-invoice`, { method: 'POST', body: fd, headers: authH });
       const j = await res.json();

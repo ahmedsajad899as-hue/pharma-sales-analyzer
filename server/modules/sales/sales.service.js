@@ -42,7 +42,7 @@ import { syncCommercialsForNewSales } from '../scientific-reps/scientific-reps.s
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
-import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { callAI } from '../../lib/claudeAi.js';
 
 const __filename2 = fileURLToPath(import.meta.url);
 const __dirname2  = path.dirname(__filename2);
@@ -1271,12 +1271,6 @@ async function findOrCreateRep(name, userId) {
 // _finishProcessing).
 // ═══════════════════════════════════════════════════════════════════════════
 
-// قراءة الفاتورة بـ2.5-flash أولاً لا lite (الافتراضي في callGeminiSmart). مقيس
-// (2026-10-13) على صور بوت حقيقية بنفس الزمن (~2.5 ث): lite أهمل عمود «كمية
-// مجانية» (بونص 0 بدل 2) وأعاد صيدلية فارغة أو مشوّهة في الفاتورة المُدارة 90°،
-// وflash قرأها كلها صحيحة. lite يبقى بديلاً عند الحصّة/المهلة.
-const INVOICE_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
-
 export const INVOICE_PROMPT = `أنت خبير في قراءة فواتير مذاخر الأدوية العراقية واستخراج بياناتها.
 الصورة المرفقة فاتورة بيع من مذخر أدوية (البائع) إلى صيدلية/زبون (المشتري). نماذج الفواتير تختلف
 من مذخر لآخر (ترتيب الأعمدة، المسميات، وقد يكون الخط مطبوعاً أو يدوياً) — افهم *معنى* الحقول لا مواضعها.
@@ -1503,11 +1497,11 @@ export function isCopiedFromPrompt(pharmacy, promptText) {
  * يقرأ سطر الزبون من صورة فاتورة. يُعيد { pharmacy, area } أو null.
  * لا يرمي أبداً — فشله يترك الحقلين فارغين ليملأهما المراجِع.
  */
-export async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse = '', models, thinkingBudget = 0 } = {}) {
+export async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse = '', thinkingBudget = 0 } = {}) {
   try {
-    const text = await callGeminiSmart(
+    const text = await callAI(
       [buildCustomerLinePrompt(warehouse), { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }],
-      { timeoutMs, thinkingBudget, ...(models ? { models } : {}) },
+      { timeoutMs, thinkingBudget, feature: 'invoice-customer-line' },
     );
     const o = parseJsonObject(text);
     if (!o) return null;
@@ -1664,7 +1658,6 @@ export function foldBonusRows(rows) {
 }
 
 // ─── اتجاه الصورة ───────────────────────────────────────────────────────────
-const ORIENT_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const ORIENTATION_PROMPT = `انظر إلى اتجاه الكتابة في هذه الصورة (ورقة فاتورة من مذخر أدوية).
 السؤال: هل الأسطر المكتوبة أفقية وتُقرأ بشكل طبيعي كما هي (رأس الحروف للأعلى)؟
 - إن كانت كذلك (حتى لو الورقة مائلة قليلاً أقل من 30°) فأعِد {"rotate": 0}.
@@ -1681,7 +1674,7 @@ export async function detectInvoiceRotation(img) {
     const parts = [ORIENTATION_PROMPT, { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }];
     const votes = await Promise.all([1, 2, 3].map(async () => {
       try {
-        const o = parseJsonObject(await callGeminiSmart(parts, { timeoutMs: 20_000, thinkingBudget: 0, models: ORIENT_MODELS }));
+        const o = parseJsonObject(await callAI(parts, { timeoutMs: 20_000, thinkingBudget: 0, feature: 'invoice-orient' }));
         const v = Number(o?.rotate);
         return [0, 90, 180, 270].includes(v) ? v : null;
       } catch { return null; }
@@ -1735,7 +1728,7 @@ async function extractCustomerLineVoted(img, opts, n = 3, priorRead = null) {
   // flash لا lite: مقيس (2026-10-13) على 3 فواتير × 3 تشغيلات — flash صحيح 9/9، وlite
   // قرأ الأسعار والجدول («HUMANIS / 20,452») في فاتورتين بعد إزالة المثال من البرومبت.
   // (lite تفوّق سابقاً على الصورة المُدارة فقط — والتدوير صار يُصحَّح قبل القراءة.)
-  const reads = (await Promise.all(Array.from({ length: n }, () => extractCustomerLine(img, { models: INVOICE_MODELS, ...opts })))).filter(Boolean);
+  const reads = (await Promise.all(Array.from({ length: n }, () => extractCustomerLine(img, { ...opts })))).filter(Boolean);
   // قراءة النداء الكامل صوتٌ إضافي — كانت صحيحة غالباً فلا تُرمى لمجرّد أنها
   // غير معروفة في الماستر (صيدلية جديدة).
   // وزنها صوتان: النداء الكامل يعمل بالموديل الأقوى (flash) والمركَّز بـlite.
@@ -1798,11 +1791,11 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
           : INVOICE_PROMPT,
         { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } },
       ];
-      const text = await callGeminiSmart(parts, {
+      const text = await callAI(parts, {
         timeoutMs:  70_000,
         maxTotalMs: OVERALL_BUDGET_MS - elapsed,
         thinkingBudget: 0,
-        models: INVOICE_MODELS,
+        feature: 'invoice-read',
       });
       let imageRows = [];
       let imageWarehouseAddress = '';

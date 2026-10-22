@@ -2,19 +2,8 @@ import prisma from '../../lib/prisma.js';
 import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { GEMINI_DEFAULT_MODEL } from '../ai-assistant/ai-assistant.controller.js';
-
-// ── Helper: pick best available Gemini API key ──────────────
-function getGeminiApiKey() {
-  return process.env.GEMINI_API_KEY_1
-    || process.env.GEMINI_API_KEY_2
-    || process.env.GEMINI_API_KEY_3
-    || process.env.GEMINI_API_KEY
-    || process.env.GOOGLE_API_KEY
-    || '';
-}
+import { callAI } from '../../lib/claudeAi.js';
 
 // ── Helper: find a plan the user has access to ──────────────
 // - owner (admin/manager): plans where userId = myId
@@ -453,7 +442,7 @@ export async function suggest(req, res, next) {
     // Prepend missed doctors to keepDoctors so they appear first
     keepDoctors = [...missedDoctors, ...keepDoctors];
 
-    // ── Process userNote with Gemini AI ──────────────────────
+    // ── Process userNote with AI ──────────────────────
     let priorityDoctors = [];
     let aiAreaOverride  = null; // null = use rep areas, [] = no restriction, [ids] = AI-specified
     let aiParsed        = null;
@@ -461,11 +450,7 @@ export async function suggest(req, res, next) {
 
     if (noteText) {
       try {
-        const apiKey = getGeminiApiKey();
-        if (apiKey) {
-          const { GoogleGenerativeAI } = await import('@google/generative-ai');
-          const genAI = new GoogleGenerativeAI(apiKey);
-          const model = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
+        {
           const prompt = `أنت مساعد لبناء خطة زيارات شهرية لمندوب طبي.
 المستخدم كتب التعليمات التالية:
 "${noteText}"
@@ -485,8 +470,7 @@ export async function suggest(req, res, next) {
 - excludeAreaNames: مناطق يريد تجنبها
 - specialties: تخصصات طبية يريد التركيز عليها
 أخرج JSON فقط بدون أي نص إضافي.`;
-          const result = await model.generateContent(prompt);
-          const raw = result.response.text().trim()
+          const raw = (await callAI(prompt, { feature: 'plan-suggest-note' })).trim()
             .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
           aiParsed = JSON.parse(raw);
         }
@@ -1895,7 +1879,7 @@ export async function uploadVisits(req, res, next) {
   } catch (e) { next(e); }
 }
 
-// ── Voice-to-visits: parse spoken text using Gemini AI ────────
+// ── Voice-to-visits: parse spoken text using AI ────────
 export async function parseVoice(req, res, next) {
   try {
     const userId = req.user.id;
@@ -1970,13 +1954,7 @@ export async function parseVoice(req, res, next) {
   أرجع JSON فقط بالشكل التالي بدون أي نص إضافي:
   {"visits": [{"entryId": 123, "doctorName": "...", "itemId": 456, "itemName": "...", "feedback": "writing", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}`;
 
-    const apiKey = getGeminiApiKey();
-    if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    const responseText = await callAI(prompt, { feature: 'plan-voice-parse' });
 
     // Extract JSON from response
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -2076,204 +2054,6 @@ export async function parseVoice(req, res, next) {
     res.json({ visits, raw: text });
   } catch (e) {
     console.error('خطأ في تحليل النص الصوتي:', e);
-    next(e);
-  }
-}
-
-// ── parseVoiceAudio: receive audio blob, transcribe + parse via Gemini ─────────
-export async function parseVoiceAudio(req, res, next) {
-  try {
-    const userId  = req.user.id;
-    const role    = req.user.role;
-    const planId  = parseInt(req.params.id);
-    if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
-
-    const planAccess = await findAccessiblePlan(planId, userId, role);
-    if (!planAccess) return res.status(404).json({ error: 'البلان غير موجود' });
-
-    const plan = await prisma.monthlyPlan.findFirst({
-      where: { id: planId },
-      include: {
-        entries: {
-          include: {
-            doctor: { select: { id: true, name: true, specialty: true } },
-            targetItems: { include: { item: { select: { id: true, name: true } } } },
-          },
-        },
-      },
-    });
-    if (!plan) return res.status(404).json({ error: 'البلان غير موجود' });
-
-    // scientific_rep/team_leader/supervisor: items assigned via ScientificRepItem junction + assigned companies
-    let allItems;
-    if (['scientific_rep', 'team_leader', 'supervisor'].includes(role)) {
-      const rep = await prisma.scientificRepresentative.findFirst({ where: { userId }, select: { id: true } });
-      if (rep) {
-        const [repItemRows, repCompanyRows] = await Promise.all([
-          prisma.scientificRepItem.findMany({
-            where: { scientificRepId: rep.id },
-            include: { item: { select: { id: true, name: true } } },
-          }),
-          prisma.scientificRepCompany.findMany({
-            where: { scientificRepId: rep.id },
-            select: { companyId: true },
-          }),
-        ]);
-        const explicitItems = repItemRows.map(ri => ri.item);
-        const companyIds = repCompanyRows.map(rc => rc.companyId);
-        let companyItems = [];
-        if (companyIds.length > 0) {
-          companyItems = await prisma.item.findMany({
-            where: { companyId: { in: companyIds } },
-            select: { id: true, name: true },
-          });
-        }
-        const seen = new Set();
-        allItems = [...explicitItems, ...companyItems]
-          .filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
-      } else {
-        allItems = [];
-      }
-    } else {
-      allItems = await prisma.item.findMany({ where: { userId }, select: { id: true, name: true } });
-    }
-
-    const audioData   = fs.readFileSync(req.file.path);
-    const audioBase64 = audioData.toString('base64');
-    const mimeType    = req.file.mimetype || 'audio/webm';
-    fs.unlinkSync(req.file.path); // cleanup
-
-    const doctorNames   = plan.entries.map(e => `${e.doctor.name} (id:${e.id})`).join('\n');
-    const itemNames     = allItems.map(i => `${i.name} (id:${i.id})`).join('\n');
-    const feedbackValues = ['writing', 'stocked', 'interested', 'not_interested', 'unavailable', 'pending'];
-    const feedbackAr = {
-      'يكتب': 'writing', 'كاتب': 'writing', 'بلش يكتب': 'writing', 'اشترى': 'writing', 'طلب': 'writing',
-      'نزل': 'stocked', 'نزل الايتم': 'stocked', 'عنده منافس': 'stocked', 'كومبتتر': 'stocked', 'يستخدم منتج ثاني': 'stocked', 'عنده بديل': 'stocked',
-      'مهتم': 'interested', 'مهتمه': 'interested', 'ايجابي': 'interested', 'متحمس': 'interested',
-      'غير مهتم': 'not_interested', 'مو مهتم': 'not_interested', 'رفض': 'not_interested', 'ما يريد': 'not_interested',
-      'غير متوفر': 'unavailable', 'مو موجود': 'unavailable', 'معلق': 'unavailable', 'غداً': 'unavailable', 'متابعة': 'unavailable', 'تذكير': 'unavailable', 'موعد ثاني': 'unavailable',
-      'بانتظار الفيدباك': 'pending', 'انتظار': 'pending',
-    };
-
-    const prompt = `أنت متخصص في تحويل التسجيلات الصوتية لمناديب المبيعات الطبية إلى بيانات منظمة.
-
-══ القاعدة الذهبية ══
-اكتب ما سمعته بالضبط — لا تستبدل أي اسم ولا تضف عليه ولا تعدله.
-
-══ اسم الطبيب ══
-• doctorName: اكتب اسم الطبيب بالضبط كما نُطق في التسجيل — لا تغيّره ولا تضف كلمات عليه ولا تعكس ترتيبه
-• entryId: دائماً null
-
-══ الأيتمات/الأدوية ══
-• itemName: اكتب اسم الدواء أو الايتم كما نُطق في التسجيل
-• itemId: أرجعه فقط إذا كنت متأكداً 100% أنه من القائمة أدناه — وإلا null
-• كلمات الفيدباك (يكتب، مهتم، نزل...) لا تُعتبر أسماء أدوية
-
-══ باقي الحقول ══
-• feedback: ${feedbackValues.join(' | ')} — استنتج من المعنى حتى لو لم تُستخدم الكلمة الدقيقة:
-  - writing (يكتب): "بلش يكتب" / "صار يكتب" / "اشترى" / "طلب" / "نزّل الدواء عنده"
-  - stocked (يوجد كومبتتر): "عنده منافس" / "يستخدم منتج ثاني" / "عنده بديل" / "كومبتتر" / "مو موالي"
-  - interested (مهتم): "عجبه" / "ايجابي" / "متحمس" / "طلب معلومات" / "واعد"
-  - not_interested (غير مهتم): "ما عجبه" / "رفض" / "ما يريد" / "قال لا" / "سلبي"
-  - unavailable (متابعة وتذكير): "غداً" / "بعدين" / "موعد ثاني" / "اتصل لاحقاً" / "ما كان موجود" / "تذكير" / "متابعة"
-  - pending: لم تُذكر نتيجة أو ردة فعل واضحة
-• يمكن أن يكون feedback قيمة واحدة أو مصفوفة من اثنتين إذا ذُكرت نتيجتان (مثل "يكتب ومهتم" → ["writing","interested"])
-• إذا لم يُذكر فيدباك → feedback = "pending"
-• specialty / pharmacyName / areaName: فقط إذا ذُكرت صراحةً — وإلا ""
-• إذا التسجيل فارغ أو غير مفهوم → أرجع {"visits": []}
-
-══ قائمة الأيتمات (للمساعدة في itemId فقط) ══
-${itemNames || '(لا توجد أيتمات)'}
-
-أرجع JSON فقط بدون أي نص آخر:
-{"visits": [{"entryId": null, "doctorName": "الاسم كما نُطق", "itemId": null, "itemName": "الايتم كما نُطق", "feedback": "pending", "notes": "", "date": null, "specialty": "", "pharmacyName": "", "areaName": ""}]}`;
-
-    const apiKey = getGeminiApiKey();
-    if (!apiKey) return res.status(500).json({ error: 'مفتاح Gemini غير مهيأ' });
-
-    const genAI  = new GoogleGenerativeAI(apiKey);
-    const model  = genAI.getGenerativeModel({ model: GEMINI_DEFAULT_MODEL });
-    const result = await model.generateContent([
-      { inlineData: { mimeType, data: audioBase64 } },
-      prompt,
-    ]);
-    const responseText = result.response.text();
-    const jsonMatch    = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.status(422).json({ error: 'تعذر تحليل الصوت', raw: responseText });
-
-    const parsed = JSON.parse(jsonMatch[0]);
-
-    // Arabic feedback words that must NEVER be treated as item/drug names
-    const FEEDBACK_AR_SET = new Set(['مهتم','مهتمه','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود','بانتظار الفيدباك','انتظار','يوجد كومبتتر','متابعة','متابعه','تذكير']);
-    const isFeedbackWord = name => FEEDBACK_AR_SET.has(String(name ?? '').trim());
-
-    // Fuzzy item-matching: normalize + bigram similarity
-    const normalize  = s => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const normAr2    = s => String(s ?? '').trim().toLowerCase().replace(/أ|إ|آ/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ');
-    const itemMap    = new Map(allItems.map(it => [normalize(it.name), it]));
-    const bigramSet2 = s => {
-      const bg = new Set();
-      for (let i = 0; i < s.length - 1; i++) bg.add(s.slice(i, i + 2));
-      return bg;
-    };
-    const bigramSim2 = (a, b) => {
-      const na = normAr2(a), nb = normAr2(b);
-      if (!na || !nb) return 0;
-      if (na === nb) return 1;
-      const ba = bigramSet2(na), bb = bigramSet2(nb);
-      let shared = 0;
-      for (const bg of ba) if (bb.has(bg)) shared++;
-      return (2 * shared) / (ba.size + bb.size);
-    };
-    const findItem = (rawName) => {
-      const n = normalize(rawName);
-      const nn = normAr2(rawName);
-      if (!n) return null;
-      if (itemMap.has(n)) return itemMap.get(n);
-      let f = allItems.find(i => normAr2(i.name) === nn);    if (f) return f;
-      f = allItems.find(i => normAr2(i.name).includes(nn) || nn.includes(normAr2(i.name))); if (f) return f;
-      const nnToks = nn.split(' ').filter(t => t.length >= 2);
-      if (nnToks.length > 0) {
-        f = allItems.find(i => nnToks.every(t => normAr2(i.name).includes(t)));
-        if (f) return f;
-      }
-      let best = null, bestScore = 0.5;
-      for (const [key, item] of itemMap) {
-        const score = bigramSim2(rawName, item.name);
-        if (score > bestScore) { bestScore = score; best = item; }
-      }
-      return best;
-    };
-
-    // entryId is always null — client handles doctor matching via fuzzy logic
-    const visits = (parsed.visits || []).map(v => {
-      let itemId = v.itemId || null;
-      let itemName = v.itemName || '';
-      // Guard: never treat a feedback word as an item name
-      if (isFeedbackWord(itemName)) { itemId = null; itemName = ''; }
-      if (itemName && (!itemId || !allItems.some(it => it.id === itemId))) {
-        const match = findItem(itemName);
-        if (match) { itemId = match.id; itemName = match.name; }
-      }
-      return {
-        entryId:      null,            // always null — client does fuzzy matching
-        doctorName:   v.doctorName    || '',
-        itemId,
-        itemName,
-        feedback: Array.isArray(v.feedback)
-          ? v.feedback.filter(f => feedbackValues.includes(f)).slice(0, 2).join(',') || 'pending'
-          : (feedbackValues.includes(v.feedback) ? v.feedback : feedbackAr[v.feedback] && feedbackValues.includes(feedbackAr[v.feedback]) ? feedbackAr[v.feedback] : 'pending'),
-        notes:        v.notes        || '',
-        date:         v.date         || new Date().toISOString().split('T')[0],
-        specialty:    v.specialty    || '',
-        pharmacyName: v.pharmacyName || '',
-        areaName:     v.areaName     || '',
-      };
-    });
-
-    res.json({ visits, raw: responseText });
-  } catch (e) {
-    console.error('Voice audio parse error:', e);
     next(e);
   }
 }

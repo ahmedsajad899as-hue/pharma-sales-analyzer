@@ -1858,18 +1858,6 @@ export default function MonthlyPlansPage() {
                   <Icon name="settings" size={14} />
                 </button>
 
-                {/* ── Voice: icon-only button ── */}
-                <button
-                  onClick={() => { if (voiceListening) { stopVoice(); } else { startVoice(); } }}
-                  title={voiceListening ? 'إيقاف التسجيل' : 'إدخال صوتي'}
-                  style={{
-                    ...btnStyle(voiceListening ? 'var(--c-danger)' : 'var(--c-accent)'),
-                    width: 36, height: 36, boxSizing: 'border-box', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    animation: voiceListening ? 'pulse-mic 1.5s infinite' : 'none',
-                  }}>
-                  <Icon name={voiceListening ? 'pause' : 'mic'} size={16} />
-                </button>
-
                 {/* ── Tools overflow menu: managers only ── */}
                 {!isFieldRep && (
                   <div style={{ position: 'relative' }}>

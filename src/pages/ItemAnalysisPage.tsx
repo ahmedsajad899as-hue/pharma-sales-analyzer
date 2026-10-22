@@ -625,7 +625,7 @@ export default function ItemAnalysisPage() {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
                 <h3 style={{ margin: 0, color: 'var(--c-accent)' }}>
-                  🤖 التحليل الذكي عبر Gemini
+                  🤖 التحليل الذكي عبر الذكاء الاصطناعي
                   {selectedRep && <span style={{ fontSize: 12, color: '#7c3aed', marginRight: 8 }}>(للمندوب: {selectedRep})</span>}
                 </h3>
                 <div style={{ display: 'flex', gap: 8 }}>

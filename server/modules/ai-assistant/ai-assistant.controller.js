@@ -1,7 +1,5 @@
-import fs from 'fs';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../../lib/prisma.js';
-import { logAiUsage } from '../../lib/aiUsage.js';
+import { callAI, friendlyAiError } from '../../lib/claudeAi.js';
 import { resolveEffectiveAreas } from '../../lib/areaScope.js';
 
 // ── Constants ────────────────────────────────────────────────
@@ -34,7 +32,7 @@ function fuzzyFind(list, key, query) {
   );
 }
 
-// ── Gemini system prompt ──────────────────────────────────────
+// ── AI system prompt ──────────────────────────────────────
 function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext, distributorContext, repAnalysisContext, pharmNetContext, bonusContext, salesNames, recentTurns }) {
   const now      = new Date();
   const curDay   = now.getDate();
@@ -67,7 +65,7 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
     : 'لا توجد ملفات نشطة على صفحة تحليل ملفات المندوبين';
 
   // ── أسماء تقارير المبيعات الفعلية (شركات/مذاخر/مندوبين) — يرسلها المتصفح من
-  // آخر «تحليل شامل» حمّله المستخدم، كي يطابق Gemini النطق العامي بالاسم الصحيح.
+  // آخر «تحليل شامل» حمّله المستخدم، كي يطابق النموذج النطق العامي بالاسم الصحيح.
   const sn = salesNames && typeof salesNames === 'object' ? salesNames : null;
   const snList = (arr, max) => Array.isArray(arr) && arr.length ? arr.slice(0, max).join('، ') : 'غير متاح';
   const salesNamesText = sn ? `الشركات/التيمات: ${snList([...(sn.teams || []), ...(sn.companies || [])], 80)}
@@ -2368,123 +2366,9 @@ async function executeQuery(spec, userId) {
   return executeDoctorQuery(spec, userId, areasList);
 }
 
-// ── API Key rotation (round-robin across up to 3 keys) ──────
-let _keyIndex = 0;
-function getAllApiKeys() {
-  return [
-    process.env.GEMINI_API_KEY_1,
-    process.env.GEMINI_API_KEY_2,
-    process.env.GEMINI_API_KEY_3,
-    process.env.GEMINI_API_KEY,
-    process.env.GOOGLE_API_KEY,
-  ].filter(Boolean);
-}
-function getNextApiKey() {
-  const keys = getAllApiKeys();
-  if (!keys.length) return '';
-  const key = keys[_keyIndex % keys.length];
-  _keyIndex = (_keyIndex + 1) % keys.length;
-  return key;
-}
-// النماذج تُجرَّب بالترتيب؛ لكل واحد حصّته، فالتراجع يوسّع الهامش.
-//
-// تاريخ التقاعد: gemini-1.5-flash ثم gemini-2.0-flash تقاعدا (404 Not Found).
-// لذا لا يُكتب اسم نموذج في أي مكان آخر — الكل يشير إلى هذه الثوابت.
-//
-// لماذا 2.5 قبل 3.x رغم أنها أحدث؟ قِسنا النماذج على مهام هذا التطبيق نفسه
-// (تمييز هوية الايتم، حساب الصافي بعد المرتجعات، قراءة فاتورة عربية، عدم
-// اختلاق بيانات) — 12 محاولة لكل نموذج:
-//   gemini-2.5-flash-lite  12/12  ← الأول (الأدق والأسرع معاً)   gemini-2.5-flash  11/12
-//   gemini-3.1-flash-lite   9/12   gemini-3.5-flash   6/12
-//   gemini-3.7-flash        1/12  ← يخلط AIRTIDE 100 بـ AIRTIDE 500
-// النماذج الأحدث تدمج جرعتين مختلفتين كمادة واحدة — وهو الخطأ الذي يحرسه
-// hasDifferentCoreNumbers في fuzzyMatch.js. وهي أبطأ ٣–٤ أضعاف أيضاً.
-// أعِد القياس قبل أي ترقية؛ لا ترقِّ لمجرّد أن الرقم أكبر.
-const GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
-
-// النموذج الافتراضي للنداءات المباشرة (التي لا تمرّ بسلّم التراجع).
-export const GEMINI_DEFAULT_MODEL = GEMINI_MODELS[0];
-
-// نماذج تقبل generationConfig.thinkingConfig. مقيسة فعلياً: gemini-3.6-flash
-// يرفضها ويرمي خطأً، ولو أُرسلت له لفشل النداء كلياً — لذا قائمة بيضاء لا سوداء.
-const THINKING_OK = ['gemini-2.5', 'gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.7-flash'];
-const acceptsThinking = name => THINKING_OK.some(prefix => name.startsWith(prefix));
-
-// Default per-call timeout. Heavy callers (e.g. the item-analysis report, whose prompt is huge)
-// pass a larger `timeoutMs` via callGeminiSmart options — Nginx allows 300s so there is headroom.
-const GEMINI_CALL_TIMEOUT_MS = 55_000; // 55 s default (kept short for the chat assistant)
-
-function geminiWithTimeout(promise, ms) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-// Try (model × key) combinations until one succeeds. Returns text on success.
-// Options:
-//   timeoutMs  — per-attempt timeout (default 55s; heavy calls pass more).
-//   models     — model ladder to try (default GEMINI_MODELS).
-//   maxTotalMs — overall budget: stop starting new attempts past this so the whole
-//                call finishes before Nginx's 300s proxy timeout (avoids a 504 HTML page).
-export async function callGeminiSmart(parts, opts = {}) {
-  const {
-    timeoutMs = GEMINI_CALL_TIMEOUT_MS,
-    models = GEMINI_MODELS,
-    maxTotalMs = null,
-    // thinkingBudget: 0 disables the gemini-2.5 "thinking" phase, which otherwise
-    // burns many seconds before any output — the main latency source on large
-    // prompts (the item-analysis report). Null = leave the model default. Only
-    // applied to النماذج التي تقبله (acceptsThinking) — غيرها يرفضه ويفشل النداء.
-    thinkingBudget = null,
-    // وسم الميزة في نافذة الاستهلاك (ماستر أدمن). غير الموسوم يظهر «other».
-    feature = 'other',
-  } = opts;
-  const keys = getAllApiKeys();
-  if (!keys.length) throw new Error('No Gemini API key configured');
-  const started = Date.now();
-  let lastErr;
-  for (const modelName of models) {
-    for (let i = 0; i < keys.length; i++) {
-      if (maxTotalMs && Date.now() - started >= maxTotalMs) {
-        throw lastErr || new Error(`Gemini total budget ${maxTotalMs}ms exceeded`);
-      }
-      const key = keys[(_keyIndex + i) % keys.length];
-      const attemptStart = Date.now();
-      try {
-        const modelParams = { model: modelName };
-        if (thinkingBudget != null && acceptsThinking(modelName)) {
-          // Passed straight through to the REST API as generationConfig.thinkingConfig
-          // (the SDK JSON-stringifies generationConfig verbatim, so unknown-to-the-typings
-          // fields still reach the API).
-          modelParams.generationConfig = { thinkingConfig: { thinkingBudget } };
-        }
-        const model = new GoogleGenerativeAI(key).getGenerativeModel(modelParams);
-        const result = await geminiWithTimeout(model.generateContent(parts), timeoutMs);
-        _keyIndex = (_keyIndex + i + 1) % keys.length; // advance for next call
-        logAiUsage({ feature, model: modelName, ok: true, usage: result.response.usageMetadata, durationMs: Date.now() - attemptStart });
-        return result.response.text();
-      } catch (err) {
-        lastErr = err;
-        const msg = String(err?.message || '');
-        const is429 = msg.includes('429') || err?.status === 429 || msg.includes('quota');
-        const isTimeout = msg.includes('timeout');
-        logAiUsage({ feature, model: modelName, ok: false, errorKind: is429 ? '429' : isTimeout ? 'timeout' : 'error', durationMs: Date.now() - attemptStart });
-        console.error(`[ai-assistant] ${modelName} key#${i} ${is429 ? '429' : isTimeout ? 'TIMEOUT' : 'err'}:`, msg.slice(0, 200));
-        // On timeout or quota, try next model/key. On other errors also continue.
-      }
-    }
-  }
-  throw lastErr || new Error('All Gemini keys/models exhausted');
-}
-
 // ── Main handler ─────────────────────────────────────────────
 export async function handleCommand(req, res) {
   try {
-    const apiKey = getNextApiKey();
-    if (!apiKey) return res.status(500).json({ success: false, error: '\u0645\u0641\u062a\u0627\u062d Gemini \u063a\u064a\u0631 \u0645\u0647\u064a\u0623' });
-
     let context = {};
     try {
       const raw = req.body?.context;
@@ -2492,9 +2376,7 @@ export async function handleCommand(req, res) {
     } catch { /* ignore */ }
 
     const textInput = req.body?.text || '';
-    const hasAudio  = !!req.file;
-    const hasText   = textInput.trim().length > 0;
-    if (!hasAudio && !hasText) {
+    if (!textInput.trim()) {
       return res.status(400).json({ success: false, error: '\u0644\u0645 \u064a\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0635\u0648\u062a \u0623\u0648 \u0646\u0635' });
     }
 
@@ -2524,29 +2406,17 @@ export async function handleCommand(req, res) {
         pharmNames, areaNames,
       });
 
-      const callGeminiComm = callGeminiSmart;
+      const aiText = await callAI([
+        systemPrompt,
+        `أمر المستخدم: "${textInput}"
+أرجع JSON فقط.`,
+      ], { feature: 'assistant-command' });
 
-      let geminiText;
-      if (hasAudio) {
-        const audioData = fs.readFileSync(req.file.path);
-        try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
-        geminiText = await callGeminiComm([
-          systemPrompt,
-          { inlineData: { mimeType: req.file.mimetype || 'audio/webm', data: audioData.toString('base64') } },
-          'استمع للتسجيل وأرجع JSON فقط.',
-        ]);
-      } else {
-        geminiText = await callGeminiComm([
-          systemPrompt,
-          `أمر المستخدم: "${textInput}"\nأرجع JSON فقط.`,
-        ]);
-      }
-
-      const jsonMatch = geminiText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return res.status(422).json({ success: false, error: 'تعذر تحليل رد Gemini', raw: geminiText });
+      const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return res.status(422).json({ success: false, error: 'تعذر تحليل رد الذكاء الاصطناعي', raw: aiText });
       let parsed;
       try { parsed = JSON.parse(jsonMatch[0]); }
-      catch { return res.status(422).json({ success: false, error: 'JSON غير صالح', raw: geminiText }); }
+      catch { return res.status(422).json({ success: false, error: 'JSON غير صالح', raw: aiText }); }
 
       let queryResult = null;
       if      (parsed.action === 'query_invoices') queryResult = await executeInvoiceQuery(parsed, userId);
@@ -2598,34 +2468,20 @@ export async function handleCommand(req, res) {
       recentTurns: context.recentTurns || null,
     });
 
-    let geminiText;
-    const callGemini = callGeminiSmart;
+    const aiText = await callAI([
+      systemPrompt,
+      `أمر المستخدم: "${textInput}"
+أرجع JSON فقط.`,
+    ], { feature: 'assistant-command' });
 
-    if (hasAudio) {
-      const audioData   = fs.readFileSync(req.file.path);
-      const audioBase64 = audioData.toString('base64');
-      const mimeType    = req.file.mimetype || 'audio/webm';
-      try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
-      geminiText = await callGemini([
-        systemPrompt,
-        { inlineData: { mimeType, data: audioBase64 } },
-        'استمع للتسجيل بدقّة عالية — المتحدث عراقي يحجي بلهجته العامية بسرعة ومن دون ترتيب، وقد يخلط كلمات إنكليزية. افهم المقصد لا الحرف. تجاهل التأخير وكلمات الحشو والتكرار والضجيج والكلام الجانبي غير الموجّه للتطبيق. إذا صحّح المتحدث نفسه («لا لا، قصدي...») خذ التصحيح الأخير. إذا كان نطق اسم غير واضح اختر أقرب اسم صوتياً من القوائم أعلاه (المندوبون/الشركات/المذاخر/الأيتمات/المناطق) مع مراعاة گ=ق=ك و چ=ك=ج. اكتب ما سمعته في الحقل heard. إذا لم يكن في التسجيل أمر واضح للتطبيق (سكوت أو كلام جانبي) أرجع action:"unknown" و heard:"". أرجع JSON فقط.',
-      ]);
-    } else {
-      geminiText = await callGemini([
-        systemPrompt,
-        `أمر المستخدم: "${textInput}"\nأرجع JSON فقط.`,
-      ]);
-    }
-
-    const jsonMatch = geminiText.match(/\{[\s\S]*\}/);
+    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      return res.status(422).json({ success: false, error: '\u062a\u0639\u0630\u0631 \u062a\u062d\u0644\u064a\u0644 \u0631\u062f Gemini', raw: geminiText });
+      return res.status(422).json({ success: false, error: '\u062a\u0639\u0630\u0631 \u062a\u062d\u0644\u064a\u0644 رد الذكاء الاصطناعي', raw: aiText });
     }
 
     let parsed;
     try { parsed = JSON.parse(jsonMatch[0]); }
-    catch { return res.status(422).json({ success: false, error: 'JSON \u063a\u064a\u0631 \u0635\u0627\u0644\u062d', raw: geminiText }); }
+    catch { return res.status(422).json({ success: false, error: 'JSON \u063a\u064a\u0631 \u0635\u0627\u0644\u062d', raw: aiText }); }
 
     let queryResult = null;
     if (parsed.action === 'query_visits') {
@@ -2676,11 +2532,8 @@ export async function handleCommand(req, res) {
 
   } catch (err) {
     console.error('[ai-assistant] FINAL error:', err?.message || err, '| status:', err?.status);
-    const msg = String(err?.message || '');
-    const is429 = msg.includes('429') || msg.includes('Too Many Requests') || msg.includes('quota') || msg.includes('Quota');
-    const friendly = is429
-      ? '⚠️ تم استنفاد الحصة اليومية لمفاتيح Gemini. حاول مجدداً بعد ساعات (تتجدد عند منتصف الليل بتوقيت المحيط الهادئ) أو أضف مفتاحاً جديداً في متغيرات البيئة GEMINI_API_KEY_1/2/3.'
-      : `Gemini Error: ${msg.slice(0, 400) || 'خطأ غير متوقع'}`;
+    const is429 = err?.status === 429;
+    const friendly = friendlyAiError(err);
     return res.status(is429 ? 429 : 500).json({ success: false, error: friendly });
   }
 }

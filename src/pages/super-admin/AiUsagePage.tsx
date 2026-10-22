@@ -15,6 +15,19 @@ interface Summary {
 const FEATURE_LABEL: Record<string, string> = {
   'telegram-bot-chat': '🤖 محادثة البوت (مبيعات/زيارات)',
   'bot-order-text': '🧾 قراءة طلبية نصية',
+  'assistant-command': '🗨️ أوامر المساعد الذكي',
+  'invoice-read': '🧾 قراءة صور الفواتير',
+  'invoice-orient': '🔄 تصحيح اتجاه الفاتورة',
+  'invoice-customer-line': '🏪 قراءة سطر الزبون في الفاتورة',
+  'quiz-assist': '❓ مساعد الاختبارات',
+  'item-analysis-report': '💊 تقرير تحليل الايتم',
+  'survey-analysis': '📋 تحليل السيرفي',
+  'visit-feedback': '💬 تصنيف فيدباك الزيارات',
+  'visit-pharmacy-match': '🏥 مطابقة صيدليات الزيارات',
+  'smart-plan-curator': '🗓️ الخطة الذكية — اختيار الأطباء',
+  'smart-plan-names': '🗓️ الخطة الذكية — مطابقة الأسماء',
+  'plan-suggest-note': '🗓️ ملاحظة الاقتراح في الخطة',
+  'plan-voice-parse': '🗓️ إدخال زيارات الخطة نصاً',
   other: 'ميزات أخرى (غير موسومة)',
 };
 
@@ -33,7 +46,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 const th: React.CSSProperties = { textAlign: 'start', padding: '8px 10px', fontSize: 12, color: UI.muted, borderBottom: `1px solid ${UI.line}`, fontWeight: 700 };
 const td: React.CSSProperties = { padding: '8px 10px', fontSize: 13, color: UI.ink, borderBottom: '1px solid #f1f5f9' };
 
-// صفحة استهلاك Gemini — كل نداء (ناجح أو فاشل) يُسجَّل في callGeminiSmart نفسها فتشمل
+// صفحة استهلاك الذكاء الاصطناعي — كل نداء (ناجح أو فاشل) يُسجَّل في callAI نفسها فتشمل
 // كل ميزات التطبيق لا البوت وحده. الميزة غير الموسومة تظهر «other».
 export default function AiUsagePage() {
   const { token } = useSuperAdmin();
@@ -56,7 +69,7 @@ export default function AiUsagePage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>استهلاك الذكاء الاصطناعي (Gemini)</h2>
+        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>استهلاك الذكاء الاصطناعي (Claude)</h2>
         <select value={days} onChange={e => setDays(Number(e.target.value))}
           style={{ padding: '6px 10px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13, color: UI.ink }}>
           <option value={1}>آخر يوم</option>
@@ -66,7 +79,7 @@ export default function AiUsagePage() {
         </select>
       </div>
       <div style={{ fontSize: 12.5, color: UI.faint, marginBottom: 16, lineHeight: 1.6 }}>
-        كل نداء إلى Gemini يُسجَّل (ناجحاً أو فاشلاً) منذ تفعيل هذه الميزة. «التوكنز» هي ما يحاسب عليه Gemini؛ الإدخال = ما أرسلناه، الإخراج = ما أجاب به.
+        كل نداء إلى Claude يُسجَّل (ناجحاً أو فاشلاً) منذ تفعيل هذه الميزة. «التوكنز» هي ما يحاسب عليه Anthropic؛ الإدخال = ما أرسلناه، الإخراج = ما أجاب به.
       </div>
 
       {error && <ErrBox msg={error} />}

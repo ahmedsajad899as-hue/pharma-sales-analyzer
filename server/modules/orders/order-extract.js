@@ -13,7 +13,7 @@
 // لا شيء هنا يكتب في قاعدة البيانات — الاستخراج يُنتج صفوفاً غير محفوظة فقط.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { callAI } from '../../lib/claudeAi.js';
 import { parseInvoiceJson, splitPharmacyArea, isCopiedFromPrompt } from '../sales/sales.service.js';
 import { normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { MAX_ORDER_TEXT_LEN, stripTriggerPrefix } from './order-trigger.js';
@@ -173,7 +173,7 @@ export async function extractOrderRowsFromText(text, { todayISO } = {}) {
   try {
     // سلّم الموديلات الافتراضي بلا تثبيت: التعليق في ai-assistant.controller.js
     // قاس هذا السلّم بالذات على قراءة الفواتير العربية ويحذّر من الترقية العمياء.
-    reply = await callGeminiSmart(
+    reply = await callAI(
       [buildOrderTextPrompt(today), `نصّ الطلبية:\n«${raw}»`],
       { timeoutMs: 45_000, thinkingBudget: 0, feature: 'bot-order-text' },
     );

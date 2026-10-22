@@ -2,7 +2,7 @@ import prisma from '../../lib/prisma.js';
 import { buildItemScopeFilter, resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { dedupCrossFile } from '../../lib/crossFileDedup.js';
 import { resolveFileScope } from '../../lib/fileScope.js';
-import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { callAI } from '../../lib/claudeAi.js';
 import { list as listScientificReps } from '../scientific-reps/scientific-reps.service.js';
 
 // ─── Helpers ────────────────────────────────────────────────
@@ -1103,7 +1103,7 @@ ${hasRep ? `
       // slower AND worse output). With thinking off, gemini-2.5-flash (the best model)
       // answers in ~15-30s, so we keep the top model AND return fast. 70s per-attempt
       // cap fails a genuinely-stuck key over quickly; 190s total stays under Nginx's 300s.
-      insight = await callGeminiSmart([{ text: prompt }], { thinkingBudget: 0, timeoutMs: 70_000, maxTotalMs: 190_000 });
+      insight = await callAI([{ text: prompt }], { thinkingBudget: 0, timeoutMs: 70_000, maxTotalMs: 190_000, feature: 'item-analysis-report' });
     } catch (err) {
       console.error('[item-analysis] Gemini failed:', err?.message);
       return res.status(503).json({ error: 'خدمة الذكاء الاصطناعي غير متوفرة حالياً. الرجاء المحاولة لاحقاً.' });
@@ -1124,18 +1124,12 @@ ${hasRep ? `
 // ─── Shared AI survey-analysis helper (batched + deadline-bounded) ───────
 // Drug-price surveys can hold hundreds of entries. Sending them ALL in one
 // Gemini prompt made a single generation exceed the 55s per-call timeout, and
-// callGeminiSmart's (model × key) retry ladder then ran ~5–6 minutes — past
+// callAI's (model × key) retry ladder then ran ~5–6 minutes — past
 // Nginx's 300s proxy_read_timeout, so the browser got a 504 HTML page and the
 // JSON parse blew up ("Unexpected token '<'"). We instead analyze in small
 // batches (each finishes well under the timeout) and stop before a hard deadline
 // so the endpoint ALWAYS returns JSON in time.
 const AI_BATCH_SIZE = 40;
-// Faster models first — this is bulk structured extraction, not chat; flash-lite
-// answers a 40-item batch in seconds, so we rarely fall through to 2.5-flash.
-// سلّم حسّاس للزمن (تقرير الايتم ضخم وسبق أن تجاوز مهلة 55s): الأخفّ أولاً.
-// gemini-2.0-flash تقاعد. 2.5-flash-lite سجّل 12/12 في قياس دقّة هذا المجال،
-// فهو الأسرع والأدقّ معاً هنا. راجع GEMINI_MODELS في ai-assistant.controller.js.
-const AI_SURVEY_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
 
 function buildSurveyAnalysisPrompt(entries) {
   const entryList = entries.map(e => ({
@@ -1173,15 +1167,15 @@ async function analyzeSurveyEntriesBatched(entries, deadline) {
     const remaining = deadline - Date.now();
     if (remaining <= 15_000) return { analysis, processed, total: entries.length, timedOut: true };
     const batch = entries.slice(i, i + AI_BATCH_SIZE);
-    const raw = await callGeminiSmart([{ text: buildSurveyAnalysisPrompt(batch) }], {
-      models: AI_SURVEY_MODELS,
-      thinkingBudget: 0, // keep the 2.5-flash fallback fast too (flash-lite is already non-thinking)
+    const raw = await callAI([{ text: buildSurveyAnalysisPrompt(batch) }], {
+      thinkingBudget: 0,
+      feature: 'survey-analysis',
       timeoutMs: 45_000,
       maxTotalMs: remaining,
     });
     const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     const arr = JSON.parse(cleaned);
-    if (!Array.isArray(arr)) throw new Error('رد Gemini ليس مصفوفة JSON صالحة');
+    if (!Array.isArray(arr)) throw new Error('رد الذكاء الاصطناعي ليس مصفوفة JSON صالحة');
     analysis.push(...arr);
     processed += batch.length;
   }
@@ -1228,13 +1222,13 @@ export async function analyzeAllSurveysWithAI(req, res, next) {
           update: { status: 'error', errorMsg: err?.message, updatedAt: new Date() },
         });
         const m = String(err?.message || '');
-        const reason = /429|quota/i.test(m)
-          ? 'تم استنفاد حصة مفاتيح Gemini — حاول لاحقاً أو أضِف مفتاحاً جديداً'
-          : /No Gemini API key/i.test(m)
-            ? 'لا يوجد مفتاح Gemini مُهيّأ على الخادم'
-            : /timeout/i.test(m)
-              ? 'انتهت مهلة Gemini'
-              : `خطأ Gemini: ${m.slice(0, 160)}`;
+        const reason = err?.status === 429
+          ? 'تم تجاوز حدّ طلبات الذكاء الاصطناعي — حاول بعد دقيقة'
+          : /ANTHROPIC_API_KEY/.test(m)
+            ? 'لا يوجد مفتاح الذكاء الاصطناعي مُهيّأ على الخادم'
+            : /timeout|timed out/i.test(m)
+              ? 'انتهت مهلة الذكاء الاصطناعي'
+              : `خطأ الذكاء الاصطناعي: ${m.slice(0, 160)}`;
         results.push({ surveyId: survey.id, surveyName: survey.name, status: 'error', reason });
         continue;
       }
@@ -1320,10 +1314,10 @@ export async function analyzeSurveyWithAI(req, res, next) {
         update: { status: 'error', errorMsg: err?.message, updatedAt: new Date() },
       });
       const m = String(err?.message || '');
-      const error = /429|quota/i.test(m) ? 'تم استنفاد حصة Gemini — حاول لاحقاً'
-        : /timeout/i.test(m) ? 'انتهت مهلة Gemini — حاول مرة أخرى'
+      const error = err?.status === 429 ? 'تم تجاوز حدّ طلبات الذكاء الاصطناعي — حاول بعد دقيقة'
+        : /timeout|timed out/i.test(m) ? 'انتهت مهلة الذكاء الاصطناعي — حاول مرة أخرى'
         : /JSON/i.test(m) ? 'لم يتمكن الذكاء الاصطناعي من معالجة البيانات. حاول مرة أخرى.'
-        : 'Gemini غير متاح حالياً. حاول لاحقاً.';
+        : 'الذكاء الاصطناعي غير متاح حالياً. حاول لاحقاً.';
       return res.status(503).json({ error });
     }
 

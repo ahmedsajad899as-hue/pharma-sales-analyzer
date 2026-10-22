@@ -806,7 +806,7 @@ const normReportName = (s: string) => s.trim()
 // «open-sales» — نسخة صفحة reports المستقلة قد تبقى حيّة (keep-alive) فلا تتنافسان.
 interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; aiSalesTarget?: boolean; }
 
-// طلب «افتح مبيعات ...» كما فهمه المساعد (Gemini) — الأسماء كما نُطقت، تُطابَق هنا.
+// طلب «افتح مبيعات ...» كما فهمه المساعد (الذكاء الاصطناعي) — الأسماء كما نُطقت، تُطابَق هنا.
 interface AiSalesReq {
   company?: string | null; companyLatin?: string | null; repName?: string | null;
   warehouseName?: string | null; itemName?: string | null; areaName?: string | null; view?: string | null;

@@ -12,10 +12,9 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { callAI } from '../../lib/claudeAi.js';
 
 const AI_BATCH_SIZE = 40;
-const AI_FEEDBACK_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
 
 // نفس قيم Enum الحرّ الموثّق في schema.prisma (DoctorVisit.feedback) — pending
 // مستثناة عمداً: ليست استنتاجاً بل هي حالة "لم يُحسم" نفسها.
@@ -67,10 +66,10 @@ export async function inferVisitFeedbackBatched(visits, deadline) {
     if (remaining <= 15_000) return { results, processed, total: visits.length, timedOut: true };
     const batch = visits.slice(i, i + AI_BATCH_SIZE);
     try {
-      const raw = await callGeminiSmart([{ text: buildFeedbackPrompt(batch) }], {
-        models: AI_FEEDBACK_MODELS,
+      const raw = await callAI([{ text: buildFeedbackPrompt(batch) }], {
         thinkingBudget: 0,
         timeoutMs: 45_000,
+        feature: 'visit-feedback',
         maxTotalMs: remaining,
       });
       const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();

@@ -15,10 +15,9 @@
  * يعيد استعمال نفس نمط الدفعات + السقف الزمني من doctor-visit-feedback-ai.js.
  */
 
-import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { callAI } from '../../lib/claudeAi.js';
 
 const AI_BATCH_SIZE = 40;
-const AI_PHARMACY_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
 
 // حراسة برمجية بجانب تعليمة البرومبت — لا نثق بامتثال النموذج وحده: كلمة عامة
 // («صيدلية»/«الصيدلية»/بلا اسم مخصّص) ليست اسم صيدلية، وردَّت فعلياً رغم
@@ -62,10 +61,10 @@ export async function suggestPharmacyNamesBatched(rows, deadline) {
     if (remaining <= 15_000) break;
     const batch = rows.slice(i, i + AI_BATCH_SIZE);
     try {
-      const raw = await callGeminiSmart([{ text: buildPharmacyPrompt(batch) }], {
-        models: AI_PHARMACY_MODELS,
+      const raw = await callAI([{ text: buildPharmacyPrompt(batch) }], {
         thinkingBudget: 0,
         timeoutMs: 45_000,
+        feature: 'visit-pharmacy-match',
         maxTotalMs: remaining,
       });
       const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();

@@ -10,11 +10,10 @@
  * البقية، وأي اسم لم يُحسم يبقى 'ask' لمراجعة بشرية لاحقة.
  */
 
-import { callGeminiSmart } from '../ai-assistant/ai-assistant.controller.js';
+import { callAI } from '../../lib/claudeAi.js';
 import { getAmbiguousCandidates, applyAiCandidateMatch } from '../../lib/smartPlanMatching.js';
 
 const AI_BATCH_SIZE = 40;
-const AI_NAME_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
 
 function buildNamePrompt(batch) {
   const list = batch.map(g => ({
@@ -63,8 +62,8 @@ export async function aiResolveSmartPlanCandidates(smartPlanId, ownerUserId, dea
     const batch = withCandidateId.slice(i, i + AI_BATCH_SIZE);
     let arr;
     try {
-      const raw = await callGeminiSmart([{ text: buildNamePrompt(batch) }], {
-        models: AI_NAME_MODELS, thinkingBudget: 0, timeoutMs: 45_000, maxTotalMs: remaining,
+      const raw = await callAI([{ text: buildNamePrompt(batch) }], {
+        thinkingBudget: 0, timeoutMs: 45_000, feature: 'smart-plan-names', maxTotalMs: remaining,
       });
       const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
       arr = JSON.parse(cleaned);

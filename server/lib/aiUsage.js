@@ -1,16 +1,16 @@
-// aiUsage.js — تسجيل استهلاك Gemini وتلخيصه. التسجيل fire-and-forget: فشله لا يجوز
+// aiUsage.js — تسجيل استهلاك الذكاء الاصطناعي وتلخيصه. التسجيل fire-and-forget: فشله لا يجوز
 // أن يُسقط نداءً حقيقياً.
 import prisma from './prisma.js';
 
-export function logAiUsage({ feature = 'other', model, ok, errorKind = null, usage = null, durationMs = 0 }) {
+export function logAiUsage({ feature = 'other', model, ok, errorKind = null, promptTokens = 0, outputTokens = 0, durationMs = 0 }) {
   prisma.aiUsageLog.create({
     data: {
       feature: String(feature || 'other').slice(0, 60),
       model: String(model || '?').slice(0, 60),
       ok: Boolean(ok), errorKind,
-      promptTokens: usage?.promptTokenCount ?? 0,
-      outputTokens: usage?.candidatesTokenCount ?? 0,
-      totalTokens: usage?.totalTokenCount ?? 0,
+      promptTokens,
+      outputTokens,
+      totalTokens: promptTokens + outputTokens,
       durationMs: Math.round(durationMs || 0),
     },
   }).catch(e => console.error('[aiUsage] تعذّر التسجيل:', e?.message));
