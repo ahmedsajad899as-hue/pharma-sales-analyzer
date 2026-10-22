@@ -802,12 +802,39 @@ const normReportName = (s: string) => s.trim()
   .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ـ/g, '')
   .replace(/[ً-ٟ]/g, '').replace(/\s+/g, ' ').toLowerCase();
 
-interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; }
+// aiSalesTarget: نسخة التقارير داخل «تحليل المبيعات» فقط تستقبل أوامر المساعد
+// «open-sales» — نسخة صفحة reports المستقلة قد تبقى حيّة (keep-alive) فلا تتنافسان.
+interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; aiSalesTarget?: boolean; }
+
+// طلب «افتح مبيعات ...» كما فهمه المساعد (Gemini) — الأسماء كما نُطقت، تُطابَق هنا.
+interface AiSalesReq {
+  company?: string | null; companyLatin?: string | null; repName?: string | null;
+  itemName?: string | null; areaName?: string | null; view?: string | null;
+  period?: string | null; reportView?: string | null;
+}
+type AiSalesStep = 'route' | 'month' | 'load' | 'tags' | 'done';
+
+// مطابقة اسم منطوق مع قائمة أسماء: تام ← بلا لاحقة «/ ...» ← احتواء ← كل الكلمات.
+// ترجع كل المرشحين بالمستوى الأول الذي وجد تطابقاً كي ننبّه عند الالتباس.
+const aiMatchNames = (query: string | null | undefined, names: string[]): string[] => {
+  const q = normReportName(String(query ?? '').split('/')[0]);
+  if (!q) return [];
+  const core = (n: string) => normReportName(n.split('/')[0]);
+  const uniq = [...new Set(names.filter(Boolean))];
+  const levels: ((n: string) => boolean)[] = [
+    n => normReportName(n) === q,
+    n => core(n) === q,
+    n => { const c = core(n); return c.length >= 3 && (c.includes(q) || q.includes(c)); },
+    n => { const toks = q.split(' ').filter(t => t.length > 1); return toks.length > 0 && toks.every(t => core(n).includes(t)); },
+  ];
+  for (const test of levels) { const hit = uniq.filter(test); if (hit.length) return hit; }
+  return [];
+};
 
 // تبويب «تجاري» مخفي مؤقتاً — غيّرها إلى true لإظهاره من جديد.
 const SHOW_COMMERCIAL_MODE = false;
 
-export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
+export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }: Props) {
   const { token, user, getDefaultReportView } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
@@ -929,6 +956,15 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
   // حالة (لإعادة تشغيل التحميل التلقائي عند الحسم) + مرآة ref تقرأها
   // loadOverallReport لحظياً دون انتظار إعادة التصيير.
   const [overallTeamReady, setOverallTeamReady] = useState(false);
+  const [overallTeamsLoaded, setOverallTeamsLoaded] = useState(false);
+  const [sciRepsLoaded, setSciRepsLoaded] = useState(false);
+  // فلتر مندوب داخل «مذاخر بغداد» — يضبطه المساعد («مبيعات المذاخر لمحمود بلال»).
+  const [baghdadRepFilter, setBaghdadRepFilter] = useState<string | null>(null);
+  // أمر المساعد الجاري تطبيقه على مراحل (المسار → الشهر → التحميل → الفلاتر)
+  const [aiSalesReq, setAiSalesReq] = useState<AiSalesReq | null>(null);
+  const [aiSalesStep, setAiSalesStep] = useState<AiSalesStep>('done');
+  const aiSalesPlan = useRef<{ sciRepId: string | null; teamMatched: boolean; parts: string[]; warns: string[] }>({ sciRepId: null, teamMatched: false, parts: [], warns: [] });
+  const [aiSalesNote, setAiSalesNote] = useState<{ parts: string[]; warns: string[] } | null>(null);
   const overallTeamDefaultReady = useRef(false);
   const markTeamReady = (v: boolean) => { overallTeamDefaultReady.current = v; setOverallTeamReady(v); };
   // رقم تسلسلي لكل طلب «تحليل شامل» — نتيجة طلب أقدم تُهمَل إن كان طلب أحدث قد
@@ -982,7 +1018,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     };
     window.addEventListener('ai-page-action', handler);
     const pending = (window as any).__aiPendingAction;
-    if (pending) { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
+    // نستهلك أمرنا فقط — هذا الـeffect (ابن) يعمل قبل effect الأب RepAnalysisPage،
+    // فاستهلاك أي أمر هنا كان يبتلع «open-sales» قبل أن يصل لصاحبه.
+    if (pending?.action === 'open-export-report') { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
     return () => window.removeEventListener('ai-page-action', handler);
   }, []);
 
@@ -1002,7 +1040,8 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       .then(json => {
         const list = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : []);
         setSciReps(list);
-      }).catch(() => {});
+        setSciRepsLoaded(true);
+      }).catch(() => { setSciRepsLoaded(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -1033,8 +1072,9 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
           if (own) setOverallTeamId(own.managerId);
           markTeamReady(true);
         }
+        setOverallTeamsLoaded(true);
       })
-      .catch(() => { markTeamReady(true); });
+      .catch(() => { markTeamReady(true); setOverallTeamsLoaded(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -1561,6 +1601,158 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
     if (mode === 'commercial' && commRepId && commReport) loadCommReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selMonth, mode]);
+
+  // ── أمر المساعد «open-sales» ─────────────────────────────────────────────
+  // يصل من RepAnalysisPage عبر __aiSalesRequest (عند التركيب) أو حدث ai-open-sales.
+  useEffect(() => {
+    if (!aiSalesTarget) return;
+    const take = () => {
+      const req = (window as any).__aiSalesRequest as AiSalesReq | null;
+      if (!req) return;
+      (window as any).__aiSalesRequest = null;
+      aiSalesPlan.current = { sciRepId: null, teamMatched: false, parts: [], warns: [] };
+      setAiSalesNote(null);
+      setAiSalesReq(req);
+      setAiSalesStep('route');
+    };
+    take();
+    window.addEventListener('ai-open-sales', take);
+    return () => window.removeEventListener('ai-open-sales', take);
+  }, [aiSalesTarget]);
+
+  // يُطبَّق على مراحل لأن كل مرحلة تنتظر بيانات تصل بعد سابقتها:
+  // route (يحتاج قائمة المندوبين/التيمات) → month (قائمة أشهر الوضع الجديد) →
+  // load (تقرير العلمي؛ الشامل يحمّله تأثيره التلقائي) → tags (أسماء التقرير الفعلية).
+  useEffect(() => {
+    const req = aiSalesReq;
+    if (!req || aiSalesStep === 'done') return;
+    const plan = aiSalesPlan.current;
+    const finish = () => {
+      setAiSalesStep('done');
+      setAiSalesNote({ parts: plan.parts, warns: plan.warns });
+    };
+    const ambiguous = (label: string, spoken: string, hits: string[]) => {
+      if (hits.length > 1) plan.warns.push(`«${spoken}» يطابق أكثر من ${label}: ${hits.slice(0, 4).join('، ')} — تم اختيار «${hits[0]}»`);
+    };
+    const wantsWarehouses = req.view === 'warehouses';
+
+    if (aiSalesStep === 'route') {
+      if (req.repName && !wantsWarehouses && !sciRepsLoaded) return;
+
+      const sciHits = req.repName && !wantsWarehouses ? aiMatchNames(req.repName, sciReps.map(r => r.name)) : [];
+      const sciRep = sciHits.length ? sciReps.find(r => r.name === sciHits[0]) : undefined;
+      if (sciRep) {
+        ambiguous('مندوب', req.repName!, sciHits);
+        plan.sciRepId = String(sciRep.id);
+        plan.parts.push(`المندوب العلمي: ${sciRep.name}`);
+        autoLoaded.current = true; // لا يسبقنا التحميل التلقائي بمندوب آخر
+        setMode('scientific'); setError(''); setSciReport(null); setSciReturnsReport(null);
+        setSciRepId(String(sciRep.id));
+        if (req.company) plan.warns.push(`تقرير المندوب العلمي لا يُصفّى بالشركة — تجاهلنا «${req.company}»`);
+      } else {
+        // الشامل: ننتظر التيمات وشريحة مدير الشركة الافتراضية كي لا نُطغى عليها بعدنا
+        if (!overallTeamsLoaded || !overallTeamReady) return;
+        if (mode !== 'overall') {
+          setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false);
+          overallAutoRan.current = ''; // البيانات مُسحت — اسمح للتحميل التلقائي بالعمل من جديد
+        }
+        setOverallSelectedTags([]); setOverallSearch(''); setBaghdadRepFilter(null);
+        if (req.company) {
+          const teamNames = overallTeams.flatMap(t => [t.name, t.managerName]);
+          let hits = aiMatchNames(req.company, teamNames);
+          if (!hits.length && req.companyLatin) hits = aiMatchNames(req.companyLatin, teamNames);
+          const team = hits.length ? overallTeams.find(t => t.name === hits[0] || t.managerName === hits[0]) : undefined;
+          if (team) {
+            plan.teamMatched = true;
+            plan.parts.push(`الشركة: ${team.name}`);
+            setOverallTeamId(team.managerId);
+          }
+        }
+        if (wantsWarehouses || req.repName) { setOverallTab('baghdadWarehouse'); plan.parts.push('مذاخر بغداد'); }
+        else if (req.view === 'area' || req.view === 'item' || req.view === 'company' || req.view === 'province') setOverallTab(req.view);
+        else if (req.company) setOverallTab(plan.teamMatched ? 'company' : 'item');
+      }
+      if (req.reportView === 'sales' || req.reportView === 'returns' || req.reportView === 'net') {
+        setReportView(req.reportView);
+        plan.parts.push(req.reportView === 'returns' ? 'الإرجاعات' : req.reportView === 'net' ? 'الصافي' : 'المبيع');
+      }
+      setAiSalesStep('month');
+      return;
+    }
+
+    if (aiSalesStep === 'month') {
+      if (!monthsReady) return;
+      const p = req.period;
+      if (p) {
+        const now = new Date();
+        const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const target = p === 'this_month' ? ym(now)
+          : p === 'last_month' ? ym(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+          : p === 'all' ? 'all'
+          : /^\d{4}-\d{2}$/.test(p) ? p : null;
+        if (target === 'all') { monthsState.setMonth('all'); plan.parts.push('كل الأشهر'); }
+        else if (target && monthsState.months.some(m => m.ym === target)) {
+          monthsState.setMonth(target);
+          plan.parts.push(monthsState.months.find(m => m.ym === target)?.label ?? target);
+        } else if (target) plan.warns.push(`لا توجد بيانات لشهر ${target} — بقي الشهر المعروض`);
+      }
+      setAiSalesStep('load');
+      return;
+    }
+
+    if (aiSalesStep === 'load') {
+      if (plan.sciRepId) {
+        setReportView(v => (req.reportView ? v : getDefaultReportView()));
+        loadSciReport(plan.sciRepId);
+        finish();
+        return;
+      }
+      // تحميل صريح بالشريحة والشهر المحسومَين: التشغيل التلقائي قد يكون انطلق
+      // بقيم وسطية (تبديل الوضع ثم الشهر) ثم يتخطى الأحدث لأن طلباً جارياً —
+      // حارس التسلسل في loadOverallReport يضمن فوز هذا الطلب الأخير.
+      if ((overallFileIds.length > 0 ? overallFileIds : activeFileIds).length === 0) {
+        plan.warns.push('لا توجد ملفات مبيعات مفعّلة — فعّل ملفاً من «رفع الملفات» أولاً');
+        finish();
+        return;
+      }
+      if (!overallFilesReady.current) return;
+      if (selMonth !== MONTH_CUSTOM) loadOverallReport(overallTeamId);
+      setAiSalesStep('tags');
+      return;
+    }
+
+    if (aiSalesStep === 'tags') {
+      if (loading) return;
+      if (!overallSales) { if (error) finish(); return; }
+      const tags: { name: string; type: 'item' | 'area' | 'company' }[] = [];
+      if (req.company && !plan.teamMatched) {
+        const names = overallSales.byCompany.map(c => c.name);
+        let hits = aiMatchNames(req.company, names);
+        if (!hits.length && req.companyLatin) hits = aiMatchNames(req.companyLatin, names);
+        if (hits.length) { ambiguous('شركة', req.company, hits); tags.push({ name: hits[0], type: 'company' }); plan.parts.push(`الشركة: ${hits[0]}`); }
+        else plan.warns.push(`ما لگيت شركة باسم «${req.company}» ضمن الملفات المفعّلة`);
+      }
+      if (req.itemName) {
+        const hits = aiMatchNames(req.itemName, [...overallSales.byItem.map(i => i.name), ...(overallReturns?.byItem ?? []).map(i => i.name)]);
+        if (hits.length) { ambiguous('ايتم', req.itemName, hits); tags.push({ name: hits[0], type: 'item' }); plan.parts.push(`الايتم: ${hits[0]}`); }
+        else plan.warns.push(`ما لگيت ايتم باسم «${req.itemName}»`);
+      }
+      if (req.areaName) {
+        const hits = aiMatchNames(req.areaName, overallSales.byArea.map(a => a.name));
+        if (hits.length) { ambiguous('منطقة', req.areaName, hits); tags.push({ name: hits[0], type: 'area' }); plan.parts.push(`المنطقة: ${hits[0]}`); }
+        else plan.warns.push(`ما لگيت منطقة باسم «${req.areaName}»`);
+      }
+      if (tags.length) setOverallSelectedTags(tags);
+      if (req.repName) {
+        const repNames = [...(overallSales.byBaghdadWarehouse ?? []), ...(overallReturns?.byBaghdadWarehouse ?? [])].map(r => r.repName);
+        const hits = aiMatchNames(req.repName, repNames);
+        if (hits.length) { ambiguous('مندوب', req.repName, hits); setBaghdadRepFilter(hits[0]); plan.parts.push(`المندوب: ${hits[0]}`); }
+        else plan.warns.push(`ما لگيت مندوب باسم «${req.repName}» لا بالمندوبين العلميين ولا بمبيعات مذاخر بغداد`);
+      }
+      finish();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiSalesReq, aiSalesStep, sciRepsLoaded, overallTeamsLoaded, overallTeamReady, monthsReady, loading, overallSales, error, overallFileIds.join(',')]);
 
   const fmt = (n: number) => Math.round(n || 0).toLocaleString('ar-IQ-u-nu-latn');
 
@@ -3293,6 +3485,7 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
       const netValue = (s?.totalValue ?? 0) - (r?.totalValue ?? 0);
       if (netQty === 0 && netValue === 0) continue;
       const info = (s ?? r)!;
+      if (baghdadRepFilter && normReportName(info.repName) !== normReportName(baghdadRepFilter)) continue;
       out.push({ repName: info.repName, warehouseName: info.warehouseName, itemName: info.itemName, companyName: info.companyName || 'غير مصنّف', netQty, netValue });
     }
     return out;
@@ -3421,6 +3614,28 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
 
   return (
     <div className="page" ref={pageRootRef} tabIndex={-1} style={{ outline: 'none' }}>
+      {/* ما طبّقه المساعد الصوتي — كي يعرف المستخدم ما فُتح ويصحّحه يدوياً إن لزم */}
+      {(aiSalesNote || aiSalesStep !== 'done') && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, margin: '0 0 10px', padding: '8px 12px', borderRadius: 10, background: '#f5f3ff', border: '1px solid #ddd6fe', direction: 'rtl', fontSize: 13 }}>
+          <span>🤖</span>
+          <div style={{ flex: 1 }}>
+            {aiSalesStep !== 'done'
+              ? <span style={{ color: '#6d28d9', fontWeight: 600 }}>المساعد يفتح المبيعات المطلوبة…</span>
+              : <>
+                  <span style={{ color: '#5b21b6', fontWeight: 700 }}>
+                    تم فتح: {aiSalesNote!.parts.length ? aiSalesNote!.parts.join(' · ') : 'المبيعات'}
+                  </span>
+                  {aiSalesNote!.warns.map((w, i) => (
+                    <div key={i} style={{ color: '#b45309', marginTop: 3 }}>⚠️ {w}</div>
+                  ))}
+                </>}
+          </div>
+          {aiSalesStep === 'done' && (
+            <button onClick={() => setAiSalesNote(null)} title="إخفاء"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+          )}
+        </div>
+      )}
       {/* Mode toggle */}
       <div className="m-scroll-row" style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
         {([['overall','تحليل شامل','navReports'], ['scientific','علمي بغداد','navFms'], ['commercial',t.reports.modeCommercial,'navCommercial'], ['provinces','علمي محافظات','location']] as [string,string,import('../config/icons').IconName][])
@@ -4412,6 +4627,13 @@ export default function ReportsPage({ activeFileIds, onNavigate }: Props) {
                       style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${baghdadViewMode === 'byItem' ? '#4f46e5' : '#e2e8f0'}`, background: baghdadViewMode === 'byItem' ? '#eef2ff' : '#fff', color: baghdadViewMode === 'byItem' ? '#4338ca' : '#6b7280', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
                     >حسب الايتم</button>
                   </div>
+                  {baghdadRepFilter && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', fontSize: 12, fontWeight: 700 }}>
+                      المندوب: {baghdadRepFilter}
+                      <button onClick={() => setBaghdadRepFilter(null)} title="إزالة الفلتر"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#047857', fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>
+                    </span>
+                  )}
                   <button onClick={baghdadViewMode === 'repWarehouse' ? exportBaghdadWarehouseToExcel : exportBaghdadItemsToExcel}
                     style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                   ><Icon name="export" size={12} /> تصدير Excel</button>

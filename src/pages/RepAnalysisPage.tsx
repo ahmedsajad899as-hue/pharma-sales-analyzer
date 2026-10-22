@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePageBackHandler } from '../hooks/useBackHandler';
 import type { PageId } from '../App';
 import UploadPage from './UploadPage';
@@ -51,6 +51,26 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
     setActiveTab(id);
   };
 
+  const handleTabChangeRef = useRef(handleTabChange);
+  handleTabChangeRef.current = handleTabChange;
+
+  // أمر المساعد «open-sales» (مثلاً «افتح مبيعات شركة ديفا»): ننتقل لتبويب
+  // التقارير ونسلّم الطلب لـReportsPage عبر __aiSalesRequest — يلتقطه عند
+  // التركيب إن لم يكن معروضاً بعد، أو عبر حدث ai-open-sales إن كان معروضاً.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { action, param } = (e as CustomEvent).detail || {};
+      if (action !== 'open-sales') return;
+      (window as any).__aiSalesRequest = { ...(param && typeof param === 'object' ? param : {}), at: Date.now() };
+      handleTabChangeRef.current('reports');
+      window.dispatchEvent(new CustomEvent('ai-open-sales'));
+    };
+    window.addEventListener('ai-page-action', handler);
+    const pending = (window as any).__aiPendingAction;
+    if (pending?.action === 'open-sales') { (window as any).__aiPendingAction = null; handler(new CustomEvent('ai-page-action', { detail: pending })); }
+    return () => window.removeEventListener('ai-page-action', handler);
+  }, []);
+
   // Expose digest for AI assistant — list of active sales-data files on this page
   useEffect(() => {
     (window as any).__repAnalysisDigest = {
@@ -64,7 +84,7 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
       case 'upload':          return <UploadPage activeFileIds={activeFileIds} onFileActivated={onFileActivated} onSwitchToItems={() => handleTabChange('items')} />;
       case 'representatives': return <RepresentativesPage activeFileIds={activeFileIds} onNavigate={onNavigate} />;
       case 'scientific-reps': return <ScientificRepsPage activeFileIds={activeFileIds} />;
-      case 'reports':         return <ReportsPage activeFileIds={activeFileIds} onNavigate={onNavigate} />;
+      case 'reports':         return <ReportsPage activeFileIds={activeFileIds} onNavigate={onNavigate} aiSalesTarget />;
       case 'items':           return <ItemsPage />;
       case 'targets':         return <TargetsPage activeFileIds={activeFileIds} />;
     }

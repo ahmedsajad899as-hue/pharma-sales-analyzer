@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type { PageId } from '../App';
 import { Icon } from '../config/icons';
+import { NAV_ITEMS } from '../config/featureConfig';
 
 interface Props {
   activePage: PageId;
@@ -355,8 +356,12 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       // Auto-navigate only when no deep results to show
       if (data.navigatePage && !data.needsClarification && !data.queryResult) {
         const page = data.navigatePage as PageId;
-        const valid: PageId[] = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis','pharmacy-analysis','bonus-sales','sales-data','distributor-sales'];
-        if (valid.includes(page)) { navigateTo(page); setIsOpen(false); }
+        // نفس قائمة الصفحات الجانبية لهذا الدور (+ الصفحات القديمة غير الظاهرة فيها)
+        // — لا يُفتح بالصوت ما لا يراه المستخدم في القائمة أصلاً.
+        const legacy: PageId[] = ['upload','representatives','scientific-reps','reports'];
+        const role = user?.role ?? '';
+        const allowed = NAV_ITEMS.some(n => n.id === page && (n.roles.length === 0 || n.roles.includes(role)));
+        if (allowed || legacy.includes(page)) { navigateTo(page); setIsOpen(false); }
       }
       // Dispatch page-level actions via CustomEvent
       if (data.pageAction) {
@@ -384,6 +389,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           'open-bonus-delivery':   'bonus-sales',
           'open-bonus-upload':     'bonus-sales',
           'open-stock-upload':     'sales-data',
+          'open-sales':            'rep-analysis',
         };
         const targetPage = pageMap[data.pageAction];
         const detail = { action: data.pageAction, param: data.pageActionParam ?? null };
@@ -412,7 +418,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
     } finally {
       setIsProcessing(false);
     }
-  }, [activePage, token, navigateTo]);
+  }, [activePage, token, navigateTo, user]);
 
   const startRecording = async () => {
     reset();

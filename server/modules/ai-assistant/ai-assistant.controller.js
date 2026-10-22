@@ -322,20 +322,35 @@ year     : السنة أو null (افتراضي السنة الحالية)
 مثال: "أطباء باطنية في العامرية" → action:"query_doctors", filters:{specialty:"باطنية", areaName:"العامرية"}
 مثال: "أطباء الجلدية الي بصيدلية النور" → action:"query_doctors", filters:{specialty:"جلدية", pharmacyName:"النور"}
 
-═══ الصفحات للانتقال (navigate) ═══
-• dashboard          → الرئيسية / الداشبورد
-• monthly-plans      → الخطط الشهرية
-• doctors            → صفحة الأطباء / قائمة الأطباء
-• scientific-reps    → المندوبين العلميين
-• representatives    → المندوبين التجاريين
+═══ الصفحات للانتقال (navigate) — أسماؤها كما تظهر في القائمة الجانبية ═══
+• home               → الرئيسية / الصفحة الرئيسية / الهوم
+• dashboard          → الكولات اليومية / سجل الكولات / الداشبورد
+• rep-analysis       → تحليل المبيعات / رفع ملفات المبيعات / التارگت / الايتمات
+• doctors            → تحليل الكولات / الأطباء / قائمة الأطباء
+• monthly-plans      → البلان الشهري / الخطط الشهرية
+• daily-plan         → البلان اليومي
+• rep-field-survey   → سيرفي المندوب
+• master-survey      → سيرفي اوردين / السيرفي الرئيسي
+• fms                → FMS / العينات الشهرية
+• sales-data         → ستوك المذاخر / الستوك / بيانات الستوك / الأسعار
+• stock-ledger       → رصيد المذاخر / أرصدة المذاخر / تنبيهات الطلبيات
+• stock-flow         → تحريك المذاخر
+• distributor-sales  → تحليل الموزعين / موزعين
+• file-filter        → تنقية الملفات
+• pharmacy-analysis  → صيدليه نت / Pharmacy Net / تحليل الصيدليات
+• item-analysis      → تحليل الإيتم / تحليل الايتم
+• bonus-sales        → البونص / Bonus / تسليم البونص
 • reports            → التقارير
 • users              → المستخدمين
-• rep-analysis       → تحليل المندوب / تحليل الزيارات / تحليل المبيعات / تحليل أداء المندوب
-• upload             → رفع الملفات
-• pharmacy-analysis  → صيدليه نت / تحليل الصيدليات / بيانات الطلبات / pharmacy net
-• bonus-sales        → البونص / مبيعات البونص / تسليم البونص / تتبع البونص
-• sales-data         → ستوك / بيانات المبيعات / الستوك / الأسعار
-• distributor-sales  → تحليل مبيعات الموزعين / موزعين
+• commercial         → التجاري / صفحة المندوب التجاري
+• org-structure      → الهيكلية
+• province-teams     → فرق المحافظات
+• rep-followup       → متابعة المندوبين
+• motivation         → التحفيز
+• account-builder    → الحساب
+• aqdar-export       → أقدر
+• team-engagement    → نشاط الفريق
+⚠️ "افتح مبيعات ..." مع شركة/مندوب/مذاخر/ايتم/منطقة/شهر ليس navigate — استخدم page_action: open-sales (أدناه).
 
 ═══ إجراءات page_action (مع الصفحة المستهدفة) ═══
 
@@ -382,8 +397,24 @@ year     : السنة أو null (افتراضي السنة الحالية)
 صفحة sales-data (بيانات المبيعات / الستوك):
   • open-stock-upload       → رفع ملف ستوك / بيانات مبيعات جديد
 
+صفحة rep-analysis (تحليل المبيعات → التقارير):
+  • open-sales              → فتح شاشة المبيعات مع الفلاتر المطلوبة مطبَّقة. pageActionParam كائن JSON:
+    {"company":"اسم الشركة كما نطقه أو null","companyLatin":"نفس الشركة بحروف إنكليزية (تخمين إملائي مثل DEVA/Diva) أو null","repName":"اسم المندوب كما نطقه حرفياً أو null","itemName":"اسم الايتم أو null","areaName":"اسم المنطقة أو null","view":"warehouses|company|item|area|province أو null","period":"this_month|last_month|all|YYYY-MM أو null","reportView":"sales|returns|net أو null"}
+    • view:"warehouses" = مبيعات المذاخر / مذاخر بغداد / مبيع المذاخر
+    • period: "هذا الشهر"/"الشهر الحالي" → this_month، "الشهر الماضي"/"الشهر الفات" → last_month، "كل الأشهر"/"الكل" → all، شهر بالاسم (مثل "شهر 9" أو "أيلول") → YYYY-MM بالسنة الحالية ما لم تُذكر سنة
+    • reportView: "ارجاعات"/"مرتجعات" → returns، "صافي"/"نت" → net، غير ذلك null
+    • لا تضع الحقل إذا لم يُذكر — اتركه null. لا تخمّن شركة أو مندوب لم يُذكر.
+
 ═══ قواعد page_action ═══
 • إذا طلب المستخدم فتح نافذة أو إجراء في صفحة أخرى غير الحالية، استخدم page_action (النظام سيتنقل تلقائياً)
+• open-sales مقابل query_rep_sales: إذا كان الطلب «فتح/عرض» شاشة المبيعات ("افتح"/"اريد"/"ورّيني"/"اعرض"/"طلعلي"/"روح على"/"وديني" + مبيعات/مبيع ...) أو عبارة مبيعات مجرّدة بلا سؤال ("مبيعات شركة ديفا"/"مبيعات المذاخر"/"مبيعات محمود بلال") → page_action: open-sales.
+  أما السؤال عن رقم ("كم باع"/"شكد مبيع"/"شنو مجموع"/"تقرير مبيع") → query_rep_sales كما هو.
+• أمثلة open-sales:
+  - "اريد افتح مبيعات شركة ديفا" → pageAction:"open-sales", pageActionParam:{"company":"ديفا","companyLatin":"DEVA","repName":null,"itemName":null,"areaName":null,"view":null,"period":null,"reportView":null}
+  - "افتح مبيعات المذاخر" → pageAction:"open-sales", pageActionParam:{"company":null,"companyLatin":null,"repName":null,"itemName":null,"areaName":null,"view":"warehouses","period":null,"reportView":null}
+  - "مبيعات محمود بلال" → pageAction:"open-sales", pageActionParam:{"company":null,"companyLatin":null,"repName":"محمود بلال","itemName":null,"areaName":null,"view":null,"period":null,"reportView":null}
+  - "ورّيني ارجاعات شركة هيومانيس الشهر الماضي" → pageAction:"open-sales", pageActionParam:{"company":"هيومانيس","companyLatin":"HUMANIS","repName":null,"itemName":null,"areaName":null,"view":null,"period":"last_month","reportView":"returns"}
+  - "مبيعات المذاخر لمحمود بلال" → pageAction:"open-sales", pageActionParam:{"company":null,"companyLatin":null,"repName":"محمود بلال","itemName":null,"areaName":null,"view":"warehouses","period":null,"reportView":null}
 • إذا ذكر اسم مندوب مع طلب فتح خطته: pageAction:"open-plan", pageActionParam:"اسم المندوب"
 • للإجراءات التي لا تحتاج معامل: pageActionParam: null
 • إذا وصف المستخدم زيارة طبيب (ذكر اسم الطبيب + ايتم أو فيدباك أو ملاحظات): pageAction:"fill-visit-form", pageActionParam: كائن JSON بالشكل:
@@ -2564,7 +2595,12 @@ export async function handleCommand(req, res) {
     // query_stock is executed entirely on the frontend against window.__salesData,
     // so we only echo the parsed filters back. Frontend reads parsed.filters and runs the search.
 
-    const validPages = ['dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','reports','users','rep-analysis','pharmacy-analysis','bonus-sales','sales-data','distributor-sales'];
+    const validPages = [
+      'home','dashboard','upload','representatives','scientific-reps','doctors','monthly-plans','daily-plan','reports','users',
+      'rep-analysis','commercial','master-survey','rep-field-survey','fms','sales-data','stock-ledger','stock-flow',
+      'distributor-sales','file-filter','pharmacy-analysis','item-analysis','bonus-sales','org-structure','account-builder',
+      'aqdar-export','team-engagement','rep-followup','motivation','province-teams',
+    ];
     const navigatePage = (parsed.action === 'navigate' && validPages.includes(parsed.navigatePage))
       ? parsed.navigatePage : null;
 
@@ -2575,6 +2611,7 @@ export async function handleCommand(req, res) {
       'open-call-log', 'open-voice-call', 'open-map', 'open-export-report',
       'fill-visit-form', 'fill-pharmacy-visit', 'open-wish-list-area', 'open-doctors-area',
       'open-pharmacy-upload', 'open-bonus-upload', 'open-bonus-delivery', 'open-stock-upload',
+      'open-sales',
     ];
     const pageAction = (parsed.action === 'page_action' && validPageActions.includes(parsed.pageAction))
       ? parsed.pageAction : null;
