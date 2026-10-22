@@ -13,11 +13,16 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
+import { callAI, friendlyAiError } from '../../lib/claudeAi.js';
 
 // <جذر المشروع>/uploads — Nginx يخدم /uploads/ من جذر المشروع (راجع itemDocs.js)
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'uploads', 'showcase');
-const FACES = ['front', 'left', 'right', 'top', 'back', 'bottom'];
-const SHAPES = new Set(['box', 'frame']);
+// أوجه الصندوق الستة + wrap (بانوراما ملصق الأسطوانة) + cutFront/cutBack (قصّات بشفافية للمجسّم المقصوص)
+const FACES = ['front', 'left', 'right', 'top', 'back', 'bottom', 'wrap', 'cutFront', 'cutBack'];
+// box = صندوق، frame = لوحة رقيقة، cylinder = أسطوانة، standee = مجسّم مقصوص (شخص/ملابس/غرض)
+const SHAPES = new Set(['box', 'frame', 'cylinder', 'standee']);
+/** الصورة الإلزامية لكل شكل */
+const MAIN_FACE = { box: 'front', frame: 'front', cylinder: 'wrap', standee: 'cutFront' };
 const MAX_PER_USER = 60;
 
 const dirFor = (userId) => path.join(ROOT, crypto.createHash('sha1').update(`u${userId}`).digest('hex').slice(0, 20));
@@ -40,7 +45,20 @@ const pickMeta = (body, prev = {}) => ({
   depth:   body.depth !== undefined ? clampNum(body.depth, 0.01, 1.2, 0.33) : (prev.depth ?? 0.33),
   scale:   body.scale !== undefined ? clampNum(body.scale, 0.5, 1.6, 1)    : (prev.scale ?? 1),
   spin:    body.spin  !== undefined ? body.spin === true || body.spin === 'true' : (prev.spin ?? false),
+  // الأبعاد الحقيقية بالسنتيمتر من الاستوديو (w/h/d للصندوق، dia/h للأسطوانة)
+  dims:    body.dims !== undefined ? pickDims(body.dims) : (prev.dims ?? null),
+  cap:     body.cap !== undefined ? (/^#[0-9a-f]{6}$/i.test(String(body.cap)) ? String(body.cap) : null) : (prev.cap ?? null),
+  thick:   body.thick !== undefined ? clampNum(body.thick, 0.005, 0.3, 0.06) : (prev.thick ?? null),
+  round:   body.round !== undefined ? clampNum(body.round, 0, 0.1, 0.01) : (prev.round ?? null),
 });
+function pickDims(v) {
+  let o = v;
+  if (typeof v === 'string') { try { o = JSON.parse(v); } catch { return null; } }
+  if (!o || typeof o !== 'object') return null;
+  const out = {};
+  for (const k of ['w', 'h', 'd', 'dia']) if (o[k] !== undefined && o[k] !== null && o[k] !== '') out[k] = clampNum(o[k], 0.1, 1000, null);
+  return Object.keys(out).length ? out : null;
+}
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -67,12 +85,13 @@ router.get('/', (req, res) => {
   res.json({ success: true, data: readIndex(dir).map(e => withUrls(dir, e)) });
 });
 
-/** POST /api/showcase (multipart: front + left/right/top/back/bottom اختيارية، title, caption, shape, depth, scale, spin) */
+/** POST /api/showcase (multipart: الصورة الأساسية حسب الشكل + الباقي اختياري، title, caption, shape, depth, scale, spin, dims, cap, thick, round) */
 router.post('/', uploadFaces, (req, res) => {
   const tmp = Object.values(req.files ?? {}).flat();
   const fail = (code, msg) => { for (const f of tmp) fs.rm(f.path, () => {}); res.status(code).json({ error: msg }); };
   try {
-    if (!req.files?.front?.[0]) return fail(400, 'الصورة الأمامية مطلوبة');
+    const main = MAIN_FACE[SHAPES.has(req.body?.shape) ? req.body.shape : 'box'];
+    if (!req.files?.[main]?.[0]) return fail(400, 'الصورة الأساسية للمجسّم مطلوبة');
     const dir = dirFor(req.user.id);
     fs.mkdirSync(dir, { recursive: true });
     const list = readIndex(dir);
@@ -88,6 +107,69 @@ router.post('/', uploadFaces, (req, res) => {
     writeIndex(dir, [...list, entry]);
     res.json({ success: true, data: withUrls(dir, entry) });
   } catch (err) { fail(500, err.message); }
+});
+
+// ── ذكاء اصطناعي لاستوديو المجسّم (Claude برؤية الصور) ───────────────────────────
+// يقترح فقط — المستخدم يرى الاقتراح على الصورة ويعدّله بالسحب قبل أي حفظ.
+const firstJson = (txt) => {
+  const m = String(txt).match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('رد غير مفهوم من الذكاء الاصطناعي');
+  return JSON.parse(m[0]);
+};
+const FACE_AR = { front: 'الوجه الأمامي', back: 'الوجه الخلفي', left: 'الجانب الأيسر', right: 'الجانب الأيمن', top: 'السقف (الوجه العلوي)', bottom: 'القاعدة (الوجه السفلي)' };
+
+/** POST /api/showcase/ai/corners { image(base64 jpeg), width, height, kind: 'box'|'cylinder', face? } */
+router.post('/ai/corners', async (req, res) => {
+  try {
+    const { image, width, height, kind, face } = req.body ?? {};
+    if (!image || !width || !height) return res.status(400).json({ error: 'الصورة مطلوبة' });
+    const target = kind === 'cylinder'
+      ? 'the cylindrical product body (bottle / jar / tube / can). Return the 4 corners of the quadrilateral that tightly bounds the visible BODY: its left and right silhouette edges and the top and bottom of the cylindrical part. Exclude the cap/lid/neck/pump, the background and shadows.'
+      : `ONE flat rectangular face of a product box - the face that is photographed most frontally (largest and least foreshortened)${face ? ` (the user says it is the box's ${face} face)` : ''}. Return its 4 outer corners exactly on the printed carton edges. Exclude: background, table, shadows, any OTHER face of the box that is visible at an angle, tuck flaps, lids, hands/fingers.`;
+    const prompt = `You are a precise computer-vision assistant for building 3D product models from photos.
+The image is ${width}x${height} pixels (x to the right, y downward, origin top-left).
+Find ${target}
+Be precise to a few pixels: place each corner where the two edges of that face meet. If a corner is hidden (e.g. by a finger), extrapolate it from the straight edges.
+Reply with ONLY a JSON object, no prose:
+{"corners":[[x,y],[x,y],[x,y],[x,y]],"confidence":0.0-1.0,"rotate":0|90|180|270,"note":"short Arabic note"}
+Order the corners as they appear in the image: top-left, top-right, bottom-right, bottom-left.
+"rotate" = clockwise rotation (degrees) needed so the printed text/design of this face reads upright.`;
+    const txt = await callAI([prompt, { inlineData: { mimeType: 'image/jpeg', data: image } }], { feature: 'showcase-studio', timeoutMs: 90_000 });
+    const j = firstJson(txt);
+    const corners = Array.isArray(j.corners) && j.corners.length === 4
+      ? j.corners.map(p => [clampNum(p?.[0], 0, width, 0), clampNum(p?.[1], 0, height, 0)]) : null;
+    if (!corners) throw new Error('لم يُحدّد الذكاء الاصطناعي الزوايا');
+    res.json({ success: true, data: { corners, confidence: clampNum(j.confidence, 0, 1, 0.5), rotate: [0, 90, 180, 270].includes(j.rotate) ? j.rotate : 0, note: String(j.note ?? '').slice(0, 200) } });
+  } catch (err) { res.status(500).json({ error: friendlyAiError(err) }); }
+});
+
+/**
+ * POST /api/showcase/ai/dims { kind: 'box'|'cylinder', faces: [{ face, image(base64), ratio }] }
+ * تقدير الأبعاد الحقيقية بالسنتيمتر من الأوجه المصحَّحة (ratio = عرض/ارتفاع الوجه كما قُصّ) + أي
+ * معلومات مطبوعة (عدد الحبات/الأكياس، الحجم بالمل). تقدير فقط — القياس بالمسطرة أدق ويُنصح به.
+ */
+router.post('/ai/dims', async (req, res) => {
+  try {
+    const { kind, faces } = req.body ?? {};
+    const list = Array.isArray(faces) ? faces.filter(f => f?.image).slice(0, 6) : [];
+    if (!list.length) return res.status(400).json({ error: 'أضف صورة وجه واحد على الأقل' });
+    const parts = [];
+    const shape = kind === 'cylinder'
+      ? 'a cylindrical product (bottle/jar/tube/can). Estimate its body diameter "dia" and body height "h"'
+      : 'a rectangular product box. Estimate width "w" (horizontal size of the FRONT face), height "h" (vertical size of the FRONT face) and depth "d" (the third dimension = width of the side faces)';
+    parts.push(`You are measuring ${shape} in centimeters, as precisely as possible, from perspective-corrected photos of its faces.
+Each image below is labelled with its face name and the width/height ratio at which the user cropped it (crops can be slightly off; cross-check the ratios between faces: e.g. front.w = top.w, front.h = side.h, side.w = top.h = depth).
+Also use printed information (pack size like "30 sachets"/"10 tablets", volume in ml, standard pharmaceutical carton sizes, an EAN-13 barcode is about 3.73 cm wide at 100%) to fix the absolute scale.
+Reply with ONLY JSON: ${kind === 'cylinder' ? '{"dia":cm,"h":cm' : '{"w":cm,"h":cm,"d":cm'},"confidence":0.0-1.0,"note":"short Arabic explanation of how you estimated"}`);
+    for (const f of list) {
+      parts.push(`Face: ${f.face} (${FACE_AR[f.face] ?? f.face}), cropped ratio w/h = ${Number(f.ratio).toFixed(3)}`);
+      parts.push({ inlineData: { mimeType: 'image/jpeg', data: f.image } });
+    }
+    const j = firstJson(await callAI(parts, { feature: 'showcase-studio', timeoutMs: 120_000 }));
+    const dims = pickDims(j);
+    if (!dims) throw new Error('لم يُقدّر الذكاء الاصطناعي الأبعاد');
+    res.json({ success: true, data: { dims, confidence: clampNum(j.confidence, 0, 1, 0.5), note: String(j.note ?? '').slice(0, 300) } });
+  } catch (err) { res.status(500).json({ error: friendlyAiError(err) }); }
 });
 
 /** PUT /api/showcase/order { ids } — ترتيب العرض */

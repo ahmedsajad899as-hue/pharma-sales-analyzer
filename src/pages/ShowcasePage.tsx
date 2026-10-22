@@ -4,22 +4,32 @@
 //
 // كل عنصر: صورة أمامية + شكل (علبة بعمق، أو لوحة رقيقة للصور الشخصية والأماكن)
 // + أوجه جانبية اختيارية للعلبة. التخزين لكل مستخدم: /api/showcase (ملفات بلا جدول).
+// «استوديو المجسّم» (showcase/Studio) يبني مجسّمات دقيقة: صندوق بأبعاد حقيقية، أسطوانة،
+// ومجسّم مقصوص لشخص/ملابس — تُعرض كلها عبر ModelView.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Box3D, Coverflow, shrinkImage } from './HomePage';
+import Studio from './showcase/Studio';
+import { ModelView } from './showcase/Model3D';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-type Shape = 'box' | 'frame';
-type Face = 'front' | 'left' | 'right' | 'top' | 'back' | 'bottom';
+type Shape = 'box' | 'frame' | 'cylinder' | 'standee';
+type Face = 'front' | 'left' | 'right' | 'top' | 'back' | 'bottom' | 'wrap' | 'cutFront' | 'cutBack';
 interface ShowItem {
   id: string; title: string; caption: string; shape: Shape; depth: number; scale: number;
   faces: Partial<Record<Face, string>>; at: number;
   /** دوران كامل 360° بدل التمايل — يُستحسن معه رفع الأوجه الستة */
   spin?: boolean;
+  /** من الاستوديو: الأبعاد الحقيقية (سم)، لون غطاء الأسطوانة، سُمك المقصوص، انحناء الحواف */
+  dims?: { w?: number; h?: number; d?: number; dia?: number } | null;
+  cap?: string | null; thick?: number | null; round?: number | null;
 }
+const SHAPE_LABEL: Record<Shape, string> = { box: '📦 علبة', frame: '🖼️ لوحة', cylinder: '🥫 أسطوانة', standee: '🧍 مقصوص' };
+/** صورة مصغّرة للعنصر في قائمة الإدارة */
+const thumbOf = (it: ShowItem) => it.faces.front ?? it.faces.cutFront ?? it.faces.wrap;
 /** عمق اللوحة الرقيقة نسبةً لارتفاعها — تبقى مجسّماً يتمايل لكن بلا «علبة» */
 const FRAME_DEPTH = 0.035;
 /** انحناء حواف العلبة (نسبة من أصغر بُعدَيها) — طيّ الكرتون الحقيقي ليس حادّاً */
@@ -27,6 +37,7 @@ const BOX_ROUND = 0.01;
 const effDepth = (it: { shape: Shape; depth: number }) => (it.shape === 'frame' ? FRAME_DEPTH : it.depth);
 const FACE_LABEL: Record<Face, string> = {
   front: 'الوجه الأمامي', left: 'الجانب الأيسر', right: 'الجانب الأيمن', top: 'السقف', back: 'الخلفي', bottom: 'القاعدة',
+  wrap: 'الملصق', cutFront: 'الأمامي', cutBack: 'الخلفي',
 };
 const SIDE_FACES: Face[] = ['left', 'right', 'top', 'back', 'bottom'];
 /** أوجه Box3D غير الأمامية من مصادر العنصر */
@@ -56,6 +67,7 @@ export default function ShowcasePage() {
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState<ShowItem | 'new' | null>(null);
   const [manage, setManage] = useState(false);
+  const [studio, setStudio] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -99,7 +111,8 @@ export default function ShowcasePage() {
   return (
     <div className="s3d" dir="rtl">
       <div className="s3d-bar">
-        <button type="button" className="btn btn-primary" onClick={() => setEditing('new')}>➕ إضافة صورة</button>
+        <button type="button" className="btn btn-primary" onClick={() => setStudio(true)}>🛠️ استوديو المجسّم</button>
+        <button type="button" className="btn" onClick={() => setEditing('new')}>➕ إضافة سريعة</button>
         <button type="button" className={`btn ${manage ? 'btn-primary' : ''}`} onClick={() => setManage(v => !v)} disabled={!own.length}>
           🗂️ إدارة العناصر <small>({own.length})</small>
         </button>
@@ -117,14 +130,12 @@ export default function ShowcasePage() {
               <button type="button" className="btn btn-primary" onClick={() => setEditing('new')}>➕ إضافة أول صورة</button>
             </div>
           ) : (
-            <Coverflow count={list.length} variant="item" paused={!!editing}
+            <Coverflow count={list.length} variant="item" paused={!!editing || studio}
               render={(i) => {
                 const it = list[i];
                 return (
                   <div className="s3d-card">
-                    <Box3D src={it.faces.front!} depth={effDepth(it)} scale={it.scale} spin={it.spin} round={it.shape === 'box' ? BOX_ROUND : 0}
-                      faces={it.shape === 'box' ? boxFaces(f => it.faces[f]) : undefined}
-                      label={it.title || 'صورة'} />
+                    <ModelView item={{ ...it, round: it.round ?? BOX_ROUND }} label={it.title || 'صورة'} />
                     {(it.title || it.caption) && (
                       <div className="s3d-pill">
                         {it.title && <b>{it.title}</b>}
@@ -142,10 +153,10 @@ export default function ShowcasePage() {
         <div className="s3d-manage">
           {own.map((it, i) => (
             <div key={it.id} className="s3d-row">
-              <img src={it.faces.front} alt="" />
+              <img src={thumbOf(it)} alt="" />
               <div className="s3d-row-text">
                 <b>{it.title || '— بلا عنوان —'}</b>
-                <small>{it.shape === 'box' ? '📦 علبة' : '🖼️ لوحة'}{it.caption ? ` · ${it.caption}` : ''}</small>
+                <small>{SHAPE_LABEL[it.shape] ?? it.shape}{it.dims?.w && it.dims?.h ? ` · ${it.dims.w}×${it.dims.h}${it.dims.d ? `×${it.dims.d}` : ''} سم` : ''}{it.caption ? ` · ${it.caption}` : ''}</small>
               </div>
               <button type="button" className="s3d-icon" onClick={() => move(i, -1)} disabled={i === 0} title="تقديم">▲</button>
               <button type="button" className="s3d-icon" onClick={() => move(i, 1)} disabled={i === own.length - 1} title="تأخير">▼</button>
@@ -167,6 +178,11 @@ export default function ShowcasePage() {
             setEditing(null);
           }}
           onDelete={editing === 'new' ? undefined : () => { const it = editing; setEditing(null); remove(it); }} />
+      )}
+
+      {studio && (
+        <Studio token={token} onClose={() => setStudio(false)}
+          onSaved={(saved) => { setItems(x => [...(x ?? []), saved]); setStudio(false); }} />
       )}
 
       <style>{CSS}</style>
@@ -200,6 +216,8 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
 
   const faceSrc = (f: Face) => previews[f] ?? item?.faces[f];
   const front = faceSrc('front');
+  /** أسطوانة/مقصوص من الاستوديو: لا تُبدَّل صورها ولا شكلها هنا */
+  const studioShape = shape === 'cylinder' || shape === 'standee';
   const pick = (f: Face, file: File | undefined) => setFiles(x => {
     const n = { ...x };
     if (file) n[f] = file; else delete n[f];
@@ -252,7 +270,8 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
         </div>
         <div className="s3d-modal-body">
           <div className="s3d-preview">
-            {front ? (
+            {studioShape && item ? <ModelView item={{ ...item, scale }} label={title || 'معاينة'} />
+            : front ? (
               <Box3D key={front} src={front} depth={effDepth({ shape, depth })} scale={scale} spin={spin} round={shape === 'box' ? BOX_ROUND : 0}
                 faces={shape === 'box' ? boxFaces(faceSrc) : undefined}
                 label={title || 'معاينة'} />
@@ -260,15 +279,18 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
           </div>
 
           <div className="s3d-form">
-            <div className="s3d-seg" role="radiogroup">
-              <button type="button" className={shape === 'box' ? 'is-on' : ''} onClick={() => setShape('box')}>📦 علبة / منتج</button>
-              <button type="button" className={shape === 'frame' ? 'is-on' : ''} onClick={() => setShape('frame')}>🖼️ لوحة (شخص، مكان، أي صورة)</button>
-            </div>
-
-            <div className="s3d-faces">
-              {facePicker('front')}
-              {shape === 'box' && SIDE_FACES.map(facePicker)}
-            </div>
+            {!studioShape && (
+              <>
+                <div className="s3d-seg" role="radiogroup">
+                  <button type="button" className={shape === 'box' ? 'is-on' : ''} onClick={() => setShape('box')}>📦 علبة / منتج</button>
+                  <button type="button" className={shape === 'frame' ? 'is-on' : ''} onClick={() => setShape('frame')}>🖼️ لوحة (شخص، مكان، أي صورة)</button>
+                </div>
+                <div className="s3d-faces">
+                  {facePicker('front')}
+                  {shape === 'box' && SIDE_FACES.map(facePicker)}
+                </div>
+              </>
+            )}
             {item && <div className="s3d-hint">لتغيير الصور: احذف العنصر وأضفه من جديد.</div>}
             {shape === 'box' && !item && <div className="s3d-hint">بدون صور الجوانب تُلوَّن تلقائياً من حواف الصورة الأمامية.</div>}
 
@@ -278,7 +300,7 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
             <label className="s3d-field">وصف قصير (اختياري)
               <input className="input" value={caption} maxLength={120} onChange={e => setCaption(e.target.value)} />
             </label>
-            {shape === 'box' && (
+            {shape === 'box' && !item?.dims && (
               <label className="s3d-field">عمق العلبة <small>{Math.round(depth * 100)}٪ من الارتفاع</small>
                 <input type="range" min={0.05} max={1} step={0.01} value={depth} onChange={e => setDepth(Number(e.target.value))} />
               </label>
@@ -286,10 +308,10 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
             <label className="s3d-field">الحجم داخل البطاقة <small>×{scale.toFixed(2)}</small>
               <input type="range" min={0.6} max={1.5} step={0.05} value={scale} onChange={e => setScale(Number(e.target.value))} />
             </label>
-            <label className="s3d-check">
+            {!studioShape && <label className="s3d-check">
               <input type="checkbox" checked={spin} onChange={e => setSpin(e.target.checked)} />
               🔄 دوران كامل 360° <small>(الأفضل مع رفع الأوجه الستة)</small>
-            </label>
+            </label>}
             {err && <div className="s3d-err">{err}</div>}
           </div>
         </div>
