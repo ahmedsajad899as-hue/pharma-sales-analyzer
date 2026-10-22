@@ -579,7 +579,20 @@ export function SegEditor({ canvas, onDone, onCancel }: { canvas: HTMLCanvasElem
     } catch (e: any) { setErr(e.message || 'تعذّر تحميل نموذج إزالة الخلفية'); } // eslint-disable-line @typescript-eslint/no-explicit-any
     finally { setBusy(''); }
   };
-  useEffect(() => { if (mode === 'person') run('person'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // كشف تلقائي عند الفتح: نموذج الأشخاص أولاً؛ إن لم يجد شخصاً معقولاً (أقل من 4% أو كل الصورة)
+  // فهي قطعة ملابس/غرض → يُقصّ الغرض الذي في وسط الصورة. المستخدم يضيف نقاطاً أو يصحّح بالفرشاة.
+  const coverage = (m: Mask) => { let n = 0; for (let i = 0; i < m.a.length; i++) if (m.a[i] > 0.5) n++; return n / m.a.length; };
+  const runCenter = () => { const c = [{ x: W / 2, y: H / 2 }]; setMode('point'); setTool('pick'); setPts(c); return run('point', c); };
+  const autoDetect = async () => {
+    setBusy('تحليل الصورة… (أول مرة يُحمَّل نموذج إزالة الخلفية وقد يأخذ ثوانٍ)'); setErr('');
+    try {
+      const pm = await segmentPerson(img);
+      const cov = coverage(pm);
+      if (cov > 0.04 && cov < 0.97) { setMode('person'); setMask(pm); rebuild(pm); setBusy(''); return; }
+    } catch { /* نجرّب وضع الغرض */ }
+    await runCenter();
+  };
+  useEffect(() => { autoDetect(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pos = (e: React.PointerEvent) => {
     const r = overlayRef.current!.getBoundingClientRect();
@@ -609,7 +622,7 @@ export function SegEditor({ canvas, onDone, onCancel }: { canvas: HTMLCanvasElem
   const reset = () => {
     setPts([]); setMask(null); setResult(null);
     for (const c of [eraseRef.current, overlayRef.current]) c?.getContext('2d')!.clearRect(0, 0, W, H);
-    if (mode === 'person') run('person');
+    autoDetect();
   };
 
   return (
@@ -621,8 +634,8 @@ export function SegEditor({ canvas, onDone, onCancel }: { canvas: HTMLCanvasElem
         </div>
         <div className="st-seg-bar">
           <div className="s3d-seg" role="radiogroup">
-            <button type="button" className={mode === 'person' ? 'is-on' : ''} onClick={() => { setMode('person'); setTool('pick'); setPts([]); run('person', []); }}>🧍 شخص / عارضة (تلقائي)</button>
-            <button type="button" className={mode === 'point' ? 'is-on' : ''} onClick={() => { setMode('point'); setTool('pick'); setPts([]); setMask(null); setResult(null); }}>👕 ملابس / غرض (انقر عليه)</button>
+            <button type="button" className={mode === 'person' ? 'is-on' : ''} onClick={() => { setMode('person'); setTool('pick'); setPts([]); run('person', []); }}>🧍 شخص / عارضة</button>
+            <button type="button" className={mode === 'point' ? 'is-on' : ''} onClick={() => { setMask(null); setResult(null); runCenter(); }}>👕 ملابس / غرض</button>
           </div>
           <div className="s3d-seg">
             <button type="button" className={tool === 'pick' ? 'is-on' : ''} onClick={() => setTool('pick')} disabled={mode === 'person'}>👆 نقر</button>
@@ -634,7 +647,7 @@ export function SegEditor({ canvas, onDone, onCancel }: { canvas: HTMLCanvasElem
         </div>
         <div className="st-qe-tip">
           {mode === 'person' ? '💡 الخلفية تُزال تلقائياً للأشخاص والعارضات بملابسهم. صحّح أي جزء بالمسح أو الإرجاع.'
-            : '💡 انقر على قطعة الملابس أو الغرض (يمكن أكثر من نقرة لأجزائه المختلفة)، ثم صحّح بالفرشاة.'}
+            : '💡 قُصّ الغرض الذي في وسط الصورة تلقائياً. إن فاته جزء انقر عليه لإضافته (النقاط الخضراء)، وصحّح الحواف بالفرشاة.'}
         </div>
         <div className="st-qe-body">
           <div className="st-qe-stage">
