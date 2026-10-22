@@ -800,7 +800,7 @@ export function Box3D({ src, depth, faces, scale = 1, label, spin, round = 0 }: 
   if (meta && H > size.h * 0.6 * scale) { H = size.h * 0.6 * scale; W = H * meta.aspect; }
   const D = H * depth;
   // الحواف المستديرة: الأوجه تنكمش بنصف القطر من كل جهة (R=0 يُبقي الهندسة القديمة حرفياً)
-  const R = round > 0 && meta ? Math.max(1, Math.min(H, D) * round) : 0;
+  const R = round > 0 && meta ? Math.max(0.5, Math.min(H, D) * round) : 0;
   const fw = W - 2 * R, fh = H - 2 * R, fd = D - 2 * R;
 
   // ── سحب مجسّم spin: يوقف الدوران الذاتي ويُوقف انتشار الحدث كي لا يقلّب الدوّار البطاقات ──

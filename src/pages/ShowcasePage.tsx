@@ -23,7 +23,7 @@ interface ShowItem {
 /** عمق اللوحة الرقيقة نسبةً لارتفاعها — تبقى مجسّماً يتمايل لكن بلا «علبة» */
 const FRAME_DEPTH = 0.035;
 /** انحناء حواف العلبة (نسبة من أصغر بُعدَيها) — طيّ الكرتون الحقيقي ليس حادّاً */
-const BOX_ROUND = 0.01;
+const BOX_ROUND = 0.005;
 const effDepth = (it: { shape: Shape; depth: number }) => (it.shape === 'frame' ? FRAME_DEPTH : it.depth);
 const FACE_LABEL: Record<Face, string> = {
   front: 'الوجه الأمامي', left: 'الجانب الأيسر', right: 'الجانب الأيمن', top: 'السقف', back: 'الخلفي', bottom: 'القاعدة',
