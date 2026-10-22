@@ -370,6 +370,14 @@ const ITEM_IMAGES: ItemImage[] = [
   // Mantazol: طرفها في الصور ≈ نصف ارتفاعها (كانت 0.86 فكبر الطرف والسقف عن الواقع).
   texturedBox(n => n.includes('amoklavin') && /457|syr/.test(n), 'amoklavin-457-syrup', 0.5, 1.35),
   texturedBox(n => n.includes('mantazol'), 'mantazol', 0.5),
+  // Potafast: أوجهه الستة مقصوصة ومصحَّحة من صور العلبة لصفحة «العرض ثلاثي الأبعاد» — نفس الملفات
+  // (public/showcase/) بلا نسخة ثانية على القرص. العمق 0.44 بمعاينة المستخدم هناك.
+  {
+    match: n => n.includes('potafast'),
+    src: '/showcase/potafast-50/front.jpg', depth: 0.44,
+    faces: { left: '/showcase/potafast-50/left.jpg', right: '/showcase/potafast-50/right.jpg', top: '/showcase/potafast-50/top.jpg',
+      back: '/showcase/potafast-50/back.jpg', bottom: '/showcase/potafast-50/bottom.jpg' },
+  },
 ];
 /** علبة بصور أوجهها الأربعة في public/items/<dir>/{front,left,right,top}.jpg */
 function texturedBox(match: (n: string) => boolean, dir: string, depth: number, scale?: number): ItemImage {
