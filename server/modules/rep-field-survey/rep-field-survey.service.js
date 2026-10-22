@@ -17,6 +17,10 @@ import { cleanDoctorName } from '../../lib/surveyDoctors.js';
 import { normalizeRepName } from '../scientific-reps/scientific-reps.service.js';
 
 export const FIELD_REP_ROLE = 'scientific_rep';
+// التيم ليدر ينزل للميدان مع فريقه فيسجّل أطباء/صيدليات بنفسه كالمندوب تماماً —
+// سجلاته تُحفظ باسمه، ويرى/يعدّل سجلات فريقه كما كان.
+const TEAM_LEADER_ROLE = 'team_leader';
+const FIELD_CREATOR_ROLES = new Set([FIELD_REP_ROLE, TEAM_LEADER_ROLE]);
 
 // أقصى خطأ مقبول في دقة الموقع (متر). أي قراءة أسوأ تُرفض ولا تُحفظ.
 export const MAX_ACCURACY_M = 50;
@@ -91,8 +95,8 @@ function requireCoords(body) {
 }
 
 function assertFieldRep(user) {
-  if (user?.role !== FIELD_REP_ROLE) {
-    throw new AppError('هذه الصفحة للتسجيل متاحة لحساب المندوب العلمي فقط', 403, 'FORBIDDEN');
+  if (!FIELD_CREATOR_ROLES.has(user?.role)) {
+    throw new AppError('هذه الصفحة للتسجيل متاحة لحساب المندوب العلمي والتيم ليدر فقط', 403, 'FORBIDDEN');
   }
 }
 
@@ -166,6 +170,12 @@ async function canonicalAreaIdMap(rawNames) {
  */
 export async function resolveRepSharedScope(user) {
   const empty = { peerIds: new Set(), areaIds: new Set() };
+  // التيم ليدر: «زملاؤه» = مندوبو فريقه (نفس قائمة العرض)، بلا تقييد بالمناطق —
+  // يرى سجلاتهم كلها أصلاً، فكشف التكرار والدمج يشملها كلها (areaIds = null).
+  if (user?.role === TEAM_LEADER_ROLE) {
+    const roster = await getManagerRoster(user);
+    return { peerIds: new Set(roster.reps.map(r => r.userId).filter(id => id !== user.id)), areaIds: null };
+  }
   if (user?.role !== FIELD_REP_ROLE) return empty;
 
   const [officeIds, areaNames] = await Promise.all([
@@ -201,6 +211,7 @@ export async function resolveRepSharedScope(user) {
 
 /** هل معرّف منطقة معيَّن يقع ضمن نطاق مناطق المندوب؟ */
 function scopeHasArea(scope, areaId) {
+  if (scope.areaIds === null) return true; // التيم ليدر — كل مناطق فريقه
   return areaId != null && scope.areaIds.has(areaId);
 }
 
@@ -482,7 +493,8 @@ export async function updateEntry(user, entryId, body) {
   if (isManager) {
     // المدير ينزل للميدان أيضاً فيعدّل كالمندوب تماماً — لكن على سجلات مندوبي
     // فريقه فقط (نفس قائمة العرض)، والأدمن الكل
-    if (user.role !== 'admin') {
+    // + سجلاته هو (التيم ليدر يسجّل بنفسه)
+    if (user.role !== 'admin' && current.userId !== user.id) {
       const roster = await getManagerRoster(user);
       if (!roster.reps.some(r => r.userId === current.userId)) {
         throw new AppError('السجل غير موجود أو لا تملك صلاحية تعديله', 404, 'NOT_FOUND');
@@ -583,6 +595,11 @@ export async function listEntries(user, { repUserId = null, kind = null } = {}) 
       const roster = await getManagerRoster(user);
       reps = roster.reps;
       userIds = reps.map(r => r.userId);
+      // التيم ليدر يرى ما سجّله بنفسه أيضاً، ويظهر اسمه أول فلتر المندوبين
+      if (user.role === TEAM_LEADER_ROLE && !userIds.includes(user.id)) {
+        userIds = [user.id, ...userIds];
+        reps = [{ userId: user.id, name: user.displayName || user.username || 'أنا', company: null }, ...reps];
+      }
     }
   } else {
     throw new AppError('لا تملك صلاحية عرض هذا السيرفي', 403, 'FORBIDDEN');

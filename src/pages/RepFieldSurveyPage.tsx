@@ -179,6 +179,8 @@ function describeSave(kind: Kind, data: any): string[] {
 export default function RepFieldSurveyPage() {
   const { user, token } = useAuth();
   const isRep = user?.role === 'scientific_rep';
+  // التيم ليدر يسجّل بنفسه كالمندوب (نفس النموذج والترتيب) ويرى سجلات فريقه أيضاً
+  const canRecord = isRep || user?.role === 'team_leader';
   // التصدير محجوب عن المندوب العلمي وقائد الفريق — للإدارة فقط
   const canExport = user?.role !== 'scientific_rep' && user?.role !== 'team_leader';
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
@@ -235,16 +237,16 @@ export default function RepFieldSurveyPage() {
   const [areaOptions, setAreaOptions] = useState<string[]>([]);
   // المدير ليست له "مناطقي" — يُقترح عليه من مناطق سجلات فريقه الموجودة
   const areaSuggestions = useMemo(
-    () => (isRep ? areaOptions : [...new Set(entries.map(e => e.areaName.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'))),
+    () => (isRep ? areaOptions : [...new Set([...areaOptions, ...entries.map(e => e.areaName.trim())].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'))),
     [isRep, areaOptions, entries],
   );
   useEffect(() => {
-    if (!isRep) return;
+    if (!canRecord) return;
     fetch('/api/scientific-reps/my-areas', { headers: H() })
       .then(r => r.json())
       .then(j => setAreaOptions((j.data ?? []).map((a: { name: string }) => a.name)))
       .catch(() => setAreaOptions([]));
-  }, [isRep, H]);
+  }, [canRecord, H]);
 
   const repCompany = useMemo(() => new Map(reps.map(r => [r.userId, r.company])), [reps]);
   const nearbyOf = (pharmacyId: number) => entries.filter(x => x.kind === 'doctor' && x.pharmacyIds.includes(pharmacyId));
@@ -581,6 +583,8 @@ export default function RepFieldSurveyPage() {
           <div className="page-subtitle">
             {isRep
               ? 'سجّل الأطباء والصيدليات في مناطقك، مع تحديد موقع كل اسم بدقة. تظهر لك أيضاً أسماء زملاء مكتبك المسجَّلة في نفس مناطقك، ويمكنكم تعديلها جميعاً.'
+              : canRecord
+              ? 'سجّل الأطباء والصيدليات بنفسك، مع تحديد موقع كل اسم بدقة. تظهر لك أيضاً سجلات مندوبي فريقك ويمكنك تعديلها.'
               : `السجلات الميدانية لمندوبي فريقك — للاطلاع${canExport ? ' والتصدير' : ''}.`}
           </div>
         </div>
@@ -626,7 +630,7 @@ export default function RepFieldSurveyPage() {
       </div>
 
       {/* ── نموذج التسجيل ── */}
-      {isRep && (
+      {canRecord && (
         <section className="card rfs-card">
           <div className="rfs-card-head">
             <div className="section-title">تسجيل جديد</div>
