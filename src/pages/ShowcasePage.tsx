@@ -23,6 +23,20 @@ const FRAME_DEPTH = 0.035;
 const effDepth = (it: { shape: Shape; depth: number }) => (it.shape === 'frame' ? FRAME_DEPTH : it.depth);
 const FACE_LABEL: Record<Face, string> = { front: 'الوجه الأمامي', left: 'الجانب الأيسر', right: 'الجانب الأيمن', top: 'السقف' };
 
+/**
+ * مجسّمات جاهزة تُعرض أولاً لكل من فُعّلت له الصفحة — أوجهها في public/showcase/<dir>/
+ * مقصوصة ومصحَّحة المنظور يدوياً من صور العلبة (نفس اصطلاح أوجه Box3D في الرئيسية).
+ * لا تُعدَّل ولا تُحذف من الصفحة؛ تُضاف/تُزال هنا في الكود.
+ */
+const presetBox = (dir: string, title: string, depth: number, faces: Face[]): ShowItem => ({
+  id: `preset:${dir}`, title, caption: '', shape: 'box', depth, scale: 1, at: 0,
+  faces: Object.fromEntries(faces.map(f => [f, `/showcase/${dir}/${f}.jpg`])),
+});
+const PRESETS: ShowItem[] = [
+  presetBox('potafast-50', 'Potafast 50 mg', 0.71, ['front', 'top']),
+];
+const isPreset = (it: ShowItem) => it.id.startsWith('preset:');
+
 export default function ShowcasePage() {
   const { token } = useAuth();
   const H = { Authorization: `Bearer ${token}` };
@@ -68,13 +82,14 @@ export default function ShowcasePage() {
     else el.requestFullscreen?.().catch(() => {});
   };
 
-  const list = items ?? [];
+  const own = items ?? [];
+  const list = [...PRESETS, ...own];
   return (
     <div className="s3d" dir="rtl">
       <div className="s3d-bar">
         <button type="button" className="btn btn-primary" onClick={() => setEditing('new')}>➕ إضافة صورة</button>
-        <button type="button" className={`btn ${manage ? 'btn-primary' : ''}`} onClick={() => setManage(v => !v)} disabled={!list.length}>
-          🗂️ إدارة العناصر <small>({list.length})</small>
+        <button type="button" className={`btn ${manage ? 'btn-primary' : ''}`} onClick={() => setManage(v => !v)} disabled={!own.length}>
+          🗂️ إدارة العناصر <small>({own.length})</small>
         </button>
         <button type="button" className="btn" onClick={fullscreen} disabled={!list.length}>⛶ ملء الشاشة</button>
         {err && <span className="s3d-err">{err}</span>}
@@ -82,7 +97,7 @@ export default function ShowcasePage() {
 
       <div className="s3d-stage" ref={stageRef}>
         <div className="s3d-stars" aria-hidden="true" />
-        {items === null ? <div className="s3d-empty">جاري التحميل…</div>
+        {items === null && !list.length ? <div className="s3d-empty">جاري التحميل…</div>
           : list.length === 0 ? (
             <div className="s3d-empty">
               <div style={{ fontSize: 46 }}>🧊</div>
@@ -107,13 +122,13 @@ export default function ShowcasePage() {
                   </div>
                 );
               }}
-              onOpen={(i) => setEditing(list[i])} />
+              onOpen={(i) => { if (!isPreset(list[i])) setEditing(list[i]); }} />
           )}
       </div>
 
-      {manage && list.length > 0 && (
+      {manage && own.length > 0 && (
         <div className="s3d-manage">
-          {list.map((it, i) => (
+          {own.map((it, i) => (
             <div key={it.id} className="s3d-row">
               <img src={it.faces.front} alt="" />
               <div className="s3d-row-text">
@@ -121,7 +136,7 @@ export default function ShowcasePage() {
                 <small>{it.shape === 'box' ? '📦 علبة' : '🖼️ لوحة'}{it.caption ? ` · ${it.caption}` : ''}</small>
               </div>
               <button type="button" className="s3d-icon" onClick={() => move(i, -1)} disabled={i === 0} title="تقديم">▲</button>
-              <button type="button" className="s3d-icon" onClick={() => move(i, 1)} disabled={i === list.length - 1} title="تأخير">▼</button>
+              <button type="button" className="s3d-icon" onClick={() => move(i, 1)} disabled={i === own.length - 1} title="تأخير">▼</button>
               <button type="button" className="s3d-icon" onClick={() => setEditing(it)} title="تعديل">✏️</button>
               <button type="button" className="s3d-icon is-del" onClick={() => remove(it)} title="حذف">🗑️</button>
             </div>
