@@ -12,6 +12,9 @@
 // ║  hasFeature('key'). لو نسيت، ستحصل على تحذير في console (وضع dev فقط)   ║
 // ║  لأن ALL_FEATURE_KEYS المُصدَّرة من هنا تُستخدم للتحقق من كل مفتاح يُمرَّر ║
 // ║  إلى hasFeature() في AuthContext.                                       ║
+// ║                                                                          ║
+// ║  ⚠️ صفحة جديدة = مخفية عن الجميع حتى يفعّلها السوبر أدمن (قاعدة ثابتة): ║
+// ║  أضف مفتاحها في FEATURE_PAGE_MAP **وفي OPT_IN_FEATURES** أدناه.          ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 export interface NavItemDef {
@@ -279,6 +282,30 @@ function collectKeys(nodes: FeatureNode[], out: Set<string>) {
     if (n.children) collectKeys(n.children, out);
   }
 }
+// ── ميزات «اشتراك» (opt-in): مطفأة لكل حساب حتى يفعّلها السوبر أدمن صراحةً من «المميزات» ──
+// بعكس باقي المفاتيح (مفعّلة ما لم تُضَف إلى permissions.disabledFeatures)، هذه لا تُعدّ
+// مفعّلة إلا إن وُجدت في permissions.enabledFeatures — كي لا تظهر صفحة جديدة لكل
+// المستخدمين لحظة نشرها. كل صفحة جديدة تُضاف هنا.
+export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
+  'showcase_3d',
+]);
+
+interface FeaturePerms { disabledFeatures?: string[]; enabledFeatures?: string[] }
+/** المصدر الوحيد لقرار «هل الميزة مفعّلة» — يستعمله AuthContext وشاشات السوبر أدمن */
+export function isFeatureEnabled(perms: FeaturePerms | null | undefined, key: string): boolean {
+  if ((perms?.disabledFeatures ?? []).includes(key)) return false;
+  return !OPT_IN_FEATURES.has(key) || (perms?.enabledFeatures ?? []).includes(key);
+}
+/** قائمة «المعطّل» الفعلية كما تعرضها شاشة المميزات: disabledFeatures + ميزات الاشتراك غير المفعّلة */
+export function effectiveDisabledFeatures(perms: FeaturePerms | null | undefined): string[] {
+  const out = new Set(perms?.disabledFeatures ?? []);
+  for (const k of OPT_IN_FEATURES) if (!isFeatureEnabled(perms, k)) out.add(k);
+  return Array.from(out);
+}
+/** عكسها عند الحفظ: ميزات الاشتراك غير الموجودة في قائمة المعطّل = مفعّلة صراحةً */
+export const enabledOptInFeatures = (disabled: string[]): string[] =>
+  Array.from(OPT_IN_FEATURES).filter(k => !disabled.includes(k));
+
 export const ALL_FEATURE_KEYS: Set<string> = (() => {
   const s = new Set<string>();
   collectKeys(FEATURE_TREE, s);

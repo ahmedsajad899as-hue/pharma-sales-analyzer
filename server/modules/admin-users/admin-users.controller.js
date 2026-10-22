@@ -899,7 +899,7 @@ export async function syncProvinceLeaderScope(req, res) {
 // ── Set user features (enable/disable per-user features) ────────────────────
 export async function setUserFeatures(req, res) {
   const id = parseInt(req.params.id);
-  const { disabledFeatures = [], requireGps, disableActivityLog, doctorFilterByArea, doctorFilterPlanMode, doctorFilterSurveyOnly, hiddenFromOrgChart, defaultReportView, timeTheme } = req.body;
+  const { disabledFeatures = [], enabledFeatures, requireGps, disableActivityLog, doctorFilterByArea, doctorFilterPlanMode, doctorFilterSurveyOnly, hiddenFromOrgChart, defaultReportView, timeTheme } = req.body;
 
   const existing = await prisma.user.findUnique({ where: { id }, select: { permissions: true } });
   if (!existing) return res.status(404).json({ error: 'User not found' });
@@ -907,6 +907,8 @@ export async function setUserFeatures(req, res) {
   let perms = {};
   try { perms = JSON.parse(existing.permissions || '{}'); } catch {}
   perms.disabledFeatures = disabledFeatures;
+  // ميزات الاشتراك (OPT_IN_FEATURES في featureConfig.ts) المفعّلة صراحةً — مطفأة ما لم تكن هنا
+  if (Array.isArray(enabledFeatures)) perms.enabledFeatures = enabledFeatures.map(String);
   if (requireGps !== undefined) perms.requireGps = Boolean(requireGps);
   if (disableActivityLog !== undefined) perms.disableActivityLog = Boolean(disableActivityLog);
   if (doctorFilterByArea !== undefined)     perms.doctorFilterByArea     = Boolean(doctorFilterByArea);
@@ -954,8 +956,13 @@ export async function bulkSetUserFeature(req, res) {
       let perms = {};
       try { perms = JSON.parse(u.permissions || '{}'); } catch {}
       const current = new Set(perms.disabledFeatures ?? []);
-      if (enabled) current.delete(featureKey); else current.add(featureKey);
+      // enabledFeatures = ميزات الاشتراك المفعّلة صراحةً (OPT_IN_FEATURES) — نحدّثها معاً كي
+      // يصحّ التفعيل لأي مفتاح دون أن يعرف السيرفر أيها «اشتراك»
+      const optedIn = new Set(perms.enabledFeatures ?? []);
+      if (enabled) { current.delete(featureKey); optedIn.add(featureKey); }
+      else { current.add(featureKey); optedIn.delete(featureKey); }
       perms.disabledFeatures = Array.from(current);
+      perms.enabledFeatures = Array.from(optedIn);
       await prisma.user.update({ where: { id: u.id }, data: { permissions: JSON.stringify(perms) } });
       invalidateAllAreasFlag(u.id);
     } catch (e) {

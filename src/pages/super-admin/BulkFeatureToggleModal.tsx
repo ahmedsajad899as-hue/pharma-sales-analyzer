@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { btnStyle } from './OfficesPage';
-import { FEATURE_TREE, NAV_ITEMS, STANDALONE_FEATURES } from '../../config/featureConfig';
+import { FEATURE_TREE, NAV_ITEMS, STANDALONE_FEATURES, isFeatureEnabled } from '../../config/featureConfig';
 import type { FeatureNode } from '../../config/featureConfig';
 
 const ROLES: Record<string, string> = {
@@ -32,8 +32,7 @@ const PAGES: { id: string; node: FeatureNode }[] = NAV_ITEMS.map((item, i) => ({
 function isEnabledFor(u: UserRow, featureKey: string): boolean {
   if (!featureKey) return true;
   try {
-    const p = JSON.parse(u.permissions || '{}');
-    return !((p.disabledFeatures ?? []) as string[]).includes(featureKey);
+    return isFeatureEnabled(JSON.parse(u.permissions || '{}'), featureKey);
   } catch { return true; }
 }
 

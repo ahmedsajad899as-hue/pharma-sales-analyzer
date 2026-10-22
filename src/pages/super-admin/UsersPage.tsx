@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
-import { getVisiblePageNodes, STANDALONE_FEATURES, FEATURE_PAGE_MAP } from '../../config/featureConfig';
+import { getVisiblePageNodes, STANDALONE_FEATURES, FEATURE_PAGE_MAP, effectiveDisabledFeatures, enabledOptInFeatures } from '../../config/featureConfig';
 import type { FeatureNode } from '../../config/featureConfig';
 import UsersBulkImportModal from './UsersBulkImportModal';
 import BulkFeatureToggleModal from './BulkFeatureToggleModal';
@@ -339,7 +339,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     setDraftsUserId(detail.id);
     try {
       const p = JSON.parse(detail.permissions || '{}');
-      setDraftDisabledFeats(p.disabledFeatures ?? []);
+      setDraftDisabledFeats(effectiveDisabledFeatures(p));
       setDraftRequireGps(p.requireGps !== false);
       setDraftDisableActLog(p.disableActivityLog === true);
       setDraftHiddenOrgChart(p.hiddenFromOrgChart === true);
@@ -350,7 +350,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       });
       setDraftDefaultReportView(['sales', 'returns', 'net'].includes(p.defaultReportView) ? p.defaultReportView : 'net');
       setDraftTimeTheme(p.timeTheme === true);
-    } catch { setDraftDisabledFeats([]); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftHiddenOrgChart(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); setDraftDefaultReportView('net'); setDraftTimeTheme(false); }
+    } catch { setDraftDisabledFeats(effectiveDisabledFeatures(null)); setDraftRequireGps(true); setDraftDisableActLog(false); setDraftHiddenOrgChart(false); setDraftDoctorFilter({ byArea: true, planMode: 'plan_and_all', surveyOnly: false }); setDraftDefaultReportView('net'); setDraftTimeTheme(false); }
   }, [detail?.id]);
 
   // طيّ افتراضي عند فتح مستخدم: نطوي كل مجموعة (محافظة أو «غير محدد») لا صلة لها
@@ -910,6 +910,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       const res = await fetch(`/api/sa/users/${detail.id}/features`, {
         method: 'PUT', headers: H(), body: JSON.stringify({
           disabledFeatures: draftDisabledFeats,
+          enabledFeatures: enabledOptInFeatures(draftDisabledFeats),
           requireGps: draftRequireGps,
           disableActivityLog: draftDisableActLog,
           hiddenFromOrgChart: draftHiddenOrgChart,

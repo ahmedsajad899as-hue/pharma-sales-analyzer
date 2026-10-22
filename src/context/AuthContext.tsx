@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
-import { ALL_FEATURE_KEYS } from '../config/featureConfig';
+import { ALL_FEATURE_KEYS, isFeatureEnabled } from '../config/featureConfig';
 
 export interface AuthUser {
   id: number;
@@ -197,8 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.warn(`[hasFeature] المفتاح "${key}" غير مسجَّل في src/config/featureConfig.ts — أضِفه إلى PAGE_CHILDREN أو STANDALONE_FEATURES وإلا فلن يظهر تبديله في شاشة المميزات عند الأدمن.`);
     }
     try {
-      const p = JSON.parse(user?.permissions || '{}');
-      return !(p.disabledFeatures ?? []).includes(key);
+      return isFeatureEnabled(JSON.parse(user?.permissions || '{}'), key);
     } catch { return true; }
   };
 
