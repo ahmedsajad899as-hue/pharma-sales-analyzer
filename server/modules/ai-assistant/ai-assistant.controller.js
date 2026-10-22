@@ -35,7 +35,7 @@ function fuzzyFind(list, key, query) {
 }
 
 // ── Gemini system prompt ──────────────────────────────────────
-function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext, distributorContext, repAnalysisContext, pharmNetContext, bonusContext }) {
+function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemNames, areaNames, planNames, salesContext, distributorContext, repAnalysisContext, pharmNetContext, bonusContext, salesNames, recentTurns }) {
   const now      = new Date();
   const curDay   = now.getDate();
   const curMonth = now.getMonth() + 1;
@@ -65,6 +65,21 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
   const repAnalysisFilesText = rac && Array.isArray(rac.activeFileIds) && rac.activeFileIds.length
     ? `${rac.activeFileIds.length} ملف نشط (IDs: ${rac.activeFileIds.join(', ')})`
     : 'لا توجد ملفات نشطة على صفحة تحليل ملفات المندوبين';
+
+  // ── أسماء تقارير المبيعات الفعلية (شركات/مذاخر/مندوبين) — يرسلها المتصفح من
+  // آخر «تحليل شامل» حمّله المستخدم، كي يطابق Gemini النطق العامي بالاسم الصحيح.
+  const sn = salesNames && typeof salesNames === 'object' ? salesNames : null;
+  const snList = (arr, max) => Array.isArray(arr) && arr.length ? arr.slice(0, max).join('، ') : 'غير متاح';
+  const salesNamesText = sn ? `الشركات/التيمات: ${snList([...(sn.teams || []), ...(sn.companies || [])], 80)}
+المذاخر (مذاخر بغداد): ${snList(sn.warehouses, 150)}
+المندوبون التجاريون (مبيعات المذاخر): ${snList(sn.commercialReps, 80)}
+المندوبون العلميون: ${snList(sn.sciReps, 100)}` : 'غير متاحة بعد (لم يُفتح التحليل الشامل على هذا الجهاز)';
+
+  // آخر الأوامر في جلسة الاستماع الحالية — لفهم «وهسه الشهر الماضي» / «لا، الكرخ»
+  const turns = Array.isArray(recentTurns) ? recentTurns.slice(-4) : [];
+  const turnsText = turns.length
+    ? turns.map((t, i) => `${i + 1}) قال: «${String(t.heard || '').slice(0, 200)}» → ${String(t.action || '')}${t.pageAction ? ':' + t.pageAction : ''} ${t.param ? JSON.stringify(t.param).slice(0, 300) : ''}${t.question ? ` | سألناه: ${String(t.question).slice(0, 200)}` : ''}`).join('\n')
+    : 'لا يوجد';
 
   return `أنت مساعد ذكي للتحكم الكامل في تطبيق مبيعات صيدلانية. مهمتك: تحليل أمر المستخدم وإرجاع query spec دقيق.
 
@@ -99,6 +114,29 @@ function buildSystemPrompt({ currentPage, userRole, repNames, doctorNames, itemN
 الأيتمات: ${itemsText}
 المناطق: ${areasText}
 الخطط الشهرية (أسماء المندوبين): ${plansText}
+
+═══ أسماء تقارير المبيعات (للمطابقة الصوتية في open-sales) ═══
+${salesNamesText}
+• عند open-sales: إذا كان الاسم المنطوق قريباً صوتياً من اسم في هذه القوائم، اكتب الاسم **كما في القائمة** (مثلاً سمع «الناگوس» والقائمة فيها «مذخر الناقوس» → warehouseName:"مذخر الناقوس"). إذا لم يقترب من أي اسم اكتبه كما نُطق.
+
+═══ الأوامر السابقة في نفس جلسة الاستماع ═══
+${turnsText}
+• الأمر الحالي قد يكون تكملة أو تصحيحاً لما سبق: «وهسه الشهر الماضي» / «نفسه بس ارجاعات» / «لا، مو هذا، الثاني» / «وشركة هيومانيس؟» → خذ معاملات الأمر السابق وعدّل فقط ما ذُكر الآن.
+• إذا سألناه سؤال توضيح سابقاً، فالأمر الحالي غالباً جوابه — نفّذ الطلب الأصلي مع الجواب.
+
+═══ فهم الكلام العامي العراقي (مهم جداً) ═══
+المستخدم يحجي باللهجة العراقية، بسرعة، وبدون ترتيب، وأحياناً يخلط عربي وإنكليزي. افهم المقصد لا الحرف:
+• طلب فتح/عرض: طلعلي، طلّعلي، ورّيني، راويني، شوفلي، جيبلي، افتحلي، فتحلي، وديني، روح على، خلّيني اشوف، اريد، ابي، بدي، عطيني، هاتلي
+• سؤال عن رقم: شكد، شگد، كم، شنو مجموع، شقد باع، شكد طالع، شكد صار
+• زمن: هسه/هسا = الآن، هالشهر/الشهر هذا = this_month، الشهر الفات/الشهر الي فات/الماضي = last_month، اليوم، البارحة/امس، هالاسبوع
+• «مال»/«حق» = تبع/لـ (مبيعات مال ديفا = مبيعات شركة ديفا)
+• «مذخر»/«مذاخر»/«المخزن» في سياق المبيعات = مذاخر بغداد (view:"warehouses")، و«مذخر X» = warehouseName:"X"
+• «المندوب»/«الرب»/«rep» = مندوب. «ايتم»/«آيتم»/«دوا»/«علاج»/«منتج»/«صنف» = item
+• «ارجاع»/«رجّع»/«مرتجع»/«ريترن» = returns، «صافي»/«نت» = net
+• كلمات حشو تُتجاهل: يعني، هاا، اممم، شلون اگولك، دخلّي، بلا زحمة، رجاءً، حبيبي، اخي، ممكن، لو سمحت
+• الگاف العراقية = ق أو ك (گ ↔ ق ↔ ك)، والچ = ك أو ج — طبّق ذلك عند مطابقة الأسماء
+• إذا ذكر عدة فلاتر بنفس الجملة («افتح مبيعات ديفا الشهر الفات للمذاخر») اجمعها بأمر واحد.
+• لا تطلب توضيحاً إلا إذا كان الطلب مبهماً فعلاً؛ الأفضل تنفيذ أقرب فهم معقول.
 
 ═══ الإجراءات المتاحة ═══
 1. query_visits            → استعلام زيارات أطباء أو صيدليات بمرونة تامة
@@ -399,8 +437,8 @@ year     : السنة أو null (افتراضي السنة الحالية)
 
 صفحة rep-analysis (تحليل المبيعات → التقارير):
   • open-sales              → فتح شاشة المبيعات مع الفلاتر المطلوبة مطبَّقة. pageActionParam كائن JSON:
-    {"company":"اسم الشركة كما نطقه أو null","companyLatin":"نفس الشركة بحروف إنكليزية (تخمين إملائي مثل DEVA/Diva) أو null","repName":"اسم المندوب كما نطقه حرفياً أو null","itemName":"اسم الايتم أو null","areaName":"اسم المنطقة أو null","view":"warehouses|company|item|area|province أو null","period":"this_month|last_month|all|YYYY-MM أو null","reportView":"sales|returns|net أو null"}
-    • view:"warehouses" = مبيعات المذاخر / مذاخر بغداد / مبيع المذاخر
+    {"company":"اسم الشركة كما نطقه أو null","companyLatin":"نفس الشركة بحروف إنكليزية (تخمين إملائي مثل DEVA/Diva) أو null","repName":"اسم المندوب كما نطقه حرفياً أو null","warehouseName":"اسم المذخر أو null","itemName":"اسم الايتم أو null","areaName":"اسم المنطقة أو null","view":"warehouses|company|item|area|province أو null","period":"this_month|last_month|all|YYYY-MM أو null","reportView":"sales|returns|net أو null"}
+    • view:"warehouses" = مبيعات المذاخر / مذاخر بغداد / مبيع المذاخر. ذِكر مذخر بعينه (warehouseName) يعني view:"warehouses" أيضاً
     • period: "هذا الشهر"/"الشهر الحالي" → this_month، "الشهر الماضي"/"الشهر الفات" → last_month، "كل الأشهر"/"الكل" → all، شهر بالاسم (مثل "شهر 9" أو "أيلول") → YYYY-MM بالسنة الحالية ما لم تُذكر سنة
     • reportView: "ارجاعات"/"مرتجعات" → returns، "صافي"/"نت" → net، غير ذلك null
     • لا تضع الحقل إذا لم يُذكر — اتركه null. لا تخمّن شركة أو مندوب لم يُذكر.
@@ -415,6 +453,10 @@ year     : السنة أو null (افتراضي السنة الحالية)
   - "مبيعات محمود بلال" → pageAction:"open-sales", pageActionParam:{"company":null,"companyLatin":null,"repName":"محمود بلال","itemName":null,"areaName":null,"view":null,"period":null,"reportView":null}
   - "ورّيني ارجاعات شركة هيومانيس الشهر الماضي" → pageAction:"open-sales", pageActionParam:{"company":"هيومانيس","companyLatin":"HUMANIS","repName":null,"itemName":null,"areaName":null,"view":null,"period":"last_month","reportView":"returns"}
   - "مبيعات المذاخر لمحمود بلال" → pageAction:"open-sales", pageActionParam:{"company":null,"companyLatin":null,"repName":"محمود بلال","itemName":null,"areaName":null,"view":"warehouses","period":null,"reportView":null}
+  - "طلعلي مبيعات مذخر الناقوس" → pageAction:"open-sales", pageActionParam:{"company":null,"companyLatin":null,"repName":null,"warehouseName":"الناقوس","itemName":null,"areaName":null,"view":"warehouses","period":null,"reportView":null}
+  - "هاا شوفلي مال ديفا الشهر الفات" → pageAction:"open-sales", pageActionParam:{"company":"ديفا","companyLatin":"DEVA","repName":null,"itemName":null,"areaName":null,"view":null,"period":"last_month","reportView":null}
+  - "اريد مبيعات محمود بلال بمذخر النور" → pageAction:"open-sales", pageActionParam:{"company":null,"companyLatin":null,"repName":"محمود بلال","warehouseName":"النور","itemName":null,"areaName":null,"view":"warehouses","period":null,"reportView":null}
+  - (بعد أمر سابق open-sales لديفا) "وهسه نفسه بس ارجاعات" → نفس معاملات ديفا + reportView:"returns"
 • إذا ذكر اسم مندوب مع طلب فتح خطته: pageAction:"open-plan", pageActionParam:"اسم المندوب"
 • للإجراءات التي لا تحتاج معامل: pageActionParam: null
 • إذا وصف المستخدم زيارة طبيب (ذكر اسم الطبيب + ايتم أو فيدباك أو ملاحظات): pageAction:"fill-visit-form", pageActionParam: كائن JSON بالشكل:
@@ -578,7 +620,8 @@ null        → قائمة مباشرة
   "groupBy": null,
   "sortBy": "date_desc",
   "limit": 50,
-  "responseText": "جملة عربية تصف ما ستعرضه",
+  "responseText": "جملة عربية قصيرة تصف ما ستعرضه",
+  "heard": "ما قاله المستخدم بالضبط (نص التسجيل/الأمر كما فهمته، بلهجته)",
   "needsClarification": false,
   "question": ""
 }`;
@@ -2541,6 +2584,8 @@ export async function handleCommand(req, res) {
       repAnalysisContext: context.repAnalysisContext || null,
       pharmNetContext: context.pharmNetContext || null,
       bonusContext: context.bonusContext || null,
+      salesNames: context.salesNames || null,
+      recentTurns: context.recentTurns || null,
     });
 
     let geminiText;
@@ -2554,7 +2599,7 @@ export async function handleCommand(req, res) {
       geminiText = await callGemini([
         systemPrompt,
         { inlineData: { mimeType, data: audioBase64 } },
-        'استمع للتسجيل بدقّة عالية. تجاهل التأخير وكلمات الحشو والتكرار. إذا صحّح المتحدث نفسه، خذ التصحيح الأخير. إذا كان النطق غير واضح اختر أقرب اسم من قوائم البيانات أعلاه (الأيتمات/الشركات/المناطق/المذاخر) صوتياً وكتابياً. أرجع JSON فقط.',
+        'استمع للتسجيل بدقّة عالية — المتحدث عراقي يحجي بلهجته العامية بسرعة ومن دون ترتيب، وقد يخلط كلمات إنكليزية. افهم المقصد لا الحرف. تجاهل التأخير وكلمات الحشو والتكرار والضجيج والكلام الجانبي غير الموجّه للتطبيق. إذا صحّح المتحدث نفسه («لا لا، قصدي...») خذ التصحيح الأخير. إذا كان نطق اسم غير واضح اختر أقرب اسم صوتياً من القوائم أعلاه (المندوبون/الشركات/المذاخر/الأيتمات/المناطق) مع مراعاة گ=ق=ك و چ=ك=ج. اكتب ما سمعته في الحقل heard. إذا لم يكن في التسجيل أمر واضح للتطبيق (سكوت أو كلام جانبي) أرجع action:"unknown" و heard:"". أرجع JSON فقط.',
       ]);
     } else {
       geminiText = await callGemini([

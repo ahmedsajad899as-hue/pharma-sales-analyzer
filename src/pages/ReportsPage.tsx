@@ -809,7 +809,7 @@ interface Props { activeFileIds: number[]; onNavigate?: (page: PageId) => void; 
 // طلب «افتح مبيعات ...» كما فهمه المساعد (Gemini) — الأسماء كما نُطقت، تُطابَق هنا.
 interface AiSalesReq {
   company?: string | null; companyLatin?: string | null; repName?: string | null;
-  itemName?: string | null; areaName?: string | null; view?: string | null;
+  warehouseName?: string | null; itemName?: string | null; areaName?: string | null; view?: string | null;
   period?: string | null; reportView?: string | null;
 }
 type AiSalesStep = 'route' | 'month' | 'load' | 'tags' | 'done';
@@ -960,6 +960,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const [sciRepsLoaded, setSciRepsLoaded] = useState(false);
   // فلتر مندوب داخل «مذاخر بغداد» — يضبطه المساعد («مبيعات المذاخر لمحمود بلال»).
   const [baghdadRepFilter, setBaghdadRepFilter] = useState<string | null>(null);
+  // وفلتر مذخر («طلعلي مبيعات مذخر الناقوس»)
+  const [baghdadWarehouseFilter, setBaghdadWarehouseFilter] = useState<string | null>(null);
   // أمر المساعد الجاري تطبيقه على مراحل (المسار → الشهر → التحميل → الفلاتر)
   const [aiSalesReq, setAiSalesReq] = useState<AiSalesReq | null>(null);
   const [aiSalesStep, setAiSalesStep] = useState<AiSalesStep>('done');
@@ -1602,6 +1604,27 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selMonth, mode]);
 
+  // أسماء التقرير الفعلية → المساعد الصوتي (يطابق بها النطق العامي). تُحفظ لكل
+  // مستخدم في localStorage كي تتوفر حتى لو لم تكن صفحة التقارير مفتوحة.
+  useEffect(() => {
+    if (!user?.id || (!overallSales && !sciRepsLoaded)) return;
+    const key = `ai_sales_names_${user.id}`;
+    let prev: any = {};
+    try { prev = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch { /* ignore */ }
+    const bw = overallSales?.byBaghdadWarehouse ?? [];
+    const uniq = (a: string[]) => [...new Set(a.filter(Boolean))];
+    const next = {
+      teams:          overallTeams.length ? uniq(overallTeams.map(t => t.name)) : (prev.teams ?? []),
+      // اتحاد مع المحفوظ: تحليل مصفّى بتيم/شهر واحد لا يُنسي المساعد بقية الأسماء
+      companies:      uniq([...(overallSales?.byCompany.map(c => c.name) ?? []), ...(prev.companies ?? [])]).slice(0, 300),
+      warehouses:     uniq([...bw.map(r => r.warehouseName), ...(prev.warehouses ?? [])]).filter(n => n !== 'غير محدد').slice(0, 300),
+      commercialReps: uniq([...bw.map(r => r.repName), ...(prev.commercialReps ?? [])]).slice(0, 300),
+      sciReps:        sciRepsAll.length ? uniq(sciRepsAll.map(r => r.name)) : (prev.sciReps ?? []),
+    };
+    try { localStorage.setItem(key, JSON.stringify(next)); } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overallSales, sciRepsAll, overallTeams, sciRepsLoaded, user?.id]);
+
   // ── أمر المساعد «open-sales» ─────────────────────────────────────────────
   // يصل من RepAnalysisPage عبر __aiSalesRequest (عند التركيب) أو حدث ai-open-sales.
   useEffect(() => {
@@ -1634,7 +1657,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     const ambiguous = (label: string, spoken: string, hits: string[]) => {
       if (hits.length > 1) plan.warns.push(`«${spoken}» يطابق أكثر من ${label}: ${hits.slice(0, 4).join('، ')} — تم اختيار «${hits[0]}»`);
     };
-    const wantsWarehouses = req.view === 'warehouses';
+    const wantsWarehouses = req.view === 'warehouses' || !!req.warehouseName;
 
     if (aiSalesStep === 'route') {
       if (req.repName && !wantsWarehouses && !sciRepsLoaded) return;
@@ -1656,7 +1679,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false);
           overallAutoRan.current = ''; // البيانات مُسحت — اسمح للتحميل التلقائي بالعمل من جديد
         }
-        setOverallSelectedTags([]); setOverallSearch(''); setBaghdadRepFilter(null);
+        setOverallSelectedTags([]); setOverallSearch(''); setBaghdadRepFilter(null); setBaghdadWarehouseFilter(null);
         if (req.company) {
           const teamNames = overallTeams.flatMap(t => [t.name, t.managerName]);
           let hits = aiMatchNames(req.company, teamNames);
@@ -1748,6 +1771,14 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         const hits = aiMatchNames(req.repName, repNames);
         if (hits.length) { ambiguous('مندوب', req.repName, hits); setBaghdadRepFilter(hits[0]); plan.parts.push(`المندوب: ${hits[0]}`); }
         else plan.warns.push(`ما لگيت مندوب باسم «${req.repName}» لا بالمندوبين العلميين ولا بمبيعات مذاخر بغداد`);
+      }
+      if (req.warehouseName) {
+        const whNames = [...(overallSales.byBaghdadWarehouse ?? []), ...(overallReturns?.byBaghdadWarehouse ?? [])].map(r => r.warehouseName);
+        // «مذخر الناقوس» و«الناقوس» نفس الشيء — نجرّب الاسم كما هو ثم بلا كلمة مذخر
+        let hits = aiMatchNames(req.warehouseName, whNames);
+        if (!hits.length) hits = aiMatchNames(req.warehouseName.replace(/^\s*(مذخر|مذاخر|المذخر)\s+/, ''), whNames);
+        if (hits.length) { ambiguous('مذخر', req.warehouseName, hits); setBaghdadWarehouseFilter(hits[0]); plan.parts.push(`المذخر: ${hits[0]}`); }
+        else plan.warns.push(`ما لگيت مذخر باسم «${req.warehouseName}» بمبيعات مذاخر بغداد للفترة المعروضة`);
       }
       finish();
     }
@@ -3486,6 +3517,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (netQty === 0 && netValue === 0) continue;
       const info = (s ?? r)!;
       if (baghdadRepFilter && normReportName(info.repName) !== normReportName(baghdadRepFilter)) continue;
+      if (baghdadWarehouseFilter && normReportName(info.warehouseName) !== normReportName(baghdadWarehouseFilter)) continue;
       out.push({ repName: info.repName, warehouseName: info.warehouseName, itemName: info.itemName, companyName: info.companyName || 'غير مصنّف', netQty, netValue });
     }
     return out;
@@ -4627,6 +4659,13 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                       style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${baghdadViewMode === 'byItem' ? '#4f46e5' : '#e2e8f0'}`, background: baghdadViewMode === 'byItem' ? '#eef2ff' : '#fff', color: baghdadViewMode === 'byItem' ? '#4338ca' : '#6b7280', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
                     >حسب الايتم</button>
                   </div>
+                  {baghdadWarehouseFilter && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', fontSize: 12, fontWeight: 700 }}>
+                      المذخر: {baghdadWarehouseFilter}
+                      <button onClick={() => setBaghdadWarehouseFilter(null)} title="إزالة الفلتر"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1d4ed8', fontSize: 14, padding: 0, lineHeight: 1 }}>×</button>
+                    </span>
+                  )}
                   {baghdadRepFilter && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', fontSize: 12, fontWeight: 700 }}>
                       المندوب: {baghdadRepFilter}

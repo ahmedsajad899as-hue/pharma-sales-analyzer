@@ -130,8 +130,14 @@ interface AssistantResult {
 
 const API = import.meta.env.VITE_API_URL || '';
 
-// أقصى مدة استماع بعد الضغط على المسطرة (Space) أو زر المايك — يُغلق تلقائياً بعدها
-const MAX_REC_SECONDS = 30;
+// جلسة الاستماع المستمر (المسطرة أو زر المايك): تُقطَّع إلى جُمل بكشف السكوت، وكل
+// جملة تُرسل وتُنفَّذ فوراً بينما الاستماع مستمر. تُغلق بضغطة ثانية أو بعد سكوت طويل.
+const MAX_REC_SECONDS     = 30;    // إغلاق تلقائي بعد هذا القدر من السكوت المتواصل
+const VAD_TICK_MS         = 80;
+const VAD_END_SILENCE_MS  = 1100;  // سكوت بعد الكلام = انتهت الجملة
+const VAD_MIN_SPEECH_MS   = 350;   // أقصر من هذا = ضجيج، لا يُرسل
+const VAD_MAX_SEGMENT_MS  = 20000; // جملة طويلة جداً تُقطع وتُرسل
+const VAD_IDLE_RESTART_MS = 8000;  // مقطع بلا كلام يُعاد تشغيله كي لا يتضخم
 
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 
@@ -291,15 +297,23 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   const [btnPos,       setBtnPos]       = useState({ right: 24, bottom: 88 });
 
   const mediaRecRef  = useRef<MediaRecorder | null>(null);
-  const chunksRef    = useRef<Blob[]>([]);
   const streamRef    = useRef<MediaStream | null>(null);
   const startTimeRef = useRef<number>(0);
-  const autoStopRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   // true من لحظة الضغط حتى انتهاء التسجيل — يشمل انتظار إذن المايك (getUserMedia)،
   // كي لا تبدأ ضغطة مسطرة ثانية تسجيلاً ثانياً بدل أن تُنهي الأول.
   const recActiveRef = useRef(false);
   const cancelPendingRef = useRef(false);
   const [recSecondsLeft, setRecSecondsLeft] = useState(MAX_REC_SECONDS);
+  // جلسة الاستماع المستمر
+  const audioCtxRef   = useRef<AudioContext | null>(null);
+  const vadTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastVoiceRef  = useRef<number>(0);
+  const sendQueueRef  = useRef<FormData[]>([]);
+  const queueBusyRef  = useRef(false);
+  const turnsRef      = useRef<{ heard: string; action: string; pageAction?: string | null; param?: any; question?: string }[]>([]);
+  const [liveState, setLiveState] = useState<'listening' | 'speaking'>('listening');
+  const [livePending, setLivePending] = useState(0);
+  const [liveLog, setLiveLog] = useState<{ heard: string; reply: string; warn?: boolean }[]>([]);
   const panelRef     = useRef<HTMLDivElement>(null);
   const btnRef       = useRef<HTMLButtonElement>(null);
   const dragRef      = useRef<{ sx: number; sy: number; br: number; bb: number; moved: boolean } | null>(null);
@@ -307,7 +321,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: MouseEvent) => {
-      if (isRecording || isProcessing) return; // don't close while recording or processing
+      // أثناء جلسة الاستماع المستمر يبقى إغلاق النافذة متاحاً — الاستماع لا يحتاجها
+      if (isProcessing && !isRecording) return;
       const target = e.target as Node;
       if (
         panelRef.current && !panelRef.current.contains(target) &&
@@ -322,9 +337,9 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
     setResult(null); setError(''); setTranscript(''); setTextInput(''); setClarInput('');
   };
 
-  const sendToBackend = useCallback(async (fd: FormData) => {
+  const sendToBackend = useCallback(async (fd: FormData, live = false) => {
     setIsProcessing(true);
-    setError('');
+    if (!live) setError('');
     try {
       // Attach a digest of the active Sales Data file (if any) so the backend
       // prompt knows which items/companies/regions/warehouses are available.
@@ -341,6 +356,9 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
         repAnalysisContext: repAnalysisDigest,
         pharmNetContext: pharmNetDigest,
         bonusContext: bonusDigest,
+        // أسماء الشركات/المذاخر/المندوبين الفعلية — تحفظها صفحة التقارير
+        salesNames: (() => { try { return JSON.parse(localStorage.getItem(`ai_sales_names_${user?.id}`) || 'null'); } catch { return null; } })(),
+        recentTurns: turnsRef.current,
       }));
       const r = await fetch(`${API}/api/ai-assistant/command`, {
         method: 'POST',
@@ -356,11 +374,25 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
         data.queryResult = runStockQuery(data) || data.queryResult || null;
       }
 
+      const heard = String((data as any).heard ?? '').trim();
+      // جلسة مستمرة: مقطع بلا أمر (سكوت/ضجيج/كلام جانبي) يُهمَل بصمت
+      if (live && data.action === 'unknown' && !heard) return;
+      turnsRef.current = [...turnsRef.current, {
+        heard: heard || (fd.get('text') as string | null) || '',
+        action: data.action, pageAction: data.pageAction ?? null, param: data.pageActionParam ?? null,
+        question: data.needsClarification ? data.question : undefined,
+      }].slice(-4);
+      if (live) {
+        setLiveLog(prev => [...prev, { heard: heard || '🎤', reply: data.needsClarification ? (data.question || data.responseText) : data.responseText, warn: data.action === 'unknown' || data.needsClarification }].slice(-3));
+        // النتائج التي تحتاج عرضاً (جواب سؤال/توضيح) تفتح النافذة؛ الانتقال والإجراءات لا
+        if (data.queryResult || data.needsClarification) setIsOpen(true);
+      }
+
       setResult(data);
       // Save to history — works for both text and voice
       // For voice: transcript is "🎤 رسالة صوتية", upgrade to responseText after we get the reply
       const typedText = (fd.get('text') as string | null)?.trim();
-      const historyLabel = typedText || (fd.get('audio') ? `🎤 ${data.responseText}` : '') || transcript.trim();
+      const historyLabel = typedText || (fd.get('audio') ? `🎤 ${heard || data.responseText}` : '') || transcript.trim();
       if (historyLabel) {
         setHistory(prev => [{ text: historyLabel, result: data }, ...prev].slice(0, 20));
       }
@@ -425,23 +457,67 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       }
     } catch (e: any) {
       const msg: string = e.message || 'خطأ غير معروف';
-      setError(msg);
+      if (live) setLiveLog(prev => [...prev, { heard: '', reply: msg, warn: true }].slice(-3));
+      else setError(msg);
     } finally {
       setIsProcessing(false);
     }
   }, [activePage, token, navigateTo, user]);
+
+  // مقاطع الجلسة تُرسل بالتسلسل (لا بالتوازي) كي تُنفَّذ الأوامر بترتيب نطقها
+  const sendToBackendRef = useRef(sendToBackend);
+  sendToBackendRef.current = sendToBackend;
+  const enqueueSegment = (fd: FormData) => {
+    sendQueueRef.current.push(fd);
+    setLivePending(sendQueueRef.current.length + (queueBusyRef.current ? 1 : 0));
+    if (queueBusyRef.current) return;
+    queueBusyRef.current = true;
+    (async () => {
+      while (sendQueueRef.current.length) {
+        const next = sendQueueRef.current.shift()!;
+        setLivePending(sendQueueRef.current.length + 1);
+        await sendToBackendRef.current(next, true);
+      }
+      queueBusyRef.current = false;
+      setLivePending(0);
+    })();
+  };
+
+  const pickMime = () => {
+    const candidateMimes = [
+      'audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus',
+      'audio/mp4;codecs=mp4a.40.2','audio/mp4',
+    ];
+    try { return candidateMimes.find(t => MediaRecorder.isTypeSupported(t)) ?? ''; } catch { return ''; }
+  };
+
+  const endSession = () => {
+    if (vadTimerRef.current) { clearInterval(vadTimerRef.current); vadTimerRef.current = null; }
+    const rec = mediaRecRef.current;
+    mediaRecRef.current = null;
+    if (rec && rec.state !== 'inactive') rec.stop(); // يُرسل الجملة الأخيرة إن كان فيها كلام
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    audioCtxRef.current?.close().catch(() => {});
+    audioCtxRef.current = null;
+    recActiveRef.current = false;
+    setIsRecording(false);
+  };
 
   const startRecording = async () => {
     if (recActiveRef.current) return;
     recActiveRef.current = true;
     cancelPendingRef.current = false;
     reset();
-    setError('');
+    setLiveLog([]);
+    turnsRef.current = [];
+    setLiveState('listening');
     setRecSecondsLeft(MAX_REC_SECONDS);
-    setIsRecording(true); // show overlay immediately on button click
+    setIsRecording(true);
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('الميكروفون غير متاح — يجب فتح التطبيق عبر HTTPS أو من localhost');
+      setIsOpen(true);
       setIsRecording(false);
       recActiveRef.current = false;
       return;
@@ -449,13 +525,16 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
     } catch (err: any) {
       setError(
         err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError'
           ? 'لم يُسمح بالوصول للميكروفون'
           : `خطأ في الميكروفون: ${err?.message ?? err}`,
       );
+      setIsOpen(true);
       setIsRecording(false);
       recActiveRef.current = false;
       return;
@@ -467,80 +546,118 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       recActiveRef.current = false;
       return;
     }
-
     streamRef.current = stream;
-    chunksRef.current = [];
 
-    // Detect best supported MIME safely
-    let mime = '';
-    const candidateMimes = [
-      'audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus',
-      'audio/mp4;codecs=mp4a.40.2','audio/mp4',
-    ];
-    try { mime = candidateMimes.find(t => MediaRecorder.isTypeSupported(t)) ?? ''; } catch { /* ignore */ }
-
-    let rec: MediaRecorder;
+    // ── كاشف الكلام (VAD) بمستوى الصوت — عتبة متكيّفة مع ضجيج الغرفة ──
+    let analyser: AnalyserNode | null = null;
     try {
-      rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-    } catch {
-      try { rec = new MediaRecorder(stream); } catch (e2: any) {
-        stream.getTracks().forEach(t => t.stop());
-        setError(`لا يدعم هذا الجهاز التسجيل: ${e2?.message ?? ''}`);
-        setIsRecording(false);
-        recActiveRef.current = false;
-        return;
-      }
-    }
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      const ctx: AudioContext = new Ctx();
+      audioCtxRef.current = ctx;
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+    } catch { analyser = null; }
 
-    mediaRecRef.current = rec;
+    const mime = pickMime();
+    type Seg = { rec: MediaRecorder; chunks: Blob[]; startedAt: number; speechMs: number; speaking: boolean; lastVoice: number };
+    let seg: Seg | null = null;
+
+    const newSegment = (): Seg | null => {
+      let rec: MediaRecorder;
+      try { rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+      catch {
+        try { rec = new MediaRecorder(stream); } catch (e2: any) {
+          setError(`لا يدعم هذا الجهاز التسجيل: ${e2?.message ?? ''}`);
+          setIsOpen(true);
+          endSession();
+          return null;
+        }
+      }
+      const sg: Seg = { rec, chunks: [], startedAt: Date.now(), speechMs: 0, speaking: false, lastVoice: 0 };
+      rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) sg.chunks.push(e.data); };
+      rec.onstop = () => {
+        // بلا كاشف كلام (متصفح لا يدعم AudioContext) نرسل كل مقطع
+        const hadSpeech = analyser ? sg.speechMs >= VAD_MIN_SPEECH_MS : (Date.now() - sg.startedAt) > 1000;
+        if (!hadSpeech) return;
+        const finalMime = rec.mimeType || mime || 'audio/webm';
+        const blob = new Blob(sg.chunks, { type: finalMime });
+        if (blob.size < 300) return;
+        const ext = finalMime.split('/')[1]?.split(';')[0]?.replace('mpeg', 'mp3') ?? 'webm';
+        const fd = new FormData();
+        fd.append('audio', blob, `assistant-voice.${ext}`);
+        enqueueSegment(fd);
+      };
+      rec.onerror = () => { /* المقطع التالي يتابع */ };
+      rec.start();
+      mediaRecRef.current = rec;
+      return sg;
+    };
+
+    // يُنهي المقطع الحالي (فيُرسَل إن كان فيه كلام) ويبدأ التالي فوراً — الاستماع لا يتوقف
+    const cutSegment = () => {
+      const old = seg;
+      seg = newSegment();
+      if (old && old.rec.state !== 'inactive') old.rec.stop();
+    };
+
+    seg = newSegment();
+    if (!seg) return;
+    lastVoiceRef.current = Date.now();
     startTimeRef.current = Date.now();
 
-    rec.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-    };
+    if (!analyser) {
+      // احتياط: بلا كاشف كلام — مقطع واحد يُرسل عند الإيقاف أو بعد المهلة
+      vadTimerRef.current = setInterval(() => {
+        const left = MAX_REC_SECONDS - Math.floor((Date.now() - startTimeRef.current) / 1000);
+        setRecSecondsLeft(Math.max(0, left));
+        if (left <= 0) endSession();
+      }, 250);
+      return;
+    }
 
-    rec.onerror = (e: any) => {
-      setError(`خطأ في التسجيل: ${e?.error?.message ?? 'unknown'}`);
-      setIsRecording(false);
-      recActiveRef.current = false;
-      if (autoStopRef.current) { clearTimeout(autoStopRef.current); autoStopRef.current = null; }
-      stream.getTracks().forEach(t => t.stop());
-    };
+    const buf = new Float32Array(analyser.fftSize);
+    let noiseFloor = 0.01;
+    vadTimerRef.current = setInterval(() => {
+      if (!seg || !analyser) return;
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      const rms = Math.sqrt(sum / buf.length);
+      const now = Date.now();
+      const threshold = Math.max(0.015, noiseFloor * 2.8);
+      const voiced = rms > threshold;
+      // أرضية الضجيج تتعلّم ببطء من اللحظات الصامتة فقط
+      if (!voiced) noiseFloor = noiseFloor * 0.95 + rms * 0.05;
 
-    rec.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      setIsRecording(false);
-      recActiveRef.current = false;
-      if (autoStopRef.current) { clearTimeout(autoStopRef.current); autoStopRef.current = null; }
-
-      const finalMime = rec.mimeType || mime || 'audio/webm';
-      const blob = new Blob(chunksRef.current, { type: finalMime });
-      const dur = (Date.now() - startTimeRef.current) / 1000;
-
-      if (blob.size < 300 || dur < 1.0) {
-        setError('التسجيل قصير جداً — حاول مجدداً');
-        return;
+      if (voiced) {
+        seg.speechMs += VAD_TICK_MS;
+        seg.lastVoice = now;
+        lastVoiceRef.current = now;
+        if (!seg.speaking && seg.speechMs >= 160) { seg.speaking = true; setLiveState('speaking'); }
+      }
+      const age = now - seg.startedAt;
+      if (seg.speaking && now - seg.lastVoice > VAD_END_SILENCE_MS) {
+        setLiveState('listening');
+        cutSegment(); // انتهت الجملة → تُرسل وتُنفَّذ
+      } else if (seg.speaking && age > VAD_MAX_SEGMENT_MS) {
+        cutSegment();
+      } else if (!seg.speaking && age > VAD_IDLE_RESTART_MS) {
+        cutSegment(); // مقطع صامت — يُهمل (speechMs صغير) ويُستبدل بجديد
       }
 
-      const ext = finalMime.split('/')[1]?.split(';')[0]?.replace('mpeg', 'mp3') ?? 'webm';
-      const fd = new FormData();
-      fd.append('audio', blob, `assistant-voice.${ext}`);
-      setTranscript('🎤 رسالة صوتية');
-      await sendToBackend(fd);
-    };
-
-    rec.start();
-    autoStopRef.current = setTimeout(() => stopRecordingRef.current(), MAX_REC_SECONDS * 1000);
+      const idleLeft = MAX_REC_SECONDS - Math.floor((now - lastVoiceRef.current) / 1000);
+      setRecSecondsLeft(Math.max(0, idleLeft));
+      if (idleLeft <= 0 && !seg.speaking) endSession();
+    }, VAD_TICK_MS);
   };
 
   const stopRecording = () => {
-    if (recActiveRef.current && (!mediaRecRef.current || mediaRecRef.current.state === 'inactive')) {
+    if (recActiveRef.current && !streamRef.current) {
       cancelPendingRef.current = true; // ما زلنا ننتظر إذن المايك
+      return;
     }
-    if (mediaRecRef.current && mediaRecRef.current.state !== 'inactive') {
-      mediaRecRef.current.stop();
-    }
-    streamRef.current?.getTracks().forEach(t => t.stop());
+    endSession();
   };
 
   const startRecordingRef = useRef(startRecording);
@@ -548,18 +665,11 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   startRecordingRef.current = startRecording;
   stopRecordingRef.current  = stopRecording;
 
-  // عدّاد تنازلي يظهر في نافذة التسجيل
-  useEffect(() => {
-    if (!isRecording) return;
-    const started = Date.now();
-    const id = setInterval(() => {
-      setRecSecondsLeft(Math.max(0, MAX_REC_SECONDS - Math.floor((Date.now() - started) / 1000)));
-    }, 250);
-    return () => clearInterval(id);
-  }, [isRecording]);
+  // إغلاق الجلسة عند إزالة المكوّن (إخفاء المساعد/تسجيل خروج) — لا يبقى المايك مفتوحاً
+  useEffect(() => () => { if (recActiveRef.current) stopRecordingRef.current(); }, []);
 
-  // المسطرة (Space): ضغطة تبدأ الاستماع، وضغطة ثانية تُنهيه وترسله.
-  // لا تعمل أثناء الكتابة في حقل نص، ولا مع Ctrl/Alt/Shift، ولا أثناء معالجة طلب سابق.
+  // المسطرة (Space): ضغطة تبدأ جلسة الاستماع المستمر، وضغطة ثانية تُنهيها.
+  // لا تعمل أثناء الكتابة في حقل نص، ولا مع Ctrl/Alt/Shift.
   useEffect(() => {
     const isTyping = (el: Element | null) => {
       if (!el) return false;
@@ -573,9 +683,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
       e.preventDefault(); // يمنع تمرير الصفحة وتفعيل الزر المُركَّز عليه
       if (e.repeat) return;
       if (recActiveRef.current) { stopRecordingRef.current(); return; }
-      if (isProcessingRef.current) return;
-      setIsOpen(true); // كي تظهر النتيجة/سؤال التوضيح بعد التسجيل
-      startRecordingRef.current();
+      startRecordingRef.current(); // النافذة تُفتح فقط عند نتيجة تحتاج عرضاً
     };
     // الزر المُركَّز عليه يُنفَّذ نقره عند رفع المسطرة — نمنعه هنا أيضاً
     const onKeyUp = (e: KeyboardEvent) => {
@@ -630,91 +738,55 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
   return (
     <>
-      {/* Recording overlay */}
-      {isRecording && (
+      {/* مؤشر الاستماع الجانبي — لا يغطي الشاشة؛ التطبيق يبقى قابلاً للاستخدام */}
+      {(isRecording || livePending > 0) && (
         <div
           dir="rtl"
+          className="notranslate"
+          translate="no"
           style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 99999,
-            background: 'rgba(15, 10, 40, 0.72)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(4px)',
+            position: 'fixed', left: 12, top: '50%', transform: 'translateY(-50%)', zIndex: 99999,
+            width: 230, maxWidth: 'calc(100vw - 24px)',
+            background: 'rgba(255,255,255,0.97)', borderRadius: 14,
+            border: `1.5px solid ${isRecording ? (liveState === 'speaking' ? '#ef4444' : '#fca5a5') : '#c4b5fd'}`,
+            boxShadow: '0 8px 28px rgba(15,10,40,0.18)', padding: '10px 12px', fontSize: 12,
           }}
         >
-          <div style={{
-            background: '#fff',
-            borderRadius: 24,
-            padding: '40px 48px',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 20,
-            boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
-            minWidth: 280,
-            textAlign: 'center',
-          }}>
-            {/* Animated mic */}
-            <div style={{ position: 'relative', width: 80, height: 80 }}>
+          <style>{`@keyframes recRipple{ 0%{transform:scale(0.8);opacity:0.8} 100%{transform:scale(1.8);opacity:0} }`}</style>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ position: 'relative', width: 26, height: 26, flexShrink: 0 }}>
+              {isRecording && <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(239,68,68,0.25)', animation: `recRipple ${liveState === 'speaking' ? '0.8s' : '1.6s'} ease-out infinite` }} />}
               <div style={{
-                position: 'absolute', inset: 0, borderRadius: '50%',
-                background: 'rgba(239,68,68,0.18)',
-                animation: 'recRipple 1.4s ease-out infinite',
-              }} />
-              <div style={{
-                position: 'absolute', inset: 8, borderRadius: '50%',
-                background: 'rgba(239,68,68,0.25)',
-                animation: 'recRipple 1.4s ease-out 0.3s infinite',
-              }} />
-              <div style={{
-                position: 'absolute', inset: 16, borderRadius: '50%',
-                background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                position: 'absolute', inset: 3, borderRadius: '50%',
+                background: isRecording ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg, #8b5cf6, #6d28d9)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 4px 16px rgba(239,68,68,0.5)',
-              }}><Icon name="mic" size={28} style={{ color: '#fff' }} /></div>
+              }}><Icon name="mic" size={12} style={{ color: '#fff' }} /></div>
             </div>
-
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 18, color: '#1e293b' }}>جاري التسجيل...</div>
-              <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>تكلم الآن، ثم اضغط المسطرة أو «إنهاء» عند الانتهاء</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13 }}>
+                {!isRecording ? 'أنفّذ آخر طلب…' : liveState === 'speaking' ? 'أسمعك…' : 'أستمع — تكلّم'}
+              </div>
+              <div style={{ color: '#94a3b8', fontSize: 11 }}>
+                {livePending > 0 ? `⏳ ينفّذ ${livePending} طلب` : isRecording ? (recSecondsLeft <= 10 ? `يُغلق بعد ${recSecondsLeft} ث من السكوت` : 'Space للإيقاف') : ''}
+              </div>
             </div>
-
-            {/* Live dot indicator */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{
-                width: 10, height: 10, borderRadius: '50%',
-                background: '#ef4444',
-                display: 'inline-block',
-                animation: 'recPulse 1s ease-in-out infinite',
-              }} />
-              <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>تسجيل نشط — يُغلق تلقائياً بعد {recSecondsLeft} ثانية</span>
-            </div>
-
-            {/* Stop button */}
-            <button
-              onClick={stopRecording}
-              style={{
-                marginTop: 4,
-                padding: '12px 36px',
-                borderRadius: 12,
-                border: 'none',
-                background: 'linear-gradient(135deg, #ef4444, #dc2626)',
-                color: '#fff',
-                fontWeight: 700,
-                fontSize: 15,
-                cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(239,68,68,0.4)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Icon name="pause" size={16} /> إنهاء التسجيل
-            </button>
+            {isRecording && (
+              <button onClick={stopRecording} title="إيقاف الاستماع (Space)"
+                style={{ border: 'none', background: '#fee2e2', color: '#b91c1c', borderRadius: 8, width: 26, height: 26, cursor: 'pointer', fontSize: 14, lineHeight: 1, flexShrink: 0 }}>■</button>
+            )}
           </div>
+          {liveLog.length > 0 && (
+            <div style={{ marginTop: 8, borderTop: '1px solid #f1f5f9', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {liveLog.map((l, i) => (
+                <div key={i} style={{ opacity: i === liveLog.length - 1 ? 1 : 0.6 }}>
+                  {l.heard && <div style={{ color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🗣️ {l.heard}</div>}
+                  <div style={{ color: l.warn ? '#b45309' : '#6d28d9', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.reply}>
+                    {l.warn ? '⚠️' : '✓'} {l.reply}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
