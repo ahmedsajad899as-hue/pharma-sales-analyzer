@@ -130,6 +130,9 @@ interface AssistantResult {
 
 const API = import.meta.env.VITE_API_URL || '';
 
+// أقصى مدة استماع بعد الضغط على المسطرة (Space) أو زر المايك — يُغلق تلقائياً بعدها
+const MAX_REC_SECONDS = 30;
+
 const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 
 function fmtDate(d: string) {
@@ -276,6 +279,8 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   const [isOpen,       setIsOpen]       = useState(false);
   const [isRecording,  setIsRecording]  = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const isProcessingRef = useRef(false);
+  isProcessingRef.current = isProcessing;
   const [transcript,   setTranscript]   = useState('');
   const [textInput,    setTextInput]    = useState('');
   const [result,       setResult]       = useState<AssistantResult | null>(null);
@@ -289,6 +294,12 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   const chunksRef    = useRef<Blob[]>([]);
   const streamRef    = useRef<MediaStream | null>(null);
   const startTimeRef = useRef<number>(0);
+  const autoStopRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // true من لحظة الضغط حتى انتهاء التسجيل — يشمل انتظار إذن المايك (getUserMedia)،
+  // كي لا تبدأ ضغطة مسطرة ثانية تسجيلاً ثانياً بدل أن تُنهي الأول.
+  const recActiveRef = useRef(false);
+  const cancelPendingRef = useRef(false);
+  const [recSecondsLeft, setRecSecondsLeft] = useState(MAX_REC_SECONDS);
   const panelRef     = useRef<HTMLDivElement>(null);
   const btnRef       = useRef<HTMLButtonElement>(null);
   const dragRef      = useRef<{ sx: number; sy: number; br: number; bb: number; moved: boolean } | null>(null);
@@ -421,13 +432,18 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
   }, [activePage, token, navigateTo, user]);
 
   const startRecording = async () => {
+    if (recActiveRef.current) return;
+    recActiveRef.current = true;
+    cancelPendingRef.current = false;
     reset();
     setError('');
+    setRecSecondsLeft(MAX_REC_SECONDS);
     setIsRecording(true); // show overlay immediately on button click
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('الميكروفون غير متاح — يجب فتح التطبيق عبر HTTPS أو من localhost');
       setIsRecording(false);
+      recActiveRef.current = false;
       return;
     }
 
@@ -441,6 +457,14 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
           : `خطأ في الميكروفون: ${err?.message ?? err}`,
       );
       setIsRecording(false);
+      recActiveRef.current = false;
+      return;
+    }
+    // أُنهي (ضغطة مسطرة ثانية) أثناء انتظار إذن المايك
+    if (cancelPendingRef.current) {
+      stream.getTracks().forEach(t => t.stop());
+      setIsRecording(false);
+      recActiveRef.current = false;
       return;
     }
 
@@ -463,6 +487,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
         stream.getTracks().forEach(t => t.stop());
         setError(`لا يدعم هذا الجهاز التسجيل: ${e2?.message ?? ''}`);
         setIsRecording(false);
+        recActiveRef.current = false;
         return;
       }
     }
@@ -477,12 +502,16 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
     rec.onerror = (e: any) => {
       setError(`خطأ في التسجيل: ${e?.error?.message ?? 'unknown'}`);
       setIsRecording(false);
+      recActiveRef.current = false;
+      if (autoStopRef.current) { clearTimeout(autoStopRef.current); autoStopRef.current = null; }
       stream.getTracks().forEach(t => t.stop());
     };
 
     rec.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
       setIsRecording(false);
+      recActiveRef.current = false;
+      if (autoStopRef.current) { clearTimeout(autoStopRef.current); autoStopRef.current = null; }
 
       const finalMime = rec.mimeType || mime || 'audio/webm';
       const blob = new Blob(chunksRef.current, { type: finalMime });
@@ -501,14 +530,63 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
     };
 
     rec.start();
+    autoStopRef.current = setTimeout(() => stopRecordingRef.current(), MAX_REC_SECONDS * 1000);
   };
 
   const stopRecording = () => {
+    if (recActiveRef.current && (!mediaRecRef.current || mediaRecRef.current.state === 'inactive')) {
+      cancelPendingRef.current = true; // ما زلنا ننتظر إذن المايك
+    }
     if (mediaRecRef.current && mediaRecRef.current.state !== 'inactive') {
       mediaRecRef.current.stop();
     }
     streamRef.current?.getTracks().forEach(t => t.stop());
   };
+
+  const startRecordingRef = useRef(startRecording);
+  const stopRecordingRef  = useRef(stopRecording);
+  startRecordingRef.current = startRecording;
+  stopRecordingRef.current  = stopRecording;
+
+  // عدّاد تنازلي يظهر في نافذة التسجيل
+  useEffect(() => {
+    if (!isRecording) return;
+    const started = Date.now();
+    const id = setInterval(() => {
+      setRecSecondsLeft(Math.max(0, MAX_REC_SECONDS - Math.floor((Date.now() - started) / 1000)));
+    }, 250);
+    return () => clearInterval(id);
+  }, [isRecording]);
+
+  // المسطرة (Space): ضغطة تبدأ الاستماع، وضغطة ثانية تُنهيه وترسله.
+  // لا تعمل أثناء الكتابة في حقل نص، ولا مع Ctrl/Alt/Shift، ولا أثناء معالجة طلب سابق.
+  useEffect(() => {
+    const isTyping = (el: Element | null) => {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable;
+    };
+    const isSpace = (e: KeyboardEvent) => e.code === 'Space' || e.key === ' ';
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isSpace(e) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      if (isTyping(document.activeElement)) return;
+      e.preventDefault(); // يمنع تمرير الصفحة وتفعيل الزر المُركَّز عليه
+      if (e.repeat) return;
+      if (recActiveRef.current) { stopRecordingRef.current(); return; }
+      if (isProcessingRef.current) return;
+      setIsOpen(true); // كي تظهر النتيجة/سؤال التوضيح بعد التسجيل
+      startRecordingRef.current();
+    };
+    // الزر المُركَّز عليه يُنفَّذ نقره عند رفع المسطرة — نمنعه هنا أيضاً
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!isSpace(e) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      if (isTyping(document.activeElement)) return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
+  }, []);
 
   const sendText = async (text: string) => {
     if (!text.trim()) return;
@@ -601,7 +679,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
 
             <div>
               <div style={{ fontWeight: 700, fontSize: 18, color: '#1e293b' }}>جاري التسجيل...</div>
-              <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>تكلم الآن، ثم اضغط إنهاء عند الانتهاء</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>تكلم الآن، ثم اضغط المسطرة أو «إنهاء» عند الانتهاء</div>
             </div>
 
             {/* Live dot indicator */}
@@ -612,7 +690,7 @@ export default function AIAssistant({ activePage, navigateTo }: Props) {
                 display: 'inline-block',
                 animation: 'recPulse 1s ease-in-out infinite',
               }} />
-              <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>تسجيل نشط</span>
+              <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>تسجيل نشط — يُغلق تلقائياً بعد {recSecondsLeft} ثانية</span>
             </div>
 
             {/* Stop button */}
