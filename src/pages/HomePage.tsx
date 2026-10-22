@@ -351,7 +351,7 @@ const HOVER_PAUSE_MAX_MS = 60_000;
 // مستطيلات (front عرض×ارتفاع، left/right عمق×ارتفاع، top عرض×عمق). اتجاهها:
 // left — عمودها الأيمن يلي الوجه الأمامي؛ right — عمودها الأيسر يليه؛ top — حافتها
 // السفلى تلي الوجه الأمامي. الوجه الناقص يُلوَّن من حواف الصورة الأمامية.
-interface BoxFaces { left?: string; right?: string; top?: string }
+export interface BoxFaces { left?: string; right?: string; top?: string }
 // scale = تكبير المجسّم داخل البطاقة (1 = الافتراضي) — للعلب الواقفة التي يحدّها الارتفاع فتبدو صغيرة
 interface ItemImage { match: (n: string) => boolean; src: string; depth: number; faces?: BoxFaces; scale?: number }
 const ITEM_IMAGES: ItemImage[] = [
@@ -602,7 +602,7 @@ function loadBoxMeta(src: string): Promise<BoxMeta> {
 }
 const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
-function Box3D({ src, depth, faces, scale = 1, label }: { src: string; depth: number; faces?: BoxFaces; scale?: number; label: string }) {
+export function Box3D({ src, depth, faces, scale = 1, label }: { src: string; depth: number; faces?: BoxFaces; scale?: number; label: string }) {
   const sceneRef = useRef<HTMLDivElement>(null);
   const [meta, setMeta] = useState<BoxMeta | null>(boxMetaCache.get(src) ?? null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -775,7 +775,7 @@ function Sky({ tod }: { tod: TimeOfDay | null }) {
 }
 
 /** دوّار بطاقات: النشطة في الوسط، ±1 و±2 على الجانبين أصغر وأشفّ. */
-function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
+export function Coverflow({ count, render, onOpen, paused, offsetMs = 0, variant }: {
   count: number; render: (i: number) => ReactNode; onOpen: (i: number) => void; paused?: boolean; offsetMs?: number;
   /** يحدّد مقاس البطاقة: item (أطول — فيها صورة) أو prov */
   variant: 'item' | 'prov';
@@ -1118,7 +1118,7 @@ function PitchRecorder({ onDone, disabled }: { onDone: (b: Blob) => void; disabl
 }
 
 /** تصغير صورة إلى أقصى 1800px JPEG — يوفّر القرص ويحافظ على وضوح الكتب */
-async function shrinkImage(file: File): Promise<Blob> {
+export async function shrinkImage(file: File): Promise<Blob> {
   if (!file.type.startsWith('image/')) return file;
   const url = URL.createObjectURL(file);
   try {

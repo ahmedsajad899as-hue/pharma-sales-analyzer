@@ -32,6 +32,7 @@ export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
   'file-filter':        { title: 'تنقية الملفات' },
   'pharmacy-analysis':  { title: 'تحليل الصيدليات والمبيعات' },
   'item-analysis':      { title: 'تحليل الإيتم' },
+  'showcase-3d':        { title: 'العرض ثلاثي الأبعاد', subtitle: 'أضف أي صورة لتُعرض كمجسّم ثلاثي الأبعاد' },
   'quiz-assist':        { title: 'مساعد الأسئلة (تجريبي)', subtitle: 'اقتراح الجواب من لقطة شاشة أو نص' },
   'account-builder':    { title: 'الحساب', subtitle: 'إنشاء حسابات ومعادلات خاصة بالإيتمات' },
   'bonus-sales':        { title: 'مبيعات البونص والتعويضات', subtitle: 'رفع ومقارنة ملفات المبيعات والتعويضات — متابعة تسليم البونص' },

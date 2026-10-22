@@ -51,6 +51,7 @@ const _importPharmacyAnalysis    = () => import('./pages/PharmacyAnalysisPage');
 const _importItemAnalysis        = () => import('./pages/ItemAnalysisPage');
 const _importHome                = () => import('./pages/HomePage');
 const _importQuizAssist          = () => import('./pages/QuizAssistPage');
+const _importShowcase            = () => import('./pages/ShowcasePage');
 const _importBonusSales          = () => import('./pages/BonusSalesPage');
 const _importOrgStructure        = () => import('./pages/OrgStructurePage');
 const _importAccountBuilder      = () => import('./pages/AccountBuilderPage');
@@ -84,6 +85,7 @@ const PharmacyAnalysisPage    = lazyWithRetry(_importPharmacyAnalysis);
 const ItemAnalysisPage        = lazyWithRetry(_importItemAnalysis);
 const HomePage                = lazyWithRetry(_importHome);
 const QuizAssistPage          = lazyWithRetry(_importQuizAssist);
+const ShowcasePage            = lazyWithRetry(_importShowcase);
 const BonusSalesPage          = lazyWithRetry(_importBonusSales);
 const OrgStructurePage        = lazyWithRetry(_importOrgStructure);
 const AccountBuilderPage      = lazyWithRetry(_importAccountBuilder);
@@ -137,6 +139,7 @@ export type PageId =
   | 'pharmacy-analysis'
   | 'item-analysis'
   | 'quiz-assist'
+  | 'showcase-3d'
   | 'rep-followup'
   | 'motivation'
   | 'province-teams'
@@ -679,6 +682,7 @@ function AppInner() {
     { id: 'pharmacy-analysis',  node: <PharmacyAnalysisPage /> },
     { id: 'item-analysis',      node: <ItemAnalysisPage /> },
     { id: 'quiz-assist',        node: <QuizAssistPage /> },
+    { id: 'showcase-3d',        node: <ShowcasePage /> },
     { id: 'bonus-sales',        node: <BonusSalesPage /> },
     { id: 'org-structure',      node: <OrgStructurePage /> },
     { id: 'account-builder',    node: <AccountBuilderPage /> },

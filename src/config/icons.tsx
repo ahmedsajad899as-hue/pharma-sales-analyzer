@@ -138,6 +138,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'pharmacy-analysis': 'navPharmacyAnalysis',
   'item-analysis': 'navItemAnalysis',
   'quiz-assist': 'navItemAnalysis',
+  'showcase-3d': 'navItemAnalysis',
   'account-builder': 'navAccountBuilder',
   'bonus-sales': 'navBonusSales',
   'reports': 'navReports',
