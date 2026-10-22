@@ -664,9 +664,9 @@ export default function RepFieldSurveyPage() {
                   <input className="form-input" list="rfs-specialty-options" value={form.specialty} onChange={e => setField('specialty', e.target.value)} placeholder="اختر أو اكتب اختصاصاً جديداً" />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">الكلاس</label>
+                  <label className="form-label">الكلاس <span className="rfs-muted">(اختياري)</span></label>
                   <select className="form-input" value={form.className} onChange={e => setField('className', e.target.value)}>
-                    <option value="">—</option>
+                    <option value="">بدون كلاس</option>
                     {CLASS_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
@@ -705,7 +705,7 @@ export default function RepFieldSurveyPage() {
                     onChange={e => setNearby(nearby.map((x, j) => j === i ? { ...x, specialty: e.target.value } : x))} />
                   <select className="form-input" value={d.className}
                     onChange={e => setNearby(nearby.map((x, j) => j === i ? { ...x, className: e.target.value } : x))}>
-                    <option value="">كلاس</option>
+                    <option value="">كلاس (اختياري)</option>
                     {CLASS_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <button className="btn btn--secondary btn--sm" title="حذف" onClick={() => setNearby(nearby.filter((_, j) => j !== i))}>✕</button>
@@ -1011,9 +1011,9 @@ export default function RepFieldSurveyPage() {
                       <input className="form-input" list="rfs-specialty-options" value={editForm.specialty} onChange={e => setEditForm({ ...editForm, specialty: e.target.value })} placeholder="اختر أو اكتب اختصاصاً جديداً" />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">الكلاس</label>
+                      <label className="form-label">الكلاس <span className="rfs-muted">(اختياري)</span></label>
                       <select className="form-input" value={editForm.className} onChange={e => setEditForm({ ...editForm, className: e.target.value })}>
-                        <option value="">—</option>
+                        <option value="">بدون كلاس</option>
                         {CLASS_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </div>
@@ -1097,7 +1097,7 @@ export default function RepFieldSurveyPage() {
                         onChange={e => setEditAddDoctors(editAddDoctors.map((x, j) => j === i ? { ...x, specialty: e.target.value } : x))} />
                       <select className="form-input" value={d.className}
                         onChange={e => setEditAddDoctors(editAddDoctors.map((x, j) => j === i ? { ...x, className: e.target.value } : x))}>
-                        <option value="">كلاس</option>
+                        <option value="">كلاس (اختياري)</option>
                         {CLASS_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                       <button type="button" className="btn btn--secondary btn--sm" title="حذف" onClick={() => setEditAddDoctors(editAddDoctors.filter((_, j) => j !== i))}>✕</button>
