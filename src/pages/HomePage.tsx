@@ -603,6 +603,128 @@ function loadBoxMeta(src: string): Promise<BoxMeta> {
 }
 const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
+// ── حواف مستديرة للمجسّم (round) ──────────────────────────────────────────────
+// علبة الكرتون الحقيقية حوافها منحنية قليلاً عند الطيّ. كل حافة من الـ12 ربع أسطوانة من
+// ROUND_STRIPS شرائح رفيعة، لونها يتدرّج من «لون الورق» عند حافة الوجه الأول إلى لونه عند
+// حافة الوجه الثاني، مع تظليل يتدرّج بين إضاءتَي الوجهين ولمعة خفيفة في منتصف الانحناء.
+// (اقتطاع شرائح من الصورة نفسها جُرّب وأُسقط: يلتقط أطراف الكتابة والنقاط قرب الحافة فتظهر
+// خطوطاً ملوّنة.) الأوجه تُصغَّر بنصف القطر من كل جهة لتفسح للحواف، وكل زاوية من الثماني
+// تُسدّ بقرص صغير متجه قطرياً.
+type FaceKey = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
+type ImgEdge = 'l' | 'r' | 't' | 'b';
+/** حافة الوجه الملاصقة: l/r/t/b بإحداثيات صورة الوجه كما تُرسم عليه */
+interface EdgeSlice { face: FaceKey; edge: ImgEdge }
+type EdgeColors = Record<ImgEdge, RGB>;
+const ROUND_STRIPS = 4;
+/** إضاءة كل وجه (موجب = تعتيم، سالب = إضاءة) — تطابق طبقات الإضاءة على الأوجه نفسها */
+const FACE_SHADE: Record<FaceKey, number> = { front: 0, back: 0.06, right: 0.09, left: 0.07, top: -0.12, bottom: 0.25 };
+type EdgeDef = [number, number, number, EdgeSlice, EdgeSlice];
+// [زاوية البداية، إشارتا مركز الانحناء، الوجه الأول، الوجه الثاني] — الاتجاهات مشتقة من تحويلات الأوجه في Box3D
+const V_EDGES: EdgeDef[] = [   // على محور y: rotateY (cx, cz)
+  [0,   1,  1,  { face: 'front', edge: 'r' }, { face: 'right', edge: 'l' }],
+  [90,  1,  -1, { face: 'right', edge: 'r' }, { face: 'back',  edge: 'l' }],
+  [180, -1, -1, { face: 'back',  edge: 'r' }, { face: 'left',  edge: 'l' }],
+  [270, -1, 1,  { face: 'left',  edge: 'r' }, { face: 'front', edge: 'l' }],
+];
+const X_EDGES: EdgeDef[] = [   // على محور x: rotateX (cy, cz)
+  [0,   -1, 1,  { face: 'front',  edge: 't' }, { face: 'top',    edge: 'b' }],
+  [90,  -1, -1, { face: 'top',    edge: 't' }, { face: 'back',   edge: 't' }],
+  [180, 1,  -1, { face: 'back',   edge: 'b' }, { face: 'bottom', edge: 'b' }],
+  [270, 1,  1,  { face: 'bottom', edge: 't' }, { face: 'front',  edge: 'b' }],
+];
+const Z_EDGES: EdgeDef[] = [   // على محور z: rotateY(90) rotateX (cx, cy)
+  [0,   1,  -1, { face: 'right',  edge: 't' }, { face: 'top',    edge: 'r' }],
+  [90,  -1, -1, { face: 'top',    edge: 'l' }, { face: 'left',   edge: 't' }],
+  [180, -1, 1,  { face: 'left',   edge: 'b' }, { face: 'bottom', edge: 'l' }],
+  [270, 1,  1,  { face: 'bottom', edge: 'r' }, { face: 'right',  edge: 'b' }],
+];
+
+/**
+ * «لون الورق» عند كل حافة من الصورة: الوسيط (لا المتوسط) لشريط رفيع قرب الحافة — الكتابة
+ * والنقاط أقلية فلا تحرف الوسيط، بينما الوجه البرتقالي كله يبقى برتقالياً.
+ */
+const edgeColorCache = new Map<string, Promise<EdgeColors>>();
+function loadEdgeColors(url: string): Promise<EdgeColors> {
+  let hit = edgeColorCache.get(url);
+  if (!hit) {
+    hit = new Promise<EdgeColors>((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => {
+        const S = 64;
+        const c = document.createElement('canvas');
+        c.width = S; c.height = S;
+        const ctx = c.getContext('2d');
+        if (!ctx) return reject(new Error('no canvas'));
+        ctx.drawImage(im, 0, 0, S, S);
+        const med = (x: number, y: number, w: number, h: number): RGB => {
+          const d = ctx.getImageData(x, y, w, h).data;
+          const ch: number[][] = [[], [], []];
+          for (let k = 0; k < d.length; k += 4) { ch[0].push(d[k]); ch[1].push(d[k + 1]); ch[2].push(d[k + 2]); }
+          return ch.map(a => a.sort((p, q) => p - q)[a.length >> 1]) as RGB;
+        };
+        // الشريط يبدأ بعد بكسل من الحافة (آخر البكسلات قد تحمل ظلّ القصّ)
+        resolve({ l: med(1, 0, 3, S), r: med(S - 4, 0, 3, S), t: med(0, 1, S, 3), b: med(0, S - 4, S, 3) });
+      };
+      im.onerror = reject;
+      im.src = url;
+    });
+    edgeColorCache.set(url, hit);
+  }
+  return hit;
+}
+
+const mixRGB = (a: RGB, b: RGB, t: number): RGB => [0, 1, 2].map(i => Math.round(a[i] + (b[i] - a[i]) * t)) as RGB;
+
+function RoundEdges({ W, H, D, r, color }: {
+  W: number; H: number; D: number; r: number;
+  /** لون الورق عند حافة وجه */
+  color: (face: FaceKey, edge: ImgEdge) => RGB;
+}) {
+  const step = 90 / ROUND_STRIPS;
+  // عرض الشريحة = وتر زاويتها + تداخل بسيط كي لا تظهر شقوق
+  const s = 2 * r * Math.tan((step / 2) * Math.PI / 180) * 1.18;
+  const fw = W - 2 * r, fh = H - 2 * r, fd = D - 2 * r;
+  const shade = (a: FaceKey, b: FaceKey, t: number) => {
+    const v = FACE_SHADE[a] + (FACE_SHADE[b] - FACE_SHADE[a]) * t - 0.13 * Math.sin(Math.PI * t);
+    return v >= 0 ? `rgba(0,0,0,${v.toFixed(3)})` : `rgba(255,255,255,${(-v).toFixed(3)})`;
+  };
+
+  const out: ReactNode[] = [];
+  const strips = (key: string, edges: EdgeDef[], geo: (a: number, c1: number, c2: number) => { w: number; h: number; left: number; top: number; transform: string }) =>
+    edges.forEach(([a0, c1, c2, A, B], ei) => {
+      const ca = color(A.face, A.edge), cb = color(B.face, B.edge);
+      for (let k = 0; k < ROUND_STRIPS; k++) {
+        const t = (k + 0.5) / ROUND_STRIPS;
+        const g = geo(a0 + t * 90, c1, c2);
+        out.push(
+          <div key={`${key}${ei}-${k}`} className="b3d-face" style={{ width: g.w, height: g.h, left: g.left, top: g.top, transform: g.transform,
+            background: `linear-gradient(${shade(A.face, B.face, t)}, ${shade(A.face, B.face, t)}), ${rgb(mixRGB(ca, cb, t))}` }} />,
+        );
+      }
+    });
+  strips('v', V_EDGES, (a, cx, cz) => ({ w: s, h: fh, left: (W - s) / 2, top: r,
+    transform: `translate3d(${cx * (W / 2 - r)}px,0,${cz * (D / 2 - r)}px) rotateY(${a}deg) translateZ(${r}px)` }));
+  strips('x', X_EDGES, (a, cy, cz) => ({ w: fw, h: s, left: r, top: (H - s) / 2,
+    transform: `translate3d(0,${cy * (H / 2 - r)}px,${cz * (D / 2 - r)}px) rotateX(${a}deg) translateZ(${r}px)` }));
+  strips('z', Z_EDGES, (a, cx, cy) => ({ w: fd, h: s, left: (W - fd) / 2, top: (H - s) / 2,
+    transform: `translate3d(${cx * (W / 2 - r)}px,${cy * (H / 2 - r)}px,0) rotateY(90deg) rotateX(${a}deg) translateZ(${r}px)` }));
+
+  // الزوايا الثماني: قرص مماس داخل كرة الزاوية (حافته تبقى ضمن نصف القطر فلا تبرز)
+  const q = r * 1.5;
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+    const ay = Math.atan2(sx, sz) * 180 / Math.PI, ax = -sy * 35.26;
+    const fz: FaceKey = sz > 0 ? 'front' : 'back', fy: FaceKey = sy < 0 ? 'top' : 'bottom';
+    const c = mixRGB(color(fz, sy < 0 ? 't' : 'b'), color(fy, sz > 0 ? (sy < 0 ? 'b' : 't') : (sy < 0 ? 't' : 'b')), 0.5);
+    const sh = shade(fz, fy, 0.5);
+    out.push(
+      <div key={`c${sx}${sy}${sz}`} className="b3d-face" style={{ width: q, height: q, left: (W - q) / 2, top: (H - q) / 2,
+        borderRadius: '50%', background: `linear-gradient(${sh}, ${sh}), ${rgb(c)}`,
+        transform: `translate3d(${sx * (W / 2 - r)}px,${sy * (H / 2 - r)}px,${sz * (D / 2 - r)}px) rotateY(${ay}deg) rotateX(${ax}deg) translateZ(${r * 0.6}px)` }} />,
+    );
+  }
+  return <>{out}</>;
+}
+
 /** سرعة الدوران الذاتي لمجسّم spin: لفّة كاملة كل 36 ثانية */
 const SPIN_DEG_PER_MS = 360 / 36_000;
 
@@ -610,15 +732,25 @@ const SPIN_DEG_PER_MS = 360 / 36_000;
  * spin = دوران كامل 360° بدل التمايل، يُدار بـJS (لا CSS animation) كي يُسحب بالماوس/الإصبع
  * ثم يكمل الدوران من الزاوية التي تُرك عندها. يحلّ السحب محلّ الميل مع الماوس.
  */
-export function Box3D({ src, depth, faces, scale = 1, label, spin }: { src: string; depth: number; faces?: BoxFaces; scale?: number; label: string; spin?: boolean }) {
+/** round = نصف قطر انحناء الحواف كنسبة من أصغر بُعدَي الارتفاع/العمق (0 = حواف حادّة كما في الرئيسية) */
+export function Box3D({ src, depth, faces, scale = 1, label, spin, round = 0 }: { src: string; depth: number; faces?: BoxFaces; scale?: number; label: string; spin?: boolean; round?: number }) {
   const sceneRef = useRef<HTMLDivElement>(null);
   const [meta, setMeta] = useState<BoxMeta | null>(boxMetaCache.get(src) ?? null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [tilt, setTilt] = useState<{ x: number; y: number } | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  const [edgeCols, setEdgeCols] = useState<Record<string, EdgeColors>>({});
   const rot = useRef({ x: -16, y: 0, moved: false, drag: null as null | { id: number; px: number; py: number; x: number; y: number } });
   // السحب والدوران للبطاقة المعروضة في الوسط فقط (أو خارج الدوّار كالمعاينة)
   const isActive = (el: Element) => { const slot = el.closest('.cf-slot'); return !slot || slot.classList.contains('is-active'); };
+
+  // ألوان حواف كل وجه للحواف المستديرة
+  const faceUrls = round > 0 ? [src, faces?.left, faces?.right, faces?.top, faces?.back, faces?.bottom].filter((u): u is string => !!u) : [];
+  useEffect(() => {
+    let alive = true;
+    for (const u of faceUrls) loadEdgeColors(u).then(c => { if (alive) setEdgeCols(x => (x[u] ? x : { ...x, [u]: c })); }).catch(() => { /* يبقى اللون البديل */ });
+    return () => { alive = false; };
+  }, [faceUrls.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!spin) return;
@@ -655,6 +787,9 @@ export function Box3D({ src, depth, faces, scale = 1, label, spin }: { src: stri
   let W = size.w * 0.6 * scale, H = meta ? W / meta.aspect : 0;
   if (meta && H > size.h * 0.6 * scale) { H = size.h * 0.6 * scale; W = H * meta.aspect; }
   const D = H * depth;
+  // الحواف المستديرة: الأوجه تنكمش بنصف القطر من كل جهة (R=0 يُبقي الهندسة القديمة حرفياً)
+  const R = round > 0 && meta ? Math.max(1.5, Math.min(H, D) * round) : 0;
+  const fw = W - 2 * R, fh = H - 2 * R, fd = D - 2 * R;
 
   // ── سحب مجسّم spin: يوقف الدوران الذاتي ويُوقف انتشار الحدث كي لا يقلّب الدوّار البطاقات ──
   const onDown = (e: React.PointerEvent) => {
@@ -713,28 +848,33 @@ export function Box3D({ src, depth, faces, scale = 1, label, spin }: { src: stri
           <div className="b3d-bob">
           <div ref={boxRef} className={`b3d ${tilt ? 'is-tilt' : ''} ${spin ? 'is-spin' : ''}`} role="img" aria-label={label}
             style={{ width: W, height: H, ...(tilt ? { transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` } : {}) }}>
-            {face({ width: W, height: H, transform: `translateZ(${D / 2}px)` },
+            {face({ width: fw, height: fh, left: R, top: R, transform: `translateZ(${D / 2}px)` },
               <><img src={src} alt="" draggable={false} /><div className="b3d-sheen" /></>)}
-            {face({ width: W, height: H, transform: `rotateY(180deg) translateZ(${D / 2}px)` },
+            {face({ width: fw, height: fh, left: R, top: R, transform: `rotateY(180deg) translateZ(${D / 2}px)` },
               faces?.back
                 ? tex(faces.back, 'linear-gradient(rgba(0,0,0,.06), rgba(0,0,0,.06))')
                 : side(meta.bottom, 'linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.35))'))}
-            {face({ width: D, height: H, left: (W - D) / 2, transform: `rotateY(90deg) translateZ(${W / 2}px)` },
+            {face({ width: fd, height: fh, left: (W - fd) / 2, top: R, transform: `rotateY(90deg) translateZ(${W / 2}px)` },
               faces?.right
                 ? tex(faces.right, 'linear-gradient(to right, rgba(0,0,0,.03), rgba(0,0,0,.14))')
                 : side(meta.right, 'linear-gradient(to right, rgba(0,0,0,.15), rgba(0,0,0,.4))'))}
-            {face({ width: D, height: H, left: (W - D) / 2, transform: `rotateY(-90deg) translateZ(${W / 2}px)` },
+            {face({ width: fd, height: fh, left: (W - fd) / 2, top: R, transform: `rotateY(-90deg) translateZ(${W / 2}px)` },
               faces?.left
                 ? tex(faces.left, 'linear-gradient(to left, rgba(0,0,0,.02), rgba(0,0,0,.12))')
                 : side(meta.left, 'linear-gradient(to left, rgba(0,0,0,.1), rgba(0,0,0,.32))'))}
-            {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(90deg) translateZ(${H / 2}px)` },
+            {face({ width: fw, height: fd, left: R, top: (H - fd) / 2, transform: `rotateX(90deg) translateZ(${H / 2}px)` },
               faces?.top
                 ? tex(faces.top, 'linear-gradient(to top, rgba(255,255,255,.2), rgba(255,255,255,.04))')
                 : side(meta.top, 'linear-gradient(to top, rgba(255,255,255,.28), rgba(255,255,255,.06))'))}
-            {face({ width: W, height: D, top: (H - D) / 2, transform: `rotateX(-90deg) translateZ(${H / 2}px)` },
+            {face({ width: fw, height: fd, left: R, top: (H - fd) / 2, transform: `rotateX(-90deg) translateZ(${H / 2}px)` },
               faces?.bottom
                 ? tex(faces.bottom, 'linear-gradient(rgba(0,0,0,.25), rgba(0,0,0,.25))')
                 : side(meta.bottom, 'linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45))'))}
+            {R > 0 && <RoundEdges W={W} H={H} D={D} r={R} color={(f, e) => {
+              const u = f === 'front' ? src : faces?.[f];
+              const fallback = { front: meta.top, back: meta.bottom, right: meta.right, left: meta.left, top: meta.top, bottom: meta.bottom }[f];
+              return (u && edgeCols[u]?.[e]) || fallback;
+            }} />}
           </div>
           </div>
         </>

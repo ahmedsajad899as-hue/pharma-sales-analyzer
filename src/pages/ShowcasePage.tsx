@@ -22,6 +22,8 @@ interface ShowItem {
 }
 /** عمق اللوحة الرقيقة نسبةً لارتفاعها — تبقى مجسّماً يتمايل لكن بلا «علبة» */
 const FRAME_DEPTH = 0.035;
+/** انحناء حواف العلبة (نسبة من أصغر بُعدَيها) — طيّ الكرتون الحقيقي ليس حادّاً */
+const BOX_ROUND = 0.06;
 const effDepth = (it: { shape: Shape; depth: number }) => (it.shape === 'frame' ? FRAME_DEPTH : it.depth);
 const FACE_LABEL: Record<Face, string> = {
   front: 'الوجه الأمامي', left: 'الجانب الأيسر', right: 'الجانب الأيمن', top: 'السقف', back: 'الخلفي', bottom: 'القاعدة',
@@ -120,7 +122,7 @@ export default function ShowcasePage() {
                 const it = list[i];
                 return (
                   <div className="s3d-card">
-                    <Box3D src={it.faces.front!} depth={effDepth(it)} scale={it.scale} spin={it.spin}
+                    <Box3D src={it.faces.front!} depth={effDepth(it)} scale={it.scale} spin={it.spin} round={it.shape === 'box' ? BOX_ROUND : 0}
                       faces={it.shape === 'box' ? boxFaces(f => it.faces[f]) : undefined}
                       label={it.title || 'صورة'} />
                     {(it.title || it.caption) && (
@@ -251,7 +253,7 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
         <div className="s3d-modal-body">
           <div className="s3d-preview">
             {front ? (
-              <Box3D key={front} src={front} depth={effDepth({ shape, depth })} scale={scale} spin={spin}
+              <Box3D key={front} src={front} depth={effDepth({ shape, depth })} scale={scale} spin={spin} round={shape === 'box' ? BOX_ROUND : 0}
                 faces={shape === 'box' ? boxFaces(faceSrc) : undefined}
                 label={title || 'معاينة'} />
             ) : <div className="s3d-preview-empty">المعاينة تظهر بعد اختيار الصورة</div>}
