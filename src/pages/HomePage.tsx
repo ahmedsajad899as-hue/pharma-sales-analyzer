@@ -1760,6 +1760,10 @@ function HomeStyles() {
 .hp.is-board[data-tod=night] .b3d-shadow { background: radial-gradient(ellipse, rgba(0,0,0,.6), transparent 70%); }
 /* لا توهّج خلف العلبة ليلاً — فوق السماء الداكنة كان يظهر هالة ضبابية حول حوافها */
 .hp.is-board[data-tod=night] .b3d-glow { display: none; }
+/* نافذة التفاصيل خلفيتها بيضاء وهي داخل .hp — كانت ترث النص الفاتح أعلاه فتبهت أسماء المحافظات
+   والأرقام (صفوف الصفر وحدها بقيت واضحة لأن لونها مُحدَّد صراحةً). تعود لألوان النصوص العادية. */
+.hp.is-board[data-tod=night] .modal { color: var(--c-text-primary); }
+.hp.is-board[data-tod=night] .modal .hp-muted { color: var(--c-text-muted); }
 
 .hp.is-board .hp-month, .hp.is-board .hp-view-btn { background: rgba(255,255,255,.7); color: var(--c-primary);
   border: 1px solid rgba(15,30,53,.08); backdrop-filter: blur(8px); box-shadow: 0 2px 10px rgba(15,30,53,.05); }
