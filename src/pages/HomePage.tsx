@@ -682,14 +682,16 @@ function RoundEdges({ W, H, D, r, color }: {
   // شريحة واحدة لكل حافة على وتر ربع الدائرة: طرفاها يقعان تماماً على حافتَي الوجهين فلا
   // تبرز خارج العلبة ولا تترك شقّاً بين شرائح متجاورة (الشرائح المتعددة أظهرت خطوط فواصل
   // رفيعة، والمماسّية برزت فوق الأوجه). الانحناء يُرسم بتدرّج اللون والإضاءة عبر عرضها.
-  // + جزء من بكسل على كل طرف كي يندسّ تحت الوجه ولا يظهر خيط فاصل مضاد للتسنين
-  const chord = r * Math.SQRT2 + 1.2;
+  // + جزء بسيط من بكسل (الأوجه نفسها تمتد تحت الشريحة — OVL في Box3D). اللمعة تصغر مع نصف
+  // القطر: بانحناء ~1px كانت تُظهر الشريحة خيطاً فاتحاً
+  const chord = r * Math.SQRT2 + 0.3;
+  const gloss = 0.12 * Math.min(1, r / 3);
   const dist = r * Math.SQRT1_2;
   const fw = W - 2 * r, fh = H - 2 * r, fd = D - 2 * r;
   const light = (v: number) => (v >= 0 ? `rgba(0,0,0,${v.toFixed(3)})` : `rgba(255,255,255,${(-v).toFixed(3)})`);
   // إضاءة على طول الوتر: من إضاءة الوجه الأول إلى الثاني مع لمعة في المنتصف
   const shadeAt = (a: FaceKey, b: FaceKey, t: number) =>
-    FACE_SHADE[a] + (FACE_SHADE[b] - FACE_SHADE[a]) * t - 0.12 * Math.sin(Math.PI * t);
+    FACE_SHADE[a] + (FACE_SHADE[b] - FACE_SHADE[a]) * t - gloss * Math.sin(Math.PI * t);
   // dir = اتجاه الانتقال من الوجه الأول إلى الثاني داخل الشريحة (مشتق من اتجاه زيادة زاوية الدوران)
   const paint = (A: EdgeSlice, B: EdgeSlice, dir: string) => {
     const ca = color(A.face, A.edge), cb = color(B.face, B.edge);
@@ -800,11 +802,13 @@ export function Box3D({ src, depth, faces, scale = 1, label, spin, round = 0 }: 
   if (meta && H > size.h * 0.6 * scale) { H = size.h * 0.6 * scale; W = H * meta.aspect; }
   const D = H * depth;
   // الحواف المستديرة: الأوجه تنكمش بنصف القطر من كل جهة (R=0 يُبقي الهندسة القديمة حرفياً)
-  // انحناء أصغر من 1.5px لا يُرى، لكن شريحته (بحشوتها ولمعتها) تظهر خيطاً فاتحاً على الحافة —
-  // تحته تلتقي الأوجه مباشرة كالعلبة الحادّة
+  // انحناء أصغر من 0.8px لا يُرى إطلاقاً — تحته تلتقي الأوجه مباشرة كالعلبة الحادّة
   const rr = round > 0 && meta ? Math.min(H, D) * round : 0;
-  const R = rr >= 1.5 ? rr : 0;
-  const fw = W - 2 * R, fh = H - 2 * R, fd = D - 2 * R;
+  const R = rr >= 0.8 ? rr : 0;
+  // كل وجه يمتد OVL تحت شريحة الحافة: حدّه المضاد للتسنين يقع فوق الشريحة لا فوق الخلفية،
+  // وإلا يظهر خيط من لون الخلفية متقطّعاً على طول الحافة
+  const OVL = R > 0 ? 0.6 : 0;
+  const fw = W - 2 * R + 2 * OVL, fh = H - 2 * R + 2 * OVL, fd = D - 2 * R + 2 * OVL;
 
   // ── سحب مجسّم spin: يوقف الدوران الذاتي ويُوقف انتشار الحدث كي لا يقلّب الدوّار البطاقات ──
   const onDown = (e: React.PointerEvent) => {
@@ -863,25 +867,25 @@ export function Box3D({ src, depth, faces, scale = 1, label, spin, round = 0 }: 
           <div className="b3d-bob">
           <div ref={boxRef} className={`b3d ${tilt ? 'is-tilt' : ''} ${spin ? 'is-spin' : ''}`} role="img" aria-label={label}
             style={{ width: W, height: H, ...(tilt ? { transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` } : {}) }}>
-            {face({ width: fw, height: fh, left: R, top: R, transform: `translateZ(${D / 2}px)` },
+            {face({ width: fw, height: fh, left: R - OVL, top: R - OVL, transform: `translateZ(${D / 2}px)` },
               <><img src={src} alt="" draggable={false} /><div className="b3d-sheen" /></>)}
-            {face({ width: fw, height: fh, left: R, top: R, transform: `rotateY(180deg) translateZ(${D / 2}px)` },
+            {face({ width: fw, height: fh, left: R - OVL, top: R - OVL, transform: `rotateY(180deg) translateZ(${D / 2}px)` },
               faces?.back
                 ? tex(faces.back, 'linear-gradient(rgba(0,0,0,.06), rgba(0,0,0,.06))')
                 : side(meta.bottom, 'linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.35))'))}
-            {face({ width: fd, height: fh, left: (W - fd) / 2, top: R, transform: `rotateY(90deg) translateZ(${W / 2}px)` },
+            {face({ width: fd, height: fh, left: (W - fd) / 2, top: R - OVL, transform: `rotateY(90deg) translateZ(${W / 2}px)` },
               faces?.right
                 ? tex(faces.right, 'linear-gradient(to right, rgba(0,0,0,.03), rgba(0,0,0,.14))')
                 : side(meta.right, 'linear-gradient(to right, rgba(0,0,0,.15), rgba(0,0,0,.4))'))}
-            {face({ width: fd, height: fh, left: (W - fd) / 2, top: R, transform: `rotateY(-90deg) translateZ(${W / 2}px)` },
+            {face({ width: fd, height: fh, left: (W - fd) / 2, top: R - OVL, transform: `rotateY(-90deg) translateZ(${W / 2}px)` },
               faces?.left
                 ? tex(faces.left, 'linear-gradient(to left, rgba(0,0,0,.02), rgba(0,0,0,.12))')
                 : side(meta.left, 'linear-gradient(to left, rgba(0,0,0,.1), rgba(0,0,0,.32))'))}
-            {face({ width: fw, height: fd, left: R, top: (H - fd) / 2, transform: `rotateX(90deg) translateZ(${H / 2}px)` },
+            {face({ width: fw, height: fd, left: R - OVL, top: (H - fd) / 2, transform: `rotateX(90deg) translateZ(${H / 2}px)` },
               faces?.top
                 ? tex(faces.top, 'linear-gradient(to top, rgba(255,255,255,.2), rgba(255,255,255,.04))')
                 : side(meta.top, 'linear-gradient(to top, rgba(255,255,255,.28), rgba(255,255,255,.06))'))}
-            {face({ width: fw, height: fd, left: R, top: (H - fd) / 2, transform: `rotateX(-90deg) translateZ(${H / 2}px)` },
+            {face({ width: fw, height: fd, left: R - OVL, top: (H - fd) / 2, transform: `rotateX(-90deg) translateZ(${H / 2}px)` },
               faces?.bottom
                 ? tex(faces.bottom, 'linear-gradient(rgba(0,0,0,.25), rgba(0,0,0,.25))')
                 : side(meta.bottom, 'linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45))'))}
