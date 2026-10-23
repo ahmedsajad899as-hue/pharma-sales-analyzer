@@ -1885,8 +1885,28 @@ export default function DoctorsPage() {
 
   return (
     <div className="page-container" dir="rtl">
-      {/* Header — title moved to the app-level topbar; this row now just hosts the tab's action buttons */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+      {/* Header — التبويبات وأزرار التبويب الحالي في صف واحد مضغوط (كانا صفّين يأكلان أعلى الصفحة) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, borderBottom: '2px solid var(--c-border)', flexWrap: 'wrap' }}>
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 0, flex: '1 1 300px', minWidth: 0 }}>
+        {([
+          ...(showVisitAnalysis                    ? [{ tab: 'visits',     icon: 'location'      as const, label: 'الزيارات' }]  : []),
+          ...(showDoctorsList                       ? [{ tab: 'list',       icon: 'navMasterSurvey' as const, label: 'الأطباء' }]  : []),
+          ...(showArchiveTab                        ? [{ tab: 'archive',    icon: 'folder'        as const, label: 'أرشيف' }]      : []),
+          ...(isCommercialRep && showMyVisits       ? [{ tab: 'myvisits',   icon: 'edit'          as const, label: 'زياراتي' }]   : []),
+          ...(isCommercialRep && showPharmacies     ? [{ tab: 'pharmacies', icon: 'pharmacy'      as const, label: 'الصيدليات' }] : []),
+        ] as { tab: 'list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive'; icon: import('../config/icons').IconName; label: string }[]).map(({ tab, icon, label }) => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            padding: '7px 10px', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', flex: 1,
+            color: activeTab === tab ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+            borderBottom: activeTab === tab ? '2px solid var(--c-accent)' : '2px solid transparent',
+            marginBottom: -2, transition: 'all 0.15s',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+          }}><Icon name={icon} size={13} /> {label}</button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingBottom: 4 }}>
         {activeTab === 'list' && (
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => { setShowImportPanel(v => !v); setImportResult(null); }}
@@ -1899,19 +1919,19 @@ export default function DoctorsPage() {
         )}
         {activeTab === 'visits' && visitAnalysisType === 'doctors' && (
           <button onClick={() => loadVisits(true)} disabled={visitLoading}
-            style={{ ...btnStyle('var(--c-accent)'), opacity: visitLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            style={{ ...btnStyle('var(--c-accent)'), padding: '4px 12px', fontSize: 12, opacity: visitLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <Icon name="refresh" size={14} className={visitLoading ? 'icon-spin' : undefined} /> تحديث
           </button>
         )}
         {activeTab === 'visits' && visitAnalysisType === 'pharmacies' && (
           <button onClick={() => loadPharmVisits(true)} disabled={pharmVisitLoading}
-            style={{ ...btnStyle('var(--c-accent)'), opacity: pharmVisitLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            style={{ ...btnStyle('var(--c-accent)'), padding: '4px 12px', fontSize: 12, opacity: pharmVisitLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <Icon name="refresh" size={14} className={pharmVisitLoading ? 'icon-spin' : undefined} /> تحديث
           </button>
         )}
         {activeTab === 'pharmacies' && (
           <button onClick={loadSurveyPharmacies} disabled={surveyPharmLoading}
-            style={{ ...btnStyle('var(--c-accent)'), opacity: surveyPharmLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            style={{ ...btnStyle('var(--c-accent)'), padding: '4px 12px', fontSize: 12, opacity: surveyPharmLoading ? 0.7 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <Icon name="refresh" size={14} className={surveyPharmLoading ? 'icon-spin' : undefined} /> تحديث
           </button>
         )}
@@ -1935,25 +1955,6 @@ export default function DoctorsPage() {
           </div>
         )}
       </div>
-
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--c-border)', paddingBottom: 0 }}>
-        {([
-          ...(showVisitAnalysis                    ? [{ tab: 'visits',     icon: 'location'      as const, label: 'الزيارات' }]  : []),
-          ...(showDoctorsList                       ? [{ tab: 'list',       icon: 'navMasterSurvey' as const, label: 'الأطباء' }]  : []),
-          ...(showArchiveTab                        ? [{ tab: 'archive',    icon: 'folder'        as const, label: 'أرشيف' }]      : []),
-          ...(isCommercialRep && showMyVisits       ? [{ tab: 'myvisits',   icon: 'edit'          as const, label: 'زياراتي' }]   : []),
-          ...(isCommercialRep && showPharmacies     ? [{ tab: 'pharmacies', icon: 'pharmacy'      as const, label: 'الصيدليات' }] : []),
-        ] as { tab: 'list' | 'visits' | 'pharmacies' | 'myvisits' | 'archive'; icon: import('../config/icons').IconName; label: string }[]).map(({ tab, icon, label }) => (
-          <button key={tab} onClick={() => setActiveTab(tab)} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            padding: '7px 10px', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', flex: 1,
-            color: activeTab === tab ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-            borderBottom: activeTab === tab ? '2px solid var(--c-accent)' : '2px solid transparent',
-            marginBottom: -2, transition: 'all 0.15s',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-          }}><Icon name={icon} size={13} /> {label}</button>
-        ))}
       </div>
 
       {/* ── LIST TAB ─────────────────────────────────────── */}
@@ -2331,24 +2332,8 @@ export default function DoctorsPage() {
               ? (options.find(o => o.month === visitMonthFilter.month && o.year === visitMonthFilter.year)?.label
                   ?? `${MONTHS[visitMonthFilter.month - 1]} ${String(visitMonthFilter.year).slice(2)}`)
               : 'الكل';
-            return (
-              !showVisitMonthPicker ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl' }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0, display: 'inline-flex' }}><Icon name="calendar" size={12} /></span>
-                  <button
-                    style={{
-                      fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
-                      border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
-                      cursor: 'default', whiteSpace: 'nowrap',
-                    }}>{currentLabel}</button>
-                  <button
-                    onClick={() => setShowVisitMonthPicker(true)}
-                    style={{
-                      fontSize: 13, padding: '2px 8px', borderRadius: 14, flexShrink: 0,
-                      border: '1px solid var(--c-border)', background: 'transparent', color: 'var(--c-text-muted)',
-                      cursor: 'pointer', lineHeight: 1,
-                    }}>‹</button>
-                  {visitMonthFilter && (() => {
+            // يظهر في الوضعين (الشهر المختار مطويّاً أو قائمة الأشهر مفتوحة)
+            const dayStrip = visitMonthFilter && (() => {
                     // شريط أيام الشهر: كل يوم رُفعت له زيارة يُلوَّن بلون واحد (للدلالة فقط).
                     // الضغط على يوم مُلوَّن يعرض زيارات ذلك اليوم وحده؛ ضغطة ثانية تُلغيه.
                     const daysInMonth = new Date(visitMonthFilter.year, visitMonthFilter.month, 0).getDate();
@@ -2366,9 +2351,9 @@ export default function DoctorsPage() {
                               style={{
                                 width: 17, height: 17, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                 fontSize: 9, fontWeight: count ? 700 : 500, cursor: count ? 'pointer' : 'default',
-                                background: selected ? 'var(--c-text-primary)' : count ? 'var(--c-accent)' : 'var(--c-bg)',
-                                color: count ? '#fff' : 'var(--c-text-muted)',
-                                border: selected ? '1px solid var(--c-text-primary)' : count ? '1px solid var(--c-accent)' : isToday ? '1.5px solid var(--c-accent)' : '1px solid var(--c-border)',
+                                background: selected ? 'var(--c-accent)' : count ? 'color-mix(in srgb, var(--c-accent) 22%, transparent)' : 'var(--c-bg)',
+                                color: selected ? '#fff' : count ? 'var(--c-accent)' : 'var(--c-text-muted)',
+                                border: selected ? '1px solid var(--c-accent)' : count ? '1px solid color-mix(in srgb, var(--c-accent) 35%, transparent)' : isToday ? '1.5px solid var(--c-accent)' : '1px solid var(--c-border)',
                                 boxShadow: selected ? '0 0 0 2px var(--c-accent-light)' : undefined,
                               }}>{day}</span>
                           );
@@ -2380,9 +2365,27 @@ export default function DoctorsPage() {
                         )}
                       </div>
                     );
-                  })()}
+                  })();
+            return (
+              !showVisitMonthPicker ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0, display: 'inline-flex' }}><Icon name="calendar" size={12} /></span>
+                  <button
+                    style={{
+                      fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 14, flexShrink: 0,
+                      border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
+                      cursor: 'default', whiteSpace: 'nowrap',
+                    }}>{currentLabel}</button>
+                  <button
+                    onClick={() => setShowVisitMonthPicker(true)}
+                    style={{
+                      fontSize: 13, padding: '2px 8px', borderRadius: 14, flexShrink: 0,
+                      border: '1px solid var(--c-border)', background: 'transparent', color: 'var(--c-text-muted)',
+                      cursor: 'pointer', lineHeight: 1,
+                    }}>‹</button>
+                  {dayStrip}
                 </div>
-              ) : (
+              ) : (<>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
                   <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', flexShrink: 0, display: 'inline-flex' }}><Icon name="calendar" size={12} /></span>
                   <button
@@ -2409,6 +2412,8 @@ export default function DoctorsPage() {
                     );
                   })}
                 </div>
+                {dayStrip && <div style={{ display: 'flex', marginTop: -8, marginBottom: 14 }}>{dayStrip}</div>}
+                </>
               )
             );
           })()}

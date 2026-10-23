@@ -252,9 +252,11 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     addMember(user.id, repId);
     (await areaIdsForUser(user.id, repId)).forEach(id => ids.add(id));
   } else if (repUserId) {
-    const u = await prisma.user.findUnique({ where: { id: repUserId }, select: { linkedRepId: true } });
+    const u = await prisma.user.findUnique({ where: { id: repUserId }, select: { linkedRepId: true, role: true } });
     const repId = await resolveRepId(repUserId, u?.linkedRepId ?? null);
-    addMember(repUserId, repId);
+    // قائد الفريق: زياراته هو فقط (scientificRepId الخاص به). مطابقة userId تلتقط
+    // زيارات بلا مندوب محسوم رفعها بحسابه نيابةً عن مندوبيه — فتُسقَط حين له سجل مندوب.
+    addMember(u?.role === 'team_leader' && repId ? null : repUserId, repId);
     (await areaIdsForUser(repUserId, repId)).forEach(id => ids.add(id));
   } else if (companyId) {
     const members = (await resolveCompanyMembers(user.id, companyId, user.role)).filter(m => inScope(m.userId));
