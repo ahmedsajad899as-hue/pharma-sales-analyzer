@@ -3,7 +3,7 @@
 // يُسجَّل في نافذة الاستهلاك مثل Claude (اسم النموذج يفرّقهما).
 import { logAiUsage } from './aiUsage.js';
 
-export const QWEN_MODEL = process.env.QWEN_MODEL || 'qwen-vl-max';
+export const QWEN_MODEL = process.env.QWEN_MODEL || 'qwen3-vl-plus';
 const BASE_URL = (process.env.QWEN_BASE_URL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1').replace(/\/$/, '');
 const DEFAULT_TIMEOUT_MS = 55_000;
 

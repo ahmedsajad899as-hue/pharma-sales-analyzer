@@ -4,7 +4,7 @@
 //         (الافتراضي: invoice-samples/ — مستثنى من git لأنه بيانات زبائن)
 //
 // يحتاج في .env المحلي:  ANTHROPIC_API_KEY=...   DASHSCOPE_API_KEY=...
-// اختياري:  QWEN_MODEL (افتراضي qwen-vl-max)
+// اختياري:  QWEN_MODEL (افتراضي qwen3-vl-plus)
 //           QWEN_BASE_URL (افتراضي الدولي؛ مفتاح حساب الصين: https://dashscope.aliyuncs.com/compatible-mode/v1)
 //           QWEN_PRICE_IN / QWEN_PRICE_OUT  — دولار لكل مليون توكن، من صفحة أسعار حسابك
 //
@@ -20,7 +20,7 @@ import { INVOICE_PROMPT, parseInvoiceJson } from '../server/modules/sales/sales.
 import { AI_MODEL } from '../server/lib/claudeAi.js';
 
 const DIR = path.resolve(process.argv[2] || 'invoice-samples');
-const QWEN_MODEL = process.env.QWEN_MODEL || 'qwen-vl-max';
+const QWEN_MODEL = process.env.QWEN_MODEL || 'qwen3-vl-plus';
 const QWEN_BASE_URL = (process.env.QWEN_BASE_URL || 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1').replace(/\/$/, '');
 const CLAUDE_PRICE = { in: 2, out: 10 }; // Sonnet 5.5
 const QWEN_PRICE = process.env.QWEN_PRICE_IN && process.env.QWEN_PRICE_OUT
