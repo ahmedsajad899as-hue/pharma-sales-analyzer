@@ -3844,63 +3844,6 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               )}
               <RepSelectOptions reps={sciReps} />
             </select>
-            {/* شركات ثم مندوبوها — خفيفة وشفافة عمداً كي لا تلوّث الشاشة */}
-            {(() => {
-              const groups = groupRepsByTeam(sciReps).filter(g => g.company);
-              if (groups.length === 0) return null;
-              const selRep = sciReps.find(r => String(r.id) === sciRepId);
-              const selGroupSide = marketersView && isGroupId(sciRepId) ? sciRepId.slice(4) : null;
-              // «بغداد» يعرض أسماء كل الأقسام؛ القسم أو المندوب يعرض قسمه فقط.
-              const activeCo = quickCompany ?? (selGroupSide && selGroupSide !== 'all' ? selGroupSide : selRep ? (selRep.company || 'بدون شركة') : (marketersView ? null : groups[0].company));
-              const rows = activeCo == null ? groups.flatMap(g => g.rows) : (groups.find(g => g.company === activeCo)?.rows ?? []);
-              // سطر لكل تيم ليدر: القائد أولاً ثم فاصل صغير ثم مندوبوه. من لا قائد
-              // لهم يُجمعون في سطر أخير بلا قائد.
-              const lines: { leader: Rep | null; members: Rep[] }[] = [];
-              for (const row of rows) {
-                if (row.isLeader) lines.push({ leader: row.rep as Rep, members: [] });
-                else if (row.isMember && lines.length > 0) lines[lines.length - 1].members.push(row.rep as Rep);
-                else {
-                  const last = lines[lines.length - 1];
-                  if (last && !last.leader) last.members.push(row.rep as Rep);
-                  else lines.push({ leader: null, members: [row.rep as Rep] });
-                }
-              }
-              const faint = (on: boolean, leader = false, big = false): React.CSSProperties => ({
-                background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer',
-                fontSize: big ? 13 : 12, lineHeight: 1.7, color: on ? '#334155' : '#64748b',
-                opacity: on ? 1 : leader || big ? 0.9 : 0.75, fontWeight: on || leader || big ? 700 : 500,
-                textDecoration: on ? 'underline' : 'none', textUnderlineOffset: 3,
-              });
-              const pick = (rep: Rep) => { setSciRepId(String(rep.id)); setReportView(getDefaultReportView()); loadSciReport(String(rep.id)); };
-              // المسوقون: الضغط على «بغداد»/القسم يفتح تقرير المجموعة نفسها.
-              const pickGroup = (gid: string) => { setQuickCompany(gid === 'grp:all' ? null : gid.slice(4)); setSciRepId(gid); setReportView(getDefaultReportView()); loadSciReport(gid); };
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 10px' }}>
-                    {marketersView && (
-                      <button type="button" style={faint(sciRepId === 'grp:all', false, true)} onClick={() => pickGroup('grp:all')}>بغداد</button>
-                    )}
-                    {groups.map(g => (
-                      <button key={g.company} type="button" style={faint(marketersView ? sciRepId === `grp:${g.company}` : g.company === activeCo, false, true)}
-                        onClick={() => marketersView ? pickGroup(`grp:${g.company}`) : setQuickCompany(g.company)}>{g.company}</button>
-                    ))}
-                  </div>
-                  {lines.map((ln, idx) => (
-                    <div key={idx} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 7px' }}>
-                      {ln.leader && (
-                        <>
-                          <button type="button" style={faint(String(ln.leader.id) === sciRepId, true)} onClick={() => pick(ln.leader!)}>{ln.leader.name}</button>
-                          {ln.members.length > 0 && <span style={{ width: 1, height: 9, background: '#cbd5e1', opacity: 0.7 }} />}
-                        </>
-                      )}
-                      {ln.members.map(m => (
-                        <button key={m.id} type="button" style={faint(String(m.id) === sciRepId)} onClick={() => pick(m)}>{m.name}</button>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
             </div>
           ) : (
             <div className="m-full" style={{ position: 'relative', flex: '1 1 240px', maxWidth: 420 }}>
@@ -4083,6 +4026,73 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           </div>
 
         </div>
+        {/* شركات/أقسام ثم مندوبوها — بعرض البطاقة كاملاً: لكل تيم ليدر سطران فقط لمندوبيه */}
+        {mode === 'scientific' && (() => {
+          const groups = groupRepsByTeam(sciReps).filter(g => g.company);
+          if (groups.length === 0) return null;
+          const selRep = sciReps.find(r => String(r.id) === sciRepId);
+          const selGroupSide = marketersView && isGroupId(sciRepId) ? sciRepId.slice(4) : null;
+          // «بغداد» يعرض أسماء كل الأقسام؛ القسم أو المندوب يعرض قسمه فقط.
+          const activeCo = quickCompany ?? (selGroupSide && selGroupSide !== 'all' ? selGroupSide : selRep ? (selRep.company || 'بدون شركة') : (marketersView ? null : groups[0].company));
+          const rows = activeCo == null ? groups.flatMap(g => g.rows) : (groups.find(g => g.company === activeCo)?.rows ?? []);
+          // سطر لكل تيم ليدر: القائد أولاً ثم فاصل صغير ثم مندوبوه. من لا قائد
+          // لهم يُجمعون في سطر أخير بلا قائد.
+          const lines: { leader: Rep | null; members: Rep[] }[] = [];
+          for (const row of rows) {
+            if (row.isLeader) lines.push({ leader: row.rep as Rep, members: [] });
+            else if (row.isMember && lines.length > 0) lines[lines.length - 1].members.push(row.rep as Rep);
+            else {
+              const last = lines[lines.length - 1];
+              if (last && !last.leader) last.members.push(row.rep as Rep);
+              else lines.push({ leader: null, members: [row.rep as Rep] });
+            }
+          }
+          const faint = (on: boolean, leader = false, big = false): React.CSSProperties => ({
+            background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer',
+            fontSize: big ? 13 : 12, lineHeight: 1.7, color: on ? '#334155' : '#64748b',
+            opacity: on ? 1 : leader || big ? 0.9 : 0.75, fontWeight: on || leader || big ? 700 : 500,
+            textDecoration: on ? 'underline' : 'none', textUnderlineOffset: 3,
+          });
+          const pick = (rep: Rep) => { setSciRepId(String(rep.id)); setReportView(getDefaultReportView()); loadSciReport(String(rep.id)); };
+          // المسوقون: الضغط على «بغداد»/القسم يفتح تقرير المجموعة نفسها.
+          const pickGroup = (gid: string) => { setQuickCompany(gid === 'grp:all' ? null : gid.slice(4)); setSciRepId(gid); setReportView(getDefaultReportView()); loadSciReport(gid); };
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 10, paddingTop: 8, borderTop: '1px solid #f1f5f9' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 10px' }}>
+                {marketersView && (
+                  <button type="button" style={faint(sciRepId === 'grp:all', false, true)} onClick={() => pickGroup('grp:all')}>بغداد</button>
+                )}
+                {groups.map(g => (
+                  <button key={g.company} type="button" style={faint(marketersView ? sciRepId === `grp:${g.company}` : g.company === activeCo, false, true)}
+                    onClick={() => marketersView ? pickGroup(`grp:${g.company}`) : setQuickCompany(g.company)}>{g.company}</button>
+                ))}
+              </div>
+              {lines.map((ln, idx) => {
+                // المندوبون على سطرين متوازنين بجانب اسم قائدهم.
+                const half = Math.ceil(ln.members.length / 2);
+                const memberRows = [ln.members.slice(0, half), ln.members.slice(half)].filter(r => r.length);
+                return (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, paddingTop: 4, borderTop: idx ? '1px dashed #eef2f7' : 'none' }}>
+                    <div style={{ minWidth: 170, flexShrink: 0 }}>
+                      {ln.leader
+                        ? <button type="button" style={faint(String(ln.leader.id) === sciRepId, true)} onClick={() => pick(ln.leader!)}>{ln.leader.name}</button>
+                        : <span style={{ fontSize: 11.5, color: '#94a3b8' }}>بلا تيم ليدر</span>}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+                      {memberRows.map((row, ri) => (
+                        <div key={ri} style={{ display: 'flex', flexWrap: 'wrap', gap: '0 12px' }}>
+                          {row.map(m => (
+                            <button key={m.id} type="button" style={faint(String(m.id) === sciRepId)} onClick={() => pick(m)}>{m.name}</button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
       )}
 
