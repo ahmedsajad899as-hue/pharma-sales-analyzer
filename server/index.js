@@ -15,6 +15,7 @@ import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
 import { autoEnrollAllReps } from './modules/province-teams/province-teams.service.js';
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillProductManagerFileShares } from './lib/backfillProductManagerFileShares.js';
+import { backfillConditionFileShares } from './lib/officeFileShares.js';
 import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
@@ -4917,6 +4918,10 @@ if (process.env.VERCEL) {
     backfillProductManagerFileShares()
       .then(n => { if (n) console.log(`✓ شورِكت ${n} ملف مع مديري المنتج (backfill)`); })
       .catch(e => console.error('[backfillProductManagerFileShares]', e.message));
+    // ملف الكوديشن ← كل الأدوار المكتبية ومدراء الشركات في مكتبه ممن فاتتهم المشاركة (idempotent)
+    backfillConditionFileShares()
+      .then(n => { if (n) console.log(`✓ شورِك ملف الكوديشن مع ${n} حساب (backfill)`); })
+      .catch(e => console.error('[backfillConditionFileShares]', e.message));
     // مندوبون علميون لهم محافظات سلفاً ← تسجيلهم في فرق محافظاتهم (idempotent، إضافة فقط)
     autoEnrollAllReps()
       .then(n => { if (n) console.log(`✓ سُجّل ${n} تعيين مندوب في فرق المحافظات (backfill)`); })

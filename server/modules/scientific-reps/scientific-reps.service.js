@@ -1627,6 +1627,36 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   return { ...meta, rawSales: finalSales, sharedFileIds, nonSharedFileIds, linkedUserId: linkedUser?.id ?? null };
 }
 
+/**
+ * «مدير المسوقين» (company_manager + linkedRep.repKind='pharmacy'): صفوف Sale المنسوبة
+ * لفريقه = اتحاد ما يُنسب لكل مسوّق تحته مباشرةً (UserManagerAssignment) — تيم ليدر
+ * المسوقين يشمل مندوبيه أصلاً (resolvePharmacyMembers)، فيتطابق الرقم مع مجموع تقارير
+ * قادته في «علمي بغداد». صف يُنسب لأكثر من عضو يُحسب مرة واحدة. للتحليل الشامل.
+ * @returns {Promise<{ isMarketersManager: boolean, saleIds: number[], repCount: number }>}
+ */
+export async function resolveMarketersTeamSaleIds(userId, fileIds) {
+  const me = await prisma.user.findUnique({
+    where: { id: userId }, select: { role: true, linkedRep: { select: { repKind: true } } },
+  });
+  if (me?.role !== 'company_manager' || !isPharmacyRep(me.linkedRep)) {
+    return { isMarketersManager: false, saleIds: [], repCount: 0 };
+  }
+  const subRows = await prisma.userManagerAssignment.findMany({ where: { managerId: userId }, select: { userId: true } });
+  const subs = subRows.length
+    ? await prisma.user.findMany({
+        where: { id: { in: subRows.map(r => r.userId) }, isActive: true, linkedRepId: { not: null } },
+        select: { linkedRepId: true, linkedRep: { select: { repKind: true } } },
+      })
+    : [];
+  const repIds = [...new Set(subs.filter(u => isPharmacyRep(u.linkedRep)).map(u => u.linkedRepId))];
+  const ids = new Set();
+  for (const repId of repIds) {
+    const { rawSales } = await resolveSciRepSales(repId, { fileIds }, { ...REPORT_SALES_SELECT, id: true }, userId);
+    for (const s of rawSales) if (s.id != null) ids.add(s.id);
+  }
+  return { isMarketersManager: true, saleIds: [...ids], repCount: repIds.length };
+}
+
 const REPORT_SALES_SELECT = {
   quantity: true, totalValue: true,
   areaId: true, itemId: true, customerId: true,

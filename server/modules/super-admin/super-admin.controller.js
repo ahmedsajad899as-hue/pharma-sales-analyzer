@@ -211,7 +211,7 @@ export async function impersonateUser(req, res) {
 
     const user = await prisma.user.findUnique({
       where:  { id: userId },
-      select: { id: true, username: true, role: true, isActive: true, linkedRepId: true, displayName: true, officeId: true, permissions: true },
+      select: { id: true, username: true, role: true, isActive: true, linkedRepId: true, displayName: true, officeId: true, permissions: true, linkedRep: { select: { repKind: true } } },
     });
     if (!user)           return res.status(404).json({ error: 'المستخدم غير موجود' });
     if (!user.isActive)  return res.status(403).json({ error: 'المستخدم غير نشط' });
@@ -224,8 +224,8 @@ export async function impersonateUser(req, res) {
 
     // نفس شكل /api/auth/me — بدون permissions كانت hasFeature() تُرجع true لكل
     // مفتاح فتظهر كل الصفحات المطفأة من «المميزات» داخل جلسة الدخول كحساب.
-    const { isActive, ...sessionUser } = user;
-    res.json({ success: true, token, user: sessionUser });
+    const { isActive, linkedRep, ...sessionUser } = user;
+    res.json({ success: true, token, user: { ...sessionUser, repKind: linkedRep?.repKind ?? null } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

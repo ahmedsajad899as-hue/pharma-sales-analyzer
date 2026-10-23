@@ -18,6 +18,7 @@ import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue, buildProvinceLookup, ma
 import { isWarehouseSaleRow, pharmacyNameFromRawData } from '../../lib/orderKey.js';
 import { buildMonthFilter, UNDATED_CUTOFF } from '../../lib/salesMonths.js';
 import { getHomeItems, getHomeItemProvinces, getHomeProvinces } from './homeItems.js';
+import { resolveMarketersTeamSaleIds } from '../scientific-reps/scientific-reps.service.js';
 import { itemDocUpload, listItemDocs, addItemDoc, deleteItemDoc, getItemInfo, saveItemInfo } from './itemDocs.js';
 
 const router = Router();
@@ -46,7 +47,10 @@ async function loadOfficeTeams(userId) {
   if (viewer?.officeId == null) return [];
 
   const managers = await prisma.user.findMany({
-    where: { officeId: viewer.officeId, role: 'company_manager', isActive: true },
+    // «مدير المسوقين» (company_manager + linkedRep.repKind='pharmacy') ليس شركة: بلا ايتمات
+    // وكل الشركات «رئيسية» له — لو دخل هنا لظهر شريحةً باسم أول شركاته بصفر، ولسرق ترجيح
+    // ownerByCompany من مدراء الشركات الحقيقيين.
+    where: { officeId: viewer.officeId, role: 'company_manager', isActive: true, NOT: { linkedRep: { is: { repKind: 'pharmacy' } } } },
     select: { id: true, displayName: true, username: true },
     orderBy: { id: 'asc' },
   });
@@ -266,7 +270,13 @@ router.get('/overall', async (req, res) => {
     // ضمنها ثم يوزّعه الجدول على أعمدتها — رقمان مختلفان لنفس المحافظة.
     // يُبنى بمعرّفات الشركة الحقيقية لا بمطابقة اسم نصي (أسماء مكرَّرة بحالة
     // أحرف مختلفة: HUMANIS/humanis).
-    const mgrId = teamManagerId ? Number(teamManagerId) : 0;
+    // «مدير المسوقين»: التحليل الشامل = مبيع فريقه من المسوقين كله (اتحاد ما يُنسب لقادته
+    // ومندوبيهم بنفس قواعد تقرير «علمي بغداد»)، باسم «المسوقين» لا شركة بعينها — فلا شرائح
+    // تيمات ولا teamManagerId له.
+    const marketersTeam = (userId && parsedFileIds.length > 0)
+      ? await resolveMarketersTeamSaleIds(userId, parsedFileIds)
+      : { isMarketersManager: false, saleIds: [], repCount: 0 };
+    const mgrId = (teamManagerId && !marketersTeam.isMarketersManager) ? Number(teamManagerId) : 0;
     // officeTeams محصورة أصلاً بمدراء الشركات النشطين في مكتب الطالب، فالعضوية
     // فيها هي نفسها فحص الصلاحية الذي كان يتم باستعلام منفصل.
     const selectedTeam = mgrId ? (officeTeams.find(t => t.managerId === mgrId) ?? null) : null;
@@ -433,6 +443,7 @@ router.get('/overall', async (req, res) => {
       // مجموع الشرائح = «الكل» بدل أن يتبدّل نطاق الايتمات مع كل شريحة.
       ...effectiveItemScope,
       ...teamCompanyFilter,
+      ...(marketersTeam.isMarketersManager ? { id: { in: marketersTeam.saleIds } } : {}),
       ...(recordType ? { recordType } : {}),
     };
     const where = {
@@ -717,7 +728,10 @@ router.get('/overall', async (req, res) => {
     const byBaghdadWarehouse = [...baghdadWarehouseMap.values()].sort((a, b) =>
       a.repName.localeCompare(b.repName, 'ar') || a.warehouseName.localeCompare(b.warehouseName, 'ar') || b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byProvinceItem, byBaghdadWarehouse, byBaghdadArea, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied, _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where) } } });
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byProvinceItem, byBaghdadWarehouse, byBaghdadArea, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied,
+      marketersTeam: marketersTeam.isMarketersManager ? { repCount: marketersTeam.repCount } : null,
+      // قائمة معرّفات صفوف فريق المسوقين قد تكون آلافاً — تُقصّ في نسخة التشخيص
+      _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where).slice(0, 4000) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

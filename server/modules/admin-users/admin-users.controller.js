@@ -10,6 +10,7 @@ import {
 import { PHARMACY_KIND, repSideOf } from '../../lib/pharmacyRep.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
+import { shareOfficeFilesWithNewUser } from '../../lib/officeFileShares.js';
 import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
 
@@ -265,6 +266,10 @@ export async function createUser(req, res) {
     await applyRepKind(user.id, role, req.body.repKind);
     user = await prisma.user.findUnique({ where: { id: user.id }, select: userSelect });
   }
+
+  // ملفات موظفي المكتب المرفوعة قبل إنشاء الحساب (ميركاتو/المكتب/الكوديشن…) — التعميم
+  // التلقائي يعمل لحظة الرفع فقط، فبدون هذا يبدأ الحساب الجديد بلا ملفات مكتبه
+  await shareOfficeFilesWithNewUser(user.id).catch(e => console.error('[createUser] office files share', e.message));
 
   res.status(201).json({ success: true, data: user });
 }

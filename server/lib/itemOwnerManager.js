@@ -22,7 +22,8 @@ export async function loadItemOwnerManagers(officeId) {
   if (officeId == null) return out;
 
   const managers = await prisma.user.findMany({
-    where: { officeId, role: 'company_manager', isActive: true },
+    // «مدير المسوقين» ليس مالك ايتمات شركة — نفس استثناء loadOfficeTeams في reports.routes.js
+    where: { officeId, role: 'company_manager', isActive: true, NOT: { linkedRep: { is: { repKind: 'pharmacy' } } } },
     select: { id: true, displayName: true, username: true },
     orderBy: { id: 'asc' },
   });

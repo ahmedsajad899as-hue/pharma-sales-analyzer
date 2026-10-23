@@ -9,6 +9,8 @@ export interface AuthUser {
   displayName?: string | null;
   officeId?: number | null;
   permissions?: string | null;
+  /** 'pharmacy' = مسوّق (فارمسي لاين): company_manager هنا = «مدير المسوقين» */
+  repKind?: string | null;
 }
 
 export interface SavedAccount {

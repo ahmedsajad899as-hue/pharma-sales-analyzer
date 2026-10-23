@@ -862,6 +862,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // زر «علميين / مسوقين (فارمسي لاين)» — لإدارة المكتب ومدراء الشركات/المنتج وقائد فريق الفارمسي.
   // البقية بلا زر ولا تصفية (المندوب يرى نفسه، والتيم ليدر العلمي فريقه).
   const myRepKind = sciRepsAll.find(r => r.id === user?.linkedRepId)?.repKind;
+  // «مدير المسوقين» = company_manager مسوّق (repKind من /me) — ليس مدير شركة
+  const isMarketersManager = user?.role === 'company_manager' && user?.repKind === 'pharmacy';
   const canToggleRepKind = REP_KIND_TOGGLE_ROLES.has(user?.role ?? '') || (user?.role === 'team_leader' && myRepKind === 'pharmacy');
   const [repKindView, setRepKindView] = useState<'scientific' | 'pharmacy'>(() => sessionStorage.getItem('rpt_repKind') === 'pharmacy' ? 'pharmacy' : 'scientific');
   // قائد فريق الفارمسي يبدأ على مسوقيه ما لم يختر غير ذلك.
@@ -4304,8 +4306,15 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
 
         return (
           <>
+            {/* «مدير المسوقين»: الخادم يحصر التحليل بمبيع فريقه من المسوقين — بلا شرائح شركات */}
+            {isMarketersManager && (
+              <div style={{ marginTop: 8, marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderRadius: 20,
+                border: '1.5px solid #6ee7b7', background: '#ecfdf5', color: '#047857', fontSize: 12.5, fontWeight: 700 }}>
+                🏪 المسوقين — مجموع مبيعات فريقك
+              </div>
+            )}
             {/* ── Team chips ── */}
-            {overallTeams.length > 1 && (
+            {overallTeams.length > 1 && !isMarketersManager && (
               <div style={{ marginTop: 8, marginBottom: 8 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Icon name="navCommercial" size={11} /> الشركة الرئيسية

@@ -14,7 +14,7 @@ export async function login(req, res) {
       return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبان.' });
     }
 
-    const user = await prisma.user.findUnique({ where: { username } });
+    const user = await prisma.user.findUnique({ where: { username }, include: { linkedRep: { select: { repKind: true } } } });
     if (!user || !user.isActive) {
       return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة.' });
     }
@@ -33,7 +33,8 @@ export async function login(req, res) {
     res.json({
       success: true,
       token,
-      user: { id: user.id, username: user.username, role: user.role, linkedRepId: user.linkedRepId ?? null, displayName: user.displayName ?? null, permissions: user.permissions ?? null },
+      // repKind: 'pharmacy' = مسوّق (فارمسي لاين) — يميّز «مدير المسوقين» عن مدير الشركة في الواجهة
+      user: { id: user.id, username: user.username, role: user.role, linkedRepId: user.linkedRepId ?? null, displayName: user.displayName ?? null, permissions: user.permissions ?? null, repKind: user.linkedRep?.repKind ?? null },
     });
 
     // Log the login action (fire-and-forget)
@@ -56,15 +57,16 @@ export async function logout(req, res) {
 /** GET /api/auth/me  (requires auth) */
 export async function me(req, res) {
   try {
-    const user = await prisma.user.findUnique({
+    const row = await prisma.user.findUnique({
       where:  { id: req.user.id },
-      select: { id: true, username: true, role: true, isActive: true, linkedRepId: true, displayName: true, officeId: true, permissions: true },
+      select: { id: true, username: true, role: true, isActive: true, linkedRepId: true, displayName: true, officeId: true, permissions: true, linkedRep: { select: { repKind: true } } },
     });
     // حساب معطَّل (من السوبر أدمن أو مديره) — الواجهة تمسح الجلسة حين لا يعود user
-    if (!user || !user.isActive) {
+    if (!row || !row.isActive) {
       return res.status(401).json({ error: 'الحساب معطّل أو غير موجود.' });
     }
-    res.json({ success: true, user });
+    const { linkedRep, ...user } = row;
+    res.json({ success: true, user: { ...user, repKind: linkedRep?.repKind ?? null } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

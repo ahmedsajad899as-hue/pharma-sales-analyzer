@@ -136,7 +136,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
     commercial_supervisor: 'folder', commercial_team_leader: 'navMasterSurvey',
     commercial_rep: 'money', scientific_rep: 'navFms',
   };
-  const roleLabel = ROLE_LABELS[role] ?? role;
+  // المسوّقون (فارمسي لاين) بنفس أدوار العلميين حسابياً — repKind يميّزهم في الاسم المعروض
+  const MARKETER_LABELS: Record<string, string> = { company_manager: 'مدير المسوقين', team_leader: 'قائد فريق المسوقين', scientific_rep: 'مسوّق' };
+  const roleLabel = (user?.repKind === 'pharmacy' && MARKETER_LABELS[role]) || (ROLE_LABELS[role] ?? role);
   const roleIcon: IconName = ROLE_ICONS[role] ?? 'person';
 
   // Other saved accounts (excluding the currently active one)
@@ -560,7 +562,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                         <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {acc.user.displayName || acc.user.username}
                         </div>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>{ROLE_LABELS[acc.user.role] ?? acc.user.role}</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>{(acc.user.repKind === 'pharmacy' && MARKETER_LABELS[acc.user.role]) || (ROLE_LABELS[acc.user.role] ?? acc.user.role)}</div>
                       </div>
                       {/* Switch btn */}
                       <button

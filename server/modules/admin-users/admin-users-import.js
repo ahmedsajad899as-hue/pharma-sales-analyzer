@@ -30,6 +30,7 @@ import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 import { encryptPassword } from '../../lib/passwordCrypto.js';
 import { buildDefaultPermissions } from './admin-users.controller.js';
+import { shareOfficeFilesWithNewUser } from '../../lib/officeFileShares.js';
 
 // نفس قيم/تسميات ROLES في src/pages/super-admin/UsersPage.tsx — يقبل العمود
 // "الدور" إما القيمة الخام (scientific_rep) أو التسمية العربية (مندوب علمي).
@@ -401,6 +402,8 @@ export async function commitUsersImport(req, res) {
         catch (e) { console.warn('[commitUsersImport] derived-link sync failed (non-fatal):', e.message); }
       }
 
+      // ملفات موظفي المكتب القائمة — نفس createUser
+      await shareOfficeFilesWithNewUser(user.id).catch(e => console.error('[importUsers] office files share', e.message));
       created.push({ rowIndex, username, userId: user.id });
     } catch (err) {
       failed.push({ rowIndex, username, error: err.message ?? 'فشل غير معروف' });
