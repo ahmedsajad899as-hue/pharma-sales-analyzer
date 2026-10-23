@@ -1023,13 +1023,13 @@ async function resolveRepAreaIdsByName(repId, allAreas) {
 }
 
 /**
- * أعضاء نسب مبيع ملف المكتب لمندوب فارمسي (lib/pharmacyRep.js): هو نفسه. والتيم ليدر =
- * مجموع مندوبيه فقط (قرار المستخدم) — مناطقه هو (القسم كله عادةً) لا تُحتسب، وإلا دخلت
- * صفوف مناطق بلا مندوب. مبيعه باسمه في ميركاتو يبقى عبر فرع ميركاتو. تيم ليدر بلا
- * مندوبين يُعامَل كمندوب. لكلٍّ تسمياته ومناطقه وايتماته؛ عضو بلا مناطق لا يأخذ شيئاً.
+ * أعضاء نسب مبيع ملف المكتب لمندوب فارمسي (lib/pharmacyRep.js): هو نفسه، وإن كان تيم
+ * ليدر فمندوبوه أيضاً (UserManagerAssignment). مناطق التيم ليدر نفسه تُحتسب أيضاً — صفوف
+ * «فارمسي» في منطقة مُعيَّنة له بلا مندوب تبقى له (قرار المستخدم 2026-10-23). لكلٍّ
+ * تسمياته ومناطقه وايتماته؛ عضو بلا مناطق لا يأخذ شيئاً من ملف المكتب.
  */
 async function resolvePharmacyMembers(rep) {
-  let repIds = [rep.id];
+  const repIds = [rep.id];
   const leader = await prisma.user.findFirst({ where: { linkedRepId: rep.id }, select: { id: true, role: true } });
   if (leader?.role === 'team_leader') {
     const subRows = await prisma.userManagerAssignment.findMany({ where: { managerId: leader.id }, select: { userId: true } });
@@ -1038,8 +1038,7 @@ async function resolvePharmacyMembers(rep) {
         where: { id: { in: subRows.map(r => r.userId) }, linkedRepId: { not: null } },
         select: { linkedRepId: true },
       });
-      const subRepIds = [...new Set(subs.map(u => u.linkedRepId))].filter(id => id !== rep.id);
-      if (subRepIds.length) repIds = subRepIds;
+      for (const u of subs) if (!repIds.includes(u.linkedRepId)) repIds.push(u.linkedRepId);
     }
   }
   const [repRows, allAreas] = await Promise.all([
