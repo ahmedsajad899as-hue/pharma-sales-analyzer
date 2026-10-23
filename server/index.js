@@ -60,7 +60,7 @@ import representativesRoutes    from './modules/representatives/representatives.
 import reportsRoutes            from './modules/reports/reports.routes.js';
 import scientificRepsRoutes     from './modules/scientific-reps/scientific-reps.routes.js';
 import repFieldSurveyRoutes     from './modules/rep-field-survey/rep-field-survey.routes.js';
-import { getRawSalesForExport, expandOwnerIdsByCompany } from './modules/scientific-reps/scientific-reps.service.js';
+import { getRawSalesForExport, getGroupRawSalesForExport, expandOwnerIdsByCompany } from './modules/scientific-reps/scientific-reps.service.js';
 import doctorsRoutes            from './modules/doctors/doctors.routes.js';
 import monthlyPlansRoutes       from './modules/monthly-plans/monthly-plans.routes.js';
 import smartMonthlyPlansRoutes  from './modules/smart-monthly-plans/smart-monthly-plans.routes.js';
@@ -1525,6 +1525,17 @@ app.get('/api/export/raw-sales', async (req, res) => {
     // (commRepIds is ignored here — getRawSalesForExport re-derives the full,
     // expanded commercial-rep set itself, which is broader than the explicit
     // links the frontend passes in.)
+    // مجموعة مندوبين (المسوقون: بغداد/الكرخ/الرصافة) — صفوفهم معاً بلا تكرار.
+    const groupIds = String(req.query.sciRepIds || '').split(',').map(Number).filter(n => n > 0);
+    if (groupIds.length) {
+      const sales = await getGroupRawSalesForExport(groupIds, {
+        fileIds:    parsedFileIds.length > 0 ? parsedFileIds : null,
+        startDate:  startDate || undefined,
+        endDate:    endDate   || undefined,
+        recordType: recordType || null,
+      }, req.user?.id ?? null);
+      return res.json({ success: true, data: sales });
+    }
     const sciId = sciRepId ? Number(sciRepId) : NaN;
     if (!isNaN(sciId)) {
       const sales = await getRawSalesForExport(sciId, {

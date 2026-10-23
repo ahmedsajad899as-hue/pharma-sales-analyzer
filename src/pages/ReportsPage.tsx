@@ -884,6 +884,17 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   }, [canToggleRepKind]);
   // «علمي بغداد» لا تعرض تيم ليدرية/مندوبي المحافظات (فرق المحافظات)؛ الخريطة تبقى بالقائمة الكاملة
   const sciReps = useMemo(() => filterByKind(sciRepsAll, repKindView), [sciRepsAll, repKindView, filterByKind]);
+  // المسوقون: تقرير مجموعة — «grp:all» = بغداد (كل المسوقين)، «grp:<القسم>» = الكرخ/الرصافة.
+  // يُفتح «بغداد» افتراضياً عند دخول المسوقين، ثم يمكن تضييقه لقسم أو مندوب.
+  const marketersView = canToggleRepKind && repKindView === 'pharmacy';
+  const isGroupId = (id: string) => id.startsWith('grp:');
+  const groupOf = (id: string, list: Rep[] = sciReps) => {
+    const side = id.slice(4);
+    const reps = side === 'all' ? list : list.filter(r => (r.company || '') === side);
+    return { repIds: reps.map(r => r.id), label: side === 'all' ? 'بغداد' : side };
+  };
+  const defaultSciPick = (current: string, list: Rep[] = sciReps, marketers = marketersView) =>
+    marketers ? 'grp:all' : autoPickRep(isGroupId(current) ? '' : current, list);
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
   // في الملف كما يراه صاحبه — يسري على أي ملف لك صلاحية وصول عليه (مالك أو
@@ -1349,9 +1360,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (!commRepId) setCommRepId(id);
       loadCommReport(id);
     } else if (mode === 'scientific' && sciReps.length > 0) {
-      const id = sciRepId || String(sciReps[0].id);
+      const id = marketersView ? 'grp:all' : (sciRepId && !isGroupId(sciRepId) ? sciRepId : String(sciReps[0].id));
       autoLoaded.current = true;
-      if (!sciRepId) setSciRepId(id);
+      if (id !== sciRepId) setSciRepId(id);
       loadSciReport(id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1396,6 +1407,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const loadSciReport = async (repIdOverride?: string) => {
     const id = repIdOverride ?? sciRepId;
     if (!id) { setError(t.reports.errSelectSci); return; }
+    // من قائمة المسوقين مباشرة لا sciReps: عند التبديل للمسوقين يُطلب التقرير قبل إعادة الرسم.
+    const group = isGroupId(id) ? groupOf(id, filterByKind(sciRepsAll, 'pharmacy')) : null;
+    if (group && !group.repIds.length) { setSciReport(null); setSciReturnsReport(null); return; }
     const myReq = ++sciReportSeq;
     setError('');
     let fromCache = false;
@@ -1405,7 +1419,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (toDate)      params.set('endDate', toDate);
       if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
       applyMonth(params);
-      const cacheKey = `${user?.id ?? ''}|${id}|${params}`;
+      const cacheKey = `${user?.id ?? ''}|${id}|${group ? group.repIds.join(',') : ''}|${params}`;
       const cached = SCI_REPORT_CACHE.get(cacheKey);
       if (cached) {
         // عرض فوري لآخر نتيجة لهذا المندوب، ثم تحديث صامت أدناه.
@@ -1468,9 +1482,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         };
       };
 
+      const base = group
+        ? `/api/scientific-reps/group-report?repIds=${group.repIds.join(',')}&label=${encodeURIComponent(group.label)}&${params}`
+        : `/api/scientific-reps/${id}/report?${params}`;
       const [salesRes, returnsRes] = await Promise.all([
-        fetch(`/api/scientific-reps/${id}/report?${params}&recordType=sale`, { headers: authH() }),
-        fetch(`/api/scientific-reps/${id}/report?${params}&recordType=return`, { headers: authH() }),
+        fetch(`${base}&recordType=sale`, { headers: authH() }),
+        fetch(`${base}&recordType=return`, { headers: authH() }),
       ]);
       const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
       if (myReq !== sciReportSeq) return; // طلب أحدث (مندوب آخر) انطلق بعده
@@ -3003,6 +3020,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         const res  = await fetch(`/api/export/raw-sales?commRepIds=${commRepId}&${qp.toString()}`, { headers: authH() });
         const json = await res.json();
         sales = json.data ?? [];
+      } else if (mode === 'scientific' && sciRepId && isGroupId(sciRepId)) {
+        const g = groupOf(sciRepId);
+        const sRes  = await fetch(`/api/export/raw-sales?sciRepIds=${g.repIds.join(',')}&${qp.toString()}`, { headers: authH() });
+        sales = (await sRes.json()).data ?? [];
       } else if (mode === 'scientific' && sciRepId) {
         const rRes  = await fetch(`/api/scientific-reps/${sciRepId}/report?${qp.toString()}`, { headers: authH() });
         const rJson = await rRes.json();
@@ -3018,6 +3039,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
 
       const repName = mode === 'commercial'
         ? (commReps.find(r => String(r.id) === commRepId)?.name ?? 'تقرير')
+        : isGroupId(sciRepId) ? `مسوقين ${groupOf(sciRepId).label}`
         : (sciReps.find(r => String(r.id) === sciRepId)?.name ?? 'تقرير');
 
       // Always include BOTH sales and returns in the data sheet (this is the rep's full
@@ -3030,7 +3052,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       // ── Build the «الملخص» sheet (always full net, regardless of the data view) ──
       const targets = mode === 'commercial'
         ? (commRepId ? await fetchRepTargets('commercial', commRepId) : [])
-        : (sciRepId  ? await fetchRepTargets('scientific', sciRepId)   : []);
+        : (sciRepId && !isGroupId(sciRepId) ? await fetchRepTargets('scientific', sciRepId) : []);
       const summaryRows = buildSummarySheet(repName, sales, { areaCount, targets })
         .map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
 
@@ -3739,7 +3761,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             // يضغط المستخدم «تحليل». نحمّله فوراً بمندوب محفوظ أو بأول مندوب.
             if (id === 'scientific') {
               setMode('scientific'); setError(''); setSciReport(null);
-              const rid = autoPickRep(sciRepId, sciReps);
+              const rid = defaultSciPick(sciRepId);
               if (rid) { if (rid !== sciRepId) setSciRepId(rid); loadSciReport(rid); }
             }
             if (id === 'commercial') {
@@ -3772,7 +3794,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   if (k === repKindView) return;
                   setRepKindView(k);
                   try { sessionStorage.setItem('rpt_repKind', k); } catch { /* ignore */ }
-                  const rid = autoPickRep(sciRepId, filterByKind(sciRepsAll, k));
+                  const rid = defaultSciPick(sciRepId, filterByKind(sciRepsAll, k), canToggleRepKind && k === 'pharmacy');
                   setQuickCompany(null);
                   if (rid !== sciRepId) {
                     setSciRepId(rid); setSciReport(null);
@@ -3812,6 +3834,14 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 setSciRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadSciReport(e.target.value); }
               }}>
               <option value="">-- {t.reports.selectSciRep} --</option>
+              {marketersView && (
+                <optgroup label="المجموع">
+                  <option value="grp:all">🏙️ بغداد — كل المسوقين</option>
+                  {[...new Set(sciReps.map(r => r.company).filter(Boolean))].map(side => (
+                    <option key={side as string} value={`grp:${side}`}>📍 {side} — كل مندوبيها</option>
+                  ))}
+                </optgroup>
+              )}
               <RepSelectOptions reps={sciReps} />
             </select>
             {/* شركات ثم مندوبوها — خفيفة وشفافة عمداً كي لا تلوّث الشاشة */}
@@ -3819,8 +3849,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               const groups = groupRepsByTeam(sciReps).filter(g => g.company);
               if (groups.length === 0) return null;
               const selRep = sciReps.find(r => String(r.id) === sciRepId);
-              const activeCo = quickCompany ?? (selRep ? (selRep.company || 'بدون شركة') : groups[0].company);
-              const rows = groups.find(g => g.company === activeCo)?.rows ?? [];
+              const selGroupSide = marketersView && isGroupId(sciRepId) ? sciRepId.slice(4) : null;
+              // «بغداد» يعرض أسماء كل الأقسام؛ القسم أو المندوب يعرض قسمه فقط.
+              const activeCo = quickCompany ?? (selGroupSide && selGroupSide !== 'all' ? selGroupSide : selRep ? (selRep.company || 'بدون شركة') : (marketersView ? null : groups[0].company));
+              const rows = activeCo == null ? groups.flatMap(g => g.rows) : (groups.find(g => g.company === activeCo)?.rows ?? []);
               // سطر لكل تيم ليدر: القائد أولاً ثم فاصل صغير ثم مندوبوه. من لا قائد
               // لهم يُجمعون في سطر أخير بلا قائد.
               const lines: { leader: Rep | null; members: Rep[] }[] = [];
@@ -3833,18 +3865,24 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   else lines.push({ leader: null, members: [row.rep as Rep] });
                 }
               }
-              const faint = (on: boolean, leader = false): React.CSSProperties => ({
+              const faint = (on: boolean, leader = false, big = false): React.CSSProperties => ({
                 background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer',
-                fontSize: 10.5, lineHeight: 1.6, color: on ? '#475569' : '#94a3b8',
-                opacity: on ? 0.95 : leader ? 0.8 : 0.6, fontWeight: on || leader ? 600 : 400,
+                fontSize: big ? 13 : 12, lineHeight: 1.7, color: on ? '#334155' : '#64748b',
+                opacity: on ? 1 : leader || big ? 0.9 : 0.75, fontWeight: on || leader || big ? 700 : 500,
                 textDecoration: on ? 'underline' : 'none', textUnderlineOffset: 3,
               });
               const pick = (rep: Rep) => { setSciRepId(String(rep.id)); setReportView(getDefaultReportView()); loadSciReport(String(rep.id)); };
+              // المسوقون: الضغط على «بغداد»/القسم يفتح تقرير المجموعة نفسها.
+              const pickGroup = (gid: string) => { setQuickCompany(gid === 'grp:all' ? null : gid.slice(4)); setSciRepId(gid); setReportView(getDefaultReportView()); loadSciReport(gid); };
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 8px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 10px' }}>
+                    {marketersView && (
+                      <button type="button" style={faint(sciRepId === 'grp:all', false, true)} onClick={() => pickGroup('grp:all')}>بغداد</button>
+                    )}
                     {groups.map(g => (
-                      <button key={g.company} type="button" style={faint(g.company === activeCo)} onClick={() => setQuickCompany(g.company)}>{g.company}</button>
+                      <button key={g.company} type="button" style={faint(marketersView ? sciRepId === `grp:${g.company}` : g.company === activeCo, false, true)}
+                        onClick={() => marketersView ? pickGroup(`grp:${g.company}`) : setQuickCompany(g.company)}>{g.company}</button>
                     ))}
                   </div>
                   {lines.map((ln, idx) => (
@@ -5225,7 +5263,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 {sciReport.assignedCommercialReps.map(r => (<span key={r.id} className="tag tag--green"><Icon name="money" size={11} /> {r.name}</span>))}
                 {sciReport.assignedAreas.map(a => (<span key={a.id} className="tag tag--purple"><Icon name="location" size={11} /> {a.name}</span>))}
                 {sciReport.assignedItems.map(i => (<span key={i.id} className="tag tag--orange"><Icon name="drug" size={11} /> {i.name}</span>))}
-                {sciReport.assignedCommercialReps.length === 0 && sciReps.find(r => String(r.id) === sciRepId)?.repKind !== 'pharmacy' && (<span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}><Icon name="warning" size={11} /> {t.reports.noCommRepsAssigned}</span>)}
+                {sciReport.assignedCommercialReps.length === 0 && !isGroupId(sciRepId) && sciReps.find(r => String(r.id) === sciRepId)?.repKind !== 'pharmacy' && (<span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}><Icon name="warning" size={11} /> {t.reports.noCommRepsAssigned}</span>)}
               </div>
             )}
           </div>

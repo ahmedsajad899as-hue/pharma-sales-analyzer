@@ -1736,6 +1736,43 @@ const REPORT_SALES_SELECT = {
  */
 export async function getReport(id, query = {}, viewerId = null) {
   const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT, viewerId);
+  return buildReport(resolved, query);
+}
+
+/**
+ * صفوف عدة مندوبين معاً بلا تكرار (بمعرّف الصف) — تقرير «بغداد/الكرخ/الرصافة» للمسوقين.
+ * كلٌّ بقواعده هو (resolveSciRepSales)؛ صف يخصّ تيم ليدر ومندوبه معاً يُعدّ مرة واحدة.
+ * تسلسلياً لا بالتوازي: ذاكرة الخادم هي القيد (راجع project_pharma_server_capacity).
+ */
+async function resolveGroupSales(repIds, query, select, viewerId) {
+  const byId = new Map();
+  const areas = new Map(), items = new Map();
+  let fileIds = query.fileIds ?? null;
+  for (const repId of repIds) {
+    let r;
+    try { r = await resolveSciRepSales(repId, query, { ...select, id: true }, viewerId); }
+    catch { continue; }
+    fileIds = r.fileIds;
+    for (const s of r.rawSales) if (s.id != null && !byId.has(s.id)) byId.set(s.id, s);
+    for (const l of r.areaLinks) areas.set(l.area.id, l);
+    for (const l of r.itemLinks) items.set(l.item.id, l);
+  }
+  return { rawSales: [...byId.values()], areaLinks: [...areas.values()], itemLinks: [...items.values()], fileIds };
+}
+
+export async function getGroupReport(repIds, label, query = {}, viewerId = null) {
+  const g = await resolveGroupSales(repIds, query, REPORT_SALES_SELECT, viewerId);
+  return buildReport({
+    rep: { id: 0, name: label || 'المجموعة', isActive: true, userId: null },
+    commercialLinks: [], ...g,
+  }, query);
+}
+
+export async function getGroupRawSalesForExport(repIds, query = {}, viewerId = null) {
+  return (await resolveGroupSales(repIds, query, EXPORT_SALES_SELECT, viewerId)).rawSales;
+}
+
+async function buildReport(resolved, query) {
   const { rep, commercialLinks, areaLinks, itemLinks, rawSales, fileIds } = resolved;
 
   // Reports/exports must show the rep's CURRENT name, not the static `name` column

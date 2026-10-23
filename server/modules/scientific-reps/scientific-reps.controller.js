@@ -91,6 +91,22 @@ export async function updateRep(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// GET /group-report?repIds=1,2,3&label=بغداد&fileIds=…&month=… — تقرير مجموعة مندوبين (المسوقون:
+// بغداد/الكرخ/الرصافة) بنفس شكل /:id/report، صفوفهم معاً بلا تكرار.
+export async function getGroupReport(req, res, next) {
+  try {
+    const repIds = String(req.query.repIds || '').split(',').map(Number).filter(n => n > 0);
+    const query = {
+      fileIds:    parseFileIds(req.query.fileIds),
+      startDate:  req.query.startDate,
+      endDate:    req.query.endDate,
+      recordType: req.query.recordType || null,
+    };
+    const report = await svc.getGroupReport(repIds, String(req.query.label || ''), applyMonth(query, req.query.month), req.user?.id ?? null);
+    res.json({ success: true, data: report });
+  } catch (err) { next(err); }
+}
+
 // PATCH /:id/pharmacy — { repKind?: 'scientific'|'pharmacy', customerInfoLabels?: string[] }
 export async function setPharmacySettings(req, res, next) {
   try {
