@@ -260,6 +260,8 @@ async function applyRepKind(userId, role, repKind) {
     ? await ensureLinkedRepId(userId)
     : (await prisma.user.findUnique({ where: { id: userId }, select: { linkedRepId: true } }))?.linkedRepId;
   if (repId) await prisma.scientificRepresentative.update({ where: { id: repId }, data: { repKind: kind } });
+  // المسوق بلا شركة رئيسية: كل شركاته متساوية (راجع setUserCompanies).
+  if (kind === PHARMACY_KIND) await prisma.userCompanyAssignment.updateMany({ where: { userId }, data: { isPrimary: true } });
 }
 
 // ── Update user ───────────────────────────────────────────────────────────
@@ -457,7 +459,7 @@ export async function setUserCompanies(req, res) {
   const requested = [...new Set(raw.map(id => parseInt(id)).filter(Number.isInteger))];
 
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, officeId: true } });
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true, officeId: true, linkedRep: { select: { repKind: true } } } });
     if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
 
     // الأدوار المكتبية مُدارة تلقائياً (كل شركات المكتب) — أي محاولة اختيار
@@ -487,7 +489,9 @@ export async function setUserCompanies(req, res) {
     // مدير المكتب: لا فرق بين شركة رئيسية وثانوية — كل شركاته تابعة له بالتساوي، فتُحفظ
     // جميعها isPrimary=true (كل مدراء ومندوبي هذه الشركات يُعتبرون تحت إدارته).
     // مدير المنتج كذلك: بلا شركة رئيسية، شركاته المختارة يدوياً متساوية.
-    const isOfficeManager = user.role === 'office_manager' || user.role === 'product_manager';
+    // المسوق (فارمسي لاين) كذلك: متعدد الشركات بلا رئيسية — كلها متساوية، فيراه مدير كل منها.
+    const isOfficeManager = user.role === 'office_manager' || user.role === 'product_manager'
+      || user.linkedRep?.repKind === PHARMACY_KIND;
     let primaryId = req.body?.primaryCompanyId != null ? parseInt(req.body.primaryCompanyId) : null;
     if (!Number.isInteger(primaryId) || !ids.includes(primaryId)) primaryId = ids[0] ?? null; // fallback: الأولى
 

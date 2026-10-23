@@ -1285,7 +1285,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
             );
           })()}
           {tab === 'companies' && !OFFICE_SCOPED_ROLES.has(detail.role) && (() => {
-            const noPrimaryRole = detail.role === 'office_manager' || detail.role === 'product_manager' || provLeaderIds.has(detail.id);
+            const isPharmacyRep = detail.linkedRep?.repKind === 'pharmacy';
+            const noPrimaryRole = detail.role === 'office_manager' || detail.role === 'product_manager' || provLeaderIds.has(detail.id) || isPharmacyRep;
             const q = assignSearch.trim().toLowerCase();
             const shown = companies.filter(c => !q || c.name.toLowerCase().includes(q));
             return (
@@ -1294,7 +1295,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               <SectionHead
                 icon="🏭"
                 title="الشركات المعيَّنة"
-                hint={noPrimaryRole
+                hint={isPharmacyRep
+                  ? 'مسوق (فارمسي لاين): بلا شركة رئيسية — كل الشركات المختارة متساوية، ويظهر لمدير كل شركة منها.'
+                  : noPrimaryRole
                   ? (detail.role === 'product_manager' || provLeaderIds.has(detail.id)
                       ? (provLeaderIds.has(detail.id)
                           ? 'تيم ليدر محافظة: بلا شركة رئيسية — اختر الشركات المعيَّنة له (ليس شرطاً كلها).'
