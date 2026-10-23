@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, Fragment } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, Fragment } from 'react';
 import * as XLSX from 'xlsx-js-style';
 import { buildTargetActuals, normalizeItemName, fuzzyItemMatch } from '../utils/itemNameMatch';
 import { useAuth } from '../context/AuthContext';
@@ -753,6 +753,7 @@ function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; 
 }
 
 interface Rep extends GroupableRep { phone?: string | null }
+const REP_KIND_TOGGLE_ROLES = new Set(['office_manager', 'office_hr', 'office_employee', 'company_manager', 'product_manager']);
 
 interface WarehouseBreakdown { name: string; orderCount: number; value: number; }
 // ملخص صافي المبيع + طلبيات المكتب/المذخر + أسماء المذاخر لمندوب علمي واحد —
@@ -858,8 +859,20 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
 
   // Scientific
   const [sciRepsAll, setSciReps]  = useState<Rep[]>([]);
+  // زر «علميين / مسوقين (فارمسي لاين)» — لإدارة المكتب ومدراء الشركات/المنتج وقائد فريق الفارمسي.
+  // البقية بلا زر ولا تصفية (المندوب يرى نفسه، والتيم ليدر العلمي فريقه).
+  const myRepKind = sciRepsAll.find(r => r.id === user?.linkedRepId)?.repKind;
+  const canToggleRepKind = REP_KIND_TOGGLE_ROLES.has(user?.role ?? '') || (user?.role === 'team_leader' && myRepKind === 'pharmacy');
+  const [repKindView, setRepKindView] = useState<'scientific' | 'pharmacy'>(() => sessionStorage.getItem('rpt_repKind') === 'pharmacy' ? 'pharmacy' : 'scientific');
+  // قائد فريق الفارمسي يبدأ على مسوقيه ما لم يختر غير ذلك.
+  useEffect(() => {
+    if (myRepKind === 'pharmacy' && user?.role === 'team_leader' && !sessionStorage.getItem('rpt_repKind')) setRepKindView('pharmacy');
+  }, [myRepKind, user?.role]);
+  const filterByKind = useCallback((list: Rep[], kind: 'scientific' | 'pharmacy') =>
+    list.filter(r => !(r as any).isProvinceMember && (!canToggleRepKind || (r.repKind === 'pharmacy') === (kind === 'pharmacy'))),
+  [canToggleRepKind]);
   // «علمي بغداد» لا تعرض تيم ليدرية/مندوبي المحافظات (فرق المحافظات)؛ الخريطة تبقى بالقائمة الكاملة
-  const sciReps = useMemo(() => sciRepsAll.filter(r => !(r as any).isProvinceMember), [sciRepsAll]);
+  const sciReps = useMemo(() => filterByKind(sciRepsAll, repKindView), [sciRepsAll, repKindView, filterByKind]);
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
   // في الملف كما يراه صاحبه — يسري على أي ملف لك صلاحية وصول عليه (مالك أو
@@ -2711,7 +2724,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const areaCount     = Array.isArray(d.assignedAreas) ? d.assignedAreas.length : null;
       const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
       let sales2: any[] = [];
-      if (assignedIds.length > 0) {
+      { // الخادم يشتقّ النطاق بنفسه (commRepIds مُهمَل مع sciRepId) — مندوب الفارمسي/ميركاتو بلا تجاريين
         const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${repId}&${qStr}`, { headers: authH() });
         const sJson = await sRes.json();
         sales2 = sJson.data ?? [];
@@ -2950,7 +2963,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         const d = rJson.data ?? rJson;
         areaCount = Array.isArray(d.assignedAreas) ? d.assignedAreas.length : null;
         const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
-        if (assignedIds.length > 0) {
+        { // الخادم يشتقّ النطاق بنفسه (commRepIds مُهمَل مع sciRepId) — مندوب الفارمسي/ميركاتو بلا تجاريين
           const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${sciRepId}&${qp.toString()}`, { headers: authH() });
           const sJson = await sRes.json();
           sales = sJson.data ?? [];
@@ -3019,7 +3032,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       sciName = d.scientificRep?.name ?? rep.name;
       areaCount = Array.isArray(d.assignedAreas) ? d.assignedAreas.length : null;
       const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
-      if (assignedIds.length > 0) {
+      { // الخادم يشتقّ النطاق بنفسه (commRepIds مُهمَل مع sciRepId) — مندوب الفارمسي/ميركاتو بلا تجاريين
         const sRes = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${rep.id}&${qStr}`, { headers: authH() });
         sales = (await sRes.json()).data ?? [];
       }
@@ -3123,7 +3136,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         const areaCount     = Array.isArray(d.assignedAreas) ? d.assignedAreas.length : null;
         const assignedIds: number[] = (d.assignedCommercialReps ?? []).map((r: any) => r.id).filter(Boolean);
         let sales: any[] = [];
-        if (assignedIds.length > 0) {
+        { // الخادم يشتقّ النطاق بنفسه (commRepIds مُهمَل مع sciRepId) — مندوب الفارمسي/ميركاتو بلا تجاريين
           const sRes  = await fetch(`/api/export/raw-sales?commRepIds=${assignedIds.join(',')}&sciRepId=${repId}&${qStr}`, { headers: authH() });
           const sJson = await sRes.json();
           sales = sJson.data ?? [];
@@ -3721,6 +3734,31 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             </select>
           ) : mode === 'scientific' ? (
             <div className="m-full" style={{ flex: '1 1 160px', maxWidth: 280, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {canToggleRepKind && (
+              <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2, alignSelf: 'flex-start' }}>
+                {([['scientific', '🩺 العلميين'], ['pharmacy', '🏪 المسوقين']] as const).map(([k, label]) => (
+                  <button key={k} type="button"
+                    onClick={() => {
+                      if (k === repKindView) return;
+                      setRepKindView(k);
+                      try { sessionStorage.setItem('rpt_repKind', k); } catch { /* ignore */ }
+                      const rid = autoPickRep(sciRepId, filterByKind(sciRepsAll, k));
+                      setQuickCompany(null);
+                      if (rid !== sciRepId) {
+                        setSciRepId(rid); setSciReport(null);
+                        if (rid) { setReportView(getDefaultReportView()); loadSciReport(rid); }
+                      }
+                    }}
+                    style={{
+                      border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer',
+                      background: repKindView === k ? '#fff' : 'transparent',
+                      color: repKindView === k ? '#0f172a' : '#64748b',
+                      fontWeight: repKindView === k ? 700 : 500,
+                      boxShadow: repKindView === k ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
+                    }}>{label}</button>
+                ))}
+              </div>
+            )}
             <select className="form-input" style={{ width: '100%' }} value={sciRepId}
               onChange={e => {
                 e.target.blur();
@@ -5133,7 +5171,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 {sciReport.assignedCommercialReps.map(r => (<span key={r.id} className="tag tag--green"><Icon name="money" size={11} /> {r.name}</span>))}
                 {sciReport.assignedAreas.map(a => (<span key={a.id} className="tag tag--purple"><Icon name="location" size={11} /> {a.name}</span>))}
                 {sciReport.assignedItems.map(i => (<span key={i.id} className="tag tag--orange"><Icon name="drug" size={11} /> {i.name}</span>))}
-                {sciReport.assignedCommercialReps.length === 0 && (<span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}><Icon name="warning" size={11} /> {t.reports.noCommRepsAssigned}</span>)}
+                {sciReport.assignedCommercialReps.length === 0 && sciReps.find(r => String(r.id) === sciRepId)?.repKind !== 'pharmacy' && (<span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}><Icon name="warning" size={11} /> {t.reports.noCommRepsAssigned}</span>)}
               </div>
             )}
           </div>
