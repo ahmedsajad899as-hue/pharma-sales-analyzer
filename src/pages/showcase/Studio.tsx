@@ -739,8 +739,8 @@ export const STUDIO_CSS = `
 .st-inline { flex-direction: row; align-items: center; }
 .st-preview-col { position: sticky; top: 0; }
 .st-preview { position: relative; min-height: 380px; border-radius: 14px; overflow: hidden;
-  background: radial-gradient(ellipse at 50% 0%, #3a4a8a 0%, transparent 60%), linear-gradient(180deg, #2b3670 0%, #1f2856 55%, #161d40 100%); }
-.st-preview-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #c7d2fe; font-size: 14px; }
+  background: radial-gradient(ellipse at 50% 100%, #eef2f8 0%, transparent 65%), linear-gradient(180deg, #ffffff 0%, #fbfcfe 60%, #f3f6fb 100%); border: 1px solid #e8edf5; }
+.st-preview-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 14px; }
 .st-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid var(--c-border-light, #eef2f7); }
 .st-sub { z-index: 1010; }
 .st-qe { width: min(1180px, 97vw); max-width: 97vw; max-height: 96vh; display: flex; flex-direction: column; }

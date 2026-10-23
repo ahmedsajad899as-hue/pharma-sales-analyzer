@@ -341,11 +341,11 @@ const CSS = `
 
 .s3d-stage { position: relative; overflow: hidden; border-radius: 18px; min-height: 480px; padding: 40px 10px 18px;
   display: flex; flex-direction: column; justify-content: center;
-  background: radial-gradient(ellipse at 50% 0%, #3a4a8a 0%, transparent 60%),
-    linear-gradient(180deg, #2b3670 0%, #1f2856 55%, #161d40 100%); }
+  /* خلفية بيضاء (طلب المستخدم) — حدّ رفيع يفصلها عن الصفحة */
+  background: radial-gradient(ellipse at 50% 100%, #eef2f8 0%, transparent 65%), linear-gradient(180deg, #ffffff 0%, #fbfcfe 60%, #f3f6fb 100%); border: 1px solid var(--c-border-light, #e8edf5); }
 .s3d-stage:fullscreen { border-radius: 0; padding: 0 20px; }
 .s3d-stage:fullscreen .cf-item { --w: min(720px, 80vw); --h: min(460px, 62vh); }
-.s3d-stars { position: absolute; inset: 0; pointer-events: none; opacity: .75;
+.s3d-stars { display: none; position: absolute; inset: 0; pointer-events: none; opacity: .75;
   background-image:
     radial-gradient(1.5px 1.5px at 12% 18%, #fff, transparent), radial-gradient(1px 1px at 28% 72%, #fff, transparent),
     radial-gradient(1.5px 1.5px at 44% 8%, #fff, transparent), radial-gradient(1px 1px at 63% 34%, #fff, transparent),
@@ -354,7 +354,7 @@ const CSS = `
     radial-gradient(1px 1px at 72% 80%, #fff, transparent), radial-gradient(1.5px 1.5px at 35% 40%, #fff, transparent);
   animation: s3d-twinkle 6s ease-in-out infinite alternate; }
 @keyframes s3d-twinkle { from { opacity: .45; } to { opacity: .9; } }
-.s3d-empty { position: relative; color: #dbe4ff; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 15px; }
+.s3d-empty { position: relative; color: var(--c-text-secondary, #64748b); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 15px; }
 
 .s3d .cf { position: relative; --w: min(480px, 84vw); --h: 280px; }
 .s3d .cf-item { --w: min(520px, 80vw); --h: 300px; }
@@ -367,14 +367,14 @@ const CSS = `
 .s3d .cf.is-dragging { cursor: grabbing; }
 .s3d .cf.is-flinging .cf-slot { transition: transform .32s cubic-bezier(.25,.8,.3,1), opacity .3s ease, filter .3s ease; }
 .s3d .cf-dots { display: flex; justify-content: center; gap: 6px; padding-top: 36px; }
-.s3d .cf-dot { width: 7px; height: 7px; border-radius: 4px; border: 0; padding: 0; background: rgba(255,255,255,.3); cursor: pointer; transition: width .3s, background .3s; }
-.s3d .cf-dot.is-on { width: 20px; background: #fff; }
+.s3d .cf-dot { width: 7px; height: 7px; border-radius: 4px; border: 0; padding: 0; background: #cbd5e1; cursor: pointer; transition: width .3s, background .3s; }
+.s3d .cf-dot.is-on { width: 20px; background: var(--c-accent, #1a56db); }
 @media (prefers-reduced-motion: reduce) { .s3d .cf-slot { transition: none; } }
 
 .s3d-card { position: relative; height: 100%; }
 .s3d-pill { position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); max-width: 92%;
   display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 16px; border-radius: 999px;
-  background: rgba(255,255,255,.88); color: #1e293b; box-shadow: 0 6px 18px rgba(0,0,0,.25); white-space: nowrap; }
+  background: #fff; color: #1e293b; border: 1px solid #e2e8f0; box-shadow: 0 6px 18px rgba(15,30,53,.12); white-space: nowrap; }
 .s3d-pill b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .s3d-pill small { font-size: 11.5px; color: #475569; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
@@ -421,8 +421,8 @@ const CSS = `
 .s3d-modal { width: min(880px, 96vw); max-height: 94vh; display: flex; flex-direction: column; }
 .s3d-modal-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 14px 18px; overflow: auto; }
 .s3d-preview { position: relative; min-height: 320px; border-radius: 14px; overflow: hidden;
-  background: linear-gradient(180deg, #2b3670 0%, #1f2856 55%, #161d40 100%); }
-.s3d-preview-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #c7d2fe; font-size: 14px; }
+  background: radial-gradient(ellipse at 50% 100%, #eef2f8 0%, transparent 65%), linear-gradient(180deg, #ffffff 0%, #fbfcfe 60%, #f3f6fb 100%); border: 1px solid #e8edf5; }
+.s3d-preview-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 14px; }
 .s3d-form { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .s3d-seg { display: flex; gap: 4px; background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 12px; padding: 4px; }
 .s3d-seg button { flex: 1; border: 0; background: none; padding: 8px 6px; border-radius: 9px; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 13px; color: var(--c-text-secondary); }
