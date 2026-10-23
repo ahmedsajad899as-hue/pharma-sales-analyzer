@@ -51,3 +51,6 @@ dist.tgz
 # .claude/worktrees/ — without this, deploy.ps1's 'git add -A' would commit
 # the entire nested repo copy)
 .claude/
+
+# Invoice photos for AI comparison (customer data)
+invoice-samples/

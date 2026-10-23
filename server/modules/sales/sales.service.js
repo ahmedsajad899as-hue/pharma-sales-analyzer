@@ -43,6 +43,19 @@ import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { callAI } from '../../lib/claudeAi.js';
+import { callQwen, qwenConfigured } from '../../lib/qwenAi.js';
+
+// صور الفواتير تُقرأ بـ Qwen-VL (أرخص)، وClaude احتياطي إن فشل Qwen أو لم يُهيّأ مفتاحه —
+// حتى لا تتوقّف قراءة الفواتير بسبب عطل مزوّد واحد.
+async function callInvoiceAI(parts, opts) {
+  if (!qwenConfigured()) return callAI(parts, opts);
+  try {
+    return await callQwen(parts, opts);
+  } catch (err) {
+    console.error(`[invoice-extract] Qwen فشل (${opts?.feature}) — احتياطي Claude:`, String(err?.message || '').slice(0, 150));
+    return callAI(parts, opts);
+  }
+}
 
 const __filename2 = fileURLToPath(import.meta.url);
 const __dirname2  = path.dirname(__filename2);
@@ -1499,7 +1512,7 @@ export function isCopiedFromPrompt(pharmacy, promptText) {
  */
 export async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse = '', thinkingBudget = 0 } = {}) {
   try {
-    const text = await callAI(
+    const text = await callInvoiceAI(
       [buildCustomerLinePrompt(warehouse), { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }],
       { timeoutMs, thinkingBudget, feature: 'invoice-customer-line' },
     );
@@ -1674,7 +1687,7 @@ export async function detectInvoiceRotation(img) {
     const parts = [ORIENTATION_PROMPT, { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }];
     const votes = await Promise.all([1, 2, 3].map(async () => {
       try {
-        const o = parseJsonObject(await callAI(parts, { timeoutMs: 20_000, thinkingBudget: 0, feature: 'invoice-orient' }));
+        const o = parseJsonObject(await callInvoiceAI(parts, { timeoutMs: 20_000, thinkingBudget: 0, feature: 'invoice-orient' }));
         const v = Number(o?.rotate);
         return [0, 90, 180, 270].includes(v) ? v : null;
       } catch { return null; }
@@ -1791,7 +1804,7 @@ export async function extractInvoiceRows(images, { extraContext } = {}) {
           : INVOICE_PROMPT,
         { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } },
       ];
-      const text = await callAI(parts, {
+      const text = await callInvoiceAI(parts, {
         timeoutMs:  70_000,
         maxTotalMs: OVERALL_BUDGET_MS - elapsed,
         thinkingBudget: 0,
