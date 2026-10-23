@@ -3720,6 +3720,32 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       {/* Filters Card */}
       {mode !== 'provinces' && (
       <div className="filter-card">
+        {/* علميين / مسوقين — سطر مستقل فوق بقية أدوات التحليل */}
+        {mode === 'scientific' && canToggleRepKind && (
+          <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2, alignSelf: 'flex-start', width: 'fit-content', marginBottom: 8 }}>
+            {([['scientific', '🩺 العلميين'], ['pharmacy', '🏪 المسوقين']] as const).map(([k, label]) => (
+              <button key={k} type="button"
+                onClick={() => {
+                  if (k === repKindView) return;
+                  setRepKindView(k);
+                  try { sessionStorage.setItem('rpt_repKind', k); } catch { /* ignore */ }
+                  const rid = autoPickRep(sciRepId, filterByKind(sciRepsAll, k));
+                  setQuickCompany(null);
+                  if (rid !== sciRepId) {
+                    setSciRepId(rid); setSciReport(null);
+                    if (rid) { setReportView(getDefaultReportView()); loadSciReport(rid); }
+                  }
+                }}
+                style={{
+                  border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer',
+                  background: repKindView === k ? '#fff' : 'transparent',
+                  color: repKindView === k ? '#0f172a' : '#64748b',
+                  fontWeight: repKindView === k ? 700 : 500,
+                  boxShadow: repKindView === k ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
+                }}>{label}</button>
+            ))}
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
 
           {/* Rep / file selector */}
@@ -3737,31 +3763,6 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             </select>
           ) : mode === 'scientific' ? (
             <div className="m-full" style={{ flex: '1 1 160px', maxWidth: 280, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {canToggleRepKind && (
-              <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2, alignSelf: 'flex-start' }}>
-                {([['scientific', '🩺 العلميين'], ['pharmacy', '🏪 المسوقين']] as const).map(([k, label]) => (
-                  <button key={k} type="button"
-                    onClick={() => {
-                      if (k === repKindView) return;
-                      setRepKindView(k);
-                      try { sessionStorage.setItem('rpt_repKind', k); } catch { /* ignore */ }
-                      const rid = autoPickRep(sciRepId, filterByKind(sciRepsAll, k));
-                      setQuickCompany(null);
-                      if (rid !== sciRepId) {
-                        setSciRepId(rid); setSciReport(null);
-                        if (rid) { setReportView(getDefaultReportView()); loadSciReport(rid); }
-                      }
-                    }}
-                    style={{
-                      border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer',
-                      background: repKindView === k ? '#fff' : 'transparent',
-                      color: repKindView === k ? '#0f172a' : '#64748b',
-                      fontWeight: repKindView === k ? 700 : 500,
-                      boxShadow: repKindView === k ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
-                    }}>{label}</button>
-                ))}
-              </div>
-            )}
             <select className="form-input" style={{ width: '100%' }} value={sciRepId}
               onChange={e => {
                 e.target.blur();
