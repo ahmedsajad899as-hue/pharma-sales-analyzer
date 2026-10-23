@@ -2910,8 +2910,12 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // المسوقون (فارمسي لاين) قسم مستقل «مسوقين بغداد» — داخل مكتبهم، أو قسماً عاماً إن بلا مكتب؛
   // لا يُجمعون مع حسابات إدارة التطبيق ولا تحت الشركات.
   const adminUsers   = filtered.filter(u => (!u.officeId && !isMarketer(u)) || ADMIN_ROLES.includes(u.role));
-  // القسم العام للمسوقين بلا مكتب فقط — مسوقو أي مكتب يُعرضون داخل إطار مكتبهم (og.marketers)
-  const allMarketers = filtered.filter(u => isMarketer(u) && !u.officeId && !ADMIN_ROLES.includes(u.role));
+  // «مسوقين بغداد» قسم واحد يضم كل المسوقين (بمكتب أو بلا مكتب) — وإلا انقسم الفريق عن قائده.
+  // يُعرض داخل إطار المكتب حين يكون للمسوقين مكتب واحد (أو لا مكتب)، وقسماً عاماً أعلى الصفحة
+  // فقط إن توزّعوا على أكثر من مكتب.
+  const allMarketers = filtered.filter(u => isMarketer(u) && !ADMIN_ROLES.includes(u.role));
+  const marketerOfficeIds = [...new Set(allMarketers.map(u => u.officeId).filter((v): v is number => !!v))];
+  const marketersTopLevel = marketerOfficeIds.length > 1;
   // عند البحث تُفتح كل القوائم المطوية (مندوبو الشركات، فرق المسوقين، فرق المحافظات) كي يظهر
   // الشخص نفسه لا عنوان شركته أو قسمه فقط
   const searching = !!search.trim();
@@ -2967,6 +2971,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     });
   }
   const officeGroups = Array.from(officeMap.values());
+  // مكتب يُعرض داخله قسم المسوقين؛ null = قسم عام أعلى الصفحة (عدة مكاتب، أو مكتبهم غير ظاهر).
+  const inlineCandidate = marketersTopLevel ? null : (marketerOfficeIds[0] ?? officeGroups[0]?.office.id ?? null);
+  const marketersInlineOfficeId = officeGroups.some(og => og.office.id === inlineCandidate) ? inlineCandidate : null;
 
   // Sort users inside a company group: managers first
   const ROLE_ORDER = ['company_manager','supervisor','product_manager','team_leader','scientific_rep','commercial_supervisor','commercial_team_leader','commercial_rep','office_manager','office_hr','office_employee'];
@@ -3085,7 +3092,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
             </div>
           )}
 
-          {allMarketers.length > 0 && <MarketersBlock list={allMarketers} groupKey="mk-all" />}
+          {allMarketers.length > 0 && marketersInlineOfficeId == null && <MarketersBlock list={allMarketers} groupKey="mk-all" />}
 
           {/* ── 2. مكاتب + شركات ───────────────────────────────────────── */}
           {officeGroups.map(og => (
@@ -3207,7 +3214,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     </div>
                   );
                 })()}
-                {og.marketers.length > 0 && <MarketersBlock list={og.marketers} groupKey={`mk-${og.office.id}`} />}
+                {allMarketers.length > 0 && og.office.id === marketersInlineOfficeId && (
+                  <MarketersBlock list={allMarketers} groupKey="mk-all" />
+                )}
                 {og.companyGroups.map((cg, ci) => {
                   const groupKey = `${og.office.id}-${cg.company?.id ?? 'none'}`;
                   const sorted   = sortUsers(cg.users);
