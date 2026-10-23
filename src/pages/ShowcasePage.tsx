@@ -57,6 +57,9 @@ const PRESETS: ShowItem[] = [
   // عرض/ارتفاع ≈ 1.58 من الصور المستقيمة. العمق 0.44 من الارتفاع بمعاينة المستخدم (0.48 المقاس من
   // الصور بدا أعرض من الواقع، و0.40 أضيق). الخلفي = الأمامي (نفس الطباعة)
   presetBox('potafast-50', 'Potafast 50 mg', 0.44, ['front', 'back', 'left', 'right', 'top', 'bottom'], true),
+  // مجسّم ممسوح من فيديو 360° (D:\photogrammetry\scan.py) — أول مسح حقيقي
+  { id: 'preset:sprite-can', title: 'Sprite', caption: 'مجسّم ممسوح من فيديو', shape: 'mesh', depth: 0, scale: 1, at: 0,
+    faces: { model: '/showcase/sprite-can/model.glb' } },
 ];
 const isPreset = (it: ShowItem) => it.id.startsWith('preset:');
 
