@@ -68,11 +68,14 @@ export async function visitsByArea(req, res, next) {
     const scope       = await resolveAreaScope(req.user, { repUserId, companyId, provinceScope: provinceScopeOf(req, repUserId) });
     const scopedDocs  = await getScopedSurveyDoctors(scope);
     const overlay     = await buildVisitOverlay(scope, dateFilter);
+    // ?day= (من شريط أيام الشهر): تضييق الزيارات ليوم واحد — dayCounts أدناه يبقى للشهر كله.
+    const filterDay = (dateFilter && req.query.day) ? parseInt(req.query.day) : null;
+    const onDay = v => !filterDay || new Date(v.visitDate).getDate() === filterDay;
 
     // نفس شكل مصفوفة الأطباء الذي يتوقعه كود التجميع المشترك أدناه
     const doctors = scopedDocs.map(d => {
       const resolvedArea = scope.normToArea.get(normArea(d.areaName ?? '')) ?? (d.areaName?.trim() ? { id: null, name: d.areaName.trim() } : null);
-      const visits = overlay.bySurveyDocId.get(d.id) ?? overlay.byName.get(normArea(d.name)) ?? [];
+      const visits = (overlay.bySurveyDocId.get(d.id) ?? overlay.byName.get(normArea(d.name)) ?? []).filter(onDay);
       return {
         id: d.id, name: d.name, specialty: d.specialty ?? null,
         pharmacyName: d.pharmacyName ?? null, className: d.className ?? null,
@@ -138,7 +141,7 @@ export async function visitsByArea(req, res, next) {
     // فكان عدد الشاشة يقلّ عن الإكسل بلا تفسير. تُعاد صراحةً ليعرضها الفرونت.
     const attachedIds = new Set();
     for (const d of doctors) for (const v of d.visits) attachedIds.add(v.id);
-    const hiddenVisits = overlay.all.filter(v => !attachedIds.has(v.id));
+    const hiddenVisits = overlay.all.filter(v => !attachedIds.has(v.id) && onDay(v));
 
     // شريط أيام الشهر في الواجهة: عدد الزيارات لكل يوم (بنفس توقيت فلتر الشهر أعلاه).
     const dayCounts = {};
@@ -1438,6 +1441,16 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
   }
 
   const provinceMembers = subUsers.length ? await provinceMemberUserIds() : new Set();
+  // قائد فريق كل مندوب (UserManagerAssignment → مدير بدور team_leader) — الواجهة
+  // ترتّب شرائح المندوبين مجموعات: قائد الفريق ثم مندوبوه.
+  const tlLinks = subUsers.length ? await prisma.userManagerAssignment.findMany({
+    where: { userId: { in: subUsers.map(u => u.id) }, manager: { role: 'team_leader', isActive: true } },
+    select: { userId: true, manager: { select: { id: true, displayName: true, username: true } } },
+    orderBy: { assignedAt: 'asc' },
+  }) : [];
+  const teamLeaderByUserId = new Map();
+  for (const l of tlLinks) if (!teamLeaderByUserId.has(l.userId))
+    teamLeaderByUserId.set(l.userId, { userId: l.manager.id, name: l.manager.displayName || l.manager.username });
   const reps = subUsers.map(u => ({
     userId:      u.id,
     name:        u.displayName || u.username,
@@ -1445,6 +1458,7 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
     company:     companyByUserId.get(u.id) ?? null,
     // مندوب/قائد فريق محافظة — الواجهة تفصله عن مندوبي بغداد (زر «مندوبي المحافظات»)
     isProvinceMember: provinceMembers.has(u.id),
+    teamLeader: teamLeaderByUserId.get(u.id) ?? null,
   }));
 
   const companiesMap = new Map();

@@ -316,9 +316,13 @@ export default function DoctorsPage() {
   const [hiddenVisits, setHiddenVisits]     = useState<HiddenVisit[]>([]);
   // عدد الزيارات لكل يوم من الشهر المختار — يلوّن شريط أيام الشهر بجانب فلتر الشهر
   const [visitDayCounts, setVisitDayCounts] = useState<Record<number, number>>({});
+  // يوم مختار من شريط الأيام — مربوط بشهره، فتغيير الشهر يُلغيه تلقائياً بلا جلب مزدوج
+  const [visitDaySel, setVisitDaySel] = useState<{ month: number; year: number; day: number } | null>(null);
   const [showHiddenVisits, setShowHiddenVisits] = useState(false);
   const [visitLoading, setVisitLoading]     = useState(false);
   const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
+  const visitDayFilter = visitDaySel && visitMonthFilter && visitDaySel.month === visitMonthFilter.month && visitDaySel.year === visitMonthFilter.year
+    ? visitDaySel.day : null;
   // يمنع تحميل الزيارات بفلتر "الكل" أولاً ثم إعادته فوراً بفلتر الشهر الافتراضي
   // بمجرد وصوله (كانا يُطلَقان معاً عند فتح الصفحة فتُستدعى visits-by-area مرتين
   // متتاليتين — الأولى مهدورة بالكامل — وتضاعف وقت الانتظار الظاهر للمستخدم).
@@ -326,7 +330,7 @@ export default function DoctorsPage() {
   const [showVisitMonthPicker, setShowVisitMonthPicker] = useState(false);
   // ── Rep filter (for managers only) ─────────────────────────
   interface ManagerCompany { id: number; name: string; }
-  interface ManagerRep { userId: number; name: string; linkedRepId: number | null; company: ManagerCompany | null; isProvinceMember?: boolean; }
+  interface ManagerRep { userId: number; name: string; linkedRepId: number | null; company: ManagerCompany | null; isProvinceMember?: boolean; teamLeader?: { userId: number; name: string } | null; }
   const [managerRepsAll, setManagerReps]    = useState<ManagerRep[]>([]);
   // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرضهم وحدهم. يُرسَل للخادم كـ
   // provinceScope فتُفصل أرقام «الكل» نفسها لا شرائح المندوبين فقط.
@@ -755,7 +759,7 @@ export default function DoctorsPage() {
     visitFetchAbortRef.current = ctrl;
 
     // Return cached data instantly if available (unless explicit refresh)
-    const cacheKey = `${provinceParam ?? 'any'}_${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${visitMonthFilter?.month ?? 'all'}_${visitMonthFilter?.year ?? 'all'}`;
+    const cacheKey = `${provinceParam ?? 'any'}_${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${visitMonthFilter?.month ?? 'all'}_${visitMonthFilter?.year ?? 'all'}_${visitDayFilter ?? 'all'}`;
     if (!forceRefresh) {
       const cached = visitCacheRef.current.get(cacheKey);
       if (cached) {
@@ -777,6 +781,7 @@ export default function DoctorsPage() {
     try {
       const ps = new URLSearchParams();
       if (visitMonthFilter) { ps.set('month', String(visitMonthFilter.month)); ps.set('year', String(visitMonthFilter.year)); }
+      if (visitDayFilter) ps.set('day', String(visitDayFilter));
       if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
       else if (visitCompanyFilter !== null) ps.set('companyId', String(visitCompanyFilter));
       if (visitRepFilter === null && provinceParam) ps.set('provinceScope', provinceParam);
@@ -797,7 +802,7 @@ export default function DoctorsPage() {
     } finally {
       if (!ctrl.signal.aborted) setVisitLoading(false);
     }
-  }, [token, visitMonthFilter, visitRepFilter, visitCompanyFilter, provinceParam]);
+  }, [token, visitMonthFilter, visitDayFilter, visitRepFilter, visitCompanyFilter, provinceParam]);
 
   // Default the doctors-visits month filter to the current month, or — if it has
   // no reports yet — the most recent month that does. "الكل" stays one click away
@@ -2213,27 +2218,65 @@ export default function DoctorsPage() {
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</span>
                 {managerCompanies.length === 0 && <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} compact />}
               </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => setVisitRepFilter(null)}
-                  style={{
-                    padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    border: `1.5px solid ${visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-border)'}`,
-                    background: visitRepFilter === null ? 'var(--c-accent-light)' : 'var(--c-bg)',
-                    color: visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-                  }}>الكل</button>
-                {visibleReps.map(rep => (
+              {(() => {
+                // ترتيب الشرائح مجموعات: كل قائد فريق ثم مندوبوه في صف، والقائد التالي
+                // في الصف أسفله. حين لا يكون القائد نفسه ضمن القائمة (حسابات المدراء
+                // غير مدير الشركة) يبقى نفس التجميع بلا شريحته. مَن بلا قائد في الآخر.
+                const chip = (rep: ManagerRep, isLeader = false) => {
+                  const active = visitRepFilter === rep.userId;
+                  return (
+                    <button
+                      key={rep.userId}
+                      onClick={() => setVisitRepFilter(rep.userId)}
+                      title={isLeader ? 'قائد الفريق' : undefined}
+                      style={{
+                        padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: isLeader ? 800 : 600, cursor: 'pointer',
+                        border: `1.5px solid ${active ? 'var(--c-accent)' : isLeader ? 'var(--c-text-secondary)' : 'var(--c-border)'}`,
+                        background: active ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                        color: active ? 'var(--c-accent)' : isLeader ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
+                      }}>{isLeader && '★ '}{rep.name}</button>
+                  );
+                };
+                const groups = new Map<number, { leader: ManagerRep | null; members: ManagerRep[] }>();
+                for (const rep of visibleReps) {
+                  const tl = rep.teamLeader;
+                  if (tl && tl.userId !== rep.userId) {
+                    if (!groups.has(tl.userId)) groups.set(tl.userId, { leader: null, members: [] });
+                    groups.get(tl.userId)!.members.push(rep);
+                  }
+                }
+                const loose: ManagerRep[] = [];
+                for (const rep of visibleReps) {
+                  if (groups.has(rep.userId)) groups.get(rep.userId)!.leader = rep;
+                  else if (!(rep.teamLeader && rep.teamLeader.userId !== rep.userId)) loose.push(rep);
+                }
+                const rowStyle = { display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' };
+                const allBtn = (
                   <button
-                    key={rep.userId}
-                    onClick={() => setVisitRepFilter(rep.userId)}
+                    onClick={() => setVisitRepFilter(null)}
                     style={{
                       padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                      border: `1.5px solid ${visitRepFilter === rep.userId ? 'var(--c-accent)' : 'var(--c-border)'}`,
-                      background: visitRepFilter === rep.userId ? 'var(--c-accent-light)' : 'var(--c-bg)',
-                      color: visitRepFilter === rep.userId ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-                    }}>{rep.name}</button>
-                ))}
-              </div>
+                      border: `1.5px solid ${visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                      background: visitRepFilter === null ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                      color: visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+                    }}>الكل</button>
+                );
+                if (groups.size === 0) return <div style={rowStyle}>{allBtn}{visibleReps.map(r => chip(r))}</div>;
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={rowStyle}>{allBtn}</div>
+                    {[...groups.entries()].map(([tlId, g]) => (
+                      <div key={tlId} style={{ ...rowStyle, paddingTop: 6, borderTop: '1px dashed var(--c-border)' }}>
+                        {g.leader && chip(g.leader, true)}
+                        {g.members.map(r => chip(r))}
+                      </div>
+                    ))}
+                    {loose.length > 0 && (
+                      <div style={{ ...rowStyle, paddingTop: 6, borderTop: '1px dashed var(--c-border)' }}>{loose.map(r => chip(r))}</div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             );
           })()}
@@ -2306,28 +2349,35 @@ export default function DoctorsPage() {
                       cursor: 'pointer', lineHeight: 1,
                     }}>‹</button>
                   {visitMonthFilter && (() => {
-                    // شريط أيام الشهر: الأيام التي رُفعت لها زيارات مظلَّلة (أغمق = زيارات أكثر)
+                    // شريط أيام الشهر: كل يوم رُفعت له زيارة يُلوَّن بلون واحد (للدلالة فقط).
+                    // الضغط على يوم مُلوَّن يعرض زيارات ذلك اليوم وحده؛ ضغطة ثانية تُلغيه.
                     const daysInMonth = new Date(visitMonthFilter.year, visitMonthFilter.month, 0).getDate();
-                    const maxCount = Math.max(1, ...Object.values(visitDayCounts));
                     const isCurrentMonth = now.getMonth() + 1 === visitMonthFilter.month && now.getFullYear() === visitMonthFilter.year;
                     return (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginInlineStart: 10, flex: '1 1 auto', minWidth: 0, opacity: visitLoading ? 0.4 : 1, transition: 'opacity .2s' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginInlineStart: 8, flex: '1 1 auto', minWidth: 0, opacity: visitLoading ? 0.5 : 1, transition: 'opacity .2s' }}>
                         {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
                           const count = visitDayCounts[day] ?? 0;
                           const isToday = isCurrentMonth && day === now.getDate();
-                          const pct = count ? Math.round(35 + 65 * (count / maxCount)) : 0;
+                          const selected = visitDayFilter === day;
                           return (
                             <span key={day}
-                              title={count ? `${day}/${visitMonthFilter.month} — ${count} زيارة` : `${day}/${visitMonthFilter.month} — لا زيارات`}
+                              onClick={count ? () => setVisitDaySel(selected ? null : { month: visitMonthFilter.month, year: visitMonthFilter.year, day }) : undefined}
+                              title={count ? `${day}/${visitMonthFilter.month} — ${count} زيارة${selected ? ' (اضغط لإلغاء الفلتر)' : ' — اضغط لعرض زيارات هذا اليوم فقط'}` : `${day}/${visitMonthFilter.month} — لا زيارات`}
                               style={{
-                                width: 22, height: 22, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: 10, fontWeight: count ? 700 : 500, cursor: 'default',
-                                background: count ? `color-mix(in srgb, var(--c-accent) ${pct}%, transparent)` : 'var(--c-bg)',
-                                color: count ? (pct > 60 ? '#fff' : 'var(--c-accent)') : 'var(--c-text-muted)',
-                                border: isToday ? '1.5px solid var(--c-accent)' : '1px solid var(--c-border)',
+                                width: 17, height: 17, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 9, fontWeight: count ? 700 : 500, cursor: count ? 'pointer' : 'default',
+                                background: selected ? 'var(--c-text-primary)' : count ? 'var(--c-accent)' : 'var(--c-bg)',
+                                color: count ? '#fff' : 'var(--c-text-muted)',
+                                border: selected ? '1px solid var(--c-text-primary)' : count ? '1px solid var(--c-accent)' : isToday ? '1.5px solid var(--c-accent)' : '1px solid var(--c-border)',
+                                boxShadow: selected ? '0 0 0 2px var(--c-accent-light)' : undefined,
                               }}>{day}</span>
                           );
                         })}
+                        {visitDayFilter && (
+                          <button onClick={() => setVisitDaySel(null)}
+                            style={{ fontSize: 10, fontWeight: 700, padding: '0 8px', height: 17, borderRadius: 9, border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >يوم {visitDayFilter} ✕</button>
+                        )}
                       </div>
                     );
                   })()}
