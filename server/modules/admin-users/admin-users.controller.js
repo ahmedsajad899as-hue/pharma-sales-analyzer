@@ -7,7 +7,7 @@ import {
   ALL_AREAS_ROLES, isAllAreasRole, readAutoAllAreas, userHasAllAreas,
   invalidateAllAreasFlag, ensureLinkedRepId,
 } from '../../lib/areaScope.js';
-import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
+import { PHARMACY_KIND, repSideOf } from '../../lib/pharmacyRep.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
@@ -54,6 +54,26 @@ export async function listAllUsers(req, res) {
     },
     orderBy: { createdAt: 'asc' },
   });
+  // المسوقون (فارمسي لاين): قسمهم الكرخ/الرصافة — لترتيب قسم «مسوقين بغداد».
+  const marketers = users.filter(u => u.linkedRep?.repKind === PHARMACY_KIND);
+  if (marketers.length) {
+    const [subRows, areaRows] = await Promise.all([
+      prisma.userSubProvinceAssignment.findMany({
+        where: { userId: { in: marketers.map(u => u.id) } },
+        select: { userId: true, subProvince: { select: { name: true } } },
+      }),
+      prisma.scientificRepArea.findMany({
+        where: { scientificRepId: { in: marketers.map(u => u.linkedRepId).filter(Boolean) } },
+        select: { scientificRepId: true, area: { select: { subProvince: { select: { name: true } } } } },
+      }),
+    ]);
+    for (const u of marketers) {
+      u.side = repSideOf(
+        subRows.filter(r => r.userId === u.id).map(r => r.subProvince.name),
+        areaRows.filter(r => r.scientificRepId === u.linkedRepId).map(r => r.area.subProvince?.name),
+      );
+    }
+  }
   res.json({ success: true, data: users });
 }
 

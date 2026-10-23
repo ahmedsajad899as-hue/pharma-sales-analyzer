@@ -62,6 +62,7 @@ interface UserRow  {
   companyAssignments?: { companyId: number; isPrimary?: boolean; company: { id: number; name: string } }[];
   managersOfUser?:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
   linkedRep?:          { id?: number; name?: string; repKind?: string } | null;
+  side?:               string | null; // المسوقون: الكرخ/الرصافة
 }
 interface UserDetail extends UserRow {
   linkedRepId?: number | null;
@@ -2896,7 +2897,14 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // المسوقون (فارمسي لاين) قسم مستقل «مسوقين بغداد» — داخل مكتبهم، أو قسماً عاماً إن بلا مكتب؛
   // لا يُجمعون مع حسابات إدارة التطبيق ولا تحت الشركات.
   const adminUsers   = filtered.filter(u => (!u.officeId && !isMarketer(u)) || ADMIN_ROLES.includes(u.role));
-  const noOfficeMarketers = filtered.filter(u => !u.officeId && isMarketer(u) && !ADMIN_ROLES.includes(u.role));
+  const allMarketers = filtered.filter(u => isMarketer(u) && !ADMIN_ROLES.includes(u.role));
+  // أقسام مطوية افتراضياً (إدارة التطبيق، إدارة المكتب، المحافظات) — تنفتح بالضغط، وتُفتح كلها عند البحث.
+  const isSectionOpen = (k: string) => expandedRepGroups.has(k) || !!search.trim();
+  const toggleSection = (k: string) => setExpandedRepGroups(prev => {
+    const next = new Set(prev);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
   // Office users — grouped by office, then by company
   const officeUsers  = filtered.filter(u => u.officeId && !ADMIN_ROLES.includes(u.role));
 
@@ -2957,6 +2965,10 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const leaderOf  = (u: UserRow) => (u.managersOfUser ?? []).map(m => m.managerId).find(id => leaderIds.has(id));
     const others    = sorted.filter(u => u.role !== 'company_manager' && u.role !== 'team_leader');
     const loose     = others.filter(u => leaderOf(u) == null);
+    // الكرخ ثم الرصافة ثم غيرهما، و«بلا قسم» أخيراً. المندوب يتبع قائده لا قسمه.
+    const sideRank = (n: string) => /كرخ/.test(n) ? 0 : /رصاف/.test(n) ? 1 : n === 'بلا قسم' ? 3 : 2;
+    const sideOf = (u: UserRow) => u.side || 'بلا قسم';
+    const sides = [...new Set([...leaders, ...loose].map(sideOf))].sort((a, b) => sideRank(a) - sideRank(b) || a.localeCompare(b, 'ar'));
     const isExpanded = expandedRepGroups.has(groupKey);
     const toggle = () => setExpandedRepGroups(prev => {
       const next = new Set(prev);
@@ -2983,15 +2995,20 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                 <span style={{ fontSize: 11 }}>{isExpanded ? '▼' : '◀'}</span>
                 <span>{isExpanded ? 'إخفاء الفرق والمندوبين' : `عرض ${leaders.length} تيم ليدر و${others.length} مندوب`}</span>
               </button>
-              {isExpanded && leaders.map(l => (
-                <div key={`${l.id}-mkl`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <UserCard u={l} indent />
-                  {others.filter(u => leaderOf(u) === l.id).map(u => (
-                    <div key={`${u.id}-mkr`} style={{ marginRight: 28 }}><UserCard u={u} indent /></div>
+              {isExpanded && sides.map(side => (
+                <div key={side} style={{ border: '1px solid #d1fae5', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, background: '#f7fef9' }}>
+                  <div style={{ fontWeight: 800, fontSize: 13, color: '#047857' }}>📍 {side}</div>
+                  {leaders.filter(l => sideOf(l) === side).map(l => (
+                    <div key={`${l.id}-mkl`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <UserCard u={l} indent />
+                      {others.filter(u => leaderOf(u) === l.id).map(u => (
+                        <div key={`${u.id}-mkr`} style={{ marginRight: 28 }}><UserCard u={u} indent /></div>
+                      ))}
+                    </div>
                   ))}
+                  {loose.filter(u => sideOf(u) === side).map(u => <UserCard key={`${u.id}-mko`} u={u} indent />)}
                 </div>
               ))}
-              {isExpanded && loose.map(u => <UserCard key={`${u.id}-mko`} u={u} indent />)}
             </>
           )}
         </div>
@@ -3037,18 +3054,21 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           {/* ── 1. حسابات إدارة التطبيق ────────────────────────────────── */}
           {adminUsers.length > 0 && (
             <div style={{ border: '2px solid #6366f1', borderRadius: 14, overflow: 'hidden' }}>
-              <div style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div onClick={() => toggleSection('admin')} style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                <span style={{ fontSize: 12, color: '#fff' }}>{isSectionOpen('admin') ? '▼' : '◀'}</span>
                 <span style={{ fontSize: 20 }}>⚙️</span>
                 <span style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>حسابات إدارة التطبيق</span>
                 <span style={{ fontSize: 12, color: '#c7d2fe', marginRight: 'auto' }}>{adminUsers.length} حساب</span>
               </div>
-              <div style={{ background: '#fafbff', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {adminUsers.map(u => <UserCard key={u.id} u={u} />)}
-              </div>
+              {isSectionOpen('admin') && (
+                <div style={{ background: '#fafbff', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {adminUsers.map(u => <UserCard key={u.id} u={u} />)}
+                </div>
+              )}
             </div>
           )}
 
-          {noOfficeMarketers.length > 0 && <MarketersBlock list={noOfficeMarketers} groupKey="mk-none" />}
+          {allMarketers.length > 0 && <MarketersBlock list={allMarketers} groupKey="mk-all" />}
 
           {/* ── 2. مكاتب + شركات ───────────────────────────────────────── */}
           {officeGroups.map(og => (
@@ -3065,17 +3085,20 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               <div style={{ background: '#f8fafc', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
                 {og.officeLevelUsers.length > 0 && (
                   <div style={{ border: '1.5px solid #c7d2fe', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
-                    <div style={{
+                    <div onClick={() => toggleSection(`office-${og.office.id}`)} style={{
                       background: '#eef2ff', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8,
-                      borderBottom: '1px solid #e2e8f0',
+                      borderBottom: '1px solid #e2e8f0', cursor: 'pointer',
                     }}>
+                      <span style={{ fontSize: 11, color: '#4338ca' }}>{isSectionOpen(`office-${og.office.id}`) ? '▼' : '◀'}</span>
                       <span style={{ fontSize: 16 }}>🏢</span>
                       <span style={{ fontWeight: 700, fontSize: 13, color: '#4338ca' }}>إدارة المكتب (مدير مكتب · HR · موظف مكتب · مدير منتج)</span>
                       <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{og.officeLevelUsers.length} مستخدم</span>
                     </div>
-                    <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                      {sortUsers(og.officeLevelUsers).map(u => <UserCard key={`${u.id}-office`} u={u} />)}
-                    </div>
+                    {isSectionOpen(`office-${og.office.id}`) && (
+                      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                        {sortUsers(og.officeLevelUsers).map(u => <UserCard key={`${u.id}-office`} u={u} />)}
+                      </div>
+                    )}
                   </div>
                 )}
                 {(() => {
@@ -3094,12 +3117,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   const withTeam = provTeams.filter(t => t.officeId === og.office.id).length;
                   return (
                     <div style={{ border: '1.5px solid #a5f3fc', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
-                      <div style={{ background: '#ecfeff', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #e2e8f0' }}>
+                      <div onClick={() => toggleSection(`prov-${og.office.id}`)} style={{ background: '#ecfeff', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                        <span style={{ fontSize: 11, color: '#0e7490' }}>{isSectionOpen(`prov-${og.office.id}`) ? '▼' : '◀'}</span>
                         <span style={{ fontSize: 16 }}>🗺️</span>
                         <span style={{ fontWeight: 700, fontSize: 13, color: '#0e7490' }}>المحافظات (تيم ليدر مشترك لكل الشركات — معزولة عن الشركات)</span>
                         <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{withTeam} محافظة لها فريق من {provList.length}</span>
                       </div>
-                      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {isSectionOpen(`prov-${og.office.id}`) && <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                           {rows.map(p => {
                             const t = teamOf(p.id);
@@ -3162,11 +3186,10 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             </div>
                           );
                         })}
-                      </div>
+                      </div>}
                     </div>
                   );
                 })()}
-                {og.marketers.length > 0 && <MarketersBlock list={og.marketers} groupKey={`mk-${og.office.id}`} />}
                 {og.companyGroups.map((cg, ci) => {
                   const groupKey = `${og.office.id}-${cg.company?.id ?? 'none'}`;
                   const sorted   = sortUsers(cg.users);

@@ -8,7 +8,7 @@ import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
-import { PHARMACY_KIND, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo } from '../../lib/pharmacyRep.js';
+import { PHARMACY_KIND, repSideOf, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo } from '../../lib/pharmacyRep.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -29,20 +29,6 @@ export async function create(dto, user = null) {
   // UserCompanyAssignment references the newer ScientificCompany model.
   const rep = await repo.createScientificRep(dto);
   return getById(rep.id);
-}
-
-/**
- * قسم المندوب (الكرخ/الرصافة — SubProvince): قسم مُسنَد لحسابه كاملاً أولاً، وإلا
- * الأكثر بين مناطقه المعيّنة (Area.subProvince). null = بلا قسم.
- */
-function repSideOf(assignedNames = [], areaSideNames = []) {
-  const assigned = [...new Set(assignedNames.filter(Boolean))];
-  if (assigned.length === 1) return assigned[0];
-  const counts = new Map();
-  for (const n of areaSideNames) if (n && (!assigned.length || assigned.includes(n))) counts.set(n, (counts.get(n) || 0) + 1);
-  let best = null, bestN = 0;
-  for (const [n, c] of counts) if (c > bestN) { best = n; bestN = c; }
-  return best ?? assigned[0] ?? null;
 }
 
 // Roles that see only their assigned-company reps (not all reps)

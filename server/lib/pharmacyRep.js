@@ -26,6 +26,20 @@ export function isPharmacyRep(rep) {
   return rep?.repKind === PHARMACY_KIND;
 }
 
+/**
+ * قسم المندوب (الكرخ/الرصافة — SubProvince): قسم مُسنَد لحسابه كاملاً أولاً، وإلا
+ * الأكثر بين مناطقه المعيّنة (Area.subProvince). null = بلا قسم.
+ */
+export function repSideOf(assignedNames = [], areaSideNames = []) {
+  const assigned = [...new Set(assignedNames.filter(Boolean))];
+  if (assigned.length === 1) return assigned[0];
+  const counts = new Map();
+  for (const n of areaSideNames) if (n && (!assigned.length || assigned.includes(n))) counts.set(n, (counts.get(n) || 0) + 1);
+  let best = null, bestN = 0;
+  for (const [n, c] of counts) if (c > bestN) { best = n; bestN = c; }
+  return best ?? assigned[0] ?? null;
+}
+
 /** نص التسمية بنفس تطبيع Sale.customerInfoNorm (normalizeArabic عند الرفع). */
 export function normalizeCustomerInfoLabel(s) {
   const v = String(s ?? '').trim();
