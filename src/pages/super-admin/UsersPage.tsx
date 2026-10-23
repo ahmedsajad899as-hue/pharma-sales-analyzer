@@ -2897,7 +2897,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // المسوقون (فارمسي لاين) قسم مستقل «مسوقين بغداد» — داخل مكتبهم، أو قسماً عاماً إن بلا مكتب؛
   // لا يُجمعون مع حسابات إدارة التطبيق ولا تحت الشركات.
   const adminUsers   = filtered.filter(u => (!u.officeId && !isMarketer(u)) || ADMIN_ROLES.includes(u.role));
-  const allMarketers = filtered.filter(u => isMarketer(u) && !ADMIN_ROLES.includes(u.role));
+  // القسم العام للمسوقين بلا مكتب فقط — مسوقو أي مكتب يُعرضون داخل إطار مكتبهم (og.marketers)
+  const allMarketers = filtered.filter(u => isMarketer(u) && !u.officeId && !ADMIN_ROLES.includes(u.role));
+  // عند البحث تُفتح كل القوائم المطوية (مندوبو الشركات، فرق المسوقين، فرق المحافظات) كي يظهر
+  // الشخص نفسه لا عنوان شركته أو قسمه فقط
+  const searching = !!search.trim();
   // أقسام مطوية افتراضياً (إدارة التطبيق، إدارة المكتب، المحافظات) — تنفتح بالضغط، وتُفتح كلها عند البحث.
   const isSectionOpen = (k: string) => expandedRepGroups.has(k) || !!search.trim();
   const toggleSection = (k: string) => setExpandedRepGroups(prev => {
@@ -2969,7 +2973,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const sideRank = (n: string) => /كرخ/.test(n) ? 0 : /رصاف/.test(n) ? 1 : n === 'بلا قسم' ? 3 : 2;
     const sideOf = (u: UserRow) => u.side || 'بلا قسم';
     const sides = [...new Set([...leaders, ...loose].map(sideOf))].sort((a, b) => sideRank(a) - sideRank(b) || a.localeCompare(b, 'ar'));
-    const isExpanded = expandedRepGroups.has(groupKey);
+    const isExpanded = expandedRepGroups.has(groupKey) || searching;
     const toggle = () => setExpandedRepGroups(prev => {
       const next = new Set(prev);
       if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
@@ -3128,7 +3132,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                           {rows.map(p => {
                             const t = teamOf(p.id);
                             const key = og.office.id * 1000 + p.id;
-                            const isOpen = openProvTeams.has(key);
+                            const isOpen = openProvTeams.has(key) || searching;
                             const leader = t?.leaderUserId != null ? userById.get(t.leaderUserId) : null;
                             return (
                               <button key={p.id} type="button"
@@ -3144,7 +3148,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                             );
                           })}
                         </div>
-                        {rows.filter(p => openProvTeams.has(og.office.id * 1000 + p.id)).map(p => {
+                        {rows.filter(p => searching || openProvTeams.has(og.office.id * 1000 + p.id)).map(p => {
                           const t = teamOf(p.id);
                           const leader = t?.leaderUserId != null ? userById.get(t.leaderUserId) : null;
                           return (
@@ -3190,12 +3194,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     </div>
                   );
                 })()}
+                {og.marketers.length > 0 && <MarketersBlock list={og.marketers} groupKey={`mk-${og.office.id}`} />}
                 {og.companyGroups.map((cg, ci) => {
                   const groupKey = `${og.office.id}-${cg.company?.id ?? 'none'}`;
                   const sorted   = sortUsers(cg.users);
                   const managers = sorted.filter(u => u.role === 'company_manager');
                   const reps     = sorted.filter(u => u.role !== 'company_manager');
-                  const isExpanded = expandedRepGroups.has(groupKey);
+                  const isExpanded = expandedRepGroups.has(groupKey) || searching;
                   const toggleExpanded = () => setExpandedRepGroups(prev => {
                     const next = new Set(prev);
                     if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
