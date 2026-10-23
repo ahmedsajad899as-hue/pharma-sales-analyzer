@@ -2142,16 +2142,29 @@ export default function DoctorsPage() {
       {activeTab === 'visits' && showVisitAnalysis && (
         <div>
           {/* Top toolbar — bulk import sits alone above the filters, not mixed with the doctors/pharmacies toggle */}
-          {!isFieldRep && showVisitsImport && (
-            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--c-border)' }}>
-              <button
+          {!isFieldRep && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--c-border)' }}>
+              {showVisitsImport ? <button
                 onClick={() => { setVisitsModalInitialData(null); setShowVisitsImportModal(true); }}
                 title="استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بدل تسجيلها واحدة تلو الأخرى"
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6,
                   padding: '7px 16px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
                   border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
-                }}><Icon name="import" size={13} /> استيراد من إكسل</button>
+                }}><Icon name="import" size={13} /> استيراد من إكسل</button> : <span />}
+              {/* «مندوبي المحافظات» و«كل المندوبين» — مضغوطان فوق بعض في يسار الشريط العلوي */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 5 }}>
+                <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} compact />
+                <button
+                  onClick={() => setShowRepsSummaryModal(true)}
+                  title="ملخص زيارات كل المندوبين دفعة واحدة"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                    padding: '3px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
+                  }}
+                ><Icon name="menu" size={11} /> كل المندوبين</button>
+              </div>
             </div>
           )}
 
@@ -2303,20 +2316,7 @@ export default function DoctorsPage() {
 
             {/* ملخص كل المندوبين دفعة واحدة — زيارات الأطباء/الصيدليات + نسبة
                 التغطية + تفصيل كل منطقة، بدل فتح كل مندوب على حدة */}
-            {/* «مندوبي المحافظات» و«كل المندوبين» معاً على يسار الصف */}
-            {!isFieldRep && (
-              <div style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} compact />
-              <button
-                onClick={() => setShowRepsSummaryModal(true)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                  padding: '6px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                  border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
-                }}
-              ><Icon name="menu" size={14} /> كل المندوبين</button>
-              </div>
-            )}
+
           </div>
 
           {/* ─── DOCTORS ANALYSIS ───────────────────────────── */}
