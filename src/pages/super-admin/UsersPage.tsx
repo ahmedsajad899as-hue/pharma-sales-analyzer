@@ -1036,6 +1036,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const REP_ROLES     = new Set(['scientific_rep', 'commercial_rep']);
     const roleGroupRank = (role: string) => MANAGER_ROLES.has(role) ? 0 : REP_ROLES.has(role) ? 1 : 2;
     const primaryCompanyNameOf = (u: UserRow) => {
+      // المسوّق ليس لشركة بعينها (كل شركاته متساوية) — يُعرض ويُجمَّع باسم «المسوقين» وقسمه
+      if (isMarketer(u)) return `🏪 المسوقين${u.side ? ` — ${u.side}` : ''}`;
       const cas = u.companyAssignments ?? [];
       return (cas.find(a => a.isPrimary) ?? cas[0])?.company?.name ?? '';
     };
@@ -2872,7 +2874,12 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: '#cffafe', color: '#0e7490', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}
                 >🗺️ كل الشركات</span>
               )}
-              {!provLeaderIds.has(u.id) && extraCompanies.length > 0 && (
+              {isMarketer(u) && (
+                <span title={`مسوّق — ${companies.length} شركة بلا شركة رئيسية`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: '#ecfdf5', color: '#047857', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}
+                >🏪 مسوّق</span>
+              )}
+              {!provLeaderIds.has(u.id) && !isMarketer(u) && extraCompanies.length > 0 && (
                 <span
                   title={`شركات إضافية: ${extraCompanies.map(ca => ca.company.name).join('، ')}`}
                   style={{
