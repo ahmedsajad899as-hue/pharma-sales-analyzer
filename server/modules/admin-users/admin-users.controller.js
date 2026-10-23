@@ -251,7 +251,7 @@ export async function createUser(req, res) {
 
 // «مندوب فارمسي لاين» / «قائد فريق فارمسي» في نموذج الحساب = scientific_rep /
 // team_leader + repKind على سجل المندوب المرتبط (lib/pharmacyRep.js) — لا دور جديد.
-const REP_KIND_ROLES = new Set(['scientific_rep', 'team_leader']);
+const REP_KIND_ROLES = new Set(['scientific_rep', 'team_leader', 'company_manager']); // company_manager = «مدير المسوقين»
 async function applyRepKind(userId, role, repKind) {
   if (repKind === undefined || !REP_KIND_ROLES.has(role)) return;
   const kind = repKind === PHARMACY_KIND ? PHARMACY_KIND : 'scientific';

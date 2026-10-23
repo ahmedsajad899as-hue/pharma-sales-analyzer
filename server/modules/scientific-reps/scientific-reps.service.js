@@ -97,6 +97,14 @@ export async function list(filters, user = null, options = {}) {
       if (subordinateRows.length > 0) {
         // Only show reps that are explicitly assigned under this manager
         allowedUserIds = new Set(subordinateRows.map(r => r.userId));
+        // «مدير المسوقين» (company_manager بسجل repKind='pharmacy'): مندوبو تيم ليدرياته أيضاً.
+        if (user.role === 'company_manager') {
+          const me = await prisma.user.findUnique({ where: { id: user.id }, select: { linkedRep: { select: { repKind: true } } } });
+          if (me?.linkedRep?.repKind === PHARMACY_KIND) {
+            const second = await prisma.userManagerAssignment.findMany({ where: { managerId: { in: [...allowedUserIds] } }, select: { userId: true } });
+            for (const r of second) allowedUserIds.add(r.userId);
+          }
+        }
       }
       // If no subordinates: team_leader sees nobody (rep mode), company_manager falls back to all company reps
       if (subordinateRows.length === 0 && user.role === 'team_leader') {

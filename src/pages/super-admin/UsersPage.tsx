@@ -16,6 +16,7 @@ const ROLES = [
   { value: 'product_manager',         label: 'مدير منتج' },
   { value: 'team_leader',             label: 'قائد فريق' },
   { value: 'scientific_rep',          label: 'مندوب علمي' },
+  { value: 'pharmacy_manager',        label: 'مدير المسوقين' },
   { value: 'pharmacy_rep',            label: 'مندوب فارمسي لاين' },
   { value: 'pharmacy_team_leader',    label: 'قائد فريق فارمسي' },
   { value: 'commercial_supervisor',   label: 'مشرف تجاري' },
@@ -27,11 +28,11 @@ const ROLES = [
 
 // «فارمسي لاين» خيار بالواجهة فقط: الدور الفعلي scientific_rep/team_leader و
 // repKind='pharmacy' على سجل المندوب المرتبط (server/lib/pharmacyRep.js).
-const PHARMACY_FORM_ROLES: Record<string, string> = { pharmacy_rep: 'scientific_rep', pharmacy_team_leader: 'team_leader' };
+const PHARMACY_FORM_ROLES: Record<string, string> = { pharmacy_rep: 'scientific_rep', pharmacy_team_leader: 'team_leader', pharmacy_manager: 'company_manager' };
+const PHARMACY_ROLE_OF: Record<string, string> = { scientific_rep: 'pharmacy_rep', team_leader: 'pharmacy_team_leader', company_manager: 'pharmacy_manager' };
+const isMarketer = (u: { linkedRep?: { repKind?: string } | null }) => u.linkedRep?.repKind === 'pharmacy';
 const formRoleOf = (u: { role: string; linkedRep?: { repKind?: string } | null }) =>
-  u.linkedRep?.repKind === 'pharmacy'
-    ? (u.role === 'scientific_rep' ? 'pharmacy_rep' : u.role === 'team_leader' ? 'pharmacy_team_leader' : u.role)
-    : u.role;
+  isMarketer(u) ? (PHARMACY_ROLE_OF[u.role] ?? u.role) : u.role;
 const roleLabelOf = (u: { role: string; linkedRep?: { repKind?: string } | null }) => {
   const r = formRoleOf(u);
   return ROLES.find(x => x.value === r)?.label || u.role;
@@ -554,7 +555,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     const isEdit = Boolean(form.id);
     const realRole = PHARMACY_FORM_ROLES[form.role] || form.role;
     const payload: any = { username: form.username, displayName: form.displayName, role: realRole, phone: form.phone, officeId: form.officeId || null };
-    if (realRole === 'scientific_rep' || realRole === 'team_leader') payload.repKind = PHARMACY_FORM_ROLES[form.role] ? 'pharmacy' : 'scientific';
+    if (realRole in PHARMACY_ROLE_OF) payload.repKind = PHARMACY_FORM_ROLES[form.role] ? 'pharmacy' : 'scientific';
     if (form.password) payload.password = form.password;
     const res = await fetch(isEdit ? `/api/sa/users/${form.id}` : '/api/sa/users', {
       method: isEdit ? 'PUT' : 'POST', headers: H(), body: JSON.stringify(payload),
@@ -2892,25 +2893,29 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   // Admin users = no office OR role admin/manager
   const ADMIN_ROLES = ['admin', 'manager'];
-  const adminUsers   = filtered.filter(u => !u.officeId || ADMIN_ROLES.includes(u.role));
+  // المسوقون (فارمسي لاين) قسم مستقل «مسوقين بغداد» — داخل مكتبهم، أو قسماً عاماً إن بلا مكتب؛
+  // لا يُجمعون مع حسابات إدارة التطبيق ولا تحت الشركات.
+  const adminUsers   = filtered.filter(u => (!u.officeId && !isMarketer(u)) || ADMIN_ROLES.includes(u.role));
+  const noOfficeMarketers = filtered.filter(u => !u.officeId && isMarketer(u) && !ADMIN_ROLES.includes(u.role));
   // Office users — grouped by office, then by company
   const officeUsers  = filtered.filter(u => u.officeId && !ADMIN_ROLES.includes(u.role));
 
   // Build grouped structure: office → company → users
   type CompanyGroup = { company: { id: number; name: string } | null; users: UserRow[] };
-  type OfficeGroup  = { office: { id: number; name: string }; officeLevelUsers: UserRow[]; companyGroups: CompanyGroup[] };
+  type OfficeGroup  = { office: { id: number; name: string }; officeLevelUsers: UserRow[]; marketers: UserRow[]; companyGroups: CompanyGroup[] };
 
   const officeMap = new Map<number, OfficeGroup>();
   for (const u of officeUsers) {
     const oid = u.officeId!;
     if (!officeMap.has(oid)) {
-      officeMap.set(oid, { office: { id: oid, name: u.office?.name || `مكتب #${oid}` }, officeLevelUsers: [], companyGroups: [] });
+      officeMap.set(oid, { office: { id: oid, name: u.office?.name || `مكتب #${oid}` }, officeLevelUsers: [], marketers: [], companyGroups: [] });
     }
     const og = officeMap.get(oid)!;
     // الأدوار المكتبية تخدم المكتب كله لا شركة بعينها (كل شركاته معيَّنة لها
     // تلقائياً — راجع officeScope.js) فتظهر في قسم مستقل أعلى قائمة المكتب،
     // لا تحت غطاء أي شركة واحدة بالذات.
     if (OFFICE_SCOPED_ROLES.has(u.role) || u.role === 'product_manager') { og.officeLevelUsers.push(u); continue; }
+    if (isMarketer(u)) { og.marketers.push(u); continue; }
     // قادة المحافظات ومندوبوها يُعرضون في قسم «المحافظات» وحده — معزولين عن الشركات.
     if (provUserIds.has(u.id)) continue;
     const userCompanies = u.companyAssignments ?? [];
@@ -2942,6 +2947,57 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const ROLE_ORDER = ['company_manager','supervisor','product_manager','team_leader','scientific_rep','commercial_supervisor','commercial_team_leader','commercial_rep','office_manager','office_hr','office_employee'];
   const sortUsers = (list: UserRow[]) =>
     [...list].sort((a, b) => (ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)) || a.id - b.id);
+
+  // «مسوقين بغداد»: مدير المسوقين ← كل تيم ليدر ومندوبوه تحته (UserManagerAssignment) ← بلا قائد.
+  const MarketersBlock = ({ list, groupKey }: { list: UserRow[]; groupKey: string }) => {
+    const sorted    = sortUsers(list);
+    const managers  = sorted.filter(u => u.role === 'company_manager');
+    const leaders   = sorted.filter(u => u.role === 'team_leader');
+    const leaderIds = new Set(leaders.map(l => l.id));
+    const leaderOf  = (u: UserRow) => (u.managersOfUser ?? []).map(m => m.managerId).find(id => leaderIds.has(id));
+    const others    = sorted.filter(u => u.role !== 'company_manager' && u.role !== 'team_leader');
+    const loose     = others.filter(u => leaderOf(u) == null);
+    const isExpanded = expandedRepGroups.has(groupKey);
+    const toggle = () => setExpandedRepGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
+      return next;
+    });
+    return (
+      <div style={{ border: '1.5px solid #6ee7b7', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+        <div style={{ background: '#ecfdf5', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #d1fae5' }}>
+          <span style={{ fontSize: 16 }}>🏪</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#047857' }}>مسوقين بغداد</span>
+          <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{list.length} مستخدم</span>
+        </div>
+        <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {managers.map(u => <UserCard key={`${u.id}-mk`} u={u} />)}
+          {(leaders.length > 0 || loose.length > 0) && (
+            <>
+              <button onClick={toggle} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8,
+                padding: '7px 12px', fontSize: 12.5, fontWeight: 600, color: '#475569',
+                cursor: 'pointer', marginRight: managers.length > 0 ? 28 : 0,
+              }}>
+                <span style={{ fontSize: 11 }}>{isExpanded ? '▼' : '◀'}</span>
+                <span>{isExpanded ? 'إخفاء الفرق والمندوبين' : `عرض ${leaders.length} تيم ليدر و${others.length} مندوب`}</span>
+              </button>
+              {isExpanded && leaders.map(l => (
+                <div key={`${l.id}-mkl`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <UserCard u={l} indent />
+                  {others.filter(u => leaderOf(u) === l.id).map(u => (
+                    <div key={`${u.id}-mkr`} style={{ marginRight: 28 }}><UserCard u={u} indent /></div>
+                  ))}
+                </div>
+              ))}
+              {isExpanded && loose.map(u => <UserCard key={`${u.id}-mko`} u={u} indent />)}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div>
@@ -2991,6 +3047,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               </div>
             </div>
           )}
+
+          {noOfficeMarketers.length > 0 && <MarketersBlock list={noOfficeMarketers} groupKey="mk-none" />}
 
           {/* ── 2. مكاتب + شركات ───────────────────────────────────────── */}
           {officeGroups.map(og => (
@@ -3108,6 +3166,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     </div>
                   );
                 })()}
+                {og.marketers.length > 0 && <MarketersBlock list={og.marketers} groupKey={`mk-${og.office.id}`} />}
                 {og.companyGroups.map((cg, ci) => {
                   const groupKey = `${og.office.id}-${cg.company?.id ?? 'none'}`;
                   const sorted   = sortUsers(cg.users);
