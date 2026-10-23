@@ -179,8 +179,9 @@ export async function resolveCompanyMembers(managerId, companyId, managerRole = 
     });
     matched = new Set(candidates.map(c => c.id));
   } else {
+    // حساب معطَّل (User.isActive=false) يختفي من تحليل الكولات — زياراته تبقى محفوظة.
     const subs = await prisma.userManagerAssignment.findMany({
-      where: { managerId },
+      where: { managerId, user: { isActive: true } },
       include: { user: { select: { id: true, linkedRepId: true, role: true } } },
     });
     const excluded = excludedManagementRoles(managerRole);
@@ -296,7 +297,7 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     const [ownU, allSubs] = await Promise.all([
       prisma.user.findUnique({ where: { id: user.id }, select: { linkedRepId: true } }),
       prisma.userManagerAssignment.findMany({
-        where: { managerId: user.id },
+        where: { managerId: user.id, user: { isActive: true } }, // المعطَّل لا يُحتسب في «الكل»
         include: { user: { select: { id: true, linkedRepId: true, role: true } } },
       }),
     ]);

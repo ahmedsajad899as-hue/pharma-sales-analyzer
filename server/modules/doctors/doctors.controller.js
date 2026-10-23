@@ -140,7 +140,14 @@ export async function visitsByArea(req, res, next) {
     for (const d of doctors) for (const v of d.visits) attachedIds.add(v.id);
     const hiddenVisits = overlay.all.filter(v => !attachedIds.has(v.id));
 
-    res.json({ areas, noAreaStats, hiddenVisits });
+    // شريط أيام الشهر في الواجهة: عدد الزيارات لكل يوم (بنفس توقيت فلتر الشهر أعلاه).
+    const dayCounts = {};
+    if (dateFilter) for (const v of overlay.all) {
+      const day = new Date(v.visitDate).getDate();
+      dayCounts[day] = (dayCounts[day] ?? 0) + 1;
+    }
+
+    res.json({ areas, noAreaStats, hiddenVisits, dayCounts });
   } catch (e) { next(e); }
 }
 
@@ -1404,7 +1411,8 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
     }) : [];
   } else {
     const allSubs = await prisma.userManagerAssignment.findMany({
-      where: { managerId },
+      // حساب معطَّل يختفي من شرائح المندوبين (نفس فرع الأدوار المكتبية أعلاه)
+      where: { managerId, user: { isActive: true } },
       include: {
         user: {
           select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },

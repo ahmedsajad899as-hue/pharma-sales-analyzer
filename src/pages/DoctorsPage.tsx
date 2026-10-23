@@ -314,6 +314,8 @@ export default function DoctorsPage() {
   const [visitAreas, setVisitAreas]         = useState<VisitArea[]>([]);
   const [noAreaStats, setNoAreaStats]       = useState<{ total: number; visited: number; writing: number; totalVisits: number }>({ total: 0, visited: 0, writing: 0, totalVisits: 0 });
   const [hiddenVisits, setHiddenVisits]     = useState<HiddenVisit[]>([]);
+  // عدد الزيارات لكل يوم من الشهر المختار — يلوّن شريط أيام الشهر بجانب فلتر الشهر
+  const [visitDayCounts, setVisitDayCounts] = useState<Record<number, number>>({});
   const [showHiddenVisits, setShowHiddenVisits] = useState(false);
   const [visitLoading, setVisitLoading]     = useState(false);
   const [visitMonthFilter, setVisitMonthFilter] = useState<{ month: number; year: number } | null>(null);
@@ -500,7 +502,7 @@ export default function DoctorsPage() {
   // ── Visit fetch: abort + cache refs (for instant rep-switching) ────────────
   const visitFetchAbortRef      = useRef<AbortController | null>(null);
   const pharmVisitFetchAbortRef = useRef<AbortController | null>(null);
-  const visitCacheRef      = useRef(new Map<string, { areas: VisitArea[]; noAreaStats: { total: number; visited: number; writing: number; totalVisits: number }; hidden: HiddenVisit[] }>());
+  const visitCacheRef      = useRef(new Map<string, { areas: VisitArea[]; noAreaStats: { total: number; visited: number; writing: number; totalVisits: number }; hidden: HiddenVisit[]; dayCounts: Record<number, number> }>());
   const pharmVisitCacheRef = useRef(new Map<string, PharmAreaGroup[]>());
 
   // ── Survey pharmacies (for commercial rep) ───────────────────
@@ -760,6 +762,7 @@ export default function DoctorsPage() {
         setVisitAreas(cached.areas);
         setNoAreaStats(cached.noAreaStats);
         setHiddenVisits(cached.hidden);
+        setVisitDayCounts(cached.dayCounts);
         return;
       }
     } else {
@@ -785,8 +788,10 @@ export default function DoctorsPage() {
       const hidden: HiddenVisit[] = Array.isArray(j.hiddenVisits) ? j.hiddenVisits : [];
       setVisitAreas(areas);
       setNoAreaStats(stats);
+      const dayCounts: Record<number, number> = j.dayCounts && typeof j.dayCounts === 'object' ? j.dayCounts : {};
       setHiddenVisits(hidden);
-      visitCacheRef.current.set(cacheKey, { areas, noAreaStats: stats, hidden });
+      setVisitDayCounts(dayCounts);
+      visitCacheRef.current.set(cacheKey, { areas, noAreaStats: stats, hidden, dayCounts });
     } catch (e: any) {
       if (e.name !== 'AbortError') console.error('[visitsByArea] fetch error:', e);
     } finally {
@@ -2300,6 +2305,32 @@ export default function DoctorsPage() {
                       border: '1px solid var(--c-border)', background: 'transparent', color: 'var(--c-text-muted)',
                       cursor: 'pointer', lineHeight: 1,
                     }}>‹</button>
+                  {visitMonthFilter && (() => {
+                    // شريط أيام الشهر: الأيام التي رُفعت لها زيارات مظلَّلة (أغمق = زيارات أكثر)
+                    const daysInMonth = new Date(visitMonthFilter.year, visitMonthFilter.month, 0).getDate();
+                    const maxCount = Math.max(1, ...Object.values(visitDayCounts));
+                    const isCurrentMonth = now.getMonth() + 1 === visitMonthFilter.month && now.getFullYear() === visitMonthFilter.year;
+                    return (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginInlineStart: 10, flex: '1 1 auto', minWidth: 0, opacity: visitLoading ? 0.4 : 1, transition: 'opacity .2s' }}>
+                        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                          const count = visitDayCounts[day] ?? 0;
+                          const isToday = isCurrentMonth && day === now.getDate();
+                          const pct = count ? Math.round(35 + 65 * (count / maxCount)) : 0;
+                          return (
+                            <span key={day}
+                              title={count ? `${day}/${visitMonthFilter.month} — ${count} زيارة` : `${day}/${visitMonthFilter.month} — لا زيارات`}
+                              style={{
+                                width: 22, height: 22, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 10, fontWeight: count ? 700 : 500, cursor: 'default',
+                                background: count ? `color-mix(in srgb, var(--c-accent) ${pct}%, transparent)` : 'var(--c-bg)',
+                                color: count ? (pct > 60 ? '#fff' : 'var(--c-accent)') : 'var(--c-text-muted)',
+                                border: isToday ? '1.5px solid var(--c-accent)' : '1px solid var(--c-border)',
+                              }}>{day}</span>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 14, direction: 'rtl', overflowX: 'auto', flexWrap: 'nowrap', paddingBottom: 2, WebkitOverflowScrolling: 'touch' as any }}>
