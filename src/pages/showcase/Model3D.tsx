@@ -7,7 +7,7 @@
 // أصناف CSS (b3d-scene/b3d-bob/b3d-shadow/b3d-glow) فيرث مظهر الصفحة.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createElement, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Box3D } from '../HomePage';
 
 const SPIN_DEG_PER_MS = 360 / 36_000;
@@ -190,10 +190,45 @@ export function Standee3D({ front, back, label, thick = 0.06, scale = 1 }: {
   );
 }
 
+// ── مجسّم جاهز (GLB) — من المسح بالتصوير (photogrammetry) أو أي مصدر ──────────────
+// يُعرض بـ <model-viewer> من Google (Apache-2.0)، يُحمَّل كسولاً من CDN عند أول مجسّم فقط.
+const MODEL_VIEWER = 'https://cdn.jsdelivr.net/npm/@google/model-viewer@4.3.1/dist/model-viewer.min.js';
+let mvLoad: Promise<void> | null = null;
+const loadModelViewer = () => (mvLoad ??= new Promise<void>((ok, bad) => {
+  if (customElements.get('model-viewer')) return ok();
+  const s = document.createElement('script');
+  s.type = 'module'; s.src = MODEL_VIEWER;
+  s.onload = () => customElements.whenDefined('model-viewer').then(() => ok());
+  s.onerror = () => { mvLoad = null; bad(new Error('تعذّر تحميل عارض المجسّمات')); };
+  document.head.appendChild(s);
+}));
+
+export function Mesh3D({ src, label, scale = 1 }: { src: string; label: string; scale?: number }) {
+  const [ready, setReady] = useState(!!customElements.get('model-viewer'));
+  const [err, setErr] = useState('');
+  useEffect(() => { if (!ready) loadModelViewer().then(() => setReady(true)).catch(e => setErr(e.message)); }, [ready]);
+  // السحب على المجسّم يدوّره هو لا الدوّار (نفس سلوك Box3D) — في البطاقة المعروضة فقط
+  const stop = (e: React.PointerEvent) => {
+    const slot = (e.currentTarget as Element).closest('.cf-slot');
+    if (!slot || slot.classList.contains('is-active')) e.stopPropagation();
+  };
+  if (err) return <div className="mesh-err">{err}</div>;
+  return (
+    <div className="b3d-scene mesh-scene" onPointerDown={stop} onPointerMove={stop} onClickCapture={e => e.stopPropagation()}>
+      {ready && createElement('model-viewer', {
+        src, alt: label, 'camera-controls': true, 'auto-rotate': true, 'rotation-per-second': '10deg',
+        'auto-rotate-delay': '1500', 'interaction-prompt': 'none', 'shadow-intensity': '1', exposure: '1.05',
+        'environment-image': 'neutral', 'touch-action': 'pan-y', 'disable-pan': true, loading: 'lazy',
+        style: { width: `${100 * scale}%`, height: `${100 * scale}%`, background: 'transparent', '--poster-color': 'transparent' },
+      })}
+    </div>
+  );
+}
+
 // ── عرض أي عنصر حسب شكله (الدوّار، معاينة الاستوديو، نافذة التعديل) ─────────────
 export interface ModelItem {
-  shape: 'box' | 'frame' | 'cylinder' | 'standee';
-  faces: Partial<Record<'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'wrap' | 'cutFront' | 'cutBack', string>>;
+  shape: 'box' | 'frame' | 'cylinder' | 'standee' | 'mesh';
+  faces: Partial<Record<'front' | 'back' | 'left' | 'right' | 'top' | 'bottom' | 'wrap' | 'cutFront' | 'cutBack' | 'model', string>>;
   depth?: number; scale?: number; spin?: boolean; round?: number | null;
   dims?: { w?: number; h?: number; d?: number; dia?: number } | null;
   cap?: string | null; thick?: number | null;
@@ -206,6 +241,7 @@ export function ModelView({ item, label }: { item: ModelItem; label: string }) {
   if (item.shape === 'cylinder' && f.wrap) {
     return <Cylinder3D wrap={f.wrap} dia={item.dims?.dia ?? 6} height={item.dims?.h ?? 12} cap={item.cap ?? undefined} label={label} scale={item.scale} />;
   }
+  if (item.shape === 'mesh' && f.model) return <Mesh3D src={f.model} label={label} scale={item.scale} />;
   if (item.shape === 'standee' && f.cutFront) {
     return <Standee3D front={f.cutFront} back={f.cutBack} thick={item.thick ?? undefined} label={label} scale={item.scale} />;
   }

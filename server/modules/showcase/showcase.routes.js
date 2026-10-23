@@ -18,11 +18,14 @@ import { callAI, friendlyAiError } from '../../lib/claudeAi.js';
 // <جذر المشروع>/uploads — Nginx يخدم /uploads/ من جذر المشروع (راجع itemDocs.js)
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'uploads', 'showcase');
 // أوجه الصندوق الستة + wrap (بانوراما ملصق الأسطوانة) + cutFront/cutBack (قصّات بشفافية للمجسّم المقصوص)
-const FACES = ['front', 'left', 'right', 'top', 'back', 'bottom', 'wrap', 'cutFront', 'cutBack'];
-// box = صندوق، frame = لوحة رقيقة، cylinder = أسطوانة، standee = مجسّم مقصوص (شخص/ملابس/غرض)
-const SHAPES = new Set(['box', 'frame', 'cylinder', 'standee']);
+const FACES = ['front', 'left', 'right', 'top', 'back', 'bottom', 'wrap', 'cutFront', 'cutBack', 'model'];
+// box = صندوق، frame = لوحة رقيقة، cylinder = أسطوانة، standee = مجسّم مقصوص (شخص/ملابس/غرض)،
+// mesh = مجسّم ثلاثي الأبعاد جاهز (GLB) من المسح بالتصوير (photogrammetry) أو أي مصدر
+const SHAPES = new Set(['box', 'frame', 'cylinder', 'standee', 'mesh']);
 /** الصورة الإلزامية لكل شكل */
-const MAIN_FACE = { box: 'front', frame: 'front', cylinder: 'wrap', standee: 'cutFront' };
+const MAIN_FACE = { box: 'front', frame: 'front', cylinder: 'wrap', standee: 'cutFront', mesh: 'model' };
+/** حجم المجسّم الجاهز الأقصى — يُضغط قبل الرفع (القرص شبه ممتلئ) */
+const MAX_MODEL_MB = 20;
 const MAX_PER_USER = 60;
 
 const dirFor = (userId) => path.join(ROOT, crypto.createHash('sha1').update(`u${userId}`).digest('hex').slice(0, 20));
@@ -64,13 +67,16 @@ const upload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => { fs.mkdirSync(ROOT, { recursive: true }); cb(null, ROOT); },
     filename: (req, file, cb) => {
-      const ext = (path.extname(file.originalname).toLowerCase().match(/^\.(jpe?g|png|webp|gif)$/) ?? ['.jpg'])[0];
+      const ext = file.fieldname === 'model' ? '.glb'
+        : (path.extname(file.originalname).toLowerCase().match(/^\.(jpe?g|png|webp|gif)$/) ?? ['.jpg'])[0];
       cb(null, `${crypto.randomBytes(16).toString('hex')}${ext}`);
     },
   }),
-  limits: { fileSize: 12 * 1024 * 1024, files: FACES.length },
+  limits: { fileSize: MAX_MODEL_MB * 1024 * 1024, files: FACES.length },
   fileFilter: (req, file, cb) => {
-    if (String(file.mimetype).startsWith('image/')) cb(null, true);
+    // المجسّم GLB: المتصفحات ترسله غالباً octet-stream — يُتحقق من توقيعه بعد الرفع
+    if (file.fieldname === 'model') cb(null, /\.glb$/i.test(file.originalname));
+    else if (String(file.mimetype).startsWith('image/')) cb(null, true);
     else cb(new Error('الصور فقط'), false);
   },
 });
@@ -92,6 +98,13 @@ router.post('/', uploadFaces, (req, res) => {
   try {
     const main = MAIN_FACE[SHAPES.has(req.body?.shape) ? req.body.shape : 'box'];
     if (!req.files?.[main]?.[0]) return fail(400, 'الصورة الأساسية للمجسّم مطلوبة');
+    // ملف GLB حقيقي يبدأ بالتوقيع «glTF»
+    const mf = req.files.model?.[0];
+    if (mf) {
+      const head = Buffer.alloc(4);
+      const fd = fs.openSync(mf.path, 'r'); fs.readSync(fd, head, 0, 4, 0); fs.closeSync(fd);
+      if (head.toString('latin1') !== 'glTF') return fail(400, 'الملف ليس مجسّم GLB صالحاً');
+    }
     const dir = dirFor(req.user.id);
     fs.mkdirSync(dir, { recursive: true });
     const list = readIndex(dir);

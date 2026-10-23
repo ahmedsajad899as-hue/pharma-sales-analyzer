@@ -18,7 +18,7 @@ import { ModelView, type ModelItem } from './Model3D';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-type Kind = 'box' | 'cylinder' | 'standee';
+type Kind = 'box' | 'cylinder' | 'standee' | 'mesh';
 type BoxFace = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 interface FaceSrc { src: HTMLCanvasElement; quad: Quad }
 
@@ -96,6 +96,19 @@ export default function Studio({ token, onClose, onSaved }: {
   // ── مقصوص ──
   const [cut, setCut] = useState<{ front?: HTMLCanvasElement; back?: HTMLCanvasElement }>({});
   const [thick, setThick] = useState(0.05);
+  // ── مجسّم جاهز (GLB) ──
+  const [mesh, setMesh] = useState<{ file: File; url: string } | null>(null);
+  useEffect(() => () => { if (mesh) URL.revokeObjectURL(mesh.url); }, [mesh]);
+  const pickMesh = async () => {
+    const f = await pickFile('.glb,model/gltf-binary');
+    if (!f) return;
+    setErr('');
+    const head = new TextDecoder().decode(await f.slice(0, 4).arrayBuffer());
+    if (head !== 'glTF') { setErr('الملف ليس مجسّم GLB صالحاً'); return; }
+    if (f.size > 20 * 1024 * 1024) { setErr(`حجم المجسّم ${(f.size / 1e6).toFixed(1)} MB — الحد 20 MB (اضغطه أولاً)`); return; }
+    setMesh({ file: f, url: URL.createObjectURL(f) });
+    if (!title) setTitle(f.name.replace(/\.glb$/i, ''));
+  };
   // محرّر مفتوح
   const [editing, setEditing] = useState<
     | { type: 'quad'; slot: string; canvas: HTMLCanvasElement; quad?: Quad; aspect: number | null; cyl: boolean }
@@ -175,6 +188,7 @@ export default function Studio({ token, onClose, onSaved }: {
     }
     : kind === 'cylinder' && panoUrl ? { shape: 'cylinder', faces: { wrap: panoUrl }, dims: { dia: cylDims.dia, h: cylDims.h }, cap }
     : kind === 'standee' && cutFrontUrl ? { shape: 'standee', faces: { cutFront: cutFrontUrl, cutBack: cutBackUrl }, thick }
+    : kind === 'mesh' && mesh ? { shape: 'mesh', faces: { model: mesh.url } }
     : null;
 
   // ── رفع صورة لخانة ──
@@ -246,6 +260,10 @@ export default function Studio({ token, onClose, onSaved }: {
         fd.append('shape', 'cylinder'); fd.append('cap', cap);
         fd.append('dims', JSON.stringify({ dia: cylDims.dia, h: cylDims.h }));
         files.push(['wrap', await canvasToBlob(p, 'image/jpeg', 0.9), 'wrap.jpg']);
+      } else if (kind === 'mesh') {
+        if (!mesh) throw new Error('اختر ملف المجسّم');
+        fd.append('shape', 'mesh');
+        files.push(['model', mesh.file, mesh.file.name.toLowerCase().endsWith('.glb') ? mesh.file.name : 'model.glb']);
       } else if (kind === 'standee') {
         if (!cut.front) throw new Error('الصورة الأمامية مطلوبة');
         setBusy('حفظ القصّات…');
@@ -283,7 +301,7 @@ export default function Studio({ token, onClose, onSaved }: {
     <div className="modal-overlay st-overlay" onClick={busy ? undefined : onClose}>
       <div className="modal st-modal" onClick={e => e.stopPropagation()} dir="rtl">
         <div className="modal-header">
-          <h3 style={{ margin: 0 }}>🛠️ استوديو المجسّم{kind ? ` — ${({ box: '📦 علبة', cylinder: '🥫 أسطوانة', standee: '🧍 مجسّم مقصوص' } as const)[kind]}` : ''}</h3>
+          <h3 style={{ margin: 0 }}>🛠️ استوديو المجسّم{kind ? ` — ${({ box: '📦 علبة', cylinder: '🥫 أسطوانة', standee: '🧍 مجسّم مقصوص', mesh: '🧊 مجسّم ممسوح' } as const)[kind]}` : ''}</h3>
           <button className="modal-close" onClick={onClose} disabled={!!busy}>✕</button>
         </div>
 
@@ -293,6 +311,7 @@ export default function Studio({ token, onClose, onSaved }: {
               ['box', '📦', 'علبة / منتج مستطيل', 'علب أدوية، كراتين، كتب — صورة لكل وجه وأبعاد حقيقية'],
               ['cylinder', '🥫', 'أسطوانة', 'قناني، عبوات شراب، أنابيب كريم، علب دائرية'],
               ['standee', '🧍', 'شخص / عارضة / ملابس', 'إزالة الخلفية تلقائياً ومجسّم بسُمك يدور 360°'],
+              ['mesh', '🧊', 'مجسّم ممسوح / جاهز', 'ملف GLB من المسح بفيديو 360° أو تطبيق مسح — مجسّم حقيقي من كل الجهات'],
             ] as const).map(([k, ic, t, d]) => (
               <button key={k} type="button" className="st-kind" onClick={() => setKind(k)}>
                 <span className="st-kind-ic">{ic}</span><b>{t}</b><small>{d}</small>
@@ -348,6 +367,15 @@ export default function Studio({ token, onClose, onSaved }: {
                     <label className="st-field">لون الغطاء/القاعدة <input type="color" value={cap} onChange={e => setCap(e.target.value)} /></label>
                   </div>
                 </>
+              )}
+
+              {kind === 'mesh' && (
+                <div className="st-section">
+                  <div className="st-h">ملف المجسّم (GLB) <small>— حتى 20 MB</small></div>
+                  <button type="button" className="btn" onClick={pickMesh}>{mesh ? '🔄 ملف آخر' : '📂 اختيار ملف .glb'}</button>
+                  {mesh && <div className="st-hint">✔ {mesh.file.name} — {(mesh.file.size / 1e6).toFixed(1)} MB</div>}
+                  <div className="st-hint">مصادره: المسح بفيديو 360° حول الغرض (تُعالجه أداة المسح على الكمبيوتر)، أو تطبيقات المسح بالموبايل، أو أي خدمة تُصدِّر GLB.</div>
+                </div>
               )}
 
               {kind === 'standee' && (
@@ -679,7 +707,7 @@ export function SegEditor({ canvas, onDone, onCancel }: { canvas: HTMLCanvasElem
 export const STUDIO_CSS = `
 .st-overlay { z-index: 1000; }
 .st-modal { width: min(1100px, 97vw); max-width: 97vw; max-height: 95vh; display: flex; flex-direction: column; }
-.st-kinds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 18px; }
+.st-kinds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 18px; }
 .st-kind { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 12px; border-radius: 16px; cursor: pointer;
   border: 1px solid var(--c-border); background: var(--c-surface); font-family: inherit; text-align: center; transition: transform .15s, box-shadow .15s; }
 .st-kind:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(15,30,53,.12); border-color: var(--c-accent); }

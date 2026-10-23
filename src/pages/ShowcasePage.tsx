@@ -16,8 +16,8 @@ import { ModelView } from './showcase/Model3D';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-type Shape = 'box' | 'frame' | 'cylinder' | 'standee';
-type Face = 'front' | 'left' | 'right' | 'top' | 'back' | 'bottom' | 'wrap' | 'cutFront' | 'cutBack';
+type Shape = 'box' | 'frame' | 'cylinder' | 'standee' | 'mesh';
+type Face = 'front' | 'left' | 'right' | 'top' | 'back' | 'bottom' | 'wrap' | 'cutFront' | 'cutBack' | 'model';
 interface ShowItem {
   id: string; title: string; caption: string; shape: Shape; depth: number; scale: number;
   faces: Partial<Record<Face, string>>; at: number;
@@ -27,7 +27,7 @@ interface ShowItem {
   dims?: { w?: number; h?: number; d?: number; dia?: number } | null;
   cap?: string | null; thick?: number | null; round?: number | null;
 }
-const SHAPE_LABEL: Record<Shape, string> = { box: '📦 علبة', frame: '🖼️ لوحة', cylinder: '🥫 أسطوانة', standee: '🧍 مقصوص' };
+const SHAPE_LABEL: Record<Shape, string> = { box: '📦 علبة', frame: '🖼️ لوحة', cylinder: '🥫 أسطوانة', standee: '🧍 مقصوص', mesh: '🧊 مجسّم ممسوح' };
 /** صورة مصغّرة للعنصر في قائمة الإدارة */
 const thumbOf = (it: ShowItem) => it.faces.front ?? it.faces.cutFront ?? it.faces.wrap;
 /** عمق اللوحة الرقيقة نسبةً لارتفاعها — تبقى مجسّماً يتمايل لكن بلا «علبة» */
@@ -37,7 +37,7 @@ const BOX_ROUND = 0.01;
 const effDepth = (it: { shape: Shape; depth: number }) => (it.shape === 'frame' ? FRAME_DEPTH : it.depth);
 const FACE_LABEL: Record<Face, string> = {
   front: 'الوجه الأمامي', left: 'الجانب الأيسر', right: 'الجانب الأيمن', top: 'السقف', back: 'الخلفي', bottom: 'القاعدة',
-  wrap: 'الملصق', cutFront: 'الأمامي', cutBack: 'الخلفي',
+  wrap: 'الملصق', cutFront: 'الأمامي', cutBack: 'الخلفي', model: 'المجسّم',
 };
 const SIDE_FACES: Face[] = ['left', 'right', 'top', 'back', 'bottom'];
 /** أوجه Box3D غير الأمامية من مصادر العنصر */
@@ -153,7 +153,7 @@ export default function ShowcasePage() {
         <div className="s3d-manage">
           {own.map((it, i) => (
             <div key={it.id} className="s3d-row">
-              <img src={thumbOf(it)} alt="" />
+              {thumbOf(it) ? <img src={thumbOf(it)} alt="" /> : <span className="s3d-row-ic">🧊</span>}
               <div className="s3d-row-text">
                 <b>{it.title || '— بلا عنوان —'}</b>
                 <small>{SHAPE_LABEL[it.shape] ?? it.shape}{it.dims?.w && it.dims?.h ? ` · ${it.dims.w}×${it.dims.h}${it.dims.d ? `×${it.dims.d}` : ''} سم` : ''}{it.caption ? ` · ${it.caption}` : ''}</small>
@@ -217,7 +217,7 @@ function Editor({ item, token, onClose, onSaved, onDelete }: {
   const faceSrc = (f: Face) => previews[f] ?? item?.faces[f];
   const front = faceSrc('front');
   /** أسطوانة/مقصوص من الاستوديو: لا تُبدَّل صورها ولا شكلها هنا */
-  const studioShape = shape === 'cylinder' || shape === 'standee';
+  const studioShape = shape === 'cylinder' || shape === 'standee' || shape === 'mesh';
   const pick = (f: Face, file: File | undefined) => setFiles(x => {
     const n = { ...x };
     if (file) n[f] = file; else delete n[f];
@@ -404,6 +404,10 @@ const CSS = `
 .s3d-manage { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
 .s3d-row { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 12px; }
 .s3d-row img { width: 54px; height: 42px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.s3d-row-ic { width: 54px; height: 42px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 24px; background: #1f2856; }
+.s3d .mesh-scene { inset: 0 0 34px 0; }
+.s3d .mesh-scene model-viewer { position: absolute; inset: 0; margin: auto; }
+.mesh-err { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fecaca; font-size: 13px; }
 .s3d-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .s3d-row-text b, .s3d-row-text small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .s3d-row-text small { color: var(--c-text-secondary); }
