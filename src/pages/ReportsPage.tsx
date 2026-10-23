@@ -905,6 +905,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // «بدون الفارمسي»: يعزل من تقرير العلميين صفوف المكتب المحسوبة للمسوقين (server: resolvePharmacyOfficeSaleIds).
   const [excludePharmacy, setExcludePharmacy] = useState(() => sessionStorage.getItem('rpt_exPharm') === '1');
   const showExcludePharmacy = canToggleRepKind && !marketersView;
+  const [excelMenuOpen, setExcelMenuOpen] = useState(false); // زر Excel الموحّد: المعروض / تصدير عدة مندوبين
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
   // في الملف كما يراه صاحبه — يسري على أي ملف لك صلاحية وصول عليه (مالك أو
@@ -2140,49 +2141,46 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     setViewMode: (f: (v: 'qty' | 'value') => 'qty' | 'value') => void;
   }) => {
     const seg: React.CSSProperties = {
-      display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 11px', height: '100%',
-      border: 'none', background: 'transparent', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '0 9px', height: '100%',
+      border: 'none', background: 'transparent', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     };
     const sep = <span style={{ width: 1, alignSelf: 'stretch', background: '#e2e8f0' }} />;
     const showExport = o.withExport && user?.role !== 'scientific_rep';
     const isUsd = fileCurrencyMode === 'USD';
+    const busyRow = rowPreviewKey === '__top__';
+    // Excel واحد: «المعروض» (كل صفوف المندوب/المجموعة) + «تصدير عدة مندوبين». خيار واحد متاح ← يعمل مباشرة.
+    const excelActions = [
+      ...(o.withExport ? [{ key: 'row', label: '📄 بيانات المعروض', run: () => fetchRowPreview('__top__', 'area') }] : []),
+      ...(showExport ? [{ key: 'multi', label: '📦 تصدير عدة مندوبين', run: () => setShowExportModal(true) }] : []),
+    ];
+    const menuItem: React.CSSProperties = { display: 'block', width: '100%', textAlign: 'right', padding: '7px 12px', border: 'none', background: 'transparent', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit', color: '#334155' };
     return (
-      <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: o.align ?? 'flex-end', height: 32, border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+      <div style={{ position: 'relative', display: 'inline-flex', alignSelf: o.align ?? 'flex-end', flexShrink: 0 }}>
+      <div style={{ display: 'inline-flex', alignItems: 'center', height: 28, border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', overflow: 'hidden' }}>
         {mode === 'scientific' && showExcludePharmacy && (
           <>
             <button
-              title={excludePharmacy ? 'مبيعات/مرتجعات المكتب المحسوبة للفارمسي لاين معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين'}
+              title={excludePharmacy ? 'بدون الفارمسي: مبيعات/مرتجعات المكتب المحسوبة للفارمسي لاين معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين'}
               onClick={() => {
                 const v = !excludePharmacy;
                 setExcludePharmacy(v);
                 try { sessionStorage.setItem('rpt_exPharm', v ? '1' : '0'); } catch { /* ignore */ }
                 if (sciRepId) loadSciReport(sciRepId, { exPharm: v });
               }}
-              style={{ ...seg, color: excludePharmacy ? '#047857' : '#64748b', background: excludePharmacy ? '#ecfdf5' : 'transparent' }}>
-              🏪 {excludePharmacy ? 'بدون الفارمسي ✓' : 'بدون الفارمسي'}
+              style={{ ...seg, padding: '0 8px', fontSize: 13, background: excludePharmacy ? '#d1fae5' : 'transparent', filter: excludePharmacy ? 'none' : 'grayscale(1)', opacity: excludePharmacy ? 1 : 0.6 }}>
+              🏪
             </button>
             {sep}
           </>
         )}
-        {showExport && (
+        {excelActions.length > 0 && (
           <>
             <button
-              onClick={() => setShowExportModal(true)} disabled={exporting}
-              title={exporting ? exportProgress : t.reports.export}
-              style={{ ...seg, color: 'var(--c-success)', opacity: exporting ? 0.6 : 1, cursor: exporting ? 'not-allowed' : 'pointer' }}>
-              <Icon name={exporting ? 'loading' : 'export'} size={13} className={exporting ? 'icon-spin' : undefined} /> تصدير
-            </button>
-            {sep}
-          </>
-        )}
-        {o.withExport && (
-          <>
-            <button
-              title="فتح كامل بيانات المندوب في Excel"
-              disabled={rowPreviewKey === '__top__'}
-              onClick={() => fetchRowPreview('__top__', 'area')}
-              style={{ ...seg, color: 'var(--c-purple)', opacity: rowPreviewKey === '__top__' ? 0.6 : 1, cursor: rowPreviewKey === '__top__' ? 'wait' : 'pointer' }}>
-              <Icon name={rowPreviewKey === '__top__' ? 'loading' : 'excel'} size={13} className={rowPreviewKey === '__top__' ? 'icon-spin' : undefined} /> Excel
+              title={excelActions.length > 1 ? 'Excel — بيانات المعروض أو تصدير عدة مندوبين' : 'فتح كامل البيانات في Excel'}
+              disabled={busyRow || exporting}
+              onClick={() => excelActions.length === 1 ? excelActions[0].run() : setExcelMenuOpen(v => !v)}
+              style={{ ...seg, color: 'var(--c-purple)', opacity: busyRow || exporting ? 0.6 : 1, cursor: busyRow || exporting ? 'wait' : 'pointer' }}>
+              <Icon name={busyRow || exporting ? 'loading' : 'excel'} size={12} className={busyRow || exporting ? 'icon-spin' : undefined} /> Excel{excelActions.length > 1 ? ' ▾' : ''}
             </button>
             {sep}
           </>
@@ -2191,15 +2189,29 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           onClick={() => o.setViewMode(v => v === 'qty' ? 'value' : 'qty')}
           title={o.viewMode === 'qty' ? 'يعرض الكمية — اضغط لعرض القيمة' : 'يعرض القيمة — اضغط لعرض الكمية'}
           style={{ ...seg, color: o.viewMode === 'qty' ? '#1e40af' : '#b45309', background: o.viewMode === 'qty' ? '#eff6ff' : '#fffbeb' }}>
-          {o.viewMode === 'qty' ? <><Icon name="count" size={13} /> كمية</> : <><Icon name="money" size={13} /> قيمة</>}
+          {o.viewMode === 'qty' ? <><Icon name="count" size={12} /> كمية</> : <><Icon name="money" size={12} /> قيمة</>}
         </button>
         {sep}
         <button
           onClick={() => setFileCurrencyMode(m => m === 'USD' ? 'IQD' : 'USD')}
           title={isUsd ? 'العرض بالدولار — اضغط للتحويل إلى الدينار (لهذه الجلسة فقط، عملة الملف لا تتغير)' : 'العرض بالدينار — اضغط للتحويل إلى الدولار (لهذه الجلسة فقط، عملة الملف لا تتغير)'}
-          style={{ ...seg, color: isUsd ? '#15803d' : '#0f172a', fontWeight: 800, minWidth: 62, justifyContent: 'center' }}>
+          style={{ ...seg, color: isUsd ? '#15803d' : '#0f172a', fontWeight: 800, minWidth: 56, justifyContent: 'center' }}>
           {isUsd ? '$ USD' : 'د.ع IQD'}
         </button>
+      </div>
+      {excelMenuOpen && excelActions.length > 1 && (
+        <>
+          <div onClick={() => setExcelMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+          <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 41, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 6px 20px rgba(15,23,42,.12)', padding: 4, minWidth: 170 }}>
+            {excelActions.map(a => (
+              <button key={a.key} type="button" style={menuItem}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                onClick={() => { setExcelMenuOpen(false); a.run(); }}>{a.label}</button>
+            ))}
+          </div>
+        </>
+      )}
       </div>
     );
   };
