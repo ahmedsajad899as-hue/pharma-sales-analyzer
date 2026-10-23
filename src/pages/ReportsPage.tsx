@@ -752,7 +752,7 @@ function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; 
   );
 }
 
-interface Rep extends GroupableRep { phone?: string | null }
+interface Rep extends GroupableRep { phone?: string | null; side?: string | null }
 const REP_KIND_TOGGLE_ROLES = new Set(['office_manager', 'office_hr', 'office_employee', 'company_manager', 'product_manager']);
 
 interface WarehouseBreakdown { name: string; orderCount: number; value: number; }
@@ -868,9 +868,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   useEffect(() => {
     if (myRepKind === 'pharmacy' && user?.role === 'team_leader' && !sessionStorage.getItem('rpt_repKind')) setRepKindView('pharmacy');
   }, [myRepKind, user?.role]);
-  const filterByKind = useCallback((list: Rep[], kind: 'scientific' | 'pharmacy') =>
-    list.filter(r => !(r as any).isProvinceMember && (!canToggleRepKind || (r.repKind === 'pharmacy') === (kind === 'pharmacy'))),
-  [canToggleRepKind]);
+  // المسوقون لا شركة رئيسية لهم (متعددو الشركات) — يُجمَّعون بالكرخ/الرصافة (rep.side من
+  // مناطقهم) في مكان الشركة: القائمة المنسدلة وسطر الأزرار السريعة وتصدير «حسب الشركة».
+  const filterByKind = useCallback((list: Rep[], kind: 'scientific' | 'pharmacy') => {
+    const out = list.filter(r => !(r as any).isProvinceMember && (!canToggleRepKind || (r.repKind === 'pharmacy') === (kind === 'pharmacy')));
+    return canToggleRepKind && kind === 'pharmacy' ? out.map(r => ({ ...r, company: r.side || 'بلا قسم' })) : out;
+  }, [canToggleRepKind]);
   // «علمي بغداد» لا تعرض تيم ليدرية/مندوبي المحافظات (فرق المحافظات)؛ الخريطة تبقى بالقائمة الكاملة
   const sciReps = useMemo(() => filterByKind(sciRepsAll, repKindView), [sciRepsAll, repKindView, filterByKind]);
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');

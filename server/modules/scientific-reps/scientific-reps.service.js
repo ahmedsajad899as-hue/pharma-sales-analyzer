@@ -31,6 +31,20 @@ export async function create(dto, user = null) {
   return getById(rep.id);
 }
 
+/**
+ * قسم المندوب (الكرخ/الرصافة — SubProvince): قسم مُسنَد لحسابه كاملاً أولاً، وإلا
+ * الأكثر بين مناطقه المعيّنة (Area.subProvince). null = بلا قسم.
+ */
+function repSideOf(assignedNames = [], areaSideNames = []) {
+  const assigned = [...new Set(assignedNames.filter(Boolean))];
+  if (assigned.length === 1) return assigned[0];
+  const counts = new Map();
+  for (const n of areaSideNames) if (n && (!assigned.length || assigned.includes(n))) counts.set(n, (counts.get(n) || 0) + 1);
+  let best = null, bestN = 0;
+  for (const [n, c] of counts) if (c > bestN) { best = n; bestN = c; }
+  return best ?? assigned[0] ?? null;
+}
+
 // Roles that see only their assigned-company reps (not all reps)
 const COMPANY_SCOPED_ROLES = new Set([
   'scientific_rep',
@@ -128,6 +142,7 @@ export async function list(filters, user = null, options = {}) {
         // روابط المدير المباشر (UserManagerAssignment) — تُستخدم في الواجهة لعرض
         // القائمة مُجمَّعة: قائد الفريق ثم مندوبوه، لا قائمة مسطّحة بلا ترتيب.
         managersOfUser:     { select: { managerId: true } },
+        subProvinceAssignments: { select: { subProvince: { select: { name: true } } } },
       },
     });
 
@@ -139,7 +154,7 @@ export async function list(filters, user = null, options = {}) {
       const sciRepData = await prisma.scientificRepresentative.findUnique({
         where: { id: repId },
         select: {
-          areas:          { select: { area:          { select: { id: true, name: true } } } },
+          areas:          { select: { area:          { select: { id: true, name: true, subProvince: { select: { name: true } } } } } },
           items:          { select: { item:          { select: { id: true, name: true } } } },
           companies:      { select: { company:       { select: { id: true, name: true } } } },
           commercialReps: { select: { commercialRep: { select: { id: true, name: true } } } },
@@ -156,12 +171,14 @@ export async function list(filters, user = null, options = {}) {
         company: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name || provinceRepCompany.get(u.id)?.name || null,
         notes: null,
         isActive: u.isActive,
-        areas:          sciRepData?.areas?.map(a => a.area)          ?? [],
+        areas:          sciRepData?.areas?.map(({ area: { subProvince, ...a } }) => a) ?? [],
         items:          sciRepData?.items?.map(i => i.item)          ?? [],
         companies:      sciRepData?.companies?.map(c => c.company)   ?? [],
         commercialReps: sciRepData?.commercialReps?.map(l => l.commercialRep) ?? [],
         repKind: sciRepData?.repKind ?? 'scientific',
         customerInfoLabels: parseCustomerInfoLabels(sciRepData?.customerInfoLabels),
+        // الكرخ/الرصافة — تجميع المسوقين (فارمسي لاين) في التقارير بدل الشركة.
+        side: repSideOf(u.subProvinceAssignments.map(a => a.subProvince.name), sciRepData?.areas?.map(a => a.area.subProvince?.name)),
         _isUser: true,
         role: u.role,
         // معرّف حساب المستخدم (غير id أعلاه = معرّف سجل المندوب العلمي) ومعرّفات
