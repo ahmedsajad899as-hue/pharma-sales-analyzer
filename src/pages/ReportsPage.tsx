@@ -3797,7 +3797,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       )}
       {/* Mode toggle */}
       <div className="m-scroll-row" style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
-        {([['overall','تحليل شامل','navReports'], ['scientific','علمي بغداد','navFms'], ['commercial',t.reports.modeCommercial,'navCommercial'], ['provinces','علمي محافظات','location']] as [string,string,import('../config/icons').IconName][])
+        {([['overall','تحليل شامل','navReports'], ['scientific','مندوبين بغداد','navFms'], ['commercial',t.reports.modeCommercial,'navCommercial'], ['provinces','مندوبين المحافظات','location']] as [string,string,import('../config/icons').IconName][])
           .filter(([id]) => !((id === 'commercial' || id === 'provinces') && user?.role === 'scientific_rep') && (SHOW_COMMERCIAL_MODE || id !== 'commercial'))
           .map(([id, label, icon]) => (
           <button key={id} onClick={() => {
