@@ -5,6 +5,7 @@ import { getVisiblePageNodes, STANDALONE_FEATURES, FEATURE_PAGE_MAP, effectiveDi
 import type { FeatureNode } from '../../config/featureConfig';
 import UsersBulkImportModal from './UsersBulkImportModal';
 import BulkFeatureToggleModal from './BulkFeatureToggleModal';
+import NewUserAssignments from './NewUserAssignments';
 import { TabPill, SectionHead, Note, PickerBar, GroupCard, ChipGrid, Chip, ScrollList, Empty, SaveBar, setMany, softBtn, iconBtn, ACCENT } from './AssignUI';
 
 const ROLES = [
@@ -572,10 +573,22 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       }
       setSaving(false); return;
     }
-    if (!isEdit && form.companyId && d.data?.id) {
-      await fetch(`/api/sa/users/${d.data.id}/companies`, {
-        method: 'PUT', headers: H(), body: JSON.stringify({ companyIds: [form.companyId], primaryCompanyId: form.companyId }),
-      });
+    // تعيينات نموذج الإنشاء (NewUserAssignments): الشركات ← الايتمات ← المناطق/الأقسام ← المدير/التابعون.
+    if (!isEdit && d.data?.id) {
+      const uid = d.data.id;
+      const put = (path: string, body: any) => fetch(`/api/sa/users/${uid}/${path}`, { method: 'PUT', headers: H(), body: JSON.stringify(body) })
+        .then(r => r.ok).catch(() => false);
+      const failed: string[] = [];
+      const cIds: number[] = form.companyIds ?? [];
+      if (cIds.length && !OFFICE_SCOPED_ROLES.has(realRole)) {
+        if (!await put('companies', { companyIds: cIds, primaryCompanyId: form.primaryCompanyId ?? cIds[0] })) failed.push('الشركات');
+        if ((form.itemIds ?? []).length && !await put('items', { itemIds: form.itemIds })) failed.push('الايتمات');
+      }
+      if ((form.subProvinceIds ?? []).length && !await put('sub-provinces', { subProvinceIds: form.subProvinceIds })) failed.push('الأقسام');
+      if ((form.areaIds ?? []).length && !await put('areas', { areaIds: form.areaIds })) failed.push('المناطق');
+      if (form.managerId && !await put('managers', { managerIds: [form.managerId] })) failed.push('المدير');
+      if ((form.subordinateIds ?? []).length && !await put('subordinates', { userIds: form.subordinateIds })) failed.push('التابعون');
+      if (failed.length) alert(`تم إنشاء المستخدم، لكن تعذّر حفظ: ${failed.join('، ')} — أكملها من صفحة المستخدم.`);
     }
     // المحافظة المختارة: مناطقها للمستخدم مباشرة، وإن كان تيم ليدر يصير قائد المحافظة.
     if (!isEdit && form.provinceId && d.data?.id) {
@@ -3260,7 +3273,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
       {form && !detail && (
         <Modal onClose={() => { setForm(null); setError(''); setConflict(null); }} title={form.id ? 'تعديل المستخدم' : 'إضافة مستخدم'}>
-          <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} provinces={provList} isEdit={Boolean(form.id)} token={token} />
+          <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} provinces={provList} users={users} isEdit={Boolean(form.id)} token={token} />
           {error && <ErrBox msg={error} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={() => { setForm(null); setError(''); setConflict(null); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
@@ -3272,8 +3285,14 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   );
 }
 
-function UserFormFields({ form, setForm, offices, companies, provinces = [], isEdit, token }: { form: any; setForm: any; offices: Office[]; companies: Company[]; provinces?: { id: number; name: string }[]; isEdit: boolean; token?: string }) {
+function UserFormFields({ form, setForm, offices, companies, provinces = [], users = [], isEdit, token }: { form: any; setForm: any; offices: Office[]; companies: Company[]; provinces?: { id: number; name: string }[]; users?: UserRow[]; isEdit: boolean; token?: string }) {
   const officeCompanies = form.officeId ? companies.filter(c => c.officeId === Number(form.officeId)) : [];
+  const realRole = PHARMACY_FORM_ROLES[form.role] || form.role;
+  // مكتب واحد فقط في النظام → يُختار تلقائياً عند الإنشاء.
+  useEffect(() => {
+    if (!isEdit && !form.officeId && offices.length === 1) setForm((f: any) => ({ ...f, officeId: offices[0].id }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, offices.length]);
   const [revealedPw, setRevealedPw] = useState<string | null>(null);
   const [revealErr,  setRevealErr]  = useState('');
   const [revealBusy, setRevealBusy] = useState(false);
@@ -3294,6 +3313,62 @@ function UserFormFields({ form, setForm, offices, companies, provinces = [], isE
       setRevealBusy(false);
     }
   };
+
+  if (!isEdit) {
+    // نموذج الإنشاء: الحقول فارغة دائماً — autoComplete يمنع المتصفح من حشو اسم/كلمة مرور محفوظة.
+    const inp: React.CSSProperties = { width: '100%', padding: '8px 11px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13.5, boxSizing: 'border-box', fontFamily: 'inherit' };
+    const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 };
+    const sec: React.CSSProperties = { fontSize: 11.5, fontWeight: 800, color: '#94a3b8', margin: '4px 0 8px', letterSpacing: 0.3 };
+    const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 };
+    const up = (k: string) => (e: any) => setForm((f: any) => ({ ...f, [k]: e.target.value }));
+    return (
+      <form autoComplete="off" onSubmit={e => e.preventDefault()}>
+        <div style={sec}>الحساب</div>
+        <div style={grid}>
+          <div><label style={lbl}>الاسم الظاهر</label>
+            <input style={inp} value={form.displayName || ''} onChange={up('displayName')} autoComplete="off" name="new-display-name" placeholder="اسم الشخص" /></div>
+          <div><label style={lbl}>الهاتف</label>
+            <input style={inp} value={form.phone || ''} onChange={up('phone')} autoComplete="off" name="new-phone" placeholder="07xxxxxxxxx" /></div>
+          <div><label style={lbl}>اسم المستخدم *</label>
+            <input style={inp} value={form.username || ''} onChange={up('username')} autoComplete="off" name="new-username" /></div>
+          <div><label style={lbl}>كلمة المرور *</label>
+            <input style={inp} type="password" value={form.password || ''} onChange={up('password')} autoComplete="new-password" name="new-password" /></div>
+        </div>
+
+        <div style={sec}>الدور والمكتب</div>
+        <div style={grid}>
+          <div><label style={lbl}>الدور</label>
+            <select style={inp} value={form.role || ''} onChange={up('role')}>
+              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select></div>
+          <div><label style={lbl}>المكتب العلمي</label>
+            <select style={inp} value={form.officeId || ''} onChange={e => setForm((f: any) => ({ ...f, officeId: e.target.value ? Number(e.target.value) : null, companyIds: [], primaryCompanyId: null, itemIds: [] }))}>
+              <option value="">— بدون مكتب —</option>
+              {offices.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select></div>
+          {!OFFICE_SCOPED_ROLES.has(realRole) && provinces.length > 0 && (
+            <div><label style={lbl}>المحافظة (اختياري)</label>
+              <select style={inp} value={form.provinceId || ''} onChange={e => setForm((f: any) => ({ ...f, provinceId: e.target.value ? Number(e.target.value) : null }))}>
+                <option value="">— بدون —</option>
+                {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select></div>
+          )}
+        </div>
+        {form.provinceId ? (
+          <div style={{ marginTop: -6, marginBottom: 14, fontSize: 11.5, color: '#0e7490' }}>
+            {realRole === 'team_leader'
+              ? 'سيُعيَّن تيم ليدر لهذه المحافظة (كل مناطقها، وكل شركات المكتب بلا رئيسية).'
+              : 'تُضاف كل مناطق هذه المحافظة للمستخدم.'}
+          </div>
+        ) : null}
+
+        <div style={sec}>التعيين (اختياري — يمكن إكماله لاحقاً)</div>
+        <NewUserAssignments form={form} setForm={setForm} role={realRole} companies={companies} users={users} token={token}
+          isOfficeRole={OFFICE_SCOPED_ROLES.has(realRole)} isMarketer={!!PHARMACY_FORM_ROLES[form.role]} />
+        <div style={{ height: 14 }} />
+      </form>
+    );
+  }
 
   return (
     <>
