@@ -2346,7 +2346,7 @@ export default function DoctorsPage() {
                           const count = visitDayCounts[day] ?? 0;
                           const isToday = isCurrentMonth && day === now.getDate();
                           const selected = visitDayFilter === day;
-                          // الجمعة عطلة — مسافة قبلها وبعدها تفصل أسابيع الشهر بصرياً
+                          // الجمعة عطلة — تُميَّز باللون
                           const isFriday = new Date(visitMonthFilter.year, visitMonthFilter.month - 1, day).getDay() === 5;
                           return (
                             <span key={day}
@@ -2359,9 +2359,9 @@ export default function DoctorsPage() {
                                 color: selected ? '#fff' : count ? 'var(--c-accent)' : 'var(--c-text-muted)',
                                 border: selected ? '1px solid var(--c-accent)' : count ? '1px solid color-mix(in srgb, var(--c-accent) 35%, transparent)' : isToday ? '1.5px solid var(--c-accent)' : '1px solid var(--c-border)',
                                 boxShadow: selected ? '0 0 0 2px var(--c-accent-light)' : undefined,
-                                // الجمعة: لون أحمر خافت + مسافة أوسع — تمييز واضح كعطلة
+                                // الجمعة: لون أحمر خافت — تمييز واضح كعطلة
                                 ...(isFriday ? {
-                                  marginInline: 7, borderStyle: 'dashed', borderColor: 'var(--c-danger, #ef4444)',
+                                  borderStyle: 'dashed', borderColor: 'var(--c-danger, #ef4444)',
                                   ...(selected ? {} : { color: 'var(--c-danger, #ef4444)', background: count ? 'color-mix(in srgb, var(--c-danger, #ef4444) 18%, transparent)' : 'color-mix(in srgb, var(--c-danger, #ef4444) 7%, transparent)' }),
                                 } : {}),
                               }}>{day}</span>
