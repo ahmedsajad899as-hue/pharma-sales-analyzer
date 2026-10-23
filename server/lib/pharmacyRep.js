@@ -17,8 +17,10 @@ import { normalizeArabic } from './itemResolver.js';
 
 export const PHARMACY_KIND = 'pharmacy';
 
-// بلا تسميات محدّدة: كل قيمة «معلومات زبون» تحوي فارم/فرماس/pharm.
-const DEFAULT_LABEL_FRAGMENTS = ['فارم', 'فرماس', 'فرمس', 'pharm'];
+// بلا تسميات محدّدة: كل قيمة «معلومات زبون» تحوي فارم/فرماس/pharm أو «لاين».
+// أخطاء الكتابة الفعلية في ملف المكتب (2026-10-23): فرامسي لاين، فارسمي لاين،
+// فارمسي لابين — بدونها سقطت صفوف فارمسي حقيقية من المندوب.
+const DEFAULT_LABEL_FRAGMENTS = ['فارم', 'فرماس', 'فرمس', 'فرام', 'فارسم', 'لاين', 'لابين', 'pharm'];
 
 export function isPharmacyRep(rep) {
   return rep?.repKind === PHARMACY_KIND;
