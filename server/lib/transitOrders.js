@@ -11,7 +11,8 @@
 //   • ويُحتسب أيضاً للمندوب العلمي/التيم ليدر ككوديشن: منطقة الصيدلية (من
 //     الملاحظة، وإلا من بحث اسمها في السستم) ∩ مناطق المندوب، والايتم ∩ ايتماته.
 //     لا مندوب علمي في ملف المكتب، فالنسب بالشركة/الايتم/المنطقة وحدها.
-//   • «معلومات الزبون» علمي أو تجاري فقط — «فارماسي» مستبعد.
+//   • «معلومات الزبون» علمي/تجاري ← kind='scientific' (للعلميين)، فارمسي لاين ←
+//     kind='pharmacy' (للمسوقين — lib/pharmacyRep.js، طلب 2026-10-23). غيرها لا يُنسب.
 //   • البونص المرسل ترانزيت («فري ترانزيت»، أو قيمة صفر) يُهمل.
 //
 // كل هذا وقت القراءة من rawData المحفوظ — فيسري رجعياً على الملفات المرفوعة سابقاً.
@@ -23,6 +24,7 @@ import { normalizeArabic, normalizeAreaName } from './itemResolver.js';
 import { loadCustomerMatchMaster, matchArea, matchPharmacy } from './invoiceCustomerMatch.js';
 import { pharmacyKey } from './pharmacyKey.js';
 import { buildProvinceLookup, matchProvinceName, extractRawColumnValue, PROVINCE_COLUMN_ALIASES } from './provinces.js';
+import { looksLikePharmacyInfo } from './pharmacyRep.js';
 
 const TRANSIT_RE = /ترانز[يى]?ت|transit/i;
 const NOTE_KEY_RE = /ملاحظ|ملاحض|note|remark|comment/i;
@@ -67,7 +69,7 @@ export function parseTransitNote(note) {
  * هل صف Sale طلبية ترانزيت تُحتسب للمندوبين؟ نقيّ.
  * @param {string} rawDataJson Sale.rawData
  * @param {number|null} totalValue Sale.totalValue — صفر = بونص يُهمل
- * @returns {{note:string, pharmacy:string, areaHint:string, customerInfo:string}|null}
+ * @returns {{note:string, pharmacy:string, areaHint:string, customerInfo:string, kind:'scientific'|'pharmacy'}|null}
  */
 export function parseTransitRow(rawDataJson, totalValue = null) {
   if (!rawDataJson || !TRANSIT_RE.test(rawDataJson)) return null;
@@ -83,11 +85,12 @@ export function parseTransitRow(rawDataJson, totalValue = null) {
   // موجّهة إلى مذخر (صنف الزبون).
   if (!isWarehouseSaleRow(rawDataJson)) return null;
 
-  // معلومات الزبون: علمي أو تجاري، لا فارماسي.
+  // معلومات الزبون: فارمسي لاين ← للمسوقين، علمي/تجاري ← للعلميين.
   const infoKey = keys.find(k => INFO_KEY_RE.test(k));
   const infoRaw = infoKey ? String(raw[infoKey] ?? '').trim() : '';
   const info = normalizeArabic(infoRaw).toLowerCase();
-  if (!info || /فارم|pharm/.test(info) || !/علمي|تجاري/.test(info)) return null;
+  const kind = !info ? null : looksLikePharmacyInfo(info) ? 'pharmacy' : /علمي|تجاري/.test(info) ? 'scientific' : null;
+  if (!kind) return null;
 
   if (FREE_RE.test(note)) return null;
   if (totalValue != null && !(Number(totalValue) > 0)) return null;
@@ -96,7 +99,7 @@ export function parseTransitRow(rawDataJson, totalValue = null) {
   if (!parsed) return null;
   // محافظة الصف نفسه (محافظة المذخر — والترانزيت يمرّ غالباً بمذخر مدينة الصيدلية).
   const rowProvince = extractRawColumnValue(raw, PROVINCE_COLUMN_ALIASES) || '';
-  return { note: note.trim(), ...parsed, rowProvince, customerInfo: infoRaw };
+  return { note: note.trim(), ...parsed, rowProvince, customerInfo: infoRaw, customerInfoNorm: normalizeArabic(infoRaw), kind };
 }
 
 // ── منطقة الصيدلية ────────────────────────────────────────────────────────────
@@ -327,10 +330,11 @@ async function salesAreaByPharmacy(keys, fileIds) {
  * provinceStrict = بغداد: لمن أُسنِدت له المحافظة كاملة فقط).
  * الاثنان فارغان = لم يُعرف المكان (لا تُنسب لمندوب).
  *
- * @param {{officeFileIds:number[], lookupFileIds?:number[], where?:object, select:object}} opts
+ * @param {{officeFileIds:number[], lookupFileIds?:number[], where?:object, select:object, kind?:'scientific'|'pharmacy'|null}} opts
  *   where يُضاف بـ AND (تاريخ/ايتمات/حجب)، lookupFileIds لبحث منطقة الصيدلية في المبيعات.
+ *   kind: نوع الترانزيت المطلوب (null = الاثنان) — transit.kind في كل صف.
  */
-export async function loadTransitSales({ officeFileIds, lookupFileIds = officeFileIds, where = null, select }) {
+export async function loadTransitSales({ officeFileIds, lookupFileIds = officeFileIds, where = null, select, kind = 'scientific' }) {
   if (!officeFileIds?.length) return [];
   const rows = await prisma.sale.findMany({
     where: {
@@ -345,13 +349,13 @@ export async function loadTransitSales({ officeFileIds, lookupFileIds = officeFi
   const hits = [];
   for (const r of rows) {
     const t = parseTransitRow(r.rawData, r.totalValue);
-    if (t) hits.push({ r, t: { ...t, warehouseAreaId: r.areaId } });
+    if (t && (!kind || t.kind === kind)) hits.push({ r, t: { ...t, warehouseAreaId: r.areaId } });
   }
   if (!hits.length) return [];
   const places = await resolvePlaces(hits.map(h => h.t), lookupFileIds);
   return hits.map(({ r, t }) => {
     const p = places.get(placeKey(t)) || { pharmacy: t.pharmacy, areaId: null, areaName: '', areaNorm: '', provinceId: null, provinceName: '', provinceStrict: false, provinceFrom: '', how: '' };
-    return { ...r, transit: { note: t.note, customerInfo: t.customerInfo, ...p } };
+    return { ...r, transit: { note: t.note, customerInfo: t.customerInfo, customerInfoNorm: t.customerInfoNorm, kind: t.kind, ...p } };
   });
 }
 

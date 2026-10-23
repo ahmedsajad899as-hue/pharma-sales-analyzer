@@ -1044,12 +1044,18 @@ async function resolvePharmacyMembers(rep) {
     prisma.scientificRepresentative.findMany({ where: { id: { in: repIds } }, select: { id: true, customerInfoLabels: true } }),
     prisma.area.findMany({ select: { id: true, name: true } }),
   ]);
-  return Promise.all(repRows.map(async r => ({
-    repId:   r.id,
-    labels:  parseCustomerInfoLabels(r.customerInfoLabels),
-    areaIds: await resolveRepAreaIdsByName(r.id, allAreas),
-    itemIds: (await resolveSciRepItemIds(r.id)).itemIds,
-  })));
+  const nameOf = new Map(allAreas.map(a => [a.id, a.name]));
+  return Promise.all(repRows.map(async r => {
+    const areaIds = await resolveRepAreaIdsByName(r.id, allAreas);
+    return {
+      repId:   r.id,
+      labels:  parseCustomerInfoLabels(r.customerInfoLabels),
+      areaIds,
+      // أسماء المناطق مطبَّعة — منطقة صيدلية الترانزيت تُطابَق بالاسم (transit.areaNorm).
+      areaNorms: new Set((areaIds ?? []).map(id => nameOf.get(id)).filter(Boolean).map(n => normalizeArabic(n))),
+      itemIds: (await resolveSciRepItemIds(r.id)).itemIds,
+    };
+  }));
 }
 
 async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
@@ -1542,8 +1548,35 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // المذخر، فيُسحب من المسار العادي ويُنسب هنا بمنطقة الصيدلية ∩ مناطق المندوب
   // والايتم ∩ ايتماته — بلا شرط المندوب التجاري (لا مندوب علمي في ملف المكتب).
   // يُعرض بمنطقة الصيدلية واسمها، ويُعدّ ضمن الكوديشن (bySource في getReport).
-  rawSales = rawSales.filter(s => !parseTransitRow(s.rawData, s.totalValue));
-  // الترانزيت (علمي/تجاري فقط) لا يخصّ مندوب الفارمسي.
+  // كلٌّ يُسقط ترانزيت نوعه فقط (العلمي: علمي/تجاري، المسوّق: فارمسي) ليُعاد بمنطقة الصيدلية أدناه.
+  const ownTransitKind = pharmacyMode ? 'pharmacy' : 'scientific';
+  rawSales = rawSales.filter(s => parseTransitRow(s.rawData, s.totalValue)?.kind !== ownTransitKind);
+  // ترانزيت «فارمسي لاين» للمسوّق (وفريقه إن كان تيم ليدر): منطقة الصيدلية ∩ مناطق العضو،
+  // والايتم ∩ ايتماته، و«معلومات الزبون» ∩ تسمياته. منطقة الصيدلية وحدها (لا محافظة فقط).
+  if (pharmacyMode && officeFileIds.length > 0 && recordType !== 'return' && pharmacyMembers.some(m => m.areaNorms.size)) {
+    const tw = [dateFilter];
+    if (blockedItemIds.length) tw.push({ NOT: { itemId: { in: blockedItemIds } } });
+    const transit = await loadTransitSales({ officeFileIds, lookupFileIds: fileIds, where: { AND: tw }, select: { ...select, rawData: true }, kind: 'pharmacy' });
+    const blockedAreaSet = new Set(blockedAreaIds);
+    for (const s of transit) {
+      const t = s.transit;
+      if (!t.areaNorm || (t.areaId && blockedAreaSet.has(t.areaId))) continue;
+      const info = normalizeArabic(t.customerInfo || '');
+      const hit = pharmacyMembers.some(m => m.areaNorms.has(t.areaNorm)
+        && (!m.itemIds || m.itemIds.includes(s.itemId))
+        && (!m.labels.length || m.labels.includes(info)));
+      if (!hit) continue;
+      rawSales.push({
+        ...s,
+        areaId:   t.areaId ?? s.areaId,
+        area:     s.area ? { ...s.area, id: t.areaId ?? s.area.id, name: t.areaName, ...('province' in s.area ? { province: t.provinceName ? { name: t.provinceName } : null } : {}) } : s.area,
+        customer: s.customer ? { ...s.customer, name: t.pharmacy } : s.customer,
+        customerId: null,
+      });
+    }
+  }
+
+  // ترانزيت «علمي/تجاري» للعلميين فقط.
   if (!pharmacyMode && areaNormSet.size > 0 && officeFileIds.length > 0 && recordType !== 'return') {
     const tw = [dateFilter];
     if (hasItems) tw.push({ itemId: { in: itemIds } });

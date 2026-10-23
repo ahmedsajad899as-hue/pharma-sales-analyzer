@@ -20,6 +20,7 @@ import { repCoreName, buildRepIndex, matchRepName } from './repNameMatch.js';
 import { getManagerRoster } from './managerRoster.js';
 import { loadItemOwnerManagers } from './itemOwnerManager.js';
 import { loadTransitSales, officeFileIdsOf } from './transitOrders.js';
+import { PHARMACY_KIND, parseCustomerInfoLabels, normalizeCustomerInfoLabel } from './pharmacyRep.js';
 import { areaIdsOfProvinces } from './areaScope.js';
 import { normalizeArabic, normalizeAreaName } from './itemResolver.js';
 import { buildProvinceLookup, matchProvinceName, extractRawColumnValue, PROVINCE_COLUMN_ALIASES } from './provinces.js';
@@ -161,7 +162,7 @@ export async function transitSourceFiles(viewerId) {
 async function loadOfficeRepScopes(officeId) {
   const users = await prisma.user.findMany({
     where:  { officeId, isActive: true, linkedRepId: { not: null } },
-    select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
+    select: { id: true, displayName: true, username: true, linkedRepId: true, role: true, linkedRep: { select: { repKind: true, customerInfoLabels: true } } },
   });
   if (!users.length) return [];
   const repIds = [...new Set(users.map(u => u.linkedRepId))];
@@ -185,7 +186,10 @@ async function loadOfficeRepScopes(officeId) {
     if (!areaNorms.size) continue;
     const provinceIds = new Set([...provIds, ...areaIds.map(id => areaProvince.get(id)).filter(Boolean)]);
     const { itemIds } = await resolveSciRepItemIds(repId, repUsers.map(u => ({ id: u.id })));
+    const rk = repUsers[0].linkedRep;
     scopes.push({
+      // marketer: مسوّق (فارمسي لاين) — يأخذ ترانزيت «فارمسي» فقط بتسمياته، والعلمي ترانزيت «علمي/تجاري».
+      marketer: rk?.repKind === PHARMACY_KIND, labels: parseCustomerInfoLabels(rk?.customerInfoLabels),
       name: repUsers[0].displayName || repUsers[0].username, areaNorms, directAreaNorms, provinceIds,
       leader: repUsers.some(u => u.role === 'team_leader'), wholeProvinceIds: new Set(provIds), itemIds: itemIds ? new Set(itemIds) : null });
   }
@@ -227,7 +231,7 @@ async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFi
   if (!officeId) return [];
   const [sales, scopes] = await Promise.all([
     loadTransitSales({
-      officeFileIds, lookupFileIds, where: buildMonthFilter(month),
+      officeFileIds, lookupFileIds, where: buildMonthFilter(month), kind: null,
       select: {
         quantity: true, totalValue: true, saleDate: true, itemId: true,
         item: { select: { name: true, scientificCompanyId: true, scientificCompany: { select: { name: true } }, company: { select: { name: true } } } },
@@ -256,8 +260,12 @@ async function loadTransitConditionRows(fileId, { month, officeFileIds, lookupFi
     const inPlace = (r) => (t.areaNorm
       ? r.areaNorms.has(t.areaNorm)
       : !!t.provinceId && (t.provinceStrict ? r.wholeProvinceIds : r.provinceIds).has(t.provinceId));
+    // ترانزيت «علمي/تجاري» للعلميين، و«فارمسي لاين» للمسوقين (بتسمياتهم إن حُدّدت).
+    const fitsKind = (r) => t.kind === 'pharmacy'
+      ? r.marketer && (!r.labels.length || r.labels.includes(normalizeCustomerInfoLabel(t.customerInfo)))
+      : !r.marketer;
     const reps = (t.areaNorm || t.provinceId)
-      ? pickTransitReps(scopes.filter(r => inPlace(r) && (!r.itemIds || r.itemIds.has(s.itemId))), t).map(r => repCoreName(r.name))
+      ? pickTransitReps(scopes.filter(r => fitsKind(r) && inPlace(r) && (!r.itemIds || r.itemIds.has(s.itemId))), t).map(r => repCoreName(r.name))
       : [];
     return {
       reps: [...new Set(reps)],
