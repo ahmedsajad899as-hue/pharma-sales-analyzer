@@ -2353,19 +2353,23 @@ export default function DoctorsPage() {
                               onClick={count ? () => setVisitDaySel(selected ? null : { month: visitMonthFilter.month, year: visitMonthFilter.year, day }) : undefined}
                               title={(isFriday ? 'جمعة (عطلة) — ' : '') + (count ? `${day}/${visitMonthFilter.month} — ${count} زيارة${selected ? ' (اضغط لإلغاء الفلتر)' : ' — اضغط لعرض زيارات هذا اليوم فقط'}` : `${day}/${visitMonthFilter.month} — لا زيارات`)}
                               style={{
-                                width: 17, height: 17, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: 9, fontWeight: count ? 700 : 500, cursor: count ? 'pointer' : 'default',
+                                width: 15, height: 15, borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 8.5, fontWeight: count ? 700 : 500, cursor: count ? 'pointer' : 'default',
                                 background: selected ? 'var(--c-accent)' : count ? 'color-mix(in srgb, var(--c-accent) 22%, transparent)' : 'var(--c-bg)',
                                 color: selected ? '#fff' : count ? 'var(--c-accent)' : 'var(--c-text-muted)',
                                 border: selected ? '1px solid var(--c-accent)' : count ? '1px solid color-mix(in srgb, var(--c-accent) 35%, transparent)' : isToday ? '1.5px solid var(--c-accent)' : '1px solid var(--c-border)',
                                 boxShadow: selected ? '0 0 0 2px var(--c-accent-light)' : undefined,
-                                ...(isFriday ? { marginInline: 5, borderStyle: 'dashed' } : {}),
+                                // الجمعة: لون أحمر خافت + مسافة أوسع — تمييز واضح كعطلة
+                                ...(isFriday ? {
+                                  marginInline: 7, borderStyle: 'dashed', borderColor: 'var(--c-danger, #ef4444)',
+                                  ...(selected ? {} : { color: 'var(--c-danger, #ef4444)', background: count ? 'color-mix(in srgb, var(--c-danger, #ef4444) 18%, transparent)' : 'color-mix(in srgb, var(--c-danger, #ef4444) 7%, transparent)' }),
+                                } : {}),
                               }}>{day}</span>
                           );
                         })}
                         {visitDayFilter && (
                           <button onClick={() => setVisitDaySel(null)}
-                            style={{ fontSize: 10, fontWeight: 700, padding: '0 8px', height: 17, borderRadius: 9, border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            style={{ fontSize: 10, fontWeight: 700, padding: '0 7px', height: 15, borderRadius: 8, border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)', cursor: 'pointer', whiteSpace: 'nowrap' }}
                           >يوم {visitDayFilter} ✕</button>
                         )}
                       </div>
