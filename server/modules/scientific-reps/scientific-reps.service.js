@@ -1736,8 +1736,45 @@ const REPORT_SALES_SELECT = {
  * filtered by assigned areas + items.
  */
 export async function getReport(id, query = {}, viewerId = null) {
-  const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT, viewerId);
-  return buildReport(resolved, query);
+  if (!query.excludePharmacy) {
+    const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT, viewerId);
+    return buildReport(resolved, query);
+  }
+  const resolved = await resolveSciRepSales(id, query, { ...REPORT_SALES_SELECT, id: true }, viewerId);
+  const ex = await resolvePharmacyOfficeSaleIds(resolved.fileIds, viewerId);
+  return buildReport({ ...resolved, rawSales: resolved.rawSales.filter(s => !ex.has(s.id)) }, query);
+}
+
+// ── «بدون الفارمسي» في تقرير العلميين ────────────────────────────────────────
+// صفوف ملف المكتب (مبيع + إرجاع) المحسوبة لأيّ مسوّق (فارمسي لاين) — بالضبط ما يُنسب لهم
+// (resolveSciRepSales لكل مسوّق نشط) لا تخميناً بنص «معلومات الزبون». بلا تاريخ ولا نوع سجل،
+// فيُخزَّن لكل (مُشاهد، ملفات) 3 دقائق مع بصمة الصفوف، كحساب فريق المسوقين.
+const pharmacyOfficeIdsCache = new Map(); // key → { at, fp, promise }
+
+export async function resolvePharmacyOfficeSaleIds(fileIds, viewerId = null) {
+  if (!fileIds?.length) return new Set();
+  const key = `${viewerId ?? ''}|${[...fileIds].sort((a, b) => a - b).join(',')}`;
+  const agg = await prisma.sale.aggregate({ where: { uploadedFileId: { in: fileIds } }, _count: { _all: true }, _max: { id: true } });
+  const fp = `${agg._count._all}|${agg._max.id ?? 0}`;
+  const hit = pharmacyOfficeIdsCache.get(key);
+  if (hit && hit.fp === fp && Date.now() - hit.at < MARKETERS_TEAM_TTL_MS) return hit.promise;
+  const promise = (async () => {
+    const marketers = await prisma.user.findMany({
+      where: { isActive: true, linkedRepId: { not: null }, role: { in: ['scientific_rep', 'team_leader'] }, linkedRep: { is: { repKind: PHARMACY_KIND } } },
+      select: { linkedRepId: true },
+    });
+    const ids = new Set();
+    for (const repId of [...new Set(marketers.map(u => u.linkedRepId))]) {
+      const { rawSales } = await resolveSciRepSales(repId, { fileIds }, { id: true, quantity: true, recordType: true, saleDate: true, areaId: true, uploadedFileId: true,
+        item: { select: { name: true } }, customer: { select: { name: true } }, representative: { select: { name: true } }, uploadedFile: { select: { sourceSystem: true } } }, viewerId);
+      for (const s of rawSales) if (s.id != null && s.uploadedFile?.sourceSystem !== 'mercato') ids.add(s.id);
+    }
+    return ids;
+  })();
+  pharmacyOfficeIdsCache.set(key, { at: Date.now(), fp, promise });
+  promise.catch(() => pharmacyOfficeIdsCache.delete(key));
+  if (pharmacyOfficeIdsCache.size > 30) pharmacyOfficeIdsCache.delete(pharmacyOfficeIdsCache.keys().next().value);
+  return promise;
 }
 
 /**
@@ -1749,16 +1786,24 @@ async function resolveGroupSales(repIds, query, select, viewerId) {
   const byId = new Map();
   const areas = new Map(), items = new Map();
   let fileIds = query.fileIds ?? null;
-  for (const repId of repIds) {
-    let r;
-    try { r = await resolveSciRepSales(repId, query, { ...select, id: true }, viewerId); }
-    catch { continue; }
-    fileIds = r.fileIds;
-    for (const s of r.rawSales) if (s.id != null && !byId.has(s.id)) byId.set(s.id, s);
-    for (const l of r.areaLinks) areas.set(l.area.id, l);
-    for (const l of r.itemLinks) items.set(l.item.id, l);
+  // ثلاثة مندوبين بالتوازي — أسرع لشركة كاملة دون ضغط ذاكرة يُذكر.
+  for (let i = 0; i < repIds.length; i += 3) {
+    const batch = await Promise.all(repIds.slice(i, i + 3).map(repId =>
+      resolveSciRepSales(repId, query, { ...select, id: true }, viewerId).catch(() => null)));
+    for (const r of batch) {
+      if (!r) continue;
+      fileIds = r.fileIds;
+      for (const s of r.rawSales) if (s.id != null && !byId.has(s.id)) byId.set(s.id, s);
+      for (const l of r.areaLinks) areas.set(l.area.id, l);
+      for (const l of r.itemLinks) items.set(l.item.id, l);
+    }
   }
-  return { rawSales: [...byId.values()], areaLinks: [...areas.values()], itemLinks: [...items.values()], fileIds };
+  let rawSales = [...byId.values()];
+  if (query.excludePharmacy) {
+    const ex = await resolvePharmacyOfficeSaleIds(fileIds, viewerId);
+    rawSales = rawSales.filter(s => !ex.has(s.id));
+  }
+  return { rawSales, areaLinks: [...areas.values()], itemLinks: [...items.values()], fileIds };
 }
 
 export async function getGroupReport(repIds, label, query = {}, viewerId = null) {
@@ -2020,6 +2065,8 @@ const EXPORT_SALES_SELECT = {
  * export totals always match the on-screen report's totals.
  */
 export async function getRawSalesForExport(id, query = {}, viewerId = null) {
-  const { rawSales } = await resolveSciRepSales(id, query, EXPORT_SALES_SELECT, viewerId);
-  return rawSales;
+  const { rawSales, fileIds } = await resolveSciRepSales(id, query, { ...EXPORT_SALES_SELECT, id: true }, viewerId);
+  if (!query.excludePharmacy) return rawSales;
+  const ex = await resolvePharmacyOfficeSaleIds(fileIds, viewerId);
+  return rawSales.filter(s => !ex.has(s.id));
 }

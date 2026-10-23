@@ -893,8 +893,18 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     const reps = side === 'all' ? list : list.filter(r => (r.company || '') === side);
     return { repIds: reps.map(r => r.id), label: side === 'all' ? 'بغداد' : side };
   };
-  const defaultSciPick = (current: string, list: Rep[] = sciReps, marketers = marketersView) =>
-    marketers ? 'grp:all' : autoPickRep(isGroupId(current) ? '' : current, list);
+  // بلا مندوب محدَّد: المسوقون ← «بغداد»، والإدارة ← مبيع الشركة الأولى كلها (كل من تحتها).
+  const defaultSciPick = (current: string, list: Rep[] = sciReps, marketers = marketersView) => {
+    if (marketers) return 'grp:all';
+    if (canToggleRepKind) {
+      const firstCo = groupRepsByTeam(list).find(g => g.company)?.company;
+      if (firstCo) return `grp:${firstCo}`;
+    }
+    return autoPickRep(isGroupId(current) ? '' : current, list);
+  };
+  // «بدون الفارمسي»: يعزل من تقرير العلميين صفوف المكتب المحسوبة للمسوقين (server: resolvePharmacyOfficeSaleIds).
+  const [excludePharmacy, setExcludePharmacy] = useState(() => sessionStorage.getItem('rpt_exPharm') === '1');
+  const showExcludePharmacy = canToggleRepKind && !marketersView;
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
   // في الملف كما يراه صاحبه — يسري على أي ملف لك صلاحية وصول عليه (مالك أو
@@ -1360,7 +1370,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (!commRepId) setCommRepId(id);
       loadCommReport(id);
     } else if (mode === 'scientific' && sciReps.length > 0) {
-      const id = marketersView ? 'grp:all' : (sciRepId && !isGroupId(sciRepId) ? sciRepId : String(sciReps[0].id));
+      // مندوب/مجموعة محفوظة وما زالت ضمن القائمة ← تبقى؛ وإلا الافتراضي (الشركة/بغداد كاملة).
+      const keep = !!sciRepId && (isGroupId(sciRepId)
+        ? (sciRepId !== 'grp:all' || marketersView) && groupOf(sciRepId).repIds.length > 0
+        : sciReps.some(r => String(r.id) === sciRepId));
+      const id = keep ? sciRepId : defaultSciPick('');
       autoLoaded.current = true;
       if (id !== sciRepId) setSciRepId(id);
       loadSciReport(id);
@@ -1404,11 +1418,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     finally { setLoading(false); }
   };
 
-  const loadSciReport = async (repIdOverride?: string) => {
+  const loadSciReport = async (repIdOverride?: string, opts: { list?: Rep[]; exPharm?: boolean } = {}) => {
     const id = repIdOverride ?? sciRepId;
     if (!id) { setError(t.reports.errSelectSci); return; }
     // من قائمة المسوقين مباشرة لا sciReps: عند التبديل للمسوقين يُطلب التقرير قبل إعادة الرسم.
-    const group = isGroupId(id) ? groupOf(id, filterByKind(sciRepsAll, 'pharmacy')) : null;
+    // القائمة تُمرَّر عند التبديل علميين/مسوقين — sciReps هنا ما زالت قائمة العرض السابق.
+    const group = isGroupId(id) ? groupOf(id, opts.list ?? sciReps) : null;
     if (group && !group.repIds.length) { setSciReport(null); setSciReturnsReport(null); return; }
     const myReq = ++sciReportSeq;
     setError('');
@@ -1419,6 +1434,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (toDate)      params.set('endDate', toDate);
       if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
       applyMonth(params);
+      const isMarketersList = (opts.list ?? sciReps).some(r => r.repKind === 'pharmacy');
+      if ((opts.exPharm ?? excludePharmacy) && canToggleRepKind && !isMarketersList) params.set('excludePharmacy', '1');
       const cacheKey = `${user?.id ?? ''}|${id}|${group ? group.repIds.join(',') : ''}|${params}`;
       const cached = SCI_REPORT_CACHE.get(cacheKey);
       if (cached) {
@@ -2131,6 +2148,22 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     const isUsd = fileCurrencyMode === 'USD';
     return (
       <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: o.align ?? 'flex-end', height: 32, border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+        {mode === 'scientific' && showExcludePharmacy && (
+          <>
+            <button
+              title={excludePharmacy ? 'مبيعات/مرتجعات المكتب المحسوبة للفارمسي لاين معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين'}
+              onClick={() => {
+                const v = !excludePharmacy;
+                setExcludePharmacy(v);
+                try { sessionStorage.setItem('rpt_exPharm', v ? '1' : '0'); } catch { /* ignore */ }
+                if (sciRepId) loadSciReport(sciRepId, { exPharm: v });
+              }}
+              style={{ ...seg, color: excludePharmacy ? '#047857' : '#64748b', background: excludePharmacy ? '#ecfdf5' : 'transparent' }}>
+              🏪 {excludePharmacy ? 'بدون الفارمسي ✓' : 'بدون الفارمسي'}
+            </button>
+            {sep}
+          </>
+        )}
         {showExport && (
           <>
             <button
@@ -3012,6 +3045,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (toDate)               qp.set('endDate',   toDate);
       if (activeFileIds.length) qp.set('fileIds',   activeFileIds.join(','));
       applyMonth(qp);
+      if (mode === 'scientific' && excludePharmacy && showExcludePharmacy) qp.set('excludePharmacy', '1');
 
       let sales: any[] = [];
       let areaCount: number | null = null;            // assigned areas (scientific only)
@@ -3039,7 +3073,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
 
       const repName = mode === 'commercial'
         ? (commReps.find(r => String(r.id) === commRepId)?.name ?? 'تقرير')
-        : isGroupId(sciRepId) ? `مسوقين ${groupOf(sciRepId).label}`
+        : isGroupId(sciRepId) ? (marketersView ? `مسوقين ${groupOf(sciRepId).label}` : groupOf(sciRepId).label)
         : (sciReps.find(r => String(r.id) === sciRepId)?.name ?? 'تقرير');
 
       // Always include BOTH sales and returns in the data sheet (this is the rep's full
@@ -3794,12 +3828,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   if (k === repKindView) return;
                   setRepKindView(k);
                   try { sessionStorage.setItem('rpt_repKind', k); } catch { /* ignore */ }
-                  const rid = defaultSciPick(sciRepId, filterByKind(sciRepsAll, k), canToggleRepKind && k === 'pharmacy');
+                  const rid = defaultSciPick('', filterByKind(sciRepsAll, k), canToggleRepKind && k === 'pharmacy');
                   setQuickCompany(null);
-                  if (rid !== sciRepId) {
-                    setSciRepId(rid); setSciReport(null);
-                    if (rid) { setReportView(getDefaultReportView()); loadSciReport(rid); }
-                  }
+                  const nextList = filterByKind(sciRepsAll, k);
+                  setSciRepId(rid); setSciReport(null);
+                  if (rid) { setReportView(getDefaultReportView()); loadSciReport(rid, { list: nextList }); }
                 }}
                 style={{
                   border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer',
@@ -3834,11 +3867,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 setSciRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadSciReport(e.target.value); }
               }}>
               <option value="">-- {t.reports.selectSciRep} --</option>
-              {marketersView && (
+              {canToggleRepKind && (
                 <optgroup label="المجموع">
-                  <option value="grp:all">🏙️ بغداد — كل المسوقين</option>
-                  {[...new Set(sciReps.map(r => r.company).filter(Boolean))].map(side => (
-                    <option key={side as string} value={`grp:${side}`}>📍 {side} — كل مندوبيها</option>
+                  {marketersView && <option value="grp:all">🏙️ بغداد — كل المسوقين</option>}
+                  {[...new Set(sciReps.map(r => r.company).filter(Boolean))].map(co => (
+                    <option key={co as string} value={`grp:${co}`}>{marketersView ? '📍' : '🏭'} {co} — كل من تحتها</option>
                   ))}
                 </optgroup>
               )}
@@ -4031,7 +4064,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           const groups = groupRepsByTeam(sciReps).filter(g => g.company);
           if (groups.length === 0) return null;
           const selRep = sciReps.find(r => String(r.id) === sciRepId);
-          const selGroupSide = marketersView && isGroupId(sciRepId) ? sciRepId.slice(4) : null;
+          const selGroupSide = isGroupId(sciRepId) ? sciRepId.slice(4) : null;
           // «بغداد» يعرض أسماء كل الأقسام؛ القسم أو المندوب يعرض قسمه فقط.
           const activeCo = quickCompany ?? (selGroupSide && selGroupSide !== 'all' ? selGroupSide : selRep ? (selRep.company || 'بدون شركة') : (marketersView ? null : groups[0].company));
           const rows = activeCo == null ? groups.flatMap(g => g.rows) : (groups.find(g => g.company === activeCo)?.rows ?? []);
@@ -4063,8 +4096,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   <button type="button" style={faint(sciRepId === 'grp:all', false, true)} onClick={() => pickGroup('grp:all')}>بغداد</button>
                 )}
                 {groups.map(g => (
-                  <button key={g.company} type="button" style={faint(marketersView ? sciRepId === `grp:${g.company}` : g.company === activeCo, false, true)}
-                    onClick={() => marketersView ? pickGroup(`grp:${g.company}`) : setQuickCompany(g.company)}>{g.company}</button>
+                  <button key={g.company} type="button" style={faint(canToggleRepKind ? sciRepId === `grp:${g.company}` : g.company === activeCo, false, true)}
+                    title={canToggleRepKind ? `مبيع ${g.company} كاملاً — كل من تحتها` : undefined}
+                    onClick={() => canToggleRepKind ? pickGroup(`grp:${g.company}`) : setQuickCompany(g.company)}>{g.company}</button>
                 ))}
               </div>
               {lines.map((ln, idx) => {
