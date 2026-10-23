@@ -158,11 +158,48 @@ function excludedManagementRoles(viewerRole) {
 // (محافظات كاملة) لأغراض الإشراف العام، لا لأنه يزور أطباءها بنفسه. ضمّه هنا
 // كان يُسرّب كل نطاقه الإداري إلى أي شركة تصادف كونها «شركته الرئيسية» هو
 // شخصياً، فتظهر تلك الشركة بعدد الإجمالي الكامل بدل عدد مندوبيها فقط.
+// ── «المسوقين» (مندوبو الفارمسي لاين، repKind='pharmacy') ─────────────────────
+// في خانة «الشركة الرئيسية» بتحليل الكولات يُجمَعون تحت شريحة واحدة «المسوقين»
+// بدل أسماء شركاتهم — شركة افتراضية بمعرّف سالب لا تقابل أي صف ScientificCompany.
+export const MARKETERS_COMPANY = { id: -1, name: 'المسوقين' };
+
+/** أيٌّ من هؤلاء المستخدمين مندوب فارمسي لاين (عبر linkedRepId أو ScientificRepresentative.userId). */
+export async function marketerUserIds(userIds) {
+  if (!userIds.length) return new Set();
+  const [viaLink, viaOwner] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: userIds }, linkedRep: { repKind: 'pharmacy' } }, select: { id: true } }),
+    prisma.scientificRepresentative.findMany({ where: { userId: { in: userIds }, repKind: 'pharmacy' }, select: { userId: true } }),
+  ]);
+  return new Set([...viaLink.map(u => u.id), ...viaOwner.map(r => r.userId)]);
+}
+
 export async function resolveCompanyMembers(managerId, companyId, managerRole = null) {
   let candidates;
   let matched;
+  const isMarketers = companyId === MARKETERS_COMPANY.id;
 
-  if (managerRole && isOfficeWideRosterRole(managerRole)) {
+  if (isMarketers) {
+    // كل مسوّقي فريق/مكتب هذا المدير، أياً كانت شركتهم الرئيسية
+    if (managerRole && isOfficeWideRosterRole(managerRole)) {
+      const companyIds = await getRosterCompanyIds({ id: managerId, role: managerRole });
+      candidates = companyIds.length ? await prisma.user.findMany({
+        where: {
+          isActive: true,
+          role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] },
+          companyAssignments: { some: { companyId: { in: companyIds } } },
+        },
+        select: { id: true, linkedRepId: true, role: true },
+      }) : [];
+    } else {
+      const subs = await prisma.userManagerAssignment.findMany({
+        where: { managerId, user: { isActive: true } },
+        include: { user: { select: { id: true, linkedRepId: true, role: true } } },
+      });
+      const excluded = excludedManagementRoles(managerRole);
+      candidates = subs.map(s => s.user).filter(u => !excluded.has(u.role));
+    }
+    matched = await marketerUserIds(candidates.map(c => c.id));
+  } else if (managerRole && isOfficeWideRosterRole(managerRole)) {
     // الأدوار المكتبية تشرف على مكتبها كله دفعة واحدة (officeScope.js يمنحها كل
     // شركات المكتب تلقائياً)، لا على مرؤوسين مُعيَّنين لها شخصياً بـ
     // UserManagerAssignment — فعضوية الفريق هنا كل من «شركته الرئيسية» هي
@@ -195,6 +232,11 @@ export async function resolveCompanyMembers(managerId, companyId, managerRole = 
     matched = new Set(assignments.map(a => a.userId));
   }
 
+  // المسوّقون خارج شرائح الشركات الحقيقية — شريحة «المسوقين» وحدها تضمّهم
+  if (!isMarketers && matched.size) {
+    const marketers = await marketerUserIds([...matched]);
+    for (const id of marketers) matched.delete(id);
+  }
   const matchedCandidates = candidates.filter(c => matched.has(c.id));
   const repIds = await Promise.all(matchedCandidates.map(c => resolveRepId(c.id, c.linkedRepId ?? null)));
   return matchedCandidates.map((c, i) => ({ userId: c.id, repId: repIds[i] }));

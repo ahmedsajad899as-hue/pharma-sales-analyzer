@@ -6,7 +6,7 @@ import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 import {
   resolveAreaScope, getScopedSurveyDoctors, buildVisitOverlay,
-  ensureDoctorRowsForScope, isFieldRole, resolveRepId, buildAreaNameIndex,
+  ensureDoctorRowsForScope, isFieldRole, resolveRepId, buildAreaNameIndex, MARKETERS_COMPANY, marketerUserIds,
 } from '../../lib/surveyDoctors.js';
 import { getScopedSurveyPharmacies, renameSurveyPharmacyByName } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from '../../lib/officeScope.js';
@@ -1438,6 +1438,8 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
       select: { userId: true, company: { select: { id: true, name: true } } },
     });
     companyByUserId = new Map(assignments.map(a => [a.userId, a.company]));
+    // مندوبو الفارمسي لاين يُجمَعون تحت «المسوقين» بدل اسم شركتهم
+    for (const id of await marketerUserIds(subUsers.map(u => u.id))) companyByUserId.set(id, MARKETERS_COMPANY);
   }
 
   const provinceMembers = subUsers.length ? await provinceMemberUserIds() : new Set();
@@ -1463,7 +1465,8 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
 
   const companiesMap = new Map();
   for (const r of reps) if (r.company) companiesMap.set(r.company.id, r.company);
-  const companies = [...companiesMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  const companies = [...companiesMap.values()]
+    .sort((a, b) => (a.id === MARKETERS_COMPANY.id) - (b.id === MARKETERS_COMPANY.id) || a.name.localeCompare(b.name, 'ar'));
 
   return { reps, companies };
 }
