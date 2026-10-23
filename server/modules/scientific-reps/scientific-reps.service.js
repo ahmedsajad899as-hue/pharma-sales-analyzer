@@ -1667,7 +1667,27 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
  * قادته في «علمي بغداد». صف يُنسب لأكثر من عضو يُحسب مرة واحدة. للتحليل الشامل.
  * @returns {Promise<{ isMarketersManager: boolean, saleIds: number[], repCount: number }>}
  */
+// حساب فريق المسوقين ثقيل (resolveSciRepSales لكل مسوّق، ~4 ثوانٍ لسبعة)، ويطلبه «التحليل
+// الشامل» مرتين لكل فتح (مبيعات + مرتجعات) ومع كل دخول للتبويب. لا يعتمد على التاريخ ولا
+// نوع السجل، فيُخزَّن لكل (مستخدم، ملفات) 3 دقائق مع مشاركة الطلب الجاري. بصمة الصفوف
+// (العدد + أكبر id) تُبطله فور رفع/حذف صفوف في تلك الملفات.
+const MARKETERS_TEAM_TTL_MS = 3 * 60_000;
+const marketersTeamCache = new Map(); // key → { at, fp, promise }
+
 export async function resolveMarketersTeamSaleIds(userId, fileIds) {
+  const key = `${userId}|${[...(fileIds || [])].sort((a, b) => a - b).join(',')}`;
+  const agg = await prisma.sale.aggregate({ where: { uploadedFileId: { in: fileIds || [] } }, _count: { _all: true }, _max: { id: true } });
+  const fp = `${agg._count._all}|${agg._max.id ?? 0}`;
+  const hit = marketersTeamCache.get(key);
+  if (hit && hit.fp === fp && Date.now() - hit.at < MARKETERS_TEAM_TTL_MS) return hit.promise;
+  const promise = computeMarketersTeamSaleIds(userId, fileIds);
+  marketersTeamCache.set(key, { at: Date.now(), fp, promise });
+  promise.catch(() => marketersTeamCache.delete(key));
+  if (marketersTeamCache.size > 50) marketersTeamCache.delete(marketersTeamCache.keys().next().value);
+  return promise;
+}
+
+async function computeMarketersTeamSaleIds(userId, fileIds) {
   const me = await prisma.user.findUnique({
     where: { id: userId }, select: { role: true, linkedRep: { select: { repKind: true } } },
   });

@@ -753,6 +753,12 @@ function HiddenQty({ value, fmt, style, signed, forceReveal }: { value: number; 
 }
 
 interface Rep extends GroupableRep { phone?: string | null; side?: string | null }
+// آخر نتائج «التحليل الشامل» لكل استعلام — تُعرض فوراً عند العودة للتبويب/الصفحة ثم تُحدَّث
+// بصمت في الخلفية (بدل شاشة تحميل فارغة كل مرة). على مستوى الوحدة كي تبقى بعد إعادة التركيب.
+const OVERALL_CACHE = new Map<string, { sales: any; returns: any; rawBlocked: boolean; from: string; to: string }>();
+// نفس الفكرة لتقرير المندوب («علمي بغداد»).
+const SCI_REPORT_CACHE = new Map<string, { sales: any; returns: any }>();
+let sciReportSeq = 0;
 const REP_KIND_TOGGLE_ROLES = new Set(['office_manager', 'office_hr', 'office_employee', 'company_manager', 'product_manager']);
 
 interface WarehouseBreakdown { name: string; orderCount: number; value: number; }
@@ -1390,13 +1396,26 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const loadSciReport = async (repIdOverride?: string) => {
     const id = repIdOverride ?? sciRepId;
     if (!id) { setError(t.reports.errSelectSci); return; }
-    setError(''); setLoading(true); setSciReport(null); setSciReturnsReport(null);
+    const myReq = ++sciReportSeq;
+    setError('');
+    let fromCache = false;
     try {
       const params = new URLSearchParams();
       if (fromDate)    params.set('startDate', fromDate);
       if (toDate)      params.set('endDate', toDate);
       if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
       applyMonth(params);
+      const cacheKey = `${user?.id ?? ''}|${id}|${params}`;
+      const cached = SCI_REPORT_CACHE.get(cacheKey);
+      if (cached) {
+        // عرض فوري لآخر نتيجة لهذا المندوب، ثم تحديث صامت أدناه.
+        fromCache = true;
+        setSciReport(cached.sales); setSciReturnsReport(cached.returns);
+        setReportView(getDefaultReportView()); setActiveTab('area'); setShowTargets(false); setTargetData([]);
+        setLoading(false);
+      } else {
+        setLoading(true); setSciReport(null); setSciReturnsReport(null);
+      }
 
       const parseSciReport = (d: any): SciReport => {
         const salesItems = (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
@@ -1454,15 +1473,23 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         fetch(`/api/scientific-reps/${id}/report?${params}&recordType=return`, { headers: authH() }),
       ]);
       const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
+      if (myReq !== sciReportSeq) return; // طلب أحدث (مندوب آخر) انطلق بعده
       if (!salesRes.ok) throw new Error(salesJson.message || t.reports.errLoad);
-      setSciReport(parseSciReport(salesJson.data ?? salesJson));
-      setSciReturnsReport(returnsRes.ok ? parseSciReport(returnsJson.data ?? returnsJson) : null);
-      setReportView(getDefaultReportView());
-      setActiveTab('area');
-      setShowTargets(false);
-      setTargetData([]);
-    } catch (err: any) { setError(err.message); }
-    finally { setLoading(false); }
+      const parsedSales = parseSciReport(salesJson.data ?? salesJson);
+      const parsedReturns = returnsRes.ok ? parseSciReport(returnsJson.data ?? returnsJson) : null;
+      setSciReport(parsedSales);
+      setSciReturnsReport(parsedReturns);
+      SCI_REPORT_CACHE.set(cacheKey, { sales: parsedSales, returns: parsedReturns });
+      if (SCI_REPORT_CACHE.size > 60) SCI_REPORT_CACHE.delete(SCI_REPORT_CACHE.keys().next().value!);
+      // التحديث الصامت لا يُعيد ضبط التبويب/العرض الذي اختاره المستخدم أثناء ذلك.
+      if (!fromCache) {
+        setReportView(getDefaultReportView());
+        setActiveTab('area');
+        setShowTargets(false);
+        setTargetData([]);
+      }
+    } catch (err: any) { if (myReq === sciReportSeq && !fromCache) setError(err.message); }
+    finally { if (myReq === sciReportSeq) setLoading(false); }
   };
 
   // ملخص صافي المبيع + طلبيات المكتب/المذخر لكل المندوبين العلميين المرئيين
@@ -1511,7 +1538,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     if (fileIds.length === 0) { setError('يرجى اختيار ملف للتحليل'); return; }
     // حارس تسلسل: استجابة طلب أقدم يجب ألا تكتب فوق نتيجة طلب أحدث سبقها وصولاً.
     const myReq = ++overallReqSeq.current;
-    setError(''); setLoading(true); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); setTargetData([]);
+    setError(''); setShowOverallTargets(false); setTargetData([]);
     try {
       const parseOverall = (d: any): OverallReport => ({
         totalQuantity: d.totalQuantity ?? 0,
@@ -1546,6 +1573,16 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (overallRaw) params.set('raw', '1');
       const activeTeamId = teamOverride !== undefined ? teamOverride : overallTeamId;
       if (activeTeamId) params.set('teamManagerId', String(activeTeamId));
+      const cacheKey = `${user?.id ?? ''}|${params}`;
+      const cached = OVERALL_CACHE.get(cacheKey);
+      if (cached) {
+        // عرض فوري لآخر نتيجة، والطلب أدناه يحدّثها بلا شاشة تحميل.
+        setOverallSales(cached.sales); setOverallReturns(cached.returns); setOverallRawBlocked(cached.rawBlocked);
+        if (!useUserDates) { setFromDate(cached.from); setToDate(cached.to); setAutoDatesRef({ from: cached.from, to: cached.to }); }
+        setLoading(false);
+      } else {
+        setLoading(true); setOverallSales(null); setOverallReturns(null);
+      }
       const [salesRes, returnsRes] = await Promise.all([
         fetch(`/api/reports/overall?${params}&recordType=sale`,   { headers: authH() }),
         fetch(`/api/reports/overall?${params}&recordType=return`, { headers: authH() }),
@@ -1569,14 +1606,18 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       };
       // Reflect the detected range in the inputs whenever we did NOT filter by
       // user dates, and remember it so the next run still treats it as "auto".
+      const nf = salesData.minDate ? toLocalDate(salesData.minDate) : '';
+      const nt = salesData.maxDate ? toLocalDate(salesData.maxDate) : '';
       if (!useUserDates) {
-        const nf = salesData.minDate ? toLocalDate(salesData.minDate) : '';
-        const nt = salesData.maxDate ? toLocalDate(salesData.maxDate) : '';
         setFromDate(nf); setToDate(nt);
         setAutoDatesRef({ from: nf, to: nt });
       }
-      setOverallSales(parseOverall(salesData));
-      setOverallReturns(returnsRes.ok ? parseOverall(returnsJson.data ?? returnsJson) : null);
+      const parsedSales = parseOverall(salesData);
+      const parsedReturns = returnsRes.ok ? parseOverall(returnsJson.data ?? returnsJson) : null;
+      setOverallSales(parsedSales);
+      setOverallReturns(parsedReturns);
+      OVERALL_CACHE.set(cacheKey, { sales: parsedSales, returns: parsedReturns, rawBlocked: !!salesData.rawRequested && !salesData.rawApplied, from: nf, to: nt });
+      if (OVERALL_CACHE.size > 30) OVERALL_CACHE.delete(OVERALL_CACHE.keys().next().value!);
     } catch (err: any) { if (myReq === overallReqSeq.current) setError(err.message); }
     finally { if (myReq === overallReqSeq.current) setLoading(false); }
   };
