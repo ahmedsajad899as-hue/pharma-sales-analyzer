@@ -2182,7 +2182,6 @@ export default function DoctorsPage() {
           {!isFieldRep && managerCompanies.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="navOrgStructure" size={11} /> الشركة الرئيسية</span>
-                <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} compact />
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button
@@ -2217,7 +2216,6 @@ export default function DoctorsPage() {
             return (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</span>
-                {managerCompanies.length === 0 && <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} compact />}
               </div>
               {(() => {
                 // ترتيب الشرائح مجموعات: كل قائد فريق ثم مندوبوه في صف، والقائد التالي
@@ -2305,7 +2303,10 @@ export default function DoctorsPage() {
 
             {/* ملخص كل المندوبين دفعة واحدة — زيارات الأطباء/الصيدليات + نسبة
                 التغطية + تفصيل كل منطقة، بدل فتح كل مندوب على حدة */}
+            {/* «مندوبي المحافظات» و«كل المندوبين» معاً على يسار الصف */}
             {!isFieldRep && (
+              <div style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} compact />
               <button
                 onClick={() => setShowRepsSummaryModal(true)}
                 style={{
@@ -2314,6 +2315,7 @@ export default function DoctorsPage() {
                   border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
                 }}
               ><Icon name="menu" size={14} /> كل المندوبين</button>
+              </div>
             )}
           </div>
 
@@ -2344,10 +2346,12 @@ export default function DoctorsPage() {
                           const count = visitDayCounts[day] ?? 0;
                           const isToday = isCurrentMonth && day === now.getDate();
                           const selected = visitDayFilter === day;
+                          // الجمعة عطلة — مسافة قبلها وبعدها تفصل أسابيع الشهر بصرياً
+                          const isFriday = new Date(visitMonthFilter.year, visitMonthFilter.month - 1, day).getDay() === 5;
                           return (
                             <span key={day}
                               onClick={count ? () => setVisitDaySel(selected ? null : { month: visitMonthFilter.month, year: visitMonthFilter.year, day }) : undefined}
-                              title={count ? `${day}/${visitMonthFilter.month} — ${count} زيارة${selected ? ' (اضغط لإلغاء الفلتر)' : ' — اضغط لعرض زيارات هذا اليوم فقط'}` : `${day}/${visitMonthFilter.month} — لا زيارات`}
+                              title={(isFriday ? 'جمعة (عطلة) — ' : '') + (count ? `${day}/${visitMonthFilter.month} — ${count} زيارة${selected ? ' (اضغط لإلغاء الفلتر)' : ' — اضغط لعرض زيارات هذا اليوم فقط'}` : `${day}/${visitMonthFilter.month} — لا زيارات`)}
                               style={{
                                 width: 17, height: 17, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                 fontSize: 9, fontWeight: count ? 700 : 500, cursor: count ? 'pointer' : 'default',
@@ -2355,6 +2359,7 @@ export default function DoctorsPage() {
                                 color: selected ? '#fff' : count ? 'var(--c-accent)' : 'var(--c-text-muted)',
                                 border: selected ? '1px solid var(--c-accent)' : count ? '1px solid color-mix(in srgb, var(--c-accent) 35%, transparent)' : isToday ? '1.5px solid var(--c-accent)' : '1px solid var(--c-border)',
                                 boxShadow: selected ? '0 0 0 2px var(--c-accent-light)' : undefined,
+                                ...(isFriday ? { marginInline: 5, borderStyle: 'dashed' } : {}),
                               }}>{day}</span>
                           );
                         })}
