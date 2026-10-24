@@ -11,6 +11,7 @@ import { NAV_ITEMS, FEATURE_PAGE_MAP } from './config/featureConfig';
 import { sendEngagementPing, pingAppOpenIfNewDay } from './lib/engagementPing';
 import { useEngagementHeartbeat } from './hooks/useEngagementHeartbeat';
 import { useTimeOfDay } from './lib/timeTheme';
+import { PageActiveContext } from './context/PageActiveContext';
 import './App.css';
 
 // Lazy-load heavy pages — each becomes its own JS chunk loaded on first visit
@@ -734,7 +735,7 @@ function AppInner() {
           return (
             <Suspense key={id} fallback={<PageLoader />}>
               <div style={isActive ? undefined : { display: 'none', visibility: 'hidden', pointerEvents: 'none' }}>
-                {node}
+                <PageActiveContext.Provider value={isActive}>{node}</PageActiveContext.Provider>
               </div>
             </Suspense>
           );

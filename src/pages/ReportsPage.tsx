@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx-js-style';
 import { buildTargetActuals, normalizeItemName, fuzzyItemMatch } from '../utils/itemNameMatch';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+import { usePageActive } from '../context/PageActiveContext';
 import type { PageId } from '../App';
 import { Icon } from '../config/icons';
 import RepSelectOptions, { type GroupableRep, groupRepsByTeam } from '../components/RepSelectOptions';
@@ -1048,7 +1049,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const [toDate, setToDate]       = useState(() => sessionStorage.getItem('rpt_toDate') || '');
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
+  // التبويب (منطقة/ايتم/مندوب) يبقى عند تبديل المندوب، ويعود «المنطقة» عند مغادرة الصفحة أو التحديث.
   const [activeTab, setActiveTab] = useState<'area' | 'item' | 'rep'>('area');
+  const pageActive = usePageActive();
+  useEffect(() => { if (!pageActive) setActiveTab('area'); }, [pageActive]);
+  // تقرير التجاري بلا تبويب «المندوب».
+  useEffect(() => { if (mode !== 'scientific' && activeTab === 'rep') setActiveTab('area'); }, [mode, activeTab]);
   const [showInfoTags, setShowInfoTags] = useState(false);
   // تفاصيل مكتب/مذخر لكل المندوبين العلميين دفعة واحدة — يفتحها زر «كل المندوبين العلميين»
   const [showAllRepsWarehouseModal, setShowAllRepsWarehouseModal] = useState(false);
@@ -1544,7 +1550,6 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const userLoads = useRef(0);
   const resetReportView = () => {
     setReportView(getDefaultReportView());
-    setActiveTab('area');
     setShowTargets(false);
     setTargetData([]);
   };
