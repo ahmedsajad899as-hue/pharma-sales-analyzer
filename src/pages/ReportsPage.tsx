@@ -787,6 +787,8 @@ interface SciReport {
   byRep: BreakdownRow[];
   // توزيع مبيع الملف حسب مصدره (مكتب/ميركاتو) — موجود فقط حين يحوي التحليل
   // الحالي صفوفاً فعلية (سواء من نوع واحد أو من الاثنين معاً).
+  // حسب «معلومات الزبون» في ملف المكتب — other = بلا تصنيف (ميركاتو/الكوديشن).
+  byCustomerClass?: Record<'scientific' | 'commercial' | 'pharmacy' | 'other', { totalQty: number; totalValue: number }> | null;
   bySource: { office: { totalQty: number; totalValue: number; orderCount: number }; mercato: { totalQty: number; totalValue: number; orderCount: number }; condition?: { totalQty: number; totalValue: number; orderCount: number }; mercatoOnly?: { totalQty: number; totalValue: number; orderCount: number }; hasOffice: boolean; hasMercato: boolean; hasCondition?: boolean } | null;
 }
 
@@ -907,6 +909,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const showExcludePharmacy = canToggleRepKind && !marketersView;
   // «بدون التجاري»: يعزل صفوف المكتب التي «معلومات الزبون» فيها تجاري (server: looksLikeCommercialInfo).
   const [excludeCommercial, setExcludeCommercial] = useState(() => sessionStorage.getItem('rpt_exComm') === '1');
+  const [showClassTable, setShowClassTable] = useState(false); // جدول الصافي: علمي/تجاري/فارمسي
   const [excelMenuOpen, setExcelMenuOpen] = useState(false); // زر Excel الموحّد: المعروض / تصدير عدة مندوبين
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
@@ -1500,6 +1503,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             mercatoOnly: { totalQty: d.bySource.mercatoOnly?.totalQuantity ?? 0, totalValue: d.bySource.mercatoOnly?.totalValue ?? 0, orderCount: d.bySource.mercatoOnly?.orderCount ?? 0 },
             hasCondition: !!d.bySource.hasCondition,
           } : null,
+          byCustomerClass: d.byCustomerClass ? Object.fromEntries(
+            (['scientific', 'commercial', 'pharmacy', 'other'] as const).map(k => [k, { totalQty: d.byCustomerClass[k]?.totalQuantity ?? 0, totalValue: d.byCustomerClass[k]?.totalValue ?? 0 }]),
+          ) as SciReport['byCustomerClass'] : null,
         };
       };
 
@@ -5365,8 +5371,47 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 src?.office.orderCount ?? 0, mercOf(src)?.orderCount ?? 0,
                 src?.hasCondition ? { valStr: fmtValSigned(condNetVal), color: condNetVal >= 0 ? '#065f46' : '#991b1b', count: src?.condition?.orderCount ?? 0 } : null,
               )}
+              {sciReport.byCustomerClass && (
+                <button onClick={() => setShowClassTable(v => !v)}
+                  title="صافي المبيعات (كمية وقيمة) حسب «معلومات الزبون»: علمي / تجاري / فارمسي"
+                  style={{ alignSelf: 'center', background: showClassTable ? '#ede9fe' : '#fff', border: `1.5px solid ${showClassTable ? '#c4b5fd' : '#e2e8f0'}`, borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 800, color: showClassTable ? '#6d28d9' : '#334155', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+                  📊 علمي / تجاري / فارمسي
+                </button>
+              )}
               </div>
-            ) : (
+            ) : null}
+            {isNet && showClassTable && sciReport.byCustomerClass && (() => {
+              const cls = sciReport.byCustomerClass!, ret = sciReturnsReport?.byCustomerClass;
+              const rows = ([
+                ['scientific', '🩺 علمي'], ['commercial', '💼 تجاري'], ['pharmacy', '🏪 فارمسي'], ['other', 'بلا تصنيف (ميركاتو / كوديشن)'],
+              ] as const).map(([k, label]) => ({ k, label, qty: cls[k].totalQty - (ret?.[k].totalQty ?? 0), val: cls[k].totalValue - (ret?.[k].totalValue ?? 0) }));
+              const shown = rows.filter(r => r.k !== 'other' || r.qty !== 0 || r.val !== 0);
+              const totQty = rows.reduce((s, r) => s + r.qty, 0), totVal = rows.reduce((s, r) => s + r.val, 0);
+              const th: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 700, borderBottom: '1.5px solid #e2e8f0' };
+              const td: React.CSSProperties = { padding: '8px 12px', fontSize: 13, fontWeight: 700, borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' };
+              return (
+                <div style={{ marginTop: 10, overflowX: 'auto', border: '1.5px solid #e2e8f0', borderRadius: 10, background: '#fff', maxWidth: 560 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr style={{ background: '#f8fafc' }}><th style={th}>التصنيف</th><th style={th}>الكمية (صافي)</th><th style={th}>القيمة (صافي)</th></tr></thead>
+                    <tbody>
+                      {shown.map(r => (
+                        <tr key={r.k}>
+                          <td style={td}>{r.label}</td>
+                          <td style={{ ...td, color: '#1d4ed8' }}>{fmt(r.qty)}</td>
+                          <td style={{ ...td, color: r.val >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(r.val)}</td>
+                        </tr>
+                      ))}
+                      <tr style={{ background: '#f8fafc' }}>
+                        <td style={{ ...td, fontWeight: 900 }}>المجموع</td>
+                        <td style={{ ...td, fontWeight: 900, color: '#1d4ed8' }}>{fmt(totQty)}</td>
+                        <td style={{ ...td, fontWeight: 900, color: totVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(totVal)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+            {isNet ? null : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
               <div style={{ background: reportView === 'returns' ? '#fef2f2' : '#ecfdf5', border: `1.5px solid ${reportView === 'returns' ? '#fca5a5' : '#6ee7b7'}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 14, boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
                 <div style={{ background: reportView === 'returns' ? '#fee2e2' : '#d1fae5', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}><Icon name="money" size={22} style={{ color: reportView === 'returns' ? '#991b1b' : '#065f46' }} /></div>

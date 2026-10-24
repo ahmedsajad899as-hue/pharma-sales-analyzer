@@ -8,7 +8,7 @@ import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
-import { PHARMACY_KIND, repSideOf, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo } from '../../lib/pharmacyRep.js';
+import { PHARMACY_KIND, repSideOf, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -1715,6 +1715,7 @@ const REPORT_SALES_SELECT = {
   quantity: true, totalValue: true,
   areaId: true, itemId: true, customerId: true,
   saleDate: true, recordType: true, uploadedFileId: true,
+  customerInfoNorm: true, // byCustomerClass: علمي/تجاري/فارمسي
   // rawData: لأجل عدد الطلبيات الفعلي (countDistinctOrders أدناه في getReport) —
   // لا يُعاد في استجابة الـ JSON، يُستهلَك محلياً فقط ثم يُطرح.
   rawData: true,
@@ -1926,6 +1927,14 @@ async function buildReport(resolved, query) {
     mercatoRows.map(s => ({ rawData: s.rawData, value: saleValueUSD(s) })),
   );
 
+  // ── توزيع حسب تصنيف «معلومات الزبون» (علمي/تجاري/فارمسي، والباقي بلا تصنيف كميركاتو) ──
+  const classRows = { scientific: [], commercial: [], pharmacy: [], other: [] };
+  for (const s of salesForAggregation) classRows[customerInfoClassOf(s.customerInfoNorm)].push(s);
+  const byCustomerClass = Object.fromEntries(Object.entries(classRows).map(([k, rows]) => {
+    const t = aggregateSalesWithReps(rows).totals;
+    return [k, { totalQuantity: t.totalQuantity, totalValue: t.totalValue }];
+  }));
+
   return {
     scientificRep: { id: rep.id, name: displayName, isActive: rep.isActive },
     assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
@@ -1938,6 +1947,7 @@ async function buildReport(resolved, query) {
     byItem,
     byRep,
     bySource,
+    byCustomerClass,
     warehouses,
     _debug: {
       fileIds,

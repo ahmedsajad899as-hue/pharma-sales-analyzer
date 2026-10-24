@@ -61,6 +61,14 @@ export function looksLikeCommercialInfo(norm) {
   return v.includes('تجار') && !v.includes('علم') && !looksLikePharmacyInfo(v);
 }
 
+/** تصنيف الصف لجدول «علمي/تجاري/فارمسي». المختلط «علمي/تجاري» = علمي؛ بلا قيمة (ميركاتو) = other. */
+export function customerInfoClassOf(norm) {
+  if (looksLikePharmacyInfo(norm)) return 'pharmacy';
+  if (looksLikeCommercialInfo(norm)) return 'commercial';
+  if (String(norm ?? '').includes('علم')) return 'scientific';
+  return 'other';
+}
+
 /** JSON المخزَّن ← مصفوفة تسميات مطبَّعة فريدة. */
 export function parseCustomerInfoLabels(json) {
   if (!json) return [];
