@@ -168,6 +168,10 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'targets_tab',      label: 'التارگت الشهري',             icon: '🎯', desc: 'تبويب إدارة التارگت الشهري للمندوبين ومقارنته بالمبيعات' },
     { key: 'manual_sales_entry', label: 'إضافة مبيعات يدوياً',      icon: '🧾', desc: 'إضافة مبيعات فواتير المذاخر غير الموجودة في الملفات، من صورة الفاتورة أو يدوياً', onlyRoles: REP_ROLES },
     { key: 'bot_orders_review', label: 'مراجعة طلبيات البوت',       icon: '🤖', desc: 'طلبيات الصيدليات التي تصل عبر بوت تلكرام/فايبر (كلاماً أو صورة) — تُستخرَج بالذكاء الاصطناعي وتنتظر مراجعتك وتأكيدها قبل أن تُحفَظ كمبيعات' },
+    { key: 'sci_exclude_pharmacy',   label: 'زر «بدون الفارمسي» 🏪',         icon: '🏪', desc: 'في تقرير العلميين: عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين' },
+    { key: 'sci_exclude_commercial', label: 'زر «بدون التجاري» 💼',          icon: '💼', desc: 'في تقرير العلميين: عزل مبيعات وارجاعات المكتب المصنّفة «تجاري» في معلومات الزبون' },
+    { key: 'sci_class_table',        label: 'جدول علمي / تجاري / فارمسي',   icon: '📊', desc: 'في خانة الصافي: جدول الكمية والقيمة حسب «معلومات الزبون»، ويقسّم جدول المنطقة/الايتم/المندوب بنفس التصنيف' },
+    { key: 'sci_merge_warehouses',   label: 'دمج المذاخر مع العلمي',        icon: '🔗', desc: 'زر يدمج عمود «مذاخر» (ميركاتو/كوديشن) مع «علمي» في جدول التصنيف' },
     { key: 'warehouse_gap_import', label: 'مبيعات مذاخر ناقصة من ميركاتو', icon: '📑', desc: 'تنزيل نموذج إكسل خاص بالشركات والايتمات والمندوبين، لتوثيق مبيعات مذاخر لم تظهر في ملف ميركاتو، ثم رفعها لتُحتسب ضمنه', onlyRoles: ['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager', 'commercial_supervisor', 'commercial_team_leader'] },
   ],
   'reports': [
@@ -287,6 +291,11 @@ function collectKeys(nodes: FeatureNode[], out: Set<string>) {
 // المستخدمين لحظة نشرها. كل صفحة جديدة تُضاف هنا.
 export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
   'showcase_3d',
+  // أزرار تقرير العلميين (2026-10-25)
+  'sci_exclude_pharmacy',
+  'sci_exclude_commercial',
+  'sci_class_table',
+  'sci_merge_warehouses',
 ]);
 
 interface FeaturePerms { disabledFeatures?: string[]; enabledFeatures?: string[] }

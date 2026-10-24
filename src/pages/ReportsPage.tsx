@@ -949,7 +949,7 @@ const aiMatchNames = (query: string | null | undefined, names: string[]): string
 const SHOW_COMMERCIAL_MODE = false;
 
 export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }: Props) {
-  const { token, user, getDefaultReportView } = useAuth();
+  const { token, user, getDefaultReportView, hasFeature } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
   const [mode, setMode]           = useState<Mode>(() => {
@@ -1010,13 +1010,23 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     return autoPickRep(isGroupId(current) ? '' : current, list);
   };
   // «بدون الفارمسي»: يعزل من تقرير العلميين صفوف المكتب المحسوبة للمسوقين (server: resolvePharmacyOfficeSaleIds).
-  const [excludePharmacy, setExcludePharmacy] = useState(() => sessionStorage.getItem('rpt_exPharm') === '1');
+  // الأزرار الأربعة ميزات اختيارية (OPT_IN_FEATURES) — معطّلة ما لم يفعّلها السوبر أدمن؛
+  // والقيمة الفعلية = الحالة ∧ الميزة، كي لا تبقى حالة محفوظة بالجلسة تصفّي بزر مخفي.
+  const canExPharm = hasFeature('sci_exclude_pharmacy');
+  const canExComm = hasFeature('sci_exclude_commercial');
+  const canClassTable = hasFeature('sci_class_table');
+  const canMergeWh = hasFeature('sci_merge_warehouses');
+  const [excludePharmacyRaw, setExcludePharmacy] = useState(() => sessionStorage.getItem('rpt_exPharm') === '1');
+  const excludePharmacy = excludePharmacyRaw && canExPharm;
   const showExcludePharmacy = canToggleRepKind && !marketersView;
   // «بدون التجاري»: يعزل صفوف المكتب التي «معلومات الزبون» فيها تجاري (server: looksLikeCommercialInfo).
-  const [excludeCommercial, setExcludeCommercial] = useState(() => sessionStorage.getItem('rpt_exComm') === '1');
-  const [showClassTable, setShowClassTable] = useState(false); // جدول الصافي: علمي/تجاري/فارمسي
+  const [excludeCommercialRaw, setExcludeCommercial] = useState(() => sessionStorage.getItem('rpt_exComm') === '1');
+  const excludeCommercial = excludeCommercialRaw && canExComm;
+  const [showClassTableRaw, setShowClassTable] = useState(false); // جدول الصافي: علمي/تجاري/فارمسي
+  const showClassTable = showClassTableRaw && canClassTable;
   // «مذاخر» = صفوف بلا «معلومات زبون» (ميركاتو/الكوديشن) — عملها المندوب العلمي أيضاً، فيُدمج اختيارياً مع علمي.
-  const [mergeWarehouses, setMergeWarehouses] = useState(() => sessionStorage.getItem('rpt_mergeWh') === '1');
+  const [mergeWarehousesRaw, setMergeWarehouses] = useState(() => sessionStorage.getItem('rpt_mergeWh') === '1');
+  const mergeWarehouses = mergeWarehousesRaw && canMergeWh;
   type CustomerClass = 'scientific' | 'commercial' | 'pharmacy' | 'other';
   const classCols: (readonly [CustomerClass, string])[] = mergeWarehouses
     ? [['scientific', '🩺 علمي + 🏬 مذاخر'], ['commercial', '💼 تجاري'], ['pharmacy', '🏪 فارمسي']]
@@ -2266,7 +2276,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     return (
       <div style={{ position: 'relative', display: 'inline-flex', alignSelf: o.align ?? 'flex-end', flexShrink: 0 }}>
       <div style={{ display: 'inline-flex', alignItems: 'center', height: 28, border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', overflow: 'hidden' }}>
-        {mode === 'scientific' && showExcludePharmacy && (
+        {mode === 'scientific' && showExcludePharmacy && canExPharm && (
           <>
             <button
               title={excludePharmacy ? 'بدون الفارمسي: مبيعات/مرتجعات المكتب المحسوبة للفارمسي لاين معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين'}
@@ -2280,6 +2290,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               🏪
             </button>
             {sep}
+          </>
+        )}
+        {mode === 'scientific' && showExcludePharmacy && canExComm && (
+          <>
             <button
               title={excludeCommercial ? 'بدون التجاري: مبيعات/مرتجعات المكتب المصنّفة «تجاري» في معلومات الزبون معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المصنّفة «تجاري» في معلومات الزبون'}
               onClick={() => {
@@ -5471,14 +5485,14 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 src?.office.orderCount ?? 0, mercOf(src)?.orderCount ?? 0,
                 src?.hasCondition ? { valStr: fmtValSigned(condNetVal), color: condNetVal >= 0 ? '#065f46' : '#991b1b', count: src?.condition?.orderCount ?? 0 } : null,
               )}
-              {sciReport.byCustomerClass && (
+              {sciReport.byCustomerClass && canClassTable && (
                 <button onClick={() => setShowClassTable(v => !v)}
                   title="صافي المبيعات (كمية وقيمة) حسب «معلومات الزبون»: علمي / تجاري / فارمسي"
                   style={{ alignSelf: 'center', background: showClassTable ? '#ede9fe' : '#fff', border: `1.5px solid ${showClassTable ? '#c4b5fd' : '#e2e8f0'}`, borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 800, color: showClassTable ? '#6d28d9' : '#334155', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
                   📊 علمي / تجاري / فارمسي
                 </button>
               )}
-              {sciReport.byCustomerClass && showClassTable && (
+              {sciReport.byCustomerClass && showClassTable && canMergeWh && (
                 <button onClick={() => {
                     const v = !mergeWarehouses;
                     setMergeWarehouses(v);
