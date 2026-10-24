@@ -756,9 +756,44 @@ interface Rep extends GroupableRep { phone?: string | null; side?: string | null
 // آخر نتائج «التحليل الشامل» لكل استعلام — تُعرض فوراً عند العودة للتبويب/الصفحة ثم تُحدَّث
 // بصمت في الخلفية (بدل شاشة تحميل فارغة كل مرة). على مستوى الوحدة كي تبقى بعد إعادة التركيب.
 const OVERALL_CACHE = new Map<string, { sales: any; returns: any; rawBlocked: boolean; from: string; to: string }>();
-// نفس الفكرة لتقرير المندوب («علمي بغداد»).
-const SCI_REPORT_CACHE = new Map<string, { sales: any; returns: any }>();
+// تقارير المندوبين (علمي/تجاري) لكل استعلام — تُملأ عند الطلب وبالتحميل المسبق في
+// الخلفية (راجع «التحميل المسبق» داخل المكوّن). at = وقت الجلب: الأحدث من
+// REPORT_FRESH_MS يُعرض بلا طلب جديد، والأقدم يُعرض فوراً ثم يُحدَّث بصمت.
+type ReportPair = { sales: any; returns: any; at: number };
+const SCI_REPORT_CACHE = new Map<string, ReportPair>();
+const COMM_REPORT_CACHE = new Map<string, ReportPair>();
+const REPORT_FRESH_MS = 2 * 60 * 1000;
+const REPORT_CACHE_MAX = 150;
+// الطلبات الجارية حسب المفتاح: نقرة على مندوب يُجلب مسبقاً الآن تنتظر نفس الطلب بدل تكراره.
+const REPORT_INFLIGHT = new Map<string, Promise<ReportPair>>();
 let sciReportSeq = 0;
+let commReportSeq = 0;
+function fetchReportPair(
+  cache: Map<string, ReportPair>, key: string, base: string,
+  headers: Record<string, string>, parse: (d: any) => any, errMsg: string,
+): Promise<ReportPair> {
+  const running = REPORT_INFLIGHT.get(key);
+  if (running) return running;
+  const p = (async () => {
+    const [salesRes, returnsRes] = await Promise.all([
+      fetch(`${base}&recordType=sale`, { headers }),
+      fetch(`${base}&recordType=return`, { headers }),
+    ]);
+    const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
+    if (!salesRes.ok) throw new Error(salesJson.message || errMsg);
+    const pair: ReportPair = {
+      sales: parse(salesJson.data ?? salesJson),
+      returns: returnsRes.ok ? parse(returnsJson.data ?? returnsJson) : null,
+      at: Date.now(),
+    };
+    cache.delete(key); cache.set(key, pair);
+    if (cache.size > REPORT_CACHE_MAX) cache.delete(cache.keys().next().value!);
+    return pair;
+  })().finally(() => REPORT_INFLIGHT.delete(key));
+  REPORT_INFLIGHT.set(key, p);
+  return p;
+}
+const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 const REP_KIND_TOGGLE_ROLES = new Set(['office_manager', 'office_hr', 'office_employee', 'company_manager', 'product_manager']);
 
 interface WarehouseBreakdown { name: string; orderCount: number; value: number; }
@@ -790,6 +825,69 @@ interface SciReport {
   // حسب «معلومات الزبون» في ملف المكتب — other = بلا تصنيف (ميركاتو/الكوديشن).
   byCustomerClass?: Record<'scientific' | 'commercial' | 'pharmacy' | 'other', { totalQty: number; totalValue: number }> | null;
   bySource: { office: { totalQty: number; totalValue: number; orderCount: number }; mercato: { totalQty: number; totalValue: number; orderCount: number }; condition?: { totalQty: number; totalValue: number; orderCount: number }; mercatoOnly?: { totalQty: number; totalValue: number; orderCount: number }; hasOffice: boolean; hasMercato: boolean; hasCondition?: boolean } | null;
+}
+
+const parseCommReport = (d: any): CommReport => ({
+  repName:    d.representative?.name ?? '—',
+  totalQty:   d.summary?.totalQuantity ?? 0,
+  totalValue: d.summary?.totalValue    ?? 0,
+  orderCount: d.summary?.orderCount    ?? 0,
+  byArea: (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, repName: r.repName ?? undefined, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+  byItem: (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+});
+
+function parseSciReport(d: any): SciReport {
+  const salesItems = (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
+  const assignedItemsList: Rep[] = d.assignedItems ?? [];
+  const salesItemNames = new Set(salesItems.map((r: BreakdownRow) => r.name));
+  const zeroItems: BreakdownRow[] = assignedItemsList
+    .filter(i => !salesItemNames.has(i.name))
+    .map(i => ({ name: i.name, totalQty: 0, totalValue: 0, isZero: true }));
+
+  const rawSalesAreas = (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, repName: r.repName ?? undefined, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
+  // Consolidate sales rows that are the same place spelled differently
+  // (الشعب/شعب…) into one row, summing quantities/values.
+  const salesAreaByNorm = new Map<string, BreakdownRow>();
+  for (const r of rawSalesAreas) {
+    const k = normalizeAr(r.name);
+    const ex = salesAreaByNorm.get(k);
+    if (ex) { ex.totalQty += r.totalQty; ex.totalValue += r.totalValue; if (!ex.repName) ex.repName = r.repName; }
+    else salesAreaByNorm.set(k, { ...r });
+  }
+  const salesAreas: BreakdownRow[] = [...salesAreaByNorm.values()];
+  const assignedAreasList: Rep[] = d.assignedAreas ?? [];
+  // Match assigned areas to sales by NORMALISED name so spelling variants
+  // (الشعب/شعب, الحسينية/حسينيه…) aren't falsely flagged "لا مبيعات".
+  const salesAreaNorms = new Set([...salesAreaByNorm.keys()]);
+  const zeroAreas: BreakdownRow[] = assignedAreasList
+    .filter(a => !salesAreaNorms.has(normalizeAr(a.name)))
+    .map(a => ({ name: a.name, totalQty: 0, totalValue: 0, isZero: true }));
+
+  return {
+    repName:    d.scientificRep?.name ?? '—',
+    totalQty:   d.summary?.totalQuantity ?? 0,
+    totalValue: d.summary?.totalValue    ?? 0,
+    orderCount: d.summary?.orderCount    ?? 0,
+    assignedAreas:          assignedAreasList,
+    assignedItems:          assignedItemsList,
+    assignedCommercialReps: d.assignedCommercialReps ?? [],
+    byArea: [...salesAreas, ...zeroAreas],
+    byItem: [...salesItems, ...zeroItems],
+    byRep:  (d.byRep  ?? []).map((r: any) => ({ name: r.repName  ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
+    bySource: d.bySource ? {
+      office:  { totalQty: d.bySource.office?.totalQuantity  ?? 0, totalValue: d.bySource.office?.totalValue  ?? 0, orderCount: d.bySource.office?.orderCount  ?? 0 },
+      mercato: { totalQty: d.bySource.mercato?.totalQuantity ?? 0, totalValue: d.bySource.mercato?.totalValue ?? 0, orderCount: d.bySource.mercato?.orderCount ?? 0 },
+      hasOffice:  !!d.bySource.hasOffice,
+      hasMercato: !!d.bySource.hasMercato,
+      // ملف الكوديشن (Liquidation) — جزء من Mercato أعلاه، سطر فرعي تجريبي.
+      condition: { totalQty: d.bySource.condition?.totalQuantity ?? 0, totalValue: d.bySource.condition?.totalValue ?? 0, orderCount: d.bySource.condition?.orderCount ?? 0 },
+      mercatoOnly: { totalQty: d.bySource.mercatoOnly?.totalQuantity ?? 0, totalValue: d.bySource.mercatoOnly?.totalValue ?? 0, orderCount: d.bySource.mercatoOnly?.orderCount ?? 0 },
+      hasCondition: !!d.bySource.hasCondition,
+    } : null,
+    byCustomerClass: d.byCustomerClass ? Object.fromEntries(
+      (['scientific', 'commercial', 'pharmacy', 'other'] as const).map(k => [k, { totalQty: d.byCustomerClass[k]?.totalQuantity ?? 0, totalValue: d.byCustomerClass[k]?.totalValue ?? 0 }]),
+    ) as SciReport['byCustomerClass'] : null,
+  };
 }
 
 type Mode = 'commercial' | 'scientific' | 'overall' | 'provinces';
@@ -1388,153 +1486,140 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commReps, sciReps, monthsReady]);
 
+  // معاملات الاستعلام المشتركة (الفترة + الملفات + الشهر) لتقريرَي المندوب.
+  const repReportParams = () => {
+    const params = new URLSearchParams();
+    if (fromDate)    params.set('startDate', fromDate);
+    if (toDate)      params.set('endDate', toDate);
+    if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
+    applyMonth(params);
+    return params;
+  };
+  const commReportReq = (id: string) => {
+    const params = repReportParams();
+    return { key: `comm|${user?.id ?? ''}|${id}|${params}`, base: `/api/reports/representative/${id}?${params}` };
+  };
+  // null = مجموعة بلا مندوبين (لا شيء يُطلب).
+  const sciReportReq = (id: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean } = {}) => {
+    // من قائمة المسوقين مباشرة لا sciReps: عند التبديل للمسوقين يُطلب التقرير قبل إعادة الرسم.
+    // القائمة تُمرَّر عند التبديل علميين/مسوقين — sciReps هنا ما زالت قائمة العرض السابق.
+    const list = opts.list ?? sciReps;
+    const group = isGroupId(id) ? groupOf(id, list) : null;
+    if (group && !group.repIds.length) return null;
+    const params = repReportParams();
+    const isMarketersList = list.some(r => r.repKind === 'pharmacy');
+    if ((opts.exPharm ?? excludePharmacy) && canToggleRepKind && !isMarketersList) params.set('excludePharmacy', '1');
+    if ((opts.exComm ?? excludeCommercial) && canToggleRepKind && !isMarketersList) params.set('excludeCommercial', '1');
+    const base = group
+      ? `/api/scientific-reps/group-report?repIds=${group.repIds.join(',')}&label=${encodeURIComponent(group.label)}&${params}`
+      : `/api/scientific-reps/${id}/report?${params}`;
+    return { key: `sci|${user?.id ?? ''}|${id}|${group ? group.repIds.join(',') : ''}|${params}`, base };
+  };
+  // طلبات يطلبها المستخدم الآن — التحميل المسبق يتوقف مؤقتاً حتى تنتهي.
+  const userLoads = useRef(0);
+  const resetReportView = () => {
+    setReportView(getDefaultReportView());
+    setActiveTab('area');
+    setShowTargets(false);
+    setTargetData([]);
+  };
+
   const loadCommReport = async (repIdOverride?: string) => {
     const id = repIdOverride ?? commRepId;
     if (!id) { setError(t.reports.errSelectComm); return; }
-    setError(''); setLoading(true); setCommReport(null); setCommReturnsReport(null);
+    const { key, base } = commReportReq(id);
+    const myReq = ++commReportSeq;
+    setError('');
+    const cached = COMM_REPORT_CACHE.get(key);
+    if (cached) {
+      // جاهز (من طلب سابق أو التحميل المسبق) — عرض فوري، وتحديث صامت فقط إن قدُم.
+      setCommReport(cached.sales); setCommReturnsReport(cached.returns);
+      resetReportView(); setLoading(false);
+      if (Date.now() - cached.at < REPORT_FRESH_MS) return;
+    } else {
+      setLoading(true); setCommReport(null); setCommReturnsReport(null);
+    }
+    userLoads.current++;
     try {
-      const params = new URLSearchParams();
-      if (fromDate)    params.set('startDate', fromDate);
-      if (toDate)      params.set('endDate', toDate);
-      if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
-      applyMonth(params);
-
-      const parseReport = (d: any): CommReport => ({
-        repName:    d.representative?.name ?? '—',
-        totalQty:   d.summary?.totalQuantity ?? 0,
-        totalValue: d.summary?.totalValue    ?? 0,
-        orderCount: d.summary?.orderCount    ?? 0,
-        byArea: (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, repName: r.repName ?? undefined, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
-        byItem: (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
-      });
-
-      const [salesRes, returnsRes] = await Promise.all([
-        fetch(`/api/reports/representative/${id}?${params}&recordType=sale`, { headers: authH() }),
-        fetch(`/api/reports/representative/${id}?${params}&recordType=return`, { headers: authH() }),
-      ]);
-      const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
-      if (!salesRes.ok) throw new Error(salesJson.message || t.reports.errLoad);
-      setCommReport(parseReport(salesJson.data ?? salesJson));
-      setCommReturnsReport(returnsRes.ok ? parseReport(returnsJson.data ?? returnsJson) : null);
-      setReportView(getDefaultReportView());
-      setActiveTab('area');
-      setShowTargets(false);
-      setTargetData([]);
-    } catch (err: any) { setError(err.message); }
-    finally { setLoading(false); }
+      const pair = await fetchReportPair(COMM_REPORT_CACHE, key, base, authH(), parseCommReport, t.reports.errLoad);
+      if (myReq !== commReportSeq) return; // طلب أحدث (مندوب آخر) انطلق بعده
+      setCommReport(pair.sales);
+      setCommReturnsReport(pair.returns);
+      // التحديث الصامت لا يُعيد ضبط التبويب/العرض الذي اختاره المستخدم أثناء ذلك.
+      if (!cached) resetReportView();
+    } catch (err: any) { if (myReq === commReportSeq && !cached) setError(err.message); }
+    finally { userLoads.current--; if (myReq === commReportSeq) setLoading(false); }
   };
 
   const loadSciReport = async (repIdOverride?: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean } = {}) => {
     const id = repIdOverride ?? sciRepId;
     if (!id) { setError(t.reports.errSelectSci); return; }
-    // من قائمة المسوقين مباشرة لا sciReps: عند التبديل للمسوقين يُطلب التقرير قبل إعادة الرسم.
-    // القائمة تُمرَّر عند التبديل علميين/مسوقين — sciReps هنا ما زالت قائمة العرض السابق.
-    const group = isGroupId(id) ? groupOf(id, opts.list ?? sciReps) : null;
-    if (group && !group.repIds.length) { setSciReport(null); setSciReturnsReport(null); return; }
+    const req = sciReportReq(id, opts);
+    if (!req) { setSciReport(null); setSciReturnsReport(null); return; }
     const myReq = ++sciReportSeq;
     setError('');
-    let fromCache = false;
+    const cached = SCI_REPORT_CACHE.get(req.key);
+    if (cached) {
+      // جاهز (من طلب سابق أو التحميل المسبق) — عرض فوري، وتحديث صامت فقط إن قدُم.
+      setSciReport(cached.sales); setSciReturnsReport(cached.returns);
+      resetReportView(); setLoading(false);
+      if (Date.now() - cached.at < REPORT_FRESH_MS) return;
+    } else {
+      setLoading(true); setSciReport(null); setSciReturnsReport(null);
+    }
+    userLoads.current++;
     try {
-      const params = new URLSearchParams();
-      if (fromDate)    params.set('startDate', fromDate);
-      if (toDate)      params.set('endDate', toDate);
-      if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
-      applyMonth(params);
-      const isMarketersList = (opts.list ?? sciReps).some(r => r.repKind === 'pharmacy');
-      if ((opts.exPharm ?? excludePharmacy) && canToggleRepKind && !isMarketersList) params.set('excludePharmacy', '1');
-      if ((opts.exComm ?? excludeCommercial) && canToggleRepKind && !isMarketersList) params.set('excludeCommercial', '1');
-      const cacheKey = `${user?.id ?? ''}|${id}|${group ? group.repIds.join(',') : ''}|${params}`;
-      const cached = SCI_REPORT_CACHE.get(cacheKey);
-      if (cached) {
-        // عرض فوري لآخر نتيجة لهذا المندوب، ثم تحديث صامت أدناه.
-        fromCache = true;
-        setSciReport(cached.sales); setSciReturnsReport(cached.returns);
-        setReportView(getDefaultReportView()); setActiveTab('area'); setShowTargets(false); setTargetData([]);
-        setLoading(false);
-      } else {
-        setLoading(true); setSciReport(null); setSciReturnsReport(null);
-      }
-
-      const parseSciReport = (d: any): SciReport => {
-        const salesItems = (d.byItem ?? []).map((r: any) => ({ name: r.itemName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
-        const assignedItemsList: Rep[] = d.assignedItems ?? [];
-        const salesItemNames = new Set(salesItems.map((r: BreakdownRow) => r.name));
-        const zeroItems: BreakdownRow[] = assignedItemsList
-          .filter(i => !salesItemNames.has(i.name))
-          .map(i => ({ name: i.name, totalQty: 0, totalValue: 0, isZero: true }));
-
-        const rawSalesAreas = (d.byArea ?? []).map((r: any) => ({ name: r.areaName ?? r.name, repName: r.repName ?? undefined, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
-        // Consolidate sales rows that are the same place spelled differently
-        // (الشعب/شعب…) into one row, summing quantities/values.
-        const salesAreaByNorm = new Map<string, BreakdownRow>();
-        for (const r of rawSalesAreas) {
-          const k = normalizeAr(r.name);
-          const ex = salesAreaByNorm.get(k);
-          if (ex) { ex.totalQty += r.totalQty; ex.totalValue += r.totalValue; if (!ex.repName) ex.repName = r.repName; }
-          else salesAreaByNorm.set(k, { ...r });
-        }
-        const salesAreas: BreakdownRow[] = [...salesAreaByNorm.values()];
-        const assignedAreasList: Rep[] = d.assignedAreas ?? [];
-        // Match assigned areas to sales by NORMALISED name so spelling variants
-        // (الشعب/شعب, الحسينية/حسينيه…) aren't falsely flagged "لا مبيعات".
-        const salesAreaNorms = new Set([...salesAreaByNorm.keys()]);
-        const zeroAreas: BreakdownRow[] = assignedAreasList
-          .filter(a => !salesAreaNorms.has(normalizeAr(a.name)))
-          .map(a => ({ name: a.name, totalQty: 0, totalValue: 0, isZero: true }));
-
-        return {
-          repName:    d.scientificRep?.name ?? '—',
-          totalQty:   d.summary?.totalQuantity ?? 0,
-          totalValue: d.summary?.totalValue    ?? 0,
-          orderCount: d.summary?.orderCount    ?? 0,
-          assignedAreas:          assignedAreasList,
-          assignedItems:          assignedItemsList,
-          assignedCommercialReps: d.assignedCommercialReps ?? [],
-          byArea: [...salesAreas, ...zeroAreas],
-          byItem: [...salesItems, ...zeroItems],
-          byRep:  (d.byRep  ?? []).map((r: any) => ({ name: r.repName  ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
-          bySource: d.bySource ? {
-            office:  { totalQty: d.bySource.office?.totalQuantity  ?? 0, totalValue: d.bySource.office?.totalValue  ?? 0, orderCount: d.bySource.office?.orderCount  ?? 0 },
-            mercato: { totalQty: d.bySource.mercato?.totalQuantity ?? 0, totalValue: d.bySource.mercato?.totalValue ?? 0, orderCount: d.bySource.mercato?.orderCount ?? 0 },
-            hasOffice:  !!d.bySource.hasOffice,
-            hasMercato: !!d.bySource.hasMercato,
-            // ملف الكوديشن (Liquidation) — جزء من Mercato أعلاه، سطر فرعي تجريبي.
-            condition: { totalQty: d.bySource.condition?.totalQuantity ?? 0, totalValue: d.bySource.condition?.totalValue ?? 0, orderCount: d.bySource.condition?.orderCount ?? 0 },
-            mercatoOnly: { totalQty: d.bySource.mercatoOnly?.totalQuantity ?? 0, totalValue: d.bySource.mercatoOnly?.totalValue ?? 0, orderCount: d.bySource.mercatoOnly?.orderCount ?? 0 },
-            hasCondition: !!d.bySource.hasCondition,
-          } : null,
-          byCustomerClass: d.byCustomerClass ? Object.fromEntries(
-            (['scientific', 'commercial', 'pharmacy', 'other'] as const).map(k => [k, { totalQty: d.byCustomerClass[k]?.totalQuantity ?? 0, totalValue: d.byCustomerClass[k]?.totalValue ?? 0 }]),
-          ) as SciReport['byCustomerClass'] : null,
-        };
-      };
-
-      const base = group
-        ? `/api/scientific-reps/group-report?repIds=${group.repIds.join(',')}&label=${encodeURIComponent(group.label)}&${params}`
-        : `/api/scientific-reps/${id}/report?${params}`;
-      const [salesRes, returnsRes] = await Promise.all([
-        fetch(`${base}&recordType=sale`, { headers: authH() }),
-        fetch(`${base}&recordType=return`, { headers: authH() }),
-      ]);
-      const [salesJson, returnsJson] = await Promise.all([salesRes.json(), returnsRes.json()]);
+      const pair = await fetchReportPair(SCI_REPORT_CACHE, req.key, req.base, authH(), parseSciReport, t.reports.errLoad);
       if (myReq !== sciReportSeq) return; // طلب أحدث (مندوب آخر) انطلق بعده
-      if (!salesRes.ok) throw new Error(salesJson.message || t.reports.errLoad);
-      const parsedSales = parseSciReport(salesJson.data ?? salesJson);
-      const parsedReturns = returnsRes.ok ? parseSciReport(returnsJson.data ?? returnsJson) : null;
-      setSciReport(parsedSales);
-      setSciReturnsReport(parsedReturns);
-      SCI_REPORT_CACHE.set(cacheKey, { sales: parsedSales, returns: parsedReturns });
-      if (SCI_REPORT_CACHE.size > 60) SCI_REPORT_CACHE.delete(SCI_REPORT_CACHE.keys().next().value!);
+      setSciReport(pair.sales);
+      setSciReturnsReport(pair.returns);
       // التحديث الصامت لا يُعيد ضبط التبويب/العرض الذي اختاره المستخدم أثناء ذلك.
-      if (!fromCache) {
-        setReportView(getDefaultReportView());
-        setActiveTab('area');
-        setShowTargets(false);
-        setTargetData([]);
-      }
-    } catch (err: any) { if (myReq === sciReportSeq && !fromCache) setError(err.message); }
-    finally { if (myReq === sciReportSeq) setLoading(false); }
+      if (!cached) resetReportView();
+    } catch (err: any) { if (myReq === sciReportSeq && !cached) setError(err.message); }
+    finally { userLoads.current--; if (myReq === sciReportSeq) setLoading(false); }
   };
+
+  // ── التحميل المسبق ──────────────────────────────────────────────────────
+  // بعد ظهور أول تقرير، نجلب بالخفاء تقارير بقية المندوبين (ومجموعات الشركات
+  // للإدارة) بنفس الفلاتر الحالية، واحداً تلو الآخر، فيُفتح أي مندوب فوراً من
+  // الكاش. طلب واحد في كل مرة (السيرفر بمعالج واحد)، ويتوقف مؤقتاً أثناء أي طلب
+  // يطلبه المستخدم أو حين يكون التبويب مخفياً، ويُلغى عند تغيّر أي فلتر.
+  const hasRepReport = mode === 'scientific' ? !!sciReport : mode === 'commercial' ? !!commReport : false;
+  const prefetchIds = mode === 'commercial' ? commReps.map(r => r.id).join(',') : sciRepsOrdered.map(r => r.id).join(',');
+  useEffect(() => {
+    if ((mode !== 'scientific' && mode !== 'commercial') || !hasRepReport || !monthsReady) return;
+    const sci = mode === 'scientific';
+    const ids = (sci ? sciRepsOrdered : commReps).map(r => String(r.id));
+    // الأقرب للمندوب الحالي أولاً (التنقّل بالأسهم ↑↓ يطلبه تالياً).
+    const cur = Math.max(0, ids.indexOf(sci ? sciRepId : commRepId));
+    const byDistance = ids.map((id, i) => ({ id, d: Math.min(Math.abs(i - cur), ids.length - Math.abs(i - cur)) }))
+      .sort((a, b) => a.d - b.d).map(x => x.id);
+    // مجموعات الشركات/الأقسام التي تظهر بالقائمة للإدارة — أكثر ما يُفتح.
+    const groups = sci && canToggleRepKind
+      ? [...(marketersView ? ['grp:all'] : []),
+         ...[...new Set(sciReps.map(r => r.company || '').filter(Boolean))].map(c => `grp:${c}`)]
+      : [];
+    const queue = [...groups, ...byDistance].slice(0, 80);
+    let cancelled = false;
+    (async () => {
+      await wait(1200); // نترك الصفحة تستقر أولاً
+      for (const id of queue) {
+        while (!cancelled && (userLoads.current > 0 || document.hidden)) await wait(500);
+        if (cancelled) return;
+        const req = sci ? sciReportReq(id) : commReportReq(id);
+        if (!req) continue;
+        const cache = sci ? SCI_REPORT_CACHE : COMM_REPORT_CACHE;
+        const c = cache.get(req.key);
+        if (c && Date.now() - c.at < 10 * 60 * 1000) continue;
+        try {
+          await fetchReportPair(cache, req.key, req.base, authH(), sci ? parseSciReport : parseCommReport, t.reports.errLoad);
+        } catch { /* مندوب واحد فشل — نكمل البقية */ }
+        await wait(300);
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, hasRepReport, monthsReady, prefetchIds, fromDate, toDate, activeFileIds.join(','), selMonth, excludePharmacy, excludeCommercial, repKindView, user?.id]);
 
   // ملخص صافي المبيع + طلبيات المكتب/المذخر لكل المندوبين العلميين المرئيين
   // للمستخدم دفعة واحدة — القائمة الثانوية «كل المندوبين العلميين».

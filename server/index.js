@@ -144,6 +144,17 @@ app.use(cors());
 // عدة ميغابايت خام لكل جلسة جديدة، وهو أوضح سبب لبطء فتح الصفحات على اتصال ضعيف.
 // threshold: لا فائدة من ضغط الردود الصغيرة (تكلفة CPU بلا مكسب) على سيرفر صغير.
 app.use(compression({ threshold: 1024 }));
+// ── سجلّ الطلبات البطيئة ─────────────────────────────────────
+// nginx لا يسجّل مدة الطلب، فلا نعرف أي تقرير هو البطيء فعلاً. نكتب في سجل PM2
+// كل طلب API استغرق أكثر من ثانية: `[slow] 2350ms GET /api/...`.
+app.use('/api', (req, res, next) => {
+  const t0 = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - t0;
+    if (ms >= 1000) console.log(`[slow] ${ms}ms ${req.method} ${req.originalUrl.slice(0, 200)}`);
+  });
+  next();
+});
 // توقيعا فايبر (X-Viber-Content-Signature) وواتساب (X-Hub-Signature-256) يُحسَبان على الجسم **الخام** الذي يستهلكه
 // express.json ويرميه. نحفظه لذلك المسار وحده كي لا نُبقي 50 ميجا في الذاكرة على
 // كل طلب عادي. راجع server/modules/viber/viber.controller.js.
