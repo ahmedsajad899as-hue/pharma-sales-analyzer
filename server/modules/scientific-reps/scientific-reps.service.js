@@ -1931,8 +1931,11 @@ async function buildReport(resolved, query) {
   const classRows = { scientific: [], commercial: [], pharmacy: [], other: [] };
   for (const s of salesForAggregation) classRows[customerInfoClassOf(s.customerInfoNorm)].push(s);
   const byCustomerClass = Object.fromEntries(Object.entries(classRows).map(([k, rows]) => {
-    const t = aggregateSalesWithReps(rows).totals;
-    return [k, { totalQuantity: t.totalQuantity, totalValue: t.totalValue }];
+    const a = aggregateSalesWithReps(rows);
+    const slim = (list, nameKey) => list.map(r => ({ name: r[nameKey], totalQuantity: r.totalQuantity, totalValue: r.totalValue }));
+    // byArea/byItem/byRep لكل تصنيف — الجدول السفلي حين يُفعَّل زر التصنيف.
+    return [k, { totalQuantity: a.totals.totalQuantity, totalValue: a.totals.totalValue,
+      byArea: slim(a.byArea, 'areaName'), byItem: slim(a.byItem, 'itemName'), byRep: slim(a.byRep, 'repName') }];
   }));
 
   return {

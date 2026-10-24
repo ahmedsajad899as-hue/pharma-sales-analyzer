@@ -823,7 +823,10 @@ interface SciReport {
   // توزيع مبيع الملف حسب مصدره (مكتب/ميركاتو) — موجود فقط حين يحوي التحليل
   // الحالي صفوفاً فعلية (سواء من نوع واحد أو من الاثنين معاً).
   // حسب «معلومات الزبون» في ملف المكتب — other = بلا تصنيف (ميركاتو/الكوديشن).
-  byCustomerClass?: Record<'scientific' | 'commercial' | 'pharmacy' | 'other', { totalQty: number; totalValue: number }> | null;
+  byCustomerClass?: Record<'scientific' | 'commercial' | 'pharmacy' | 'other', {
+    totalQty: number; totalValue: number;
+    byArea: BreakdownRow[]; byItem: BreakdownRow[]; byRep: BreakdownRow[];
+  }> | null;
   bySource: { office: { totalQty: number; totalValue: number; orderCount: number }; mercato: { totalQty: number; totalValue: number; orderCount: number }; condition?: { totalQty: number; totalValue: number; orderCount: number }; mercatoOnly?: { totalQty: number; totalValue: number; orderCount: number }; hasOffice: boolean; hasMercato: boolean; hasCondition?: boolean } | null;
 }
 
@@ -885,7 +888,11 @@ function parseSciReport(d: any): SciReport {
       hasCondition: !!d.bySource.hasCondition,
     } : null,
     byCustomerClass: d.byCustomerClass ? Object.fromEntries(
-      (['scientific', 'commercial', 'pharmacy', 'other'] as const).map(k => [k, { totalQty: d.byCustomerClass[k]?.totalQuantity ?? 0, totalValue: d.byCustomerClass[k]?.totalValue ?? 0 }]),
+      (['scientific', 'commercial', 'pharmacy', 'other'] as const).map(k => {
+        const c = d.byCustomerClass[k];
+        const rows = (list: any[]): BreakdownRow[] => (list ?? []).map(r => ({ name: r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
+        return [k, { totalQty: c?.totalQuantity ?? 0, totalValue: c?.totalValue ?? 0, byArea: rows(c?.byArea), byItem: rows(c?.byItem), byRep: rows(c?.byRep) }];
+      }),
     ) as SciReport['byCustomerClass'] : null,
   };
 }
@@ -5537,7 +5544,68 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               ))}
             </div>
           </div>
-          {isNet ? (
+          {isNet && showClassTable && sciReport.byCustomerClass ? (() => {
+            // الجدول السفلي مقسَّماً علمي/تجاري/فارمسي (صافي: مبيع − ارجاع) لكل منطقة/ايتم/مندوب.
+            const key = activeTab === 'area' ? 'byArea' : activeTab === 'item' ? 'byItem' : 'byRep';
+            const norm = (n: string) => activeTab === 'area' ? normalizeAr(n) : n;
+            const CLS = [['scientific', '🩺 علمي'], ['commercial', '💼 تجاري'], ['pharmacy', '🏪 فارمسي'], ['other', 'بلا تصنيف']] as const;
+            type Cell = { q: number; v: number };
+            const map = new Map<string, { name: string; cells: Record<string, Cell> }>();
+            const add = (rows: BreakdownRow[] | undefined, k: string, sign: number) => {
+              for (const r of rows ?? []) {
+                const id = norm(r.name);
+                if (!map.has(id)) map.set(id, { name: r.name, cells: {} });
+                const c = (map.get(id)!.cells[k] ??= { q: 0, v: 0 });
+                c.q += sign * r.totalQty; c.v += sign * r.totalValue;
+              }
+            };
+            for (const [k] of CLS) {
+              add(sciReport.byCustomerClass![k][key], k, 1);
+              add(sciReturnsReport?.byCustomerClass?.[k][key], k, -1);
+            }
+            const cols = CLS.filter(([k]) => k !== 'other' || [...map.values()].some(r => r.cells.other && (r.cells.other.q || r.cells.other.v)));
+            const tot = (r: { cells: Record<string, Cell> }) => Object.values(r.cells).reduce((s, c) => ({ q: s.q + c.q, v: s.v + c.v }), { q: 0, v: 0 });
+            const rows = [...map.values()].sort((a, b) => sciViewMode === 'qty' ? tot(b).q - tot(a).q : tot(b).v - tot(a).v);
+            const colTot = (k: string) => rows.reduce((s, r) => ({ q: s.q + (r.cells[k]?.q ?? 0), v: s.v + (r.cells[k]?.v ?? 0) }), { q: 0, v: 0 });
+            const grand = rows.reduce((s, r) => { const t2 = tot(r); return { q: s.q + t2.q, v: s.v + t2.v }; }, { q: 0, v: 0 });
+            const th: React.CSSProperties = { padding: '9px 10px', textAlign: 'center', fontSize: 12, fontWeight: 800, color: '#fff', background: '#1e3a8a', whiteSpace: 'nowrap', position: 'sticky', top: 0 };
+            const td: React.CSSProperties = { padding: '6px 10px', textAlign: 'center', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' };
+            const cell = (c: Cell | undefined, bold = false) => (!c || (!c.q && !c.v)) ? <span style={{ color: '#cbd5e1' }}>—</span> : (
+              <div style={{ lineHeight: 1.25 }}>
+                <div style={{ fontSize: 13, fontWeight: bold ? 900 : 800, color: '#1d4ed8' }}>{fmt(c.q)}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: c.v >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(c.v)}</div>
+              </div>
+            );
+            const label = activeTab === 'area' ? t.reports.colArea : activeTab === 'item' ? t.reports.colItem : t.reports.colCommRep;
+            return (
+              <div style={{ overflow: 'auto', maxHeight: 600, border: '1.5px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead><tr>
+                    <th style={th}>#</th>
+                    <th style={{ ...th, textAlign: 'right' }}>{label}</th>
+                    {cols.map(([k, l]) => <th key={k} style={th}>{l}<div style={{ fontSize: 10, fontWeight: 600, opacity: .8 }}>كمية / قيمة</div></th>)}
+                    <th style={{ ...th, background: '#065f46' }}>المجموع</th>
+                  </tr></thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={r.name} style={{ background: i % 2 ? '#fafafa' : '#fff' }}>
+                        <td style={{ ...td, color: '#94a3b8', fontSize: 12 }}>{i + 1}</td>
+                        <td style={{ ...td, textAlign: 'right', fontWeight: 700, fontSize: 13 }}>{r.name}</td>
+                        {cols.map(([k]) => <td key={k} style={td}>{cell(r.cells[k])}</td>)}
+                        <td style={{ ...td, background: '#f0fdf4' }}>{cell(tot(r), true)}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: '#f1f5f9' }}>
+                      <td style={td} />
+                      <td style={{ ...td, textAlign: 'right', fontWeight: 900 }}>المجموع</td>
+                      {cols.map(([k]) => <td key={k} style={td}>{cell(colTot(k), true)}</td>)}
+                      <td style={{ ...td, background: '#dcfce7' }}>{cell(grand, true)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })() : isNet ? (
             <>
               {activeTab === 'area' && renderNetTable(sciReport.byArea, sciReturnsReport?.byArea ?? [], t.reports.colArea, false, sciViewMode, undefined, undefined, 'area')}
               {activeTab === 'item' && renderNetTable(sciReport.byItem, sciReturnsReport?.byItem ?? [], t.reports.colItem, false, sciViewMode, undefined, undefined, 'item')}
