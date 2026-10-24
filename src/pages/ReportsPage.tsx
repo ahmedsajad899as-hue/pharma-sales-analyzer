@@ -5617,7 +5617,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             );
             const label = activeTab === 'area' ? t.reports.colArea : activeTab === 'item' ? t.reports.colItem : t.reports.colCommRep;
             return (
-              <div style={{ overflow: 'auto', maxHeight: 600, border: '1.5px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
+              <div style={{ overflowX: 'auto', border: '1.5px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead><tr>
                     <th style={th}>#</th>
