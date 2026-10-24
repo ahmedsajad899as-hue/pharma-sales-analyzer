@@ -2276,38 +2276,6 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     return (
       <div style={{ position: 'relative', display: 'inline-flex', alignSelf: o.align ?? 'flex-end', flexShrink: 0 }}>
       <div style={{ display: 'inline-flex', alignItems: 'center', height: 28, border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', overflow: 'hidden' }}>
-        {mode === 'scientific' && showExcludePharmacy && canExPharm && (
-          <>
-            <button
-              title={excludePharmacy ? 'بدون الفارمسي: مبيعات/مرتجعات المكتب المحسوبة للفارمسي لاين معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين'}
-              onClick={() => {
-                const v = !excludePharmacy;
-                setExcludePharmacy(v);
-                try { sessionStorage.setItem('rpt_exPharm', v ? '1' : '0'); } catch { /* ignore */ }
-                if (sciRepId) loadSciReport(sciRepId, { exPharm: v });
-              }}
-              style={{ ...seg, padding: '0 8px', fontSize: 13, background: excludePharmacy ? '#d1fae5' : 'transparent', filter: excludePharmacy ? 'none' : 'grayscale(1)', opacity: excludePharmacy ? 1 : 0.6 }}>
-              🏪
-            </button>
-            {sep}
-          </>
-        )}
-        {mode === 'scientific' && showExcludePharmacy && canExComm && (
-          <>
-            <button
-              title={excludeCommercial ? 'بدون التجاري: مبيعات/مرتجعات المكتب المصنّفة «تجاري» في معلومات الزبون معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المصنّفة «تجاري» في معلومات الزبون'}
-              onClick={() => {
-                const v = !excludeCommercial;
-                setExcludeCommercial(v);
-                try { sessionStorage.setItem('rpt_exComm', v ? '1' : '0'); } catch { /* ignore */ }
-                if (sciRepId) loadSciReport(sciRepId, { exComm: v });
-              }}
-              style={{ ...seg, padding: '0 8px', fontSize: 13, background: excludeCommercial ? '#d1fae5' : 'transparent', filter: excludeCommercial ? 'none' : 'grayscale(1)', opacity: excludeCommercial ? 1 : 0.6 }}>
-              💼
-            </button>
-            {sep}
-          </>
-        )}
         {excelActions.length > 0 && (
           <>
             <button
@@ -5439,6 +5407,51 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             </div>
           </div>
         );
+        // الأزرار الأربعة (ميزات اختيارية) بحجم واحد في مجموعة واحدة على يسار صف البطاقات.
+        const toggleBtn = (key: string, on: boolean, label: string, title: string, onClick: () => void, onColors = { bg: '#d1fae5', bd: '#6ee7b7', fg: '#065f46' }) => (
+          <button key={key} onClick={onClick} title={title}
+            style={{ width: 172, height: 36, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
+              background: on ? onColors.bg : '#fff', border: `1.5px solid ${on ? onColors.bd : '#e2e8f0'}`, borderRadius: 10, cursor: 'pointer',
+              fontSize: 12, fontWeight: 800, color: on ? onColors.fg : '#475569', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+            {label}
+          </button>
+        );
+        const sciTogglesList = [
+          showExcludePharmacy && canExPharm && toggleBtn('exPharm', excludePharmacy, '🏪 بدون الفارمسي',
+            excludePharmacy ? 'مبيعات/مرتجعات المكتب المحسوبة للفارمسي لاين معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين',
+            () => {
+              const v = !excludePharmacy;
+              setExcludePharmacy(v);
+              try { sessionStorage.setItem('rpt_exPharm', v ? '1' : '0'); } catch { /* ignore */ }
+              if (sciRepId) loadSciReport(sciRepId, { exPharm: v });
+            }),
+          showExcludePharmacy && canExComm && toggleBtn('exComm', excludeCommercial, '💼 بدون التجاري',
+            excludeCommercial ? 'مبيعات/مرتجعات المكتب المصنّفة «تجاري» معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المصنّفة «تجاري» في معلومات الزبون',
+            () => {
+              const v = !excludeCommercial;
+              setExcludeCommercial(v);
+              try { sessionStorage.setItem('rpt_exComm', v ? '1' : '0'); } catch { /* ignore */ }
+              if (sciRepId) loadSciReport(sciRepId, { exComm: v });
+            }),
+          sciReport.byCustomerClass && canClassTable && toggleBtn('classTable', showClassTable, '📊 علمي / تجاري / فارمسي',
+            'صافي المبيعات (كمية وقيمة) حسب «معلومات الزبون»: علمي / مذاخر / تجاري / فارمسي',
+            () => { const v = !showClassTable; setShowClassTable(v); if (v && !isNet) setReportView('net'); },
+            { bg: '#ede9fe', bd: '#c4b5fd', fg: '#6d28d9' }),
+          sciReport.byCustomerClass && canMergeWh && toggleBtn('mergeWh', mergeWarehouses, mergeWarehouses ? '🔗 علمي + مذاخر (مدموج)' : '🔗 دمج المذاخر مع العلمي',
+            mergeWarehouses ? 'المذاخر مدموجة مع العلمي في جدول التصنيف — اضغط لفصلها' : 'دمج المذاخر (ميركاتو / كوديشن) مع العلمي في حقل واحد في جدول التصنيف',
+            () => {
+              const v = !mergeWarehouses;
+              setMergeWarehouses(v);
+              try { sessionStorage.setItem('rpt_mergeWh', v ? '1' : '0'); } catch { /* ignore */ }
+            },
+            { bg: '#dbeafe', bd: '#93c5fd', fg: '#1d4ed8' }),
+        ].filter(Boolean);
+        // marginRight:auto في RTL يدفع المجموعة إلى يسار الصف.
+        const sciToggles = sciTogglesList.length > 0 && (
+          <div style={{ marginRight: 'auto', alignSelf: 'center', display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
+            {sciTogglesList}
+          </div>
+        );
         return (
         <>
           {/* Info tags */}
@@ -5485,24 +5498,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 src?.office.orderCount ?? 0, mercOf(src)?.orderCount ?? 0,
                 src?.hasCondition ? { valStr: fmtValSigned(condNetVal), color: condNetVal >= 0 ? '#065f46' : '#991b1b', count: src?.condition?.orderCount ?? 0 } : null,
               )}
-              {sciReport.byCustomerClass && canClassTable && (
-                <button onClick={() => setShowClassTable(v => !v)}
-                  title="صافي المبيعات (كمية وقيمة) حسب «معلومات الزبون»: علمي / تجاري / فارمسي"
-                  style={{ alignSelf: 'center', background: showClassTable ? '#ede9fe' : '#fff', border: `1.5px solid ${showClassTable ? '#c4b5fd' : '#e2e8f0'}`, borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 800, color: showClassTable ? '#6d28d9' : '#334155', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
-                  📊 علمي / تجاري / فارمسي
-                </button>
-              )}
-              {sciReport.byCustomerClass && showClassTable && canMergeWh && (
-                <button onClick={() => {
-                    const v = !mergeWarehouses;
-                    setMergeWarehouses(v);
-                    try { sessionStorage.setItem('rpt_mergeWh', v ? '1' : '0'); } catch { /* ignore */ }
-                  }}
-                  title={mergeWarehouses ? 'المذاخر مدموجة مع العلمي — اضغط لفصلها' : 'دمج المذاخر (ميركاتو / كوديشن) مع العلمي في حقل واحد — كلاهما عمل المندوب العلمي'}
-                  style={{ alignSelf: 'center', background: mergeWarehouses ? '#dbeafe' : '#fff', border: `1.5px solid ${mergeWarehouses ? '#93c5fd' : '#e2e8f0'}`, borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 800, color: mergeWarehouses ? '#1d4ed8' : '#334155', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
-                  {mergeWarehouses ? '🔗 علمي + مذاخر (مدموج)' : '🔗 دمج المذاخر مع العلمي'}
-                </button>
-              )}
+              {sciToggles}
               </div>
             ) : null}
             {isNet && showClassTable && sciReport.byCustomerClass && (() => {
@@ -5563,6 +5559,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 viewSrc?.office.orderCount ?? 0, mercOf(viewSrc)?.orderCount ?? 0,
                 viewSrc?.hasCondition ? { valStr: fmtVal(viewSrc?.condition?.totalValue ?? 0), color: '#1e293b', count: viewSrc?.condition?.orderCount ?? 0 } : null,
               )}
+              {sciToggles}
               </div>
             )}
           </div>
