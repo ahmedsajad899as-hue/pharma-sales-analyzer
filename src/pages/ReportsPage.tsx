@@ -905,6 +905,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // «بدون الفارمسي»: يعزل من تقرير العلميين صفوف المكتب المحسوبة للمسوقين (server: resolvePharmacyOfficeSaleIds).
   const [excludePharmacy, setExcludePharmacy] = useState(() => sessionStorage.getItem('rpt_exPharm') === '1');
   const showExcludePharmacy = canToggleRepKind && !marketersView;
+  // «بدون التجاري»: يعزل صفوف المكتب التي «معلومات الزبون» فيها تجاري (server: looksLikeCommercialInfo).
+  const [excludeCommercial, setExcludeCommercial] = useState(() => sessionStorage.getItem('rpt_exComm') === '1');
   const [excelMenuOpen, setExcelMenuOpen] = useState(false); // زر Excel الموحّد: المعروض / تصدير عدة مندوبين
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
@@ -1419,7 +1421,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     finally { setLoading(false); }
   };
 
-  const loadSciReport = async (repIdOverride?: string, opts: { list?: Rep[]; exPharm?: boolean } = {}) => {
+  const loadSciReport = async (repIdOverride?: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean } = {}) => {
     const id = repIdOverride ?? sciRepId;
     if (!id) { setError(t.reports.errSelectSci); return; }
     // من قائمة المسوقين مباشرة لا sciReps: عند التبديل للمسوقين يُطلب التقرير قبل إعادة الرسم.
@@ -1437,6 +1439,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       applyMonth(params);
       const isMarketersList = (opts.list ?? sciReps).some(r => r.repKind === 'pharmacy');
       if ((opts.exPharm ?? excludePharmacy) && canToggleRepKind && !isMarketersList) params.set('excludePharmacy', '1');
+      if ((opts.exComm ?? excludeCommercial) && canToggleRepKind && !isMarketersList) params.set('excludeCommercial', '1');
       const cacheKey = `${user?.id ?? ''}|${id}|${group ? group.repIds.join(',') : ''}|${params}`;
       const cached = SCI_REPORT_CACHE.get(cacheKey);
       if (cached) {
@@ -2169,6 +2172,18 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               }}
               style={{ ...seg, padding: '0 8px', fontSize: 13, background: excludePharmacy ? '#d1fae5' : 'transparent', filter: excludePharmacy ? 'none' : 'grayscale(1)', opacity: excludePharmacy ? 1 : 0.6 }}>
               🏪
+            </button>
+            {sep}
+            <button
+              title={excludeCommercial ? 'بدون التجاري: مبيعات/مرتجعات المكتب المصنّفة «تجاري» في معلومات الزبون معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المصنّفة «تجاري» في معلومات الزبون'}
+              onClick={() => {
+                const v = !excludeCommercial;
+                setExcludeCommercial(v);
+                try { sessionStorage.setItem('rpt_exComm', v ? '1' : '0'); } catch { /* ignore */ }
+                if (sciRepId) loadSciReport(sciRepId, { exComm: v });
+              }}
+              style={{ ...seg, padding: '0 8px', fontSize: 13, background: excludeCommercial ? '#d1fae5' : 'transparent', filter: excludeCommercial ? 'none' : 'grayscale(1)', opacity: excludeCommercial ? 1 : 0.6 }}>
+              💼
             </button>
             {sep}
           </>
@@ -3058,6 +3073,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (activeFileIds.length) qp.set('fileIds',   activeFileIds.join(','));
       applyMonth(qp);
       if (mode === 'scientific' && excludePharmacy && showExcludePharmacy) qp.set('excludePharmacy', '1');
+      if (mode === 'scientific' && excludeCommercial && showExcludePharmacy) qp.set('excludeCommercial', '1');
 
       let sales: any[] = [];
       let areaCount: number | null = null;            // assigned areas (scientific only)

@@ -102,6 +102,7 @@ export async function getGroupReport(req, res, next) {
       endDate:    req.query.endDate,
       recordType: req.query.recordType || null,
       excludePharmacy: req.query.excludePharmacy === '1',
+      excludeCommercial: req.query.excludeCommercial === '1',
     };
     const report = await svc.getGroupReport(repIds, String(req.query.label || ''), applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data: report });
@@ -378,6 +379,7 @@ export async function getRepReport(req, res, next) {
       fileIds:    parseFileIds(req.query.fileIds || req.query.fileId),
       recordType: req.query.recordType || null,
       excludePharmacy: req.query.excludePharmacy === '1', // «بدون الفارمسي»
+      excludeCommercial: req.query.excludeCommercial === '1', // «بدون التجاري»
     };
     const report = await svc.getReport(id, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data: report });

@@ -8,7 +8,7 @@ import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
-import { PHARMACY_KIND, repSideOf, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo } from '../../lib/pharmacyRep.js';
+import { PHARMACY_KIND, repSideOf, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo } from '../../lib/pharmacyRep.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -1736,13 +1736,29 @@ const REPORT_SALES_SELECT = {
  * filtered by assigned areas + items.
  */
 export async function getReport(id, query = {}, viewerId = null) {
-  if (!query.excludePharmacy) {
+  if (!query.excludePharmacy && !query.excludeCommercial) {
     const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT, viewerId);
     return buildReport(resolved, query);
   }
-  const resolved = await resolveSciRepSales(id, query, { ...REPORT_SALES_SELECT, id: true }, viewerId);
-  const ex = await resolvePharmacyOfficeSaleIds(resolved.fileIds, viewerId);
-  return buildReport({ ...resolved, rawSales: resolved.rawSales.filter(s => !ex.has(s.id)) }, query);
+  const resolved = await resolveSciRepSales(id, query, exclusionSelect(REPORT_SALES_SELECT), viewerId);
+  return buildReport({ ...resolved, rawSales: await applySciExclusions(resolved.rawSales, resolved.fileIds, query, viewerId) }, query);
+}
+
+// ── «بدون الفارمسي» / «بدون التجاري» ─────────────────────────────────────────
+// يحتاجان id (للفارمسي) وcustomerInfoNorm (للتجاري) في الـselect.
+function exclusionSelect(select) {
+  return { ...select, id: true, customerInfoNorm: true };
+}
+
+async function applySciExclusions(rawSales, fileIds, query, viewerId) {
+  let out = rawSales;
+  // «بدون التجاري»: صفوف المكتب التي «معلومات الزبون» فيها تجاري (ميركاتو بلا قيمة فيبقى).
+  if (query.excludeCommercial) out = out.filter(s => !looksLikeCommercialInfo(s.customerInfoNorm));
+  if (query.excludePharmacy) {
+    const ex = await resolvePharmacyOfficeSaleIds(fileIds, viewerId);
+    out = out.filter(s => !ex.has(s.id));
+  }
+  return out;
 }
 
 // ── «بدون الفارمسي» في تقرير العلميين ────────────────────────────────────────
@@ -1789,7 +1805,7 @@ async function resolveGroupSales(repIds, query, select, viewerId) {
   // ثلاثة مندوبين بالتوازي — أسرع لشركة كاملة دون ضغط ذاكرة يُذكر.
   for (let i = 0; i < repIds.length; i += 3) {
     const batch = await Promise.all(repIds.slice(i, i + 3).map(repId =>
-      resolveSciRepSales(repId, query, { ...select, id: true }, viewerId).catch(() => null)));
+      resolveSciRepSales(repId, query, exclusionSelect(select), viewerId).catch(() => null)));
     for (const r of batch) {
       if (!r) continue;
       fileIds = r.fileIds;
@@ -1798,11 +1814,7 @@ async function resolveGroupSales(repIds, query, select, viewerId) {
       for (const l of r.itemLinks) items.set(l.item.id, l);
     }
   }
-  let rawSales = [...byId.values()];
-  if (query.excludePharmacy) {
-    const ex = await resolvePharmacyOfficeSaleIds(fileIds, viewerId);
-    rawSales = rawSales.filter(s => !ex.has(s.id));
-  }
+  const rawSales = await applySciExclusions([...byId.values()], fileIds, query, viewerId);
   return { rawSales, areaLinks: [...areas.values()], itemLinks: [...items.values()], fileIds };
 }
 
@@ -2065,8 +2077,6 @@ const EXPORT_SALES_SELECT = {
  * export totals always match the on-screen report's totals.
  */
 export async function getRawSalesForExport(id, query = {}, viewerId = null) {
-  const { rawSales, fileIds } = await resolveSciRepSales(id, query, { ...EXPORT_SALES_SELECT, id: true }, viewerId);
-  if (!query.excludePharmacy) return rawSales;
-  const ex = await resolvePharmacyOfficeSaleIds(fileIds, viewerId);
-  return rawSales.filter(s => !ex.has(s.id));
+  const { rawSales, fileIds } = await resolveSciRepSales(id, query, exclusionSelect(EXPORT_SALES_SELECT), viewerId);
+  return applySciExclusions(rawSales, fileIds, query, viewerId);
 }

@@ -52,6 +52,15 @@ export function looksLikePharmacyInfo(norm) {
   return DEFAULT_LABEL_FRAGMENTS.some(f => v.includes(f));
 }
 
+/**
+ * Sale.customerInfoNorm صف «تجاري» خالص؟ — لزر «بدون التجاري» في تقرير العلميين.
+ * «تجار» تغطي تجاري/تجارى؛ قيمة مختلطة «علمي/تجاري» أو فارمسي لا تُعدّ تجارية.
+ */
+export function looksLikeCommercialInfo(norm) {
+  const v = String(norm ?? '').toLowerCase();
+  return v.includes('تجار') && !v.includes('علم') && !looksLikePharmacyInfo(v);
+}
+
 /** JSON المخزَّن ← مصفوفة تسميات مطبَّعة فريدة. */
 export function parseCustomerInfoLabels(json) {
   if (!json) return [];

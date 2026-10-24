@@ -1538,6 +1538,7 @@ app.get('/api/export/raw-sales', async (req, res) => {
         endDate:    endDate   || undefined,
         recordType: recordType || null,
         excludePharmacy: req.query.excludePharmacy === '1',
+        excludeCommercial: req.query.excludeCommercial === '1',
       }, req.user?.id ?? null);
       return res.json({ success: true, data: sales });
     }
@@ -1549,6 +1550,7 @@ app.get('/api/export/raw-sales', async (req, res) => {
         endDate:    endDate   || undefined,
         recordType: recordType || null,
         excludePharmacy: req.query.excludePharmacy === '1',
+        excludeCommercial: req.query.excludeCommercial === '1',
       }, req.user?.id ?? null);
       return res.json({ success: true, data: sales });
     }
