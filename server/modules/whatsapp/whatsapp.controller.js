@@ -5,13 +5,15 @@ import { handleWhatsAppWebhook, whatsappEnabled, whatsappAppSecret, whatsappVeri
  * GET /api/whatsapp/webhook — مصافحة التسجيل من لوحة Meta: تُرسل hub.verify_token
  * الذي كتبناه هناك وتنتظر hub.challenge نصاً حرفياً. أي شيء آخر = رفض التسجيل.
  *
- * ما دام البوت خامداً (لا WHATSAPP_TOKEN/PHONE_NUMBER_ID) تُعيد النقطتان **404**
- * — نفس منطق ويب-هوك فايبر: نقطة نائمة تبدو «غير منشورة» بلا إنذارات كاذبة.
+ * المصافحة تحتاج WHATSAPP_VERIFY_TOKEN **وحده**: لوحة Meta تطلب تسجيل الويب-هوك
+ * قبل إضافة الرقم (فلا PHONE_NUMBER_ID بعد). بلاه تُعيد **404** — نفس منطق ويب-هوك
+ * فايبر: نقطة نائمة تبدو «غير منشورة» بلا إنذارات كاذبة. الـPOST يبقى خامداً حتى
+ * يكتمل الإعداد.
  */
 export function verify(req, res) {
-  if (!whatsappEnabled()) return res.sendStatus(404);
   const expected = whatsappVerifyToken();
-  if (expected && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === expected) {
+  if (!expected) return res.sendStatus(404);
+  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === expected) {
     return res.status(200).type('text/plain').send(String(req.query['hub.challenge'] ?? ''));
   }
   return res.sendStatus(403);
