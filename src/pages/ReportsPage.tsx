@@ -1015,6 +1015,14 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // «بدون التجاري»: يعزل صفوف المكتب التي «معلومات الزبون» فيها تجاري (server: looksLikeCommercialInfo).
   const [excludeCommercial, setExcludeCommercial] = useState(() => sessionStorage.getItem('rpt_exComm') === '1');
   const [showClassTable, setShowClassTable] = useState(false); // جدول الصافي: علمي/تجاري/فارمسي
+  // «مذاخر» = صفوف بلا «معلومات زبون» (ميركاتو/الكوديشن) — عملها المندوب العلمي أيضاً، فيُدمج اختيارياً مع علمي.
+  const [mergeWarehouses, setMergeWarehouses] = useState(() => sessionStorage.getItem('rpt_mergeWh') === '1');
+  type CustomerClass = 'scientific' | 'commercial' | 'pharmacy' | 'other';
+  const classCols: (readonly [CustomerClass, string])[] = mergeWarehouses
+    ? [['scientific', '🩺 علمي + 🏬 مذاخر'], ['commercial', '💼 تجاري'], ['pharmacy', '🏪 فارمسي']]
+    : [['scientific', '🩺 علمي'], ['other', '🏬 مذاخر'], ['commercial', '💼 تجاري'], ['pharmacy', '🏪 فارمسي']];
+  const classBucket = (k: CustomerClass): CustomerClass => (mergeWarehouses && k === 'other' ? 'scientific' : k);
+  const ALL_CLASSES: CustomerClass[] = ['scientific', 'commercial', 'pharmacy', 'other'];
   const [excelMenuOpen, setExcelMenuOpen] = useState(false); // زر Excel الموحّد: المعروض / تصدير عدة مندوبين
   const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
@@ -5470,14 +5478,30 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   📊 علمي / تجاري / فارمسي
                 </button>
               )}
+              {sciReport.byCustomerClass && showClassTable && (
+                <button onClick={() => {
+                    const v = !mergeWarehouses;
+                    setMergeWarehouses(v);
+                    try { sessionStorage.setItem('rpt_mergeWh', v ? '1' : '0'); } catch { /* ignore */ }
+                  }}
+                  title={mergeWarehouses ? 'المذاخر مدموجة مع العلمي — اضغط لفصلها' : 'دمج المذاخر (ميركاتو / كوديشن) مع العلمي في حقل واحد — كلاهما عمل المندوب العلمي'}
+                  style={{ alignSelf: 'center', background: mergeWarehouses ? '#dbeafe' : '#fff', border: `1.5px solid ${mergeWarehouses ? '#93c5fd' : '#e2e8f0'}`, borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 800, color: mergeWarehouses ? '#1d4ed8' : '#334155', fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}>
+                  {mergeWarehouses ? '🔗 علمي + مذاخر (مدموج)' : '🔗 دمج المذاخر مع العلمي'}
+                </button>
+              )}
               </div>
             ) : null}
             {isNet && showClassTable && sciReport.byCustomerClass && (() => {
               const cls = sciReport.byCustomerClass!, ret = sciReturnsReport?.byCustomerClass;
-              const rows = ([
-                ['scientific', '🩺 علمي'], ['commercial', '💼 تجاري'], ['pharmacy', '🏪 فارمسي'], ['other', 'بلا تصنيف (ميركاتو / كوديشن)'],
-              ] as const).map(([k, label]) => ({ k, label, qty: cls[k].totalQty - (ret?.[k].totalQty ?? 0), val: cls[k].totalValue - (ret?.[k].totalValue ?? 0) }));
-              const shown = rows.filter(r => r.k !== 'other' || r.qty !== 0 || r.val !== 0);
+              const shown = classCols.map(([col, label]) => {
+                const ks = ALL_CLASSES.filter(k => classBucket(k) === col);
+                return {
+                  k: col, label,
+                  qty: ks.reduce((s, k) => s + cls[k].totalQty - (ret?.[k].totalQty ?? 0), 0),
+                  val: ks.reduce((s, k) => s + cls[k].totalValue - (ret?.[k].totalValue ?? 0), 0),
+                };
+              });
+              const rows = shown;
               const totQty = rows.reduce((s, r) => s + r.qty, 0), totVal = rows.reduce((s, r) => s + r.val, 0);
               const th: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 700, borderBottom: '1.5px solid #e2e8f0' };
               const td: React.CSSProperties = { padding: '8px 12px', fontSize: 13, fontWeight: 700, borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' };
@@ -5548,7 +5572,6 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             // الجدول السفلي مقسَّماً علمي/تجاري/فارمسي (صافي: مبيع − ارجاع) لكل منطقة/ايتم/مندوب.
             const key = activeTab === 'area' ? 'byArea' : activeTab === 'item' ? 'byItem' : 'byRep';
             const norm = (n: string) => activeTab === 'area' ? normalizeAr(n) : n;
-            const CLS = [['scientific', '🩺 علمي'], ['commercial', '💼 تجاري'], ['pharmacy', '🏪 فارمسي'], ['other', 'بلا تصنيف']] as const;
             type Cell = { q: number; v: number };
             const map = new Map<string, { name: string; cells: Record<string, Cell> }>();
             const add = (rows: BreakdownRow[] | undefined, k: string, sign: number) => {
@@ -5559,11 +5582,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 c.q += sign * r.totalQty; c.v += sign * r.totalValue;
               }
             };
-            for (const [k] of CLS) {
-              add(sciReport.byCustomerClass![k][key], k, 1);
-              add(sciReturnsReport?.byCustomerClass?.[k][key], k, -1);
+            for (const k of ALL_CLASSES) {
+              add(sciReport.byCustomerClass![k][key], classBucket(k), 1);
+              add(sciReturnsReport?.byCustomerClass?.[k][key], classBucket(k), -1);
             }
-            const cols = CLS.filter(([k]) => k !== 'other' || [...map.values()].some(r => r.cells.other && (r.cells.other.q || r.cells.other.v)));
+            const cols = classCols;
             const tot = (r: { cells: Record<string, Cell> }) => Object.values(r.cells).reduce((s, c) => ({ q: s.q + c.q, v: s.v + c.v }), { q: 0, v: 0 });
             const rows = [...map.values()].sort((a, b) => sciViewMode === 'qty' ? tot(b).q - tot(a).q : tot(b).v - tot(a).v);
             const colTot = (k: string) => rows.reduce((s, r) => ({ q: s.q + (r.cells[k]?.q ?? 0), v: s.v + (r.cells[k]?.v ?? 0) }), { q: 0, v: 0 });
