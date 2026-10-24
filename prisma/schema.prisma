@@ -95,6 +95,7 @@ model User {
   pendingVisitsImport    PendingVisitsImport?
   pendingBotOrders       PendingBotOrder[]
   viberChatLinks         ViberChatLink[]
+  whatsAppChatLinks      WhatsAppChatLink[]
 
   // Commercial module relations
   pharmacies        Pharmacy[]          @relation("PharmacyOwner")
@@ -645,6 +646,24 @@ model ViberChatLink {
 
   @@index([userId])
   @@map("viber_chat_links")
+}
+
+// ─── WhatsApp (Cloud API): رقم مندوب ↔ حساب مستخدم. خامد حتى يُضبط WHATSAPP_TOKEN ──
+model WhatsAppChatLink {
+  id            Int      @id @default(autoincrement())
+  waId          String   @unique // رقم المرسل الدولي بلا «+» كما يرسله واتساب (9647701234567)
+  chatTitle     String?
+  isActive      Boolean  @default(true)
+  lastMessageId String?  // wamid آخر رسالة — للتشخيص فقط، التكرار يحرسه sourceHash
+  orderTextMode String   @default("all") // off | trigger | all — محادثة فردية مع البوت فـall افتراضياً
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("whatsapp_chat_links")
 }
 
 // ─── ملف زيارات أطباء مرفوع من تلكرام بانتظار مراجعة المستخدم بالتطبيق ──

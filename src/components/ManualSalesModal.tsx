@@ -47,7 +47,7 @@ interface Row {
 /** طلبية وصلت عبر بوت (PendingBotOrder) استُخرجت بالخادم وتنتظر مراجعة هنا. */
 export interface PendingOrderDetail {
   id: number;
-  source: string;            // telegram | viber
+  source: string;            // telegram | viber | whatsapp
   kind: string;              // text | photo
   rows: any[];               // بنفس شكل مخرجات extractInvoiceRows
   repName?: string | null;

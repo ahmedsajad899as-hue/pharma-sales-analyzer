@@ -58,8 +58,9 @@ import AreaChangesPage from './pages/super-admin/AreaChangesPage';
 import TelegramLinksPage from './pages/super-admin/TelegramLinksPage';
 import AiUsagePage from './pages/super-admin/AiUsagePage';
 import ViberLinksPage from './pages/super-admin/ViberLinksPage';
+import WhatsAppLinksPage from './pages/super-admin/WhatsAppLinksPage';
 
-type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'area-changes' | 'telegram-links' | 'viber-links' | 'ai-usage';
+type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'area-changes' | 'telegram-links' | 'viber-links' | 'whatsapp-links' | 'ai-usage';
 
 // لون تمييز واحد فقط للحالة النشطة (بدل لون مختلف لكل عنصر) — يهدّئ الشريط الجانبي
 // ويجعل العين تتبع "أين أنا" بدل التوهان بين تدرّجات ملوّنة متعددة.
@@ -76,6 +77,7 @@ const NAV: { id: Page; label: string; icon: string; masterOnly?: boolean }[] = [
   { id: 'area-changes', label: 'تغييرات المناطق', icon: '📍', masterOnly: true },
   { id: 'telegram-links', label: 'روابط تيليجرام', icon: '🤖', masterOnly: true },
   { id: 'viber-links',  label: 'روابط فايبر',   icon: '📞', masterOnly: true },
+  { id: 'whatsapp-links', label: 'روابط واتساب', icon: '💬', masterOnly: true },
   { id: 'ai-usage',     label: 'استهلاك الذكاء', icon: '📈', masterOnly: true },
 ];
 const ACCENT = '#4f46e5';
@@ -363,6 +365,7 @@ function SuperAdminShell() {
             {page === 'area-changes' && <AreaChangesPage />}
             {page === 'telegram-links' && <TelegramLinksPage />}
         {page === 'viber-links' && <ViberLinksPage />}
+        {page === 'whatsapp-links' && <WhatsAppLinksPage />}
             {page === 'ai-usage' && <AiUsagePage />}
           </div>
         </main>

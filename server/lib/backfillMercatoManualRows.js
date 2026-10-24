@@ -12,8 +12,8 @@ const normalizeAr = s => String(s ?? '')
   .replace(/\s+/g, ' ')
   .trim();
 
-// manual-invoice (يدوي/صورة) + telegram-order/viber-order (طلبيات البوت)
-const MANUAL_SOURCE_FILTERS = ['manual-invoice', 'telegram-order', 'viber-order']
+// manual-invoice (يدوي/صورة) + telegram-order/viber-order/whatsapp-order (طلبيات البوت)
+const MANUAL_SOURCE_FILTERS = ['manual-invoice', 'telegram-order', 'viber-order', 'whatsapp-order']
   .map(v => ({ rawData: { contains: `"source":"${v}"` } }));
 
 /**

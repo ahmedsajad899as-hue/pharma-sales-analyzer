@@ -6,7 +6,7 @@
 // فإضافة منصة ثالثة لاحقاً (واتس اب) تعني كتابة transport فقط.
 //
 // عقد transport:
-//   { name: 'telegram'|'viber',
+//   { name: 'telegram'|'viber'|'whatsapp',
 //     sendText(chatId, text)        → Promise<messageId|null>
 //     editText?(chatId, msgId, text) → Promise<any>   (فايبر لا يملكها)
 //     downloadMedia(ref)            → Promise<Buffer> }

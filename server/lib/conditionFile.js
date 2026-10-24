@@ -28,10 +28,11 @@ import { buildProvinceLookup, matchProvinceName, extractRawColumnValue, PROVINCE
 export const isConditionFile = (file) => fileVariant(file) === CONDITION_VARIANT;
 
 /** مصادر rawData.source التي تخصّ ملف الكوديشن. */
-const CONDITION_SOURCES = ['telegram-order', 'viber-order', 'warehouse-gap-template'];
+const CONDITION_SOURCES = ['telegram-order', 'viber-order', 'whatsapp-order', 'warehouse-gap-template'];
 const SOURCE_LABEL = {
   'telegram-order':         'بوت تلكرام',
   'viber-order':            'بوت فايبر',
+  'whatsapp-order':         'بوت واتساب',
   'warehouse-gap-template': 'إكسل الكوديشن',
   'manual-invoice':         'فاتورة يدوية',
 };
