@@ -196,6 +196,7 @@ export async function listOrders(reqUser, q = {}) {
       notes: r.notes,
       status: r.status,
       invoiceImage: r.invoiceImage,
+      preparedImage: r.preparedImage,
       sentAt: r.sentAt,
       sentCount: r.sentCount,
       preparedAt: r.preparedAt,
@@ -308,7 +309,7 @@ export async function markSent(reqUser, ids) {
   return { updated: r.count };
 }
 
-function removeInvoiceFile(rel) {
+function removeImageFile(rel) {
   if (!rel) return;
   const file = path.join(INVOICE_DIR, path.basename(rel));
   fs.promises.unlink(file).catch(() => {});
@@ -319,11 +320,18 @@ export async function deleteOrder(reqUser, id) {
   const order = await getVisibleOrder(viewer, id);
   if (!canEditContent(viewer, order)) throw new AppError('لا يمكنك حذف هذه الطلبية', 403);
   await prisma.repOrder.delete({ where: { id: order.id } });
-  removeInvoiceFile(order.invoiceImage);
+  removeImageFile(order.invoiceImage);
+  removeImageFile(order.preparedImage);
 }
 
-export async function attachInvoice(reqUser, id, file) {
+// نوعا الصورة: فاتورة المذخر، وصورة ما بعد التجهيز — رفع الثانية يعني أن
+// الطلبية جُهّزت واكتملت، فتُعلَّم «تم التجهيز» تلقائياً.
+export const IMAGE_KINDS = { invoice: 'invoiceImage', prepared: 'preparedImage' };
+
+export async function attachImage(reqUser, id, kind, file) {
+  const field = IMAGE_KINDS[kind];
   if (!file) throw new AppError('لا توجد صورة', 400);
+  if (!field) { fs.promises.unlink(file.path).catch(() => {}); throw new AppError('نوع صورة غير معروف', 400); }
   const viewer = await loadViewer(reqUser);
   let order;
   try {
@@ -333,16 +341,20 @@ export async function attachInvoice(reqUser, id, file) {
     throw e;
   }
   const url = `/uploads/rep-orders/${path.basename(file.path)}`;
-  await prisma.repOrder.update({ where: { id: order.id }, data: { invoiceImage: url } });
-  removeInvoiceFile(order.invoiceImage);
-  return { invoiceImage: url };
+  const data = { [field]: url };
+  if (kind === 'prepared') Object.assign(data, { status: 'prepared', preparedAt: new Date(), preparedById: viewer.id });
+  await prisma.repOrder.update({ where: { id: order.id }, data });
+  removeImageFile(order[field]);
+  return { [field]: url };
 }
 
-export async function removeInvoice(reqUser, id) {
+export async function removeImage(reqUser, id, kind) {
+  const field = IMAGE_KINDS[kind];
+  if (!field) throw new AppError('نوع صورة غير معروف', 400);
   const viewer = await loadViewer(reqUser);
   const order = await getVisibleOrder(viewer, id);
-  await prisma.repOrder.update({ where: { id: order.id }, data: { invoiceImage: null } });
-  removeInvoiceFile(order.invoiceImage);
+  await prisma.repOrder.update({ where: { id: order.id }, data: { [field]: null } });
+  removeImageFile(order[field]);
 }
 
 /** صيدليات/مناطق سبق أن كتبها المندوب — اقتراحات للإكمال التلقائي. */

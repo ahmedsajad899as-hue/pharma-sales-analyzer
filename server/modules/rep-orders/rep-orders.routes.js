@@ -31,7 +31,8 @@ router.get('/', ctrl.listOrders);
 router.post('/', ctrl.createOrder);
 router.put('/:id', ctrl.updateOrder);
 router.delete('/:id', ctrl.deleteOrder);
-router.post('/:id/invoice', invoiceUpload.single('image'), ctrl.attachInvoice);
-router.delete('/:id/invoice', ctrl.removeInvoice);
+// :kind = invoice (فاتورة المذخر) | prepared (صورة ما بعد التجهيز ← تُعلِّم الطلبية مجهّزة)
+router.post('/:id/image/:kind', invoiceUpload.single('image'), ctrl.attachImage);
+router.delete('/:id/image/:kind', ctrl.removeImage);
 
 export default router;

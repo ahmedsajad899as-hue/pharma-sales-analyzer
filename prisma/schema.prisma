@@ -3276,6 +3276,7 @@ model RepOrder {
   notes         String?
   status        String    @default("pending") // pending | prepared | cancelled
   invoiceImage  String? // /uploads/rep-orders/<random>.jpg
+  preparedImage String? // صورة ما بعد التجهيز — رفعها يُعلِّم الطلبية «تم التجهيز»
   sentAt        DateTime? // آخر إرسال للمذخر عبر واتساب
   sentCount     Int       @default(0)
   preparedAt    DateTime?

@@ -15,8 +15,8 @@ export const updateOrder     = wrap(async (req, res) => res.json({ success: true
 export const deleteOrder     = wrap(async (req, res) => { await svc.deleteOrder(req.user, req.params.id); res.json({ success: true }); });
 export const setStatus       = wrap(async (req, res) => res.json({ success: true, ...(await svc.setStatus(req.user, req.body?.ids, req.body?.status)) }));
 export const markSent        = wrap(async (req, res) => res.json({ success: true, ...(await svc.markSent(req.user, req.body?.ids)) }));
-export const attachInvoice   = wrap(async (req, res) => res.json({ success: true, ...(await svc.attachInvoice(req.user, req.params.id, req.file)) }));
-export const removeInvoice   = wrap(async (req, res) => { await svc.removeInvoice(req.user, req.params.id); res.json({ success: true }); });
+export const attachImage     = wrap(async (req, res) => res.json({ success: true, ...(await svc.attachImage(req.user, req.params.id, req.params.kind, req.file)) }));
+export const removeImage     = wrap(async (req, res) => { await svc.removeImage(req.user, req.params.id, req.params.kind); res.json({ success: true }); });
 export const suggestions     = wrap(async (req, res) => res.json({ success: true, ...(await svc.suggestions(req.user)) }));
 
 export const listWarehouses  = wrap(async (req, res) => res.json({ success: true, warehouses: await svc.listWarehouses(req.user) }));

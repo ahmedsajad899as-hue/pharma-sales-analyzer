@@ -6,8 +6,8 @@
 // • المصدر: /api/rep-orders (server/modules/rep-orders) — لا يدخل أي حسبة مبيعات.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Send, Check, RotateCcw, Image as ImageIcon, Pencil, X, Warehouse, Ban } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Plus, Trash2, Send, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, FileText } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -20,7 +20,7 @@ interface Order {
   id: number; orderDate: string; createdById: number; repName: string;
   warehouseId: number | null; warehouseName: string; warehousePhone: string | null;
   pharmacyName: string; areaName: string | null; notes: string | null;
-  status: Status; invoiceImage: string | null; sentAt: string | null; sentCount: number;
+  status: Status; invoiceImage: string | null; preparedImage: string | null; createdAt: string; sentAt: string | null; sentCount: number;
   preparedAt: string | null; preparedBy: string | null; lines: OrderLine[]; canEdit: boolean;
 }
 interface WarehouseRow { id: number; name: string; phone: string; notes: string | null; canEdit: boolean }
@@ -80,6 +80,33 @@ async function compressImage(file: File, maxSide = 1600, quality = 0.8): Promise
   } finally { URL.revokeObjectURL(url); }
 }
 
+type View = 'all' | 'pending' | 'prepared' | 'cancelled' | 'unsent' | 'invoice' | 'noInvoice';
+type Period = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
+type ImageKind = 'invoice' | 'prepared';
+
+const VIEW_LABEL: Record<View, string> = {
+  all: 'الكل', pending: 'بانتظار التجهيز', prepared: 'مجهّزة', cancelled: 'ملغاة',
+  unsent: 'لم تُرسل', invoice: 'بفاتورة', noInvoice: 'بدون فاتورة',
+};
+const VIEW_TEST: Record<View, (o: Order) => boolean> = {
+  all: () => true,
+  pending: o => o.status === 'pending',
+  prepared: o => o.status === 'prepared',
+  cancelled: o => o.status === 'cancelled',
+  unsent: o => !o.sentAt && o.status !== 'cancelled',
+  invoice: o => !!o.invoiceImage,
+  noInvoice: o => !o.invoiceImage,
+};
+
+const periodRange = (p: Period): [string, string] => {
+  if (p === 'yesterday') return [shiftDay(-1), shiftDay(-1)];
+  if (p === 'week') return [shiftDay(-6), today()];
+  if (p === 'month') return [monthStart(), today()];
+  return [today(), today()];
+};
+
+const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString('ar-IQ', { dateStyle: 'short', timeStyle: 'short' }) : '');
+
 export default function RepOrdersPage() {
   const { token } = useAuth();
 
@@ -96,13 +123,13 @@ export default function RepOrdersPage() {
     return body as T;
   }, [token]);
 
+  const [period, setPeriod] = useState<Period>('today');
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
-  const [status, setStatus] = useState<'' | Status>('');
   const [warehouseId, setWarehouseId] = useState('');
-  const [invoice, setInvoice] = useState<'' | 'yes' | 'no'>('');
   const [repUserId, setRepUserId] = useState('');
-  const [groupBy, setGroupBy] = useState<'date' | 'warehouse' | 'rep'>('date');
+  const [groupBy, setGroupBy] = useState<'none' | 'date' | 'warehouse' | 'rep'>('date');
+  const [view, setView] = useState<View>('all');
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [reps, setReps] = useState<{ id: number; name: string }[]>([]);
@@ -110,6 +137,7 @@ export default function RepOrdersPage() {
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState<Set<number>>(new Set());
   const [editing, setEditing] = useState<Order | 'new' | null>(null);
   const [showWarehouses, setShowWarehouses] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -125,45 +153,48 @@ export default function RepOrdersPage() {
     const q = new URLSearchParams();
     if (from) q.set('from', from);
     if (to) q.set('to', to);
-    if (status) q.set('status', status);
     if (warehouseId) q.set('warehouseId', warehouseId);
-    if (invoice) q.set('invoice', invoice);
     if (repUserId) q.set('repUserId', repUserId);
     try {
       const r = await api<{ orders: Order[]; reps: { id: number; name: string }[]; viewer: { isManager: boolean } }>(`?${q}`);
       setOrders(r.orders); setReps(r.reps); setIsManager(r.viewer.isManager);
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
-  }, [token, api, from, to, status, warehouseId, invoice, repUserId]);
+  }, [token, api, from, to, warehouseId, repUserId]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadWarehouses(); }, [loadWarehouses]);
 
-  const setRange = (f: string, t: string) => { setFrom(f); setTo(t); };
+  const pickPeriod = (p: Period) => {
+    setPeriod(p);
+    if (p !== 'custom') { const [f, t] = periodRange(p); setFrom(f); setTo(t); }
+  };
 
-  const stats = useMemo(() => ({
-    total: orders.length,
-    pending: orders.filter(o => o.status === 'pending').length,
-    prepared: orders.filter(o => o.status === 'prepared').length,
-    withInvoice: orders.filter(o => o.invoiceImage).length,
-    unsent: orders.filter(o => !o.sentAt && o.status !== 'cancelled').length,
-  }), [orders]);
+  const counts = useMemo(() => {
+    const c = {} as Record<View, number>;
+    (Object.keys(VIEW_TEST) as View[]).forEach(v => { c[v] = orders.filter(VIEW_TEST[v]).length; });
+    return c;
+  }, [orders]);
+
+  const visible = useMemo(() => orders.filter(VIEW_TEST[view]), [orders, view]);
 
   const groups = useMemo(() => {
-    const m = new Map<string, { key: string; title: string; orders: Order[]; warehouseId?: number | null; phone?: string | null }>();
-    for (const o of orders) {
+    if (groupBy === 'none') return [{ key: 'all', title: '', orders: visible, phone: null as string | null }];
+    const m = new Map<string, { key: string; title: string; orders: Order[]; phone: string | null }>();
+    for (const o of visible) {
       const key = groupBy === 'date' ? fmtDay(o.orderDate) : groupBy === 'warehouse' ? `w${o.warehouseId ?? o.warehouseName}` : `r${o.createdById}`;
       const title = groupBy === 'date' ? fmtDay(o.orderDate) : groupBy === 'warehouse' ? o.warehouseName : o.repName;
-      if (!m.has(key)) m.set(key, { key, title, orders: [], warehouseId: o.warehouseId, phone: o.warehousePhone });
+      if (!m.has(key)) m.set(key, { key, title, orders: [], phone: o.warehousePhone });
       m.get(key)!.orders.push(o);
     }
     return [...m.values()];
-  }, [orders, groupBy]);
+  }, [visible, groupBy]);
+
+  const toggleOpen = (id: number) => setOpen(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // ── الإرسال لواتساب المذخر ─────────────────────────────────────────────────
   // تُفتح النافذة قبل أي await كي لا يحجبها المتصفح كنافذة منبثقة.
   const sendToWarehouse = (list: Order[]) => {
-    const phone = list[0]?.warehousePhone;
-    const wa = toWaNumber(phone);
+    const wa = toWaNumber(list[0]?.warehousePhone);
     if (!wa) { alert('لا يوجد رقم واتساب لهذا المذخر — أضفه من «دليل المذاخر» ثم اختر المذخر في الطلبية.'); return; }
     const text = list.length === 1
       ? orderText(list[0])
@@ -181,196 +212,277 @@ export default function RepOrdersPage() {
     try { await api(`/${o.id}`, { method: 'DELETE' }); load(); } catch (e: any) { alert(e.message); }
   };
 
-  const uploadInvoice = async (o: Order, file: File) => {
+  const uploadImage = async (o: Order, kind: ImageKind, file: File) => {
     try {
       const fd = new FormData();
-      fd.append('image', await compressImage(file), 'invoice.jpg');
-      await api(`/${o.id}/invoice`, { method: 'POST', body: fd });
+      fd.append('image', await compressImage(file), `${kind}.jpg`);
+      await api(`/${o.id}/image/${kind}`, { method: 'POST', body: fd });
       load();
     } catch (e: any) { alert(e.message); }
   };
 
-  const removeInvoice = async (o: Order) => {
-    if (!window.confirm('حذف صورة الفاتورة؟')) return;
-    try { await api(`/${o.id}/invoice`, { method: 'DELETE' }); load(); } catch (e: any) { alert(e.message); }
+  const removeImage = async (o: Order, kind: ImageKind) => {
+    if (!window.confirm(kind === 'invoice' ? 'حذف صورة الفاتورة؟' : 'حذف صورة التجهيز؟')) return;
+    try { await api(`/${o.id}/image/${kind}`, { method: 'DELETE' }); load(); } catch (e: any) { alert(e.message); }
   };
+
+  const showDate = groupBy !== 'date';
+  const showRep = isManager && groupBy !== 'rep';
+  const showWh = groupBy !== 'warehouse';
+  const colCount = 5 + (showDate ? 1 : 0) + (showRep ? 1 : 0) + (showWh ? 1 : 0);
 
   return (
     <div className="ro-page">
-      <div className="ro-toolbar">
-        <div className="ro-segment" role="group" aria-label="الفترة">
-          <button className={from === today() && to === today() ? 'is-active' : ''} onClick={() => setRange(today(), today())}>اليوم</button>
-          <button className={from === shiftDay(-1) && to === shiftDay(-1) ? 'is-active' : ''} onClick={() => setRange(shiftDay(-1), shiftDay(-1))}>أمس</button>
-          <button className={from === shiftDay(-6) && to === today() ? 'is-active' : ''} onClick={() => setRange(shiftDay(-6), today())}>آخر 7 أيام</button>
-          <button className={from === monthStart() && to === today() ? 'is-active' : ''} onClick={() => setRange(monthStart(), today())}>هذا الشهر</button>
-        </div>
-        <label className="ro-inline">من <input className="form-input" type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
-        <label className="ro-inline">إلى <input className="form-input" type="date" value={to} onChange={e => setTo(e.target.value)} /></label>
-        <span className="ro-spacer" />
-        <button className="btn btn--secondary btn--sm" onClick={() => setShowWarehouses(true)}><Warehouse size={14} /> دليل المذاخر</button>
-        <button className="btn btn--primary btn--sm" onClick={() => setEditing('new')}><Plus size={14} /> طلبية جديدة</button>
-      </div>
-
-      <div className="ro-toolbar">
-        <select className="form-input ro-select" value={status} onChange={e => setStatus(e.target.value as any)}>
-          <option value="">كل الحالات</option>
-          {(Object.keys(STATUS_LABEL) as Status[]).map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+      <div className="ro-bar">
+        <select className="form-input ro-select" value={period} onChange={e => pickPeriod(e.target.value as Period)} aria-label="الفترة">
+          <option value="today">اليوم</option>
+          <option value="yesterday">أمس</option>
+          <option value="week">آخر 7 أيام</option>
+          <option value="month">هذا الشهر</option>
+          <option value="custom">فترة مخصّصة…</option>
         </select>
-        <select className="form-input ro-select" value={warehouseId} onChange={e => setWarehouseId(e.target.value)}>
+        {period === 'custom' && (
+          <span className="ro-dates">
+            <input className="form-input" type="date" value={from} onChange={e => setFrom(e.target.value)} aria-label="من" />
+            <span className="ro-muted">←</span>
+            <input className="form-input" type="date" value={to} onChange={e => setTo(e.target.value)} aria-label="إلى" />
+          </span>
+        )}
+        <select className="form-input ro-select" value={warehouseId} onChange={e => setWarehouseId(e.target.value)} aria-label="المذخر">
           <option value="">كل المذاخر</option>
           {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
-        <select className="form-input ro-select" value={invoice} onChange={e => setInvoice(e.target.value as any)}>
-          <option value="">الفاتورة: الكل</option>
-          <option value="yes">فيها صورة فاتورة</option>
-          <option value="no">بدون صورة فاتورة</option>
-        </select>
         {isManager && reps.length > 1 && (
-          <select className="form-input ro-select" value={repUserId} onChange={e => setRepUserId(e.target.value)}>
+          <select className="form-input ro-select" value={repUserId} onChange={e => setRepUserId(e.target.value)} aria-label="المندوب">
             <option value="">كل المندوبين</option>
             {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
         )}
+        <select className="form-input ro-select" value={groupBy} onChange={e => setGroupBy(e.target.value as any)} aria-label="التقسيم">
+          <option value="date">تقسيم: التاريخ</option>
+          <option value="warehouse">تقسيم: المذخر</option>
+          {isManager && <option value="rep">تقسيم: المندوب</option>}
+          <option value="none">بلا تقسيم</option>
+        </select>
         <span className="ro-spacer" />
-        <div className="ro-segment" role="group" aria-label="التقسيم">
-          <button className={groupBy === 'date' ? 'is-active' : ''} onClick={() => setGroupBy('date')}>حسب التاريخ</button>
-          <button className={groupBy === 'warehouse' ? 'is-active' : ''} onClick={() => setGroupBy('warehouse')}>حسب المذخر</button>
-          {isManager && <button className={groupBy === 'rep' ? 'is-active' : ''} onClick={() => setGroupBy('rep')}>حسب المندوب</button>}
-        </div>
+        <button className="btn btn--secondary btn--sm" onClick={() => setShowWarehouses(true)} title="دليل المذاخر وأرقام الواتساب">
+          <Warehouse size={14} /> <span className="ro-hide-sm">المذاخر</span>
+        </button>
+        <button className="btn btn--primary btn--sm" onClick={() => setEditing('new')}><Plus size={14} /> طلبية جديدة</button>
       </div>
 
-      <div className="ro-stats">
-        <div className="ro-stat"><span>الطلبيات</span><strong>{stats.total}</strong></div>
-        <div className="ro-stat ro-stat--warn"><span>بانتظار التجهيز</span><strong>{stats.pending}</strong></div>
-        <div className="ro-stat ro-stat--ok"><span>تم التجهيز</span><strong>{stats.prepared}</strong></div>
-        <div className="ro-stat"><span>فيها فاتورة</span><strong>{stats.withInvoice}</strong></div>
-        <div className="ro-stat"><span>لم تُرسل للمذخر</span><strong>{stats.unsent}</strong></div>
+      <div className="ro-chips" role="group" aria-label="عرض">
+        {(Object.keys(VIEW_LABEL) as View[]).map(v => (
+          <button key={v} className={`ro-chip ro-chip--${v} ${view === v ? 'is-active' : ''}`} onClick={() => setView(v)}>
+            {VIEW_LABEL[v]} <b>{counts[v]}</b>
+          </button>
+        ))}
+        {loading && <span className="ro-muted ro-small">جارٍ التحميل…</span>}
       </div>
 
       {err && <div className="ro-note ro-note--warn">⚠️ {err}</div>}
-      {loading && <div className="ro-muted">جارٍ التحميل…</div>}
-      {!loading && orders.length === 0 && (
+
+      {!loading && visible.length === 0 ? (
         <div className="ro-empty">
-          <div className="ro-empty__title">لا طلبيات في هذه الفترة</div>
-          <button className="btn btn--primary btn--sm" onClick={() => setEditing('new')}><Plus size={14} /> اكتب أول طلبية</button>
+          <div className="ro-empty__title">{orders.length ? 'لا طلبيات بهذا العرض' : 'لا طلبيات في هذه الفترة'}</div>
+          {!orders.length && <button className="btn btn--primary btn--sm" onClick={() => setEditing('new')}><Plus size={14} /> اكتب أول طلبية</button>}
+        </div>
+      ) : (
+        <div className="ro-table-wrap">
+          <table className="ro-table">
+            <thead>
+              <tr>
+                <th className="ro-col-no">#</th>
+                {showDate && <th className="ro-hide-sm">التاريخ</th>}
+                <th>الصيدلية</th>
+                {showWh && <th className="ro-hide-sm">المذخر</th>}
+                <th className="ro-hide-sm">الأصناف</th>
+                {showRep && <th className="ro-hide-sm">المندوب</th>}
+                <th>الحالة</th>
+                <th className="ro-col-actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map(g => {
+                const unsent = g.orders.filter(VIEW_TEST.unsent);
+                const pending = g.orders.filter(VIEW_TEST.pending);
+                return (
+                  <Fragment key={g.key}>
+                    {groupBy !== 'none' && (
+                      <tr className="ro-group-row">
+                        <td colSpan={colCount}>
+                          <div className="ro-group-row__inner">
+                            <strong>{g.title}</strong>
+                            <span className="ro-muted">{g.orders.length} طلبية</span>
+                            <span className="ro-spacer" />
+                            {groupBy === 'warehouse' && g.phone && unsent.length > 1 && (
+                              <button className="ro-link ro-link--wa" onClick={() => sendToWarehouse(unsent)}><Send size={13} /> إرسال {unsent.length} غير مرسلة</button>
+                            )}
+                            {pending.length > 1 && (
+                              <button className="ro-link" onClick={() => changeStatus(pending.map(o => o.id), 'prepared')}><Check size={13} /> تجهيز الكل ({pending.length})</button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {g.orders.map(o => (
+                      <OrderRow key={o.id} o={o} open={open.has(o.id)} colCount={colCount}
+                        showDate={showDate} showRep={showRep} showWh={showWh}
+                        onToggle={() => toggleOpen(o.id)}
+                        onSend={() => sendToWarehouse([o])}
+                        onStatus={s => changeStatus([o.id], s)}
+                        onEdit={() => setEditing(o)}
+                        onDelete={() => remove(o)}
+                        onUpload={(k, f) => uploadImage(o, k, f)}
+                        onRemoveImage={k => removeImage(o, k)}
+                        onPreview={setPreview} />
+                    ))}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
-
-      {groups.map(g => {
-        const unsent = g.orders.filter(o => !o.sentAt && o.status !== 'cancelled');
-        return (
-          <section key={g.key} className="ro-group">
-            <div className="ro-group__head">
-              <div className="ro-group__title">{g.title} <span className="ro-muted">— {g.orders.length} طلبية</span></div>
-              {groupBy === 'warehouse' && g.phone && unsent.length > 1 && (
-                <button className="btn btn--success btn--sm" onClick={() => sendToWarehouse(unsent)}>
-                  <Send size={14} /> إرسال {unsent.length} طلبيات غير مرسلة للمذخر
-                </button>
-              )}
-              {g.orders.some(o => o.status === 'pending') && (
-                <button className="btn btn--secondary btn--sm" onClick={() => changeStatus(g.orders.filter(o => o.status === 'pending').map(o => o.id), 'prepared')}>
-                  <Check size={14} /> تجهيز الكل
-                </button>
-              )}
-            </div>
-            <div className="ro-cards">
-              {g.orders.map(o => (
-                <OrderCard key={o.id} o={o} isManager={isManager}
-                  onSend={() => sendToWarehouse([o])}
-                  onStatus={s => changeStatus([o.id], s)}
-                  onEdit={() => setEditing(o)}
-                  onDelete={() => remove(o)}
-                  onUpload={f => uploadInvoice(o, f)}
-                  onRemoveInvoice={() => removeInvoice(o)}
-                  onPreview={() => setPreview(o.invoiceImage)} />
-              ))}
-            </div>
-          </section>
-        );
-      })}
 
       {editing && (
         <OrderForm token={token} api={api} order={editing === 'new' ? null : editing} warehouses={warehouses}
           onWarehousesChanged={loadWarehouses}
           onClose={() => setEditing(null)}
-          onSaved={(d) => { setEditing(null); if (d && (d < from || d > to)) setRange(d, d); else load(); }} />
+          onSaved={(d) => { setEditing(null); if (d && (d < from || d > to)) { setPeriod('custom'); setFrom(d); setTo(d); } else load(); }} />
       )}
       {showWarehouses && (
         <WarehousesModal api={api} warehouses={warehouses} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
       )}
       {preview && (
         <div className="ro-modal" onClick={() => setPreview(null)}>
-          <img className="ro-preview" src={`${API}${preview}`} alt="صورة الفاتورة" />
+          <img className="ro-preview" src={`${API}${preview}`} alt="صورة الطلبية" />
         </div>
       )}
     </div>
   );
 }
 
-// ─── بطاقة طلبية ─────────────────────────────────────────────────────────────
+// ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderCard({ o, isManager, onSend, onStatus, onEdit, onDelete, onUpload, onRemoveInvoice, onPreview }: {
-  o: Order; isManager: boolean;
-  onSend: () => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
-  onUpload: (f: File) => void; onRemoveInvoice: () => void; onPreview: () => void;
+function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSend, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
+  o: Order; open: boolean; colCount: number; showDate: boolean; showRep: boolean; showWh: boolean;
+  onToggle: () => void; onSend: () => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
+  onUpload: (k: ImageKind, f: File) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
 }) {
   const total = o.lines.reduce((s, l) => s + l.quantity, 0);
+  const summary = o.lines.slice(0, 2).map(l => `${l.itemName} ×${l.quantity}`).join('، ');
+  const more = o.lines.length - 2;
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
   return (
-    <div className={`ro-card ro-card--${o.status}`}>
-      <div className="ro-card__head">
-        <div>
-          <div className="ro-card__title">{o.pharmacyName}</div>
-          <div className="ro-card__meta">
-            {o.areaName && <span>📍 {o.areaName}</span>}
-            <span>🏬 {o.warehouseName}</span>
-            <span>📅 {fmtDay(o.orderDate)}</span>
-            {isManager && <span>👤 {o.repName}</span>}
-            <span className="ro-muted">#{o.id}</span>
+    <>
+      <tr className={`ro-row ro-row--${o.status} ${open ? 'is-open' : ''}`} onClick={onToggle}>
+        <td className="ro-col-no">
+          <span className="ro-chevron"><ChevronDown size={14} /></span>
+          <span className="ro-muted">{o.id}</span>
+        </td>
+        {showDate && <td className="ro-hide-sm ro-nowrap">{fmtDay(o.orderDate)}</td>}
+        <td>
+          <div className="ro-strong">{o.pharmacyName}</div>
+          <div className="ro-sub">
+            {o.areaName && <span>{o.areaName}</span>}
+            <span className="ro-show-sm">{o.warehouseName}</span>
+            <span className="ro-show-sm">{o.lines.length} صنف</span>
           </div>
-        </div>
-        <div className="ro-badges">
-          <span className={`ro-badge ro-badge--${o.status}`}>{STATUS_LABEL[o.status]}</span>
-          {o.sentAt
-            ? <span className="ro-badge ro-badge--sent" title={new Date(o.sentAt).toLocaleString('ar-IQ')}>أُرسلت{o.sentCount > 1 ? ` ×${o.sentCount}` : ''}</span>
-            : <span className="ro-badge">لم تُرسل</span>}
-          {o.invoiceImage && <span className="ro-badge ro-badge--invoice">🧾 فاتورة</span>}
-        </div>
-      </div>
+        </td>
+        {showWh && <td className="ro-hide-sm">{o.warehouseName}</td>}
+        <td className="ro-hide-sm ro-items-cell">
+          <span>{summary}</span>{more > 0 && <span className="ro-more">+{more}</span>}
+        </td>
+        {showRep && <td className="ro-hide-sm ro-nowrap">{o.repName}</td>}
+        <td>
+          <div className="ro-status">
+            <span className={`ro-badge ro-badge--${o.status}`}>{STATUS_LABEL[o.status]}</span>
+            <span className={`ro-dot ${o.sentAt ? 'is-on' : ''}`} title={o.sentAt ? `أُرسلت للمذخر ${fmtTime(o.sentAt)}` : 'لم تُرسل للمذخر'}><Send size={12} /></span>
+            <span className={`ro-dot ${o.invoiceImage ? 'is-on' : ''}`} title={o.invoiceImage ? 'فيها صورة فاتورة' : 'بدون صورة فاتورة'}><FileText size={12} /></span>
+            <span className={`ro-dot ${o.preparedImage ? 'is-on' : ''}`} title={o.preparedImage ? 'فيها صورة تجهيز' : 'بدون صورة تجهيز'}><Camera size={12} /></span>
+          </div>
+        </td>
+        <td className="ro-col-actions" onClick={stop}>
+          <button className="ro-icon-btn ro-icon-btn--wa" title={o.warehousePhone ? `إرسال لواتساب ${o.warehouseName}` : 'لا رقم واتساب للمذخر'} disabled={o.status === 'cancelled'} onClick={onSend}><Send size={14} /></button>
+          {o.status === 'pending' && <button className="ro-icon-btn ro-icon-btn--ok" title="تم التجهيز" onClick={() => onStatus('prepared')}><Check size={14} /></button>}
+        </td>
+      </tr>
 
-      <table className="ro-lines">
-        <thead><tr><th>الصنف</th><th>الشركة</th><th>الكمية</th><th>بونص</th></tr></thead>
-        <tbody>
-          {o.lines.map((l, i) => (
-            <tr key={l.id ?? i}><td>{l.itemName}</td><td className="ro-muted">{l.companyName ?? '—'}</td><td>{l.quantity}</td><td>{l.bonusQty || '—'}</td></tr>
-          ))}
-        </tbody>
-        <tfoot><tr><td colSpan={2}>المجموع</td><td>{total}</td><td /></tr></tfoot>
-      </table>
-      {o.notes && <div className="ro-card__notes">📝 {o.notes}</div>}
-      {o.preparedBy && o.status === 'prepared' && <div className="ro-muted ro-small">جهّزها: {o.preparedBy}</div>}
+      {open && (
+        <tr className="ro-detail-row">
+          <td colSpan={colCount}>
+            <div className="ro-detail">
+              <div className="ro-detail__main">
+                <table className="ro-lines">
+                  <thead><tr><th>#</th><th>الصنف</th><th>الشركة</th><th>الكمية</th><th>بونص</th></tr></thead>
+                  <tbody>
+                    {o.lines.map((l, i) => (
+                      <tr key={l.id ?? i}><td className="ro-muted">{i + 1}</td><td className="ro-strong">{l.itemName}</td><td className="ro-muted">{l.companyName ?? '—'}</td><td>{l.quantity}</td><td>{l.bonusQty || '—'}</td></tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr><td /><td colSpan={2}>المجموع</td><td>{total}</td><td /></tr></tfoot>
+                </table>
+                {o.notes && <div className="ro-notes">📝 {o.notes}</div>}
+              </div>
 
-      <div className="ro-card__actions">
-        <button className="btn btn--success btn--sm" onClick={onSend} disabled={o.status === 'cancelled'} title={o.warehousePhone ? `واتساب ${o.warehousePhone}` : 'لا رقم واتساب للمذخر'}>
-          <Send size={14} /> إرسال للمذخر
-        </button>
-        {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تم التجهيز</button>}
-        {o.status !== 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('pending')}><RotateCcw size={14} /> إرجاع لانتظار</button>}
-        {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('cancelled')}><Ban size={14} /> إلغاء</button>}
-        {o.invoiceImage ? (
-          <>
-            <button className="btn btn--secondary btn--sm" onClick={onPreview}><ImageIcon size={14} /> الفاتورة</button>
-            {o.canEdit && <button className="ro-icon-btn" title="حذف صورة الفاتورة" onClick={onRemoveInvoice}><X size={14} /></button>}
-          </>
-        ) : (
-          <label className="btn btn--secondary btn--sm ro-file">
-            <ImageIcon size={14} /> إضافة فاتورة
-            <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ''; }} />
-          </label>
-        )}
-        <span className="ro-spacer" />
-        {o.canEdit && <button className="ro-icon-btn" title="تعديل" onClick={onEdit}><Pencil size={14} /></button>}
-        {o.canEdit && <button className="ro-icon-btn ro-icon-btn--danger" title="حذف" onClick={onDelete}><Trash2 size={14} /></button>}
-      </div>
+              <div className="ro-detail__side">
+                <dl className="ro-info">
+                  <dt>المذخر</dt><dd>{o.warehouseName}{o.warehousePhone && <span className="ro-muted" dir="ltr"> · {o.warehousePhone}</span>}</dd>
+                  {o.areaName && <><dt>المنطقة</dt><dd>{o.areaName}</dd></>}
+                  <dt>المندوب</dt><dd>{o.repName}</dd>
+                  <dt>التاريخ</dt><dd>{fmtDay(o.orderDate)}</dd>
+                </dl>
+                <ol className="ro-timeline">
+                  <li className="is-done">كُتبت <span>{fmtTime(o.createdAt)}</span></li>
+                  <li className={o.sentAt ? 'is-done' : ''}>{o.sentAt ? `أُرسلت للمذخر${o.sentCount > 1 ? ` (${o.sentCount} مرات)` : ''}` : 'لم تُرسل للمذخر'} <span>{fmtTime(o.sentAt)}</span></li>
+                  <li className={o.status === 'prepared' ? 'is-done' : o.status === 'cancelled' ? 'is-cancel' : ''}>
+                    {o.status === 'prepared' ? `جُهّزت${o.preparedBy ? ` — ${o.preparedBy}` : ''}` : o.status === 'cancelled' ? 'ملغاة' : 'بانتظار التجهيز'} <span>{fmtTime(o.preparedAt)}</span>
+                  </li>
+                </ol>
+                <div className="ro-images">
+                  <ImageSlot label="صورة الفاتورة" src={o.invoiceImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('invoice', f)} onRemove={() => onRemoveImage('invoice')} />
+                  <ImageSlot label="صورة التجهيز" hint="رفعها يعتبر الطلبية مجهّزة" src={o.preparedImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('prepared', f)} onRemove={() => onRemoveImage('prepared')} />
+                </div>
+              </div>
+            </div>
+            <div className="ro-detail__actions">
+              <button className="btn btn--success btn--sm" onClick={onSend} disabled={o.status === 'cancelled'}><Send size={14} /> إرسال للمذخر</button>
+              {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تم التجهيز</button>}
+              {o.status !== 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('pending')}><RotateCcw size={14} /> إرجاع لانتظار</button>}
+              {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('cancelled')}><Ban size={14} /> إلغاء</button>}
+              <span className="ro-spacer" />
+              {o.canEdit && <button className="ro-icon-btn" title="تعديل" onClick={onEdit}><Pencil size={14} /></button>}
+              {o.canEdit && <button className="ro-icon-btn ro-icon-btn--danger" title="حذف" onClick={onDelete}><Trash2 size={14} /></button>}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function ImageSlot({ label, hint, src, canRemove, onPreview, onUpload, onRemove }: {
+  label: string; hint?: string; src: string | null; canRemove: boolean;
+  onPreview: (src: string) => void; onUpload: (f: File) => void; onRemove: () => void;
+}) {
+  return (
+    <div className="ro-slot">
+      <div className="ro-slot__label">{label}</div>
+      {src ? (
+        <div className="ro-slot__img">
+          <img src={`${API}${src}`} alt={label} onClick={() => onPreview(src)} />
+          {canRemove && <button className="ro-slot__x" title="حذف الصورة" onClick={onRemove}><X size={12} /></button>}
+        </div>
+      ) : (
+        <label className="ro-slot__empty">
+          <Camera size={18} />
+          <span>إضافة صورة</span>
+          {hint && <small>{hint}</small>}
+          <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ''; }} />
+        </label>
+      )}
     </div>
   );
 }
@@ -454,7 +566,7 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
       if (invoiceFile) {
         const fd = new FormData();
         fd.append('image', await compressImage(invoiceFile), 'invoice.jpg');
-        await api(`/${r.order.id}/invoice`, { method: 'POST', body: fd });
+        await api(`/${r.order.id}/image/invoice`, { method: 'POST', body: fd });
       }
       onSaved(head.orderDate);
     } catch (e: any) { setErr(e.message); } finally { setSaving(false); }
