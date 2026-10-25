@@ -60,10 +60,6 @@ function orderText(o: Order, withHeader = true): string {
     const bonus = l.bonusQty ? ` + بونص ${l.bonusQty}` : '';
     out.push(`${i + 1}) ${l.itemName}${l.companyName ? ` (${l.companyName})` : ''} — الكمية: ${l.quantity}${bonus}`);
   });
-  const total = o.lines.reduce((s, l) => s + l.quantity, 0);
-  const bonusTotal = o.lines.reduce((s, l) => s + l.bonusQty, 0);
-  out.push('──────────');
-  out.push(`عدد الأصناف: ${o.lines.length} — مجموع القطع: ${total}${bonusTotal ? ` + بونص ${bonusTotal}` : ''}`);
   if (o.notes) out.push(`ملاحظات: ${o.notes}`);
   if (o.invoiceImage) out.push(`صورة الفاتورة: ${window.location.origin}${o.invoiceImage}`);
   return out.join('\n');
