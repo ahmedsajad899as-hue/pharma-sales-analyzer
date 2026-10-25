@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera } from 'lucide-react';
+import { Plus, Trash2, Send, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -126,6 +126,16 @@ const periodRange = (p: Period): [string, string] => {
   return [today(), today()];
 };
 
+// البحث الذكي: يطبّع الهمزات/التاء المربوطة/الياء والتشكيل، وكل كلمة يجب أن توجد في
+// مكانٍ ما من الطلبية (مذخر، صيدلية، منطقة، مندوب، صنف، شركة، ملاحظة، رقم).
+const normSearch = (v: unknown) => String(v ?? '').toLowerCase()
+  .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[ً-ْـ]/g, '');
+const searchTextOf = (o: Order) => normSearch([
+  o.id, `#${o.id}`, o.pharmacyName, o.areaName, o.repName, o.notes, o.invoiceNumber,
+  ...o.warehouses.map(w => w.name), o.warehouseName,
+  ...o.lines.flatMap(l => [l.itemName, l.companyName]),
+].filter(Boolean).join(' '));
+
 const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString('ar-IQ', { dateStyle: 'short', timeStyle: 'short' }) : '');
 
 export default function RepOrdersPage() {
@@ -151,6 +161,7 @@ export default function RepOrdersPage() {
   const [groupBy, setGroupBy] = useState<GroupType | 'none'>('date');
   const [groupFilter, setGroupFilter] = useState<{ type: GroupType; key: string; title: string } | null>(null);
   const [view, setView] = useState<View>('all');
+  const [query, setQuery] = useState('');
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [isManager, setIsManager] = useState(false);
@@ -205,7 +216,10 @@ export default function RepOrdersPage() {
     else if (!from) { setFrom(today()); setTo(today()); }
   };
 
-  const byGroup = useCallback((o: Order) => !groupFilter || groupKey(o, groupFilter.type) === groupFilter.key, [groupFilter]);
+  const terms = useMemo(() => normSearch(query).split(/\s+/).filter(Boolean), [query]);
+  const searchIndex = useMemo(() => new Map(orders.map(o => [o.id, searchTextOf(o)])), [orders]);
+  const bySearch = useCallback((o: Order) => !terms.length || terms.every(t => searchIndex.get(o.id)!.includes(t)), [terms, searchIndex]);
+  const byGroup = useCallback((o: Order) => (!groupFilter || groupKey(o, groupFilter.type) === groupFilter.key) && bySearch(o), [groupFilter, bySearch]);
 
   // عدد كل حالة = بقية الفلاتر مطبّقة عدا الحالة — يتحدّث فور أي إرسال/تجهيز/إلغاء
   const counts = useMemo(() => {
@@ -219,7 +233,7 @@ export default function RepOrdersPage() {
     for (const t of ['date', 'warehouse', 'rep'] as GroupType[]) {
       const m = new Map<string, { key: string; title: string; count: number }>();
       for (const o of orders) {
-        if (!inView(o, view)) continue;
+        if (!inView(o, view) || !bySearch(o)) continue;
         const k = groupKey(o, t);
         if (!m.has(k)) m.set(k, { key: k, title: groupTitle(o, t), count: 0 });
         m.get(k)!.count++;
@@ -227,7 +241,7 @@ export default function RepOrdersPage() {
       out[t] = [...m.values()].sort((a, b) => (t === 'date' ? b.key.localeCompare(a.key) : b.count - a.count || a.title.localeCompare(b.title, 'ar')));
     }
     return out;
-  }, [orders, view]);
+  }, [orders, view, bySearch]);
 
   const visible = useMemo(() => orders.filter(o => inView(o, view) && byGroup(o)), [orders, view, byGroup]);
 
@@ -302,6 +316,12 @@ export default function RepOrdersPage() {
             <input className="form-input" type="date" value={to} onChange={e => setTo(e.target.value)} aria-label="إلى" />
           </span>
         )}
+        <div className="ro-search">
+          <Search size={14} className="ro-search__icon" />
+          <input className="form-input" type="search" value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="بحث: مذخر، صيدلية، مندوب، ايتم، شركة…" aria-label="بحث" />
+          {query && <button className="ro-search__x" title="مسح" onClick={() => setQuery('')}><X size={13} /></button>}
+        </div>
         <GroupMenu groupBy={groupBy} isManager={isManager} options={groupOptions} filter={groupFilter}
           onGroup={t => { setGroupBy(t); setGroupFilter(null); }}
           onPick={(t, opt) => { setGroupBy(t); setGroupFilter({ type: t, key: opt.key, title: opt.title }); }} />
@@ -330,7 +350,7 @@ export default function RepOrdersPage() {
 
       {!loading && visible.length === 0 ? (
         <div className="ro-empty">
-          <div className="ro-empty__title">{orders.length ? 'لا طلبيات بهذا العرض' : 'لا طلبيات بعد'}</div>
+          <div className="ro-empty__title">{!orders.length ? 'لا طلبيات بعد' : terms.length ? `لا نتائج لـ «${query}»` : 'لا طلبيات بهذا العرض'}</div>
           {!orders.length && <button className="btn btn--primary btn--sm" onClick={() => setEditing('new')}><Plus size={14} /> اكتب أول طلبية</button>}
         </div>
       ) : (
@@ -368,7 +388,7 @@ export default function RepOrdersPage() {
                       </tr>
                     )}
                     {g.orders.map(o => (
-                      <OrderRow key={o.id} o={o} open={open.has(o.id)} colCount={colCount}
+                      <OrderRow key={o.id} o={o} open={open.has(o.id)} colCount={colCount} terms={terms}
                         showDate={showDate} showRep={showRep} showWh={showWh}
                         onToggle={() => toggleOpen(o.id)}
                         onSend={wh => sendToWarehouse([o], wh)}
@@ -482,8 +502,8 @@ function Fold({ title, summary, children }: { title: string; summary?: React.Rea
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSend, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
-  o: Order; open: boolean; colCount: number; showDate: boolean; showRep: boolean; showWh: boolean;
+function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
+  o: Order; open: boolean; colCount: number; terms: string[]; showDate: boolean; showRep: boolean; showWh: boolean;
   onToggle: () => void; onSend: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
 }) {
@@ -499,6 +519,7 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
   useEffect(() => { setSendTo(Math.max(0, o.warehouses.indexOf(nextWh(o)))); }, [o]);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   const canSendRow = state === 'new';
+  const itemHits = terms.length ? o.lines.filter(l => terms.some(t => normSearch(`${l.itemName} ${l.companyName ?? ''}`).includes(t))) : [];
   const lastEvent = state === 'prepared' ? `تم التجهيز ${fmtTime(o.preparedAt)}` : o.sentAt ? `أُرسلت ${fmtTime(o.sentAt)}` : `كُتبت ${fmtTime(o.createdAt)}`;
 
   return (
@@ -514,6 +535,7 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
           <div className="ro-sub">
             {o.areaName && <span>{o.areaName}</span>}
             <span className="ro-show-sm">{wh.name}</span>
+            {itemHits.length > 0 && <span className="ro-hit">🔎 {itemHits.map(l => `${l.itemName} ×${l.quantity}`).join('، ')}</span>}
           </div>
         </td>
         {showWh && <td className="ro-hide-sm">{wh.name}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</td>}
