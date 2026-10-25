@@ -26,7 +26,6 @@ interface Order {
 interface WarehouseRow { id: number; name: string; phone: string; notes: string | null; canEdit: boolean }
 interface CatalogItem { id: number; name: string; company?: { name: string } | null; scientificCompany?: { name: string } | null }
 
-const STATUS_LABEL: Record<Status, string> = { pending: 'بانتظار التجهيز', prepared: 'تم التجهيز', cancelled: 'ملغاة' };
 
 // نفس تطبيع رقم wa.me المستعمل في ReportsPage: 07… ← 9647…، و00 تُحذف.
 const toWaNumber = (raw?: string | null): string => {
@@ -80,22 +79,23 @@ async function compressImage(file: File, maxSide = 1600, quality = 0.8): Promise
   } finally { URL.revokeObjectURL(url); }
 }
 
-type View = 'all' | 'pending' | 'prepared' | 'cancelled' | 'unsent' | 'invoice' | 'noInvoice';
+type View = 'all' | 'pending' | 'prepared' | 'cancelled' | 'unsent';
 type Period = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
 type ImageKind = 'invoice' | 'prepared';
 
+// الحالة الفعلية للعرض: وجود صورة فاتورة = الطلبية مجهّزة، حتى لو لم يُضغط «تم التجهيز».
+const stateOf = (o: Order): Status => (o.status === 'cancelled' ? 'cancelled' : o.status === 'prepared' || o.invoiceImage ? 'prepared' : 'pending');
+const STATE_LABEL: Record<Status, string> = { pending: 'غير مجهّزة', prepared: 'مجهّزة', cancelled: 'ملغاة' };
+
 const VIEW_LABEL: Record<View, string> = {
-  all: 'الكل', pending: 'بانتظار التجهيز', prepared: 'مجهّزة', cancelled: 'ملغاة',
-  unsent: 'لم تُرسل', invoice: 'بفاتورة', noInvoice: 'بدون فاتورة',
+  all: 'الكل', pending: 'غير مجهّزة / بدون فاتورة', prepared: 'مجهّزة / بفاتورة', cancelled: 'ملغاة', unsent: 'لم تُرسل',
 };
 const VIEW_TEST: Record<View, (o: Order) => boolean> = {
   all: () => true,
-  pending: o => o.status === 'pending',
-  prepared: o => o.status === 'prepared',
+  pending: o => stateOf(o) === 'pending',
+  prepared: o => stateOf(o) === 'prepared',
   cancelled: o => o.status === 'cancelled',
   unsent: o => !o.sentAt && o.status !== 'cancelled',
-  invoice: o => !!o.invoiceImage,
-  noInvoice: o => !o.invoiceImage,
 };
 
 const periodRange = (p: Period): [string, string] => {
@@ -399,10 +399,11 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
   const summary = o.lines.slice(0, 2).map(l => `${l.itemName} ×${l.quantity}`).join('، ');
   const more = o.lines.length - 2;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
+  const state = stateOf(o);
 
   return (
     <>
-      <tr className={`ro-row ro-row--${o.status} ${open ? 'is-open' : ''}`} onClick={onToggle}>
+      <tr className={`ro-row ro-row--${state} ${open ? 'is-open' : ''}`} onClick={onToggle}>
         <td className="ro-col-no">
           <span className="ro-chevron"><ChevronDown size={14} /></span>
           <span className="ro-muted">{o.id}</span>
@@ -423,7 +424,7 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
         {showRep && <td className="ro-hide-sm ro-nowrap">{o.repName}</td>}
         <td>
           <div className="ro-status">
-            <span className={`ro-badge ro-badge--${o.status}`}>{STATUS_LABEL[o.status]}</span>
+            <span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span>
             <span className={`ro-dot ${o.sentAt ? 'is-on' : ''}`} title={o.sentAt ? `أُرسلت للمذخر ${fmtTime(o.sentAt)}` : 'لم تُرسل للمذخر'}><Send size={12} /></span>
             <span className={`ro-dot ${o.invoiceImage ? 'is-on' : ''}`} title={o.invoiceImage ? 'فيها صورة فاتورة' : 'بدون صورة فاتورة'}><FileText size={12} /></span>
             <span className={`ro-dot ${o.preparedImage ? 'is-on' : ''}`} title={o.preparedImage ? 'فيها صورة تجهيز' : 'بدون صورة تجهيز'}><Camera size={12} /></span>
@@ -431,7 +432,7 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
         </td>
         <td className="ro-col-actions" onClick={stop}>
           <button className="ro-icon-btn ro-icon-btn--wa" title={o.warehousePhone ? `إرسال لواتساب ${o.warehouseName}` : 'لا رقم واتساب للمذخر'} disabled={o.status === 'cancelled'} onClick={onSend}><Send size={14} /></button>
-          {o.status === 'pending' && <button className="ro-icon-btn ro-icon-btn--ok" title="تم التجهيز" onClick={() => onStatus('prepared')}><Check size={14} /></button>}
+          {state === 'pending' && <button className="ro-icon-btn ro-icon-btn--ok" title="تم التجهيز" onClick={() => onStatus('prepared')}><Check size={14} /></button>}
         </td>
       </tr>
 
@@ -462,8 +463,8 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
                 <ol className="ro-timeline">
                   <li className="is-done">كُتبت <span>{fmtTime(o.createdAt)}</span></li>
                   <li className={o.sentAt ? 'is-done' : ''}>{o.sentAt ? `أُرسلت للمذخر${o.sentCount > 1 ? ` (${o.sentCount} مرات)` : ''}` : 'لم تُرسل للمذخر'} <span>{fmtTime(o.sentAt)}</span></li>
-                  <li className={o.status === 'prepared' ? 'is-done' : o.status === 'cancelled' ? 'is-cancel' : ''}>
-                    {o.status === 'prepared' ? `جُهّزت${o.preparedBy ? ` — ${o.preparedBy}` : ''}` : o.status === 'cancelled' ? 'ملغاة' : 'بانتظار التجهيز'} <span>{fmtTime(o.preparedAt)}</span>
+                  <li className={state === 'prepared' ? 'is-done' : state === 'cancelled' ? 'is-cancel' : ''}>
+                    {o.status === 'prepared' ? `جُهّزت${o.preparedBy ? ` — ${o.preparedBy}` : ''}` : state === 'prepared' ? 'مجهّزة (فيها فاتورة)' : state === 'cancelled' ? 'ملغاة' : 'غير مجهّزة'} <span>{fmtTime(o.preparedAt)}</span>
                   </li>
                 </ol>
                 <div className="ro-images">
@@ -474,7 +475,7 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
             </div>
             <div className="ro-detail__actions">
               <button className="btn btn--success btn--sm" onClick={onSend} disabled={o.status === 'cancelled'}><Send size={14} /> إرسال للمذخر</button>
-              {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تم التجهيز</button>}
+              {state === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تم التجهيز</button>}
               {o.status !== 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('pending')}><RotateCcw size={14} /> إرجاع لانتظار</button>}
               {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('cancelled')}><Ban size={14} /> إلغاء</button>}
               <span className="ro-spacer" />
