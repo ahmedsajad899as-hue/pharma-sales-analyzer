@@ -21,7 +21,8 @@
 .ro-chip b { font-weight: 700; color: var(--c-text-primary); font-size: 12px; min-width: 14px; text-align: center; }
 .ro-chip.is-active { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
 .ro-chip.is-active b { color: #fff; }
-.ro-chip--pending:not(.is-active) b { color: #b45309; }
+.ro-chip--new:not(.is-active) b { color: #2563eb; }
+.ro-chip--following:not(.is-active) b { color: #b45309; }
 .ro-chip--prepared:not(.is-active) b { color: var(--c-success); }
 
 .ro-note { padding: 10px 12px; border-radius: 10px; font-size: 13px; }
@@ -40,12 +41,15 @@
 
 /* لون هادئ لكل حالة: كهرماني فاتح = غير مجهّزة، أخضر فاتح = مجهّزة، رمادي = ملغاة.
    شفافية لا لون صلب، كي تبقى مقروءة في الوضع الداكن أيضاً. */
-.ro-row { cursor: pointer; transition: background 0.12s, filter 0.12s; }
-.ro-row--pending { background: rgba(245, 158, 11, 0.07); }
+/* لون ثابت لكل حالة (لا يتغيّر عند تمرير الماوس):
+   أزرق فاتح = جديد، كهرماني فاتح = قيد المتابعة، أخضر فاتح = تم التجهيز، رمادي = ملغاة */
+.ro-row { cursor: pointer; }
+.ro-row--new { background: rgba(59, 130, 246, 0.06); }
+.ro-row--following { background: rgba(245, 158, 11, 0.07); }
 .ro-row--prepared { background: rgba(16, 185, 129, 0.08); }
 .ro-row--cancelled { background: rgba(100, 116, 139, 0.08); color: var(--c-text-muted); }
-.ro-row:hover, .ro-row.is-open { filter: brightness(0.97); }
-.ro-row > td:first-child { border-inline-start: 3px solid #fbbf24; }
+.ro-row > td:first-child { border-inline-start: 3px solid #93c5fd; }
+.ro-row--following > td:first-child { border-inline-start-color: #fbbf24; }
 .ro-row--prepared > td:first-child { border-inline-start-color: #34d399; }
 .ro-row--cancelled > td:first-child { border-inline-start-color: #cbd5e1; }
 .ro-row--cancelled .ro-strong { text-decoration: line-through; text-decoration-color: rgba(100, 116, 139, 0.5); }
@@ -63,7 +67,8 @@
 
 .ro-status { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .ro-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--c-border-light); color: var(--c-text-secondary); white-space: nowrap; }
-.ro-badge--pending { background: rgba(245, 158, 11, 0.16); color: #92400e; }
+.ro-badge--new { background: rgba(59, 130, 246, 0.14); color: #1d4ed8; }
+.ro-badge--following { background: rgba(245, 158, 11, 0.16); color: #92400e; }
 .ro-badge--cancelled { background: rgba(100, 116, 139, 0.14); color: var(--c-text-muted); }
 .ro-badge--prepared { background: var(--c-success-bg); color: var(--c-success); }
 .ro-dot { display: inline-flex; padding: 3px; border-radius: 6px; color: var(--c-border); }
@@ -166,3 +171,51 @@
   .ro-form-line--head { display: none; }
   .ro-dialog { max-height: 96vh; }
 }
+
+/* ── قائمة التقسيم بالأسهم ── */
+.ro-gm { position: relative; }
+.ro-gm__btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; text-align: start; }
+.ro-gm__pop { position: absolute; top: calc(100% + 4px); inset-inline-start: 0; z-index: 50; min-width: 240px; max-height: 60vh; overflow-y: auto; background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14); padding: 6px; }
+.ro-gm__row { display: flex; align-items: center; border-radius: 8px; }
+.ro-gm__row.is-active { background: var(--c-accent-light); }
+.ro-gm__label { flex: 1; text-align: start; border: 0; background: none; padding: 8px 10px; font-family: inherit; font-size: 13px; color: var(--c-text-primary); cursor: pointer; }
+.ro-gm__arrow { border: 0; background: none; padding: 6px 8px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--c-text-secondary); border-radius: 6px; }
+.ro-gm__arrow:hover { background: var(--c-border-light); }
+.ro-gm__arrow svg { transition: transform 0.15s; }
+.ro-gm__arrow.is-open svg { transform: rotate(180deg); }
+.ro-gm__list { display: flex; flex-direction: column; padding: 2px 0 6px; margin-inline-start: 10px; border-inline-start: 2px solid var(--c-border-light); }
+.ro-gm__opt { display: flex; justify-content: space-between; gap: 10px; border: 0; background: none; padding: 6px 10px; font-family: inherit; font-size: 12.5px; color: var(--c-text-secondary); cursor: pointer; text-align: start; border-radius: 6px; }
+.ro-gm__opt:hover { background: var(--c-border-light); }
+.ro-gm__opt.is-active { color: var(--c-accent); font-weight: 600; }
+.ro-gm__opt b { font-size: 11.5px; color: var(--c-text-primary); }
+
+/* ── أقسام مطويّة (تُفتح بالضغط، وبتمرير الماوس على الحاسبة) ── */
+.ro-fold { background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 10px; }
+.ro-fold__head { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 7px 10px; font-family: inherit; cursor: pointer; text-align: start; }
+.ro-fold__title { font-size: 12px; font-weight: 600; color: var(--c-text-secondary); flex: none; }
+.ro-fold__sum { font-size: 11.5px; color: var(--c-text-muted); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ro-fold__chev { color: var(--c-text-muted); transition: transform 0.15s; flex: none; }
+.ro-fold__body { display: none; padding: 0 10px 8px; }
+.ro-fold__body .ro-info, .ro-fold__body .ro-notes { border: 0; padding: 0; background: none; }
+.ro-fold.is-open .ro-fold__body { display: block; }
+.ro-fold.is-open .ro-fold__chev { transform: rotate(180deg); }
+.ro-fold.is-open .ro-fold__sum { visibility: hidden; }
+@media (hover: hover) {
+  .ro-fold:hover .ro-fold__body { display: block; }
+  .ro-fold:hover .ro-fold__sum { visibility: hidden; }
+}
+
+/* ── الإرسال: المذخر الأساسي والاحتياط ── */
+.ro-sendbox { display: flex; flex-direction: column; gap: 6px; }
+.ro-whs { display: flex; flex-wrap: wrap; gap: 6px; }
+.ro-wh { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; border: 1px solid var(--c-border-light); background: var(--c-surface); border-radius: 10px; padding: 5px 10px; font-family: inherit; cursor: pointer; text-align: start; }
+.ro-wh.is-active { border-color: #22c55e; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15); }
+.ro-wh__rank { font-size: 10.5px; color: var(--c-text-muted); }
+.ro-wh__name { font-size: 12.5px; font-weight: 600; color: var(--c-text-primary); }
+.ro-wh__sent { font-size: 10px; color: var(--c-success); }
+.ro-backups { display: flex; flex-direction: column; gap: 6px; }
+.ro-backup { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; max-width: 420px; }
+
+/* ── السعر: خفيف لا يزاحم الكميات ── */
+.ro-price { color: var(--c-text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ro-lines tfoot .ro-price { color: var(--c-text-secondary); font-size: 12px; }

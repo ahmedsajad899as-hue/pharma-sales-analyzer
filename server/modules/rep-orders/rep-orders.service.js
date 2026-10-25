@@ -165,6 +165,16 @@ export async function listOrders(reqUser, q = {}) {
     },
   });
 
+  // مذاخر الاحتياط وآخر مذخر أُرسلت له — استعلام واحد لكل الطلبيات
+  const whIds = [...new Set(rows.flatMap(r => [...r.backupWarehouseIds, r.lastSentWarehouseId]).filter(Boolean))];
+  const whRows = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true, phone: true } }) : [];
+  const whById = new Map(whRows.map(w => [w.id, w]));
+
+  // سطور قديمة بلا سعر محفوظ ← سعر الكتالوج الحالي
+  const priceItemIds = [...new Set(rows.flatMap(r => r.lines.filter(l => l.unitPrice == null && l.itemId).map(l => l.itemId)))];
+  const priceItems = priceItemIds.length ? await prisma.item.findMany({ where: { id: { in: priceItemIds } }, select: { id: true, price: true, warehousePrice: true } }) : [];
+  const catalogPrice = new Map(priceItems.map(i => [i.id, i.warehousePrice ?? i.price ?? null]));
+
   const userIds = [...new Set(rows.flatMap(r => [r.createdById, r.preparedById]).filter(Boolean))];
   const users = userIds.length
     ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, displayName: true, username: true } })
@@ -191,6 +201,12 @@ export async function listOrders(reqUser, q = {}) {
       warehouseId: r.warehouseId,
       warehouseName: r.warehouse?.name ?? r.warehouseName,
       warehousePhone: r.warehouse?.phone ?? null,
+      // كل مذاخر الطلبية بالترتيب: الأساسي ثم الاحتياط
+      warehouses: [
+        r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, phone: r.warehouse.phone } : { id: null, name: r.warehouseName, phone: null },
+        ...r.backupWarehouseIds.map(id => whById.get(id)).filter(Boolean),
+      ],
+      lastSentWarehouseId: r.lastSentWarehouseId,
       pharmacyName: r.pharmacyName,
       areaName: r.areaName,
       notes: r.notes,
@@ -203,7 +219,7 @@ export async function listOrders(reqUser, q = {}) {
       preparedAt: r.preparedAt,
       preparedBy: r.preparedById ? (nameById.get(r.preparedById) ?? null) : null,
       createdAt: r.createdAt,
-      lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty, preparedQty: l.preparedQty, preparedBonus: l.preparedBonus })),
+      lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty, preparedQty: l.preparedQty, preparedBonus: l.preparedBonus, unitPrice: l.unitPrice ?? (l.itemId ? catalogPrice.get(l.itemId) ?? null : null) })),
       canEdit: canEditContent(viewer, r),
     })),
   };
@@ -224,12 +240,20 @@ async function buildOrderData(viewer, body) {
   }
   if (!warehouseName) throw new AppError('اختر المذخر', 400);
 
+  const wantedBackups = [...new Set((Array.isArray(body?.backupWarehouseIds) ? body.backupWarehouseIds : []).map(Number).filter(id => id && id !== warehouseId))].slice(0, 5);
+  let backupWarehouseIds = [];
+  if (wantedBackups.length) {
+    const found = await prisma.orderWarehouse.findMany({ where: { AND: [{ id: { in: wantedBackups } }, await warehouseScopeWhere(viewer)] }, select: { id: true } });
+    const ok = new Set(found.map(w => w.id));
+    backupWarehouseIds = wantedBackups.filter(id => ok.has(id)); // يحفظ ترتيب المستخدم
+  }
+
   const rawLines = Array.isArray(body?.lines) ? body.lines.slice(0, MAX_LINES) : [];
   const itemIds = [...new Set(rawLines.map(l => Number(l.itemId)).filter(Boolean))];
   const items = itemIds.length
     ? await prisma.item.findMany({
         where: { id: { in: itemIds } },
-        select: { id: true, name: true, company: { select: { name: true } }, scientificCompany: { select: { name: true } } },
+        select: { id: true, name: true, price: true, warehousePrice: true, company: { select: { name: true } }, scientificCompany: { select: { name: true } } },
       })
     : [];
   const itemById = new Map(items.map(i => [i.id, i]));
@@ -248,6 +272,8 @@ async function buildOrderData(viewer, body) {
       companyName: it ? (it.scientificCompany?.name ?? it.company?.name ?? null) : cleanText(l.companyName, 120),
       quantity: qty,
       bonusQty: Math.max(0, Math.floor(Number(l.bonusQty) || 0)),
+      // الطلبية تذهب لمذخر ← سعر المذخر أولاً
+      unitPrice: it ? (it.warehousePrice ?? it.price ?? null) : null,
     });
   }
   if (!lines.length) throw new AppError('أضف صنفاً واحداً على الأقل مع كميته', 400);
@@ -257,6 +283,7 @@ async function buildOrderData(viewer, body) {
       orderDate: parseDay(body?.orderDate),
       warehouseId,
       warehouseName,
+      backupWarehouseIds,
       pharmacyName,
       areaName: cleanText(body?.areaName, 120),
       notes: cleanText(body?.notes, 500),
@@ -299,13 +326,13 @@ export async function setStatus(reqUser, ids, status) {
   return { updated: r.count };
 }
 
-export async function markSent(reqUser, ids) {
+export async function markSent(reqUser, ids, warehouseId = null) {
   const viewer = await loadViewer(reqUser);
   const list = (Array.isArray(ids) ? ids : [ids]).map(Number).filter(Boolean).slice(0, 500);
   if (!list.length) return { updated: 0 };
   const r = await prisma.repOrder.updateMany({
     where: { AND: [{ id: { in: list } }, await orderScopeWhere(viewer)] },
-    data: { sentAt: new Date(), sentCount: { increment: 1 } },
+    data: { sentAt: new Date(), sentCount: { increment: 1 }, ...(warehouseId ? { lastSentWarehouseId: Number(warehouseId) } : {}) },
   });
   return { updated: r.count };
 }

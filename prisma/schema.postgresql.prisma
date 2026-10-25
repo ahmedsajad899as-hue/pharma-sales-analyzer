@@ -3279,6 +3279,8 @@ model RepOrder {
   orderDate     DateTime
   warehouseId   Int?
   warehouseName String // نسخة نصية — تبقى لو حُذف المذخر من الدليل
+  backupWarehouseIds  Int[] @default([]) // مذاخر احتياط بالترتيب — إن لم يجهّز الأول تُرسل للتالي
+  lastSentWarehouseId Int? // آخر مذخر أُرسلت له الطلبية
   pharmacyName  String
   areaName      String?
   notes         String?
@@ -3310,6 +3312,7 @@ model RepOrderLine {
   companyName String?
   quantity    Int
   bonusQty    Int     @default(0)
+  unitPrice     Float? // سعر المذخر للوحدة وقت كتابة الطلبية (من كتالوج Item)
   preparedQty   Int? // الكمية المجهّزة فعلاً حسب الفاتورة — null = لم تُقرأ فاتورة بعد
   preparedBonus Int?
 

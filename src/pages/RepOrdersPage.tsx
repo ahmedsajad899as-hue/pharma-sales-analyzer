@@ -6,8 +6,8 @@
 // • المصدر: /api/rep-orders (server/modules/rep-orders) — لا يدخل أي حسبة مبيعات.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Send, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, FileText } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Trash2, Send, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -16,10 +16,12 @@ const SHARE_CACHE = 'ordine-share'; // نفس الاسم في public/sw.js
 
 type Status = 'pending' | 'prepared' | 'cancelled';
 
-interface OrderLine { id?: number; itemId: number | null; itemName: string; companyName: string | null; quantity: number; bonusQty: number; preparedQty?: number | null; preparedBonus?: number | null }
+interface OrderLine { id?: number; itemId: number | null; itemName: string; companyName: string | null; quantity: number; bonusQty: number; preparedQty?: number | null; preparedBonus?: number | null; unitPrice?: number | null }
+interface OrderWh { id: number | null; name: string; phone: string | null }
 interface Order {
   id: number; orderDate: string; createdById: number; repName: string;
   warehouseId: number | null; warehouseName: string; warehousePhone: string | null;
+  warehouses: OrderWh[]; lastSentWarehouseId: number | null;
   pharmacyName: string; areaName: string | null; notes: string | null;
   status: Status; invoiceImage: string | null; preparedImage: string | null; invoiceNumber?: string | null; createdAt: string; sentAt: string | null; sentCount: number;
   preparedAt: string | null; preparedBy: string | null; lines: OrderLine[]; canEdit: boolean;
@@ -44,17 +46,28 @@ const today = () => dayStr(new Date());
 const shiftDay = (days: number) => { const d = new Date(); d.setDate(d.getDate() + days); return dayStr(d); };
 const monthStart = () => { const d = new Date(); return dayStr(new Date(d.getFullYear(), d.getMonth(), 1)); };
 const fmtDay = (iso: string) => String(iso).slice(0, 10);
+const fmtMoney = (n: number) => Math.round(n).toLocaleString('en-US');
 const itemCompany = (i: CatalogItem) => i.scientificCompany?.name ?? i.company?.name ?? null;
 const itemLabel = (i: CatalogItem) => (itemCompany(i) ? `${i.name} — ${itemCompany(i)}` : i.name);
 
-function orderText(o: Order, withHeader = true): string {
+/** المذخر الحالي للطلبية: آخر مذخر أُرسلت له، وإلا الأساسي. */
+const currentWh = (o: Order): OrderWh => o.warehouses.find(w => w.id != null && w.id === o.lastSentWarehouseId) ?? o.warehouses[0] ?? { id: o.warehouseId, name: o.warehouseName, phone: o.warehousePhone };
+
+/** المذخر المقترح للإرسال التالي: الأول إن لم تُرسل، وإلا الاحتياط الذي يلي آخر مذخر أُرسلت له. */
+const nextWh = (o: Order): OrderWh => {
+  if (!o.sentAt || o.lastSentWarehouseId == null) return o.warehouses[0];
+  const i = o.warehouses.findIndex(w => w.id === o.lastSentWarehouseId);
+  return o.warehouses[i + 1] ?? o.warehouses[Math.max(0, i)];
+};
+
+function orderText(o: Order, withHeader = true, whName = currentWh(o).name): string {
   const out: string[] = [];
   if (withHeader) out.push(`*طلبية رقم ${o.id}*`);
   out.push(`التاريخ: ${fmtDay(o.orderDate)}`);
   out.push(`المندوب: ${o.repName}`);
   out.push(`الصيدلية: ${o.pharmacyName}`);
   if (o.areaName) out.push(`المنطقة: ${o.areaName}`);
-  out.push(`المذخر: ${o.warehouseName}`);
+  out.push(`المذخر: ${whName}`);
   out.push('──────────');
   o.lines.forEach((l, i) => {
     const bonus = l.bonusQty ? ` + بونص ${l.bonusQty}` : '';
@@ -80,26 +93,33 @@ async function compressImage(file: File, maxSide = 1600, quality = 0.8): Promise
   } finally { URL.revokeObjectURL(url); }
 }
 
-type View = 'all' | 'pending' | 'prepared' | 'cancelled' | 'unsent';
-type Period = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
+type Period = 'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom';
 type ImageKind = 'invoice' | 'prepared';
+type GroupType = 'date' | 'warehouse' | 'rep';
 
-// الحالة الفعلية للعرض: وجود صورة فاتورة = الطلبية مجهّزة، حتى لو لم يُضغط «تم التجهيز».
-const stateOf = (o: Order): Status => (o.status === 'cancelled' ? 'cancelled' : o.status === 'prepared' || o.invoiceImage ? 'prepared' : 'pending');
-const STATE_LABEL: Record<Status, string> = { pending: 'غير مجهّزة', prepared: 'مجهّزة', cancelled: 'ملغاة' };
+// حالات العرض الأربع:
+//  جديد         — وصلت من المندوب ولم تُرسل لمذخر ولا صورة لها
+//  قيد المتابعة — أُرسلت لمذخر ولم تصل فاتورتها بعد ولم تُلغَ
+//  تم التجهيز   — فيها صورة فاتورة (أو صورة تجهيز، أو أُشّرت مجهّزة يدوياً)
+//  ملغاة
+type DisplayState = 'new' | 'following' | 'prepared' | 'cancelled';
+const stateOf = (o: Order): DisplayState => {
+  if (o.status === 'cancelled') return 'cancelled';
+  if (o.invoiceImage || o.preparedImage || o.status === 'prepared') return 'prepared';
+  return o.sentAt ? 'following' : 'new';
+};
+const STATE_LABEL: Record<DisplayState, string> = { new: 'جديد', following: 'قيد المتابعة', prepared: 'تم التجهيز', cancelled: 'ملغاة' };
+type View = 'all' | DisplayState;
+const VIEWS: View[] = ['all', 'new', 'following', 'prepared', 'cancelled'];
+const VIEW_LABEL: Record<View, string> = { all: 'الكل', ...STATE_LABEL };
+const inView = (o: Order, v: View) => v === 'all' || stateOf(o) === v;
 
-const VIEW_LABEL: Record<View, string> = {
-  all: 'الكل', pending: 'غير مجهّزة / بدون فاتورة', prepared: 'مجهّزة / بفاتورة', cancelled: 'ملغاة', unsent: 'لم تُرسل',
-};
-const VIEW_TEST: Record<View, (o: Order) => boolean> = {
-  all: () => true,
-  pending: o => stateOf(o) === 'pending',
-  prepared: o => stateOf(o) === 'prepared',
-  cancelled: o => o.status === 'cancelled',
-  unsent: o => !o.sentAt && o.status !== 'cancelled',
-};
+const GROUP_LABEL: Record<GroupType, string> = { date: 'التاريخ', warehouse: 'المذخر', rep: 'المندوب' };
+const groupKey = (o: Order, t: GroupType) => (t === 'date' ? fmtDay(o.orderDate) : t === 'warehouse' ? `w${currentWh(o).id ?? currentWh(o).name}` : `r${o.createdById}`);
+const groupTitle = (o: Order, t: GroupType) => (t === 'date' ? fmtDay(o.orderDate) : t === 'warehouse' ? currentWh(o).name : o.repName);
 
 const periodRange = (p: Period): [string, string] => {
+  if (p === 'all') return ['', ''];
   if (p === 'yesterday') return [shiftDay(-1), shiftDay(-1)];
   if (p === 'week') return [shiftDay(-6), today()];
   if (p === 'month') return [monthStart(), today()];
@@ -124,16 +144,15 @@ export default function RepOrdersPage() {
     return body as T;
   }, [token]);
 
-  const [period, setPeriod] = useState<Period>('today');
-  const [from, setFrom] = useState(today());
-  const [to, setTo] = useState(today());
-  const [warehouseId, setWarehouseId] = useState('');
-  const [repUserId, setRepUserId] = useState('');
-  const [groupBy, setGroupBy] = useState<'none' | 'date' | 'warehouse' | 'rep'>('date');
+  // الافتراضي: كل الطلبيات بلا قيد تاريخ — والتاريخ اختياري
+  const [period, setPeriod] = useState<Period>('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [groupBy, setGroupBy] = useState<GroupType | 'none'>('date');
+  const [groupFilter, setGroupFilter] = useState<{ type: GroupType; key: string; title: string } | null>(null);
   const [view, setView] = useState<View>('all');
 
   const [orders, setOrders] = useState<Order[]>([]);
-  const [reps, setReps] = useState<{ id: number; name: string }[]>([]);
   const [isManager, setIsManager] = useState(false);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -155,8 +174,8 @@ export default function RepOrdersPage() {
     if (from) q.set('from', from);
     if (to) q.set('to', to);
     try {
-      const r = await api<{ orders: Order[]; reps: { id: number; name: string }[]; viewer: { isManager: boolean } }>(`?${q}`);
-      setOrders(r.orders); setReps(r.reps); setIsManager(r.viewer.isManager);
+      const r = await api<{ orders: Order[]; viewer: { isManager: boolean } }>(`?${q}`);
+      setOrders(r.orders); setIsManager(r.viewer.isManager);
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
   }, [token, api, from, to]);
 
@@ -183,50 +202,41 @@ export default function RepOrdersPage() {
   const pickPeriod = (p: Period) => {
     setPeriod(p);
     if (p !== 'custom') { const [f, t] = periodRange(p); setFrom(f); setTo(t); }
+    else if (!from) { setFrom(today()); setTo(today()); }
   };
 
-  // كل الفلاتر تُطبَّق في المتصفح على طلبيات الفترة، كي يُظهر كل خيار عدده الحيّ
-  // (عدد كل خيار = بقية الفلاتر مطبّقة عدا فلتره هو) — يتحدّث فور أي تجهيز/إلغاء.
-  const byWh = (o: Order) => !warehouseId || String(o.warehouseId) === warehouseId;
-  const byRep = (o: Order) => !repUserId || String(o.createdById) === repUserId;
+  const byGroup = useCallback((o: Order) => !groupFilter || groupKey(o, groupFilter.type) === groupFilter.key, [groupFilter]);
 
+  // عدد كل حالة = بقية الفلاتر مطبّقة عدا الحالة — يتحدّث فور أي إرسال/تجهيز/إلغاء
   const counts = useMemo(() => {
-    const base = orders.filter(o => byWh(o) && byRep(o));
-    const c = {} as Record<View, number>;
-    (Object.keys(VIEW_TEST) as View[]).forEach(v => { c[v] = base.filter(VIEW_TEST[v]).length; });
-    return c;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, warehouseId, repUserId]);
+    const base = orders.filter(byGroup);
+    return Object.fromEntries(VIEWS.map(v => [v, base.filter(o => inView(o, v)).length])) as Record<View, number>;
+  }, [orders, byGroup]);
 
-  const whCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const o of orders) if (VIEW_TEST[view](o) && byRep(o)) m.set(String(o.warehouseId), (m.get(String(o.warehouseId)) ?? 0) + 1);
-    return m;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, view, repUserId]);
+  // قيم كل نوع تقسيم (لقائمة السهم): الاسم + العدد ضمن الحالة المختارة
+  const groupOptions = useMemo(() => {
+    const out = {} as Record<GroupType, { key: string; title: string; count: number }[]>;
+    for (const t of ['date', 'warehouse', 'rep'] as GroupType[]) {
+      const m = new Map<string, { key: string; title: string; count: number }>();
+      for (const o of orders) {
+        if (!inView(o, view)) continue;
+        const k = groupKey(o, t);
+        if (!m.has(k)) m.set(k, { key: k, title: groupTitle(o, t), count: 0 });
+        m.get(k)!.count++;
+      }
+      out[t] = [...m.values()].sort((a, b) => (t === 'date' ? b.key.localeCompare(a.key) : b.count - a.count || a.title.localeCompare(b.title, 'ar')));
+    }
+    return out;
+  }, [orders, view]);
 
-  const repCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const o of orders) if (VIEW_TEST[view](o) && byWh(o)) m.set(String(o.createdById), (m.get(String(o.createdById)) ?? 0) + 1);
-    return m;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, view, warehouseId]);
-
-  const sumOf = (m: Map<string, number>) => [...m.values()].reduce((s, n) => s + n, 0);
-  // من عنده طلبيات أولاً (الأكثر فالأقل)، ثم البقية أبجدياً
-  const repsSorted = useMemo(() => [...reps].sort((a, b) => (repCounts.get(String(b.id)) ?? 0) - (repCounts.get(String(a.id)) ?? 0)), [reps, repCounts]);
-
-  const visible = useMemo(() => orders.filter(o => VIEW_TEST[view](o) && byWh(o) && byRep(o)),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  [orders, view, warehouseId, repUserId]);
+  const visible = useMemo(() => orders.filter(o => inView(o, view) && byGroup(o)), [orders, view, byGroup]);
 
   const groups = useMemo(() => {
-    if (groupBy === 'none') return [{ key: 'all', title: '', orders: visible, phone: null as string | null }];
-    const m = new Map<string, { key: string; title: string; orders: Order[]; phone: string | null }>();
+    if (groupBy === 'none') return [{ key: 'all', title: '', orders: visible }];
+    const m = new Map<string, { key: string; title: string; orders: Order[] }>();
     for (const o of visible) {
-      const key = groupBy === 'date' ? fmtDay(o.orderDate) : groupBy === 'warehouse' ? `w${o.warehouseId ?? o.warehouseName}` : `r${o.createdById}`;
-      const title = groupBy === 'date' ? fmtDay(o.orderDate) : groupBy === 'warehouse' ? o.warehouseName : o.repName;
-      if (!m.has(key)) m.set(key, { key, title, orders: [], phone: o.warehousePhone });
+      const key = groupKey(o, groupBy);
+      if (!m.has(key)) m.set(key, { key, title: groupTitle(o, groupBy), orders: [] });
       m.get(key)!.orders.push(o);
     }
     return [...m.values()];
@@ -236,14 +246,14 @@ export default function RepOrdersPage() {
 
   // ── الإرسال لواتساب المذخر ─────────────────────────────────────────────────
   // تُفتح النافذة قبل أي await كي لا يحجبها المتصفح كنافذة منبثقة.
-  const sendToWarehouse = (list: Order[]) => {
-    const wa = toWaNumber(list[0]?.warehousePhone);
-    if (!wa) { alert('لا يوجد رقم واتساب لهذا المذخر — أضفه من «دليل المذاخر» ثم اختر المذخر في الطلبية.'); return; }
+  const sendToWarehouse = (list: Order[], wh: OrderWh) => {
+    const wa = toWaNumber(wh?.phone);
+    if (!wa) { alert(`لا يوجد رقم واتساب للمذخر «${wh?.name ?? ''}» — أضفه من «دليل المذاخر».`); return; }
     const text = list.length === 1
-      ? orderText(list[0])
-      : [`*${list.length} طلبيات — ${list[0].warehouseName}*`, ...list.map(o => `\n*طلبية رقم ${o.id}*\n${orderText(o, false)}`)].join('\n');
+      ? orderText(list[0], true, wh.name)
+      : [`*${list.length} طلبيات — ${wh.name}*`, ...list.map(o => `\n*طلبية رقم ${o.id}*\n${orderText(o, false, wh.name)}`)].join('\n');
     window.open(`https://wa.me/${wa}?text=${encodeURIComponent(text)}`, '_blank');
-    api('/mark-sent', { method: 'POST', body: JSON.stringify({ ids: list.map(o => o.id) }) }).then(load).catch(() => {});
+    api('/mark-sent', { method: 'POST', body: JSON.stringify({ ids: list.map(o => o.id), warehouseId: wh.id }) }).then(load).catch(() => {});
   };
 
   const changeStatus = async (ids: number[], s: Status) => {
@@ -272,17 +282,18 @@ export default function RepOrdersPage() {
   const showDate = groupBy !== 'date';
   const showRep = isManager && groupBy !== 'rep';
   const showWh = groupBy !== 'warehouse';
-  const colCount = 5 + (showDate ? 1 : 0) + (showRep ? 1 : 0) + (showWh ? 1 : 0);
+  const colCount = 4 + (showDate ? 1 : 0) + (showRep ? 1 : 0) + (showWh ? 1 : 0);
 
   return (
     <div className="ro-page">
       <div className="ro-bar">
-        <select className="form-input ro-select" value={period} onChange={e => pickPeriod(e.target.value as Period)} aria-label="الفترة">
+        <select className="form-input ro-select" value={period} onChange={e => pickPeriod(e.target.value as Period)} aria-label="التاريخ">
+          <option value="all">كل التواريخ</option>
           <option value="today">اليوم</option>
           <option value="yesterday">أمس</option>
           <option value="week">آخر 7 أيام</option>
           <option value="month">هذا الشهر</option>
-          <option value="custom">فترة مخصّصة…</option>
+          <option value="custom">تاريخ محدد…</option>
         </select>
         {period === 'custom' && (
           <span className="ro-dates">
@@ -291,22 +302,14 @@ export default function RepOrdersPage() {
             <input className="form-input" type="date" value={to} onChange={e => setTo(e.target.value)} aria-label="إلى" />
           </span>
         )}
-        <select className="form-input ro-select" value={warehouseId} onChange={e => setWarehouseId(e.target.value)} aria-label="المذخر">
-          <option value="">كل المذاخر ({sumOf(whCounts)})</option>
-          {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({whCounts.get(String(w.id)) ?? 0})</option>)}
-        </select>
-        {isManager && reps.length > 1 && (
-          <select className="form-input ro-select" value={repUserId} onChange={e => setRepUserId(e.target.value)} aria-label="المندوب">
-            <option value="">كل المندوبين ({sumOf(repCounts)})</option>
-            {repsSorted.map(r => <option key={r.id} value={r.id}>{r.name} ({repCounts.get(String(r.id)) ?? 0})</option>)}
-          </select>
+        <GroupMenu groupBy={groupBy} isManager={isManager} options={groupOptions} filter={groupFilter}
+          onGroup={t => { setGroupBy(t); setGroupFilter(null); }}
+          onPick={(t, opt) => { setGroupBy(t); setGroupFilter({ type: t, key: opt.key, title: opt.title }); }} />
+        {groupFilter && (
+          <button className="ro-chip is-active" onClick={() => setGroupFilter(null)} title="إزالة الفلتر">
+            {GROUP_LABEL[groupFilter.type]}: {groupFilter.title} <X size={12} />
+          </button>
         )}
-        <select className="form-input ro-select" value={groupBy} onChange={e => setGroupBy(e.target.value as any)} aria-label="التقسيم">
-          <option value="date">تقسيم: التاريخ</option>
-          <option value="warehouse">تقسيم: المذخر</option>
-          {isManager && <option value="rep">تقسيم: المندوب</option>}
-          <option value="none">بلا تقسيم</option>
-        </select>
         <span className="ro-spacer" />
         <button className="btn btn--secondary btn--sm" onClick={() => setShowWarehouses(true)} title="دليل المذاخر وأرقام الواتساب">
           <Warehouse size={14} /> <span className="ro-hide-sm">المذاخر</span>
@@ -314,8 +317,8 @@ export default function RepOrdersPage() {
         <button className="btn btn--primary btn--sm" onClick={() => setEditing('new')}><Plus size={14} /> طلبية جديدة</button>
       </div>
 
-      <div className="ro-chips" role="group" aria-label="عرض">
-        {(Object.keys(VIEW_LABEL) as View[]).map(v => (
+      <div className="ro-chips" role="group" aria-label="الحالة">
+        {VIEWS.map(v => (
           <button key={v} className={`ro-chip ro-chip--${v} ${view === v ? 'is-active' : ''}`} onClick={() => setView(v)}>
             {VIEW_LABEL[v]} <b>{counts[v]}</b>
           </button>
@@ -327,7 +330,7 @@ export default function RepOrdersPage() {
 
       {!loading && visible.length === 0 ? (
         <div className="ro-empty">
-          <div className="ro-empty__title">{orders.length ? 'لا طلبيات بهذا العرض' : 'لا طلبيات في هذه الفترة'}</div>
+          <div className="ro-empty__title">{orders.length ? 'لا طلبيات بهذا العرض' : 'لا طلبيات بعد'}</div>
           {!orders.length && <button className="btn btn--primary btn--sm" onClick={() => setEditing('new')}><Plus size={14} /> اكتب أول طلبية</button>}
         </div>
       ) : (
@@ -339,7 +342,6 @@ export default function RepOrdersPage() {
                 {showDate && <th className="ro-hide-sm">التاريخ</th>}
                 <th>الصيدلية</th>
                 {showWh && <th className="ro-hide-sm">المذخر</th>}
-                <th className="ro-hide-sm">الأصناف</th>
                 {showRep && <th className="ro-hide-sm">المندوب</th>}
                 <th>الحالة</th>
                 <th className="ro-col-actions" />
@@ -347,8 +349,8 @@ export default function RepOrdersPage() {
             </thead>
             <tbody>
               {groups.map(g => {
-                const unsent = g.orders.filter(VIEW_TEST.unsent);
-                const pending = g.orders.filter(VIEW_TEST.pending);
+                const fresh = g.orders.filter(o => stateOf(o) === 'new');
+                const groupWh = groupBy === 'warehouse' && g.orders[0] ? currentWh(g.orders[0]) : null;
                 return (
                   <Fragment key={g.key}>
                     {groupBy !== 'none' && (
@@ -358,11 +360,8 @@ export default function RepOrdersPage() {
                             <strong>{g.title}</strong>
                             <span className="ro-muted">{g.orders.length} طلبية</span>
                             <span className="ro-spacer" />
-                            {groupBy === 'warehouse' && g.phone && unsent.length > 1 && (
-                              <button className="ro-link ro-link--wa" onClick={() => sendToWarehouse(unsent)}><Send size={13} /> إرسال {unsent.length} غير مرسلة</button>
-                            )}
-                            {pending.length > 1 && (
-                              <button className="ro-link" onClick={() => changeStatus(pending.map(o => o.id), 'prepared')}><Check size={13} /> تجهيز الكل ({pending.length})</button>
+                            {groupWh?.phone && fresh.length > 1 && (
+                              <button className="ro-link ro-link--wa" onClick={() => sendToWarehouse(fresh, groupWh)}><Send size={13} /> إرسال {fresh.length} جديدة للمذخر</button>
                             )}
                           </div>
                         </td>
@@ -372,7 +371,7 @@ export default function RepOrdersPage() {
                       <OrderRow key={o.id} o={o} open={open.has(o.id)} colCount={colCount}
                         showDate={showDate} showRep={showRep} showWh={showWh}
                         onToggle={() => toggleOpen(o.id)}
-                        onSend={() => sendToWarehouse([o])}
+                        onSend={wh => sendToWarehouse([o], wh)}
                         onStatus={s => changeStatus([o.id], s)}
                         onEdit={() => setEditing(o)}
                         onDelete={() => remove(o)}
@@ -392,7 +391,7 @@ export default function RepOrdersPage() {
         <OrderForm token={token} api={api} order={editing === 'new' ? null : editing} warehouses={warehouses}
           onWarehousesChanged={loadWarehouses}
           onClose={() => setEditing(null)}
-          onSaved={(d) => { setEditing(null); if (d && (d < from || d > to)) { setPeriod('custom'); setFrom(d); setTo(d); } else load(); }} />
+          onSaved={(d) => { setEditing(null); if (d && from && (d < from || d > to)) pickPeriod('all'); else load(); }} />
       )}
       {showWarehouses && (
         <WarehousesModal api={api} warehouses={warehouses} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
@@ -409,20 +408,98 @@ export default function RepOrdersPage() {
   );
 }
 
+// ─── قائمة التقسيم: كل نوع بسهم يفتح أسماءه للفلترة على قيمة واحدة ─────────────
+
+function GroupMenu({ groupBy, isManager, options, filter, onGroup, onPick }: {
+  groupBy: GroupType | 'none'; isManager: boolean;
+  options: Record<GroupType, { key: string; title: string; count: number }[]>;
+  filter: { type: GroupType; key: string } | null;
+  onGroup: (t: GroupType | 'none') => void;
+  onPick: (t: GroupType, opt: { key: string; title: string }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState<GroupType | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const types: GroupType[] = isManager ? ['date', 'warehouse', 'rep'] : ['date', 'warehouse'];
+  return (
+    <div className="ro-gm" ref={ref}>
+      <button className="form-input ro-select ro-gm__btn" onClick={() => setOpen(v => !v)}>
+        تقسيم: {groupBy === 'none' ? 'بلا' : GROUP_LABEL[groupBy]} <ChevronDown size={14} />
+      </button>
+      {open && (
+        <div className="ro-gm__pop">
+          {types.map(t => (
+            <div key={t} className="ro-gm__group">
+              <div className={`ro-gm__row ${groupBy === t ? 'is-active' : ''}`}>
+                <button className="ro-gm__label" onClick={() => { onGroup(t); setOpen(false); }}>حسب {GROUP_LABEL[t]}</button>
+                <button className={`ro-gm__arrow ${expanded === t ? 'is-open' : ''}`} title={`اختيار ${GROUP_LABEL[t]} معيّن`} onClick={() => setExpanded(x => (x === t ? null : t))}>
+                  <span className="ro-muted ro-small">{options[t].length}</span><ChevronDown size={14} />
+                </button>
+              </div>
+              {expanded === t && (
+                <div className="ro-gm__list">
+                  {options[t].length === 0 && <div className="ro-muted ro-small">لا شيء</div>}
+                  {options[t].map(opt => (
+                    <button key={opt.key} className={`ro-gm__opt ${filter?.type === t && filter.key === opt.key ? 'is-active' : ''}`} onClick={() => { onPick(t, opt); setOpen(false); }}>
+                      <span>{opt.title}</span><b>{opt.count}</b>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          <div className="ro-gm__row">
+            <button className="ro-gm__label" onClick={() => { onGroup('none'); setOpen(false); }}>بلا تقسيم</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── قسم مطويّ: يُفتح بالضغط، أو بتمرير الماوس على الحاسبة ─────────────────────
+
+function Fold({ title, summary, children }: { title: string; summary?: React.ReactNode; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`ro-fold ${open ? 'is-open' : ''}`}>
+      <button className="ro-fold__head" onClick={() => setOpen(v => !v)}>
+        <span className="ro-fold__title">{title}</span>
+        {summary && <span className="ro-fold__sum">{summary}</span>}
+        <ChevronDown size={13} className="ro-fold__chev" />
+      </button>
+      <div className="ro-fold__body">{children}</div>
+    </div>
+  );
+}
+
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
 function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSend, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
   o: Order; open: boolean; colCount: number; showDate: boolean; showRep: boolean; showWh: boolean;
-  onToggle: () => void; onSend: () => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
+  onToggle: () => void; onSend: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
 }) {
+  const state = stateOf(o);
   const total = o.lines.reduce((s, l) => s + l.quantity, 0);
   const hasPrepared = o.lines.some(l => l.preparedQty != null);
   const preparedTotal = o.lines.reduce((s, l) => s + (l.preparedQty ?? 0), 0);
-  const summary = o.lines.slice(0, 2).map(l => `${l.itemName} ×${l.quantity}`).join('، ');
-  const more = o.lines.length - 2;
+  const hasPrice = o.lines.some(l => l.unitPrice != null);
+  const value = o.lines.reduce((s, l) => s + (l.unitPrice ?? 0) * l.quantity, 0);
+  const wh = currentWh(o);
+  const backups = o.warehouses.length - 1;
+  const [sendTo, setSendTo] = useState<number>(() => Math.max(0, o.warehouses.indexOf(nextWh(o))));
+  useEffect(() => { setSendTo(Math.max(0, o.warehouses.indexOf(nextWh(o)))); }, [o]);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
-  const state = stateOf(o);
+  const canSendRow = state === 'new';
+  const lastEvent = state === 'prepared' ? `تم التجهيز ${fmtTime(o.preparedAt)}` : o.sentAt ? `أُرسلت ${fmtTime(o.sentAt)}` : `كُتبت ${fmtTime(o.createdAt)}`;
 
   return (
     <>
@@ -436,26 +513,16 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
           <div className="ro-strong">{o.pharmacyName}</div>
           <div className="ro-sub">
             {o.areaName && <span>{o.areaName}</span>}
-            <span className="ro-show-sm">{o.warehouseName}</span>
-            <span className="ro-show-sm">{o.lines.length} صنف</span>
+            <span className="ro-show-sm">{wh.name}</span>
           </div>
         </td>
-        {showWh && <td className="ro-hide-sm">{o.warehouseName}</td>}
-        <td className="ro-hide-sm ro-items-cell">
-          <span>{summary}</span>{more > 0 && <span className="ro-more">+{more}</span>}
-        </td>
+        {showWh && <td className="ro-hide-sm">{wh.name}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</td>}
         {showRep && <td className="ro-hide-sm ro-nowrap">{o.repName}</td>}
-        <td>
-          <div className="ro-status">
-            <span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span>
-            <span className={`ro-dot ${o.sentAt ? 'is-on' : ''}`} title={o.sentAt ? `أُرسلت للمذخر ${fmtTime(o.sentAt)}` : 'لم تُرسل للمذخر'}><Send size={12} /></span>
-            <span className={`ro-dot ${o.invoiceImage ? 'is-on' : ''}`} title={o.invoiceImage ? 'فيها صورة فاتورة' : 'بدون صورة فاتورة'}><FileText size={12} /></span>
-            <span className={`ro-dot ${o.preparedImage ? 'is-on' : ''}`} title={o.preparedImage ? 'فيها صورة تجهيز' : 'بدون صورة تجهيز'}><Camera size={12} /></span>
-          </div>
-        </td>
+        <td><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span></td>
         <td className="ro-col-actions" onClick={stop}>
-          <button className="ro-icon-btn ro-icon-btn--wa" title={o.warehousePhone ? `إرسال لواتساب ${o.warehouseName}` : 'لا رقم واتساب للمذخر'} disabled={o.status === 'cancelled'} onClick={onSend}><Send size={14} /></button>
-          {state === 'pending' && <button className="ro-icon-btn ro-icon-btn--ok" title="تم التجهيز" onClick={() => onStatus('prepared')}><Check size={14} /></button>}
+          {canSendRow && (
+            <button className="ro-icon-btn ro-icon-btn--wa" title={o.warehouses[0]?.phone ? `إرسال لواتساب ${o.warehouses[0].name}` : 'لا رقم واتساب للمذخر'} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>
+          )}
         </td>
       </tr>
 
@@ -465,35 +532,73 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
             <div className="ro-detail">
               <div className="ro-detail__main">
                 <table className="ro-lines">
-                  <thead><tr><th>#</th><th>الصنف</th><th>الشركة</th><th>الكمية</th><th>بونص</th>{hasPrepared && <th>المجهّز</th>}</tr></thead>
+                  <thead>
+                    <tr>
+                      <th>#</th><th>الصنف</th><th>الشركة</th><th>الكمية</th><th>بونص</th>
+                      {hasPrepared && <th>المجهّز</th>}
+                      {hasPrice && <th className="ro-price">السعر</th>}
+                      {hasPrice && <th className="ro-price">المجموع</th>}
+                    </tr>
+                  </thead>
                   <tbody>
                     {o.lines.map((l, i) => (
                       <tr key={l.id ?? i} className={hasPrepared && (l.preparedQty ?? 0) !== l.quantity ? 'ro-diff' : ''}>
                         <td className="ro-muted">{i + 1}</td><td className="ro-strong">{l.itemName}</td><td className="ro-muted">{l.companyName ?? '—'}</td><td>{l.quantity}</td><td>{l.bonusQty || '—'}</td>
                         {hasPrepared && <td className="ro-strong">{l.preparedQty ?? 0}{l.preparedBonus ? ` + ${l.preparedBonus}` : ''}</td>}
+                        {hasPrice && <td className="ro-price">{l.unitPrice != null ? fmtMoney(l.unitPrice) : '—'}</td>}
+                        {hasPrice && <td className="ro-price">{l.unitPrice != null ? fmtMoney(l.unitPrice * l.quantity) : '—'}</td>}
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot><tr><td /><td colSpan={2}>المجموع</td><td>{total}</td><td />{hasPrepared && <td>{preparedTotal}</td>}</tr></tfoot>
+                  <tfoot>
+                    <tr>
+                      <td /><td colSpan={2}>المجموع</td><td>{total}</td><td />
+                      {hasPrepared && <td>{preparedTotal}</td>}
+                      {hasPrice && <td />}
+                      {hasPrice && <td className="ro-price">{fmtMoney(value)}</td>}
+                    </tr>
+                  </tfoot>
                 </table>
-                {o.notes && <div className="ro-notes">📝 {o.notes}</div>}
+                {o.notes && <Fold title="ملاحظات" summary={o.notes.length > 40 ? `${o.notes.slice(0, 40)}…` : o.notes}><div className="ro-notes">{o.notes}</div></Fold>}
               </div>
 
               <div className="ro-detail__side">
-                <dl className="ro-info">
-                  <dt>المذخر</dt><dd>{o.warehouseName}{o.warehousePhone && <span className="ro-muted" dir="ltr"> · {o.warehousePhone}</span>}</dd>
-                  {o.areaName && <><dt>المنطقة</dt><dd>{o.areaName}</dd></>}
-                  <dt>المندوب</dt><dd>{o.repName}</dd>
-                  <dt>التاريخ</dt><dd>{fmtDay(o.orderDate)}</dd>
-                  {o.invoiceNumber && <><dt>رقم الفاتورة</dt><dd>{o.invoiceNumber}</dd></>}
-                </dl>
-                <ol className="ro-timeline">
-                  <li className="is-done">كُتبت <span>{fmtTime(o.createdAt)}</span></li>
-                  <li className={o.sentAt ? 'is-done' : ''}>{o.sentAt ? `أُرسلت للمذخر${o.sentCount > 1 ? ` (${o.sentCount} مرات)` : ''}` : 'لم تُرسل للمذخر'} <span>{fmtTime(o.sentAt)}</span></li>
-                  <li className={state === 'prepared' ? 'is-done' : state === 'cancelled' ? 'is-cancel' : ''}>
-                    {o.status === 'prepared' ? `جُهّزت${o.preparedBy ? ` — ${o.preparedBy}` : ''}` : state === 'prepared' ? 'مجهّزة (فيها فاتورة)' : state === 'cancelled' ? 'ملغاة' : 'غير مجهّزة'} <span>{fmtTime(o.preparedAt)}</span>
-                  </li>
-                </ol>
+                <Fold title="معلومات الطلبية" summary={`${o.repName} · ${fmtDay(o.orderDate)}`}>
+                  <dl className="ro-info">
+                    {o.areaName && <><dt>المنطقة</dt><dd>{o.areaName}</dd></>}
+                    <dt>المندوب</dt><dd>{o.repName}</dd>
+                    <dt>التاريخ</dt><dd>{fmtDay(o.orderDate)}</dd>
+                    {o.invoiceNumber && <><dt>رقم الفاتورة</dt><dd>{o.invoiceNumber}</dd></>}
+                  </dl>
+                </Fold>
+                <Fold title="سجل الحالة" summary={lastEvent}>
+                  <ol className="ro-timeline">
+                    <li className="is-done">كُتبت <span>{fmtTime(o.createdAt)}</span></li>
+                    <li className={o.sentAt ? 'is-done' : ''}>{o.sentAt ? `أُرسلت إلى ${wh.name}${o.sentCount > 1 ? ` (${o.sentCount} مرات)` : ''}` : 'لم تُرسل للمذخر'} <span>{fmtTime(o.sentAt)}</span></li>
+                    <li className={state === 'prepared' ? 'is-done' : state === 'cancelled' ? 'is-cancel' : ''}>
+                      {state === 'prepared' ? `تم التجهيز${o.preparedBy ? ` — ${o.preparedBy}` : ''}` : state === 'cancelled' ? 'ملغاة' : 'لم تُجهَّز بعد'} <span>{fmtTime(o.preparedAt)}</span>
+                    </li>
+                  </ol>
+                </Fold>
+
+                {state !== 'cancelled' && state !== 'prepared' && (
+                  <div className="ro-sendbox">
+                    <div className="ro-slot__label">الإرسال إلى</div>
+                    <div className="ro-whs">
+                      {o.warehouses.map((w, i) => (
+                        <button key={`${w.id}-${i}`} className={`ro-wh ${sendTo === i ? 'is-active' : ''}`} onClick={() => setSendTo(i)}>
+                          <span className="ro-wh__rank">{i === 0 ? 'الأساسي' : `احتياط ${i}`}</span>
+                          <span className="ro-wh__name">{w.name}</span>
+                          {o.lastSentWarehouseId != null && w.id === o.lastSentWarehouseId && <span className="ro-wh__sent">أُرسلت</span>}
+                        </button>
+                      ))}
+                    </div>
+                    <button className="btn btn--success btn--sm" onClick={() => onSend(o.warehouses[sendTo] ?? o.warehouses[0])}>
+                      <Send size={14} /> إرسال إلى {(o.warehouses[sendTo] ?? o.warehouses[0])?.name}
+                    </button>
+                  </div>
+                )}
+
                 <div className="ro-images">
                   <ImageSlot label="صورة الفاتورة" src={o.invoiceImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('invoice', f)} onRemove={() => onRemoveImage('invoice')} />
                   <ImageSlot label="صورة التجهيز" hint="رفعها يعتبر الطلبية مجهّزة" src={o.preparedImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('prepared', f)} onRemove={() => onRemoveImage('prepared')} />
@@ -501,9 +606,8 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
               </div>
             </div>
             <div className="ro-detail__actions">
-              <button className="btn btn--success btn--sm" onClick={onSend} disabled={o.status === 'cancelled'}><Send size={14} /> إرسال للمذخر</button>
-              {state === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تم التجهيز</button>}
-              {o.status !== 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('pending')}><RotateCcw size={14} /> إرجاع لانتظار</button>}
+              {state !== 'prepared' && state !== 'cancelled' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تم التجهيز</button>}
+              {o.status !== 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('pending')}><RotateCcw size={14} /> إرجاع</button>}
               {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('cancelled')}><Ban size={14} /> إلغاء</button>}
               <span className="ro-spacer" />
               {o.canEdit && <button className="ro-icon-btn" title="تعديل" onClick={onEdit}><Pencil size={14} /></button>}
@@ -590,7 +694,7 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
     const rows = (orders ?? []).filter(o => !t || `${o.id} ${o.pharmacyName} ${o.warehouseName} ${o.areaName ?? ''} ${o.repName}`.toLowerCase().includes(t));
     // الأعلى تطابقاً مع الفاتورة أولاً، ثم غير المجهّزة
     const score = (o: Order) => candidateById.get(o.id)?.score ?? -1;
-    return rows.sort((a, b) => score(b) - score(a) || Number(stateOf(a) !== 'pending') - Number(stateOf(b) !== 'pending'));
+    return rows.sort((a, b) => score(b) - score(a) || Number(stateOf(a) === 'prepared') - Number(stateOf(b) === 'prepared'));
   }, [orders, q, candidateById]);
 
   const save = async () => {
@@ -765,6 +869,9 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
     : [newLine()]);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [newWh, setNewWh] = useState<{ name: string; phone: string } | null>(null);
+  // مذاخر احتياط بالترتيب: إن لم يجهّز الأساسي تُرسل الطلبية للتالي
+  const [backups, setBackups] = useState<string[]>(() => (order?.warehouses ?? []).slice(1).map(w => String(w.id ?? '')).filter(Boolean));
+  const [newWhSlot, setNewWhSlot] = useState<'main' | number>('main');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -797,7 +904,9 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
     try {
       const r = await api<{ warehouse: WarehouseRow }>('/warehouses', { method: 'POST', body: JSON.stringify(newWh) });
       onWarehousesChanged();
-      setHead(h => ({ ...h, warehouseId: String(r.warehouse.id) }));
+      const id = String(r.warehouse.id);
+      if (newWhSlot === 'main') setHead(h => ({ ...h, warehouseId: id }));
+      else setBackups(bs => bs.map((b, i) => (i === newWhSlot ? id : b)));
       setNewWh(null);
     } catch (e: any) { alert(e.message); }
   };
@@ -812,6 +921,7 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
       const body = JSON.stringify({
         ...head,
         warehouseId: Number(head.warehouseId),
+        backupWarehouseIds: backups.filter(Boolean).map(Number),
         lines: valid.map(l => ({ itemId: l.itemId, itemName: l.text.trim(), companyName: l.companyName || null, quantity: Number(l.quantity), bonusQty: Number(l.bonusQty) || 0 })),
       });
       const r = await api<{ order: { id: number } }>(order ? `/${order.id}` : '', { method: order ? 'PUT' : 'POST', body });
@@ -837,7 +947,7 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
               <input className="form-input" type="date" value={head.orderDate} onChange={e => setHead(h => ({ ...h, orderDate: e.target.value }))} />
             </label>
             <label className="ro-field">المذخر *
-              <select className="form-input" value={head.warehouseId} onChange={e => e.target.value === '__new' ? setNewWh({ name: '', phone: '' }) : setHead(h => ({ ...h, warehouseId: e.target.value }))}>
+              <select className="form-input" value={head.warehouseId} onChange={e => { if (e.target.value === '__new') { setNewWhSlot('main'); setNewWh({ name: '', phone: '' }); } else setHead(h => ({ ...h, warehouseId: e.target.value })); }}>
                 <option value="">اختر المذخر…</option>
                 {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                 <option value="__new">+ مذخر جديد…</option>
@@ -851,6 +961,26 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
               <input className="form-input" list="ro-areas" value={head.areaName} onChange={e => setHead(h => ({ ...h, areaName: e.target.value }))} />
               <datalist id="ro-areas">{areas.map(a => <option key={a} value={a} />)}</datalist>
             </label>
+          </div>
+
+          <div className="ro-backups">
+            {backups.map((b, i) => {
+              const taken = new Set([head.warehouseId, ...backups.filter((_, j) => j !== i)]);
+              return (
+                <div key={i} className="ro-backup">
+                  <span className="ro-wh__rank">احتياط {i + 1}</span>
+                  <select className="form-input" value={b} onChange={e => { if (e.target.value === '__new') { setNewWhSlot(i); setNewWh({ name: '', phone: '' }); } else setBackups(bs => bs.map((x, j) => (j === i ? e.target.value : x))); }}>
+                    <option value="">اختر المذخر…</option>
+                    {warehouses.filter(w => !taken.has(String(w.id))).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    <option value="__new">+ مذخر جديد…</option>
+                  </select>
+                  <button className="ro-icon-btn" title="حذف" onClick={() => setBackups(bs => bs.filter((_, j) => j !== i))}><X size={14} /></button>
+                </div>
+              );
+            })}
+            {head.warehouseId && backups.length < 5 && (
+              <button className="ro-link ro-self-start" onClick={() => setBackups(bs => [...bs, ''])}><Plus size={13} /> مذخر احتياط</button>
+            )}
           </div>
 
           {newWh && (
