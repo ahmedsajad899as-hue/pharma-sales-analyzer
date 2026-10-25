@@ -276,7 +276,7 @@ export default function RepOrdersPage() {
   useEffect(() => {
     const onBack = (e: Event) => {
       const ce = e as CustomEvent<{ activePage?: string }>;
-      if (ce.detail?.activePage !== 'rep-orders') return;
+      if (ce.detail?.activePage !== 'rep-orders' || ce.defaultPrevented) return;
       if (preview)        { ce.preventDefault(); setPreview(null); return; }
       if (editing)        { ce.preventDefault(); setEditing(null); return; }
       if (showWarehouses) { ce.preventDefault(); setShowWarehouses(false); return; }
@@ -921,7 +921,8 @@ function ImageSlot({ label, hint, src, canRemove, onPreview, onUpload, onRemove 
 // ─── نموذج الطلبية ───────────────────────────────────────────────────────────
 
 interface FormLine { key: number; text: string; itemId: number | null; companyName: string; quantity: string; bonusQty: string }
-const newLine = (): FormLine => ({ key: Date.now() + Math.random(), text: '', itemId: null, companyName: '', quantity: '', bonusQty: '' });
+const newLine = (text = '', itemId: number | null = null, companyName = ''): FormLine => ({ key: Date.now() + Math.random(), text, itemId, companyName, quantity: '', bonusQty: '' });
+const MAX_WAREHOUSES = 6; // الأساسي + 5 احتياط
 
 function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose, onSaved }: {
   token: string | null;
@@ -934,19 +935,21 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
   const [pharmacies, setPharmacies] = useState<{ name: string; areaName: string | null }[]>([]);
   const [head, setHead] = useState({
     orderDate: order ? fmtDay(order.orderDate) : today(),
-    warehouseId: order?.warehouseId ? String(order.warehouseId) : '',
     pharmacyName: order?.pharmacyName ?? '',
     areaName: order?.areaName ?? '',
     notes: order?.notes ?? '',
   });
   const [lines, setLines] = useState<FormLine[]>(() => order
     ? order.lines.map(l => ({ key: Math.random(), text: l.itemName, itemId: l.itemId, companyName: l.companyName ?? '', quantity: String(l.quantity), bonusQty: l.bonusQty ? String(l.bonusQty) : '' }))
-    : [newLine()]);
+    : []);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [newWh, setNewWh] = useState<{ name: string; phone: string } | null>(null);
-  // مذاخر احتياط بالترتيب: إن لم يجهّز الأساسي تُرسل الطلبية للتالي
-  const [backups, setBackups] = useState<string[]>(() => (order?.warehouses ?? []).slice(1).map(w => String(w.id ?? '')).filter(Boolean));
-  const [newWhSlot, setNewWhSlot] = useState<'main' | number>('main');
+  // المذاخر بالترتيب: الأول أساسي، والبقية احتياط — إن لم يجهّز الأساسي تُرسل للتالي
+  const [whIds, setWhIds] = useState<string[]>(() => {
+    const ids = (order?.warehouses ?? []).map(w => String(w.id ?? '')).filter(Boolean);
+    return ids.length ? ids : order?.warehouseId ? [String(order.warehouseId)] : [];
+  });
+  const [pickItems, setPickItems] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -958,16 +961,16 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
     api<{ pharmacies: { name: string; areaName: string | null }[] }>('/suggestions').then(r => setPharmacies(r.pharmacies)).catch(() => {});
   }, [token, api]);
 
-  const itemByLabel = useMemo(() => {
-    const m = new Map<string, CatalogItem>();
-    for (const i of items) { m.set(itemLabel(i), i); if (!m.has(i.name)) m.set(i.name, i); }
-    return m;
-  }, [items]);
-
   const setLine = (key: number, patch: Partial<FormLine>) => setLines(ls => ls.map(l => (l.key === key ? { ...l, ...patch } : l)));
-  const onItemText = (key: number, text: string) => {
-    const it = itemByLabel.get(text.trim());
-    setLine(key, it ? { text: it.name, itemId: it.id, companyName: itemCompany(it) ?? '' } : { text, itemId: null });
+  const pickedIds = useMemo(() => new Set(lines.map(l => l.itemId).filter((x): x is number => x != null)), [lines]);
+  // ايتمات مختارة دفعة واحدة من القائمة (+ اسم يدوي غير موجود بالكتالوج إن وُجد) ← أسطر بلا كميات بعد
+  const addItems = (picked: CatalogItem[], freeText: string | null) => {
+    setLines(ls => [
+      ...ls,
+      ...picked.filter(i => !pickedIds.has(i.id)).map(i => newLine(i.name, i.id, itemCompany(i) ?? '')),
+      ...(freeText ? [newLine(freeText)] : []),
+    ]);
+    setPickItems(false);
   };
   const onPharmacy = (name: string) => {
     const known = pharmacies.find(p => p.name === name);
@@ -980,23 +983,22 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
       const r = await api<{ warehouse: WarehouseRow }>('/warehouses', { method: 'POST', body: JSON.stringify(newWh) });
       onWarehousesChanged();
       const id = String(r.warehouse.id);
-      if (newWhSlot === 'main') setHead(h => ({ ...h, warehouseId: id }));
-      else setBackups(bs => bs.map((b, i) => (i === newWhSlot ? id : b)));
+      setWhIds(ws => (ws.length < MAX_WAREHOUSES ? [...ws, id] : ws));
       setNewWh(null);
     } catch (e: any) { alert(e.message); }
   };
   const submit = async () => {
     setErr(null);
     const valid = lines.filter(l => l.text.trim() && Number(l.quantity) > 0);
-    if (!head.warehouseId) return setErr('اختر المذخر (أو أضف مذخراً جديداً برقم واتسابه)');
+    if (!whIds.length) return setErr('اختر المذخر (أو أضف مذخراً جديداً برقم واتسابه)');
     if (!head.pharmacyName.trim()) return setErr('اسم الصيدلية مطلوب');
-    if (!valid.length) return setErr('أضف صنفاً واحداً على الأقل مع كميته');
+    if (!valid.length) return setErr('أضف ايتماً واحداً على الأقل مع كميته');
     setSaving(true);
     try {
       const body = JSON.stringify({
         ...head,
-        warehouseId: Number(head.warehouseId),
-        backupWarehouseIds: backups.filter(Boolean).map(Number),
+        warehouseId: Number(whIds[0]),
+        backupWarehouseIds: whIds.slice(1).map(Number),
         lines: valid.map(l => ({ itemId: l.itemId, itemName: l.text.trim(), companyName: l.companyName || null, quantity: Number(l.quantity), bonusQty: Number(l.bonusQty) || 0 })),
       });
       const r = await api<{ order: { id: number } }>(order ? `/${order.id}` : '', { method: order ? 'PUT' : 'POST', body });
@@ -1021,13 +1023,7 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
             <label className="ro-field">التاريخ
               <input className="form-input" type="date" value={head.orderDate} onChange={e => setHead(h => ({ ...h, orderDate: e.target.value }))} />
             </label>
-            <label className="ro-field">المذخر *
-              <select className="form-input" value={head.warehouseId} onChange={e => { if (e.target.value === '__new') { setNewWhSlot('main'); setNewWh({ name: '', phone: '' }); } else setHead(h => ({ ...h, warehouseId: e.target.value })); }}>
-                <option value="">اختر المذخر…</option>
-                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                <option value="__new">+ مذخر جديد…</option>
-              </select>
-            </label>
+            <WarehousePicker warehouses={warehouses} value={whIds} onChange={setWhIds} onNew={() => setNewWh({ name: '', phone: '' })} />
             <label className="ro-field">الصيدلية *
               <input className="form-input" list="ro-pharmacies" value={head.pharmacyName} onChange={e => onPharmacy(e.target.value)} />
               <datalist id="ro-pharmacies">{pharmacies.map(p => <option key={p.name} value={p.name} />)}</datalist>
@@ -1036,26 +1032,6 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
               <input className="form-input" list="ro-areas" value={head.areaName} onChange={e => setHead(h => ({ ...h, areaName: e.target.value }))} />
               <datalist id="ro-areas">{areas.map(a => <option key={a} value={a} />)}</datalist>
             </label>
-          </div>
-
-          <div className="ro-backups">
-            {backups.map((b, i) => {
-              const taken = new Set([head.warehouseId, ...backups.filter((_, j) => j !== i)]);
-              return (
-                <div key={i} className="ro-backup">
-                  <span className="ro-wh__rank">احتياط {i + 1}</span>
-                  <select className="form-input" value={b} onChange={e => { if (e.target.value === '__new') { setNewWhSlot(i); setNewWh({ name: '', phone: '' }); } else setBackups(bs => bs.map((x, j) => (j === i ? e.target.value : x))); }}>
-                    <option value="">اختر المذخر…</option>
-                    {warehouses.filter(w => !taken.has(String(w.id))).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    <option value="__new">+ مذخر جديد…</option>
-                  </select>
-                  <button className="ro-icon-btn" title="حذف" onClick={() => setBackups(bs => bs.filter((_, j) => j !== i))}><X size={14} /></button>
-                </div>
-              );
-            })}
-            {head.warehouseId && backups.length < 5 && (
-              <button className="ro-link ro-self-start" onClick={() => setBackups(bs => [...bs, ''])}><Plus size={13} /> مذخر احتياط</button>
-            )}
           </div>
 
           {newWh && (
@@ -1068,19 +1044,21 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
           )}
 
           <div className="ro-form-lines">
-            <div className="ro-form-line ro-form-line--head"><span>الصنف</span><span>الشركة</span><span>الكمية</span><span>بونص</span><span /></div>
+            {lines.length > 0 && <div className="ro-form-line ro-form-line--head"><span>الايتم</span><span>الشركة</span><span>الكمية</span><span>بونص</span><span /></div>}
             {lines.map(l => (
               <div key={l.key} className="ro-form-line">
-                <input className="form-input" list="ro-items" placeholder={items.length ? 'اكتب أو اختر الصنف…' : 'اسم الصنف'} value={l.text} onChange={e => onItemText(l.key, e.target.value)} />
-                <input className="form-input" placeholder="تلقائياً" value={l.companyName} readOnly={!!l.itemId} onChange={e => setLine(l.key, { companyName: e.target.value })} />
+                <div className="ro-line-item"><span className="ro-strong">{l.text}</span>{l.itemId && l.companyName && <span className="ro-show-sm ro-muted ro-small"> — {l.companyName}</span>}</div>
+                {l.itemId
+                  ? <div className="ro-line-co ro-muted">{l.companyName || '—'}</div>
+                  : <input className="form-input" placeholder="الشركة" value={l.companyName} onChange={e => setLine(l.key, { companyName: e.target.value })} />}
                 <input className="form-input" type="number" min={1} inputMode="numeric" placeholder="الكمية" value={l.quantity} onChange={e => setLine(l.key, { quantity: e.target.value })} />
-                <input className="form-input" type="number" min={0} inputMode="numeric" placeholder="0" value={l.bonusQty} onChange={e => setLine(l.key, { bonusQty: e.target.value })} />
-                <button className="ro-icon-btn" title="حذف السطر" disabled={lines.length === 1} onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))}><Trash2 size={14} /></button>
+                <input className="form-input" type="number" min={0} inputMode="numeric" placeholder="بونص" value={l.bonusQty} onChange={e => setLine(l.key, { bonusQty: e.target.value })} />
+                <button className="ro-icon-btn" title="حذف السطر" onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))}><Trash2 size={14} /></button>
               </div>
             ))}
-            <datalist id="ro-items">{items.map(i => <option key={i.id} value={itemLabel(i)} />)}</datalist>
-            <button className="btn btn--secondary btn--sm ro-self-start" onClick={() => setLines(ls => [...ls, newLine()])}><Plus size={14} /> صنف آخر</button>
+            <button className="btn btn--secondary btn--sm ro-self-start" onClick={() => setPickItems(true)}><Plus size={14} /> {lines.length ? 'ايتمات أخرى' : 'اختيار الايتمات'}</button>
           </div>
+          {pickItems && <ItemPicker items={items} have={pickedIds} onAdd={addItems} onClose={() => setPickItems(false)} />}
 
           <label className="ro-field">ملاحظات
             <input className="form-input" value={head.notes} onChange={e => setHead(h => ({ ...h, notes: e.target.value }))} />
@@ -1095,6 +1073,116 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
         </div>
         <div className="ro-dialog__foot">
           <button className="btn btn--primary" disabled={saving} onClick={submit}>{saving ? 'جارٍ الحفظ…' : 'حفظ الطلبية'}</button>
+          <button className="btn btn--secondary" onClick={onClose}>إلغاء</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── اختيار المذاخر: حقل واحد، الترتيب بترتيب الاختيار (الأول أساسي) ─────────────
+
+function WarehousePicker({ warehouses, value, onChange, onNew }: {
+  warehouses: WarehouseRow[]; value: string[]; onChange: (v: string[]) => void; onNew: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+  const nameOf = (id: string) => warehouses.find(w => String(w.id) === id)?.name ?? '…';
+  const rankOf = (i: number) => (i === 0 ? 'الأساسي' : `احتياط ${i}`);
+  const toggle = (id: string) => onChange(value.includes(id) ? value.filter(x => x !== id) : value.length < MAX_WAREHOUSES ? [...value, id] : value);
+  return (
+    <div className="ro-field ro-msel" ref={ref}>
+      <span>المذخر *</span>
+      <button type="button" className="form-input ro-msel__btn" onClick={() => setOpen(v => !v)}>
+        <span className="ro-msel__val">{value.length ? value.map(nameOf).join(' ← ') : 'اختر المذخر…'}</span>
+        <ChevronDown size={14} />
+      </button>
+      {open && (
+        <div className="ro-gm__pop ro-msel__pop">
+          {warehouses.map(w => {
+            const id = String(w.id);
+            const rank = value.indexOf(id);
+            return (
+              <button type="button" key={w.id} className={`ro-gm__opt ${rank >= 0 ? 'is-active' : ''}`} onClick={() => toggle(id)}>
+                <span>{rank >= 0 ? '☑' : '☐'} {w.name}</span>{rank >= 0 && <b>{rankOf(rank)}</b>}
+              </button>
+            );
+          })}
+          <button type="button" className="ro-gm__opt" onClick={() => { setOpen(false); onNew(); }}>+ مذخر جديد…</button>
+        </div>
+      )}
+      {value.length > 1 && (
+        <div className="ro-msel__chips">
+          {value.map((id, i) => (
+            <span key={id} className="ro-msel__chip">
+              <span className="ro-wh__rank">{rankOf(i)}</span> {nameOf(id)}
+              {i > 0 && <button type="button" className="ro-msel__x" title="جعله الأساسي" onClick={() => onChange([id, ...value.filter(x => x !== id)])}>★</button>}
+              <button type="button" className="ro-msel__x" title="إزالة" onClick={() => onChange(value.filter(x => x !== id))}><X size={12} /></button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── اختيار الايتمات: قائمة بمربعات اختيار، عدة ايتمات دفعة واحدة ثم الكميات ────
+
+function ItemPicker({ items, have, onAdd, onClose }: {
+  items: CatalogItem[]; have: Set<number>;
+  onAdd: (picked: CatalogItem[], freeText: string | null) => void; onClose: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const terms = useMemo(() => normSearch(q).split(/\s+/).filter(Boolean), [q]);
+  const list = useMemo(() => items.filter(i => !terms.length || terms.every(t => normSearch(itemLabel(i)).includes(t))).slice(0, 300), [items, terms]);
+  const typed = q.trim();
+  const exists = typed && items.some(i => normSearch(i.name) === normSearch(typed));
+  const toggle = (id: number) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const picked = () => items.filter(i => sel.has(i.id));
+
+  // زر الرجوع يغلق القائمة وحدها لا نموذج الطلبية: مستمع capture يسبق مستمع الصفحة
+  useEffect(() => {
+    const onBack = (e: Event) => { e.preventDefault(); onClose(); };
+    window.addEventListener('before-navigate-back', onBack, true);
+    return () => window.removeEventListener('before-navigate-back', onBack, true);
+  }, [onClose]);
+
+  return (
+    <div className="ro-modal" onClick={onClose}>
+      <div className="ro-dialog ro-dialog--narrow" onClick={e => e.stopPropagation()}>
+        <div className="ro-dialog__head">
+          <strong>اختيار الايتمات</strong>
+          <button className="ro-icon-btn" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div className="ro-dialog__body">
+          <input className="form-input" type="search" autoFocus value={q} onChange={e => setQ(e.target.value)} aria-label="بحث" />
+          <div className="ro-ipick">
+            {list.map(i => {
+              const done = have.has(i.id);
+              const on = sel.has(i.id);
+              return (
+                <label key={i.id} className={`ro-ipick__row ${on ? 'is-on' : ''} ${done ? 'is-done' : ''}`}>
+                  <input type="checkbox" checked={on || done} disabled={done} onChange={() => toggle(i.id)} />
+                  <span className="ro-strong">{i.name}</span>
+                  {itemCompany(i) && <span className="ro-muted ro-small">{itemCompany(i)}</span>}
+                </label>
+              );
+            })}
+            {!list.length && <div className="ro-muted ro-ipick__empty">لا نتائج</div>}
+          </div>
+          {typed && !exists && (
+            <button className="ro-link ro-self-start" onClick={() => onAdd(picked(), typed)}><Plus size={13} /> إضافة «{typed}» كايتم غير موجود بالقائمة</button>
+          )}
+        </div>
+        <div className="ro-dialog__foot">
+          <button className="btn btn--primary" disabled={!sel.size} onClick={() => onAdd(picked(), null)}>إضافة{sel.size ? ` ${sel.size}` : ''}</button>
           <button className="btn btn--secondary" onClick={onClose}>إلغاء</button>
         </div>
       </div>
