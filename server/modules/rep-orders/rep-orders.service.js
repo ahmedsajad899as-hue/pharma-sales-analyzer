@@ -40,7 +40,7 @@ function parseDay(v) {
 
 // ─── النطاق ───────────────────────────────────────────────────────────────────
 
-async function loadViewer(reqUser) {
+export async function loadViewer(reqUser) {
   const u = await prisma.user.findUnique({
     where: { id: reqUser.id },
     select: { id: true, role: true, officeId: true, displayName: true, username: true },
@@ -60,7 +60,7 @@ async function teamUserIds(viewer) {
 }
 
 /** شرط Prisma للطلبيات المرئية. */
-async function orderScopeWhere(viewer) {
+export async function orderScopeWhere(viewer) {
   if (ALL_SCOPE_ROLES.has(viewer.role)) return {};
   const or = [{ createdById: { in: await teamUserIds(viewer) } }];
   if (isOfficeScopedRole(viewer.role) && viewer.officeId) or.push({ officeId: viewer.officeId });
@@ -78,7 +78,7 @@ async function warehouseScopeWhere(viewer) {
   return { OR: or };
 }
 
-async function getVisibleOrder(viewer, id) {
+export async function getVisibleOrder(viewer, id) {
   const order = await prisma.repOrder.findFirst({
     where: { AND: [{ id: Number(id) }, await orderScopeWhere(viewer)] },
     include: { lines: { orderBy: { id: 'asc' } } },
@@ -87,7 +87,7 @@ async function getVisibleOrder(viewer, id) {
   return order;
 }
 
-const canEditContent = (viewer, order) => order.createdById === viewer.id || !isFieldRole(viewer.role);
+export const canEditContent = (viewer, order) => order.createdById === viewer.id || !isFieldRole(viewer.role);
 
 // ─── المذاخر ──────────────────────────────────────────────────────────────────
 
@@ -197,12 +197,13 @@ export async function listOrders(reqUser, q = {}) {
       status: r.status,
       invoiceImage: r.invoiceImage,
       preparedImage: r.preparedImage,
+      invoiceNumber: r.invoiceNumber,
       sentAt: r.sentAt,
       sentCount: r.sentCount,
       preparedAt: r.preparedAt,
       preparedBy: r.preparedById ? (nameById.get(r.preparedById) ?? null) : null,
       createdAt: r.createdAt,
-      lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty })),
+      lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty, preparedQty: l.preparedQty, preparedBonus: l.preparedBonus })),
       canEdit: canEditContent(viewer, r),
     })),
   };

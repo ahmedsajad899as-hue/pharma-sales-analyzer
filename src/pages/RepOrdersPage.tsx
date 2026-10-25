@@ -16,12 +16,12 @@ const SHARE_CACHE = 'ordine-share'; // نفس الاسم في public/sw.js
 
 type Status = 'pending' | 'prepared' | 'cancelled';
 
-interface OrderLine { id?: number; itemId: number | null; itemName: string; companyName: string | null; quantity: number; bonusQty: number }
+interface OrderLine { id?: number; itemId: number | null; itemName: string; companyName: string | null; quantity: number; bonusQty: number; preparedQty?: number | null; preparedBonus?: number | null }
 interface Order {
   id: number; orderDate: string; createdById: number; repName: string;
   warehouseId: number | null; warehouseName: string; warehousePhone: string | null;
   pharmacyName: string; areaName: string | null; notes: string | null;
-  status: Status; invoiceImage: string | null; preparedImage: string | null; createdAt: string; sentAt: string | null; sentCount: number;
+  status: Status; invoiceImage: string | null; preparedImage: string | null; invoiceNumber?: string | null; createdAt: string; sentAt: string | null; sentCount: number;
   preparedAt: string | null; preparedBy: string | null; lines: OrderLine[]; canEdit: boolean;
 }
 interface WarehouseRow { id: number; name: string; phone: string; notes: string | null; canEdit: boolean }
@@ -417,6 +417,8 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
   onUpload: (k: ImageKind, f: File) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
 }) {
   const total = o.lines.reduce((s, l) => s + l.quantity, 0);
+  const hasPrepared = o.lines.some(l => l.preparedQty != null);
+  const preparedTotal = o.lines.reduce((s, l) => s + (l.preparedQty ?? 0), 0);
   const summary = o.lines.slice(0, 2).map(l => `${l.itemName} ×${l.quantity}`).join('، ');
   const more = o.lines.length - 2;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
@@ -463,13 +465,16 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
             <div className="ro-detail">
               <div className="ro-detail__main">
                 <table className="ro-lines">
-                  <thead><tr><th>#</th><th>الصنف</th><th>الشركة</th><th>الكمية</th><th>بونص</th></tr></thead>
+                  <thead><tr><th>#</th><th>الصنف</th><th>الشركة</th><th>الكمية</th><th>بونص</th>{hasPrepared && <th>المجهّز</th>}</tr></thead>
                   <tbody>
                     {o.lines.map((l, i) => (
-                      <tr key={l.id ?? i}><td className="ro-muted">{i + 1}</td><td className="ro-strong">{l.itemName}</td><td className="ro-muted">{l.companyName ?? '—'}</td><td>{l.quantity}</td><td>{l.bonusQty || '—'}</td></tr>
+                      <tr key={l.id ?? i} className={hasPrepared && (l.preparedQty ?? 0) !== l.quantity ? 'ro-diff' : ''}>
+                        <td className="ro-muted">{i + 1}</td><td className="ro-strong">{l.itemName}</td><td className="ro-muted">{l.companyName ?? '—'}</td><td>{l.quantity}</td><td>{l.bonusQty || '—'}</td>
+                        {hasPrepared && <td className="ro-strong">{l.preparedQty ?? 0}{l.preparedBonus ? ` + ${l.preparedBonus}` : ''}</td>}
+                      </tr>
                     ))}
                   </tbody>
-                  <tfoot><tr><td /><td colSpan={2}>المجموع</td><td>{total}</td><td /></tr></tfoot>
+                  <tfoot><tr><td /><td colSpan={2}>المجموع</td><td>{total}</td><td />{hasPrepared && <td>{preparedTotal}</td>}</tr></tfoot>
                 </table>
                 {o.notes && <div className="ro-notes">📝 {o.notes}</div>}
               </div>
@@ -480,6 +485,7 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
                   {o.areaName && <><dt>المنطقة</dt><dd>{o.areaName}</dd></>}
                   <dt>المندوب</dt><dd>{o.repName}</dd>
                   <dt>التاريخ</dt><dd>{fmtDay(o.orderDate)}</dd>
+                  {o.invoiceNumber && <><dt>رقم الفاتورة</dt><dd>{o.invoiceNumber}</dd></>}
                 </dl>
                 <ol className="ro-timeline">
                   <li className="is-done">كُتبت <span>{fmtTime(o.createdAt)}</span></li>
@@ -511,18 +517,35 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
 }
 
 // ─── ربط صورة مُشارَكة من واتساب بطلبية ──────────────────────────────────────
+// الفاتورة تُقرأ أولاً بالذكاء الاصطناعي (/invoice/read) وتُطابَق بالطلبيات: أفضل
+// مرشّح واثق يُختار تلقائياً، وجدول «المطلوب ↔ المجهّز» يُملأ من الفاتورة ويبقى
+// قابلاً للتصحيح قبل الحفظ. صورة التجهيز (لا فاتورة) تُرفع بلا قراءة.
+
+interface ReadLine { lineId: number; itemName: string; quantity: number; bonusQty: number; invoiceItem: string | null; preparedQty: number; preparedBonus: number }
+interface ReadCandidate { orderId: number; score: number; lines: ReadLine[]; extraItems: { item: string; quantity: number; bonus: number }[] }
+interface ReadResult {
+  token: string;
+  invoice: { pharmacy: string | null; warehouse: string | null; dateText: string | null; invoiceNumber: string | null; items: { item: string; quantity: number; bonus: number }[] } | null;
+  candidates: ReadCandidate[]; autoOrderId: number | null; readError?: string;
+}
 
 function SharedImagePicker({ api, images, onDone, onCancel }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   images: Blob[]; onDone: () => void; onCancel: () => void;
 }) {
   const [orders, setOrders] = useState<Order[] | null>(null);
+  const [read, setRead] = useState<ReadResult | null>(null);
+  const [reading, setReading] = useState(true);
   const [q, setQ] = useState('');
   const [kind, setKind] = useState<ImageKind>('invoice');
   const [picked, setPicked] = useState<number | null>(null);
+  const [qty, setQty] = useState<Record<number, { p: string; b: string }>>({});
   const [saving, setSaving] = useState(false);
   const urls = useMemo(() => images.map(b => URL.createObjectURL(b)), [images]);
   useEffect(() => () => urls.forEach(u => URL.revokeObjectURL(u)), [urls]);
+
+  // صورة واحدة لكل ربط: الأولى (واتساب يشارك عادةً صورة واحدة)
+  const firstFile = useMemo(() => new File([images[0]], 'shared.jpg', { type: images[0].type || 'image/jpeg' }), [images]);
 
   useEffect(() => {
     api<{ orders: Order[] }>(`?from=${shiftDay(-30)}&to=${today()}`)
@@ -530,59 +553,160 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
       .catch(() => setOrders([]));
   }, [api]);
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const fd = new FormData();
+        fd.append('image', await compressImage(firstFile), 'invoice.jpg');
+        const r = await api<ReadResult>('/invoice/read', { method: 'POST', body: fd });
+        if (!alive) return;
+        setRead(r);
+        if (r.autoOrderId) setPicked(r.autoOrderId);
+      } catch (e: any) {
+        if (alive) setRead({ token: '', invoice: null, candidates: [], autoOrderId: null, readError: e.message });
+      } finally { if (alive) setReading(false); }
+    })();
+    return () => { alive = false; };
+  }, [api, firstFile]);
+
+  const candidateById = useMemo(() => new Map((read?.candidates ?? []).map(c => [c.orderId, c])), [read]);
+  const pickedCandidate = picked ? candidateById.get(picked) ?? null : null;
+  const pickedOrder = picked ? orders?.find(o => o.id === picked) ?? null : null;
+
+  // أسطر المقارنة للطلبية المختارة: من المطابقة إن وُجدت، وإلا من الطلبية نفسها بلا كميات مجهّزة
+  const compareLines: ReadLine[] = useMemo(() => {
+    if (pickedCandidate) return pickedCandidate.lines;
+    if (!pickedOrder) return [];
+    return pickedOrder.lines.map(l => ({ lineId: l.id!, itemName: l.itemName, quantity: l.quantity, bonusQty: l.bonusQty, invoiceItem: null, preparedQty: l.quantity, preparedBonus: l.bonusQty }));
+  }, [pickedCandidate, pickedOrder]);
+
+  useEffect(() => {
+    setQty(Object.fromEntries(compareLines.map(l => [l.lineId, { p: String(l.preparedQty), b: l.preparedBonus ? String(l.preparedBonus) : '' }])));
+  }, [compareLines]);
+
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
     const rows = (orders ?? []).filter(o => !t || `${o.id} ${o.pharmacyName} ${o.warehouseName} ${o.areaName ?? ''} ${o.repName}`.toLowerCase().includes(t));
-    // غير المجهّزة أولاً — هي التي تنتظر فاتورتها عادةً
-    return rows.sort((a, b) => Number(stateOf(a) !== 'pending') - Number(stateOf(b) !== 'pending'));
-  }, [orders, q]);
+    // الأعلى تطابقاً مع الفاتورة أولاً، ثم غير المجهّزة
+    const score = (o: Order) => candidateById.get(o.id)?.score ?? -1;
+    return rows.sort((a, b) => score(b) - score(a) || Number(stateOf(a) !== 'pending') - Number(stateOf(b) !== 'pending'));
+  }, [orders, q, candidateById]);
 
   const save = async () => {
     if (!picked) return;
     setSaving(true);
     try {
-      // صورة واحدة لكل نوع: الأولى تُحفظ (واتساب يشارك عادةً صورة واحدة)
-      const fd = new FormData();
-      fd.append('image', await compressImage(new File([images[0]], 'shared.jpg', { type: images[0].type || 'image/jpeg' })), `${kind}.jpg`);
-      await api(`/${picked}/image/${kind}`, { method: 'POST', body: fd });
+      if (kind === 'invoice' && read?.token) {
+        await api(`/${picked}/apply-invoice`, {
+          method: 'POST',
+          body: JSON.stringify({
+            token: read.token,
+            invoiceNumber: read.invoice?.invoiceNumber ?? null,
+            lines: compareLines.map(l => ({ lineId: l.lineId, preparedQty: Number(qty[l.lineId]?.p) || 0, preparedBonus: Number(qty[l.lineId]?.b) || 0 })),
+          }),
+        });
+      } else {
+        const fd = new FormData();
+        fd.append('image', await compressImage(firstFile), `${kind}.jpg`);
+        await api(`/${picked}/image/${kind}`, { method: 'POST', body: fd });
+      }
       onDone();
     } catch (e: any) { alert(e.message); setSaving(false); }
   };
 
+  const inv = read?.invoice;
   return (
     <div className="ro-modal">
-      <div className="ro-dialog ro-dialog--narrow">
+      <div className="ro-dialog">
         <div className="ro-dialog__head">
           <strong>ربط الصورة بطلبية</strong>
           <button className="ro-icon-btn" onClick={onCancel}><X size={16} /></button>
         </div>
         <div className="ro-dialog__body">
-          <div className="ro-share-thumbs">{urls.map(u => <img key={u} src={u} alt="الصورة المُشارَكة" />)}</div>
-          {images.length > 1 && <div className="ro-muted ro-small">وصلت {images.length} صور — تُحفظ الأولى فقط.</div>}
-          <div className="ro-chips">
-            <button className={`ro-chip ${kind === 'invoice' ? 'is-active' : ''}`} onClick={() => setKind('invoice')}>صورة الفاتورة</button>
-            <button className={`ro-chip ${kind === 'prepared' ? 'is-active' : ''}`} onClick={() => setKind('prepared')}>صورة التجهيز</button>
+          <div className="ro-share-top">
+            <div className="ro-share-thumbs">{urls.slice(0, 1).map(u => <img key={u} src={u} alt="الصورة المُشارَكة" />)}</div>
+            <div className="ro-share-read">
+              <div className="ro-chips">
+                <button className={`ro-chip ${kind === 'invoice' ? 'is-active' : ''}`} onClick={() => setKind('invoice')}>صورة الفاتورة</button>
+                <button className={`ro-chip ${kind === 'prepared' ? 'is-active' : ''}`} onClick={() => setKind('prepared')}>صورة التجهيز</button>
+              </div>
+              {kind === 'invoice' && (reading ? (
+                <div className="ro-muted ro-small">⏳ جارٍ قراءة الفاتورة والتعرّف على الطلبية… (قد تستغرق نصف دقيقة)</div>
+              ) : inv ? (
+                <dl className="ro-info">
+                  {inv.pharmacy && <><dt>الصيدلية</dt><dd>{inv.pharmacy}</dd></>}
+                  {inv.warehouse && <><dt>المذخر</dt><dd>{inv.warehouse}</dd></>}
+                  {inv.dateText && <><dt>التاريخ</dt><dd>{inv.dateText}</dd></>}
+                  {inv.invoiceNumber && <><dt>رقم الفاتورة</dt><dd>{inv.invoiceNumber}</dd></>}
+                  <dt>الأصناف</dt><dd>{inv.items.length}</dd>
+                </dl>
+              ) : (
+                <div className="ro-note ro-note--warn">تعذّرت قراءة الفاتورة{read?.readError ? ` — ${read.readError}` : ''}. اختر الطلبية يدوياً.</div>
+              ))}
+              {kind === 'invoice' && !reading && read?.autoOrderId && picked === read.autoOrderId && (
+                <div className="ro-auto">✅ تم التعرّف تلقائياً على الطلبية #{read.autoOrderId} (تطابق {candidateById.get(read.autoOrderId)?.score}%)</div>
+              )}
+              {kind === 'invoice' && !reading && inv && !read?.autoOrderId && (
+                <div className="ro-muted ro-small">لم يُحسم التطابق تلقائياً — اختر الطلبية من القائمة (الأقرب أولاً).</div>
+              )}
+            </div>
           </div>
+
+          {kind === 'invoice' && picked && compareLines.length > 0 && (
+            <div className="ro-compare">
+              <div className="ro-slot__label">الكميات المجهّزة فعلاً (من الفاتورة — يمكن تصحيحها)</div>
+              <table className="ro-lines">
+                <thead><tr><th>الصنف</th><th>المطلوب</th><th>المجهّز</th><th>بونص مجهّز</th></tr></thead>
+                <tbody>
+                  {compareLines.map(l => {
+                    const p = Number(qty[l.lineId]?.p) || 0;
+                    const diff = p !== l.quantity;
+                    return (
+                      <tr key={l.lineId} className={diff ? 'ro-diff' : ''}>
+                        <td>
+                          <div className="ro-strong">{l.itemName}</div>
+                          {l.invoiceItem ? <div className="ro-sub"><span>بالفاتورة: {l.invoiceItem}</span></div>
+                            : pickedCandidate ? <div className="ro-sub"><span className="ro-warn-text">غير موجود بالفاتورة</span></div> : null}
+                        </td>
+                        <td>{l.quantity}{l.bonusQty ? ` + ${l.bonusQty}` : ''}</td>
+                        <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[l.lineId]?.p ?? ''} onChange={e => setQty(s => ({ ...s, [l.lineId]: { ...s[l.lineId], p: e.target.value } }))} /></td>
+                        <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[l.lineId]?.b ?? ''} onChange={e => setQty(s => ({ ...s, [l.lineId]: { ...s[l.lineId], b: e.target.value } }))} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {pickedCandidate && pickedCandidate.extraItems.length > 0 && (
+                <div className="ro-muted ro-small">أصناف بالفاتورة غير موجودة بالطلبية: {pickedCandidate.extraItems.map(x => `${x.item} ×${x.quantity}`).join('، ')}</div>
+              )}
+            </div>
+          )}
+
           <input className="form-input" placeholder="ابحث برقم الطلبية أو الصيدلية أو المذخر…" value={q} onChange={e => setQ(e.target.value)} />
           <div className="ro-share-list">
             {orders === null && <div className="ro-muted">جارٍ التحميل…</div>}
             {orders !== null && list.length === 0 && <div className="ro-muted">لا طلبيات خلال آخر 30 يوماً.</div>}
             {list.map(o => {
               const st = stateOf(o);
+              const sc = candidateById.get(o.id)?.score;
               return (
                 <button key={o.id} className={`ro-share-item ro-row--${st} ${picked === o.id ? 'is-picked' : ''}`} onClick={() => setPicked(o.id)}>
                   <span className="ro-share-item__main">
                     <span className="ro-strong">{o.pharmacyName}</span>
                     <span className="ro-sub"><span>#{o.id}</span><span>{o.warehouseName}</span><span>{fmtDay(o.orderDate)}</span>{o.repName && <span>{o.repName}</span>}</span>
                   </span>
-                  <span className={`ro-badge ro-badge--${st}`}>{STATE_LABEL[st]}</span>
+                  <span className="ro-share-item__end">
+                    {kind === 'invoice' && sc != null && <span className={`ro-score ${sc >= 60 ? 'is-high' : ''}`}>{sc}%</span>}
+                    <span className={`ro-badge ro-badge--${st}`}>{STATE_LABEL[st]}</span>
+                  </span>
                 </button>
               );
             })}
           </div>
         </div>
         <div className="ro-dialog__foot">
-          <button className="btn btn--primary" disabled={!picked || saving} onClick={save}>{saving ? 'جارٍ الحفظ…' : 'حفظ في الطلبية'}</button>
+          <button className="btn btn--primary" disabled={!picked || saving || (kind === 'invoice' && reading)} onClick={save}>{saving ? 'جارٍ الحفظ…' : 'حفظ في الطلبية'}</button>
           <button className="btn btn--secondary" onClick={onCancel}>إلغاء</button>
           <span className="ro-muted ro-small">الطلبية تصير «مجهّزة» بعد الحفظ</span>
         </div>

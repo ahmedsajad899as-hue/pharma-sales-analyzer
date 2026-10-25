@@ -3277,6 +3277,7 @@ model RepOrder {
   status        String    @default("pending") // pending | prepared | cancelled
   invoiceImage  String? // /uploads/rep-orders/<random>.jpg
   preparedImage String? // صورة ما بعد التجهيز — رفعها يُعلِّم الطلبية «تم التجهيز»
+  invoiceNumber String? // رقم الفاتورة كما قرأه الذكاء الاصطناعي من صورتها
   sentAt        DateTime? // آخر إرسال للمذخر عبر واتساب
   sentCount     Int       @default(0)
   preparedAt    DateTime?
@@ -3301,6 +3302,8 @@ model RepOrderLine {
   companyName String?
   quantity    Int
   bonusQty    Int     @default(0)
+  preparedQty   Int? // الكمية المجهّزة فعلاً حسب الفاتورة — null = لم تُقرأ فاتورة بعد
+  preparedBonus Int?
 
   order RepOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
