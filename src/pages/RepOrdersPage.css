@@ -5,6 +5,7 @@
 .ro-muted { color: var(--c-text-muted); }
 .ro-small { font-size: 12px; }
 .ro-strong { font-weight: 600; color: var(--c-text-primary); }
+.ro-area { font-weight: 400; color: var(--c-text-muted); }
 .ro-nowrap { white-space: nowrap; }
 .ro-self-start { align-self: flex-start; }
 .ro-show-sm { display: none; }

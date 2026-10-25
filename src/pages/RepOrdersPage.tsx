@@ -270,6 +270,23 @@ export default function RepOrdersPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [openId]);
 
+  // زر الرجوع / سحب الشاشة للخلف: App.tsx يطلق before-navigate-back قبل أي تنقّل،
+  // فنغلق أعلى طبقة مفتوحة هنا بدل مغادرة الصفحة. الصفحات تبقى مركّبة مخفية
+  // (keep-alive) فلا نعترض إلا وهذه الصفحة هي الظاهرة.
+  useEffect(() => {
+    const onBack = (e: Event) => {
+      const ce = e as CustomEvent<{ activePage?: string }>;
+      if (ce.detail?.activePage !== 'rep-orders') return;
+      if (preview)        { ce.preventDefault(); setPreview(null); return; }
+      if (editing)        { ce.preventDefault(); setEditing(null); return; }
+      if (showWarehouses) { ce.preventDefault(); setShowWarehouses(false); return; }
+      if (openId != null) { ce.preventDefault(); setOpenId(null); }
+    };
+    window.addEventListener('before-navigate-back', onBack);
+    return () => window.removeEventListener('before-navigate-back', onBack);
+  }, [preview, editing, showWarehouses, openId]);
+
+
   // ── الإرسال لواتساب المذخر ─────────────────────────────────────────────────
   // تُفتح النافذة قبل أي await كي لا يحجبها المتصفح كنافذة منبثقة.
   const sendToWarehouse = (list: Order[], wh: OrderWh) => {
@@ -312,6 +329,7 @@ export default function RepOrdersPage() {
 
   return (
     <div className="ro-page">
+      {!focused && <>
       <div className="ro-bar">
         <select className="form-input ro-select" value={period} onChange={e => pickPeriod(e.target.value as Period)} aria-label="التاريخ">
           <option value="all">كل التواريخ</option>
@@ -331,7 +349,7 @@ export default function RepOrdersPage() {
         <div className="ro-search">
           <Search size={14} className="ro-search__icon" />
           <input className="form-input" type="search" value={query} onChange={e => setQuery(e.target.value)}
-            placeholder="بحث: مذخر، صيدلية، مندوب، ايتم، شركة…" aria-label="بحث" />
+            aria-label="بحث" />
           {query && <button className="ro-search__x" title="مسح" onClick={() => setQuery('')}><X size={13} /></button>}
         </div>
         <GroupMenu groupBy={groupBy} isManager={isManager} options={groupOptions} filter={groupFilter}
@@ -357,6 +375,7 @@ export default function RepOrdersPage() {
         ))}
         {loading && <span className="ro-muted ro-small">جارٍ التحميل…</span>}
       </div>
+      </>}
 
       {err && <div className="ro-note ro-note--warn">⚠️ {err}</div>}
 
@@ -556,9 +575,8 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
         </td>
         {showDate && <td className="ro-hide-sm ro-nowrap">{fmtDay(o.orderDate)}</td>}
         <td>
-          <div className="ro-strong">{o.pharmacyName}</div>
+          <div className="ro-strong">{o.pharmacyName}{o.areaName && <span className="ro-area"> / {o.areaName}</span>}</div>
           <div className="ro-sub">
-            {o.areaName && <span>{o.areaName}</span>}
             <span className="ro-show-sm">{wh.name}</span>
             {itemHits.length > 0 && <span className="ro-hit">🔎 {itemHits.map(l => `${l.itemName} ×${l.quantity}`).join('، ')}</span>}
           </div>
@@ -628,7 +646,6 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
 
                 {state !== 'cancelled' && state !== 'prepared' && (
                   <div className="ro-sendbox">
-                    <div className="ro-slot__label">الإرسال إلى{o.sentAt && <span className="ro-muted"> — اضغط اسم المذخر للإرسال</span>}</div>
                     <div className="ro-whs">
                       {o.warehouses.map((w, i) => (
                         // بعد الإرسال الأول يختفي الزر الأخضر: إعادة الإرسال باسم المذخر مباشرة
@@ -651,7 +668,7 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
 
                 <div className="ro-images">
                   <ImageSlot label="صورة ختم الصيدلية" src={o.invoiceImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('invoice', f)} onRemove={() => onRemoveImage('invoice')} />
-                  <ImageSlot label="صورة التجهيز (الفاتورة)" hint="فاتورة المذخر — رفعها يعتبر الطلبية مجهّزة" src={o.preparedImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('prepared', f)} onRemove={() => onRemoveImage('prepared')} />
+                  <ImageSlot label="صورة التجهيز (الفاتورة)" src={o.preparedImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('prepared', f)} onRemove={() => onRemoveImage('prepared')} />
                 </div>
               </div>
             </div>
