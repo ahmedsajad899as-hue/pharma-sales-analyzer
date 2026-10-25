@@ -1628,6 +1628,11 @@ tr:hover {
       padding-bottom: env(safe-area-inset-bottom);
       height: calc(62px + env(safe-area-inset-bottom));
     }
+    /* أبيض يمتد تحت الشريط: إن لم يغطِّ safe-area الحافة السفلية كان يظهر تحته
+       لون التطبيق الأحمر (#8B1A1A) كشريط عند مؤشّر الشاشة الرئيسية */
+    .mobile-bottom-nav::after {
+      content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 120px; background: #fff;
+    }
     .mobile-header {
       padding-top: env(safe-area-inset-top);
     }

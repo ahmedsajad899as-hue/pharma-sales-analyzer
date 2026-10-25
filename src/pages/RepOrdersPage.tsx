@@ -391,7 +391,7 @@ export default function RepOrdersPage() {
       ) : (
         <div className="ro-table-wrap">
           <table className="ro-table">
-            <thead>
+            <thead className="ro-hide-sm">
               <tr>
                 <th className="ro-col-no">#</th>
                 {showDate && <th className="ro-hide-sm">التاريخ</th>}
@@ -413,7 +413,6 @@ export default function RepOrdersPage() {
                         <td colSpan={colCount}>
                           <div className="ro-group-row__inner">
                             <strong>{g.title}</strong>
-                            <span className="ro-muted">{g.orders.length} طلبية</span>
                             <span className="ro-spacer" />
                             {groupWh?.phone && fresh.length > 1 && (
                               <button className="ro-link ro-link--wa" onClick={() => sendToWarehouse(fresh, groupWh)}><Send size={13} /> إرسال {fresh.length} جديدة للمذخر</button>
