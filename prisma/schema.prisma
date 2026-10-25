@@ -3254,6 +3254,13 @@ model OrderWarehouse {
   name        String
   phone       String // رقم واتساب كما كُتب — يُطبَّع عند الإرسال
   notes       String?
+  // ── الإرسال الآلي عبر البوت (warehouse-dispatch) ──
+  channel            String    @default("cloud") // cloud = رقم البوت الرسمي | group = كروب عبر رقم الكروبات | manual = لا إرسال آلي
+  waId               String? // phone مطبَّعاً (9647…) — مطابقة ردود المذخر الواردة
+  groupJid           String? // معرّف الكروب (…@g.us) حين channel=group
+  groupName          String?
+  backupWarehouseIds Int[]     @default([]) // مذاخر بديلة بالترتيب عند الرفض أو عدم الرد
+  waLastInboundAt    DateTime? // آخر رسالة من المذخر — نافذة الـ24 ساعة
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -3261,7 +3268,88 @@ model OrderWarehouse {
 
   @@index([officeId])
   @@index([createdById])
+  @@index([waId])
+  @@index([groupJid])
   @@map("order_warehouses")
+}
+
+// ═══ إرسال الطلبيات للمذاخر عبر البوت (صفحة warehouse-dispatch) ═══════════════
+// طلبية (من بوت الطلبيات أو صفحة طلبيات المذاخر) تُرسَل لواتساب المذخر، ويُستقبل
+// ردّه (تجهيز/جزئي/رفض/صورة فاتورة). كل صف = إرسال لمذخر واحد؛ التحويل لمذخر بديل
+// صفّ جديد attempt+1 بـparentId. createdById = حساب الطلبية (نطاق الرؤية كطلبيات
+// المذاخر). بلا FK عمداً: الطلبية المعلَّقة تُحذف بعد مراجعة الكوديشن.
+model WarehouseDispatch {
+  id                 Int       @id @default(autoincrement())
+  officeId           Int?
+  createdById        Int
+  source             String // bot | rep-order | manual
+  pendingOrderId     Int? // PendingBotOrder.id وقت الإنشاء
+  repOrderId         Int?
+  originTransport    String? // telegram | viber | whatsapp — لإشعار المندوب
+  originChatId       String?
+  repName            String?
+  pharmacyName       String?
+  areaName           String?
+  requestedWarehouse String? // اسم المذخر كما كتبه المندوب
+  warehouseId        Int?
+  warehouseName      String?
+  lines              Json // [{ item, quantity, bonus }]
+  notes              String?
+  // needs_warehouse | awaiting_approval | sending | sent | prepared | partial | rejected | no_response | failed | cancelled
+  status             String    @default("awaiting_approval")
+  channel            String? // cloud | group
+  sendKind           String? // service | template | group — للكلفة
+  outMessageIds      String[]  @default([]) // wamid/مفاتيح رسائل الكروب المرسَلة — ردّ المذخر عليها يُربط بالطلبية
+  sentAt             DateTime?
+  sentById           Int?
+  deliveredAt        DateTime?
+  readAt             DateTime?
+  respondedAt        DateTime?
+  rejectReason       String?
+  warehouseNote      String?
+  invoiceImage       String? // /uploads/dispatch/<hex>.jpg
+  invoiceRows        Json?
+  error              String?
+  attempt            Int       @default(1)
+  parentId           Int?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([createdById, createdAt])
+  @@index([officeId, createdAt])
+  @@index([warehouseId, status])
+  @@index([pendingOrderId])
+  @@index([repOrderId])
+  @@map("warehouse_dispatches")
+}
+
+// وضع الإرسال لكل حساب: off = لا إرسال | auto = فوراً عند وصول الطلبية | approval = بعد موافقة المدير
+model WarehouseDispatchSetting {
+  userId    Int      @id
+  mode      String   @default("off")
+  updatedAt DateTime @updatedAt
+
+  @@map("warehouse_dispatch_settings")
+}
+
+// إعداد عام واحد (id=1)
+model WarehouseDispatchConfig {
+  id                 Int      @id @default(1)
+  responseTimeoutMin Int      @default(120) // بلا رد خلال هذه المدة ⇒ «لا رد» (وتحويل للبديل إن فُعّل)
+  autoBackup         Boolean  @default(true) // رفض/لا رد ⇒ إرسال تلقائي للمذخر البديل
+  updatedAt          DateTime @updatedAt
+
+  @@map("warehouse_dispatch_config")
+}
+
+// عدّاد الرسائل الصادرة من رقم البوت شهرياً — كلفة Meta (service: أول 1000 مجانية شهرياً، template: مدفوعة)
+model WaMessageCounter {
+  month String // 2026-10
+  kind  String // service | template | group
+  count Int    @default(0)
+
+  @@id([month, kind])
+  @@map("wa_message_counters")
 }
 
 model RepOrder {

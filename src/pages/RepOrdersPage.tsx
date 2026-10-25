@@ -142,7 +142,11 @@ const searchTextOf = (o: Order) => normSearch([
 const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString('ar-IQ', { dateStyle: 'short', timeStyle: 'short' }) : '');
 
 export default function RepOrdersPage() {
-  const { token } = useAuth();
+  const { token, hasFeature } = useAuth();
+  // «إرسال للمذاخر»: البوت يرسل الطلبية للمذخر ويستقبل ردّه بدل فتح wa.me
+  const canBotSend = hasFeature('warehouse_dispatch');
+  const [viaBot, setViaBot] = useState<boolean>(() => { try { return localStorage.getItem('ro-via-bot') === '1'; } catch { return false; } });
+  const toggleViaBot = (v: boolean) => { setViaBot(v); try { localStorage.setItem('ro-via-bot', v ? '1' : '0'); } catch {} };
 
   const api = useCallback(async <T = any>(path: string, init: RequestInit = {}): Promise<T> => {
     const isForm = init.body instanceof FormData;
@@ -290,6 +294,7 @@ export default function RepOrdersPage() {
   // ── الإرسال لواتساب المذخر ─────────────────────────────────────────────────
   // تُفتح النافذة قبل أي await كي لا يحجبها المتصفح كنافذة منبثقة.
   const sendToWarehouse = (list: Order[], wh: OrderWh) => {
+    if (canBotSend && viaBot && wh?.id != null) { sendViaBot(list, wh); return; }
     const wa = toWaNumber(wh?.phone);
     if (!wa) { alert(`لا يوجد رقم واتساب للمذخر «${wh?.name ?? ''}» — أضفه من «دليل المذاخر».`); return; }
     const text = list.length === 1
@@ -297,6 +302,24 @@ export default function RepOrdersPage() {
       : [`*${list.length} طلبيات — ${wh.name}*`, ...list.map(o => `\n*طلبية رقم ${o.id}*\n${orderText(o, false, wh.name)}`)].join('\n');
     window.open(`https://wa.me/${wa}?text=${encodeURIComponent(text)}`, '_blank');
     api('/mark-sent', { method: 'POST', body: JSON.stringify({ ids: list.map(o => o.id), warehouseId: wh.id }) }).then(load).catch(() => {});
+  };
+
+  const sendViaBot = async (list: Order[], wh: OrderWh) => {
+    const failed: string[] = [];
+    for (const o of list) {
+      try {
+        const res = await fetch(`${API}/api/warehouse-dispatch/rep-order/${o.id}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ warehouseId: wh.id }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || d.success === false) throw new Error(d.error || d.message || 'تعذّر الإرسال');
+        if (d.dispatch?.status !== 'sent') throw new Error(d.dispatch?.error || 'لم يُرسل');
+      } catch (e: any) { failed.push(`${o.pharmacyName}: ${e.message}`); }
+    }
+    load();
+    if (failed.length) alert(`تعذّر الإرسال عبر البوت:\n${failed.join('\n')}\n\nيمكنك إطفاء «عبر البوت» والإرسال من واتساب مباشرة.`);
   };
 
   const changeStatus = async (ids: number[], s: Status) => {
@@ -331,6 +354,11 @@ export default function RepOrdersPage() {
     <div className="ro-page">
       {!focused && <>
       <div className="ro-bar">
+        {canBotSend && (
+          <label className="ro-via-bot" title="البوت يرسل الطلبية للمذخر ويستقبل ردّه (تجهيز/رفض/فاتورة) تلقائياً — المتابعة في صفحة «إرسال للمذاخر»">
+            <input type="checkbox" checked={viaBot} onChange={e => toggleViaBot(e.target.checked)} /> إرسال عبر البوت
+          </label>
+        )}
         <select className="form-input ro-select" value={period} onChange={e => pickPeriod(e.target.value as Period)} aria-label="التاريخ">
           <option value="all">كل التواريخ</option>
           <option value="today">اليوم</option>

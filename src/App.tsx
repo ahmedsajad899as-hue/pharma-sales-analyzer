@@ -63,6 +63,7 @@ const _importRepFollowup         = () => import('./pages/RepFollowupPage');
 const _importMotivation          = () => import('./pages/MotivationPage');
 const _importProvinceTeams       = () => import('./pages/ProvinceTeamsPage');
 const _importRepOrders           = () => import('./pages/RepOrdersPage');
+const _importWarehouseDispatch   = () => import('./pages/WarehouseDispatchPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -98,6 +99,7 @@ const RepFollowupPage         = lazyWithRetry(_importRepFollowup);
 const MotivationPage          = lazyWithRetry(_importMotivation);
 const ProvinceTeamsPage       = lazyWithRetry(_importProvinceTeams);
 const RepOrdersPage           = lazyWithRetry(_importRepOrders);
+const WarehouseDispatchPage   = lazyWithRetry(_importWarehouseDispatch);
 
 // Minimal spinner shown while a page chunk is loading
 function PageLoader() {
@@ -147,6 +149,7 @@ export type PageId =
   | 'motivation'
   | 'province-teams'
   | 'rep-orders'
+  | 'warehouse-dispatch'
   | 'bonus-sales'
   | 'account-builder'
   | 'aqdar-export'
@@ -698,6 +701,7 @@ function AppInner() {
     { id: 'motivation',         node: <MotivationPage /> },
     { id: 'province-teams',     node: <ProvinceTeamsPage activeFileIds={activeFileIds} /> },
     { id: 'rep-orders',         node: <RepOrdersPage /> },
+    { id: 'warehouse-dispatch', node: <WarehouseDispatchPage /> },
   ];
 
   return (

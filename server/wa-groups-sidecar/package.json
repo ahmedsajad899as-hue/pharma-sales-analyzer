@@ -1,0 +1,17 @@
+{
+  "name": "wa-groups-sidecar",
+  "private": true,
+  "description": "رقم الكروبات — واتساب ويب (Baileys) لإرسال الطلبيات لكروبات المذاخر. عملية PM2 مستقلة.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "9.6.0"
+  }
+}

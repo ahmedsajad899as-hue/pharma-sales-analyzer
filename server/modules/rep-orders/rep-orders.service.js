@@ -16,6 +16,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
 import { isOfficeScopedRole } from '../../lib/officeScope.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
+import { normalizeWaId } from '../../lib/waId.js';
 
 export const STATUSES = ['pending', 'prepared', 'cancelled'];
 const MAX_LINES = 80;
@@ -68,7 +69,7 @@ export async function orderScopeWhere(viewer) {
 }
 
 /** دليل المذاخر: مذاخر المكتب + ما أضافه المُشاهِد أو مدراؤه أو فريقه. */
-async function warehouseScopeWhere(viewer) {
+export async function warehouseScopeWhere(viewer) {
   if (ALL_SCOPE_ROLES.has(viewer.role)) return {};
   const ids = new Set(await teamUserIds(viewer));
   const managers = await prisma.userManagerAssignment.findMany({ where: { userId: viewer.id }, select: { managerId: true } });
@@ -105,7 +106,7 @@ function warehouseData(body) {
   const phone = cleanText(body?.phone, 40);
   if (!name) throw new AppError('اسم المذخر مطلوب', 400);
   if (!phone || phone.replace(/\D/g, '').length < 7) throw new AppError('رقم واتساب المذخر غير صالح', 400);
-  return { name, phone, notes: cleanText(body?.notes, 300) };
+  return { name, phone, waId: normalizeWaId(phone) || null, notes: cleanText(body?.notes, 300) };
 }
 
 export async function createWarehouse(reqUser, body) {

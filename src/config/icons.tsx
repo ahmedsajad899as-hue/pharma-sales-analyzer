@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  LayoutDashboard, FolderOpen, Hospital, CalendarRange, CalendarCheck,
+  LayoutDashboard, FolderOpen, Truck, Hospital, CalendarRange, CalendarCheck,
   ClipboardList, TestTube, BarChart3, Package, Filter, FlaskConical,
   Search, Calculator, Gift, FileBarChart2, Users, Wallet, Building2, Send,
   Bot, X, PhoneCall, TrendingUp, RotateCcw, Shuffle, Check, CheckCircle2,
@@ -45,6 +45,7 @@ export const ICONS = {
   navTeamEngagement: Activity,
   navProvinceTeams: MapIcon,
   navRepOrders: ClipboardList,
+  navWarehouseDispatch: Truck,
   navMotivation: Trophy,
 
   // شيل عام
@@ -150,6 +151,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'team-engagement': 'navTeamEngagement',
   'province-teams': 'navProvinceTeams',
   'rep-orders': 'navRepOrders',
+  'warehouse-dispatch': 'navWarehouseDispatch',
   'motivation': 'navMotivation',
 };
 

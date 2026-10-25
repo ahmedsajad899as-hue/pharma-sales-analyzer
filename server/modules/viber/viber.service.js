@@ -15,6 +15,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
+import { registerNotifier } from '../warehouse-dispatch/dispatch.notify.js';
 
 const API_BASE = 'https://chatapi.viber.com/pa';
 
@@ -127,3 +128,5 @@ export async function handleViberEvent(update) {
     console.error('[viber] فشل معالجة الرسالة:', err);
   }
 }
+
+registerNotifier('viber', (receiver, text) => sendMessage(receiver, text));

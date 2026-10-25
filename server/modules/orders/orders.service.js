@@ -21,6 +21,7 @@ import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
+import { createFromBotOrder } from '../warehouse-dispatch/dispatch.core.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
 
@@ -940,6 +941,7 @@ export async function ingestBotOrder({
   });
 
   const lines = [];
+  const pendingIds = [];
   // الصور تُكتب قبل الصف كي لا يُنشأ صف يشير لملفات غير موجودة؛ وكل صفّ نسخته
   // الخاصة منها — حذف طلبية عند مدير لا يمسّ صور نسختها عند حساب الكروب.
   if (keep.length) {
@@ -948,6 +950,7 @@ export async function ingestBotOrder({
       payload: { ...basePayload(), rows: keep },
       imageFiles: await saveImages(imageBuffers),
     });
+    pendingIds.push(r.id);
     // ردّ مختصر بطلب صاحب المشروع: الكروب كروب عمل، والتفاصيل مكانها التطبيق.
     lines.push(r.replaced ? `🔄 أُعيدت قراءة الطلبية #${r.id}` : `تم الاستلام والتحليل #${r.id}`);
   }
@@ -957,9 +960,12 @@ export async function ingestBotOrder({
       payload: { ...basePayload(), rows: f.rows, originUserId: user.id, originName: displayNameOf(user) },
       imageFiles: await saveImages(imageBuffers),
     });
+    pendingIds.push(r.id);
     lines.push(`${r.replaced ? '🔄' : '↪️'} #${r.id} حُوِّلت لمدير ${f.companyName || 'الشركة'} (${f.managerName}) — ${f.rows.length} صنف`);
   }
   if (forwards.length && !keep.length) lines.unshift('تم الاستلام والتحليل');
+  // الإرسال للمذخر يأخذ الطلبية كاملة (لا مقسّمة على مدراء الأصناف) ولا يؤخّر ردّ البوت.
+  createFromBotOrder({ user, pendingId: pendingIds[0] ?? null, rows, source, chatId, repName: repName || senderName });
   return lines.join('\n');
 }
 

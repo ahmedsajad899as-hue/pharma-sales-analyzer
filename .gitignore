@@ -54,3 +54,6 @@ dist.tgz
 
 # Invoice photos for AI comparison (customer data)
 invoice-samples/
+
+# رقم الكروبات (Baileys) — حالة ربط الجلسة سرّية
+server/wa-groups-sidecar/auth/

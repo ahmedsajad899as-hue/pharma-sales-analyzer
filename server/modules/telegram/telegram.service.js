@@ -30,6 +30,7 @@ import { parseFollowupQuery } from '../rep-followup/followup-query-trigger.js';
 import { answerFollowupQuery } from '../rep-followup/followup-query.js';
 import { answerSalesQuery } from './sales-query.js';
 import { hasBotTrigger, answerBotChat } from './bot-chat.js';
+import { registerNotifier } from '../warehouse-dispatch/dispatch.notify.js';
 
 const BOT_TOKEN  = process.env.TELEGRAM_BOT_TOKEN;
 const API_BASE   = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -729,3 +730,6 @@ export async function sendTextToUser(userId, text) {
   }
   return { sent, failed, links: links.length };
 }
+
+// إشعار الكروب بحالة طلبيته عند المذخر (warehouse-dispatch) — يحترم وضع الصمت.
+registerNotifier('telegram', (chatId, text) => sendMessage(chatId, text));

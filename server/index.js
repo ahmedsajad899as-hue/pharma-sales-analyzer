@@ -45,6 +45,8 @@ import {
 } from './lib/provinces.js';
 import { startPharmacyAlertScheduler } from './modules/pharmacy-analysis/pharmacy-alerts.scheduler.js';
 import { startRepFollowupScheduler } from './modules/rep-followup/rep-followup.scheduler.js';
+import { startDispatchTimers } from './modules/warehouse-dispatch/dispatch.core.js';
+import { backfillWarehouseWaIds } from './modules/warehouse-dispatch/dispatch.service.js';
 import { resolveEffectiveAreaIds, resolveEffectiveAreas, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
 import { resolveStockScope, filterStockFiles, loadCompanyLabelResolver, applyCompanyLabelsToFiles } from './lib/stockScope.js';
 import {
@@ -99,6 +101,8 @@ import engagementRoutes          from './modules/engagement/engagement.routes.js
 import repFollowupRoutes         from './modules/rep-followup/rep-followup.routes.js';
 import provinceTeamsRoutes       from './modules/province-teams/province-teams.routes.js';
 import repOrdersRoutes          from './modules/rep-orders/rep-orders.routes.js';
+import warehouseDispatchRoutes  from './modules/warehouse-dispatch/dispatch.routes.js';
+import { internalRouter as waGroupsInternalRoutes, adminRouter as waGroupsAdminRoutes } from './modules/wa-groups/wa-groups.routes.js';
 
 dotenv.config();
 
@@ -1119,7 +1123,7 @@ app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
 // Skip auth for health check and auth routes (already handled above)
 app.use('/api', (req, res, next) => {
   // Skip JWT for: health-check, auth, commercial webhook
-  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/telegram/webhook' || req.path === '/viber/webhook' || req.path === '/whatsapp/webhook') return next();
+  if (req.path === '/health' || req.path.startsWith('/auth') || req.path === '/commercial/invoices/webhook' || req.path === '/telegram/webhook' || req.path === '/viber/webhook' || req.path === '/whatsapp/webhook' || req.path.startsWith('/wa-groups/internal/')) return next();
   requireAuth(req, res, next);
 });
 
@@ -1300,6 +1304,9 @@ app.use('/api/engagement',        engagementRoutes);
 app.use('/api/rep-followup',      repFollowupRoutes);
 app.use('/api/province-teams',    provinceTeamsRoutes);
 app.use('/api/rep-orders',        repOrdersRoutes);
+app.use('/api/warehouse-dispatch', warehouseDispatchRoutes);
+app.use('/api/wa-groups/internal', waGroupsInternalRoutes);
+app.use('/api/wa-groups/admin',   waGroupsAdminRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────
@@ -4984,6 +4991,9 @@ if (process.env.VERCEL) {
     // محافظات العراق الـ18 — idempotent، لا يلمس أي تسمية عدّلها المدير
     startPharmacyAlertScheduler();
     startRepFollowupScheduler();
+    // إرسال الطلبيات للمذاخر: مهلة الرد ⇒ «لا رد» / تحويل للمذخر البديل
+    startDispatchTimers();
+    backfillWarehouseWaIds();
     seedProvinces(prisma)
       .then(async n => {
         console.log(`✓ المحافظات جاهزة (${n})`);

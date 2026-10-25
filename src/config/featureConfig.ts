@@ -56,6 +56,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'team-engagement',   labelAr: 'نشاط الفريق',                icon: '📈', roles: ['office_manager'] },
   { id: 'province-teams',    labelAr: 'فرق المحافظات',              icon: '🗺️', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','scientific_rep'] },
   { id: 'rep-orders',        labelAr: 'طلبيات المذاخر',             icon: '🧾', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','scientific_rep','commercial_supervisor','commercial_team_leader','commercial_rep'] },
+  { id: 'warehouse-dispatch', labelAr: 'إرسال للمذاخر',             icon: '🚚', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader'] },
   { id: 'rep-followup',      labelAr: 'متابعة المندوبين',           icon: '🎯', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
   { id: 'motivation',        labelAr: 'التحفيز',                    icon: '🏆', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
 ];
@@ -92,6 +93,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   motivation_page:    'motivation',
   province_teams:     'province-teams',
   rep_orders:         'rep-orders',
+  warehouse_dispatch: 'warehouse-dispatch',
 };
 
 // وصف كل صفحة يظهر للأدمن في شاشة المميزات
@@ -124,6 +126,7 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'motivation':        'صفحة التحفيز — سباق المندوبين نحو التارگت، أوسمة وإنجازات (أول طلبية، أطباء جدد، محقق التارگت 3 أشهر…) ومنصّة تتويج أبطال الشهر. الأرقام من لقطات متابعة المندوبين',
   'rep-followup':      'صفحة متابعة المندوبين — مؤشّر أداء لكل مندوب علمي من خمس عائلات (التارجت، الزيارات، التغطية، التطوّر، الانضباط) بمعايير يضبطها المدير، مع ملخّص يومي يُرسل للمندوب على التطبيق/تلكرام',
   'rep-orders':        'صفحة طلبيات المذاخر — المندوب يكتب طلبياته اليومية (الصيدلية، المنطقة، المذخر، الأصناف والكميات وصورة الفاتورة) ويرسلها لرقم واتساب المذخر بضغطة، والمدير يرى طلبيات فريقه مقسّمة حسب التاريخ والمذخر وحالة التجهيز',
+  'warehouse-dispatch': 'صفحة إرسال للمذاخر — الطلبيات تُرسل تلقائياً (أو بعد موافقة المدير) لواتساب المذخر عبر البوت أو لكروب المذخر، والمذخر يرد بأزرار (تم التجهيز/جزئي/رفض) أو بصورة الفاتورة فتتحدّث الحالة ويُشعَر المندوب، مع تحويل تلقائي للمذخر البديل عند الرفض أو عدم الرد',
   'province-teams':    'صفحة فرق المحافظات — هيكلية المكاتب ذات التيم ليدر المشترك لكل محافظة: مندوب علمي لكل شركة (أو مندوب لشركتين بتقسيم الايتمات)، وحسبتان لكل مندوب: تغطية المحافظة من ملفات المكتب، والجهد الشخصي الذي يُدخله المندوب (تطبيق/بوت) ويعتمده التيم ليدر',
   'team-engagement':   'صفحة نشاط الفريق — متابعة مدى استخدام مدير الشركة والموارد البشرية وموظفي المكتب للتطبيق (مدير المكتب فقط)',
 };
@@ -295,6 +298,7 @@ function collectKeys(nodes: FeatureNode[], out: Set<string>) {
 export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
   'showcase_3d',
   'rep_orders',
+  'warehouse_dispatch',
   // أزرار تقرير العلميين (2026-10-25)
   'sci_exclude_pharmacy',
   'sci_exclude_commercial',

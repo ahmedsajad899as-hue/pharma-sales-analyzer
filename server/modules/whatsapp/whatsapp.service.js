@@ -16,6 +16,8 @@
 
 import prisma from '../../lib/prisma.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
+import { handleWarehouseCloudMessage, handleDispatchStatus } from '../warehouse-dispatch/dispatch.inbound.js';
+import { registerNotifier } from '../warehouse-dispatch/dispatch.notify.js';
 
 /** قراءات متأخّرة — لا قيمة محفوظة في نطاق الموديل. */
 export const whatsappToken     = () => process.env.WHATSAPP_TOKEN || '';
@@ -27,10 +29,16 @@ const graphBase = () => `https://graph.facebook.com/${process.env.WHATSAPP_API_V
 
 export const whatsappEnabled = () => Boolean(whatsappToken() && phoneNumberId());
 
-/** لا يرمي أبداً: يُسجّل ويُعيد null حين لا توكن أو عند فشل الشبكة/الـAPI. */
-async function graphApi(path, { method = 'GET', body } = {}) {
+/**
+ * لا يرمي أبداً: يُعيد { data } أو { error: { code, message } } — الإرسال للمذاخر
+ * يحتاج رمز الخطأ (131047 = خارج نافذة الـ24 ساعة ⇒ قالب).
+ */
+async function graphCall(path, { method = 'GET', body } = {}) {
   const token = whatsappToken();
-  if (!token) { console.error(`[whatsapp] WHATSAPP_TOKEN غير مضبوط — تعذّر استدعاء ${path}`); return null; }
+  if (!token) {
+    console.error(`[whatsapp] WHATSAPP_TOKEN غير مضبوط — تعذّر استدعاء ${path}`);
+    return { error: { code: 'NO_TOKEN', message: 'WHATSAPP_TOKEN غير مضبوط' } };
+  }
   try {
     const res = await fetch(`${graphBase()}/${path}`, {
       method,
@@ -40,13 +48,43 @@ async function graphApi(path, { method = 'GET', body } = {}) {
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       console.error(`[whatsapp] ${method} ${path} → ${res.status}:`, data?.error?.message || data);
-      return null;
+      return { error: { code: data?.error?.code ?? res.status, message: data?.error?.error_data?.details || data?.error?.message || `HTTP ${res.status}` } };
     }
-    return data;
+    return { data };
   } catch (e) {
     console.error(`[whatsapp] ${method} ${path} failed:`, e.message);
-    return null;
+    return { error: { code: 'NETWORK', message: e.message } };
   }
+}
+
+/** لا يرمي أبداً: يُسجّل ويُعيد null حين لا توكن أو عند فشل الشبكة/الـAPI. */
+async function graphApi(path, opts) {
+  return (await graphCall(path, opts)).data ?? null;
+}
+
+// ── عدّاد الرسائل الصادرة (كلفة Meta) ─────────────────────────────────────────
+// service = ردّ حرّ داخل نافذة الـ24 ساعة (أول 1000 شهرياً لكل رقم مجانية)،
+// template = قالب (مدفوع دائماً). best-effort: فشل العدّاد لا يمسّ الإرسال.
+const monthKey = () => new Date().toISOString().slice(0, 7);
+export async function countOutgoing(kind) {
+  try {
+    await prisma.waMessageCounter.upsert({
+      where: { month_kind: { month: monthKey(), kind } },
+      create: { month: monthKey(), kind, count: 1 },
+      update: { count: { increment: 1 } },
+    });
+  } catch (e) { console.error('[whatsapp] عدّاد الرسائل:', e?.message); }
+}
+
+/** إرسال رسالة واتساب خام (أي نوع) — يُعيد { id } أو { error }. */
+export async function sendRaw(to, payload, { kind = 'service' } = {}) {
+  const r = await graphCall(`${phoneNumberId()}/messages`, {
+    method: 'POST',
+    body: { messaging_product: 'whatsapp', recipient_type: 'individual', to: String(to), ...payload },
+  });
+  const id = r.data?.messages?.[0]?.id ?? null;
+  if (id) await countOutgoing(kind);
+  return id ? { id } : { error: r.error || { code: 'UNKNOWN', message: 'لم يُرجع واتساب معرّف رسالة' } };
 }
 
 // حدّ نصّ رسالة واتساب 4096 حرفاً — الزائد يُرفض كاملاً لا يُقصّ.
@@ -54,15 +92,58 @@ const MAX_TEXT = 4096;
 
 async function sendMessage(to, text) {
   const body = String(text ?? '').slice(0, MAX_TEXT);
-  const data = await graphApi(`${phoneNumberId()}/messages`, {
-    method: 'POST',
-    body: { messaging_product: 'whatsapp', recipient_type: 'individual', to: String(to), type: 'text', text: { body } },
+  const r = await sendRaw(to, { type: 'text', text: { body } });
+  return r.id ?? null;
+}
+export { sendMessage as sendWhatsAppText };
+
+// حدود واتساب للرسائل التفاعلية: نص 1024، عنوان زر 20، معرّف زر 256، 3 أزرار.
+const clip = (s, n) => { const t = String(s ?? ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+
+/** رسالة بأزرار ردّ سريع (داخل نافذة الـ24 ساعة فقط). buttons: [{ id, title }] */
+export async function sendButtons(to, bodyText, buttons, { footer } = {}) {
+  return sendRaw(to, {
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: clip(bodyText, 1024) },
+      ...(footer ? { footer: { text: clip(footer, 60) } } : {}),
+      action: { buttons: buttons.slice(0, 3).map(b => ({ type: 'reply', reply: { id: clip(b.id, 256), title: clip(b.title, 20) } })) },
+    },
   });
-  return data?.messages?.[0]?.id ?? null;
+}
+
+/** قائمة اختيار (حتى 10 صفوف) — «هذه الفاتورة لأي طلبية؟». rows: [{ id, title, description }] */
+export async function sendList(to, bodyText, buttonLabel, rows) {
+  return sendRaw(to, {
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: { text: clip(bodyText, 1024) },
+      action: {
+        button: clip(buttonLabel, 20),
+        sections: [{ title: clip('الطلبيات', 24), rows: rows.slice(0, 10).map(r => ({ id: clip(r.id, 200), title: clip(r.title, 24), ...(r.description ? { description: clip(r.description, 72) } : {}) })) }],
+      },
+    },
+  });
+}
+
+/**
+ * قالب معتمد (خارج نافذة الـ24 ساعة). معاملات النص لا تقبل أسطراً جديدة ولا
+ * أكثر من 4 مسافات متتالية — تُنظَّف هنا. buttonPayloads: حمولة كل زر ردّ سريع بالترتيب.
+ */
+export async function sendTemplate(to, name, lang, bodyParams = [], buttonPayloads = []) {
+  const flat = (v) => clip(String(v ?? '—').replace(/[\r\n\t]+/g, ' • ').replace(/ {4,}/g, '   ').trim() || '—', 900);
+  const components = [];
+  if (bodyParams.length) components.push({ type: 'body', parameters: bodyParams.map(p => ({ type: 'text', text: flat(p) })) });
+  buttonPayloads.forEach((payload, i) => components.push({
+    type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload: clip(payload, 256) }],
+  }));
+  return sendRaw(to, { type: 'template', template: { name, language: { code: lang }, components } }, { kind: 'template' });
 }
 
 /** media id → رابط قصير العمر → البايتات. كلا الطلبين يحتاجان التوكن. */
-async function downloadMedia(mediaId) {
+export async function downloadMedia(mediaId) {
   const meta = await graphApi(String(mediaId));
   if (!meta?.url) throw new Error('تعذّر الحصول على رابط الصورة من واتساب');
   const res = await fetch(meta.url, { headers: { Authorization: `Bearer ${whatsappToken()}` } });
@@ -121,6 +202,14 @@ async function handleOneMessage(message, contactName) {
   const waId = message?.from;
   if (!waId || seenOnce(message.id)) return;
 
+  // ردود المذاخر (أزرار الطلبية، صورة فاتورة، سبب رفض) قبل مسار طلبيات المندوبين —
+  // رقم المذخر غير مربوط بحساب فكان سيتلقّى «هذا الرقم غير مربوط».
+  try {
+    if (await handleWarehouseCloudMessage(message, contactName, imageRef(message))) return;
+  } catch (err) {
+    console.error('[whatsapp] فشل معالجة ردّ المذخر:', err);
+  }
+
   const img = imageRef(message);
   if (message.type !== 'text' && !img) return; // صوت/ملصق/موقع/PDF — تجاهل كتلكرام
 
@@ -152,7 +241,7 @@ async function handleOneMessage(message, contactName) {
 
 /**
  * يعالج جسم ويب-هوك واتساب كاملاً (قد يحمل عدة رسائل). لا يرمي أبداً.
- * أحداث statuses (sent/delivered/read) تُتجاهل.
+ * أحداث statuses (sent/delivered/read/failed) تحدّث طلبيات المذاخر المرسَلة فقط.
  */
 export async function handleWhatsAppWebhook(body) {
   if (body?.object !== 'whatsapp_business_account') return;
@@ -166,6 +255,12 @@ export async function handleWhatsAppWebhook(body) {
       for (const message of value.messages || []) {
         await handleOneMessage(message, names.get(message.from));
       }
+      for (const st of value.statuses || []) {
+        try { await handleDispatchStatus(st); } catch (err) { console.error('[whatsapp] حالة رسالة:', err?.message); }
+      }
     }
   }
 }
+
+// خارج نافذة الـ24 ساعة للمندوب يفشل الإشعار بصمت (لا قالب للمندوبين).
+registerNotifier('whatsapp', (to, text) => sendMessage(to, text));
