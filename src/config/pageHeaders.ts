@@ -42,6 +42,7 @@ export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
   'org-structure':      { title: 'الهيكلية' },
   'aqdar-export':       { title: 'أقدر' },
   'province-teams':     { title: 'فرق المحافظات', subtitle: 'تيم ليدر المحافظة ومندوبو الشركات — تغطية المحافظة والجهد الشخصي' },
+  'rep-orders':         { title: 'طلبيات المذاخر', subtitle: 'كتابة طلبيات اليوم وإرسالها لواتساب المذخر — مقسّمة حسب التاريخ والمذخر وحالة التجهيز' },
   'team-engagement':    { title: 'نشاط الفريق', subtitle: 'مدى استخدام مدير الشركة والموارد البشرية والموظفين للتطبيق' },
   'representatives':    { title: 'المندوبين' },
   'scientific-reps':    { title: 'المندوبون العلميون' },

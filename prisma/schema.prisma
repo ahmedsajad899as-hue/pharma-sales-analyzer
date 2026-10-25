@@ -3242,3 +3242,67 @@ model RepPersonalSale {
   @@index([sourceHash])
   @@map("rep_personal_sales")
 }
+
+// ═══ طلبيات المذاخر (صفحة rep-orders) ═══════════════════════════════════════
+// المندوب يكتب طلبية يومية (صيدلية + منطقة + مذخر + أصناف بكمياتها) ثم يرسلها
+// لرقم واتساب المذخر برابط wa.me. لا تُكتب في Sale ولا تدخل أي حسبة مبيعات —
+// هي سجلّ تجهيز فقط. createdById بلا علاقة FK عمداً (لا حاجة لتعديل نموذج User).
+model OrderWarehouse {
+  id          Int      @id @default(autoincrement())
+  officeId    Int? // مشترك بين حسابات المكتب
+  createdById Int
+  name        String
+  phone       String // رقم واتساب كما كُتب — يُطبَّع عند الإرسال
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders RepOrder[]
+
+  @@index([officeId])
+  @@index([createdById])
+  @@map("order_warehouses")
+}
+
+model RepOrder {
+  id            Int       @id @default(autoincrement())
+  officeId      Int?
+  createdById   Int
+  orderDate     DateTime
+  warehouseId   Int?
+  warehouseName String // نسخة نصية — تبقى لو حُذف المذخر من الدليل
+  pharmacyName  String
+  areaName      String?
+  notes         String?
+  status        String    @default("pending") // pending | prepared | cancelled
+  invoiceImage  String? // /uploads/rep-orders/<random>.jpg
+  sentAt        DateTime? // آخر إرسال للمذخر عبر واتساب
+  sentCount     Int       @default(0)
+  preparedAt    DateTime?
+  preparedById  Int?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  warehouse OrderWarehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  lines     RepOrderLine[]
+
+  @@index([createdById, orderDate])
+  @@index([officeId, orderDate])
+  @@index([warehouseId])
+  @@map("rep_orders")
+}
+
+model RepOrderLine {
+  id          Int     @id @default(autoincrement())
+  orderId     Int
+  itemId      Int?
+  itemName    String
+  companyName String?
+  quantity    Int
+  bonusQty    Int     @default(0)
+
+  order RepOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("rep_order_lines")
+}

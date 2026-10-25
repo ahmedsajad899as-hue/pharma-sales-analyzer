@@ -44,6 +44,7 @@ export const ICONS = {
   navAqdarExport: Send,
   navTeamEngagement: Activity,
   navProvinceTeams: MapIcon,
+  navRepOrders: ClipboardList,
   navMotivation: Trophy,
 
   // شيل عام
@@ -148,6 +149,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'aqdar-export': 'navAqdarExport',
   'team-engagement': 'navTeamEngagement',
   'province-teams': 'navProvinceTeams',
+  'rep-orders': 'navRepOrders',
   'motivation': 'navMotivation',
 };
 

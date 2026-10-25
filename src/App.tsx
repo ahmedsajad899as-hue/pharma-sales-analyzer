@@ -62,6 +62,7 @@ const _importRepFieldSurvey      = () => import('./pages/RepFieldSurveyPage');
 const _importRepFollowup         = () => import('./pages/RepFollowupPage');
 const _importMotivation          = () => import('./pages/MotivationPage');
 const _importProvinceTeams       = () => import('./pages/ProvinceTeamsPage');
+const _importRepOrders           = () => import('./pages/RepOrdersPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -96,6 +97,7 @@ const RepFieldSurveyPage      = lazyWithRetry(_importRepFieldSurvey);
 const RepFollowupPage         = lazyWithRetry(_importRepFollowup);
 const MotivationPage          = lazyWithRetry(_importMotivation);
 const ProvinceTeamsPage       = lazyWithRetry(_importProvinceTeams);
+const RepOrdersPage           = lazyWithRetry(_importRepOrders);
 
 // Minimal spinner shown while a page chunk is loading
 function PageLoader() {
@@ -144,6 +146,7 @@ export type PageId =
   | 'rep-followup'
   | 'motivation'
   | 'province-teams'
+  | 'rep-orders'
   | 'bonus-sales'
   | 'account-builder'
   | 'aqdar-export'
@@ -692,6 +695,7 @@ function AppInner() {
     { id: 'rep-followup',       node: <RepFollowupPage /> },
     { id: 'motivation',         node: <MotivationPage /> },
     { id: 'province-teams',     node: <ProvinceTeamsPage activeFileIds={activeFileIds} /> },
+    { id: 'rep-orders',         node: <RepOrdersPage /> },
   ];
 
   return (

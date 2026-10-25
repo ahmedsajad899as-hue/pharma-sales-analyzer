@@ -98,6 +98,7 @@ import whatsappLinksRoutes       from './modules/whatsapp/whatsapp-links.routes.
 import engagementRoutes          from './modules/engagement/engagement.routes.js';
 import repFollowupRoutes         from './modules/rep-followup/rep-followup.routes.js';
 import provinceTeamsRoutes       from './modules/province-teams/province-teams.routes.js';
+import repOrdersRoutes          from './modules/rep-orders/rep-orders.routes.js';
 
 dotenv.config();
 
@@ -1294,6 +1295,7 @@ app.use('/api/whatsapp',          whatsappRoutes);
 app.use('/api/engagement',        engagementRoutes);
 app.use('/api/rep-followup',      repFollowupRoutes);
 app.use('/api/province-teams',    provinceTeamsRoutes);
+app.use('/api/rep-orders',        repOrdersRoutes);
 app.use('/api',                   salesRoutes);
 
 // ── OSRM routing proxy (no API key required) ─────────────────
