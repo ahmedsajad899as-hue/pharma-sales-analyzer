@@ -310,6 +310,8 @@ function AppInner() {
 
   // On mobile (< 768px) start with sidebar closed
   const [activePage, setActivePage]       = useState<PageId>(() => {
+    // صورة مُشارَكة من واتساب (share_target في manifest.json) ← صفحة «طلبيات المذاخر» لربطها بطلبية
+    try { if (sessionStorage.getItem('ro-share') === '1') return 'rep-orders'; } catch {}
     try {
       const u = JSON.parse(localStorage.getItem('auth_user') || 'null');
       if (u?.role === 'commercial_rep') return 'commercial';

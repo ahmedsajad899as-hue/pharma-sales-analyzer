@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
 const API = import.meta.env.VITE_API_URL || '';
+const SHARE_CACHE = 'ordine-share'; // نفس الاسم في public/sw.js
 
 type Status = 'pending' | 'prepared' | 'cancelled';
 
@@ -161,6 +162,23 @@ export default function RepOrdersPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadWarehouses(); }, [loadWarehouses]);
+
+  // صور وصلت عبر «مشاركة ← Ordine» (sw.js خزّنها في كاش ordine-share)
+  const [shared, setShared] = useState<Blob[]>([]);
+  useEffect(() => {
+    try { sessionStorage.removeItem('ro-share'); } catch { /* ignore */ }
+    if (!('caches' in window)) return;
+    (async () => {
+      const cache = await caches.open(SHARE_CACHE);
+      const keys = await cache.keys();
+      const blobs = await Promise.all(keys.map(async k => (await cache.match(k))!.blob()));
+      if (blobs.length) setShared(blobs);
+    })().catch(() => {});
+  }, []);
+  const clearShared = () => {
+    setShared([]);
+    if ('caches' in window) caches.delete(SHARE_CACHE).catch(() => {});
+  };
 
   const pickPeriod = (p: Period) => {
     setPeriod(p);
@@ -379,6 +397,9 @@ export default function RepOrdersPage() {
       {showWarehouses && (
         <WarehousesModal api={api} warehouses={warehouses} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
       )}
+      {shared.length > 0 && (
+        <SharedImagePicker api={api} images={shared} onDone={() => { clearShared(); load(); }} onCancel={clearShared} />
+      )}
       {preview && (
         <div className="ro-modal" onClick={() => setPreview(null)}>
           <img className="ro-preview" src={`${API}${preview}`} alt="صورة الطلبية" />
@@ -486,6 +507,87 @@ function OrderRow({ o, open, colCount, showDate, showRep, showWh, onToggle, onSe
         </tr>
       )}
     </>
+  );
+}
+
+// ─── ربط صورة مُشارَكة من واتساب بطلبية ──────────────────────────────────────
+
+function SharedImagePicker({ api, images, onDone, onCancel }: {
+  api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
+  images: Blob[]; onDone: () => void; onCancel: () => void;
+}) {
+  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [q, setQ] = useState('');
+  const [kind, setKind] = useState<ImageKind>('invoice');
+  const [picked, setPicked] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const urls = useMemo(() => images.map(b => URL.createObjectURL(b)), [images]);
+  useEffect(() => () => urls.forEach(u => URL.revokeObjectURL(u)), [urls]);
+
+  useEffect(() => {
+    api<{ orders: Order[] }>(`?from=${shiftDay(-30)}&to=${today()}`)
+      .then(r => setOrders(r.orders.filter(o => o.status !== 'cancelled')))
+      .catch(() => setOrders([]));
+  }, [api]);
+
+  const list = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    const rows = (orders ?? []).filter(o => !t || `${o.id} ${o.pharmacyName} ${o.warehouseName} ${o.areaName ?? ''} ${o.repName}`.toLowerCase().includes(t));
+    // غير المجهّزة أولاً — هي التي تنتظر فاتورتها عادةً
+    return rows.sort((a, b) => Number(stateOf(a) !== 'pending') - Number(stateOf(b) !== 'pending'));
+  }, [orders, q]);
+
+  const save = async () => {
+    if (!picked) return;
+    setSaving(true);
+    try {
+      // صورة واحدة لكل نوع: الأولى تُحفظ (واتساب يشارك عادةً صورة واحدة)
+      const fd = new FormData();
+      fd.append('image', await compressImage(new File([images[0]], 'shared.jpg', { type: images[0].type || 'image/jpeg' })), `${kind}.jpg`);
+      await api(`/${picked}/image/${kind}`, { method: 'POST', body: fd });
+      onDone();
+    } catch (e: any) { alert(e.message); setSaving(false); }
+  };
+
+  return (
+    <div className="ro-modal">
+      <div className="ro-dialog ro-dialog--narrow">
+        <div className="ro-dialog__head">
+          <strong>ربط الصورة بطلبية</strong>
+          <button className="ro-icon-btn" onClick={onCancel}><X size={16} /></button>
+        </div>
+        <div className="ro-dialog__body">
+          <div className="ro-share-thumbs">{urls.map(u => <img key={u} src={u} alt="الصورة المُشارَكة" />)}</div>
+          {images.length > 1 && <div className="ro-muted ro-small">وصلت {images.length} صور — تُحفظ الأولى فقط.</div>}
+          <div className="ro-chips">
+            <button className={`ro-chip ${kind === 'invoice' ? 'is-active' : ''}`} onClick={() => setKind('invoice')}>صورة الفاتورة</button>
+            <button className={`ro-chip ${kind === 'prepared' ? 'is-active' : ''}`} onClick={() => setKind('prepared')}>صورة التجهيز</button>
+          </div>
+          <input className="form-input" placeholder="ابحث برقم الطلبية أو الصيدلية أو المذخر…" value={q} onChange={e => setQ(e.target.value)} />
+          <div className="ro-share-list">
+            {orders === null && <div className="ro-muted">جارٍ التحميل…</div>}
+            {orders !== null && list.length === 0 && <div className="ro-muted">لا طلبيات خلال آخر 30 يوماً.</div>}
+            {list.map(o => {
+              const st = stateOf(o);
+              return (
+                <button key={o.id} className={`ro-share-item ro-row--${st} ${picked === o.id ? 'is-picked' : ''}`} onClick={() => setPicked(o.id)}>
+                  <span className="ro-share-item__main">
+                    <span className="ro-strong">{o.pharmacyName}</span>
+                    <span className="ro-sub"><span>#{o.id}</span><span>{o.warehouseName}</span><span>{fmtDay(o.orderDate)}</span>{o.repName && <span>{o.repName}</span>}</span>
+                  </span>
+                  <span className={`ro-badge ro-badge--${st}`}>{STATE_LABEL[st]}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="ro-dialog__foot">
+          <button className="btn btn--primary" disabled={!picked || saving} onClick={save}>{saving ? 'جارٍ الحفظ…' : 'حفظ في الطلبية'}</button>
+          <button className="btn btn--secondary" onClick={onCancel}>إلغاء</button>
+          <span className="ro-muted ro-small">الطلبية تصير «مجهّزة» بعد الحفظ</span>
+        </div>
+      </div>
+    </div>
   );
 }
 

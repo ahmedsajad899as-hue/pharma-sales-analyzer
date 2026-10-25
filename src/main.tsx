@@ -24,6 +24,12 @@ if (_impParams.get('imp') === '1') {
   window.history.replaceState({}, '', '/');
 }
 
+// ── Share target: sw.js خزّن الصور المُشارَكة (من واتساب مثلاً) وحوّل إلى ?share-target=1 ──
+if (_impParams.get('share-target') === '1') {
+  try { sessionStorage.setItem('ro-share', '1'); } catch {}
+  window.history.replaceState({}, '', '/');
+}
+
 // ── Global fetch interceptor: attach JWT to every /api request ──────────
 // Only injects auth_token if no Authorization header is already provided
 const _origFetch = window.fetch.bind(window);

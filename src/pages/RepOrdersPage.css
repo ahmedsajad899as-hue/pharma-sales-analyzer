@@ -111,6 +111,14 @@
 .ro-slot__empty small { font-size: 10.5px; }
 .ro-slot__empty input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 
+/* ── ربط صورة مُشارَكة بطلبية ── */
+.ro-share-thumbs { display: flex; gap: 6px; overflow-x: auto; }
+.ro-share-thumbs img { height: 110px; border-radius: 10px; border: 1px solid var(--c-border-light); object-fit: cover; }
+.ro-share-list { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; }
+.ro-share-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: start; padding: 8px 10px; border: 1px solid var(--c-border-light); border-radius: 10px; cursor: pointer; font-family: inherit; color: inherit; }
+.ro-share-item__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ro-share-item.is-picked { outline: 2px solid var(--c-accent); outline-offset: -1px; }
+
 /* ── النوافذ ──────────────────────────────────────────────────────────────── */
 .ro-modal { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .ro-dialog { background: var(--c-surface); border-radius: 14px; width: min(860px, 100%); max-height: 92vh; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25); }

@@ -214,6 +214,10 @@ app.get('/d/:token', (req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
+// ── Share target (manifest.json) — يلتقطه sw.js عادةً؛ هذا احتياط حين لا يكون
+// الـService Worker فعّالاً بعد: نفتح التطبيق بدل 404 (الصور لا تصل في هذه الحالة).
+app.post('/share-target', (req, res) => res.redirect(303, '/?share-target=1'));
+
 // ── Health check (PUBLIC — no auth required) ─────────────────
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
