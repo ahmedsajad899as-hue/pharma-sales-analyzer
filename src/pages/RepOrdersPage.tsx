@@ -667,7 +667,14 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                 )}
 
                 <div className="ro-images">
-                  <ImageSlot label="صورة ختم الصيدلية" src={o.invoiceImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('invoice', f)} onRemove={() => onRemoveImage('invoice')} />
+                  {/* الختم يُرفق عند كتابة الطلبية (أو تعديلها) — هنا يُعرض مصغّراً فقط إن وُجد */}
+                  {o.invoiceImage && (
+                    <div className="ro-stamp">
+                      <img src={`${API}${o.invoiceImage}`} alt="ختم الصيدلية" onClick={() => onPreview(o.invoiceImage!)} />
+                      <span className="ro-slot__label">ختم الصيدلية</span>
+                      {o.canEdit && <button className="ro-icon-btn" title="حذف صورة الختم" onClick={() => onRemoveImage('invoice')}><X size={12} /></button>}
+                    </div>
+                  )}
                   <ImageSlot label="صورة التجهيز (الفاتورة)" src={o.preparedImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('prepared', f)} onRemove={() => onRemoveImage('prepared')} />
                 </div>
               </div>

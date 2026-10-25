@@ -109,7 +109,9 @@
 .ro-timeline li.is-cancel::before { background: var(--c-text-muted); border-color: var(--c-text-muted); }
 .ro-timeline li span { color: var(--c-text-muted); font-size: 11.5px; margin-inline-start: 4px; }
 
-.ro-images { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ro-images { display: flex; flex-direction: column; gap: 8px; }
+.ro-stamp { display: flex; align-items: center; gap: 8px; }
+.ro-stamp img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; border: 1px solid var(--c-border-light); cursor: zoom-in; }
 .ro-slot { display: flex; flex-direction: column; gap: 4px; }
 .ro-slot__label { font-size: 11.5px; font-weight: 600; color: var(--c-text-secondary); }
 .ro-slot__img { position: relative; height: 96px; border-radius: 10px; overflow: hidden; border: 1px solid var(--c-border-light); }
