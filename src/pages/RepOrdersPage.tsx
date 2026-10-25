@@ -153,13 +153,11 @@ export default function RepOrdersPage() {
     const q = new URLSearchParams();
     if (from) q.set('from', from);
     if (to) q.set('to', to);
-    if (warehouseId) q.set('warehouseId', warehouseId);
-    if (repUserId) q.set('repUserId', repUserId);
     try {
       const r = await api<{ orders: Order[]; reps: { id: number; name: string }[]; viewer: { isManager: boolean } }>(`?${q}`);
       setOrders(r.orders); setReps(r.reps); setIsManager(r.viewer.isManager);
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
-  }, [token, api, from, to, warehouseId, repUserId]);
+  }, [token, api, from, to]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadWarehouses(); }, [loadWarehouses]);
@@ -169,13 +167,40 @@ export default function RepOrdersPage() {
     if (p !== 'custom') { const [f, t] = periodRange(p); setFrom(f); setTo(t); }
   };
 
-  const counts = useMemo(() => {
-    const c = {} as Record<View, number>;
-    (Object.keys(VIEW_TEST) as View[]).forEach(v => { c[v] = orders.filter(VIEW_TEST[v]).length; });
-    return c;
-  }, [orders]);
+  // كل الفلاتر تُطبَّق في المتصفح على طلبيات الفترة، كي يُظهر كل خيار عدده الحيّ
+  // (عدد كل خيار = بقية الفلاتر مطبّقة عدا فلتره هو) — يتحدّث فور أي تجهيز/إلغاء.
+  const byWh = (o: Order) => !warehouseId || String(o.warehouseId) === warehouseId;
+  const byRep = (o: Order) => !repUserId || String(o.createdById) === repUserId;
 
-  const visible = useMemo(() => orders.filter(VIEW_TEST[view]), [orders, view]);
+  const counts = useMemo(() => {
+    const base = orders.filter(o => byWh(o) && byRep(o));
+    const c = {} as Record<View, number>;
+    (Object.keys(VIEW_TEST) as View[]).forEach(v => { c[v] = base.filter(VIEW_TEST[v]).length; });
+    return c;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, warehouseId, repUserId]);
+
+  const whCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of orders) if (VIEW_TEST[view](o) && byRep(o)) m.set(String(o.warehouseId), (m.get(String(o.warehouseId)) ?? 0) + 1);
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, view, repUserId]);
+
+  const repCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of orders) if (VIEW_TEST[view](o) && byWh(o)) m.set(String(o.createdById), (m.get(String(o.createdById)) ?? 0) + 1);
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, view, warehouseId]);
+
+  const sumOf = (m: Map<string, number>) => [...m.values()].reduce((s, n) => s + n, 0);
+  // من عنده طلبيات أولاً (الأكثر فالأقل)، ثم البقية أبجدياً
+  const repsSorted = useMemo(() => [...reps].sort((a, b) => (repCounts.get(String(b.id)) ?? 0) - (repCounts.get(String(a.id)) ?? 0)), [reps, repCounts]);
+
+  const visible = useMemo(() => orders.filter(o => VIEW_TEST[view](o) && byWh(o) && byRep(o)),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [orders, view, warehouseId, repUserId]);
 
   const groups = useMemo(() => {
     if (groupBy === 'none') return [{ key: 'all', title: '', orders: visible, phone: null as string | null }];
@@ -249,13 +274,13 @@ export default function RepOrdersPage() {
           </span>
         )}
         <select className="form-input ro-select" value={warehouseId} onChange={e => setWarehouseId(e.target.value)} aria-label="المذخر">
-          <option value="">كل المذاخر</option>
-          {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          <option value="">كل المذاخر ({sumOf(whCounts)})</option>
+          {warehouses.map(w => <option key={w.id} value={w.id}>{w.name} ({whCounts.get(String(w.id)) ?? 0})</option>)}
         </select>
         {isManager && reps.length > 1 && (
           <select className="form-input ro-select" value={repUserId} onChange={e => setRepUserId(e.target.value)} aria-label="المندوب">
-            <option value="">كل المندوبين</option>
-            {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            <option value="">كل المندوبين ({sumOf(repCounts)})</option>
+            {repsSorted.map(r => <option key={r.id} value={r.id}>{r.name} ({repCounts.get(String(r.id)) ?? 0})</option>)}
           </select>
         )}
         <select className="form-input ro-select" value={groupBy} onChange={e => setGroupBy(e.target.value as any)} aria-label="التقسيم">
