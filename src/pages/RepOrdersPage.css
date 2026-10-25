@@ -263,3 +263,10 @@
 
 /* «إرسال عبر البوت» — صفحة «إرسال للمذاخر» */
 .ro-via-bot { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--c-text-secondary); padding: 4px 8px; border: 1px solid var(--c-border-light); border-radius: 8px; cursor: pointer; white-space: nowrap; }
+
+/* الهاتف: قائمة التقسيم تأخذ عرض الشريط كاملاً بدل الامتداد من الزر خارج الشاشة. */
+@media (max-width: 720px) {
+  .ro-bar { position: relative; }
+  .ro-gm { position: static; }
+  .ro-gm__pop { inset-inline: 8px; top: auto; margin-top: 4px; min-width: 0; }
+}
