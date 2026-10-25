@@ -624,7 +624,7 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                     </tr>
                   </tfoot>
                 </table>
-                {o.notes && <Fold title="ملاحظات" summary={o.notes.length > 40 ? `${o.notes.slice(0, 40)}…` : o.notes}><div className="ro-notes">{o.notes}</div></Fold>}
+                {o.notes && <div className="ro-notes"><div className="ro-slot__label">ملاحظات</div>{o.notes}</div>}
               </div>
 
               <div className="ro-detail__side">
