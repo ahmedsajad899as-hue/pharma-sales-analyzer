@@ -349,7 +349,7 @@ export default function RepOrdersPage() {
         <button className="btn btn--primary btn--sm" onClick={() => setEditing('new')}><Plus size={14} /> طلبية جديدة</button>
       </div>
 
-      <div className="ro-chips" role="group" aria-label="الحالة">
+      <div className="ro-chips ro-chips--status" role="group" aria-label="الحالة">
         {VIEWS.map(v => (
           <button key={v} className={`ro-chip ro-chip--${v} ${view === v ? 'is-active' : ''}`} onClick={() => setView(v)}>
             {VIEW_LABEL[v]} <b>{counts[v]}</b>
@@ -379,7 +379,7 @@ export default function RepOrdersPage() {
                 <th>الصيدلية</th>
                 {showWh && <th className="ro-hide-sm">المذخر</th>}
                 {showRep && <th className="ro-hide-sm">المندوب</th>}
-                <th>الحالة</th>
+                <th className="ro-col-state">الحالة</th>
                 <th className="ro-col-actions" />
               </tr>
             </thead>

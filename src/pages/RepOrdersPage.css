@@ -164,11 +164,21 @@
   .ro-hide-sm { display: none !important; }
   .ro-show-sm { display: inline; }
   .ro-select { min-width: 0; flex: 1 1 40%; }
-  .ro-chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
-  .ro-chip { flex: none; }
+  /* الحالات الخمس (الكل + 4) بسطر واحد بلا تمرير: خانات متساوية، والرقم تحت الاسم */
+  .ro-chips--status { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .ro-chips--status .ro-chip { flex-direction: column; gap: 0; padding: 4px 2px; font-size: 11px; line-height: 1.3; border-radius: 10px; text-align: center; }
+  .ro-chips--status .ro-muted { grid-column: 1 / -1; }
   .ro-col-no { width: 48px; }
   .ro-table > tbody > tr > td { padding: 8px 6px; }
-  .ro-detail { grid-template-columns: 1fr; padding: 10px; }
+  /* التفاصيل لا تساهم بعرضها في حساب الجدول (width:0) ثم تتمدّد لعرض الخلية
+     (min-width:100%) — وإلا مطّ جدول الأصناف بالأسعار الطلبية كلها أعرض من الشاشة
+     فقُصّ جانبها الأيسر. table-layout:fixed لا يصلح: أعمدة ro-hide-sm المخفية تبقى
+     في colSpan فتأخذ عرضاً فارغاً. */
+  .ro-detail, .ro-detail__actions { width: 0; min-width: 100%; box-sizing: border-box; }
+  .ro-detail { grid-template-columns: minmax(0, 1fr); padding: 10px 8px; }
+  .ro-detail__main { min-width: 0; overflow-x: auto; }
+  .ro-lines { font-size: 11.5px; }
+  .ro-lines th, .ro-lines td { padding: 6px 5px; }
   .ro-form-line { grid-template-columns: 1fr 1fr; padding: 8px; border: 1px solid var(--c-border-light); border-radius: 10px; }
   .ro-form-line > input:first-child { grid-column: 1 / -1; }
   .ro-form-line--head { display: none; }
