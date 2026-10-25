@@ -203,10 +203,8 @@
 .ro-fold.is-open .ro-fold__body { display: block; }
 .ro-fold.is-open .ro-fold__chev { transform: rotate(180deg); }
 .ro-fold.is-open .ro-fold__sum { visibility: hidden; }
-@media (hover: hover) {
-  .ro-fold:hover .ro-fold__body { display: block; }
-  .ro-fold:hover .ro-fold__sum { visibility: hidden; }
-}
+/* الفتح بالتمرير يتم في JS (Fold.hoverDelay) كي يُؤخَّر — لا :hover هنا */
+.ro-back { margin: 0 0 8px; }
 
 /* ── الإرسال: المذخر الأساسي والاحتياط ── */
 .ro-sendbox { display: flex; flex-direction: column; gap: 6px; }

@@ -6,8 +6,9 @@
 // 30 يوماً: الصيدلية + المذخر + قرب التاريخ + تطابق الأصناف ← أفضل مرشّح يُختار
 // تلقائياً إن كان واثقاً ومتقدّماً بوضوح على الثاني.
 //
-// الحفظ (applyInvoice) منفصل وبتأكيد من المستخدم: يُرفق الصورة، ويكتب الكمية
-// المجهّزة فعلاً لكل سطر، فتصير الطلبية «مجهّزة».
+// الحفظ (applyInvoice) منفصل وبتأكيد من المستخدم: يُرفق الصورة كـ«صورة التجهيز»
+// (preparedImage — فاتورة المذخر)، ويكتب الكمية المجهّزة فعلاً لكل سطر، فتصير
+// الطلبية «مجهّزة». invoiceImage ليس للفاتورة: هو ختم الصيدلية مع الطلبية.
 // ════════════════════════════════════════════════════════════════════════════
 
 import fs from 'fs';
@@ -183,7 +184,7 @@ export async function applyInvoice(reqUser, id, body) {
     prisma.repOrder.update({
       where: { id: order.id },
       data: {
-        invoiceImage: url,
+        preparedImage: url,
         invoiceNumber: body?.invoiceNumber ? String(body.invoiceNumber).slice(0, 60) : order.invoiceNumber,
         status: 'prepared', preparedAt: new Date(), preparedById: viewer.id,
       },
@@ -194,8 +195,8 @@ export async function applyInvoice(reqUser, id, body) {
     })),
   ]);
 
-  if (order.invoiceImage && path.basename(order.invoiceImage) !== finalName) {
-    fs.promises.unlink(path.join(INVOICE_DIR, path.basename(order.invoiceImage))).catch(() => {});
+  if (order.preparedImage && path.basename(order.preparedImage) !== finalName) {
+    fs.promises.unlink(path.join(INVOICE_DIR, path.basename(order.preparedImage))).catch(() => {});
   }
-  return { invoiceImage: url };
+  return { preparedImage: url };
 }

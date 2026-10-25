@@ -352,8 +352,9 @@ export async function deleteOrder(reqUser, id) {
   removeImageFile(order.preparedImage);
 }
 
-// نوعا الصورة: فاتورة المذخر، وصورة ما بعد التجهيز — رفع الثانية يعني أن
-// الطلبية جُهّزت واكتملت، فتُعلَّم «تم التجهيز» تلقائياً.
+// نوعا الصورة: invoice = ختم الصيدلية يرفقه المندوب مع الطلبية (اسم تاريخي)،
+// prepared = فاتورة المذخر بعد التجهيز — رفعها يعني أن الطلبية جُهّزت، فتُعلَّم
+// «تم التجهيز» تلقائياً.
 export const IMAGE_KINDS = { invoice: 'invoiceImage', prepared: 'preparedImage' };
 
 export async function attachImage(reqUser, id, kind, file) {
