@@ -327,7 +327,9 @@ export default function RepOrdersPage() {
     if (wh?.groupLink) {
       copyText(text);
       window.open(wh.groupLink, '_blank');
-      setNotice(`نُسخت الطلبية — في كروب «${wh.name}» اضغط مطوّلاً على خانة الكتابة ← لصق ← إرسال.`);
+      // رابط الكروب لا يحمل نصاً (بخلاف wa.me) — اللصق خطوة لا مفرّ منها
+      const isTouch = window.matchMedia?.('(pointer: coarse)').matches;
+      setNotice(`✓ نُسخت الطلبية. في كروب «${wh.name}» ${isTouch ? 'اضغط مطوّلاً على خانة الكتابة ← لصق' : 'اضغط على خانة الكتابة ثم Ctrl+V'} ← إرسال.`);
       markSent(list, wh);
       return;
     }
