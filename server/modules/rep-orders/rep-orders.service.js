@@ -101,12 +101,27 @@ export async function listWarehouses(reqUser) {
   return rows.map(w => ({ ...w, canEdit: w.createdById === viewer.id || !isFieldRole(viewer.role) }));
 }
 
+// رابط دعوة كروب واتساب — يُقبل بلا https وبصيغة /invite/ ويُحفظ بصيغة واحدة
+const GROUP_LINK_RE = /(?:https?:\/\/)?chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9]{10,})/i;
+
 function warehouseData(body) {
   const name = cleanText(body?.name, 120);
-  const phone = cleanText(body?.phone, 40);
+  let phone = cleanText(body?.phone, 300) ?? '';
+  let rawLink = cleanText(body?.groupLink, 300) ?? '';
+  // رابط كروب لُصق في حقل الرقم (نموذج الإضافة السريعة فيه حقل واحد)
+  if (!rawLink && GROUP_LINK_RE.test(phone)) { rawLink = phone; phone = ''; }
   if (!name) throw new AppError('اسم المذخر مطلوب', 400);
-  if (!phone || phone.replace(/\D/g, '').length < 7) throw new AppError('رقم واتساب المذخر غير صالح', 400);
-  return { name, phone, waId: normalizeWaId(phone) || null, notes: cleanText(body?.notes, 300) };
+  const code = rawLink.match(GROUP_LINK_RE)?.[1];
+  if (rawLink && !code) throw new AppError('رابط الكروب غير صالح — انسخه من «معلومات الكروب ← دعوة عبر الرابط»', 400);
+  phone = phone.slice(0, 40);
+  if (phone && phone.replace(/\D/g, '').length < 7) throw new AppError('رقم واتساب المذخر غير صالح', 400);
+  if (!phone && !code) throw new AppError('أدخل رقم واتساب المذخر أو رابط كروبه', 400);
+  return {
+    name, phone,
+    groupLink: code ? `https://chat.whatsapp.com/${code}` : null,
+    waId: phone ? normalizeWaId(phone) || null : null,
+    notes: cleanText(body?.notes, 300),
+  };
 }
 
 export async function createWarehouse(reqUser, body) {
@@ -162,13 +177,13 @@ export async function listOrders(reqUser, q = {}) {
     take: 2000,
     include: {
       lines: { orderBy: { id: 'asc' } },
-      warehouse: { select: { id: true, name: true, phone: true } },
+      warehouse: { select: { id: true, name: true, phone: true, groupLink: true } },
     },
   });
 
   // مذاخر الاحتياط وآخر مذخر أُرسلت له — استعلام واحد لكل الطلبيات
   const whIds = [...new Set(rows.flatMap(r => [...r.backupWarehouseIds, r.lastSentWarehouseId]).filter(Boolean))];
-  const whRows = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true, phone: true } }) : [];
+  const whRows = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true, phone: true, groupLink: true } }) : [];
   const whById = new Map(whRows.map(w => [w.id, w]));
 
   // سطور قديمة بلا سعر محفوظ ← سعر الكتالوج الحالي
@@ -204,7 +219,7 @@ export async function listOrders(reqUser, q = {}) {
       warehousePhone: r.warehouse?.phone ?? null,
       // كل مذاخر الطلبية بالترتيب: الأساسي ثم الاحتياط
       warehouses: [
-        r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, phone: r.warehouse.phone } : { id: null, name: r.warehouseName, phone: null },
+        r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, phone: r.warehouse.phone, groupLink: r.warehouse.groupLink } : { id: null, name: r.warehouseName, phone: null, groupLink: null },
         ...r.backupWarehouseIds.map(id => whById.get(id)).filter(Boolean),
       ],
       lastSentWarehouseId: r.lastSentWarehouseId,

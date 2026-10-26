@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -17,7 +17,7 @@ const SHARE_CACHE = 'ordine-share'; // نفس الاسم في public/sw.js
 type Status = 'pending' | 'prepared' | 'cancelled';
 
 interface OrderLine { id?: number; itemId: number | null; itemName: string; companyName: string | null; quantity: number; bonusQty: number; preparedQty?: number | null; preparedBonus?: number | null; unitPrice?: number | null }
-interface OrderWh { id: number | null; name: string; phone: string | null }
+interface OrderWh { id: number | null; name: string; phone: string | null; groupLink?: string | null }
 interface Order {
   id: number; orderDate: string; createdById: number; repName: string;
   warehouseId: number | null; warehouseName: string; warehousePhone: string | null;
@@ -26,7 +26,7 @@ interface Order {
   status: Status; invoiceImage: string | null; preparedImage: string | null; invoiceNumber?: string | null; createdAt: string; sentAt: string | null; sentCount: number;
   preparedAt: string | null; preparedBy: string | null; lines: OrderLine[]; canEdit: boolean;
 }
-interface WarehouseRow { id: number; name: string; phone: string; notes: string | null; canEdit: boolean }
+interface WarehouseRow { id: number; name: string; phone: string; groupLink: string | null; notes: string | null; canEdit: boolean }
 interface CatalogItem { id: number; name: string; company?: { name: string } | null; scientificCompany?: { name: string } | null }
 
 
@@ -76,6 +76,22 @@ function orderText(o: Order, withHeader = true, whName = currentWh(o).name): str
   if (o.notes) out.push(`ملاحظات: ${o.notes}`);
   if (o.invoiceImage) out.push(`صورة ختم الصيدلية: ${window.location.origin}${o.invoiceImage}`);
   return out.join('\n');
+}
+
+/** نص رسالة المذخر: طلبية واحدة أو عدة طلبيات في رسالة واحدة. */
+const ordersText = (list: Order[], whName: string) => (list.length === 1
+  ? orderText(list[0], true, whName)
+  : [`*${list.length} طلبيات — ${whName}*`, ...list.map(o => `\n*طلبية رقم ${o.id}*\n${orderText(o, false, whName)}`)].join('\n'));
+
+// نسخ متزامن داخل ضغطة الزر (قبل فتح واتساب) — execCommand يعمل حتى حيث لا تتوفر clipboard API
+function copyText(text: string) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { /* ignore */ }
+  ta.remove();
+  if (!ok) navigator.clipboard?.writeText(text).catch(() => {});
 }
 
 // تصغير الصورة في المتصفح قبل الرفع (القرص ضيّق على السيرفر)
@@ -293,15 +309,44 @@ export default function RepOrdersPage() {
 
   // ── الإرسال لواتساب المذخر ─────────────────────────────────────────────────
   // تُفتح النافذة قبل أي await كي لا يحجبها المتصفح كنافذة منبثقة.
+  // الأولوية: كروب المذخر (رابط الدعوة يفتح الكروب والنص منسوخ — wa.me لا يصل للكروبات)
+  // ← رقمه (wa.me والنص جاهز) ← قائمة المشاركة يختار منها المندوب أي محادثة/كروب.
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  const markSent = (list: Order[], wh: OrderWh) =>
+    api('/mark-sent', { method: 'POST', body: JSON.stringify({ ids: list.map(o => o.id), warehouseId: wh.id }) }).then(load).catch(() => {});
+
   const sendToWarehouse = (list: Order[], wh: OrderWh) => {
     if (canBotSend && viaBot && wh?.id != null) { sendViaBot(list, wh); return; }
+    const text = ordersText(list, wh.name);
+    if (wh?.groupLink) {
+      copyText(text);
+      window.open(wh.groupLink, '_blank');
+      setNotice(`نُسخت الطلبية — في كروب «${wh.name}» اضغط مطوّلاً على خانة الكتابة ← لصق ← إرسال.`);
+      markSent(list, wh);
+      return;
+    }
     const wa = toWaNumber(wh?.phone);
-    if (!wa) { alert(`لا يوجد رقم واتساب للمذخر «${wh?.name ?? ''}» — أضفه من «دليل المذاخر».`); return; }
-    const text = list.length === 1
-      ? orderText(list[0], true, wh.name)
-      : [`*${list.length} طلبيات — ${wh.name}*`, ...list.map(o => `\n*طلبية رقم ${o.id}*\n${orderText(o, false, wh.name)}`)].join('\n');
+    if (!wa) { shareOrders(list, wh); return; }
     window.open(`https://wa.me/${wa}?text=${encodeURIComponent(text)}`, '_blank');
-    api('/mark-sent', { method: 'POST', body: JSON.stringify({ ids: list.map(o => o.id), warehouseId: wh.id }) }).then(load).catch(() => {});
+    markSent(list, wh);
+  };
+
+  // قائمة المشاركة في الموبايل (واتساب ← أي كروب أو محادثة والنص جاهز).
+  // تُعلَّم مُرسلة فقط إن اختار المندوب وجهة؛ الإلغاء لا يغيّر شيئاً.
+  const shareOrders = (list: Order[], wh: OrderWh) => {
+    const text = ordersText(list, wh.name);
+    if (typeof navigator.share === 'function') {
+      navigator.share({ text }).then(() => markSent(list, wh)).catch(() => {});
+      return;
+    }
+    copyText(text);
+    setNotice('المشاركة غير مدعومة في هذا المتصفح — نُسخت الطلبية، الصقها في كروب المذخر.');
   };
 
   const sendViaBot = async (list: Order[], wh: OrderWh) => {
@@ -442,7 +487,7 @@ export default function RepOrdersPage() {
                           <div className="ro-group-row__inner">
                             <strong>{g.title}</strong>
                             <span className="ro-spacer" />
-                            {groupWh?.phone && fresh.length > 1 && (
+                            {(groupWh?.phone || groupWh?.groupLink) && fresh.length > 1 && (
                               <button className="ro-link ro-link--wa" onClick={() => sendToWarehouse(fresh, groupWh)}><Send size={13} /> إرسال {fresh.length} جديدة للمذخر</button>
                             )}
                           </div>
@@ -454,6 +499,7 @@ export default function RepOrdersPage() {
                         showDate={showDate} showRep={showRep} showWh={showWh}
                         onToggle={() => toggleOpen(o.id)}
                         onSend={wh => sendToWarehouse([o], wh)}
+                        onShare={wh => shareOrders([o], wh)}
                         onStatus={s => changeStatus([o.id], s)}
                         onEdit={() => setEditing(o)}
                         onDelete={() => remove(o)}
@@ -481,6 +527,8 @@ export default function RepOrdersPage() {
       {shared.length > 0 && (
         <SharedImagePicker api={api} images={shared} onDone={() => { clearShared(); load(); }} onCancel={clearShared} />
       )}
+      {notice && <div className="ro-notice" role="status" onClick={() => setNotice(null)}>{notice}</div>}
+
       {preview && (
         <div className="ro-modal" onClick={() => setPreview(null)}>
           <img className="ro-preview" src={`${API}${preview}`} alt="صورة الطلبية" />
@@ -573,9 +621,9 @@ function Fold({ title, summary, hoverDelay = 0, children }: { title: string; sum
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
+function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
   o: Order; open: boolean; colCount: number; terms: string[]; showDate: boolean; showRep: boolean; showWh: boolean;
-  onToggle: () => void; onSend: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
+  onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
 }) {
   const state = stateOf(o);
@@ -613,7 +661,7 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
         <td><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span></td>
         <td className="ro-col-actions" onClick={stop}>
           {canSendRow && (
-            <button className="ro-icon-btn ro-icon-btn--wa" title={o.warehouses[0]?.phone ? `إرسال لواتساب ${o.warehouses[0].name}` : 'لا رقم واتساب للمذخر'} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>
+            <button className="ro-icon-btn ro-icon-btn--wa" title={o.warehouses[0]?.groupLink ? `إرسال لكروب ${o.warehouses[0].name}` : o.warehouses[0]?.phone ? `إرسال لواتساب ${o.warehouses[0].name}` : 'مشاركة الطلبية'} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>
           )}
         </td>
       </tr>
@@ -685,11 +733,17 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                         </button>
                       ))}
                     </div>
-                    {!o.sentAt && (
-                      <button className="btn btn--success btn--sm" onClick={() => onSend(o.warehouses[sendTo] ?? o.warehouses[0])}>
-                        <Send size={14} /> إرسال إلى {(o.warehouses[sendTo] ?? o.warehouses[0])?.name}
+                    <div className="ro-send-actions">
+                      {!o.sentAt && (
+                        <button className="btn btn--success btn--sm" onClick={() => onSend(o.warehouses[sendTo] ?? o.warehouses[0])}>
+                          <Send size={14} /> إرسال إلى {(o.warehouses[sendTo] ?? o.warehouses[0])?.name}
+                        </button>
+                      )}
+                      <button className="btn btn--secondary btn--sm" title="واتساب ← اختر الكروب أو المحادثة"
+                        onClick={() => onShare(o.warehouses[sendTo] ?? o.warehouses[0])}>
+                        <Share2 size={14} /> مشاركة لكروب
                       </button>
-                    )}
+                    </div>
                   </div>
                 )}
 
@@ -1064,7 +1118,7 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
           {newWh && (
             <div className="ro-newwh">
               <input className="form-input" placeholder="اسم المذخر (مثال: الناقوس)" value={newWh.name} onChange={e => setNewWh({ ...newWh, name: e.target.value })} />
-              <input className="form-input" placeholder="رقم واتساب المذخر 07…" inputMode="tel" dir="ltr" value={newWh.phone} onChange={e => setNewWh({ ...newWh, phone: e.target.value })} />
+              <input className="form-input" placeholder="رقم واتساب المذخر 07… أو رابط كروبه" dir="ltr" value={newWh.phone} onChange={e => setNewWh({ ...newWh, phone: e.target.value })} />
               <button className="btn btn--primary btn--sm" onClick={addWarehouse}>حفظ المذخر</button>
               <button className="btn btn--secondary btn--sm" onClick={() => setNewWh(null)}>إلغاء</button>
             </div>
@@ -1223,12 +1277,12 @@ function WarehousesModal({ api, warehouses, onChanged, onClose }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   warehouses: WarehouseRow[]; onChanged: () => void; onClose: () => void;
 }) {
-  const [draft, setDraft] = useState<{ id: number | null; name: string; phone: string; notes: string } | null>(null);
+  const [draft, setDraft] = useState<{ id: number | null; name: string; phone: string; groupLink: string; notes: string } | null>(null);
 
   const save = async () => {
     if (!draft) return;
     try {
-      const body = JSON.stringify({ name: draft.name, phone: draft.phone, notes: draft.notes });
+      const body = JSON.stringify({ name: draft.name, phone: draft.phone, groupLink: draft.groupLink, notes: draft.notes });
       await api(draft.id ? `/warehouses/${draft.id}` : '/warehouses', { method: draft.id ? 'PUT' : 'POST', body });
       setDraft(null); onChanged();
     } catch (e: any) { alert(e.message); }
@@ -1246,18 +1300,19 @@ function WarehousesModal({ api, warehouses, onChanged, onClose }: {
           <button className="ro-icon-btn" onClick={onClose}><X size={16} /></button>
         </div>
         <div className="ro-dialog__body">
-          <div className="ro-muted ro-small">رقم الواتساب هو الذي تُرسل له الطلبية. الدليل مشترك بين حسابات المكتب.</div>
+          <div className="ro-muted ro-small">إن وُضع رابط كروب المذخر يُرسل زرّ الإرسال للكروب، وإلا لرقم الواتساب. الدليل مشترك بين حسابات المكتب.</div>
           {warehouses.length === 0 && <div className="ro-muted">لا مذاخر بعد.</div>}
           {warehouses.map(w => (
             <div key={w.id} className="ro-wh-row">
               <div>
                 <strong>{w.name}</strong>
-                <div className="ro-muted ro-small" dir="ltr">{w.phone}</div>
+                {w.phone && <div className="ro-muted ro-small" dir="ltr">{w.phone}</div>}
+                {w.groupLink && <div className="ro-muted ro-small">👥 كروب مربوط</div>}
                 {w.notes && <div className="ro-muted ro-small">{w.notes}</div>}
               </div>
               {w.canEdit && (
                 <div className="ro-row-actions">
-                  <button className="ro-icon-btn" title="تعديل" onClick={() => setDraft({ id: w.id, name: w.name, phone: w.phone, notes: w.notes ?? '' })}><Pencil size={14} /></button>
+                  <button className="ro-icon-btn" title="تعديل" onClick={() => setDraft({ id: w.id, name: w.name, phone: w.phone, groupLink: w.groupLink ?? '', notes: w.notes ?? '' })}><Pencil size={14} /></button>
                   <button className="ro-icon-btn ro-icon-btn--danger" title="حذف" onClick={() => remove(w)}><Trash2 size={14} /></button>
                 </div>
               )}
@@ -1267,12 +1322,13 @@ function WarehousesModal({ api, warehouses, onChanged, onClose }: {
             <div className="ro-newwh">
               <input className="form-input" placeholder="اسم المذخر" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
               <input className="form-input" placeholder="رقم واتساب 07…" inputMode="tel" dir="ltr" value={draft.phone} onChange={e => setDraft({ ...draft, phone: e.target.value })} />
+              <input className="form-input" placeholder="رابط كروب المذخر https://chat.whatsapp.com/… (اختياري)" dir="ltr" value={draft.groupLink} onChange={e => setDraft({ ...draft, groupLink: e.target.value })} />
               <input className="form-input" placeholder="ملاحظة (اختياري)" value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
               <button className="btn btn--primary btn--sm" onClick={save}>حفظ</button>
               <button className="btn btn--secondary btn--sm" onClick={() => setDraft(null)}>إلغاء</button>
             </div>
           ) : (
-            <button className="btn btn--primary btn--sm ro-self-start" onClick={() => setDraft({ id: null, name: '', phone: '', notes: '' })}><Plus size={14} /> إضافة مذخر</button>
+            <button className="btn btn--primary btn--sm ro-self-start" onClick={() => setDraft({ id: null, name: '', phone: '', groupLink: '', notes: '' })}><Plus size={14} /> إضافة مذخر</button>
           )}
         </div>
       </div>

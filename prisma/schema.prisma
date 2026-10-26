@@ -3252,7 +3252,8 @@ model OrderWarehouse {
   officeId    Int? // مشترك بين حسابات المكتب
   createdById Int
   name        String
-  phone       String // رقم واتساب كما كُتب — يُطبَّع عند الإرسال
+  phone       String // رقم واتساب كما كُتب — يُطبَّع عند الإرسال ("" إن كان للمذخر كروب فقط)
+  groupLink   String? // رابط دعوة كروب المذخر (https://chat.whatsapp.com/…) — الإرسال اليدوي يفتحه والنص منسوخ
   notes       String?
   // ── الإرسال الآلي عبر البوت (warehouse-dispatch) ──
   channel            String    @default("cloud") // cloud = رقم البوت الرسمي | group = كروب عبر رقم الكروبات | manual = لا إرسال آلي

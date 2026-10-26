@@ -270,3 +270,7 @@
   .ro-gm { position: static; }
   .ro-gm__pop { inset-inline: 8px; top: auto; margin-top: 4px; min-width: 0; }
 }
+
+/* أزرار الإرسال + المشاركة، وتنبيه «نُسخت الطلبية» بعد فتح كروب المذخر */
+.ro-send-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ro-notice { position: fixed; inset-inline: 16px; bottom: 20px; z-index: 60; max-width: 480px; margin-inline: auto; padding: 10px 14px; border-radius: 12px; background: #166534; color: #fff; font-size: 13px; line-height: 1.6; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); cursor: pointer; }
