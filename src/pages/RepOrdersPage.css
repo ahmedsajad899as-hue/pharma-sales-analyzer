@@ -275,21 +275,18 @@
 .ro-send-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .ro-notice { position: fixed; inset-inline: 16px; bottom: 20px; z-index: 60; max-width: 480px; margin-inline: auto; padding: 10px 14px; border-radius: 12px; background: #166534; color: #fff; font-size: 13px; line-height: 1.6; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); cursor: pointer; }
 
-/* ── قنوات الإرسال: كروب واتساب / كروب فايبر / رقم واتساب / مشاركة ── */
+/* ── قنوات الإرسال: أيقونة التطبيق بجانب اسم المذخر ── */
 .ro-icon-btn--viber { color: #fff; background: #7360f2; border-color: #7360f2; }
-.ro-ch { display: inline-block; font-size: 10px; font-weight: 600; line-height: 1.5; padding: 0 7px; border-radius: 999px; background: var(--c-surface-2, #f1f5f9); color: var(--c-text-muted); white-space: nowrap; }
-.ro-ch--wa-group, .ro-ch--wa-number { background: rgba(34, 197, 94, 0.12); color: #15803d; }
-.ro-ch--viber-group { background: rgba(115, 96, 242, 0.12); color: #5b48d9; }
+.ro-ch-icon { flex: none; display: inline-block; vertical-align: -3px; }
+.ro-wh__name, .ro-wh-dir__name { display: inline-flex; align-items: center; gap: 5px; }
 .ro-send-actions { flex-direction: column; align-items: stretch; gap: 8px; }
 .ro-send-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 8px 16px; border: 0; border-radius: 12px; font-family: inherit; font-size: 14px; font-weight: 700; color: #fff; cursor: pointer; background: #22c55e; box-shadow: 0 2px 10px rgba(34, 197, 94, 0.3); transition: filter .15s, transform .05s; }
 .ro-send-btn:hover { filter: brightness(0.95); }
 .ro-send-btn:active { transform: translateY(1px); }
 .ro-send-btn--viber-group { background: #7360f2; box-shadow: 0 2px 10px rgba(115, 96, 242, 0.3); }
 .ro-send-btn--share { background: #475569; box-shadow: none; }
-.ro-send-btn__via { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.22); }
+.ro-send-btn__via { display: inline-flex; padding: 3px; border-radius: 999px; background: #fff; }
 .ro-send-alt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ro-alt-btn { display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 5px 12px; border-radius: 10px; border: 1px solid var(--c-border-light); background: var(--c-surface); color: var(--c-text-primary); font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .ro-alt-btn:hover { border-color: var(--c-text-muted); }
-.ro-alt-btn--viber { border-color: rgba(115, 96, 242, 0.45); color: #5b48d9; }
-.ro-alt-btn--viber:hover { background: rgba(115, 96, 242, 0.08); border-color: #7360f2; }
 @media (min-width: 700px) { .ro-send-actions { flex-direction: row; align-items: center; flex-wrap: wrap; } .ro-send-btn { align-self: flex-start; } }

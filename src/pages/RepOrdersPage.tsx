@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, MessageCircle, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -85,6 +85,22 @@ const channelOf = (wh?: OrderWh | null): Channel => (wh?.groupLink
   : toWaNumber(wh?.phone) ? 'wa-number' : 'share');
 const CHANNEL_LABEL: Record<Channel, string> = { 'wa-group': 'كروب واتساب', 'viber-group': 'كروب فايبر', 'wa-number': 'واتساب', share: 'مشاركة' };
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+
+// أيقونة التطبيق فقط (واتساب/فايبر) بدل نص القناة — التفصيل في title
+const HANDSET = 'M9.1 7.2c-.2-.5-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4s-1.2 1.1-1.2 2.7 1.2 3.2 1.4 3.4c.2.2 2.3 3.7 5.7 5 2.8 1.1 3.4.9 4 .8.6-.1 2-.8 2.2-1.6.3-.8.3-1.5.2-1.6-.1-.1-.3-.2-.6-.4l-2-1c-.3-.1-.5-.2-.7.1l-.9 1.2c-.2.2-.4.2-.7.1-.3-.1-1.3-.5-2.4-1.5-.9-.8-1.5-1.8-1.7-2.1-.2-.3 0-.5.1-.6l.5-.6c.2-.2.2-.3.3-.5.1-.2 0-.4 0-.5l-.9-2.2z';
+function ChannelIcon({ ch, size = 16 }: { ch: Channel; size?: number }) {
+  if (ch === 'share') return null;
+  const viber = ch === 'viber-group';
+  return (
+    <svg className="ro-ch-icon" width={size} height={size} viewBox="0 0 24 24" role="img" aria-label={CHANNEL_LABEL[ch]}>
+      <title>{CHANNEL_LABEL[ch]}</title>
+      {viber
+        ? <path fill="#7360F2" d="M12 2C6.5 2 3 4.6 3 10.2c0 3.2 1.1 5.4 3 6.7V21l3.2-2.6c.9.2 1.8.3 2.8.3 5.5 0 9-2.6 9-8.5S17.5 2 12 2z" />
+        : <path fill="#25D366" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2z" />}
+      <path fill="#fff" d={HANDSET} transform={viber ? 'translate(2.2 1.6) scale(.82)' : undefined} />
+    </svg>
+  );
+}
 
 /** نص رسالة المذخر: طلبية واحدة أو عدة طلبيات في رسالة واحدة. */
 const ordersText = (list: Order[], whName: string) => (list.length === 1
@@ -366,12 +382,6 @@ export default function RepOrdersPage() {
     setNotice('المشاركة غير مدعومة في هذا المتصفح — نُسخت الطلبية، الصقها في كروب المذخر.');
   };
 
-  // فايبر: شاشة «إعادة توجيه» والنص مكتوب، والمندوب يختار الكروب — بلا لصق (موبايل فقط)
-  const sendViaViber = (list: Order[], wh: OrderWh) => {
-    window.location.href = `viber://forward?text=${encodeURIComponent(ordersText(list, wh.name))}`;
-    markSent(list, wh);
-  };
-
   const sendViaBot = async (list: Order[], wh: OrderWh) => {
     const failed: string[] = [];
     for (const o of list) {
@@ -523,7 +533,6 @@ export default function RepOrdersPage() {
                         onToggle={() => toggleOpen(o.id)}
                         onSend={wh => sendToWarehouse([o], wh)}
                         onShare={wh => shareOrders([o], wh)}
-                        onViber={wh => sendViaViber([o], wh)}
                         onStatus={s => changeStatus([o.id], s)}
                         onEdit={() => setEditing(o)}
                         onDelete={() => remove(o)}
@@ -645,9 +654,9 @@ function Fold({ title, summary, hoverDelay = 0, children }: { title: string; sum
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onViber, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
+function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
   o: Order; open: boolean; colCount: number; terms: string[]; showDate: boolean; showRep: boolean; showWh: boolean;
-  onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onViber: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
+  onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
 }) {
   const state = stateOf(o);
@@ -754,8 +763,7 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                           title={o.sentAt ? `إرسال إلى ${w.name}` : undefined}
                           onClick={() => (o.sentAt ? onSend(w) : setSendTo(i))}>
                           <span className="ro-wh__rank">{i === 0 ? 'الأساسي' : `احتياط ${i}`}</span>
-                          <span className="ro-wh__name">{w.name}</span>
-                          <span className={`ro-ch ro-ch--${channelOf(w)}`}>{CHANNEL_LABEL[channelOf(w)]}</span>
+                          <span className="ro-wh__name">{w.name}<ChannelIcon ch={channelOf(w)} size={14} /></span>
                           {o.lastSentWarehouseId != null && w.id === o.lastSentWarehouseId && <span className="ro-wh__sent">أُرسلت</span>}
                         </button>
                       ))}
@@ -765,16 +773,10 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                         <button className={`ro-send-btn ro-send-btn--${selCh}`} onClick={() => onSend(selWh)}>
                           <Send size={15} />
                           <span>إرسال إلى {selWh?.name}</span>
-                          <span className="ro-send-btn__via">{CHANNEL_LABEL[selCh]}</span>
+                          {selCh !== 'share' && <span className="ro-send-btn__via"><ChannelIcon ch={selCh} /></span>}
                         </button>
                       )}
                       <div className="ro-send-alt">
-                        <span className="ro-muted ro-small">أو اختر الكروب بنفسك:</span>
-                        {IS_TOUCH && (
-                          <button className="ro-alt-btn ro-alt-btn--viber" title="يفتح فايبر والطلبية مكتوبة — اختر الكروب" onClick={() => onViber(selWh)}>
-                            <MessageCircle size={14} /> فايبر
-                          </button>
-                        )}
                         <button className="ro-alt-btn" title="واتساب أو فايبر أو غيره ← اختر الكروب، والطلبية مكتوبة" onClick={() => onShare(selWh)}>
                           <Share2 size={14} /> مشاركة
                         </button>
@@ -1341,9 +1343,8 @@ function WarehousesModal({ api, warehouses, onChanged, onClose }: {
           {warehouses.map(w => (
             <div key={w.id} className="ro-wh-row">
               <div>
-                <strong>{w.name}</strong>
+                <strong className="ro-wh-dir__name">{w.name}<ChannelIcon ch={channelOf(w)} size={15} /></strong>
                 {w.phone && <div className="ro-muted ro-small" dir="ltr">{w.phone}</div>}
-                <span className={`ro-ch ro-ch--${channelOf(w)}`}>{CHANNEL_LABEL[channelOf(w)]}</span>
                 {w.notes && <div className="ro-muted ro-small">{w.notes}</div>}
               </div>
               {w.canEdit && (
