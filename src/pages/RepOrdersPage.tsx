@@ -827,6 +827,8 @@ interface ReadResult {
   candidates: ReadCandidate[]; autoOrderId: number | null; readError?: string;
 }
 
+const whKeyOf = (o: Order) => { const w = currentWh(o); return String(w.id ?? w.name); };
+
 function SharedImagePicker({ api, images, onDone, onCancel }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   images: Blob[]; onDone: () => void; onCancel: () => void;
@@ -839,6 +841,13 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
   const [picked, setPicked] = useState<number | null>(null);
   const [qty, setQty] = useState<Record<number, { p: string; b: string }>>({});
   const [saving, setSaving] = useState(false);
+  // قراءة الفاتورة بالذكاء — مفتاح يتذكّره الجهاز. بإطفائه تُرفق الصورة كصورة تجهيز بلا قراءة
+  const [aiOn, setAiOn] = useState<boolean>(() => { try { return localStorage.getItem('ro-ai-read') !== '0'; } catch { return true; } });
+  const toggleAi = (v: boolean) => { setAiOn(v); try { localStorage.setItem('ro-ai-read', v ? '1' : '0'); } catch { /* ignore */ } };
+  // الافتراضي: الطلبيات قيد المتابعة فقط (أُرسلت للمذخر ولم تُجهَّز) — الفاتورة لواحدة منها حتماً
+  const [showAll, setShowAll] = useState(false);
+  // المذخر الذي جاءت منه الفاتورة: المشاركة لا تكشف الكروب المصدر، فيختاره المندوب بضغطة
+  const [whKey, setWhKey] = useState<string | null>(null);
   const urls = useMemo(() => images.map(b => URL.createObjectURL(b)), [images]);
   useEffect(() => () => urls.forEach(u => URL.revokeObjectURL(u)), [urls]);
 
@@ -852,7 +861,9 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
   }, [api]);
 
   useEffect(() => {
+    if (!aiOn) { setRead(null); setReading(false); return; }
     let alive = true;
+    setReading(true);
     (async () => {
       try {
         const fd = new FormData();
@@ -866,7 +877,7 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
       } finally { if (alive) setReading(false); }
     })();
     return () => { alive = false; };
-  }, [api, firstFile]);
+  }, [api, firstFile, aiOn]);
 
   const candidateById = useMemo(() => new Map((read?.candidates ?? []).map(c => [c.orderId, c])), [read]);
   const pickedCandidate = picked ? candidateById.get(picked) ?? null : null;
@@ -883,19 +894,43 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
     setQty(Object.fromEntries(compareLines.map(l => [l.lineId, { p: String(l.preparedQty), b: l.preparedBonus ? String(l.preparedBonus) : '' }])));
   }, [compareLines]);
 
+  // فاتورة التجهيز ← قيد المتابعة فقط؛ ختم الصيدلية ← كل ما لم يُجهَّز بعد
+  const pool = useMemo(() => (orders ?? []).filter(o => showAll
+    || (kind === 'prepared' ? stateOf(o) === 'following' : stateOf(o) === 'new' || stateOf(o) === 'following')), [orders, showAll, kind]);
+  const whOptions = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; ch: Channel; count: number }>();
+    for (const o of pool) {
+      const k = whKeyOf(o);
+      if (!m.has(k)) m.set(k, { key: k, name: currentWh(o).name, ch: channelOf(currentWh(o)), count: 0 });
+      m.get(k)!.count++;
+    }
+    return [...m.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ar'));
+  }, [pool]);
+  // مذخر واحد فقط ← يُختار تلقائياً؛ واختيار لم يعد موجوداً يُلغى
+  useEffect(() => {
+    if (whOptions.length === 1) setWhKey(whOptions[0].key);
+    else setWhKey(k => (k && whOptions.some(w => w.key === k) ? k : null));
+  }, [whOptions]);
+
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
-    const rows = (orders ?? []).filter(o => !t || `${o.id} ${o.pharmacyName} ${o.warehouseName} ${o.areaName ?? ''} ${o.repName}`.toLowerCase().includes(t));
+    const rows = pool.filter(o => (!whKey || whKeyOf(o) === whKey)
+      && (!t || `${o.id} ${o.pharmacyName} ${o.warehouseName} ${o.areaName ?? ''} ${o.repName}`.toLowerCase().includes(t)));
     // الأعلى تطابقاً مع الفاتورة أولاً، ثم غير المجهّزة
     const score = (o: Order) => candidateById.get(o.id)?.score ?? -1;
     return rows.sort((a, b) => score(b) - score(a) || Number(stateOf(a) === 'prepared') - Number(stateOf(b) === 'prepared'));
-  }, [orders, q, candidateById]);
+  }, [pool, whKey, q, candidateById]);
+
+  // بلا ذكاء: طلبية واحدة متبقية بعد اختيار المذخر ← تُحدَّد مباشرة
+  useEffect(() => {
+    if (!aiOn && list.length === 1) setPicked(list[0].id);
+  }, [aiOn, list]);
 
   const save = async () => {
     if (!picked) return;
     setSaving(true);
     try {
-      if (kind === 'prepared' && read?.token) {
+      if (kind === 'prepared' && aiOn && read?.token) {
         await api(`/${picked}/apply-invoice`, {
           method: 'POST',
           body: JSON.stringify({
@@ -929,7 +964,14 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
                 <button className={`ro-chip ${kind === 'prepared' ? 'is-active' : ''}`} onClick={() => setKind('prepared')}>فاتورة التجهيز</button>
                 <button className={`ro-chip ${kind === 'invoice' ? 'is-active' : ''}`} onClick={() => setKind('invoice')}>ختم الصيدلية</button>
               </div>
-              {kind === 'prepared' && (reading ? (
+              {kind === 'prepared' && (
+                <label className="ro-ai-toggle">
+                  <input type="checkbox" checked={aiOn} onChange={e => toggleAi(e.target.checked)} />
+                  <span className="ro-ai-toggle__track" />
+                  <span>قراءة الفاتورة بالذكاء الاصطناعي</span>
+                </label>
+              )}
+              {kind === 'prepared' && aiOn && (reading ? (
                 <div className="ro-muted ro-small">⏳ جارٍ قراءة الفاتورة والتعرّف على الطلبية… (قد تستغرق نصف دقيقة)</div>
               ) : inv ? (
                 <dl className="ro-info">
@@ -942,16 +984,16 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
               ) : (
                 <div className="ro-note ro-note--warn">تعذّرت قراءة الفاتورة{read?.readError ? ` — ${read.readError}` : ''}. اختر الطلبية يدوياً.</div>
               ))}
-              {kind === 'prepared' && !reading && read?.autoOrderId && picked === read.autoOrderId && (
+              {kind === 'prepared' && aiOn && !reading && read?.autoOrderId && picked === read.autoOrderId && (
                 <div className="ro-auto">✅ تم التعرّف تلقائياً على الطلبية #{read.autoOrderId} (تطابق {candidateById.get(read.autoOrderId)?.score}%)</div>
               )}
-              {kind === 'prepared' && !reading && inv && !read?.autoOrderId && (
+              {kind === 'prepared' && aiOn && !reading && inv && !read?.autoOrderId && (
                 <div className="ro-muted ro-small">لم يُحسم التطابق تلقائياً — اختر الطلبية من القائمة (الأقرب أولاً).</div>
               )}
             </div>
           </div>
 
-          {kind === 'prepared' && picked && compareLines.length > 0 && (
+          {kind === 'prepared' && aiOn && picked && compareLines.length > 0 && (
             <div className="ro-compare">
               <div className="ro-slot__label">الكميات المجهّزة فعلاً (من الفاتورة — يمكن تصحيحها)</div>
               <table className="ro-lines">
@@ -981,10 +1023,22 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
             </div>
           )}
 
+          {whOptions.length > 1 && (
+            <div className="ro-chips ro-share-whs">
+              <button className={`ro-chip ${!whKey ? 'is-active' : ''}`} onClick={() => setWhKey(null)}>كل المذاخر <b>{pool.length}</b></button>
+              {whOptions.map(w => (
+                <button key={w.key} className={`ro-chip ${whKey === w.key ? 'is-active' : ''}`} onClick={() => setWhKey(w.key)}>
+                  <ChannelIcon ch={w.ch} size={14} />{w.name} <b>{w.count}</b>
+                </button>
+              ))}
+            </div>
+          )}
           <input className="form-input" placeholder="ابحث برقم الطلبية أو الصيدلية أو المذخر…" value={q} onChange={e => setQ(e.target.value)} />
           <div className="ro-share-list">
             {orders === null && <div className="ro-muted">جارٍ التحميل…</div>}
-            {orders !== null && list.length === 0 && <div className="ro-muted">لا طلبيات خلال آخر 30 يوماً.</div>}
+            {orders !== null && list.length === 0 && (
+              <div className="ro-muted">{showAll ? 'لا طلبيات خلال آخر 30 يوماً.' : kind === 'prepared' ? 'لا طلبيات قيد المتابعة.' : 'لا طلبيات جديدة أو قيد المتابعة.'}</div>
+            )}
             {list.map(o => {
               const st = stateOf(o);
               const sc = candidateById.get(o.id)?.score;
@@ -1002,9 +1056,14 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
               );
             })}
           </div>
+          {orders !== null && (
+            <button className="ro-link ro-self-start" onClick={() => setShowAll(v => !v)}>
+              {showAll ? (kind === 'prepared' ? 'عرض قيد المتابعة فقط' : 'عرض غير المجهّزة فقط') : 'الطلبية غير موجودة؟ عرض كل الطلبيات'}
+            </button>
+          )}
         </div>
         <div className="ro-dialog__foot">
-          <button className="btn btn--primary" disabled={!picked || saving || (kind === 'prepared' && reading)} onClick={save}>{saving ? 'جارٍ الحفظ…' : 'حفظ في الطلبية'}</button>
+          <button className="btn btn--primary" disabled={!picked || saving || (kind === 'prepared' && aiOn && reading)} onClick={save}>{saving ? 'جارٍ الحفظ…' : 'حفظ في الطلبية'}</button>
           <button className="btn btn--secondary" onClick={onCancel}>إلغاء</button>
           {kind === 'prepared' && <span className="ro-muted ro-small">الطلبية تصير «مجهّزة» بعد الحفظ</span>}
         </div>
