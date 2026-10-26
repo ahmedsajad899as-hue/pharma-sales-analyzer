@@ -101,8 +101,18 @@ export async function listWarehouses(reqUser) {
   return rows.map(w => ({ ...w, canEdit: w.createdById === viewer.id || !isFieldRole(viewer.role) }));
 }
 
-// رابط دعوة كروب واتساب — يُقبل بلا https وبصيغة /invite/ ويُحفظ بصيغة واحدة
-const GROUP_LINK_RE = /(?:https?:\/\/)?chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9]{10,})/i;
+// رابط دعوة كروب واتساب أو فايبر — يُقبل بلا https (وواتساب بصيغة /invite/) ويُحفظ بصيغة واحدة
+const WA_GROUP_RE = /(?:https?:\/\/)?chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9]{10,})/i;
+const VIBER_GROUP_RE = /(?:https?:\/\/)?invite\.viber\.com\/\?(g2?)=([A-Za-z0-9%+/=_-]{8,})/i;
+const GROUP_LINK_RE = new RegExp(`${WA_GROUP_RE.source}|${VIBER_GROUP_RE.source}`, 'i');
+
+function normalizeGroupLink(raw) {
+  const wa = raw.match(WA_GROUP_RE);
+  if (wa) return `https://chat.whatsapp.com/${wa[1]}`;
+  const vb = raw.match(VIBER_GROUP_RE);
+  if (vb) return `https://invite.viber.com/?${vb[1].toLowerCase()}=${vb[2]}`;
+  return null;
+}
 
 function warehouseData(body) {
   const name = cleanText(body?.name, 120);
@@ -111,14 +121,13 @@ function warehouseData(body) {
   // رابط كروب لُصق في حقل الرقم (نموذج الإضافة السريعة فيه حقل واحد)
   if (!rawLink && GROUP_LINK_RE.test(phone)) { rawLink = phone; phone = ''; }
   if (!name) throw new AppError('اسم المذخر مطلوب', 400);
-  const code = rawLink.match(GROUP_LINK_RE)?.[1];
-  if (rawLink && !code) throw new AppError('رابط الكروب غير صالح — انسخه من «معلومات الكروب ← دعوة عبر الرابط»', 400);
+  const groupLink = rawLink ? normalizeGroupLink(rawLink) : null;
+  if (rawLink && !groupLink) throw new AppError('رابط الكروب غير صالح — يقبل روابط كروبات واتساب (chat.whatsapp.com) وفايبر (invite.viber.com)', 400);
   phone = phone.slice(0, 40);
   if (phone && phone.replace(/\D/g, '').length < 7) throw new AppError('رقم واتساب المذخر غير صالح', 400);
-  if (!phone && !code) throw new AppError('أدخل رقم واتساب المذخر أو رابط كروبه', 400);
+  if (!phone && !groupLink) throw new AppError('أدخل رقم واتساب المذخر أو رابط كروبه', 400);
   return {
-    name, phone,
-    groupLink: code ? `https://chat.whatsapp.com/${code}` : null,
+    name, phone, groupLink,
     waId: phone ? normalizeWaId(phone) || null : null,
     notes: cleanText(body?.notes, 300),
   };

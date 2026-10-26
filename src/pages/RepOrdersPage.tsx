@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, MessageCircle, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -77,6 +77,14 @@ function orderText(o: Order, withHeader = true, whName = currentWh(o).name): str
   if (o.invoiceImage) out.push(`صورة ختم الصيدلية: ${window.location.origin}${o.invoiceImage}`);
   return out.join('\n');
 }
+
+// قناة الإرسال اليدوي للمذخر: كروبه (واتساب/فايبر) إن حُفظ رابطه، وإلا رقمه، وإلا المشاركة
+type Channel = 'wa-group' | 'viber-group' | 'wa-number' | 'share';
+const channelOf = (wh?: OrderWh | null): Channel => (wh?.groupLink
+  ? (/viber\.com/i.test(wh.groupLink) ? 'viber-group' : 'wa-group')
+  : toWaNumber(wh?.phone) ? 'wa-number' : 'share');
+const CHANNEL_LABEL: Record<Channel, string> = { 'wa-group': 'كروب واتساب', 'viber-group': 'كروب فايبر', 'wa-number': 'واتساب', share: 'مشاركة' };
+const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
 /** نص رسالة المذخر: طلبية واحدة أو عدة طلبيات في رسالة واحدة. */
 const ordersText = (list: Order[], whName: string) => (list.length === 1
@@ -324,12 +332,12 @@ export default function RepOrdersPage() {
   const sendToWarehouse = (list: Order[], wh: OrderWh) => {
     if (canBotSend && viaBot && wh?.id != null) { sendViaBot(list, wh); return; }
     const text = ordersText(list, wh.name);
-    if (wh?.groupLink) {
+    const ch = channelOf(wh);
+    if (ch === 'wa-group' || ch === 'viber-group') {
       copyText(text);
-      window.open(wh.groupLink, '_blank');
+      window.open(wh.groupLink!, '_blank');
       // رابط الكروب لا يحمل نصاً (بخلاف wa.me) — اللصق خطوة لا مفرّ منها
-      const isTouch = window.matchMedia?.('(pointer: coarse)').matches;
-      setNotice(`✓ نُسخت الطلبية. في كروب «${wh.name}» ${isTouch ? 'اضغط مطوّلاً على خانة الكتابة ← لصق' : 'اضغط على خانة الكتابة ثم Ctrl+V'} ← إرسال.`);
+      setNotice(`✓ نُسخت الطلبية. في ${CHANNEL_LABEL[ch]} «${wh.name}» ${IS_TOUCH ? 'اضغط مطوّلاً على خانة الكتابة ← لصق' : 'اضغط على خانة الكتابة ثم Ctrl+V'} ← إرسال.`);
       markSent(list, wh);
       return;
     }
@@ -349,6 +357,12 @@ export default function RepOrdersPage() {
     }
     copyText(text);
     setNotice('المشاركة غير مدعومة في هذا المتصفح — نُسخت الطلبية، الصقها في كروب المذخر.');
+  };
+
+  // فايبر: شاشة «إعادة توجيه» والنص مكتوب، والمندوب يختار الكروب — بلا لصق (موبايل فقط)
+  const sendViaViber = (list: Order[], wh: OrderWh) => {
+    window.location.href = `viber://forward?text=${encodeURIComponent(ordersText(list, wh.name))}`;
+    markSent(list, wh);
   };
 
   const sendViaBot = async (list: Order[], wh: OrderWh) => {
@@ -502,6 +516,7 @@ export default function RepOrdersPage() {
                         onToggle={() => toggleOpen(o.id)}
                         onSend={wh => sendToWarehouse([o], wh)}
                         onShare={wh => shareOrders([o], wh)}
+                        onViber={wh => sendViaViber([o], wh)}
                         onStatus={s => changeStatus([o.id], s)}
                         onEdit={() => setEditing(o)}
                         onDelete={() => remove(o)}
@@ -623,9 +638,9 @@ function Fold({ title, summary, hoverDelay = 0, children }: { title: string; sum
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
+function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onViber, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
   o: Order; open: boolean; colCount: number; terms: string[]; showDate: boolean; showRep: boolean; showWh: boolean;
-  onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
+  onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onViber: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
 }) {
   const state = stateOf(o);
@@ -638,6 +653,8 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
   const backups = o.warehouses.length - 1;
   const [sendTo, setSendTo] = useState<number>(() => Math.max(0, o.warehouses.indexOf(nextWh(o))));
   useEffect(() => { setSendTo(Math.max(0, o.warehouses.indexOf(nextWh(o)))); }, [o]);
+  const selWh = o.warehouses[sendTo] ?? o.warehouses[0];
+  const selCh = channelOf(selWh);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   const canSendRow = state === 'new';
   const itemHits = terms.length ? o.lines.filter(l => terms.some(t => normSearch(`${l.itemName} ${l.companyName ?? ''}`).includes(t))) : [];
@@ -663,7 +680,7 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
         <td><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span></td>
         <td className="ro-col-actions" onClick={stop}>
           {canSendRow && (
-            <button className="ro-icon-btn ro-icon-btn--wa" title={o.warehouses[0]?.groupLink ? `إرسال لكروب ${o.warehouses[0].name}` : o.warehouses[0]?.phone ? `إرسال لواتساب ${o.warehouses[0].name}` : 'مشاركة الطلبية'} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>
+            <button className={`ro-icon-btn ro-icon-btn--${channelOf(o.warehouses[0]) === 'viber-group' ? 'viber' : 'wa'}`} title={`إرسال إلى ${o.warehouses[0]?.name ?? ''} — ${CHANNEL_LABEL[channelOf(o.warehouses[0])]}`} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>
           )}
         </td>
       </tr>
@@ -731,20 +748,30 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                           onClick={() => (o.sentAt ? onSend(w) : setSendTo(i))}>
                           <span className="ro-wh__rank">{i === 0 ? 'الأساسي' : `احتياط ${i}`}</span>
                           <span className="ro-wh__name">{w.name}</span>
+                          <span className={`ro-ch ro-ch--${channelOf(w)}`}>{CHANNEL_LABEL[channelOf(w)]}</span>
                           {o.lastSentWarehouseId != null && w.id === o.lastSentWarehouseId && <span className="ro-wh__sent">أُرسلت</span>}
                         </button>
                       ))}
                     </div>
                     <div className="ro-send-actions">
                       {!o.sentAt && (
-                        <button className="btn btn--success btn--sm" onClick={() => onSend(o.warehouses[sendTo] ?? o.warehouses[0])}>
-                          <Send size={14} /> إرسال إلى {(o.warehouses[sendTo] ?? o.warehouses[0])?.name}
+                        <button className={`ro-send-btn ro-send-btn--${selCh}`} onClick={() => onSend(selWh)}>
+                          <Send size={15} />
+                          <span>إرسال إلى {selWh?.name}</span>
+                          <span className="ro-send-btn__via">{CHANNEL_LABEL[selCh]}</span>
                         </button>
                       )}
-                      <button className="btn btn--secondary btn--sm" title="واتساب ← اختر الكروب أو المحادثة"
-                        onClick={() => onShare(o.warehouses[sendTo] ?? o.warehouses[0])}>
-                        <Share2 size={14} /> مشاركة لكروب
-                      </button>
+                      <div className="ro-send-alt">
+                        <span className="ro-muted ro-small">أو اختر الكروب بنفسك:</span>
+                        {IS_TOUCH && (
+                          <button className="ro-alt-btn ro-alt-btn--viber" title="يفتح فايبر والطلبية مكتوبة — اختر الكروب" onClick={() => onViber(selWh)}>
+                            <MessageCircle size={14} /> فايبر
+                          </button>
+                        )}
+                        <button className="ro-alt-btn" title="واتساب أو فايبر أو غيره ← اختر الكروب، والطلبية مكتوبة" onClick={() => onShare(selWh)}>
+                          <Share2 size={14} /> مشاركة
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1120,7 +1147,7 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
           {newWh && (
             <div className="ro-newwh">
               <input className="form-input" placeholder="اسم المذخر (مثال: الناقوس)" value={newWh.name} onChange={e => setNewWh({ ...newWh, name: e.target.value })} />
-              <input className="form-input" placeholder="رقم واتساب المذخر 07… أو رابط كروبه" dir="ltr" value={newWh.phone} onChange={e => setNewWh({ ...newWh, phone: e.target.value })} />
+              <input className="form-input" placeholder="رقم واتساب 07… أو رابط كروب واتساب/فايبر" dir="ltr" value={newWh.phone} onChange={e => setNewWh({ ...newWh, phone: e.target.value })} />
               <button className="btn btn--primary btn--sm" onClick={addWarehouse}>حفظ المذخر</button>
               <button className="btn btn--secondary btn--sm" onClick={() => setNewWh(null)}>إلغاء</button>
             </div>
@@ -1302,14 +1329,14 @@ function WarehousesModal({ api, warehouses, onChanged, onClose }: {
           <button className="ro-icon-btn" onClick={onClose}><X size={16} /></button>
         </div>
         <div className="ro-dialog__body">
-          <div className="ro-muted ro-small">إن وُضع رابط كروب المذخر يُرسل زرّ الإرسال للكروب، وإلا لرقم الواتساب. الدليل مشترك بين حسابات المكتب.</div>
+          <div className="ro-muted ro-small">إن وُضع رابط كروب المذخر (واتساب أو فايبر) يفتح زرّ الإرسال الكروب والطلبية منسوخة، وإلا يُرسل لرقم الواتساب. الدليل مشترك بين حسابات المكتب.</div>
           {warehouses.length === 0 && <div className="ro-muted">لا مذاخر بعد.</div>}
           {warehouses.map(w => (
             <div key={w.id} className="ro-wh-row">
               <div>
                 <strong>{w.name}</strong>
                 {w.phone && <div className="ro-muted ro-small" dir="ltr">{w.phone}</div>}
-                {w.groupLink && <div className="ro-muted ro-small">👥 كروب مربوط</div>}
+                <span className={`ro-ch ro-ch--${channelOf(w)}`}>{CHANNEL_LABEL[channelOf(w)]}</span>
                 {w.notes && <div className="ro-muted ro-small">{w.notes}</div>}
               </div>
               {w.canEdit && (
@@ -1324,7 +1351,7 @@ function WarehousesModal({ api, warehouses, onChanged, onClose }: {
             <div className="ro-newwh">
               <input className="form-input" placeholder="اسم المذخر" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
               <input className="form-input" placeholder="رقم واتساب 07…" inputMode="tel" dir="ltr" value={draft.phone} onChange={e => setDraft({ ...draft, phone: e.target.value })} />
-              <input className="form-input" placeholder="رابط كروب المذخر https://chat.whatsapp.com/… (اختياري)" dir="ltr" value={draft.groupLink} onChange={e => setDraft({ ...draft, groupLink: e.target.value })} />
+              <input className="form-input" placeholder="رابط كروب واتساب أو فايبر (اختياري)" dir="ltr" value={draft.groupLink} onChange={e => setDraft({ ...draft, groupLink: e.target.value })} />
               <input className="form-input" placeholder="ملاحظة (اختياري)" value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
               <button className="btn btn--primary btn--sm" onClick={save}>حفظ</button>
               <button className="btn btn--secondary btn--sm" onClick={() => setDraft(null)}>إلغاء</button>
