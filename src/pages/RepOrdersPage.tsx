@@ -335,6 +335,13 @@ export default function RepOrdersPage() {
     const ch = channelOf(wh);
     if (ch === 'wa-group' || ch === 'viber-group') {
       copyText(text);
+      // رابط دعوة فايبر على الكمبيوتر يعرض صفحة QR فقط (فايبر الكمبيوتر لا يفتح روابط الكروبات)
+      // ← نكتفي بالنسخ والمندوب يفتح الكروب من فايبر بنفسه
+      if (ch === 'viber-group' && !IS_TOUCH) {
+        setNotice(`✓ نُسخت الطلبية. افتح كروب «${wh.name}» في فايبر الكمبيوتر ← اضغط على خانة الكتابة ثم Ctrl+V ← إرسال.`);
+        markSent(list, wh);
+        return;
+      }
       window.open(wh.groupLink!, '_blank');
       // رابط الكروب لا يحمل نصاً (بخلاف wa.me) — اللصق خطوة لا مفرّ منها
       setNotice(`✓ نُسخت الطلبية. في ${CHANNEL_LABEL[ch]} «${wh.name}» ${IS_TOUCH ? 'اضغط مطوّلاً على خانة الكتابة ← لصق' : 'اضغط على خانة الكتابة ثم Ctrl+V'} ← إرسال.`);
