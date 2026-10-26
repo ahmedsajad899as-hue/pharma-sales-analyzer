@@ -841,8 +841,12 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
   const [picked, setPicked] = useState<number | null>(null);
   const [qty, setQty] = useState<Record<number, { p: string; b: string }>>({});
   const [saving, setSaving] = useState(false);
-  // قراءة الفاتورة بالذكاء — مفتاح يتذكّره الجهاز. بإطفائه تُرفق الصورة كصورة تجهيز بلا قراءة
-  const [aiOn, setAiOn] = useState<boolean>(() => { try { return localStorage.getItem('ro-ai-read') !== '0'; } catch { return true; } });
+  // قراءة الفاتورة بالذكاء — يمنحها السوبر أدمن للحساب (المميزات ← طلبيات المذاخر)، ومن
+  // مُنحها يطفئها/يشغّلها بمفتاح يتذكّره الجهاز. بإطفائها تُرفق الصورة كصورة تجهيز بلا قراءة
+  const { hasFeature } = useAuth();
+  const canAi = hasFeature('rep_orders_ai_read');
+  const [aiPref, setAiOn] = useState<boolean>(() => { try { return localStorage.getItem('ro-ai-read') !== '0'; } catch { return true; } });
+  const aiOn = canAi && aiPref;
   const toggleAi = (v: boolean) => { setAiOn(v); try { localStorage.setItem('ro-ai-read', v ? '1' : '0'); } catch { /* ignore */ } };
   // الافتراضي: الطلبيات قيد المتابعة فقط (أُرسلت للمذخر ولم تُجهَّز) — الفاتورة لواحدة منها حتماً
   const [showAll, setShowAll] = useState(false);
@@ -964,7 +968,7 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
                 <button className={`ro-chip ${kind === 'prepared' ? 'is-active' : ''}`} onClick={() => setKind('prepared')}>فاتورة التجهيز</button>
                 <button className={`ro-chip ${kind === 'invoice' ? 'is-active' : ''}`} onClick={() => setKind('invoice')}>ختم الصيدلية</button>
               </div>
-              {kind === 'prepared' && (
+              {kind === 'prepared' && canAi && (
                 <label className="ro-ai-toggle">
                   <input type="checkbox" checked={aiOn} onChange={e => toggleAi(e.target.checked)} />
                   <span className="ro-ai-toggle__track" />

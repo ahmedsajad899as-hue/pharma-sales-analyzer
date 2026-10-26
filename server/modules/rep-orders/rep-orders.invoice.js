@@ -107,10 +107,25 @@ export function scoreOrder(order, inv) {
 /**
  * @returns {{ token, invoice, candidates, autoOrderId }}
  */
+// ميزة اشتراك يمنحها السوبر أدمن لكل حساب من «المميزات» (OPT_IN_FEATURES في featureConfig.ts):
+// مفعّلة فقط إن وُجدت في permissions.enabledFeatures ولم تُعطَّل — نفس isFeatureEnabled في الواجهة
+const AI_READ_FEATURE = 'rep_orders_ai_read';
+async function canAiRead(userId) {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { permissions: true } });
+  try {
+    const p = JSON.parse(u?.permissions || '{}');
+    return !(p.disabledFeatures ?? []).includes(AI_READ_FEATURE) && (p.enabledFeatures ?? []).includes(AI_READ_FEATURE);
+  } catch { return false; }
+}
+
 export async function readInvoice(reqUser, file) {
   if (!file) throw new AppError('لا توجد صورة', 400);
   purgeStalePending();
   const viewer = await loadViewer(reqUser);
+  if (!(await canAiRead(viewer.id))) {
+    fs.promises.unlink(file.path).catch(() => {});
+    throw new AppError('قراءة الفاتورة بالذكاء غير مفعّلة لحسابك', 403);
+  }
 
   const token = path.basename(file.path).match(PENDING_RE)?.[1];
   let rows;

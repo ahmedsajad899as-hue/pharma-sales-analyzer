@@ -180,6 +180,9 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'sci_merge_warehouses',   label: 'دمج المذاخر مع العلمي',        icon: '🔗', desc: 'زر يدمج عمود «مذاخر» (ميركاتو/كوديشن) مع «علمي» في جدول التصنيف' },
     { key: 'warehouse_gap_import', label: 'مبيعات مذاخر ناقصة من ميركاتو', icon: '📑', desc: 'تنزيل نموذج إكسل خاص بالشركات والايتمات والمندوبين، لتوثيق مبيعات مذاخر لم تظهر في ملف ميركاتو، ثم رفعها لتُحتسب ضمنه', onlyRoles: ['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager', 'commercial_supervisor', 'commercial_team_leader'] },
   ],
+  'rep-orders': [
+    { key: 'rep_orders_ai_read', label: 'قراءة الفاتورة بالذكاء', icon: '🤖', desc: 'عند مشاركة فاتورة المذخر للتطبيق: قراءتها بالذكاء الاصطناعي ومطابقتها بالطلبية وتعبئة الكميات المجهّزة، مع زر يطفئها المستخدم متى شاء. بدونها تُربط الصورة يدوياً بلا قراءة' },
+  ],
   'reports': [
     { key: 'export_report', label: 'تصدير التقارير', icon: '⬇️', desc: 'إمكانية تصدير وطباعة التقارير' },
   ],
@@ -299,6 +302,7 @@ export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
   'showcase_3d',
   'rep_orders',
   'warehouse_dispatch',
+  'rep_orders_ai_read',
   // أزرار تقرير العلميين (2026-10-25)
   'sci_exclude_pharmacy',
   'sci_exclude_commercial',
