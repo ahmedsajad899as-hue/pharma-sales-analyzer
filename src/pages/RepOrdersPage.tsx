@@ -61,6 +61,19 @@ const isPartial = (o: Order) => o.status !== 'prepared' && o.lines.some(l => (l.
 type SendMark = SendOutcome | 'noreply';
 const SEND_LABEL: Record<SendMark, string> = { sent: 'بانتظار الرد', noreply: 'بلا رد', prepared: 'جهّز كامل', partial: 'جهّز جزئي', rejected: 'لم يجهّز' };
 const markOf = (o: Order, s: OrderSend): SendMark => (s.outcome === 'sent' && s !== o.sends[o.sends.length - 1] ? 'noreply' : s.outcome);
+/**
+ * نتيجة مذخر للطلبية: «بانتظار الرد» إن كان آخر من أُرسلت له ولم يرد، وإلا آخر نتيجة
+ * مسجّلة له (جهّز/جزئي/لم يجهّز) — إعادة إرسال المتبقي له بلا رد لا تمحو ما جهّزه.
+ */
+const whMarkOf = (o: Order, whId: number | null): SendMark | null => {
+  const mine = o.sends.filter(s => s.warehouseId === whId);
+  if (!mine.length) return null;
+  const last = mine[mine.length - 1];
+  if (last.outcome === 'sent' && last === o.sends[o.sends.length - 1]) return 'sent';
+  const recorded = [...mine].reverse().find(s => s.outcome !== 'sent');
+  return recorded ? recorded.outcome : markOf(o, last);
+};
+
 /** آخر إرسال لمذخر معيّن */
 const lastSendTo = (o: Order, whId: number | null) => [...o.sends].reverse().find(s => s.warehouseId === whId) ?? null;
 
@@ -702,11 +715,6 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
     ? <span className={extra}>{w.name}</span>
     : <button type="button" className={`ro-whlink ${extra}`} title={`فتح ${CHANNEL_LABEL[channelOf(w)]} — ${w.name}`}
         onClick={e => { e.stopPropagation(); onOpenWh(w); }}>{w.name}</button>);
-  const trail = o.sends.length > 0 && (
-    <span className="ro-trail">
-      {o.sends.map(sd => { const m = markOf(o, sd); return <i key={sd.id} className={`ro-dot ro-dot--${m}`} title={`${sd.warehouseName}: ${SEND_LABEL[m]}`} />; })}
-    </span>
-  );
   const total = o.lines.reduce((s, l) => s + l.quantity, 0);
   const hasPrepared = o.lines.some(l => l.preparedQty != null);
   const preparedTotal = o.lines.reduce((s, l) => s + (l.preparedQty ?? 0), 0);
@@ -739,11 +747,11 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
         <td>
           <div className="ro-strong">{o.pharmacyName}{o.areaName && <span className="ro-area"> / {o.areaName}</span>}</div>
           <div className="ro-sub">
-            <span className="ro-show-sm">{trail}{whLink(wh)}</span>
+            <span className="ro-show-sm">{whLink(wh)}</span>
             {itemHits.length > 0 && <span className="ro-hit">🔎 {itemHits.map(l => `${l.itemName} ×${l.quantity}`).join('، ')}</span>}
           </div>
         </td>
-        {showWh && <td className="ro-hide-sm">{trail}{whLink(wh)}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</td>}
+        {showWh && <td className="ro-hide-sm">{whLink(wh)}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</td>}
         {showRep && <td className="ro-hide-sm ro-nowrap">{o.repName}</td>}
         <td><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span>{partial && <span className="ro-badge ro-badge--partial">جزئي</span>}</td>
         <td className="ro-col-actions" onClick={stop}>
@@ -832,14 +840,13 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                   <div className="ro-sendbox">
                     <div className="ro-whs">
                       {o.warehouses.map((w, i) => {
-                        const sd = lastSendTo(o, w.id);
-                        const m = sd ? markOf(o, sd) : null;
+                        const m = whMarkOf(o, w.id);
                         return (
-                          // الضغط على المربع يختاره للإرسال، وعلى الاسم يفتح كروب المذخر
+                          // الضغط على المربع يختاره للإرسال؛ النقطة الملوّنة = نتيجة هذا المذخر
                           <div key={`${w.id}-${i}`} role="button" tabIndex={0} className={`ro-wh ${sendTo === i ? 'is-active' : ''} ${m ? `ro-wh--${m}` : ''}`}
                             onClick={() => setSendTo(i)} onKeyDown={e => { if (e.key === 'Enter') setSendTo(i); }}>
                             <span className="ro-wh__rank">{i === 0 ? 'الأساسي' : `احتياط ${i}`}</span>
-                            <span className="ro-wh__name">{whLink(w)}<ChannelIcon ch={channelOf(w)} size={14} /></span>
+                            <span className="ro-wh__name">{m && <i className={`ro-dot ro-dot--${m}`} title={SEND_LABEL[m]} />}{w.name}<ChannelIcon ch={channelOf(w)} size={14} /></span>
                             {m && <span className={`ro-sendmark ro-sendmark--${m}`}>{SEND_LABEL[m]}</span>}
                           </div>
                         );

@@ -305,7 +305,7 @@
 /* ── سجل الإرسال للمذاخر ونتيجة كل مذخر + التجهيز الجزئي ── */
 .ro-whlink { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color .15s, text-decoration-color .15s; }
 .ro-whlink:hover { color: var(--c-accent); text-decoration-color: currentColor; }
-.ro-trail { display: inline-flex; gap: 3px; margin-inline-end: 6px; vertical-align: middle; }
+
 .ro-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; }
 .ro-dot--sent { background: #f59e0b; }
 .ro-dot--noreply { background: #cbd5e1; }
@@ -331,3 +331,4 @@ button.ro-prep { cursor: pointer; }
 .ro-alt-btn--danger { color: #b91c1c; border-color: rgba(239, 68, 68, 0.35); }
 .ro-prep-table td { vertical-align: middle; }
 .ro-prep-done td { opacity: .65; }
+.ro-wh__name .ro-dot { flex: none; }
