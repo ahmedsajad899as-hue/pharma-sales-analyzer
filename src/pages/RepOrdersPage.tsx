@@ -599,7 +599,7 @@ export default function RepOrdersPage() {
           onSaved={(d) => { setEditing(null); if (d && from && (d < from || d > to)) pickPeriod('all'); else load(); }} />
       )}
       {showWarehouses && (
-        <WarehousesModal api={api} warehouses={warehouses} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
+        <WarehousesModal api={api} warehouses={warehouses} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
       )}
       {shared.length > 0 && (
         <SharedImagePicker api={api} images={shared} onDone={() => { clearShared(); load(); }} onCancel={clearShared} />
@@ -1595,10 +1595,15 @@ function ItemPicker({ items, have, onAdd, onClose }: {
 
 // ─── دليل المذاخر (الاسم + رقم الواتساب) ──────────────────────────────────────
 
-function WarehousesModal({ api, warehouses, onChanged, onClose }: {
+function WarehousesModal({ api, warehouses, onOpen, onChanged, onClose }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
-  warehouses: WarehouseRow[]; onChanged: () => void; onClose: () => void;
+  warehouses: WarehouseRow[]; onOpen: (w: OrderWh) => void; onChanged: () => void; onClose: () => void;
 }) {
+  const [q, setQ] = useState('');
+  const terms = normSearch(q).split(/\s+/).filter(Boolean);
+  const shown = terms.length
+    ? warehouses.filter(w => { const t = normSearch(`${w.name} ${w.phone} ${w.notes ?? ''}`); return terms.every(x => t.includes(x)); })
+    : warehouses;
   const [draft, setDraft] = useState<{ id: number | null; name: string; phone: string; groupLink: string; notes: string } | null>(null);
 
   const save = async () => {
@@ -1623,11 +1628,23 @@ function WarehousesModal({ api, warehouses, onChanged, onClose }: {
         </div>
         <div className="ro-dialog__body">
           <div className="ro-muted ro-small">إن وُضع رابط كروب المذخر (واتساب أو فايبر) يفتح زرّ الإرسال الكروب والطلبية منسوخة، وإلا يُرسل لرقم الواتساب. الدليل مشترك بين حسابات المكتب.</div>
+          {warehouses.length > 0 && (
+            <div className="ro-search">
+              <Search size={14} className="ro-search__icon" />
+              <input className="form-input" type="search" placeholder="ابحث عن مذخر…" value={q} onChange={e => setQ(e.target.value)} aria-label="بحث في المذاخر" />
+              {q && <button className="ro-search__x" title="مسح" onClick={() => setQ('')}><X size={13} /></button>}
+            </div>
+          )}
           {warehouses.length === 0 && <div className="ro-muted">لا مذاخر بعد.</div>}
-          {warehouses.map(w => (
+          {warehouses.length > 0 && shown.length === 0 && <div className="ro-muted">لا مذخر بهذا الاسم.</div>}
+          {shown.map(w => (
             <div key={w.id} className="ro-wh-row">
               <div>
-                <strong className="ro-wh-dir__name">{w.name}<ChannelIcon ch={channelOf(w)} size={15} /></strong>
+                <strong className="ro-wh-dir__name">
+                  {/* الاسم يفتح كروب المذخر أو محادثته */}
+                  {channelOf(w) === 'share' ? w.name : <button type="button" className="ro-whlink" title={`فتح ${CHANNEL_LABEL[channelOf(w)]}`} onClick={() => onOpen(w)}>{w.name}</button>}
+                  <ChannelIcon ch={channelOf(w)} size={15} />
+                </strong>
                 {w.phone && <div className="ro-muted ro-small" dir="ltr">{w.phone}</div>}
                 {w.notes && <div className="ro-muted ro-small">{w.notes}</div>}
               </div>
