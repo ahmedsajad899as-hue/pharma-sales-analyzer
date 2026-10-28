@@ -27,3 +27,4 @@ export const deleteWarehouse = wrap(async (req, res) => { await svc.deleteWareho
 
 export const readInvoice     = wrap(async (req, res) => res.json({ success: true, ...(await invoice.readInvoice(req.user, req.file)) }));
 export const applyInvoice    = wrap(async (req, res) => res.json({ success: true, ...(await invoice.applyInvoice(req.user, req.params.id, req.body)) }));
+export const prepareOrder    = wrap(async (req, res) => res.json({ success: true, ...(await svc.prepareOrder(req.user, req.params.id, req.body, req.file)) }));

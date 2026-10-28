@@ -187,6 +187,7 @@ export async function listOrders(reqUser, q = {}) {
     include: {
       lines: { orderBy: { id: 'asc' } },
       warehouse: { select: { id: true, name: true, phone: true, groupLink: true } },
+      sends: { orderBy: { id: 'asc' } },
     },
   });
 
@@ -245,6 +246,8 @@ export async function listOrders(reqUser, q = {}) {
       preparedBy: r.preparedById ? (nameById.get(r.preparedById) ?? null) : null,
       createdAt: r.createdAt,
       lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty, preparedQty: l.preparedQty, preparedBonus: l.preparedBonus, unitPrice: l.unitPrice ?? (l.itemId ? catalogPrice.get(l.itemId) ?? null : null) })),
+      // سجل الإرسال للمذاخر بالترتيب ونتيجة كل مذخر
+      sends: r.sends.map(s => ({ id: s.id, warehouseId: s.warehouseId, warehouseName: s.warehouseName, sentAt: s.sentAt, outcome: s.outcome, outcomeAt: s.outcomeAt, image: s.image, lines: Array.isArray(s.lines) ? s.lines : [] })),
       canEdit: canEditContent(viewer, r),
     })),
   };
@@ -333,7 +336,121 @@ export async function updateOrder(reqUser, id, body) {
   const { head, lines } = await buildOrderData(viewer, body);
   return prisma.$transaction(async (tx) => {
     await tx.repOrderLine.deleteMany({ where: { orderId: order.id } });
-    return tx.repOrder.update({ where: { id: order.id }, data: { ...head, lines: { create: lines } }, include: { lines: true } });
+    const updated = await tx.repOrder.update({ where: { id: order.id }, data: { ...head, lines: { create: lines } }, include: { lines: { orderBy: { id: 'asc' } } } });
+    // الأسطر أُعيد إنشاؤها ← سجل التجهيز يُربط بها من جديد بالصنف نفسه
+    const sends = await tx.repOrderSend.findMany({ where: { orderId: order.id } });
+    if (sends.some(s => Array.isArray(s.lines) && s.lines.length)) {
+      const newIdByKey = new Map(updated.lines.map(l => [lineKey(l), l.id]));
+      const oldKey = new Map(order.lines.map(l => [l.id, lineKey(l)]));
+      for (const s of sends) {
+        if (!Array.isArray(s.lines) || !s.lines.length) continue;
+        const remapped = s.lines
+          .map(x => ({ ...x, lineId: newIdByKey.get(oldKey.get(x.lineId) ?? lineKey({ itemName: x.itemName })) }))
+          .filter(x => x.lineId);
+        await tx.repOrderSend.update({ where: { id: s.id }, data: { lines: remapped } });
+        s.lines = remapped;
+      }
+      await syncPreparedTotals(tx, updated, sends);
+    }
+    return updated;
+  });
+}
+
+const lineKey = (l) => (l.itemId ? `i${l.itemId}` : `n${String(l.itemName ?? '').trim().toLowerCase()}`);
+
+/** RepOrderLine.preparedQty/Bonus = مجموع ما جهّزته كل المذاخر. يعيد هل اكتمل تجهيز كل الأسطر. */
+async function syncPreparedTotals(tx, order, sends) {
+  const recorded = sends.some(s => s.outcome !== 'sent');
+  const sum = new Map();
+  for (const s of sends) for (const x of (Array.isArray(s.lines) ? s.lines : [])) {
+    const t = sum.get(x.lineId) ?? { qty: 0, bonus: 0 };
+    t.qty += Number(x.qty) || 0; t.bonus += Number(x.bonus) || 0;
+    sum.set(x.lineId, t);
+  }
+  for (const l of order.lines) {
+    const t = sum.get(l.id);
+    await tx.repOrderLine.update({
+      where: { id: l.id },
+      data: recorded ? { preparedQty: t?.qty ?? 0, preparedBonus: t?.bonus ?? 0 } : { preparedQty: null, preparedBonus: null },
+    });
+  }
+  return recorded && order.lines.every(l => (sum.get(l.id)?.qty ?? 0) >= l.quantity);
+}
+
+/**
+ * يسجّل ما جهّزه مذخر للطلبية (كامل/جزئي/لا شيء) مع فاتورته إن وُجدت.
+ * السجل المقصود = آخر إرسال لهذا المذخر (يُصحَّح إن سبق تسجيله)، وإلا يُنشأ —
+ * طلبية لم تُعلَّم مُرسلة أو أُرسلت قبل وجود سجل الإرسال.
+ * الطلبية تصير «تم التجهيز» فقط حين تكتمل كل أسطرها عبر كل المذاخر.
+ * @param {{ warehouseId?:number|null, lines?:{lineId:number, qty?:number, preparedQty?:number, bonus?:number, preparedBonus?:number}[], image?:string|null, invoiceNumber?:string|null }} input
+ */
+export async function recordPreparation(viewer, orderId, input = {}) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.repOrder.findUnique({ where: { id: Number(orderId) }, include: { lines: { orderBy: { id: 'asc' } }, sends: { orderBy: { id: 'desc' } } } });
+    if (!order) throw new AppError('الطلبية غير موجودة', 404);
+    const whId = input.warehouseId ? Number(input.warehouseId) : (order.lastSentWarehouseId ?? order.warehouseId);
+    let send = order.sends.find(s => s.warehouseId === whId);
+
+    // ما جهّزته المذاخر الأخرى ← المتبقي المطلوب من هذا المذخر
+    const prior = new Map();
+    for (const s of order.sends) {
+      if (s.id === send?.id) continue;
+      for (const x of (Array.isArray(s.lines) ? s.lines : [])) prior.set(x.lineId, (prior.get(x.lineId) ?? 0) + (Number(x.qty) || 0));
+    }
+    const given = new Map((Array.isArray(input.lines) ? input.lines : []).map(x => [Number(x.lineId), x]));
+    const toInt = (v) => Math.max(0, Math.floor(Number(v) || 0));
+    const sendLines = order.lines
+      .map(l => { const x = given.get(l.id); return { lineId: l.id, itemName: l.itemName, qty: toInt(x?.qty ?? x?.preparedQty), bonus: toInt(x?.bonus ?? x?.preparedBonus) }; })
+      .filter(x => x.qty > 0 || x.bonus > 0);
+    const gotQty = new Map(sendLines.map(x => [x.lineId, x.qty]));
+    const asked = order.lines.filter(l => l.quantity - (prior.get(l.id) ?? 0) > 0);
+    const outcome = !sendLines.length ? 'rejected'
+      : asked.every(l => (gotQty.get(l.id) ?? 0) >= l.quantity - (prior.get(l.id) ?? 0)) ? 'prepared' : 'partial';
+
+    const now = new Date();
+    const data = { outcome, outcomeAt: now, outcomeById: viewer.id, lines: sendLines, ...(input.image ? { image: input.image } : {}) };
+    if (send) {
+      if (input.image && send.image && send.image !== input.image && send.image !== order.preparedImage) removeImageFile(send.image);
+      send = await tx.repOrderSend.update({ where: { id: send.id }, data });
+    } else {
+      const w = whId ? await tx.orderWarehouse.findUnique({ where: { id: whId }, select: { name: true } }) : null;
+      send = await tx.repOrderSend.create({
+        data: { orderId: order.id, warehouseId: whId ?? null, warehouseName: w?.name ?? order.warehouseName, sentAt: order.sentAt ?? now, sentById: viewer.id, ...data },
+      });
+    }
+
+    const allSends = order.sends.map(s => (s.id === send.id ? send : s));
+    if (!allSends.some(s => s.id === send.id)) allSends.push(send);
+    const complete = await syncPreparedTotals(tx, order, allSends);
+
+    await tx.repOrder.update({
+      where: { id: order.id },
+      data: {
+        ...(input.invoiceNumber ? { invoiceNumber: String(input.invoiceNumber).slice(0, 60) } : {}),
+        ...(whId ? { lastSentWarehouseId: whId } : {}),
+        ...(complete
+          ? { status: 'prepared', preparedAt: now, preparedById: viewer.id, preparedImage: input.image ?? order.preparedImage }
+          : { status: order.status === 'cancelled' ? 'cancelled' : 'pending', preparedAt: null, preparedById: null }),
+      },
+    });
+    return { outcome, complete, sendId: send.id };
+  });
+}
+
+export async function prepareOrder(reqUser, id, body, file) {
+  const viewer = await loadViewer(reqUser);
+  try {
+    await getVisibleOrder(viewer, id);
+  } catch (e) {
+    if (file) fs.promises.unlink(file.path).catch(() => {});
+    throw e;
+  }
+  let lines = body?.lines;
+  if (typeof lines === 'string') { try { lines = JSON.parse(lines); } catch { lines = []; } }
+  return recordPreparation(viewer, id, {
+    warehouseId: body?.warehouseId || null,
+    lines,
+    image: file ? `/uploads/rep-orders/${path.basename(file.path)}` : null,
   });
 }
 
@@ -355,11 +472,28 @@ export async function markSent(reqUser, ids, warehouseId = null) {
   const viewer = await loadViewer(reqUser);
   const list = (Array.isArray(ids) ? ids : [ids]).map(Number).filter(Boolean).slice(0, 500);
   if (!list.length) return { updated: 0 };
-  const r = await prisma.repOrder.updateMany({
+  const orders = await prisma.repOrder.findMany({
     where: { AND: [{ id: { in: list } }, await orderScopeWhere(viewer)] },
-    data: { sentAt: new Date(), sentCount: { increment: 1 }, ...(warehouseId ? { lastSentWarehouseId: Number(warehouseId) } : {}) },
+    select: { id: true, warehouseId: true, warehouseName: true, sends: { orderBy: { id: 'desc' }, take: 1 } },
   });
-  return { updated: r.count };
+  if (!orders.length) return { updated: 0 };
+  const whId = warehouseId ? Number(warehouseId) : null;
+  const w = whId ? await prisma.orderWarehouse.findUnique({ where: { id: whId }, select: { name: true } }) : null;
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.repOrder.updateMany({
+      where: { id: { in: orders.map(o => o.id) } },
+      data: { sentAt: now, sentCount: { increment: 1 }, ...(whId ? { lastSentWarehouseId: whId } : {}) },
+    }),
+    ...orders.map(o => {
+      const target = whId ?? o.warehouseId;
+      const last = o.sends[0];
+      // إعادة إرسال لنفس المذخر وهو لم يرد بعد ← نفس السجل
+      if (last && last.outcome === 'sent' && last.warehouseId === target) return prisma.repOrderSend.update({ where: { id: last.id }, data: { sentAt: now } });
+      return prisma.repOrderSend.create({ data: { orderId: o.id, warehouseId: target, warehouseName: w?.name ?? o.warehouseName, sentAt: now, sentById: viewer.id } });
+    }),
+  ]);
+  return { updated: orders.length };
 }
 
 function removeImageFile(rel) {
@@ -372,9 +506,10 @@ export async function deleteOrder(reqUser, id) {
   const viewer = await loadViewer(reqUser);
   const order = await getVisibleOrder(viewer, id);
   if (!canEditContent(viewer, order)) throw new AppError('لا يمكنك حذف هذه الطلبية', 403);
+  const sends = await prisma.repOrderSend.findMany({ where: { orderId: order.id }, select: { image: true } });
   await prisma.repOrder.delete({ where: { id: order.id } });
   removeImageFile(order.invoiceImage);
-  removeImageFile(order.preparedImage);
+  for (const img of new Set([order.preparedImage, ...sends.map(s => s.image)])) removeImageFile(img);
 }
 
 // نوعا الصورة: invoice = ختم الصيدلية يرفقه المندوب مع الطلبية (اسم تاريخي)،
@@ -423,4 +558,39 @@ export async function suggestions(reqUser) {
   const pharmacies = new Map();
   for (const r of rows) if (!pharmacies.has(r.pharmacyName)) pharmacies.set(r.pharmacyName, r.areaName);
   return { pharmacies: [...pharmacies].map(([name, areaName]) => ({ name, areaName })) };
+}
+
+/**
+ * طلبيات أُرسلت قبل وجود سجل الإرسال (rep_order_sends) ← سجل واحد لآخر مذخر أُرسلت له،
+ * بنتيجتها الحالية، كي تظهر علامات «أُرسلت» على المذاخر. idempotent — يُستدعى عند الإقلاع.
+ */
+export async function backfillOrderSends() {
+  try {
+    const rows = await prisma.repOrder.findMany({
+      where: { sentAt: { not: null }, sends: { none: {} } },
+      select: { id: true, sentAt: true, warehouseId: true, warehouseName: true, lastSentWarehouseId: true, status: true, preparedAt: true, preparedById: true, preparedImage: true, createdById: true, lines: { select: { id: true, itemName: true, preparedQty: true, preparedBonus: true } } },
+      take: 5000,
+    });
+    if (!rows.length) return 0;
+    const whIds = [...new Set(rows.map(r => r.lastSentWarehouseId).filter(Boolean))];
+    const whs = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true } }) : [];
+    const whName = new Map(whs.map(w => [w.id, w.name]));
+    await prisma.repOrderSend.createMany({
+      data: rows.map(r => {
+        const whId = r.lastSentWarehouseId ?? r.warehouseId;
+        const lines = r.lines.filter(l => (l.preparedQty ?? 0) > 0 || (l.preparedBonus ?? 0) > 0).map(l => ({ lineId: l.id, itemName: l.itemName, qty: l.preparedQty ?? 0, bonus: l.preparedBonus ?? 0 }));
+        const prepared = r.status === 'prepared';
+        return {
+          orderId: r.id, warehouseId: whId, warehouseName: whName.get(whId) ?? r.warehouseName, sentAt: r.sentAt, sentById: r.createdById,
+          outcome: prepared ? 'prepared' : 'sent',
+          ...(prepared ? { outcomeAt: r.preparedAt ?? r.sentAt, outcomeById: r.preparedById, image: r.preparedImage, lines } : {}),
+        };
+      }),
+    });
+    console.log(`✓ rep-orders: سجل إرسال لـ ${rows.length} طلبية قديمة`);
+    return rows.length;
+  } catch (e) {
+    console.error('[rep-orders] backfillOrderSends:', e.message);
+    return 0;
+  }
 }

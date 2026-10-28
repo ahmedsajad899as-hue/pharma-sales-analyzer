@@ -46,5 +46,7 @@ router.delete('/:id', ctrl.deleteOrder);
 router.post('/:id/image/:kind', invoiceUpload.single('image'), ctrl.attachImage);
 router.delete('/:id/image/:kind', ctrl.removeImage);
 router.post('/:id/apply-invoice', ctrl.applyInvoice);
+// ما جهّزه المذخر لكل سطر (كامل/جزئي/لا شيء) + فاتورته اختيارياً ← الباقي يُرسل للمذخر التالي
+router.post('/:id/prepare', invoiceUpload.single('image'), ctrl.prepareOrder);
 
 export default router;

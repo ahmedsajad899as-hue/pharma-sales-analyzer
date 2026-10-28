@@ -18,13 +18,16 @@ type Status = 'pending' | 'prepared' | 'cancelled';
 
 interface OrderLine { id?: number; itemId: number | null; itemName: string; companyName: string | null; quantity: number; bonusQty: number; preparedQty?: number | null; preparedBonus?: number | null; unitPrice?: number | null }
 interface OrderWh { id: number | null; name: string; phone: string | null; groupLink?: string | null }
+type SendOutcome = 'sent' | 'prepared' | 'partial' | 'rejected';
+interface SendLine { lineId: number; itemName: string; qty: number; bonus: number }
+interface OrderSend { id: number; warehouseId: number | null; warehouseName: string; sentAt: string; outcome: SendOutcome; outcomeAt: string | null; image: string | null; lines: SendLine[] }
 interface Order {
   id: number; orderDate: string; createdById: number; repName: string;
   warehouseId: number | null; warehouseName: string; warehousePhone: string | null;
   warehouses: OrderWh[]; lastSentWarehouseId: number | null;
   pharmacyName: string; areaName: string | null; notes: string | null;
   status: Status; invoiceImage: string | null; preparedImage: string | null; invoiceNumber?: string | null; createdAt: string; sentAt: string | null; sentCount: number;
-  preparedAt: string | null; preparedBy: string | null; lines: OrderLine[]; canEdit: boolean;
+  preparedAt: string | null; preparedBy: string | null; lines: OrderLine[]; sends: OrderSend[]; canEdit: boolean;
 }
 interface WarehouseRow { id: number; name: string; phone: string; groupLink: string | null; notes: string | null; canEdit: boolean }
 interface CatalogItem { id: number; name: string; company?: { name: string } | null; scientificCompany?: { name: string } | null }
@@ -50,6 +53,17 @@ const fmtMoney = (n: number) => Math.round(n).toLocaleString('en-US');
 const itemCompany = (i: CatalogItem) => i.scientificCompany?.name ?? i.company?.name ?? null;
 const itemLabel = (i: CatalogItem) => (itemCompany(i) ? `${i.name} — ${itemCompany(i)}` : i.name);
 
+const remainingOf = (l: OrderLine) => Math.max(0, l.quantity - (l.preparedQty ?? 0));
+/** جُهّز جزء منها ولم تكتمل */
+const isPartial = (o: Order) => o.status !== 'prepared' && o.lines.some(l => (l.preparedQty ?? 0) > 0);
+
+// نتيجة كل إرسال لمذخر — «بانتظار الرد» لآخر إرسال فقط، وما قبله بلا تسجيل = «بلا رد»
+type SendMark = SendOutcome | 'noreply';
+const SEND_LABEL: Record<SendMark, string> = { sent: 'بانتظار الرد', noreply: 'بلا رد', prepared: 'جهّز كامل', partial: 'جهّز جزئي', rejected: 'لم يجهّز' };
+const markOf = (o: Order, s: OrderSend): SendMark => (s.outcome === 'sent' && s !== o.sends[o.sends.length - 1] ? 'noreply' : s.outcome);
+/** آخر إرسال لمذخر معيّن */
+const lastSendTo = (o: Order, whId: number | null) => [...o.sends].reverse().find(s => s.warehouseId === whId) ?? null;
+
 /** المذخر الحالي للطلبية: آخر مذخر أُرسلت له، وإلا الأساسي. */
 const currentWh = (o: Order): OrderWh => o.warehouses.find(w => w.id != null && w.id === o.lastSentWarehouseId) ?? o.warehouses[0] ?? { id: o.warehouseId, name: o.warehouseName, phone: o.warehousePhone };
 
@@ -68,10 +82,14 @@ function orderText(o: Order, withHeader = true, whName = currentWh(o).name): str
   out.push(`الصيدلية: ${o.pharmacyName}`);
   if (o.areaName) out.push(`المنطقة: ${o.areaName}`);
   out.push(`المذخر: ${whName}`);
+  // جُهّز جزء من مذخر سابق ← يُرسل المتبقي فقط
+  const partial = o.lines.some(l => (l.preparedQty ?? 0) > 0);
+  if (partial) out.push('(المتبقي من الطلبية فقط)');
   out.push('──────────');
-  o.lines.forEach((l, i) => {
-    const bonus = l.bonusQty ? ` + بونص ${l.bonusQty}` : '';
-    out.push(`${i + 1}) ${l.itemName}${l.companyName ? ` (${l.companyName})` : ''} — الكمية: ${l.quantity}${bonus}`);
+  o.lines.filter(l => remainingOf(l) > 0).forEach((l, i) => {
+    const b = Math.max(0, l.bonusQty - (l.preparedBonus ?? 0));
+    const bonus = b ? ` + بونص ${b}` : '';
+    out.push(`${i + 1}) ${l.itemName}${l.companyName ? ` (${l.companyName})` : ''} — الكمية: ${remainingOf(l)}${bonus}`);
   });
   if (o.notes) out.push(`ملاحظات: ${o.notes}`);
   if (o.invoiceImage) out.push(`صورة ختم الصيدلية: ${window.location.origin}${o.invoiceImage}`);
@@ -148,7 +166,7 @@ type GroupType = 'date' | 'warehouse' | 'rep';
 type DisplayState = 'new' | 'following' | 'prepared' | 'cancelled';
 const stateOf = (o: Order): DisplayState => {
   if (o.status === 'cancelled') return 'cancelled';
-  if (o.preparedImage || o.status === 'prepared') return 'prepared';
+  if (o.status === 'prepared' || (o.preparedImage && !o.sends.length)) return 'prepared';
   return o.sentAt ? 'following' : 'new';
 };
 const STATE_LABEL: Record<DisplayState, string> = { new: 'جديد', following: 'قيد المتابعة', prepared: 'تم التجهيز', cancelled: 'ملغاة' };
@@ -400,6 +418,18 @@ export default function RepOrdersPage() {
     if (failed.length) alert(`تعذّر الإرسال عبر البوت:\n${failed.join('\n')}\n\nيمكنك إطفاء «عبر البوت» والإرسال من واتساب مباشرة.`);
   };
 
+  // الضغط على اسم المذخر ← كروبه أو محادثته لمتابعة الطلبية
+  const openWarehouse = (wh: OrderWh) => {
+    const ch = channelOf(wh);
+    if (ch === 'viber-group' && !IS_TOUCH) { setNotice(`افتح كروب «${wh.name}» من فايبر — روابط كروبات فايبر تفتح بالموبايل فقط.`); return; }
+    if (ch === 'wa-group' || ch === 'viber-group') { window.open(wh.groupLink!, '_blank'); return; }
+    const wa = toWaNumber(wh.phone);
+    if (wa) window.open(`https://wa.me/${wa}`, '_blank');
+  };
+
+  // تسجيل التجهيز: يُفتح عند رفع فاتورة المذخر أو «تم التجهيز» — كمية كل صنف
+  const [prepFor, setPrepFor] = useState<{ order: Order; file: File | null } | null>(null);
+
   const changeStatus = async (ids: number[], s: Status) => {
     try { await api('/status', { method: 'POST', body: JSON.stringify({ ids, status: s }) }); load(); } catch (e: any) { alert(e.message); }
   };
@@ -533,10 +563,11 @@ export default function RepOrdersPage() {
                         onToggle={() => toggleOpen(o.id)}
                         onSend={wh => sendToWarehouse([o], wh)}
                         onShare={wh => shareOrders([o], wh)}
-                        onStatus={s => changeStatus([o.id], s)}
+                        onStatus={s => (s === 'prepared' ? setPrepFor({ order: o, file: null }) : changeStatus([o.id], s))}
                         onEdit={() => setEditing(o)}
                         onDelete={() => remove(o)}
-                        onUpload={(k, f) => uploadImage(o, k, f)}
+                        onUpload={(k, f) => (k === 'prepared' ? setPrepFor({ order: o, file: f }) : uploadImage(o, k, f))}
+                        onOpenWh={openWarehouse}
                         onRemoveImage={k => removeImage(o, k)}
                         onPreview={setPreview} />
                     ))}
@@ -559,6 +590,10 @@ export default function RepOrdersPage() {
       )}
       {shared.length > 0 && (
         <SharedImagePicker api={api} images={shared} onDone={() => { clearShared(); load(); }} onCancel={clearShared} />
+      )}
+      {prepFor && (
+        <PrepareDialog api={api} order={prepFor.order} file={prepFor.file}
+          onClose={() => setPrepFor(null)} onSaved={() => { setPrepFor(null); load(); }} />
       )}
       {notice && <div className="ro-notice" role="status" onClick={() => setNotice(null)}>{notice}</div>}
 
@@ -654,12 +689,24 @@ function Fold({ title, summary, hoverDelay = 0, children }: { title: string; sum
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview }: {
+function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview, onOpenWh }: {
   o: Order; open: boolean; colCount: number; terms: string[]; showDate: boolean; showRep: boolean; showWh: boolean;
   onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
+  onOpenWh: (wh: OrderWh) => void;
 }) {
   const state = stateOf(o);
+  const partial = isPartial(o);
+  // اسم المذخر رابطاً لكروبه/محادثته (إن كان له رابط أو رقم)
+  const whLink = (w: OrderWh, extra = '') => (channelOf(w) === 'share'
+    ? <span className={extra}>{w.name}</span>
+    : <button type="button" className={`ro-whlink ${extra}`} title={`فتح ${CHANNEL_LABEL[channelOf(w)]} — ${w.name}`}
+        onClick={e => { e.stopPropagation(); onOpenWh(w); }}>{w.name}</button>);
+  const trail = o.sends.length > 0 && (
+    <span className="ro-trail">
+      {o.sends.map(sd => { const m = markOf(o, sd); return <i key={sd.id} className={`ro-dot ro-dot--${m}`} title={`${sd.warehouseName}: ${SEND_LABEL[m]}`} />; })}
+    </span>
+  );
   const total = o.lines.reduce((s, l) => s + l.quantity, 0);
   const hasPrepared = o.lines.some(l => l.preparedQty != null);
   const preparedTotal = o.lines.reduce((s, l) => s + (l.preparedQty ?? 0), 0);
@@ -671,6 +718,11 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
   useEffect(() => { setSendTo(Math.max(0, o.warehouses.indexOf(nextWh(o)))); }, [o]);
   const selWh = o.warehouses[sendTo] ?? o.warehouses[0];
   const selCh = channelOf(selWh);
+  // المذخر المختار أُرسلت له ولم يرد بعد ← لا زر إرسال (المتابعة من كروبه، أو «مشاركة» لإعادة الإرسال)
+  const lastSend = o.sends[o.sends.length - 1];
+  const selAwaiting = lastSend
+    ? lastSend.outcome === 'sent' && lastSend.warehouseId === (selWh?.id ?? null)
+    : !!o.sentAt && (selWh?.id ?? null) === (o.lastSentWarehouseId ?? o.warehouses[0]?.id ?? null);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   const canSendRow = state === 'new';
   const itemHits = terms.length ? o.lines.filter(l => terms.some(t => normSearch(`${l.itemName} ${l.companyName ?? ''}`).includes(t))) : [];
@@ -687,13 +739,13 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
         <td>
           <div className="ro-strong">{o.pharmacyName}{o.areaName && <span className="ro-area"> / {o.areaName}</span>}</div>
           <div className="ro-sub">
-            <span className="ro-show-sm">{wh.name}</span>
+            <span className="ro-show-sm">{trail}{whLink(wh)}</span>
             {itemHits.length > 0 && <span className="ro-hit">🔎 {itemHits.map(l => `${l.itemName} ×${l.quantity}`).join('، ')}</span>}
           </div>
         </td>
-        {showWh && <td className="ro-hide-sm">{wh.name}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</td>}
+        {showWh && <td className="ro-hide-sm">{trail}{whLink(wh)}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</td>}
         {showRep && <td className="ro-hide-sm ro-nowrap">{o.repName}</td>}
-        <td><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span></td>
+        <td><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span>{partial && <span className="ro-badge ro-badge--partial">جزئي</span>}</td>
         <td className="ro-col-actions" onClick={stop}>
           {canSendRow && (
             <button className={`ro-icon-btn ro-icon-btn--${channelOf(o.warehouses[0]) === 'viber-group' ? 'viber' : 'wa'}`} title={`إرسال إلى ${o.warehouses[0]?.name ?? ''} — ${CHANNEL_LABEL[channelOf(o.warehouses[0])]}`} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>
@@ -716,14 +768,25 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                     </tr>
                   </thead>
                   <tbody>
-                    {o.lines.map((l, i) => (
-                      <tr key={l.id ?? i} className={hasPrepared && (l.preparedQty ?? 0) !== l.quantity ? 'ro-diff' : ''}>
+                    {o.lines.map((l, i) => {
+                      const got = l.preparedQty ?? 0;
+                      const by = o.sends.flatMap(sd => sd.lines.filter(x => x.lineId === l.id && x.qty > 0).map(x => `${sd.warehouseName} ${x.qty}`));
+                      return (
+                      <tr key={l.id ?? i} className={hasPrepared && got < l.quantity ? 'ro-diff' : ''}>
                         <td className="ro-muted">{i + 1}</td><td className="ro-strong">{l.itemName}</td><td className="ro-muted">{l.companyName ?? '—'}</td><td>{l.quantity}</td><td>{l.bonusQty || '—'}</td>
-                        {hasPrepared && <td className="ro-strong">{l.preparedQty ?? 0}{l.preparedBonus ? ` + ${l.preparedBonus}` : ''}</td>}
+                        {hasPrepared && (
+                          <td>
+                            <span className={`ro-prep ro-prep--${got >= l.quantity ? 'full' : got > 0 ? 'part' : 'none'}`}>
+                              {got >= l.quantity ? '✓' : got > 0 ? `${got}/${l.quantity}` : '✕'}{l.preparedBonus ? ` +${l.preparedBonus}` : ''}
+                            </span>
+                            {by.length > 0 && <div className="ro-sub"><span>{by.join(' · ')}</span></div>}
+                          </td>
+                        )}
                         {hasPrice && <td className="ro-price">{l.unitPrice != null ? fmtMoney(l.unitPrice) : '—'}</td>}
                         {hasPrice && <td className="ro-price">{l.unitPrice != null ? fmtMoney(l.unitPrice * l.quantity) : '—'}</td>}
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr>
@@ -747,7 +810,18 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                   </dl>
                   <ol className="ro-timeline">
                     <li className="is-done">كُتبت <span>{fmtTime(o.createdAt)}</span></li>
-                    <li className={o.sentAt ? 'is-done' : ''}>{o.sentAt ? `أُرسلت إلى ${wh.name}${o.sentCount > 1 ? ` (${o.sentCount} مرات)` : ''}` : 'لم تُرسل للمذخر'} <span>{fmtTime(o.sentAt)}</span></li>
+                    {o.sends.length ? o.sends.map(sd => {
+                      const m = markOf(o, sd);
+                      return (
+                        <li key={sd.id} className={m === 'rejected' ? 'is-cancel' : 'is-done'}>
+                          أُرسلت إلى {sd.warehouseName} — <b className={`ro-sendmark ro-sendmark--${m}`}>{SEND_LABEL[m]}</b>
+                          {sd.image && <button className="ro-link" onClick={() => onPreview(sd.image!)}>الفاتورة</button>}
+                          <span>{fmtTime(sd.outcomeAt ?? sd.sentAt)}</span>
+                        </li>
+                      );
+                    }) : (
+                      <li className={o.sentAt ? 'is-done' : ''}>{o.sentAt ? `أُرسلت إلى ${wh.name}${o.sentCount > 1 ? ` (${o.sentCount} مرات)` : ''}` : 'لم تُرسل للمذخر'} <span>{fmtTime(o.sentAt)}</span></li>
+                    )}
                     <li className={state === 'prepared' ? 'is-done' : state === 'cancelled' ? 'is-cancel' : ''}>
                       {state === 'prepared' ? `تم التجهيز${o.preparedBy ? ` — ${o.preparedBy}` : ''}` : state === 'cancelled' ? 'ملغاة' : 'لم تُجهَّز بعد'} <span>{fmtTime(o.preparedAt)}</span>
                     </li>
@@ -757,22 +831,25 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                 {state !== 'cancelled' && state !== 'prepared' && (
                   <div className="ro-sendbox">
                     <div className="ro-whs">
-                      {o.warehouses.map((w, i) => (
-                        // بعد الإرسال الأول يختفي الزر الأخضر: إعادة الإرسال باسم المذخر مباشرة
-                        <button key={`${w.id}-${i}`} className={`ro-wh ${sendTo === i ? 'is-active' : ''}`}
-                          title={o.sentAt ? `إرسال إلى ${w.name}` : undefined}
-                          onClick={() => (o.sentAt ? onSend(w) : setSendTo(i))}>
-                          <span className="ro-wh__rank">{i === 0 ? 'الأساسي' : `احتياط ${i}`}</span>
-                          <span className="ro-wh__name">{w.name}<ChannelIcon ch={channelOf(w)} size={14} /></span>
-                          {o.lastSentWarehouseId != null && w.id === o.lastSentWarehouseId && <span className="ro-wh__sent">أُرسلت</span>}
-                        </button>
-                      ))}
+                      {o.warehouses.map((w, i) => {
+                        const sd = lastSendTo(o, w.id);
+                        const m = sd ? markOf(o, sd) : null;
+                        return (
+                          // الضغط على المربع يختاره للإرسال، وعلى الاسم يفتح كروب المذخر
+                          <div key={`${w.id}-${i}`} role="button" tabIndex={0} className={`ro-wh ${sendTo === i ? 'is-active' : ''} ${m ? `ro-wh--${m}` : ''}`}
+                            onClick={() => setSendTo(i)} onKeyDown={e => { if (e.key === 'Enter') setSendTo(i); }}>
+                            <span className="ro-wh__rank">{i === 0 ? 'الأساسي' : `احتياط ${i}`}</span>
+                            <span className="ro-wh__name">{whLink(w)}<ChannelIcon ch={channelOf(w)} size={14} /></span>
+                            {m && <span className={`ro-sendmark ro-sendmark--${m}`}>{SEND_LABEL[m]}</span>}
+                          </div>
+                        );
+                      })}
                     </div>
                     <div className="ro-send-actions">
-                      {!o.sentAt && (
+                      {!selAwaiting && (
                         <button className={`ro-send-btn ro-send-btn--${selCh}`} onClick={() => onSend(selWh)}>
                           <Send size={15} />
-                          <span>إرسال إلى {selWh?.name}</span>
+                          <span>{partial ? 'إرسال المتبقي إلى' : 'إرسال إلى'} {selWh?.name}</span>
                           {selCh !== 'share' && <span className="ro-send-btn__via"><ChannelIcon ch={selCh} /></span>}
                         </button>
                       )}
@@ -794,12 +871,14 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
                       {o.canEdit && <button className="ro-icon-btn" title="حذف صورة الختم" onClick={() => onRemoveImage('invoice')}><X size={12} /></button>}
                     </div>
                   )}
-                  <ImageSlot label="صورة التجهيز (الفاتورة)" src={o.preparedImage} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('prepared', f)} onRemove={() => onRemoveImage('prepared')} />
+                  {state !== 'cancelled' && (
+                    <ImageSlot label={partial ? 'فاتورة المذخر التالي' : 'صورة التجهيز (الفاتورة)'} src={state === 'prepared' ? o.preparedImage : null} canRemove={o.canEdit} onPreview={onPreview} onUpload={f => onUpload('prepared', f)} onRemove={() => onRemoveImage('prepared')} />
+                  )}
                 </div>
               </div>
             </div>
             <div className="ro-detail__actions">
-              {state !== 'prepared' && state !== 'cancelled' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تم التجهيز</button>}
+              {state !== 'prepared' && state !== 'cancelled' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تسجيل التجهيز</button>}
               {o.status !== 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('pending')}><RotateCcw size={14} /> إرجاع</button>}
               {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('cancelled')}><Ban size={14} /> إلغاء</button>}
               <span className="ro-spacer" />
@@ -810,6 +889,134 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
         </tr>
       )}
     </>
+  );
+}
+
+// ─── تسجيل تجهيز مذخر: كمية كل صنف (كامل/ناقص/لم يُجهَّز) ────────────────────
+// يُفتح عند رفع فاتورة المذخر أو «تسجيل التجهيز». المطلوب من المذخر = ما لم تجهّزه
+// المذاخر السابقة؛ الناقص يبقى ويُرسل للمذخر التالي بزر «إرسال المتبقي».
+
+function PrepareDialog({ api, order, file, onClose, onSaved }: {
+  api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
+  order: Order; file: File | null; onClose: () => void; onSaved: () => void;
+}) {
+  // المذخر الافتراضي: آخر مذخر أُرسلت له — ويمكن تغييره (فاتورة من مذخر آخر)
+  const whChoices = order.warehouses.filter(w => w.id != null);
+  const [whId, setWhId] = useState<number | null>(currentWh(order).id);
+  const [saving, setSaving] = useState(false);
+  const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  // سجل هذا المذخر السابق (تصحيح) لا يُحسب ضمن «المجهّز سابقاً»
+  const own = lastSendTo(order, whId);
+  const rows = useMemo(() => order.lines.map(l => {
+    let q = 0, b = 0;
+    const from: string[] = [];
+    for (const sd of order.sends) {
+      if (sd === own) continue;
+      for (const x of sd.lines) if (x.lineId === l.id) { q += x.qty; b += x.bonus; if (x.qty) from.push(`${sd.warehouseName} ${x.qty}`); }
+    }
+    return { l, need: Math.max(0, l.quantity - q), needBonus: Math.max(0, l.bonusQty - b), from };
+  }), [order, own]);
+
+  const initial = useCallback(() => Object.fromEntries(rows.map(r => {
+    const mine = own && own.outcome !== 'sent' ? own.lines.find(x => x.lineId === r.l.id) : null;
+    return [r.l.id!, mine ? { p: String(mine.qty), b: mine.bonus ? String(mine.bonus) : '' } : { p: String(r.need), b: r.needBonus ? String(r.needBonus) : '' }];
+  })), [rows, own]);
+  const [qty, setQty] = useState<Record<number, { p: string; b: string }>>(initial);
+  useEffect(() => { setQty(initial()); }, [initial]);
+
+  const setAll = (full: boolean) => setQty(Object.fromEntries(rows.map(r => [r.l.id!, full ? { p: String(r.need), b: r.needBonus ? String(r.needBonus) : '' } : { p: '0', b: '' }])));
+  const open = rows.filter(r => r.need > 0);
+  const got = (id: number) => Math.max(0, Math.floor(Number(qty[id]?.p) || 0));
+  const outcome: SendOutcome = open.every(r => got(r.l.id!) === 0) ? 'rejected' : open.every(r => got(r.l.id!) >= r.need) ? 'prepared' : 'partial';
+  const missing = open.filter(r => got(r.l.id!) < r.need);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      if (file) fd.append('image', await compressImage(file), 'prepared.jpg');
+      if (whId != null) fd.append('warehouseId', String(whId));
+      fd.append('lines', JSON.stringify(rows.map(r => ({ lineId: r.l.id, qty: got(r.l.id!), bonus: Math.max(0, Math.floor(Number(qty[r.l.id!]?.b) || 0)) }))));
+      await api(`/${order.id}/prepare`, { method: 'POST', body: fd });
+      onSaved();
+    } catch (e: any) { alert(e.message); setSaving(false); }
+  };
+
+  const whName = whChoices.find(w => w.id === whId)?.name ?? currentWh(order).name;
+  return (
+    <div className="ro-modal" onClick={onClose}>
+      <div className="ro-dialog" onClick={e => e.stopPropagation()}>
+        <div className="ro-dialog__head">
+          <strong>تجهيز {order.pharmacyName} — #{order.id}</strong>
+          <button className="ro-icon-btn" onClick={onClose}><X size={16} /></button>
+        </div>
+        <div className="ro-dialog__body">
+          <div className="ro-share-top">
+            {url && <div className="ro-share-thumbs"><img src={url} alt="فاتورة المذخر" /></div>}
+            <div className="ro-share-read">
+              <div className="ro-slot__label">المذخر الذي جهّز</div>
+              <div className="ro-chips">
+                {whChoices.map(w => (
+                  <button key={w.id} className={`ro-chip ${whId === w.id ? 'is-active' : ''}`} onClick={() => setWhId(w.id)}>
+                    <ChannelIcon ch={channelOf(w)} size={14} />{w.name}
+                  </button>
+                ))}
+              </div>
+              <div className="ro-prep-quick">
+                <button className="ro-alt-btn" onClick={() => setAll(true)}><Check size={14} /> جهّز الكل</button>
+                <button className="ro-alt-btn ro-alt-btn--danger" onClick={() => setAll(false)}><Ban size={14} /> لم يجهّز شيئاً</button>
+              </div>
+            </div>
+          </div>
+
+          <table className="ro-lines ro-prep-table">
+            <thead><tr><th>الصنف</th><th>المطلوب</th><th>المجهّز</th><th>بونص</th><th /></tr></thead>
+            <tbody>
+              {rows.map(({ l, need, from }) => {
+                const id = l.id!;
+                if (need === 0) {
+                  return (
+                    <tr key={id} className="ro-prep-done">
+                      <td><div className="ro-strong">{l.itemName}</div>{from.length > 0 && <div className="ro-sub"><span>{from.join(' · ')}</span></div>}</td>
+                      <td colSpan={3} className="ro-muted">مُجهّز سابقاً</td>
+                      <td><span className="ro-prep ro-prep--full">✓</span></td>
+                    </tr>
+                  );
+                }
+                const g = got(id);
+                const st = g >= need ? 'full' : g > 0 ? 'part' : 'none';
+                return (
+                  <tr key={id} className={st !== 'full' ? 'ro-diff' : ''}>
+                    <td><div className="ro-strong">{l.itemName}</div>{from.length > 0 && <div className="ro-sub"><span>سابقاً: {from.join(' · ')}</span></div>}</td>
+                    <td>{need}</td>
+                    <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[id]?.p ?? ''} onChange={e => setQty(s => ({ ...s, [id]: { ...s[id], p: e.target.value } }))} /></td>
+                    <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[id]?.b ?? ''} onChange={e => setQty(s => ({ ...s, [id]: { ...s[id], b: e.target.value } }))} /></td>
+                    <td>
+                      <button className={`ro-prep ro-prep--${st}`} title="اضغط للتبديل بين كامل / لم يُجهَّز"
+                        onClick={() => setQty(s => ({ ...s, [id]: { ...s[id], p: st === 'full' ? '0' : String(need) } }))}>
+                        {st === 'full' ? '✓ كامل' : st === 'part' ? `ناقص ${need - g}` : '✕ لا شيء'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          <div className={`ro-note ${outcome === 'prepared' ? '' : 'ro-note--warn'}`}>
+            {outcome === 'prepared' && `${whName} جهّز كل المطلوب — الطلبية تصير «تم التجهيز».`}
+            {outcome === 'partial' && `${whName} جهّز جزءاً — يبقى ${missing.length} صنف (${missing.map(r => `${r.l.itemName} ${r.need - got(r.l.id!)}`).join('، ')}) يُرسل للمذخر التالي.`}
+            {outcome === 'rejected' && `${whName} لم يجهّز شيئاً — الطلبية كاملة تُرسل للمذخر التالي.`}
+          </div>
+        </div>
+        <div className="ro-dialog__foot">
+          <button className="btn btn--primary" disabled={saving} onClick={save}>{saving ? 'جارٍ الحفظ…' : 'حفظ'}</button>
+          <button className="btn btn--secondary" onClick={onClose}>إلغاء</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -891,7 +1098,8 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
   const compareLines: ReadLine[] = useMemo(() => {
     if (pickedCandidate) return pickedCandidate.lines;
     if (!pickedOrder) return [];
-    return pickedOrder.lines.map(l => ({ lineId: l.id!, itemName: l.itemName, quantity: l.quantity, bonusQty: l.bonusQty, invoiceItem: null, preparedQty: l.quantity, preparedBonus: l.bonusQty }));
+    // بلا قراءة: المتبقي من كل صنف كاملاً، والمستخدم يصحّح الناقص
+    return pickedOrder.lines.map(l => ({ lineId: l.id!, itemName: l.itemName, quantity: remainingOf(l), bonusQty: Math.max(0, l.bonusQty - (l.preparedBonus ?? 0)), invoiceItem: null, preparedQty: remainingOf(l), preparedBonus: Math.max(0, l.bonusQty - (l.preparedBonus ?? 0)) })).filter(l => l.quantity > 0);
   }, [pickedCandidate, pickedOrder]);
 
   useEffect(() => {
@@ -943,6 +1151,12 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
             lines: compareLines.map(l => ({ lineId: l.lineId, preparedQty: Number(qty[l.lineId]?.p) || 0, preparedBonus: Number(qty[l.lineId]?.b) || 0 })),
           }),
         });
+      } else if (kind === 'prepared') {
+        // بلا ذكاء: الصورة + ما أكّده المستخدم لكل صنف (الناقص يبقى للمذخر التالي)
+        const fd = new FormData();
+        fd.append('image', await compressImage(firstFile), 'prepared.jpg');
+        fd.append('lines', JSON.stringify(compareLines.map(l => ({ lineId: l.lineId, qty: Number(qty[l.lineId]?.p) || 0, bonus: Number(qty[l.lineId]?.b) || 0 }))));
+        await api(`/${picked}/prepare`, { method: 'POST', body: fd });
       } else {
         const fd = new FormData();
         fd.append('image', await compressImage(firstFile), `${kind}.jpg`);
@@ -997,9 +1211,9 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
             </div>
           </div>
 
-          {kind === 'prepared' && aiOn && picked && compareLines.length > 0 && (
+          {kind === 'prepared' && picked && compareLines.length > 0 && (
             <div className="ro-compare">
-              <div className="ro-slot__label">الكميات المجهّزة فعلاً (من الفاتورة — يمكن تصحيحها)</div>
+              <div className="ro-slot__label">{aiOn ? "الكميات المجهّزة فعلاً (من الفاتورة — يمكن تصحيحها)" : "تأكّد من الكميات المجهّزة — صحّح الناقص"}</div>
               <table className="ro-lines">
                 <thead><tr><th>الصنف</th><th>المطلوب</th><th>المجهّز</th><th>بونص مجهّز</th></tr></thead>
                 <tbody>
@@ -1069,7 +1283,7 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
         <div className="ro-dialog__foot">
           <button className="btn btn--primary" disabled={!picked || saving || (kind === 'prepared' && aiOn && reading)} onClick={save}>{saving ? 'جارٍ الحفظ…' : 'حفظ في الطلبية'}</button>
           <button className="btn btn--secondary" onClick={onCancel}>إلغاء</button>
-          {kind === 'prepared' && <span className="ro-muted ro-small">الطلبية تصير «مجهّزة» بعد الحفظ</span>}
+          {kind === 'prepared' && <span className="ro-muted ro-small">الناقص يبقى ويُرسل للمذخر التالي</span>}
         </div>
       </div>
     </div>

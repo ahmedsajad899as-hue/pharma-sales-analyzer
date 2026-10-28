@@ -3378,6 +3378,7 @@ model RepOrder {
 
   warehouse OrderWarehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
   lines     RepOrderLine[]
+  sends     RepOrderSend[]
 
   @@index([createdById, orderDate])
   @@index([officeId, orderDate])
@@ -3401,4 +3402,26 @@ model RepOrderLine {
 
   @@index([orderId])
   @@map("rep_order_lines")
+}
+
+// كل إرسال للطلبية إلى مذخر ونتيجته: الطلبية قد تُجهَّز جزئياً من مذخر ويُرسل الباقي
+// للتالي. lines = ما جهّزه هذا المذخر لكل سطر [{lineId, itemName, qty, bonus}]؛
+// RepOrderLine.preparedQty/Bonus = مجموعها عبر كل المذاخر.
+model RepOrderSend {
+  id            Int       @id @default(autoincrement())
+  orderId       Int
+  warehouseId   Int?
+  warehouseName String
+  sentAt        DateTime  @default(now())
+  sentById      Int?
+  outcome       String    @default("sent") // sent (بانتظار الرد) | prepared (كامل) | partial | rejected (لم يجهّز شيئاً)
+  outcomeAt     DateTime?
+  outcomeById   Int?
+  image         String? // فاتورة هذا المذخر
+  lines         Json?
+
+  order RepOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("rep_order_sends")
 }

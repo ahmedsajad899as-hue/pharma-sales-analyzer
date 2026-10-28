@@ -18,7 +18,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { pharmacyKey } from '../../lib/pharmacyKey.js';
 import { extractInvoiceRows } from '../sales/sales.service.js';
-import { loadViewer, orderScopeWhere, getVisibleOrder, INVOICE_DIR } from './rep-orders.service.js';
+import { loadViewer, orderScopeWhere, getVisibleOrder, recordPreparation, INVOICE_DIR } from './rep-orders.service.js';
 
 const LOOKBACK_DAYS = 30;
 const AUTO_MIN_SCORE = 60;   // أدنى ثقة للاختيار التلقائي
@@ -191,27 +191,13 @@ export async function applyInvoice(reqUser, id, body) {
     throw new AppError('انتهت صلاحية الصورة — أعد مشاركتها', 410);
   }
 
-  const lineIds = new Set(order.lines.map(l => l.id));
-  const lines = (Array.isArray(body?.lines) ? body.lines : []).filter(l => lineIds.has(Number(l.lineId)));
   const url = `/uploads/rep-orders/${finalName}`;
-
-  await prisma.$transaction([
-    prisma.repOrder.update({
-      where: { id: order.id },
-      data: {
-        preparedImage: url,
-        invoiceNumber: body?.invoiceNumber ? String(body.invoiceNumber).slice(0, 60) : order.invoiceNumber,
-        status: 'prepared', preparedAt: new Date(), preparedById: viewer.id,
-      },
-    }),
-    ...lines.map(l => prisma.repOrderLine.update({
-      where: { id: Number(l.lineId) },
-      data: { preparedQty: Math.max(0, Math.floor(Number(l.preparedQty) || 0)), preparedBonus: Math.max(0, Math.floor(Number(l.preparedBonus) || 0)) },
-    })),
-  ]);
-
-  if (order.preparedImage && path.basename(order.preparedImage) !== finalName) {
-    fs.promises.unlink(path.join(INVOICE_DIR, path.basename(order.preparedImage))).catch(() => {});
-  }
-  return { preparedImage: url };
+  // فاتورة المذخر الذي أُرسلت له الطلبية — قد تغطي جزءاً منها فقط (الباقي يُرسل للتالي)
+  const r = await recordPreparation(viewer, order.id, {
+    warehouseId: body?.warehouseId || null,
+    lines: Array.isArray(body?.lines) ? body.lines : [],
+    image: url,
+    invoiceNumber: body?.invoiceNumber ?? null,
+  });
+  return { preparedImage: url, ...r };
 }

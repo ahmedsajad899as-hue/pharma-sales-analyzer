@@ -47,6 +47,7 @@ import { startPharmacyAlertScheduler } from './modules/pharmacy-analysis/pharmac
 import { startRepFollowupScheduler } from './modules/rep-followup/rep-followup.scheduler.js';
 import { startDispatchTimers } from './modules/warehouse-dispatch/dispatch.core.js';
 import { backfillWarehouseWaIds } from './modules/warehouse-dispatch/dispatch.service.js';
+import { backfillOrderSends } from './modules/rep-orders/rep-orders.service.js';
 import { resolveEffectiveAreaIds, resolveEffectiveAreas, syncUserAreaDerivedLinks, userIdsAssignedToProvinces, userIdsAssignedToSubProvinces } from './lib/areaScope.js';
 import { resolveStockScope, filterStockFiles, loadCompanyLabelResolver, applyCompanyLabelsToFiles } from './lib/stockScope.js';
 import {
@@ -4994,6 +4995,7 @@ if (process.env.VERCEL) {
     // إرسال الطلبيات للمذاخر: مهلة الرد ⇒ «لا رد» / تحويل للمذخر البديل
     startDispatchTimers();
     backfillWarehouseWaIds();
+    backfillOrderSends();
     seedProvinces(prisma)
       .then(async n => {
         console.log(`✓ المحافظات جاهزة (${n})`);
