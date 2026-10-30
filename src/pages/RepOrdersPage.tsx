@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Package } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -187,6 +187,32 @@ type View = 'all' | DisplayState;
 const VIEWS: View[] = ['all', 'new', 'following', 'prepared', 'cancelled'];
 const VIEW_LABEL: Record<View, string> = { all: 'الكل', ...STATE_LABEL };
 const inView = (o: Order, v: View) => v === 'all' || stateOf(o) === v;
+const VIEW_ICON: Record<View, typeof LayoutList> = { all: LayoutList, new: Sparkles, following: Clock, prepared: CircleCheck, cancelled: Ban };
+const PERIOD_LABEL: Record<Period, string> = { all: 'كل التواريخ', today: 'اليوم', yesterday: 'أمس', week: 'آخر 7 أيام', month: 'هذا الشهر', custom: 'تاريخ محدد' };
+// الحرف الأول للاسم (أو حرفان للمندوب) للشارة الدائرية
+const initials = (name: string, n = 1) => String(name ?? '').trim().split(/\s+/).filter(Boolean).slice(0, n).map(w => w[0]).join('').toUpperCase() || '؟';
+const dayTitle = (iso: string) => (iso === today() ? 'اليوم' : iso === shiftDay(-1) ? 'أمس' : null);
+
+// عدّاد يصعد للرقم الجديد بنعومة
+function CountUp({ value }: { value: number }) {
+  const [shown, setShown] = useState(value);
+  const fromRef = useRef(value);
+  useEffect(() => {
+    const start = fromRef.current, diff = value - start;
+    if (!diff) return;
+    const t0 = performance.now();
+    let raf = 0;
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / 450);
+      const v = Math.round(start + diff * (1 - Math.pow(1 - k, 3)));
+      setShown(v); fromRef.current = v;
+      if (k < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{shown}</>;
+}
 
 const GROUP_LABEL: Record<GroupType, string> = { date: 'التاريخ', warehouse: 'المذخر', rep: 'المندوب' };
 const groupKey = (o: Order, t: GroupType) => (t === 'date' ? fmtDay(o.orderDate) : t === 'warehouse' ? `w${currentWh(o).id ?? currentWh(o).name}` : `r${o.createdById}`);
@@ -474,6 +500,40 @@ export default function RepOrdersPage() {
   return (
     <div className="ro-page">
       {!focused && <>
+      <header className="ro-hero">
+        <div className="ro-hero__title">
+          <span className="ro-hero__icon"><ClipboardList size={22} /></span>
+          <div>
+            <h1>طلبيات المذاخر</h1>
+            <p>{PERIOD_LABEL[period]}{period === 'custom' && from ? ` · ${from} ← ${to}` : ''} · {counts.all} طلبية{isManager ? ' · طلبيات الفريق' : ''}</p>
+          </div>
+        </div>
+        <div className="ro-hero__actions">
+          <button className="ro-hero__btn" onClick={() => setShowWarehouses(true)} title="دليل المذاخر وأرقام الواتساب">
+            <Warehouse size={15} /> <span className="ro-hide-sm">المذاخر</span>
+          </button>
+          <button className="ro-hero__btn ro-hero__btn--primary" onClick={() => setEditing('new')}><Plus size={15} /> طلبية جديدة</button>
+        </div>
+      </header>
+
+      <div className="ro-kpis" role="group" aria-label="الحالة">
+        {VIEWS.map(v => {
+          const Icon = VIEW_ICON[v];
+          const pct = counts.all ? Math.round((counts[v] / counts.all) * 100) : 0;
+          return (
+            <button key={v} className={`ro-kpi ro-kpi--${v} ${view === v ? 'is-active' : ''}`} onClick={() => setView(v)} aria-pressed={view === v}>
+              <span className="ro-kpi__icon"><Icon size={18} /></span>
+              <span className="ro-kpi__body">
+                <span className="ro-kpi__label">{VIEW_LABEL[v]}</span>
+                <b className="ro-kpi__num"><CountUp value={counts[v]} /></b>
+              </span>
+              <span className="ro-kpi__pct">{v === 'all' ? '' : `${pct}%`}</span>
+              <span className="ro-kpi__bar"><i style={{ width: `${v === 'all' ? (counts.all ? 100 : 0) : pct}%` }} /></span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="ro-bar">
         {canBotSend && (
           <label className="ro-via-bot" title="البوت يرسل الطلبية للمذخر ويستقبل ردّه (تجهيز/رفض/فاتورة) تلقائياً — المتابعة في صفحة «إرسال للمذاخر»">
@@ -510,19 +570,8 @@ export default function RepOrdersPage() {
           </button>
         )}
         <span className="ro-spacer" />
-        <button className="btn btn--secondary btn--sm" onClick={() => setShowWarehouses(true)} title="دليل المذاخر وأرقام الواتساب">
-          <Warehouse size={14} /> <span className="ro-hide-sm">المذاخر</span>
-        </button>
-        <button className="btn btn--primary btn--sm" onClick={() => setEditing('new')}><Plus size={14} /> طلبية جديدة</button>
-      </div>
-
-      <div className="ro-chips ro-chips--status" role="group" aria-label="الحالة">
-        {VIEWS.map(v => (
-          <button key={v} className={`ro-chip ro-chip--${v} ${view === v ? 'is-active' : ''}`} onClick={() => setView(v)}>
-            {VIEW_LABEL[v]} <b>{counts[v]}</b>
-          </button>
-        ))}
-        {loading && <span className="ro-muted ro-small">جارٍ التحميل…</span>}
+        {loading && <span className="ro-loading"><i /> جارٍ التحميل…</span>}
+        <span className="ro-muted ro-small ro-hide-sm">{visible.length} معروضة</span>
       </div>
       </>}
 
@@ -552,16 +601,21 @@ export default function RepOrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {(focused ? [{ key: 'focus', title: '', orders: [focused] }] : groups).map(g => {
+              {(() => { let rowI = 0; return (focused ? [{ key: 'focus', title: '', orders: [focused] }] : groups).map(g => {
                 const fresh = g.orders.filter(o => stateOf(o) === 'new');
                 const groupWh = groupBy === 'warehouse' && g.orders[0] ? currentWh(g.orders[0]) : null;
+                const GroupIcon = groupBy === 'warehouse' ? Warehouse : groupBy === 'rep' ? UserRound : CalendarDays;
+                const friendly = groupBy === 'date' ? dayTitle(g.title) : null;
                 return (
                   <Fragment key={g.key}>
                     {groupBy !== 'none' && !focused && (
                       <tr className="ro-group-row">
                         <td colSpan={colCount}>
                           <div className="ro-group-row__inner">
-                            <strong>{g.title}</strong>
+                            <span className="ro-group-row__icon"><GroupIcon size={14} /></span>
+                            {friendly && <strong>{friendly}</strong>}
+                            <span className={friendly ? 'ro-muted' : 'ro-strong'}>{g.title}</span>
+                            <span className="ro-group-row__count">{g.orders.length} طلبية</span>
                             <span className="ro-spacer" />
                             {(groupWh?.phone || groupWh?.groupLink) && fresh.length > 1 && (
                               <button className="ro-link ro-link--wa" onClick={() => sendToWarehouse(fresh, groupWh)}><Send size={13} /> إرسال {fresh.length} جديدة للمذخر</button>
@@ -571,7 +625,7 @@ export default function RepOrdersPage() {
                       </tr>
                     )}
                     {g.orders.map(o => (
-                      <OrderRow key={o.id} o={o} open={openId === o.id} colCount={colCount} terms={terms}
+                      <OrderRow key={o.id} index={rowI++} o={o} open={openId === o.id} colCount={colCount} terms={terms}
                         showDate={showDate} showRep={showRep} showWh={showWh}
                         onToggle={() => toggleOpen(o.id)}
                         onSend={wh => sendToWarehouse([o], wh)}
@@ -586,7 +640,7 @@ export default function RepOrdersPage() {
                     ))}
                   </Fragment>
                 );
-              })}
+              }); })()}
             </tbody>
           </table>
         </div>
@@ -702,8 +756,8 @@ function Fold({ title, summary, hoverDelay = 0, children }: { title: string; sum
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview, onOpenWh }: {
-  o: Order; open: boolean; colCount: number; terms: string[]; showDate: boolean; showRep: boolean; showWh: boolean;
+function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onRemoveImage, onPreview, onOpenWh }: {
+  index: number; o: Order; open: boolean; colCount: number; terms: string[]; showDate: boolean; showRep: boolean; showWh: boolean;
   onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
   onOpenWh: (wh: OrderWh) => void;
@@ -738,22 +792,29 @@ function OrderRow({ o, open, colCount, terms, showDate, showRep, showWh, onToggl
 
   return (
     <>
-      <tr className={`ro-row ro-row--${state} ${open ? 'is-open' : ''}`} onClick={onToggle}>
+      <tr className={`ro-row ro-row--${state} ${open ? 'is-open' : ''}`} onClick={onToggle} style={{ '--i': Math.min(index, 14) } as React.CSSProperties}>
         <td className="ro-col-no">
           <span className="ro-chevron"><ChevronDown size={14} /></span>
-          <span className="ro-muted">{o.id}</span>
+          <span className="ro-id">{o.id}</span>
         </td>
-        {showDate && <td className="ro-hide-sm ro-nowrap">{fmtDay(o.orderDate)}</td>}
+        {showDate && <td className="ro-hide-sm ro-nowrap"><span className="ro-date-cell"><CalendarDays size={13} />{fmtDay(o.orderDate)}</span></td>}
         <td>
-          <div className="ro-strong">{o.pharmacyName}{o.areaName && <span className="ro-area"> / {o.areaName}</span>}</div>
-          <div className="ro-sub">
-            <span className="ro-show-sm">{whLink(wh)}</span>
-            {itemHits.length > 0 && <span className="ro-hit">🔎 {itemHits.map(l => `${l.itemName} ×${l.quantity}`).join('، ')}</span>}
+          <div className="ro-ph">
+            <span className={`ro-avatar ro-avatar--${state}`} aria-hidden>{initials(o.pharmacyName)}</span>
+            <div className="ro-ph__text">
+              <div className="ro-strong">{o.pharmacyName}</div>
+              <div className="ro-sub">
+                {o.areaName && <span className="ro-area"><MapPin size={11} />{o.areaName}</span>}
+                <span className="ro-qty-tag"><Package size={11} />{o.lines.length} صنف · {total} قطعة</span>
+                <span className="ro-show-sm">{whLink(wh)}</span>
+                {itemHits.length > 0 && <span className="ro-hit">🔎 {itemHits.map(l => `${l.itemName} ×${l.quantity}`).join('، ')}</span>}
+              </div>
+            </div>
           </div>
         </td>
-        {showWh && <td className="ro-hide-sm">{whLink(wh)}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</td>}
-        {showRep && <td className="ro-hide-sm ro-nowrap">{o.repName}</td>}
-        <td><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span>{partial && <span className="ro-badge ro-badge--partial">جزئي</span>}</td>
+        {showWh && <td className="ro-hide-sm"><span className="ro-wh-cell"><Warehouse size={14} />{whLink(wh)}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</span></td>}
+        {showRep && <td className="ro-hide-sm ro-nowrap"><span className="ro-rep"><span className="ro-rep__av" aria-hidden>{initials(o.repName, 2)}</span>{o.repName}</span></td>}
+        <td><span className="ro-status"><span className={`ro-badge ro-badge--${state}`}><i className="ro-badge__dot" />{STATE_LABEL[state]}</span>{partial && <span className="ro-badge ro-badge--partial">جزئي</span>}</span></td>
         <td className="ro-col-actions" onClick={stop}>
           {canSendRow && (
             <button className={`ro-icon-btn ro-icon-btn--${channelOf(o.warehouses[0]) === 'viber-group' ? 'viber' : 'wa'}`} title={`إرسال إلى ${o.warehouses[0]?.name ?? ''} — ${CHANNEL_LABEL[channelOf(o.warehouses[0])]}`} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>

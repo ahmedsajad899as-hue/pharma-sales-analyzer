@@ -332,3 +332,137 @@ button.ro-prep { cursor: pointer; }
 .ro-prep-table td { vertical-align: middle; }
 .ro-prep-done td { opacity: .65; }
 .ro-wh__name .ro-dot { flex: none; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   إعادة التصميم 2026-10 — رأس رسمي + بطاقات حالة تفاعلية + صفوف بشارات
+   ════════════════════════════════════════════════════════════════════════════ */
+.ro-page { gap: 12px; }
+
+/* ── الرأس ── */
+.ro-hero { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 18px 20px; border-radius: 16px; color: #fff;
+  background: radial-gradient(120% 140% at 0% 0%, rgba(59, 130, 246, 0.35) 0%, transparent 55%), linear-gradient(135deg, #0b1b3a 0%, #13306b 60%, #1a56db 130%);
+  box-shadow: 0 10px 30px rgba(11, 27, 58, 0.18); }
+.ro-hero::after { content: ''; position: absolute; inset-inline-end: -60px; top: -80px; width: 240px; height: 240px; border-radius: 50%; border: 36px solid rgba(255, 255, 255, 0.05); pointer-events: none; }
+.ro-hero__title { display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }
+.ro-hero__title h1 { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -0.2px; color: #fff; }
+.ro-hero__title p { margin: 2px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, 0.72); }
+.ro-hero__icon { width: 44px; height: 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.18); }
+.ro-hero__actions { display: flex; gap: 8px; position: relative; z-index: 1; }
+.ro-hero__btn { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 7px 14px; border-radius: 10px; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; color: #fff; background: rgba(255, 255, 255, 0.10); border: 1px solid rgba(255, 255, 255, 0.22); transition: background .15s, transform .1s, box-shadow .15s; }
+.ro-hero__btn:hover { background: rgba(255, 255, 255, 0.18); }
+.ro-hero__btn:active { transform: translateY(1px); }
+.ro-hero__btn--primary { background: #fff; color: #13306b; border-color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); }
+.ro-hero__btn--primary:hover { background: #eef4ff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22); }
+
+/* ── بطاقات الحالة (فلتر + عدّاد + نسبة) ── */
+.ro-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.ro-kpi { --k: #1a56db; --k-bg: rgba(26, 86, 219, 0.10); --k-ring: rgba(26, 86, 219, 0.30); position: relative; overflow: hidden; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 12px 14px 16px; text-align: start; font-family: inherit; cursor: pointer;
+  background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 14px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.ro-kpi:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); border-color: var(--k-ring); }
+.ro-kpi--new { --k: #2563eb; --k-bg: rgba(37, 99, 235, 0.10); --k-ring: rgba(37, 99, 235, 0.30); }
+.ro-kpi--following { --k: #d97706; --k-bg: rgba(217, 119, 6, 0.12); --k-ring: rgba(217, 119, 6, 0.32); }
+.ro-kpi--prepared { --k: #059669; --k-bg: rgba(5, 150, 105, 0.11); --k-ring: rgba(5, 150, 105, 0.30); }
+.ro-kpi--cancelled { --k: #64748b; --k-bg: rgba(100, 116, 139, 0.12); --k-ring: rgba(100, 116, 139, 0.30); }
+.ro-kpi__icon { width: 38px; height: 38px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; color: var(--k); background: var(--k-bg); transition: transform .25s ease, background .2s, color .2s; }
+.ro-kpi:hover .ro-kpi__icon { transform: scale(1.08) rotate(-4deg); }
+.ro-kpi__body { display: flex; flex-direction: column; min-width: 0; }
+.ro-kpi__label { font-size: 12px; font-weight: 600; color: var(--c-text-secondary); white-space: nowrap; }
+.ro-kpi__num { font-size: 22px; font-weight: 800; line-height: 1.15; color: var(--c-text-primary); font-variant-numeric: tabular-nums; }
+.ro-kpi__pct { font-size: 11px; font-weight: 700; color: var(--k); align-self: start; }
+.ro-kpi__bar { position: absolute; inset-inline: 14px; bottom: 8px; height: 3px; border-radius: 3px; background: var(--c-border-light); overflow: hidden; }
+.ro-kpi__bar i { display: block; height: 100%; border-radius: inherit; background: var(--k); transition: width .6s cubic-bezier(.2, .8, .2, 1); }
+.ro-kpi.is-active { border-color: var(--k); box-shadow: 0 0 0 3px var(--k-bg), 0 8px 20px rgba(15, 23, 42, 0.06); }
+.ro-kpi.is-active::before { content: ''; position: absolute; inset-block: 0; inset-inline-start: 0; width: 4px; background: var(--k); }
+.ro-kpi.is-active .ro-kpi__icon { background: var(--k); color: #fff; }
+
+/* ── شريط الأدوات ── */
+.ro-bar { padding: 10px; gap: 8px; border-radius: 14px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+.ro-bar .form-input, .ro-gm__btn { border-radius: 10px; }
+.ro-search { max-width: 420px; }
+.ro-search .form-input { padding-block: 8px; }
+.ro-loading { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--c-accent); }
+.ro-loading i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; animation: ro-spin .7s linear infinite; }
+@keyframes ro-spin { to { transform: rotate(360deg); } }
+
+/* ── الجدول ── */
+.ro-table-wrap { border-radius: 14px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05); }
+.ro-table > thead th { background: var(--c-surface); color: var(--c-text-muted); font-size: 11.5px; letter-spacing: .2px; padding: 11px 12px; border-bottom: 1px solid var(--c-border-light); }
+.ro-table > tbody > tr > td { padding: 10px 12px; }
+.ro-page tr.ro-row--new { background: transparent; }
+.ro-page tr.ro-row--following { background: rgba(245, 158, 11, 0.035); }
+.ro-page tr.ro-row--prepared { background: rgba(16, 185, 129, 0.035); }
+.ro-page tr.ro-row--cancelled { background: rgba(100, 116, 139, 0.05); }
+.ro-row { transition: background-color .15s; animation: ro-row-in .35s ease both; animation-delay: calc(var(--i, 0) * 28ms); }
+.ro-page tr.ro-row:hover { background-color: rgba(26, 86, 219, 0.045); }
+.ro-page tr.ro-row.is-open { background-color: rgba(26, 86, 219, 0.06); }
+@keyframes ro-row-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.ro-row > td:first-child { border-inline-start-width: 4px; }
+.ro-row--new > td:first-child { border-inline-start-color: #3b82f6; }
+.ro-row--following > td:first-child { border-inline-start-color: #f59e0b; }
+.ro-row--prepared > td:first-child { border-inline-start-color: #10b981; }
+
+.ro-id { font-size: 11.5px; font-weight: 600; color: var(--c-text-muted); font-variant-numeric: tabular-nums; }
+.ro-id::before { content: '#'; opacity: .6; }
+.ro-chevron { width: 20px; height: 20px; border-radius: 6px; justify-content: center; align-items: center; transition: transform .2s, background .15s, color .15s; }
+.ro-row:hover .ro-chevron { background: var(--c-accent-light); color: var(--c-accent); }
+
+.ro-ph { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ro-ph__text { min-width: 0; }
+.ro-ph .ro-strong { font-size: 13.5px; }
+.ro-avatar { flex: none; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; color: #1d4ed8; background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(59, 130, 246, 0.06)); border: 1px solid rgba(59, 130, 246, 0.18); transition: transform .2s; }
+.ro-avatar--following { color: #b45309; background: linear-gradient(135deg, rgba(245, 158, 11, 0.20), rgba(245, 158, 11, 0.06)); border-color: rgba(245, 158, 11, 0.25); }
+.ro-avatar--prepared { color: #047857; background: linear-gradient(135deg, rgba(16, 185, 129, 0.20), rgba(16, 185, 129, 0.06)); border-color: rgba(16, 185, 129, 0.25); }
+.ro-avatar--cancelled { color: #64748b; background: rgba(100, 116, 139, 0.10); border-color: rgba(100, 116, 139, 0.18); }
+.ro-row:hover .ro-avatar { transform: scale(1.06); }
+.ro-sub { gap: 2px 10px; margin-top: 3px; }
+.ro-area, .ro-qty-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--c-text-muted); font-weight: 400; }
+
+.ro-wh-cell, .ro-rep, .ro-date-cell { display: inline-flex; align-items: center; gap: 7px; }
+.ro-wh-cell > svg, .ro-date-cell > svg { color: var(--c-text-muted); flex: none; }
+.ro-whlink { font-weight: 600; }
+.ro-more { margin-inline-start: 0; font-weight: 700; background: var(--c-accent-light); color: var(--c-accent); }
+.ro-rep__av { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; color: #fff; background: linear-gradient(135deg, #13306b, #1a56db); flex: none; }
+
+/* شارة الحالة بنقطة نابضة للحالات المفتوحة */
+.ro-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; padding: 3px 10px; }
+.ro-badge__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.ro-badge--new .ro-badge__dot, .ro-badge--following .ro-badge__dot { animation: ro-pulse 1.8s ease-out infinite; }
+@keyframes ro-pulse { 0% { box-shadow: 0 0 0 0 currentColor; } 70%, 100% { box-shadow: 0 0 0 5px transparent; } }
+.ro-badge--prepared { background: rgba(16, 185, 129, 0.13); color: #047857; }
+
+/* صف المجموعة */
+.ro-group-row > td { background: linear-gradient(90deg, rgba(26, 86, 219, 0.07), rgba(26, 86, 219, 0.02)); padding: 8px 12px !important; }
+.ro-group-row__inner { gap: 8px; }
+.ro-group-row__icon { width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: var(--c-surface); color: var(--c-accent); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
+.ro-group-row__count { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--c-surface); color: var(--c-text-secondary); border: 1px solid var(--c-border-light); }
+
+/* التفاصيل: انزلاق ناعم */
+.ro-detail-row > td { background: linear-gradient(180deg, rgba(26, 86, 219, 0.05), rgba(26, 86, 219, 0.015)); }
+.ro-detail, .ro-detail__actions { animation: ro-row-in .25s ease both; }
+.ro-lines, .ro-fold, .ro-info, .ro-notes { border-radius: 12px; }
+.ro-empty { border-radius: 14px; padding: 48px 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ro-row, .ro-detail, .ro-detail__actions, .ro-badge__dot, .ro-kpi, .ro-kpi__bar i { animation: none !important; transition: none !important; }
+}
+
+/* ── الهاتف ── */
+@media (max-width: 720px) {
+  .ro-hero { padding: 14px; border-radius: 14px; }
+  .ro-hero__title h1 { font-size: 16px; }
+  .ro-hero__title p { font-size: 11.5px; }
+  .ro-hero__icon { width: 38px; height: 38px; }
+  .ro-hero__actions { width: 100%; }
+  .ro-hero__btn--primary { flex: 1; justify-content: center; }
+  .ro-kpis { gap: 4px; }
+  .ro-kpi { grid-template-columns: 1fr; justify-items: center; text-align: center; gap: 0; padding: 7px 2px 10px; border-radius: 11px; }
+  .ro-kpi:hover { transform: none; }
+  .ro-kpi__icon, .ro-kpi__pct { display: none; }
+  .ro-kpi__body { align-items: center; }
+  .ro-kpi__label { font-size: 10.5px; }
+  .ro-kpi__num { font-size: 16px; }
+  .ro-kpi__bar { inset-inline: 8px; bottom: 4px; }
+  .ro-avatar { width: 30px; height: 30px; font-size: 13px; }
+  .ro-table > tbody > tr > td { padding: 9px 6px; }
+}
