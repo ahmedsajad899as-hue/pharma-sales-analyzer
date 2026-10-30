@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -432,30 +432,38 @@ export default function RepOrdersPage() {
   const markSent = (list: Order[], wh: OrderWh) =>
     api('/mark-sent', { method: 'POST', body: JSON.stringify({ ids: list.map(o => o.id), warehouseId: wh.id }) }).then(load).catch(() => {});
 
-  const sendToWarehouse = (list: Order[], wh: OrderWh) => {
-    if (canBotSend && viaBot && wh?.id != null) { sendViaBot(list, wh); return; }
+  // الإرسال على مرحلتين: الأولى متزامنة داخل ضغطة المستخدم (نسخ النص، وفتح نافذة فارغة
+  // إن deferred) والثانية go() تكمل. هكذا «حفظ وإرسال للمذخر التالي» يحفظ التجهيز أولاً
+  // ثم يرسل، دون أن يحجب المتصفح النافذة لأنها فُتحت قبل انتظار الحفظ.
+  const beginSend = (list: Order[], wh: OrderWh, deferred = false): { go: () => void; cancel: () => void } => {
+    const none = () => {};
+    if (canBotSend && viaBot && wh?.id != null) return { go: () => { sendViaBot(list, wh); }, cancel: none };
     const text = ordersText(list, wh.name);
     const ch = channelOf(wh);
+    const opener = (url: string) => {
+      const w = deferred ? window.open('about:blank', '_blank') : null;
+      return { open: () => { if (w) w.location.href = url; else window.open(url, '_blank'); }, cancel: () => w?.close() };
+    };
     if (ch === 'wa-group' || ch === 'viber-group') {
       copyText(text);
       // رابط دعوة فايبر على الكمبيوتر يعرض صفحة QR فقط (فايبر الكمبيوتر لا يفتح روابط الكروبات)
       // ← نكتفي بالنسخ والمندوب يفتح الكروب من فايبر بنفسه
       if (ch === 'viber-group' && !IS_TOUCH) {
-        setNotice(`✓ نُسخت الطلبية. افتح كروب «${wh.name}» في فايبر الكمبيوتر ← اضغط على خانة الكتابة ثم Ctrl+V ← إرسال.`);
-        markSent(list, wh);
-        return;
+        return { go: () => { setNotice(`✓ نُسخت الطلبية. افتح كروب «${wh.name}» في فايبر الكمبيوتر ← اضغط على خانة الكتابة ثم Ctrl+V ← إرسال.`); markSent(list, wh); }, cancel: none };
       }
-      window.open(wh.groupLink!, '_blank');
+      const o = opener(wh.groupLink!);
       // رابط الكروب لا يحمل نصاً (بخلاف wa.me) — اللصق خطوة لا مفرّ منها
-      setNotice(`✓ نُسخت الطلبية. في ${CHANNEL_LABEL[ch]} «${wh.name}» ${IS_TOUCH ? 'اضغط مطوّلاً على خانة الكتابة ← لصق' : 'اضغط على خانة الكتابة ثم Ctrl+V'} ← إرسال.`);
-      markSent(list, wh);
-      return;
+      return {
+        go: () => { o.open(); setNotice(`✓ نُسخت الطلبية. في ${CHANNEL_LABEL[ch]} «${wh.name}» ${IS_TOUCH ? 'اضغط مطوّلاً على خانة الكتابة ← لصق' : 'اضغط على خانة الكتابة ثم Ctrl+V'} ← إرسال.`); markSent(list, wh); },
+        cancel: o.cancel,
+      };
     }
     const wa = toWaNumber(wh?.phone);
-    if (!wa) { shareOrders(list, wh); return; }
-    window.open(`https://wa.me/${wa}?text=${encodeURIComponent(text)}`, '_blank');
-    markSent(list, wh);
+    if (!wa) return { go: () => shareOrders(list, wh), cancel: none };
+    const o = opener(`https://wa.me/${wa}?text=${encodeURIComponent(text)}`);
+    return { go: () => { o.open(); markSent(list, wh); }, cancel: o.cancel };
   };
+  const sendToWarehouse = (list: Order[], wh: OrderWh) => beginSend(list, wh).go();
 
   // قائمة المشاركة في الموبايل (واتساب ← أي كروب أو محادثة والنص جاهز).
   // تُعلَّم مُرسلة فقط إن اختار المندوب وجهة؛ الإلغاء لا يغيّر شيئاً.
@@ -691,6 +699,7 @@ export default function RepOrdersPage() {
       )}
       {prepFor && (
         <PrepareDialog api={api} order={prepFor.order} file={prepFor.file} initialWh={prepFor.whId}
+          beginSend={(o, wh) => beginSend([o], wh, true)}
           onClose={() => setPrepFor(null)} onSaved={() => { setPrepFor(null); load(); }} />
       )}
       {notice && <div className="ro-notice" role="status" onClick={() => setNotice(null)}>{notice}</div>}
@@ -1051,9 +1060,49 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
 // يُفتح عند رفع فاتورة المذخر أو «تسجيل التجهيز». المطلوب من المذخر = ما لم تجهّزه
 // المذاخر السابقة؛ الناقص يبقى ويُرسل للمذخر التالي بزر «إرسال المتبقي».
 
-function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
+// صورة قابلة للتكبير: أزرار + / −، قرص بإصبعين على الهاتف، ونقرتان للتبديل. التحريك
+// داخل الإطار بالتمرير العادي. direction:ltr كي تكون حسابات scrollLeft واحدة.
+function ZoomImage({ src, onError, children }: { src: string; onError?: () => void; children?: React.ReactNode }) {
+  const [z, setZ] = useState(1);
+  const frame = useRef<HTMLDivElement>(null);
+  const pinch = useRef<{ d: number; z: number } | null>(null);
+  useEffect(() => { setZ(1); }, [src]);
+  const apply = (target: number) => {
+    const nz = Math.round(Math.min(5, Math.max(1, target)) * 100) / 100;
+    const f = frame.current;
+    if (f && f.scrollWidth) {
+      // يبقى مركز النظر ثابتاً أثناء التكبير
+      const cx = (f.scrollLeft + f.clientWidth / 2) / f.scrollWidth;
+      const cy = (f.scrollTop + f.clientHeight / 2) / f.scrollHeight;
+      requestAnimationFrame(() => { f.scrollLeft = cx * f.scrollWidth - f.clientWidth / 2; f.scrollTop = cy * f.scrollHeight - f.clientHeight / 2; });
+    }
+    setZ(nz);
+  };
+  const dist = (t: React.TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  return (
+    <div className={`ro-pv ${z > 1 ? 'is-zoom' : ''}`}>
+      <div ref={frame} className="ro-pv__frame"
+        onDoubleClick={() => apply(z > 1 ? 1 : 2.5)}
+        onTouchStart={e => { if (e.touches.length === 2) pinch.current = { d: dist(e.touches), z }; }}
+        onTouchMove={e => { if (e.touches.length === 2 && pinch.current) apply(pinch.current.z * dist(e.touches) / pinch.current.d); }}
+        onTouchEnd={e => { if (e.touches.length < 2) pinch.current = null; }}>
+        <img src={src} alt="القائمة" onError={onError} style={z > 1 ? { width: `${z * 100}%` } : undefined} draggable={false} />
+      </div>
+      <div className="ro-pv__bar">
+        {children}
+        <button className="ro-pv__btn" title="تصغير" disabled={z <= 1} onClick={() => apply(z - 0.5)}><Minus size={15} /></button>
+        <button className="ro-pv__zoom" title="إرجاع الحجم" onClick={() => apply(1)}>{Math.round(z * 100)}%</button>
+        <button className="ro-pv__btn" title="تكبير" disabled={z >= 5} onClick={() => apply(z + 0.5)}><ZoomIn size={15} /></button>
+      </div>
+    </div>
+  );
+}
+
+function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSaved }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
-  order: Order; file: File | null; initialWh?: number | null; onClose: () => void; onSaved: () => void;
+  order: Order; file: File | null; initialWh?: number | null;
+  beginSend: (o: Order, wh: OrderWh) => { go: () => void; cancel: () => void };
+  onClose: () => void; onSaved: () => void;
 }) {
   // المذخر الافتراضي: آخر مذخر أُرسلت له — ويمكن تغييره (فاتورة من مذخر آخر)
   const whChoices = order.warehouses.filter(w => w.id != null);
@@ -1092,29 +1141,43 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
   const [qty, setQty] = useState<Record<number, { p: string; b: string }>>(initial);
   useEffect(() => { setQty(initial()); }, [initial]);
 
-  const setAll = (full: boolean) => setQty(Object.fromEntries(rows.map(r => [r.l.id!, full ? { p: String(r.need), b: r.needBonus ? String(r.needBonus) : '' } : { p: '0', b: '' }])));
   const open = rows.filter(r => r.need > 0);
   const got = (id: number) => Math.max(0, Math.floor(Number(qty[id]?.p) || 0));
   const outcome: SendOutcome = open.every(r => got(r.l.id!) === 0) ? 'rejected' : open.every(r => got(r.l.id!) >= r.need) ? 'prepared' : 'partial';
   const missing = open.filter(r => got(r.l.id!) < r.need);
+  // صنف لم يُجهَّز (كمية 0) = بونصه 0 أيضاً
+  const bonusOf = (id: number) => (got(id) === 0 ? 0 : Math.max(0, Math.floor(Number(qty[id]?.b) || 0)));
+  // المذخر التالي بعد الذي جهّز (حسب ترتيب مذاخر الطلبية)
+  const whIdx = order.warehouses.findIndex(w => w.id != null && w.id === whId);
+  const nextOne = whIdx >= 0 ? order.warehouses[whIdx + 1] ?? null : null;
 
-  const save = async () => {
+  const save = async (sendNext = false) => {
+    // الطلبية كما ستصير بعد الحفظ — نص الإرسال للتالي يحمل المتبقي فقط
+    let send: { go: () => void; cancel: () => void } | null = null;
+    if (sendNext && nextOne) {
+      const after: Order = { ...order, lines: rows.map(r => ({
+        ...r.l,
+        preparedQty: r.l.quantity - r.need + got(r.l.id!),
+        preparedBonus: Math.max(0, r.l.bonusQty - r.needBonus) + bonusOf(r.l.id!),
+      })) };
+      send = beginSend(after, nextOne);
+    }
     setSaving(true);
     try {
       const fd = new FormData();
       if (file) fd.append('image', await compressImage(file), 'prepared.jpg');
       if (whId != null) fd.append('warehouseId', String(whId));
-      fd.append('lines', JSON.stringify(rows.map(r => ({ lineId: r.l.id, qty: got(r.l.id!), bonus: Math.max(0, Math.floor(Number(qty[r.l.id!]?.b) || 0)) }))));
+      fd.append('lines', JSON.stringify(rows.map(r => ({ lineId: r.l.id, qty: got(r.l.id!), bonus: bonusOf(r.l.id!) }))));
       await api(`/${order.id}/prepare`, { method: 'POST', body: fd });
       onSaved();
-    } catch (e: any) { alert(e.message); setSaving(false); }
+      send?.go();
+    } catch (e: any) { send?.cancel(); alert(e.message); setSaving(false); }
   };
 
   const whName = whChoices.find(w => w.id === whId)?.name ?? currentWh(order).name;
   // صور القوائم: المرفوعة الآن + فواتير هذا المذخر السابقة — تُفتح أعلى النافذة للمقارنة
   const images = [...(url ? [{ src: url, local: true }] : []), ...whStatsOf(order, whId).images.map(src => ({ src: `${API}${src}`, local: false }))];
   const [view, setView] = useState<number | null>(file ? 0 : null);
-  const [zoom, setZoom] = useState(false);
   const shown = view != null ? images[Math.min(view, images.length - 1)] : null;
   return (
     <div className="ro-modal" onClick={onClose}>
@@ -1125,26 +1188,20 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
         </div>
         <div className="ro-dialog__body">
           {shown && (
-            <div className={`ro-pv ${zoom ? 'is-zoom' : ''}`}>
-              <div className="ro-pv__frame" onClick={() => setZoom(z => !z)}>
-                <img src={shown.src} alt="القائمة" onError={shown.local ? fallbackToDataUrl : undefined} />
-              </div>
-              <div className="ro-pv__bar">
-                <button className="ro-pv__btn" title="إغلاق الصورة" onClick={() => { setView(null); setZoom(false); }}><X size={15} /></button>
-                <button className="ro-pv__btn" title={zoom ? 'تصغير' : 'تكبير'} onClick={() => setZoom(z => !z)}>{zoom ? <ZoomOut size={15} /> : <ZoomIn size={15} />}</button>
+            <ZoomImage src={shown.src} onError={shown.local ? fallbackToDataUrl : undefined}>
+                <button className="ro-pv__btn" title="إغلاق الصورة" onClick={() => setView(null)}><X size={15} /></button>
                 {images.length > 1 && <>
                   <button className="ro-pv__btn" title="السابقة" onClick={() => setView(v => ((v ?? 0) - 1 + images.length) % images.length)}><ChevronRight size={15} /></button>
                   <span className="ro-pv__count">{(view ?? 0) + 1}/{images.length}</span>
                   <button className="ro-pv__btn" title="التالية" onClick={() => setView(v => ((v ?? 0) + 1) % images.length)}><ChevronLeft size={15} /></button>
                 </>}
-              </div>
-            </div>
+            </ZoomImage>
           )}
           <div className="ro-prep-top">
             {images.length > 0 && (
               <div className="ro-prep-thumbs">
                 {images.map((im, i) => (
-                  <button key={im.src} className={`ro-prep-thumb ${view === i ? 'is-on' : ''}`} title="فتح الصورة أعلى النافذة" onClick={() => { setView(i); setZoom(false); }}>
+                  <button key={im.src} className={`ro-prep-thumb ${view === i ? 'is-on' : ''}`} title="فتح الصورة أعلى النافذة" onClick={() => setView(i)}>
                     <img src={im.src} alt="" onError={im.local ? fallbackToDataUrl : undefined} />
                     <span><ImageIcon size={11} /> {view === i ? 'مفتوحة' : 'فتح'}</span>
                   </button>
@@ -1160,10 +1217,6 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
                   </button>
                 ))}
               </div>
-              <div className="ro-prep-quick">
-                <button className="ro-alt-btn" onClick={() => setAll(true)}><Check size={14} /> جهّز الكل</button>
-                <button className="ro-alt-btn ro-alt-btn--danger" onClick={() => setAll(false)}><Ban size={14} /> لم يجهّز شيئاً</button>
-              </div>
             </div>
           </div>
 
@@ -1171,7 +1224,7 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
             <colgroup><col /><col className="ro-pc-need" /><col className="ro-pc-in" /><col className="ro-pc-in" /><col className="ro-pc-st" /></colgroup>
             <thead><tr><th>الصنف</th><th>المطلوب</th><th>المجهّز</th><th>بونص</th><th /></tr></thead>
             <tbody>
-              {rows.map(({ l, need, from }) => {
+              {rows.map(({ l, need, needBonus, from }) => {
                 const id = l.id!;
                 if (need === 0) {
                   return (
@@ -1189,10 +1242,10 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
                     <td><div className="ro-strong">{l.itemName}</div>{from.length > 0 && <div className="ro-sub"><span>سابقاً: {from.join(' · ')}</span></div>}</td>
                     <td>{need}</td>
                     <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[id]?.p ?? ''} onChange={e => setQty(s => ({ ...s, [id]: { ...s[id], p: e.target.value } }))} /></td>
-                    <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[id]?.b ?? ''} onChange={e => setQty(s => ({ ...s, [id]: { ...s[id], b: e.target.value } }))} /></td>
+                    <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={g === 0 ? '' : qty[id]?.b ?? ''} placeholder={g === 0 ? '0' : ''} disabled={g === 0} onChange={e => setQty(s => ({ ...s, [id]: { ...s[id], b: e.target.value } }))} /></td>
                     <td>
                       <button className={`ro-prep ro-prep--${st} ro-prep-st`} title={st === 'full' ? 'كامل — اضغط: لم يُجهَّز' : st === 'part' ? `ناقص ${need - g} — اضغط: كامل` : 'لا شيء — اضغط: كامل'}
-                        onClick={() => setQty(s => ({ ...s, [id]: { ...s[id], p: st === 'full' ? '0' : String(need) } }))}>
+                        onClick={() => setQty(s => ({ ...s, [id]: st === 'full' ? { p: '0', b: '' } : { p: String(need), b: needBonus ? String(needBonus) : '' } }))}>
                         {st === 'full' ? '✓' : st === 'part' ? `-${need - g}` : '✕'}
                       </button>
                     </td>
@@ -1209,7 +1262,12 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
           </div>
         </div>
         <div className="ro-dialog__foot">
-          <button className="btn btn--primary" disabled={saving} onClick={save}>{saving ? 'جارٍ الحفظ…' : 'حفظ'}</button>
+          <button className="btn btn--primary" disabled={saving} onClick={() => save()}>{saving ? 'جارٍ الحفظ…' : 'حفظ'}</button>
+          {outcome !== 'prepared' && nextOne && (
+            <button className={`ro-send-btn ro-send-btn--${channelOf(nextOne)} ro-send-next`} disabled={saving} onClick={() => save(true)}>
+              <Send size={15} /><span>حفظ وإرسال المتبقي إلى {nextOne.name}</span>
+            </button>
+          )}
           <button className="btn btn--secondary" onClick={onClose}>إلغاء</button>
         </div>
       </div>
