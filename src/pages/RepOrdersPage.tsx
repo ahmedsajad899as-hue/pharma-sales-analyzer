@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Info, Store, Hash, CircleDot, Pill } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -619,7 +619,7 @@ export default function RepOrdersPage() {
       ) : (
         <div className="ro-table-wrap">
           <table className="ro-table">
-            <thead className="ro-hide-sm">
+            <thead className="ro-hide-sm" hidden={!!focused}>
               <tr>
                 <th className="ro-col-no">#</th>
                 {showDate && <th className="ro-hide-sm">التاريخ</th>}
@@ -806,7 +806,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
 
   return (
     <>
-      <tr className={`ro-row ro-row--${state} ${open ? 'is-open' : ''}`} onClick={onToggle} style={{ '--i': Math.min(index, 14) } as React.CSSProperties}>
+      <tr className={`ro-row ro-row--${state} ${open ? 'is-open' : ''}`} hidden={open} onClick={onToggle} style={{ '--i': Math.min(index, 14) } as React.CSSProperties}>
         <td className="ro-col-no">
           <span className="ro-chevron"><ChevronDown size={14} /></span>
           <span className="ro-id">{o.id}</span>
@@ -837,13 +837,18 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
           <td colSpan={colCount}>
             <div className="ro-detail">
               <div className="ro-detail__main">
-                <section className="ro-card">
-                  <div className="ro-card__head">
-                    <Info size={16} /><span>معلومات الطلب</span><span className="ro-card__no">#{o.id}</span>
-                    <span className="ro-spacer" />
-                    <button className="ro-icon-btn" title="مشاركة الطلبية — واتساب أو فايبر أو غيره" onClick={() => onShare(o.warehouses[sel] ?? nextWh(o))}><Share2 size={14} /></button>
-                    {o.canEdit && <button className="ro-icon-btn" title="تعديل" onClick={onEdit}><Pencil size={14} /></button>}
-                    {o.canEdit && <button className="ro-icon-btn ro-icon-btn--danger" title="حذف" onClick={onDelete}><Trash2 size={14} /></button>}
+                <section className={`ro-card ro-card--order ro-card--${state}`}>
+                  <div className="ro-card__head ro-card__head--order">
+                    <div className="ro-card__title">
+                      <span className="ro-card__ph">{o.pharmacyName}</span>
+                      <span className="ro-card__no">#{o.id}</span>
+                    </div>
+                    <div className="ro-card__tools">
+                      <button className="ro-icon-btn" title="مشاركة الطلبية — واتساب أو فايبر أو غيره" onClick={() => onShare(o.warehouses[sel] ?? nextWh(o))}><Share2 size={14} /></button>
+                      {o.canEdit && <button className="ro-icon-btn" title="تعديل" onClick={onEdit}><Pencil size={14} /></button>}
+                      {o.canEdit && <button className="ro-icon-btn ro-icon-btn--danger" title="حذف" onClick={onDelete}><Trash2 size={14} /></button>}
+                      <button className="ro-icon-btn" title="إغلاق" onClick={onToggle}><X size={14} /></button>
+                    </div>
                   </div>
                   <dl className="ro-kv">
                     <div><dt><CircleDot size={14} />الحالة</dt><dd>
@@ -851,7 +856,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                       {partial && <span className="ro-badge ro-badge--partial">جزئي</span>}
                       {state === 'prepared' && o.preparedAt && <span className="ro-kv__when">{fmtShort(o.preparedAt)}{o.preparedBy ? ` · ${o.preparedBy}` : ''}</span>}
                     </dd></div>
-                    <div><dt><Store size={14} />الصيدلية</dt><dd>{o.pharmacyName}{o.areaName && <span className="ro-muted"> / {o.areaName}</span>}</dd></div>
+                    {o.areaName && <div><dt><MapPin size={14} />المنطقة</dt><dd>{o.areaName}</dd></div>}
                     <div><dt><UserRound size={14} />المندوب</dt><dd>{o.repName}</dd></div>
                     <div><dt><CalendarDays size={14} />تاريخ الطلب</dt><dd>{fmtShortDay(o.orderDate)}</dd></div>
                     <div><dt><Warehouse size={14} />المذخر</dt><dd>{o.warehouses.map(w => w.name).join(' ← ') || wh.name}</dd></div>
@@ -861,48 +866,60 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
 
                 <section className="ro-card">
                   <div className="ro-card__head"><Pill size={16} /><span>الأدوية</span><span className="ro-card__no">{o.lines.length}</span></div>
-                  <div className="ro-meds">
-                    {o.lines.map((l, i) => {
-                      const got = l.preparedQty ?? 0;
-                      const short = remainingOf(l);
-                      const st = got >= l.quantity ? 'full' : got > 0 ? 'part' : 'none';
-                      const by = multiSource ? o.sends.flatMap(sd => sd.lines.filter(x => x.lineId === l.id && x.qty > 0).map(x => `${sd.warehouseName} ${x.qty}`)) : [];
-                      const billed = billQty(l);
-                      return (
-                        <div key={l.id ?? i} className={`ro-med ${hasPrepared && short > 0 ? 'is-short' : ''}`}>
-                          <div className="ro-med__name">
-                            <div className="ro-strong">{l.itemName}</div>
-                            {l.companyName && <div className="ro-sub"><span>{l.companyName}</span></div>}
-                            {by.length > 0 && <div className="ro-sub"><span>{by.join(' · ')}</span></div>}
-                          </div>
-                          <div className="ro-med__qty">
-                            <div><b>{l.quantity}</b>{l.bonusQty ? <small className="ro-bonus">+{l.bonusQty}</small> : null}{hasPrice && l.unitPrice != null && <span className="ro-muted"> × {fmtMoney(l.unitPrice)}</span>}</div>
-                            {hasPrepared && (
-                              <div className="ro-med__prep">
-                                <span className={`ro-prep ro-prep--${st}`}>{got}{l.preparedBonus ? <small className="ro-bonus">+{l.preparedBonus}</small> : null} مجهّز</span>
-                                {short > 0 && <span className="ro-short">{short} ناقص</span>}
-                              </div>
-                            )}
-                          </div>
-                          {hasPrice && (
-                            <div className="ro-med__sum">
-                              {l.unitPrice != null ? fmtMoney(l.unitPrice * billed) : '—'}
-                              {l.unitPrice != null && billed < l.quantity && <div className="ro-was">{fmtMoney(l.unitPrice * l.quantity)}</div>}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="ro-meds__foot">
-                    <span className="ro-strong">الإجمالي</span>
-                    <span className="ro-muted ro-small">
-                      {total}{totalBonus ? `+${totalBonus}` : ''} قطعة
-                      {hasPrepared && ` · مجهّز ${preparedTotal}${preparedBonusTotal ? `+${preparedBonusTotal}` : ''}`}
-                      {hasPrepared && shortTotal > 0 && ` · ناقص ${shortTotal}`}
-                    </span>
-                    <span className="ro-spacer" />
-                    {hasPrice && <b className="ro-meds__total">{fmtMoney(value)}</b>}
+                  <div className="ro-meds-scroll">
+                    <table className="ro-mt">
+                      <thead>
+                        <tr>
+                          <th className="ro-mt__name">الصنف</th>
+                          <th>الكمية</th>
+                          <th>بونص</th>
+                          {hasPrepared && <th>المجهّز</th>}
+                          {hasPrepared && <th>الناقص</th>}
+                          {hasPrice && <th>السعر</th>}
+                          {hasPrice && <th>المجموع</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {o.lines.map((l, i) => {
+                          const got = l.preparedQty ?? 0;
+                          const short = remainingOf(l);
+                          const st = got >= l.quantity ? 'full' : got > 0 ? 'part' : 'none';
+                          const by = multiSource ? o.sends.flatMap(sd => sd.lines.filter(x => x.lineId === l.id && x.qty > 0).map(x => `${sd.warehouseName} ${x.qty}`)) : [];
+                          const billed = billQty(l);
+                          return (
+                            <tr key={l.id ?? i} className={hasPrepared && short > 0 ? 'is-short' : ''}>
+                              <td className="ro-mt__name">
+                                <div className="ro-strong">{l.itemName}</div>
+                                {l.companyName && <div className="ro-sub"><span>{l.companyName}</span></div>}
+                                {by.length > 0 && <div className="ro-sub"><span>{by.join(' · ')}</span></div>}
+                              </td>
+                              <td className="ro-mt__qty">{l.quantity}</td>
+                              <td className="ro-mt__bonus">{l.bonusQty || <span className="ro-muted">—</span>}</td>
+                              {hasPrepared && <td><span className={`ro-prep ro-prep--${st}`}>{got}{l.preparedBonus ? <small className="ro-bonus">+{l.preparedBonus}</small> : null}</span></td>}
+                              {hasPrepared && <td>{short > 0 ? <span className="ro-short">{short}</span> : <span className="ro-muted">—</span>}</td>}
+                              {hasPrice && <td className="ro-mt__price">{l.unitPrice != null ? fmtMoney(l.unitPrice) : '—'}</td>}
+                              {hasPrice && (
+                                <td className="ro-mt__sum">
+                                  {l.unitPrice != null ? fmtMoney(l.unitPrice * billed) : '—'}
+                                  {l.unitPrice != null && billed < l.quantity && <div className="ro-was">{fmtMoney(l.unitPrice * l.quantity)}</div>}
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td className="ro-mt__name">الإجمالي</td>
+                          <td className="ro-mt__qty">{total}</td>
+                          <td className="ro-mt__bonus">{totalBonus || '—'}</td>
+                          {hasPrepared && <td>{preparedTotal}{preparedBonusTotal ? <small className="ro-bonus">+{preparedBonusTotal}</small> : null}</td>}
+                          {hasPrepared && <td>{shortTotal || '—'}</td>}
+                          {hasPrice && <td />}
+                          {hasPrice && <td className="ro-mt__sum ro-mt__total">{fmtMoney(value)}</td>}
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                 </section>
                 {hasPrice && hasPrepared && value < requestedValue && (

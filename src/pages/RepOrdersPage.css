@@ -531,3 +531,42 @@ button.ro-prep { cursor: pointer; }
 .ro-whp__thumb { width: 52px; height: 52px; object-fit: cover; border-radius: 8px; border: 1px solid var(--c-border-light); cursor: zoom-in; }
 .ro-file-btn { position: relative; }
 .ro-file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+
+/* ── الطلبية المفتوحة: بطاقة واحدة بدل الصف الملخّص + بطاقة المعلومات ── */
+.ro-page tr[hidden], .ro-page thead[hidden] { display: none !important; }
+.ro-card--order { border-inline-start: 4px solid #3b82f6; }
+.ro-card--following { border-inline-start-color: #f59e0b; }
+.ro-card--prepared { border-inline-start-color: #10b981; }
+.ro-card--cancelled { border-inline-start-color: #cbd5e1; }
+.ro-card__head--order { align-items: flex-start; padding: 12px 14px; }
+.ro-card__title { flex: 1; min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.ro-card__ph { font-size: 16px; font-weight: 800; color: var(--c-text-primary); overflow-wrap: anywhere; }
+.ro-card__tools { flex: none; display: flex; gap: 4px; }
+
+/* ── الأدوية: جدول بأعمدة ── */
+.ro-meds-scroll { overflow-x: auto; }
+.ro-mt { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.ro-mt th { padding: 8px 10px; background: #f8fafc; color: var(--c-text-muted); font-size: 11.5px; font-weight: 700; text-align: center; white-space: nowrap; border-bottom: 1px solid var(--c-border-light); }
+.ro-mt td { padding: 9px 10px; text-align: center; white-space: nowrap; border-top: 1px solid var(--c-border-light); vertical-align: middle; }
+.ro-mt tbody tr:first-child td { border-top: 0; }
+.ro-mt .ro-mt__name { text-align: start; white-space: normal; min-width: 150px; overflow-wrap: anywhere; }
+.ro-mt__qty { font-weight: 700; color: var(--c-text-primary); }
+.ro-mt__bonus { color: #7c3aed; font-weight: 600; }
+.ro-mt__price { color: var(--c-text-muted); }
+.ro-mt__sum { font-weight: 700; color: var(--c-text-primary); }
+.ro-mt tr.is-short td { background: rgba(245, 158, 11, 0.05); }
+.ro-mt tfoot td { border-top: 2px solid var(--c-text-primary); background: #f8fafc; font-weight: 800; }
+.ro-mt__total { color: var(--c-accent) !important; font-size: 14.5px; }
+
+@media (max-width: 720px) {
+  .ro-table > tbody > tr.ro-detail-row > td { border: 0 !important; border-radius: 0; overflow: visible; background: none; }
+  .ro-detail { padding: 10px 0; }
+  .ro-card__ph { font-size: 15px; }
+  .ro-mt { font-size: 11.5px; }
+  .ro-mt th { font-size: 10px; padding: 7px 3px; }
+  .ro-mt td { padding: 7px 3px; }
+  .ro-mt .ro-mt__name { min-width: 0; width: 34%; padding-inline-start: 10px; font-size: 11px; }
+  .ro-mt .ro-mt__name .ro-sub { font-size: 10px; }
+  .ro-mt .ro-prep, .ro-mt .ro-short { padding: 0 5px; font-size: 11px; }
+  .ro-mt__total { font-size: 12.5px; }
+}
