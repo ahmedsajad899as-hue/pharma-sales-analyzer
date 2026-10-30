@@ -570,3 +570,44 @@ button.ro-prep { cursor: pointer; }
   .ro-mt .ro-prep, .ro-mt .ro-short { padding: 0 5px; font-size: 11px; }
   .ro-mt__total { font-size: 12.5px; }
 }
+
+/* ── نافذة التجهيز: صورة القائمة مثبّتة أعلى النافذة + جدول بلا تمرير أفقي ── */
+.ro-dialog--prep .ro-dialog__body { padding-top: 0; }
+.ro-dialog--prep .ro-dialog__body > :first-child:not(.ro-pv) { margin-top: 14px; }
+.ro-pv { position: sticky; top: 0; z-index: 3; margin: 0 -16px; background: #0f172a; border-bottom: 1px solid var(--c-border-light); box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18); }
+.ro-pv__frame { height: 40vh; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: zoom-in; touch-action: pan-y; }
+.ro-pv__frame img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; background: #fff; }
+.ro-pv.is-zoom .ro-pv__frame { overflow: auto; display: block; cursor: zoom-out; touch-action: auto; }
+.ro-pv.is-zoom .ro-pv__frame img { max-width: none; max-height: none; width: 220%; }
+.ro-pv__bar { position: absolute; top: 8px; inset-inline-end: 8px; display: flex; align-items: center; gap: 4px; padding: 3px; border-radius: 10px; background: rgba(15, 23, 42, 0.65); }
+.ro-pv__btn { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.ro-pv__btn:hover { background: rgba(255, 255, 255, 0.15); }
+.ro-pv__count { color: #fff; font-size: 11.5px; font-variant-numeric: tabular-nums; padding: 0 2px; }
+
+.ro-prep-top { display: flex; gap: 12px; align-items: flex-start; }
+.ro-prep-top .ro-share-read { flex: 1; min-width: 0; }
+.ro-prep-thumbs { display: flex; gap: 6px; flex: none; max-width: 45%; overflow-x: auto; }
+.ro-prep-thumb { position: relative; flex: none; width: 84px; height: 96px; padding: 0; border: 1px solid var(--c-border-light); border-radius: 10px; overflow: hidden; background: #f8fafc; cursor: pointer; }
+.ro-prep-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ro-prep-thumb span { position: absolute; inset-inline: 0; bottom: 0; display: flex; align-items: center; justify-content: center; gap: 3px; padding: 3px; font-size: 10.5px; font-weight: 700; color: #fff; background: rgba(15, 23, 42, 0.6); }
+.ro-prep-thumb.is-on { outline: 2px solid var(--c-accent); outline-offset: -2px; }
+
+.ro-prep-table { table-layout: fixed; width: 100%; }
+.ro-prep-table .ro-pc-need { width: 52px; }
+.ro-prep-table .ro-pc-in { width: 64px; }
+.ro-prep-table .ro-pc-st { width: 40px; }
+.ro-prep-table th, .ro-prep-table td { padding: 7px 4px; text-align: center; }
+.ro-prep-table th:first-child, .ro-prep-table td:first-child { text-align: start; padding-inline-start: 10px; overflow-wrap: anywhere; }
+.ro-prep-table .ro-qty { width: 100%; padding: 6px 2px; box-sizing: border-box; }
+.ro-prep-st { min-width: 30px; padding: 2px 4px !important; }
+
+@media (max-width: 720px) {
+  .ro-dialog--prep { width: 100%; max-height: 96vh; }
+  .ro-pv__frame { height: 36vh; }
+  .ro-prep-table { font-size: 11.5px; }
+  .ro-prep-table .ro-pc-need { width: 40px; }
+  .ro-prep-table .ro-pc-in { width: 52px; }
+  .ro-prep-table .ro-pc-st { width: 36px; }
+  .ro-prep-table th { font-size: 10.5px; }
+  .ro-prep-thumb { width: 70px; height: 84px; }
+}

@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -1059,8 +1059,19 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
   const whChoices = order.warehouses.filter(w => w.id != null);
   const [whId, setWhId] = useState<number | null>(initialWh !== undefined ? initialWh : currentWh(order).id);
   const [saving, setSaving] = useState(false);
-  const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
-  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file) { setUrl(null); return; }
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  const fallbackToDataUrl = () => {
+    if (!file || url?.startsWith('data:')) return;
+    const r = new FileReader();
+    r.onload = () => setUrl(String(r.result));
+    r.readAsDataURL(file);
+  };
 
   // سجل هذا المذخر السابق (تصحيح) لا يُحسب ضمن «المجهّز سابقاً»
   const own = lastSendTo(order, whId);
@@ -1100,16 +1111,46 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
   };
 
   const whName = whChoices.find(w => w.id === whId)?.name ?? currentWh(order).name;
+  // صور القوائم: المرفوعة الآن + فواتير هذا المذخر السابقة — تُفتح أعلى النافذة للمقارنة
+  const images = [...(url ? [{ src: url, local: true }] : []), ...whStatsOf(order, whId).images.map(src => ({ src: `${API}${src}`, local: false }))];
+  const [view, setView] = useState<number | null>(file ? 0 : null);
+  const [zoom, setZoom] = useState(false);
+  const shown = view != null ? images[Math.min(view, images.length - 1)] : null;
   return (
     <div className="ro-modal" onClick={onClose}>
-      <div className="ro-dialog" onClick={e => e.stopPropagation()}>
+      <div className="ro-dialog ro-dialog--prep" onClick={e => e.stopPropagation()}>
         <div className="ro-dialog__head">
           <strong>تجهيز {order.pharmacyName} — #{order.id}</strong>
           <button className="ro-icon-btn" onClick={onClose}><X size={16} /></button>
         </div>
         <div className="ro-dialog__body">
-          <div className="ro-share-top">
-            {url && <div className="ro-share-thumbs"><img src={url} alt="فاتورة المذخر" /></div>}
+          {shown && (
+            <div className={`ro-pv ${zoom ? 'is-zoom' : ''}`}>
+              <div className="ro-pv__frame" onClick={() => setZoom(z => !z)}>
+                <img src={shown.src} alt="القائمة" onError={shown.local ? fallbackToDataUrl : undefined} />
+              </div>
+              <div className="ro-pv__bar">
+                <button className="ro-pv__btn" title="إغلاق الصورة" onClick={() => { setView(null); setZoom(false); }}><X size={15} /></button>
+                <button className="ro-pv__btn" title={zoom ? 'تصغير' : 'تكبير'} onClick={() => setZoom(z => !z)}>{zoom ? <ZoomOut size={15} /> : <ZoomIn size={15} />}</button>
+                {images.length > 1 && <>
+                  <button className="ro-pv__btn" title="السابقة" onClick={() => setView(v => ((v ?? 0) - 1 + images.length) % images.length)}><ChevronRight size={15} /></button>
+                  <span className="ro-pv__count">{(view ?? 0) + 1}/{images.length}</span>
+                  <button className="ro-pv__btn" title="التالية" onClick={() => setView(v => ((v ?? 0) + 1) % images.length)}><ChevronLeft size={15} /></button>
+                </>}
+              </div>
+            </div>
+          )}
+          <div className="ro-prep-top">
+            {images.length > 0 && (
+              <div className="ro-prep-thumbs">
+                {images.map((im, i) => (
+                  <button key={im.src} className={`ro-prep-thumb ${view === i ? 'is-on' : ''}`} title="فتح الصورة أعلى النافذة" onClick={() => { setView(i); setZoom(false); }}>
+                    <img src={im.src} alt="" onError={im.local ? fallbackToDataUrl : undefined} />
+                    <span><ImageIcon size={11} /> {view === i ? 'مفتوحة' : 'فتح'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="ro-share-read">
               <div className="ro-slot__label">المذخر الذي جهّز</div>
               <div className="ro-chips">
@@ -1127,6 +1168,7 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
           </div>
 
           <table className="ro-lines ro-prep-table">
+            <colgroup><col /><col className="ro-pc-need" /><col className="ro-pc-in" /><col className="ro-pc-in" /><col className="ro-pc-st" /></colgroup>
             <thead><tr><th>الصنف</th><th>المطلوب</th><th>المجهّز</th><th>بونص</th><th /></tr></thead>
             <tbody>
               {rows.map(({ l, need, from }) => {
@@ -1149,9 +1191,9 @@ function PrepareDialog({ api, order, file, initialWh, onClose, onSaved }: {
                     <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[id]?.p ?? ''} onChange={e => setQty(s => ({ ...s, [id]: { ...s[id], p: e.target.value } }))} /></td>
                     <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[id]?.b ?? ''} onChange={e => setQty(s => ({ ...s, [id]: { ...s[id], b: e.target.value } }))} /></td>
                     <td>
-                      <button className={`ro-prep ro-prep--${st}`} title="اضغط للتبديل بين كامل / لم يُجهَّز"
+                      <button className={`ro-prep ro-prep--${st} ro-prep-st`} title={st === 'full' ? 'كامل — اضغط: لم يُجهَّز' : st === 'part' ? `ناقص ${need - g} — اضغط: كامل` : 'لا شيء — اضغط: كامل'}
                         onClick={() => setQty(s => ({ ...s, [id]: { ...s[id], p: st === 'full' ? '0' : String(need) } }))}>
-                        {st === 'full' ? '✓ كامل' : st === 'part' ? `ناقص ${need - g}` : '✕ لا شيء'}
+                        {st === 'full' ? '✓' : st === 'part' ? `-${need - g}` : '✕'}
                       </button>
                     </td>
                   </tr>
