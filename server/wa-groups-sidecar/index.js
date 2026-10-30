@@ -10,6 +10,11 @@
 // يسمع على 127.0.0.1 فقط، وكل طلب يحمل x-wa-groups-secret. رسائل الكروبات المربوطة
 // بمذاخر (known-jids من التطبيق) تُمرَّر للتطبيق على /api/wa-groups/internal/inbound.
 //
+// التصويت (poll) بديل الأزرار: واتساب لا يعرض أزرار تفاعلية في الكروبات لغير الـAPI
+// الرسمي. أصوات التصويت مشفّرة بسرّ الرسالة (messageSecret) و Baileys rc14 لا يفكّها
+// تلقائياً، فنحفظ السرّ بأنفسنا في polls.json ونفكّ كل صوت هنا، ثم نمرّر للتطبيق
+// { pollVote: { pollId, option } } — option = رقم الخيار أو null (سحب الصوت).
+//
 // متغيّرات البيئة: WA_GROUPS_SECRET (إلزامي)، WA_GROUPS_PORT (8091)،
 // WA_GROUPS_MAIN_URL (http://127.0.0.1:8080)، WA_GROUPS_AUTH_DIR (./auth).
 // ════════════════════════════════════════════════════════════════════════════
@@ -21,7 +26,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import pino from 'pino';
 import makeWASocket, {
-  useMultiFileAuthState, DisconnectReason, Browsers, downloadMediaMessage,
+  useMultiFileAuthState, DisconnectReason, Browsers, downloadMediaMessage, decryptPollVote, jidNormalizedUser,
 } from '@whiskeysockets/baileys';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -61,6 +66,46 @@ function remember(msg) {
   if (!msg?.key?.id) return;
   recent.set(msg.key.id, msg);
   while (recent.size > 1000) recent.delete(recent.keys().next().value);
+}
+
+// ─── التصويتات المرسَلة: معرّف الرسالة ← السرّ والخيارات (على القرص) ─────────────
+
+const POLLS_FILE = () => path.join(AUTH_DIR, 'polls.json');
+const POLL_TTL_MS = 10 * 24 * 60 * 60 * 1000;
+let polls = {};
+try { polls = JSON.parse(fs.readFileSync(POLLS_FILE(), 'utf8')); } catch { polls = {}; }
+function savePolls() {
+  const now = Date.now();
+  for (const [id, p] of Object.entries(polls)) if (now - p.at > POLL_TTL_MS) delete polls[id];
+  try {
+    fs.mkdirSync(AUTH_DIR, { recursive: true });
+    fs.writeFileSync(POLLS_FILE(), JSON.stringify(polls));
+  } catch (e) { console.error('[wa-groups] حفظ التصويتات:', e.message); }
+}
+
+const sha256hex = (s) => crypto.createHash('sha256').update(Buffer.from(s)).digest('hex');
+
+/**
+ * يفكّ صوتاً على تصويت أرسلناه. معرّف المنشئ/المصوّت قد يكون رقماً (PN) أو LID حسب
+ * وضع الكروب، والتشفير مربوط بالصيغة التي استعملها هاتف المصوّت — نجرّب التراكيب،
+ * والتحقق (GCM) يرفض الخاطئ. يُعيد رقم الخيار، null لسحب الصوت، undefined للفشل.
+ */
+function decodeVote(msg, upd, poll) {
+  const creators = [...new Set([sock.user?.id, sock.user?.lid].filter(Boolean).map(jidNormalizedUser))];
+  const voters = [...new Set([msg.key.participant, msg.key.participantAlt].filter(Boolean).map(jidNormalizedUser))];
+  const pollEncKey = Buffer.from(poll.secret, 'hex');
+  for (const pollCreatorJid of creators) {
+    for (const voterJid of voters) {
+      try {
+        const vote = decryptPollVote(upd.vote, { pollCreatorJid, pollMsgId: upd.pollCreationMessageKey.id, pollEncKey, voterJid });
+        const picked = (vote.selectedOptions || []).map(h => Buffer.from(h).toString('hex'));
+        if (!picked.length) return null;
+        const idx = poll.options.findIndex(o => picked.includes(sha256hex(o)));
+        return idx >= 0 ? idx : undefined;
+      } catch { /* تركيبة أخرى */ }
+    }
+  }
+  return undefined;
 }
 
 // ─── الإرسال: طابور بفاصل بشري (يقلّل خطر الحظر) ─────────────────────────────
@@ -106,6 +151,7 @@ async function connect() {
       if (code === DisconnectReason.loggedOut) {
         console.error('[wa-groups] فُصل الرقم (logged out) — يلزم ربط جديد');
         fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+        polls = {};
         Object.assign(state, { status: 'logged_out', me: null, error: 'فُصل الرقم من واتساب — اربطه من جديد' });
       } else {
         state.status = 'reconnecting';
@@ -116,9 +162,12 @@ async function connect() {
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
     for (const msg of messages) {
-      try { await onMessage(msg); } catch (e) { console.error('[wa-groups] رسالة واردة:', e.message); }
+      try {
+        // الأصوات تصل أحياناً كـappend (أُرسلت أثناء انقطاعنا) — لا نفوّتها
+        if (unwrap(msg.message)?.pollUpdateMessage) await onPollVote(msg);
+        else if (type === 'notify') await onMessage(msg);
+      } catch (e) { console.error('[wa-groups] رسالة واردة:', e.message); }
     }
   });
 }
@@ -126,6 +175,30 @@ async function connect() {
 function unwrap(m) {
   // رسائل «مؤقتة» و«عرض مرة» تلفّ المحتوى الحقيقي
   return m?.ephemeralMessage?.message || m?.viewOnceMessageV2?.message || m?.viewOnceMessage?.message || m;
+}
+
+function forward(body) {
+  return fetch(`${MAIN_URL}/api/wa-groups/internal/inbound`, {
+    method: 'POST',
+    headers: { 'x-wa-groups-secret': SECRET, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  }).catch(e => console.error('[wa-groups] تمرير للتطبيق:', e.message));
+}
+
+async function onPollVote(msg) {
+  const jid = msg.key?.remoteJid;
+  if (!jid?.endsWith('@g.us') || msg.key.fromMe || !knownJids.has(jid)) return;
+  const upd = unwrap(msg.message).pollUpdateMessage;
+  const pollId = upd?.pollCreationMessageKey?.id;
+  const poll = pollId && polls[pollId];
+  if (!poll || !upd.vote) return; // ليس تصويتنا (أو قديم انتهى)
+  const option = decodeVote(msg, upd, poll);
+  if (option === undefined) { console.warn('[wa-groups] تعذّر فكّ صوت على', pollId); return; }
+  await forward({
+    jid, msgId: msg.key.id, sender: msg.key.participantAlt || msg.key.participant || null, senderName: msg.pushName || null,
+    pollVote: { pollId, option },
+  });
 }
 
 async function onMessage(msg) {
@@ -148,15 +221,10 @@ async function onMessage(msg) {
   }
   if (!text && !imageBase64) return;
 
-  await fetch(`${MAIN_URL}/api/wa-groups/internal/inbound`, {
-    method: 'POST',
-    headers: { 'x-wa-groups-secret': SECRET, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jid, msgId: msg.key.id, sender: msg.key.participant || null, senderName: msg.pushName || null,
-      text, quotedId: ctx?.stanzaId || null, imageBase64,
-    }),
-    signal: AbortSignal.timeout(30_000),
-  }).catch(e => console.error('[wa-groups] تمرير للتطبيق:', e.message));
+  await forward({
+    jid, msgId: msg.key.id, sender: msg.key.participant || null, senderName: msg.pushName || null,
+    text, quotedId: ctx?.stanzaId || null, imageBase64,
+  });
 }
 
 // ─── HTTP ────────────────────────────────────────────────────────────────────
@@ -212,9 +280,28 @@ const routes = {
     return [200, { id: sent?.key?.id || null }];
   },
 
+  // تصويت بخيار واحد (بديل الأزرار). السرّ نولّده نحن ونحفظه لفكّ الأصوات لاحقاً.
+  'POST /send-poll': async (body) => {
+    if (state.status !== 'connected') return [409, { error: 'رقم الكروبات غير متصل' }];
+    const jid = String(body.jid || '');
+    if (!jid.endsWith('@g.us')) return [400, { error: 'معرّف كروب غير صالح' }];
+    const options = (Array.isArray(body.options) ? body.options : []).map(o => String(o).slice(0, 100)).filter(Boolean);
+    if (options.length < 2 || options.length > 12) return [400, { error: 'خيارات التصويت غير صالحة' }];
+    const secret = crypto.randomBytes(32);
+    const quoted = body.quotedId ? recent.get(String(body.quotedId)) : undefined;
+    const sent = await enqueue(() => sock.sendMessage(jid, {
+      poll: { name: String(body.name || '').slice(0, 255), values: options, selectableCount: 1, messageSecret: secret },
+    }, quoted ? { quoted } : {}));
+    const id = sent?.key?.id || null;
+    if (id) { polls[id] = { jid, secret: secret.toString('hex'), options, at: Date.now() }; savePolls(); }
+    remember(sent);
+    return [200, { id }];
+  },
+
   'POST /logout': async () => {
     try { await sock?.logout(); } catch { /* مفصول أصلاً */ }
     fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+    polls = {};
     Object.assign(state, { status: 'logged_out', me: null, qr: null, pairingCode: null });
     setTimeout(() => connect().catch(() => {}), 1500);
     return [200, { ok: true }];

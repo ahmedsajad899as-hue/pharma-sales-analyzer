@@ -404,7 +404,8 @@ async function syncPreparedTotals(tx, order, sends) {
  * السجل المقصود = آخر إرسال لهذا المذخر (يُصحَّح إن سبق تسجيله)، وإلا يُنشأ —
  * طلبية لم تُعلَّم مُرسلة أو أُرسلت قبل وجود سجل الإرسال.
  * الطلبية تصير «تم التجهيز» فقط حين تكتمل كل أسطرها عبر كل المذاخر.
- * @param {{ warehouseId?:number|null, lines?:{lineId:number, qty?:number, preparedQty?:number, bonus?:number, preparedBonus?:number}[], image?:string|null, invoiceNumber?:string|null }} input
+ * allRemaining = المذخر جهّز كل ما تبقّى منه (تصويت «تم التجهيز» في الكروب) بدل lines.
+ * @param {{ warehouseId?:number|null, lines?:{lineId:number, qty?:number, preparedQty?:number, bonus?:number, preparedBonus?:number}[], allRemaining?:boolean, image?:string|null, invoiceNumber?:string|null }} input
  */
 export async function recordPreparation(viewer, orderId, input = {}) {
   return prisma.$transaction(async (tx) => {
@@ -419,7 +420,12 @@ export async function recordPreparation(viewer, orderId, input = {}) {
       if (s.id === send?.id) continue;
       for (const x of (Array.isArray(s.lines) ? s.lines : [])) prior.set(x.lineId, (prior.get(x.lineId) ?? 0) + (Number(x.qty) || 0));
     }
-    const given = new Map((Array.isArray(input.lines) ? input.lines : []).map(x => [Number(x.lineId), x]));
+    const given = input.allRemaining
+      ? new Map(order.lines.map(l => {
+        const qty = Math.max(0, l.quantity - (prior.get(l.id) ?? 0));
+        return [l.id, { qty, bonus: qty > 0 ? l.bonusQty : 0 }];
+      }))
+      : new Map((Array.isArray(input.lines) ? input.lines : []).map(x => [Number(x.lineId), x]));
     const toInt = (v) => Math.max(0, Math.floor(Number(v) || 0));
     const sendLines = order.lines
       .map(l => { const x = given.get(l.id); return { lineId: l.id, itemName: l.itemName, qty: toInt(x?.qty ?? x?.preparedQty), bonus: toInt(x?.bonus ?? x?.preparedBonus) }; })

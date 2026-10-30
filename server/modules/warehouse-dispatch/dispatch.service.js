@@ -10,7 +10,7 @@ import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { isOfficeScopedRole } from '../../lib/officeScope.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
 import { normalizeWaId } from '../../lib/waId.js';
-import { loadViewer, orderScopeWhere, warehouseScopeWhere, getVisibleOrder } from '../rep-orders/rep-orders.service.js';
+import { loadViewer, orderScopeWhere, warehouseScopeWhere, getVisibleOrder, markSent } from '../rep-orders/rep-orders.service.js';
 import { whatsappEnabled } from '../whatsapp/whatsapp.service.js';
 import { groupsConfigured, sidecar } from '../wa-groups/wa-groups.client.js';
 import {
@@ -157,12 +157,8 @@ export async function sendRepOrder(reqUser, repOrderId, body = {}) {
     },
   });
   const sent = await sendDispatch(d, { byUserId: viewer.id });
-  if (sent?.status === 'sent') {
-    await prisma.repOrder.update({
-      where: { id: o.id },
-      data: { sentAt: new Date(), sentCount: { increment: 1 }, lastSentWarehouseId: w.id },
-    });
-  }
+  // نفس تعليم «أُرسلت» في الصفحة ⇒ سجل إرسال للمذخر يتلقّى تصويت/رد الكروب لاحقاً
+  if (sent?.status === 'sent') await markSent(reqUser, o.id, w.id);
   return sent;
 }
 

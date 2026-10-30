@@ -34,3 +34,9 @@ export async function sendGroupText(jid, text, { quotedId } = {}) {
   const r = await sidecar('/send', { method: 'POST', body: { jid, text, quotedId } });
   return r.data?.id ? { id: r.data.id } : { error: r.error || 'تعذّر الإرسال للكروب' };
 }
+
+/** تصويت بخيار واحد لكروب (بديل الأزرار). يُعيد { id } أو { error }. */
+export async function sendGroupPoll(jid, name, options, { quotedId } = {}) {
+  const r = await sidecar('/send-poll', { method: 'POST', body: { jid, name, options, quotedId } });
+  return r.data?.id ? { id: r.data.id } : { error: r.error || 'تعذّر إرسال التصويت للكروب' };
+}

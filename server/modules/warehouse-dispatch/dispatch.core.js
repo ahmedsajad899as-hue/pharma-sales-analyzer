@@ -9,7 +9,8 @@
 //  • cloud — رقم البوت الرسمي (Cloud API). داخل نافذة الـ24 ساعة (آخر رسالة من
 //    المذخر) نرسل رسالة أزرار حرّة (service: أول 1000 شهرياً مجانية)؛ خارجها قالب
 //    معتمد (template: مدفوع). إن ظنّنا النافذة مفتوحة وردّ واتساب 131047 نعيد بقالب.
-//  • group — كروب واتساب عبر «رقم الكروبات» (wa-groups). بلا أزرار: ردّ نصّي.
+//  • group — كروب واتساب عبر «رقم الكروبات» (wa-groups). الأزرار لا تظهر في الكروبات،
+//    فنرسل بعد نصّ الطلبية تصويتاً (GROUP_POLL_OPTIONS) يصوّت عليه موظف المذخر، أو ردّ نصّي.
 //
 // الوضع لكل حساب (WarehouseDispatchSetting): off | auto (فوراً) | approval (بعد
 // موافقة المدير من صفحة الإرسال، ويمكنه تغيير المذخر قبل الإرسال).
@@ -24,7 +25,8 @@ import { normalizeArabic } from '../../lib/itemResolver.js';
 import { normalizeWaId } from '../../lib/waId.js';
 import { warehouseScopeWhere } from '../rep-orders/rep-orders.service.js';
 import { sendButtons, sendTemplate, sendWhatsAppText, whatsappEnabled } from '../whatsapp/whatsapp.service.js';
-import { sendGroupText } from '../wa-groups/wa-groups.client.js';
+import { sendGroupText, sendGroupPoll } from '../wa-groups/wa-groups.client.js';
+import { recordPreparation } from '../rep-orders/rep-orders.service.js';
 import { notifyOrigin } from './dispatch.notify.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +45,9 @@ const templateName = () => process.env.WHATSAPP_DISPATCH_TEMPLATE || 'new_order'
 const templateLang = () => process.env.WHATSAPP_DISPATCH_TEMPLATE_LANG || 'ar';
 
 export const ACTION_LABEL = { prepared: 'تم التجهيز', partial: 'تجهيز جزئي', rejected: 'رفض' };
+// خيارات تصويت الكروب — الترتيب = رقم الخيار الذي يعيده رقم الكروبات (لا تغيّره)
+export const GROUP_POLL_ACTIONS = ['prepared', 'partial', 'rejected'];
+export const GROUP_POLL_OPTIONS = ['✅ تم التجهيز', '⚠️ تجهيز جزئي', '❌ لا تُجهَّز'];
 
 // ─── الإعدادات ───────────────────────────────────────────────────────────────
 
@@ -98,7 +103,7 @@ export function buildOrderText(d, { forGroup = false } = {}) {
   out.push('────────────');
   if (d.notes) out.push(`📝 ${d.notes}`);
   out.push(forGroup
-    ? `للرد اسحبوا هذه الرسالة واكتبوا: «تم» أو «جزئي» أو «رفض + السبب»، أو أرسلوا صورة الفاتورة رداً عليها.\n(أو اكتبوا: تم ${d.id})`
+    ? `صوّتوا على حالة الطلبية في التصويت أدناه 👇\nأو اسحبوا هذه الرسالة واكتبوا: «تم» أو «جزئي» أو «رفض + السبب»، وأرسلوا صورة الفاتورة رداً عليها.`
     : 'اختاروا أحد الأزرار، أو أرسلوا صورة فاتورة التجهيز رداً على هذه الرسالة.');
   return out.join('\n');
 }
@@ -159,7 +164,13 @@ export async function sendDispatch(dispatchOrId, { byUserId = null, forceTemplat
   let ids = [], kind, err = null;
   if (w.channel === 'group') {
     const r = await sendGroupText(w.groupJid, buildOrderText(d, { forGroup: true }));
-    if (r.id) { ids = [r.id]; kind = 'group'; } else err = r.error;
+    if (r.id) {
+      ids = [r.id]; kind = 'group';
+      // فشل التصويت لا يُفشل الإرسال: الرد النصّي ما زال يعمل
+      const poll = await sendGroupPoll(w.groupJid, `الطلبية رقم ${d.id}${d.pharmacyName ? ` — ${d.pharmacyName}` : ''}: حالة التجهيز؟`, GROUP_POLL_OPTIONS);
+      if (poll.id) ids.push(poll.id);
+      else console.error(`[dispatch] #${d.id} تعذّر إرسال التصويت:`, poll.error);
+    } else err = r.error;
   } else {
     if (!whatsappEnabled()) err = 'بوت واتساب غير مفعّل على السيرفر';
     else {
@@ -280,9 +291,10 @@ const STATUS_NOTE = {
 
 /**
  * تطبيق ردّ المذخر. action: prepared | partial | rejected.
- * @param {{ reason?: string, via?: 'warehouse'|'manual', ack?: boolean }} [o]
+ * actor = اسم موظف المذخر الذي صوّت/ردّ في الكروب (يظهر في الإقرار وإشعار المندوب).
+ * @param {{ reason?: string, via?: 'warehouse'|'manual', ack?: boolean, actor?: string }} [o]
  */
-export async function applyAction(dispatchId, action, { reason = null, via = 'warehouse', ack = true } = {}) {
+export async function applyAction(dispatchId, action, { reason = null, via = 'warehouse', ack = true, actor = null } = {}) {
   const d = await prisma.warehouseDispatch.findUnique({ where: { id: Number(dispatchId) } });
   if (!d || !ACTION_LABEL[action]) return null;
   if (d.status === 'cancelled') {
@@ -294,17 +306,19 @@ export async function applyAction(dispatchId, action, { reason = null, via = 'wa
     data: {
       status: action, respondedAt: new Date(),
       ...(action === 'rejected' ? { rejectReason: cleanStr(reason, 300) } : {}),
+      ...(actor ? { warehouseNote: [d.warehouseNote, `${ACTION_LABEL[action]} — ${cleanStr(actor, 80)}`].filter(Boolean).join('\n').slice(-1500) } : {}),
     },
   });
+  const by = actor ? ` (${cleanStr(actor, 80)})` : '';
   if (via === 'warehouse' && ack) {
     const ackText = {
       prepared: `✅ شكراً — سُجّلت الطلبية رقم ${d.id} «تم التجهيز». أرسلوا صورة الفاتورة رداً على رسالة الطلبية إن أمكن.`,
       partial:  `⚠️ سُجّلت الطلبية رقم ${d.id} «تجهيز جزئي». أرسلوا صورة الفاتورة أو اكتبوا الأصناف الناقصة.`,
-      rejected: reason ? `سُجّل رفض الطلبية رقم ${d.id}. شكراً.` : `سُجّل رفض الطلبية رقم ${d.id}. اكتبوا سبب الرفض باختصار (اختياري).`,
+      rejected: reason ? `سُجّل رفض الطلبية رقم ${d.id}. شكراً.` : `سُجّل رفض الطلبية رقم ${d.id}. اكتبوا سبب الرفض باختصار رداً على رسالة الطلبية (اختياري).`,
     }[action];
-    await replyToWarehouse(updated, ackText);
+    await replyToWarehouse(updated, ackText + by);
   }
-  await notifyOrigin(updated, STATUS_NOTE[action](updated));
+  await notifyOrigin(updated, STATUS_NOTE[action](updated) + by);
   await syncRepOrder(updated);
   if (action === 'rejected') await maybeForwardToBackup(updated, 'rejected');
   return updated;
@@ -352,14 +366,25 @@ export async function attachInvoice(dispatchId, imagePath, { rows = null, ack = 
   return updated;
 }
 
-/** طلبية من صفحة «طلبيات المذاخر» ⇒ تعكس حالة التجهيز وصورة الفاتورة. */
+/**
+ * طلبية من صفحة «طلبيات المذاخر» ⇒ تُسجَّل في سجل إرسالاتها (rep_order_sends) عبر
+ * recordPreparation نفسه الذي تستعمله الصفحة: «تم» = كل المتبقي من هذا المذخر،
+ * «رفض» = لا شيء. «جزئي» بلا أصناف معروفة ⇒ نعلّم السجل فقط ويكمل المندوب الكميات.
+ */
 async function syncRepOrder(d) {
   if (!d.repOrderId) return;
   try {
-    const data = {};
-    if (['prepared', 'partial'].includes(d.status)) Object.assign(data, { status: 'prepared', preparedAt: new Date() });
-    if (d.invoiceImage) data.preparedImage = d.invoiceImage;
-    if (Object.keys(data).length) await prisma.repOrder.update({ where: { id: d.repOrderId }, data });
+    const viewer = { id: d.sentById ?? null };
+    if (d.status === 'prepared') {
+      await recordPreparation(viewer, d.repOrderId, { warehouseId: d.warehouseId, allRemaining: true, image: d.invoiceImage || undefined });
+    } else if (d.status === 'rejected') {
+      await recordPreparation(viewer, d.repOrderId, { warehouseId: d.warehouseId, lines: [] });
+    } else if (d.status === 'partial') {
+      await prisma.repOrderSend.updateMany({
+        where: { orderId: d.repOrderId, warehouseId: d.warehouseId, outcome: { in: ['sent', 'partial'] } },
+        data: { outcome: 'partial', outcomeAt: new Date(), ...(d.invoiceImage ? { image: d.invoiceImage } : {}) },
+      });
+    }
   } catch (e) {
     console.error('[dispatch] مزامنة طلبية المذاخر:', e?.message);
   }

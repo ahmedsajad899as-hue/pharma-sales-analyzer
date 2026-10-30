@@ -8,7 +8,8 @@
 // الطلبية (context/quoted id ∈ outMessageIds) ← رقم صريح في النص ← الطلبية
 // المفتوحة الوحيدة لهذا المذخر (cloud فقط) ← وإلا نسأل «لأي طلبية؟».
 //
-// الكروب فيه كلام كثير لا يخصّنا: لا نتصرّف فيه إلا برد على رسالتنا أو رقم طلبية صريح.
+// الكروب فيه كلام كثير لا يخصّنا: لا نتصرّف فيه إلا برد على رسالتنا أو رقم طلبية صريح،
+// أو صوت على تصويت الطلبية (handleGroupPollVote — بديل الأزرار في الكروبات).
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from '../../lib/prisma.js';
@@ -18,7 +19,7 @@ import { scoreOrder } from '../rep-orders/rep-orders.invoice.js';
 import { sendWhatsAppText, sendList, downloadMedia } from '../whatsapp/whatsapp.service.js';
 import { sendGroupText } from '../wa-groups/wa-groups.client.js';
 import {
-  applyAction, attachInvoice, saveInvoiceImage, setRejectReason, appendWarehouseNote, sendDispatch,
+  applyAction, attachInvoice, saveInvoiceImage, setRejectReason, appendWarehouseNote, sendDispatch, GROUP_POLL_ACTIONS,
 } from './dispatch.core.js';
 
 const OPEN_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
@@ -313,6 +314,20 @@ export async function handleDispatchStatus(st) {
 // ─── كروبات (wa-groups) ──────────────────────────────────────────────────────
 
 /**
+ * صوت على تصويت طلبية (أُرسل مع نصّها، ومعرّفه ضمن outMessageIds). سحب الصوت
+ * (option=null) أو تكرار نفس الحالة لا يغيّر شيئاً؛ تغيير الصوت يطبّق الحالة الجديدة.
+ */
+async function handleGroupPollVote(m, whIds) {
+  const { pollId, option } = m.pollVote || {};
+  const action = GROUP_POLL_ACTIONS[option];
+  if (!action) return true;
+  const d = await dispatchByMessage(pollId, whIds);
+  if (!d || d.status === action) return true;
+  await applyAction(d.id, action, { actor: m.senderName || (m.sender ? String(m.sender).split('@')[0] : null) });
+  return true;
+}
+
+/**
  * رسالة واردة من كروب مذخر (عبر خدمة رقم الكروبات).
  * @param {{ jid, msgId, text, quotedId, imageBase64 }} m
  */
@@ -321,6 +336,7 @@ export async function handleGroupInbound(m) {
   const warehouses = await prisma.orderWarehouse.findMany({ where: { groupJid: String(m.jid), channel: 'group' }, select: { id: true } });
   if (!warehouses.length) return false;
   const whIds = warehouses.map(w => w.id);
+  if (m.pollVote) return handleGroupPollVote(m, whIds);
   const reply = (text) => sendGroupText(m.jid, text, { quotedId: m.msgId });
   return handleWarehouseEvent({
     channel: 'group', whIds, reply,
