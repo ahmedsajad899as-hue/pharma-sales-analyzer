@@ -6,7 +6,8 @@
 //
 // ربط الرد بالطلبية بالترتيب: حمولة الزر (wd:<id>:<action>) ← الرد على رسالة
 // الطلبية (context/quoted id ∈ outMessageIds) ← رقم صريح في النص ← الطلبية
-// المفتوحة الوحيدة لهذا المذخر (cloud فقط) ← وإلا نسأل «لأي طلبية؟».
+// المفتوحة الوحيدة لهذا المذخر (الكروب فقط) ← وإلا نسأل «لأي صيدلية؟» (رقم البوت يسأل دائماً
+// عن الصورة بلا رد/رقم، بقائمة صيدليات المرجّح أولاً).
 //
 // الكروب فيه كلام كثير لا يخصّنا: لا نتصرّف فيه إلا برد على رسالتنا أو رقم طلبية صريح،
 // أو صوت على تصويت الطلبية (handleGroupPollVote — بديل الأزرار في الكروبات).
@@ -121,6 +122,8 @@ async function guessByInvoice(buffer, candidates) {
 // صور قيد السؤال «لأي طلبية؟» في الكروب: معرّف رسالة الصورة/سؤالنا ← مسار الصورة
 const pendingGroupImages = new Map(); // msgId → { imagePath, rows, at }
 const PENDING_IMG_TTL = 24 * 60 * 60 * 1000;
+// رقم البوت: قراءة الفاتورة الذكية بانتظار اختيار الصيدلية من القائمة — رمز الصورة ← الأسطر
+const pendingCloudRows = new Map(); // token → { rows, at }
 function rememberGroupImage(ids, entry) {
   const now = Date.now();
   for (const [k, v] of pendingGroupImages) if (now - v.at > PENDING_IMG_TTL) pendingGroupImages.delete(k);
@@ -149,7 +152,9 @@ async function handleWarehouseEvent(ctx, ev) {
     m = ev.payload.match(/^wdi:(\d+):([a-f0-9]{32})$/);
     if (m) {
       const d = await dispatchFor(m[1], whIds);
-      if (d) await attachInvoice(d.id, `/uploads/dispatch/${m[2]}.jpg`);
+      const rows = pendingCloudRows.get(m[2])?.rows ?? null;
+      pendingCloudRows.delete(m[2]);
+      if (d) await attachInvoice(d.id, `/uploads/dispatch/${m[2]}.jpg`, { rows });
       return true;
     }
     return false;
@@ -165,6 +170,14 @@ async function handleWarehouseEvent(ctx, ev) {
     let rows = null;
     if (!target) {
       const open = await openDispatches(whIds, { needInvoice: true });
+      // رقم البوت: نسأل دائماً «لأي صيدلية؟» ولا نثبّت تخميناً بصمت — المرجّح بالقراءة الذكية أولاً
+      if (ctx.channel === 'cloud' && open.length) {
+        let best = null;
+        if (open.length > 1) ({ rows, best } = await guessByInvoice(buffer, open));
+        const ordered = best ? [best, ...open.filter(d => d.id !== best.id)] : open;
+        await ctx.askWhich(ordered, imagePath, ev.msgId, rows, best?.id ?? null);
+        return true;
+      }
       if (open.length === 1) target = open[0];
       else if (open.length > 1) {
         const g = await guessByInvoice(buffer, open);
@@ -270,11 +283,20 @@ export async function handleWarehouseCloudMessage(message, _contactName, img) {
   const reply = (text) => sendWhatsAppText(waId, text);
   return handleWarehouseEvent({
     channel: 'cloud', whIds, reply,
-    askWhich: async (open, imagePath) => {
+    askWhich: async (open, imagePath, _msgId, rows, bestId) => {
       const token = imagePath.match(/([a-f0-9]{32})\.jpg$/)?.[1];
-      const r = await sendList(waId, 'استلمنا صورة الفاتورة 🧾 — لأي طلبية هي؟', 'اختيار الطلبية',
-        open.slice(0, 10).map(d => ({ id: `wdi:${d.id}:${token}`, title: `رقم ${d.id}`, description: d.pharmacyName || '' })));
-      if (r.error) await reply(`استلمنا الصورة — لأي طلبية؟ أرسلوها مجدداً مع رقم الطلبية في التعليق.\n${open.slice(0, 10).map(shortLabel).join('\n')}`);
+      if (token && rows) {
+        const now = Date.now();
+        for (const [k, v] of pendingCloudRows) if (now - v.at > PENDING_IMG_TTL) pendingCloudRows.delete(k);
+        pendingCloudRows.set(token, { rows, at: now });
+      }
+      const r = await sendList(waId, 'استلمنا صورة الفاتورة 🧾\nهذه الفاتورة لأي صيدلية؟ اختاروا من القائمة كي تُثبَّت على طلبيتها.', 'اختيار الصيدلية',
+        open.slice(0, 10).map(d => ({
+          id: `wdi:${d.id}:${token}`,
+          title: `${d.id === bestId ? '⭐ ' : ''}${d.pharmacyName || 'بلا صيدلية'}`,
+          description: [`طلبية ${d.id}`, d.areaName, (Array.isArray(d.lines) ? d.lines : []).map(l => l.item).join('، ')].filter(Boolean).join(' · '),
+        })));
+      if (r.error) await reply(`استلمنا الصورة — لأي صيدلية؟ أرسلوها مجدداً مع رقم الطلبية في التعليق.\n${open.slice(0, 10).map(shortLabel).join('\n')}`);
     },
   }, {
     payload: isOurPayload ? payload : null,
