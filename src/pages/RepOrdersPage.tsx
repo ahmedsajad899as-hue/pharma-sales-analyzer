@@ -996,9 +996,6 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                             )}
 
                             <div className="ro-whp__files">
-                              {ws.images.map(src => (
-                                <img key={src} className="ro-whp__thumb" src={`${API}${src}`} alt={`فاتورة ${w.name}`} onClick={() => onPreview(src)} />
-                              ))}
                               {state !== 'cancelled' && (
                                 <label className="ro-alt-btn ro-file-btn">
                                   <Camera size={14} /> {ws.images.length ? 'فاتورة أخرى' : 'رفع فاتورته'}
@@ -1029,6 +1026,24 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                     );
                   })}
                 </div>
+
+                {/* فواتير التجهيز تحت لوحة المذاخر لا داخل بطاقاتها (طلب صاحب المشروع) — كل صورة باسم مذخرها */}
+                {o.sends.some(sd => sd.image) && (
+                  <div className="ro-invoices">
+                    <div className="ro-slot__label">فواتير التجهيز</div>
+                    <div className="ro-invoices__list">
+                      {o.sends.filter(sd => sd.image).map(sd => (
+                        <figure key={sd.id} className="ro-invoices__item">
+                          <img className="ro-whp__thumb" src={`${API}${sd.image}`} alt={`فاتورة ${sd.warehouseName}`} onClick={() => onPreview(sd.image!)} />
+                          <figcaption>
+                            <span className="ro-invoices__wh">{o.warehouses.find(w => w.id === sd.warehouseId)?.name ?? sd.warehouseName}</span>
+                            {sd.outcomeAt && <span className="ro-tl-date">{fmtShort(sd.outcomeAt)}</span>}
+                          </figcaption>
+                        </figure>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="ro-images">
                   {/* الختم يُرفق عند كتابة الطلبية (أو تعديلها) — هنا يُعرض مصغّراً فقط إن وُجد */}

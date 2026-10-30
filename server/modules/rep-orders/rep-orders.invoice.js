@@ -255,14 +255,24 @@ export async function attachBotInvoice(userId, match, imageBuffer) {
   await fs.promises.writeFile(path.join(INVOICE_DIR, name), imageBuffer);
   const url = `/uploads/rep-orders/${name}`;
 
-  // المذخر: من اسمه في الفاتورة بين مذاخر الطلبية، وإلا آخر مذخر أُرسلت له (الافتراضي)
-  let warehouseId = null;
-  const whIds = [...new Set([order.lastSentWarehouseId, order.warehouseId, ...order.backupWarehouseIds].filter(Boolean))];
-  if (inv.warehouse && whIds.length) {
-    const whs = await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true } });
-    const hit = whs.map(w => ({ w, s: placeSim(w.name, inv.warehouse) })).sort((a, b) => b.s - a.s)[0];
-    if (hit && hit.s >= 0.75) warehouseId = hit.w.id;
-  }
+  // المذخر: اسمه المطبوع قرأه الذكاء وقد يشبه مذخراً آخر («السلام» ⇐ «طريق السلام» —
+  // طلبية #20 ثُبّتت على احتياط لم تُرسل له قط)، فلا يغلب المذاخر التي أُرسلت لها فعلاً:
+  //  • أُرسلت لمذخر وتنتظر ردّه ⇒ أحدها؛ الاسم يرجّح بينها فقط، وإلا أحدثها إرسالاً.
+  //  • لم تُرسل لأحد ⇒ اسم مطابق تماماً بين مذاخرها، وإلا آخر مذخر/الأساسي.
+  const byName = async (ids, min) => {
+    if (!inv.warehouse || !ids.length) return null;
+    const whs = await prisma.orderWarehouse.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+    const [a, b] = whs.map(w => ({ id: w.id, s: placeSim(w.name, inv.warehouse) })).sort((x, y) => y.s - x.s);
+    return a && a.s >= min && (!b || a.s - b.s >= 0.15) ? a.id : null;
+  };
+  const awaiting = (await prisma.repOrderSend.findMany({
+    where: { orderId: order.id, warehouseId: { not: null }, outcome: { in: ['sent', 'partial'] } },
+    orderBy: { id: 'desc' }, select: { warehouseId: true },
+  })).map(s => s.warehouseId);
+  const warehouseId = awaiting.length
+    ? (await byName([...new Set(awaiting)], 0.85)) ?? awaiting[0]
+    : (await byName([...new Set([order.warehouseId, ...order.backupWarehouseIds].filter(Boolean))], 1))
+      ?? order.lastSentWarehouseId ?? order.warehouseId ?? null;
 
   const lines = order.lines.map((l, i) => {
     const it = byLine.has(i) ? inv.items[byLine.get(i).j] : null;
