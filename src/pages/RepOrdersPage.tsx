@@ -687,7 +687,7 @@ export default function RepOrdersPage() {
       )}
 
       {editing && (
-        <OrderForm token={token} api={api} order={editing === 'new' ? null : editing} warehouses={warehouses}
+        <OrderForm token={token} api={api} order={editing === 'new' ? null : editing} warehouses={warehouses} viaBot={canBotSend && viaBot}
           onWarehousesChanged={loadWarehouses}
           onClose={() => setEditing(null)}
           onSaved={(d) => { setEditing(null); if (d && from && (d < from || d > to)) pickPeriod('all'); else load(); }} />
@@ -1643,8 +1643,8 @@ interface FormLine { key: number; text: string; itemId: number | null; companyNa
 const newLine = (text = '', itemId: number | null = null, companyName = ''): FormLine => ({ key: Date.now() + Math.random(), text, itemId, companyName, quantity: '', bonusQty: '' });
 const MAX_WAREHOUSES = 6; // الأساسي + 5 احتياط
 
-function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose, onSaved }: {
-  token: string | null;
+function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged, onClose, onSaved }: {
+  token: string | null; viaBot: boolean;
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   order: Order | null; warehouses: WarehouseRow[];
   onWarehousesChanged: () => void; onClose: () => void; onSaved: (day: string | null) => void;
@@ -1718,6 +1718,8 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
         ...head,
         warehouseId: Number(whIds[0]),
         backupWarehouseIds: whIds.slice(1).map(Number),
+        // «إرسال عبر البوت» مطفأة ⇒ لا إرسال آلي حتى لو وضع الحساب «فوري»
+        viaBot,
         lines: valid.map(l => ({ itemId: l.itemId, itemName: l.text.trim(), companyName: l.companyName || null, quantity: Number(l.quantity), bonusQty: Number(l.bonusQty) || 0 })),
       });
       const r = await api<{ order: { id: number }; dispatch: { status: string; warehouseName: string | null; error: string | null } | null }>(order ? `/${order.id}` : '', { method: order ? 'PUT' : 'POST', body });

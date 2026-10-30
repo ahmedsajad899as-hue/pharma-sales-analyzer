@@ -289,9 +289,10 @@ export async function createFromBotOrder({ user, pendingId, rows, source, chatId
  * طلبية كُتبت أو عُدّلت في «طلبيات المذاخر» ⇒ تتبع وضع حساب كاتبها: «فوري» تُرسل
  * لمذخرها الأساسي عبر البوت، «بعد الموافقة» تنتظر في صفحة الإرسال. مذخر غير مضبوط
  * للإرسال الآلي ⇒ لا شيء (المندوب يرسلها يدوياً كما كان). لا يرمي.
+ * allowNew=false (خانة «إرسال عبر البوت» مطفأة) ⇒ لا صفّ جديد، تحديث القائم فقط.
  * @returns {Promise<object|null>} صفّ الإرسال إن أُنشئ أو حُدّث
  */
-export async function createFromRepOrder(orderId) {
+export async function createFromRepOrder(orderId, { allowNew = true } = {}) {
   try {
     const o = await prisma.repOrder.findUnique({ where: { id: Number(orderId) }, include: { lines: { orderBy: { id: 'asc' } } } });
     if (!o || o.status !== 'pending') return null;
@@ -306,7 +307,7 @@ export async function createFromRepOrder(orderId) {
       });
     }
     // أُرسلت يدوياً سابقاً (wa.me/مشاركة) ⇒ تعديلها لا يرسلها مرة ثانية
-    if (o.sentAt) return null;
+    if (o.sentAt || !allowNew) return null;
     const mode = await getUserMode(o.createdById);
     if (mode === 'off' || !o.warehouseId) return null;
     const w = await prisma.orderWarehouse.findUnique({ where: { id: o.warehouseId } });
