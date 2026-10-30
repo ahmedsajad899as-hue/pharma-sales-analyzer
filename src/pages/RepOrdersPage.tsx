@@ -801,15 +801,9 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
   const wh = currentWh(o);
   const backups = o.warehouses.length - 1;
   const active = state !== 'cancelled' && state !== 'prepared';
-  // المذخر المفتوح في لوحة المذاخر: المقترح للإرسال التالي، ولا شيء إن انتهت الطلبية
-  // الطلبية المنتهية: يُفتح المذخر الذي وصلت منه آخر فاتورة كي تظهر صورتها مباشرة
-  const defaultSel = () => {
-    if (active) return Math.max(0, o.warehouses.indexOf(nextWh(o)));
-    const withImg = [...o.sends].reverse().find(sd => sd.image);
-    return withImg ? o.warehouses.findIndex(w => w.id === withImg.warehouseId) : -1;
-  };
-  const [sel, setSel] = useState<number>(defaultSel);
-  useEffect(() => { setSel(defaultSel()); }, [o]); // eslint-disable-line react-hooks/exhaustive-deps
+  // لوحة المذاخر تُفتح مغلقة كلها — المستخدم يفتح المذخر الذي يريده (طلب صاحب المشروع)
+  const [sel, setSel] = useState<number>(-1);
+  useEffect(() => { setSel(-1); }, [o.id]);
   // أُرسلت لهذا المذخر ولم يرد بعد ← لا زر إرسال (المتابعة من كروبه، أو «مشاركة» لإعادة الإرسال)
   const lastSend = o.sends[o.sends.length - 1];
   const awaiting = (w: OrderWh) => (lastSend
