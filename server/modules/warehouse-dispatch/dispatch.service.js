@@ -10,7 +10,7 @@ import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { isOfficeScopedRole } from '../../lib/officeScope.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
 import { normalizeWaId } from '../../lib/waId.js';
-import { loadViewer, orderScopeWhere, warehouseScopeWhere, getVisibleOrder, markSent } from '../rep-orders/rep-orders.service.js';
+import { loadViewer, orderScopeWhere, warehouseScopeWhere, getVisibleOrder } from '../rep-orders/rep-orders.service.js';
 import { whatsappEnabled } from '../whatsapp/whatsapp.service.js';
 import { groupsConfigured, sidecar } from '../wa-groups/wa-groups.client.js';
 import {
@@ -156,10 +156,8 @@ export async function sendRepOrder(reqUser, repOrderId, body = {}) {
       notes: o.notes, status: 'awaiting_approval',
     },
   });
-  const sent = await sendDispatch(d, { byUserId: viewer.id });
-  // نفس تعليم «أُرسلت» في الصفحة ⇒ سجل إرسال للمذخر يتلقّى تصويت/رد الكروب لاحقاً
-  if (sent?.status === 'sent') await markSent(reqUser, o.id, w.id);
-  return sent;
+  // sendDispatch يعلّم الطلبية مُرسلة هناك (سجل إرسال يتلقّى رد المذخر وفاتورته)
+  return sendDispatch(d, { byUserId: viewer.id });
 }
 
 // ─── المذاخر ─────────────────────────────────────────────────────────────────

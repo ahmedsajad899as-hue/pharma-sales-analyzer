@@ -210,7 +210,7 @@ export async function listOrders(reqUser, q = {}) {
   });
 
   // مذاخر الاحتياط وآخر مذخر أُرسلت له — استعلام واحد لكل الطلبيات
-  const whIds = [...new Set(rows.flatMap(r => [...r.backupWarehouseIds, r.lastSentWarehouseId]).filter(Boolean))];
+  const whIds = [...new Set(rows.flatMap(r => [...r.backupWarehouseIds, r.lastSentWarehouseId, ...r.sends.map(s => s.warehouseId)]).filter(Boolean))];
   const whRows = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true, phone: true, groupLink: true } }) : [];
   const whById = new Map(whRows.map(w => [w.id, w]));
   // الرقم التالي عند كل مذخر — الواجهة تكتبه في نص الإرسال قبل markSent (الذي يحفظه)
@@ -253,6 +253,10 @@ export async function listOrders(reqUser, q = {}) {
       warehouses: [
         r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, phone: r.warehouse.phone, groupLink: r.warehouse.groupLink } : { id: null, name: r.warehouseName, phone: null, groupLink: null },
         ...r.backupWarehouseIds.map(id => whById.get(id)).filter(Boolean),
+        // مذاخر خارج القائمة أُرسلت لها الطلبية (تحويل/بديل من «إرسال للمذاخر») — كي تظهر ردودها وفواتيرها
+        ...[...new Set(r.sends.map(s => s.warehouseId))]
+          .filter(id => id && id !== r.warehouseId && !r.backupWarehouseIds.includes(id))
+          .map(id => whById.get(id) ?? { id, name: r.sends.find(s => s.warehouseId === id)?.warehouseName ?? `#${id}`, phone: null, groupLink: null }),
       ],
       lastSentWarehouseId: r.lastSentWarehouseId,
       pharmacyName: r.pharmacyName,

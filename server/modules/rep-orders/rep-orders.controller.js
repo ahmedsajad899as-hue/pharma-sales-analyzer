@@ -5,14 +5,20 @@
 
 import * as svc from './rep-orders.service.js';
 import * as invoice from './rep-orders.invoice.js';
+import { createFromRepOrder } from '../warehouse-dispatch/dispatch.core.js';
 
 const wrap = (fn) => async (req, res, next) => {
   try { await fn(req, res); } catch (e) { next(e); }
 };
 
 export const listOrders      = wrap(async (req, res) => res.json({ success: true, ...(await svc.listOrders(req.user, req.query)) }));
-export const createOrder     = wrap(async (req, res) => res.json({ success: true, order: await svc.createOrder(req.user, req.body) }));
-export const updateOrder     = wrap(async (req, res) => res.json({ success: true, order: await svc.updateOrder(req.user, req.params.id, req.body) }));
+// وضع «إرسال للمذاخر» لكاتب الطلبية: فوري ⇒ تُرسل عبر البوت الآن، بعد الموافقة ⇒ تنتظر المدير
+const withDispatch = async (order) => {
+  const d = await createFromRepOrder(order.id);
+  return { success: true, order, dispatch: d ? { id: d.id, status: d.status, warehouseName: d.warehouseName, error: d.error } : null };
+};
+export const createOrder     = wrap(async (req, res) => res.json(await withDispatch(await svc.createOrder(req.user, req.body))));
+export const updateOrder     = wrap(async (req, res) => res.json(await withDispatch(await svc.updateOrder(req.user, req.params.id, req.body))));
 export const deleteOrder     = wrap(async (req, res) => { await svc.deleteOrder(req.user, req.params.id); res.json({ success: true }); });
 export const setStatus       = wrap(async (req, res) => res.json({ success: true, ...(await svc.setStatus(req.user, req.body?.ids, req.body?.status)) }));
 export const markSent        = wrap(async (req, res) => res.json({ success: true, ...(await svc.markSent(req.user, req.body?.ids, req.body?.warehouseId)) }));

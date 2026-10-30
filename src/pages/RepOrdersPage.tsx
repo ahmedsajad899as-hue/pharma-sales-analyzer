@@ -802,7 +802,12 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
   const backups = o.warehouses.length - 1;
   const active = state !== 'cancelled' && state !== 'prepared';
   // المذخر المفتوح في لوحة المذاخر: المقترح للإرسال التالي، ولا شيء إن انتهت الطلبية
-  const defaultSel = () => (active ? Math.max(0, o.warehouses.indexOf(nextWh(o))) : -1);
+  // الطلبية المنتهية: يُفتح المذخر الذي وصلت منه آخر فاتورة كي تظهر صورتها مباشرة
+  const defaultSel = () => {
+    if (active) return Math.max(0, o.warehouses.indexOf(nextWh(o)));
+    const withImg = [...o.sends].reverse().find(sd => sd.image);
+    return withImg ? o.warehouses.findIndex(w => w.id === withImg.warehouseId) : -1;
+  };
   const [sel, setSel] = useState<number>(defaultSel);
   useEffect(() => { setSel(defaultSel()); }, [o]); // eslint-disable-line react-hooks/exhaustive-deps
   // أُرسلت لهذا المذخر ولم يرد بعد ← لا زر إرسال (المتابعة من كروبه، أو «مشاركة» لإعادة الإرسال)
@@ -962,6 +967,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                           <span className="ro-whp__name">{m && <i className={`ro-dot ro-dot--${m}`} />}{w.name}<ChannelIcon ch={ch} size={13} /></span>
                           {whSeqOf(o, w.id) != null && <span className="ro-whp__meta" title="رقم الطلبية عند هذا المذخر">رقم {whSeqOf(o, w.id)}</span>}
                           {ws.items.length > 0 && <span className="ro-whp__meta">{ws.items.length}/{o.lines.length} صنف</span>}
+                          {ws.images.length > 0 && <span className="ro-whp__meta" title="فواتير هذا المذخر"><ImageIcon size={12} /> {ws.images.length}</span>}
                           <span className={`ro-sendmark ro-sendmark--${m ?? 'none'}`}>{m ? SEND_LABEL[m] : legacySent ? 'أُرسلت' : 'لم تُرسل'}</span>
                           <ChevronDown size={14} className="ro-whp__chev" />
                         </button>
@@ -1720,11 +1726,19 @@ function OrderForm({ token, api, order, warehouses, onWarehousesChanged, onClose
         backupWarehouseIds: whIds.slice(1).map(Number),
         lines: valid.map(l => ({ itemId: l.itemId, itemName: l.text.trim(), companyName: l.companyName || null, quantity: Number(l.quantity), bonusQty: Number(l.bonusQty) || 0 })),
       });
-      const r = await api<{ order: { id: number } }>(order ? `/${order.id}` : '', { method: order ? 'PUT' : 'POST', body });
+      const r = await api<{ order: { id: number }; dispatch: { status: string; warehouseName: string | null; error: string | null } | null }>(order ? `/${order.id}` : '', { method: order ? 'PUT' : 'POST', body });
       if (invoiceFile) {
         const fd = new FormData();
         fd.append('image', await compressImage(invoiceFile), 'invoice.jpg');
         await api(`/${r.order.id}/image/invoice`, { method: 'POST', body: fd });
+      }
+      // وضع «فوري»/«بعد الموافقة» لحساب الكاتب في «إرسال للمذاخر»
+      const d = r.dispatch;
+      if (d && !order) {
+        if (d.status === 'sent') alert(`أُرسلت الطلبية تلقائياً عبر البوت إلى ${d.warehouseName}.`);
+        else if (d.status === 'awaiting_approval') alert('الطلبية بانتظار موافقة المدير للإرسال عبر البوت.');
+        else if (d.status === 'failed' || d.status === 'needs_warehouse') alert(`تعذّر الإرسال التلقائي عبر البوت: ${d.error || ''}
+أرسلها يدوياً من الطلبية.`);
       }
       onSaved(head.orderDate);
     } catch (e: any) { setErr(e.message); } finally { setSaving(false); }

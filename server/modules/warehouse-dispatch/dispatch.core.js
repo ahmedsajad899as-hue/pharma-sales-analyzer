@@ -26,7 +26,7 @@ import { normalizeWaId } from '../../lib/waId.js';
 import { warehouseScopeWhere } from '../rep-orders/rep-orders.service.js';
 import { sendButtons, sendTemplate, sendWhatsAppText, whatsappEnabled } from '../whatsapp/whatsapp.service.js';
 import { sendGroupText, sendGroupPoll } from '../wa-groups/wa-groups.client.js';
-import { recordPreparation } from '../rep-orders/rep-orders.service.js';
+import { recordPreparation, markSent } from '../rep-orders/rep-orders.service.js';
 import { notifyOrigin } from './dispatch.notify.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -204,7 +204,23 @@ export async function sendDispatch(dispatchOrId, { byUserId = null, forceTemplat
     },
   });
   await notifyOrigin(sent, `📤 الطلبية ${d.pharmacyName ? `(${d.pharmacyName}) ` : ''}أُرسلت لمذخر ${w.name} — رقم ${d.id}`);
+  await markRepOrderSent(sent, w.id);
   return sent;
+}
+
+/**
+ * طلبية من «طلبيات المذاخر» أُرسلت عبر البوت (أي مسار: فوري، موافقة المدير، تحويل،
+ * بديل تلقائي) ⇒ سجل إرسال لهذا المذخر هناك، فتُربط به ردود المذخر وفاتورته.
+ */
+async function markRepOrderSent(d, warehouseId) {
+  if (!d.repOrderId) return;
+  try {
+    const r = d.sentById ? await markSent({ id: d.sentById }, d.repOrderId, warehouseId) : { updated: 0 };
+    // المُرسِل خارج نطاق الطلبية (أو إرسال آلي) ⇒ باسم صاحبها
+    if (!r.updated) await markSent({ id: d.createdById }, d.repOrderId, warehouseId);
+  } catch (e) {
+    console.error('[dispatch] تعليم طلبية المذاخر مُرسلة:', e?.message);
+  }
 }
 
 function templateErrorText(e) {
@@ -266,6 +282,48 @@ export async function createFromBotOrder({ user, pendingId, rows, source, chatId
     }
   } catch (e) {
     console.error('[dispatch] تعذّر إنشاء إرسال المذخر من طلبية البوت:', e);
+  }
+}
+
+/**
+ * طلبية كُتبت أو عُدّلت في «طلبيات المذاخر» ⇒ تتبع وضع حساب كاتبها: «فوري» تُرسل
+ * لمذخرها الأساسي عبر البوت، «بعد الموافقة» تنتظر في صفحة الإرسال. مذخر غير مضبوط
+ * للإرسال الآلي ⇒ لا شيء (المندوب يرسلها يدوياً كما كان). لا يرمي.
+ * @returns {Promise<object|null>} صفّ الإرسال إن أُنشئ أو حُدّث
+ */
+export async function createFromRepOrder(orderId) {
+  try {
+    const o = await prisma.repOrder.findUnique({ where: { id: Number(orderId) }, include: { lines: { orderBy: { id: 'asc' } } } });
+    if (!o || o.status !== 'pending') return null;
+    const lines = o.lines.map(l => ({ item: l.itemName, quantity: l.quantity, bonus: l.bonusQty }));
+    // تعديل طلبية لم تُرسل بعد ⇒ تحديث صفّها بدل صفّ ثانٍ
+    const prev = await prisma.warehouseDispatch.findFirst({ where: { repOrderId: o.id }, orderBy: { id: 'desc' } });
+    if (prev) {
+      if (!PRE_SEND.includes(prev.status)) return null;
+      return prisma.warehouseDispatch.update({
+        where: { id: prev.id },
+        data: { lines, notes: o.notes, pharmacyName: o.pharmacyName, areaName: o.areaName },
+      });
+    }
+    // أُرسلت يدوياً سابقاً (wa.me/مشاركة) ⇒ تعديلها لا يرسلها مرة ثانية
+    if (o.sentAt) return null;
+    const mode = await getUserMode(o.createdById);
+    if (mode === 'off' || !o.warehouseId) return null;
+    const w = await prisma.orderWarehouse.findUnique({ where: { id: o.warehouseId } });
+    if (!warehouseReady(w)) return null;
+    const creator = await prisma.user.findUnique({ where: { id: o.createdById }, select: { displayName: true, username: true } });
+    const d = await prisma.warehouseDispatch.create({
+      data: {
+        officeId: o.officeId, createdById: o.createdById, source: 'rep-order', repOrderId: o.id,
+        repName: creator?.displayName || creator?.username || null, pharmacyName: o.pharmacyName, areaName: o.areaName,
+        requestedWarehouse: o.warehouseName, warehouseId: w.id, warehouseName: w.name,
+        lines, notes: o.notes, status: 'awaiting_approval',
+      },
+    });
+    return mode === 'auto' ? sendDispatch(d, { byUserId: o.createdById }) : d;
+  } catch (e) {
+    console.error('[dispatch] إرسال آلي لطلبية المذاخر:', e);
+    return null;
   }
 }
 
@@ -380,10 +438,12 @@ async function syncRepOrder(d) {
     } else if (d.status === 'rejected') {
       await recordPreparation(viewer, d.repOrderId, { warehouseId: d.warehouseId, lines: [] });
     } else if (d.status === 'partial') {
-      await prisma.repOrderSend.updateMany({
+      const mark = () => prisma.repOrderSend.updateMany({
         where: { orderId: d.repOrderId, warehouseId: d.warehouseId, outcome: { in: ['sent', 'partial'] } },
         data: { outcome: 'partial', outcomeAt: new Date(), ...(d.invoiceImage ? { image: d.invoiceImage } : {}) },
       });
+      // لا سجل إرسال لهذا المذخر بعد ⇒ يُنشأ ثم يُعلَّم، وإلا ضاعت الفاتورة
+      if (!(await mark()).count) { await markRepOrderSent(d, d.warehouseId); await mark(); }
     }
   } catch (e) {
     console.error('[dispatch] مزامنة طلبية المذاخر:', e?.message);
