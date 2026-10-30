@@ -173,6 +173,7 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'currency_convert', label: 'تحويل العملة في التحليل',    icon: '💱', desc: 'تحويل أسعار الملفات من الدينار إلى الدولار عند التحليل — يُضبط لكل ملف على حدة', onlyRoles: REP_ROLES },
     { key: 'targets_tab',      label: 'التارگت الشهري',             icon: '🎯', desc: 'تبويب إدارة التارگت الشهري للمندوبين ومقارنته بالمبيعات' },
     { key: 'manual_sales_entry', label: 'إضافة مبيعات يدوياً',      icon: '🧾', desc: 'إضافة مبيعات فواتير المذاخر غير الموجودة في الملفات، من صورة الفاتورة أو يدوياً', onlyRoles: REP_ROLES },
+    { key: 'bot_invoice_condition', label: 'البوت ← ملف الكوديشن', icon: '📥', desc: 'طلبيات وفواتير هذا الحساب في البوت (تلكرام/فايبر/واتساب) تُقرأ وتدخل ملف الكوديشن كمبيعات بعد المراجعة. مطفأة = البوت يتجاهلها (إلا فواتير طلبيات المذاخر إن كانت مفعّلة)' },
     { key: 'bot_orders_review', label: 'مراجعة طلبيات البوت',       icon: '🤖', desc: 'طلبيات الصيدليات التي تصل عبر بوت تلكرام/فايبر (كلاماً أو صورة) — تُستخرَج بالذكاء الاصطناعي وتنتظر مراجعتك وتأكيدها قبل أن تُحفَظ كمبيعات' },
     { key: 'sci_exclude_pharmacy',   label: 'زر «بدون الفارمسي» 🏪',         icon: '🏪', desc: 'في تقرير العلميين: عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين' },
     { key: 'sci_exclude_commercial', label: 'زر «بدون التجاري» 💼',          icon: '💼', desc: 'في تقرير العلميين: عزل مبيعات وارجاعات المكتب المصنّفة «تجاري» في معلومات الزبون' },
@@ -181,6 +182,7 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'warehouse_gap_import', label: 'مبيعات مذاخر ناقصة من ميركاتو', icon: '📑', desc: 'تنزيل نموذج إكسل خاص بالشركات والايتمات والمندوبين، لتوثيق مبيعات مذاخر لم تظهر في ملف ميركاتو، ثم رفعها لتُحتسب ضمنه', onlyRoles: ['company_manager', 'team_leader', 'supervisor', 'product_manager', 'office_manager', 'commercial_supervisor', 'commercial_team_leader'] },
   ],
   'rep-orders': [
+    { key: 'bot_invoice_rep_orders', label: 'فواتير البوت ← طلبيات المذاخر', icon: '🧾', desc: 'صورة فاتورة يرسلها هذا الحساب للبوت تُطابق أولاً بطلبياته المفتوحة في «طلبيات المذاخر» (الصيدلية والأصناف والمذخر والتاريخ)؛ إن طابقت تُثبَّت عليها كتجهيز، وإلا تكمل لملف الكوديشن. «#16» مع الصورة يحدد الطلبية، و«مبيعات» يرسلها للكوديشن مباشرة' },
     { key: 'rep_orders_ai_read', label: 'قراءة الفاتورة بالذكاء', icon: '🤖', desc: 'عند مشاركة فاتورة المذخر للتطبيق: قراءتها بالذكاء الاصطناعي ومطابقتها بالطلبية وتعبئة الكميات المجهّزة، مع زر يطفئها المستخدم متى شاء. بدونها تُربط الصورة يدوياً بلا قراءة' },
   ],
   'reports': [
@@ -303,6 +305,7 @@ export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
   'rep_orders',
   'warehouse_dispatch',
   'rep_orders_ai_read',
+  'bot_invoice_rep_orders',
   // أزرار تقرير العلميين (2026-10-25)
   'sci_exclude_pharmacy',
   'sci_exclude_commercial',

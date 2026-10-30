@@ -13,6 +13,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
@@ -200,4 +201,75 @@ export async function applyInvoice(reqUser, id, body) {
     invoiceNumber: body?.invoiceNumber ?? null,
   });
   return { preparedImage: url, ...r };
+}
+
+// ─── فاتورة تصل للبوت من حساب مربوط (تلكرام/فايبر/واتساب) ───────────────────
+// (طلب صاحب المشروع 2026-10-31) صورة الفاتورة في البوت نوعان: تجهيز طلبية من
+// «طلبيات المذاخر» أو مبيعات/طلبية لملف الكوديشن. bot-order-flow يقرأها مرة واحدة
+// ثم يسأل هنا أولاً: طابقت طلبية مذاخر مفتوحة بثقة ⇒ تُثبَّت عليها، وإلا تكمل للكوديشن.
+
+/** أسطر extractInvoiceRows ← شكل الفاتورة الذي يفهمه scoreOrder. */
+function invoiceFromRows(rows) {
+  const head = rows.find(r => r.pharmacy) || rows[0] || {};
+  const num = rows.find(r => r.invoiceNumber)?.invoiceNumber;
+  return {
+    pharmacy: head.pharmacy || null,
+    warehouse: rows.find(r => r.warehouse)?.warehouse || null,
+    date: parseInvoiceDate(rows.find(r => r.date)?.date),
+    invoiceNumber: num ? String(num) : null,
+    items: rows.filter(r => r.item).map(r => ({ item: String(r.item), quantity: Math.round(Number(r.quantity) || 0), bonus: Math.round(Number(r.bonus) || 0) })),
+  };
+}
+
+/**
+ * أقرب طلبية مذاخر لم تكتمل (نطاق الحساب، آخر 30 يوماً) لفاتورة البوت.
+ * forcedOrderId = رقم الطلبية مكتوباً مع الصورة («#16») ⇒ تلك الطلبية بلا شرط ثقة.
+ * يعيد null إن لم تُطابق بثقة، أو لم يطابق أي صنف (لا نسجّل «رفضاً» بفاتورة لا تخصّها).
+ * @returns {Promise<{ order, byLine, inv, score } | null>}
+ */
+export async function matchBotInvoice(userId, rows, { forcedOrderId = null } = {}) {
+  const viewer = await loadViewer({ id: userId });
+  const inv = invoiceFromRows(rows);
+  if (!inv.items.length) return null;
+  const scope = await orderScopeWhere(viewer);
+  const since = new Date(Date.now() - LOOKBACK_DAYS * 86_400_000);
+  const orders = await prisma.repOrder.findMany({
+    where: forcedOrderId
+      ? { AND: [scope, { id: Number(forcedOrderId) }, { status: { not: 'cancelled' } }] }
+      : { AND: [scope, { orderDate: { gte: since } }, { status: 'pending' }] },
+    include: { lines: { orderBy: { id: 'asc' } } },
+    take: 1500,
+  });
+  const scored = orders.map(o => ({ order: o, inv, ...scoreOrder(o, inv) })).sort((a, b) => b.score - a.score);
+  const [best, second] = scored;
+  if (!best || !best.byLine.size) return null;
+  if (forcedOrderId) return best;
+  return best.score >= AUTO_MIN_SCORE && (!second || best.score - second.score >= AUTO_MIN_GAP) ? best : null;
+}
+
+/** يحفظ صورة فاتورة البوت ويسجّل تجهيزها على الطلبية المطابقة (نفس مسار رفعها من الصفحة). */
+export async function attachBotInvoice(userId, match, imageBuffer) {
+  const { order, byLine, inv } = match;
+  await fs.promises.mkdir(INVOICE_DIR, { recursive: true });
+  const name = `${crypto.randomBytes(16).toString('hex')}.jpg`;
+  await fs.promises.writeFile(path.join(INVOICE_DIR, name), imageBuffer);
+  const url = `/uploads/rep-orders/${name}`;
+
+  // المذخر: من اسمه في الفاتورة بين مذاخر الطلبية، وإلا آخر مذخر أُرسلت له (الافتراضي)
+  let warehouseId = null;
+  const whIds = [...new Set([order.lastSentWarehouseId, order.warehouseId, ...order.backupWarehouseIds].filter(Boolean))];
+  if (inv.warehouse && whIds.length) {
+    const whs = await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true } });
+    const hit = whs.map(w => ({ w, s: placeSim(w.name, inv.warehouse) })).sort((a, b) => b.s - a.s)[0];
+    if (hit && hit.s >= 0.75) warehouseId = hit.w.id;
+  }
+
+  const lines = order.lines.map((l, i) => {
+    const it = byLine.has(i) ? inv.items[byLine.get(i).j] : null;
+    return { lineId: l.id, preparedQty: it ? it.quantity : 0, preparedBonus: it ? it.bonus : 0 };
+  });
+  const r = await recordPreparation({ id: userId }, order.id, { warehouseId, lines, image: url, invoiceNumber: inv.invoiceNumber });
+  const wh = warehouseId ?? order.lastSentWarehouseId ?? order.warehouseId;
+  const whName = wh ? (await prisma.orderWarehouse.findUnique({ where: { id: wh }, select: { name: true } }))?.name : order.warehouseName;
+  return { ...r, image: url, warehouseName: whName ?? order.warehouseName, matchedLines: byLine.size, totalLines: order.lines.length };
 }

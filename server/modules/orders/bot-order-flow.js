@@ -25,6 +25,22 @@ import { checkManualDuplicates, duplicateWarningText } from '../../lib/manualDup
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
 import { ingestPersonalSalesFromBot } from '../province-teams/personal-sales.service.js';
 import { renderOrderTablePng, paginateOrderRows } from './order-table-image.js';
+import { matchBotInvoice, attachBotInvoice } from '../rep-orders/rep-orders.invoice.js';
+import { userFeatureOn } from '../../lib/userFeatures.js';
+
+// نوعا ما يصل للبوت (طلب صاحب المشروع 2026-10-31)، لكلٍّ مفتاح في «المميزات» لكل حساب:
+//  • BOT_TO_CONDITION — طلبيات/فواتير البوت ← ملف الكوديشن (مفعّلة افتراضياً، السلوك القديم).
+//  • BOT_TO_REP_ORDERS — صورة فاتورة تطابق طلبية من «طلبيات المذاخر» ← تُثبَّت عليها (اشتراك).
+// الترتيب: المطابقة أولاً، وما لا يطابق يكمل للكوديشن.
+const BOT_TO_CONDITION = 'bot_invoice_condition';
+const BOT_TO_REP_ORDERS = 'bot_invoice_rep_orders';
+// كلمة مع الصورة تحسم النوع: «مبيعات/كوديشن» ⇒ كوديشن بلا مطابقة؛ «#16» أو «تجهيز 16» ⇒ تلك الطلبية
+const FORCE_SALE_RE = /مبيعات|مبيع|كوديشن|كونديشن/;
+const repOrderIdIn = (text) => {
+  const t = String(text ?? '').replace(/[٠-٩]/g, c => String(c.charCodeAt(0) - 0x0660));
+  const m = t.match(/#\s*(\d{1,7})(?!\d)/) || t.match(/تجهيز\s*#?\s*(\d{1,7})(?!\d)/);
+  return m ? Number(m[1]) : null;
+};
 
 /** يردّ بتعديل رسالة «⏳» حيث تدعم المنصة ذلك، وإلا برسالة جديدة (فايبر). */
 async function reply(transport, ctx, text) {
@@ -61,6 +77,11 @@ export async function handleIncomingOrderMessage({
 }) {
   const hasMedia = mediaRefs.length > 0;
   if (!isOrderTrigger(text, link?.orderTextMode, { isReplyToBot, hasMedia })) return false;
+  const toCondition = userFeatureOn(user, BOT_TO_CONDITION);
+  const toRepOrders = hasMedia && mediaRefs.length === 1 && !FORCE_SALE_RE.test(String(text ?? ''))
+    && userFeatureOn(user, BOT_TO_REP_ORDERS, { optIn: true });
+  // لا مسار مفعّل لهذه الرسالة ⇒ ليست لنا (ولا نصرف قراءة ذكاء عليها)
+  if (!toCondition && !toRepOrders) return false;
 
   // نيّة صريحة (كلمة «طلبية» أو ردّ على البوت) مقابل رسالة التقطها وضع «كل
   // الرسائل». الفرق يحكم مدى ثرثرة البوت:
@@ -135,6 +156,36 @@ export async function handleIncomingOrderMessage({
           + 'صيدلية النور - الكرخ\nبانادول 5 علبة');
       }
       return true;
+    }
+
+    // فاتورة تجهيز لطلبية مذاخر؟ (الصورة قُرئت أعلاه مرة واحدة لكلا المسارين)
+    if (toRepOrders && imageBuffers.length === 1) {
+      const forcedOrderId = repOrderIdIn(text);
+      let match = null;
+      try {
+        match = await matchBotInvoice(user.id, rows, { forcedOrderId });
+      } catch (e) {
+        console.error('[orders] مطابقة فاتورة البوت بطلبيات المذاخر:', e?.message);
+      }
+      if (match) {
+        const r = await attachBotInvoice(user.id, match, imageBuffers[0]);
+        const o = match.order;
+        await reply(transport, ctx,
+          `🧾 فاتورة تجهيز — ثُبّتت على طلبية المذاخر #${o.id}`
+          + `${o.pharmacyName ? ` (${o.pharmacyName})` : ''} عند ${r.warehouseName || 'المذخر'}`
+          + `\nطابقت ${r.matchedLines}/${r.totalLines} صنف — ${r.complete ? '✅ الطلبية مكتملة التجهيز' : r.outcome === 'partial' ? '⚠️ تجهيز جزئي' : 'سُجّل التجهيز'}`
+          + `\nإن كانت مبيعات لا تجهيزاً: أعد إرسالها واكتب معها «مبيعات».`);
+        return true;
+      }
+      if (forcedOrderId) {
+        await reply(transport, ctx, `⚠️ لم أجد أصناف طلبية المذاخر #${forcedOrderId} في هذه الفاتورة (أو الطلبية ليست ضمن طلبياتك). ثبّتها من صفحة «طلبيات المذاخر».`);
+        return true;
+      }
+      if (!toCondition) {
+        await reply(transport, ctx, '⚠️ لم تطابق الفاتورة أي طلبية مذاخر مفتوحة. أعد إرسالها مع رقم الطلبية (مثل «#16»)، أو ثبّتها من صفحة «طلبيات المذاخر».');
+        return true;
+      }
+      // لم تطابق ⇒ مبيعات للكوديشن كالمعتاد
     }
 
     const msg = await ingestBotOrder({
