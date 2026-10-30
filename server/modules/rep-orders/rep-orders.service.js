@@ -169,6 +169,24 @@ export async function deleteWarehouse(reqUser, id) {
 /**
  * @param {{from?:string, to?:string, status?:string, warehouseId?:string, repUserId?:string, invoice?:'yes'|'no'}} q
  */
+// ─── ترقيم مستقل لكل مذخر ─────────────────────────────────────────────────────
+// المذخر يرى طلبياته مرقّمة 1، 2، 3… حسب ما وصله هو، لا حسب id الطلبية في التطبيق.
+// الرقم يُحفظ على RepOrderSend.whSeq عند أول إرسال للطلبية لذلك المذخر، ويُعاد
+// استعماله لأي إرسال لاحق لنفس المذخر.
+
+/** آخر رقم مستعمل لكل مذخر: Map(warehouseId → max whSeq) */
+async function maxWhSeqs(db, whIds) {
+  const ids = [...new Set(whIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+  const rows = await db.repOrderSend.groupBy({ by: ['warehouseId'], where: { warehouseId: { in: ids }, whSeq: { not: null } }, _max: { whSeq: true } });
+  return new Map(rows.map(r => [r.warehouseId, r._max.whSeq ?? 0]));
+}
+
+/** قفل قصير يمنع إرسالين متزامنين لنفس المذخر من أخذ نفس الرقم (Postgres فقط) */
+async function lockWhSeq(tx) {
+  try { await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(4711001)`); } catch { /* غير Postgres */ }
+}
+
 export async function listOrders(reqUser, q = {}) {
   const viewer = await loadViewer(reqUser);
   const and = [await orderScopeWhere(viewer)];
@@ -195,6 +213,9 @@ export async function listOrders(reqUser, q = {}) {
   const whIds = [...new Set(rows.flatMap(r => [...r.backupWarehouseIds, r.lastSentWarehouseId]).filter(Boolean))];
   const whRows = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true, phone: true, groupLink: true } }) : [];
   const whById = new Map(whRows.map(w => [w.id, w]));
+  // الرقم التالي عند كل مذخر — الواجهة تكتبه في نص الإرسال قبل markSent (الذي يحفظه)
+  const seqMax = await maxWhSeqs(prisma, rows.flatMap(r => [r.warehouseId, ...r.backupWarehouseIds]));
+  const whNextSeq = Object.fromEntries([...new Set(rows.flatMap(r => [r.warehouseId, ...r.backupWarehouseIds]).filter(Boolean))].map(id => [id, (seqMax.get(id) ?? 0) + 1]));
 
   // سطور قديمة بلا سعر محفوظ ← سعر الكتالوج الحالي
   const priceItemIds = [...new Set(rows.flatMap(r => r.lines.filter(l => l.unitPrice == null && l.itemId).map(l => l.itemId)))];
@@ -219,6 +240,7 @@ export async function listOrders(reqUser, q = {}) {
   return {
     viewer: { id: viewer.id, name: userName(viewer), isManager: !isFieldRole(viewer.role) },
     reps,
+    whNextSeq,
     orders: rows.map(r => ({
       id: r.id,
       orderDate: r.orderDate,
@@ -247,7 +269,7 @@ export async function listOrders(reqUser, q = {}) {
       createdAt: r.createdAt,
       lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty, preparedQty: l.preparedQty, preparedBonus: l.preparedBonus, unitPrice: l.unitPrice ?? (l.itemId ? catalogPrice.get(l.itemId) ?? null : null) })),
       // سجل الإرسال للمذاخر بالترتيب ونتيجة كل مذخر
-      sends: r.sends.map(s => ({ id: s.id, warehouseId: s.warehouseId, warehouseName: s.warehouseName, sentAt: s.sentAt, outcome: s.outcome, outcomeAt: s.outcomeAt, image: s.image, lines: Array.isArray(s.lines) ? s.lines : [] })),
+      sends: r.sends.map(s => ({ id: s.id, warehouseId: s.warehouseId, warehouseName: s.warehouseName, sentAt: s.sentAt, outcome: s.outcome, outcomeAt: s.outcomeAt, image: s.image, whSeq: s.whSeq, lines: Array.isArray(s.lines) ? s.lines : [] })),
       canEdit: canEditContent(viewer, r),
     })),
   };
@@ -414,8 +436,10 @@ export async function recordPreparation(viewer, orderId, input = {}) {
       send = await tx.repOrderSend.update({ where: { id: send.id }, data });
     } else {
       const w = whId ? await tx.orderWarehouse.findUnique({ where: { id: whId }, select: { name: true } }) : null;
+      let whSeq = null;
+      if (whId) { await lockWhSeq(tx); whSeq = ((await maxWhSeqs(tx, [whId])).get(whId) ?? 0) + 1; }
       send = await tx.repOrderSend.create({
-        data: { orderId: order.id, warehouseId: whId ?? null, warehouseName: w?.name ?? order.warehouseName, sentAt: order.sentAt ?? now, sentById: viewer.id, ...data },
+        data: { orderId: order.id, warehouseId: whId ?? null, warehouseName: w?.name ?? order.warehouseName, sentAt: order.sentAt ?? now, sentById: viewer.id, whSeq, ...data },
       });
     }
 
@@ -474,25 +498,31 @@ export async function markSent(reqUser, ids, warehouseId = null) {
   if (!list.length) return { updated: 0 };
   const orders = await prisma.repOrder.findMany({
     where: { AND: [{ id: { in: list } }, await orderScopeWhere(viewer)] },
-    select: { id: true, warehouseId: true, warehouseName: true, sends: { orderBy: { id: 'desc' }, take: 1 } },
+    select: { id: true, warehouseId: true, warehouseName: true, sends: { orderBy: { id: 'desc' }, select: { id: true, warehouseId: true, outcome: true, whSeq: true } } },
   });
   if (!orders.length) return { updated: 0 };
+  orders.sort((a, b) => list.indexOf(a.id) - list.indexOf(b.id));
   const whId = warehouseId ? Number(warehouseId) : null;
   const w = whId ? await prisma.orderWarehouse.findUnique({ where: { id: whId }, select: { name: true } }) : null;
   const now = new Date();
-  await prisma.$transaction([
-    prisma.repOrder.updateMany({
+  await prisma.$transaction(async (tx) => {
+    await tx.repOrder.updateMany({
       where: { id: { in: orders.map(o => o.id) } },
       data: { sentAt: now, sentCount: { increment: 1 }, ...(whId ? { lastSentWarehouseId: whId } : {}) },
-    }),
-    ...orders.map(o => {
+    });
+    await lockWhSeq(tx);
+    const next = await maxWhSeqs(tx, orders.map(o => whId ?? o.warehouseId));
+    for (const o of orders) {
       const target = whId ?? o.warehouseId;
       const last = o.sends[0];
+      // رقمها عند هذا المذخر إن وصلته سابقاً، وإلا الرقم التالي عنده
+      let whSeq = o.sends.find(s => s.warehouseId === target && s.whSeq != null)?.whSeq ?? null;
+      if (whSeq == null && target) { whSeq = (next.get(target) ?? 0) + 1; next.set(target, whSeq); }
       // إعادة إرسال لنفس المذخر وهو لم يرد بعد ← نفس السجل
-      if (last && last.outcome === 'sent' && last.warehouseId === target) return prisma.repOrderSend.update({ where: { id: last.id }, data: { sentAt: now } });
-      return prisma.repOrderSend.create({ data: { orderId: o.id, warehouseId: target, warehouseName: w?.name ?? o.warehouseName, sentAt: now, sentById: viewer.id } });
-    }),
-  ]);
+      if (last && last.outcome === 'sent' && last.warehouseId === target) await tx.repOrderSend.update({ where: { id: last.id }, data: { sentAt: now, whSeq } });
+      else await tx.repOrderSend.create({ data: { orderId: o.id, warehouseId: target, warehouseName: w?.name ?? o.warehouseName, sentAt: now, sentById: viewer.id, whSeq } });
+    }
+  });
   return { updated: orders.length };
 }
 
@@ -558,6 +588,43 @@ export async function suggestions(reqUser) {
   const pharmacies = new Map();
   for (const r of rows) if (!pharmacies.has(r.pharmacyName)) pharmacies.set(r.pharmacyName, r.areaName);
   return { pharmacies: [...pharmacies].map(([name, areaName]) => ({ name, areaName })) };
+}
+
+/**
+ * إرسالات بلا whSeq (قبل الترقيم المستقل) ← رقم لكل (مذخر، طلبية) حسب أول وصول للطلبية
+ * لذلك المذخر، بعد آخر رقم مستعمل عنده. idempotent — يُستدعى عند الإقلاع.
+ */
+export async function backfillWarehouseSeqs() {
+  try {
+    const rows = await prisma.repOrderSend.findMany({
+      where: { whSeq: null, warehouseId: { not: null } },
+      orderBy: [{ sentAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, orderId: true, warehouseId: true },
+      take: 20000,
+    });
+    if (!rows.length) return 0;
+    const max = await maxWhSeqs(prisma, rows.map(r => r.warehouseId));
+    // طلبية سبق أن أخذت رقماً عند المذخر ← نفس الرقم
+    const known = await prisma.repOrderSend.findMany({
+      where: { whSeq: { not: null }, warehouseId: { in: [...new Set(rows.map(r => r.warehouseId))] } },
+      select: { orderId: true, warehouseId: true, whSeq: true },
+    });
+    const seqOf = new Map(known.map(k => [`${k.warehouseId}:${k.orderId}`, k.whSeq]));
+    const bySeq = new Map();
+    for (const r of rows) {
+      const key = `${r.warehouseId}:${r.orderId}`;
+      if (!seqOf.has(key)) { const n = (max.get(r.warehouseId) ?? 0) + 1; max.set(r.warehouseId, n); seqOf.set(key, n); }
+      const n = seqOf.get(key);
+      if (!bySeq.has(n)) bySeq.set(n, []);
+      bySeq.get(n).push(r.id);
+    }
+    for (const [n, ids] of bySeq) await prisma.repOrderSend.updateMany({ where: { id: { in: ids } }, data: { whSeq: n } });
+    console.log(`✓ rep-orders: ترقيم المذاخر لـ ${rows.length} إرسال قديم`);
+    return rows.length;
+  } catch (e) {
+    console.error('[rep-orders] backfillWarehouseSeqs:', e.message);
+    return 0;
+  }
 }
 
 /**

@@ -20,7 +20,7 @@ interface OrderLine { id?: number; itemId: number | null; itemName: string; comp
 interface OrderWh { id: number | null; name: string; phone: string | null; groupLink?: string | null }
 type SendOutcome = 'sent' | 'prepared' | 'partial' | 'rejected';
 interface SendLine { lineId: number; itemName: string; qty: number; bonus: number }
-interface OrderSend { id: number; warehouseId: number | null; warehouseName: string; sentAt: string; outcome: SendOutcome; outcomeAt: string | null; image: string | null; lines: SendLine[] }
+interface OrderSend { id: number; warehouseId: number | null; warehouseName: string; sentAt: string; outcome: SendOutcome; outcomeAt: string | null; image: string | null; whSeq?: number | null; lines: SendLine[] }
 interface Order {
   id: number; orderDate: string; createdById: number; repName: string;
   warehouseId: number | null; warehouseName: string; warehousePhone: string | null;
@@ -109,25 +109,22 @@ const nextWh = (o: Order): OrderWh => {
   return o.warehouses[i + 1] ?? o.warehouses[Math.max(0, i)];
 };
 
-function orderText(o: Order, withHeader = true, whName = currentWh(o).name): string {
+/** رقم الطلبية عند مذخر: ترقيم مستقل لكل مذخر (whSeq) — وإلا id الطلبية */
+const whSeqOf = (o: Order, whId: number | null) => o.sends.find(sd => sd.warehouseId === whId && sd.whSeq != null)?.whSeq ?? null;
+
+// ما يصل المذخر: رقمها عنده + الصيدلية والمنطقة + المتبقي من الأصناف. بلا مندوب/مذخر/
+// تاريخ/ملاحظات/صورة ختم (صورة الختم مؤجّلة — تُعاد هنا إن طُلبت).
+function orderText(o: Order, no: number, withHeader = true): string {
   const out: string[] = [];
-  if (withHeader) out.push(`*طلبية رقم ${o.id}*`);
-  out.push(`التاريخ: ${fmtDay(o.orderDate)}`);
-  out.push(`المندوب: ${o.repName}`);
+  if (withHeader) out.push(`*طلبية رقم ${no}*`);
   out.push(`الصيدلية: ${o.pharmacyName}`);
   if (o.areaName) out.push(`المنطقة: ${o.areaName}`);
-  out.push(`المذخر: ${whName}`);
-  // جُهّز جزء من مذخر سابق ← يُرسل المتبقي فقط
-  const partial = o.lines.some(l => (l.preparedQty ?? 0) > 0);
-  if (partial) out.push('(المتبقي من الطلبية فقط)');
   out.push('──────────');
   o.lines.filter(l => remainingOf(l) > 0).forEach((l, i) => {
     const b = Math.max(0, l.bonusQty - (l.preparedBonus ?? 0));
     const bonus = b ? ` + بونص ${b}` : '';
     out.push(`${i + 1}) ${l.itemName}${l.companyName ? ` (${l.companyName})` : ''} — الكمية: ${remainingOf(l)}${bonus}`);
   });
-  if (o.notes) out.push(`ملاحظات: ${o.notes}`);
-  if (o.invoiceImage) out.push(`صورة ختم الصيدلية: ${window.location.origin}${o.invoiceImage}`);
   return out.join('\n');
 }
 
@@ -156,9 +153,9 @@ function ChannelIcon({ ch, size = 16 }: { ch: Channel; size?: number }) {
 }
 
 /** نص رسالة المذخر: طلبية واحدة أو عدة طلبيات في رسالة واحدة. */
-const ordersText = (list: Order[], whName: string) => (list.length === 1
-  ? orderText(list[0], true, whName)
-  : [`*${list.length} طلبيات — ${whName}*`, ...list.map(o => `\n*طلبية رقم ${o.id}*\n${orderText(o, false, whName)}`)].join('\n'));
+const ordersText = (list: Order[], nos: number[]) => (list.length === 1
+  ? orderText(list[0], nos[0])
+  : [`*${list.length} طلبيات*`, ...list.map((o, i) => `\n*طلبية رقم ${nos[i]}*\n${orderText(o, nos[i], false)}`)].join('\n'));
 
 // نسخ متزامن داخل ضغطة الزر (قبل فتح واتساب) — execCommand يعمل حتى حيث لا تتوفر clipboard API
 function copyText(text: string) {
@@ -298,6 +295,7 @@ export default function RepOrdersPage() {
   const [query, setQuery] = useState('');
 
   const [orders, setOrders] = useState<Order[]>([]);
+  const [whNextSeq, setWhNextSeq] = useState<Record<number, number>>({});
   const [isManager, setIsManager] = useState(false);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -320,8 +318,8 @@ export default function RepOrdersPage() {
     if (from) q.set('from', from);
     if (to) q.set('to', to);
     try {
-      const r = await api<{ orders: Order[]; viewer: { isManager: boolean } }>(`?${q}`);
-      setOrders(r.orders); setIsManager(r.viewer.isManager);
+      const r = await api<{ orders: Order[]; viewer: { isManager: boolean }; whNextSeq?: Record<number, number> }>(`?${q}`);
+      setOrders(r.orders); setIsManager(r.viewer.isManager); setWhNextSeq(r.whNextSeq ?? {});
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
   }, [token, api, from, to]);
 
@@ -438,7 +436,9 @@ export default function RepOrdersPage() {
   const beginSend = (list: Order[], wh: OrderWh, deferred = false): { go: () => void; cancel: () => void } => {
     const none = () => {};
     if (canBotSend && viaBot && wh?.id != null) return { go: () => { sendViaBot(list, wh); }, cancel: none };
-    const text = ordersText(list, wh.name);
+    let next = wh.id != null ? whNextSeq[wh.id] ?? 1 : 1;
+    const nos = list.map(o => (wh.id == null ? o.id : whSeqOf(o, wh.id) ?? next++));
+    const text = ordersText(list, nos);
     const ch = channelOf(wh);
     const opener = (url: string) => {
       const w = deferred ? window.open('about:blank', '_blank') : null;
@@ -468,7 +468,8 @@ export default function RepOrdersPage() {
   // قائمة المشاركة في الموبايل (واتساب ← أي كروب أو محادثة والنص جاهز).
   // تُعلَّم مُرسلة فقط إن اختار المندوب وجهة؛ الإلغاء لا يغيّر شيئاً.
   const shareOrders = (list: Order[], wh: OrderWh) => {
-    const text = ordersText(list, wh.name);
+    let next = wh.id != null ? whNextSeq[wh.id] ?? 1 : 1;
+    const text = ordersText(list, list.map(o => (wh.id == null ? o.id : whSeqOf(o, wh.id) ?? next++)));
     if (typeof navigator.share === 'function') {
       navigator.share({ text }).then(() => markSent(list, wh)).catch(() => {});
       return;
@@ -959,6 +960,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                         <button type="button" className="ro-whp__head" onClick={() => setSel(isSel ? -1 : i)} aria-expanded={isSel}>
                           <span className={`ro-whp__rank ${i === 0 ? 'is-main' : ''}`}>{i === 0 ? 'أساسي' : `احتياط ${i}`}</span>
                           <span className="ro-whp__name">{m && <i className={`ro-dot ro-dot--${m}`} />}{w.name}<ChannelIcon ch={ch} size={13} /></span>
+                          {whSeqOf(o, w.id) != null && <span className="ro-whp__meta" title="رقم الطلبية عند هذا المذخر">رقم {whSeqOf(o, w.id)}</span>}
                           {ws.items.length > 0 && <span className="ro-whp__meta">{ws.items.length}/{o.lines.length} صنف</span>}
                           <span className={`ro-sendmark ro-sendmark--${m ?? 'none'}`}>{m ? SEND_LABEL[m] : legacySent ? 'أُرسلت' : 'لم تُرسل'}</span>
                           <ChevronDown size={14} className="ro-whp__chev" />
@@ -1060,39 +1062,105 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
 // يُفتح عند رفع فاتورة المذخر أو «تسجيل التجهيز». المطلوب من المذخر = ما لم تجهّزه
 // المذاخر السابقة؛ الناقص يبقى ويُرسل للمذخر التالي بزر «إرسال المتبقي».
 
-// صورة قابلة للتكبير: أزرار + / −، قرص بإصبعين على الهاتف، ونقرتان للتبديل. التحريك
-// داخل الإطار بالتمرير العادي. direction:ltr كي تكون حسابات scrollLeft واحدة.
+// صورة قابلة للتكبير: قرص بإصبعين (التكبير حول منتصف الإصبعين ويتبعهما)، سحب بإصبع
+// عند التكبير، نقرتان، عجلة الماوس حول المؤشر، وأزرار + / −. كل شيء transform على
+// صندوق بحجم الصورة «المحتواة» داخل الإطار: النقطة تحت الإصبع تبقى تحته.
 function ZoomImage({ src, onError, children }: { src: string; onError?: () => void; children?: React.ReactNode }) {
-  const [z, setZ] = useState(1);
   const frame = useRef<HTMLDivElement>(null);
-  const pinch = useRef<{ d: number; z: number } | null>(null);
-  useEffect(() => { setZ(1); }, [src]);
-  const apply = (target: number) => {
-    const nz = Math.round(Math.min(5, Math.max(1, target)) * 100) / 100;
-    const f = frame.current;
-    if (f && f.scrollWidth) {
-      // يبقى مركز النظر ثابتاً أثناء التكبير
-      const cx = (f.scrollLeft + f.clientWidth / 2) / f.scrollWidth;
-      const cy = (f.scrollTop + f.clientHeight / 2) / f.scrollHeight;
-      requestAnimationFrame(() => { f.scrollLeft = cx * f.scrollWidth - f.clientWidth / 2; f.scrollTop = cy * f.scrollHeight - f.clientHeight / 2; });
-    }
-    setZ(nz);
+  const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  const [t, setT] = useState({ s: 1, x: 0, y: 0 });
+  const tr = useRef(t); tr.current = t;
+  const ptrs = useRef(new Map<number, { x: number; y: number }>());
+  const gest = useRef<{ s: number; x: number; y: number; mx: number; my: number; d: number } | null>(null);
+  const lastTap = useRef(0);
+
+  useEffect(() => {
+    const f = frame.current; if (!f) return;
+    const ro = new ResizeObserver(() => setBox({ w: f.clientWidth, h: f.clientHeight }));
+    ro.observe(f);
+    return () => ro.disconnect();
+  }, []);
+  // حجم الصورة عند التكبير 1 = «contain» داخل الإطار
+  const fit = nat && box.w ? Math.min(box.w / nat.w, box.h / nat.h) : 0;
+  const bw = nat ? nat.w * fit : 0, bh = nat ? nat.h * fit : 0;
+  const clamp = (s: number, x: number, y: number) => {
+    const w = bw * s, h = bh * s;
+    return {
+      s,
+      x: w <= box.w ? (box.w - w) / 2 : Math.min(0, Math.max(box.w - w, x)),
+      y: h <= box.h ? (box.h - h) / 2 : Math.min(0, Math.max(box.h - h, y)),
+    };
   };
-  const dist = (t: React.TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  useEffect(() => { setT(clamp(1, 0, 0)); }, [src, bw, bh, box.w, box.h]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** تكبير إلى ns حول نقطة (fx, fy) من الإطار */
+  const zoomAt = (ns: number, fx: number, fy: number, base = tr.current) => {
+    const s = Math.min(6, Math.max(1, ns));
+    const px = (fx - base.x) / base.s, py = (fy - base.y) / base.s;
+    setT(clamp(s, fx - px * s, fy - py * s));
+  };
+  const local = (e: { clientX: number; clientY: number }) => {
+    const r = frame.current!.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const startGesture = () => {
+    const pts = [...ptrs.current.values()];
+    const m = pts.length > 1 ? { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 } : pts[0];
+    const d = pts.length > 1 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0;
+    gest.current = m ? { ...tr.current, mx: m.x, my: m.y, d } : null;
+  };
+  const onDown = (e: React.PointerEvent) => {
+    try { frame.current!.setPointerCapture(e.pointerId); } catch { /* مؤشر غير نشط */ }
+    ptrs.current.set(e.pointerId, local(e));
+    startGesture();
+    if (ptrs.current.size === 1) {
+      const now = Date.now();
+      if (now - lastTap.current < 300) { const p = local(e); zoomAt(tr.current.s > 1 ? 1 : 2.5, p.x, p.y); lastTap.current = 0; }
+      else lastTap.current = now;
+    }
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (!ptrs.current.has(e.pointerId)) return;
+    ptrs.current.set(e.pointerId, local(e));
+    const g = gest.current; if (!g) return;
+    const pts = [...ptrs.current.values()];
+    if (pts.length > 1 && g.d) {
+      // النقطة التي كانت تحت منتصف الإصبعين عند البدء تبقى تحت منتصفهما الآن
+      const mx = (pts[0].x + pts[1].x) / 2, my = (pts[0].y + pts[1].y) / 2;
+      const s = Math.min(6, Math.max(1, g.s * Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) / g.d));
+      const px = (g.mx - g.x) / g.s, py = (g.my - g.y) / g.s;
+      setT(clamp(s, mx - px * s, my - py * s));
+    } else if (pts.length === 1 && g.s > 1) {
+      setT(clamp(g.s, g.x + pts[0].x - g.mx, g.y + pts[0].y - g.my));
+    }
+  };
+  const onUp = (e: React.PointerEvent) => { ptrs.current.delete(e.pointerId); startGesture(); };
+
+  // عجلة الماوس: تكبير حول المؤشر (مستمع غير passive كي لا تتمرّر النافذة)
+  useEffect(() => {
+    const f = frame.current; if (!f) return;
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const r = f.getBoundingClientRect();
+      zoomAt(tr.current.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
+    };
+    f.addEventListener('wheel', wheel, { passive: false });
+    return () => f.removeEventListener('wheel', wheel);
+  });
+
   return (
-    <div className={`ro-pv ${z > 1 ? 'is-zoom' : ''}`}>
-      <div ref={frame} className="ro-pv__frame"
-        onDoubleClick={() => apply(z > 1 ? 1 : 2.5)}
-        onTouchStart={e => { if (e.touches.length === 2) pinch.current = { d: dist(e.touches), z }; }}
-        onTouchMove={e => { if (e.touches.length === 2 && pinch.current) apply(pinch.current.z * dist(e.touches) / pinch.current.d); }}
-        onTouchEnd={e => { if (e.touches.length < 2) pinch.current = null; }}>
-        <img src={src} alt="القائمة" onError={onError} style={z > 1 ? { width: `${z * 100}%` } : undefined} draggable={false} />
+    <div className={`ro-pv ${t.s > 1 ? 'is-zoom' : ''}`}>
+      <div ref={frame} className="ro-pv__frame" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+        <img src={src} alt="القائمة" onError={onError} draggable={false}
+          onLoad={e => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          style={{ width: bw || undefined, height: bh || undefined, transform: `translate(${t.x}px, ${t.y}px) scale(${t.s})`, visibility: bw ? 'visible' : 'hidden' }} />
       </div>
       <div className="ro-pv__bar">
         {children}
-        <button className="ro-pv__btn" title="تصغير" disabled={z <= 1} onClick={() => apply(z - 0.5)}><Minus size={15} /></button>
-        <button className="ro-pv__zoom" title="إرجاع الحجم" onClick={() => apply(1)}>{Math.round(z * 100)}%</button>
-        <button className="ro-pv__btn" title="تكبير" disabled={z >= 5} onClick={() => apply(z + 0.5)}><ZoomIn size={15} /></button>
+        <button className="ro-pv__btn" title="تصغير" disabled={t.s <= 1} onClick={() => zoomAt(t.s / 1.5, box.w / 2, box.h / 2)}><Minus size={15} /></button>
+        <button className="ro-pv__zoom" title="إرجاع الحجم" onClick={() => setT(clamp(1, 0, 0))}>{Math.round(t.s * 100)}%</button>
+        <button className="ro-pv__btn" title="تكبير" disabled={t.s >= 6} onClick={() => zoomAt(t.s * 1.5, box.w / 2, box.h / 2)}><ZoomIn size={15} /></button>
       </div>
     </div>
   );

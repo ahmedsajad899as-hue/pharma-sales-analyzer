@@ -3419,9 +3419,11 @@ model RepOrderSend {
   outcomeById   Int?
   image         String? // فاتورة هذا المذخر
   lines         Json?
+  whSeq         Int? // رقم الطلبية عند هذا المذخر (ترقيم مستقل لكل مذخر) — نفسه لكل إرسالات الطلبية لنفس المذخر
 
   order RepOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+  @@index([warehouseId, whSeq])
   @@map("rep_order_sends")
 }

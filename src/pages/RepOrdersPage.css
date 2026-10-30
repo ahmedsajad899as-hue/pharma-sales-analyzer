@@ -625,3 +625,7 @@ button.ro-prep { cursor: pointer; }
 @media (max-width: 720px) {
   .ro-send-next { order: -1; flex: 1 1 100%; }
 }
+
+/* تكبير بنقطة ارتكاز (ZoomImage): الصورة بحجمها «المحتوى» تتحرك بـ transform داخل إطار ثابت */
+.ro-pv__frame, .ro-pv.is-zoom .ro-pv__frame { position: relative; display: block; overflow: hidden; touch-action: none; direction: ltr; cursor: grab; user-select: none; -webkit-user-select: none; }
+.ro-pv__frame img, .ro-pv.is-zoom .ro-pv__frame img { position: absolute; left: 0; top: 0; max-width: none; max-height: none; transform-origin: 0 0; will-change: transform; }
