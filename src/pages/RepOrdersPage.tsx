@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Package } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Info, Store, Hash, CircleDot, Pill } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -211,8 +211,6 @@ const VIEW_LABEL: Record<View, string> = { all: 'الكل', ...STATE_LABEL };
 const inView = (o: Order, v: View) => v === 'all' || stateOf(o) === v;
 const VIEW_ICON: Record<View, typeof LayoutList> = { all: LayoutList, new: Sparkles, following: Clock, prepared: CircleCheck, cancelled: Ban };
 const PERIOD_LABEL: Record<Period, string> = { all: 'كل التواريخ', today: 'اليوم', yesterday: 'أمس', week: 'آخر 7 أيام', month: 'هذا الشهر', custom: 'تاريخ محدد' };
-// الحرف الأول للاسم (أو حرفان للمندوب) للشارة الدائرية
-const initials = (name: string, n = 1) => String(name ?? '').trim().split(/\s+/).filter(Boolean).slice(0, n).map(w => w[0]).join('').toUpperCase() || '؟';
 const dayTitle = (iso: string) => (iso === today() ? 'اليوم' : iso === shiftDay(-1) ? 'أمس' : null);
 
 // عدّاد يصعد للرقم الجديد بنعومة
@@ -258,7 +256,17 @@ const searchTextOf = (o: Order) => normSearch([
   ...o.lines.flatMap(l => [l.itemName, l.companyName]),
 ].filter(Boolean).join(' '));
 
-const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString('ar-IQ', { dateStyle: 'short', timeStyle: 'short' }) : '');
+// تاريخ مختصر «شهر-يوم» (10-8) بلا وقت؛ السنة فقط إن لم تكن السنة الحالية
+const shortOf = (y: number, m: number, d: number) => (y === new Date().getFullYear() ? `${m}-${d}` : `${y}-${m}-${d}`);
+const fmtShortDay = (iso: string | null | undefined) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso ?? ''));
+  return m ? shortOf(+m[1], +m[2], +m[3]) : '';
+};
+const fmtShort = (iso: string | null | undefined) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(+d) ? fmtShortDay(iso) : shortOf(d.getFullYear(), d.getMonth() + 1, d.getDate());
+};
 
 export default function RepOrdersPage() {
   const { token, hasFeature } = useAuth();
@@ -636,7 +644,7 @@ export default function RepOrdersPage() {
                           <div className="ro-group-row__inner">
                             <span className="ro-group-row__icon"><GroupIcon size={14} /></span>
                             {friendly && <strong>{friendly}</strong>}
-                            <span className={friendly ? 'ro-muted' : 'ro-strong'}>{g.title}</span>
+                            <span className={friendly ? 'ro-muted' : 'ro-strong'}>{groupBy === 'date' ? fmtShortDay(g.title) : g.title}</span>
                             <span className="ro-group-row__count">{g.orders.length} طلبية</span>
                             <span className="ro-spacer" />
                             {(groupWh?.phone || groupWh?.groupLink) && fresh.length > 1 && (
@@ -752,31 +760,6 @@ function GroupMenu({ groupBy, isManager, options, filter, onGroup, onPick }: {
   );
 }
 
-// ─── قسم مطويّ: يُفتح بالضغط، أو بإبقاء الماوس فوقه hoverDelay ملّي ثانية ───────
-// التأخير يمنع انفتاح الأقسام كلما مرّ الماوس فوقها عابراً. على اللمس لا hover،
-// فالضغط وحده يفتح.
-
-const canHover = () => typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches;
-
-function Fold({ title, summary, hoverDelay = 0, children }: { title: string; summary?: React.ReactNode; hoverDelay?: number; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  const enter = () => { if (canHover()) timer.current = window.setTimeout(() => setHovered(true), hoverDelay); };
-  const leave = () => { window.clearTimeout(timer.current); setHovered(false); };
-  return (
-    <div className={`ro-fold ${open || hovered ? 'is-open' : ''}`} onMouseEnter={enter} onMouseLeave={leave}>
-      <button className="ro-fold__head" onClick={() => setOpen(v => !v)}>
-        <span className="ro-fold__title">{title}</span>
-        {summary && <span className="ro-fold__sum">{summary}</span>}
-        <ChevronDown size={13} className="ro-fold__chev" />
-      </button>
-      <div className="ro-fold__body">{children}</div>
-    </div>
-  );
-}
-
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
 function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onPrepare, onRemoveImage, onPreview, onOpenWh }: {
@@ -820,7 +803,6 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   const canSendRow = state === 'new';
   const itemHits = terms.length ? o.lines.filter(l => terms.some(t => normSearch(`${l.itemName} ${l.companyName ?? ''}`).includes(t))) : [];
-  const lastEvent = state === 'prepared' ? `تم التجهيز ${fmtTime(o.preparedAt)}` : o.sentAt ? `أُرسلت ${fmtTime(o.sentAt)}` : `كُتبت ${fmtTime(o.createdAt)}`;
 
   return (
     <>
@@ -829,24 +811,20 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
           <span className="ro-chevron"><ChevronDown size={14} /></span>
           <span className="ro-id">{o.id}</span>
         </td>
-        {showDate && <td className="ro-hide-sm ro-nowrap"><span className="ro-date-cell"><CalendarDays size={13} />{fmtDay(o.orderDate)}</span></td>}
-        <td>
-          <div className="ro-ph">
-            <span className={`ro-avatar ro-avatar--${state}`} aria-hidden>{initials(o.pharmacyName)}</span>
-            <div className="ro-ph__text">
-              <div className="ro-strong">{o.pharmacyName}</div>
-              <div className="ro-sub">
-                {o.areaName && <span className="ro-area"><MapPin size={11} />{o.areaName}</span>}
-                <span className="ro-qty-tag"><Package size={11} />{o.lines.length} صنف · {total} قطعة</span>
-                <span className="ro-show-sm">{whLink(wh)}</span>
-                {itemHits.length > 0 && <span className="ro-hit">🔎 {itemHits.map(l => `${l.itemName} ×${l.quantity}`).join('، ')}</span>}
-              </div>
-            </div>
+        {showDate && <td className="ro-hide-sm ro-nowrap ro-date-td">{fmtShortDay(o.orderDate)}</td>}
+        <td className="ro-main-td">
+          <div className="ro-strong ro-ph-name">{o.pharmacyName}</div>
+          <div className="ro-sub ro-meta-list">
+            {o.areaName && <span className="ro-meta"><MapPin size={12} />{o.areaName}</span>}
+            <span className="ro-meta ro-show-sm"><Warehouse size={12} />{whLink(wh)}{backups > 0 && <span className="ro-more">+{backups}</span>}</span>
+            {showRep && <span className="ro-meta ro-show-sm"><UserRound size={12} />{o.repName}</span>}
+            <span className="ro-meta ro-show-sm"><CalendarDays size={12} />{fmtShortDay(o.orderDate)}<span className="ro-id">{o.id}</span></span>
+            {itemHits.length > 0 && <span className="ro-hit">🔎 {itemHits.map(l => `${l.itemName} ×${l.quantity}`).join('، ')}</span>}
           </div>
         </td>
-        {showWh && <td className="ro-hide-sm"><span className="ro-wh-cell"><Warehouse size={14} />{whLink(wh)}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</span></td>}
-        {showRep && <td className="ro-hide-sm ro-nowrap"><span className="ro-rep"><span className="ro-rep__av" aria-hidden>{initials(o.repName, 2)}</span>{o.repName}</span></td>}
-        <td><span className="ro-status"><span className={`ro-badge ro-badge--${state}`}><i className="ro-badge__dot" />{STATE_LABEL[state]}</span>{partial && <span className="ro-badge ro-badge--partial">جزئي</span>}</span></td>
+        {showWh && <td className="ro-hide-sm"><span className="ro-wh-cell">{whLink(wh)}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</span></td>}
+        {showRep && <td className="ro-hide-sm ro-nowrap">{o.repName}</td>}
+        <td className="ro-state-td"><span className="ro-status"><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span>{partial && <span className="ro-badge ro-badge--partial">جزئي</span>}</span></td>
         <td className="ro-col-actions" onClick={stop}>
           {canSendRow && (
             <button className={`ro-icon-btn ro-icon-btn--${channelOf(o.warehouses[0]) === 'viber-group' ? 'viber' : 'wa'}`} title={`إرسال إلى ${o.warehouses[0]?.name ?? ''} — ${CHANNEL_LABEL[channelOf(o.warehouses[0])]}`} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>
@@ -859,17 +837,31 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
           <td colSpan={colCount}>
             <div className="ro-detail">
               <div className="ro-detail__main">
-                <table className="ro-lines">
-                  <thead>
-                    <tr>
-                      <th>#</th><th>الصنف</th><th className="ro-num">المطلوب</th>
-                      {hasPrepared && <th className="ro-num">المجهّز</th>}
-                      {hasPrepared && <th className="ro-num">الناقص</th>}
-                      {hasPrice && <th className="ro-price">السعر</th>}
-                      {hasPrice && <th className="ro-price">{hasPrepared ? 'المجموع (المجهّز)' : 'المجموع'}</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
+                <section className="ro-card">
+                  <div className="ro-card__head">
+                    <Info size={16} /><span>معلومات الطلب</span><span className="ro-card__no">#{o.id}</span>
+                    <span className="ro-spacer" />
+                    <button className="ro-icon-btn" title="مشاركة الطلبية — واتساب أو فايبر أو غيره" onClick={() => onShare(o.warehouses[sel] ?? nextWh(o))}><Share2 size={14} /></button>
+                    {o.canEdit && <button className="ro-icon-btn" title="تعديل" onClick={onEdit}><Pencil size={14} /></button>}
+                    {o.canEdit && <button className="ro-icon-btn ro-icon-btn--danger" title="حذف" onClick={onDelete}><Trash2 size={14} /></button>}
+                  </div>
+                  <dl className="ro-kv">
+                    <div><dt><CircleDot size={14} />الحالة</dt><dd>
+                      <span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span>
+                      {partial && <span className="ro-badge ro-badge--partial">جزئي</span>}
+                      {state === 'prepared' && o.preparedAt && <span className="ro-kv__when">{fmtShort(o.preparedAt)}{o.preparedBy ? ` · ${o.preparedBy}` : ''}</span>}
+                    </dd></div>
+                    <div><dt><Store size={14} />الصيدلية</dt><dd>{o.pharmacyName}{o.areaName && <span className="ro-muted"> / {o.areaName}</span>}</dd></div>
+                    <div><dt><UserRound size={14} />المندوب</dt><dd>{o.repName}</dd></div>
+                    <div><dt><CalendarDays size={14} />تاريخ الطلب</dt><dd>{fmtShortDay(o.orderDate)}</dd></div>
+                    <div><dt><Warehouse size={14} />المذخر</dt><dd>{o.warehouses.map(w => w.name).join(' ← ') || wh.name}</dd></div>
+                    {o.invoiceNumber && <div><dt><Hash size={14} />رقم الفاتورة</dt><dd>{o.invoiceNumber}</dd></div>}
+                  </dl>
+                </section>
+
+                <section className="ro-card">
+                  <div className="ro-card__head"><Pill size={16} /><span>الأدوية</span><span className="ro-card__no">{o.lines.length}</span></div>
+                  <div className="ro-meds">
                     {o.lines.map((l, i) => {
                       const got = l.preparedQty ?? 0;
                       const short = remainingOf(l);
@@ -877,42 +869,42 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                       const by = multiSource ? o.sends.flatMap(sd => sd.lines.filter(x => x.lineId === l.id && x.qty > 0).map(x => `${sd.warehouseName} ${x.qty}`)) : [];
                       const billed = billQty(l);
                       return (
-                      <tr key={l.id ?? i} className={hasPrepared && short > 0 ? 'ro-diff' : ''}>
-                        <td className="ro-muted">{i + 1}</td>
-                        <td>
-                          <div className="ro-strong">{l.itemName}</div>
-                          {l.companyName && <div className="ro-sub"><span>{l.companyName}</span></div>}
-                        </td>
-                        <td className="ro-num">{l.quantity}{l.bonusQty ? <small className="ro-bonus">+{l.bonusQty}</small> : null}</td>
-                        {hasPrepared && (
-                          <td className="ro-num">
-                            <span className={`ro-prep ro-prep--${st}`}>{st === 'full' && '✓ '}{got}{l.preparedBonus ? <small className="ro-bonus">+{l.preparedBonus}</small> : null}</span>
+                        <div key={l.id ?? i} className={`ro-med ${hasPrepared && short > 0 ? 'is-short' : ''}`}>
+                          <div className="ro-med__name">
+                            <div className="ro-strong">{l.itemName}</div>
+                            {l.companyName && <div className="ro-sub"><span>{l.companyName}</span></div>}
                             {by.length > 0 && <div className="ro-sub"><span>{by.join(' · ')}</span></div>}
-                          </td>
-                        )}
-                        {hasPrepared && <td className="ro-num">{short > 0 ? <span className="ro-short">{short}</span> : <span className="ro-muted">—</span>}</td>}
-                        {hasPrice && <td className="ro-price">{l.unitPrice != null ? fmtMoney(l.unitPrice) : '—'}</td>}
-                        {hasPrice && (
-                          <td className="ro-price">
-                            {l.unitPrice != null ? fmtMoney(l.unitPrice * billed) : '—'}
-                            {l.unitPrice != null && billed < l.quantity && <div className="ro-was">{fmtMoney(l.unitPrice * l.quantity)}</div>}
-                          </td>
-                        )}
-                      </tr>
+                          </div>
+                          <div className="ro-med__qty">
+                            <div><b>{l.quantity}</b>{l.bonusQty ? <small className="ro-bonus">+{l.bonusQty}</small> : null}{hasPrice && l.unitPrice != null && <span className="ro-muted"> × {fmtMoney(l.unitPrice)}</span>}</div>
+                            {hasPrepared && (
+                              <div className="ro-med__prep">
+                                <span className={`ro-prep ro-prep--${st}`}>{got}{l.preparedBonus ? <small className="ro-bonus">+{l.preparedBonus}</small> : null} مجهّز</span>
+                                {short > 0 && <span className="ro-short">{short} ناقص</span>}
+                              </div>
+                            )}
+                          </div>
+                          {hasPrice && (
+                            <div className="ro-med__sum">
+                              {l.unitPrice != null ? fmtMoney(l.unitPrice * billed) : '—'}
+                              {l.unitPrice != null && billed < l.quantity && <div className="ro-was">{fmtMoney(l.unitPrice * l.quantity)}</div>}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td /><td>المجموع</td>
-                      <td className="ro-num">{total}{totalBonus ? <small className="ro-bonus">+{totalBonus}</small> : null}</td>
-                      {hasPrepared && <td className="ro-num">{preparedTotal}{preparedBonusTotal ? <small className="ro-bonus">+{preparedBonusTotal}</small> : null}</td>}
-                      {hasPrepared && <td className="ro-num">{shortTotal || '—'}</td>}
-                      {hasPrice && <td />}
-                      {hasPrice && <td className="ro-price">{fmtMoney(value)}</td>}
-                    </tr>
-                  </tfoot>
-                </table>
+                  </div>
+                  <div className="ro-meds__foot">
+                    <span className="ro-strong">الإجمالي</span>
+                    <span className="ro-muted ro-small">
+                      {total}{totalBonus ? `+${totalBonus}` : ''} قطعة
+                      {hasPrepared && ` · مجهّز ${preparedTotal}${preparedBonusTotal ? `+${preparedBonusTotal}` : ''}`}
+                      {hasPrepared && shortTotal > 0 && ` · ناقص ${shortTotal}`}
+                    </span>
+                    <span className="ro-spacer" />
+                    {hasPrice && <b className="ro-meds__total">{fmtMoney(value)}</b>}
+                  </div>
+                </section>
                 {hasPrice && hasPrepared && value < requestedValue && (
                   <div className="ro-money">
                     <span>قيمة المطلوب <b>{fmtMoney(requestedValue)}</b></span>
@@ -924,32 +916,6 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
               </div>
 
               <div className="ro-detail__side">
-                <Fold title="معلومات الزبون والحالة" summary={lastEvent} hoverDelay={2000}>
-                  <dl className="ro-info">
-                    {o.areaName && <><dt>المنطقة</dt><dd>{o.areaName}</dd></>}
-                    <dt>المندوب</dt><dd>{o.repName}</dd>
-                    <dt>التاريخ</dt><dd>{fmtDay(o.orderDate)}</dd>
-                    {o.invoiceNumber && <><dt>رقم الفاتورة</dt><dd>{o.invoiceNumber}</dd></>}
-                  </dl>
-                  <ol className="ro-timeline">
-                    <li className="is-done">كُتبت <span>{fmtTime(o.createdAt)}</span></li>
-                    {o.sends.length ? o.sends.map(sd => {
-                      const m = markOf(o, sd);
-                      return (
-                        <li key={sd.id} className={m === 'rejected' ? 'is-cancel' : 'is-done'}>
-                          أُرسلت إلى {sd.warehouseName} — <b className={`ro-sendmark ro-sendmark--${m}`}>{SEND_LABEL[m]}</b>
-                          {sd.image && <button className="ro-link" onClick={() => onPreview(sd.image!)}>الفاتورة</button>}
-                          <span>{fmtTime(sd.outcomeAt ?? sd.sentAt)}</span>
-                        </li>
-                      );
-                    }) : (
-                      <li className={o.sentAt ? 'is-done' : ''}>{o.sentAt ? `أُرسلت إلى ${wh.name}${o.sentCount > 1 ? ` (${o.sentCount} مرات)` : ''}` : 'لم تُرسل للمذخر'} <span>{fmtTime(o.sentAt)}</span></li>
-                    )}
-                    <li className={state === 'prepared' ? 'is-done' : state === 'cancelled' ? 'is-cancel' : ''}>
-                      {state === 'prepared' ? `تم التجهيز${o.preparedBy ? ` — ${o.preparedBy}` : ''}` : state === 'cancelled' ? 'ملغاة' : 'لم تُجهَّز بعد'} <span>{fmtTime(o.preparedAt)}</span>
-                    </li>
-                  </ol>
-                </Fold>
 
                 {/* لوحة المذاخر: كل مذخر بنتيجته، والضغط عليه يفتح تفاصيله (الإرسال، الفاتورة،
                     ما جهّزه وقيمته) وأزرار الإرسال/رفع فاتورته */}
@@ -978,11 +944,10 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                                 const mk = markOf(o, sd);
                                 return (
                                   <li key={sd.id} className={mk === 'rejected' ? 'is-cancel' : mk === 'sent' || mk === 'noreply' ? '' : 'is-done'}>
-                                    أُرسلت <span>{fmtTime(sd.sentAt)}</span> ← <b className={`ro-sendmark ro-sendmark--${mk}`}>{SEND_LABEL[mk]}</b>
-                                    {sd.outcomeAt && sd.outcome !== 'sent' && <span>{fmtTime(sd.outcomeAt)}</span>}
+                                    <span className="ro-tl-date">{fmtShort(sd.sentAt)}</span> <b className={`ro-sendmark ro-sendmark--${mk}`}>{SEND_LABEL[mk]}</b>
                                   </li>
                                 );
-                              }) : <li className={legacySent ? 'is-done' : ''}>{legacySent ? <>أُرسلت <span>{fmtTime(legacySent)}</span></> : 'لم تُرسل لهذا المذخر بعد'}</li>}
+                              }) : <li className={legacySent ? 'is-done' : ''}>{legacySent ? <span className="ro-tl-date">{fmtShort(legacySent)}</span> : 'لم تُرسل لهذا المذخر بعد'}</li>}
                             </ol>
 
                             {ws.items.length > 0 && (
@@ -1028,9 +993,6 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                                     {ch !== 'share' && <span className="ro-send-btn__via"><ChannelIcon ch={ch} /></span>}
                                   </button>
                                 )}
-                                <button className="ro-alt-btn" title="واتساب أو فايبر أو غيره ← اختر الكروب، والطلبية مكتوبة" onClick={() => onShare(w)}>
-                                  <Share2 size={14} /> مشاركة
-                                </button>
                               </div>
                             )}
                           </div>
@@ -1060,9 +1022,6 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
               {state !== 'prepared' && state !== 'cancelled' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تسجيل التجهيز</button>}
               {o.status !== 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('pending')}><RotateCcw size={14} /> إرجاع</button>}
               {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('cancelled')}><Ban size={14} /> إلغاء</button>}
-              <span className="ro-spacer" />
-              {o.canEdit && <button className="ro-icon-btn" title="تعديل" onClick={onEdit}><Pencil size={14} /></button>}
-              {o.canEdit && <button className="ro-icon-btn ro-icon-btn--danger" title="حذف" onClick={onDelete}><Trash2 size={14} /></button>}
             </div>
           </td>
         </tr>
