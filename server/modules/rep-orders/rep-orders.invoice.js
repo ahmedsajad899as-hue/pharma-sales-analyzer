@@ -19,7 +19,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { pharmacyKey } from '../../lib/pharmacyKey.js';
 import { extractInvoiceRows } from '../sales/sales.service.js';
-import { loadViewer, orderScopeWhere, getVisibleOrder, recordPreparation, INVOICE_DIR } from './rep-orders.service.js';
+import { loadViewer, orderScopeWhere, warehouseScopeWhere, getVisibleOrder, recordPreparation, INVOICE_DIR } from './rep-orders.service.js';
 
 const LOOKBACK_DAYS = 30;
 const AUTO_MIN_SCORE = 60;   // أدنى ثقة للاختيار التلقائي
@@ -247,6 +247,20 @@ export async function matchBotInvoice(userId, rows, { forcedOrderId = null } = {
   return best.score >= AUTO_MIN_SCORE && (!second || best.score - second.score >= AUTO_MIN_GAP) ? best : null;
 }
 
+/**
+ * تطابق «صحيح» بين اسم مذخر واسمه المطبوع في الفاتورة: الاسم نفسه، أو كل كلماته داخل
+ * اسم مطبوع أطول («شركة طريق السلام للأدوية»)، أو خطأ قراءة طفيف. جزء من الاسم وحده
+ * («السلام» من «طريق السلام») لا يكفي — بعكس placeSim الذي يعطيه 0.9.
+ */
+function warehouseNameScore(whName, printed) {
+  const kw = pharmacyKey(whName), kp = pharmacyKey(printed);
+  if (!kw || !kp) return 0;
+  if (kw === kp) return 1;
+  const printedTokens = new Set(kp.split(' '));
+  if (kw.split(' ').every(t => printedTokens.has(t))) return 0.95;
+  return similarity(kw, kp);
+}
+
 /** يحفظ صورة فاتورة البوت ويسجّل تجهيزها على الطلبية المطابقة (نفس مسار رفعها من الصفحة). */
 export async function attachBotInvoice(userId, match, imageBuffer) {
   const { order, byLine, inv } = match;
@@ -255,31 +269,37 @@ export async function attachBotInvoice(userId, match, imageBuffer) {
   await fs.promises.writeFile(path.join(INVOICE_DIR, name), imageBuffer);
   const url = `/uploads/rep-orders/${name}`;
 
-  // المذخر: اسمه المطبوع قرأه الذكاء وقد يشبه مذخراً آخر («السلام» ⇐ «طريق السلام» —
-  // طلبية #20 ثُبّتت على احتياط لم تُرسل له قط)، فلا يغلب المذاخر التي أُرسلت لها فعلاً:
-  //  • أُرسلت لمذخر وتنتظر ردّه ⇒ أحدها؛ الاسم يرجّح بينها فقط، وإلا أحدثها إرسالاً.
-  //  • لم تُرسل لأحد ⇒ اسم مطابق تماماً بين مذاخرها، وإلا آخر مذخر/الأساسي.
-  const byName = async (ids, min) => {
-    if (!inv.warehouse || !ids.length) return null;
-    const whs = await prisma.orderWarehouse.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
-    const [a, b] = whs.map(w => ({ id: w.id, s: placeSim(w.name, inv.warehouse) })).sort((x, y) => y.s - x.s);
-    return a && a.s >= min && (!b || a.s - b.s >= 0.15) ? a.id : null;
-  };
+  // المذخر (قرار صاحب المشروع 2026-10-31): الاسم المطبوع في الفاتورة أولاً — إن طابق
+  // مذخراً تطابقاً صحيحاً تُسجَّل له ولو لم تُرسل له الطلبية. الترتيب:
+  //  1) مذاخر الطلبية (الأساسي والاحتياط وكل من أُرسلت له) بتطابق صحيح.
+  //  2) دليل مذاخر الحساب بتطابق شبه تام (مذخر خارج قائمة الطلبية يُضاف لها بسجلّه).
+  //  3) بلا اسم مطابق ⇒ آخر مذخر أُرسلت له وينتظر ردّه، ثم آخر مذخر، ثم الأساسي.
   const awaiting = (await prisma.repOrderSend.findMany({
     where: { orderId: order.id, warehouseId: { not: null }, outcome: { in: ['sent', 'partial'] } },
     orderBy: { id: 'desc' }, select: { warehouseId: true },
   })).map(s => s.warehouseId);
-  const warehouseId = awaiting.length
-    ? (await byName([...new Set(awaiting)], 0.85)) ?? awaiting[0]
-    : (await byName([...new Set([order.warehouseId, ...order.backupWarehouseIds].filter(Boolean))], 1))
-      ?? order.lastSentWarehouseId ?? order.warehouseId ?? null;
+  const byName = (whs, min) => {
+    if (!inv.warehouse || !whs.length) return null;
+    const [a, b] = whs.map(w => ({ id: w.id, s: warehouseNameScore(w.name, inv.warehouse) })).sort((x, y) => y.s - x.s);
+    return a && a.s >= min && (!b || a.s - b.s >= 0.1) ? a.id : null;
+  };
+  const orderWhIds = [...new Set([order.warehouseId, ...order.backupWarehouseIds, ...awaiting].filter(Boolean))];
+  let warehouseId = byName(await prisma.orderWarehouse.findMany({ where: { id: { in: orderWhIds } }, select: { id: true, name: true } }), 0.8);
+  if (!warehouseId && inv.warehouse) {
+    const viewer = await loadViewer({ id: userId });
+    warehouseId = byName(await prisma.orderWarehouse.findMany({ where: await warehouseScopeWhere(viewer), select: { id: true, name: true } }), 0.95);
+  }
+  const byPrintedName = Boolean(warehouseId);
+  warehouseId ??= awaiting[0] ?? order.lastSentWarehouseId ?? order.warehouseId ?? null;
 
   const lines = order.lines.map((l, i) => {
     const it = byLine.has(i) ? inv.items[byLine.get(i).j] : null;
     return { lineId: l.id, preparedQty: it ? it.quantity : 0, preparedBonus: it ? it.bonus : 0 };
   });
   const r = await recordPreparation({ id: userId }, order.id, { warehouseId, lines, image: url, invoiceNumber: inv.invoiceNumber });
-  const wh = warehouseId ?? order.lastSentWarehouseId ?? order.warehouseId;
-  const whName = wh ? (await prisma.orderWarehouse.findUnique({ where: { id: wh }, select: { name: true } }))?.name : order.warehouseName;
-  return { ...r, image: url, warehouseName: whName ?? order.warehouseName, matchedLines: byLine.size, totalLines: order.lines.length };
+  const whName = warehouseId ? (await prisma.orderWarehouse.findUnique({ where: { id: warehouseId }, select: { name: true } }))?.name : order.warehouseName;
+  // مذخر من اسم الفاتورة لم تُرسل له الطلبية بينما تنتظر رد غيره ⇒ يُنبَّه المرسل في ردّ البوت
+  const notSentTo = byPrintedName && awaiting.length && !awaiting.includes(warehouseId);
+  const awaitingName = notSentTo ? (await prisma.orderWarehouse.findUnique({ where: { id: awaiting[0] }, select: { name: true } }))?.name : null;
+  return { ...r, image: url, warehouseName: whName ?? order.warehouseName, byPrintedName, awaitingName, matchedLines: byLine.size, totalLines: order.lines.length };
 }

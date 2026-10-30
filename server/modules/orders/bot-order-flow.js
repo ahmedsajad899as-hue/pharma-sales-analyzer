@@ -174,6 +174,7 @@ export async function handleIncomingOrderMessage({
           `🧾 فاتورة تجهيز — ثُبّتت على طلبية المذاخر #${o.id}`
           + `${o.pharmacyName ? ` (${o.pharmacyName})` : ''} عند ${r.warehouseName || 'المذخر'}`
           + `\nطابقت ${r.matchedLines}/${r.totalLines} صنف — ${r.complete ? '✅ الطلبية مكتملة التجهيز' : r.outcome === 'partial' ? '⚠️ تجهيز جزئي' : 'سُجّل التجهيز'}`
+          + (r.awaitingName ? `\nℹ️ المذخر حسب اسمه المطبوع في الفاتورة — الطلبية كانت مُرسلة لـ ${r.awaitingName}.` : '')
           + `\nإن كانت مبيعات لا تجهيزاً: أعد إرسالها واكتب معها «مبيعات».`);
         return true;
       }
