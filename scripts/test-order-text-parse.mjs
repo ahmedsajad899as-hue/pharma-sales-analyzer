@@ -123,6 +123,29 @@ check('Azitro sus ← AZITRO Susp', brandDoseFallback('Azitro sus', cat2)?.canon
 check('Azitro tab 500 ← Tab', brandDoseFallback('Azitro tab 500', cat2)?.canonicalItem?.id, 20);
 check('Azitro بلا جرعة ولا شكل ⇒ لا ربط', brandDoseFallback('Azitro', cat2)?.confidence, 'medium');
 
+console.log('\n── الجرعة المركّبة (400/57 = 457) ──');
+// الطلبيتان #139/#141 (2026-10-31): الفاتورة «Amoklavin-BID 400/57mg deva»، والكتالوج
+// بأسماء ملف الكوديشن (test-manual-duplicates).
+const cat3 = [
+  { id: 30, name: 'AMOKLAVIN BID 625 500 125MG 10CAP' },
+  { id: 31, name: 'AMOKLAVIN BID 1000MG 10TAB' },
+  { id: 32, name: 'AMOKLAVIN BID 457MG SYRUP' },
+];
+const fb3 = (n, c = cat3) => { const r = brandDoseFallback(n, c); return r && [r.confidence, r.canonicalItem?.id ?? null]; };
+check('400/57mg deva ← 457MG SYRUP', fb3('Amoklavin-BID 400/57mg deva'), ['high', 32]);
+check('875/125 ← 1000MG', fb3('Amoklavin 875/125mg'), ['high', 31]);
+check('500/125 ← 625 500 125MG', fb3('Amoklavin 500/125'), ['high', 30]);
+check('العكس: 457 ← 400/57MG SUSP', fb3('Amoklavin 457',
+  [{ id: 33, name: 'AMOKLAVIN BID 400/57MG SUSP' }, { id: 31, name: 'AMOKLAVIN BID 1000MG 10TAB' }]), ['high', 33]);
+check('200mg/5ml تركيز لا مكوّنان (ليس 205)', fb3('Zoxan 200mg/5ml',
+  [{ id: 40, name: 'ZOXAN 205MG TAB' }, { id: 41, name: 'ZOXAN 100MG TAB' }]), ['medium', null]);
+const sizes = brandDoseFallback('Amoklavin-BID 400/57mg', [
+  { id: 34, name: 'AMOKLAVIN BID 457MG SYRUP 70ML' }, { id: 35, name: 'AMOKLAVIN BID 457MG SYRUP 35ML' },
+  { id: 31, name: 'AMOKLAVIN BID 1000MG 10TAB' },
+]);
+check('حجمان لنفس الجرعة ⇒ لا ربط، والمرشّحان هما الحجمان',
+  [sizes.confidence, sizes.candidates.map(c => c.id).join(',')], ['medium', '34,35']);
+
 console.log('\n── المذاخر ──');
 const { findKnownWarehouse, cleanWarehouseName } = await import('../server/modules/orders/order-text-parse.js');
 check('ملاحظة بعد المذخر تُقصّ', cleanWarehouseName('الناقوس بسبب عدم الانضمام الى ميركاتو'), 'الناقوس');

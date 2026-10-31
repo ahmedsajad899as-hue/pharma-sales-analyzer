@@ -86,6 +86,19 @@ function doseNumbers(s) {
 }
 const brandWord = (s) => (normalizeItemKey(s).match(/[a-z؀-ۿ]{3,}/) || [])[0] || '';
 
+// جرعة مركّبة: فاتورة المذخر تكتب المكوّنين «Amoklavin-BID 400/57mg» والكتالوج
+// مجموعهما «AMOKLAVIN BID 457MG SYRUP» (أموكسيسيلين 400 + كلافولانات 57) — أو
+// العكس — فيرى حارس الجرعة 400 ≠ 457. ما بعد «/» حجماً («200mg/5ml») تركيز لا مكوّن.
+const COMPOSITE_DOSE_RE = /(\d+(?:\.\d+)?)\s*(?:mg|mcg|g)?\s*\/\s*(\d+(?:\.\d+)?)(?![\d.])(?!\s*ml)/gi;
+function compositeDoseSums(s) {
+  const out = new Set();
+  for (const m of String(s ?? '').matchAll(COMPOSITE_DOSE_RE)) {
+    const sum = Number(m[1]) + Number(m[2]);
+    out.add(Math.floor(sum)); out.add(Math.round(sum)); // 250/62.5 = 312
+  }
+  return [...out];
+}
+
 // كلمات شكل صيدلاني مترادفة: «قطرة/drops» في الطلبية = «DAMLA/ORAL» في الكتالوج.
 const FORM_SYNONYMS = [
   ['drop', 'drops', 'damla', 'oral', 'قطره', 'قطرة', 'نقط'],
@@ -131,14 +144,18 @@ export function brandDoseFallback(name, catalog) {
   const dosesOf = (s) => doseNumbers(s).filter(n => !shared.has(n));
 
   const q = dosesOf(name)[0];
-  let hits;
-  hits = q != null ? family.filter(c => dosesOf(c.name).some(n => n === q || n === q * 1000)) : family;
+  const qSums = compositeDoseSums(name); // «400/57» ⇒ 457
+  const doseHit = (c) => dosesOf(c.name).some(n => n === q || n === q * 1000 || qSums.includes(n))
+    || compositeDoseSums(c.name).includes(q); // «457» ⇒ «400/57MG SUSP»
+  let hits = q != null ? family.filter(doseHit) : family;
   // الشكل الصيدلاني («Azitro sus» ← «AZITRO Susp 200mg/5ml» لا «Azitro 500mg Tab»)
   // يحسم ما بقي ملتبساً بعد الجرعة.
   const f = formOf(name);
   if (hits.length > 1 && f >= 0) hits = hits.filter(c => formOf(c.name) === f);
   if (hits.length === 1) return { canonicalItem: hits[0], confidence: 'high', suggestions, via: 'brand-dose' };
-  return { canonicalItem: null, confidence: 'medium', suggestions };
+  // ملتبس: candidates = ما طابق الجرعة (قد يكون أحجام نفس الصنف)، family = العلامة كلها —
+  // لا ربط بأيّهما، لكن قد يتّفقان على شركة أو مالك (linkRowsFromOfficeCatalog).
+  return { canonicalItem: null, confidence: 'medium', suggestions, candidates: hits, family };
 }
 
 /**
@@ -617,31 +634,55 @@ export async function attachScientificRepGuess(rows, actingUser) {
  * ربط الأصناف بكتالوج المكتب كله حين لم تُربط بكتالوج صاحب الطابور (ومعها الشركة
  * والسعر). صنف يملكه مدير آخر (deva عند مدير humanis مثلاً) ليس في كتالوج حساب
  * الكروب، فكان يُحوَّل لمديره بلا شركة ولا معرّف (2026-10-31).
+ *
+ * صنف ملتبس (نفس الجرعة بأحجام: «457MG SYRUP 70ML/35ML») لا يُربط، لكن إن اتّفق
+ * مرشّحوه على شركة علمية واحدة تُكتب له — وإن لم يطابق أيّها الجرعةَ فشركة عائلة
+ * علامته («AMOKLAVIN» كلها DEVA). الشركة خانة يراجعها المراجِع؛ الايتم لا يُخمَّن.
+ * @returns {Promise<Map<object, number[]>>} صف بقي بلا ربط ← معرّفات مرشّحيه (لقرار المالك)
  */
 async function linkRowsFromOfficeCatalog(rows, officeId) {
+  const candidatesByRow = new Map();
   const todo = rows.filter(r => r && !r._itemId && String(r.item ?? '').trim());
-  if (!todo.length || !officeId) return;
-  const sci = await prisma.scientificCompany.findMany({ where: { officeId }, select: { id: true } });
-  if (!sci.length) return;
+  if (!todo.length || !officeId) return candidatesByRow;
+  const sci = await prisma.scientificCompany.findMany({ where: { officeId }, select: { id: true, name: true } });
+  if (!sci.length) return candidatesByRow;
   const ctx = await loadCompanyContext(sci.map(s => s.id));
-  if (!ctx.catalog.length) return;
+  if (!ctx.catalog.length) return candidatesByRow;
+  const sciName = new Map(sci.map(s => [s.id, s.name]));
   const sure = (x) => x?.canonicalItem && (x.confidence === 'alias' || x.confidence === 'exact' || x.confidence === 'high');
-  const idByName = new Map();
+  const byName = new Map(); // الاسم ← { id } أو { candidates, family }
   for (const name of new Set(todo.map(r => String(r.item).trim()))) {
     let r = resolveItemNameSync(name, ctx);
-    if (!sure(r)) { const fb = brandDoseFallback(name, ctx.catalog); if (sure(fb)) r = fb; }
-    if (sure(r)) idByName.set(name, r.canonicalItem.id);
+    const fb = sure(r) ? null : brandDoseFallback(name, ctx.catalog);
+    if (sure(fb)) r = fb;
+    if (sure(r)) { byName.set(name, { id: r.canonicalItem.id }); continue; }
+    const candidates = r.confidence === 'medium' && r.suggestions?.length ? r.suggestions : (fb?.candidates || []);
+    byName.set(name, { candidates, family: fb?.family || [] });
   }
-  if (!idByName.size) return;
-  const details = await prisma.item.findMany({
-    where: { id: { in: [...new Set(idByName.values())] } },
+  const ids = [...new Set([...byName.values()].map(v => v.id).filter(Boolean))];
+  const details = ids.length ? await prisma.item.findMany({
+    where: { id: { in: ids } },
     select: { id: true, name: true, price: true, warehousePrice: true, scientificCompanyId: true,
       company: { select: { name: true } }, scientificCompany: { select: { name: true } } },
-  });
+  }) : [];
   const byId = new Map(details.map(d => [d.id, d]));
+  const onlyCompany = (list) => {
+    const s = new Set(list.map(c => ctx.catalogById.get(c.id)?.scientificCompanyId ?? null));
+    return s.size === 1 ? [...s][0] : null;
+  };
   for (const row of todo) {
-    const d = byId.get(idByName.get(String(row.item).trim()));
-    if (!d) continue;
+    const m = byName.get(String(row.item).trim());
+    if (!m) continue;
+    const d = m.id != null ? byId.get(m.id) : null;
+    if (!d) {
+      candidatesByRow.set(row, (m.candidates || []).map(c => c.id));
+      const sid = onlyCompany(m.candidates?.length ? m.candidates : (m.family || []));
+      if (sid != null) {
+        if (!String(row.company ?? '').trim()) row.company = sciName.get(sid) ?? null;
+        if (row._scientificCompanyId == null) row._scientificCompanyId = sid;
+      }
+      continue;
+    }
     row._itemId = d.id;
     row._scientificCompanyId = d.scientificCompanyId ?? null;
     row.item = d.name;
@@ -651,6 +692,7 @@ async function linkRowsFromOfficeCatalog(rows, officeId) {
       row.total = Number(row.quantity) * Number(row.unitPrice);
     }
   }
+  return candidatesByRow;
 }
 
 /**
@@ -812,7 +854,8 @@ function toImageList(imageFiles) {
 /** يُرفع عند تغيير قاعدة التقسيم كي تُعاد على الطابور القائم. */
 // 2: إعادة قراءة الصفوف القديمة قبل التقسيم + الدمج. (بديل «مدير الشركة العلمية»
 //    أُزيل: «الشركة» عند صاحب المشروع = ايتمات المدير المُسنَدة فقط.)
-const ROUTE_VERSION = 2;
+// 3: الجرعة المركّبة (400/57 = 457) + صنف ملتبس كل مرشّحيه لمدير واحد يُحوَّل له.
+const ROUTE_VERSION = 3;
 
 /**
  * يقسّم صفوف طلبية بين حساب الكروب ومدراء الشركات المالكين لأصنافها.
@@ -833,8 +876,8 @@ export async function splitRowsByOwner(rows, user) {
   // صنف لم يُربط بكتالوج حساب الكروب يُجرَّب على كتالوج المكتب كله — بنفس سلّم
   // enrichRowsFromCatalog (المحلِّل ثم بديل «العلامة + الجرعة»: «Devit 50»)، ويُكتب
   // في الصف نفسه (المعرّف + الشركة + الاسم + السعر) كي يصل للمدير مكتملاً.
-  await linkRowsFromOfficeCatalog(rows, user.officeId)
-    .catch(e => console.error('[orders] office item link (routing) failed:', e?.message));
+  const candidatesByRow = await linkRowsFromOfficeCatalog(rows, user.officeId)
+    .catch(e => { console.error('[orders] office item link (routing) failed:', e?.message); return new Map(); });
 
   const keep = [];
   const byManager = new Map();
@@ -843,7 +886,13 @@ export async function splitRowsByOwner(rows, user) {
     const itemId = row._itemId ?? null;
     // «الشركة» = تيم المدير: الايتم المُسنَد له فقط (قاعدة التحليل الشامل) — لا
     // الشركة العلمية للايتم. ايتم غير مُسنَد لأي مدير يبقى عند حساب الكروب.
-    const owner = itemId != null ? owners.get(itemId) : null;
+    let owner = itemId != null ? owners.get(itemId) : null;
+    // صنف لم يُحسم أيّ مرشّحيه (أحجام نفس الجرعة) لكنها **كلها** ايتمات مدير واحد ⇒ له؛
+    // والمراجِع يحسم الصنف عنده. مرشّح بلا مالك يُبقي الصف عند حساب الكروب.
+    if (itemId == null) {
+      const os = (candidatesByRow.get(row) || []).map(id => owners.get(id));
+      if (os.length && os.every(o => o && o.managerId === os[0].managerId)) owner = os[0];
+    }
     if (!owner || owner.managerId === user.id) { keep.push(row); continue; }
     if (!byManager.has(owner.managerId)) byManager.set(owner.managerId, { ...owner, rows: [] });
     byManager.get(owner.managerId).rows.push(row);
