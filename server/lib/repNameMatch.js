@@ -44,20 +44,48 @@ export const repCoreKey = s => normalizeRepName(repCoreName(s));
 export const repTightKey = s => repCoreKey(s).replace(/\s+/g, '');
 
 /**
+ * كلمات الاسم للمقارنة، مع لصق «عبد/ابو» المنفصلة بما بعدها: «عبد المهيمن» و
+ * «عبدالمهيمن» اسم واحد يُكتب بالطريقتين، وعدّهما كلمتين كان يكسر التطابق
+ * (كلمة «عبدالمهيمن» لا تساوي «عبد» ولا «المهيمن») فيُصنَّف الاسم خارج النطاق.
+ */
+const nameTokens = s => {
+  const parts = normalizeRepName(s).split(' ').filter(Boolean);
+  const out = [];
+  for (let i = 0; i < parts.length; i++) {
+    if ((parts[i] === 'عبد' || parts[i] === 'ابو') && i + 1 < parts.length) { out.push(parts[i] + parts[++i]); continue; }
+    out.push(parts[i]);
+  }
+  return out;
+};
+
+/** أقصر اسم أول يُقبل وحده كدليل — الأقصر («احمد»، «علي») أشيع من أن يُسأل عنه. */
+const MIN_SOLO_NAME_LEN = 5;
+
+/**
  * درجة تشابه اسمَي شخص (0..1) على أساس الكلمات المشتركة لا الحروف:
  * «محمد باقر» ⊂ «محمد باقر مرتضى» → احتواء تام. نشترط كلمتين مشتركتين على
  * الأقل، وإلا لطابق كل «محمد» كل «محمد» آخر.
+ *
+ * استثناء واحد: حساب مسجَّل باسم أول فقط («عبدالمهيمن/ كرخ ph») مقابل اسم كامل
+ * يبدأ به في الملف («عبدالمهيمن عدنان حسن») — درجة منخفضة (0.5) تكفي للسؤال
+ * ولا تكفي لأي حسم، وبشرط أن يكون الاسم غير شائع القِصر.
  * @returns {number} 0 = لا تشابه يُعتد به
  */
 export function repNameScore(a, b) {
   const na = normalizeRepName(a), nb = normalizeRepName(b);
   if (!na || !nb) return 0;
   if (na === nb) return 1;
-  const ta = na.split(' ').filter(Boolean);
-  const tb = nb.split(' ').filter(Boolean);
+  const ta = nameTokens(na);
+  const tb = nameTokens(nb);
+  if (ta.join(' ') === tb.join(' ')) return 1; // «عبد الله عمر» = «عبدالله عمر»
   const setB = new Set(tb);
   const shared = ta.filter(t => setB.has(t)).length;
-  if (shared < 2) return 0; // كلمة واحدة مشتركة (اسم أول شائع) ليست دليلاً
+  if (shared < 2) {
+    // كلمة واحدة مشتركة (اسم أول شائع) ليست دليلاً — إلا الاسم المفرد أعلاه
+    const [solo, other] = ta.length === 1 ? [ta, tb] : tb.length === 1 ? [tb, ta] : [null, null];
+    if (solo && other.length > 1 && solo[0] === other[0] && solo[0].length >= MIN_SOLO_NAME_LEN) return 0.5;
+    return 0;
+  }
   const containment = shared / Math.min(ta.length, tb.length); // 1 = الأقصر داخل الأطول
   const overall     = shared / Math.max(ta.length, tb.length);
   return containment * 0.7 + overall * 0.3;

@@ -957,7 +957,70 @@ export async function checkMercatoRepNames({ fileIds = null, user = null } = {})
   const fileNames = [...new Set(rows.map(r => r.representative?.name).filter(Boolean))];
 
   const classified = await classifyRepNamesForUser(fileNames, user);
-  return { ...classified, mercatoFileCount: mercatoIds.length };
+
+  // «تطابق تام» بنواة الاسم (الحساب «عبدالله عمر/ كرخ ph» والملف «عبدالله عمر»)
+  // يُحسم هنا، لكن نسبة مبيعات ميركاتو (resolveSciRepSales) تقارن بالاسم الكامل
+  // المطبَّع لسجل المندوب + الروابط المحفوظة فقط — فكان يظهر «تطابق تام» بلا أي
+  // مبيعة منسوبة. نحفظه رابطاً كما لو أكّده المستخدم.
+  const coreExact = classified.resolved.filter(e => e.status === 'exact' && e.rep);
+  if (user?.id && coreExact.length > 0) {
+    const sciReps = await prisma.scientificRepresentative.findMany({
+      where: { id: { in: [...new Set(coreExact.map(e => e.rep.id))] } }, select: { id: true, name: true },
+    });
+    const fullKeyById = new Map(sciReps.map(r => [r.id, normalizeRepName(r.name)]));
+    const toLink = coreExact.filter(e => fullKeyById.get(e.rep.id) !== e.key);
+    if (toLink.length > 0) await saveRepNameLinks(user.id, toLink.map(e => ({ fromName: e.raw, scientificRepId: e.rep.id })));
+  }
+
+  // قائمة النسب اليدوي أوسع من مندوبي المستخدم: الحساب الجديد الذي لم يُعيَّن تحت
+  // مديره بعد يغيب عن list() فيُصنَّف اسمه «لا يخصّ مندوبيك» بلا طريقة لنسبه.
+  // الأسماء غير المطابَقة تحمل مرشّحيها من هذه القائمة الأوسع كاقتراح لا كحسم.
+  const pickerReps = await repNameLinkOptions(user, classified.reps);
+  const wideIndex = buildRepIndex(pickerReps);
+  const unrelated = classified.unrelated.map(u => {
+    const m = matchRepName(u.raw, wideIndex);
+    const suggestions = m.rep ? [{ id: m.rep.id, name: m.rep.name, company: m.rep.company ?? null, score: 1 }] : m.suggestions.slice(0, 3);
+    return { ...u, suggestions };
+  });
+  return { ...classified, unrelated, reps: pickerReps, mercatoFileCount: mercatoIds.length };
+}
+
+/**
+ * المندوبون الذين يمكن نسب اسم ميركاتو إليهم يدوياً: مندوبو المستخدم (list) +
+ * كل حسابات المندوبين الفعّالة في شركاته (رئيسية أو ثانوية) — نفس نطاق مشاركة
+ * القرار (expandOwnerIdsByCompany). من ليس من فريق المستخدم يُعلَّم outOfTeam.
+ */
+async function repNameLinkOptions(user, baseReps) {
+  const out = baseReps.map(r => ({ ...r, outOfTeam: false }));
+  if (!user?.id || !COMPANY_SCOPED_ROLES.has(user.role)) return out;
+  const companyIds = (await prisma.userCompanyAssignment.findMany({
+    where: { userId: user.id }, select: { companyId: true },
+  })).map(r => r.companyId);
+  if (companyIds.length === 0) return out;
+  const users = await prisma.user.findMany({
+    where: {
+      role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] },
+      isActive: true,
+      companyAssignments: { some: { companyId: { in: companyIds } } },
+    },
+    select: {
+      id: true, linkedRepId: true, displayName: true, username: true,
+      companyAssignments: { select: { isPrimary: true, company: { select: { name: true } } } },
+    },
+  });
+  const seen = new Set(out.map(r => r.id));
+  for (const u of users) {
+    const repId = u.linkedRepId || await ensureLinkedRepId(u.id);
+    if (!repId || seen.has(repId)) continue;
+    seen.add(repId);
+    out.push({
+      id: repId,
+      name: u.displayName || u.username,
+      company: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name ?? null,
+      outOfTeam: true,
+    });
+  }
+  return out;
 }
 
 /**
@@ -968,12 +1031,19 @@ export async function checkMercatoRepNames({ fileIds = null, user = null } = {})
  */
 export async function saveRepNameLinks(userId, links) {
   if (!userId) throw new AppError('غير مصرح', 401, 'UNAUTHORIZED');
+  // القرار مشترك على نطاق الشركة (classifyRepNamesForUser)، والنسبة تقرأ كل الروابط
+  // بـ scientificRepId بلا userId — فتعديل اسم حسمه زميل يجب أن يحذف ربطه، وإلا
+  // بقي الاسم منسوباً للمندوبَين القديم والجديد معاً.
+  const scopeIds = await expandOwnerIdsByCompany([userId]);
   let saved = 0;
   for (const l of (Array.isArray(links) ? links : [])) {
     const fromName = String(l?.fromName ?? '').trim();
     const fromKey  = normalizeRepName(fromName);
     if (!fromKey) continue;
     const repId = Number.isInteger(l?.scientificRepId) ? l.scientificRepId : null;
+    await prisma.sciRepNameLink.deleteMany({
+      where: { fromKey, userId: { in: scopeIds, not: userId } },
+    });
     await prisma.sciRepNameLink.upsert({
       where:  { userId_fromKey: { userId, fromKey } },
       update: { fromName, scientificRepId: repId },
