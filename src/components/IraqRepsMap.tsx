@@ -15,6 +15,9 @@
 //     (/api/reports/baghdad-area-points).
 //   • /api/scientific-reps/province-map ← المندوبون العلميون بكل محافظة؛ تُنسَب الشركة
 //     من `company` (الشركة الرئيسية لحساب المندوب) في قائمة reps الممرَّرة.
+//     repKind='pharmacy' (المسوقون): بلا شركة رئيسية، فيُعرضون قائمةً واحدة لكل محافظة.
+//   • الكوديشن: /api/reports/overall على ملفات الكوديشن المرئية (مفعّلة أم لا) — نفس
+//     قواعد المحافظة/التيم/العملة التي يُحسب بها مبيع المحافظة، فالمقارنة متكافئة.
 //
 // ⚠️ الجلب يتحرّك بالملفات + الشهر فقط. حقلا التواريخ في ReportsPage يتبدّلان
 // تلقائياً (فارغ↔مملوء)، وإدخالهما في الاعتماديات سبّب حلقة جلب لا تنتهي.
@@ -44,10 +47,16 @@ interface Props {
   toDate: string;
   fmtVal: (n: number) => string;
   currencyLabel: string;
+  /** زر «العلميين / المسوقين». بلا قيمة = قائمة مختلطة كما هي (أدوار بلا الزر). */
+  repKind?: 'scientific' | 'pharmacy';
+  /** يُزاد بعد حفظ كوديشن جديد → تُجلب المقارنة من جديد بلا انتظار المخبأ. */
+  conditionRev?: number;
+  /** زر «إدخال كوديشن (إكسل)» — يظهر فقط إن مُرِّر. */
+  onAddCondition?: () => void;
 }
 
-interface CompanyCell { name: string; value: number; reps: RepRow[] }
-interface ProvinceCell { name: string; total: number; companies: CompanyCell[]; repCount: number }
+interface CompanyCell { name: string; value: number; cond: number; reps: RepRow[] }
+interface ProvinceCell { name: string; total: number; cond: number; companies: CompanyCell[]; repCount: number; marketers: RepRow[] }
 
 const norm = (s: string) => String(s || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
 const BAGHDAD = norm('بغداد');
@@ -92,6 +101,13 @@ function cacheSet(k: string, v: any) {
 const packSales = (r: SalesRows) => ({ prov: [...r.prov], pc: r.pc, bga: r.bga });
 const unpackSales = (v: any): SalesRows => ({ prov: new Map(v?.prov ?? []), pc: v?.pc ?? [], bga: v?.bga ?? [] });
 const EMPTY_SALES: SalesRows = { prov: new Map(), pc: [], bga: [] };
+// الكوديشن: all = كل صفوفه (منها ما لا يدخل تبويب المحافظة: ايتم غير مُسنَد لتيم)
+type CondRows = { prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[]; all: number };
+const packCond = (r: CondRows) => ({ prov: [...r.prov], pc: r.pc, all: r.all });
+const unpackCond = (v: any): CondRows => ({ prov: new Map(v?.prov ?? []), pc: v?.pc ?? [], all: v?.all ?? 0 });
+const EMPTY_COND: CondRows = { prov: new Map(), pc: [], all: 0 };
+const pctOf = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0);
+const pctTxt = (p: number) => `${p.toFixed(p >= 10 || p === 0 ? 0 : 1)}%`;
 
 const RAMP = ['#e0ecff', '#c7dbff', '#a3c2fb', '#78a3f5', '#4f84ea', '#2f66d6', '#1f4fb4', '#173a85'];
 const VB = IRAQ_MAP_VIEWBOX;
@@ -196,7 +212,9 @@ function PlexusBackground() {
   return <canvas ref={ref} aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }} />;
 }
 
-export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel }: Props) {
+export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel, repKind, conditionRev = 0, onAddCondition }: Props) {
+  const marketers = repKind === 'pharmacy';
+  const repWord = marketers ? 'مسوّق' : 'مندوب علمي';
   const { user } = useAuth();
   // مدير الشركة: مبيع تيمه فقط — لا بقية شركات المكتب
   const ownTeamId = user?.role === 'company_manager' ? user.id : null;
@@ -370,17 +388,97 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repIdsKey, fileKey, monthKey, tok, ready]);
 
+  // ── الكوديشن: ملفاته المرئية (مملوكة أو مُشارَكة، مفعّلة أم لا) ثم مبيعها بالمحافظة ──
+  const [condFiles, setCondFiles] = useState<number[] | null>(null);
+  const [cond, setCond] = useState<CondRows>(EMPTY_COND);
+  const [loadingCond, setLoadingCond] = useState(false);
+  useEffect(() => {
+    let dead = false;
+    fetch('/api/files', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : { data: [] }))
+      .then(j => {
+        if (dead) return;
+        const ids = (Array.isArray(j?.data) ? j.data : [])
+          .filter((f: any) => String(f.mergeGroup ?? '').endsWith('|condition'))
+          .map((f: any) => Number(f.id)).sort((a: number, b: number) => a - b);
+        setCondFiles(ids);
+      })
+      .catch(() => { if (!dead) setCondFiles([]); });
+    return () => { dead = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tok, conditionRev]);
+
+  const condKey = (condFiles ?? []).join(',');
+  const condRevSeen = useRef(conditionRev);
+  useEffect(() => {
+    if (!ready || condFiles === null) return;
+    if (!condKey) { setCond(EMPTY_COND); return; }
+    let dead = false;
+    const ac = new AbortController();
+    // كوديشن حُفظ للتو: تجاوز المخبأ مرة واحدة
+    const force = condRevSeen.current !== conditionRev;
+    condRevSeen.current = conditionRev;
+    const cacheable = monthKey !== 'custom';
+    const key = `c|${tok}|${ownTeamId ?? ''}|${condKey}|${monthKey}`;
+    const hit = cacheable && !force ? cacheGet(key) : undefined;
+    if (hit) setCond(unpackCond(hit.v));
+    if (hit && Date.now() - hit.t < FRESH_MS) return () => { dead = true; };
+
+    const H = { Authorization: `Bearer ${token}` };
+    (async () => {
+      if (!hit) setLoadingCond(true);
+      try {
+        const p = paramsFor(monthKey);
+        p.set('fileIds', condKey);
+        const [saleRes, retRes] = await Promise.all([
+          fetch(`/api/reports/overall?${p}&recordType=sale`, { headers: H, signal: ac.signal }),
+          fetch(`/api/reports/overall?${p}&recordType=return`, { headers: H, signal: ac.signal }),
+        ]);
+        const prov = new Map<string, { name: string; value: number }>();
+        const pcMap = new Map<string, { p: string; c: string; v: number }>();
+        let all = 0;
+        const add = async (r: Response, sign: number) => {
+          if (!r.ok) return;
+          const j = await r.json(); const d = j.data ?? j;
+          all += sign * (d.totalValue ?? 0);
+          for (const row of d.byProvince ?? []) {
+            const name = row.provinceName ?? row.name; if (!name) continue;
+            const cur = prov.get(norm(name)) ?? { name, value: 0 };
+            cur.value += sign * (row.totalValue ?? 0); prov.set(norm(name), cur);
+          }
+          for (const row of d.byProvinceCompany ?? []) {
+            if (!row.provinceName || !row.companyName) continue;
+            const k = `${norm(row.provinceName)}::${norm(row.companyName)}`;
+            const cur = pcMap.get(k) ?? { p: row.provinceName, c: row.companyName, v: 0 };
+            cur.v += sign * (row.totalValue ?? 0); pcMap.set(k, cur);
+          }
+        };
+        await Promise.all([add(saleRes, 1), add(retRes, -1)]);
+        if (dead) return;
+        const r = { prov, pc: [...pcMap.values()], all };
+        if (cacheable) cacheSet(key, packCond(r));
+        setCond(r);
+      } catch (e: any) { if (!dead && e?.name !== 'AbortError') setErr(e.message || 'تعذّر تحميل الكوديشن'); }
+      finally { if (!dead) setLoadingCond(false); }
+    })();
+    return () => { dead = true; ac.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [condKey, condFiles === null, monthKey, tok, ready, ownTeamId, conditionRev]);
+  const hasCond = !!condFiles && condFiles.length > 0;
+  // مبيع المحافظة من الملفات النشطة — يشمل الكوديشن فقط إن كان ملفه مفعّلاً بينها
+  const condInTotal = hasCond && condFiles!.some(id => fileIds.includes(id));
+
   // ── دمج: محافظة ← شركات (مبيع + مندوبون) ─────────────────────────────────
   const cells = useMemo(() => {
     const out = new Map<string, ProvinceCell>();
     const cell = (name: string) => {
       const k = norm(name);
-      if (!out.has(k)) out.set(k, { name, total: 0, companies: [], repCount: 0 });
+      if (!out.has(k)) out.set(k, { name, total: 0, cond: 0, companies: [], repCount: 0, marketers: [] });
       return out.get(k)!;
     };
     const company = (pc: ProvinceCell, name: string) => {
       let c = pc.companies.find(x => norm(x.name) === norm(name));
-      if (!c) { c = { name, value: 0, reps: [] }; pc.companies.push(c); }
+      if (!c) { c = { name, value: 0, cond: 0, reps: [] }; pc.companies.push(c); }
       return c;
     };
     for (const [k, v] of salesRows.prov) { if (k !== BAGHDAD) cell(v.name).total = v.value; }
@@ -388,16 +486,25 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       if (norm(r.p) === BAGHDAD || norm(r.c) === UNASSIGNED) continue;
       company(cell(r.p), r.c).value += r.v;
     }
+    for (const [k, v] of cond.prov) { if (k !== BAGHDAD) cell(v.name).cond += v.value; }
+    for (const r of cond.pc) {
+      if (norm(r.p) === BAGHDAD || norm(r.c) === UNASSIGNED) continue;
+      company(cell(r.p), r.c).cond += r.v;
+    }
     for (const pr of repData) {
       if (norm(pr.provinceName) === BAGHDAD) continue;
       const pc = cell(pr.provinceName);
-      for (const rep of pr.reps) company(pc, companyOf.get(rep.id) || NO_COMPANY).reps.push(rep);
+      // المسوق متعدد الشركات بلا شركة رئيسية — قائمة واحدة للمحافظة لا تحت شركة
+      for (const rep of pr.reps) {
+        if (marketers) pc.marketers.push(rep);
+        else company(pc, companyOf.get(rep.id) || NO_COMPANY).reps.push(rep);
+      }
       pc.repCount = pr.reps.length;
       if (!salesRows.prov.has(norm(pr.provinceName))) pc.total = pr.totalValue;
     }
     for (const pc of out.values()) pc.companies.sort((a, b) => b.value - a.value);
     return out;
-  }, [salesRows, repData, companyOf]);
+  }, [salesRows, repData, companyOf, cond, marketers]);
 
   const list = useMemo(() => [...cells.values()].sort((a, b) => b.total - a.total), [cells]);
   const maxVal = Math.max(1, ...list.map(c => c.total));
@@ -418,10 +525,19 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const activeCell = active ? cells.get(norm(active)) : undefined;
 
   const totals = useMemo(() => {
-    const cos = new Set<string>(); const rp = new Set<number>(); let v = 0;
-    for (const c of list) { v += c.total; c.companies.forEach(x => { cos.add(norm(x.name)); x.reps.forEach(r => rp.add(r.id)); }); }
-    return { value: v, companies: cos.size, reps: rp.size, provinces: list.filter(c => c.total !== 0 || c.repCount > 0).length };
+    const cos = new Set<string>(); const rp = new Set<number>(); let v = 0, cd = 0;
+    for (const c of list) {
+      v += c.total; cd += c.cond;
+      c.companies.forEach(x => { cos.add(norm(x.name)); x.reps.forEach(r => rp.add(r.id)); });
+      c.marketers.forEach(r => rp.add(r.id));
+    }
+    return { value: v, cond: cd, companies: cos.size, reps: rp.size, provinces: list.filter(c => c.total !== 0 || c.repCount > 0).length };
   }, [list]);
+  // كوديشن خارج المقارنة: ايتمه غير مُسنَد لأي مدير شركة (تبويب المحافظة يستبعده كمبيع المحافظة نفسه)
+  const condOutside = useMemo(() => {
+    let placed = 0; for (const v of cond.prov.values()) placed += v.value;
+    return cond.all - placed;
+  }, [cond]);
 
   // مواقع مناطق المبيع — عند فتح بغداد، ولكل قائمة مناطق جديدة (تغيّر الشهر/الملفات)
   const bgNamesKey = useMemo(() => [...new Set(salesRows.bga.map(x => x.a))].sort().join('|'), [salesRows.bga]);
@@ -460,10 +576,57 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const pickProvince = (name: string) => { setSel(name); setDirProvince(name); setTeamsOpen(true); };
   const openBaghdad = () => { setBgOpen(true); setBgSide(null); setBgArea(null); setHover(null); };
 
+  // حصّة كل مندوب من الأساس: مبيع الشركة بالمحافظة، أو مبيع المحافظة كلها للمسوقين
+  const repList = (rows: RepRow[], base: number) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      {[...rows].sort((a, b) => b.netValue - a.netValue).map(r => {
+        const share = base > 0 ? Math.max(0, Math.min(100, (r.netValue / base) * 100)) : 0;
+        return (
+          <div key={r.id}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#334155', fontWeight: 600 }}>
+                <span style={{ width: 17, height: 17, borderRadius: '50%', background: marketers ? '#b45309' : '#0f766e', color: '#fff', fontSize: 9.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{r.name.trim().charAt(0)}</span>
+                {r.name}
+              </span>
+              <span style={{ fontWeight: 800, color: r.netValue < 0 ? '#be123c' : '#0f766e' }}>{fmtVal(r.netValue)} <span style={{ color: '#94a3b8', fontWeight: 600 }}>· {share.toFixed(share >= 10 ? 0 : 1)}%</span></span>
+            </div>
+            <div style={{ height: 4, borderRadius: 4, background: '#e9eef5', marginTop: 4 }}>
+              <div style={{ height: '100%', width: `${share}%`, minWidth: share > 0 ? 3 : 0, background: marketers ? 'linear-gradient(90deg,#b45309,#fbbf24)' : 'linear-gradient(90deg,#0f766e,#5eead4)', borderRadius: 4 }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // الكوديشن مقابل مبيع المحافظة/الشركة — رقم + نسبة + شريط
+  const condBar = (part: number, whole: number, label: string) => {
+    const p = pctOf(part, whole);
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11 }}>
+          <span style={{ fontWeight: 700, color: '#0e7490' }}>{label} {fmtVal(part)}</span>
+          <span style={{ fontWeight: 800, color: '#0e7490' }}>{whole > 0 ? pctTxt(p) : '—'}</span>
+        </div>
+        <div style={{ height: 3, borderRadius: 3, background: '#e6f4f7', marginTop: 3 }}>
+          <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, p))}%`, minWidth: part > 0 ? 3 : 0, background: '#0891b2', borderRadius: 3 }} />
+        </div>
+      </div>
+    );
+  };
+
   const companyPanel = (c: ProvinceCell) => {
     const cmax = Math.max(1, ...c.companies.map(x => Math.abs(x.value)));
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {marketers && (
+          <div style={{ border: '1px solid #fde68a', borderRadius: 10, padding: '7px 9px', background: '#fffbeb' }}>
+            <div style={{ fontWeight: 800, fontSize: 12, color: '#92400e', marginBottom: 6 }}>🏪 المسوقون في {c.name}</div>
+            {c.marketers.length === 0
+              ? <span style={{ fontSize: 11, color: '#a16207' }}>لا يوجد مسوّق في هذه المحافظة.</span>
+              : repList(c.marketers, c.total)}
+          </div>
+        )}
         {c.companies.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13 }}>لا توجد شركات مسجّلة في هذه المحافظة للفترة المختارة.</div>}
         {c.companies.map(co => (
           <div key={co.name} style={{ border: '1px solid #e6ebf2', borderRadius: 10, padding: '6px 9px', background: '#fbfcfe' }}>
@@ -474,30 +637,10 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
             <div style={{ height: 4, borderRadius: 4, background: '#e9eef5', margin: '5px 0' }}>
               <div style={{ height: '100%', width: `${Math.max(3, (Math.abs(co.value) / cmax) * 100)}%`, background: 'linear-gradient(90deg,#2f66d6,#78a3f5)', borderRadius: 5 }} />
             </div>
-            {co.reps.length === 0
+            {hasCond && co.cond !== 0 && <div style={{ marginBottom: 6 }}>{condBar(co.cond, co.value, 'كوديشن')}</div>}
+            {!marketers && (co.reps.length === 0
               ? <span style={{ fontSize: 10.5, color: '#94a3b8' }}>لا يوجد مندوب علمي بعد</span>
-              : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  {[...co.reps].sort((a, b) => b.netValue - a.netValue).map(r => {
-                    // حصّة المندوب من مبيع الشركة بالمحافظة = إنتاجيته الفعلية
-                    const share = co.value > 0 ? Math.max(0, Math.min(100, (r.netValue / co.value) * 100)) : 0;
-                    return (
-                      <div key={r.id}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#334155', fontWeight: 600 }}>
-                            <span style={{ width: 17, height: 17, borderRadius: '50%', background: '#0f766e', color: '#fff', fontSize: 9.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{r.name.trim().charAt(0)}</span>
-                            {r.name}
-                          </span>
-                          <span style={{ fontWeight: 800, color: r.netValue < 0 ? '#be123c' : '#0f766e' }}>{fmtVal(r.netValue)} <span style={{ color: '#94a3b8', fontWeight: 600 }}>· {share.toFixed(share >= 10 ? 0 : 1)}%</span></span>
-                        </div>
-                        <div style={{ height: 4, borderRadius: 4, background: '#e9eef5', marginTop: 4 }}>
-                          <div style={{ height: '100%', width: `${share}%`, minWidth: share > 0 ? 3 : 0, background: 'linear-gradient(90deg,#0f766e,#5eead4)', borderRadius: 4 }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              : repList(co.reps, co.value))}
           </div>
         ))}
       </div>
@@ -639,24 +782,32 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       {/* شريط ملخص */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 12 }}>
         {([
-          ['صافي مبيع المحافظات', `${fmtVal(totals.value)} ${currencyLabel}`, '#2f66d6'],
-          ['الشركات', String(totals.companies), '#0f766e'],
-          ['المندوبون العلميون', String(totals.reps), '#7c3aed'],
-          ['المحافظات النشطة', `${totals.provinces} / 17`, '#ea580c'],
-        ] as const).map(([l, v, c]) => (
+          ['صافي مبيع المحافظات', `${fmtVal(totals.value)} ${currencyLabel}`, '#2f66d6', ''],
+          ...(hasCond ? [['كوديشن المحافظات', `${fmtVal(totals.cond)} ${currencyLabel}`, '#0891b2', `${pctTxt(pctOf(totals.cond, totals.value))} من صافي مبيع المحافظات`]] : []),
+          ['الشركات', String(totals.companies), '#0f766e', ''],
+          [marketers ? 'المسوقون' : 'المندوبون العلميون', String(totals.reps), marketers ? '#b45309' : '#7c3aed', ''],
+          ['المحافظات النشطة', `${totals.provinces} / 17`, '#ea580c', ''],
+        ] as [string, string, string, string][]).map(([l, v, c, sub]) => (
           <div key={l} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '10px 14px', position: 'relative', overflow: 'hidden' }}>
             <span style={{ position: 'absolute', insetInlineStart: 0, top: 0, bottom: 0, width: 4, background: c }} />
             <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>{l}</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>{v}</div>
+            {sub && <div style={{ fontSize: 11, color: '#0e7490', fontWeight: 700, marginTop: 1 }}>{sub}</div>}
           </div>
         ))}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         <button type="button" onClick={() => { setDirProvince(null); setTeamsOpen(true); }}
           style={{ border: '1px solid #cbd5e1', background: '#0f172a', color: '#fff', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
           👥 فرق المحافظات (التيم ليدر والمندوبون)
         </button>
+        {onAddCondition && (
+          <button type="button" onClick={onAddCondition}
+            style={{ border: '1px solid #0891b2', background: '#ecfeff', color: '#0e7490', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            📥 إدخال كوديشن (إكسل)
+          </button>
+        )}
       </div>
       {teamsOpen && (
         <ProvinceTeamsDirectory initialProvince={dirProvince} token={token} fileIds={fileIds} applyMonth={applyMonth} fmtVal={fmtVal} currencyLabel={currencyLabel} onClose={() => setTeamsOpen(false)} />
@@ -790,8 +941,17 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
               </div>
               <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, background: '#eef3fd', color: '#1f4fb4', borderRadius: 999, padding: '4px 12px' }}>{activeCell.companies.length} شركات</span>
-                <span style={{ fontSize: 12, fontWeight: 700, background: '#f3efff', color: '#6d28d9', borderRadius: 999, padding: '4px 12px' }}>{activeCell.companies.reduce((s, x) => s + x.reps.length, 0)} مندوب علمي</span>
+                <span style={{ fontSize: 12, fontWeight: 700, background: marketers ? '#fef3c7' : '#f3efff', color: marketers ? '#92400e' : '#6d28d9', borderRadius: 999, padding: '4px 12px' }}>{activeCell.companies.reduce((s, x) => s + x.reps.length, 0) + activeCell.marketers.length} {repWord}</span>
               </div>
+              {hasCond && (
+                <div style={{ border: '1px solid #a5f3fc', background: '#f0fdff', borderRadius: 10, padding: '7px 10px', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: '#0e7490' }}>الكوديشن مقابل مبيع المحافظة</span>
+                    {loadingCond && <span style={{ fontSize: 10.5, color: '#64748b' }}>جاري التحميل…</span>}
+                  </div>
+                  {condBar(activeCell.cond, activeCell.total, 'كوديشن')}
+                </div>
+              )}
               {companyPanel(activeCell)}
             </>
           ) : (
@@ -801,6 +961,76 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           )}
         </div>
       </div>
+
+      {/* ── الكوديشن مقابل مبيع كل محافظة الكلي ── */}
+      {hasCond && !bgOpen && (() => {
+        const rows = list.filter(c => c.total !== 0 || c.cond !== 0);
+        const th: React.CSSProperties = { padding: '7px 10px', fontSize: 12, fontWeight: 800, color: '#111827', background: '#f1f5f9', borderBottom: '1px solid #94a3b8', textAlign: 'right', whiteSpace: 'nowrap' };
+        const td: React.CSSProperties = { padding: '6px 10px', fontSize: 12.5, color: '#111827', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' };
+        const num: React.CSSProperties = { ...td, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums' };
+        return (
+          <div style={{ marginTop: 14, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>📊 الكوديشن مقابل مبيع المحافظة الكلي</span>
+              <span style={{ fontSize: 11.5, color: '#64748b' }}>
+                {condInTotal
+                  ? 'مبيع المحافظة الكلي يشمل الكوديشن (ملفه مفعّل ضمن الملفات النشطة).'
+                  : 'مبيع المحافظة الكلي من الملفات النشطة — ملف الكوديشن غير مفعّل بينها فلا يدخل ضمنه.'}
+              </span>
+            </div>
+            {rows.length === 0 ? (
+              <div style={{ color: '#94a3b8', fontSize: 13 }}>{loadingCond ? 'جاري تحميل الكوديشن…' : 'لا مبيعات كوديشن ولا مبيع محافظات في الفترة المختارة.'}</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 520 }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>المحافظة</th>
+                      <th style={{ ...th, textAlign: 'left' }}>مبيع المحافظة الكلي ({currencyLabel})</th>
+                      <th style={{ ...th, textAlign: 'left' }}>الكوديشن ({currencyLabel})</th>
+                      <th style={{ ...th, textAlign: 'left', minWidth: 160 }}>نسبة الكوديشن من الكلي</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(c => {
+                      const p = pctOf(c.cond, c.total);
+                      const on = sel && norm(sel) === norm(c.name);
+                      return (
+                        <tr key={c.name} onClick={() => setSel(c.name)} style={{ cursor: 'pointer', background: on ? '#f8fafc' : undefined }}>
+                          <td style={{ ...td, fontWeight: on ? 900 : 700 }}>{c.name}</td>
+                          <td style={num}>{fmtVal(c.total)}</td>
+                          <td style={num}>{c.cond !== 0 ? fmtVal(c.cond) : '—'}</td>
+                          <td style={num}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                              <div style={{ flex: 1, maxWidth: 110, height: 5, borderRadius: 3, background: '#e2e8f0', overflow: 'hidden', direction: 'rtl' }}>
+                                <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, p))}%`, background: '#0891b2' }} />
+                              </div>
+                              <span style={{ fontWeight: 800, minWidth: 42 }}>{c.total > 0 && c.cond !== 0 ? pctTxt(p) : '—'}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={{ ...td, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8' }}>المجموع</td>
+                      <td style={{ ...num, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8' }}>{fmtVal(totals.value)}</td>
+                      <td style={{ ...num, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8' }}>{fmtVal(totals.cond)}</td>
+                      <td style={{ ...num, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8' }}>{pctTxt(pctOf(totals.cond, totals.value))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+            {Math.abs(condOutside) >= 1 && (
+              <div style={{ marginTop: 8, fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 10px' }}>
+                ⚠️ {fmtVal(condOutside)} {currencyLabel} من الكوديشن خارج المقارنة: ايتماتها غير مُسندة لأي مدير شركة (تُستبعد من مبيع المحافظة بنفس القاعدة). أسندها من «الايتمات» في السوبر أدمن لتظهر هنا.
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

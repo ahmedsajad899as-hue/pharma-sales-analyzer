@@ -9,6 +9,7 @@ import { Icon } from '../config/icons';
 import RepSelectOptions, { type GroupableRep, groupRepsByTeam } from '../components/RepSelectOptions';
 import { sendEngagementPing } from '../lib/engagementPing';
 import IraqRepsMap from '../components/IraqRepsMap';
+import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
 import MonthChips, { useSalesMonths, monthDateRange, MONTH_CUSTOM } from '../components/MonthChips';
 
 /* Normalise Arabic area/name text so spelling variants collapse: unify alef/teh-marbuta,
@@ -992,6 +993,20 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   }, [canToggleRepKind]);
   // «علمي بغداد» لا تعرض تيم ليدرية/مندوبي المحافظات (فرق المحافظات)؛ الخريطة تبقى بالقائمة الكاملة
   const sciReps = useMemo(() => filterByKind(sciRepsAll, repKindView), [sciRepsAll, repKindView, filterByKind]);
+  // «مندوبين المحافظات»: نفس زر العلميين / المسوقين بحالة مستقلة — تبديله لا يمسّ تقرير «علمي بغداد».
+  const [provKind, setProvKind] = useState<'scientific' | 'pharmacy'>(() => sessionStorage.getItem('rpt_provKind') === 'pharmacy' ? 'pharmacy' : 'scientific');
+  useEffect(() => {
+    if (myRepKind === 'pharmacy' && user?.role === 'team_leader' && !sessionStorage.getItem('rpt_provKind')) setProvKind('pharmacy');
+  }, [myRepKind, user?.role]);
+  const provReps = useMemo(
+    () => (canToggleRepKind ? sciRepsAll.filter(r => (r.repKind === 'pharmacy') === (provKind === 'pharmacy')) : sciRepsAll),
+    [sciRepsAll, provKind, canToggleRepKind],
+  );
+  // كوديشن المحافظات من إكسل ← ملف الكوديشن، ويُقارَن بمبيع كل محافظة في الخريطة
+  const canProvCondition = hasFeature('province_condition_import') && user?.role !== 'scientific_rep';
+  const [showProvCondition, setShowProvCondition] = useState(false);
+  const [provCondRev, setProvCondRev] = useState(0);
+  const [provCondMsg, setProvCondMsg] = useState('');
   // المسوقون: تقرير مجموعة — «grp:all» = بغداد (كل المسوقين)، «grp:<القسم>» = الكرخ/الرصافة.
   // يُفتح «بغداد» افتراضياً عند دخول المسوقين، ثم يمكن تضييقه لقسم أو مندوب.
   const marketersView = canToggleRepKind && repKindView === 'pharmacy';
@@ -4254,6 +4269,21 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       {mode === 'provinces' && (
         <>
           <div className="filter-card" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {canToggleRepKind && (
+              <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2, width: 'fit-content' }}>
+                {([['scientific', '🩺 العلميين'], ['pharmacy', '🏪 المسوقين']] as const).map(([k, label]) => (
+                  <button key={k} type="button"
+                    onClick={() => { setProvKind(k); try { sessionStorage.setItem('rpt_provKind', k); } catch { /* ignore */ } }}
+                    style={{
+                      border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer',
+                      background: provKind === k ? '#fff' : 'transparent',
+                      color: provKind === k ? '#0f172a' : '#64748b',
+                      fontWeight: provKind === k ? 700 : 500,
+                      boxShadow: provKind === k ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
+                    }}>{label}</button>
+                ))}
+              </div>
+            )}
             <MonthChips months={monthsState.months} undatedCount={monthsState.undatedCount} value={selMonth} onChange={monthsState.setMonth} loading={monthsState.loading} />
             <span style={{ flex: 1 }} />
             <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 999, overflow: 'hidden', background: '#fff' }}>
@@ -4262,7 +4292,22 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               ))}
             </div>
           </div>
-          <IraqRepsMap reps={sciRepsAll} token={token} fileIds={activeFileIds} applyMonth={applyMonth} months={monthsState.months.map(m => m.ym)} ready={monthsReady} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'} />
+          {provCondMsg && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 0', padding: '8px 12px', borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#065f46', fontSize: 13, fontWeight: 600 }}>
+              <span style={{ flex: 1 }}>✅ {provCondMsg}</span>
+              <button type="button" onClick={() => setProvCondMsg('')} title="إخفاء"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#047857', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+            </div>
+          )}
+          <IraqRepsMap reps={provReps} token={token} fileIds={activeFileIds} applyMonth={applyMonth} months={monthsState.months.map(m => m.ym)} ready={monthsReady} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'}
+            repKind={canToggleRepKind ? provKind : undefined}
+            conditionRev={provCondRev}
+            onAddCondition={canProvCondition ? () => { setProvCondMsg(''); setShowProvCondition(true); } : undefined} />
+          {showProvCondition && token && (
+            <WarehouseGapImportModal token={token} provinceMode
+              onClose={() => setShowProvCondition(false)}
+              onSaved={(msg) => { setShowProvCondition(false); setProvCondMsg(msg); setProvCondRev(v => v + 1); }} />
+          )}
         </>
       )}
 

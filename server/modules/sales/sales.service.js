@@ -2080,18 +2080,23 @@ export async function getWarehouseGapScope(user) {
     .map(([item, company]) => ({ item, company }))
     .sort((a, b) => a.item.localeCompare(b.item, 'ar'));
 
-  return { reps, items, companies, warehouses, itemCompanies };
+  // عمود «المحافظة» في كوديشن «مندوبين المحافظات» — الأسماء الرسمية كما تطابقها التقارير.
+  const provinces = (await prisma.province.findMany({ select: { name: true } }).catch(() => []))
+    .map(p => p.name).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ar'));
+
+  return { reps, items, companies, warehouses, itemCompanies, provinces };
 }
 
 /**
  * يبني ملف الإكسل الخاص بمستخدم واحد (Buffer جاهز للتنزيل).
  * @param {{id:number, role:string, displayName?:string, username?:string}} user
  */
-export async function buildWarehouseGapTemplateForUser(user) {
+export async function buildWarehouseGapTemplateForUser(user, { withProvince = false } = {}) {
   const scope = await getWarehouseGapScope(user);
-  const buffer = await buildWarehouseGapWorkbook(scope);
+  // عمود المحافظة لنموذج «مندوبين المحافظات» وحده — نموذج بغداد يبقى كما هو.
+  const buffer = await buildWarehouseGapWorkbook({ ...scope, provinces: withProvince ? scope.provinces.filter(p => p.trim() !== 'بغداد') : [] });
   const who = (user.displayName || user.username || 'مستخدم').replace(/[\\/:*?"<>|]/g, '').trim();
-  return { buffer, filename: `نموذج مبيعات مذاخر - ${who}.xlsx` };
+  return { buffer, filename: `${withProvince ? 'نموذج كوديشن المحافظات' : 'نموذج مبيعات مذاخر'} - ${who}.xlsx` };
 }
 
 /**
@@ -2297,12 +2302,19 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
       // المندوب العلمي صاحب الطلبية (من طلبيات البوت) — لا عمود مُهيكَل له في
       // Sale، فيُحفَظ في rawData كبقية حقول الفاتورة (المذخر/البونص/رقم الفاتورة).
       scientificRep: r.scientificRep ?? null,
+      // محافظة الصف (كوديشن «مندوبين المحافظات») — التقارير تقرأ مفتاح province حين
+      // لا محافظة لمنطقة الصف (resolveRawProvinceName / loadProvinceResolver).
+      province:      String(r.province ?? '').trim() || null,
       source:        r.source || 'manual-invoice',
     });
 
+    const areaNorm = normalizeAr(r.area);
     validRows.push({
       repName:  normalizeAr(repForRow) || 'غير محدد',
-      area:     normalizeAr(r.area)    || 'غير محدد',
+      area:     areaNorm || 'غير محدد',
+      // تملأ محافظة منطقة جديدة/بلا محافظة فقط (findOrCreateArea لا يكتب فوق محافظة
+      // محفوظة). بلا منطقة لا تُمرَّر، وإلا أُسندت المحافظة لمنطقة «غير محدد» المشتركة.
+      province: areaNorm ? (String(r.province ?? '').trim() || undefined) : undefined,
       item:     normalizeAr(itemName),
       company:  (r.company && !isPlaceholderCompanyValue(r.company)) ? normalizeAr(r.company) : undefined,
       customer: r.pharmacy ? normalizeAr(cleanPharmacyName(r.pharmacy)) : undefined, // pharmacy = buyer = Customer (strip prefixes)

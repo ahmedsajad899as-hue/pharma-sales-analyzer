@@ -39,10 +39,12 @@ function headerKey(s) {
  *   - المذخر: قائمة منسدلة من مذاخر دفتر "رصيد المذاخر" الخاص بالمستخدم، مع
  *     السماح بكتابة اسم مختلف غير موجود فيها (قائمة اقتراح لا تقييد).
  *   - القيمة الإجمالية: صيغة حيّة = الكمية × سعر الوحدة، تتحدّث تلقائياً.
- * @param {{ reps: string[], items: string[], companies: string[], warehouses?: string[], itemCompanies?: {item: string, company: string}[] }} scope
+ *   - المحافظة (اختياري، provinces غير فارغة — نموذج «مندوبين المحافظات»): عمود
+ *     أخير بقائمة المحافظات. أخيراً لا وسطاً كي لا تتزحزح أعمدة الصيغ (E/F/G/H) والبذور.
+ * @param {{ reps: string[], items: string[], companies: string[], warehouses?: string[], itemCompanies?: {item: string, company: string}[], provinces?: string[] }} scope
  * @returns {Promise<Buffer>}
  */
-export async function buildWarehouseGapWorkbook({ reps = [], items = [], companies = [], warehouses = [], itemCompanies = [] }) {
+export async function buildWarehouseGapWorkbook({ reps = [], items = [], companies = [], warehouses = [], itemCompanies = [], provinces = [] }) {
   const now = new Date();
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const yyyy = now.getFullYear();
@@ -52,8 +54,9 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
   const HEADERS = [
     `اليوم (شهر ${mm}/${yyyy})`, 'اسم الصيدلية', 'المنطقة', 'المندوب', 'الايتم', 'الشركة',
     'الكمية', 'سعر الوحدة (اختياري)', 'القيمة الإجمالية (تُحسب تلقائياً)', 'اسم المذخر', 'رقم الفاتورة', 'ملاحظات',
+    ...(provinces.length ? ['المحافظة'] : []),
   ];
-  const COL_ITEM = 5, COL_COMPANY = 6;
+  const COL_ITEM = 5, COL_COMPANY = 6, COL_PROVINCE = 13;
 
   const wb = new ExcelJS.Workbook();
 
@@ -64,21 +67,22 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
   dataSheet.columns = [
     { width: 16 }, { width: 24 }, { width: 16 }, { width: 20 }, { width: 24 }, { width: 20 },
     { width: 10 }, { width: 16 }, { width: 20 }, { width: 18 }, { width: 14 }, { width: 24 },
+    ...(provinces.length ? [{ width: 16 }] : []),
   ];
 
   // ── 2) تبويب القوائم المرجعية — مصدر القوائم المنسدلة ──
   // الأعمدة E/F = جدول ربط (ايتم ← شركته) تستعمله صيغة عمود الشركة بـ INDEX/MATCH.
   const refSheet = wb.addWorksheet(REF_SHEET, { views: [{ rightToLeft: true }] });
-  refSheet.addRow(['المندوب', 'الشركة', 'الايتم', 'المذخر', 'ربط: الايتم', 'ربط: الشركة']);
+  refSheet.addRow(['المندوب', 'الشركة', 'الايتم', 'المذخر', 'ربط: الايتم', 'ربط: الشركة', 'المحافظة']);
   refSheet.getRow(1).font = { bold: true };
-  const maxLen = Math.max(reps.length, items.length, companies.length, warehouses.length, itemCompanies.length, 1);
+  const maxLen = Math.max(reps.length, items.length, companies.length, warehouses.length, itemCompanies.length, provinces.length, 1);
   for (let i = 0; i < maxLen; i++) {
     refSheet.addRow([
       reps[i] ?? '', companies[i] ?? '', items[i] ?? '', warehouses[i] ?? '',
-      itemCompanies[i]?.item ?? '', itemCompanies[i]?.company ?? '',
+      itemCompanies[i]?.item ?? '', itemCompanies[i]?.company ?? '', provinces[i] ?? '',
     ]);
   }
-  refSheet.columns = [{ width: 22 }, { width: 22 }, { width: 26 }, { width: 22 }, { width: 26 }, { width: 22 }];
+  refSheet.columns = [{ width: 22 }, { width: 22 }, { width: 26 }, { width: 22 }, { width: 26 }, { width: 22 }, { width: 18 }];
 
   // ── قوائم منسدلة صارمة (اختيار فقط) على المندوب/الشركة/الايتم. بلا رسالة
   // توجيهية (Input Message): جُرِّبت وأُزيلت — المستخدم وجدها معيقة (تغطي
@@ -88,6 +92,8 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
     { col: 4, refCol: 'A', len: reps.length, label: 'المندوب' },
     { col: COL_COMPANY, refCol: 'B', len: companies.length, label: 'الشركة' },
     { col: COL_ITEM, refCol: 'C', len: items.length, label: 'الايتم' },
+    // المحافظة صارمة: اسم خارج القائمة لن يُطابَق بمحافظة فيضيع صفّه من المقارنة.
+    { col: COL_PROVINCE, refCol: 'G', len: provinces.length, label: 'المحافظة' },
   ];
   for (const { col, refCol, len, label } of strictCols) {
     if (len === 0) continue; // لا قائمة متاحة لهذا المستخدم — يبقى العمود نصاً حراً كاحتياط
@@ -163,7 +169,7 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
   // كل الأسماء الصالحة في نفس العمود (ولو مخفية)، يبدأ إكسل باقتراحها فور
   // كتابة أول حرف مطابق — أقرب سلوك ممكن لاقتراح فوري بلا حاجة لحساب بالتطبيق.
   const seedStart = MAX_ROWS + 5;
-  const seedLists = { 4: reps, 5: items, 6: companies, 10: warehouses };
+  const seedLists = { 4: reps, 5: items, 6: companies, 10: warehouses, ...(provinces.length ? { [COL_PROVINCE]: provinces } : {}) };
   let seedMaxLen = 0;
   for (const list of Object.values(seedLists)) seedMaxLen = Math.max(seedMaxLen, list.length);
   for (let i = 0; i < seedMaxLen; i++) {
@@ -193,6 +199,7 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
     ['10', 'الورقة محمية جزئياً لمنع تغيير الترويسات أو القوائم بالخطأ — خانات التعبئة فقط (صفوف البيانات) قابلة للتحرير، وهذا لا يمنعك من إدخال أي بيع.'],
     ['11', 'الحقول الإلزامية: اليوم، اسم الصيدلية، المندوب، الايتم، الكمية. (الشركة تُحسب تلقائياً من الايتم.)'],
     ['12', 'بعد التعبئة احفظ الملف وارفعه من نفس الشاشة التي حمّلت منها هذا النموذج (أو أرسله لمن يملك حساباً في التطبيق ليرفعه) — ستُحتسب هذه المبيعات تلقائياً ضمن ميركاتو في كل التقارير.'],
+    ...(provinces.length ? [['13', 'عمود "المحافظة" (آخر عمود): اختر محافظة البيع من القائمة — عليه تُقارَن مبيعات الكوديشن بمبيع المحافظة الكلي في «مندوبين المحافظات». إن تُرك فارغاً تُستنتج المحافظة من المنطقة.']] : []),
   ];
   instrSheet.addRows(instrRows);
   instrSheet.columns = [{ width: 4 }, { width: 100 }];
@@ -230,7 +237,7 @@ function resolveDayCell(raw, year, month) {
 /**
  * يقرأ ملفاً مُعبَّأً بنفس شكل buildWarehouseGapWorkbook ويُرجع صفوفاً بشكل
  * صفوف insertManualSales: { repName, item, company?, quantity, totalValue?,
- * unitPrice?, pharmacy?, warehouse?, area?, date?, invoiceNumber?, notes? }
+ * unitPrice?, pharmacy?, warehouse?, area?, date?, invoiceNumber?, notes?, province? }
  * @param {Buffer} buffer
  * @returns {{ rows: object[], warnings: string[] }}
  */
@@ -270,6 +277,7 @@ export function parseWarehouseGapWorkbook(buffer) {
     warehouse:     colIdx('اسم المذخر'),
     invoiceNumber: colIdx('رقم الفاتورة'),
     notes:         colIdx('ملاحظات'),
+    province:      colIdx('المحافظة'),
   };
 
   if (idx.item === -1 || idx.quantity === -1 || idx.repName === -1) {
@@ -308,6 +316,7 @@ export function parseWarehouseGapWorkbook(buffer) {
       date:          idx.date          !== -1 ? resolveDayCell(r[idx.date], ymYear, ymMonth) : undefined,
       invoiceNumber: idx.invoiceNumber !== -1 ? (String(r[idx.invoiceNumber] ?? '').trim() || undefined) : undefined,
       notes:         idx.notes         !== -1 ? (String(r[idx.notes]        ?? '').trim() || undefined) : undefined,
+      province:      idx.province      !== -1 ? (String(r[idx.province]     ?? '').trim() || undefined) : undefined,
     });
   }
 

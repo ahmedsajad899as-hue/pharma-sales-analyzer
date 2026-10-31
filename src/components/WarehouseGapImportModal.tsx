@@ -17,12 +17,15 @@ interface Props {
   token: string;
   onClose: () => void;
   onSaved: (msg: string, fileId?: number) => void;
+  /** «مندوبين المحافظات»: عمود محافظة لكل صف (نموذج الإكسل أيضاً) — عليه تُقارَن
+   *  مبيعات الكوديشن بمبيع المحافظة الكلي. */
+  provinceMode?: boolean;
 }
 
 interface GapRow {
   date: string; pharmacy: string; area: string; repName: string; company: string;
   item: string; quantity: string; unitPrice: string; totalValue: string;
-  warehouse: string; invoiceNumber: string; notes: string;
+  warehouse: string; invoiceNumber: string; notes: string; province: string;
 }
 
 type NameCheck = {
@@ -32,11 +35,11 @@ type NameCheck = {
 };
 
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/,/g, '').trim()); return isFinite(n) ? n : ''; };
-const emptyRow = (): GapRow => ({ date: '', pharmacy: '', area: '', repName: '', company: '', item: '', quantity: '', unitPrice: '', totalValue: '', warehouse: '', invoiceNumber: '', notes: '' });
+const emptyRow = (): GapRow => ({ date: '', pharmacy: '', area: '', repName: '', company: '', item: '', quantity: '', unitPrice: '', totalValue: '', warehouse: '', invoiceNumber: '', notes: '', province: '' });
 
-interface Scope { reps: string[]; items: string[]; companies: string[]; warehouses: string[]; }
+interface Scope { reps: string[]; items: string[]; companies: string[]; warehouses: string[]; provinces?: string[]; }
 
-export default function WarehouseGapImportModal({ token, onClose, onSaved }: Props) {
+export default function WarehouseGapImportModal({ token, onClose, onSaved, provinceMode = false }: Props) {
   const authH = { Authorization: `Bearer ${token}` };
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -53,6 +56,9 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
   // نطاق المستخدم (شركاته/ايتماته/فريقه/مذاخره) لتغذية الاقتراحات الذكية في
   // جدول المراجعة — نفس البيانات المبنيّة منها نموذج الإكسل، بصيغة JSON.
   const [scope, setScope] = useState<Scope>({ reps: [], items: [], companies: [], warehouses: [] });
+  const provinceOptions = (scope.provinces ?? []).filter(p => p.trim() !== 'بغداد');
+  // «المحافظة لكل الصفوف»: تملأ الخانات الفارغة فقط — ما اختير صفاً بصف يبقى.
+  const fillProvince = (p: string) => setRows(rs => rs.map(r => (r.province.trim() ? r : { ...r, province: p })));
 
   useEffect(() => {
     fetch(`${API}/api/sales/warehouse-gap-scope`, { headers: authH })
@@ -67,7 +73,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
   const downloadTemplate = async () => {
     setError(''); setDownloading(true);
     try {
-      const res = await fetch(`${API}/api/sales/warehouse-gap-template`, { headers: authH });
+      const res = await fetch(`${API}/api/sales/warehouse-gap-template${provinceMode ? '?province=1' : ''}`, { headers: authH });
       if (!res.ok) throw new Error('تعذّر تنزيل النموذج');
       const blob = await res.blob();
       const disposition = res.headers.get('Content-Disposition') || '';
@@ -102,6 +108,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
         unitPrice: r.unitPrice != null ? String(num(r.unitPrice)) : '',
         totalValue: r.totalValue != null ? String(num(r.totalValue)) : '',
         warehouse: String(r.warehouse ?? ''), invoiceNumber: String(r.invoiceNumber ?? ''), notes: String(r.notes ?? ''),
+        province: String(r.province ?? ''),
       })));
       if (parsed.length === 0) setError('لم يتم العثور على أي صف صالح في الملف.');
     } catch (e: any) {
@@ -131,6 +138,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
       date: r.date || undefined,
       invoiceNumber: r.invoiceNumber.trim() || undefined,
       notes: r.notes.trim() || undefined,
+      province: r.province.trim() || undefined,
       source: 'warehouse-gap-template',
     }));
 
@@ -181,6 +189,11 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
     setError('');
     const payloadRows = buildPayload();
     if (payloadRows.length === 0) { setError('لا توجد صفوف صالحة — كل صف يحتاج مندوباً ومادة وكمية أكبر من صفر.'); return; }
+    // صف بلا محافظة ولا منطقة لا يُعرف مكانه فيضيع من مقارنة المحافظات.
+    if (provinceMode) {
+      const lost = payloadRows.filter(r => !r.province && !r.area).length;
+      if (lost > 0) { setError(`${lost} صف بلا محافظة ولا منطقة — اختر المحافظة (أو «المحافظة لكل الصفوف») قبل الحفظ.`); return; }
+    }
 
     setChecking(true);
     let check: { items: NameCheck[]; companies: NameCheck[] } | null = null;
@@ -227,6 +240,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
     { key: 'invoiceNumber', label: 'رقم الفاتورة', w: 90 },
     { key: 'notes', label: 'ملاحظات', w: 140 },
   ];
+  if (provinceMode) cols.splice(3, 0, { key: 'province', label: 'المحافظة*', w: 120 });
 
   return (
     <div style={overlay}>
@@ -277,10 +291,16 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
 
       <div style={panel} dir="rtl">
         <div style={header}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>📑 مبيعات مذاخر ناقصة من ميركاتو</h3>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>{provinceMode ? '📑 إدخال مبيعات الكوديشن — المحافظات' : '📑 مبيعات مذاخر ناقصة من ميركاتو'}</h3>
           <button onClick={onClose} style={xBtn}>✕</button>
         </div>
 
+        {provinceMode && (
+          <p style={{ margin: '0 0 10px', fontSize: 13, color: '#1e3a8a', lineHeight: 1.7, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '8px 12px' }}>
+            تُحفظ في «ملف الكوديشن» وتظهر في «مندوبين المحافظات» مقارنةً بمبيع كل محافظة الكلي. نموذج الإكسل فيه
+            عمود <b>المحافظة</b> (آخر عمود) — اختر محافظة كل بيع، أو اتركه واختر «المحافظة لكل الصفوف» هنا بعد الرفع.
+          </p>
+        )}
         <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b', lineHeight: 1.7 }}>
           مبيعات صيدليات تمّت فعلاً عبر أحد المذاخر لكنها لم توثَّق ضمن ملف ميركاتو. حمّل نموذج الإكسل الخاص بك
           (مبني على شركاتك وايتماتك وأسماء فريقك). في الملف: المندوب والشركة والايتم قوائم منسدلة جاهزة للاختيار،
@@ -332,6 +352,8 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
                             <SmartSuggestInput value={r.item} onChange={v => setCell(i, 'item', v)} options={scope.items} />
                           ) : c.key === 'warehouse' ? (
                             <SmartSuggestInput value={r.warehouse} onChange={v => setCell(i, 'warehouse', v)} options={scope.warehouses} />
+                          ) : c.key === 'province' ? (
+                            <SmartSuggestInput value={r.province} onChange={v => setCell(i, 'province', v)} options={provinceOptions} />
                           ) : c.numeric ? (
                             <input value={r[c.key]} inputMode="decimal" onChange={e => setCell(i, c.key, e.target.value)} style={{ ...cell, textAlign: 'left' }} />
                           ) : (
@@ -350,10 +372,22 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved }: Pro
 
             <div style={{ padding: 14, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>تُضاف الصفوف إلى «ملف الكوديشن» (مرتبط بميركاتو، المكرر يُسقَط تلقائياً) — العملة:</span>
-              <select value={currency} onChange={e => setCurrency(e.target.value as 'IQD' | 'USD')} style={{ ...cell, background: '#fff' }}>
+              <select value={currency} onChange={e => setCurrency(e.target.value as 'IQD' | 'USD')} style={{ ...cell, background: '#fff', width: 'auto' }}>
                 <option value="IQD">IQD</option>
                 <option value="USD">USD</option>
               </select>
+              {provinceMode && (
+                <>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', marginInlineStart: 8 }}>المحافظة لكل الصفوف الفارغة:</span>
+                  <select value="" onChange={e => { if (e.target.value) fillProvince(e.target.value); }} style={{ ...cell, background: '#fff', width: 'auto' }}>
+                    <option value="">— اختر —</option>
+                    {provinceOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <span style={{ fontSize: 11.5, color: '#64748b' }}>
+                    {rows.filter(r => !r.province.trim()).length} صف بلا محافظة
+                  </span>
+                </>
+              )}
             </div>
           </>
         )}

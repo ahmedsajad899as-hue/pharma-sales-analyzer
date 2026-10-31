@@ -356,7 +356,7 @@ export async function getWarehouseGapScopeJson(req, res, next) {
 export async function downloadWarehouseGapTemplate(req, res, next) {
   try {
     if (!req.user) throw new AppError('غير مصرّح.', 401, 'UNAUTHORIZED');
-    const { buffer, filename } = await buildWarehouseGapTemplateForUser(req.user);
+    const { buffer, filename } = await buildWarehouseGapTemplateForUser(req.user, { withProvince: req.query.province === '1' });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
     return res.send(buffer);
