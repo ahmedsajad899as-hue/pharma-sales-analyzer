@@ -613,29 +613,44 @@ export async function attachScientificRepGuess(rows, actingUser) {
 // والمندوب. نفس محرّكات استقبال الطلبية (enrichRowsFromCatalog + attachScientificRepGuess)
 // على صفّ واحد في الذاكرة — لا يُحفَظ شيء.
 
-/** ربط الصنف بكتالوج المكتب كله حين لم يُربط بكتالوج المراجِع (ومعه الشركة والسعر). */
-async function linkFromOfficeCatalog(row, user) {
-  const name = String(row.item ?? '').trim();
-  if (!name || !user?.officeId) return;
-  const sci = await prisma.scientificCompany.findMany({ where: { officeId: user.officeId }, select: { id: true } });
+/**
+ * ربط الأصناف بكتالوج المكتب كله حين لم تُربط بكتالوج صاحب الطابور (ومعها الشركة
+ * والسعر). صنف يملكه مدير آخر (deva عند مدير humanis مثلاً) ليس في كتالوج حساب
+ * الكروب، فكان يُحوَّل لمديره بلا شركة ولا معرّف (2026-10-31).
+ */
+async function linkRowsFromOfficeCatalog(rows, officeId) {
+  const todo = rows.filter(r => r && !r._itemId && String(r.item ?? '').trim());
+  if (!todo.length || !officeId) return;
+  const sci = await prisma.scientificCompany.findMany({ where: { officeId }, select: { id: true } });
   if (!sci.length) return;
   const ctx = await loadCompanyContext(sci.map(s => s.id));
   if (!ctx.catalog.length) return;
   const sure = (x) => x?.canonicalItem && (x.confidence === 'alias' || x.confidence === 'exact' || x.confidence === 'high');
-  let r = resolveItemNameSync(name, ctx);
-  if (!sure(r)) { const fb = brandDoseFallback(name, ctx.catalog); if (sure(fb)) r = fb; }
-  if (!sure(r)) return;
-  const d = await prisma.item.findUnique({
-    where: { id: r.canonicalItem.id },
+  const idByName = new Map();
+  for (const name of new Set(todo.map(r => String(r.item).trim()))) {
+    let r = resolveItemNameSync(name, ctx);
+    if (!sure(r)) { const fb = brandDoseFallback(name, ctx.catalog); if (sure(fb)) r = fb; }
+    if (sure(r)) idByName.set(name, r.canonicalItem.id);
+  }
+  if (!idByName.size) return;
+  const details = await prisma.item.findMany({
+    where: { id: { in: [...new Set(idByName.values())] } },
     select: { id: true, name: true, price: true, warehousePrice: true, scientificCompanyId: true,
       company: { select: { name: true } }, scientificCompany: { select: { name: true } } },
   });
-  if (!d) return;
-  row._itemId = d.id;
-  row._scientificCompanyId = d.scientificCompanyId ?? null;
-  row.item = d.name;
-  row.company = d.scientificCompany?.name || d.company?.name || row.company || null;
-  if (row.unitPrice == null) row.unitPrice = d.warehousePrice ?? d.price ?? null;
+  const byId = new Map(details.map(d => [d.id, d]));
+  for (const row of todo) {
+    const d = byId.get(idByName.get(String(row.item).trim()));
+    if (!d) continue;
+    row._itemId = d.id;
+    row._scientificCompanyId = d.scientificCompanyId ?? null;
+    row.item = d.name;
+    row.company = d.scientificCompany?.name || d.company?.name || row.company || null;
+    if (row.unitPrice == null) row.unitPrice = d.warehousePrice ?? d.price ?? null;
+    if (row.total == null && row.quantity != null && row.unitPrice != null) {
+      row.total = Number(row.quantity) * Number(row.unitPrice);
+    }
+  }
 }
 
 /**
@@ -655,13 +670,13 @@ export async function refreshReviewRow(userId, { row, changed }) {
     // مادة جديدة ⇒ شركتها وسعرها من بطاقتها، لا من المادة السابقة.
     r.company = null; r.unitPrice = null;
     await enrichRowsFromCatalog([r], userId);
-    if (!r._itemId) await linkFromOfficeCatalog(r, user).catch(e => console.error('[orders] refresh link:', e?.message));
+    if (!r._itemId) await linkRowsFromOfficeCatalog([r], user?.officeId).catch(e => console.error('[orders] refresh link:', e?.message));
   } else {
     // المنطقة تغيّرت: الصنف يُربط فقط (معرّفه وشركته العلمية) ليفيد التخمين.
     await enrichRowsFromCatalog([r], userId, { linkOnly: true });
     if (!r._itemId) {
       const keep = { item: r.item, company: r.company, unitPrice: r.unitPrice };
-      await linkFromOfficeCatalog(r, user).catch(() => {});
+      await linkRowsFromOfficeCatalog([r], user?.officeId).catch(() => {});
       Object.assign(r, keep); // لا نغيّر ما كتبه المراجِع — المعرّف وحده يكفي
     }
   }
@@ -816,32 +831,16 @@ export async function splitRowsByOwner(rows, user) {
   if (!owners.size) return none;
 
   // صنف لم يُربط بكتالوج حساب الكروب يُجرَّب على كتالوج المكتب كله — بنفس سلّم
-  // enrichRowsFromCatalog (المحلِّل ثم بديل «العلامة + الجرعة»: «Devit 50»).
-  const officeIdByName = new Map();
-  const sciCompanies = await prisma.scientificCompany.findMany({ where: { officeId: user.officeId }, select: { id: true, name: true } }).catch(() => []);
-  const unlinked = [...new Set(rows.filter(r => r && !r._itemId && String(r.item ?? '').trim()).map(r => String(r.item).trim()))];
-  if (unlinked.length && sciCompanies.length) {
-    try {
-      const ctx = await loadCompanyContext(sciCompanies.map(s => s.id));
-      if (ctx.catalog.length) {
-        for (const name of unlinked) {
-          let r = resolveItemNameSync(name, ctx);
-          const sure = (x) => x?.canonicalItem && (x.confidence === 'alias' || x.confidence === 'exact' || x.confidence === 'high');
-          if (!sure(r)) {
-            const fb = brandDoseFallback(name, ctx.catalog);
-            if (sure(fb)) r = fb;
-          }
-          if (sure(r)) officeIdByName.set(name, r.canonicalItem.id);
-        }
-      }
-    } catch (e) { console.error('[orders] office item link (routing) failed:', e?.message); }
-  }
+  // enrichRowsFromCatalog (المحلِّل ثم بديل «العلامة + الجرعة»: «Devit 50»)، ويُكتب
+  // في الصف نفسه (المعرّف + الشركة + الاسم + السعر) كي يصل للمدير مكتملاً.
+  await linkRowsFromOfficeCatalog(rows, user.officeId)
+    .catch(e => console.error('[orders] office item link (routing) failed:', e?.message));
 
   const keep = [];
   const byManager = new Map();
   for (const row of rows) {
     if (!row) continue;
-    const itemId = row._itemId ?? officeIdByName.get(String(row.item ?? '').trim()) ?? null;
+    const itemId = row._itemId ?? null;
     // «الشركة» = تيم المدير: الايتم المُسنَد له فقط (قاعدة التحليل الشامل) — لا
     // الشركة العلمية للايتم. ايتم غير مُسنَد لأي مدير يبقى عند حساب الكروب.
     const owner = itemId != null ? owners.get(itemId) : null;
@@ -1174,14 +1173,22 @@ export async function getPendingOrder(userId, id) {
     // الفتح — في الذاكرة فقط، فالصف المخزَّن لا يتغيّر قبل تأكيد المراجِع.
     await matchInvoiceCustomers(rows);
   }
+  const needLink = rows.some(r => r && !r._itemId && String(r.item ?? '').trim());
+  const needRep = rows.some(r => r && !r.scientificRep);
+  const user = (needLink || needRep)
+    ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true } })
+    : null;
+  // صنف بلا ربط (طلبية حُوِّلت من حساب الكروب قبل 2026-10-31 بلا شركة) يُربط
+  // بكتالوج المكتب عند الفتح فتظهر شركته وسعره — في الذاكرة فقط.
+  if (needLink && user) {
+    await linkRowsFromOfficeCatalog(rows, user.officeId)
+      .catch(e => console.error('[orders] open link:', e?.message));
+  }
   // التخمين يُعاد عند الفتح لكل صف بلا مندوب — كي تستفيد الطلبيات المعلَّقة من
   // أي تعيين مناطق جديد (أو إصلاح في التخمين) بلا إعادة إرسالها.
   // كل الصفوف تُمرَّر (لا الفارغة وحدها): المحسومة منها دليل «اتّساق الفاتورة»
   // لبقية أصنافها، والتخمين لا يكتب فوق مندوب موجود.
-  if (rows.some(r => r && !r.scientificRep)) {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true } });
-    if (user) await attachScientificRepGuess(rows.filter(Boolean), user);
-  }
+  if (needRep && user) await attachScientificRepGuess(rows.filter(Boolean), user);
   return {
     id: row.id,
     source: row.source,
