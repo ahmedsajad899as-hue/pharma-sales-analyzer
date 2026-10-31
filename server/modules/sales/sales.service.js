@@ -2149,12 +2149,18 @@ async function attachTaskProvinces(rows, warnings) {
   const lookup = buildProvinceLookup(await prisma.province.findMany({ select: { id: true, name: true, aliases: true } }));
   const missing = new Set();
   for (const r of rows) {
+    // عمود محافظة صريح (ملف الصفوف المتجاوزة بعد ملئه) يسبق الاستنتاج من الاسم.
+    if (r.province) {
+      const p = matchProvinceName(r.province, lookup) || provinceFromText(`_ - ${r.province}`, lookup);
+      if (p) r.province = p.name;
+      continue;
+    }
     const p = provinceFromText(r.repName, lookup) || provinceFromText(r.warehouse, lookup) || provinceFromText(r.pharmacy, lookup);
     if (p) r.province = p.name;
     else missing.add(r.repName);
   }
   if (missing.size) {
-    warnings.push(`لم تُعرف المحافظة من اسم ${missing.size} مندوب (${[...missing].slice(0, 5).join('، ')}${missing.size > 5 ? '…' : ''}) — اخترها في الجدول أو من «المحافظة لكل الصفوف الفارغة».`);
+    warnings.push(`لم تُعرف المحافظة من اسم ${missing.size} مندوب (${[...missing].slice(0, 5).join('، ')}${missing.size > 5 ? '…' : ''}) — صفوفهم تُتجاوز عند الحفظ، أو حدّد محافظتها في الجدول.`);
   }
 }
 

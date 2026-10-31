@@ -4306,7 +4306,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           {showProvCondition && token && (
             <WarehouseGapImportModal token={token} provinceMode
               onClose={() => setShowProvCondition(false)}
-              onSaved={(msg) => { setShowProvCondition(false); setProvCondMsg(msg); setProvCondRev(v => v + 1); }} />
+              onSaved={(msg) => { setShowProvCondition(false); setProvCondMsg(msg); setProvCondRev(v => v + 1); }}
+              onProgress={(msg) => { setProvCondMsg(msg); setProvCondRev(v => v + 1); }} />
           )}
         </>
       )}

@@ -348,6 +348,14 @@ const TASK_COLS = {
   warehouse:     ['associated_client', 'warehouse'],
   status:        ['status'],
   date:          ['date', 'task_date', 'order_date', 'created_at', 'completed_at', 'delivered_at'],
+  // اختياري: ملف «الصفوف بلا محافظة» المُنزَّل من النافذة بعد ملء محافظاته.
+  province:      ['province', 'governorate', 'المحافظة', 'محافظة', 'المحافظه', 'محافظه'],
+};
+// تاريخ إكسل الرقمي (عدد الأيام) ← YYYY-MM-DD، والنص يبقى كما هو.
+const taskDate = v => {
+  if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 86400000)).toISOString().slice(0, 10);
+  const s = String(v ?? '').trim();
+  return s || undefined;
 };
 const taskKey = h => String(h ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 // «1,547 د.ع.» أو 1547 — أول رقم في الخلية (نقاط «د.ع.» ليست كسوراً).
@@ -381,7 +389,6 @@ function parseTaskExport(raw) {
     const repName = text(r, 'repName');
     const quantity = taskNum(cell(r, 'quantity'));
     if (!item || !repName || quantity <= 0) { incomplete++; continue; }
-    const rawDate = cell(r, 'date');
     rows.push({
       repName,
       item,
@@ -393,7 +400,8 @@ function parseTaskExport(raw) {
       pharmacy:      text(r, 'pharmacy') || undefined,
       warehouse:     text(r, 'warehouse') || undefined,
       invoiceNumber: text(r, 'invoiceNumber') || undefined,
-      date:          rawDate !== '' && rawDate != null ? rawDate : undefined,
+      date:          taskDate(cell(r, 'date')),
+      province:      text(r, 'province') || undefined,
     });
   }
   for (const [st, n] of skippedStatus) warnings.push(`تم تجاهل ${n} صف حالته «${st}» (المكتملة فقط تُحتسب مبيعاً).`);

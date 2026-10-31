@@ -21,6 +21,8 @@ interface Props {
   token: string;
   onClose: () => void;
   onSaved: (msg: string, fileId?: number) => void;
+  /** حفظ جزئي (صفوف بلا محافظة تُجووزت وبقيت في النافذة): تحديث الصفحة بلا إغلاق. */
+  onProgress?: (msg: string, fileId?: number) => void;
   /** «مندوبين المحافظات»: عمود محافظة لكل صف (نموذج الإكسل أيضاً) — عليه تُقارَن
    *  مبيعات اللكوديشن بمبيع المحافظة الكلي. */
   provinceMode?: boolean;
@@ -103,7 +105,10 @@ function applyToRows(rs: GapRow[], items: Map<string, ItemOpt>, comps: Map<strin
   });
 }
 
-export default function WarehouseGapImportModal({ token, onClose, onSaved, provinceMode = false }: Props) {
+/** صف يُعرف مكانه (محافظة أو منطقة) — غيره يُتجاوز عند الحفظ في provinceMode. */
+const isPlaced = (r: GapRow) => !!(r.province.trim() || r.area.trim());
+
+export default function WarehouseGapImportModal({ token, onClose, onSaved, onProgress, provinceMode = false }: Props) {
   const authH = { Authorization: `Bearer ${token}` };
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -135,6 +140,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
   const [keepRaw, setKeepRaw] = useState<Record<string, boolean>>({});
   const [remember, setRemember] = useState<Remember[]>([]);
   const [matchMsg, setMatchMsg] = useState('');
+  const [savedNote, setSavedNote] = useState('');
 
   useEffect(() => {
     fetch(`${API}/api/sales/warehouse-gap-scope`, { headers: authH })
@@ -225,7 +231,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
         province: String(r.province ?? ''),
       }));
       setRows(next);
-      setMatch(null); setMatchOpen(false); setRemember([]); setMatchMsg('');
+      setMatch(null); setMatchOpen(false); setRemember([]); setMatchMsg(''); setSavedNote('');
       if (parsed.length === 0) setError('لم يتم العثور على أي صف صالح في الملف.');
       else if (provinceMode) await runMatch(next);
     } catch (e: any) {
@@ -262,7 +268,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
       source: 'warehouse-gap-template',
     }));
 
-  const doSave = async (payloadRows: any[], rememberItems: Remember[] = []) => {
+  const doSave = async (payloadRows: any[], rememberItems: Remember[] = []): Promise<{ added: number; skipped: number; fileId?: number } | null> => {
     setSaving(true); setError('');
     try {
       const res = await fetch(`${API}/api/sales/manual`, {
@@ -277,15 +283,36 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.message || j.error || 'فشل الحفظ');
-      const added = j.data?.addedCount ?? payloadRows.length;
-      const skipped = j.data?.skippedCount ?? 0;
-      onSaved(`تمت إضافة ${added} عملية بيع إلى ملف اللكوديشن${skipped ? ` (أُسقط ${skipped} مكرر)` : ''}.`, j.data?.uploadedFile?.id);
+      return { added: j.data?.addedCount ?? payloadRows.length, skipped: j.data?.skippedCount ?? 0, fileId: j.data?.uploadedFile?.id };
     } catch (e: any) {
       setError(e.message || 'تعذّر الحفظ');
+      return null;
     } finally {
       setSaving(false);
       setNameAsk(null);
     }
+  };
+
+  const savedMsg = (r: { added: number; skipped: number }) =>
+    `تمت إضافة ${r.added} عملية بيع إلى ملف اللكوديشن${r.skipped ? ` (أُسقط ${r.skipped} مكرر)` : ''}`;
+  const saveAndClose = async (payloadRows: any[]) => {
+    const r = await doSave(payloadRows);
+    if (r) onSaved(savedMsg(r) + '.', r.fileId);
+  };
+
+  /** صفوف بلا محافظة كملف مهام (بعمود province فارغ) — تُعبّأ ثم تُرفع لاحقاً بنفس الزر. */
+  const exportUnplaced = async () => {
+    const XLSX = await import('xlsx');
+    const left = rows.filter(r => !isPlaced(r));
+    if (!left.length) return;
+    const aoa: (string | number)[][] = [
+      ['task_id', 'product_name', 'brand', 'price', 'quantity', 'total_price', 'bonus', 'rep_name', 'client', 'associated_client', 'status', 'province', 'date'],
+      ...left.map(r => [r.invoiceNumber, r.item, r.company, num(r.unitPrice), num(r.quantity), num(r.totalValue), num(r.bonus) || 0,
+        r.repName, r.pharmacy, r.warehouse, 'Completed', '', r.date]),
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Sheet1');
+    XLSX.writeFile(wb, `لكوديشن - صفوف بلا محافظة (${left.length}).xlsx`);
   };
 
   const applyUnification = (payloadRows: any[], items: NameCheck[], companies: NameCheck[], picks: Record<string, string>) => {
@@ -326,22 +353,26 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
     if (payloadRows.length === 0) { setError('لا توجد صفوف صالحة — كل صف يحتاج مندوباً ومادة وكمية أكبر من صفر.'); return; }
 
     if (provinceMode) {
-      // صف بلا محافظة ولا منطقة لا يُعرف مكانه فيضيع من مقارنة المحافظات.
-      const lost = payloadRows.filter(r => !r.province && !r.area).length;
-      if (lost > 0) { setError(`${lost} صف بلا محافظة ولا منطقة — اختر المحافظة (أو «المحافظة لكل الصفوف») قبل الحفظ.`); return; }
+      // صف بلا محافظة ولا منطقة لا يُعرف مكانه: يُتجاوز ولا يُحفظ، ويبقى في النافذة
+      // لتحديد محافظته والحفظ لاحقاً (أو تنزيله إكسل ورفعه بعد التأكد).
+      let placed = rows.filter(isPlaced);
+      const unplaced = rows.filter(r => !isPlaced(r));
+      if (buildPayload(placed).length === 0) { setError('لا يوجد صف بمحافظة معروفة — حدّد المحافظة (أو «المحافظة لكل الصفوف») ثم احفظ.'); return; }
       // صف بلا تاريخ لا يظهر في أي شهر من المقارنة.
-      const undated = payloadRows.filter(r => !r.date).length;
+      const undated = buildPayload(placed).filter(r => !r.date).length;
       if (undated > 0) { setError(`${undated} صف بلا تاريخ — اختر «التاريخ لكل الصفوف الفارغة» قبل الحفظ.`); return; }
 
       // أسماء لم تُطابَق بعد (صفوف أُضيفت أو عُدّلت بعد المطابقة): تُطابَق الآن، وتُطبَّق
-      // تلقائياً إن لم يبقَ ما يحتاج قراراً — وإلا تُفتح اللوحة.
-      let rs = rows;
+      // تلقائياً إن لم يبقَ ما يحتاج قراراً — وإلا تُفتح اللوحة. الصفوف المتجاوزة لا تُحسب.
       let rem = remember;
       const unresolved = (list: GapRow[]) => list.some(r => r.item.trim() && !r.itemId && !keepRaw['i|' + r.item.trim()]);
-      if (unresolved(rs)) {
-        const covered = !!match && rs.every(r => !r.item.trim() || r.itemId || match.items.some(e => e.raw === r.item.trim()));
-        const d = covered ? match! : await runMatch(rs);
-        if (!d) return;
+      if (unresolved(placed)) {
+        const covered = !!match && placed.every(r => !r.item.trim() || r.itemId || match.items.some(e => e.raw === r.item.trim()));
+        const full = covered ? match! : await runMatch(placed);
+        if (!full) return;
+        const itemNames = new Set(placed.map(r => r.item.trim()));
+        const compNames = new Set(placed.map(r => r.company.trim()));
+        const d = { ...full, items: full.items.filter(e => itemNames.has(e.raw)), companies: full.companies.filter(e => compNames.has(e.raw)) };
         const res = covered
           ? resolveMatch(d, itemPick, compPick, keepRaw)
           : resolveMatch(d, Object.fromEntries(d.items.map(e => [e.raw, e.match?.name ?? ''])), Object.fromEntries(d.companies.map(e => [e.raw, e.match ?? ''])), {});
@@ -350,12 +381,17 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
           setError(`راجع «مطابقة الأسماء» أولاً: ${res.pending} اسم لم يُحسم بعد.`);
           return;
         }
-        rs = applyToRows(rs, res.items, res.comps);
+        placed = applyToRows(placed, res.items, res.comps);
         rem = [...rem.filter(p => !res.remember.some(x => x.from === p.from)), ...res.remember];
-        setRows(rs); setRemember(rem); setMatchOpen(false);
+        setRows([...placed, ...unplaced]); setRemember(rem); setMatchOpen(false);
       }
-      payloadRows = buildPayload(rs);
-      await doSave(payloadRows, rem);
+      const r = await doSave(buildPayload(placed), rem);
+      if (!r) return;
+      if (!unplaced.length) { onSaved(savedMsg(r) + '.', r.fileId); return; }
+      const msg = `${savedMsg(r)} — وتُجووز ${unplaced.length} صف بلا محافظة.`;
+      setRows(unplaced); setRemember([]); setFileFormat(null); setWarnings([]);
+      setSavedNote(`✅ ${msg} بقيت في الجدول: حدّد محافظتها واحفظها الآن، أو نزّلها إكسل («⬇️ تنزيل الصفوف بلا محافظة») واملأ عمود province ثم ارفعها لاحقاً بنفس الزر.`);
+      (onProgress ?? (() => {}))(msg, r.fileId);
       return;
     }
 
@@ -375,13 +411,13 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
     if (asks.length > 0) { setChoice({}); setNameAsk(check); return; }
 
     const unified = check ? applyUnification(payloadRows, check.items, check.companies, {}) : payloadRows;
-    await doSave(unified);
+    await saveAndClose(unified);
   };
 
   const confirmNames = async () => {
     if (!nameAsk) return;
     const unified = applyUnification(buildPayload(), nameAsk.items, nameAsk.companies, choice);
-    await doSave(unified);
+    await saveAndClose(unified);
   };
 
   const askList = nameAsk
@@ -543,6 +579,10 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
           </div>
         )}
 
+        {provinceMode && savedNote && (
+          <div style={{ ...warnBox, background: '#f0fdf4', borderColor: '#86efac', color: '#14532d', fontWeight: 700 }}>{savedNote}</div>
+        )}
+
         {provinceMode && matchMsg && !matchOpen && (
           <div style={{ ...warnBox, background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534' }}>{matchMsg}</div>
         )}
@@ -677,11 +717,11 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
                           ) : c.key === 'repName' ? (
                             <SmartSuggestInput value={r.repName} onChange={v => setCell(i, 'repName', v)} options={scope.reps} />
                           ) : c.key === 'company' ? (
-                            <SmartSuggestInput value={r.company} onChange={v => setCell(i, 'company', v)} options={match?.companyList ?? scope.companies} />
+                            <SmartSuggestInput value={r.company} onChange={v => setCell(i, 'company', v)} options={match?.companyList ?? scope.companies} style={ltrIfLatin(r.company)} />
                           ) : c.key === 'item' ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                               <div style={{ flex: 1 }}>
-                                <SmartSuggestInput value={r.item} onChange={v => setCell(i, 'item', v)} options={provinceMode && catalogNames.length ? catalogNames : scope.items} />
+                                <SmartSuggestInput value={r.item} onChange={v => setCell(i, 'item', v)} options={provinceMode && catalogNames.length ? catalogNames : scope.items} style={ltrIfLatin(r.item)} />
                               </div>
                               {provinceMode && (r.itemId
                                 ? <span title="مربوط بايتم النظام" style={{ color: '#16a34a', fontSize: 13 }}>🔗</span>
@@ -720,13 +760,20 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
                     <option value="">— اختر —</option>
                     {provinceOptions.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
-                  <span style={{ fontSize: 11.5, color: '#64748b' }}>
-                    {rows.filter(r => !r.province.trim()).length} صف بلا محافظة
-                  </span>
+                  {rows.some(r => !isPlaced(r)) ? (
+                    <>
+                      <span style={{ fontSize: 11.5, color: '#b45309', fontWeight: 700 }}>
+                        {rows.filter(r => !isPlaced(r)).length} صف بلا محافظة — يُتجاوز عند الحفظ (يُضاف لاحقاً)
+                      </span>
+                      <button onClick={exportUnplaced} style={{ ...bulkBtn, padding: '5px 10px' }}>⬇️ تنزيل الصفوف بلا محافظة</button>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 11.5, color: '#64748b' }}>كل الصفوف بمحافظة</span>
+                  )}
                   <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', marginInlineStart: 8 }}>التاريخ لكل الصفوف الفارغة:</span>
                   <input type="date" value="" onChange={e => { if (e.target.value) fillDate(e.target.value); }} style={{ ...cell, background: '#fff', width: 'auto' }} />
-                  <span style={{ fontSize: 11.5, color: rows.some(r => !r.date) ? '#b91c1c' : '#64748b' }}>
-                    {rows.filter(r => !r.date).length} صف بلا تاريخ
+                  <span style={{ fontSize: 11.5, color: rows.some(r => isPlaced(r) && !r.date) ? '#b91c1c' : '#64748b' }}>
+                    {rows.filter(r => isPlaced(r) && !r.date).length} صف بلا تاريخ
                   </span>
                 </>
               )}
@@ -746,6 +793,10 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, provi
     </div>
   );
 }
+
+/** اسم دواء لاتيني في خانة RTL يُقصّ من بدايته — يُعرض LTR. */
+const ltrIfLatin = (v: string): React.CSSProperties | undefined =>
+  (/^[A-Za-z0-9]/.test(v.trim()) ? { direction: 'ltr', textAlign: 'left' } : undefined);
 
 /** ترتيب لوحة المطابقة: ما يحتاج قراراً أولاً. */
 const order = (s: MatchStatus) => (s === 'ask' ? 0 : s === 'none' ? 1 : s === 'auto' ? 2 : 3);
