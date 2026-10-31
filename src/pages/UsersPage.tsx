@@ -91,8 +91,13 @@ function memberSections<M extends { areas: AreaItem[]; role: string; username: s
   type Sec = { key: string; province: string; sub: string | null; subOrder: number | null; members: M[] };
   const map = new Map<string, Sec>();
   for (const m of members) {
+    // «بلا محافظة» ليست منطقة عمل بل مناطق لم يُسند لها السوبر أدمن محافظة بعد —
+    // لا تُرجَّح على قسم حقيقي: مندوب بمنطقتين في الكرخ وأربع بلا محافظة مكانه تيم
+    // الكرخ. يقع في «بلا محافظة» فقط إن لم تكن له أي منطقة بمحافظة معروفة.
     const regions = groupByRegion(m.areas);
-    const main = regions.reduce<Region<AreaItem> | null>((best, r) => (!best || r.areas.length > best.areas.length ? r : best), null);
+    const known = regions.filter(r => r.province !== NO_PROVINCE);
+    const main = (known.length ? known : regions)
+      .reduce<Region<AreaItem> | null>((best, r) => (!best || r.areas.length > best.areas.length ? r : best), null);
     const key = main ? main.key : NO_AREAS_SECTION;
     if (!map.has(key)) {
       map.set(key, main
