@@ -380,7 +380,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
 
   const destCurrency = destMode === 'existing'
     ? (files.find(f => f.id === destFileId)?.detectedCurrency || 'IQD')
-    : newCurrency; // الكوديشن والملف الجديد: العملة المختارة
+    : newCurrency; // اللكوديشن والملف الجديد: العملة المختارة
 
   // ── Row helpers ──
   const setCell = (i: number, key: keyof Row, val: string) =>
@@ -575,7 +575,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
       const added = j.data?.addedCount ?? payloadRows.length;
       const remembered = j.data?.rememberedCount ?? 0;
       const skipped = j.data?.skippedCount ?? 0;
-      onSaved(`تمت إضافة ${added} عملية بيع${destMode === 'condition' ? ' إلى ملف الكوديشن' : j.data?.merged ? ' ودمجها في الملف المحدد' : ' في ملف جديد'}${skipped ? ` (أُسقط ${skipped} مكرر)` : ''}.`
+      onSaved(`تمت إضافة ${added} عملية بيع${destMode === 'condition' ? ' إلى ملف اللكوديشن' : j.data?.merged ? ' ودمجها في الملف المحدد' : ' في ملف جديد'}${skipped ? ` (أُسقط ${skipped} مكرر)` : ''}.`
         + (remembered > 0 ? ` وحُفظ ${remembered} ربط اسم فلن يُسأل عنه مرة أخرى.` : ''),
         j.data?.uploadedFile?.id);
     } catch (e: any) {
@@ -1336,7 +1336,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>الحفظ في</span>
           <label style={radio}>
             <input type="radio" checked={destMode === 'condition'} onChange={() => setDestMode('condition')} />
-            ملف الكوديشن{originNames.length ? ` (${originNames.join('، ')})` : ''}
+            ملف اللكوديشن{originNames.length ? ` (${originNames.join('، ')})` : ''}
           </label>
           <label style={radio}>
             <input type="radio" checked={destMode === 'existing'} onChange={() => setDestMode('existing')} disabled={!files.length} />

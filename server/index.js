@@ -20,7 +20,7 @@ import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
 import { updateConditionRow, deleteConditionRow, canEditConditionFile } from './modules/sales/sales.service.js';
-import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles, filterSheetsByProvince } from './lib/conditionFile.js';
+import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles, filterSheetsByProvince, renameConditionFiles } from './lib/conditionFile.js';
 import { flagConditionRowsInMercato } from './lib/manualDuplicateCheck.js';
 
 // ── New modules ──────────────────────────────────────────────
@@ -2143,7 +2143,7 @@ app.get('/api/files', async (req, res) => {
         id: true, originalName: true, rowCount: true, uploadedAt: true, uploadedBy: true, fileType: true,
         sourceSystem: true, // 'mercato' → شارة تمييز في قائمة الملفات
         isCumulative: true, // ملف تراكمي (تنصهر فيه رفعات كل الأشهر) → شارة + لوحة الرفعات
-        mergeGroup: true,   // لاحقة '|condition' = ملف الكوديشن (يُعرض ملتصقاً بملف ميركاتو)
+        mergeGroup: true,   // لاحقة '|condition' = ملف اللكوديشن (يُعرض ملتصقاً بملف ميركاتو)
         currencyMode: true, exchangeRate: true, detectedCurrency: true,
         userId: true,
         sharedWithRepId: true,
@@ -2323,7 +2323,7 @@ app.get('/api/files/:id/condition-export', requireAuth, async (req, res) => {
     const scopeLabel = scope === 'baghdad' ? ' — بغداد' : scope === 'provinces' ? ' — المحافظات' : '';
     const title = `${file.originalName}${month && month !== 'all' ? ` — ${month}` : ''}${scopeLabel}`;
     const buf = buildConditionWorkbook(sheets, { title, companySheet });
-    const name = `الكوديشن${month && month !== 'all' ? `_${month}` : ''}.xlsx`;
+    const name = `اللكوديشن${month && month !== 'all' ? `_${month}` : ''}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="condition.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.send(buf);
@@ -4966,6 +4966,9 @@ if (process.env.VERCEL) {
     backfillConditionFileShares()
       .then(n => { if (n) console.log(`✓ شورِك ملف الكوديشن مع ${n} حساب (backfill)`); })
       .catch(e => console.error('[backfillConditionFileShares]', e.message));
+    renameConditionFiles()
+      .then(n => { if (n) console.log(`✓ صُحّح اسم ${n} ملف لكوديشن («اللكوديشن»)`); })
+      .catch(e => console.error('[renameConditionFiles]', e.message));
     // مندوبون علميون لهم محافظات سلفاً ← تسجيلهم في فرق محافظاتهم (idempotent، إضافة فقط)
     autoEnrollAllReps()
       .then(n => { if (n) console.log(`✓ سُجّل ${n} تعيين مندوب في فرق المحافظات (backfill)`); })

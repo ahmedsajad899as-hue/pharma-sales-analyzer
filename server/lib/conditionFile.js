@@ -33,7 +33,7 @@ const SOURCE_LABEL = {
   'telegram-order':         'بوت تلكرام',
   'viber-order':            'بوت فايبر',
   'whatsapp-order':         'بوت واتساب',
-  'warehouse-gap-template': 'إكسل الكوديشن',
+  'warehouse-gap-template': 'إكسل اللكوديشن',
   'manual-invoice':         'فاتورة يدوية',
 };
 
@@ -401,7 +401,7 @@ function sheetName(name, used) {
 }
 
 /** إكسل: شيت ملخّص + شيت لكل مندوب بمبيعاته. */
-export function buildConditionWorkbook(sheets, { title = 'ملف الكوديشن', companySheet = null } = {}) {
+export function buildConditionWorkbook(sheets, { title = 'ملف اللكوديشن', companySheet = null } = {}) {
   const wb = XLSX.utils.book_new();
   wb.Workbook = { Views: [{ RTL: true }] };
   const used = new Set();
@@ -445,6 +445,22 @@ export function buildConditionWorkbook(sheets, { title = 'ملف الكوديش�
 // ════════════════════════════════════════════════════════════════════════════
 
 const SOURCE_FILTERS = CONDITION_SOURCES.map(v => ({ rawData: { contains: `"source":"${v}"` } }));
+
+/**
+ * «الكوديشن» ← «اللكوديشن» (تصحيح صاحب المشروع، 2026-10-31) في أسماء ملفات
+ * اللكوديشن المحفوظة: الاسم يُكتب مرة عند الإنشاء (cumulativeFileName) فلا يتصحّح
+ * وحده. يستبدل الكلمة وحدها فيُبقي أي إعادة تسمية من المستخدم. idempotent.
+ */
+export async function renameConditionFiles() {
+  const files = await prisma.uploadedFile.findMany({
+    where: { mergeGroup: { endsWith: `|${CONDITION_VARIANT}` }, originalName: { contains: 'الكوديشن' } },
+    select: { id: true, originalName: true },
+  });
+  for (const f of files) {
+    await prisma.uploadedFile.update({ where: { id: f.id }, data: { originalName: f.originalName.split('الكوديشن').join('اللكوديشن') } });
+  }
+  return files.length;
+}
 
 export async function migrateRowsToConditionFiles() {
   const hits = await prisma.sale.findMany({

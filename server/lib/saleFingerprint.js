@@ -154,7 +154,7 @@ export function mergeGroupKey({ userId, sourceSystem, detectedCurrency, variant 
 
 /** اسم افتراضي للملف التراكمي حسب مصدره وعملته. */
 export function cumulativeFileName({ sourceSystem, detectedCurrency, variant = null }) {
-  const src = variant === CONDITION_VARIANT ? 'الكوديشن' : sourceSystem === 'mercato' ? 'ميركاتو' : 'المكتب';
+  const src = variant === CONDITION_VARIANT ? 'اللكوديشن' : sourceSystem === 'mercato' ? 'ميركاتو' : 'المكتب';
   const cur = detectedCurrency === 'USD' ? '$' : 'د.ع';
   return `مبيعات ${src} — تراكمي (${cur})`;
 }

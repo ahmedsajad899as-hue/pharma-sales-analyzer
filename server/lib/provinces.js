@@ -68,6 +68,47 @@ export function matchProvinceName(rawName, lookup) {
   return key ? (lookup.get(key) || null) : null;
 }
 
+// كلمات تسبق المحافظة في تسمية مندوبي المحافظات: «رسول محمد فارمسي الكوت».
+const PROVINCE_MARKER_RE = /(?:^|\s)(?:فارمسي|فارمسى|فارماسي|pharmacy|pharma|ph|مسوقين|مسوقه|مسوقة|مسوق)\s+(.+)$/i;
+
+/**
+ * المحافظة المذكورة داخل نص حر — اسم مندوب المحافظة («ساهر عبود هادي - مسوقين -
+ * الديوانية»، «رسول محمد فارمسي الكوت») أو اسم مذخر («مذخر الضامن - الديوانية»).
+ * الاسم البديل يُحَل لاسمه الرسمي عبر lookup (الكوت ← واسط، الديوانية ← القادسية).
+ *
+ * المحافظة تأتي بعد الاسم دائماً، فلا تُفحص الكلمة الأولى إطلاقاً: اسم شخص قد
+ * يطابق اسماً بديلاً لمحافظة. الترتيب: ما بعد فاصل («-» «/» «|») ثم ما بعد كلمة
+ * دالّة (فارمسي/مسوقين) ثم آخر كلمات الاسم المجرّد.
+ * @returns {object|null} صف Province
+ */
+export function provinceFromText(text, lookup) {
+  const s = String(text ?? '').trim();
+  if (!s || !lookup?.size) return null;
+  // أطول تسلسل كلمات أولاً («ذي قار»، «صلاح الدين») ومن آخر النص.
+  const scan = (t) => {
+    const words = normalizeAreaName(t).split(' ').filter(Boolean);
+    for (let n = Math.min(3, words.length); n >= 1; n--) {
+      for (let i = words.length - n; i >= 0; i--) {
+        const hit = lookup.get(words.slice(i, i + n).join(' '));
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+  const segs = s.split(/\s*[-–—/|،,()]\s*/).filter(Boolean);
+  for (let i = segs.length - 1; i >= 1; i--) {
+    const hit = scan(segs[i]);
+    if (hit) return hit;
+  }
+  const m = segs[0]?.match(PROVINCE_MARKER_RE);
+  if (m) {
+    const hit = scan(m[1]);
+    if (hit) return hit;
+  }
+  const words = (segs[0] || '').split(/\s+/).filter(Boolean);
+  return words.length >= 2 ? scan(words.slice(1).join(' ')) : null;
+}
+
 /**
  * يبحث في صفّ خام (بعد JSON.parse لـ Sale.rawData) عن أول عمود ترويسته ضمن
  * aliasList، ويُعيد قيمته النصية أو null. نفس منطق البحث المستخدم داخل

@@ -212,7 +212,7 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `الكوديشن${shownMonth !== 'all' ? `_${shownMonth}` : ''}${scope === 'baghdad' ? '_بغداد' : scope === 'provinces' ? '_المحافظات' : ''}.xlsx`;
+      a.download = `اللكوديشن${shownMonth !== 'all' ? `_${shownMonth}` : ''}${scope === 'baghdad' ? '_بغداد' : scope === 'provinces' ? '_المحافظات' : ''}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: any) { setError(e.message); }
@@ -324,7 +324,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
           <div style={{ color: '#64748b', fontSize: 13 }}>جاري التحميل…</div>
         ) : !hasData ? (
           <div style={{ color: '#94a3b8', fontSize: 13, background: '#f8fafc', borderRadius: 8, padding: 20, textAlign: 'center' }}>
-            لا توجد مبيعات في ملف الكوديشن{shownMonth !== 'all' ? ' لهذا الشهر' : ''}{scope === 'baghdad' ? ' في بغداد' : scope === 'provinces' ? ' في المحافظات' : ''} بعد. تُضاف إليه طلبيات بوت تلكرام عند حفظها وإكسل الكوديشن عند رفعه، وطلبيات الترانزيت من ملف المكتب المفعّل.
+            لا توجد مبيعات في ملف اللكوديشن{shownMonth !== 'all' ? ' لهذا الشهر' : ''}{scope === 'baghdad' ? ' في بغداد' : scope === 'provinces' ? ' في المحافظات' : ''} بعد. تُضاف إليه طلبيات بوت تلكرام عند حفظها وإكسل اللكوديشن عند رفعه، وطلبيات الترانزيت من ملف المكتب المفعّل.
           </div>
         ) : (
           <>

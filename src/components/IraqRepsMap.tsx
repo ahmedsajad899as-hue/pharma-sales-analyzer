@@ -458,7 +458,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         const r = { prov, pc: [...pcMap.values()], all };
         if (cacheable) cacheSet(key, packCond(r));
         setCond(r);
-      } catch (e: any) { if (!dead && e?.name !== 'AbortError') setErr(e.message || 'تعذّر تحميل الكوديشن'); }
+      } catch (e: any) { if (!dead && e?.name !== 'AbortError') setErr(e.message || 'تعذّر تحميل اللكوديشن'); }
       finally { if (!dead) setLoadingCond(false); }
     })();
     return () => { dead = true; ac.abort(); };
@@ -637,7 +637,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
             <div style={{ height: 4, borderRadius: 4, background: '#e9eef5', margin: '5px 0' }}>
               <div style={{ height: '100%', width: `${Math.max(3, (Math.abs(co.value) / cmax) * 100)}%`, background: 'linear-gradient(90deg,#2f66d6,#78a3f5)', borderRadius: 5 }} />
             </div>
-            {hasCond && co.cond !== 0 && <div style={{ marginBottom: 6 }}>{condBar(co.cond, co.value, 'كوديشن')}</div>}
+            {hasCond && co.cond !== 0 && <div style={{ marginBottom: 6 }}>{condBar(co.cond, co.value, 'لكوديشن')}</div>}
             {!marketers && (co.reps.length === 0
               ? <span style={{ fontSize: 10.5, color: '#94a3b8' }}>لا يوجد مندوب علمي بعد</span>
               : repList(co.reps, co.value))}
@@ -783,7 +783,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 12 }}>
         {([
           ['صافي مبيع المحافظات', `${fmtVal(totals.value)} ${currencyLabel}`, '#2f66d6', ''],
-          ...(hasCond ? [['كوديشن المحافظات', `${fmtVal(totals.cond)} ${currencyLabel}`, '#0891b2', `${pctTxt(pctOf(totals.cond, totals.value))} من صافي مبيع المحافظات`]] : []),
+          ...(hasCond ? [['لكوديشن المحافظات', `${fmtVal(totals.cond)} ${currencyLabel}`, '#0891b2', `${pctTxt(pctOf(totals.cond, totals.value))} من صافي مبيع المحافظات`]] : []),
           ['الشركات', String(totals.companies), '#0f766e', ''],
           [marketers ? 'المسوقون' : 'المندوبون العلميون', String(totals.reps), marketers ? '#b45309' : '#7c3aed', ''],
           ['المحافظات النشطة', `${totals.provinces} / 17`, '#ea580c', ''],
@@ -805,7 +805,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         {onAddCondition && (
           <button type="button" onClick={onAddCondition}
             style={{ border: '1px solid #0891b2', background: '#ecfeff', color: '#0e7490', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-            📥 إدخال كوديشن (إكسل)
+            📥 إدخال لكوديشن (إكسل)
           </button>
         )}
       </div>
@@ -946,10 +946,10 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
               {hasCond && (
                 <div style={{ border: '1px solid #a5f3fc', background: '#f0fdff', borderRadius: 10, padding: '7px 10px', marginBottom: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, fontWeight: 800, color: '#0e7490' }}>الكوديشن مقابل مبيع المحافظة</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: '#0e7490' }}>اللكوديشن مقابل مبيع المحافظة</span>
                     {loadingCond && <span style={{ fontSize: 10.5, color: '#64748b' }}>جاري التحميل…</span>}
                   </div>
-                  {condBar(activeCell.cond, activeCell.total, 'كوديشن')}
+                  {condBar(activeCell.cond, activeCell.total, 'لكوديشن')}
                 </div>
               )}
               {companyPanel(activeCell)}
@@ -962,7 +962,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         </div>
       </div>
 
-      {/* ── الكوديشن مقابل مبيع كل محافظة الكلي ── */}
+      {/* ── اللكوديشن مقابل مبيع كل محافظة الكلي ── */}
       {hasCond && !bgOpen && (() => {
         const rows = list.filter(c => c.total !== 0 || c.cond !== 0);
         const th: React.CSSProperties = { padding: '7px 10px', fontSize: 12, fontWeight: 800, color: '#111827', background: '#f1f5f9', borderBottom: '1px solid #94a3b8', textAlign: 'right', whiteSpace: 'nowrap' };
@@ -971,15 +971,15 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         return (
           <div style={{ marginTop: 14, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 12 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>📊 الكوديشن مقابل مبيع المحافظة الكلي</span>
+              <span style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>📊 اللكوديشن مقابل مبيع المحافظة الكلي</span>
               <span style={{ fontSize: 11.5, color: '#64748b' }}>
                 {condInTotal
-                  ? 'مبيع المحافظة الكلي يشمل الكوديشن (ملفه مفعّل ضمن الملفات النشطة).'
-                  : 'مبيع المحافظة الكلي من الملفات النشطة — ملف الكوديشن غير مفعّل بينها فلا يدخل ضمنه.'}
+                  ? 'مبيع المحافظة الكلي يشمل اللكوديشن (ملفه مفعّل ضمن الملفات النشطة).'
+                  : 'مبيع المحافظة الكلي من الملفات النشطة — ملف اللكوديشن غير مفعّل بينها فلا يدخل ضمنه.'}
               </span>
             </div>
             {rows.length === 0 ? (
-              <div style={{ color: '#94a3b8', fontSize: 13 }}>{loadingCond ? 'جاري تحميل الكوديشن…' : 'لا مبيعات كوديشن ولا مبيع محافظات في الفترة المختارة.'}</div>
+              <div style={{ color: '#94a3b8', fontSize: 13 }}>{loadingCond ? 'جاري تحميل اللكوديشن…' : 'لا مبيعات لكوديشن ولا مبيع محافظات في الفترة المختارة.'}</div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 520 }}>
@@ -987,8 +987,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                     <tr>
                       <th style={th}>المحافظة</th>
                       <th style={{ ...th, textAlign: 'left' }}>مبيع المحافظة الكلي ({currencyLabel})</th>
-                      <th style={{ ...th, textAlign: 'left' }}>الكوديشن ({currencyLabel})</th>
-                      <th style={{ ...th, textAlign: 'left', minWidth: 160 }}>نسبة الكوديشن من الكلي</th>
+                      <th style={{ ...th, textAlign: 'left' }}>اللكوديشن ({currencyLabel})</th>
+                      <th style={{ ...th, textAlign: 'left', minWidth: 160 }}>نسبة اللكوديشن من الكلي</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1025,7 +1025,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
             )}
             {Math.abs(condOutside) >= 1 && (
               <div style={{ marginTop: 8, fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 10px' }}>
-                ⚠️ {fmtVal(condOutside)} {currencyLabel} من الكوديشن خارج المقارنة: ايتماتها غير مُسندة لأي مدير شركة (تُستبعد من مبيع المحافظة بنفس القاعدة). أسندها من «الايتمات» في السوبر أدمن لتظهر هنا.
+                ⚠️ {fmtVal(condOutside)} {currencyLabel} من اللكوديشن خارج المقارنة: ايتماتها غير مُسندة لأي مدير شركة (تُستبعد من مبيع المحافظة بنفس القاعدة). أسندها من «الايتمات» في السوبر أدمن لتظهر هنا.
               </div>
             )}
           </div>

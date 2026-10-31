@@ -199,7 +199,7 @@ export async function buildWarehouseGapWorkbook({ reps = [], items = [], compani
     ['10', 'الورقة محمية جزئياً لمنع تغيير الترويسات أو القوائم بالخطأ — خانات التعبئة فقط (صفوف البيانات) قابلة للتحرير، وهذا لا يمنعك من إدخال أي بيع.'],
     ['11', 'الحقول الإلزامية: اليوم، اسم الصيدلية، المندوب، الايتم، الكمية. (الشركة تُحسب تلقائياً من الايتم.)'],
     ['12', 'بعد التعبئة احفظ الملف وارفعه من نفس الشاشة التي حمّلت منها هذا النموذج (أو أرسله لمن يملك حساباً في التطبيق ليرفعه) — ستُحتسب هذه المبيعات تلقائياً ضمن ميركاتو في كل التقارير.'],
-    ...(provinces.length ? [['13', 'عمود "المحافظة" (آخر عمود): اختر محافظة البيع من القائمة — عليه تُقارَن مبيعات الكوديشن بمبيع المحافظة الكلي في «مندوبين المحافظات». إن تُرك فارغاً تُستنتج المحافظة من المنطقة.']] : []),
+    ...(provinces.length ? [['13', 'عمود "المحافظة" (آخر عمود): اختر محافظة البيع من القائمة — عليه تُقارَن مبيعات اللكوديشن بمبيع المحافظة الكلي في «مندوبين المحافظات». إن تُرك فارغاً تُستنتج المحافظة من المنطقة.']] : []),
   ];
   instrSheet.addRows(instrRows);
   instrSheet.columns = [{ width: 4 }, { width: 100 }];
@@ -251,6 +251,9 @@ export function parseWarehouseGapWorkbook(buffer) {
 
   const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
   if (raw.length < 1) return { rows: [], warnings: ['الملف فارغ.'] };
+
+  const tasks = parseTaskExport(raw);
+  if (tasks) return tasks;
 
   const headerRowRaw = raw[0];
   const headerRow = headerRowRaw.map(headerKey);
@@ -325,4 +328,75 @@ export function parseWarehouseGapWorkbook(buffer) {
   }
 
   return { rows, warnings };
+}
+
+// ─── ملف مهام مسوقي المحافظات (تصدير المنصة) ─────────────────────────────────
+// ترويسات إنجليزية ثابتة: task_id, product_name, brand, price, quantity,
+// total_price, bonus, rep_name, client, associated_client, status — بلا عمود
+// منطقة ولا محافظة: المحافظة مكتوبة داخل اسم المندوب («… - مسوقين - الديوانية»)
+// وتُحَل في parseWarehouseGapFile (تحتاج جدول المحافظات).
+const TASK_COLS = {
+  invoiceNumber: ['task_id', 'task', 'order_id'],
+  item:          ['product_name', 'product', 'item'],
+  company:       ['brand', 'company'],
+  unitPrice:     ['price', 'unit_price'],
+  quantity:      ['quantity', 'qty'],
+  totalValue:    ['total_price', 'total', 'amount'],
+  bonus:         ['bonus', 'bonus_qty'],
+  repName:       ['rep_name', 'rep', 'representative'],
+  pharmacy:      ['client', 'client_name', 'pharmacy'],
+  warehouse:     ['associated_client', 'warehouse'],
+  status:        ['status'],
+  date:          ['date', 'task_date', 'order_date', 'created_at', 'completed_at', 'delivered_at'],
+};
+const taskKey = h => String(h ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+// «1,547 د.ع.» أو 1547 — أول رقم في الخلية (نقاط «د.ع.» ليست كسوراً).
+const taskNum = v => {
+  if (typeof v === 'number') return v;
+  const m = String(v ?? '').match(/-?\d[\d,]*(?:\.\d+)?/);
+  return m ? Number(m[0].replace(/,/g, '')) : 0;
+};
+const TASK_DONE_RE = /^(?!.*(?:not|un|غير))(?=.*(?:complete|done|deliver|مكتمل|منجز|مسلم))/i;
+
+/** @returns {{rows:object[], warnings:string[], format:'tasks'}|null} null = ليس ملف مهام */
+function parseTaskExport(raw) {
+  const head = (raw[0] || []).map(taskKey);
+  const idx = {};
+  for (const [field, names] of Object.entries(TASK_COLS)) idx[field] = head.findIndex(h => names.includes(h));
+  if (idx.item === -1 || idx.quantity === -1 || idx.repName === -1 || !head.includes('product_name')) return null;
+
+  const warnings = [];
+  const rows = [];
+  const skippedStatus = new Map();
+  let incomplete = 0;
+  const cell = (r, f) => (idx[f] !== -1 ? r[idx[f]] : '');
+  const text = (r, f) => String(cell(r, f) ?? '').trim();
+  for (let i = 1; i < raw.length; i++) {
+    const r = raw[i];
+    if (!r || r.every(c => String(c ?? '').trim() === '')) continue;
+    const status = text(r, 'status');
+    // مهمة لم تكتمل (ملغاة/معلّقة) ليست مبيعاً.
+    if (status && !TASK_DONE_RE.test(status)) { skippedStatus.set(status, (skippedStatus.get(status) || 0) + 1); continue; }
+    const item = text(r, 'item');
+    const repName = text(r, 'repName');
+    const quantity = taskNum(cell(r, 'quantity'));
+    if (!item || !repName || quantity <= 0) { incomplete++; continue; }
+    const rawDate = cell(r, 'date');
+    rows.push({
+      repName,
+      item,
+      company:       text(r, 'company') || undefined,
+      quantity,
+      unitPrice:     taskNum(cell(r, 'unitPrice')) || undefined,
+      totalValue:    taskNum(cell(r, 'totalValue')) || undefined,
+      bonus:         taskNum(cell(r, 'bonus')) || undefined,
+      pharmacy:      text(r, 'pharmacy') || undefined,
+      warehouse:     text(r, 'warehouse') || undefined,
+      invoiceNumber: text(r, 'invoiceNumber') || undefined,
+      date:          rawDate !== '' && rawDate != null ? rawDate : undefined,
+    });
+  }
+  for (const [st, n] of skippedStatus) warnings.push(`تم تجاهل ${n} صف حالته «${st}» (المكتملة فقط تُحتسب مبيعاً).`);
+  if (incomplete) warnings.push(`تم تجاهل ${incomplete} صف بلا مادة أو مندوب أو كمية.`);
+  return { rows, warnings, format: 'tasks' };
 }

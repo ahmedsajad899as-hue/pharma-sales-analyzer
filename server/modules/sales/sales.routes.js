@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadSales, extractInvoice, addManualSales, checkNames, checkDuplicates,
+import { uploadSales, extractInvoice, addManualSales, checkNames, checkDuplicates, conditionMatch,
   downloadWarehouseGapTemplate, parseWarehouseGapUpload, getWarehouseGapScopeJson,
   saveActiveFiles, getSalesMonths } from './sales.controller.js';
 import {
@@ -76,6 +76,12 @@ router.post('/sales/manual', addManualSales);
  * JSON: { rows: [{ item, company }] }. يُرجع الأسماء المتشابهة التي تحتاج تأكيداً.
  */
 router.post('/sales/check-names', checkNames);
+
+/**
+ * POST /api/sales/condition-match
+ * JSON: { pairs: [{ item, company }] }. مطابقة أسماء ملف لكوديشن المحافظات بايتمات وشركات المكتب.
+ */
+router.post('/sales/condition-match', conditionMatch);
 
 /**
  * POST /api/sales/check-duplicates

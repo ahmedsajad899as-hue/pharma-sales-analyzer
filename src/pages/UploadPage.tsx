@@ -1098,7 +1098,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                 </span>
                 {o.senderName && <span style={{ fontSize: 11.5, color: '#64748b' }}>من {o.senderName}</span>}
                 {o.originName && (
-                  <span title="حُوِّلت إليك لأن أصنافها من ايتماتك — تُحفَظ في ملف كوديشن الحساب الأصلي"
+                  <span title="حُوِّلت إليك لأن أصنافها من ايتماتك — تُحفَظ في ملف لكوديشن الحساب الأصلي"
                     style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 999, padding: '1px 8px' }}>
                     ↪️ محوَّلة من {o.originName}
                   </span>
@@ -1512,7 +1512,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
 
                           {isCond && (
                             <button onClick={() => { setConditionView(f); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Icon name="file" size={13} /> فتح الكوديشن (شيت لكل مندوب)
+                              <Icon name="file" size={13} /> فتح اللكوديشن (شيت لكل مندوب)
                             </button>
                           )}
 
@@ -1590,8 +1590,8 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                             <button
                               onClick={(e) => { e.stopPropagation(); setConditionView(f); }}
                               style={chip('var(--c-warning)', 'var(--c-warning-bg)', 'var(--c-warning-border)', true)}
-                              title="ملف الكوديشن — طلبيات بوت تلكرام وإكسل الكوديشن، تُحتسب مع ميركاتو. اضغط لفتحه (شيت لكل مندوب) أو تصديره إكسل."
-                            ><Icon name="file" size={12} /><span>كوديشن</span></button>
+                              title="ملف اللكوديشن — طلبيات بوت تلكرام وإكسل اللكوديشن، تُحتسب مع ميركاتو. اضغط لفتحه (شيت لكل مندوب) أو تصديره إكسل."
+                            ><Icon name="file" size={12} /><span>لكوديشن</span></button>
                           )}
                           {f.sourceSystem === 'mercato' && !isCond && (
                             <button
@@ -1792,10 +1792,10 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                             if (!isActive) onFileActivated(f.id);
                             if (!activeFileIds.includes(condSibling.id)) onFileActivated(condSibling.id);
                           }}
-                          title={both ? 'إلغاء تفعيل ميركاتو والكوديشن معاً' : 'تفعيل ميركاتو والكوديشن معاً'}
+                          title={both ? 'إلغاء تفعيل ميركاتو واللكوديشن معاً' : 'تفعيل ميركاتو واللكوديشن معاً'}
                           style={{ border: '1px solid var(--c-warning-border)', borderRadius: 20, padding: '2px 10px', background: both ? 'var(--c-warning-bg)' : '#fff', color: 'var(--c-warning)', cursor: 'pointer', fontSize: 11, fontWeight: 700, flexShrink: 0 }}
                         >
-                          🔗 {both ? 'إلغاء الاثنين' : 'مع الكوديشن'}
+                          🔗 {both ? 'إلغاء الاثنين' : 'مع اللكوديشن'}
                         </button>
                       );
                     })()}

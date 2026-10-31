@@ -5451,7 +5451,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               <span style={{ fontSize: 12.5, fontWeight: 800, color: mercatoColor, whiteSpace: 'nowrap' }}>{mercatoValStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(mercatoCount)}🧾</span></span>
               {liq && (<>
                 <Icon name="uploadSales" size={13} style={{ color: '#64748b' }} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }} title="ملف الكوديشن (طلبيات البوت والفواتير) + طلبيات الترانزيت من ملف المكتب — مفصول عن Mercato وOffice">Liquidation</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }} title="ملف اللكوديشن (طلبيات البوت والفواتير) + طلبيات الترانزيت من ملف المكتب — مفصول عن Mercato وOffice">Liquidation</span>
                 <span style={{ fontSize: 12.5, fontWeight: 800, color: liq.color, whiteSpace: 'nowrap' }}>{liq.valStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(liq.count)}🧾</span></span>
               </>)}
             </div>
@@ -5488,7 +5488,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             () => { const v = !showClassTable; setShowClassTable(v); if (v && !isNet) setReportView('net'); },
             { bg: '#ede9fe', bd: '#c4b5fd', fg: '#6d28d9' }),
           sciReport.byCustomerClass && canMergeWh && toggleBtn('mergeWh', mergeWarehouses, mergeWarehouses ? '🔗 علمي + مذاخر (مدموج)' : '🔗 دمج المذاخر مع العلمي',
-            mergeWarehouses ? 'المذاخر مدموجة مع العلمي في جدول التصنيف — اضغط لفصلها' : 'دمج المذاخر (ميركاتو / كوديشن) مع العلمي في حقل واحد في جدول التصنيف',
+            mergeWarehouses ? 'المذاخر مدموجة مع العلمي في جدول التصنيف — اضغط لفصلها' : 'دمج المذاخر (ميركاتو / لكوديشن) مع العلمي في حقل واحد في جدول التصنيف',
             () => {
               const v = !mergeWarehouses;
               setMergeWarehouses(v);

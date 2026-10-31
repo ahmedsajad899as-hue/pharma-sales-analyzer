@@ -8,6 +8,7 @@ import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { consumePendingOrder, enrichRowsFromCatalog, attachScientificRepGuess, loadOrderOrigins } from '../orders/orders.service.js';
 import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
   checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope } from './sales.service.js';
+import { matchConditionNames } from '../../lib/conditionNameMatch.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { listSalesMonths } from '../../lib/salesMonths.js';
@@ -283,6 +284,22 @@ async function shareWithItemAssignees(fileId, ownerId, reviewerId, itemIds) {
     data: [...userIds].map(userId => ({ fileId, userId })),
     skipDuplicates: true,
   });
+}
+
+/**
+ * POST /api/sales/condition-match
+ * مطابقة أسماء ايتمات/شركات ملف لكوديشن المحافظات بكتالوج المكتب — قراءة فقط.
+ * Body: { pairs: [{ item, company }] }
+ * 200: { success, data: { catalog, companyList, items, companies } }
+ */
+export async function conditionMatch(req, res, next) {
+  try {
+    const pairs = Array.isArray(req.body?.pairs) ? req.body.pairs.slice(0, 5000) : [];
+    const data = await matchConditionNames(req.user, pairs);
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
 }
 
 /**

@@ -24,7 +24,7 @@ import {
 } from './sales.repository.js';
 import { buildNormalizationMap, areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
-import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName } from '../../lib/provinces.js';
+import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName, provinceFromText } from '../../lib/provinces.js';
 import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks, resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import { loadResolutionContext, resolveItemName, normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
@@ -2096,7 +2096,7 @@ export async function buildWarehouseGapTemplateForUser(user, { withProvince = fa
   // عمود المحافظة لنموذج «مندوبين المحافظات» وحده — نموذج بغداد يبقى كما هو.
   const buffer = await buildWarehouseGapWorkbook({ ...scope, provinces: withProvince ? scope.provinces.filter(p => p.trim() !== 'بغداد') : [] });
   const who = (user.displayName || user.username || 'مستخدم').replace(/[\\/:*?"<>|]/g, '').trim();
-  return { buffer, filename: `${withProvince ? 'نموذج كوديشن المحافظات' : 'نموذج مبيعات مذاخر'} - ${who}.xlsx` };
+  return { buffer, filename: `${withProvince ? 'نموذج لكوديشن المحافظات' : 'نموذج مبيعات مذاخر'} - ${who}.xlsx` };
 }
 
 /**
@@ -2112,12 +2112,13 @@ export async function buildWarehouseGapTemplateForUser(user, { withProvince = fa
  * @param {number|null} userId
  */
 export async function parseWarehouseGapFile(buffer, userId = null) {
-  const { rows, warnings } = parseWarehouseGapWorkbook(buffer);
-  if (rows.length === 0 || !userId) return { rows, warnings };
+  const { rows, warnings, format = 'template' } = parseWarehouseGapWorkbook(buffer);
+  if (format === 'tasks' && rows.length) await attachTaskProvinces(rows, warnings);
+  if (rows.length === 0 || !userId) return { rows, warnings, format };
 
   const needsPrice   = rows.some(r => !r.unitPrice && !r.totalValue);
   const needsCompany = rows.some(r => !r.company);
-  if (!needsPrice && !needsCompany) return { rows, warnings };
+  if (!needsPrice && !needsCompany) return { rows, warnings, format };
 
   const catalog = await getWarehouseGapItemCatalog(userId);
   const byKey = new Map(catalog.map(i => [normalizeItemKey(i.name), i]));
@@ -2136,7 +2137,25 @@ export async function parseWarehouseGapFile(buffer, userId = null) {
     return { ...withCompany, unitPrice: price, totalValue: price * r.quantity };
   });
 
-  return { rows: enriched, warnings };
+  return { rows: enriched, warnings, format };
+}
+
+/**
+ * ملف مهام المسوقين بلا عمود محافظة: المحافظة من اسم المندوب («… - مسوقين -
+ * الديوانية»، «… فارمسي الكوت»)، وإلا من اسم المذخر ثم الصيدلية — بالاسم الرسمي
+ * (الكوت ← واسط) كي تُجمَّع مع مبيع المحافظة نفسها في المقارنة.
+ */
+async function attachTaskProvinces(rows, warnings) {
+  const lookup = buildProvinceLookup(await prisma.province.findMany({ select: { id: true, name: true, aliases: true } }));
+  const missing = new Set();
+  for (const r of rows) {
+    const p = provinceFromText(r.repName, lookup) || provinceFromText(r.warehouse, lookup) || provinceFromText(r.pharmacy, lookup);
+    if (p) r.province = p.name;
+    else missing.add(r.repName);
+  }
+  if (missing.size) {
+    warnings.push(`لم تُعرف المحافظة من اسم ${missing.size} مندوب (${[...missing].slice(0, 5).join('، ')}${missing.size > 5 ? '…' : ''}) — اخترها في الجدول أو من «المحافظة لكل الصفوف الفارغة».`);
+  }
 }
 
 // ─── مبيعات يدوية داخل ملف ميركاتو: كتابة القيم تحت ترويسات الملف الفعلية ───
@@ -2310,6 +2329,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
 
     const areaNorm = normalizeAr(r.area);
     validRows.push({
+      itemId:   Number.isInteger(Number(r.itemId)) && Number(r.itemId) > 0 ? Number(r.itemId) : null,
       repName:  normalizeAr(repForRow) || 'غير محدد',
       area:     areaNorm || 'غير محدد',
       // تملأ محافظة منطقة جديدة/بلا محافظة فقط (findOrCreateArea لا يكتب فوق محافظة
@@ -2344,11 +2364,33 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     }
   }
 
+  // ايتم اختاره المستخدم بمعرّفه من كتالوج المكتب («مطابقة الأسماء» في لكوديشن
+  // المحافظات) يُحفَظ عليه حرفياً — المطابقة بالاسم قد تقع على ايتم مكرَّر الاسم في
+  // شركة أخرى، أو على ايتم خارج شركات الرافع فيُنشأ مؤقتاً ويسقط من المقارنة.
+  // يُقبل فقط ايتم كتالوج حقيقي من شركات الرافع أو مكتبه.
+  const pickedIds = [...new Set(validRows.map(r => r.itemId).filter(Boolean))];
+  if (pickedIds.length) {
+    const officeId = userId ? (await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } }))?.officeId ?? null : null;
+    const ok = new Set((await prisma.item.findMany({
+      where: {
+        id: { in: pickedIds }, isTemp: false,
+        OR: [
+          { scientificCompanyId: { in: sciCompanyIds } },
+          ...(officeId != null ? [{ scientificCompany: { officeId } }] : []),
+        ],
+      },
+      select: { id: true },
+    })).map(i => i.id));
+    for (const r of validRows) if (r.itemId && !ok.has(r.itemId)) r.itemId = null;
+  }
+  const itemIdOf = r => r.itemId ?? itemMap[r.item];
+
   // ── 3. Resolve/create entities (de-duped) ──
   // المحافظة تُكتب على Area لا على Sale — تُشتق لاحقاً عبر Area.provinceId
   const areaProvinceMap = await buildAreaProvinceMap(validRows);
   const uniqueAreas     = [...new Set(validRows.map(r => r.area))];
-  const uniqueItems     = [...new Set(validRows.map(r => r.item))];
+  // صف بمعرّف ايتم محسوم لا يُطابَق بالاسم (وإلا أُنشئ له ايتم مؤقت بلا داعٍ).
+  const uniqueItems     = [...new Set(validRows.filter(r => !r.itemId).map(r => r.item))];
   const uniqueReps      = [...new Set(validRows.map(r => r.repName))];
   const uniqueCustomers = [...new Set(validRows.map(r => r.customer).filter(Boolean))];
   const uniqueCompanies = [...new Set(validRows.map(r => r.company).filter(Boolean))];
@@ -2431,7 +2473,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
   const built = validRows.map(r => ({
     representativeId: repMap[r.repName],
     areaId:           areaMap[r.area],
-    itemId:           itemMap[r.item],
+    itemId:           itemIdOf(r),
     customerId:       r.customer ? (customerMap[r.customer] ?? null) : null,
     quantity:         r.quantity,
     totalValue:       r.totalValue,
@@ -2463,7 +2505,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
 
   // ── 7. Auto-assign areas & items to each rep ──
   const repAreaPairs = [...new Map(validRows.map(r => [`${repMap[r.repName]}-${areaMap[r.area]}`, { representativeId: repMap[r.repName], areaId: areaMap[r.area] }])).values()];
-  const repItemPairs = [...new Map(validRows.map(r => [`${repMap[r.repName]}-${itemMap[r.item]}`, { representativeId: repMap[r.repName], itemId: itemMap[r.item] }])).values()];
+  const repItemPairs = [...new Map(validRows.map(r => [`${repMap[r.repName]}-${itemIdOf(r)}`, { representativeId: repMap[r.repName], itemId: itemIdOf(r) }])).values()];
   await Promise.all([
     repAreaPairs.length > 0
       ? prisma.representativeArea.createMany({ data: repAreaPairs, skipDuplicates: true })
@@ -2518,7 +2560,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
     unknownItems,
     rememberedCount,
     // الايتمات المحفوظة — لمشاركة ملف الكوديشن مع من أُسنِدت لهم (طلبيات البوت).
-    itemIds: [...new Set(validRows.map(r => itemMap[r.item]).filter(Boolean))],
+    itemIds: [...new Set(validRows.map(itemIdOf).filter(Boolean))],
     uploadedFile: { id: uploadedFile.id, originalName: uploadedFile.originalName, isCumulative: uploadedFile.isCumulative ?? false },
   };
 }
@@ -2549,7 +2591,7 @@ export async function canEditConditionFile(fileId, user) {
 
 async function loadEditableConditionRow(fileId, saleId, user) {
   if (!(await canEditConditionFile(fileId, user))) {
-    throw new AppError('ملف الكوديشن غير موجود أو لا تملك تعديله.', 404, 'FILE_NOT_FOUND');
+    throw new AppError('ملف اللكوديشن غير موجود أو لا تملك تعديله.', 404, 'FILE_NOT_FOUND');
   }
   const sale = await prisma.sale.findFirst({ where: { id: saleId, uploadedFileId: fileId } });
   if (!sale) throw new AppError('الصف غير موجود.', 404, 'ROW_NOT_FOUND');

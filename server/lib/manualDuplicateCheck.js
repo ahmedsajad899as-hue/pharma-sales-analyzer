@@ -29,7 +29,7 @@ import { cleanPharmacyName, parseExcelDate } from '../modules/sales/sales.servic
 const DAY = 86400000;
 const SOURCE_LABEL = {
   'telegram-order': 'بوت تلكرام', 'viber-order': 'بوت فايبر', 'whatsapp-order': 'بوت واتساب',
-  'warehouse-gap-template': 'إكسل الكوديشن', 'manual-invoice': 'فاتورة يدوية',
+  'warehouse-gap-template': 'إكسل اللكوديشن', 'manual-invoice': 'فاتورة يدوية',
 };
 
 /** رقم فاتورة حقيقي مطبَّع، أو '' للرقم التركيبي/الفارغ. */
