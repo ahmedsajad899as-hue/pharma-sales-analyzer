@@ -169,12 +169,37 @@ function copyText(text: string) {
 }
 
 // تصغير الصورة في المتصفح قبل الرفع (القرص ضيّق على السيرفر)
+const readDataUrl = (b: Blob) => new Promise<string>((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(String(r.result)); r.onerror = rej;
+  r.readAsDataURL(b);
+});
+const loadImg = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
+  const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
+});
+
+/** رابط عرض لصورة محلية: blob: أولاً، وإن تعذّر عرضه (صور مُشارَكة ببعض متصفحات أندرويد) ← data: */
+function useLocalImage(file: Blob | null): [string | null, () => void] {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file) { setUrl(null); return; }
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  const fallback = () => {
+    if (!file || url?.startsWith('data:')) return;
+    readDataUrl(file).then(setUrl).catch(() => {});
+  };
+  return [url, fallback];
+}
+
 async function compressImage(file: File, maxSide = 1600, quality = 0.8): Promise<Blob> {
   const url = URL.createObjectURL(file);
   try {
-    const img = await new Promise<HTMLImageElement>((res, rej) => {
-      const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
-    });
+    const img = await loadImg(url)
+      .catch(async () => loadImg(await readDataUrl(file)))
+      .catch(() => { throw new Error('تعذّر فتح الصورة — أعد مشاركتها أو اخترها من المعرض'); });
     const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(img.width * scale); canvas.height = Math.round(img.height * scale);
@@ -334,7 +359,11 @@ export default function RepOrdersPage() {
     (async () => {
       const cache = await caches.open(SHARE_CACHE);
       const keys = await cache.keys();
-      const blobs = await Promise.all(keys.map(async k => (await cache.match(k))!.blob()));
+      // نسخة في الذاكرة مستقلة عن الكاش (الكاش يُحذف بعد الربط أو بمشاركة جديدة)
+      const blobs = await Promise.all(keys.map(async k => {
+        const b = await (await cache.match(k))!.blob();
+        return new Blob([await b.arrayBuffer()], { type: b.type || 'image/jpeg' });
+      }));
       if (blobs.length) setShared(blobs);
     })().catch(() => {});
   }, []);
@@ -696,7 +725,8 @@ export default function RepOrdersPage() {
         <WarehousesModal api={api} warehouses={warehouses} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
       )}
       {shared.length > 0 && (
-        <SharedImagePicker api={api} images={shared} onDone={() => { clearShared(); load(); }} onCancel={clearShared} />
+        <SharedImagePicker api={api} images={shared} beginSend={(o, wh) => beginSend([o], wh, true)}
+          onDone={() => { clearShared(); load(); }} onCancel={clearShared} />
       )}
       {prepFor && (
         <PrepareDialog api={api} order={prepFor.order} file={prepFor.file} initialWh={prepFor.whId}
@@ -1181,9 +1211,13 @@ function ZoomImage({ src, onError, children }: { src: string; onError?: () => vo
   );
 }
 
-function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSaved }: {
+/** فاتورة مُشارَكة قُرئت بالذكاء: صورتها مرفوعة مسبقاً (token) وكمياتها تملأ الجدول */
+interface PrepAi { token: string; invoiceNumber: string | null; candidate: ReadCandidate | null; auto: boolean }
+
+function PrepareDialog({ api, order, file, initialWh, ai, cancelLabel = 'إلغاء', beginSend, onClose, onSaved }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   order: Order; file: File | null; initialWh?: number | null;
+  ai?: PrepAi | null; cancelLabel?: string;
   beginSend: (o: Order, wh: OrderWh) => { go: () => void; cancel: () => void };
   onClose: () => void; onSaved: () => void;
 }) {
@@ -1191,19 +1225,8 @@ function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSave
   const whChoices = order.warehouses.filter(w => w.id != null);
   const [whId, setWhId] = useState<number | null>(initialWh !== undefined ? initialWh : currentWh(order).id);
   const [saving, setSaving] = useState(false);
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!file) { setUrl(null); return; }
-    const u = URL.createObjectURL(file);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [file]);
-  const fallbackToDataUrl = () => {
-    if (!file || url?.startsWith('data:')) return;
-    const r = new FileReader();
-    r.onload = () => setUrl(String(r.result));
-    r.readAsDataURL(file);
-  };
+  const [url, fallbackToDataUrl] = useLocalImage(file);
+  const invLine = useMemo(() => new Map((ai?.candidate?.lines ?? []).map(x => [x.lineId, x])), [ai]);
 
   // سجل هذا المذخر السابق (تصحيح) لا يُحسب ضمن «المجهّز سابقاً»
   const own = lastSendTo(order, whId);
@@ -1218,9 +1241,14 @@ function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSave
   }), [order, own]);
 
   const initial = useCallback(() => Object.fromEntries(rows.map(r => {
+    // فاتورة مقروءة: الكميات كما فيها، والصنف غير الموجود بها = 0
+    if (ai?.candidate && r.need > 0) {
+      const x = invLine.get(r.l.id!);
+      return [r.l.id!, x?.invoiceItem ? { p: String(x.preparedQty), b: x.preparedBonus ? String(x.preparedBonus) : '' } : { p: '0', b: '' }];
+    }
     const mine = own && own.outcome !== 'sent' ? own.lines.find(x => x.lineId === r.l.id) : null;
     return [r.l.id!, mine ? { p: String(mine.qty), b: mine.bonus ? String(mine.bonus) : '' } : { p: String(r.need), b: r.needBonus ? String(r.needBonus) : '' }];
-  })), [rows, own]);
+  })), [rows, own, ai, invLine]);
   const [qty, setQty] = useState<Record<number, { p: string; b: string }>>(initial);
   useEffect(() => { setQty(initial()); }, [initial]);
 
@@ -1247,11 +1275,17 @@ function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSave
     }
     setSaving(true);
     try {
-      const fd = new FormData();
-      if (file) fd.append('image', await compressImage(file), 'prepared.jpg');
-      if (whId != null) fd.append('warehouseId', String(whId));
-      fd.append('lines', JSON.stringify(rows.map(r => ({ lineId: r.l.id, qty: got(r.l.id!), bonus: bonusOf(r.l.id!) }))));
-      await api(`/${order.id}/prepare`, { method: 'POST', body: fd });
+      const lines = rows.map(r => ({ lineId: r.l.id, qty: got(r.l.id!), bonus: bonusOf(r.l.id!) }));
+      if (ai?.token) {
+        // الصورة رُفعت مع القراءة — تُثبَّت بالـtoken بدل رفعها ثانية
+        await api(`/${order.id}/apply-invoice`, { method: 'POST', body: JSON.stringify({ token: ai.token, invoiceNumber: ai.invoiceNumber, warehouseId: whId, lines }) });
+      } else {
+        const fd = new FormData();
+        if (file) fd.append('image', await compressImage(file), 'prepared.jpg');
+        if (whId != null) fd.append('warehouseId', String(whId));
+        fd.append('lines', JSON.stringify(lines));
+        await api(`/${order.id}/prepare`, { method: 'POST', body: fd });
+      }
       onSaved();
       send?.go();
     } catch (e: any) { send?.cancel(); alert(e.message); setSaving(false); }
@@ -1300,6 +1334,8 @@ function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSave
                   </button>
                 ))}
               </div>
+              {ai?.auto && <div className="ro-auto">✅ تم التعرّف عليها تلقائياً من الفاتورة (تطابق {ai.candidate?.score}%)</div>}
+              {ai?.candidate && <div className="ro-muted ro-small">الكميات من الفاتورة — صحّح ما يلزم</div>}
             </div>
           </div>
 
@@ -1320,9 +1356,16 @@ function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSave
                 }
                 const g = got(id);
                 const st = g >= need ? 'full' : g > 0 ? 'part' : 'none';
+                const inv = ai?.candidate ? invLine.get(id) : undefined;
                 return (
                   <tr key={id} className={st !== 'full' ? 'ro-diff' : ''}>
-                    <td><div className="ro-strong">{l.itemName}</div>{from.length > 0 && <div className="ro-sub"><span>سابقاً: {from.join(' · ')}</span></div>}</td>
+                    <td>
+                      <div className="ro-strong">{l.itemName}</div>
+                      {from.length > 0 && <div className="ro-sub"><span>سابقاً: {from.join(' · ')}</span></div>}
+                      {ai?.candidate && (inv?.invoiceItem
+                        ? <div className="ro-sub"><span>بالفاتورة: {inv.invoiceItem}</span></div>
+                        : <div className="ro-sub"><span className="ro-warn-text">غير موجود بالفاتورة</span></div>)}
+                    </td>
                     <td>{need}</td>
                     <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[id]?.p ?? ''} onChange={e => setQty(s => ({ ...s, [id]: { ...s[id], p: e.target.value } }))} /></td>
                     <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={g === 0 ? '' : qty[id]?.b ?? ''} placeholder={g === 0 ? '0' : ''} disabled={g === 0} onChange={e => setQty(s => ({ ...s, [id]: { ...s[id], b: e.target.value } }))} /></td>
@@ -1343,6 +1386,9 @@ function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSave
             {outcome === 'partial' && `${whName} جهّز جزءاً — يبقى ${missing.length} صنف (${missing.map(r => `${r.l.itemName} ${r.need - got(r.l.id!)}`).join('، ')}) يُرسل للمذخر التالي.`}
             {outcome === 'rejected' && `${whName} لم يجهّز شيئاً — الطلبية كاملة تُرسل للمذخر التالي.`}
           </div>
+          {ai?.candidate && ai.candidate.extraItems.length > 0 && (
+            <div className="ro-muted ro-small">أصناف بالفاتورة غير موجودة بالطلبية: {ai.candidate.extraItems.map(x => `${x.item} ×${x.quantity}`).join('، ')}</div>
+          )}
         </div>
         <div className="ro-dialog__foot">
           <button className="btn btn--primary" disabled={saving} onClick={() => save()}>{saving ? 'جارٍ الحفظ…' : 'حفظ'}</button>
@@ -1351,7 +1397,7 @@ function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSave
               <Send size={15} /><span>حفظ وإرسال المتبقي إلى {nextOne.name}</span>
             </button>
           )}
-          <button className="btn btn--secondary" onClick={onClose}>إلغاء</button>
+          <button className="btn btn--secondary" onClick={onClose}>{cancelLabel}</button>
         </div>
       </div>
     </div>
@@ -1360,8 +1406,9 @@ function PrepareDialog({ api, order, file, initialWh, beginSend, onClose, onSave
 
 // ─── ربط صورة مُشارَكة من واتساب بطلبية ──────────────────────────────────────
 // فاتورة المذخر (كروبات واتساب) = «صورة التجهيز»: تُقرأ أولاً بالذكاء الاصطناعي
-// (/invoice/read) وتُطابَق بالطلبيات: أفضل مرشّح واثق يُختار تلقائياً، وجدول
-// «المطلوب ↔ المجهّز» يُملأ من الفاتورة ويبقى قابلاً للتصحيح قبل الحفظ.
+// (/invoice/read) وتُطابَق بالطلبيات (أفضل مرشّح واثق يُحدَّد تلقائياً). اختيار
+// الطلبية يفتح نافذة «تجهيز» نفسها التي تُفتح من داخل الطلبية: الصورة أعلاها،
+// والمذخر الذي جهّز، وكمية كل صنف (من الفاتورة إن قُرئت) قابلة للتصحيح قبل الحفظ.
 // صورة ختم الصيدلية تُرفع بلا قراءة.
 
 interface ReadLine { lineId: number; itemName: string; quantity: number; bonusQty: number; invoiceItem: string | null; preparedQty: number; preparedBonus: number }
@@ -1374,9 +1421,11 @@ interface ReadResult {
 
 const whKeyOf = (o: Order) => { const w = currentWh(o); return String(w.id ?? w.name); };
 
-function SharedImagePicker({ api, images, onDone, onCancel }: {
+function SharedImagePicker({ api, images, beginSend, onDone, onCancel }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
-  images: Blob[]; onDone: () => void; onCancel: () => void;
+  images: Blob[];
+  beginSend: (o: Order, wh: OrderWh) => { go: () => void; cancel: () => void };
+  onDone: () => void; onCancel: () => void;
 }) {
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [read, setRead] = useState<ReadResult | null>(null);
@@ -1384,8 +1433,11 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
   const [q, setQ] = useState('');
   const [kind, setKind] = useState<ImageKind>('prepared');
   const [picked, setPicked] = useState<number | null>(null);
-  const [qty, setQty] = useState<Record<number, { p: string; b: string }>>({});
   const [saving, setSaving] = useState(false);
+  // فاتورة التجهيز: الطلبية المختارة تُفتح في نافذة «تجهيز» (لقطة القراءة وقت الفتح)
+  const [prep, setPrep] = useState<{ order: Order; ai: PrepAi | null } | null>(null);
+  // ضغطة على طلبية أثناء القراءة ← تُفتح فور انتهائها بكميات الفاتورة
+  const [waitOpen, setWaitOpen] = useState<number | null>(null);
   // قراءة الفاتورة بالذكاء — يمنحها السوبر أدمن للحساب (المميزات ← طلبيات المذاخر)، ومن
   // مُنحها يطفئها/يشغّلها بمفتاح يتذكّره الجهاز. بإطفائها تُرفق الصورة كصورة تجهيز بلا قراءة
   const { hasFeature } = useAuth();
@@ -1397,11 +1449,10 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
   const [showAll, setShowAll] = useState(false);
   // المذخر الذي جاءت منه الفاتورة: المشاركة لا تكشف الكروب المصدر، فيختاره المندوب بضغطة
   const [whKey, setWhKey] = useState<string | null>(null);
-  const urls = useMemo(() => images.map(b => URL.createObjectURL(b)), [images]);
-  useEffect(() => () => urls.forEach(u => URL.revokeObjectURL(u)), [urls]);
 
   // صورة واحدة لكل ربط: الأولى (واتساب يشارك عادةً صورة واحدة)
   const firstFile = useMemo(() => new File([images[0]], 'shared.jpg', { type: images[0].type || 'image/jpeg' }), [images]);
+  const [thumb, thumbFallback] = useLocalImage(firstFile);
 
   useEffect(() => {
     api<{ orders: Order[] }>(`?from=${shiftDay(-30)}&to=${today()}`)
@@ -1420,7 +1471,7 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
         const r = await api<ReadResult>('/invoice/read', { method: 'POST', body: fd });
         if (!alive) return;
         setRead(r);
-        if (r.autoOrderId) setPicked(r.autoOrderId);
+        if (r.autoOrderId) setPicked(p => p ?? r.autoOrderId);
       } catch (e: any) {
         if (alive) setRead({ token: '', invoice: null, candidates: [], autoOrderId: null, readError: e.message });
       } finally { if (alive) setReading(false); }
@@ -1429,20 +1480,6 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
   }, [api, firstFile, aiOn]);
 
   const candidateById = useMemo(() => new Map((read?.candidates ?? []).map(c => [c.orderId, c])), [read]);
-  const pickedCandidate = picked ? candidateById.get(picked) ?? null : null;
-  const pickedOrder = picked ? orders?.find(o => o.id === picked) ?? null : null;
-
-  // أسطر المقارنة للطلبية المختارة: من المطابقة إن وُجدت، وإلا من الطلبية نفسها بلا كميات مجهّزة
-  const compareLines: ReadLine[] = useMemo(() => {
-    if (pickedCandidate) return pickedCandidate.lines;
-    if (!pickedOrder) return [];
-    // بلا قراءة: المتبقي من كل صنف كاملاً، والمستخدم يصحّح الناقص
-    return pickedOrder.lines.map(l => ({ lineId: l.id!, itemName: l.itemName, quantity: remainingOf(l), bonusQty: Math.max(0, l.bonusQty - (l.preparedBonus ?? 0)), invoiceItem: null, preparedQty: remainingOf(l), preparedBonus: Math.max(0, l.bonusQty - (l.preparedBonus ?? 0)) })).filter(l => l.quantity > 0);
-  }, [pickedCandidate, pickedOrder]);
-
-  useEffect(() => {
-    setQty(Object.fromEntries(compareLines.map(l => [l.lineId, { p: String(l.preparedQty), b: l.preparedBonus ? String(l.preparedBonus) : '' }])));
-  }, [compareLines]);
 
   // فاتورة التجهيز ← قيد المتابعة فقط؛ ختم الصيدلية ← كل ما لم يُجهَّز بعد
   const pool = useMemo(() => (orders ?? []).filter(o => showAll
@@ -1476,35 +1513,61 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
     if (!aiOn && list.length === 1) setPicked(list[0].id);
   }, [aiOn, list]);
 
-  const save = async () => {
+  const openPrep = (o: Order) => {
+    setPicked(o.id);
+    // الصورة رُفعت مع القراءة (token) ← تُثبَّت دون رفع ثانٍ، والكميات تبدأ مما قُرئ منها
+    setPrep({
+      order: o,
+      ai: aiOn && read?.token
+        ? { token: read.token, invoiceNumber: read.invoice?.invoiceNumber ?? null, candidate: candidateById.get(o.id) ?? null, auto: read.autoOrderId === o.id }
+        : null,
+    });
+  };
+  const choose = (o: Order) => {
+    if (kind !== 'prepared') { setPicked(o.id); return; }
+    if (aiOn && reading) { setPicked(o.id); setWaitOpen(o.id); return; }
+    openPrep(o);
+  };
+  useEffect(() => {
+    if (waitOpen == null || reading) return;
+    const o = kind === 'prepared' ? orders?.find(x => x.id === waitOpen) : undefined;
+    setWaitOpen(null);
+    if (o) openPrep(o);
+  }, [waitOpen, reading, kind, orders]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // زر الرجوع في الهاتف داخل نافذة التجهيز ← قائمة الطلبيات
+  useEffect(() => {
+    if (!prep) return;
+    const onBack = (e: Event) => {
+      const ce = e as CustomEvent<{ activePage?: string }>;
+      if (ce.detail?.activePage !== 'rep-orders' || ce.defaultPrevented) return;
+      ce.preventDefault(); setPrep(null);
+    };
+    window.addEventListener('before-navigate-back', onBack);
+    return () => window.removeEventListener('before-navigate-back', onBack);
+  }, [prep]);
+
+  // ختم الصيدلية: يُرفق مباشرة بلا كميات
+  const saveStamp = async () => {
     if (!picked) return;
     setSaving(true);
     try {
-      if (kind === 'prepared' && aiOn && read?.token) {
-        await api(`/${picked}/apply-invoice`, {
-          method: 'POST',
-          body: JSON.stringify({
-            token: read.token,
-            invoiceNumber: read.invoice?.invoiceNumber ?? null,
-            lines: compareLines.map(l => ({ lineId: l.lineId, preparedQty: Number(qty[l.lineId]?.p) || 0, preparedBonus: Number(qty[l.lineId]?.b) || 0 })),
-          }),
-        });
-      } else if (kind === 'prepared') {
-        // بلا ذكاء: الصورة + ما أكّده المستخدم لكل صنف (الناقص يبقى للمذخر التالي)
-        const fd = new FormData();
-        fd.append('image', await compressImage(firstFile), 'prepared.jpg');
-        fd.append('lines', JSON.stringify(compareLines.map(l => ({ lineId: l.lineId, qty: Number(qty[l.lineId]?.p) || 0, bonus: Number(qty[l.lineId]?.b) || 0 }))));
-        await api(`/${picked}/prepare`, { method: 'POST', body: fd });
-      } else {
-        const fd = new FormData();
-        fd.append('image', await compressImage(firstFile), `${kind}.jpg`);
-        await api(`/${picked}/image/${kind}`, { method: 'POST', body: fd });
-      }
+      const fd = new FormData();
+      fd.append('image', await compressImage(firstFile), 'invoice.jpg');
+      await api(`/${picked}/image/invoice`, { method: 'POST', body: fd });
       onDone();
     } catch (e: any) { alert(e.message); setSaving(false); }
   };
 
+  if (prep) {
+    return (
+      <PrepareDialog api={api} order={prep.order} file={firstFile} ai={prep.ai} cancelLabel="رجوع للطلبيات"
+        beginSend={beginSend} onClose={() => setPrep(null)} onSaved={onDone} />
+    );
+  }
+
   const inv = read?.invoice;
+  const pickedOrder = picked ? orders?.find(o => o.id === picked) ?? null : null;
   return (
     <div className="ro-modal">
       <div className="ro-dialog">
@@ -1514,7 +1577,7 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
         </div>
         <div className="ro-dialog__body">
           <div className="ro-share-top">
-            <div className="ro-share-thumbs">{urls.slice(0, 1).map(u => <img key={u} src={u} alt="الصورة المُشارَكة" />)}</div>
+            <div className="ro-share-thumbs">{thumb && <img src={thumb} alt="الصورة المُشارَكة" onError={thumbFallback} />}</div>
             <div className="ro-share-read">
               <div className="ro-chips">
                 <button className={`ro-chip ${kind === 'prepared' ? 'is-active' : ''}`} onClick={() => setKind('prepared')}>فاتورة التجهيز</button>
@@ -1541,43 +1604,13 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
                 <div className="ro-note ro-note--warn">تعذّرت قراءة الفاتورة{read?.readError ? ` — ${read.readError}` : ''}. اختر الطلبية يدوياً.</div>
               ))}
               {kind === 'prepared' && aiOn && !reading && read?.autoOrderId && picked === read.autoOrderId && (
-                <div className="ro-auto">✅ تم التعرّف تلقائياً على الطلبية #{read.autoOrderId} (تطابق {candidateById.get(read.autoOrderId)?.score}%)</div>
+                <div className="ro-auto">✅ تم التعرّف تلقائياً على الطلبية #{read.autoOrderId} (تطابق {candidateById.get(read.autoOrderId)?.score}%) — اضغطها لتأكيد الكميات</div>
               )}
               {kind === 'prepared' && aiOn && !reading && inv && !read?.autoOrderId && (
                 <div className="ro-muted ro-small">لم يُحسم التطابق تلقائياً — اختر الطلبية من القائمة (الأقرب أولاً).</div>
               )}
             </div>
           </div>
-
-          {kind === 'prepared' && picked && compareLines.length > 0 && (
-            <div className="ro-compare">
-              <div className="ro-slot__label">{aiOn ? "الكميات المجهّزة فعلاً (من الفاتورة — يمكن تصحيحها)" : "تأكّد من الكميات المجهّزة — صحّح الناقص"}</div>
-              <table className="ro-lines">
-                <thead><tr><th>الصنف</th><th>المطلوب</th><th>المجهّز</th><th>بونص مجهّز</th></tr></thead>
-                <tbody>
-                  {compareLines.map(l => {
-                    const p = Number(qty[l.lineId]?.p) || 0;
-                    const diff = p !== l.quantity;
-                    return (
-                      <tr key={l.lineId} className={diff ? 'ro-diff' : ''}>
-                        <td>
-                          <div className="ro-strong">{l.itemName}</div>
-                          {l.invoiceItem ? <div className="ro-sub"><span>بالفاتورة: {l.invoiceItem}</span></div>
-                            : pickedCandidate ? <div className="ro-sub"><span className="ro-warn-text">غير موجود بالفاتورة</span></div> : null}
-                        </td>
-                        <td>{l.quantity}{l.bonusQty ? ` + ${l.bonusQty}` : ''}</td>
-                        <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[l.lineId]?.p ?? ''} onChange={e => setQty(s => ({ ...s, [l.lineId]: { ...s[l.lineId], p: e.target.value } }))} /></td>
-                        <td><input className="form-input ro-qty" type="number" min={0} inputMode="numeric" value={qty[l.lineId]?.b ?? ''} onChange={e => setQty(s => ({ ...s, [l.lineId]: { ...s[l.lineId], b: e.target.value } }))} /></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {pickedCandidate && pickedCandidate.extraItems.length > 0 && (
-                <div className="ro-muted ro-small">أصناف بالفاتورة غير موجودة بالطلبية: {pickedCandidate.extraItems.map(x => `${x.item} ×${x.quantity}`).join('، ')}</div>
-              )}
-            </div>
-          )}
 
           {whOptions.length > 1 && (
             <div className="ro-chips ro-share-whs">
@@ -1599,7 +1632,7 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
               const st = stateOf(o);
               const sc = candidateById.get(o.id)?.score;
               return (
-                <button key={o.id} className={`ro-share-item ro-row--${st} ${picked === o.id ? 'is-picked' : ''}`} onClick={() => setPicked(o.id)}>
+                <button key={o.id} className={`ro-share-item ro-row--${st} ${picked === o.id ? 'is-picked' : ''}`} onClick={() => choose(o)}>
                   <span className="ro-share-item__main">
                     <span className="ro-strong">{o.pharmacyName}</span>
                     <span className="ro-sub"><span>#{o.id}</span><span>{o.warehouseName}</span><span>{fmtDay(o.orderDate)}</span>{o.repName && <span>{o.repName}</span>}</span>
@@ -1619,9 +1652,15 @@ function SharedImagePicker({ api, images, onDone, onCancel }: {
           )}
         </div>
         <div className="ro-dialog__foot">
-          <button className="btn btn--primary" disabled={!picked || saving || (kind === 'prepared' && aiOn && reading)} onClick={save}>{saving ? 'جارٍ الحفظ…' : 'حفظ في الطلبية'}</button>
+          {kind === 'prepared' ? (
+            <button className="btn btn--primary" disabled={!pickedOrder || waitOpen != null} onClick={() => pickedOrder && choose(pickedOrder)}>
+              {waitOpen != null ? '⏳ تُفتح بعد القراءة…' : 'تأكيد الكميات'}
+            </button>
+          ) : (
+            <button className="btn btn--primary" disabled={!picked || saving} onClick={saveStamp}>{saving ? 'جارٍ الحفظ…' : 'حفظ في الطلبية'}</button>
+          )}
           <button className="btn btn--secondary" onClick={onCancel}>إلغاء</button>
-          {kind === 'prepared' && <span className="ro-muted ro-small">الناقص يبقى ويُرسل للمذخر التالي</span>}
+          {kind === 'prepared' && <span className="ro-muted ro-small">اختر الطلبية ← تظهر الصورة وتؤكّد الكميات المجهّزة</span>}
         </div>
       </div>
     </div>
