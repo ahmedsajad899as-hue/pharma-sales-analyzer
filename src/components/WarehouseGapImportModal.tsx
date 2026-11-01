@@ -108,6 +108,24 @@ function applyToRows(rs: GapRow[], items: Map<string, ItemOpt>, comps: Map<strin
 /** صف يُعرف مكانه (محافظة أو منطقة) — غيره يُتجاوز عند الحفظ في provinceMode. */
 const isPlaced = (r: GapRow) => !!(r.province.trim() || r.area.trim());
 
+const AR_MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران',
+  'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
+/** 'YYYY-MM' → آخر يوم بالشهر 'YYYY-MM-DD' — تاريخ الصفوف التي لا تاريخ لها في الملف. */
+const monthEnd = (ym: string) => {
+  const [y, m] = ym.split('-').map(Number);
+  return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+};
+const dmy = (iso: string) => iso.split('-').reverse().join('-');
+/** الشهر الحالي وخمسة قبله (الأحدث أولاً). */
+const recentMonths = () => {
+  const now = new Date();
+  return Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return { ym, label: `${d.getMonth() + 1} — ${AR_MONTHS[d.getMonth()]} ${d.getFullYear()}` };
+  });
+};
+
 export default function WarehouseGapImportModal({ token, onClose, onSaved, onProgress, provinceMode = false }: Props) {
   const authH = { Authorization: `Bearer ${token}` };
   const fileRef = useRef<HTMLInputElement>(null);
@@ -127,9 +145,12 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, onPro
   // جدول المراجعة — نفس البيانات المبنيّة منها نموذج الإكسل، بصيغة JSON.
   const [scope, setScope] = useState<Scope>({ reps: [], items: [], companies: [], warehouses: [] });
   const provinceOptions = (scope.provinces ?? []).filter(p => p.trim() !== 'بغداد');
-  // «المحافظة/التاريخ لكل الصفوف»: تملأ الخانات الفارغة فقط — ما اختير صفاً بصف يبقى.
+  // «المحافظة لكل الصفوف»: تملأ الخانات الفارغة فقط — ما اختير صفاً بصف يبقى.
   const fillProvince = (p: string) => setRows(rs => rs.map(r => (r.province.trim() ? r : { ...r, province: p })));
-  const fillDate = (d: string) => setRows(rs => rs.map(r => (r.date ? r : { ...r, date: d })));
+  // شهر الصفوف بلا تاريخ: تُسجَّل كلها بآخر يوم فيه (10 → 31-10). صف بتاريخه يبقى كما هو.
+  const [undatedMonth, setUndatedMonth] = useState('');
+  const [monthAsk, setMonthAsk] = useState(false);
+  const months = recentMonths();
 
   // مطابقة الأسماء بكتالوج المكتب
   const [match, setMatch] = useState<MatchData | null>(null);
@@ -247,7 +268,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, onPro
     setRows(rs => rs.map((r, idx) => (idx === i ? { ...r, [key]: val, ...(key === 'item' ? { itemId: undefined } : {}) } : r)));
   const removeRow = (i: number) => setRows(rs => rs.filter((_, idx) => idx !== i));
 
-  const buildPayload = (rs: GapRow[] = rows) => rs
+  const buildPayload = (rs: GapRow[] = rows, ym: string = undatedMonth) => rs
     .filter(r => r.item.trim() && r.repName.trim() && Number(r.quantity) > 0)
     .map(r => ({
       repName: r.repName.trim(),
@@ -261,7 +282,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, onPro
       pharmacy: r.pharmacy.trim() || undefined,
       warehouse: r.warehouse.trim() || undefined,
       area: r.area.trim() || undefined,
-      date: r.date || undefined,
+      date: r.date || (ym ? monthEnd(ym) : undefined),
       invoiceNumber: r.invoiceNumber.trim() || undefined,
       notes: r.notes.trim() || undefined,
       province: r.province.trim() || undefined,
@@ -347,9 +368,10 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, onPro
     setMatchOpen(false);
   };
 
-  const onSave = async () => {
+  const onSave = async (monthArg?: string) => {
     setError('');
-    let payloadRows = buildPayload();
+    const ym = monthArg ?? undatedMonth;
+    let payloadRows = buildPayload(rows, ym);
     if (payloadRows.length === 0) { setError('لا توجد صفوف صالحة — كل صف يحتاج مندوباً ومادة وكمية أكبر من صفر.'); return; }
 
     if (provinceMode) {
@@ -357,10 +379,9 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, onPro
       // لتحديد محافظته والحفظ لاحقاً (أو تنزيله إكسل ورفعه بعد التأكد).
       let placed = rows.filter(isPlaced);
       const unplaced = rows.filter(r => !isPlaced(r));
-      if (buildPayload(placed).length === 0) { setError('لا يوجد صف بمحافظة معروفة — حدّد المحافظة (أو «المحافظة لكل الصفوف») ثم احفظ.'); return; }
-      // صف بلا تاريخ لا يظهر في أي شهر من المقارنة.
-      const undated = buildPayload(placed).filter(r => !r.date).length;
-      if (undated > 0) { setError(`${undated} صف بلا تاريخ — اختر «التاريخ لكل الصفوف الفارغة» قبل الحفظ.`); return; }
+      if (buildPayload(placed, ym).length === 0) { setError('لا يوجد صف بمحافظة معروفة — حدّد المحافظة (أو «المحافظة لكل الصفوف») ثم احفظ.'); return; }
+      // صف بلا تاريخ لا يظهر في أي شهر من المقارنة: يُسأل المستخدم لأي شهر تُحتسب.
+      if (buildPayload(placed, ym).some(r => !r.date)) { setMonthAsk(true); return; }
 
       // أسماء لم تُطابَق بعد (صفوف أُضيفت أو عُدّلت بعد المطابقة): تُطابَق الآن، وتُطبَّق
       // تلقائياً إن لم يبقَ ما يحتاج قراراً — وإلا تُفتح اللوحة. الصفوف المتجاوزة لا تُحسب.
@@ -385,7 +406,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, onPro
         rem = [...rem.filter(p => !res.remember.some(x => x.from === p.from)), ...res.remember];
         setRows([...placed, ...unplaced]); setRemember(rem); setMatchOpen(false);
       }
-      const r = await doSave(buildPayload(placed), rem);
+      const r = await doSave(buildPayload(placed, ym), rem);
       if (!r) return;
       if (!unplaced.length) { onSaved(savedMsg(r) + '.', r.fileId); return; }
       const msg = `${savedMsg(r)} — وتُجووز ${unplaced.length} صف بلا محافظة.`;
@@ -479,6 +500,29 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, onPro
 
   return (
     <div style={overlay}>
+      {monthAsk && (
+        <div style={askOverlay} dir="rtl">
+          <div style={{ ...askPanel, maxWidth: 440 }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 800, color: '#1e293b' }}>📅 لأي شهر تُحتسب هذه المبيعات؟</h3>
+            <p style={{ margin: '0 0 14px', fontSize: 12.5, color: '#64748b', lineHeight: 1.7 }}>
+              {rows.filter(r => isPlaced(r) && !r.date).length} صف بلا تاريخ في الملف — تُسجَّل كلها بتاريخ آخر يوم بالشهر المختار.
+              الصفوف التي تحمل تاريخها تبقى كما هي.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {months.map(m => (
+                <button key={m.ym} disabled={saving} style={{ ...askOpt, fontFamily: 'inherit', justifyContent: 'space-between' }}
+                  onClick={() => { setMonthAsk(false); setUndatedMonth(m.ym); onSave(m.ym); }}>
+                  <b>{m.label}</b>
+                  <span style={{ fontSize: 11.5, color: '#64748b', direction: 'ltr' }}>{dmy(monthEnd(m.ym))}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', marginTop: 14, justifyContent: 'flex-end' }}>
+              <button onClick={() => setMonthAsk(false)} style={askCancel}>رجوع</button>
+            </div>
+          </div>
+        </div>
+      )}
       {nameAsk && (
         <div style={askOverlay} dir="rtl">
           <div style={askPanel}>
@@ -770,11 +814,20 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, onPro
                   ) : (
                     <span style={{ fontSize: 11.5, color: '#64748b' }}>كل الصفوف بمحافظة</span>
                   )}
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', marginInlineStart: 8 }}>التاريخ لكل الصفوف الفارغة:</span>
-                  <input type="date" value="" onChange={e => { if (e.target.value) fillDate(e.target.value); }} style={{ ...cell, background: '#fff', width: 'auto' }} />
-                  <span style={{ fontSize: 11.5, color: rows.some(r => isPlaced(r) && !r.date) ? '#b91c1c' : '#64748b' }}>
-                    {rows.filter(r => isPlaced(r) && !r.date).length} صف بلا تاريخ
-                  </span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', marginInlineStart: 8 }}>شهر الصفوف بلا تاريخ:</span>
+                  <select value={undatedMonth} onChange={e => setUndatedMonth(e.target.value)} style={{ ...cell, background: '#fff', width: 'auto' }}>
+                    <option value="">— يُسأل عند الحفظ —</option>
+                    {months.map(m => <option key={m.ym} value={m.ym}>{m.label}</option>)}
+                  </select>
+                  {(() => {
+                    const n = rows.filter(r => isPlaced(r) && !r.date).length;
+                    if (!n) return <span style={{ fontSize: 11.5, color: '#64748b' }}>كل الصفوف بتاريخ</span>;
+                    return (
+                      <span style={{ fontSize: 11.5, color: undatedMonth ? '#15803d' : '#b45309', fontWeight: 700 }}>
+                        {n} صف بلا تاريخ{undatedMonth ? ` ← تُسجَّل بتاريخ ${dmy(monthEnd(undatedMonth))}` : ''}
+                      </span>
+                    );
+                  })()}
                 </>
               )}
             </div>
@@ -784,7 +837,7 @@ export default function WarehouseGapImportModal({ token, onClose, onSaved, onPro
         {error && <div style={errBox}>{error}</div>}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-start', marginTop: 16 }}>
-          <button onClick={onSave} disabled={rows.length === 0 || saving || parsing || checking || matching} style={saveBtn}>
+          <button onClick={() => onSave()} disabled={rows.length === 0 || saving || parsing || checking || matching} style={saveBtn}>
             {checking ? '🔎 جاري فحص الأسماء…' : matching ? '🔗 جاري المطابقة…' : saving ? '⏳ جاري الحفظ…' : '💾 حفظ في ملف اللكوديشن'}
           </button>
           <button onClick={onClose} style={cancelBtn}>إلغاء</button>
