@@ -1,11 +1,11 @@
 // ════════════════════════════════════════════════════════════════════════════
-// مبيع المسوقين (الفارمسي لاين) من المذاخر — للمقارنة في جدول «علمي / تجاري / فارمسي».
+// مبيع المسوقين (الفارمسي لاين) الكلي — للمقارنة في جدول «علمي / تجاري / فارمسي».
 // ────────────────────────────────────────────────────────────────────────────
-// عمود «فارمسي» في تقرير العلميين = صفوف ملف المكتب المصنّفة فارمسي فقط. مبيع المسوقين
-// عبر المذاخر (ملفات ميركاتو، ومعها ملف اللكوديشن) يُنسب لهم بالاسم ولا يدخل تقرير
-// العلميين أصلاً. هنا: اتحاد ما يُنسب لكل مسوّق نشط (resolveSciRepSales عبر تقرير
-// المجموعة، بلا تكرار بمعرّف الصف)، صفوف ميركاتو فقط، مقيّدة بايتمات مدير الشركة.
-// للعرض فقط — لا يُضاف لإجمالي التقرير.
+// عمود «فارمسي» في تقرير العلميين = صفوف مكتب مصنّفة فارمسي داخل نطاق العلميين (مندوبوهم
+// التجاريون ∩ مناطقهم) فقط، ومبيع المسوقين عبر المذاخر (ميركاتو/لكوديشن، بالاسم) لا يدخله
+// أصلاً — فيظهر أقل من تقرير مدير المسوقين. هنا: اتحاد ما يُنسب لكل مسوّق نشط
+// (resolveSciRepSales عبر تقرير المجموعة، بلا تكرار بمعرّف الصف) — مكتب + مذاخر + ترانزيت —
+// مقيّداً بايتمات مدير الشركة. الواجهة تستبدل به عمود فارمسي. للعرض فقط — لا يغيّر صافي التقرير.
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from '../../lib/prisma.js';
@@ -54,21 +54,26 @@ async function compute(company, query, viewerId) {
   });
   const marketerRepIds = [...new Set(marketers.map(u => u.linkedRepId))];
   const itemIds = await companyItemIds(viewerId, company);
-  const empty = { totalQuantity: 0, totalValue: 0, byArea: [], byItem: [], byRep: [], marketerCount: marketerRepIds.length, rowCount: 0, noCompanyItems: !itemIds.size };
+  const zero = { totalQuantity: 0, totalValue: 0 };
+  const empty = { ...zero, byArea: [], byItem: [], byRep: [], office: zero, warehouse: zero, marketerCount: marketerRepIds.length, rowCount: 0, noCompanyItems: !itemIds.size };
   if (!marketerRepIds.length || !itemIds.size) return empty;
 
   // skipItemTiers: ايتمات الشركة تُحسب كلها هنا وإن كانت «ثانوية» عند المسوّق.
   const rows = await getGroupRawSalesForExport(marketerRepIds, { ...query, recordType: null, skipItemTiers: true }, viewerId);
-  // صافٍ: الإرجاع بإشارة سالبة، كما يفعل buildReport بلا recordType.
-  // الصف هنا مقيّد أصلاً بايتمات المسوّق (resolveSciRepSales)، فالناتج = المشترك بينه وبين الشركة.
-  const wh = rows
-    .filter(s => s.uploadedFile?.sourceSystem === 'mercato' && itemIds.has(s.itemId))
+  // كل ما يُنسب للمسوقين (مكتب بتسمياتهم ومناطقهم + ميركاتو/لكوديشن + ترانزيت) — نفس حساب
+  // تقرير المسوقين، لا صفوف «فارمسي» داخل نطاق العلميين. صافٍ: الإرجاع بإشارة سالبة.
+  // الصف مقيّد أصلاً بايتمات المسوّق (resolveSciRepSales)، فالناتج = المشترك بينه وبين الشركة.
+  const all = rows
+    .filter(s => itemIds.has(s.itemId))
     .map(({ rawData, ...s }) => (String(s.recordType ?? '').trim().toLowerCase() === 'return'
       ? { ...s, quantity: -s.quantity, totalValue: -s.totalValue }
       : s));
-  if (!wh.length) return empty;
+  if (!all.length) return empty;
 
-  const a = aggregateSalesWithReps(wh);
+  // مذاخر = ملفات ميركاتو (ومعها ملف اللكوديشن) + الترانزيت (يُعدّ لكوديشن في تقرير العلميين).
+  const isWarehouse = s => s.uploadedFile?.sourceSystem === 'mercato' || !!s.transit;
+  const part = list => { const t = aggregateSalesWithReps(list).totals; return { totalQuantity: t.totalQuantity, totalValue: t.totalValue }; };
+  const a = aggregateSalesWithReps(all);
   const slim = (list, nameKey) => list.map(r => ({ name: r[nameKey], totalQuantity: r.totalQuantity, totalValue: r.totalValue }));
   return {
     totalQuantity: a.totals.totalQuantity,
@@ -76,8 +81,10 @@ async function compute(company, query, viewerId) {
     byArea: slim(a.byArea, 'areaName'),
     byItem: slim(a.byItem, 'itemName'),
     byRep: slim(a.byRep, 'repName'),
+    office: part(all.filter(s => !isWarehouse(s))),
+    warehouse: part(all.filter(isWarehouse)),
     marketerCount: marketerRepIds.length,
-    rowCount: wh.length,
+    rowCount: all.length,
     noCompanyItems: false,
   };
 }

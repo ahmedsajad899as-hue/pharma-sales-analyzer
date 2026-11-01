@@ -909,8 +909,15 @@ function parseClassCell(c: any): ClassCell {
   const rows = (list: any[]): BreakdownRow[] => (list ?? []).map(r => ({ name: r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
   return { totalQty: c?.totalQuantity ?? 0, totalValue: c?.totalValue ?? 0, byArea: rows(c?.byArea), byItem: rows(c?.byItem), byRep: rows(c?.byRep) };
 }
-// مذاخر المسوقين لايتمات مجموعة الشركة (زر «فارمسي: مكتب + مذاخر») — صافٍ جاهز من الخادم.
-const MKT_WH_CACHE = new Map<string, { data: ClassCell | null; at: number }>();
+// مبيع المسوقين الكلي لايتمات مدير الشركة (زر «فارمسي: مكتب + مذاخر») — نفس حساب تقرير
+// المسوقين، صافٍ جاهز من الخادم، ومعه توزيعه مكتب / مذاخر.
+type Part = { totalQty: number; totalValue: number };
+type MktWhData = ClassCell & { office: Part; warehouse: Part };
+function parseMktWh(d: any): MktWhData {
+  const part = (p: any): Part => ({ totalQty: p?.totalQuantity ?? 0, totalValue: p?.totalValue ?? 0 });
+  return { ...parseClassCell(d), office: part(d?.office), warehouse: part(d?.warehouse) };
+}
+const MKT_WH_CACHE = new Map<string, { data: MktWhData | null; at: number }>();
 
 type Mode = 'commercial' | 'scientific' | 'overall' | 'provinces';
 type ReportView = 'sales' | 'returns' | 'net';
@@ -1653,7 +1660,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     params.set('company', g.label); // ايتمات مدير الشركة (للإدارة: مدير هذه الشركة)
     return { key: `${user?.id ?? ''}|${params}`, url: `/api/scientific-reps/marketers-warehouse?${params}` };
   })();
-  const [mktWh, setMktWh] = useState<{ key: string; data: ClassCell | null; error?: string } | null>(null);
+  const [mktWh, setMktWh] = useState<{ key: string; data: MktWhData | null; error?: string } | null>(null);
   useEffect(() => {
     if (!mktWhReq) return;
     const { key, url } = mktWhReq;
@@ -1666,7 +1673,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || j.message || t.reports.errLoad);
         if (j.data?.noCompanyItems) throw new Error('لا ايتمات مُسنَدة لمدير الشركة («الايتمات» بالسوبر أدمن)');
-        const data = j.data ? parseClassCell(j.data) : null;
+        const data = j.data ? parseMktWh(j.data) : null;
         MKT_WH_CACHE.set(key, { data, at: Date.now() });
         if (MKT_WH_CACHE.size > 40) MKT_WH_CACHE.delete(MKT_WH_CACHE.keys().next().value!);
         if (!cancelled) setMktWh({ key, data });
@@ -5592,7 +5599,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             },
             { bg: '#dbeafe', bd: '#93c5fd', fg: '#1d4ed8' }),
           sciReport.byCustomerClass && pharmWhAvailable && toggleBtn('pharmWh', pharmWh, pharmWh ? '🏪 فارمسي: مكتب + مذاخر' : '🏪 أضف مذاخر الفارمسي',
-            pharmWh ? 'عمود فارمسي يشمل مبيع المسوقين من المذاخر (للمقارنة فقط) — اضغط لإرجاعه للمكتب فقط' : 'إضافة مبيع المسوقين من المذاخر (ميركاتو / لكوديشن) لايتمات الشركة إلى عمود فارمسي — للمقارنة فقط، لا يدخل صافي التقرير',
+            pharmWh ? 'عمود فارمسي = مبيع المسوقين الكلي (مكتب + مذاخر) كما في تقرير المسوقين، للمقارنة فقط — اضغط لإرجاعه' : 'عمود فارمسي = مبيع المسوقين الكلي (مكتب + ميركاتو / لكوديشن) لايتمات الشركة، بنفس حساب تقرير المسوقين — للمقارنة فقط، لا يغيّر صافي التقرير',
             () => {
               const v = !pharmWh;
               setPharmWh(v);
@@ -5661,12 +5668,13 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               const cls = sciReport.byCustomerClass!, ret = sciReturnsReport?.byCustomerClass;
               const shown = classCols.map(([col, label]) => {
                 const ks = ALL_CLASSES.filter(k => classBucket(k) === col);
-                // مذاخر المسوقين تُضاف لفارمسي هنا فقط (للمقارنة) — لا لصافي التقرير أعلاه.
-                const wh = col === 'pharmacy' && pharmWh ? mktWhData : null;
+                // فارمسي ← مبيع المسوقين الكلي (نفس حساب تقرير المسوقين) بدل صفوف فارمسي داخل
+                // نطاق العلميين — هنا فقط (للمقارنة)، لا لصافي التقرير أعلاه.
+                const mkt = col === 'pharmacy' && pharmWh ? mktWhData : null;
                 return {
-                  k: col, label, wh,
-                  qty: ks.reduce((s, k) => s + cls[k].totalQty - (ret?.[k].totalQty ?? 0), 0) + (wh?.totalQty ?? 0),
-                  val: ks.reduce((s, k) => s + cls[k].totalValue - (ret?.[k].totalValue ?? 0), 0) + (wh?.totalValue ?? 0),
+                  k: col, label, mkt,
+                  qty: mkt ? mkt.totalQty : ks.reduce((s, k) => s + cls[k].totalQty - (ret?.[k].totalQty ?? 0), 0),
+                  val: mkt ? mkt.totalValue : ks.reduce((s, k) => s + cls[k].totalValue - (ret?.[k].totalValue ?? 0), 0),
                 };
               });
               const rows = shown;
@@ -5686,9 +5694,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                             {r.label}
                             {r.k === 'pharmacy' && pharmWh && (
                               <div style={{ fontSize: 10.5, fontWeight: 600, color: '#9d174d', marginTop: 2 }}>
-                                {!mktWhReady ? '⏳ جاري حساب مذاخر المسوقين…'
+                                {!mktWhReady ? '⏳ جاري حساب مبيع المسوقين…'
                                   : mktWh?.error ? `⚠️ ${mktWh.error}`
-                                  : `🏢 مكتب ${fmtValSigned(r.val - (r.wh?.totalValue ?? 0))} · 🏬 مذاخر ${fmtValSigned(r.wh?.totalValue ?? 0)}`}
+                                  : `🏢 مكتب ${fmtValSigned(r.mkt?.office.totalValue ?? 0)} · 🏬 مذاخر ${fmtValSigned(r.mkt?.warehouse.totalValue ?? 0)}`}
                               </div>
                             )}
                           </td>
@@ -5707,7 +5715,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   </table>
                   {pharmWh && (
                     <div style={{ padding: '6px 12px', fontSize: 11, color: '#64748b', borderTop: '1px solid #f1f5f9', whiteSpace: 'normal' }}>
-                      🏬 مذاخر الفارمسي = مبيع المسوقين من ميركاتو / اللكوديشن للايتمات المشتركة بينهم وبين مدير الشركة فقط — للمقارنة، غير محسوب في صافي القيمة أعلاه.
+                      🏪 فارمسي هنا = كل مبيع المسوقين (مكتب + ميركاتو / اللكوديشن + ترانزيت) بنفس حساب تقرير المسوقين، للايتمات المشتركة بينهم وبين مدير الشركة فقط — للمقارنة، لا يغيّر صافي القيمة أعلاه.
                     </div>
                   )}
                 </div>
@@ -5770,11 +5778,14 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 c.q += sign * r.totalQty; c.v += sign * r.totalValue;
               }
             };
+            // فارمسي بالزر ← مبيع المسوقين الكلي (صافٍ جاهز من الخادم) بدل صفوف فارمسي داخل نطاق العلميين.
+            const mktCol = pharmWh && mktWhData;
             for (const k of ALL_CLASSES) {
+              if (mktCol && k === 'pharmacy') continue;
               add(sciReport.byCustomerClass![k][key], classBucket(k), 1);
               add(sciReturnsReport?.byCustomerClass?.[k][key], classBucket(k), -1);
             }
-            if (pharmWh && mktWhData) add(mktWhData[key], 'pharmacy', 1); // صافٍ جاهز من الخادم
+            if (mktCol) add(mktWhData[key], 'pharmacy', 1);
             const cols = classCols;
             const tot = (r: { cells: Record<string, Cell> }) => Object.values(r.cells).reduce((s, c) => ({ q: s.q + c.q, v: s.v + c.v }), { q: 0, v: 0 });
             const rows = [...map.values()].sort((a, b) => sciViewMode === 'qty' ? tot(b).q - tot(a).q : tot(b).v - tot(a).v);
