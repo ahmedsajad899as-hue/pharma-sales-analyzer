@@ -49,7 +49,7 @@ router.get('/province-map', ctrl.getProvinceMap); // ?repIds=1,2,3 — must be b
 
 router.get('/customer-info-values', ctrl.listCustomerInfoValues); // ?fileIds=1,2 — before /:id
 router.get('/group-report',         ctrl.getGroupReport);         // ?repIds=1,2&label= — before /:id
-router.get('/marketers-warehouse',  ctrl.getMarketersWarehouse);  // ?repIds=1,2 — before /:id
+router.get('/marketers-warehouse',  ctrl.getMarketersWarehouse);  // ?company= — before /:id
 router.patch('/:id/pharmacy',       ctrl.setPharmacySettings);    // { repKind, customerInfoLabels }
 router.get('/:id/effective-items',  ctrl.getEffectiveItems);
 router.get('/blocked/:kind',        ctrl.listBlockedEntities);   // kind: area | item | pharmacy

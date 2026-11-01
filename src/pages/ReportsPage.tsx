@@ -1650,7 +1650,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     const g = groupOf(sciRepId);
     if (!g.repIds.length || !activeFileIds.length) return null;
     const params = repReportParams();
-    params.set('repIds', g.repIds.join(','));
+    params.set('company', g.label); // ايتمات مدير الشركة (للإدارة: مدير هذه الشركة)
     return { key: `${user?.id ?? ''}|${params}`, url: `/api/scientific-reps/marketers-warehouse?${params}` };
   })();
   const [mktWh, setMktWh] = useState<{ key: string; data: ClassCell | null; error?: string } | null>(null);
@@ -1665,6 +1665,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         const res = await fetch(url, { headers: authH() });
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || j.message || t.reports.errLoad);
+        if (j.data?.noCompanyItems) throw new Error('لا ايتمات مُسنَدة لمدير الشركة («الايتمات» بالسوبر أدمن)');
         const data = j.data ? parseClassCell(j.data) : null;
         MKT_WH_CACHE.set(key, { data, at: Date.now() });
         if (MKT_WH_CACHE.size > 40) MKT_WH_CACHE.delete(MKT_WH_CACHE.keys().next().value!);
@@ -5706,7 +5707,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   </table>
                   {pharmWh && (
                     <div style={{ padding: '6px 12px', fontSize: 11, color: '#64748b', borderTop: '1px solid #f1f5f9', whiteSpace: 'normal' }}>
-                      🏬 مذاخر الفارمسي = مبيع المسوقين من ميركاتو / اللكوديشن لايتمات الشركة — للمقارنة فقط، غير محسوب في صافي القيمة أعلاه.
+                      🏬 مذاخر الفارمسي = مبيع المسوقين من ميركاتو / اللكوديشن للايتمات المشتركة بينهم وبين مدير الشركة فقط — للمقارنة، غير محسوب في صافي القيمة أعلاه.
                     </div>
                   )}
                 </div>
