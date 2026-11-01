@@ -18,7 +18,6 @@ import { PROVINCE_COLUMN_ALIASES, extractRawColumnValue, buildProvinceLookup, ma
 import { isWarehouseSaleRow, pharmacyNameFromRawData } from '../../lib/orderKey.js';
 import { buildMonthFilter, UNDATED_CUTOFF } from '../../lib/salesMonths.js';
 import { getHomeItems, getHomeItemProvinces, getHomeProvinces } from './homeItems.js';
-import { resolveMarketersTeamSaleIds } from '../scientific-reps/scientific-reps.service.js';
 import { itemDocUpload, listItemDocs, addItemDoc, deleteItemDoc, getItemInfo, saveItemInfo } from './itemDocs.js';
 
 const router = Router();
@@ -270,13 +269,10 @@ router.get('/overall', async (req, res) => {
     // ضمنها ثم يوزّعه الجدول على أعمدتها — رقمان مختلفان لنفس المحافظة.
     // يُبنى بمعرّفات الشركة الحقيقية لا بمطابقة اسم نصي (أسماء مكرَّرة بحالة
     // أحرف مختلفة: HUMANIS/humanis).
-    // «مدير المسوقين»: التحليل الشامل = مبيع فريقه من المسوقين كله (اتحاد ما يُنسب لقادته
-    // ومندوبيهم بنفس قواعد تقرير «علمي بغداد»)، باسم «المسوقين» لا شركة بعينها — فلا شرائح
-    // تيمات ولا teamManagerId له.
-    const marketersTeam = (userId && parsedFileIds.length > 0)
-      ? await resolveMarketersTeamSaleIds(userId, parsedFileIds)
-      : { isMarketersManager: false, saleIds: [], repCount: 0 };
-    const mgrId = (teamManagerId && !marketersTeam.isMarketersManager) ? Number(teamManagerId) : 0;
+    // «مدير المسوقين» يرى التحليل الشامل كموظف المكتب تماماً (طلب صريح 2026-11-02): كل
+    // مبيع ملفاته مع شرائح «الشركة الرئيسية» — لا مبيع فريقه من المسوقين وحده. هو company_manager
+    // فيُعفى من نطاق الايتمات والمناطق أدناه، ولا شريحة له (مستثنى من loadOfficeTeams) فيبدأ على «الكل».
+    const mgrId = teamManagerId ? Number(teamManagerId) : 0;
     // officeTeams محصورة أصلاً بمدراء الشركات النشطين في مكتب الطالب، فالعضوية
     // فيها هي نفسها فحص الصلاحية الذي كان يتم باستعلام منفصل.
     const selectedTeam = mgrId ? (officeTeams.find(t => t.managerId === mgrId) ?? null) : null;
@@ -443,7 +439,6 @@ router.get('/overall', async (req, res) => {
       // مجموع الشرائح = «الكل» بدل أن يتبدّل نطاق الايتمات مع كل شريحة.
       ...effectiveItemScope,
       ...teamCompanyFilter,
-      ...(marketersTeam.isMarketersManager ? { id: { in: marketersTeam.saleIds } } : {}),
       ...(recordType ? { recordType } : {}),
     };
     const where = {
@@ -729,8 +724,6 @@ router.get('/overall', async (req, res) => {
       a.repName.localeCompare(b.repName, 'ar') || a.warehouseName.localeCompare(b.warehouseName, 'ar') || b.totalValue - a.totalValue);
 
     res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byProvinceItem, byBaghdadWarehouse, byBaghdadArea, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied,
-      marketersTeam: marketersTeam.isMarketersManager ? { repCount: marketersTeam.repCount } : null,
-      // قائمة معرّفات صفوف فريق المسوقين قد تكون آلافاً — تُقصّ في نسخة التشخيص
       _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where).slice(0, 4000) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });

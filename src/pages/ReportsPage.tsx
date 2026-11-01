@@ -994,10 +994,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const isMarketersManager = user?.role === 'company_manager' && user?.repKind === 'pharmacy';
   const canToggleRepKind = REP_KIND_TOGGLE_ROLES.has(user?.role ?? '') || (user?.role === 'team_leader' && myRepKind === 'pharmacy');
   const [repKindView, setRepKindView] = useState<'scientific' | 'pharmacy'>(() => sessionStorage.getItem('rpt_repKind') === 'pharmacy' ? 'pharmacy' : 'scientific');
-  // قائد فريق الفارمسي يبدأ على مسوقيه ما لم يختر غير ذلك.
+  // قائد فريق الفارمسي ومدير المسوقين يبدآن على مسوقيهم ما لم يختارا غير ذلك.
+  const startsOnMarketers = isMarketersManager || (myRepKind === 'pharmacy' && user?.role === 'team_leader');
   useEffect(() => {
-    if (myRepKind === 'pharmacy' && user?.role === 'team_leader' && !sessionStorage.getItem('rpt_repKind')) setRepKindView('pharmacy');
-  }, [myRepKind, user?.role]);
+    if (startsOnMarketers && !sessionStorage.getItem('rpt_repKind')) setRepKindView('pharmacy');
+  }, [startsOnMarketers]);
   // المسوقون لا شركة رئيسية لهم (متعددو الشركات) — يُجمَّعون بالكرخ/الرصافة (rep.side من
   // مناطقهم) في مكان الشركة: القائمة المنسدلة وسطر الأزرار السريعة وتصدير «حسب الشركة».
   const filterByKind = useCallback((list: Rep[], kind: 'scientific' | 'pharmacy') => {
@@ -1009,8 +1010,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // «مندوبين المحافظات»: نفس زر العلميين / المسوقين بحالة مستقلة — تبديله لا يمسّ تقرير «علمي بغداد».
   const [provKind, setProvKind] = useState<'scientific' | 'pharmacy'>(() => sessionStorage.getItem('rpt_provKind') === 'pharmacy' ? 'pharmacy' : 'scientific');
   useEffect(() => {
-    if (myRepKind === 'pharmacy' && user?.role === 'team_leader' && !sessionStorage.getItem('rpt_provKind')) setProvKind('pharmacy');
-  }, [myRepKind, user?.role]);
+    if (startsOnMarketers && !sessionStorage.getItem('rpt_provKind')) setProvKind('pharmacy');
+  }, [startsOnMarketers]);
   const provReps = useMemo(
     () => (canToggleRepKind ? sciRepsAll.filter(r => (r.repKind === 'pharmacy') === (provKind === 'pharmacy')) : sciRepsAll),
     [sciRepsAll, provKind, canToggleRepKind],
@@ -4650,15 +4651,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
 
         return (
           <>
-            {/* «مدير المسوقين»: الخادم يحصر التحليل بمبيع فريقه من المسوقين — بلا شرائح شركات */}
-            {isMarketersManager && (
-              <div style={{ marginTop: 8, marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderRadius: 20,
-                border: '1.5px solid #6ee7b7', background: '#ecfdf5', color: '#047857', fontSize: 12.5, fontWeight: 700 }}>
-                🏪 المسوقين — مجموع مبيعات فريقك
-              </div>
-            )}
             {/* ── Team chips ── */}
-            {overallTeams.length > 1 && !isMarketersManager && (
+            {overallTeams.length > 1 && (
               <div style={{ marginTop: 8, marginBottom: 8 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Icon name="navCommercial" size={11} /> الشركة الرئيسية

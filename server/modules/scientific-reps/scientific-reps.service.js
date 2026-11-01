@@ -73,6 +73,10 @@ export async function list(filters, user = null, options = {}) {
     // - company_manager / team_leader: their explicitly assigned subordinates
     // - other roles (supervisor, product_manager, etc.): all company reps
     let allowedUserIds = null; // null = no restriction
+    // «مدير المسوقين» (company_manager بسجل repKind='pharmacy') يرى فريقه وحده: تابعيه
+    // ومندوبي تيم ليدرياته. كل شركات المكتب «رئيسية» للمسوق، فالرجوع لـ«كل مندوبي الشركات»
+    // كان يعرض لمدير مسوقين بلا تابعين كل علميي ومسوقي بغداد.
+    let marketersManager = false;
     if (user.role === 'scientific_rep') {
       // A rep can only see their own record — never other reps from the same company.
       allowedUserIds = new Set([user.id]);
@@ -81,29 +85,30 @@ export async function list(filters, user = null, options = {}) {
         where: { managerId: user.id },
         select: { userId: true },
       });
+      if (user.role === 'company_manager') {
+        const me = await prisma.user.findUnique({ where: { id: user.id }, select: { linkedRep: { select: { repKind: true } } } });
+        marketersManager = me?.linkedRep?.repKind === PHARMACY_KIND;
+      }
       if (subordinateRows.length > 0) {
         // Only show reps that are explicitly assigned under this manager
         allowedUserIds = new Set(subordinateRows.map(r => r.userId));
-        // «مدير المسوقين» (company_manager بسجل repKind='pharmacy'): مندوبو تيم ليدرياته أيضاً.
-        if (user.role === 'company_manager') {
-          const me = await prisma.user.findUnique({ where: { id: user.id }, select: { linkedRep: { select: { repKind: true } } } });
-          if (me?.linkedRep?.repKind === PHARMACY_KIND) {
-            const second = await prisma.userManagerAssignment.findMany({ where: { managerId: { in: [...allowedUserIds] } }, select: { userId: true } });
-            for (const r of second) allowedUserIds.add(r.userId);
-          }
+        if (marketersManager) {
+          const second = await prisma.userManagerAssignment.findMany({ where: { managerId: { in: [...allowedUserIds] } }, select: { userId: true } });
+          for (const r of second) allowedUserIds.add(r.userId);
         }
       }
-      // If no subordinates: team_leader sees nobody (rep mode), company_manager falls back to all company reps
-      if (subordinateRows.length === 0 && user.role === 'team_leader') {
-        return []; // team_leader with no assigned reps sees empty list
+      // If no subordinates: team_leader / marketers manager see nobody, company_manager falls back to all company reps
+      if (subordinateRows.length === 0 && (user.role === 'team_leader' || marketersManager)) {
+        return [];
       }
     }
 
     // مندوبو المحافظات (فرق المحافظات) لا يُعيَّنون «رئيسيين» في شركات المدير ولا يتبعونه
     // بـUserManagerAssignment، فكانوا يغيبون عن التارگت وصفحة المندوبين. يظهرون لمدير
     // الشركة ومن بمستواه بتعيينهم الفعلي على أي من شركاته (رئيسية أو ثانوية).
+    // مدير المسوقين مستثنى: فريقه هو تابعوه فقط.
     const provinceRepCompany = new Map(); // userId → { id, name }
-    if (['company_manager', 'supervisor', 'product_manager'].includes(user.role)) {
+    if (!marketersManager && ['company_manager', 'supervisor', 'product_manager'].includes(user.role)) {
       const provRows = await prisma.provinceRepAssignment.findMany({
         where: { isActive: true, companyId: { in: assignments.map(a => a.companyId) }, team: { isActive: true } },
         select: { repUserId: true, company: { select: { id: true, name: true } } },
@@ -123,8 +128,11 @@ export async function list(filters, user = null, options = {}) {
         isActive: true,
         OR: [
           {
-            // مدير المكتب يرى مندوبي/مدراء هذه الشركات سواء كانت رئيسية أو ثانوية عندهم
-            companyAssignments: { some: isOfficeManager ? { companyId: { in: companyIds } } : { companyId: { in: companyIds }, isPrimary: true } },
+            // مدير المكتب يرى مندوبي/مدراء هذه الشركات سواء كانت رئيسية أو ثانوية عندهم.
+            // مدير المسوقين: تابعوه بلا شرط شركة (مسوق فريق محافظة شركاته كلها غير رئيسية).
+            ...(marketersManager ? {} : {
+              companyAssignments: { some: isOfficeManager ? { companyId: { in: companyIds } } : { companyId: { in: companyIds }, isPrimary: true } },
+            }),
             // If allowedUserIds is set, restrict to those users only
             ...(allowedUserIds ? { id: { in: [...allowedUserIds] } } : {}),
           },
@@ -1745,7 +1753,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
  * «مدير المسوقين» (company_manager + linkedRep.repKind='pharmacy'): صفوف Sale المنسوبة
  * لفريقه = اتحاد ما يُنسب لكل مسوّق تحته مباشرةً (UserManagerAssignment) — تيم ليدر
  * المسوقين يشمل مندوبيه أصلاً (resolvePharmacyMembers)، فيتطابق الرقم مع مجموع تقارير
- * قادته في «علمي بغداد». صف يُنسب لأكثر من عضو يُحسب مرة واحدة. للتحليل الشامل.
+ * قادته في «علمي بغداد». صف يُنسب لأكثر من عضو يُحسب مرة واحدة. كان للتحليل الشامل، ولا
+ * يُستدعى منذ 2026-11-02 (التحليل الشامل لمدير المسوقين صار كموظف المكتب، reports.routes.js).
  * @returns {Promise<{ isMarketersManager: boolean, saleIds: number[], repCount: number }>}
  */
 // حساب فريق المسوقين ثقيل (resolveSciRepSales لكل مسوّق، ~4 ثوانٍ لسبعة)، ويطلبه «التحليل
