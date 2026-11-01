@@ -3,14 +3,16 @@
 // ────────────────────────────────────────────────────────────────────────────
 // عمود «فارمسي» في تقرير العلميين = صفوف ملف المكتب المصنّفة فارمسي فقط. مبيع المسوقين
 // عبر المذاخر (ملفات ميركاتو، ومعها ملف اللكوديشن) يُنسب لهم بالاسم ولا يدخل تقرير
-// العلميين أصلاً. هنا: اتحاد ما يُنسب لكل مسوّق نشط (resolveSciRepSales عبر تقرير
+// العلميين أصلاً. هنا: اتحاد ما يُنسب لكل مسوّق نشط في بغداد (resolveSciRepSales عبر تقرير
 // المجموعة، بلا تكرار بمعرّف الصف)، صفوف ميركاتو فقط، مقيّدة بايتمات مدير الشركة.
+// الغاية: فارمسي بغداد مقابل علميي بغداد (مكتب + ميركاتو + لكوديشن) بالايتمات المشتركة.
 // للعرض فقط — لا يُضاف لإجمالي التقرير.
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from '../../lib/prisma.js';
 import { PHARMACY_KIND, isPharmacyRep } from '../../lib/pharmacyRep.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
+import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { aggregateSalesWithReps, normalizeArabic } from '../sales/sales.repository.js';
 import { getGroupRawSalesForExport } from './scientific-reps.service.js';
 
@@ -48,11 +50,15 @@ async function companyItemIds(viewerId, company) {
 }
 
 async function compute(company, query, viewerId) {
-  const marketers = await prisma.user.findMany({
-    where: { isActive: true, linkedRepId: { not: null }, role: { in: ['scientific_rep', 'team_leader'] }, linkedRep: { is: { repKind: PHARMACY_KIND } } },
-    select: { linkedRepId: true },
-  });
-  const marketerRepIds = [...new Set(marketers.map(u => u.linkedRepId))];
+  const [marketers, provinceIds] = await Promise.all([
+    prisma.user.findMany({
+      where: { isActive: true, linkedRepId: { not: null }, role: { in: ['scientific_rep', 'team_leader'] }, linkedRep: { is: { repKind: PHARMACY_KIND } } },
+      select: { id: true, linkedRepId: true },
+    }),
+    provinceMemberUserIds(),
+  ]);
+  // بغداد مقابل بغداد: مسوقو فرق المحافظات خارج المقارنة، كما يستثني «علمي بغداد» علميّي المحافظات.
+  const marketerRepIds = [...new Set(marketers.filter(u => !provinceIds.has(u.id)).map(u => u.linkedRepId))];
   const itemIds = await companyItemIds(viewerId, company);
   const empty = { totalQuantity: 0, totalValue: 0, byArea: [], byItem: [], byRep: [], marketerCount: marketerRepIds.length, rowCount: 0, noCompanyItems: !itemIds.size };
   if (!marketerRepIds.length || !itemIds.size) return empty;
