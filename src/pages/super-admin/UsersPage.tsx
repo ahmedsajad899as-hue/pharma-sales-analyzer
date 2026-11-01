@@ -6,6 +6,7 @@ import type { FeatureNode } from '../../config/featureConfig';
 import UsersBulkImportModal from './UsersBulkImportModal';
 import BulkFeatureToggleModal from './BulkFeatureToggleModal';
 import NewUserAssignments from './NewUserAssignments';
+import UserItemTiersTab from './UserItemTiersTab';
 import { TabPill, SectionHead, Note, PickerBar, GroupCard, ChipGrid, Chip, ScrollList, Empty, SaveBar, setMany, softBtn, iconBtn, ACCENT } from './AssignUI';
 
 const ROLES = [
@@ -139,7 +140,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // الحساب الذي يحجز اسم المستخدم عند خطأ 409 — يُعرض مع زر ينقل إليه في القائمة،
   // لأنه غالباً في مكتب آخر أو معطّل فلا يظهر أمام الأدمن الذي يظن أنه حذفه.
   const [conflict,  setConflict]  = useState<any>(null);
-  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'stockScope'|'areas'|'managers'|'employees'|'features'>(() => {
+  const [tab,       setTab]       = useState<'info'|'companies'|'lines'|'items'|'tiers'|'stockScope'|'areas'|'managers'|'employees'|'features'>(() => {
     const saved = localStorage.getItem('sa_user_tab');
     return (saved as any) || 'info';
   });
@@ -1198,6 +1199,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           <TabBtn id="companies"  icon="🏭" label="الشركات"     count={selCompanyIds.length} dirty={companiesDirty} />
           <TabBtn id="lines"      icon="🧬" label="اللاينات"    count={selLineIds.length} />
           <TabBtn id="items"      icon="💊" label="الايتمات"    count={selItemIds.length} />
+          {isMarketer(detail) && <TabBtn id="tiers" icon="⭐" label="رئيسي / ثانوي" />}
           <TabBtn id="stockScope" icon="📦" label="نطاق الستوك" count={selStockCompanyIds.length + selStockItemIds.length} />
           <TabBtn id="areas"      icon="📍" label="المناطق"     count={effectiveAreaCount} />
           <TabBtn id="managers"   icon="👔" label="المدراء"     count={selMgrIds.length} />
@@ -1493,6 +1495,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
               />
             </div>
           )}
+          {tab === 'tiers' && (isMarketer(detail)
+            ? <UserItemTiersTab userId={detail.id} items={items} whitelistIds={draftItemIds} headers={H} onToast={showToast} />
+            : <Empty>فئات الايتمات (رئيسي / ثانوي) للمسوقين فقط.</Empty>)}
           {tab === 'stockScope' && (
             <div>
               <SectionHead

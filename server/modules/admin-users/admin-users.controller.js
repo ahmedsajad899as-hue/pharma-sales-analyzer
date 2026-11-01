@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import prisma from '../../lib/prisma.js';
 import { encryptPassword, decryptPassword } from '../../lib/passwordCrypto.js';
-import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { normalizeAreaName, normalizeItemKey } from '../../lib/itemResolver.js';
 import {
   syncUserAreaDerivedLinks, resolveEffectiveAreaIds, saveUserAreaAssignments,
   ALL_AREAS_ROLES, isAllAreasRole, readAutoAllAreas, userHasAllAreas,
@@ -13,6 +13,8 @@ import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeS
 import { shareOfficeFilesWithNewUser } from '../../lib/officeFileShares.js';
 import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
+import { resolveUserItemTiers, SECONDARY_MODES, TIER_MAIN, TIER_SECONDARY, DEFAULT_SECONDARY_MODE } from '../../lib/itemTiers.js';
+import { clearMarketersTeamCache } from '../scientific-reps/scientific-reps.service.js';
 
 const userSelect = {
   id: true, username: true, displayName: true, role: true,
@@ -674,6 +676,94 @@ export async function setUserItems(req, res) {
   } catch (err) {
     console.error('[setUserItems] failed for user', userId, err);
     res.status(500).json({ error: 'فشل حفظ الايتمات — لم يتغيّر شيء. حاول مرة أخرى.' });
+  }
+}
+
+// ── فئات ايتمات المسوّق: رئيسي / ثانوي (lib/itemTiers.js) ──────────────────────
+// تبويب «⭐ الفئات» في صفحة المستخدم. own = ما يخالف الموروث لهذا الحساب فقط،
+// inherited = ما يرثه من مدرائه، مُسقَطاً على ايتمات كتالوج شركاته (بالاسم المطبَّع).
+export async function getUserItemTiers(req, res) {
+  const userId = parseInt(req.params.id);
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
+  try {
+    await sendUserItemTiers(userId, res);
+  } catch (err) {
+    console.error('[getUserItemTiers] failed for user', userId, err);
+    res.status(500).json({ error: 'تعذّر تحميل فئات الايتمات' });
+  }
+}
+
+async function sendUserItemTiers(userId, res) {
+  const [t, companyRows, whitelistRows] = await Promise.all([
+    resolveUserItemTiers(userId),
+    prisma.userCompanyAssignment.findMany({ where: { userId }, select: { companyId: true } }),
+    prisma.userItemAssignment.findMany({ where: { userId }, select: { itemId: true } }),
+  ]);
+  const companyIds = companyRows.map(r => r.companyId);
+  const extraIds = [...new Set([...whitelistRows.map(r => r.itemId), ...t.own.map(r => r.itemId)])];
+  const items = (companyIds.length || extraIds.length)
+    ? await prisma.item.findMany({
+        where: { OR: [
+          ...(companyIds.length ? [{ scientificCompanyId: { in: companyIds }, isTemp: false }] : []),
+          ...(extraIds.length ? [{ id: { in: extraIds } }] : []),
+        ] },
+        select: { id: true, name: true },
+      })
+    : [];
+
+  const inherited = {};
+  for (const it of items) {
+    const v = t.inheritedByKey.get(normalizeItemKey(it.name || ''));
+    if (v) inherited[it.id] = { tier: v.tier, from: t.users.get(v.fromUserId) ?? null };
+  }
+  const managers = await prisma.userManagerAssignment.findMany({
+    where: { userId }, select: { manager: { select: { id: true, displayName: true, username: true } } },
+  });
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { secondaryItemsMode: true } });
+
+  res.json({
+    success: true,
+    own: Object.fromEntries(t.own.map(r => [r.itemId, r.tier])),
+    inherited,
+    ownMode: SECONDARY_MODES.includes(me?.secondaryItemsMode) ? me.secondaryItemsMode : null,
+    inheritedMode: t.inheritedMode
+      ? { mode: t.inheritedMode, from: t.users.get(t.inheritedModeFromUserId) ?? null }
+      : null,
+    defaultMode: DEFAULT_SECONDARY_MODE,
+    managers: managers.map(m => ({ id: m.manager.id, name: m.manager.displayName || m.manager.username })),
+  });
+}
+
+export async function setUserItemTiers(req, res) {
+  const userId = parseInt(req.params.id);
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'معرّف مستخدم غير صالح' });
+
+  const mode = req.body?.mode == null ? null : String(req.body.mode);
+  if (mode !== null && !SECONDARY_MODES.includes(mode)) return res.status(400).json({ error: 'وضع غير صالح' });
+
+  const raw = Array.isArray(req.body?.tiers) ? req.body.tiers : [];
+  const wanted = new Map();
+  for (const r of raw) {
+    const itemId = parseInt(r?.itemId);
+    if (Number.isInteger(itemId) && (r.tier === TIER_MAIN || r.tier === TIER_SECONDARY)) wanted.set(itemId, r.tier);
+  }
+
+  try {
+    const found = wanted.size
+      ? await prisma.item.findMany({ where: { id: { in: [...wanted.keys()] } }, select: { id: true } })
+      : [];
+    const rows = found.map(i => ({ userId, itemId: i.id, tier: wanted.get(i.id) }));
+
+    await prisma.$transaction([
+      prisma.userItemTier.deleteMany({ where: { userId } }),
+      ...(rows.length ? [prisma.userItemTier.createMany({ data: rows, skipDuplicates: true })] : []),
+      prisma.user.update({ where: { id: userId }, data: { secondaryItemsMode: mode } }),
+    ]);
+    clearMarketersTeamCache();
+    res.json({ success: true, saved: rows.length, mode });
+  } catch (err) {
+    console.error('[setUserItemTiers] failed for user', userId, err);
+    res.status(500).json({ error: 'فشل حفظ فئات الايتمات — لم يتغيّر شيء. حاول مرة أخرى.' });
   }
 }
 

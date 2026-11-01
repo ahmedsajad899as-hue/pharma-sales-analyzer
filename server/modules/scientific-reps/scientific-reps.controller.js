@@ -1,4 +1,5 @@
 import * as svc from './scientific-reps.service.js';
+import { getMarketersWarehouseShare } from './marketers-warehouse.js';
 
 import { monthToRange } from '../../lib/salesMonths.js';
 
@@ -106,6 +107,20 @@ export async function getGroupReport(req, res, next) {
     };
     const report = await svc.getGroupReport(repIds, String(req.query.label || ''), applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data: report });
+  } catch (err) { next(err); }
+}
+
+// GET /marketers-warehouse?repIds=…&fileIds=…&month=… — صافي مبيع المسوقين من المذاخر (ميركاتو/لكوديشن)
+// لايتمات مندوبي التقرير المعروض. للمقارنة في جدول «علمي / تجاري / فارمسي» فقط.
+export async function getMarketersWarehouse(req, res, next) {
+  try {
+    if (['scientific_rep', 'commercial_rep', 'user'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'غير مسموح' });
+    }
+    const repIds = String(req.query.repIds || '').split(',').map(Number).filter(n => n > 0);
+    const query = applyMonth({ fileIds: parseFileIds(req.query.fileIds), startDate: req.query.startDate, endDate: req.query.endDate }, req.query.month);
+    const data = await getMarketersWarehouseShare(repIds, query, req.user?.id ?? null);
+    res.json({ success: true, data });
   } catch (err) { next(err); }
 }
 

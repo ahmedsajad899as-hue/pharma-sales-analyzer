@@ -6,7 +6,7 @@ import {
   setUserManagers, setUserSubordinates, setUserInteractions, setUserFeatures, bulkSetUserFeature, setUserAllAreas,
   syncManagerScopeToSubordinates, syncProvinceLeaderScope,
   setUserStockCompanies, setUserStockItems,
-  getUserRepInfo, getUserCompanyItems,
+  getUserRepInfo, getUserCompanyItems, getUserItemTiers, setUserItemTiers,
   deleteUser, listProvinceStructure, setProvinceLeader,
 } from './admin-users.controller.js';
 import { previewUsersImport, commitUsersImport } from './admin-users-import.js';
@@ -22,6 +22,7 @@ router.get('/province-structure', listProvinceStructure); // قبل '/:id'
 router.put('/province-structure/leader', setProvinceLeader);
 router.get('/:id/rep-info',      getUserRepInfo);
 router.get('/:id/company-items', getUserCompanyItems);
+router.get('/:id/item-tiers',    getUserItemTiers);
 router.get('/:id/password',      getUserPassword);
 router.post('/import/preview', upload.single('file'), previewUsersImport);
 router.post('/import/commit',  commitUsersImport);
@@ -40,6 +41,8 @@ router.put('/:id/sub-provinces', setUserSubProvinces);
 // راية «كل المناطق والمحافظات تلقائياً» — تُغني عن التعيين اليدوي لحسابات الإدارة
 router.put('/:id/all-areas',    setUserAllAreas);
 router.put('/:id/items',        setUserItems);
+// فئات ايتمات المسوّق (رئيسي/ثانوي) + وضع حساب الثانوية — lib/itemTiers.js
+router.put('/:id/item-tiers',   setUserItemTiers);
 // نطاق ستوك مستقل — راجع server/lib/stockScope.js
 router.put('/:id/stock-companies', setUserStockCompanies);
 router.put('/:id/stock-items',     setUserStockItems);

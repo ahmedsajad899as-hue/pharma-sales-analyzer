@@ -9,6 +9,7 @@ import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from 
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
 import { PHARMACY_KIND, repSideOf, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
+import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -1728,7 +1729,16 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // يعتمد عليه لاحقاً في بناء ملف التصدير).
   const finalSales = select.rawData ? filtered : filtered.map(({ rawData, ...rest }) => rest);
 
-  return { ...meta, rawSales: finalSales, sharedFileIds, nonSharedFileIds, linkedUserId: linkedUser?.id ?? null };
+  // فئات الايتمات (رئيسية/ثانوية) للمسوّق — lib/itemTiers.js: وسم كل صف بـitemTier، وحذف
+  // الثانوية (hide) أو تعليمها خارج المجموع (separate). skipItemTiers لحساب «بدون الفارمسي»:
+  // ما يُنسب للمسوقين يبقى مستبعداً من تقارير العلميين وإن أخفاه وضع الثانوية.
+  let tieredSales = finalSales;
+  let itemTierMode = null;
+  if (pharmacyMode && linkedUser && !query.skipItemTiers) {
+    ({ rows: tieredSales, mode: itemTierMode } = await applyItemTiersToRows(linkedUser.id, finalSales));
+  }
+
+  return { ...meta, rawSales: tieredSales, itemTierMode, sharedFileIds, nonSharedFileIds, linkedUserId: linkedUser?.id ?? null };
 }
 
 /**
@@ -1744,6 +1754,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
 // (العدد + أكبر id) تُبطله فور رفع/حذف صفوف في تلك الملفات.
 const MARKETERS_TEAM_TTL_MS = 3 * 60_000;
 const marketersTeamCache = new Map(); // key → { at, fp, promise }
+// تغيير فئات ايتمات المسوقين (lib/itemTiers.js) يغيّر رقم الفريق دون أن تتغيّر بصمة الصفوف.
+export function clearMarketersTeamCache() { marketersTeamCache.clear(); }
 
 export async function resolveMarketersTeamSaleIds(userId, fileIds) {
   const key = `${userId}|${[...(fileIds || [])].sort((a, b) => a - b).join(',')}`;
@@ -1776,7 +1788,8 @@ async function computeMarketersTeamSaleIds(userId, fileIds) {
   const ids = new Set();
   for (const repId of repIds) {
     const { rawSales } = await resolveSciRepSales(repId, { fileIds }, { ...REPORT_SALES_SELECT, id: true }, userId);
-    for (const s of rawSales) if (s.id != null) ids.add(s.id);
+    // ايتم ثانوي «خارج المجموع» لا يدخل رقم الفريق؛ صف يحسبه مسوّق آخر يبقى عبره.
+    for (const s of rawSales) if (s.id != null && !s.tierUncounted) ids.add(s.id);
   }
   return { isMarketersManager: true, saleIds: [...ids], repCount: repIds.length };
 }
@@ -1852,7 +1865,7 @@ export async function resolvePharmacyOfficeSaleIds(fileIds, viewerId = null) {
     });
     const ids = new Set();
     for (const repId of [...new Set(marketers.map(u => u.linkedRepId))]) {
-      const { rawSales } = await resolveSciRepSales(repId, { fileIds }, { id: true, quantity: true, recordType: true, saleDate: true, areaId: true, uploadedFileId: true,
+      const { rawSales } = await resolveSciRepSales(repId, { fileIds, skipItemTiers: true }, { id: true, quantity: true, recordType: true, saleDate: true, areaId: true, uploadedFileId: true,
         item: { select: { name: true } }, customer: { select: { name: true } }, representative: { select: { name: true } }, uploadedFile: { select: { sourceSystem: true } } }, viewerId);
       for (const s of rawSales) if (s.id != null && s.uploadedFile?.sourceSystem !== 'mercato') ids.add(s.id);
     }
@@ -1872,7 +1885,10 @@ export async function resolvePharmacyOfficeSaleIds(fileIds, viewerId = null) {
 async function resolveGroupSales(repIds, query, select, viewerId) {
   const byId = new Map();
   const areas = new Map(), items = new Map();
+  const tierModes = new Set();
   let fileIds = query.fileIds ?? null;
+  // صف يخصّ عضوين بفئتين مختلفتين: المحسوب يغلب، ثم الرئيسي.
+  const tierRank = s => (s.tierUncounted ? 0 : 2) + (s.itemTier === TIER_SECONDARY ? 0 : 1);
   // ثلاثة مندوبين بالتوازي — أسرع لشركة كاملة دون ضغط ذاكرة يُذكر.
   for (let i = 0; i < repIds.length; i += 3) {
     const batch = await Promise.all(repIds.slice(i, i + 3).map(repId =>
@@ -1880,13 +1896,18 @@ async function resolveGroupSales(repIds, query, select, viewerId) {
     for (const r of batch) {
       if (!r) continue;
       fileIds = r.fileIds;
-      for (const s of r.rawSales) if (s.id != null && !byId.has(s.id)) byId.set(s.id, s);
+      if (r.itemTierMode) tierModes.add(r.itemTierMode);
+      for (const s of r.rawSales) {
+        if (s.id == null) continue;
+        const prev = byId.get(s.id);
+        if (!prev || tierRank(s) > tierRank(prev)) byId.set(s.id, s);
+      }
       for (const l of r.areaLinks) areas.set(l.area.id, l);
       for (const l of r.itemLinks) items.set(l.item.id, l);
     }
   }
   const rawSales = await applySciExclusions([...byId.values()], fileIds, query, viewerId);
-  return { rawSales, areaLinks: [...areas.values()], itemLinks: [...items.values()], fileIds };
+  return { rawSales, areaLinks: [...areas.values()], itemLinks: [...items.values()], fileIds, itemTierModes: [...tierModes] };
 }
 
 export async function getGroupReport(repIds, label, query = {}, viewerId = null) {
@@ -1897,12 +1918,18 @@ export async function getGroupReport(repIds, label, query = {}, viewerId = null)
   }, query);
 }
 
+// التصدير = أرقام الشاشة: ايتم ثانوي «خارج المجموع» (tierUncounted) لا يدخله.
 export async function getGroupRawSalesForExport(repIds, query = {}, viewerId = null) {
-  return (await resolveGroupSales(repIds, query, EXPORT_SALES_SELECT, viewerId)).rawSales;
+  return (await resolveGroupSales(repIds, query, EXPORT_SALES_SELECT, viewerId)).rawSales.filter(s => !s.tierUncounted);
 }
 
 async function buildReport(resolved, query) {
-  const { rep, commercialLinks, areaLinks, itemLinks, rawSales, fileIds } = resolved;
+  const { rep, commercialLinks, areaLinks, itemLinks, fileIds } = resolved;
+  // ايتمات المسوّق الثانوية «خارج المجموع» (tierUncounted) تُطرح من كل الأرقام هنا، وتبقى
+  // في allRows لجدول المقارنة byItemTier أدناه. بلا فئات ← allRows كما هي.
+  const tierModes = resolved.itemTierModes ?? (resolved.itemTierMode ? [resolved.itemTierMode] : []);
+  const allRows = resolved.rawSales;
+  const rawSales = tierModes.length ? allRows.filter(s => !s.tierUncounted) : allRows;
 
   // Reports/exports must show the rep's CURRENT name, not the static `name` column
   // (which is only set once at auto-creation and can drift — e.g. a Super Admin
@@ -1931,11 +1958,12 @@ async function buildReport(resolved, query) {
   // الإرجاع قبل التجميع. استدعاءات ReportsPage التي تطلب recordType='sale'|
   // 'return' صراحةً (لتطرح هي بنفسها لاحقاً) تبقى كما هي — القيم موجبة دائماً،
   // وإلا صار طرحها هناك يُضيف بدل أن يطرح (سالب سالب = زائد).
-  const salesForAggregation = query.recordType
-    ? rawSales
-    : rawSales.map(s => (String(s.recordType ?? '').trim().toLowerCase() === 'return'
+  const signRows = rows => (query.recordType
+    ? rows
+    : rows.map(s => (String(s.recordType ?? '').trim().toLowerCase() === 'return'
         ? { ...s, quantity: -s.quantity, totalValue: -s.totalValue }
-        : s));
+        : s)));
+  const salesForAggregation = signRows(rawSales);
 
   const aggregated = aggregateSalesWithReps(salesForAggregation);
   console.log('[SciRep.getReport] aggregated totals:', JSON.stringify(aggregated.totals), 'rows:', rawSales.length);
@@ -2008,6 +2036,25 @@ async function buildReport(resolved, query) {
       byArea: slim(a.byArea, 'areaName'), byItem: slim(a.byItem, 'itemName'), byRep: slim(a.byRep, 'repName') }];
   }));
 
+  // ── فئات ايتمات المسوّق: رئيسية / ثانوية (lib/itemTiers.js) ──
+  // من كل الصفوف لا المحسوبة فقط: الثانوية «خارج المجموع» تظهر هنا للمقارنة. modes لكل
+  // عضو بفئات (تقرير المجموعة قد يخلط أوضاعاً). null = لا فئات لهذا التقرير.
+  let byItemTier = null;
+  if (tierModes.length) {
+    const parts = { main: [], secondary: [] };
+    for (const s of allRows) parts[s.itemTier === TIER_SECONDARY ? 'secondary' : 'main'].push(s);
+    const slim = (list, nameKey) => list.map(r => ({ name: r[nameKey], totalQuantity: r.totalQuantity, totalValue: r.totalValue }));
+    byItemTier = { modes: tierModes };
+    for (const [k, rows] of Object.entries(parts)) {
+      const a = aggregateSalesWithReps(signRows(rows));
+      byItemTier[k] = {
+        totalQuantity: a.totals.totalQuantity, totalValue: a.totals.totalValue,
+        orderCount: countDistinctOrders(rows.filter(isOrderRow)),
+        byArea: slim(a.byArea, 'areaName'), byItem: slim(a.byItem, 'itemName'), byRep: slim(a.byRep, 'repName'),
+      };
+    }
+  }
+
   return {
     scientificRep: { id: rep.id, name: displayName, isActive: rep.isActive },
     assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
@@ -2021,6 +2068,7 @@ async function buildReport(resolved, query) {
     byRep,
     bySource,
     byCustomerClass,
+    byItemTier,
     warehouses,
     _debug: {
       fileIds,
@@ -2161,5 +2209,5 @@ const EXPORT_SALES_SELECT = {
  */
 export async function getRawSalesForExport(id, query = {}, viewerId = null) {
   const { rawSales, fileIds } = await resolveSciRepSales(id, query, exclusionSelect(EXPORT_SALES_SELECT), viewerId);
-  return applySciExclusions(rawSales, fileIds, query, viewerId);
+  return applySciExclusions(rawSales.filter(s => !s.tierUncounted), fileIds, query, viewerId);
 }

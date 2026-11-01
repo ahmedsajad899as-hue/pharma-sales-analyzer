@@ -830,7 +830,11 @@ interface SciReport {
     byArea: BreakdownRow[]; byItem: BreakdownRow[]; byRep: BreakdownRow[];
   }> | null;
   bySource: { office: { totalQty: number; totalValue: number; orderCount: number }; mercato: { totalQty: number; totalValue: number; orderCount: number }; condition?: { totalQty: number; totalValue: number; orderCount: number }; mercatoOnly?: { totalQty: number; totalValue: number; orderCount: number }; hasOffice: boolean; hasMercato: boolean; hasCondition?: boolean } | null;
+  // فئات ايتمات المسوّق (رئيسي/ثانوي) — server/lib/itemTiers.js. modes: وضع الثانوية لكل
+  // عضو بفئات (count | separate | hide). null = لا فئات لهذا التقرير.
+  byItemTier?: { modes: string[]; main: TierCell; secondary: TierCell } | null;
 }
+type TierCell = { totalQty: number; totalValue: number; orderCount: number };
 
 const parseCommReport = (d: any): CommReport => ({
   repName:    d.representative?.name ?? '—',
@@ -889,15 +893,24 @@ function parseSciReport(d: any): SciReport {
       mercatoOnly: { totalQty: d.bySource.mercatoOnly?.totalQuantity ?? 0, totalValue: d.bySource.mercatoOnly?.totalValue ?? 0, orderCount: d.bySource.mercatoOnly?.orderCount ?? 0 },
       hasCondition: !!d.bySource.hasCondition,
     } : null,
+    byItemTier: d.byItemTier ? {
+      modes: d.byItemTier.modes ?? [],
+      main:      { totalQty: d.byItemTier.main?.totalQuantity ?? 0,      totalValue: d.byItemTier.main?.totalValue ?? 0,      orderCount: d.byItemTier.main?.orderCount ?? 0 },
+      secondary: { totalQty: d.byItemTier.secondary?.totalQuantity ?? 0, totalValue: d.byItemTier.secondary?.totalValue ?? 0, orderCount: d.byItemTier.secondary?.orderCount ?? 0 },
+    } : null,
     byCustomerClass: d.byCustomerClass ? Object.fromEntries(
-      (['scientific', 'commercial', 'pharmacy', 'other'] as const).map(k => {
-        const c = d.byCustomerClass[k];
-        const rows = (list: any[]): BreakdownRow[] => (list ?? []).map(r => ({ name: r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
-        return [k, { totalQty: c?.totalQuantity ?? 0, totalValue: c?.totalValue ?? 0, byArea: rows(c?.byArea), byItem: rows(c?.byItem), byRep: rows(c?.byRep) }];
-      }),
+      (['scientific', 'commercial', 'pharmacy', 'other'] as const).map(k => [k, parseClassCell(d.byCustomerClass[k])]),
     ) as SciReport['byCustomerClass'] : null,
   };
 }
+
+type ClassCell = NonNullable<SciReport['byCustomerClass']>['scientific'];
+function parseClassCell(c: any): ClassCell {
+  const rows = (list: any[]): BreakdownRow[] => (list ?? []).map(r => ({ name: r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 }));
+  return { totalQty: c?.totalQuantity ?? 0, totalValue: c?.totalValue ?? 0, byArea: rows(c?.byArea), byItem: rows(c?.byItem), byRep: rows(c?.byRep) };
+}
+// مذاخر المسوقين لايتمات مجموعة الشركة (زر «فارمسي: مكتب + مذاخر») — صافٍ جاهز من الخادم.
+const MKT_WH_CACHE = new Map<string, { data: ClassCell | null; at: number }>();
 
 type Mode = 'commercial' | 'scientific' | 'overall' | 'provinces';
 type ReportView = 'sales' | 'returns' | 'net';
@@ -1043,14 +1056,21 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // «مذاخر» = صفوف بلا «معلومات زبون» (ميركاتو/الكوديشن) — عملها المندوب العلمي أيضاً، فيُدمج اختيارياً مع علمي.
   const [mergeWarehousesRaw, setMergeWarehouses] = useState(() => sessionStorage.getItem('rpt_mergeWh') === '1');
   const mergeWarehouses = mergeWarehousesRaw && canMergeWh;
+  const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
+  // «فارمسي: مكتب + مذاخر»: يضيف لعمود فارمسي مبيع المسوقين من المذاخر (ميركاتو/لكوديشن) لايتمات
+  // الشركة — تقرير مجموعة فقط (مندوب واحد يغطي بعض المناطق، والمذاخر بلا تقييد منطقة). للمقارنة فقط.
+  const canPharmWh = hasFeature('sci_pharmacy_warehouses');
+  const [pharmWhRaw, setPharmWh] = useState(() => sessionStorage.getItem('rpt_pharmWh') === '1');
+  const pharmWhAvailable = canPharmWh && showExcludePharmacy && isGroupId(sciRepId);
+  const pharmWh = pharmWhRaw && pharmWhAvailable;
   type CustomerClass = 'scientific' | 'commercial' | 'pharmacy' | 'other';
+  const pharmLabel = pharmWh ? '🏪 فارمسي (مكتب + مذاخر)' : '🏪 فارمسي';
   const classCols: (readonly [CustomerClass, string])[] = mergeWarehouses
-    ? [['scientific', '🩺 علمي + 🏬 مذاخر'], ['commercial', '💼 تجاري'], ['pharmacy', '🏪 فارمسي']]
-    : [['scientific', '🩺 علمي'], ['other', '🏬 مذاخر'], ['commercial', '💼 تجاري'], ['pharmacy', '🏪 فارمسي']];
+    ? [['scientific', '🩺 علمي + 🏬 مذاخر'], ['commercial', '💼 تجاري'], ['pharmacy', pharmLabel]]
+    : [['scientific', '🩺 علمي'], ['other', '🏬 مذاخر'], ['commercial', '💼 تجاري'], ['pharmacy', pharmLabel]];
   const classBucket = (k: CustomerClass): CustomerClass => (mergeWarehouses && k === 'other' ? 'scientific' : k);
   const ALL_CLASSES: CustomerClass[] = ['scientific', 'commercial', 'pharmacy', 'other'];
   const [excelMenuOpen, setExcelMenuOpen] = useState(false); // زر Excel الموحّد: المعروض / تصدير عدة مندوبين
-  const [sciRepId, setSciRepId]   = useState(() => sessionStorage.getItem('rpt_sciRepId') || '');
   // وضع «تحليل كامل»: يتجاهل قائمة ايتمات الحساب ونطاق مناطقه، ويعرض كل ما
   // في الملف كما يراه صاحبه — يسري على أي ملف لك صلاحية وصول عليه (مالك أو
   // مُشارَك معك)، لا الملفات المملوكة فقط.
@@ -1623,6 +1643,39 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     } catch (err: any) { if (myReq === sciReportSeq && !cached) setError(err.message); }
     finally { userLoads.current--; if (myReq === sciReportSeq) setLoading(false); }
   };
+
+  // مذاخر المسوقين — يُطلب فقط والزر وجدول التصنيف ظاهران (حسابه ثقيل: كل المسوقين).
+  const mktWhReq = (() => {
+    if (!pharmWh || !showClassTable || mode !== 'scientific') return null;
+    const g = groupOf(sciRepId);
+    if (!g.repIds.length || !activeFileIds.length) return null;
+    const params = repReportParams();
+    params.set('repIds', g.repIds.join(','));
+    return { key: `${user?.id ?? ''}|${params}`, url: `/api/scientific-reps/marketers-warehouse?${params}` };
+  })();
+  const [mktWh, setMktWh] = useState<{ key: string; data: ClassCell | null; error?: string } | null>(null);
+  useEffect(() => {
+    if (!mktWhReq) return;
+    const { key, url } = mktWhReq;
+    const c = MKT_WH_CACHE.get(key);
+    if (c && Date.now() - c.at < REPORT_FRESH_MS) { setMktWh({ key, data: c.data }); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(url, { headers: authH() });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || j.message || t.reports.errLoad);
+        const data = j.data ? parseClassCell(j.data) : null;
+        MKT_WH_CACHE.set(key, { data, at: Date.now() });
+        if (MKT_WH_CACHE.size > 40) MKT_WH_CACHE.delete(MKT_WH_CACHE.keys().next().value!);
+        if (!cancelled) setMktWh({ key, data });
+      } catch (e: any) { if (!cancelled) setMktWh({ key, data: null, error: e.message }); }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mktWhReq?.key]);
+  const mktWhReady = !!mktWhReq && mktWh?.key === mktWhReq.key;
+  const mktWhData = mktWhReady ? mktWh!.data : null;
 
   // ── التحميل المسبق ──────────────────────────────────────────────────────
   // بعد ظهور أول تقرير، نجلب بالخفاء تقارير بقية المندوبين (ومجموعات الشركات
@@ -5458,6 +5511,47 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             </div>
           </div>
         );
+        // ⭐ رئيسي / ◽ ثانوي — مقارنة ايتمات المسوّق (server/lib/itemTiers.js). تظهر متى ضبط
+        // السوبر أدمن فئات لهذا المسوّق أو مديره. صافٍ في خانة الصافي، وإلا قيمة الخانة.
+        const tierBox = (() => {
+          const bt = sciReport.byItemTier;
+          if (!bt) return null;
+          const pick = (k: 'main' | 'secondary') => isNet
+            ? { val: bt[k].totalValue - (sciReturnsReport?.byItemTier?.[k].totalValue ?? 0), orders: bt[k].orderCount }
+            : { val: viewData?.byItemTier?.[k].totalValue ?? 0, orders: viewData?.byItemTier?.[k].orderCount ?? 0 };
+          const main = pick('main'), sec = pick('secondary');
+          const hidden = bt.modes.length > 0 && bt.modes.every(m => m === 'hide');
+          const uncounted = bt.modes.includes('separate');
+          const base = Math.abs(main.val) + Math.abs(sec.val);
+          const pct = (v: number) => (base ? Math.round(Math.abs(v) / base * 100) : 0);
+          const f = isNet ? fmtValSigned : fmtVal;
+          const line = (icon: string, label: string, v: { val: number; orders: number }, color: string, badge?: string) => (<>
+            <span style={{ fontSize: 13 }}>{icon}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color }}>{label}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 800, color: v.val >= 0 ? '#1e293b' : '#991b1b', whiteSpace: 'nowrap' }}>{f(v.val)}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>
+              {pct(v.val)}% · <span style={{ color: '#1d4ed8' }}>{fmt(v.orders)}🧾</span>
+              {badge && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 800, color: '#9a3412', background: '#ffedd5', border: '1px solid #fed7aa', borderRadius: 6, padding: '1px 6px' }}>{badge}</span>}
+            </span>
+          </>);
+          return (
+            <div style={{ background: '#fffbeb', border: '1.5px solid #fde68a', borderRadius: 10, padding: '8px 14px', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
+              title="مبيع الايتمات الرئيسية مقابل الثانوية لهذا المسوّق — الفئات تُضبط من السوبر أدمن ← المستخدم ← «رئيسي / ثانوي»">
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto auto', columnGap: 8, rowGap: 5, alignItems: 'center' }}>
+                {line('⭐', 'رئيسية', main, '#a16207')}
+                {hidden
+                  ? (<><span style={{ fontSize: 13 }}>◽</span><span style={{ fontSize: 11.5, fontWeight: 800, color: '#64748b', gridColumn: 'span 3' }}>الثانوية مخفية لهذا المسوّق</span></>)
+                  : line('◽', 'ثانوية', sec, '#475569', uncounted ? 'خارج المجموع' : undefined)}
+              </div>
+              {!hidden && base > 0 && (
+                <div style={{ display: 'flex', height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 7, background: '#e2e8f0' }}>
+                  <div style={{ width: `${pct(main.val)}%`, background: '#f59e0b' }} />
+                  <div style={{ width: `${pct(sec.val)}%`, background: '#94a3b8' }} />
+                </div>
+              )}
+            </div>
+          );
+        })();
         // الأزرار الأربعة (ميزات اختيارية) بحجم واحد في مجموعة واحدة على يسار صف البطاقات.
         const toggleBtn = (key: string, on: boolean, label: string, title: string, onClick: () => void, onColors = { bg: '#d1fae5', bd: '#6ee7b7', fg: '#065f46' }) => (
           <button key={key} onClick={onClick} title={title}
@@ -5496,6 +5590,15 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               try { sessionStorage.setItem('rpt_mergeWh', v ? '1' : '0'); } catch { /* ignore */ }
             },
             { bg: '#dbeafe', bd: '#93c5fd', fg: '#1d4ed8' }),
+          sciReport.byCustomerClass && pharmWhAvailable && toggleBtn('pharmWh', pharmWh, pharmWh ? '🏪 فارمسي: مكتب + مذاخر' : '🏪 أضف مذاخر الفارمسي',
+            pharmWh ? 'عمود فارمسي يشمل مبيع المسوقين من المذاخر (للمقارنة فقط) — اضغط لإرجاعه للمكتب فقط' : 'إضافة مبيع المسوقين من المذاخر (ميركاتو / لكوديشن) لايتمات الشركة إلى عمود فارمسي — للمقارنة فقط، لا يدخل صافي التقرير',
+            () => {
+              const v = !pharmWh;
+              setPharmWh(v);
+              try { sessionStorage.setItem('rpt_pharmWh', v ? '1' : '0'); } catch { /* ignore */ }
+              if (v && !showClassTable) { setShowClassTable(true); if (!isNet) setReportView('net'); }
+            },
+            { bg: '#fce7f3', bd: '#f9a8d4', fg: '#9d174d' }),
         ].filter(Boolean);
         // marginRight:auto في RTL يدفع المجموعة إلى يسار الصف.
         const sciToggles = sciTogglesList.length > 0 && (
@@ -5549,6 +5652,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 src?.office.orderCount ?? 0, mercOf(src)?.orderCount ?? 0,
                 src?.hasCondition ? { valStr: fmtValSigned(condNetVal), color: condNetVal >= 0 ? '#065f46' : '#991b1b', count: src?.condition?.orderCount ?? 0 } : null,
               )}
+              {tierBox}
               {sciToggles}
               </div>
             ) : null}
@@ -5556,35 +5660,55 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               const cls = sciReport.byCustomerClass!, ret = sciReturnsReport?.byCustomerClass;
               const shown = classCols.map(([col, label]) => {
                 const ks = ALL_CLASSES.filter(k => classBucket(k) === col);
+                // مذاخر المسوقين تُضاف لفارمسي هنا فقط (للمقارنة) — لا لصافي التقرير أعلاه.
+                const wh = col === 'pharmacy' && pharmWh ? mktWhData : null;
                 return {
-                  k: col, label,
-                  qty: ks.reduce((s, k) => s + cls[k].totalQty - (ret?.[k].totalQty ?? 0), 0),
-                  val: ks.reduce((s, k) => s + cls[k].totalValue - (ret?.[k].totalValue ?? 0), 0),
+                  k: col, label, wh,
+                  qty: ks.reduce((s, k) => s + cls[k].totalQty - (ret?.[k].totalQty ?? 0), 0) + (wh?.totalQty ?? 0),
+                  val: ks.reduce((s, k) => s + cls[k].totalValue - (ret?.[k].totalValue ?? 0), 0) + (wh?.totalValue ?? 0),
                 };
               });
               const rows = shown;
               const totQty = rows.reduce((s, r) => s + r.qty, 0), totVal = rows.reduce((s, r) => s + r.val, 0);
+              // نسبة مشاركة كل تصنيف من مجموع القيمة الصافية.
+              const share = (v: number) => (totVal > 0 ? `${((v / totVal) * 100).toFixed(1)}%` : '—');
               const th: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontSize: 12, color: '#64748b', fontWeight: 700, borderBottom: '1.5px solid #e2e8f0' };
               const td: React.CSSProperties = { padding: '8px 12px', fontSize: 13, fontWeight: 700, borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' };
               return (
-                <div style={{ marginTop: 10, overflowX: 'auto', border: '1.5px solid #e2e8f0', borderRadius: 10, background: '#fff', maxWidth: 560 }}>
+                <div style={{ marginTop: 10, overflowX: 'auto', border: '1.5px solid #e2e8f0', borderRadius: 10, background: '#fff', maxWidth: 660 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead><tr style={{ background: '#f8fafc' }}><th style={th}>التصنيف</th><th style={th}>الكمية (صافي)</th><th style={th}>القيمة (صافي)</th></tr></thead>
+                    <thead><tr style={{ background: '#f8fafc' }}><th style={th}>التصنيف</th><th style={th}>الكمية (صافي)</th><th style={th}>القيمة (صافي)</th><th style={th}>النسبة</th></tr></thead>
                     <tbody>
                       {shown.map(r => (
                         <tr key={r.k}>
-                          <td style={td}>{r.label}</td>
+                          <td style={td}>
+                            {r.label}
+                            {r.k === 'pharmacy' && pharmWh && (
+                              <div style={{ fontSize: 10.5, fontWeight: 600, color: '#9d174d', marginTop: 2 }}>
+                                {!mktWhReady ? '⏳ جاري حساب مذاخر المسوقين…'
+                                  : mktWh?.error ? `⚠️ ${mktWh.error}`
+                                  : `🏢 مكتب ${fmtValSigned(r.val - (r.wh?.totalValue ?? 0))} · 🏬 مذاخر ${fmtValSigned(r.wh?.totalValue ?? 0)}`}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ ...td, color: '#1d4ed8' }}>{fmt(r.qty)}</td>
                           <td style={{ ...td, color: r.val >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(r.val)}</td>
+                          <td style={{ ...td, color: '#475569' }}>{share(r.val)}</td>
                         </tr>
                       ))}
                       <tr style={{ background: '#f8fafc' }}>
                         <td style={{ ...td, fontWeight: 900 }}>المجموع</td>
                         <td style={{ ...td, fontWeight: 900, color: '#1d4ed8' }}>{fmt(totQty)}</td>
                         <td style={{ ...td, fontWeight: 900, color: totVal >= 0 ? '#065f46' : '#991b1b' }}>{fmtValSigned(totVal)}</td>
+                        <td style={{ ...td, fontWeight: 900, color: '#475569' }}>{totVal > 0 ? '100%' : '—'}</td>
                       </tr>
                     </tbody>
                   </table>
+                  {pharmWh && (
+                    <div style={{ padding: '6px 12px', fontSize: 11, color: '#64748b', borderTop: '1px solid #f1f5f9', whiteSpace: 'normal' }}>
+                      🏬 مذاخر الفارمسي = مبيع المسوقين من ميركاتو / اللكوديشن لايتمات الشركة — للمقارنة فقط، غير محسوب في صافي القيمة أعلاه.
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -5610,6 +5734,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 viewSrc?.office.orderCount ?? 0, mercOf(viewSrc)?.orderCount ?? 0,
                 viewSrc?.hasCondition ? { valStr: fmtVal(viewSrc?.condition?.totalValue ?? 0), color: '#1e293b', count: viewSrc?.condition?.orderCount ?? 0 } : null,
               )}
+              {tierBox}
               {sciToggles}
               </div>
             )}
@@ -5648,6 +5773,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               add(sciReport.byCustomerClass![k][key], classBucket(k), 1);
               add(sciReturnsReport?.byCustomerClass?.[k][key], classBucket(k), -1);
             }
+            if (pharmWh && mktWhData) add(mktWhData[key], 'pharmacy', 1); // صافٍ جاهز من الخادم
             const cols = classCols;
             const tot = (r: { cells: Record<string, Cell> }) => Object.values(r.cells).reduce((s, c) => ({ q: s.q + c.q, v: s.v + c.v }), { q: 0, v: 0 });
             const rows = [...map.values()].sort((a, b) => sciViewMode === 'qty' ? tot(b).q - tot(a).q : tot(b).v - tot(a).v);
