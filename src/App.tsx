@@ -12,6 +12,7 @@ import { sendEngagementPing, pingAppOpenIfNewDay } from './lib/engagementPing';
 import { useEngagementHeartbeat } from './hooks/useEngagementHeartbeat';
 import { useTimeOfDay } from './lib/timeTheme';
 import { PageActiveContext } from './context/PageActiveContext';
+import { reloadIfUpdatePending, UPDATE_TARGET_KEY } from './lib/autoUpdate';
 import './App.css';
 
 // Lazy-load heavy pages — each becomes its own JS chunk loaded on first visit
@@ -313,6 +314,11 @@ function AppInner() {
 
   // On mobile (< 768px) start with sidebar closed
   const [activePage, setActivePage]       = useState<PageId>(() => {
+    // تحميل نسخة جديدة أثناء الانتقال (lib/autoUpdate.ts): نفتح الصفحة التي طُلبت.
+    try {
+      const target = sessionStorage.getItem(UPDATE_TARGET_KEY) as PageId | null;
+      if (target) { sessionStorage.removeItem(UPDATE_TARGET_KEY); return target; }
+    } catch {}
     // صورة مُشارَكة من واتساب (share_target في manifest.json) ← صفحة «طلبيات المذاخر» لربطها بطلبية
     try { if (sessionStorage.getItem('ro-share') === '1') return 'rep-orders'; } catch {}
     try {
@@ -606,6 +612,8 @@ function AppInner() {
 
   const navigateTo = useCallback((page: PageId) => {
     localStorage.setItem('lastPage', page);
+    // نسخة جديدة نُشرت: الانتقال لصفحة أخرى لحظة آمنة لتحميلها — تفتح الصفحة المطلوبة.
+    if (page !== activePageRef.current && reloadIfUpdatePending(page)) return;
     // Only push a new history entry when moving to a different page.
     // Pushing same-page entries creates orphan entries that cause false exit triggers.
     if (page !== activePageRef.current) {

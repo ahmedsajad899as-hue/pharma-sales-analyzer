@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
+import { startAutoUpdate } from './lib/autoUpdate'
 import './index.css'
 
 // لوحة السوبر-أدمن تُحمَّل عند الحاجة فقط. الاستيراد الثابت كان يسحب معه 9 صفحات
@@ -55,6 +56,9 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {/* ignore */});
   });
 }
+
+// ── نسخة جديدة بعد النشر تُطبَّق تلقائياً بلا ري فرش (src/lib/autoUpdate.ts) ──
+startAutoUpdate();
 
 const isSuperAdmin = window.location.pathname.startsWith('/super-admin')
 
