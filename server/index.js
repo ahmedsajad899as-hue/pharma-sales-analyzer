@@ -104,7 +104,7 @@ import repFollowupRoutes         from './modules/rep-followup/rep-followup.route
 import provinceTeamsRoutes       from './modules/province-teams/province-teams.routes.js';
 import repOrdersRoutes          from './modules/rep-orders/rep-orders.routes.js';
 import warehouseDispatchRoutes  from './modules/warehouse-dispatch/dispatch.routes.js';
-import { internalRouter as waGroupsInternalRoutes, adminRouter as waGroupsAdminRoutes } from './modules/wa-groups/wa-groups.routes.js';
+import { internalRouter as waGroupsInternalRoutes, adminRouter as waGroupsAdminRoutes, saRouter as waGroupsSaRoutes } from './modules/wa-groups/wa-groups.routes.js';
 
 dotenv.config();
 
@@ -240,6 +240,7 @@ app.use('/api/sa/telegram-links', telegramLinksRoutes);
 app.use('/api/sa/ai-usage',       aiUsageRoutes);
 app.use('/api/sa/viber-links',    viberLinksRoutes);
 app.use('/api/sa/whatsapp-links', whatsappLinksRoutes);
+app.use('/api/sa/wa-groups',      waGroupsSaRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
 app.use('/api/sa/catalog-import', catalogImportRoutes);
 app.use('/api/sa/users',          adminUsersRoutes);

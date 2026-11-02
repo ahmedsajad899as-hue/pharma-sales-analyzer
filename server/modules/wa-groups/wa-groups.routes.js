@@ -10,6 +10,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import { groupsSecret, sidecar } from './wa-groups.client.js';
+import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import { handleGroupInbound } from '../warehouse-dispatch/dispatch.inbound.js';
 
 export const internalRouter = Router();
@@ -43,19 +44,34 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-adminRouter.get('/status', requireAdmin, async (_req, res) => {
+// الحالة/الربط/الفصل — مشتركة بين صفحة التطبيق (أدمن) ولوحة السوبر أدمن (ماستر)
+const statusHandler = async (_req, res) => {
   const r = await sidecar('/status', { timeoutMs: 5000 });
   res.json({ success: true, ...(r.data || { connected: false }), error: r.error || null });
-});
-
-adminRouter.post('/pair', requireAdmin, async (req, res) => {
+};
+const pairHandler = async (req, res) => {
   const r = await sidecar('/pair', { method: 'POST', body: { phone: req.body?.phone }, timeoutMs: 30_000 });
   if (r.error) return res.status(400).json({ error: r.error });
   res.json({ success: true, ...r.data });
-});
-
-adminRouter.post('/logout', requireAdmin, async (_req, res) => {
+};
+const logoutHandler = async (_req, res) => {
   const r = await sidecar('/logout', { method: 'POST' });
   if (r.error) return res.status(400).json({ error: r.error });
   res.json({ success: true });
-});
+};
+const groupsHandler = async (_req, res) => {
+  const r = await sidecar('/groups');
+  res.json({ success: true, groups: r.data?.groups || [], error: r.error || null });
+};
+
+adminRouter.get('/status', requireAdmin, statusHandler);
+adminRouter.post('/pair', requireAdmin, pairHandler);
+adminRouter.post('/logout', requireAdmin, logoutHandler);
+
+// لوحة السوبر أدمن: رقم واحد لكل النظام ⇒ الماستر أدمن فقط (كروابط واتساب)
+export const saRouter = Router();
+saRouter.use(requireMasterAdmin);
+saRouter.get('/status', statusHandler);
+saRouter.post('/pair', pairHandler);
+saRouter.post('/logout', logoutHandler);
+saRouter.get('/groups', groupsHandler);
