@@ -21,7 +21,7 @@ import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
 import { updateConditionRow, deleteConditionRow, canEditConditionFile } from './modules/sales/sales.service.js';
 import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles, filterSheetsByProvince, renameConditionFiles, attachConditionTeams, filterConditionByTeam } from './lib/conditionFile.js';
-import { flagConditionRowsInMercato } from './lib/manualDuplicateCheck.js';
+import { flagConditionRowsInMercato, flagConditionTransitDups } from './lib/manualDuplicateCheck.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -2297,6 +2297,8 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
     const all = await loadConditionSheets(id, { month, transit });
     // صفوف محسوبة أيضاً في إكسل ميركاتو (صورة فاتورة طلبية جهّزها ميركاتو) — تنبيه فقط.
     await flagConditionRowsInMercato(all, file.userId).catch(e => console.error('[condition] فحص ميركاتو:', e?.message));
+    // صف بوت/فاتورة يشبه طلبية ترانزيت من ملف المكتب (نفس الصيدلية/المذخر/الايتم/الكمية، تاريخ قريب).
+    try { flagConditionTransitDups(all); } catch (e) { console.error('[condition] فحص الترانزيت:', e?.message); }
     await attachConditionTeams(all, await conditionOfficeId(file.userId, req.user?.id));
     const sheets = await scopeSheetsToRoster(all, req.user);
     const companySheet = await buildCompanySheet(all, sheets, req.user);

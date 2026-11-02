@@ -454,3 +454,62 @@ export async function flagConditionRowsInMercato(sheets, ownerId) {
   }
   return flagged;
 }
+
+/**
+ * صف كوديشن (بوت/فاتورة/إكسل) يشبه طلبية ترانزيت من ملف المكتب ⇒ غالباً الطلبية نفسها
+ * (طلب 2026-11-02): الصيدلية نفسها تطلب ترانزيت عبر المكتب ثم يجهّزها المذخر فتصل
+ * فاتورته للبوت — فتُحتسب مرتين. الترانزيت يكون عادةً **أقدم بقليل** من فاتورة المذخر.
+ *
+ * الشرط: الايتم نفسه + الكمية نفسها + الصيدلية نفسها، والمذخر غير مختلف، وتاريخ
+ * الترانزيت من 10 أيام قبل صف الكوديشن إلى يوم بعده. مذخر أو تاريخ مجهول في أحد
+ * الطرفين ⇒ «possible» بدل «duplicate». كل ترانزيت يُقابَل بصف واحد فقط.
+ * تنبيه فقط: يعلّم الطرفين بـ transitMatch (نسخ صف الترانزيت في شيتات عدة مندوبين
+ * تحمل المعرّف نفسه فتُعلَّم كلها). يعدّل الصفوف في مكانها ويُرجع عدد الأزواج.
+ */
+export function flagConditionTransitDups(sheets) {
+  const transitById = new Map();
+  const cond = new Map();
+  for (const s of sheets) for (const r of s.rows) {
+    if (r.transit) { if (!transitById.has(r.id)) transitById.set(r.id, []); transitById.get(r.id).push(r); }
+    else if (r.item && Number(r.quantity) > 0) cond.set(r.id, r);
+  }
+  if (!transitById.size || !cond.size) return 0;
+
+  const prep = (r) => ({
+    r, itemId: r.itemId ?? null, itemKey: normalizeItemKey(String(r.item ?? '')),
+    qty: Math.abs(Number(r.quantity) || 0), pharm: pharmKey(r.pharmacy), wh: whKey(r.warehouse), day: dayOf(r.date || null),
+  });
+  const transits = [...transitById.values()].map(copies => prep(copies[0]));
+  const used = new Set();
+  let flagged = 0;
+  const conds = [...cond.values()].map(prep).sort((a, b) => (a.day ?? 0) - (b.day ?? 0));
+  for (const c of conds) {
+    let best = null;
+    for (const t of transits) {
+      if (used.has(t.r.id) || Math.abs(t.qty - c.qty) >= 0.001) continue;
+      const sameItem = (c.itemId && t.itemId && c.itemId === t.itemId)
+        || (c.itemKey && c.itemKey === t.itemKey) || (c.itemKey && t.itemKey && areSimilar(c.itemKey, t.itemKey));
+      if (!sameItem || namesMatch(c.pharm, t.pharm) !== true) continue;
+      const wh = namesMatch(c.wh, t.wh, 0.85);
+      if (wh === false) continue;
+      // الترانزيت أقدم عادةً: من 10 أيام قبل صف الكوديشن حتى يوم بعده.
+      const gap = c.day != null && t.day != null ? (c.day - t.day) / DAY : null;
+      if (gap != null && (gap < -1 || gap > 10)) continue;
+      const level = wh === true && gap != null ? 'duplicate' : 'possible';
+      const score = (level === 'duplicate' ? 100 : 0) - Math.abs(gap ?? 5);
+      if (!best || score > best.score) best = { t, level, gap, wh, score };
+    }
+    if (!best) continue;
+    used.add(best.t.r.id);
+    const reasons = ['نفس الصيدلية', 'نفس الايتم', 'نفس الكمية'];
+    if (best.wh) reasons.push('نفس المذخر');
+    if (best.gap != null) reasons.push(best.gap === 0 ? 'نفس اليوم' : best.gap > 0 ? `الترانزيت أقدم بـ${best.gap} يوم` : 'الترانزيت أحدث بيوم');
+    const t = best.t.r;
+    c.r.transitMatch = { level: best.level, reasons, date: t.date, warehouse: t.warehouse, pharmacy: t.pharmacy, quantity: t.quantity, total: t.total, otherId: t.id };
+    for (const copy of transitById.get(t.id)) {
+      copy.transitMatch = { level: best.level, reasons, date: c.r.date, warehouse: c.r.warehouse, pharmacy: c.r.pharmacy, quantity: c.r.quantity, total: c.r.total, otherId: c.r.id, source: c.r.source };
+    }
+    flagged++;
+  }
+  return flagged;
+}

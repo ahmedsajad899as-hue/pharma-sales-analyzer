@@ -25,6 +25,11 @@ type Row = {
     level: 'duplicate' | 'possible'; fileName: string; invoiceNumber?: string; date?: string;
     pharmacy?: string; warehouse?: string; rep?: string; sameQty: boolean; mercatoQty: number; reasons: string[];
   };
+  /** اشتباه تكرار بين صف بوت/فاتورة وطلبية ترانزيت (flagConditionTransitDups في الخادم) — على الطرفين */
+  transitMatch?: {
+    level: 'duplicate' | 'possible'; reasons: string[]; date: string; warehouse: string; pharmacy: string;
+    quantity: number; total: number; otherId: number; source?: string;
+  };
 };
 /** team: شركة المندوب أو «مسوقين الكرخ/الرصافة» (attachConditionTeams في الخادم) */
 type Sheet = { rep: string; rows: Row[]; quantity: number; total: number; orders: number; all?: boolean; team?: string | null };
@@ -49,9 +54,9 @@ type Scope = 'baghdad' | 'provinces' | null;
 const UNKNOWN_PROVINCE = 'غير محددة';
 // نفس filterSheetsByProvince في server/lib/conditionFile.js: صف بلا محافظة معروفة يُعدّ من «المحافظات».
 const inScope = (r: Row, scope: Scope) => !scope || ((r.province === 'بغداد') === (scope === 'baghdad'));
-function scopeSheet(s: Sheet, scope: Scope, mercatoOnly = false): Sheet {
-  if (!scope && !mercatoOnly) return s;
-  const rows = s.rows.filter(r => inScope(r, scope) && (!mercatoOnly || r.mercatoMatch));
+function scopeSheet(s: Sheet, scope: Scope, mercatoOnly = false, transitOnly = false): Sheet {
+  if (!scope && !mercatoOnly && !transitOnly) return s;
+  const rows = s.rows.filter(r => inScope(r, scope) && (!mercatoOnly || r.mercatoMatch) && (!transitOnly || r.transitMatch));
   return {
     ...s, rows,
     quantity: rows.reduce((a, r) => a + r.quantity, 0),
@@ -77,6 +82,14 @@ function applyTeam(sheets: Sheet[], company: Sheet | null, team: string | null):
     : company.rows.filter(r => r.team === team);
   return { sheets: kept, company: totalsOf(company, rows) };
 }
+const transitTitle = (r: Row) => {
+  const m = r.transitMatch;
+  if (!m) return '';
+  const other = r.transit ? `صف ${m.source || 'الكوديشن'}` : 'طلبية ترانزيت';
+  return `${m.level === 'duplicate' ? 'مشتبه تكراره' : 'ربما مكرر'} مع ${other}: `
+    + [m.date, m.pharmacy, m.warehouse, `الكمية ${m.quantity}`].filter(Boolean).join(' · ')
+    + ` — ${m.reasons.join('، ')}`;
+};
 const mercatoTitle = (r: Row) => {
   const m = r.mercatoMatch;
   if (!m) return '';
@@ -138,6 +151,8 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const [team, setTeam] = useState<string | null>(null);
   // «🏬 المحسوب في ميركاتو فقط» — لمراجعة الصفوف المكررة وحذفها.
   const [mercatoOnly, setMercatoOnly] = useState(false);
+  // «⚠️ اشتباه تكرار مع الترانزيت فقط» — صف البوت وطلبية الترانزيت التي تشبهه.
+  const [transitOnly, setTransitOnly] = useState(false);
   const [tab, setTab] = useState(SUMMARY);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -188,8 +203,8 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   }, [canEdit, token]);
 
   // زرّا «بغداد / المحافظات»: تصفية الصفوف ومجاميعها، والشيت الذي فرغ يختفي.
-  const scopedSheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope, mercatoOnly)).filter(s => s.rows.length > 0), [allSheets, scope, mercatoOnly]);
-  const scopedCompany = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, scope, mercatoOnly) : null), [allCompanySheet, scope, mercatoOnly]);
+  const scopedSheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope, mercatoOnly, transitOnly)).filter(s => s.rows.length > 0), [allSheets, scope, mercatoOnly, transitOnly]);
+  const scopedCompany = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, scope, mercatoOnly, transitOnly) : null), [allCompanySheet, scope, mercatoOnly, transitOnly]);
   // الشركات الموجودة في الملف (لأزرار الأعلى): الشركات أبجدياً ثم المسوقون.
   const teams = useMemo(() => [...new Set(allSheets.map(s => s.team).filter((t): t is string => !!t))]
     .sort((a, b) => Number(isMarketerTeam(a)) - Number(isMarketerTeam(b)) || a.localeCompare(b, 'ar')), [allSheets]);
@@ -203,6 +218,14 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
     return { rows: rows.length, sure: rows.filter(r => r.mercatoMatch!.level === 'duplicate').length, total: rows.reduce((a, r) => a + r.total, 0) };
   }, [allSheets, scope]);
   useEffect(() => { if (mercatoOnly && mercatoDup.rows === 0) setMercatoOnly(false); }, [mercatoOnly, mercatoDup.rows]);
+  // أزواج (صف كوديشن ↔ ترانزيت) المشتبه بتكرارها — يُعدّ صف الكوديشن (طرف الزوج غير الترانزيت).
+  const transitDup = useMemo(() => {
+    const seen = new Map<number, Row>();
+    for (const s of allSheets) for (const r of s.rows) if (r.transitMatch && !r.transit && inScope(r, scope)) seen.set(r.id, r);
+    const rows = [...seen.values()];
+    return { pairs: rows.length, sure: rows.filter(r => r.transitMatch!.level === 'duplicate').length, total: rows.reduce((a, r) => a + r.total, 0) };
+  }, [allSheets, scope]);
+  useEffect(() => { if (transitOnly && transitDup.pairs === 0) setTransitOnly(false); }, [transitOnly, transitDup.pairs]);
   // تفصيل المحافظات (زر «المحافظات»): مجموع كل محافظة — الصف يُعدّ مرة واحدة.
   const byProvince = useMemo(() => {
     if (scope !== 'provinces') return [];
@@ -359,6 +382,17 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
             </button>
           </div>
         )}
+        {!loading && transitDup.pairs > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 0, marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412', fontSize: 12.5 }}>
+            <span style={{ flex: '1 1 260px' }}>
+              ⚠️ اشتباه تكرار: {fmt(transitDup.pairs)} صف ({fmt(transitDup.total)} {currency}) يشبه طلبية ترانزيت —
+              نفس الصيدلية والايتم والكمية{transitDup.sure < transitDup.pairs ? '' : ' والمذخر'} بتاريخ قريب. غالباً الطلبية نفسها حُسبت مرتين — {canEdit ? 'راجعها واحذف المكرر' : 'راجعها مع مالك الملف'}.
+            </span>
+            <button onClick={() => setTransitOnly(v => !v)} style={{ border: '1px solid #fdba74', background: transitOnly ? '#ea580c' : '#fff', color: transitOnly ? '#fff' : '#9a3412', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+              {transitOnly ? 'عرض الكل' : 'عرضها فقط'}
+            </button>
+          </div>
+        )}
         {loading ? (
           <div style={{ color: '#64748b', fontSize: 13 }}>جاري التحميل…</div>
         ) : !hasData ? (
@@ -452,8 +486,8 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                       // صف الترانزيت يعيش في ملف المكتب — لا يُعدَّل ولا يُحذف من هنا.
                       const rowEditable = canEdit && !r.transit;
                       return (
-                      <tr key={r.id} style={r.transit ? { background: '#f0f9ff' } : r.mercatoMatch ? { background: r.mercatoMatch.level === 'duplicate' ? '#fee2e2' : '#fef3c7' } : undefined}
-                        title={r.transit ? r.note : r.mercatoMatch ? mercatoTitle(r) : undefined}>
+                      <tr key={r.id} style={r.transitMatch ? { background: '#ffedd5' } : r.transit ? { background: '#f0f9ff' } : r.mercatoMatch ? { background: r.mercatoMatch.level === 'duplicate' ? '#fee2e2' : '#fef3c7' } : undefined}
+                        title={r.transitMatch ? transitTitle(r) : r.transit ? r.note : r.mercatoMatch ? mercatoTitle(r) : undefined}>
                         {EDIT_COLS.map(c => {
                           const val = c.key === 'rep' ? (current.all ? (r.rep || NO_REP) : current.rep) : String((r as any)[c.key] ?? '');
                           const editable = rowEditable && !c.ro;
@@ -469,6 +503,11 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                           );
                         })}
                         <td style={{ ...td, color: '#64748b' }}>
+                          {r.transitMatch && (
+                            <span title={transitTitle(r)} style={{ marginInlineEnd: 6, background: '#fff', color: '#c2410c', border: '1px solid currentColor', borderRadius: 6, padding: '0 6px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                              ⚠️ {r.transitMatch.level === 'duplicate' ? 'مشتبه تكرار' : 'ربما مكرر'}
+                            </span>
+                          )}
                           {r.transit
                             ? <span style={{ background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc', borderRadius: 6, padding: '1px 8px', fontWeight: 700 }}>🔁 ترانزيت</span>
                             : <>
