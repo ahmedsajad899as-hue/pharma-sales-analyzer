@@ -197,7 +197,9 @@ const styleSheet = (ws: XLSX.WorkSheet, aoa: any[][], colWidths?: number[], head
 /* ─────────────────────────────────────────────────────────────────────────────
    ExcelPreviewModal — spreadsheet-like editor before export
 ───────────────────────────────────────────────────────────────────────────── */
-interface PreviewSheet { name: string; rows: string[][]; noTotals?: boolean; }
+// role: في تصدير المندوب الواحد، شيتات «part» (مبيعات المكتب / ارجاعات المكتب / مبيعات
+// ميركاتو) أجزاء متتالية من شيت «whole» (الكل) — تعديل جزء يعيد بناء الكل ثم «الملخص».
+interface PreviewSheet { name: string; rows: string[][]; noTotals?: boolean; role?: 'part' | 'whole'; }
 
 // Normalise a phone number to an international (Iraq-default) wa.me target: digits
 // only, leading 0 → 964, 00 prefix dropped, bare local numbers get 964 prepended.
@@ -391,14 +393,28 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       return updated;
     }
 
-    // ── Case B: single-rep preview = [data sheet, (مبيعات ميركاتو؟), «الملخص»] ──
-    // Recompute the «الملخص» totals + per-item NET from the edited MAIN data sheet
-    // (always index 0) so any row deletion / cell edit reflects live in the summary.
-    // Editing the optional «مبيعات ميركاتو» sub-sheet (a supplementary breakdown of
-    // the same data, not its own source of truth) does NOT retrigger this — matches
-    // sheet length varying (2 or 3) whether a Mercato+office file merge added that sheet.
+    // ── Case B: single-rep preview = [مبيعات المكتب, ارجاعات المكتب, مبيعات ميركاتو, الكل, الملخص] ──
+    // «الكل» (role 'whole') هو مصدر «الملخص». تعديل أحد الأجزاء (role 'part') يعيد بناء
+    // «الكل» منها بالترتيب نفسه (مبيع ← ارجاع ← ميركاتو) مطابقاً الأعمدة بالاسم — فحذف
+    // عمود/إعادة ترتيبه في «الكل» تبقى، أما تعديل خلية داخل «الكل» نفسه فيُستبدل عند
+    // تعديل جزء لاحقاً (لا هوية للصف تربط الاتجاهين).
     const summaryIdx = prev.findIndex(s => s.rows[0]?.[0] === 'ملخص بيانات المستخدم');
-    if (summaryIdx >= 0 && sheetIdx === 0 && sheetIdx !== summaryIdx) {
+    const wholeIdx   = prev.findIndex(s => s.role === 'whole');
+    if (summaryIdx >= 0 && wholeIdx >= 0 && prev[sheetIdx]?.role === 'part') {
+      const wholeHeader = prev[wholeIdx].rows[0] ?? [];
+      const rebuilt: string[][] = [wholeHeader];
+      for (const part of updated.filter(s => s.role === 'part')) {
+        const partHeader = part.rows[0] ?? [];
+        const colOf = wholeHeader.map(h => partHeader.indexOf(h));
+        for (const row of part.rows.slice(1)) rebuilt.push(colOf.map(ci => ci >= 0 ? (row[ci] ?? '') : ''));
+      }
+      const recomputed = recalcUserSummary(prev[summaryIdx].rows, rebuilt);
+      return updated.map((s, i) => i === wholeIdx ? { ...s, rows: rebuilt }
+        : i === summaryIdx ? { ...s, rows: recomputed } : s);
+    }
+    // تعديل «الكل» مباشرة (أو الشيت الأول في معاينة قديمة بلا أدوار) → «الملخص» فقط.
+    const mainIdx = wholeIdx >= 0 ? wholeIdx : 0;
+    if (summaryIdx >= 0 && sheetIdx === mainIdx && sheetIdx !== summaryIdx) {
       const recomputed = recalcUserSummary(prev[summaryIdx].rows, newRows);
       return updated.map((s, i) => i === summaryIdx ? { ...s, rows: recomputed } : s);
     }
@@ -3267,12 +3283,32 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         : isGroupId(sciRepId) ? (marketersView ? `مسوقين ${groupOf(sciRepId).label}` : groupOf(sciRepId).label)
         : (sciReps.find(r => String(r.id) === sciRepId)?.name ?? 'تقرير');
 
-      // Always include BOTH sales and returns in the data sheet (this is the rep's full
-      // export — the button is «فتح كامل بيانات المندوب»). The «الملخص» sheet recomputes
-      // its totals live from this data sheet on edit, so it must hold every row the
-      // summary summarises, regardless of the current on-screen view toggle.
-      const sheetData = buildMergedSheet(sales, 'both');
-      const stringRows = sheetData.map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
+      // الشيتات: مبيعات المكتب ← ارجاعات المكتب ← مبيعات ميركاتو ← الكل ← الملخص.
+      // «الكل» يُبنى مرة واحدة من الصفوف مرتّبة بنفس التسلسل، والأجزاء الثلاثة شرائح
+      // متتالية منه بنفس ترويساته (تُحذف فقط الأعمدة الفارغة كلياً داخل الجزء) — فتبقى
+      // مطابقة الأعمدة بالاسم صالحة حين يعيد المحرّر بناء «الكل» من الأجزاء. «الكل» يحوي
+      // كل صفوف المبيع والإرجاع مهما كان وضع العرض، لأن «الملخص» يُعاد حسابه منه.
+      const toStrRows = (rows: any[][]) => rows.map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
+      const { office: officeSales, mercato: mercatoSales } = splitMercatoSales(sales);
+      const officeSaleRows   = officeSales.filter(s => !isReturnSale(s));
+      const officeReturnRows = officeSales.filter(s => isReturnSale(s));
+      const wholeRows = toStrRows(buildMergedSheet([...officeSaleRows, ...officeReturnRows, ...mercatoSales], 'both'));
+      const sliceWhole = (from: number, count: number): string[][] => {
+        const [hdr = [], ...body] = wholeRows;
+        const part = body.slice(from, from + count);
+        if (!part.length) return [['لا توجد بيانات']];
+        const keep = hdr.map((_, c) => part.some(r => (r[c] ?? '') !== ''));
+        return [hdr.filter((_, c) => keep[c]), ...part.map(r => r.filter((_, c) => keep[c]))];
+      };
+      const partSheets: PreviewSheet[] = [
+        ...(officeSales.length ? [
+          { name: 'مبيعات المكتب',  rows: sliceWhole(0, officeSaleRows.length), role: 'part' as const },
+          { name: 'ارجاعات المكتب', rows: sliceWhole(officeSaleRows.length, officeReturnRows.length), role: 'part' as const },
+        ] : []),
+        ...(mercatoSales.length ? [
+          { name: 'مبيعات ميركاتو', rows: sliceWhole(officeSales.length, mercatoSales.length), role: 'part' as const },
+        ] : []),
+      ];
 
       // ── Build the «الملخص» sheet (always full net, regardless of the data view) ──
       const targets = mode === 'commercial'
@@ -3281,18 +3317,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const summaryRows = buildSummarySheet(repName, sales, { areaCount, targets })
         .map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
 
-      // ملف ميركاتو مدمج مع ملف مكتب في نفس التحليل → شيت إضافي بمبيعات ميركاتو
-      // وحدها، حتى يُميَّز مصدرها بلا حاجة لفتح الملف الأصلي.
-      const { mercato: mercatoSales, isMixed } = splitMercatoSales(sales);
-      const mercatoSheet = isMixed
-        ? [{ name: sanitizeSheetName(`مبيعات ميركاتو-${repName}`), rows: buildMergedSheet(mercatoSales, 'both').map(row => row.map(v => v === null || v === undefined ? '' : String(v))) }]
-        : [];
-
       // Show data in the preview/editor modal — no auto-download; user saves via "تصدير Excel" when ready
       setPreviewFileName(`${repName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
       setPreviewSheets([
-        { name: sanitizeSheetName(repName), rows: stringRows },
-        ...mercatoSheet,
+        ...partSheets,
+        { name: 'الكل', rows: wholeRows, role: 'whole' },
         { name: 'الملخص', rows: summaryRows, noTotals: true },
       ]);
       setShowPreviewModal(true);
