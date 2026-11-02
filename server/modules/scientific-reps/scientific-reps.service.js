@@ -2210,7 +2210,8 @@ const EXPORT_SALES_SELECT = {
   representative: { select: { id: true, name: true } },
   // sourceSystem: يستعمله الفرونت لفصل صفوف ميركاتو في شيت تصدير منفصل حين
   // يُدمَج ملف ميركاتو مع ملف مكتب في نفس التصدير — راجع bySource في getReport.
-  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true, sourceSystem: true } },
+  // mergeGroup: يميّز ملف اللكوديشن (لاحقة «|condition») لشيت «مبيعات اللكوديشن» منفصل.
+  uploadedFile: { select: { detectedCurrency: true, exchangeRate: true, sourceSystem: true, mergeGroup: true } },
 };
 
 /**

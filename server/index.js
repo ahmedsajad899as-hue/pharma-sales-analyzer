@@ -1626,7 +1626,7 @@ app.get('/api/export/raw-sales', async (req, res) => {
         item:           { select: { id: true, name: true, company: { select: { name: true } }, scientificCompany: { select: { name: true } } } },
         // Needed so the export can convert each row using its OWN source file's
         // currency — active files can mix USD and IQD, so a single global rate is wrong.
-        uploadedFile:   { select: { detectedCurrency: true, exchangeRate: true } },
+        uploadedFile:   { select: { detectedCurrency: true, exchangeRate: true, sourceSystem: true, mergeGroup: true } },
       },
       orderBy: { saleDate: 'asc' },
     });

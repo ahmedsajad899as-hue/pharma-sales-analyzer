@@ -51,10 +51,30 @@ const isExcludedColumn = (h: string): boolean => /حالة.*مذخر|حالة.*�
 
 // يفصل صفوف ملف ميركاتو عن صفوف ملف المكتب داخل نفس مجموعة صفوف التصدير — يُستعمل
 // لإضافة شيت «مبيعات ميركاتو» منفصل حين يُدمَج ملف ميركاتو مع ملف مكتب في نفس التحليل.
-const splitMercatoSales = (sales: any[]): { office: any[]; mercato: any[]; isMixed: boolean } => {
-  const mercato = sales.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
-  const office  = sales.filter(s => s.uploadedFile?.sourceSystem !== 'mercato');
-  return { office, mercato, isMixed: mercato.length > 0 && office.length > 0 };
+// صفوف اللكوديشن (ملف mergeGroup بلاحقة «|condition»، أو صف فاتورة مصوّرة/طلبية بوت
+// أينما حُفظ) تُفصل عن ميركاتو في شيت «مبيعات اللكوديشن» خاص — ملف اللكوديشن
+// sourceSystem='mercato' فكانت صفوفه تختلط بشيت «مبيعات ميركاتو».
+const MANUAL_SOURCE_RE = /"source"\s*:\s*"(manual-invoice|[a-z-]+-order)"/;
+const isConditionSale = (s: any): boolean =>
+  String(s.uploadedFile?.mergeGroup ?? '').endsWith('|condition')
+  || (typeof s.rawData === 'string' && MANUAL_SOURCE_RE.test(s.rawData));
+const splitMercatoSales = (sales: any[]): { office: any[]; mercato: any[]; condition: any[] } => {
+  const condition = sales.filter(isConditionSale);
+  const rest      = sales.filter(s => !isConditionSale(s));
+  const mercato = rest.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
+  const office  = rest.filter(s => s.uploadedFile?.sourceSystem !== 'mercato');
+  return { office, mercato, condition };
+};
+// شيتات المصدر الإضافية في تصدير متعدد المندوبين: ميركاتو/اللكوديشن كلٌّ وحده، فقط حين
+// يختلط مع مصدر آخر (مصدر وحيد = الشيت الرئيسي نفسه، فلا داعي لتكراره).
+const extraSourceSheets = (sales: any[]): { label: string; sales: any[] }[] => {
+  const { office, mercato, condition } = splitMercatoSales(sales);
+  const nonEmpty = [office, mercato, condition].filter(a => a.length).length;
+  if (nonEmpty < 2) return [];
+  return [
+    ...(mercato.length   ? [{ label: 'مبيعات ميركاتو',   sales: mercato }]   : []),
+    ...(condition.length ? [{ label: 'مبيعات اللكوديشن', sales: condition }] : []),
+  ];
 };
 
 // عدد الطلبيات الفعلي ضمن مجموعة صفوف — سطر منفصل لكل صنف ضمن نفس الطلبية (نفس رقم
@@ -411,7 +431,7 @@ function ExcelPreviewModal({ sheets: initSheets, onClose, fileName }: {
       return updated;
     }
 
-    // ── Case B: single-rep preview = [مبيعات المكتب, ارجاعات المكتب, مبيعات ميركاتو, الكل, الملخص] ──
+    // ── Case B: single-rep preview = [مبيعات المكتب, ارجاعات المكتب, مبيعات ميركاتو, مبيعات اللكوديشن, الكل, الملخص] ──
     // «الكل» (role 'whole') هو مصدر «الملخص». تعديل أحد الأجزاء (role 'part') يعيد بناء
     // «الكل» منها بالترتيب نفسه (مبيع ← ارجاع ← ميركاتو) مطابقاً الأعمدة بالاسم — فحذف
     // عمود/إعادة ترتيبه في «الكل» تبقى، أما تعديل خلية داخل «الكل» نفسه فيُستبدل عند
@@ -3075,10 +3095,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       }
       const rows = buildSheet(sales2, sciName);
       result.push({ name: sanitizeSheetName(`${t.reports.exportSciPrefix}-${sciName}`), rows: rows.map(r => r.map(v => String(v ?? ''))) });
-      // ملف ميركاتو مدمج مع ملف مكتب لهذا المندوب العلمي → شيت إضافي بمبيعات ميركاتو وحدها.
-      const { mercato: mercatoSales2, isMixed: isMixed2 } = splitMercatoSales(sales2);
-      if (isMixed2) {
-        result.push({ name: sanitizeSheetName(`مبيعات ميركاتو-${sciName}`), rows: buildSheet(mercatoSales2, sciName).map(r => r.map(v => String(v ?? ''))) });
+      // مصادر مختلطة لهذا المندوب العلمي → شيت إضافي لميركاتو وآخر لللكوديشن.
+      for (const x of extraSourceSheets(sales2)) {
+        result.push({ name: sanitizeSheetName(`${x.label}-${sciName}`), rows: buildSheet(x.sales, sciName).map(r => r.map(v => String(v ?? ''))) });
       }
       const targets = await fetchRepTargets('scientific', repId);
       perRepSummaries.push({ name: sanitizeSheetName(`ملخص-${sciName}`), rows: toStr(buildSummarySheet(sciName, sales2, { areaCount, targets })), noTotals: true });
@@ -3325,16 +3344,16 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         : isGroupId(sciRepId) ? (marketersView ? `مسوقين ${groupOf(sciRepId).label}` : groupOf(sciRepId).label)
         : (sciReps.find(r => String(r.id) === sciRepId)?.name ?? 'تقرير');
 
-      // الشيتات: مبيعات المكتب ← ارجاعات المكتب ← مبيعات ميركاتو ← الكل ← الملخص.
+      // الشيتات: مبيعات المكتب ← ارجاعات المكتب ← مبيعات ميركاتو ← مبيعات اللكوديشن ← الكل ← الملخص.
       // «الكل» يُبنى مرة واحدة من الصفوف مرتّبة بنفس التسلسل، والأجزاء الثلاثة شرائح
       // متتالية منه بنفس ترويساته (تُحذف فقط الأعمدة الفارغة كلياً داخل الجزء) — فتبقى
       // مطابقة الأعمدة بالاسم صالحة حين يعيد المحرّر بناء «الكل» من الأجزاء. «الكل» يحوي
       // كل صفوف المبيع والإرجاع مهما كان وضع العرض، لأن «الملخص» يُعاد حسابه منه.
       const toStrRows = (rows: any[][]) => rows.map(row => row.map(v => v === null || v === undefined ? '' : String(v)));
-      const { office: officeSales, mercato: mercatoSales } = splitMercatoSales(sales);
+      const { office: officeSales, mercato: mercatoSales, condition: conditionSales } = splitMercatoSales(sales);
       const officeSaleRows   = officeSales.filter(s => !isReturnSale(s));
       const officeReturnRows = officeSales.filter(s => isReturnSale(s));
-      const wholeRows = toStrRows(buildMergedSheet([...officeSaleRows, ...officeReturnRows, ...mercatoSales], 'both'));
+      const wholeRows = toStrRows(buildMergedSheet([...officeSaleRows, ...officeReturnRows, ...mercatoSales, ...conditionSales], 'both'));
       const sliceWhole = (from: number, count: number): string[][] => {
         const [hdr = [], ...body] = wholeRows;
         const part = body.slice(from, from + count);
@@ -3349,6 +3368,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         ] : []),
         ...(mercatoSales.length ? [
           { name: 'مبيعات ميركاتو', rows: sliceWhole(officeSales.length, mercatoSales.length), role: 'part' as const },
+        ] : []),
+        ...(conditionSales.length ? [
+          { name: 'مبيعات اللكوديشن', rows: sliceWhole(officeSales.length + mercatoSales.length, conditionSales.length), role: 'part' as const },
         ] : []),
       ];
 
@@ -3407,14 +3429,13 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     const ws = XLSX.utils.aoa_to_sheet(rows);
     styleSheet(ws, rows);
     XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(rep.name));
-    // ملف ميركاتو مدمج مع ملف مكتب لهذا المندوب العلمي → شيت إضافي بمبيعات ميركاتو وحدها.
+    // مصادر مختلطة لهذا المندوب العلمي → شيت إضافي لميركاتو وآخر لللكوديشن.
     if (kind === 'sci') {
-      const { mercato: mercatoSales, isMixed } = splitMercatoSales(sales);
-      if (isMixed) {
-        const mercatoRows = buildSheet(mercatoSales, sciName);
-        const wsM = XLSX.utils.aoa_to_sheet(mercatoRows);
-        styleSheet(wsM, mercatoRows);
-        XLSX.utils.book_append_sheet(wb, wsM, sanitizeSheetName(`مبيعات ميركاتو-${sciName ?? rep.name}`));
+      for (const x of extraSourceSheets(sales)) {
+        const xRows = buildSheet(x.sales, sciName);
+        const wsX = XLSX.utils.aoa_to_sheet(xRows);
+        styleSheet(wsX, xRows);
+        XLSX.utils.book_append_sheet(wb, wsX, sanitizeSheetName(`${x.label}-${sciName ?? rep.name}`));
       }
     }
     // «الملخص» sheet — same format as the رفع الملفات export
@@ -3506,9 +3527,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           sales = sJson.data ?? [];
         }
         addSheet(`${t.reports.exportSciPrefix}-${sciName}`, buildSheet(sales, sciName));  // pass sciRepName
-        // ملف ميركاتو مدمج مع ملف مكتب لهذا المندوب العلمي → شيت إضافي بمبيعات ميركاتو وحدها.
-        const { mercato: mercatoSales, isMixed } = splitMercatoSales(sales);
-        if (isMixed) addSheet(`مبيعات ميركاتو-${sciName}`, buildSheet(mercatoSales, sciName));
+        // مصادر مختلطة لهذا المندوب العلمي → شيت إضافي لميركاتو وآخر لللكوديشن.
+        for (const x of extraSourceSheets(sales)) addSheet(`${x.label}-${sciName}`, buildSheet(x.sales, sciName));
         const targets = await fetchRepTargets('scientific', repId);
         addSheet(`ملخص-${sciName}`, buildSummarySheet(sciName, sales, { areaCount, targets }));
       }
