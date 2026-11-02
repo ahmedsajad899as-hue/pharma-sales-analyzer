@@ -70,22 +70,23 @@ const totalsOf = (s: Sheet, rows: Row[]): Sheet => ({
   total: rows.reduce((a, r) => a + r.total, 0),
   orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
 });
-// زر الشركة — نفس filterConditionByTeam في server/lib/conditionFile.js: «الشركة» = التيم
-// (ايتماتها المملوكة، row.team) — كل مندوب له صفوف منها يظهر بها فقط، ومنهم التيم ليدر
-// والمسوق؛ صف ايتمه بلا مالك يُحسب لشركة مندوبه. زر المسوقين = شيتات مسوقي القسم كاملة.
-const isMarketerTeam = (t: string) => t.startsWith('مسوقين');
+// زر الشركة — نفس filterConditionByTeam في server/lib/conditionFile.js: شيتات مندوبي
+// الشركة العلميين، و«كل مبيعات الشركة» = صفوف ايتمات تيمها بلا صفوف المسوقين؛ المسوقون
+// تحت زر «مسوقين …» وحده (لا يُدمجون مع العلميين ولو باعوا نفس الايتمات).
+const isMarketerTeam = (t?: string | null) => !!t && t.startsWith('مسوقين');
+const NO_TEAM = 'بلا شركة';
 function applyTeam(sheets: Sheet[], company: Sheet | null, team: string | null): { sheets: Sheet[]; company: Sheet | null } {
   if (!team) return { sheets, company };
+  const kept = sheets.filter(s => s.team === team);
+  if (!company) return { sheets: kept, company };
   if (isMarketerTeam(team)) {
-    const kept = sheets.filter(s => s.team === team);
-    if (!company) return { sheets: kept, company };
     const rows = [...new Map(kept.flatMap(s => s.rows).map(r => [r.id, r])).values()].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
     return { sheets: kept, company: totalsOf(company, rows) };
   }
   const repTeam = new Map(sheets.map(s => [s.rep, s.team]));
-  const inTeam = (r: Row, sheetTeam?: string | null) => (r.team != null ? r.team === team : sheetTeam === team);
-  const kept = sheets.map(s => totalsOf(s, s.rows.filter(r => inTeam(r, s.team)))).filter(s => s.rows.length > 0);
-  return { sheets: kept, company: company ? totalsOf(company, company.rows.filter(r => inTeam(r, repTeam.get(r.rep || '')))) : company };
+  const rows = company.rows.filter(r => !isMarketerTeam(repTeam.get(r.rep || ''))
+    && (r.team != null ? r.team === team : repTeam.get(r.rep || '') === team));
+  return { sheets: kept, company: totalsOf(company, rows) };
 }
 const transitTitle = (r: Row) => {
   const m = r.transitMatch;
@@ -240,19 +241,35 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
       const k = r.province || UNKNOWN_PROVINCE;
       if (!m.has(k)) m.set(k, { province: k, rows: 0, quantity: 0, total: 0, reps: new Set() });
       const g = m.get(k)!;
-      g.reps.add(s.rep);
+      g.reps.add(teams.length > 1 && team === null ? (s.team || NO_TEAM) : s.rep);
       if (seen.has(r.id)) continue;
       seen.add(r.id);
       g.rows++; g.quantity += r.quantity; g.total += r.total;
     }
     return [...m.values()].sort((a, b) => b.total - a.total);
-  }, [sheets, scope]);
+  }, [sheets, scope, teams.length, team]);
   const shownMonth = month === 'latest' ? resolvedMonth : month;
 
   // تبويب مندوب لم يعد موجوداً بعد تغيير الشهر ← الملخص.
   useEffect(() => {
     if (tab !== SUMMARY && tab !== COMPANY && !sheets.some(s => s.rep === tab)) setTab(SUMMARY);
   }, [sheets, tab]);
+
+  // «الكل» مع أكثر من شركة: الملخص بالشركات فقط، وأسماء المندوبين تظهر عند الضغط على شركة.
+  const teamsFirst = teams.length > 1 && team === null;
+  const byTeam = useMemo(() => {
+    if (!teamsFirst) return [];
+    const m = new Map<string, { team: string; reps: number; orders: number; rows: number; quantity: number; total: number }>();
+    for (const s of sheets) {
+      const k = s.team || NO_TEAM;
+      if (!m.has(k)) m.set(k, { team: k, reps: 0, orders: 0, rows: 0, quantity: 0, total: 0 });
+      const g = m.get(k)!;
+      g.reps++; g.orders += s.orders; g.rows += s.rows.length; g.quantity += s.quantity; g.total += s.total;
+    }
+    const rank = (t: string) => (t === NO_TEAM ? 2 : isMarketerTeam(t) ? 1 : 0);
+    return [...m.values()].sort((a, b) => rank(a.team) - rank(b.team) || b.total - a.total);
+  }, [sheets, teamsFirst]);
+  useEffect(() => { if (teamsFirst && tab !== SUMMARY && tab !== COMPANY) setTab(SUMMARY); }, [teamsFirst, tab]);
 
   const totals = useMemo(() => sheets.reduce(
     (a, s) => ({ orders: a.orders + s.orders, rows: a.rows + s.rows.length, quantity: a.quantity + s.quantity, total: a.total + s.total }),
@@ -417,7 +434,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                   🏢 كل مبيعات الشركة <span style={{ color: '#94a3b8', fontWeight: 400 }}>({companySheet.rows.length})</span>
                 </button>
               )}
-              {sheets.map(s => (
+              {!teamsFirst && sheets.map(s => (
                 <button key={s.rep} onClick={() => setTab(s.rep)} style={tabBtn(tab === s.rep)}>
                   {s.rep} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({s.rows.length})</span>
                 </button>
@@ -431,7 +448,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                   <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e2e8f0', marginBottom: 12 }}>
                     <thead>
                       <tr>
-                        <th style={th}>المحافظة</th><th style={th}>المندوبون</th><th style={th}>الصفوف</th>
+                        <th style={th}>المحافظة</th><th style={th}>{teamsFirst ? 'الشركات' : 'المندوبون'}</th><th style={th}>الصفوف</th>
                         <th style={th}>الكمية</th><th style={th}>القيمة ({currency})</th>
                       </tr>
                     </thead>
@@ -451,12 +468,22 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                 <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e2e8f0' }}>
                   <thead>
                     <tr>
-                      <th style={th}>المندوب</th><th style={th}>الشركة</th><th style={th}>عدد الطلبيات</th><th style={th}>الصفوف</th>
+                      <th style={th}>{teamsFirst ? 'الشركة' : 'المندوب'}</th><th style={th}>{teamsFirst ? '' : 'الشركة'}</th><th style={th}>عدد الطلبيات</th><th style={th}>الصفوف</th>
                       <th style={th}>الكمية</th><th style={th}>القيمة ({currency})</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sheets.map(s => (
+                    {teamsFirst ? byTeam.map(g => (
+                      <tr key={g.team} onClick={() => g.team !== NO_TEAM && setTeam(g.team)} style={{ cursor: g.team !== NO_TEAM ? 'pointer' : 'default' }}
+                        title={g.team !== NO_TEAM ? `اضغط لعرض مندوبي «${g.team}»` : 'مندوبون لم يُعرف لهم حساب/شركة في المكتب'}>
+                        <td style={{ ...td, fontWeight: 700, textAlign: 'right' }}>{g.team} <span style={{ color: '#94a3b8', fontWeight: 400 }}>({g.reps} مندوب)</span></td>
+                        <td style={{ ...td, color: '#94a3b8' }}>{g.team !== NO_TEAM ? 'عرض المندوبين ◂' : ''}</td>
+                        <td style={td}>{fmt(g.orders)}</td>
+                        <td style={td}>{fmt(g.rows)}</td>
+                        <td style={td}>{fmt(g.quantity)}</td>
+                        <td style={{ ...td, fontWeight: 700 }}>{fmt(g.total)}</td>
+                      </tr>
+                    )) : sheets.map(s => (
                       <tr key={s.rep} onClick={() => setTab(s.rep)} style={{ cursor: 'pointer' }}>
                         <td style={{ ...td, fontWeight: 700, textAlign: 'right' }}>{s.rep}</td>
                         <td style={{ ...td, color: s.team ? '#334155' : '#cbd5e1' }}>{s.team || '—'}</td>

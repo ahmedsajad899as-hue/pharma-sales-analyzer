@@ -30,7 +30,9 @@ export async function getManagerRoster(user, { includeTeamLead = false } = {}) {
       where: {
         isActive: true,
         companyAssignments: { some: { companyId: { in: companyIds } } },
-        role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] },
+        // includeTeamLead: قائد الفريق (ومنه ليدر المسوقين) ضمن المندوبين كما في فرع المدير
+        // أدناه — بدونه اختفى «عمر ايمن / ليدر الكرخ» من ملف اللكوديشن عند حسابات المكتب.
+        role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'].filter(r => !(includeTeamLead && r === 'team_leader')) },
       },
       select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
     }) : [];
