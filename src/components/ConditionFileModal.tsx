@@ -70,23 +70,25 @@ const totalsOf = (s: Sheet, rows: Row[]): Sheet => ({
   total: rows.reduce((a, r) => a + r.total, 0),
   orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
 });
-// زر الشركة — نفس filterConditionByTeam في server/lib/conditionFile.js: شيتات مندوبي
-// الشركة العلميين، و«كل مبيعات الشركة» = صفوف ايتمات تيمها بلا صفوف المسوقين؛ المسوقون
-// تحت زر «مسوقين …» وحده (لا يُدمجون مع العلميين ولو باعوا نفس الايتمات).
+// زر الشركة — نفس filterConditionByTeam في server/lib/conditionFile.js: «الشركة» = التيم
+// (ايتماتها المملوكة، row.team) — كل مندوب علمي له صفوف منها يظهر بتلك الصفوف فقط (تيم
+// ليدر المحافظات يبيع لعدة شركات)؛ صف ايتمه بلا مالك يُحسب لشركة مندوبه. المسوقون لا
+// يُدمجون مع العلميين — تحت زر «مسوقين …» وحده بشيتاتهم كاملة.
 const isMarketerTeam = (t?: string | null) => !!t && t.startsWith('مسوقين');
 const NO_TEAM = 'بلا شركة';
+/** شركة الصف داخل شيت مندوب: المسوق ← قسمه دائماً؛ العلمي ← مالك الايتم وإلا شركة المندوب. */
+const rowTeam = (r: Row, sheetTeam?: string | null) => (isMarketerTeam(sheetTeam) ? sheetTeam! : (r.team ?? sheetTeam ?? null));
 function applyTeam(sheets: Sheet[], company: Sheet | null, team: string | null): { sheets: Sheet[]; company: Sheet | null } {
   if (!team) return { sheets, company };
-  const kept = sheets.filter(s => s.team === team);
-  if (!company) return { sheets: kept, company };
   if (isMarketerTeam(team)) {
+    const kept = sheets.filter(s => s.team === team);
+    if (!company) return { sheets: kept, company };
     const rows = [...new Map(kept.flatMap(s => s.rows).map(r => [r.id, r])).values()].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
     return { sheets: kept, company: totalsOf(company, rows) };
   }
   const repTeam = new Map(sheets.map(s => [s.rep, s.team]));
-  const rows = company.rows.filter(r => !isMarketerTeam(repTeam.get(r.rep || ''))
-    && (r.team != null ? r.team === team : repTeam.get(r.rep || '') === team));
-  return { sheets: kept, company: totalsOf(company, rows) };
+  const kept = sheets.map(s => totalsOf(s, s.rows.filter(r => rowTeam(r, s.team) === team))).filter(s => s.rows.length > 0);
+  return { sheets: kept, company: company ? totalsOf(company, company.rows.filter(r => rowTeam(r, repTeam.get(r.rep || '')) === team)) : company };
 }
 const transitTitle = (r: Row) => {
   const m = r.transitMatch;
@@ -259,15 +261,19 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const teamsFirst = teams.length > 1 && team === null;
   const byTeam = useMemo(() => {
     if (!teamsFirst) return [];
-    const m = new Map<string, { team: string; reps: number; orders: number; rows: number; quantity: number; total: number }>();
-    for (const s of sheets) {
-      const k = s.team || NO_TEAM;
-      if (!m.has(k)) m.set(k, { team: k, reps: 0, orders: 0, rows: 0, quantity: 0, total: 0 });
+    // بالصفوف لا بالشيت: مبيع تيم ليدر المحافظات يتوزّع على شركات ايتماته.
+    const m = new Map<string, { team: string; reps: Set<string>; orders: Set<string>; rows: number; quantity: number; total: number }>();
+    for (const s of sheets) for (const r of s.rows) {
+      const k = rowTeam(r, s.team) || NO_TEAM;
+      if (!m.has(k)) m.set(k, { team: k, reps: new Set(), orders: new Set(), rows: 0, quantity: 0, total: 0 });
       const g = m.get(k)!;
-      g.reps++; g.orders += s.orders; g.rows += s.rows.length; g.quantity += s.quantity; g.total += s.total;
+      g.reps.add(s.rep); g.orders.add(r.invoice || `${r.date}|${r.pharmacy}`);
+      g.rows++; g.quantity += r.quantity; g.total += r.total;
     }
     const rank = (t: string) => (t === NO_TEAM ? 2 : isMarketerTeam(t) ? 1 : 0);
-    return [...m.values()].sort((a, b) => rank(a.team) - rank(b.team) || b.total - a.total);
+    return [...m.values()]
+      .map(g => ({ team: g.team, reps: g.reps.size, orders: g.orders.size, rows: g.rows, quantity: g.quantity, total: g.total }))
+      .sort((a, b) => rank(a.team) - rank(b.team) || b.total - a.total);
   }, [sheets, teamsFirst]);
   useEffect(() => { if (teamsFirst && tab !== SUMMARY && tab !== COMPANY) setTab(SUMMARY); }, [teamsFirst, tab]);
 

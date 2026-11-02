@@ -389,11 +389,12 @@ export async function attachConditionTeams(sheets, officeId) {
 const isMarketerTeam = (team) => String(team || '').startsWith('مسوقين');
 
 /**
- * زرّ شركة في أعلى ملف اللكوديشن: شيتات مندوبي تلك الشركة (العلميين) فقط، و«كل مبيعات
- * الشركة» = صفوف ايتمات تيمها (row.team) **بلا صفوف المسوقين** — المسوقون (ومنهم ليدر
- * الكرخ/الرصافة) يظهرون تحت زر «مسوقين …» وحده ولا يُدمجون مع العلميين ولو باعوا نفس
- * الايتمات (طلب صاحب المشروع). زر المسوقين = شيتات مسوقي القسم كاملة.
- * نفس المنطق في ConditionFileModal.tsx (applyTeam).
+ * زرّ شركة في أعلى ملف اللكوديشن. «الشركة» = التيم (ايتماتها المملوكة، row.team):
+ * كل مندوب علمي له صفوف من ايتماتها يظهر **بتلك الصفوف فقط** — تيم ليدر المحافظات
+ * («امير جميل») يبيع لعدة شركات، فشيته الكامل تحت humanis كان يعرض مبيع deva/osel.
+ * صف ايتمه بلا مالك يُحسب لشركة مندوبه. المسوقون (ومنهم ليدر الكرخ/الرصافة) لا
+ * يُدمجون مع العلميين أبداً — يظهرون تحت زر «مسوقين …» وحده بشيتاتهم كاملة.
+ * نفس المنطق في ConditionFileModal.tsx (applyTeam / rowTeam).
  */
 export function filterConditionByTeam(sheets, companySheet, team) {
   if (!team) return { sheets, companySheet };
@@ -403,18 +404,22 @@ export function filterConditionByTeam(sheets, companySheet, team) {
     total: rows.reduce((a, r) => a + r.total, 0),
     orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
   });
-  const kept = sheets.filter(s => s.team === team);
-  if (!companySheet) return { sheets: kept, companySheet };
-  let rows;
   if (isMarketerTeam(team)) {
-    rows = [...new Map(kept.flatMap(s => s.rows).map(r => [r.id, r])).values()]
+    const kept = sheets.filter(s => s.team === team);
+    if (!companySheet) return { sheets: kept, companySheet };
+    const rows = [...new Map(kept.flatMap(s => s.rows).map(r => [r.id, r])).values()]
       .sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
-  } else {
-    const repTeam = new Map(sheets.map(s => [s.rep, s.team]));
-    rows = companySheet.rows.filter(r => !isMarketerTeam(repTeam.get(r.rep))
-      && (r.team != null ? r.team === team : repTeam.get(r.rep) === team));
+    return { sheets: kept, companySheet: withTotals(companySheet, rows) };
   }
-  return { sheets: kept, companySheet: withTotals(companySheet, rows) };
+  const repTeam = new Map(sheets.map(s => [s.rep, s.team]));
+  const inTeam = (r, sheetTeam) => !isMarketerTeam(sheetTeam) && (r.team != null ? r.team === team : sheetTeam === team);
+  const kept = sheets
+    .map(s => withTotals(s, s.rows.filter(r => inTeam(r, s.team))))
+    .filter(s => s.rows.length > 0);
+  return {
+    sheets: kept,
+    companySheet: companySheet ? withTotals(companySheet, companySheet.rows.filter(r => inTeam(r, repTeam.get(r.rep)))) : companySheet,
+  };
 }
 
 export const COMPANY_SHEET = 'كل مبيعات الشركة';
