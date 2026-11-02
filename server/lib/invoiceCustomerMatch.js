@@ -171,6 +171,15 @@ function matchAreaWords(full, m) {
   return null;
 }
 
+/** منطقتان واحدة؟ تطابق المفتاح، أو يؤولان لنفس المنطقة القانونية (alias/ضبابي/جزء). */
+function sameArea(a, b, m) {
+  const ka = normalizeAreaName(a), kb = normalizeAreaName(b);
+  if (!ka || !kb) return false;
+  if (ka === kb) return true;
+  const ca = matchArea(a, m)?.name, cb = matchArea(b, m)?.name;
+  return !!ca && !!cb && normalizeAreaName(ca) === normalizeAreaName(cb);
+}
+
 function scorePharmacy(cand, key, areaKey) {
   let best = 0;
   for (const ck of cand.keys) {
@@ -208,7 +217,12 @@ export function matchPharmacy(rawName, areaName, m) {
   // صفّان مكرّران لنفس الصيدلية (نفس الاسم ونفس المنطقة) لا يُعدّان لبساً؛ أما
   // نفس الاسم في منطقتين فصيدليتان مختلفتان — لا حسم بلا منطقة.
   const sameEntity = (a, b) => pharmKey(a.name) === pharmKey(b.name) && a.areaKey === b.areaKey;
-  const decisive = top && top.s >= PHARMACY_AUTO
+  // منطقة الفاتورة تخالف منطقة صيدلية السيرفي ⇒ لا حسم ولو تطابق الاسم حرفياً (1 −
+  // 0.12 = 0.88 يتجاوز عتبة الحسم). مقيس (2026-11-02): «دار اليامن/المهدية الثانية»
+  // (الدورة) رُبطت بـ«دار اليامن» سيرفي مدينة الصدر فصارت المنطقة «مدينة الصدر»
+  // وتخمين المندوب منها. تبقى مرشّحاً يختاره المراجِع.
+  const areaConflict = (c) => areaKey && c.areaKey && !sameArea(c.areaName, areaName, m);
+  const decisive = top && top.s >= PHARMACY_AUTO && !areaConflict(top.c)
     && (!second || top.s - second.s >= PHARMACY_MARGIN || sameEntity(top.c, second.c));
   const seen = new Set();
   const candidates = [];

@@ -15,6 +15,8 @@ const areas = [
   { id: 7, name: 'المنصور', needsReview: true }, // نسخة حساب آخر
   { id: 8, name: 'ابو غريب', needsReview: false },
   { id: 9, name: 'خان ضاري', needsReview: false },
+  { id: 20, name: 'الدورة', needsReview: false },
+  { id: 21, name: 'مدينة الصدر', needsReview: false },
 ];
 const aliases = [{ fromKey: 'دوره جمعه', areaId: 4 }];
 const pharmacies = [
@@ -24,6 +26,7 @@ const pharmacies = [
   { id: 13, name: 'اسامة سليمان العبيدي', pharmacyName: null, ownerName: null, areaName: 'حي الجامعة' },
   { id: 14, name: 'النور', pharmacyName: null, ownerName: null, areaName: 'المنصور' },
   { id: 15, name: 'النور', pharmacyName: null, ownerName: null, areaName: 'الكرادة' },
+  { id: 16, name: 'دار اليامن', pharmacyName: null, ownerName: null, areaName: 'مدينه الصدر' },
 ];
 const m = buildMasterIndex(areas, aliases, pharmacies);
 
@@ -56,6 +59,14 @@ eq('تاء مربوطة/همزة', r('أسامة سليمان العبيدي', '
 eq('النور مكرّرة: المنطقة تحسم', r('النور', 'منصور'), ['النور', 'المنصور']);
 const amb = resolveOne('النور', '', m);
 eq('النور بلا منطقة: لا حسم + مرشّحون', [amb.matched, amb.candidates.length >= 2], [false, true]);
+{
+  const x = resolveOne('دار اليامن', 'المهدية الثانية', m);
+  eq('منطقة مقروءة مجهولة لا تُستبدل بمنطقة سيرفي أخرى', [x.area, x.matched], [null, false]);
+  eq('…وصيدلية السيرفي تبقى مرشّحاً', x.candidates[0]?.area, 'مدينه الصدر');
+  const y = resolveOne('دار اليامن', 'الدورة', m);
+  eq('منطقة معروفة تخالف السيرفي: لا ربط', [y.area, y.matched], ['الدورة', false]);
+  eq('نفس الصيدلية بمنطقتها: تُربط', r('دار اليامن', 'مدينة الصدر'), ['دار اليامن', 'مدينة الصدر']);
+}
 eq('صيدلية جديدة لا تُستبدل', r('بيت الشفاء', 'الطارمية'), ['بيت الشفاء', 'الطارمية']);
 
 eq('المذخر كصيدلية: aspirin', isWarehouseAsPharmacy('aspirin', 'Aspirin Drug store'), true);
