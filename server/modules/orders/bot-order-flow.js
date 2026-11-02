@@ -36,6 +36,9 @@ const BOT_TO_CONDITION = 'bot_invoice_condition';
 const BOT_TO_REP_ORDERS = 'bot_invoice_rep_orders';
 // كلمة مع الصورة تحسم النوع: «مبيعات/كوديشن» ⇒ كوديشن بلا مطابقة؛ «#16» أو «تجهيز 16» ⇒ تلك الطلبية
 const FORCE_SALE_RE = /مبيعات|مبيع|كوديشن|كونديشن/;
+// قراءة صور البوت لا تجري داخل طلب HTTP فلا يقيّدها حدّ nginx (190s الافتراضي).
+// ألبوم 10 فواتير يأخذ ~20-30s للصورة؛ بالحدّ القديم كانت آخر صوره تُتخطّى بصمت.
+const BOT_READ_BUDGET_MS = 10 * 60 * 1000;
 const repOrderIdIn = (text) => {
   const t = String(text ?? '').replace(/[٠-٩]/g, c => String(c.charCodeAt(0) - 0x0660));
   const m = t.match(/#\s*(\d{1,7})(?!\d)/) || t.match(/تجهيز\s*#?\s*(\d{1,7})(?!\d)/);
@@ -120,7 +123,7 @@ export async function handleIncomingOrderMessage({
       // التكبير)، فيُعاد استخدامه كما هو والكابشن يمرّ كسياق مساعد.
       rows = await extractInvoiceRows(
         imageBuffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
-        { extraContext: String(text ?? '').trim() || undefined },
+        { extraContext: String(text ?? '').trim() || undefined, budgetMs: BOT_READ_BUDGET_MS },
       );
     } else {
       rows = await extractOrderRowsFromText(text, { todayISO: new Date().toISOString().slice(0, 10) });
@@ -295,7 +298,7 @@ async function handlePersonalSaleMessage({ transport, user, chatId, senderName =
       }
       rows = await extractInvoiceRows(
         buffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
-        { extraContext: body || undefined },
+        { extraContext: body || undefined, budgetMs: BOT_READ_BUDGET_MS },
       );
     } else if (body) {
       rows = await extractOrderRowsFromText(body, { todayISO: new Date().toISOString().slice(0, 10) });

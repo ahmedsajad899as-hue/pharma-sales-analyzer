@@ -92,6 +92,7 @@ import { removeBaselineForDeletedStockFile } from './modules/stock-ledger/stock-
 import stockFlowRoutes           from './modules/stock-flow/stock-flow.routes.js';
 import telegramRoutes            from './modules/telegram/telegram.routes.js';
 import telegramLinksRoutes       from './modules/telegram/telegram-links.routes.js';
+import { resumeInterruptedOrders } from './modules/telegram/telegram.service.js';
 import aiUsageRoutes             from './modules/telegram/ai-usage.routes.js';
 import ordersRoutes              from './modules/orders/orders.routes.js';
 import viberRoutes               from './modules/viber/viber.routes.js';
@@ -4999,6 +5000,10 @@ if (process.env.VERCEL) {
     startDispatchTimers();
     backfillWarehouseWaIds();
     backfillOrderSends().then(() => backfillWarehouseSeqs());
+    // طلبيات تلكرام قطعتها إعادة التشغيل (نشر) أثناء قراءتها ← تُعاد قراءتها
+    resumeInterruptedOrders()
+      .then(n => { if (n) console.log(`✓ استؤنفت ${n} طلبية تلكرام منقطعة`); })
+      .catch(e => console.error('[resumeInterruptedOrders]', e.message));
     seedProvinces(prisma)
       .then(async n => {
         console.log(`✓ المحافظات جاهزة (${n})`);

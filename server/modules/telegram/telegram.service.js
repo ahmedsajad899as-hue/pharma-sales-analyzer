@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { processUploadedFile } from '../sales/sales.service.js';
@@ -462,6 +463,32 @@ const MAX_ALBUM_PHOTOS  = 10;
 const MAX_ALBUM_GROUPS  = 50;
 const albumBuffer = new Map(); // media_group_id → { actor, caption, mediaRefs, updateIds, ... }
 
+// ─── سجلّ الطلبيات قيد القراءة — يصمد أمام إعادة تشغيل الخادم ───────────────
+// (2026-11-02) ألبوم 10 فواتير ضاع كاملاً: نشرٌ أعاد تشغيل PM2 بعد دقيقة من
+// وصوله وقراءته جارية في الذاكرة، وتلكرام لا يعيد التسليم لأن الويب-هوك أُقرّ
+// بـ200 فوراً. فتُكتب رسائل الطلبية على القرص قبل المعالجة وتُحذف بعدها، وعند
+// الإقلاع يُعاد تشغيل ما بقي (resumeInterruptedOrders). الإعادة آمنة: sourceHash
+// يطوي طلبية حُفظت قبل الانقطاع («🔄 أُعيدت قراءة»). بجذر المشروع لا server/uploads
+// (المكشوف بلا مصادقة) — نفس سبب uploads/bot-orders.
+const ORDER_INBOX_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'uploads', 'bot-inbox');
+const INBOX_MAX_AGE_MS   = 24 * 60 * 60 * 1000;
+const INBOX_MAX_ATTEMPTS = 3; // طلبية تُسقط الخادم نفسه لا تُعاد للأبد
+
+const inboxFile = (key) => path.join(ORDER_INBOX_DIR, `${String(key).replace(/[^\w-]/g, '_')}.json`);
+
+function journalWrite(key, entry) {
+  try {
+    fs.mkdirSync(ORDER_INBOX_DIR, { recursive: true });
+    fs.writeFileSync(inboxFile(key), JSON.stringify({ at: Date.now(), attempts: 0, ...entry }));
+  } catch (e) {
+    console.error('[telegram] تعذّر حفظ الطلبية في السجلّ:', e?.message);
+  }
+}
+
+function journalDone(key) {
+  fs.promises.unlink(inboxFile(key)).catch(() => {});
+}
+
 async function flushAlbum(groupId) {
   const g = albumBuffer.get(groupId);
   if (!g) return;
@@ -481,26 +508,35 @@ async function flushAlbum(groupId) {
   } finally {
     // الأرضية تتقدّم مرة واحدة لكل المجموعة، لأكبر update_id فيها.
     await markUpdateConsumed(g.actor.link, Math.max(...g.updateIds));
+    journalDone(`album_${groupId}`);
   }
 }
 
-function bufferAlbumPhoto(actor, message, fileId, updateId) {
-  const groupId = message.media_group_id;
+function addAlbumPhoto(groupId, actor, message, fileId, updateId) {
   let g = albumBuffer.get(groupId);
   if (!g) {
-    if (albumBuffer.size >= MAX_ALBUM_GROUPS) return; // حارس ذاكرة — تُهمَل مجموعة جديدة
+    if (albumBuffer.size >= MAX_ALBUM_GROUPS) return null; // حارس ذاكرة — تُهمَل مجموعة جديدة
     g = {
       actor, senderName: senderNameOf(message), senderId: message.from?.id ?? null, caption: '',
       messageId: message.message_id ?? null,
-      mediaRefs: [], updateIds: [], isReplyToBot: false, timer: null,
+      mediaRefs: [], updateIds: [], messages: [], isReplyToBot: false, timer: null, attempts: 0,
     };
     albumBuffer.set(groupId, g);
   }
   if (g.mediaRefs.length < MAX_ALBUM_PHOTOS) g.mediaRefs.push(fileId);
   g.updateIds.push(updateId);
+  g.messages.push({ message, updateId });
   const caption = String(message.caption || '').trim();
   if (caption && !g.caption) g.caption = caption; // الكابشن على عضو واحد فقط
   if (isReplyToBotMsg(message)) g.isReplyToBot = true;
+  return g;
+}
+
+function bufferAlbumPhoto(actor, message, fileId, updateId) {
+  const groupId = message.media_group_id;
+  const g = addAlbumPhoto(groupId, actor, message, fileId, updateId);
+  if (!g) return;
+  journalWrite(`album_${groupId}`, { messages: g.messages, attempts: g.attempts });
 
   if (g.timer) clearTimeout(g.timer);
   g.timer = setTimeout(() => { flushAlbum(groupId); }, ALBUM_DEBOUNCE_MS);
@@ -635,12 +671,69 @@ export async function handleUpdate(update) {
 
   // مسار الطلبيات: الأرضية تُكتب **بعد** المعالجة (أو عند تفريغ الألبوم).
   if (await isDuplicateUpdate(actor.link, update.update_id, { deferWrite: true })) return;
+  const journalKey = message.media_group_id ? null : `upd_${update.update_id}`;
+  if (journalKey) journalWrite(journalKey, { messages: [{ message, updateId: update.update_id }] });
   try {
     await handleOrderMessage(actor, message, kind, update.update_id);
   } finally {
     // الألبوم يتولّى تقديم أرضيته عند التفريغ — لا نتقدّم هنا كي لا نُسقط بقيته.
     if (!message.media_group_id) await markUpdateConsumed(actor.link, update.update_id);
+    if (journalKey) journalDone(journalKey);
   }
+}
+
+/**
+ * عند الإقلاع: يُعيد معالجة طلبيات قطعتها إعادة تشغيل الخادم (راجع ORDER_INBOX_DIR).
+ * تسلسلياً لا بالتوازي — ألبومان من 10 صور معاً يضغطان ذاكرة الخادم (951MB).
+ * لا يرمي. يُعيد عدد ما استؤنف.
+ */
+export async function resumeInterruptedOrders() {
+  let names;
+  try { names = (await fs.promises.readdir(ORDER_INBOX_DIR)).filter(n => n.endsWith('.json')); }
+  catch { return 0; }
+  let resumed = 0;
+  for (const name of names) {
+    const key = name.slice(0, -'.json'.length);
+    let entry = null;
+    try { entry = JSON.parse(await fs.promises.readFile(inboxFile(key), 'utf8')); } catch { /* تالف */ }
+    const messages = Array.isArray(entry?.messages) ? entry.messages.filter(m => m?.message?.chat) : [];
+    const attempts = (entry?.attempts || 0) + 1;
+    if (!messages.length || Date.now() - (entry.at || 0) > INBOX_MAX_AGE_MS || attempts > INBOX_MAX_ATTEMPTS) {
+      if (messages.length) console.error(`[telegram] أُسقطت طلبية منقطعة من السجلّ ${key} (محاولات: ${attempts - 1})`);
+      journalDone(key);
+      continue;
+    }
+    try {
+      const actor = await resolveActor(messages[0].message, { announce: false });
+      if (!actor) { journalDone(key); continue; }
+      // المحاولة تُحسب قبل التشغيل: انقطاعٌ جديد أثناءها يجب أن يُحتسَب.
+      journalWrite(key, { ...entry, attempts });
+      console.log(`[telegram] استئناف طلبية قطعتها إعادة التشغيل: ${key} (${messages.length} رسالة)`);
+      if (key.startsWith('album_')) {
+        const groupId = messages[0].message.media_group_id ?? key.slice('album_'.length);
+        let g = null;
+        for (const { message, updateId } of messages) {
+          const photos = message.photo || [];
+          if (photos.length) g = addAlbumPhoto(groupId, actor, message, photos[photos.length - 1].file_id, updateId);
+        }
+        if (!g) { journalDone(key); continue; }
+        g.attempts = attempts;
+        await flushAlbum(groupId);
+      } else {
+        const { message, updateId } = messages[0];
+        try {
+          await handleOrderMessage(actor, message, classifyMessage(message), updateId);
+        } finally {
+          await markUpdateConsumed(actor.link, updateId);
+          journalDone(key);
+        }
+      }
+      resumed++;
+    } catch (err) {
+      console.error(`[telegram] تعذّر استئناف الطلبية ${key}:`, err?.message);
+    }
+  }
+  return resumed;
 }
 
 // ─── سجلّ الأعضاء: البوت لا يملك API لسرد كل أعضاء الكروب، فنسجّل من كتب أو انضمّ ──

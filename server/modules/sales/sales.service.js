@@ -1775,11 +1775,14 @@ async function extractCustomerLineVoted(img, opts, n = 3, priorRead = null) {
  *        يُمرَّر يبقى نص البرومبت مطابقاً حرفياً لما كان — مسار /extract-invoice سليم.
  * @returns {Promise<object[]>}
  */
-export async function extractInvoiceRows(images, { extraContext } = {}) {
+export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}) {
   if (!Array.isArray(images) || images.length === 0) {
     throw new AppError('لم يتم إرسال أي صورة.', 400, 'NO_IMAGES');
   }
-  const OVERALL_BUDGET_MS = 190_000; // stay under Nginx's 300s proxy timeout
+  // 190s: stay under Nginx's 300s proxy timeout. Callers outside an HTTP request
+  // (the bots) pass a larger budget — otherwise the tail of a 10-photo album is
+  // silently skipped by the `break` below.
+  const OVERALL_BUDGET_MS = budgetMs ?? 190_000;
   const started = Date.now();
   const allRows = [];
   let processed = 0;
