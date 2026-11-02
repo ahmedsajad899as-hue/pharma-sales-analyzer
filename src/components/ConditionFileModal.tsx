@@ -14,6 +14,8 @@ type Row = {
   id: number; date: string; invoice: string; pharmacy: string; area: string; warehouse: string;
   item: string; company: string; quantity: number; bonus: number; unitPrice: number; total: number; source: string;
   rep?: string;
+  /** شركة (تيم) ايتم الصف — لزر الشركة على شيت «كل مبيعات الشركة» */
+  team?: string | null;
   /** محافظة الصف — لزرّي «بغداد / المحافظات» */
   province?: string;
   /** طلبية ترانزيت من ملف المكتب — للقراءة فقط هنا */
@@ -24,7 +26,8 @@ type Row = {
     pharmacy?: string; warehouse?: string; rep?: string; sameQty: boolean; mercatoQty: number; reasons: string[];
   };
 };
-type Sheet = { rep: string; rows: Row[]; quantity: number; total: number; orders: number; all?: boolean };
+/** team: شركة المندوب أو «مسوقين الكرخ/الرصافة» (attachConditionTeams في الخادم) */
+type Sheet = { rep: string; rows: Row[]; quantity: number; total: number; orders: number; all?: boolean; team?: string | null };
 type Month = { ym: string; label: string; count: number };
 
 interface Props {
@@ -55,6 +58,24 @@ function scopeSheet(s: Sheet, scope: Scope, mercatoOnly = false): Sheet {
     total: rows.reduce((a, r) => a + r.total, 0),
     orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
   };
+}
+const totalsOf = (s: Sheet, rows: Row[]): Sheet => ({
+  ...s, rows,
+  quantity: rows.reduce((a, r) => a + r.quantity, 0),
+  total: rows.reduce((a, r) => a + r.total, 0),
+  orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
+});
+// زر الشركة — نفس filterConditionByTeam في server/lib/conditionFile.js: شيتات مندوبي الشركة،
+// و«كل مبيعات الشركة» = صفوف ايتمات تيمها؛ للمسوقين (بلا ايتمات مملوكة) صفوف شيتات مسوقي القسم.
+const isMarketerTeam = (t: string) => t.startsWith('مسوقين');
+function applyTeam(sheets: Sheet[], company: Sheet | null, team: string | null): { sheets: Sheet[]; company: Sheet | null } {
+  if (!team) return { sheets, company };
+  const kept = sheets.filter(s => s.team === team);
+  if (!company) return { sheets: kept, company };
+  const rows = isMarketerTeam(team)
+    ? [...new Map(kept.flatMap(s => s.rows).map(r => [r.id, r])).values()].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id)
+    : company.rows.filter(r => r.team === team);
+  return { sheets: kept, company: totalsOf(company, rows) };
 }
 const mercatoTitle = (r: Row) => {
   const m = r.mercatoMatch;
@@ -113,6 +134,8 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const [month, setMonth] = useState('latest');
   const [resolvedMonth, setResolvedMonth] = useState('all');
   const [scope, setScope] = useState<Scope>(null);
+  // زر الشركة/المسوقين في الأعلى — null = الكل.
+  const [team, setTeam] = useState<string | null>(null);
   // «🏬 المحسوب في ميركاتو فقط» — لمراجعة الصفوف المكررة وحذفها.
   const [mercatoOnly, setMercatoOnly] = useState(false);
   const [tab, setTab] = useState(SUMMARY);
@@ -165,8 +188,13 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   }, [canEdit, token]);
 
   // زرّا «بغداد / المحافظات»: تصفية الصفوف ومجاميعها، والشيت الذي فرغ يختفي.
-  const sheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope, mercatoOnly)).filter(s => s.rows.length > 0), [allSheets, scope, mercatoOnly]);
-  const companySheet = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, scope, mercatoOnly) : null), [allCompanySheet, scope, mercatoOnly]);
+  const scopedSheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope, mercatoOnly)).filter(s => s.rows.length > 0), [allSheets, scope, mercatoOnly]);
+  const scopedCompany = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, scope, mercatoOnly) : null), [allCompanySheet, scope, mercatoOnly]);
+  // الشركات الموجودة في الملف (لأزرار الأعلى): الشركات أبجدياً ثم المسوقون.
+  const teams = useMemo(() => [...new Set(allSheets.map(s => s.team).filter((t): t is string => !!t))]
+    .sort((a, b) => Number(isMarketerTeam(a)) - Number(isMarketerTeam(b)) || a.localeCompare(b, 'ar')), [allSheets]);
+  useEffect(() => { if (team && !teams.includes(team)) setTeam(null); }, [team, teams]);
+  const { sheets, company: companySheet } = useMemo(() => applyTeam(scopedSheets, scopedCompany, team), [scopedSheets, scopedCompany, team]);
   // صفوف الكوديشن المحسوبة أيضاً في ميركاتو (المندوب صوّر فاتورة طلبية جهّزها ميركاتو).
   const mercatoDup = useMemo(() => {
     const seen = new Map<number, Row>();
@@ -206,13 +234,13 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const exportExcel = async () => {
     setExporting(true); setError('');
     try {
-      const res = await fetch(`/api/files/${fileId}/condition-export?month=${encodeURIComponent(shownMonth)}${scope ? `&scope=${scope}` : ''}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`/api/files/${fileId}/condition-export?month=${encodeURIComponent(shownMonth)}${scope ? `&scope=${scope}` : ''}${team ? `&team=${encodeURIComponent(team)}` : ''}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || 'تعذّر التصدير'); }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `اللكوديشن${shownMonth !== 'all' ? `_${shownMonth}` : ''}${scope === 'baghdad' ? '_بغداد' : scope === 'provinces' ? '_المحافظات' : ''}.xlsx`;
+      a.download = `اللكوديشن${shownMonth !== 'all' ? `_${shownMonth}` : ''}${scope === 'baghdad' ? '_بغداد' : scope === 'provinces' ? '_المحافظات' : ''}${team ? `_${team}` : ''}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: any) { setError(e.message); }
@@ -307,6 +335,17 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
           <button onClick={onClose} style={{ border: 'none', background: 'transparent', fontSize: 18, cursor: 'pointer' }}>✕</button>
         </div>
 
+        {/* الشركات — اختيار شركة واحدة (أو مسوقي الكرخ/الرصافة) أو الكل */}
+        {teams.length > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', flexShrink: 0, marginBottom: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>الشركة:</span>
+            <button onClick={() => setTeam(null)} style={tabBtn(team === null)}>الكل</button>
+            {teams.map(t => (
+              <button key={t} onClick={() => setTeam(cur => (cur === t ? null : t))} style={tabBtn(team === t)}>{t}</button>
+            ))}
+          </div>
+        )}
+
         {error && <div style={{ color: 'var(--c-danger)', fontSize: 13, marginBottom: 8 }}>{error}</div>}
         {!loading && mercatoDup.rows > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 0, marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', color: 'var(--c-danger)', fontSize: 12.5 }}>
@@ -373,7 +412,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                 <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e2e8f0' }}>
                   <thead>
                     <tr>
-                      <th style={th}>المندوب</th><th style={th}>عدد الطلبيات</th><th style={th}>الصفوف</th>
+                      <th style={th}>المندوب</th><th style={th}>الشركة</th><th style={th}>عدد الطلبيات</th><th style={th}>الصفوف</th>
                       <th style={th}>الكمية</th><th style={th}>القيمة ({currency})</th>
                     </tr>
                   </thead>
@@ -381,6 +420,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                     {sheets.map(s => (
                       <tr key={s.rep} onClick={() => setTab(s.rep)} style={{ cursor: 'pointer' }}>
                         <td style={{ ...td, fontWeight: 700, textAlign: 'right' }}>{s.rep}</td>
+                        <td style={{ ...td, color: s.team ? '#334155' : '#cbd5e1' }}>{s.team || '—'}</td>
                         <td style={td}>{fmt(s.orders)}</td>
                         <td style={td}>{fmt(s.rows.length)}</td>
                         <td style={td}>{fmt(s.quantity)}</td>
@@ -389,6 +429,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                     ))}
                     <tr style={{ background: '#f8fafc' }}>
                       <td style={{ ...td, fontWeight: 800, textAlign: 'right' }}>المجموع</td>
+                      <td style={td} />
                       <td style={{ ...td, fontWeight: 800 }}>{fmt(totals.orders)}</td>
                       <td style={{ ...td, fontWeight: 800 }}>{fmt(totals.rows)}</td>
                       <td style={{ ...td, fontWeight: 800 }}>{fmt(totals.quantity)}</td>

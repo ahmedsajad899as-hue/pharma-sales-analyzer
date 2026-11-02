@@ -20,7 +20,7 @@ import { repCoreName, buildRepIndex, matchRepName } from './repNameMatch.js';
 import { getManagerRoster } from './managerRoster.js';
 import { loadItemOwnerManagers } from './itemOwnerManager.js';
 import { loadTransitSales, officeFileIdsOf } from './transitOrders.js';
-import { PHARMACY_KIND, parseCustomerInfoLabels, normalizeCustomerInfoLabel } from './pharmacyRep.js';
+import { PHARMACY_KIND, parseCustomerInfoLabels, normalizeCustomerInfoLabel, repSideOf } from './pharmacyRep.js';
 import { areaIdsOfProvinces } from './areaScope.js';
 import { normalizeArabic, normalizeAreaName } from './itemResolver.js';
 import { buildProvinceLookup, matchProvinceName, extractRawColumnValue, PROVINCE_COLUMN_ALIASES } from './provinces.js';
@@ -339,6 +339,79 @@ export function filterSheetsByProvince(sheets, scope) {
   }).filter(s => s.rows.length > 0 || s.all);
 }
 
+/**
+ * فريق كل شيت (طلب 2026-11-02): اسم الشركة أمام اسم المندوب، أو «مسوقين الكرخ/الرصافة»
+ * للمسوق (فارمسي لاين) — نفس مصدر قائمة المندوبين في التقارير: الشركة الرئيسية لحسابه
+ * (وإلا شركة تعيينه في فرق المحافظات)، وقسم المسوق بـrepSideOf. ويُعلَّم كل صف بفريق
+ * ايتمه (مالك الايتم بقاعدة التحليل الشامل — «الشركة» = التيم) لفلترة شيت «كل مبيعات
+ * الشركة» بنفس معنى الشركة. يعدّل sheets/rows في مكانها.
+ */
+export async function attachConditionTeams(sheets, officeId) {
+  if (officeId == null || !sheets.length) return;
+  const [users, provRows, owners] = await Promise.all([
+    prisma.user.findMany({
+      where: { officeId, isActive: true, role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] } },
+      select: {
+        id: true, displayName: true, username: true,
+        companyAssignments: { select: { isPrimary: true, company: { select: { name: true } } } },
+        subProvinceAssignments: { select: { subProvince: { select: { name: true } } } },
+        linkedRep: { select: { repKind: true, areas: { select: { area: { select: { subProvince: { select: { name: true } } } } } } } },
+      },
+    }),
+    prisma.provinceRepAssignment.findMany({
+      where: { isActive: true, team: { isActive: true } },
+      select: { repUserId: true, company: { select: { name: true } } },
+    }),
+    loadItemOwnerManagers(officeId),
+  ]);
+  const provCompany = new Map();
+  for (const r of provRows) if (!provCompany.has(r.repUserId)) provCompany.set(r.repUserId, r.company?.name);
+  const teamOf = new Map(users.map(u => {
+    if (u.linkedRep?.repKind === PHARMACY_KIND) {
+      const side = repSideOf(u.subProvinceAssignments.map(a => a.subProvince?.name), (u.linkedRep.areas || []).map(a => a.area?.subProvince?.name));
+      return [u.id, side ? `مسوقين ${side}` : 'مسوقين'];
+    }
+    const co = (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name || provCompany.get(u.id) || null;
+    return [u.id, co];
+  }));
+  const index = buildRepIndex(users.map(u => ({ id: u.id, name: u.displayName || u.username })));
+  for (const sh of sheets) {
+    if (sh.rep === NO_REP) { sh.team = null; continue; }
+    const m = matchRepName(sh.rep, index);
+    const top = m.suggestions?.[0], second = m.suggestions?.[1];
+    const uid = m.status === 'exact' ? m.rep.id
+      : (m.status === 'ask' && top && top.score >= 0.7 && (!second || top.score - second.score >= 0.15)) ? top.id : null;
+    sh.team = uid != null ? (teamOf.get(uid) ?? null) : null;
+    for (const r of sh.rows) r.team = r.itemId != null ? (owners.get(r.itemId)?.companyName ?? null) : null;
+  }
+}
+
+const isMarketerTeam = (team) => String(team || '').startsWith('مسوقين');
+
+/**
+ * زرّ شركة في أعلى ملف اللكوديشن: شيتات مندوبي تلك الشركة فقط، و«كل مبيعات الشركة»
+ * = صفوف ايتمات تيمها (row.team)؛ للمسوقين (لا ايتمات مملوكة) = صفوف شيتات مسوقي القسم.
+ * نفس المنطق في ConditionFileModal.tsx (applyTeam).
+ */
+export function filterConditionByTeam(sheets, companySheet, team) {
+  if (!team) return { sheets, companySheet };
+  const kept = sheets.filter(s => s.team === team);
+  if (!companySheet) return { sheets: kept, companySheet };
+  const rows = isMarketerTeam(team)
+    ? [...new Map(kept.flatMap(s => s.rows).map(r => [r.id, r])).values()]
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id)
+    : companySheet.rows.filter(r => r.team === team);
+  return {
+    sheets: kept,
+    companySheet: {
+      ...companySheet, rows,
+      quantity: rows.reduce((a, r) => a + r.quantity, 0),
+      total: rows.reduce((a, r) => a + r.total, 0),
+      orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
+    },
+  };
+}
+
 export const COMPANY_SHEET = 'كل مبيعات الشركة';
 
 /**
@@ -409,14 +482,14 @@ export function buildConditionWorkbook(sheets, { title = 'ملف اللكودي�
   const summary = [
     [title],
     [],
-    ['المندوب', 'عدد الطلبيات', 'عدد الصفوف', 'الكمية', 'القيمة'],
-    ...sheets.map(s => [s.rep, s.orders, s.rows.length, s.quantity, s.total]),
-    ['المجموع',
+    ['المندوب', 'الشركة', 'عدد الطلبيات', 'عدد الصفوف', 'الكمية', 'القيمة'],
+    ...sheets.map(s => [s.rep, s.team || '', s.orders, s.rows.length, s.quantity, s.total]),
+    ['المجموع', '',
       sheets.reduce((a, s) => a + s.orders, 0), sheets.reduce((a, s) => a + s.rows.length, 0),
       sheets.reduce((a, s) => a + s.quantity, 0), sheets.reduce((a, s) => a + s.total, 0)],
   ];
   const ws0 = XLSX.utils.aoa_to_sheet(summary);
-  ws0['!cols'] = [{ wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }];
+  ws0['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 16 }];
   ws0['!views'] = [{ RTL: true }];
   XLSX.utils.book_append_sheet(wb, ws0, sheetName('الملخص', used));
 

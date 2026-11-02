@@ -20,7 +20,7 @@ import { backfillCustomerInfoNorm } from './lib/backfillCustomerInfoNorm.js';
 import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
 import { updateConditionRow, deleteConditionRow, canEditConditionFile } from './modules/sales/sales.service.js';
-import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles, filterSheetsByProvince, renameConditionFiles } from './lib/conditionFile.js';
+import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles, filterSheetsByProvince, renameConditionFiles, attachConditionTeams, filterConditionByTeam } from './lib/conditionFile.js';
 import { flagConditionRowsInMercato } from './lib/manualDuplicateCheck.js';
 
 // ── New modules ──────────────────────────────────────────────
@@ -2268,6 +2268,15 @@ app.get('/api/files/:id/batches', requireAuth, async (req, res) => {
 // ── ملف الكوديشن: عرض «شيت لكل مندوب» + تصديره إكسل ──────────────
 // GET /api/files/:id/condition-view?month=YYYY-MM
 // GET /api/files/:id/condition-export?month=YYYY-MM
+/** مكتب ملف اللكوديشن (مكتب مالكه — الملف مشترك للمكتب)، وإلا مكتب المُشاهِد. */
+async function conditionOfficeId(ownerId, viewerId) {
+  for (const uid of [ownerId, viewerId]) {
+    if (uid == null) continue;
+    const u = await prisma.user.findUnique({ where: { id: uid }, select: { officeId: true } });
+    if (u?.officeId != null) return u.officeId;
+  }
+  return null;
+}
 async function findReadableFile(id, userId) {
   return prisma.uploadedFile.findFirst({
     where: { id, OR: [{ userId }, { fileShares: { some: { userId } } }] },
@@ -2288,6 +2297,7 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
     const all = await loadConditionSheets(id, { month, transit });
     // صفوف محسوبة أيضاً في إكسل ميركاتو (صورة فاتورة طلبية جهّزها ميركاتو) — تنبيه فقط.
     await flagConditionRowsInMercato(all, file.userId).catch(e => console.error('[condition] فحص ميركاتو:', e?.message));
+    await attachConditionTeams(all, await conditionOfficeId(file.userId, req.user?.id));
     const sheets = await scopeSheetsToRoster(all, req.user);
     const companySheet = await buildCompanySheet(all, sheets, req.user);
     const canEdit = await canEditConditionFile(id, req.user);
@@ -2318,11 +2328,15 @@ app.get('/api/files/:id/condition-export', requireAuth, async (req, res) => {
     if (month === 'latest') month = (await listSalesMonths(prisma, [id, ...transit.officeFileIds], 'sale')).latest || 'all';
     // ?scope=baghdad|provinces — زرّا «بغداد / المحافظات» في العرض.
     const scope = req.query.scope || null;
+    // ?team= — زر الشركة/المسوقين في العرض (نفس filterConditionByTeam).
+    const team = String(req.query.team || '').trim() || null;
     const all = await loadConditionSheets(id, { month, transit });
-    const sheets = filterSheetsByProvince(await scopeSheetsToRoster(all, req.user), scope);
-    const [companySheet] = filterSheetsByProvince([await buildCompanySheet(all, sheets, req.user)], scope);
+    await attachConditionTeams(all, await conditionOfficeId(file.userId, req.user?.id));
+    const scopedSheets = filterSheetsByProvince(await scopeSheetsToRoster(all, req.user), scope);
+    const [scopedCompany] = filterSheetsByProvince([await buildCompanySheet(all, scopedSheets, req.user)], scope);
+    const { sheets, companySheet } = filterConditionByTeam(scopedSheets, scopedCompany, team);
     const scopeLabel = scope === 'baghdad' ? ' — بغداد' : scope === 'provinces' ? ' — المحافظات' : '';
-    const title = `${file.originalName}${month && month !== 'all' ? ` — ${month}` : ''}${scopeLabel}`;
+    const title = `${file.originalName}${month && month !== 'all' ? ` — ${month}` : ''}${scopeLabel}${team ? ` — ${team}` : ''}`;
     const buf = buildConditionWorkbook(sheets, { title, companySheet });
     const name = `اللكوديشن${month && month !== 'all' ? `_${month}` : ''}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
