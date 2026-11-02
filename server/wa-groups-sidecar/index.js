@@ -129,7 +129,7 @@ async function connect() {
   clearTimeout(reconnectTimer);
   fs.mkdirSync(AUTH_DIR, { recursive: true });
   const { state: auth, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  sock = makeWASocket({
+  const me = makeWASocket({
     auth,
     logger,
     browser: Browsers.ubuntu('Chrome'),
@@ -137,10 +137,13 @@ async function connect() {
     syncFullHistory: false,
     printQRInTerminal: false,
   });
+  sock = me;
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', (u) => {
-    if (u.qr) { state.qr = u.qr; state.status = 'awaiting_link'; }
+    // اتصال قديم أُنهي عمداً (جلسة ربط جديدة من /pair) — أحداثه لا تمسّ الحالة ولا تعيد الاتصال
+    if (sock !== me) return;
+    if (u.qr) { state.qr = u.qr; state.status = 'awaiting_link'; state.error = null; }
     if (u.connection === 'open') {
       Object.assign(state, { status: 'connected', qr: null, pairingCode: null, error: null, me: sock.user?.id || null, since: new Date().toISOString() });
       console.log('[wa-groups] متصل:', state.me);
@@ -254,9 +257,14 @@ const routes = {
     const phone = String(body.phone || '').replace(/\D/g, '').replace(/^00/, '').replace(/^07(\d{9})$/, '9647$1');
     if (!/^\d{10,15}$/.test(phone)) return [400, { error: 'رقم غير صالح — اكتبه دولياً مثل 9647701234567' }];
     if (state.status === 'connected') return [400, { error: 'الرقم مربوط ومتصل أصلاً' }];
-    if (!sock) await connect();
-    // ننتظر حتى يجهز الاتصال لطلب الكود (يظهر QR أولاً)
-    for (let i = 0; i < 20 && state.status !== 'awaiting_link'; i++) await new Promise(r => setTimeout(r, 500));
+    // جلسة ربط جديدة دائماً: واتساب يُنهي جلسة الربط بعد ~2-3 دقائق («QR refs attempts
+    // ended»)، وكود يُطلب قرب نهايتها يموت قبل أن يُدخله المستخدم.
+    clearTimeout(reconnectTimer);
+    try { sock?.end(undefined); } catch { /* مغلقة أصلاً */ }
+    state.status = 'starting';
+    await connect();
+    for (let i = 0; i < 30 && state.status !== 'awaiting_link'; i++) await new Promise(r => setTimeout(r, 500));
+    if (state.status !== 'awaiting_link') return [503, { error: 'تعذّر بدء جلسة الربط — أعد المحاولة بعد لحظات' }];
     const code = await sock.requestPairingCode(phone);
     state.pairingCode = code;
     return [200, { pairingCode: code }];
