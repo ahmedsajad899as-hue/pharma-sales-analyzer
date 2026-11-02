@@ -2115,9 +2115,11 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
         officeValue: r.bySource?.office.totalValue ?? 0,
         warehouseOrderCount: r.bySource?.mercato.orderCount ?? 0,
         warehouses: r.warehouses ?? [],
+        // صافي كل تصنيف «معلومات الزبون» — أعمدة علمي/مذاخر/تجاري/فارمسي حين يُفعَّل زر التصنيف.
+        byClass: Object.fromEntries(Object.entries(r.byCustomerClass ?? {}).map(([k, c]) => [k, c.totalValue])),
       };
     } catch {
-      return { id, name: `#${id}`, netValue: 0, officeOrderCount: 0, officeValue: 0, warehouseOrderCount: 0, warehouses: [] };
+      return { id, name: `#${id}`, netValue: 0, officeOrderCount: 0, officeValue: 0, warehouseOrderCount: 0, warehouses: [], byClass: {} };
     }
   }));
   return results.sort((a, b) => b.netValue - a.netValue);

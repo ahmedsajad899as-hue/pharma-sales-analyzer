@@ -817,7 +817,7 @@ const REP_KIND_TOGGLE_ROLES = new Set(['office_manager', 'office_hr', 'office_em
 interface WarehouseBreakdown { name: string; orderCount: number; value: number; }
 // ملخص صافي المبيع + طلبيات المكتب/المذخر + أسماء المذاخر لمندوب علمي واحد —
 // صف واحد من القائمة الثانوية «كل المندوبين العلميين».
-interface RepWarehouseSummary { id: number; name: string; netValue: number; officeOrderCount: number; officeValue: number; warehouseOrderCount: number; warehouses: WarehouseBreakdown[]; }
+interface RepWarehouseSummary { id: number; name: string; netValue: number; officeOrderCount: number; officeValue: number; warehouseOrderCount: number; warehouses: WarehouseBreakdown[]; byClass?: Record<string, number>; }
 interface BreakdownRow { name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; companyName?: string; }
 interface CommReport {
   repName: string;
@@ -1739,6 +1739,27 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
 
   // ملخص صافي المبيع + طلبيات المكتب/المذخر لكل المندوبين العلميين المرئيين
   // للمستخدم دفعة واحدة — القائمة الثانوية «كل المندوبين العلميين».
+  // الحجب والإظهار نفسه المطبَّق على التحليل المعروض (نفس شرط sciReportReq) — القائمة وإكسلها يطابقان الشاشة.
+  const allRepsExclusions = () => {
+    const on = canToggleRepKind && !sciReps.some(r => r.repKind === 'pharmacy');
+    return { exPharm: on && excludePharmacy, exComm: on && excludeCommercial };
+  };
+  // أعمدة التصنيف في القائمة: صافي كل مندوب لا يشمل مذاخر المسوقين (إضافة على مستوى الشركة فقط).
+  const warehouseClassCols = showClassTable
+    ? classCols.map(([k, label]) => [k, k === 'pharmacy' ? '🏪 فارمسي' : label] as const)
+    : [];
+  const repClassValue = (r: RepWarehouseSummary, col: CustomerClass) =>
+    ALL_CLASSES.filter(k => classBucket(k) === col).reduce((s, k) => s + (r.byClass?.[k] ?? 0), 0);
+  const allRepsAppliedLabels = (withClass = true) => {
+    const ex = allRepsExclusions();
+    const cls = withClass && showClassTable;
+    return [
+      ex.exPharm && '🏪 بدون الفارمسي',
+      ex.exComm && '💼 بدون التجاري',
+      cls && '📊 علمي / تجاري / فارمسي',
+      cls && mergeWarehouses && '🔗 علمي + مذاخر (مدموج)',
+    ].filter(Boolean) as string[];
+  };
   const loadAllRepsWarehouseSummary = async () => {
     if (sciReps.length === 0) { setAllRepsWarehouseData([]); return; }
     setAllRepsWarehouseLoading(true); setAllRepsWarehouseData(null); setExpandedWarehouseRepId(null);
@@ -1749,6 +1770,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (toDate)   params.set('endDate', toDate);
       if (activeFileIds.length > 0) params.set('fileIds', activeFileIds.join(','));
       applyMonth(params);
+      const ex = allRepsExclusions();
+      if (ex.exPharm) params.set('excludePharmacy', '1');
+      if (ex.exComm)  params.set('excludeCommercial', '1');
       const res = await fetch(`/api/scientific-reps/warehouse-summary?${params}`, { headers: authH() });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || t.reports.errLoad);
@@ -3680,7 +3704,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const footerOffice    = ['إجمالي المكتب',  ...cols.map(c => blank(c.officeOrderCount)),    officeGrand,    ''];
       const footerWarehouse = ['إجمالي المذاخر', ...cols.map(c => blank(c.warehouseOrderCount)), warehouseGrand, ''];
       const footerTotal     = ['الإجمالي الكلي', ...colTotals, grandTotal, cv(grandValueTotal)];
-      const aoa = [companyRow, nameRow, netRow, ...body, footerOffice, footerWarehouse, footerTotal];
+      const aoa: any[][] = [companyRow, nameRow, netRow, ...body, footerOffice, footerWarehouse, footerTotal];
+      const footerTotalRow = aoa.length - 1;
+      const applied = allRepsAppliedLabels(false); // أعمدة التصنيف لا تظهر بالجدول المحوري
+      if (applied.length) aoa.push([], ['مطبَّق من التحليل:', applied.join(' · ')]);
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       styleSheet(ws, aoa, [24, ...cols.map(() => 15), 15, 18], 3);
       ws['!merges'] = [
@@ -3704,22 +3731,29 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       // صغيرة ولا تحتاج فواصل.
       cols.forEach((_, ci) => applyNumFmt(ws, XLSX.utils.encode_cell({ r: 2, c: 1 + ci })));
       for (let r = 3; r < 3 + body.length; r++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: totalCol2 }));
-      applyNumFmt(ws, XLSX.utils.encode_cell({ r: aoa.length - 1, c: totalCol2 }));
+      applyNumFmt(ws, XLSX.utils.encode_cell({ r: footerTotalRow, c: totalCol2 }));
       XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('مذخر × مندوب'));
     } else {
       const cv = (n: number) => +convertVal(n).toFixed(2);
       const companyById = new Map(sciReps.map(r => [r.id, r.company || 'بدون شركة']));
-      const header = ['#', 'الشركة', 'المندوب العلمي', `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`, 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', 'أسماء المذاخر'];
+      const header = ['#', 'الشركة', 'المندوب العلمي', `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`,
+        ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', 'أسماء المذاخر'];
       const body = cols.map((r, i) => [
-        i + 1, companyById.get(r.id) || '', r.name, cv(r.netValue), r.officeOrderCount, r.warehouseOrderCount,
+        i + 1, companyById.get(r.id) || '', r.name, cv(r.netValue),
+        ...warehouseClassCols.map(([k]) => cv(repClassValue(r, k))),
+        r.officeOrderCount, r.warehouseOrderCount,
         r.officeOrderCount + r.warehouseOrderCount,
         r.warehouses.map(w => `${w.name} (${w.orderCount})`).join('، '),
       ]);
-      const aoa = [header, ...body];
+      const aoa: any[][] = [header, ...body];
+      const applied = allRepsAppliedLabels();
+      if (applied.length) aoa.push([], ['', 'مطبَّق من التحليل:', applied.join(' · ')]);
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      styleSheet(ws, aoa, [5, 18, 26, 16, 14, 14, 12, 55]);
-      // فواصل الآلاف لعمود صافي المبيع (index 3) فقط
-      for (let r = 1; r < aoa.length; r++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: 3 }));
+      styleSheet(ws, aoa, [5, 18, 26, 16, ...warehouseClassCols.map(() => 16), 14, 14, 12, 55]);
+      // فواصل الآلاف لأعمدة القيمة: صافي المبيع (index 3) + أعمدة التصنيف بعده
+      for (let r = 1; r <= body.length; r++) {
+        for (let c = 3; c <= 3 + warehouseClassCols.length; c++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c }));
+      }
       XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('كل المندوبين العلميين'));
     }
     XLSX.writeFile(wb, `مكتب-مذخر-المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -6093,12 +6127,20 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       {/* ── كل المندوبين العلميين دفعة واحدة: صافي + مكتب/مذخر + أسماء المذاخر ── */}
       {showAllRepsWarehouseModal && (
         <div className="modal-overlay" onClick={() => setShowAllRepsWarehouseModal(false)}>
-          <div className="modal modal--wide" style={{ maxWidth: warehouseViewMode === 'pivot' ? '95vw' : 780 }} onClick={e => e.stopPropagation()}>
+          <div className="modal modal--wide" style={{ maxWidth: warehouseViewMode === 'pivot' ? '95vw' : 780 + warehouseClassCols.length * 120 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="modal-title">{warehouseShowLeaders ? 'قادة الفرق العلميون' : 'كل المندوبين العلميين'} — مكتب / مذخر</h2>
               <button className="modal-close" onClick={() => setShowAllRepsWarehouseModal(false)}><Icon name="close" size={16} /></button>
             </div>
             <div style={{ padding: '14px 22px 22px' }}>
+              {allRepsAppliedLabels().length > 0 && (
+                <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 11.5, color: '#475569' }}>
+                  <span style={{ fontWeight: 700 }}>مطبَّق من التحليل:</span>
+                  {allRepsAppliedLabels().map(l => (
+                    <span key={l} style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 12, padding: '2px 10px', fontWeight: 700, color: '#334155' }}>{l}</span>
+                  ))}
+                </div>
+              )}
               {/* فلتر الشركات — شركة واحدة فقط أو الكل (نفس شرائح «ملخص زيارات
                   كل المندوبين»). الأسماء مأخوذة من تجميع الشركات نفسه الذي
                   يرتّب الجدول، بلا فلترة، كي تبقى كل الشركات معروضة دائماً. */}
@@ -6177,11 +6219,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
                       <tr>
-                        {['#', 'المندوب العلمي', 'صافي المبيع', 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', ''].map((h, hi) => (
+                        {['#', 'المندوب العلمي', 'صافي المبيع', ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', ''].map((h, hi, all) => (
                           <th key={hi} style={{
                             ...listTh,
                             textAlign: hi === 1 ? 'right' : 'center',
-                            width: hi === 0 ? 34 : hi === 6 ? 30 : undefined,
+                            width: hi === 0 ? 34 : hi === all.length - 1 ? 30 : undefined,
                           }}>{h}</th>
                         ))}
                       </tr>
@@ -6200,6 +6242,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                                 {company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#334155', border: BORDER, borderRadius: 4, padding: '1px 8px' }}>{company}</span>}
                               </td>
                               <td style={{ ...listTd, fontWeight: 800, background: r.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : rowBg }}>{fmtValSigned(r.netValue)}</td>
+                              {warehouseClassCols.map(([k]) => {
+                                const v = repClassValue(r, k);
+                                return <td key={k} style={{ ...listTd, fontWeight: 600, background: v < 0 ? 'rgba(239, 68, 68, 0.12)' : rowBg }}>{v !== 0 ? fmtValSigned(v) : ''}</td>;
+                              })}
                               <td style={{ ...listTd, fontWeight: 600, background: rowBg }}>{r.officeOrderCount > 0 ? fmt(r.officeOrderCount) : ''}</td>
                               <td style={{ ...listTd, fontWeight: 600, background: rowBg }}>{r.warehouseOrderCount > 0 ? fmt(r.warehouseOrderCount) : ''}</td>
                               <td style={{ ...listTd, fontWeight: 800, background: '#f1f5f9' }}>{fmt(r.officeOrderCount + r.warehouseOrderCount)}</td>
@@ -6207,7 +6253,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                             </tr>
                             {isExpanded && (
                               <tr>
-                                <td colSpan={7} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
+                                <td colSpan={7 + warehouseClassCols.length} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
                                   {r.warehouses.length === 0 ? (
                                     <span style={{ color: '#94a3b8', fontSize: 12 }}>لا توجد طلبيات عبر مذاخر لهذا المندوب</span>
                                   ) : (

@@ -413,6 +413,9 @@ export async function getWarehouseSummaryAll(req, res, next) {
       startDate: req.query.startDate || undefined,
       endDate:   req.query.endDate   || undefined,
       fileIds:   parseFileIds(req.query.fileIds || req.query.fileId),
+      // نفس حجب التحليل المعروض («بدون الفارمسي» / «بدون التجاري») — كي لا تختلف القائمة عن الشاشة.
+      excludePharmacy: req.query.excludePharmacy === '1',
+      excludeCommercial: req.query.excludeCommercial === '1',
     };
     const data = await svc.getWarehouseSummaryForReps(repIds, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data });
