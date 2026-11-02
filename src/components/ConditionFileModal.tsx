@@ -70,17 +70,22 @@ const totalsOf = (s: Sheet, rows: Row[]): Sheet => ({
   total: rows.reduce((a, r) => a + r.total, 0),
   orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
 });
-// زر الشركة — نفس filterConditionByTeam في server/lib/conditionFile.js: شيتات مندوبي الشركة،
-// و«كل مبيعات الشركة» = صفوف ايتمات تيمها؛ للمسوقين (بلا ايتمات مملوكة) صفوف شيتات مسوقي القسم.
+// زر الشركة — نفس filterConditionByTeam في server/lib/conditionFile.js: «الشركة» = التيم
+// (ايتماتها المملوكة، row.team) — كل مندوب له صفوف منها يظهر بها فقط، ومنهم التيم ليدر
+// والمسوق؛ صف ايتمه بلا مالك يُحسب لشركة مندوبه. زر المسوقين = شيتات مسوقي القسم كاملة.
 const isMarketerTeam = (t: string) => t.startsWith('مسوقين');
 function applyTeam(sheets: Sheet[], company: Sheet | null, team: string | null): { sheets: Sheet[]; company: Sheet | null } {
   if (!team) return { sheets, company };
-  const kept = sheets.filter(s => s.team === team);
-  if (!company) return { sheets: kept, company };
-  const rows = isMarketerTeam(team)
-    ? [...new Map(kept.flatMap(s => s.rows).map(r => [r.id, r])).values()].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id)
-    : company.rows.filter(r => r.team === team);
-  return { sheets: kept, company: totalsOf(company, rows) };
+  if (isMarketerTeam(team)) {
+    const kept = sheets.filter(s => s.team === team);
+    if (!company) return { sheets: kept, company };
+    const rows = [...new Map(kept.flatMap(s => s.rows).map(r => [r.id, r])).values()].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.id - b.id);
+    return { sheets: kept, company: totalsOf(company, rows) };
+  }
+  const repTeam = new Map(sheets.map(s => [s.rep, s.team]));
+  const inTeam = (r: Row, sheetTeam?: string | null) => (r.team != null ? r.team === team : sheetTeam === team);
+  const kept = sheets.map(s => totalsOf(s, s.rows.filter(r => inTeam(r, s.team)))).filter(s => s.rows.length > 0);
+  return { sheets: kept, company: company ? totalsOf(company, company.rows.filter(r => inTeam(r, repTeam.get(r.rep || '')))) : company };
 }
 const transitTitle = (r: Row) => {
   const m = r.transitMatch;
