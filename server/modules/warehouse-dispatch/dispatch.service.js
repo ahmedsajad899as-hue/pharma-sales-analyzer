@@ -263,7 +263,9 @@ export async function listGroups(reqUser) {
   requireManager(viewer);
   const r = await sidecar('/groups');
   if (r.error) return { groups: [], error: r.error };
-  return { groups: r.data?.groups || [] };
+  // كروبات المندوبين الصامتة (لوحة الماستر أدمن) ليست كروبات مذاخر — لا تُعرض للربط
+  const listen = new Set((await prisma.waGroupLink.findMany({ select: { jid: true } })).map(l => l.jid));
+  return { groups: (r.data?.groups || []).filter(g => !listen.has(g.jid)) };
 }
 
 /** ترحيل كسول: مذاخر قديمة بلا waId مطبَّع (قبل الإرسال الآلي). */

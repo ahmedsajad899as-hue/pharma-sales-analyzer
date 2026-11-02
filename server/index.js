@@ -104,6 +104,7 @@ import repFollowupRoutes         from './modules/rep-followup/rep-followup.route
 import provinceTeamsRoutes       from './modules/province-teams/province-teams.routes.js';
 import repOrdersRoutes          from './modules/rep-orders/rep-orders.routes.js';
 import warehouseDispatchRoutes  from './modules/warehouse-dispatch/dispatch.routes.js';
+import { resumeListenInbox } from './modules/wa-groups/wa-groups.listen.js';
 import { internalRouter as waGroupsInternalRoutes, adminRouter as waGroupsAdminRoutes, saRouter as waGroupsSaRoutes } from './modules/wa-groups/wa-groups.routes.js';
 
 dotenv.config();
@@ -5016,6 +5017,10 @@ if (process.env.VERCEL) {
     // إرسال الطلبيات للمذاخر: مهلة الرد ⇒ «لا رد» / تحويل للمذخر البديل
     startDispatchTimers();
     backfillWarehouseWaIds();
+    // رسائل كروبات المندوبين الصامتة قطعتها إعادة التشغيل أثناء قراءتها ← تُعاد
+    resumeListenInbox()
+      .then(n => { if (n) console.log(`✓ استؤنفت ${n} رسالة كروب مندوبين منقطعة`); })
+      .catch(e => console.error('[resumeListenInbox]', e.message));
     backfillOrderSends().then(() => backfillWarehouseSeqs());
     // طلبيات تلكرام قطعتها إعادة التشغيل (نشر) أثناء قراءتها ← تُعاد قراءتها
     resumeInterruptedOrders()

@@ -100,6 +100,7 @@ model User {
   pendingBotOrders       PendingBotOrder[]
   viberChatLinks         ViberChatLink[]
   whatsAppChatLinks      WhatsAppChatLink[]
+  waGroupLinks           WaGroupLink[]
 
   // Commercial module relations
   pharmacies        Pharmacy[]          @relation("PharmacyOwner")
@@ -669,6 +670,25 @@ model WhatsAppChatLink {
 
   @@index([userId])
   @@map("whatsapp_chat_links")
+}
+
+// ─── «رقم الكروبات»: كروب مندوبين بقراءة صامتة — يُسجّل طلبياتهم/فواتيرهم كبوت تلكرام
+// (طابور المراجعة ← ملف اللكوديشن) والرقم لا يرسل فيه شيئاً أبداً. كروبات المذاخر
+// ليست هنا — تُربط بـOrderWarehouse.groupJid.
+model WaGroupLink {
+  id            Int      @id @default(autoincrement())
+  jid           String   @unique // معرّف الكروب من واتساب (…@g.us)
+  name          String?
+  isActive      Boolean  @default(true)
+  orderTextMode String   @default("all") // off | trigger | all — كروب مبيعات مخصّص فـall افتراضياً
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("wa_group_links")
 }
 
 // ─── ملف زيارات أطباء مرفوع من تلكرام بانتظار مراجعة المستخدم بالتطبيق ──

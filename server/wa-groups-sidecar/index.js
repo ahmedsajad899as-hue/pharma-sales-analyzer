@@ -7,8 +7,9 @@
 // من أعطاله ويسمح بإيقافه بلا أثر. ⚠️ غير رسمي: احتمال حظر الرقم قائم — لا تستعمل
 // رقم البوت الرسمي ولا رقماً مهماً.
 //
-// يسمع على 127.0.0.1 فقط، وكل طلب يحمل x-wa-groups-secret. رسائل الكروبات المربوطة
-// بمذاخر (known-jids من التطبيق) تُمرَّر للتطبيق على /api/wa-groups/internal/inbound.
+// يسمع على 127.0.0.1 فقط، وكل طلب يحمل x-wa-groups-secret. رسائل الكروبات المعنيّة
+// (known-jids من التطبيق: كروبات مذاخر + كروبات مندوبين بقراءة صامتة) تُمرَّر للتطبيق
+// على /api/wa-groups/internal/inbound. الإرسال لا يحدث إلا بطلب صريح من التطبيق (/send).
 //
 // التصويت (poll) بديل الأزرار: واتساب لا يعرض أزرار تفاعلية في الكروبات لغير الـAPI
 // الرسمي. أصوات التصويت مشفّرة بسرّ الرسالة (messageSecret) و Baileys rc14 لا يفكّها
@@ -225,7 +226,8 @@ async function onMessage(msg) {
   if (!text && !imageBase64) return;
 
   await forward({
-    jid, msgId: msg.key.id, sender: msg.key.participant || null, senderName: msg.pushName || null,
+    // participantAlt = صيغة الهاتف حين يكون الكروب بوضع LID — التطبيق يربط المندوب برقمه
+    jid, msgId: msg.key.id, sender: msg.key.participantAlt || msg.key.participant || null, senderName: msg.pushName || null,
     text, quotedId: ctx?.stanzaId || null, imageBase64,
   });
 }
@@ -269,6 +271,9 @@ const routes = {
     state.pairingCode = code;
     return [200, { pairingCode: code }];
   },
+
+  // تغيّرت الكروبات المعنيّة في التطبيق (ربط مذخر/كروب مندوبين) — بلا انتظار الدورة
+  'POST /refresh-known': async () => { await refreshKnownJids(); return [200, { count: knownJids.size }]; },
 
   'GET /groups': async () => {
     if (state.status !== 'connected') return [409, { error: 'رقم الكروبات غير متصل' }];

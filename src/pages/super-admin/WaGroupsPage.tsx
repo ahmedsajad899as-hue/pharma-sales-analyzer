@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
-import { ErrBox, btnStyle, UI } from './OfficesPage';
+import { ErrBox, Modal, btnStyle, UI } from './OfficesPage';
+import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
 
 interface Status { status?: string; connected?: boolean; me?: string | null; error?: string | null }
 interface Group { jid: string; name: string; size: number }
+interface UserOption { id: number; username: string; displayName?: string | null; role: string }
+interface ListenLink { jid: string; name: string | null; userId: number; isActive: boolean; orderTextMode: OrderTextMode; user?: UserOption }
+interface LinkForm { jid: string; name: string; userId?: number; orderTextMode: OrderTextMode; isNew: boolean }
+
+const userLabel = (u?: UserOption) => u ? (u.displayName || u.username) : '—';
 
 const STATUS_LABEL: Record<string, { text: string; color: string; bg: string }> = {
   connected:     { text: 'متصل ✅',          color: '#16a34a', bg: '#f0fdf4' },
@@ -26,6 +32,12 @@ export default function WaGroupsPage() {
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState('');
   const [groups, setGroups] = useState<Group[] | null>(null);
+  const [links, setLinks]   = useState<Record<string, ListenLink>>({});
+  const [whByJid, setWhByJid] = useState<Record<string, string[]>>({});
+  const [users, setUsers]   = useState<UserOption[]>([]);
+  const [form, setForm]     = useState<LinkForm | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const load = useCallback(() => {
     fetch('/api/sa/wa-groups/status', { headers: H() })
@@ -38,6 +50,41 @@ export default function WaGroupsPage() {
     fetch('/api/sa/wa-groups/groups', { headers: H() }).then(r => r.json()).then(d => setGroups(d.groups || [])).catch(() => {});
   }, [st?.connected, groups, H]);
   useEffect(() => { if (st?.connected) setCode(''); }, [st?.connected]);
+
+  const loadLinks = useCallback(() => {
+    fetch('/api/sa/wa-groups/links', { headers: H() }).then(r => r.json()).then(d => {
+      if (!d.success) return;
+      setLinks(Object.fromEntries((d.links as ListenLink[]).map(l => [l.jid, l])));
+      setWhByJid(d.warehouses || {});
+    }).catch(() => {});
+  }, [H]);
+  useEffect(() => { if (st?.connected) loadLinks(); }, [st?.connected, loadLinks]);
+  useEffect(() => {
+    fetch('/api/sa/users', { headers: H() }).then(r => r.json()).then(d => { if (d.success) setUsers(d.data); }).catch(() => {});
+  }, [H]);
+
+  const putLink = async (body: Record<string, unknown>) => {
+    const res = await fetch('/api/sa/wa-groups/links', { method: 'PUT', headers: H(), body: JSON.stringify(body) });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || 'تعذّر الحفظ');
+  };
+  const saveForm = async () => {
+    if (!form) return;
+    if (!form.userId) { setFormError('اختر الحساب الذي تُسجَّل عليه المبيعات'); return; }
+    setSaving(true); setFormError('');
+    try {
+      await putLink({ jid: form.jid, name: form.name, userId: form.userId, orderTextMode: form.orderTextMode, ...(form.isNew ? { isActive: true } : {}) });
+      setForm(null); loadLinks();
+    } catch (e: any) { setFormError(e.message); } finally { setSaving(false); }
+  };
+  const toggleLink = async (l: ListenLink) => {
+    try { await putLink({ jid: l.jid, isActive: !l.isActive }); loadLinks(); } catch (e: any) { setError(e.message); }
+  };
+  const removeLink = async (l: ListenLink) => {
+    if (!window.confirm(`إلغاء القراءة الصامتة لكروب «${l.name || l.jid}»؟ لن تُسجَّل رسائله بعد الآن.`)) return;
+    await fetch(`/api/sa/wa-groups/links/${encodeURIComponent(l.jid)}`, { method: 'DELETE', headers: H() });
+    loadLinks();
+  };
 
   const pair = async () => {
     setBusy(true); setError(''); setCode('');
@@ -111,14 +158,67 @@ export default function WaGroupsPage() {
       {st?.connected && (
         <div style={{ marginTop: 16, background: '#fff', border: '1px solid #e9edf3', borderRadius: 12, padding: 18 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: UI.ink, marginBottom: 10 }}>الكروبات التي فيها الرقم ({groups?.length ?? '…'})</div>
+          <div style={{ fontSize: 12, color: UI.faint, lineHeight: 1.8, marginBottom: 10 }}>
+            <b>كروب مذخر</b>: يرسل له النظام الطلبيات ويقرأ ردوده — يُربط من التطبيق: «إرسال للمذاخر» ← المذاخر ← القناة «كروب».<br />
+            <b>قراءة صامتة</b>: كروب مندوبين — كل طلبية/فاتورة فيه تُقرأ وتدخل طابور المراجعة ثم ملف اللكوديشن للحساب المختار (مثل بوت تلكرام)،
+            والرقم <b>لا يرسل فيه أي رسالة</b>. كروب غير مربوط بأيٍّ منهما يُتجاهل كلياً.
+          </div>
           {groups && groups.length === 0 && <div style={{ fontSize: 12.5, color: UI.faint }}>الرقم ليس عضواً في أي كروب بعد — اطلب من المذاخر إضافته لكروباتهم.</div>}
-          {(groups || []).map(g => (
-            <div key={g.jid} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderTop: `1px solid ${UI.line}`, fontSize: 13, color: UI.text }}>
-              <span>{g.name}</span><span style={{ color: UI.faint }}>{g.size} عضو</span>
-            </div>
-          ))}
-          {groups && <button onClick={() => setGroups(null)} style={{ ...btnStyle('#3b82f6', true), marginTop: 10 }}>تحديث القائمة</button>}
+          {(groups || []).map(g => {
+            const wh = whByJid[g.jid];
+            const l = links[g.jid];
+            return (
+              <div key={g.jid} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 0', borderTop: `1px solid ${UI.line}`, fontSize: 13, color: UI.text }}>
+                <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: UI.ink }}>{g.name}</div>
+                  <div style={{ fontSize: 11.5, color: UI.faint }}>{g.size} عضو</div>
+                </div>
+                {wh ? (
+                  <span style={{ background: '#eff6ff', color: '#1d4ed8', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>🚚 كروب مذخر: {wh.join('، ')}</span>
+                ) : l ? (
+                  <>
+                    <span style={{ background: l.isActive ? '#f0fdf4' : '#fef2f2', color: l.isActive ? '#16a34a' : '#b91c1c', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>
+                      🔇 قراءة صامتة ← {userLabel(l.user)}{l.isActive ? '' : ' (موقوفة)'}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>{ORDER_MODE_SHORT[l.orderTextMode] || ''}</span>
+                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, userId: l.userId, orderTextMode: l.orderTextMode, isNew: false }); }} style={btnStyle('#3b82f6', true)}>تعديل</button>
+                    <button onClick={() => toggleLink(l)} style={btnStyle(l.isActive ? '#d97706' : '#16a34a', true)}>{l.isActive ? 'إيقاف' : 'تفعيل'}</button>
+                    <button onClick={() => removeLink(l)} style={btnStyle('#dc2626', true)}>إلغاء</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 11.5, color: UI.faint }}>غير مستخدم</span>
+                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, orderTextMode: 'all', isNew: true }); }} style={btnStyle('#0f172a', true)}>🔇 قراءة صامتة</button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+          {groups && <button onClick={() => { setGroups(null); loadLinks(); }} style={{ ...btnStyle('#3b82f6', true), marginTop: 10 }}>تحديث القائمة</button>}
         </div>
+      )}
+
+      {form && (
+        <Modal onClose={() => setForm(null)} title={`قراءة صامتة — ${form.name}`}>
+          <div style={{ fontSize: 12.5, color: UI.muted, lineHeight: 1.7, marginBottom: 14 }}>
+            طلبيات وفواتير المندوبين في هذا الكروب تُقرأ بالذكاء وتدخل طابور المراجعة لهذا الحساب، وبعد الاعتماد تُضاف لملف اللكوديشن.
+            الرقم لا يرد في الكروب، ولا تُرسَل هذه الطلبيات للمذاخر.
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 5 }}>الحساب الذي تُسجَّل عليه المبيعات *</label>
+            <select value={form.userId ?? ''} onChange={e => setForm(f => f && ({ ...f, userId: e.target.value ? Number(e.target.value) : undefined }))}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13.5, boxSizing: 'border-box', outline: 'none', color: UI.ink }}>
+              <option value="">-- اختر حساباً --</option>
+              {users.map(u => <option key={u.id} value={u.id}>{userLabel(u)} ({u.role})</option>)}
+            </select>
+          </div>
+          <OrderTextModeField value={form.orderTextMode} onChange={v => setForm(f => f && ({ ...f, orderTextMode: v }))} />
+          {formError && <ErrBox msg={formError} />}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+            <button onClick={() => setForm(null)} style={btnStyle('#6b7280', true)}>إلغاء</button>
+            <button onClick={saveForm} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ'}</button>
+          </div>
+        </Modal>
       )}
     </div>
   );

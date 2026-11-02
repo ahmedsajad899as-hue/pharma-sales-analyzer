@@ -1017,7 +1017,8 @@ export async function ingestBotOrder({
   // المذخر فعلاً، لا طلبية تُرسَل إليه — كانت تُنشئ إرسالاً «بانتظار تحديد المذخر»
   // لكل فاتورة مرفوعة (2026-11-02).
   const toDispatch = kind === 'photo' ? rows.filter(r => !r.invoiceNumber && !r.warehouse) : rows;
-  if (toDispatch.length) {
+  // كروب مندوبين بقراءة صامتة (wa_group) = تسجيل مبيعات فقط، لا إرسال للمذاخر
+  if (toDispatch.length && source !== 'wa_group') {
     createFromBotOrder({ user, pendingId: pendingIds[0] ?? null, rows: toDispatch, source, chatId, repName: repName || senderName });
   }
   return lines.join('\n');
