@@ -14,6 +14,7 @@ import prisma from '../../lib/prisma.js';
 import { listSalesMonths } from '../../lib/salesMonths.js';
 import { resolveFileScope } from '../../lib/fileScope.js';
 import { checkManualDuplicates } from '../../lib/manualDuplicateCheck.js';
+import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 
 /**
  * PUT /api/active-files — يحفظ «الملفات المفعّلة» لهذا الحساب على السيرفر.
@@ -200,10 +201,13 @@ export async function addManualSales(req, res, next) {
     // (الملف المشترك مع إدارة المكتب) لا في ملف شخصي عند المدير. loadOrderOrigins
     // يفحص أن الطلبية تخصّ المراجِع — فلا يكتب أحد في ملف غيره إلا بطلبية حُوِّلت له.
     const origins = (tgt.condition && orderIds.length) ? await loadOrderOrigins(reviewerId, orderIds) : new Map();
+    // صور فواتير رُفعت يدوياً (بلا طلبية بوت) تذهب أيضاً للملف المشترك — وإلا صار
+    // لكل حساب يرفع فواتير «مبيعات اللكوديشن» خاصاً به.
+    const defaultOwner = (tgt.condition && !tgt.fileId) ? await resolveSharedConditionOwner(req.user) : reviewerId;
     const partitions = new Map(); // ownerId → rows
     for (const r of rows) {
       const { pendingOrderId: rowOrderId, ...clean } = r || {};
-      const owner = origins.get(Number(rowOrderId)) ?? reviewerId;
+      const owner = origins.get(Number(rowOrderId)) ?? defaultOwner;
       if (!partitions.has(owner)) partitions.set(owner, []);
       partitions.get(owner).push(clean);
     }
@@ -228,7 +232,7 @@ export async function addManualSales(req, res, next) {
       } catch (syncErr) {
         console.error('[autoSyncIfOfficeEmployee]', syncErr);
       }
-      if (orderIds.length) {
+      if (orderIds.length || ownerId !== reviewerId) {
         try {
           await shareWithItemAssignees(result?.uploadedFile?.id, ownerId, reviewerId, result?.itemIds);
         } catch (shareErr) {
@@ -255,6 +259,40 @@ export async function addManualSales(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+
+/**
+ * صاحب ملف اللكوديشن المشترك الذي تُحفَظ فيه فواتير المراجِع اليدوية.
+ * ملف اللكوديشن واحد للمكتب: يملكه حساب الكروب (صاحب ملف ميركاتو التراكمي)
+ * ومُشارَك مع البقية. فمن يملك ملف ميركاتو بنفسه يكتب في ملفه؛ ومن شورك معه ملف
+ * لكوديشن من حساب في مكتبه يكتب فيه (الأقدم، وصاحب ميركاتو أولاً)؛ وإلا ملفه هو.
+ * المندوبون لا يكتبون في ملف غيرهم (نفس قاعدة canEditConditionFile).
+ */
+async function resolveSharedConditionOwner(user) {
+  const uid = user?.id ?? null;
+  if (!uid || ['scientific_rep', 'commercial_rep'].includes(user.role)) return uid;
+  const notCond = { NOT: { mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } } };
+  const ownsMercato = await prisma.uploadedFile.count({
+    where: { userId: uid, isCumulative: true, sourceSystem: 'mercato', ...notCond },
+  });
+  if (ownsMercato) return uid;
+  const me = await prisma.user.findUnique({ where: { id: uid }, select: { officeId: true } });
+  const shared = await prisma.uploadedFile.findMany({
+    where: {
+      isCumulative: true, mergeGroup: { endsWith: `|${CONDITION_VARIANT}` },
+      userId: { not: uid }, fileShares: { some: { userId: uid } },
+      user: { isActive: true, ...(me?.officeId != null ? { officeId: me.officeId } : {}) },
+    },
+    select: { userId: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const owners = [...new Set(shared.map(f => f.userId))];
+  if (!owners.length) return uid;
+  const mercatoOwners = new Set((await prisma.uploadedFile.findMany({
+    where: { userId: { in: owners }, isCumulative: true, sourceSystem: 'mercato', ...notCond },
+    select: { userId: true },
+  })).map(f => f.userId));
+  return owners.find(o => mercatoOwners.has(o)) ?? owners[0];
 }
 
 /**
@@ -338,6 +376,8 @@ export async function checkDuplicates(req, res, next) {
     if (target?.condition && Array.isArray(pendingOrderIds) && pendingOrderIds.length) {
       const origins = [...new Set((await loadOrderOrigins(userId, pendingOrderIds)).values())];
       if (origins.length === 1) userId = origins[0];
+    } else if (target?.condition && !target?.fileId) {
+      userId = await resolveSharedConditionOwner(req.user);
     }
     const data = await checkManualDuplicates({
       rows, target: target || {}, userId,

@@ -385,6 +385,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   // ── Row helpers ──
   const setCell = (i: number, key: keyof Row, val: string) =>
     setRows(rs => rs.map((r, idx) => (idx === i ? { ...r, [key]: val } : r)));
+  const setCells = (idxs: number[], key: keyof Row, val: string) =>
+    setRows(rs => rs.map((r, idx) => (idxs.includes(idx) ? { ...r, [key]: val } : r)));
   const addRow = () => setRows(rs => {
     const last = rs[rs.length - 1];
     // Carry over per-invoice header fields so entering several items of one invoice is fast
@@ -882,11 +884,13 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     if (last && last.key === k) last.idxs.push(i);
     else groups.push({ key: k, imageIndex: r.imageIndex, orderId: r.orderId, idxs: [i] });
   });
-  /** النقر على رقم طلبية: رسالتها الأصلية أعلى الجدول، وصورتها إن وُجدت. */
+  /**
+   * النقر على رقم طلبية: رسالتها الأصلية في اللوحة أعلى الجدول، وصورتها إن وُجدت.
+   * الشاشة تبقى مكانها — الصعود للوحة كان يُضيّع مكان المراجِع في جدول طويل.
+   */
   const showOrder = (orderId: number, imageIndex: number | null) => {
     setActiveOrderId(orderId);
     if (imageIndex != null && images[imageIndex]) setPreview(images[imageIndex]);
-    srcPanelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
   const activeOrder = (activeOrderId != null ? orderById.get(activeOrderId) : null) ?? initialOrder;
   // التفاصيل تظهر عند تمرير الماوس فقط (title) — بلا شرح مرئي في الجدول.
@@ -1180,6 +1184,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                 // فاصل واضح بين فاتورة وأخرى: خط أعرض فوق أول صف من كل فاتورة.
                 const sep: React.CSSProperties = k === 0 && gi > 0 ? { borderTop: '2px solid #94a3b8' } : {};
                 const hdrOn = (key: keyof Row) => cellActive(g.idxs[0], key);
+                const custShared = g.idxs.every(x => normQ(rows[x].pharmacy) === normQ(first.pharmacy)
+                  && normQ(rows[x].area) === normQ(first.area));
                 // خانات الفاتورة (رقم/مذخر/رقم الفاتورة/تاريخ) تُدمَج عمودياً على أصنافها
                 // (rowSpan) — كل صنف سطر أفقي واحد، ومعلومات الفاتورة لا تتكرّر.
                 const invCell = (key: 'warehouse' | 'invoiceNumber') => (
@@ -1221,11 +1227,17 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                     </td>
                   )}
                   {cols.map((c, ci) => {
-                    const on = cellActive(i, c.key);
+                    // الصيدلية والمنطقة واحدة لكل الفاتورة — تُكتب مرة واحدة مدموجة
+                    // كالتاريخ والمذخر، وتعديلها يسري على كل أصنافها. فاتورة اختلفت
+                    // صيدليات أصنافها تبقى خانة لكل صنف.
+                    const merged = custShared && (c.key === 'pharmacy' || c.key === 'area');
+                    if (merged && k > 0) return null;
+                    const tgt = merged ? g.idxs : [i];
+                    const on = merged ? g.idxs.some(x => cellActive(x, c.key)) : cellActive(i, c.key);
                     const cs: React.CSSProperties = on ? hlInp : {};
                     return (
-                      <td key={c.key} data-hl={on ? '1' : undefined} data-cell={`${i}:${c.key}`}
-                        style={{ ...gTd, ...sep, ...(ci === 0 && bad ? { boxShadow: 'inset -2px 0 0 #dc2626' } : null), ...(on ? { background: '#fef9c3' } : null) }}>
+                      <td key={c.key} rowSpan={merged ? span : undefined} data-hl={on ? '1' : undefined} data-cell={`${i}:${c.key}`}
+                        style={{ ...gTd, ...(merged ? gInvTd : null), ...sep, ...(ci === 0 && bad ? { boxShadow: 'inset -2px 0 0 #dc2626' } : null), ...(on ? { background: '#fef9c3' } : null) }}>
                         {c.numeric ? (
                           <input
                             value={(() => {
@@ -1249,11 +1261,11 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                             onChange={v => {
                               // اختيار صيدلية من السيرفي يجلب منطقتها معها.
                               const hit = r.pharmacyCandidates?.find(p => p.name === v);
-                              setRows(rs => rs.map((x, idx) => (idx === i
+                              setRows(rs => rs.map((x, idx) => (tgt.includes(idx)
                                 ? { ...x, pharmacy: v, ...(hit?.area ? { area: hit.area } : null) }
                                 : x)));
                               // منطقة جديدة من الصيدلية المختارة ⇒ مندوبها.
-                              if (hit?.area && hit.area !== r.area) setTimeout(() => refreshRow(i, 'area', hit.area!), 0);
+                              if (hit?.area && hit.area !== r.area) setTimeout(() => tgt.forEach(x => refreshRow(x, 'area', hit.area!)), 0);
                             }}
                             options={(r.pharmacyCandidates || []).map(p => ({ value: p.name, hint: p.area || undefined, star: true }))}
                             title={r.pharmacyCandidates?.length
@@ -1281,8 +1293,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                         ) : c.key === 'area' ? (
                           <ComboCell
                             value={r.area}
-                            onChange={v => setCell(i, 'area', v)}
-                            onCommit={v => refreshRow(i, 'area', v)}
+                            onChange={v => setCells(tgt, 'area', v)}
+                            onCommit={v => tgt.forEach(x => refreshRow(x, 'area', v))}
                             options={suggest.areas.map(v => ({ value: v }))}
                             title={r.area}
                             style={cs}
