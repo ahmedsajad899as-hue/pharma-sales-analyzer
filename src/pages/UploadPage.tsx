@@ -844,6 +844,45 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
     }
   };
 
+  /**
+   * ملف لكوديشن خاص بحساب (أُنشئ قبل توحيد الملف) ← ملف اللكوديشن المشترك للمكتب.
+   * معاينة أولاً (الوجهة وعدد الصفوف) ثم تأكيد، والسيرفر يحذف الملف القديم فقط إن
+   * دخل كل صف.
+   */
+  const moveConditionToShared = async (f: UploadedFile) => {
+    const url = `${API}/api/files/${f.id}/move-to-shared-condition`;
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const pre = await fetch(`${url}?dryRun=1`, { method: 'POST', headers });
+      const pj = await pre.json();
+      if (!pre.ok) throw new Error(pj.message || pj.error || 'تعذّرت المعاينة');
+      const { target, rows, hidden } = pj.data;
+      if (hidden > 0) {
+        alert(`في الملف ${hidden} صف مخفي (رفعة موقوفة أو فلتر) — فعّلها أو احذفها أولاً كي لا تضيع بالنقل.`);
+        return;
+      }
+      const dest = target ? `«${target.originalName}»${target.owner ? ` (حساب ${target.owner})` : ''}` : 'ملف اللكوديشن المشترك (سيُنشأ)';
+      if (!window.confirm(`نقل ${rows} صف من «${f.originalName}» إلى ${dest}؟\nالمكرر المحفوظ أصلاً هناك يُسقط تلقائياً، ثم يُحذف هذا الملف.`)) return;
+      setDeleting(f.id);
+      const res = await fetch(url, { method: 'POST', headers });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.message || j.error || 'فشل النقل');
+      const d = j.data;
+      if (d.deleted) {
+        if (activeFileIds.includes(f.id)) onFileActivated(f.id);
+        if (d.target?.id && !activeFileIds.includes(d.target.id)) onFileActivated(d.target.id);
+      }
+      await loadFiles();
+      alert(d.deleted
+        ? `✅ نُقل ${d.added} صف${d.skipped ? ` وأُسقط ${d.skipped} مكرر محفوظ أصلاً` : ''}، وحُذف الملف القديم.`
+        : `⚠️ دخل ${d.added + d.skipped} من ${d.total} صف فقط — أُبقي الملف القديم كما هو.`);
+    } catch (err: any) {
+      setError(err.message || 'فشل النقل');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   const handleAnalyze = async (file: UploadedFile) => {
     setAnalyzeFile(file);
     setAnalysisText('');
@@ -1513,6 +1552,14 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                           {isCond && (
                             <button onClick={() => { setConditionView(f); setOpenMenuId(null); }} style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}>
                               <Icon name="file" size={13} /> فتح اللكوديشن (شيت لكل مندوب)
+                            </button>
+                          )}
+
+                          {isCond && !mercatoSibling && !['scientific_rep', 'commercial_rep'].includes(user?.role ?? '') && (
+                            <button onClick={() => { setOpenMenuId(null); moveConditionToShared(f); }} disabled={deleting === f.id}
+                              style={{ ...MENU_ITEM_STYLE, display: 'flex', alignItems: 'center', gap: 6 }}
+                              title="انقل صفوف هذا الملف إلى ملف اللكوديشن المشترك للمكتب ثم احذفه">
+                              <Icon name="transfer" size={13} /> نقل إلى ملف اللكوديشن المشترك
                             </button>
                           )}
 

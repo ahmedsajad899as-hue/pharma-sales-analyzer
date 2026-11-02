@@ -7,14 +7,14 @@
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { consumePendingOrder, enrichRowsFromCatalog, attachScientificRepGuess, loadOrderOrigins } from '../orders/orders.service.js';
 import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
-  checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope } from './sales.service.js';
+  checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope,
+  resolveSharedConditionOwner, moveConditionFileToShared } from './sales.service.js';
 import { matchConditionNames } from '../../lib/conditionNameMatch.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { listSalesMonths } from '../../lib/salesMonths.js';
 import { resolveFileScope } from '../../lib/fileScope.js';
 import { checkManualDuplicates } from '../../lib/manualDuplicateCheck.js';
-import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 
 /**
  * PUT /api/active-files — يحفظ «الملفات المفعّلة» لهذا الحساب على السيرفر.
@@ -262,40 +262,6 @@ export async function addManualSales(req, res, next) {
 }
 
 /**
- * صاحب ملف اللكوديشن المشترك الذي تُحفَظ فيه فواتير المراجِع اليدوية.
- * ملف اللكوديشن واحد للمكتب: يملكه حساب الكروب (صاحب ملف ميركاتو التراكمي)
- * ومُشارَك مع البقية. فمن يملك ملف ميركاتو بنفسه يكتب في ملفه؛ ومن شورك معه ملف
- * لكوديشن من حساب في مكتبه يكتب فيه (الأقدم، وصاحب ميركاتو أولاً)؛ وإلا ملفه هو.
- * المندوبون لا يكتبون في ملف غيرهم (نفس قاعدة canEditConditionFile).
- */
-async function resolveSharedConditionOwner(user) {
-  const uid = user?.id ?? null;
-  if (!uid || ['scientific_rep', 'commercial_rep'].includes(user.role)) return uid;
-  const notCond = { NOT: { mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } } };
-  const ownsMercato = await prisma.uploadedFile.count({
-    where: { userId: uid, isCumulative: true, sourceSystem: 'mercato', ...notCond },
-  });
-  if (ownsMercato) return uid;
-  const me = await prisma.user.findUnique({ where: { id: uid }, select: { officeId: true } });
-  const shared = await prisma.uploadedFile.findMany({
-    where: {
-      isCumulative: true, mergeGroup: { endsWith: `|${CONDITION_VARIANT}` },
-      userId: { not: uid }, fileShares: { some: { userId: uid } },
-      user: { isActive: true, ...(me?.officeId != null ? { officeId: me.officeId } : {}) },
-    },
-    select: { userId: true },
-    orderBy: { createdAt: 'asc' },
-  });
-  const owners = [...new Set(shared.map(f => f.userId))];
-  if (!owners.length) return uid;
-  const mercatoOwners = new Set((await prisma.uploadedFile.findMany({
-    where: { userId: { in: owners }, isCumulative: true, sourceSystem: 'mercato', ...notCond },
-    select: { userId: true },
-  })).map(f => f.userId));
-  return owners.find(o => mercatoOwners.has(o)) ?? owners[0];
-}
-
-/**
  * طلبيات البوت المحفوظة في ملف كوديشن تظهر «عند كل الأشخاص المعنيين الذين أُسنِد
  * لهم هذا الايتم» (طلب صاحب المشروع): مشاركة الملف (FileUserShare) مع كل مستخدم نشط
  * في مكتب صاحب الملف له UserItemAssignment على ايتم من المحفوظ، ومع المراجِع نفسه.
@@ -322,6 +288,24 @@ async function shareWithItemAssignees(fileId, ownerId, reviewerId, itemIds) {
     data: [...userIds].map(userId => ({ fileId, userId })),
     skipDuplicates: true,
   });
+}
+
+/**
+ * POST /api/files/:id/move-to-shared-condition[?dryRun=1]
+ * ينقل ملف لكوديشن خاصاً بحساب إلى ملف اللكوديشن المشترك للمكتب ثم يحذفه.
+ * راجع moveConditionFileToShared في sales.service.js.
+ */
+export async function moveConditionToShared(req, res, next) {
+  try {
+    const fileId = Number(req.params.id);
+    if (!Number.isInteger(fileId)) throw new AppError('معرّف غير صالح', 400, 'BAD_ID');
+    const dryRun = req.query.dryRun === '1';
+    const data = await moveConditionFileToShared({ fileId, user: req.user, dryRun });
+    if (!dryRun) console.log(`[condition-move] file #${fileId} by user ${req.user?.id}:`, JSON.stringify(data));
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
 }
 
 /**

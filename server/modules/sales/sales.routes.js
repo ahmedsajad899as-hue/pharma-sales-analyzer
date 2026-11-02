@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadSales, extractInvoice, addManualSales, checkNames, checkDuplicates, conditionMatch,
+import { uploadSales, extractInvoice, addManualSales, checkNames, checkDuplicates, conditionMatch, moveConditionToShared,
   downloadWarehouseGapTemplate, parseWarehouseGapUpload, getWarehouseGapScopeJson,
   saveActiveFiles, getSalesMonths } from './sales.controller.js';
 import {
@@ -82,6 +82,12 @@ router.post('/sales/check-names', checkNames);
  * JSON: { pairs: [{ item, company }] }. مطابقة أسماء ملف لكوديشن المحافظات بايتمات وشركات المكتب.
  */
 router.post('/sales/condition-match', conditionMatch);
+
+/**
+ * POST /api/files/:id/move-to-shared-condition[?dryRun=1]
+ * نقل ملف لكوديشن خاص بحساب إلى ملف اللكوديشن المشترك ثم حذفه.
+ */
+router.post('/files/:id/move-to-shared-condition', moveConditionToShared);
 
 /**
  * POST /api/sales/check-duplicates

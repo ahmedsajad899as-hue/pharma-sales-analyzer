@@ -2258,7 +2258,7 @@ export async function resolveMercatoHeaders(target, userId) {
  * @param {number|null} opts.userId
  * @param {string|null} opts.uploadedBy
  */
-export async function insertManualSales({ rows, target = {}, userId = null, uploadedBy = null, rememberItems = [] }) {
+export async function insertManualSales({ rows, target = {}, userId = null, uploadedBy = null, rememberItems = [], batchName = null }) {
   const normalizeAr = s => String(s ?? '')
     .trim()
     .replace(/[أإآٱ]/g, 'ا')
@@ -2496,7 +2496,7 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
   if (uploadedFile.isCumulative) {
     const batch = await openMergeBatch({
       fileId:       uploadedFile.id,
-      originalName: `إدخال يدوي — ${new Date().toLocaleDateString('en-GB')}`,
+      originalName: batchName || `إدخال يدوي — ${new Date().toLocaleDateString('en-GB')}`,
       uploadedBy:   uploadedBy || null,
       fileType:     'sales',
     });
@@ -2583,6 +2583,135 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
 // ═══════════════════════════════════════════════════════════════════════════
 
 const CONDITION_READONLY_ROLES = new Set(['scientific_rep', 'commercial_rep']);
+
+/**
+ * صاحب ملف اللكوديشن المشترك الذي تُحفَظ فيه فواتير المستخدم اليدوية.
+ * ملف اللكوديشن واحد للمكتب: يملكه حساب الكروب (صاحب ملف ميركاتو التراكمي)
+ * ومُشارَك مع البقية. فمن يملك ملف ميركاتو بنفسه يكتب في ملفه؛ ومن شورك معه ملف
+ * لكوديشن من حساب في مكتبه يكتب فيه (الأقدم، وصاحب ميركاتو أولاً)؛ وإلا ملفه هو.
+ * المندوبون لا يكتبون في ملف غيرهم (نفس قاعدة canEditConditionFile).
+ */
+export async function resolveSharedConditionOwner(user) {
+  const uid = user?.id ?? null;
+  if (!uid || CONDITION_READONLY_ROLES.has(user.role)) return uid;
+  const notCond = { NOT: { mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } } };
+  const ownsMercato = await prisma.uploadedFile.count({
+    where: { userId: uid, isCumulative: true, sourceSystem: 'mercato', ...notCond },
+  });
+  if (ownsMercato) return uid;
+  const me = await prisma.user.findUnique({ where: { id: uid }, select: { officeId: true } });
+  const shared = await prisma.uploadedFile.findMany({
+    where: {
+      isCumulative: true, mergeGroup: { endsWith: `|${CONDITION_VARIANT}` },
+      userId: { not: uid }, fileShares: { some: { userId: uid } },
+      user: { isActive: true, ...(me?.officeId != null ? { officeId: me.officeId } : {}) },
+    },
+    select: { userId: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const owners = [...new Set(shared.map(f => f.userId))];
+  if (!owners.length) return uid;
+  const mercatoOwners = new Set((await prisma.uploadedFile.findMany({
+    where: { userId: { in: owners }, isCumulative: true, sourceSystem: 'mercato', ...notCond },
+    select: { userId: true },
+  })).map(f => f.userId));
+  return owners.find(o => mercatoOwners.has(o)) ?? owners[0];
+}
+
+/**
+ * نقل ملف لكوديشن «شارد» (أُنشئ لحساب رفع فواتير بنفسه قبل توحيد الملف) إلى
+ * ملف اللكوديشن المشترك ثم حذفه. الصفوف تُعاد عبر insertManualSales باسم صاحب
+ * الملف المشترك — المنطقة/المندوب/الزبون كيانات لكل حساب، فنقل uploadedFileId
+ * وحده كان سيترك الصفوف تشير لمناطق حساب آخر فتسقط من تقاريره. البصمة تُسقط ما
+ * هو محفوظ أصلاً في الملف المشترك (نفس الفاتورة حُفظت في الملفين).
+ *
+ * dryRun: معاينة فقط — { target, rows, hidden }.
+ * الملف القديم لا يُحذف إلا إذا دخل كل صف (أُضيف أو أُسقط كمكرر).
+ */
+export async function moveConditionFileToShared({ fileId, user, dryRun = false }) {
+  if (!(await canEditConditionFile(fileId, user))) {
+    throw new AppError('لا تملك صلاحية على ملف اللكوديشن هذا.', 403, 'FORBIDDEN');
+  }
+  const file = await prisma.uploadedFile.findUnique({
+    where: { id: fileId },
+    select: { id: true, userId: true, originalName: true, detectedCurrency: true, user: { select: { id: true, role: true } } },
+  });
+  const ownerId = await resolveSharedConditionOwner(file.user);
+  if (!ownerId || ownerId === file.userId) {
+    throw new AppError('هذا هو ملف اللكوديشن المشترك نفسه — لا يوجد ملف آخر يُنقل إليه.', 409, 'ALREADY_SHARED');
+  }
+  const group = `${ownerId}|mercato|${file.detectedCurrency || 'IQD'}|${CONDITION_VARIANT}`;
+  const targetFile = await prisma.uploadedFile.findFirst({
+    where: { userId: ownerId, isCumulative: true, mergeGroup: group },
+    select: { id: true, originalName: true, user: { select: { username: true, displayName: true } } },
+  });
+  const [rowsCount, hidden] = await Promise.all([
+    prisma.sale.count({ where: { uploadedFileId: fileId } }),
+    prisma.sale.count({ where: { uploadedFileId: fileId, isHidden: true } }),
+  ]);
+  const target = targetFile
+    ? { id: targetFile.id, originalName: targetFile.originalName, owner: targetFile.user?.displayName || targetFile.user?.username || '' }
+    : null;
+  if (dryRun) return { target, rows: rowsCount, hidden };
+  if (hidden > 0) {
+    throw new AppError(`في الملف ${hidden} صف مخفي (رفعة موقوفة أو فلتر) — فعّلها أو احذفها أولاً كي لا تضيع بالنقل.`, 409, 'HAS_HIDDEN_ROWS');
+  }
+
+  const sales = await prisma.sale.findMany({
+    where: { uploadedFileId: fileId },
+    orderBy: { id: 'asc' },
+    select: {
+      itemId: true, quantity: true, totalValue: true, saleDate: true, rawData: true,
+      item: { select: { name: true } }, area: { select: { name: true } },
+      customer: { select: { name: true } }, representative: { select: { name: true } },
+    },
+  });
+  const rows = sales.map(s => {
+    let raw = {};
+    try { raw = JSON.parse(s.rawData || '{}') || {}; } catch { /* rawData تالف — الأعمدة تكفي */ }
+    const undated = !s.saleDate || s.saleDate.getTime() === UNDATED_SENTINEL.getTime();
+    const area = s.area?.name && s.area.name !== 'غير محدد' ? s.area.name : '';
+    return {
+      item: s.item?.name || '', itemId: s.itemId,
+      company: raw.company ?? null,
+      quantity: s.quantity, totalValue: s.totalValue,
+      unitPrice: raw.unitPrice ?? null, bonus: raw.bonus ?? null,
+      pharmacy: raw.pharmacy ?? s.customer?.name ?? null,
+      area, warehouse: raw.warehouse ?? null, invoiceNumber: raw.invoiceNumber ?? null,
+      date: undated ? undefined : s.saleDate,
+      scientificRep: raw.scientificRep ?? null,
+      repName: s.representative?.name || '',
+      province: raw.province ?? null, notes: raw.notes ?? null, source: raw.source || 'manual-invoice',
+    };
+  });
+
+  const res = rows.length
+    ? await insertManualSales({
+        rows, userId: ownerId, uploadedBy: user.username || null,
+        target: { condition: true, sourceCurrency: file.detectedCurrency || 'IQD' },
+        batchName: `منقول من «${file.originalName}» (#${file.id})`,
+      })
+    : { addedCount: 0, skippedCount: 0, uploadedFile: target };
+  const moved = (res.addedCount || 0) + (res.skippedCount || 0);
+  if (moved < rows.length) {
+    // لم يدخل كل صف — نُبقي الملف القديم كما هو كي لا يضيع شيء.
+    return { added: res.addedCount, skipped: res.skippedCount, total: rows.length, deleted: false, target: res.uploadedFile };
+  }
+
+  // كل من كان يرى الملف القديم يرى المشترك (وصاحبه القديم أيضاً).
+  const newFileId = res.uploadedFile?.id;
+  if (newFileId) {
+    const viewers = new Set((await prisma.fileUserShare.findMany({ where: { fileId }, select: { userId: true } })).map(x => x.userId));
+    viewers.add(file.userId);
+    viewers.delete(ownerId);
+    if (viewers.size) {
+      await prisma.fileUserShare.createMany({ data: [...viewers].map(userId => ({ fileId: newFileId, userId })), skipDuplicates: true });
+    }
+  }
+  await prisma.sale.deleteMany({ where: { uploadedFileId: fileId } });
+  await prisma.uploadedFile.delete({ where: { id: fileId } });
+  return { added: res.addedCount, skipped: res.skippedCount, total: rows.length, deleted: true, target: res.uploadedFile };
+}
 
 /** هل يعدّل هذا المستخدم ملف الكوديشن؟ المالك، أو مَن شورك معه وليس مندوباً. */
 export async function canEditConditionFile(fileId, user) {
