@@ -1013,7 +1013,13 @@ export async function ingestBotOrder({
   }
   if (forwards.length && !keep.length) lines.unshift('تم الاستلام والتحليل');
   // الإرسال للمذخر يأخذ الطلبية كاملة (لا مقسّمة على مدراء الأصناف) ولا يؤخّر ردّ البوت.
-  createFromBotOrder({ user, pendingId: pendingIds[0] ?? null, rows, source, chatId, repName: repName || senderName });
+  // فاتورة مذخر مطبوعة (صورة قُرئ منها رقم فاتورة أو مذخر الترويسة) = بيعٌ جهّزه
+  // المذخر فعلاً، لا طلبية تُرسَل إليه — كانت تُنشئ إرسالاً «بانتظار تحديد المذخر»
+  // لكل فاتورة مرفوعة (2026-11-02).
+  const toDispatch = kind === 'photo' ? rows.filter(r => !r.invoiceNumber && !r.warehouse) : rows;
+  if (toDispatch.length) {
+    createFromBotOrder({ user, pendingId: pendingIds[0] ?? null, rows: toDispatch, source, chatId, repName: repName || senderName });
+  }
   return lines.join('\n');
 }
 
