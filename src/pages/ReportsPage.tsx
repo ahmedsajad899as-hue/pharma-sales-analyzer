@@ -166,10 +166,28 @@ const companyColorPair = (index: number): [light: string, dark: string] => {
 };
 const hexToARGB = (hex: string): string => 'FF' + hex.replace('#', '').toUpperCase();
 
+/* عرض العمود حسب محتواه: أطول نص فيه (الترويسة العريضة أو أي قيمة) + هامش، بين حدّين —
+   بدل عرض ثابت 22 لكل الأعمدة. صفوف الخلية الواحدة (عناوين مثل «ملخص بيانات المستخدم»)
+   لا تُحتسب حين للشيت أكثر من عمود: تفيض في الخلايا المجاورة الفارغة بدل توسيع العمود كله. */
+const COL_W_MIN = 6;
+const COL_W_MAX = 50;
+const autoColWidth = (aoa: any[][], c: number, nCols: number, headerRows: number): number => {
+  let w = 0;
+  aoa.forEach((row, r) => {
+    if (nCols > 1 && row.length === 1) return;
+    const v = row[c];
+    if (v === undefined || v === null || v === '') return;
+    const text = typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 2 }) : String(v);
+    const len = Math.max(...text.split('\n').map(l => l.length));
+    w = Math.max(w, r < headerRows ? Math.ceil(len * 1.15) : len); // الترويسة عريضة وبخط أكبر
+  });
+  return Math.min(COL_W_MAX, Math.max(COL_W_MIN, w + 3));
+};
+
 const styleSheet = (ws: XLSX.WorkSheet, aoa: any[][], colWidths?: number[], headerRows = 1) => {
   const nRows = aoa.length;
   const nCols = aoa.reduce((m, r) => Math.max(m, r.length), 0);
-  ws['!cols'] = Array.from({ length: nCols }, (_, i) => ({ wch: colWidths?.[i] ?? 22 }));
+  ws['!cols'] = Array.from({ length: nCols }, (_, i) => ({ wch: colWidths?.[i] ?? autoColWidth(aoa, i, nCols, headerRows) }));
   const thinBorder = { style: 'thin', color: { rgb: BORDER_RGB } };
   const headerRow = aoa[headerRows - 1] ?? [];
   for (let r = 0; r < nRows; r++) {
