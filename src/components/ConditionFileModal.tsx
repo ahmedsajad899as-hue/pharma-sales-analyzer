@@ -287,7 +287,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} dir="rtl" style={{ background: '#fff', borderRadius: 14, width: 'min(1100px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 18, boxShadow: '0 20px 50px rgba(0,0,0,.25)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap', flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 16, flex: '1 1 200px' }}>📋 {fileName}</h3>
           {/* بغداد / المحافظات — ضغطة ثانية على الزر نفسه تُرجع الكل */}
           {([['baghdad', '🏙️ بغداد'], ['provinces', '🗺️ المحافظات']] as [Exclude<Scope, null>, string][]).map(([k, label]) => (
@@ -309,7 +309,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
 
         {error && <div style={{ color: 'var(--c-danger)', fontSize: 13, marginBottom: 8 }}>{error}</div>}
         {!loading && mercatoDup.rows > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', color: 'var(--c-danger)', fontSize: 12.5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 0, marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--c-danger-bg)', border: '1px solid var(--c-danger-border)', color: 'var(--c-danger)', fontSize: 12.5 }}>
             <span style={{ flex: '1 1 260px' }}>
               🏬 {fmt(mercatoDup.rows)} صف ({fmt(mercatoDup.total)} {currency}) محسوب أيضاً في مبيع ميركاتو
               {mercatoDup.sure < mercatoDup.rows ? ` — ${fmt(mercatoDup.rows - mercatoDup.sure)} منها محتمل فقط` : ''}.
@@ -328,8 +328,10 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
           </div>
         ) : (
           <>
-            {/* الشيتات: ملخّص + مندوب لكل تبويب */}
-            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid #e2e8f0' }}>
+            {/* الشيتات: ملخّص + مندوب لكل تبويب. flexShrink:0 — داخل نافذة عمودية بارتفاع
+                أقصى كان الجدول الطويل يضغط صف التبويبات فيُقصّ وتتداخل أزراره معه؛ والتفاف
+                الأزرار بدل التمرير الأفقي يُبقي كل المندوبين ظاهرين. */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flexShrink: 0, paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid #e2e8f0' }}>
               <button onClick={() => setTab(SUMMARY)} style={tabBtn(tab === SUMMARY)}>📊 الملخص</button>
               {companySheet && (
                 <button onClick={() => setTab(COMPANY)} style={tabBtn(tab === COMPANY)}
