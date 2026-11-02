@@ -40,3 +40,44 @@ export function rotateJpeg(buf, degrees) {
 }
 
 export const canRotate = (buf) => isJpeg(buf) && buf.length <= MAX_BYTES;
+
+/**
+ * قصاصة مكبّرة من JPEG: box = [ymin,xmin,ymax,xmax] بمقياس 0-1000، تُوسَّع بهامش
+ * ثم تُكبَّر (bilinear) حتى يبلغ ضلعها الأطول ~minSide. سطر الزبون خطّه صغير وسط
+ * صورة كاملة تُصغَّر عند الموديل، فيقرأ الجدول ويضيع الاسم — القصاصة تمنحه بكسلات
+ * أكثر لكل حرف. يُعيد Buffer أو null.
+ */
+export function cropJpeg(buf, box, { pad = 60, minSide = 1400, maxScale = 3 } = {}) {
+  if (!canRotate(buf) || !Array.isArray(box) || box.length !== 4) return null;
+  const { width: w, height: h, data } = jpeg.decode(buf, {
+    useTArray: true, formatAsRGBA: true, maxResolutionInMP: MAX_PIXELS / 1e6, maxMemoryUsageInMB: 256,
+  });
+  const clamp = (v, hi) => Math.max(0, Math.min(hi, v));
+  const [y1, x1, y2, x2] = box.map(Number);
+  const left = Math.floor(clamp(Math.min(x1, x2) - pad, 1000) / 1000 * w);
+  const right = Math.ceil(clamp(Math.max(x1, x2) + pad, 1000) / 1000 * w);
+  const top = Math.floor(clamp(Math.min(y1, y2) - pad, 1000) / 1000 * h);
+  const bottom = Math.ceil(clamp(Math.max(y1, y2) + pad, 1000) / 1000 * h);
+  const cw = right - left, ch = bottom - top;
+  if (cw < 20 || ch < 20) return null;
+  const s = Math.max(1, Math.min(maxScale, minSide / Math.max(cw, ch)));
+  const nw = Math.round(cw * s), nh = Math.round(ch * s);
+  const out = Buffer.alloc(nw * nh * 4);
+  for (let y = 0; y < nh; y++) {
+    const sy = Math.min(ch - 1, y / s), y0 = Math.floor(sy), y1b = Math.min(ch - 1, y0 + 1), fy = sy - y0;
+    for (let x = 0; x < nw; x++) {
+      const sx = Math.min(cw - 1, x / s), x0 = Math.floor(sx), x1b = Math.min(cw - 1, x0 + 1), fx = sx - x0;
+      const i00 = ((top + y0) * w + left + x0) * 4, i01 = ((top + y0) * w + left + x1b) * 4;
+      const i10 = ((top + y1b) * w + left + x0) * 4, i11 = ((top + y1b) * w + left + x1b) * 4;
+      const di = (y * nw + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        out[di + c] = Math.round(
+          (data[i00 + c] * (1 - fx) + data[i01 + c] * fx) * (1 - fy)
+          + (data[i10 + c] * (1 - fx) + data[i11 + c] * fx) * fy,
+        );
+      }
+      out[di + 3] = 255;
+    }
+  }
+  return Buffer.from(jpeg.encode({ data: out, width: nw, height: nh }, 92).data);
+}

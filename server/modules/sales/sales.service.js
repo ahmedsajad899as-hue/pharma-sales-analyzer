@@ -4,7 +4,7 @@
  * Orchestrates repository calls — no direct DB access here.
  */
 
-import { canRotate, rotateJpeg } from '../../lib/invoiceImage.js';
+import { canRotate, rotateJpeg, cropJpeg } from '../../lib/invoiceImage.js';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
 import { repCoreName, buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import XLSX from 'xlsx';
@@ -47,12 +47,19 @@ import { callQwen, qwenConfigured } from '../../lib/qwenAi.js';
 
 // صور الفواتير تُقرأ بـ Qwen-VL (أرخص)، وClaude احتياطي إن فشل Qwen أو لم يُهيّأ مفتاحه —
 // حتى لا تتوقّف قراءة الفواتير بسبب عطل مزوّد واحد.
+// رفض صلاحية (401/403/404) لا يزول بإعادة المحاولة: مقيس (2026-11-02) — كل نداء
+// فاتورة كان يجرّب Qwen أولاً فيرجع 403 ثم يُعاد على Claude، ~7 رحلات ضائعة لكل صورة
+// تأكل من ميزانية وقت الألبوم. بعد رفضٍ كهذا يُتخطّى Qwen نصف ساعة.
+const QWEN_COOLDOWN_MS = 30 * 60_000;
+let qwenDisabledUntil = 0;
 async function callInvoiceAI(parts, opts) {
-  if (!qwenConfigured()) return callAI(parts, opts);
+  if (!qwenConfigured() || Date.now() < qwenDisabledUntil) return callAI(parts, opts);
   try {
     return await callQwen(parts, opts);
   } catch (err) {
-    console.error(`[invoice-extract] Qwen فشل (${opts?.feature}) — احتياطي Claude:`, String(err?.message || '').slice(0, 150));
+    const msg = String(err?.message || '');
+    if (/HTTP\s+40[134]\b/.test(msg)) qwenDisabledUntil = Date.now() + QWEN_COOLDOWN_MS;
+    console.error(`[invoice-extract] Qwen فشل (${opts?.feature}) — احتياطي Claude:`, msg.slice(0, 150));
     return callAI(parts, opts);
   }
 }
@@ -1510,10 +1517,23 @@ export function isCopiedFromPrompt(pharmacy, promptText) {
  * يقرأ سطر الزبون من صورة فاتورة. يُعيد { pharmacy, area } أو null.
  * لا يرمي أبداً — فشله يترك الحقلين فارغين ليملأهما المراجِع.
  */
-export async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse = '', thinkingBudget = 0 } = {}) {
+// رقم هاتف (7 أرقام فأكثر، وقد تتخلّله مسافات/شرطات) مع عنوانه إن وُجد — يُحذف من
+// سطر الزبون قبل فحص «الأرقام = جدول». «رقم الهاتف: 0781 229 7498» ليس جزءاً من الاسم.
+export function stripPhones(s) {
+  return String(s ?? '')
+    .replace(/(?:رقم\s+)?(?:الهاتف|هاتف|الموبايل|موبايل|تلفون|الجوال|جوال|tel|mob(?:ile)?|phone)\s*[:：.]?\s*(?=[+\d٠-٩])/gi, ' ')
+    .replace(/\+?[\d٠-٩](?:[\s\-]?[\d٠-٩]){6,}/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+export async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse = '', thinkingBudget = 0, cropped = false } = {}) {
   try {
+    const promptText = cropped
+      ? `${buildCustomerLinePrompt(warehouse)}\n\n**ملاحظة:** هذه الصورة **قصاصة مكبّرة** من منطقة الزبون في الفاتورة (لا الورقة كاملة) — سطر الزبون داخلها وليس بالضرورة في أعلاها.`
+      : buildCustomerLinePrompt(warehouse);
     const text = await callInvoiceAI(
-      [buildCustomerLinePrompt(warehouse), { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }],
+      [promptText, { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }],
       { timeoutMs, thinkingBudget, feature: 'invoice-customer-line' },
     );
     const o = parseJsonObject(text);
@@ -1522,30 +1542,36 @@ export async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse =
     // لاحقة المندوب تُسقَط **قبل** الفصل لا بعده: في «محمد فارس محسن - حي
     // المستنصرية م محمد علي» تجعل اللاحقةُ الذيلَ خمس كلمات، فيتجاوز حدّ
     // splitPharmacyArea (أربع كلمات) ولا ينفصل شيء إطلاقاً.
-    const line = String(o.line ?? '').trim().replace(/\s+م(?:\s+[^\s\d]{2,}){1,3}\s*$/, '').trim();
-    const split = line
-      ? splitPharmacyArea(line, o.area ?? '')
-      : splitPharmacyArea(o.pharmacy ?? '', o.area ?? '');
+    const line = stripPhones(String(o.line ?? '')).replace(/\s+م(?:\s+[^\s\d]{2,}){1,3}\s*$/, '').trim();
     const areaField = String(o.areaField ?? '').trim().replace(/^(?:المنطقة|المنطقه|منطقة|منطقه)\s*[:：]?\s*/, '');
-    if (areaField && areaField.toLowerCase() !== 'null') split.area = areaField;
-    if (!split.pharmacy) return null;
-    // رقم من 3 خانات فأكثر = سعر/هاتف/كمية قُرئت من الجدول لا اسم صيدلية.
-    if (/\d{3,}/.test(split.pharmacy.replace(/[\s,.'٬]/g, '')) || /[٠-٩]{3,}/.test(split.pharmacy)) return null;
-    if (/\d{3,}/.test(String(split.area ?? '').replace(/[\s,.'٬]/g, ''))) split.area = '';
-    if (isCopiedFromPrompt(split.pharmacy, buildCustomerLinePrompt(warehouse))) {
-      console.error('[invoice-extract] رُفضت قراءة منسوخة من مثال البرومبت:', split.pharmacy);
-      return null;
+    // السطر الحرفي أولاً، ثم حقل pharmacy المنظَّف كاحتياط: في فواتير مثل «طريق
+    // السلام» يُطبع الهاتف وحقول أخرى بجانب الزبون فيحمل السطرُ أرقاماً تُسقطه،
+    // بينما pharmacy المُعاد معه صحيح — كان يُرمى معه فتبقى الخانة فارغة.
+    const tries = [];
+    if (line) tries.push(splitPharmacyArea(line, o.area ?? ''));
+    if (o.pharmacy) tries.push(splitPharmacyArea(stripPhones(String(o.pharmacy)), o.area ?? ''));
+    const prompt = buildCustomerLinePrompt(warehouse);
+    for (const split of tries) {
+      if (areaField && areaField.toLowerCase() !== 'null') split.area = areaField;
+      if (!split.pharmacy) continue;
+      // رقم من 3 خانات فأكثر = سعر/هاتف/كمية قُرئت من الجدول لا اسم صيدلية.
+      if (/\d{3,}/.test(split.pharmacy.replace(/[\s,.'٬]/g, '')) || /[٠-٩]{3,}/.test(split.pharmacy)) continue;
+      if (/\d{3,}/.test(String(split.area ?? '').replace(/[\s,.'٬]/g, ''))) split.area = '';
+      if (isCopiedFromPrompt(split.pharmacy, prompt)) {
+        console.error('[invoice-extract] رُفضت قراءة منسوخة من مثال البرومبت:', split.pharmacy);
+        continue;
+      }
+      // حارس: النداء المركَّز يُعيد أحياناً اسم المذخر (البائع) بدل الزبون. كتابة
+      // المذخر في خانة الصيدلية أسوأ من تركها فارغة — تُنشئ زبوناً وهمياً باسم
+      // مذخر يلتصق بالمبيعات، فنرفضه.
+      if (isWarehouseAsPharmacy(split.pharmacy, warehouse)) {
+        console.error('[invoice-extract] رُفض سطر زبون يطابق المذخر:', split.pharmacy);
+        continue;
+      }
+      return split;
     }
-
-    // حارس: النداء المركَّز يُعيد أحياناً اسم المذخر (البائع) بدل الزبون. كتابة
-    // المذخر في خانة الصيدلية أسوأ من تركها فارغة — تُنشئ زبوناً وهمياً باسم
-    // مذخر يلتصق بالمبيعات، فنرفضه.
-    const looksLikeWarehouse = isWarehouseAsPharmacy(split.pharmacy, warehouse);
-    if (looksLikeWarehouse) {
-      console.error('[invoice-extract] رُفض سطر زبون يطابق المذخر:', split.pharmacy);
-      return null;
-    }
-    return split;
+    if (tries.length) console.error('[invoice-extract] رُفض سطر الزبون:', String(o.line ?? o.pharmacy ?? '').slice(0, 120));
+    return null;
   } catch (err) {
     console.error('[invoice-extract] فشل قراءة سطر الزبون:', String(err?.message || '').slice(0, 150));
     return null;
@@ -1815,8 +1841,10 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
       });
       let imageRows = [];
       let imageWarehouseAddress = '';
+      let custBoxOriented = null; // كتلة الزبون بإحداثيات الصورة المُدارة (لقصّها أدناه)
       for (const row of parseInvoiceJson(text)) {
         if (!imageWarehouseAddress && row.warehouseAddress) imageWarehouseAddress = String(row.warehouseAddress);
+        if (!custBoxOriented) custBoxOriented = normalizeBox(row.box_customer);
         const split = splitPharmacyArea(row.pharmacy, row.area); // clean prefixes + split "name - area"
         row.pharmacy = (isWarehouseAsPharmacy(split.pharmacy, row.warehouse) || isCopiedFromPrompt(split.pharmacy, INVOICE_PROMPT))
           ? '' : split.pharmacy;
@@ -1850,6 +1878,33 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
           for (const r of imageRows) {
             r.pharmacy = cust.pharmacy;
             if (cust.area || !r.area) r.area = cust.area;
+          }
+        }
+      }
+
+      // آخر محاولة: الصيدلية ما زالت فارغة ⇒ قصاصة مكبّرة لكتلة الزبون. الصورة الكاملة
+      // تُصغَّر عند الموديل فيقرأ أصناف الجدول الكبيرة ويضيع سطر الزبون الصغير (خصوصاً
+      // الصور المائلة). بلا صندوق من القراءة الأولى نقصّ النصف العلوي — مكان الترويسة.
+      if (imageRows.length > 0 && !imageRows.some(r => r.pharmacy)
+          && OVERALL_BUDGET_MS - (Date.now() - started) > 15_000) {
+        let crop = null;
+        try {
+          crop = cropJpeg(Buffer.from(img.base64, 'base64'), custBoxOriented || [0, 0, 550, 1000]);
+        } catch (e) {
+          console.error('[invoice-extract] تعذّر قصّ كتلة الزبون:', String(e?.message || '').slice(0, 120));
+        }
+        if (crop) {
+          const cust = await extractCustomerLineVoted({ mimeType: 'image/jpeg', base64: crop.toString('base64') }, {
+            timeoutMs: Math.min(45_000, Math.max(10_000, OVERALL_BUDGET_MS - (Date.now() - started))),
+            warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
+            cropped: true,
+          }, 3);
+          if (cust && isWarehouseAddressArea(cust.area, whAddress)) cust.area = '';
+          if (cust?.pharmacy) {
+            for (const r of imageRows) {
+              r.pharmacy = cust.pharmacy;
+              if (cust.area || !r.area) r.area = cust.area;
+            }
           }
         }
       }
