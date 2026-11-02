@@ -2610,7 +2610,7 @@ export async function resolveSharedConditionOwner(user) {
       user: { isActive: true, ...(me?.officeId != null ? { officeId: me.officeId } : {}) },
     },
     select: { userId: true },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { id: 'asc' },
   });
   const owners = [...new Set(shared.map(f => f.userId))];
   if (!owners.length) return uid;
