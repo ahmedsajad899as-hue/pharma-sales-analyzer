@@ -2588,37 +2588,39 @@ export async function insertManualSales({ rows, target = {}, userId = null, uplo
 const CONDITION_READONLY_ROLES = new Set(['scientific_rep', 'commercial_rep']);
 
 /**
- * صاحب ملف اللكوديشن المشترك الذي تُحفَظ فيه فواتير المستخدم اليدوية.
- * ملف اللكوديشن واحد للمكتب: يملكه حساب الكروب (صاحب ملف ميركاتو التراكمي)
- * ومُشارَك مع البقية. فمن يملك ملف ميركاتو بنفسه يكتب في ملفه؛ ومن شورك معه ملف
- * لكوديشن من حساب في مكتبه يكتب فيه (الأقدم، وصاحب ميركاتو أولاً)؛ وإلا ملفه هو.
- * المندوبون لا يكتبون في ملف غيرهم (نفس قاعدة canEditConditionFile).
+ * صاحب ملف اللكوديشن المشترك للمكتب — كل ما يُحفَظ «في ملف اللكوديشن» (طلبية بوت
+ * من أي مُرسِل، أو صور فواتير رفعها أي مستخدم: مدير شركة، موظف، مندوب) يذهب إليه.
+ * طلب صاحب المشروع: ملف لكوديشن واحد مشترك، لا ملف لكل حساب؛ وكلٌّ يرى منه ما يخصّ
+ * فريقه وايتماته (نطاق العرض يقع في conditionFile.js والتقارير، لا في الملكية).
+ *
+ * الملف المختار من ملفات اللكوديشن لحسابات المكتب النشطة: صاحب ملف ميركاتو تراكمي
+ * أولاً (حساب الكروب — الملف المرتبط بميركاتو)، ثم الأكثر صفوفاً، ثم الأقدم. بلا
+ * ملف لكوديشن في المكتب: صاحب أقدم ملف ميركاتو (يُنشأ له). بلا مكتب: ملف المستخدم.
  */
 export async function resolveSharedConditionOwner(user) {
   const uid = user?.id ?? null;
-  if (!uid || CONDITION_READONLY_ROLES.has(user.role)) return uid;
-  const notCond = { NOT: { mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } } };
-  const ownsMercato = await prisma.uploadedFile.count({
-    where: { userId: uid, isCumulative: true, sourceSystem: 'mercato', ...notCond },
-  });
-  if (ownsMercato) return uid;
+  if (!uid) return uid;
   const me = await prisma.user.findUnique({ where: { id: uid }, select: { officeId: true } });
-  const shared = await prisma.uploadedFile.findMany({
-    where: {
-      isCumulative: true, mergeGroup: { endsWith: `|${CONDITION_VARIANT}` },
-      userId: { not: uid }, fileShares: { some: { userId: uid } },
-      user: { isActive: true, ...(me?.officeId != null ? { officeId: me.officeId } : {}) },
-    },
-    select: { userId: true },
-    orderBy: { id: 'asc' },
-  });
-  const owners = [...new Set(shared.map(f => f.userId))];
-  if (!owners.length) return uid;
-  const mercatoOwners = new Set((await prisma.uploadedFile.findMany({
-    where: { userId: { in: owners }, isCumulative: true, sourceSystem: 'mercato', ...notCond },
-    select: { userId: true },
-  })).map(f => f.userId));
-  return owners.find(o => mercatoOwners.has(o)) ?? owners[0];
+  if (me?.officeId == null) return uid;
+  const inOffice = { user: { isActive: true, officeId: me.officeId } };
+  const [conds, mercato] = await Promise.all([
+    prisma.uploadedFile.findMany({
+      where: { isCumulative: true, mergeGroup: { endsWith: `|${CONDITION_VARIANT}` }, ...inOffice },
+      select: { id: true, userId: true, _count: { select: { sales: true } } },
+      orderBy: { id: 'asc' },
+    }),
+    prisma.uploadedFile.findMany({
+      where: { isCumulative: true, sourceSystem: 'mercato', NOT: { mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } }, ...inOffice },
+      select: { userId: true },
+      orderBy: { id: 'asc' },
+    }),
+  ]);
+  const mercatoOwners = new Set(mercato.map(f => f.userId));
+  const best = [...conds].sort((a, b) =>
+    (Number(mercatoOwners.has(b.userId)) - Number(mercatoOwners.has(a.userId)))
+    || (b._count.sales - a._count.sales)
+    || (a.id - b.id))[0];
+  return best?.userId ?? mercato[0]?.userId ?? uid;
 }
 
 /**

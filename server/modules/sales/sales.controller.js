@@ -201,13 +201,20 @@ export async function addManualSales(req, res, next) {
     // (الملف المشترك مع إدارة المكتب) لا في ملف شخصي عند المدير. loadOrderOrigins
     // يفحص أن الطلبية تخصّ المراجِع — فلا يكتب أحد في ملف غيره إلا بطلبية حُوِّلت له.
     const origins = (tgt.condition && orderIds.length) ? await loadOrderOrigins(reviewerId, orderIds) : new Map();
-    // صور فواتير رُفعت يدوياً (بلا طلبية بوت) تذهب أيضاً للملف المشترك — وإلا صار
-    // لكل حساب يرفع فواتير «مبيعات اللكوديشن» خاصاً به.
-    const defaultOwner = (tgt.condition && !tgt.fileId) ? await resolveSharedConditionOwner(req.user) : reviewerId;
+    // ملف اللكوديشن واحد للمكتب: طلبية البوت (أياً كان مُرسِلها — حساب الكروب أو
+    // مدير يرسل من حسابه) وصور الفواتير اليدوية كلها تذهب لملف المكتب المشترك،
+    // وإلا صار لكل مُرسِل/رافع «مبيعات اللكوديشن» خاصاً به.
+    const sharedCond = tgt.condition && !tgt.fileId;
+    const ownerCache = new Map();
+    const condOwnerOf = async (uid) => {
+      if (!sharedCond) return uid;
+      if (!ownerCache.has(uid)) ownerCache.set(uid, await resolveSharedConditionOwner({ id: uid }));
+      return ownerCache.get(uid);
+    };
     const partitions = new Map(); // ownerId → rows
     for (const r of rows) {
       const { pendingOrderId: rowOrderId, ...clean } = r || {};
-      const owner = origins.get(Number(rowOrderId)) ?? defaultOwner;
+      const owner = await condOwnerOf(origins.get(Number(rowOrderId)) ?? reviewerId);
       if (!partitions.has(owner)) partitions.set(owner, []);
       partitions.get(owner).push(clean);
     }
@@ -360,8 +367,10 @@ export async function checkDuplicates(req, res, next) {
     if (target?.condition && Array.isArray(pendingOrderIds) && pendingOrderIds.length) {
       const origins = [...new Set((await loadOrderOrigins(userId, pendingOrderIds)).values())];
       if (origins.length === 1) userId = origins[0];
-    } else if (target?.condition && !target?.fileId) {
-      userId = await resolveSharedConditionOwner(req.user);
+    }
+    // ملف اللكوديشن المشترك للمكتب — نفس وجهة الحفظ في addManualSales.
+    if (target?.condition && !target?.fileId) {
+      userId = await resolveSharedConditionOwner({ id: userId });
     }
     const data = await checkManualDuplicates({
       rows, target: target || {}, userId,

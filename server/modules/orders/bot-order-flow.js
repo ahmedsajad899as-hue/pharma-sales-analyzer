@@ -16,7 +16,7 @@
 // للمستخدم — الطلبية تختفي صامتةً وهو يظنّها وصلت.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { extractInvoiceRows } from '../sales/sales.service.js';
+import { extractInvoiceRows, resolveSharedConditionOwner } from '../sales/sales.service.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { extractOrderRowsFromText } from './order-extract.js';
 import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
@@ -209,7 +209,7 @@ export async function handleIncomingOrderMessage({
     try {
       const dup = await checkManualDuplicates({
         rows: rows.map(r => ({ ...r, group: r._imageIndex != null ? `img${r._imageIndex}` : 'order' })),
-        target: { condition: true }, userId: user.id, receivedAt: new Date(),
+        target: { condition: true }, userId: await resolveSharedConditionOwner(user), receivedAt: new Date(),
       });
       dupNote = duplicateWarningText(dup);
     } catch (e) {
