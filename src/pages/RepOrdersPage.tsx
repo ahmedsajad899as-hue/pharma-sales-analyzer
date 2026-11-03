@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, ClipboardPaste, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './RepOrdersPage.css';
 
@@ -877,6 +877,35 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
   // لوحة المذاخر تُفتح مغلقة كلها — المستخدم يفتح المذخر الذي يريده (طلب صاحب المشروع)
   const [sel, setSel] = useState<number>(-1);
   useEffect(() => { setSel(-1); }, [o.id]);
+
+  // إدراج فاتورة من أسفل لوحة المذاخر: المذخر المفتوح إن وُجد وإلا الحالي — يُغيَّر في نافذة التجهيز
+  const canAddInvoice = state !== 'cancelled';
+  const addInvoice = (f: File) => onPrepare((sel >= 0 ? o.warehouses[sel]?.id : null) ?? currentWh(o).id, f);
+  const addInvoiceRef = useRef(addInvoice);
+  addInvoiceRef.current = addInvoice;
+  const pasteInvoice = async () => {
+    try {
+      for (const it of await navigator.clipboard.read()) {
+        const type = it.types.find(t => t.startsWith('image/'));
+        if (type) { const b = await it.getType(type); addInvoice(new File([b], `invoice.${type.split('/')[1] || 'png'}`, { type })); return; }
+      }
+      alert('لا توجد صورة منسوخة — انسخ صورة الفاتورة من واتساب (نسخ) ثم اضغط «لصق فاتورة».');
+    } catch {
+      alert('المتصفح لم يسمح بقراءة الحافظة — اضغط Ctrl+V والطلبية مفتوحة، أو استعمل «إدراج فاتورة».');
+    }
+  };
+  // Ctrl+V بصورة منسوخة والطلبية مفتوحة ← نافذة التجهيز بالفاتورة (لا حين تكون نافذة أخرى مفتوحة)
+  useEffect(() => {
+    if (!open || !canAddInvoice) return;
+    const onPaste = (e: ClipboardEvent) => {
+      if (document.querySelector('.ro-modal')) return;
+      const f = [...(e.clipboardData?.files ?? [])].find(x => x.type.startsWith('image/'));
+      if (f) { e.preventDefault(); addInvoiceRef.current(f); }
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [open, canAddInvoice]);
+
   // أُرسلت لهذا المذخر ولم يرد بعد ← لا زر إرسال (المتابعة من كروبه، أو «مشاركة» لإعادة الإرسال)
   const lastSend = o.sends[o.sends.length - 1];
   const awaiting = (w: OrderWh) => (lastSend
@@ -1070,12 +1099,6 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
 
                             <div className="ro-whp__files">
                               {state !== 'cancelled' && (
-                                <label className="ro-alt-btn ro-file-btn">
-                                  <Camera size={14} /> {ws.images.length ? 'فاتورة أخرى' : 'رفع فاتورته'}
-                                  <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) onPrepare(w.id, f); e.target.value = ''; }} />
-                                </label>
-                              )}
-                              {state !== 'cancelled' && (
                                 <button className="ro-alt-btn" onClick={() => onPrepare(w.id, null)}>
                                   <Check size={14} /> {m && m !== 'sent' && m !== 'noreply' ? 'تعديل تجهيزه' : 'تسجيل تجهيزه'}
                                 </button>
@@ -1100,10 +1123,24 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                   })}
                 </div>
 
-                {/* فواتير التجهيز تحت لوحة المذاخر لا داخل بطاقاتها (طلب صاحب المشروع) — كل صورة باسم مذخرها */}
-                {o.sends.some(sd => sd.image) && (
+                {/* فواتير التجهيز تحت لوحة المذاخر لا داخل بطاقاتها (طلب صاحب المشروع) — كل صورة باسم مذخرها.
+                    الإدراج من هنا (ملف أو لصق صورة منسوخة من واتساب)، ونافذة التجهيز يُختار فيها المذخر */}
+                {(canAddInvoice || o.sends.some(sd => sd.image)) && (
                   <div className="ro-invoices">
-                    <div className="ro-slot__label">فواتير التجهيز</div>
+                    <div className="ro-invoices__head">
+                      <div className="ro-slot__label">فواتير التجهيز</div>
+                      {canAddInvoice && (
+                        <div className="ro-invoices__add">
+                          <label className="ro-alt-btn ro-file-btn">
+                            <Camera size={14} /> إدراج فاتورة
+                            <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) addInvoice(f); e.target.value = ''; }} />
+                          </label>
+                          <button type="button" className="ro-alt-btn" title="لصق صورة فاتورة منسوخة (من واتساب مثلاً) — أو Ctrl+V والطلبية مفتوحة" onClick={pasteInvoice}>
+                            <ClipboardPaste size={14} /> لصق فاتورة
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     <div className="ro-invoices__list">
                       {o.sends.filter(sd => sd.image).map(sd => (
                         <figure key={sd.id} className="ro-invoices__item">

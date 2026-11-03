@@ -666,3 +666,6 @@ button.ro-prep { cursor: pointer; }
 .ro-icon-btn--tg { color: #fff; background: #229ed9; border-color: #229ed9; }
 .ro-send-btn--tg { background: #229ed9; box-shadow: 0 2px 10px rgba(34, 158, 217, 0.3); }
 .ro-send-btn--link { background: #475569; box-shadow: none; }
+/* إدراج/لصق فاتورة التجهيز — أسفل لوحة المذاخر */
+.ro-invoices__head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+.ro-invoices__add { display: flex; flex-wrap: wrap; gap: 6px; }
