@@ -2120,7 +2120,6 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
               ))}
             </div>
           ))}
-          <div className="ro-muted ro-small">إن وُضع رابط كروب المذخر (واتساب أو فايبر) يفتح زرّ الإرسال الكروب والطلبية منسوخة، وإلا يُرسل لرقم الواتساب. المذخر الذي له معرّف فقط تُنسخ طلبيته للمشاركة. الدليل مشترك بين حسابات المكتب.</div>
         </div>
       </div>
     </div>
