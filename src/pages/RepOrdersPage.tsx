@@ -1958,6 +1958,20 @@ function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged,
 
   const setLine = (key: number, patch: Partial<FormLine>) => setLines(ls => ls.map(l => (l.key === key ? { ...l, ...patch } : l)));
   const pickedIds = useMemo(() => new Set(lines.map(l => l.itemId).filter((x): x is number => x != null)), [lines]);
+  // Enter وزر «التالي» بكيبورد الهاتف للخانة التالية (كمية ← بونص ← كمية السطر التالي ← الملاحظات)،
+  // وسهما أعلى/أسفل لنفس الخانة بالسطر المجاور بدل تغيير الرقم
+  const notesRef = useRef<HTMLInputElement>(null);
+  const onLinesKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const el = e.target as HTMLInputElement;
+    if (el.tagName !== 'INPUT') return;
+    const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+    if (e.key !== 'Enter' && !(step && el.type === 'number')) return;
+    e.preventDefault();
+    const fields = Array.from(e.currentTarget.querySelectorAll<HTMLInputElement>(step ? `input[data-col="${el.dataset.col}"]` : 'input'));
+    const target = fields[fields.indexOf(el) + (step || 1)] ?? (step < 0 ? null : notesRef.current);
+    target?.focus();
+    target?.select();
+  };
   // مذخر الطلبية القديمة يبقى قابلاً للاختيار وإن خرج من دليل المسوّق (خارج محافظته)
   const pickable = useMemo(() => {
     const known = new Set(warehouses.map(w => w.id));
@@ -2056,17 +2070,17 @@ function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged,
             </div>
           )}
 
-          <div className="ro-form-lines">
+          <div className="ro-form-lines" onKeyDown={onLinesKey}>
             {lines.length > 0 && <div className="ro-form-line ro-form-line--head"><span>الايتم</span><span>الشركة</span><span>الكمية</span><span>بونص</span><span /></div>}
             {lines.map(l => (
               <div key={l.key} className="ro-form-line">
                 <div className="ro-line-item"><span className="ro-strong">{l.text}</span>{l.itemId && l.companyName && <span className="ro-show-sm ro-muted ro-small"> — {l.companyName}</span>}</div>
                 {l.itemId
                   ? <div className="ro-line-co ro-muted">{l.companyName || '—'}</div>
-                  : <input className="form-input" placeholder="الشركة" value={l.companyName} onChange={e => setLine(l.key, { companyName: e.target.value })} />}
-                <input className="form-input" type="number" min={1} inputMode="numeric" placeholder="الكمية" value={l.quantity} onChange={e => setLine(l.key, { quantity: e.target.value })} />
-                <input className="form-input" type="number" min={0} inputMode="numeric" placeholder="بونص" value={l.bonusQty} onChange={e => setLine(l.key, { bonusQty: e.target.value })} />
-                <button className="ro-icon-btn" title="حذف السطر" onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))}><Trash2 size={14} /></button>
+                  : <input className="form-input" enterKeyHint="next" placeholder="الشركة" value={l.companyName} onChange={e => setLine(l.key, { companyName: e.target.value })} />}
+                <input className="form-input" type="number" min={1} inputMode="numeric" enterKeyHint="next" data-col="qty" placeholder="الكمية" value={l.quantity} onChange={e => setLine(l.key, { quantity: e.target.value })} />
+                <input className="form-input" type="number" min={0} inputMode="numeric" enterKeyHint="next" data-col="bonus" placeholder="بونص" value={l.bonusQty} onChange={e => setLine(l.key, { bonusQty: e.target.value })} />
+                <button className="ro-icon-btn" tabIndex={-1} title="حذف السطر" onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))}><Trash2 size={14} /></button>
               </div>
             ))}
             <button className="btn btn--secondary btn--sm ro-self-start" onClick={() => setPickItems(true)}><Plus size={14} /> {lines.length ? 'ايتمات أخرى' : 'اختيار الايتمات'}</button>
@@ -2074,7 +2088,7 @@ function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged,
           {pickItems && <ItemPicker items={items} have={pickedIds} onAdd={addItems} onClose={() => setPickItems(false)} />}
 
           <label className="ro-field">ملاحظات
-            <input className="form-input" value={head.notes} onChange={e => setHead(h => ({ ...h, notes: e.target.value }))} />
+            <input ref={notesRef} className="form-input" value={head.notes} onChange={e => setHead(h => ({ ...h, notes: e.target.value }))} />
           </label>
           {!order?.invoiceImage && (
             <label className="ro-field">صورة ختم الصيدلية (اختياري)
