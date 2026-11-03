@@ -8,10 +8,11 @@ interface Group { jid: string; name: string; size: number }
 interface UserOption { id: number; username: string; displayName?: string | null; role: string }
 interface ListenLink {
   jid: string; name: string | null; userId: number; isActive: boolean; orderTextMode: OrderTextMode; user?: UserOption;
-  messageCount: number; orderCount: number; lastMessageAt: string | null; lastOrderAt: string | null;
+  messageCount: number; orderCount: number; attachedCount: number; failedCount: number; lastMessageAt: string | null; lastOrderAt: string | null;
 }
 interface LinkForm { jid: string; name: string; userId?: number; orderTextMode: OrderTextMode; isNew: boolean }
 interface PendingAt { userId: number; name: string; count: number }
+interface Retrying { count: number; nextAt: number | null; lastError: string | null }
 interface Destination {
   reviewer: { id: number; name: string; role: string; isActive: boolean };
   office: string | null;
@@ -31,6 +32,14 @@ function ago(iso: string | null): string {
   if (min < 60) return `قبل ${min} د`;
   if (min < 24 * 60) return `قبل ${Math.round(min / 60)} س`;
   return `قبل ${Math.round(min / 1440)} ي`;
+}
+
+// «بعد 12 د» — موعد إعادة القراءة القادمة
+function untilLabel(ms: number): string {
+  const min = Math.round((ms - Date.now()) / 60000);
+  if (min <= 1) return 'خلال دقائق';
+  if (min < 60) return `بعد ${min} د`;
+  return `بعد ${Math.round(min / 60)} س`;
 }
 
 /** مسار البيانات للحساب المختار — يُجلب من نفس قواعد السيرفر الفعلية. */
@@ -103,6 +112,7 @@ export default function WaGroupsPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [pendingByJid, setPendingByJid] = useState<Record<string, PendingAt[]>>({});
+  const [retryByJid, setRetryByJid] = useState<Record<string, Retrying>>({});
   const [dest, setDest] = useState<Destination | null>(null);
   const [destErr, setDestErr] = useState('');
 
@@ -124,6 +134,7 @@ export default function WaGroupsPage() {
       setLinks(Object.fromEntries((d.links as ListenLink[]).map(l => [l.jid, l])));
       setWhByJid(d.warehouses || {});
       setPendingByJid(d.pending || {});
+      setRetryByJid(d.retrying || {});
     }).catch(() => {});
   }, [H]);
 
@@ -256,6 +267,13 @@ export default function WaGroupsPage() {
                   {l && !wh && (
                     <div style={{ fontSize: 11.5, color: UI.muted, marginTop: 3, lineHeight: 1.6 }}>
                       📥 {l.messageCount} رسالة (آخرها {ago(l.lastMessageAt)}) · ✅ {l.orderCount} دخلت المراجعة{l.orderCount ? ` (آخرها ${ago(l.lastOrderAt)})` : ''}
+                      {l.attachedCount > 0 && <> · 🧾 {l.attachedCount} ثُبّتت على طلبيات المذاخر</>}
+                      {l.failedCount > 0 && <span style={{ color: '#b91c1c' }}> · ❌ {l.failedCount} فشلت نهائياً</span>}
+                      {retryByJid[g.jid] && (
+                        <div style={{ color: '#b91c1c' }} title={retryByJid[g.jid].lastError || ''}>
+                          ⚠️ {retryByJid[g.jid].count} فشلت قراءتها — تُعاد تلقائياً{retryByJid[g.jid].nextAt ? ` (المحاولة القادمة ${untilLabel(retryByJid[g.jid].nextAt!)})` : ''}
+                        </div>
+                      )}
                       {(pendingByJid[g.jid] || []).length > 0 && (
                         <div style={{ color: '#b45309' }}>
                           ⏳ بانتظار المراجعة: {pendingByJid[g.jid].map(p => `${p.name} (${p.count})`).join('، ')}

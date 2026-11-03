@@ -2127,6 +2127,8 @@ model WaGroupLink {
   // عدّادات تشخيص للوحة الماستر: كل رسالة وصلت من الكروب / ما دخل منها طابور المراجعة
   messageCount  Int       @default(0)
   orderCount    Int       @default(0)
+  attachedCount Int       @default(0) // فواتير ثُبّتت على طلبيات المذاخر بدل اللكوديشن
+  failedCount   Int       @default(0) // فشلت قراءتها نهائياً بعد كل الإعادات
   lastMessageAt DateTime?
   lastOrderAt   DateTime?
   createdAt     DateTime @default(now())

@@ -13,7 +13,7 @@ import { groupsSecret, sidecar } from './wa-groups.client.js';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import { handleGroupInbound } from '../warehouse-dispatch/dispatch.inbound.js';
 import { ORDER_TEXT_MODES } from '../orders/order-trigger.js';
-import { listenLinkFor, handleListenGroupMessage, invalidateListenCache, LISTEN_SOURCE } from './wa-groups.listen.js';
+import { listenLinkFor, handleListenGroupMessage, invalidateListenCache, LISTEN_SOURCE, listRetryingByJid } from './wa-groups.listen.js';
 import { BOT_TO_CONDITION } from '../orders/bot-order-flow.js';
 import { resolveSharedConditionOwner } from '../sales/sales.service.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
@@ -108,7 +108,7 @@ saRouter.get('/links', async (_req, res) => {
   })).map(u => [u.id, u.displayName?.trim() || u.username]));
   const pendingByJid = {};
   for (const p of pending) (pendingByJid[p.chatId] ||= []).push({ userId: p.userId, name: names.get(p.userId) || `#${p.userId}`, count: p._count._all });
-  res.json({ success: true, links, warehouses, pending: pendingByJid });
+  res.json({ success: true, links, warehouses, pending: pendingByJid, retrying: listRetryingByJid() });
 });
 
 // «وين راح تروح البيانات؟» للحساب المختار قبل الحفظ — نفس القواعد الفعلية:

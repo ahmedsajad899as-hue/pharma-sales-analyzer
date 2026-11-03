@@ -10,7 +10,9 @@
 //     sendText(chatId, text)        → Promise<messageId|null>
 //     editText?(chatId, msgId, text) → Promise<any>   (فايبر لا يملكها)
 //     downloadMedia(ref)            → Promise<Buffer>
-//     onQueued?()                   → بعد دخول الطلبية طابور المراجعة (عدّاد) }
+//     onQueued?()                   → بعد دخول الطلبية طابور المراجعة (عدّاد)
+//     onAttached?()                 → فاتورة ثُبّتت على طلبية مذاخر (عدّاد)
+//     onFailed?(err)                → فشلت المعالجة (الكروب الصامت يعيدها لاحقاً) }
 //
 // **هذه الدالة لا ترمي أبداً**: webhook تلكرام يُقرّ 200 ثم ينسى
 // (telegram.controller.js)، فأي رمية هنا تصبح unhandled rejection بلا أي إشعار
@@ -173,6 +175,7 @@ export async function handleIncomingOrderMessage({
       }
       if (match) {
         const r = await attachBotInvoice(user.id, match, imageBuffers[0]);
+        try { await transport.onAttached?.(); } catch (e) { console.error('[orders] onAttached:', e?.message); }
         const o = match.order;
         await reply(transport, ctx,
           `🧾 فاتورة تجهيز — ثُبّتت على طلبية المذاخر #${o.id}`
@@ -223,6 +226,8 @@ export async function handleIncomingOrderMessage({
     // نصّ AppError التشغيلي مفهوم للمستخدم ويُعرَض كما هو؛ غيره يُخفى كي لا يصل
     // stack trace إلى كروب مبيعات. نفس نمط handleCallbackQuery في تلكرام.
     console.error('[orders] فشل استقبال الطلبية:', err);
+    // المنصّة الصامتة (كروبات «رقم الكروبات») تحفظ الرسالة وتعيدها لاحقاً
+    try { transport.onFailed?.(err); } catch { /* تشخيص فقط */ }
     // الأخطاء الفعلية تُبلَّغ دائماً — صمتٌ هنا يعني طلبية ضاعت بلا أن يعلم أحد.
     await reply(transport, ctx,
       `⚠️ ${err?.isOperational ? err.message : 'تعذّر قراءة الطلبية. جرّب إعادة إرسالها، أو أدخلها يدوياً من التطبيق.'}`);
