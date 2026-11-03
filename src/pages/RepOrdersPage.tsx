@@ -1016,7 +1016,8 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
 
   // إدراج فاتورة من أسفل لوحة المذاخر: المذخر المفتوح إن وُجد وإلا الحالي — يُغيَّر في نافذة التجهيز
   const canAddInvoice = state !== 'cancelled';
-  const addInvoice = (f: File) => onPrepare((sel >= 0 ? o.warehouses[sel]?.id : null) ?? currentWh(o).id, f);
+  const prepWh = () => (sel >= 0 ? o.warehouses[sel]?.id : null) ?? currentWh(o).id;
+  const addInvoice = (f: File) => onPrepare(prepWh(), f);
   const addInvoiceRef = useRef(addInvoice);
   addInvoiceRef.current = addInvoice;
   const pasteInvoice = async () => {
@@ -1203,19 +1204,10 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                           <span className={`ro-sendmark ro-sendmark--${m ?? 'none'}`}>{m ? SEND_LABEL[m] : legacySent ? 'أُرسلت' : 'لم تُرسل'}</span>
                           <ChevronDown size={14} className="ro-whp__chev" />
                         </button>
-                        {isSel && (
+                        {/* بلا سجل الإرسال ولا زر تجهيز داخل البطاقة (طلب صاحب المشروع) — الحالة في رأسها،
+                            والتجهيز من صفّ الأزرار أسفل اللوحة */}
+                        {isSel && (ws.items.length > 0 || ((m === 'partial' || m === 'rejected') && ws.short.length > 0) || (active && !awaiting(w))) && (
                           <div className="ro-whp__body">
-                            <ol className="ro-timeline">
-                              {ws.mine.length ? ws.mine.map(sd => {
-                                const mk = markOf(o, sd);
-                                return (
-                                  <li key={sd.id} className={mk === 'rejected' ? 'is-cancel' : mk === 'sent' || mk === 'noreply' ? '' : 'is-done'}>
-                                    <span className="ro-tl-date">{fmtShort(sd.sentAt)}</span> <b className={`ro-sendmark ro-sendmark--${mk}`}>{SEND_LABEL[mk]}</b>
-                                  </li>
-                                );
-                              }) : <li className={legacySent ? 'is-done' : ''}>{legacySent ? <span className="ro-tl-date">{fmtShort(legacySent)}</span> : 'لم تُرسل لهذا المذخر بعد'}</li>}
-                            </ol>
-
                             {ws.items.length > 0 && (
                               <div className="ro-whp__items">
                                 <div className="ro-slot__label">ما جهّزه</div>
@@ -1232,14 +1224,6 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                             {(m === 'partial' || m === 'rejected') && ws.short.length > 0 && (
                               <div className="ro-whp__short">ناقص عنده: {ws.short.map(x => `${x.l.itemName} ${x.n}`).join('، ')}</div>
                             )}
-
-                            <div className="ro-whp__files">
-                              {state !== 'cancelled' && (
-                                <button className="ro-alt-btn" onClick={() => onPrepare(w.id, null)}>
-                                  <Check size={14} /> {m && m !== 'sent' && m !== 'noreply' ? 'تعديل تجهيزه' : 'تسجيل تجهيزه'}
-                                </button>
-                              )}
-                            </div>
 
                             {active && (
                               <div className="ro-send-actions">
@@ -1263,20 +1247,21 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                     الإدراج من هنا (ملف أو لصق صورة منسوخة من واتساب)، ونافذة التجهيز يُختار فيها المذخر */}
                 {(canAddInvoice || o.sends.some(sd => sd.image)) && (
                   <div className="ro-invoices">
-                    <div className="ro-invoices__head">
-                      <div className="ro-slot__label">فواتير التجهيز</div>
-                      {canAddInvoice && (
-                        <div className="ro-invoices__add">
-                          <label className="ro-alt-btn ro-file-btn">
-                            <Camera size={14} /> إدراج فاتورة
-                            <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) addInvoice(f); e.target.value = ''; }} />
-                          </label>
-                          <button type="button" className="ro-alt-btn" title="لصق صورة فاتورة منسوخة (من واتساب مثلاً) — أو Ctrl+V والطلبية مفتوحة" onClick={pasteInvoice}>
-                            <ClipboardPaste size={14} /> لصق فاتورة
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <div className="ro-slot__label">فواتير التجهيز</div>
+                    {canAddInvoice && (
+                      <div className="ro-invoices__add">
+                        <label className="ro-alt-btn ro-file-btn">
+                          <Camera size={14} /> إدراج فاتورة
+                          <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) addInvoice(f); e.target.value = ''; }} />
+                        </label>
+                        <button type="button" className="ro-alt-btn" title="لصق صورة فاتورة منسوخة (من واتساب مثلاً) — أو Ctrl+V والطلبية مفتوحة" onClick={pasteInvoice}>
+                          <ClipboardPaste size={14} /> لصق فاتورة
+                        </button>
+                        <button type="button" className="ro-alt-btn" onClick={() => onPrepare(prepWh(), null)}>
+                          <Check size={14} /> {o.sends.some(sd => sd.outcome !== 'sent') ? 'تعديل التجهيز' : 'تسجيل التجهيز'}
+                        </button>
+                      </div>
+                    )}
                     <div className="ro-invoices__list">
                       {o.sends.filter(sd => sd.image).map(sd => (
                         <figure key={sd.id} className="ro-invoices__item">
@@ -1308,7 +1293,6 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
               </div>
             </div>
             <div className="ro-detail__actions">
-              {state !== 'prepared' && state !== 'cancelled' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('prepared')}><Check size={14} /> تسجيل التجهيز</button>}
               {o.status !== 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('pending')}><RotateCcw size={14} /> إرجاع</button>}
               {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('cancelled')}><Ban size={14} /> إلغاء</button>}
             </div>

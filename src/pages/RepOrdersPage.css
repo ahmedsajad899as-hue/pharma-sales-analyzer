@@ -667,5 +667,5 @@ button.ro-prep { cursor: pointer; }
 .ro-send-btn--tg { background: #229ed9; box-shadow: 0 2px 10px rgba(34, 158, 217, 0.3); }
 .ro-send-btn--link { background: #475569; box-shadow: none; }
 /* إدراج/لصق فاتورة التجهيز — أسفل لوحة المذاخر */
-.ro-invoices__head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
-.ro-invoices__add { display: flex; flex-wrap: wrap; gap: 6px; }
+.ro-invoices__add { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.ro-invoices__add .ro-alt-btn { justify-content: center; padding-inline: 6px; white-space: nowrap; }
