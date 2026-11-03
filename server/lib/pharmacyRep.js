@@ -40,6 +40,58 @@ export function repSideOf(assignedNames = [], areaSideNames = []) {
   return best ?? assigned[0] ?? null;
 }
 
+const BAGHDAD_PROVINCE = 'بغداد';
+const isBaghdadProvince = (name) => String(name ?? '').trim() === BAGHDAD_PROVINCE;
+
+/**
+ * محافظات انتماء المسوق: منطقة واحدة من محافظة لا تجعله من مسوقيها — يتبع أكثرية مناطقه.
+ * areaCounts: محافظة ← عدد مناطقه فيها. المحافظة المُسنَدة كاملةً تُعدّ منطقة واحدة، فلا
+ * تغلب مناطق بغداد، لكنها تحسم الانتماء بين المحافظات لمن ليس أكثره في بغداد.
+ * التعادل مع بغداد لصالح بغداد: يبقى ظاهراً في مسوقي بغداد بدل أن يُنقل خطأً.
+ */
+export function marketerHomeProvinces(assignedProvinces = [], areaCounts = new Map()) {
+  const counts = new Map(areaCounts);
+  for (const p of new Set(assignedProvinces)) counts.set(p, (counts.get(p) || 0) + 1);
+  if (!counts.size) return [];
+  const top = Math.max(...counts.values());
+  const tied = [...counts].filter(([, n]) => n === top).map(([p]) => p);
+  if (tied.some(isBaghdadProvince)) return [BAGHDAD_PROVINCE];
+  const direct = [...new Set(assignedProvinces)].filter(p => !isBaghdadProvince(p));
+  return direct.length ? direct : tied;
+}
+
+/**
+ * تيم ليدر مسوقي كل محافظة (ProvinceTeam.leader قائد العلميين، وليس قائدهم). لكل محافظة:
+ * الأكثر مسوقين فيها من قادة الفارمسي، ويُحسب القائد نفسه إن كانت محافظته. قائد بغداد لا يُعرض.
+ * marketers: { id, name, isLeader, homes: string[], managerIds: number[] } — managerIds معرّفات مندوب.
+ * @returns {Map<string, {id:number, name:string}>} محافظة ← قائدها
+ */
+export function pickMarketerLeaders(marketers) {
+  const byId = new Map(marketers.map(m => [m.id, m]));
+  const votes = new Map(); // محافظة ← قائد ← عدد
+  const vote = (prov, leaderId) => {
+    if (!votes.has(prov)) votes.set(prov, new Map());
+    const m = votes.get(prov);
+    m.set(leaderId, (m.get(leaderId) || 0) + 1);
+  };
+  for (const m of marketers) {
+    for (const prov of m.homes) {
+      if (isBaghdadProvince(prov)) continue;
+      if (m.isLeader) vote(prov, m.id);
+      for (const id of m.managerIds ?? []) {
+        const leader = byId.get(id);
+        if (leader?.isLeader && !leader.homes.some(isBaghdadProvince)) vote(prov, id);
+      }
+    }
+  }
+  const out = new Map();
+  for (const [prov, m] of votes) {
+    const [id] = [...m].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
+    out.set(prov, { id, name: byId.get(id).name });
+  }
+  return out;
+}
+
 /** نص التسمية بنفس تطبيع Sale.customerInfoNorm (normalizeArabic عند الرفع). */
 export function normalizeCustomerInfoLabel(s) {
   const v = String(s ?? '').trim();

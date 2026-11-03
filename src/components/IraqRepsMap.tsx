@@ -35,7 +35,8 @@ const BaghdadSalesMap = lazy(() => import('./BaghdadSalesMap'));
 import { useAuth } from '../context/AuthContext';
 
 interface RepRow { id: number; name: string; netValue: number; netQty?: number }
-interface RepProvinceRow { provinceName: string; totalValue: number; reps: RepRow[] }
+// leader: تيم ليدر مسوقي المحافظة — غير قائد العلميين في ProvinceTeam
+interface RepProvinceRow { provinceName: string; totalValue: number; reps: RepRow[]; leader?: { id: number; name: string } | null }
 
 interface Props {
   reps: { id: number; company?: string | null }[];
@@ -88,7 +89,7 @@ const LABEL_NUDGE: Record<string, [number, number]> = {
 type SalesRows = { prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[]; bga: { a: string; s: string | null; v: number }[] };
 type CacheEntry = { v: any; t: number };
 const MEM = new Map<string, CacheEntry>();
-const LS_PREFIX = 'iqmap:v3:';
+const LS_PREFIX = 'iqmap:v4:';
 const LS_MAX = 24;
 const FRESH_MS = 3 * 60 * 1000;
 function cacheGet(k: string): CacheEntry | undefined {
@@ -587,11 +588,13 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         row.reps.push({ key: `r${r.id}`, id: r.id, name: r.name, value: r.netValue, active: true });
       }
     }
+    // قائد فريق المحافظة (ProvinceTeam) للعلميين؛ للمسوقين قائدهم من province-map
+    if (marketers) for (const pr of repData) if (pr.leader) rowOf(norm(pr.provinceName)).leader = pr.leader;
     for (const t of teams) {
       const k = norm(t.p);
       if (k === BAGHDAD) continue;
       const row = rowOf(k);
-      if (t.leader && !row.leader) row.leader = { id: t.lr, name: t.leader };
+      if (!marketers && t.leader && !row.leader) row.leader = { id: t.lr, name: t.leader };
       for (const r of t.reps) {
         if (repKind && (r.kind === 'pharmacy') !== marketers) continue;
         const cur = row.reps.find(x => (r.id != null && x.id === r.id) || norm(x.name) === norm(r.name));
@@ -605,7 +608,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       row.reps.sort((a, b) => b.value - a.value);
     }
     return out;
-  }, [cells, teams, repKind, marketers]);
+  }, [cells, teams, repKind, marketers, repData]);
 
   // صفوف الجدول: محافظة فيها مبيع/لكوديشن/أسماء — ومحافظة لها فريق بلا مبيع تأتي آخراً
   const nameList = useMemo(() => {

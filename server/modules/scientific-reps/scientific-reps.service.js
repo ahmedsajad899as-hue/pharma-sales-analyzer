@@ -8,7 +8,7 @@ import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
-import { PHARMACY_KIND, repSideOf, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
+import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
 import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -2131,6 +2131,11 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
  * (نفس نطاق الملفات/المشاركة/الحظر، وبلا recordType فالقيمة صافية)، ثم يوزّع
  * byArea على Area.province. المندوب بمناطق في عدة محافظات يظهر في كلٍّ منها
  * بحصّته هناك؛ والمندوب المُسنَد إليه محافظة بلا مبيع يظهر بصفر ليُعرف أنه موجود.
+ *
+ * المسوق (فارمسي) يُعرض في محافظات انتمائه فقط (أكثرية مناطقه، marketerHomeProvinces):
+ * مسوق بغداد بمنطقة من محافظة لا يصير من مسوقيها. ومبيع تلك المنطقة يبقى في مجموع
+ * المحافظة لأن مجموعها يُحسب من /api/reports/overall لا من هذه القائمة.
+ * كل صف يحمل `leader`: تيم ليدر مسوقي المحافظة (null إن لم يوجد).
  */
 export async function getProvinceMapForReps(repIds, query = {}, viewerId = null) {
   // دفعات صغيرة: عشرات المندوبين بالتوازي كانت تُحمِّل ذاكرة السيرفر (951MB) دفعة واحدة.
@@ -2161,20 +2166,66 @@ export async function getProvinceMapForReps(repIds, query = {}, viewerId = null)
   }
   // محافظات مُعيَّنة مباشرة لحسابات المندوب (UserProvinceAssignment) — كثيرون يُعيَّنون هكذا لا بمناطق.
   const assignedProvinces = new Map(); // repId -> محافظات
-  const linkedUsers = await prisma.user.findMany({
-    where: { linkedRepId: { in: ok.map(r => r.scientificRep.id) } },
-    select: { linkedRepId: true, provinceAssignments: { select: { province: { select: { name: true } } } } },
-  });
+  const okIds = ok.map(r => r.scientificRep.id);
+  const [linkedUsers, kindRows] = await Promise.all([
+    prisma.user.findMany({
+      where: { linkedRepId: { in: okIds } },
+      select: {
+        linkedRepId: true, role: true,
+        provinceAssignments: { select: { province: { select: { name: true } } } },
+        subProvinceAssignments: { select: { subProvince: { select: { province: { select: { name: true } }, _count: { select: { areas: true } } } } } },
+        managersOfUser: { select: { manager: { select: { linkedRepId: true } } } },
+      },
+    }),
+    prisma.scientificRepresentative.findMany({ where: { id: { in: okIds } }, select: { id: true, repKind: true } }),
+  ]);
   for (const u of linkedUsers) {
     if (!assignedProvinces.has(u.linkedRepId)) assignedProvinces.set(u.linkedRepId, new Set());
     for (const pa of u.provinceAssignments ?? []) assignedProvinces.get(u.linkedRepId).add(pa.province.name);
   }
   const isBaghdad = (n) => String(n ?? '').trim() === 'بغداد';
 
+  // ── المسوقون: محافظات الانتماء + قائد كل محافظة ─────────────────────────────
+  const marketerIds = new Set(kindRows.filter(isPharmacyRep).map(r => r.id));
+  const usersOfRep = new Map();
+  for (const u of linkedUsers) usersOfRep.set(u.linkedRepId, [...(usersOfRep.get(u.linkedRepId) ?? []), u]);
+  const countBy = (ids) => {
+    const counts = new Map();
+    for (const id of new Set(ids)) {
+      const prov = provinceOfArea.get(id);
+      if (prov) counts.set(prov, (counts.get(prov) || 0) + 1);
+    }
+    return counts;
+  };
+  const marketers = ok.filter(r => marketerIds.has(r.scientificRep.id)).map(r => {
+    const id = r.scientificRep.id;
+    const users = usersOfRep.get(id) ?? [];
+    const direct = [...(assignedProvinces.get(id) ?? [])];
+    const counts = countBy((r.assignedAreas ?? []).map(a => a.id));
+    // قسم مُسنَد كاملاً (الكرخ/الرصافة) يساوي كل مناطقه
+    for (const u of users) for (const s of u.subProvinceAssignments ?? []) {
+      const prov = s.subProvince.province.name;
+      counts.set(prov, (counts.get(prov) || 0) + s.subProvince._count.areas);
+    }
+    // بلا تعيين مناطق (مبيع ميركاتو بالاسم مثلاً): المناطق التي باع فيها فعلاً
+    const homes = direct.length || counts.size
+      ? marketerHomeProvinces(direct, counts)
+      : marketerHomeProvinces([], countBy((r.byArea ?? []).map(a => a.areaId)));
+    return {
+      id, name: r.scientificRep.name, homes,
+      isLeader: users.some(u => u.role === 'team_leader'),
+      managerIds: users.flatMap(u => (u.managersOfUser ?? []).map(m => m.manager.linkedRepId)).filter(Boolean),
+    };
+  });
+  const homesOf = new Map(marketers.map(m => [m.id, new Set(m.homes)]));
+  const marketerLeaders = pickMarketerLeaders(marketers);
+  // مسوق خارج محافظات انتمائه لا يُعرض فيها؛ بقية المندوبين كما هم
+  const belongs = (prov, rep) => !homesOf.has(rep.scientificRep.id) || homesOf.get(rep.scientificRep.id).has(prov);
+
   // provinceName -> repId -> { id, name, netValue, orderShare }
   const byProvince = new Map();
   const touch = (prov, rep) => {
-    if (!prov || isBaghdad(prov)) return null;
+    if (!prov || isBaghdad(prov) || !belongs(prov, rep)) return null;
     if (!byProvince.has(prov)) byProvince.set(prov, new Map());
     const m = byProvince.get(prov);
     if (!m.has(rep.scientificRep.id)) {
@@ -2194,7 +2245,7 @@ export async function getProvinceMapForReps(repIds, query = {}, viewerId = null)
     const reps = [...m.values()]
       .map(x => ({ ...x, netValue: +x.netValue.toFixed(2) }))
       .sort((a, b) => b.netValue - a.netValue);
-    return { provinceName, totalValue: +reps.reduce((s, x) => s + x.netValue, 0).toFixed(2), reps };
+    return { provinceName, totalValue: +reps.reduce((s, x) => s + x.netValue, 0).toFixed(2), reps, leader: marketerLeaders.get(provinceName) ?? null };
   }).sort((a, b) => b.totalValue - a.totalValue);
 }
 

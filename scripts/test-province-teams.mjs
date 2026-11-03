@@ -5,12 +5,42 @@ import {
   classifyChannel, personalSaleValue, toUSD,
 } from '../server/modules/province-teams/province-teams.rules.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../server/modules/province-teams/personal-sale-trigger.js';
+import { marketerHomeProvinces, pickMarketerLeaders } from '../server/lib/pharmacyRep.js';
 
 let passed = 0;
 const t = (name, fn) => { fn(); passed++; console.log(`✓ ${name}`); };
 
 const DEVA = 1, OSEL = 2;
 const companyItems = new Map([[DEVA, [10, 11, 12]], [OSEL, [20, 21]]]);
+
+t('مسوق بغداد بمنطقة من محافظة يبقى على بغداد', () => {
+  assert.deepEqual(marketerHomeProvinces([], new Map([['بغداد', 60], ['الأنبار', 1]])), ['بغداد']);
+  assert.deepEqual(marketerHomeProvinces(['الأنبار'], new Map([['بغداد', 60]])), ['بغداد']);
+  assert.deepEqual(marketerHomeProvinces([], new Map([['بغداد', 2], ['واسط', 2]])), ['بغداد']);
+});
+
+t('مسوق المحافظة: أكثرية مناطقه، والمُسنَدة كاملةً تحسم بين المحافظات', () => {
+  assert.deepEqual(marketerHomeProvinces([], new Map([['الأنبار', 5], ['واسط', 1], ['بغداد', 1]])), ['الأنبار']);
+  assert.deepEqual(marketerHomeProvinces(['الأنبار', 'واسط'], new Map()), ['الأنبار', 'واسط']);
+  assert.deepEqual(marketerHomeProvinces(['الأنبار'], new Map([['واسط', 3]])), ['الأنبار']);
+  assert.deepEqual(marketerHomeProvinces([], new Map()), []);
+});
+
+t('قائد مسوقي المحافظة: قائد الفارمسي فيها، لا قائد بغداد', () => {
+  const m = (id, name, homes, managerIds = [], isLeader = false) => ({ id, name, homes, managerIds, isLeader });
+  const leaders = pickMarketerLeaders([
+    m(1, 'ليدر الكرخ', ['بغداد'], [], true),
+    m(2, 'ليدر الجنوب', ['البصرة'], [], true),
+    m(3, 'مسوق بغداد', ['بغداد'], [1]),
+    m(4, 'مسوق البصرة', ['البصرة'], [2]),
+    m(5, 'مسوق ميسان', ['ميسان'], [2]),
+    m(6, 'مسوق الأنبار تابع لليدر الكرخ', ['الأنبار'], [1]),
+  ]);
+  assert.deepEqual(leaders.get('البصرة'), { id: 2, name: 'ليدر الجنوب' });
+  assert.deepEqual(leaders.get('ميسان'), { id: 2, name: 'ليدر الجنوب' });
+  assert.equal(leaders.has('الأنبار'), false);
+  assert.equal(leaders.has('بغداد'), false);
+});
 
 t('كل ايتمات الشركة تُحسم من الكتالوج', () => {
   assert.deepEqual(resolveAssignmentItemIds({ allItems: true, companyId: DEVA, itemIds: [] }, companyItems), [10, 11, 12]);
