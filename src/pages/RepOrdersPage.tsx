@@ -2026,7 +2026,6 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
   const provOf = (w: WarehouseRow) => w.province || w.provinceGuess || NO_PROV;
   const [q, setQ] = useState('');
   const [prov, setProv] = useState<string | null>(null);
-  const [copied, setCopied] = useState<number | null>(null);
   const terms = normSearch(q).split(/\s+/).filter(Boolean);
   const matched = terms.length
     ? warehouses.filter(w => { const t = normSearch(`${w.name} ${w.phone} ${w.handle ?? ''} ${provOf(w)} ${w.notes ?? ''}`); return terms.every(x => t.includes(x)); })
@@ -2052,13 +2051,6 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
   const remove = async (w: WarehouseRow) => {
     if (!window.confirm(`حذف المذخر «${w.name}» من الدليل؟ الطلبيات السابقة تبقى باسمه.`)) return;
     try { await api(`/warehouses/${w.id}`, { method: 'DELETE' }); onChanged(); } catch (e: any) { alert(e.message); }
-  };
-  // المعرّف يفتح محادثة المذخر (تيليكرام أو رابطه)، وما لم يُفهم منه يُنسخ
-  const openHandle = (w: WarehouseRow) => {
-    const h = String(w.handle ?? '').trim();
-    const url = handleUrl(h);
-    if (url) { window.open(url, '_blank'); return; }
-    copyText(h); setCopied(w.id); setTimeout(() => setCopied(c => (c === w.id ? null : c)), 1500);
   };
 
   return (
@@ -2116,11 +2108,6 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
                   </span>
                   <span className="ro-whdir__contact">
                     {w.phone && <span dir="ltr">{w.phone}</span>}
-                    {w.handle && (
-                      <button type="button" className="ro-whdir__handle" dir="ltr" title={handleUrl(w.handle) ? `فتح ${CHANNEL_LABEL[channelOf({ id: null, name: '', phone: null, handle: w.handle })]}` : 'نسخ المعرّف'} onClick={() => openHandle(w)}>
-                        {copied === w.id ? 'نُسخ ✓' : w.handle}
-                      </button>
-                    )}
                     {w.notes && <span className="ro-whdir__note" title={w.notes}>{w.notes}</span>}
                   </span>
                   {w.canEdit && (
