@@ -513,6 +513,7 @@ export async function sweepTimeouts() {
   sweeping = true;
   try {
     const cfg = await getConfig();
+    if (!(cfg.responseTimeoutMin > 0)) return; // المهلة معطّلة — الطلبية تنتظر ردّ المذخر بلا حدّ
     const cutoff = new Date(Date.now() - Math.max(10, cfg.responseTimeoutMin) * 60_000);
     const stale = await prisma.warehouseDispatch.findMany({
       where: { status: 'sent', respondedAt: null, sentAt: { lt: cutoff } },

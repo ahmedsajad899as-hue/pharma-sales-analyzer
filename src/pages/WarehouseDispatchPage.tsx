@@ -416,9 +416,9 @@ function SettingsTab({ api }: { api: Api }) {
         <div className="wd-panel">
           <div className="wd-panel__title">إعدادات عامة</div>
           <label className="wd-field">
-            <span>مهلة رد المذخر (دقيقة)</span>
-            <input className="form-input wd-select" type="number" min={10} max={1440} disabled={!canEditConfig} defaultValue={config.responseTimeoutMin}
-              onBlur={e => Number(e.target.value) !== config.responseTimeoutMin && saveConfig({ responseTimeoutMin: Number(e.target.value) })} />
+            <span>مهلة رد المذخر (دقيقة) — 0 = بلا مهلة{config.responseTimeoutMin === 0 ? ' (معطّلة: لا تحويل للبديل إلا عند الرفض)' : ''}</span>
+            <input className="form-input wd-select" type="number" min={0} max={1440} disabled={!canEditConfig} defaultValue={config.responseTimeoutMin}
+              onBlur={e => e.target.value !== '' && Number(e.target.value) !== config.responseTimeoutMin && saveConfig({ responseTimeoutMin: Number(e.target.value) })} />
           </label>
           <label className="wd-field wd-field--row">
             <input type="checkbox" disabled={!canEditConfig} checked={config.autoBackup} onChange={e => saveConfig({ autoBackup: e.target.checked })} />

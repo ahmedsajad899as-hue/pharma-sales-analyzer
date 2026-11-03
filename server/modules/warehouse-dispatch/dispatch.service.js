@@ -251,7 +251,11 @@ export async function setConfig(reqUser, body = {}) {
   const viewer = await loadViewer(reqUser);
   if (!(ALL_SCOPE_ROLES.has(viewer.role) || ['manager', 'office_manager'].includes(viewer.role))) throw new AppError('للمدير العام فقط', 403);
   const data = {};
-  if (body.responseTimeoutMin !== undefined) data.responseTimeoutMin = Math.min(24 * 60, Math.max(10, Math.round(Number(body.responseTimeoutMin) || 120)));
+  if (body.responseTimeoutMin !== undefined && body.responseTimeoutMin !== '' && Number.isFinite(Number(body.responseTimeoutMin))) {
+    const v = Math.round(Number(body.responseTimeoutMin));
+    // 0 = بلا مهلة: لا «بلا رد» ولا تحويل للبديل إلا عند رفض صريح
+    data.responseTimeoutMin = v <= 0 ? 0 : Math.min(24 * 60, Math.max(10, v));
+  }
   if (body.autoBackup !== undefined) data.autoBackup = Boolean(body.autoBackup);
   return prisma.warehouseDispatchConfig.upsert({ where: { id: 1 }, create: { id: 1, ...data }, update: data });
 }
