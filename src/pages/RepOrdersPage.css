@@ -724,3 +724,9 @@ button.ro-prep { cursor: pointer; }
   .ro-detail__actions .btn { display: inline-flex; flex-direction: row; align-items: center; gap: 5px; width: auto; min-height: 32px; padding: 5px 12px; font-size: 12px; }
   .ro-detail__actions .btn svg { width: 13px; height: 13px; }
 }
+
+/* بعد نسخ صورة الطلبية بالموبايل: زر يفتح كروب المذخر (فوق شريط التنقل السفلي) */
+.ro-openprompt { position: fixed; inset-inline: 12px; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); z-index: 70; max-width: 480px; margin-inline: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: var(--c-surface, #fff); border: 1px solid var(--c-border-light); box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25); }
+.ro-openprompt__text { font-size: 13px; line-height: 1.6; color: var(--c-text-primary); }
+.ro-openprompt__btns { display: flex; gap: 8px; align-items: center; }
+.ro-openprompt__btns .ro-send-btn { flex: 1; }

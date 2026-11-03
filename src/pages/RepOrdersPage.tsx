@@ -583,6 +583,8 @@ export default function RepOrdersPage() {
   // الأولوية: كروب المذخر (رابط الدعوة يفتح الكروب والنص منسوخ — wa.me لا يصل للكروبات)
   // ← رقمه (wa.me والنص جاهز) ← قائمة المشاركة يختار منها المندوب أي محادثة/كروب.
   const [notice, setNotice] = useState<string | null>(null);
+  // «إرسال كصورة» بالموبايل: بعد نسخ الصورة، زر يفتح كروب المذخر (الضغطة الثانية)
+  const [openPrompt, setOpenPrompt] = useState<{ text: string; label: string; url: string; done: () => void } | null>(null);
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 8000);
@@ -610,24 +612,34 @@ export default function RepOrdersPage() {
     const file = asImage ? orderImageFile(list, nos) : null;
     if (file) {
       const caption = ordersCaption(list, nos);
-      // الموبايل: قائمة المشاركة بالصورة ← واتساب/فايبر ← الكروب (تصل صورةً لا رابطاً)
-      if (IS_TOUCH && navigator.canShare?.({ files: [file] })) {
+      const canClipImage = !!navigator.clipboard?.write && typeof ClipboardItem !== 'undefined';
+      // قائمة المشاركة بالصورة فقط حين لا وجهة للمذخر (لا كروب/رقم/معرّف) أو تعذّر نسخ الصورة —
+      // وإلا يُفتح كروب المذخر نفسه والصورة منسوخة (طلب صاحب المشروع)
+      if (IS_TOUCH && (ch === 'share' || !canClipImage) && navigator.canShare?.({ files: [file] })) {
         copyText(caption); // احتياط: بعض التطبيقات تُسقط النص المرافق للصورة
         const share = () => navigator.share({ files: [file], text: caption }).then(() => true, () => false);
         // «حفظ وإرسال للتالي»: المشاركة تُفتح الآن داخل الضغطة، والتعليم بعد الحفظ
         const early = deferred ? share() : null;
         return { go: () => { (early ?? share()).then(ok => { if (ok) markSent(list, wh); }); }, cancel: none };
       }
-      // الكمبيوتر: الصورة تُنسخ للحافظة ويُفتح الكروب/المحادثة ← Ctrl+V
-      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+      // الصورة تُنسخ للحافظة ويُفتح كروب المذخر/محادثته ← لصق
+      if (canClipImage) {
         navigator.clipboard.write([new ClipboardItem({ 'image/png': file })])
           .catch(() => setNotice('تعذّر نسخ صورة الطلبية — أعد المحاولة.'));
         const url = ch === 'wa-group' ? wh.groupLink!
           : ch === 'viber-group' ? (IS_TOUCH ? wh.groupLink! : null) // فايبر الكمبيوتر لا يفتح روابط الكروبات
           : ch === 'wa-number' ? `https://wa.me/${toWaNumber(wh.phone)}?text=${encodeURIComponent(caption)}`
           : ch === 'share' ? null : handleUrl(wh.handle, ch === 'link' ? '' : caption);
-        const o = url ? opener(url) : null;
         const where = ch === 'share' ? 'محادثة المذخر' : `${CHANNEL_LABEL[ch]} «${wh.name}»`;
+        // الموبايل على ضغطتين: فتح واتساب فوراً يُفقد الصفحة التركيز فقد يُلغي iOS النسخ قبل
+        // اكتماله — لذا يظهر زر «فتح الكروب» بعد النسخ، وضغطه يفتح كروب المذخر نفسه
+        if (IS_TOUCH && url) {
+          return {
+            go: () => setOpenPrompt({ text: `✓ نُسخت صورة الطلبية. في ${where} اضغط مطوّلاً على خانة الكتابة ← لصق ← إرسال.`, label: `فتح ${where}`, url, done: () => markSent(list, wh) }),
+            cancel: none,
+          };
+        }
+        const o = url ? opener(url) : null;
         return {
           go: () => { o?.open(); setNotice(`✓ نُسخت صورة الطلبية. ${url ? `في ${where}` : `افتح ${where} ←`} اضغط على خانة الكتابة ثم Ctrl+V ← إرسال.`); markSent(list, wh); },
           cancel: o?.cancel ?? none,
@@ -912,6 +924,17 @@ export default function RepOrdersPage() {
           onClose={() => setPrepFor(null)} onSaved={() => { setPrepFor(null); load(); }} />
       )}
       {notice && <div className="ro-notice" role="status" onClick={() => setNotice(null)}>{notice}</div>}
+      {openPrompt && (
+        <div className="ro-openprompt" role="dialog">
+          <div className="ro-openprompt__text">{openPrompt.text}</div>
+          <div className="ro-openprompt__btns">
+            <button className="ro-send-btn" onClick={() => { window.open(openPrompt.url, '_blank'); openPrompt.done(); setOpenPrompt(null); }}>
+              <Send size={15} /> <span>{openPrompt.label}</span>
+            </button>
+            <button className="btn btn--secondary btn--sm" onClick={() => setOpenPrompt(null)}>إلغاء</button>
+          </div>
+        </div>
+      )}
 
       {preview && (
         <div className="ro-modal" onClick={() => setPreview(null)}>
