@@ -9,7 +9,8 @@
 //   { name: 'telegram'|'viber'|'whatsapp',
 //     sendText(chatId, text)        → Promise<messageId|null>
 //     editText?(chatId, msgId, text) → Promise<any>   (فايبر لا يملكها)
-//     downloadMedia(ref)            → Promise<Buffer> }
+//     downloadMedia(ref)            → Promise<Buffer>
+//     onQueued?()                   → بعد دخول الطلبية طابور المراجعة (عدّاد) }
 //
 // **هذه الدالة لا ترمي أبداً**: webhook تلكرام يُقرّ 200 ثم ينسى
 // (telegram.controller.js)، فأي رمية هنا تصبح unhandled rejection بلا أي إشعار
@@ -32,7 +33,7 @@ import { userFeatureOn } from '../../lib/userFeatures.js';
 //  • BOT_TO_CONDITION — طلبيات/فواتير البوت ← ملف الكوديشن (مفعّلة افتراضياً، السلوك القديم).
 //  • BOT_TO_REP_ORDERS — صورة فاتورة تطابق طلبية من «طلبيات المذاخر» ← تُثبَّت عليها (اشتراك).
 // الترتيب: المطابقة أولاً، وما لا يطابق يكمل للكوديشن.
-const BOT_TO_CONDITION = 'bot_invoice_condition';
+export const BOT_TO_CONDITION = 'bot_invoice_condition';
 const BOT_TO_REP_ORDERS = 'bot_invoice_rep_orders';
 // كلمة مع الصورة تحسم النوع: «مبيعات/كوديشن» ⇒ كوديشن بلا مطابقة؛ «#16» أو «تجهيز 16» ⇒ تلك الطلبية
 const FORCE_SALE_RE = /مبيعات|مبيع|كوديشن|كونديشن/;
@@ -203,6 +204,8 @@ export async function handleIncomingOrderMessage({
       mediaKeys: mediaRefs.map(r => (typeof r === 'string' ? r : JSON.stringify(r))),
       sourceMessageId: messageId,
     });
+    // خطّاف اختياري للمنصّة (كروبات «رقم الكروبات» تعدّ ما دخل الطابور) — لا يرمي
+    try { await transport.onQueued?.(); } catch (e) { console.error('[orders] onQueued:', e?.message); }
     // تنبيه مبكر: الطلبية نفسها محفوظة سابقاً في ملف الكوديشن؟ (لا يمنع الطابور —
     // القرار للمراجِع في التطبيق، حيث تُعلَّم الصفوف المكررة أيضاً.)
     let dupNote = '';

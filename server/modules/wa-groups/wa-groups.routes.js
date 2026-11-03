@@ -13,7 +13,12 @@ import { groupsSecret, sidecar } from './wa-groups.client.js';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import { handleGroupInbound } from '../warehouse-dispatch/dispatch.inbound.js';
 import { ORDER_TEXT_MODES } from '../orders/order-trigger.js';
-import { listenLinkFor, handleListenGroupMessage, invalidateListenCache } from './wa-groups.listen.js';
+import { listenLinkFor, handleListenGroupMessage, invalidateListenCache, LISTEN_SOURCE } from './wa-groups.listen.js';
+import { BOT_TO_CONDITION } from '../orders/bot-order-flow.js';
+import { resolveSharedConditionOwner } from '../sales/sales.service.js';
+import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
+import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
+import { userFeatureOn } from '../../lib/userFeatures.js';
 
 export const internalRouter = Router();
 export const adminRouter = Router();
@@ -90,13 +95,64 @@ saRouter.get('/groups', groupsHandler);
 const refreshSidecarJids = () => sidecar('/refresh-known', { method: 'POST', timeoutMs: 5000 }).catch(() => {});
 
 saRouter.get('/links', async (_req, res) => {
-  const [links, wh] = await Promise.all([
+  const [links, wh, pending] = await Promise.all([
     prisma.waGroupLink.findMany({ include: { user: { select: { id: true, username: true, displayName: true, role: true } } }, orderBy: { id: 'asc' } }),
     prisma.orderWarehouse.findMany({ where: { channel: 'group', groupJid: { not: null } }, select: { groupJid: true, name: true } }),
+    // طلبيات الكروب التي لم تُراجَع بعد — بعد التحويل قد تكون عند أكثر من مدير
+    prisma.pendingBotOrder.groupBy({ by: ['chatId', 'userId'], where: { source: LISTEN_SOURCE }, _count: { _all: true } }),
   ]);
   const warehouses = {};
   for (const w of wh) (warehouses[w.groupJid] ||= []).push(w.name);
-  res.json({ success: true, links, warehouses });
+  const names = new Map((await prisma.user.findMany({
+    where: { id: { in: [...new Set(pending.map(p => p.userId))] } }, select: { id: true, username: true, displayName: true },
+  })).map(u => [u.id, u.displayName?.trim() || u.username]));
+  const pendingByJid = {};
+  for (const p of pending) (pendingByJid[p.chatId] ||= []).push({ userId: p.userId, name: names.get(p.userId) || `#${p.userId}`, count: p._count._all });
+  res.json({ success: true, links, warehouses, pending: pendingByJid });
+});
+
+// «وين راح تروح البيانات؟» للحساب المختار قبل الحفظ — نفس القواعد الفعلية:
+// مفتاح «فواتير البوت ← اللكوديشن»، تحويل الأسطر لمدراء الايتمات، والملف المشترك.
+saRouter.get('/destination', async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: Number(req.query.userId) || 0 },
+    select: { id: true, username: true, displayName: true, role: true, officeId: true, isActive: true, permissions: true },
+  });
+  if (!user) return res.status(404).json({ error: 'الحساب غير موجود' });
+  const nameOf = (u) => u?.displayName?.trim() || u?.username || '';
+  const [office, owners, condOwnerId] = await Promise.all([
+    user.officeId != null ? prisma.scientificOffice.findUnique({ where: { id: user.officeId }, select: { name: true } }) : null,
+    loadItemOwnerManagers(user.officeId).catch(() => new Map()),
+    resolveSharedConditionOwner(user),
+  ]);
+  const managers = new Map();
+  for (const o of owners.values()) {
+    if (o.managerId === user.id) continue;
+    const m = managers.get(o.managerId) || { id: o.managerId, name: o.managerName, company: o.companyName, items: 0 };
+    m.items++;
+    managers.set(o.managerId, m);
+  }
+  const [condOwner, condFile] = await Promise.all([
+    prisma.user.findUnique({ where: { id: condOwnerId }, select: { username: true, displayName: true } }),
+    prisma.uploadedFile.findFirst({
+      where: { userId: condOwnerId, isCumulative: true, mergeGroup: { endsWith: `|${CONDITION_VARIANT}` } },
+      select: { id: true, originalName: true, _count: { select: { sales: true } } }, orderBy: { id: 'asc' },
+    }),
+  ]);
+  res.json({
+    success: true,
+    reviewer: { id: user.id, name: nameOf(user), role: user.role, isActive: user.isActive },
+    office: office?.name || null,
+    conditionOn: userFeatureOn(user, BOT_TO_CONDITION),
+    ownItems: [...owners.values()].filter(o => o.managerId === user.id).length,
+    managers: [...managers.values()].sort((a, b) => b.items - a.items),
+    conditionFile: {
+      ownerName: nameOf(condOwner),
+      id: condFile?.id ?? null,
+      name: condFile?.originalName ?? null,
+      rows: condFile?._count.sales ?? 0,
+    },
+  });
 });
 
 saRouter.put('/links', async (req, res) => {

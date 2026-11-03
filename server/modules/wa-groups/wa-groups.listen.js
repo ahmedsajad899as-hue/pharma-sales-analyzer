@@ -75,6 +75,11 @@ function journalWrite(key, entry) {
 }
 const journalDone = (key) => fs.promises.unlink(inboxFile(key)).catch(() => {});
 
+// ─── العدّادات (تشخيص فقط — فشلها لا يمسّ المعالجة) ─────────────────────────
+
+const bumpCounters = (jid, data) =>
+  prisma.waGroupLink.update({ where: { jid }, data }).catch(e => console.error('[wa-groups] عدّاد:', e?.message));
+
 // ─── المعالجة ────────────────────────────────────────────────────────────────
 
 async function processMessage(m, link) {
@@ -89,6 +94,7 @@ async function processMessage(m, link) {
       sendText: async () => null, // قراءة صامتة: لا شيء يخرج من الرقم أبداً
       downloadMedia: async () => buffer,
       resolveSenderRep,
+      onQueued: () => bumpCounters(link.jid, { orderCount: { increment: 1 }, lastOrderAt: new Date() }),
     },
     link, user,
     chatId: link.jid, chatTitle: link.name || null,
@@ -104,6 +110,7 @@ async function processMessage(m, link) {
 export async function handleListenGroupMessage(m, link) {
   const key = m.msgId ? `wag_${m.msgId}` : null;
   if (key) journalWrite(key, { m });
+  bumpCounters(link.jid, { messageCount: { increment: 1 }, lastMessageAt: new Date() });
   try {
     await processMessage(m, link);
   } catch (e) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { ErrBox, Modal, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
@@ -6,10 +6,74 @@ import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './Orde
 interface Status { status?: string; connected?: boolean; me?: string | null; error?: string | null }
 interface Group { jid: string; name: string; size: number }
 interface UserOption { id: number; username: string; displayName?: string | null; role: string }
-interface ListenLink { jid: string; name: string | null; userId: number; isActive: boolean; orderTextMode: OrderTextMode; user?: UserOption }
+interface ListenLink {
+  jid: string; name: string | null; userId: number; isActive: boolean; orderTextMode: OrderTextMode; user?: UserOption;
+  messageCount: number; orderCount: number; lastMessageAt: string | null; lastOrderAt: string | null;
+}
 interface LinkForm { jid: string; name: string; userId?: number; orderTextMode: OrderTextMode; isNew: boolean }
+interface PendingAt { userId: number; name: string; count: number }
+interface Destination {
+  reviewer: { id: number; name: string; role: string; isActive: boolean };
+  office: string | null;
+  conditionOn: boolean;
+  ownItems: number;
+  managers: { id: number; name: string; company: string | null; items: number }[];
+  conditionFile: { ownerName: string; id: number | null; name: string | null; rows: number };
+}
 
 const userLabel = (u?: UserOption) => u ? (u.displayName || u.username) : '—';
+
+// «قبل 5 د» / «قبل 3 س» / «قبل 2 ي» — تشخيص سريع: هل الكروب يُقرأ فعلاً؟
+function ago(iso: string | null): string {
+  if (!iso) return '—';
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (min < 1) return 'الآن';
+  if (min < 60) return `قبل ${min} د`;
+  if (min < 24 * 60) return `قبل ${Math.round(min / 60)} س`;
+  return `قبل ${Math.round(min / 1440)} ي`;
+}
+
+/** مسار البيانات للحساب المختار — يُجلب من نفس قواعد السيرفر الفعلية. */
+function DestinationBox({ d }: { d: Destination }) {
+  const step = (n: number, body: ReactNode) => (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      <span style={{ flex: '0 0 20px', height: 20, borderRadius: 10, background: '#0f172a', color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{n}</span>
+      <div style={{ flex: 1 }}>{body}</div>
+    </div>
+  );
+  return (
+    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', marginBottom: 14, fontSize: 12.5, color: UI.text, lineHeight: 1.7, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontWeight: 700, color: UI.ink }}>وين راح تروح البيانات؟</div>
+      {!d.reviewer.isActive && <div style={{ color: '#b91c1c', fontWeight: 600 }}>⛔ هذا الحساب معطّل — رسائل الكروب لن تُسجَّل.</div>}
+      {!d.conditionOn && <div style={{ color: '#b91c1c', fontWeight: 600 }}>⛔ ميزة «فواتير البوت ← اللكوديشن» معطّلة لهذا الحساب — لن يدخل شيء الطابور. فعّلها من «المميزات».</div>}
+      {step(1, <>طابور المراجعة عند <b>{d.reviewer.name}</b> ({d.reviewer.role}){d.office ? <> — مكتب {d.office}</> : null}، بصفحة الرفع ← طلبيات البوت.</>)}
+      {step(2, d.managers.length ? (
+        <>
+          كل سطر يتحوّل تلقائياً لمدير الشركة اللي يملك الايتم:
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+            {d.managers.map(m => (
+              <span key={m.id} style={{ background: '#eef2ff', color: '#3730a3', borderRadius: 14, padding: '2px 9px', fontSize: 11.5 }}>
+                {m.name}{m.company ? ` · ${m.company}` : ''} <span style={{ opacity: 0.7 }}>({m.items} ايتم)</span>
+              </span>
+            ))}
+          </div>
+          <div style={{ fontSize: 11.5, color: UI.faint, marginTop: 4 }}>
+            {d.ownItems ? `ايتمات ${d.reviewer.name} (${d.ownItems}) والايتمات بلا مدير تبقى عنده.` : `الايتمات بلا مدير تبقى عند ${d.reviewer.name}.`}
+          </div>
+        </>
+      ) : (
+        <>كل الأسطر تبقى عند {d.reviewer.name} — لا مدراء شركات بايتمات مُسنَدة في مكتبه.</>
+      ))}
+      {step(3, <>
+        بعد الاعتماد تُحفظ في ملف اللكوديشن المشترك
+        {d.conditionFile.id
+          ? <> <b>#{d.conditionFile.id}</b> «{d.conditionFile.name}» ({d.conditionFile.rows} سطر)</>
+          : <> (سيُنشأ أول مرة)</>}
+        {' '}— صاحبه {d.conditionFile.ownerName}. كل مدير يشوف بيه أسطر ايتمات فريقه.
+      </>)}
+    </div>
+  );
+}
 
 const STATUS_LABEL: Record<string, { text: string; color: string; bg: string }> = {
   connected:     { text: 'متصل ✅',          color: '#16a34a', bg: '#f0fdf4' },
@@ -38,6 +102,9 @@ export default function WaGroupsPage() {
   const [form, setForm]     = useState<LinkForm | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [pendingByJid, setPendingByJid] = useState<Record<string, PendingAt[]>>({});
+  const [dest, setDest] = useState<Destination | null>(null);
+  const [destErr, setDestErr] = useState('');
 
   const load = useCallback(() => {
     fetch('/api/sa/wa-groups/status', { headers: H() })
@@ -56,8 +123,22 @@ export default function WaGroupsPage() {
       if (!d.success) return;
       setLinks(Object.fromEntries((d.links as ListenLink[]).map(l => [l.jid, l])));
       setWhByJid(d.warehouses || {});
+      setPendingByJid(d.pending || {});
     }).catch(() => {});
   }, [H]);
+
+  // مسار البيانات يتبع الحساب المختار في النافذة
+  const formUserId = form?.userId;
+  useEffect(() => {
+    setDest(null); setDestErr('');
+    if (!formUserId) return;
+    let alive = true;
+    fetch(`/api/sa/wa-groups/destination?userId=${formUserId}`, { headers: H() })
+      .then(r => r.json())
+      .then(d => { if (alive) d.success ? setDest(d) : setDestErr(d.error || 'تعذّر جلب المسار'); })
+      .catch(() => { if (alive) setDestErr('تعذّر جلب المسار'); });
+    return () => { alive = false; };
+  }, [formUserId, H]);
   useEffect(() => { if (st?.connected) loadLinks(); }, [st?.connected, loadLinks]);
   useEffect(() => {
     fetch('/api/sa/users', { headers: H() }).then(r => r.json()).then(d => { if (d.success) setUsers(d.data); }).catch(() => {});
@@ -172,6 +253,16 @@ export default function WaGroupsPage() {
                 <div style={{ flex: '1 1 180px', minWidth: 0 }}>
                   <div style={{ fontWeight: 600, color: UI.ink }}>{g.name}</div>
                   <div style={{ fontSize: 11.5, color: UI.faint }}>{g.size} عضو</div>
+                  {l && !wh && (
+                    <div style={{ fontSize: 11.5, color: UI.muted, marginTop: 3, lineHeight: 1.6 }}>
+                      📥 {l.messageCount} رسالة (آخرها {ago(l.lastMessageAt)}) · ✅ {l.orderCount} دخلت المراجعة{l.orderCount ? ` (آخرها ${ago(l.lastOrderAt)})` : ''}
+                      {(pendingByJid[g.jid] || []).length > 0 && (
+                        <div style={{ color: '#b45309' }}>
+                          ⏳ بانتظار المراجعة: {pendingByJid[g.jid].map(p => `${p.name} (${p.count})`).join('، ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {wh ? (
                   <span style={{ background: '#eff6ff', color: '#1d4ed8', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>🚚 كروب مذخر: {wh.join('، ')}</span>
@@ -212,6 +303,8 @@ export default function WaGroupsPage() {
               {users.map(u => <option key={u.id} value={u.id}>{userLabel(u)} ({u.role})</option>)}
             </select>
           </div>
+          {dest && <DestinationBox d={dest} />}
+          {destErr && <div style={{ fontSize: 12, color: '#b91c1c', marginBottom: 10 }}>{destErr}</div>}
           <OrderTextModeField value={form.orderTextMode} onChange={v => setForm(f => f && ({ ...f, orderTextMode: v }))} />
           {formError && <ErrBox msg={formError} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>

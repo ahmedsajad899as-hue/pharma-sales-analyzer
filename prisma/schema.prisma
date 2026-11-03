@@ -681,6 +681,11 @@ model WaGroupLink {
   name          String?
   isActive      Boolean  @default(true)
   orderTextMode String   @default("all") // off | trigger | all — كروب مبيعات مخصّص فـall افتراضياً
+  // عدّادات تشخيص للوحة الماستر: كل رسالة وصلت من الكروب / ما دخل منها طابور المراجعة
+  messageCount  Int       @default(0)
+  orderCount    Int       @default(0)
+  lastMessageAt DateTime?
+  lastOrderAt   DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
