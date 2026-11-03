@@ -132,27 +132,31 @@ function orderText(o: Order, no: number, withHeader = true): string {
 }
 
 /**
- * رابط معرّف المذخر: @يوزر (أو t.me/يوزر) ← محادثته في تيليكرام والنص جاهز فيها،
- * وأي رابط آخر يُفتح كما هو. null = ليس معرّفاً صالحاً.
+ * رابط معرّف المذخر: @يوزر (أو wa.me/يوزر) ← محادثته في واتساب بمعرّف الواتساب
+ * (wa.me/<username>)، وt.me/يوزر ← تيليكرام، وأي رابط آخر يُفتح كما هو.
+ * النص يُمرَّر في ?text= — إن تجاهله التطبيق فالطلبية منسوخة أيضاً. null = ليس معرّفاً صالحاً.
  */
 const handleUrl = (raw?: string | null, text = ''): string | null => {
   const h = String(raw ?? '').trim();
   if (!h) return null;
-  const tg = h.match(/^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/@?([A-Za-z][A-Za-z0-9_]{3,31})\/?$/i) ?? h.match(/^@?([A-Za-z][A-Za-z0-9_]{3,31})$/);
-  if (tg) return `https://t.me/${tg[1]}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+  const q = text ? `?text=${encodeURIComponent(text)}` : '';
+  const tg = h.match(/^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/@?([A-Za-z][A-Za-z0-9_]{3,31})\/?$/i);
+  if (tg) return `https://t.me/${tg[1]}${q}`;
+  const wa = h.match(/^(?:https?:\/\/)?wa\.me\/@?([A-Za-z0-9._]*[A-Za-z][A-Za-z0-9._]*)\/?$/i) ?? h.match(/^@?([A-Za-z0-9._]*[A-Za-z][A-Za-z0-9._]*)$/);
+  if (wa && wa[1].length >= 3 && wa[1].length <= 35) return `https://wa.me/${wa[1].toLowerCase()}${q}`;
   return /^https?:\/\/\S+$/i.test(h) ? h : null;
 };
 
 // قناة الإرسال اليدوي للمذخر: كروبه (واتساب/فايبر) إن حُفظ رابطه، وإلا رقمه، وإلا معرّفه، وإلا المشاركة
-type Channel = 'wa-group' | 'viber-group' | 'wa-number' | 'tg' | 'link' | 'share';
+type Channel = 'wa-group' | 'viber-group' | 'wa-number' | 'wa-user' | 'tg' | 'link' | 'share';
 const channelOf = (wh?: OrderWh | null): Channel => {
   if (wh?.groupLink) return /viber\.com/i.test(wh.groupLink) ? 'viber-group' : 'wa-group';
   if (toWaNumber(wh?.phone)) return 'wa-number';
   const url = handleUrl(wh?.handle);
-  if (url) return url.startsWith('https://t.me/') ? 'tg' : 'link';
+  if (url) return url.startsWith('https://wa.me/') ? 'wa-user' : url.startsWith('https://t.me/') ? 'tg' : 'link';
   return 'share';
 };
-const CHANNEL_LABEL: Record<Channel, string> = { 'wa-group': 'كروب واتساب', 'viber-group': 'كروب فايبر', 'wa-number': 'واتساب', tg: 'تيليكرام', link: 'رابط المذخر', share: 'مشاركة' };
+const CHANNEL_LABEL: Record<Channel, string> = { 'wa-group': 'كروب واتساب', 'viber-group': 'كروب فايبر', 'wa-number': 'واتساب', 'wa-user': 'واتساب (معرّف)', tg: 'تيليكرام', link: 'رابط المذخر', share: 'مشاركة' };
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
 // أيقونة التطبيق فقط (واتساب/فايبر) بدل نص القناة — التفصيل في title
@@ -516,12 +520,12 @@ export default function RepOrdersPage() {
         cancel: o.cancel,
       };
     }
-    if (ch === 'tg' || ch === 'link') {
-      // تيليكرام يملأ خانة الكتابة من الرابط؛ النسخ احتياط إن لم يظهر النص
+    if (ch === 'wa-user' || ch === 'tg' || ch === 'link') {
+      // رابط المعرّف (واتساب/تيليكرام) يملأ خانة الكتابة؛ النسخ احتياط إن لم يظهر النص
       copyText(text);
-      const o = opener(handleUrl(wh.handle, ch === 'tg' ? text : '')!);
+      const o = opener(handleUrl(wh.handle, ch === 'link' ? '' : text)!);
       return {
-        go: () => { o.open(); setNotice(`✓ فُتحت محادثة «${wh.name}»${ch === 'tg' ? ' في تيليكرام والطلبية مكتوبة فيها' : ''} — والطلبية منسوخة أيضاً للصق إن لم تظهر.`); markSent(list, wh); },
+        go: () => { o.open(); setNotice(`✓ فُتحت محادثة «${wh.name}»${ch === 'link' ? '' : ` في ${CHANNEL_LABEL[ch]} والطلبية مكتوبة فيها`} — والطلبية منسوخة أيضاً للصق إن لم تظهر.`); markSent(list, wh); },
         cancel: o.cancel,
       };
     }
@@ -568,7 +572,7 @@ export default function RepOrdersPage() {
     const ch = channelOf(wh);
     if (ch === 'viber-group' && !IS_TOUCH) { setNotice(`افتح كروب «${wh.name}» من فايبر — روابط كروبات فايبر تفتح بالموبايل فقط.`); return; }
     if (ch === 'wa-group' || ch === 'viber-group') { window.open(wh.groupLink!, '_blank'); return; }
-    if (ch === 'tg' || ch === 'link') { window.open(handleUrl(wh.handle)!, '_blank'); return; }
+    if (ch === 'wa-user' || ch === 'tg' || ch === 'link') { window.open(handleUrl(wh.handle)!, '_blank'); return; }
     const wa = toWaNumber(wh.phone);
     if (wa) window.open(`https://wa.me/${wa}`, '_blank');
   };
@@ -2089,7 +2093,7 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
               <input className="form-input" placeholder="المحافظة" list="ro-wh-provinces" value={draft.province} onChange={e => setDraft({ ...draft, province: e.target.value })} />
               <datalist id="ro-wh-provinces">{provinces.map(p => <option key={p} value={p} />)}</datalist>
               <input className="form-input" placeholder="رقم واتساب 07…" inputMode="tel" dir="ltr" value={draft.phone} onChange={e => setDraft({ ...draft, phone: e.target.value })} />
-              <input className="form-input" placeholder="المعرّف بدل الرقم (@user أو رابط)" dir="ltr" value={draft.handle} onChange={e => setDraft({ ...draft, handle: e.target.value })} />
+              <input className="form-input" placeholder="معرّف واتساب بدل الرقم (@user)" dir="ltr" value={draft.handle} onChange={e => setDraft({ ...draft, handle: e.target.value })} />
               <input className="form-input" placeholder="رابط كروب واتساب أو فايبر (اختياري)" dir="ltr" value={draft.groupLink} onChange={e => setDraft({ ...draft, groupLink: e.target.value })} />
               <input className="form-input" placeholder="ملاحظة (اختياري)" value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
               <button className="btn btn--primary btn--sm" onClick={save}>حفظ</button>
@@ -2113,7 +2117,7 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
                   <span className="ro-whdir__contact">
                     {w.phone && <span dir="ltr">{w.phone}</span>}
                     {w.handle && (
-                      <button type="button" className="ro-whdir__handle" dir="ltr" title={handleUrl(w.handle) ? `فتح ${handleUrl(w.handle)!.startsWith('https://t.me/') ? 'تيليكرام' : 'الرابط'}` : 'نسخ المعرّف'} onClick={() => openHandle(w)}>
+                      <button type="button" className="ro-whdir__handle" dir="ltr" title={handleUrl(w.handle) ? `فتح ${CHANNEL_LABEL[channelOf({ id: null, name: '', phone: null, handle: w.handle })]}` : 'نسخ المعرّف'} onClick={() => openHandle(w)}>
                         {copied === w.id ? 'نُسخ ✓' : w.handle}
                       </button>
                     )}
