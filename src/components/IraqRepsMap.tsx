@@ -18,12 +18,15 @@
 //     repKind='pharmacy' (المسوقون): بلا شركة رئيسية، فيُعرضون قائمةً واحدة لكل محافظة.
 //   • الكوديشن: /api/reports/overall على ملفات الكوديشن المرئية (مفعّلة أم لا) — نفس
 //     قواعد المحافظة/التيم/العملة التي يُحسب بها مبيع المحافظة، فالمقارنة متكافئة.
+//   • عرض «أسماء المندوبين»: جدول لكل محافظة (تيم ليدر + مندوبون + المبيع مقابل اللكوديشن)
+//     يدمج province-map مع /api/province-teams/directory؛ مندوب الفريق يأخذ قيمة تغطية
+//     الفريق نفسها في نافذة «فرق المحافظات». الضغط على اسم يفتح تقريره (onOpenRep).
 //
 // ⚠️ الجلب يتحرّك بالملفات + الشهر فقط. حقلا التواريخ في ReportsPage يتبدّلان
 // تلقائياً (فارغ↔مملوء)، وإدخالهما في الاعتماديات سبّب حلقة جلب لا تنتهي.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { IRAQ_PROVINCE_SHAPES, IRAQ_MAP_VIEWBOX } from '../data/iraqProvinces';
 import ProvinceTeamsDirectory from './ProvinceTeamsDirectory';
 import { BAGHDAD_SIDE_SHAPES, BAGHDAD_MAP_VIEWBOX } from '../data/baghdadSides';
@@ -53,10 +56,18 @@ interface Props {
   conditionRev?: number;
   /** زر «إدخال كوديشن (إكسل)» — يظهر فقط إن مُرِّر. */
   onAddCondition?: () => void;
+  /** عرض الأسماء: الضغط على اسم يفتح تقرير المندوب أسفل الجدول. */
+  onOpenRep?: (repId: number) => void;
+  /** المندوب المفتوح تقريره الآن — يُميَّز اسمه في الجدول. */
+  selectedRepId?: string | null;
 }
 
 interface CompanyCell { name: string; value: number; cond: number; reps: RepRow[] }
 interface ProvinceCell { name: string; total: number; cond: number; companies: CompanyCell[]; repCount: number; marketers: RepRow[] }
+// فرق المحافظات بصيغة مختصرة للمخبأ. p المحافظة، lr معرّف مندوب القائد، u حساب المندوب.
+type TeamLite = { p: string; leader: string | null; lr: number | null; reps: { u: number; id: number | null; name: string; active: boolean; kind: string; net: number }[] };
+interface NameRep { key: string; id: number | null; name: string; value: number; active: boolean }
+interface NameRow { leader: { id: number | null; name: string } | null; reps: NameRep[] }
 
 const norm = (s: string) => String(s || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
 const BAGHDAD = norm('بغداد');
@@ -212,7 +223,13 @@ function PlexusBackground() {
   return <canvas ref={ref} aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }} />;
 }
 
-export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel, repKind, conditionRev = 0, onAddCondition }: Props) {
+export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel, repKind, conditionRev = 0, onAddCondition, onOpenRep, selectedRepId }: Props) {
+  const [view, setViewState] = useState<'names' | 'map'>(() => sessionStorage.getItem('rpt_provView') === 'map' ? 'map' : 'names');
+  const setView = (v: 'names' | 'map') => { setViewState(v); try { sessionStorage.setItem('rpt_provView', v); } catch { /* ignore */ } };
+  const [teams, setTeams] = useState<TeamLite[]>([]);
+  const [loadingTeams, setLoadingTeams] = useState(false);
+  // المحافظة المفتوح توزيع شركاتها في جدول الأسماء
+  const [openProv, setOpenProv] = useState<string | null>(null);
   const marketers = repKind === 'pharmacy';
   const repWord = marketers ? 'مسوّق' : 'مندوب علمي';
   const { user } = useAuth();
@@ -468,6 +485,39 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   // مبيع المحافظة من الملفات النشطة — يشمل الكوديشن فقط إن كان ملفه مفعّلاً بينها
   const condInTotal = hasCond && condFiles!.some(id => fileIds.includes(id));
 
+  // ── فرق المحافظات لعرض الأسماء — تحسب التغطية فلا تُجلب إلا حين يظهر الجدول ──
+  useEffect(() => {
+    if (view !== 'names' || !ready) return;
+    let dead = false;
+    const ac = new AbortController();
+    const cacheable = monthKey !== 'custom';
+    const key = `t|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
+    const hit = cacheable ? cacheGet(key) : undefined;
+    if (hit) setTeams(hit.v);
+    if (hit && Date.now() - hit.t < FRESH_MS) return () => { dead = true; };
+    (async () => {
+      if (!hit) setLoadingTeams(true);
+      try {
+        const p = new URLSearchParams();
+        latest.current.applyMonth(p);
+        if (fileIds.length) p.set('fileIds', fileKey);
+        const r = await fetch(`/api/province-teams/directory?${p}`, { headers: { Authorization: `Bearer ${token}` }, signal: ac.signal });
+        // دور بلا فرق محافظات: الجدول يكتفي بأسماء province-map
+        const j = r.ok ? await r.json() : { teams: [] };
+        if (dead) return;
+        const rows: TeamLite[] = (j.teams ?? []).map((t: any) => ({
+          p: t.provinceName, leader: t.leaderName ?? null, lr: t.leaderRepId ?? null,
+          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', net: x.net ?? 0 })),
+        }));
+        if (cacheable) cacheSet(key, rows);
+        setTeams(rows);
+      } catch (e: any) { if (!dead && e?.name !== 'AbortError' && !hit) setTeams([]); }
+      finally { if (!dead) setLoadingTeams(false); }
+    })();
+    return () => { dead = true; ac.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, fileKey, monthKey, tok, ready, ownTeamId]);
+
   // ── دمج: محافظة ← شركات (مبيع + مندوبون) ─────────────────────────────────
   const cells = useMemo(() => {
     const out = new Map<string, ProvinceCell>();
@@ -524,6 +574,58 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const active = hover ?? sel;
   const activeCell = active ? cells.get(norm(active)) : undefined;
 
+  // ── أسماء كل محافظة: مندوبو province-map + مندوبو فريقها، بلا تكرار، والقائد منفصل ──
+  const nameRows = useMemo(() => {
+    const out = new Map<string, NameRow>();
+    const rowOf = (k: string) => { if (!out.has(k)) out.set(k, { leader: null, reps: [] }); return out.get(k)!; };
+    for (const c of cells.values()) {
+      const row = rowOf(norm(c.name));
+      for (const r of marketers ? c.marketers : c.companies.flatMap(x => x.reps)) {
+        row.reps.push({ key: `r${r.id}`, id: r.id, name: r.name, value: r.netValue, active: true });
+      }
+    }
+    for (const t of teams) {
+      const k = norm(t.p);
+      if (k === BAGHDAD) continue;
+      const row = rowOf(k);
+      if (t.leader && !row.leader) row.leader = { id: t.lr, name: t.leader };
+      for (const r of t.reps) {
+        if (repKind && (r.kind === 'pharmacy') !== marketers) continue;
+        const cur = row.reps.find(x => (r.id != null && x.id === r.id) || norm(x.name) === norm(r.name));
+        if (cur) { cur.value = r.net; cur.id = cur.id ?? r.id; cur.active = r.active; }
+        else row.reps.push({ key: `u${r.u}`, id: r.id, name: r.name, value: r.net, active: r.active });
+      }
+    }
+    for (const row of out.values()) {
+      const l = row.leader;
+      if (l) row.reps = row.reps.filter(x => !((l.id != null && x.id === l.id) || norm(x.name) === norm(l.name)));
+      row.reps.sort((a, b) => b.value - a.value);
+    }
+    return out;
+  }, [cells, teams, repKind, marketers]);
+
+  // صفوف الجدول: محافظة فيها مبيع/لكوديشن/أسماء — ومحافظة لها فريق بلا مبيع تأتي آخراً
+  const nameList = useMemo(() => {
+    const rows = [...list];
+    for (const t of teams) {
+      const k = norm(t.p);
+      if (k !== BAGHDAD && !cells.has(k) && !rows.some(c => norm(c.name) === k)) {
+        rows.push({ name: t.p, total: 0, cond: 0, companies: [], repCount: 0, marketers: [] });
+      }
+    }
+    return rows.filter(c => {
+      const n = nameRows.get(norm(c.name));
+      return c.total !== 0 || c.cond !== 0 || !!n?.leader || (n?.reps.length ?? 0) > 0;
+    });
+  }, [list, teams, cells, nameRows]);
+
+  // عدد المندوبين في البطاقة: بعد جلب الفرق يطابق الأسماء الظاهرة في الجدول
+  const namesRepCount = useMemo(() => {
+    const seen = new Set<string>();
+    for (const n of nameRows.values()) for (const r of n.reps) seen.add(r.id != null ? `i${r.id}` : `n${norm(r.name)}`);
+    return seen.size;
+  }, [nameRows]);
+
   const totals = useMemo(() => {
     const cos = new Set<string>(); const rp = new Set<number>(); let v = 0, cd = 0;
     for (const c of list) {
@@ -575,6 +677,29 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   const pickProvince = (name: string) => { setSel(name); setDirProvince(name); setTeamsOpen(true); };
   const openBaghdad = () => { setBgOpen(true); setBgSide(null); setBgArea(null); setHover(null); };
+
+  // أجزاء مشتركة بين جدول مقارنة الخريطة وجدول الأسماء
+  const tableTh: React.CSSProperties = { padding: '7px 10px', fontSize: 12, fontWeight: 800, color: '#111827', background: '#f1f5f9', borderBottom: '1px solid #94a3b8', textAlign: 'right', whiteSpace: 'nowrap' };
+  const tableTd: React.CSSProperties = { padding: '6px 10px', fontSize: 12.5, color: '#111827', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' };
+  const tableNum: React.CSSProperties = { ...tableTd, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums' };
+  const condTotalNote = condInTotal
+    ? 'مبيع المحافظة الكلي يشمل اللكوديشن (ملفه مفعّل ضمن الملفات النشطة).'
+    : 'مبيع المحافظة الكلي من الملفات النشطة — ملف اللكوديشن غير مفعّل بينها فلا يدخل ضمنه.';
+  const condPctCell = (p: number, show: boolean) => (
+    <td style={tableNum}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ flex: 1, maxWidth: 110, height: 5, borderRadius: 3, background: '#e2e8f0', overflow: 'hidden', direction: 'rtl' }}>
+          <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, p))}%`, background: '#0891b2' }} />
+        </div>
+        <span style={{ fontWeight: 800, minWidth: 42 }}>{show ? pctTxt(p) : '—'}</span>
+      </div>
+    </td>
+  );
+  const condOutsideNote = Math.abs(condOutside) >= 1 && (
+    <div style={{ marginTop: 8, fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 10px' }}>
+      ⚠️ {fmtVal(condOutside)} {currencyLabel} من اللكوديشن خارج المقارنة: ايتماتها غير مُسندة لأي مدير شركة (تُستبعد من مبيع المحافظة بنفس القاعدة). أسندها من «الايتمات» في السوبر أدمن لتظهر هنا.
+    </div>
+  );
 
   // حصّة كل مندوب من الأساس: مبيع الشركة بالمحافظة، أو مبيع المحافظة كلها للمسوقين
   const repList = (rows: RepRow[], base: number) => (
@@ -727,6 +852,117 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     );
   };
 
+  // ── عرض الأسماء: سطر لكل محافظة — قائدها ومندوبوها ثم مبيعها مقابل اللكوديشن ──
+  const repIdSet = new Set(reps.map(r => r.id));
+  const nameBtn = (id: number | null, label: string, opts: { leader?: boolean; active?: boolean; value?: number } = {}) => {
+    const { leader = false, active: isActive = true, value } = opts;
+    const clickable = !!onOpenRep && id != null && repIdSet.has(id);
+    const on = clickable && String(id) === selectedRepId;
+    return (
+      <button type="button" disabled={!clickable} title={clickable ? `فتح تقرير ${label}` : undefined}
+        onClick={e => { e.stopPropagation(); if (clickable) onOpenRep!(id!); }}
+        style={{
+          background: 'none', border: 'none', padding: '0 1px', cursor: clickable ? 'pointer' : 'default', fontSize: 12.5, lineHeight: 1.7,
+          color: on ? '#0f172a' : !isActive ? '#94a3b8' : leader ? '#334155' : '#475569', fontWeight: on || leader ? 700 : 500,
+          textDecoration: on ? 'underline' : 'none', textUnderlineOffset: 3, whiteSpace: 'nowrap',
+        }}>
+        {label}{isActive ? '' : ' (غير نشط)'}
+        {!!value && <span style={{ fontSize: 11, fontWeight: 600, color: value < 0 ? '#be123c' : '#94a3b8', marginRight: 6, direction: 'ltr', unicodeBidi: 'isolate' }}>{fmtVal(value)}</span>}
+      </button>
+    );
+  };
+
+  const renderNames = () => {
+    const colSpan = hasCond ? 6 : 4;
+    const foot: React.CSSProperties = { ...tableTd, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8' };
+    return (
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>{marketers ? 'مسوقو المحافظات' : 'مندوبو المحافظات'}</span>
+          <span style={{ fontSize: 11.5, color: '#64748b' }}>
+            {onOpenRep ? 'اضغط على اسم لفتح تقريره، وعلى المحافظة لعرض شركاتها.' : 'اضغط على المحافظة لعرض شركاتها.'}
+            {hasCond ? ` ${condTotalNote}` : ''}
+          </span>
+          {(loadingTeams || loading) && <span style={{ fontSize: 11.5, color: '#64748b' }}>جاري التحميل…</span>}
+        </div>
+        {nameList.length === 0 ? (
+          <div style={{ color: '#94a3b8', fontSize: 13, padding: 12 }}>{loading || loadingTeams ? 'جاري تحميل بيانات المحافظات…' : 'لا توجد مبيعات ولا فرق محافظات في الفترة المختارة.'}</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: hasCond ? 820 : 620 }}>
+              <thead>
+                <tr>
+                  <th style={tableTh}>المحافظة</th>
+                  <th style={tableTh}>التيم ليدر</th>
+                  <th style={{ ...tableTh, width: '38%' }}>{marketers ? 'المسوقون' : 'المندوبون'}</th>
+                  <th style={{ ...tableTh, textAlign: 'left' }}>صافي المبيع ({currencyLabel})</th>
+                  {hasCond && <th style={{ ...tableTh, textAlign: 'left' }}>اللكوديشن ({currencyLabel})</th>}
+                  {hasCond && <th style={{ ...tableTh, textAlign: 'left', minWidth: 140 }}>نسبة اللكوديشن</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {nameList.map(c => {
+                  const k = norm(c.name);
+                  const n = nameRows.get(k);
+                  const open = openProv === k;
+                  const p = pctOf(c.cond, c.total);
+                  return (
+                    <React.Fragment key={k}>
+                      <tr onClick={() => { setSel(c.name); setOpenProv(open ? null : k); }} style={{ cursor: 'pointer', background: open ? '#f8fafc' : undefined, verticalAlign: 'top' }}>
+                        <td style={{ ...tableTd, fontWeight: 800 }}>
+                          <span style={{ color: '#94a3b8', marginInlineEnd: 5, fontSize: 11 }}>{open ? '▾' : '◂'}</span>{c.name}
+                        </td>
+                        <td style={tableTd}>{n?.leader ? nameBtn(n.leader.id, n.leader.name, { leader: true }) : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                        <td style={{ ...tableTd, whiteSpace: 'normal' }}>
+                          {n?.reps.length
+                            ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 14px' }}>{n.reps.map(r => <span key={r.key}>{nameBtn(r.id, r.name, { active: r.active, value: r.value })}</span>)}</div>
+                            : <span style={{ fontSize: 11.5, color: '#94a3b8' }}>لا يوجد {repWord}</span>}
+                        </td>
+                        <td style={{ ...tableNum, fontWeight: 800, color: c.total < 0 ? '#be123c' : '#111827' }}>{fmtVal(c.total)}</td>
+                        {hasCond && <td style={tableNum}>{c.cond !== 0 ? fmtVal(c.cond) : '—'}</td>}
+                        {hasCond && condPctCell(p, c.total > 0 && c.cond !== 0)}
+                      </tr>
+                      {open && (
+                        <tr>
+                          <td colSpan={colSpan} style={{ padding: '8px 10px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                            {c.companies.length === 0
+                              ? <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد شركات مسجّلة في هذه المحافظة للفترة المختارة.</span>
+                              : (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+                                  {c.companies.map(co => (
+                                    <div key={co.name} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '7px 10px', background: '#fff' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: hasCond && co.cond !== 0 ? 5 : 0 }}>
+                                        <span style={{ fontWeight: 800, fontSize: 12, color: '#0f172a' }}>{co.name}</span>
+                                        <span style={{ fontWeight: 800, fontSize: 12, color: co.value < 0 ? '#be123c' : '#1f4fb4', direction: 'ltr' }}>{fmtVal(co.value)}</span>
+                                      </div>
+                                      {hasCond && co.cond !== 0 && condBar(co.cond, co.value, 'لكوديشن')}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={3} style={foot}>المجموع</td>
+                  <td style={{ ...tableNum, ...foot, textAlign: 'left' }}>{fmtVal(totals.value)}</td>
+                  {hasCond && <td style={{ ...tableNum, ...foot, textAlign: 'left' }}>{fmtVal(totals.cond)}</td>}
+                  {hasCond && <td style={{ ...tableNum, ...foot, textAlign: 'left' }}>{pctTxt(pctOf(totals.cond, totals.value))}</td>}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+        {hasCond && condOutsideNote}
+      </div>
+    );
+  };
+
   const renderBaghdadPanel = () => {
     const rows = bg.areas.filter(a => !bgSide || a.side === bgSide);
     const max = Math.max(1, ...rows.map(a => Math.abs(a.value)));
@@ -785,7 +1021,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           ['صافي مبيع المحافظات', `${fmtVal(totals.value)} ${currencyLabel}`, '#2f66d6', ''],
           ...(hasCond ? [['لكوديشن المحافظات', `${fmtVal(totals.cond)} ${currencyLabel}`, '#0891b2', `${pctTxt(pctOf(totals.cond, totals.value))} من صافي مبيع المحافظات`]] : []),
           ['الشركات', String(totals.companies), '#0f766e', ''],
-          [marketers ? 'المسوقون' : 'المندوبون العلميون', String(totals.reps), marketers ? '#b45309' : '#7c3aed', ''],
+          [marketers ? 'المسوقون' : 'المندوبون العلميون', String(teams.length ? namesRepCount : totals.reps), marketers ? '#b45309' : '#7c3aed', ''],
           ['المحافظات النشطة', `${totals.provinces} / 17`, '#ea580c', ''],
         ] as [string, string, string, string][]).map(([l, v, c, sub]) => (
           <div key={l} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '10px 14px', position: 'relative', overflow: 'hidden' }}>
@@ -797,10 +1033,19 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         ))}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+        <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 999, overflow: 'hidden', background: '#fff' }}>
+          {([['names', '👥 أسماء المندوبين'], ['map', '🗺️ الخريطة']] as const).map(([v, label]) => (
+            <button key={v} type="button" onClick={() => setView(v)}
+              style={{ border: 'none', cursor: 'pointer', padding: '7px 16px', fontSize: 13, fontWeight: 700, background: view === v ? '#0f172a' : 'transparent', color: view === v ? '#fff' : '#475569' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <span style={{ flex: 1 }} />
         <button type="button" onClick={() => { setDirProvince(null); setTeamsOpen(true); }}
-          style={{ border: '1px solid #cbd5e1', background: '#0f172a', color: '#fff', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-          👥 فرق المحافظات (التيم ليدر والمندوبون)
+          style={{ border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+          فرق المحافظات (ايتمات وتارگت)
         </button>
         {onAddCondition && (
           <button type="button" onClick={onAddCondition}
@@ -815,7 +1060,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
       {err && <div style={{ color: '#be123c', fontSize: 13, marginBottom: 8 }}>{err}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: side ? 'minmax(0, 1.55fr) minmax(300px, 1fr)' : '1fr', gap: 14, alignItems: 'start' }}>
+      {view === 'names' && renderNames()}
+
+      {view === 'map' && <div style={{ display: 'grid', gridTemplateColumns: side ? 'minmax(0, 1.55fr) minmax(300px, 1fr)' : '1fr', gap: 14, alignItems: 'start' }}>
         {/* ── الخريطة ── */}
         <div style={{ position: 'relative', background: 'radial-gradient(900px 500px at 40% 20%, #ffffff 0%, #eef3fa 70%)', border: '1px solid #e2e8f0', borderRadius: 22, padding: '14px 10px 10px', overflow: 'hidden' }}>
           {loading && (
@@ -960,23 +1207,17 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
             </div>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* ── اللكوديشن مقابل مبيع كل محافظة الكلي ── */}
-      {hasCond && !bgOpen && (() => {
+      {view === 'map' && hasCond && !bgOpen && (() => {
         const rows = list.filter(c => c.total !== 0 || c.cond !== 0);
-        const th: React.CSSProperties = { padding: '7px 10px', fontSize: 12, fontWeight: 800, color: '#111827', background: '#f1f5f9', borderBottom: '1px solid #94a3b8', textAlign: 'right', whiteSpace: 'nowrap' };
-        const td: React.CSSProperties = { padding: '6px 10px', fontSize: 12.5, color: '#111827', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' };
-        const num: React.CSSProperties = { ...td, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums' };
+        const th = tableTh, td = tableTd, num = tableNum;
         return (
           <div style={{ marginTop: 14, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 12 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>📊 اللكوديشن مقابل مبيع المحافظة الكلي</span>
-              <span style={{ fontSize: 11.5, color: '#64748b' }}>
-                {condInTotal
-                  ? 'مبيع المحافظة الكلي يشمل اللكوديشن (ملفه مفعّل ضمن الملفات النشطة).'
-                  : 'مبيع المحافظة الكلي من الملفات النشطة — ملف اللكوديشن غير مفعّل بينها فلا يدخل ضمنه.'}
-              </span>
+              <span style={{ fontSize: 11.5, color: '#64748b' }}>{condTotalNote}</span>
             </div>
             {rows.length === 0 ? (
               <div style={{ color: '#94a3b8', fontSize: 13 }}>{loadingCond ? 'جاري تحميل اللكوديشن…' : 'لا مبيعات لكوديشن ولا مبيع محافظات في الفترة المختارة.'}</div>
@@ -1000,14 +1241,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                           <td style={{ ...td, fontWeight: on ? 900 : 700 }}>{c.name}</td>
                           <td style={num}>{fmtVal(c.total)}</td>
                           <td style={num}>{c.cond !== 0 ? fmtVal(c.cond) : '—'}</td>
-                          <td style={num}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-                              <div style={{ flex: 1, maxWidth: 110, height: 5, borderRadius: 3, background: '#e2e8f0', overflow: 'hidden', direction: 'rtl' }}>
-                                <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, p))}%`, background: '#0891b2' }} />
-                              </div>
-                              <span style={{ fontWeight: 800, minWidth: 42 }}>{c.total > 0 && c.cond !== 0 ? pctTxt(p) : '—'}</span>
-                            </div>
-                          </td>
+                          {condPctCell(p, c.total > 0 && c.cond !== 0)}
                         </tr>
                       );
                     })}
@@ -1023,11 +1257,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                 </table>
               </div>
             )}
-            {Math.abs(condOutside) >= 1 && (
-              <div style={{ marginTop: 8, fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 10px' }}>
-                ⚠️ {fmtVal(condOutside)} {currencyLabel} من اللكوديشن خارج المقارنة: ايتماتها غير مُسندة لأي مدير شركة (تُستبعد من مبيع المحافظة بنفس القاعدة). أسندها من «الايتمات» في السوبر أدمن لتظهر هنا.
-              </div>
-            )}
+            {condOutsideNote}
           </div>
         );
       })()}

@@ -68,14 +68,19 @@ export async function directory(req, res, next) {
       }
     }
     const repLink = new Map(); // userId → ScientificRepresentative.id
+    const repKindOf = new Map(); // ScientificRepresentative.id → repKind (عرض الأسماء يفصل العلميين عن المسوقين)
     const targetsByRep = new Map(); // `${userId}|${itemId}` → qty
-    if (repIds.length) {
+    // القادة يدخلون الربط فقط كي يُفتح تقرير التيم ليدر من عرض الأسماء
+    const linkIds = [...new Set([...repIds, ...teams.map(t => t.leaderUserId).filter(Boolean)])];
+    if (linkIds.length) {
       const [users, repRows] = await Promise.all([
-        prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true, linkedRepId: true } }),
-        prisma.scientificRepresentative.findMany({ where: { userId: { in: repIds } }, select: { id: true, userId: true } }),
+        prisma.user.findMany({ where: { id: { in: linkIds } }, select: { id: true, linkedRepId: true } }),
+        prisma.scientificRepresentative.findMany({ where: { userId: { in: linkIds } }, select: { id: true, userId: true } }),
       ]);
       for (const r of repRows) repLink.set(r.userId, r.id);
       for (const u of users) if (u.linkedRepId && !repLink.has(u.id)) repLink.set(u.id, u.linkedRepId);
+      const kinds = await prisma.scientificRepresentative.findMany({ where: { id: { in: [...new Set(repLink.values())] } }, select: { id: true, repKind: true } });
+      for (const k of kinds) repKindOf.set(k.id, k.repKind);
       if (monthPairs.length && repLink.size) {
         const userOfRep = new Map([...repLink].map(([u, r]) => [r, u]));
         const rows = await prisma.repItemTarget.findMany({
@@ -182,13 +187,15 @@ export async function directory(req, res, next) {
       }
       const reps = [...repsMap.values()].map(({ a_ids, ...r }) => ({
         ...r,
+        repId: repLink.get(r.repUserId) ?? null,
+        repKind: repKindOf.get(repLink.get(r.repUserId)) ?? 'scientific',
         net: +r.net.toFixed(2),
         personalNet: +r.personalNet.toFixed(2),
         items: [...r.items.values()].map(({ targetCounted, ...i }) => ({ ...i, net: +i.net.toFixed(2), personalNet: +i.personalNet.toFixed(2) }))
           .sort((a, b) => b.net - a.net || b.targetQty - a.targetQty),
       })).sort((a, b) => b.net - a.net);
       if (!reps.length && viewer.mode === 'company') continue;
-      out.push({ id: t.id, provinceId: t.provinceId, provinceName: t.provinceName, leaderName: t.leaderName, reps });
+      out.push({ id: t.id, provinceId: t.provinceId, provinceName: t.provinceName, leaderName: t.leaderName, leaderRepId: repLink.get(t.leaderUserId) ?? null, reps });
     }
 
     res.json({ success: true, month, files: { count: files.fileIds.length, currency: files.currency, rate: files.rate }, teams: out });

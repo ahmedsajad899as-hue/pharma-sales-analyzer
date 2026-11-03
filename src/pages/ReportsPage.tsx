@@ -1075,6 +1075,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const [showProvCondition, setShowProvCondition] = useState(false);
   const [provCondRev, setProvCondRev] = useState(0);
   const [provCondMsg, setProvCondMsg] = useState('');
+  // اسم ضُغط في عرض أسماء المحافظات: تقرير المندوب نفسه يظهر تحت الجدول داخل التبويب.
+  const [provRepOpen, setProvRepOpen] = useState(false);
+  const provReportRef = useRef<HTMLDivElement>(null);
+  const provReportOpen = mode === 'provinces' && provRepOpen;
+  // وضع التقرير الفعلي: تقرير مندوب المحافظة يتصرّف كتقرير «مندوبين بغداد» (معاينة، عرض، تصدير).
+  const repMode: Mode = provReportOpen ? 'scientific' : mode;
   // المسوقون: تقرير مجموعة — «grp:all» = بغداد (كل المسوقين)، «grp:<القسم>» = الكرخ/الرصافة.
   // يُفتح «بغداد» افتراضياً عند دخول المسوقين، ثم يمكن تضييقه لقسم أو مندوب.
   const marketersView = canToggleRepKind && repKindView === 'pharmacy';
@@ -1102,7 +1108,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const canMergeWh = hasFeature('sci_merge_warehouses');
   const [excludePharmacyRaw, setExcludePharmacy] = useState(() => sessionStorage.getItem('rpt_exPharm') === '1');
   const excludePharmacy = excludePharmacyRaw && canExPharm;
-  const showExcludePharmacy = canToggleRepKind && !marketersView;
+  const showExcludePharmacy = canToggleRepKind && (provReportOpen ? provKind !== 'pharmacy' : !marketersView);
   // «بدون التجاري»: يعزل صفوف المكتب التي «معلومات الزبون» فيها تجاري (server: looksLikeCommercialInfo).
   const [excludeCommercialRaw, setExcludeCommercial] = useState(() => sessionStorage.getItem('rpt_exComm') === '1');
   const excludeCommercial = excludeCommercialRaw && canExComm;
@@ -1624,7 +1630,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const sciReportReq = (id: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean } = {}) => {
     // من قائمة المسوقين مباشرة لا sciReps: عند التبديل للمسوقين يُطلب التقرير قبل إعادة الرسم.
     // القائمة تُمرَّر عند التبديل علميين/مسوقين — sciReps هنا ما زالت قائمة العرض السابق.
-    const list = opts.list ?? sciReps;
+    const list = opts.list ?? (provReportOpen && !isGroupId(id) ? provReps : sciReps);
     const group = isGroupId(id) ? groupOf(id, list) : null;
     if (group && !group.repIds.length) return null;
     const params = repReportParams();
@@ -1697,6 +1703,17 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (!cached) resetReportView();
     } catch (err: any) { if (myReq === sciReportSeq && !cached) setError(err.message); }
     finally { userLoads.current--; if (myReq === sciReportSeq) setLoading(false); }
+  };
+
+  // ضغطة ثانية على الاسم نفسه تغلق تقريره.
+  const openProvRep = (repId: number) => {
+    const id = String(repId);
+    if (provRepOpen && id === sciRepId) { setProvRepOpen(false); return; }
+    setProvRepOpen(true);
+    setSciRepId(id);
+    setReportView(getDefaultReportView());
+    loadSciReport(id, { list: provReps });
+    requestAnimationFrame(() => provReportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
   // مذاخر المسوقين — يُطلب فقط والزر وجدول التصنيف ظاهران (حسابه ثقيل: كل المسوقين).
@@ -1965,7 +1982,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     if (monthReloadRef.current === key) return;
     monthReloadRef.current = key;
     if (loading || !monthsReady || selMonth === MONTH_CUSTOM) return;
-    if (mode === 'scientific' && sciRepId && sciReport) loadSciReport();
+    if (repMode === 'scientific' && sciRepId && sciReport) loadSciReport();
     if (mode === 'commercial' && commRepId && commReport) loadCommReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selMonth, mode]);
@@ -2520,8 +2537,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     {withTools && renderToolsCapsule({
       withExport: true,
       align: 'flex-start',
-      viewMode:    mode === 'scientific' ? sciViewMode : commViewMode,
-      setViewMode: mode === 'scientific' ? setSciViewMode : setCommViewMode,
+      viewMode:    repMode === 'scientific' ? sciViewMode : commViewMode,
+      setViewMode: repMode === 'scientific' ? setSciViewMode : setCommViewMode,
     })}
     </div>
   );
@@ -3312,8 +3329,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (toDate)               qp.set('endDate',   toDate);
       if (activeFileIds.length) qp.set('fileIds',   activeFileIds.join(','));
       applyMonth(qp);
-      if (mode === 'scientific' && excludePharmacy && showExcludePharmacy) qp.set('excludePharmacy', '1');
-      if (mode === 'scientific' && excludeCommercial && showExcludePharmacy) qp.set('excludeCommercial', '1');
+      if (repMode === 'scientific' && excludePharmacy && showExcludePharmacy) qp.set('excludePharmacy', '1');
+      if (repMode === 'scientific' && excludeCommercial && showExcludePharmacy) qp.set('excludeCommercial', '1');
 
       let sales: any[] = [];
       let areaCount: number | null = null;            // assigned areas (scientific only)
@@ -3322,11 +3339,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         const res  = await fetch(`/api/export/raw-sales?commRepIds=${commRepId}&${qp.toString()}`, { headers: authH() });
         const json = await res.json();
         sales = json.data ?? [];
-      } else if (mode === 'scientific' && sciRepId && isGroupId(sciRepId)) {
+      } else if (repMode === 'scientific' && sciRepId && isGroupId(sciRepId)) {
         const g = groupOf(sciRepId);
         const sRes  = await fetch(`/api/export/raw-sales?sciRepIds=${g.repIds.join(',')}&${qp.toString()}`, { headers: authH() });
         sales = (await sRes.json()).data ?? [];
-      } else if (mode === 'scientific' && sciRepId) {
+      } else if (repMode === 'scientific' && sciRepId) {
         const rRes  = await fetch(`/api/scientific-reps/${sciRepId}/report?${qp.toString()}`, { headers: authH() });
         const rJson = await rRes.json();
         const d = rJson.data ?? rJson;
@@ -3342,7 +3359,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const repName = mode === 'commercial'
         ? (commReps.find(r => String(r.id) === commRepId)?.name ?? 'تقرير')
         : isGroupId(sciRepId) ? (marketersView ? `مسوقين ${groupOf(sciRepId).label}` : groupOf(sciRepId).label)
-        : (sciReps.find(r => String(r.id) === sciRepId)?.name ?? 'تقرير');
+        : (sciRepsAll.find(r => String(r.id) === sciRepId)?.name ?? 'تقرير');
 
       // الشيتات: مبيعات المكتب ← ارجاعات المكتب ← مبيعات ميركاتو ← مبيعات اللكوديشن ← الكل ← الملخص.
       // «الكل» يُبنى مرة واحدة من الصفوف مرتّبة بنفس التسلسل، والأجزاء الثلاثة شرائح
@@ -4081,7 +4098,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           .filter(([id]) => !((id === 'commercial' || id === 'provinces') && user?.role === 'scientific_rep') && (SHOW_COMMERCIAL_MODE || id !== 'commercial'))
           .map(([id, label, icon]) => (
           <button key={id} onClick={() => {
-            if (id === 'provinces') { setMode('provinces'); setError(''); }
+            if (id === 'provinces') { setMode('provinces'); setError(''); setProvRepOpen(false); }
             if (id === 'overall') { setMode('overall'); setError(''); setOverallSales(null); setOverallReturns(null); setShowOverallTargets(false); }
             // التبديل كان يمسح التقرير بلا إعادة تحميل، فيبقى التبويب فارغاً حتى
             // يضغط المستخدم «تحليل». نحمّله فوراً بمندوب محفوظ أو بأول مندوب.
@@ -4429,7 +4446,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2, width: 'fit-content' }}>
                 {([['scientific', '🩺 العلميين'], ['pharmacy', '🏪 المسوقين']] as const).map(([k, label]) => (
                   <button key={k} type="button"
-                    onClick={() => { setProvKind(k); try { sessionStorage.setItem('rpt_provKind', k); } catch { /* ignore */ } }}
+                    onClick={() => { setProvKind(k); setProvRepOpen(false); try { sessionStorage.setItem('rpt_provKind', k); } catch { /* ignore */ } }}
                     style={{
                       border: 'none', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer',
                       background: provKind === k ? '#fff' : 'transparent',
@@ -4458,7 +4475,18 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           <IraqRepsMap reps={provReps} token={token} fileIds={activeFileIds} applyMonth={applyMonth} months={monthsState.months.map(m => m.ym)} ready={monthsReady} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'}
             repKind={canToggleRepKind ? provKind : undefined}
             conditionRev={provCondRev}
-            onAddCondition={canProvCondition ? () => { setProvCondMsg(''); setShowProvCondition(true); } : undefined} />
+            onAddCondition={canProvCondition ? () => { setProvCondMsg(''); setShowProvCondition(true); } : undefined}
+            onOpenRep={openProvRep}
+            selectedRepId={provRepOpen ? sciRepId : null} />
+          {provRepOpen && (
+            <div ref={provReportRef} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, scrollMarginTop: 12 }}>
+              <span style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>تقرير {sciRepsAll.find(r => String(r.id) === sciRepId)?.name ?? ''}</span>
+              {loading && <span style={{ fontSize: 12, color: '#64748b' }}>جاري التحميل…</span>}
+              <span style={{ flex: 1 }} />
+              <button type="button" onClick={() => setProvRepOpen(false)}
+                style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 700, color: '#475569', cursor: 'pointer' }}>إغلاق التقرير</button>
+            </div>
+          )}
           {showProvCondition && token && (
             <WarehouseGapImportModal token={token} provinceMode
               onClose={() => setShowProvCondition(false)}
@@ -5565,7 +5593,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       })()}
 
       {/* ─── Scientific Rep Report ─── */}
-      {mode === 'scientific' && sciReport && (() => {
+      {repMode === 'scientific' && sciReport && (() => {
         const viewData    = reportView === 'returns' ? sciReturnsReport! : sciReport;
         const netValTotal = (sciReport?.totalValue ?? 0) - (sciReturnsReport?.totalValue ?? 0);
         const isNet = reportView === 'net';
@@ -5718,7 +5746,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 {sciReport.assignedCommercialReps.map(r => (<span key={r.id} className="tag tag--green"><Icon name="money" size={11} /> {r.name}</span>))}
                 {sciReport.assignedAreas.map(a => (<span key={a.id} className="tag tag--purple"><Icon name="location" size={11} /> {a.name}</span>))}
                 {sciReport.assignedItems.map(i => (<span key={i.id} className="tag tag--orange"><Icon name="drug" size={11} /> {i.name}</span>))}
-                {sciReport.assignedCommercialReps.length === 0 && !isGroupId(sciRepId) && sciReps.find(r => String(r.id) === sciRepId)?.repKind !== 'pharmacy' && (<span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}><Icon name="warning" size={11} /> {t.reports.noCommRepsAssigned}</span>)}
+                {sciReport.assignedCommercialReps.length === 0 && !isGroupId(sciRepId) && sciRepsAll.find(r => String(r.id) === sciRepId)?.repKind !== 'pharmacy' && (<span className="tag" style={{ background: '#fee2e2', color: '#dc2626' }}><Icon name="warning" size={11} /> {t.reports.noCommRepsAssigned}</span>)}
               </div>
             )}
           </div>
