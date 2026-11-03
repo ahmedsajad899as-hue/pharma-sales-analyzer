@@ -631,11 +631,16 @@ export default function RepOrdersPage() {
           : ch === 'wa-number' ? `https://wa.me/${toWaNumber(wh.phone)}?text=${encodeURIComponent(caption)}`
           : ch === 'share' ? null : handleUrl(wh.handle, ch === 'link' ? '' : caption);
         const where = ch === 'share' ? 'محادثة المذخر' : `${CHANNEL_LABEL[ch]} «${wh.name}»`;
-        // الموبايل على ضغطتين: فتح واتساب فوراً يُفقد الصفحة التركيز فقد يُلغي iOS النسخ قبل
-        // اكتماله — لذا يظهر زر «فتح الكروب» بعد النسخ، وضغطه يفتح كروب المذخر نفسه
+        // الموبايل: فتح واتساب فوراً يُفقد الصفحة التركيز فقد يُلغي iOS النسخ قبل اكتماله —
+        // فيُفتح الكروب بعد ~0.4 ثانية من الضغطة (المتصفح يُبقي المؤقّت القصير ضمن الضغطة فلا
+        // يحجب الفتح). «حفظ وإرسال للتالي» (deferred) يمرّ بانتظار الحفظ فتضيع الضغطة ← زرّ فتح.
         if (IS_TOUCH && url) {
+          const msg = `✓ نُسخت صورة الطلبية. في ${where} اضغط مطوّلاً على خانة الكتابة ← لصق ← إرسال.`;
+          if (deferred) {
+            return { go: () => setOpenPrompt({ text: msg, label: `فتح ${where}`, url, done: () => markSent(list, wh) }), cancel: none };
+          }
           return {
-            go: () => setOpenPrompt({ text: `✓ نُسخت صورة الطلبية. في ${where} اضغط مطوّلاً على خانة الكتابة ← لصق ← إرسال.`, label: `فتح ${where}`, url, done: () => markSent(list, wh) }),
+            go: () => { setTimeout(() => window.open(url, '_blank'), 400); setNotice(msg); markSent(list, wh); },
             cancel: none,
           };
         }
