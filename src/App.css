@@ -3968,3 +3968,14 @@ body.rfs-map-fullscreen-lock { overflow: hidden; }
     max-width: 100%;
   }
 }
+
+/* =====================================================================
+   MOBILE — نافذة إضافة مستخدم (≤ 767px فقط): العمودان يتتاليان ويتمرّر
+   جسم النافذة وحده بدل التمرير داخل كل عمود.
+   ===================================================================== */
+@media (max-width: 767px) {
+  .m-nu-layout { display: block !important; height: auto !important; min-height: 0 !important; }
+  .m-nu-col { display: block !important; overflow: visible !important; padding-inline-end: 0 !important; margin-bottom: 14px; }
+  .m-nu-scroll { flex: none !important; overflow: visible !important; }
+  .m-nu-sticky { position: sticky; top: 0; z-index: 3; background: #fff; padding-block: 6px; }
+}

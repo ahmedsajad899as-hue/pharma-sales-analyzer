@@ -587,7 +587,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       }
       if ((form.subProvinceIds ?? []).length && !await put('sub-provinces', { subProvinceIds: form.subProvinceIds })) failed.push('الأقسام');
       if ((form.areaIds ?? []).length && !await put('areas', { areaIds: form.areaIds })) failed.push('المناطق');
-      if (form.managerId && !await put('managers', { managerIds: [form.managerId] })) failed.push('المدير');
+      if ((form.managerIds ?? []).length && !await put('managers', { managerIds: form.managerIds })) failed.push('المدراء');
       if ((form.subordinateIds ?? []).length && !await put('subordinates', { userIds: form.subordinateIds })) failed.push('التابعون');
       if (failed.length) alert(`تم إنشاء المستخدم، لكن تعذّر حفظ: ${failed.join('، ')} — أكملها من صفحة المستخدم.`);
     }
@@ -610,7 +610,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       if (warn) alert(`تم إنشاء المستخدم، لكن: ${warn}`);
     }
     setSaving(false); setForm(null); load(true);
-    if (detail?.id === form.id) loadDetail(form.id, { keepTab: true });
+    if (isEdit && detail?.id === form.id) loadDetail(form.id, { keepTab: true });
   };
 
   // Lightweight toast for save feedback
@@ -3292,16 +3292,23 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         </div>
       )}
 
-      {form && !detail && (
-        <Modal onClose={() => { setForm(null); setError(''); setConflict(null); }} title={form.id ? 'تعديل المستخدم' : 'إضافة مستخدم'}>
-          <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} provinces={provList} users={users} isEdit={Boolean(form.id)} token={token} />
-          {error && <ErrBox msg={error} />}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button onClick={() => { setForm(null); setError(''); setConflict(null); }} style={btnStyle('#6b7280', true)}>إلغاء</button>
-            <button onClick={saveUser} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ'}</button>
-          </div>
-        </Modal>
-      )}
+      {form && !detail && (() => {
+        const close = () => { setForm(null); setError(''); setConflict(null); };
+        const fields = <UserFormFields form={form} setForm={setForm} offices={offices} companies={companies} provinces={provList} users={users} isEdit={Boolean(form.id)} token={token} />;
+        const actions = (
+          <>
+            {error && <ErrBox msg={error} />}
+            {conflict && <ConflictBox existing={conflict} onGo={() => { setForm(null); setError(''); setConflict(null); setSearch(conflict.username); }} />}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={close} style={btnStyle('#6b7280', true)}>إلغاء</button>
+              <button onClick={saveUser} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ'}</button>
+            </div>
+          </>
+        );
+        return form.id
+          ? <Modal onClose={close} title="تعديل المستخدم">{fields}{actions}</Modal>
+          : <Modal onClose={close} title="إضافة مستخدم" maxWidth={1040} footer={<div style={{ paddingTop: 14, marginTop: 14, borderTop: '1px solid #e2e8f0' }}>{actions}</div>}>{fields}</Modal>;
+      })()}
     </div>
   );
 }
@@ -3340,10 +3347,13 @@ function UserFormFields({ form, setForm, offices, companies, provinces = [], use
     const inp: React.CSSProperties = { width: '100%', padding: '8px 11px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13.5, boxSizing: 'border-box', fontFamily: 'inherit' };
     const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4 };
     const sec: React.CSSProperties = { fontSize: 11.5, fontWeight: 800, color: '#94a3b8', margin: '4px 0 8px', letterSpacing: 0.3 };
-    const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 };
+    const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: 10, marginBottom: 14 };
+    const stack: React.CSSProperties = { display: 'grid', gap: 10, marginBottom: 14 };
     const up = (k: string) => (e: any) => setForm((f: any) => ({ ...f, [k]: e.target.value }));
+    // عمودان: الحساب ثابت، والتعيين يأخذ الباقي ويتمرّر داخل عموده. على الهاتف يتتاليان (m-nu-*).
     return (
-      <form autoComplete="off" onSubmit={e => e.preventDefault()}>
+      <div className="m-nu-layout" style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 22, height: 'min(calc(90vh - 150px), 620px)', minHeight: 360 }}>
+      <form className="m-nu-col" autoComplete="off" onSubmit={e => e.preventDefault()} style={{ minHeight: 0, overflowY: 'auto', paddingInlineEnd: 4 }}>
         <div style={sec}>الحساب</div>
         <div style={grid}>
           <div><label style={lbl}>الاسم الظاهر</label>
@@ -3357,13 +3367,13 @@ function UserFormFields({ form, setForm, offices, companies, provinces = [], use
         </div>
 
         <div style={sec}>الدور والمكتب</div>
-        <div style={grid}>
+        <div style={stack}>
           <div><label style={lbl}>الدور</label>
             <select style={inp} value={form.role || ''} onChange={up('role')}>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select></div>
           <div><label style={lbl}>المكتب العلمي</label>
-            <select style={inp} value={form.officeId || ''} onChange={e => setForm((f: any) => ({ ...f, officeId: e.target.value ? Number(e.target.value) : null, companyIds: [], primaryCompanyId: null, itemIds: [] }))}>
+            <select style={inp} value={form.officeId || ''} onChange={e => setForm((f: any) => ({ ...f, officeId: e.target.value ? Number(e.target.value) : null, companyIds: [], primaryCompanyId: null, itemIds: [], managerIds: [], subordinateIds: [] }))}>
               <option value="">— بدون مكتب —</option>
               {offices.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select></div>
@@ -3383,11 +3393,13 @@ function UserFormFields({ form, setForm, offices, companies, provinces = [], use
           </div>
         ) : null}
 
-        <div style={sec}>التعيين (اختياري — يمكن إكماله لاحقاً)</div>
-        <NewUserAssignments form={form} setForm={setForm} role={realRole} companies={companies} users={users} token={token}
-          isOfficeRole={OFFICE_SCOPED_ROLES.has(realRole)} isMarketer={!!PHARMACY_FORM_ROLES[form.role]} />
-        <div style={{ height: 14 }} />
       </form>
+      <div className="m-nu-col" style={{ minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={sec}>التعيين (اختياري — يمكن إكماله لاحقاً)</div>
+        <NewUserAssignments form={form} setForm={setForm} role={realRole} companies={companies} offices={offices} users={users} roles={ROLES} token={token}
+          isOfficeRole={OFFICE_SCOPED_ROLES.has(realRole)} isMarketer={!!PHARMACY_FORM_ROLES[form.role]} />
+      </div>
+      </div>
     );
   }
 

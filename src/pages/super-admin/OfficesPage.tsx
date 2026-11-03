@@ -126,15 +126,19 @@ export function Spinner() {
 export function ErrBox({ msg }: { msg: string }) {
   return <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>{msg}</div>;
 }
-export function Modal({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
+// footer = أزرار مثبّتة أسفل النافذة: يتمرّر المحتوى وحده، ولا يُغلق الضغط خارج النافذة
+// (النماذج الطويلة لا تضيع بضغطة خطأ).
+export function Modal({ children, onClose, title, maxWidth = 500, footer }: { children: React.ReactNode; onClose: () => void; title: string; maxWidth?: number; footer?: React.ReactNode }) {
+  const pinned = footer != null;
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
-      <div style={{ background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 14, padding: 24, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', direction: 'rtl', boxShadow: '0 12px 32px rgba(15,23,42,.14)' }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={pinned ? undefined : onClose}>
+      <div style={{ background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 14, padding: 24, width: '100%', maxWidth, maxHeight: '90vh', overflowY: pinned ? 'hidden' : 'auto', direction: 'rtl', boxShadow: '0 12px 32px rgba(15,23,42,.14)', ...(pinned ? { display: 'flex', flexDirection: 'column' as const, boxSizing: 'border-box' as const } : {}) }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
           <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 700, color: UI.ink }}>{title}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: UI.faint }}>✕</button>
         </div>
-        {children}
+        {pinned ? <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>{children}</div> : children}
+        {footer}
       </div>
     </div>
   );

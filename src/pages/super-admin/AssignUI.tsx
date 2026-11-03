@@ -84,6 +84,7 @@ export function PickerBar({ selected, total, onAll, onNone, noneLabel = 'إلغ�
           value={search ?? ''}
           onChange={e => onSearch(e.target.value)}
           placeholder={`🔍 ${placeholder}`}
+          autoComplete="off"
           style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 13.5, direction: 'rtl', outline: 'none', background: '#fff' }}
         />
       )}
@@ -146,9 +147,9 @@ export function ChipGrid({ children, min = 170, style }: { children: ReactNode; 
   );
 }
 
-export function Chip({ checked, onChange, label, sub, trailing, highlight, disabled, title }: {
+export function Chip({ checked, onChange, label, sub, trailing, highlight, disabled, title, wrap }: {
   checked: boolean; onChange: (on: boolean) => void; label: ReactNode; sub?: ReactNode;
-  trailing?: ReactNode; highlight?: string; disabled?: boolean; title?: string;
+  trailing?: ReactNode; highlight?: string; disabled?: boolean; title?: string; wrap?: boolean;
 }) {
   const bg = highlight ?? (checked ? ACCENT_SOFT : 'transparent');
   return (
@@ -165,7 +166,7 @@ export function Chip({ checked, onChange, label, sub, trailing, highlight, disab
           style={{ width: 15, height: 15, accentColor: ACCENT, flexShrink: 0 }}
         />
         <span style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 13.5, color: '#1e293b', fontWeight: checked ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+          <span style={{ display: 'block', fontSize: 13.5, color: '#1e293b', fontWeight: checked ? 600 : 500, ...(wrap ? { overflowWrap: 'anywhere' as const } : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }) }}>{label}</span>
           {sub && <span style={{ display: 'block', fontSize: 11, color: '#94a3b8', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</span>}
         </span>
       </label>

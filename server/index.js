@@ -634,7 +634,6 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
     const area = lookup(n);
     if (area && !seenIds.has(area.id)) { result.push(area); seenIds.add(area.id); }
   }
-  result.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   // If survey has no area data, fall back to all areas in the Area table (deduplicated by name)
   if (result.length === 0) {
     const allAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { id: 'asc' } });
@@ -646,7 +645,11 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
     const deduped = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
     return res.json({ success: true, data: deduped });
   }
-  res.json({ success: true, data: result });
+  // lookup يحمل حقول المطابقة فقط (بلا subProvinceId) — والواجهة تجمّع بالقسم، فنعيد
+  // قراءة الصفوف بكامل حقولها وإلا تقع كل مناطق الكرخ/الرصافة في «بلا قسم».
+  const rows = await prisma.area.findMany({ where: { id: { in: [...seenIds] } }, select: AREA_SA_SELECT });
+  rows.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  res.json({ success: true, data: rows });
 });
 
 // POST /api/sa/areas/reset-from-survey — clear all areas and reload from master survey
