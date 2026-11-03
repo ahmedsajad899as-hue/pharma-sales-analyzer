@@ -189,6 +189,104 @@ const ordersText = (list: Order[], nos: number[]) => (list.length === 1
   ? orderText(list[0], nos[0])
   : [`*${list.length} طلبيات*`, ...list.map((o, i) => `\n*طلبية رقم ${nos[i]}*\n${orderText(o, nos[i], false)}`)].join('\n'));
 
+/** النص القصير المرافق لصورة الطلبية — رقمها والصيدلية ليُبحث عنها في الكروب. */
+const ordersCaption = (list: Order[], nos: number[]) => (list.length === 1
+  ? `*طلبية رقم ${nos[0]}* — ${list[0].pharmacyName}${list[0].areaName ? ` (${list[0].areaName})` : ''}`
+  : `*${list.length} طلبيات* — ${list.map((o, i) => `رقم ${nos[i]} ${o.pharmacyName}`).join('، ')}`);
+
+/**
+ * صورة الطلبية (ميزة rep_orders_image_send): نفس محتوى orderText — رقمها عند المذخر +
+ * الصيدلية والمنطقة + المتبقي من الأصناف — جدولاً على canvas. متزامنة كلها (toDataURL لا
+ * toBlob) كي تبقى المشاركة داخل ضغطة المستخدم؛ Safari يرفض navigator.share بعد انتظار.
+ */
+function orderImageFile(list: Order[], nos: number[]): File | null {
+  const W = 1000, PAD = 36, ROW_PAD = 14, LINE = 34;
+  const F = (w: number, px: number) => `${w} ${px}px Tajawal, 'Segoe UI', Tahoma, sans-serif`;
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  // الأعمدة من اليمين: # | الصنف | الكمية | البونص
+  const R = W - PAD, numW = 64, qtyW = 130, bonW = 130;
+  const nameR = R - numW, nameL = PAD + qtyW + bonW + 12, nameW = nameR - nameL;
+  const wrap = (text: string, font: string, max: number) => {
+    ctx.font = font;
+    const out: string[] = [];
+    let cur = '';
+    for (const w of text.split(/\s+/).filter(Boolean)) {
+      const t = cur ? `${cur} ${w}` : w;
+      if (cur && ctx.measureText(t).width > max) { out.push(cur); cur = w; } else cur = t;
+    }
+    if (cur) out.push(cur);
+    return out.length ? out : [''];
+  };
+  const blocks = list.map((o, i) => ({
+    no: nos[i], o,
+    rows: o.lines.filter(l => remainingOf(l) > 0).map(l => ({
+      name: wrap(l.itemName, F(700, 27), nameW),
+      company: l.companyName ? wrap(l.companyName, F(500, 21), nameW) : [],
+      qty: remainingOf(l),
+      bonus: Math.max(0, l.bonusQty - (l.preparedBonus ?? 0)),
+    })),
+  }));
+  const rowH = (r: typeof blocks[number]['rows'][number]) => ROW_PAD * 2 + r.name.length * LINE + r.company.length * 26;
+  const HEAD = 72, INFO = 92, THEAD = 50, GAP = 28;
+  const H = PAD + blocks.reduce((s, b) => s + HEAD + INFO + THEAD + b.rows.reduce((x, r) => x + rowH(r), 0) + GAP, 0) - GAP + PAD;
+  c.width = W; c.height = H;
+  ctx.direction = 'rtl';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+  let y = PAD;
+  for (const b of blocks) {
+    // الترويسة: رقم الطلبية
+    ctx.fillStyle = '#0f766e'; ctx.fillRect(PAD, y, W - PAD * 2, HEAD);
+    ctx.fillStyle = '#ffffff'; ctx.font = F(800, 36); ctx.textAlign = 'right';
+    ctx.fillText(`طلبية رقم ${b.no}`, R - 18, y + HEAD / 2);
+    ctx.font = F(600, 24); ctx.textAlign = 'left';
+    ctx.fillText(`${b.rows.length} صنف`, PAD + 18, y + HEAD / 2);
+    y += HEAD;
+    // الصيدلية والمنطقة
+    ctx.textAlign = 'right'; ctx.fillStyle = '#0f172a'; ctx.font = F(700, 30);
+    ctx.fillText(`الصيدلية: ${b.o.pharmacyName}`, R - 6, y + 30);
+    if (b.o.areaName) { ctx.fillStyle = '#475569'; ctx.font = F(500, 25); ctx.fillText(`المنطقة: ${b.o.areaName}`, R - 6, y + 68); }
+    y += INFO;
+    // رأس الجدول
+    ctx.fillStyle = '#e2e8f0'; ctx.fillRect(PAD, y, W - PAD * 2, THEAD);
+    ctx.fillStyle = '#334155'; ctx.font = F(700, 23); ctx.textAlign = 'center';
+    ctx.fillText('#', R - numW / 2, y + THEAD / 2);
+    ctx.fillText('الكمية', PAD + bonW + qtyW / 2, y + THEAD / 2);
+    ctx.fillText('البونص', PAD + bonW / 2, y + THEAD / 2);
+    ctx.textAlign = 'right'; ctx.fillText('الصنف', nameR - 8, y + THEAD / 2);
+    y += THEAD;
+    b.rows.forEach((r, i) => {
+      const h = rowH(r);
+      if (i % 2) { ctx.fillStyle = '#f8fafc'; ctx.fillRect(PAD, y, W - PAD * 2, h); }
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(PAD, y + h); ctx.lineTo(W - PAD, y + h); ctx.stroke();
+      const mid = y + h / 2;
+      ctx.textAlign = 'center'; ctx.fillStyle = '#64748b'; ctx.font = F(600, 24);
+      ctx.fillText(String(i + 1), R - numW / 2, mid);
+      ctx.fillStyle = '#0f172a'; ctx.font = F(800, 32);
+      ctx.fillText(String(r.qty), PAD + bonW + qtyW / 2, mid);
+      ctx.fillStyle = r.bonus ? '#b45309' : '#cbd5e1'; ctx.font = F(700, 28);
+      ctx.fillText(r.bonus ? String(r.bonus) : '—', PAD + bonW / 2, mid);
+      ctx.textAlign = 'right';
+      let ty = y + ROW_PAD + LINE / 2;
+      ctx.fillStyle = '#0f172a'; ctx.font = F(700, 27);
+      for (const t of r.name) { ctx.fillText(t, nameR - 8, ty); ty += LINE; }
+      ctx.fillStyle = '#64748b'; ctx.font = F(500, 21);
+      ty -= (LINE - 26) / 2;
+      for (const t of r.company) { ctx.fillText(t, nameR - 8, ty); ty += 26; }
+      y += h;
+    });
+    ctx.strokeStyle = '#cbd5e1'; ctx.strokeRect(PAD + 0.5, y - b.rows.reduce((x, r) => x + rowH(r), 0) - THEAD - INFO - HEAD + 0.5, W - PAD * 2 - 1, HEAD + INFO + THEAD + b.rows.reduce((x, r) => x + rowH(r), 0) - 1);
+    y += GAP;
+  }
+  const bin = atob(c.toDataURL('image/png').split(',')[1]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], `order-${nos.join("-")}.png`, { type: 'image/png' });
+}
+
 // نسخ متزامن داخل ضغطة الزر (قبل فتح واتساب) — execCommand يعمل حتى حيث لا تتوفر clipboard API
 function copyText(text: string) {
   const ta = document.createElement('textarea');
@@ -326,6 +424,8 @@ export default function RepOrdersPage() {
   const { token, hasFeature } = useAuth();
   // «إرسال للمذاخر»: البوت يرسل الطلبية للمذخر ويستقبل ردّه بدل فتح wa.me
   const canBotSend = hasFeature('warehouse_dispatch');
+  // «إرسال الطلبية كصورة» (اشتراك لكل حساب) — بدونها يبقى الإرسال اليدوي نصاً
+  const asImage = hasFeature('rep_orders_image_send');
   const [viaBot, setViaBot] = useState<boolean>(() => { try { return localStorage.getItem('ro-via-bot') === '1'; } catch { return false; } });
   const toggleViaBot = (v: boolean) => { setViaBot(v); try { localStorage.setItem('ro-via-bot', v ? '1' : '0'); } catch {} };
 
@@ -506,6 +606,34 @@ export default function RepOrdersPage() {
       const w = deferred ? window.open('about:blank', '_blank') : null;
       return { open: () => { if (w) w.location.href = url; else window.open(url, '_blank'); }, cancel: () => w?.close() };
     };
+    // ميزة «إرسال الطلبية كصورة»: صورة حقيقية + نص قصير (رقمها والصيدلية) بدل النص الكامل
+    const file = asImage ? orderImageFile(list, nos) : null;
+    if (file) {
+      const caption = ordersCaption(list, nos);
+      // الموبايل: قائمة المشاركة بالصورة ← واتساب/فايبر ← الكروب (تصل صورةً لا رابطاً)
+      if (IS_TOUCH && navigator.canShare?.({ files: [file] })) {
+        copyText(caption); // احتياط: بعض التطبيقات تُسقط النص المرافق للصورة
+        const share = () => navigator.share({ files: [file], text: caption }).then(() => true, () => false);
+        // «حفظ وإرسال للتالي»: المشاركة تُفتح الآن داخل الضغطة، والتعليم بعد الحفظ
+        const early = deferred ? share() : null;
+        return { go: () => { (early ?? share()).then(ok => { if (ok) markSent(list, wh); }); }, cancel: none };
+      }
+      // الكمبيوتر: الصورة تُنسخ للحافظة ويُفتح الكروب/المحادثة ← Ctrl+V
+      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+        navigator.clipboard.write([new ClipboardItem({ 'image/png': file })])
+          .catch(() => setNotice('تعذّر نسخ صورة الطلبية — أعد المحاولة.'));
+        const url = ch === 'wa-group' ? wh.groupLink!
+          : ch === 'viber-group' ? (IS_TOUCH ? wh.groupLink! : null) // فايبر الكمبيوتر لا يفتح روابط الكروبات
+          : ch === 'wa-number' ? `https://wa.me/${toWaNumber(wh.phone)}?text=${encodeURIComponent(caption)}`
+          : ch === 'share' ? null : handleUrl(wh.handle, ch === 'link' ? '' : caption);
+        const o = url ? opener(url) : null;
+        const where = ch === 'share' ? 'محادثة المذخر' : `${CHANNEL_LABEL[ch]} «${wh.name}»`;
+        return {
+          go: () => { o?.open(); setNotice(`✓ نُسخت صورة الطلبية. ${url ? `في ${where}` : `افتح ${where} ←`} اضغط على خانة الكتابة ثم Ctrl+V ← إرسال.`); markSent(list, wh); },
+          cancel: o?.cancel ?? none,
+        };
+      }
+    }
     if (ch === 'wa-group' || ch === 'viber-group') {
       copyText(text);
       // رابط دعوة فايبر على الكمبيوتر يعرض صفحة QR فقط (فايبر الكمبيوتر لا يفتح روابط الكروبات)
@@ -540,7 +668,15 @@ export default function RepOrdersPage() {
   // تُعلَّم مُرسلة فقط إن اختار المندوب وجهة؛ الإلغاء لا يغيّر شيئاً.
   const shareOrders = (list: Order[], wh: OrderWh) => {
     let next = wh.id != null ? whNextSeq[wh.id] ?? 1 : 1;
-    const text = ordersText(list, list.map(o => (wh.id == null ? o.id : whSeqOf(o, wh.id) ?? next++)));
+    const nos = list.map(o => (wh.id == null ? o.id : whSeqOf(o, wh.id) ?? next++));
+    const text = ordersText(list, nos);
+    const file = asImage ? orderImageFile(list, nos) : null;
+    if (file && navigator.canShare?.({ files: [file] })) {
+      const caption = ordersCaption(list, nos);
+      copyText(caption);
+      navigator.share({ files: [file], text: caption }).then(() => markSent(list, wh)).catch(() => {});
+      return;
+    }
     if (typeof navigator.share === 'function') {
       navigator.share({ text }).then(() => markSent(list, wh)).catch(() => {});
       return;
