@@ -628,8 +628,10 @@ export default function RepOrdersPage() {
           .catch(() => setNotice('تعذّر نسخ صورة الطلبية — أعد المحاولة.'));
         const url = ch === 'wa-group' ? wh.groupLink!
           : ch === 'viber-group' ? (IS_TOUCH ? wh.groupLink! : null) // فايبر الكمبيوتر لا يفتح روابط الكروبات
-          : ch === 'wa-number' ? `https://wa.me/${toWaNumber(wh.phone)}?text=${encodeURIComponent(caption)}`
-          : ch === 'share' ? null : handleUrl(wh.handle, ch === 'link' ? '' : caption);
+          // بلا نص مسبق في خانة الكتابة: رقم الطلبية والصيدلية مطبوعان أعلى الصورة نفسها، فتصل
+          // معها رسالةً واحدة (واتساب لا يلصق صورة مع تعليق من الحافظة)
+          : ch === 'wa-number' ? `https://wa.me/${toWaNumber(wh.phone)}`
+          : ch === 'share' ? null : handleUrl(wh.handle);
         const where = ch === 'share' ? 'محادثة المذخر' : `${CHANNEL_LABEL[ch]} «${wh.name}»`;
         // الموبايل: فتح واتساب فوراً يُفقد الصفحة التركيز فقد يُلغي iOS النسخ قبل اكتماله —
         // فيُفتح الكروب بعد ~0.4 ثانية من الضغطة (المتصفح يُبقي المؤقّت القصير ضمن الضغطة فلا
