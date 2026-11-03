@@ -688,3 +688,39 @@ button.ro-prep { cursor: pointer; }
   .ro-whp > .ro-slot__label, .ro-invoices > .ro-slot__label { padding-inline: 8px; }
   .ro-invoices__add .ro-alt-btn { min-height: 32px; font-size: 12px; }
 }
+
+/* ── تفاصيل الطلبية بالموبايل: بطاقة التفاصيل أصغر، جدول الأدوية أوضح، وأسفلها بلا فراغ ── */
+@media (max-width: 720px) {
+  /* بطاقة التفاصيل (الحالة/المنطقة/المندوب/التاريخ/المذخر) — أصغر ليكون التركيز على الأدوية */
+  .ro-card--order .ro-card__head { padding-block: 6px; }
+  .ro-card--order .ro-card__ph { font-size: 14px; }
+  .ro-card--order .ro-icon-btn { padding: 4px; }
+  .ro-kv { padding: 0 10px 2px; }
+  .ro-kv > div { grid-template-columns: 84px minmax(0, 1fr); gap: 6px; padding: 4px 0; font-size: 11.5px; }
+  .ro-kv dt { gap: 5px; font-weight: 500; }
+  .ro-kv dt svg { width: 12px; height: 12px; }
+  .ro-kv__when { font-size: 10.5px; }
+  .ro-kv .ro-badge { font-size: 10.5px; padding: 1px 8px; }
+
+  /* جدول الأدوية — خط أكبر وأوضح */
+  .ro-mt { font-size: 13px; }
+  .ro-mt th { font-size: 11px; padding: 8px 4px; }
+  .ro-mt td { padding: 10px 4px; }
+  .ro-mt .ro-mt__name { font-size: 12.5px; font-weight: 600; width: 36%; }
+  .ro-mt .ro-mt__name .ro-sub { font-size: 10.5px; font-weight: 400; }
+  .ro-mt__qty { font-size: 14px; }
+  .ro-mt .ro-prep, .ro-mt .ro-short { font-size: 12.5px; padding: 1px 7px; }
+  .ro-mt__total { font-size: 14px; }
+
+  /* أسفل التفاصيل: المذاخر والفواتير بهامش جانبي، بلا فراغات كبيرة */
+  .ro-detail__side { gap: 8px; padding-inline: 4px; }
+  .ro-invoices { margin-top: 2px; gap: 6px; }
+  .ro-invoices > .ro-slot__label { display: block; line-height: 1.6; position: relative; z-index: 1; }
+  .ro-invoices__add { position: relative; z-index: 0; }
+  .ro-invoices__list { gap: 8px; }
+  .ro-invoices__item .ro-whp__thumb { width: 60px; height: 60px; }
+  .ro-images:empty { display: none; }
+  .ro-detail__actions { padding: 4px 8px 6px; gap: 6px; justify-content: flex-start; }
+  .ro-detail__actions .btn { display: inline-flex; flex-direction: row; align-items: center; gap: 5px; width: auto; min-height: 32px; padding: 5px 12px; font-size: 12px; }
+  .ro-detail__actions .btn svg { width: 13px; height: 13px; }
+}
