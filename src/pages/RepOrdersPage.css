@@ -663,3 +663,7 @@ button.ro-prep { cursor: pointer; }
   .ro-whdir__note { display: none; }
   .ro-whdir__bar .btn { padding-inline: 8px; }
 }
+.ro-whdir__group, .ro-whdir__row { flex-shrink: 0; } /* لا تنضغط داخل قائمة التمرير فتتداخل الصفوف */
+.ro-icon-btn--tg { color: #fff; background: #229ed9; border-color: #229ed9; }
+.ro-send-btn--tg { background: #229ed9; box-shadow: 0 2px 10px rgba(34, 158, 217, 0.3); }
+.ro-send-btn--link { background: #475569; box-shadow: none; }

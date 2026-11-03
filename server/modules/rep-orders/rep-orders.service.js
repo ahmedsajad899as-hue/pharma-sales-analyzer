@@ -239,14 +239,14 @@ export async function listOrders(reqUser, q = {}) {
     take: 2000,
     include: {
       lines: { orderBy: { id: 'asc' } },
-      warehouse: { select: { id: true, name: true, phone: true, groupLink: true } },
+      warehouse: { select: { id: true, name: true, phone: true, groupLink: true, handle: true } },
       sends: { orderBy: { id: 'asc' } },
     },
   });
 
   // مذاخر الاحتياط وآخر مذخر أُرسلت له — استعلام واحد لكل الطلبيات
   const whIds = [...new Set(rows.flatMap(r => [...r.backupWarehouseIds, r.lastSentWarehouseId, ...r.sends.map(s => s.warehouseId)]).filter(Boolean))];
-  const whRows = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true, phone: true, groupLink: true } }) : [];
+  const whRows = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true, phone: true, groupLink: true, handle: true } }) : [];
   const whById = new Map(whRows.map(w => [w.id, w]));
   // الرقم التالي عند كل مذخر — الواجهة تكتبه في نص الإرسال قبل markSent (الذي يحفظه)
   const seqMax = await maxWhSeqs(prisma, rows.flatMap(r => [r.warehouseId, ...r.backupWarehouseIds]));
@@ -286,7 +286,7 @@ export async function listOrders(reqUser, q = {}) {
       warehousePhone: r.warehouse?.phone ?? null,
       // كل مذاخر الطلبية بالترتيب: الأساسي ثم الاحتياط
       warehouses: [
-        r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, phone: r.warehouse.phone, groupLink: r.warehouse.groupLink } : { id: null, name: r.warehouseName, phone: null, groupLink: null },
+        r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, phone: r.warehouse.phone, groupLink: r.warehouse.groupLink, handle: r.warehouse.handle } : { id: null, name: r.warehouseName, phone: null, groupLink: null },
         ...r.backupWarehouseIds.map(id => whById.get(id)).filter(Boolean),
         // مذاخر خارج القائمة أُرسلت لها الطلبية (تحويل/بديل من «إرسال للمذاخر») — كي تظهر ردودها وفواتيرها
         ...[...new Set(r.sends.map(s => s.warehouseId))]

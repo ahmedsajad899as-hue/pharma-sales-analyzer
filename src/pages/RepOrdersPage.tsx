@@ -17,7 +17,7 @@ const SHARE_CACHE = 'ordine-share'; // نفس الاسم في public/sw.js
 type Status = 'pending' | 'prepared' | 'cancelled';
 
 interface OrderLine { id?: number; itemId: number | null; itemName: string; companyName: string | null; quantity: number; bonusQty: number; preparedQty?: number | null; preparedBonus?: number | null; unitPrice?: number | null }
-interface OrderWh { id: number | null; name: string; phone: string | null; groupLink?: string | null }
+interface OrderWh { id: number | null; name: string; phone: string | null; groupLink?: string | null; handle?: string | null }
 type SendOutcome = 'sent' | 'prepared' | 'partial' | 'rejected';
 interface SendLine { lineId: number; itemName: string; qty: number; bonus: number }
 interface OrderSend { id: number; warehouseId: number | null; warehouseName: string; sentAt: string; outcome: SendOutcome; outcomeAt: string | null; image: string | null; whSeq?: number | null; lines: SendLine[] }
@@ -131,18 +131,43 @@ function orderText(o: Order, no: number, withHeader = true): string {
   return out.join('\n');
 }
 
-// قناة الإرسال اليدوي للمذخر: كروبه (واتساب/فايبر) إن حُفظ رابطه، وإلا رقمه، وإلا المشاركة
-type Channel = 'wa-group' | 'viber-group' | 'wa-number' | 'share';
-const channelOf = (wh?: OrderWh | null): Channel => (wh?.groupLink
-  ? (/viber\.com/i.test(wh.groupLink) ? 'viber-group' : 'wa-group')
-  : toWaNumber(wh?.phone) ? 'wa-number' : 'share');
-const CHANNEL_LABEL: Record<Channel, string> = { 'wa-group': 'كروب واتساب', 'viber-group': 'كروب فايبر', 'wa-number': 'واتساب', share: 'مشاركة' };
+/**
+ * رابط معرّف المذخر: @يوزر (أو t.me/يوزر) ← محادثته في تيليكرام والنص جاهز فيها،
+ * وأي رابط آخر يُفتح كما هو. null = ليس معرّفاً صالحاً.
+ */
+const handleUrl = (raw?: string | null, text = ''): string | null => {
+  const h = String(raw ?? '').trim();
+  if (!h) return null;
+  const tg = h.match(/^(?:https?:\/\/)?(?:t\.me|telegram\.me)\/@?([A-Za-z][A-Za-z0-9_]{3,31})\/?$/i) ?? h.match(/^@?([A-Za-z][A-Za-z0-9_]{3,31})$/);
+  if (tg) return `https://t.me/${tg[1]}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+  return /^https?:\/\/\S+$/i.test(h) ? h : null;
+};
+
+// قناة الإرسال اليدوي للمذخر: كروبه (واتساب/فايبر) إن حُفظ رابطه، وإلا رقمه، وإلا معرّفه، وإلا المشاركة
+type Channel = 'wa-group' | 'viber-group' | 'wa-number' | 'tg' | 'link' | 'share';
+const channelOf = (wh?: OrderWh | null): Channel => {
+  if (wh?.groupLink) return /viber\.com/i.test(wh.groupLink) ? 'viber-group' : 'wa-group';
+  if (toWaNumber(wh?.phone)) return 'wa-number';
+  const url = handleUrl(wh?.handle);
+  if (url) return url.startsWith('https://t.me/') ? 'tg' : 'link';
+  return 'share';
+};
+const CHANNEL_LABEL: Record<Channel, string> = { 'wa-group': 'كروب واتساب', 'viber-group': 'كروب فايبر', 'wa-number': 'واتساب', tg: 'تيليكرام', link: 'رابط المذخر', share: 'مشاركة' };
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
 // أيقونة التطبيق فقط (واتساب/فايبر) بدل نص القناة — التفصيل في title
 const HANDSET = 'M9.1 7.2c-.2-.5-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4s-1.2 1.1-1.2 2.7 1.2 3.2 1.4 3.4c.2.2 2.3 3.7 5.7 5 2.8 1.1 3.4.9 4 .8.6-.1 2-.8 2.2-1.6.3-.8.3-1.5.2-1.6-.1-.1-.3-.2-.6-.4l-2-1c-.3-.1-.5-.2-.7.1l-.9 1.2c-.2.2-.4.2-.7.1-.3-.1-1.3-.5-2.4-1.5-.9-.8-1.5-1.8-1.7-2.1-.2-.3 0-.5.1-.6l.5-.6c.2-.2.2-.3.3-.5.1-.2 0-.4 0-.5l-.9-2.2z';
 function ChannelIcon({ ch, size = 16 }: { ch: Channel; size?: number }) {
-  if (ch === 'share') return null;
+  if (ch === 'share' || ch === 'link') return null;
+  if (ch === 'tg') {
+    return (
+      <svg className="ro-ch-icon" width={size} height={size} viewBox="0 0 24 24" role="img" aria-label={CHANNEL_LABEL[ch]}>
+        <title>{CHANNEL_LABEL[ch]}</title>
+        <circle cx="12" cy="12" r="10" fill="#229ED9" />
+        <path fill="#fff" d="M6.2 11.6l9.9-3.8c.5-.2.9.1.7.8l-1.7 7.9c-.1.6-.5.7-1 .4l-2.6-1.9-1.3 1.2c-.1.1-.3.3-.6.3l.2-2.7 4.8-4.4c.2-.2 0-.3-.3-.1l-6 3.8-2.6-.8c-.6-.2-.6-.6.1-.9z" />
+      </svg>
+    );
+  }
   const viber = ch === 'viber-group';
   return (
     <svg className="ro-ch-icon" width={size} height={size} viewBox="0 0 24 24" role="img" aria-label={CHANNEL_LABEL[ch]}>
@@ -491,6 +516,15 @@ export default function RepOrdersPage() {
         cancel: o.cancel,
       };
     }
+    if (ch === 'tg' || ch === 'link') {
+      // تيليكرام يملأ خانة الكتابة من الرابط؛ النسخ احتياط إن لم يظهر النص
+      copyText(text);
+      const o = opener(handleUrl(wh.handle, ch === 'tg' ? text : '')!);
+      return {
+        go: () => { o.open(); setNotice(`✓ فُتحت محادثة «${wh.name}»${ch === 'tg' ? ' في تيليكرام والطلبية مكتوبة فيها' : ''} — والطلبية منسوخة أيضاً للصق إن لم تظهر.`); markSent(list, wh); },
+        cancel: o.cancel,
+      };
+    }
     const wa = toWaNumber(wh?.phone);
     if (!wa) return { go: () => shareOrders(list, wh), cancel: none };
     const o = opener(`https://wa.me/${wa}?text=${encodeURIComponent(text)}`);
@@ -534,6 +568,7 @@ export default function RepOrdersPage() {
     const ch = channelOf(wh);
     if (ch === 'viber-group' && !IS_TOUCH) { setNotice(`افتح كروب «${wh.name}» من فايبر — روابط كروبات فايبر تفتح بالموبايل فقط.`); return; }
     if (ch === 'wa-group' || ch === 'viber-group') { window.open(wh.groupLink!, '_blank'); return; }
+    if (ch === 'tg' || ch === 'link') { window.open(handleUrl(wh.handle)!, '_blank'); return; }
     const wa = toWaNumber(wh.phone);
     if (wa) window.open(`https://wa.me/${wa}`, '_blank');
   };
@@ -870,7 +905,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
         <td className="ro-state-td"><span className="ro-status"><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span>{partial && <span className="ro-badge ro-badge--partial">جزئي</span>}</span></td>
         <td className="ro-col-actions" onClick={stop}>
           {canSendRow && (
-            <button className={`ro-icon-btn ro-icon-btn--${channelOf(o.warehouses[0]) === 'viber-group' ? 'viber' : 'wa'}`} title={`إرسال إلى ${o.warehouses[0]?.name ?? ''} — ${CHANNEL_LABEL[channelOf(o.warehouses[0])]}`} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>
+            <button className={`ro-icon-btn ro-icon-btn--${channelOf(o.warehouses[0]) === 'viber-group' ? 'viber' : channelOf(o.warehouses[0]) === 'tg' ? 'tg' : 'wa'}`} title={`إرسال إلى ${o.warehouses[0]?.name ?? ''} — ${CHANNEL_LABEL[channelOf(o.warehouses[0])]}`} onClick={() => onSend(o.warehouses[0])}><Send size={14} /></button>
           )}
         </td>
       </tr>
@@ -2014,10 +2049,11 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
     if (!window.confirm(`حذف المذخر «${w.name}» من الدليل؟ الطلبيات السابقة تبقى باسمه.`)) return;
     try { await api(`/warehouses/${w.id}`, { method: 'DELETE' }); onChanged(); } catch (e: any) { alert(e.message); }
   };
-  // المعرّف: الرابط يُفتح، و@اليوزر يُنسخ
+  // المعرّف يفتح محادثة المذخر (تيليكرام أو رابطه)، وما لم يُفهم منه يُنسخ
   const openHandle = (w: WarehouseRow) => {
     const h = String(w.handle ?? '').trim();
-    if (/^https?:\/\//i.test(h)) { window.open(h, '_blank'); return; }
+    const url = handleUrl(h);
+    if (url) { window.open(url, '_blank'); return; }
     copyText(h); setCopied(w.id); setTimeout(() => setCopied(c => (c === w.id ? null : c)), 1500);
   };
 
@@ -2077,7 +2113,7 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
                   <span className="ro-whdir__contact">
                     {w.phone && <span dir="ltr">{w.phone}</span>}
                     {w.handle && (
-                      <button type="button" className="ro-whdir__handle" dir="ltr" title={/^https?:/i.test(w.handle) ? 'فتح' : 'نسخ المعرّف'} onClick={() => openHandle(w)}>
+                      <button type="button" className="ro-whdir__handle" dir="ltr" title={handleUrl(w.handle) ? `فتح ${handleUrl(w.handle)!.startsWith('https://t.me/') ? 'تيليكرام' : 'الرابط'}` : 'نسخ المعرّف'} onClick={() => openHandle(w)}>
                         {copied === w.id ? 'نُسخ ✓' : w.handle}
                       </button>
                     )}
