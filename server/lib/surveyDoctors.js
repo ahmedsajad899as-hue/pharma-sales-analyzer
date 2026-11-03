@@ -19,6 +19,7 @@ import { normalizeAreaName } from './itemResolver.js';
 import { resolveEffectiveAreaIds } from './areaScope.js';
 import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from './officeScope.js';
 import { normalizeRepName, repNameScore } from '../modules/scientific-reps/scientific-reps.service.js';
+import { nameTokens, MIN_SOLO_NAME_LEN } from './repNameMatch.js';
 import { similarity } from './fuzzyMatch.js';
 import { provinceMemberUserIds } from './provinceScope.js';
 
@@ -70,6 +71,25 @@ const DOCTOR_WORD_SIM_FLOOR = 0.8;
  * السؤال (pending) عنه. لا تُستعمل لمطابقة أسماء المندوبين (repNameScore تبقى
  * كما هي هناك) — الأطباء وحدهم يستفيدون من هذا التسامح الإضافي.
  */
+// تشابه كلمتين — نفس أزواج الكلمات (محمد/احمد…) تتكرّر ملايين المرات عبر مطابقة
+// آلاف الأسماء، وليفنشتاين كان معظم زمن الاستيراد. السقف يمنع تضخّم الذاكرة.
+const wordSimCache = new Map();
+let wordSimCacheSize = 0;
+function wordSimilarity(a, b) {
+  if (a === b) return 1;
+  const [x, y] = a < b ? [a, b] : [b, a];
+  let row = wordSimCache.get(x);
+  if (!row) { row = new Map(); wordSimCache.set(x, row); }
+  let v = row.get(y);
+  if (v === undefined) {
+    if (wordSimCacheSize > 500000) { wordSimCache.clear(); wordSimCacheSize = 0; row = new Map(); wordSimCache.set(x, row); }
+    v = similarity(x, y);
+    row.set(y, v);
+    wordSimCacheSize++;
+  }
+  return v;
+}
+
 function fuzzyDoctorNameScore(a, b) {
   const na = normalizeRepName(a), nb = normalizeRepName(b);
   if (!na || !nb) return 0;
@@ -83,7 +103,7 @@ function fuzzyDoctorNameScore(a, b) {
     let bestIdx = -1, bestSim = 0;
     tb.forEach((bt, i) => {
       if (usedB.has(i)) return;
-      const sim = t === bt ? 1 : similarity(t, bt);
+      const sim = wordSimilarity(t, bt);
       if (sim > bestSim) { bestSim = sim; bestIdx = i; }
     });
     if (bestIdx !== -1 && bestSim >= DOCTOR_WORD_SIM_FLOOR) { shared++; usedB.add(bestIdx); }
@@ -111,6 +131,109 @@ export function doctorMatchScore(cand, target) {
 }
 
 export const DOCTOR_ASK_FLOOR = 0.45; // أدنى نقاط يُعتَد بها كمرشَّح يُعرض للمستخدم
+
+/**
+ * فهرس يُرجع فقط المرشَّحين الذين **يمكن** أن تعطيهم doctorMatchScore نقاطاً > 0،
+ * بنفس ترتيبهم الأصلي في القائمة — فالنتيجة مطابقة حرفياً لمسح القائمة كاملة.
+ *
+ * السبب: استيراد الزيارات كان يقيّم كل اسم مختلف في الملف مقابل كل طبيب في
+ * الحساب (1500 اسم × 4000 طبيب = 6 ملايين مقارنة ليفنشتاين + تطبيع regex)، فيحجز
+ * حلقة أحداث Node ٥+ دقائق — يتجمّد التطبيق كله لكل المستخدمين ويعود الطلب 504.
+ *
+ * شروط النقاط > 0 (مرآة repNameScore + fuzzyDoctorNameScore بالضبط)، أيّها يكفي:
+ *   - كلمتان على الأقل من كلمات المرشّح قريبتان (تشابه ≥ 0.8) من كلمات الاسم؛
+ *   - كلمتان مشتركتان حرفياً بعد لصق «عبد/ابو» (nameTokens) في أي من الاتجاهين؛
+ *   - الاسمان متطابقان بعد اللصق؛
+ *   - حالة الاسم المفرد (كلمة واحدة ≥ MIN_SOLO_NAME_LEN = أول كلمة في الآخر).
+ * الفهرس يُرجع مجموعة أوسع قليلاً من ذلك أحياناً — لا أضيق أبداً.
+ */
+export function buildDoctorNameIndex(list = [], getName = d => d.name) {
+  const items = [];
+  const bySplit = new Map();  // كلمة → [موضع المرشّح لكل ظهور]
+  const byMerged = new Map(); // كلمة ملصوقة → Map(موضع → عدد ظهورها فيه)
+  const byJoin = new Map();   // الاسم الملصوق كاملاً → [موضع]
+  const byFirst = new Map();  // أول كلمة ملصوقة لمرشّح متعدد الكلمات → [موضع]
+  const soloByTok = new Map(); // مرشّح بكلمة واحدة → [موضع]
+  const byLen = new Map();    // طول الكلمة → Set(كلمة) — لحصر مقارنات التشابه
+  const nearCache = new Map();
+  const push = (map, key, v) => { if (!map.has(key)) map.set(key, []); map.get(key).push(v); };
+
+  const add = (item) => {
+    const idx = items.length;
+    items.push(item);
+    const norm = normalizeRepName(getName(item));
+    if (!norm) return;
+    for (const t of norm.split(' ').filter(Boolean)) {
+      push(bySplit, t, idx);
+      if (!byLen.has(t.length)) byLen.set(t.length, new Set());
+      if (!byLen.get(t.length).has(t)) { byLen.get(t.length).add(t); nearCache.clear(); }
+    }
+    const merged = nameTokens(norm);
+    for (const t of merged) {
+      if (!byMerged.has(t)) byMerged.set(t, new Map());
+      const m = byMerged.get(t);
+      m.set(idx, (m.get(idx) ?? 0) + 1);
+    }
+    push(byJoin, merged.join(' '), idx);
+    if (merged.length > 1) push(byFirst, merged[0], idx);
+    else if (merged.length === 1) push(soloByTok, merged[0], idx);
+  };
+  for (const it of list) add(it);
+
+  // كل كلمات الفهرس القريبة من t (تشابه ≥ 0.8). التشابه ≥ 0.8 يستلزم فرق طول
+  // ≤ 20% من الأطول، فتُقارَن الكلمات ضمن نافذة الطول هذه فقط.
+  const nearWords = (t) => {
+    if (nearCache.has(t)) return nearCache.get(t);
+    const out = [];
+    const L = t.length;
+    for (const [len, words] of byLen) {
+      if (Math.abs(len - L) > 0.2 * Math.max(len, L)) continue;
+      for (const w of words) if (wordSimilarity(t, w) >= DOCTOR_WORD_SIM_FLOOR) out.push(w);
+    }
+    nearCache.set(t, out);
+    return out;
+  };
+
+  const candidatesFor = (name) => {
+    const norm = normalizeRepName(name);
+    if (!norm) return [];
+    const hit = new Set();
+    // (1) كلمتان قريبتان على الأقل (fuzzyDoctorNameScore)
+    // شرط الكلمتين يُحسب بالتكرار («نادية نادية» كلمتان) كما في fuzzyDoctorNameScore
+    const splitAll = norm.split(' ').filter(Boolean);
+    const splitQ = [...new Set(splitAll)];
+    if (splitAll.length >= 2) {
+      const near = new Set();
+      for (const t of splitQ) for (const w of nearWords(t)) near.add(w);
+      const cnt = new Map();
+      for (const w of near) for (const idx of bySplit.get(w) ?? []) cnt.set(idx, (cnt.get(idx) ?? 0) + 1);
+      for (const [idx, c] of cnt) if (c >= 2) hit.add(idx);
+    }
+    // (2) كلمتان مشتركتان حرفياً بعد اللصق (repNameScore، بالاتجاهين)
+    const merged = nameTokens(norm);
+    const qCount = new Map();
+    for (const t of merged) qCount.set(t, (qCount.get(t) ?? 0) + 1);
+    const fromQ = new Map(), fromC = new Map();
+    for (const [t, qc] of qCount) {
+      for (const [idx, cc] of byMerged.get(t) ?? []) {
+        fromQ.set(idx, (fromQ.get(idx) ?? 0) + qc);
+        fromC.set(idx, (fromC.get(idx) ?? 0) + cc);
+      }
+    }
+    for (const [idx, c] of fromQ) if (c >= 2 || fromC.get(idx) >= 2) hit.add(idx);
+    // (3) تطابق الاسم الملصوق كاملاً
+    for (const idx of byJoin.get(merged.join(' ')) ?? []) hit.add(idx);
+    // (4) الاسم المفرد
+    if (merged.length === 1 && merged[0].length >= MIN_SOLO_NAME_LEN) {
+      for (const idx of byFirst.get(merged[0]) ?? []) hit.add(idx);
+    } else if (merged.length > 1 && merged[0].length >= MIN_SOLO_NAME_LEN) {
+      for (const idx of soloByTok.get(merged[0]) ?? []) hit.add(idx);
+    }
+    return [...hit].sort((a, b) => a - b).map(i => items[i]);
+  };
+
+  return { add, candidatesFor };
+}
 
 // الأدوار الميدانية (مُقيّدة بمناطقها). المدراء يرون كامل الفريق.
 const FIELD_ROLES = new Set(['user', 'scientific_rep', 'supervisor', 'commercial_rep']);

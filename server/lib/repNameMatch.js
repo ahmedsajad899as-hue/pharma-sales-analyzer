@@ -15,13 +15,27 @@
  * وطيّ المسافات. مصدر واحد للحقيقة يستعمله كل من مطابقة الأسماء المخزَّنة
  * (SciRepNameLink.fromKey) ومطابقة صفوف المبيعات، فلا ينفرط المفتاحان.
  */
-export const normalizeRepName = s => String(s ?? '').trim()
+const normalizeRepNameRaw = s => String(s ?? '').trim()
   .replace(/[أإآٱ]/g, 'ا')
   .replace(/ة/g, 'ه')
   .replace(/ـ/g, '')
   .replace(/[ً-ٟ]/g, '')
   .replace(/\s+/g, ' ')
   .trim();
+
+// دالة نقية تُستدعى ملايين المرات في مطابقة الأسماء (كل زوج اسم×مرشّح يطبّع
+// الطرفين مرات عدّة) — تُحفظ نتيجتها؛ السقف يمنع تضخّم الذاكرة.
+const repNameNormCache = new Map();
+export const normalizeRepName = s => {
+  const k = String(s ?? '');
+  let v = repNameNormCache.get(k);
+  if (v === undefined) {
+    if (repNameNormCache.size > 100000) repNameNormCache.clear();
+    v = normalizeRepNameRaw(k);
+    repNameNormCache.set(k, v);
+  }
+  return v;
+};
 
 /**
  * «نواة» الاسم: ما قبل أول فاصل «/ - –» — أي الاسم بلا لاحقة المنطقة الملصقة به
@@ -48,7 +62,7 @@ export const repTightKey = s => repCoreKey(s).replace(/\s+/g, '');
  * «عبدالمهيمن» اسم واحد يُكتب بالطريقتين، وعدّهما كلمتين كان يكسر التطابق
  * (كلمة «عبدالمهيمن» لا تساوي «عبد» ولا «المهيمن») فيُصنَّف الاسم خارج النطاق.
  */
-const nameTokens = s => {
+export const nameTokens = s => {
   const parts = normalizeRepName(s).split(' ').filter(Boolean);
   const out = [];
   for (let i = 0; i < parts.length; i++) {
@@ -59,7 +73,7 @@ const nameTokens = s => {
 };
 
 /** أقصر اسم أول يُقبل وحده كدليل — الأقصر («احمد»، «علي») أشيع من أن يُسأل عنه. */
-const MIN_SOLO_NAME_LEN = 5;
+export const MIN_SOLO_NAME_LEN = 5;
 
 /**
  * درجة تشابه اسمَي شخص (0..1) على أساس الكلمات المشتركة لا الحروف:

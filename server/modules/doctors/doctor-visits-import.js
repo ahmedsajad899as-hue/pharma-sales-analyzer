@@ -28,7 +28,7 @@ import { normalizeAreaName, normalizeItemKey, loadResolutionContext, resolveItem
 import { areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { resolveDocOwnerUserId } from './doctors.controller.js';
 import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLinks, expandOwnerIdsByCompany } from '../scientific-reps/scientific-reps.service.js';
-import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases } from '../../lib/surveyDoctors.js';
+import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases, buildDoctorNameIndex } from '../../lib/surveyDoctors.js';
 import { runFeedbackInferenceForImportFile } from './doctor-visit-feedback-ai.js';
 import { saveItemLinks } from '../stock-ledger/stock-ledger.service.js';
 import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
@@ -211,13 +211,45 @@ function parseLocation(row, colMap) {
  *            معاً دفعة واحدة) → التباس حقيقي لا يجوز تخمينه اعتباطاً
  *   none   → لا مرشّح على الإطلاق → منطقة جديدة فعلاً
  */
+// normalizeAreaName سلسلة regex — كانت تُستدعى لكل منطقة × كل صف (آلاف × آلاف)
+// في الاستخراج والمطابقة. دالة نقية، فتُحفظ نتيجتها؛ السقف يمنع تضخّم الذاكرة.
+const areaNormCache = new Map();
+function normAreaCached(s) {
+  const k = String(s ?? '');
+  let v = areaNormCache.get(k);
+  if (v === undefined) {
+    if (areaNormCache.size > 50000) areaNormCache.clear();
+    v = normalizeAreaName(k);
+    areaNormCache.set(k, v);
+  }
+  return v;
+}
+
+// نتيجة resolveArea لكل نص منطقة ضمن نفس قائمة المناطق — ملف CRM يكرّر نفس
+// العنوان في مئات الصفوف، ومسار التشابه الاحتياطي (ليفنشتاين على كل المناطق) مكلف.
+// الحفظ يُضيف مناطق جديدة إلى allAreas أثناء العمل (resolveCommitAreaId) — فيُفرَّغ
+// الكاش كلما تغيّر طولها كي لا تبقى نتيجة «بلا مرشّح» قديمة لمنطقة أُنشئت للتو.
+const resolveAreaCache = new WeakMap(); // allAreas → { len, map: Map(rawName → نتيجة) }
+
 function resolveArea(rawName, allAreas) {
   const name = String(rawName ?? '').trim();
   const empty = { area: null, confidence: 'none', suggestions: [] };
   if (!name) return empty;
+  let memo = resolveAreaCache.get(allAreas);
+  if (!memo || memo.len !== allAreas.length) {
+    memo = { len: allAreas.length, map: new Map() };
+    resolveAreaCache.set(allAreas, memo);
+  }
+  if (memo.map.has(name)) return memo.map.get(name);
+  const res = resolveAreaUncached(name, allAreas);
+  memo.map.set(name, res);
+  return res;
+}
 
-  const norm = normalizeAreaName(name);
-  const exact = allAreas.find(a => normalizeAreaName(a.name) === norm);
+function resolveAreaUncached(name, allAreas) {
+  const empty = { area: null, confidence: 'none', suggestions: [] };
+  const norm = normAreaCached(name);
+  const exact = allAreas.find(a => normAreaCached(a.name) === norm);
   if (exact) return { area: exact, confidence: 'exact', suggestions: [exact] };
 
   // احتواء بحدود كلمات كاملة بعد التطبيع العربي (لا حرفياً بالمسافة البادئة/
@@ -229,10 +261,10 @@ function resolveArea(rawName, allAreas) {
   const wrapped = ` ${norm} `;
   const contained = allAreas
     .filter(a => {
-      const t = normalizeAreaName(a.name);
+      const t = normAreaCached(a.name);
       return t.length > 2 && wrapped.includes(` ${t} `);
     })
-    .map(a => ({ ...a, sim: similarity(norm, normalizeAreaName(a.name)) }))
+    .map(a => ({ ...a, sim: similarity(norm, normAreaCached(a.name)) }))
     .sort((a, b) => b.sim - a.sim);
   if (contained.length === 1) return { area: contained[0], confidence: 'high', suggestions: contained };
   if (contained.length > 1)  return { area: null, confidence: 'medium', suggestions: contained };
@@ -249,7 +281,7 @@ function resolveArea(rawName, allAreas) {
   // "high"، فلا يُدمَج اسمان مختلفان فعلاً بصمت مهما بدا تشابههما عالياً.
   const fuzzy = allAreas
     .filter(a => areSimilar(name, a.name))
-    .map(a => ({ ...a, sim: similarity(norm, normalizeAreaName(a.name)) }))
+    .map(a => ({ ...a, sim: similarity(norm, normAreaCached(a.name)) }))
     .sort((a, b) => b.sim - a.sim);
   if (fuzzy.length === 0) return empty;
   return { area: null, confidence: 'medium', suggestions: fuzzy };
@@ -522,7 +554,25 @@ function matchSingleItemText(ctx, t) {
     .find(it => t.includes(normItemText(it.name)) || normItemText(it.name).includes(t)) ?? null;
 }
 
+// نص الايتم يتكرّر في آلاف الصفوف وكل مطابقة غير محسومة تفرز الكتالوج كاملاً —
+// تُحفظ النتيجة لكل سياق (ctx) ونص. السياق لا يتغيّر بعد تحميله في loadVisitItemCtx.
+const itemMatchMemo = new WeakMap();
+function memoByCtx(ctx, kind, text, compute) {
+  if (!ctx || typeof ctx !== 'object') return compute();
+  let m = itemMatchMemo.get(ctx);
+  if (!m) { m = new Map(); itemMatchMemo.set(ctx, m); }
+  const key = `${kind}|${text}`;
+  if (m.has(key)) return m.get(key);
+  const v = compute();
+  m.set(key, v);
+  return v;
+}
+
 function matchItemByText(ctx, text) {
+  return memoByCtx(ctx, 'match', String(text ?? ''), () => matchItemByTextUncached(ctx, text));
+}
+
+function matchItemByTextUncached(ctx, text) {
   const t = normItemText(text);
   if (!t) return null;
   const direct = matchSingleItemText(ctx, t);
@@ -553,6 +603,10 @@ const coreWord = text => normItemText(text).match(/[a-z]{3,}/)?.[0] ?? '';
  * حين يكون أحدهما احتواءً للآخر بلا بادئة كاملة (كـ"drop" ضمن "uricodrop").
  */
 function suggestItemMatch(ctx, text) {
+  return memoByCtx(ctx, 'suggest', String(text ?? ''), () => suggestItemMatchUncached(ctx, text));
+}
+
+function suggestItemMatchUncached(ctx, text) {
   const core = coreWord(text);
   if (!core || core.length < 3) return null;
   let best = null, bestScore = 0;
@@ -914,7 +968,7 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
  * الثانية - مستشفى الدولي» ↔ «الدولي» نفس المكان. منطقة غائبة في أحدهما لا تعارض.
  */
 function areasConflict(a, b) {
-  const x = normalizeAreaName(a || ''), y = normalizeAreaName(b || '');
+  const x = normAreaCached(a || ''), y = normAreaCached(b || '');
   if (!x || !y || x === y) return false;
   const wx = ` ${x} `, wy = ` ${y} `;
   return !(wx.includes(wy) || wy.includes(wx));
@@ -998,6 +1052,16 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
   });
   const candById = new Map(candidates.map(c => [c.id, c]));
   const candBySurveyDoctorId = new Map(candidates.filter(c => c.masterSurveyDoctorId != null).map(c => [c.masterSurveyDoctorId, c]));
+  // فهارس بدل مسح كل الأطباء لكل اسم في الملف (كان يحجز الخادم دقائق — راجع
+  // buildDoctorNameIndex): الاسم المنظَّف → أطباؤه بترتيبهم الأصلي، وفهرس يُرجع فقط
+  // من يمكن أن ينال نقاط تشابه > 0 — النتائج مطابقة لمسح القائمة كاملة.
+  const candByCleanNorm = new Map();
+  for (const c of candidates) {
+    const k = normalizeRepName(cleanDoctorName(c.name));
+    if (!candByCleanNorm.has(k)) candByCleanNorm.set(k, []);
+    candByCleanNorm.get(k).push(c);
+  }
+  const candNameIndex = buildDoctorNameIndex(candidates);
 
   // aliases مؤكَّدة على مستوى السيرفي (لا خاصة بهذا المستخدم وحده) — نفس المصدر
   // الذي يغذّي استيراد أطباء السيرفي وfindSurveyDoctor عند الحفظ، يُستشار هنا
@@ -1094,7 +1158,11 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
 
   const pending = [], resolved = [], unrelated = [];
 
+  let groupsDone = 0;
   for (const g of groups.values()) {
+    // ملف ضخم = آلاف الأسماء: نُفسح لحلقة الأحداث كل 100 اسم كي لا يتجمّد
+    // التطبيق لبقية المستخدمين أثناء المطابقة (كان يحجز الخادم كله دقائق).
+    if (++groupsDone % 100 === 0) await new Promise(r => setImmediate(r));
     // تُلصَق بكل صفوف المجموعة بصرف النظر عن نتيجة التصنيف — الواجهة تستعملها
     // لتجميع/تطبيق قرار المستخدم على صفوفها دون إعادة تنفيذ منطق التطبيع محلياً.
     for (const r of g.rows) r.doctorKey = g.key;
@@ -1157,7 +1225,7 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
       // نكمل التصنيف العادي بدل ربط خاطئ بمعرّف صف قد يخص طبيباً آخر تماماً.
       const colleagueName = link.doctor?.name ? normalizeRepName(cleanDoctorName(link.doctor.name)) : '';
       const sameNameLocal = colleagueName
-        ? candidates.filter(c => normalizeRepName(cleanDoctorName(c.name)) === colleagueName && !areasConflict(g.areaName, c.areaName))
+        ? (candByCleanNorm.get(colleagueName) ?? []).filter(c => !areasConflict(g.areaName, c.areaName))
         : [];
       if (sameNameLocal.length === 1) {
         for (const r of g.rows) adoptAppDoctorIdentity(r, sameNameLocal[0]);
@@ -1204,7 +1272,7 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
     };
     // أسماء صفوف قديمة قد تحمل اللقب نفسه («عيادة الدكتورة نادية…» حُفظت قبل
     // تنظيف البادئات) — تُنظَّف للمقارنة فقط، الاسم المعروض يبقى كما هو.
-    const exactMatches = candidates.filter(c => normalizeRepName(cleanDoctorName(c.name)) === cleanNorm);
+    const exactMatches = candByCleanNorm.get(cleanNorm) ?? [];
     const exact = pickExact(exactMatches);
     if (exact) {
       for (const r of g.rows) adoptAppDoctorIdentity(r, exact);
@@ -1244,6 +1312,7 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
     // بأفضل مرشّح عام (بصرف النظر عن المنطقة) معلَّماً صراحة بأنه من منطقة
     // مختلفة (crossArea) كي يقرّر المستخدم بنفسه.
     const rowAreaNorm = g.areaName ? normalizeAreaName(g.areaName) : null;
+    const nameHits = candNameIndex.candidatesFor(g.cleanedName);
     const scoreCandidates = list => list
       .map(c => ({ ...c, score: doctorMatchScore({ name: g.cleanedName, areaName: g.areaName, specialty: g.specialty, pharmacyName: g.pharmacyName }, c) }))
       .filter(c => c.score >= DOCTOR_ASK_FLOOR)
@@ -1254,12 +1323,12 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
     if (exactMatches.length > 1) {
       scored = exactMatches.map(c => flagArea({ ...c, score: 1 }));
     } else if (!rowAreaNorm) {
-      scored = scoreCandidates(candidates);
+      scored = scoreCandidates(nameHits);
     } else {
-      const sameArea = scoreCandidates(candidates.filter(c => c.areaName && !areasConflict(g.areaName, c.areaName)));
+      const sameArea = scoreCandidates(nameHits.filter(c => c.areaName && !areasConflict(g.areaName, c.areaName)));
       scored = sameArea.length > 0
         ? sameArea
-        : scoreCandidates(candidates).map(c => ({ ...c, crossArea: true }));
+        : scoreCandidates(nameHits).map(c => ({ ...c, crossArea: true }));
       // سميٌّ تام الاسم بمنطقة أخرى يُعرض دائماً للاختيار — لا يُربط ولا يُخفى.
       for (const c of exactMatches) {
         if (!scored.some(s => s.id === c.id)) scored.push({ ...c, score: 1, crossArea: true });
@@ -1577,20 +1646,37 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
     return bestScore >= FUZZY_THRESHOLD ? { match: best, fuzzy: true } : { match: null, fuzzy: false };
   };
 
+  // فهارس بدل مسح كل الأطباء لكل صف (راجع buildDoctorNameIndex) — بترتيب المصفوفة
+  // الأصلي نفسه، فأول/أفضل مرشّح هو نفسه كما في المسح الكامل. كل إضافة لاحقة
+  // للمصفوفتين أثناء الحفظ تمرّ عبر track* كي يبقى الفهرس متزامناً معها.
+  const makeDoctorLookup = (arr) => {
+    const byId = new Map(), byCleanNorm = new Map(), index = buildDoctorNameIndex([]);
+    const track = (d) => {
+      if (!byId.has(d.id)) byId.set(d.id, d);
+      const k = normalizeRepName(cleanDoctorName(d.name));
+      if (!byCleanNorm.has(k)) byCleanNorm.set(k, []);
+      byCleanNorm.get(k).push(d);
+      index.add(d);
+    };
+    arr.forEach(track);
+    return { byId, byCleanNorm, index, push: (d) => { arr.push(d); track(d); } };
+  };
+  const sdLookup = makeDoctorLookup(surveyDoctorsAll);
+
   const findSurveyDoctor = (name, ctx, allowFuzzy = true) => {
     if (surveyAliasByKey.has(doctorLinkKey(name, ctx.areaName))) {
       const aliasedId = surveyAliasByKey.get(doctorLinkKey(name, ctx.areaName));
-      const doc = aliasedId ? surveyDoctorsAll.find(d => d.id === aliasedId) : null;
+      const doc = aliasedId ? sdLookup.byId.get(aliasedId) : null;
       return { match: doc ?? null, fuzzy: false };
     }
     // سميٌّ بمنطقة معارضة لمنطقة الصف ليس هو — لا يُربط (لا تامّاً ولا بالتشابه)،
     // وإلا ظهرت الزيارة تحت طبيب منطقة أخرى (سمير محمد رؤوف: حي الجهاد ↔ حي الجامعة).
-    const pool = surveyDoctorsAll.filter(d => !areasConflict(ctx.areaName, d.areaName));
+    const inArea = d => !areasConflict(ctx.areaName, d.areaName);
     const nameNorm = normalizeRepName(cleanDoctorName(name));
-    let cands = pool.filter(d => normalizeRepName(cleanDoctorName(d.name)) === nameNorm);
+    let cands = (sdLookup.byCleanNorm.get(nameNorm) ?? []).filter(inArea);
     if (cands.length === 0) {
       if (!allowFuzzy) return { match: null, fuzzy: false };
-      return bestFuzzyMatch(name, ctx, pool, d => ({ name: d.name, areaName: d.areaName, specialty: d.specialty, pharmacyName: d.pharmacyName }));
+      return bestFuzzyMatch(name, ctx, sdLookup.index.candidatesFor(name).filter(inArea), d => ({ name: d.name, areaName: d.areaName, specialty: d.specialty, pharmacyName: d.pharmacyName }));
     }
     if (cands.length === 1) return { match: cands[0], fuzzy: false };
     const areaN = normalizeAreaName(ctx.areaName || '');
@@ -1602,11 +1688,12 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
     where: { userId: ownerUserId },
     select: { id: true, name: true, areaId: true, specialty: true, pharmacyName: true, masterSurveyDoctorId: true, area: { select: { name: true } } },
   });
+  const exLookup = makeDoctorLookup(existingDoctors);
   const findExistingDoctor = (name, areaIdLocal, ctx) => {
-    const pool = existingDoctors.filter(d => !areasConflict(ctx.areaName, d.area?.name));
+    const inArea = d => !areasConflict(ctx.areaName, d.area?.name);
     const nameNorm = normalizeRepName(cleanDoctorName(name));
-    let cands = pool.filter(d => normalizeRepName(cleanDoctorName(d.name)) === nameNorm);
-    if (cands.length === 0) return bestFuzzyMatch(name, ctx, pool, d => ({ name: d.name, areaName: d.area?.name ?? null, specialty: d.specialty, pharmacyName: d.pharmacyName }));
+    let cands = (exLookup.byCleanNorm.get(nameNorm) ?? []).filter(inArea);
+    if (cands.length === 0) return bestFuzzyMatch(name, ctx, exLookup.index.candidatesFor(name).filter(inArea), d => ({ name: d.name, areaName: d.area?.name ?? null, specialty: d.specialty, pharmacyName: d.pharmacyName }));
     if (areaIdLocal) return { match: cands.find(d => d.areaId === areaIdLocal) ?? cands[0], fuzzy: false };
     return { match: cands[0], fuzzy: false };
   };
@@ -1676,7 +1763,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
             name: appName, specialty: appCtx.specialty || null,
             areaName: appCtx.areaName, pharmacyName: appCtx.pharmacyName || null,
           }, ownerUserId);
-          if (sd) surveyDoctorsAll.push({
+          if (sd) sdLookup.push({
             id: sd.id, name: appName, areaName: appCtx.areaName,
             specialty: appCtx.specialty || null, pharmacyName: appCtx.pharmacyName || null,
           });
@@ -1720,7 +1807,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
           // الأطباء/الأرشيف، ثم صف Doctor المربوط به (نفس نمط addCustomDoctor).
           // صف حُسم في مرحلة المطابقة لطبيب سيرفي بعينه (surveyDoctorId) يُربط به
           // مباشرة بدل إعادة المطابقة بالاسم.
-          const pinnedSd = r.surveyDoctorId ? surveyDoctorsAll.find(d => d.id === r.surveyDoctorId) : null;
+          const pinnedSd = r.surveyDoctorId ? sdLookup.byId.get(r.surveyDoctorId) : null;
           const sd = pinnedSd ?? findSurveyDoctor(doctorName, ctx, !r.forceNewDoctor).match ?? (hostSurvey
             ? await createSurveyDoctor(hostSurvey.id, {
                 name: doctorName, specialty: r.specialty || null,
@@ -1740,25 +1827,25 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
             },
           });
           doctorId = created.id;
-          existingDoctors.push({
+          exLookup.push({
             id: created.id, name: doctorName, areaId,
             specialty: r.specialty || null, pharmacyName: r.pharmacyName || null,
             masterSurveyDoctorId: sd?.id ?? null, area: resolvedAreaName ? { name: resolvedAreaName } : null,
           });
-          if (sd) surveyDoctorsAll.push({ id: sd.id, name: doctorName, areaName: resolvedAreaName, specialty: r.specialty || null, pharmacyName: r.pharmacyName || null });
+          if (sd) sdLookup.push({ id: sd.id, name: doctorName, areaName: resolvedAreaName, specialty: r.specialty || null, pharmacyName: r.pharmacyName || null });
         }
         doctorCache.set(cacheKey, doctorId);
       } else {
         // طبيب محسوم مسبقاً (مطابقة أكّدها المستخدم، أو رابط اسم محفوظ، أو صف
         // سابق في الملف نفسه) — اسمه في التطبيق يبقى كما هو حرفياً؛ الملف يُضيف
         // زيارة فقط، ولا يُملأ من حقوله إلا ما كان فارغاً عندنا أصلاً.
-        let doc = existingDoctors.find(d => d.id === doctorId);
+        let doc = exLookup.byId.get(doctorId);
         if (!doc) {
           const fetched = await prisma.doctor.findUnique({
             where: { id: doctorId },
             select: { id: true, name: true, areaId: true, specialty: true, pharmacyName: true, masterSurveyDoctorId: true, area: { select: { name: true } } },
           });
-          if (fetched) { doc = fetched; existingDoctors.push(fetched); }
+          if (fetched) { doc = fetched; exLookup.push(fetched); }
         }
         // لا تُنسَخ أي قيمة من الملف إلى سجل الطبيب المؤكَّد — إلا الصيدلية حين
         // تكون فارغة عندنا: pharmacyFromFile تعني أن شبكة المراجعة عرضت قيمة
