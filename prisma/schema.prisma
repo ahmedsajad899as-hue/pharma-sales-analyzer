@@ -3302,6 +3302,8 @@ model OrderWarehouse {
   phone       String // رقم واتساب كما كُتب — يُطبَّع عند الإرسال ("" إن كان للمذخر كروب فقط)
   groupLink   String? // رابط دعوة كروب المذخر (https://chat.whatsapp.com/…) — الإرسال اليدوي يفتحه والنص منسوخ
   notes       String?
+  province    String? // محافظة المذخر — تجميع الدليل (فارغ = تُستنتج من الاسم بعد «/»)
+  handle      String? // معرّف الحساب (@يوزر أو رابط) حين لا يتوفر رقم
   // ── الإرسال الآلي عبر البوت (warehouse-dispatch) ──
   channel            String    @default("cloud") // cloud = رقم البوت الرسمي | group = كروب عبر رقم الكروبات | manual = لا إرسال آلي
   waId               String? // phone مطبَّعاً (9647…) — مطابقة ردود المذخر الواردة

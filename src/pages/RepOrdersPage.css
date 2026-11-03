@@ -635,3 +635,31 @@ button.ro-prep { cursor: pointer; }
 /* تكبير بنقطة ارتكاز (ZoomImage): الصورة بحجمها «المحتوى» تتحرك بـ transform داخل إطار ثابت */
 .ro-pv__frame, .ro-pv.is-zoom .ro-pv__frame { position: relative; display: block; overflow: hidden; touch-action: none; direction: ltr; cursor: grab; user-select: none; -webkit-user-select: none; }
 .ro-pv__frame img, .ro-pv.is-zoom .ro-pv__frame img { position: absolute; left: 0; top: 0; max-width: none; max-height: none; transform-origin: 0 0; will-change: transform; }
+
+/* ─── دليل المذاخر: بحث + إضافة بالأعلى، تجميع بالمحافظة، صفوف مضغوطة ─── */
+.ro-whdir { width: min(620px, 100%); }
+.ro-whdir__top { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--c-border-light); }
+.ro-whdir__bar { display: flex; align-items: center; gap: 8px; }
+.ro-whdir__bar .ro-search { flex: 1 1 auto; max-width: none; order: 0; }
+.ro-whdir__bar .btn { white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.ro-whdir__chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.ro-whdir__chip { border: 1px solid var(--c-border-light); background: var(--c-surface); color: var(--c-text-secondary); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.ro-whdir__chip b { font-weight: 700; color: var(--c-text-muted); margin-inline-start: 2px; }
+.ro-whdir__chip.is-on { background: var(--c-accent); border-color: var(--c-accent); color: #fff; }
+.ro-whdir__chip.is-on b { color: #fff; }
+.ro-whdir__list { gap: 10px; padding-top: 8px; }
+.ro-whdir__group { display: flex; flex-direction: column; border: 1px solid var(--c-border-light); border-radius: 10px; overflow: hidden; }
+.ro-whdir__ghead { display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 12.5px; font-weight: 700; background: var(--c-accent-light); color: var(--c-accent); }
+.ro-whdir__ghead span { font-weight: 600; font-size: 11.5px; color: var(--c-text-muted); }
+.ro-whdir__row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; min-height: 32px; font-size: 13px; }
+.ro-whdir__row + .ro-whdir__row { border-top: 1px solid var(--c-border-light); }
+.ro-whdir__name { font-weight: 600; flex: 0 1 auto; min-width: 0; }
+.ro-whdir__contact { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; justify-content: flex-end; font-size: 11.5px; color: var(--c-text-muted); overflow: hidden; white-space: nowrap; }
+.ro-whdir__note { overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.ro-whdir__handle { border: 0; background: var(--c-accent-light); color: var(--c-accent); border-radius: 6px; padding: 1px 6px; font: inherit; font-size: 11.5px; cursor: pointer; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.ro-icon-btn--sm { padding: 3px; border-radius: 6px; }
+.ro-whdir .ro-newwh .form-input { min-width: 130px; padding-block: 6px; font-size: 13px; }
+@media (max-width: 720px) {
+  .ro-whdir__note { display: none; }
+  .ro-whdir__bar .btn { padding-inline: 8px; }
+}

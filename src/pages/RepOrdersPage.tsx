@@ -29,7 +29,10 @@ interface Order {
   status: Status; invoiceImage: string | null; preparedImage: string | null; invoiceNumber?: string | null; createdAt: string; sentAt: string | null; sentCount: number;
   preparedAt: string | null; preparedBy: string | null; lines: OrderLine[]; sends: OrderSend[]; canEdit: boolean;
 }
-interface WarehouseRow { id: number; name: string; phone: string; groupLink: string | null; notes: string | null; canEdit: boolean }
+interface WarehouseRow {
+  id: number; name: string; phone: string; groupLink: string | null; notes: string | null; canEdit: boolean;
+  province?: string | null; provinceGuess?: string | null; handle?: string | null;
+}
 interface CatalogItem { id: number; name: string; company?: { name: string } | null; scientificCompany?: { name: string } | null }
 
 
@@ -323,6 +326,7 @@ export default function RepOrdersPage() {
   const [whNextSeq, setWhNextSeq] = useState<Record<number, number>>({});
   const [isManager, setIsManager] = useState(false);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
+  const [provinces, setProvinces] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // طلبية واحدة مفتوحة فقط، وتُخفى البقية حتى ينصبّ التركيز على صيدليتها
@@ -333,7 +337,7 @@ export default function RepOrdersPage() {
 
   const loadWarehouses = useCallback(() => {
     if (!token) return;
-    api<{ warehouses: WarehouseRow[] }>('/warehouses').then(r => setWarehouses(r.warehouses)).catch(() => {});
+    api<{ warehouses: WarehouseRow[]; provinces?: string[] }>('/warehouses').then(r => { setWarehouses(r.warehouses); setProvinces(r.provinces ?? []); }).catch(() => {});
   }, [token, api]);
 
   const load = useCallback(async () => {
@@ -722,7 +726,7 @@ export default function RepOrdersPage() {
           onSaved={(d) => { setEditing(null); if (d && from && (d < from || d > to)) pickPeriod('all'); else load(); }} />
       )}
       {showWarehouses && (
-        <WarehousesModal api={api} warehouses={warehouses} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
+        <WarehousesModal api={api} warehouses={warehouses} provinces={provinces} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
       )}
       {shared.length > 0 && (
         <SharedImagePicker api={api} images={shared} beginSend={(o, wh) => beginSend([o], wh, true)}
@@ -1975,21 +1979,33 @@ function ItemPicker({ items, have, onAdd, onClose }: {
 
 // ─── دليل المذاخر (الاسم + رقم الواتساب) ──────────────────────────────────────
 
-function WarehousesModal({ api, warehouses, onOpen, onChanged, onClose }: {
+function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClose }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
-  warehouses: WarehouseRow[]; onOpen: (w: OrderWh) => void; onChanged: () => void; onClose: () => void;
+  warehouses: WarehouseRow[]; provinces: string[]; onOpen: (w: OrderWh) => void; onChanged: () => void; onClose: () => void;
 }) {
+  const NO_PROV = 'بدون محافظة';
+  const provOf = (w: WarehouseRow) => w.province || w.provinceGuess || NO_PROV;
   const [q, setQ] = useState('');
+  const [prov, setProv] = useState<string | null>(null);
+  const [copied, setCopied] = useState<number | null>(null);
   const terms = normSearch(q).split(/\s+/).filter(Boolean);
-  const shown = terms.length
-    ? warehouses.filter(w => { const t = normSearch(`${w.name} ${w.phone} ${w.notes ?? ''}`); return terms.every(x => t.includes(x)); })
+  const matched = terms.length
+    ? warehouses.filter(w => { const t = normSearch(`${w.name} ${w.phone} ${w.handle ?? ''} ${provOf(w)} ${w.notes ?? ''}`); return terms.every(x => t.includes(x)); })
     : warehouses;
-  const [draft, setDraft] = useState<{ id: number | null; name: string; phone: string; groupLink: string; notes: string } | null>(null);
+  // ترتيب المحافظات كما في جدولها، وما لم يُعرف بعدها، و«بدون محافظة» أخيراً
+  const rank = (p: string) => (p === NO_PROV ? 1e6 : provinces.indexOf(p) < 0 ? 1e5 : provinces.indexOf(p));
+  const counts = new Map<string, number>();
+  for (const w of matched) counts.set(provOf(w), (counts.get(provOf(w)) ?? 0) + 1);
+  const provKeys = [...counts.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ar'));
+  const groups = provKeys
+    .filter(p => !prov || p === prov)
+    .map(p => ({ p, rows: matched.filter(w => provOf(w) === p).sort((a, b) => a.name.localeCompare(b.name, 'ar')) }));
+  const [draft, setDraft] = useState<{ id: number | null; name: string; province: string; phone: string; handle: string; groupLink: string; notes: string } | null>(null);
 
   const save = async () => {
     if (!draft) return;
     try {
-      const body = JSON.stringify({ name: draft.name, phone: draft.phone, groupLink: draft.groupLink, notes: draft.notes });
+      const body = JSON.stringify({ name: draft.name, province: draft.province, phone: draft.phone, handle: draft.handle, groupLink: draft.groupLink, notes: draft.notes });
       await api(draft.id ? `/warehouses/${draft.id}` : '/warehouses', { method: draft.id ? 'PUT' : 'POST', body });
       setDraft(null); onChanged();
     } catch (e: any) { alert(e.message); }
@@ -1998,56 +2014,86 @@ function WarehousesModal({ api, warehouses, onOpen, onChanged, onClose }: {
     if (!window.confirm(`حذف المذخر «${w.name}» من الدليل؟ الطلبيات السابقة تبقى باسمه.`)) return;
     try { await api(`/warehouses/${w.id}`, { method: 'DELETE' }); onChanged(); } catch (e: any) { alert(e.message); }
   };
+  // المعرّف: الرابط يُفتح، و@اليوزر يُنسخ
+  const openHandle = (w: WarehouseRow) => {
+    const h = String(w.handle ?? '').trim();
+    if (/^https?:\/\//i.test(h)) { window.open(h, '_blank'); return; }
+    copyText(h); setCopied(w.id); setTimeout(() => setCopied(c => (c === w.id ? null : c)), 1500);
+  };
 
   return (
     <div className="ro-modal" onClick={onClose}>
-      <div className="ro-dialog ro-dialog--narrow" onClick={e => e.stopPropagation()}>
+      <div className="ro-dialog ro-dialog--narrow ro-whdir" onClick={e => e.stopPropagation()}>
         <div className="ro-dialog__head">
-          <strong>دليل المذاخر</strong>
+          <strong>دليل المذاخر <span className="ro-muted ro-small">({warehouses.length})</span></strong>
           <button className="ro-icon-btn" onClick={onClose}><X size={16} /></button>
         </div>
-        <div className="ro-dialog__body">
-          <div className="ro-muted ro-small">إن وُضع رابط كروب المذخر (واتساب أو فايبر) يفتح زرّ الإرسال الكروب والطلبية منسوخة، وإلا يُرسل لرقم الواتساب. الدليل مشترك بين حسابات المكتب.</div>
-          {warehouses.length > 0 && (
+        <div className="ro-whdir__top">
+          <div className="ro-whdir__bar">
             <div className="ro-search">
               <Search size={14} className="ro-search__icon" />
-              <input className="form-input" type="search" placeholder="ابحث عن مذخر…" value={q} onChange={e => setQ(e.target.value)} aria-label="بحث في المذاخر" />
+              <input className="form-input" type="search" placeholder="ابحث عن مذخر أو محافظة…" value={q} onChange={e => setQ(e.target.value)} aria-label="بحث في المذاخر" />
               {q && <button className="ro-search__x" title="مسح" onClick={() => setQ('')}><X size={13} /></button>}
             </div>
-          )}
-          {warehouses.length === 0 && <div className="ro-muted">لا مذاخر بعد.</div>}
-          {warehouses.length > 0 && shown.length === 0 && <div className="ro-muted">لا مذخر بهذا الاسم.</div>}
-          {shown.map(w => (
-            <div key={w.id} className="ro-wh-row">
-              <div>
-                <strong className="ro-wh-dir__name">
-                  {/* الاسم يفتح كروب المذخر أو محادثته */}
-                  {channelOf(w) === 'share' ? w.name : <button type="button" className="ro-whlink" title={`فتح ${CHANNEL_LABEL[channelOf(w)]}`} onClick={() => onOpen(w)}>{w.name}</button>}
-                  <ChannelIcon ch={channelOf(w)} size={15} />
-                </strong>
-                {w.phone && <div className="ro-muted ro-small" dir="ltr">{w.phone}</div>}
-                {w.notes && <div className="ro-muted ro-small">{w.notes}</div>}
-              </div>
-              {w.canEdit && (
-                <div className="ro-row-actions">
-                  <button className="ro-icon-btn" title="تعديل" onClick={() => setDraft({ id: w.id, name: w.name, phone: w.phone, groupLink: w.groupLink ?? '', notes: w.notes ?? '' })}><Pencil size={14} /></button>
-                  <button className="ro-icon-btn ro-icon-btn--danger" title="حذف" onClick={() => remove(w)}><Trash2 size={14} /></button>
-                </div>
-              )}
+            {!draft && (
+              <button className="btn btn--primary btn--sm" onClick={() => setDraft({ id: null, name: '', province: prov && prov !== NO_PROV ? prov : '', phone: '', handle: '', groupLink: '', notes: '' })}><Plus size={14} /> إضافة مذخر</button>
+            )}
+          </div>
+          {provKeys.length > 1 && (
+            <div className="ro-whdir__chips">
+              <button className={`ro-whdir__chip${!prov ? ' is-on' : ''}`} onClick={() => setProv(null)}>الكل <b>{matched.length}</b></button>
+              {provKeys.map(p => (
+                <button key={p} className={`ro-whdir__chip${prov === p ? ' is-on' : ''}`} onClick={() => setProv(prov === p ? null : p)}>{p} <b>{counts.get(p)}</b></button>
+              ))}
             </div>
-          ))}
-          {draft ? (
+          )}
+          {draft && (
             <div className="ro-newwh">
               <input className="form-input" placeholder="اسم المذخر" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
+              <input className="form-input" placeholder="المحافظة" list="ro-wh-provinces" value={draft.province} onChange={e => setDraft({ ...draft, province: e.target.value })} />
+              <datalist id="ro-wh-provinces">{provinces.map(p => <option key={p} value={p} />)}</datalist>
               <input className="form-input" placeholder="رقم واتساب 07…" inputMode="tel" dir="ltr" value={draft.phone} onChange={e => setDraft({ ...draft, phone: e.target.value })} />
+              <input className="form-input" placeholder="المعرّف بدل الرقم (@user أو رابط)" dir="ltr" value={draft.handle} onChange={e => setDraft({ ...draft, handle: e.target.value })} />
               <input className="form-input" placeholder="رابط كروب واتساب أو فايبر (اختياري)" dir="ltr" value={draft.groupLink} onChange={e => setDraft({ ...draft, groupLink: e.target.value })} />
               <input className="form-input" placeholder="ملاحظة (اختياري)" value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
               <button className="btn btn--primary btn--sm" onClick={save}>حفظ</button>
               <button className="btn btn--secondary btn--sm" onClick={() => setDraft(null)}>إلغاء</button>
             </div>
-          ) : (
-            <button className="btn btn--primary btn--sm ro-self-start" onClick={() => setDraft({ id: null, name: '', phone: '', groupLink: '', notes: '' })}><Plus size={14} /> إضافة مذخر</button>
           )}
+        </div>
+        <div className="ro-dialog__body ro-whdir__list">
+          {warehouses.length === 0 && <div className="ro-muted">لا مذاخر بعد.</div>}
+          {warehouses.length > 0 && matched.length === 0 && <div className="ro-muted">لا مذخر بهذا الاسم.</div>}
+          {groups.map(g => (
+            <div key={g.p} className="ro-whdir__group">
+              <div className="ro-whdir__ghead">{g.p} <span>{g.rows.length}</span></div>
+              {g.rows.map(w => (
+                <div key={w.id} className="ro-whdir__row">
+                  <span className="ro-wh-dir__name ro-whdir__name">
+                    {/* الاسم يفتح كروب المذخر أو محادثته */}
+                    {channelOf(w) === 'share' ? w.name : <button type="button" className="ro-whlink" title={`فتح ${CHANNEL_LABEL[channelOf(w)]}`} onClick={() => onOpen(w)}>{w.name}</button>}
+                    <ChannelIcon ch={channelOf(w)} size={13} />
+                  </span>
+                  <span className="ro-whdir__contact">
+                    {w.phone && <span dir="ltr">{w.phone}</span>}
+                    {w.handle && (
+                      <button type="button" className="ro-whdir__handle" dir="ltr" title={/^https?:/i.test(w.handle) ? 'فتح' : 'نسخ المعرّف'} onClick={() => openHandle(w)}>
+                        {copied === w.id ? 'نُسخ ✓' : w.handle}
+                      </button>
+                    )}
+                    {w.notes && <span className="ro-whdir__note" title={w.notes}>{w.notes}</span>}
+                  </span>
+                  {w.canEdit && (
+                    <span className="ro-row-actions">
+                      <button className="ro-icon-btn ro-icon-btn--sm" title="تعديل" onClick={() => setDraft({ id: w.id, name: w.name, province: w.province ?? w.provinceGuess ?? '', phone: w.phone, handle: w.handle ?? '', groupLink: w.groupLink ?? '', notes: w.notes ?? '' })}><Pencil size={12} /></button>
+                      <button className="ro-icon-btn ro-icon-btn--sm ro-icon-btn--danger" title="حذف" onClick={() => remove(w)}><Trash2 size={12} /></button>
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="ro-muted ro-small">إن وُضع رابط كروب المذخر (واتساب أو فايبر) يفتح زرّ الإرسال الكروب والطلبية منسوخة، وإلا يُرسل لرقم الواتساب. المذخر الذي له معرّف فقط تُنسخ طلبيته للمشاركة. الدليل مشترك بين حسابات المكتب.</div>
         </div>
       </div>
     </div>

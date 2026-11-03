@@ -17,6 +17,8 @@ import { getManagerRoster } from '../../lib/managerRoster.js';
 import { isOfficeScopedRole } from '../../lib/officeScope.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { normalizeWaId } from '../../lib/waId.js';
+import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { buildProvinceLookup, provinceFromText } from '../../lib/provinces.js';
 
 export const STATUSES = ['pending', 'prepared', 'cancelled'];
 const MAX_LINES = 80;
@@ -92,13 +94,44 @@ export const canEditContent = (viewer, order) => order.createdById === viewer.id
 
 // ─── المذاخر ──────────────────────────────────────────────────────────────────
 
+/**
+ * محافظة المذخر حين لم تُحفظ: ما بعد «/» في اسمه («الاتحاد / الفلوجة») يُطابَق باسم
+ * محافظة أو اسمها البديل، وإلا بمنطقة لها محافظة. names = المحافظات لقائمة الاختيار.
+ */
+async function loadWarehouseProvinces() {
+  const [provinces, areas] = await Promise.all([
+    prisma.province.findMany({ select: { id: true, name: true, aliases: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
+    prisma.area.findMany({ where: { provinceId: { not: null } }, select: { name: true, province: { select: { name: true } } } }),
+  ]);
+  const lookup = buildProvinceLookup(provinces);
+  const byArea = new Map();
+  for (const a of areas) {
+    const k = normalizeAreaName(a.name);
+    if (k && !byArea.has(k)) byArea.set(k, a.province.name);
+  }
+  const guess = (name) => {
+    const hit = provinceFromText(name, lookup)?.name;
+    if (hit) return hit;
+    const parts = String(name ?? '').split(/[-/\\|]/);
+    return parts.length > 1 ? byArea.get(normalizeAreaName(parts.pop())) || null : null;
+  };
+  return { names: provinces.map(p => p.name), guess };
+}
+
 export async function listWarehouses(reqUser) {
   const viewer = await loadViewer(reqUser);
-  const rows = await prisma.orderWarehouse.findMany({
-    where: await warehouseScopeWhere(viewer),
-    orderBy: { name: 'asc' },
-  });
-  return rows.map(w => ({ ...w, canEdit: w.createdById === viewer.id || !isFieldRole(viewer.role) }));
+  const [rows, prov] = await Promise.all([
+    prisma.orderWarehouse.findMany({ where: await warehouseScopeWhere(viewer), orderBy: { name: 'asc' } }),
+    loadWarehouseProvinces(),
+  ]);
+  return {
+    provinces: prov.names,
+    warehouses: rows.map(w => ({
+      ...w,
+      provinceGuess: w.province ? null : prov.guess(w.name),
+      canEdit: w.createdById === viewer.id || !isFieldRole(viewer.role),
+    })),
+  };
 }
 
 // رابط دعوة كروب واتساب أو فايبر — يُقبل بلا https (وواتساب بصيغة /invite/) ويُحفظ بصيغة واحدة
@@ -125,9 +158,11 @@ function warehouseData(body) {
   if (rawLink && !groupLink) throw new AppError('رابط الكروب غير صالح — يقبل روابط كروبات واتساب (chat.whatsapp.com) وفايبر (invite.viber.com)', 400);
   phone = phone.slice(0, 40);
   if (phone && phone.replace(/\D/g, '').length < 7) throw new AppError('رقم واتساب المذخر غير صالح', 400);
-  if (!phone && !groupLink) throw new AppError('أدخل رقم واتساب المذخر أو رابط كروبه', 400);
+  const handle = cleanText(body?.handle, 120);
+  if (!phone && !groupLink && !handle) throw new AppError('أدخل رقم واتساب المذخر أو رابط كروبه أو معرّفه', 400);
   return {
-    name, phone, groupLink,
+    name, phone, groupLink, handle,
+    province: cleanText(body?.province, 60),
     waId: phone ? normalizeWaId(phone) || null : null,
     notes: cleanText(body?.notes, 300),
   };
