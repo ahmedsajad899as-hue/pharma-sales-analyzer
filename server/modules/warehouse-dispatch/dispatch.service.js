@@ -10,7 +10,7 @@ import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { isOfficeScopedRole } from '../../lib/officeScope.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
 import { normalizeWaId } from '../../lib/waId.js';
-import { loadViewer, orderScopeWhere, warehouseScopeWhere, getVisibleOrder } from '../rep-orders/rep-orders.service.js';
+import { loadViewer, orderScopeWhere, warehouseScopeWhere, getVisibleOrder, assertCanDispatch } from '../rep-orders/rep-orders.service.js';
 import { whatsappEnabled } from '../whatsapp/whatsapp.service.js';
 import { groupsConfigured, sidecar } from '../wa-groups/wa-groups.client.js';
 import {
@@ -87,6 +87,7 @@ export async function updateDispatch(reqUser, id, body = {}) {
   const data = {};
   if (body.warehouseId !== undefined) {
     if (!canManage(viewer) && d.createdById !== viewer.id) throw new AppError('لا يمكنك تغيير المذخر', 403);
+    await assertCanDispatch(viewer);
     const w = body.warehouseId ? await getVisibleWarehouse(viewer, body.warehouseId) : null;
     Object.assign(data, { warehouseId: w?.id ?? null, warehouseName: w?.name ?? d.requestedWarehouse });
     data.status = warehouseReady(w) ? 'awaiting_approval' : 'needs_warehouse';
@@ -140,6 +141,7 @@ export async function deleteDispatch(reqUser, id) {
 
 /** «طلبيات المذاخر» ⇒ إرسال عبر البوت (بدل wa.me). */
 export async function sendRepOrder(reqUser, repOrderId, body = {}) {
+  await assertCanDispatch(reqUser);
   const viewer = await loadViewer(reqUser);
   const o = await getVisibleOrder(viewer, repOrderId);
   const warehouseId = Number(body.warehouseId) || o.warehouseId;

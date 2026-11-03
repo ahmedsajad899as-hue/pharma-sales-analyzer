@@ -23,7 +23,7 @@ import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { normalizeArabic } from '../../lib/itemResolver.js';
 import { normalizeWaId } from '../../lib/waId.js';
-import { warehouseScopeWhere } from '../rep-orders/rep-orders.service.js';
+import { warehouseScopeWhere, canDispatchOrders } from '../rep-orders/rep-orders.service.js';
 import { sendButtons, sendTemplate, sendWhatsAppText, whatsappEnabled } from '../whatsapp/whatsapp.service.js';
 import { sendGroupText, sendGroupPoll } from '../wa-groups/wa-groups.client.js';
 import { recordPreparation, markSent } from '../rep-orders/rep-orders.service.js';
@@ -256,6 +256,8 @@ export async function createFromBotOrder({ user, pendingId, rows, source, chatId
     const mode = await getUserMode(user.id);
     if (mode === 'off') return;
     const owner = { id: user.id, role: user.role, officeId: user.officeId ?? null };
+    // طلبية مسوّق المحافظة من البوت تنتظر موافقة مديره حتى لو حسابه على «فوري»
+    const autoSend = mode === 'auto' && await canDispatchOrders(user);
     for (const g of groupRows(rows)) {
       const w = await matchWarehouse(g.warehouse, owner);
       const ready = warehouseReady(w);
@@ -277,7 +279,7 @@ export async function createFromBotOrder({ user, pendingId, rows, source, chatId
       } else {
         d = await prisma.warehouseDispatch.create({ data: { ...data, status } });
       }
-      if (mode === 'auto' && ready) await sendDispatch(d);
+      if (autoSend && ready) await sendDispatch(d);
       else if (!w && g.warehouse) await notifyOrigin(d, `⚠️ المذخر «${g.warehouse}» غير موجود في دليل المذاخر — الطلبية رقم ${d.id} بانتظار تحديد المذخر من التطبيق`);
     }
   } catch (e) {

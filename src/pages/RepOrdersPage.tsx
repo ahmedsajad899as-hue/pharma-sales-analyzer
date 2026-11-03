@@ -422,8 +422,10 @@ const fmtShort = (iso: string | null | undefined) => {
 
 export default function RepOrdersPage() {
   const { token, hasFeature } = useAuth();
+  // مسوّق المحافظة يكتب طلبياته فقط: الإرسال وإدارة دليل المذاخر لمديره (الخادم يفرض ذلك أيضاً)
+  const [canDispatch, setCanDispatch] = useState(false);
   // «إرسال للمذاخر»: البوت يرسل الطلبية للمذخر ويستقبل ردّه بدل فتح wa.me
-  const canBotSend = hasFeature('warehouse_dispatch');
+  const canBotSend = hasFeature('warehouse_dispatch') && canDispatch;
   // «إرسال الطلبية كصورة» (اشتراك لكل حساب) — بدونها يبقى الإرسال اليدوي نصاً
   const asImage = hasFeature('rep_orders_image_send');
   const [viaBot, setViaBot] = useState<boolean>(() => { try { return localStorage.getItem('ro-via-bot') === '1'; } catch { return false; } });
@@ -476,8 +478,8 @@ export default function RepOrdersPage() {
     if (from) q.set('from', from);
     if (to) q.set('to', to);
     try {
-      const r = await api<{ orders: Order[]; viewer: { isManager: boolean }; whNextSeq?: Record<number, number> }>(`?${q}`);
-      setOrders(r.orders); setIsManager(r.viewer.isManager); setWhNextSeq(r.whNextSeq ?? {});
+      const r = await api<{ orders: Order[]; viewer: { isManager: boolean; canDispatch: boolean }; whNextSeq?: Record<number, number> }>(`?${q}`);
+      setOrders(r.orders); setIsManager(r.viewer.isManager); setCanDispatch(r.viewer.canDispatch); setWhNextSeq(r.whNextSeq ?? {});
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
   }, [token, api, from, to]);
 
@@ -883,7 +885,7 @@ export default function RepOrdersPage() {
                             <span className={friendly ? 'ro-muted' : 'ro-strong'}>{groupBy === 'date' ? fmtShortDay(g.title) : g.title}</span>
                             <span className="ro-group-row__count">{g.orders.length} طلبية</span>
                             <span className="ro-spacer" />
-                            {(groupWh?.phone || groupWh?.groupLink) && fresh.length > 1 && (
+                            {canDispatch && (groupWh?.phone || groupWh?.groupLink) && fresh.length > 1 && (
                               <button className="ro-link ro-link--wa" onClick={() => sendToWarehouse(fresh, groupWh)}><Send size={13} /> إرسال {fresh.length} جديدة للمذخر</button>
                             )}
                           </div>
@@ -891,7 +893,7 @@ export default function RepOrdersPage() {
                       </tr>
                     )}
                     {g.orders.map(o => (
-                      <OrderRow key={o.id} index={rowI++} o={o} open={openId === o.id} colCount={colCount} terms={terms}
+                      <OrderRow key={o.id} index={rowI++} o={o} open={openId === o.id} colCount={colCount} terms={terms} canDispatch={canDispatch}
                         showDate={showDate} showRep={showRep} showWh={showWh}
                         onToggle={() => toggleOpen(o.id)}
                         onSend={wh => sendToWarehouse([o], wh)}
@@ -913,21 +915,21 @@ export default function RepOrdersPage() {
       )}
 
       {editing && (
-        <OrderForm token={token} api={api} order={editing === 'new' ? null : editing} warehouses={warehouses} viaBot={canBotSend && viaBot}
+        <OrderForm token={token} api={api} order={editing === 'new' ? null : editing} warehouses={warehouses} viaBot={canBotSend && viaBot} canAddWarehouse={canDispatch}
           onWarehousesChanged={loadWarehouses}
           onClose={() => setEditing(null)}
           onSaved={(d) => { setEditing(null); if (d && from && (d < from || d > to)) pickPeriod('all'); else load(); }} />
       )}
       {showWarehouses && (
-        <WarehousesModal api={api} warehouses={warehouses} provinces={provinces} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
+        <WarehousesModal api={api} warehouses={warehouses} provinces={provinces} canManage={canDispatch} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
       )}
       {shared.length > 0 && (
-        <SharedImagePicker api={api} images={shared} beginSend={(o, wh) => beginSend([o], wh, true)}
+        <SharedImagePicker api={api} images={shared} beginSend={canDispatch ? (o, wh) => beginSend([o], wh, true) : undefined}
           onDone={() => { clearShared(); load(); }} onCancel={clearShared} />
       )}
       {prepFor && (
         <PrepareDialog api={api} order={prepFor.order} file={prepFor.file} initialWh={prepFor.whId}
-          beginSend={(o, wh) => beginSend([o], wh, true)}
+          beginSend={canDispatch ? (o, wh) => beginSend([o], wh, true) : undefined}
           onClose={() => setPrepFor(null)} onSaved={() => { setPrepFor(null); load(); }} />
       )}
       {notice && <div className="ro-notice" role="status" onClick={() => setNotice(null)}>{notice}</div>}
@@ -1010,8 +1012,8 @@ function GroupMenu({ groupBy, isManager, options, filter, onGroup, onPick }: {
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onPrepare, onRemoveImage, onPreview }: {
-  index: number; o: Order; open: boolean; colCount: number; terms: string[]; showDate: boolean; showRep: boolean; showWh: boolean;
+function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onPrepare, onRemoveImage, onPreview }: {
+  index: number; o: Order; open: boolean; colCount: number; terms: string[]; canDispatch: boolean; showDate: boolean; showRep: boolean; showWh: boolean;
   onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onPrepare: (whId: number | null, f: File | null) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
 }) {
@@ -1074,7 +1076,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
     ? lastSend.outcome === 'sent' && lastSend.warehouseId === (w.id ?? null)
     : !!o.sentAt && (w.id ?? null) === (o.lastSentWarehouseId ?? o.warehouses[0]?.id ?? null));
   const stop = (e: React.MouseEvent) => e.stopPropagation();
-  const canSendRow = state === 'new';
+  const canSendRow = canDispatch && state === 'new';
   const itemHits = terms.length ? o.lines.filter(l => terms.some(t => normSearch(`${l.itemName} ${l.companyName ?? ''}`).includes(t))) : [];
 
   return (
@@ -1117,7 +1119,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                       <span className="ro-card__no">#{o.id}</span>
                     </div>
                     <div className="ro-card__tools">
-                      <button className="ro-icon-btn" title="مشاركة الطلبية — واتساب أو فايبر أو غيره" onClick={() => onShare(o.warehouses[sel] ?? nextWh(o))}><Share2 size={14} /></button>
+                      {canDispatch && <button className="ro-icon-btn" title="مشاركة الطلبية — واتساب أو فايبر أو غيره" onClick={() => onShare(o.warehouses[sel] ?? nextWh(o))}><Share2 size={14} /></button>}
                       {o.canEdit && <button className="ro-icon-btn" title="تعديل" onClick={onEdit}><Pencil size={14} /></button>}
                       {o.canEdit && <button className="ro-icon-btn ro-icon-btn--danger" title="حذف" onClick={onDelete}><Trash2 size={14} /></button>}
                       <button className="ro-icon-btn" title="إغلاق" onClick={onToggle}><X size={14} /></button>
@@ -1228,7 +1230,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                         </button>
                         {/* بلا سجل الإرسال ولا زر تجهيز داخل البطاقة (طلب صاحب المشروع) — الحالة في رأسها،
                             والتجهيز من صفّ الأزرار أسفل اللوحة */}
-                        {isSel && (ws.items.length > 0 || ((m === 'partial' || m === 'rejected') && ws.short.length > 0) || (active && !awaiting(w))) && (
+                        {isSel && (ws.items.length > 0 || ((m === 'partial' || m === 'rejected') && ws.short.length > 0) || (canDispatch && active && !awaiting(w))) && (
                           <div className="ro-whp__body">
                             {ws.items.length > 0 && (
                               <div className="ro-whp__items">
@@ -1247,7 +1249,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                               <div className="ro-whp__short">ناقص عنده: {ws.short.map(x => `${x.l.itemName} ${x.n}`).join('، ')}</div>
                             )}
 
-                            {active && (
+                            {canDispatch && active && (
                               <div className="ro-send-actions">
                                 {!awaiting(w) && (
                                   <button className={`ro-send-btn ro-send-btn--${ch}`} onClick={() => onSend(w)}>
@@ -1440,7 +1442,7 @@ function PrepareDialog({ api, order, file, initialWh, ai, cancelLabel = 'إلغ�
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   order: Order; file: File | null; initialWh?: number | null;
   ai?: PrepAi | null; cancelLabel?: string;
-  beginSend: (o: Order, wh: OrderWh) => { go: () => void; cancel: () => void };
+  beginSend?: (o: Order, wh: OrderWh) => { go: () => void; cancel: () => void };
   onClose: () => void; onSaved: () => void;
 }) {
   // المذخر الافتراضي: آخر مذخر أُرسلت له — ويمكن تغييره (فاتورة من مذخر آخر)
@@ -1482,12 +1484,12 @@ function PrepareDialog({ api, order, file, initialWh, ai, cancelLabel = 'إلغ�
   const bonusOf = (id: number) => (got(id) === 0 ? 0 : Math.max(0, Math.floor(Number(qty[id]?.b) || 0)));
   // المذخر التالي بعد الذي جهّز (حسب ترتيب مذاخر الطلبية)
   const whIdx = order.warehouses.findIndex(w => w.id != null && w.id === whId);
-  const nextOne = whIdx >= 0 ? order.warehouses[whIdx + 1] ?? null : null;
+  const nextOne = beginSend && whIdx >= 0 ? order.warehouses[whIdx + 1] ?? null : null;
 
   const save = async (sendNext = false) => {
     // الطلبية كما ستصير بعد الحفظ — نص الإرسال للتالي يحمل المتبقي فقط
     let send: { go: () => void; cancel: () => void } | null = null;
-    if (sendNext && nextOne) {
+    if (sendNext && nextOne && beginSend) {
       const after: Order = { ...order, lines: rows.map(r => ({
         ...r.l,
         preparedQty: r.l.quantity - r.need + got(r.l.id!),
@@ -1646,7 +1648,7 @@ const whKeyOf = (o: Order) => { const w = currentWh(o); return String(w.id ?? w.
 function SharedImagePicker({ api, images, beginSend, onDone, onCancel }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   images: Blob[];
-  beginSend: (o: Order, wh: OrderWh) => { go: () => void; cancel: () => void };
+  beginSend?: (o: Order, wh: OrderWh) => { go: () => void; cancel: () => void };
   onDone: () => void; onCancel: () => void;
 }) {
   const [orders, setOrders] = useState<Order[] | null>(null);
@@ -1919,8 +1921,8 @@ interface FormLine { key: number; text: string; itemId: number | null; companyNa
 const newLine = (text = '', itemId: number | null = null, companyName = ''): FormLine => ({ key: Date.now() + Math.random(), text, itemId, companyName, quantity: '', bonusQty: '' });
 const MAX_WAREHOUSES = 6; // الأساسي + 5 احتياط
 
-function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged, onClose, onSaved }: {
-  token: string | null; viaBot: boolean;
+function OrderForm({ token, api, order, warehouses, viaBot, canAddWarehouse, onWarehousesChanged, onClose, onSaved }: {
+  token: string | null; viaBot: boolean; canAddWarehouse: boolean;
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   order: Order | null; warehouses: WarehouseRow[];
   onWarehousesChanged: () => void; onClose: () => void; onSaved: (day: string | null) => void;
@@ -2007,7 +2009,7 @@ function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged,
   const submit = async () => {
     setErr(null);
     const valid = lines.filter(l => l.text.trim() && Number(l.quantity) > 0);
-    if (!whIds.length) return setErr('اختر المذخر (أو أضف مذخراً جديداً برقم واتسابه)');
+    if (!whIds.length) return setErr(canAddWarehouse ? 'اختر المذخر (أو أضف مذخراً جديداً برقم واتسابه)' : 'اختر المذخر');
     if (!head.pharmacyName.trim()) return setErr('اسم الصيدلية مطلوب');
     if (!valid.length) return setErr('أضف ايتماً واحداً على الأقل مع كميته');
     setSaving(true);
@@ -2050,7 +2052,7 @@ function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged,
             <label className="ro-field">التاريخ
               <input className="form-input" type="date" value={head.orderDate} onChange={e => setHead(h => ({ ...h, orderDate: e.target.value }))} />
             </label>
-            <WarehousePicker warehouses={pickable} value={whIds} onChange={setWhIds} onNew={() => setNewWh({ name: '', phone: '' })} />
+            <WarehousePicker warehouses={pickable} value={whIds} onChange={setWhIds} onNew={canAddWarehouse ? () => setNewWh({ name: '', phone: '' }) : undefined} />
             <label className="ro-field">الصيدلية *
               <input className="form-input" list="ro-pharmacies" value={head.pharmacyName} onChange={e => onPharmacy(e.target.value)} />
               <datalist id="ro-pharmacies">{pharmacies.map(p => <option key={p.name} value={p.name} />)}</datalist>
@@ -2110,7 +2112,7 @@ function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged,
 // ─── اختيار المذاخر: حقل واحد، الترتيب بترتيب الاختيار (الأول أساسي) ─────────────
 
 function WarehousePicker({ warehouses, value, onChange, onNew }: {
-  warehouses: WarehouseRow[]; value: string[]; onChange: (v: string[]) => void; onNew: () => void;
+  warehouses: WarehouseRow[]; value: string[]; onChange: (v: string[]) => void; onNew?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -2151,8 +2153,8 @@ function WarehousePicker({ warehouses, value, onChange, onNew }: {
               </button>
             );
           })}
-          {!list.length && <div className="ro-muted ro-ipick__empty">{terms.length ? 'لا مذخر بهذا الاسم.' : 'لا مذاخر بعد.'}</div>}
-          <button type="button" className="ro-gm__opt" onClick={() => { setOpen(false); onNew(); }}>+ مذخر جديد…</button>
+          {!list.length && <div className="ro-muted ro-ipick__empty">{terms.length ? 'لا مذخر بهذا الاسم.' : onNew ? 'لا مذاخر بعد.' : 'لا مذاخر لمحافظتك بعد — اطلب من مديرك إضافتها.'}</div>}
+          {onNew && <button type="button" className="ro-gm__opt" onClick={() => { setOpen(false); onNew(); }}>+ مذخر جديد…</button>}
         </div>
       )}
       {value.length > 1 && (
@@ -2230,9 +2232,9 @@ function ItemPicker({ items, have, onAdd, onClose }: {
 
 // ─── دليل المذاخر (الاسم + رقم الواتساب) ──────────────────────────────────────
 
-function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClose }: {
+function WarehousesModal({ api, warehouses, provinces, canManage, onOpen, onChanged, onClose }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
-  warehouses: WarehouseRow[]; provinces: string[]; onOpen: (w: OrderWh) => void; onChanged: () => void; onClose: () => void;
+  warehouses: WarehouseRow[]; provinces: string[]; canManage: boolean; onOpen: (w: OrderWh) => void; onChanged: () => void; onClose: () => void;
 }) {
   const NO_PROV = 'بدون محافظة';
   const provOf = (w: WarehouseRow) => w.province || w.provinceGuess || NO_PROV;
@@ -2279,7 +2281,7 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
               <input className="form-input" type="search" placeholder="ابحث عن مذخر أو محافظة…" value={q} onChange={e => setQ(e.target.value)} aria-label="بحث في المذاخر" />
               {q && <button className="ro-search__x" title="مسح" onClick={() => setQ('')}><X size={13} /></button>}
             </div>
-            {!draft && (
+            {canManage && !draft && (
               <button className="btn btn--primary btn--sm" onClick={() => setDraft({ id: null, name: '', province: prov && prov !== NO_PROV ? prov : '', phone: '', handle: '', groupLink: '', notes: '' })}><Plus size={14} /> إضافة مذخر</button>
             )}
           </div>
@@ -2315,11 +2317,11 @@ function WarehousesModal({ api, warehouses, provinces, onOpen, onChanged, onClos
                 <div key={w.id} className="ro-whdir__row">
                   <span className="ro-wh-dir__name ro-whdir__name">
                     {/* الاسم يفتح كروب المذخر أو محادثته */}
-                    {channelOf(w) === 'share' ? w.name : <button type="button" className="ro-whlink" title={`فتح ${CHANNEL_LABEL[channelOf(w)]}`} onClick={() => onOpen(w)}>{w.name}</button>}
-                    <ChannelIcon ch={channelOf(w)} size={13} />
+                    {!canManage || channelOf(w) === 'share' ? w.name : <button type="button" className="ro-whlink" title={`فتح ${CHANNEL_LABEL[channelOf(w)]}`} onClick={() => onOpen(w)}>{w.name}</button>}
+                    {canManage && <ChannelIcon ch={channelOf(w)} size={13} />}
                   </span>
                   <span className="ro-whdir__contact">
-                    {w.phone && <span dir="ltr">{w.phone}</span>}
+                    {canManage && w.phone && <span dir="ltr">{w.phone}</span>}
                     {w.notes && <span className="ro-whdir__note" title={w.notes}>{w.notes}</span>}
                   </span>
                   {w.canEdit && (

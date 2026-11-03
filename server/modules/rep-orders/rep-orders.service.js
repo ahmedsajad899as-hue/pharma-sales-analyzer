@@ -127,7 +127,7 @@ async function loadWarehouseProvinces() {
  * ومسوّقو بغداد، ومن لا تُعرف محافظته. المصدر: مناطقه وتعييناته (كـisProvinceSide في
  * صفحة المستخدمين)، وإلا اسمه («… - مسوقين - الديوانية»).
  */
-async function marketerProvinceNames(viewer, lookup) {
+async function marketerProvinceNames(viewer) {
   if (!isFieldRole(viewer.role)) return null;
   const u = await prisma.user.findUnique({ where: { id: viewer.id }, select: { linkedRep: { select: { repKind: true } } } });
   if (!isPharmacyRep(u?.linkedRep) || await userHasAllAreas(viewer.id)) return null;
@@ -148,6 +148,7 @@ async function marketerProvinceNames(viewer, lookup) {
   });
   const names = rows.map(r => r.name);
   if (!names.length) {
+    const lookup = buildProvinceLookup(await prisma.province.findMany({ select: { id: true, name: true, aliases: true } }));
     const byName = provinceFromText(viewer.displayName || viewer.username, lookup)?.name;
     if (byName) names.push(byName);
   }
@@ -155,21 +156,34 @@ async function marketerProvinceNames(viewer, lookup) {
   return names;
 }
 
+/** مسوّق المحافظة يكتب طلبياته فقط: إرسالها وتحويلها وإدارة دليل المذاخر لمديره. */
+export async function canDispatchOrders(reqUser) {
+  return !(await marketerProvinceNames(await loadViewer(reqUser)));
+}
+
+export async function assertCanDispatch(reqUser) {
+  if (!(await canDispatchOrders(reqUser))) throw new AppError('إرسال الطلبيات للمذاخر من صلاحية المدير فقط', 403);
+}
+
+async function assertCanManageWarehouses(reqUser) {
+  if (!(await canDispatchOrders(reqUser))) throw new AppError('إدارة دليل المذاخر من صلاحية المدير فقط', 403);
+}
+
 export async function listWarehouses(reqUser) {
   const viewer = await loadViewer(reqUser);
-  const [all, prov] = await Promise.all([
+  const [all, prov, scope] = await Promise.all([
     prisma.orderWarehouse.findMany({ where: await warehouseScopeWhere(viewer), orderBy: { name: 'asc' } }),
     loadWarehouseProvinces(),
+    marketerProvinceNames(viewer),
   ]);
-  const scope = await marketerProvinceNames(viewer, prov.lookup);
-  // ما أضافه بنفسه يبقى ظاهراً له وإن لم تُعرف محافظته
+  // ما أضافه سابقاً بنفسه يبقى ظاهراً له وإن لم تُعرف محافظته
   const rows = scope ? all.filter(w => w.createdById === viewer.id || scope.includes(prov.provinceOf(w))) : all;
   return {
     provinces: prov.names,
     warehouses: rows.map(w => ({
       ...w,
       provinceGuess: w.province ? null : prov.guess(w.name),
-      canEdit: w.createdById === viewer.id || !isFieldRole(viewer.role),
+      canEdit: !scope && (w.createdById === viewer.id || !isFieldRole(viewer.role)),
     })),
   };
 }
@@ -209,20 +223,15 @@ function warehouseData(body) {
 }
 
 export async function createWarehouse(reqUser, body) {
+  await assertCanManageWarehouses(reqUser);
   const viewer = await loadViewer(reqUser);
-  const data = warehouseData(body);
-  // الإضافة السريعة من الطلبية بلا حقل محافظة: مذخر مسوّق المحافظة يُحسب على محافظته
-  if (!data.province) {
-    const prov = await loadWarehouseProvinces();
-    const scope = await marketerProvinceNames(viewer, prov.lookup);
-    if (scope?.length === 1 && !prov.guess(data.name)) data.province = scope[0];
-  }
   return prisma.orderWarehouse.create({
-    data: { ...data, officeId: viewer.officeId ?? null, createdById: viewer.id },
+    data: { ...warehouseData(body), officeId: viewer.officeId ?? null, createdById: viewer.id },
   });
 }
 
 async function getEditableWarehouse(viewer, id) {
+  await assertCanManageWarehouses(viewer);
   const w = await prisma.orderWarehouse.findFirst({ where: { AND: [{ id: Number(id) }, await warehouseScopeWhere(viewer)] } });
   if (!w) throw new AppError('المذخر غير موجود', 404);
   if (w.createdById !== viewer.id && isFieldRole(viewer.role)) throw new AppError('لا يمكنك تعديل هذا المذخر', 403);
@@ -320,7 +329,7 @@ export async function listOrders(reqUser, q = {}) {
   }
 
   return {
-    viewer: { id: viewer.id, name: userName(viewer), isManager: !isFieldRole(viewer.role) },
+    viewer: { id: viewer.id, name: userName(viewer), isManager: !isFieldRole(viewer.role), canDispatch: !(await marketerProvinceNames(viewer)) },
     reps,
     whNextSeq,
     orders: rows.map(r => ({
