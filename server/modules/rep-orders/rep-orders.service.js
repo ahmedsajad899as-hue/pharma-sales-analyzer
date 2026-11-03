@@ -92,7 +92,14 @@ export async function getVisibleOrder(viewer, id) {
   return order;
 }
 
-export const canEditContent = (viewer, order) => order.createdById === viewer.id || !isFieldRole(viewer.role);
+// canDispatch=false (مسوّق المحافظة): طلبيته تُقفل عليه بمجرد إرسالها للمذخر، وتعديلها بعدها لمديره
+export const canEditContent = (viewer, order, canDispatch = true) =>
+  (order.createdById === viewer.id || !isFieldRole(viewer.role)) && (canDispatch || !order.sentAt);
+
+async function assertCanEdit(viewer, order, message) {
+  if (canEditContent(viewer, order, await canDispatchOrders(viewer))) return;
+  throw new AppError(order.sentAt ? 'أُرسلت الطلبية للمذخر — التعديل والحذف من صلاحية المدير فقط' : message, 403);
+}
 
 // ─── المذاخر ──────────────────────────────────────────────────────────────────
 
@@ -328,8 +335,10 @@ export async function listOrders(reqUser, q = {}) {
     reps = repUsers.map(u => ({ id: u.id, name: userName(u) })).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   }
 
+  const canDispatch = !(await marketerProvinceNames(viewer));
+
   return {
-    viewer: { id: viewer.id, name: userName(viewer), isManager: !isFieldRole(viewer.role), canDispatch: !(await marketerProvinceNames(viewer)) },
+    viewer: { id: viewer.id, name: userName(viewer), isManager: !isFieldRole(viewer.role), canDispatch },
     reps,
     whNextSeq,
     orders: rows.map(r => ({
@@ -365,7 +374,7 @@ export async function listOrders(reqUser, q = {}) {
       lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty, preparedQty: l.preparedQty, preparedBonus: l.preparedBonus, unitPrice: l.unitPrice ?? (l.itemId ? catalogPrice.get(l.itemId) ?? null : null) })),
       // سجل الإرسال للمذاخر بالترتيب ونتيجة كل مذخر
       sends: r.sends.map(s => ({ id: s.id, warehouseId: s.warehouseId, warehouseName: s.warehouseName, sentAt: s.sentAt, outcome: s.outcome, outcomeAt: s.outcomeAt, image: s.image, whSeq: s.whSeq, lines: Array.isArray(s.lines) ? s.lines : [] })),
-      canEdit: canEditContent(viewer, r),
+      canEdit: canEditContent(viewer, r, canDispatch),
     })),
   };
 }
@@ -449,7 +458,7 @@ export async function createOrder(reqUser, body) {
 export async function updateOrder(reqUser, id, body) {
   const viewer = await loadViewer(reqUser);
   const order = await getVisibleOrder(viewer, id);
-  if (!canEditContent(viewer, order)) throw new AppError('لا يمكنك تعديل هذه الطلبية', 403);
+  await assertCanEdit(viewer, order, 'لا يمكنك تعديل هذه الطلبية');
   const { head, lines } = await buildOrderData(viewer, body);
   return prisma.$transaction(async (tx) => {
     await tx.repOrderLine.deleteMany({ where: { orderId: order.id } });
@@ -636,7 +645,7 @@ function removeImageFile(rel) {
 export async function deleteOrder(reqUser, id) {
   const viewer = await loadViewer(reqUser);
   const order = await getVisibleOrder(viewer, id);
-  if (!canEditContent(viewer, order)) throw new AppError('لا يمكنك حذف هذه الطلبية', 403);
+  await assertCanEdit(viewer, order, 'لا يمكنك حذف هذه الطلبية');
   const sends = await prisma.repOrderSend.findMany({ where: { orderId: order.id }, select: { image: true } });
   await prisma.repOrder.delete({ where: { id: order.id } });
   removeImageFile(order.invoiceImage);
@@ -656,6 +665,8 @@ export async function attachImage(reqUser, id, kind, file) {
   let order;
   try {
     order = await getVisibleOrder(viewer, id);
+    // استبدال ختم موجود تعديل على الطلبية؛ أما فاتورة المذخر فتبقى متاحة بعد الإرسال
+    if (kind === 'invoice' && order.invoiceImage) await assertCanEdit(viewer, order, 'لا يمكنك تعديل هذه الطلبية');
   } catch (e) {
     fs.promises.unlink(file.path).catch(() => {});
     throw e;
@@ -673,6 +684,7 @@ export async function removeImage(reqUser, id, kind) {
   if (!field) throw new AppError('نوع صورة غير معروف', 400);
   const viewer = await loadViewer(reqUser);
   const order = await getVisibleOrder(viewer, id);
+  await assertCanEdit(viewer, order, 'لا يمكنك تعديل هذه الطلبية');
   await prisma.repOrder.update({ where: { id: order.id }, data: { [field]: null } });
   removeImageFile(order[field]);
 }
