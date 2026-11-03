@@ -73,6 +73,8 @@ const norm = (s: string) => String(s || '').trim().replace(/[أإآ]/g, 'ا').re
 const BAGHDAD = norm('بغداد');
 const UNASSIGNED = norm('غير مصنّف');
 const NO_COMPANY = 'بدون شركة';
+// /api/reports/overall يُرجع اسم المنطقة حين لا تُعرف محافظتها — ليست محافظة ولا تدخل الصفوف.
+const OFFICIAL_PROVINCES = new Set(IRAQ_PROVINCE_SHAPES.map(s => norm(s.name)));
 
 // إزاحة الدبوس للمحافظات المتلاصقة الصغيرة كي لا تتراكب الأسماء
 const LABEL_NUDGE: Record<string, [number, number]> = {
@@ -531,14 +533,15 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       if (!c) { c = { name, value: 0, cond: 0, reps: [] }; pc.companies.push(c); }
       return c;
     };
-    for (const [k, v] of salesRows.prov) { if (k !== BAGHDAD) cell(v.name).total = v.value; }
+    const isProv = (name: string) => { const k = norm(name); return k !== BAGHDAD && OFFICIAL_PROVINCES.has(k); };
+    for (const v of salesRows.prov.values()) { if (isProv(v.name)) cell(v.name).total = v.value; }
     for (const r of salesRows.pc) {
-      if (norm(r.p) === BAGHDAD || norm(r.c) === UNASSIGNED) continue;
+      if (!isProv(r.p) || norm(r.c) === UNASSIGNED) continue;
       company(cell(r.p), r.c).value += r.v;
     }
-    for (const [k, v] of cond.prov) { if (k !== BAGHDAD) cell(v.name).cond += v.value; }
+    for (const v of cond.prov.values()) { if (isProv(v.name)) cell(v.name).cond += v.value; }
     for (const r of cond.pc) {
-      if (norm(r.p) === BAGHDAD || norm(r.c) === UNASSIGNED) continue;
+      if (!isProv(r.p) || norm(r.c) === UNASSIGNED) continue;
       company(cell(r.p), r.c).cond += r.v;
     }
     for (const pr of repData) {
@@ -635,6 +638,14 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     }
     return { value: v, cond: cd, companies: cos.size, reps: rp.size, provinces: list.filter(c => c.total !== 0 || c.repCount > 0).length };
   }, [list]);
+  // مناطق بلا محافظة معروفة: خارج صفوف المحافظات ومجموعها، وتظهر في تنبيه كي لا تضيع قيمتها
+  const unplaced = useMemo(() => {
+    const out = new Map<string, { name: string; total: number; cond: number }>();
+    const rowOf = (k: string, name: string) => { if (!out.has(k)) out.set(k, { name, total: 0, cond: 0 }); return out.get(k)!; };
+    for (const [k, v] of salesRows.prov) if (!OFFICIAL_PROVINCES.has(k)) rowOf(k, v.name).total += v.value;
+    for (const [k, v] of cond.prov) if (!OFFICIAL_PROVINCES.has(k)) rowOf(k, v.name).cond += v.value;
+    return [...out.values()].filter(x => x.total !== 0 || x.cond !== 0).sort((a, b) => b.total - a.total);
+  }, [salesRows.prov, cond.prov]);
   // كوديشن خارج المقارنة: ايتمه غير مُسنَد لأي مدير شركة (تبويب المحافظة يستبعده كمبيع المحافظة نفسه)
   const condOutside = useMemo(() => {
     let placed = 0; for (const v of cond.prov.values()) placed += v.value;
@@ -698,6 +709,14 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const condOutsideNote = Math.abs(condOutside) >= 1 && (
     <div style={{ marginTop: 8, fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 10px' }}>
       ⚠️ {fmtVal(condOutside)} {currencyLabel} من اللكوديشن خارج المقارنة: ايتماتها غير مُسندة لأي مدير شركة (تُستبعد من مبيع المحافظة بنفس القاعدة). أسندها من «الايتمات» في السوبر أدمن لتظهر هنا.
+    </div>
+  );
+
+  const unplacedNote = unplaced.length > 0 && (
+    <div style={{ marginTop: 8, fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '6px 10px' }}>
+      ⚠️ {fmtVal(unplaced.reduce((t, x) => t + x.total, 0))} {currencyLabel} خارج مجموع المحافظات لأن محافظتها غير معروفة:{' '}
+      {unplaced.map(x => `${x.name} (${fmtVal(x.total)}${x.cond !== 0 ? ` · لكوديشن ${fmtVal(x.cond)}` : ''})`).join('، ')}.
+      {' '}حدّد محافظة كل منطقة من «المناطق» في السوبر أدمن لتدخل في محافظتها.
     </div>
   );
 
@@ -958,6 +977,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
             </table>
           </div>
         )}
+        {unplacedNote}
         {hasCond && condOutsideNote}
       </div>
     );
@@ -1208,6 +1228,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           )}
         </div>
       </div>}
+
+      {view === 'map' && !bgOpen && unplacedNote}
 
       {/* ── اللكوديشن مقابل مبيع كل محافظة الكلي ── */}
       {view === 'map' && hasCond && !bgOpen && (() => {
