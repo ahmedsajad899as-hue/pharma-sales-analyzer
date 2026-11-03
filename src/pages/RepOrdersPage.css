@@ -669,3 +669,22 @@ button.ro-prep { cursor: pointer; }
 /* إدراج/لصق فاتورة التجهيز — أسفل لوحة المذاخر */
 .ro-invoices__add { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .ro-invoices__add .ro-alt-btn { justify-content: center; padding-inline: 6px; white-space: nowrap; }
+/* لوحة المذاخر داخل الطلبية: صفوف مضغوطة، الاسم سطر واحد، والعناوين لا تلتصق بحافة الشاشة */
+.ro-whp { gap: 5px; }
+.ro-whp__card { border-radius: 10px; }
+.ro-whp__head { gap: 6px; padding: 6px 8px; min-height: 36px; }
+.ro-whp__rank { font-size: 10px; padding: 0 5px; line-height: 1.6; }
+.ro-whp__name { font-size: 12.5px; gap: 4px; }
+.ro-whp__nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ro-whp__name .ro-dot { flex: none; width: 7px; height: 7px; }
+.ro-whp__head .ro-sendmark { flex: none; font-size: 10px; }
+.ro-whp__chev { width: 13px; height: 13px; }
+.ro-whp__body { gap: 6px; padding: 8px 10px; }
+.ro-whp__items .ro-slot__label { font-size: 10.5px; }
+.ro-whp__item { font-size: 11.5px; gap: 6px; }
+.ro-whp__item .ro-prep { font-size: 11px; padding: 0 6px; }
+.ro-whp__item .ro-price, .ro-whp__total { font-size: 11px; }
+@media (max-width: 720px) {
+  .ro-whp > .ro-slot__label, .ro-invoices > .ro-slot__label { padding-inline: 8px; }
+  .ro-invoices__add .ro-alt-btn { min-height: 32px; font-size: 12px; }
+}

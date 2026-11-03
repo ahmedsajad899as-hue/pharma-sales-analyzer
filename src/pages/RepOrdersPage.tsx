@@ -1192,10 +1192,7 @@ function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, 
                       <div key={`${w.id}-${i}`} className={`ro-whp__card ${isSel ? 'is-open' : ''} ${m ? `ro-wh--${m}` : ''}`}>
                         <button type="button" className="ro-whp__head" onClick={() => setSel(isSel ? -1 : i)} aria-expanded={isSel}>
                           <span className={`ro-whp__rank ${i === 0 ? 'is-main' : ''}`}>{i === 0 ? 'أساسي' : `احتياط ${i}`}</span>
-                          <span className="ro-whp__name">{m && <i className={`ro-dot ro-dot--${m}`} />}{w.name}<ChannelIcon ch={ch} size={13} /></span>
-                          {whSeqOf(o, w.id) != null && <span className="ro-whp__meta" title="رقم الطلبية عند هذا المذخر">رقم {whSeqOf(o, w.id)}</span>}
-                          {ws.items.length > 0 && <span className="ro-whp__meta">{ws.items.length}/{o.lines.length} صنف</span>}
-                          {ws.images.length > 0 && <span className="ro-whp__meta" title="فواتير هذا المذخر"><ImageIcon size={12} /> {ws.images.length}</span>}
+                          <span className="ro-whp__name" title={w.name}>{m && <i className={`ro-dot ro-dot--${m}`} />}<span className="ro-whp__nm">{w.name}</span><ChannelIcon ch={ch} size={12} /></span>
                           <span className={`ro-sendmark ro-sendmark--${m ?? 'none'}`}>{m ? SEND_LABEL[m] : legacySent ? 'أُرسلت' : 'لم تُرسل'}</span>
                           <ChevronDown size={14} className="ro-whp__chev" />
                         </button>
