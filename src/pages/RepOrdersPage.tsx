@@ -882,7 +882,6 @@ export default function RepOrdersPage() {
                         onDelete={() => remove(o)}
                         onUpload={(k, f) => (k === 'prepared' ? setPrepFor({ order: o, file: f }) : uploadImage(o, k, f))}
                         onPrepare={(whId, f) => setPrepFor({ order: o, file: f, whId })}
-                        onOpenWh={openWarehouse}
                         onRemoveImage={k => removeImage(o, k)}
                         onPreview={setPreview} />
                     ))}
@@ -981,19 +980,15 @@ function GroupMenu({ groupBy, isManager, options, filter, onGroup, onPick }: {
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onPrepare, onRemoveImage, onPreview, onOpenWh }: {
+function OrderRow({ index, o, open, colCount, terms, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onPrepare, onRemoveImage, onPreview }: {
   index: number; o: Order; open: boolean; colCount: number; terms: string[]; showDate: boolean; showRep: boolean; showWh: boolean;
   onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onPrepare: (whId: number | null, f: File | null) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
-  onOpenWh: (wh: OrderWh) => void;
 }) {
   const state = stateOf(o);
   const partial = isPartial(o);
-  // اسم المذخر رابطاً لكروبه/محادثته (إن كان له رابط أو رقم)
-  const whLink = (w: OrderWh, extra = '') => (channelOf(w) === 'share'
-    ? <span className={extra}>{w.name}</span>
-    : <button type="button" className={`ro-whlink ${extra}`} title={`فتح ${CHANNEL_LABEL[channelOf(w)]} — ${w.name}`}
-        onClick={e => { e.stopPropagation(); onOpenWh(w); }}>{w.name}</button>);
+  // اسم المذخر في قائمة الطلبيات نصّ فقط — لا يفتح كروبه/محادثته (طلب صاحب المشروع)
+  const whLink = (w: OrderWh) => <span>{w.name}</span>;
   const total = o.lines.reduce((s, l) => s + l.quantity, 0);
   const totalBonus = o.lines.reduce((s, l) => s + (l.bonusQty || 0), 0);
   const hasPrepared = o.lines.some(l => l.preparedQty != null);
