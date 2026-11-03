@@ -1958,6 +1958,14 @@ function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged,
 
   const setLine = (key: number, patch: Partial<FormLine>) => setLines(ls => ls.map(l => (l.key === key ? { ...l, ...patch } : l)));
   const pickedIds = useMemo(() => new Set(lines.map(l => l.itemId).filter((x): x is number => x != null)), [lines]);
+  // مذخر الطلبية القديمة يبقى قابلاً للاختيار وإن خرج من دليل المسوّق (خارج محافظته)
+  const pickable = useMemo(() => {
+    const known = new Set(warehouses.map(w => w.id));
+    const extra: WarehouseRow[] = (order?.warehouses ?? []).flatMap(w => (w.id != null && !known.has(w.id)
+      ? [{ id: w.id, name: w.name, phone: w.phone ?? '', groupLink: w.groupLink ?? null, notes: null, canEdit: false }]
+      : []));
+    return extra.length ? [...warehouses, ...extra] : warehouses;
+  }, [warehouses, order]);
   // ايتمات مختارة دفعة واحدة من القائمة (+ اسم يدوي غير موجود بالكتالوج إن وُجد) ← أسطر بلا كميات بعد
   const addItems = (picked: CatalogItem[], freeText: string | null) => {
     setLines(ls => [
@@ -2028,7 +2036,7 @@ function OrderForm({ token, api, order, warehouses, viaBot, onWarehousesChanged,
             <label className="ro-field">التاريخ
               <input className="form-input" type="date" value={head.orderDate} onChange={e => setHead(h => ({ ...h, orderDate: e.target.value }))} />
             </label>
-            <WarehousePicker warehouses={warehouses} value={whIds} onChange={setWhIds} onNew={() => setNewWh({ name: '', phone: '' })} />
+            <WarehousePicker warehouses={pickable} value={whIds} onChange={setWhIds} onNew={() => setNewWh({ name: '', phone: '' })} />
             <label className="ro-field">الصيدلية *
               <input className="form-input" list="ro-pharmacies" value={head.pharmacyName} onChange={e => onPharmacy(e.target.value)} />
               <datalist id="ro-pharmacies">{pharmacies.map(p => <option key={p.name} value={p.name} />)}</datalist>
@@ -2091,13 +2099,20 @@ function WarehousePicker({ warehouses, value, onChange, onNew }: {
   warehouses: WarehouseRow[]; value: string[]; onChange: (v: string[]) => void; onNew: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!open) return;
+    if (!open) { setQ(''); return; }
     const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
+  const terms = useMemo(() => normSearch(q).split(/\s+/).filter(Boolean), [q]);
+  const list = useMemo(() => warehouses.filter(w => {
+    if (!terms.length) return true;
+    const t = normSearch(`${w.name} ${w.province || w.provinceGuess || ''}`);
+    return terms.every(x => t.includes(x));
+  }), [warehouses, terms]);
   const nameOf = (id: string) => warehouses.find(w => String(w.id) === id)?.name ?? '…';
   const rankOf = (i: number) => (i === 0 ? 'الأساسي' : `احتياط ${i}`);
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter(x => x !== id) : value.length < MAX_WAREHOUSES ? [...value, id] : value);
@@ -2110,7 +2125,10 @@ function WarehousePicker({ warehouses, value, onChange, onNew }: {
       </button>
       {open && (
         <div className="ro-gm__pop ro-msel__pop">
-          {warehouses.map(w => {
+          <div className="ro-msel__search">
+            <input className="form-input" type="search" autoFocus placeholder="بحث عن مذخر…" aria-label="بحث عن مذخر" value={q} onChange={e => setQ(e.target.value)} />
+          </div>
+          {list.map(w => {
             const id = String(w.id);
             const rank = value.indexOf(id);
             return (
@@ -2119,6 +2137,7 @@ function WarehousePicker({ warehouses, value, onChange, onNew }: {
               </button>
             );
           })}
+          {!list.length && <div className="ro-muted ro-ipick__empty">{terms.length ? 'لا مذخر بهذا الاسم.' : 'لا مذاخر بعد.'}</div>}
           <button type="button" className="ro-gm__opt" onClick={() => { setOpen(false); onNew(); }}>+ مذخر جديد…</button>
         </div>
       )}

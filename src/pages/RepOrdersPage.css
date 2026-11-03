@@ -233,6 +233,8 @@
 .ro-msel__btn { display: flex; align-items: center; justify-content: space-between; gap: 6px; cursor: pointer; text-align: start; font-weight: 400; }
 .ro-msel__val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ro-msel__pop { top: 100%; min-width: 100%; display: flex; flex-direction: column; }
+.ro-msel__search { position: sticky; top: -6px; z-index: 1; margin: -6px -6px 4px; padding: 6px; background: var(--c-surface); border-bottom: 1px solid var(--c-border-light); }
+.ro-msel__search .form-input { width: 100%; }
 .ro-msel__chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .ro-msel__chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--c-border-light); border-radius: 8px; padding: 2px 4px 2px 8px; font-size: 12px; color: var(--c-text-primary); }
 .ro-msel__x { border: 0; background: none; padding: 2px 4px; cursor: pointer; color: var(--c-text-muted); font-family: inherit; display: inline-flex; align-items: center; }

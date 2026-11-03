@@ -18,7 +18,9 @@ import { isOfficeScopedRole } from '../../lib/officeScope.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { normalizeWaId } from '../../lib/waId.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { buildProvinceLookup, provinceFromText } from '../../lib/provinces.js';
+import { buildProvinceLookup, matchProvinceName, provinceFromText } from '../../lib/provinces.js';
+import { provinceIdsForUser, resolveEffectiveAreaIds, userHasAllAreas } from '../../lib/areaScope.js';
+import { isPharmacyRep } from '../../lib/pharmacyRep.js';
 
 export const STATUSES = ['pending', 'prepared', 'cancelled'];
 const MAX_LINES = 80;
@@ -115,15 +117,53 @@ async function loadWarehouseProvinces() {
     const parts = String(name ?? '').split(/[-/\\|]/);
     return parts.length > 1 ? byArea.get(normalizeAreaName(parts.pop())) || null : null;
   };
-  return { names: provinces.map(p => p.name), guess };
+  // المحفوظ نص حر («الانبار»، «الفلوجة») فيُوحَّد باسم المحافظة الرسمي قبل المقارنة
+  const provinceOf = (w) => (w.province ? matchProvinceName(w.province, lookup)?.name || w.province : guess(w.name));
+  return { names: provinces.map(p => p.name), lookup, guess, provinceOf };
+}
+
+/**
+ * محافظات مسوّق المحافظة — دليله يقتصر على مذاخرها. null = بلا تضييق: غير المسوّقين،
+ * ومسوّقو بغداد، ومن لا تُعرف محافظته. المصدر: مناطقه وتعييناته (كـisProvinceSide في
+ * صفحة المستخدمين)، وإلا اسمه («… - مسوقين - الديوانية»).
+ */
+async function marketerProvinceNames(viewer, lookup) {
+  if (!isFieldRole(viewer.role)) return null;
+  const u = await prisma.user.findUnique({ where: { id: viewer.id }, select: { linkedRep: { select: { repKind: true } } } });
+  if (!isPharmacyRep(u?.linkedRep) || await userHasAllAreas(viewer.id)) return null;
+  const [areaIds, provinceIds, teams] = await Promise.all([
+    resolveEffectiveAreaIds(viewer.id),
+    provinceIdsForUser(viewer.id),
+    prisma.provinceRepAssignment.findMany({
+      where: { repUserId: viewer.id, isActive: true, team: { isActive: true } },
+      select: { team: { select: { provinceId: true } } },
+    }),
+  ]);
+  const rows = await prisma.province.findMany({
+    where: { OR: [
+      { id: { in: [...provinceIds, ...teams.map(t => t.team.provinceId)] } },
+      { areas: { some: { id: { in: areaIds } } } },
+    ] },
+    select: { name: true },
+  });
+  const names = rows.map(r => r.name);
+  if (!names.length) {
+    const byName = provinceFromText(viewer.displayName || viewer.username, lookup)?.name;
+    if (byName) names.push(byName);
+  }
+  if (!names.length || (!teams.length && names.includes('بغداد'))) return null;
+  return names;
 }
 
 export async function listWarehouses(reqUser) {
   const viewer = await loadViewer(reqUser);
-  const [rows, prov] = await Promise.all([
+  const [all, prov] = await Promise.all([
     prisma.orderWarehouse.findMany({ where: await warehouseScopeWhere(viewer), orderBy: { name: 'asc' } }),
     loadWarehouseProvinces(),
   ]);
+  const scope = await marketerProvinceNames(viewer, prov.lookup);
+  // ما أضافه بنفسه يبقى ظاهراً له وإن لم تُعرف محافظته
+  const rows = scope ? all.filter(w => w.createdById === viewer.id || scope.includes(prov.provinceOf(w))) : all;
   return {
     provinces: prov.names,
     warehouses: rows.map(w => ({
@@ -170,8 +210,15 @@ function warehouseData(body) {
 
 export async function createWarehouse(reqUser, body) {
   const viewer = await loadViewer(reqUser);
+  const data = warehouseData(body);
+  // الإضافة السريعة من الطلبية بلا حقل محافظة: مذخر مسوّق المحافظة يُحسب على محافظته
+  if (!data.province) {
+    const prov = await loadWarehouseProvinces();
+    const scope = await marketerProvinceNames(viewer, prov.lookup);
+    if (scope?.length === 1 && !prov.guess(data.name)) data.province = scope[0];
+  }
   return prisma.orderWarehouse.create({
-    data: { ...warehouseData(body), officeId: viewer.officeId ?? null, createdById: viewer.id },
+    data: { ...data, officeId: viewer.officeId ?? null, createdById: viewer.id },
   });
 }
 
