@@ -245,8 +245,7 @@ export async function provinceSummary(reqUser, q = {}) {
     : undefined;
 
   const repSaleRows = aggregateProvinceSales(sales, {
-    provinceOfArea: provinces.ofArea,
-    homeProvinceOf: provinces.home,
+    provinceOf: (sale) => (kindByUser.get(sale.createdById) === 'pharmacy' ? provinces.ofMarketerSale(sale) : provinces.ofSale(sale)),
     kindOf: (id) => kindByUser.get(id) ?? 'scientific',
     teamOfItem,
     allowItem,

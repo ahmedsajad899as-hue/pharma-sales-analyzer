@@ -1,6 +1,6 @@
 // مبيعات المندوب = المؤكد في «مبيعات المندوبين» + ميركاتو باسمه بلا تكرار — npm run test:rep-liquidation
 import assert from 'node:assert/strict';
-import { dropLinesFoundInMercato, isPureMercatoRow, widenDateRange, isInDateRange, repSaleToRows } from '../server/lib/repLiquidation.js';
+import { assignProvince, dropLinesFoundInMercato, isPureMercatoRow, widenDateRange, isInDateRange, repSaleToRows } from '../server/lib/repLiquidation.js';
 import { countDistinctOrders } from '../server/lib/orderKey.js';
 
 let nextLine = 1;
@@ -52,6 +52,16 @@ assert.equal(isPureMercatoRow({ ...r, uploadedFile: { sourceSystem: null } }), f
 assert.equal(isPureMercatoRow({ ...r, uploadedFile: { sourceSystem: 'mercato', mergeGroup: '7|mercato|IQD|condition' } }), false, 'ملف الكوديشن');
 assert.equal(isPureMercatoRow({ ...r, rawData: JSON.stringify({ source: 'telegram-order' }) }), false, 'طلبية بوت في ملف ميركاتو');
 assert.equal(isPureMercatoRow({ ...r, transit: {} }), false, 'ترانزيت');
+
+// ── المحافظة: كل مبيع المندوب له في محافظته ──
+assert.equal(assignProvince('ديالى', ['ديالى']), 'ديالى');
+assert.equal(assignProvince('بغداد', ['ديالى']), 'ديالى', 'صيدلية في بغداد تُحسب في محافظته');
+assert.equal(assignProvince('كربلاء', ['ديالى']), 'ديالى', 'صيدلية في محافظة أخرى');
+assert.equal(assignProvince(null, ['ديالى']), 'ديالى', 'منطقة غير معروفة');
+assert.equal(assignProvince('ميسان', ['البصرة', 'ميسان']), 'ميسان', 'منطقة الصيدلية تحسم بين محافظتيه');
+assert.equal(assignProvince('بغداد', ['البصرة', 'ميسان']), 'البصرة', 'خارج محافظتيه: الأولى');
+assert.equal(assignProvince('كربلاء', []), 'كربلاء', 'بلا محافظة معيّنة: منطقة المبيع');
+assert.equal(assignProvince(null, []), null);
 
 // ── المدى ──
 const oct = { startDate: new Date('2026-10-01T00:00:00Z'), endDate: new Date('2026-10-31T23:59:59.999Z') };

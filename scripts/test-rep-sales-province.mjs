@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { aggregateProvinceSales, addMercatoToProvinces } from '../server/lib/repSalesProvince.js';
 
 const ctx = {
-  provinceOfArea: (a) => ({ 'حي الحسين': 'كربلاء', 'الكرادة': 'بغداد' })[a] ?? null,
-  homeProvinceOf: (u) => ({ 1: 'كربلاء', 2: 'النجف' })[u] ?? null,
+  provinceOf: (s) => ({ 'حي الحسين': 'كربلاء', 'الكرادة': 'بغداد' })[s.areaName] ?? null,
   kindOf: (u) => (u === 3 ? 'pharmacy' : 'scientific'),
   teamOfItem: (i) => ({ 10: 'Deva', 11: 'Humanis' })[i] ?? null,
 };
@@ -16,9 +15,7 @@ assert.deepEqual(
   [{ province: 'كربلاء', company: 'Deva', kind: 'scientific', value: 250 }],
   'الكمية × السعر، والأسطر المتشابهة تُجمع',
 );
-assert.equal(run([{ createdById: 2, areaName: 'حي الحسين', lines: [line(10, 1, 100)] }])[0].province, 'كربلاء', 'منطقة المبيع تغلب محافظة المندوب');
-assert.equal(run([{ createdById: 2, areaName: 'منطقة مكتوبة يدوياً', lines: [line(10, 1, 100)] }])[0].province, 'النجف', 'منطقة غير معروفة ترجع لمحافظة المندوب');
-assert.deepEqual(run([{ createdById: 9, areaName: null, lines: [line(10, 1, 100)] }]), [], 'بلا منطقة ولا محافظة: لا يُنسب لأي محافظة');
+assert.deepEqual(run([{ createdById: 9, areaName: null, lines: [line(10, 1, 100)] }]), [], 'بلا محافظة: لا يُنسب لأي محافظة');
 assert.deepEqual(run([{ createdById: 1, areaName: 'حي الحسين', lines: [line(null, 5, null)] }]), [], 'ايتم حر بلا سعر لا يضيف قيمة');
 assert.equal(run([{ createdById: 1, areaName: 'حي الحسين', lines: [line(99, 1, 100)] }])[0].company, null, 'ايتم بلا مدير يبقى في المحافظة بلا شركة');
 assert.equal(run([{ createdById: 3, areaName: 'حي الحسين', lines: [line(10, 1, 100)] }])[0].kind, 'pharmacy', 'المسوق يُفصل عن العلمي');

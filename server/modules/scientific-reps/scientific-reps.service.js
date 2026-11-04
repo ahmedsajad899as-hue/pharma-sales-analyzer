@@ -14,7 +14,7 @@ import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
 import { dedupCrossFile } from '../../lib/crossFileDedup.js';
-import { dateRangeWhere, dropBlockedLines, dropLinesFoundInMercato, isInDateRange, isPureMercatoRow, repSaleToRows, widenDateRange } from '../../lib/repLiquidation.js';
+import { dateRangeWhere, dropBlockedLines, dropLinesFoundInMercato, assignProvince, isInDateRange, isPureMercatoRow, repSaleToRows, widenDateRange } from '../../lib/repLiquidation.js';
 import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -1890,24 +1890,28 @@ async function loadLiquidationBlocks(fileIds, viewerId) {
 }
 
 /**
- * يحسم محافظة كل مبيع: منطقته، ثم محافظة المندوب حين لا تُعرف. rows وsales تحدّدان من يحتاج
- * قراءة محافظة حسابه، فهي ثقيلة ولا يحتاجها غالب المندوبين.
+ * يحسم محافظة كل مبيع (assignProvince).
  * @param {Array} sales مبيعات المندوبين
  * @param {Array} rows صفوف ميركاتو
  * @param {(row:object)=>number} ownerOf حساب صاحب صف ميركاتو
+ * @param {{extraUserIds?:number[], locations?:Map}} [opts] locations: محمَّلة مسبقاً عند الحساب لعدة مندوبين
  */
-export async function liquidationProvinces(sales, rows, ownerOf) {
-  const areaIndex = await provinceByAreaName();
+export async function liquidationProvinces(sales, rows, ownerOf, { extraUserIds = [], locations: known = null } = {}) {
+  const userIds = [...new Set([...sales.map(s => s.createdById), ...rows.map(ownerOf), ...extraUserIds].filter(Boolean))];
+  const missing = userIds.filter(id => !known?.has(id));
+  const [areaIndex, loaded] = await Promise.all([provinceByAreaName(), loadRepLocations(missing)]);
+  const homes = (userId) => {
+    const province = (known?.get(userId) ?? loaded.get(userId))?.province;
+    return province ? province.split('،').map(p => p.trim()).filter(Boolean) : [];
+  };
   const ofArea = (name) => (name ? areaIndex.get(normalizeAreaName(name))?.province ?? null : null);
-  const areaProvince = (row) => row.area?.province?.name ?? ofArea(row.area?.name);
-  const needHome = [
-    ...sales.filter(s => !ofArea(s.areaName)).map(s => s.createdById),
-    ...rows.filter(r => !areaProvince(r)).map(ownerOf),
-  ].filter(Boolean);
-  const locations = needHome.length ? await loadRepLocations(needHome) : new Map();
-  // مندوب بمحافظتين: «البصرة، ميسان» — الأولى ملاذ حين لا تُعرف منطقة المبيع
-  const home = (userId) => locations.get(userId)?.province?.split('،')[0].trim() || null;
-  return { ofArea, home, ofSale: (s) => ofArea(s.areaName) ?? home(s.createdById), ofRow: (r) => areaProvince(r) ?? home(ownerOf(r)) };
+  const areaOfRow = (row) => row.area?.province?.name ?? ofArea(row.area?.name);
+  return {
+    ofSale: (s) => assignProvince(ofArea(s.areaName), homes(s.createdById)),
+    ofRow: (row, userId = ownerOf(row)) => assignProvince(areaOfRow(row), homes(userId)),
+    // المسوق: منطقة المبيع أولاً، ومحافظته ملاذ حين لا تُعرف.
+    ofMarketerSale: (s) => ofArea(s.areaName) ?? homes(s.createdById)[0] ?? null,
+  };
 }
 
 /**
@@ -1936,7 +1940,7 @@ async function resolveLiquidationSales(id, query, select, viewerId) {
   const shownRepSales = repSales.filter(s => isInDateRange(s.saleDate, range));
   const shownSales = unique.filter(s => isInDateRange(s.saleDate, range));
 
-  const province = await liquidationProvinces(shownRepSales, shownMercato, () => userIds[0]);
+  const province = await liquidationProvinces(shownRepSales, shownMercato, () => userIds[0], { locations: query.repLocations });
   const inProvince = (name) => !query.province || normalizeArabic(name ?? '') === normalizeArabic(query.province);
   const mercatoInProvince = shownMercato.map(s => ({ ...s, liqProvince: province.ofRow(s) })).filter(s => inProvince(s.liqProvince));
   const repRows = await repSalesAsRows(shownSales.filter(s => inProvince(province.ofSale(s))), Number(query.iqdRate) > 0 ? Number(query.iqdRate) : 1470, province.ofSale);
@@ -2408,11 +2412,17 @@ export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerI
     const rows = await prisma.scientificRepresentative.findMany({ where: { id: { in: repIds }, repKind: PHARMACY_KIND }, select: { id: true } });
     repIds = rows.map(r => r.id);
   }
+  // مواقع كل الحسابات دفعة واحدة: قراءتها لكل مندوب تعيد مسح جدول المناطق عشرات المرات.
+  const repQuery = { ...query };
+  if (query.liquidation) {
+    const accounts = await prisma.user.findMany({ where: { linkedRepId: { in: repIds } }, select: { id: true } });
+    repQuery.repLocations = await loadRepLocations(accounts.map(u => u.id));
+  }
   // دفعات صغيرة: عشرات المندوبين بالتوازي كانت تُحمِّل ذاكرة السيرفر (951MB) دفعة واحدة.
   const reports = [];
   for (let i = 0; i < repIds.length; i += 4) {
     const batch = await Promise.all(repIds.slice(i, i + 4).map(async (id) => {
-      try { return await getReport(id, query, viewerId); } catch { return null; }
+      try { return await getReport(id, repQuery, viewerId); } catch { return null; }
     }));
     reports.push(...batch);
   }

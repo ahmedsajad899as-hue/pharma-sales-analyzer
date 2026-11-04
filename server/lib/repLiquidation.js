@@ -150,6 +150,18 @@ export function isInDateRange(date, { startDate, endDate } = {}) {
   return true;
 }
 
+/**
+ * محافظة مبيع المندوب العلمي (قرار المستخدم 2026-11-04): كل ما باعه يُحسب له في محافظته المعيّنة
+ * أياً كانت منطقة الصيدلية. منطقة الصيدلية تحسم فقط بين محافظتيه، وتحكم من لا محافظة له.
+ * @param {string|null} areaProvince محافظة منطقة المبيع
+ * @param {string[]} homes محافظات المندوب بالترتيب
+ * @returns {string|null}
+ */
+export function assignProvince(areaProvince, homes = []) {
+  if (!homes.length) return areaProvince ?? null;
+  return homes.includes(areaProvince) ? areaProvince : homes[0];
+}
+
 /** شرط Prisma لمدى التاريخ بالقراءة نفسها، أو {} بلا مدى. */
 export function dateRangeWhere({ startDate, endDate } = {}, field = 'saleDate') {
   const cond = {};

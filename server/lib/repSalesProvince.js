@@ -1,24 +1,23 @@
 // ════════════════════════════════════════════════════════════════════════════
 // repSalesProvince.js — توزيع المبيع المؤكد في «مبيعات المندوبين» على المحافظات.
 //
-// هذا ما يظهر في حقل اللكوديشن بتبويب «مندوبين المحافظات». المحافظة من منطقة المبيع
-// (كما يُحسب مبيع المحافظة الكلي)، ومنطقة غير معروفة ترجع لمحافظة المندوب نفسه.
+// هذا ما يظهر في حقل اللكوديشن بتبويب «مندوبين المحافظات». المتصل يحسم المحافظة: للعلمي
+// محافظته المعيّنة (assignProvince)، وللمسوق منطقة المبيع ثم محافظته.
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * @param {Array<{createdById:number, areaName:string|null, lines:Array<{itemId:number|null, quantity:number, unitPrice:number|null}>}>} sales
+ * @param {Array<{createdById:number, lines:Array<{itemId:number|null, quantity:number, unitPrice:number|null}>}>} sales
  * @param {object} ctx
- * @param {(areaName:string|null)=>string|null} ctx.provinceOfArea
- * @param {(userId:number)=>string|null} ctx.homeProvinceOf
+ * @param {(sale:object)=>string|null} ctx.provinceOf
  * @param {(userId:number)=>'scientific'|'pharmacy'} ctx.kindOf
  * @param {(itemId:number|null)=>string|null} ctx.teamOfItem  null = ايتم بلا مدير: يدخل المحافظة لا الشركات
  * @param {(itemId:number|null)=>boolean} [ctx.allowItem]     نطاق المدير؛ بلا قيمة = كل الايتمات
  * @returns {{province:string, company:string|null, kind:string, value:number}[]}
  */
-export function aggregateProvinceSales(sales, { provinceOfArea, homeProvinceOf, kindOf, teamOfItem, allowItem = () => true }) {
+export function aggregateProvinceSales(sales, { provinceOf, kindOf, teamOfItem, allowItem = () => true }) {
   const out = new Map();
   for (const sale of sales) {
-    const province = provinceOfArea(sale.areaName) ?? homeProvinceOf(sale.createdById);
+    const province = provinceOf(sale);
     if (!province) continue;
     const kind = kindOf(sale.createdById);
     for (const line of sale.lines) {

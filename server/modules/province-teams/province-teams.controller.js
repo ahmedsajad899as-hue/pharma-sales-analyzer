@@ -50,7 +50,7 @@ async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
     userWhere: { id: { in: repUserIds } },
     viewerId,
   });
-  const province = await liquidationProvinces(sales, mercatoRows, ownerOfRow);
+  const province = await liquidationProvinces(sales, mercatoRows, ownerOfRow, { extraUserIds: users.map(u => u.id) });
   const add = (provinceName, userId, itemId, itemName, qty, usd) => {
     const k = `${provinceName}|${userId}`;
     if (!out.has(k)) out.set(k, new Map());
@@ -67,7 +67,7 @@ async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
     const sign = String(r.recordType ?? '').trim().toLowerCase() === 'return' ? -1 : 1;
     // حسابان بالاسم نفسه: يُحسب الصف لكلٍّ منهما كما في تقريره، وايتماتهما هي الفاصل.
     for (const u of users.filter(x => r.repIds.includes(x.linkedRepId))) {
-      add(province.ofRow(r), u.id, r.itemId, r.item?.name ?? `#${r.itemId}`, sign * r.quantity, sign * saleValueUSD(r));
+      add(province.ofRow(r, u.id), u.id, r.itemId, r.item?.name ?? `#${r.itemId}`, sign * r.quantity, sign * saleValueUSD(r));
     }
   }
   return out;
