@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   resolveAssignmentItemIds, findItemConflicts, buildItemAttribution,
   classifyChannel, personalSaleValue, toUSD,
-  assignmentFillsSeat, planSeatAssignments,
+  assignmentFillsSeat, planSeatAssignments, repBelongsToSeat,
 } from '../server/modules/province-teams/province-teams.rules.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../server/modules/province-teams/personal-sale-trigger.js';
 import { marketerHomeProvinces, pickMarketerLeaders } from '../server/lib/pharmacyRep.js';
@@ -177,6 +177,22 @@ t('ايتم المدير بلا شركة في المكتب يبقى في قائ�
   const plan = planSeatAssignments({ companyId: HUMANIS, items: [{ id: 30, companyId: HUMANIS }, { id: 99, companyId: null }] }, []);
   assert.deepEqual(plan.assignments.map(a => a.companyId), [HUMANIS]);
   assert.deepEqual(plan.keptItemIds, [30, 99]);
+});
+
+t('عرض مدير الشركة: مندوب الفريق بمقعده، ولا تكفي شركة ثانوية أو تبعية', () => {
+  const rep = (over) => ({ assignments: [], isSubordinate: false, primaryCompanyId: null, ...over });
+  const own = { companyId: HUMANIS, allItems: false, itemIds: [30] };
+  const otherCompany = { companyId: DEVA, allItems: true, itemIds: [] };
+  assert.equal(repBelongsToSeat(rep({ assignments: [own] }), humanisSeat), true);
+  // مندوب deva بكل ايتماتها، ومدير humanis مسند على ايتم من deva
+  assert.equal(repBelongsToSeat(rep({ assignments: [otherCompany] }), humanisSeat), false);
+  assert.equal(repBelongsToSeat(rep({ assignments: [otherCompany], isSubordinate: true, primaryCompanyId: HUMANIS }), humanisSeat), false);
+  // مشترك بين شركتين: يظهر لكلا مديريهما
+  assert.equal(repBelongsToSeat(rep({ assignments: [otherCompany, own] }), humanisSeat), true);
+  // خارج الفرق: تابع المدير أو شركته الرئيسية
+  assert.equal(repBelongsToSeat(rep({ isSubordinate: true }), humanisSeat), true);
+  assert.equal(repBelongsToSeat(rep({ primaryCompanyId: HUMANIS }), humanisSeat), true);
+  assert.equal(repBelongsToSeat(rep({ primaryCompanyId: DEVA }), humanisSeat), false);
 });
 
 console.log(`\n${passed} اختباراً نجح`);

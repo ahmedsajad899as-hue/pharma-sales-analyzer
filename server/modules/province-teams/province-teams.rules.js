@@ -93,6 +93,16 @@ export function assignmentFillsSeat(a, seat) {
 }
 
 /**
+ * هل المندوب من فريق مدير الشركة في عرض المحافظات؟ مندوب فريق المحافظة يحسمه مقعده فقط،
+ * فلا تكفي شركة ثانوية مسندة للمدير. وغيره بتبعيته للمدير أو بشركته الرئيسية.
+ * @param {{assignments:Array, isSubordinate:boolean, primaryCompanyId:number|null}} rep
+ */
+export function repBelongsToSeat({ assignments, isSubordinate, primaryCompanyId }, seat) {
+  if (assignments.length) return assignments.some(a => assignmentFillsSeat(a, seat));
+  return isSubordinate || primaryCompanyId === seat.companyId;
+}
+
+/**
  * تعيينات مندوب جديد في مقعد: ايتمات المدير مقسَّمة على شركاتها. ما يتقاطع مع مندوب
  * آخر في الفريق يُترك له ويُبلَّغ عنه، كي يبقى كل مبيع منسوباً لمندوب واحد.
  *

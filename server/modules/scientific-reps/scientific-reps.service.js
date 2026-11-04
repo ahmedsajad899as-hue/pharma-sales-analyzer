@@ -5,6 +5,7 @@ import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { provinceMemberUserIds, hasNonProvinceSubordinates } from '../../lib/provinceScope.js';
+import { loadManagerSeat, repIdsInManagerTeam, managerItemsForProvinceRep } from '../../lib/provinceSeats.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
@@ -1830,12 +1831,14 @@ const REPORT_SALES_SELECT = {
  * filtered by assigned areas + items.
  */
 export async function getReport(id, query = {}, viewerId = null) {
+  const onlyItems = await managerItemsForProvinceRep(id, viewerId);
+  const scoped = (rows) => (onlyItems ? rows.filter(s => onlyItems.has(s.itemId)) : rows);
   if (!query.excludePharmacy && !query.excludeCommercial) {
     const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT, viewerId);
-    return buildReport(resolved, query);
+    return buildReport({ ...resolved, rawSales: scoped(resolved.rawSales) }, query);
   }
   const resolved = await resolveSciRepSales(id, query, exclusionSelect(REPORT_SALES_SELECT), viewerId);
-  return buildReport({ ...resolved, rawSales: await applySciExclusions(resolved.rawSales, resolved.fileIds, query, viewerId) }, query);
+  return buildReport({ ...resolved, rawSales: scoped(await applySciExclusions(resolved.rawSales, resolved.fileIds, query, viewerId)) }, query);
 }
 
 // ── «بدون الفارمسي» / «بدون التجاري» ─────────────────────────────────────────
@@ -2138,7 +2141,10 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
  * المحافظة لأن مجموعها يُحسب من /api/reports/overall لا من هذه القائمة.
  * كل صف يحمل `leader`: تيم ليدر مسوقي المحافظة (null إن لم يوجد).
  */
-export async function getProvinceMapForReps(repIds, query = {}, viewerId = null) {
+export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerId = null) {
+  // مدير الشركة يرى مندوبي فريقه فقط: قائمته تضم أيضاً مندوبي شركاته الثانوية في الفرق.
+  const seat = await loadManagerSeat(viewerId);
+  const repIds = seat ? await repIdsInManagerTeam(seat, requestedRepIds) : requestedRepIds;
   // دفعات صغيرة: عشرات المندوبين بالتوازي كانت تُحمِّل ذاكرة السيرفر (951MB) دفعة واحدة.
   const reports = [];
   for (let i = 0; i < repIds.length; i += 4) {
@@ -2273,5 +2279,8 @@ const EXPORT_SALES_SELECT = {
  */
 export async function getRawSalesForExport(id, query = {}, viewerId = null) {
   const { rawSales, fileIds } = await resolveSciRepSales(id, query, exclusionSelect(EXPORT_SALES_SELECT), viewerId);
-  return applySciExclusions(rawSales.filter(s => !s.tierUncounted), fileIds, query, viewerId);
+  const rows = await applySciExclusions(rawSales.filter(s => !s.tierUncounted), fileIds, query, viewerId);
+  // نفس نطاق getReport: التصدير يطابق ما على الشاشة
+  const onlyItems = await managerItemsForProvinceRep(id, viewerId);
+  return onlyItems ? rows.filter(s => onlyItems.has(s.itemId)) : rows;
 }

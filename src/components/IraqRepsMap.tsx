@@ -89,7 +89,7 @@ const LABEL_NUDGE: Record<string, [number, number]> = {
 type SalesRows = { prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[]; bga: { a: string; s: string | null; v: number }[] };
 type CacheEntry = { v: any; t: number };
 const MEM = new Map<string, CacheEntry>();
-const LS_PREFIX = 'iqmap:v4:';
+const LS_PREFIX = 'iqmap:v5:';
 const LS_MAX = 24;
 const FRESH_MS = 3 * 60 * 1000;
 function cacheGet(k: string): CacheEntry | undefined {
