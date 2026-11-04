@@ -887,6 +887,8 @@ interface SciReport {
   // فئات ايتمات المسوّق (رئيسي/ثانوي) — server/lib/itemTiers.js. modes: وضع الثانوية لكل
   // عضو بفئات (count | separate | hide). null = لا فئات لهذا التقرير.
   byItemTier?: { modes: string[]; main: TierCell; secondary: TierCell } | null;
+  // تقرير المحافظات: أسطر «مبيعات المندوبين» الموجودة في ميركاتو فلم تُحسب مرتين.
+  repSaleDuplicates?: number;
 }
 type TierCell = { totalQty: number; totalValue: number; orderCount: number };
 
@@ -955,6 +957,7 @@ function parseSciReport(d: any): SciReport {
     byCustomerClass: d.byCustomerClass ? Object.fromEntries(
       (['scientific', 'commercial', 'pharmacy', 'other'] as const).map(k => [k, parseClassCell(d.byCustomerClass[k])]),
     ) as SciReport['byCustomerClass'] : null,
+    repSaleDuplicates: d.repSaleDuplicates ?? 0,
   };
 }
 
@@ -1096,6 +1099,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const [provRepOpen, setProvRepOpen] = useState(false);
   const provReportRef = useRef<HTMLDivElement>(null);
   const provReportOpen = mode === 'provinces' && provRepOpen;
+  // عرض علميي المحافظات: مبيع المندوب = «مبيعات المندوبين» المؤكدة + ميركاتو باسمه (lib/repLiquidation.js).
+  const provLiquidation = !isMarketersManager && !(canToggleRepKind && provKind === 'pharmacy');
+  const provLiqReport = provReportOpen && provLiquidation;
   // وضع التقرير الفعلي: تقرير مندوب المحافظة يتصرّف كتقرير «مندوبين بغداد» (معاينة، عرض، تصدير).
   const repMode: Mode = provReportOpen ? 'scientific' : mode;
   // المسوقون: تقرير مجموعة — «grp:all» = بغداد (كل المسوقين)، «grp:<القسم>» = الكرخ/الرصافة.
@@ -1128,7 +1134,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const canMergeWh = hasFeature('sci_merge_warehouses') && !isMarketersManager;
   const [excludePharmacyRaw, setExcludePharmacy] = useState(() => sessionStorage.getItem('rpt_exPharm') === '1');
   const excludePharmacy = excludePharmacyRaw && canExPharm;
-  const showExcludePharmacy = canToggleRepKind && (provReportOpen ? provKind !== 'pharmacy' : !marketersView);
+  // تقرير المحافظات لا يحوي صفوف المكتب التي يعزلها الزران.
+  const showExcludePharmacy = canToggleRepKind && !provReportOpen && !marketersView;
   // «بدون التجاري»: يعزل صفوف المكتب التي «معلومات الزبون» فيها تجاري (server: looksLikeCommercialInfo).
   const [excludeCommercialRaw, setExcludeCommercial] = useState(() => sessionStorage.getItem('rpt_exComm') === '1');
   const excludeCommercial = excludeCommercialRaw && canExComm;
@@ -1642,12 +1649,17 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     applyMonth(params);
     return params;
   };
+  // iqdRate: أسعار «مبيعات المندوبين» بالدينار، والتقرير يوحّدها بالدولار بسعر صرف الشاشة نفسه.
+  const setLiquidationParams = (params: URLSearchParams) => {
+    params.set('liquidation', '1');
+    params.set('iqdRate', String(fileExchangeRate));
+  };
   const commReportReq = (id: string) => {
     const params = repReportParams();
     return { key: `comm|${user?.id ?? ''}|${id}|${params}`, base: `/api/reports/representative/${id}?${params}` };
   };
   // null = مجموعة بلا مندوبين (لا شيء يُطلب).
-  const sciReportReq = (id: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean } = {}) => {
+  const sciReportReq = (id: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean; liquidation?: boolean } = {}) => {
     // من قائمة المسوقين مباشرة لا sciReps: عند التبديل للمسوقين يُطلب التقرير قبل إعادة الرسم.
     // القائمة تُمرَّر عند التبديل علميين/مسوقين — sciReps هنا ما زالت قائمة العرض السابق.
     const list = opts.list ?? (provReportOpen && !isGroupId(id) ? provReps : sciReps);
@@ -1657,6 +1669,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     const isMarketersList = list.some(r => r.repKind === 'pharmacy');
     if ((opts.exPharm ?? excludePharmacy) && canToggleRepKind && !isMarketersList) params.set('excludePharmacy', '1');
     if ((opts.exComm ?? excludeCommercial) && canToggleRepKind && !isMarketersList) params.set('excludeCommercial', '1');
+    // الضغطة الأولى على الاسم تسبق إعادة الرسم، فلا تقرأ provReportOpen — تمرّر liquidation صراحةً.
+    if ((opts.liquidation ?? provReportOpen) && provLiquidation) setLiquidationParams(params);
     const base = group
       ? `/api/scientific-reps/group-report?repIds=${group.repIds.join(',')}&label=${encodeURIComponent(group.label)}&${params}`
       : `/api/scientific-reps/${id}/report?${params}`;
@@ -1697,7 +1711,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     finally { userLoads.current--; if (myReq === commReportSeq) setLoading(false); }
   };
 
-  const loadSciReport = async (repIdOverride?: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean } = {}) => {
+  const loadSciReport = async (repIdOverride?: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean; liquidation?: boolean } = {}) => {
     const id = repIdOverride ?? sciRepId;
     if (!id) { setError(marketersView ? 'اختر مسوّقاً أولاً' : t.reports.errSelectSci); return; }
     const req = sciReportReq(id, opts);
@@ -1732,7 +1746,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     setProvRepOpen(true);
     setSciRepId(id);
     setReportView(getDefaultReportView());
-    loadSciReport(id, { list: provReps });
+    loadSciReport(id, { list: provReps, liquidation: true });
     requestAnimationFrame(() => provReportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
@@ -3365,6 +3379,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       applyMonth(qp);
       if (repMode === 'scientific' && excludePharmacy && showExcludePharmacy) qp.set('excludePharmacy', '1');
       if (repMode === 'scientific' && excludeCommercial && showExcludePharmacy) qp.set('excludeCommercial', '1');
+      if (provLiqReport) setLiquidationParams(qp);
 
       let sales: any[] = [];
       let areaCount: number | null = null;            // assigned areas (scientific only)
@@ -4513,7 +4528,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             scopedProvinces={isMarketersManager ? marketersScope?.provinces : undefined}
             conditionRev={provCondRev}
             iqdPerValueUnit={fileSourceCurrency === 'USD' ? fileExchangeRate : 1}
-            onAddCondition={canProvCondition ? () => { setProvCondMsg(''); setShowProvCondition(true); } : undefined}
+            onAddCondition={canProvCondition && !provLiquidation ? () => { setProvCondMsg(''); setShowProvCondition(true); } : undefined}
             onOpenRep={openProvRep}
             selectedRepId={provRepOpen ? sciRepId : null} />
           {provRepOpen && (
@@ -5642,7 +5657,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         // الحالي مبنياً على دمج ملف مكتب مع ملف ميركاتو معاً (كلاهما له صفوف فعلية).
         const src = sciReport.bySource;
         // الكوديشن (ومنه طلبيات الترانزيت من ملف المكتب) يُظهر الصندوق بلا ملف ميركاتو أيضاً.
-        const hasMixedSources = !!(src?.hasOffice && (src?.hasMercato || src?.hasCondition));
+        const hasMixedSources = !!(src?.hasOffice && (src?.hasMercato || src?.hasCondition)) || (provLiqReport && !!src);
         const officeNetVal  = (src?.office.totalValue  ?? 0) - (sciReturnsReport?.bySource?.office.totalValue  ?? 0);
         // حين يوجد كوديشن، سطر Mercato = ميركاتو بدونه، كي تُجمَع الأسطر الثلاثة للإجمالي.
         const mercOf = (b: any) => (b?.hasCondition && b?.mercatoOnly) ? b.mercatoOnly : b?.mercato;
@@ -5650,7 +5665,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         // نفس التوزيع لكن لقيمة الخانة المعروضة حالياً فقط (مبيع أو ارجاع) بدل الصافي —
         // يظهر في كل الخانات لا الصافي وحده، للمقارنة بين الملفين مباشرة أياً كانت الخانة.
         const viewSrc = viewData?.bySource;
-        const viewHasMixedSources = !!(viewSrc?.hasOffice && (viewSrc?.hasMercato || viewSrc?.hasCondition));
+        const viewHasMixedSources = !!(viewSrc?.hasOffice && (viewSrc?.hasMercato || viewSrc?.hasCondition)) || (provLiqReport && !!viewSrc);
         // صندوق واحد مدمج (قيمة + عدد طلبيات معاً) لكل مصدر ملف — Office/Mercato
         // بدل الشرح العربي الطويل، للدلالة المختصرة فقط.
         const condNetVal = (src?.condition?.totalValue ?? 0) - (sciReturnsReport?.bySource?.condition?.totalValue ?? 0);
@@ -5659,17 +5674,22 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           <div style={{ background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 14px', display: 'flex', alignItems: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
             title="توزيع القيمة وعدد الطلبيات حسب مصدر الملف (Office = ملف المكتب، Mercato = ميركاتو)">
             <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto', columnGap: 8, rowGap: 5, alignItems: 'center' }}>
-              <Icon name="navOrgStructure" size={13} style={{ color: '#64748b' }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Office</span>
-              <span style={{ fontSize: 12.5, fontWeight: 800, color: officeColor, whiteSpace: 'nowrap' }}>{officeValStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(officeCount)}🧾</span></span>
+              {!provLiqReport && (<>
+                <Icon name="navOrgStructure" size={13} style={{ color: '#64748b' }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Office</span>
+                <span style={{ fontSize: 12.5, fontWeight: 800, color: officeColor, whiteSpace: 'nowrap' }}>{officeValStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(officeCount)}🧾</span></span>
+              </>)}
               <Icon name="pharmacy" size={13} style={{ color: '#64748b' }} />
               <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Mercato</span>
               <span style={{ fontSize: 12.5, fontWeight: 800, color: mercatoColor, whiteSpace: 'nowrap' }}>{mercatoValStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(mercatoCount)}🧾</span></span>
               {liq && (<>
                 <Icon name="uploadSales" size={13} style={{ color: '#64748b' }} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }} title="ملف اللكوديشن (طلبيات البوت والفواتير) + طلبيات الترانزيت من ملف المكتب — مفصول عن Mercato وOffice">Liquidation</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }} title={provLiqReport ? 'المبيع المؤكد في صفحة «مبيعات المندوبين»، عدا الموجود منه في Mercato' : 'ملف اللكوديشن (طلبيات البوت والفواتير) + طلبيات الترانزيت من ملف المكتب — مفصول عن Mercato وOffice'}>{provLiqReport ? 'مبيعات المندوب' : 'Liquidation'}</span>
                 <span style={{ fontSize: 12.5, fontWeight: 800, color: liq.color, whiteSpace: 'nowrap' }}>{liq.valStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(liq.count)}🧾</span></span>
               </>)}
+              {provLiqReport && (sciReport.repSaleDuplicates ?? 0) > 0 && (
+                <span style={{ gridColumn: '1 / -1', fontSize: 10.5, color: '#64748b' }}>{fmt(sciReport.repSaleDuplicates ?? 0)} سطر مكرر مع Mercato حُسب مرة واحدة</span>
+              )}
             </div>
           </div>
         );
@@ -5812,7 +5832,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 fmtValSigned(officeNetVal), fmtValSigned(mercatoNetVal),
                 officeNetVal >= 0 ? '#065f46' : '#991b1b', mercatoNetVal >= 0 ? '#065f46' : '#991b1b',
                 src?.office.orderCount ?? 0, mercOf(src)?.orderCount ?? 0,
-                src?.hasCondition ? { valStr: fmtValSigned(condNetVal), color: condNetVal >= 0 ? '#065f46' : '#991b1b', count: src?.condition?.orderCount ?? 0 } : null,
+                src?.hasCondition || provLiqReport ? { valStr: fmtValSigned(condNetVal), color: condNetVal >= 0 ? '#065f46' : '#991b1b', count: src?.condition?.orderCount ?? 0 } : null,
               )}
               {tierBox}
               {sciToggles}
@@ -5894,7 +5914,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 fmtVal(viewSrc?.office.totalValue ?? 0), fmtVal(mercOf(viewSrc)?.totalValue ?? 0),
                 '#1e293b', '#1e293b',
                 viewSrc?.office.orderCount ?? 0, mercOf(viewSrc)?.orderCount ?? 0,
-                viewSrc?.hasCondition ? { valStr: fmtVal(viewSrc?.condition?.totalValue ?? 0), color: '#1e293b', count: viewSrc?.condition?.orderCount ?? 0 } : null,
+                viewSrc?.hasCondition || provLiqReport ? { valStr: fmtVal(viewSrc?.condition?.totalValue ?? 0), color: '#1e293b', count: viewSrc?.condition?.orderCount ?? 0 } : null,
               )}
               {tierBox}
               {sciToggles}

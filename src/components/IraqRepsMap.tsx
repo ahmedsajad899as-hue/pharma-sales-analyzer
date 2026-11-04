@@ -77,8 +77,9 @@ interface ProvinceCell { name: string; total: number; cond: number; companies: C
 type TeamLite = { p: string; leader: string | null; lr: number | null; reps: { u: number; id: number | null; name: string; active: boolean; kind: string; net: number }[] };
 interface NameRep { key: string; id: number | null; name: string; value: number; active: boolean }
 interface NameRow { leader: { id: number | null; name: string } | null; reps: NameRep[] }
-// المبيع المؤكد من «مبيعات المندوبين» — value بالدينار. company=null: ايتم بلا مدير شركة
-type RepSaleRow = { province: string; company: string | null; kind: string; value: number };
+// مبيع المندوب لكل محافظة — value: المؤكد من «مبيعات المندوبين» بالدينار، usd: ميركاتو بعملة التقارير.
+// company=null: ايتم بلا مدير شركة
+type RepSaleRow = { province: string; company: string | null; kind: string; value: number; usd?: number };
 
 const norm = (s: string) => String(s || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
 const BAGHDAD = norm('بغداد');
@@ -249,6 +250,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   // المحافظة المفتوح توزيع شركاتها في جدول الأسماء
   const [openProv, setOpenProv] = useState<string | null>(null);
   const marketers = repKind === 'pharmacy';
+  // عرض العلميين: اللكوديشن = «مبيعات المندوبين» المؤكدة + ميركاتو بأسمائهم، لا ملفات الكوديشن.
+  const liqMode = !marketers && !marketersOnly;
   const repWord = marketers ? 'مسوّق' : 'مندوب علمي';
   const { user } = useAuth();
   // مدير الشركة: مبيع تيمه فقط — لا بقية شركات المكتب
@@ -429,7 +432,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const [cond, setCond] = useState<CondRows>(EMPTY_COND);
   const [loadingCond, setLoadingCond] = useState(false);
   useEffect(() => {
-    if (marketersOnly) return; // condFiles تبقى null فلا تُجلب المقارنة
+    if (marketersOnly || liqMode) return; // condFiles تبقى كما هي فلا تُجلب المقارنة
     let dead = false;
     fetch('/api/files', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => (r.ok ? r.json() : { data: [] }))
@@ -443,11 +446,12 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       .catch(() => { if (!dead) setCondFiles([]); });
     return () => { dead = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tok, conditionRev]);
+  }, [tok, conditionRev, liqMode]);
 
   const condKey = (condFiles ?? []).join(',');
   const condRevSeen = useRef(conditionRev);
   useEffect(() => {
+    if (liqMode) { setCond(EMPTY_COND); return; }
     if (!ready || condFiles === null) return;
     if (!condKey) { setCond(EMPTY_COND); return; }
     let dead = false;
@@ -500,9 +504,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     })();
     return () => { dead = true; ac.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [condKey, condFiles === null, monthKey, tok, ready, ownTeamId, conditionRev]);
+  }, [condKey, condFiles === null, monthKey, tok, ready, ownTeamId, conditionRev, liqMode]);
 
-  // ── المبيع المؤكد من «مبيعات المندوبين» ──
+  // ── مبيع المندوب: المؤكد من «مبيعات المندوبين»، + ميركاتو بلا تكرار في عرض العلميين ──
   // الصفحة تبقى محمَّلة مخفية عند التنقل، فيُعاد الجلب حين تظهر: مبيع أُكّد للتو يظهر بلا تحديث.
   const [repSales, setRepSales] = useState<RepSaleRow[]>([]);
   const [repSalesTick, setRepSalesTick] = useState(0);
@@ -519,12 +523,13 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     if (!ready) return;
     const ac = new AbortController();
     repSalesAt.current = Date.now();
-    const key = `rs|${tok}|${monthKey}`;
+    const key = `rs|${tok}|${liqMode ? fileKey : ''}|${monthKey}`;
     const cacheable = monthKey !== 'custom';
     const hit = cacheable ? cacheGet(key) : undefined;
     if (hit) setRepSales(hit.v);
     const p = paramsFor(monthKey);
-    p.delete('fileIds'); p.delete('teamManagerId');
+    if (!liqMode) p.delete('fileIds');
+    p.delete('teamManagerId');
     fetch(`/api/rep-sales/province-summary?${p}`, { headers: { Authorization: `Bearer ${token}` }, signal: ac.signal })
       .then(r => (r.ok ? r.json() : null))
       .then(j => {
@@ -533,16 +538,17 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         if (cacheable) cacheSet(key, rows);
         setRepSales(rows);
       })
-      .catch(() => { /* الحقل يبقى بقيمة ملفات الكوديشن وحدها */ });
+      .catch(() => { /* يبقى آخر رقم معروض */ });
     return () => ac.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthKey, tok, ready, repSalesTick]);
+  }, [monthKey, tok, ready, repSalesTick, liqMode, fileKey]);
   const repSalesShown = useMemo(
-    () => (repKind ? repSales.filter(r => (r.kind === 'pharmacy') === (repKind === 'pharmacy')) : repSales),
-    [repSales, repKind],
+    () => (liqMode ? repSales.filter(r => r.kind !== 'pharmacy')
+      : repKind ? repSales.filter(r => (r.kind === 'pharmacy') === (repKind === 'pharmacy')) : repSales),
+    [repSales, repKind, liqMode],
   );
 
-  const hasCond = (condFiles?.length ?? 0) > 0 || repSalesShown.length > 0;
+  const hasCond = liqMode || (condFiles?.length ?? 0) > 0 || repSalesShown.length > 0;
   // مبيع المحافظة من الملفات النشطة — يشمل الكوديشن فقط إن كان ملفه مفعّلاً بينها
   const condInTotal = !!condFiles?.some(id => fileIds.includes(id));
 
@@ -607,7 +613,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     }
     for (const r of repSalesShown) {
       if (!isProv(r.province) || (scopedSet && !scopedSet.has(norm(r.province)))) continue;
-      const v = r.value / iqdPerValueUnit;
+      const v = r.value / iqdPerValueUnit + (r.usd ?? 0);
       const pc = cell(r.province);
       pc.cond += v;
       if (r.company) company(pc, r.company).cond += v;
@@ -765,7 +771,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const tableTh: React.CSSProperties = { padding: '7px 10px', fontSize: 12, fontWeight: 800, color: '#111827', background: '#f1f5f9', borderBottom: '1px solid #94a3b8', textAlign: 'right', whiteSpace: 'nowrap' };
   const tableTd: React.CSSProperties = { padding: '6px 10px', fontSize: 12.5, color: '#111827', borderBottom: '1px solid #e2e8f0', whiteSpace: 'nowrap' };
   const tableNum: React.CSSProperties = { ...tableTd, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums' };
-  const condTotalNote = condInTotal
+  const condTotalNote = liqMode
+    ? 'اللكوديشن = مبيعات المندوبين المؤكدة + ميركاتو بأسمائهم، والمكرر بينهما يُحسب مرة واحدة.'
+    : condInTotal
     ? 'مبيع المحافظة الكلي يشمل اللكوديشن (ملفه مفعّل ضمن الملفات النشطة).'
     : 'مبيع المحافظة الكلي من الملفات النشطة — ملف اللكوديشن غير مفعّل بينها فلا يدخل ضمنه.';
   const condPctCell = (p: number, show: boolean) => (

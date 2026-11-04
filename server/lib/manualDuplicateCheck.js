@@ -369,6 +369,9 @@ export async function checkManualDuplicates({ rows, target = {}, userId, receive
   return out;
 }
 
+/** مطابقة الحقول نفسها لمنع تكرار مبيعات المندوبين مع ميركاتو (lib/repLiquidation.js). */
+export const matchHelpers = { realInvoice, pharmKey, areaKey, whKey, namesMatch, dayOf };
+
 /** للاختبار فقط (scripts/test-manual-duplicates.mjs). */
 export const __test = { compareOrder, buildIncomingOrder, realInvoice, pharmKey, areaKey, dayOf, whKey };
 

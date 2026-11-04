@@ -34,14 +34,31 @@ export function aggregateProvinceSales(sales, { provinceOfArea, homeProvinceOf, 
   return [...out.values()];
 }
 
-/** شرط saleDate من معاملات التقارير: شهر YYYY-MM، أو من/إلى. */
-export function saleDateRange({ month, startDate, endDate } = {}) {
-  if (/^\d{4}-\d{2}$/.test(String(month ?? ''))) {
-    const [y, m] = String(month).split('-').map(Number);
-    return { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) };
+/**
+ * صافي صفوف ميركاتو لكل محافظة وشركة، بعمود usd مستقل عن value: قيمها بعملة ملفها فتُوحَّد
+ * بالدولار كبقية التقارير، بينما value بالدينار من أسعار الكتالوج. الإرجاع يُطرح.
+ *
+ * @param {Array<{itemId:number|null, recordType?:string}>} rows
+ * @param {object} ctx
+ * @param {(row:object)=>string|null} ctx.provinceOf
+ * @param {(row:object)=>number} ctx.usdOf
+ * @param {(itemId:number|null)=>string|null} ctx.teamOfItem
+ * @param {(itemId:number|null)=>boolean} [ctx.allowItem]
+ * @param {Array<{province:string, company:string|null, kind:string, value:number}>} [base] صفوف مبيعات المندوبين تُضاف إليها
+ * @returns {{province:string, company:string|null, kind:string, value:number, usd:number}[]}
+ */
+export function addMercatoToProvinces(rows, { provinceOf, usdOf, teamOfItem, allowItem = () => true }, base = []) {
+  const out = new Map(base.map(r => [`${r.province}|${r.company ?? ''}|${r.kind}`, { ...r, usd: 0 }]));
+  for (const row of rows) {
+    if (!allowItem(row.itemId)) continue;
+    const province = provinceOf(row);
+    if (!province) continue;
+    const company = teamOfItem(row.itemId);
+    const key = `${province}|${company ?? ''}|scientific`;
+    const cell = out.get(key) ?? { province, company, kind: 'scientific', value: 0, usd: 0 };
+    const sign = String(row.recordType ?? '').trim().toLowerCase() === 'return' ? -1 : 1;
+    cell.usd += sign * usdOf(row);
+    out.set(key, cell);
   }
-  const range = {};
-  if (startDate) range.gte = new Date(`${String(startDate).slice(0, 10)}T00:00:00Z`);
-  if (endDate) range.lte = new Date(`${String(endDate).slice(0, 10)}T23:59:59Z`);
-  return Object.keys(range).length ? range : null;
+  return [...out.values()];
 }

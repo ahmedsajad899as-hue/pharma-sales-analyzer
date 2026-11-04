@@ -1600,6 +1600,8 @@ app.get('/api/export/raw-sales', async (req, res) => {
         recordType: recordType || null,
         excludePharmacy: req.query.excludePharmacy === '1',
         excludeCommercial: req.query.excludeCommercial === '1',
+        liquidation: req.query.liquidation === '1',
+        iqdRate: req.query.iqdRate,
       }, req.user?.id ?? null);
       return res.json({ success: true, data: sales });
     }

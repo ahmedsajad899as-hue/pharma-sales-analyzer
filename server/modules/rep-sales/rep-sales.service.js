@@ -4,8 +4,8 @@
 // المندوب يسجّل مبيعه اليومي: مؤكد مباشرةً، أو طلبية غير مؤكدة تبقى معلّقة حتى يؤكدها
 // بالأرقام نفسها أو بصورة الفاتورة. مديره يرى ما سُجّل بنفس نطاق «طلبيات المذاخر».
 //
-// **لا يُكتب في Sale ولا يدخل التقارير** — ملفات الإكسل تحتسب المبيع نفسه لاحقاً.
-// الاستثناء الوحيد قراءةً: المؤكد منه يُضاف لحقل اللكوديشن في «مندوبين المحافظات» (provinceSummary).
+// **لا يُكتب في Sale** — ملفات الإكسل تحتسب المبيع نفسه لاحقاً. يُقرأ منه المؤكد فقط لمبيع المندوب
+// في «مندوبين المحافظات»: عمود اللكوديشن (provinceSummary) وتقرير المندوب (lib/repLiquidation.js).
 // ════════════════════════════════════════════════════════════════════════════
 
 import fs from 'fs';
@@ -18,7 +18,11 @@ import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { loadManagerSeat, loadSeatManagers } from '../../lib/provinceSeats.js';
-import { aggregateProvinceSales, saleDateRange } from '../../lib/repSalesProvince.js';
+import { aggregateProvinceSales, addMercatoToProvinces } from '../../lib/repSalesProvince.js';
+import { dateRangeWhere, dropBlockedLines, dropLinesFoundInMercato, isInDateRange, widenDateRange } from '../../lib/repLiquidation.js';
+import { monthToRange } from '../../lib/salesMonths.js';
+import { saleValueUSD } from '../sales/sales.repository.js';
+import { loadLiquidationMercatoRows } from '../scientific-reps/scientific-reps.service.js';
 import { buildLines, cleanText, loadViewer, orderScopeWhere, parseDay, teamUserIds } from '../rep-orders/rep-orders.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -181,31 +185,73 @@ export async function suggestions(reqUser) {
   };
 }
 
+/** حسابات المندوبين ضمن نطاق المُشاهِد: نفس orderScopeWhere مكتوباً على User. */
+function userScopeWhere(scope, seat) {
+  if (!scope.OR) return {};
+  return {
+    OR: [
+      ...scope.OR.map(c => (c.createdById ? { id: c.createdById } : { officeId: c.officeId })),
+      ...(seat ? [{ officeId: seat.officeId }] : []),
+    ],
+  };
+}
+
 /**
- * المبيع المؤكد لكل محافظة وشركة ونوع مندوب — يُضاف لحقل اللكوديشن في «مندوبين المحافظات».
+ * حقل اللكوديشن في «مندوبين المحافظات» لكل محافظة وشركة ونوع مندوب.
+ * بملفات نشطة (عرض العلميين): المؤكد + صفوف ميركاتو بأسماء العلميين، وسطر موجود في ميركاتو لا
+ * يُحسب مرتين. بلا ملفات (عرض المسوقين): المؤكد وحده.
  * مدير الشركة: كل مبيع مكتبه على ايتماته، أياً كان البائع، كما يُحسب مبيع المحافظة الذي يُقارَن به
  * (مندوبو الفرق والمسوقون كثيراً لا يتبعونه في UserManagerAssignment).
- * @param {{month?:string, startDate?:string, endDate?:string}} q
+ * @param {{month?:string, startDate?:string, endDate?:string, fileIds?:string}} q
  */
 export async function provinceSummary(reqUser, q = {}) {
   const viewer = await loadViewer(reqUser);
   const seat = viewer.role === 'company_manager' ? await loadManagerSeat(viewer.id) : null;
   const scope = await orderScopeWhere(viewer);
-  const dates = saleDateRange(q);
-  const sales = await prisma.repSale.findMany({
-    where: {
-      AND: [
-        seat ? { OR: [scope, { officeId: seat.officeId }] } : scope,
-        { status: 'confirmed' },
-        ...(dates ? [{ saleDate: dates }] : []),
-      ],
-    },
-    select: { createdById: true, areaName: true, lines: { select: { itemId: true, quantity: true, unitPrice: true } } },
-  });
-  if (!sales.length) return { rows: [] };
+  const fileIds = String(q.fileIds ?? '').split(',').map(Number).filter(n => n > 0);
+  const liquidation = fileIds.length > 0;
+  const monthRange = monthToRange(q.month);
+  const range = monthRange ?? { startDate: q.startDate, endDate: q.endDate };
+  const wide = liquidation ? { ...range, ...widenDateRange(range) } : range;
 
-  const repIds = [...new Set(sales.map(s => s.createdById))];
-  const itemIds = [...new Set(sales.flatMap(s => s.lines.map(l => l.itemId)).filter(Boolean))];
+  const [wideSales, mercato] = await Promise.all([
+    prisma.repSale.findMany({
+      where: {
+        AND: [
+          seat ? { OR: [scope, { officeId: seat.officeId }] } : scope,
+          { status: 'confirmed' },
+          dateRangeWhere(wide, 'saleDate'),
+        ],
+      },
+      select: {
+        id: true, createdById: true, saleDate: true, pharmacyName: true, areaName: true, warehouseName: true, invoiceNumber: true,
+        lines: { select: { id: true, itemId: true, itemName: true, quantity: true, bonusQty: true, unitPrice: true } },
+      },
+    }),
+    liquidation
+      ? loadLiquidationMercatoRows({ fileIds, range: wide, userWhere: userScopeWhere(scope, seat), viewerId: viewer.id })
+      : { rows: [], users: [], blocks: null },
+  ]);
+
+  // كل حساب يُقارَن بصفوف اسمه هو. الحسابان بالاسم نفسه يتشاركان used فلا يُسقط صف سطرين.
+  const repIdByUser = new Map(mercato.users.map(u => [u.id, u.linkedRepId]));
+  const scientific = liquidation ? dropBlockedLines(wideSales.filter(s => repIdByUser.has(s.createdById)), mercato.blocks) : [];
+  const others = wideSales.filter(s => !repIdByUser.has(s.createdById));
+  const used = new Set();
+  const unique = [];
+  for (const repId of new Set(scientific.map(s => repIdByUser.get(s.createdById)))) {
+    const own = scientific.filter(s => repIdByUser.get(s.createdById) === repId);
+    unique.push(...dropLinesFoundInMercato(own, mercato.rows.filter(r => r.repIds.includes(repId)), used).sales);
+  }
+  const sales = [...unique, ...others].filter(s => isInDateRange(s.saleDate, range));
+  const mercatoRows = mercato.rows.filter(r => isInDateRange(r.saleDate, range));
+  if (!sales.length && !mercatoRows.length) return { rows: [] };
+
+  // صف ميركاتو بلا محافظة منطقة يرجع لمحافظة مندوبه، كمبيع المندوب تماماً.
+  const userByRep = new Map(mercato.users.map(u => [u.linkedRepId, u.id]));
+  const ownerOfRow = (row) => userByRep.get(row.repIds[0]);
+  const repIds = [...new Set([...sales.map(s => s.createdById), ...mercatoRows.filter(r => !r.area?.province?.name).map(ownerOfRow)])];
+  const itemIds = [...new Set([...sales.flatMap(s => s.lines.map(l => l.itemId)), ...mercatoRows.map(r => r.itemId)].filter(Boolean))];
   const [locations, areaIndex, users, items, seats, ownItems] = await Promise.all([
     loadRepLocations(repIds),
     provinceByAreaName(),
@@ -222,18 +268,27 @@ export async function provinceSummary(reqUser, q = {}) {
   const wholeCompanySeats = new Map(seats.filter(s => !s.items.length).map(s => [s.companyId, s.companyName]));
   const kindByUser = new Map(users.map(u => [u.id, u.linkedRep?.repKind === 'pharmacy' ? 'pharmacy' : 'scientific']));
   const ownSet = ownItems ? new Set(ownItems) : null;
+  // مندوب بمحافظتين: «البصرة، ميسان» — الأولى ملاذ حين لا تُعرف منطقة المبيع
+  const homeProvinceOf = (id) => locations.get(id)?.province?.split('،')[0].trim() || null;
+  const teamOfItem = (id) => (id ? teamByItem.get(id) ?? wholeCompanySeats.get(companyOfItem.get(id)) ?? null : null);
+  const allowItem = seat
+    ? (id) => (ownSet ? ownSet.has(id) : companyOfItem.get(id) === seat.companyId)
+    : undefined;
 
+  const repSaleRows = aggregateProvinceSales(sales, {
+    provinceOfArea: (name) => (name ? areaIndex.get(normalizeAreaName(name))?.province ?? null : null),
+    homeProvinceOf,
+    kindOf: (id) => kindByUser.get(id) ?? 'scientific',
+    teamOfItem,
+    allowItem,
+  });
   return {
-    rows: aggregateProvinceSales(sales, {
-      provinceOfArea: (name) => (name ? areaIndex.get(normalizeAreaName(name))?.province ?? null : null),
-      // مندوب بمحافظتين: «البصرة، ميسان» — الأولى ملاذ حين لا تُعرف منطقة المبيع
-      homeProvinceOf: (id) => locations.get(id)?.province?.split('،')[0].trim() || null,
-      kindOf: (id) => kindByUser.get(id) ?? 'scientific',
-      teamOfItem: (id) => (id ? teamByItem.get(id) ?? wholeCompanySeats.get(companyOfItem.get(id)) ?? null : null),
-      allowItem: seat
-        ? (id) => (ownSet ? ownSet.has(id) : companyOfItem.get(id) === seat.companyId)
-        : undefined,
-    }),
+    rows: addMercatoToProvinces(mercatoRows, {
+      provinceOf: (row) => row.area?.province?.name ?? homeProvinceOf(ownerOfRow(row)),
+      usdOf: saleValueUSD,
+      teamOfItem,
+      allowItem,
+    }, repSaleRows),
   };
 }
 

@@ -402,6 +402,8 @@ export async function getRepReport(req, res, next) {
       recordType: req.query.recordType || null,
       excludePharmacy: req.query.excludePharmacy === '1', // «بدون الفارمسي»
       excludeCommercial: req.query.excludeCommercial === '1', // «بدون التجاري»
+      liquidation: req.query.liquidation === '1', // تقرير «مندوبين المحافظات»: مبيعات مؤكدة + ميركاتو باسمه
+      iqdRate: req.query.iqdRate,
     };
     const report = await svc.getReport(id, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data: report });

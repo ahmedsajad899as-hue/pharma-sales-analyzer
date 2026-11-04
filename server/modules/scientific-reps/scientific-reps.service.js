@@ -11,6 +11,9 @@ import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
 import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
 import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
+import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { dedupCrossFile } from '../../lib/crossFileDedup.js';
+import { dateRangeWhere, dropBlockedLines, dropLinesFoundInMercato, isInDateRange, isPureMercatoRow, repSaleToRows, widenDateRange } from '../../lib/repLiquidation.js';
 import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -1141,6 +1144,34 @@ async function resolvePharmacyMembers(rep) {
   }));
 }
 
+/**
+ * مالكو قوائم الحجب المطبَّقة على ما يراه المُشاهِد. حالتان تُجمعان بالنتيجة (Union):
+ *  1) حجب المُشاهِد نفسه يُطبَّق دائماً على ما يراه هو (بمفتاحه الشخصي وحده، بلا توسيع
+ *     بالشركة) — سواء كان الملف النشط ملكه هو، أو ملف موظف مكتب مُشارَك، أو حتى ملف مدير
+ *     حقيقي آخر شارَكه معه (مثال: مدير المكتب يحجب مندوباً تجارياً من صفحة المندوبين
+ *     العلميين، فيختفي من كل تقارير العلميين/التيم ليدر التي يراها، رغم أن الملفات الفعلية
+ *     يرفعها مدراء الشركات لا هو). بلا هذا لا يتطابق أي userId أبداً لحسابه ويبقى حجبه
+ *     محفوظاً بلا أثر — وهذا بالضبط الخلل المُبلَّغ عنه.
+ *  2) ملف مدير حقيقي آخر شارَكه مع المُشاهِد → حجب ذلك المالك وزملائه بالشركة أيضاً
+ *     (التصميم الأصلي: مدير يفرض حجبه على من يشارك الملف معه)، عدا موظف المكتب (مُعيَّن
+ *     عمداً على كل شركات النظام، فتوسيعه يُرجع كل مدراء التطبيق تقريباً) الذي يُطبَّق حجبه
+ *     هو فقط دون توسيع.
+ * @param {Array<{userId:number, user:{role:string}|null}>} fileOwners
+ */
+async function blockOwnerIds(fileOwners, viewerId) {
+  const otherManagerOwnerIds = [...new Set(
+    fileOwners
+      .filter(f => f.userId !== viewerId && f.user?.role !== 'office_employee')
+      .map(f => f.userId)
+      .filter(Boolean),
+  )];
+  const expandedOtherIds = await expandOwnerIdsByCompany(otherManagerOwnerIds);
+  return [...new Set([
+    ...expandedOtherIds,
+    ...(viewerId ? [viewerId] : []),
+  ])];
+}
+
 async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   const rep = await assertExists(id);
   const pharmacyMode = isPharmacyRep(rep);
@@ -1291,29 +1322,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       where: { id: { in: fileIds } },
       select: { userId: true, user: { select: { role: true } } },
     });
-    // حالتان تُجمعان بالنتيجة (Union):
-    //  1) حجب المُشاهِد نفسه يُطبَّق دائماً على ما يراه هو (بمفتاحه الشخصي وحده،
-    //     بلا توسيع بالشركة) — سواء كان الملف النشط ملكه هو، أو ملف موظف مكتب
-    //     مُشارَك، أو حتى ملف مدير حقيقي آخر شارَكه معه (مثال: مدير المكتب يحجب
-    //     مندوباً تجارياً من صفحة المندوبين العلميين، فيختفي من كل تقارير
-    //     العلميين/التيم ليدر التي يراها، رغم أن الملفات الفعلية يرفعها مدراء
-    //     الشركات لا هو). بلا هذا لا يتطابق أي userId أبداً لحسابه ويبقى حجبه
-    //     محفوظاً بلا أثر — وهذا بالضبط الخلل المُبلَّغ عنه.
-    //  2) ملف مدير حقيقي آخر شارَكه مع المُشاهِد → حجب ذلك المالك وزملائه
-    //     بالشركة أيضاً (التصميم الأصلي: مدير يفرض حجبه على من يشارك الملف
-    //     معه)، عدا موظف المكتب (مُعيَّن عمداً على كل شركات النظام، فتوسيعه
-    //     يُرجع كل مدراء التطبيق تقريباً) الذي يُطبَّق حجبه هو فقط دون توسيع.
-    const otherManagerOwnerIds = [...new Set(
-      fileOwners
-        .filter(f => f.userId !== viewerId && f.user?.role !== 'office_employee')
-        .map(f => f.userId)
-        .filter(Boolean),
-    )];
-    const expandedOtherIds = await expandOwnerIdsByCompany(otherManagerOwnerIds);
-    const ownerIds = [...new Set([
-      ...expandedOtherIds,
-      ...(viewerId ? [viewerId] : []),
-    ])];
+    const ownerIds = await blockOwnerIds(fileOwners, viewerId);
     if (ownerIds.length > 0) {
       // Only apply block lists of owners who have blocking ENABLED (master switch)
       // AND the block row itself isn't temporarily paused (enabled=false).
@@ -1835,11 +1844,178 @@ export async function getReport(id, query = {}, viewerId = null) {
   const onlyItems = await managerItemsForProvinceRep(id, viewerId);
   const scoped = (rows) => (onlyItems ? rows.filter(s => onlyItems.has(s.itemId)) : rows);
   if (!query.excludePharmacy && !query.excludeCommercial) {
-    const resolved = await resolveSciRepSales(id, query, REPORT_SALES_SELECT, viewerId);
+    const resolved = await resolveReportSales(id, query, REPORT_SALES_SELECT, viewerId);
     return buildReport({ ...resolved, rawSales: scoped(resolved.rawSales) }, query);
   }
-  const resolved = await resolveSciRepSales(id, query, exclusionSelect(REPORT_SALES_SELECT), viewerId);
+  const resolved = await resolveReportSales(id, query, exclusionSelect(REPORT_SALES_SELECT), viewerId);
   return buildReport({ ...resolved, rawSales: scoped(await applySciExclusions(resolved.rawSales, resolved.fileIds, query, viewerId)) }, query);
+}
+
+// ── مبيعات المندوب العلمي (اللكوديشن) في «مندوبين المحافظات» — lib/repLiquidation.js ──
+
+/** query.liquidation: تقرير تبويب المحافظات للعلمي. المسوق يبقى على قواعده الخاصة. */
+async function resolveReportSales(id, query, select, viewerId) {
+  if (query.liquidation && !isPharmacyRep(await assertExists(id))) return resolveLiquidationSales(id, query, select, viewerId);
+  return resolveSciRepSales(id, query, select, viewerId);
+}
+
+/** حسابات المندوب + مندوبوه إن كان تيم ليدر، كما يضمّهم resolveSciRepSales في ميركاتو. */
+async function liquidationUserIds(repId) {
+  const own = await prisma.user.findMany({ where: { linkedRepId: repId }, select: { id: true, role: true } });
+  const leaderIds = own.filter(u => u.role === 'team_leader').map(u => u.id);
+  if (!leaderIds.length) return own.map(u => u.id);
+  const subs = await prisma.userManagerAssignment.findMany({
+    where: { managerId: { in: leaderIds }, user: { linkedRepId: { not: null } } }, select: { userId: true },
+  });
+  return [...new Set([...own.map(u => u.id), ...subs.map(s => s.userId)])];
+}
+
+/** قوائم الحجب التي تخصّ هذا المصدر: المنطقة والايتم والصيدلية، بالاسم المطبَّع. */
+async function loadLiquidationBlocks(fileIds, viewerId) {
+  const fileOwners = fileIds?.length
+    ? await prisma.uploadedFile.findMany({ where: { id: { in: fileIds } }, select: { userId: true, user: { select: { role: true } } } })
+    : [];
+  const ownerIds = await blockOwnerIds(fileOwners, viewerId);
+  const where = { userId: { in: ownerIds }, user: { blockingEnabled: true }, enabled: true };
+  const [areas, items, pharmacies] = ownerIds.length
+    ? await Promise.all([
+        prisma.blockedArea.findMany({ where, select: { name: true } }),
+        prisma.blockedItem.findMany({ where, select: { name: true } }),
+        prisma.blockedPharmacy.findMany({ where, select: { name: true } }),
+      ])
+    : [[], [], []];
+  const names = (rows) => new Set(rows.map(b => normalizeArabic(b.name)).filter(Boolean));
+  return { areas: names(areas), items: names(items), pharmacies: names(pharmacies) };
+}
+
+/**
+ * صفوف تقرير المندوب: ميركاتو باسمه (نفس نسبة resolveSciRepSales) + مبيعاته المؤكدة التي
+ * ليست في ميركاتو. صفوف ميركاتو تُجلب بنافذة أوسع للمطابقة فقط، ولا يُعرض منها إلا المدى المطلوب.
+ */
+async function resolveLiquidationSales(id, query, select, viewerId) {
+  const range = { startDate: query.startDate, endDate: query.endDate };
+  const wantsSales = query.recordType !== 'return';
+  const wide = wantsSales ? widenDateRange(range) : {};
+  const resolved = await resolveSciRepSales(id, { ...query, ...wide }, select, viewerId);
+  const mercatoRows = resolved.rawSales.filter(isPureMercatoRow);
+  const shownMercato = mercatoRows.filter(s => isInDateRange(s.saleDate, range));
+  if (!wantsSales) return { ...resolved, rawSales: shownMercato };
+
+  const userIds = await liquidationUserIds(id);
+  const repSales = userIds.length
+    ? await prisma.repSale.findMany({
+        where: { createdById: { in: userIds }, status: 'confirmed', ...dateRangeWhere({ ...range, ...wide }, 'saleDate') },
+        select: REP_SALE_SELECT,
+      })
+    : [];
+  const blocks = await loadLiquidationBlocks(query.fileIds, viewerId);
+  const { sales: unique, droppedLines } = dropLinesFoundInMercato(dropBlockedLines(repSales, blocks), mercatoRows);
+  const shownSales = unique.filter(s => isInDateRange(s.saleDate, range));
+  const repRows = await repSalesAsRows(shownSales, Number(query.iqdRate) > 0 ? Number(query.iqdRate) : 1470);
+  const shownIds = new Set(repSales.filter(s => isInDateRange(s.saleDate, range)).flatMap(s => s.lines.map(l => l.id)));
+  return {
+    ...resolved,
+    rawSales: [...shownMercato, ...repRows],
+    repSaleDuplicates: droppedLines.filter(lineId => shownIds.has(lineId)).length,
+  };
+}
+
+const REP_SALE_SELECT = {
+  id: true, createdById: true, saleDate: true, pharmacyName: true, areaName: true, warehouseName: true, invoiceNumber: true,
+  lines: { select: { id: true, itemId: true, itemName: true, companyName: true, quantity: true, bonusQty: true, unitPrice: true } },
+};
+
+/** صفوف بشكل Sale لمبيعات مؤكدة: المنطقة والايتم من الكتالوج، ومنطقة/ايتم حر يبقى باسمه. */
+async function repSalesAsRows(sales, iqdRate) {
+  if (!sales.length) return [];
+  const itemIds = [...new Set(sales.flatMap(s => s.lines.map(l => l.itemId)).filter(Boolean))];
+  const [areas, items, users] = await Promise.all([
+    prisma.area.findMany({ select: { id: true, name: true, province: { select: { name: true } } }, orderBy: { id: 'asc' } }),
+    prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true, name: true, company: { select: { name: true } }, scientificCompany: { select: { name: true } } } }),
+    prisma.user.findMany({ where: { id: { in: [...new Set(sales.map(s => s.createdById))] } }, select: { id: true, displayName: true, username: true } }),
+  ]);
+  // الاسم نفسه قد يتكرر بصفوف Area: الأولى التي لها محافظة تغلب.
+  const areaByName = new Map();
+  for (const a of areas) {
+    const k = normalizeAreaName(a.name);
+    const cur = areaByName.get(k);
+    if (!cur || (!cur.province && a.province)) areaByName.set(k, a);
+  }
+  const itemById = new Map(items.map(i => [i.id, i]));
+  const nameByUser = new Map(users.map(u => [u.id, u.displayName || u.username]));
+  return sales.flatMap(sale => repSaleToRows(sale, {
+    repName: nameByUser.get(sale.createdById) ?? '—',
+    iqdRate,
+    areaOf: (name) => areaByName.get(normalizeAreaName(name ?? '')) ?? { id: `free:${name ?? ''}`, name: name || 'غير محدد', province: null },
+    itemOf: (line) => itemById.get(line.itemId) ?? { id: `free:${line.itemName}`, name: line.itemName },
+  }));
+}
+
+/**
+ * صفوف ميركاتو لعمود اللكوديشن: كل صف باسم مندوب علمي ضمن userWhere، وبايتم من ايتماته — نفس
+ * نسبة التقرير دون تحميله لكل مندوب، فالتحميل لكل مندوب يكلّف أكثر من نصف ثانية لكلٍّ منهم.
+ * @param {{fileIds:number[], range:object, userWhere:object, viewerId:number}} p
+ * @returns {Promise<{rows:Array, users:Array, blocks:object}>} rows[i].repIds = مندوبو الصف
+ */
+export async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId }) {
+  const blocks = await loadLiquidationBlocks(fileIds, viewerId);
+  const [files, candidates] = await Promise.all([
+    prisma.uploadedFile.findMany({ where: { id: { in: fileIds }, sourceSystem: 'mercato' }, select: { id: true } }),
+    prisma.user.findMany({
+      where: { AND: [userWhere, { linkedRepId: { not: null } }] },
+      select: { id: true, linkedRepId: true, linkedRep: { select: { name: true, repKind: true } } },
+    }),
+  ]);
+  const users = candidates.filter(u => u.linkedRep && u.linkedRep.repKind !== PHARMACY_KIND);
+  if (!files.length || !users.length) return { rows: [], users, blocks };
+
+  const repIds = [...new Set(users.map(u => u.linkedRepId))];
+  const links = await prisma.sciRepNameLink.findMany({ where: { scientificRepId: { in: repIds } }, select: { fromKey: true, scientificRepId: true } });
+  const repsByName = new Map();
+  const addName = (key, repId) => { if (key) { if (!repsByName.has(key)) repsByName.set(key, new Set()); repsByName.get(key).add(repId); } };
+  for (const u of users) addName(normalizeRepName(u.linkedRep.name), u.linkedRepId);
+  for (const l of links) addName(l.fromKey, l.scientificRepId);
+
+  const sales = await prisma.sale.findMany({
+    where: { uploadedFileId: { in: files.map(f => f.id) }, isHidden: false, ...dateRangeWhere(range, 'saleDate') },
+    select: {
+      quantity: true, totalValue: true, recordType: true, saleDate: true, rawData: true, itemId: true, areaId: true, uploadedFileId: true,
+      area: { select: { id: true, name: true, province: { select: { name: true } } } },
+      item: { select: { id: true, name: true } },
+      representative: { select: { name: true } },
+      customer: { select: { name: true } },
+      uploadedFile: { select: { detectedCurrency: true, exchangeRate: true, sourceSystem: true, mergeGroup: true } },
+    },
+  });
+  const excludeWarehouse = viewerId ? await getExcludeWarehouseSales(viewerId) : true;
+  const named = sales.filter(s => isPureMercatoRow(s)
+    && repsByName.has(normalizeRepName(s.representative?.name ?? ''))
+    && !blocks.areas.has(normalizeArabic(s.area?.name ?? ''))
+    && !blocks.items.has(normalizeArabic(s.item?.name ?? ''))
+    && !blocks.pharmacies.has(normalizeArabic(s.customer?.name ?? ''))
+    && !(excludeWarehouse && isWarehouseSaleRow(s.rawData)));
+  // نفس مفتاح التكرار بين الملفات المتداخلة في resolveSciRepSales.
+  const unique = dedupCrossFile(named, s => [
+    normalizeArabic(s.representative?.name ?? ''), s.areaId, normalizeArabic(s.item?.name ?? ''),
+    s.customer ? normalizeArabic(s.customer.name) : 'no-customer',
+    s.saleDate ? new Date(s.saleDate).toISOString().slice(0, 10) : 'nodate', s.quantity, s.recordType || 'sale',
+  ].join('|'));
+
+  // حسابان بالاسم نفسه (حساب لكل شركة) تفصلهما الايتمات، كما في التقرير.
+  const repsInRows = new Set(unique.flatMap(s => [...repsByName.get(normalizeRepName(s.representative?.name ?? ''))]));
+  const itemsByRep = new Map();
+  for (const repId of repsInRows) {
+    const repUsers = users.filter(u => u.linkedRepId === repId).map(u => ({ id: u.id }));
+    const { itemIds } = await resolveSciRepItemIds(repId, repUsers);
+    itemsByRep.set(repId, itemIds?.length ? new Set(itemIds) : null);
+  }
+  const rows = [];
+  for (const s of unique) {
+    const owners = [...repsByName.get(normalizeRepName(s.representative?.name ?? ''))]
+      .filter(repId => !itemsByRep.get(repId) || itemsByRep.get(repId).has(s.itemId));
+    if (owners.length) rows.push({ ...s, repIds: owners });
+  }
+  return { rows, users, blocks };
 }
 
 // ── «بدون الفارمسي» / «بدون التجاري» ─────────────────────────────────────────
@@ -1956,7 +2132,8 @@ async function buildReport(resolved, query) {
     if (linkedUserRow) displayName = linkedUserRow.displayName || linkedUserRow.username;
   }
 
-  if (!fileIds || fileIds.length === 0) {
+  // تقرير اللكوديشن قد يحوي مبيعات مؤكدة بلا أي ملف مفعّل.
+  if ((!fileIds || fileIds.length === 0) && rawSales.length === 0) {
     return {
       scientificRep: { id: rep.id, name: displayName, isActive: rep.isActive },
       assignedCommercialReps: commercialLinks.map(l => l.commercialRep),
@@ -2084,6 +2261,7 @@ async function buildReport(resolved, query) {
     byCustomerClass,
     byItemTier,
     warehouses,
+    repSaleDuplicates: resolved.repSaleDuplicates ?? 0,
     _debug: {
       fileIds,
       sharedFileIds: resolved.sharedFileIds,
@@ -2288,7 +2466,7 @@ const EXPORT_SALES_SELECT = {
  * export totals always match the on-screen report's totals.
  */
 export async function getRawSalesForExport(id, query = {}, viewerId = null) {
-  const { rawSales, fileIds } = await resolveSciRepSales(id, query, exclusionSelect(EXPORT_SALES_SELECT), viewerId);
+  const { rawSales, fileIds } = await resolveReportSales(id, query, exclusionSelect(EXPORT_SALES_SELECT), viewerId);
   const rows = await applySciExclusions(rawSales.filter(s => !s.tierUncounted), fileIds, query, viewerId);
   // نفس نطاق getReport: التصدير يطابق ما على الشاشة
   const onlyItems = await managerItemsForProvinceRep(id, viewerId);

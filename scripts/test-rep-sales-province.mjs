@@ -1,6 +1,6 @@
 // توزيع مبيع «مبيعات المندوبين» المؤكد على المحافظات — npm run test:rep-sales-province
 import assert from 'node:assert/strict';
-import { aggregateProvinceSales, saleDateRange } from '../server/lib/repSalesProvince.js';
+import { aggregateProvinceSales, addMercatoToProvinces } from '../server/lib/repSalesProvince.js';
 
 const ctx = {
   provinceOfArea: (a) => ({ 'حي الحسين': 'كربلاء', 'الكرادة': 'بغداد' })[a] ?? null,
@@ -28,12 +28,15 @@ assert.deepEqual(
   'مدير الشركة: ايتماته فقط',
 );
 
-const oct = saleDateRange({ month: '2026-10' });
-assert.equal(oct.gte.toISOString(), '2026-10-01T00:00:00.000Z');
-assert.equal(oct.lt.toISOString(), '2026-11-01T00:00:00.000Z');
-assert.equal(saleDateRange({ month: '2026-12' }).lt.toISOString(), '2027-01-01T00:00:00.000Z', 'نهاية السنة');
-assert.equal(saleDateRange({ month: 'all' }), null, '«الكل» بلا تقييد');
-assert.equal(saleDateRange({}), null);
-assert.equal(saleDateRange({ startDate: '2026-10-05' }).gte.toISOString(), '2026-10-05T00:00:00.000Z');
+// ── ميركاتو فوق مبيعات المندوبين ──
+const mctx = { provinceOf: (r) => r.province ?? null, usdOf: (r) => r.usd, teamOfItem: ctx.teamOfItem };
+assert.deepEqual(
+  addMercatoToProvinces([{ itemId: 10, province: 'كربلاء', usd: 5 }, { itemId: 10, province: 'كربلاء', usd: 2, recordType: 'return' }], mctx, [{ province: 'كربلاء', company: 'Deva', kind: 'scientific', value: 1000 }]),
+  [{ province: 'كربلاء', company: 'Deva', kind: 'scientific', value: 1000, usd: 3 }],
+  'تُضاف للخلية نفسها، والإرجاع يُطرح، والعملتان منفصلتان',
+);
+assert.deepEqual(addMercatoToProvinces([{ itemId: 10, usd: 5 }], mctx), [], 'بلا محافظة لا يُنسب');
+assert.deepEqual(addMercatoToProvinces([{ itemId: 10, province: 'كربلاء', usd: 5 }], { ...mctx, allowItem: (i) => i === 11 }), [], 'مدير الشركة: ايتماته فقط');
+assert.equal(addMercatoToProvinces([], mctx, [{ province: 'كربلاء', company: null, kind: 'pharmacy', value: 9 }])[0].kind, 'pharmacy', 'صفوف المسوق تبقى كما هي');
 
 console.log('✓ rep-sales-province');
