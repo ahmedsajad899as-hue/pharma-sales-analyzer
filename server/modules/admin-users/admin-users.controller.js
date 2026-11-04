@@ -13,6 +13,7 @@ import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeS
 import { shareOfficeFilesWithNewUser } from '../../lib/officeFileShares.js';
 import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
 import { loadSeatManagers } from '../../lib/provinceSeats.js';
+import { newUserPermissions } from '../../lib/newUserFeatures.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
 import { assignmentFillsSeat } from '../province-teams/province-teams.rules.js';
 import { resolveUserItemTiers, SECONDARY_MODES, TIER_MAIN, TIER_SECONDARY, DEFAULT_SECONDARY_MODE } from '../../lib/itemTiers.js';
@@ -192,13 +193,10 @@ export async function getUserPassword(req, res) {
 }
 
 // ── Create user ───────────────────────────────────────────────────────────
-// Features disabled by default for every new user — master admin can re-enable them
-export const DEFAULT_DISABLED_FEATURES = ['rep_analysis', 'sales_data', 'distributor_sales', 'users_list'];
-
 // Shared with the bulk-import path (admin-users-import.js) so both single-create
 // and bulk-create apply the exact same default permission set.
 export function buildDefaultPermissions(customPermissions) {
-  const defaultPerms = { disabledFeatures: DEFAULT_DISABLED_FEATURES, requireGps: true };
+  const defaultPerms = newUserPermissions();
   return customPermissions ? { ...defaultPerms, ...customPermissions } : defaultPerms;
 }
 

@@ -1,5 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import bcrypt from 'bcryptjs';
+import { newUserPermissions } from '../../lib/newUserFeatures.js';
 
 export async function listUsers() {
   return prisma.user.findMany({
@@ -15,7 +16,7 @@ export async function listUsers() {
 export async function createUser(username, password, role = 'user', linkedRepId = null) {
   const passwordHash = await bcrypt.hash(password, 10);
   return prisma.user.create({
-    data:   { username, passwordHash, role, ...(linkedRepId ? { linkedRepId: parseInt(linkedRepId) } : {}) },
+    data:   { username, passwordHash, role, permissions: JSON.stringify(newUserPermissions()), ...(linkedRepId ? { linkedRepId: parseInt(linkedRepId) } : {}) },
     select: {
       id: true, username: true, role: true, isActive: true, createdAt: true,
       linkedRepId: true,
