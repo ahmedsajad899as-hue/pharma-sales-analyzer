@@ -21,7 +21,7 @@ import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from
 import { normalizeRepName, repNameScore } from '../modules/scientific-reps/scientific-reps.service.js';
 import { nameTokens, MIN_SOLO_NAME_LEN } from './repNameMatch.js';
 import { similarity } from './fuzzyMatch.js';
-import { provinceMemberUserIds } from './provinceScope.js';
+import { provinceMemberUserIds, provinceAreaIdsByUser } from './provinceScope.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // مطابقة أسماء الأطباء — مشتركة بين استيراد زيارات الأطباء (doctor-visits-
@@ -438,11 +438,14 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     // فارغ لهذه الأدوار، فتظهر شركة واحدة فقط (أياً كانت الصدفة) بدل كل شركات
     // المكتب ومندوبيها معاً.
     const companyIds = await getRosterCompanyIds(user);
+    // عرض المحافظات يضمّ قادة فرقها (المدير العلمي للمحافظة يزور فعلاً) — خلافاً لقادة
+    // بغداد الذين لا يُحسبون لهذه الأدوار (راجع excludedManagementRoles).
+    const hiddenRoles = [...MANAGEMENT_ROLES, 'product_manager'].filter(r => !(provinceScope === 'province' && r === 'team_leader'));
     const subUsers = (companyIds.length ? await prisma.user.findMany({
       where: {
         isActive: true,
         companyAssignments: { some: { companyId: { in: companyIds } } },
-        role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] },
+        role: { notIn: hiddenRoles },
       },
       select: { id: true, linkedRepId: true },
     }) : []).filter(u => inScope(u.id));
@@ -490,6 +493,11 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
     }) : [];
     ownerDoctorAreas.forEach(d => ids.add(d.areaId));
   }
+
+  // سيرفي المحافظة يُبنى من الزيارات (provinceVisitSurvey.js): كل مناطق محافظة العضو
+  // في نطاقه، ولو لم تُعيَّن له منطقة بعينها — وإلا اختفت زياراته عن الشاشة.
+  const scopeUsers = [...new Set([...memberUserIds, repUserId].filter(Boolean))];
+  for (const list of (await provinceAreaIdsByUser(scopeUsers)).values()) list.forEach(id => ids.add(id));
 
   const areaIds = [...ids].filter(Boolean);
   const areaRecords = areaIds.length

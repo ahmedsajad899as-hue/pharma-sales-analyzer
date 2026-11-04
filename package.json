@@ -26,6 +26,7 @@
     "test:pharmacy-key": "node scripts/test-pharmacy-key.mjs",
     "test:rep-followup": "node scripts/test-rep-followup.mjs",
     "test:province-teams": "node scripts/test-province-teams.mjs",
+    "test:province-survey": "node scripts/test-province-visit-survey.mjs",
     "test:new-user-features": "node scripts/test-new-user-features.mjs",
     "test:rep-location": "node scripts/test-rep-location.mjs",
     "test:rep-sales-province": "node scripts/test-rep-sales-province.mjs",

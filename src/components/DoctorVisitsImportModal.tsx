@@ -51,6 +51,8 @@ interface DoctorRow {
   pharmacyFromAI?: boolean;
   // قيَم الملف قبل تبنّي هوية الطبيب المسجَّل في التطبيق — للاطلاع فقط (tooltip)
   rawDoctorName?: string; rawSpecialty?: string; rawAreaName?: string; rawPharmacyName?: string;
+  // عنوان الملف الخام، وهل الزبون في بغداد بنص الملف — لتمييز صفوف سيرفي المحافظات
+  rawAreaText?: string; clientCity?: string; baghdadClient?: boolean;
   specialty: string; areaName: string; areaId: number | null;
   pharmacyName: string;
   itemName: string; itemId: number | null;
@@ -64,6 +66,7 @@ interface PharmacyRow {
   _row: number;
   repName: string; repId: number | null;
   pharmacyName: string;
+  rawAreaText?: string; clientCity?: string; baghdadClient?: boolean;
   areaName: string; areaId: number | null;
   itemName: string; itemId: number | null; // مستخرَجان من حقل note (يُحفظان كـ PharmacyVisitItem)
   rawItemName?: string;
@@ -120,8 +123,22 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
   const [rememberDoctorChoices, setRememberDoctorChoices] = useState(true);
   // أسماء ايتمات كتالوج الشركة (من الخادم) — اقتراحات خانة الايتم لما لم يُطابَق تلقائياً
   const [itemOptions, setItemOptions] = useState<string[]>([]);
+  // مندوبو المحافظات: زياراتهم بلا مطابقة أطباء، تبني سيرفي المنطقة عند الحفظ
+  const [provinceRepIds, setProvinceRepIds] = useState<number[]>([]);
 
   const totalRows = docRows.length + pharmRows.length;
+
+  const provinceRepSet = useMemo(() => new Set(provinceRepIds), [provinceRepIds]);
+  const isProvinceRow = (r: { repId: number | null; baghdadClient?: boolean }) =>
+    !!r.repId && provinceRepSet.has(r.repId) && !r.baghdadClient;
+  const provinceRowCount = docRows.filter(isProvinceRow).length + pharmRows.filter(isProvinceRow).length;
+  // سؤال طبيب كل صفوفه صارت لمندوبي محافظات (بعد مطابقة المندوب) لا معنى له
+  const visiblePendingDoctors = useMemo(
+    () => pendingDoctorNames.filter(e => docRows.some(r => r.doctorKey === e.key && !isProvinceRow(r))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pendingDoctorNames, docRows, provinceRepSet],
+  );
+  const doctorGateOpen = visiblePendingDoctors.length > 0 && !doctorNamesApplied;
 
   /** يبني ملف إكسل نموذجي بالأعمدة والصيغة المتوقّعة + صفوف مثال + ورقة تعليمات. */
   const downloadTemplate = () => {
@@ -191,6 +208,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
     setDoctorChoice(d.doctorChoice ?? {});
     setDoctorNamesApplied(!!d.doctorNamesApplied);
     setItemOptions(d.itemOptions ?? []);
+    setProvinceRepIds(d.provinceRepIds ?? []);
     setRememberChoices(d.rememberChoices ?? true);
     setRememberDoctorChoices(d.rememberDoctorChoices ?? true);
     setInfo(d.info ?? '');
@@ -208,7 +226,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
           savedAt: Date.now(), fileName, docRows, pharmRows, gridTab, reps,
           pendingNames, unrelatedNames, nameChoice, nameApplied,
           pendingDoctorNames, doctorChoice, doctorNamesApplied,
-          itemOptions, rememberChoices, rememberDoctorChoices, info,
+          itemOptions, provinceRepIds, rememberChoices, rememberDoctorChoices, info,
         }));
         setDraftSavedAt(Date.now());
       } catch { /* تخزين المتصفّح ممتلئ — المسودة ترف لا شرط لعمل الاستيراد */ }
@@ -216,7 +234,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
     return () => clearTimeout(t);
   }, [totalRows, fileName, docRows, pharmRows, gridTab, reps, pendingNames, unrelatedNames,
       nameChoice, nameApplied, pendingDoctorNames, doctorChoice, doctorNamesApplied,
-      itemOptions, rememberChoices, rememberDoctorChoices, info]);
+      itemOptions, provinceRepIds, rememberChoices, rememberDoctorChoices, info]);
 
   /** يملأ كل حالات المراجعة من ناتج extractVisitsFromExcel — مشترك بين رفع
    * ملف جديد (import-extract) وتحميل ملف معلَّق جاهز مسبقاً (initialData). */
@@ -231,6 +249,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
     setUnrelatedNames(data.repNames?.unrelated ?? []);
     setPendingDoctorNames(data.doctorNames?.pending ?? []);
     setItemOptions(Array.isArray(data.itemOptions) ? data.itemOptions : []);
+    setProvinceRepIds(Array.isArray(data.provinceRepIds) ? data.provinceRepIds : []);
     if (dRows.length === 0 && pRows.length === 0) {
       setInfo('لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب (أو أنه بصيغة معروفة).');
     } else if (dRows.length > 0) {
@@ -304,18 +323,31 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
       if (!c) continue;
       choiceByKey.set(e.key, c === 'none' ? null : Number(c));
     }
-    const apply = <T extends { repName: string; repId: number | null }>(list: T[]): T[] => list.map(r => {
+    const apply = <T extends { repName: string; repId: number | null; areaName: string; areaId: number | null; rawAreaText?: string; baghdadClient?: boolean }>(list: T[]): T[] => list.map(r => {
       if (r.repId) return r; // محسوم أصلاً (تطابق تام/رابط محفوظ)
       const key = r.repName ? normalizeLocal(r.repName) : '';
       if (!choiceByKey.has(key)) return r;
-      return { ...r, repId: choiceByKey.get(key) ?? null };
+      const row = { ...r, repId: choiceByKey.get(key) ?? null };
+      if (!isProvinceRow(row)) return row;
+      // صار لمندوب محافظة ⇒ يعود لنص الملف بدل ما حسمته مطابقة بغداد (منطقة/هوية طبيب)
+      const asDoctor = row as unknown as DoctorRow;
+      return {
+        ...row,
+        areaName: r.rawAreaText ?? r.areaName, areaId: null,
+        ...('doctorName' in row ? {
+          doctorName: asDoctor.rawDoctorName ?? asDoctor.doctorName,
+          specialty: asDoctor.rawSpecialty ?? asDoctor.specialty,
+          pharmacyName: asDoctor.rawPharmacyName ?? asDoctor.pharmacyName,
+          doctorId: null, surveyDoctorId: null, forceNewDoctor: false,
+        } : {}),
+      } as unknown as T;
     });
     setDocRows(apply);
     setPharmRows(apply);
     setNameApplied(true);
   };
 
-  const doctorDecidedCount = pendingDoctorNames.filter(e => doctorChoice[e.key]).length;
+  const doctorDecidedCount = visiblePendingDoctors.filter(e => doctorChoice[e.key]).length;
   const countForDoctorName = (key: string) => docRows.filter(r => r.doctorKey === key).length;
 
   /**
@@ -327,7 +359,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
   const applyDoctorMatching = () => {
     const choiceByKey = new Map<string, number | null>();
     const docByKey    = new Map<string, DoctorSuggestion>();
-    for (const e of pendingDoctorNames) {
+    for (const e of visiblePendingDoctors) {
       const c = doctorChoice[e.key];
       if (!c) continue;
       choiceByKey.set(e.key, c === 'new' ? null : Number(c));
@@ -337,7 +369,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
       }
     }
     setDocRows(rs => rs.map(r => {
-      if (!r.doctorKey || !choiceByKey.has(r.doctorKey)) return r;
+      if (!r.doctorKey || !choiceByKey.has(r.doctorKey) || isProvinceRow(r)) return r;
       const doc = docByKey.get(r.doctorKey);
       return {
         ...r,
@@ -414,7 +446,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
           }))
         : [];
       const rememberDoctorLinks = rememberDoctorChoices
-        ? pendingDoctorNames.filter(e => doctorChoice[e.key]).map(e => ({
+        ? visiblePendingDoctors.filter(e => doctorChoice[e.key]).map(e => ({
             fromName: e.raw,
             areaName: e.areaName || null,
             doctorId: doctorChoice[e.key] === 'new' ? null : Number(doctorChoice[e.key]),
@@ -589,16 +621,16 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
           </div>
         )}
 
-        {totalRows > 0 && nameApplied && !doctorNamesApplied && pendingDoctorNames.length > 0 && (
+        {totalRows > 0 && nameApplied && doctorGateOpen && (
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', marginBottom: 4 }}>
-              🩺 تأكيد أسماء أطباء مشابهة ({doctorDecidedCount}/{pendingDoctorNames.length})
+              🩺 تأكيد أسماء أطباء مشابهة ({doctorDecidedCount}/{visiblePendingDoctors.length})
             </div>
             <p style={{ margin: '0 0 8px', fontSize: 11.5, color: '#78716c' }}>
               الاسم في الملف يشبه طبيباً (أو أكثر) مسجَّلاً مسبقاً — قارن المنطقة/الاختصاص/الصيدلية أدناه لتأكيد أنه نفس الشخص، أو اختر إنشاء طبيب جديد إن لم يكن كذلك.
             </p>
             <div style={{ maxHeight: '42vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {pendingDoctorNames.map(e => {
+              {visiblePendingDoctors.map(e => {
                 const count = countForDoctorName(e.key);
                 return (
                   <div key={e.key} style={card}>
@@ -664,11 +696,16 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
           </div>
         )}
 
-        {totalRows > 0 && nameApplied && doctorNamesApplied && (
+        {totalRows > 0 && nameApplied && !doctorGateOpen && (
           <>
             <datalist id="visit-item-options">
               {itemOptions.map(n => <option key={n} value={n} />)}
             </datalist>
+            {provinceRowCount > 0 && (
+              <div style={{ margin: '10px 0 0', padding: '8px 12px', borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#065f46', fontSize: 12.2, fontWeight: 600, lineHeight: 1.7 }}>
+                🗺️ {provinceRowCount} زيارة لمندوبي المحافظات تدخل تلقائياً بلا مطابقة أسماء: يُسجَّل الطبيب أو الصيدلية في سيرفي منطقته مرة واحدة، وتُضاف الزيارة تحت اسمه.
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#166534' }}>✅ {readyCount} صف جاهز</span>
               {(() => {
@@ -686,7 +723,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
               {missingRepCount > 0 && (
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c' }}>⚠️ {missingRepCount} صف بلا مندوب — صحّحه أدناه أو سيُتجاهل</span>
               )}
-              {pendingDoctorNames.length > 0 && (
+              {visiblePendingDoctors.length > 0 && (
                 <button onClick={() => setDoctorNamesApplied(false)} style={bulkBtn}>🩺 إعادة مطابقة أسماء الأطباء</button>
               )}
               <button onClick={() => setNameApplied(false)} style={{ ...bulkBtn, marginInlineStart: 'auto' }}>🔗 إعادة مطابقة الأسماء</button>
@@ -837,7 +874,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
         )}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-start', marginTop: 16 }}>
-          {totalRows > 0 && nameApplied && doctorNamesApplied && (
+          {totalRows > 0 && nameApplied && !doctorGateOpen && (
             <button onClick={save} disabled={saving || readyCount === 0} style={{ ...saveBtn, opacity: saving || readyCount === 0 ? 0.6 : 1 }}>
               {saving ? '⏳ جاري الحفظ…' : `💾 حفظ ${readyCount} زيارة`}
             </button>

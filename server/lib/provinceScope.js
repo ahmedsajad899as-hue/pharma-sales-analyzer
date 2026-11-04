@@ -44,6 +44,58 @@ export async function provinceMemberUserIds() {
 }
 
 /**
+ * محافظات كل عضو في فرق المحافظات ومسوقيها (بلا بغداد).
+ * @returns {Promise<Map<number, Set<number>>>} userId → معرّفات المحافظات
+ */
+export async function provinceIdsByMember() {
+  const notBaghdad = { name: { not: BAGHDAD_PROVINCE } };
+  const [teams, assign, marketers] = await Promise.all([
+    prisma.provinceTeam.findMany({
+      where: { isActive: true, leaderUserId: { not: null }, province: notBaghdad },
+      select: { leaderUserId: true, provinceId: true },
+    }),
+    prisma.provinceRepAssignment.findMany({
+      where: { isActive: true, team: { isActive: true, province: notBaghdad } },
+      select: { repUserId: true, team: { select: { provinceId: true } } },
+    }),
+    prisma.user.findMany({
+      where: PROVINCE_MARKETER_WHERE,
+      select: { id: true, provinceAssignments: { where: { province: notBaghdad }, select: { provinceId: true } } },
+    }),
+  ]);
+  const out = new Map();
+  const add = (userId, provinceId) => {
+    if (!out.has(userId)) out.set(userId, new Set());
+    out.get(userId).add(provinceId);
+  };
+  for (const t of teams) add(t.leaderUserId, t.provinceId);
+  for (const a of assign) add(a.repUserId, a.team.provinceId);
+  for (const m of marketers) for (const p of m.provinceAssignments) add(m.id, p.provinceId);
+  return out;
+}
+
+/**
+ * كل مناطق محافظات هؤلاء المستخدمين. سيرفي المحافظة يُبنى من الزيارات، فمندوبها لا
+ * يملك قائمة مناطق محدَّدة مسبقاً؛ يُوسَّع هذا وقت قراءة الكولات فقط لا في
+ * UserAreaAssignment كي لا يتغيّر نطاق مبيعاته في التقارير.
+ * @returns {Promise<Map<number, number[]>>} userId → معرّفات المناطق
+ */
+export async function provinceAreaIdsByUser(userIds) {
+  const out = new Map();
+  if (!userIds?.length) return out;
+  const members = await provinceIdsByMember();
+  const wanted = userIds.filter(id => members.has(id));
+  if (!wanted.length) return out;
+  const provinceIds = [...new Set(wanted.flatMap(id => [...members.get(id)]))];
+  const areas = await prisma.area.findMany({ where: { provinceId: { in: provinceIds } }, select: { id: true, provinceId: true } });
+  for (const id of wanted) {
+    const own = members.get(id);
+    out.set(id, areas.filter(a => own.has(a.provinceId)).map(a => a.id));
+  }
+  return out;
+}
+
+/**
  * هل لمدير الشركة تابعون غير مندوبي المحافظات؟ مدير بلا تابعين يرجع لـ«كل مندوبي شركته»؛
  * ومندوب مقعد محافظة صار يتبعه لا يجوز أن يُسقط هذا الرجوع فيختفي مندوبو بغداد.
  * @param {{userId:number}[]} subordinateRows

@@ -11,7 +11,7 @@ import {
 import { getScopedSurveyPharmacies, renameSurveyPharmacyByName } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from '../../lib/officeScope.js';
 import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
-import { provinceMemberUserIds } from '../../lib/provinceScope.js';
+import { provinceMemberUserIds, provinceLeaderIds, provinceAreaIdsByUser } from '../../lib/provinceScope.js';
 
 // زر «مندوبي المحافظات» بالواجهة: ?provinceScope=baghdad|province — يسري على
 // «الكل»/الشركة فقط (مندوب محدَّد بـrepUserId يُعرض كما هو)، وللمدراء وحدهم.
@@ -1404,11 +1404,17 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
     // الإداري الذي قد يبقى فارغاً لحساب كحساب HR لم يُدرَج فيه أحد كمرؤوس
     // مباشر رغم إشرافه الفعلي على كل مندوبي المكتب مثل مدير المكتب تماماً.
     const companyIds = await getRosterCompanyIds(user);
+    // قادة فرق المحافظات يزورون فعلاً فلهم شريحة في عرض المحافظات (isProvinceMember
+    // يفصلهم عن بغداد)؛ قادة بغداد يبقون خارج شرائح هذه الأدوار كما كانوا.
+    const leaderIds = companyIds.length ? [...await provinceLeaderIds()] : [];
     subUsers = companyIds.length ? await prisma.user.findMany({
       where: {
         isActive: true,
         companyAssignments: { some: { companyId: { in: companyIds } } },
-        role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] },
+        OR: [
+          { role: { notIn: [...MANAGEMENT_ROLES, 'product_manager'] } },
+          { role: 'team_leader', id: { in: leaderIds } },
+        ],
       },
       select: { id: true, displayName: true, username: true, linkedRepId: true, role: true },
     }) : [];
@@ -1520,9 +1526,11 @@ export async function computeRepsVisitsSummary(user, {
       Promise.all(reps.map(r => resolveRepId(r.userId, r.linkedRepId ?? null))),
       Promise.all(reps.map(r => resolveEffectiveAreaIds(r.userId, { linkedRepId: r.linkedRepId ?? null }))),
     ]);
-    reps.forEach((r, i) => { r.repId = repIds[i]; r.areaIds = areaIdLists[i]; });
+    // مناطق محافظة المندوب ضمن نطاقه — نفس توسيع resolveAreaScope كي لا يختلف الرقمان
+    const provinceAreas = await provinceAreaIdsByUser(reps.map(r => r.userId));
+    reps.forEach((r, i) => { r.repId = repIds[i]; r.areaIds = [...new Set([...areaIdLists[i], ...(provinceAreas.get(r.userId) ?? [])])]; });
 
-    const unionAreaIds = [...new Set(areaIdLists.flat())];
+    const unionAreaIds = [...new Set(reps.flatMap(r => r.areaIds))];
     const areaRecords = unionAreaIds.length
       ? await prisma.area.findMany({ where: { id: { in: unionAreaIds } }, select: { id: true, name: true } })
       : [];

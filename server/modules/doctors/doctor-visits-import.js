@@ -33,6 +33,8 @@ import { runFeedbackInferenceForImportFile } from './doctor-visit-feedback-ai.js
 import { saveItemLinks } from '../stock-ledger/stock-ledger.service.js';
 import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
 import { resolveAreaByName } from '../../lib/areaResolver.js';
+import { loadProvinceVisitContext, isProvinceVisitRow, markProvinceRows, prepareProvinceVisitRows } from '../../lib/provinceVisitSurvey.js';
+import { BAGHDAD_PROVINCE } from '../../lib/pharmacyRep.js';
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
 const FEEDBACK_RULES = [
@@ -871,6 +873,10 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
 
     const areaRaw = get(row, 'address') || get(row, 'city');
     const areaMatch = resolveArea(areaRaw, allAreas);
+    // نص العنوان كما في الملف — مسار المحافظات يحسمه داخل محافظته لا كتالوج بغداد.
+    // بلا عنوان: ذيل اسم العميل («عيادة الدكتور فلان / اطفال - الاسكان») قبل المدينة.
+    const clientCity = get(row, 'city');
+    const rawAreaText = get(row, 'address') || (clientRaw.match(/\s[-–]\s*([^-–/]+?)\s*$/)?.[1] ?? '') || clientCity;
     // مرشَّح واثق (تام أو ضبابي وحيد) → الاسم القانوني الموجود أصلاً يحلّ محل
     // الوصف الخام؛ التباس حقيقي أو بلا مرشّح إطلاقاً → يبقى النص الخام كما هو
     // (سيُعاد فحصه بنفس المنطق عند الحفظ، وتُنشأ منطقة جديدة عندها فقط إن لزم).
@@ -912,7 +918,7 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
         pharmacyRows.push({
           _row, repName, repId: rep?.id ?? null,
           pharmacyName: clientName,
-          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
+          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null, rawAreaText, clientCity,
           itemName: '', itemId: null, rawItemName: '',
           itemSuggestionId: null, itemSuggestionName: null,
           date, time, notes, isDoubleVisit,
@@ -932,7 +938,7 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
           _row, repName, repId: rep?.id ?? null,
           doctorName, doctorId: null,
           specialty: get(row, 'subcategory'),
-          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null,
+          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null, rawAreaText, clientCity,
           pharmacyName: '',
           itemName: parsedRD.item ? parsedRD.item.name : parsedRD.itemText,
           itemId: parsedRD.item?.id ?? null,
@@ -988,7 +994,7 @@ function areasConflict(a, b) {
  *   ask    → مرشّحون بدرجة معتد بها لكن بلا حسم (أو أكثر من مطابقة تامة بلا تمييز) → يُعرض للمستخدم مع كل تفاصيله
  *   none   → لا مرشّح على الإطلاق → طبيب جديد بلا سؤال
  */
-export async function classifyDoctorRows(doctorRows, ownerUserId) {
+export async function classifyDoctorRows(doctorRows, ownerUserId, { excludeProvinceDoctors = false } = {}) {
   const rowsWithName = (doctorRows || []).filter(r => String(r?.doctorName ?? '').trim());
   if (rowsWithName.length === 0) return { doctorNames: { pending: [], resolved: [], unrelated: [] } };
 
@@ -997,7 +1003,7 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
   // كل حساب في المكتب يُسأل من جديد عن اسم طبيب أكّده زميله للتو من ملف آخر،
   // رغم أن الاسم نفسه والسيرفي نفسه مشتركان بينهما.
   const doctorLinkScopeIds = await expandOwnerIdsByCompany([ownerUserId]);
-  const [linkRows, existingDoctorsFull, visibleSurveys] = await Promise.all([
+  const [linkRows, ownerDoctors, visibleSurveys] = await Promise.all([
     prisma.doctorNameLink.findMany({
       where: { userId: { in: doctorLinkScopeIds } },
       select: { userId: true, fromKey: true, doctorId: true, rejectedIds: true, confidence: true, doctor: { select: { id: true, name: true, masterSurveyDoctorId: true } } },
@@ -1005,10 +1011,16 @@ export async function classifyDoctorRows(doctorRows, ownerUserId) {
     }),
     prisma.doctor.findMany({
       where: { userId: ownerUserId },
-      select: { id: true, name: true, specialty: true, pharmacyName: true, areaId: true, masterSurveyDoctorId: true, area: { select: { name: true } } },
+      select: { id: true, name: true, specialty: true, pharmacyName: true, areaId: true, masterSurveyDoctorId: true, area: { select: { name: true, province: { select: { name: true } } } } },
     }),
     prisma.masterSurvey.findMany({ where: { isActive: true, hiddenUsers: { none: { userId: ownerUserId } } }, select: { id: true } }),
   ]);
+  // سميّو أطباء المحافظات لا يُعرضون مرشّحين لزيارات بغداد: سيرفي المحافظات يكبر مع كل
+  // رفعة، فبدون هذا تتكاثر أسئلة «هل هو نفس الطبيب؟» في ملفات بغداد. الفلترة هنا لا في
+  // where: شرط NOT على علاقة اختيارية يُسقط الأطباء بلا منطقة (NULL) معها.
+  const existingDoctorsFull = excludeProvinceDoctors
+    ? ownerDoctors.filter(d => !d.area?.province || d.area.province.name === BAGHDAD_PROVINCE)
+    : ownerDoctors;
   // عند تعدّد قرارات الزملاء لنفس الاسم: قرار المالك نفسه أولاً، ثم رابط فعلي
   // بطبيب، ثم «ليس أياً منهم» — نفس ترتيب أولوية classifyRepNamesForUser تماماً.
   const linkRank = l => (l.userId === ownerUserId ? 2 : 0) + (l.doctorId != null ? 1 : 0);
@@ -1514,20 +1526,30 @@ export async function extractVisitsFromExcel(file, user) {
   }
   const looseRepIndex = buildLooseRepIndex(repClassification.reps);
 
-  const [allAreas, itemCtx] = await Promise.all([
+  const [allAreas, itemCtx, provinceCtx] = await Promise.all([
     prisma.area.findMany({ select: { id: true, name: true } }),
     loadVisitItemCtx(user, ownerUserId),
+    loadProvinceVisitContext(),
   ]);
   // أسماء الكتالوج لقائمة اقتراحات خانة الايتم في شبكة المراجعة — ما لم يُطابَق
   // تلقائياً يختاره المستخدم من هنا بالاسم القانوني، ويُحفظ قراره كقاعدة توحيد.
   const itemOptions = itemCtx.catalog.map(c => c.name).sort((a, b) => a.localeCompare(b));
 
+  // زيارات مندوبي المحافظات لا تُسأل عنها مطابقة أطباء: تبني السيرفي عند الحفظ. صف
+  // مندوبه لم يُحسم بعد يُصنَّف كالمعتاد، والواجهة تُسقط سؤاله إن اختير له مندوب محافظة.
+  const provinceRepIds = [...provinceCtx.repIndex.keys()];
+  const classifyNonProvince = (list) => classifyDoctorRows(
+    list.filter(r => !isProvinceVisitRow(r, provinceCtx)), ownerUserId, { excludeProvinceDoctors: true },
+  );
+
   if (isCrm) {
     const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx, taskNotesMap });
     applyLooseRepFallback(doctorRows, looseRepIndex);
     applyLooseRepFallback(pharmacyRows, looseRepIndex);
-    const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
-    return { doctorRows, pharmacyRows, repNames: repClassification, doctorNames, itemOptions, format: 'crm', columnsDetected: {} };
+    markProvinceRows(doctorRows, provinceCtx);
+    markProvinceRows(pharmacyRows, provinceCtx);
+    const { doctorNames } = await classifyNonProvince(doctorRows);
+    return { doctorRows, pharmacyRows, repNames: repClassification, doctorNames, itemOptions, provinceRepIds, format: 'crm', columnsDetected: {} };
   }
 
   const doctorRows = rows.map((row, i) => {
@@ -1554,7 +1576,7 @@ export async function extractVisitsFromExcel(file, user) {
       repName: repRaw, repId: rep?.id ?? null,
       doctorName, doctorId: null,
       specialty: get('specialty'),
-      areaName, areaId: areaMatch.area?.id ?? null,
+      areaName, areaId: areaMatch.area?.id ?? null, rawAreaText: areaRaw,
       pharmacyName: get('pharmacy'),
       itemName, itemId: item?.id ?? null, rawItemName,
       itemSuggestionId: itemSuggestion?.id ?? null, itemSuggestionName: itemSuggestion?.name ?? null,
@@ -1566,8 +1588,9 @@ export async function extractVisitsFromExcel(file, user) {
   }).filter(r => r.doctorName); // صف بلا اسم طبيب لا معنى لاستيراده كزيارة
 
   applyLooseRepFallback(doctorRows, looseRepIndex);
-  const { doctorNames } = await classifyDoctorRows(doctorRows, ownerUserId);
-  return { doctorRows, pharmacyRows: [], repNames: repClassification, doctorNames, itemOptions, format: 'template', columnsDetected: colMap };
+  markProvinceRows(doctorRows, provinceCtx);
+  const { doctorNames } = await classifyNonProvince(doctorRows);
+  return { doctorRows, pharmacyRows: [], repNames: repClassification, doctorNames, itemOptions, provinceRepIds, format: 'template', columnsDetected: colMap };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2023,6 +2046,10 @@ export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], r
   if (rememberRepLinks.length) await saveRepNameLinks(user.id, rememberRepLinks);
   if (rememberDoctorLinks.length) await saveDoctorNameLinks(ownerUserId, rememberDoctorLinks);
 
+  // قبل مسار الحفظ العادي وعلى التسلسل: يبني سيرفي المحافظات ويملأ doctorId/areaId
+  // لصفوفها، فلا يصل ذلك المسار إليها إلا زيارة جاهزة للتسجيل.
+  const provinceResult = await prepareProvinceVisitRows({ doctorRows, pharmacyRows, ownerUserId });
+
   const importFile = await prisma.visitImportFile.create({
     data: { originalName: fileName?.trim() || 'ملف بدون اسم', userId: user.id, ownerUserId, clientToken: token },
   });
@@ -2057,8 +2084,9 @@ export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], r
     imported: totalImported,
     skipped:  doctorResult.skipped + pharmacyResult.skipped,
     errors:   [
+      ...(provinceResult.provinceRows ? [`🗺️ سيرفي المحافظات: ${provinceResult.provinceRows} زيارة — أُضيف ${provinceResult.newDoctors} طبيب و${provinceResult.newPharmacies} صيدلية و${provinceResult.newAreas} منطقة جديدة (الأسماء المسجَّلة سابقاً لم تتكرر).`] : []),
       ...(duplicatesHidden ? [`ℹ️ ${duplicatesHidden} زيارة موجودة أصلاً في ملف مفعّل سابق — لن تُحسب مرتين.`] : []),
-      ...doctorResult.errors, ...pharmacyResult.errors,
+      ...provinceResult.errors, ...doctorResult.errors, ...pharmacyResult.errors,
     ].slice(0, 30),
     doctor:   doctorResult,
     pharmacy: pharmacyResult,
