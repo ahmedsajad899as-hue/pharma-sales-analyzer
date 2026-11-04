@@ -355,10 +355,27 @@ export default function DoctorsPage() {
     : null;
   const provinceIdParam = activeProvinceId;
   const [managerCompanies, setManagerCompanies] = useState<ManagerCompany[]>([]);
-  const [visitRepFilter, setVisitRepFilter] = useState<number | null>(null); // null = all
+  const [visitRepChoice, setVisitRepFilter] = useState<number | null>(null); // null = all
   // فلترة إضافية بـ«الشركة الرئيسية» — للأدوار المكتبية (مدير/HR/موظف المكتب) التي تشرف على أكثر من شركة.
   // اختيار شركة يُظهر زيارات كل مندوبيها مجتمعة، ويضيّق قائمة شرائح المندوبين أدناه.
-  const [visitCompanyFilter, setVisitCompanyFilter] = useState<number | null>(null); // null = all companies
+  const [visitCompanyChoice, setVisitCompanyFilter] = useState<number | null>(null); // null = all companies
+  // مندوبو المحافظات بلا خيار «الكل»: شركة واحدة ومندوب واحد دائماً. ما لم يختر المستخدم
+  // (أو صار اختياره خارج القائمة) يُعتمد الأول — مشتقّ لا useEffect، فلا يخرج طلب للخادم
+  // بنطاق «الكل» قبل أن يستقرّ الاختيار.
+  const provinceCompanies = useMemo(
+    () => (onlyProvince ? managerCompanies.filter(c => managerReps.some(r => r.company?.id === c.id)) : managerCompanies),
+    [onlyProvince, managerCompanies, managerReps],
+  );
+  const visitCompanyFilter = onlyProvince && !byProvinceView && provinceCompanies.length > 0
+    ? (provinceCompanies.some(c => c.id === visitCompanyChoice) ? visitCompanyChoice : provinceCompanies[0].id)
+    : visitCompanyChoice;
+  const visitRepCandidates = useMemo(() => {
+    if (byProvinceView) return provinceGroups.find(g => g.id === activeProvinceId)?.reps ?? managerReps;
+    return visitCompanyFilter === null ? managerReps : managerReps.filter(rep => rep.company?.id === visitCompanyFilter);
+  }, [byProvinceView, provinceGroups, activeProvinceId, managerReps, visitCompanyFilter]);
+  const visitRepFilter = onlyProvince
+    ? (visitRepCandidates.some(r => r.userId === visitRepChoice) ? visitRepChoice : visitRepCandidates[0]?.userId ?? null)
+    : visitRepChoice;
 
   // ── ملخص كل المندوبين دفعة واحدة (زر «كل المندوبين» — نظير زر «كل المندوبين
   // العلميين» في خانة التقارير لكن لبيانات الزيارات لا المبيعات) ──────────────
@@ -579,7 +596,11 @@ export default function DoctorsPage() {
   const [archiveAreaFilter, setArchiveAreaFilter] = useState('all');
   const [archiveExpandedAreas, setArchiveExpandedAreas] = useState<Set<string>>(new Set());
   const [archiveSubPopup, setArchiveSubPopup]     = useState<null | 'visited' | 'writing' | 'items'>(null);
-  const [archiveRepFilter, setArchiveRepFilter]   = useState<number | null>(null);
+  const [archiveRepChoice, setArchiveRepFilter]   = useState<number | null>(null);
+  // نفس قاعدة الزيارات: مندوبو المحافظات بلا «الكل» ⇒ الأول ما لم يُختر غيره
+  const archiveRepFilter = onlyProvince && managerReps.length > 0
+    ? (managerReps.some(r => r.userId === archiveRepChoice) ? archiveRepChoice : managerReps[0].userId)
+    : archiveRepChoice;
   // ايتمات مقيّدة بشركات المندوب المعروض أرشيفه (null = استخدم items العامة)
   const [archiveRepItems, setArchiveRepItems]     = useState<Item[] | null>(null);
   const [importingFromVisits, setImportingFromVisits] = useState(false);
@@ -2254,15 +2275,15 @@ export default function DoctorsPage() {
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="navOrgStructure" size={11} /> الشركة الرئيسية</span>
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button
+                {!onlyProvince && <button
                   onClick={() => { setVisitCompanyFilter(null); setVisitRepFilter(null); }}
                   style={{
                     padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                     border: `1.5px solid ${visitCompanyFilter === null ? 'var(--c-accent)' : 'var(--c-border)'}`,
                     background: visitCompanyFilter === null ? 'var(--c-accent-light)' : 'var(--c-bg)',
                     color: visitCompanyFilter === null ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-                  }}>الكل</button>
-                {managerCompanies.map(c => (
+                  }}>الكل</button>}
+                {provinceCompanies.map(c => (
                   <button
                     key={c.id}
                     onClick={() => { setVisitCompanyFilter(c.id); setVisitRepFilter(null); }}
@@ -2280,11 +2301,7 @@ export default function DoctorsPage() {
 
           {/* Rep selector (managers only) — hidden until a specific company is chosen when multiple companies exist */}
           {!isFieldRep && managerRepsAll.length > 0 && (managerCompanies.length === 0 || visitCompanyFilter !== null || byProvinceView) && (() => {
-            const visibleReps = byProvinceView
-              ? (provinceGroups.find(g => g.id === activeProvinceId)?.reps ?? managerReps)
-              : visitCompanyFilter === null
-                ? managerReps
-                : managerReps.filter(rep => rep.company?.id === visitCompanyFilter);
+            const visibleReps = visitRepCandidates;
             return (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</span>
@@ -2341,7 +2358,7 @@ export default function DoctorsPage() {
                     }}>الكل</button>
                 );
                 // مندوبو المحافظات صف أفقي واحد مرتَّب (المحافظة ثم القائد ثم الاسم)
-                if (onlyProvince) return <div style={rowStyle}>{allBtn}{visibleReps.map(r => chip(r, !!r.isLeader))}</div>;
+                if (onlyProvince) return <div style={rowStyle}>{visibleReps.map(r => chip(r, !!r.isLeader))}</div>;
                 if (groups.size === 0) return <div style={rowStyle}>{allBtn}{visibleReps.map(r => chip(r))}</div>;
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -3976,14 +3993,14 @@ export default function DoctorsPage() {
                   <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); setArchiveAreaFilter('all'); }} compact />
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button
+                  {!onlyProvince && <button
                     onClick={() => { setArchiveRepFilter(null); setArchiveAreaFilter('all'); }}
                     style={{
                       padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                       border: `1.5px solid ${archiveRepFilter === null ? 'var(--c-accent)' : 'var(--c-border)'}`,
                       background: archiveRepFilter === null ? 'var(--c-accent-light)' : 'var(--c-bg)',
                       color: archiveRepFilter === null ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-                    }}>الكل</button>
+                    }}>الكل</button>}
                   {managerReps.map(rep => (
                     <button
                       key={rep.userId}

@@ -311,7 +311,11 @@ export default function MonthlyPlansPage() {
   const [showManualLoc, setShowManualLoc] = useState(false);
 
   // Filter
-  const [filterRep, setFilterRep] = useState('all');
+  const [filterRepChoice, setFilterRep] = useState('all');
+  // مندوبو المحافظات بلا خيار «كل المندوبين»: مندوب واحد دائماً، الأول ما لم يُختر غيره
+  const filterRep = !isFieldRep && onlyProvince && reps.length > 0
+    ? (reps.some(r => String(r.id) === filterRepChoice) ? filterRepChoice : String(reps[0].id))
+    : filterRepChoice;
   const [searchQuery, setSearchQuery] = useState('');
   const [searchSuggestOpen, setSearchSuggestOpen] = useState(false);
   const [visitFilter, setVisitFilter] = useState<'all' | 'done' | 'not_done' | 'voice_added'>('all');
@@ -1612,7 +1616,7 @@ export default function MonthlyPlansPage() {
         {!isFieldRep && (
           <select value={filterRep} onChange={e => setFilterRep(e.target.value)}
             style={{ ...inputStyle, width: 'auto', minWidth: 140 }}>
-            <option value="all">كل المندوبين</option>
+            {!onlyProvince && <option value="all">كل المندوبين</option>}
             {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
         )}

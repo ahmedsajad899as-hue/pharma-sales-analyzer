@@ -392,6 +392,13 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
     loadDailyCalls(callsDateFrom, callsDateTo, rid);
   };
 
+  // مندوبو المحافظات بلا خيار «كل المندوبين»: مندوب واحد دائماً، الأول ما لم يُختر غيره
+  useEffect(() => {
+    if (!isManagerOrAdmin || !onlyProvince || dashReps.length === 0) return;
+    if (!dashReps.some(r => r.id === callsRepId)) handleCallsRepChange(dashReps[0].id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isManagerOrAdmin, onlyProvince, dashReps, callsRepId]);
+
   // Feedback words that must NOT be treated as item/drug names
   const FEEDBACK_AR_WORDS = new Set(['مهتم','مهتمه','غير مهتم','مو مهتم','يكتب','كاتب','نزل','معلق','غير متوفر','مو موجود','بانتظار الفيدباك','انتظار','يوجد كومبتتر','متابعة','متابعه','تذكير']);
 
@@ -1829,7 +1836,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                 onChange={e => handleCallsRepChange(e.target.value ? Number(e.target.value) : '')}
                 style={{ fontSize: '11px', border: 'none', background: 'transparent', outline: 'none', cursor: 'pointer', color: 'var(--c-text-primary)', fontWeight: 600 }}
               >
-                <option value="">كل المندوبين</option>
+                {!onlyProvince && <option value="">كل المندوبين</option>}
                 {dashReps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
               <ProvinceRepsToggle reps={dashRepsAll} value={onlyProvince} onChange={changeProvinceScope} compact />
@@ -3570,7 +3577,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
             </div>
             {/* Rep filter — only for admin/manager */}
             {isManagerOrAdmin && (() => {
-              const repList = (callsData && callsData.reps.length > 0) ? callsData.reps : dashReps;
+              // المحافظات تعرض مندوباً واحداً دائماً، وبياناته قد لا تحوي غيره — القائمة الكاملة كي يبقى التبديل ممكناً
+              const repList = (!onlyProvince && callsData && callsData.reps.length > 0) ? callsData.reps : dashReps;
               if (repList.length === 0 && dashRepsAll.length === 0) return null;
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -3583,7 +3591,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     value={callsRepId}
                     onChange={e => handleCallsRepChange(e.target.value ? Number(e.target.value) : '')}
                   >
-                    <option value="">{(t.dashboard as any).dailyCallsAllReps}</option>
+                    {!onlyProvince && <option value="">{(t.dashboard as any).dailyCallsAllReps}</option>}
                     {repList.map(r => (
                       <option key={r.id} value={r.id}>{r.name}</option>
                     ))}
