@@ -4512,6 +4512,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             repKind={canToggleRepKind ? provKind : undefined}
             scopedProvinces={isMarketersManager ? marketersScope?.provinces : undefined}
             conditionRev={provCondRev}
+            iqdPerValueUnit={fileSourceCurrency === 'USD' ? fileExchangeRate : 1}
             onAddCondition={canProvCondition ? () => { setProvCondMsg(''); setShowProvCondition(true); } : undefined}
             onOpenRep={openProvRep}
             selectedRepId={provRepOpen ? sciRepId : null} />

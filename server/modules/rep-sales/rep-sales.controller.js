@@ -10,6 +10,7 @@ const wrap = (fn) => async (req, res, next) => {
 
 export const listSales   = wrap(async (req, res) => res.json({ success: true, ...(await svc.listSales(req.user, req.query)) }));
 export const suggestions = wrap(async (req, res) => res.json({ success: true, ...(await svc.suggestions(req.user)) }));
+export const provinceSummary = wrap(async (req, res) => res.json({ success: true, ...(await svc.provinceSummary(req.user, req.query)) }));
 export const createSale  = wrap(async (req, res) => res.json({ success: true, sale: await svc.createSale(req.user, req.body?.data, req.file) }));
 export const updateSale  = wrap(async (req, res) => res.json({ success: true, sale: await svc.updateSale(req.user, req.params.id, req.body) }));
 export const deleteSale  = wrap(async (req, res) => { await svc.deleteSale(req.user, req.params.id); res.json({ success: true }); });

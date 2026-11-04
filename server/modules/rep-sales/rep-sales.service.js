@@ -5,6 +5,7 @@
 // بالأرقام نفسها أو بصورة الفاتورة. مديره يرى ما سُجّل بنفس نطاق «طلبيات المذاخر».
 //
 // **لا يُكتب في Sale ولا يدخل التقارير** — ملفات الإكسل تحتسب المبيع نفسه لاحقاً.
+// الاستثناء الوحيد قراءةً: المؤكد منه يُضاف لحقل اللكوديشن في «مندوبين المحافظات» (provinceSummary).
 // ════════════════════════════════════════════════════════════════════════════
 
 import fs from 'fs';
@@ -13,7 +14,11 @@ import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
-import { loadRepLocations } from '../../lib/repLocation.js';
+import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
+import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
+import { loadManagerSeat, loadSeatManagers } from '../../lib/provinceSeats.js';
+import { aggregateProvinceSales, saleDateRange } from '../../lib/repSalesProvince.js';
 import { buildLines, cleanText, loadViewer, orderScopeWhere, parseDay, teamUserIds } from '../rep-orders/rep-orders.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -173,6 +178,62 @@ export async function suggestions(reqUser) {
   return {
     pharmacies: [...pharmacies].map(([name, areaName]) => ({ name, areaName })),
     warehouses: [...warehouses].sort((a, b) => a.localeCompare(b, 'ar')),
+  };
+}
+
+/**
+ * المبيع المؤكد لكل محافظة وشركة ونوع مندوب — يُضاف لحقل اللكوديشن في «مندوبين المحافظات».
+ * مدير الشركة: كل مبيع مكتبه على ايتماته، أياً كان البائع، كما يُحسب مبيع المحافظة الذي يُقارَن به
+ * (مندوبو الفرق والمسوقون كثيراً لا يتبعونه في UserManagerAssignment).
+ * @param {{month?:string, startDate?:string, endDate?:string}} q
+ */
+export async function provinceSummary(reqUser, q = {}) {
+  const viewer = await loadViewer(reqUser);
+  const seat = viewer.role === 'company_manager' ? await loadManagerSeat(viewer.id) : null;
+  const scope = await orderScopeWhere(viewer);
+  const dates = saleDateRange(q);
+  const sales = await prisma.repSale.findMany({
+    where: {
+      AND: [
+        seat ? { OR: [scope, { officeId: seat.officeId }] } : scope,
+        { status: 'confirmed' },
+        ...(dates ? [{ saleDate: dates }] : []),
+      ],
+    },
+    select: { createdById: true, areaName: true, lines: { select: { itemId: true, quantity: true, unitPrice: true } } },
+  });
+  if (!sales.length) return { rows: [] };
+
+  const repIds = [...new Set(sales.map(s => s.createdById))];
+  const itemIds = [...new Set(sales.flatMap(s => s.lines.map(l => l.itemId)).filter(Boolean))];
+  const [locations, areaIndex, users, items, seats, ownItems] = await Promise.all([
+    loadRepLocations(repIds),
+    provinceByAreaName(),
+    prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true, linkedRep: { select: { repKind: true } } } }),
+    prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true, scientificCompanyId: true } }),
+    loadSeatManagers(viewer.officeId ? [viewer.officeId] : null),
+    seat ? resolveEffectiveItemIds(seat.userId) : null,
+  ]);
+
+  // اسم الشركة = فريق مدير الايتم، كما يعرضها مبيع المحافظة (byProvinceCompany)
+  const companyOfItem = new Map(items.map(i => [i.id, i.scientificCompanyId]));
+  const teamByItem = new Map();
+  for (const s of seats) for (const i of s.items) if (!teamByItem.has(i.id)) teamByItem.set(i.id, s.companyName);
+  const wholeCompanySeats = new Map(seats.filter(s => !s.items.length).map(s => [s.companyId, s.companyName]));
+  const kindByUser = new Map(users.map(u => [u.id, u.linkedRep?.repKind === 'pharmacy' ? 'pharmacy' : 'scientific']));
+  const ownSet = ownItems ? new Set(ownItems) : null;
+
+  return {
+    rows: aggregateProvinceSales(sales, {
+      provinceOfArea: (name) => (name ? areaIndex.get(normalizeAreaName(name))?.province ?? null : null),
+      // مندوب بمحافظتين: «البصرة، ميسان» — الأولى ملاذ حين لا تُعرف منطقة المبيع
+      homeProvinceOf: (id) => locations.get(id)?.province?.split('،')[0].trim() || null,
+      kindOf: (id) => kindByUser.get(id) ?? 'scientific',
+      teamOfItem: (id) => (id ? teamByItem.get(id) ?? wholeCompanySeats.get(companyOfItem.get(id)) ?? null : null),
+      allowItem: seat
+        ? (id) => (ownSet ? ownSet.has(id) : companyOfItem.get(id) === seat.companyId)
+        : undefined,
+    }),
   };
 }
 
