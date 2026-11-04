@@ -259,7 +259,12 @@ function readBaseStyle(): BaseStyle {
   try { return localStorage.getItem(BASE_STYLE_KEY) === 'formal' ? 'formal' : 'standard'; } catch { return 'standard'; }
 }
 
-interface Props { entries: Entry[]; onEdit?: (entry: Entry) => void; }
+interface Props {
+  entries: Entry[];
+  onEdit?: (entry: Entry) => void;
+  /** المسوّق: صيدليات فقط — بلا زرّي الفلترة ولا عدّاد الأطباء. */
+  pharmacyOnly?: boolean;
+}
 
 // محتوى النافذة المنبثقة. أزرار "ملاحة"/"تعديل" تحمل data-rfs-nav/data-rfs-edit
 // لتُربط بمستمع نقر بعد إدراج النافذة في الصفحة (المحتوى HTML خام، فلا يمكن
@@ -287,7 +292,7 @@ function buildPopupHtml(e: Entry, me: { lat: number; lng: number } | null): stri
     </div>`;
 }
 
-export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
+export default function RepFieldSurveyMap({ entries, onEdit, pharmacyOnly = false }: Props) {
   const mapDivRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
@@ -693,7 +698,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
         return box;
       },
     });
-    new KindControl().addTo(map);
+    if (!pharmacyOnly) new KindControl().addTo(map);
 
     // moveend وحده يكفي: كل تكبير يُطلق moveend أيضاً، و'zoomend' معه كان يضاعف المزامنة
     const onMoveEnd = () => syncMarkersRef.current();
@@ -955,7 +960,7 @@ export default function RepFieldSurveyMap({ entries, onEdit }: Props) {
         {panelOpen && (
           <div className="rfs-map-panel-body">
             <div className="rfs-map-legend">
-              <span><i style={{ background: COLOR_DOCTOR }} /> {totalDoctors} طبيب</span>
+              {!pharmacyOnly && <span><i style={{ background: COLOR_DOCTOR }} /> {totalDoctors} طبيب</span>}
               <span><i style={{ background: COLOR_PHARMACY }} /> {totalPharmacies} صيدلية</span>
             </div>
             {mapKind !== 'all' && (

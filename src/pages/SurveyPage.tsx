@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, isMarketerUser } from '../context/AuthContext';
 import { Icon } from '../config/icons';
 import { sendEngagementPing } from '../lib/engagementPing';
 import SurveySyncRepBar from '../components/SurveySyncRepBar';
@@ -81,7 +81,10 @@ export default function SurveyPage() {
 
   const [surveys,        setSurveys]        = useState<Survey[]>([]);
   const [selectedSurvey, setSelectedSurvey] = useState<SurveyDetail | null>(null);
-  const [tab,            setTab]            = useState<'doctors' | 'pharmacies' | 'drug_prices'>('doctors');
+  const [tabRaw,         setTab]            = useState<'doctors' | 'pharmacies' | 'drug_prices'>('doctors');
+  // المسوّق: صيدليات السيرفي فقط، بلا تبويب الأطباء
+  const isMarketer = isMarketerUser(user);
+  const tab = isMarketer && tabRaw === 'doctors' ? 'pharmacies' : tabRaw;
   const [loading,        setLoading]        = useState(true);
   const [toast,          setToast]          = useState<React.ReactNode | null>(null);
 
@@ -327,7 +330,7 @@ export default function SurveyPage() {
       <div style={{ padding: '0 0 80px', direction: 'rtl' }}>
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="navMasterSurvey" size={20} /> السيرفيات</h2>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--c-text-secondary)' }}>قوائم الأطباء والصيدليات المشتركة من الإدارة</p>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--c-text-secondary)' }}>{isMarketer ? 'قوائم الصيدليات المشتركة من الإدارة' : 'قوائم الأطباء والصيدليات المشتركة من الإدارة'}</p>
         </div>
 
         {loading ? <Spinner /> : surveys.length === 0 ? (
@@ -357,7 +360,7 @@ export default function SurveyPage() {
                   {s.surveyType === 'drug_prices'
                     ? <span style={{ fontSize: 13, color: 'var(--c-success)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="drug" size={15} /> {(s._count.drugEntries ?? 0).toLocaleString('ar-IQ')} دواء</span>
                     : <>
-                        <span style={{ fontSize: 13, color: 'var(--c-accent)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="doctor" size={15} /> {s._count.doctors} طبيب</span>
+                        {!isMarketer && <span style={{ fontSize: 13, color: 'var(--c-accent)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="doctor" size={15} /> {s._count.doctors} طبيب</span>}
                         <span style={{ fontSize: 13, color: '#f97316', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="pharmacy" size={15} /> {s._count.pharmacies} صيدلية</span>
                       </>
                   }
@@ -419,7 +422,7 @@ export default function SurveyPage() {
               <option key={r.linkedRepId} value={r.linkedRepId}>{r.name}</option>
             ))}
           </select>
-          {selectedRepId && (
+          {selectedRepId && !isMarketer && (
             <span style={{ fontSize: 11, color: 'var(--c-warning)', whiteSpace: 'nowrap' }}>
               الأطباء المعروضون مفلتَرون بمناطق المندوب
             </span>
@@ -436,7 +439,7 @@ export default function SurveyPage() {
             borderBottom: '2px solid var(--c-success)', color: 'var(--c-success)', marginBottom: -2,
           }}><Icon name="drug" size={15} /> أسعار الأدوية ({drugEntriesTotal.toLocaleString('ar-IQ')})</button>
         ) : ([
-          { id: 'doctors' as const,    icon: 'doctor' as const,   label: `الأطباء (${selectedSurvey.doctors.length})` },
+          ...(isMarketer ? [] : [{ id: 'doctors' as const, icon: 'doctor' as const, label: `الأطباء (${selectedSurvey.doctors.length})` }]),
           { id: 'pharmacies' as const, icon: 'pharmacy' as const, label: `الصيدليات (${selectedSurvey.pharmacies.length})` },
         ]).map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)} style={{

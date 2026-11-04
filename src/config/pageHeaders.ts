@@ -52,8 +52,14 @@ export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
 
 const FALLBACK_ICON: IconName = 'navDashboard';
 
-export function getPageHeader(pageId: PageId, fallbackTitle: string): PageHeader {
-  return PAGE_HEADERS[pageId] ?? { title: fallbackTitle };
+/** المسوّق يزور الصيدليات فقط — عناوين بلا ذكر الأطباء. */
+const MARKETER_PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
+  'master-survey':    { title: 'السيرفيات', subtitle: 'قوائم الصيدليات المشتركة من الإدارة' },
+  'rep-field-survey': { title: 'سيرفي الصيدليات', subtitle: 'صيدليات منطقتك مع موقع كل اسم' },
+};
+
+export function getPageHeader(pageId: PageId, fallbackTitle: string, isMarketer = false): PageHeader {
+  return (isMarketer ? MARKETER_PAGE_HEADERS[pageId] : undefined) ?? PAGE_HEADERS[pageId] ?? { title: fallbackTitle };
 }
 
 export function getPageHeaderIcon(pageId: PageId): IconName {

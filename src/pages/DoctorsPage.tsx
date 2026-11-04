@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, isMarketerUser } from '../context/AuthContext';
 import DoctorVisitsImportModal from '../components/DoctorVisitsImportModal';
 import { type Src, type SourceTotals } from '../components/PharmacySourceBits';
 import PharmacyComparePopup, { type ComparePopupState } from '../components/PharmacyComparePopup';
@@ -208,14 +208,17 @@ export default function DoctorsPage() {
   const canSeePharmNet = ['company_manager', 'team_leader', 'office_manager', 'office_employee', 'office_hr'].includes(user?.role ?? '');
   // «قائمة الطلبات» (تعليم طبيب لتذكير المدير بتضمينه بالبلان القادم) قرار
   // مدير حصراً — لا تظهر لموظف المكتب ولا أي دور آخر غير هذه الثلاثة.
-  const canSeeWishlist = ['team_leader', 'company_manager', 'product_manager'].includes(user?.role ?? '');
+  // المسوّق يزور الصيدليات فقط: تبويب الزيارات وحده، بعرض الصيدليات، بلا قائمة الأطباء والأرشيف.
+  // من كانت له قائمة الأطباء أو الأرشيف فقط تبقى له الصفحة عبر الزيارات، بدل صفحة فارغة.
+  const isMarketer = isMarketerUser(user);
+  const canSeeWishlist = !isMarketer && ['team_leader', 'company_manager', 'product_manager'].includes(user?.role ?? '');
   const showDoctorFields    = hasFeature('doctor_fields');
-  const showVisitAnalysis   = hasFeature('visit_analysis_tab');
-  const showDoctorsList     = hasFeature('doctors_list_tab');
+  const showVisitAnalysis   = hasFeature('visit_analysis_tab') || (isMarketer && (hasFeature('doctors_list_tab') || hasFeature('archive_tab')));
+  const showDoctorsList     = !isMarketer && hasFeature('doctors_list_tab');
   const showMyVisits        = hasFeature('my_visits_tab');
   const showPharmacies      = hasFeature('pharmacies_tab');
-  const showArchiveTab      = hasFeature('archive_tab');
-  const showVisitsImport    = hasFeature('visits_import');
+  const showArchiveTab      = !isMarketer && hasFeature('archive_tab');
+  const showVisitsImport    = !isMarketer && hasFeature('visits_import');
   const [showVisitsImportModal, setShowVisitsImportModal] = useState(false);
   const [visitsImportMsg, setVisitsImportMsg] = useState('');
   // ملف زيارات رفعه بوت تلكرام واستُخرج بالخادم (PendingVisitsImport) — بانتظار
@@ -365,7 +368,8 @@ export default function DoctorsPage() {
   const [repsSummaryCompanies, setRepsSummaryCompanies]           = useState<ManagerCompany[]>([]);
   const [repsSummaryCompanyFilter, setRepsSummaryCompanyFilter]   = useState<Set<number>>(new Set()); // فارغ = كل الشركات
   const [repsSummaryViewMode, setRepsSummaryViewMode]             = useState<'list' | 'pivot'>('list');
-  const [repsSummaryMetric, setRepsSummaryMetric]                 = useState<'doctors' | 'pharmacies'>('doctors');
+  const [repsSummaryMetricRaw, setRepsSummaryMetric]              = useState<'doctors' | 'pharmacies'>('doctors');
+  const repsSummaryMetric = isMarketer ? 'pharmacies' : repsSummaryMetricRaw;
   const [expandedRepsSummaryUserId, setExpandedRepsSummaryUserId] = useState<number | null>(null);
   // Manager wishlist view — show each rep's wishlist
   interface RepWishEntry { doctorId: number; doctorName: string; specialty?: string; pharmacyName?: string; areaName?: string; itemName?: string; }
@@ -489,7 +493,8 @@ export default function DoctorsPage() {
   const [showWritingPopup, setShowWritingPopup] = useState(false);
 
   // ── Visits analysis toggle (doctors vs pharmacies) ─────────────
-  const [visitAnalysisType, setVisitAnalysisType] = useState<'doctors' | 'pharmacies'>('doctors');
+  const [visitAnalysisTypeRaw, setVisitAnalysisType] = useState<'doctors' | 'pharmacies'>('doctors');
+  const visitAnalysisType = isMarketer ? 'pharmacies' : visitAnalysisTypeRaw;
   // pharmacy visits state
   interface PharmVisitItem { id: number; name: string; }
   interface PharmVisitRecord { id: number; visitDate: string; notes?: string | null; items: PharmVisitItem[]; }
@@ -923,13 +928,17 @@ export default function DoctorsPage() {
     // يذكر الرقم فقط حين يكون موحّداً للكل، وإلا أشار إلى أنه متغيّر لكل مندوب.
     const expectedSet = new Set(cols.map(c => c.expectedDoctorVisits ?? 150));
     const targetLabel = expectedSet.size === 1 ? `هدف ${[...expectedSet][0]} زيارة/شهر` : 'هدف خاص لكل مندوب';
-    const header1 = ['#', 'الشركة', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', `نسبة التغطية % (${targetLabel})`, 'إجمالي الأطباء', 'أطباء تمت زيارتهم', 'إجمالي الصيدليات'];
-    const body1 = cols.map((r, i) => [
-      i + 1, r.company?.name || '', r.name, r.doctorVisitCount, r.pharmacyVisitCount,
-      r.coveragePct, r.totalDoctors, r.visitedDoctors, r.totalPharmacies,
-    ]);
+    const header1 = isMarketer
+      ? ['#', 'الشركة', 'المندوب', 'زيارات الصيدليات', 'إجمالي الصيدليات']
+      : ['#', 'الشركة', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', `نسبة التغطية % (${targetLabel})`, 'إجمالي الأطباء', 'أطباء تمت زيارتهم', 'إجمالي الصيدليات'];
+    const body1 = cols.map((r, i) => isMarketer
+      ? [i + 1, r.company?.name || '', r.name, r.pharmacyVisitCount, r.totalPharmacies]
+      : [
+          i + 1, r.company?.name || '', r.name, r.doctorVisitCount, r.pharmacyVisitCount,
+          r.coveragePct, r.totalDoctors, r.visitedDoctors, r.totalPharmacies,
+        ]);
     const ws1 = XLSX.utils.aoa_to_sheet([header1, ...body1]);
-    ws1['!cols'] = [5, 18, 22, 14, 15, 20, 12, 16, 14].map(w => ({ wch: w }));
+    ws1['!cols'] = (isMarketer ? [5, 18, 22, 15, 14] : [5, 18, 22, 14, 15, 20, 12, 16, 14]).map(w => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, ws1, 'ملخص المندوبين');
 
     const buildPivotSheet = (metric: 'doctors' | 'pharmacies', name: string) => {
@@ -941,7 +950,7 @@ export default function DoctorsPage() {
       ws['!cols'] = [12, ...cols.map(() => 12), 14].map(w => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, ws, name);
     };
-    buildPivotSheet('doctors', 'أيام الشهر × مندوب (أطباء)');
+    if (!isMarketer) buildPivotSheet('doctors', 'أيام الشهر × مندوب (أطباء)');
     buildPivotSheet('pharmacies', 'أيام الشهر × مندوب (صيدليات)');
 
     XLSX.writeFile(wb, `ملخص_زيارات_المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -956,7 +965,7 @@ export default function DoctorsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showRepsSummaryModal, repsSummaryCompanyFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (!isMarketer) load(); }, [load, isMarketer]);
 
   // Re-fetch areas when they change (added/removed) or when user returns to the page
   useEffect(() => {
@@ -1115,8 +1124,8 @@ export default function DoctorsPage() {
     // ينتظر استقرار فلتر الشهر الافتراضي أولاً (راجع تعليق visitMonthReady أعلاه)
     // بدل تحميل "الكل" فوراً ثم استبداله بفلتر الشهر بعد وصوله بلحظات. لا يشمل
     // loadManagerReps فوق — بياناته (قائمة المندوبين) مستقلة عن فلتر الشهر.
-    if (activeTab === 'visits' && visitMonthReady) loadVisits();
-  }, [activeTab, visitMonthReady, loadVisits]);
+    if (activeTab === 'visits' && visitMonthReady && !isMarketer) loadVisits();
+  }, [activeTab, visitMonthReady, loadVisits, isMarketer]);
 
   // Auto-load + auto-refresh team wishlists for managers (no clicks needed)
   useEffect(() => {
@@ -2294,7 +2303,7 @@ export default function DoctorsPage() {
           })()}
 
           {/* Analysis type toggle: doctors vs pharmacies */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {!isMarketer && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             <button
               onClick={() => setVisitAnalysisType('doctors')}
               style={{
@@ -2317,7 +2326,7 @@ export default function DoctorsPage() {
             {/* ملخص كل المندوبين دفعة واحدة — زيارات الأطباء/الصيدليات + نسبة
                 التغطية + تفصيل كل منطقة، بدل فتح كل مندوب على حدة */}
 
-          </div>
+          </div>}
 
           {/* ─── DOCTORS ANALYSIS ───────────────────────────── */}
           {visitAnalysisType === 'doctors' && (<>
@@ -5100,7 +5109,7 @@ export default function DoctorsPage() {
                   ><Icon name="excel" size={12} /> جدول (يوم × مندوب)</button>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {repsSummaryViewMode === 'pivot' && (
+                  {repsSummaryViewMode === 'pivot' && !isMarketer && (
                     <button onClick={() => setRepsSummaryMetric(m => m === 'doctors' ? 'pharmacies' : 'doctors')}
                       style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${repsSummaryMetric === 'doctors' ? 'var(--c-accent)' : 'var(--c-success-border)'}`, background: repsSummaryMetric === 'doctors' ? 'var(--c-accent-light)' : 'var(--c-success-bg)', color: repsSummaryMetric === 'doctors' ? 'var(--c-accent)' : 'var(--c-success)', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                     >{repsSummaryMetric === 'doctors' ? <><Icon name="doctor" size={12} /> زيارات الأطباء</> : <><Icon name="pharmacy" size={12} /> زيارات الصيدليات</>}</button>
@@ -5139,11 +5148,11 @@ export default function DoctorsPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                       <thead>
                         <tr>
-                          {['#', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'نسبة التغطية', ''].map((h, hi) => (
+                          {(isMarketer ? ['#', 'المندوب', 'زيارات الصيدليات', ''] : ['#', 'المندوب', 'زيارات الأطباء', 'زيارات الصيدليات', 'نسبة التغطية', '']).map((h, hi) => (
                             <th key={hi} style={{
                               ...listTh,
                               textAlign: hi === 1 ? 'right' : 'center',
-                              width: hi === 0 ? 34 : hi === 5 ? 30 : undefined,
+                              width: hi === 0 ? 34 : h === '' ? 30 : undefined,
                             }}>{h}</th>
                           ))}
                         </tr>
@@ -5162,17 +5171,19 @@ export default function DoctorsPage() {
                                   {r.name}
                                   {r.company && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#334155', border: listBorder, borderRadius: 4, padding: '1px 8px' }}>{r.company.name}</span>}
                                 </td>
-                                <td style={{ ...listTd, fontWeight: 700, background: rowBg }}>{r.doctorVisitCount || ''}</td>
+                                {!isMarketer && <td style={{ ...listTd, fontWeight: 700, background: rowBg }}>{r.doctorVisitCount || ''}</td>}
                                 <td style={{ ...listTd, fontWeight: 700, background: rowBg }}>{r.pharmacyVisitCount || ''}</td>
-                                <td style={{ ...listTd, background: rowBg }}>
-                                  <span style={{ background: coverageBg, color: coverageColor, borderRadius: 4, padding: '2px 10px', fontWeight: 800 }}>{r.coveragePct}%</span>
-                                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{r.doctorVisitCount}/{r.expectedDoctorVisits ?? 150}</div>
-                                </td>
+                                {!isMarketer && (
+                                  <td style={{ ...listTd, background: rowBg }}>
+                                    <span style={{ background: coverageBg, color: coverageColor, borderRadius: 4, padding: '2px 10px', fontWeight: 800 }}>{r.coveragePct}%</span>
+                                    <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{r.doctorVisitCount}/{r.expectedDoctorVisits ?? 150}</div>
+                                  </td>
+                                )}
                                 <td style={{ ...listTd, color: '#94a3b8', fontSize: 11, background: rowBg }}>{isExpanded ? '▲' : '▼'}</td>
                               </tr>
                               {isExpanded && (
                                 <tr>
-                                  <td colSpan={6} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
+                                  <td colSpan={isMarketer ? 4 : 6} style={{ ...listTd, background: '#f8fafc', padding: '10px 16px', textAlign: 'right' }}>
                                     {r.areas.length === 0 ? (
                                       <span style={{ color: '#94a3b8', fontSize: 12 }}>لا توجد زيارات مسجَّلة لهذا المندوب</span>
                                     ) : (
@@ -5180,9 +5191,9 @@ export default function DoctorsPage() {
                                         {r.areas.map((a, ai) => (
                                           <span key={ai} style={{ background: '#fff', border: listBorder, borderRadius: 4, padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                                             <strong style={{ color: '#111827' }}>{a.areaName}</strong>
-                                            <span style={{ color: '#111827', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="doctor" size={10} /> {a.doctorVisitCount}</span>
+                                            {!isMarketer && <span style={{ color: '#111827', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="doctor" size={10} /> {a.doctorVisitCount}</span>}
                                             <span style={{ color: '#111827', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="pharmacy" size={10} /> {a.pharmacyVisitCount}</span>
-                                            {a.totalDoctors > 0 && <span style={{ color: '#64748b', fontSize: 11 }}>({a.visitedDoctors}/{a.totalDoctors} تغطية)</span>}
+                                            {!isMarketer && a.totalDoctors > 0 && <span style={{ color: '#64748b', fontSize: 11 }}>({a.visitedDoctors}/{a.totalDoctors} تغطية)</span>}
                                           </span>
                                         ))}
                                       </div>

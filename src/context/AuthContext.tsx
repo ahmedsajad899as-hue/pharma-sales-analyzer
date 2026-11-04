@@ -13,6 +13,11 @@ export interface AuthUser {
   repKind?: string | null;
 }
 
+/** المسوّق بأي مستوى (مسوّق/قائد/مدير): يزور الصيدليات فقط — لا شيء يخص الأطباء يظهر له (طلب 2026-11-04). */
+export const isMarketerUser = (u?: AuthUser | null): boolean => u?.repKind === 'pharmacy';
+/** صفحات كلها أطباء ولا جزء صيدليات فيها، فتُخفى عن المسوقين بالكامل: البلان الشهري، عينات FMS، ملف أقدر. */
+export const MARKETER_HIDDEN_PAGES = new Set<string>(['monthly-plans', 'fms', 'aqdar-export']);
+
 export interface SavedAccount {
   token: string;
   user: AuthUser;

@@ -3,7 +3,7 @@ import type { PageId } from '../App';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import DailyCallsMap, { type VisitPoint } from '../components/DailyCallsMap';
 const RepTrackingMap = lazy(() => import('../components/RepTrackingMap'));
-import { useAuth } from '../context/AuthContext';
+import { useAuth, isMarketerUser } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Icon, type IconName } from '../config/icons';
 import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope } from '../components/ProvinceRepsToggle';
@@ -24,6 +24,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const { token, user, hasFeature, requiresGps, getDoctorFilterPlanMode } = useAuth();
   const { t } = useLanguage();
   const authH = () => ({ Authorization: `Bearer ${token}` });
+  // المسوّق: زيارات صيدليات فقط، تسجيلاً وعرضاً
+  const isMarketer = isMarketerUser(user);
   const [stats, setStats]         = useState<Stats>({ sciRepsCount: 0, filesCount: 0, areasCount: 0, totalSales: 0, totalReturns: 0 });
   const [loading, setLoading]     = useState(true);
 
@@ -74,11 +76,11 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   const callsData = useMemo<DailyCallsData | null>(() => {
     if (!rawCallsData) return rawCallsData;
     const provinceIds = new Set(dashRepsAll.filter(r => r.isProvinceMember).map(r => r.id));
-    if (provinceIds.size === 0) return rawCallsData;
-    const keep = (repId: number | null | undefined) => (repId != null && provinceIds.has(repId)) === onlyProvince;
-    const visits = rawCallsData.visits.filter(v => keep(v.scientificRep?.id));
+    if (provinceIds.size === 0 && !isMarketer) return rawCallsData;
+    const keep = (repId: number | null | undefined) => provinceIds.size === 0 || (repId != null && provinceIds.has(repId)) === onlyProvince;
+    const visits = rawCallsData.visits.filter(v => keep(v.scientificRep?.id) && (!isMarketer || (v as any)._visitType === 'pharmacy'));
     return { ...rawCallsData, visits, reps: rawCallsData.reps.filter(r => keep(r.id)), total: visits.length };
-  }, [rawCallsData, dashRepsAll, onlyProvince]);
+  }, [rawCallsData, dashRepsAll, onlyProvince, isMarketer]);
   const changeProvinceScope = (v: boolean) => {
     setOnlyProvince(v);
     if (callsRepId !== '') { setCallsRepId(''); loadDailyCalls(callsDateFrom, callsDateTo, ''); }
@@ -167,7 +169,8 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
   // Tracking-map modal state
   const [trackingMapRepId, setTrackingMapRepId] = useState<number | null>(null);
   // ── Call Type (doctor / pharmacy) ─────────────────────────
-  const [callType, setCallType]               = useState<'doctor' | 'pharmacy'>('doctor');
+  const [callTypeRaw, setCallType]            = useState<'doctor' | 'pharmacy'>('doctor');
+  const callType = isMarketer ? 'pharmacy' : callTypeRaw;
   const [isDoubleVisit, setIsDoubleVisit]     = useState(false);
   // ── Pharmacy Call Fields ───────────────────────────────────
   const [clPharmacyName, setClPharmacyName]       = useState('');
@@ -1857,14 +1860,18 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                   onChange={e => setFSearch(e.target.value)}
                   style={{ flex: 1, minWidth: 80, padding: '3px 8px', fontSize: '11px', borderRadius: '6px', border: '1px solid #d1d5db', outline: 'none', direction: 'rtl', background: '#fff', height: '26px' }}
                 />
-                <button onClick={() => setFType(fType === 'doctor' ? 'all' : 'doctor')}
-                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'doctor' ? '#374151' : '#d1d5db'}`, background: fType === 'doctor' ? '#f1f5f9' : '#fff', color: fType === 'doctor' ? '#1e293b' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                  <Icon name="doctor" size={12} /><span>طبيب</span>
-                </button>
-                <button onClick={() => setFType(fType === 'pharmacy' ? 'all' : 'pharmacy')}
-                  style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'pharmacy' ? '#374151' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f1f5f9' : '#fff', color: fType === 'pharmacy' ? '#1e293b' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                  <Icon name="pharmacy" size={12} /><span>صيدلية</span>
-                </button>
+                {!isMarketer && (
+                  <>
+                    <button onClick={() => setFType(fType === 'doctor' ? 'all' : 'doctor')}
+                      style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'doctor' ? '#374151' : '#d1d5db'}`, background: fType === 'doctor' ? '#f1f5f9' : '#fff', color: fType === 'doctor' ? '#1e293b' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                      <Icon name="doctor" size={12} /><span>طبيب</span>
+                    </button>
+                    <button onClick={() => setFType(fType === 'pharmacy' ? 'all' : 'pharmacy')}
+                      style={{ padding: '3px 8px', fontSize: '10px', borderRadius: '6px', border: `1.5px solid ${fType === 'pharmacy' ? '#374151' : '#d1d5db'}`, background: fType === 'pharmacy' ? '#f1f5f9' : '#fff', color: fType === 'pharmacy' ? '#1e293b' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                      <Icon name="pharmacy" size={12} /><span>صيدلية</span>
+                    </button>
+                  </>
+                )}
                 <button onClick={() => setFDouble(p => !p)}
                   style={{ padding: '3px 8px', fontSize: '14px', borderRadius: '6px', border: `1.5px solid ${fDouble ? '#374151' : 'var(--c-accent)'}`, background: fDouble ? '#374151' : 'var(--c-accent-light)', color: fDouble ? '#fff' : 'var(--c-accent)', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', height: '26px', display: 'flex', alignItems: 'center', gap: '3px', lineHeight: 1 }}>
                   <Icon name="navUsers" size={14} />
@@ -2065,13 +2072,15 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     <>
                     {/* Totals row */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 10px' }}>
-                        <span style={{ fontSize: 12, display: 'inline-flex', color: 'var(--c-accent)' }}><Icon name="doctor" size={12} /></span>
-                        <div>
-                          <div style={{ fontSize: 9, color: '#64748b', lineHeight: 1 }}>أطباء</div>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--c-accent)', lineHeight: 1.2 }}>{doctorCalls.length}</div>
+                      {!isMarketer && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 10px' }}>
+                          <span style={{ fontSize: 12, display: 'inline-flex', color: 'var(--c-accent)' }}><Icon name="doctor" size={12} /></span>
+                          <div>
+                            <div style={{ fontSize: 9, color: '#64748b', lineHeight: 1 }}>أطباء</div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--c-accent)', lineHeight: 1.2 }}>{doctorCalls.length}</div>
+                          </div>
                         </div>
-                      </div>
+                      )}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 10px' }}>
                         <span style={{ fontSize: 12, display: 'inline-flex', color: 'var(--c-success)' }}><Icon name="pharmacy" size={12} /></span>
                         <div>
@@ -2280,7 +2289,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     <div style={{ fontSize: 44, marginBottom: 8, display: 'flex', justifyContent: 'center', color: 'var(--c-danger)' }}><Icon name="mic" size={44} /></div>
                     <div style={{ fontWeight: 800, fontSize: 16, color: '#111827', marginBottom: 10 }}>نوع الزيارة الصوتية</div>
                     {/* Call type selector */}
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: 14, justifyContent: 'center' }}>
+                    {!isMarketer && <div style={{ display: 'flex', gap: '8px', marginBottom: 14, justifyContent: 'center' }}>
                       <button
                         onClick={() => setCallType('doctor')}
                         style={{ flex: 1, padding: '8px 12px', borderRadius: '10px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
@@ -2297,7 +2306,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                           background: callType === 'pharmacy' ? 'var(--c-success-bg)' : '#fff',
                           color: callType === 'pharmacy' ? 'var(--c-success)' : '#6b7280' }}
                       ><Icon name="pharmacy" size={14} /> صيدلية</button>
-                    </div>
+                    </div>}
                     {callType === 'doctor' ? (
                       <>
                         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 14 }}>اذكر بالترتيب: اسم الطبيب ← الايتم ← النتيجة ← ملاحظات</div>
@@ -2515,7 +2524,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               )}
 
               {/* ── Call Type Tabs ── */}
-              <div style={{ display: 'flex', gap: '6px', marginBottom: '18px' }}>
+              {!isMarketer && <div style={{ display: 'flex', gap: '6px', marginBottom: '18px' }}>
                 <button
                   onClick={() => setCallType('doctor')}
                   style={{ flex: 1, padding: '9px 10px', borderRadius: '10px', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
@@ -2532,7 +2541,7 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
                     background: callType === 'pharmacy' ? 'var(--c-success-bg)' : '#f9fafb',
                     color: callType === 'pharmacy' ? 'var(--c-success)' : '#6b7280' }}
                 ><Icon name="pharmacy" size={15} /> زيارة صيدلية</button>
-              </div>
+              </div>}
 
               {/* ── Pharmacy Form ─────────────────────────────── */}
               {callType === 'pharmacy' && (
@@ -3649,20 +3658,24 @@ export default function DashboardPage({ onNavigate, activeFileIds, onFileActivat
               <div style={{ padding: '8px 10px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
                   type="text"
-                  placeholder="🔍 بحث: طبيب، صيدلية، منطقة، ايتم..."
+                  placeholder={isMarketer ? '🔍 بحث: صيدلية، منطقة، ايتم...' : '🔍 بحث: طبيب، صيدلية، منطقة، ايتم...'}
                   value={fSearch}
                   onChange={e => setFSearch(e.target.value)}
                   style={{ flex: 1, minWidth: 150, padding: '5px 10px', fontSize: '12px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', direction: 'rtl', background: '#fff' }}
                 />
-                <button onClick={() => setFType(fType === 'doctor' ? 'all' : 'doctor')}
-                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'doctor' ? 'var(--c-accent)' : '#d1d5db'}`, background: fType === 'doctor' ? 'var(--c-accent-light)' : '#fff', color: fType === 'doctor' ? 'var(--c-accent)' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <Icon name="doctor" size={12} /> طبيب
-                </button>
-                <button
-                  onClick={() => setFType(fType === 'pharmacy' ? 'all' : 'pharmacy')}
-                  style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'pharmacy' ? 'var(--c-success)' : '#d1d5db'}`, background: fType === 'pharmacy' ? 'var(--c-success-bg)' : '#fff', color: fType === 'pharmacy' ? 'var(--c-success)' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <Icon name="pharmacy" size={12} /> صيدلية
-                </button>
+                {!isMarketer && (
+                  <>
+                    <button onClick={() => setFType(fType === 'doctor' ? 'all' : 'doctor')}
+                      style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'doctor' ? 'var(--c-accent)' : '#d1d5db'}`, background: fType === 'doctor' ? 'var(--c-accent-light)' : '#fff', color: fType === 'doctor' ? 'var(--c-accent)' : '#6b7280', fontWeight: fType === 'doctor' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="doctor" size={12} /> طبيب
+                    </button>
+                    <button
+                      onClick={() => setFType(fType === 'pharmacy' ? 'all' : 'pharmacy')}
+                      style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fType === 'pharmacy' ? 'var(--c-success)' : '#d1d5db'}`, background: fType === 'pharmacy' ? 'var(--c-success-bg)' : '#fff', color: fType === 'pharmacy' ? 'var(--c-success)' : '#6b7280', fontWeight: fType === 'pharmacy' ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="pharmacy" size={12} /> صيدلية
+                    </button>
+                  </>
+                )}
                 <button onClick={() => setFDouble(p => !p)}
                   style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '8px', border: `1.5px solid ${fDouble ? 'var(--c-accent)' : '#d1d5db'}`, background: fDouble ? 'var(--c-accent-light)' : '#fff', color: fDouble ? 'var(--c-accent)' : '#6b7280', fontWeight: fDouble ? 700 : 400, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center' }}>
                   <Icon name="navUsers" size={13} />

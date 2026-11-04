@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { PageId } from '../../App';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, isMarketerUser, MARKETER_HIDDEN_PAGES } from '../../context/AuthContext';
 import type { SavedAccount } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { NAV_ITEMS, FEATURE_PAGE_MAP, COMM_REP_ORDER } from '../../config/featureConfig';
@@ -96,6 +96,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
   // empty roles array = visible to all; otherwise check role inclusion
   const filteredItems = navItems.filter(item => {
     if (item.roles.length > 0 && !item.roles.includes(role)) return false;
+    if (isMarketerUser(user) && MARKETER_HIDDEN_PAGES.has(item.id)) return false;
     const featureKeys = Object.entries(featurePageMap)
       .filter(([, pageId]) => pageId === item.id)
       .map(([key]) => key);

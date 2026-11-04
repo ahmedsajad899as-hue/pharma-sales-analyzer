@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, isMarketerUser } from '../context/AuthContext';
 import RepFieldSurveyMap from '../components/RepFieldSurveyMap';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -179,6 +179,8 @@ function describeSave(kind: Kind, data: any): string[] {
 export default function RepFieldSurveyPage() {
   const { user, token } = useAuth();
   const isRep = user?.role === 'scientific_rep';
+  // المسوّق: سيرفي الصيدليات فقط — سجلات الأطباء لا تصل للشاشة أصلاً (تصفية عند التحميل)
+  const isMarketer = isMarketerUser(user);
   // التيم ليدر يسجّل بنفسه كالمندوب (نفس النموذج والترتيب) ويرى سجلات فريقه أيضاً
   const canRecord = isRep || user?.role === 'team_leader';
   // التصدير محجوب عن المندوب العلمي وقائد الفريق — للإدارة فقط
@@ -203,14 +205,14 @@ export default function RepFieldSurveyPage() {
       const r = await fetch(`/api/rep-field-survey/entries${qs}`, { headers: H() });
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.message || 'تعذّر تحميل السيرفي');
-      setEntries(j.data.entries);
+      setEntries(isMarketer ? j.data.entries.filter((e: Entry) => e.kind === 'pharmacy') : j.data.entries);
       setReps(j.data.reps);
     } catch (e: any) {
       setLoadError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [H, repFilter]);
+  }, [H, repFilter, isMarketer]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -293,7 +295,7 @@ export default function RepFieldSurveyPage() {
   }, [entries, kindFilter, search]);
 
   // ── نموذج التسجيل (للمندوب فقط) ────────────────────────────────────────
-  const [kind, setKind]           = useState<Kind>('doctor');
+  const [kind, setKind]           = useState<Kind>(isMarketer ? 'pharmacy' : 'doctor');
   const [form, setForm]           = useState(() => ({ ...EMPTY_FORM, areaName: readRememberedArea() }));
   const [doctorNear, setDoctorNear] = useState<string[]>([]);
   const [nearby, setNearby]       = useState<NearbyRow[]>([]);
@@ -358,7 +360,7 @@ export default function RepFieldSurveyPage() {
       }
       if (!r.ok || !j.success) throw new Error(j.message || 'تعذّر الحفظ.');
       rememberArea(String(body.areaName ?? ''));
-      setNotice({ kind: k, name, lines: describeSave(k, j.data) });
+      setNotice({ kind: k, name, lines: isMarketer ? [] : describeSave(k, j.data) });
       resetAfterSave();
       setDup(null);
       load();
@@ -563,15 +565,17 @@ export default function RepFieldSurveyPage() {
     });
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'السجلات');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'الملخص حسب المنطقة');
+    const sheetRows = isMarketer ? rows.map(({ 'النوع': _k, 'الاختصاص': _s, 'الكلاس': _c, 'الصيدليات القريبة': _n, ...r }) => r) : rows;
+    const sheetSummary = isMarketer ? summary.map(({ 'أطباء': _d, ...r }) => r) : summary;
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetRows), 'السجلات');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheetSummary), 'الملخص حسب المنطقة');
     const stamp = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `سيرفي_المندوب_${stamp}.xlsx`);
   };
 
   // ── عرض ────────────────────────────────────────────────────────────────
   const nameLabel = kind === 'doctor' ? 'اسم الطبيب' : 'اسم الصيدلية';
-  const detailText = (e: Entry) => e.kind === 'doctor'
+  const detailText = (e: Entry) => isMarketer ? (e.notes || '—') : e.kind === 'doctor'
     ? [e.specialty, e.className, e.nearPharmacies.length ? `قرب: ${e.nearPharmacies.join('، ')}` : ''].filter(Boolean).join(' · ') || '—'
     : `${nearbyOf(e.id).length} طبيب قريب${e.notes ? ` · ${e.notes}` : ''}`;
 
@@ -579,12 +583,12 @@ export default function RepFieldSurveyPage() {
     <div className="page rfs-page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">سيرفي المندوب العلمي</h1>
+          <h1 className="page-title">{isMarketer ? 'سيرفي الصيدليات' : 'سيرفي المندوب العلمي'}</h1>
           <div className="page-subtitle">
             {isRep
-              ? 'سجّل الأطباء والصيدليات في مناطقك، مع تحديد موقع كل اسم بدقة. تظهر لك أيضاً أسماء زملاء مكتبك المسجَّلة في نفس مناطقك، ويمكنكم تعديلها جميعاً.'
+              ? `سجّل ${isMarketer ? 'الصيدليات' : 'الأطباء والصيدليات'} في مناطقك، مع تحديد موقع كل اسم بدقة. تظهر لك أيضاً أسماء زملاء مكتبك المسجَّلة في نفس مناطقك، ويمكنكم تعديلها جميعاً.`
               : canRecord
-              ? 'سجّل الأطباء والصيدليات بنفسك، مع تحديد موقع كل اسم بدقة. تظهر لك أيضاً سجلات مندوبي فريقك ويمكنك تعديلها.'
+              ? `سجّل ${isMarketer ? 'الصيدليات' : 'الأطباء والصيدليات'} بنفسك، مع تحديد موقع كل اسم بدقة. تظهر لك أيضاً سجلات مندوبي فريقك ويمكنك تعديلها.`
               : `السجلات الميدانية لمندوبي فريقك — للاطلاع${canExport ? ' والتصدير' : ''}.`}
           </div>
         </div>
@@ -606,13 +610,15 @@ export default function RepFieldSurveyPage() {
             <div className="stat-card-label">إجمالي المسجَّل</div>
           </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-icon stat-card-icon--green">👨‍⚕️</div>
-          <div className="stat-card-body">
-            <div className="stat-card-value">{totals.doctors}</div>
-            <div className="stat-card-label">أطباء</div>
+        {!isMarketer && (
+          <div className="stat-card">
+            <div className="stat-card-icon stat-card-icon--green">👨‍⚕️</div>
+            <div className="stat-card-body">
+              <div className="stat-card-value">{totals.doctors}</div>
+              <div className="stat-card-label">أطباء</div>
+            </div>
           </div>
-        </div>
+        )}
         <div className="stat-card">
           <div className="stat-card-icon stat-card-icon--purple">💊</div>
           <div className="stat-card-body">
@@ -634,10 +640,12 @@ export default function RepFieldSurveyPage() {
         <section className="card rfs-card">
           <div className="rfs-card-head">
             <div className="section-title">تسجيل جديد</div>
-            <div className="tabs">
-              <button className={`tab ${kind === 'doctor' ? 'tab--active' : ''}`} onClick={() => switchKind('doctor')}>طبيب</button>
-              <button className={`tab ${kind === 'pharmacy' ? 'tab--active' : ''}`} onClick={() => switchKind('pharmacy')}>صيدلية</button>
-            </div>
+            {!isMarketer && (
+              <div className="tabs">
+                <button className={`tab ${kind === 'doctor' ? 'tab--active' : ''}`} onClick={() => switchKind('doctor')}>طبيب</button>
+                <button className={`tab ${kind === 'pharmacy' ? 'tab--active' : ''}`} onClick={() => switchKind('pharmacy')}>صيدلية</button>
+              </div>
+            )}
           </div>
 
           {notice && (
@@ -688,7 +696,7 @@ export default function RepFieldSurveyPage() {
             </div>
           )}
 
-          {kind === 'pharmacy' && (
+          {kind === 'pharmacy' && !isMarketer && (
             <div className="rfs-nearby">
               <div className="rfs-nearby-head">
                 <div>
@@ -787,20 +795,20 @@ export default function RepFieldSurveyPage() {
           <div className="table-wrapper">
             <table>
               <thead>
-                <tr><th>المنطقة</th><th>أطباء</th><th>صيدليات</th><th>الإجمالي</th></tr>
+                <tr><th>المنطقة</th>{!isMarketer && <th>أطباء</th>}<th>صيدليات</th><th>الإجمالي</th></tr>
               </thead>
               <tbody>
                 {areaSummary.map(a => (
                   <tr key={a.area}>
                     <td>{a.area}</td>
-                    <td>{a.doctors}</td>
+                    {!isMarketer && <td>{a.doctors}</td>}
                     <td>{a.pharmacies}</td>
                     <td><strong>{a.doctors + a.pharmacies}</strong></td>
                   </tr>
                 ))}
                 <tr className="rfs-total-row">
                   <td>المجموع</td>
-                  <td>{totals.doctors}</td>
+                  {!isMarketer && <td>{totals.doctors}</td>}
                   <td>{totals.pharmacies}</td>
                   <td>{totals.all}</td>
                 </tr>
@@ -829,13 +837,15 @@ export default function RepFieldSurveyPage() {
                 ))}
               </select>
             )}
-            <div className="tabs">
-              {(['all', 'doctor', 'pharmacy'] as const).map(k => (
-                <button key={k} className={`tab ${kindFilter === k ? 'tab--active' : ''}`} onClick={() => setKindFilter(k)}>
-                  {k === 'all' ? 'الكل' : k === 'doctor' ? 'أطباء' : 'صيدليات'}
-                </button>
-              ))}
-            </div>
+            {!isMarketer && (
+              <div className="tabs">
+                {(['all', 'doctor', 'pharmacy'] as const).map(k => (
+                  <button key={k} className={`tab ${kindFilter === k ? 'tab--active' : ''}`} onClick={() => setKindFilter(k)}>
+                    {k === 'all' ? 'الكل' : k === 'doctor' ? 'أطباء' : 'صيدليات'}
+                  </button>
+                ))}
+              </div>
+            )}
             <input className="form-input" placeholder="بحث بالاسم أو المنطقة أو الصيدلية…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
         </div>
@@ -845,13 +855,13 @@ export default function RepFieldSurveyPage() {
         ) : visible.length === 0 ? (
           <div className="empty-row">{entries.length ? 'لا توجد نتائج مطابقة.' : 'لم يتم تسجيل أي اسم بعد.'}</div>
         ) : viewMode === 'map' ? (
-          <RepFieldSurveyMap entries={visible} onEdit={openEdit} />
+          <RepFieldSurveyMap entries={visible} onEdit={openEdit} pharmacyOnly={isMarketer} />
         ) : (
           <div className="table-wrapper">
             <table>
               <thead>
                 <tr>
-                  <th>النوع</th>
+                  {!isMarketer && <th>النوع</th>}
                   <th>الاسم</th>
                   <th>المنطقة</th>
                   <th>التفاصيل</th>
@@ -864,11 +874,13 @@ export default function RepFieldSurveyPage() {
               <tbody>
                 {visible.map(e => (
                   <tr key={e.id}>
-                    <td>
-                      <span className={`badge ${e.kind === 'doctor' ? 'badge--blue' : 'badge--gray'}`}>
-                        {e.kind === 'doctor' ? 'طبيب' : 'صيدلية'}
-                      </span>
-                    </td>
+                    {!isMarketer && (
+                      <td>
+                        <span className={`badge ${e.kind === 'doctor' ? 'badge--blue' : 'badge--gray'}`}>
+                          {e.kind === 'doctor' ? 'طبيب' : 'صيدلية'}
+                        </span>
+                      </td>
+                    )}
                     <td>{e.name}</td>
                     <td>{e.areaName}</td>
                     <td className="rfs-muted">{detailText(e)}</td>
@@ -935,7 +947,7 @@ export default function RepFieldSurveyPage() {
                 </dd>
               </dl>
 
-              {viewing.kind === 'pharmacy' && (
+              {viewing.kind === 'pharmacy' && !isMarketer && (
                 <div className="rfs-nearby-view">
                   <div className="form-label">الأطباء القريبون ({nearbyOf(viewing.id).length})</div>
                   {nearbyOf(viewing.id).length === 0 ? (
@@ -992,7 +1004,7 @@ export default function RepFieldSurveyPage() {
                   هذا السجل مسجَّل لدى <strong>{editing.repName ?? 'زميل في مكتبك'}</strong>{isRep ? ' ضمن منطقة مشتركة معك' : ''} — تعديلك يظهر للجميع باسمك.
                 </div>
               )}
-              {editing.kind === 'pharmacy' && (
+              {editing.kind === 'pharmacy' && !isMarketer && (
                 <div className="rfs-muted">تعديل الاسم أو المنطقة أو الموقع ينتقل إلى الأطباء المرتبطين بهذه الصيدلية بالاسم.</div>
               )}
               <div className="rfs-form-grid">
@@ -1034,7 +1046,7 @@ export default function RepFieldSurveyPage() {
                 </div>
               )}
 
-              {editing.kind === 'pharmacy' && (
+              {editing.kind === 'pharmacy' && !isMarketer && (
                 <div className="rfs-nearby">
                   <div className="rfs-nearby-head">
                     <div>

@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef, Component, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider, useAuth, isMarketerUser, MARKETER_HIDDEN_PAGES } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Sidebar from './components/layout/Sidebar';
 import LoginPage from './pages/LoginPage';
@@ -632,7 +632,8 @@ function AppInner() {
   // ننتقل لأول صفحة مسموحة في القائمة الجانبية لهذا الدور.
   useEffect(() => {
     const isHidden = (pageId: string) =>
-      Object.entries(FEATURE_PAGE_MAP).some(([k, p]) => p === pageId && !hasFeature(k));
+      (isMarketerUser(user) && MARKETER_HIDDEN_PAGES.has(pageId))
+      || Object.entries(FEATURE_PAGE_MAP).some(([k, p]) => p === pageId && !hasFeature(k));
     if (!user || !isHidden(activePage)) return;
     const fallback = NAV_ITEMS.find(n =>
       (n.roles.length === 0 || n.roles.includes(user.role)) && !isHidden(n.id));
@@ -740,7 +741,7 @@ function AppInner() {
           <div style={{ minWidth: 0 }}>
             {(() => {
               const fallbackTitle = NAV_ITEMS.find(n => n.id === activePage)?.labelAr ?? '';
-              const header = getPageHeader(activePage, fallbackTitle);
+              const header = getPageHeader(activePage, fallbackTitle, isMarketerUser(user));
               return (
                 <>
                   <div className="app-topbar-title">{header.title}</div>

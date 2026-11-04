@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, isMarketerUser } from '../context/AuthContext';
 import { Icon } from '../config/icons';
 import type { IconName } from '../config/icons';
 
@@ -232,6 +232,9 @@ export default function DailyPlanPage() {
   const role = user?.role ?? 'user';
   const isManager = isManagerOrAdmin;
   const isCompanyManager = role === 'company_manager' || role === 'admin';
+  // المسوّق: بلان صيدليات فقط، بلا اقتراحات الأطباء وحصتهم وتكرارهم
+  const isMarketer = isMarketerUser(user);
+  const postponeLabel = (k: string, label: string) => (isMarketer && k === 'absent' ? 'غير موجود' : label);
 
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
@@ -249,7 +252,7 @@ export default function DailyPlanPage() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [addMode, setAddMode] = useState<'doctor' | 'pharmacy'>('doctor');
+  const [addMode, setAddMode] = useState<'doctor' | 'pharmacy'>(isMarketer ? 'pharmacy' : 'doctor');
   const [docSearch, setDocSearch] = useState('');
   const [pharmName, setPharmName] = useState('');
   const [pharmArea, setPharmArea] = useState<number | ''>('');
@@ -542,8 +545,8 @@ export default function DailyPlanPage() {
   // bottom as a finished group — keeps the active to-do list scannable at a glance.
   const sortedEntries = useMemo(() => {
     const rank = (e: Entry) => (e.status === 'planned' ? 0 : 1);
-    return [...(view?.entries ?? [])].sort((a, b) => rank(a) - rank(b));
-  }, [view]);
+    return (view?.entries ?? []).filter(e => !isMarketer || e.entryType === 'pharmacy').sort((a, b) => rank(a) - rank(b));
+  }, [view, isMarketer]);
 
   const ach = view?.achievement;
   const quota = view?.newDoctorQuota;
@@ -601,7 +604,7 @@ export default function DailyPlanPage() {
                   <div className="dp-stat"><b style={{ color: NAVY }}>{ach.planned}</b><span>مخطط</span></div>
                   <div className="dp-stat"><b style={{ color: 'var(--c-text-primary)' }}>{ach.total}</b><span>الكل</span></div>
                 </div>
-                {quota && quota.required > 0 && (
+                {!isMarketer && quota && quota.required > 0 && (
                   <div className={`dp-quota ${quota.planned >= quota.required ? 'dp-quota--ok' : 'dp-quota--warn'}`}>
                     حصة الأطباء الجدد: {quota.planned}/{quota.required} مخطط · {quota.visited} تمت
                     {quota.planned < quota.required ? ' — أقل من المطلوب' : ''}
@@ -613,10 +616,12 @@ export default function DailyPlanPage() {
             {/* Add entry — segmented doctor/pharmacy keeps only the relevant field on screen */}
             <div className="dp-card">
               <div className="dp-card-title" style={{ marginBottom: 12 }}>إضافة إلى البلان</div>
-              <div className="dp-seg" style={{ marginBottom: 12 }}>
-                <button className={addMode === 'doctor' ? 'active' : ''} onClick={() => setAddMode('doctor')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="doctor" size={15} /> طبيب</button>
-                <button className={addMode === 'pharmacy' ? 'active' : ''} onClick={() => setAddMode('pharmacy')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="pharmacy" size={15} /> صيدلية</button>
-              </div>
+              {!isMarketer && (
+                <div className="dp-seg" style={{ marginBottom: 12 }}>
+                  <button className={addMode === 'doctor' ? 'active' : ''} onClick={() => setAddMode('doctor')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="doctor" size={15} /> طبيب</button>
+                  <button className={addMode === 'pharmacy' ? 'active' : ''} onClick={() => setAddMode('pharmacy')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Icon name="pharmacy" size={15} /> صيدلية</button>
+                </div>
+              )}
 
               {addMode === 'doctor' ? (
                 <div style={{ position: 'relative' }}>
@@ -653,11 +658,13 @@ export default function DailyPlanPage() {
                 </div>
               )}
 
-              <div className="dp-quickrow">
-                <button className="dp-btn dp-btn--neutral" onClick={() => loadSuggestions('new')}><Icon name="add" size={14} /> أطباء جدد</button>
-                <button className="dp-btn dp-btn--neutral" onClick={() => loadSuggestions('carryover')}><Icon name="history" size={14} /> مؤجلو أمس</button>
-                {suggestMode && <button className="dp-btn dp-btn--ghost" onClick={() => { setSuggestMode(''); setSuggestions([]); }}>إغلاق</button>}
-              </div>
+              {!isMarketer && (
+                <div className="dp-quickrow">
+                  <button className="dp-btn dp-btn--neutral" onClick={() => loadSuggestions('new')}><Icon name="add" size={14} /> أطباء جدد</button>
+                  <button className="dp-btn dp-btn--neutral" onClick={() => loadSuggestions('carryover')}><Icon name="history" size={14} /> مؤجلو أمس</button>
+                  {suggestMode && <button className="dp-btn dp-btn--ghost" onClick={() => { setSuggestMode(''); setSuggestions([]); }}>إغلاق</button>}
+                </div>
+              )}
 
               {suggestMode && (
                 <div className="dp-sugg-list">
@@ -695,8 +702,8 @@ export default function DailyPlanPage() {
 
             {/* Entries list */}
             <div className="dp-card">
-              <div className="dp-card-title" style={{ marginBottom: 12 }}>قائمة اليوم · {view.entries.length}</div>
-              {view.entries.length === 0 ? (
+              <div className="dp-card-title" style={{ marginBottom: 12 }}>قائمة اليوم · {sortedEntries.length}</div>
+              {sortedEntries.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: '#94a3b8', textAlign: 'center', padding: '18px 0' }}>لا توجد أسماء في بلان اليوم بعد.</div>
               ) : (
                 <div className="dp-list">
@@ -750,7 +757,7 @@ export default function DailyPlanPage() {
                             <div className="dp-postpone-note">
                               {e.autoPostponed
                                 ? 'تأجيل تلقائي: لم يُتّخذ أي إجراء خلال 24 ساعة'
-                                : (e.postponeReason && <>السبب: {POSTPONE_REASONS[e.postponeReason] ?? e.postponeReason}{e.postponeNote ? ` — ${e.postponeNote}` : ''}</>)}
+                                : (e.postponeReason && <>السبب: {postponeLabel(e.postponeReason, POSTPONE_REASONS[e.postponeReason] ?? e.postponeReason)}{e.postponeNote ? ` — ${e.postponeNote}` : ''}</>)}
                               {e.postponeToDate && <span> · أُضيف تلقائياً ليوم {e.postponeToDate}</span>}
                             </div>
                           )}
@@ -763,7 +770,7 @@ export default function DailyPlanPage() {
             </div>
 
             {/* Repeats report */}
-            {repeats.length > 0 && (
+            {!isMarketer && repeats.length > 0 && (
               <div className="dp-card">
                 <div className="dp-card-title" style={{ marginBottom: 12 }}>الأطباء المكرّرون · آخر 30 يوم</div>
                 <div className="dp-table-wrap">
@@ -797,7 +804,7 @@ export default function DailyPlanPage() {
                     {Object.entries(POSTPONE_REASONS).map(([k, label]) => (
                       <div key={k} className="dp-stat" style={{ minWidth: 90 }}>
                         <b style={{ color: '#1e293b', fontSize: 18 }}>{postpone.counts[k] ?? 0}</b>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name={POSTPONE_REASON_ICONS[k]} size={11} /> {label}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name={POSTPONE_REASON_ICONS[k]} size={11} /> {postponeLabel(k, label)}</span>
                       </div>
                     ))}
                   </div>
@@ -868,7 +875,7 @@ export default function DailyPlanPage() {
             <div className="dp-choices">
               {Object.entries(POSTPONE_REASONS).map(([k, label]) => (
                 <button key={k} type="button" className={`dp-choice ${postponeReason === k ? 'active' : ''}`} onClick={() => setPostponeReason(k)}>
-                  <Icon name={POSTPONE_REASON_ICONS[k]} size={20} /><span>{label}</span>
+                  <Icon name={POSTPONE_REASON_ICONS[k]} size={20} /><span>{postponeLabel(k, label)}</span>
                 </button>
               ))}
             </div>
@@ -892,12 +899,14 @@ export default function DailyPlanPage() {
         <Modal title="إعدادات البلان اليومي" onClose={() => setSettingsOpen(false)}>
           <NumField label="عدد أيام نافذة التكرار" value={settingsDraft.repeatWindowDays} onChange={v => setSettingsDraft({ ...settingsDraft, repeatWindowDays: v })} />
           <NumField label="عدد مرات التكرار للتنبيه" value={settingsDraft.repeatThreshold} onChange={v => setSettingsDraft({ ...settingsDraft, repeatThreshold: v })} />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '4px 0 14px', fontSize: 12.5, color: '#1e293b', cursor: 'pointer' }}>
-            <input type="checkbox" checked={settingsDraft.alertOnRepeatAfterPositive} onChange={e => setSettingsDraft({ ...settingsDraft, alertOnRepeatAfterPositive: e.target.checked })} />
-            تنبيه عند إعادة طبيب بعد زيارة ناجحة / تنزيل طلبية
-          </label>
+          {!isMarketer && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 9, margin: '4px 0 14px', fontSize: 12.5, color: '#1e293b', cursor: 'pointer' }}>
+              <input type="checkbox" checked={settingsDraft.alertOnRepeatAfterPositive} onChange={e => setSettingsDraft({ ...settingsDraft, alertOnRepeatAfterPositive: e.target.checked })} />
+              تنبيه عند إعادة طبيب بعد زيارة ناجحة / تنزيل طلبية
+            </label>
+          )}
           <NumField label="حد الإنجاز المنخفض % (للإشعار)" value={settingsDraft.lowAchievementThreshold} onChange={v => setSettingsDraft({ ...settingsDraft, lowAchievementThreshold: v })} />
-          <NumField label="حصة الأطباء الجدد يومياً (0 = معطّل)" value={settingsDraft.minNewDoctorsPerDay} onChange={v => setSettingsDraft({ ...settingsDraft, minNewDoctorsPerDay: v })} />
+          {!isMarketer && <NumField label="حصة الأطباء الجدد يومياً (0 = معطّل)" value={settingsDraft.minNewDoctorsPerDay} onChange={v => setSettingsDraft({ ...settingsDraft, minNewDoctorsPerDay: v })} />}
           <button className="dp-btn dp-btn--primary dp-btn--block" style={{ marginTop: 6 }} onClick={saveSettings}><Icon name="check" size={14} /> حفظ الإعدادات</button>
         </Modal>
       )}
