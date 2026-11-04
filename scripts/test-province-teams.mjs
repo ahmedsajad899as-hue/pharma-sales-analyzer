@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   resolveAssignmentItemIds, findItemConflicts, buildItemAttribution,
   classifyChannel, personalSaleValue, toUSD,
-  assignmentFillsSeat, planSeatAssignments, repBelongsToSeat,
+  assignmentFillsSeat, planSeatAssignments, repBelongsToSeat, removedProvinceIds,
 } from '../server/modules/province-teams/province-teams.rules.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../server/modules/province-teams/personal-sale-trigger.js';
 import { marketerHomeProvinces, pickMarketerLeaders } from '../server/lib/pharmacyRep.js';
@@ -13,6 +13,15 @@ const t = (name, fn) => { fn(); passed++; console.log(`✓ ${name}`); };
 
 const DEVA = 1, OSEL = 2;
 const companyItems = new Map([[DEVA, [10, 11, 12]], [OSEL, [20, 21]]]);
+
+t('تغيير محافظة الحساب: الخروج من القديمة فقط', () => {
+  const DIYALA = 5, ANBAR = 7, BASRA = 9;
+  assert.deepEqual(removedProvinceIds([DIYALA], [ANBAR]), [DIYALA]);
+  assert.deepEqual(removedProvinceIds([DIYALA, ANBAR], [ANBAR]), [DIYALA]);
+  assert.deepEqual(removedProvinceIds([ANBAR], [ANBAR, BASRA]), []);
+  assert.deepEqual(removedProvinceIds([], [ANBAR]), []);
+  assert.deepEqual(removedProvinceIds([DIYALA, DIYALA], []), [DIYALA]);
+});
 
 t('مسوق بغداد بمنطقة من محافظة يبقى على بغداد', () => {
   assert.deepEqual(marketerHomeProvinces([], new Map([['بغداد', 60], ['الأنبار', 1]])), ['بغداد']);

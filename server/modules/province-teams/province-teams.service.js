@@ -239,6 +239,19 @@ export async function autoEnrollAllReps() {
   return n;
 }
 
+/**
+ * إزالة محافظة من الحساب تُخرجه من فريقها، مندوباً أو قائداً. autoEnrollRep يضيف فقط،
+ * فبدون هذا يبقى المنقول إلى محافظة أخرى ظاهراً في القديمة وتُحسب له تغطيتها.
+ */
+export async function leaveProvinceTeams(userId, provinceIds) {
+  if (!provinceIds.length) return;
+  const inProvinces = { provinceId: { in: provinceIds } };
+  await prisma.$transaction([
+    prisma.provinceRepAssignment.updateMany({ where: { repUserId: userId, isActive: true, team: inProvinces }, data: { isActive: false } }),
+    prisma.provinceTeam.updateMany({ where: { leaderUserId: userId, ...inProvinces }, data: { leaderUserId: null } }),
+  ]);
+}
+
 export async function createTeam(viewer, { provinceId, leaderUserId = null, notes = null }) {
   assertStructureEditor(viewer);
   const pid = Number(provinceId);

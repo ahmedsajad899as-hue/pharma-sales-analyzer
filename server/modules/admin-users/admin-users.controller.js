@@ -15,7 +15,7 @@ import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies } from
 import { loadSeatManagers } from '../../lib/provinceSeats.js';
 import { newUserPermissions } from '../../lib/newUserFeatures.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
-import { assignmentFillsSeat } from '../province-teams/province-teams.rules.js';
+import { assignmentFillsSeat, removedProvinceIds } from '../province-teams/province-teams.rules.js';
 import { resolveUserItemTiers, SECONDARY_MODES, TIER_MAIN, TIER_SECONDARY, DEFAULT_SECONDARY_MODE } from '../../lib/itemTiers.js';
 import { clearMarketersTeamCache } from '../scientific-reps/scientific-reps.service.js';
 
@@ -593,6 +593,7 @@ export async function setUserProvinces(req, res) {
     ? await prisma.province.findMany({ where: { id: { in: ids } }, select: { id: true } })
     : [];
   const validIds = existing.map(p => p.id);
+  const previous = await prisma.userProvinceAssignment.findMany({ where: { userId }, select: { provinceId: true } });
 
   await prisma.$transaction([
     prisma.userProvinceAssignment.deleteMany({ where: { userId } }),
@@ -601,6 +602,12 @@ export async function setUserProvinces(req, res) {
       skipDuplicates: true,
     })] : []),
   ]);
+
+  try {
+    await provinceTeamsService.leaveProvinceTeams(userId, removedProvinceIds(previous.map(p => p.provinceId), validIds));
+  } catch (e) {
+    console.warn('[setUserProvinces] leaveProvinceTeams failed (non-fatal):', e.message);
+  }
 
   // الروابط المشتقة لقطات — يجب إعادة بنائها لأن نطاق المناطق تغيّر
   try {

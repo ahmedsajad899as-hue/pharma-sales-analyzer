@@ -92,6 +92,12 @@ export function assignmentFillsSeat(a, seat) {
   return (a.itemIds ?? []).some(id => mine.has(id));
 }
 
+/** المحافظات التي خرج منها الحساب بهذا الحفظ. غير المذكورة في الحالتين لا تُمَسّ (تعيين يدوي في الهيكلية). */
+export function removedProvinceIds(before, after) {
+  const kept = new Set(after);
+  return [...new Set(before)].filter(id => !kept.has(id));
+}
+
 /**
  * هل المندوب من فريق مدير الشركة في عرض المحافظات؟ مندوب فريق المحافظة يحسمه مقعده فقط،
  * فلا تكفي شركة ثانوية مسندة للمدير. وغيره بتبعيته للمدير أو بشركته الرئيسية.
