@@ -23,7 +23,7 @@ export const COMPANY_ROLES = new Set(['company_manager', 'supervisor', 'product_
 /** من يصلح مندوباً في فريق محافظة. */
 export const REP_CANDIDATE_ROLES = ['scientific_rep', 'team_leader'];
 /** من يصلح قائداً لفريق محافظة. */
-export const LEADER_CANDIDATE_ROLES = ['team_leader', 'supervisor', 'scientific_rep'];
+export const LEADER_CANDIDATE_ROLES = ['team_leader', 'supervisor'];
 
 /**
  * @param {{id:number}} reqUser

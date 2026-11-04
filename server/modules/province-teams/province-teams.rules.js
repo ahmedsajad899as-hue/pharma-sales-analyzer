@@ -129,6 +129,37 @@ export function marketerTeamLinksToDrop(rows) {
   return [...links.values()];
 }
 
+/** أدوار لا تصلح مديراً لأحد: المندوب لا يُدير حساباً آخر. */
+export const REP_ONLY_ROLES = ['scientific_rep', 'commercial_rep'];
+const LEADER_LEVEL_ROLES = ['team_leader', 'supervisor'];
+
+/**
+ * روابط مدراء مندوبي الفرق التي لا سند لها. مندوب مديراً لمندوب يُحذف، إلا قائد فريقه.
+ * وقائد ليس قائد فريق المندوب للمراجعة فقط: قد يكون تيم ليدر شركته وضعه المكتب عمداً.
+ * @param {Array<{repUserId:number, leaderUserId:number|null, managers:{id:number, role:string}[]}>} rows صف لكل تعيين
+ * @returns {{drop:{userId:number, managerId:number}[], review:{userId:number, managerId:number}[]}}
+ */
+export function foreignManagerLinks(rows) {
+  const leadersOf = new Map();
+  for (const r of rows) {
+    if (!leadersOf.has(r.repUserId)) leadersOf.set(r.repUserId, new Set());
+    if (r.leaderUserId != null) leadersOf.get(r.repUserId).add(r.leaderUserId);
+  }
+  const drop = [];
+  const review = [];
+  const seen = new Set();
+  for (const r of rows) {
+    for (const m of r.managers) {
+      const key = `${r.repUserId}|${m.id}`;
+      if (seen.has(key) || leadersOf.get(r.repUserId).has(m.id)) continue;
+      seen.add(key);
+      if (REP_ONLY_ROLES.includes(m.role)) drop.push({ userId: r.repUserId, managerId: m.id });
+      else if (LEADER_LEVEL_ROLES.includes(m.role)) review.push({ userId: r.repUserId, managerId: m.id });
+    }
+  }
+  return { drop, review };
+}
+
 /**
  * هل المندوب من فريق مدير الشركة في عرض المحافظات؟ مندوب فريق المحافظة يحسمه مقعده فقط،
  * فلا تكفي شركة ثانوية مسندة للمدير. وغيره بتبعيته للمدير أو بشركته الرئيسية.

@@ -15,7 +15,7 @@ import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies, PROVI
 import { loadSeatManagers, loadMarketerManagers } from '../../lib/provinceSeats.js';
 import { newUserPermissions } from '../../lib/newUserFeatures.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
-import { repSeatIds, removedProvinceIds } from '../province-teams/province-teams.rules.js';
+import { repSeatIds, removedProvinceIds, REP_ONLY_ROLES } from '../province-teams/province-teams.rules.js';
 import { resolveUserItemTiers, SECONDARY_MODES, TIER_MAIN, TIER_SECONDARY, DEFAULT_SECONDARY_MODE } from '../../lib/itemTiers.js';
 import { clearMarketersTeamCache } from '../scientific-reps/scientific-reps.service.js';
 
@@ -904,11 +904,23 @@ export async function setUserLines(req, res) {
 export async function setUserManagers(req, res) {
   const userId = parseInt(req.params.id);
   const { managerIds = [] } = req.body;
+  const ids = [...new Set(managerIds.map(id => parseInt(id)))];
+
+  // رابط قديم بمندوب يبقى قابلاً للحفظ: الرفض لما يُضاف الآن فقط.
+  const current = await prisma.userManagerAssignment.findMany({ where: { userId }, select: { managerId: true } });
+  const known = new Set(current.map(c => c.managerId));
+  const added = ids.filter(id => !known.has(id));
+  const reps = added.length
+    ? await prisma.user.findMany({ where: { id: { in: added }, role: { in: REP_ONLY_ROLES } }, select: { displayName: true, username: true } })
+    : [];
+  if (reps.length) {
+    return res.status(400).json({ error: `لا يصلح مندوب مديراً لحساب آخر: ${reps.map(r => r.displayName || r.username).join('، ')}` });
+  }
 
   await prisma.$transaction([
     prisma.userManagerAssignment.deleteMany({ where: { userId } }),
     prisma.userManagerAssignment.createMany({
-      data: managerIds.map(id => ({ userId, managerId: parseInt(id) })),
+      data: ids.map(managerId => ({ userId, managerId })),
     }),
   ]);
   res.json({ success: true });
@@ -922,6 +934,15 @@ export async function setUserSubordinates(req, res) {
   const managerId = parseInt(req.params.id);
   const { userIds = [] } = req.body;
   const ids = [...new Set(userIds.map(n => parseInt(n)))].filter(id => Number.isInteger(id) && id !== managerId);
+
+  const [manager, current] = await Promise.all([
+    prisma.user.findUnique({ where: { id: managerId }, select: { role: true } }),
+    prisma.userManagerAssignment.findMany({ where: { managerId }, select: { userId: true } }),
+  ]);
+  const known = new Set(current.map(c => c.userId));
+  if (REP_ONLY_ROLES.includes(manager?.role) && ids.some(id => !known.has(id))) {
+    return res.status(400).json({ error: 'لا يصلح مندوب مديراً لحساب آخر — غيّر دوره أولاً إن كان مديراً فعلاً' });
+  }
 
   await prisma.$transaction([
     prisma.userManagerAssignment.deleteMany({ where: { managerId, userId: { notIn: ids } } }),

@@ -137,7 +137,14 @@ export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {leaderUserId == null && nameInput(LEADER_KEY, 'اسم تيم ليدر جديد')}
           <select value={leaderUserId ?? ''} disabled={saving || busy}
-            onChange={e => onSetLeader(e.target.value ? Number(e.target.value) : null)}
+            onChange={e => {
+              const id = e.target.value ? Number(e.target.value) : null;
+              const label = leaderChoices.find(x => x.id === id)?.label;
+              const message = id
+                ? `«${label}» سيصبح تيم ليدر ${province.name} ومديراً لكل مندوبيها (${reps.length}). متابعة؟`
+                : `إزالة تيم ليدر ${province.name} وفك ارتباطه بمندوبيها (${reps.length})؟`;
+              if (window.confirm(message)) onSetLeader(id);
+            }}
             style={{ ...inputStyle, flex: '0 1 220px' }}>
             <option value="">{leaderUserId == null ? '— أو اختر حساباً موجوداً —' : '— بلا تيم ليدر —'}</option>
             {leaderChoices.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}

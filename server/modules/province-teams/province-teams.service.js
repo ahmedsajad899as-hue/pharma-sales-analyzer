@@ -11,7 +11,7 @@ import {
   teamScopeWhere, canSeeAssignment, canReviewTeam, assertStructureEditor,
   REP_CANDIDATE_ROLES, LEADER_CANDIDATE_ROLES,
 } from './province-teams.access.js';
-import { findItemConflicts, resolveAssignmentItemIds, marketerTeamLinksToDrop } from './province-teams.rules.js';
+import { findItemConflicts, foreignManagerLinks, resolveAssignmentItemIds, marketerTeamLinksToDrop } from './province-teams.rules.js';
 import { syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
 import { PHARMACY_KIND, isPharmacyRep } from '../../lib/pharmacyRep.js';
 
@@ -169,6 +169,57 @@ async function linkRepsToLeader(leaderUserId, repUserIds) {
 }
 
 /**
+ * عكس linkRepsToLeader حين تنتهي القيادة: تغيّر القائد أو خرج المندوب من فريقه. بدونه يبقى
+ * القائد السابق مديراً لمندوبين لا صلة له بهم. يبقى الرابط لمن ما زال في فريق يقوده،
+ * ولا يُمَس مدير الشركة: تبعية مندوب المقعد له مستقلة عن القيادة.
+ */
+async function unlinkRepsFromLeader(leaderUserId, repUserIds) {
+  const ids = [...new Set(repUserIds)].filter(Boolean);
+  if (!leaderUserId || !ids.length) return;
+  const stillLed = await prisma.provinceRepAssignment.findMany({
+    where: { repUserId: { in: ids }, isActive: true, team: { isActive: true, leaderUserId } },
+    select: { repUserId: true },
+  });
+  const keep = new Set(stillLed.map(r => r.repUserId));
+  const drop = ids.filter(id => !keep.has(id));
+  if (!drop.length) return;
+  await prisma.userManagerAssignment.deleteMany({
+    where: { managerId: leaderUserId, userId: { in: drop }, manager: { role: { not: 'company_manager' } } },
+  });
+}
+
+/**
+ * تنظيف روابط مدراء مندوبي الفرق عند الإقلاع (idempotent): يحذف مندوباً معيَّناً مديراً
+ * لمندوب، ويسجّل الحالات التي تحتاج مراجعة بشرية بلا حذف.
+ * @returns {Promise<{dropped:number, review:number}>}
+ */
+export async function cleanForeignManagerLinks() {
+  const rows = await prisma.provinceRepAssignment.findMany({
+    where: { isActive: true, team: { isActive: true } },
+    select: {
+      repUserId: true,
+      team: { select: { leaderUserId: true } },
+      rep: { select: { username: true, managersOfUser: { select: { manager: { select: { id: true, role: true, username: true } } } } } },
+    },
+  });
+  const { drop, review } = foreignManagerLinks(rows.map(r => ({
+    repUserId: r.repUserId, leaderUserId: r.team.leaderUserId,
+    managers: r.rep.managersOfUser.map(m => m.manager),
+  })));
+  if (drop.length) await prisma.userManagerAssignment.deleteMany({ where: { OR: drop } });
+
+  const repById = new Map(rows.map(r => [r.repUserId, r.rep]));
+  const describe = (l) => {
+    const rep = repById.get(l.userId);
+    const manager = rep.managersOfUser.find(m => m.manager.id === l.managerId)?.manager;
+    return { ...l, rep: rep.username, manager: manager?.username, managerRole: manager?.role };
+  };
+  if (drop.length) console.log('[province-links] removed', JSON.stringify(drop.map(describe)));
+  if (review.length) console.log('[province-links] review', JSON.stringify(review.map(describe)));
+  return { dropped: drop.length, review: review.length };
+}
+
+/**
  * تسجيل مندوب علمي تلقائياً في فرق المحافظات المعيَّنة له (UserProvinceAssignment).
  * تعيين المحافظة للمندوب في «المستخدمين» = إدخاله فريق تلك المحافظة، فلا يُكرَّر
  * العمل في «الهيكلية». يُنشئ الفريق إن لم يوجد، ويُنشئ تعييناً لكل شركة من شركات
@@ -289,10 +340,22 @@ export async function detachMarketersFromTeams() {
 export async function leaveProvinceTeams(userId, provinceIds) {
   if (!provinceIds.length) return;
   const inProvinces = { provinceId: { in: provinceIds } };
+  const [teamsAsRep, teamsAsLeader] = await Promise.all([
+    prisma.provinceTeam.findMany({
+      where: { ...inProvinces, leaderUserId: { not: null }, assignments: { some: { repUserId: userId, isActive: true } } },
+      select: { leaderUserId: true },
+    }),
+    prisma.provinceTeam.findMany({
+      where: { leaderUserId: userId, ...inProvinces },
+      select: { assignments: { where: { isActive: true }, select: { repUserId: true } } },
+    }),
+  ]);
   await prisma.$transaction([
     prisma.provinceRepAssignment.updateMany({ where: { repUserId: userId, isActive: true, team: inProvinces }, data: { isActive: false } }),
     prisma.provinceTeam.updateMany({ where: { leaderUserId: userId, ...inProvinces }, data: { leaderUserId: null } }),
   ]);
+  for (const t of teamsAsRep) await unlinkRepsFromLeader(t.leaderUserId, [userId]);
+  await unlinkRepsFromLeader(userId, teamsAsLeader.flatMap(t => t.assignments.map(a => a.repUserId)));
 }
 
 export async function createTeam(viewer, { provinceId, leaderUserId = null, notes = null }) {
@@ -322,13 +385,20 @@ export async function updateTeam(viewer, id, { leaderUserId, notes }) {
   if (!team || team.officeId !== viewer.officeId) throw new AppError('الفريق غير موجود', 404, 'NOT_FOUND');
   const data = {};
   if (leaderUserId !== undefined) {
-    if (leaderUserId) await assertOfficeUser(Number(leaderUserId), viewer.officeId, LEADER_CANDIDATE_ROLES, 'قائد الفريق');
     data.leaderUserId = leaderUserId ? Number(leaderUserId) : null;
+    // القائد الحالي لا يُعاد فحصه: قد يكون مندوباً عُيِّن قبل تضييق الأدوار.
+    if (data.leaderUserId && data.leaderUserId !== team.leaderUserId) {
+      await assertOfficeUser(data.leaderUserId, viewer.officeId, LEADER_CANDIDATE_ROLES, 'قائد الفريق');
+    }
   }
   if (notes !== undefined) data.notes = notes || null;
   const updated = await prisma.provinceTeam.update({ where: { id }, data });
+  const repIds = team.assignments.map(a => a.repUserId);
+  if (data.leaderUserId !== undefined && data.leaderUserId !== team.leaderUserId) {
+    await unlinkRepsFromLeader(team.leaderUserId, repIds);
+  }
   if (data.leaderUserId) {
-    await linkRepsToLeader(data.leaderUserId, team.assignments.map(a => a.repUserId));
+    await linkRepsToLeader(data.leaderUserId, repIds);
     await syncProvinceLeaderCompanies(data.leaderUserId, viewer.officeId);
   }
   return updated;
@@ -337,12 +407,13 @@ export async function updateTeam(viewer, id, { leaderUserId, notes }) {
 /** إيقاف لا حذف: الجهد الشخصي المعتمد يبقى مرتبطاً بفريقه للأرشيف. */
 export async function archiveTeam(viewer, id) {
   assertStructureEditor(viewer);
-  const team = await prisma.provinceTeam.findUnique({ where: { id } });
+  const team = await prisma.provinceTeam.findUnique({ where: { id }, include: { assignments: { where: { isActive: true }, select: { repUserId: true } } } });
   if (!team || team.officeId !== viewer.officeId) throw new AppError('الفريق غير موجود', 404, 'NOT_FOUND');
   await prisma.$transaction([
     prisma.provinceRepAssignment.updateMany({ where: { teamId: id }, data: { isActive: false } }),
     prisma.provinceTeam.update({ where: { id }, data: { isActive: false } }),
   ]);
+  await unlinkRepsFromLeader(team.leaderUserId, team.assignments.map(a => a.repUserId));
 }
 
 // ─── التعيينات ────────────────────────────────────────────────────────────────
@@ -419,6 +490,7 @@ export async function removeAssignment(viewer, id) {
   const a = await prisma.provinceRepAssignment.findUnique({ where: { id }, include: { team: true } });
   if (!a || a.team.officeId !== viewer.officeId) throw new AppError('التعيين غير موجود', 404, 'NOT_FOUND');
   await prisma.provinceRepAssignment.delete({ where: { id } });
+  await unlinkRepsFromLeader(a.team.leaderUserId, [a.repUserId]);
 }
 
 /** ايتمات مندوب عبر كل تعييناته — لقائمة الإدخال في «الجهد الشخصي». */

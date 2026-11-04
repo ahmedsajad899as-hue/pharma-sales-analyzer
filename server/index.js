@@ -13,7 +13,7 @@ import bcrypt from 'bcryptjs';
 import prisma from './lib/prisma.js';
 import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
 import { hasNonProvinceSubordinates } from './lib/provinceScope.js';
-import { autoEnrollAllReps, detachMarketersFromTeams } from './modules/province-teams/province-teams.service.js';
+import { autoEnrollAllReps, cleanForeignManagerLinks, detachMarketersFromTeams } from './modules/province-teams/province-teams.service.js';
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillProductManagerFileShares } from './lib/backfillProductManagerFileShares.js';
 import { backfillConditionFileShares } from './lib/officeFileShares.js';
@@ -5016,7 +5016,9 @@ if (process.env.VERCEL) {
       // مندوبون علميون لهم محافظات سلفاً ← تسجيلهم في فرق محافظاتهم (idempotent، إضافة فقط)
       .then(() => autoEnrollAllReps())
       .then(n => { if (n) console.log(`✓ سُجّل ${n} تعيين مندوب في فرق المحافظات (backfill)`); })
-      .catch(e => console.error('[autoEnrollAllReps]', e.message));
+      .catch(e => console.error('[autoEnrollAllReps]', e.message))
+      .then(() => cleanForeignManagerLinks())
+      .catch(e => console.error('[cleanForeignManagerLinks]', e.message));
     // ملفات Stock القديمة لموظفي المكتب: تعميم على الزملاء الذين لم تكن أهدافاً بعد
     backfillSalesDataFileOfficeSync()
       .then(n => { if (n) console.log(`✓ تم تعميم ${n} ملف Stock على زملاء المكتب (backfill)`); })

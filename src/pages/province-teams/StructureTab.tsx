@@ -89,6 +89,11 @@ function TeamBlock({ token, team, opts, onChanged }: { token: string | null; tea
   const rows = flatten(team);
 
   const setLeader = async (leaderUserId: string) => {
+    const label = opts.leaders.find(u => String(u.id) === leaderUserId)?.name;
+    const message = leaderUserId
+      ? `«${label}» سيصبح تيم ليدر ${team.provinceName} ومديراً لكل مندوبيها (${team.reps.length}). متابعة؟`
+      : `إزالة تيم ليدر ${team.provinceName} وفك ارتباطه بمندوبيها (${team.reps.length})؟`;
+    if (!window.confirm(message)) return;
     try { await api(token, `/teams/${team.id}`, { method: 'PATCH', ...jsonBody({ leaderUserId: leaderUserId ? Number(leaderUserId) : null }) }); onChanged(); }
     catch (e: any) { alert(e.message); }
   };
@@ -108,6 +113,7 @@ function TeamBlock({ token, team, opts, onChanged }: { token: string | null; tea
           <div className="pt-panel__title">{team.provinceName}</div>
           <select className="form-input" style={{ width: 'auto', minWidth: 200, padding: '5px 10px' }} value={team.leaderUserId ?? ''} onChange={e => setLeader(e.target.value)} aria-label="تيم ليدر المحافظة">
             <option value="">— بلا تيم ليدر —</option>
+            {team.leaderUserId != null && !opts.leaders.some(u => u.id === team.leaderUserId) && <option value={team.leaderUserId}>تيم ليدر: {team.leaderName}</option>}
             {opts.leaders.map(u => <option key={u.id} value={u.id}>تيم ليدر: {u.name}</option>)}
           </select>
           <span className="pt-chip"><Users size={11} style={{ verticalAlign: -1 }} /> {team.reps.length} مندوب · {rows.length} تعيين</span>

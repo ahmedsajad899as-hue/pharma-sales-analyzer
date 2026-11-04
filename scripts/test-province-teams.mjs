@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   resolveAssignmentItemIds, findItemConflicts, buildItemAttribution,
   classifyChannel, personalSaleValue, toUSD,
-  assignmentFillsSeat, planSeatAssignments, repBelongsToSeat, repSeatIds, removedProvinceIds, marketerTeamLinksToDrop,
+  assignmentFillsSeat, planSeatAssignments, repBelongsToSeat, repSeatIds, removedProvinceIds, marketerTeamLinksToDrop, foreignManagerLinks,
 } from '../server/modules/province-teams/province-teams.rules.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../server/modules/province-teams/personal-sale-trigger.js';
 import { marketerHomeProvinces, pickMarketerLeaders, managesProvinceMarketers, marketersManagerCoverage } from '../server/lib/pharmacyRep.js';
@@ -235,6 +235,30 @@ t('الايتم المشترك يُنسب لمندوب واحد: مندوب شر
   assert.deepEqual(overlaps, [{ itemId: 10, keptAssignmentId: 2, droppedAssignmentId: 1 }]);
   // بلا مندوب شركة بينهما: الأقدم كما كان.
   assert.equal(buildItemAttribution([older, { ...home, isRepPrimaryCompany: false }], noCatalog).owner.get(10), 1);
+});
+
+t('تنظيف المدراء: مندوب مدير لمندوب يُحذف، والقادة الآخرون للمراجعة فقط', () => {
+  const managers = [
+    { id: 1, role: 'team_leader' },      // قائد فريقه
+    { id: 2, role: 'scientific_rep' },   // مندوب بغداد
+    { id: 3, role: 'company_manager' },  // مدير المقعد
+    { id: 4, role: 'team_leader' },      // قائد آخر
+  ];
+  const { drop, review } = foreignManagerLinks([
+    { repUserId: 80, leaderUserId: 1, managers },
+    { repUserId: 80, leaderUserId: 1, managers }, // تعيين ثانٍ لنفس المندوب: بلا تكرار
+  ]);
+  assert.deepEqual(drop, [{ userId: 80, managerId: 2 }]);
+  assert.deepEqual(review, [{ userId: 80, managerId: 4 }]);
+});
+
+t('تنظيف المدراء: مندوب هو قائد الفريق فعلاً يبقى، ولو قاد فريقاً واحداً من فريقي المندوب', () => {
+  const legacyLeader = { id: 2, role: 'scientific_rep' };
+  const { drop } = foreignManagerLinks([
+    { repUserId: 80, leaderUserId: 2, managers: [legacyLeader] },
+    { repUserId: 80, leaderUserId: 9, managers: [legacyLeader] },
+  ]);
+  assert.deepEqual(drop, []);
 });
 
 t('ايتم المدير بلا شركة في المكتب يبقى في قائمة المندوب بلا تعيين فريق', () => {

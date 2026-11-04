@@ -2236,7 +2236,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           )}
           {tab === 'managers' && (() => {
             const q = assignSearch.trim().toLowerCase();
-            const candidates = users.filter(u => u.id !== detail.id);
+            // المندوب لا يصلح مديراً؛ والمحفوظ منهم يبقى ظاهراً كي يمكن إلغاؤه.
+            const savedMgrIds = new Set(detail.managersOfUser.map(a => a.managerId));
+            const candidates = users.filter(u => u.id !== detail.id && (!['scientific_rep', 'commercial_rep'].includes(u.role) || savedMgrIds.has(u.id)));
             const shown = candidates.filter(u => !q || (u.displayName || u.username).toLowerCase().includes(q));
             // تجميع حسب الدور بترتيب ROLES — المدراء الأعلى أولاً
             const roleOrder = (r: string) => { const i = ROLES.findIndex(x => x.value === r); return i < 0 ? 999 : i; };
@@ -3172,7 +3174,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     return p.name.toLowerCase().includes(q) || matches(t?.leaderUserId) || !!t?.reps.some(r => matches(r.userId));
                   });
                   if (!rows.length) return null;
-                  const leaderChoices = users.filter(x => x.officeId === og.office.id && x.isActive && !isMarketer(x) && ['team_leader', 'supervisor', 'scientific_rep'].includes(x.role));
+                  const leaderChoices = users.filter(x => x.officeId === og.office.id && x.isActive && !isMarketer(x) && ['team_leader', 'supervisor'].includes(x.role));
                   const withTeam = provTeams.filter(t => t.officeId === og.office.id).length;
                   const officeSeats = provSeats.filter(s => s.officeId === og.office.id);
                   return (
@@ -3210,12 +3212,15 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                         </div>
                         {rows.filter(p => searching || openProvTeams.has(og.office.id * 1000 + p.id)).map(p => {
                           const t = teamOf(p.id);
+                          // قائد حالي خارج الأدوار المسموحة (مندوب عُيِّن سابقاً) يبقى ظاهراً في القائمة.
+                          const currentLeader = t?.leaderUserId != null ? userById.get(t.leaderUserId) : undefined;
+                          const choices = currentLeader && !leaderChoices.some(x => x.id === currentLeader.id) ? [currentLeader, ...leaderChoices] : leaderChoices;
                           return (
                             <ProvinceSeatsPanel<UserRow> key={p.id}
                               officeId={og.office.id} province={p}
                               leaderUserId={t?.leaderUserId ?? null} reps={t?.reps ?? []}
                               seats={officeSeats}
-                              leaderChoices={leaderChoices.map(x => ({ id: x.id, label: x.displayName || x.username }))}
+                              leaderChoices={choices.map(x => ({ id: x.id, label: x.displayName || x.username }))}
                               saving={provSaving} userById={userById}
                               renderUser={(u, indent) => <UserCard u={u} indent={indent} />}
                               onSetLeader={id => setProvinceLeader(og.office.id, p.id, id)}
