@@ -347,8 +347,13 @@ export default function DoctorsPage() {
   // العرض الثاني لمندوبي المحافظات: محافظة ← مندوبوها وزياراتهم من كل الشركات
   const [provinceViewMode, setProvinceViewMode] = useProvinceViewMode('calls-analysis');
   const byProvinceView = onlyProvince && provinceViewMode === 'province';
-  const [visitProvinceFilter, setVisitProvinceFilter] = useState<number | null>(null); // null = كل المحافظات
-  const provinceIdParam = byProvinceView ? visitProvinceFilter : null;
+  const provinceGroups = useMemo(() => groupRepsByProvince(managerReps).filter(g => g.id !== null), [managerReps]);
+  const [visitProvinceFilter, setVisitProvinceFilter] = useState<number | null>(null); // null = لم يُختر بعد ⇒ أول محافظة
+  // عرض المحافظة يعرض محافظة واحدة دائماً: المختارة، وإلا أولى المحافظات بترتيب النظام
+  const activeProvinceId = byProvinceView
+    ? (provinceGroups.some(g => g.id === visitProvinceFilter) ? visitProvinceFilter : provinceGroups[0]?.id ?? null)
+    : null;
+  const provinceIdParam = activeProvinceId;
   const [managerCompanies, setManagerCompanies] = useState<ManagerCompany[]>([]);
   const [visitRepFilter, setVisitRepFilter] = useState<number | null>(null); // null = all
   // فلترة إضافية بـ«الشركة الرئيسية» — للأدوار المكتبية (مدير/HR/موظف المكتب) التي تشرف على أكثر من شركة.
@@ -2232,9 +2237,8 @@ export default function DoctorsPage() {
                 </div>
                 {byProvinceView && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                    <button style={pill(visitProvinceFilter === null)} onClick={() => chooseProvince(null)}>كل المحافظات</button>
-                    {groupRepsByProvince(managerReps).filter(g => g.id !== null).map(g => (
-                      <button key={g.id} style={pill(visitProvinceFilter === g.id)} onClick={() => chooseProvince(g.id)}>
+                    {provinceGroups.map(g => (
+                      <button key={g.id} style={pill(activeProvinceId === g.id)} onClick={() => chooseProvince(g.id)}>
                         {g.name} <span style={{ opacity: .65, fontWeight: 700 }}>({g.reps.length})</span>
                       </button>
                     ))}
@@ -2277,7 +2281,7 @@ export default function DoctorsPage() {
           {/* Rep selector (managers only) — hidden until a specific company is chosen when multiple companies exist */}
           {!isFieldRep && managerRepsAll.length > 0 && (managerCompanies.length === 0 || visitCompanyFilter !== null || byProvinceView) && (() => {
             const visibleReps = byProvinceView
-              ? managerReps.filter(rep => visitProvinceFilter === null || rep.provinces?.some(p => p.id === visitProvinceFilter))
+              ? (provinceGroups.find(g => g.id === activeProvinceId)?.reps ?? managerReps)
               : visitCompanyFilter === null
                 ? managerReps
                 : managerReps.filter(rep => rep.company?.id === visitCompanyFilter);
@@ -2303,39 +2307,15 @@ export default function DoctorsPage() {
                         color: active ? 'var(--c-accent)' : isLeader ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
                       }}>
                         {isLeader && '★ '}{rep.name}
-                        {/* عرض المحافظة يجمع كل الشركات، فشركة كل مندوب جزء من هويته هنا */}
-                        {byProvinceView && rep.company && <span style={{ marginInlineStart: 6, fontSize: 10.5, fontWeight: 700, opacity: .65 }}>{rep.company.name}</span>}
+                        {/* وسم خفيف بما لا يظهر في الشريحة أعلاها: شركته في عرض المحافظة، ومحافظته في عرض الشركة */}
+                        {onlyProvince && (byProvinceView ? rep.company?.name : rep.provinces?.map(p => p.name).join('، ')) && (
+                          <span style={{ marginInlineStart: 6, fontSize: 10.5, fontWeight: 500, opacity: .6 }}>
+                            {byProvinceView ? rep.company?.name : rep.provinces?.map(p => p.name).join('، ')}
+                          </span>
+                        )}
                       </button>
                   );
                 };
-                // مندوبو المحافظات: صف لكل محافظة باسمها، القائد أولاً ثم الأسماء أبجدياً
-                if (onlyProvince) {
-                  const provinceRow = { display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' };
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div style={provinceRow}>
-                        <button
-                          onClick={() => setVisitRepFilter(null)}
-                          style={{
-                            padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                            border: `1.5px solid ${visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-border)'}`,
-                            background: visitRepFilter === null ? 'var(--c-accent-light)' : 'var(--c-bg)',
-                            color: visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-                          }}>الكل</button>
-                      </div>
-                      {groupRepsByProvince(visibleReps)
-                        .filter(g => visitProvinceFilter === null || !byProvinceView || g.id === visitProvinceFilter)
-                        .map(g => (
-                          <div key={g.id ?? 'none'} style={{ ...provinceRow, paddingTop: 6, borderTop: '1px dashed var(--c-border)' }}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 800, color: 'var(--c-text-primary)', minWidth: 72 }}>
-                              <Icon name="location" size={12} /> {g.name}
-                            </span>
-                            {g.reps.map(r => chip(r, !!r.isLeader))}
-                          </div>
-                        ))}
-                    </div>
-                  );
-                }
                 const groups = new Map<number, { leader: ManagerRep | null; members: ManagerRep[] }>();
                 for (const rep of visibleReps) {
                   const tl = rep.teamLeader;
@@ -2360,6 +2340,8 @@ export default function DoctorsPage() {
                       color: visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-text-secondary)',
                     }}>الكل</button>
                 );
+                // مندوبو المحافظات صف أفقي واحد مرتَّب (المحافظة ثم القائد ثم الاسم)
+                if (onlyProvince) return <div style={rowStyle}>{allBtn}{visibleReps.map(r => chip(r, !!r.isLeader))}</div>;
                 if (groups.size === 0) return <div style={rowStyle}>{allBtn}{visibleReps.map(r => chip(r))}</div>;
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
