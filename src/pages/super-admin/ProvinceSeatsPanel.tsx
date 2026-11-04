@@ -200,7 +200,7 @@ export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId
             style={{ ...btnStyle('#0e7490', true), opacity: !namesReady || busy ? 0.5 : 1, cursor: !namesReady || busy ? 'not-allowed' : 'pointer' }}>
             {busy ? 'جارٍ الإنشاء...' : namesReady ? `إنشاء ${namesReady} حساب` : 'اكتب اسماً في مقعد شاغر'}
           </button>
-          <span style={{ fontSize: 11.5, color: '#64748b' }}>اسم الدخول هو الاسم المكتوب، والرمز 123456789</span>
+          <span style={{ fontSize: 11.5, color: '#64748b' }}>اسم الدخول هو الاسم المكتوب، والرمز 123456789 · مدراء المندوب: تيم ليدر المحافظة ومدير الشركة</span>
         </div>
       )}
     </div>

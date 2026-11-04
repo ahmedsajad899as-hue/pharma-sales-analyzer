@@ -195,6 +195,9 @@ export async function autoEnrollRep(userId) {
       });
       if (exists?.isActive) continue; // موجود (ربما يدوياً) — لا نمسّه
       const mine = u.itemAssignments.filter(i => i.item.scientificCompanyId === c.companyId).map(i => i.itemId);
+      // قائمة ايتماته غير الفارغة تستثني هذه الشركة: «كل الايتمات» هنا تنسب له مبيعات لا يعمل عليها.
+      // (زر «مزامنة» عند المدير يمنح تابعيه كل شركاته، ومنها الثانوية بلا ايتمات.)
+      if (!mine.length && u.itemAssignments.length) continue;
       const allItems = mine.length === 0;
 
       const siblings = await prisma.provinceRepAssignment.findMany({

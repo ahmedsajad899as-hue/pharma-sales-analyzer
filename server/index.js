@@ -12,6 +12,7 @@ import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import prisma from './lib/prisma.js';
 import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
+import { hasNonProvinceSubordinates } from './lib/provinceScope.js';
 import { autoEnrollAllReps } from './modules/province-teams/province-teams.service.js';
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillProductManagerFileShares } from './lib/backfillProductManagerFileShares.js';
@@ -4728,7 +4729,7 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
           where: { managerId: userId },
           select: { userId: true },
         });
-        if (subordinateRows.length > 0) {
+        if (role === 'company_manager' ? await hasNonProvinceSubordinates(subordinateRows) : subordinateRows.length > 0) {
           const subUserIds = subordinateRows.map(r => r.userId);
           // Get repIds via linkedRepId AND via ScientificRepresentative.userId (covers all link types)
           const [subUsersWithLink, subRepRecords] = await Promise.all([

@@ -4,7 +4,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
-import { provinceMemberUserIds } from '../../lib/provinceScope.js';
+import { provinceMemberUserIds, hasNonProvinceSubordinates } from '../../lib/provinceScope.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
@@ -89,7 +89,8 @@ export async function list(filters, user = null, options = {}) {
         const me = await prisma.user.findUnique({ where: { id: user.id }, select: { linkedRep: { select: { repKind: true } } } });
         marketersManager = me?.linkedRep?.repKind === PHARMACY_KIND;
       }
-      if (subordinateRows.length > 0) {
+      const plainCompanyManager = user.role === 'company_manager' && !marketersManager;
+      if (plainCompanyManager ? await hasNonProvinceSubordinates(subordinateRows) : subordinateRows.length > 0) {
         // Only show reps that are explicitly assigned under this manager
         allowedUserIds = new Set(subordinateRows.map(r => r.userId));
         if (marketersManager) {

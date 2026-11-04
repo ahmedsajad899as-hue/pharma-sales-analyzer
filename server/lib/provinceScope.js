@@ -31,6 +31,17 @@ export async function provinceMemberUserIds() {
   return new Set([...teams.map(t => t.leaderUserId), ...assign.map(r => r.repUserId)]);
 }
 
+/**
+ * هل لمدير الشركة تابعون غير مندوبي المحافظات؟ مدير بلا تابعين يرجع لـ«كل مندوبي شركته»؛
+ * ومندوب مقعد محافظة صار يتبعه لا يجوز أن يُسقط هذا الرجوع فيختفي مندوبو بغداد.
+ * @param {{userId:number}[]} subordinateRows
+ */
+export async function hasNonProvinceSubordinates(subordinateRows) {
+  if (!subordinateRows.length) return false;
+  const members = await provinceMemberUserIds();
+  return subordinateRows.some(r => !members.has(r.userId));
+}
+
 export async function isProvinceLeader(userId) {
   return (await prisma.provinceTeam.count({ where: { isActive: true, leaderUserId: userId } })) > 0;
 }

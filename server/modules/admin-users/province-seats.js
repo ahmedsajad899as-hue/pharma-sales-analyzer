@@ -92,7 +92,7 @@ async function fillLeaderSeat({ name, officeId, provinceId, asOffice, seats }) {
   return { userId: user.id, username: user.username, warnings: [] };
 }
 
-/** مندوب جديد في مقعد مدير: ايتمات المدير، وشركاته التي تحمل هذه الايتمات. */
+/** مندوب جديد في مقعد مدير: ايتمات المدير وشركاته التي تحملها، ويتبع القائد ومدير الشركة. */
 async function fillRepSeat({ name, seat, officeId, provinceId, asOffice }) {
   const team = await activeTeam(officeId, provinceId);
   const rows = team
@@ -124,6 +124,8 @@ async function fillRepSeat({ name, seat, officeId, provinceId, asOffice }) {
     for (const a of plan.assignments) {
       await provinceTeamsService.saveAssignment(asOffice, teamId, { repUserId: user.id, companyId: a.companyId, allItems: a.allItems, itemIds: a.itemIds });
     }
+    // مديراه: تيم ليدر المحافظة (يربطه saveAssignment، أو updateTeam إن عُيِّن القائد لاحقاً) ومدير الشركة.
+    await prisma.userManagerAssignment.createMany({ data: [{ userId: user.id, managerId: seat.userId }], skipDuplicates: true });
     await finishAccount(user.id, provinceId);
   });
   const warnings = plan.dropped.length
