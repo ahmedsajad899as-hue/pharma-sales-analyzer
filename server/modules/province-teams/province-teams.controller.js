@@ -8,11 +8,13 @@ import * as structure from './province-teams.service.js';
 import { resolveCoverageFiles, listCoverageMonths, computeCoverage } from './province-coverage.js';
 import * as personal from './personal-sales.service.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
-import { buildMonthFilter } from '../../lib/salesMonths.js';
+import { buildMonthFilter, monthToRange } from '../../lib/salesMonths.js';
 import { loadConditionSalesForReps } from '../../lib/conditionFile.js';
 import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
 import { loadManagerSeat, loadSeatManagers } from '../../lib/provinceSeats.js';
 import { assignmentFillsSeat, repSeatIds } from './province-teams.rules.js';
+import { liquidationProvinces, loadLiquidationData } from '../scientific-reps/scientific-reps.service.js';
+import { saleValueUSD } from '../sales/sales.repository.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
@@ -31,6 +33,44 @@ export async function months(req, res, next) {
     const files = await resolveCoverageFiles(viewer, req.query.fileIds);
     res.json({ success: true, ...(await listCoverageMonths(files.fileIds)), fileSource: files.source });
   } catch (e) { next(e); }
+}
+
+/**
+ * مبيع مندوبي الفرق لكل محافظة وحساب وايتم، بالدولار كبقية النافذة.
+ * @returns {Promise<Map<string, Map<string|number, {itemId:number|null, itemName:string, qty:number, usd:number}>>>}
+ *   المفتاح `${محافظة}|${حساب}`
+ */
+async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
+  const out = new Map();
+  if (!repUserIds.length) return out;
+  const { sales, mercatoRows, users, ownerOfRow } = await loadLiquidationData({
+    fileIds: files.mercatoFileIds,
+    range: monthToRange(month) ?? {},
+    repSaleWhere: { createdById: { in: repUserIds } },
+    userWhere: { id: { in: repUserIds } },
+    viewerId,
+  });
+  const province = await liquidationProvinces(sales, mercatoRows, ownerOfRow);
+  const add = (provinceName, userId, itemId, itemName, qty, usd) => {
+    const k = `${provinceName}|${userId}`;
+    if (!out.has(k)) out.set(k, new Map());
+    const key = itemId ?? `n:${itemName}`;
+    const cell = out.get(k).get(key) ?? { itemId, itemName, qty: 0, usd: 0 };
+    cell.qty += qty; cell.usd += usd;
+    out.get(k).set(key, cell);
+  };
+  const rate = files.rate || 1470;
+  for (const s of sales) {
+    for (const l of s.lines) add(province.ofSale(s), s.createdById, l.itemId, l.itemName, l.quantity, l.quantity * (l.unitPrice ?? 0) / rate);
+  }
+  for (const r of mercatoRows) {
+    const sign = String(r.recordType ?? '').trim().toLowerCase() === 'return' ? -1 : 1;
+    // حسابان بالاسم نفسه: يُحسب الصف لكلٍّ منهما كما في تقريره، وايتماتهما هي الفاصل.
+    for (const u of users.filter(x => r.repIds.includes(x.linkedRepId))) {
+      add(province.ofRow(r), u.id, r.itemId, r.item?.name ?? `#${r.itemId}`, sign * r.quantity, sign * saleValueUSD(r));
+    }
+  }
+  return out;
 }
 
 // ── GET /api/province-teams/directory ──────────────────────────────────────
@@ -135,6 +175,9 @@ export async function directory(req, res, next) {
     }).catch(() => new Map());
     const conditionUsed = new Set(); // مندوب في أكثر من فريق: يُحتسب في أول فريق فقط
 
+    // ── مبيع المندوب العلمي: المؤكد في «مبيعات المندوبين» + ميركاتو باسمه، في محافظة الفريق ──
+    const liquidation = await loadTeamLiquidation(repIds, files, month, viewer.id);
+
     const out = [];
     for (const t of teams) {
       const cov = coverage.get(t.id);
@@ -175,6 +218,17 @@ export async function directory(req, res, next) {
       for (const r of repsMap.values()) {
         const nameByItem = new Map();
         for (const a of t.assignments) if (a.repUserId === r.repUserId) for (const id of a.itemIds) nameByItem.set(id, a.companyName);
+        if (repKindOf.get(repLink.get(r.repUserId)) !== PHARMACY_KIND) {
+          for (const c of liquidation.get(`${t.provinceName}|${r.repUserId}`)?.values() ?? []) {
+            if (allowedSet && !allowedSet.has(c.itemId)) continue;
+            const key = c.itemId ?? `n:${c.itemName}`;
+            let cur = r.items.get(key);
+            if (!cur) { cur = newItem(c.itemId, c.itemName, (c.itemId && nameByItem.get(c.itemId)) || '—'); r.items.set(key, cur); }
+            cur.personalQty += c.qty; cur.personalNet += c.usd;
+            r.personalQty += c.qty; r.personalNet += c.usd;
+          }
+          continue;
+        }
         for (const p of personalByTeamRep.get(`${t.id}|${r.repUserId}`) ?? []) {
           const repSet = repAllowed.get(r.repUserId);
           if (p.itemId && ((allowedSet && !allowedSet.has(p.itemId)) || (repSet && !repSet.has(p.itemId)))) continue;
@@ -205,9 +259,11 @@ export async function directory(req, res, next) {
         repKind: repKindOf.get(repLink.get(r.repUserId)) ?? 'scientific',
         net: +r.net.toFixed(2),
         personalNet: +r.personalNet.toFixed(2),
+        // رقم المندوب نفسه؛ net = مبيع الشركة في المحافظة على ايتماته. المسوق يبقى على قواعده.
+        repNet: +(repKindOf.get(repLink.get(r.repUserId)) === PHARMACY_KIND ? r.net : r.personalNet).toFixed(2),
         items: [...r.items.values()].map(({ targetCounted, ...i }) => ({ ...i, net: +i.net.toFixed(2), personalNet: +i.personalNet.toFixed(2) }))
           .sort((a, b) => b.net - a.net || b.targetQty - a.targetQty),
-      })).sort((a, b) => b.net - a.net);
+      })).sort((a, b) => b.repNet - a.repNet);
       if (!reps.length && viewer.mode === 'company') continue;
       out.push({ id: t.id, provinceId: t.provinceId, provinceName: t.provinceName, leaderName: t.leaderName, leaderRepId: repLink.get(t.leaderUserId) ?? null, reps });
     }

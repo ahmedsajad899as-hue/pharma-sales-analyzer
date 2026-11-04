@@ -14,15 +14,14 @@ import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
-import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
-import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { loadRepLocations } from '../../lib/repLocation.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { loadManagerSeat, loadSeatManagers } from '../../lib/provinceSeats.js';
 import { aggregateProvinceSales, addMercatoToProvinces } from '../../lib/repSalesProvince.js';
-import { dateRangeWhere, dropBlockedLines, dropLinesFoundInMercato, isInDateRange, widenDateRange } from '../../lib/repLiquidation.js';
+import { dateRangeWhere } from '../../lib/repLiquidation.js';
 import { monthToRange } from '../../lib/salesMonths.js';
 import { saleValueUSD } from '../sales/sales.repository.js';
-import { loadLiquidationMercatoRows } from '../scientific-reps/scientific-reps.service.js';
+import { liquidationProvinces, loadLiquidationData, REP_SALE_SELECT } from '../scientific-reps/scientific-reps.service.js';
 import { buildLines, cleanText, loadViewer, orderScopeWhere, parseDay, teamUserIds } from '../rep-orders/rep-orders.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -209,52 +208,24 @@ export async function provinceSummary(reqUser, q = {}) {
   const seat = viewer.role === 'company_manager' ? await loadManagerSeat(viewer.id) : null;
   const scope = await orderScopeWhere(viewer);
   const fileIds = String(q.fileIds ?? '').split(',').map(Number).filter(n => n > 0);
-  const liquidation = fileIds.length > 0;
-  const monthRange = monthToRange(q.month);
-  const range = monthRange ?? { startDate: q.startDate, endDate: q.endDate };
-  const wide = liquidation ? { ...range, ...widenDateRange(range) } : range;
-
-  const [wideSales, mercato] = await Promise.all([
-    prisma.repSale.findMany({
-      where: {
-        AND: [
-          seat ? { OR: [scope, { officeId: seat.officeId }] } : scope,
-          { status: 'confirmed' },
-          dateRangeWhere(wide, 'saleDate'),
-        ],
-      },
-      select: {
-        id: true, createdById: true, saleDate: true, pharmacyName: true, areaName: true, warehouseName: true, invoiceNumber: true,
-        lines: { select: { id: true, itemId: true, itemName: true, quantity: true, bonusQty: true, unitPrice: true } },
-      },
-    }),
-    liquidation
-      ? loadLiquidationMercatoRows({ fileIds, range: wide, userWhere: userScopeWhere(scope, seat), viewerId: viewer.id })
-      : { rows: [], users: [], blocks: null },
-  ]);
-
-  // كل حساب يُقارَن بصفوف اسمه هو. الحسابان بالاسم نفسه يتشاركان used فلا يُسقط صف سطرين.
-  const repIdByUser = new Map(mercato.users.map(u => [u.id, u.linkedRepId]));
-  const scientific = liquidation ? dropBlockedLines(wideSales.filter(s => repIdByUser.has(s.createdById)), mercato.blocks) : [];
-  const others = wideSales.filter(s => !repIdByUser.has(s.createdById));
-  const used = new Set();
-  const unique = [];
-  for (const repId of new Set(scientific.map(s => repIdByUser.get(s.createdById)))) {
-    const own = scientific.filter(s => repIdByUser.get(s.createdById) === repId);
-    unique.push(...dropLinesFoundInMercato(own, mercato.rows.filter(r => r.repIds.includes(repId)), used).sales);
-  }
-  const sales = [...unique, ...others].filter(s => isInDateRange(s.saleDate, range));
-  const mercatoRows = mercato.rows.filter(r => isInDateRange(r.saleDate, range));
+  const range = monthToRange(q.month) ?? { startDate: q.startDate, endDate: q.endDate };
+  const repSaleWhere = seat ? { OR: [scope, { officeId: seat.officeId }] } : scope;
+  const { sales, mercatoRows, ownerOfRow } = fileIds.length
+    ? await loadLiquidationData({ fileIds, range, repSaleWhere, userWhere: userScopeWhere(scope, seat), viewerId: viewer.id })
+    : {
+        sales: await prisma.repSale.findMany({
+          where: { AND: [repSaleWhere, { status: 'confirmed' }, dateRangeWhere(range, 'saleDate')] },
+          select: REP_SALE_SELECT,
+        }),
+        mercatoRows: [],
+        ownerOfRow: () => null,
+      };
   if (!sales.length && !mercatoRows.length) return { rows: [] };
 
-  // صف ميركاتو بلا محافظة منطقة يرجع لمحافظة مندوبه، كمبيع المندوب تماماً.
-  const userByRep = new Map(mercato.users.map(u => [u.linkedRepId, u.id]));
-  const ownerOfRow = (row) => userByRep.get(row.repIds[0]);
-  const repIds = [...new Set([...sales.map(s => s.createdById), ...mercatoRows.filter(r => !r.area?.province?.name).map(ownerOfRow)])];
+  const repIds = [...new Set(sales.map(s => s.createdById))];
   const itemIds = [...new Set([...sales.flatMap(s => s.lines.map(l => l.itemId)), ...mercatoRows.map(r => r.itemId)].filter(Boolean))];
-  const [locations, areaIndex, users, items, seats, ownItems] = await Promise.all([
-    loadRepLocations(repIds),
-    provinceByAreaName(),
+  const [provinces, users, items, seats, ownItems] = await Promise.all([
+    liquidationProvinces(sales, mercatoRows, ownerOfRow),
     prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true, linkedRep: { select: { repKind: true } } } }),
     prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true, scientificCompanyId: true } }),
     loadSeatManagers(viewer.officeId ? [viewer.officeId] : null),
@@ -268,23 +239,21 @@ export async function provinceSummary(reqUser, q = {}) {
   const wholeCompanySeats = new Map(seats.filter(s => !s.items.length).map(s => [s.companyId, s.companyName]));
   const kindByUser = new Map(users.map(u => [u.id, u.linkedRep?.repKind === 'pharmacy' ? 'pharmacy' : 'scientific']));
   const ownSet = ownItems ? new Set(ownItems) : null;
-  // مندوب بمحافظتين: «البصرة، ميسان» — الأولى ملاذ حين لا تُعرف منطقة المبيع
-  const homeProvinceOf = (id) => locations.get(id)?.province?.split('،')[0].trim() || null;
   const teamOfItem = (id) => (id ? teamByItem.get(id) ?? wholeCompanySeats.get(companyOfItem.get(id)) ?? null : null);
   const allowItem = seat
     ? (id) => (ownSet ? ownSet.has(id) : companyOfItem.get(id) === seat.companyId)
     : undefined;
 
   const repSaleRows = aggregateProvinceSales(sales, {
-    provinceOfArea: (name) => (name ? areaIndex.get(normalizeAreaName(name))?.province ?? null : null),
-    homeProvinceOf,
+    provinceOfArea: provinces.ofArea,
+    homeProvinceOf: provinces.home,
     kindOf: (id) => kindByUser.get(id) ?? 'scientific',
     teamOfItem,
     allowItem,
   });
   return {
     rows: addMercatoToProvinces(mercatoRows, {
-      provinceOf: (row) => row.area?.province?.name ?? homeProvinceOf(ownerOfRow(row)),
+      provinceOf: provinces.ofRow,
       usdOf: saleValueUSD,
       teamOfItem,
       allowItem,

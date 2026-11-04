@@ -4,13 +4,14 @@
 // وكمية/قيمة مبيع كل ايتم في تلك المحافظة.
 // التقييد بحسب الدور (مدير الشركة: مندوبو شركاته على ايتماته فقط) يحدث في السيرفر:
 // GET /api/province-teams/directory — القيم بالدولار، و fmtVal يحوّلها لعملة العرض.
+// رقم المندوب العلمي = «مبيعات المندوبين» المؤكدة + ميركاتو باسمه في محافظة الفريق (repNet).
 // ════════════════════════════════════════════════════════════════════════════
 
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 interface DirItem { itemId: number | null; name: string; company: string; net: number; qty: number; targetQty: number; personalQty: number; personalNet: number }
-interface DirRep { repUserId: number; repName: string; repActive: boolean; companies: string[]; net: number; qty: number; targetQty: number; personalQty: number; personalNet: number; items: DirItem[] }
+interface DirRep { repUserId: number; repName: string; repActive: boolean; companies: string[]; net: number; repNet: number; qty: number; targetQty: number; personalQty: number; personalNet: number; items: DirItem[] }
 interface DirTeam { id: number; provinceId: number; provinceName: string; leaderName: string | null; reps: DirRep[] }
 
 interface Props {
@@ -112,7 +113,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                         <span style={{ fontWeight: 800, fontSize: 14, color: r.repActive ? '#0f172a' : '#94a3b8' }}>{on ? '▾' : '◂'} {r.repName}{r.repActive ? '' : ' (غير نشط)'}</span>
                       </span>
                       <span style={{ textAlign: 'left', direction: 'ltr' }}>
-                        <span style={{ fontWeight: 800, fontSize: 14, color: r.net < 0 ? '#be123c' : '#0f766e' }}>{fmtVal(r.net)} {currencyLabel}</span>
+                        <span style={{ fontWeight: 800, fontSize: 14, color: r.repNet < 0 ? '#be123c' : '#0f766e' }}>{fmtVal(r.repNet)} {currencyLabel}</span>
                       </span>
                     </button>
 
@@ -133,7 +134,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                                   <th style={{ ...subHead, background: CO_BG }}>الشركة</th>
                                   <th style={{ ...subHead, background: CO_BG, textAlign: 'left' }}>الكمية</th>
                                   <th style={{ ...subHead, background: CO_BG, textAlign: 'left' }}>القيمة ({currencyLabel})</th>
-                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left', borderRight: GRP_SEP }}>مبيع شخصي (كمية · قيمة)</th>
+                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left', borderRight: GRP_SEP }}>مبيع المندوب (كمية · قيمة)</th>
                                   <th style={{ ...subHead, background: REP_BG, textAlign: 'left' }}>التارگت (كمية)</th>
                                   <th style={{ ...subHead, background: REP_BG, textAlign: 'left' }}>الإنجاز</th>
                                 </tr>

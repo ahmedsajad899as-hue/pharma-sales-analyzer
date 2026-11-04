@@ -404,6 +404,7 @@ export async function getRepReport(req, res, next) {
       excludeCommercial: req.query.excludeCommercial === '1', // «بدون التجاري»
       liquidation: req.query.liquidation === '1', // تقرير «مندوبين المحافظات»: مبيعات مؤكدة + ميركاتو باسمه
       iqdRate: req.query.iqdRate,
+      province: req.query.province || undefined,
     };
     const report = await svc.getReport(id, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data: report });
@@ -441,6 +442,8 @@ export async function getProvinceMap(req, res, next) {
       startDate: req.query.startDate || undefined,
       endDate:   req.query.endDate   || undefined,
       fileIds:   parseFileIds(req.query.fileIds || req.query.fileId),
+      liquidation: req.query.liquidation === '1', // عرض العلميين: مبيع كل مندوب بمحافظته بقاعدة اللكوديشن
+      iqdRate: req.query.iqdRate,
     };
     const data = await svc.getProvinceMapForReps(repIds, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data });

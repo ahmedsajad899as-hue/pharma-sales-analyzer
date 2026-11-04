@@ -18,11 +18,12 @@
 //     repKind='pharmacy' (المسوقون): بلا شركة رئيسية، فيُعرضون قائمةً واحدة لكل محافظة.
 //   • الكوديشن: /api/reports/overall على ملفات الكوديشن المرئية (مفعّلة أم لا) — نفس
 //     قواعد المحافظة/التيم/العملة التي يُحسب بها مبيع المحافظة، فالمقارنة متكافئة.
-//   • حقل اللكوديشن = ملفات الكوديشن + المبيع المؤكد في «مبيعات المندوبين»
-//     (/api/rep-sales/province-summary): ما حققه المندوب شخصياً. أسعاره بالدينار من الكتالوج.
+//   • مبيع المندوب العلمي = اللكوديشن = المؤكد في «مبيعات المندوبين» + ميركاتو باسمه بلا تكرار،
+//     في العمود والخريطة الجانبية ونافذة الفرق والتقرير (server/lib/repLiquidation.js).
+//     عرض المسوقين: ملفات الكوديشن + المؤكد. الأسعار بالدينار من الكتالوج.
 //   • عرض «أسماء المندوبين»: جدول لكل محافظة (تيم ليدر + مندوبون + المبيع مقابل اللكوديشن)
-//     يدمج province-map مع /api/province-teams/directory؛ مندوب الفريق يأخذ قيمة تغطية
-//     الفريق نفسها في نافذة «فرق المحافظات». الضغط على اسم يفتح تقريره (onOpenRep).
+//     يدمج province-map مع /api/province-teams/directory. الضغط على اسم يفتح تقريره في تلك
+//     المحافظة (onOpenRep).
 //   • مدير المسوقين (scopedProvinces): جدول الأسماء وحده، بمحافظاته ومسوقيه فقط. مبيع المحافظة
 //     = مجموع مسوقيه من province-map، بلا شركات ولا فرق العلميين ولا لكوديشن المكتب.
 //
@@ -66,9 +67,10 @@ interface Props {
   /** زر «إدخال كوديشن (إكسل)» — يظهر فقط إن مُرِّر. */
   onAddCondition?: () => void;
   /** عرض الأسماء: الضغط على اسم يفتح تقرير المندوب أسفل الجدول. */
-  onOpenRep?: (repId: number) => void;
-  /** المندوب المفتوح تقريره الآن — يُميَّز اسمه في الجدول. */
+  onOpenRep?: (repId: number, province: string) => void;
+  /** المندوب المفتوح تقريره الآن ومحافظته — يُميَّز اسمه في صفها من الجدول. */
   selectedRepId?: string | null;
+  selectedProvince?: string | null;
 }
 
 interface CompanyCell { name: string; value: number; cond: number; reps: RepRow[] }
@@ -238,7 +240,7 @@ function PlexusBackground() {
   return <canvas ref={ref} aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }} />;
 }
 
-export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel, repKind, scopedProvinces, conditionRev = 0, iqdPerValueUnit = 1, onAddCondition, onOpenRep, selectedRepId }: Props) {
+export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel, repKind, scopedProvinces, conditionRev = 0, iqdPerValueUnit = 1, onAddCondition, onOpenRep, selectedRepId, selectedProvince }: Props) {
   const scopedKey = scopedProvinces?.join('|');
   const scopedSet = useMemo(() => (scopedProvinces ? new Set(scopedProvinces.map(norm)) : null), [scopedKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const marketersOnly = !!scopedSet;
@@ -386,7 +388,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
-    const keyOf = (mk: string) => `r|${tok}|${repIdsKey}|${fileKey}|${mk}`;
+    const keyOf = (mk: string) => `r|${liqMode ? 'l' : ''}|${tok}|${repIdsKey}|${fileKey}|${mk}`;
     const hit = cacheable && repIdsKey ? cacheGet(keyOf(monthKey)) : undefined;
     if (hit) setRepData(hit.v);
     if (!ready || !repIdsKey) {
@@ -397,6 +399,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     const H = { Authorization: `Bearer ${token}` };
     const fetchReps = async (p: URLSearchParams): Promise<RepProvinceRow[]> => {
       p.set('repIds', repIdsKey);
+      if (liqMode) { p.set('liquidation', '1'); p.set('iqdRate', String(iqdPerValueUnit)); }
       const r = await fetch(`/api/scientific-reps/province-map?${p}`, { headers: H, signal: ac.signal });
       if (!r.ok) return [];
       const j = await r.json();
@@ -425,7 +428,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     })();
     return () => { dead = true; ac.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repIdsKey, fileKey, monthKey, tok, ready]);
+  }, [repIdsKey, fileKey, monthKey, tok, ready, liqMode, iqdPerValueUnit]);
 
   // ── الكوديشن: ملفاته المرئية (مملوكة أو مُشارَكة، مفعّلة أم لا) ثم مبيعها بالمحافظة ──
   const [condFiles, setCondFiles] = useState<number[] | null>(null);
@@ -558,7 +561,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
-    const key = `t|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
+    const key = `t2|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
     const hit = cacheable ? cacheGet(key) : undefined;
     if (hit) setTeams(hit.v);
     if (hit && Date.now() - hit.t < FRESH_MS) return () => { dead = true; };
@@ -574,7 +577,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         if (dead) return;
         const rows: TeamLite[] = (j.teams ?? []).map((t: any) => ({
           p: t.provinceName, leader: t.leaderName ?? null, lr: t.leaderRepId ?? null,
-          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', net: x.net ?? 0 })),
+          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', net: x.repNet ?? 0 })),
         }));
         if (cacheable) cacheSet(key, rows);
         setTeams(rows);
@@ -953,13 +956,13 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   // ── عرض الأسماء: سطر لكل محافظة — قائدها ومندوبوها ثم مبيعها مقابل اللكوديشن ──
   const repIdSet = new Set(reps.map(r => r.id));
-  const nameBtn = (id: number | null, label: string, opts: { leader?: boolean; active?: boolean } = {}) => {
+  const nameBtn = (id: number | null, label: string, province: string, opts: { leader?: boolean; active?: boolean } = {}) => {
     const { leader = false, active: isActive = true } = opts;
     const clickable = !!onOpenRep && id != null && repIdSet.has(id);
-    const on = clickable && String(id) === selectedRepId;
+    const on = clickable && String(id) === selectedRepId && province === selectedProvince;
     return (
       <button type="button" disabled={!clickable} title={clickable ? `فتح تقرير ${label}` : undefined}
-        onClick={e => { e.stopPropagation(); if (clickable) onOpenRep!(id!); }}
+        onClick={e => { e.stopPropagation(); if (clickable) onOpenRep!(id!, province); }}
         style={{
           background: 'none', border: 'none', padding: '0 1px', cursor: clickable ? 'pointer' : 'default', fontSize: 12.5, lineHeight: 1.7,
           color: on ? '#0f172a' : !isActive ? '#94a3b8' : leader ? '#334155' : '#475569', fontWeight: on || leader ? 700 : 500,
@@ -1006,10 +1009,10 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                         <td style={{ ...tableTd, fontWeight: 800 }}>
                           {!marketersOnly && <span style={{ color: '#94a3b8', marginInlineEnd: 5, fontSize: 11 }}>{open ? '▾' : '◂'}</span>}{c.name}
                         </td>
-                        <td style={tableTd}>{n?.leader ? nameBtn(n.leader.id, n.leader.name, { leader: true }) : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                        <td style={tableTd}>{n?.leader ? nameBtn(n.leader.id, n.leader.name, c.name, { leader: true }) : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                         <td style={{ ...tableTd, whiteSpace: 'normal' }}>
                           {n?.reps.length
-                            ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 14px' }}>{n.reps.map(r => <span key={r.key}>{nameBtn(r.id, r.name, { active: r.active })}</span>)}</div>
+                            ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 14px' }}>{n.reps.map(r => <span key={r.key}>{nameBtn(r.id, r.name, c.name, { active: r.active })}</span>)}</div>
                             : <span style={{ fontSize: 11.5, color: '#94a3b8' }}>لا يوجد {repWord}</span>}
                         </td>
                         <td style={{ ...tableNum, fontWeight: 800, color: c.total < 0 ? '#be123c' : '#111827' }}>{fmtVal(c.total)}</td>

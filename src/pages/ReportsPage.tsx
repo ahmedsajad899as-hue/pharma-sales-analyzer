@@ -1097,6 +1097,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const [provCondMsg, setProvCondMsg] = useState('');
   // اسم ضُغط في عرض أسماء المحافظات: تقرير المندوب نفسه يظهر تحت الجدول داخل التبويب.
   const [provRepOpen, setProvRepOpen] = useState(false);
+  // المحافظة التي ضُغط الاسم منها: التقرير محصور بها.
+  const [provRepProvince, setProvRepProvince] = useState<string | null>(null);
   const provReportRef = useRef<HTMLDivElement>(null);
   const provReportOpen = mode === 'provinces' && provRepOpen;
   // عرض علميي المحافظات: مبيع المندوب = «مبيعات المندوبين» المؤكدة + ميركاتو باسمه (lib/repLiquidation.js).
@@ -1650,16 +1652,17 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     return params;
   };
   // iqdRate: أسعار «مبيعات المندوبين» بالدينار، والتقرير يوحّدها بالدولار بسعر صرف الشاشة نفسه.
-  const setLiquidationParams = (params: URLSearchParams) => {
+  const setLiquidationParams = (params: URLSearchParams, province: string | null) => {
     params.set('liquidation', '1');
     params.set('iqdRate', String(fileExchangeRate));
+    if (province) params.set('province', province);
   };
   const commReportReq = (id: string) => {
     const params = repReportParams();
     return { key: `comm|${user?.id ?? ''}|${id}|${params}`, base: `/api/reports/representative/${id}?${params}` };
   };
   // null = مجموعة بلا مندوبين (لا شيء يُطلب).
-  const sciReportReq = (id: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean; liquidation?: boolean } = {}) => {
+  const sciReportReq = (id: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean; liquidation?: boolean; province?: string } = {}) => {
     // من قائمة المسوقين مباشرة لا sciReps: عند التبديل للمسوقين يُطلب التقرير قبل إعادة الرسم.
     // القائمة تُمرَّر عند التبديل علميين/مسوقين — sciReps هنا ما زالت قائمة العرض السابق.
     const list = opts.list ?? (provReportOpen && !isGroupId(id) ? provReps : sciReps);
@@ -1670,7 +1673,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     if ((opts.exPharm ?? excludePharmacy) && canToggleRepKind && !isMarketersList) params.set('excludePharmacy', '1');
     if ((opts.exComm ?? excludeCommercial) && canToggleRepKind && !isMarketersList) params.set('excludeCommercial', '1');
     // الضغطة الأولى على الاسم تسبق إعادة الرسم، فلا تقرأ provReportOpen — تمرّر liquidation صراحةً.
-    if ((opts.liquidation ?? provReportOpen) && provLiquidation) setLiquidationParams(params);
+    if ((opts.liquidation ?? provReportOpen) && provLiquidation) setLiquidationParams(params, opts.province ?? provRepProvince);
     const base = group
       ? `/api/scientific-reps/group-report?repIds=${group.repIds.join(',')}&label=${encodeURIComponent(group.label)}&${params}`
       : `/api/scientific-reps/${id}/report?${params}`;
@@ -1711,7 +1714,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     finally { userLoads.current--; if (myReq === commReportSeq) setLoading(false); }
   };
 
-  const loadSciReport = async (repIdOverride?: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean; liquidation?: boolean } = {}) => {
+  const loadSciReport = async (repIdOverride?: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean; liquidation?: boolean; province?: string } = {}) => {
     const id = repIdOverride ?? sciRepId;
     if (!id) { setError(marketersView ? 'اختر مسوّقاً أولاً' : t.reports.errSelectSci); return; }
     const req = sciReportReq(id, opts);
@@ -1740,13 +1743,14 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   };
 
   // ضغطة ثانية على الاسم نفسه تغلق تقريره.
-  const openProvRep = (repId: number) => {
+  const openProvRep = (repId: number, province: string) => {
     const id = String(repId);
-    if (provRepOpen && id === sciRepId) { setProvRepOpen(false); return; }
+    if (provRepOpen && id === sciRepId && province === provRepProvince) { setProvRepOpen(false); return; }
     setProvRepOpen(true);
+    setProvRepProvince(province);
     setSciRepId(id);
     setReportView(getDefaultReportView());
-    loadSciReport(id, { list: provReps, liquidation: true });
+    loadSciReport(id, { list: provReps, liquidation: true, province });
     requestAnimationFrame(() => provReportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
@@ -3379,7 +3383,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       applyMonth(qp);
       if (repMode === 'scientific' && excludePharmacy && showExcludePharmacy) qp.set('excludePharmacy', '1');
       if (repMode === 'scientific' && excludeCommercial && showExcludePharmacy) qp.set('excludeCommercial', '1');
-      if (provLiqReport) setLiquidationParams(qp);
+      if (provLiqReport) setLiquidationParams(qp, provRepProvince);
 
       let sales: any[] = [];
       let areaCount: number | null = null;            // assigned areas (scientific only)
@@ -4530,10 +4534,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             iqdPerValueUnit={fileSourceCurrency === 'USD' ? fileExchangeRate : 1}
             onAddCondition={canProvCondition && !provLiquidation ? () => { setProvCondMsg(''); setShowProvCondition(true); } : undefined}
             onOpenRep={openProvRep}
-            selectedRepId={provRepOpen ? sciRepId : null} />
+            selectedRepId={provRepOpen ? sciRepId : null}
+            selectedProvince={provRepOpen ? provRepProvince : null} />
           {provRepOpen && (
             <div ref={provReportRef} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, scrollMarginTop: 12 }}>
-              <span style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>تقرير {sciRepsAll.find(r => String(r.id) === sciRepId)?.name ?? ''}</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>تقرير {sciRepsAll.find(r => String(r.id) === sciRepId)?.name ?? ''}{provLiquidation && provRepProvince ? ` — ${provRepProvince}` : ''}</span>
               {loading && <span style={{ fontSize: 12, color: '#64748b' }}>جاري التحميل…</span>}
               <span style={{ flex: 1 }} />
               <button type="button" onClick={() => setProvRepOpen(false)}

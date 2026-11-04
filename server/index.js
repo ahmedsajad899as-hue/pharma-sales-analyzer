@@ -1602,6 +1602,7 @@ app.get('/api/export/raw-sales', async (req, res) => {
         excludeCommercial: req.query.excludeCommercial === '1',
         liquidation: req.query.liquidation === '1',
         iqdRate: req.query.iqdRate,
+        province: req.query.province || undefined,
       }, req.user?.id ?? null);
       return res.json({ success: true, data: sales });
     }

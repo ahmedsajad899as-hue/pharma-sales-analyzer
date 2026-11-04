@@ -12,6 +12,7 @@ import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
 import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
 import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
 import { dedupCrossFile } from '../../lib/crossFileDedup.js';
 import { dateRangeWhere, dropBlockedLines, dropLinesFoundInMercato, isInDateRange, isPureMercatoRow, repSaleToRows, widenDateRange } from '../../lib/repLiquidation.js';
 import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
@@ -1889,44 +1890,105 @@ async function loadLiquidationBlocks(fileIds, viewerId) {
 }
 
 /**
+ * يحسم محافظة كل مبيع: منطقته، ثم محافظة المندوب حين لا تُعرف. rows وsales تحدّدان من يحتاج
+ * قراءة محافظة حسابه، فهي ثقيلة ولا يحتاجها غالب المندوبين.
+ * @param {Array} sales مبيعات المندوبين
+ * @param {Array} rows صفوف ميركاتو
+ * @param {(row:object)=>number} ownerOf حساب صاحب صف ميركاتو
+ */
+export async function liquidationProvinces(sales, rows, ownerOf) {
+  const areaIndex = await provinceByAreaName();
+  const ofArea = (name) => (name ? areaIndex.get(normalizeAreaName(name))?.province ?? null : null);
+  const areaProvince = (row) => row.area?.province?.name ?? ofArea(row.area?.name);
+  const needHome = [
+    ...sales.filter(s => !ofArea(s.areaName)).map(s => s.createdById),
+    ...rows.filter(r => !areaProvince(r)).map(ownerOf),
+  ].filter(Boolean);
+  const locations = needHome.length ? await loadRepLocations(needHome) : new Map();
+  // مندوب بمحافظتين: «البصرة، ميسان» — الأولى ملاذ حين لا تُعرف منطقة المبيع
+  const home = (userId) => locations.get(userId)?.province?.split('،')[0].trim() || null;
+  return { ofArea, home, ofSale: (s) => ofArea(s.areaName) ?? home(s.createdById), ofRow: (r) => areaProvince(r) ?? home(ownerOf(r)) };
+}
+
+/**
  * صفوف تقرير المندوب: ميركاتو باسمه (نفس نسبة resolveSciRepSales) + مبيعاته المؤكدة التي
- * ليست في ميركاتو. صفوف ميركاتو تُجلب بنافذة أوسع للمطابقة فقط، ولا يُعرض منها إلا المدى المطلوب.
+ * ليست في ميركاتو، وكل صف موسوم بمحافظته (liqProvince). query.province يحصرها بمحافظة واحدة.
+ * صفوف ميركاتو تُجلب بنافذة أوسع للمطابقة فقط، ولا يُعرض منها إلا المدى المطلوب.
  */
 async function resolveLiquidationSales(id, query, select, viewerId) {
   const range = { startDate: query.startDate, endDate: query.endDate };
   const wantsSales = query.recordType !== 'return';
   const wide = wantsSales ? widenDateRange(range) : {};
-  const resolved = await resolveSciRepSales(id, { ...query, ...wide }, select, viewerId);
+  const resolved = await resolveSciRepSales(id, { ...query, ...wide }, { ...select, area: { select: { id: true, name: true, province: { select: { name: true } } } } }, viewerId);
   const mercatoRows = resolved.rawSales.filter(isPureMercatoRow);
   const shownMercato = mercatoRows.filter(s => isInDateRange(s.saleDate, range));
-  if (!wantsSales) return { ...resolved, rawSales: shownMercato };
 
   const userIds = await liquidationUserIds(id);
-  const repSales = userIds.length
+  const repSales = wantsSales && userIds.length
     ? await prisma.repSale.findMany({
         where: { createdById: { in: userIds }, status: 'confirmed', ...dateRangeWhere({ ...range, ...wide }, 'saleDate') },
         select: REP_SALE_SELECT,
       })
     : [];
-  const blocks = await loadLiquidationBlocks(query.fileIds, viewerId);
-  const { sales: unique, droppedLines } = dropLinesFoundInMercato(dropBlockedLines(repSales, blocks), mercatoRows);
+  const { sales: unique, droppedLines } = wantsSales
+    ? dropLinesFoundInMercato(dropBlockedLines(repSales, await loadLiquidationBlocks(query.fileIds, viewerId)), mercatoRows)
+    : { sales: [], droppedLines: [] };
+  const shownRepSales = repSales.filter(s => isInDateRange(s.saleDate, range));
   const shownSales = unique.filter(s => isInDateRange(s.saleDate, range));
-  const repRows = await repSalesAsRows(shownSales, Number(query.iqdRate) > 0 ? Number(query.iqdRate) : 1470);
-  const shownIds = new Set(repSales.filter(s => isInDateRange(s.saleDate, range)).flatMap(s => s.lines.map(l => l.id)));
+
+  const province = await liquidationProvinces(shownRepSales, shownMercato, () => userIds[0]);
+  const inProvince = (name) => !query.province || normalizeArabic(name ?? '') === normalizeArabic(query.province);
+  const mercatoInProvince = shownMercato.map(s => ({ ...s, liqProvince: province.ofRow(s) })).filter(s => inProvince(s.liqProvince));
+  const repRows = await repSalesAsRows(shownSales.filter(s => inProvince(province.ofSale(s))), Number(query.iqdRate) > 0 ? Number(query.iqdRate) : 1470, province.ofSale);
+  const shownLineIds = new Set(shownRepSales.filter(s => inProvince(province.ofSale(s))).flatMap(s => s.lines.map(l => l.id)));
   return {
     ...resolved,
-    rawSales: [...shownMercato, ...repRows],
-    repSaleDuplicates: droppedLines.filter(lineId => shownIds.has(lineId)).length,
+    rawSales: [...mercatoInProvince, ...repRows],
+    repSaleDuplicates: droppedLines.filter(lineId => shownLineIds.has(lineId)).length,
   };
 }
 
-const REP_SALE_SELECT = {
+/**
+ * مبيع المندوبين في مدى واحد بلا تكرار، للشاشات التي تجمعه لعدة مندوبين (عمود اللكوديشن، نافذة
+ * الفرق). المبيع الذي لا حساب مندوب علمي لصاحبه يبقى كما هو: لا صفوف ميركاتو تقابله.
+ * @param {{fileIds:number[], range:object, repSaleWhere:object, userWhere:object, viewerId:number}} p
+ * @returns {Promise<{sales:Array, mercatoRows:Array, users:Array, ownerOfRow:(row:object)=>number}>}
+ */
+export async function loadLiquidationData({ fileIds, range, repSaleWhere, userWhere, viewerId }) {
+  const wide = { ...range, ...widenDateRange(range) };
+  const [wideSales, mercato] = await Promise.all([
+    prisma.repSale.findMany({
+      where: { AND: [repSaleWhere, { status: 'confirmed' }, dateRangeWhere(wide, 'saleDate')] },
+      select: REP_SALE_SELECT,
+    }),
+    loadLiquidationMercatoRows({ fileIds, range: wide, userWhere, viewerId }),
+  ]);
+  // كل حساب يُقارَن بصفوف اسمه هو. الحسابان بالاسم نفسه يتشاركان used فلا يُسقط صف سطرين.
+  const repIdByUser = new Map(mercato.users.map(u => [u.id, u.linkedRepId]));
+  const scientific = dropBlockedLines(wideSales.filter(s => repIdByUser.has(s.createdById)), mercato.blocks);
+  const others = wideSales.filter(s => !repIdByUser.has(s.createdById));
+  const used = new Set();
+  const unique = [];
+  for (const repId of new Set(scientific.map(s => repIdByUser.get(s.createdById)))) {
+    const own = scientific.filter(s => repIdByUser.get(s.createdById) === repId);
+    unique.push(...dropLinesFoundInMercato(own, mercato.rows.filter(r => r.repIds.includes(repId)), used).sales);
+  }
+  const userByRep = new Map(mercato.users.map(u => [u.linkedRepId, u.id]));
+  return {
+    sales: [...unique, ...others].filter(s => isInDateRange(s.saleDate, range)),
+    mercatoRows: mercato.rows.filter(r => isInDateRange(r.saleDate, range)),
+    users: mercato.users,
+    ownerOfRow: (row) => userByRep.get(row.repIds[0]),
+  };
+}
+
+export const REP_SALE_SELECT = {
   id: true, createdById: true, saleDate: true, pharmacyName: true, areaName: true, warehouseName: true, invoiceNumber: true,
   lines: { select: { id: true, itemId: true, itemName: true, companyName: true, quantity: true, bonusQty: true, unitPrice: true } },
 };
 
 /** صفوف بشكل Sale لمبيعات مؤكدة: المنطقة والايتم من الكتالوج، ومنطقة/ايتم حر يبقى باسمه. */
-async function repSalesAsRows(sales, iqdRate) {
+async function repSalesAsRows(sales, iqdRate, provinceOf) {
   if (!sales.length) return [];
   const itemIds = [...new Set(sales.flatMap(s => s.lines.map(l => l.itemId)).filter(Boolean))];
   const [areas, items, users] = await Promise.all([
@@ -1948,7 +2010,7 @@ async function repSalesAsRows(sales, iqdRate) {
     iqdRate,
     areaOf: (name) => areaByName.get(normalizeAreaName(name ?? '')) ?? { id: `free:${name ?? ''}`, name: name || 'غير محدد', province: null },
     itemOf: (line) => itemById.get(line.itemId) ?? { id: `free:${line.itemName}`, name: line.itemName },
-  }));
+  }).map(row => ({ ...row, liqProvince: provinceOf(sale) })));
 }
 
 /**
@@ -1957,7 +2019,7 @@ async function repSalesAsRows(sales, iqdRate) {
  * @param {{fileIds:number[], range:object, userWhere:object, viewerId:number}} p
  * @returns {Promise<{rows:Array, users:Array, blocks:object}>} rows[i].repIds = مندوبو الصف
  */
-export async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId }) {
+async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId }) {
   const blocks = await loadLiquidationBlocks(fileIds, viewerId);
   const [files, candidates] = await Promise.all([
     prisma.uploadedFile.findMany({ where: { id: { in: fileIds }, sourceSystem: 'mercato' }, select: { id: true } }),
@@ -2113,6 +2175,19 @@ export async function getGroupRawSalesForExport(repIds, query = {}, viewerId = n
   return (await resolveGroupSales(repIds, query, EXPORT_SALES_SELECT, viewerId)).rawSales.filter(s => !s.tierUncounted);
 }
 
+/** صافي صفوف تقرير اللكوديشن لكل محافظة — الخريطة الجانبية تقرأه بدل توزيع byArea. */
+function liquidationByProvince(rows) {
+  const out = new Map();
+  for (const s of rows) {
+    if (!s.liqProvince) continue;
+    const cell = out.get(s.liqProvince) ?? { province: s.liqProvince, totalQuantity: 0, totalValue: 0 };
+    cell.totalQuantity += s.quantity;
+    cell.totalValue += saleValueUSD(s);
+    out.set(s.liqProvince, cell);
+  }
+  return [...out.values()];
+}
+
 async function buildReport(resolved, query) {
   const { rep, commercialLinks, areaLinks, itemLinks, fileIds } = resolved;
   // ايتمات المسوّق الثانوية «خارج المجموع» (tierUncounted) تُطرح من كل الأرقام هنا، وتبقى
@@ -2262,6 +2337,7 @@ async function buildReport(resolved, query) {
     byItemTier,
     warehouses,
     repSaleDuplicates: resolved.repSaleDuplicates ?? 0,
+    byLiqProvince: query.liquidation ? liquidationByProvince(salesForAggregation) : null,
     _debug: {
       fileIds,
       sharedFileIds: resolved.sharedFileIds,
@@ -2345,7 +2421,8 @@ export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerI
   const areaIds = new Set();
   for (const r of ok) {
     for (const a of r.assignedAreas ?? []) areaIds.add(a.id);
-    for (const a of r.byArea ?? []) areaIds.add(a.areaId);
+    // منطقة حرة كتبها المندوب في مبيعه لا صف Area لها.
+    for (const a of r.byArea ?? []) if (Number.isInteger(a.areaId)) areaIds.add(a.areaId);
   }
   const areas = areaIds.size
     ? await prisma.area.findMany({ where: { id: { in: [...areaIds] } }, select: { id: true, name: true, province: { select: { name: true } } } })
@@ -2431,6 +2508,13 @@ export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerI
   for (const r of ok) {
     for (const a of r.assignedAreas ?? []) touch(provinceOfArea.get(a.id), r);
     for (const pn of assignedProvinces.get(r.scientificRep.id) ?? []) touch(pn, r);
+    if (r.byLiqProvince) {
+      for (const p of r.byLiqProvince) {
+        const row = touch(p.province, r);
+        if (row) { row.netValue += p.totalValue; row.netQty += p.totalQuantity; }
+      }
+      continue;
+    }
     for (const a of r.byArea ?? []) {
       const row = touch(provinceOfArea.get(a.areaId), r);
       if (row) { row.netValue += a.totalValue; row.netQty += a.totalQuantity; }

@@ -82,6 +82,8 @@ export async function resolveCoverageFiles(viewer, requested) {
 
   return {
     fileIds: officeFiles.map(f => f.id),
+    // خارج التغطية، لكن مبيع المندوب نفسه يُحسب منها (loadLiquidationData).
+    mercatoFileIds: files.filter(f => f.sourceSystem === 'mercato').map(f => f.id),
     names: officeFiles.map(f => f.originalName),
     excludedMercato: files.length - officeFiles.length,
     source: officeFiles.length ? source : 'لا توجد ملفات مبيعات مفعّلة',
