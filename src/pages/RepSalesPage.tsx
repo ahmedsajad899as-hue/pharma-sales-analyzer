@@ -23,8 +23,11 @@ interface Sale {
   pharmacyName: string; areaName: string | null; warehouseName: string | null;
   invoiceNumber: string | null; notes: string | null; status: Status; invoiceImage: string | null;
   confirmedAt: string | null; confirmedBy: string | null; createdAt: string; lines: SaleLine[]; canEdit: boolean;
+  confirmOpensAt: string | null; // متى يؤكد المندوب بلا فاتورة؛ null = بلا انتظار
 }
-interface ListResponse { sales: Sale[]; reps: { id: number; name: string }[]; truncated: boolean; viewer: { id: number; isManager: boolean } }
+type RepGroup = 'karkh' | 'rusafa' | 'provinces' | 'other';
+interface RepInfo { id: number; name: string; province: string | null; side: string | null; group: RepGroup }
+interface ListResponse { sales: Sale[]; reps: RepInfo[]; truncated: boolean; serverNow: number; viewer: { id: number; isManager: boolean } }
 type Api = <T = any>(path: string, init?: RequestInit) => Promise<T>;
 
 type Period = 'today' | 'yesterday' | 'week' | 'month' | 'lastMonth' | 'all' | 'custom';
@@ -33,12 +36,25 @@ type Tab = 'list' | 'reps' | 'items';
 
 const PERIOD_LABEL: Record<Period, string> = { today: 'اليوم', yesterday: 'أمس', week: 'آخر 7 أيام', month: 'هذا الشهر', lastMonth: 'الشهر السابق', all: 'كل التواريخ', custom: 'تاريخ محدد' };
 const STATUS_LABEL: Record<Status, string> = { confirmed: 'مؤكد', pending: 'غير مؤكد', cancelled: 'لم تتم' };
+const REP_GROUPS: { key: RepGroup; label: string }[] = [
+  { key: 'karkh', label: 'بغداد الكرخ' },
+  { key: 'rusafa', label: 'بغداد الرصافة' },
+  { key: 'provinces', label: 'المحافظات' },
+  { key: 'other', label: 'بلا تصنيف' },
+];
+const repPlace = (r?: RepInfo) => (r?.province ? [r.province, r.side].filter(Boolean).join(' · ') : '');
 
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const today = () => dayStr(new Date());
 const shiftDay = (days: number) => { const d = new Date(); d.setDate(d.getDate() + days); return dayStr(d); };
 const fmtDay = (iso: string) => String(iso).slice(0, 10);
 const fmtMoney = (n: number) => Math.round(n).toLocaleString('en-US');
+// الوقت الباقي لتأكيد المندوب؛ null = انتهى الانتظار أو لا انتظار عليه
+function waitLeft(s: Sale, now: number): string | null {
+  const ms = s.confirmOpensAt ? new Date(s.confirmOpensAt).getTime() - now : 0;
+  if (ms <= 0) return null;
+  return ms >= 3600000 ? `${Math.min(24, Math.ceil(ms / 3600000))} ساعة` : `${Math.ceil(ms / 60000)} دقيقة`;
+}
 const dayTitle = (day: string) => (day === today() ? `اليوم ${day}` : day === shiftDay(-1) ? `أمس ${day}` : day);
 
 function periodRange(p: Period): [string, string] {
@@ -112,6 +128,15 @@ export default function RepSalesPage() {
   const [confirming, setConfirming] = useState<Sale | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
 
+  // يعيد حساب الوقت الباقي للتأكيد والصفحة مفتوحة، بوقت الخادم لأن ساعة الهاتف قد تكون مخطئة
+  const [clock, setClock] = useState(() => Date.now());
+  const [clockOffset, setClockOffset] = useState(0);
+  const now = clock + clockOffset;
+  useEffect(() => {
+    const t = setInterval(() => setClock(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
+
   const [from, to] = period === 'custom' ? [customFrom, customTo] : periodRange(period);
 
   const load = useCallback(async () => {
@@ -121,7 +146,10 @@ export default function RepSalesPage() {
     if (from) q.set('from', from);
     if (to) q.set('to', to);
     try {
-      setData(await api<ListResponse>(`?${q}`));
+      const r = await api<ListResponse>(`?${q}`);
+      setClock(Date.now());
+      setClockOffset(r.serverNow - Date.now());
+      setData(r);
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
   }, [token, api, from, to]);
   useEffect(() => { load(); }, [load]);
@@ -174,6 +202,7 @@ export default function RepSalesPage() {
     return [...map];
   }, [visible]);
 
+  const repById = useMemo(() => new Map((data?.reps ?? []).map(r => [r.id, r])), [data]);
   const repRows = useMemo<RepRow[]>(() => {
     const rows = new Map<number, RepRow>();
     const row = (id: number, name: string) => {
@@ -235,7 +264,14 @@ export default function RepSalesPage() {
         {isManager && (
           <select className="form-input ro-select" aria-label="المندوب" value={repFilter} onChange={e => setRepFilter(e.target.value)}>
             <option value="">كل المندوبين</option>
-            {data?.reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            {REP_GROUPS.map(g => {
+              const list = (data?.reps ?? []).filter(r => r.group === g.key);
+              return list.length > 0 && (
+                <optgroup key={g.key} label={g.label}>
+                  {list.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </optgroup>
+              );
+            })}
           </select>
         )}
         <span className="rs-search">
@@ -278,7 +314,7 @@ export default function RepSalesPage() {
             <tbody>
               {repRows.map(r => (
                 <tr key={r.id} className="rs-click" onClick={() => openRep(r.id)}>
-                  <td className="ro-strong">{r.name}</td>
+                  <td><span className="ro-strong">{r.name}</span>{repPlace(repById.get(r.id)) && <div className="rs-cell-sub">{repPlace(repById.get(r.id))}</div>}</td>
                   <td><b className="rs-ok">{fmtMoney(r.confirmed.value)}</b><div className="rs-cell-sub">{r.confirmed.count} مبيع · {r.confirmed.qty} قطعة</div></td>
                   <td><b className="rs-wait">{fmtMoney(r.pending.value)}</b><div className="rs-cell-sub">{r.pending.count} طلبية · {r.pending.qty} قطعة</div></td>
                   <td className="rs-num">{r.noInvoice || '—'}</td>
@@ -327,7 +363,7 @@ export default function RepSalesPage() {
               </h3>
               {list.map(s => (
                 <SaleCard
-                  key={s.id} sale={s} open={openId === s.id} showRep={isManager}
+                  key={s.id} sale={s} open={openId === s.id} showRep={isManager} wait={waitLeft(s, now)}
                   onToggle={() => setOpenId(id => (id === s.id ? null : s.id))}
                   onConfirm={() => setConfirming(s)} onEdit={() => setEditing(s)} onDelete={() => remove(s)}
                   onStatus={st => setStatus(s, st)} onAttach={f => attachImage(s, f)}
@@ -346,8 +382,8 @@ export default function RepSalesPage() {
         </>
       )}
 
-      {editing && <SaleForm api={api} token={token} sale={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
-      {confirming && <ConfirmDialog api={api} sale={confirming} onClose={() => setConfirming(null)} onDone={() => { setConfirming(null); load(); }} />}
+      {editing && <SaleForm api={api} token={token} isManager={isManager} sale={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {confirming && <ConfirmDialog api={api} sale={confirming} wait={waitLeft(confirming, now)} onClose={() => setConfirming(null)} onDone={() => { setConfirming(null); load(); }} />}
       {preview && (
         <div className="ro-modal" onClick={() => setPreview(null)}>
           <img className="ro-preview" src={`${API}${preview}`} alt="صورة الفاتورة" />
@@ -359,8 +395,8 @@ export default function RepSalesPage() {
 
 // ─── بطاقة المبيع ─────────────────────────────────────────────────────────────
 
-function SaleCard({ sale: s, open, showRep, onToggle, onConfirm, onEdit, onDelete, onStatus, onAttach, onRemoveImage, onPreview }: {
-  sale: Sale; open: boolean; showRep: boolean;
+function SaleCard({ sale: s, open, showRep, wait, onToggle, onConfirm, onEdit, onDelete, onStatus, onAttach, onRemoveImage, onPreview }: {
+  sale: Sale; open: boolean; showRep: boolean; wait: string | null;
   onToggle: () => void; onConfirm: () => void; onEdit: () => void; onDelete: () => void;
   onStatus: (st: Status) => void; onAttach: (f: File) => void; onRemoveImage: () => void; onPreview: (src: string) => void;
 }) {
@@ -378,13 +414,16 @@ function SaleCard({ sale: s, open, showRep, onToggle, onConfirm, onEdit, onDelet
           <span className="rs-card__meta">
             <span className={`rs-badge rs-badge--${s.status}`}>{STATUS_LABEL[s.status]}</span>
             {s.status === 'confirmed' && !s.invoiceImage && <span className="rs-badge">بلا فاتورة</span>}
+            {s.status === 'pending' && s.canEdit && wait && <span>التأكيد بعد {wait}</span>}
             {showRep && <span>{s.repName}</span>}
             <b className="rs-card__value">{fmtMoney(value)}</b>
             <ChevronDown size={14} className={`rs-chevron ${open ? 'is-open' : ''}`} />
           </span>
         </button>
         {s.status === 'pending' && s.canEdit && (
-          <button className="btn btn--primary btn--sm rs-card__confirm" onClick={onConfirm}><Check size={14} /> تأكيد</button>
+          <button className={`btn btn--sm rs-card__confirm ${wait ? 'btn--secondary' : 'btn--primary'}`} onClick={onConfirm}>
+            {wait ? <><Camera size={14} /> الفاتورة</> : <><Check size={14} /> تأكيد</>}
+          </button>
         )}
       </div>
 
@@ -442,7 +481,7 @@ function SaleCard({ sale: s, open, showRep, onToggle, onConfirm, onEdit, onDelet
 
 // ─── تأكيد طلبية معلّقة ───────────────────────────────────────────────────────
 
-function ConfirmDialog({ api, sale, onClose, onDone }: { api: Api; sale: Sale; onClose: () => void; onDone: () => void }) {
+function ConfirmDialog({ api, sale, wait, onClose, onDone }: { api: Api; sale: Sale; wait: string | null; onClose: () => void; onDone: () => void }) {
   const [rows, setRows] = useState(() => sale.lines.map(l => ({ id: l.id, itemName: l.itemName, quantity: String(l.quantity), bonusQty: l.bonusQty ? String(l.bonusQty) : '' })));
   const [file, setFile] = useState<File | null>(null);
   const url = useObjectUrl(file);
@@ -450,7 +489,9 @@ function ConfirmDialog({ api, sale, onClose, onDone }: { api: Api; sale: Sale; o
   const [err, setErr] = useState<string | null>(null);
 
   const changed = rows.some((r, i) => Number(r.quantity) !== sale.lines[i].quantity || (Number(r.bonusQty) || 0) !== sale.lines[i].bonusQty);
-  const label = file ? 'تأكيد بالفاتورة' : changed ? 'تأكيد بالأرقام المعدّلة' : 'تأكيد بالأرقام نفسها';
+  // قبل مرور 24 ساعة لا يؤكد المندوب إلا بالفاتورة
+  const locked = !file && !!wait;
+  const label = file ? 'تأكيد بالفاتورة' : locked ? 'أرفق الفاتورة للتأكيد' : changed ? 'تأكيد بالأرقام المعدّلة' : 'تأكيد بالأرقام نفسها';
   const setRow = (id: number, patch: Partial<(typeof rows)[number]>) => setRows(rs => rs.map(r => (r.id === id ? { ...r, ...patch } : r)));
 
   const submit = async () => {
@@ -482,12 +523,13 @@ function ConfirmDialog({ api, sale, onClose, onDone }: { api: Api; sale: Sale; o
               </div>
             ))}
           </div>
+          {wait && <div className="rs-wait-note">يتاح التأكيد بالأرقام بعد {wait}، أو الآن بإرفاق الفاتورة.</div>}
           <div className="rs-hint">إن اختلف ما تجهّز عدّل الأرقام. الايتم الذي لم يتجهز اجعل كميته 0 فيُحذف من المبيع.</div>
           <InvoiceInput file={file} url={url} onChange={setFile} />
           {err && <div className="ro-note ro-note--warn">⚠️ {err}</div>}
         </div>
         <div className="ro-dialog__foot">
-          <button className="btn btn--primary" disabled={saving} onClick={submit}>{saving ? 'جارٍ الحفظ…' : label}</button>
+          <button className="btn btn--primary" disabled={saving || locked} onClick={submit}>{saving ? 'جارٍ الحفظ…' : label}</button>
           <button className="btn btn--secondary" onClick={onClose}>إلغاء</button>
         </div>
       </div>
@@ -517,7 +559,7 @@ function InvoiceInput({ file, url, onChange }: { file: File | null; url: string 
 interface FormLine { key: number; text: string; itemId: number | null; companyName: string; quantity: string; bonusQty: string }
 const newLine = (text = '', itemId: number | null = null, companyName = ''): FormLine => ({ key: Date.now() + Math.random(), text, itemId, companyName, quantity: '', bonusQty: '' });
 
-function SaleForm({ api, token, sale, onClose, onSaved }: { api: Api; token: string | null; sale: Sale | null; onClose: () => void; onSaved: () => void }) {
+function SaleForm({ api, token, isManager, sale, onClose, onSaved }: { api: Api; token: string | null; isManager: boolean; sale: Sale | null; onClose: () => void; onSaved: () => void }) {
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [areas, setAreas] = useState<string[]>([]);
   const [pharmacies, setPharmacies] = useState<{ name: string; areaName: string | null }[]>([]);
@@ -575,7 +617,12 @@ function SaleForm({ api, token, sale, onClose, onSaved }: { api: Api; token: str
     target?.focus();
     target?.select();
   };
-  const pickFile = (f: File | null) => { setFile(f); if (f) setStatus('confirmed'); };
+  // المندوب لا يسجّل مؤكداً إلا بالفاتورة، فإزالتها ترجعه غير مؤكد
+  const pickFile = (f: File | null) => {
+    setFile(f);
+    if (f) setStatus('confirmed');
+    else if (!isManager) setStatus('pending');
+  };
 
   const submit = async () => {
     setErr(null);
@@ -615,9 +662,16 @@ function SaleForm({ api, token, sale, onClose, onSaved }: { api: Api; token: str
               <button type="button" role="radio" aria-checked={status === 'pending'} disabled={!!file} className={status === 'pending' ? 'is-active is-pending' : ''} onClick={() => setStatus('pending')}>
                 <b>طلبية غير مؤكدة</b><span>كتبتها وبعد لم أتأكد من تجهيزها</span>
               </button>
-              <button type="button" role="radio" aria-checked={status === 'confirmed'} className={status === 'confirmed' ? 'is-active is-confirmed' : ''} onClick={() => setStatus('confirmed')}>
-                <b>مبيع مؤكد</b><span>تم البيع وتجهّز فعلاً</span>
-              </button>
+              {isManager ? (
+                <button type="button" role="radio" aria-checked={status === 'confirmed'} className={status === 'confirmed' ? 'is-active is-confirmed' : ''} onClick={() => setStatus('confirmed')}>
+                  <b>مبيع مؤكد</b><span>تم البيع وتجهّز فعلاً</span>
+                </button>
+              ) : (
+                <label role="radio" aria-checked={status === 'confirmed'} className={status === 'confirmed' ? 'is-active is-confirmed' : ''}>
+                  <b>مبيع مؤكد</b><span>بإرفاق صورة الفاتورة</span>
+                  <input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) pickFile(f); }} />
+                </label>
+              )}
             </div>
           )}
 

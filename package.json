@@ -26,6 +26,7 @@
     "test:rep-followup": "node scripts/test-rep-followup.mjs",
     "test:province-teams": "node scripts/test-province-teams.mjs",
     "test:new-user-features": "node scripts/test-new-user-features.mjs",
+    "test:rep-location": "node scripts/test-rep-location.mjs",
     "test:followup-query": "node scripts/test-followup-query.mjs",
     "test:fingerprint": "node scripts/test-sale-fingerprint.mjs",
     "test:invoice-match": "node scripts/test-invoice-customer-match.mjs",

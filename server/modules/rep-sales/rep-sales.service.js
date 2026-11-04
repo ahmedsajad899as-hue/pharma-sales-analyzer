@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
+import { loadRepLocations } from '../../lib/repLocation.js';
 import { buildLines, cleanText, loadViewer, orderScopeWhere, parseDay, teamUserIds } from '../rep-orders/rep-orders.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const SALE_IMAGE_DIR = path.join(__dirname, '..', '..', '..', 'uploads', 'rep-sales');
 
 const LIST_CAP = 5000;
+const CONFIRM_WAIT_MS = 24 * 60 * 60 * 1000;
 const userName = (u) => (u ? (u.displayName || u.username) : null);
 const imageUrl = (file) => `/uploads/rep-sales/${path.basename(file.path)}`;
 const removeImageFile = (rel) => {
@@ -59,6 +61,20 @@ export const canEditSale = (viewer, sale) =>
 function assertCanEdit(viewer, sale) {
   if (canEditSale(viewer, sale)) return;
   throw new AppError(sale.status === 'confirmed' ? 'المبيع مؤكد — التعديل عليه من صلاحية المدير فقط' : 'لا يمكنك تعديل هذا المبيع', 403);
+}
+
+/**
+ * متى يستطيع هذا المُشاهِد تأكيد الطلبية بلا فاتورة: المندوب يكتبها قبل أن يعرف هل ستتجهز،
+ * فينتظر 24 ساعة من كتابتها. null = بلا انتظار (المدير يؤكد أي وقت).
+ */
+const confirmOpensAt = (viewer, sale) =>
+  (isFieldRole(viewer.role) ? new Date(new Date(sale.createdAt).getTime() + CONFIRM_WAIT_MS) : null);
+
+function assertWaitOver(viewer, sale) {
+  const at = confirmOpensAt(viewer, sale);
+  if (!at || at.getTime() <= Date.now()) return;
+  const hours = Math.ceil((at.getTime() - Date.now()) / 3600000);
+  throw new AppError(`يتاح التأكيد بعد مرور 24 ساعة على الطلبية (باقي ${hours} ساعة) — أو الآن بإرفاق صورة الفاتورة`, 403);
 }
 
 async function buildSaleData(body) {
@@ -108,11 +124,15 @@ export async function listSales(reqUser, q = {}) {
     : [];
   const nameById = new Map(users.map(u => [u.id, userName(u)]));
   const filterIds = new Set([...teamIds, ...rows.map(r => r.createdById)]);
+  const locations = isManager ? await loadRepLocations([...filterIds]) : new Map();
 
   return {
     viewer: { id: viewer.id, name: userName(viewer), isManager },
-    reps: [...filterIds].map(id => ({ id, name: nameById.get(id) ?? '—' })).sort((a, b) => a.name.localeCompare(b.name, 'ar')),
+    reps: [...filterIds]
+      .map(id => ({ id, name: nameById.get(id) ?? '—', ...(locations.get(id) ?? { province: null, side: null, group: 'other' }) }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ar')),
     truncated: rows.length === LIST_CAP,
+    serverNow: Date.now(),
     sales: rows.map(r => ({
       id: r.id,
       saleDate: r.saleDate,
@@ -130,6 +150,7 @@ export async function listSales(reqUser, q = {}) {
       createdAt: r.createdAt,
       lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty, unitPrice: l.unitPrice })),
       canEdit: canEditSale(viewer, r),
+      confirmOpensAt: r.status === 'pending' ? confirmOpensAt(viewer, r) : null,
     })),
   };
 }
@@ -160,8 +181,11 @@ export const createSale = (reqUser, rawData, file) => withUpload(file, async () 
   const viewer = await loadViewer(reqUser);
   const body = parseJsonField(rawData, {});
   const { head, lines } = await buildSaleData(body);
-  // الفاتورة دليل التأكيد، فمبيع مرفق بصورتها لا يبقى معلّقاً
-  const confirmed = body.status === 'confirmed' || !!file;
+  // الفاتورة دليل التأكيد، فمبيع مرفق بصورتها لا يبقى معلّقاً. بدونها يؤكد المدير فقط:
+  // المندوب ينتظر 24 ساعة، والتسجيل مؤكداً مباشرةً كان سيتجاوز ذلك.
+  const wantsConfirmed = body.status === 'confirmed';
+  if (wantsConfirmed && !file && isFieldRole(viewer.role)) throw new AppError('لتسجيل المبيع مؤكداً أرفق صورة الفاتورة', 403);
+  const confirmed = wantsConfirmed || !!file;
   return prisma.repSale.create({
     data: {
       ...head,
@@ -201,6 +225,7 @@ export const confirmSale = (reqUser, id, rawLines, file) => withUpload(file, asy
   const sale = await getVisibleSale(viewer, id);
   assertCanEdit(viewer, sale);
   if (sale.status !== 'pending') throw new AppError('يُؤكَّد المبيع غير المؤكد فقط', 400);
+  if (!file) assertWaitOver(viewer, sale);
 
   const toInt = (v) => Math.max(0, Math.floor(Number(v) || 0));
   const given = new Map((parseJsonField(rawLines, null) ?? []).map(l => [Number(l.id), l]));

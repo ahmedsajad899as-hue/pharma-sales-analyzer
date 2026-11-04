@@ -1,6 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { provinceMemberUserIds } from '../../lib/provinceScope.js';
+import { provinceByAreaName } from '../../lib/repLocation.js';
 import {
   resolveEffectiveAreas, resolveEffectiveAreaIds, userHasAllAreas, saveUserAreaAssignments,
 } from '../../lib/areaScope.js';
@@ -76,40 +77,6 @@ function dedupeByName(areas) {
     if (!seen.has(k)) seen.set(k, a);
   }
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-}
-
-/**
- * المحافظة والقسم (الكرخ/الرصافة) لكل اسم منطقة مطبَّع — من أي صف Area بنفس
- * الاسم يحملهما (صفوف الحسابات الموازية كثيراً ما تكون بلا provinceId، والصف
- * القانوني يحملها). القسم يُفضَّل من أول صف يحمله حتى لو سبقه صف بمحافظة فقط.
- */
-async function provinceByAreaName() {
-  const rows = await prisma.area.findMany({
-    where:  { provinceId: { not: null } },
-    select: {
-      name: true,
-      province:    { select: { name: true } },
-      subProvince: { select: { name: true, sortOrder: true } },
-    },
-    orderBy: { id: 'asc' },
-  });
-  const map = new Map();
-  for (const r of rows) {
-    if (!r.province?.name) continue;
-    const k = normalizeAreaName(r.name);
-    const cur = map.get(k);
-    if (!cur) {
-      map.set(k, {
-        province: r.province.name,
-        subProvince: r.subProvince?.name ?? null,
-        subProvinceOrder: r.subProvince?.sortOrder ?? null,
-      });
-    } else if (!cur.subProvince && r.subProvince && r.province.name === cur.province) {
-      cur.subProvince = r.subProvince.name;
-      cur.subProvinceOrder = r.subProvince.sortOrder;
-    }
-  }
-  return map;
 }
 
 const withProvince = (areas, provMap) =>
