@@ -3376,6 +3376,19 @@ select.comm-input { cursor: pointer; }
   100% { background-position: 200% center; }
 }
 
+/* نبض خفيف لزر يسهل أن يفوت المستخدم (نافذة «كل المندوبين»): حلقة تتسع وتتلاشى */
+@keyframes rpt-pulse-ring {
+  0%   { box-shadow: 0 0 0 0 var(--rpt-pulse-color); }
+  70%  { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.rpt-pulse-btn { animation: rpt-pulse-ring 2.2s ease-out infinite; }
+.rpt-pulse-btn--indigo { --rpt-pulse-color: rgba(79, 70, 229, 0.45); }
+.rpt-pulse-btn--amber  { --rpt-pulse-color: rgba(180, 83, 9, 0.45); }
+@media (prefers-reduced-motion: reduce) {
+  .rpt-pulse-btn { animation: none; }
+}
+
 .upload-badge-pulse {
   position: relative;
   animation: badge-breathe 2.2s ease-in-out infinite;

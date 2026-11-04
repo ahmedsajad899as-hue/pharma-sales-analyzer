@@ -6280,14 +6280,17 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   <button onClick={() => setWarehouseViewMode('list')}
                     style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${warehouseViewMode === 'list' ? '#64748b' : '#e2e8f0'}`, background: warehouseViewMode === 'list' ? '#f1f5f9' : '#fff', color: warehouseViewMode === 'list' ? '#334155' : '#94a3b8', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                   ><Icon name="menu" size={12} /> قائمة</button>
+                  {/* الزرّان ينبضان حتى يُضغطا كي لا يفوتا المستخدم؛ المفعَّل بلون مصمت بلا نبض */}
                   <button onClick={() => setWarehouseViewMode('pivot')}
-                    style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${warehouseViewMode === 'pivot' ? '#64748b' : '#e2e8f0'}`, background: warehouseViewMode === 'pivot' ? '#f1f5f9' : '#fff', color: warehouseViewMode === 'pivot' ? '#334155' : '#94a3b8', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    className={warehouseViewMode === 'pivot' ? undefined : 'rpt-pulse-btn rpt-pulse-btn--indigo'}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #4f46e5', background: warehouseViewMode === 'pivot' ? '#4f46e5' : '#eef2ff', color: warehouseViewMode === 'pivot' ? '#fff' : '#3730a3', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                   ><Icon name="excel" size={12} /> جدول (مذخر × مندوب)</button>
                 </div>
                 {/* قادة الفرق مستبعَدون من الجدول العادي — هذا الزر يعرض بياناتهم هم فقط بدلاً منهم */}
                 <button onClick={() => { setWarehouseShowLeaders(v => !v); setExpandedWarehouseRepId(null); setWarehouseCompanyFilter(''); }}
                   title={warehouseShowLeaders ? 'الرجوع لعرض المندوبين' : 'عرض قادة الفرق (Team Leaders)'}
-                  style={{ padding: '6px 18px', borderRadius: 8, border: `1.5px solid ${warehouseShowLeaders ? '#b45309' : '#e2e8f0'}`, background: warehouseShowLeaders ? '#fffbeb' : '#fff', color: warehouseShowLeaders ? '#b45309' : '#94a3b8', fontSize: 12, fontWeight: 800, letterSpacing: '.4px', cursor: 'pointer' }}
+                  className={warehouseShowLeaders ? undefined : 'rpt-pulse-btn rpt-pulse-btn--amber'}
+                  style={{ padding: '6px 18px', borderRadius: 8, border: '1.5px solid #b45309', background: warehouseShowLeaders ? '#b45309' : '#fef3c7', color: warehouseShowLeaders ? '#fff' : '#92400e', fontSize: 12, fontWeight: 800, letterSpacing: '.4px', cursor: 'pointer' }}
                 >TL</button>
                 {allRepsWarehouseData && allRepsWarehouseData.length > 0 && (
                   <button onClick={exportWarehouseSummaryToExcel}
