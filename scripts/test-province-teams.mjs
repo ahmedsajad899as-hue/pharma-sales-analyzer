@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   resolveAssignmentItemIds, findItemConflicts, buildItemAttribution,
   classifyChannel, personalSaleValue, toUSD,
-  assignmentFillsSeat, planSeatAssignments, repBelongsToSeat, repSeatIds, removedProvinceIds, marketerTeamLinksToDrop, foreignManagerLinks,
+  assignmentFillsSeat, planSeatAssignments, repBelongsToSeat, repSeatIds, repTeamCompany, removedProvinceIds, marketerTeamLinksToDrop, foreignManagerLinks,
 } from '../server/modules/province-teams/province-teams.rules.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../server/modules/province-teams/personal-sale-trigger.js';
 import { marketerHomeProvinces, pickMarketerLeaders, managesProvinceMarketers, marketersManagerCoverage } from '../server/lib/pharmacyRep.js';
@@ -218,6 +218,26 @@ t('مقعد المندوب يحسمه مديره حين يتشارك مديرا�
   assert.deepEqual(repSeatIds(humanisRepAssignments, [999], [...seatsWithShare, { userId: 999, companyId: OSEL, items: [{ id: 20, companyId: OSEL }] }]), [103, 102]);
   // مشترك فعلاً: يتبع المديرين معاً فيبقى في مقعديهما.
   assert.deepEqual(repSeatIds(humanisRepAssignments, [103, 102], seatsWithShare), [103, 102]);
+});
+
+t('شركة تيم المندوب واحدة: مدير مقعده، ثم شركته الرئيسية، ثم المقعد الأكثر تطابقاً', () => {
+  const named = [{ ...humanisSeat, companyName: 'humanis' }, { ...sharedDevaSeat, companyName: 'deva' }];
+  const reps = (primaryId) => humanisRepAssignments.map(a => ({ ...a, companyName: a.companyId === HUMANIS ? 'humanis' : 'deva', isPrimary: a.companyId === primaryId }));
+  // ايتمات مدير humanis تشمل deva، وتبقى شركة التيم واحدة: شركة المدير
+  assert.equal(repTeamCompany(reps(null), [103, 500], named), 'humanis');
+  // مدير المقعد يغلب الشركة الرئيسية المسجلة على حساب المندوب
+  assert.equal(repTeamCompany(reps(DEVA), [103], named), 'humanis');
+  // يتبع مديرين: شركته الرئيسية تحسم بينهما
+  assert.equal(repTeamCompany(reps(DEVA), [103, 102], named), 'deva');
+  // بلا مدير مقعد: شركته الرئيسية
+  assert.equal(repTeamCompany(reps(DEVA), [500], named), 'deva');
+  // بلا مدير ولا شركة رئيسية: المقعد الأكثر تطابقاً مع ايتماته
+  assert.equal(repTeamCompany(reps(null), [], named), 'humanis');
+  const devaItems = [{ companyId: DEVA, companyName: 'deva', allItems: false, itemIds: [10, 11], isPrimary: false }];
+  assert.equal(repTeamCompany(devaItems, [], named), 'deva');
+  // لا مقعد يطابقه: أول تعييناته، وبلا تعيينات لا شركة
+  assert.equal(repTeamCompany([{ companyId: OSEL, companyName: 'osel', allItems: true, itemIds: [], isPrimary: false }], [], named), 'osel');
+  assert.equal(repTeamCompany([], [], named), null);
 });
 
 t('عرض مدير الشركة: مندوب مقعد آخر لا يدخل فريقه بسبب ايتم مشترك', () => {

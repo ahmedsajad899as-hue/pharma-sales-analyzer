@@ -108,6 +108,28 @@ export function repSeatIds(assignments, managerIds, seats) {
   return (own.length ? own : matching).map(s => s.userId);
 }
 
+/**
+ * اسم الشركة الواحدة التي تمثل تيم المندوب. ايتمات المدير موزعة على عدة شركات، فشركات
+ * تعيينات المندوب لا تدل على تيمه. الترتيب: الشركة الرئيسية لمدير مقعده، ثم شركته الرئيسية،
+ * ثم المقعد الأكثر تطابقاً مع ايتماته (مندوب المقعد يأخذ ايتمات مديره كاملة).
+ * @param {Array<{companyId:number, companyName:string, allItems:boolean, itemIds:number[], isPrimary:boolean}>} assignments
+ * @param {number[]} managerIds مدراء المندوب
+ * @param {Array<{userId:number, companyId:number, companyName:string, items:{id:number}[]}>} seats مقاعد المكتب
+ * @returns {string|null}
+ */
+export function repTeamCompany(assignments, managerIds, seats) {
+  const seatIds = repSeatIds(assignments, managerIds, seats);
+  const matching = seats.filter(s => seatIds.includes(s.userId));
+  const primary = assignments.find(a => a.isPrimary);
+  const own = matching.filter(s => managerIds.includes(s.userId));
+  if (own.length) return (own.find(s => s.companyId === primary?.companyId) ?? own[0]).companyName;
+  if (primary) return primary.companyName;
+  const repItems = new Set(assignments.flatMap(a => a.itemIds ?? []));
+  const overlap = (s) => s.items.filter(i => repItems.has(i.id)).length;
+  const best = matching.reduce((top, s) => (!top || overlap(s) > overlap(top) ? s : top), null);
+  return best?.companyName ?? assignments[0]?.companyName ?? null;
+}
+
 /** المحافظات التي خرج منها الحساب بهذا الحفظ. غير المذكورة في الحالتين لا تُمَسّ (تعيين يدوي في الهيكلية). */
 export function removedProvinceIds(before, after) {
   const kept = new Set(after);

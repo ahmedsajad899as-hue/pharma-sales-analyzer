@@ -12,7 +12,7 @@ import { buildMonthFilter, monthToRange } from '../../lib/salesMonths.js';
 import { loadConditionSalesForReps } from '../../lib/conditionFile.js';
 import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
 import { loadManagerSeat, loadSeatManagers } from '../../lib/provinceSeats.js';
-import { assignmentFillsSeat, repSeatIds } from './province-teams.rules.js';
+import { assignmentFillsSeat, repSeatIds, repTeamCompany } from './province-teams.rules.js';
 import { liquidationProvinces, loadLiquidationData } from '../scientific-reps/scientific-reps.service.js';
 import { saleValueUSD } from '../sales/sales.repository.js';
 
@@ -91,8 +91,20 @@ export async function directory(req, res, next) {
     const allowed = viewer.mode === 'company' ? await resolveEffectiveItemIds(viewer.id) : null;
     const allowedSet = allowed ? new Set(allowed) : null;
     const seat = await loadManagerSeat(viewer.id);
-    const officeSeats = seat ? await loadSeatManagers([seat.officeId]) : [];
+    const allSeats = await loadSeatManagers([...new Set([...teams.map(t => t.officeId), seat?.officeId].filter(Boolean))]);
+    const officeSeats = seat ? allSeats.filter(s => s.officeId === seat.officeId) : [];
     const explicit = (a) => ({ companyId: a.companyId, allItems: a.allItems, itemIds: a.explicitItemIds });
+    // شركة واحدة تمثل تيم المندوب. مدير الشركة لا يرى إلا مندوبي مقعده، فهي شركته. المسوق بلا تيم شركة.
+    const teamCompanyOf = (t, repUserId, isMarketer) => {
+      if (isMarketer) return null;
+      if (seat) return seat.companyName;
+      const own = t.allAssignments.filter(a => a.repUserId === repUserId);
+      return repTeamCompany(
+        own.map(a => ({ ...explicit(a), companyName: a.companyName, isPrimary: a.isRepPrimaryCompany })),
+        own[0]?.repManagerIds ?? [],
+        allSeats.filter(s => s.officeId === t.officeId),
+      );
+    };
     // ايتم مشترك مع مدير آخر لا يدخل مندوب ذلك المدير في فريق المُشاهِد.
     const repInViewerSeat = (t, a) => repSeatIds(
       t.allAssignments.filter(o => o.repUserId === a.repUserId).map(explicit), a.repManagerIds, officeSeats,
@@ -257,6 +269,7 @@ export async function directory(req, res, next) {
         ...r,
         repId: repLink.get(r.repUserId) ?? null,
         repKind: repKindOf.get(repLink.get(r.repUserId)) ?? 'scientific',
+        teamCompany: teamCompanyOf(t, r.repUserId, repKindOf.get(repLink.get(r.repUserId)) === PHARMACY_KIND),
         net: +r.net.toFixed(2),
         personalNet: +r.personalNet.toFixed(2),
         // رقم المندوب نفسه؛ net = مبيع الشركة في المحافظة على ايتماته. المسوق يبقى على قواعده.

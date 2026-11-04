@@ -564,7 +564,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
-    const key = `t4|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
+    const key = `t5|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
     const hit = cacheable ? cacheGet(key) : undefined;
     if (hit) setTeams(hit.v);
     if (hit && Date.now() - hit.t < FRESH_MS) return () => { dead = true; };
@@ -580,7 +580,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         if (dead) return;
         const rows: TeamLite[] = (j.teams ?? []).map((t: any) => ({
           p: t.provinceName, leader: t.leaderName ?? null, lr: t.leaderRepId ?? null,
-          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', co: (x.companies ?? []).join('، '), all: x.net ?? 0, liq: x.personalNet ?? 0 })),
+          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', co: x.teamCompany ?? '', all: x.net ?? 0, liq: x.personalNet ?? 0 })),
         }));
         if (cacheable) cacheSet(key, rows);
         setTeams(rows);
@@ -978,7 +978,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   };
 
   const renderNames = () => {
-    const colSpan = hasCond ? 5 : 4;
+    // عمود الشركة يمثل تيم المندوب العلمي؛ المسوق بلا شركة رئيسية
+    const showCompany = !marketers;
+    const colSpan = 3 + (hasCond ? 1 : 0) + (showCompany ? 1 : 0);
     const th: React.CSSProperties = { ...tableTh, padding: '5px 8px', fontSize: 11 };
     const td: React.CSSProperties = { ...tableTd, padding: '2px 8px', fontSize: 11, borderBottom: 'none' };
     // الأرقام بمحاذاة خاناتها: الآحاد فوق الآحاد على طول العمود
@@ -1002,8 +1004,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
               <thead>
                 <tr>
                   <th style={th}>التيم ليدر</th>
-                  <th style={{ ...th, width: 1 }}>{marketers ? 'المسوقون' : 'المندوبون'}</th>
-                  <th style={th}>الشركة</th>
+                  <th style={showCompany ? { ...th, width: 1 } : th}>{marketers ? 'المسوقون' : 'المندوبون'}</th>
+                  {showCompany && <th style={th}>الشركة</th>}
                   <th style={{ ...th, width: '16%' }}>المبيع ({currencyLabel})</th>
                   {hasCond && <th style={{ ...th, width: '16%' }}>اللكوديشن ({currencyLabel})</th>}
                 </tr>
@@ -1023,7 +1025,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                             ? <>{nameBtn(n.leader.id, n.leader.name, c.name, { leader: true })}<span style={{ fontSize: 10.5, color: '#64748b', marginInlineStart: 6 }}>{c.name}</span></>
                             : <span style={{ fontWeight: 800, color: '#334155' }}>{c.name}</span>}
                         </td>
-                        <td colSpan={2} style={lead}>
+                        <td colSpan={showCompany ? 2 : 1} style={lead}>
                           {!n?.reps.length && <span style={{ fontSize: 10.5, color: '#94a3b8' }}>لا يوجد {repWord}</span>}
                         </td>
                         <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.total) ?? '#111827' }}>{fmtVal(c.total)}</td>
@@ -1039,7 +1041,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                         <tr key={r.key}>
                           <td style={td} />
                           <td style={td}>{nameBtn(r.id, r.name, c.name, { active: r.active })}</td>
-                          <td style={{ ...td, whiteSpace: 'normal', fontSize: 10.5, color: '#64748b' }}>{r.company || dash}</td>
+                          {showCompany && <td style={{ ...td, whiteSpace: 'normal', fontSize: 10.5, color: '#64748b' }}>{r.company || dash}</td>}
                           <td style={{ ...num, color: valColor(r.sales) ?? '#475569' }}>{r.sales != null ? fmtVal(r.sales) : dash}</td>
                           {hasCond && <td style={{ ...num, color: valColor(r.cond) ?? '#475569' }}>{r.cond ? fmtVal(r.cond) : dash}</td>}
                         </tr>
@@ -1071,7 +1073,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={3} style={foot}>المجموع</td>
+                  <td colSpan={showCompany ? 3 : 2} style={foot}>المجموع</td>
                   <td style={{ ...num, ...foot }}>{fmtVal(totals.value)}</td>
                   {hasCond && <td style={{ ...num, ...foot }}>{totals.value > 0 && pctTag(pctOf(totals.cond, totals.value))}{fmtVal(totals.cond)}</td>}
                 </tr>
