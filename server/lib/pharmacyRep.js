@@ -40,8 +40,13 @@ export function repSideOf(assignedNames = [], areaSideNames = []) {
   return best ?? assigned[0] ?? null;
 }
 
-const BAGHDAD_PROVINCE = 'بغداد';
+export const BAGHDAD_PROVINCE = 'بغداد';
 const isBaghdadProvince = (name) => String(name ?? '').trim() === BAGHDAD_PROVINCE;
+
+/** مدير مسوقي المحافظات: مسنَد إلى محافظات وليس إلى بغداد (غيره يدير مسوقي بغداد). */
+export function managesProvinceMarketers(provinceNames = []) {
+  return provinceNames.length > 0 && !provinceNames.some(isBaghdadProvince);
+}
 
 /**
  * محافظات انتماء المسوق: منطقة واحدة من محافظة لا تجعله من مسوقيها — يتبع أكثرية مناطقه.

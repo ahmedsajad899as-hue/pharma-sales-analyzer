@@ -13,7 +13,7 @@ import bcrypt from 'bcryptjs';
 import prisma from './lib/prisma.js';
 import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
 import { hasNonProvinceSubordinates } from './lib/provinceScope.js';
-import { autoEnrollAllReps } from './modules/province-teams/province-teams.service.js';
+import { autoEnrollAllReps, detachMarketersFromTeams } from './modules/province-teams/province-teams.service.js';
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillProductManagerFileShares } from './lib/backfillProductManagerFileShares.js';
 import { backfillConditionFileShares } from './lib/officeFileShares.js';
@@ -5009,8 +5009,12 @@ if (process.env.VERCEL) {
     renameConditionFiles()
       .then(n => { if (n) console.log(`✓ صُحّح اسم ${n} ملف لكوديشن («اللكوديشن»)`); })
       .catch(e => console.error('[renameConditionFiles]', e.message));
-    // مندوبون علميون لهم محافظات سلفاً ← تسجيلهم في فرق محافظاتهم (idempotent، إضافة فقط)
-    autoEnrollAllReps()
+    // المسوقون خارج فرق العلميين أولاً: مقاعدهم تُحرَّر قبل تسجيل العلميين (idempotent)
+    detachMarketersFromTeams()
+      .then(r => { if (r.assignments || r.leaders) console.log(`✓ أُخرج المسوقون من فرق المحافظات: ${r.assignments} تعيين، ${r.leaders} قائد، ${r.links} رابط`); })
+      .catch(e => console.error('[detachMarketersFromTeams]', e.message))
+      // مندوبون علميون لهم محافظات سلفاً ← تسجيلهم في فرق محافظاتهم (idempotent، إضافة فقط)
+      .then(() => autoEnrollAllReps())
       .then(n => { if (n) console.log(`✓ سُجّل ${n} تعيين مندوب في فرق المحافظات (backfill)`); })
       .catch(e => console.error('[autoEnrollAllReps]', e.message));
     // ملفات Stock القديمة لموظفي المكتب: تعميم على الزملاء الذين لم تكن أهدافاً بعد

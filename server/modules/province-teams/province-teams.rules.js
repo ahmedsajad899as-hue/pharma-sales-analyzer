@@ -99,6 +99,21 @@ export function removedProvinceIds(before, after) {
 }
 
 /**
+ * روابط التبعية التي أنشأها فريق المحافظة بين مسوق وعلمي، وتُحذف مع خروج المسوق منه.
+ * مسوق تحت قائد مسوق يبقى: تلك تبعية فريق المسوقين نفسه.
+ * @param {{repUserId:number, repIsMarketer:boolean, leaderUserId:number|null, leaderIsMarketer:boolean}[]} rows
+ * @returns {{userId:number, managerId:number}[]}
+ */
+export function marketerTeamLinksToDrop(rows) {
+  const links = new Map();
+  for (const r of rows) {
+    if (r.leaderUserId == null || r.repIsMarketer === r.leaderIsMarketer) continue;
+    links.set(`${r.repUserId}|${r.leaderUserId}`, { userId: r.repUserId, managerId: r.leaderUserId });
+  }
+  return [...links.values()];
+}
+
+/**
  * هل المندوب من فريق مدير الشركة في عرض المحافظات؟ مندوب فريق المحافظة يحسمه مقعده فقط،
  * فلا تكفي شركة ثانوية مسندة للمدير. وغيره بتبعيته للمدير أو بشركته الرئيسية.
  * @param {{assignments:Array, isSubordinate:boolean, primaryCompanyId:number|null}} rep

@@ -11,8 +11,8 @@ import { PHARMACY_KIND, repSideOf } from '../../lib/pharmacyRep.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 import { shareOfficeFilesWithNewUser } from '../../lib/officeFileShares.js';
-import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
-import { loadSeatManagers } from '../../lib/provinceSeats.js';
+import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies, PROVINCE_MARKETER_WHERE } from '../../lib/provinceScope.js';
+import { loadSeatManagers, loadMarketerManagers } from '../../lib/provinceSeats.js';
 import { newUserPermissions } from '../../lib/newUserFeatures.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
 import { assignmentFillsSeat, removedProvinceIds } from '../province-teams/province-teams.rules.js';
@@ -124,14 +124,28 @@ export async function listProvinceStructure(req, res) {
       leaderUserId: t.leaderUserId, reps: [...reps.values()],
     };
   });
-  const provinces = await prisma.province.findMany({
-    select: { id: true, name: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-  });
+  const [provinces, marketerManagers, provinceMarketers] = await Promise.all([
+    prisma.province.findMany({
+      select: { id: true, name: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    }),
+    loadMarketerManagers(),
+    prisma.user.findMany({
+      where: { ...PROVINCE_MARKETER_WHERE, officeId: { not: null } },
+      select: { id: true, officeId: true, provinceAssignments: { select: { provinceId: true } } },
+    }),
+  ]);
   res.json({
     success: true, data, provinces,
     seats: seats.map(s => ({
       managerUserId: s.userId, managerName: s.name, officeId: s.officeId,
       companyId: s.companyId, companyName: s.companyName, itemCount: s.items.length,
+    })),
+    marketerManagers: marketerManagers.map(m => ({
+      managerUserId: m.userId, managerName: m.name, officeId: m.officeId,
+      companyCount: m.companyIds.length, itemCount: m.itemIds.length, handlesProvinces: m.handlesProvinces,
+    })),
+    provinceMarketers: provinceMarketers.map(m => ({
+      userId: m.id, officeId: m.officeId, provinceIds: m.provinceAssignments.map(p => p.provinceId),
     })),
   });
 }
@@ -292,7 +306,7 @@ export async function createUser(req, res) {
 // «مندوب فارمسي لاين» / «قائد فريق فارمسي» في نموذج الحساب = scientific_rep /
 // team_leader + repKind على سجل المندوب المرتبط (lib/pharmacyRep.js) — لا دور جديد.
 const REP_KIND_ROLES = new Set(['scientific_rep', 'team_leader', 'company_manager']); // company_manager = «مدير المسوقين»
-async function applyRepKind(userId, role, repKind) {
+export async function applyRepKind(userId, role, repKind) {
   if (repKind === undefined || !REP_KIND_ROLES.has(role)) return;
   const kind = repKind === PHARMACY_KIND ? PHARMACY_KIND : 'scientific';
   // لا ننشئ سجل مندوب لمجرد «علمي» — الافتراضي علمي أصلاً.

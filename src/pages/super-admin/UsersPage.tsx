@@ -9,6 +9,8 @@ import NewUserAssignments from './NewUserAssignments';
 import UserItemTiersTab from './UserItemTiersTab';
 import ProvinceSeatsPanel from './ProvinceSeatsPanel';
 import type { ProvSeat, ProvTeamRep } from './ProvinceSeatsPanel';
+import ProvinceMarketersPanel from './ProvinceMarketersPanel';
+import type { ProvMarketer, ProvMarketerManager } from './ProvinceMarketersPanel';
 import { TabPill, SectionHead, Note, PickerBar, GroupCard, ChipGrid, Chip, ScrollList, Empty, SaveBar, setMany, softBtn, iconBtn, ACCENT } from './AssignUI';
 
 const ROLES = [
@@ -129,7 +131,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [provList, setProvList] = useState<{ id: number; name: string }[]>([]);
   const [provSeats, setProvSeats] = useState<ProvSeat[]>([]);
   const [provSaving, setProvSaving] = useState(false);
-  const provLeaderIds = new Set(provTeams.map(t => t.leaderUserId).filter((x): x is number => x != null));
+  // مسوقو المحافظات ومدراؤهم — قسم مستقل عن فرق العلميين أعلاه.
+  const [provMarketers, setProvMarketers] = useState<ProvMarketer[]>([]);
+  const [provMarketerManagers, setProvMarketerManagers] = useState<ProvMarketerManager[]>([]);
+  const [openMarketerProvs, setOpenMarketerProvs] = useState<Set<number>>(new Set());
+  const provLeaderIds =new Set(provTeams.map(t => t.leaderUserId).filter((x): x is number => x != null));
   const provUserIds = new Set<number>([...provLeaderIds, ...provTeams.flatMap(t => t.reps.map(r => r.userId))]);
   const [refsLoading, setRefsLoading] = useState(false);
   const [loading,   setLoading]   = useState(true);
@@ -226,7 +232,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       fetch('/api/sa/companies', { headers: H() }).then(r => r.json()),
       fetch('/api/sa/users/province-structure', { headers: H() }).then(r => r.json()).catch(() => ({ success: false })),
     ]).then(([u, o, c, pt]) => {
-      if (pt?.success) { setProvTeams(pt.data); setProvList(pt.provinces ?? []); setProvSeats(pt.seats ?? []); }
+      if (pt?.success) { setProvTeams(pt.data); setProvList(pt.provinces ?? []); setProvSeats(pt.seats ?? []); setProvMarketers(pt.provinceMarketers ?? []); setProvMarketerManagers(pt.marketerManagers ?? []); }
       if (u.success) setUsers(u.data);
       if (o.success) setOffices(o.data);
       if (c.success) setCompanies(c.data);
@@ -248,7 +254,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       fetch('/api/sa/users/province-structure', { headers: H() }).then(r => r.json()),
     ]).then(([u, pt]) => {
       if (u.success) setUsers(u.data);
-      if (pt.success) { setProvTeams(pt.data); setProvSeats(pt.seats ?? []); }
+      if (pt.success) { setProvTeams(pt.data); setProvSeats(pt.seats ?? []); setProvMarketers(pt.provinceMarketers ?? []); setProvMarketerManagers(pt.marketerManagers ?? []); }
     }).catch(() => {});
   };
 
@@ -612,7 +618,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         method: 'PUT', headers: H(), body: JSON.stringify({ provinceIds: [form.provinceId] }),
       });
       if (!pr.ok) warn = 'تعذّر ربط المحافظة بالمستخدم';
-      if (realRole === 'team_leader') {
+      // قائد فريق المسوقين لا يصير قائد فريق العلميين في المحافظة.
+      if (realRole === 'team_leader' && !PHARMACY_FORM_ROLES[form.role]) {
         if (!form.officeId) warn = 'اختر مكتباً لتعيينه قائد المحافظة';
         else {
           const lr = await fetch('/api/sa/users/province-structure/leader', {
@@ -2939,7 +2946,9 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   // «مسوقين بغداد» قسم واحد يضم كل المسوقين (بمكتب أو بلا مكتب) — وإلا انقسم الفريق عن قائده.
   // يُعرض داخل إطار المكتب حين يكون للمسوقين مكتب واحد (أو لا مكتب)، وقسماً عاماً أعلى الصفحة
   // فقط إن توزّعوا على أكثر من مكتب.
-  const allMarketers = filtered.filter(u => isMarketer(u) && !ADMIN_ROLES.includes(u.role));
+  // مسوقو المحافظات ومديرهم لهم قسمهم «مسوقو المحافظات» داخل المكتب.
+  const provMarketerIds = new Set([...provMarketers.map(m => m.userId), ...provMarketerManagers.filter(m => m.handlesProvinces).map(m => m.managerUserId)]);
+  const allMarketers = filtered.filter(u => isMarketer(u) && !ADMIN_ROLES.includes(u.role) && !provMarketerIds.has(u.id));
   const marketerOfficeIds = [...new Set(allMarketers.map(u => u.officeId).filter((v): v is number => !!v))];
   const marketersTopLevel = marketerOfficeIds.length > 1;
   // عند البحث تُفتح كل القوائم المطوية (مندوبو الشركات، فرق المسوقين، فرق المحافظات) كي يظهر
@@ -3163,7 +3172,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                     return p.name.toLowerCase().includes(q) || matches(t?.leaderUserId) || !!t?.reps.some(r => matches(r.userId));
                   });
                   if (!rows.length) return null;
-                  const leaderChoices = users.filter(x => x.officeId === og.office.id && x.isActive && ['team_leader', 'supervisor', 'scientific_rep'].includes(x.role));
+                  const leaderChoices = users.filter(x => x.officeId === og.office.id && x.isActive && !isMarketer(x) && ['team_leader', 'supervisor', 'scientific_rep'].includes(x.role));
                   const withTeam = provTeams.filter(t => t.officeId === og.office.id).length;
                   const officeSeats = provSeats.filter(s => s.officeId === og.office.id);
                   return (
@@ -3214,6 +3223,61 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                               token={token} />
                           );
                         })}
+                      </div>}
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const managers = provMarketerManagers.filter(m => m.officeId === og.office.id);
+                  const officeMarketers = provMarketers.filter(m => m.officeId === og.office.id);
+                  if (!managers.length && !officeMarketers.length) return null;
+                  const q = search.trim().toLowerCase();
+                  const userById = new Map(users.map(x => [x.id, x]));
+                  const shown = new Set(filtered.map(fu => fu.id));
+                  const marketersOf = (pid: number) => officeMarketers
+                    .filter(m => m.provinceIds.includes(pid))
+                    .map(m => userById.get(m.userId))
+                    .filter((u): u is UserRow => !!u);
+                  const rows = provList.filter(p => p.name !== 'بغداد' && (!q || p.name.toLowerCase().includes(q) || marketersOf(p.id).some(u => shown.has(u.id))));
+                  if (!rows.length) return null;
+                  const headManagers = managers.some(m => m.handlesProvinces) ? managers.filter(m => m.handlesProvinces) : managers;
+                  return (
+                    <div style={{ border: '1.5px solid #6ee7b7', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                      <div onClick={() => toggleSection(`provmk-${og.office.id}`)} style={{ background: '#ecfdf5', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #d1fae5', cursor: 'pointer' }}>
+                        <span style={{ fontSize: 11, color: '#047857' }}>{isSectionOpen(`provmk-${og.office.id}`) ? '▼' : '◀'}</span>
+                        <span style={{ fontSize: 16 }}>🏪</span>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: '#047857' }}>مسوقو المحافظات (يتبعون مدير المسوقين — مستقلون عن العلميين)</span>
+                        <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{officeMarketers.length} مسوق</span>
+                      </div>
+                      {isSectionOpen(`provmk-${og.office.id}`) && <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {headManagers.map(m => { const u = userById.get(m.managerUserId); return u ? <UserCard key={`${u.id}-pmk`} u={u} /> : null; })}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {rows.map(p => {
+                            const list = marketersOf(p.id);
+                            const isOpen = openMarketerProvs.has(og.office.id * 1000 + p.id) || searching;
+                            return (
+                              <button key={p.id} type="button"
+                                onClick={() => setOpenMarketerProvs(prev => { const k = og.office.id * 1000 + p.id; const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
+                                style={{ textAlign: 'right', cursor: 'pointer', minWidth: 170, maxWidth: 240, padding: '9px 14px', borderRadius: 10, fontFamily: 'inherit',
+                                  border: isOpen ? '1.5px solid #059669' : list.length ? '1.5px solid #a7f3d0' : '1.5px dashed #cbd5e1',
+                                  background: isOpen ? '#ecfdf5' : list.length ? '#f7fef9' : '#f8fafc' }}>
+                                <div style={{ fontWeight: 800, fontSize: 14, color: list.length ? '#0f172a' : '#64748b' }}>{p.name}</div>
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {list.length ? list.map(u => u.displayName || u.username).join('، ') : 'لا يوجد مسوق'}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {rows.filter(p => searching || openMarketerProvs.has(og.office.id * 1000 + p.id)).map(p => (
+                          <ProvinceMarketersPanel<UserRow> key={p.id}
+                            officeId={og.office.id} province={p}
+                            marketers={marketersOf(p.id)} managers={managers}
+                            userKey={u => u.id}
+                            renderUser={u => <UserCard u={u} indent />}
+                            onCreated={reloadProvinceStructure}
+                            token={token} />
+                        ))}
                       </div>}
                     </div>
                   );

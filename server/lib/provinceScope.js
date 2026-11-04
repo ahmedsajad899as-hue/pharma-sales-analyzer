@@ -8,6 +8,17 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from './prisma.js';
+import { PHARMACY_KIND, BAGHDAD_PROVINCE } from './pharmacyRep.js';
+
+/**
+ * مسوق محافظة: فارمسي مُسند إلى محافظة غير بغداد. هذا الإسناد هو انتماؤه كله، وفرق
+ * المحافظات (ProvinceTeam / ProvinceRepAssignment) للعلميين فقط ولا تربطه بها شيء.
+ */
+export const PROVINCE_MARKETER_WHERE = {
+  role: { in: ['scientific_rep', 'team_leader'] },
+  linkedRep: { is: { repKind: PHARMACY_KIND } },
+  provinceAssignments: { some: { province: { name: { not: BAGHDAD_PROVINCE } } } },
+};
 
 /** معرّفات من يقود فريق محافظة فعّالاً (اختيارياً ضمن مكتب). */
 export async function provinceLeaderIds(officeId = null) {
@@ -19,16 +30,17 @@ export async function provinceLeaderIds(officeId = null) {
 }
 
 /**
- * كل من ينتمي لفريق محافظة فعّال (تيم ليدر أو مندوب) — تُعلِّم به الواجهة
+ * كل من ينتمي لفريق محافظة فعّال (تيم ليدر أو مندوب) ومسوقو المحافظات — تُعلِّم به الواجهة
  * `isProvinceMember` فتفصل مندوبي المحافظات عن مندوبي بغداد في قوائم الاختيار.
  * @returns {Promise<Set<number>>} معرّفات users
  */
 export async function provinceMemberUserIds() {
-  const [teams, assign] = await Promise.all([
+  const [teams, assign, marketers] = await Promise.all([
     prisma.provinceTeam.findMany({ where: { isActive: true, leaderUserId: { not: null } }, select: { leaderUserId: true } }),
     prisma.provinceRepAssignment.findMany({ where: { isActive: true, team: { isActive: true } }, select: { repUserId: true } }),
+    prisma.user.findMany({ where: PROVINCE_MARKETER_WHERE, select: { id: true } }),
   ]);
-  return new Set([...teams.map(t => t.leaderUserId), ...assign.map(r => r.repUserId)]);
+  return new Set([...teams.map(t => t.leaderUserId), ...assign.map(r => r.repUserId), ...marketers.map(m => m.id)]);
 }
 
 /**

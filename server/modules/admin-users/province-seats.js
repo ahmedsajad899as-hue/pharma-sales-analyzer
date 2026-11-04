@@ -11,10 +11,11 @@ import { encryptPassword } from '../../lib/passwordCrypto.js';
 import { syncUserAreaDerivedLinks } from '../../lib/areaScope.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { shareOfficeFilesWithNewUser } from '../../lib/officeFileShares.js';
-import { loadSeatManagers, leaderScopeFromManagers } from '../../lib/provinceSeats.js';
+import { loadSeatManagers, loadMarketerManagers, leaderScopeFromManagers } from '../../lib/provinceSeats.js';
+import { PHARMACY_KIND, BAGHDAD_PROVINCE } from '../../lib/pharmacyRep.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
 import { assignmentFillsSeat, planSeatAssignments } from '../province-teams/province-teams.rules.js';
-import { buildDefaultPermissions, findUsernameConflict } from './admin-users.controller.js';
+import { applyRepKind, buildDefaultPermissions, findUsernameConflict } from './admin-users.controller.js';
 
 const SEAT_PASSWORD = '123456789';
 
@@ -132,6 +133,52 @@ async function fillRepSeat({ name, seat, officeId, provinceId, asOffice }) {
     ? [`تُركت له ايتمات أقل: بعضها معيَّن لـ${[...new Set(plan.dropped.map(d => d.repName))].join('، ')} في هذه المحافظة`]
     : [];
   return { userId: user.id, username: user.username, warnings };
+}
+
+/** مسوق محافظة جديد: شركات مدير المسوقين وايتماته، ويتبعه هو. لا صلة له بفريق العلميين. */
+async function createMarketerAccount({ name, manager, officeId, provinceId }) {
+  const user = await createAccount(name, 'scientific_rep', officeId);
+  await orRemoveAccount(user.id, async () => {
+    // isPrimary للكل: المسوق بلا شركة رئيسية، شركاته متساوية (راجع applyRepKind).
+    await setUserScope(user.id, manager.companyIds.map(companyId => ({ companyId, isPrimary: true })), manager.itemIds);
+    await applyRepKind(user.id, 'scientific_rep', PHARMACY_KIND);
+    await prisma.userManagerAssignment.createMany({ data: [{ userId: user.id, managerId: manager.userId }], skipDuplicates: true });
+    await finishAccount(user.id, provinceId);
+  });
+  return { userId: user.id, username: user.username, warnings: [] };
+}
+
+// body: { officeId, provinceId, managerUserId, names: [{ key, name }] }
+export async function createProvinceMarketers(req, res, next) {
+  try {
+    const officeId = parseInt(req.body?.officeId);
+    const provinceId = parseInt(req.body?.provinceId);
+    if (!Number.isInteger(officeId) || !Number.isInteger(provinceId)) {
+      return res.status(400).json({ error: 'المكتب والمحافظة مطلوبان' });
+    }
+    const province = await prisma.province.findUnique({ where: { id: provinceId }, select: { name: true } });
+    if (!province) return res.status(400).json({ error: 'المحافظة غير موجودة' });
+    if (province.name === BAGHDAD_PROVINCE) return res.status(400).json({ error: 'مسوقو بغداد يُدارون من قسم «مسوقين بغداد»' });
+
+    const managers = await loadMarketerManagers([officeId]);
+    const manager = managers.find(m => m.userId === Number(req.body?.managerUserId));
+    if (!manager) return res.status(400).json({ error: 'مدير المسوقين غير موجود في هذا المكتب' });
+
+    const results = [];
+    for (const row of Array.isArray(req.body?.names) ? req.body.names : []) {
+      const name = cleanName(row?.name);
+      if (!name) continue;
+      try {
+        results.push({ seatKey: row.key, ok: true, ...(await createMarketerAccount({ name, manager, officeId, provinceId })) });
+      } catch (err) {
+        if (!err.isSeatError) console.error('[province-marketers]', name, err);
+        results.push({ seatKey: row.key, ok: false, error: err.isSeatError ? err.message : 'تعذّر إنشاء الحساب — حاول مرة أخرى' });
+      }
+    }
+    res.json({ success: true, results, password: SEAT_PASSWORD });
+  } catch (e) {
+    next(e);
+  }
 }
 
 // body: { officeId, provinceId, leaderName?, reps?: [{ managerUserId, name }] }

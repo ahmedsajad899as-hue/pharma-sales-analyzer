@@ -3,16 +3,33 @@ import assert from 'node:assert/strict';
 import {
   resolveAssignmentItemIds, findItemConflicts, buildItemAttribution,
   classifyChannel, personalSaleValue, toUSD,
-  assignmentFillsSeat, planSeatAssignments, repBelongsToSeat, removedProvinceIds,
+  assignmentFillsSeat, planSeatAssignments, repBelongsToSeat, removedProvinceIds, marketerTeamLinksToDrop,
 } from '../server/modules/province-teams/province-teams.rules.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../server/modules/province-teams/personal-sale-trigger.js';
-import { marketerHomeProvinces, pickMarketerLeaders } from '../server/lib/pharmacyRep.js';
+import { marketerHomeProvinces, pickMarketerLeaders, managesProvinceMarketers } from '../server/lib/pharmacyRep.js';
 
 let passed = 0;
 const t = (name, fn) => { fn(); passed++; console.log(`✓ ${name}`); };
 
 const DEVA = 1, OSEL = 2;
 const companyItems = new Map([[DEVA, [10, 11, 12]], [OSEL, [20, 21]]]);
+
+t('مدير مسوقي المحافظات: محافظات بلا بغداد', () => {
+  assert.equal(managesProvinceMarketers(['الأنبار', 'واسط']), true);
+  assert.equal(managesProvinceMarketers(['بغداد']), false);
+  assert.equal(managesProvinceMarketers(['بغداد', 'الأنبار']), false);
+  assert.equal(managesProvinceMarketers([]), false);
+});
+
+t('فصل المسوق عن فريق العلميين: يُحذف الرابط المختلط فقط', () => {
+  const row = (repUserId, repIsMarketer, leaderUserId, leaderIsMarketer) => ({ repUserId, repIsMarketer, leaderUserId, leaderIsMarketer });
+  assert.deepEqual(marketerTeamLinksToDrop([row(1, true, 9, false)]), [{ userId: 1, managerId: 9 }]);
+  assert.deepEqual(marketerTeamLinksToDrop([row(2, false, 8, true)]), [{ userId: 2, managerId: 8 }]);
+  assert.deepEqual(marketerTeamLinksToDrop([row(3, true, 8, true)]), []);
+  assert.deepEqual(marketerTeamLinksToDrop([row(4, false, 9, false)]), []);
+  assert.deepEqual(marketerTeamLinksToDrop([row(5, true, null, false)]), []);
+  assert.equal(marketerTeamLinksToDrop([row(1, true, 9, false), row(1, true, 9, false)]).length, 1);
+});
 
 t('تغيير محافظة الحساب: الخروج من القديمة فقط', () => {
   const DIYALA = 5, ANBAR = 7, BASRA = 9;

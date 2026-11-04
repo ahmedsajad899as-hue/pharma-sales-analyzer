@@ -11,10 +11,12 @@ import {
   teamScopeWhere, canSeeAssignment, canReviewTeam, assertStructureEditor,
   REP_CANDIDATE_ROLES, LEADER_CANDIDATE_ROLES,
 } from './province-teams.access.js';
-import { findItemConflicts, resolveAssignmentItemIds } from './province-teams.rules.js';
+import { findItemConflicts, resolveAssignmentItemIds, marketerTeamLinksToDrop } from './province-teams.rules.js';
 import { syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
+import { PHARMACY_KIND, isPharmacyRep } from '../../lib/pharmacyRep.js';
 
 const userName = (u) => (u ? (u.displayName || u.username) : null);
+const IS_MARKETER = { linkedRep: { is: { repKind: PHARMACY_KIND } } };
 
 const TEAM_INCLUDE = {
   province: { select: { id: true, name: true, sortOrder: true } },
@@ -100,6 +102,7 @@ export async function getOptions(viewer) {
       where: {
         officeId: viewer.officeId, isActive: true,
         role: { in: [...new Set([...REP_CANDIDATE_ROLES, ...LEADER_CANDIDATE_ROLES])] },
+        NOT: IS_MARKETER,
       },
       select: {
         id: true, displayName: true, username: true, role: true,
@@ -135,9 +138,10 @@ export async function getCompanyItems(viewer, companyId) {
 // ─── الفرق ────────────────────────────────────────────────────────────────────
 
 async function assertOfficeUser(userId, officeId, roles, label) {
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true, role: true, isActive: true } });
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true, role: true, isActive: true, linkedRep: { select: { repKind: true } } } });
   if (!u || u.officeId !== officeId) throw new AppError(`${label} ليس من حسابات مكتبك`, 400, 'BAD_USER');
   if (roles && !roles.includes(u.role)) throw new AppError(`دور الحساب لا يصلح ${label}`, 400, 'BAD_ROLE');
+  if (isPharmacyRep(u.linkedRep)) throw new AppError(`لا يصلح المسوق ${label}: فرق المحافظات للعلميين فقط`, 400, 'MARKETER_NOT_ALLOWED');
   return u;
 }
 
@@ -171,6 +175,7 @@ export async function autoEnrollRep(userId) {
     where: { id: userId },
     select: {
       id: true, role: true, officeId: true, isActive: true,
+      linkedRep: { select: { repKind: true } },
       provinceAssignments: { select: { provinceId: true, province: { select: { name: true } } } },
       companyAssignments: { select: { companyId: true, company: { select: { name: true, officeId: true } } } },
       itemAssignments: { select: { itemId: true, item: { select: { scientificCompanyId: true } } } },
@@ -178,6 +183,8 @@ export async function autoEnrollRep(userId) {
   });
   const out = { enrolled: 0, skipped: [] };
   if (!u || u.role !== 'scientific_rep' || !u.officeId || !u.isActive) return { ...out, reason: 'not-eligible' };
+  // المسوق: إسناد المحافظة يكفيه، والفرق للعلميين (provinceScope.js).
+  if (isPharmacyRep(u.linkedRep)) return { ...out, reason: 'marketer' };
   if (!u.provinceAssignments.length) return { ...out, reason: 'no-province' };
 
   const companies = u.companyAssignments.filter(c => c.company.officeId === u.officeId);
@@ -237,6 +244,34 @@ export async function autoEnrollAllReps() {
     try { n += (await autoEnrollRep(r.id)).enrolled; } catch (e) { console.error('[autoEnrollRep]', r.id, e.message); }
   }
   return n;
+}
+
+/**
+ * إخراج المسوقين من فرق العلميين (idempotent، عند الإقلاع). autoEnrollRep كان يسجّلهم
+ * بكل شركاتهم، فيشغلون مقاعد الشركات ويأخذون نسبة ايتماتها من العلميين في التغطية.
+ * @returns {Promise<{assignments:number, leaders:number, links:number}>}
+ */
+export async function detachMarketersFromTeams() {
+  const rows = await prisma.provinceRepAssignment.findMany({
+    where: { isActive: true, OR: [{ rep: IS_MARKETER }, { team: { leader: IS_MARKETER } }] },
+    select: {
+      id: true, repUserId: true,
+      rep: { select: { linkedRep: { select: { repKind: true } } } },
+      team: { select: { leaderUserId: true, leader: { select: { linkedRep: { select: { repKind: true } } } } } },
+    },
+  });
+  const marketerRows = rows.filter(r => isPharmacyRep(r.rep?.linkedRep));
+  const links = marketerTeamLinksToDrop(rows.map(r => ({
+    repUserId: r.repUserId, repIsMarketer: isPharmacyRep(r.rep?.linkedRep),
+    leaderUserId: r.team.leaderUserId, leaderIsMarketer: isPharmacyRep(r.team.leader?.linkedRep),
+  })));
+  const [assignments, leaders] = await prisma.$transaction([
+    prisma.provinceRepAssignment.updateMany({ where: { id: { in: marketerRows.map(r => r.id) } }, data: { isActive: false } }),
+    prisma.provinceTeam.updateMany({ where: { leader: IS_MARKETER }, data: { leaderUserId: null } }),
+    ...(links.length ? [prisma.userManagerAssignment.deleteMany({ where: { OR: links } })] : []),
+  ]);
+  if (links.length) console.log('[detachMarketersFromTeams] removed manager links', JSON.stringify(links));
+  return { assignments: assignments.count, leaders: leaders.count, links: links.length };
 }
 
 /**

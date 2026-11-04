@@ -6,7 +6,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from './prisma.js';
-import { PHARMACY_KIND } from './pharmacyRep.js';
+import { PHARMACY_KIND, managesProvinceMarketers } from './pharmacyRep.js';
 import { resolveEffectiveItemIds } from './itemScope.js';
 import { repBelongsToSeat } from '../modules/province-teams/province-teams.rules.js';
 
@@ -49,6 +49,35 @@ export async function loadSeatManagers(officeIds = null, userIds = null) {
     });
   }
   return seats.sort((a, b) => a.companyName.localeCompare(b.companyName));
+}
+
+/**
+ * مدراء المسوقين النشطون: منهم يأخذ مسوق المحافظة الجديد شركاته وايتماته.
+ * handlesProvinces يميّز مدير مسوقي المحافظات عن مدير مسوقي بغداد.
+ * @param {number[]} officeIds
+ */
+export async function loadMarketerManagers(officeIds = null) {
+  const rows = await prisma.user.findMany({
+    where: {
+      role: 'company_manager', isActive: true, officeId: officeIds ? { in: officeIds } : { not: null },
+      linkedRep: { is: { repKind: PHARMACY_KIND } },
+    },
+    select: {
+      id: true, displayName: true, username: true, officeId: true,
+      companyAssignments: { select: { companyId: true } },
+      itemAssignments: { select: { itemId: true } },
+      provinceAssignments: { select: { province: { select: { name: true } } } },
+    },
+    orderBy: { id: 'asc' },
+  });
+  return rows.map(m => ({
+    userId: m.id,
+    name: m.displayName || m.username,
+    officeId: m.officeId,
+    companyIds: m.companyAssignments.map(c => c.companyId),
+    itemIds: m.itemAssignments.map(i => i.itemId),
+    handlesProvinces: managesProvinceMarketers(m.provinceAssignments.map(p => p.province.name)),
+  }));
 }
 
 /** مقعد المُشاهِد إن كان مدير شركة؛ null لغيره (ومنهم مدير المسوقين): لا تقييد عليهم هنا. */
