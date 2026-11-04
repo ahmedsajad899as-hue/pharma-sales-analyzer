@@ -21,9 +21,10 @@
 //   • مبيع المندوب العلمي = اللكوديشن = المؤكد في «مبيعات المندوبين» + ميركاتو باسمه بلا تكرار،
 //     في العمود والخريطة الجانبية ونافذة الفرق والتقرير (server/lib/repLiquidation.js).
 //     عرض المسوقين: ملفات الكوديشن + المؤكد. الأسعار بالدينار من الكتالوج.
-//   • عرض «أسماء المندوبين»: جدول لكل محافظة (تيم ليدر + مندوبون + المبيع مقابل اللكوديشن)
-//     يدمج province-map مع /api/province-teams/directory. الضغط على اسم يفتح تقريره في تلك
-//     المحافظة (onOpenRep).
+//   • عرض «أسماء المندوبين»: لكل محافظة سطر للتيم ليدر بمبيعها ولكوديشنها الكليين، وتحته سطر لكل
+//     مندوب برقميه: مبيع ايتماته في المحافظة (net، رقم الشركة كما في نافذة الفرق) ولكوديشنه
+//     (personalNet). يدمج province-map مع /api/province-teams/directory. الضغط على اسم يفتح
+//     تقريره في تلك المحافظة (onOpenRep).
 //   • مدير المسوقين (scopedProvinces): جدول الأسماء وحده، بمحافظاته ومسوقيه فقط. مبيع المحافظة
 //     = مجموع مسوقيه من province-map، بلا شركات ولا فرق العلميين ولا لكوديشن المكتب.
 //
@@ -76,8 +77,10 @@ interface Props {
 interface CompanyCell { name: string; value: number; cond: number; reps: RepRow[] }
 interface ProvinceCell { name: string; total: number; cond: number; companies: CompanyCell[]; repCount: number; marketers: RepRow[] }
 // فرق المحافظات بصيغة مختصرة للمخبأ. p المحافظة، lr معرّف مندوب القائد، u حساب المندوب.
-type TeamLite = { p: string; leader: string | null; lr: number | null; reps: { u: number; id: number | null; name: string; active: boolean; kind: string; net: number }[] };
-interface NameRep { key: string; id: number | null; name: string; value: number; active: boolean }
+// all = مبيع ايتمات المندوب في المحافظة، liq = لكوديشنه.
+type TeamLite = { p: string; leader: string | null; lr: number | null; reps: { u: number; id: number | null; name: string; active: boolean; kind: string; all: number; liq: number }[] };
+// null = الرقم غير معروف: المندوب ظهر من province-map فقط (خارج فريق المحافظة)
+interface NameRep { key: string; id: number | null; name: string; sales: number | null; cond: number | null; active: boolean }
 interface NameRow { leader: { id: number | null; name: string } | null; reps: NameRep[] }
 // مبيع المندوب لكل محافظة — value: المؤكد من «مبيعات المندوبين» بالدينار، usd: ميركاتو بعملة التقارير.
 // company=null: ايتم بلا مدير شركة
@@ -561,7 +564,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
-    const key = `t2|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
+    const key = `t3|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
     const hit = cacheable ? cacheGet(key) : undefined;
     if (hit) setTeams(hit.v);
     if (hit && Date.now() - hit.t < FRESH_MS) return () => { dead = true; };
@@ -577,7 +580,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         if (dead) return;
         const rows: TeamLite[] = (j.teams ?? []).map((t: any) => ({
           p: t.provinceName, leader: t.leaderName ?? null, lr: t.leaderRepId ?? null,
-          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', net: x.repNet ?? 0 })),
+          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', all: x.net ?? 0, liq: x.personalNet ?? 0 })),
         }));
         if (cacheable) cacheSet(key, rows);
         setTeams(rows);
@@ -663,7 +666,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     for (const c of cells.values()) {
       const row = rowOf(norm(c.name));
       for (const r of marketers ? c.marketers : c.companies.flatMap(x => x.reps)) {
-        row.reps.push({ key: `r${r.id}`, id: r.id, name: r.name, value: r.netValue, active: true });
+        // netValue في عرض العلميين هو اللكوديشن نفسه، وعند المسوقين هو مبيعه
+        row.reps.push({ key: `r${r.id}`, id: r.id, name: r.name, sales: marketers ? r.netValue : null, cond: marketers ? null : r.netValue, active: true });
       }
     }
     // قائد فريق المحافظة (ProvinceTeam) للعلميين؛ للمسوقين قائدهم من province-map
@@ -676,14 +680,14 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       for (const r of t.reps) {
         if (repKind && (r.kind === 'pharmacy') !== marketers) continue;
         const cur = row.reps.find(x => (r.id != null && x.id === r.id) || norm(x.name) === norm(r.name));
-        if (cur) { cur.value = r.net; cur.id = cur.id ?? r.id; cur.active = r.active; }
-        else row.reps.push({ key: `u${r.u}`, id: r.id, name: r.name, value: r.net, active: r.active });
+        if (cur) { cur.sales = r.all; cur.cond = r.liq; cur.id = cur.id ?? r.id; cur.active = r.active; }
+        else row.reps.push({ key: `u${r.u}`, id: r.id, name: r.name, sales: r.all, cond: r.liq, active: r.active });
       }
     }
     for (const row of out.values()) {
       const l = row.leader;
       if (l) row.reps = row.reps.filter(x => !((l.id != null && x.id === l.id) || norm(x.name) === norm(l.name)));
-      row.reps.sort((a, b) => b.value - a.value);
+      row.reps.sort((a, b) => (b.sales ?? 0) - (a.sales ?? 0) || (b.cond ?? 0) - (a.cond ?? 0));
     }
     return out;
   }, [cells, teams, repKind, marketers, repData]);
@@ -954,7 +958,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     );
   };
 
-  // ── عرض الأسماء: سطر لكل محافظة — قائدها ومندوبوها ثم مبيعها مقابل اللكوديشن ──
+  // ── عرض الأسماء: سطر التيم ليدر بمبيع المحافظة ولكوديشنها، وتحته سطر لكل مندوب برقميه ──
   const repIdSet = new Set(reps.map(r => r.id));
   const nameBtn = (id: number | null, label: string, province: string, opts: { leader?: boolean; active?: boolean } = {}) => {
     const { leader = false, active: isActive = true } = opts;
@@ -964,8 +968,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       <button type="button" disabled={!clickable} title={clickable ? `فتح تقرير ${label}` : undefined}
         onClick={e => { e.stopPropagation(); if (clickable) onOpenRep!(id!, province); }}
         style={{
-          background: 'none', border: 'none', padding: '0 1px', cursor: clickable ? 'pointer' : 'default', fontSize: 12.5, lineHeight: 1.7,
-          color: on ? '#0f172a' : !isActive ? '#94a3b8' : leader ? '#334155' : '#475569', fontWeight: on || leader ? 700 : 500,
+          background: 'none', border: 'none', padding: '0 1px', cursor: clickable ? 'pointer' : 'default', fontSize: leader ? 13 : 11, lineHeight: 1.5,
+          color: !isActive ? '#94a3b8' : leader ? '#1f4fb4' : on ? '#0f172a' : '#475569', fontWeight: leader ? 800 : on ? 700 : 500,
           textDecoration: on ? 'underline' : 'none', textUnderlineOffset: 3, whiteSpace: 'nowrap',
         }}>
         {label}{isActive ? '' : ' (غير نشط)'}
@@ -974,27 +978,33 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   };
 
   const renderNames = () => {
-    const colSpan = hasCond ? 6 : 4;
-    const foot: React.CSSProperties = { ...tableTd, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8' };
+    const colSpan = hasCond ? 4 : 3;
+    const th: React.CSSProperties = { ...tableTh, padding: '5px 8px', fontSize: 11 };
+    const td: React.CSSProperties = { ...tableTd, padding: '2px 8px', fontSize: 11, borderBottom: 'none' };
+    // الأرقام بمحاذاة خاناتها: الآحاد فوق الآحاد على طول العمود
+    const num: React.CSSProperties = { ...td, textAlign: 'right', direction: 'ltr', fontVariantNumeric: 'tabular-nums', width: 130 };
+    const lead: React.CSSProperties = { padding: '4px 8px', fontSize: 12, borderBottom: 'none', borderTop: '1px solid #cbd5e1' };
+    const foot: React.CSSProperties = { padding: '5px 8px', fontSize: 11.5, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8', borderBottom: 'none' };
+    const valColor = (v: number | null) => (v != null && v < 0 ? '#be123c' : undefined);
+    const dash = <span style={{ color: '#cbd5e1' }}>—</span>;
+    const pctTag = (p: number) => <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginInlineEnd: 6 }}>{pctTxt(p)}</span>;
     return (
-      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>{marketers ? 'مسوقو المحافظات' : 'مندوبو المحافظات'}</span>
-          {(loadingTeams || loading) && <span style={{ fontSize: 11.5, color: '#64748b' }}>جاري التحميل…</span>}
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 900, color: '#0f172a' }}>{marketers ? 'مسوقو المحافظات' : 'مندوبو المحافظات'}</span>
+          {(loadingTeams || loading) && <span style={{ fontSize: 11, color: '#64748b' }}>جاري التحميل…</span>}
         </div>
         {nameList.length === 0 ? (
           <div style={{ color: '#94a3b8', fontSize: 13, padding: 12 }}>{loading || loadingTeams ? 'جاري تحميل بيانات المحافظات…' : 'لا توجد مبيعات ولا فرق محافظات في الفترة المختارة.'}</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: hasCond ? 820 : 620 }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 820, minWidth: hasCond ? 560 : 430 }}>
               <thead>
                 <tr>
-                  <th style={tableTh}>المحافظة</th>
-                  <th style={tableTh}>التيم ليدر</th>
-                  <th style={{ ...tableTh, width: '38%' }}>{marketers ? 'المسوقون' : 'المندوبون'}</th>
-                  <th style={{ ...tableTh, textAlign: 'left' }}>صافي المبيع ({currencyLabel})</th>
-                  {hasCond && <th style={{ ...tableTh, textAlign: 'left' }}>اللكوديشن ({currencyLabel})</th>}
-                  {hasCond && <th style={{ ...tableTh, textAlign: 'left', minWidth: 140 }}>نسبة اللكوديشن</th>}
+                  <th style={th}>التيم ليدر</th>
+                  <th style={th}>{marketers ? 'المسوقون' : 'المندوبون'}</th>
+                  <th style={{ ...th, width: 130 }}>المبيع ({currencyLabel})</th>
+                  {hasCond && <th style={{ ...th, width: 130 }}>اللكوديشن ({currencyLabel})</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1002,26 +1012,39 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                   const k = norm(c.name);
                   const n = nameRows.get(k);
                   const open = openProv === k;
-                  const p = pctOf(c.cond, c.total);
+                  const rowBg = open ? '#e8effc' : '#f4f7fd';
                   return (
                     <React.Fragment key={k}>
-                      <tr onClick={marketersOnly ? undefined : () => { setSel(c.name); setOpenProv(open ? null : k); }} style={{ cursor: marketersOnly ? 'default' : 'pointer', background: open ? '#f8fafc' : undefined, verticalAlign: 'top' }}>
-                        <td style={{ ...tableTd, fontWeight: 800 }}>
-                          {!marketersOnly && <span style={{ color: '#94a3b8', marginInlineEnd: 5, fontSize: 11 }}>{open ? '▾' : '◂'}</span>}{c.name}
+                      <tr onClick={marketersOnly ? undefined : () => { setSel(c.name); setOpenProv(open ? null : k); }} style={{ cursor: marketersOnly ? 'default' : 'pointer', background: rowBg }}>
+                        <td style={{ ...lead, whiteSpace: 'nowrap', width: 1 }}>
+                          {!marketersOnly && <span style={{ color: '#94a3b8', marginInlineEnd: 4, fontSize: 10 }}>{open ? '▾' : '◂'}</span>}
+                          {n?.leader
+                            ? <>{nameBtn(n.leader.id, n.leader.name, c.name, { leader: true })}<span style={{ fontSize: 10.5, color: '#64748b', marginInlineStart: 6 }}>{c.name}</span></>
+                            : <span style={{ fontWeight: 800, color: '#334155' }}>{c.name}</span>}
                         </td>
-                        <td style={tableTd}>{n?.leader ? nameBtn(n.leader.id, n.leader.name, c.name, { leader: true }) : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
-                        <td style={{ ...tableTd, whiteSpace: 'normal' }}>
-                          {n?.reps.length
-                            ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 14px' }}>{n.reps.map(r => <span key={r.key}>{nameBtn(r.id, r.name, c.name, { active: r.active })}</span>)}</div>
-                            : <span style={{ fontSize: 11.5, color: '#94a3b8' }}>لا يوجد {repWord}</span>}
+                        <td style={lead}>
+                          {!n?.reps.length && <span style={{ fontSize: 10.5, color: '#94a3b8' }}>لا يوجد {repWord}</span>}
                         </td>
-                        <td style={{ ...tableNum, fontWeight: 800, color: c.total < 0 ? '#be123c' : '#111827' }}>{fmtVal(c.total)}</td>
-                        {hasCond && <td style={tableNum}>{c.cond !== 0 ? fmtVal(c.cond) : '—'}</td>}
-                        {hasCond && condPctCell(p, c.total > 0 && c.cond !== 0)}
+                        <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.total) ?? '#111827' }}>{fmtVal(c.total)}</td>
+                        {hasCond && (
+                          <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.cond) ?? '#111827' }}>
+                            {c.cond !== 0
+                              ? <>{c.total > 0 && pctTag(pctOf(c.cond, c.total))}{fmtVal(c.cond)}</>
+                              : dash}
+                          </td>
+                        )}
                       </tr>
+                      {n?.reps.map(r => (
+                        <tr key={r.key}>
+                          <td style={td} />
+                          <td style={{ ...td, whiteSpace: 'normal' }}>{nameBtn(r.id, r.name, c.name, { active: r.active })}</td>
+                          <td style={{ ...num, color: valColor(r.sales) ?? '#475569' }}>{r.sales != null ? fmtVal(r.sales) : dash}</td>
+                          {hasCond && <td style={{ ...num, color: valColor(r.cond) ?? '#475569' }}>{r.cond ? fmtVal(r.cond) : dash}</td>}
+                        </tr>
+                      ))}
                       {open && (
                         <tr>
-                          <td colSpan={colSpan} style={{ padding: '8px 10px 12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                          <td colSpan={colSpan} style={{ padding: '6px 8px 10px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
                             {c.companies.length === 0
                               ? <span style={{ fontSize: 12, color: '#94a3b8' }}>لا توجد شركات مسجّلة في هذه المحافظة للفترة المختارة.</span>
                               : (
@@ -1046,10 +1069,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={3} style={foot}>المجموع</td>
-                  <td style={{ ...tableNum, ...foot, textAlign: 'left' }}>{fmtVal(totals.value)}</td>
-                  {hasCond && <td style={{ ...tableNum, ...foot, textAlign: 'left' }}>{fmtVal(totals.cond)}</td>}
-                  {hasCond && <td style={{ ...tableNum, ...foot, textAlign: 'left' }}>{pctTxt(pctOf(totals.cond, totals.value))}</td>}
+                  <td colSpan={2} style={foot}>المجموع</td>
+                  <td style={{ ...num, ...foot }}>{fmtVal(totals.value)}</td>
+                  {hasCond && <td style={{ ...num, ...foot }}>{totals.value > 0 && pctTag(pctOf(totals.cond, totals.value))}{fmtVal(totals.cond)}</td>}
                 </tr>
               </tfoot>
             </table>
