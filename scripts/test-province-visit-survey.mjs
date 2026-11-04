@@ -43,7 +43,15 @@ globalThis.prisma = {
     findMany: async ({ where }) => (where?.id?.in
       ? where.id.in.map(id => ({ id, linkedRepId: id + 100 }))
       : [{ id: 14, provinceAssignments: [{ provinceId: 4 }] }]),
+    findUnique: async ({ where }) => ({ id: where.id, linkedRepId: where.id + 100, role: 'scientific_rep', permissions: '{}' }),
   },
+  // فريق مدير الشركة لاختبار نطاق المحافظة: مندوبو المحافظات + مندوب بغداد (20)
+  userManagerAssignment: {
+    findMany: async () => [10, 11, 12, 13, 14, 20].map(id => ({ user: { id, linkedRepId: id + 100, role: 'scientific_rep' } })),
+  },
+  scientificRepArea: { findMany: async () => [] },
+  userProvinceAssignment: { findMany: async () => [] },
+  userSubProvinceAssignment: { findMany: async () => [] },
   scientificRepresentative: { findMany: async () => [] },
   masterSurvey: {
     findFirst: async ({ where }) => db.surveys.find(s => s.description === where.description) ?? null,
@@ -51,7 +59,14 @@ globalThis.prisma = {
     create: async ({ data }) => { const s = { id: nextId++, ...data }; db.surveys.push(s); return s; },
   },
   area: {
-    findMany: async () => db.areas.map(a => ({ ...a })),
+    findMany: async ({ where } = {}) => db.areas.filter(a => {
+      if (where?.id?.in && !where.id.in.includes(a.id)) return false;
+      const p = where?.provinceId;
+      if (typeof p === 'number' && a.provinceId !== p) return false;
+      if (p?.in && !p.in.includes(a.provinceId)) return false;
+      if (p?.notIn && (a.provinceId == null || p.notIn.includes(a.provinceId))) return false;
+      return true;
+    }).map(a => ({ ...a })),
     create: async ({ data }) => { const a = { id: nextId++, ...data }; db.areas.push(a); return { ...a }; },
     update: async ({ where, data }) => { const a = db.areas.find(x => x.id === where.id); Object.assign(a, data); return { ...a }; },
   },
@@ -73,7 +88,10 @@ globalThis.prisma = {
     create: async ({ data }) => { const d = { id: nextId++, ...data }; db.doctors.push(d); return d; },
   },
   doctorNameLink: { upsert: async ({ create }) => { db.links.push(create); return create; } },
-  userAreaAssignment: { createMany: async ({ data }) => { db.assignments.push(...data); return { count: data.length }; } },
+  userAreaAssignment: {
+    createMany: async ({ data }) => { db.assignments.push(...data); return { count: data.length }; },
+    findMany: async () => [],
+  },
 };
 
 const { prepareProvinceVisitRows, loadProvinceVisitContext, isProvinceVisitRow, markProvinceRows } =
@@ -250,6 +268,37 @@ await t('إعادة رفع الملف نفسه: صفر سجلات جديدة', a
   );
   assert.equal(res.newDoctors + res.newPharmacies + res.newAreas, 0);
   assert.deepEqual({ d: db.sdoctors.length, p: db.spharm.length, a: db.areas.length, r: db.doctors.length }, before);
+});
+
+const { resolveAreaScope, isForeignAreaVisit } = await import('../server/lib/surveyDoctors.js');
+const manager = { id: 1, role: 'company_manager' };
+const sorted = list => [...list].sort((a, b) => a - b);
+
+await t('اختيار محافظة: مندوبوها وحدهم ومناطقها وحدها، وزيارة محافظة أخرى خارج العرض', async () => {
+  const s = await resolveAreaScope(manager, { provinceScope: 'province', provinceId: 2 });
+  assert.deepEqual(sorted(s.memberRepIds), sorted([REP_LEADER, REP_A, REP_B]));
+  assert.ok(s.areaRecords.length > 0);
+  const karbalaIds = new Set(db.areas.filter(a => a.provinceId === 2).map(a => a.id));
+  assert.ok(s.areaRecords.every(a => karbalaIds.has(a.id)));
+  assert.equal(isForeignAreaVisit(s, 'الكرادة'), true, 'بغداد');
+  assert.equal(isForeignAreaVisit(s, 'الكوفة'), true, 'النجف');
+  assert.equal(isForeignAreaVisit(s, 'الاسكان'), false);
+  assert.equal(isForeignAreaVisit(s, null), false);
+});
+
+await t('محافظة أخرى تعطي مندوبيها هي، وعرض كل المحافظات يجمعهم بلا بغداد', async () => {
+  const q = await resolveAreaScope(manager, { provinceScope: 'province', provinceId: 3 });
+  assert.deepEqual(q.memberRepIds, [REP_QADISIYA]);
+  const all = await resolveAreaScope(manager, { provinceScope: 'province' });
+  assert.deepEqual(sorted(all.memberRepIds), sorted([REP_LEADER, REP_A, REP_B, REP_QADISIYA, REP_MARKETER]));
+  assert.equal(all.foreignAreaKeys, null);
+  assert.equal(isForeignAreaVisit(all, 'الكرادة'), false);
+});
+
+await t('عرض بغداد لا يتأثر بفلتر المحافظة', async () => {
+  const b = await resolveAreaScope(manager, { provinceScope: 'baghdad' });
+  assert.ok(b.memberRepIds.includes(120));
+  assert.ok(!b.memberRepIds.includes(REP_A));
 });
 
 console.log(`\n${passed} اختبار نجح`);

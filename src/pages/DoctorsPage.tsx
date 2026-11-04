@@ -8,7 +8,8 @@ import { pharmacyKey, matchNetPharmacies } from '../lib/pharmacyKey';
 import { Icon } from '../config/icons';
 import { sendEngagementPing, sendSearchPingDebounced } from '../lib/engagementPing';
 import * as XLSX from 'xlsx';
-import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope, hasProvinceReps } from '../components/ProvinceRepsToggle';
+import ProvinceRepsToggle, { useProvinceRepScope, useProvinceViewMode, filterByProvinceScope, hasProvinceReps, sortRepsByProvince, groupRepsByProvince } from '../components/ProvinceRepsToggle';
+import type { RepProvince } from '../components/ProvinceRepsToggle';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -333,13 +334,21 @@ export default function DoctorsPage() {
   const [showVisitMonthPicker, setShowVisitMonthPicker] = useState(false);
   // ── Rep filter (for managers only) ─────────────────────────
   interface ManagerCompany { id: number; name: string; }
-  interface ManagerRep { userId: number; name: string; linkedRepId: number | null; company: ManagerCompany | null; isProvinceMember?: boolean; teamLeader?: { userId: number; name: string } | null; }
+  interface ManagerRep { userId: number; name: string; linkedRepId: number | null; company: ManagerCompany | null; isProvinceMember?: boolean; provinces?: RepProvince[]; isLeader?: boolean; teamLeader?: { userId: number; name: string } | null; }
   const [managerRepsAll, setManagerReps]    = useState<ManagerRep[]>([]);
   // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرضهم وحدهم. يُرسَل للخادم كـ
   // provinceScope فتُفصل أرقام «الكل» نفسها لا شرائح المندوبين فقط.
   const [onlyProvince, setOnlyProvince] = useProvinceRepScope('calls-analysis');
-  const managerReps = useMemo(() => filterByProvinceScope(managerRepsAll, onlyProvince), [managerRepsAll, onlyProvince]);
+  const managerReps = useMemo(() => {
+    const list = filterByProvinceScope(managerRepsAll, onlyProvince);
+    return onlyProvince ? sortRepsByProvince(list) : list;
+  }, [managerRepsAll, onlyProvince]);
   const provinceParam: 'baghdad' | 'province' | null = hasProvinceReps(managerRepsAll) ? (onlyProvince ? 'province' : 'baghdad') : null;
+  // العرض الثاني لمندوبي المحافظات: محافظة ← مندوبوها وزياراتهم من كل الشركات
+  const [provinceViewMode, setProvinceViewMode] = useProvinceViewMode('calls-analysis');
+  const byProvinceView = onlyProvince && provinceViewMode === 'province';
+  const [visitProvinceFilter, setVisitProvinceFilter] = useState<number | null>(null); // null = كل المحافظات
+  const provinceIdParam = byProvinceView ? visitProvinceFilter : null;
   const [managerCompanies, setManagerCompanies] = useState<ManagerCompany[]>([]);
   const [visitRepFilter, setVisitRepFilter] = useState<number | null>(null); // null = all
   // فلترة إضافية بـ«الشركة الرئيسية» — للأدوار المكتبية (مدير/HR/موظف المكتب) التي تشرف على أكثر من شركة.
@@ -764,7 +773,8 @@ export default function DoctorsPage() {
     visitFetchAbortRef.current = ctrl;
 
     // Return cached data instantly if available (unless explicit refresh)
-    const cacheKey = `${provinceParam ?? 'any'}_${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${visitMonthFilter?.month ?? 'all'}_${visitMonthFilter?.year ?? 'all'}_${visitDayFilter ?? 'all'}`;
+    const companyParam = byProvinceView ? null : visitCompanyFilter; // عرض المحافظة يجمع كل الشركات
+    const cacheKey = `${provinceParam ?? 'any'}_${provinceIdParam ?? 'allp'}_${companyParam ?? 'all'}_${visitRepFilter ?? 'all'}_${visitMonthFilter?.month ?? 'all'}_${visitMonthFilter?.year ?? 'all'}_${visitDayFilter ?? 'all'}`;
     if (!forceRefresh) {
       const cached = visitCacheRef.current.get(cacheKey);
       if (cached) {
@@ -788,8 +798,9 @@ export default function DoctorsPage() {
       if (visitMonthFilter) { ps.set('month', String(visitMonthFilter.month)); ps.set('year', String(visitMonthFilter.year)); }
       if (visitDayFilter) ps.set('day', String(visitDayFilter));
       if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
-      else if (visitCompanyFilter !== null) ps.set('companyId', String(visitCompanyFilter));
+      else if (companyParam !== null) ps.set('companyId', String(companyParam));
       if (visitRepFilter === null && provinceParam) ps.set('provinceScope', provinceParam);
+      if (visitRepFilter === null && provinceIdParam !== null) ps.set('provinceId', String(provinceIdParam));
       const r = await fetch(`${API}/api/doctors/visits-by-area?${ps}`, { headers: H(), signal: ctrl.signal });
       const j = await r.json();
       console.log('[visitsByArea] status:', r.status, 'response:', j);
@@ -807,7 +818,7 @@ export default function DoctorsPage() {
     } finally {
       if (!ctrl.signal.aborted) setVisitLoading(false);
     }
-  }, [token, visitMonthFilter, visitDayFilter, visitRepFilter, visitCompanyFilter, provinceParam]);
+  }, [token, visitMonthFilter, visitDayFilter, visitRepFilter, visitCompanyFilter, provinceParam, byProvinceView, provinceIdParam]);
 
   // Default the doctors-visits month filter to the current month, or — if it has
   // no reports yet — the most recent month that does. "الكل" stays one click away
@@ -849,6 +860,7 @@ export default function DoctorsPage() {
       const ps = new URLSearchParams();
       if (repsSummaryCompanyFilter.size > 0) ps.set('companyIds', [...repsSummaryCompanyFilter].join(','));
       if (provinceParam) ps.set('provinceScope', provinceParam);
+      if (provinceIdParam !== null) ps.set('provinceId', String(provinceIdParam));
       if (visitMonthFilter) { ps.set('month', String(visitMonthFilter.month)); ps.set('year', String(visitMonthFilter.year)); }
       const r = await fetch(`${API}/api/doctors/visits/all-reps-summary?${ps}`, { headers: H() });
       const j = await r.json();
@@ -1255,7 +1267,8 @@ export default function DoctorsPage() {
     pharmVisitFetchAbortRef.current = ctrl;
 
     // Return cached data instantly if available (unless explicit refresh)
-    const cacheKey = `${provinceParam ?? 'any'}_${visitCompanyFilter ?? 'all'}_${visitRepFilter ?? 'all'}_${pharmVisitMonthFilter?.month ?? 'all'}_${pharmVisitMonthFilter?.year ?? 'all'}`;
+    const companyParam = byProvinceView ? null : visitCompanyFilter;
+    const cacheKey = `${provinceParam ?? 'any'}_${provinceIdParam ?? 'allp'}_${companyParam ?? 'all'}_${visitRepFilter ?? 'all'}_${pharmVisitMonthFilter?.month ?? 'all'}_${pharmVisitMonthFilter?.year ?? 'all'}`;
     if (!forceRefresh) {
       const cached = pharmVisitCacheRef.current.get(cacheKey);
       if (cached) {
@@ -1272,8 +1285,9 @@ export default function DoctorsPage() {
       const ps = new URLSearchParams();
       if (pharmVisitMonthFilter) { ps.set('month', String(pharmVisitMonthFilter.month)); ps.set('year', String(pharmVisitMonthFilter.year)); }
       if (visitRepFilter !== null) ps.set('repUserId', String(visitRepFilter));
-      else if (visitCompanyFilter !== null) ps.set('companyId', String(visitCompanyFilter));
+      else if (companyParam !== null) ps.set('companyId', String(companyParam));
       if (visitRepFilter === null && provinceParam) ps.set('provinceScope', provinceParam);
+      if (visitRepFilter === null && provinceIdParam !== null) ps.set('provinceId', String(provinceIdParam));
       const r = await fetch(`${API}/api/doctors/pharmacy-visits-by-area?${ps}`, { headers: H(), signal: ctrl.signal });
       const j = await r.json();
       const areas = Array.isArray(j.areas) ? j.areas : [];
@@ -1285,7 +1299,7 @@ export default function DoctorsPage() {
       if (!ctrl.signal.aborted) setPharmVisitLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, pharmVisitMonthFilter, visitRepFilter, visitCompanyFilter, provinceParam]);
+  }, [token, pharmVisitMonthFilter, visitRepFilter, visitCompanyFilter, provinceParam, byProvinceView, provinceIdParam]);
 
   // Same default-month behavior as the doctors visits view, for the pharmacies sub-view.
   const pharmVisitMonthDefaultAppliedRef = useRef(false);
@@ -2200,8 +2214,38 @@ export default function DoctorsPage() {
             </div>
           )}
 
+          {/* طريقة عرض مندوبي المحافظات: حسب الشركة أو حسب المحافظة */}
+          {!isFieldRep && onlyProvince && managerReps.length > 0 && (() => {
+            const pill = (active: boolean) => ({
+              padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              border: `1.5px solid ${active ? 'var(--c-accent)' : 'var(--c-border)'}`,
+              background: active ? 'var(--c-accent-light)' : 'var(--c-bg)',
+              color: active ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+            });
+            const chooseProvince = (id: number | null) => { setVisitProvinceFilter(id); setVisitRepFilter(null); };
+            return (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)' }}>طريقة العرض</span>
+                  <button style={pill(!byProvinceView)} onClick={() => { setProvinceViewMode('company'); setVisitProvinceFilter(null); setVisitRepFilter(null); }}>حسب الشركة</button>
+                  <button style={pill(byProvinceView)} onClick={() => { setProvinceViewMode('province'); setVisitRepFilter(null); }}>حسب المحافظة</button>
+                </div>
+                {byProvinceView && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                    <button style={pill(visitProvinceFilter === null)} onClick={() => chooseProvince(null)}>كل المحافظات</button>
+                    {groupRepsByProvince(managerReps).filter(g => g.id !== null).map(g => (
+                      <button key={g.id} style={pill(visitProvinceFilter === g.id)} onClick={() => chooseProvince(g.id)}>
+                        {g.name} <span style={{ opacity: .65, fontWeight: 700 }}>({g.reps.length})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Company selector (office roles — oversee multiple main companies; server returns companies only for them) */}
-          {!isFieldRep && managerCompanies.length > 0 && (
+          {!isFieldRep && managerCompanies.length > 0 && !byProvinceView && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="navOrgStructure" size={11} /> الشركة الرئيسية</span>
               </div>
@@ -2231,10 +2275,12 @@ export default function DoctorsPage() {
           )}
 
           {/* Rep selector (managers only) — hidden until a specific company is chosen when multiple companies exist */}
-          {!isFieldRep && managerRepsAll.length > 0 && (managerCompanies.length === 0 || visitCompanyFilter !== null) && (() => {
-            const visibleReps = visitCompanyFilter === null
-              ? managerReps
-              : managerReps.filter(rep => rep.company?.id === visitCompanyFilter);
+          {!isFieldRep && managerRepsAll.length > 0 && (managerCompanies.length === 0 || visitCompanyFilter !== null || byProvinceView) && (() => {
+            const visibleReps = byProvinceView
+              ? managerReps.filter(rep => visitProvinceFilter === null || rep.provinces?.some(p => p.id === visitProvinceFilter))
+              : visitCompanyFilter === null
+                ? managerReps
+                : managerReps.filter(rep => rep.company?.id === visitCompanyFilter);
             return (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</span>
@@ -2255,9 +2301,41 @@ export default function DoctorsPage() {
                         border: `1.5px solid ${active ? 'var(--c-accent)' : isLeader ? 'var(--c-text-secondary)' : 'var(--c-border)'}`,
                         background: active ? 'var(--c-accent-light)' : 'var(--c-bg)',
                         color: active ? 'var(--c-accent)' : isLeader ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
-                      }}>{isLeader && '★ '}{rep.name}</button>
+                      }}>
+                        {isLeader && '★ '}{rep.name}
+                        {/* عرض المحافظة يجمع كل الشركات، فشركة كل مندوب جزء من هويته هنا */}
+                        {byProvinceView && rep.company && <span style={{ marginInlineStart: 6, fontSize: 10.5, fontWeight: 700, opacity: .65 }}>{rep.company.name}</span>}
+                      </button>
                   );
                 };
+                // مندوبو المحافظات: صف لكل محافظة باسمها، القائد أولاً ثم الأسماء أبجدياً
+                if (onlyProvince) {
+                  const provinceRow = { display: 'flex', gap: 6, flexWrap: 'wrap' as const, alignItems: 'center' };
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={provinceRow}>
+                        <button
+                          onClick={() => setVisitRepFilter(null)}
+                          style={{
+                            padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            border: `1.5px solid ${visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-border)'}`,
+                            background: visitRepFilter === null ? 'var(--c-accent-light)' : 'var(--c-bg)',
+                            color: visitRepFilter === null ? 'var(--c-accent)' : 'var(--c-text-secondary)',
+                          }}>الكل</button>
+                      </div>
+                      {groupRepsByProvince(visibleReps)
+                        .filter(g => visitProvinceFilter === null || !byProvinceView || g.id === visitProvinceFilter)
+                        .map(g => (
+                          <div key={g.id ?? 'none'} style={{ ...provinceRow, paddingTop: 6, borderTop: '1px dashed var(--c-border)' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 800, color: 'var(--c-text-primary)', minWidth: 72 }}>
+                              <Icon name="location" size={12} /> {g.name}
+                            </span>
+                            {g.reps.map(r => chip(r, !!r.isLeader))}
+                          </div>
+                        ))}
+                    </div>
+                  );
+                }
                 const groups = new Map<number, { leader: ManagerRep | null; members: ManagerRep[] }>();
                 for (const rep of visibleReps) {
                   const tl = rep.teamLeader;
@@ -3933,7 +4011,12 @@ export default function DoctorsPage() {
                         border: `1.5px solid ${archiveRepFilter === rep.userId ? 'var(--c-accent)' : 'var(--c-border)'}`,
                         background: archiveRepFilter === rep.userId ? 'var(--c-accent-light)' : 'var(--c-bg)',
                         color: archiveRepFilter === rep.userId ? 'var(--c-accent)' : 'var(--c-text-secondary)',
-                      }}>{rep.name}</button>
+                      }}>
+                        {rep.name}
+                        {onlyProvince && !!rep.provinces?.length && (
+                          <span style={{ marginInlineStart: 6, fontSize: 10.5, fontWeight: 700, opacity: .65 }}>{rep.provinces.map(p => p.name).join('، ')}</span>
+                        )}
+                      </button>
                   ))}
                 </div>
               </div>

@@ -35,6 +35,56 @@ export function hasProvinceReps(reps: object[]): boolean {
   return reps.some(isProv);
 }
 
+export interface RepProvince { id: number; name: string; sortOrder?: number }
+type ProvinceRep = { name: string; provinces?: RepProvince[]; isLeader?: boolean };
+
+const byRepOrder = (a: ProvinceRep, b: ProvinceRep) =>
+  Number(!!b.isLeader) - Number(!!a.isLeader) || a.name.localeCompare(b.name, 'ar');
+const provinceRank = (r: ProvinceRep) => r.provinces?.[0]?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+
+/** ترتيب ثابت لمندوبي المحافظات: المحافظة، ثم القائد أولاً، ثم الاسم. */
+export function sortRepsByProvince<T extends ProvinceRep>(reps: T[]): T[] {
+  return [...reps].sort((a, b) => provinceRank(a) - provinceRank(b) || byRepOrder(a, b));
+}
+
+export interface ProvinceRepGroup<T> { id: number | null; name: string; reps: T[] }
+
+/**
+ * صف لكل محافظة بترتيبها في النظام. مندوب بمحافظتين يظهر تحت الاثنتين؛ من لا محافظة
+ * له في آخر القائمة تحت «غير محدد» بدل أن يختفي.
+ */
+export function groupRepsByProvince<T extends ProvinceRep>(reps: T[]): ProvinceRepGroup<T>[] {
+  const groups = new Map<number, ProvinceRepGroup<T> & { order: number }>();
+  const unassigned: T[] = [];
+  for (const rep of reps) {
+    if (!rep.provinces?.length) { unassigned.push(rep); continue; }
+    for (const p of rep.provinces) {
+      if (!groups.has(p.id)) groups.set(p.id, { id: p.id, name: p.name, order: p.sortOrder ?? Number.MAX_SAFE_INTEGER, reps: [] });
+      groups.get(p.id)!.reps.push(rep);
+    }
+  }
+  const out: ProvinceRepGroup<T>[] = [...groups.values()]
+    .sort((a, b) => a.order - b.order)
+    .map(({ id, name, reps: list }) => ({ id, name, reps: [...list].sort(byRepOrder) }));
+  if (unassigned.length) out.push({ id: null, name: 'غير محدد', reps: [...unassigned].sort(byRepOrder) });
+  return out;
+}
+
+export type ProvinceViewMode = 'company' | 'province';
+
+/** طريقة عرض مندوبي المحافظات: حسب الشركة (الافتراضي) أو حسب المحافظة. تفضيل لكل صفحة. */
+export function useProvinceViewMode(pageKey: string): [ProvinceViewMode, (v: ProvinceViewMode) => void] {
+  const key = `provinceRepsView:${pageKey}`;
+  const [mode, setState] = useState<ProvinceViewMode>(() => {
+    try { return localStorage.getItem(key) === 'province' ? 'province' : 'company'; } catch { return 'company'; }
+  });
+  const set = (v: ProvinceViewMode) => {
+    setState(v);
+    try { localStorage.setItem(key, v); } catch { /* تفضيل اختياري */ }
+  };
+  return [mode, set];
+}
+
 /** الزر — يختفي تلقائياً حين لا يوجد أي مندوب محافظة في القائمة (ولم يكن مُفعّلاً). */
 export default function ProvinceRepsToggle({ reps, value, onChange, compact = false }: {
   reps: object[];

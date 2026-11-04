@@ -6,19 +6,22 @@ import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { findOrCreateArea } from '../sales/sales.repository.js';
 import {
   resolveAreaScope, getScopedSurveyDoctors, buildVisitOverlay,
-  ensureDoctorRowsForScope, isFieldRole, resolveRepId, buildAreaNameIndex, MARKETERS_COMPANY, marketerUserIds,
+  ensureDoctorRowsForScope, isFieldRole, resolveRepId, buildAreaNameIndex, MARKETERS_COMPANY, marketerUserIds, isForeignAreaVisit,
 } from '../../lib/surveyDoctors.js';
 import { getScopedSurveyPharmacies, renameSurveyPharmacyByName } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from '../../lib/officeScope.js';
 import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
-import { provinceMemberUserIds, provinceLeaderIds, provinceAreaIdsByUser } from '../../lib/provinceScope.js';
+import { provinceMemberUserIds, provinceLeaderIds, provinceAreaIdsByUser, provinceIdsByMember } from '../../lib/provinceScope.js';
 
 // زر «مندوبي المحافظات» بالواجهة: ?provinceScope=baghdad|province — يسري على
 // «الكل»/الشركة فقط (مندوب محدَّد بـrepUserId يُعرض كما هو)، وللمدراء وحدهم.
-function provinceScopeOf(req, repUserId) {
-  if (isFieldRole(req.user.role) || repUserId) return null;
+// ?provinceId= (عرض «حسب المحافظة») يضيّق عرض المحافظات على محافظة واحدة.
+function provinceOptsOf(req, repUserId) {
+  if (isFieldRole(req.user.role) || repUserId) return { provinceScope: null, provinceId: null };
   const v = req.query.provinceScope;
-  return v === 'baghdad' || v === 'province' ? v : null;
+  const provinceScope = v === 'baghdad' || v === 'province' ? v : null;
+  const id = parseInt(req.query.provinceId);
+  return { provinceScope, provinceId: provinceScope === 'province' && Number.isInteger(id) ? id : null };
 }
 import { getStandards, listOverrides, effectiveFor } from '../../lib/followupStandards.js';
 import * as importVisits from './doctor-visits-import.js';
@@ -65,7 +68,7 @@ export async function visitsByArea(req, res, next) {
     // → مناطق أعضاء الفريق تحت هذه الشركة الرئيسية · مدير "الكل" → كل مناطق الفريق
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
-    const scope       = await resolveAreaScope(req.user, { repUserId, companyId, provinceScope: provinceScopeOf(req, repUserId) });
+    const scope       = await resolveAreaScope(req.user, { repUserId, companyId, ...provinceOptsOf(req, repUserId) });
     const scopedDocs  = await getScopedSurveyDoctors(scope);
     const overlay     = await buildVisitOverlay(scope, dateFilter);
     // ?day= (من شريط أيام الشهر): تضييق الزيارات ليوم واحد — dayCounts أدناه يبقى للشهر كله.
@@ -141,11 +144,12 @@ export async function visitsByArea(req, res, next) {
     // فكان عدد الشاشة يقلّ عن الإكسل بلا تفسير. تُعاد صراحةً ليعرضها الفرونت.
     const attachedIds = new Set();
     for (const d of doctors) for (const v of d.visits) attachedIds.add(v.id);
-    const hiddenVisits = overlay.all.filter(v => !attachedIds.has(v.id) && onDay(v));
+    const scopeVisits = overlay.all.filter(v => !isForeignAreaVisit(scope, v.areaName));
+    const hiddenVisits = scopeVisits.filter(v => !attachedIds.has(v.id) && onDay(v));
 
     // شريط أيام الشهر في الواجهة: عدد الزيارات لكل يوم (بنفس توقيت فلتر الشهر أعلاه).
     const dayCounts = {};
-    if (dateFilter) for (const v of overlay.all) {
+    if (dateFilter) for (const v of scopeVisits) {
       const day = new Date(v.visitDate).getDate();
       dayCounts[day] = (dayCounts[day] ?? 0) + 1;
     }
@@ -159,7 +163,7 @@ export async function visitsLatestMonth(req, res, next) {
   try {
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
-    const scope = await resolveAreaScope(req.user, { repUserId, companyId, provinceScope: provinceScopeOf(req, repUserId) });
+    const scope = await resolveAreaScope(req.user, { repUserId, companyId, ...provinceOptsOf(req, repUserId) });
     const orClauses = [];
     if (scope.memberRepIds.length)  orClauses.push({ scientificRepId: { in: scope.memberRepIds } });
     // راجع نفس التعليق في buildVisitOverlay/pharmacyVisitOrClauses.
@@ -301,7 +305,7 @@ export async function pharmacyVisitsLatestMonth(req, res, next) {
   try {
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
-    const scope = await resolveAreaScope(req.user, { repUserId, companyId, provinceScope: provinceScopeOf(req, repUserId) });
+    const scope = await resolveAreaScope(req.user, { repUserId, companyId, ...provinceOptsOf(req, repUserId) });
     const orClauses = pharmacyVisitOrClauses(scope);
     if (!orClauses.length) return res.json({ month: null, year: null });
 
@@ -345,18 +349,18 @@ export async function pharmacyVisitsByArea(req, res, next) {
 
     const repUserId = (!isFieldRole(req.user.role) && req.query.repUserId) ? parseInt(req.query.repUserId) : null;
     const companyId  = (!isFieldRole(req.user.role) && !repUserId && req.query.companyId) ? parseInt(req.query.companyId) : null;
-    const scope = await resolveAreaScope(req.user, { repUserId, companyId, provinceScope: provinceScopeOf(req, repUserId) });
+    const scope = await resolveAreaScope(req.user, { repUserId, companyId, ...provinceOptsOf(req, repUserId) });
     const scopedPharms = await getScopedSurveyPharmacies(scope);
 
     const orClauses = pharmacyVisitOrClauses(scope);
-    const visits = orClauses.length ? await prisma.pharmacyVisit.findMany({
+    const visits = (orClauses.length ? await prisma.pharmacyVisit.findMany({
       where: { OR: orClauses, isActive: true, ...(dateFilter ? { visitDate: dateFilter } : {}) },
       include: {
         area:  { select: { id: true, name: true } },
         items: { include: { item: { select: { id: true, name: true } } } },
       },
       orderBy: { visitDate: 'desc' },
-    }) : [];
+    }) : []).filter(v => !isForeignAreaVisit(scope, v.area?.name ?? v.areaName));
 
     const toEntry = v => ({
       id: v.id, visitDate: v.visitDate, notes: v.notes,
@@ -1449,6 +1453,14 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
   }
 
   const provinceMembers = subUsers.length ? await provinceMemberUserIds() : new Set();
+  // محافظات كل عضو — الواجهة ترتّب وتجمّع مندوبي المحافظات بها وتختار محافظة بعينها.
+  const [memberProvinces, provinceRows] = subUsers.length
+    ? await Promise.all([provinceIdsByMember(), prisma.province.findMany({ select: { id: true, name: true, sortOrder: true } })])
+    : [new Map(), []];
+  const provinceById = new Map(provinceRows.map(p => [p.id, p]));
+  const provincesOf = uid => [...(memberProvinces.get(uid) ?? [])]
+    .map(id => provinceById.get(id)).filter(Boolean)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
   // قائد فريق كل مندوب (UserManagerAssignment → مدير بدور team_leader) — الواجهة
   // ترتّب شرائح المندوبين مجموعات: قائد الفريق ثم مندوبوه.
   const tlLinks = subUsers.length ? await prisma.userManagerAssignment.findMany({
@@ -1466,6 +1478,8 @@ export async function resolveTeamReps(user, { includeTeamLead = false } = {}) {
     company:     companyByUserId.get(u.id) ?? null,
     // مندوب/قائد فريق محافظة — الواجهة تفصله عن مندوبي بغداد (زر «مندوبي المحافظات»)
     isProvinceMember: provinceMembers.has(u.id),
+    provinces: provincesOf(u.id),
+    isLeader: u.role === 'team_leader',
     teamLeader: teamLeaderByUserId.get(u.id) ?? null,
   }));
 
@@ -1500,7 +1514,7 @@ export async function getManagerSubReps(req, res, next) {
 // بتمريره يصبح المتوقَّع الشهري مقروءاً من معايير المكتب القابلة للتغيير؛ بدونه
 // يرتدّ إلى LEGACY_MONTHLY_DOCTOR_VISIT_TARGET حفاظاً على أي مستدعٍ قديم.
 export async function computeRepsVisitsSummary(user, {
-  month = null, year = null, companyIds = [], followup = null, includeTeamLead = false, provinceScope = null,
+  month = null, year = null, companyIds = [], followup = null, includeTeamLead = false, provinceScope = null, provinceId = null,
 } = {}) {
     const filterMonth = month ? parseInt(month) : null;
     const filterYear  = year  ? parseInt(year)  : null;
@@ -1514,7 +1528,7 @@ export async function computeRepsVisitsSummary(user, {
     const companyReps = companyIdsFilter.length ? allReps.filter(r => r.company && companyIdsFilter.includes(r.company.id)) : allReps;
     // زر «مندوبي المحافظات»: بغداد وحدها أو فرق المحافظات وحدها (isProvinceMember من resolveTeamReps)
     const reps = (provinceScope === 'baghdad' || provinceScope === 'province')
-      ? companyReps.filter(r => r.isProvinceMember === (provinceScope === 'province'))
+      ? companyReps.filter(r => r.isProvinceMember === (provinceScope === 'province') && (!provinceId || r.provinces.some(p => p.id === provinceId)))
       : companyReps;
 
     if (!reps.length) return { reps: [], companies };
@@ -1723,7 +1737,7 @@ export async function allRepsVisitsSummary(req, res, next) {
       year:  req.query.year  ?? null,
       companyIds,
       followup,
-      provinceScope: provinceScopeOf(req, null),
+      ...provinceOptsOf(req, null),
     });
     res.json({ ...data, standards: followup?.standards ?? null });
   } catch (e) { next(e); }

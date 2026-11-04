@@ -21,7 +21,7 @@ import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from
 import { normalizeRepName, repNameScore } from '../modules/scientific-reps/scientific-reps.service.js';
 import { nameTokens, MIN_SOLO_NAME_LEN } from './repNameMatch.js';
 import { similarity } from './fuzzyMatch.js';
-import { provinceMemberUserIds, provinceAreaIdsByUser } from './provinceScope.js';
+import { provinceMemberUserIds, provinceAreaIdsByUser, provinceIdsByMember } from './provinceScope.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // مطابقة أسماء الأطباء — مشتركة بين استيراد زيارات الأطباء (doctor-visits-
@@ -397,10 +397,13 @@ export async function buildAreaNameIndex(areaRecords) {
 //   - مدير (الكل): اتحاد مناطق المدير + كل مندوبي فريقه (UserManagerAssignment).
 //   provinceScope ('baghdad'|'province'|null): في فروع «الكل»/الشركة يُبقي مندوبي
 //   بغداد وحدهم أو مندوبي فرق المحافظات وحدهم (زر «مندوبي المحافظات» بالواجهة).
-export async function resolveAreaScope(user, { repUserId = null, companyId = null, provinceScope = null } = {}) {
+//   provinceId (مع provinceScope='province'): أعضاء هذه المحافظة وحدها ومناطقها وحدها.
+export async function resolveAreaScope(user, { repUserId = null, companyId = null, provinceScope = null, provinceId = null } = {}) {
   const ids = new Set();
   const provSet = (provinceScope === 'baghdad' || provinceScope === 'province') ? await provinceMemberUserIds() : null;
-  const inScope = uid => !provSet || provSet.has(uid) === (provinceScope === 'province');
+  const provinceMembers = provinceId ? await provinceIdsByMember() : null;
+  const inScope = uid => (!provSet || provSet.has(uid) === (provinceScope === 'province'))
+    && (!provinceMembers || !!provinceMembers.get(uid)?.has(provinceId));
   // شبكة أمان «مناطق أطباء المدير» تخص بغداد — لا تُضاف لعرض المحافظات
   const ownerSafetyNet = provinceScope !== 'province';
   const memberUserIds = new Set(); // لطبقة الزيارات: مَن تُحتسب زياراتهم
@@ -499,20 +502,39 @@ export async function resolveAreaScope(user, { repUserId = null, companyId = nul
   const scopeUsers = [...new Set([...memberUserIds, repUserId].filter(Boolean))];
   for (const list of (await provinceAreaIdsByUser(scopeUsers)).values()) list.forEach(id => ids.add(id));
 
-  const areaIds = [...ids].filter(Boolean);
-  const areaRecords = areaIds.length
-    ? await prisma.area.findMany({ where: { id: { in: areaIds } }, select: { id: true, name: true } })
+  const candidateIds = [...ids].filter(Boolean);
+  const areaRecords = candidateIds.length
+    ? await prisma.area.findMany({ where: { id: { in: candidateIds }, ...(provinceId ? { provinceId } : {}) }, select: { id: true, name: true } })
     : [];
+  const areaIds = provinceId ? areaRecords.map(a => a.id) : candidateIds;
   const normToArea = await buildAreaNameIndex(areaRecords);
 
   const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
   const surveyIds = surveys.map(s => s.id);
 
+  // زيارة عضو في محافظة أخرى (مندوب بمحافظتين، أو زار خارج محافظته) ليست من هذا العرض.
+  // مفاتيح أسماء لأن الزيارة تُقارَن بالاسم. منطقة بلا محافظة لا تدخل هنا: تبقى في
+  // شريط «زيارات غير ظاهرة» كي تُكشف بدل أن تختفي بصمت.
+  let foreignAreaKeys = null;
+  if (provinceId) {
+    const others = await prisma.area.findMany({
+      where: { provinceId: { not: null, notIn: [provinceId] } },
+      select: { name: true },
+    });
+    foreignAreaKeys = new Set(others.map(a => normalizeAreaName(a.name)).filter(k => !normToArea.has(k)));
+  }
+
   return {
     areaIds, areaRecords, normToArea, normAreaNames: [...normToArea.keys()], surveyIds,
     memberUserIds: [...memberUserIds].filter(Boolean),
     memberRepIds:  [...memberRepIds].filter(Boolean),
+    foreignAreaKeys,
   };
+}
+
+/** هل تقع منطقة هذه الزيارة في محافظة غير المحافظة المختارة في النطاق؟ */
+export function isForeignAreaVisit(scope, areaName) {
+  return !!scope.foreignAreaKeys && !!areaName && scope.foreignAreaKeys.has(normalizeAreaName(areaName));
 }
 
 // ── overlayVisits(scope, dateFilter) ─────────────────────────────────────────
