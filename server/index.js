@@ -899,6 +899,21 @@ app.get('/api/sa/areas/review-queue', requireSuperAdmin, async (req, res) => {
   }
 });
 
+// POST /api/sa/areas/review-queue/confirm-bulk { ids } — تأكيد دفعة واحدة، تستعمله
+// واجهة المراجعة للمناطق التي لا يشبهها أي اسم (لا قرار فعلياً فيها غير التأكيد).
+app.post('/api/sa/areas/review-queue/confirm-bulk', requireSuperAdmin, async (req, res) => {
+  try {
+    const ids = (req.body?.ids ?? []).map(Number).filter(Number.isInteger);
+    if (ids.length === 0) return res.status(400).json({ success: false, error: 'لم تُحدَّد أي منطقة' });
+    const { count } = await prisma.area.updateMany({ where: { id: { in: ids }, needsReview: true }, data: { needsReview: false } });
+    const finalAreas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
+    res.json({ success: true, data: finalAreas, updated: count });
+  } catch (err) {
+    console.error('[area-review-queue-confirm-bulk]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // POST /api/sa/areas/review-queue/:id/confirm — تأكيد أن المنطقة جديدة فعلاً
 // (لا تشبه أي منطقة موجودة) — تُزال من الطابور فقط، بلا دمج.
 app.post('/api/sa/areas/review-queue/:id/confirm', requireSuperAdmin, async (req, res) => {
