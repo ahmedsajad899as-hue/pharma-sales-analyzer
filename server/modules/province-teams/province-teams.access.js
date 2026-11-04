@@ -13,6 +13,7 @@
 
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
+import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
 
 /** أدوار إدارة المكتب: ترى كل فرق المكتب، تبني الهيكلية، وتعتمد. */
 // «user» دور قديم لحسابات المكتب (يرى ما يراه موظف المكتب) — بلا مكتب لا يرى شيئاً أصلاً.
@@ -35,6 +36,7 @@ export async function loadViewer(reqUser) {
     select: {
       id: true, role: true, officeId: true, displayName: true, username: true,
       companyAssignments: { select: { companyId: true } },
+      linkedRep: { select: { repKind: true } },
       _count: { select: { provinceTeamsLed: true } },
     },
   });
@@ -55,12 +57,15 @@ export async function loadViewer(reqUser) {
     mode,
     canEditStructure: mode === 'office' && u.officeId != null,
     companyIds: u.companyAssignments.map(c => c.companyId),
+    // «مدير المسوقين» بدور company_manager لكنه ليس مدير شركة: فرق المحافظات للعلميين وحدهم.
+    marketersManager: u.role === 'company_manager' && u.linkedRep?.repKind === PHARMACY_KIND,
   };
 }
 
 /** شرط Prisma لفرق المحافظة المرئية لهذا المُشاهِد. */
 export function teamScopeWhere(viewer) {
   const mineOrLed = { OR: [{ leaderUserId: viewer.id }, { assignments: { some: { repUserId: viewer.id } } }] };
+  if (viewer.marketersManager) return mineOrLed;
   switch (viewer.mode) {
     case 'office':
       return viewer.officeId ? { officeId: viewer.officeId } : { id: -1 };
@@ -82,6 +87,7 @@ export function canSeeAssignment(viewer, team, a) {
   if (viewer.mode === 'office' && team.officeId === viewer.officeId) return true;
   if (team.leaderUserId === viewer.id) return true;
   if (a.repUserId === viewer.id) return true;
+  if (viewer.marketersManager) return false;
   if (viewer.mode === 'company' && team.officeId === viewer.officeId) return viewer.companyIds.includes(a.companyId);
   return false;
 }

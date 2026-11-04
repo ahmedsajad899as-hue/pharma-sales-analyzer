@@ -11,6 +11,7 @@ import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
 import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
 import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
+import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -2140,11 +2141,19 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
  * مسوق بغداد بمنطقة من محافظة لا يصير من مسوقيها. ومبيع تلك المنطقة يبقى في مجموع
  * المحافظة لأن مجموعها يُحسب من /api/reports/overall لا من هذه القائمة.
  * كل صف يحمل `leader`: تيم ليدر مسوقي المحافظة (null إن لم يوجد).
+ *
+ * «مدير المسوقين»: مسوقون فقط وفي المحافظات المسنَدة له فقط (marketersManagerScope.js).
  */
 export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerId = null) {
   // مدير الشركة يرى مندوبي فريقه فقط: قائمته تضم أيضاً مندوبي شركاته الثانوية في الفرق.
   const seat = await loadManagerSeat(viewerId);
-  const repIds = seat ? await repIdsInManagerTeam(seat, requestedRepIds) : requestedRepIds;
+  let repIds = seat ? await repIdsInManagerTeam(seat, requestedRepIds) : requestedRepIds;
+  const marketersScope = await loadMarketersManagerScope(viewerId);
+  if (marketersScope) {
+    if (!marketersScope.provinces.length) return [];
+    const rows = await prisma.scientificRepresentative.findMany({ where: { id: { in: repIds }, repKind: PHARMACY_KIND }, select: { id: true } });
+    repIds = rows.map(r => r.id);
+  }
   // دفعات صغيرة: عشرات المندوبين بالتوازي كانت تُحمِّل ذاكرة السيرفر (951MB) دفعة واحدة.
   const reports = [];
   for (let i = 0; i < repIds.length; i += 4) {
@@ -2233,6 +2242,7 @@ export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerI
   const byProvince = new Map();
   const touch = (prov, rep) => {
     if (!prov || isBaghdad(prov) || !belongs(prov, rep)) return null;
+    if (marketersScope && !marketersScope.provinces.includes(prov)) return null;
     if (!byProvince.has(prov)) byProvince.set(prov, new Map());
     const m = byProvince.get(prov);
     if (!m.has(rep.scientificRep.id)) {

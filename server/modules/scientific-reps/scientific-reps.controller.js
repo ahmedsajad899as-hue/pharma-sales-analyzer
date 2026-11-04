@@ -2,6 +2,7 @@ import * as svc from './scientific-reps.service.js';
 import { getMarketersWarehouseShare } from './marketers-warehouse.js';
 
 import { monthToRange } from '../../lib/salesMonths.js';
+import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
 
 // ── شريحة الشهر ──────────────────────────────────────────────────────────────
 // الواجهة ترسل `month` (2026-09 | none | all)، ونترجمه هنا إلى نفس مدى
@@ -66,6 +67,13 @@ export async function getMyAreas(req, res, next) {
   try {
     const areas = await svc.getMyAreas(req.user?.id ?? null);
     res.json({ success: true, data: areas });
+  } catch (err) { next(err); }
+}
+
+// GET /api/scientific-reps/my-marketers-scope — نطاق «مدير المسوقين» في التقارير؛ null لغيره.
+export async function getMyMarketersScope(req, res, next) {
+  try {
+    res.json({ success: true, data: await loadMarketersManagerScope(req.user?.id ?? null) });
   } catch (err) { next(err); }
 }
 

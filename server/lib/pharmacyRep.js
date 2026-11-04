@@ -66,6 +66,18 @@ export function marketerHomeProvinces(assignedProvinces = [], areaCounts = new M
 }
 
 /**
+ * ما يديره «مدير المسوقين»: المحافظات والأقسام المسنَدة له صراحةً (قسم من بغداد = بغداد).
+ * بلا إسناد صريح تحكم أكثرية مناطقه، فمنطقة شاردة في محافظة لا تفتح له تلك المحافظة.
+ * areaCounts: محافظة ← عدد مناطقه فيها.
+ * @returns {{baghdad:boolean, provinces:string[]}} provinces بلا بغداد
+ */
+export function marketersManagerCoverage({ assignedProvinces = [], assignedSideProvinces = [], areaCounts = new Map() } = {}) {
+  const direct = [...new Set([...assignedProvinces, ...assignedSideProvinces])];
+  const names = direct.length ? direct : marketerHomeProvinces([], areaCounts);
+  return { baghdad: names.some(isBaghdadProvince), provinces: names.filter(n => !isBaghdadProvince(n)) };
+}
+
+/**
  * تيم ليدر مسوقي كل محافظة (ProvinceTeam.leader قائد العلميين، وليس قائدهم). لكل محافظة:
  * الأكثر مسوقين فيها من قادة الفارمسي، ويُحسب القائد نفسه إن كانت محافظته. قائد بغداد لا يُعرض.
  * marketers: { id, name, isLeader, homes: string[], managerIds: number[] } — managerIds معرّفات مندوب.

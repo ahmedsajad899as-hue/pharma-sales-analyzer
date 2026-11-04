@@ -1047,12 +1047,28 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // «مدير المسوقين» = company_manager مسوّق (repKind من /me) — ليس مدير شركة
   const isMarketersManager = user?.role === 'company_manager' && user?.repKind === 'pharmacy';
   const canToggleRepKind = REP_KIND_TOGGLE_ROLES.has(user?.role ?? '') || (user?.role === 'team_leader' && myRepKind === 'pharmacy');
-  const [repKindView, setRepKindView] = useState<'scientific' | 'pharmacy'>(() => sessionStorage.getItem('rpt_repKind') === 'pharmacy' ? 'pharmacy' : 'scientific');
-  // قائد فريق الفارمسي ومدير المسوقين يبدآن على مسوقيهم ما لم يختارا غير ذلك.
-  const startsOnMarketers = isMarketersManager || (myRepKind === 'pharmacy' && user?.role === 'team_leader');
+  const [repKindViewRaw, setRepKindView] = useState<'scientific' | 'pharmacy'>(() => sessionStorage.getItem('rpt_repKind') === 'pharmacy' ? 'pharmacy' : 'scientific');
+  // مدير المسوقين على مسوقيه دائماً بلا زر؛ لا يرى العلميين في تبويبي المندوبين (طلب 2026-11-04).
+  const repKindView = isMarketersManager ? 'pharmacy' : repKindViewRaw;
+  // قائد فريق الفارمسي يبدأ على مسوقيه ما لم يختر غير ذلك.
+  const startsOnMarketers = myRepKind === 'pharmacy' && user?.role === 'team_leader';
   useEffect(() => {
     if (startsOnMarketers && !sessionStorage.getItem('rpt_repKind')) setRepKindView('pharmacy');
   }, [startsOnMarketers]);
+  // ما أُسند لمدير المسوقين: تبويب المحافظات لا يظهر إلا بمحافظات مسنَدة، وتبويب بغداد يختفي عمّن
+  // أُسندت له محافظات بلا بغداد. null = لم يُجلب بعد (أو ليس مدير مسوقين).
+  const [marketersScope, setMarketersScope] = useState<{ baghdad: boolean; provinces: string[] } | null>(null);
+  useEffect(() => {
+    if (!isMarketersManager || !token) return;
+    let dead = false;
+    fetch('/api/scientific-reps/my-marketers-scope', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (!dead) setMarketersScope(j?.data ?? { baghdad: true, provinces: [] }); })
+      .catch(() => { if (!dead) setMarketersScope({ baghdad: true, provinces: [] }); });
+    return () => { dead = true; };
+  }, [isMarketersManager, token]);
+  const provincesTabAllowed = !isMarketersManager || !!marketersScope?.provinces.length;
+  const baghdadTabAllowed = !isMarketersManager || !marketersScope || marketersScope.baghdad || !marketersScope.provinces.length;
   // المسوقون لا شركة رئيسية لهم (متعددو الشركات) — يُجمَّعون بالكرخ/الرصافة (rep.side من
   // مناطقهم) في مكان الشركة: القائمة المنسدلة وسطر الأزرار السريعة وتصدير «حسب الشركة».
   const filterByKind = useCallback((list: Rep[], kind: 'scientific' | 'pharmacy') => {
@@ -1062,7 +1078,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // «علمي بغداد» لا تعرض تيم ليدرية/مندوبي المحافظات (فرق المحافظات)؛ الخريطة تبقى بالقائمة الكاملة
   const sciReps = useMemo(() => filterByKind(sciRepsAll, repKindView), [sciRepsAll, repKindView, filterByKind]);
   // «مندوبين المحافظات»: نفس زر العلميين / المسوقين بحالة مستقلة — تبديله لا يمسّ تقرير «علمي بغداد».
-  const [provKind, setProvKind] = useState<'scientific' | 'pharmacy'>(() => sessionStorage.getItem('rpt_provKind') === 'pharmacy' ? 'pharmacy' : 'scientific');
+  const [provKindRaw, setProvKind] = useState<'scientific' | 'pharmacy'>(() => sessionStorage.getItem('rpt_provKind') === 'pharmacy' ? 'pharmacy' : 'scientific');
+  const provKind = isMarketersManager ? 'pharmacy' : provKindRaw;
   useEffect(() => {
     if (startsOnMarketers && !sessionStorage.getItem('rpt_provKind')) setProvKind('pharmacy');
   }, [startsOnMarketers]);
@@ -1084,6 +1101,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // المسوقون: تقرير مجموعة — «grp:all» = بغداد (كل المسوقين)، «grp:<القسم>» = الكرخ/الرصافة.
   // يُفتح «بغداد» افتراضياً عند دخول المسوقين، ثم يمكن تضييقه لقسم أو مندوب.
   const marketersView = canToggleRepKind && repKindView === 'pharmacy';
+  const allRepsLabel = marketersView ? 'كل المسوقين' : 'كل المندوبين العلميين';
+  const repColumnLabel = marketersView ? 'المسوق' : 'المندوب العلمي';
   const isGroupId = (id: string) => id.startsWith('grp:');
   const groupOf = (id: string, list: Rep[] = sciReps) => {
     const side = id.slice(4);
@@ -1104,8 +1123,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // والقيمة الفعلية = الحالة ∧ الميزة، كي لا تبقى حالة محفوظة بالجلسة تصفّي بزر مخفي.
   const canExPharm = hasFeature('sci_exclude_pharmacy');
   const canExComm = hasFeature('sci_exclude_commercial');
-  const canClassTable = hasFeature('sci_class_table');
-  const canMergeWh = hasFeature('sci_merge_warehouses');
+  // جدول «علمي / تجاري / فارمسي» ودمج المذاخر مع العلمي لا معنى لهما عند مدير المسوقين.
+  const canClassTable = hasFeature('sci_class_table') && !isMarketersManager;
+  const canMergeWh = hasFeature('sci_merge_warehouses') && !isMarketersManager;
   const [excludePharmacyRaw, setExcludePharmacy] = useState(() => sessionStorage.getItem('rpt_exPharm') === '1');
   const excludePharmacy = excludePharmacyRaw && canExPharm;
   const showExcludePharmacy = canToggleRepKind && (provReportOpen ? provKind !== 'pharmacy' : !marketersView);
@@ -1679,7 +1699,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
 
   const loadSciReport = async (repIdOverride?: string, opts: { list?: Rep[]; exPharm?: boolean; exComm?: boolean } = {}) => {
     const id = repIdOverride ?? sciRepId;
-    if (!id) { setError(t.reports.errSelectSci); return; }
+    if (!id) { setError(marketersView ? 'اختر مسوّقاً أولاً' : t.reports.errSelectSci); return; }
     const req = sciReportReq(id, opts);
     if (!req) { setSciReport(null); setSciReturnsReport(null); return; }
     const myReq = ++sciReportSeq;
@@ -1715,6 +1735,20 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     loadSciReport(id, { list: provReps });
     requestAnimationFrame(() => provReportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
+
+  // تبويب محفوظ بالجلسة لم يعد ضمن ما أُسند لمدير المسوقين ← ينتقل لما أُسند له.
+  useEffect(() => {
+    if (!marketersScope) return;
+    if (mode === 'provinces' && !provincesTabAllowed) {
+      setProvRepOpen(false);
+      setMode('scientific');
+      const rid = defaultSciPick(sciRepId);
+      if (rid) { if (rid !== sciRepId) setSciRepId(rid); loadSciReport(rid); }
+    } else if (mode === 'scientific' && !baghdadTabAllowed) {
+      setMode('provinces');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marketersScope, mode]);
 
   // مذاخر المسوقين — يُطلب فقط والزر وجدول التصنيف ظاهران (حسابه ثقيل: كل المسوقين).
   const mktWhReq = (() => {
@@ -2772,7 +2806,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       const itemCodeKey   = headers.find(isItemCodeKey);
       const provinceKey   = headers.find(h => groupOf(h) === PROVINCE_GROUP);
       const itemKey       = headers.find(h => groupOf(h) === ITEM_GROUP);
-      const sciHeader  = t.reports.exportColSciRep;
+      const sciHeader  = marketersView ? 'اسم المسوق' : t.reports.exportColSciRep;
       const typeHeader = t.reports.exportColRecordType;
       // «رقم الفاتورة → تاريخ → المندوب → … → ملاحظة» first; sciHeader/typeHeader don't
       // match any canonical slot so they naturally fall after «ملاحظة» with the rest.
@@ -2849,7 +2883,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         }),
       ];
     }
-    const sciHeader  = t.reports.exportColSciRep;
+    const sciHeader  = marketersView ? 'اسم المسوق' : t.reports.exportColSciRep;
     const typeHeader = t.reports.exportColRecordType;
     const baseHeaders = [t.reports.exportColRepName, t.reports.colArea, t.reports.colItem, t.reports.colQty, t.reports.exportColValTotal, t.reports.exportColDate];
     // لا rawData هنا (بيانات مُجمَّعة من التطبيق لا من ملف) — الأعمدة كلها من
@@ -3791,7 +3825,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     } else {
       const cv = (n: number) => +convertVal(n).toFixed(2);
       const companyById = new Map(sciReps.map(r => [r.id, r.company || 'بدون شركة']));
-      const header = ['#', 'الشركة', 'المندوب العلمي', `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`,
+      const header = ['#', 'الشركة', repColumnLabel, `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`,
         ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', 'أسماء المذاخر'];
       const body = cols.map((r, i) => [
         i + 1, companyById.get(r.id) || '', r.name, cv(r.netValue),
@@ -3809,7 +3843,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       for (let r = 1; r <= body.length; r++) {
         for (let c = 3; c <= 3 + warehouseClassCols.length; c++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c }));
       }
-      XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('كل المندوبين العلميين'));
+      XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(allRepsLabel));
     }
     XLSX.writeFile(wb, `مكتب-مذخر-المندوبين_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
@@ -4095,7 +4129,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       {/* Mode toggle */}
       <div className="m-scroll-row" style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', alignItems: 'flex-end', marginBottom: 0 }}>
         {([['overall','تحليل شامل','navReports'], ['scientific','مندوبين بغداد','navFms'], ['commercial',t.reports.modeCommercial,'navCommercial'], ['provinces','مندوبين المحافظات','location']] as [string,string,import('../config/icons').IconName][])
-          .filter(([id]) => !((id === 'commercial' || id === 'provinces') && user?.role === 'scientific_rep') && (SHOW_COMMERCIAL_MODE || id !== 'commercial'))
+          .filter(([id]) => !((id === 'commercial' || id === 'provinces') && user?.role === 'scientific_rep') && (SHOW_COMMERCIAL_MODE || id !== 'commercial')
+            && (id !== 'provinces' || provincesTabAllowed) && (id !== 'scientific' || baghdadTabAllowed))
           .map(([id, label, icon]) => (
           <button key={id} onClick={() => {
             if (id === 'provinces') { setMode('provinces'); setError(''); setProvRepOpen(false); }
@@ -4129,7 +4164,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       {mode !== 'provinces' && (
       <div className="filter-card">
         {/* علميين / مسوقين — سطر مستقل فوق بقية أدوات التحليل */}
-        {mode === 'scientific' && canToggleRepKind && (
+        {mode === 'scientific' && canToggleRepKind && !isMarketersManager && (
           <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2, alignSelf: 'flex-start', width: 'fit-content', marginBottom: 8 }}>
             {([['scientific', '🩺 العلميين'], ['pharmacy', '🏪 المسوقين']] as const).map(([k, label]) => (
               <button key={k} type="button"
@@ -4175,7 +4210,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 e.target.blur();
                 setSciRepId(e.target.value); if (e.target.value) { setReportView(getDefaultReportView()); loadSciReport(e.target.value); }
               }}>
-              <option value="">-- {t.reports.selectSciRep} --</option>
+              <option value="">-- {marketersView ? 'اختر مسوّقاً' : t.reports.selectSciRep} --</option>
               {canToggleRepKind && (
                 <optgroup label="المجموع">
                   {marketersView && <option value="grp:all">🏙️ بغداد — كل المسوقين</option>}
@@ -4360,9 +4395,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 <span style={{ width: 1, alignSelf: 'stretch', background: '#e2e8f0' }} />
                 <button
                   onClick={() => { setShowAllRepsWarehouseModal(true); setWarehouseCompanyFilter(''); loadAllRepsWarehouseSummary(); }}
-                  title="كل المندوبين العلميين — مكتب/مذخر"
+                  title={`${allRepsLabel} — مكتب/مذخر`}
                   style={{ padding: '0 10px', height: '100%', border: 'none', background: '#eff6ff', color: '#1d4ed8', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}
-                ><Icon name="pharmacy" size={13} /> كل المندوبين العلميين</button>
+                ><Icon name="pharmacy" size={13} /> {allRepsLabel}</button>
               </>
             )}
           </div>
@@ -4439,10 +4474,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       </div>
       )}
 
-      {mode === 'provinces' && (
+      {mode === 'provinces' && provincesTabAllowed && (
         <>
           <div className="filter-card" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            {canToggleRepKind && (
+            {canToggleRepKind && !isMarketersManager && (
               <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2, width: 'fit-content' }}>
                 {([['scientific', '🩺 العلميين'], ['pharmacy', '🏪 المسوقين']] as const).map(([k, label]) => (
                   <button key={k} type="button"
@@ -4474,6 +4509,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           )}
           <IraqRepsMap reps={provReps} token={token} fileIds={activeFileIds} applyMonth={applyMonth} months={monthsState.months.map(m => m.ym)} ready={monthsReady} monthKey={selMonth} fromDate={fromDate} toDate={toDate} fmtVal={fmtVal} currencyLabel={fileCurrencyMode === 'USD' ? '$' : 'د.ع'}
             repKind={canToggleRepKind ? provKind : undefined}
+            scopedProvinces={isMarketersManager ? marketersScope?.provinces : undefined}
             conditionRev={provCondRev}
             onAddCondition={canProvCondition ? () => { setProvCondMsg(''); setShowProvCondition(true); } : undefined}
             onOpenRep={openProvRep}
@@ -6059,7 +6095,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               {/* Scientific Reps */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <strong style={{ color: '#374151', fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="navFms" size={13} /> {t.reports.exportSciLabel} ({sciReps.length})</strong>
+                  <strong style={{ color: '#374151', fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="navFms" size={13} /> {marketersView ? 'المسوقون' : t.reports.exportSciLabel} ({sciReps.length})</strong>
                   <button style={{ fontSize: 12, color: '#10b981', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}
                     onClick={() => {
                       const s = new Set(selSciIds);
@@ -6195,7 +6231,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         <div className="modal-overlay" onClick={() => setShowAllRepsWarehouseModal(false)}>
           <div className="modal modal--wide" style={{ maxWidth: warehouseViewMode === 'pivot' ? '95vw' : 780 + warehouseClassCols.length * 120 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 className="modal-title">{warehouseShowLeaders ? 'قادة الفرق العلميون' : 'كل المندوبين العلميين'} — مكتب / مذخر</h2>
+              <h2 className="modal-title">{warehouseShowLeaders ? (marketersView ? 'قادة الفرق' : 'قادة الفرق العلميون') : allRepsLabel} — مكتب / مذخر</h2>
               <button className="modal-close" onClick={() => setShowAllRepsWarehouseModal(false)}><Icon name="close" size={16} /></button>
             </div>
             <div style={{ padding: '14px 22px 22px' }}>
@@ -6265,7 +6301,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   <Icon name="loading" size={20} className="icon-spin" /><div style={{ marginTop: 8 }}>جاري التحميل...</div>
                 </div>
               ) : !allRepsWarehouseData || allRepsWarehouseData.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا يوجد مندوبون علميون بيانات</div>
+                <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>{marketersView ? 'لا توجد بيانات للمسوقين' : 'لا يوجد مندوبون علميون بيانات'}</div>
               ) : warehouseViewMode === 'list' ? (() => {
                 const { cols } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders, warehouseCompanyFilter);
                 const companyById = new Map(sciReps.map(r => [r.id, r.company || '']));
@@ -6285,7 +6321,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
                       <tr>
-                        {['#', 'المندوب العلمي', 'صافي المبيع', ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', ''].map((h, hi, all) => (
+                        {['#', repColumnLabel, 'صافي المبيع', ...warehouseClassCols.map(([, label]) => label), 'طلبيات المكتب', 'طلبيات المذخر', 'الإجمالي', ''].map((h, hi, all) => (
                           <th key={hi} style={{
                             ...listTh,
                             textAlign: hi === 1 ? 'right' : 'center',

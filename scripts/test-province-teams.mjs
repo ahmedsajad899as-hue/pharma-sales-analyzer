@@ -6,7 +6,7 @@ import {
   assignmentFillsSeat, planSeatAssignments, repBelongsToSeat, removedProvinceIds, marketerTeamLinksToDrop,
 } from '../server/modules/province-teams/province-teams.rules.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../server/modules/province-teams/personal-sale-trigger.js';
-import { marketerHomeProvinces, pickMarketerLeaders, managesProvinceMarketers } from '../server/lib/pharmacyRep.js';
+import { marketerHomeProvinces, pickMarketerLeaders, managesProvinceMarketers, marketersManagerCoverage } from '../server/lib/pharmacyRep.js';
 
 let passed = 0;
 const t = (name, fn) => { fn(); passed++; console.log(`✓ ${name}`); };
@@ -19,6 +19,22 @@ t('مدير مسوقي المحافظات: محافظات بلا بغداد', ()
   assert.equal(managesProvinceMarketers(['بغداد']), false);
   assert.equal(managesProvinceMarketers(['بغداد', 'الأنبار']), false);
   assert.equal(managesProvinceMarketers([]), false);
+});
+
+t('نطاق مدير المسوقين: ما أُسند له فقط', () => {
+  // بغداد عبر الكرخ والرصافة: لا محافظات
+  assert.deepEqual(marketersManagerCoverage({ assignedSideProvinces: ['بغداد', 'بغداد'] }), { baghdad: true, provinces: [] });
+  // محافظات بلا بغداد
+  assert.deepEqual(marketersManagerCoverage({ assignedProvinces: ['الأنبار', 'واسط'] }), { baghdad: false, provinces: ['الأنبار', 'واسط'] });
+  // الإسناد الصريح لمحافظة مع بغداد يبقى
+  assert.deepEqual(marketersManagerCoverage({ assignedProvinces: ['الأنبار'], assignedSideProvinces: ['بغداد'] }), { baghdad: true, provinces: ['الأنبار'] });
+  // الإسناد الصريح يغلب المناطق الشاردة
+  assert.deepEqual(marketersManagerCoverage({ assignedSideProvinces: ['بغداد'], areaCounts: new Map([['الأنبار', 5]]) }), { baghdad: true, provinces: [] });
+  // بلا إسناد صريح: أكثرية المناطق، فمنطقة شاردة لا تفتح محافظتها
+  assert.deepEqual(marketersManagerCoverage({ areaCounts: new Map([['بغداد', 30], ['الأنبار', 1]]) }), { baghdad: true, provinces: [] });
+  assert.deepEqual(marketersManagerCoverage({ areaCounts: new Map([['الأنبار', 4]]) }), { baghdad: false, provinces: ['الأنبار'] });
+  // بلا أي إسناد: لا شيء
+  assert.deepEqual(marketersManagerCoverage(), { baghdad: false, provinces: [] });
 });
 
 t('فصل المسوق عن فريق العلميين: يُحذف الرابط المختلط فقط', () => {

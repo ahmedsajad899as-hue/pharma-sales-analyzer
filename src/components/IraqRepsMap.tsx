@@ -21,6 +21,8 @@
 //   • عرض «أسماء المندوبين»: جدول لكل محافظة (تيم ليدر + مندوبون + المبيع مقابل اللكوديشن)
 //     يدمج province-map مع /api/province-teams/directory؛ مندوب الفريق يأخذ قيمة تغطية
 //     الفريق نفسها في نافذة «فرق المحافظات». الضغط على اسم يفتح تقريره (onOpenRep).
+//   • مدير المسوقين (scopedProvinces): جدول الأسماء وحده، بمحافظاته ومسوقيه فقط. مبيع المحافظة
+//     = مجموع مسوقيه من province-map، بلا شركات ولا فرق العلميين ولا لكوديشن المكتب.
 //
 // ⚠️ الجلب يتحرّك بالملفات + الشهر فقط. حقلا التواريخ في ReportsPage يتبدّلان
 // تلقائياً (فارغ↔مملوء)، وإدخالهما في الاعتماديات سبّب حلقة جلب لا تنتهي.
@@ -53,6 +55,8 @@ interface Props {
   currencyLabel: string;
   /** زر «العلميين / المسوقين». بلا قيمة = قائمة مختلطة كما هي (أدوار بلا الزر). */
   repKind?: 'scientific' | 'pharmacy';
+  /** مدير المسوقين: المحافظات المسنَدة له. بلا قيمة = كل المحافظات وكل البيانات. */
+  scopedProvinces?: string[];
   /** يُزاد بعد حفظ كوديشن جديد → تُجلب المقارنة من جديد بلا انتظار المخبأ. */
   conditionRev?: number;
   /** زر «إدخال كوديشن (إكسل)» — يظهر فقط إن مُرِّر. */
@@ -226,9 +230,13 @@ function PlexusBackground() {
   return <canvas ref={ref} aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }} />;
 }
 
-export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel, repKind, conditionRev = 0, onAddCondition, onOpenRep, selectedRepId }: Props) {
-  const [view, setViewState] = useState<'names' | 'map'>(() => sessionStorage.getItem('rpt_provView') === 'map' ? 'map' : 'names');
-  const setView = (v: 'names' | 'map') => { setViewState(v); try { sessionStorage.setItem('rpt_provView', v); } catch { /* ignore */ } };
+export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months = [], ready = true, monthKey, fromDate, toDate, fmtVal, currencyLabel, repKind, scopedProvinces, conditionRev = 0, onAddCondition, onOpenRep, selectedRepId }: Props) {
+  const scopedKey = scopedProvinces?.join('|');
+  const scopedSet = useMemo(() => (scopedProvinces ? new Set(scopedProvinces.map(norm)) : null), [scopedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const marketersOnly = !!scopedSet;
+  const [viewState, setViewState] = useState<'names' | 'map'>(() => sessionStorage.getItem('rpt_provView') === 'map' ? 'map' : 'names');
+  const view = marketersOnly ? 'names' : viewState;
+  const setView =(v: 'names' | 'map') => { setViewState(v); try { sessionStorage.setItem('rpt_provView', v); } catch { /* ignore */ } };
   const [teams, setTeams] = useState<TeamLite[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
   // المحافظة المفتوح توزيع شركاتها في جدول الأسماء
@@ -291,6 +299,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   // ── مبيع المحافظات (لا ينتظر قائمة المندوبين) ──────────────────────────────
   useEffect(() => {
+    if (marketersOnly) return; // مبيع محافظته = مجموع مسوقيه، لا مبيع المكتب
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
@@ -413,6 +422,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const [cond, setCond] = useState<CondRows>(EMPTY_COND);
   const [loadingCond, setLoadingCond] = useState(false);
   useEffect(() => {
+    if (marketersOnly) return; // condFiles تبقى null فلا تُجلب المقارنة
     let dead = false;
     fetch('/api/files', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => (r.ok ? r.json() : { data: [] }))
@@ -490,7 +500,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   // ── فرق المحافظات لعرض الأسماء — تحسب التغطية فلا تُجلب إلا حين يظهر الجدول ──
   useEffect(() => {
-    if (view !== 'names' || !ready) return;
+    if (view !== 'names' || !ready || marketersOnly) return;
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
@@ -535,6 +545,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       return c;
     };
     const isProv = (name: string) => { const k = norm(name); return k !== BAGHDAD && OFFICIAL_PROVINCES.has(k); };
+    // كل محافظة مسنَدة تظهر صفاً حتى بلا مسوقين أو مبيع
+    for (const name of scopedProvinces ?? []) { if (isProv(name)) cell(name); }
     for (const v of salesRows.prov.values()) { if (isProv(v.name)) cell(v.name).total = v.value; }
     for (const r of salesRows.pc) {
       if (!isProv(r.p) || norm(r.c) === UNASSIGNED) continue;
@@ -547,6 +559,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     }
     for (const pr of repData) {
       if (norm(pr.provinceName) === BAGHDAD) continue;
+      // صفوف قديمة من المخبأ قبل أن يردّ السيرفر بالنطاق
+      if (scopedSet && !scopedSet.has(norm(pr.provinceName))) continue;
       const pc = cell(pr.provinceName);
       // المسوق متعدد الشركات بلا شركة رئيسية — قائمة واحدة للمحافظة لا تحت شركة
       for (const rep of pr.reps) {
@@ -558,7 +572,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     }
     for (const pc of out.values()) pc.companies.sort((a, b) => b.value - a.value);
     return out;
-  }, [salesRows, repData, companyOf, cond, marketers]);
+  }, [salesRows, repData, companyOf, cond, marketers, scopedSet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list = useMemo(() => [...cells.values()].sort((a, b) => b.total - a.total), [cells]);
   const maxVal = Math.max(1, ...list.map(c => c.total));
@@ -621,9 +635,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     }
     return rows.filter(c => {
       const n = nameRows.get(norm(c.name));
-      return c.total !== 0 || c.cond !== 0 || !!n?.leader || (n?.reps.length ?? 0) > 0;
+      return marketersOnly || c.total !== 0 || c.cond !== 0 || !!n?.leader || (n?.reps.length ?? 0) > 0;
     });
-  }, [list, teams, cells, nameRows]);
+  }, [list, teams, cells, nameRows, marketersOnly]);
 
   // عدد المندوبين في البطاقة: بعد جلب الفرق يطابق الأسماء الظاهرة في الجدول
   const namesRepCount = useMemo(() => {
@@ -902,7 +916,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
           <span style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>{marketers ? 'مسوقو المحافظات' : 'مندوبو المحافظات'}</span>
           <span style={{ fontSize: 11.5, color: '#64748b' }}>
-            {onOpenRep ? 'اضغط على اسم لفتح تقريره، وعلى المحافظة لعرض شركاتها.' : 'اضغط على المحافظة لعرض شركاتها.'}
+            {marketersOnly
+              ? (onOpenRep ? 'اضغط على اسم لفتح تقريره.' : '')
+              : onOpenRep ? 'اضغط على اسم لفتح تقريره، وعلى المحافظة لعرض شركاتها.' : 'اضغط على المحافظة لعرض شركاتها.'}
             {hasCond ? ` ${condTotalNote}` : ''}
           </span>
           {(loadingTeams || loading) && <span style={{ fontSize: 11.5, color: '#64748b' }}>جاري التحميل…</span>}
@@ -930,9 +946,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                   const p = pctOf(c.cond, c.total);
                   return (
                     <React.Fragment key={k}>
-                      <tr onClick={() => { setSel(c.name); setOpenProv(open ? null : k); }} style={{ cursor: 'pointer', background: open ? '#f8fafc' : undefined, verticalAlign: 'top' }}>
+                      <tr onClick={marketersOnly ? undefined : () => { setSel(c.name); setOpenProv(open ? null : k); }} style={{ cursor: marketersOnly ? 'default' : 'pointer', background: open ? '#f8fafc' : undefined, verticalAlign: 'top' }}>
                         <td style={{ ...tableTd, fontWeight: 800 }}>
-                          <span style={{ color: '#94a3b8', marginInlineEnd: 5, fontSize: 11 }}>{open ? '▾' : '◂'}</span>{c.name}
+                          {!marketersOnly && <span style={{ color: '#94a3b8', marginInlineEnd: 5, fontSize: 11 }}>{open ? '▾' : '◂'}</span>}{c.name}
                         </td>
                         <td style={tableTd}>{n?.leader ? nameBtn(n.leader.id, n.leader.name, { leader: true }) : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                         <td style={{ ...tableTd, whiteSpace: 'normal' }}>
@@ -1043,9 +1059,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         {([
           ['صافي مبيع المحافظات', `${fmtVal(totals.value)} ${currencyLabel}`, '#2f66d6', ''],
           ...(hasCond ? [['لكوديشن المحافظات', `${fmtVal(totals.cond)} ${currencyLabel}`, '#0891b2', `${pctTxt(pctOf(totals.cond, totals.value))} من صافي مبيع المحافظات`]] : []),
-          ['الشركات', String(totals.companies), '#0f766e', ''],
+          ...(marketersOnly ? [] : [['الشركات', String(totals.companies), '#0f766e', '']]),
           [marketers ? 'المسوقون' : 'المندوبون العلميون', String(teams.length ? namesRepCount : totals.reps), marketers ? '#b45309' : '#7c3aed', ''],
-          ['المحافظات النشطة', `${totals.provinces} / 17`, '#ea580c', ''],
+          ['المحافظات النشطة', `${totals.provinces} / ${scopedSet ? scopedSet.size : 17}`, '#ea580c', ''],
         ] as [string, string, string, string][]).map(([l, v, c, sub]) => (
           <div key={l} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '10px 14px', position: 'relative', overflow: 'hidden' }}>
             <span style={{ position: 'absolute', insetInlineStart: 0, top: 0, bottom: 0, width: 4, background: c }} />
@@ -1057,19 +1073,23 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 999, overflow: 'hidden', background: '#fff' }}>
-          {([['names', '👥 أسماء المندوبين'], ['map', '🗺️ الخريطة']] as const).map(([v, label]) => (
-            <button key={v} type="button" onClick={() => setView(v)}
-              style={{ border: 'none', cursor: 'pointer', padding: '7px 16px', fontSize: 13, fontWeight: 700, background: view === v ? '#0f172a' : 'transparent', color: view === v ? '#fff' : '#475569' }}>
-              {label}
-            </button>
-          ))}
-        </div>
+        {!marketersOnly && (
+          <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 999, overflow: 'hidden', background: '#fff' }}>
+            {([['names', '👥 أسماء المندوبين'], ['map', '🗺️ الخريطة']] as const).map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setView(v)}
+                style={{ border: 'none', cursor: 'pointer', padding: '7px 16px', fontSize: 13, fontWeight: 700, background: view === v ? '#0f172a' : 'transparent', color: view === v ? '#fff' : '#475569' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <span style={{ flex: 1 }} />
-        <button type="button" onClick={() => { setDirProvince(null); setTeamsOpen(true); }}
-          style={{ border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-          فرق المحافظات (ايتمات وتارگت)
-        </button>
+        {!marketersOnly && (
+          <button type="button" onClick={() => { setDirProvince(null); setTeamsOpen(true); }}
+            style={{ border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            فرق المحافظات (ايتمات وتارگت)
+          </button>
+        )}
         {onAddCondition && (
           <button type="button" onClick={onAddCondition}
             style={{ border: '1px solid #0891b2', background: '#ecfeff', color: '#0e7490', borderRadius: 999, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
