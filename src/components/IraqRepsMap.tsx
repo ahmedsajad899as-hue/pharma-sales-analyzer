@@ -968,8 +968,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       <button type="button" disabled={!clickable} title={clickable ? `فتح تقرير ${label}` : undefined}
         onClick={e => { e.stopPropagation(); if (clickable) onOpenRep!(id!, province); }}
         style={{
-          background: 'none', border: 'none', padding: '0 1px', cursor: clickable ? 'pointer' : 'default', fontSize: leader ? 13 : 11, lineHeight: 1.5,
-          color: !isActive ? '#94a3b8' : leader ? '#1f4fb4' : on ? '#0f172a' : '#475569', fontWeight: leader ? 800 : on ? 700 : 500,
+          // opacity: اسم بلا تقرير يبقى واضحاً، و button:disabled في App.css كان يبهته
+          background: 'none', border: 'none', padding: '0 1px', opacity: 1, cursor: clickable ? 'pointer' : 'default', fontSize: leader ? 14.5 : 12.5, lineHeight: 1.5,
+          color: !isActive ? '#94a3b8' : leader ? '#1f4fb4' : on ? '#0f172a' : '#334155', fontWeight: leader ? 800 : on ? 700 : 500,
           textDecoration: on ? 'underline' : 'none', textUnderlineOffset: 3, whiteSpace: 'nowrap',
         }}>
         {label}{isActive ? '' : ' (غير نشط)'}
@@ -981,19 +982,19 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     // عمود الشركة يمثل تيم المندوب العلمي؛ المسوق بلا شركة رئيسية
     const showCompany = !marketers;
     const colSpan = 3 + (hasCond ? 1 : 0) + (showCompany ? 1 : 0);
-    const th: React.CSSProperties = { ...tableTh, padding: '5px 8px', fontSize: 11 };
-    const td: React.CSSProperties = { ...tableTd, padding: '2px 8px', fontSize: 11, borderBottom: 'none' };
+    const th: React.CSSProperties = { ...tableTh, padding: '5px 8px', fontSize: 12 };
+    const td: React.CSSProperties = { ...tableTd, padding: '2px 8px', fontSize: 12.5, borderBottom: 'none' };
     // الأرقام بمحاذاة خاناتها: الآحاد فوق الآحاد على طول العمود
     const num: React.CSSProperties = { ...td, textAlign: 'right', direction: 'ltr', fontVariantNumeric: 'tabular-nums', width: '16%' };
-    const lead: React.CSSProperties = { padding: '4px 8px', fontSize: 12, borderBottom: 'none', borderTop: '1px solid #cbd5e1' };
-    const foot: React.CSSProperties = { padding: '5px 8px', fontSize: 11.5, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8', borderBottom: 'none' };
+    const lead: React.CSSProperties = { padding: '4px 8px', fontSize: 13.5, borderBottom: 'none', borderTop: '1px solid #cbd5e1' };
+    const foot: React.CSSProperties = { padding: '5px 8px', fontSize: 13.5, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8', borderBottom: 'none' };
     const valColor = (v: number | null) => (v != null && v < 0 ? '#be123c' : undefined);
     const dash = <span style={{ color: '#cbd5e1' }}>—</span>;
-    const pctTag = (p: number) => <span style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginInlineEnd: 6 }}>{pctTxt(p)}</span>;
+    const pctTag = (p: number) => <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginInlineEnd: 6 }}>{pctTxt(p)}</span>;
     return (
       <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 10 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 900, color: '#0f172a' }}>{marketers ? 'مسوقو المحافظات' : 'مندوبو المحافظات'}</span>
+          <span style={{ fontSize: 14, fontWeight: 900, color: '#0f172a' }}>{marketers ? 'مسوقو المحافظات' : 'مندوبو المحافظات'}</span>
           {(loadingTeams || loading) && <span style={{ fontSize: 11, color: '#64748b' }}>جاري التحميل…</span>}
         </div>
         {nameList.length === 0 ? (
@@ -1022,11 +1023,11 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                         <td style={{ ...lead, whiteSpace: 'nowrap', width: 1 }}>
                           {!marketersOnly && <span style={{ color: '#94a3b8', marginInlineEnd: 4, fontSize: 10 }}>{open ? '▾' : '◂'}</span>}
                           {n?.leader
-                            ? <>{nameBtn(n.leader.id, n.leader.name, c.name, { leader: true })}<span style={{ fontSize: 10.5, color: '#64748b', marginInlineStart: 6 }}>{c.name}</span></>
-                            : <span style={{ fontWeight: 800, color: '#334155' }}>{c.name}</span>}
+                            ? <>{nameBtn(n.leader.id, n.leader.name, c.name, { leader: true })}<span style={{ fontSize: 12.5, fontWeight: 600, color: '#475569', marginInlineStart: 6 }}>{c.name}</span></>
+                            : <span style={{ fontSize: 14, fontWeight: 800, color: '#334155' }}>{c.name}</span>}
                         </td>
                         <td colSpan={showCompany ? 2 : 1} style={lead}>
-                          {!n?.reps.length && <span style={{ fontSize: 10.5, color: '#94a3b8' }}>لا يوجد {repWord}</span>}
+                          {!n?.reps.length && <span style={{ fontSize: 11.5, color: '#64748b' }}>لا يوجد {repWord}</span>}
                         </td>
                         <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.total) ?? '#111827' }}>{fmtVal(c.total)}</td>
                         {hasCond && (
@@ -1041,9 +1042,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                         <tr key={r.key}>
                           <td style={td} />
                           <td style={td}>{nameBtn(r.id, r.name, c.name, { active: r.active })}</td>
-                          {showCompany && <td style={{ ...td, whiteSpace: 'normal', fontSize: 10.5, color: '#64748b' }}>{r.company || dash}</td>}
-                          <td style={{ ...num, color: valColor(r.sales) ?? '#475569' }}>{r.sales != null ? fmtVal(r.sales) : dash}</td>
-                          {hasCond && <td style={{ ...num, color: valColor(r.cond) ?? '#475569' }}>{r.cond ? fmtVal(r.cond) : dash}</td>}
+                          {showCompany && <td style={{ ...td, whiteSpace: 'normal', fontSize: 12, color: '#475569' }}>{r.company || dash}</td>}
+                          <td style={{ ...num, color: valColor(r.sales) ?? '#334155' }}>{r.sales != null ? fmtVal(r.sales) : dash}</td>
+                          {hasCond && <td style={{ ...num, color: valColor(r.cond) ?? '#334155' }}>{r.cond ? fmtVal(r.cond) : dash}</td>}
                         </tr>
                       ))}
                       {open && (
