@@ -153,14 +153,13 @@ export default function RepSalesPage() {
 
   const totals = useMemo(() => {
     const confirmed = emptyTally(); const pending = emptyTally();
-    let cancelled = 0; let noInvoice = 0; let unpriced = 0;
+    let cancelled = 0; let noInvoice = 0;
     for (const s of filtered) {
       if (s.status === 'cancelled') { cancelled += 1; continue; }
       addTo(s.status === 'confirmed' ? confirmed : pending, s);
       if (s.status === 'confirmed' && !s.invoiceImage) noInvoice += 1;
-      unpriced += s.lines.filter(l => l.unitPrice == null).length;
     }
-    return { confirmed, pending, cancelled, noInvoice, unpriced };
+    return { confirmed, pending, cancelled, noInvoice };
   }, [filtered]);
 
   const visible = useMemo(() => filtered.filter(s => view === 'all' || s.status === view), [filtered, view]);
@@ -265,7 +264,6 @@ export default function RepSalesPage() {
           <span className="rs-tile__sub">بانتظار صورة الفاتورة</span>
         </div>
       </div>
-      {totals.unpriced > 0 && <div className="rs-hint">{totals.unpriced} سطر لايتم خارج الكتالوج بلا سعر، فقيمته غير محسوبة في المجموع (كميته محسوبة).</div>}
 
       <div className="rs-tabs" role="tablist">
         <button role="tab" aria-selected={activeTab === 'list'} className={activeTab === 'list' ? 'is-active' : ''} onClick={() => setTab('list')}>المبيعات</button>
