@@ -14,7 +14,7 @@ import { shareOfficeFilesWithNewUser } from '../../lib/officeFileShares.js';
 import { loadSeatManagers, loadMarketerManagers, leaderScopeFromManagers } from '../../lib/provinceSeats.js';
 import { PHARMACY_KIND, BAGHDAD_PROVINCE } from '../../lib/pharmacyRep.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
-import { assignmentFillsSeat, planSeatAssignments } from '../province-teams/province-teams.rules.js';
+import { repSeatIds, planSeatAssignments } from '../province-teams/province-teams.rules.js';
 import { applyRepKind, buildDefaultPermissions, findUsernameConflict } from './admin-users.controller.js';
 
 const SEAT_PASSWORD = '123456789';
@@ -94,26 +94,23 @@ async function fillLeaderSeat({ name, officeId, provinceId, asOffice, seats }) {
 }
 
 /** مندوب جديد في مقعد مدير: ايتمات المدير وشركاته التي تحملها، ويتبع القائد ومدير الشركة. */
-async function fillRepSeat({ name, seat, officeId, provinceId, asOffice }) {
+async function fillRepSeat({ name, seat, seats, officeId, provinceId, asOffice }) {
   const team = await activeTeam(officeId, provinceId);
   const rows = team
     ? await prisma.provinceRepAssignment.findMany({
         where: { teamId: team.id, isActive: true },
-        include: { items: { select: { itemId: true } }, rep: { select: { displayName: true, username: true } } },
+        include: { items: { select: { itemId: true } }, rep: { select: { managersOfUser: { select: { managerId: true } } } } },
       })
     : [];
-  const siblings = rows.map(r => ({
-    id: r.id, repUserId: r.repUserId, repName: r.rep.displayName || r.rep.username,
-    companyId: r.companyId, allItems: r.allItems, itemIds: r.items.map(i => i.itemId),
-  }));
-  if (siblings.some(s => assignmentFillsSeat(s, seat))) throw seatError(`مقعد ${seat.companyName} مشغول بالفعل`);
+  const occupied = rows.some(r => repSeatIds(
+    rows.filter(o => o.repUserId === r.repUserId).map(o => ({ companyId: o.companyId, allItems: o.allItems, itemIds: o.items.map(i => i.itemId) })),
+    r.rep.managersOfUser.map(m => m.managerId),
+    seats,
+  ).includes(seat.userId));
+  if (occupied) throw seatError(`مقعد ${seat.companyName} مشغول بالفعل`);
 
-  const plan = planSeatAssignments(seat, siblings);
-  if (!plan.assignments.length) {
-    throw seatError(plan.dropped.length
-      ? `كل ايتمات ${seat.companyName} معيَّنة لـ${[...new Set(plan.dropped.map(d => d.repName))].join('، ')} في هذه المحافظة`
-      : `ايتمات ${seat.name} غير مرتبطة بشركة في هذا المكتب`);
-  }
+  const plan = planSeatAssignments(seat);
+  if (!plan.assignments.length) throw seatError(`ايتمات ${seat.name} غير مرتبطة بشركة في هذا المكتب`);
 
   const user = await createAccount(name, 'scientific_rep', officeId);
   await orRemoveAccount(user.id, async () => {
@@ -123,16 +120,13 @@ async function fillRepSeat({ name, seat, officeId, provinceId, asOffice }) {
 
     const teamId = (team ?? await provinceTeamsService.createTeam(asOffice, { provinceId })).id;
     for (const a of plan.assignments) {
-      await provinceTeamsService.saveAssignment(asOffice, teamId, { repUserId: user.id, companyId: a.companyId, allItems: a.allItems, itemIds: a.itemIds });
+      await provinceTeamsService.saveAssignment(asOffice, teamId, { repUserId: user.id, companyId: a.companyId, allItems: a.allItems, itemIds: a.itemIds }, { allowSharedItems: true });
     }
     // مديراه: تيم ليدر المحافظة (يربطه saveAssignment، أو updateTeam إن عُيِّن القائد لاحقاً) ومدير الشركة.
     await prisma.userManagerAssignment.createMany({ data: [{ userId: user.id, managerId: seat.userId }], skipDuplicates: true });
     await finishAccount(user.id, provinceId);
   });
-  const warnings = plan.dropped.length
-    ? [`تُركت له ايتمات أقل: بعضها معيَّن لـ${[...new Set(plan.dropped.map(d => d.repName))].join('، ')} في هذه المحافظة`]
-    : [];
-  return { userId: user.id, username: user.username, warnings };
+  return { userId: user.id, username: user.username, warnings: [] };
 }
 
 /** مسوق محافظة جديد: شركات مدير المسوقين وايتماته، ويتبعه هو. لا صلة له بفريق العلميين. */
@@ -214,7 +208,7 @@ export async function createProvinceSeats(req, res, next) {
       const seat = seats.find(s => s.userId === Number(r.managerUserId));
       await run(`m${r.managerUserId}`, async () => {
         if (!seat) throw seatError('مدير الشركة غير موجود في هذا المكتب');
-        return fillRepSeat({ name, seat, officeId, provinceId, asOffice });
+        return fillRepSeat({ name, seat, seats, officeId, provinceId, asOffice });
       });
     }
     res.json({ success: true, results, password: SEAT_PASSWORD });

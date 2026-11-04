@@ -10,6 +10,8 @@
 //     لشركة واحدة.
 //   • مندوبان لنفس الشركة في نفس المحافظة ⇒ يتقاسمان الايتمات بلا تقاطع، وإلا
 //     رُفض الحفظ بتعارض واضح (لا ترجيح صامت).
+//   • الاستثناء: مندوب المقعد يأخذ ايتمات مديره كاملة ولو شاركه فيها مدير آخر، ويُنسب
+//     المبيع المشترك لمندوب واحد في buildItemAttribution.
 //   • ايتم الشركة غير المعيَّن لأحد يذهب لسلّة «غير منسوب» ظاهرة — لا يُسقط.
 //
 // اختباره: npm run test:province-teams
@@ -56,17 +58,17 @@ export function findItemConflicts(candidate, others) {
 }
 
 /**
- * خريطة النسب داخل فريق: ايتم ← تعيين. مع القواعد أعلاه لا يتكرّر ايتم، لكن لو
- * وُجد تقاطع قديم (بيانات سبقت الحارس) يفوز الأقدم إنشاءً (أصغر id) — حتمي،
+ * خريطة النسب داخل فريق: ايتم ← تعيين. الايتم المشترك بين مقعدين يُنسب لمندوب شركة
+ * الايتم (شركته الرئيسية هي شركة التعيين)، ثم للأقدم إنشاءً (أصغر id) — حتمي،
  * ويُبلَّغ عنه في `overlaps` كي لا يبقى خفياً.
  *
- * @param {Array<{id:number, companyId:number, allItems:boolean, itemIds:number[]}>} assignments
+ * @param {Array<{id:number, companyId:number, allItems:boolean, itemIds:number[], isRepPrimaryCompany?:boolean}>} assignments
  * @param {Map<number, number[]>} companyItems
  */
 export function buildItemAttribution(assignments, companyItems) {
   const owner = new Map();       // itemId → assignmentId
   const overlaps = [];
-  const sorted = [...assignments].sort((a, b) => a.id - b.id);
+  const sorted = [...assignments].sort((a, b) => Number(Boolean(b.isRepPrimaryCompany)) - Number(Boolean(a.isRepPrimaryCompany)) || a.id - b.id);
   for (const a of sorted) {
     for (const itemId of resolveAssignmentItemIds(a, companyItems)) {
       if (owner.has(itemId)) { overlaps.push({ itemId, keptAssignmentId: owner.get(itemId), droppedAssignmentId: a.id }); continue; }
@@ -90,6 +92,20 @@ export function assignmentFillsSeat(a, seat) {
   if (a.allItems || !seat.items.length) return a.companyId === seat.companyId;
   const mine = new Set(seat.items.map(i => i.id));
   return (a.itemIds ?? []).some(id => mine.has(id));
+}
+
+/**
+ * مقاعد المندوب. ايتم مشترك بين مديرين يجعل تعيينه يطابق مقعديهما، فمديره يحسم مقعده:
+ * من يتبع مدير مقعد يطابقه يشغل مقعد ذلك المدير فقط، ومن لا يتبع أحدهم يشغل كل ما يطابقه.
+ * @param {Array<{companyId:number, allItems:boolean, itemIds:number[]}>} assignments تعيينات المندوب في الفريق
+ * @param {number[]} managerIds مدراء المندوب
+ * @param {Array<{userId:number, companyId:number, items:{id:number}[]}>} seats مقاعد المكتب
+ * @returns {number[]} معرّفات مدراء المقاعد
+ */
+export function repSeatIds(assignments, managerIds, seats) {
+  const matching = seats.filter(s => assignments.some(a => assignmentFillsSeat(a, s)));
+  const own = matching.filter(s => managerIds.includes(s.userId));
+  return (own.length ? own : matching).map(s => s.userId);
 }
 
 /** المحافظات التي خرج منها الحساب بهذا الحفظ. غير المذكورة في الحالتين لا تُمَسّ (تعيين يدوي في الهيكلية). */
@@ -116,23 +132,24 @@ export function marketerTeamLinksToDrop(rows) {
 /**
  * هل المندوب من فريق مدير الشركة في عرض المحافظات؟ مندوب فريق المحافظة يحسمه مقعده فقط،
  * فلا تكفي شركة ثانوية مسندة للمدير. وغيره بتبعيته للمدير أو بشركته الرئيسية.
- * @param {{assignments:Array, isSubordinate:boolean, primaryCompanyId:number|null}} rep
+ * @param {{assignments:Array, isSubordinate:boolean, primaryCompanyId:number|null, managerIds?:number[]}} rep
+ * @param {{userId:number, companyId:number, items:{id:number}[]}} seat
+ * @param {Array} seats مقاعد المكتب: مندوب يتبع مديراً آخر يطابقه مقعده لا يدخل فريق هذا المدير
  */
-export function repBelongsToSeat({ assignments, isSubordinate, primaryCompanyId }, seat) {
-  if (assignments.length) return assignments.some(a => assignmentFillsSeat(a, seat));
+export function repBelongsToSeat({ assignments, isSubordinate, primaryCompanyId, managerIds = [] }, seat, seats = [seat]) {
+  if (assignments.length) return repSeatIds(assignments, managerIds, seats).includes(seat.userId);
   return isSubordinate || primaryCompanyId === seat.companyId;
 }
 
 /**
- * تعيينات مندوب جديد في مقعد: ايتمات المدير مقسَّمة على شركاتها. ما يتقاطع مع مندوب
- * آخر في الفريق يُترك له ويُبلَّغ عنه، كي يبقى كل مبيع منسوباً لمندوب واحد.
+ * تعيينات مندوب جديد في مقعد: ايتمات المدير كاملة مقسَّمة على شركاتها، ولو شاركه فيها
+ * مندوب مقعد آخر (النسب في buildItemAttribution يبقي المبيع لمندوب واحد).
  *
  * @param {{companyId:number, items:{id:number, companyId:number|null}[]}} seat
  *   companyId=null: ايتم بلا شركة في هذا المكتب؛ يبقى في قائمة المندوب بلا تعيين فريق.
- * @param {Array} siblings تعيينات الفريق الفعّالة بصيغة findItemConflicts
- * @returns {{assignments:Array, keptItemIds:number[], dropped:Array<{companyId:number, repName:string|null}>}}
+ * @returns {{assignments:Array, keptItemIds:number[]}}
  */
-export function planSeatAssignments(seat, siblings) {
+export function planSeatAssignments(seat) {
   const wanted = new Map();
   if (!seat.items.length) wanted.set(seat.companyId, { companyId: seat.companyId, allItems: true, itemIds: [] });
   for (const i of seat.items) {
@@ -140,19 +157,9 @@ export function planSeatAssignments(seat, siblings) {
     if (!wanted.has(i.companyId)) wanted.set(i.companyId, { companyId: i.companyId, allItems: false, itemIds: [] });
     wanted.get(i.companyId).itemIds.push(i.id);
   }
-
-  const assignments = [];
-  const dropped = [];
-  for (const w of wanted.values()) {
-    const conflicts = findItemConflicts({ id: null, repUserId: -1, ...w }, siblings);
-    for (const c of conflicts) dropped.push({ companyId: w.companyId, repName: c.repName });
-    if (conflicts.some(c => c.kind === 'all')) continue;
-    const taken = new Set(conflicts.flatMap(c => c.itemIds));
-    const itemIds = w.itemIds.filter(id => !taken.has(id));
-    if (w.allItems || itemIds.length) assignments.push({ ...w, itemIds });
-  }
+  const assignments = [...wanted.values()];
   const noCompany = seat.items.filter(i => i.companyId == null).map(i => i.id);
-  return { assignments, keptItemIds: [...assignments.flatMap(a => a.itemIds), ...noCompany], dropped };
+  return { assignments, keptItemIds: [...assignments.flatMap(a => a.itemIds), ...noCompany] };
 }
 
 // ─── تصنيف وجهة البيع: مذخر أم صيدلية ─────────────────────────────────────────

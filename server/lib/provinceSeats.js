@@ -102,27 +102,32 @@ async function activeAssignmentsOf(userIds) {
  * المسوقون بلا شركة رئيسية وليسوا مقاعد شركات، فيبقون كما هم. ومندوب بلا حساب يبقى كذلك.
  */
 export async function repIdsInManagerTeam(seat, repIds) {
-  const [users, marketers] = await Promise.all([
+  const [users, marketers, officeSeats] = await Promise.all([
     prisma.user.findMany({
       where: { linkedRepId: { in: repIds } },
       select: {
         id: true, linkedRepId: true,
-        managersOfUser: { where: { managerId: seat.userId }, select: { managerId: true } },
+        managersOfUser: { select: { managerId: true } },
         companyAssignments: { where: { isPrimary: true }, select: { companyId: true } },
       },
     }),
     prisma.scientificRepresentative.findMany({ where: { id: { in: repIds }, repKind: PHARMACY_KIND }, select: { id: true } }),
+    loadSeatManagers([seat.officeId]),
   ]);
   const marketerIds = new Set(marketers.map(m => m.id));
   const assignments = await activeAssignmentsOf(users.map(u => u.id));
   return repIds.filter(repId => {
     const own = users.filter(u => u.linkedRepId === repId);
     if (!own.length || marketerIds.has(repId)) return true;
-    return own.some(u => repBelongsToSeat({
-      assignments: assignments.filter(a => a.repUserId === u.id),
-      isSubordinate: u.managersOfUser.length > 0,
-      primaryCompanyId: u.companyAssignments[0]?.companyId ?? null,
-    }, seat));
+    return own.some(u => {
+      const managerIds = u.managersOfUser.map(m => m.managerId);
+      return repBelongsToSeat({
+        assignments: assignments.filter(a => a.repUserId === u.id),
+        isSubordinate: managerIds.includes(seat.userId),
+        primaryCompanyId: u.companyAssignments[0]?.companyId ?? null,
+        managerIds,
+      }, seat, officeSeats);
+    });
   });
 }
 

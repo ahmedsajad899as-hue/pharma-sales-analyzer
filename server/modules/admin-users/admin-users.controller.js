@@ -15,7 +15,7 @@ import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies, PROVI
 import { loadSeatManagers, loadMarketerManagers } from '../../lib/provinceSeats.js';
 import { newUserPermissions } from '../../lib/newUserFeatures.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
-import { assignmentFillsSeat, removedProvinceIds } from '../province-teams/province-teams.rules.js';
+import { repSeatIds, removedProvinceIds } from '../province-teams/province-teams.rules.js';
 import { resolveUserItemTiers, SECONDARY_MODES, TIER_MAIN, TIER_SECONDARY, DEFAULT_SECONDARY_MODE } from '../../lib/itemTiers.js';
 import { clearMarketersTeamCache } from '../scientific-reps/scientific-reps.service.js';
 
@@ -100,6 +100,7 @@ export async function listProvinceStructure(req, res) {
           repUserId: true, allItems: true,
           company: { select: { id: true, name: true } },
           items: { select: { itemId: true } },
+          rep: { select: { managersOfUser: { select: { managerId: true } } } },
         },
       },
     },
@@ -109,19 +110,19 @@ export async function listProvinceStructure(req, res) {
     const reps = new Map();
     const officeSeats = seats.filter(s => s.officeId === t.officeId);
     for (const a of t.assignments) {
-      if (!reps.has(a.repUserId)) reps.set(a.repUserId, { userId: a.repUserId, companies: [], seatManagerIds: [] });
+      if (!reps.has(a.repUserId)) {
+        reps.set(a.repUserId, { userId: a.repUserId, companies: [], assignments: [], managerIds: a.rep.managersOfUser.map(m => m.managerId) });
+      }
       const rep = reps.get(a.repUserId);
       rep.companies.push({
         id: a.company.id, name: a.company.name, allItems: a.allItems, itemCount: a.items.length,
       });
-      const assignment = { companyId: a.company.id, allItems: a.allItems, itemIds: a.items.map(i => i.itemId) };
-      for (const s of officeSeats) {
-        if (assignmentFillsSeat(assignment, s) && !rep.seatManagerIds.includes(s.userId)) rep.seatManagerIds.push(s.userId);
-      }
+      rep.assignments.push({ companyId: a.company.id, allItems: a.allItems, itemIds: a.items.map(i => i.itemId) });
     }
     return {
       id: t.id, officeId: t.officeId, provinceId: t.province.id, provinceName: t.province.name,
-      leaderUserId: t.leaderUserId, reps: [...reps.values()],
+      leaderUserId: t.leaderUserId,
+      reps: [...reps.values()].map(({ assignments, managerIds, ...r }) => ({ ...r, seatManagerIds: repSeatIds(assignments, managerIds, officeSeats) })),
     };
   });
   const [provinces, marketerManagers, provinceMarketers] = await Promise.all([

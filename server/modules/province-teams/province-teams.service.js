@@ -25,7 +25,13 @@ const TEAM_INCLUDE = {
     where: { isActive: true },
     orderBy: { id: 'asc' },
     include: {
-      rep:     { select: { id: true, displayName: true, username: true, role: true, isActive: true } },
+      rep: {
+        select: {
+          id: true, displayName: true, username: true, role: true, isActive: true,
+          managersOfUser: { select: { managerId: true } },
+          companyAssignments: { where: { isPrimary: true }, select: { companyId: true } },
+        },
+      },
       company: { select: { id: true, name: true } },
       items:   { select: { itemId: true } },
     },
@@ -65,6 +71,8 @@ export async function loadVisibleTeams(viewer, { teamId = null } = {}) {
       repUserId: a.repUserId,
       repName: userName(a.rep),
       repActive: a.rep?.isActive !== false,
+      repManagerIds: (a.rep?.managersOfUser ?? []).map(m => m.managerId),
+      isRepPrimaryCompany: (a.rep?.companyAssignments ?? []).some(c => c.companyId === a.companyId),
       companyId: a.companyId,
       companyName: a.company?.name ?? '—',
       allItems: a.allItems,
@@ -343,7 +351,7 @@ export async function archiveTeam(viewer, id) {
  * ينشئ أو يعدّل تعيين (مندوب × شركة) داخل فريق. يرفض أي تقاطع ايتمات مع مندوب
  * آخر لنفس الشركة في نفس المحافظة، ويُرجع التعارضات مسمّاة كي يصحّحها المستخدم.
  */
-export async function saveAssignment(viewer, teamId, body) {
+export async function saveAssignment(viewer, teamId, body, { allowSharedItems = false } = {}) {
   assertStructureEditor(viewer);
   const team = await prisma.provinceTeam.findUnique({ where: { id: teamId } });
   if (!team || !team.isActive || team.officeId !== viewer.officeId) throw new AppError('الفريق غير موجود', 404, 'NOT_FOUND');
@@ -374,7 +382,8 @@ export async function saveAssignment(viewer, teamId, body) {
     where: { teamId, companyId, isActive: true },
     include: { items: { select: { itemId: true } }, rep: { select: { displayName: true, username: true } } },
   });
-  const conflicts = findItemConflicts(
+  // مندوب المقعد الجديد يأخذ ايتمات مديره كاملة ولو شاركه فيها مقعد آخر (province-seats.js).
+  const conflicts = allowSharedItems ? [] : findItemConflicts(
     { id, repUserId, companyId, allItems, itemIds },
     siblings.map(s => ({ id: s.id, repUserId: s.repUserId, repName: userName(s.rep), companyId: s.companyId, allItems: s.allItems, itemIds: s.items.map(i => i.itemId) })),
   );

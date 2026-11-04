@@ -11,8 +11,8 @@ import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { buildMonthFilter } from '../../lib/salesMonths.js';
 import { loadConditionSalesForReps } from '../../lib/conditionFile.js';
 import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
-import { loadManagerSeat } from '../../lib/provinceSeats.js';
-import { assignmentFillsSeat } from './province-teams.rules.js';
+import { loadManagerSeat, loadSeatManagers } from '../../lib/provinceSeats.js';
+import { assignmentFillsSeat, repSeatIds } from './province-teams.rules.js';
 
 const toInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
@@ -51,6 +51,12 @@ export async function directory(req, res, next) {
     const allowed = viewer.mode === 'company' ? await resolveEffectiveItemIds(viewer.id) : null;
     const allowedSet = allowed ? new Set(allowed) : null;
     const seat = await loadManagerSeat(viewer.id);
+    const officeSeats = seat ? await loadSeatManagers([seat.officeId]) : [];
+    const explicit = (a) => ({ companyId: a.companyId, allItems: a.allItems, itemIds: a.explicitItemIds });
+    // ايتم مشترك مع مدير آخر لا يدخل مندوب ذلك المدير في فريق المُشاهِد.
+    const repInViewerSeat = (t, a) => repSeatIds(
+      t.allAssignments.filter(o => o.repUserId === a.repUserId).map(explicit), a.repManagerIds, officeSeats,
+    ).includes(seat.userId);
 
     // قائمة «الايتمات» التي عيّنها الماستر أدمن لحساب كل مندوب (null = بلا تقييد).
     // تعيين المندوب في الفريق قد يكون «كل ايتمات الشركة» فيجب تقييده بها.
@@ -138,7 +144,7 @@ export async function directory(req, res, next) {
         // مدير الشركة: مندوب مقعده فقط. a.itemIds تتوسّع لكل ايتمات الشركة مع «كل الايتمات»
         // فتتقاطع مع ايتم مسند له من شركة غيره، لذا الحكم بالتعيين الصريح.
         const isMarketer = repKindOf.get(repLink.get(a.repUserId)) === PHARMACY_KIND;
-        if (seat && !isMarketer && !assignmentFillsSeat({ companyId: a.companyId, allItems: a.allItems, itemIds: a.explicitItemIds }, seat)) continue;
+        if (seat && !isMarketer && !(assignmentFillsSeat(explicit(a), seat) && repInViewerSeat(t, a))) continue;
         const c = cov.assignments.get(a.id);
         const repSet = repAllowed.get(a.repUserId);
         const okItem = (id) => (!allowedSet || allowedSet.has(id)) && (!repSet || repSet.has(id));

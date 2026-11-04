@@ -67,7 +67,7 @@ export default function TeamDetail({ team, viewer, money, onBack, onOpenPersonal
       {team.overlaps.length > 0 && (
         <div className="pt-note pt-note--warn">
           <AlertTriangle size={16} />
-          <span>{team.overlaps.length} ايتم معيَّن لأكثر من مندوب لنفس الشركة (بيانات سابقة) — يُنسب للأقدم تعييناً. صحّحه من «الهيكلية».</span>
+          <span>{team.overlaps.length} ايتم مشترك بين أكثر من مندوب — يُحسب مبيعه هنا لمندوب واحد: مندوب شركة الايتم، وإلا الأقدم تعييناً.</span>
         </div>
       )}
 
