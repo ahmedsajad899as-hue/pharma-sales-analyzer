@@ -13,7 +13,7 @@
 // لا شيء هنا يكتب في قاعدة البيانات — الاستخراج يُنتج صفوفاً غير محفوظة فقط.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { callAI } from '../../lib/claudeAi.js';
+import { callAI } from '../../lib/geminiAi.js';
 import { parseInvoiceJson, splitPharmacyArea, isCopiedFromPrompt } from '../sales/sales.service.js';
 import { normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { MAX_ORDER_TEXT_LEN, stripTriggerPrefix } from './order-trigger.js';

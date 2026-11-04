@@ -11,7 +11,7 @@
  * أمان MAX_POOL يمنع نداءً ضخماً غير متوقَّع.
  */
 
-import { callAI } from '../../lib/claudeAi.js';
+import { callAI } from '../../lib/geminiAi.js';
 
 const MAX_POOL = 300; // سقف أمان — لا يُتوقَّع بلوغه عملياً لفئة واحدة ضمن بلان شهري
 

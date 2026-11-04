@@ -52,7 +52,7 @@
 
 ## Stack
 
-React 18 + TS + Vite 5 + Tailwind 4 (frontend) · Express.js ESM + Prisma 5 + PostgreSQL (Railway) (backend) · JWT + bcryptjs auth · Claude Sonnet 5.5 عبر `server/lib/claudeAi.js` (`callAI`، مفتاح `ANTHROPIC_API_KEY`) — أُلغي Gemini في 2026-10-22 · صور الفواتير (قراءة/اتجاه/سطر الزبون) بـ Qwen-VL عبر `server/lib/qwenAi.js` (`DASHSCOPE_API_KEY`، `QWEN_MODEL`) وClaude احتياطي عند فشله (`callInvoiceAI` في sales.service.js) · Leaflet للخرائط · xlsx لتحليل Excel · PM2 (`ecosystem.config.cjs`) · نشر على Railway عبر nixpacks.
+React 18 + TS + Vite 5 + Tailwind 4 (frontend) · Express.js ESM + Prisma 5 + PostgreSQL (Railway) (backend) · JWT + bcryptjs auth · Gemini (`gemini-3.8-flash`) عبر `server/lib/geminiAi.js` (`callAI`، مفتاح `GEMINI_API_KEY`) لكل ميزات الذكاء بما فيها صور الفواتير — حلّ محل Claude وQwen في 2026-11-05 · Leaflet للخرائط · xlsx لتحليل Excel · PM2 (`ecosystem.config.cjs`) · نشر على Railway عبر nixpacks.
 
 ## تشغيل محلي
 
@@ -64,7 +64,7 @@ npm run db:push       # طبّق schema.prisma على DATABASE_URL
 npm run db:studio
 ```
 
-`.env` المطلوب: `DATABASE_URL`, `JWT_SECRET`, `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY`, `PORT`, `NODE_ENV`, `ORS_API_KEY` (OpenRouteService — مذكور في `.env` لكن غير موثّق في PROJECT.md، يُستخدم للـ routing/tracking).
+`.env` المطلوب: `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`, `PORT`, `NODE_ENV`, `ORS_API_KEY` (OpenRouteService — مذكور في `.env` لكن غير موثّق في PROJECT.md، يُستخدم للـ routing/tracking).
 
 ## موديولات Backend الفعلية (server/modules/) — أوسع من ما هو موثّق في PROJECT.md
 

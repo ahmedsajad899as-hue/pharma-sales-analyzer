@@ -10,7 +10,7 @@
 // الكروب. ذاكرة قصيرة لكل كروب لمتابعة مثل «وعبدالله؟».
 // ════════════════════════════════════════════════════════════════════════════
 
-import { callAI } from '../../lib/claudeAi.js';
+import { callAI } from '../../lib/geminiAi.js';
 import { parseInvoiceJson } from '../sales/sales.service.js';
 import { buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import {

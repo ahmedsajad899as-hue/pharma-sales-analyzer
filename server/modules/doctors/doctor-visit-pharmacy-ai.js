@@ -15,7 +15,7 @@
  * يعيد استعمال نفس نمط الدفعات + السقف الزمني من doctor-visit-feedback-ai.js.
  */
 
-import { callAI } from '../../lib/claudeAi.js';
+import { callAI } from '../../lib/geminiAi.js';
 
 const AI_BATCH_SIZE = 40;
 

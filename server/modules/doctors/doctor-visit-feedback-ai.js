@@ -12,7 +12,7 @@
  */
 
 import prisma from '../../lib/prisma.js';
-import { callAI } from '../../lib/claudeAi.js';
+import { callAI } from '../../lib/geminiAi.js';
 
 const AI_BATCH_SIZE = 40;
 

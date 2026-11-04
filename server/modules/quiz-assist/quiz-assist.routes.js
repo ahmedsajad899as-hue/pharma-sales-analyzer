@@ -4,7 +4,7 @@
  */
 import { Router } from 'express';
 import multer from 'multer';
-import { callAI } from '../../lib/claudeAi.js';
+import { callAI } from '../../lib/geminiAi.js';
 
 const router = Router();
 const imageUpload = multer({

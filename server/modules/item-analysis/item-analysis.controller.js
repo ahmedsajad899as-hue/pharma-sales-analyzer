@@ -2,7 +2,7 @@ import prisma from '../../lib/prisma.js';
 import { buildItemScopeFilter, resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { dedupCrossFile } from '../../lib/crossFileDedup.js';
 import { resolveFileScope } from '../../lib/fileScope.js';
-import { callAI } from '../../lib/claudeAi.js';
+import { callAI } from '../../lib/geminiAi.js';
 import { list as listScientificReps } from '../scientific-reps/scientific-reps.service.js';
 
 // ─── Helpers ────────────────────────────────────────────────
@@ -1097,12 +1097,8 @@ ${hasRep ? `
 
     let insight;
     try {
-      // This prompt is very large (full medical report). thinkingBudget:0 turns OFF the
-      // gemini-2.5 "thinking" phase — previously the dominant latency source (a single
-      // call ran 60-90s+ and often timed out, forcing a fall-through to weaker models →
-      // slower AND worse output). With thinking off, gemini-2.5-flash (the best model)
-      // answers in ~15-30s, so we keep the top model AND return fast. 70s per-attempt
-      // cap fails a genuinely-stuck key over quickly; 190s total stays under Nginx's 300s.
+      // This prompt is very large (full medical report). 70s per-attempt cap fails a
+      // genuinely-stuck call over quickly; 190s total stays under Nginx's 300s.
       insight = await callAI([{ text: prompt }], { thinkingBudget: 0, timeoutMs: 70_000, maxTotalMs: 190_000, feature: 'item-analysis-report' });
     } catch (err) {
       console.error('[item-analysis] Gemini failed:', err?.message);
@@ -1224,7 +1220,7 @@ export async function analyzeAllSurveysWithAI(req, res, next) {
         const m = String(err?.message || '');
         const reason = err?.status === 429
           ? 'تم تجاوز حدّ طلبات الذكاء الاصطناعي — حاول بعد دقيقة'
-          : /ANTHROPIC_API_KEY/.test(m)
+          : /GEMINI_API_KEY/.test(m)
             ? 'لا يوجد مفتاح الذكاء الاصطناعي مُهيّأ على الخادم'
             : /timeout|timed out/i.test(m)
               ? 'انتهت مهلة الذكاء الاصطناعي'

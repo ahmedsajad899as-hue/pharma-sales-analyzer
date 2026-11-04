@@ -13,7 +13,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
-import { callAI, friendlyAiError } from '../../lib/claudeAi.js';
+import { callAI, friendlyAiError } from '../../lib/geminiAi.js';
 
 // <جذر المشروع>/uploads — Nginx يخدم /uploads/ من جذر المشروع (راجع itemDocs.js)
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'uploads', 'showcase');
@@ -122,7 +122,7 @@ router.post('/', uploadFaces, (req, res) => {
   } catch (err) { fail(500, err.message); }
 });
 
-// ── ذكاء اصطناعي لاستوديو المجسّم (Claude برؤية الصور) ───────────────────────────
+// ── ذكاء اصطناعي لاستوديو المجسّم (Gemini برؤية الصور) ───────────────────────────
 // يقترح فقط — المستخدم يرى الاقتراح على الصورة ويعدّله بالسحب قبل أي حفظ.
 const firstJson = (txt) => {
   const m = String(txt).match(/\{[\s\S]*\}/);

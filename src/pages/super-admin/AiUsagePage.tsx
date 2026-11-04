@@ -69,7 +69,7 @@ export default function AiUsagePage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>استهلاك الذكاء الاصطناعي (Claude)</h2>
+        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>استهلاك الذكاء الاصطناعي (Gemini)</h2>
         <select value={days} onChange={e => setDays(Number(e.target.value))}
           style={{ padding: '6px 10px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13, color: UI.ink }}>
           <option value={1}>آخر يوم</option>
@@ -79,7 +79,7 @@ export default function AiUsagePage() {
         </select>
       </div>
       <div style={{ fontSize: 12.5, color: UI.faint, marginBottom: 16, lineHeight: 1.6 }}>
-        كل نداء إلى Claude يُسجَّل (ناجحاً أو فاشلاً) منذ تفعيل هذه الميزة. «التوكنز» هي ما يحاسب عليه Anthropic؛ الإدخال = ما أرسلناه، الإخراج = ما أجاب به.
+        كل نداء إلى Gemini يُسجَّل (ناجحاً أو فاشلاً) منذ تفعيل هذه الميزة. «التوكنز» هي ما تحاسب عليه Google؛ الإدخال = ما أرسلناه، الإخراج = ما أجاب به.
       </div>
 
       {error && <ErrBox msg={error} />}

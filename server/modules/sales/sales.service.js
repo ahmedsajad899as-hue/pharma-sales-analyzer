@@ -42,27 +42,7 @@ import { syncCommercialsForNewSales } from '../scientific-reps/scientific-reps.s
 import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
-import { callAI } from '../../lib/claudeAi.js';
-import { callQwen, qwenConfigured } from '../../lib/qwenAi.js';
-
-// صور الفواتير تُقرأ بـ Qwen-VL (أرخص)، وClaude احتياطي إن فشل Qwen أو لم يُهيّأ مفتاحه —
-// حتى لا تتوقّف قراءة الفواتير بسبب عطل مزوّد واحد.
-// رفض صلاحية (401/403/404) لا يزول بإعادة المحاولة: مقيس (2026-11-02) — كل نداء
-// فاتورة كان يجرّب Qwen أولاً فيرجع 403 ثم يُعاد على Claude، ~7 رحلات ضائعة لكل صورة
-// تأكل من ميزانية وقت الألبوم. بعد رفضٍ كهذا يُتخطّى Qwen نصف ساعة.
-const QWEN_COOLDOWN_MS = 30 * 60_000;
-let qwenDisabledUntil = 0;
-async function callInvoiceAI(parts, opts) {
-  if (!qwenConfigured() || Date.now() < qwenDisabledUntil) return callAI(parts, opts);
-  try {
-    return await callQwen(parts, opts);
-  } catch (err) {
-    const msg = String(err?.message || '');
-    if (/HTTP\s+40[134]\b/.test(msg)) qwenDisabledUntil = Date.now() + QWEN_COOLDOWN_MS;
-    console.error(`[invoice-extract] Qwen فشل (${opts?.feature}) — احتياطي Claude:`, msg.slice(0, 150));
-    return callAI(parts, opts);
-  }
-}
+import { callAI } from '../../lib/geminiAi.js';
 
 const __filename2 = fileURLToPath(import.meta.url);
 const __dirname2  = path.dirname(__filename2);
@@ -1532,7 +1512,7 @@ export async function extractCustomerLine(img, { timeoutMs = 45_000, warehouse =
     const promptText = cropped
       ? `${buildCustomerLinePrompt(warehouse)}\n\n**ملاحظة:** هذه الصورة **قصاصة مكبّرة** من منطقة الزبون في الفاتورة (لا الورقة كاملة) — سطر الزبون داخلها وليس بالضرورة في أعلاها.`
       : buildCustomerLinePrompt(warehouse);
-    const text = await callInvoiceAI(
+    const text = await callAI(
       [promptText, { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }],
       { timeoutMs, thinkingBudget, feature: 'invoice-customer-line' },
     );
@@ -1713,7 +1693,7 @@ export async function detectInvoiceRotation(img) {
     const parts = [ORIENTATION_PROMPT, { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }];
     const votes = await Promise.all([1, 2, 3].map(async () => {
       try {
-        const o = parseJsonObject(await callInvoiceAI(parts, { timeoutMs: 20_000, thinkingBudget: 0, feature: 'invoice-orient' }));
+        const o = parseJsonObject(await callAI(parts, { timeoutMs: 20_000, thinkingBudget: 0, feature: 'invoice-orient' }));
         const v = Number(o?.rotate);
         return [0, 90, 180, 270].includes(v) ? v : null;
       } catch { return null; }
@@ -1833,7 +1813,7 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
           : INVOICE_PROMPT,
         { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } },
       ];
-      const text = await callInvoiceAI(parts, {
+      const text = await callAI(parts, {
         timeoutMs:  70_000,
         maxTotalMs: OVERALL_BUDGET_MS - elapsed,
         thinkingBudget: 0,

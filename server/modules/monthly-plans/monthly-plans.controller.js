@@ -3,7 +3,7 @@ import { resolveEffectiveAreaIds } from '../../lib/areaScope.js';
 import XLSX from 'xlsx';
 import fs from 'fs';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { callAI } from '../../lib/claudeAi.js';
+import { callAI } from '../../lib/geminiAi.js';
 
 // ── Helper: find a plan the user has access to ──────────────
 // - owner (admin/manager): plans where userId = myId

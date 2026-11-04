@@ -10,7 +10,7 @@
  * البقية، وأي اسم لم يُحسم يبقى 'ask' لمراجعة بشرية لاحقة.
  */
 
-import { callAI } from '../../lib/claudeAi.js';
+import { callAI } from '../../lib/geminiAi.js';
 import { getAmbiguousCandidates, applyAiCandidateMatch } from '../../lib/smartPlanMatching.js';
 
 const AI_BATCH_SIZE = 40;

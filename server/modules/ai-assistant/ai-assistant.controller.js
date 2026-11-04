@@ -1,5 +1,5 @@
 import prisma from '../../lib/prisma.js';
-import { callAI, friendlyAiError } from '../../lib/claudeAi.js';
+import { callAI, friendlyAiError } from '../../lib/geminiAi.js';
 import { resolveEffectiveAreas } from '../../lib/areaScope.js';
 
 // ── Constants ────────────────────────────────────────────────
