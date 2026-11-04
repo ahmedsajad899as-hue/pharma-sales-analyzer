@@ -3503,6 +3503,7 @@ model RepSale {
   invoiceImage  String? // /uploads/rep-sales/<random>.jpg
   confirmedAt   DateTime?
   confirmedById Int?
+  sourceHash    String? // بصمة رسالة البوت — حارس إعادة الإرسال
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -3510,6 +3511,7 @@ model RepSale {
 
   @@index([createdById, saleDate])
   @@index([officeId, saleDate])
+  @@index([sourceHash])
   @@map("rep_sales")
 }
 

@@ -80,5 +80,20 @@ assert.equal(rows[1].totalValue, 0, 'صنف حر بلا سعر');
 assert.equal(countDistinctOrders(rows), 1, 'أسطر المبيع الواحد طلبية واحدة');
 assert.equal(rows[0].uploadedFile.mergeGroup.endsWith('|condition'), true, 'تُعدّ ضمن اللكوديشن');
 
+// ── رسالة البوت ──
+const { groupBotRows, botSaleHash } = await import('../server/modules/rep-sales/rep-sales.bot.js');
+const botRow = (extra) => ({ pharmacy: 'النور', quantity: 2, ...extra });
+assert.equal(groupBotRows([botRow(), botRow()]).groups.length, 1, 'صيدلية واحدة = مبيع واحد');
+assert.equal(groupBotRows([botRow(), botRow({ pharmacy: 'الشفاء' })]).groups.length, 2, 'صيدليتان = مبيعان');
+assert.equal(groupBotRows([botRow({ _imageIndex: 0 }), botRow({ _imageIndex: 1 })]).groups.length, 2, 'صورتان = مبيعان');
+assert.equal(groupBotRows([botRow({ invoiceNumber: '1' }), botRow({ invoiceNumber: '2' })]).groups.length, 2, 'فاتورتان = مبيعان');
+assert.equal(groupBotRows([botRow({ pharmacy: '' }), botRow({ quantity: 0 })]).skipped, 2, 'بلا صيدلية أو كمية');
+const hash = (extra) => botSaleHash({ repUserId: 1, sourceText: 'مبيعي  س', ...extra });
+const d1 = new Date('2026-11-04T10:00:00Z'), d2 = new Date('2026-11-05T10:00:00Z');
+assert.equal(hash({ now: d1 }), botSaleHash({ repUserId: 1, sourceText: 'مبيعي س', now: d1 }), 'المسافات لا تفرق');
+assert.notEqual(hash({ now: d1 }), hash({ now: d2 }), 'نص بلا صورة في يوم آخر: مبيع جديد');
+assert.equal(hash({ mediaKeys: ['a'], now: d1 }), hash({ mediaKeys: ['a'], now: d2 }), 'الصورة نفسها مكررة أياً كان اليوم');
+assert.notEqual(hash({ now: d1 }), botSaleHash({ repUserId: 2, sourceText: 'مبيعي  س', now: d1 }), 'مندوب آخر');
+
 console.log('✓ rep-liquidation');
 process.exit(0);

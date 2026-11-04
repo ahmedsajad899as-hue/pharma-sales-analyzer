@@ -26,7 +26,7 @@ import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
 import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess, findPendingOrderForReveal } from './orders.service.js';
 import { checkManualDuplicates, duplicateWarningText } from '../../lib/manualDuplicateCheck.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../province-teams/personal-sale-trigger.js';
-import { ingestPersonalSalesFromBot } from '../province-teams/personal-sales.service.js';
+import { ingestBotRepSales } from '../rep-sales/rep-sales.bot.js';
 import { renderOrderTablePng, paginateOrderRows } from './order-table-image.js';
 import { matchBotInvoice, attachBotInvoice } from '../rep-orders/rep-orders.invoice.js';
 import { userFeatureOn } from '../../lib/userFeatures.js';
@@ -82,6 +82,10 @@ export async function handleIncomingOrderMessage({
   senderName = null, senderId = null, text = '', mediaRefs = [], isReplyToBot = false,
 }) {
   const hasMedia = mediaRefs.length > 0;
+  // «مبيعي …» نيّة صريحة تسبق مسار الطلبيات، فلا تدخل ملف الكوديشن حتى في وضع «كل الرسائل».
+  if (link?.orderTextMode !== 'off' && hasPersonalSaleTrigger(text)) {
+    return handleRepSaleMessage({ transport, user, chatId, senderName, senderId, text, mediaRefs });
+  }
   if (!isOrderTrigger(text, link?.orderTextMode, { isReplyToBot, hasMedia })) return false;
   const toCondition = userFeatureOn(user, BOT_TO_CONDITION);
   const toRepOrders = hasMedia && mediaRefs.length === 1 && !FORCE_SALE_RE.test(String(text ?? ''))
@@ -280,32 +284,32 @@ export async function handleRevealCommand({ transport, chatId, orderId = null, m
 }
 
 /**
- * «الجهد الشخصي» من البوت: نفس استخراج الطلبية (نص أو صورة + مطابقة الكتالوج
- * والصيدلية) لكن الصفوف تذهب لطابور اعتماد التيم ليدر (RepPersonalSale) لا
- * لطابور الطلبيات، ولا تصل جدول Sale أبداً. الكلمة المفتاحية نيّة صريحة دائماً
- * فيردّ البوت على كل حال. لا يرمي — نفس عقد handleIncomingOrderMessage.
+ * «مبيعي …» من البوت: نفس استخراج الطلبية (نص أو صورة + مطابقة الكتالوج والصيدلية) لكن الصفوف
+ * تُسجَّل في «مبيعات المندوبين» لا طابور الطلبيات. الكلمة نيّة صريحة فيردّ البوت على كل حال.
+ * لا يرمي — نفس عقد handleIncomingOrderMessage.
  */
-async function handlePersonalSaleMessage({ transport, user, chatId, senderName = null, text = '', mediaRefs = [] }) {
+async function handleRepSaleMessage({ transport, user, chatId, senderName = null, senderId = null, text = '', mediaRefs = [] }) {
   const ctx = { chatId, messageId: null };
   try {
-    ctx.messageId = await transport.sendText(chatId, '⏳ جاري تسجيل مبيعك الشخصي…');
+    ctx.messageId = await transport.sendText(chatId, '⏳ جاري تسجيل مبيعك…');
   } catch (e) {
-    console.error(`[personal-sales] تعذّر إرسال رسالة الانتظار على ${transport.name}:`, e?.message);
+    console.error(`[rep-sales] تعذّر إرسال رسالة الانتظار على ${transport.name}:`, e?.message);
   }
 
   try {
     const body = stripPersonalSaleTrigger(text);
     let rows = [];
+    let imageBuffers = [];
     if (mediaRefs.length) {
-      const buffers = (await Promise.all(
+      imageBuffers = (await Promise.all(
         mediaRefs.map(ref => transport.downloadMedia(ref).catch(() => null)),
       )).filter(Boolean);
-      if (!buffers.length) {
+      if (!imageBuffers.length) {
         await reply(transport, ctx, '⚠️ تعذّر تنزيل الصورة من المحادثة — أعد إرسالها.');
         return true;
       }
       rows = await extractInvoiceRows(
-        buffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
+        imageBuffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
         { extraContext: body || undefined, budgetMs: BOT_READ_BUDGET_MS },
       );
     } else if (body) {
@@ -322,19 +326,28 @@ async function handlePersonalSaleMessage({ transport, user, chatId, senderName =
       return true;
     }
 
-    const msg = await ingestPersonalSalesFromBot({
-      user,
-      source: transport.name,
-      senderName,
+    let senderRep = null;
+    if (transport.resolveSenderRep && senderId != null) {
+      try {
+        senderRep = await transport.resolveSenderRep(chatId, senderId);
+      } catch (e) {
+        console.error('[rep-sales] تعذّر حلّ مندوب المرسل:', e?.message);
+      }
+    }
+    const msg = await ingestBotRepSales({
+      user, senderRep, senderName,
       sourceText: String(text ?? '').trim() || null,
       mediaKeys: mediaRefs.map(r => (typeof r === 'string' ? r : JSON.stringify(r))),
-      rows,
+      rows, imageBuffers,
     });
+    try { await transport.onQueued?.(); } catch (e) { console.error('[rep-sales] onQueued:', e?.message); }
     await reply(transport, ctx, msg);
   } catch (err) {
-    console.error('[personal-sales] فشل تسجيل الجهد الشخصي:', err);
+    console.error('[rep-sales] فشل تسجيل مبيع البوت:', err);
+    // المنصّة الصامتة تحفظ الرسالة وتعيدها لاحقاً، وبصمة الرسالة تمنع تكرارها.
+    try { transport.onFailed?.(err); } catch { /* تشخيص فقط */ }
     await reply(transport, ctx,
-      `⚠️ ${err?.isOperational ? err.message : 'تعذّر تسجيل المبيع. جرّب إعادة إرساله، أو أدخله من التطبيق (فرق المحافظات ← الجهد الشخصي).'}`);
+      `⚠️ ${err?.isOperational ? err.message : 'تعذّر تسجيل المبيع. جرّب إعادة إرساله، أو أدخله من صفحة «مبيعات المندوبين».'}`);
   }
   return true;
 }

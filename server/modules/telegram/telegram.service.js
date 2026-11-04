@@ -581,7 +581,7 @@ export async function handleUpdate(update) {
   if (!kind) return; // ستيكر/رسالة خدمة/صوت — تجاهل بصمت
 
   const intentText = kind === 'photo' ? String(message.caption || '') : String(message.text || '');
-  // «مبيعي …» جهد شخصي لمندوب محافظة — تحوي «مبيع» فتُستثنى من سؤال المبيعات.
+  // «مبيعي …» مبيع مندوب (rep-sales.bot.js) — تحوي «مبيع» فتُستثنى من سؤال المبيعات.
   const personalSale = (kind === 'text' || kind === 'photo') && hasPersonalSaleTrigger(intentText);
   const salesQuery = kind === 'text' && !personalSale ? parseSalesQuery(message.text) : null;
   // سؤال المتابعة يُحلَّل هنا أيضاً ليدخل في `announce`: كروب غير مربوط يجب أن

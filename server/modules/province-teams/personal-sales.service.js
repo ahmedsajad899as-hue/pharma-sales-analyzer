@@ -9,11 +9,9 @@
 // تصل لاحقاً في ملف المكتب، والجمع يعني تكراراً. هو مؤشّر جهد بجانب التغطية.
 // ════════════════════════════════════════════════════════════════════════════
 
-import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { buildMonthFilter } from '../../lib/salesMonths.js';
-import { buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import { canReviewTeam } from './province-teams.access.js';
 import { personalSaleValue } from './province-teams.rules.js';
 
@@ -365,110 +363,4 @@ export async function deletePersonalSale(viewer, id) {
     throw new AppError('حذف السجل المعتمد متاح للتيم ليدر أو الإدارة فقط', 403, 'FORBIDDEN');
   }
   await prisma.repPersonalSale.delete({ where: { id } });
-}
-
-// ─── البوت ────────────────────────────────────────────────────────────────────
-
-/**
- * يحسم المندوب صاحب رسالة البوت.
- * الربط في هذا النظام «كروب ↔ حساب»: كروب مربوط بحساب المندوب نفسه ⇒ هو. كروب
- * مربوط بحساب القائد/المكتب ⇒ نطابق اسم المرسِل بمندوبي فرقه. التباس أو لا
- * تطابق ⇒ null ويختاره المراجِع — لا تخمين.
- */
-async function resolveBotRep(user, senderName) {
-  const own = await prisma.provinceRepAssignment.findFirst({
-    where: { repUserId: user.id, isActive: true, team: { isActive: true } },
-    select: { repUserId: true },
-  });
-  if (own) return { repUserId: user.id, matched: 'account' };
-
-  const teamWhere = user.officeId
-    ? { isActive: true, OR: [{ leaderUserId: user.id }, { officeId: user.officeId }] }
-    : { isActive: true, leaderUserId: user.id };
-  const assignments = await prisma.provinceRepAssignment.findMany({
-    where: { isActive: true, team: teamWhere },
-    select: { repUserId: true, rep: { select: { displayName: true, username: true } } },
-  });
-  if (!assignments.length || !senderName) return { repUserId: null, matched: 'none' };
-  const reps = [...new Map(assignments.map(a => [a.repUserId, { id: a.repUserId, name: userName(a.rep) }])).values()];
-  const m = matchRepName(senderName, buildRepIndex(reps));
-  return m.status === 'exact' ? { repUserId: m.rep.id, matched: 'sender' } : { repUserId: null, matched: m.status };
-}
-
-/**
- * صفوف مستخرَجة من رسالة بوت (نفس شكل مخرجات order-extract/enrichRowsFromCatalog)
- * ← صفوف جهد شخصي بانتظار الاعتماد. يُعيد نصّ الردّ للكروب.
- */
-export async function ingestPersonalSalesFromBot({ user, source, senderName = null, sourceText = null, mediaKeys = [], rows }) {
-  if (!rows?.length) throw new AppError('لم أتعرّف على أي صنف في الرسالة.', 422, 'NO_ROWS');
-
-  const sourceHash = crypto.createHash('sha256')
-    .update(`personal|${user.id}|${String(sourceText ?? '').replace(/\s+/g, ' ').trim().toLowerCase()}|${[...mediaKeys].map(String).sort().join(',')}`)
-    .digest('hex');
-  const dup = await prisma.repPersonalSale.findFirst({ where: { sourceHash }, select: { id: true, status: true } });
-  if (dup) return '🔁 هذا المبيع مُسجَّل مسبقاً — لم يُكرَّر.';
-
-  const { repUserId } = await resolveBotRep(user, senderName);
-  let team = null;
-  if (repUserId) {
-    const a = await prisma.provinceRepAssignment.findFirst({
-      where: { repUserId, isActive: true, team: { isActive: true } },
-      select: { team: { select: { id: true, officeId: true } } },
-    });
-    team = a?.team ?? null;
-  }
-
-  const itemIds = [...new Set(rows.map(r => r._itemId).filter(Number.isInteger))];
-  const items = itemIds.length
-    ? await prisma.item.findMany({ where: { id: { in: itemIds } }, select: { id: true, name: true, price: true, warehousePrice: true, scientificCompanyId: true } })
-    : [];
-  const itemById = new Map(items.map(i => [i.id, i]));
-
-  const data = [];
-  for (const r of rows) {
-    const item = itemById.get(r._itemId) ?? null;
-    const quantity = Math.round(Number(r.quantity));
-    const pharmacyName = cleanText(r.pharmacy);
-    // صف بلا كمية أو صيدلية يبقى للمراجِع؟ لا — الجهد الشخصي لا يُعتمد بلا هذين،
-    // والرسالة تُعاد بتنبيه بدل صفّ ناقص يملأ الطابور.
-    if (!(quantity > 0) || !pharmacyName) continue;
-    // المندوب يبيع غالباً عبر المذاخر؛ «من المكتب» صراحةً في الرسالة يقلبها.
-    const channel = !r.warehouse && /مكتب/.test(String(sourceText ?? '')) ? 'office' : 'warehouse';
-    const { unitPrice, totalValue } = personalSaleValue({ channel, quantity, unitPrice: r.unitPrice }, item);
-    data.push({
-      officeId: team?.officeId ?? user.officeId ?? null,
-      teamId: team?.id ?? null,
-      repUserId,
-      companyId: item?.scientificCompanyId ?? null,
-      itemId: item?.id ?? null,
-      itemName: item?.name ?? cleanText(r.item) ?? '—',
-      pharmacyName,
-      areaName: cleanText(r.area),
-      channel,
-      warehouseName: cleanText(r.warehouse),
-      quantity,
-      bonusQty: Math.max(0, Math.round(Number(r.bonus) || 0)),
-      unitPrice,
-      totalValue,
-      currency: 'IQD',
-      saleDate: parseDate(r.date) ?? new Date(),
-      invoiceNo: cleanText(r.invoiceNumber, 60),
-      status: 'pending',
-      entrySource: source,
-      senderName: cleanText(senderName, 120),
-      sourceHash,
-      createdById: user.id,
-    });
-  }
-  if (!data.length) {
-    return '⚠️ لم أجد صنفاً بكمية واسم صيدلية. اكتب مثلاً:\nمبيعي\nصيدلية النور - الكرخ\nبانادول 5 علبة';
-  }
-  await prisma.repPersonalSale.createMany({ data });
-
-  const unknownItems = data.filter(d => !d.itemId).length;
-  const lines = [`✅ سُجّل ${data.length} صنف كجهد شخصي — بانتظار اعتماد التيم ليدر.`];
-  if (!repUserId) lines.push('ℹ️ لم أتعرّف على المندوب — سيحدّده التيم ليدر عند المراجعة.');
-  if (unknownItems) lines.push(`ℹ️ ${unknownItems} صنف لم يُطابَق بالكتالوج — يُصحَّح عند المراجعة.`);
-  if (rows.length > data.length) lines.push(`⚠️ أُهمل ${rows.length - data.length} سطر بلا كمية أو صيدلية.`);
-  return lines.join('\n');
 }
