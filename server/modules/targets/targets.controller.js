@@ -1,5 +1,11 @@
 import prisma from '../../lib/prisma.js';
 import { resolveMyRepId, resolveSciRepItemIds } from '../scientific-reps/scientific-reps.service.js';
+import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
+import { monthToRange } from '../../lib/salesMonths.js';
+import { listTargetPeople, getTargetActuals, targetKeyOf, MANAGER_REP_TYPE } from './targets.service.js';
+
+// من يدير تارگتات غيره — نفس MANAGER_ROLES في TargetsPage.tsx. البقية يرون أنفسهم فقط.
+const TARGET_MANAGER_ROLES = new Set(['admin', 'manager', 'company_manager', 'team_leader', 'supervisor', 'office_manager', 'product_manager', 'commercial_supervisor', 'commercial_team_leader', 'office_employee', 'office_hr']);
 
 // GET /api/targets?repType=scientific&repId=1&month=5&year=2026
 export async function getTargets(req, res, next) {
@@ -43,11 +49,12 @@ export async function getAllTargetsForRep(req, res, next) {
 // body: { repType, repId, month, year, targets: [{ itemId, target }] }
 export async function upsertTargets(req, res, next) {
   try {
-    const { repType, repId, month, year, targets } = req.body;
-    if (!repType || !repId || !month || !year || !Array.isArray(targets))
+    const { repId, month, year, targets } = req.body;
+    if (!req.body.repType || !repId || !month || !year || !Array.isArray(targets))
       return res.status(400).json({ error: 'repType, repId, month, year, targets[] required' });
 
-    const rid = parseInt(repId);
+    // معرّف سالب = عمود مدير شركة (راجع targetKeyOf)
+    const { repType, repId: rid } = targetKeyOf(req.body.repType, parseInt(repId));
     const m   = parseInt(month);
     const y   = parseInt(year);
 
@@ -117,15 +124,24 @@ export async function getTargetsMatrix(req, res, next) {
       return res.status(400).json({ error: 'repType, month, year required' });
     if (repIds.length === 0) return res.json({ success: true, data: { targets: [], scopes: {}, scopeItems: [] } });
 
-    const targets = await prisma.repItemTarget.findMany({
-      where: { repType, month, year, repId: { in: repIds } },
-      select: { repId: true, itemId: true, target: true, item: { select: { id: true, name: true } } },
+    const rows = await prisma.repItemTarget.findMany({
+      where: {
+        month, year,
+        OR: [
+          { repType, repId: { in: repIds.filter(id => id > 0) } },
+          { repType: MANAGER_REP_TYPE, repId: { in: repIds.filter(id => id < 0).map(id => -id) } },
+        ],
+      },
+      select: { repType: true, repId: true, itemId: true, target: true, item: { select: { id: true, name: true } } },
     });
+    const targets = rows.map(({ repType: type, ...t }) => (type === MANAGER_REP_TYPE ? { ...t, repId: -t.repId } : t));
 
     const scopes = {};
     const scopeItemIds = new Set();
     if (repType === 'scientific') {
-      const resolved = await Promise.all(repIds.map(id => resolveSciRepItemIds(id).then(r => r.itemIds).catch(() => null)));
+      const resolved = await Promise.all(repIds.map(id => (id < 0
+        ? resolveEffectiveItemIds(-id).catch(() => null)
+        : resolveSciRepItemIds(id).then(r => r.itemIds).catch(() => null))));
       repIds.forEach((id, i) => {
         scopes[id] = resolved[i];
         resolved[i]?.forEach(x => scopeItemIds.add(x));
@@ -141,5 +157,36 @@ export async function getTargetsMatrix(req, res, next) {
       : [];
 
     res.json({ success: true, data: { targets, scopes, scopeItems } });
+  } catch (e) { next(e); }
+}
+
+// GET /api/targets/people — كل من يُعيَّن له تارگت في نظر هذا المستخدم (يشمل مدراء الشركات)
+export async function getTargetPeople(req, res, next) {
+  try {
+    res.json({ success: true, data: await listTargetPeople(req.user) });
+  } catch (e) { next(e); }
+}
+
+// GET /api/targets/actuals?id=5&month=11&year=2026&fileIds=1,2 — التارگت مقابل المبيع النت لشخص
+// معرّف سالب = مدير شركة. غير الإدارة يرى نفسه فقط مهما أرسل.
+export async function getActuals(req, res, next) {
+  try {
+    const month = parseInt(req.query.month);
+    const year  = parseInt(req.query.year);
+    if (!(month >= 1 && month <= 12) || !year)
+      return res.status(400).json({ error: 'month, year required' });
+
+    const columnId = TARGET_MANAGER_ROLES.has(req.user?.role)
+      ? parseInt(req.query.id)
+      : await resolveMyRepId(req.user.id);
+    if (!columnId) return res.status(400).json({ error: 'id required' });
+
+    const fileIds = String(req.query.fileIds || '').split(',').map(Number).filter(n => n > 0);
+    const data = await getTargetActuals(columnId, {
+      month, year,
+      fileIds: fileIds.length ? fileIds : null,
+      range: monthToRange(`${year}-${String(month).padStart(2, '0')}`),
+    }, req.user?.id ?? null);
+    res.json({ success: true, data });
   } catch (e) { next(e); }
 }

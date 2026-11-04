@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import './TargetsMatrix.css';
+import { fetchActuals, fmtQty, pctClass, pctText, TargetCompareModal, type ActualRow, type RepActuals } from './TargetCompare';
 
 /**
  * جدول التارگت الشامل: المندوبون أفقياً × الايتمات عمودياً لشهر واحد.
  * تحرير مباشر في الخلية، لصق كتلة من إكسل، تنقّل بالأسهم/Enter، تعميم قيمة على
  * صف كامل، وإجماليات للصف والعمود — بتصميم جدول الستوك (كثيف، رسمي، بلا ألوان).
+ * أسفل كل عمود المبيع النت والإنجاز، والضغط على الاسم يفتح المقارنة ايتماً ايتماً.
+ * عمود معرّفه سالب = مدير شركة: هدفه يتداخل مع فريقه، فلا يدخل المجموع ولا التعميم.
  *
  * البيانات بطلب واحد: GET /api/targets/matrix (تارگتات + نطاق ايتمات كل مندوب
  * علمي). الحفظ upsert لكل مندوب عُدّل عبر PUT /api/targets — نفس مسار الصفحة.
@@ -22,6 +25,8 @@ interface Props {
   allItems: NamedItem[];
   month: number;
   year: number;
+  monthLabel: string;
+  activeFileIds: number[];
   token: string | null;
   reloadKey?: number;
   /** أدوات الصفحة (العنوان، الشهر، السنة) — تُعرض في بداية شريط الجدول */
@@ -33,8 +38,11 @@ interface Props {
 const key = (repId: number, itemId: number) => `${repId}:${itemId}`;
 const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const clean = (v: string) => v.replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^\d.]/g, '');
+const isManagerCol = (repId: number) => repId < 0;
+const ROLE_RANK: Record<string, number> = { company_manager: 0, team_leader: 1 };
+const roleRank = (r: MatrixRep) => ROLE_RANK[r.role ?? ''] ?? 2;
 
-export default function TargetsMatrix({ repType, reps, allItems, month, year, token, reloadKey = 0, controls, actions }: Props) {
+export default function TargetsMatrix({ repType, reps, allItems, month, year, monthLabel, activeFileIds, token, reloadKey = 0, controls, actions }: Props) {
   const H = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   const [loading, setLoading] = useState(false);
@@ -59,6 +67,50 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, to
   const periodRef = useRef({ month, year, repType });
 
   const repIdsKey = reps.map(r => r.id).join(',');
+
+  // ── المبيع النت لكل شخص ──
+  // طلب لكل شخص وباثنين معاً: التقرير ثقيل والخادم بمعالج واحد، فتمتلئ الأعمدة تدريجياً.
+  const compareOn = repType === 'scientific';
+  const fileKey = activeFileIds.join(',');
+  const noFiles = compareOn && activeFileIds.length === 0;
+  const [actuals, setActuals] = useState<Record<number, RepActuals>>({});
+  const [actualsPending, setActualsPending] = useState(0);
+  const [actualsNonce, setActualsNonce] = useState(0);
+  const [compareRepId, setCompareRepId] = useState<number | null>(null);
+  const actualsScopeRef = useRef('');
+
+  useEffect(() => {
+    const scope = `${month}|${year}|${fileKey}|${repIdsKey}`;
+    // نفس الفترة والأشخاص (بعد حفظ) تبقى الأرقام ظاهرة حتى تصل الجديدة
+    if (actualsScopeRef.current !== scope) { actualsScopeRef.current = scope; setActuals({}); }
+    if (!compareOn || !fileKey || !repIdsKey) { setActualsPending(0); return; }
+    let cancelled = false;
+    const queue = repIdsKey.split(',').map(Number);
+    const fileIds = fileKey.split(',').map(Number);
+    setActualsPending(queue.length);
+    const worker = async () => {
+      while (queue.length && !cancelled) {
+        const id = queue.shift()!;
+        try {
+          const data = await fetchActuals(id, { month, year, fileIds }, token);
+          if (!cancelled) setActuals(prev => ({ ...prev, [id]: data }));
+        } catch { /* يبقى عموده بلا رقم */ }
+        if (!cancelled) setActualsPending(n => n - 1);
+      }
+    };
+    worker(); worker();
+    return () => { cancelled = true; };
+  }, [compareOn, month, year, fileKey, repIdsKey, token, actualsNonce, reloadKey]);
+
+  const actualByCell = useMemo(() => {
+    const out: Record<number, Map<number, ActualRow>> = {};
+    for (const [id, a] of Object.entries(actuals)) {
+      const m = new Map<number, ActualRow>();
+      a.rows.forEach(row => row.itemIds.forEach(itemId => m.set(itemId, row)));
+      out[+id] = m;
+    }
+    return out;
+  }, [actuals]);
 
   // ── تحميل ──
   const load = useCallback(async () => {
@@ -146,7 +198,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, to
 
   const visReps = useMemo(() => {
     const list = company ? reps.filter(r => (r.company || '') === company) : reps;
-    return list.slice().sort((a, b) => (a.company || '').localeCompare(b.company || '') || a.name.localeCompare(b.name));
+    return list.slice().sort((a, b) => (a.company || '').localeCompare(b.company || '') || roleRank(a) - roleRank(b) || a.name.localeCompare(b.name));
   }, [reps, company]);
 
   const value = useCallback((repId: number, itemId: number): string => {
@@ -179,7 +231,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, to
 
   const colTotals = useMemo(() => visReps.map(r => visRows.reduce((s, it) => s + num(r.id, it.id), 0)),
     [visReps, visRows, value]); // eslint-disable-line react-hooks/exhaustive-deps
-  const grand = colTotals.reduce((a, b) => a + b, 0);
+  const grand = colTotals.reduce((a, b, c) => (isManagerCol(visReps[c].id) ? a : a + b), 0);
 
   // مجموعات الشركات لرأس الجدول
   const groups = useMemo(() => {
@@ -254,7 +306,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, to
 
   const applyFill = (itemId: number) => {
     const v = clean(fillVal);
-    if (v !== '') visReps.forEach(rep => { if (inScope(rep.id, itemId)) setCell(rep.id, itemId, v); });
+    if (v !== '') visReps.forEach(rep => { if (!isManagerCol(rep.id) && inScope(rep.id, itemId)) setCell(rep.id, itemId, v); });
     setFillItem(null); setFillVal('');
   };
 
@@ -278,6 +330,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, to
     setFlash(new Set([...pending.keys()].filter(k => !failedSet.has(+k.split(':')[0]))));
     setTimeout(() => setFlash(new Set()), 1300);
     setSaving(false);
+    setActualsNonce(n => n + 1); // الإنجاز يُحسب على التارگت المحفوظ
     setMsg(failed.length === 0
       ? { ok: true, text: `✓ حُفظ تارگت ${ok} مندوب` }
       : { ok: false, text: `⚠ فشل حفظ ${failed.length}: ${failed.map(id => reps.find(r => r.id === id)?.name ?? id).join('، ')}` });
@@ -359,16 +412,18 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, to
               <tr>
                 <th className="tm-item">الايتم</th>
                 {visReps.map((r, c) => (
-                  <th key={r.id} data-c={c} className="tm-rep" title={r.name}>
+                  <th key={r.id} data-c={c} className={`tm-rep ${compareOn ? 'tm-rep--open' : ''}`} title={r.name}
+                    onClick={compareOn ? () => setCompareRepId(r.id) : undefined}>
                     <span className="tm-rep-name">{r.name}</span>
+                    {isManagerCol(r.id) && <span className="tm-rep-role">مدير</span>}
                   </th>
                 ))}
-                <th className="tm-total">المجموع</th>
+                <th className="tm-total" title="مجموع المندوبين، بلا أعمدة المدراء">المجموع</th>
               </tr>
             </thead>
             <tbody>
               {visRows.map((it, r) => {
-                const rowTotal = visReps.reduce((s, rep) => s + num(rep.id, it.id), 0);
+                const rowTotal = visReps.reduce((s, rep) => (isManagerCol(rep.id) ? s : s + num(rep.id, it.id)), 0);
                 return (
                   <tr key={it.id}>
                     <td className="tm-item" title={it.name}>
@@ -389,8 +444,10 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, to
                         return <td key={rep.id} data-c={c} className="tm-cell tm-cell--off" title="خارج نطاق ايتمات هذا المندوب" />;
                       }
                       const k = key(rep.id, it.id);
+                      const cmp = actualByCell[rep.id]?.get(it.id);
                       return (
                         <td key={rep.id} data-c={c}
+                          title={cmp ? `التارگت ${fmtQty(cmp.target)} · المبيع النت ${fmtQty(cmp.net)} · الإنجاز ${pctText(cmp.pct)}` : undefined}
                           className={`tm-cell ${edits.has(k) ? 'tm-cell--dirty' : ''} ${flash.has(k) ? 'tm-flash' : ''}`}>
                           <input data-cell={`${r}-${c}`} inputMode="decimal" value={value(rep.id, it.id)}
                             onChange={e => setCell(rep.id, it.id, e.target.value)}
@@ -407,14 +464,55 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, to
             </tbody>
             <tfoot>
               <tr>
-                <td className="tm-item tm-foot-label">المجموع · {visRows.length} ايتم</td>
+                <td className="tm-item tm-foot-label">التارگت · {visRows.length} ايتم</td>
                 {colTotals.map((t, c) => <td key={c} data-c={c}>{t ? fmt(t) : ''}</td>)}
                 <td className="tm-total">{fmt(grand)}</td>
               </tr>
+              {compareOn && (noFiles ? (
+                <tr className="tm-foot-compare">
+                  <td className="tm-item tm-foot-label">المبيع النت</td>
+                  <td colSpan={visReps.length} className="tm-foot-hint">فعّل ملف مبيعات لعرض المبيع النت</td>
+                  <td className="tm-total" />
+                </tr>
+              ) : <>
+                <tr className="tm-foot-compare">
+                  <td className="tm-item tm-foot-label">
+                    المبيع النت{actualsPending > 0 && <span className="tm-foot-progress"> · جاري الحساب {reps.length - actualsPending}/{reps.length}</span>}
+                  </td>
+                  {visReps.map((r, c) => {
+                    const a = actuals[r.id];
+                    return <td key={r.id} data-c={c}>{a ? (a.totalTarget > 0 ? fmtQty(a.totalNet) : '') : actualsPending > 0 ? '…' : '—'}</td>;
+                  })}
+                  <td className="tm-total" />
+                </tr>
+                <tr className="tm-foot-compare">
+                  <td className="tm-item tm-foot-label">الإنجاز</td>
+                  {visReps.map((r, c) => {
+                    const a = actuals[r.id];
+                    return <td key={r.id} data-c={c} className={pctClass(a?.pct ?? null)}>{a?.pct != null ? `${a.pct}%` : ''}</td>;
+                  })}
+                  <td className="tm-total" />
+                </tr>
+              </>)}
             </tfoot>
           </table>
         )}
       </div>
+
+      {compareRepId !== null && (() => {
+        const rep = reps.find(r => r.id === compareRepId);
+        if (!rep) return null;
+        return (
+          <TargetCompareModal
+            name={rep.name}
+            subtitle={`${isManagerCol(rep.id) ? 'مدير — مبيع فريقه · ' : ''}${monthLabel} ${year}`}
+            data={actuals[rep.id]}
+            loading={actualsPending > 0}
+            noFiles={noFiles}
+            onClose={() => setCompareRepId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

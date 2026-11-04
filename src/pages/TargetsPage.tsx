@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import type { GroupableRep } from '../components/RepSelectOptions';
 import TargetsImportModal from '../components/TargetsImportModal';
 import TargetsMatrix from '../components/TargetsMatrix';
+import { fetchActuals, fmtQty, pctClass, pctText, type ActualRow, type RepActuals } from '../components/TargetCompare';
 import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope } from '../components/ProvinceRepsToggle';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -43,6 +44,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const [month, setMonth] = useState(NOW.getMonth() + 1);
   const [year, setYear] = useState(NOW.getFullYear());
   const [myTargets, setMyTargets] = useState<SavedTarget[]>([]);
+  const [myActuals, setMyActuals] = useState<RepActuals | null>(null);
   const [loading, setLoading] = useState(false);
   const [allItems, setAllItems] = useState<NamedItem[]>([]);
   const [showImport, setShowImport] = useState(false);
@@ -61,10 +63,22 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isManager, month, year, token]);
 
-  // Load reps — unified list (system reps + standalone reps created by this manager)
+  // مبيعه النت مقابل تارگته — الخادم يقيّد غير الإدارة بسجله هو
+  const fileKey = activeFileIds.join(',');
+  useEffect(() => {
+    setMyActuals(null);
+    if (isManager || !fileKey) return;
+    let cancelled = false;
+    fetchActuals(null, { month, year, fileIds: fileKey.split(',').map(Number) }, token)
+      .then(d => { if (!cancelled) setMyActuals(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isManager, month, year, fileKey, token]);
+
+  // كل من يُعيَّن له تارگت: المندوبون (علمي ومسوق، بغداد ومحافظات) وقادة الفرق والمدراء
   useEffect(() => {
     if (!isManager || repType !== 'scientific') return;
-    fetch(`${API}/api/scientific-reps`, { headers: H() })
+    fetch(`${API}/api/targets/people`, { headers: H() })
       .then(r => r.json())
       .then(j => setSciReps(Array.isArray(j) ? j : (j.data ?? [])))
       .catch(() => {});
@@ -91,7 +105,10 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, isManager]);
 
-  const reps = repType === 'scientific' ? filterByProvinceScope(sciReps, onlyProvince) : commReps;
+  // عمود المدير (معرّف سالب) يظهر مع مندوبي بغداد ومع مندوبي المحافظات: فريقه قد يشمل الاثنين
+  const reps = repType === 'scientific'
+    ? [...sciReps.filter(r => r.id < 0), ...filterByProvinceScope(sciReps.filter(r => r.id > 0), onlyProvince)]
+    : commReps;
 
   const periodControls = (
     <>
@@ -114,6 +131,8 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           allItems={allItems}
           month={month}
           year={year}
+          monthLabel={MONTHS[month - 1]}
+          activeFileIds={activeFileIds}
           token={token}
           reloadKey={importKey}
           controls={<>
@@ -132,7 +151,7 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
         {showImport && (
           <TargetsImportModal
             repType={repType}
-            reps={reps}
+            reps={reps.filter(r => r.id > 0)}
             allItems={allItems}
             month={month}
             year={year}
@@ -147,6 +166,11 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   }
 
   const total = myTargets.reduce((s, t) => s + t.target, 0);
+  const actualOf = new Map<number, ActualRow>();
+  myActuals?.rows.forEach(r => r.itemIds.forEach(id => actualOf.set(id, r)));
+  // صفّان بنفس الاسم يشتركان في مبيع واحد: يُعرض على الأول فقط حتى لا يبدو مكرراً
+  const shownOnce = new Set<ActualRow>();
+  const showCompare = !!myActuals;
 
   return (
     <div className="page" dir="rtl" style={{ maxWidth: 1000 }}>
@@ -166,23 +190,40 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
                 <th style={{ width: 40 }}>#</th>
                 <th>اسم الايتم</th>
                 <th style={{ textAlign: 'center', width: 140 }}>التارگت (عدد)</th>
+                {showCompare && <>
+                  <th style={{ textAlign: 'center', width: 120 }}>المبيع النت</th>
+                  <th style={{ textAlign: 'center', width: 90 }}>الإنجاز</th>
+                </>}
               </tr>
             </thead>
             <tbody>
-              {myTargets.map((t, i) => (
-                <tr key={t.id}>
-                  <td style={{ color: 'var(--c-text-muted)' }}>{i + 1}</td>
-                  <td style={{ fontWeight: 600 }}>{t.item.name}</td>
-                  <td style={{ textAlign: 'center', fontWeight: 800 }}>
-                    {t.target.toLocaleString('en-US')}
-                  </td>
-                </tr>
-              ))}
+              {myTargets.map((t, i) => {
+                const row = actualOf.get(t.itemId);
+                const first = !!row && !shownOnce.has(row);
+                if (row) shownOnce.add(row);
+                return (
+                  <tr key={t.id}>
+                    <td style={{ color: 'var(--c-text-muted)' }}>{i + 1}</td>
+                    <td style={{ fontWeight: 600 }}>{t.item.name}</td>
+                    <td style={{ textAlign: 'center', fontWeight: 800 }}>
+                      {t.target.toLocaleString('en-US')}
+                    </td>
+                    {showCompare && <>
+                      <td style={{ textAlign: 'center', fontWeight: 700 }}>{first ? fmtQty(row!.net) : ''}</td>
+                      <td style={{ textAlign: 'center', fontWeight: 700 }} className={first ? pctClass(row!.pct) : ''}>{first ? pctText(row!.pct) : ''}</td>
+                    </>}
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr>
                 <td colSpan={2} style={{ fontWeight: 700 }}>الإجمالي</td>
                 <td style={{ textAlign: 'center', fontWeight: 800 }}>{total.toLocaleString('en-US')}</td>
+                {showCompare && <>
+                  <td style={{ textAlign: 'center', fontWeight: 800 }}>{fmtQty(myActuals!.totalNet)}</td>
+                  <td style={{ textAlign: 'center', fontWeight: 800 }} className={pctClass(myActuals!.pct)}>{pctText(myActuals!.pct)}</td>
+                </>}
               </tr>
             </tfoot>
           </table>

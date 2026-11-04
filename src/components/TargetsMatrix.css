@@ -35,7 +35,7 @@
   overflow: auto; max-height: max(320px, calc(100dvh - 245px));
   border: 1px solid var(--c-border); border-radius: 10px; background: #fff;
   /* حتى لا تختفي الخلية المحدّدة خلف الأجزاء الثابتة عند التنقل بالأسهم */
-  scroll-padding: 70px 66px 40px 200px;
+  scroll-padding: 70px 66px 95px 200px;
 }
 
 /* أعمدة المندوبين متساوية العرض؛ وحدّها الأدنى يضمن عدم تداخلها إن كثروا */
@@ -63,6 +63,10 @@
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
   overflow-wrap: break-word;
 }
+
+.tm-rep--open { cursor: pointer; }
+.tm-table thead th.tm-rep--open:hover .tm-rep-name { text-decoration: underline; }
+.tm-rep-role { display: block; margin-top: 2px; font-size: 9.5px; font-weight: 600; color: var(--c-text-muted); }
 
 /* عمود الايتم ثابت يميناً */
 .tm-table .tm-item {
@@ -103,8 +107,46 @@
   height: 34px; text-align: center; font-weight: 800; color: var(--c-text-primary); background: var(--c-bg);
   border-top: 1px solid var(--c-border); border-bottom: 0;
 }
-.tm-table tfoot td.tm-foot-label { z-index: 2; text-align: right; padding: 0 10px; color: var(--c-text-secondary); font-weight: 700; font-size: 11.5px; white-space: nowrap; }
+.tm-table tfoot td.tm-foot-label { z-index: 2; text-align: right; padding: 0 10px; color: var(--c-text-secondary); font-weight: 700; font-size: 11.5px; white-space: nowrap; overflow: hidden; }
 .tm-table tfoot td.tm-total { z-index: 2; }
+/* سطرا المقارنة: المبيع النت والإنجاز */
+.tm-table tfoot tr.tm-foot-compare td { height: 27px; border-top: 0; font-weight: 700; font-size: 11.5px; }
+.tm-foot-progress { font-weight: 500; font-size: 10px; color: var(--c-text-muted); }
+.tm-table tfoot td.tm-foot-hint { color: var(--c-text-muted); font-weight: 500; }
+.tm-table tfoot td.tc-good, .tc-good { color: var(--c-success); }
+.tm-table tfoot td.tc-low, .tc-low { color: var(--c-danger); }
+
+/* نافذة مقارنة الشخص */
+.tc-overlay {
+  position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(15, 23, 42, .5);
+}
+.tc-modal {
+  display: flex; flex-direction: column; width: 100%; max-width: 680px; max-height: 88dvh;
+  background: #fff; border-radius: 12px; overflow: hidden;
+}
+.tc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--c-border); }
+.tc-name { font-size: 15px; font-weight: 800; color: var(--c-text-primary); }
+.tc-sub { font-size: 11.5px; color: var(--c-text-muted); margin-top: 1px; }
+.tc-kpis { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--c-border); }
+.tc-kpis > div { padding: 10px 12px; text-align: center; border-inline-start: 1px solid var(--c-border-light); }
+.tc-kpis > div:first-child { border-inline-start: 0; }
+.tc-kpis span { display: block; font-size: 11px; color: var(--c-text-muted); }
+.tc-kpis b { display: block; margin-top: 2px; font-size: 17px; font-weight: 800; color: var(--c-text-primary); font-variant-numeric: tabular-nums; }
+.tc-kpis b.tc-good { color: var(--c-success); }
+.tc-kpis b.tc-low { color: var(--c-danger); }
+.tc-body { overflow: auto; }
+.tc-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.tc-table th {
+  position: sticky; top: 0; z-index: 1; padding: 7px 8px; background: var(--c-bg); text-align: center;
+  font-size: 11px; font-weight: 700; color: var(--c-text-primary); border-bottom: 1px solid var(--c-border);
+}
+.tc-table td { padding: 7px 8px; text-align: center; font-weight: 700; color: var(--c-text-primary); border-bottom: 1px solid var(--c-border-light); }
+.tc-table td.tc-good { color: var(--c-success); }
+.tc-table td.tc-low { color: var(--c-danger); }
+.tc-table .tc-item { text-align: right; font-weight: 600; }
+.tc-table .tc-item span { display: block; text-align: right; overflow-wrap: anywhere; }
+.tc-section { padding: 12px 12px 6px; font-size: 11.5px; font-weight: 700; color: var(--c-text-secondary); }
 
 /* «تعميم» يظهر فوق طرف الخلية عند المرور ولا يحرّك النص */
 .tm-fill {
@@ -131,6 +173,7 @@
   .tm-table thead th { font-size: 11px; }
   .tm-col-item { width: 124px; }
   .tm-col-total { width: 56px; }
-  .tm-wrap { scroll-padding: 70px 56px 40px 124px; }
+  .tm-wrap { scroll-padding: 70px 56px 95px 124px; }
   .tg-search { flex: 1; min-width: 120px; }
+  .tc-kpis b { font-size: 15px; }
 }
