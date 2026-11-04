@@ -75,12 +75,12 @@ interface Props {
 }
 
 interface CompanyCell { name: string; value: number; cond: number; reps: RepRow[] }
-interface ProvinceCell { name: string; total: number; cond: number; companies: CompanyCell[]; repCount: number; marketers: RepRow[] }
+interface ProvinceCell { name: string; total: number; cond: number; companies: CompanyCell[]; marketers: RepRow[] }
 // فرق المحافظات بصيغة مختصرة للمخبأ. p المحافظة، lr معرّف مندوب القائد، u حساب المندوب.
 // all = مبيع ايتمات المندوب في المحافظة، liq = لكوديشنه.
-type TeamLite = { p: string; leader: string | null; lr: number | null; reps: { u: number; id: number | null; name: string; active: boolean; kind: string; all: number; liq: number }[] };
+type TeamLite = { p: string; leader: string | null; lr: number | null; reps: { u: number; id: number | null; name: string; active: boolean; kind: string; co: string; all: number; liq: number }[] };
 // null = الرقم غير معروف: المندوب ظهر من province-map فقط (خارج فريق المحافظة)
-interface NameRep { key: string; id: number | null; name: string; sales: number | null; cond: number | null; active: boolean }
+interface NameRep { key: string; id: number | null; name: string; company: string; sales: number | null; cond: number | null; active: boolean }
 interface NameRow { leader: { id: number | null; name: string } | null; reps: NameRep[] }
 // مبيع المندوب لكل محافظة — value: المؤكد من «مبيعات المندوبين» بالدينار، usd: ميركاتو بعملة التقارير.
 // company=null: ايتم بلا مدير شركة
@@ -138,7 +138,7 @@ const unpackCond = (v: any): CondRows => ({ prov: new Map(v?.prov ?? []), pc: v?
 const EMPTY_COND: CondRows = { prov: new Map(), pc: [], all: 0 };
 const pctOf = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0);
 const pctTxt = (p: number) => `${p.toFixed(p >= 10 || p === 0 ? 0 : 1)}%`;
-const toolbarBtn: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', color: '#475569', borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer' };
+const toolbarBtn: React.CSSProperties = { border: '1px solid #cbd5e1', background: '#fff', color: '#475569', borderRadius: 6, padding: '1px 8px', fontSize: 10.5, lineHeight: 1.5, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer' };
 
 const RAMP = ['#e0ecff', '#c7dbff', '#a3c2fb', '#78a3f5', '#4f84ea', '#2f66d6', '#1f4fb4', '#173a85'];
 const VB = IRAQ_MAP_VIEWBOX;
@@ -564,7 +564,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
-    const key = `t3|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
+    const key = `t4|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
     const hit = cacheable ? cacheGet(key) : undefined;
     if (hit) setTeams(hit.v);
     if (hit && Date.now() - hit.t < FRESH_MS) return () => { dead = true; };
@@ -580,7 +580,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         if (dead) return;
         const rows: TeamLite[] = (j.teams ?? []).map((t: any) => ({
           p: t.provinceName, leader: t.leaderName ?? null, lr: t.leaderRepId ?? null,
-          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', all: x.net ?? 0, liq: x.personalNet ?? 0 })),
+          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', co: (x.companies ?? []).join('، '), all: x.net ?? 0, liq: x.personalNet ?? 0 })),
         }));
         if (cacheable) cacheSet(key, rows);
         setTeams(rows);
@@ -596,7 +596,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     const out = new Map<string, ProvinceCell>();
     const cell = (name: string) => {
       const k = norm(name);
-      if (!out.has(k)) out.set(k, { name, total: 0, cond: 0, companies: [], repCount: 0, marketers: [] });
+      if (!out.has(k)) out.set(k, { name, total: 0, cond: 0, companies: [], marketers: [] });
       return out.get(k)!;
     };
     const company = (pc: ProvinceCell, name: string) => {
@@ -634,7 +634,6 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         if (marketers) pc.marketers.push(rep);
         else company(pc, companyOf.get(rep.id) || NO_COMPANY).reps.push(rep);
       }
-      pc.repCount = pr.reps.length;
       if (!salesRows.prov.has(norm(pr.provinceName))) pc.total = pr.totalValue;
     }
     for (const pc of out.values()) pc.companies.sort((a, b) => b.value - a.value);
@@ -666,8 +665,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     for (const c of cells.values()) {
       const row = rowOf(norm(c.name));
       for (const r of marketers ? c.marketers : c.companies.flatMap(x => x.reps)) {
+        const co = companyOf.get(r.id);
         // netValue في عرض العلميين هو اللكوديشن نفسه، وعند المسوقين هو مبيعه
-        row.reps.push({ key: `r${r.id}`, id: r.id, name: r.name, sales: marketers ? r.netValue : null, cond: marketers ? null : r.netValue, active: true });
+        row.reps.push({ key: `r${r.id}`, id: r.id, name: r.name, company: co && co !== NO_COMPANY ? co : '', sales: marketers ? r.netValue : null, cond: marketers ? null : r.netValue, active: true });
       }
     }
     // قائد فريق المحافظة (ProvinceTeam) للعلميين؛ للمسوقين قائدهم من province-map
@@ -680,8 +680,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       for (const r of t.reps) {
         if (repKind && (r.kind === 'pharmacy') !== marketers) continue;
         const cur = row.reps.find(x => (r.id != null && x.id === r.id) || norm(x.name) === norm(r.name));
-        if (cur) { cur.sales = r.all; cur.cond = r.liq; cur.id = cur.id ?? r.id; cur.active = r.active; }
-        else row.reps.push({ key: `u${r.u}`, id: r.id, name: r.name, sales: r.all, cond: r.liq, active: r.active });
+        if (cur) { cur.sales = r.all; cur.cond = r.liq; cur.id = cur.id ?? r.id; cur.active = r.active; cur.company = r.co || cur.company; }
+        else row.reps.push({ key: `u${r.u}`, id: r.id, name: r.name, company: r.co, sales: r.all, cond: r.liq, active: r.active });
       }
     }
     for (const row of out.values()) {
@@ -690,7 +690,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       row.reps.sort((a, b) => (b.sales ?? 0) - (a.sales ?? 0) || (b.cond ?? 0) - (a.cond ?? 0));
     }
     return out;
-  }, [cells, teams, repKind, marketers, repData]);
+  }, [cells, teams, repKind, marketers, repData, companyOf]);
 
   // صفوف الجدول: محافظة فيها مبيع/لكوديشن/أسماء — ومحافظة لها فريق بلا مبيع تأتي آخراً
   const nameList = useMemo(() => {
@@ -698,7 +698,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     for (const t of teams) {
       const k = norm(t.p);
       if (k !== BAGHDAD && !cells.has(k) && !rows.some(c => norm(c.name) === k)) {
-        rows.push({ name: t.p, total: 0, cond: 0, companies: [], repCount: 0, marketers: [] });
+        rows.push({ name: t.p, total: 0, cond: 0, companies: [], marketers: [] });
       }
     }
     return rows.filter(c => {
@@ -715,13 +715,13 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   }, [nameRows]);
 
   const totals = useMemo(() => {
-    const cos = new Set<string>(); const rp = new Set<number>(); let v = 0, cd = 0;
+    const rp = new Set<number>(); let v = 0, cd = 0;
     for (const c of list) {
       v += c.total; cd += c.cond;
-      c.companies.forEach(x => { cos.add(norm(x.name)); x.reps.forEach(r => rp.add(r.id)); });
+      c.companies.forEach(x => x.reps.forEach(r => rp.add(r.id)));
       c.marketers.forEach(r => rp.add(r.id));
     }
-    return { value: v, cond: cd, companies: cos.size, reps: rp.size, provinces: list.filter(c => c.total !== 0 || c.repCount > 0).length };
+    return { value: v, cond: cd, reps: rp.size };
   }, [list]);
   // مناطق بلا محافظة معروفة: خارج صفوف المحافظات ومجموعها، وتظهر في تنبيه كي لا تضيع قيمتها
   const unplaced = useMemo(() => {
@@ -978,11 +978,11 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   };
 
   const renderNames = () => {
-    const colSpan = hasCond ? 4 : 3;
+    const colSpan = hasCond ? 5 : 4;
     const th: React.CSSProperties = { ...tableTh, padding: '5px 8px', fontSize: 11 };
     const td: React.CSSProperties = { ...tableTd, padding: '2px 8px', fontSize: 11, borderBottom: 'none' };
     // الأرقام بمحاذاة خاناتها: الآحاد فوق الآحاد على طول العمود
-    const num: React.CSSProperties = { ...td, textAlign: 'right', direction: 'ltr', fontVariantNumeric: 'tabular-nums', width: 130 };
+    const num: React.CSSProperties = { ...td, textAlign: 'right', direction: 'ltr', fontVariantNumeric: 'tabular-nums', width: '16%' };
     const lead: React.CSSProperties = { padding: '4px 8px', fontSize: 12, borderBottom: 'none', borderTop: '1px solid #cbd5e1' };
     const foot: React.CSSProperties = { padding: '5px 8px', fontSize: 11.5, fontWeight: 900, background: '#f1f5f9', borderTop: '1px solid #94a3b8', borderBottom: 'none' };
     const valColor = (v: number | null) => (v != null && v < 0 ? '#be123c' : undefined);
@@ -998,13 +998,14 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           <div style={{ color: '#94a3b8', fontSize: 13, padding: 12 }}>{loading || loadingTeams ? 'جاري تحميل بيانات المحافظات…' : 'لا توجد مبيعات ولا فرق محافظات في الفترة المختارة.'}</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 820, minWidth: hasCond ? 560 : 430 }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: hasCond ? 640 : 510 }}>
               <thead>
                 <tr>
                   <th style={th}>التيم ليدر</th>
-                  <th style={th}>{marketers ? 'المسوقون' : 'المندوبون'}</th>
-                  <th style={{ ...th, width: 130 }}>المبيع ({currencyLabel})</th>
-                  {hasCond && <th style={{ ...th, width: 130 }}>اللكوديشن ({currencyLabel})</th>}
+                  <th style={{ ...th, width: 1 }}>{marketers ? 'المسوقون' : 'المندوبون'}</th>
+                  <th style={th}>الشركة</th>
+                  <th style={{ ...th, width: '16%' }}>المبيع ({currencyLabel})</th>
+                  {hasCond && <th style={{ ...th, width: '16%' }}>اللكوديشن ({currencyLabel})</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1022,7 +1023,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                             ? <>{nameBtn(n.leader.id, n.leader.name, c.name, { leader: true })}<span style={{ fontSize: 10.5, color: '#64748b', marginInlineStart: 6 }}>{c.name}</span></>
                             : <span style={{ fontWeight: 800, color: '#334155' }}>{c.name}</span>}
                         </td>
-                        <td style={lead}>
+                        <td colSpan={2} style={lead}>
                           {!n?.reps.length && <span style={{ fontSize: 10.5, color: '#94a3b8' }}>لا يوجد {repWord}</span>}
                         </td>
                         <td style={{ ...num, ...lead, fontWeight: 800, color: valColor(c.total) ?? '#111827' }}>{fmtVal(c.total)}</td>
@@ -1037,7 +1038,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                       {n?.reps.map(r => (
                         <tr key={r.key}>
                           <td style={td} />
-                          <td style={{ ...td, whiteSpace: 'normal' }}>{nameBtn(r.id, r.name, c.name, { active: r.active })}</td>
+                          <td style={td}>{nameBtn(r.id, r.name, c.name, { active: r.active })}</td>
+                          <td style={{ ...td, whiteSpace: 'normal', fontSize: 10.5, color: '#64748b' }}>{r.company || dash}</td>
                           <td style={{ ...num, color: valColor(r.sales) ?? '#475569' }}>{r.sales != null ? fmtVal(r.sales) : dash}</td>
                           {hasCond && <td style={{ ...num, color: valColor(r.cond) ?? '#475569' }}>{r.cond ? fmtVal(r.cond) : dash}</td>}
                         </tr>
@@ -1069,7 +1071,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={2} style={foot}>المجموع</td>
+                  <td colSpan={3} style={foot}>المجموع</td>
                   <td style={{ ...num, ...foot }}>{fmtVal(totals.value)}</td>
                   {hasCond && <td style={{ ...num, ...foot }}>{totals.value > 0 && pctTag(pctOf(totals.cond, totals.value))}{fmtVal(totals.cond)}</td>}
                 </tr>
@@ -1135,47 +1137,43 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   return (
     <div ref={wrapRef} style={{ marginTop: 14 }}>
-      {/* شريط ملخص — سطر هادئ واحد، لا يأخذ التركيز من الجدول */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, marginBottom: 8 }}>
-        {([
-          ['صافي مبيع المحافظات', `${fmtVal(totals.value)} ${currencyLabel}`],
-          ...(hasCond ? [['لكوديشن المحافظات', `${fmtVal(totals.cond)} ${currencyLabel}`, pctTxt(pctOf(totals.cond, totals.value))]] : []),
-          ...(marketersOnly ? [] : [['الشركات', String(totals.companies)]]),
-          [marketers ? 'المسوقون' : 'المندوبون العلميون', String(teams.length ? namesRepCount : totals.reps)],
-          ['المحافظات النشطة', `${totals.provinces} / ${scopedSet ? scopedSet.size : 17}`],
-        ] as [string, string, string?][]).map(([l, v, pct], i) => (
-          <div key={l} style={{ flex: '1 1 auto', display: 'flex', alignItems: 'baseline', gap: 6, padding: '5px 12px', whiteSpace: 'nowrap', borderInlineStart: i ? '1px solid #eef2f7' : 'none' }}>
-            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{l}</span>
-            <span style={{ fontSize: 12.5, color: '#334155', fontWeight: 700 }}>{v}</span>
-            {pct && <span dir="ltr" style={{ fontSize: 11, color: '#64748b', fontWeight: 600, unicodeBidi: 'isolate' }}>{pct}</span>}
-          </div>
-        ))}
-      </div>
-
-      {/* الأزرار كلها معاً على اليسار (flex-end في الاتجاه العربي) */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-        {!marketersOnly && (
-          <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 999, overflow: 'hidden', background: '#fff' }}>
-            {([['names', '👥 أسماء المندوبين'], ['map', '🗺️ الخريطة']] as const).map(([v, label]) => (
-              <button key={v} type="button" onClick={() => setView(v)}
-                style={{ border: 'none', cursor: 'pointer', padding: '3px 10px', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', background: view === v ? '#0f172a' : 'transparent', color: view === v ? '#fff' : '#475569' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-        {!marketersOnly && (
-          <button type="button" onClick={() => { setDirProvince(null); setTeamsOpen(true); }}
-            style={toolbarBtn}>
-            فرق المحافظات (ايتمات وتارگت)
-          </button>
-        )}
-        {onAddCondition && (
-          <button type="button" onClick={onAddCondition}
-            style={toolbarBtn}>
-            📥 إدخال لكوديشن (إكسل)
-          </button>
-        )}
+      {/* الملخص يميناً والأزرار يساراً، كلاهما عمود صغير حتى لا يأخذا التركيز من الجدول */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto', columnGap: 8, rowGap: 1, alignItems: 'baseline', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '3px 10px', whiteSpace: 'nowrap' }}>
+          {([
+            ['المبيع الكلي', fmtVal(totals.value), currencyLabel],
+            ...(hasCond ? [['اللكوديشن', fmtVal(totals.cond), currencyLabel, pctTxt(pctOf(totals.cond, totals.value))]] : []),
+            [marketers ? 'المسوقون' : 'المندوبون', String(teams.length ? namesRepCount : totals.reps), ''],
+          ] as [string, string, string, string?][]).map(([l, v, unit, pct]) => (
+            <React.Fragment key={l}>
+              <span style={{ fontSize: 10.5, color: '#64748b', fontWeight: 600 }}>{l}</span>
+              <span dir="ltr" style={{ fontSize: 11.5, color: '#334155', fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{v}</span>
+              <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>
+                {unit}{pct && <> · <bdi dir="ltr">{pct}</bdi></>}
+              </span>
+            </React.Fragment>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+          {!marketersOnly && ([['names', 'الأسماء'], ['map', 'الخريطة']] as const).map(([v, label]) => (
+            <button key={v} type="button" onClick={() => setView(v)}
+              style={{ ...toolbarBtn, ...(view === v ? { background: '#0f172a', border: '1px solid #0f172a', color: '#fff' } : null) }}>
+              {label}
+            </button>
+          ))}
+          {!marketersOnly && (
+            <button type="button" title="فرق المحافظات: الايتمات والتارگت" onClick={() => { setDirProvince(null); setTeamsOpen(true); }}
+              style={toolbarBtn}>
+              الفرق
+            </button>
+          )}
+          {onAddCondition && (
+            <button type="button" title="إدخال لكوديشن من ملف إكسل" onClick={onAddCondition}
+              style={toolbarBtn}>
+              لكوديشن
+            </button>
+          )}
+        </div>
       </div>
       {teamsOpen && (
         <ProvinceTeamsDirectory initialProvince={dirProvince} token={token} fileIds={fileIds} applyMonth={applyMonth} fmtVal={fmtVal} currencyLabel={currencyLabel} onClose={() => setTeamsOpen(false)} />
