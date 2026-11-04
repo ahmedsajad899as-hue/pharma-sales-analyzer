@@ -36,8 +36,8 @@ export async function months(req, res, next) {
 }
 
 /**
- * مبيع مندوبي الفرق لكل محافظة وحساب وايتم، بالدولار كبقية النافذة.
- * @returns {Promise<Map<string, Map<string|number, {itemId:number|null, itemName:string, qty:number, usd:number}>>>}
+ * مبيع مندوبي الفرق لكل محافظة وحساب وايتم، بالدولار كبقية الأرقام.
+ * @returns {Promise<Map<string, Map<string|number, {itemId:number|null, itemName:string, qty:number, usd:number, rows:number, pharmacies:Set<string>}>>>}
  *   المفتاح `${محافظة}|${حساب}`
  */
 async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
@@ -51,23 +51,24 @@ async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
     viewerId,
   });
   const province = await liquidationProvinces(sales, mercatoRows, ownerOfRow, { extraUserIds: users.map(u => u.id) });
-  const add = (provinceName, userId, itemId, itemName, qty, usd) => {
+  const add = (provinceName, userId, itemId, itemName, qty, usd, pharmacy) => {
     const k = `${provinceName}|${userId}`;
     if (!out.has(k)) out.set(k, new Map());
     const key = itemId ?? `n:${itemName}`;
-    const cell = out.get(k).get(key) ?? { itemId, itemName, qty: 0, usd: 0 };
-    cell.qty += qty; cell.usd += usd;
+    const cell = out.get(k).get(key) ?? { itemId, itemName, qty: 0, usd: 0, rows: 0, pharmacies: new Set() };
+    cell.qty += qty; cell.usd += usd; cell.rows += 1;
+    if (pharmacy) cell.pharmacies.add(pharmacy);
     out.get(k).set(key, cell);
   };
   const rate = files.rate || 1470;
   for (const s of sales) {
-    for (const l of s.lines) add(province.ofSale(s), s.createdById, l.itemId, l.itemName, l.quantity, l.quantity * (l.unitPrice ?? 0) / rate);
+    for (const l of s.lines) add(province.ofSale(s), s.createdById, l.itemId, l.itemName, l.quantity, l.quantity * (l.unitPrice ?? 0) / rate, s.pharmacyName);
   }
   for (const r of mercatoRows) {
     const sign = String(r.recordType ?? '').trim().toLowerCase() === 'return' ? -1 : 1;
     // حسابان بالاسم نفسه: يُحسب الصف لكلٍّ منهما كما في تقريره، وايتماتهما هي الفاصل.
     for (const u of users.filter(x => r.repIds.includes(x.linkedRepId))) {
-      add(province.ofRow(r, u.id), u.id, r.itemId, r.item?.name ?? `#${r.itemId}`, sign * r.quantity, sign * saleValueUSD(r));
+      add(province.ofRow(r, u.id), u.id, r.itemId, r.item?.name ?? `#${r.itemId}`, sign * r.quantity, sign * saleValueUSD(r), sign > 0 ? r.customer?.name : null);
     }
   }
   return out;
@@ -305,10 +306,19 @@ export async function overview(req, res, next) {
     ]);
     const pendingByTeam = new Map(pendingRows.map(r => [r.teamId, r._count._all]));
 
-    // مبيعات «ملف الكوديشن» (بوت/إكسل) لمندوبي المحافظات تُعدّ مبيعاً شخصياً، موزَّعة
-    // على شركات المندوب بحسب ايتمات تعيينه؛ وغير المطابق يذهب لـ«غير مصنّف».
+    // الحقل نفسه personal لكن مصدره يختلف بنوع المندوب، ويوزَّع على شركاته بايتمات تعيينه:
+    //  • العلمي: مبيعه في محافظة الفريق = «مبيعات المندوبين» المؤكدة + ميركاتو باسمه.
+    //  • المسوق: الجهد الشخصي المعتمد + «ملف الكوديشن» (بوت/إكسل).
+    const repKinds = await prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true, linkedRep: { select: { repKind: true } } } });
+    const marketerIds = new Set(repKinds.filter(u => u.linkedRep?.repKind === PHARMACY_KIND).map(u => u.id));
+    const liquidation = await loadTeamLiquidation(repIds, files, month, viewer.id);
+    const liquidationRows = (t, userId) => [...(liquidation.get(`${t.provinceName}|${userId}`)?.values() ?? [])]
+      .map(c => ({ itemId: c.itemId, quantity: c.qty, valueUSD: c.usd, rows: c.rows, pharmacies: [...c.pharmacies] }));
+    const pharmaciesOf = (rows) => new Set(rows.flatMap(x => x.pharmacies ?? [x.pharmacy]).filter(Boolean)).size;
+    const rowCount = (rows) => rows.reduce((s2, x) => s2 + (x.rows ?? 1), 0);
+
     const condReps = new Map();
-    for (const t of teams) for (const a of t.assignments) condReps.set(a.repUserId, { id: a.repUserId, name: a.repName });
+    for (const t of teams) for (const a of t.assignments) if (marketerIds.has(a.repUserId)) condReps.set(a.repUserId, { id: a.repUserId, name: a.repName });
     const conditionByRep = await loadConditionSalesForReps([...condReps.values()], {
       month, officeIds: [...new Set(teams.map(t => t.officeId).filter(Boolean))],
     }).catch(() => new Map());
@@ -323,25 +333,26 @@ export async function overview(req, res, next) {
       for (const a of t.assignments) {
         if (!repsMap.has(a.repUserId)) {
           repsMap.set(a.repUserId, { repUserId: a.repUserId, repName: a.repName, repActive: a.repActive, companies: [], totalNet: 0, totalQty: 0, personalUSD: 0 });
-          if (!conditionDone.has(a.repUserId)) {
+          if (!marketerIds.has(a.repUserId)) {
+            condLeft.set(a.repUserId, liquidationRows(t, a.repUserId));
+          } else if (!conditionDone.has(a.repUserId)) {
             conditionDone.add(a.repUserId);
             condLeft.set(a.repUserId, [...(conditionByRep.get(a.repUserId) ?? [])]);
           }
         }
         const r = repsMap.get(a.repUserId);
         const c = cov.assignments.get(a.id);
-        const base = personalMap.get(`${a.repUserId}|${a.companyId}`) ?? { valueUSD: 0, qty: 0, rows: 0, pharmacies: 0 };
+        const base = (marketerIds.has(a.repUserId) && personalMap.get(`${a.repUserId}|${a.companyId}`)) || { valueUSD: 0, qty: 0, rows: 0, pharmacies: 0 };
         const p = { ...base };
         const left = condLeft.get(a.repUserId);
         if (left?.length) {
           const mine = left.filter(x => x.itemId && a.itemIds.includes(x.itemId));
           if (mine.length) {
             condLeft.set(a.repUserId, left.filter(x => !mine.includes(x)));
-            const ph = new Set(mine.map(x => x.pharmacy).filter(Boolean));
             p.valueUSD = +(p.valueUSD + mine.reduce((s2, x) => s2 + x.valueUSD, 0)).toFixed(2);
             p.qty += mine.reduce((s2, x) => s2 + x.quantity, 0);
-            p.rows += mine.length;
-            p.pharmacies += ph.size; // تقريبي: قد يتكرر اسم مع جهد شخصي معتمد
+            p.rows += rowCount(mine);
+            p.pharmacies += pharmaciesOf(mine); // تقريبي: قد يتكرر اسم مع جهد شخصي معتمد
           }
         }
         r.companies.push({
@@ -356,16 +367,16 @@ export async function overview(req, res, next) {
         });
         r.totalNet += c.net; r.totalQty += c.netQty; r.personalUSD += p.valueUSD;
       }
-      // جهد شخصي لصنف غير مطابَق بالكتالوج (بلا شركة) — يظهر على المندوب لا على شركة.
+      // مبيع ايتم خارج تعييناته، أو صنف غير مطابَق بالكتالوج — يظهر على المندوب لا على شركة.
       for (const r of repsMap.values()) {
-        let loose = personalMap.get(`${r.repUserId}|0`);
+        let loose = marketerIds.has(r.repUserId) ? personalMap.get(`${r.repUserId}|0`) : undefined;
         const rest = condLeft.get(r.repUserId) ?? [];
         if (rest.length) {
           loose = { ...(loose ?? { valueUSD: 0, qty: 0, rows: 0, pharmacies: 0 }) };
           loose.valueUSD = +(loose.valueUSD + rest.reduce((s2, x) => s2 + x.valueUSD, 0)).toFixed(2);
           loose.qty += rest.reduce((s2, x) => s2 + x.quantity, 0);
-          loose.rows += rest.length;
-          loose.pharmacies += new Set(rest.map(x => x.pharmacy).filter(Boolean)).size;
+          loose.rows += rowCount(rest);
+          loose.pharmacies += pharmaciesOf(rest);
         }
         r.personalUnclassified = loose ?? null;
         if (loose && (fullView || r.repUserId === viewer.id)) r.personalUSD += loose.valueUSD;

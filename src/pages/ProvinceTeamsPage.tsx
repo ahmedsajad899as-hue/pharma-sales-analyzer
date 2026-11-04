@@ -5,7 +5,7 @@
 // (وقد يعمل مندوب واحد لشركتين — يُحسب لكلٍّ منهما بايتماتها). لكل مندوب حسبتان
 // تُعرضان جنباً إلى جنب ولا تُجمعان أبداً:
 //   • تغطية المحافظة — كل مبيع ايتماته في محافظته (المكتب ← مذاخر/صيدليات).
-//   • الجهد الشخصي   — ما باعه بنفسه، يُدخَل من التطبيق أو البوت ويعتمده القائد.
+//   • مبيع المندوب   — المؤكد في «مبيعات المندوبين» + ميركاتو باسمه (server/lib/repLiquidation.js).
 //
 // الطبقات: بطاقات المحافظات ← تفصيل فريق (مندوب ← شركة ← ايتمات/مناطق/زبائن).
 // ════════════════════════════════════════════════════════════════════════════
@@ -23,6 +23,10 @@ import StructureTab from './province-teams/StructureTab';
 import './province-teams/province-teams.css';
 
 type Tab = 'provinces' | 'personal' | 'structure';
+
+// تبويب «الجهد الشخصي» مخفي بقرار المستخدم (2026-11-04): مبيع المندوب يُسجَّل من «مبيعات
+// المندوبين» وحدها. البيانات القديمة محفوظة، و true يعيد التبويب بطابور اعتماده.
+const SHOW_PERSONAL_TAB = false;
 
 interface Props { activeFileIds: number[] }
 
@@ -79,7 +83,7 @@ export default function ProvinceTeamsPage({ activeFileIds }: Props) {
   const selectedTeam = teams.find(t => t.id === selectedTeamId) ?? null;
   const pendingTotal = teams.reduce((s, t) => s + t.pendingPersonal, 0);
   const canStructure = !!viewer?.canEditStructure && hasFeature('province_teams_structure');
-  const canPersonal = hasFeature('province_teams_personal');
+  const canPersonal = SHOW_PERSONAL_TAB && hasFeature('province_teams_personal');
 
   const openPersonalFor = (teamId: number | null) => { setPersonalTeamFilter(teamId); setTab('personal'); };
 
@@ -238,7 +242,7 @@ function ProvinceGrid({ loading, teams, provinces, money, hasOffice, canStructur
 
             <div className="pt-chips">
               {t.companies.map(c => <span key={c.id} className="pt-chip pt-chip--accent">{c.name}</span>)}
-              {t.pendingPersonal > 0 && <span className="pt-chip pt-chip--red">{t.pendingPersonal} بانتظار الاعتماد</span>}
+              {SHOW_PERSONAL_TAB && t.pendingPersonal > 0 && <span className="pt-chip pt-chip--red">{t.pendingPersonal} بانتظار الاعتماد</span>}
             </div>
 
             <div className="pt-mini">
@@ -247,7 +251,7 @@ function ProvinceGrid({ loading, teams, provinces, money, hasOffice, canStructur
                 <div className="pt-mini__value">{money.usd(t.totals.net)}</div>
               </div>
               <div className="pt-mini__item" title={money.usdFull(t.personalUSD)}>
-                <div className="pt-mini__label">الجهد الشخصي (معتمد)</div>
+                <div className="pt-mini__label">مبيع المندوبين</div>
                 <div className="pt-mini__value pt-mini__value--green">{money.usd(t.personalUSD)}</div>
               </div>
             </div>

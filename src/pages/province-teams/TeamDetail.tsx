@@ -58,7 +58,7 @@ export default function TeamDetail({ team, viewer, money, onBack, onOpenPersonal
         <Kpi tone="coverage" label="إلى الصيدليات" value={money.usd(t.pharmacyNet)} hint={`${Math.round(pct(pharm, pharm + wh))}% من الصافي`} />
         <Kpi tone="coverage" label="إلى المذاخر" value={money.usd(t.warehouseNet)} hint={`${Math.round(pct(wh, pharm + wh))}% من الصافي`} />
         <Kpi tone="coverage" label="الطلبيات / الزبائن" value={`${fmtInt(t.orders)} / ${fmtInt(t.customers)}`} hint={`صافي الكمية ${fmtInt(t.netQty)}`} />
-        <Kpi tone="personal" label="الجهد الشخصي (معتمد)" value={money.usd(team.personalUSD)} hint="مؤشر منفصل — لا يُجمع مع التغطية" />
+        <Kpi tone="personal" label="مبيع المندوبين" value={money.usd(team.personalUSD)} hint="المؤكد في «مبيعات المندوبين» + ميركاتو بأسمائهم — لا يُجمع مع التغطية" />
         {team.uncovered.length > 0 && (
           <Kpi tone="alert" label="مبيعات غير منسوبة" value={money.usd(uncoveredNet)} hint="ايتمات بلا مندوب في المحافظة" />
         )}
@@ -76,7 +76,7 @@ export default function TeamDetail({ team, viewer, money, onBack, onOpenPersonal
           <div className="pt-panel__title">المندوبون العلميون</div>
           <div className="pt-chips">
             <span className="pt-chip"><span className="pt-dot" style={{ background: 'var(--c-accent)' }} />تغطية المحافظة</span>
-            <span className="pt-chip"><span className="pt-dot" style={{ background: 'var(--c-success)' }} />الجهد الشخصي</span>
+            <span className="pt-chip"><span className="pt-dot" style={{ background: 'var(--c-success)' }} />مبيع المندوب</span>
           </div>
         </div>
         {team.reps.length === 0 ? (
@@ -94,7 +94,7 @@ export default function TeamDetail({ team, viewer, money, onBack, onOpenPersonal
                   <th className="num">طلبيات</th>
                   <th className="num">زبائن</th>
                   <th>صيدليات : مذاخر</th>
-                  <th className="num">الجهد الشخصي</th>
+                  <th className="num">مبيع المندوب</th>
                 </tr>
               </thead>
               <tbody>
@@ -231,11 +231,11 @@ function CompanyRow({ rep, c, shared, teamNet, money, isOpen, onToggle }: {
                 }))} empty="—" />
               </div>
               <div>
-                <h4>الجهد الشخصي (معتمد)</h4>
+                <h4>مبيع المندوب</h4>
                 <div className="pt-list">
                   <div className="pt-list__row"><span>القيمة</span><span>{money.usd(c.personal.valueUSD)}</span></div>
                   <div className="pt-list__row"><span>الكمية</span><span>{fmtInt(c.personal.qty)}</span></div>
-                  <div className="pt-list__row"><span>صيدليات باعها بنفسه</span><span>{fmtInt(c.personal.pharmacies)}</span></div>
+                  <div className="pt-list__row"><span>الصيدليات</span><span>{fmtInt(c.personal.pharmacies)}</span></div>
                   <div className="pt-list__row">
                     <span>نسبته من التغطية</span>
                     <span>{cov.net > 0 ? `${Math.round((c.personal.valueUSD / cov.net) * 100)}%` : '—'}</span>
