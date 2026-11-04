@@ -8,7 +8,7 @@ import { pharmacyKey, matchNetPharmacies } from '../lib/pharmacyKey';
 import { Icon } from '../config/icons';
 import { sendEngagementPing, sendSearchPingDebounced } from '../lib/engagementPing';
 import * as XLSX from 'xlsx';
-import ProvinceRepsToggle, { useProvinceRepScope, useProvinceViewMode, filterByProvinceScope, hasProvinceReps, sortRepsByProvince, groupRepsByProvince } from '../components/ProvinceRepsToggle';
+import { ProvinceScopeSwitch, useProvinceRepScope, useProvinceViewMode, filterByProvinceScope, hasProvinceReps, sortRepsByProvince, groupRepsByProvince } from '../components/ProvinceRepsToggle';
 import type { RepProvince } from '../components/ProvinceRepsToggle';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -338,7 +338,7 @@ export default function DoctorsPage() {
   const [managerRepsAll, setManagerReps]    = useState<ManagerRep[]>([]);
   // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرضهم وحدهم. يُرسَل للخادم كـ
   // provinceScope فتُفصل أرقام «الكل» نفسها لا شرائح المندوبين فقط.
-  const [onlyProvince, setOnlyProvince] = useProvinceRepScope('calls-analysis');
+  const [onlyProvince, setOnlyProvince] = useProvinceRepScope('calls-analysis', { persist: false }); // تفتح الصفحة على بغداد دائماً
   const managerReps = useMemo(() => {
     const list = filterByProvinceScope(managerRepsAll, onlyProvince);
     return onlyProvince ? sortRepsByProvince(list) : list;
@@ -2190,30 +2190,28 @@ export default function DoctorsPage() {
       {/* ── VISITS TAB ───────────────────────────────────── */}
       {activeTab === 'visits' && showVisitAnalysis && (
         <div>
-          {/* Top toolbar — bulk import sits alone above the filters, not mixed with the doctors/pharmacies toggle */}
+          {/* الشريط العلوي: نطاق المندوبين وملخصهم يميناً، والاستيراد زر صغير يساراً */}
           {!isFieldRep && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--c-border)' }}>
-              {showVisitsImport ? <button
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--c-border)' }}>
+              <ProvinceScopeSwitch reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} />
+              <button
+                className="reps-summary-pulse"
+                onClick={() => setShowRepsSummaryModal(true)}
+                title="ملخص زيارات كل المندوبين دفعة واحدة"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  padding: '7px 14px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                  border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
+                }}
+              ><Icon name="menu" size={13} /> كل المندوبين</button>
+              {showVisitsImport && <button
                 onClick={() => { setVisitsModalInitialData(null); setShowVisitsImportModal(true); }}
                 title="استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي — بدل تسجيلها واحدة تلو الأخرى"
                 style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '7px 16px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
-                  border: '1.5px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
-                }}><Icon name="import" size={13} /> استيراد من إكسل</button> : <span />}
-              {/* «مندوبي المحافظات» و«كل المندوبين» — مضغوطان فوق بعض في يسار الشريط العلوي */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 5 }}>
-                <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); }} compact />
-                <button
-                  onClick={() => setShowRepsSummaryModal(true)}
-                  title="ملخص زيارات كل المندوبين دفعة واحدة"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                    padding: '3px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
-                  }}
-                ><Icon name="menu" size={11} /> كل المندوبين</button>
-              </div>
+                  marginInlineStart: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                  border: '1px solid var(--c-border)', background: 'var(--c-bg)', color: 'var(--c-text-secondary)',
+                }}><Icon name="import" size={12} /> استيراد</button>}
             </div>
           )}
 
@@ -3990,7 +3988,7 @@ export default function DoctorsPage() {
             {!isFieldRep && managerRepsAll.length > 0 && (
               <div style={{ marginBottom: 14, direction: 'rtl' }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="person" size={11} /> المندوب</span>
-                  <ProvinceRepsToggle reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); setArchiveAreaFilter('all'); }} compact />
+                  <ProvinceScopeSwitch reps={managerRepsAll} value={onlyProvince} onChange={v => { setOnlyProvince(v); setVisitRepFilter(null); setArchiveRepFilter(null); setArchiveAreaFilter('all'); }} />
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {!onlyProvince && <button

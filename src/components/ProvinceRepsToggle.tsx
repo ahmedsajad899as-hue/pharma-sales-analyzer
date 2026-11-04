@@ -15,15 +15,43 @@ const isProv = (r: object) => !!(r as MaybeProvince).isProvinceMember;
 
 const storeKey = (pageKey: string) => `provinceReps:${pageKey}`;
 
-export function useProvinceRepScope(pageKey: string): [boolean, (v: boolean) => void] {
+export function useProvinceRepScope(pageKey: string, { persist = true }: { persist?: boolean } = {}): [boolean, (v: boolean) => void] {
   const [onlyProvince, setState] = useState<boolean>(() => {
+    if (!persist) return false; // صفحة تبدأ ببغداد دائماً مهما كان آخر اختيار
     try { return localStorage.getItem(storeKey(pageKey)) === '1'; } catch { return false; }
   });
   const set = (v: boolean) => {
     setState(v);
+    if (!persist) return;
     try { localStorage.setItem(storeKey(pageKey), v ? '1' : '0'); } catch { /* تفضيل اختياري */ }
   };
   return [onlyProvince, set];
+}
+
+/** زرّان متجاوران: بغداد | محافظات — يختفيان حين لا يوجد أي مندوب محافظة (ولم يكن مُفعّلاً). */
+export function ProvinceScopeSwitch({ reps, value, onChange }: {
+  reps: object[];
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  if (!value && !hasProvinceReps(reps)) return null;
+  const count = reps.filter(isProv).length;
+  const btn = (active: boolean) => ({
+    display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' as const,
+    padding: '5px 14px', borderRadius: 999, cursor: 'pointer', border: 'none',
+    fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit',
+    background: active ? 'var(--c-accent)' : 'transparent',
+    color: active ? '#fff' : 'var(--c-text-secondary)',
+  });
+  return (
+    <div role="group" aria-label="نطاق المندوبين" style={{ display: 'inline-flex', gap: 2, padding: 2, borderRadius: 999, border: '1.5px solid var(--c-border)', background: 'var(--c-bg)' }}>
+      <button type="button" aria-pressed={!value} style={btn(!value)} onClick={() => { if (value) onChange(false); }}>بغداد</button>
+      <button type="button" aria-pressed={value} style={btn(value)} onClick={() => { if (!value) onChange(true); }}>
+        محافظات
+        <span style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 999, padding: '0 6px', background: value ? 'rgba(255,255,255,.25)' : 'var(--c-border)', color: value ? '#fff' : 'var(--c-text-secondary)' }}>{count}</span>
+      </button>
+    </div>
+  );
 }
 
 /** بغداد (الافتراضي) ← غير أعضاء المحافظات؛ «المحافظات» ← أعضاؤها فقط. */

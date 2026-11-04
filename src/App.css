@@ -3992,3 +3992,13 @@ body.rfs-map-fullscreen-lock { overflow: hidden; }
   .m-nu-scroll { flex: none !important; overflow: visible !important; }
   .m-nu-sticky { position: sticky; top: 0; z-index: 3; background: #fff; padding-block: 6px; }
 }
+
+/* نبضة خفيفة لزر «كل المندوبين» في تحليل الكولات — تتوقف عند المرور بالفأرة */
+.reps-summary-pulse { animation: repsSummaryPulse 2.6s ease-out infinite; }
+.reps-summary-pulse:hover { animation: none; }
+@keyframes repsSummaryPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, .35); }
+  70%  { box-shadow: 0 0 0 7px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .reps-summary-pulse { animation: none; } }
