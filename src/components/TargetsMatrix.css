@@ -1,117 +1,136 @@
 /* ── جدول التارگت الشامل — بنفس روح جدول الستوك: رسمي، كثيف، بلا ألوان ── */
 
-/* شريط التحكم المضغوط أعلى الصفحة */
+.tg-page.page { max-width: none; padding: 14px 16px; }
+
+/* شريط واحد يجمع العنوان والفترة والبحث والفلاتر — كل عناصره بنفس الارتفاع */
 .tg-bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  padding: 8px 10px; margin-bottom: 10px;
-  background: #fff; border: 1px solid var(--c-border); border-radius: 10px;
+  margin-bottom: 10px;
 }
-.tg-seg { display: inline-flex; background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 8px; padding: 2px; }
-.tg-seg button {
-  height: 26px; padding: 0 11px; border: 0; border-radius: 6px; background: transparent;
-  font: inherit; font-size: 12px; font-weight: 600; color: var(--c-text-secondary); cursor: pointer;
+.tg-title { font-size: 16px; font-weight: 800; color: var(--c-text-primary); margin-inline-end: 6px; white-space: nowrap; }
+.tg-sel, .tg-btn, .tg-search {
+  height: 32px; border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--c-text-primary); outline: none;
 }
-.tg-seg button:hover { color: var(--c-text-primary); transform: none; box-shadow: none; }
-.tg-seg button.on { background: #fff; color: var(--c-text-primary); box-shadow: 0 1px 2px rgba(15, 30, 53, .12); }
-.tg-sel {
-  height: 30px; padding: 0 8px; border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
-  font: inherit; font-size: 12px; font-weight: 600; color: var(--c-text-primary); cursor: pointer; outline: none;
-}
-.tg-sel:focus { border-color: #9db5ea; }
-.tg-sel--rep { min-width: 200px; max-width: 280px; }
+.tg-sel { padding: 0 8px; cursor: pointer; }
+.tg-sel:focus, .tg-search:focus { border-color: #9db5ea; }
+.tg-search { width: 180px; padding: 0 10px; font-weight: 500; }
 .tg-btn {
-  height: 30px; padding: 0 11px; border: 1px solid var(--c-border); border-radius: 8px; background: #fff;
-  font: inherit; font-size: 12px; font-weight: 600; color: var(--c-text-secondary); cursor: pointer;
+  padding: 0 12px; cursor: pointer; color: var(--c-text-secondary);
   display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
 }
 .tg-btn:hover:not(:disabled) { border-color: #b8c4da; color: var(--c-text-primary); transform: none; box-shadow: none; }
 .tg-btn:disabled { opacity: .45; cursor: not-allowed; }
-.tg-btn.on { background: var(--c-bg); color: var(--c-text-primary); border-color: #b8c4da; }
+.tg-btn.on { background: var(--c-primary); border-color: var(--c-primary); color: #fff; }
+.tg-btn.on:hover:not(:disabled) { color: #fff; }
 .tg-btn--primary { background: var(--c-primary); border-color: var(--c-primary); color: #fff; }
 .tg-btn--primary:hover:not(:disabled) { background: var(--c-primary-mid); color: #fff; }
-.tg-sep { width: 1px; height: 20px; background: var(--c-border); margin: 0 2px; }
 .tg-grow { flex: 1; }
+.tg-msg { font-size: 12px; font-weight: 700; }
+.tg-msg.ok { color: var(--c-success); }
+.tg-msg.err { color: var(--c-danger); }
 
-/* ── الجدول ── */
-.tm-meta {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  font-size: 11px; color: var(--c-text-muted); margin-bottom: 6px;
+/* ── الجدول: يتمرّر داخل إطاره، والرأس وعمود الايتم والمجموع ثابتة كتجميد الأجزاء في إكسل ── */
+.tm-wrap {
+  overflow: auto; max-height: max(320px, calc(100dvh - 245px));
+  border: 1px solid var(--c-border); border-radius: 10px; background: #fff;
+  /* حتى لا تختفي الخلية المحدّدة خلف الأجزاء الثابتة عند التنقل بالأسهم */
+  scroll-padding: 70px 66px 40px 200px;
 }
-.tm-meta b { color: var(--c-text-secondary); font-weight: 700; }
-.tm-search {
-  height: 26px; width: 170px; padding: 0 9px; border: 1px solid var(--c-border); border-radius: 7px;
-  font: inherit; font-size: 11.5px; outline: none; background: #fff; color: var(--c-text-primary);
-}
-.tm-search:focus { border-color: #9db5ea; }
-.tm-mini {
-  height: 26px; padding: 0 8px; border: 1px solid var(--c-border); border-radius: 7px; background: #fff;
-  font: inherit; font-size: 11.5px; color: var(--c-text-secondary); cursor: pointer; outline: none;
-}
-.tm-mini.on { background: var(--c-bg); color: var(--c-text-primary); font-weight: 700; }
-.tm-meta .push { margin-inline-start: auto; }
 
-.tm-wrap { overflow-x: auto; border: 1.5px solid var(--c-border); border-radius: 12px; background: #fff; }
-
+/* أعمدة المندوبين متساوية العرض؛ وحدّها الأدنى يضمن عدم تداخلها إن كثروا */
 .tm-table {
-  width: 100%; border-collapse: collapse; font-size: 12px; direction: rtl;
-  font-variant-numeric: tabular-nums; table-layout: auto;
+  width: 100%; min-width: calc(266px + var(--tm-reps, 1) * 46px);
+  table-layout: fixed; border-collapse: separate; border-spacing: 0;
+  font-size: 12px; direction: rtl; font-variant-numeric: tabular-nums;
 }
-.tm-table th, .tm-table td { border: 1px solid var(--c-border-light); }
-.tm-table thead tr { background: var(--c-bg); border-bottom: 2px solid var(--c-border); }
+.tm-col-item { width: 200px; }
+.tm-col-total { width: 66px; }
+
+.tm-table th, .tm-table td {
+  padding: 0; border: 0; border-bottom: 1px solid var(--c-border-light); border-inline-start: 1px solid var(--c-border-light);
+  background-clip: padding-box;
+}
+
+.tm-table thead { position: sticky; top: 0; z-index: 3; }
 .tm-table thead th {
-  padding: 8px 4px; font-size: 11px; font-weight: 700; color: var(--c-text-primary);
+  padding: 6px 1px; font-size: 10.5px; font-weight: 700; color: var(--c-text-primary);
   text-align: center; line-height: 1.25; vertical-align: middle; background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border);
 }
-.tm-table thead tr.tm-grp th { font-size: 10.5px; color: var(--c-text-secondary); padding: 5px 4px; border-bottom: 1px solid var(--c-border); }
+.tm-table thead tr.tm-grp th { color: var(--c-text-secondary); padding: 4px 1px; }
+.tm-rep-name {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+  overflow-wrap: break-word;
+}
 
-.tm-idx { width: 30px; color: var(--c-text-muted); font-size: 11px; text-align: center; }
-.tm-item { min-width: 170px; max-width: 260px; padding: 0 10px; text-align: right; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tm-table thead th.tm-item { text-align: right; padding-right: 10px; }
+/* عمود الايتم ثابت يميناً */
+.tm-table .tm-item {
+  position: sticky; right: 0; z-index: 1;
+  padding: 0 10px; text-align: right; font-weight: 600; background: #fff;
+  border-inline-start: 1px solid var(--c-border);
+}
+.tm-table thead th.tm-item { z-index: 2; background: var(--c-bg); font-size: 11px; }
+.tm-item-name {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  text-align: right; line-height: 1.2; font-size: 11.5px; overflow-wrap: anywhere;
+}
 
-.tm-rep { cursor: pointer; min-width: 58px; }
-.tm-rep:hover { background: var(--c-border-light) !important; text-decoration: underline; }
-
-.tm-table tbody tr:hover { background: var(--c-bg); }
 .tm-table tbody td { height: 32px; }
+.tm-table tbody tr:hover td { background: var(--c-bg); }
 
-.tm-cell { padding: 0; position: relative; }
+.tm-cell { position: relative; }
 .tm-cell input {
-  width: 100%; min-width: 50px; height: 31px; border: 0; background: transparent; text-align: center; direction: ltr;
-  font: inherit; font-size: 12px; font-weight: 700; color: var(--c-text-primary); outline: none; padding: 0 3px;
+  display: block; width: 100%; height: 31px; border: 0; background: transparent; text-align: center; direction: ltr;
+  font: inherit; font-size: 12px; font-weight: 700; color: var(--c-text-primary); outline: none; padding: 0 2px;
+  transform: none; box-shadow: none; min-width: 0; border-radius: 0;
 }
-.tm-cell input::placeholder { color: var(--c-border); font-weight: 400; }
-.tm-cell input:focus { background: #fff; box-shadow: inset 0 0 0 1.5px var(--c-text-secondary); }
-.tm-cell--dirty input { background: #fffbeb; text-decoration: underline dotted #b7791f; text-underline-offset: 3px; }
-.tm-cell--off { text-align: center; color: var(--c-border); font-size: 11px; cursor: not-allowed; }
+.tm-cell input:focus { background: #fff; box-shadow: inset 0 0 0 1.5px var(--c-primary); }
+.tm-cell--dirty input { background: #fffbeb; }
+.tm-table tbody tr:hover td.tm-cell--off, .tm-cell--off { background: var(--c-border-light); cursor: not-allowed; }
 
-.tm-total {
-  position: sticky; left: 0; z-index: 1; min-width: 70px; text-align: center; font-weight: 800;
-  background: var(--c-bg) !important; border-right: 2px solid var(--c-border) !important; color: var(--c-text-primary);
+/* عمود المجموع ثابت يساراً */
+.tm-table .tm-total {
+  position: sticky; left: 0; z-index: 1; text-align: center; font-weight: 800; color: var(--c-text-primary);
+  background: var(--c-bg);
+  border-inline-start: 1px solid var(--c-border);
 }
-.tm-table tfoot tr { background: var(--c-border-light); border-top: 2px solid var(--c-border); }
-.tm-table tfoot td { height: 32px; text-align: center; font-weight: 800; color: var(--c-text-primary); }
-.tm-table tfoot td.tm-foot-label { text-align: right; padding: 0 10px; color: var(--c-text-secondary); font-weight: 700; }
+.tm-table thead th.tm-total { z-index: 2; }
+.tm-table tbody tr:hover td.tm-total { background: var(--c-border-light); }
 
+.tm-table tfoot { position: sticky; bottom: 0; z-index: 3; }
+.tm-table tfoot td {
+  height: 34px; text-align: center; font-weight: 800; color: var(--c-text-primary); background: var(--c-bg);
+  border-top: 1px solid var(--c-border); border-bottom: 0;
+}
+.tm-table tfoot td.tm-foot-label { z-index: 2; text-align: right; padding: 0 10px; color: var(--c-text-secondary); font-weight: 700; font-size: 11.5px; white-space: nowrap; }
+.tm-table tfoot td.tm-total { z-index: 2; }
+
+/* «تعميم» يظهر فوق طرف الخلية عند المرور ولا يحرّك النص */
 .tm-fill {
-  border: 0; background: none; padding: 0 4px; margin-inline-start: 6px; font: inherit; font-size: 10.5px;
-  color: var(--c-text-muted); cursor: pointer; opacity: 0;
+  position: absolute; inset-inline-end: 4px; top: 50%; translate: 0 -50%;
+  border: 1px solid var(--c-border); border-radius: 5px; background: #fff; padding: 1px 6px;
+  font: inherit; font-size: 10.5px; color: var(--c-text-secondary); cursor: pointer; opacity: 0;
 }
-.tm-table tbody tr:hover .tm-fill { opacity: 1; }
-.tm-fill:hover { color: var(--c-text-primary); text-decoration: underline; transform: none; box-shadow: none; }
+.tm-table tbody tr:hover .tm-fill, .tm-fill:focus-visible { opacity: 1; }
+.tm-fill:hover { color: var(--c-text-primary); transform: none; box-shadow: none; }
 .tm-fill-input {
-  width: 58px; height: 22px; margin-inline-start: 6px; border: 1px solid var(--c-text-secondary); border-radius: 5px;
+  position: absolute; inset-inline-end: 4px; top: 50%; translate: 0 -50%;
+  width: 62px; height: 24px; border: 1px solid var(--c-primary); border-radius: 5px; background: #fff;
   text-align: center; direction: ltr; font: inherit; font-size: 11px; outline: none;
 }
 
 .tm-empty { padding: 40px 16px; text-align: center; color: var(--c-text-muted); font-size: 13px; }
 
-.tm-savebar {
-  position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-top: 8px; padding: 8px 12px; background: #fff; border: 1px solid var(--c-border); border-radius: 10px;
-  box-shadow: 0 -4px 12px -8px rgba(15, 30, 53, .18);
-}
-.tm-savebar .grow { flex: 1; }
-.tm-dirty-count { font-size: 12px; font-weight: 700; color: #92400e; }
-
 @keyframes tm-flash { from { background: #eef2f7; } to { background: transparent; } }
 .tm-flash input { animation: tm-flash 1.2s ease-out; }
+
+/* الهاتف: عمود الايتم أضيق حتى لا يبتلع الشاشة، وخانات المندوبين أوسع للّمس */
+@media (max-width: 767px) {
+  .tm-table { min-width: calc(180px + var(--tm-reps, 1) * 60px); }
+  .tm-table thead th { font-size: 11px; }
+  .tm-col-item { width: 124px; }
+  .tm-col-total { width: 56px; }
+  .tm-wrap { scroll-padding: 70px 56px 40px 124px; }
+  .tg-search { flex: 1; min-width: 120px; }
+}

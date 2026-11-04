@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import './TargetsMatrix.css';
 
 /**
@@ -22,17 +22,19 @@ interface Props {
   allItems: NamedItem[];
   month: number;
   year: number;
-  monthLabel: string;
   token: string | null;
   reloadKey?: number;
-  onOpenRep: (repId: number) => void;
+  /** أدوات الصفحة (العنوان، الشهر، السنة) — تُعرض في بداية شريط الجدول */
+  controls?: ReactNode;
+  /** أزرار الصفحة (الاستيراد) — تُعرض في نهاية شريط الجدول */
+  actions?: ReactNode;
 }
 
 const key = (repId: number, itemId: number) => `${repId}:${itemId}`;
 const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const clean = (v: string) => v.replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^\d.]/g, '');
 
-export default function TargetsMatrix({ repType, reps, allItems, month, year, monthLabel, token, reloadKey = 0, onOpenRep }: Props) {
+export default function TargetsMatrix({ repType, reps, allItems, month, year, token, reloadKey = 0, controls, actions }: Props) {
   const H = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   const [loading, setLoading] = useState(false);
@@ -178,9 +180,6 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
   const colTotals = useMemo(() => visReps.map(r => visRows.reduce((s, it) => s + num(r.id, it.id), 0)),
     [visReps, visRows, value]); // eslint-disable-line react-hooks/exhaustive-deps
   const grand = colTotals.reduce((a, b) => a + b, 0);
-  const filledCells = useMemo(() => {
-    let n = 0; visRows.forEach(it => visReps.forEach(r => { if (num(r.id, it.id) > 0) n++; })); return n;
-  }, [visRows, visReps, value]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // مجموعات الشركات لرأس الجدول
   const groups = useMemo(() => {
@@ -192,7 +191,8 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
     });
     return g;
   }, [visReps]);
-  const showGroups = groups.length > 1 || (groups.length === 1 && groups[0].name !== 'بدون شركة');
+  // شركة واحدة لا تضيف معلومة — صفها في الرأس ضجيج ويأخذ من مساحة الجدول
+  const showGroups = groups.length > 1;
 
   // ── تحرير ──
   const setCell = (repId: number, itemId: number, raw: string) => {
@@ -292,32 +292,48 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
       + `.tm-table thead [data-c="${c}"]{background:var(--c-border-light) !important}`;
   };
 
+  const toolbar = (
+    <div className="tg-bar">
+      {controls}
+      <span className="tg-grow" />
+      {reps.length > 0 && <>
+        <input className="tg-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث عن ايتم…" />
+        {companies.length > 1 && (
+          <select className="tg-sel" value={company} onChange={e => setCompany(e.target.value)}>
+            <option value="">كل الشركات</option>
+            {companies.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
+        <button className={`tg-btn ${onlyFilled ? 'on' : ''}`} onClick={() => setOnlyFilled(v => !v)}
+          title="إخفاء الايتمات التي لا تارگت لها">ذات التارگت فقط</button>
+      </>}
+      {actions}
+      {msg && <span className={`tg-msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</span>}
+      {/* الحفظ في الشريط لا أسفل الجدول: الجدول يملأ الشاشة فما تحته يبقى خارجها */}
+      {edits.size > 0 && <>
+        <button className="tg-btn" onClick={() => setEdits(new Map())} disabled={saving}>تراجع</button>
+        <button className="tg-btn tg-btn--primary" onClick={save} disabled={saving}>
+          {saving ? 'جاري الحفظ…' : `حفظ التعديلات (${edits.size})`}
+        </button>
+      </>}
+    </div>
+  );
+
   if (reps.length === 0) {
     return (
-      <div className="tm-wrap"><div className="tm-empty">
-        {repType === 'commercial' ? 'لا يوجد مندوبون تجاريون — فعّل ملف مبيعات أولاً' : 'لا يوجد مندوبون علميون'}
-      </div></div>
+      <div>
+        {toolbar}
+        <div className="tm-wrap"><div className="tm-empty">
+          {repType === 'commercial' ? 'لا يوجد مندوبون تجاريون — فعّل ملف مبيعات أولاً' : 'لا يوجد مندوبون علميون'}
+        </div></div>
+      </div>
     );
   }
 
   return (
     <div>
       <style ref={colStyleRef} />
-      <div className="tm-meta">
-        <span><b>{visRows.length}</b> ايتم · <b>{visReps.length}</b> مندوب · <b>{filledCells}</b> خلية معبّأة · الإجمالي <b>{fmt(grand)}</b></span>
-        <span className="push" />
-        <input className="tm-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث عن ايتم…" />
-        {companies.length > 1 && (
-          <select className="tm-mini" value={company} onChange={e => setCompany(e.target.value)}>
-            <option value="">كل الشركات</option>
-            {companies.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        )}
-        <button className={`tm-mini ${onlyFilled ? 'on' : ''}`} onClick={() => setOnlyFilled(v => !v)}
-          title="إخفاء الايتمات التي لا تارگت لها">ذات التارگت فقط</button>
-        <span title="اكتب في الخلية مباشرة • Enter والأسهم للتنقل • الصق كتلة من إكسل • Esc يلغي تعديل الخلية • اضغط اسم المندوب لتفاصيله ومقارنة المبيع"
-          style={{ cursor: 'help', fontSize: 13 }}>ⓘ</span>
-      </div>
+      {toolbar}
 
       <div className="tm-wrap">
         {loading ? (
@@ -325,22 +341,26 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
         ) : visRows.length === 0 ? (
           <div className="tm-empty">{search || onlyFilled ? 'لا توجد ايتمات مطابقة' : 'لا توجد ايتمات ضمن نطاق هؤلاء المندوبين'}</div>
         ) : (
-          <table className="tm-table" ref={tableRef} onMouseOver={onHover} onMouseLeave={() => { if (colStyleRef.current) colStyleRef.current.textContent = ''; }}>
+          <table className="tm-table" ref={tableRef} style={{ '--tm-reps': visReps.length } as CSSProperties}
+            onMouseOver={onHover} onMouseLeave={() => { if (colStyleRef.current) colStyleRef.current.textContent = ''; }}>
+            <colgroup>
+              <col className="tm-col-item" />
+              {visReps.map(r => <col key={r.id} />)}
+              <col className="tm-col-total" />
+            </colgroup>
             <thead>
               {showGroups && (
                 <tr className="tm-grp">
-                  <th colSpan={2} style={{ background: 'var(--c-bg)' }} />
+                  <th className="tm-item" />
                   {groups.map((g, i) => <th key={i} colSpan={g.span}>{g.name}</th>)}
                   <th className="tm-total" />
                 </tr>
               )}
               <tr>
-                <th className="tm-idx">#</th>
                 <th className="tm-item">الايتم</th>
                 {visReps.map((r, c) => (
-                  <th key={r.id} data-c={c} className="tm-rep" onClick={() => onOpenRep(r.id)}
-                    title={`${r.name}\nاضغط لعرض تفاصيله ومقارنة التارگت بالمبيع الفعلي`}>
-                    {r.name}
+                  <th key={r.id} data-c={c} className="tm-rep" title={r.name}>
+                    <span className="tm-rep-name">{r.name}</span>
                   </th>
                 ))}
                 <th className="tm-total">المجموع</th>
@@ -351,9 +371,9 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
                 const rowTotal = visReps.reduce((s, rep) => s + num(rep.id, it.id), 0);
                 return (
                   <tr key={it.id}>
-                    <td className="tm-idx">{r + 1}</td>
                     <td className="tm-item" title={it.name}>
-                      {it.name}
+                      {/* dir=auto: الأسماء الإنجليزية تُعرض بترتيبها الصحيح ولا تُقص من بدايتها */}
+                      <span className="tm-item-name" dir="auto">{it.name}</span>
                       {fillItem === it.id ? (
                         <input autoFocus className="tm-fill-input" value={fillVal} placeholder="للكل"
                           onChange={e => setFillVal(e.target.value)}
@@ -366,13 +386,13 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
                     </td>
                     {visReps.map((rep, c) => {
                       if (!inScope(rep.id, it.id)) {
-                        return <td key={rep.id} data-c={c} className="tm-cell tm-cell--off" title="خارج نطاق ايتمات هذا المندوب">·</td>;
+                        return <td key={rep.id} data-c={c} className="tm-cell tm-cell--off" title="خارج نطاق ايتمات هذا المندوب" />;
                       }
                       const k = key(rep.id, it.id);
                       return (
                         <td key={rep.id} data-c={c}
                           className={`tm-cell ${edits.has(k) ? 'tm-cell--dirty' : ''} ${flash.has(k) ? 'tm-flash' : ''}`}>
-                          <input data-cell={`${r}-${c}`} inputMode="decimal" value={value(rep.id, it.id)} placeholder="—"
+                          <input data-cell={`${r}-${c}`} inputMode="decimal" value={value(rep.id, it.id)}
                             onChange={e => setCell(rep.id, it.id, e.target.value)}
                             onKeyDown={e => onKey(e, r, c)}
                             onPaste={e => onPaste(e, r, c)}
@@ -380,34 +400,21 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
                         </td>
                       );
                     })}
-                    <td className="tm-total">{rowTotal ? fmt(rowTotal) : '—'}</td>
+                    <td className="tm-total">{rowTotal ? fmt(rowTotal) : ''}</td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={2} className="tm-foot-label">المجموع ({visRows.length} ايتم)</td>
-                {colTotals.map((t, c) => <td key={c} data-c={c}>{t ? fmt(t) : '—'}</td>)}
+                <td className="tm-item tm-foot-label">المجموع · {visRows.length} ايتم</td>
+                {colTotals.map((t, c) => <td key={c} data-c={c}>{t ? fmt(t) : ''}</td>)}
                 <td className="tm-total">{fmt(grand)}</td>
               </tr>
             </tfoot>
           </table>
         )}
       </div>
-      {(edits.size > 0 || msg) && (
-        <div className="tm-savebar">
-          {edits.size > 0 && <span className="tm-dirty-count">{edits.size} تعديل غير محفوظ — {monthLabel} {year}</span>}
-          {msg && <span style={{ fontSize: 12, fontWeight: 700, color: msg.ok ? 'var(--c-success)' : 'var(--c-danger)' }}>{msg.text}</span>}
-          <span className="grow" />
-          {edits.size > 0 && <button className="tg-btn" onClick={() => setEdits(new Map())} disabled={saving}>تراجع</button>}
-          {edits.size > 0 && (
-            <button className="tg-btn tg-btn--primary" onClick={save} disabled={saving}>
-              {saving ? 'جاري الحفظ…' : 'حفظ التعديلات'}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
