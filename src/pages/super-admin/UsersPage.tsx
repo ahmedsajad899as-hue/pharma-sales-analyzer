@@ -7,6 +7,8 @@ import UsersBulkImportModal from './UsersBulkImportModal';
 import BulkFeatureToggleModal from './BulkFeatureToggleModal';
 import NewUserAssignments from './NewUserAssignments';
 import UserItemTiersTab from './UserItemTiersTab';
+import ProvinceSeatsPanel from './ProvinceSeatsPanel';
+import type { ProvSeat, ProvTeamRep } from './ProvinceSeatsPanel';
 import { TabPill, SectionHead, Note, PickerBar, GroupCard, ChipGrid, Chip, ScrollList, Empty, SaveBar, setMany, softBtn, iconBtn, ACCENT } from './AssignUI';
 
 const ROLES = [
@@ -91,7 +93,7 @@ interface UserDetail extends UserRow {
 // في server/lib/areaScope.js. حسابات إدارية تعمل على كل بيانات المكتب.
 interface ProvTeam {
   id: number; officeId: number; provinceId: number; provinceName: string; leaderUserId: number | null;
-  reps: { userId: number; companies: { id: number; name: string; allItems: boolean; itemCount: number }[] }[];
+  reps: ProvTeamRep[];
 }
 
 const ALL_AREAS_ROLES = new Set(['office_manager', 'office_hr', 'office_employee', 'company_manager']);
@@ -125,6 +127,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [provTeams, setProvTeams] = useState<ProvTeam[]>([]);
   const [openProvTeams, setOpenProvTeams] = useState<Set<number>>(new Set());
   const [provList, setProvList] = useState<{ id: number; name: string }[]>([]);
+  const [provSeats, setProvSeats] = useState<ProvSeat[]>([]);
   const [provSaving, setProvSaving] = useState(false);
   const provLeaderIds = new Set(provTeams.map(t => t.leaderUserId).filter((x): x is number => x != null));
   const provUserIds = new Set<number>([...provLeaderIds, ...provTeams.flatMap(t => t.reps.map(r => r.userId))]);
@@ -223,7 +226,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       fetch('/api/sa/companies', { headers: H() }).then(r => r.json()),
       fetch('/api/sa/users/province-structure', { headers: H() }).then(r => r.json()).catch(() => ({ success: false })),
     ]).then(([u, o, c, pt]) => {
-      if (pt?.success) { setProvTeams(pt.data); setProvList(pt.provinces ?? []); }
+      if (pt?.success) { setProvTeams(pt.data); setProvList(pt.provinces ?? []); setProvSeats(pt.seats ?? []); }
       if (u.success) setUsers(u.data);
       if (o.success) setOffices(o.data);
       if (c.success) setCompanies(c.data);
@@ -236,6 +239,17 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         }));
       }
     });
+  };
+
+  // بلا setLoading: مؤشر التحميل يفكّ لوحة المقاعد فتضيع الأسماء التي فشل إنشاؤها.
+  const reloadProvinceStructure = () => {
+    Promise.all([
+      fetch('/api/sa/users', { headers: H() }).then(r => r.json()),
+      fetch('/api/sa/users/province-structure', { headers: H() }).then(r => r.json()),
+    ]).then(([u, pt]) => {
+      if (u.success) setUsers(u.data);
+      if (pt.success) { setProvTeams(pt.data); setProvSeats(pt.seats ?? []); }
+    }).catch(() => {});
   };
 
   const setProvinceLeader = async (officeId: number, provinceId: number, leaderUserId: number | null) => {
@@ -3151,6 +3165,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                   if (!rows.length) return null;
                   const leaderChoices = users.filter(x => x.officeId === og.office.id && x.isActive && ['team_leader', 'supervisor', 'scientific_rep'].includes(x.role));
                   const withTeam = provTeams.filter(t => t.officeId === og.office.id).length;
+                  const officeSeats = provSeats.filter(s => s.officeId === og.office.id);
                   return (
                     <div style={{ border: '1.5px solid #a5f3fc', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
                       <div onClick={() => toggleSection(`prov-${og.office.id}`)} style={{ background: '#ecfeff', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #e2e8f0', cursor: 'pointer' }}>
@@ -3176,50 +3191,27 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                                 <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
                                   {t ? `${leader ? (leader.displayName || leader.username) : 'بلا تيم ليدر'} · ${t.reps.length} مندوب` : 'لا يوجد فريق'}
                                 </div>
+                                {(() => {
+                                  const vacant = officeSeats.filter(s => !t?.reps.some(r => r.seatManagerIds.includes(s.managerUserId))).length + (t?.leaderUserId == null ? 1 : 0);
+                                  return <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2, color: vacant ? '#b45309' : '#15803d' }}>{vacant ? `${vacant} مقعد شاغر` : 'كل المقاعد ممتلئة'}</div>;
+                                })()}
                               </button>
                             );
                           })}
                         </div>
                         {rows.filter(p => searching || openProvTeams.has(og.office.id * 1000 + p.id)).map(p => {
                           const t = teamOf(p.id);
-                          const leader = t?.leaderUserId != null ? userById.get(t.leaderUserId) : null;
                           return (
-                            <div key={p.id} style={{ border: '1px solid #cffafe', borderRadius: 10, background: '#f8feff', padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                              <div style={{ fontWeight: 800, fontSize: 13, color: '#0e7490' }}>🗺️ {p.name}</div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>تيم ليدر المحافظة:</span>
-                                <select value={t?.leaderUserId ?? ''} disabled={provSaving}
-                                  onChange={e => setProvinceLeader(og.office.id, p.id, e.target.value ? Number(e.target.value) : null)}
-                                  style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', minWidth: 220 }}>
-                                  <option value="">— بلا تيم ليدر —</option>
-                                  {leaderChoices.map(x => <option key={x.id} value={x.id}>{x.displayName || x.username}</option>)}
-                                </select>
-                                <span style={{ fontSize: 11, color: '#94a3b8' }}>يعمل على كل شركات المكتب بلا شركة رئيسية</span>
-                              </div>
-                              {leader && <UserCard u={leader} />}
-                              {t && <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>المندوبون العلميون ({t.reps.length})</div>}
-                              {(!t || t.reps.length === 0) && (
-                                <div style={{ fontSize: 12.5, color: '#94a3b8', padding: '4px 2px' }}>
-                                  لا مندوبين معيَّنين — يُضافون من صفحة «فرق المحافظات» ← الهيكلية (المندوب + شركته + ايتماته)
-                                </div>
-                              )}
-                              {t?.reps.map(r => {
-                                const ru = userById.get(r.userId);
-                                if (!ru) return null;
-                                return (
-                                  <div key={r.userId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                    <UserCard u={ru} indent />
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginRight: 40 }}>
-                                      {r.companies.map(c => (
-                                        <span key={c.id} style={{ fontSize: 11, background: '#ede9fe', color: '#5b21b6', borderRadius: 20, padding: '1px 9px', fontWeight: 600 }}>
-                                          🏭 {c.name} · {c.allItems ? 'كل الايتمات' : `${c.itemCount} ايتم`}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
+                            <ProvinceSeatsPanel<UserRow> key={p.id}
+                              officeId={og.office.id} province={p}
+                              leaderUserId={t?.leaderUserId ?? null} reps={t?.reps ?? []}
+                              seats={officeSeats}
+                              leaderChoices={leaderChoices.map(x => ({ id: x.id, label: x.displayName || x.username }))}
+                              saving={provSaving} userById={userById}
+                              renderUser={(u, indent) => <UserCard u={u} indent={indent} />}
+                              onSetLeader={id => setProvinceLeader(og.office.id, p.id, id)}
+                              onCreated={reloadProvinceStructure}
+                              token={token} />
                           );
                         })}
                       </div>}

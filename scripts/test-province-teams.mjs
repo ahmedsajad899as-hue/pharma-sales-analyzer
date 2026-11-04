@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   resolveAssignmentItemIds, findItemConflicts, buildItemAttribution,
   classifyChannel, personalSaleValue, toUSD,
+  assignmentFillsSeat, planSeatAssignments,
 } from '../server/modules/province-teams/province-teams.rules.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../server/modules/province-teams/personal-sale-trigger.js';
 import { marketerHomeProvinces, pickMarketerLeaders } from '../server/lib/pharmacyRep.js';
@@ -137,6 +138,45 @@ t('إسقاط الكلمة يُبقي الأسطر', () => {
   assert.equal(stripPersonalSaleTrigger('مبيعي\nصيدلية النور - الكرخ\nبانادول 5 علبة'), 'صيدلية النور - الكرخ\nبانادول 5 علبة');
   assert.equal(stripPersonalSaleTrigger('مبيعي صيدلية النور\nبانادول 5'), 'صيدلية النور\nبانادول 5');
   assert.equal(stripPersonalSaleTrigger('صيدلية النور'), 'صيدلية النور');
+});
+
+// مقعد humanis: مديره مسند على ايتم من شركته وايتم من deva. مقعد deva: مديره بلا ايتمات.
+const HUMANIS = 3;
+const humanisSeat = { companyId: HUMANIS, items: [{ id: 30, companyId: HUMANIS }, { id: 10, companyId: DEVA }] };
+const devaSeat = { companyId: DEVA, items: [] };
+
+t('المقعد يمتلئ بتقاطع الايتمات، و«كل الايتمات» يخص شركته الرئيسية فقط', () => {
+  assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: false, itemIds: [10] }, humanisSeat), true);
+  assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: false, itemIds: [11] }, humanisSeat), false);
+  assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: true, itemIds: [] }, humanisSeat), false);
+  assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: true, itemIds: [] }, devaSeat), true);
+  assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: false, itemIds: [11] }, devaSeat), true);
+  assert.equal(assignmentFillsSeat({ companyId: OSEL, allItems: false, itemIds: [20] }, devaSeat), false);
+});
+
+t('مندوب المقعد: ايتمات المدير مقسَّمة على شركاتها، ومدير بلا ايتمات = كل الشركة', () => {
+  const plan = planSeatAssignments(humanisSeat, []);
+  assert.deepEqual(plan.assignments.map(a => [a.companyId, a.allItems, a.itemIds]), [[HUMANIS, false, [30]], [DEVA, false, [10]]]);
+  assert.deepEqual(plan.keptItemIds, [30, 10]);
+  const whole = planSeatAssignments(devaSeat, []);
+  assert.deepEqual(whole.assignments.map(a => [a.companyId, a.allItems]), [[DEVA, true]]);
+  assert.deepEqual(whole.keptItemIds, []);
+});
+
+t('مندوب المقعد: المتقاطع مع مندوب آخر يُترك له ويُبلَّغ عنه', () => {
+  const byItems = planSeatAssignments(humanisSeat, [{ id: 1, repUserId: 9, repName: 'علي', companyId: DEVA, allItems: false, itemIds: [10, 11] }]);
+  assert.deepEqual(byItems.assignments.map(a => a.companyId), [HUMANIS]);
+  assert.deepEqual(byItems.keptItemIds, [30]);
+  assert.deepEqual(byItems.dropped, [{ companyId: DEVA, repName: 'علي' }]);
+  const byAll = planSeatAssignments(humanisSeat, [{ id: 1, repUserId: 9, repName: 'علي', companyId: DEVA, allItems: true, itemIds: [] }]);
+  assert.deepEqual(byAll.assignments.map(a => a.companyId), [HUMANIS]);
+  assert.equal(planSeatAssignments({ companyId: DEVA, items: [{ id: 10, companyId: DEVA }] }, [{ id: 1, repUserId: 9, repName: 'علي', companyId: DEVA, allItems: true, itemIds: [] }]).assignments.length, 0);
+});
+
+t('ايتم المدير بلا شركة في المكتب يبقى في قائمة المندوب بلا تعيين فريق', () => {
+  const plan = planSeatAssignments({ companyId: HUMANIS, items: [{ id: 30, companyId: HUMANIS }, { id: 99, companyId: null }] }, []);
+  assert.deepEqual(plan.assignments.map(a => a.companyId), [HUMANIS]);
+  assert.deepEqual(plan.keptItemIds, [30, 99]);
 });
 
 console.log(`\n${passed} اختباراً نجح`);

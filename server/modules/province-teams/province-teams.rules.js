@@ -76,6 +76,54 @@ export function buildItemAttribution(assignments, companyItems) {
   return { owner, overlaps };
 }
 
+// ─── مقاعد الفريق: مقعد لكل مدير شركة ─────────────────────────────────────────
+// «الشركة» هنا = فريق مديرها: ايتماته المسندة له (UserItemAssignment)، لا كل ايتمات
+// ScientificCompany. مدير بلا ايتمات مسندة = كل ايتمات شركته الرئيسية.
+
+/**
+ * هل يشغل هذا التعيين مقعد المدير؟ «كل الايتمات» يخص الشركة الرئيسية للمقعد فقط:
+ * تعيين deva بكل ايتماتها لا يملأ مقعد humanis لمجرد أن مديره مسند على ايتمات من deva.
+ * @param {{companyId:number, allItems:boolean, itemIds:number[]}} a
+ * @param {{companyId:number, items:{id:number}[]}} seat
+ */
+export function assignmentFillsSeat(a, seat) {
+  if (a.allItems || !seat.items.length) return a.companyId === seat.companyId;
+  const mine = new Set(seat.items.map(i => i.id));
+  return (a.itemIds ?? []).some(id => mine.has(id));
+}
+
+/**
+ * تعيينات مندوب جديد في مقعد: ايتمات المدير مقسَّمة على شركاتها. ما يتقاطع مع مندوب
+ * آخر في الفريق يُترك له ويُبلَّغ عنه، كي يبقى كل مبيع منسوباً لمندوب واحد.
+ *
+ * @param {{companyId:number, items:{id:number, companyId:number|null}[]}} seat
+ *   companyId=null: ايتم بلا شركة في هذا المكتب؛ يبقى في قائمة المندوب بلا تعيين فريق.
+ * @param {Array} siblings تعيينات الفريق الفعّالة بصيغة findItemConflicts
+ * @returns {{assignments:Array, keptItemIds:number[], dropped:Array<{companyId:number, repName:string|null}>}}
+ */
+export function planSeatAssignments(seat, siblings) {
+  const wanted = new Map();
+  if (!seat.items.length) wanted.set(seat.companyId, { companyId: seat.companyId, allItems: true, itemIds: [] });
+  for (const i of seat.items) {
+    if (i.companyId == null) continue;
+    if (!wanted.has(i.companyId)) wanted.set(i.companyId, { companyId: i.companyId, allItems: false, itemIds: [] });
+    wanted.get(i.companyId).itemIds.push(i.id);
+  }
+
+  const assignments = [];
+  const dropped = [];
+  for (const w of wanted.values()) {
+    const conflicts = findItemConflicts({ id: null, repUserId: -1, ...w }, siblings);
+    for (const c of conflicts) dropped.push({ companyId: w.companyId, repName: c.repName });
+    if (conflicts.some(c => c.kind === 'all')) continue;
+    const taken = new Set(conflicts.flatMap(c => c.itemIds));
+    const itemIds = w.itemIds.filter(id => !taken.has(id));
+    if (w.allItems || itemIds.length) assignments.push({ ...w, itemIds });
+  }
+  const noCompany = seat.items.filter(i => i.companyId == null).map(i => i.id);
+  return { assignments, keptItemIds: [...assignments.flatMap(a => a.itemIds), ...noCompany], dropped };
+}
+
 // ─── تصنيف وجهة البيع: مذخر أم صيدلية ─────────────────────────────────────────
 
 const normAr = (s) => String(s ?? '')

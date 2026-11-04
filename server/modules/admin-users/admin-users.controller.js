@@ -12,7 +12,9 @@ import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 import { shareOfficeFilesWithNewUser } from '../../lib/officeFileShares.js';
 import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies } from '../../lib/provinceScope.js';
+import { loadSeatManagers } from '../../lib/provinceSeats.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
+import { assignmentFillsSeat } from '../province-teams/province-teams.rules.js';
 import { resolveUserItemTiers, SECONDARY_MODES, TIER_MAIN, TIER_SECONDARY, DEFAULT_SECONDARY_MODE } from '../../lib/itemTiers.js';
 import { clearMarketersTeamCache } from '../scientific-reps/scientific-reps.service.js';
 
@@ -96,18 +98,25 @@ export async function listProvinceStructure(req, res) {
         select: {
           repUserId: true, allItems: true,
           company: { select: { id: true, name: true } },
-          _count: { select: { items: true } },
+          items: { select: { itemId: true } },
         },
       },
     },
   });
+  const seats = await loadSeatManagers();
   const data = teams.map(t => {
     const reps = new Map();
+    const officeSeats = seats.filter(s => s.officeId === t.officeId);
     for (const a of t.assignments) {
-      if (!reps.has(a.repUserId)) reps.set(a.repUserId, { userId: a.repUserId, companies: [] });
-      reps.get(a.repUserId).companies.push({
-        id: a.company.id, name: a.company.name, allItems: a.allItems, itemCount: a._count.items,
+      if (!reps.has(a.repUserId)) reps.set(a.repUserId, { userId: a.repUserId, companies: [], seatManagerIds: [] });
+      const rep = reps.get(a.repUserId);
+      rep.companies.push({
+        id: a.company.id, name: a.company.name, allItems: a.allItems, itemCount: a.items.length,
       });
+      const assignment = { companyId: a.company.id, allItems: a.allItems, itemIds: a.items.map(i => i.itemId) };
+      for (const s of officeSeats) {
+        if (assignmentFillsSeat(assignment, s) && !rep.seatManagerIds.includes(s.userId)) rep.seatManagerIds.push(s.userId);
+      }
     }
     return {
       id: t.id, officeId: t.officeId, provinceId: t.province.id, provinceName: t.province.name,
@@ -117,7 +126,13 @@ export async function listProvinceStructure(req, res) {
   const provinces = await prisma.province.findMany({
     select: { id: true, name: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
   });
-  res.json({ success: true, data, provinces });
+  res.json({
+    success: true, data, provinces,
+    seats: seats.map(s => ({
+      managerUserId: s.userId, managerName: s.name, officeId: s.officeId,
+      companyId: s.companyId, companyName: s.companyName, itemCount: s.items.length,
+    })),
+  });
 }
 
 // ── تعيين/إزالة تيم ليدر محافظة من الماستر أدمن (ينشئ الفريق إن لم يوجد) ─────
@@ -191,7 +206,7 @@ export function buildDefaultPermissions(customPermissions) {
 // لا تكفي رسالة «مستخدم بالفعل»: الحساب المالك للاسم قد يكون في مكتب آخر أو
 // معطّلاً، فلا يلمحه الأدمن في القائمة أمامه ويظن أنه حذفه سابقاً. لذلك نُرجع
 // هوية ذلك الحساب (اسمه الظاهر/مكتبه/حالته/رقمه) لتعرضها الواجهة وتنقل إليه.
-async function findUsernameConflict(username, excludeId = null) {
+export async function findUsernameConflict(username, excludeId = null) {
   const existing = await prisma.user.findUnique({
     where: { username },
     select: {
