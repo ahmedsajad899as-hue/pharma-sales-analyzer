@@ -4409,9 +4409,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
           if (groups.length === 0) return null;
           const selRep = sciReps.find(r => String(r.id) === sciRepId);
           const selGroupSide = isGroupId(sciRepId) ? sciRepId.slice(4) : null;
-          // «بغداد» يعرض أسماء كل الأقسام؛ القسم أو المندوب يعرض قسمه فقط.
-          const activeCo = quickCompany ?? (selGroupSide && selGroupSide !== 'all' ? selGroupSide : selRep ? (selRep.company || 'بدون شركة') : (marketersView ? null : groups[0].company));
-          const rows = activeCo == null ? groups.flatMap(g => g.rows) : (groups.find(g => g.company === activeCo)?.rows ?? []);
+          // المسوقون: كل الأقسام وأسماؤها ظاهرة دائماً مهما كان الاختيار (طلب 2026-11-04).
+          // العلميون: أسماء الشركة المختارة فقط.
+          const activeCo = quickCompany ?? (selGroupSide && selGroupSide !== 'all' ? selGroupSide : selRep ? (selRep.company || 'بدون شركة') : groups[0].company);
+          const rows = marketersView ? groups.flatMap(g => g.rows) : (groups.find(g => g.company === activeCo)?.rows ?? []);
           // سطر لكل تيم ليدر: القائد أولاً ثم فاصل صغير ثم مندوبوه. من لا قائد
           // لهم يُجمعون في سطر أخير بلا قائد.
           const lines: { leader: Rep | null; members: Rep[] }[] = [];
