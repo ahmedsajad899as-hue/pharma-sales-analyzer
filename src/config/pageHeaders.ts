@@ -43,6 +43,7 @@ export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
   'aqdar-export':       { title: 'أقدر' },
   'province-teams':     { title: 'فرق المحافظات', subtitle: 'تيم ليدر المحافظة ومندوبو الشركات — تغطية المحافظة والجهد الشخصي' },
   'rep-orders':         { title: 'طلبيات المذاخر', subtitle: 'كتابة طلبيات اليوم وإرسالها لواتساب المذخر — مقسّمة حسب التاريخ والمذخر وحالة التجهيز' },
+  'rep-sales':          { title: 'مبيعات المندوبين', subtitle: 'تسجيل المبيع اليومي وتأكيد الطلبيات، ومجموع كل مندوب وكل ايتم' },
   'warehouse-dispatch': { title: 'إرسال للمذاخر', subtitle: 'إرسال الطلبيات لواتساب المذاخر واستقبال ردّ التجهيز والفاتورة' },
   'team-engagement':    { title: 'نشاط الفريق', subtitle: 'مدى استخدام مدير الشركة والموارد البشرية والموظفين للتطبيق' },
   'representatives':    { title: 'المندوبين' },

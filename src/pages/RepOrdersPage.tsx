@@ -9,6 +9,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, ClipboardPaste, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { ItemPicker, itemCompany, normSearch, type CatalogItem } from '../components/OrderItemPicker';
+import { compressImage, readDataUrl, loadImg } from '../lib/localImage';
 import './RepOrdersPage.css';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -33,7 +35,6 @@ interface WarehouseRow {
   id: number; name: string; phone: string; groupLink: string | null; notes: string | null; canEdit: boolean;
   province?: string | null; provinceGuess?: string | null; handle?: string | null;
 }
-interface CatalogItem { id: number; name: string; company?: { name: string } | null; scientificCompany?: { name: string } | null }
 
 
 // نفس تطبيع رقم wa.me المستعمل في ReportsPage: 07… ← 9647…، و00 تُحذف.
@@ -53,8 +54,6 @@ const shiftDay = (days: number) => { const d = new Date(); d.setDate(d.getDate()
 const monthStart = () => { const d = new Date(); return dayStr(new Date(d.getFullYear(), d.getMonth(), 1)); };
 const fmtDay = (iso: string) => String(iso).slice(0, 10);
 const fmtMoney = (n: number) => Math.round(n).toLocaleString('en-US');
-const itemCompany = (i: CatalogItem) => i.scientificCompany?.name ?? i.company?.name ?? null;
-const itemLabel = (i: CatalogItem) => (itemCompany(i) ? `${i.name} — ${itemCompany(i)}` : i.name);
 
 const remainingOf = (l: OrderLine) => Math.max(0, l.quantity - (l.preparedQty ?? 0));
 /** جُهّز جزء منها ولم تكتمل */
@@ -298,16 +297,6 @@ function copyText(text: string) {
   if (!ok) navigator.clipboard?.writeText(text).catch(() => {});
 }
 
-// تصغير الصورة في المتصفح قبل الرفع (القرص ضيّق على السيرفر)
-const readDataUrl = (b: Blob) => new Promise<string>((res, rej) => {
-  const r = new FileReader();
-  r.onload = () => res(String(r.result)); r.onerror = rej;
-  r.readAsDataURL(b);
-});
-const loadImg = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
-  const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
-});
-
 /** رابط عرض لصورة محلية: blob: أولاً، وإن تعذّر عرضه (صور مُشارَكة ببعض متصفحات أندرويد) ← data: */
 function useLocalImage(file: Blob | null): [string | null, () => void] {
   const [url, setUrl] = useState<string | null>(null);
@@ -322,20 +311,6 @@ function useLocalImage(file: Blob | null): [string | null, () => void] {
     readDataUrl(file).then(setUrl).catch(() => {});
   };
   return [url, fallback];
-}
-
-async function compressImage(file: File, maxSide = 1600, quality = 0.8): Promise<Blob> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await loadImg(url)
-      .catch(async () => loadImg(await readDataUrl(file)))
-      .catch(() => { throw new Error('تعذّر فتح الصورة — أعد مشاركتها أو اخترها من المعرض'); });
-    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(img.width * scale); canvas.height = Math.round(img.height * scale);
-    canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-    return await new Promise<Blob>((res, rej) => canvas.toBlob(b => (b ? res(b) : rej(new Error('تعذّر ضغط الصورة'))), 'image/jpeg', quality));
-  } finally { URL.revokeObjectURL(url); }
 }
 
 type Period = 'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom';
@@ -400,8 +375,6 @@ const periodRange = (p: Period): [string, string] => {
 
 // البحث الذكي: يطبّع الهمزات/التاء المربوطة/الياء والتشكيل، وكل كلمة يجب أن توجد في
 // مكانٍ ما من الطلبية (مذخر، صيدلية، منطقة، مندوب، صنف، شركة، ملاحظة، رقم).
-const normSearch = (v: unknown) => String(v ?? '').toLowerCase()
-  .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[ً-ْـ]/g, '');
 const searchTextOf = (o: Order) => normSearch([
   o.id, `#${o.id}`, o.pharmacyName, o.areaName, o.repName, o.notes, o.invoiceNumber,
   ...o.warehouses.map(w => w.name), o.warehouseName,
@@ -2168,64 +2141,6 @@ function WarehousePicker({ warehouses, value, onChange, onNew }: {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── اختيار الايتمات: قائمة بمربعات اختيار، عدة ايتمات دفعة واحدة ثم الكميات ────
-
-function ItemPicker({ items, have, onAdd, onClose }: {
-  items: CatalogItem[]; have: Set<number>;
-  onAdd: (picked: CatalogItem[], freeText: string | null) => void; onClose: () => void;
-}) {
-  const [q, setQ] = useState('');
-  const [sel, setSel] = useState<Set<number>>(new Set());
-  const terms = useMemo(() => normSearch(q).split(/\s+/).filter(Boolean), [q]);
-  const list = useMemo(() => items.filter(i => !terms.length || terms.every(t => normSearch(itemLabel(i)).includes(t))).slice(0, 300), [items, terms]);
-  const typed = q.trim();
-  const exists = typed && items.some(i => normSearch(i.name) === normSearch(typed));
-  const toggle = (id: number) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const picked = () => items.filter(i => sel.has(i.id));
-
-  // زر الرجوع يغلق القائمة وحدها لا نموذج الطلبية: مستمع capture يسبق مستمع الصفحة
-  useEffect(() => {
-    const onBack = (e: Event) => { e.preventDefault(); onClose(); };
-    window.addEventListener('before-navigate-back', onBack, true);
-    return () => window.removeEventListener('before-navigate-back', onBack, true);
-  }, [onClose]);
-
-  return (
-    <div className="ro-modal" onClick={onClose}>
-      <div className="ro-dialog ro-dialog--narrow" onClick={e => e.stopPropagation()}>
-        <div className="ro-dialog__head">
-          <strong>اختيار الايتمات</strong>
-          <button className="ro-icon-btn" onClick={onClose}><X size={16} /></button>
-        </div>
-        <div className="ro-dialog__body">
-          <input className="form-input" type="search" autoFocus value={q} onChange={e => setQ(e.target.value)} aria-label="بحث" />
-          <div className="ro-ipick">
-            {list.map(i => {
-              const done = have.has(i.id);
-              const on = sel.has(i.id);
-              return (
-                <label key={i.id} className={`ro-ipick__row ${on ? 'is-on' : ''} ${done ? 'is-done' : ''}`}>
-                  <input type="checkbox" checked={on || done} disabled={done} onChange={() => toggle(i.id)} />
-                  <span className="ro-strong">{i.name}</span>
-                  {itemCompany(i) && <span className="ro-muted ro-small">{itemCompany(i)}</span>}
-                </label>
-              );
-            })}
-            {!list.length && <div className="ro-muted ro-ipick__empty">لا نتائج</div>}
-          </div>
-          {typed && !exists && (
-            <button className="ro-link ro-self-start" onClick={() => onAdd(picked(), typed)}><Plus size={13} /> إضافة «{typed}» كايتم غير موجود بالقائمة</button>
-          )}
-        </div>
-        <div className="ro-dialog__foot">
-          <button className="btn btn--primary" disabled={!sel.size} onClick={() => onAdd(picked(), null)}>إضافة{sel.size ? ` ${sel.size}` : ''}</button>
-          <button className="btn btn--secondary" onClick={onClose}>إلغاء</button>
-        </div>
-      </div>
     </div>
   );
 }

@@ -104,6 +104,7 @@ import engagementRoutes          from './modules/engagement/engagement.routes.js
 import repFollowupRoutes         from './modules/rep-followup/rep-followup.routes.js';
 import provinceTeamsRoutes       from './modules/province-teams/province-teams.routes.js';
 import repOrdersRoutes          from './modules/rep-orders/rep-orders.routes.js';
+import repSalesRoutes           from './modules/rep-sales/rep-sales.routes.js';
 import warehouseDispatchRoutes  from './modules/warehouse-dispatch/dispatch.routes.js';
 import { resumeListenInbox } from './modules/wa-groups/wa-groups.listen.js';
 import { internalRouter as waGroupsInternalRoutes, adminRouter as waGroupsAdminRoutes, saRouter as waGroupsSaRoutes } from './modules/wa-groups/wa-groups.routes.js';
@@ -1327,6 +1328,7 @@ app.use('/api/engagement',        engagementRoutes);
 app.use('/api/rep-followup',      repFollowupRoutes);
 app.use('/api/province-teams',    provinceTeamsRoutes);
 app.use('/api/rep-orders',        repOrdersRoutes);
+app.use('/api/rep-sales',         repSalesRoutes);
 app.use('/api/warehouse-dispatch', warehouseDispatchRoutes);
 app.use('/api/wa-groups/internal', waGroupsInternalRoutes);
 app.use('/api/wa-groups/admin',   waGroupsAdminRoutes);

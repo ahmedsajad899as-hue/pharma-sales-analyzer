@@ -32,12 +32,12 @@ export const INVOICE_DIR = path.join(__dirname, '..', '..', '..', 'uploads', 're
 
 const userName = (u) => (u ? (u.displayName || u.username) : null);
 
-function cleanText(v, max = 200) {
+export function cleanText(v, max = 200) {
   const s = String(v ?? '').replace(/\s+/g, ' ').trim();
   return s ? s.slice(0, max) : null;
 }
 
-function parseDay(v) {
+export function parseDay(v) {
   const s = String(v ?? '').slice(0, 10);
   const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T12:00:00Z`) : new Date();
   return Number.isNaN(d.getTime()) ? new Date() : d;
@@ -55,7 +55,7 @@ export async function loadViewer(reqUser) {
 }
 
 /** حسابات يرى المُشاهِد طلبياتها: نفسه + فريقه (للمدراء). */
-async function teamUserIds(viewer) {
+export async function teamUserIds(viewer) {
   const ids = new Set([viewer.id]);
   if (!isFieldRole(viewer.role)) {
     const roster = await getManagerRoster(viewer, { includeTeamLead: true });
@@ -402,7 +402,26 @@ async function buildOrderData(viewer, body) {
     backupWarehouseIds = wantedBackups.filter(id => ok.has(id)); // يحفظ ترتيب المستخدم
   }
 
-  const rawLines = Array.isArray(body?.lines) ? body.lines.slice(0, MAX_LINES) : [];
+  const lines = await buildLines(body?.lines);
+  if (!lines.length) throw new AppError('أضف صنفاً واحداً على الأقل مع كميته', 400);
+
+  return {
+    head: {
+      orderDate: parseDay(body?.orderDate),
+      warehouseId,
+      warehouseName,
+      backupWarehouseIds,
+      pharmacyName,
+      areaName: cleanText(body?.areaName, 120),
+      notes: cleanText(body?.notes, 500),
+    },
+    lines,
+  };
+}
+
+/** أسطر الأصناف من الطلب: اسم الصنف وشركته وسعره من الكتالوج، والصنف الحرّ يبقى كما كُتب. */
+export async function buildLines(raw) {
+  const rawLines = Array.isArray(raw) ? raw.slice(0, MAX_LINES) : [];
   const itemIds = [...new Set(rawLines.map(l => Number(l.itemId)).filter(Boolean))];
   const items = itemIds.length
     ? await prisma.item.findMany({
@@ -430,20 +449,7 @@ async function buildOrderData(viewer, body) {
       unitPrice: it ? (it.warehousePrice ?? it.price ?? null) : null,
     });
   }
-  if (!lines.length) throw new AppError('أضف صنفاً واحداً على الأقل مع كميته', 400);
-
-  return {
-    head: {
-      orderDate: parseDay(body?.orderDate),
-      warehouseId,
-      warehouseName,
-      backupWarehouseIds,
-      pharmacyName,
-      areaName: cleanText(body?.areaName, 120),
-      notes: cleanText(body?.notes, 500),
-    },
-    lines,
-  };
+  return lines;
 }
 
 export async function createOrder(reqUser, body) {

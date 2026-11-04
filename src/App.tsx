@@ -64,6 +64,7 @@ const _importRepFollowup         = () => import('./pages/RepFollowupPage');
 const _importMotivation          = () => import('./pages/MotivationPage');
 const _importProvinceTeams       = () => import('./pages/ProvinceTeamsPage');
 const _importRepOrders           = () => import('./pages/RepOrdersPage');
+const _importRepSales            = () => import('./pages/RepSalesPage');
 const _importWarehouseDispatch   = () => import('./pages/WarehouseDispatchPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
@@ -100,6 +101,7 @@ const RepFollowupPage         = lazyWithRetry(_importRepFollowup);
 const MotivationPage          = lazyWithRetry(_importMotivation);
 const ProvinceTeamsPage       = lazyWithRetry(_importProvinceTeams);
 const RepOrdersPage           = lazyWithRetry(_importRepOrders);
+const RepSalesPage            = lazyWithRetry(_importRepSales);
 const WarehouseDispatchPage   = lazyWithRetry(_importWarehouseDispatch);
 
 // Minimal spinner shown while a page chunk is loading
@@ -150,6 +152,7 @@ export type PageId =
   | 'motivation'
   | 'province-teams'
   | 'rep-orders'
+  | 'rep-sales'
   | 'warehouse-dispatch'
   | 'bonus-sales'
   | 'account-builder'
@@ -709,6 +712,7 @@ function AppInner() {
     { id: 'motivation',         node: <MotivationPage /> },
     { id: 'province-teams',     node: <ProvinceTeamsPage activeFileIds={activeFileIds} /> },
     { id: 'rep-orders',         node: <RepOrdersPage /> },
+    { id: 'rep-sales',          node: <RepSalesPage /> },
     { id: 'warehouse-dispatch', node: <WarehouseDispatchPage /> },
   ];
 

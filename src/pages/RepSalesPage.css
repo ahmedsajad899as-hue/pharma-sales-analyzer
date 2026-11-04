@@ -1,0 +1,93 @@
+/* RepSalesPage — «مبيعات المندوبين». بادئة rs-؛ النوافذ والحقول من RepOrdersPage.css (ro-). */
+
+.rs-page { display: flex; flex-direction: column; gap: 10px; padding-bottom: 24px; }
+.rs-page .btn { display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
+.rs-hint { font-size: 12px; color: var(--c-text-muted); }
+.rs-cell-sub { font-size: 11.5px; font-weight: 400; color: var(--c-text-muted); }
+.rs-ok { color: var(--c-success); }
+.rs-wait { color: #b45309; }
+.rs-danger { color: var(--c-danger); }
+
+.rs-search { position: relative; display: inline-flex; align-items: center; flex: 1; min-width: 160px; }
+.rs-search svg { position: absolute; inset-inline-start: 9px; color: var(--c-text-muted); pointer-events: none; }
+.rs-search .form-input { width: 100%; padding-block: 6px; padding-inline-start: 28px; font-size: 13px; }
+
+/* ── المجاميع ─────────────────────────────────────────────────────────────── */
+.rs-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.rs-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 12px; min-width: 0; }
+.rs-tile--confirmed { border-inline-start: 3px solid var(--c-success); }
+.rs-tile--pending { border-inline-start: 3px solid #f59e0b; }
+.rs-tile__label { font-size: 12px; font-weight: 600; color: var(--c-text-secondary); }
+.rs-tile__value { font-size: 20px; font-weight: 700; color: var(--c-text-primary); overflow-wrap: anywhere; }
+.rs-tile__sub { font-size: 11.5px; color: var(--c-text-muted); }
+
+/* ── التبويبات ────────────────────────────────────────────────────────────── */
+.rs-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--c-border-light); }
+.rs-tabs button { border: 0; background: none; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600; color: var(--c-text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.rs-tabs button.is-active { color: var(--c-accent); border-bottom-color: var(--c-accent); }
+
+/* ── الجداول ──────────────────────────────────────────────────────────────── */
+.rs-table-wrap { background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 12px; overflow-x: auto; }
+.rs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rs-table th { text-align: start; font-weight: 600; font-size: 12px; color: var(--c-text-secondary); padding: 8px 10px; background: var(--c-border-light); white-space: nowrap; }
+.rs-table td { padding: 8px 10px; border-top: 1px solid var(--c-border-light); vertical-align: top; }
+.rs-table .rs-num { text-align: end; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rs-click { cursor: pointer; }
+.rs-empty-cell { text-align: center; padding: 28px 12px !important; color: var(--c-text-muted); }
+
+/* ── الأيام والبطاقات ─────────────────────────────────────────────────────── */
+.rs-day { display: flex; flex-direction: column; gap: 6px; }
+.rs-day__title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 6px 2px 0; font-size: 13px; font-weight: 700; color: var(--c-text-secondary); }
+
+.rs-card { background: var(--c-surface); border: 1px solid var(--c-border-light); border-inline-start: 3px solid var(--c-border); border-radius: 10px; overflow: hidden; }
+.rs-card--confirmed { border-inline-start-color: var(--c-success); }
+.rs-card--pending { border-inline-start-color: #f59e0b; }
+.rs-card--cancelled { opacity: 0.65; }
+.rs-card--cancelled .rs-card__title .ro-strong { text-decoration: line-through; }
+
+.rs-card__head { display: flex; align-items: center; gap: 8px; padding-inline-end: 10px; }
+.rs-card__summary { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; border: 0; background: none; padding: 9px 12px; font: inherit; text-align: start; cursor: pointer; color: inherit; }
+.rs-card__title { font-size: 13.5px; overflow-wrap: anywhere; }
+.rs-card__items { font-size: 12px; color: var(--c-text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.rs-card__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; color: var(--c-text-muted); }
+.rs-card__value { font-size: 13px; color: var(--c-text-primary); margin-inline-start: auto; font-variant-numeric: tabular-nums; }
+.rs-card__confirm { flex-shrink: 0; }
+.rs-chevron { color: var(--c-text-muted); transition: transform 0.15s; }
+.rs-chevron.is-open { transform: rotate(180deg); }
+
+.rs-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--c-border-light); color: var(--c-text-secondary); white-space: nowrap; }
+.rs-badge--confirmed { background: var(--c-success-bg); color: var(--c-success); }
+.rs-badge--pending { background: rgba(245, 158, 11, 0.16); color: #92400e; }
+
+.rs-card__body { display: flex; flex-direction: column; gap: 8px; padding: 2px 12px 12px; }
+.rs-card__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rs-thumb { display: flex; align-items: center; gap: 10px; }
+.rs-thumb img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--c-border-light); cursor: zoom-in; }
+
+/* ── النوافذ ──────────────────────────────────────────────────────────────── */
+.rs-kind { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.rs-kind button { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; font: inherit; text-align: start; cursor: pointer; background: var(--c-surface); color: var(--c-text-secondary); border: 1.5px solid var(--c-border-light); border-radius: 10px; }
+.rs-kind button:disabled { opacity: 0.5; cursor: default; }
+.rs-kind b { font-size: 13.5px; color: var(--c-text-primary); }
+.rs-kind span { font-size: 11.5px; }
+.rs-kind .is-pending { border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); }
+.rs-kind .is-confirmed { border-color: var(--c-success); background: var(--c-success-bg); }
+
+.rs-invoice { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.rs-invoice__preview { display: inline-flex; align-items: center; gap: 8px; }
+.rs-invoice__preview img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid var(--c-border-light); }
+
+.rs-confirm-lines { display: flex; flex-direction: column; gap: 6px; }
+.rs-confirm-line { display: grid; grid-template-columns: minmax(0, 1fr) 76px 66px; align-items: center; gap: 6px; font-size: 13px; }
+.rs-confirm-line .form-input { padding-inline: 8px; }
+.rs-confirm-line > span { overflow-wrap: anywhere; }
+.rs-confirm-line--head { font-size: 11.5px; font-weight: 600; color: var(--c-text-secondary); }
+
+@media (max-width: 720px) {
+  .rs-search { flex-basis: 100%; order: 10; }
+  .rs-tiles { gap: 6px; }
+  .rs-tile { padding: 8px; }
+  .rs-tile__value { font-size: 15px; }
+  .rs-tile__sub { font-size: 10.5px; }
+  .rs-table th, .rs-table td { padding: 7px 6px; font-size: 12px; }
+}

@@ -3476,3 +3476,47 @@ model RepOrderSend {
   @@index([warehouseId, whSeq])
   @@map("rep_order_sends")
 }
+
+// ═══ مبيعات المندوبين (صفحة rep-sales) ═══════════════════════════════════════
+// المندوب يسجّل مبيعه اليومي: مؤكد مباشرةً، أو طلبية غير مؤكدة تبقى معلّقة حتى يؤكدها
+// بالأرقام نفسها أو بصورة الفاتورة. سجلّ مستقل عن Sale ولا يدخل التقارير — ملفات الإكسل
+// تحتسب المبيع نفسه لاحقاً، وخلطهما يكرره. createdById = المندوب صاحب المبيع.
+model RepSale {
+  id            Int       @id @default(autoincrement())
+  officeId      Int?
+  createdById   Int
+  saleDate      DateTime
+  pharmacyName  String
+  areaName      String?
+  warehouseName String?
+  invoiceNumber String?
+  notes         String?
+  status        String    @default("pending") // pending (غير مؤكدة) | confirmed | cancelled (لم تتم)
+  invoiceImage  String? // /uploads/rep-sales/<random>.jpg
+  confirmedAt   DateTime?
+  confirmedById Int?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  lines RepSaleLine[]
+
+  @@index([createdById, saleDate])
+  @@index([officeId, saleDate])
+  @@map("rep_sales")
+}
+
+model RepSaleLine {
+  id          Int     @id @default(autoincrement())
+  saleId      Int
+  itemId      Int?
+  itemName    String
+  companyName String?
+  quantity    Int
+  bonusQty    Int     @default(0)
+  unitPrice   Float? // سعر الكتالوج وقت التسجيل — null لايتم خارج الكتالوج
+
+  sale RepSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@map("rep_sale_lines")
+}

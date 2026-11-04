@@ -45,6 +45,7 @@ export const ICONS = {
   navTeamEngagement: Activity,
   navProvinceTeams: MapIcon,
   navRepOrders: ClipboardList,
+  navRepSales: Banknote,
   navWarehouseDispatch: Truck,
   navMotivation: Trophy,
 
@@ -151,6 +152,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'team-engagement': 'navTeamEngagement',
   'province-teams': 'navProvinceTeams',
   'rep-orders': 'navRepOrders',
+  'rep-sales': 'navRepSales',
   'warehouse-dispatch': 'navWarehouseDispatch',
   'motivation': 'navMotivation',
 };
