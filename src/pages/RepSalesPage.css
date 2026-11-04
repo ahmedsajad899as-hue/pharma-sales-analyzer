@@ -26,6 +26,9 @@
 .rs-tabs button { border: 0; background: none; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600; color: var(--c-text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .rs-tabs button.is-active { color: var(--c-accent); border-bottom-color: var(--c-accent); }
 
+.rs-back { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.rs-back__btn { display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--c-border-light); border-radius: 999px; background: var(--c-surface); padding: 4px 12px 4px 10px; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--c-accent); cursor: pointer; }
+
 /* ── الجداول ──────────────────────────────────────────────────────────────── */
 .rs-table-wrap { background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 12px; overflow-x: auto; }
 .rs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -48,7 +51,6 @@
 .rs-card__head { display: flex; align-items: center; gap: 8px; padding-inline-end: 10px; }
 .rs-card__summary { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; border: 0; background: none; padding: 9px 12px; font: inherit; text-align: start; cursor: pointer; color: inherit; }
 .rs-card__title { font-size: 13.5px; overflow-wrap: anywhere; }
-.rs-card__items { font-size: 12px; color: var(--c-text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .rs-card__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; color: var(--c-text-muted); }
 .rs-card__value { font-size: 13px; color: var(--c-text-primary); margin-inline-start: auto; font-variant-numeric: tabular-nums; }
 .rs-card__confirm { flex-shrink: 0; }

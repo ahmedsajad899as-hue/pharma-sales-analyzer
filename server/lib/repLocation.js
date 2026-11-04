@@ -9,6 +9,7 @@ import prisma from './prisma.js';
 import { normalizeAreaName } from './itemResolver.js';
 import { BAGHDAD_PROVINCE, marketerHomeProvinces, repSideOf } from './pharmacyRep.js';
 import { buildProvinceLookup, provinceFromText } from './provinces.js';
+import { isFieldRole } from './surveyDoctors.js';
 
 const GROUP_BY_SIDE = [[/كرخ/, 'karkh'], [/رصاف/, 'rusafa']];
 const sideGroup = (side) => GROUP_BY_SIDE.find(([re]) => re.test(side ?? ''))?.[1] ?? null;
@@ -22,7 +23,7 @@ const sideGroup = (side) => GROUP_BY_SIDE.find(([re]) => re.test(side ?? ''))?.[
  * @param {{province:string, side:string|null}[]} r.areas مناطقه المعيّنة بلا تكرار
  * @param {string} r.name اسم الحساب
  * @param {(text:string)=>string|null} r.provinceInText
- * @returns {{province:string|null, side:string|null, group:'karkh'|'rusafa'|'provinces'|'other'}}
+ * @returns {{province:string|null, side:string|null, group:'karkh'|'rusafa'|'provinces'|'other'}} loadRepLocations يضيف group='managers' وkind
  */
 export function repLocationFrom({ teamProvinces = [], assignedProvinces = [], assignedSides = [], areas = [], name = '', provinceInText = () => null }) {
   let homes = [...new Set(teamProvinces)];
@@ -50,6 +51,18 @@ export function repLocationFrom({ teamProvinces = [], assignedProvinces = [], as
     return { province: BAGHDAD_PROVINCE, side, group: sideGroup(side) ?? 'other' };
   }
   return { province: homes.slice(0, 2).join('، '), side: null, group: 'provinces' };
+}
+
+const LEADER_ROLES = new Set(['team_leader', 'commercial_team_leader']);
+
+/**
+ * موقع الحساب في قوائم المندوبين: المدير فوق الأقسام، والتيم ليدر أول قسمه. بعض الليدرية
+ * حساباتهم بدور مندوب، فيُعرفون بفريق المحافظة أو باسم الحساب («… / ليدر الكرخ ph»).
+ * @returns {'manager'|'leader'|'rep'}
+ */
+export function repKindOf({ role, name = '', leadsProvinceTeam = false }) {
+  if (LEADER_ROLES.has(role) || leadsProvinceTeam || /ليدر/.test(name)) return 'leader';
+  return isFieldRole(role) ? 'rep' : 'manager';
 }
 
 /**
@@ -92,7 +105,7 @@ export async function loadRepLocations(userIds) {
   const out = new Map();
   if (!ids.length) return out;
 
-  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true, username: true, linkedRepId: true } });
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true, displayName: true, username: true, linkedRepId: true } });
   const repIds = users.map(u => u.linkedRepId).filter(Boolean);
   const areaSelect = { area: { select: { name: true } } };
   const [memberRows, leaderRows, provinceRows, sideRows, userAreas, repAreas, areaIndex, provinces] = await Promise.all([
@@ -124,6 +137,7 @@ export async function loadRepLocations(userIds) {
     return m;
   };
   const teams = groupBy(memberRows, r => r.repUserId, r => r.team.province.name);
+  const provinceLeaders = new Set(leaderRows.map(r => r.leaderUserId));
   for (const r of leaderRows) teams.set(r.leaderUserId, [...(teams.get(r.leaderUserId) ?? []), r.province.name]);
   const assignedProvinces = groupBy(provinceRows, r => r.userId, r => r.province.name);
   const assignedSides = groupBy(sideRows, r => r.userId, (r) => {
@@ -141,14 +155,18 @@ export async function loadRepLocations(userIds) {
       const hit = areaIndex.get(k);
       if (hit) areas.set(k, { province: hit.province, side: hit.subProvince });
     }
-    out.set(u.id, repLocationFrom({
+    const name = u.displayName || u.username;
+    const location = repLocationFrom({
       teamProvinces: teams.get(u.id),
       assignedProvinces: assignedProvinces.get(u.id),
       assignedSides: assignedSides.get(u.id),
       areas: [...areas.values()],
-      name: u.displayName || u.username,
+      name,
       provinceInText,
-    }));
+    });
+    const kind = repKindOf({ role: u.role, name, leadsProvinceTeam: provinceLeaders.has(u.id) });
+    // المدير يدير المحافظة كلها، ومناطقه لا تجعله تابعاً لقسم منها
+    out.set(u.id, kind === 'manager' ? { province: location.province, side: null, group: 'managers', kind } : { ...location, kind });
   }
   return out;
 }

@@ -1,6 +1,6 @@
 // قرار موقع المندوب (المحافظة + الكرخ/الرصافة) — npm run test:rep-location
 import assert from 'node:assert/strict';
-import { repLocationFrom } from '../server/lib/repLocation.js';
+import { repKindOf, repLocationFrom } from '../server/lib/repLocation.js';
 
 const inKarkh = { province: 'بغداد', side: 'الكرخ' };
 const inRusafa = { province: 'بغداد', side: 'الرصافة' };
@@ -27,5 +27,13 @@ assert.deepEqual(loc({ name: 'عمر / ليدر الكرخ', areas: [inRusafa] }
 
 assert.deepEqual(loc({ name: 'احمد' }), { province: null, side: null, group: 'other' }, 'بلا بيانات: غير مصنف لا تخمين');
 assert.deepEqual(loc({ assignedProvinces: ['بغداد'], name: 'احمد' }), { province: 'بغداد', side: null, group: 'other' }, 'بغداد بلا قسم تبقى ظاهرة ولا تُنسب لقسم');
+
+assert.equal(repKindOf({ role: 'company_manager', name: 'ahmed sajjad' }), 'manager');
+assert.equal(repKindOf({ role: 'office_manager', name: 'x' }), 'manager');
+assert.equal(repKindOf({ role: 'team_leader', name: 'زاهر' }), 'leader');
+assert.equal(repKindOf({ role: 'commercial_team_leader', name: 'x' }), 'leader');
+assert.equal(repKindOf({ role: 'scientific_rep', name: 'عمر ايمن / ليدر الكرخ ph' }), 'leader', 'ليدر بدور مندوب يُعرف من اسمه');
+assert.equal(repKindOf({ role: 'scientific_rep', name: 'علي', leadsProvinceTeam: true }), 'leader');
+assert.equal(repKindOf({ role: 'scientific_rep', name: 'علي' }), 'rep');
 
 console.log('✓ موقع المندوب');

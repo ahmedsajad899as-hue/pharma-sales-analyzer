@@ -22,6 +22,7 @@ export const SALE_IMAGE_DIR = path.join(__dirname, '..', '..', '..', 'uploads', 
 
 const LIST_CAP = 5000;
 const CONFIRM_WAIT_MS = 24 * 60 * 60 * 1000;
+const KIND_ORDER = { manager: 0, leader: 1, rep: 2 };
 const userName = (u) => (u ? (u.displayName || u.username) : null);
 const imageUrl = (file) => `/uploads/rep-sales/${path.basename(file.path)}`;
 const removeImageFile = (rel) => {
@@ -129,8 +130,8 @@ export async function listSales(reqUser, q = {}) {
   return {
     viewer: { id: viewer.id, name: userName(viewer), isManager },
     reps: [...filterIds]
-      .map(id => ({ id, name: nameById.get(id) ?? '—', ...(locations.get(id) ?? { province: null, side: null, group: 'other' }) }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'ar')),
+      .map(id => ({ id, name: nameById.get(id) ?? '—', ...(locations.get(id) ?? { province: null, side: null, group: 'other', kind: 'rep' }) }))
+      .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.name.localeCompare(b.name, 'ar')),
     truncated: rows.length === LIST_CAP,
     serverNow: Date.now(),
     sales: rows.map(r => ({

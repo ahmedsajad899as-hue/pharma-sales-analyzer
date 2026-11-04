@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Check, RotateCcw, Pencil, X, Ban, ChevronDown, Camera, Search, ReceiptText } from 'lucide-react';
+import { Plus, Trash2, Check, RotateCcw, Pencil, X, Ban, ChevronDown, ChevronRight, Camera, Search, ReceiptText } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ItemPicker, itemCompany, normSearch, type CatalogItem } from '../components/OrderItemPicker';
 import { compressImage } from '../lib/localImage';
@@ -25,8 +25,8 @@ interface Sale {
   confirmedAt: string | null; confirmedBy: string | null; createdAt: string; lines: SaleLine[]; canEdit: boolean;
   confirmOpensAt: string | null; // متى يؤكد المندوب بلا فاتورة؛ null = بلا انتظار
 }
-type RepGroup = 'karkh' | 'rusafa' | 'provinces' | 'other';
-interface RepInfo { id: number; name: string; province: string | null; side: string | null; group: RepGroup }
+type RepGroup = 'managers' | 'karkh' | 'rusafa' | 'provinces' | 'other';
+interface RepInfo { id: number; name: string; province: string | null; side: string | null; group: RepGroup; kind: 'manager' | 'leader' | 'rep' }
 interface ListResponse { sales: Sale[]; reps: RepInfo[]; truncated: boolean; serverNow: number; viewer: { id: number; isManager: boolean } }
 type Api = <T = any>(path: string, init?: RequestInit) => Promise<T>;
 
@@ -37,12 +37,13 @@ type Tab = 'list' | 'reps' | 'items';
 const PERIOD_LABEL: Record<Period, string> = { today: 'اليوم', yesterday: 'أمس', week: 'آخر 7 أيام', month: 'هذا الشهر', lastMonth: 'الشهر السابق', all: 'كل التواريخ', custom: 'تاريخ محدد' };
 const STATUS_LABEL: Record<Status, string> = { confirmed: 'مؤكد', pending: 'غير مؤكد', cancelled: 'لم تتم' };
 const REP_GROUPS: { key: RepGroup; label: string }[] = [
+  { key: 'managers', label: 'المدراء' },
   { key: 'karkh', label: 'بغداد الكرخ' },
   { key: 'rusafa', label: 'بغداد الرصافة' },
   { key: 'provinces', label: 'المحافظات' },
   { key: 'other', label: 'بلا تصنيف' },
 ];
-const repPlace = (r?: RepInfo) => (r?.province ? [r.province, r.side].filter(Boolean).join(' · ') : '');
+const repPlace = (r?: RepInfo) => [r?.kind === 'manager' ? 'مدير' : null, r?.province, r?.side].filter(Boolean).join(' · ');
 
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const today = () => dayStr(new Date());
@@ -72,7 +73,6 @@ function periodRange(p: Period): [string, string] {
 const lineValue = (l: SaleLine) => l.quantity * (l.unitPrice ?? 0);
 const saleValue = (s: Sale) => s.lines.reduce((sum, l) => sum + lineValue(l), 0);
 const saleQty = (s: Sale) => s.lines.reduce((sum, l) => sum + l.quantity, 0);
-const lineSummary = (s: Sale) => s.lines.map(l => `${l.itemName} ×${l.quantity}${l.bonusQty ? ` +${l.bonusQty}` : ''}`).join('، ');
 const searchTextOf = (s: Sale) => normSearch([
   s.pharmacyName, s.areaName, s.repName, s.warehouseName, s.invoiceNumber, s.notes,
   ...s.lines.flatMap(l => [l.itemName, l.companyName]),
@@ -157,6 +157,14 @@ export default function RepSalesPage() {
   const isManager = !!data?.viewer.isManager;
   const activeTab: Tab = tab ?? (isManager ? 'reps' : 'list');
 
+  // الرجوع خطوة من مندوب واحد إلى كل الأسماء
+  const showAllReps = useCallback(() => { setRepFilter(''); setTab('reps'); setOpenId(null); }, []);
+  // ضغط «حسب المندوب» دائماً، أو ضغط التبويب المفتوح مرة ثانية وأنت داخل مندوب، يرجع لكل الأسماء
+  const pickTab = (t: Tab) => {
+    if (repFilter && (t === 'reps' || t === activeTab)) showAllReps();
+    else setTab(t);
+  };
+
   // زر الرجوع يغلق أعلى طبقة مفتوحة بدل مغادرة الصفحة (نفس عقد طلبيات المذاخر)
   useEffect(() => {
     const onBack = (e: Event) => {
@@ -165,11 +173,12 @@ export default function RepSalesPage() {
       if (preview)         { ce.preventDefault(); setPreview(null); return; }
       if (confirming)      { ce.preventDefault(); setConfirming(null); return; }
       if (editing)         { ce.preventDefault(); setEditing(null); return; }
-      if (openId != null)  { ce.preventDefault(); setOpenId(null); }
+      if (openId != null)  { ce.preventDefault(); setOpenId(null); return; }
+      if (repFilter && activeTab !== 'reps') { ce.preventDefault(); showAllReps(); }
     };
     window.addEventListener('before-navigate-back', onBack);
     return () => window.removeEventListener('before-navigate-back', onBack);
-  }, [preview, confirming, editing, openId]);
+  }, [preview, confirming, editing, openId, repFilter, activeTab, showAllReps]);
 
   // فلتر المندوب والبحث يحددان كل الأرقام؛ شرائح الحالة تفلتر القائمة فقط لأنها العدّاد نفسه
   const filtered = useMemo(() => {
@@ -217,8 +226,9 @@ export default function RepSalesPage() {
       addTo(s.status === 'confirmed' ? r.confirmed : r.pending, s);
       if (s.status === 'confirmed' && !s.invoiceImage) r.noInvoice += 1;
     }
-    return [...rows.values()].sort((a, b) => b.confirmed.value - a.confirmed.value || b.pending.value - a.pending.value || a.name.localeCompare(b.name, 'ar'));
-  }, [data, filtered, query, repFilter]);
+    const pin = (id: number) => (repById.get(id)?.kind === 'manager' ? 0 : 1); // المدير أول الجدول
+    return [...rows.values()].sort((a, b) => pin(a.id) - pin(b.id) || b.confirmed.value - a.confirmed.value || b.pending.value - a.pending.value || a.name.localeCompare(b.name, 'ar'));
+  }, [data, filtered, query, repFilter, repById]);
 
   const itemRows = useMemo<ItemRow[]>(() => {
     const rows = new Map<string, ItemRow>();
@@ -302,15 +312,23 @@ export default function RepSalesPage() {
       </div>
 
       <div className="rs-tabs" role="tablist">
-        <button role="tab" aria-selected={activeTab === 'list'} className={activeTab === 'list' ? 'is-active' : ''} onClick={() => setTab('list')}>المبيعات</button>
-        {isManager && <button role="tab" aria-selected={activeTab === 'reps'} className={activeTab === 'reps' ? 'is-active' : ''} onClick={() => setTab('reps')}>حسب المندوب</button>}
-        <button role="tab" aria-selected={activeTab === 'items'} className={activeTab === 'items' ? 'is-active' : ''} onClick={() => setTab('items')}>حسب الايتم</button>
+        <button role="tab" aria-selected={activeTab === 'list'} className={activeTab === 'list' ? 'is-active' : ''} onClick={() => pickTab('list')}>المبيعات</button>
+        {isManager && <button role="tab" aria-selected={activeTab === 'reps'} className={activeTab === 'reps' ? 'is-active' : ''} onClick={() => pickTab('reps')}>حسب المندوب</button>}
+        <button role="tab" aria-selected={activeTab === 'items'} className={activeTab === 'items' ? 'is-active' : ''} onClick={() => pickTab('items')}>حسب الايتم</button>
       </div>
+
+      {repFilter && activeTab !== 'reps' && (
+        <div className="rs-back">
+          <button type="button" className="rs-back__btn" onClick={showAllReps}><ChevronRight size={15} /> كل المندوبين</button>
+          <span className="ro-strong">{repById.get(Number(repFilter))?.name}</span>
+          <span className="rs-cell-sub">{repPlace(repById.get(Number(repFilter)))}</span>
+        </div>
+      )}
 
       {activeTab === 'reps' && (
         <div className="rs-table-wrap">
           <table className="rs-table">
-            <thead><tr><th>المندوب</th><th>مؤكد</th><th>غير مؤكد</th><th className="rs-num">بلا فاتورة</th></tr></thead>
+            <thead><tr><th className={repFilter ? 'rs-click' : ''} onClick={() => setRepFilter('')}>المندوب</th><th>مؤكد</th><th>غير مؤكد</th><th className="rs-num">بلا فاتورة</th></tr></thead>
             <tbody>
               {repRows.map(r => (
                 <tr key={r.id} className="rs-click" onClick={() => openRep(r.id)}>
@@ -410,7 +428,6 @@ function SaleCard({ sale: s, open, showRep, wait, onToggle, onConfirm, onEdit, o
             <span className="ro-strong">{s.pharmacyName}</span>
             {s.areaName && <span className="ro-muted"> — {s.areaName}</span>}
           </span>
-          <span className="rs-card__items">{lineSummary(s)}</span>
           <span className="rs-card__meta">
             <span className={`rs-badge rs-badge--${s.status}`}>{STATUS_LABEL[s.status]}</span>
             {s.status === 'confirmed' && !s.invoiceImage && <span className="rs-badge">بلا فاتورة</span>}
