@@ -7,46 +7,12 @@ import UsersBulkImportModal from './UsersBulkImportModal';
 import BulkFeatureToggleModal from './BulkFeatureToggleModal';
 import NewUserAssignments from './NewUserAssignments';
 import UserItemTiersTab from './UserItemTiersTab';
-import ProvinceSeatsPanel from './ProvinceSeatsPanel';
-import type { ProvSeat, ProvSplit, ProvTeamRep } from './ProvinceSeatsPanel';
-import ProvinceMarketersPanel from './ProvinceMarketersPanel';
+import UsersDirectory from './UsersDirectory';
+import type { ProvSeat } from './ProvinceSeatsPanel';
 import type { ProvMarketer, ProvMarketerManager } from './ProvinceMarketersPanel';
+import { ROLES, PHARMACY_FORM_ROLES, PHARMACY_ROLE_OF, OFFICE_SCOPED_ROLES, isMarketer, formRoleOf, roleLabelOf } from './usersCommon';
+import type { ProvTeam, UserRow } from './usersCommon';
 import { TabPill, SectionHead, Note, PickerBar, GroupCard, ChipGrid, Chip, ScrollList, Empty, SaveBar, setMany, softBtn, iconBtn, ACCENT } from './AssignUI';
-
-const ROLES = [
-  { value: 'office_manager',          label: 'مدير مكتب' },
-  { value: 'office_hr',               label: 'HR مكتب' },
-  { value: 'office_employee',         label: 'موظف مكتب' },
-  { value: 'company_manager',         label: 'مدير شركة' },
-  { value: 'supervisor',              label: 'مشرف' },
-  { value: 'product_manager',         label: 'مدير منتج' },
-  { value: 'team_leader',             label: 'قائد فريق' },
-  { value: 'scientific_rep',          label: 'مندوب علمي' },
-  { value: 'pharmacy_manager',        label: 'مدير المسوقين' },
-  { value: 'pharmacy_rep',            label: 'مندوب فارمسي لاين' },
-  { value: 'pharmacy_team_leader',    label: 'قائد فريق فارمسي' },
-  { value: 'commercial_supervisor',   label: 'مشرف تجاري' },
-  { value: 'commercial_team_leader',  label: 'قائد فريق تجاري' },
-  { value: 'commercial_rep',          label: 'مندوب تجاري' },
-  { value: 'admin',                   label: 'مدير (admin)' },
-  { value: 'manager',                 label: 'مدير (manager)' },
-];
-
-// «فارمسي لاين» خيار بالواجهة فقط: الدور الفعلي scientific_rep/team_leader و
-// repKind='pharmacy' على سجل المندوب المرتبط (server/lib/pharmacyRep.js).
-const PHARMACY_FORM_ROLES: Record<string, string> = { pharmacy_rep: 'scientific_rep', pharmacy_team_leader: 'team_leader', pharmacy_manager: 'company_manager' };
-const PHARMACY_ROLE_OF: Record<string, string> = { scientific_rep: 'pharmacy_rep', team_leader: 'pharmacy_team_leader', company_manager: 'pharmacy_manager' };
-const isMarketer = (u: { linkedRep?: { repKind?: string } | null }) => u.linkedRep?.repKind === 'pharmacy';
-const formRoleOf = (u: { role: string; linkedRep?: { repKind?: string } | null }) =>
-  isMarketer(u) ? (PHARMACY_ROLE_OF[u.role] ?? u.role) : u.role;
-const roleLabelOf = (u: { role: string; linkedRep?: { repKind?: string } | null }) => {
-  const r = formRoleOf(u);
-  return ROLES.find(x => x.value === r)?.label || u.role;
-};
-
-// الأدوار المكتبية — لا تُربط بشركة معيّنة، تحصل تلقائياً على كل شركات مكتبها
-// (راجع server/lib/officeScope.js) لتتفاعل مع كل بيانات المكتب لا شركة بعينها.
-const OFFICE_SCOPED_ROLES = new Set(['office_manager', 'office_hr', 'office_employee']);
 
 // ملاحظة: شجرة الميزات (FEATURE_TREE) أصبحت مبنية تلقائياً من src/config/featureConfig.ts —
 // نفس الملف الذي يبني منه القائمة الجانبية الحقيقية (Sidebar.tsx)، فأي صفحة جديدة تُضاف
@@ -60,16 +26,6 @@ interface Item     { id: number; name: string; companyId?: number | null; compan
 interface Area     { id: number; name: string; provinceId?: number | null; provinceConflict?: string | null; subProvinceId?: number | null; }
 interface Province { id: number; name: string; sortOrder?: number; areaCount?: number; }
 interface SubProvince { id: number; name: string; provinceId: number; sortOrder?: number; areaCount?: number; }
-interface UserRow  {
-  id: number; username: string; displayName?: string; role: string; phone?: string;
-  isActive: boolean; officeId?: number; office?: { id: number; name: string };
-  permissions?: string | null;
-  _count?: { companyAssignments: number; areas: number; };
-  companyAssignments?: { companyId: number; isPrimary?: boolean; company: { id: number; name: string } }[];
-  managersOfUser?:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
-  linkedRep?:          { id?: number; name?: string; repKind?: string } | null;
-  side?:               string | null; // المسوقون: الكرخ/الرصافة
-}
 interface UserDetail extends UserRow {
   linkedRepId?: number | null;
   linkedRep?:   { id: number; name: string; repKind?: string } | null;
@@ -93,12 +49,6 @@ interface UserDetail extends UserRow {
 
 // الأدوار التي يجوز تفعيل «كل المناطق تلقائياً» لها — مطابقة لـ ALL_AREAS_ROLES
 // في server/lib/areaScope.js. حسابات إدارية تعمل على كل بيانات المكتب.
-interface ProvTeam {
-  id: number; officeId: number; provinceId: number; provinceName: string; leaderUserId: number | null;
-  reps: ProvTeamRep[];
-  splits?: ProvSplit[];
-}
-
 const ALL_AREAS_ROLES = new Set(['office_manager', 'office_hr', 'office_employee', 'company_manager']);
 
 export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: number | null; onJumpClear?: () => void } = {}) {
@@ -128,16 +78,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   const [subProvinces, setSubProvinces] = useState<SubProvince[]>([]);
   // هيكلية المحافظات (تيم ليدر + مندوبون) — معزولة عن الشركات ومدراء الشركات.
   const [provTeams, setProvTeams] = useState<ProvTeam[]>([]);
-  const [openProvTeams, setOpenProvTeams] = useState<Set<number>>(new Set());
   const [provList, setProvList] = useState<{ id: number; name: string }[]>([]);
   const [provSeats, setProvSeats] = useState<ProvSeat[]>([]);
   const [provSaving, setProvSaving] = useState(false);
   // مسوقو المحافظات ومدراؤهم — قسم مستقل عن فرق العلميين أعلاه.
   const [provMarketers, setProvMarketers] = useState<ProvMarketer[]>([]);
   const [provMarketerManagers, setProvMarketerManagers] = useState<ProvMarketerManager[]>([]);
-  const [openMarketerProvs, setOpenMarketerProvs] = useState<Set<number>>(new Set());
   const provLeaderIds =new Set(provTeams.map(t => t.leaderUserId).filter((x): x is number => x != null));
-  const provUserIds = new Set<number>([...provLeaderIds, ...provTeams.flatMap(t => t.reps.map(r => r.userId))]);
   const [refsLoading, setRefsLoading] = useState(false);
   const [loading,   setLoading]   = useState(true);
   const [detail,    setDetail]    = useState<UserDetail | null>(null);
@@ -155,10 +102,6 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
     return (saved as any) || 'info';
   });
   const [search,    setSearch]    = useState('');
-  // طيّ افتراضي لمندوبي كل مجموعة شركة في قائمة المستخدمين — يظهر مدراء الشركة
-  // فقط، وسهم يفتح البقية عند الطلب (بدل عرض كل المندوبين دفعة واحدة).
-  const [expandedRepGroups, setExpandedRepGroups] = useState<Set<string>>(new Set());
-
   // ── Draft assignment states (must be at top level — Rules of Hooks) ──────
   const [draftCompanyIds,    setDraftCompanyIds]    = useState<number[]>([]);
   const [draftPrimaryCompanyId, setDraftPrimaryCompanyId] = useState<number | null>(null);
@@ -267,7 +210,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
       });
       const j = await r.json();
       if (!r.ok || j.success === false) { alert(j.error || j.message || 'تعذّر الحفظ'); return; }
-      load(true);
+      reloadProvinceStructure();
     } catch { alert('تعذّر الاتصال بالخادم'); } finally { setProvSaving(false); }
   };
 
@@ -999,7 +942,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
 
   const toggleUser = async (u: UserRow) => {
     await fetch(`/api/sa/users/${u.id}`, { method: 'PUT', headers: H(), body: JSON.stringify({ isActive: !u.isActive }) });
-    load();
+    reloadProvinceStructure();
   };
 
   const delUser = async (u: UserRow) => {
@@ -1028,18 +971,13 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         showToast(`❌ ${json.error || 'تعذّر حذف المستخدم'}`, '#dc2626');
         return;
       }
-      load(); if (detail?.id === u.id) setDetail(null);
+      reloadProvinceStructure(); if (detail?.id === u.id) setDetail(null);
       showToast('✅ تم حذف المستخدم');
     } catch (e) {
       console.error('delUser error:', e);
       showToast('❌ تعذّر الاتصال بالخادم', '#dc2626');
     }
   };
-
-  const filtered = users.filter(u =>
-    u.username.toLowerCase().includes(search.toLowerCase()) ||
-    (u.displayName || '').toLowerCase().includes(search.toLowerCase())
-  );
 
   // ── DETAIL VIEW ────────────────────────────────────────────
   if (detail) {
@@ -2854,240 +2792,8 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
   }
 
   // ── LIST VIEW ────────────────────────────────────────────────
-
-  // Role colour helpers
-  const ROLE_COLOR: Record<string, { bg: string; color: string }> = {
-    admin:                  { bg: '#f1f5f9', color: '#475569' },
-    manager:                { bg: '#f1f5f9', color: '#475569' },
-    office_manager:         { bg: '#eef2ff', color: '#4f46e5' },
-    office_hr:              { bg: '#f0fdfa', color: '#0d9488' },
-    office_employee:        { bg: '#f8fafc', color: '#64748b' },
-    company_manager:        { bg: '#f5f3ff', color: '#7c3aed' },
-    supervisor:             { bg: '#eff6ff', color: '#1d4ed8' },
-    product_manager:        { bg: '#e0f2fe', color: '#0369a1' },
-    team_leader:            { bg: '#ecfeff', color: '#0891b2' },
-    scientific_rep:         { bg: '#f0fdf4', color: '#059669' },
-    commercial_supervisor:  { bg: '#fffbeb', color: '#b45309' },
-    commercial_team_leader: { bg: '#fff7ed', color: '#c2410c' },
-    commercial_rep:         { bg: '#fff1f2', color: '#dc2626' },
-  };
-
-  // Inline user card used inside group blocks
-  const UserCard = ({ u, indent = false }: { u: UserRow; indent?: boolean }) => {
-    const rc = ROLE_COLOR[u.role] ?? { bg: '#f8fafc', color: '#64748b' };
-    const mgrs = u.managersOfUser ?? [];
-    const mgrLabel = mgrs.length > 0
-      ? mgrs.map(m => m.manager.displayName || m.manager.username).join('، ')
-      : null;
-    const companies = u.companyAssignments ?? [];
-    const primaryCa = companies.find(ca => ca.isPrimary) ?? companies[0];
-    const extraCompanies = companies.filter(ca => ca.companyId !== primaryCa?.companyId);
-    return (
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 14px', background: '#fff',
-        borderRadius: 10, border: '1px solid #e9eef5',
-        marginRight: indent ? 28 : 0,
-        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, cursor: 'pointer', minWidth: 0 }} onClick={() => loadDetail(u.id)}>
-          {indent && <span style={{ color: '#cbd5e1', fontSize: 14, flexShrink: 0 }}>└─</span>}
-          <div style={{ width: 38, height: 38, borderRadius: 10, background: rc.bg, border: `1.5px solid ${rc.color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-            {u.isActive ? '👤' : '🚫'}
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{u.displayName || u.username}</span>
-              {provLeaderIds.has(u.id) && (
-                <span title="يعمل على كل شركات المكتب بلا شركة رئيسية"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: '#cffafe', color: '#0e7490', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}
-                >🗺️ كل الشركات</span>
-              )}
-              {isMarketer(u) && (
-                <span title={`مسوّق — ${companies.length} شركة بلا شركة رئيسية`}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: '#ecfdf5', color: '#047857', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}
-                >🏪 مسوّق</span>
-              )}
-              {!provLeaderIds.has(u.id) && !isMarketer(u) && extraCompanies.length > 0 && (
-                <span
-                  title={`شركات إضافية: ${extraCompanies.map(ca => ca.company.name).join('، ')}`}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 2,
-                    background: '#ede9fe', color: '#5b21b6', borderRadius: 20,
-                    padding: '1px 7px', fontSize: 10, fontWeight: 700, flexShrink: 0,
-                  }}
-                >🏭 +{extraCompanies.length}</span>
-              )}
-            </div>
-            <div style={{ fontSize: 11, color: '#94a3b8' }}>@{u.username}{u.phone ? ` · ${u.phone}` : ''}</div>
-            {mgrLabel && <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 1 }}>↑ {mgrLabel}</div>}
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, marginRight: 8 }}>
-          <span style={{ background: rc.bg, color: rc.color, border: `1px solid ${rc.color}33`, borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
-            {roleLabelOf(u)}
-          </span>
-          <span style={{ background: u.isActive ? '#dcfce7' : '#fee2e2', color: u.isActive ? '#16a34a' : '#dc2626', borderRadius: 20, padding: '2px 9px', fontSize: 11, fontWeight: 600 }}>
-            {u.isActive ? 'نشط' : 'معطل'}
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-          <button onClick={() => viewAsUser(u)} title="مراقبة" style={btnStyle('#0ea5e9', true)}>👁️</button>
-          <button onClick={() => setForm({ ...u, role: formRoleOf(u), password: '' })} style={btnStyle('#3b82f6', true)}>تعديل</button>
-          <button onClick={() => toggleUser(u)} style={btnStyle(u.isActive ? '#f59e0b' : '#10b981', true)}>{u.isActive ? 'تعطيل' : 'تفعيل'}</button>
-          <button onClick={() => delUser(u)} style={btnStyle('#ef4444', true)}>حذف</button>
-        </div>
-      </div>
-    );
-  };
-
-  // Admin users = no office OR role admin/manager
-  const ADMIN_ROLES = ['admin', 'manager'];
-  // المسوقون (فارمسي لاين) قسم مستقل «مسوقين بغداد» — داخل مكتبهم، أو قسماً عاماً إن بلا مكتب؛
-  // لا يُجمعون مع حسابات إدارة التطبيق ولا تحت الشركات.
-  const adminUsers   = filtered.filter(u => (!u.officeId && !isMarketer(u)) || ADMIN_ROLES.includes(u.role));
-  // «مسوقين بغداد» قسم واحد يضم كل المسوقين (بمكتب أو بلا مكتب) — وإلا انقسم الفريق عن قائده.
-  // يُعرض داخل إطار المكتب حين يكون للمسوقين مكتب واحد (أو لا مكتب)، وقسماً عاماً أعلى الصفحة
-  // فقط إن توزّعوا على أكثر من مكتب.
-  // مسوقو المحافظات ومديرهم لهم قسمهم «مسوقو المحافظات» داخل المكتب.
-  const provMarketerIds = new Set([...provMarketers.map(m => m.userId), ...provMarketerManagers.filter(m => m.handlesProvinces).map(m => m.managerUserId)]);
-  const allMarketers = filtered.filter(u => isMarketer(u) && !ADMIN_ROLES.includes(u.role) && !provMarketerIds.has(u.id));
-  const marketerOfficeIds = [...new Set(allMarketers.map(u => u.officeId).filter((v): v is number => !!v))];
-  const marketersTopLevel = marketerOfficeIds.length > 1;
-  // عند البحث تُفتح كل القوائم المطوية (مندوبو الشركات، فرق المسوقين، فرق المحافظات) كي يظهر
-  // الشخص نفسه لا عنوان شركته أو قسمه فقط
-  const searching = !!search.trim();
-  // أقسام مطوية افتراضياً (إدارة التطبيق، إدارة المكتب، المحافظات) — تنفتح بالضغط، وتُفتح كلها عند البحث.
-  const isSectionOpen = (k: string) => expandedRepGroups.has(k) || !!search.trim();
-  const toggleSection = (k: string) => setExpandedRepGroups(prev => {
-    const next = new Set(prev);
-    if (next.has(k)) next.delete(k); else next.add(k);
-    return next;
-  });
-  // Office users — grouped by office, then by company
-  const officeUsers  = filtered.filter(u => u.officeId && !ADMIN_ROLES.includes(u.role));
-
-  // Build grouped structure: office → company → users
-  type CompanyGroup = { company: { id: number; name: string } | null; users: UserRow[] };
-  type OfficeGroup  = { office: { id: number; name: string }; officeLevelUsers: UserRow[]; marketers: UserRow[]; companyGroups: CompanyGroup[] };
-
-  const officeMap = new Map<number, OfficeGroup>();
-  for (const u of officeUsers) {
-    const oid = u.officeId!;
-    if (!officeMap.has(oid)) {
-      officeMap.set(oid, { office: { id: oid, name: u.office?.name || `مكتب #${oid}` }, officeLevelUsers: [], marketers: [], companyGroups: [] });
-    }
-    const og = officeMap.get(oid)!;
-    // الأدوار المكتبية تخدم المكتب كله لا شركة بعينها (كل شركاته معيَّنة لها
-    // تلقائياً — راجع officeScope.js) فتظهر في قسم مستقل أعلى قائمة المكتب،
-    // لا تحت غطاء أي شركة واحدة بالذات.
-    if (OFFICE_SCOPED_ROLES.has(u.role) || u.role === 'product_manager') { og.officeLevelUsers.push(u); continue; }
-    if (isMarketer(u)) { og.marketers.push(u); continue; }
-    // قادة المحافظات ومندوبوها يُعرضون في قسم «المحافظات» وحده — معزولين عن الشركات.
-    if (provUserIds.has(u.id)) continue;
-    const userCompanies = u.companyAssignments ?? [];
-    if (userCompanies.length === 0) {
-      // No company — put in null group
-      let nullGroup = og.companyGroups.find(g => g.company === null);
-      if (!nullGroup) { nullGroup = { company: null, users: [] }; og.companyGroups.push(nullGroup); }
-      nullGroup.users.push(u);
-    } else {
-      // Only place the user under their primary company's chart — secondary
-      // companies are indicated with a small badge on the card, not a duplicate node.
-      const primaryCa = userCompanies.find(ca => ca.isPrimary) ?? userCompanies[0];
-      let cg = og.companyGroups.find(g => g.company?.id === primaryCa.company.id);
-      if (!cg) { cg = { company: primaryCa.company, users: [] }; og.companyGroups.push(cg); }
-      if (!cg.users.find(x => x.id === u.id)) cg.users.push(u);
-    }
-  }
-  // Sort company groups: named companies first, null last
-  for (const og of officeMap.values()) {
-    og.companyGroups.sort((a, b) => {
-      if (a.company === null) return 1;
-      if (b.company === null) return -1;
-      return a.company.name.localeCompare(b.company.name);
-    });
-  }
-  const officeGroups = Array.from(officeMap.values());
-  // مكتب يُعرض داخله قسم المسوقين؛ null = قسم عام أعلى الصفحة (عدة مكاتب، أو مكتبهم غير ظاهر).
-  const inlineCandidate = marketersTopLevel ? null : (marketerOfficeIds[0] ?? officeGroups[0]?.office.id ?? null);
-  const marketersInlineOfficeId = officeGroups.some(og => og.office.id === inlineCandidate) ? inlineCandidate : null;
-
-  // Sort users inside a company group: managers first
-  const ROLE_ORDER = ['company_manager','supervisor','product_manager','team_leader','scientific_rep','commercial_supervisor','commercial_team_leader','commercial_rep','office_manager','office_hr','office_employee'];
-  const sortUsers = (list: UserRow[]) =>
-    [...list].sort((a, b) => (ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role)) || a.id - b.id);
-
-  // «مسوقين بغداد»: مدير المسوقين ← كل تيم ليدر ومندوبوه تحته (UserManagerAssignment) ← بلا قائد.
-  const MarketersBlock = ({ list, groupKey }: { list: UserRow[]; groupKey: string }) => {
-    const sorted    = sortUsers(list);
-    const managers  = sorted.filter(u => u.role === 'company_manager');
-    const leaders   = sorted.filter(u => u.role === 'team_leader');
-    const leaderIds = new Set(leaders.map(l => l.id));
-    const leaderOf  = (u: UserRow) => (u.managersOfUser ?? []).map(m => m.managerId).find(id => leaderIds.has(id));
-    const others    = sorted.filter(u => u.role !== 'company_manager' && u.role !== 'team_leader');
-    const loose     = others.filter(u => leaderOf(u) == null);
-    // الكرخ ثم الرصافة ثم غيرهما، و«بلا قسم» أخيراً. المندوب يتبع قائده لا قسمه.
-    const sideRank = (n: string) => /كرخ/.test(n) ? 0 : /رصاف/.test(n) ? 1 : n === 'بلا قسم' ? 3 : 2;
-    const sideOf = (u: UserRow) => u.side || 'بلا قسم';
-    const sides = [...new Set([...leaders, ...loose].map(sideOf))].sort((a, b) => sideRank(a) - sideRank(b) || a.localeCompare(b, 'ar'));
-    const isExpanded = expandedRepGroups.has(groupKey) || searching;
-    const toggle = () => setExpandedRepGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
-      return next;
-    });
-    return (
-      <div style={{ border: '1.5px solid #6ee7b7', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
-        <div style={{ background: '#ecfdf5', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #d1fae5' }}>
-          <span style={{ fontSize: 16 }}>🏪</span>
-          <span style={{ fontWeight: 700, fontSize: 13, color: '#047857' }}>مسوقين بغداد</span>
-          <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{list.length} مستخدم</span>
-        </div>
-        <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
-          {managers.map(u => <UserCard key={`${u.id}-mk`} u={u} />)}
-          {(leaders.length > 0 || loose.length > 0) && (
-            <>
-              <button onClick={toggle} style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8,
-                padding: '7px 12px', fontSize: 12.5, fontWeight: 600, color: '#475569',
-                cursor: 'pointer', marginRight: managers.length > 0 ? 28 : 0,
-              }}>
-                <span style={{ fontSize: 11 }}>{isExpanded ? '▼' : '◀'}</span>
-                <span>{isExpanded ? 'إخفاء الفرق والمندوبين' : `عرض ${leaders.length} تيم ليدر و${others.length} مندوب`}</span>
-              </button>
-              {isExpanded && sides.map(side => (
-                <div key={side} style={{ border: '1px solid #d1fae5', borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, background: '#f7fef9' }}>
-                  <div style={{ fontWeight: 800, fontSize: 13, color: '#047857' }}>📍 {side}</div>
-                  {leaders.filter(l => sideOf(l) === side).map(l => (
-                    <div key={`${l.id}-mkl`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <UserCard u={l} indent />
-                      {others.filter(u => leaderOf(u) === l.id).map(u => (
-                        <div key={`${u.id}-mkr`} style={{ marginRight: 28 }}><UserCard u={u} indent /></div>
-                      ))}
-                    </div>
-                  ))}
-                  {loose.filter(u => sideOf(u) === side).map(u => <UserCard key={`${u.id}-mko`} u={u} indent />)}
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>👥 المستخدمون</h2>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={() => setShowBulkFeature(true)} style={btnStyle('#7c3aed')}>⚡ تفعيل جماعي للميزات</button>
-          <button onClick={() => setShowBulkImport(true)} style={btnStyle('#0ea5e9')}>📥 استيراد من إكسل</button>
-          <button onClick={() => setForm({ username: '', password: '', displayName: '', role: 'scientific_rep', officeId: '', phone: '' })} style={btnStyle('#0f172a')}>+ إضافة مستخدم</button>
-        </div>
-      </div>
       {showBulkImport && (
         <UsersBulkImportModal
           offices={offices}
@@ -3104,257 +2810,24 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
           onApplied={() => load(true)}
         />
       )}
-      <input
-        value={search} onChange={e => setSearch(e.target.value)}
-        placeholder="🔍 بحث..."
-        style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 14, marginBottom: 20, boxSizing: 'border-box' }}
+      <UsersDirectory
+        users={users} offices={offices} loading={loading}
+        search={search} setSearch={setSearch}
+        provTeams={provTeams} provList={provList} provSeats={provSeats}
+        provMarketers={provMarketers} provMarketerManagers={provMarketerManagers}
+        provSaving={provSaving} token={token}
+        modalOpen={!!form || showBulkImport || showBulkFeature}
+        onOpenProfile={id => loadDetail(id)}
+        onImpersonate={viewAsUser}
+        onEdit={u => setForm({ ...u, role: formRoleOf(u), password: '' })}
+        onToggle={toggleUser}
+        onDelete={delUser}
+        onAdd={() => setForm({ username: '', password: '', displayName: '', role: 'scientific_rep', officeId: '', phone: '' })}
+        onBulkFeature={() => setShowBulkFeature(true)}
+        onBulkImport={() => setShowBulkImport(true)}
+        onSetLeader={setProvinceLeader}
+        onReloadStructure={reloadProvinceStructure}
       />
-
-      {loading ? <Spinner /> : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-          {/* ── 1. حسابات إدارة التطبيق ────────────────────────────────── */}
-          {adminUsers.length > 0 && (
-            <div style={{ border: '2px solid #6366f1', borderRadius: 14, overflow: 'hidden' }}>
-              <div onClick={() => toggleSection('admin')} style={{ background: 'linear-gradient(135deg,#4f46e5,#6366f1)', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-                <span style={{ fontSize: 12, color: '#fff' }}>{isSectionOpen('admin') ? '▼' : '◀'}</span>
-                <span style={{ fontSize: 20 }}>⚙️</span>
-                <span style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>حسابات إدارة التطبيق</span>
-                <span style={{ fontSize: 12, color: '#c7d2fe', marginRight: 'auto' }}>{adminUsers.length} حساب</span>
-              </div>
-              {isSectionOpen('admin') && (
-                <div style={{ background: '#fafbff', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {adminUsers.map(u => <UserCard key={u.id} u={u} />)}
-                </div>
-              )}
-            </div>
-          )}
-
-          {allMarketers.length > 0 && marketersInlineOfficeId == null && <MarketersBlock list={allMarketers} groupKey="mk-all" />}
-
-          {/* ── 2. مكاتب + شركات ───────────────────────────────────────── */}
-          {officeGroups.map(og => (
-            <div key={og.office.id} style={{ border: '2px solid #3b82f6', borderRadius: 14, overflow: 'hidden' }}>
-              {/* Office header */}
-              <div style={{ background: 'linear-gradient(135deg,#1d4ed8,#3b82f6)', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 20 }}>🏢</span>
-                <span style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>مكتب: {og.office.name}</span>
-                <span style={{ fontSize: 12, color: '#bfdbfe', marginRight: 'auto' }}>
-                  {officeUsers.filter(u => u.officeId === og.office.id).length} مستخدم
-                </span>
-              </div>
-
-              <div style={{ background: '#f8fafc', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {og.officeLevelUsers.length > 0 && (
-                  <div style={{ border: '1.5px solid #c7d2fe', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
-                    <div onClick={() => toggleSection(`office-${og.office.id}`)} style={{
-                      background: '#eef2ff', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8,
-                      borderBottom: '1px solid #e2e8f0', cursor: 'pointer',
-                    }}>
-                      <span style={{ fontSize: 11, color: '#4338ca' }}>{isSectionOpen(`office-${og.office.id}`) ? '▼' : '◀'}</span>
-                      <span style={{ fontSize: 16 }}>🏢</span>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#4338ca' }}>إدارة المكتب (مدير مكتب · HR · موظف مكتب · مدير منتج)</span>
-                      <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{og.officeLevelUsers.length} مستخدم</span>
-                    </div>
-                    {isSectionOpen(`office-${og.office.id}`) && (
-                      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                        {sortUsers(og.officeLevelUsers).map(u => <UserCard key={`${u.id}-office`} u={u} />)}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {(() => {
-                  const q = search.trim().toLowerCase();
-                  const userById = new Map(users.map(x => [x.id, x]));
-                  const shown = new Set(filtered.map(fu => fu.id));
-                  const matches = (id: number | null | undefined) => id != null && shown.has(id);
-                  const teamOf = (pid: number) => provTeams.find(t => t.officeId === og.office.id && t.provinceId === pid) ?? null;
-                  const rows = provList.filter(p => {
-                    if (!q) return true;
-                    const t = teamOf(p.id);
-                    return p.name.toLowerCase().includes(q) || matches(t?.leaderUserId) || !!t?.reps.some(r => matches(r.userId));
-                  });
-                  if (!rows.length) return null;
-                  const leaderChoices = users.filter(x => x.officeId === og.office.id && x.isActive && !isMarketer(x) && ['team_leader', 'supervisor'].includes(x.role));
-                  const withTeam = provTeams.filter(t => t.officeId === og.office.id).length;
-                  const officeSeats = provSeats.filter(s => s.officeId === og.office.id);
-                  return (
-                    <div style={{ border: '1.5px solid #a5f3fc', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
-                      <div onClick={() => toggleSection(`prov-${og.office.id}`)} style={{ background: '#ecfeff', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #e2e8f0', cursor: 'pointer' }}>
-                        <span style={{ fontSize: 11, color: '#0e7490' }}>{isSectionOpen(`prov-${og.office.id}`) ? '▼' : '◀'}</span>
-                        <span style={{ fontSize: 16 }}>🗺️</span>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: '#0e7490' }}>المحافظات (تيم ليدر مشترك لكل الشركات — معزولة عن الشركات)</span>
-                        <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{withTeam} محافظة لها فريق من {provList.length}</span>
-                      </div>
-                      {isSectionOpen(`prov-${og.office.id}`) && <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                          {rows.map(p => {
-                            const t = teamOf(p.id);
-                            const key = og.office.id * 1000 + p.id;
-                            const isOpen = openProvTeams.has(key) || searching;
-                            const leader = t?.leaderUserId != null ? userById.get(t.leaderUserId) : null;
-                            return (
-                              <button key={p.id} type="button"
-                                onClick={() => setOpenProvTeams(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; })}
-                                style={{ textAlign: 'right', cursor: 'pointer', minWidth: 170, padding: '9px 14px', borderRadius: 10, fontFamily: 'inherit',
-                                  border: isOpen ? '1.5px solid #0891b2' : t ? '1.5px solid #a5f3fc' : '1.5px dashed #cbd5e1',
-                                  background: isOpen ? '#ecfeff' : t ? '#f0fdff' : '#f8fafc' }}>
-                                <div style={{ fontWeight: 800, fontSize: 14, color: t ? '#0f172a' : '#64748b' }}>{p.name}</div>
-                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                                  {t ? `${leader ? (leader.displayName || leader.username) : 'بلا تيم ليدر'} · ${t.reps.length} مندوب` : 'لا يوجد فريق'}
-                                </div>
-                                {(() => {
-                                  const vacant = officeSeats.filter(s => !t?.reps.some(r => r.seatManagerIds.includes(s.managerUserId))).length + (t?.leaderUserId == null ? 1 : 0);
-                                  return <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2, color: vacant ? '#b45309' : '#15803d' }}>{vacant ? `${vacant} مقعد شاغر` : 'كل المقاعد ممتلئة'}</div>;
-                                })()}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {rows.filter(p => searching || openProvTeams.has(og.office.id * 1000 + p.id)).map(p => {
-                          const t = teamOf(p.id);
-                          // قائد حالي خارج الأدوار المسموحة (مندوب عُيِّن سابقاً) يبقى ظاهراً في القائمة.
-                          const currentLeader = t?.leaderUserId != null ? userById.get(t.leaderUserId) : undefined;
-                          const choices = currentLeader && !leaderChoices.some(x => x.id === currentLeader.id) ? [currentLeader, ...leaderChoices] : leaderChoices;
-                          return (
-                            <ProvinceSeatsPanel<UserRow> key={p.id}
-                              officeId={og.office.id} province={p}
-                              leaderUserId={t?.leaderUserId ?? null} reps={t?.reps ?? []}
-                              seats={officeSeats}
-                              splits={t?.splits ?? []}
-                              leaderChoices={choices.map(x => ({ id: x.id, label: x.displayName || x.username }))}
-                              saving={provSaving} userById={userById}
-                              renderUser={(u, indent) => <UserCard u={u} indent={indent} />}
-                              userLabel={u => u.displayName || u.username}
-                              onSetLeader={id => setProvinceLeader(og.office.id, p.id, id)}
-                              onCreated={reloadProvinceStructure}
-                              token={token} />
-                          );
-                        })}
-                      </div>}
-                    </div>
-                  );
-                })()}
-                {(() => {
-                  const managers = provMarketerManagers.filter(m => m.officeId === og.office.id);
-                  const officeMarketers = provMarketers.filter(m => m.officeId === og.office.id);
-                  if (!managers.length && !officeMarketers.length) return null;
-                  const q = search.trim().toLowerCase();
-                  const userById = new Map(users.map(x => [x.id, x]));
-                  const shown = new Set(filtered.map(fu => fu.id));
-                  const marketersOf = (pid: number) => officeMarketers
-                    .filter(m => m.provinceIds.includes(pid))
-                    .map(m => userById.get(m.userId))
-                    .filter((u): u is UserRow => !!u);
-                  const rows = provList.filter(p => p.name !== 'بغداد' && (!q || p.name.toLowerCase().includes(q) || marketersOf(p.id).some(u => shown.has(u.id))));
-                  if (!rows.length) return null;
-                  const headManagers = managers.some(m => m.handlesProvinces) ? managers.filter(m => m.handlesProvinces) : managers;
-                  return (
-                    <div style={{ border: '1.5px solid #6ee7b7', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
-                      <div onClick={() => toggleSection(`provmk-${og.office.id}`)} style={{ background: '#ecfdf5', padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #d1fae5', cursor: 'pointer' }}>
-                        <span style={{ fontSize: 11, color: '#047857' }}>{isSectionOpen(`provmk-${og.office.id}`) ? '▼' : '◀'}</span>
-                        <span style={{ fontSize: 16 }}>🏪</span>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: '#047857' }}>مسوقو المحافظات (يتبعون مدير المسوقين — مستقلون عن العلميين)</span>
-                        <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{officeMarketers.length} مسوق</span>
-                      </div>
-                      {isSectionOpen(`provmk-${og.office.id}`) && <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {headManagers.map(m => { const u = userById.get(m.managerUserId); return u ? <UserCard key={`${u.id}-pmk`} u={u} /> : null; })}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                          {rows.map(p => {
-                            const list = marketersOf(p.id);
-                            const isOpen = openMarketerProvs.has(og.office.id * 1000 + p.id) || searching;
-                            return (
-                              <button key={p.id} type="button"
-                                onClick={() => setOpenMarketerProvs(prev => { const k = og.office.id * 1000 + p.id; const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
-                                style={{ textAlign: 'right', cursor: 'pointer', minWidth: 170, maxWidth: 240, padding: '9px 14px', borderRadius: 10, fontFamily: 'inherit',
-                                  border: isOpen ? '1.5px solid #059669' : list.length ? '1.5px solid #a7f3d0' : '1.5px dashed #cbd5e1',
-                                  background: isOpen ? '#ecfdf5' : list.length ? '#f7fef9' : '#f8fafc' }}>
-                                <div style={{ fontWeight: 800, fontSize: 14, color: list.length ? '#0f172a' : '#64748b' }}>{p.name}</div>
-                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {list.length ? list.map(u => u.displayName || u.username).join('، ') : 'لا يوجد مسوق'}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {rows.filter(p => searching || openMarketerProvs.has(og.office.id * 1000 + p.id)).map(p => (
-                          <ProvinceMarketersPanel<UserRow> key={p.id}
-                            officeId={og.office.id} province={p}
-                            marketers={marketersOf(p.id)} managers={managers}
-                            userKey={u => u.id}
-                            renderUser={u => <UserCard u={u} indent />}
-                            onCreated={reloadProvinceStructure}
-                            token={token} />
-                        ))}
-                      </div>}
-                    </div>
-                  );
-                })()}
-                {allMarketers.length > 0 && og.office.id === marketersInlineOfficeId && (
-                  <MarketersBlock list={allMarketers} groupKey="mk-all" />
-                )}
-                {og.companyGroups.map((cg, ci) => {
-                  const groupKey = `${og.office.id}-${cg.company?.id ?? 'none'}`;
-                  const sorted   = sortUsers(cg.users);
-                  const managers = sorted.filter(u => u.role === 'company_manager');
-                  const reps     = sorted.filter(u => u.role !== 'company_manager');
-                  const isExpanded = expandedRepGroups.has(groupKey) || searching;
-                  const toggleExpanded = () => setExpandedRepGroups(prev => {
-                    const next = new Set(prev);
-                    if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
-                    return next;
-                  });
-                  return (
-                    <div key={cg.company?.id ?? 'none'} style={{
-                      border: `1.5px solid ${cg.company ? '#a5b4fc' : '#e2e8f0'}`,
-                      borderRadius: 12, overflow: 'hidden',
-                      background: '#fff',
-                    }}>
-                      {/* Company sub-header */}
-                      <div style={{
-                        background: cg.company ? '#eef2ff' : '#f1f5f9',
-                        padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 8,
-                        borderBottom: '1px solid #e2e8f0',
-                      }}>
-                        <span style={{ fontSize: 16 }}>{cg.company ? '🏭' : '📌'}</span>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: cg.company ? '#4338ca' : '#64748b' }}>
-                          {cg.company ? cg.company.name : 'بدون شركة'}
-                        </span>
-                        <span style={{ fontSize: 11, color: '#94a3b8', marginRight: 'auto' }}>{cg.users.length} مستخدم</span>
-                      </div>
-                      {/* مدراء الشركة ظاهرون دائماً؛ المندوبون مطويون خلف سهم */}
-                      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                        {managers.map(u => <UserCard key={`${u.id}-${ci}`} u={u} />)}
-                        {reps.length > 0 && (
-                          <>
-                            <button
-                              onClick={toggleExpanded}
-                              style={{
-                                display: 'flex', alignItems: 'center', gap: 8,
-                                background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8,
-                                padding: '7px 12px', fontSize: 12.5, fontWeight: 600, color: '#475569',
-                                cursor: 'pointer', marginRight: managers.length > 0 ? 28 : 0,
-                              }}
-                            >
-                              <span style={{ fontSize: 11 }}>{isExpanded ? '▼' : '◀'}</span>
-                              <span>{isExpanded ? 'إخفاء المندوبين' : `عرض ${reps.length} مندوب`}</span>
-                            </button>
-                            {isExpanded && reps.map(u => <UserCard key={`${u.id}-${ci}-rep`} u={u} indent />)}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-
-          {filtered.length === 0 && (
-            <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>لا توجد نتائج</div>
-          )}
-        </div>
-      )}
 
       {form && !detail && (() => {
         const close = () => { setForm(null); setError(''); setConflict(null); };

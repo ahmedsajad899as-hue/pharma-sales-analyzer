@@ -3,7 +3,7 @@
 // وأكثر = مندوب مشترك يتبع التيم ليدر ومدراء الشركات المختارة، بايتمات كل مدير.
 // الخادم: POST /api/sa/users/province-structure/rep-seats (province-seats.js).
 // ════════════════════════════════════════════════════════════════════════════
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { btnStyle } from './OfficesPage';
 import type { ProvSeat, ProvTeamRep, SeatOptions } from './ProvinceSeatsPanel';
 
@@ -37,9 +37,6 @@ function initialPick(seat: ProvSeat, rep: Props['rep'], preset: number | null, s
 
 export default function ProvinceRepSeatsForm({ officeId, provinceId, seats, options, rep, presetManagerId, token, onSaved, onCancel }: Props) {
   const itemsOf = (managerUserId: number) => options.seatItems[managerUserId] ?? [];
-  // النموذج أسفل المقاعد، وزر الإضافة قد يكون أعلى الشاشة بكثير.
-  const boxRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { boxRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, []);
   const [name, setName] = useState('');
   const [picks, setPicks] = useState<Record<number, Pick>>(() =>
     Object.fromEntries(seats.map(s => [s.managerUserId, initialPick(s, rep, presetManagerId, itemsOf(s.managerUserId).map(i => i.id))])));
@@ -91,8 +88,7 @@ export default function ProvinceRepSeatsForm({ officeId, provinceId, seats, opti
   };
 
   return (
-    <div ref={boxRef} style={{ border: '1.5px solid #a5b4fc', background: '#fafaff', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ fontWeight: 800, fontSize: 13, color: '#3730a3' }}>{rep ? `مقاعد «${rep.name}»` : 'مندوب جديد في المحافظة'}</div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {!rep && (
         <input value={name} disabled={busy} autoComplete="off" placeholder="اسم المندوب (يصير اسم الدخول)"
           onChange={e => setName(e.target.value)} style={inputStyle} />

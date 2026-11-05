@@ -3,7 +3,6 @@
 // يظهر حين يكون للمقعد أكثر من مندوب. القاعدة في attributeLine (province-teams.rules.js).
 // ════════════════════════════════════════════════════════════════════════════
 import { useState } from 'react';
-import { btnStyle } from './OfficesPage';
 import type { ProvSplit, SeatOptions } from './ProvinceSeatsPanel';
 
 type Mode = 'order' | 'item' | 'area' | 'customer';
@@ -41,7 +40,7 @@ function NamePicker({ values, choices, placeholder, listId, onChange }: { values
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
           style={{ flex: 1, minWidth: 0, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 7, fontSize: 12, fontFamily: 'inherit' }} />
-        <button type="button" onClick={add} style={btnStyle('#0e7490')}>إضافة</button>
+        <button type="button" className="ud-btn is-sm" onClick={add}>إضافة</button>
         <datalist id={listId}>{choices.map(c => <option key={c} value={c} />)}</datalist>
       </div>
       {values.length > 0 && (
@@ -83,17 +82,16 @@ export default function ProvinceSplitEditor({ officeId, provinceId, managerUserI
   };
 
   return (
-    <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>حساب المبيع بين مندوبي المقعد:</span>
-        <select value={mode} disabled={state.busy} onChange={e => { setMode(e.target.value as Mode); setState(s => ({ ...s, note: '' })); }}
-          style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 7, fontSize: 12, fontFamily: 'inherit' }}>
+    <div className="ud-split">
+      <div className="ud-split-line">
+        <span>حساب المبيع بين مندوبي المقعد:</span>
+        <select value={mode} disabled={state.busy} aria-label="طريقة حساب المبيع" onChange={e => { setMode(e.target.value as Mode); setState(s => ({ ...s, note: '' })); }}>
           {MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
         </select>
-        <button type="button" onClick={save} disabled={state.busy} style={{ ...btnStyle('#0e7490', true), opacity: state.busy ? 0.5 : 1 }}>{state.busy ? 'جارٍ الحفظ...' : 'حفظ'}</button>
+        <button type="button" className="ud-btn is-sm" onClick={save} disabled={state.busy}>{state.busy ? 'جارٍ الحفظ...' : 'حفظ'}</button>
         {state.note && <span style={{ fontSize: 11.5, color: '#15803d', fontWeight: 700 }}>{state.note}</span>}
       </div>
-      <div style={{ fontSize: 11.5, color: '#64748b' }}>{hint}{mode !== 'order' && ' وما لا يطابق أحداً يبقى لمن أرسله.'}</div>
+      <div className="ud-split-hint">{hint}{mode !== 'order' && ' وما لا يطابق أحداً يبقى لمن أرسله.'}</div>
       {(mode === 'area' || mode === 'customer') && reps.map(r => (
         <div key={r.userId} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{r.name}</span>

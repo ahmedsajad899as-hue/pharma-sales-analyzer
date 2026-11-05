@@ -5,7 +5,6 @@
 // ════════════════════════════════════════════════════════════════════════════
 import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { btnStyle } from './OfficesPage';
 
 export interface ProvMarketerManager {
   managerUserId: number; managerName: string; officeId: number;
@@ -27,13 +26,13 @@ interface Props<U> {
 
 interface NameRow { key: number; name: string; error?: string }
 
-const inputStyle = { padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', flex: '1 1 180px', minWidth: 0, boxSizing: 'border-box' as const };
-
 export default function ProvinceMarketersPanel<U>({ officeId, province, marketers, managers, userKey, renderUser, onCreated, token }: Props<U>) {
   const nextKey = useRef(1);
   const [rows, setRows] = useState<NameRow[]>([{ key: 0, name: '' }]);
   const [notes, setNotes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  // نموذج الإضافة مفتوح حين لا يوجد مسوق؛ وإلا يبقى خلف زر كي لا يزاحم القائمة.
+  const [adding, setAdding] = useState(marketers.length === 0);
   const provinceManagers = managers.filter(m => m.handlesProvinces);
   // مدير محافظات واحد يُحسم تلقائياً؛ غير ذلك يختار السوبر أدمن من القائمة.
   const autoManager = provinceManagers.length === 1 ? provinceManagers[0] : null;
@@ -78,61 +77,62 @@ export default function ProvinceMarketersPanel<U>({ officeId, province, marketer
   };
 
   return (
-    <div style={{ border: '1px solid #bbf7d0', borderRadius: 10, background: '#f7fef9', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontWeight: 800, fontSize: 13, color: '#047857' }}>🏪 {province.name}</span>
-        <span style={{ fontSize: 11.5, color: '#64748b' }}>{marketers.length ? `${marketers.length} مسوق` : 'لا يوجد مسوق بعد'}</span>
-      </div>
-
-      {marketers.map(u => <div key={userKey(u)}>{renderUser(u)}</div>)}
-
-      {!autoManager && managers.length > 0 && (
-        <select value={pickedId ?? ''} disabled={busy} onChange={e => setPickedId(e.target.value ? Number(e.target.value) : null)} style={{ ...inputStyle, flex: '0 1 260px' }}>
-          <option value="">— اختر مدير المسوقين —</option>
-          {managers.map(m => <option key={m.managerUserId} value={m.managerUserId}>{m.managerName}</option>)}
-        </select>
-      )}
-      {managers.length === 0 && (
-        <div style={{ fontSize: 12.5, color: '#b45309' }}>لا يوجد مدير مسوقين نشط في هذا المكتب، فلا يمكن إنشاء مسوق.</div>
-      )}
-
-      {manager && <>
-        {rows.map(r => (
-          <div key={r.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input value={r.name} disabled={busy} placeholder={`اسم مسوق ${province.name}`} autoComplete="off"
-                onChange={e => setName(r.key, e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') submit(); }}
-                style={{ ...inputStyle, borderColor: r.error ? '#f87171' : '#cbd5e1' }} />
-              {rows.length > 1 && (
-                <button type="button" onClick={() => removeRow(r.key)} disabled={busy} aria-label="إزالة الاسم"
-                  style={{ border: '1px solid #e2e8f0', background: '#fff', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: '#64748b', fontFamily: 'inherit' }}>✕</button>
-              )}
-            </div>
-            {r.error && <div style={{ fontSize: 12, color: '#b91c1c', fontWeight: 600 }}>{r.error}</div>}
+    <div className="ud-seats">
+      {marketers.length > 0 && (
+        <div className="ud-table">
+          <div className="ud-section-body">
+            {marketers.map(u => <div key={userKey(u)}>{renderUser(u)}</div>)}
           </div>
-        ))}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <button type="button" onClick={addRow} disabled={busy}
-            style={{ border: '1px dashed #6ee7b7', background: '#fff', color: '#047857', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-            + اسم آخر
-          </button>
-          <button type="button" onClick={submit} disabled={!canSubmit}
-            style={{ ...btnStyle('#047857', true), opacity: canSubmit ? 1 : 0.5, cursor: canSubmit ? 'pointer' : 'not-allowed' }}>
-            {busy ? 'جارٍ الإنشاء...' : ready ? `إنشاء ${ready} حساب` : 'اكتب اسم المسوق'}
-          </button>
-        </div>
-        <div style={{ fontSize: 11.5, color: '#64748b', lineHeight: 1.7 }}>
-          اسم الدخول هو الاسم المكتوب، والرمز 123456789 · مديره {manager.managerName} · شركاته وايتماته من {manager.managerName}: {manager.companyCount} شركة، {manager.itemCount ? `${manager.itemCount} ايتم` : 'كل ايتمات شركاته'}
-        </div>
-      </>}
-
-      {notes.length > 0 && (
-        <div style={{ fontSize: 12, color: '#0f766e', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 8, padding: '6px 10px', lineHeight: 1.8 }}>
-          {notes.map((n, i) => <div key={i}>{n}</div>)}
         </div>
       )}
+
+      {managers.length === 0 && (
+        <div className="ud-section-hint" style={{ color: '#b45309' }}>لا يوجد مدير مسوقين نشط في هذا المكتب، فلا يمكن إنشاء مسوق.</div>
+      )}
+
+      {managers.length > 0 && !adding && (
+        <div><button type="button" className="ud-btn is-sm" onClick={() => setAdding(true)}>+ إضافة مسوق</button></div>
+      )}
+
+      {managers.length > 0 && adding && (
+        <div className="ud-table">
+          <div className="ud-section-head"><span>مسوق جديد في {province.name}</span></div>
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {!autoManager && (
+              <select className="ud-input" aria-label="مدير المسوقين" value={pickedId ?? ''} disabled={busy} onChange={e => setPickedId(e.target.value ? Number(e.target.value) : null)} style={{ maxWidth: 280 }}>
+                <option value="">— اختر مدير المسوقين —</option>
+                {managers.map(m => <option key={m.managerUserId} value={m.managerUserId}>{m.managerName}</option>)}
+              </select>
+            )}
+            {manager && <>
+              {rows.map(r => (
+                <div key={r.key}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input className={`ud-input${r.error ? ' is-bad' : ''}`} value={r.name} disabled={busy} placeholder={`اسم مسوق ${province.name}`} autoComplete="off"
+                      onChange={e => setName(r.key, e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') submit(); }} />
+                    {rows.length > 1 && (
+                      <button type="button" className="ud-icon-btn is-border" onClick={() => removeRow(r.key)} disabled={busy} aria-label="إزالة الاسم">✕</button>
+                    )}
+                  </div>
+                  {r.error && <div className="ud-err">{r.error}</div>}
+                </div>
+              ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="ud-btn is-primary is-sm" onClick={submit} disabled={!canSubmit}>
+                  {busy ? 'جارٍ الإنشاء...' : ready ? `إنشاء ${ready} حساب` : 'اكتب اسم المسوق'}
+                </button>
+                <button type="button" className="ud-btn is-sm" onClick={addRow} disabled={busy}>+ اسم آخر</button>
+              </div>
+              <div className="ud-submit" style={{ lineHeight: 1.7 }}>
+                اسم الدخول هو الاسم المكتوب، والرمز 123456789 · مديره {manager.managerName} · شركاته وايتماته من {manager.managerName}: {manager.companyCount} شركة، {manager.itemCount ? `${manager.itemCount} ايتم` : 'كل ايتمات شركاته'}
+              </div>
+            </>}
+          </div>
+        </div>
+      )}
+
+      {notes.length > 0 && <div className="ud-notes">{notes.map((n, i) => <div key={i}>{n}</div>)}</div>}
     </div>
   );
 }
