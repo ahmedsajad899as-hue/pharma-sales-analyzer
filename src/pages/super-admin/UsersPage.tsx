@@ -8,7 +8,7 @@ import BulkFeatureToggleModal from './BulkFeatureToggleModal';
 import NewUserAssignments from './NewUserAssignments';
 import UserItemTiersTab from './UserItemTiersTab';
 import ProvinceSeatsPanel from './ProvinceSeatsPanel';
-import type { ProvSeat, ProvTeamRep } from './ProvinceSeatsPanel';
+import type { ProvSeat, ProvSplit, ProvTeamRep } from './ProvinceSeatsPanel';
 import ProvinceMarketersPanel from './ProvinceMarketersPanel';
 import type { ProvMarketer, ProvMarketerManager } from './ProvinceMarketersPanel';
 import { TabPill, SectionHead, Note, PickerBar, GroupCard, ChipGrid, Chip, ScrollList, Empty, SaveBar, setMany, softBtn, iconBtn, ACCENT } from './AssignUI';
@@ -96,6 +96,7 @@ interface UserDetail extends UserRow {
 interface ProvTeam {
   id: number; officeId: number; provinceId: number; provinceName: string; leaderUserId: number | null;
   reps: ProvTeamRep[];
+  splits?: ProvSplit[];
 }
 
 const ALL_AREAS_ROLES = new Set(['office_manager', 'office_hr', 'office_employee', 'company_manager']);
@@ -3220,9 +3221,11 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
                               officeId={og.office.id} province={p}
                               leaderUserId={t?.leaderUserId ?? null} reps={t?.reps ?? []}
                               seats={officeSeats}
+                              splits={t?.splits ?? []}
                               leaderChoices={choices.map(x => ({ id: x.id, label: x.displayName || x.username }))}
                               saving={provSaving} userById={userById}
                               renderUser={(u, indent) => <UserCard u={u} indent={indent} />}
+                              userLabel={u => u.displayName || u.username}
                               onSetLeader={id => setProvinceLeader(og.office.id, p.id, id)}
                               onCreated={reloadProvinceStructure}
                               token={token} />

@@ -93,6 +93,7 @@ export async function listProvinceStructure(req, res) {
     select: {
       id: true, officeId: true, leaderUserId: true,
       province: { select: { id: true, name: true } },
+      seatSplits: { select: { managerUserId: true, mode: true, scopes: true } },
       assignments: {
         where: { isActive: true },
         orderBy: { id: 'asc' },
@@ -122,7 +123,12 @@ export async function listProvinceStructure(req, res) {
     return {
       id: t.id, officeId: t.officeId, provinceId: t.province.id, provinceName: t.province.name,
       leaderUserId: t.leaderUserId,
-      reps: [...reps.values()].map(({ assignments, managerIds, ...r }) => ({ ...r, seatManagerIds: repSeatIds(assignments, managerIds, officeSeats) })),
+      splits: t.seatSplits,
+      reps: [...reps.values()].map(({ assignments, managerIds, ...r }) => ({
+        ...r,
+        seatManagerIds: repSeatIds(assignments, managerIds, officeSeats),
+        itemIds: assignments.flatMap(a => a.itemIds),
+      })),
     };
   });
   const [provinces, marketerManagers, provinceMarketers] = await Promise.all([

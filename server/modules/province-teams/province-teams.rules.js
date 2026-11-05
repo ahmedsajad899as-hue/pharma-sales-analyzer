@@ -122,7 +122,9 @@ export function repTeamCompany(assignments, managerIds, seats) {
   const matching = seats.filter(s => seatIds.includes(s.userId));
   const primary = assignments.find(a => a.isPrimary);
   const own = matching.filter(s => managerIds.includes(s.userId));
-  if (own.length) return (own.find(s => s.companyId === primary?.companyId) ?? own[0]).companyName;
+  // المندوب المشترك يتبع أكثر من مدير مقعد: يُعرض بكل شركاته.
+  if (own.length > 1) return own.map(s => s.companyName).join(' + ');
+  if (own.length) return own[0].companyName;
   if (primary) return primary.companyName;
   const repItems = new Set(assignments.flatMap(a => a.itemIds ?? []));
   const overlap = (s) => s.items.filter(i => repItems.has(i.id)).length;
@@ -213,6 +215,116 @@ export function planSeatAssignments(seat) {
   const assignments = [...wanted.values()];
   const noCompany = seat.items.filter(i => i.companyId == null).map(i => i.id);
   return { assignments, keptItemIds: [...assignments.flatMap(a => a.itemIds), ...noCompany] };
+}
+
+// ─── المندوب المشترك: مقاعد مدراء متعددة ──────────────────────────────────────
+// حساب واحد يتبع التيم ليدر ومدراء الشركات المحددة له، وكل مدير يرى نصيبه منه.
+
+/**
+ * أي مقعد من مقاعد المندوب يملك الايتم؟ نفس قاعدة loadItemOwnerManagers (التحليل الشامل):
+ * من شركةُ الايتم شركتُه الرئيسية، وإلا أصغر معرّف. مقعد بلا ايتمات مسندة يحمل كل شركته.
+ * @param {number|null} itemId
+ * @param {number|null} companyId شركة الايتم
+ * @param {Array<{userId:number, companyId:number, items:{id:number}[]}>} seats مقاعد المندوب
+ * @returns {number|null} معرّف مدير المقعد
+ */
+export function ownerSeatOfItem(itemId, companyId, seats) {
+  if (itemId == null) return null;
+  const holders = seats
+    .filter(s => (s.items.length ? s.items.some(i => i.id === itemId) : s.companyId === companyId))
+    .sort((a, b) => a.userId - b.userId);
+  if (!holders.length) return null;
+  return (holders.find(s => s.companyId === companyId) ?? holders[0]).userId;
+}
+
+/**
+ * تعيينات مندوب يشغل مقعداً أو أكثر، موحَّدة لكل شركة. selected=null = كل ايتمات المدير.
+ * مقعد بلا ايتمات مسندة بلا تضييق = كل الشركة (allItems)، و`catalog` ايتماته عند التضييق.
+ *
+ * @param {Array<{seat:{companyId:number, items:{id:number, companyId:number|null}[]}, selected:number[]|null, catalog?:{id:number, companyId:number|null}[]}>} chosen
+ * @returns {{assignments:{companyId:number, allItems:boolean, itemIds:number[]}[], keptItemIds:number[], unknownItemIds:number[]}}
+ *   keptItemIds = قائمة ايتمات الحساب: غير الفارغة قائمة بيضاء، فتشمل كل ما اختير؛ وفارغة إذا كان
+ *   كل مقعد مأخوذاً بكل شركته، كي تصله ايتمات الشركة الجديدة مستقبلاً.
+ */
+export function planRepSeats(chosen) {
+  const wanted = new Map();
+  const companyRow = (companyId) => {
+    if (!wanted.has(companyId)) wanted.set(companyId, { companyId, allItems: false, itemIds: new Set() });
+    return wanted.get(companyId);
+  };
+  const kept = new Set();
+  const unknown = [];
+  let everySeatWhole = true;
+  for (const { seat, selected, catalog = [] } of chosen) {
+    const available = seat.items.length ? seat.items : catalog;
+    if (!seat.items.length && selected == null) {
+      companyRow(seat.companyId).allItems = true;
+      for (const i of catalog) kept.add(i.id);
+      continue;
+    }
+    everySeatWhole = false;
+    const pick = selected == null ? null : new Set(selected.map(Number));
+    if (pick) for (const id of pick) if (!available.some(i => i.id === id)) unknown.push(id);
+    for (const i of available) {
+      if (pick && !pick.has(i.id)) continue;
+      kept.add(i.id);
+      if (i.companyId != null) companyRow(i.companyId).itemIds.add(i.id);
+    }
+  }
+  const assignments = [...wanted.values()]
+    .filter(a => a.allItems || a.itemIds.size)
+    .map(a => ({ companyId: a.companyId, allItems: a.allItems, itemIds: a.allItems ? [] : [...a.itemIds] }));
+  return { assignments, keptItemIds: everySeatWhole ? [] : [...kept], unknownItemIds: unknown };
+}
+
+// ─── تقسيم مبيع المقعد بين مندوبيه ────────────────────────────────────────────
+
+/** order: من أرسل الطلبية؛ item/area/customer: حامل الايتم أو المنطقة أو الزبون. */
+export const SPLIT_MODES = ['order', 'item', 'area', 'customer'];
+export const DEFAULT_SPLIT_MODE = 'order';
+
+/** قائمة نصوص نظيفة بلا تكرار من إدخال حر. */
+const cleanNames = (list) => [...new Set((Array.isArray(list) ? list : []).map(s => String(s ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean))];
+
+/**
+ * يحوّل إدخال إعداد التقسيم إلى قيمة تُحفظ. الأسماء الفارغة وغير المعروفة من المندوبين تسقط.
+ * @returns {{mode:string, scopes:Object<string,{areas:string[], customers:string[]}>}|null} null = وضع غير معروف
+ */
+export function normalizeSplitConfig(mode, scopes, repUserIds) {
+  if (!SPLIT_MODES.includes(mode)) return null;
+  const out = {};
+  for (const id of repUserIds) {
+    const s = scopes?.[id] ?? scopes?.[String(id)] ?? {};
+    const areas = cleanNames(s.areas);
+    const customers = cleanNames(s.customers);
+    if (areas.length || customers.length) out[id] = { areas, customers };
+  }
+  return { mode, scopes: out };
+}
+
+/**
+ * لمن يُحسب سطر مبيع داخل فريق المحافظة؟ كل سطر لمندوب واحد، فلا يتغيّر مجموع الفريق.
+ * ما لا يطابقه أحد يبقى لمن أرسله. وحامل مطابق هو المرسل نفسه يُبقيه عنده.
+ *
+ * @param {{senderId:number|null, itemId:number|null, area?:string|null, customer?:string|null}} line
+ * @param {{seatOfItem:(itemId:number|null)=>number|null,
+ *   splits:Map<number,{mode:string, reps:Array<{repUserId:number, itemIds:Set<number>, areas:string[], customers:string[]}>}>,
+ *   sameArea:(a:string,b:string)=>boolean, sameCustomer:(a:string,b:string)=>boolean}} plan
+ * @returns {number|null} حساب المندوب
+ */
+export function attributeLine(line, plan) {
+  const sender = line.senderId ?? null;
+  const seatId = plan.seatOfItem(line.itemId);
+  const split = seatId != null ? plan.splits.get(seatId) : null;
+  if (!split || split.mode === DEFAULT_SPLIT_MODE) return sender;
+  const holds = {
+    item: (r) => r.itemIds.has(line.itemId),
+    area: (r) => !!line.area && r.areas.some(a => plan.sameArea(a, line.area)),
+    customer: (r) => !!line.customer && r.customers.some(c => plan.sameCustomer(c, line.customer)),
+  }[split.mode];
+  const holders = holds ? split.reps.filter(holds) : [];
+  if (!holders.length) return sender;
+  return holders.some(r => r.repUserId === sender) ? sender : holders[0].repUserId;
 }
 
 // ─── تصنيف وجهة البيع: مذخر أم صيدلية ─────────────────────────────────────────

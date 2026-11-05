@@ -2,6 +2,7 @@ import prisma from '../../lib/prisma.js';
 import { resolveMyRepId, resolveSciRepItemIds } from '../scientific-reps/scientific-reps.service.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { monthToRange } from '../../lib/salesMonths.js';
+import { loadSharedRepScopes, sharedRepItemsForViewer } from '../../lib/provinceSeats.js';
 import { listTargetPeople, getTargetActuals, targetKeyOf, MANAGER_REP_TYPE } from './targets.service.js';
 
 // من يدير تارگتات غيره — نفس MANAGER_ROLES في TargetsPage.tsx. البقية يرون أنفسهم فقط.
@@ -24,8 +25,15 @@ export async function getTargets(req, res, next) {
       include: { item: { select: { id: true, name: true } } },
       orderBy: { item: { name: 'asc' } },
     });
-    res.json({ success: true, data: targets });
+    res.json({ success: true, data: await sharedTargetsForViewer(repType, parseInt(repId), targets, req.user?.id) });
   } catch (e) { next(e); }
+}
+
+/** مدير مندوب مشترك يرى تارگت ايتماته هو من تارگتات المندوب. */
+async function sharedTargetsForViewer(repType, repId, targets, viewerId) {
+  if (repType !== 'scientific') return targets;
+  const allowed = await sharedRepItemsForViewer(repId, viewerId);
+  return allowed ? targets.filter(t => allowed.has(t.itemId)) : targets;
 }
 
 // GET /api/targets/all?repType=scientific&repId=1
@@ -41,7 +49,7 @@ export async function getAllTargetsForRep(req, res, next) {
       include: { item: { select: { id: true, name: true } } },
       orderBy: [{ year: 'desc' }, { month: 'desc' }, { item: { name: 'asc' } }],
     });
-    res.json({ success: true, data: targets });
+    res.json({ success: true, data: await sharedTargetsForViewer(repType, parseInt(repId), targets, req.user?.id) });
   } catch (e) { next(e); }
 }
 
@@ -57,6 +65,13 @@ export async function upsertTargets(req, res, next) {
     const { repType, repId: rid } = targetKeyOf(req.body.repType, parseInt(repId));
     const m   = parseInt(month);
     const y   = parseInt(year);
+
+    if (repType === 'scientific') {
+      const allowed = await sharedRepItemsForViewer(rid, req.user?.id);
+      if (allowed && targets.some(t => !allowed.has(parseInt(t.itemId)))) {
+        return res.status(403).json({ error: 'هذا الايتم يتبع مدير الشركة الأخرى لهذا المندوب المشترك' });
+      }
+    }
 
     const ops = targets.map(t =>
       prisma.repItemTarget.upsert({
@@ -134,7 +149,13 @@ export async function getTargetsMatrix(req, res, next) {
       },
       select: { repType: true, repId: true, itemId: true, target: true, item: { select: { id: true, name: true } } },
     });
-    const targets = rows.map(({ repType: type, ...t }) => (type === MANAGER_REP_TYPE ? { ...t, repId: -t.repId } : t));
+    // مدير مندوب مشترك: عمود ذلك المندوب بايتمات هذا المدير فقط.
+    const shared = repType === 'scientific' && req.user?.role === 'company_manager'
+      ? (await loadSharedRepScopes(req.user.id)).byRep
+      : new Map();
+    const targets = rows
+      .filter(t => t.repType === MANAGER_REP_TYPE || !shared.has(t.repId) || shared.get(t.repId).has(t.itemId))
+      .map(({ repType: type, ...t }) => (type === MANAGER_REP_TYPE ? { ...t, repId: -t.repId } : t));
 
     const scopes = {};
     const scopeItemIds = new Set();
@@ -143,8 +164,9 @@ export async function getTargetsMatrix(req, res, next) {
         ? resolveEffectiveItemIds(-id).catch(() => null)
         : resolveSciRepItemIds(id).then(r => r.itemIds).catch(() => null))));
       repIds.forEach((id, i) => {
-        scopes[id] = resolved[i];
-        resolved[i]?.forEach(x => scopeItemIds.add(x));
+        const allowed = shared.get(id);
+        scopes[id] = allowed ? (resolved[i] ?? [...allowed]).filter(x => allowed.has(x)) : resolved[i];
+        scopes[id]?.forEach(x => scopeItemIds.add(x));
       });
     } else {
       repIds.forEach(id => { scopes[id] = null; });

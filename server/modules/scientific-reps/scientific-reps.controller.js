@@ -387,7 +387,7 @@ export async function getEffectiveItems(req, res, next) {
   try {
     const id = parseInt(req.params.id);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
-    const { items, restricted } = await svc.getSciRepEffectiveItems(id);
+    const { items, restricted } = await svc.getSciRepEffectiveItems(id, req.user?.id ?? null);
     res.json({ success: true, data: items, restricted });
   } catch (err) { next(err); }
 }

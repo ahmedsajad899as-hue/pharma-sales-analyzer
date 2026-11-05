@@ -11,8 +11,9 @@ import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { buildMonthFilter, monthToRange } from '../../lib/salesMonths.js';
 import { loadConditionSalesForReps } from '../../lib/conditionFile.js';
 import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
-import { loadManagerSeat, loadSeatManagers } from '../../lib/provinceSeats.js';
-import { assignmentFillsSeat, repSeatIds, repTeamCompany } from './province-teams.rules.js';
+import { loadManagerSeat, loadSeatManagers, loadSharedRepScopes } from '../../lib/provinceSeats.js';
+import { loadSplitPlansForReps } from '../../lib/provinceSplit.js';
+import { assignmentFillsSeat, attributeLine, repSeatIds, repTeamCompany } from './province-teams.rules.js';
 import { liquidationProvinces, loadLiquidationData } from '../scientific-reps/scientific-reps.service.js';
 import { saleValueUSD } from '../sales/sales.repository.js';
 
@@ -51,6 +52,12 @@ async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
     viewerId,
   });
   const province = await liquidationProvinces(sales, mercatoRows, ownerOfRow, { extraUserIds: users.map(u => u.id) });
+  const plans = await loadSplitPlansForReps(repUserIds);
+  // مقعد مقسَّم بغير المرسل: السطر يُحسب لحامله، وما لا يطابقه أحد يبقى لمرسله.
+  const receiverOf = (provinceName, senderId, itemId, area, customer) => {
+    const plan = plans.get(provinceName);
+    return plan ? attributeLine({ senderId, itemId, area, customer }, plan) : senderId;
+  };
   const add = (provinceName, userId, itemId, itemName, qty, usd, pharmacy) => {
     const k = `${provinceName}|${userId}`;
     if (!out.has(k)) out.set(k, new Map());
@@ -62,13 +69,21 @@ async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
   };
   const rate = files.rate || 1470;
   for (const s of sales) {
-    for (const l of s.lines) add(province.ofSale(s), s.createdById, l.itemId, l.itemName, l.quantity, l.quantity * (l.unitPrice ?? 0) / rate, s.pharmacyName);
+    const provinceName = province.ofSale(s);
+    for (const l of s.lines) {
+      add(provinceName, receiverOf(provinceName, s.createdById, l.itemId, s.areaName, s.pharmacyName), l.itemId, l.itemName, l.quantity, l.quantity * (l.unitPrice ?? 0) / rate, s.pharmacyName);
+    }
   }
   for (const r of mercatoRows) {
     const sign = String(r.recordType ?? '').trim().toLowerCase() === 'return' ? -1 : 1;
     // حسابان بالاسم نفسه: يُحسب الصف لكلٍّ منهما كما في تقريره، وايتماتهما هي الفاصل.
+    const counted = new Set();
     for (const u of users.filter(x => r.repIds.includes(x.linkedRepId))) {
-      add(province.ofRow(r, u.id), u.id, r.itemId, r.item?.name ?? `#${r.itemId}`, sign * r.quantity, sign * saleValueUSD(r), sign > 0 ? r.customer?.name : null);
+      const provinceName = province.ofRow(r, u.id);
+      const receiver = receiverOf(provinceName, u.id, r.itemId, r.area?.name, r.customer?.name);
+      if (counted.has(`${provinceName}|${receiver}`)) continue;
+      counted.add(`${provinceName}|${receiver}`);
+      add(provinceName, receiver, r.itemId, r.item?.name ?? `#${r.itemId}`, sign * r.quantity, sign * saleValueUSD(r), sign > 0 ? r.customer?.name : null);
     }
   }
   return out;
@@ -90,8 +105,11 @@ export async function directory(req, res, next) {
 
     // null = بلا تقييد. لا يُطبَّق إلا على مدير الشركة ومن بمستواه.
     const allowed = viewer.mode === 'company' ? await resolveEffectiveItemIds(viewer.id) : null;
-    const allowedSet = allowed ? new Set(allowed) : null;
+    const allowedBase = allowed ? new Set(allowed) : null;
     const seat = await loadManagerSeat(viewer.id);
+    // المندوب المشترك: ايتم مسند لمديريه معاً يظهر عند مالكه فقط، فلا يتكرر مبيعه.
+    const sharedScopes = seat ? (await loadSharedRepScopes(viewer.id)).byUser : new Map();
+    const allowedFor = (repUserId) => sharedScopes.get(repUserId) ?? allowedBase;
     const allSeats = await loadSeatManagers([...new Set([...teams.map(t => t.officeId), seat?.officeId].filter(Boolean))]);
     const officeSeats = seat ? allSeats.filter(s => s.officeId === seat.officeId) : [];
     const explicit = (a) => ({ companyId: a.companyId, allItems: a.allItems, itemIds: a.explicitItemIds });
@@ -201,6 +219,7 @@ export async function directory(req, res, next) {
         // فتتقاطع مع ايتم مسند له من شركة غيره، لذا الحكم بالتعيين الصريح.
         const isMarketer = repKindOf.get(repLink.get(a.repUserId)) === PHARMACY_KIND;
         if (seat && !isMarketer && !(assignmentFillsSeat(explicit(a), seat) && repInViewerSeat(t, a))) continue;
+        const allowedSet = allowedFor(a.repUserId);
         const c = cov.assignments.get(a.id);
         const repSet = repAllowed.get(a.repUserId);
         const okItem = (id) => (!allowedSet || allowedSet.has(id)) && (!repSet || repSet.has(id));
@@ -229,6 +248,7 @@ export async function directory(req, res, next) {
       }
       // الجهد الشخصي (مرة واحدة لكل مندوب في هذا الفريق).
       for (const r of repsMap.values()) {
+        const allowedSet = allowedFor(r.repUserId);
         const nameByItem = new Map();
         for (const a of t.assignments) if (a.repUserId === r.repUserId) for (const id of a.itemIds) nameByItem.set(id, a.companyName);
         if (repKindOf.get(repLink.get(r.repUserId)) !== PHARMACY_KIND) {
@@ -312,7 +332,9 @@ export async function overview(req, res, next) {
     const repKinds = await prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true, linkedRep: { select: { repKind: true } } } });
     const marketerIds = new Set(repKinds.filter(u => u.linkedRep?.repKind === PHARMACY_KIND).map(u => u.id));
     const liquidation = await loadTeamLiquidation(repIds, files, month, viewer.id);
+    const sharedScopes = viewer.mode === 'company' ? (await loadSharedRepScopes(viewer.id)).byUser : new Map();
     const liquidationRows = (t, userId) => [...(liquidation.get(`${t.provinceName}|${userId}`)?.values() ?? [])]
+      .filter(c => !sharedScopes.has(userId) || sharedScopes.get(userId).has(c.itemId))
       .map(c => ({ itemId: c.itemId, quantity: c.qty, valueUSD: c.usd, rows: c.rows, pharmacies: [...c.pharmacies] }));
     const pharmaciesOf = (rows) => new Set(rows.flatMap(x => x.pharmacies ?? [x.pharmacy]).filter(Boolean)).size;
     const rowCount = (rows) => rows.reduce((s2, x) => s2 + (x.rows ?? 1), 0);

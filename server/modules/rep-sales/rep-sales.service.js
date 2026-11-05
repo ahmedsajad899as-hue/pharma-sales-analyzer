@@ -16,13 +16,13 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { loadRepLocations } from '../../lib/repLocation.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
-import { loadManagerSeat, loadSeatManagers } from '../../lib/provinceSeats.js';
+import { loadManagerSeat, loadSeatManagers, loadSharedRepScopes } from '../../lib/provinceSeats.js';
 import { aggregateProvinceSales, addMercatoToProvinces } from '../../lib/repSalesProvince.js';
 import { dateRangeWhere } from '../../lib/repLiquidation.js';
 import { monthToRange } from '../../lib/salesMonths.js';
 import { saleValueUSD } from '../sales/sales.repository.js';
 import { liquidationProvinces, loadLiquidationData, REP_SALE_SELECT } from '../scientific-reps/scientific-reps.service.js';
-import { buildLines, cleanText, loadViewer, orderScopeWhere, parseDay, teamUserIds } from '../rep-orders/rep-orders.service.js';
+import { buildLines, cleanText, loadViewer, orderScopeWhere, parseDay, sharedRepRowsForViewer, teamUserIds } from '../rep-orders/rep-orders.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // جذر المشروع/uploads — Nginx يخدم /uploads/ منه مباشرةً على الإنتاج (لا من server/uploads)
@@ -72,6 +72,12 @@ function assertCanEdit(viewer, sale) {
   throw new AppError(sale.status === 'confirmed' ? 'المبيع مؤكد — التعديل عليه من صلاحية المدير فقط' : 'لا يمكنك تعديل هذا المبيع', 403);
 }
 
+/** الحفظ يعيد كتابة كل الأسطر: مدير لا يرى أسطر الشركة الأخرى لا يعدّل مبيعاً فيه منها. */
+async function assertSeesAllLines(viewer, sale) {
+  const [row] = await sharedRepRowsForViewer(viewer, [sale]);
+  if (row?.partialForViewer) throw new AppError('فيه ايتمات لشركة أخرى — يعدّله المندوب أو التيم ليدر', 403);
+}
+
 /**
  * متى يستطيع هذا المُشاهِد تأكيد الطلبية بلا فاتورة: المندوب يكتبها قبل أن يعرف هل ستتجهز،
  * فينتظر 24 ساعة من كتابتها. null = بلا انتظار (المدير يؤكد أي وقت).
@@ -116,12 +122,13 @@ export async function listSales(reqUser, q = {}) {
   if (q.to) and.push({ saleDate: { lte: new Date(`${String(q.to).slice(0, 10)}T23:59:59Z`) } });
   if (q.repUserId) and.push({ createdById: Number(q.repUserId) });
 
-  const rows = await prisma.repSale.findMany({
+  const fetched = await prisma.repSale.findMany({
     where: { AND: and },
     orderBy: [{ saleDate: 'desc' }, { id: 'desc' }],
     take: LIST_CAP,
     include: { lines: { orderBy: { id: 'asc' } } },
   });
+  const rows = await sharedRepRowsForViewer(viewer, fetched);
 
   const isManager = !isFieldRole(viewer.role);
   // قائمة المدير: فريقه كله ليُرى من لم يسجّل بعد، + من ظهر في النتائج (ومنهم المدير إن سجّل لنفسه)
@@ -158,7 +165,7 @@ export async function listSales(reqUser, q = {}) {
       confirmedBy: r.confirmedById ? (nameById.get(r.confirmedById) ?? null) : null,
       createdAt: r.createdAt,
       lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty, unitPrice: l.unitPrice })),
-      canEdit: canEditSale(viewer, r),
+      canEdit: !r.partialForViewer && canEditSale(viewer, r),
       confirmOpensAt: r.status === 'pending' ? confirmOpensAt(viewer, r) : null,
     })),
   };
@@ -210,7 +217,7 @@ export async function provinceSummary(reqUser, q = {}) {
   const fileIds = String(q.fileIds ?? '').split(',').map(Number).filter(n => n > 0);
   const range = monthToRange(q.month) ?? { startDate: q.startDate, endDate: q.endDate };
   const repSaleWhere = seat ? { OR: [scope, { officeId: seat.officeId }] } : scope;
-  const { sales, mercatoRows, ownerOfRow } = fileIds.length
+  let { sales, mercatoRows, ownerOfRow } = fileIds.length
     ? await loadLiquidationData({ fileIds, range, repSaleWhere, userWhere: userScopeWhere(scope, seat), viewerId: viewer.id })
     : {
         sales: await prisma.repSale.findMany({
@@ -221,6 +228,12 @@ export async function provinceSummary(reqUser, q = {}) {
         ownerOfRow: () => null,
       };
   if (!sales.length && !mercatoRows.length) return { rows: [] };
+
+  // المندوب المشترك: ايتم مسند لمديريه معاً يُحسب عند مالكه فقط.
+  const sharedScopes = seat ? await loadSharedRepScopes(viewer.id) : null;
+  const ownedByViewer = (scope, itemId) => !scope || scope.has(itemId);
+  sales = sales.map(s => ({ ...s, lines: s.lines.filter(l => ownedByViewer(sharedScopes?.byUser.get(s.createdById), l.itemId)) }));
+  mercatoRows = mercatoRows.filter(r => (r.repIds ?? []).every(id => ownedByViewer(sharedScopes?.byRep.get(id), r.itemId)));
 
   const repIds = [...new Set(sales.map(s => s.createdById))];
   const itemIds = [...new Set([...sales.flatMap(s => s.lines.map(l => l.itemId)), ...mercatoRows.map(r => r.itemId)].filter(Boolean))];
@@ -290,6 +303,7 @@ export async function updateSale(reqUser, id, body) {
   const viewer = await loadViewer(reqUser);
   const sale = await getVisibleSale(viewer, id);
   assertCanEdit(viewer, sale);
+  await assertSeesAllLines(viewer, sale);
   const { head, lines } = await buildSaleData(body);
   return prisma.$transaction(async (tx) => {
     await tx.repSaleLine.deleteMany({ where: { saleId: sale.id } });

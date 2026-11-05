@@ -8,7 +8,7 @@
 import prisma from './prisma.js';
 import { PHARMACY_KIND, managesProvinceMarketers } from './pharmacyRep.js';
 import { resolveEffectiveItemIds } from './itemScope.js';
-import { repBelongsToSeat } from '../modules/province-teams/province-teams.rules.js';
+import { ownerSeatOfItem, repBelongsToSeat, repSeatIds } from '../modules/province-teams/province-teams.rules.js';
 
 /**
  * مدراء الشركات النشطون كمقاعد، مرتبين باسم الشركة.
@@ -131,11 +131,87 @@ export async function repIdsInManagerTeam(seat, repIds) {
   });
 }
 
+/** ايتمات المقعد: المسندة لمديره، أو كل شركته الرئيسية إن لم يُسنَد له شيء. */
+export async function seatItemsWithCatalog(seat) {
+  if (seat.items.length) return seat.items;
+  const rows = await prisma.item.findMany({
+    where: { scientificCompanyId: seat.companyId, isTemp: false },
+    select: { id: true },
+  });
+  return rows.map(r => ({ id: r.id, companyId: seat.companyId }));
+}
+
+/**
+ * المندوبون المشتركون التابعون لهذا المدير، ولكلٍّ الايتمات التي يملكها هذا المدير بين مقاعده.
+ * الايتم المسند لمديريه معاً يظهر عند مالكه فقط، فلا يتكرر مبيعه عند الاثنين.
+ * غير المشترك لا يرد هنا: مدير الشركة يرى مندوبه الخاص كما كان.
+ * @param {number} viewerId
+ * @returns {Promise<{byUser:Map<number,Set<number>>, byRep:Map<number,Set<number>>}>}
+ */
+export async function loadSharedRepScopes(viewerId) {
+  const empty = { byUser: new Map(), byRep: new Map() };
+  const seat = await loadManagerSeat(viewerId);
+  if (!seat) return empty;
+  const rows = await prisma.provinceRepAssignment.findMany({
+    where: { isActive: true, team: { isActive: true, officeId: seat.officeId }, rep: { managersOfUser: { some: { managerId: viewerId } } } },
+    select: {
+      repUserId: true, companyId: true, allItems: true,
+      items: { select: { itemId: true } },
+      rep: { select: { linkedRepId: true, managersOfUser: { select: { managerId: true } } } },
+    },
+  });
+  if (!rows.length) return empty;
+
+  const officeSeats = await loadSeatManagers([seat.officeId]);
+  const mine = await seatItemsWithCatalog(seat);
+  const out = { byUser: new Map(), byRep: new Map() };
+  for (const repUserId of new Set(rows.map(r => r.repUserId))) {
+    const own = rows.filter(r => r.repUserId === repUserId);
+    const seatIds = repSeatIds(
+      own.map(r => ({ companyId: r.companyId, allItems: r.allItems, itemIds: r.items.map(i => i.itemId) })),
+      own[0].rep.managersOfUser.map(m => m.managerId),
+      officeSeats,
+    );
+    if (seatIds.length < 2 || !seatIds.includes(viewerId)) continue;
+    const repSeats = officeSeats.filter(s => seatIds.includes(s.userId));
+    const allowed = new Set(mine.filter(i => ownerSeatOfItem(i.id, i.companyId, repSeats) === viewerId).map(i => i.id));
+    out.byUser.set(repUserId, allowed);
+    if (own[0].rep.linkedRepId) out.byRep.set(own[0].rep.linkedRepId, allowed);
+  }
+  return out;
+}
+
+/**
+ * ايتمات مندوب مشترك المسموحة لمديره هذا، أو null لغير المشترك. الفحص الأول استعلام واحد صغير:
+ * يُستدعى لكل تقرير، ومعظم المندوبين يتبعون مدير شركة واحداً.
+ * @returns {Promise<Set<number>|null>}
+ */
+export async function sharedRepItemsForViewer(repId, viewerId) {
+  if (!viewerId) return null;
+  const accounts = await prisma.user.findMany({
+    where: { linkedRepId: repId },
+    select: { id: true, managersOfUser: { select: { managerId: true, manager: { select: { role: true } } } } },
+  });
+  const account = accounts.find(u => u.managersOfUser.some(m => m.managerId === viewerId)
+    && u.managersOfUser.filter(m => m.manager.role === 'company_manager').length >= 2);
+  if (!account) return null;
+  return (await loadSharedRepScopes(viewerId)).byUser.get(account.id) ?? null;
+}
+
+/**
+ * أسطر طلبية مندوب مشترك الظاهرة لمديره. ايتم مكتوب بلا كتالوج لا مالك له، فيظهر للمديرين معاً.
+ * @param {Array<{itemId:number|null}>} lines
+ * @param {Set<number>} allowed
+ */
+export const visibleSharedLines = (lines, allowed) => lines.filter(l => l.itemId == null || allowed.has(l.itemId));
+
 /**
  * مدير الشركة يفتح تقرير مندوب فريق محافظة: مندوب مشترك يعرض ايتمات هذا المدير فقط.
  * @returns {Promise<Set<number>|null>} null = بلا تقييد (مندوب بغداد والمسوق كما هما)
  */
 export async function managerItemsForProvinceRep(repId, viewerId) {
+  const shared = await sharedRepItemsForViewer(repId, viewerId);
+  if (shared) return shared;
   const seat = await loadManagerSeat(viewerId);
   if (!seat?.items.length) return null;
   const rep = await prisma.scientificRepresentative.findUnique({ where: { id: repId }, select: { repKind: true } });

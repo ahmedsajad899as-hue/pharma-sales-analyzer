@@ -3212,10 +3212,28 @@ model ProvinceTeam {
   leader      User?                   @relation("ProvinceTeamLeader", fields: [leaderUserId], references: [id], onDelete: SetNull)
   assignments ProvinceRepAssignment[]
   personalSales RepPersonalSale[]
+  seatSplits  ProvinceSeatSplit[]
 
   @@unique([officeId, provinceId])
   @@index([leaderUserId])
   @@map("province_teams")
+}
+
+// كيف يُقسَّم مبيع مقعد شركة بين مندوبيه داخل المحافظة. لا صف = order (حسب من أرسل الطلبية).
+// mode: order | item | area | customer
+// scopes: { "<repUserId>": { areas: string[], customers: string[] } } — لوضعي المناطق والزبائن.
+// managerUserId بلا علاقة: مقعد مدير غادر يُهمل عند البناء (راجع lib/provinceSplit.js).
+model ProvinceSeatSplit {
+  teamId        Int
+  managerUserId Int
+  mode          String   @default("order")
+  scopes        Json     @default("{}")
+  updatedAt     DateTime @updatedAt
+
+  team ProvinceTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, managerUserId])
+  @@map("province_seat_splits")
 }
 
 // تعيين مندوب × شركة داخل فريق المحافظة. المندوب المشترك بين شركتين = صفّان.

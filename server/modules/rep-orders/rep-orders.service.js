@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
+import { loadSharedRepScopes, visibleSharedLines } from '../../lib/provinceSeats.js';
 import { isOfficeScopedRole } from '../../lib/officeScope.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { normalizeWaId } from '../../lib/waId.js';
@@ -96,7 +97,27 @@ export async function getVisibleOrder(viewer, id) {
 export const canEditContent = (viewer, order, canDispatch = true) =>
   (order.createdById === viewer.id || !isFieldRole(viewer.role)) && (canDispatch || !order.sentAt);
 
+/**
+ * مدير مندوب مشترك يرى أسطر ايتماته فقط من طلبياته ومبيعاته. صف له أسطر محجوبة يُعلَّم
+ * partialForViewer، وصف لم يبقَ له سطر يسقط. غير المشترك يبقى كما هو.
+ * @param {{id:number, role:string}} viewer
+ * @param {Array<{createdById:number, lines:Array<{itemId:number|null}>}>} rows
+ */
+export async function sharedRepRowsForViewer(viewer, rows) {
+  if (viewer.role !== 'company_manager' || !rows.length) return rows;
+  const { byUser } = await loadSharedRepScopes(viewer.id);
+  if (!byUser.size) return rows;
+  return rows.flatMap((r) => {
+    const allowed = byUser.get(r.createdById);
+    if (!allowed) return [r];
+    const lines = visibleSharedLines(r.lines, allowed);
+    return lines.length ? [{ ...r, lines, partialForViewer: lines.length < r.lines.length }] : [];
+  });
+}
+
 async function assertCanEdit(viewer, order, message) {
+  const [visible] = await sharedRepRowsForViewer(viewer, [order]);
+  if (visible?.partialForViewer) throw new AppError('فيها ايتمات لشركة أخرى — يعدّلها المندوب أو التيم ليدر', 403);
   if (canEditContent(viewer, order, await canDispatchOrders(viewer))) return;
   throw new AppError(order.sentAt ? 'أُرسلت الطلبية للمذخر — التعديل والحذف من صلاحية المدير فقط' : message, 403);
 }
@@ -296,7 +317,7 @@ export async function listOrders(reqUser, q = {}) {
   if (q.invoice === 'yes') and.push({ invoiceImage: { not: null } });
   if (q.invoice === 'no') and.push({ invoiceImage: null });
 
-  const rows = await prisma.repOrder.findMany({
+  const fetched = await prisma.repOrder.findMany({
     where: { AND: and },
     orderBy: [{ orderDate: 'desc' }, { id: 'desc' }],
     take: 2000,
@@ -306,6 +327,7 @@ export async function listOrders(reqUser, q = {}) {
       sends: { orderBy: { id: 'asc' } },
     },
   });
+  const rows = await sharedRepRowsForViewer(viewer, fetched);
 
   // مذاخر الاحتياط وآخر مذخر أُرسلت له — استعلام واحد لكل الطلبيات
   const whIds = [...new Set(rows.flatMap(r => [...r.backupWarehouseIds, r.lastSentWarehouseId, ...r.sends.map(s => s.warehouseId)]).filter(Boolean))];
@@ -374,7 +396,7 @@ export async function listOrders(reqUser, q = {}) {
       lines: r.lines.map(l => ({ id: l.id, itemId: l.itemId, itemName: l.itemName, companyName: l.companyName, quantity: l.quantity, bonusQty: l.bonusQty, preparedQty: l.preparedQty, preparedBonus: l.preparedBonus, unitPrice: l.unitPrice ?? (l.itemId ? catalogPrice.get(l.itemId) ?? null : null) })),
       // سجل الإرسال للمذاخر بالترتيب ونتيجة كل مذخر
       sends: r.sends.map(s => ({ id: s.id, warehouseId: s.warehouseId, warehouseName: s.warehouseName, sentAt: s.sentAt, outcome: s.outcome, outcomeAt: s.outcomeAt, image: s.image, whSeq: s.whSeq, lines: Array.isArray(s.lines) ? s.lines : [] })),
-      canEdit: canEditContent(viewer, r, canDispatch),
+      canEdit: !r.partialForViewer && canEditContent(viewer, r, canDispatch),
     })),
   };
 }

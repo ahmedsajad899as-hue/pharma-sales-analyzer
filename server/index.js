@@ -4786,8 +4786,13 @@ app.get('/api/doctor-visits/daily', async (req, res) => {
               linkedRepId: { not: null },
               ...(managerOfficeId ? { officeId: managerOfficeId } : { id: -1 }),
             };
-            const repUsers = await prisma.user.findMany({ where: repUsersWhere, select: { linkedRepId: true } });
-            const repIds = repUsers.map(u => u.linkedRepId).filter(Boolean);
+            const repUsers = await prisma.user.findMany({
+              where: { OR: [repUsersWhere, { id: { in: subordinateRows.map(r => r.userId) }, linkedRepId: { not: null } }] },
+              select: { linkedRepId: true },
+            });
+            // مندوب محافظة تابع لهذا المدير يدخل ولو لم تكن شركته الرئيسية شركة المدير: المندوب
+            // المشترك رئيسية حسابه شركة واحدة، وزياراته تظهر كاملة عند كل مدرائه.
+            const repIds = [...new Set(repUsers.map(u => u.linkedRepId).filter(Boolean))];
             where.OR = [
               ...(repIds.length > 0 ? [{ scientificRepId: { in: repIds } }] : []),
               { userId },

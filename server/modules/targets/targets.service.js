@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma.js';
 import { list, getReport, getGroupReport, resolveMyRepId } from '../scientific-reps/scientific-reps.service.js';
 import { provinceMemberUserIds } from '../../lib/provinceScope.js';
-import { loadManagerSeat, repIdsInManagerTeam } from '../../lib/provinceSeats.js';
+import { loadManagerSeat, repIdsInManagerTeam, sharedRepItemsForViewer } from '../../lib/provinceSeats.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
 import { buildTargetComparison } from '../../lib/targetCompare.js';
@@ -145,10 +145,13 @@ async function soldItemsCached(columnId, query, viewerId, cacheKey) {
  */
 export async function getTargetActuals(columnId, { month, year, fileIds, range }, viewerId) {
   const { repType, repId } = targetKeyOf('scientific', columnId);
-  const targets = await prisma.repItemTarget.findMany({
+  const rows = await prisma.repItemTarget.findMany({
     where: { repType, repId, month, year, target: { gt: 0 } },
     select: { itemId: true, target: true, item: { select: { name: true } } },
   });
+  // مدير مندوب مشترك: تارگت ايتماته هو، كالمبيع الذي يُقارن به (getReport).
+  const sharedItems = repType === 'scientific' ? await sharedRepItemsForViewer(repId, viewerId) : null;
+  const targets = sharedItems ? rows.filter(t => sharedItems.has(t.itemId)) : rows;
   const hasFiles = !!fileIds?.length && !!range;
   const sold = hasFiles
     ? await soldItemsCached(columnId, { fileIds, startDate: range.startDate, endDate: range.endDate }, viewerId,

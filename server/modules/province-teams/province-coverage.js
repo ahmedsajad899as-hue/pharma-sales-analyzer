@@ -23,7 +23,8 @@ import { isWarehouseSaleRow, pharmacyNameFromRawData, orderKeyFromRawData } from
 import { buildMonthFilter, listSalesMonths } from '../../lib/salesMonths.js';
 import { resolveActiveFileIds } from '../../lib/activeFiles.js';
 import { expandOwnerIdsByCompany } from '../scientific-reps/scientific-reps.service.js';
-import { buildItemAttribution, classifyChannel } from './province-teams.rules.js';
+import { attributeLine, buildItemAttribution, classifyChannel } from './province-teams.rules.js';
+import { loadSplitPlansForTeams } from '../../lib/provinceSplit.js';
 import { loadCompanyItems } from './province-teams.service.js';
 
 const DEFAULT_RATE = 1470;
@@ -168,6 +169,15 @@ export async function computeCoverage(teams, { fileIds, month }) {
     const { owner, overlaps } = buildItemAttribution(t.allAssignments, companyItems);
     return { t, owner, overlaps, teamCompanies: new Set(t.allAssignments.map(a => a.companyId)) };
   });
+  const splitPlans = await loadSplitPlansForTeams(teams.map(t => t.id));
+  // صف المكتب بلا مرسل: مقعد مقسَّم بالمناطق أو الزبائن يحسمه، وغيره يبقى على نسبة الايتم.
+  const splitAssignmentId = (p, row, companyId) => {
+    const plan = splitPlans.get(p.t.id);
+    if (!plan || !['area', 'customer'].includes(plan.modeOfItem(row.itemId))) return null;
+    const repUserId = attributeLine({ senderId: null, itemId: row.itemId, area: row.areaName, customer: row.customer }, plan);
+    if (repUserId == null) return null;
+    return p.t.allAssignments.find(a => a.repUserId === repUserId && a.companyId === companyId)?.id ?? null;
+  };
 
   const provinceRows = await prisma.province.findMany({ select: { id: true, name: true, aliases: true } });
   const lookup = buildProvinceLookup(provinceRows);
@@ -236,7 +246,7 @@ export async function computeCoverage(teams, { fileIds, month }) {
       if (!p.teamCompanies.has(companyId)) continue;
       const bucket = result.get(p.t.id);
       addRow(bucket.team, row);
-      const aid = p.owner.get(s.itemId);
+      const aid = splitAssignmentId(p, row, companyId) ?? p.owner.get(s.itemId);
       if (aid) {
         addRow(bucket.assignments.get(aid), row);
       } else {

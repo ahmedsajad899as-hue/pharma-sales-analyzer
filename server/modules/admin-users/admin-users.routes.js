@@ -10,7 +10,7 @@ import {
   deleteUser, listProvinceStructure, setProvinceLeader,
 } from './admin-users.controller.js';
 import { previewUsersImport, commitUsersImport } from './admin-users-import.js';
-import { createProvinceSeats, createProvinceMarketers } from './province-seats.js';
+import { createProvinceSeats, createProvinceMarketers, saveProvinceRepSeats, saveProvinceSeatSplit, provinceSeatOptions } from './province-seats.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
 
 const router = express.Router();
@@ -22,6 +22,9 @@ router.get('/',            listAllUsers);
 router.get('/province-structure', listProvinceStructure); // قبل '/:id'
 router.put('/province-structure/leader', setProvinceLeader);
 router.post('/province-structure/seats', createProvinceSeats);
+router.get('/province-structure/seat-options', provinceSeatOptions);
+router.post('/province-structure/rep-seats', saveProvinceRepSeats);
+router.put('/province-structure/seat-split', saveProvinceSeatSplit);
 router.post('/province-structure/marketers', createProvinceMarketers);
 router.get('/:id/rep-info',      getUserRepInfo);
 router.get('/:id/company-items', getUserCompanyItems);

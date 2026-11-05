@@ -4,6 +4,7 @@ import {
   resolveAssignmentItemIds, findItemConflicts, buildItemAttribution,
   classifyChannel, personalSaleValue, toUSD,
   assignmentFillsSeat, planSeatAssignments, repBelongsToSeat, repSeatIds, repTeamCompany, removedProvinceIds, marketerTeamLinksToDrop, foreignManagerLinks,
+  ownerSeatOfItem, planRepSeats, normalizeSplitConfig, attributeLine,
 } from '../server/modules/province-teams/province-teams.rules.js';
 import { hasPersonalSaleTrigger, stripPersonalSaleTrigger } from '../server/modules/province-teams/personal-sale-trigger.js';
 import { marketerHomeProvinces, pickMarketerLeaders, managesProvinceMarketers, marketersManagerCoverage } from '../server/lib/pharmacyRep.js';
@@ -13,6 +14,96 @@ const t = (name, fn) => { fn(); passed++; console.log(`✓ ${name}`); };
 
 const DEVA = 1, OSEL = 2;
 const companyItems = new Map([[DEVA, [10, 11, 12]], [OSEL, [20, 21]]]);
+
+// ─── المندوب المشترك ──────────────────────────────────────────────────────────
+const YAHYA = { userId: 5, companyId: DEVA, companyName: 'deva', items: [{ id: 10, companyId: DEVA }, { id: 11, companyId: DEVA }, { id: 20, companyId: OSEL }] };
+const MOHAMMED = { userId: 7, companyId: OSEL, companyName: 'osel', items: [{ id: 20, companyId: OSEL }, { id: 21, companyId: OSEL }, { id: 11, companyId: DEVA }] };
+
+t('مشترك: يشغل مقعدي مديريه ويُعرض بشركتيهما', () => {
+  const a = [{ companyId: DEVA, allItems: false, itemIds: [10] }, { companyId: OSEL, allItems: false, itemIds: [21] }];
+  assert.deepEqual(repSeatIds(a, [5, 7, 99], [YAHYA, MOHAMMED]).sort(), [5, 7]);
+  assert.equal(repTeamCompany(a.map(x => ({ ...x, companyName: '', isPrimary: x.companyId === DEVA })), [5, 7], [YAHYA, MOHAMMED]), 'deva + osel');
+  // يتبع مديراً واحداً: مقعد واحد كما كان رغم تطابق الايتم المشترك
+  assert.deepEqual(repSeatIds([{ companyId: OSEL, allItems: false, itemIds: [20] }], [5], [YAHYA, MOHAMMED]), [5]);
+});
+
+t('مالك الايتم بين مقعدي المشترك: شركة الايتم ثم أصغر معرّف', () => {
+  assert.equal(ownerSeatOfItem(10, DEVA, [YAHYA, MOHAMMED]), 5);   // عند yahya وحده
+  assert.equal(ownerSeatOfItem(20, OSEL, [YAHYA, MOHAMMED]), 7);   // عند الاثنين، وشركته osel
+  assert.equal(ownerSeatOfItem(11, DEVA, [YAHYA, MOHAMMED]), 5);   // عند الاثنين، وشركته deva
+  assert.equal(ownerSeatOfItem(30, 3, [YAHYA, MOHAMMED]), null);   // لا يحمله أحد
+  assert.equal(ownerSeatOfItem(null, DEVA, [YAHYA]), null);
+  // ايتم عند الاثنين وشركته ثالثة: أصغر معرّف
+  const a = { userId: 9, companyId: DEVA, items: [{ id: 40 }] };
+  const b = { userId: 3, companyId: OSEL, items: [{ id: 40 }] };
+  assert.equal(ownerSeatOfItem(40, 3, [a, b]), 3);
+  // مقعد بلا ايتمات مسندة يحمل كل شركته
+  assert.equal(ownerSeatOfItem(99, DEVA, [{ userId: 2, companyId: DEVA, items: [] }, { userId: 1, companyId: OSEL, items: [] }]), 2);
+});
+
+t('خطة مقاعد المندوب: توحيد الشركات وقائمة الايتمات', () => {
+  // كل ايتمات مديرين: ايتم موزع على شركتين يذهب لتعيين شركته، بلا تكرار
+  const full = planRepSeats([{ seat: YAHYA, selected: null }, { seat: MOHAMMED, selected: null }]);
+  assert.deepEqual(full.assignments.map(a => [a.companyId, a.allItems, [...a.itemIds].sort()]).sort(), [[DEVA, false, [10, 11]], [OSEL, false, [20, 21]]]);
+  assert.deepEqual([...full.keptItemIds].sort(), [10, 11, 20, 21]);
+
+  // تضييق ايتمات مدير: غير المختار يخرج، وايتم ليس له يُبلَّغ عنه
+  const narrow = planRepSeats([{ seat: YAHYA, selected: [10, 777] }]);
+  assert.deepEqual(narrow.assignments, [{ companyId: DEVA, allItems: false, itemIds: [10] }]);
+  assert.deepEqual(narrow.unknownItemIds, [777]);
+
+  // مقعد بكل الشركة مع مقعد بايتمات: القائمة تشمل كتالوجه، وإلا أسقطته القائمة البيضاء
+  const whole = { userId: 8, companyId: 3, items: [] };
+  const catalog = [{ id: 30, companyId: 3 }, { id: 31, companyId: 3 }];
+  const mix = planRepSeats([{ seat: whole, selected: null, catalog }, { seat: MOHAMMED, selected: [21] }]);
+  assert.deepEqual(mix.assignments.find(a => a.companyId === 3), { companyId: 3, allItems: true, itemIds: [] });
+  assert.deepEqual([...mix.keptItemIds].sort(), [21, 30, 31]);
+
+  // كل المقاعد بكل شركاتها: بلا قائمة بيضاء كي تصل ايتمات الشركة الجديدة
+  assert.deepEqual(planRepSeats([{ seat: whole, selected: null, catalog }]).keptItemIds, []);
+  // تضييق مقعد بكل الشركة يأخذ المختار من كتالوجه
+  assert.deepEqual(planRepSeats([{ seat: whole, selected: [31], catalog }]).assignments, [{ companyId: 3, allItems: false, itemIds: [31] }]);
+});
+
+t('إعداد التقسيم: وضع غير معروف يُرفض، ومندوب خارج الفريق يسقط', () => {
+  assert.equal(normalizeSplitConfig('zzz', {}, [1]), null);
+  assert.deepEqual(normalizeSplitConfig('area', { 1: { areas: [' الرمادي ', 'الرمادي', ''] }, 2: { areas: ['الفلوجة'] } }, [1]), { mode: 'area', scopes: { 1: { areas: ['الرمادي'], customers: [] } } });
+});
+
+t('نسبة السطر: المرسل هو الافتراضي، والتقسيم لا يغيّر مجموع الفريق', () => {
+  const A = 1, B = 2;
+  const planOf = (mode, reps) => ({
+    seatOfItem: (id) => (id == null ? null : id < 100 ? 5 : null),
+    splits: new Map(mode ? [[5, { mode, reps }]] : []),
+    sameArea: (a, b) => a === b,
+    sameCustomer: (a, b) => a === b,
+  });
+  const reps = [
+    { repUserId: A, itemIds: new Set([10]), areas: ['الرمادي'], customers: ['صيدلية نور'] },
+    { repUserId: B, itemIds: new Set([11]), areas: ['الفلوجة'], customers: ['صيدلية سلام'] },
+  ];
+  const line = { senderId: A, itemId: 11, area: 'الفلوجة', customer: 'صيدلية سلام' };
+
+  // بلا إعداد أو بوضع order: لمن أرسل
+  assert.equal(attributeLine(line, planOf(null)), A);
+  assert.equal(attributeLine(line, planOf('order', reps)), A);
+  // كل وضع يحسمها لحاملها
+  assert.equal(attributeLine(line, planOf('item', reps)), B);
+  assert.equal(attributeLine(line, planOf('area', reps)), B);
+  assert.equal(attributeLine(line, planOf('customer', reps)), B);
+  // لا يطابق أحداً: يبقى لمرسله، فلا يضيع مبيع
+  assert.equal(attributeLine({ ...line, area: 'هيت' }, planOf('area', reps)), A);
+  assert.equal(attributeLine({ ...line, customer: null }, planOf('customer', reps)), A);
+  // ايتم بلا مقعد مالك: يبقى لمرسله
+  assert.equal(attributeLine({ ...line, itemId: 500 }, planOf('item', reps)), A);
+  assert.equal(attributeLine({ ...line, itemId: null }, planOf('item', reps)), A);
+  // منطقة عند الاثنين: المرسل أحق من الأول
+  const both = [{ ...reps[0], areas: ['الفلوجة'] }, reps[1]];
+  assert.equal(attributeLine({ ...line, senderId: B }, planOf('area', both)), B);
+  // صف مكتب بلا مرسل: يحسمه الحامل، وبلا حامل يبقى بلا صاحب
+  assert.equal(attributeLine({ ...line, senderId: null }, planOf('area', reps)), B);
+  assert.equal(attributeLine({ senderId: null, itemId: 11, area: 'هيت' }, planOf('area', reps)), null);
+});
 
 t('مدير مسوقي المحافظات: محافظات بلا بغداد', () => {
   assert.equal(managesProvinceMarketers(['الأنبار', 'واسط']), true);
@@ -227,8 +318,8 @@ t('شركة تيم المندوب واحدة: مدير مقعده، ثم شرك�
   assert.equal(repTeamCompany(reps(null), [103, 500], named), 'humanis');
   // مدير المقعد يغلب الشركة الرئيسية المسجلة على حساب المندوب
   assert.equal(repTeamCompany(reps(DEVA), [103], named), 'humanis');
-  // يتبع مديرين: شركته الرئيسية تحسم بينهما
-  assert.equal(repTeamCompany(reps(DEVA), [103, 102], named), 'deva');
+  // يتبع مديرين يطابقانه = مندوب مشترك: يُعرض بشركتيهما
+  assert.equal(repTeamCompany(reps(DEVA), [103, 102], named), 'humanis + deva');
   // بلا مدير مقعد: شركته الرئيسية
   assert.equal(repTeamCompany(reps(DEVA), [500], named), 'deva');
   // بلا مدير ولا شركة رئيسية: المقعد الأكثر تطابقاً مع ايتماته

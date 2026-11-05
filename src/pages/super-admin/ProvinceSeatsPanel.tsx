@@ -3,9 +3,11 @@
 // المقعد الشاغر يُملأ بكتابة اسم، وكل اسم يصير حساباً جديداً (مسار الخادم:
 // server/modules/admin-users/province-seats.js).
 // ════════════════════════════════════════════════════════════════════════════
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { btnStyle } from './OfficesPage';
+import ProvinceRepSeatsForm from './ProvinceRepSeatsForm';
+import ProvinceSplitEditor from './ProvinceSplitEditor';
 
 export interface ProvSeat {
   managerUserId: number; managerName: string; officeId: number;
@@ -15,6 +17,14 @@ export interface ProvTeamRep {
   userId: number;
   companies: { id: number; name: string; allItems: boolean; itemCount: number }[];
   seatManagerIds: number[];
+  /** ايتمات تعييناته الصريحة، لتعبئة نموذج المقاعد. */
+  itemIds?: number[];
+}
+export interface ProvSplit { managerUserId: number; mode: string; scopes: unknown }
+export interface SeatOptions {
+  seatItems: Record<number, { id: number; name: string }[]>;
+  areas: string[];
+  customers: string[];
 }
 
 interface Props<U> {
@@ -23,10 +33,12 @@ interface Props<U> {
   leaderUserId: number | null;
   reps: ProvTeamRep[];
   seats: ProvSeat[];
+  splits: ProvSplit[];
   leaderChoices: { id: number; label: string }[];
   saving: boolean;
   userById: Map<number, U>;
   renderUser: (u: U, indent?: boolean) => ReactNode;
+  userLabel: (u: U) => string;
   onSetLeader: (leaderUserId: number | null) => void;
   /** إعادة جلب بلا مؤشر تحميل: اللوحة تبقى ظاهرة بما فشل من أسماء. */
   onCreated: () => void;
@@ -37,6 +49,20 @@ const LEADER_KEY = 'leader';
 const repKey = (managerUserId: number) => `m${managerUserId}`;
 
 const inputStyle = { padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', flex: '1 1 180px', minWidth: 0, boxSizing: 'border-box' as const };
+
+const linkButtonStyle = { fontSize: 11.5, fontFamily: 'inherit', fontWeight: 700, border: '1px dashed #a5b4fc', background: '#fff', color: '#4338ca', borderRadius: 16, padding: '2px 10px', cursor: 'pointer' };
+
+function SharedChip({ label }: { label?: string }) {
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, background: '#e0e7ff', color: '#3730a3', borderRadius: 20, padding: '1px 9px' }}>
+      مشترك{label ? `: ${label}` : ''}
+    </span>
+  );
+}
+
+function EditSeatsButton({ onClick }: { onClick: () => void }) {
+  return <button type="button" onClick={onClick} style={linkButtonStyle}>المقاعد والايتمات</button>;
+}
 
 function StatusChip({ filled }: { filled: boolean }) {
   return (
@@ -60,11 +86,31 @@ function SeatRow({ title, sub, filled, error, children }: { title: string; sub: 
   );
 }
 
-export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId, reps, seats, leaderChoices, saving, userById, renderUser, onSetLeader, onCreated, token }: Props<U>) {
+export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId, reps, seats, splits, leaderChoices, saving, userById, renderUser, userLabel, onSetLeader, onCreated, token }: Props<U>) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  // نموذج المقاعد: مندوب جديد (repUserId=null) بشركة محددة مسبقاً، أو مندوب قائم.
+  const [form, setForm] = useState<{ repUserId: number | null; presetManagerId: number | null } | null>(null);
+  const [options, setOptions] = useState<SeatOptions | null>(null);
+  const hasMultiRepSeat = seats.some(s => reps.filter(r => r.seatManagerIds.includes(s.managerUserId)).length > 1);
+
+  // الايتمات والمناطق والزبائن تُجلب حين يلزم نموذج أو تقسيم، لا لكل محافظة تُفتح.
+  useEffect(() => {
+    if (options || (!form && !hasMultiRepSeat)) return;
+    let dead = false;
+    fetch(`/api/sa/users/province-structure/seat-options?officeId=${officeId}&provinceId=${province.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(j => { if (!dead && j.success) setOptions({ seatItems: j.seatItems, areas: j.areas, customers: j.customers }); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [form, hasMultiRepSeat, options, officeId, province.id, token]);
+
+  const nameOfRep = (userId: number) => { const u = userById.get(userId); return u ? userLabel(u) : `#${userId}`; };
+  const sharedReps = reps.filter(r => r.seatManagerIds.length > 1);
+  const seatNames = (r: ProvTeamRep) => seats.filter(s => r.seatManagerIds.includes(s.managerUserId)).map(s => s.companyName).join(' + ');
+  const formRep = form?.repUserId != null ? reps.find(r => r.userId === form.repUserId) ?? null : null;
 
   const leader = leaderUserId != null ? userById.get(leaderUserId) : undefined;
   const occupantsOf = (s: ProvSeat) => reps.filter(r => r.seatManagerIds.includes(s.managerUserId));
@@ -163,8 +209,30 @@ export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId
             {occupants.length === 0 && <div style={{ display: 'flex' }}>{nameInput(key, `اسم مندوب ${s.companyName}`)}</div>}
             {occupants.map(r => {
               const u = userById.get(r.userId);
-              return u ? <div key={r.userId}>{renderUser(u, true)}</div> : null;
+              if (!u) return null;
+              // المشترك بطاقته الكاملة في قسم المشتركين: هنا سطر واحد كي لا تتكرر في كل مقعد.
+              if (r.seatManagerIds.length > 1) {
+                return (
+                  <div key={r.userId} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 700, color: '#0f172a', flexWrap: 'wrap' }}>
+                    {userLabel(u)} <SharedChip />
+                  </div>
+                );
+              }
+              return (
+                <div key={r.userId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {renderUser(u, true)}
+                  <div><EditSeatsButton onClick={() => setForm({ repUserId: r.userId, presetManagerId: null })} /></div>
+                </div>
+              );
             })}
+            <div>
+              <button type="button" onClick={() => setForm({ repUserId: null, presetManagerId: s.managerUserId })} style={linkButtonStyle}>+ مندوب آخر لهذه الشركة</button>
+            </div>
+            {occupants.length > 1 && (
+              <ProvinceSplitEditor key={`${s.managerUserId}-${occupants.length}`} officeId={officeId} provinceId={province.id} managerUserId={s.managerUserId}
+                reps={occupants.map(r => ({ userId: r.userId, name: nameOfRep(r.userId) }))}
+                split={splits.find(x => x.managerUserId === s.managerUserId)} options={options} token={token} onSaved={onCreated} />
+            )}
           </SeatRow>
         );
       })}
@@ -172,6 +240,38 @@ export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId
       {seats.length === 0 && (
         <div style={{ fontSize: 12.5, color: '#94a3b8', padding: '4px 2px' }}>لا يوجد مدراء شركات نشطون في هذا المكتب، فلا توجد مقاعد للمندوبين.</div>
       )}
+
+      <div style={{ border: '1px solid #c7d2fe', borderRadius: 10, background: '#fff', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 800, fontSize: 13, color: '#3730a3' }}>مندوبون مشتركون بين الشركات ({sharedReps.length})</span>
+          <button type="button" onClick={() => setForm({ repUserId: null, presetManagerId: null })} style={{ ...linkButtonStyle, marginRight: 'auto' }}>+ مندوب مشترك</button>
+        </div>
+        {sharedReps.length === 0 && !form && (
+          <div style={{ fontSize: 11.5, color: '#94a3b8' }}>مندوب واحد لأكثر من شركة: كل مدير شركة يرى نصيبه منه، والتيم ليدر يراه كاملاً.</div>
+        )}
+        {sharedReps.map(r => {
+          const u = userById.get(r.userId);
+          if (!u) return null;
+          return (
+            <div key={r.userId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {renderUser(u, true)}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <SharedChip label={seatNames(r)} />
+                <EditSeatsButton onClick={() => setForm({ repUserId: r.userId, presetManagerId: null })} />
+              </div>
+            </div>
+          );
+        })}
+        {form && !options && <div style={{ fontSize: 12, color: '#94a3b8' }}>جارٍ تحميل الايتمات…</div>}
+        {form && options && (
+          <ProvinceRepSeatsForm key={`${form.repUserId ?? 'new'}-${form.presetManagerId ?? ''}`}
+            officeId={officeId} provinceId={province.id} seats={seats} options={options}
+            rep={formRep ? { ...formRep, name: nameOfRep(formRep.userId) } : null}
+            presetManagerId={form.presetManagerId} token={token}
+            onSaved={(note) => { setNotes([note]); setForm(null); onCreated(); }}
+            onCancel={() => setForm(null)} />
+        )}
+      </div>
 
       {outsideSeats.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>

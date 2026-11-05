@@ -5,7 +5,9 @@ import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { provinceMemberUserIds, hasNonProvinceSubordinates } from '../../lib/provinceScope.js';
-import { loadManagerSeat, repIdsInManagerTeam, managerItemsForProvinceRep } from '../../lib/provinceSeats.js';
+import { loadManagerSeat, repIdsInManagerTeam, managerItemsForProvinceRep, sharedRepItemsForViewer } from '../../lib/provinceSeats.js';
+import { loadSplitPlansForReps } from '../../lib/provinceSplit.js';
+import { attributeLine } from '../province-teams/province-teams.rules.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
@@ -116,8 +118,12 @@ export async function list(filters, user = null, options = {}) {
     // مدير المسوقين مستثنى: فريقه هو تابعوه فقط.
     const provinceRepCompany = new Map(); // userId → { id, name }
     if (!marketersManager && ['company_manager', 'supervisor', 'product_manager'].includes(user.role)) {
+      // تابع مدير الشركة في فريق محافظة يظهر له ولو كانت ايتماته من شركات غير مسندة له.
+      const directReports = user.role === 'company_manager'
+        ? (await prisma.userManagerAssignment.findMany({ where: { managerId: user.id }, select: { userId: true } })).map(r => r.userId)
+        : [];
       const provRows = await prisma.provinceRepAssignment.findMany({
-        where: { isActive: true, companyId: { in: assignments.map(a => a.companyId) }, team: { isActive: true } },
+        where: { isActive: true, team: { isActive: true }, OR: [{ companyId: { in: assignments.map(a => a.companyId) } }, { repUserId: { in: directReports } }] },
         select: { repUserId: true, company: { select: { id: true, name: true } } },
       });
       for (const r of provRows) if (!provinceRepCompany.has(r.repUserId)) provinceRepCompany.set(r.repUserId, r.company);
@@ -841,8 +847,11 @@ export async function resolveSciRepItemIds(id, repUsersArg = null) {
  * سجلات الايتمات ضمن نطاق المندوب — لصفحة التارگت الشهري.
  * الايتمات المؤقتة مستبعدة: ليست ايتمات كتالوج ولا يُوضع لها هدف.
  */
-export async function getSciRepEffectiveItems(id) {
-  const { itemIds } = await resolveSciRepItemIds(id);
+export async function getSciRepEffectiveItems(id, viewerId = null) {
+  let { itemIds } = await resolveSciRepItemIds(id);
+  // مدير مندوب مشترك يرى ويعيّن تارگت ايتماته هو.
+  const sharedItems = await sharedRepItemsForViewer(id, viewerId);
+  if (sharedItems) itemIds = (itemIds ?? [...sharedItems]).filter(itemId => sharedItems.has(itemId));
   const where = itemIds ? { id: { in: itemIds }, isTemp: false } : { isTemp: false };
   const items = await prisma.item.findMany({
     where, select: { id: true, name: true }, orderBy: { name: 'asc' },
@@ -1516,6 +1525,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       // blockedNorms: الهوية المحجوبة «مندوب تجاري × منطقة» مفهوم مكتبي بحت، وقد
       // يتصادف معرّف المندوب مع مندوب علمي في ميركاتو فيُسقط مبيعاته الذاتية ظلماً.
       if (blockedRepAreaConds.length) office.push({ NOT: { OR: blockedRepAreaConds } });
+      // ignoreRepItems يخص ميركاتو: صفوف المكتب تبقى بايتماته.
+      if (query.ignoreRepItems && hasItems) office.push({ itemId: { in: itemIds } });
       sourceConds.push(office.length === 1 ? office[0] : { AND: office });
     }
 
@@ -1530,7 +1541,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     if (sourceConds.length === 0) return null; // no rep info → return nothing
 
     const conditions = [sourceConds.length === 1 ? sourceConds[0] : { OR: sourceConds }];
-    if (hasItems && !pharmacyMode) conditions.push({ itemId: { in: itemIds } });
+    if (hasItems && !pharmacyMode && !query.ignoreRepItems) conditions.push({ itemId: { in: itemIds } });
     // Globally-blocked areas/items narrow the scope further — excluded regardless
     // of which commercial rep the sale/return belongs to.
     if (blockedAreaIds.length) conditions.push({ NOT: { areaId: { in: blockedAreaIds } } });
@@ -1923,7 +1934,13 @@ async function resolveLiquidationSales(id, query, select, viewerId) {
   const range = { startDate: query.startDate, endDate: query.endDate };
   const wantsSales = query.recordType !== 'return';
   const wide = wantsSales ? widenDateRange(range) : {};
-  const resolved = await resolveSciRepSales(id, { ...query, ...wide }, { ...select, area: { select: { id: true, name: true, province: { select: { name: true } } } } }, viewerId);
+  // مندوب فريق المحافظة: صف ميركاتو باسمه له أياً كان الايتم، فهو من أرسل الطلبية.
+  const ignoreRepItems = (await provinceSenderRepIds([id])).has(id);
+  const resolved = await resolveSciRepSales(id, { ...query, ...wide, ignoreRepItems }, {
+    ...select,
+    area: { select: { id: true, name: true, province: { select: { name: true } } } },
+    customer: select.customer ?? { select: { name: true } },
+  }, viewerId);
   const mercatoRows = resolved.rawSales.filter(isPureMercatoRow);
   const shownMercato = mercatoRows.filter(s => isInDateRange(s.saleDate, range));
 
@@ -1945,11 +1962,64 @@ async function resolveLiquidationSales(id, query, select, viewerId) {
   const mercatoInProvince = shownMercato.map(s => ({ ...s, liqProvince: province.ofRow(s) })).filter(s => inProvince(s.liqProvince));
   const repRows = await repSalesAsRows(shownSales.filter(s => inProvince(province.ofSale(s))), Number(query.iqdRate) > 0 ? Number(query.iqdRate) : 1470, province.ofSale);
   const shownLineIds = new Set(shownRepSales.filter(s => inProvince(province.ofSale(s))).flatMap(s => s.lines.map(l => l.id)));
+  const rows = [...mercatoInProvince, ...repRows];
   return {
     ...resolved,
-    rawSales: [...mercatoInProvince, ...repRows],
+    rawSales: query.withoutSplit ? rows : await applySeatSplits(rows, userIds, query, select, viewerId),
     repSaleDuplicates: droppedLines.filter(lineId => shownLineIds.has(lineId)).length,
   };
+}
+
+/**
+ * مقعد مقسَّم بالايتمات أو المناطق أو الزبائن: يخرج من صفوف المندوب ما يحمله غيره، ويدخلها ما
+ * يحمله هو من صفوف زملائه. فرق بلا مقعد كهذا لا تكلّف غير استعلام loadSplitPlansForReps.
+ */
+async function applySeatSplits(rows, userIds, query, select, viewerId) {
+  const plans = await loadSplitPlansForReps(userIds);
+  if (!plans.size) return rows;
+  const lineOf = (row, senderId) => ({ senderId, itemId: row.itemId ?? null, area: row.area?.name ?? null, customer: row.customer?.name ?? null });
+  const mine = new Set(userIds);
+  const out = rows.filter((row) => {
+    const plan = plans.get(row.liqProvince);
+    return !plan || mine.has(attributeLine(lineOf(row, userIds[0]), plan));
+  });
+  for (const plan of plans.values()) {
+    for (const peerId of plan.repUserIds) {
+      const peerRepId = plan.linkedRepOf.get(peerId);
+      if (mine.has(peerId) || !peerRepId) continue;
+      const peer = await resolveLiquidationSales(peerRepId, { ...query, withoutSplit: true }, select, viewerId).catch(() => null);
+      for (const row of peer?.rawSales ?? []) {
+        if (row.liqProvince === plan.provinceName && mine.has(attributeLine(lineOf(row, peerId), plan))) out.push(row);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * من هؤلاء يُحسب له صف ميركاتو باسمه أياً كان الايتم: مندوب في فريق محافظة فعّال، واسمه لا يتكرر
+ * لمندوب علمي آخر. حسابان بالاسم نفسه (حساب لكل شركة) تبقى ايتماتهما هي الفاصل بينهما.
+ * @param {number[]} repIds معرّفات ScientificRepresentative
+ * @returns {Promise<Set<number>>}
+ */
+async function provinceSenderRepIds(repIds) {
+  if (!repIds.length) return new Set();
+  const inTeam = await prisma.user.findMany({
+    where: { linkedRepId: { in: repIds }, provinceRepAssignments: { some: { isActive: true, team: { isActive: true } } } },
+    select: { linkedRepId: true },
+  });
+  if (!inTeam.length) return new Set();
+  const [reps, links] = await Promise.all([
+    prisma.scientificRepresentative.findMany({ where: { isActive: true, repKind: { not: PHARMACY_KIND } }, select: { id: true, name: true } }),
+    prisma.sciRepNameLink.findMany({ select: { fromKey: true, scientificRepId: true } }),
+  ]);
+  const holders = new Map();
+  const hold = (key, id) => { if (key) { if (!holders.has(key)) holders.set(key, new Set()); holders.get(key).add(id); } };
+  for (const r of reps) hold(normalizeRepName(r.name), r.id);
+  for (const l of links) hold(l.fromKey, l.scientificRepId);
+  const twins = new Set();
+  for (const ids of holders.values()) if (ids.size > 1) for (const id of ids) twins.add(id);
+  return new Set(inTeam.map(u => u.linkedRepId).filter(id => !twins.has(id)));
 }
 
 /**
@@ -2069,8 +2139,10 @@ async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId 
 
   // حسابان بالاسم نفسه (حساب لكل شركة) تفصلهما الايتمات، كما في التقرير.
   const repsInRows = new Set(unique.flatMap(s => [...repsByName.get(normalizeRepName(s.representative?.name ?? ''))]));
+  const senders = await provinceSenderRepIds([...repsInRows]);
   const itemsByRep = new Map();
   for (const repId of repsInRows) {
+    if (senders.has(repId)) { itemsByRep.set(repId, null); continue; }
     const repUsers = users.filter(u => u.linkedRepId === repId).map(u => ({ id: u.id }));
     const { itemIds } = await resolveSciRepItemIds(repId, repUsers);
     itemsByRep.set(repId, itemIds?.length ? new Set(itemIds) : null);
@@ -2153,8 +2225,11 @@ async function resolveGroupSales(repIds, query, select, viewerId) {
       if (!r) continue;
       fileIds = r.fileIds;
       if (r.itemTierMode) tierModes.add(r.itemTierMode);
+      // مندوب مشترك داخل تقرير مجموعة: نصيب هذا المدير منه فقط.
+      const sharedItems = r.rep?.id ? await sharedRepItemsForViewer(r.rep.id, viewerId) : null;
       for (const s of r.rawSales) {
         if (s.id == null) continue;
+        if (sharedItems && !sharedItems.has(s.itemId)) continue;
         const prev = byId.get(s.id);
         if (!prev || tierRank(s) > tierRank(prev)) byId.set(s.id, s);
       }
