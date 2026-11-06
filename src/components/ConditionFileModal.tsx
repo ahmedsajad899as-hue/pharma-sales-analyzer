@@ -7,9 +7,15 @@
 // التقارير ويراها كل من يفتح الملف.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { AutoText, ComboCell, type ComboOpt } from './ComboCell';
 
+/** الطلبية المطابقة بأعمدة الجدول نفسها — تُعرض تحت الصف المشتبه للمقارنة. */
+type CompareLine = {
+  id: number; date: string; invoice: string; pharmacy: string; area: string; province?: string; warehouse: string;
+  item: string; company: string; rep: string; quantity: number; bonus: number; unitPrice: number; total: number;
+  source: string; transit?: boolean; currency?: string;
+};
 type Row = {
   id: number; date: string; invoice: string; pharmacy: string; area: string; warehouse: string;
   item: string; company: string; quantity: number; bonus: number; unitPrice: number; total: number; source: string;
@@ -24,11 +30,12 @@ type Row = {
   mercatoMatch?: {
     level: 'duplicate' | 'possible'; fileName: string; invoiceNumber?: string; date?: string;
     pharmacy?: string; warehouse?: string; rep?: string; sameQty: boolean; mercatoQty: number; reasons: string[];
+    itemCount?: number; line?: CompareLine | null;
   };
   /** اشتباه تكرار بين صف بوت/فاتورة وطلبية ترانزيت (flagConditionTransitDups في الخادم) — على الطرفين */
   transitMatch?: {
     level: 'duplicate' | 'possible'; reasons: string[]; date: string; warehouse: string; pharmacy: string;
-    quantity: number; total: number; otherId: number; source?: string;
+    quantity: number; total: number; otherId: number; source?: string; other?: CompareLine;
   };
 };
 /** team: شركة المندوب أو «مسوقين الكرخ/الرصافة» (attachConditionTeams في الخادم) */
@@ -105,6 +112,48 @@ const mercatoTitle = (r: Row) => {
     + [m.invoiceNumber && `طلبية ${m.invoiceNumber}`, m.pharmacy, m.date, m.warehouse, m.rep].filter(Boolean).join(' · ')
     + (m.sameQty ? '' : ` (كمية ميركاتو ${m.mercatoQty})`);
 };
+/** أقسام المقارنة تحت الصف: ترانزيت و/أو ميركاتو (قد يُعلَّم الصف بالاثنين). */
+type CompareSection = { key: string; color: string; bg: string; caption: string; line?: CompareLine | null };
+function compareSections(r: Row): CompareSection[] {
+  const out: CompareSection[] = [];
+  const t = r.transitMatch;
+  if (t) {
+    out.push({
+      key: 'transit', color: '#9a3412', bg: '#fff7ed', line: t.other,
+      caption: `⚠️ ${t.level === 'duplicate' ? 'مشتبه تكراره' : 'ربما مكرر'} مع ${r.transit ? `صف ${t.source || 'اللكوديشن'}` : 'طلبية ترانزيت'}: `
+        + [t.date, t.pharmacy, t.warehouse].filter(Boolean).join(' · ') + ` — ${t.reasons.join('، ')}`,
+    });
+  }
+  const m = r.mercatoMatch;
+  if (m) {
+    const danger = m.level === 'duplicate';
+    out.push({
+      key: 'mercato', color: danger ? 'var(--c-danger)' : '#92400e', bg: danger ? 'var(--c-danger-bg)' : '#fffbeb', line: m.line,
+      caption: `🏬 ${danger ? 'محسوب أصلاً في مبيع ميركاتو' : 'ربما محسوب في ميركاتو'} «${m.fileName}»: `
+        + [m.invoiceNumber && `طلبية ${m.invoiceNumber}`, m.date, m.pharmacy, m.warehouse].filter(Boolean).join(' · ')
+        + ` — ${m.reasons.join('، ')}`
+        + ((m.itemCount ?? 0) > 1 ? ` — طلبية ميركاتو فيها ${m.itemCount} أصناف، المعروض الصنف المطابق لهذا الصف` : ''),
+    });
+  }
+  return out;
+}
+const fmtExact = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+/**
+ * هل تختلف قيمة العمود عن الصف أعلاه؟ للأرقام والتاريخ فقط: الأسماء تُكتب بأشكال مختلفة بين
+ * المصادر («مذخر بلاتين» / «بلاتين - بغداد») فتظليلها يوهم باختلاف غير حقيقي. الترانزيت
+ * لا يحمل بونصاً، والسعر والقيمة لا يُقارنان بين عملتين، والسعر الصفر يعني أنه غير مقروء.
+ */
+function cellDiffers(r: Row, l: CompareLine, key: string, currency: string): boolean {
+  if (key === 'date') return !!r.date && !!l.date && r.date !== l.date;
+  if (key === 'quantity') return r.quantity !== l.quantity;
+  if (key === 'bonus') return !r.transit && !l.transit && (r.bonus || 0) !== (l.bonus || 0);
+  if (key === 'unitPrice' || key === 'total') {
+    if (l.currency && l.currency !== currency) return false;
+    const a = Number((r as any)[key]) || 0, b = Number((l as any)[key]) || 0;
+    return a > 0 && b > 0 && Math.abs(a - b) > Math.max(a, b) * 0.005;
+  }
+  return false;
+}
 // عمود الصف ← حقل التعديل في PATCH /api/files/:id/condition-rows/:saleId
 const EDIT_COLS: { key: string; label: string; w: number; num?: boolean; ro?: boolean }[] = [
   { key: 'date', label: 'التاريخ', w: 128 }, { key: 'invoice', label: 'رقم الفاتورة', w: 90 },
@@ -161,6 +210,13 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const [mercatoOnly, setMercatoOnly] = useState(false);
   // «⚠️ اشتباه تكرار مع الترانزيت فقط» — صف البوت وطلبية الترانزيت التي تشبهه.
   const [transitOnly, setTransitOnly] = useState(false);
+  // الصفوف المفتوحة مقارنتها — بالمعرّف كي تبقى مفتوحة بعد إعادة الجلب الصامتة عند حفظ خانة.
+  const [compareOpen, setCompareOpen] = useState<Set<number>>(() => new Set());
+  const toggleCompare = (id: number) => setCompareOpen(cur => {
+    const next = new Set(cur);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  });
   const [tab, setTab] = useState(SUMMARY);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -523,8 +579,11 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                     {current.rows.map(r => {
                       // صف الترانزيت يعيش في ملف المكتب — لا يُعدَّل ولا يُحذف من هنا.
                       const rowEditable = canEdit && !r.transit;
+                      const sections = r.transitMatch || r.mercatoMatch ? compareSections(r) : [];
+                      const open = compareOpen.has(r.id);
                       return (
-                      <tr key={r.id} style={r.transitMatch ? { background: '#ffedd5' } : r.transit ? { background: '#f0f9ff' } : r.mercatoMatch ? { background: r.mercatoMatch.level === 'duplicate' ? '#fee2e2' : '#fef3c7' } : undefined}
+                      <Fragment key={r.id}>
+                      <tr style={r.transitMatch ? { background: '#ffedd5' } : r.transit ? { background: '#f0f9ff' } : r.mercatoMatch ? { background: r.mercatoMatch.level === 'duplicate' ? '#fee2e2' : '#fef3c7' } : undefined}
                         title={r.transitMatch ? transitTitle(r) : r.transit ? r.note : r.mercatoMatch ? mercatoTitle(r) : undefined}>
                         {EDIT_COLS.map(c => {
                           const val = c.key === 'rep' ? (current.all ? (r.rep || NO_REP) : current.rep) : String((r as any)[c.key] ?? '');
@@ -556,6 +615,13 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                                   </span>
                                 )}
                               </>}
+                          {sections.length > 0 && (
+                            <button onClick={() => toggleCompare(r.id)} aria-expanded={open}
+                              title="عرض الطلبية المشابهة تحت هذا الصف للمقارنة"
+                              style={{ marginInlineStart: 6, border: '1px solid #334155', background: open ? '#334155' : '#fff', color: open ? '#fff' : '#334155', borderRadius: 6, padding: '1px 8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                              {open ? '▴ إخفاء' : '▾ قارن'}
+                            </button>
+                          )}
                         </td>
                         {canEdit && (
                           <td style={td}>
@@ -563,6 +629,41 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                           </td>
                         )}
                       </tr>
+                      {open && sections.map(sec => {
+                        const l = sec.line;
+                        const anyDiff = !!l && EDIT_COLS.some(c => cellDiffers(r, l, c.key, currency));
+                        const otherCurrency = l?.currency && l.currency !== currency ? l.currency : '';
+                        return (
+                          <Fragment key={sec.key}>
+                            {/* العمود الأيمن من الجدول قد يكون خارج الشاشة بعد التمرير الأفقي: الوصف ثابت في المنظور. */}
+                            <tr style={{ background: sec.bg }}>
+                              <td colSpan={EDIT_COLS.length + 1 + (canEdit ? 1 : 0)} style={{ ...td, textAlign: 'right', padding: 0 }}>
+                                <div style={{ position: 'sticky', right: 0, left: 0, width: 'min(1040px, calc(100vw - 100px))', boxSizing: 'border-box', padding: '5px 8px', whiteSpace: 'normal', color: sec.color, fontWeight: 600 }}>
+                                  {sec.caption}
+                                  {otherCurrency && ` — قيمة ميركاتو بعملة ${otherCurrency}`}
+                                  {anyDiff && <span style={{ marginInlineStart: 6, background: '#fef08a', color: '#713f12', borderRadius: 4, padding: '0 5px' }}>المظلَّل يختلف عن الصف أعلاه</span>}
+                                </div>
+                              </td>
+                            </tr>
+                            {l && (
+                              <tr style={{ background: '#fff' }}>
+                                {EDIT_COLS.map(c => {
+                                  const raw = (l as any)[c.key];
+                                  const diff = cellDiffers(r, l, c.key, currency);
+                                  return (
+                                    <td key={c.key} style={{ ...td, whiteSpace: 'normal', maxWidth: c.w, ...(diff ? { background: '#fef08a', color: '#713f12', fontWeight: 800 } : null) }}>
+                                      {c.num ? (raw ? fmtExact(Number(raw)) : '—') : (raw || '—')}
+                                    </td>
+                                  );
+                                })}
+                                <td style={{ ...td, color: sec.color, fontWeight: 700 }}>{l.transit ? '🔁 ترانزيت' : (l.source || '—')}</td>
+                                {canEdit && <td style={td} />}
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                      </Fragment>
                       );
                     })}
                     <tr style={{ background: '#f8fafc' }}>

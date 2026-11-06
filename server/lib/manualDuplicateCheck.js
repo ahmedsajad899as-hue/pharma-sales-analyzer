@@ -373,7 +373,7 @@ export async function checkManualDuplicates({ rows, target = {}, userId, receive
 export const matchHelpers = { realInvoice, pharmKey, areaKey, whKey, namesMatch, dayOf };
 
 /** للاختبار فقط (scripts/test-manual-duplicates.mjs). */
-export const __test = { compareOrder, buildIncomingOrder, realInvoice, pharmKey, areaKey, dayOf, whKey };
+export const __test = { compareOrder, buildIncomingOrder, realInvoice, pharmKey, areaKey, dayOf, whKey, mercatoLineView };
 
 /** سطر تنبيه قصير لردّ البوت، أو '' إن لم يوجد تكرار يُذكر. */
 export function duplicateWarningText(result) {
@@ -389,6 +389,53 @@ export function duplicateWarningText(result) {
       : `• ${where} بالكامل (${what})`;
   });
   return `\n\n⚠️ تنبيه تكرار — راجعها قبل الحفظ:\n${lines.join('\n')}`;
+}
+
+/**
+ * سطر ميركاتو بأعمدة جدول اللكوديشن نفسها — يُعرض تحت الصف المشتبه ليقارنهما المستخدم.
+ * قد تحمل طلبية ميركاتو ايتمات تيم آخر، فيُرسَل السطر المطابق لهذا الصف وحده.
+ */
+function mercatoLineView(s, currency) {
+  const raw = parseRaw(s.rawData);
+  const qty = Number(s.quantity) || 0;
+  const total = Number(s.totalValue) || 0;
+  const bonusKey = Object.keys(raw).find(k => k.includes('بونص'));
+  const area = s.area?.name && s.area.name !== 'غير محدد' ? s.area.name : '';
+  return {
+    id: s.id,
+    date: fmtDay(dayOf(s.saleDate)),
+    invoice: String(raw.invoiceNumber ?? raw['رقم طلبية المذخر'] ?? raw['رقم الفاتورة'] ?? '').trim(),
+    pharmacy: String(raw.pharmacy || s.customer?.name || raw['اسم الشركة'] || '').trim(),
+    area,
+    province: s.area?.province?.name || String(raw.province ?? raw['المدينة'] ?? '').trim(),
+    warehouse: String(raw.warehouse ?? raw['اسم المذخر'] ?? '').trim(),
+    item: s.item?.name || '',
+    company: String(raw.company || raw['الصنف'] || '').trim(),
+    rep: String(raw['اسم المندوب'] ?? raw.scientificRep ?? '').trim(),
+    quantity: qty,
+    bonus: Number(raw.bonus) || Number(raw[bonusKey]) || 0,
+    unitPrice: Number(raw.unitPrice) || Number(raw['السعر']) || (qty ? Math.round((total / qty) * 100) / 100 : 0),
+    total,
+    source: 'ميركاتو',
+    currency: currency || 'IQD',
+  };
+}
+
+/** يملأ mercatoMatch.line لكل صف معلَّم — استعلام منفصل بالسطور المطابقة فقط لا بكل ميركاتو الشهر. */
+async function attachMercatoLines(matches, files) {
+  const ids = [...new Set(matches.map(m => m.saleId))];
+  if (!ids.length) return;
+  const sales = await prisma.sale.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true, quantity: true, totalValue: true, saleDate: true, rawData: true, uploadedFileId: true,
+      item: { select: { name: true } }, customer: { select: { name: true } },
+      area: { select: { name: true, province: { select: { name: true } } } },
+    },
+  });
+  const currencyOf = new Map(files.map(f => [f.id, f.detectedCurrency]));
+  const lines = new Map(sales.map(s => [s.id, mercatoLineView(s, currencyOf.get(s.uploadedFileId))]));
+  for (const m of matches) m.line = lines.get(m.saleId) ?? null;
 }
 
 /**
@@ -410,7 +457,7 @@ export async function flagConditionRowsInMercato(sheets, ownerId) {
 
   const files = (await prisma.uploadedFile.findMany({
     where: { userId: ownerId, sourceSystem: 'mercato' },
-    select: { id: true, originalName: true, sourceSystem: true, mergeGroup: true },
+    select: { id: true, originalName: true, sourceSystem: true, mergeGroup: true, detectedCurrency: true },
   })).filter(isMercatoFile);
   if (!files.length) return 0;
 
@@ -436,7 +483,7 @@ export async function flagConditionRowsInMercato(sheets, ownerId) {
     if (o.invoice) { if (!byInv.has(o.invoice)) byInv.set(o.invoice, []); byInv.get(o.invoice).push(o); }
   }
 
-  let flagged = 0;
+  const matches = [];
   for (const inc of incoming) {
     const cands = new Set(inc.invoice ? byInv.get(inc.invoice) || [] : []);
     for (let d = -7; d <= 7; d++) for (const o of byDay.get(inc.day + d * DAY) || []) cands.add(o);
@@ -451,12 +498,19 @@ export async function flagConditionRowsInMercato(sheets, ownerId) {
     for (const [i, p] of c.pairs) {
       const row = byId.get(inc.items[i].index);
       if (!row || row.mercatoMatch) continue;
-      row.mercatoMatch = { ...match, sameQty: p.sameQty, mercatoQty: p.ex.qty };
-      flagged++;
+      row.mercatoMatch = { ...match, sameQty: p.sameQty, mercatoQty: p.ex.qty, saleId: p.ex.saleId };
+      matches.push(row.mercatoMatch);
     }
   }
-  return flagged;
+  await attachMercatoLines(matches, files);
+  return matches.length;
 }
+
+const compareView = (r, rep) => ({
+  id: r.id, date: r.date, invoice: r.invoice, pharmacy: r.pharmacy, area: r.area, province: r.province,
+  warehouse: r.warehouse, item: r.item, company: r.company, rep: rep || '', quantity: r.quantity,
+  bonus: r.bonus, unitPrice: r.unitPrice, total: r.total, source: r.source, transit: Boolean(r.transit),
+});
 
 /**
  * صف كوديشن (بوت/فاتورة/إكسل) يشبه طلبية ترانزيت من ملف المكتب ⇒ غالباً الطلبية نفسها
@@ -508,9 +562,12 @@ export function flagConditionTransitDups(sheets) {
     if (best.wh) reasons.push('نفس المذخر');
     if (best.gap != null) reasons.push(best.gap === 0 ? 'نفس اليوم' : best.gap > 0 ? `الترانزيت أقدم بـ${best.gap} يوم` : 'الترانزيت أحدث بيوم');
     const t = best.t.r;
-    c.r.transitMatch = { level: best.level, reasons, date: t.date, warehouse: t.warehouse, pharmacy: t.pharmacy, quantity: t.quantity, total: t.total, otherId: t.id };
-    for (const copy of transitById.get(t.id)) {
-      copy.transitMatch = { level: best.level, reasons, date: c.r.date, warehouse: c.r.warehouse, pharmacy: c.r.pharmacy, quantity: c.r.quantity, total: c.r.total, otherId: c.r.id, source: c.r.source };
+    // `other` = الطرف الآخر كاملاً ليُعرض تحت الصف؛ الترانزيت قد يُنسب لعدة مندوبين (نسخة لكل واحد).
+    const copies = transitById.get(t.id);
+    const transitReps = [...new Set(copies.map(x => x.rep).filter(Boolean))].join('، ');
+    c.r.transitMatch = { level: best.level, reasons, date: t.date, warehouse: t.warehouse, pharmacy: t.pharmacy, quantity: t.quantity, total: t.total, otherId: t.id, other: compareView(t, transitReps) };
+    for (const copy of copies) {
+      copy.transitMatch = { level: best.level, reasons, date: c.r.date, warehouse: c.r.warehouse, pharmacy: c.r.pharmacy, quantity: c.r.quantity, total: c.r.total, otherId: c.r.id, source: c.r.source, other: compareView(c.r, c.r.rep) };
     }
     flagged++;
   }

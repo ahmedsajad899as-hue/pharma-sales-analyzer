@@ -1,6 +1,6 @@
 // اختبار منطق «هل الفاتورة محفوظة سابقاً؟» (server/lib/manualDuplicateCheck.js) بلا قاعدة بيانات.
 // npm run test:manual-duplicates
-import { __test } from '../server/lib/manualDuplicateCheck.js';
+import { __test, flagConditionTransitDups } from '../server/lib/manualDuplicateCheck.js';
 
 const { compareOrder, buildIncomingOrder, pharmKey, areaKey, dayOf, realInvoice } = __test;
 let fail = 0;
@@ -109,6 +109,39 @@ check('نفس المذخر بصيغتين («مذخر المنارة» = «ال�
 check('البوت بلا مذخر ⇒ يبقى التنبيه', level([
   { date: '2026-10-12', pharmacy: 'هيثم عكلة حنون', item: 'CANDEXIL PLUS 16/12.5MG 28TAB', quantity: 10 },
 ], mercatoOrder('هيثم عكله حنون', 'المنارة - بغداد', 'CANDEXIL PLUS 16/12.5MG 28TAB', 10)), 'duplicate');
+
+// 12) زر «قارن» في ملف اللكوديشن: سطر ميركاتو بأعمدة الجدول، والطرف الآخر من الترانزيت
+const line = __test.mercatoLineView({
+  id: 9, quantity: 20, totalValue: 121120, saleDate: new Date('2026-10-12T00:00:00Z'),
+  item: { name: 'AMOKLAVIN BID 1000MG 10TAB' }, area: { name: 'الدورة', province: { name: 'بغداد' } }, customer: { name: 'الرشاقة' },
+  rawData: JSON.stringify({ 'رقم طلبية المذخر': '5521', 'اسم المذخر': 'بلاتين - بغداد', 'الصنف': 'Deva', 'اسم المندوب': 'محمود بلال', 'كمية البونص': '5', 'السعر': '6056' }),
+}, 'USD');
+check('سطر ميركاتو: الرقم', line.invoice, '5521');
+check('سطر ميركاتو: المذخر', line.warehouse, 'بلاتين - بغداد');
+check('سطر ميركاتو: الشركة', line.company, 'Deva');
+check('سطر ميركاتو: البونص', line.bonus, 5);
+check('سطر ميركاتو: السعر', line.unitPrice, 6056);
+check('سطر ميركاتو: المحافظة', line.province, 'بغداد');
+check('سطر ميركاتو: العملة', line.currency, 'USD');
+check('سطر ميركاتو: تاريخ', line.date, '2026-10-12');
+const noPrice = __test.mercatoLineView({ id: 10, quantity: 4, totalValue: 100, saleDate: new Date(0), rawData: '{}' }, null);
+check('بلا سعر ⇒ القيمة ÷ الكمية', noPrice.unitPrice, 25);
+check('بلا بونص ⇒ 0', noPrice.bonus, 0);
+check('بلا تاريخ (علامة 1970) ⇒ فارغ', noPrice.date, '');
+check('بلا عملة ⇒ IQD', noPrice.currency, 'IQD');
+
+const baseRow = { pharmacy: 'النور', warehouse: 'بلاتين', item: 'PANDEV 40MG 14TAB', company: 'Deva', quantity: 10, bonus: 0, unitPrice: 100, total: 1000, area: '', province: 'بغداد', invoice: '' };
+const condRow = { ...baseRow, id: 1, date: '2026-10-12', rep: 'محمود بلال', source: 'بوت تلكرام', bonus: 2 };
+const transitCopies = [
+  { ...baseRow, id: 2, date: '2026-10-10', rep: 'علي', source: 'ترانزيت', transit: true },
+  { ...baseRow, id: 2, date: '2026-10-10', rep: 'سارة', source: 'ترانزيت', transit: true },
+];
+flagConditionTransitDups([{ rows: [condRow] }, { rows: [transitCopies[0]] }, { rows: [transitCopies[1]] }]);
+check('ترانزيت: صف اللكوديشن يرى كل مندوبي الترانزيت', condRow.transitMatch?.other?.rep, 'علي، سارة');
+check('ترانزيت: صف اللكوديشن يرى الايتم', condRow.transitMatch?.other?.item, 'PANDEV 40MG 14TAB');
+check('ترانزيت: علامة الترانزيت في الطرف الآخر', condRow.transitMatch?.other?.transit, true);
+check('ترانزيت: كل نسخة ترى صف اللكوديشن', transitCopies.every(c => c.transitMatch?.other?.id === 1), true);
+check('ترانزيت: بونص الطرف الآخر', transitCopies[1].transitMatch?.other?.bonus, 2);
 
 if (fail) { console.error(`\n${fail} اختبار فشل`); process.exit(1); }
 console.log('\nكل الاختبارات نجحت');
