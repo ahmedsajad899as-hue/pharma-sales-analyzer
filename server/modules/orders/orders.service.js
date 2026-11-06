@@ -19,7 +19,7 @@ import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItem
 import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { REP_ROLES } from '../../lib/areaScope.js';
-import { isManagementRepRecord, candidateOwnsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow } from '../../lib/repGuessRules.js';
+import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow } from '../../lib/repGuessRules.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
@@ -459,6 +459,11 @@ export async function attachScientificRepGuess(rows, actingUser) {
     const itemKeyById = new Map(itemNames.map(i => [i.id, normalizeItemKey(i.name)]));
     for (const c of index) {
       c.explicitItems = c.ownedItems.size > 0 ? c.ownedItems : c.items;
+      c.heldKeys = new Set();
+      for (const id of [...c.items, ...c.ownedItems]) {
+        const k = itemKeyById.get(id);
+        if (k) c.heldKeys.add(k);
+      }
       c.itemKeys = new Set(); c.brands = new Set();
       for (const id of c.explicitItems) {
         const k = itemKeyById.get(id);
@@ -510,22 +515,26 @@ export async function attachScientificRepGuess(rows, actingUser) {
       if (areaIds.size > 0 || coverage.provinceId != null) {
         candidates = candidates.filter(c => candidateCoversRow(c, coverage));
       }
-      // الصنف مُسنَد صراحةً لمندوب — يحسم وحده غالباً.
-      if (itemId) candidates = narrow(candidates, c => c.ownedItems.has(itemId) || c.items.has(itemId));
-      else if (itemKey) candidates = narrow(candidates, c => c.itemKeys.has(itemKey));
-      if (sciId != null) candidates = narrow(candidates, c => c.companies.has(sciId) || c.ownedCompanies.has(sciId));
-      // من له قائمة ايتمات صريحة لا تضمّ هذا الصنف ليس صاحبه.
-      if (itemId) {
-        candidates = narrow(candidates, c => c.explicitItems.size === 0 || c.explicitItems.has(itemId));
-      }
-      // العلامة التجارية: من قائمته الصريحة لا تحمل «amoklavin» بأي شكل ليس صاحبه.
-      if (brand) {
-        candidates = narrow(candidates, c => c.explicitItems.size === 0 || c.brands.has(brand));
-        candidates = narrow(candidates, c => c.brands.has(brand));
+      const ownKey = (itemId && itemKeyById.get(itemId)) || itemKey;
+      // من عُيِّن له الصنف هو صاحبه، والشركة لا تحسم بينهم. الأدلة التالية لمن لم يُعيَّن
+      // الصنف لأحد في هذا النطاق فقط.
+      const holders = candidates.filter(c => candidateHoldsItem(c, { itemId, itemKey: ownKey }));
+      if (holders.length) {
+        candidates = holders;
+      } else {
+        if (sciId != null) candidates = narrow(candidates, c => c.companies.has(sciId) || c.ownedCompanies.has(sciId));
+        // من له قائمة ايتمات صريحة لا تضمّ هذا الصنف ليس صاحبه.
+        if (itemId) {
+          candidates = narrow(candidates, c => c.explicitItems.size === 0 || c.explicitItems.has(itemId));
+        }
+        // العلامة التجارية: من قائمته الصريحة لا تحمل «amoklavin» بأي شكل ليس صاحبه.
+        if (brand) {
+          candidates = narrow(candidates, c => c.explicitItems.size === 0 || c.brands.has(brand));
+          candidates = narrow(candidates, c => c.brands.has(brand));
+        }
       }
       // narrow أعلاه يُبقي القائمة حين لا يطابق أحد، فمن كان وحده في المنطقة كان يُحسم
       // ولو لم يُعيَّن له الصنف. هنا نفي صريح: خانة فارغة أهون من مندوب خاطئ.
-      const ownKey = (itemId && itemKeyById.get(itemId)) || itemKey;
       const ownership = { itemId, itemKey: ownKey, brand: itemBrand(ownKey), sciId };
       candidates = candidates.filter(c => candidateOwnsItem(c, ownership));
 
@@ -535,7 +544,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
         const storedKey = repCoreKey(row.scientificRep);
         const stored = index.find(c => repCoreKey(c.name) === storedKey);
         if (nonRepNameKeys.has(storedKey)
-          || (row._repSource !== 'sender' && stored && !candidateOwnsItem(stored, ownership))) {
+          || (row._repSource !== 'sender' && stored && (!candidateOwnsItem(stored, ownership) || (holders.length && !holders.includes(stored))))) {
           row.scientificRep = null;
         }
       }

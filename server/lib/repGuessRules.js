@@ -58,11 +58,23 @@ export function candidateCoversRow(c, { areaIds, provinceId }) {
 }
 
 /**
+ * هل الصنف مُعيَّن لهذا المندوب بعينه؟ (قرار صاحب المشروع 2026-11-06) تعيين الايتم هو
+ * المعيار في بغداد والمحافظات، لا الشركة التي ينتمي لها المندوب: من عُيِّن له الصنف يغلب من
+ * يغطّيه بتعيين الشركة. المصدران: تعيين الحساب (items) وتعيين الفريق/السجلّ (ownedItems)،
+ * والمطابقة بالاسم لأن الصنف نفسه قد يكون بصفّ كتالوج آخر.
+ */
+export function candidateHoldsItem(c, { itemId = null, itemKey = '' }) {
+  if (itemId != null && (c.items?.has(itemId) || c.ownedItems?.has(itemId))) return true;
+  return Boolean(itemKey && c.heldKeys?.has(itemKey));
+}
+
+/**
  * هل يمكن أن يكون هذا المرشّح صاحب الصنف؟ تعيين صريح لا يضمّ الصنف ينفي الملكية،
  * وغياب أي تعيين يعني «الكل». العلامة التجارية تكفي لأن الجرعة قد تكون صفّاً آخر.
  * صنف غير مربوط بالكتالوج لا يُنفى باسمه: القراءة قد تكون بتهجئة مختلفة.
  */
 export function candidateOwnsItem(c, { itemId = null, itemKey = '', brand = '', sciId = null }) {
+  if (candidateHoldsItem(c, { itemId, itemKey })) return true;
   if (sciId != null && c.allItemCompanies?.has(sciId)) return true;
   if (itemId != null && c.explicitItems.size > 0) {
     return c.explicitItems.has(itemId)

@@ -1,5 +1,5 @@
 // قواعد أهلية المندوب المقترَح للطلبية. نقيّ بلا قاعدة بيانات: npm run test:rep-guess
-import { isManagementRepRecord, candidateOwnsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow } from '../server/lib/repGuessRules.js';
+import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow } from '../server/lib/repGuessRules.js';
 import { normalizeAreaName } from '../server/lib/itemResolver.js';
 
 let fail = 0;
@@ -53,6 +53,19 @@ eq('مندوب بمنطقة داخلها يغطّيها', candidateCoversRow(rep
 eq('مندوب بغداد لا يغطّي النجف', candidateCoversRow(rep({ areas: [555], provinces: [1] }), cover('النجف')), false);
 eq('تغطية منطقة عادية', candidateCoversRow(rep({ areas: [777] }), cover('القادسية', [777])), true);
 eq('مندوب آخر لا يغطّي المنطقة', candidateCoversRow(rep({ areas: [1] }), cover('القادسية', [777])), false);
+
+// ── المعيار تعيين الايتم لا شركة المندوب (قرار صاحب المشروع 2026-11-06) ──
+const holder = ({ items = [], owned = [], keys = [] } = {}) => ({ items: new Set(items), ownedItems: new Set(owned), heldKeys: new Set(keys) });
+const amok = { itemId: 31, itemKey: 'amoklavin bid 1000mg 10tab' };
+eq('معيَّن له عبر تعيين الحساب', candidateHoldsItem(holder({ items: [31] }), amok), true);
+eq('معيَّن له عبر تعيين الفريق', candidateHoldsItem(holder({ owned: [31] }), amok), true);
+eq('نفس الصنف بصفّ كتالوج آخر', candidateHoldsItem(holder({ items: [90], keys: ['amoklavin bid 1000mg 10tab'] }), amok), true);
+eq('شركته فقط لا تكفي', candidateHoldsItem(holder(), amok), false);
+eq('جرعة أخرى ليست تعييناً', candidateHoldsItem(holder({ items: [30], keys: ['amoklavin bid 625mg 10tab'] }), amok), false);
+// كانت تُنفى: قائمة فريقها (ownedItems) بلا الصنف، وهو في تعيين حسابها.
+eq('تعيين الحساب يكفي ولو قائمة الفريق بلا الصنف', candidateOwnsItem(
+  { ...cand({ items: [77], keys: ['pantactive'], brands: ['pantactive'] }), items: new Set([31]), ownedItems: new Set([77]), heldKeys: new Set(['amoklavin bid 1000mg 10tab']) },
+  { ...amok, brand: 'amoklavin', sciId: 3 }), true);
 
 console.log(fail ? `\n✗ ${fail} فشل` : '\n✓ كلها نجحت');
 process.exit(fail ? 1 : 0);
