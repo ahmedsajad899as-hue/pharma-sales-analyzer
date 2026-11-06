@@ -7,8 +7,15 @@
 // (فاتورة 2026-10-22 كانت من مفتاح Gemini استُخدم خارج الموقع — ارجع للذاكرة).
 import { logAiUsage } from './aiUsage.js';
 
-const AI_MODEL = 'gemini-3.8-flash';
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL}:generateContent`;
+const DEFAULT_MODEL = 'gemini-3.8-flash';
+// موديل مختلف لميزة بعينها. لا تنقل ميزة هنا بلا مقارنة على بيانات حقيقية: في اختبار
+// 2026-11-06 جاء 3.5-flash-lite مطابقاً تقريباً في طلبيات النص (29/30) وبنصف الكلفة،
+// لكنه أخطأ في أسماء الصيدليات والتواريخ على صور الفواتير فبقيت الصور على الافتراضي.
+const FEATURE_MODELS = {
+  'bot-order-text': 'gemini-3.5-flash-lite',
+};
+export const modelForFeature = (feature) => FEATURE_MODELS[feature] || DEFAULT_MODEL;
+const apiUrl = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
 const DEFAULT_TIMEOUT_MS = 55_000; // قصير للمساعد؛ النداءات الثقيلة تمرّر أكثر (Nginx يسمح بـ300s)
 const MAX_OUTPUT_TOKENS  = 16_000;
@@ -32,10 +39,10 @@ function toParts(parts) {
   });
 }
 
-async function once(body, timeout) {
+async function once(model, body, timeout) {
   let res;
   try {
-    res = await fetch(API_URL, {
+    res = await fetch(apiUrl(model), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
       body: JSON.stringify(body),
@@ -69,6 +76,7 @@ export async function callAI(parts, opts = {}) {
     maxTotalMs = null,
     feature = 'other',
   } = opts;
+  const model = modelForFeature(feature);
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY غير مهيأ');
   if (maxTotalMs != null && maxTotalMs <= 0) throw new Error('AI total budget exhausted');
   const timeout = maxTotalMs != null ? Math.min(timeoutMs, maxTotalMs) : timeoutMs;
@@ -86,11 +94,11 @@ export async function callAI(parts, opts = {}) {
   let promptTokens = 0, outputTokens = 0;
   try {
     let json;
-    try { json = await once(body, timeout); }
+    try { json = await once(model, body, timeout); }
     catch (err) {
       if (!canRetry || !isRetryable(err)) throw err;
       await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
-      json = await once(body, timeout);
+      json = await once(model, body, timeout);
     }
 
     const u = json.usageMetadata || {};
@@ -102,14 +110,14 @@ export async function callAI(parts, opts = {}) {
     if (!text) {
       throw new GeminiError(`رد فارغ من النموذج (${json.promptFeedback?.blockReason || candidate?.finishReason || 'بلا سبب'})`, 'error');
     }
-    if (candidate.finishReason === 'MAX_TOKENS') console.warn(`[ai] ${AI_MODEL} (${feature}): الرد مقطوع عند حد التوكنز`);
+    if (candidate.finishReason === 'MAX_TOKENS') console.warn(`[ai] ${model} (${feature}): الرد مقطوع عند حد التوكنز`);
 
-    logAiUsage({ feature, model: json.modelVersion || AI_MODEL, ok: true, promptTokens, outputTokens, durationMs: Date.now() - started });
+    logAiUsage({ feature, model: json.modelVersion || model, ok: true, promptTokens, outputTokens, durationMs: Date.now() - started });
     return text;
   } catch (err) {
     const kind = err?.kind === 'connection' ? 'error' : (err?.kind || 'error');
-    logAiUsage({ feature, model: AI_MODEL, ok: false, errorKind: kind, promptTokens, outputTokens, durationMs: Date.now() - started });
-    console.error(`[ai] ${AI_MODEL} ${kind}:`, String(err?.message || '').slice(0, 300));
+    logAiUsage({ feature, model, ok: false, errorKind: kind, promptTokens, outputTokens, durationMs: Date.now() - started });
+    console.error(`[ai] ${model} ${kind}:`, String(err?.message || '').slice(0, 300));
     throw err;
   }
 }

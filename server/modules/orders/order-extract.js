@@ -159,11 +159,15 @@ const cleanName = (s) => {
  * يستخرج صفوف طلبية من نص حرّ. لا يرمي عند فشل الذكاء — يُعيد [] ويترك القرار
  * للمستدعي (bot-order-flow يردّ برسالة عربية مفهومة بدل خطأ تقني في الكروب).
  *
+ * throwOnAiFailure للمنصّات الصامتة التي تعيد الرسالة لاحقاً: هناك [] يعني «ليست طلبية»
+ * فتُنسى، فتعطّل الذكاء (رصيد نفد، ضغط، رد مقطوع) كان يُسقط الطلبية بلا أثر. الفشل يُرمى
+ * ليفرَّق عن الرد الفارغ الصحيح.
+ *
  * @param {string} text
- * @param {{ todayISO?: string }} [opts]
+ * @param {{ todayISO?: string, throwOnAiFailure?: boolean }} [opts]
  * @returns {Promise<object[]>} صفوف بنفس شكل مخرجات extractInvoiceRows
  */
-export async function extractOrderRowsFromText(text, { todayISO } = {}) {
+export async function extractOrderRowsFromText(text, { todayISO, throwOnAiFailure = false } = {}) {
   const raw = String(text ?? '').trim();
   if (!raw || raw.length > MAX_ORDER_TEXT_LEN) return [];
 
@@ -171,19 +175,25 @@ export async function extractOrderRowsFromText(text, { todayISO } = {}) {
 
   let reply;
   try {
-    // سلّم الموديلات الافتراضي بلا تثبيت: التعليق في ai-assistant.controller.js
-    // قاس هذا السلّم بالذات على قراءة الفواتير العربية ويحذّر من الترقية العمياء.
+    // الموديل يُختار حسب وسم الميزة في geminiAi.js (FEATURE_MODELS).
     reply = await callAI(
       [buildOrderTextPrompt(today), `نصّ الطلبية:\n«${raw}»`],
       { timeoutMs: 45_000, thinkingBudget: 0, feature: 'bot-order-text' },
     );
   } catch (err) {
     console.error('[orders] Gemini فشل في قراءة نص الطلبية:', String(err?.message || '').slice(0, 200));
+    if (throwOnAiFailure) throw err;
     return [];
   }
 
+  const parsed = parseInvoiceJson(reply);
+  // رد بلا مصفوفة JSON سليمة (مقطوع عند حد التوكنز مثلاً) ليس «لا توجد طلبية»
+  if (throwOnAiFailure && !parsed.length && !/\[\s*\]/.test(String(reply))) {
+    throw new Error('رد الذكاء على نص الطلبية ليس مصفوفة JSON صالحة');
+  }
+
   const rows = [];
-  for (const r of parseInvoiceJson(reply)) {
+  for (const r of parsed) {
     const item = cleanName(r.item);
     if (!item) continue; // صنف بلا اسم لا معنى له في الشبكة
 

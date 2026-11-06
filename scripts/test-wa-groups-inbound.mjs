@@ -86,5 +86,52 @@ check('صورة عند الامتلاء تُؤجَّل', defer({ text: '', hasMe
 check('دردشة عند الامتلاء لا تُؤجَّل', defer({ text: 'مرحبا شلونكم' }), false);
 check('الكروب المطفأ لا يُؤجَّل', defer({ text: ORDER, mode: 'off' }), false);
 
+// ── 5) الموديل حسب الميزة + فشل الذكاء في طلبيات النص (بلا شبكة ولا قاعدة بيانات) ──
+// عنوان قاعدة وهمي قبل الاستيراد: تسجيل الاستهلاك يجب ألا يصل أي قاعدة حقيقية من اختبار.
+process.env.DATABASE_URL = 'postgresql://invalid:invalid@127.0.0.1:1/none';
+process.env.GEMINI_API_KEY = 'test-key';
+console.error = () => {}; // الفشل هنا مقصود، وتسجيل الاستهلاك يصل بعد انتهاء الاختبار
+const realFetch = globalThis.fetch;
+let lastUrl = '';
+let nextReply = () => ({ status: 200, body: { candidates: [{ content: { parts: [{ text: '[]' }] } }] } });
+globalThis.fetch = async (url) => {
+  lastUrl = String(url);
+  const { status, body } = nextReply();
+  return { ok: status < 400, status, json: async () => body };
+};
+const { callAI, modelForFeature } = await import('../server/lib/geminiAi.js');
+const { extractOrderRowsFromText } = await import('../server/modules/orders/order-extract.js');
+
+check('طلبيات النص على 3.5-flash-lite', modelForFeature('bot-order-text'), 'gemini-3.5-flash-lite');
+check('الصور باقية على 3.8-flash', ['invoice-read', 'invoice-orient', 'invoice-customer-line'].map(modelForFeature), Array(3).fill('gemini-3.8-flash'));
+check('ميزة غير مذكورة على الافتراضي', modelForFeature('assistant-command'), 'gemini-3.8-flash');
+await callAI('x', { feature: 'bot-order-text' });
+check('نداء النص يذهب لعنوان 3.5-flash-lite', lastUrl.includes('/models/gemini-3.5-flash-lite:generateContent'), true);
+await callAI('x', { feature: 'invoice-read' });
+check('نداء الصورة يذهب لعنوان 3.8-flash', lastUrl.includes('/models/gemini-3.8-flash:generateContent'), true);
+
+const ORDER_TEXT = 'ص النور\nبانادول 5 علبة';
+const throwsOn = async (opts) => extractOrderRowsFromText(ORDER_TEXT, opts).then(r => r.length, () => 'threw');
+const aiDown = () => ({ status: 400, body: { error: { message: 'credits exhausted' } } });
+const textReply = (text) => () => ({ status: 200, body: { candidates: [{ content: { parts: [{ text }] } }] } });
+
+nextReply = aiDown;
+check('تعطّل الذكاء، منصّة تعيد: يُرمى ليُعاد لاحقاً (كان يضيع)', await throwsOn({ throwOnAiFailure: true }), 'threw');
+check('تعطّل الذكاء، تلكرام: السلوك كما كان', await throwsOn({}), 0);
+nextReply = textReply('[{"item": "بانادول", "quantity"');
+check('رد مقطوع، منصّة تعيد: يُرمى', await throwsOn({ throwOnAiFailure: true }), 'threw');
+check('رد مقطوع، تلكرام: كما كان', await throwsOn({}), 0);
+nextReply = textReply('[]');
+check('«ليست طلبية» الصحيحة لا تُعاد', await throwsOn({ throwOnAiFailure: true }), 0);
+nextReply = textReply('```json\n[]\n```');
+check('«ليست طلبية» بأسوار تبقى ليست فشلاً', await throwsOn({ throwOnAiFailure: true }), 0);
+nextReply = textReply('[{"item": "بانادول", "quantity": 5, "customerHeader": "ص النور"}]');
+check('طلبية سليمة تُقرأ في المنصّة الصامتة', await throwsOn({ throwOnAiFailure: true }), 1);
+check('طلبية سليمة تُقرأ في تلكرام', await throwsOn({}), 1);
+nextReply = aiDown;
+const aiErr = await extractOrderRowsFromText(ORDER_TEXT, { throwOnAiFailure: true }).catch(e => e);
+check('خطأ الذكاء قابل للإعادة في السجلّ', retryable(aiErr), true);
+globalThis.fetch = realFetch;
+
 if (failed) { console.log(`\n✗ فشل ${failed}`); process.exit(1); }
 console.log('\n✓ كل الاختبارات نجحت');

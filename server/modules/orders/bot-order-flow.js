@@ -133,7 +133,8 @@ export async function handleIncomingOrderMessage({
         { extraContext: String(text ?? '').trim() || undefined, budgetMs: BOT_READ_BUDGET_MS },
       );
     } else {
-      rows = await extractOrderRowsFromText(text, { todayISO: new Date().toISOString().slice(0, 10) });
+      // منصّة تعيد الفاشل (onFailed) تحتاج تمييز تعطّل الذكاء عن «ليست طلبية»
+      rows = await extractOrderRowsFromText(text, { todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure: Boolean(transport.onFailed) });
     }
 
     // مطابقة الأصناف بكتالوج المستخدم وتعبئة الشركة والسعر — لكلا المسارين
@@ -318,7 +319,7 @@ async function handleRepSaleMessage({ transport, user, chatId, senderName = null
         { extraContext: body || undefined, budgetMs: BOT_READ_BUDGET_MS },
       );
     } else if (body) {
-      rows = await extractOrderRowsFromText(body, { todayISO: new Date().toISOString().slice(0, 10) });
+      rows = await extractOrderRowsFromText(body, { todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure: Boolean(transport.onFailed) });
     }
 
     await enrichRowsFromCatalog(rows, user.id);

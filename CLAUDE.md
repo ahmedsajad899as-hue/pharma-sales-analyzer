@@ -52,7 +52,7 @@
 
 ## Stack
 
-React 18 + TS + Vite 5 + Tailwind 4 (frontend) · Express.js ESM + Prisma 5 + PostgreSQL (Railway) (backend) · JWT + bcryptjs auth · Gemini (`gemini-3.8-flash`) عبر `server/lib/geminiAi.js` (`callAI`، مفتاح `GEMINI_API_KEY`) لكل ميزات الذكاء بما فيها صور الفواتير — حلّ محل Claude وQwen في 2026-11-05 · Leaflet للخرائط · xlsx لتحليل Excel · PM2 (`ecosystem.config.cjs`) · نشر على Railway عبر nixpacks.
+React 18 + TS + Vite 5 + Tailwind 4 (frontend) · Express.js ESM + Prisma 5 + PostgreSQL (Railway) (backend) · JWT + bcryptjs auth · Gemini (`gemini-3.8-flash`) عبر `server/lib/geminiAi.js` (`callAI`، مفتاح `GEMINI_API_KEY`) لكل ميزات الذكاء بما فيها صور الفواتير — حلّ محل Claude وQwen في 2026-11-05؛ الاستثناء: طلبيات البوت النصية على `gemini-3.5-flash-lite` (`FEATURE_MODELS`) · Leaflet للخرائط · xlsx لتحليل Excel · PM2 (`ecosystem.config.cjs`) · نشر على Railway عبر nixpacks.
 
 ## تشغيل محلي
 
