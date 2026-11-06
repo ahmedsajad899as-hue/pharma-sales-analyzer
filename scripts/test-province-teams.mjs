@@ -337,15 +337,24 @@ t('عرض مدير الشركة: مندوب مقعد آخر لا يدخل فري
   assert.equal(repBelongsToSeat({ ...rep, isSubordinate: true }, humanisSeat, seatsWithShare), true);
 });
 
-t('الايتم المشترك يُنسب لمندوب واحد: مندوب شركة الايتم قبل الأقدم', () => {
+t('المعيار تعيين الايتم لا شركة المندوب: المعيَّن له بالاسم يغلب «كل ايتمات الشركة»', () => {
+  // مقعد deva بكل ايتمات deva أقدم، والايتم 10 معيَّن بالاسم لمندوبة مقعد آخر.
+  const wholeCompany = { id: 1, companyId: DEVA, allItems: true, itemIds: [], isRepPrimaryCompany: true };
+  const named = { id: 2, companyId: DEVA, allItems: false, itemIds: [10] };
+  const { owner, overlaps } = buildItemAttribution([wholeCompany, named], companyItems);
+  assert.equal(owner.get(10), 2);
+  assert.equal(owner.get(11), 1); // الباقي يبقى لتعيين الشركة
+  assert.deepEqual(overlaps, [{ itemId: 10, keptAssignmentId: 2, droppedAssignmentId: 1 }]);
+});
+
+t('معيَّن لاثنين بالاسم: الأقدم، وشركة المندوب لا تحسم', () => {
   const noCatalog = new Map();
   const older = { id: 1, companyId: DEVA, allItems: false, itemIds: [10] };
   const home = { id: 2, companyId: DEVA, allItems: false, itemIds: [10, 11], isRepPrimaryCompany: true };
   const { owner, overlaps } = buildItemAttribution([older, home], noCatalog);
-  assert.equal(owner.get(10), 2);
-  assert.deepEqual(overlaps, [{ itemId: 10, keptAssignmentId: 2, droppedAssignmentId: 1 }]);
-  // بلا مندوب شركة بينهما: الأقدم كما كان.
-  assert.equal(buildItemAttribution([older, { ...home, isRepPrimaryCompany: false }], noCatalog).owner.get(10), 1);
+  assert.equal(owner.get(10), 1);
+  assert.equal(owner.get(11), 2);
+  assert.deepEqual(overlaps, [{ itemId: 10, keptAssignmentId: 1, droppedAssignmentId: 2 }]);
 });
 
 t('تنظيف المدراء: مندوب مدير لمندوب يُحذف، والقادة الآخرون للمراجعة فقط', () => {

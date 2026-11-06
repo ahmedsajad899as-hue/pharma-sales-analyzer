@@ -67,7 +67,7 @@ export default function TeamDetail({ team, viewer, money, onBack, onOpenPersonal
       {team.overlaps.length > 0 && (
         <div className="pt-note pt-note--warn">
           <AlertTriangle size={16} />
-          <span>{team.overlaps.length} ايتم مشترك بين أكثر من مندوب — يُحسب مبيعه هنا لمندوب واحد: مندوب شركة الايتم، وإلا الأقدم تعييناً.</span>
+          <span>{team.overlaps.length} ايتم مشترك بين أكثر من مندوب — يُحسب مبيعه هنا لمندوب واحد: المعيَّن له الايتم بالاسم، وإذا عُيِّن لأكثر من واحد فالأقدم تعييناً.</span>
         </div>
       )}
 

@@ -58,17 +58,18 @@ export function findItemConflicts(candidate, others) {
 }
 
 /**
- * خريطة النسب داخل فريق: ايتم ← تعيين. الايتم المشترك بين مقعدين يُنسب لمندوب شركة
- * الايتم (شركته الرئيسية هي شركة التعيين)، ثم للأقدم إنشاءً (أصغر id) — حتمي،
- * ويُبلَّغ عنه في `overlaps` كي لا يبقى خفياً.
+ * خريطة النسب داخل فريق: ايتم ← تعيين. المعيار تعيين الايتم لا شركة المندوب (قرار صاحب
+ * المشروع 2026-11-06، كما في بغداد): من عُيِّن له الايتم بالاسم يغلب تعيين «كل ايتمات الشركة»،
+ * وبين اثنين عُيِّن لهما نفس الايتم فالأقدم إنشاءً (أصغر id) — حتمي، ويُبلَّغ عنه في
+ * `overlaps` كي لا يبقى خفياً.
  *
- * @param {Array<{id:number, companyId:number, allItems:boolean, itemIds:number[], isRepPrimaryCompany?:boolean}>} assignments
+ * @param {Array<{id:number, companyId:number, allItems:boolean, itemIds:number[]}>} assignments
  * @param {Map<number, number[]>} companyItems
  */
 export function buildItemAttribution(assignments, companyItems) {
   const owner = new Map();       // itemId → assignmentId
   const overlaps = [];
-  const sorted = [...assignments].sort((a, b) => Number(Boolean(b.isRepPrimaryCompany)) - Number(Boolean(a.isRepPrimaryCompany)) || a.id - b.id);
+  const sorted = [...assignments].sort((a, b) => Number(Boolean(a.allItems)) - Number(Boolean(b.allItems)) || a.id - b.id);
   for (const a of sorted) {
     for (const itemId of resolveAssignmentItemIds(a, companyItems)) {
       if (owner.has(itemId)) { overlaps.push({ itemId, keptAssignmentId: owner.get(itemId), droppedAssignmentId: a.id }); continue; }

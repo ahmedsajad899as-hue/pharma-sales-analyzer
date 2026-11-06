@@ -176,7 +176,9 @@ export async function computeCoverage(teams, { fileIds, month }) {
     if (!plan || !['area', 'customer'].includes(plan.modeOfItem(row.itemId))) return null;
     const repUserId = attributeLine({ senderId: null, itemId: row.itemId, area: row.areaName, customer: row.customer }, plan);
     if (repUserId == null) return null;
-    return p.t.allAssignments.find(a => a.repUserId === repUserId && a.companyId === companyId)?.id ?? null;
+    // تعيين المندوب الذي يحمل الايتم، ولو سُجّل تحت شركة غير شركة الايتم.
+    const mine = p.t.allAssignments.filter(a => a.repUserId === repUserId);
+    return (mine.find(a => a.itemIds.includes(row.itemId)) ?? mine.find(a => a.companyId === companyId))?.id ?? null;
   };
 
   const provinceRows = await prisma.province.findMany({ select: { id: true, name: true, aliases: true } });
@@ -242,8 +244,8 @@ export async function computeCoverage(teams, { fileIds, month }) {
     const companyId = itemCompany.get(s.itemId);
 
     for (const p of group) {
-      // ايتم شركة لا تعمل في هذا الفريق لا يخصّه أصلاً.
-      if (!p.teamCompanies.has(companyId)) continue;
+      // ايتم شركة لا تعمل في هذا الفريق لا يخصّه، إلا إذا عُيِّن فيه لمندوب بعينه.
+      if (!p.teamCompanies.has(companyId) && !p.owner.has(s.itemId)) continue;
       const bucket = result.get(p.t.id);
       addRow(bucket.team, row);
       const aid = splitAssignmentId(p, row, companyId) ?? p.owner.get(s.itemId);
