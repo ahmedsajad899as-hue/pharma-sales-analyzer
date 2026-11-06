@@ -150,7 +150,11 @@ export async function handleIncomingOrderMessage({
     if (rows.length && transport.resolveSenderRep && senderId != null) {
       try {
         const senderRep = await transport.resolveSenderRep(chatId, senderId);
-        if (senderRep) for (const row of rows) if (!row.scientificRep) row.scientificRep = senderRep.name;
+        if (senderRep) {
+          for (const row of rows) {
+            if (!row.scientificRep) { row.scientificRep = senderRep.name; row._repSource = 'sender'; }
+          }
+        }
       } catch (e) {
         console.error('[orders] تعذّر حلّ مندوب المرسل:', e?.message);
       }

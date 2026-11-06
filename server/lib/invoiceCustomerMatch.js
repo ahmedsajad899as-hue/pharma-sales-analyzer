@@ -40,7 +40,7 @@ async function loadMaster() {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache;
   const [areas, aliases, pharmacies] = await Promise.all([
     prisma.area.findMany({ select: { id: true, name: true, needsReview: true } }),
-    prisma.areaAlias.findMany({ select: { fromKey: true, areaId: true } }),
+    prisma.areaAlias.findMany({ select: { fromKey: true, areaId: true, confidence: true } }),
     prisma.masterSurveyPharmacy.findMany({
       where: { isActive: true, survey: { isActive: true } },
       select: { id: true, name: true, pharmacyName: true, ownerName: true, areaName: true },
@@ -66,9 +66,27 @@ export function buildMasterIndex(areas, aliases, pharmacies) {
   }
   const areaById = new Map(areas.map(a => [a.id, a]));
   const aliasByKey = new Map();
+  const confirmedAliasByKey = new Map();
+  // ذيل الاسم المركَّب: ملفات ميركاتو تكتب «الدورة حي الصحة» فيُحفظ الدمج بهذا المفتاح،
+  // والطلبية تكتب «حي الصحة» وحدها. ذيل يقود لمنطقتين مختلفتين ملتبس فيُهمَل.
+  const tailTargets = new Map();
   for (const al of aliases) {
     const a = areaById.get(al.areaId);
-    if (a) aliasByKey.set(al.fromKey, a);
+    if (!a) continue;
+    aliasByKey.set(al.fromKey, a);
+    if (al.confidence === 'confirmed') confirmedAliasByKey.set(al.fromKey, a);
+    const canonKey = normalizeAreaName(a.name);
+    if (canonKey && al.fromKey.startsWith(`${canonKey} `)) {
+      const tail = normalizeAreaName(al.fromKey.slice(canonKey.length + 1));
+      if (tail.length >= 3) {
+        if (!tailTargets.has(tail)) tailTargets.set(tail, new Map());
+        tailTargets.get(tail).set(canonKey, a);
+      }
+    }
+  }
+  const aliasTailByKey = new Map();
+  for (const [tail, targets] of tailTargets) {
+    if (targets.size === 1) aliasTailByKey.set(tail, [...targets.values()][0]);
   }
   const confirmed = [...areaByKey.values()].filter(a => !a.needsReview);
 
@@ -78,7 +96,7 @@ export function buildMasterIndex(areas, aliases, pharmacies) {
     keys: [p.name, p.pharmacyName, p.ownerName].map(pharmKey).filter(Boolean),
   }));
 
-  return { areaByKey, aliasByKey, confirmed, pharmacies: pharmacyIndex };
+  return { areaByKey, aliasByKey, confirmedAliasByKey, aliasTailByKey, confirmed, pharmacies: pharmacyIndex };
 }
 
 /**
@@ -120,10 +138,18 @@ function matchAreaOne(raw, m, { fuzzy = true } = {}) {
   const k = normalizeAreaName(t);
   if (!k) return null;
   const exact = m.areaByKey.get(k);
+  // دمج يدوي مؤكَّد يغلب صفّاً متبقّياً بنفس الاسم: بدون هذا يبقى «حي الصحة» معروضاً
+  // باسمه ويُخمَّن المندوب من الصف المتبقّي لا من «الدورة». الربط الضبابي لا يغلب.
+  const confirmedAlias = m.confirmedAliasByKey.get(k);
+  if (confirmedAlias && normalizeAreaName(confirmedAlias.name) !== k) return { name: confirmedAlias.name, how: 'alias' };
   if (exact) return { name: exact.name, how: 'exact' };
   const alias = m.aliasByKey.get(k);
   if (alias) return { name: alias.name, how: 'alias' };
   if (!fuzzy || k.length < 3) return null;
+  // بعد حارس fuzzy عمداً: مساران يقصّان ذيل اسم صيدلية أو كلمات مفردة يمرّان بـfuzzy=false،
+  // وذيل مثل «المركز» لا يصلح دليلاً هناك.
+  const tailAlias = m.aliasTailByKey.get(k);
+  if (tailAlias) return { name: tailAlias.name, how: 'alias-tail' };
   let best = null, bestScore = -1;
   for (const a of m.confirmed) {
     if (!areSimilar(t, a.name, AREA_FUZZY_OPTS)) continue;

@@ -18,6 +18,8 @@ import { getAssignedItemsCatalog } from '../../lib/itemScope.js';
 import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItemNameSync, normalizeAreaName, normalizeItemKey, normalizeArabic } from '../../lib/itemResolver.js';
 import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
+import { REP_ROLES } from '../../lib/areaScope.js';
+import { isManagementRepRecord, candidateOwnsItem } from '../../lib/repGuessRules.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
@@ -295,7 +297,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
 
   try {
     const officeWhere = actingUser.officeId ? { officeId: actingUser.officeId } : { id: actingUser.id };
-    const [reps, areas, aliases, repRecords, provinceAssignments, sciCompanies] = await Promise.all([
+    const [reps, areas, aliases, repRecords, provinceAssignments, sciCompanies, nonRepUsers] = await Promise.all([
       prisma.user.findMany({
         where: { role: 'scientific_rep', isActive: true, ...officeWhere },
         select: {
@@ -320,7 +322,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
           areas:       { select: { areaId: true } },
           items:       { select: { itemId: true } },
           companies:   { select: { company: { select: { name: true } } } },
-          linkedUsers: { select: { id: true } },
+          linkedUsers: { select: { id: true, role: true } },
         },
       }),
       // فرق المحافظات: مندوب × شركة × ايتمات بلا تقاطع داخل الفريق — أقوى دليل
@@ -334,8 +336,20 @@ export async function attachScientificRepGuess(rows, actingUser) {
       actingUser.officeId
         ? prisma.scientificCompany.findMany({ where: { officeId: actingUser.officeId }, select: { id: true, name: true } })
         : Promise.resolve([]),
+      // مدراء ومكاتب: لا يُقترحون مندوبين ولو حملوا سجلّ مندوب بمناطق.
+      prisma.user.findMany({
+        where: { ...officeWhere, role: { notIn: [...REP_ROLES] } },
+        select: { username: true, displayName: true },
+      }),
     ]);
     if (!reps.length && !repRecords.length) return rows;
+
+    // مندوب يشارك مديراً نفس الاسم يبقى مندوباً.
+    const repNameKeys = new Set(reps.map(r => repCoreKey(r.displayName?.trim() || r.username)));
+    const nonRepNameKeys = new Set(
+      nonRepUsers.flatMap(u => [u.displayName, u.username])
+        .filter(Boolean).map(repCoreKey).filter(k => k && !repNameKeys.has(k)),
+    );
 
     // اسم المنطقة قد يتكرّر كصفوف Area متعدّدة (المنطقة لكل حساب لا عالمية —
     // راجع ذاكرة project_pharma_area_account_scoping)، فنجمع كل المعرّفات.
@@ -368,7 +382,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
       areas: new Set(), companies: new Set(), items: new Set(),
       // ايتمات/شركات «مُسنَدة صراحةً» (فريق محافظة / سجلّ المندوب) — تختلف عن
       // UserItemAssignment العامة التي قد تكون فارغة بمعنى «الكل».
-      ownedItems: new Set(), ownedCompanies: new Set(),
+      ownedItems: new Set(), ownedCompanies: new Set(), allItemCompanies: new Set(),
     });
     const index = reps.map(r => {
       const c = newCandidate(r.id, r.displayName?.trim() || r.username);
@@ -386,8 +400,9 @@ export async function attachScientificRepGuess(rows, actingUser) {
     const byName = new Map(index.map(c => [repCoreKey(c.name), c]));
     for (const rec of repRecords) {
       let target = byLinkedRep.get(rec.id)
-        ?? rec.linkedUsers.map(u => byUserId.get(u.id)).find(Boolean)
-        ?? byName.get(repCoreKey(rec.name));
+        ?? rec.linkedUsers.map(u => byUserId.get(u.id)).find(Boolean);
+      if (!target && isManagementRepRecord(rec.linkedUsers.map(u => u.role), repCoreKey(rec.name), nonRepNameKeys)) continue;
+      target ??= byName.get(repCoreKey(rec.name));
       if (!target) {
         if (!rec.areas.length || !repCoreKey(rec.name)) continue;
         target = newCandidate(-rec.id, rec.name.trim());
@@ -405,6 +420,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
       const target = byUserId.get(pa.repUserId);
       if (!target) continue;
       target.ownedCompanies.add(pa.companyId);
+      if (pa.allItems) target.allItemCompanies.add(pa.companyId);
       for (const i of pa.items) target.ownedItems.add(i.itemId);
     }
 
@@ -415,6 +431,8 @@ export async function attachScientificRepGuess(rows, actingUser) {
     // التجارية («amoklavin») يكفيان لمعرفة من يحمل هذا الدواء.
     const allItemIds = new Set();
     for (const c of index) { c.items.forEach(i => allItemIds.add(i)); c.ownedItems.forEach(i => allItemIds.add(i)); }
+    // اسم الصنف القانوني لصفوف الطلبية: في مسار الرفع اليدوي يبقى الاسم كما قُرئ.
+    for (const r of rows) if (r._itemId) allItemIds.add(r._itemId);
     const itemNames = allItemIds.size
       ? await prisma.item.findMany({ where: { id: { in: [...allItemIds] } }, select: { id: true, name: true } })
       : [];
@@ -480,6 +498,22 @@ export async function attachScientificRepGuess(rows, actingUser) {
       if (brand) {
         candidates = narrow(candidates, c => c.explicitItems.size === 0 || c.brands.has(brand));
         candidates = narrow(candidates, c => c.brands.has(brand));
+      }
+      // narrow أعلاه يُبقي القائمة حين لا يطابق أحد، فمن كان وحده في المنطقة كان يُحسم
+      // ولو لم يُعيَّن له الصنف. هنا نفي صريح: خانة فارغة أهون من مندوب خاطئ.
+      const ownKey = (itemId && itemKeyById.get(itemId)) || itemKey;
+      const ownership = { itemId, itemKey: ownKey, brand: itemBrand(ownKey), sciId };
+      candidates = candidates.filter(c => candidateOwnsItem(c, ownership));
+
+      // مندوب مخزَّن من قراءة سابقة (طلبية معلَّقة): يُعاد فحصه بالقواعد نفسها. مندوب
+      // المرسِل (_repSource) اختيار لا تخمين، فلا تنفيه ملكية الصنف.
+      if (row.scientificRep) {
+        const storedKey = repCoreKey(row.scientificRep);
+        const stored = index.find(c => repCoreKey(c.name) === storedKey);
+        if (nonRepNameKeys.has(storedKey)
+          || (row._repSource !== 'sender' && stored && !candidateOwnsItem(stored, ownership))) {
+          row.scientificRep = null;
+        }
       }
 
       ctxByRow.set(row, { candidates, areaIds, itemKey, brand, sciId });
@@ -1231,14 +1265,16 @@ export async function getPendingOrder(userId, id) {
     await matchInvoiceCustomers(live);
     // مندوب خُمِّن من منطقة خاطئة يُمسح ليُعاد تخمينه من المنطقة المصحّحة أدناه.
     live.forEach((r, i) => { if (r.area !== areaBefore[i]) r.scientificRep = null; });
-  } else if (rows.length && rows.every(r => r && r._pharmacyMatched === undefined)) {
-    // طلبيات دخلت الطابور قبل مطابقة الماستر (لا تحمل _pharmacyMatched) تُطابَق عند
-    // الفتح — في الذاكرة فقط، فالصف المخزَّن لا يتغيّر قبل تأكيد المراجِع.
-    await matchInvoiceCustomers(rows);
+  } else if (rows.length) {
+    // المطابقة تُعاد عند كل فتح كي تصل الطلبيةَ المعلَّقة أي عملية دمج مناطق جرت بعد
+    // استلامها — في الذاكرة فقط، فالصف المخزَّن لا يتغيّر قبل تأكيد المراجِع.
+    const live = rows.filter(Boolean);
+    const areaBefore = live.map(r => r.area ?? null);
+    await matchInvoiceCustomers(live);
+    live.forEach((r, i) => { if (r.area !== areaBefore[i] && r._repSource !== 'sender') r.scientificRep = null; });
   }
   const needLink = rows.some(r => r && !r._itemId && String(r.item ?? '').trim());
-  const needRep = rows.some(r => r && !r.scientificRep);
-  const user = (needLink || needRep)
+  const user = rows.length
     ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true } })
     : null;
   // صنف بلا ربط (طلبية حُوِّلت من حساب الكروب قبل 2026-10-31 بلا شركة) يُربط
@@ -1247,11 +1283,11 @@ export async function getPendingOrder(userId, id) {
     await linkRowsFromOfficeCatalog(rows, user.officeId)
       .catch(e => console.error('[orders] open link:', e?.message));
   }
-  // التخمين يُعاد عند الفتح لكل صف بلا مندوب — كي تستفيد الطلبيات المعلَّقة من
-  // أي تعيين مناطق جديد (أو إصلاح في التخمين) بلا إعادة إرسالها.
+  // التخمين يُعاد عند كل فتح — كي تستفيد الطلبيات المعلَّقة من أي تعيين مناطق جديد
+  // (أو إصلاح في التخمين) بلا إعادة إرسالها، ويُنفى مندوب مخزَّن لم يعد مؤهَّلاً.
   // كل الصفوف تُمرَّر (لا الفارغة وحدها): المحسومة منها دليل «اتّساق الفاتورة»
-  // لبقية أصنافها، والتخمين لا يكتب فوق مندوب موجود.
-  if (needRep && user) await attachScientificRepGuess(rows.filter(Boolean), user);
+  // لبقية أصنافها، والتخمين لا يكتب فوق مندوب مؤهَّل.
+  if (user) await attachScientificRepGuess(rows.filter(Boolean), user);
   return {
     id: row.id,
     source: row.source,

@@ -38,6 +38,33 @@ const eq = (label, got, want) => {
 };
 const r = (ph, ar) => { const x = resolveOne(ph, ar, m); return [x.pharmacy, x.area]; };
 
+const merged = buildMasterIndex(
+  [
+    { id: 20, name: 'الدورة', needsReview: false },
+    { id: 30, name: 'حي الصحة', needsReview: false }, // صفّ متبقّي بعد الدمج
+    { id: 31, name: 'القادسية', needsReview: false },
+    { id: 32, name: 'الكرادة', needsReview: false },
+    { id: 33, name: 'المركز', needsReview: false },
+  ],
+  [
+    { fromKey: 'صحه', areaId: 20, confidence: 'confirmed' },
+    { fromKey: 'قادسيه', areaId: 20, confidence: 'fuzzy' },
+    { fromKey: 'دوره طعمه', areaId: 20, confidence: 'confirmed' },
+    { fromKey: 'دوره حي ميكانيك', areaId: 20, confidence: 'confirmed' },
+    { fromKey: 'دوره مركز', areaId: 20, confidence: 'confirmed' },
+    { fromKey: 'دوره بلديات', areaId: 20, confidence: 'confirmed' },
+    { fromKey: 'كراده بلديات', areaId: 32, confidence: 'confirmed' },
+  ],
+  [],
+);
+eq('دمج مؤكَّد يغلب الصف المتبقّي: حي الصحة ← الدورة', matchArea('حي الصحة', merged)?.name, 'الدورة');
+eq('ربط ضبابي لا يغلب صفّاً بنفس الاسم', matchArea('القادسية', merged)?.name, 'القادسية');
+eq('ذيل اسم مدمج مركَّب: الطعمة ← الدورة', matchArea('حي الطعمة', merged)?.name, 'الدورة');
+eq('ذيل مركَّب فيه «حي»: ميكانيك ← الدورة', matchArea('الميكانيك', merged)?.name, 'الدورة');
+eq('ذيل لا يغلب منطقة موجودة: المركز', matchArea('المركز', merged)?.name, 'المركز');
+eq('ذيل يقود لمنطقتين يُهمَل', matchArea('البلديات', merged), null);
+eq('الذيل لا يقصّ اسم صيدلية', resolveOne('نور الطعمة', '', merged).pharmacy, 'نور الطعمة');
+
 eq('منصور ← المنصور (بلا ال)', matchArea('منصور', m)?.name, 'المنصور');
 eq('لا يخلط المنصور بالمنصورية', matchArea('المنصوريه', m)?.name, 'المنصورية');
 eq('بغداد - منصور ← الحيّ', matchArea('بغداد - منصور', m)?.name, 'المنصور');
