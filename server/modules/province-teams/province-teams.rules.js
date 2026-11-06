@@ -198,6 +198,28 @@ export function repBelongsToSeat({ assignments, isSubordinate, primaryCompanyId,
 }
 
 /**
+ * مندوبو فرق المحافظات الذين يشغلون مقعد هذا المدير — نفس حكم تبويب «مندوبين المحافظات»:
+ * تُقرأ تعيينات المندوب داخل كل فريق على حدة. لا يشترط رابط تبعية مباشراً بالمدير.
+ * @param {Array<{repUserId:number, teamId:number, companyId:number, allItems:boolean, itemIds:number[], managerIds:number[]}>} rows
+ * @param {{userId:number}} seat
+ * @param {Array} seats مقاعد المكتب
+ * @returns {number[]}
+ */
+export function repUserIdsInSeat(rows, seat, seats) {
+  const byRepTeam = new Map();
+  for (const r of rows) {
+    const k = `${r.repUserId}|${r.teamId}`;
+    if (!byRepTeam.has(k)) byRepTeam.set(k, []);
+    byRepTeam.get(k).push(r);
+  }
+  const out = new Set();
+  for (const own of byRepTeam.values()) {
+    if (repSeatIds(own, own[0].managerIds, seats).includes(seat.userId)) out.add(own[0].repUserId);
+  }
+  return [...out];
+}
+
+/**
  * تعيينات مندوب جديد في مقعد: ايتمات المدير كاملة مقسَّمة على شركاتها، ولو شاركه فيها
  * مندوب مقعد آخر (النسب في buildItemAttribution يبقي المبيع لمندوب واحد).
  *

@@ -19,6 +19,7 @@ import { UNDATED_CUTOFF, buildMonthFilter } from './salesMonths.js';
 import { repCoreName, buildRepIndex, matchRepName } from './repNameMatch.js';
 import { getManagerRoster } from './managerRoster.js';
 import { loadItemOwnerManagers } from './itemOwnerManager.js';
+import { loadManagerSeat, loadProvinceSeatReps } from './provinceSeats.js';
 import { loadTransitSales, officeFileIdsOf } from './transitOrders.js';
 import { PHARMACY_KIND, parseCustomerInfoLabels, normalizeCustomerInfoLabel, repSideOf } from './pharmacyRep.js';
 import { areaIdsOfProvinces } from './areaScope.js';
@@ -306,14 +307,17 @@ const ROSTER_SCOPED_ROLES = new Set(['company_manager', 'team_leader', 'office_m
  * غيره. مطابقة الاسم كما في الباقي: تام/نواة، أو تشابه ≥0.7 بمرشّح واحد واضح.
  * «بلا مندوب» تُخفى عن هذه الأدوار أيضاً — لا تُنسب لفريقهم بدليل.
  *
- * مدير الشركة يُقيَّد بعدها بايتماته أيضاً (restrictSheetsToItems) — مندوب فريقه قد يبيع
- * ايتمات مدير آخر، ومبيع الشركة = ايتماتها لا مندوبوها. مدير المسوقين مستثنى: ليس مالك
- * ايتمات، وشيتات مسوقيه كاملة بأزرار الكرخ/الرصافة.
+ * مدير الشركة: فريقه يشمل أيضاً مندوبي مقعده في فرق المحافظات ولو بلا رابط تبعية مباشر
+ * (كما يعرضهم تبويب «مندوبين المحافظات»). ثم يُقيَّد بايتماته (restrictSheetsToItems) —
+ * مندوب فريقه قد يبيع ايتمات مدير آخر، ومبيع الشركة = ايتماتها لا مندوبوها. مدير المسوقين
+ * مستثنى (seat=null): ليس مالك ايتمات، وشيتات مسوقيه كاملة بأزرار الكرخ/الرصافة.
  */
 export async function scopeSheetsToRoster(sheets, user) {
   if (!user || !ROSTER_SCOPED_ROLES.has(user.role)) return sheets;
   const roster = await getManagerRoster(user, { includeTeamLead: true });
-  const index = buildRepIndex(roster.reps.map(r => ({ id: r.userId, name: r.name })));
+  const seat = user.role === 'company_manager' ? await loadManagerSeat(user.id) : null;
+  const seatReps = seat ? await loadProvinceSeatReps(seat) : [];
+  const index = buildRepIndex([...roster.reps.map(r => ({ id: r.userId, name: r.name })), ...seatReps]);
   const inRoster = sheets.filter(sh => {
     if (sh.rep === NO_REP) return false;
     const m = matchRepName(sh.rep, index);
@@ -321,18 +325,8 @@ export async function scopeSheetsToRoster(sheets, user) {
     const top = m.suggestions[0], second = m.suggestions[1];
     return m.status === 'ask' && !!top && top.score >= 0.7 && (!second || top.score - second.score >= 0.15);
   });
-  if (user.role !== 'company_manager') return inRoster;
-  const me = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: {
-      linkedRep: { select: { repKind: true } },
-      companyAssignments: { select: { isPrimary: true, company: { select: { name: true } } } },
-    },
-  });
-  if (me?.linkedRep?.repKind === PHARMACY_KIND) return inRoster;
-  const itemIds = await loadViewerItemIds(user);
-  const team = (me?.companyAssignments.find(a => a.isPrimary) ?? me?.companyAssignments[0])?.company?.name ?? null;
-  return restrictSheetsToItems(inRoster, itemIds, team);
+  if (!seat) return inRoster;
+  return restrictSheetsToItems(inRoster, await loadViewerItemIds(user), seat.companyName);
 }
 
 /**

@@ -1,6 +1,7 @@
 // اختبار تقييد شيتات ملف اللكوديشن بايتمات مدير الشركة — منطق نقيّ بلا قاعدة بيانات.
 // npm run test:condition-scope
 import { restrictSheetsToItems } from '../server/lib/conditionFile.js';
+import { repUserIdsInSeat } from '../server/modules/province-teams/province-teams.rules.js';
 
 let fail = 0;
 const eq = (name, got, want) => {
@@ -33,6 +34,19 @@ eq('مدير بلا ايتمات: الشيتات كما هي', restrictSheetsToI
 
 restrictSheetsToItems(input, new Set([10]), 'humanis');
 eq('لا يعدّل الشيتات الأصلية (شيت الشركة يُبنى منها)', [input[0].rows.length, input[1].team], [3, 'deva']);
+
+// ── مندوب محافظة في مقعد المدير بلا رابط تبعية مباشر (حالة «سمية باسم») ──
+const humanis = { userId: 1, companyId: 100, items: [{ id: 10 }] };
+const deva = { userId: 2, companyId: 200, items: [{ id: 20 }, { id: 30 }] };
+const seats = [humanis, deva];
+const asg = (repUserId, itemIds, managerIds = [], teamId = 7) => ({ repUserId, teamId, companyId: 100, allItems: false, itemIds, managerIds });
+
+eq('بلا رابط بالمدير: يدخل بمقعده', repUserIdsInSeat([asg(50, [10])], humanis, seats), [50]);
+eq('مقعد مدير آخر: لا يدخل', repUserIdsInSeat([asg(51, [20])], humanis, seats), []);
+const shared = [{ id: 10 }, { id: 20 }];
+eq('ايتم مشترك ويتبع المدير الآخر: يبقى عنده', repUserIdsInSeat([asg(52, [20], [2])], { ...humanis, items: shared }, [{ ...humanis, items: shared }, deva]), []);
+eq('تعيينان في فريق واحد يُقرآن معاً', repUserIdsInSeat([asg(53, [20]), asg(53, [10])], humanis, seats), [53]);
+eq('مطابقة واحدة لكل مندوب', repUserIdsInSeat([asg(54, [10], [], 7), asg(54, [10], [], 8)], humanis, seats), [54]);
 
 if (fail) { console.error(`\n${fail} failed`); process.exit(1); }
 console.log('\nall passed');

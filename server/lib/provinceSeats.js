@@ -8,7 +8,7 @@
 import prisma from './prisma.js';
 import { PHARMACY_KIND, managesProvinceMarketers } from './pharmacyRep.js';
 import { resolveEffectiveItemIds } from './itemScope.js';
-import { ownerSeatOfItem, repBelongsToSeat, repSeatIds } from '../modules/province-teams/province-teams.rules.js';
+import { ownerSeatOfItem, repBelongsToSeat, repSeatIds, repUserIdsInSeat } from '../modules/province-teams/province-teams.rules.js';
 
 /**
  * مدراء الشركات النشطون كمقاعد، مرتبين باسم الشركة.
@@ -129,6 +129,30 @@ export async function repIdsInManagerTeam(seat, repIds) {
       }, seat, officeSeats);
     });
   });
+}
+
+/**
+ * حسابات مندوبي المحافظات العلميين في مقعد هذا المدير (repUserIdsInSeat). المسوقون خارجها:
+ * ليسوا مقاعد شركات ولا يُدمجون مع العلميين.
+ * @returns {Promise<Array<{id:number, name:string}>>}
+ */
+export async function loadProvinceSeatReps(seat) {
+  const rows = await prisma.provinceRepAssignment.findMany({
+    where: { isActive: true, team: { isActive: true, officeId: seat.officeId } },
+    select: {
+      repUserId: true, teamId: true, companyId: true, allItems: true,
+      items: { select: { itemId: true } },
+      rep: { select: { displayName: true, username: true, linkedRep: { select: { repKind: true } }, managersOfUser: { select: { managerId: true } } } },
+    },
+  }).then(all => all.filter(r => r.rep.linkedRep?.repKind !== PHARMACY_KIND));
+  if (!rows.length) return [];
+  const ids = new Set(repUserIdsInSeat(rows.map(r => ({
+    repUserId: r.repUserId, teamId: r.teamId, companyId: r.companyId, allItems: r.allItems,
+    itemIds: r.items.map(i => i.itemId),
+    managerIds: r.rep.managersOfUser.map(m => m.managerId),
+  })), seat, await loadSeatManagers([seat.officeId])));
+  const names = new Map(rows.map(r => [r.repUserId, r.rep.displayName || r.rep.username]));
+  return [...ids].map(id => ({ id, name: names.get(id) }));
 }
 
 /** ايتمات المقعد: المسندة لمديره، أو كل شركته الرئيسية إن لم يُسنَد له شيء. */
