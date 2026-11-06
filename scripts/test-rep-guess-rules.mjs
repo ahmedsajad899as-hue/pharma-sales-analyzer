@@ -1,5 +1,6 @@
 // قواعد أهلية المندوب المقترَح للطلبية. نقيّ بلا قاعدة بيانات: npm run test:rep-guess
-import { isManagementRepRecord, candidateOwnsItem } from '../server/lib/repGuessRules.js';
+import { isManagementRepRecord, candidateOwnsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow } from '../server/lib/repGuessRules.js';
+import { normalizeAreaName } from '../server/lib/itemResolver.js';
 
 let fail = 0;
 const eq = (label, got, want) => {
@@ -29,6 +30,29 @@ eq('شركات معيَّنة بلا هذه الشركة', candidateOwnsItem(can
 eq('الشركة معيَّنة بلا قائمة ايتمات', candidateOwnsItem(cand({ owned: [7] }), moreserc), true);
 eq('فريق محافظة: كل ايتمات الشركة تغلب القائمة', candidateOwnsItem(cand({ items: [9], allItems: [7] }), moreserc), true);
 eq('صنف غير مربوط لا يُنفى باسمه', candidateOwnsItem(cand({ items: [9], brands: ['devit'] }), { itemKey: 'مورسيرك', brand: 'مورسيرك' }), true);
+
+// ── طلبية بالنجف (2026-11-06): اسم محافظة لا منطقة ⇒ كان يُقترح مندوبو بغداد ──
+const byKey = provinceIdByNameKey([
+  { id: 12, name: 'النجف', aliases: '["نجف"]' }, { id: 5, name: 'القادسية', aliases: null }, { id: 9, name: 'كربلاء', aliases: 'خربان' },
+], normalizeAreaName);
+eq('اسم المحافظة', byKey.get(normalizeAreaName('النجف')), 12);
+eq('بلا «ال»', byKey.get(normalizeAreaName('نجف')), 12);
+eq('aliases تالف لا يكسر الفهرس', byKey.get(normalizeAreaName('كربلاء')), 9);
+
+const byProvince = new Map([[12, [100, 101]], [5, [200]]]);
+const cover = (name, areaIds = []) => rowCoverage({ areaIds: new Set(areaIds), areaKey: normalizeAreaName(name), provinceByKey: byKey, areaIdsByProvince: byProvince });
+eq('«النجف» بلا صفّ منطقة ⇒ المحافظة', cover('النجف').provinceId, 12);
+eq('وتشمل كل مناطقها', cover('النجف').areaIds.size, 2);
+eq('منطقة مطابقة تغلب المحافظة («القادسية» في الكرخ)', cover('القادسية', [777]).provinceId, null);
+eq('اسم مجهول يبقى بلا نطاق', cover('حي غير معروف').provinceId, null);
+eq('محافظة بلا مناطق لا تكسر', cover('كربلاء').areaIds.size, 0);
+
+const rep = ({ areas = [], provinces = [] } = {}) => ({ areas: new Set(areas), provinces: new Set(provinces) });
+eq('مندوب المحافظة يغطّيها', candidateCoversRow(rep({ provinces: [12] }), cover('النجف')), true);
+eq('مندوب بمنطقة داخلها يغطّيها', candidateCoversRow(rep({ areas: [101] }), cover('النجف')), true);
+eq('مندوب بغداد لا يغطّي النجف', candidateCoversRow(rep({ areas: [555], provinces: [1] }), cover('النجف')), false);
+eq('تغطية منطقة عادية', candidateCoversRow(rep({ areas: [777] }), cover('القادسية', [777])), true);
+eq('مندوب آخر لا يغطّي المنطقة', candidateCoversRow(rep({ areas: [1] }), cover('القادسية', [777])), false);
 
 console.log(fail ? `\n✗ ${fail} فشل` : '\n✓ كلها نجحت');
 process.exit(fail ? 1 : 0);

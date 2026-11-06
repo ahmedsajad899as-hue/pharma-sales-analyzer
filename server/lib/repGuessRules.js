@@ -21,6 +21,43 @@ export function isManagementRepRecord(linkedRoles, nameKey, nonRepNameKeys) {
 }
 
 /**
+ * فهرس أسماء المحافظات (وأسمائها البديلة) ← معرّفها.
+ * @param {{id:number,name:string,aliases?:string|null}[]} provinces
+ * @param {(s:string)=>string} normalize normalizeAreaName
+ */
+export function provinceIdByNameKey(provinces, normalize) {
+  const map = new Map();
+  for (const p of provinces || []) {
+    let aliases = [];
+    try { aliases = JSON.parse(p.aliases || '[]'); } catch { aliases = []; }
+    for (const n of [p.name, ...(Array.isArray(aliases) ? aliases : [])]) {
+      const k = normalize(String(n ?? ''));
+      if (k && !map.has(k)) map.set(k, p.id);
+    }
+  }
+  return map;
+}
+
+/**
+ * النطاق الجغرافي لصف طلبية. طلبيات المحافظات كثيراً ما تكتب اسم المحافظة («النجف») لا
+ * منطقة داخلها، فلا يطابق صفّ Area ويسقط فلتر المنطقة فيُقترح مندوبو بغداد. المنطقة
+ * المطابقة تبقى الأولى: «القادسية» منطقة في الكرخ ومحافظة معاً.
+ */
+export function rowCoverage({ areaIds, areaKey, provinceByKey, areaIdsByProvince }) {
+  if (areaIds.size > 0) return { areaIds, provinceId: null };
+  const provinceId = areaKey ? (provinceByKey.get(areaKey) ?? null) : null;
+  if (provinceId == null) return { areaIds, provinceId: null };
+  return { areaIds: new Set(areaIdsByProvince.get(provinceId) || []), provinceId };
+}
+
+/** هل يغطّي المرشّح نطاق الصف؟ بمنطقة منه، أو بتعيين/فريق على المحافظة نفسها. */
+export function candidateCoversRow(c, { areaIds, provinceId }) {
+  if (provinceId != null && c.provinces?.has(provinceId)) return true;
+  for (const id of areaIds) if (c.areas.has(id)) return true;
+  return false;
+}
+
+/**
  * هل يمكن أن يكون هذا المرشّح صاحب الصنف؟ تعيين صريح لا يضمّ الصنف ينفي الملكية،
  * وغياب أي تعيين يعني «الكل». العلامة التجارية تكفي لأن الجرعة قد تكون صفّاً آخر.
  * صنف غير مربوط بالكتالوج لا يُنفى باسمه: القراءة قد تكون بتهجئة مختلفة.

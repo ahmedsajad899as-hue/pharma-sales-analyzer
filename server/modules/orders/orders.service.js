@@ -19,7 +19,7 @@ import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItem
 import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { REP_ROLES } from '../../lib/areaScope.js';
-import { isManagementRepRecord, candidateOwnsItem } from '../../lib/repGuessRules.js';
+import { isManagementRepRecord, candidateOwnsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow } from '../../lib/repGuessRules.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
@@ -297,7 +297,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
 
   try {
     const officeWhere = actingUser.officeId ? { officeId: actingUser.officeId } : { id: actingUser.id };
-    const [reps, areas, aliases, repRecords, provinceAssignments, sciCompanies, nonRepUsers] = await Promise.all([
+    const [reps, areas, aliases, repRecords, provinceAssignments, sciCompanies, nonRepUsers, provinces, userProvinces] = await Promise.all([
       prisma.user.findMany({
         where: { role: 'scientific_rep', isActive: true, ...officeWhere },
         select: {
@@ -307,7 +307,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
           itemAssignments:    { select: { itemId: true } },
         },
       }),
-      areaNames.length ? prisma.area.findMany({ select: { id: true, name: true } }) : Promise.resolve([]),
+      areaNames.length ? prisma.area.findMany({ select: { id: true, name: true, provinceId: true } }) : Promise.resolve([]),
       // ذاكرة الدمج («دورة جمعه» ← «الدورة») — القراءة من الصورة كثيراً ما تكون
       // الاسم القديم أو المركَّب لا القانوني.
       areaNames.length ? prisma.areaAlias.findMany({ select: { fromKey: true, areaId: true } }) : Promise.resolve([]),
@@ -330,7 +330,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
       actingUser.officeId
         ? prisma.provinceRepAssignment.findMany({
             where: { isActive: true, team: { officeId: actingUser.officeId, isActive: true } },
-            select: { repUserId: true, companyId: true, allItems: true, items: { select: { itemId: true } } },
+            select: { repUserId: true, companyId: true, allItems: true, items: { select: { itemId: true } }, team: { select: { provinceId: true } } },
           })
         : Promise.resolve([]),
       actingUser.officeId
@@ -340,6 +340,12 @@ export async function attachScientificRepGuess(rows, actingUser) {
       prisma.user.findMany({
         where: { ...officeWhere, role: { notIn: [...REP_ROLES] } },
         select: { username: true, displayName: true },
+      }),
+      areaNames.length ? prisma.province.findMany({ select: { id: true, name: true, aliases: true } }) : Promise.resolve([]),
+      // تعيين محافظة = كل مناطقها (areaScope.js)؛ مندوبو المحافظات بلا صفوف مناطق غالباً.
+      prisma.userProvinceAssignment.findMany({
+        where: { user: { role: 'scientific_rep', isActive: true, ...officeWhere } },
+        select: { userId: true, provinceId: true },
       }),
     ]);
     if (!reps.length && !repRecords.length) return rows;
@@ -379,7 +385,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
 
     const newCandidate = (id, name) => ({
       id, name,
-      areas: new Set(), companies: new Set(), items: new Set(),
+      areas: new Set(), provinces: new Set(), companies: new Set(), items: new Set(),
       // ايتمات/شركات «مُسنَدة صراحةً» (فريق محافظة / سجلّ المندوب) — تختلف عن
       // UserItemAssignment العامة التي قد تكون فارغة بمعنى «الكل».
       ownedItems: new Set(), ownedCompanies: new Set(), allItemCompanies: new Set(),
@@ -422,6 +428,20 @@ export async function attachScientificRepGuess(rows, actingUser) {
       target.ownedCompanies.add(pa.companyId);
       if (pa.allItems) target.allItemCompanies.add(pa.companyId);
       for (const i of pa.items) target.ownedItems.add(i.itemId);
+      if (pa.team?.provinceId != null) target.provinces.add(pa.team.provinceId);
+    }
+    for (const up of userProvinces) byUserId.get(up.userId)?.provinces.add(up.provinceId);
+
+    // المحافظة تشمل كل مناطقها: منطقة مطابقة داخلها يغطّيها مندوب المحافظة أيضاً.
+    const provinceByKey = provinceIdByNameKey(provinces, normalizeAreaName);
+    const areaIdsByProvince = new Map();
+    for (const a of areas) {
+      if (a.provinceId == null) continue;
+      if (!areaIdsByProvince.has(a.provinceId)) areaIdsByProvince.set(a.provinceId, []);
+      areaIdsByProvince.get(a.provinceId).push(a.id);
+    }
+    for (const c of index) {
+      for (const pid of c.provinces) for (const id of areaIdsByProvince.get(pid) || []) c.areas.add(id);
     }
 
     // ── أسماء ايتمات المندوبين: مطابقة بالاسم والعلامة التجارية ──
@@ -476,15 +496,19 @@ export async function attachScientificRepGuess(rows, actingUser) {
       const itemId = row._itemId ?? officeItemIdByName.get(String(row.item ?? '').trim()) ?? null;
       const sciId = row._scientificCompanyId ?? sciCompanyIdOf(row.company);
       const areaKey = row.area ? normalizeAreaName(row.area) : '';
-      const areaIds = areaKey ? (areaIdsByName.get(areaKey) ?? new Set()) : new Set();
+      const coverage = rowCoverage({
+        areaIds: areaKey ? (areaIdsByName.get(areaKey) ?? new Set()) : new Set(),
+        areaKey, provinceByKey, areaIdsByProvince,
+      });
+      const { areaIds } = coverage;
       const itemKey = normalizeItemKey(row.item ?? '');
       const brand = itemBrand(itemKey);
 
       let candidates = index;
       // المنطقة أقوى دليل — تُطبَّق أولاً حين نعرفها فعلاً، وبصرامة: مندوب لا
       // يغطّي المنطقة لا يُقترح لها ولو طابقت شركته.
-      if (areaIds.size > 0) {
-        candidates = candidates.filter(c => [...areaIds].some(id => c.areas.has(id)));
+      if (areaIds.size > 0 || coverage.provinceId != null) {
+        candidates = candidates.filter(c => candidateCoversRow(c, coverage));
       }
       // الصنف مُسنَد صراحةً لمندوب — يحسم وحده غالباً.
       if (itemId) candidates = narrow(candidates, c => c.ownedItems.has(itemId) || c.items.has(itemId));
