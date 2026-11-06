@@ -206,7 +206,7 @@ export async function directory(req, res, next) {
     }).catch(() => new Map());
     const conditionUsed = new Set(); // مندوب في أكثر من فريق: يُحتسب في أول فريق فقط
 
-    // ── مبيع المندوب العلمي: المؤكد في «مبيعات المندوبين» + ميركاتو باسمه، في محافظة الفريق ──
+    // ── مبيع المندوب العلمي: المؤكد في «مبيعات المندوبين» + ميركاتو واللكوديشن باسمه، في محافظة الفريق ──
     const liquidation = await loadTeamLiquidation(repIds, files, month, viewer.id);
 
     const out = [];
@@ -327,7 +327,7 @@ export async function overview(req, res, next) {
     const pendingByTeam = new Map(pendingRows.map(r => [r.teamId, r._count._all]));
 
     // الحقل نفسه personal لكن مصدره يختلف بنوع المندوب، ويوزَّع على شركاته بايتمات تعيينه:
-    //  • العلمي: مبيعه في محافظة الفريق = «مبيعات المندوبين» المؤكدة + ميركاتو باسمه.
+    //  • العلمي: مبيعه في محافظة الفريق = «مبيعات المندوبين» المؤكدة + ميركاتو واللكوديشن باسمه.
     //  • المسوق: الجهد الشخصي المعتمد + «ملف الكوديشن» (بوت/إكسل).
     const repKinds = await prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true, linkedRep: { select: { repKind: true } } } });
     const marketerIds = new Set(repKinds.filter(u => u.linkedRep?.repKind === PHARMACY_KIND).map(u => u.id));

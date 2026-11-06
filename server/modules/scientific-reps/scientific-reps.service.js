@@ -16,7 +16,7 @@ import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
 import { dedupCrossFile } from '../../lib/crossFileDedup.js';
-import { dateRangeWhere, dropBlockedLines, dropLinesFoundInMercato, assignProvince, isInDateRange, isPureMercatoRow, repSaleToRows, widenDateRange } from '../../lib/repLiquidation.js';
+import { dateRangeWhere, dropBlockedLines, dropConditionRowsFoundInMercato, dropLinesFoundInMercato, assignProvince, isInDateRange, isLiquidationRow, repSaleToRows, widenDateRange } from '../../lib/repLiquidation.js';
 import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -1926,9 +1926,9 @@ export async function liquidationProvinces(sales, rows, ownerOf, { extraUserIds 
 }
 
 /**
- * صفوف تقرير المندوب: ميركاتو باسمه (نفس نسبة resolveSciRepSales) + مبيعاته المؤكدة التي
- * ليست في ميركاتو، وكل صف موسوم بمحافظته (liqProvince). query.province يحصرها بمحافظة واحدة.
- * صفوف ميركاتو تُجلب بنافذة أوسع للمطابقة فقط، ولا يُعرض منها إلا المدى المطلوب.
+ * صفوف تقرير المندوب: ميركاتو واللكوديشن باسمه (نفس نسبة resolveSciRepSales) + مبيعاته المؤكدة
+ * التي ليست فيهما، وكل صف موسوم بمحافظته (liqProvince). query.province يحصرها بمحافظة واحدة.
+ * الصفوف تُجلب بنافذة أوسع للمطابقة فقط، ولا يُعرض منها إلا المدى المطلوب.
  */
 async function resolveLiquidationSales(id, query, select, viewerId) {
   const range = { startDate: query.startDate, endDate: query.endDate };
@@ -1941,8 +1941,8 @@ async function resolveLiquidationSales(id, query, select, viewerId) {
     area: { select: { id: true, name: true, province: { select: { name: true } } } },
     customer: select.customer ?? { select: { name: true } },
   }, viewerId);
-  const mercatoRows = resolved.rawSales.filter(isPureMercatoRow);
-  const shownMercato = mercatoRows.filter(s => isInDateRange(s.saleDate, range));
+  const { rows: fileRows, dropped: droppedConditionRows } = dropConditionRowsFoundInMercato(resolved.rawSales.filter(isLiquidationRow));
+  const shownFileRows = fileRows.filter(s => isInDateRange(s.saleDate, range));
 
   const userIds = await liquidationUserIds(id);
   const repSales = wantsSales && userIds.length
@@ -1952,21 +1952,22 @@ async function resolveLiquidationSales(id, query, select, viewerId) {
       })
     : [];
   const { sales: unique, droppedLines } = wantsSales
-    ? dropLinesFoundInMercato(dropBlockedLines(repSales, await loadLiquidationBlocks(query.fileIds, viewerId)), mercatoRows)
+    ? dropLinesFoundInMercato(dropBlockedLines(repSales, await loadLiquidationBlocks(query.fileIds, viewerId)), fileRows)
     : { sales: [], droppedLines: [] };
   const shownRepSales = repSales.filter(s => isInDateRange(s.saleDate, range));
   const shownSales = unique.filter(s => isInDateRange(s.saleDate, range));
 
-  const province = await liquidationProvinces(shownRepSales, shownMercato, () => userIds[0], { locations: query.repLocations });
+  const province = await liquidationProvinces(shownRepSales, shownFileRows, () => userIds[0], { locations: query.repLocations });
   const inProvince = (name) => !query.province || normalizeArabic(name ?? '') === normalizeArabic(query.province);
-  const mercatoInProvince = shownMercato.map(s => ({ ...s, liqProvince: province.ofRow(s) })).filter(s => inProvince(s.liqProvince));
+  const fileRowsInProvince = shownFileRows.map(s => ({ ...s, liqProvince: province.ofRow(s) })).filter(s => inProvince(s.liqProvince));
   const repRows = await repSalesAsRows(shownSales.filter(s => inProvince(province.ofSale(s))), Number(query.iqdRate) > 0 ? Number(query.iqdRate) : 1470, province.ofSale);
   const shownLineIds = new Set(shownRepSales.filter(s => inProvince(province.ofSale(s))).flatMap(s => s.lines.map(l => l.id)));
-  const rows = [...mercatoInProvince, ...repRows];
+  const rows = [...fileRowsInProvince, ...repRows];
+  const shownConditionDuplicates = droppedConditionRows.filter(s => isInDateRange(s.saleDate, range) && inProvince(province.ofRow(s))).length;
   return {
     ...resolved,
     rawSales: query.withoutSplit ? rows : await applySeatSplits(rows, userIds, query, select, viewerId),
-    repSaleDuplicates: droppedLines.filter(lineId => shownLineIds.has(lineId)).length,
+    repSaleDuplicates: droppedLines.filter(lineId => shownLineIds.has(lineId)).length + shownConditionDuplicates,
   };
 }
 
@@ -2088,8 +2089,8 @@ async function repSalesAsRows(sales, iqdRate, provinceOf) {
 }
 
 /**
- * صفوف ميركاتو لعمود اللكوديشن: كل صف باسم مندوب علمي ضمن userWhere، وبايتم من ايتماته — نفس
- * نسبة التقرير دون تحميله لكل مندوب، فالتحميل لكل مندوب يكلّف أكثر من نصف ثانية لكلٍّ منهم.
+ * صفوف ميركاتو واللكوديشن لعمود اللكوديشن: كل صف باسم مندوب علمي ضمن userWhere، وبايتم من ايتماته —
+ * نفس نسبة التقرير دون تحميله لكل مندوب، فالتحميل لكل مندوب يكلّف أكثر من نصف ثانية لكلٍّ منهم.
  * @param {{fileIds:number[], range:object, userWhere:object, viewerId:number}} p
  * @returns {Promise<{rows:Array, users:Array, blocks:object}>} rows[i].repIds = مندوبو الصف
  */
@@ -2124,7 +2125,7 @@ async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId 
     },
   });
   const excludeWarehouse = viewerId ? await getExcludeWarehouseSales(viewerId) : true;
-  const named = sales.filter(s => isPureMercatoRow(s)
+  const named = sales.filter(s => isLiquidationRow(s)
     && repsByName.has(normalizeRepName(s.representative?.name ?? ''))
     && !blocks.areas.has(normalizeArabic(s.area?.name ?? ''))
     && !blocks.items.has(normalizeArabic(s.item?.name ?? ''))
@@ -2153,7 +2154,14 @@ async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId 
       .filter(repId => !itemsByRep.get(repId) || itemsByRep.get(repId).has(s.itemId));
     if (owners.length) rows.push({ ...s, repIds: owners });
   }
-  return { rows, users, blocks };
+  // صف اللكوديشن يُقارَن بصفوف ميركاتو مندوبه فقط، كسطر المندوب في loadLiquidationData.
+  const duplicates = new Set();
+  const used = new Set();
+  for (const repId of repsInRows) {
+    const own = rows.filter(r => r.repIds.includes(repId) && !duplicates.has(r));
+    for (const row of dropConditionRowsFoundInMercato(own, used).dropped) duplicates.add(row);
+  }
+  return { rows: rows.filter(r => !duplicates.has(r)), users, blocks };
 }
 
 // ── «بدون الفارمسي» / «بدون التجاري» ─────────────────────────────────────────

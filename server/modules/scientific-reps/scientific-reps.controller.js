@@ -402,7 +402,7 @@ export async function getRepReport(req, res, next) {
       recordType: req.query.recordType || null,
       excludePharmacy: req.query.excludePharmacy === '1', // «بدون الفارمسي»
       excludeCommercial: req.query.excludeCommercial === '1', // «بدون التجاري»
-      liquidation: req.query.liquidation === '1', // تقرير «مندوبين المحافظات»: مبيعات مؤكدة + ميركاتو باسمه
+      liquidation: req.query.liquidation === '1', // تقرير «مندوبين المحافظات»: مبيعات مؤكدة + ميركاتو واللكوديشن باسمه
       iqdRate: req.query.iqdRate,
       province: req.query.province || undefined,
     };

@@ -1,6 +1,6 @@
-// مبيعات المندوب = المؤكد في «مبيعات المندوبين» + ميركاتو باسمه بلا تكرار — npm run test:rep-liquidation
+// مبيعات المندوب = المؤكد في «مبيعات المندوبين» + ميركاتو واللكوديشن باسمه بلا تكرار — npm run test:rep-liquidation
 import assert from 'node:assert/strict';
-import { assignProvince, dropLinesFoundInMercato, isPureMercatoRow, widenDateRange, isInDateRange, repSaleToRows } from '../server/lib/repLiquidation.js';
+import { assignProvince, dropConditionRowsFoundInMercato, dropLinesFoundInMercato, isLiquidationRow, isPureMercatoRow, widenDateRange, isInDateRange, repSaleToRows } from '../server/lib/repLiquidation.js';
 import { countDistinctOrders } from '../server/lib/orderKey.js';
 
 let nextLine = 1;
@@ -52,6 +52,33 @@ assert.equal(isPureMercatoRow({ ...r, uploadedFile: { sourceSystem: null } }), f
 assert.equal(isPureMercatoRow({ ...r, uploadedFile: { sourceSystem: 'mercato', mergeGroup: '7|mercato|IQD|condition' } }), false, 'ملف الكوديشن');
 assert.equal(isPureMercatoRow({ ...r, rawData: JSON.stringify({ source: 'telegram-order' }) }), false, 'طلبية بوت في ملف ميركاتو');
 assert.equal(isPureMercatoRow({ ...r, transit: {} }), false, 'ترانزيت');
+
+// ── ملف اللكوديشن ──
+const CONDITION_FILE = { sourceSystem: 'mercato', mergeGroup: '7|mercato|IQD|condition' };
+const condition = (date, itemId, itemName, quantity, raw = {}, extra = {}) => mercato(date, itemId, itemName, quantity, raw, { uploadedFile: CONDITION_FILE, ...extra });
+const afterDedup = (rows) => dropConditionRowsFoundInMercato(rows).rows;
+
+assert.equal(isLiquidationRow(mercato('2026-10-10', 5, 'X', 1)), true, 'ميركاتو يدخل');
+assert.equal(isLiquidationRow(condition('2026-10-10', 5, 'X', 1, { source: 'telegram-order' })), true, 'طلبية بوت في ملف اللكوديشن تدخل');
+assert.equal(isLiquidationRow(condition('2026-10-10', 5, 'X', 1, {}, { transit: {} })), false, 'الترانزيت لا يدخل');
+assert.equal(isLiquidationRow({ ...r, uploadedFile: { sourceSystem: null } }), false, 'ملف المكتب لا يدخل');
+assert.equal(isLiquidationRow({ ...r, rawData: JSON.stringify({ source: 'manual-invoice' }) }), false, 'فاتورة يدوية في ملف ميركاتو لا تدخل');
+
+const m1 = mercato('2026-10-10', 5, 'Amoklavin 1G', 10);
+const c1 = condition('2026-10-11', 5, 'Amoklavin 1G', 10);
+assert.deepEqual(afterDedup([m1, c1]), [m1], 'الطلبية نفسها في الملفين: ميركاتو وحده');
+assert.equal(afterDedup([condition('2026-10-11', 5, 'Amoklavin 1G', 10)]).length, 1, 'بلا ميركاتو يبقى صف اللكوديشن');
+assert.equal(afterDedup([m1, condition('2026-10-25', 5, 'Amoklavin 1G', 10)]).length, 2, 'تاريخ بعيد = طلبية أخرى');
+assert.equal(afterDedup([m1, condition('2026-10-10', 6, 'Vitamin C', 10)]).length, 2, 'ايتم آخر');
+assert.equal(afterDedup([m1, condition('2026-10-10', 5, 'Amoklavin 1G', 10, {}, { customer: { name: 'صيدلية النور' } })]).length, 2, 'صيدلية أخرى');
+assert.equal(afterDedup([m1, condition('2026-10-10', 5, 'Amoklavin 1G', 10, {}, { recordType: 'return' })]).length, 2, 'إرجاع اللكوديشن يبقى');
+assert.equal(afterDedup([m1, condition('2026-10-10', 5, 'Amoklavin 1G', 8, { bonus: 2 })]).length, 1, 'ميركاتو يعدّ البونص ضمن الكمية');
+assert.equal(afterDedup([m1, condition('2026-10-10', 5, 'Amoklavin 1G', 10), condition('2026-10-10', 5, 'Amoklavin 1G', 10)]).length, 2, 'كل صف ميركاتو يقابل صف لكوديشن واحداً');
+assert.deepEqual(kept([sale('2026-10-10', [line(5, 'Amoklavin 1G', 10)])], [condition('2026-10-10', 5, 'Amoklavin 1G', 10)]), [], 'سطر المندوب الموجود في اللكوديشن يُحسب منه وحده');
+
+// الطلبية في المصادر الثلاثة: صف ميركاتو يبقى ويسقط الباقي، وإن قابل صف اللكوديشن قبل ذلك.
+const fromAll = afterDedup([m1, condition('2026-10-10', 5, 'Amoklavin 1G', 10)]);
+assert.deepEqual(kept([sale('2026-10-10', [line(5, 'Amoklavin 1G', 10)])], fromAll), [], 'المصادر الثلاثة: مرة واحدة');
 
 // ── المحافظة: كل مبيع المندوب له في محافظته ──
 assert.equal(assignProvince('ديالى', ['ديالى']), 'ديالى');

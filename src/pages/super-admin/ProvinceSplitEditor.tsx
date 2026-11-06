@@ -9,7 +9,7 @@ type Mode = 'order' | 'item' | 'area' | 'customer';
 type Scopes = Record<string, { areas?: string[]; customers?: string[] }>;
 
 const MODES: { value: Mode; label: string; hint: string }[] = [
-  { value: 'order', label: 'حسب من أرسل الطلبية', hint: 'كل مبيع لمن أرسله: ميركاتو باسمه ومبيعاته المؤكدة، أياً كان الايتم والمنطقة.' },
+  { value: 'order', label: 'حسب من أرسل الطلبية', hint: 'كل مبيع لمن أرسله: ميركاتو واللكوديشن باسمه ومبيعاته المؤكدة، أياً كان الايتم والمنطقة.' },
   { value: 'item', label: 'تقسيم بالايتمات', hint: 'كل ايتم لمندوبه. حدّد ايتمات كل مندوب من زر «المقاعد والايتمات».' },
   { value: 'area', label: 'تقسيم بالمناطق', hint: 'حدّد مناطق كل مندوب.' },
   { value: 'customer', label: 'تقسيم بالزبائن', hint: 'حدّد صيدليات كل مندوب.' },

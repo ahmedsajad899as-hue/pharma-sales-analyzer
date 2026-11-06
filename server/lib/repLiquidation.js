@@ -1,11 +1,11 @@
 // ════════════════════════════════════════════════════════════════════════════
 // repLiquidation.js — مبيعات المندوب العلمي (اللكوديشن) في «مندوبين المحافظات».
 //
-// قاعدة المستخدم (2026-11-04): مبيع المندوب = ما أكّده في «مبيعات المندوبين» + صفوف ملفات
-// ميركاتو باسمه، لا غيرهما — لا ملف المكتب ولا ملف الكوديشن ولا الترانزيت.
+// قاعدة المستخدم (2026-11-07): مبيع المندوب = ما أكّده في «مبيعات المندوبين» + صفوف ملفات
+// ميركاتو باسمه + صفوف ملف اللكوديشن باسمه، لا غيرها — لا ملف المكتب ولا الترانزيت.
 //
-// المندوب قد يسجّل طلبية موجودة أصلاً في ميركاتو، فسطرها يُحسب من ميركاتو وحده: ميركاتو
-// يحمل القيمة الفعلية، بينما سطر المندوب بسعر الكتالوج وقت التسجيل.
+// الطلبية الواحدة قد تصل من أكثر من مصدر، فتُحسب مرة واحدة: ميركاتو يغلب اللكوديشن، وكلاهما
+// يغلب سطر المندوب، لأن سطره بسعر الكتالوج وقت التسجيل لا القيمة الفعلية.
 // ════════════════════════════════════════════════════════════════════════════
 
 import { normalizeArabic, normalizeItemKey } from './itemResolver.js';
@@ -21,12 +21,18 @@ const ANY_QTY_WINDOW_DAYS = 1;
 
 const parseRaw = (s) => { try { return JSON.parse(s || '{}') || {}; } catch { return {}; } };
 const MANUAL_SOURCE_RE = /"source"\s*:\s*"(manual-invoice|[a-z-]+-order)"/;
+const isReturnRow = (s) => String(s.recordType ?? 'sale').trim().toLowerCase() === 'return';
+const isConditionFileRow = (s) => String(s.uploadedFile?.mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`);
 
 /** صف إكسل ميركاتو فقط: ملف الكوديشن يشاركه sourceSystem، وفواتير البوت قد تُحفظ في أي ملف. */
 export function isPureMercatoRow(s) {
-  if (s.transit || s.uploadedFile?.sourceSystem !== 'mercato') return false;
-  if (String(s.uploadedFile?.mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`)) return false;
+  if (s.transit || s.uploadedFile?.sourceSystem !== 'mercato' || isConditionFileRow(s)) return false;
   return !(typeof s.rawData === 'string' && MANUAL_SOURCE_RE.test(s.rawData));
+}
+
+/** صف يدخل مبيع المندوب: ميركاتو أو ملف اللكوديشن. الترانزيت يُعرض مع اللكوديشن لكنه من ملف المكتب. */
+export function isLiquidationRow(s) {
+  return isPureMercatoRow(s) || (!s.transit && isConditionFileRow(s));
 }
 
 function prepareMercatoRow(s) {
@@ -97,9 +103,7 @@ function matchGap(s, l, m, windowDays) {
  * @returns {{sales: Array, droppedLines: number[]}} droppedLines = معرّفات الأسطر المُسقطة
  */
 export function dropLinesFoundInMercato(sales, mercatoRows, used = new Set()) {
-  const pool = mercatoRows
-    .filter(r => String(r.recordType ?? 'sale').trim().toLowerCase() !== 'return')
-    .map(prepareMercatoRow);
+  const pool = mercatoRows.filter(r => !isReturnRow(r)).map(prepareMercatoRow);
   const prepared = [...sales].sort((a, b) => new Date(a.saleDate) - new Date(b.saleDate)).map(prepareRepSale);
   const dropped = new Set();
 
@@ -124,6 +128,36 @@ export function dropLinesFoundInMercato(sales, mercatoRows, used = new Set()) {
     .map(sale => ({ ...sale, lines: sale.lines.filter(l => !dropped.has(l)) }))
     .filter(sale => sale.lines.length > 0);
   return { sales: kept, droppedLines: [...dropped].map(l => l.id) };
+}
+
+/** صف لكوديشن بشكل مبيع مندوب، كي يمرّ على مطابقة dropLinesFoundInMercato نفسها. */
+function conditionRowAsSale(row, id) {
+  const raw = parseRaw(row.rawData);
+  return {
+    id,
+    saleDate: row.saleDate,
+    pharmacyName: raw.pharmacy || row.customer?.name || raw['اسم الشركة'] || '',
+    warehouseName: raw.warehouse ?? raw['اسم المذخر'],
+    areaName: row.area?.name,
+    invoiceNumber: raw.invoiceNumber ?? raw['رقم طلبية المذخر'] ?? raw['رقم الفاتورة'],
+    lines: [{ id, itemId: row.itemId ?? null, itemName: row.item?.name ?? '', quantity: Math.abs(Number(row.quantity) || 0), bonusQty: raw.bonus ?? raw['كمية البونص'] }],
+  };
+}
+
+/**
+ * يُسقط صفوف اللكوديشن الموجودة في صفوف ميركاتو الممرَّرة، بقواعد سطر المندوب نفسها. إرجاع
+ * اللكوديشن يبقى كما هو: مطابقة التكرار للمبيعات فقط.
+ *
+ * @param {Array} rows صفوف Sale لمندوب واحد، ميركاتو ولكوديشن معاً
+ * @param {Set} [used] صفوف ميركاتو المستعملة، يشاركها أكثر من حساب بالاسم نفسه
+ * @returns {{rows: Array, dropped: Array}}
+ */
+export function dropConditionRowsFoundInMercato(rows, used = new Set()) {
+  const conditionRows = rows.filter(r => isConditionFileRow(r) && !isReturnRow(r));
+  if (!conditionRows.length) return { rows, dropped: [] };
+  const { droppedLines } = dropLinesFoundInMercato(conditionRows.map(conditionRowAsSale), rows.filter(isPureMercatoRow), used);
+  const dropped = new Set(droppedLines.map(i => conditionRows[i]));
+  return { rows: rows.filter(r => !dropped.has(r)), dropped: [...dropped] };
 }
 
 /**

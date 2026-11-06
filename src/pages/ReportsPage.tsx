@@ -887,7 +887,7 @@ interface SciReport {
   // فئات ايتمات المسوّق (رئيسي/ثانوي) — server/lib/itemTiers.js. modes: وضع الثانوية لكل
   // عضو بفئات (count | separate | hide). null = لا فئات لهذا التقرير.
   byItemTier?: { modes: string[]; main: TierCell; secondary: TierCell } | null;
-  // تقرير المحافظات: أسطر «مبيعات المندوبين» الموجودة في ميركاتو فلم تُحسب مرتين.
+  // تقرير المحافظات: أسطر مكررة بين مبيعات المندوبين وميركاتو واللكوديشن فلم تُحسب مرتين.
   repSaleDuplicates?: number;
 }
 type TierCell = { totalQty: number; totalValue: number; orderCount: number };
@@ -1101,7 +1101,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const [provRepProvince, setProvRepProvince] = useState<string | null>(null);
   const provReportRef = useRef<HTMLDivElement>(null);
   const provReportOpen = mode === 'provinces' && provRepOpen;
-  // عرض علميي المحافظات: مبيع المندوب = «مبيعات المندوبين» المؤكدة + ميركاتو باسمه (lib/repLiquidation.js).
+  // عرض علميي المحافظات: مبيع المندوب = «مبيعات المندوبين» المؤكدة + ميركاتو واللكوديشن باسمه (lib/repLiquidation.js).
   const provLiquidation = !isMarketersManager && !(canToggleRepKind && provKind === 'pharmacy');
   const provLiqReport = provReportOpen && provLiquidation;
   // وضع التقرير الفعلي: تقرير مندوب المحافظة يتصرّف كتقرير «مندوبين بغداد» (معاينة، عرض، تصدير).
@@ -5693,7 +5693,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 <span style={{ fontSize: 12.5, fontWeight: 800, color: liq.color, whiteSpace: 'nowrap' }}>{liq.valStr} <span style={{ fontSize: 14, fontWeight: 800, color: '#1d4ed8' }}>· {fmt(liq.count)}🧾</span></span>
               </>)}
               {provLiqReport && (sciReport.repSaleDuplicates ?? 0) > 0 && (
-                <span style={{ gridColumn: '1 / -1', fontSize: 10.5, color: '#64748b' }}>{fmt(sciReport.repSaleDuplicates ?? 0)} سطر مكرر مع Mercato حُسب مرة واحدة</span>
+                <span style={{ gridColumn: '1 / -1', fontSize: 10.5, color: '#64748b' }}>{fmt(sciReport.repSaleDuplicates ?? 0)} سطر مكرر حُسب مرة واحدة</span>
               )}
             </div>
           </div>

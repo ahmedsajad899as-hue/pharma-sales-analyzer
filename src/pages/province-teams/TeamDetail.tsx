@@ -58,7 +58,7 @@ export default function TeamDetail({ team, viewer, money, onBack, onOpenPersonal
         <Kpi tone="coverage" label="إلى الصيدليات" value={money.usd(t.pharmacyNet)} hint={`${Math.round(pct(pharm, pharm + wh))}% من الصافي`} />
         <Kpi tone="coverage" label="إلى المذاخر" value={money.usd(t.warehouseNet)} hint={`${Math.round(pct(wh, pharm + wh))}% من الصافي`} />
         <Kpi tone="coverage" label="الطلبيات / الزبائن" value={`${fmtInt(t.orders)} / ${fmtInt(t.customers)}`} hint={`صافي الكمية ${fmtInt(t.netQty)}`} />
-        <Kpi tone="personal" label="مبيع المندوبين" value={money.usd(team.personalUSD)} hint="المؤكد في «مبيعات المندوبين» + ميركاتو بأسمائهم — لا يُجمع مع التغطية" />
+        <Kpi tone="personal" label="مبيع المندوبين" value={money.usd(team.personalUSD)} hint="المؤكد في «مبيعات المندوبين» + ميركاتو واللكوديشن بأسمائهم — لا يُجمع مع التغطية" />
         {team.uncovered.length > 0 && (
           <Kpi tone="alert" label="مبيعات غير منسوبة" value={money.usd(uncoveredNet)} hint="ايتمات بلا مندوب في المحافظة" />
         )}
