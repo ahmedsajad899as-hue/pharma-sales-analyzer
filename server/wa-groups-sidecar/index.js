@@ -29,6 +29,7 @@ import pino from 'pino';
 import makeWASocket, {
   useMultiFileAuthState, DisconnectReason, Browsers, downloadMediaMessage, decryptPollVote, jidNormalizedUser,
 } from '@whiskeysockets/baileys';
+import { shouldHandleUpsert, createSeenStore, forwardWithRetry } from './inbound-guard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SECRET = process.env.WA_GROUPS_SECRET || '';
@@ -51,15 +52,32 @@ let reconnectTimer = null;
 // ─── الكروبات المعنيّة (مذاخر مربوطة) ────────────────────────────────────────
 
 let knownJids = new Set();
+let knownLoaded = false;
 async function refreshKnownJids() {
   try {
     const res = await fetch(`${MAIN_URL}/api/wa-groups/internal/known-jids`, { headers: { 'x-wa-groups-secret': SECRET }, signal: AbortSignal.timeout(10_000) });
-    if (res.ok) knownJids = new Set((await res.json()).jids || []);
+    if (res.ok) {
+      knownJids = new Set((await res.json()).jids || []);
+      knownLoaded = true;
+    }
   } catch (e) {
     logger.warn({ err: e.message }, 'known-jids');
   }
 }
 setInterval(refreshKnownJids, 2 * 60_000).unref();
+
+// رسائل الانقطاع تصل فور الاتصال، وقد تسبق أول تحميل للقائمة (أو يكون التطبيق يُعاد
+// تشغيله) — قائمة فارغة كانت ستُسقطها كأنها من كروبات غير معنيّة.
+async function ensureKnownJids() {
+  for (let i = 0; i < 12 && !knownLoaded; i++) {
+    await refreshKnownJids();
+    if (!knownLoaded) await new Promise(r => setTimeout(r, 5_000));
+  }
+  if (!knownLoaded) console.error('[wa-groups] تعذّر تحميل قائمة الكروبات من التطبيق');
+}
+
+// الرسائل التي مُرّرت للتطبيق — رسالة انقطاع مُعاد تسليمها لا تُقرأ (وتُدفع توكنزها) مرتين
+const seen = createSeenStore(path.join(AUTH_DIR, 'seen.json'));
 
 // رسائل حديثة لاقتباسها عند الرد (Baileys يحتاج الرسالة كاملة لا معرّفها فقط)
 const recent = new Map();
@@ -156,6 +174,7 @@ async function connect() {
         console.error('[wa-groups] فُصل الرقم (logged out) — يلزم ربط جديد');
         fs.rmSync(AUTH_DIR, { recursive: true, force: true });
         polls = {};
+        seen.clear();
         Object.assign(state, { status: 'logged_out', me: null, error: 'فُصل الرقم من واتساب — اربطه من جديد' });
       } else {
         state.status = 'reconnecting';
@@ -168,9 +187,10 @@ async function connect() {
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     for (const msg of messages) {
       try {
-        // الأصوات تصل أحياناً كـappend (أُرسلت أثناء انقطاعنا) — لا نفوّتها
+        if (msg.key?.remoteJid?.endsWith('@g.us')) await ensureKnownJids();
+        // ما أُرسل أثناء انقطاعنا يصل كـappend — أصواتاً ورسائل — فلا نفوّته
         if (unwrap(msg.message)?.pollUpdateMessage) await onPollVote(msg);
-        else if (type === 'notify') await onMessage(msg);
+        else if (shouldHandleUpsert(type, msg)) await onMessage(msg, type);
       } catch (e) { console.error('[wa-groups] رسالة واردة:', e.message); }
     }
   });
@@ -181,13 +201,19 @@ function unwrap(m) {
   return m?.ephemeralMessage?.message || m?.viewOnceMessageV2?.message || m?.viewOnceMessage?.message || m;
 }
 
+/** @returns {Promise<boolean>} true إن أقرّ التطبيق بالاستلام (بعده السجلّ عنده يحمي الرسالة) */
 function forward(body) {
-  return fetch(`${MAIN_URL}/api/wa-groups/internal/inbound`, {
+  const payload = JSON.stringify(body);
+  return forwardWithRetry(() => fetch(`${MAIN_URL}/api/wa-groups/internal/inbound`, {
     method: 'POST',
     headers: { 'x-wa-groups-secret': SECRET, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: payload,
     signal: AbortSignal.timeout(30_000),
-  }).catch(e => console.error('[wa-groups] تمرير للتطبيق:', e.message));
+  }), {
+    onError: (why, retryInMs) => console.error(
+      `[wa-groups] تمرير للتطبيق: ${why} — ${retryInMs ? `إعادة بعد ${retryInMs / 1000}ث` : 'لن يُعاد'} (${body.msgId || ''})`,
+    ),
+  });
 }
 
 async function onPollVote(msg) {
@@ -205,7 +231,7 @@ async function onPollVote(msg) {
   });
 }
 
-async function onMessage(msg) {
+async function onMessage(msg, type = 'notify') {
   const jid = msg.key?.remoteJid;
   if (!jid?.endsWith('@g.us')) return;
   remember(msg);
@@ -217,19 +243,30 @@ async function onMessage(msg) {
   const text = m.conversation || m.extendedTextMessage?.text || image?.caption || '';
   const ctx = m.extendedTextMessage?.contextInfo || image?.contextInfo || null;
 
-  let imageBase64 = null;
-  if (image) {
-    if (Number(image.fileLength || 0) > MAX_IMAGE_BYTES) return;
-    const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
-    imageBase64 = Buffer.from(buf).toString('base64');
-  }
-  if (!text && !imageBase64) return;
+  if (!text && !image) return;
+  if (image && Number(image.fileLength || 0) > MAX_IMAGE_BYTES) return;
 
-  await forward({
-    // participantAlt = صيغة الهاتف حين يكون الكروب بوضع LID — التطبيق يربط المندوب برقمه
-    jid, msgId: msg.key.id, sender: msg.key.participantAlt || msg.key.participant || null, senderName: msg.pushName || null,
-    text, quotedId: ctx?.stanzaId || null, imageBase64,
-  });
+  const msgId = msg.key.id;
+  if (msgId && seen.has(msgId)) return;
+  if (msgId) seen.add(msgId); // قبل النداءات البطيئة: نسخة ثانية متزامنة لا تمرّ
+  if (type === 'append') console.log('[wa-groups] رسالة وصلت أثناء الانقطاع:', jid, msgId);
+
+  let delivered = false;
+  try {
+    let imageBase64 = null;
+    if (image) {
+      const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
+      imageBase64 = Buffer.from(buf).toString('base64');
+    }
+    delivered = await forward({
+      // participantAlt = صيغة الهاتف حين يكون الكروب بوضع LID — التطبيق يربط المندوب برقمه
+      jid, msgId, sender: msg.key.participantAlt || msg.key.participant || null, senderName: msg.pushName || null,
+      text, quotedId: ctx?.stanzaId || null, imageBase64,
+    });
+  } finally {
+    // لم تصل التطبيق ⇒ لا تُعلَّم معالَجة، فإعادة التسليم تبقى ممكنة
+    if (!delivered && msgId) seen.delete(msgId);
+  }
 }
 
 // ─── HTTP ────────────────────────────────────────────────────────────────────

@@ -19,6 +19,8 @@ import { fileURLToPath } from 'url';
 import prisma from '../../lib/prisma.js';
 import { normalizeWaId } from '../../lib/waId.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
+import { countPendingOrders, MAX_PENDING_SILENT_PER_USER } from '../orders/orders.service.js';
+import { retryable, shouldDeferForFullQueue, QUEUE_FULL_CODE } from './listen-retry.js';
 
 export const LISTEN_SOURCE = 'wa_group';
 
@@ -98,10 +100,11 @@ export function listRetryingByJid() {
   const out = {};
   for (const { entry } of readJournal()) {
     if (!entry.retry || !entry.m?.jid) continue;
-    const r = (out[entry.m.jid] ||= { count: 0, nextAt: null, lastError: null });
+    const r = (out[entry.m.jid] ||= { count: 0, nextAt: null, lastError: null, queueFull: false });
     r.count++;
     if (!r.nextAt || entry.retry.nextAt < r.nextAt) r.nextAt = entry.retry.nextAt;
     r.lastError = entry.retry.lastError;
+    r.queueFull = entry.retry.code === QUEUE_FULL_CODE;
   }
   return out;
 }
@@ -113,20 +116,26 @@ const bumpCounters = (jid, data) =>
 
 // ─── المعالجة ────────────────────────────────────────────────────────────────
 
-/** فشل يستحق الإعادة: عطل ذكاء/خادم (5xx) أو خطأ غير متوقّع — لا «مكرّرة» ولا مدخل مرفوض (4xx). */
-const retryable = (err) => !err?.isOperational || (err.statusCode ?? 500) >= 500;
-
 /** @returns {Promise<{ failed: Error|null }>} */
 async function processMessage(m, link) {
   const outcome = { failed: null };
   const user = await prisma.user.findUnique({ where: { id: link.userId } });
   if (!user?.isActive) return outcome;
   const buffer = m.imageBase64 ? Buffer.from(m.imageBase64, 'base64') : null;
+  const pending = await countPendingOrders(link.userId);
+  if (shouldDeferForFullQueue({
+    text: String(m.text || '').trim(), mode: link.orderTextMode, hasMedia: Boolean(buffer),
+    pending, limit: MAX_PENDING_SILENT_PER_USER,
+  })) {
+    outcome.failed = Object.assign(new Error(`طابور المراجعة ممتلئ (${pending} طلبية)`), { code: QUEUE_FULL_CODE });
+    return outcome;
+  }
   // مفتاح ثابت للصورة (معرّف الرسالة) ⇒ sourceHash يطوي إعادة المعالجة بعد انقطاع
   const ref = buffer ? (m.msgId || crypto.createHash('sha1').update(buffer).digest('hex')) : null;
   await handleIncomingOrderMessage({
     transport: {
       name: LISTEN_SOURCE,
+      maxPending: MAX_PENDING_SILENT_PER_USER,
       sendText: async () => null, // قراءة صامتة: لا شيء يخرج من الرقم أبداً
       downloadMedia: async () => buffer,
       resolveSenderRep,
@@ -157,7 +166,7 @@ async function runEntry(key, entry, link) {
   if (failed && retryable(failed) && (entry.attempts || 0) < RETRY_MAX_ATTEMPTS && Date.now() - entry.at < RETRY_MAX_AGE_MS) {
     const attempts = (entry.attempts || 0) + 1;
     const delayMin = RETRY_DELAYS_MIN[Math.min(attempts, RETRY_DELAYS_MIN.length) - 1];
-    journalWrite(key, { ...entry, attempts, retry: { nextAt: Date.now() + delayMin * 60_000, lastError: String(failed?.message || failed).slice(0, 200) } });
+    journalWrite(key, { ...entry, attempts, retry: { nextAt: Date.now() + delayMin * 60_000, lastError: String(failed?.message || failed).slice(0, 200), code: failed?.code || null } });
     console.warn(`[wa-groups] فشلت قراءة رسالة كروب (محاولة ${attempts}) — إعادة بعد ${delayMin} د: ${failed?.message}`);
     return 'retry';
   }

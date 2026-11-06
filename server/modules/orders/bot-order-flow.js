@@ -210,6 +210,7 @@ export async function handleIncomingOrderMessage({
       imageBuffers,
       mediaKeys: mediaRefs.map(r => (typeof r === 'string' ? r : JSON.stringify(r))),
       sourceMessageId: messageId,
+      maxPending: transport.maxPending,
     });
     // خطّاف اختياري للمنصّة (كروبات «رقم الكروبات» تعدّ ما دخل الطابور) — لا يرمي
     try { await transport.onQueued?.(); } catch (e) { console.error('[orders] onQueued:', e?.message); }

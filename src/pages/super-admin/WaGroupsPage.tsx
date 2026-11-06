@@ -12,7 +12,7 @@ interface ListenLink {
 }
 interface LinkForm { jid: string; name: string; userId?: number; orderTextMode: OrderTextMode; isNew: boolean }
 interface PendingAt { userId: number; name: string; count: number }
-interface Retrying { count: number; nextAt: number | null; lastError: string | null }
+interface Retrying { count: number; nextAt: number | null; lastError: string | null; queueFull?: boolean }
 interface Destination {
   reviewer: { id: number; name: string; role: string; isActive: boolean };
   office: string | null;
@@ -271,7 +271,7 @@ export default function WaGroupsPage() {
                       {l.failedCount > 0 && <span style={{ color: '#b91c1c' }}> · ❌ {l.failedCount} فشلت نهائياً</span>}
                       {retryByJid[g.jid] && (
                         <div style={{ color: '#b91c1c' }} title={retryByJid[g.jid].lastError || ''}>
-                          ⚠️ {retryByJid[g.jid].count} فشلت قراءتها — تُعاد تلقائياً{retryByJid[g.jid].nextAt ? ` (المحاولة القادمة ${untilLabel(retryByJid[g.jid].nextAt!)})` : ''}
+                          ⚠️ {retryByJid[g.jid].count} {retryByJid[g.jid].queueFull ? 'تنتظر: طابور المراجعة ممتلئ، راجع الطلبيات' : 'فشلت قراءتها'} — تُعاد تلقائياً{retryByJid[g.jid].nextAt ? ` (المحاولة القادمة ${untilLabel(retryByJid[g.jid].nextAt!)})` : ''}
                         </div>
                       )}
                       {(pendingByJid[g.jid] || []).length > 0 && (

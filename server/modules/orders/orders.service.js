@@ -35,6 +35,12 @@ const BOT_ORDER_IMAGES_DIR = path.join(__dirname3, '..', '..', '..', 'uploads', 
 /** حدّ الطلبيات المعلَّقة لكل مستخدم — حارس تكلفة وقاعدة بيانات، لا قيد منطقي. */
 export const MAX_PENDING_ORDERS_PER_USER = 30;
 
+/**
+ * حدّ أوسع لكروبات واتساب الصامتة: البوت هناك لا يستطيع إبلاغ المرسِل بالامتلاء، فحدّ 30
+ * كان يُسقط طلبيات حقيقية بلا علم أحد. يبقى حدّ لأن صور الطابور تأكل القرص.
+ */
+export const MAX_PENDING_SILENT_PER_USER = 300;
+
 /** تُقلَّم الصفوف الأقدم من هذا تلقائياً عند أول قراءة للقائمة. */
 const PRUNE_AFTER_DAYS = 30;
 
@@ -960,6 +966,7 @@ async function createOrReplacePending({ ownerId, data, payload, rows, imageFiles
 export async function ingestBotOrder({
   user, source, chatId, chatTitle = null, senderName = null,
   kind, sourceText = null, rows, imageBuffers = [], mediaKeys = [], sourceMessageId = null,
+  maxPending = MAX_PENDING_ORDERS_PER_USER,
 }) {
   if (!rows?.length) throw new AppError('لم أتعرّف على أي صنف في هذه الطلبية.', 422, 'NO_ORDER_ROWS');
 
@@ -968,7 +975,7 @@ export async function ingestBotOrder({
   // حدّ الطابور يخصّ ما يبقى عند حساب الكروب؛ المحوَّل يذهب لطوابير المدراء.
   if (keep.length) {
     const pending = await countPendingOrders(user.id);
-    if (pending >= MAX_PENDING_ORDERS_PER_USER) {
+    if (pending >= maxPending) {
       throw new AppError(
         `لديك ${pending} طلبية بانتظار المراجعة — راجِعها أو ألغِ بعضها من التطبيق أولاً.`,
         409, 'PENDING_ORDERS_FULL',
