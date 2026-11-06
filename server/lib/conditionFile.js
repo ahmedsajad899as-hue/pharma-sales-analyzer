@@ -305,18 +305,67 @@ const ROSTER_SCOPED_ROLES = new Set(['company_manager', 'team_leader', 'office_m
  * لمدير آخر في المكتب نفسه (طلبيات بوت/كوديشن مشتركة)، ولا يجوز أن تظهر عند
  * غيره. مطابقة الاسم كما في الباقي: تام/نواة، أو تشابه ≥0.7 بمرشّح واحد واضح.
  * «بلا مندوب» تُخفى عن هذه الأدوار أيضاً — لا تُنسب لفريقهم بدليل.
+ *
+ * مدير الشركة يُقيَّد بعدها بايتماته أيضاً (restrictSheetsToItems) — مندوب فريقه قد يبيع
+ * ايتمات مدير آخر، ومبيع الشركة = ايتماتها لا مندوبوها. مدير المسوقين مستثنى: ليس مالك
+ * ايتمات، وشيتات مسوقيه كاملة بأزرار الكرخ/الرصافة.
  */
 export async function scopeSheetsToRoster(sheets, user) {
   if (!user || !ROSTER_SCOPED_ROLES.has(user.role)) return sheets;
   const roster = await getManagerRoster(user, { includeTeamLead: true });
   const index = buildRepIndex(roster.reps.map(r => ({ id: r.userId, name: r.name })));
-  return sheets.filter(sh => {
+  const inRoster = sheets.filter(sh => {
     if (sh.rep === NO_REP) return false;
     const m = matchRepName(sh.rep, index);
     if (m.status === 'exact') return true;
     const top = m.suggestions[0], second = m.suggestions[1];
     return m.status === 'ask' && !!top && top.score >= 0.7 && (!second || top.score - second.score >= 0.15);
   });
+  if (user.role !== 'company_manager') return inRoster;
+  const me = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: {
+      linkedRep: { select: { repKind: true } },
+      companyAssignments: { select: { isPrimary: true, company: { select: { name: true } } } },
+    },
+  });
+  if (me?.linkedRep?.repKind === PHARMACY_KIND) return inRoster;
+  const itemIds = await loadViewerItemIds(user);
+  const team = (me?.companyAssignments.find(a => a.isPrimary) ?? me?.companyAssignments[0])?.company?.name ?? null;
+  return restrictSheetsToItems(inRoster, itemIds, team);
+}
+
+/**
+ * يُبقي في كل شيت صفوف ايتمات المدير فقط ويُسقط الشيت الذي فرغ. كل ما بقي مبيع شركته،
+ * فيأخذ الشيت اسمها حتى لو كانت الشركة الرئيسية للمندوب غيرها — وإلا ظهرت أزرار شركات
+ * غريبة وتحوّل الملخص لعرض الشركات بلا أسماء مندوبين. مدير بلا أي ايتم: تبقى الشيتات كما هي.
+ */
+export function restrictSheetsToItems(sheets, itemIds, team) {
+  if (!itemIds?.size) return sheets;
+  return sheets.map(s => {
+    const rows = s.rows.filter(r => itemIds.has(r.itemId));
+    return {
+      ...s, rows, team,
+      quantity: rows.reduce((a, r) => a + r.quantity, 0),
+      total: rows.reduce((a, r) => a + r.total, 0),
+      orders: new Set(rows.map(r => r.invoice || `${r.date}|${r.pharmacy}`)).size,
+    };
+  }).filter(s => s.rows.length > 0);
+}
+
+/**
+ * ايتمات المستخدم: مدير الشركة ← ايتماته المملوكة بقاعدة التحليل الشامل (ايتم لمديرين
+ * يُحسب لواحد)؛ غيره، أو مدير لا يملك شيئاً ← ايتماته المُسنَدة له.
+ */
+async function loadViewerItemIds(user) {
+  if (user.role === 'company_manager') {
+    const me = await prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
+    const owners = await loadItemOwnerManagers(me?.officeId ?? null);
+    const owned = new Set([...owners].filter(([, o]) => o.managerId === user.id).map(([id]) => id));
+    if (owned.size) return owned;
+  }
+  const items = await prisma.userItemAssignment.findMany({ where: { userId: user.id }, select: { itemId: true } });
+  return new Set(items.map(i => i.itemId));
 }
 
 /**
@@ -443,16 +492,7 @@ export async function buildCompanySheet(allSheets, scoped, user) {
   if (!user || !ROSTER_SCOPED_ROLES.has(user.role) || ['office_manager', 'office_employee', 'office_hr'].includes(user.role)) {
     rows = allSheets.flatMap(s => s.rows);
   } else {
-    let itemIds;
-    if (user.role === 'company_manager') {
-      const me = await prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
-      const owners = await loadItemOwnerManagers(me?.officeId ?? null);
-      itemIds = new Set([...owners].filter(([, o]) => o.managerId === user.id).map(([id]) => id));
-    }
-    if (!itemIds?.size) {
-      const items = await prisma.userItemAssignment.findMany({ where: { userId: user.id }, select: { itemId: true } });
-      itemIds = new Set(items.map(i => i.itemId));
-    }
+    const itemIds = await loadViewerItemIds(user);
     rows = itemIds.size
       ? allSheets.flatMap(s => s.rows).filter(r => itemIds.has(r.itemId))
       : scoped.flatMap(s => s.rows);
