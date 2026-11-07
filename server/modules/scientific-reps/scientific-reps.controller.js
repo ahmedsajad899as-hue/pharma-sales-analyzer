@@ -14,6 +14,15 @@ function applyMonth(query, month) {
   return { ...query, startDate: range.startDate, endDate: range.endDate };
 }
 
+/** شهر التارگت: شريحة الشهر (2026-09) ← وإلا بداية المدى ← وإلا الشهر الحالي. */
+function targetPeriodOf(q) {
+  const m = /^(\d{4})-(\d{1,2})$/.exec(String(q.month || ''));
+  if (m) return { year: +m[1], month: +m[2] };
+  const d = q.startDate ? new Date(q.startDate) : new Date();
+  const ok = !Number.isNaN(d.getTime()) ? d : new Date();
+  return { year: ok.getFullYear(), month: ok.getMonth() + 1 };
+}
+
 /** Parse fileIds from query string: '1,2,3' → [1,2,3], '5' → [5], null → null */
 const parseFileIds = (raw) => {
   if (!raw) return null;
@@ -427,6 +436,7 @@ export async function getWarehouseSummaryAll(req, res, next) {
       // نفس حجب التحليل المعروض («بدون الفارمسي» / «بدون التجاري») — كي لا تختلف القائمة عن الشاشة.
       excludePharmacy: req.query.excludePharmacy === '1',
       excludeCommercial: req.query.excludeCommercial === '1',
+      targetPeriod: targetPeriodOf(req.query),
     };
     const data = await svc.getWarehouseSummaryForReps(repIds, applyMonth(query, req.query.month), req.user?.id ?? null);
     res.json({ success: true, data });

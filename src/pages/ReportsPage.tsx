@@ -855,7 +855,9 @@ const REP_KIND_TOGGLE_ROLES = new Set(['office_manager', 'office_hr', 'office_em
 interface WarehouseBreakdown { name: string; orderCount: number; value: number; }
 // ملخص صافي المبيع + طلبيات المكتب/المذخر + أسماء المذاخر لمندوب علمي واحد —
 // صف واحد من القائمة الثانوية «كل المندوبين العلميين».
-interface RepWarehouseSummary { id: number; name: string; netValue: number; officeOrderCount: number; officeValue: number; warehouseOrderCount: number; warehouses: WarehouseBreakdown[]; byClass?: Record<string, number>; }
+interface RepItemNet { itemId: number; itemName: string; qty: number; value: number; }
+interface RepItemTargetRow { itemId: number; itemName: string; target: number; }
+interface RepWarehouseSummary { id: number; name: string; netValue: number; officeOrderCount: number; officeValue: number; warehouseOrderCount: number; warehouses: WarehouseBreakdown[]; byClass?: Record<string, number>; items?: RepItemNet[]; targets?: RepItemTargetRow[]; }
 interface BreakdownRow { name: string; repName?: string; totalQty: number; totalValue: number; isZero?: boolean; companyName?: string; }
 interface CommReport {
   repName: string;
@@ -1186,7 +1188,10 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const [allRepsWarehouseLoading, setAllRepsWarehouseLoading]     = useState(false);
   const [allRepsWarehouseData, setAllRepsWarehouseData]           = useState<RepWarehouseSummary[] | null>(null);
   const [expandedWarehouseRepId, setExpandedWarehouseRepId]       = useState<number | null>(null);
-  const [warehouseViewMode, setWarehouseViewMode] = useState<'list' | 'pivot'>('list');
+  const [warehouseViewMode, setWarehouseViewMode] = useState<'list' | 'pivot' | 'items'>('list');
+  // عرض «حسب الايتم»: فلتر ايتم واحد ('' = الكل) ومندوب واحد ('' = الكل).
+  const [itemsViewItem, setItemsViewItem] = useState('');
+  const [itemsViewRep, setItemsViewRep] = useState('');
   // زر TL: يبدّل بين مندوبي المبيع العاديين (الافتراضي، بلا قادة فرق) وقادة الفرق أنفسهم
   const [warehouseShowLeaders, setWarehouseShowLeaders] = useState(false);
   // فلتر الشركة المعروضة داخل القائمة الثانوية — '' = كل الشركات (نفس سلوك
@@ -3759,6 +3764,55 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     return keepCompany(cols, spans);
   };
 
+  // عرض «حسب الايتم» (مثل جدول تارگت التيم): لكل مندوب صف لكل ايتم = التارگت، المحقق
+  // (صافي الكمية)، الغير محقق (المحقق − التارگت)، المبالغ. مجمَّع تحت التيم ليدر،
+  // والمجموعات والمندوبون داخلها مرتَّبون تنازلياً بالمبالغ. الايتم يُطابَق بالاسم
+  // (لا itemId) كي يجمع الفلتر نفس الايتم عبر حسابات الشركات المختلفة.
+  type ItemViewRow = { itemName: string; target: number; achieved: number; value: number };
+  type ItemViewRep = { rep: RepWarehouseSummary; rows: ItemViewRow[]; value: number; target: number; achieved: number };
+  const itemKey = (n: string) => String(n || '').trim().replace(/\s+/g, ' ').toUpperCase();
+  const buildItemsView = (cols: RepWarehouseSummary[]) => {
+    const leaderOf = new Map<number, string>();
+    for (const g of groupRepsByTeam(sciReps)) {
+      let current = '';
+      for (const row of g.rows) {
+        if (row.isLeader) { current = row.rep.name; leaderOf.set(row.rep.id, row.rep.name); continue; }
+        leaderOf.set(row.rep.id, row.isMember ? current : `بدون تيم ليدر${g.company ? ` — ${g.company}` : ''}`);
+      }
+    }
+    const allItems = new Map<string, string>();
+    const reps: (ItemViewRep & { leader: string })[] = [];
+    for (const rep of cols) {
+      const byItem = new Map<string, ItemViewRow>();
+      const rowOf = (name: string) => {
+        const k = itemKey(name);
+        if (!allItems.has(k)) allItems.set(k, name);
+        if (!byItem.has(k)) byItem.set(k, { itemName: allItems.get(k)!, target: 0, achieved: 0, value: 0 });
+        return byItem.get(k)!;
+      };
+      for (const i of rep.items ?? []) { const r = rowOf(i.itemName); r.achieved += i.qty; r.value += i.value; }
+      for (const t of rep.targets ?? []) rowOf(t.itemName).target += t.target;
+      if (itemsViewRep && String(rep.id) !== itemsViewRep) continue;
+      let rows = [...byItem.values()].filter(r => r.target !== 0 || r.achieved !== 0 || r.value !== 0);
+      if (itemsViewItem) rows = rows.filter(r => itemKey(r.itemName) === itemsViewItem);
+      if (rows.length === 0) continue;
+      rows.sort((a, b) => b.value - a.value || a.itemName.localeCompare(b.itemName));
+      const sum = (f: (r: ItemViewRow) => number) => rows.reduce((s, r) => s + f(r), 0);
+      reps.push({ rep, rows, leader: leaderOf.get(rep.id) || 'أخرى', value: sum(r => r.value), target: sum(r => r.target), achieved: sum(r => r.achieved) });
+    }
+    const groupMap = new Map<string, ItemViewRep[]>();
+    for (const r of reps) { if (!groupMap.has(r.leader)) groupMap.set(r.leader, []); groupMap.get(r.leader)!.push(r); }
+    const groups = [...groupMap.entries()].map(([leader, list]) => ({
+      leader,
+      reps: list.sort((a, b) => b.value - a.value),
+      value: list.reduce((s, r) => s + r.value, 0),
+      target: list.reduce((s, r) => s + r.target, 0),
+      achieved: list.reduce((s, r) => s + r.achieved, 0),
+    })).sort((a, b) => b.value - a.value);
+    const itemOptions = [...allItems.entries()].map(([key, name]) => ({ key, name })).sort((a, b) => a.name.localeCompare(b.name));
+    return { groups, itemOptions };
+  };
+
   // يحوّل بيانات القائمة (مندوب لكل صف، بعد ترتيبها حسب الشركة) إلى شكل جدول
   // محوري: صف لكل مذخر (+ صف «مكتب» للطلبيات بلا مذخر محدَّد) وعمود لكل
   // مندوب علمي — بنفس شكل شيت الإكسل المرجعي.
@@ -3788,6 +3842,38 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     const { cols, spans } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders, warehouseCompanyFilter);
     const wb = XLSX.utils.book_new();
     const blank = (n: number) => (n === 0 ? '' : n);
+    if (warehouseViewMode === 'items') {
+      const cv = (n: number) => +convertVal(n).toFixed(2);
+      const { groups } = buildItemsView(cols);
+      const header = ['اسم التيم ليدر', repColumnLabel, 'اسم المادة', 'التارگت', 'الغير محقق', 'المحقق', 'نسبة التحقيق', `المبالغ (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`];
+      const body: any[][] = [];
+      const merges: any[] = [];
+      for (const g of groups) {
+        const gStart = body.length + 1;
+        for (const r of g.reps) {
+          const rStart = body.length + 1;
+          r.rows.forEach((row, i) => body.push([
+            i === 0 && r === g.reps[0] ? g.leader : '', i === 0 ? r.rep.name : '', row.itemName,
+            blank(row.target), row.target > 0 ? row.achieved - row.target : '', row.achieved,
+            row.target > 0 ? `${Math.round((row.achieved / row.target) * 100)}%` : '', cv(row.value),
+          ]));
+          if (r.rows.length > 1) merges.push({ s: { r: rStart, c: 1 }, e: { r: body.length, c: 1 } });
+        }
+        if (body.length + 1 - gStart > 1) merges.push({ s: { r: gStart, c: 0 }, e: { r: body.length, c: 0 } });
+      }
+      const all = groups.flatMap(g => g.reps.flatMap(r => r.rows));
+      const tTarget = all.reduce((s, r) => s + r.target, 0);
+      const tAch = all.reduce((s, r) => s + r.achieved, 0);
+      body.push(['الإجمالي', '', '', blank(tTarget), '', tAch, '', cv(all.reduce((s, r) => s + r.value, 0))]);
+      const aoa: any[][] = [header, ...body];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      styleSheet(ws, aoa, [26, 24, 34, 11, 12, 11, 12, 18]);
+      ws['!merges'] = merges;
+      for (let r = 1; r <= body.length; r++) applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: 7 }));
+      XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('حسب الايتم'));
+      XLSX.writeFile(wb, `مبيعات-المندوبين-حسب-الايتم_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      return;
+    }
     if (warehouseViewMode === 'pivot') {
       const { rows, colTotals, grandTotal, grandValueTotal } = buildWarehousePivot(cols);
       const nameCol = 0;
@@ -6256,7 +6342,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       {/* ── كل المندوبين العلميين دفعة واحدة: صافي + مكتب/مذخر + أسماء المذاخر ── */}
       {showAllRepsWarehouseModal && (
         <div className="modal-overlay" onClick={() => setShowAllRepsWarehouseModal(false)}>
-          <div className="modal modal--wide" style={{ maxWidth: warehouseViewMode === 'pivot' ? '95vw' : 780 + warehouseClassCols.length * 120 }} onClick={e => e.stopPropagation()}>
+          <div className="modal modal--wide" style={{ maxWidth: warehouseViewMode === 'pivot' ? '95vw' : warehouseViewMode === 'items' ? 1100 : 780 + warehouseClassCols.length * 120 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="modal-title">{warehouseShowLeaders ? (marketersView ? 'قادة الفرق' : 'قادة الفرق العلميون') : allRepsLabel} — مكتب / مذخر</h2>
               <button className="modal-close" onClick={() => setShowAllRepsWarehouseModal(false)}><Icon name="close" size={16} /></button>
@@ -6312,6 +6398,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                     className={warehouseViewMode === 'pivot' ? undefined : 'rpt-pulse-btn rpt-pulse-btn--indigo'}
                     style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #4f46e5', background: warehouseViewMode === 'pivot' ? '#4f46e5' : '#eef2ff', color: warehouseViewMode === 'pivot' ? '#fff' : '#3730a3', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                   ><Icon name="excel" size={12} /> جدول (مذخر × مندوب)</button>
+                  <button onClick={() => setWarehouseViewMode('items')}
+                    style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #047857', background: warehouseViewMode === 'items' ? '#047857' : '#ecfdf5', color: warehouseViewMode === 'items' ? '#fff' : '#065f46', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  >🎯 حسب الايتم (تارگت)</button>
                 </div>
                 {/* قادة الفرق مستبعَدون من الجدول العادي — هذا الزر يعرض بياناتهم هم فقط بدلاً منهم */}
                 <button onClick={() => { setWarehouseShowLeaders(v => !v); setExpandedWarehouseRepId(null); setWarehouseCompanyFilter(''); }}
@@ -6332,7 +6421,97 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 </div>
               ) : !allRepsWarehouseData || allRepsWarehouseData.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>{marketersView ? 'لا توجد بيانات للمسوقين' : 'لا يوجد مندوبون علميون بيانات'}</div>
-              ) : warehouseViewMode === 'list' ? (() => {
+              ) : warehouseViewMode === 'items' ? (() => {
+                const { cols } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders, warehouseCompanyFilter);
+                const { groups, itemOptions } = buildItemsView(cols);
+                const BORDER = '1px solid #cbd5e1';
+                const th: React.CSSProperties = { padding: '9px 10px', background: '#3f6212', color: '#fff', textAlign: 'center', fontWeight: 700, border: BORDER, position: 'sticky', top: 0, zIndex: 1, whiteSpace: 'nowrap' };
+                const td: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', color: '#111827', border: BORDER, whiteSpace: 'nowrap' };
+                const sel: React.CSSProperties = { padding: '6px 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 12.5, fontWeight: 600, minWidth: 200, background: '#fff' };
+                const valTxt = (n: number) => (n < 0 ? fmtValSigned(n) : fmtVal(n));
+                const all = groups.flatMap(g => g.reps.flatMap(r => r.rows));
+                const tTarget = all.reduce((s, r) => s + r.target, 0);
+                const tAch = all.reduce((s, r) => s + r.achieved, 0);
+                const tVal = all.reduce((s, r) => s + r.value, 0);
+                const hasTargets = tTarget > 0;
+                return (
+                  <>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        الايتم
+                        <select value={itemsViewItem} onChange={e => setItemsViewItem(e.target.value)} style={sel}>
+                          <option value="">كل الايتمات</option>
+                          {itemOptions.map(o => <option key={o.key} value={o.key}>{o.name}</option>)}
+                        </select>
+                      </label>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {repColumnLabel}
+                        <select value={itemsViewRep} onChange={e => setItemsViewRep(e.target.value)} style={sel}>
+                          <option value="">الكل</option>
+                          {cols.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                        </select>
+                      </label>
+                      {(itemsViewItem || itemsViewRep) && (
+                        <button onClick={() => { setItemsViewItem(''); setItemsViewRep(''); }}
+                          style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', fontSize: 12, cursor: 'pointer' }}>مسح الفلتر</button>
+                      )}
+                      {!hasTargets && <span style={{ fontSize: 11.5, color: '#b45309' }}>لا يوجد تارگت مُدخل لهذا الشهر — يظهر المحقق والمبالغ فقط.</span>}
+                    </div>
+                    {groups.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا توجد مبيعات أو تارگت لهذا الاختيار</div>
+                    ) : (
+                      <div style={{ maxHeight: '62vh', overflow: 'auto', border: '1px solid #94a3b8' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                          <thead>
+                            <tr>
+                              {['اسم التيم ليدر', repColumnLabel, 'اسم المادة', 'التارگت', 'الغير محقق', 'المحقق', 'النسبة', 'المبالغ'].map(h => <th key={h} style={th}>{h}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {groups.map((g, gi) => {
+                              const gRows = g.reps.reduce((s, r) => s + r.rows.length, 0);
+                              const bg = gi % 2 === 0 ? '#fff' : '#f7fbef';
+                              return g.reps.map((r, ri) => r.rows.map((row, i) => {
+                                const gap = row.achieved - row.target;
+                                return (
+                                  <tr key={`${g.leader}-${r.rep.id}-${row.itemName}`} style={{ background: bg }}>
+                                    {ri === 0 && i === 0 && (
+                                      <td rowSpan={gRows} style={{ ...td, fontWeight: 800, background: '#f1f5f9', whiteSpace: 'normal', minWidth: 130, verticalAlign: 'middle' }}>
+                                        {g.leader}
+                                        <div style={{ fontSize: 10.5, color: '#475569', marginTop: 4 }}>{valTxt(g.value)}</div>
+                                      </td>
+                                    )}
+                                    {i === 0 && (
+                                      <td rowSpan={r.rows.length} style={{ ...td, fontWeight: 700, textAlign: 'right', whiteSpace: 'normal', minWidth: 120, verticalAlign: 'middle' }}>
+                                        {r.rep.name}
+                                        {r.rows.length > 1 && <div style={{ fontSize: 10.5, color: '#475569', marginTop: 3 }}>{valTxt(r.value)}</div>}
+                                      </td>
+                                    )}
+                                    <td style={{ ...td, textAlign: 'left', direction: 'ltr', fontWeight: 700 }}>{row.itemName}</td>
+                                    <td style={td}>{row.target > 0 ? fmt(row.target) : ''}</td>
+                                    <td style={{ ...td, fontWeight: 700, color: row.target > 0 ? (gap < 0 ? '#dc2626' : '#15803d') : undefined }}>{row.target > 0 ? (gap > 0 ? `+${fmt(gap)}` : fmt(gap)) : ''}</td>
+                                    <td style={{ ...td, fontWeight: 700 }}>{fmt(row.achieved)}</td>
+                                    <td style={{ ...td, color: '#475569' }}>{row.target > 0 ? `${Math.round((row.achieved / row.target) * 100)}%` : ''}</td>
+                                    <td style={{ ...td, fontWeight: 700, background: row.value < 0 ? 'rgba(239, 68, 68, 0.12)' : undefined }}>{valTxt(row.value)}</td>
+                                  </tr>
+                                );
+                              }));
+                            })}
+                            <tr style={{ background: '#e2e8f0', fontWeight: 800 }}>
+                              <td colSpan={3} style={{ ...td, fontWeight: 800 }}>الإجمالي</td>
+                              <td style={{ ...td, fontWeight: 800 }}>{tTarget > 0 ? fmt(tTarget) : ''}</td>
+                              <td style={{ ...td, fontWeight: 800, color: tTarget > 0 ? (tAch - tTarget < 0 ? '#dc2626' : '#15803d') : undefined }}>{tTarget > 0 ? fmt(tAch - tTarget) : ''}</td>
+                              <td style={{ ...td, fontWeight: 800 }}>{fmt(tAch)}</td>
+                              <td style={{ ...td, fontWeight: 800 }}>{tTarget > 0 ? `${Math.round((tAch / tTarget) * 100)}%` : ''}</td>
+                              <td style={{ ...td, fontWeight: 800 }}>{valTxt(tVal)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                );
+              })() : warehouseViewMode === 'list' ? (() => {
                 const { cols } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders, warehouseCompanyFilter);
                 const companyById = new Map(sciReps.map(r => [r.id, r.company || '']));
                 if (cols.length === 0) {

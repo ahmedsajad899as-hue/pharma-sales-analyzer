@@ -2463,12 +2463,39 @@ export async function getWarehouseSummaryForReps(repIds, query = {}, viewerId = 
         warehouses: r.warehouses ?? [],
         // صافي كل تصنيف «معلومات الزبون» — أعمدة علمي/مذاخر/تجاري/فارمسي حين يُفعَّل زر التصنيف.
         byClass: Object.fromEntries(Object.entries(r.byCustomerClass ?? {}).map(([k, c]) => [k, c.totalValue])),
+        // صافي كل ايتم (كمية + قيمة) — عرض «حسب الايتم»: تارگت / محقق / غير محقق / المبالغ.
+        items: (r.byItem ?? []).map(i => ({ itemId: i.itemId, itemName: i.itemName, qty: i.totalQuantity, value: i.totalValue })),
+        targets: [],
       };
     } catch {
-      return { id, name: `#${id}`, netValue: 0, officeOrderCount: 0, officeValue: 0, warehouseOrderCount: 0, warehouses: [], byClass: {} };
+      return { id, name: `#${id}`, netValue: 0, officeOrderCount: 0, officeValue: 0, warehouseOrderCount: 0, warehouses: [], byClass: {}, items: [], targets: [] };
     }
   }));
+  await attachItemTargets(results, query.targetPeriod, viewerId);
   return results.sort((a, b) => b.netValue - a.netValue);
+}
+
+/**
+ * تارگت كل مندوب لكل ايتم للشهر المعروض (RepItemTarget, repType='scientific').
+ * المندوب المشترك: مدير الشركة يرى تارگت ايتماته فقط (نفس /api/targets).
+ */
+async function attachItemTargets(results, period, viewerId) {
+  if (!period || results.length === 0) return;
+  const rows = await prisma.repItemTarget.findMany({
+    where: { repType: 'scientific', repId: { in: results.map(r => r.id) }, month: period.month, year: period.year, target: { gt: 0 } },
+    select: { repId: true, itemId: true, target: true, item: { select: { name: true } } },
+  });
+  const byRep = new Map();
+  for (const t of rows) {
+    if (!byRep.has(t.repId)) byRep.set(t.repId, []);
+    byRep.get(t.repId).push({ itemId: t.itemId, itemName: t.item?.name ?? `#${t.itemId}`, target: t.target });
+  }
+  for (const r of results) {
+    const list = byRep.get(r.id);
+    if (!list) continue;
+    const allowed = await sharedRepItemsForViewer(r.id, viewerId);
+    r.targets = allowed ? list.filter(t => allowed.has(t.itemId)) : list;
+  }
 }
 
 /**
