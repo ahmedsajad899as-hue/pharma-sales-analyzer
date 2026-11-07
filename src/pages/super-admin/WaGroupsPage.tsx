@@ -9,8 +9,10 @@ interface UserOption { id: number; username: string; displayName?: string | null
 interface ListenLink {
   jid: string; name: string | null; userId: number; isActive: boolean; orderTextMode: OrderTextMode; user?: UserOption;
   messageCount: number; orderCount: number; attachedCount: number; failedCount: number; lastMessageAt: string | null; lastOrderAt: string | null;
+  skippedCount?: number; allowedSenders?: string[] | null; knownSenders?: Record<string, KnownSender> | null;
 }
-interface LinkForm { jid: string; name: string; userId?: number; orderTextMode: OrderTextMode; isNew: boolean }
+interface KnownSender { name: string | null; count: number; lastAt: string }
+interface LinkForm { jid: string; name: string; userId?: number; orderTextMode: OrderTextMode; isNew: boolean; senders: string[]; known: Record<string, KnownSender> }
 interface PendingAt { userId: number; name: string; count: number }
 interface Retrying { count: number; nextAt: number | null; lastError: string | null; queueFull?: boolean }
 interface Destination {
@@ -20,6 +22,64 @@ interface Destination {
   ownItems: number;
   managers: { id: number; name: string; company: string | null; items: number }[];
   conditionFile: { ownerName: string; id: number | null; name: string | null; rows: number };
+}
+
+/** «+9647…» أو «رقم مخفي» لمعرّف LID — واتساب لا يكشف الرقم في بعض الكروبات. */
+const senderLabel = (key: string) => key.startsWith('lid:') ? `رقم مخفي …${key.slice(-4)}` : `+${key}`;
+
+/** من تُحلَّل رسائله: الكل، أو أشخاص مختارون ممن كتبوا في الكروب / رقم يُكتب يدوياً. */
+function SendersField({ value, known, onChange }: { value: string[]; known: Record<string, KnownSender>; onChange: (v: string[]) => void }) {
+  const [restrict, setRestrict] = useState(value.length > 0);
+  const [manual, setManual] = useState('');
+  const rows: [string, KnownSender][] = Object.entries(known).sort((a, b) => b[1].count - a[1].count);
+  for (const k of value) if (!known[k]) rows.push([k, { name: null, count: 0, lastAt: '' }]);
+  const toggle = (k: string) => onChange(value.includes(k) ? value.filter(x => x !== k) : [...value, k]);
+  const addManual = () => {
+    let d = manual.replace(/[٠-٩]/g, c => String(c.charCodeAt(0) - 0x0660)).replace(/\D/g, '');
+    if (d.startsWith('00')) d = d.slice(2);
+    if (/^07\d{9}$/.test(d)) d = '964' + d.slice(1);
+    if (d.length < 8) return;
+    if (!value.includes(d)) onChange([...value, d]);
+    setManual('');
+  };
+  const radio = (on: boolean, label: string, click: () => void) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: UI.text, cursor: 'pointer' }}>
+      <input type="radio" checked={on} onChange={click} /> {label}
+    </label>
+  );
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 6 }}>الأشخاص الذين تُحلَّل طلبياتهم</label>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
+        {radio(!restrict, 'كل أعضاء الكروب', () => { setRestrict(false); onChange([]); })}
+        {radio(restrict, 'أشخاص محدّدون فقط', () => setRestrict(true))}
+      </div>
+      {restrict && (
+        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 12px' }}>
+          <div style={{ fontSize: 11.5, color: UI.faint, marginBottom: 8, lineHeight: 1.6 }}>
+            رسائل غير المحدَّدين تُتجاهل قبل القراءة بالذكاء (لا تكلفة ولا مراجعة). القائمة = من كتب في الكروب منذ هذا التحديث.
+          </div>
+          {rows.length === 0 && <div style={{ fontSize: 12, color: UI.muted, marginBottom: 8 }}>لم يكتب أحد بعد — أضف الرقم يدوياً، أو انتظر أول رسالة ثم افتح «تعديل».</div>}
+          <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {rows.map(([k, v]) => (
+              <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: UI.text, cursor: 'pointer', padding: '3px 0' }}>
+                <input type="checkbox" checked={value.includes(k)} onChange={() => toggle(k)} />
+                <span style={{ fontWeight: 600, color: UI.ink }}>{v.name || '—'}</span>
+                <span dir="ltr" style={{ color: UI.muted, fontSize: 11.5 }}>{senderLabel(k)}</span>
+                {v.count > 0 && <span style={{ color: UI.faint, fontSize: 11, marginInlineStart: 'auto' }}>{v.count} رسالة · {ago(v.lastAt)}</span>}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <input dir="ltr" value={manual} onChange={e => setManual(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addManual(); }} placeholder="07XXXXXXXXX"
+              style={{ padding: '6px 10px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13, width: 160, fontFamily: 'inherit' }} />
+            <button type="button" onClick={addManual} style={btnStyle('#3b82f6', true)}>إضافة رقم</button>
+          </div>
+          {value.length === 0 && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 6 }}>لم تختر أحداً — سيُحفظ كـ«كل الأعضاء».</div>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const userLabel = (u?: UserOption) => u ? (u.displayName || u.username) : '—';
@@ -165,7 +225,7 @@ export default function WaGroupsPage() {
     if (!form.userId) { setFormError('اختر الحساب الذي تُسجَّل عليه المبيعات'); return; }
     setSaving(true); setFormError('');
     try {
-      await putLink({ jid: form.jid, name: form.name, userId: form.userId, orderTextMode: form.orderTextMode, ...(form.isNew ? { isActive: true } : {}) });
+      await putLink({ jid: form.jid, name: form.name, userId: form.userId, orderTextMode: form.orderTextMode, allowedSenders: form.senders, ...(form.isNew ? { isActive: true } : {}) });
       setForm(null); loadLinks();
     } catch (e: any) { setFormError(e.message); } finally { setSaving(false); }
   };
@@ -268,6 +328,7 @@ export default function WaGroupsPage() {
                     <div style={{ fontSize: 11.5, color: UI.muted, marginTop: 3, lineHeight: 1.6 }}>
                       📥 {l.messageCount} رسالة (آخرها {ago(l.lastMessageAt)}) · ✅ {l.orderCount} دخلت المراجعة{l.orderCount ? ` (آخرها ${ago(l.lastOrderAt)})` : ''}
                       {l.attachedCount > 0 && <> · 🧾 {l.attachedCount} ثُبّتت على طلبيات المذاخر</>}
+                      {(l.allowedSenders?.length ?? 0) > 0 && <> · 👤 {l.allowedSenders!.length} أشخاص فقط ({l.skippedCount || 0} رسالة تُجوهلت)</>}
                       {l.failedCount > 0 && <span style={{ color: '#b91c1c' }}> · ❌ {l.failedCount} فشلت نهائياً</span>}
                       {retryByJid[g.jid] && (
                         <div style={{ color: '#b91c1c' }} title={retryByJid[g.jid].lastError || ''}>
@@ -290,14 +351,14 @@ export default function WaGroupsPage() {
                       🔇 قراءة صامتة ← {userLabel(l.user)}{l.isActive ? '' : ' (موقوفة)'}
                     </span>
                     <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>{ORDER_MODE_SHORT[l.orderTextMode] || ''}</span>
-                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, userId: l.userId, orderTextMode: l.orderTextMode, isNew: false }); }} style={btnStyle('#3b82f6', true)}>تعديل</button>
+                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, userId: l.userId, orderTextMode: l.orderTextMode, isNew: false, senders: l.allowedSenders || [], known: l.knownSenders || {} }); }} style={btnStyle('#3b82f6', true)}>تعديل</button>
                     <button onClick={() => toggleLink(l)} style={btnStyle(l.isActive ? '#d97706' : '#16a34a', true)}>{l.isActive ? 'إيقاف' : 'تفعيل'}</button>
                     <button onClick={() => removeLink(l)} style={btnStyle('#dc2626', true)}>إلغاء</button>
                   </>
                 ) : (
                   <>
                     <span style={{ fontSize: 11.5, color: UI.faint }}>غير مستخدم</span>
-                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, orderTextMode: 'all', isNew: true }); }} style={btnStyle('#0f172a', true)}>🔇 قراءة صامتة</button>
+                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, orderTextMode: 'all', isNew: true, senders: [], known: {} }); }} style={btnStyle('#0f172a', true)}>🔇 قراءة صامتة</button>
                   </>
                 )}
               </div>
@@ -324,6 +385,7 @@ export default function WaGroupsPage() {
           {dest && <DestinationBox d={dest} />}
           {destErr && <div style={{ fontSize: 12, color: '#b91c1c', marginBottom: 10 }}>{destErr}</div>}
           <OrderTextModeField value={form.orderTextMode} onChange={v => setForm(f => f && ({ ...f, orderTextMode: v }))} />
+          <SendersField value={form.senders} known={form.known} onChange={v => setForm(f => f && ({ ...f, senders: v }))} />
           {formError && <ErrBox msg={formError} />}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <button onClick={() => setForm(null)} style={btnStyle('#6b7280', true)}>إلغاء</button>

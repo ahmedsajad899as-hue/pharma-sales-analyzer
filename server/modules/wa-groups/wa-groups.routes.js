@@ -9,6 +9,8 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
+import { Prisma } from '@prisma/client';
+import { normalizeWaId } from '../../lib/waId.js';
 import { groupsSecret, sidecar } from './wa-groups.client.js';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import { handleGroupInbound } from '../warehouse-dispatch/dispatch.inbound.js';
@@ -156,7 +158,16 @@ saRouter.get('/destination', async (req, res) => {
 });
 
 saRouter.put('/links', async (req, res) => {
-  const { jid, name, userId, orderTextMode, isActive } = req.body || {};
+  const { jid, name, userId, orderTextMode, isActive, allowedSenders } = req.body || {};
+  let senders;
+  if (allowedSenders !== undefined) {
+    if (allowedSenders !== null && !Array.isArray(allowedSenders)) return res.status(400).json({ error: 'قائمة الأشخاص غير صالحة' });
+    // رقم مكتوب يدوياً (0770…) يُوحَّد؛ «lid:…» من قائمة من كتب في الكروب يبقى كما هو
+    senders = [...new Set((allowedSenders || []).map(v => {
+      const s = String(v || '').trim();
+      return s.startsWith('lid:') ? (/^lid:\d+$/.test(s) ? s : null) : (normalizeWaId(s) || null);
+    }).filter(Boolean))].slice(0, 100);
+  }
   if (!/@g\.us$/.test(String(jid || ''))) return res.status(400).json({ error: 'معرّف كروب غير صالح' });
   const mode = orderTextMode === undefined ? undefined : String(orderTextMode);
   if (mode !== undefined && !ORDER_TEXT_MODES.includes(mode)) return res.status(400).json({ error: 'وضع القراءة غير صالح' });
@@ -172,6 +183,7 @@ saRouter.put('/links', async (req, res) => {
     ...(name !== undefined ? { name: String(name || '').slice(0, 200) || null } : {}),
     ...(mode !== undefined ? { orderTextMode: mode } : {}),
     ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
+    ...(senders !== undefined ? { allowedSenders: senders.length ? senders : Prisma.DbNull } : {}),
   };
   const link = await prisma.waGroupLink.upsert({ where: { jid: String(jid) }, create: { jid: String(jid), ...data }, update: data });
   invalidateListenCache();

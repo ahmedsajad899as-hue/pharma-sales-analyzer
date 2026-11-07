@@ -686,6 +686,9 @@ model WaGroupLink {
   orderCount    Int       @default(0)
   attachedCount Int       @default(0) // فواتير ثُبّتت على طلبيات المذاخر بدل اللكوديشن
   failedCount   Int       @default(0) // فشلت قراءتها نهائياً بعد كل الإعادات
+  skippedCount  Int       @default(0) // رسائل من أشخاص خارج allowedSenders — تُتجاهل قبل الذكاء
+  allowedSenders Json?    // ["9647…", "lid:…"] — من تُحلَّل رسائله فقط؛ فارغ/null = كل الأعضاء
+  knownSenders  Json?     // { key: { name, count, lastAt } } — من كتب في الكروب، لاختيارهم بالواجهة
   lastMessageAt DateTime?
   lastOrderAt   DateTime?
   createdAt     DateTime @default(now())

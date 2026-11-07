@@ -49,6 +49,41 @@ function senderPhone(m) {
   return s.endsWith('@s.whatsapp.net') ? s.split('@')[0].split(':')[0] : null;
 }
 
+/**
+ * مفتاح ثابت للمرسل لفلتر «الأشخاص المحلَّلون»: رقم دولي موحَّد إن ظهر الهاتف،
+ * وإلا «lid:…» (واتساب يخفي الرقم في بعض الكروبات). null = مرسل مجهول.
+ */
+export function senderKey(sender) {
+  const s = String(sender || '');
+  const [userPart, domain = ''] = s.split('@');
+  const id = (userPart || '').split(':')[0];
+  if (!id) return null;
+  if (domain === 'lid') return `lid:${id}`;
+  return normalizeWaId(id) || null;
+}
+
+/** null/فارغ = كل الأعضاء؛ غير ذلك = فقط المفاتيح المختارة. */
+export function senderAllowed(link, key) {
+  const list = Array.isArray(link?.allowedSenders) ? link.allowedSenders : [];
+  if (!list.length) return true;
+  return Boolean(key) && list.includes(key);
+}
+
+const KNOWN_SENDERS_MAX = 150;
+/** يحدّث قائمة «من كتب في الكروب» (للاختيار بالواجهة) — يُدمج مع تحديث العدّادات. */
+function nextKnownSenders(prev, key, name) {
+  if (!key) return null;
+  const map = prev && typeof prev === 'object' && !Array.isArray(prev) ? { ...prev } : {};
+  const old = map[key] || {};
+  map[key] = { name: (name && String(name).slice(0, 80)) || old.name || null, count: (old.count || 0) + 1, lastAt: new Date().toISOString() };
+  const keys = Object.keys(map);
+  if (keys.length > KNOWN_SENDERS_MAX) {
+    keys.sort((a, b) => String(map[a].lastAt).localeCompare(String(map[b].lastAt)));
+    for (const k of keys.slice(0, keys.length - KNOWN_SENDERS_MAX)) delete map[k];
+  }
+  return map;
+}
+
 /** رقم المرسل مربوط بحساب مندوب علمي في «روابط واتساب» ⇒ اسمه للصفوف غير المحسومة. */
 async function resolveSenderRep(_chatId, phone) {
   const waId = normalizeWaId(phone);
@@ -181,7 +216,20 @@ async function runEntry(key, entry, link) {
 
 /** @param {{ jid, msgId, sender, senderName, text, imageBase64 }} m */
 export async function handleListenGroupMessage(m, link) {
-  bumpCounters(link.jid, { messageCount: { increment: 1 }, lastMessageAt: new Date() });
+  const sKey = senderKey(m.sender);
+  const allowed = senderAllowed(link, sKey);
+  // قائمة المرسلين تُقرأ طازجة (لا من الكاش) — وإلا رسائل متتالية تمسح بعضها
+  const fresh = sKey
+    ? await prisma.waGroupLink.findUnique({ where: { jid: link.jid }, select: { knownSenders: true } }).catch(() => null)
+    : null;
+  const known = sKey ? nextKnownSenders(fresh?.knownSenders, sKey, m.senderName) : null;
+  bumpCounters(link.jid, {
+    messageCount: { increment: 1 }, lastMessageAt: new Date(),
+    ...(known ? { knownSenders: known } : {}),
+    ...(allowed ? {} : { skippedCount: { increment: 1 } }),
+  });
+  // شخص غير محدَّد للتحليل ⇒ تُتجاهل قبل الذكاء (لا tokens، لا سجلّ، لا مراجعة)
+  if (!allowed) return;
   const key = m.msgId ? `wag_${m.msgId}` : `wag_${crypto.randomBytes(8).toString('hex')}`;
   const entry = { at: Date.now(), m, boots: 0, attempts: 0 };
   journalWrite(key, entry);
@@ -199,6 +247,7 @@ export async function retryFailedListenMessages() {
       if (!entry.retry || entry.retry.nextAt > Date.now()) continue;
       const link = entry.m?.jid ? await listenLinkFor(entry.m.jid) : null;
       if (!link) { journalDone(key); continue; } // الكروب أُلغي/أُوقف
+      if (!senderAllowed(link, senderKey(entry.m.sender))) { journalDone(key); continue; } // الشخص أُزيل من الفلتر
       if (await runEntry(key, entry, link) === 'done') n++;
     }
   } finally {
