@@ -235,9 +235,19 @@ router.get('/overall', async (req, res) => {
     const userId = req.user?.id ?? null;
     const userRole = req.user?.role ?? null;
 
-    const parsedFileIds = fileIds
+    let parsedFileIds = fileIds
       ? String(fileIds).split(',').map(Number).filter(Boolean)
       : [];
+    // officeOnly=1 (مبيع المحافظات): ملفات المكتب وحدها، كتغطية مندوب المحافظة
+    // (province-coverage.js). ملفات sourceSystem='mercato' — ميركاتو وملف اللكوديشن —
+    // تعدّ البضاعة مرتين فوق ملف المكتب، فكان صف المحافظة أكبر من مجموع مندوبيها.
+    if (String(req.query.officeOnly ?? '') === '1' && parsedFileIds.length) {
+      const meta = await prisma.uploadedFile.findMany({ where: { id: { in: parsedFileIds } }, select: { id: true, sourceSystem: true } });
+      const office = new Set(meta.filter(f => f.sourceSystem !== 'mercato').map(f => f.id));
+      parsedFileIds = parsedFileIds.filter(id => office.has(id));
+      // لا ملف مكتب = لا صفوف، لا «كل الملفات» (قائمة فارغة تعني بلا فلتر أدناه)
+      if (!parsedFileIds.length) parsedFileIds = [-1];
+    }
 
     // Scope: rely on fileIds (user already sees only their own files from /api/files endpoint)
     // Keeping userId filter only as a fallback when no fileIds provided

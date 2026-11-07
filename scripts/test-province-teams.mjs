@@ -278,10 +278,12 @@ const HUMANIS = 3;
 const humanisSeat = { userId: 103, companyId: HUMANIS, items: [{ id: 30, companyId: HUMANIS }, { id: 10, companyId: DEVA }] };
 const devaSeat = { userId: 101, companyId: DEVA, items: [] };
 
-t('المقعد يمتلئ بتقاطع الايتمات، و«كل الايتمات» يخص شركته الرئيسية فقط', () => {
+t('المقعد يمتلئ بالايتمات قبل اسم الشركة', () => {
   assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: false, itemIds: [10] }, humanisSeat), true);
   assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: false, itemIds: [11] }, humanisSeat), false);
-  assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: true, itemIds: [] }, humanisSeat), false);
+  // «كل ايتمات deva» ومدير humanis مسند على ايتم من deva: يملأ مقعده (2026-11-07)
+  assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: true, itemIds: [] }, humanisSeat), true);
+  assert.equal(assignmentFillsSeat({ companyId: OSEL, allItems: true, itemIds: [] }, humanisSeat), false);
   assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: true, itemIds: [] }, devaSeat), true);
   assert.equal(assignmentFillsSeat({ companyId: DEVA, allItems: false, itemIds: [11] }, devaSeat), true);
   assert.equal(assignmentFillsSeat({ companyId: OSEL, allItems: false, itemIds: [20] }, devaSeat), false);
@@ -392,9 +394,10 @@ t('عرض مدير الشركة: مندوب الفريق بمقعده، ولا �
   const own = { companyId: HUMANIS, allItems: false, itemIds: [30] };
   const otherCompany = { companyId: DEVA, allItems: true, itemIds: [] };
   assert.equal(repBelongsToSeat(rep({ assignments: [own] }), humanisSeat), true);
-  // مندوب deva بكل ايتماتها، ومدير humanis مسند على ايتم من deva
-  assert.equal(repBelongsToSeat(rep({ assignments: [otherCompany] }), humanisSeat), false);
-  assert.equal(repBelongsToSeat(rep({ assignments: [otherCompany], isSubordinate: true, primaryCompanyId: HUMANIS }), humanisSeat), false);
+  // مندوب deva بكل ايتماتها، ومدير humanis مسند على ايتم من deva: الايتم يُدخله مقعد humanis
+  assert.equal(repBelongsToSeat(rep({ assignments: [otherCompany] }), humanisSeat), true);
+  // إلا إن كان يتبع مدير deva نفسه: مديره يحسم مقعده
+  assert.equal(repBelongsToSeat(rep({ assignments: [otherCompany], managerIds: [101] }), humanisSeat, [humanisSeat, devaSeat]), false);
   // مشترك بين شركتين: يظهر لكلا مديريهما
   assert.equal(repBelongsToSeat(rep({ assignments: [otherCompany, own] }), humanisSeat), true);
   // خارج الفرق: تابع المدير أو شركته الرئيسية

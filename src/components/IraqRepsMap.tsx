@@ -318,7 +318,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
-    const keyOf = (mk: string) => `s|${tok}|${ownTeamId ?? ''}|${fileKey}|${mk}`;
+    // s2: مبيع المكتب وحده (officeOnly) — مخبأ s القديم كان يشمل ميركاتو واللكوديشن
+    const keyOf = (mk: string) => `s2|${tok}|${ownTeamId ?? ''}|${fileKey}|${mk}`;
     const hit = cacheable ? cacheGet(keyOf(monthKey)) : undefined;
     if (hit) setSalesRows(unpackSales(hit.v));
     // قبل حسم الشهر الافتراضي لا نجلب شيئاً — كان طلب «الكل» يُطلق ثم يُلغى ويهدر وقت السيرفر.
@@ -329,6 +330,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
     const H = { Authorization: `Bearer ${token}` };
     const fetchSales = async (p: URLSearchParams): Promise<SalesRows> => {
+      // مبيع المحافظة = ملفات المكتب فقط، كرقم المندوب نفسه (لا ميركاتو ولا ملف اللكوديشن)
+      p.set('officeOnly', '1');
       const [saleRes, retRes] = await Promise.all([
         fetch(`/api/reports/overall?${p}&recordType=sale`, { headers: H, signal: ac.signal }),
         fetch(`/api/reports/overall?${p}&recordType=return`, { headers: H, signal: ac.signal }),
@@ -555,8 +558,6 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   );
 
   const hasCond = liqMode || (condFiles?.length ?? 0) > 0 || repSalesShown.length > 0;
-  // مبيع المحافظة من الملفات النشطة — يشمل الكوديشن فقط إن كان ملفه مفعّلاً بينها
-  const condInTotal = !!condFiles?.some(id => fileIds.includes(id));
 
   // ── فرق المحافظات لعرض الأسماء — تحسب التغطية فلا تُجلب إلا حين يظهر الجدول ──
   useEffect(() => {
@@ -780,9 +781,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const tableNum: React.CSSProperties = { ...tableTd, textAlign: 'left', direction: 'ltr', fontVariantNumeric: 'tabular-nums' };
   const condTotalNote = liqMode
     ? 'اللكوديشن = مبيعات المندوبين المؤكدة + ميركاتو وملف اللكوديشن بأسمائهم، والمكرر بينها يُحسب مرة واحدة.'
-    : condInTotal
-    ? 'مبيع المحافظة الكلي يشمل اللكوديشن (ملفه مفعّل ضمن الملفات النشطة).'
-    : 'مبيع المحافظة الكلي من الملفات النشطة — ملف اللكوديشن غير مفعّل بينها فلا يدخل ضمنه.';
+    : 'مبيع المحافظة الكلي من ملفات المكتب النشطة وحدها — ميركاتو وملف اللكوديشن لا يدخلان ضمنه.';
   const condPctCell = (p: number, show: boolean) => (
     <td style={tableNum}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>

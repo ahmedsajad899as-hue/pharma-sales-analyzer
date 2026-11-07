@@ -84,15 +84,19 @@ export function buildItemAttribution(assignments, companyItems) {
 // ScientificCompany. مدير بلا ايتمات مسندة = كل ايتمات شركته الرئيسية.
 
 /**
- * هل يشغل هذا التعيين مقعد المدير؟ «كل الايتمات» يخص الشركة الرئيسية للمقعد فقط:
- * تعيين deva بكل ايتماتها لا يملأ مقعد humanis لمجرد أن مديره مسند على ايتمات من deva.
+ * هل يشغل هذا التعيين مقعد المدير؟ الايتمات أولاً قبل اسم الشركة (قرار صاحب المشروع
+ * 2026-11-07): تعيين يحمل ايتماً من ايتمات المدير يملأ مقعده أياً كانت شركة التعيين.
+ * «كل ايتمات الشركة» بلا قائمة يملؤه إن كان بين ايتمات المدير ايتم من تلك الشركة —
+ * كان قبلها يخص الشركة الرئيسية وحدها، فيختفي مبيع ايتمات المدير المسجّلة تحت deva.
+ * المبيع نفسه يبقى مقيّداً بايتمات المدير (allowedFor في directory).
  * @param {{companyId:number, allItems:boolean, itemIds:number[]}} a
- * @param {{companyId:number, items:{id:number}[]}} seat
+ * @param {{companyId:number, items:{id:number, companyId?:number|null}[]}} seat
  */
 export function assignmentFillsSeat(a, seat) {
-  if (a.allItems || !seat.items.length) return a.companyId === seat.companyId;
+  if (!seat.items.length) return a.companyId === seat.companyId;
   const mine = new Set(seat.items.map(i => i.id));
-  return (a.itemIds ?? []).some(id => mine.has(id));
+  if ((a.itemIds ?? []).some(id => mine.has(id))) return true;
+  return !!a.allItems && (a.companyId === seat.companyId || seat.items.some(i => i.companyId === a.companyId));
 }
 
 /**
