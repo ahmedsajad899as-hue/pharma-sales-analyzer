@@ -19,7 +19,7 @@ import { loadResolutionContext, loadCompanyContext, resolveItemName, resolveItem
 import { cleanPharmacyName } from '../../lib/surveyPharmacies.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { REP_ROLES } from '../../lib/areaScope.js';
-import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow } from '../../lib/repGuessRules.js';
+import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader } from '../../lib/repGuessRules.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
@@ -549,7 +549,7 @@ export async function attachScientificRepGuess(rows, actingUser) {
         }
       }
 
-      ctxByRow.set(row, { candidates, areaIds, itemKey, brand, sciId });
+      ctxByRow.set(row, { candidates, areaIds, provinceId: coverage.provinceId, itemKey, brand, sciId });
     }
 
     // ── سجلّ ميركاتو: من باع هذا الصنف في هذه المنطقة فعلاً ──
@@ -684,6 +684,66 @@ export async function attachScientificRepGuess(rows, actingUser) {
       }
     }
 
+    // ── المندوب أولاً، وإلا التيم ليدر (طلب صاحب المشروع 2026-11-07) ──
+    // بعد اكتمال المناطق والايتمات والشركات لا تُترك الخانة فارغة: مندوب واحد غير
+    // تيم ليدر بين المرشّحين يُختار، وإن لم يبقَ مندوب أو لم تفرّق الأدلة بين أكثر من
+    // مندوب يُختار التيم ليدر — قائد فريق المحافظة، أو قائد مندوبي المنطقة في بغداد.
+    const undecided = [...ctxByRow].filter(([row, ctx]) => !row.scientificRep && !ctx.decided && ctx.candidates.length !== 1
+      && (ctx.candidates.length > 1 || ctx.areaIds.size > 0 || ctx.provinceId != null));
+    if (undecided.length) {
+      try {
+        const [teams, tlUsers] = await Promise.all([
+          actingUser.officeId
+            ? prisma.provinceTeam.findMany({
+                where: { officeId: actingUser.officeId, isActive: true, leaderUserId: { not: null }, leader: { isActive: true } },
+                select: { provinceId: true, leader: { select: { id: true, username: true, displayName: true } } },
+              })
+            : Promise.resolve([]),
+          prisma.user.findMany({
+            where: { role: 'team_leader', isActive: true, ...officeWhere },
+            select: {
+              id: true, username: true, displayName: true,
+              areaAssignments: { select: { areaId: true } },
+              subordinatesOfUser: { select: { userId: true } },
+            },
+          }),
+        ]);
+        const asCand = (u) => ({ id: u.id, name: u.displayName?.trim() || u.username });
+        const leaderIds = new Set([...teams.map(t => t.leader.id), ...tlUsers.map(u => u.id)]);
+        const leaderKeys = new Set([...teams.map(t => asCand(t.leader).name), ...tlUsers.map(u => asCand(u).name)].map(repCoreKey).filter(Boolean));
+        const isLeader = (c) => (c.id > 0 && leaderIds.has(c.id)) || leaderKeys.has(repCoreKey(c.name));
+        const leaderByProvince = new Map(teams.map(t => [t.provinceId, asCand(t.leader)]));
+        const provinceOfArea = new Map(areas.map(a => [a.id, a.provinceId]));
+        const unique = (list) => (list.length === 1 ? list[0] : null);
+
+        for (const [row, ctx] of undecided) {
+          // قائد نطاق الصف: فريق المحافظة، وإلا (بغداد) قائد يدير كل المندوبين
+          // المرشّحين، وإلا القائد الوحيد المعيَّنة له المنطقة نفسها.
+          const provIds = new Set(ctx.provinceId != null ? [ctx.provinceId]
+            : [...ctx.areaIds].map(id => provinceOfArea.get(id)).filter(id => id != null));
+          let scopeLeader = provIds.size === 1 ? (leaderByProvince.get([...provIds][0]) ?? null) : null;
+          if (!scopeLeader) {
+            const repIds = ctx.candidates.filter(c => !isLeader(c) && c.id > 0).map(c => c.id);
+            if (repIds.length) {
+              const tl = unique(tlUsers.filter(u => repIds.every(id => u.subordinatesOfUser.some(s => s.userId === id))));
+              if (tl) scopeLeader = asCand(tl);
+            }
+          }
+          if (!scopeLeader && ctx.areaIds.size) {
+            const tl = unique(tlUsers.filter(u => u.areaAssignments.some(a => ctx.areaIds.has(a.areaId))));
+            if (tl) scopeLeader = asCand(tl);
+          }
+          const res = pickRepOrLeader(ctx.candidates, isLeader, scopeLeader);
+          if (!res) continue;
+          const inList = ctx.candidates.find(c => repCoreKey(c.name) === repCoreKey(res.pick.name));
+          const pick = inList || res.pick;
+          ctx.decided = pick;
+          ctx.candidates = [pick, ...ctx.candidates.filter(c => c !== pick)];
+          row._repPick = res.kind;
+        }
+      } catch (e) { console.error('[orders] rep/leader fallback failed:', e?.message); }
+    }
+
     for (const [row, ctx] of ctxByRow) {
       const { candidates } = ctx;
       row._repCandidates = candidates.slice(0, 8).map(c => ({ id: c.id, name: c.name }));
@@ -802,6 +862,7 @@ export async function refreshReviewRow(userId, { row, changed }) {
     unitPrice: r.unitPrice ?? null,
     scientificRep: r.scientificRep || null,
     repCandidates: Array.isArray(r._repCandidates) ? r._repCandidates : [],
+    repPick: r._repPick || null,
   };
 }
 

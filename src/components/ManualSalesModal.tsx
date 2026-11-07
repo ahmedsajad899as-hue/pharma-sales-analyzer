@@ -845,7 +845,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         return next;
       }));
       if (d.scientificRep && d.scientificRep !== base.scientificRep) {
-        setInfo(`✨ المندوب العلمي صار «${d.scientificRep}» بعد تغيير ${changed === 'item' ? 'المادة' : 'المنطقة'}.`);
+        setInfo(d.repPick === 'leader'
+          ? `✨ لا مندوب واحد يطابق ${changed === 'item' ? 'المادة' : 'المنطقة'} — اختير التيم ليدر «${d.scientificRep}».`
+          : `✨ المندوب العلمي صار «${d.scientificRep}» بعد تغيير ${changed === 'item' ? 'المادة' : 'المنطقة'}.`);
       } else if (!d.scientificRep && (d.repCandidates || []).length) {
         setInfo(`لم يُحسم مندوب واحد لهذه ${changed === 'item' ? 'المادة' : 'المنطقة'} — اختر من ${d.repCandidates.length} مرشّحين ★.`);
       }

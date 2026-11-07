@@ -88,3 +88,23 @@ export function candidateOwnsItem(c, { itemId = null, itemKey = '', brand = '', 
   }
   return true;
 }
+
+/**
+ * (طلب صاحب المشروع 2026-11-07) حين تبقى الأدلة بلا حسم، لا تُترك الخانة فارغة:
+ * - مندوب واحد (غير تيم ليدر) بين المرشّحين ⇒ هو المندوب.
+ * - لا مندوب، أو أكثر من مندوب بلا ما يفرّق بينهم ⇒ التيم ليدر: قائد نطاق الصف
+ *   (فريق المحافظة / قائد مندوبي المنطقة) أولاً، وإلا القائد الوحيد بين المرشّحين.
+ * @param {{id:number,name:string}[]} candidates
+ * @param {(c:{id:number,name:string})=>boolean} isLeader
+ * @param {{id:number,name:string}|null} scopeLeader
+ * @returns {{ pick: {id:number,name:string}, kind: 'rep'|'leader' } | null}
+ */
+export function pickRepOrLeader(candidates, isLeader, scopeLeader = null) {
+  const list = candidates || [];
+  const reps = list.filter(c => !isLeader(c));
+  if (reps.length === 1) return { pick: reps[0], kind: 'rep' };
+  if (scopeLeader) return { pick: scopeLeader, kind: 'leader' };
+  const leaders = list.filter(c => isLeader(c));
+  if (leaders.length === 1) return { pick: leaders[0], kind: 'leader' };
+  return null;
+}

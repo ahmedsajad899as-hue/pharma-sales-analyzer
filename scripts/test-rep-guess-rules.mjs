@@ -1,5 +1,5 @@
 // قواعد أهلية المندوب المقترَح للطلبية. نقيّ بلا قاعدة بيانات: npm run test:rep-guess
-import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow } from '../server/lib/repGuessRules.js';
+import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader } from '../server/lib/repGuessRules.js';
 import { normalizeAreaName } from '../server/lib/itemResolver.js';
 
 let fail = 0;
@@ -66,6 +66,17 @@ eq('جرعة أخرى ليست تعييناً', candidateHoldsItem(holder({ item
 eq('تعيين الحساب يكفي ولو قائمة الفريق بلا الصنف', candidateOwnsItem(
   { ...cand({ items: [77], keys: ['pantactive'], brands: ['pantactive'] }), items: new Set([31]), ownedItems: new Set([77]), heldKeys: new Set(['amoklavin bid 1000mg 10tab']) },
   { ...amok, brand: 'amoklavin', sciId: 3 }), true);
+
+// ── المندوب أولاً ثم التيم ليدر (طلب صاحب المشروع 2026-11-07) ──
+const ali = { id: 1, name: 'علي عزيز' }, haider = { id: 2, name: 'حيدر علي' }, ahmed = { id: 3, name: 'احمد' };
+const leaderIs = (ids) => (c) => ids.includes(c.id);
+eq('مندوب + تيم ليدر ⇒ المندوب', pickRepOrLeader([ali, haider], leaderIs([2]))?.pick.name, 'علي عزيز');
+eq('مندوب + تيم ليدر ⇒ نوعه مندوب', pickRepOrLeader([haider, ali], leaderIs([2]))?.kind, 'rep');
+eq('مندوبان بلا حسم ⇒ قائد النطاق', pickRepOrLeader([ali, ahmed], leaderIs([2]), haider)?.pick.name, 'حيدر علي');
+eq('مندوبان بلا قائد ⇒ لا حسم', pickRepOrLeader([ali, ahmed], leaderIs([])), null);
+eq('لا مرشّحين ⇒ قائد النطاق', pickRepOrLeader([], leaderIs([]), haider)?.kind, 'leader');
+eq('القائد وحده بين المرشّحين', pickRepOrLeader([haider], leaderIs([2]))?.pick.name, 'حيدر علي');
+eq('لا مرشّحين ولا قائد ⇒ لا حسم', pickRepOrLeader([], leaderIs([])), null);
 
 console.log(fail ? `\n✗ ${fail} فشل` : '\n✓ كلها نجحت');
 process.exit(fail ? 1 : 0);
