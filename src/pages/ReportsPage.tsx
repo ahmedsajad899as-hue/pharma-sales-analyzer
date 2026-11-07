@@ -6457,7 +6457,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 const { cols } = getOrderedWarehouseColumns(allRepsWarehouseData, warehouseShowLeaders, warehouseCompanyFilter);
                 const { groups, itemOptions } = buildItemsView(cols);
                 const BORDER = '1px solid #cbd5e1';
-                const th: React.CSSProperties = { padding: '9px 10px', background: '#3f6212', color: '#fff', textAlign: 'center', fontWeight: 700, border: BORDER, position: 'sticky', top: 0, zIndex: 1, whiteSpace: 'nowrap' };
+                const th: React.CSSProperties = { padding: '9px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', fontWeight: 700, border: BORDER, position: 'sticky', top: 0, zIndex: 1, whiteSpace: 'nowrap' };
                 const td: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', color: '#111827', border: BORDER, whiteSpace: 'nowrap' };
                 const sel: React.CSSProperties = { padding: '6px 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 12.5, fontWeight: 600, minWidth: 200, background: '#fff' };
                 const valTxt = (n: number) => (n < 0 ? fmtValSigned(n) : fmtVal(n));
@@ -6530,21 +6530,15 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                         c.target += r.target; c.achieved += r.achieved; c.value += r.value;
                         colTotals.set(k, c);
                       }
-                      const itemCols = [...colTotals.entries()].sort((a, b) => b[1].value - a[1].value);
-                      const tone = (c: Cell) => (c.target <= 0 ? undefined : c.achieved >= c.target ? '#dcfce7' : c.achieved >= c.target / 2 ? '#fef9c3' : '#fee2e2');
-                      const mTh: React.CSSProperties = { padding: '6px 5px', background: '#3f6212', color: '#fff', border: BORDER, fontWeight: 700, fontSize: 10.5, lineHeight: 1.25, position: 'sticky', top: 0, zIndex: 2 };
-                      const mTd: React.CSSProperties = { padding: '4px 5px', textAlign: 'center', border: BORDER, fontSize: 11.5, color: '#111827', whiteSpace: 'nowrap' };
-                      const main = (c: Cell) => (itemsCell === 'qty' ? fmt(c.achieved) : valTxt(c.value));
-                      const sub = (c: Cell) => (c.target > 0
-                        ? <div style={{ fontSize: 9.5, color: '#475569', fontWeight: 500 }}>{fmt(c.achieved)}/{fmt(c.target)} · {Math.round((c.achieved / c.target) * 100)}%</div>
-                        : null);
+                      // ترتيب أبجدي للايتمات (لا بالمبيع).
+                      const itemCols = [...colTotals.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name, 'en', { sensitivity: 'base', numeric: true }));
+                      // تصميم رسمي: أبيض/رمادي فقط بلا ألوان تحقيق؛ الخلية = المبيع / التارگت (التارگت خفيف).
+                      const mTh: React.CSSProperties = { padding: '7px 5px', background: '#f1f5f9', color: '#111827', border: BORDER, fontWeight: 700, fontSize: 10.5, lineHeight: 1.25, position: 'sticky', top: 0, zIndex: 2 };
+                      const mTd: React.CSSProperties = { padding: '5px 6px', textAlign: 'center', border: BORDER, fontSize: 12, color: '#111827', whiteSpace: 'nowrap' };
                       const isEmpty = (c?: Cell) => !c || (c.achieved === 0 && c.value === 0 && c.target === 0);
-                      const totalCell = (v: number, t: number, a: number, bg: string) => (
-                        <td style={{ ...mTd, fontWeight: 800, background: bg }}>
-                          {valTxt(v)}
-                          {t > 0 && <div style={{ fontSize: 9.5, color: '#475569', fontWeight: 500 }}>{Math.round((a / t) * 100)}%</div>}
-                        </td>
-                      );
+                      const cellText = (c: Cell) => (itemsCell === 'qty'
+                        ? <>{fmt(c.achieved)}{c.target > 0 && <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 10.5 }}> / {fmt(c.target)}</span>}</>
+                        : <>{valTxt(c.value)}</>);
                       let n = 0;
                       return (
                         <div ref={itemsMatrixRef} style={{ maxHeight: '64vh', overflow: 'auto', border: '1px solid #94a3b8', background: '#fff' }}>
@@ -6563,13 +6557,13 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                                 return (
                                   <Fragment key={g.leader}>
                                     <tr>
-                                      <td style={{ ...mTd, background: '#ecfccb' }} />
-                                      <td style={{ ...mTd, textAlign: 'right', fontWeight: 800, background: '#ecfccb', whiteSpace: 'normal' }}>👥 {g.leader}</td>
+                                      <td style={{ ...mTd, background: '#f8fafc' }} />
+                                      <td style={{ ...mTd, textAlign: 'right', fontWeight: 800, background: '#f8fafc', whiteSpace: 'normal' }}>{g.leader}</td>
                                       {itemCols.map(([k]) => {
                                         const c = gCells.get(k);
-                                        return <td key={k} style={{ ...mTd, fontWeight: 800, background: '#ecfccb' }}>{isEmpty(c) ? '' : main(c!)}</td>;
+                                        return <td key={k} style={{ ...mTd, fontWeight: 800, background: '#f8fafc' }}>{isEmpty(c) ? '' : cellText(c!)}</td>;
                                       })}
-                                      {totalCell(g.value, g.target, g.achieved, '#d9f99d')}
+                                      <td style={{ ...mTd, fontWeight: 800, background: '#f1f5f9' }}>{valTxt(g.value)}</td>
                                     </tr>
                                     {g.reps.map(r => {
                                       const cells = cellsOf(r.rows);
@@ -6577,13 +6571,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                                       return (
                                         <tr key={r.rep.id}>
                                           <td style={{ ...mTd, color: '#64748b' }}>{n}</td>
-                                          <td style={{ ...mTd, textAlign: 'right', fontWeight: 700, whiteSpace: 'normal' }}>{r.rep.name}</td>
+                                          <td style={{ ...mTd, textAlign: 'right', fontWeight: 600, whiteSpace: 'normal' }}>{r.rep.name}</td>
                                           {itemCols.map(([k]) => {
                                             const c = cells.get(k);
-                                            if (isEmpty(c)) return <td key={k} style={mTd} />;
-                                            return <td key={k} style={{ ...mTd, fontWeight: 600, background: tone(c!) }}>{main(c!)}{sub(c!)}</td>;
+                                            return <td key={k} style={{ ...mTd, fontWeight: 600 }}>{isEmpty(c) ? '' : cellText(c!)}</td>;
                                           })}
-                                          {totalCell(r.value, r.target, r.achieved, '#f1f5f9')}
+                                          <td style={{ ...mTd, fontWeight: 700, background: '#f8fafc' }}>{valTxt(r.value)}</td>
                                         </tr>
                                       );
                                     })}
@@ -6594,23 +6587,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                                 <td style={{ ...mTd, background: '#e2e8f0' }} />
                                 <td style={{ ...mTd, textAlign: 'right', fontWeight: 900, background: '#e2e8f0' }}>الإجمالي</td>
                                 {itemCols.map(([k, c]) => (
-                                  <td key={k} style={{ ...mTd, fontWeight: 900, background: '#e2e8f0' }}>
-                                    {main(c)}
-                                    {c.target > 0 && <div style={{ fontSize: 9.5, color: '#475569', fontWeight: 600 }}>{Math.round((c.achieved / c.target) * 100)}%</div>}
-                                  </td>
+                                  <td key={k} style={{ ...mTd, fontWeight: 900, background: '#e2e8f0' }}>{cellText(c)}</td>
                                 ))}
-                                {totalCell(tVal, tTarget, tAch, '#cbd5e1')}
+                                <td style={{ ...mTd, fontWeight: 900, background: '#e2e8f0' }}>{valTxt(tVal)}</td>
                               </tr>
                             </tbody>
                           </table>
-                          {hasTargets && (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '6px 10px', fontSize: 10.5, color: '#475569', borderTop: BORDER }}>
-                              <span><span style={{ background: '#dcfce7', padding: '0 8px', marginLeft: 4 }} />محقق 100%+</span>
-                              <span><span style={{ background: '#fef9c3', padding: '0 8px', marginLeft: 4 }} />50–99%</span>
-                              <span><span style={{ background: '#fee2e2', padding: '0 8px', marginLeft: 4 }} />أقل من 50%</span>
-                              <span>· الرقم الصغير = المحقق/التارگت</span>
-                            </div>
-                          )}
                         </div>
                       );
                     })() : (
