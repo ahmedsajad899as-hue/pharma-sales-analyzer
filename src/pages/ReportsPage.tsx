@@ -1192,6 +1192,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // عرض «حسب الايتم»: فلتر ايتم واحد ('' = الكل) ومندوب واحد ('' = الكل).
   const [itemsViewItem, setItemsViewItem] = useState('');
   const [itemsViewRep, setItemsViewRep] = useState('');
+  // شكل عرض «حسب الايتم»: مصفوفة (مندوب × ايتم بشاشة/صورة واحدة) أو تفصيلي (صف لكل ايتم).
+  const [itemsLayout, setItemsLayout] = useState<'matrix' | 'detail'>('matrix');
+  const [itemsCell, setItemsCell] = useState<'qty' | 'value'>('qty');
+  const itemsMatrixRef = useRef<HTMLDivElement>(null);
+  const [itemsImgBusy, setItemsImgBusy] = useState(false);
   // زر TL: يبدّل بين مندوبي المبيع العاديين (الافتراضي، بلا قادة فرق) وقادة الفرق أنفسهم
   const [warehouseShowLeaders, setWarehouseShowLeaders] = useState(false);
   // فلتر الشركة المعروضة داخل القائمة الثانوية — '' = كل الشركات (نفس سلوك
@@ -3813,6 +3818,33 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     return { groups, itemOptions };
   };
 
+  // صورة المصفوفة كاملة (بلا قصّ التمرير): نسخة خارج الشاشة بعرضها الكامل ثم html2canvas.
+  const saveItemsMatrixImage = async () => {
+    const src = itemsMatrixRef.current;
+    if (!src || itemsImgBusy) return;
+    setItemsImgBusy(true);
+    const clone = src.cloneNode(true) as HTMLElement;
+    clone.style.maxHeight = 'none'; clone.style.overflow = 'visible';
+    const wrap = document.createElement('div');
+    wrap.setAttribute('dir', 'rtl');
+    const table = src.querySelector('table');
+    wrap.style.cssText = `position:fixed;top:0;left:-99999px;background:#fff;padding:16px;font-family:Arial,Tahoma,sans-serif;width:${(table?.scrollWidth ?? src.scrollWidth) + 34}px;box-sizing:border-box;`;
+    wrap.appendChild(clone);
+    document.body.appendChild(wrap);
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(wrap, { backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false, width: wrap.offsetWidth, windowWidth: wrap.offsetWidth });
+      const blob: Blob | null = await new Promise(res => canvas.toBlob(b => res(b), 'image/png'));
+      if (!blob) throw new Error('تعذّر إنشاء الصورة');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `مبيعات-المندوبين-حسب-الايتم_${new Date().toISOString().slice(0, 10)}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch (err: any) { setError(err?.message || 'تعذّر حفظ الصورة'); }
+    finally { wrap.remove(); setItemsImgBusy(false); }
+  };
+
   // يحوّل بيانات القائمة (مندوب لكل صف، بعد ترتيبها حسب الشركة) إلى شكل جدول
   // محوري: صف لكل مذخر (+ صف «مكتب» للطلبيات بلا مذخر محدَّد) وعمود لكل
   // مندوب علمي — بنفس شكل شيت الإكسل المرجعي.
@@ -6342,7 +6374,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       {/* ── كل المندوبين العلميين دفعة واحدة: صافي + مكتب/مذخر + أسماء المذاخر ── */}
       {showAllRepsWarehouseModal && (
         <div className="modal-overlay" onClick={() => setShowAllRepsWarehouseModal(false)}>
-          <div className="modal modal--wide" style={{ maxWidth: warehouseViewMode === 'pivot' ? '95vw' : warehouseViewMode === 'items' ? 1100 : 780 + warehouseClassCols.length * 120 }} onClick={e => e.stopPropagation()}>
+          <div className="modal modal--wide" style={{ maxWidth: warehouseViewMode === 'pivot' ? '95vw' : warehouseViewMode === 'items' ? (itemsLayout === 'matrix' ? '96vw' : 1100) : 780 + warehouseClassCols.length * 120 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2 className="modal-title">{warehouseShowLeaders ? (marketersView ? 'قادة الفرق' : 'قادة الفرق العلميون') : allRepsLabel} — مكتب / مذخر</h2>
               <button className="modal-close" onClick={() => setShowAllRepsWarehouseModal(false)}><Icon name="close" size={16} /></button>
@@ -6455,11 +6487,133 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                         <button onClick={() => { setItemsViewItem(''); setItemsViewRep(''); }}
                           style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', fontSize: 12, cursor: 'pointer' }}>مسح الفلتر</button>
                       )}
+                      <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 8, overflow: 'hidden' }}>
+                        {([['matrix', '▦ مصفوفة (صورة واحدة)'], ['detail', '☰ تفصيلي']] as const).map(([k, l]) => (
+                          <button key={k} onClick={() => setItemsLayout(k)}
+                            style={{ padding: '5px 12px', border: 'none', background: itemsLayout === k ? '#047857' : '#fff', color: itemsLayout === k ? '#fff' : '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
+                        ))}
+                      </div>
+                      {itemsLayout === 'matrix' && (
+                        <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 8, overflow: 'hidden' }}>
+                          {([['qty', 'الكمية'], ['value', 'المبالغ']] as const).map(([k, l]) => (
+                            <button key={k} onClick={() => setItemsCell(k)}
+                              style={{ padding: '5px 12px', border: 'none', background: itemsCell === k ? '#334155' : '#fff', color: itemsCell === k ? '#fff' : '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
+                          ))}
+                        </div>
+                      )}
+                      {itemsLayout === 'matrix' && groups.length > 0 && (
+                        <button onClick={saveItemsMatrixImage} disabled={itemsImgBusy}
+                          style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #0f766e', background: '#f0fdfa', color: '#0f766e', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                          {itemsImgBusy ? '...' : '📷 حفظ كصورة'}</button>
+                      )}
                       {!hasTargets && <span style={{ fontSize: 11.5, color: '#b45309' }}>لا يوجد تارگت مُدخل لهذا الشهر — يظهر المحقق والمبالغ فقط.</span>}
                     </div>
                     {groups.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا توجد مبيعات أو تارگت لهذا الاختيار</div>
-                    ) : (
+                    ) : itemsLayout === 'matrix' ? (() => {
+                      // مصفوفة: صف لكل مندوب (تحت صف تيم ليدر بمجموع فريقه)، عمود لكل ايتم مرتَّب بالمبالغ.
+                      type Cell = { target: number; achieved: number; value: number };
+                      const cellsOf = (rows: ItemViewRow[]) => {
+                        const m = new Map<string, Cell>();
+                        for (const r of rows) {
+                          const k = itemKey(r.itemName);
+                          const c = m.get(k) ?? { target: 0, achieved: 0, value: 0 };
+                          c.target += r.target; c.achieved += r.achieved; c.value += r.value;
+                          m.set(k, c);
+                        }
+                        return m;
+                      };
+                      const colTotals = new Map<string, Cell & { name: string }>();
+                      for (const r of all) {
+                        const k = itemKey(r.itemName);
+                        const c = colTotals.get(k) ?? { name: r.itemName, target: 0, achieved: 0, value: 0 };
+                        c.target += r.target; c.achieved += r.achieved; c.value += r.value;
+                        colTotals.set(k, c);
+                      }
+                      const itemCols = [...colTotals.entries()].sort((a, b) => b[1].value - a[1].value);
+                      const tone = (c: Cell) => (c.target <= 0 ? undefined : c.achieved >= c.target ? '#dcfce7' : c.achieved >= c.target / 2 ? '#fef9c3' : '#fee2e2');
+                      const mTh: React.CSSProperties = { padding: '6px 5px', background: '#3f6212', color: '#fff', border: BORDER, fontWeight: 700, fontSize: 10.5, lineHeight: 1.25, position: 'sticky', top: 0, zIndex: 2 };
+                      const mTd: React.CSSProperties = { padding: '4px 5px', textAlign: 'center', border: BORDER, fontSize: 11.5, color: '#111827', whiteSpace: 'nowrap' };
+                      const main = (c: Cell) => (itemsCell === 'qty' ? fmt(c.achieved) : valTxt(c.value));
+                      const sub = (c: Cell) => (c.target > 0
+                        ? <div style={{ fontSize: 9.5, color: '#475569', fontWeight: 500 }}>{fmt(c.achieved)}/{fmt(c.target)} · {Math.round((c.achieved / c.target) * 100)}%</div>
+                        : null);
+                      const isEmpty = (c?: Cell) => !c || (c.achieved === 0 && c.value === 0 && c.target === 0);
+                      const totalCell = (v: number, t: number, a: number, bg: string) => (
+                        <td style={{ ...mTd, fontWeight: 800, background: bg }}>
+                          {valTxt(v)}
+                          {t > 0 && <div style={{ fontSize: 9.5, color: '#475569', fontWeight: 500 }}>{Math.round((a / t) * 100)}%</div>}
+                        </td>
+                      );
+                      let n = 0;
+                      return (
+                        <div ref={itemsMatrixRef} style={{ maxHeight: '64vh', overflow: 'auto', border: '1px solid #94a3b8', background: '#fff' }}>
+                          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                            <thead>
+                              <tr>
+                                <th style={{ ...mTh, width: 26 }}>#</th>
+                                <th style={{ ...mTh, textAlign: 'right', minWidth: 110 }}>{repColumnLabel}</th>
+                                {itemCols.map(([k, c]) => <th key={k} style={{ ...mTh, minWidth: 64, maxWidth: 96, whiteSpace: 'normal', direction: 'ltr' }}>{c.name}</th>)}
+                                <th style={{ ...mTh, minWidth: 90 }}>إجمالي المبالغ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {groups.map(g => {
+                                const gCells = cellsOf(g.reps.flatMap(r => r.rows));
+                                return (
+                                  <Fragment key={g.leader}>
+                                    <tr>
+                                      <td style={{ ...mTd, background: '#ecfccb' }} />
+                                      <td style={{ ...mTd, textAlign: 'right', fontWeight: 800, background: '#ecfccb', whiteSpace: 'normal' }}>👥 {g.leader}</td>
+                                      {itemCols.map(([k]) => {
+                                        const c = gCells.get(k);
+                                        return <td key={k} style={{ ...mTd, fontWeight: 800, background: '#ecfccb' }}>{isEmpty(c) ? '' : main(c!)}</td>;
+                                      })}
+                                      {totalCell(g.value, g.target, g.achieved, '#d9f99d')}
+                                    </tr>
+                                    {g.reps.map(r => {
+                                      const cells = cellsOf(r.rows);
+                                      n += 1;
+                                      return (
+                                        <tr key={r.rep.id}>
+                                          <td style={{ ...mTd, color: '#64748b' }}>{n}</td>
+                                          <td style={{ ...mTd, textAlign: 'right', fontWeight: 700, whiteSpace: 'normal' }}>{r.rep.name}</td>
+                                          {itemCols.map(([k]) => {
+                                            const c = cells.get(k);
+                                            if (isEmpty(c)) return <td key={k} style={mTd} />;
+                                            return <td key={k} style={{ ...mTd, fontWeight: 600, background: tone(c!) }}>{main(c!)}{sub(c!)}</td>;
+                                          })}
+                                          {totalCell(r.value, r.target, r.achieved, '#f1f5f9')}
+                                        </tr>
+                                      );
+                                    })}
+                                  </Fragment>
+                                );
+                              })}
+                              <tr>
+                                <td style={{ ...mTd, background: '#e2e8f0' }} />
+                                <td style={{ ...mTd, textAlign: 'right', fontWeight: 900, background: '#e2e8f0' }}>الإجمالي</td>
+                                {itemCols.map(([k, c]) => (
+                                  <td key={k} style={{ ...mTd, fontWeight: 900, background: '#e2e8f0' }}>
+                                    {main(c)}
+                                    {c.target > 0 && <div style={{ fontSize: 9.5, color: '#475569', fontWeight: 600 }}>{Math.round((c.achieved / c.target) * 100)}%</div>}
+                                  </td>
+                                ))}
+                                {totalCell(tVal, tTarget, tAch, '#cbd5e1')}
+                              </tr>
+                            </tbody>
+                          </table>
+                          {hasTargets && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '6px 10px', fontSize: 10.5, color: '#475569', borderTop: BORDER }}>
+                              <span><span style={{ background: '#dcfce7', padding: '0 8px', marginLeft: 4 }} />محقق 100%+</span>
+                              <span><span style={{ background: '#fef9c3', padding: '0 8px', marginLeft: 4 }} />50–99%</span>
+                              <span><span style={{ background: '#fee2e2', padding: '0 8px', marginLeft: 4 }} />أقل من 50%</span>
+                              <span>· الرقم الصغير = المحقق/التارگت</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })() : (
                       <div style={{ maxHeight: '62vh', overflow: 'auto', border: '1px solid #94a3b8' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                           <thead>
