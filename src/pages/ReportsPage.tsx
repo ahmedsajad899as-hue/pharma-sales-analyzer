@@ -7,6 +7,7 @@ import { usePageActive } from '../context/PageActiveContext';
 import type { PageId } from '../App';
 import { Icon } from '../config/icons';
 import RepSelectOptions, { type GroupableRep, groupRepsByTeam } from '../components/RepSelectOptions';
+import MultiPickDropdown from '../components/MultiPickDropdown';
 import { sendEngagementPing } from '../lib/engagementPing';
 import IraqRepsMap from '../components/IraqRepsMap';
 import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
@@ -1190,8 +1191,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const [expandedWarehouseRepId, setExpandedWarehouseRepId]       = useState<number | null>(null);
   const [warehouseViewMode, setWarehouseViewMode] = useState<'list' | 'pivot' | 'items'>('list');
   // عرض «حسب الايتم»: فلتر ايتم واحد ('' = الكل) ومندوب واحد ('' = الكل).
-  const [itemsViewItem, setItemsViewItem] = useState('');
-  const [itemsViewRep, setItemsViewRep] = useState('');
+  const [itemsViewItems, setItemsViewItems] = useState<string[]>([]);
+  const [itemsViewReps, setItemsViewReps] = useState<string[]>([]);
   // شكل عرض «حسب الايتم»: مصفوفة (مندوب × ايتم بشاشة/صورة واحدة) أو تفصيلي (صف لكل ايتم).
   const [itemsLayout, setItemsLayout] = useState<'matrix' | 'detail'>('matrix');
   const [itemsCell, setItemsCell] = useState<'qty' | 'value'>('qty');
@@ -3797,13 +3798,13 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       };
       for (const i of rep.items ?? []) { const r = rowOf(i.itemName); r.achieved += i.qty; r.value += i.value; }
       for (const t of rep.targets ?? []) rowOf(t.itemName).target += t.target;
-      if (itemsViewRep && String(rep.id) !== itemsViewRep) continue;
+      if (itemsViewReps.length && !itemsViewReps.includes(String(rep.id))) continue;
       let rows = [...byItem.values()].filter(r => r.target !== 0 || r.achieved !== 0 || r.value !== 0);
-      if (itemsViewItem) rows = rows.filter(r => itemKey(r.itemName) === itemsViewItem);
+      if (itemsViewItems.length) rows = rows.filter(r => itemsViewItems.includes(itemKey(r.itemName)));
       if (rows.length === 0) continue;
       rows.sort((a, b) => b.value - a.value || a.itemName.localeCompare(b.itemName));
       const sum = (f: (r: ItemViewRow) => number) => rows.reduce((s, r) => s + f(r), 0);
-      reps.push({ rep, rows, leader: leaderOf.get(rep.id) || 'أخرى', value: sum(r => r.value), target: sum(r => r.target), achieved: sum(r => r.achieved) });
+      reps.push({ rep, rows, leader: warehouseShowLeaders ? '' : (leaderOf.get(rep.id) || 'أخرى'), value: sum(r => r.value), target: sum(r => r.target), achieved: sum(r => r.achieved) });
     }
     const groupMap = new Map<string, ItemViewRep[]>();
     for (const r of reps) { if (!groupMap.has(r.leader)) groupMap.set(r.leader, []); groupMap.get(r.leader)!.push(r); }
@@ -3877,7 +3878,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     if (warehouseViewMode === 'items') {
       const cv = (n: number) => +convertVal(n).toFixed(2);
       const { groups } = buildItemsView(cols);
-      const header = ['اسم التيم ليدر', repColumnLabel, 'اسم المادة', 'التارگت', 'الغير محقق', 'المحقق', 'نسبة التحقيق', `المبالغ (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`];
+      const header = [warehouseShowLeaders ? 'قادة الفرق' : 'اسم التيم ليدر', repColumnLabel, 'اسم المادة', 'التارگت', 'الغير محقق', 'المحقق', 'نسبة التحقيق', `المبالغ (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`];
       const body: any[][] = [];
       const merges: any[] = [];
       for (const g of groups) {
@@ -6419,33 +6420,43 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 );
               })()}
 
-              {/* تبديل شكل العرض + مندوبين/قادة فرق + تصدير */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => setWarehouseViewMode('list')}
-                    style={{ padding: '6px 14px', borderRadius: 8, border: `1.5px solid ${warehouseViewMode === 'list' ? '#64748b' : '#e2e8f0'}`, background: warehouseViewMode === 'list' ? '#f1f5f9' : '#fff', color: warehouseViewMode === 'list' ? '#334155' : '#94a3b8', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                  ><Icon name="menu" size={12} /> قائمة</button>
-                  {/* الزرّان ينبضان حتى يُضغطا كي لا يفوتا المستخدم؛ المفعَّل بلون مصمت بلا نبض */}
-                  <button onClick={() => setWarehouseViewMode('pivot')}
-                    className={warehouseViewMode === 'pivot' ? undefined : 'rpt-pulse-btn rpt-pulse-btn--indigo'}
-                    style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #4f46e5', background: warehouseViewMode === 'pivot' ? '#4f46e5' : '#eef2ff', color: warehouseViewMode === 'pivot' ? '#fff' : '#3730a3', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                  ><Icon name="excel" size={12} /> جدول (مذخر × مندوب)</button>
-                  <button onClick={() => setWarehouseViewMode('items')}
-                    style={{ padding: '6px 14px', borderRadius: 8, border: '1.5px solid #047857', background: warehouseViewMode === 'items' ? '#047857' : '#ecfdf5', color: warehouseViewMode === 'items' ? '#fff' : '#065f46', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                  >🎯 حسب الايتم (تارگت)</button>
-                </div>
-                {/* قادة الفرق مستبعَدون من الجدول العادي — هذا الزر يعرض بياناتهم هم فقط بدلاً منهم */}
-                <button onClick={() => { setWarehouseShowLeaders(v => !v); setExpandedWarehouseRepId(null); setWarehouseCompanyFilter(''); }}
-                  title={warehouseShowLeaders ? 'الرجوع لعرض المندوبين' : 'عرض قادة الفرق (Team Leaders)'}
-                  className={warehouseShowLeaders ? undefined : 'rpt-pulse-btn rpt-pulse-btn--amber'}
-                  style={{ padding: '6px 18px', borderRadius: 8, border: '1.5px solid #b45309', background: warehouseShowLeaders ? '#b45309' : '#fef3c7', color: warehouseShowLeaders ? '#fff' : '#92400e', fontSize: 12, fontWeight: 800, letterSpacing: '.4px', cursor: 'pointer' }}
-                >TL</button>
-                {allRepsWarehouseData && allRepsWarehouseData.length > 0 && (
-                  <button onClick={exportWarehouseSummaryToExcel}
-                    style={{ padding: '6px 14px', borderRadius: 4, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                  ><Icon name="export" size={12} /> تصدير Excel</button>
-                )}
-              </div>
+              {/* شريط أدوات واحد: شكل العرض + مندوبون/قادة فرق (يمين) — صورة + إكسل (يسار) */}
+              {(() => {
+                const seg = (active: boolean, first: boolean): React.CSSProperties => ({
+                  padding: '6px 14px', border: 'none', borderRight: first ? 'none' : '1px solid #cbd5e1',
+                  background: active ? '#1e293b' : '#fff', color: active ? '#fff' : '#334155',
+                  fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+                });
+                const segBox: React.CSSProperties = { display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 6, overflow: 'hidden' };
+                const actBtn: React.CSSProperties = { padding: '6px 14px', borderRadius: 6, border: '1px solid #94a3b8', background: '#fff', color: '#111827', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' };
+                const hasData = !!allRepsWarehouseData && allRepsWarehouseData.length > 0;
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10, padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={segBox}>
+                        <button onClick={() => setWarehouseViewMode('list')} style={seg(warehouseViewMode === 'list', true)}><Icon name="menu" size={12} /> قائمة</button>
+                        <button onClick={() => setWarehouseViewMode('pivot')} style={seg(warehouseViewMode === 'pivot', false)}><Icon name="excel" size={12} /> مذخر × مندوب</button>
+                        <button onClick={() => setWarehouseViewMode('items')} style={seg(warehouseViewMode === 'items', false)}>🎯 حسب الايتم</button>
+                      </div>
+                      {/* قادة الفرق مستبعَدون من الجدول العادي — «قادة الفرق» يعرض بياناتهم هم فقط بدلاً منهم */}
+                      <div style={segBox}>
+                        {([[false, marketersView ? 'المسوقون' : 'المندوبون'], [true, 'قادة الفرق (TL)']] as const).map(([v, l], i) => (
+                          <button key={l} onClick={() => { if (warehouseShowLeaders !== v) { setWarehouseShowLeaders(v); setExpandedWarehouseRepId(null); setWarehouseCompanyFilter(''); setItemsViewReps([]); } }}
+                            style={seg(warehouseShowLeaders === v, i === 0)}>{l}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {hasData && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {warehouseViewMode === 'items' && itemsLayout === 'matrix' && (
+                          <button onClick={saveItemsMatrixImage} disabled={itemsImgBusy} style={actBtn}>📷 {itemsImgBusy ? '...' : 'حفظ كصورة'}</button>
+                        )}
+                        <button onClick={exportWarehouseSummaryToExcel} style={actBtn}><Icon name="export" size={12} /> تصدير Excel</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {allRepsWarehouseLoading ? (
                 <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>
@@ -6459,55 +6470,50 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 const BORDER = '1px solid #cbd5e1';
                 const th: React.CSSProperties = { padding: '9px 10px', background: '#f1f5f9', color: '#111827', textAlign: 'center', fontWeight: 700, border: BORDER, position: 'sticky', top: 0, zIndex: 1, whiteSpace: 'nowrap' };
                 const td: React.CSSProperties = { padding: '7px 10px', textAlign: 'center', color: '#111827', border: BORDER, whiteSpace: 'nowrap' };
-                const sel: React.CSSProperties = { padding: '6px 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 12.5, fontWeight: 600, minWidth: 200, background: '#fff' };
+                const segBox: React.CSSProperties = { display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 6, overflow: 'hidden' };
+                const seg = (active: boolean, first: boolean): React.CSSProperties => ({
+                  padding: '6px 12px', border: 'none', borderRight: first ? 'none' : '1px solid #cbd5e1',
+                  background: active ? '#e2e8f0' : '#fff', color: '#111827', fontSize: 12, fontWeight: active ? 800 : 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                });
                 const valTxt = (n: number) => (n < 0 ? fmtValSigned(n) : fmtVal(n));
                 const all = groups.flatMap(g => g.reps.flatMap(r => r.rows));
                 const tTarget = all.reduce((s, r) => s + r.target, 0);
                 const tAch = all.reduce((s, r) => s + r.achieved, 0);
                 const tVal = all.reduce((s, r) => s + r.value, 0);
                 const hasTargets = tTarget > 0;
+                const showTL = !warehouseShowLeaders;
                 return (
                   <>
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
-                      <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        الايتم
-                        <select value={itemsViewItem} onChange={e => setItemsViewItem(e.target.value)} style={sel}>
-                          <option value="">كل الايتمات</option>
-                          {itemOptions.map(o => <option key={o.key} value={o.key}>{o.name}</option>)}
-                        </select>
-                      </label>
-                      <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        {repColumnLabel}
-                        <select value={itemsViewRep} onChange={e => setItemsViewRep(e.target.value)} style={sel}>
-                          <option value="">الكل</option>
-                          {cols.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-                        </select>
-                      </label>
-                      {(itemsViewItem || itemsViewRep) && (
-                        <button onClick={() => { setItemsViewItem(''); setItemsViewRep(''); }}
-                          style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', fontSize: 12, cursor: 'pointer' }}>مسح الفلتر</button>
-                      )}
-                      <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 8, overflow: 'hidden' }}>
-                        {([['matrix', '▦ مصفوفة (صورة واحدة)'], ['detail', '☰ تفصيلي']] as const).map(([k, l]) => (
-                          <button key={k} onClick={() => setItemsLayout(k)}
-                            style={{ padding: '5px 12px', border: 'none', background: itemsLayout === k ? '#047857' : '#fff', color: itemsLayout === k ? '#fff' : '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
-                        ))}
+                    {/* الفلاتر (يمين) + طريقة العرض (يسار) */}
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <MultiPickDropdown label="الايتمات" allLabel="كل الايتمات" ltrOptions
+                          options={itemOptions.map(o => ({ value: o.key, label: o.name }))}
+                          value={itemsViewItems} onChange={setItemsViewItems} />
+                        <MultiPickDropdown label={warehouseShowLeaders ? 'قادة الفرق' : (marketersView ? 'المسوقون' : 'المندوبون')} allLabel="الكل"
+                          options={cols.map(c => ({ value: String(c.id), label: c.name }))}
+                          value={itemsViewReps} onChange={setItemsViewReps} minWidth={180} />
+                        {(itemsViewItems.length > 0 || itemsViewReps.length > 0) && (
+                          <button onClick={() => { setItemsViewItems([]); setItemsViewReps([]); }}
+                            style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: 'none', color: '#64748b', fontSize: 12, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>مسح الفلاتر</button>
+                        )}
                       </div>
-                      {itemsLayout === 'matrix' && (
-                        <div style={{ display: 'inline-flex', border: '1px solid #cbd5e1', borderRadius: 8, overflow: 'hidden' }}>
-                          {([['qty', 'الكمية'], ['value', 'المبالغ']] as const).map(([k, l]) => (
-                            <button key={k} onClick={() => setItemsCell(k)}
-                              style={{ padding: '5px 12px', border: 'none', background: itemsCell === k ? '#334155' : '#fff', color: itemsCell === k ? '#fff' : '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        {itemsLayout === 'matrix' && (
+                          <div style={segBox}>
+                            {([['qty', 'الكمية'], ['value', 'المبالغ']] as const).map(([k, l], i) => (
+                              <button key={k} onClick={() => setItemsCell(k)} style={seg(itemsCell === k, i === 0)}>{l}</button>
+                            ))}
+                          </div>
+                        )}
+                        <div style={segBox}>
+                          {([['matrix', 'مصفوفة'], ['detail', 'تفصيلي']] as const).map(([k, l], i) => (
+                            <button key={k} onClick={() => setItemsLayout(k)} style={seg(itemsLayout === k, i === 0)}>{l}</button>
                           ))}
                         </div>
-                      )}
-                      {itemsLayout === 'matrix' && groups.length > 0 && (
-                        <button onClick={saveItemsMatrixImage} disabled={itemsImgBusy}
-                          style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid #0f766e', background: '#f0fdfa', color: '#0f766e', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
-                          {itemsImgBusy ? '...' : '📷 حفظ كصورة'}</button>
-                      )}
-                      {!hasTargets && <span style={{ fontSize: 11.5, color: '#b45309' }}>لا يوجد تارگت مُدخل لهذا الشهر — يظهر المحقق والمبالغ فقط.</span>}
+                      </div>
                     </div>
+                    {!hasTargets && <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 8 }}>لا يوجد تارگت مُدخل لهذا الشهر — يظهر المبيع فقط.</div>}
                     {groups.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '50px 0', color: '#94a3b8', fontSize: 13 }}>لا توجد مبيعات أو تارگت لهذا الاختيار</div>
                     ) : itemsLayout === 'matrix' ? (() => {
@@ -6555,8 +6561,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                               {groups.map(g => {
                                 const gCells = cellsOf(g.reps.flatMap(r => r.rows));
                                 return (
-                                  <Fragment key={g.leader}>
-                                    <tr>
+                                  <Fragment key={g.leader || 'all'}>
+                                    {g.leader && <tr>
                                       <td style={{ ...mTd, background: '#f8fafc' }} />
                                       <td style={{ ...mTd, textAlign: 'right', fontWeight: 800, background: '#f8fafc', whiteSpace: 'normal' }}>{g.leader}</td>
                                       {itemCols.map(([k]) => {
@@ -6564,7 +6570,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                                         return <td key={k} style={{ ...mTd, fontWeight: 800, background: '#f8fafc' }}>{isEmpty(c) ? '' : cellText(c!)}</td>;
                                       })}
                                       <td style={{ ...mTd, fontWeight: 800, background: '#f1f5f9' }}>{valTxt(g.value)}</td>
-                                    </tr>
+                                    </tr>}
                                     {g.reps.map(r => {
                                       const cells = cellsOf(r.rows);
                                       n += 1;
@@ -6600,7 +6606,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                           <thead>
                             <tr>
-                              {['اسم التيم ليدر', repColumnLabel, 'اسم المادة', 'التارگت', 'الغير محقق', 'المحقق', 'النسبة', 'المبالغ'].map(h => <th key={h} style={th}>{h}</th>)}
+                              {[...(showTL ? ['اسم التيم ليدر'] : []), repColumnLabel, 'اسم المادة', 'التارگت', 'الغير محقق', 'المحقق', 'النسبة', 'المبالغ'].map(h => <th key={h} style={th}>{h}</th>)}
                             </tr>
                           </thead>
                           <tbody>
@@ -6611,7 +6617,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                                 const gap = row.achieved - row.target;
                                 return (
                                   <tr key={`${g.leader}-${r.rep.id}-${row.itemName}`} style={{ background: bg }}>
-                                    {ri === 0 && i === 0 && (
+                                    {showTL && ri === 0 && i === 0 && (
                                       <td rowSpan={gRows} style={{ ...td, fontWeight: 800, background: '#f1f5f9', whiteSpace: 'normal', minWidth: 130, verticalAlign: 'middle' }}>
                                         {g.leader}
                                         <div style={{ fontSize: 10.5, color: '#475569', marginTop: 4 }}>{valTxt(g.value)}</div>
@@ -6634,7 +6640,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                               }));
                             })}
                             <tr style={{ background: '#e2e8f0', fontWeight: 800 }}>
-                              <td colSpan={3} style={{ ...td, fontWeight: 800 }}>الإجمالي</td>
+                              <td colSpan={showTL ? 3 : 2} style={{ ...td, fontWeight: 800 }}>الإجمالي</td>
                               <td style={{ ...td, fontWeight: 800 }}>{tTarget > 0 ? fmt(tTarget) : ''}</td>
                               <td style={{ ...td, fontWeight: 800, color: tTarget > 0 ? (tAch - tTarget < 0 ? '#dc2626' : '#15803d') : undefined }}>{tTarget > 0 ? fmt(tAch - tTarget) : ''}</td>
                               <td style={{ ...td, fontWeight: 800 }}>{fmt(tAch)}</td>
