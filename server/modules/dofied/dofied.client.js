@@ -43,6 +43,16 @@ export const loginOk = (body) => String(body ?? '').trim().toLowerCase() === 'tr
 /** صفحة «Heavey Request! … Too many records» بدل الملف حين يكون المدى كبيراً. */
 export const isTooMany = (html) => /too many records|heavey request|heavy request/i.test(String(html ?? ''));
 
+/**
+ * علامات حظر: 403/429، أو صفحة تحدٍّ من Cloudflare بدل الرد المعتاد. هذه وأخطاء رفض
+ * الدخول هي ما قد يعني أن دوفايد لاحظ الوصول الآلي — تُعامَل كـ«مشبوهة» (dofied.sync.js).
+ */
+export const isBlocked = (status, body) => status === 403 || status === 429
+  || /just a moment|cf-chl|attention required|access denied|captcha/i.test(String(body ?? '').slice(0, 4000));
+
+/** رموز الفشل التي قد تعني اكتشاف الربط أو تغيير الحساب، لا عطلاً عابراً. */
+export const SUSPICIOUS_CODES = new Set(['LOGIN_FAILED', 'BLOCKED', 'SESSION']);
+
 /** ملف xlsx حقيقي يبدأ بتوقيع ZIP «PK». */
 export const isXlsx = (buf) => Buffer.isBuffer(buf) && buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b;
 
@@ -114,6 +124,7 @@ export async function login(username, password) {
     method: 'POST', jar, referer: '/login/', form: { username, password },
   });
   const text = await res.text().catch(() => '');
+  if (isBlocked(res.status, text)) throw new DofiedError(`دوفايد حجب طلب تسجيل الدخول (HTTP ${res.status})`, 'BLOCKED');
   if (res.status >= 500) throw new DofiedError(`موقع دوفايد لا يستجيب (HTTP ${res.status})`, 'UPSTREAM');
   if (!loginOk(text)) throw new DofiedError('رفض دوفايد تسجيل الدخول — تحقّق من اسم المستخدم وكلمة السر', 'LOGIN_FAILED');
   return jar;
@@ -131,6 +142,7 @@ export async function exportTasks(jar, from, to) {
   if (isXlsx(buf)) return buf;
   const text = buf.toString('utf8');
   if (isTooMany(text)) throw new DofiedError(`سجلات كثيرة بين ${from} و${to}`, 'TOO_MANY');
+  if (isBlocked(res.status, text)) throw new DofiedError(`دوفايد حجب طلب التصدير (HTTP ${res.status})`, 'BLOCKED');
   if (res.status >= 300 && res.status < 400) throw new DofiedError('انتهت جلسة دوفايد أو رُفض الدخول للتصدير', 'SESSION');
   throw new DofiedError(`رد غير متوقّع من تصدير دوفايد (HTTP ${res.status}): ${text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)}`, 'UNEXPECTED');
 }

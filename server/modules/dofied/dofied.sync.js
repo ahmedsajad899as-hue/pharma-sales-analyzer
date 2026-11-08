@@ -18,7 +18,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import { encryptPassword, decryptPassword } from '../../lib/passwordCrypto.js';
 import { extractVisitsFromExcel } from '../doctors/doctor-visits-import.js';
-import { login, exportRange } from './dofied.client.js';
+import { login, exportRange, SUSPICIOUS_CODES } from './dofied.client.js';
 
 const TZ = 'Asia/Baghdad';
 const FIRST_RUN_DAYS = 1; // أول سحب: أمس فقط — ما قبله رُفع يدوياً
@@ -63,9 +63,10 @@ export async function publicConfig() {
   return { ...rest, hasPassword: Boolean(passwordEnc), user, pending, nextWindow: syncWindow(c.lastSyncedDate, baghdadNow().date) };
 }
 
-export async function saveConfig({ username, password, userId, enabled, runHour, lastSyncedDate }) {
+export async function saveConfig({ username, password, userId, enabled, runHour, lastSyncedDate, notifyChatId }) {
   await getConfig();
   const data = {};
+  if (notifyChatId !== undefined) data.notifyChatId = String(notifyChatId || '').replace(/[^\d-]/g, '') || null;
   if (username !== undefined) data.username = String(username || '').trim() || null;
   if (password) data.passwordEnc = encryptPassword(String(password));
   if (userId !== undefined) data.userId = Number(userId) || null;
@@ -84,6 +85,37 @@ export async function saveConfig({ username, password, userId, enabled, runHour,
 const record = (status, message) => prisma.dofiedSync.update({
   where: { id: 1 }, data: { lastRunAt: new Date(), lastStatus: status, lastMessage: String(message).slice(0, 500) },
 }).catch(e => console.error('[dofied] تعذّر حفظ الحالة:', e?.message));
+
+// ─── التنبيه على تلكرام ──────────────────────────────────────────────────────
+// استيراد كسول: وحدة تلكرام كبيرة وتستورد مسارات الطلبيات، ولا داعي لربطها هنا عند التحميل.
+async function sendAlert(chatId, text) {
+  if (!chatId) return { ok: false, error: 'لم يُضبط رقم محادثة التنبيه' };
+  try {
+    const { sendTextToChat } = await import('../telegram/telegram.service.js');
+    return await sendTextToChat(chatId, text);
+  } catch (e) {
+    console.error('[dofied] تعذّر إرسال التنبيه:', e?.message);
+    return { ok: false, error: e?.message };
+  }
+}
+
+/** نص التنبيه. نقيّ. */
+export function alertText({ message, suspicious, paused }) {
+  return [
+    suspicious ? '🚨 ربط دوفايد: علامة اكتشاف محتملة' : '⚠️ ربط دوفايد: فشل السحب اليومي',
+    '',
+    `السبب: ${message}`,
+    ...(suspicious ? ['', 'رفض الدخول أو الحجب قد يعني أن دوفايد لاحظ الربط، أو أن كلمة السر تغيّرت، أو أن الحساب أُوقف.'] : []),
+    ...(paused ? ['', '⏸️ أوقفتُ السحب التلقائي احتياطياً كي لا تتكرّر المحاولات.'] : []),
+    '',
+    'المراجعة والتشغيل: لوحة الماستر أدمن ← ربط دوفايد.',
+  ].join('\n');
+}
+
+export async function sendTestAlert() {
+  const c = await getConfig();
+  return sendAlert(c.notifyChatId, '✅ تنبيه تجريبي من ربط دوفايد — ستصلك هنا رسالة إن فشل السحب اليومي أو ظهرت علامة اكتشاف.');
+}
 
 /** اختبار الاتصال: تسجيل دخول فقط. */
 export async function testConnection() {
@@ -136,15 +168,26 @@ export async function runSync({ trigger = 'schedule' } = {}) {
     return finish('ok', `«${fileName}»: ${docs} طبيب و${pharms} صيدلية بانتظار مراجعة ${user.displayName?.trim() || user.username}`);
   } catch (e) {
     console.error(`[dofied] فشل السحب (${trigger}):`, e?.message);
-    return finish('error', e?.code ? e.message : `خطأ غير متوقّع: ${String(e?.message || e).slice(0, 200)}`);
+    return finish('error', e?.code ? e.message : `خطأ غير متوقّع: ${String(e?.message || e).slice(0, 200)}`, e?.code);
   } finally {
     running = false;
   }
 
-  async function finish(status, message) {
+  async function finish(status, message, code = null) {
+    const before = await getConfig().catch(() => null);
     await record(status, message);
     if (status !== 'ok' || trigger !== 'schedule') console.log(`[dofied] ${status}: ${message}`);
-    return { status, message };
+    const suspicious = status === 'error' && SUSPICIOUS_CODES.has(code);
+    // علامة اكتشاف من السحب التلقائي ⇒ إيقاف احتياطي: محاولة دخول مرفوضة كل يوم تزيد الانتباه.
+    const paused = suspicious && trigger === 'schedule' && before?.enabled;
+    if (paused) await prisma.dofiedSync.update({ where: { id: 1 }, data: { enabled: false } }).catch(() => {});
+    // التنبيه للتلقائي (لا أحد ينظر للصفحة ليلاً)، ولعلامة الاكتشاف من أي تشغيل.
+    if (status === 'error' && (trigger === 'schedule' || suspicious)) {
+      await sendAlert(before?.notifyChatId, alertText({ message, suspicious, paused }));
+    } else if (status === 'ok' && trigger === 'schedule' && before?.lastStatus === 'error') {
+      await sendAlert(before?.notifyChatId, `✅ ربط دوفايد عاد يعمل: ${message}`);
+    }
+    return { status, message, suspicious, paused };
   }
 }
 

@@ -824,5 +824,15 @@ export async function sendTextToUser(userId, text) {
   return { sent, failed, links: links.length };
 }
 
+/** نص إلى محادثة واحدة بعينها (تنبيهات النظام، مثل ربط دوفايد). لا يرمي. */
+export async function sendTextToChat(chatId, text) {
+  try {
+    const res = await sendMessage(String(chatId), text);
+    return { ok: Boolean(res?.ok), error: res?.ok ? null : (res?.description || 'رفض تلكرام الرسالة') };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'تعذّر الإرسال' };
+  }
+}
+
 // إشعار الكروب بحالة طلبيته عند المذخر (warehouse-dispatch) — يحترم وضع الصمت.
 registerNotifier('telegram', (chatId, text) => sendMessage(chatId, text));

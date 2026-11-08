@@ -5,7 +5,7 @@ import { ErrBox, Spinner, btnStyle, UI } from './OfficesPage';
 interface UserOption { id: number; username: string; displayName?: string | null; role: string; isActive?: boolean }
 interface Config {
   username: string | null; hasPassword: boolean; userId: number | null; enabled: boolean; runHour: number;
-  lastSyncedDate: string | null; lastRunAt: string | null; lastStatus: string | null; lastMessage: string | null;
+  lastSyncedDate: string | null; lastRunAt: string | null; notifyChatId: string | null; lastStatus: string | null; lastMessage: string | null;
   user: { id: number; username: string; displayName?: string | null; isActive: boolean } | null;
   pending: { fileName: string; createdAt: string } | null;
   nextWindow: { from: string; to: string } | null;
@@ -31,14 +31,14 @@ export default function DofiedPage() {
 
   const [cfg, setCfg] = useState<Config | null>(null);
   const [users, setUsers] = useState<UserOption[]>([]);
-  const [form, setForm] = useState({ username: '', password: '', userId: '', enabled: false, runHour: 1 });
+  const [form, setForm] = useState({ username: '', password: '', userId: '', enabled: false, runHour: 1, notifyChatId: '' });
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   const apply = (c: Config) => {
     setCfg(c);
-    setForm({ username: c.username || '', password: '', userId: c.userId ? String(c.userId) : '', enabled: c.enabled, runHour: c.runHour });
+    setForm({ username: c.username || '', password: '', userId: c.userId ? String(c.userId) : '', enabled: c.enabled, runHour: c.runHour, notifyChatId: c.notifyChatId || '' });
   };
   const load = useCallback(() => {
     fetch('/api/sa/dofied', { headers: H() }).then(r => r.json())
@@ -69,14 +69,14 @@ export default function DofiedPage() {
     method: 'PUT',
     body: JSON.stringify({
       username: form.username, password: form.password || undefined,
-      userId: form.userId ? Number(form.userId) : null, enabled: form.enabled, runHour: form.runHour,
+      userId: form.userId ? Number(form.userId) : null, enabled: form.enabled, runHour: form.runHour, notifyChatId: form.notifyChatId,
     }),
   });
 
   if (!cfg) return error ? <ErrBox msg={error} /> : <Spinner />;
   const st = cfg.lastStatus ? STATUS[cfg.lastStatus] : null;
   const dirty = form.username !== (cfg.username || '') || !!form.password || form.userId !== (cfg.userId ? String(cfg.userId) : '')
-    || form.enabled !== cfg.enabled || form.runHour !== cfg.runHour;
+    || form.enabled !== cfg.enabled || form.runHour !== cfg.runHour || form.notifyChatId !== (cfg.notifyChatId || '');
 
   return (
     <div style={{ direction: 'rtl', maxWidth: 760 }}>
@@ -88,6 +88,11 @@ export default function DofiedPage() {
         ⚠️ ربط غير رسمي بحسابك: أي تحديث في موقع دوفايد قد يوقفه، وتظهر الرسالة هنا. الرفع اليدوي يبقى متاحاً دائماً.
       </div>
 
+      {!cfg.enabled && cfg.lastStatus === 'error' && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginBottom: 12, lineHeight: 1.7 }}>
+          ⏸️ السحب التلقائي متوقف وآخر تشغيل فشل — راجع السبب أدناه قبل إعادة التفعيل.
+        </div>
+      )}
       {error && <ErrBox msg={error} />}
       {notice && <div style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>{notice}</div>}
 
@@ -115,6 +120,13 @@ export default function DofiedPage() {
             {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
           </select>
         </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={label}>رقم محادثة تلكرام لاستلام التنبيهات</label>
+          <input style={{ ...field, maxWidth: 260 }} value={form.notifyChatId} onChange={e => setForm({ ...form, notifyChatId: e.target.value })} dir="ltr" placeholder="مثال: 123456789" />
+          <div style={{ fontSize: 11.5, color: UI.faint, marginTop: 5, lineHeight: 1.7 }}>
+            أرسل أي رسالة لبوت التطبيق على تلكرام <b>بمحادثة خاصة</b> فيردّ عليك برقم المحادثة — انسخه هنا. يصلك تنبيه إن فشل السحب، وتنبيه 🚨 إن ظهرت علامة اكتشاف (رفض الدخول أو حجب) مع إيقاف السحب التلقائي احتياطياً.
+          </div>
+        </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: UI.text, cursor: 'pointer', gridColumn: '1 / -1' }}>
           <input type="checkbox" checked={form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} />
           السحب اليومي التلقائي مفعّل
@@ -125,6 +137,8 @@ export default function DofiedPage() {
             title={dirty ? 'احفظ أولاً' : ''}>{busy === 'test' ? 'جاري الاختبار…' : 'اختبار الاتصال'}</button>
           <button style={btnStyle('#b45309')} disabled={!!busy || dirty || !cfg.hasPassword || !cfg.userId} onClick={() => call('run', '/api/sa/dofied/run', { method: 'POST' })}
             title={dirty ? 'احفظ أولاً' : ''}>{busy === 'run' ? 'جاري السحب…' : 'سحب الآن'}</button>
+          <button style={btnStyle('#475569')} disabled={!!busy || dirty || !cfg.notifyChatId} onClick={() => call('alert', '/api/sa/dofied/test-alert', { method: 'POST' })}
+            title={dirty ? 'احفظ أولاً' : ''}>{busy === 'alert' ? 'جاري الإرسال…' : 'تنبيه تجريبي'}</button>
         </div>
       </div>
 

@@ -50,6 +50,21 @@ check('انقطاع طويل: آخر 31 يوماً', syncWindow('2026-01-01', '2
 check('عبر نهاية الشهر', syncWindow('2026-10-30', '2026-11-02'), { from: '2026-10-31', to: '2026-11-01' });
 check('ساعة بغداد = UTC+3', baghdadNow(new Date('2026-11-09T22:30:00Z')), { date: '2026-11-10', hour: 1 });
 
+// ── علامات الاكتشاف والتنبيه ──
+const { isBlocked, SUSPICIOUS_CODES } = await import('../server/modules/dofied/dofied.client.js');
+const { alertText } = await import('../server/modules/dofied/dofied.sync.js');
+check('403 = حجب', isBlocked(403, ''), true);
+check('429 = حجب', isBlocked(429, ''), true);
+check('صفحة تحدّي Cloudflare = حجب', isBlocked(200, '<title>Just a moment...</title>'), true);
+check('رد عادي ليس حجباً', isBlocked(200, 'true'), false);
+check('500 عطل لا حجب', isBlocked(500, 'error'), false);
+check('رفض الدخول مشبوه', SUSPICIOUS_CODES.has('LOGIN_FAILED'), true);
+check('انقطاع الشبكة ليس مشبوهاً', SUSPICIOUS_CODES.has('NETWORK'), false);
+const t1 = alertText({ message: 'رفض دوفايد تسجيل الدخول', suspicious: true, paused: true });
+check('تنبيه الاكتشاف يذكر الإيقاف', [t1.includes('🚨'), t1.includes('أوقفتُ')], [true, true]);
+const t2 = alertText({ message: 'انتهت المهلة', suspicious: false, paused: false });
+check('تنبيه العطل العادي بلا إيقاف', [t2.includes('⚠️'), t2.includes('أوقفتُ')], [true, false]);
+
 if (failed) { console.log(`\n✗ فشل ${failed}`); process.exit(1); }
 console.log('\n✓ كل الاختبارات نجحت');
 process.exit(0);

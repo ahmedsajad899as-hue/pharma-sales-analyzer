@@ -3566,6 +3566,7 @@ model DofiedSync {
   lastRunAt      DateTime?
   lastStatus     String? // ok | waiting | error
   lastMessage    String?
+  notifyChatId   String? // محادثة تلكرام تستلم تنبيه الفشل
   updatedAt      DateTime  @updatedAt
 
   @@map("dofied_sync")
