@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, ClipboardPaste, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ItemPicker, itemCompany, normSearch, type CatalogItem } from '../components/OrderItemPicker';
 import { compressImage, readDataUrl, loadImg } from '../lib/localImage';
@@ -114,12 +114,11 @@ const nextWh = (o: Order): OrderWh => {
 /** رقم الطلبية عند مذخر: ترقيم مستقل لكل مذخر (whSeq) — وإلا id الطلبية */
 const whSeqOf = (o: Order, whId: number | null) => o.sends.find(sd => sd.warehouseId === whId && sd.whSeq != null)?.whSeq ?? null;
 
-// ما يصل المذخر: رقمها عنده + الصيدلية والمنطقة + المتبقي من الأصناف. بلا مندوب/مذخر/
-// تاريخ/ملاحظات/صورة ختم (صورة الختم مؤجّلة — تُعاد هنا إن طُلبت).
-function orderText(o: Order, no: number, withHeader = true): string {
+// ما يصل المذخر: الصيدلية والمنطقة + المتبقي من الأصناف. بلا «طلبية رقم» (طلب صاحب المشروع)
+// ولا مندوب/مذخر/تاريخ/ملاحظات/صورة ختم (صورة الختم مؤجّلة — تُعاد هنا إن طُلبت).
+function orderText(o: Order): string {
   const out: string[] = [];
-  if (withHeader) out.push(`*طلبية رقم ${no}*`);
-  out.push(`الصيدلية: ${o.pharmacyName}`);
+  out.push(`*الصيدلية: ${o.pharmacyName}*`);
   if (o.areaName) out.push(`المنطقة: ${o.areaName}`);
   out.push('──────────');
   o.lines.filter(l => remainingOf(l) > 0).forEach((l, i) => {
@@ -184,14 +183,14 @@ function ChannelIcon({ ch, size = 16 }: { ch: Channel; size?: number }) {
 }
 
 /** نص رسالة المذخر: طلبية واحدة أو عدة طلبيات في رسالة واحدة. */
-const ordersText = (list: Order[], nos: number[]) => (list.length === 1
-  ? orderText(list[0], nos[0])
-  : [`*${list.length} طلبيات*`, ...list.map((o, i) => `\n*طلبية رقم ${nos[i]}*\n${orderText(o, nos[i], false)}`)].join('\n'));
+const ordersText = (list: Order[]) => (list.length === 1
+  ? orderText(list[0])
+  : [`*${list.length} طلبيات*`, ...list.map(o => `\n${orderText(o)}`)].join('\n'));
 
-/** النص القصير المرافق لصورة الطلبية — رقمها والصيدلية ليُبحث عنها في الكروب. */
-const ordersCaption = (list: Order[], nos: number[]) => (list.length === 1
-  ? `*طلبية رقم ${nos[0]}* — ${list[0].pharmacyName}${list[0].areaName ? ` (${list[0].areaName})` : ''}`
-  : `*${list.length} طلبيات* — ${list.map((o, i) => `رقم ${nos[i]} ${o.pharmacyName}`).join('، ')}`);
+/** النص المرافق لصورة الطلبية (خارجها): اسم الصيدلية ومنطقتها — بلا «طلبية رقم». */
+const ordersCaption = (list: Order[]) => list
+  .map(o => [`الصيدلية: ${o.pharmacyName}`, ...(o.areaName ? [`المنطقة: ${o.areaName}`] : [])].join('\n'))
+  .join('\n\n');
 
 /**
  * صورة الطلبية (ميزة rep_orders_image_send): نفس محتوى orderText — رقمها عند المذخر +
@@ -228,26 +227,26 @@ function orderImageFile(list: Order[], nos: number[]): File | null {
     })),
   }));
   const rowH = (r: typeof blocks[number]['rows'][number]) => ROW_PAD * 2 + r.name.length * LINE + r.company.length * 26;
-  const HEAD = 72, INFO = 92, THEAD = 50, GAP = 28;
-  const H = PAD + blocks.reduce((s, b) => s + HEAD + INFO + THEAD + b.rows.reduce((x, r) => x + rowH(r), 0) + GAP, 0) - GAP + PAD;
+  const HEAD = 72, AREA = 54, THEAD = 50, GAP = 28;
+  const infoH = (b: typeof blocks[number]) => (b.o.areaName ? AREA : 0);
+  const H = PAD + blocks.reduce((s, b) => s + HEAD + infoH(b) + THEAD + b.rows.reduce((x, r) => x + rowH(r), 0) + GAP, 0) - GAP + PAD;
   c.width = W; c.height = H;
   ctx.direction = 'rtl';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
   let y = PAD;
   for (const b of blocks) {
-    // الترويسة: رقم الطلبية
+    // الترويسة: اسم الصيدلية (بلا «طلبية رقم» — طلب صاحب المشروع)
     ctx.fillStyle = '#0f766e'; ctx.fillRect(PAD, y, W - PAD * 2, HEAD);
-    ctx.fillStyle = '#ffffff'; ctx.font = F(800, 36); ctx.textAlign = 'right';
-    ctx.fillText(`طلبية رقم ${b.no}`, R - 18, y + HEAD / 2);
+    ctx.fillStyle = '#ffffff'; ctx.font = F(800, 32); ctx.textAlign = 'right';
+    ctx.fillText(`الصيدلية: ${b.o.pharmacyName}`, R - 18, y + HEAD / 2, W - PAD * 2 - 190);
     ctx.font = F(600, 24); ctx.textAlign = 'left';
     ctx.fillText(`${b.rows.length} صنف`, PAD + 18, y + HEAD / 2);
     y += HEAD;
-    // الصيدلية والمنطقة
-    ctx.textAlign = 'right'; ctx.fillStyle = '#0f172a'; ctx.font = F(700, 30);
-    ctx.fillText(`الصيدلية: ${b.o.pharmacyName}`, R - 6, y + 30);
-    if (b.o.areaName) { ctx.fillStyle = '#475569'; ctx.font = F(500, 25); ctx.fillText(`المنطقة: ${b.o.areaName}`, R - 6, y + 68); }
-    y += INFO;
+    // المنطقة
+    ctx.textAlign = 'right';
+    if (b.o.areaName) { ctx.fillStyle = '#334155'; ctx.font = F(700, 27); ctx.fillText(`المنطقة: ${b.o.areaName}`, R - 6, y + AREA / 2); }
+    y += infoH(b);
     // رأس الجدول
     ctx.fillStyle = '#e2e8f0'; ctx.fillRect(PAD, y, W - PAD * 2, THEAD);
     ctx.fillStyle = '#334155'; ctx.font = F(700, 23); ctx.textAlign = 'center';
@@ -277,7 +276,7 @@ function orderImageFile(list: Order[], nos: number[]): File | null {
       for (const t of r.company) { ctx.fillText(t, nameR - 8, ty); ty += 26; }
       y += h;
     });
-    ctx.strokeStyle = '#cbd5e1'; ctx.strokeRect(PAD + 0.5, y - b.rows.reduce((x, r) => x + rowH(r), 0) - THEAD - INFO - HEAD + 0.5, W - PAD * 2 - 1, HEAD + INFO + THEAD + b.rows.reduce((x, r) => x + rowH(r), 0) - 1);
+    ctx.strokeStyle = '#cbd5e1'; ctx.strokeRect(PAD + 0.5, y - b.rows.reduce((x, r) => x + rowH(r), 0) - THEAD - infoH(b) - HEAD + 0.5, W - PAD * 2 - 1, HEAD + infoH(b) + THEAD + b.rows.reduce((x, r) => x + rowH(r), 0) - 1);
     y += GAP;
   }
   const bin = atob(c.toDataURL('image/png').split(',')[1]);
@@ -560,6 +559,9 @@ export default function RepOrdersPage() {
   const [notice, setNotice] = useState<string | null>(null);
   // «إرسال كصورة» بالموبايل: بعد نسخ الصورة، زر يفتح كروب المذخر (الضغطة الثانية)
   const [openPrompt, setOpenPrompt] = useState<{ text: string; label: string; url: string; done: () => void } | null>(null);
+  // نص الصيدلية والمنطقة المرافق لصورة الطلبية — يُنسخ بزر بعد لصق الصورة في الكروب
+  const [captionCard, setCaptionCard] = useState<string | null>(null);
+  const [captionCopied, setCaptionCopied] = useState(false);
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 8000);
@@ -577,7 +579,7 @@ export default function RepOrdersPage() {
     if (canBotSend && viaBot && wh?.id != null) return { go: () => { sendViaBot(list, wh); }, cancel: none };
     let next = wh.id != null ? whNextSeq[wh.id] ?? 1 : 1;
     const nos = list.map(o => (wh.id == null ? o.id : whSeqOf(o, wh.id) ?? next++));
-    const text = ordersText(list, nos);
+    const text = ordersText(list);
     const ch = channelOf(wh);
     const opener = (url: string) => {
       const w = deferred ? window.open('about:blank', '_blank') : null;
@@ -586,7 +588,9 @@ export default function RepOrdersPage() {
     // ميزة «إرسال الطلبية كصورة»: صورة حقيقية + نص قصير (رقمها والصيدلية) بدل النص الكامل
     const file = asImage ? orderImageFile(list, nos) : null;
     if (file) {
-      const caption = ordersCaption(list, nos);
+      const caption = ordersCaption(list);
+      // بعد لصق الصورة: زر ينسخ الاسم والمنطقة ليُلصقا في خانة التعليق (الحافظة تحمل الصورة فقط)
+      const showCaption = () => { setCaptionCard(caption); setCaptionCopied(false); };
       const canClipImage = !!navigator.clipboard?.write && typeof ClipboardItem !== 'undefined';
       // قائمة المشاركة بالصورة فقط حين لا وجهة للمذخر (لا كروب/رقم/معرّف) أو تعذّر نسخ الصورة —
       // وإلا يُفتح كروب المذخر نفسه والصورة منسوخة (طلب صاحب المشروع)
@@ -614,16 +618,16 @@ export default function RepOrdersPage() {
         if (IS_TOUCH && url) {
           const msg = `✓ نُسخت صورة الطلبية. في ${where} اضغط مطوّلاً على خانة الكتابة ← لصق ← إرسال.`;
           if (deferred) {
-            return { go: () => setOpenPrompt({ text: msg, label: `فتح ${where}`, url, done: () => markSent(list, wh) }), cancel: none };
+            return { go: () => setOpenPrompt({ text: msg, label: `فتح ${where}`, url, done: () => { markSent(list, wh); showCaption(); } }), cancel: none };
           }
           return {
-            go: () => { setTimeout(() => window.open(url, '_blank'), 400); setNotice(msg); markSent(list, wh); },
+            go: () => { setTimeout(() => window.open(url, '_blank'), 400); setNotice(msg); markSent(list, wh); showCaption(); },
             cancel: none,
           };
         }
         const o = url ? opener(url) : null;
         return {
-          go: () => { o?.open(); setNotice(`✓ نُسخت صورة الطلبية. ${url ? `في ${where}` : `افتح ${where} ←`} اضغط على خانة الكتابة ثم Ctrl+V ← إرسال.`); markSent(list, wh); },
+          go: () => { o?.open(); setNotice(`✓ نُسخت صورة الطلبية. ${url ? `في ${where}` : `افتح ${where} ←`} اضغط على خانة الكتابة ثم Ctrl+V ← إرسال.`); markSent(list, wh); showCaption(); },
           cancel: o?.cancel ?? none,
         };
       }
@@ -663,10 +667,10 @@ export default function RepOrdersPage() {
   const shareOrders = (list: Order[], wh: OrderWh) => {
     let next = wh.id != null ? whNextSeq[wh.id] ?? 1 : 1;
     const nos = list.map(o => (wh.id == null ? o.id : whSeqOf(o, wh.id) ?? next++));
-    const text = ordersText(list, nos);
+    const text = ordersText(list);
     const file = asImage ? orderImageFile(list, nos) : null;
     if (file && navigator.canShare?.({ files: [file] })) {
-      const caption = ordersCaption(list, nos);
+      const caption = ordersCaption(list);
       copyText(caption);
       navigator.share({ files: [file], text: caption }).then(() => markSent(list, wh)).catch(() => {});
       return;
@@ -914,6 +918,20 @@ export default function RepOrdersPage() {
               <Send size={15} /> <span>{openPrompt.label}</span>
             </button>
             <button className="btn btn--secondary btn--sm" onClick={() => setOpenPrompt(null)}>إلغاء</button>
+          </div>
+        </div>
+      )}
+      {captionCard && !openPrompt && (
+        <div className="ro-openprompt" role="dialog">
+          <div className="ro-openprompt__text">
+            بعد لصق الصورة في الكروب: اضغط «نسخ الاسم والمنطقة» ثم الصقه في خانة التعليق تحت الصورة وأرسل.
+            <div style={{ marginTop: 6, whiteSpace: 'pre-line', fontWeight: 700 }}>{captionCard}</div>
+          </div>
+          <div className="ro-openprompt__btns">
+            <button className="ro-send-btn" onClick={() => { copyText(captionCard); setCaptionCopied(true); }}>
+              <Copy size={15} /> <span>{captionCopied ? '✓ نُسخ — الصقه في التعليق' : 'نسخ الاسم والمنطقة'}</span>
+            </button>
+            <button className="btn btn--secondary btn--sm" onClick={() => setCaptionCard(null)}>إغلاق</button>
           </div>
         </div>
       )}
