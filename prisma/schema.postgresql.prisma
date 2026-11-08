@@ -3551,3 +3551,22 @@ model RepSaleLine {
   @@index([saleId])
   @@map("rep_sale_lines")
 }
+
+// ─── ربط دوفايد (تقارير زيارات المندوبين) — سحب يومي غير رسمي بحساب المستخدم ─────
+// صف واحد (id=1). كلمة السر مشفّرة (lib/passwordCrypto.js). السحب يملأ طابور مراجعة
+// الزيارات (PendingVisitsImport) للحساب المختار — لا يُحفظ شيء بلا مراجعة.
+model DofiedSync {
+  id             Int       @id @default(1)
+  username       String?
+  passwordEnc    String?
+  userId         Int? // الحساب الذي يستلم الملف للمراجعة
+  enabled        Boolean   @default(false)
+  runHour        Int       @default(1) // ساعة السحب بتوقيت بغداد
+  lastSyncedDate String? // آخر يوم (YYYY-MM-DD) دخل طابور المراجعة
+  lastRunAt      DateTime?
+  lastStatus     String? // ok | waiting | error
+  lastMessage    String?
+  updatedAt      DateTime  @updatedAt
+
+  @@map("dofied_sync")
+}

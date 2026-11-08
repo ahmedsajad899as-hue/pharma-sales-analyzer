@@ -107,6 +107,8 @@ import repOrdersRoutes          from './modules/rep-orders/rep-orders.routes.js'
 import repSalesRoutes           from './modules/rep-sales/rep-sales.routes.js';
 import warehouseDispatchRoutes  from './modules/warehouse-dispatch/dispatch.routes.js';
 import { resumeListenInbox } from './modules/wa-groups/wa-groups.listen.js';
+import dofiedRoutes from './modules/dofied/dofied.routes.js';
+import { startDofiedScheduler } from './modules/dofied/dofied.sync.js';
 import { internalRouter as waGroupsInternalRoutes, adminRouter as waGroupsAdminRoutes, saRouter as waGroupsSaRoutes } from './modules/wa-groups/wa-groups.routes.js';
 
 dotenv.config();
@@ -243,6 +245,7 @@ app.use('/api/sa/telegram-links', telegramLinksRoutes);
 app.use('/api/sa/ai-usage',       aiUsageRoutes);
 app.use('/api/sa/viber-links',    viberLinksRoutes);
 app.use('/api/sa/whatsapp-links', whatsappLinksRoutes);
+app.use('/api/sa/dofied',         dofiedRoutes);
 app.use('/api/sa/wa-groups',      waGroupsSaRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
 app.use('/api/sa/catalog-import', catalogImportRoutes);
@@ -5051,6 +5054,8 @@ if (process.env.VERCEL) {
     startRepFollowupScheduler();
     // إرسال الطلبيات للمذاخر: مهلة الرد ⇒ «لا رد» / تحويل للمذخر البديل
     startDispatchTimers();
+    // ربط دوفايد: سحب يومي لتقارير الزيارات إلى طابور المراجعة
+    startDofiedScheduler();
     backfillWarehouseWaIds();
     // رسائل كروبات المندوبين الصامتة قطعتها إعادة التشغيل أثناء قراءتها ← تُعاد
     resumeListenInbox()
