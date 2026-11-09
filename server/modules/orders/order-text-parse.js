@@ -248,7 +248,11 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
 // ─── أسطر الأصناف ───────────────────────────────────────────────────────────
 const COUNT_UNIT = String.raw`(?:p|pc|pcs|pack|box|ع|علب[ةه]?|علب|حب[ةه]|شريط)`;
 // «(5)»، «(10p)»، «( 10 علبة )» في آخر السطر.
-const PAREN_QTY_END = new RegExp(String.raw`\(\s*(\d+)\s*${COUNT_UNIT}?\s*\)\s*$`, 'i');
+// والبونص داخل القوس «(30+3)»، والقوس الختامي اختياري («Potafast (10+1» كما كتبها مندوب،
+// 2026-11-11). القوس الافتتاحي إلزامي هنا — بدونه يبقى «Pandev 40» تركيزاً لا كمية.
+const PAREN_QTY_END = new RegExp(String.raw`\(\s*(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}?\s*\)?\s*$`, 'i');
+// قوس ختامي بلا افتتاحي: «Potafast 10+1)» أو «Potafast 10)».
+const CLOSE_QTY_END = new RegExp(String.raw`(?:^|\s)(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}?\s*\)\s*$`, 'i');
 const PAREN_QTY_START = new RegExp(String.raw`^\(\s*(\d+)\s*${COUNT_UNIT}?\s*\)\s*`, 'i');
 // «50+5p»، «10 + 2» في آخر السطر.
 const PLUS_QTY_END = new RegExp(String.raw`(?:^|\s)(\d+)\s*\+\s*(\d+)\s*${COUNT_UNIT}?\s*$`, 'i');
@@ -263,8 +267,9 @@ const UNIT_QTY_END = new RegExp(String.raw`(?:^|\s)(\d+)\s*${COUNT_UNIT}\s*$`, '
 export function parseItemLine(line) {
   const s = tidy(toLatinDigits(line));
   let m, name, quantity, bonus = null;
-  if ((m = s.match(PAREN_QTY_END))) {
+  if ((m = s.match(PAREN_QTY_END)) || (m = s.match(CLOSE_QTY_END))) {
     quantity = Number(m[1]); name = s.slice(0, m.index);
+    if (m[2] != null) bonus = Number(m[2]);
   } else if ((m = s.match(PAREN_QTY_START))) {
     quantity = Number(m[1]); name = s.slice(m[0].length);
   } else if ((m = s.match(PLUS_QTY_END))) {

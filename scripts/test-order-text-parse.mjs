@@ -26,6 +26,11 @@ check('pandev 40mg(10p)', parseItemLine('pandev 40mg(10p)'), { name: 'pandev 40m
 check('Azitro tap 500.   50+5p', parseItemLine('Azitro tap 500.   50+5p'), { name: 'Azitro tap 500', quantity: 50, bonus: 5 });
 check('candexil 10 p', parseItemLine('candexil 10 p'), { name: 'candexil', quantity: 10, bonus: null });
 check('Pandev 40(10)', parseItemLine('Pandev 40(10)'), { name: 'Pandev 40', quantity: 10, bonus: null });
+// 2026-11-11: البونص داخل القوس، والقوس غير مغلق كما كتبه المندوب
+check('Potafast (30+3 → قوس غير مغلق مع بونص', parseItemLine('Potafast (30+3'), { name: 'Potafast', quantity: 30, bonus: 3 });
+check('Potafast (10+1) → بونص داخل القوس', parseItemLine('Potafast (10+1)'), { name: 'Potafast', quantity: 10, bonus: 1 });
+check('Potafast 10+1) → قوس ختامي فقط', parseItemLine('Potafast 10+1)'), { name: 'Potafast', quantity: 10, bonus: 1 });
+check('Pandev 40 بلا قوس ولا وحدة → لا حسم (تركيز)', parseItemLine('Pandev 40'), null);
 check('بلا شكل كمية صريح ⇒ null (الموديل يقرّر)', parseItemLine('Pandev 40'), null);
 check('تركيز عشري يبقى', parseItemLine('Digoxin 0.125mg (3)'), { name: 'Digoxin 0.125mg', quantity: 3, bonus: null });
 
