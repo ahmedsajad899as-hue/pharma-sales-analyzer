@@ -1883,7 +1883,12 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
       const first = imageRows.find(r => r.pharmacy) || imageRows[0];
       const whAddress = imageWarehouseAddress;
       const firstScore = first?.pharmacy ? await customerKnownScore(first.pharmacy, first.area) : -1;
-      if (imageRows.length > 0 && firstScore < 2) {
+      // مسار البطاقة: الموديل يعرف مكان الزبون وشكله، فالتصويت (3 نداءات بالصورة كاملة،
+      // ~4,500-6,000 token) لا يُشغَّل ما دام الاسم قُرئ — كان يرفع الفاتورة لـ~10,000 token
+      // كلما كانت الصيدلية جديدة على الماستر. مقيس: أسماء البطاقة صحيحة 62/65 بلا تصويت.
+      // اسم فارغ ⇒ احتياطي القصاصة أدناه كما هو.
+      const skipVote = Boolean(img.card && first?.pharmacy);
+      if (imageRows.length > 0 && firstScore < 2 && !skipVote) {
         const cust = await extractCustomerLineVoted(img, {
           timeoutMs: Math.min(45_000, Math.max(10_000, OVERALL_BUDGET_MS - (Date.now() - started))),
           warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
