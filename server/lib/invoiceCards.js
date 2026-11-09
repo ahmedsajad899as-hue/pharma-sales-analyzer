@@ -24,7 +24,7 @@ import prisma from './prisma.js';
  */
 export const CARD_BASE_PROMPT = `اقرأ فاتورة/طلبية مذخر الأدوية في الصورة.
 أعِد **كائن JSON واحداً فقط** بلا أي نص قبله أو بعده، بهذا الشكل بالضبط:
-{"h":{"warehouse":"اسم المذخر","pharmacy":"اسم الصيدلية فقط","area":"منطقة الصيدلية أو null","date":"YYYY-MM-DD","invoiceNumber":"22287","box_customer":[ymin,xmin,ymax,xmax],"box_header":[ymin,xmin,ymax,xmax]},
+{"h":{"warehouse":"اسم المذخر","pharmacy":"اسم الصيدلية فقط","area":"منطقة الصيدلية أو null","date":"YYYY-MM-DD","invoiceNumber":"22287","grandTotal":"مجموع مبلغ الفاتورة المطبوع أسفلها أو null","box_customer":[ymin,xmin,ymax,xmax],"box_header":[ymin,xmin,ymax,xmax]},
  "r":[["اسم المادة كاملاً",الكمية,البونص,سعر_الوحدة,مجموع_السطر,السعر_مطبوع,[ymin,xmin,ymax,xmax]]]}
 - h: بيانات الترويسة **مرة واحدة**. r: صف لكل سطر صنف بالترتيب: [item, quantity, bonus, unitPrice, total, priceShown(true/false), box].
 - item: انسخ الاسم كاملاً كما طُبع (الاسم + التركيز + الشكل).
@@ -51,6 +51,7 @@ export function parseCardReply(text, parseArray) {
           warehouse: h.warehouse ?? null, pharmacy: h.pharmacy ?? null, area: h.area ?? null,
           date: h.date ?? null, invoiceNumber: h.invoiceNumber ?? null,
           box_customer: h.box_customer ?? null, box_header: h.box_header ?? null,
+          grandTotal: h.grandTotal ?? null, // لفحص الأرقام فقط — يُحذف قبل الحفظ
         }));
       }
     } catch { /* يسقط للمحلّل القديم */ }

@@ -6,6 +6,7 @@
 // REST مباشر بلا SDK، والمفتاح في الترويسة لا في الرابط حتى لا يظهر في أي سجل
 // (فاتورة 2026-10-22 كانت من مفتاح Gemini استُخدم خارج الموقع — ارجع للذاكرة).
 import { logAiUsage } from './aiUsage.js';
+import { modelForMode } from './aiModelSettings.js';
 
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 // موديل مختلف لميزة بعينها. لا تنقل ميزة هنا بلا مقارنة على بيانات حقيقية: في اختبار
@@ -76,8 +77,10 @@ export async function callAI(parts, opts = {}) {
     maxTotalMs = null,
     feature = 'other',
     mediaResolution = null, // 'MEDIA_RESOLUTION_LOW' ≈ 280 token/صورة بدل ~1100 — لما لا يحتاج قراءة حروف صغيرة
+    model: forcedModel = null, // نموذج صريح (مسار auto في الفواتير يعيد بالأقوى)
   } = opts;
-  const model = modelForFeature(feature);
+  // الترتيب: نموذج صريح ← اختيار الماستر للميزة (aiModelSettings) ← FEATURE_MODELS ← الافتراضي.
+  const model = forcedModel || (await modelForMode(feature)) || modelForFeature(feature);
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY غير مهيأ');
   if (maxTotalMs != null && maxTotalMs <= 0) throw new Error('AI total budget exhausted');
   const timeout = maxTotalMs != null ? Math.min(timeoutMs, maxTotalMs) : timeoutMs;

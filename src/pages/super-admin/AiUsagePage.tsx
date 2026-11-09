@@ -18,6 +18,8 @@ const FEATURE_LABEL: Record<string, string> = {
   'assistant-command': '🗨️ أوامر المساعد الذكي',
   'invoice-read': '🧾 قراءة صور الفواتير',
   'invoice-read-card': '🗂️ قراءة فاتورة ببطاقة المذخر',
+  'invoice-read-card-retry': '🔁 إعادة قراءة فاتورة بالأقوى (بطاقة)',
+  'invoice-read-retry': '🔁 إعادة قراءة فاتورة بالأقوى',
   'invoice-orient': '🔄 تصحيح اتجاه الفاتورة',
   'invoice-customer-line': '🏪 قراءة سطر الزبون في الفاتورة',
   'quiz-assist': '❓ مساعد الاختبارات',
@@ -46,6 +48,65 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 const th: React.CSSProperties = { textAlign: 'start', padding: '8px 10px', fontSize: 12, color: UI.muted, borderBottom: `1px solid ${UI.line}`, fontWeight: 700 };
 const td: React.CSSProperties = { padding: '8px 10px', fontSize: 13, color: UI.ink, borderBottom: '1px solid #f1f5f9' };
+
+// ─── نموذج الذكاء لكل ميزة (server/lib/aiModelSettings.js) ──────────────────
+interface ModelSetting { feature: string; mode: string; modes: string[]; default: string }
+const MODE_INFO: Record<string, { label: string; hint: string; color: string }> = {
+  strong: { label: '💪 الأقوى', hint: 'gemini-3.8-flash — الأدق والأغلى', color: '#4f46e5' },
+  lite:   { label: '💰 الأرخص', hint: 'gemini-3.5-flash-lite — حوالي نصف السعر', color: '#0891b2' },
+  auto:   { label: '🧠 تلقائي', hint: 'الأرخص أولاً، وإن لم تتطابق الكمية × السعر مع المجموع (أو مجموع الفاتورة) تُعاد القراءة بالأقوى', color: '#16a34a' },
+};
+const MODEL_FEATURE_LABEL: Record<string, string> = {
+  'invoice-read-card': '🗂️ فواتير المذاخر التي لها بطاقة',
+  'invoice-read': '🧾 فواتير باقي المذاخر',
+  'bot-order-text': '💬 الطلبيات النصية (الكروبات)',
+};
+
+function ModelSettings({ token }: { token: string | null }) {
+  const [rows, setRows] = useState<ModelSetting[] | null>(null);
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  useEffect(() => {
+    fetch('/api/sa/ai-usage/models', { headers: H }).then(r => r.json())
+      .then(d => { if (d.success) setRows(d.data); else setErr(d.error || 'خطأ'); })
+      .catch(() => setErr('تعذّر الاتصال'));
+  }, []);
+  const choose = async (feature: string, mode: string) => {
+    setBusy(feature + mode); setErr('');
+    try {
+      const d = await (await fetch('/api/sa/ai-usage/models', { method: 'PUT', headers: H, body: JSON.stringify({ feature, mode }) })).json();
+      if (d.success) setRows(d.data); else setErr(d.error || 'تعذّر الحفظ');
+    } catch { setErr('تعذّر الاتصال'); } finally { setBusy(''); }
+  };
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: 14, marginBottom: 20 }}>
+      <h3 style={{ fontSize: 14, color: UI.ink, margin: '0 0 4px' }}>⚙️ نموذج الذكاء لكل ميزة</h3>
+      <div style={{ fontSize: 12, color: UI.faint, marginBottom: 12, lineHeight: 1.6 }}>
+        التغيير يسري خلال دقيقة. «تلقائي» للفواتير فقط: يقرأ بالأرخص ثم يفحص الأرقام، ويعيد بالأقوى عند الشك — راقب بند «🔁 إعادة قراءة» أدناه لمعرفة كم مرة احتاج الأقوى.
+      </div>
+      {err && <ErrBox msg={err} />}
+      {!rows ? <Spinner /> : rows.map(r => (
+        <div key={r.feature} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ flex: '1 1 200px', fontSize: 13, fontWeight: 600, color: UI.ink }}>{MODEL_FEATURE_LABEL[r.feature] || r.feature}</div>
+          <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+            {r.modes.map(m => {
+              const on = m === r.mode, info = MODE_INFO[m];
+              return (
+                <button key={m} title={info?.hint} disabled={!!busy} onClick={() => !on && choose(r.feature, m)}
+                  style={{ padding: '5px 10px', fontSize: 12, fontWeight: 700, border: 'none', borderInlineEnd: '1px solid #e2e8f0',
+                    cursor: on ? 'default' : 'pointer', background: on ? info?.color : '#fff', color: on ? '#fff' : '#475569',
+                    opacity: busy && busy !== r.feature + m ? 0.6 : 1 }}>
+                  {busy === r.feature + m ? '…' : info?.label || m}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // صفحة استهلاك الذكاء الاصطناعي — كل نداء (ناجح أو فاشل) يُسجَّل في callAI نفسها فتشمل
 // كل ميزات التطبيق لا البوت وحده. الميزة غير الموسومة تظهر «other».
@@ -82,6 +143,8 @@ export default function AiUsagePage() {
       <div style={{ fontSize: 12.5, color: UI.faint, marginBottom: 16, lineHeight: 1.6 }}>
         كل نداء إلى Gemini يُسجَّل (ناجحاً أو فاشلاً) منذ تفعيل هذه الميزة. «التوكنز» هي ما تحاسب عليه Google؛ الإدخال = ما أرسلناه، الإخراج = ما أجاب به.
       </div>
+
+      <ModelSettings token={token} />
 
       {error && <ErrBox msg={error} />}
       {loading ? <Spinner /> : data && (

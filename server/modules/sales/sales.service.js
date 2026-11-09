@@ -6,6 +6,7 @@
 
 import { canRotate, rotateJpeg, cropJpeg, downscaleJpeg } from '../../lib/invoiceImage.js';
 import { loadInvoiceCards, matchCard, noteCardUse, CARD_BASE_PROMPT, parseCardReply } from '../../lib/invoiceCards.js';
+import { getAiMode, AI_MODELS, invoiceNumbersProblem } from '../../lib/aiModelSettings.js';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
 import { repCoreName, buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import XLSX from 'xlsx';
@@ -1828,16 +1829,34 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
           : basePrompt,
         { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } },
       ];
-      const text = await callAI(parts, {
+      // النموذج حسب اختيار الماستر (aiModelSettings): strong | lite | auto. في auto يُقرأ
+      // بالأرخص، فإن لم تتّسق الأرقام (الكمية × السعر ≠ المجموع، أو مجموع الفاتورة) أُعيدت
+      // القراءة بالأقوى تحت وسم «‹الميزة›-retry» لتظهر نسبة الإعادات في صفحة الاستهلاك.
+      const readFeature = img.card ? 'invoice-read-card' : 'invoice-read';
+      const readMode = await getAiMode(readFeature);
+      const parseRaw = (t) => (img.card ? parseCardReply(t, parseInvoiceJson) : parseInvoiceJson(t));
+      const readOnce = (model, tag) => callAI(parts, {
         timeoutMs:  70_000,
-        maxTotalMs: OVERALL_BUDGET_MS - elapsed,
+        maxTotalMs: OVERALL_BUDGET_MS - (Date.now() - started),
         thinkingBudget: 0,
-        feature: img.card ? 'invoice-read-card' : 'invoice-read',
+        feature: tag,
+        model,
       });
+      let text = await readOnce(readMode === 'strong' ? AI_MODELS.strong : AI_MODELS.lite, readFeature);
+      if (readMode === 'auto') {
+        const first = parseRaw(text);
+        const problem = invoiceNumbersProblem(first, { grandTotal: first.find(r => r.grandTotal != null)?.grandTotal });
+        if (problem) {
+          console.log(`[invoice-extract] auto: الأرخص لم يجتز فحص الأرقام (${String(problem).slice(0, 80)}) — إعادة بالأقوى`);
+          try { text = await readOnce(AI_MODELS.strong, `${readFeature}-retry`); }
+          catch (e) { console.error('[invoice-extract] فشلت الإعادة بالأقوى، تُبقى قراءة الأرخص:', String(e?.message || '').slice(0, 120)); }
+        }
+      }
       let imageRows = [];
       let imageWarehouseAddress = '';
       let custBoxOriented = null; // كتلة الزبون بإحداثيات الصورة المُدارة (لقصّها أدناه)
-      for (const row of (img.card ? parseCardReply(text, parseInvoiceJson) : parseInvoiceJson(text))) {
+      for (const row of parseRaw(text)) {
+        delete row.grandTotal;
         if (!imageWarehouseAddress && row.warehouseAddress) imageWarehouseAddress = String(row.warehouseAddress);
         if (!custBoxOriented) custBoxOriented = normalizeBox(row.box_customer);
         const split = splitPharmacyArea(row.pharmacy, row.area); // clean prefixes + split "name - area"
