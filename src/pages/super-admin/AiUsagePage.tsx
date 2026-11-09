@@ -17,6 +17,7 @@ const FEATURE_LABEL: Record<string, string> = {
   'bot-order-text': '🧾 قراءة طلبية نصية',
   'assistant-command': '🗨️ أوامر المساعد الذكي',
   'invoice-read': '🧾 قراءة صور الفواتير',
+  'invoice-read-card': '🗂️ قراءة فاتورة ببطاقة المذخر',
   'invoice-orient': '🔄 تصحيح اتجاه الفاتورة',
   'invoice-customer-line': '🏪 قراءة سطر الزبون في الفاتورة',
   'quiz-assist': '❓ مساعد الاختبارات',

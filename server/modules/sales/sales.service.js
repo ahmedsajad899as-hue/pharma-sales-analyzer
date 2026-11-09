@@ -5,6 +5,7 @@
  */
 
 import { canRotate, rotateJpeg, cropJpeg, downscaleJpeg } from '../../lib/invoiceImage.js';
+import { loadInvoiceCards, matchCard, noteCardUse, CARD_BASE_PROMPT } from '../../lib/invoiceCards.js';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
 import { repCoreName, buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import XLSX from 'xlsx';
@@ -1686,20 +1687,34 @@ const ORIENTATION_PICK_PROMPT = 'هذه أربع نسخ من نفس الفاتو
 const ORIENTATION_CANDIDATES = [0, 90, 180, 270];
 
 /**
- * يكتشف التدوير اللازم (0/90/180/270 مع عقارب الساعة). يُعيد 0 عند أي فشل (القراءة بلا تدوير).
+ * يكتشف التدوير اللازم (0/90/180/270 مع عقارب الساعة) **ومذخر الفاتورة** في نفس النداء
+ * (السؤال الثاني يضيف ~10 token؛ مقيس 18/18 صحيح). يُعيد { deg, card } — deg = 0 و
+ * card = null عند أي فشل، فتُقرأ الصورة كما هي بالبرومبت العام.
  */
-export async function detectInvoiceRotation(img) {
+export async function detectInvoiceRotationAndCard(img) {
   try {
+    const cards = await loadInvoiceCards();
     const small = downscaleJpeg(Buffer.from(img.base64, 'base64'), 768);
-    const parts = [ORIENTATION_PICK_PROMPT];
+    const prompt = cards.length
+      ? `${ORIENTATION_PICK_PROMPT.replace('أجب برقم واحد فقط.', '')}
+ثم: ما اسم المذخر (البائع) المطبوع بخط كبير في أعلى الفاتورة؟ اختر من القائمة: ${cards.map(c => c.name).join('، ')} — أو «غيره» إن كان مذخراً آخر.
+أجب بسطر واحد فقط بالشكل: ‹رقم النسخة›|‹اسم المذخر›`
+      : ORIENTATION_PICK_PROMPT;
+    const parts = [prompt];
     ORIENTATION_CANDIDATES.forEach((deg, i) => {
       parts.push(`النسخة ${i + 1}:`);
       parts.push({ inlineData: { mimeType: 'image/jpeg', data: (deg ? rotateJpeg(small, deg) : small).toString('base64') } });
     });
-    const reply = await callAI(parts, { timeoutMs: 25_000, thinkingBudget: 0, feature: 'invoice-orient', mediaResolution: 'MEDIA_RESOLUTION_LOW' });
-    const n = Number((String(reply).match(/[1-4]/) || [])[0]);
-    return n ? ORIENTATION_CANDIDATES[n - 1] : 0;
-  } catch { return 0; }
+    const reply = String(await callAI(parts, { timeoutMs: 25_000, thinkingBudget: 0, feature: 'invoice-orient', mediaResolution: 'MEDIA_RESOLUTION_LOW' }));
+    const [pick, name = ''] = reply.split('|');
+    const n = Number((pick.match(/[1-4]/) || [])[0]);
+    return { deg: n ? ORIENTATION_CANDIDATES[n - 1] : 0, card: cards.length ? matchCard(cards, name) : null };
+  } catch { return { deg: 0, card: null }; }
+}
+
+/** التدوير وحده — للمستدعين الذين لا يحتاجون البطاقة. */
+export async function detectInvoiceRotation(img) {
+  return (await detectInvoiceRotationAndCard(img)).deg;
 }
 
 /**
@@ -1718,18 +1733,18 @@ export function unrotateBox(box, deg) {
   return [Math.min(...ys), Math.min(...xs), Math.max(...ys), Math.max(...xs)].map(v => Math.max(0, Math.min(1000, Math.round(v))));
 }
 
-/** يُدير الصورة للوضع القائم إن لزم. يُعيد { mimeType, base64, rotated }. */
+/** يُدير الصورة للوضع القائم إن لزم. يُعيد { mimeType, base64, rotated, card }. */
 export async function orientInvoiceImage(img) {
   try {
     const buf = Buffer.from(img.base64, 'base64');
-    if (!canRotate(buf)) return { ...img, rotated: 0 };
-    const deg = await detectInvoiceRotation(img);
-    if (!deg) return { ...img, rotated: 0 };
+    if (!canRotate(buf)) return { ...img, rotated: 0, card: null };
+    const { deg, card } = await detectInvoiceRotationAndCard(img);
+    if (!deg) return { ...img, rotated: 0, card };
     const out = rotateJpeg(buf, deg);
-    return { mimeType: 'image/jpeg', base64: out.toString('base64'), rotated: deg };
+    return { mimeType: 'image/jpeg', base64: out.toString('base64'), rotated: deg, card };
   } catch (e) {
     console.error('[invoice-extract] تعذّر تعديل اتجاه الصورة:', String(e?.message || '').slice(0, 120));
-    return { ...img, rotated: 0 };
+    return { ...img, rotated: 0, card: null };
   }
 }
 
@@ -1802,19 +1817,22 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
       // وبعد تدويرها قائمةً تُقرأ صحيحة. صناديق التكبير تُعاد لإحداثيات الأصل أدناه
       // لأن المراجعة تعرض الصورة الأصلية لا المُدارة.
       const img = await orientInvoiceImage(images[idx]);
+      // مذخر معروف ⇒ برومبت مختصر + بطاقته (~1,850 token بدل ~3,650، نفس الدقة).
+      const basePrompt = img.card ? `${CARD_BASE_PROMPT}${img.card.prompt}` : INVOICE_PROMPT;
+      if (img.card) noteCardUse(img.card);
       const parts = [
         extraContext
-          ? `${INVOICE_PROMPT}
+          ? `${basePrompt}
 
 ملاحظة من مُرسِل الصورة (نصّ حرّ قد يصحّح أو يكمل ما في الصورة — اعتمده حين يتعارض مع قراءة غير واضحة): «${extraContext}»`
-          : INVOICE_PROMPT,
+          : basePrompt,
         { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } },
       ];
       const text = await callAI(parts, {
         timeoutMs:  70_000,
         maxTotalMs: OVERALL_BUDGET_MS - elapsed,
         thinkingBudget: 0,
-        feature: 'invoice-read',
+        feature: img.card ? 'invoice-read-card' : 'invoice-read',
       });
       let imageRows = [];
       let imageWarehouseAddress = '';
@@ -1823,7 +1841,7 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
         if (!imageWarehouseAddress && row.warehouseAddress) imageWarehouseAddress = String(row.warehouseAddress);
         if (!custBoxOriented) custBoxOriented = normalizeBox(row.box_customer);
         const split = splitPharmacyArea(row.pharmacy, row.area); // clean prefixes + split "name - area"
-        row.pharmacy = (isWarehouseAsPharmacy(split.pharmacy, row.warehouse) || isCopiedFromPrompt(split.pharmacy, INVOICE_PROMPT))
+        row.pharmacy = (isWarehouseAsPharmacy(split.pharmacy, row.warehouse) || isCopiedFromPrompt(split.pharmacy, basePrompt))
           ? '' : split.pharmacy;
         row.area = isWarehouseAddressArea(split.area, row.warehouseAddress) ? '' : split.area;
         delete row.warehouseAddress;
@@ -1834,7 +1852,8 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
         row._boxHeader = unrotateBox(normalizeBox(row.box_header), img.rotated);     // whole header block (warehouse+invoice#+date)
         delete row.box; delete row.box_customer; delete row.box_header;
       }
-      imageRows = foldBonusRows(imageRows);
+      // بطاقة «البونص عمود»: الأسطر المكرّرة لنفس المادة مبيع حقيقي — لا تُطوى بونصاً.
+      if (img.card?.bonusStyle !== 'column') imageRows = foldBonusRows(imageRows);
       for (const r of imageRows) delete r.priceShown;
 
       // احتياطي سطر الزبون: نداء مركَّز واحد للصورة حين لم تُقرأ الصيدلية، **أو**

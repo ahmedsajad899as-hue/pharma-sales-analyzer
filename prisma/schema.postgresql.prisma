@@ -2738,6 +2738,24 @@ model StockWarehouse {
 // اوزون" مقابل "اوزون")، ويكون التطابق التلقائي ملتبساً، يُسأل المستخدم مرة
 // واحدة ويُحفظ اختياره هنا — warehouseId = null يعني «تأكَّد أنه مذخر مختلف
 // فعلاً»، فلا يتكرّر السؤال ويُنشأ مذخر جديد دائماً لهذا الاسم لاحقاً.
+// ─── بطاقة نموذج فاتورة المذخر: كل مذخر يطبع فواتيره بتصميم ثابت، فالبطاقة تصف أين
+// الزبون والرقم والتاريخ وأعمدة الجدول. تُستعمل بدل البرومبت العام الطويل حين يُعرف
+// المذخر من نداء الاتجاه (server/lib/invoiceCards.js). مقيسة 2026-11-10: نفس الدقة
+// بـ~40% كلفة أقل للقراءة.
+model WarehouseInvoiceCard {
+  id         Int      @id @default(autoincrement())
+  name       String   @unique // اسم المذخر القانوني — يُعرض للموديل في قائمة الاختيار
+  prompt     String   // وصف النموذج للموديل (يُلحق بالبرومبت المختصر)
+  bonusStyle String   @default("row") // row = البونص سطر مستقل يُطوى | column = عمود، والأسطر المكرّرة مبيع حقيقي
+  enabled    Boolean  @default(true)
+  useCount   Int      @default(0)
+  lastUsedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("warehouse_invoice_cards")
+}
+
 model WarehouseNameLink {
   id          Int      @id @default(autoincrement())
   userId      Int
