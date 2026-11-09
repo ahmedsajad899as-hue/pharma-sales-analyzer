@@ -145,7 +145,7 @@ export async function extractInvoice(req, res, next) {
       throw new AppError('لم يتم إرسال أي صورة. أرسل ملفات الصور في الحقل "images".', 400, 'NO_IMAGES');
     }
     const images = files.map(f => ({ mimeType: f.mimetype, base64: f.buffer.toString('base64') }));
-    let rows = await extractInvoiceRows(images);
+    let rows = await extractInvoiceRows(images, { logContext: { source: 'site', userId: req.user?.id ?? null, userName: req.user?.displayName || req.user?.username } });
     await matchInvoiceCustomers(rows); // أسماء الصيدلية/المنطقة القانونية من الماستر أدمن
     let droppedCount = 0;
     const onlyAssigned = req.body?.onlyAssignedItems === 'true' || req.body?.onlyAssignedItems === '1';

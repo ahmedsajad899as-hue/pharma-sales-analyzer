@@ -136,7 +136,8 @@ export async function handleIncomingOrderMessage({
       // التكبير)، فيُعاد استخدامه كما هو والكابشن يمرّ كسياق مساعد.
       rows = await extractInvoiceRows(
         imageBuffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
-        { extraContext: String(text ?? '').trim() || undefined, budgetMs: BOT_READ_BUDGET_MS },
+        { extraContext: String(text ?? '').trim() || undefined, budgetMs: BOT_READ_BUDGET_MS,
+          logContext: { source: transport.name, userId: user.id, userName: user.displayName || user.username, senderName, chatTitle } },
       );
     } else {
       // منصّة تعيد الفاشل (onFailed) تحتاج تمييز تعطّل الذكاء عن «ليست طلبية»
@@ -323,7 +324,8 @@ async function handleRepSaleMessage({ transport, user, chatId, senderName = null
       }
       rows = await extractInvoiceRows(
         imageBuffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
-        { extraContext: body || undefined, budgetMs: BOT_READ_BUDGET_MS },
+        { extraContext: body || undefined, budgetMs: BOT_READ_BUDGET_MS,
+          logContext: { source: `${transport.name} (مبيعي)`, userId: user.id, userName: user.displayName || user.username, senderName } },
       );
     } else if (body) {
       ({ rows } = await extractOrderRowsByMode(body, { mode: aiMode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure: Boolean(transport.onFailed) }));

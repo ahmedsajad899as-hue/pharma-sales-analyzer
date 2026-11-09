@@ -2730,6 +2730,37 @@ model StockWarehouse {
 // اوزون" مقابل "اوزون")، ويكون التطابق التلقائي ملتبساً، يُسأل المستخدم مرة
 // واحدة ويُحفظ اختياره هنا — warehouseId = null يعني «تأكَّد أنه مذخر مختلف
 // فعلاً»، فلا يتكرّر السؤال ويُنشأ مذخر جديد دائماً لهذا الاسم لاحقاً.
+// ─── سجلّ كل صورة فاتورة قُرئت بالذكاء: من أرسلها، متى، وكم كلّفت كل نداءاتها معاً
+// (الاتجاه + القراءة + الإعادة + سطر الزبون). تُجمَع النداءات عبر AsyncLocalStorage في
+// geminiAi.js. الصورة نسخة مصغّرة في uploads/invoice-reads (تُحذف مع السجل بعد 60 يوماً).
+model InvoiceReadLog {
+  id           Int      @id @default(autoincrement())
+  createdAt    DateTime @default(now())
+  source       String // telegram | whatsapp | wa-groups | viber | site | rep-orders | warehouse-group
+  userId       Int?
+  userName     String?
+  senderName   String?
+  chatTitle    String?
+  warehouse    String?
+  card         String? // اسم بطاقة المذخر إن استُعملت
+  mode         String? // strong | lite | auto
+  retried      Boolean  @default(false)
+  pharmacy     String?
+  area         String?
+  rowCount     Int      @default(0)
+  calls        Int      @default(0)
+  promptTokens Int      @default(0)
+  outputTokens Int      @default(0)
+  costUsd      Float    @default(0)
+  durationMs   Int      @default(0)
+  ok           Boolean  @default(true)
+  error        String?
+  imageFile    String?
+
+  @@index([createdAt])
+  @@map("invoice_read_logs")
+}
+
 // ─── نموذج الذكاء لكل ميزة (لوحة الماستر ← استهلاك الذكاء). صف لكل ميزة مُعدَّلة؛
 // غياب الصف = الافتراضي في server/lib/aiModelSettings.js.
 model AiModelSetting {

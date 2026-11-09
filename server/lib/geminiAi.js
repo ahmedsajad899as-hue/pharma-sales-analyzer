@@ -5,6 +5,7 @@
 //
 // REST مباشر بلا SDK، والمفتاح في الترويسة لا في الرابط حتى لا يظهر في أي سجل
 // (فاتورة 2026-10-22 كانت من مفتاح Gemini استُخدم خارج الموقع — ارجع للذاكرة).
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { logAiUsage } from './aiUsage.js';
 import { modelForMode } from './aiModelSettings.js';
 
@@ -22,6 +23,12 @@ const DEFAULT_TIMEOUT_MS = 55_000; // قصير للمساعد؛ النداءات
 const MAX_OUTPUT_TOKENS  = 16_000;
 const RETRY_DELAY_MS     = 1_000;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
+
+// مجمّع نداءات اختياري: من يلفّ عمله بـ aiCallScope.run([], fn) يجد في المصفوفة كل نداء
+// جرى داخله (حتى المتوازية والمتداخلة) — هكذا يُحسب ما كلّفته صورة فاتورة واحدة كاملةً
+// (InvoiceReadLog) بلا تمرير معامل عبر كل الدوال.
+export const aiCallScope = new AsyncLocalStorage();
+const noteCall = (entry) => { try { aiCallScope.getStore()?.push(entry); } catch { /* لا يُفشل النداء */ } };
 
 class GeminiError extends Error {
   constructor(message, kind, status) { super(message); this.kind = kind; this.status = status; }
@@ -118,10 +125,12 @@ export async function callAI(parts, opts = {}) {
     if (candidate.finishReason === 'MAX_TOKENS') console.warn(`[ai] ${model} (${feature}): الرد مقطوع عند حد التوكنز`);
 
     logAiUsage({ feature, model: json.modelVersion || model, ok: true, promptTokens, outputTokens, durationMs: Date.now() - started });
+    noteCall({ feature, model, ok: true, promptTokens, outputTokens });
     return text;
   } catch (err) {
     const kind = err?.kind === 'connection' ? 'error' : (err?.kind || 'error');
     logAiUsage({ feature, model, ok: false, errorKind: kind, promptTokens, outputTokens, durationMs: Date.now() - started });
+    noteCall({ feature, model, ok: false, promptTokens, outputTokens });
     console.error(`[ai] ${model} ${kind}:`, String(err?.message || '').slice(0, 300));
     throw err;
   }

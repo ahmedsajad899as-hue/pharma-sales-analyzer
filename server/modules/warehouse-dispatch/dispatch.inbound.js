@@ -94,7 +94,7 @@ const shortLabel = (d) => `${d.id} - ${d.pharmacyName || 'بلا صيدلية'}`
 async function guessByInvoice(buffer, candidates) {
   let rows;
   try {
-    rows = await extractInvoiceRows([{ mimeType: 'image/jpeg', base64: buffer.toString('base64') }]);
+    rows = await extractInvoiceRows([{ mimeType: 'image/jpeg', base64: buffer.toString('base64') }], { logContext: { source: 'warehouse-group' } });
   } catch (e) {
     console.error('[dispatch] قراءة فاتورة المذخر:', e?.message);
     return { rows: null, best: null };

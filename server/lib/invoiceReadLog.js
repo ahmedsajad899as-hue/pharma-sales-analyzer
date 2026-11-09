@@ -1,0 +1,119 @@
+// ════════════════════════════════════════════════════════════════════════════
+// invoiceReadLog.js — سجلّ لكل صورة فاتورة قُرئت بالذكاء (جدول InvoiceReadLog):
+// الصورة (نسخة مصغّرة)، المرسل والحساب، التاريخ، وكل نداءاتها مجموعة — توكنز وكلفة.
+// يُعرض في لوحة الماستر ← استهلاك الذكاء ← «🖼️ الصور المحلَّلة».
+// ════════════════════════════════════════════════════════════════════════════
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import prisma from './prisma.js';
+import { downscaleJpeg, isJpeg } from './invoiceImage.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+export const INVOICE_READ_DIR = path.join(__dirname, '..', '..', 'uploads', 'invoice-reads');
+const KEEP_DAYS = 60;
+
+// $ لكل مليون token (إدخال، إخراج — التفكير يُحاسَب إخراجاً). أسعار Gemini الحالية.
+const PRICES = {
+  'gemini-3.8-flash':      [0.75, 3.75],
+  'gemini-3.5-flash-lite': [0.30, 2.50],
+};
+export function costOf(model, promptTokens, outputTokens) {
+  const key = Object.keys(PRICES).find(k => String(model || '').startsWith(k));
+  const [pi, po] = PRICES[key] || PRICES['gemini-3.8-flash'];
+  return (promptTokens * pi + outputTokens * po) / 1e6;
+}
+
+const short = (v, n = 200) => { const s = String(v ?? '').trim(); return s ? s.slice(0, n) : null; };
+
+/**
+ * يحفظ سجلّ صورة واحدة. لا يرمي ولا يُنتظر (fire-and-forget من extractInvoiceRows).
+ * @param {object} p
+ * @param {object} [p.ctx]   { source, userId, userName, senderName, chatTitle } من المستدعي
+ * @param {object[]} p.calls ما جمعه aiCallScope لهذه الصورة
+ * @param {Buffer} [p.image] الصورة الأصلية (تُحفظ مصغّرة)
+ */
+export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, rows = [], card = null, mode = null, retried = false, ok = true, error = null, durationMs = 0 }) {
+  try {
+    const promptTokens = calls.reduce((a, c) => a + (c.promptTokens || 0), 0);
+    const outputTokens = calls.reduce((a, c) => a + (c.outputTokens || 0), 0);
+    const costUsd = calls.reduce((a, c) => a + costOf(c.model, c.promptTokens || 0, c.outputTokens || 0), 0);
+    const first = rows.find(r => r?.pharmacy) || rows[0] || {};
+    const log = await prisma.invoiceReadLog.create({
+      data: {
+        source: short(ctx.source, 40) || 'unknown',
+        userId: Number.isInteger(ctx.userId) ? ctx.userId : null,
+        userName: short(ctx.userName, 120),
+        senderName: short(ctx.senderName, 120),
+        chatTitle: short(ctx.chatTitle, 160),
+        warehouse: short(first.warehouse, 120),
+        card: short(card?.name, 120),
+        mode: short(mode, 20),
+        retried: Boolean(retried),
+        pharmacy: short(first.pharmacy, 160),
+        area: short(first.area, 120),
+        rowCount: rows.length,
+        calls: calls.length,
+        promptTokens, outputTokens,
+        costUsd,
+        durationMs: Math.round(durationMs || 0),
+        ok: Boolean(ok),
+        error: short(error, 300),
+      },
+    });
+    if (image && isJpeg(image)) {
+      let thumb = image;
+      try { thumb = downscaleJpeg(image, 1280); } catch { /* الأصل كما هو */ }
+      await fs.promises.mkdir(INVOICE_READ_DIR, { recursive: true });
+      const name = `${log.id}.jpg`;
+      await fs.promises.writeFile(path.join(INVOICE_READ_DIR, name), thumb);
+      await prisma.invoiceReadLog.update({ where: { id: log.id }, data: { imageFile: name } });
+    }
+  } catch (e) {
+    console.error('[invoice-read-log] تعذّر الحفظ:', String(e?.message || '').slice(0, 160));
+  }
+}
+
+/** يحذف السجلات الأقدم من KEEP_DAYS وصورها (القرص 89% — لا تتراكم الصور). */
+async function prune() {
+  try {
+    const cutoff = new Date(Date.now() - KEEP_DAYS * 86400_000);
+    const old = await prisma.invoiceReadLog.findMany({ where: { createdAt: { lt: cutoff } }, select: { id: true, imageFile: true }, take: 500 });
+    if (!old.length) return;
+    for (const o of old) if (o.imageFile) fs.promises.unlink(path.join(INVOICE_READ_DIR, path.basename(o.imageFile))).catch(() => {});
+    await prisma.invoiceReadLog.deleteMany({ where: { id: { in: old.map(o => o.id) } } });
+  } catch (e) {
+    console.error('[invoice-read-log] prune:', e?.message);
+  }
+}
+
+export async function listInvoiceReadLogs({ days = 7, page = 1, pageSize = 50 } = {}) {
+  prune();
+  const d = Math.min(Math.max(parseInt(days) || 7, 1), KEEP_DAYS);
+  const where = { createdAt: { gte: new Date(Date.now() - d * 86400_000) } };
+  const take = Math.min(Math.max(parseInt(pageSize) || 50, 10), 200);
+  const skip = (Math.max(parseInt(page) || 1, 1) - 1) * take;
+  const [rows, total, sums] = await Promise.all([
+    prisma.invoiceReadLog.findMany({ where, orderBy: { createdAt: 'desc' }, take, skip }),
+    prisma.invoiceReadLog.count({ where }),
+    prisma.invoiceReadLog.aggregate({ where, _sum: { promptTokens: true, outputTokens: true, costUsd: true, calls: true } }),
+  ]);
+  return {
+    rows: rows.map(r => ({ ...r, hasImage: Boolean(r.imageFile), imageFile: undefined })),
+    total, page: Math.floor(skip / take) + 1, pageSize: take,
+    sums: {
+      images: total,
+      calls: sums._sum.calls || 0,
+      tokens: (sums._sum.promptTokens || 0) + (sums._sum.outputTokens || 0),
+      costUsd: sums._sum.costUsd || 0,
+    },
+  };
+}
+
+export async function invoiceReadImagePath(id) {
+  const log = await prisma.invoiceReadLog.findUnique({ where: { id: Number(id) }, select: { imageFile: true } });
+  if (!log?.imageFile) return null;
+  const p = path.join(INVOICE_READ_DIR, path.basename(log.imageFile));
+  return fs.existsSync(p) ? p : null;
+}

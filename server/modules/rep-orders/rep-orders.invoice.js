@@ -132,7 +132,9 @@ export async function readInvoice(reqUser, file) {
   let rows;
   try {
     const buf = await fs.promises.readFile(file.path);
-    rows = await extractInvoiceRows([{ mimeType: 'image/jpeg', base64: buf.toString('base64') }]);
+    rows = await extractInvoiceRows([{ mimeType: 'image/jpeg', base64: buf.toString('base64') }], {
+      logContext: { source: 'rep-orders', userId: viewer.id, userName: viewer.displayName || viewer.username },
+    });
   } catch (e) {
     // الصورة تبقى pending ليُكمَل الربط يدوياً حتى لو فشلت القراءة
     return { token, invoice: null, candidates: [], autoOrderId: null, readError: e.message || 'تعذّرت قراءة الفاتورة' };

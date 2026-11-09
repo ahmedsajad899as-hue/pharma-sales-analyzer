@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, UI } from './OfficesPage';
+import InvoiceReadsPanel from './InvoiceReadsPanel';
 
 interface Summary {
   days: number;
@@ -113,6 +114,7 @@ function ModelSettings({ token }: { token: string | null }) {
 export default function AiUsagePage() {
   const { token } = useSuperAdmin();
   const [days, setDays] = useState(7);
+  const [view, setView] = useState<'usage' | 'images'>('usage');
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -132,6 +134,13 @@ export default function AiUsagePage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>استهلاك الذكاء الاصطناعي (Gemini)</h2>
+        <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', marginInlineStart: 'auto' }}>
+          {([['usage', '📊 الاستهلاك'], ['images', '🖼️ الصور المحلَّلة']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setView(k)}
+              style={{ padding: '6px 12px', fontSize: 12.5, fontWeight: 700, border: 'none', cursor: 'pointer',
+                background: view === k ? '#4f46e5' : '#fff', color: view === k ? '#fff' : '#475569' }}>{l}</button>
+          ))}
+        </div>
         <select value={days} onChange={e => setDays(Number(e.target.value))}
           style={{ padding: '6px 10px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13, color: UI.ink }}>
           <option value={1}>آخر يوم</option>
@@ -144,10 +153,11 @@ export default function AiUsagePage() {
         كل نداء إلى Gemini يُسجَّل (ناجحاً أو فاشلاً) منذ تفعيل هذه الميزة. «التوكنز» هي ما تحاسب عليه Google؛ الإدخال = ما أرسلناه، الإخراج = ما أجاب به.
       </div>
 
-      <ModelSettings token={token} />
+      {view === 'images' && <InvoiceReadsPanel token={token} days={days} />}
+      {view === 'usage' && <ModelSettings token={token} />}
 
-      {error && <ErrBox msg={error} />}
-      {loading ? <Spinner /> : data && (
+      {view === 'usage' && error && <ErrBox msg={error} />}
+      {view === 'usage' && (loading ? <Spinner /> : data && (
         <>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
             <Stat label="نداءات اليوم" value={fmt(data.today?.calls)} sub={`${fmt(data.today?.tokens)} توكن`} />
@@ -207,7 +217,7 @@ export default function AiUsagePage() {
             </table>
           </div>
         </>
-      )}
+      ))}
     </div>
   );
 }

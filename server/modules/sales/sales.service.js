@@ -7,6 +7,8 @@
 import { canRotate, rotateJpeg, cropJpeg, downscaleJpeg } from '../../lib/invoiceImage.js';
 import { loadInvoiceCards, matchCard, noteCardUse, CARD_BASE_PROMPT, parseCardReply } from '../../lib/invoiceCards.js';
 import { getAiMode, AI_MODELS, invoiceNumbersProblem } from '../../lib/aiModelSettings.js';
+import { aiCallScope } from '../../lib/geminiAi.js';
+import { saveInvoiceReadLog } from '../../lib/invoiceReadLog.js';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
 import { repCoreName, buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import XLSX from 'xlsx';
@@ -1794,7 +1796,7 @@ async function extractCustomerLineVoted(img, opts, n = 3, priorRead = null) {
  *        يُمرَّر يبقى نص البرومبت مطابقاً حرفياً لما كان — مسار /extract-invoice سليم.
  * @returns {Promise<object[]>}
  */
-export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}) {
+export async function extractInvoiceRows(images, { extraContext, budgetMs, logContext = null } = {}) {
   if (!Array.isArray(images) || images.length === 0) {
     throw new AppError('لم يتم إرسال أي صورة.', 400, 'NO_IMAGES');
   }
@@ -1813,7 +1815,13 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
   for (let idx = 0; idx < images.length; idx++) {
     const elapsed = Date.now() - started;
     if (elapsed >= OVERALL_BUDGET_MS) break;
+    // كل نداءات هذه الصورة (اتجاه، قراءة، إعادة، سطر زبون) تُجمع في imgCalls لسجلّها.
+    const imgCalls = [];
+    const imgStarted = Date.now();
+    const imgLog = { card: null, mode: null, retried: false, rows: [] };
+    let imgErr = null;
     try {
+      await aiCallScope.run(imgCalls, async () => {
       // اتجاه الصورة أولاً: فاتورة مُدارة 90° تُقرأ بتذبذب («النعيمي» بدل «النبض»)
       // وبعد تدويرها قائمةً تُقرأ صحيحة. صناديق التكبير تُعاد لإحداثيات الأصل أدناه
       // لأن المراجعة تعرض الصورة الأصلية لا المُدارة.
@@ -1834,6 +1842,7 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
       // القراءة بالأقوى تحت وسم «‹الميزة›-retry» لتظهر نسبة الإعادات في صفحة الاستهلاك.
       const readFeature = img.card ? 'invoice-read-card' : 'invoice-read';
       const readMode = await getAiMode(readFeature);
+      imgLog.mode = readMode; imgLog.card = img.card;
       const parseRaw = (t) => (img.card ? parseCardReply(t, parseInvoiceJson) : parseInvoiceJson(t));
       const readOnce = (model, tag) => callAI(parts, {
         timeoutMs:  70_000,
@@ -1848,6 +1857,7 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
         const problem = invoiceNumbersProblem(first, { grandTotal: first.find(r => r.grandTotal != null)?.grandTotal });
         if (problem) {
           console.log(`[invoice-extract] auto: الأرخص لم يجتز فحص الأرقام (${String(problem).slice(0, 80)}) — إعادة بالأقوى`);
+          imgLog.retried = true;
           try { text = await readOnce(AI_MODELS.strong, `${readFeature}-retry`); }
           catch (e) { console.error('[invoice-extract] فشلت الإعادة بالأقوى، تُبقى قراءة الأرخص:', String(e?.message || '').slice(0, 120)); }
         }
@@ -1929,12 +1939,21 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
         }
       }
 
+      imgLog.rows = imageRows;
       allRows.push(...imageRows);
       processed++;
+      });
     } catch (err) {
+      imgErr = err;
       lastErr = err;
       console.error('[invoice-extract] image failed:', String(err?.message || '').slice(0, 200));
     }
+    saveInvoiceReadLog({
+      ctx: logContext || {}, calls: imgCalls, image: Buffer.from(images[idx].base64 || '', 'base64'),
+      rows: imgLog.rows, card: imgLog.card, mode: imgLog.mode, retried: imgLog.retried,
+      ok: !imgErr && imgLog.rows.length > 0, error: imgErr?.message || (imgLog.rows.length ? null : 'لا أصناف'),
+      durationMs: Date.now() - imgStarted,
+    });
   }
 
   if (processed === 0 && lastErr) {
