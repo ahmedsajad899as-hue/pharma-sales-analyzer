@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Spinner, ErrBox, UI } from './OfficesPage';
 
 // «🖼️ الصور المحلَّلة» — صورة لكل قراءة فاتورة مع المرسل والتاريخ والتوكنز والكلفة.
@@ -12,6 +12,8 @@ interface ReadLog {
   pharmacy: string | null; area: string | null; rowCount: number;
   calls: number; promptTokens: number; outputTokens: number; costUsd: number; durationMs: number;
   ok: boolean; error: string | null; hasImage: boolean;
+  routedTo: { orderId: number | null; userId: number | null; name: string | null; forwarded: boolean }[] | null;
+  details: { invoiceNumber: string | null; date: string | null; items: (string | number | null)[][] } | null;
 }
 interface ListResp { rows: ReadLog[]; total: number; page: number; pageSize: number; sums: { images: number; calls: number; tokens: number; costUsd: number } }
 
@@ -61,6 +63,8 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [big, setBig] = useState<string | null>(null);
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const toggle = (id: number) => setOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   useEffect(() => { setPage(1); }, [days]);
   useEffect(() => {
@@ -103,18 +107,27 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
           ? <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: 24, textAlign: 'center', color: UI.faint, fontSize: 13 }}>لا توجد صور محلَّلة في هذه الفترة بعد — أرسل صورة فاتورة للبوت وستظهر هنا.</div>
           : (
             <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
                 <thead>
                   <tr>
-                    {['الصورة', 'التاريخ', 'الحساب', 'المصدر / المرسل', 'المذخر', 'الصيدلية', 'أصناف', 'النموذج', 'نداءات', 'توكنز (إدخال/إخراج)', 'الكلفة', 'الحالة'].map(h => <th key={h} style={th}>{h}</th>)}
+                    {['الصورة', 'التاريخ', 'الحساب', 'وصلت إلى', 'المصدر / المرسل', 'المذخر', 'الصيدلية', 'أصناف', 'النموذج', 'نداءات', 'توكنز (إدخال/إخراج)', 'الكلفة', 'الحالة', ''].map(h => <th key={h} style={th}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {data.rows.map(r => (
-                    <tr key={r.id} style={{ background: r.ok ? undefined : '#fff7f7' }}>
+                    <Fragment key={r.id}>
+                    <tr style={{ background: r.ok ? undefined : '#fff7f7' }}>
                       <td style={td}>{r.hasImage ? <Thumb id={r.id} token={token} onOpen={setBig} /> : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                       <td style={{ ...td, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'end' }}>{when(r.createdAt)}</td>
                       <td style={{ ...td, fontWeight: 600 }}>{r.userName || '—'}</td>
+                      <td style={td}>
+                        {r.routedTo?.length ? r.routedTo.map((o, i) => (
+                          <div key={i} style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>
+                            {o.forwarded ? <span title="حُوِّلت لمدير الشركة صاحب الأصناف" style={{ color: '#7c3aed', fontWeight: 700 }}>↪️ {o.name || '—'}</span> : <span>{o.name || '—'}</span>}
+                            {o.orderId && <span style={{ color: UI.faint, fontSize: 11 }}> #{o.orderId}</span>}
+                          </div>
+                        )) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                      </td>
                       <td style={td}>
                         <div style={{ whiteSpace: 'nowrap' }}>{sourceLabel(r.source)}</div>
                         {(r.senderName || r.chatTitle) && <div style={{ fontSize: 11.5, color: UI.faint }}>{[r.senderName, r.chatTitle && `(${r.chatTitle})`].filter(Boolean).join(' ')}</div>}
@@ -139,7 +152,45 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
                       </td>
                       <td style={{ ...td, fontWeight: 700, whiteSpace: 'nowrap', color: r.costUsd > 0.008 ? '#b91c1c' : '#15803d' }}>{usd(r.costUsd)}</td>
                       <td style={td} title={r.error || ''}>{r.ok ? '✅' : <span style={{ color: '#b91c1c', fontSize: 12 }}>❌ {r.error ? r.error.slice(0, 40) : ''}</span>}</td>
+                      <td style={td}>
+                        {r.details?.items?.length ? (
+                          <button onClick={() => toggle(r.id)} style={{ padding: '4px 10px', fontSize: 12, fontWeight: 700, borderRadius: 8, border: '1px solid #c7d2fe', background: open.has(r.id) ? '#4f46e5' : '#eef2ff', color: open.has(r.id) ? '#fff' : '#4338ca', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            📋 التفاصيل {open.has(r.id) ? '▴' : '▾'}
+                          </button>
+                        ) : null}
+                      </td>
                     </tr>
+                    {open.has(r.id) && r.details && (
+                      <tr>
+                        <td colSpan={14} style={{ padding: '4px 14px 14px', background: '#fafbff', borderBottom: '1px solid #e9edf3' }}>
+                          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5, color: UI.muted, margin: '6px 0 8px' }}>
+                            <span>🧾 رقم الفاتورة: <b style={{ color: UI.ink }}>{r.details.invoiceNumber || '—'}</b></span>
+                            <span>📅 التاريخ: <b style={{ color: UI.ink }}>{r.details.date || '—'}</b></span>
+                            <span>🏬 المذخر: <b style={{ color: UI.ink }}>{r.warehouse || '—'}</b></span>
+                            <span>💊 الصيدلية: <b style={{ color: UI.ink }}>{[r.pharmacy, r.area].filter(Boolean).join(' / ') || '—'}</b></span>
+                          </div>
+                          <table style={{ borderCollapse: 'collapse', background: '#fff', border: '1px solid #e9edf3', borderRadius: 8, minWidth: 520 }}>
+                            <thead><tr>{['#', 'المادة', 'الكمية', 'البونص', 'سعر الوحدة', 'المجموع'].map(h => <th key={h} style={{ ...th, background: '#f1f5f9' }}>{h}</th>)}</tr></thead>
+                            <tbody>
+                              {r.details.items.map((it, i) => {
+                                const n = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString('en-US'));
+                                return (
+                                  <tr key={i}>
+                                    <td style={{ ...td, color: UI.faint }}>{i + 1}</td>
+                                    <td style={{ ...td, direction: 'ltr', textAlign: 'start', fontWeight: 600 }}>{String(it[0] ?? '')}</td>
+                                    <td style={{ ...td, textAlign: 'center' }}>{n(it[1])}</td>
+                                    <td style={{ ...td, textAlign: 'center', color: Number(it[2]) ? '#15803d' : UI.faint }}>{n(it[2])}</td>
+                                    <td style={td}>{n(it[3])}</td>
+                                    <td style={{ ...td, fontWeight: 700 }}>{n(it[4])}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

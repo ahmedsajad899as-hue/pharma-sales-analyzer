@@ -2764,8 +2764,12 @@ model InvoiceReadLog {
   ok           Boolean  @default(true)
   error        String?
   imageFile    String?
+  readKey      String? // يُلصق بصفوف الصورة (_readKey) فيربط السجل بالطلبيات التي أُنشئت منها
+  routedTo     Json? // [{ orderId, userId, name, forwarded }] — لمن ذهبت الطلبية (ومن حُوِّلت له)
+  details      Json? // { invoiceNumber, date, items: [[item, qty, bonus, unitPrice, total]] }
 
   @@index([createdAt])
+  @@index([readKey])
   @@map("invoice_read_logs")
 }
 

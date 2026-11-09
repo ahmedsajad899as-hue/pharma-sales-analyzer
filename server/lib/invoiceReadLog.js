@@ -34,7 +34,7 @@ const short = (v, n = 200) => { const s = String(v ?? '').trim(); return s ? s.s
  * @param {object[]} p.calls ما جمعه aiCallScope لهذه الصورة
  * @param {Buffer} [p.image] الصورة الأصلية (تُحفظ مصغّرة)
  */
-export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, rows = [], card = null, mode = null, retried = false, ok = true, error = null, durationMs = 0 }) {
+export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, rows = [], card = null, mode = null, retried = false, ok = true, error = null, durationMs = 0, readKey = null }) {
   try {
     const promptTokens = calls.reduce((a, c) => a + (c.promptTokens || 0), 0);
     const outputTokens = calls.reduce((a, c) => a + (c.outputTokens || 0), 0);
@@ -60,6 +60,12 @@ export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, r
         durationMs: Math.round(durationMs || 0),
         ok: Boolean(ok),
         error: short(error, 300),
+        readKey,
+        details: rows.length ? {
+          invoiceNumber: short(first.invoiceNumber, 40),
+          date: short(first.date, 20),
+          items: rows.slice(0, 60).map(r => [short(r.item, 120), r.quantity ?? null, r.bonus ?? null, r.unitPrice ?? null, r.totalValue ?? r.total ?? null]),
+        } : undefined,
       },
     });
     if (image && isJpeg(image)) {
@@ -73,6 +79,41 @@ export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, r
   } catch (e) {
     console.error('[invoice-read-log] تعذّر الحفظ:', String(e?.message || '').slice(0, 160));
   }
+}
+
+/**
+ * يربط سجلات الصور بالطلبيات التي أُنشئت منها (ingestBotOrder): لمن ذهبت، ومن حُوِّلت له.
+ * @param {object[]} rows   صفوف الطلبية كما قُرئت (تحمل _readKey)
+ * @param {object[]} orders [{ orderId, userId, name, forwarded, rows }]
+ * لا يرمي ولا يُنتظر. السجل يُكتب بلا انتظار أثناء القراءة، فإن لم يوجد بعد يُعاد مرة بعد 3 ث.
+ */
+export function linkInvoiceReadLogs(orders) {
+  const byKey = new Map();
+  for (const o of orders) {
+    for (const r of o.rows || []) {
+      if (!r?._readKey) continue;
+      if (!byKey.has(r._readKey)) byKey.set(r._readKey, new Map());
+      byKey.get(r._readKey).set(o.orderId, { orderId: o.orderId, userId: o.userId ?? null, name: o.name || null, forwarded: Boolean(o.forwarded) });
+    }
+  }
+  if (!byKey.size) return;
+  const run = async (attempt) => {
+    let missing = false;
+    for (const [readKey, m] of byKey) {
+      try {
+        const log = await prisma.invoiceReadLog.findFirst({ where: { readKey }, select: { id: true, routedTo: true } });
+        if (!log) { missing = true; continue; }
+        const prev = Array.isArray(log.routedTo) ? log.routedTo : [];
+        const merged = [...prev.filter(p => !m.has(p.orderId)), ...m.values()];
+        await prisma.invoiceReadLog.update({ where: { id: log.id }, data: { routedTo: merged } });
+        byKey.delete(readKey);
+      } catch (e) {
+        console.error('[invoice-read-log] link:', String(e?.message || '').slice(0, 120));
+      }
+    }
+    if (missing && attempt === 0) setTimeout(() => run(1), 3000);
+  };
+  run(0);
 }
 
 /** يحذف السجلات الأقدم من KEEP_DAYS وصورها (القرص 89% — لا تتراكم الصور). */
@@ -100,7 +141,7 @@ export async function listInvoiceReadLogs({ days = 7, page = 1, pageSize = 50 } 
     prisma.invoiceReadLog.aggregate({ where, _sum: { promptTokens: true, outputTokens: true, costUsd: true, calls: true } }),
   ]);
   return {
-    rows: rows.map(r => ({ ...r, hasImage: Boolean(r.imageFile), imageFile: undefined })),
+    rows: rows.map(r => ({ ...r, hasImage: Boolean(r.imageFile), imageFile: undefined, readKey: undefined })),
     total, page: Math.floor(skip / take) + 1, pageSize: take,
     sums: {
       images: total,

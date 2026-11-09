@@ -9,6 +9,7 @@ import { loadInvoiceCards, matchCard, noteCardUse, CARD_BASE_PROMPT, parseCardRe
 import { getAiMode, AI_MODELS, invoiceNumbersProblem } from '../../lib/aiModelSettings.js';
 import { aiCallScope } from '../../lib/geminiAi.js';
 import { saveInvoiceReadLog } from '../../lib/invoiceReadLog.js';
+import { randomUUID } from 'node:crypto';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
 import { repCoreName, buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import XLSX from 'xlsx';
@@ -1819,6 +1820,7 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs, logCo
     const imgCalls = [];
     const imgStarted = Date.now();
     const imgLog = { card: null, mode: null, retried: false, rows: [] };
+    const readKey = randomUUID(); // يُلصق بالصفوف فيربط سجلّ الصورة بالطلبيات المُنشأة منها
     let imgErr = null;
     try {
       await aiCallScope.run(imgCalls, async () => {
@@ -1939,6 +1941,7 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs, logCo
         }
       }
 
+      for (const r of imageRows) r._readKey = readKey;
       imgLog.rows = imageRows;
       allRows.push(...imageRows);
       processed++;
@@ -1952,7 +1955,7 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs, logCo
       ctx: logContext || {}, calls: imgCalls, image: Buffer.from(images[idx].base64 || '', 'base64'),
       rows: imgLog.rows, card: imgLog.card, mode: imgLog.mode, retried: imgLog.retried,
       ok: !imgErr && imgLog.rows.length > 0, error: imgErr?.message || (imgLog.rows.length ? null : 'لا أصناف'),
-      durationMs: Date.now() - imgStarted,
+      durationMs: Date.now() - imgStarted, readKey,
     });
   }
 

@@ -24,6 +24,7 @@ import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
 import { createFromBotOrder } from '../warehouse-dispatch/dispatch.core.js';
+import { linkInvoiceReadLogs } from '../../lib/invoiceReadLog.js';
 
 const __dirname3 = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1149,6 +1150,11 @@ export async function ingestBotOrder({
     lines.push(`${r.replaced ? '🔄' : '↪️'} #${r.id} حُوِّلت لمدير ${f.companyName || 'الشركة'} (${f.managerName}) — ${f.rows.length} صنف`);
   }
   if (forwards.length && !keep.length) lines.unshift('تم الاستلام والتحليل');
+  // سجلّ الصور المحلَّلة (لوحة الماستر): لمن ذهبت الطلبية ومن حُوِّلت له.
+  linkInvoiceReadLogs([
+    ...(keep.length ? [{ orderId: pendingIds[0], userId: user.id, name: displayNameOf(user), forwarded: false, rows: keep }] : []),
+    ...forwards.map((f, i) => ({ orderId: pendingIds[(keep.length ? 1 : 0) + i], userId: f.managerId, name: f.managerName, forwarded: true, rows: f.rows })),
+  ]);
   // الإرسال للمذخر يأخذ الطلبية كاملة (لا مقسّمة على مدراء الأصناف) ولا يؤخّر ردّ البوت.
   // فاتورة مذخر مطبوعة (صورة قُرئ منها رقم فاتورة أو مذخر الترويسة) = بيعٌ جهّزه
   // المذخر فعلاً، لا طلبية تُرسَل إليه — كانت تُنشئ إرسالاً «بانتظار تحديد المذخر»
@@ -1186,8 +1192,9 @@ async function routeQueuedOrders(userId) {
       await refreshStoredRows(q, rows, user);
       const { keep, forwards } = await splitRowsByOwner(rows, user);
       try {
+        const routedLinks = [];
         for (const f of forwards) {
-          await createOrReplacePending({
+          const created = await createOrReplacePending({
             ownerId: f.managerId,
             data: {
               source: q.source, chatId: q.chatId, chatTitle: q.chatTitle, senderName: q.senderName,
@@ -1199,7 +1206,10 @@ async function routeQueuedOrders(userId) {
             imageFiles: await copyImages(q.imageFiles),
             merge: true,
           });
+          routedLinks.push({ orderId: created?.id, userId: f.managerId, name: f.managerName, forwarded: true, rows: f.rows });
         }
+        if (keep.length) routedLinks.push({ orderId: q.id, userId: user.id, name: displayNameOf(user), forwarded: false, rows: keep });
+        linkInvoiceReadLogs(routedLinks);
         if (forwards.length && !keep.length) {
           await prisma.pendingBotOrder.delete({ where: { id: q.id } });
           await unlinkImages(q.imageFiles);
