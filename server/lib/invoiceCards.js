@@ -16,18 +16,47 @@
 
 import prisma from './prisma.js';
 
-/** البرومبت المختصر — يسبق نصّ البطاقة. نفس شكل مخرجات INVOICE_PROMPT بالضبط. */
-export const CARD_BASE_PROMPT = `اقرأ فاتورة/طلبية مذخر الأدوية في الصورة واستخرج أصنافها.
-أعِد **مصفوفة JSON فقط** بلا أي نص قبلها أو بعدها، عنصر لكل سطر صنف بهذا الشكل:
-[{"item":"اسم المادة كاملاً","company":null,"quantity":10,"unitPrice":9900,"total":99000,"bonus":0,"priceShown":true,"pharmacy":"اسم الصيدلية فقط","warehouse":"اسم المذخر","area":"منطقة الصيدلية أو null","date":"YYYY-MM-DD","invoiceNumber":"22287","box":[ymin,xmin,ymax,xmax],"box_customer":[ymin,xmin,ymax,xmax],"box_header":[ymin,xmin,ymax,xmax]}]
-قواعد:
+/**
+ * البرومبت المختصر — يسبق نصّ البطاقة. **مخرجات مضغوطة**: الترويسة مرة واحدة والأصناف
+ * مصفوفات، بدل تكرار الصيدلية/التاريخ/الرقم في كل صف. الإخراج أغلى بـ5 أضعاف من الإدخال،
+ * ومقيس 2026-11-10 (13 فاتورة × 5): الإخراج 613 ← 269 token، القراءة 0.0037$ ← 0.0024$،
+ * والدقة 62/65 (الأخطاء الثلاثة تهجئة اسم واحد، لا أرقام). يُحوَّل بـ parseCardReply.
+ */
+export const CARD_BASE_PROMPT = `اقرأ فاتورة/طلبية مذخر الأدوية في الصورة.
+أعِد **كائن JSON واحداً فقط** بلا أي نص قبله أو بعده، بهذا الشكل بالضبط:
+{"h":{"warehouse":"اسم المذخر","pharmacy":"اسم الصيدلية فقط","area":"منطقة الصيدلية أو null","date":"YYYY-MM-DD","invoiceNumber":"22287","box_customer":[ymin,xmin,ymax,xmax],"box_header":[ymin,xmin,ymax,xmax]},
+ "r":[["اسم المادة كاملاً",الكمية,البونص,سعر_الوحدة,مجموع_السطر,السعر_مطبوع,[ymin,xmin,ymax,xmax]]]}
+- h: بيانات الترويسة **مرة واحدة**. r: صف لكل سطر صنف بالترتيب: [item, quantity, bonus, unitPrice, total, priceShown(true/false), box].
 - item: انسخ الاسم كاملاً كما طُبع (الاسم + التركيز + الشكل).
 - pharmacy: الاسم فقط بلا «ص»/«صيدلية»/«صيدليه» وبلا المنطقة. area: منطقة الصيدلية المشترية فقط، لا عنوان المذخر.
 - الأرقام بلا فواصل آلاف. ما لا تجده = null، لا تختلق.
-- كرّر قيم الترويسة (warehouse, pharmacy, area, invoiceNumber, date) في كل صف.
-- box/box_customer/box_header: مستطيلات بمقياس 0-1000 تحيط بسطر الصنف / كتلة الزبون / كتلة الترويسة، أو null.
+- الصناديق بمقياس 0-1000 (سطر الصنف / كتلة الزبون / كتلة الترويسة)، أو null.
 
 `;
+
+/**
+ * يحوّل الرد المضغوط إلى نفس صفوف INVOICE_PROMPT (الترويسة مكرّرة في كل صف) كي يمرّ
+ * باقي المسار بلا تغيير. ردّ بشكل المصفوفة القديم يُقبل أيضاً (fallback).
+ */
+export function parseCardReply(text, parseArray) {
+  const raw = String(text ?? '');
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (m) {
+    try {
+      const o = JSON.parse(m[0]);
+      if (o && Array.isArray(o.r)) {
+        const h = o.h || {};
+        return o.r.filter(Array.isArray).map(([item, quantity, bonus, unitPrice, total, priceShown, box]) => ({
+          item, quantity, bonus, unitPrice, total, priceShown, box: box ?? null,
+          warehouse: h.warehouse ?? null, pharmacy: h.pharmacy ?? null, area: h.area ?? null,
+          date: h.date ?? null, invoiceNumber: h.invoiceNumber ?? null,
+          box_customer: h.box_customer ?? null, box_header: h.box_header ?? null,
+        }));
+      }
+    } catch { /* يسقط للمحلّل القديم */ }
+  }
+  return parseArray(raw) || [];
+}
 
 // البطاقات الأولى (مختبَرة 2026-11-10). تُزرع في الجدول إن غابت ولا تُستبدل إن عُدّلت.
 const DEFAULT_CARDS = [

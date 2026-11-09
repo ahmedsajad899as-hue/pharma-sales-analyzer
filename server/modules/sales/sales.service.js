@@ -5,7 +5,7 @@
  */
 
 import { canRotate, rotateJpeg, cropJpeg, downscaleJpeg } from '../../lib/invoiceImage.js';
-import { loadInvoiceCards, matchCard, noteCardUse, CARD_BASE_PROMPT } from '../../lib/invoiceCards.js';
+import { loadInvoiceCards, matchCard, noteCardUse, CARD_BASE_PROMPT, parseCardReply } from '../../lib/invoiceCards.js';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
 import { repCoreName, buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import XLSX from 'xlsx';
@@ -1837,7 +1837,7 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs } = {}
       let imageRows = [];
       let imageWarehouseAddress = '';
       let custBoxOriented = null; // كتلة الزبون بإحداثيات الصورة المُدارة (لقصّها أدناه)
-      for (const row of parseInvoiceJson(text)) {
+      for (const row of (img.card ? parseCardReply(text, parseInvoiceJson) : parseInvoiceJson(text))) {
         if (!imageWarehouseAddress && row.warehouseAddress) imageWarehouseAddress = String(row.warehouseAddress);
         if (!custBoxOriented) custBoxOriented = normalizeBox(row.box_customer);
         const split = splitPharmacyArea(row.pharmacy, row.area); // clean prefixes + split "name - area"
