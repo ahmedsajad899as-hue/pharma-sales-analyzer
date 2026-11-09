@@ -42,6 +42,33 @@ export function rotateJpeg(buf, degrees) {
 export const canRotate = (buf) => isJpeg(buf) && buf.length <= MAX_BYTES;
 
 /**
+ * نسخة مصغّرة (ضلعها الأطول ≤ maxSide) بمتوسط كتل — الخطوط الرفيعة تبقى ظاهرة.
+ * لكشف الاتجاه فقط: تُدار منها أربع نسخ بكلفة زهيدة بدل تدوير الأصل الكبير.
+ */
+export function downscaleJpeg(buf, maxSide = 768) {
+  const { width: w, height: h, data } = jpeg.decode(buf, {
+    useTArray: true, formatAsRGBA: true, maxResolutionInMP: MAX_PIXELS / 1e6, maxMemoryUsageInMB: 256,
+  });
+  const s = Math.min(1, maxSide / Math.max(w, h));
+  if (s >= 1) return buf;
+  const nw = Math.max(1, Math.round(w * s)), nh = Math.max(1, Math.round(h * s));
+  const out = Buffer.alloc(nw * nh * 4);
+  for (let y = 0; y < nh; y++) {
+    const y0 = Math.floor(y / s), y1 = Math.max(y0 + 1, Math.min(h, Math.floor((y + 1) / s)));
+    for (let x = 0; x < nw; x++) {
+      const x0 = Math.floor(x / s), x1 = Math.max(x0 + 1, Math.min(w, Math.floor((x + 1) / s)));
+      let r = 0, g = 0, b = 0, n = 0;
+      for (let yy = y0; yy < y1; yy++) {
+        for (let xx = x0; xx < x1; xx++) { const i = (yy * w + xx) * 4; r += data[i]; g += data[i + 1]; b += data[i + 2]; n++; }
+      }
+      const o = (y * nw + x) * 4;
+      out[o] = r / n; out[o + 1] = g / n; out[o + 2] = b / n; out[o + 3] = 255;
+    }
+  }
+  return Buffer.from(jpeg.encode({ data: out, width: nw, height: nh }, 85).data);
+}
+
+/**
  * قصاصة مكبّرة من JPEG: box = [ymin,xmin,ymax,xmax] بمقياس 0-1000، تُوسَّع بهامش
  * ثم تُكبَّر (bilinear) حتى يبلغ ضلعها الأطول ~minSide. سطر الزبون خطّه صغير وسط
  * صورة كاملة تُصغَّر عند الموديل، فيقرأ الجدول ويضيع الاسم — القصاصة تمنحه بكسلات

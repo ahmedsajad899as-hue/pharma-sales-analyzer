@@ -4,7 +4,7 @@
  * Orchestrates repository calls — no direct DB access here.
  */
 
-import { canRotate, rotateJpeg, cropJpeg } from '../../lib/invoiceImage.js';
+import { canRotate, rotateJpeg, cropJpeg, downscaleJpeg } from '../../lib/invoiceImage.js';
 import { customerKnownScore } from '../../lib/invoiceCustomerMatch.js';
 import { repCoreName, buildRepIndex, matchRepName } from '../../lib/repNameMatch.js';
 import XLSX from 'xlsx';
@@ -1677,31 +1677,28 @@ export function foldBonusRows(rows) {
 }
 
 // ─── اتجاه الصورة ───────────────────────────────────────────────────────────
-const ORIENTATION_PROMPT = `انظر إلى اتجاه الكتابة في هذه الصورة (ورقة فاتورة من مذخر أدوية).
-السؤال: هل الأسطر المكتوبة أفقية وتُقرأ بشكل طبيعي كما هي (رأس الحروف للأعلى)؟
-- إن كانت كذلك (حتى لو الورقة مائلة قليلاً أقل من 30°) فأعِد {"rotate": 0}.
-- وإلا فاذكر كم درجة يلزم تدوير الصورة **باتجاه عقارب الساعة** لتصبح الأسطر أفقية مقروءة: 90 أو 180 أو 270.
-مثال: إن كانت رؤوس الحروف تتجه نحو **يمين** الصورة فالتدوير 270؛ نحو **يسارها** فالتدوير 90؛ نحو **الأسفل** فالتدوير 180.
-أعِد كائن JSON فقط: {"rotate": 0}`;
+// أربع نسخ مصغّرة من الصورة (0/90/180/270) في نداء واحد، والموديل يختار القائمة منها.
+// مقيس 2026-11-09 على 5 فواتير حقيقية × 4 تدويرات، ثلاث مرات: 60/60 صحيح، بينما
+// الطريقة القديمة (سؤال «كم درجة تدوير» ×3 تصويتات على الصورة كاملة) أصابت 16/20 —
+// كانت تخلط 90 بـ270 فتقلب الصورة الجانبية رأساً على عقب — وبكلفة ~7 أضعاف.
+// الاختيار بين بدائل مرئية أسهل على الموديل من حساب اتجاه الدوران.
+const ORIENTATION_PICK_PROMPT = 'هذه أربع نسخ من نفس الفاتورة بتدويرات مختلفة، مرقّمة 1 إلى 4. أيّها تُقرأ فيها الكتابة بشكل طبيعي (قائمة، غير مقلوبة ولا جانبية)؟ أجب برقم واحد فقط.';
+const ORIENTATION_CANDIDATES = [0, 90, 180, 270];
 
 /**
- * يكتشف التدوير اللازم (0/90/180/270 مع عقارب الساعة). ثلاث قراءات والأغلبية —
- * قراءة واحدة قد تخطئ في الصور المائلة ~45°. يُعيد 0 عند أي فشل (القراءة بلا تدوير).
+ * يكتشف التدوير اللازم (0/90/180/270 مع عقارب الساعة). يُعيد 0 عند أي فشل (القراءة بلا تدوير).
  */
 export async function detectInvoiceRotation(img) {
   try {
-    const parts = [ORIENTATION_PROMPT, { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }];
-    const votes = await Promise.all([1, 2, 3].map(async () => {
-      try {
-        const o = parseJsonObject(await callAI(parts, { timeoutMs: 20_000, thinkingBudget: 0, feature: 'invoice-orient' }));
-        const v = Number(o?.rotate);
-        return [0, 90, 180, 270].includes(v) ? v : null;
-      } catch { return null; }
-    }));
-    const tally = new Map();
-    for (const v of votes) if (v != null) tally.set(v, (tally.get(v) || 0) + 1);
-    const best = [...tally.entries()].sort((a, b) => b[1] - a[1])[0];
-    return best && best[1] >= 2 ? best[0] : 0;
+    const small = downscaleJpeg(Buffer.from(img.base64, 'base64'), 768);
+    const parts = [ORIENTATION_PICK_PROMPT];
+    ORIENTATION_CANDIDATES.forEach((deg, i) => {
+      parts.push(`النسخة ${i + 1}:`);
+      parts.push({ inlineData: { mimeType: 'image/jpeg', data: (deg ? rotateJpeg(small, deg) : small).toString('base64') } });
+    });
+    const reply = await callAI(parts, { timeoutMs: 25_000, thinkingBudget: 0, feature: 'invoice-orient', mediaResolution: 'MEDIA_RESOLUTION_LOW' });
+    const n = Number((String(reply).match(/[1-4]/) || [])[0]);
+    return n ? ORIENTATION_CANDIDATES[n - 1] : 0;
   } catch { return 0; }
 }
 

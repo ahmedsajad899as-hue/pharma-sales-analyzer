@@ -75,6 +75,7 @@ export async function callAI(parts, opts = {}) {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxTotalMs = null,
     feature = 'other',
+    mediaResolution = null, // 'MEDIA_RESOLUTION_LOW' ≈ 280 token/صورة بدل ~1100 — لما لا يحتاج قراءة حروف صغيرة
   } = opts;
   const model = modelForFeature(feature);
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY غير مهيأ');
@@ -87,6 +88,7 @@ export async function callAI(parts, opts = {}) {
     generationConfig: {
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       thinkingConfig: { thinkingLevel: 'LOW' },
+      ...(mediaResolution ? { mediaResolution } : {}),
     },
   };
 
