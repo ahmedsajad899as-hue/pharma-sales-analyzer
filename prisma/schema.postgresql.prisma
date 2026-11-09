@@ -2745,6 +2745,9 @@ model InvoiceReadLog {
   id           Int      @id @default(autoincrement())
   createdAt    DateTime @default(now())
   source       String // telegram | whatsapp | wa-groups | viber | site | rep-orders | warehouse-group
+  kind         String   @default("photo") // photo | text (طلبية مكتوبة في الكروب)
+  sourceText   String? // نص الطلبية المكتوبة كما أرسلها المندوب
+  readBy       String? // parser (المحلل، بلا كلفة) | ai
   userId       Int?
   userName     String?
   senderName   String?

@@ -12,6 +12,7 @@ interface ReadLog {
   pharmacy: string | null; area: string | null; rowCount: number;
   calls: number; promptTokens: number; outputTokens: number; costUsd: number; durationMs: number;
   ok: boolean; error: string | null; hasImage: boolean;
+  kind: 'photo' | 'text'; sourceText: string | null; readBy: string | null;
   routedTo: { orderId: number | null; userId: number | null; name: string | null; forwarded: boolean }[] | null;
   details: { invoiceNumber: string | null; date: string | null; items: (string | number | null)[][] } | null;
 }
@@ -64,17 +65,18 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
   const [err, setErr] = useState('');
   const [big, setBig] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
+  const [kind, setKind] = useState<'' | 'photo' | 'text'>('');
   const toggle = (id: number) => setOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  useEffect(() => { setPage(1); }, [days]);
+  useEffect(() => { setPage(1); }, [days, kind]);
   useEffect(() => {
     setLoading(true); setErr('');
-    fetch(`/api/sa/ai-usage/invoices?days=${days}&page=${page}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`/api/sa/ai-usage/invoices?days=${days}&page=${page}${kind ? `&kind=${kind}` : ''}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(d => { if (d.success) setData(d.data); else setErr(d.error || 'خطأ'); })
       .catch(() => setErr('تعذّر الاتصال'))
       .finally(() => setLoading(false));
-  }, [days, page]);
+  }, [days, page, kind]);
 
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const avg = data && data.sums.images ? data.sums.costUsd / data.sums.images : 0;
@@ -82,14 +84,21 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
   return (
     <div>
       {err && <ErrBox msg={err} />}
+      <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+        {([['', '🧾 الكل'], ['photo', '📷 صور الفواتير'], ['text', '💬 الطلبيات المكتوبة']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setKind(k)}
+            style={{ padding: '6px 12px', fontSize: 12.5, fontWeight: 700, border: 'none', borderInlineEnd: '1px solid #e2e8f0', cursor: 'pointer',
+              background: kind === k ? '#0f172a' : '#fff', color: kind === k ? '#fff' : '#475569' }}>{l}</button>
+        ))}
+      </div>
       {data && (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
           {[
-            ['🖼️ صور محلَّلة', fmt(data.sums.images)],
+            ['🧾 طلبيات محلَّلة', fmt(data.sums.images)],
             ['📞 نداءات', fmt(data.sums.calls)],
             ['🔢 توكنز', fmt(data.sums.tokens)],
             ['💵 الكلفة', usd(data.sums.costUsd)],
-            ['📊 معدّل الصورة', usd(avg)],
+            ['📊 معدّل الطلبية', usd(avg)],
           ].map(([l, v]) => (
             <div key={l} style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: '10px 14px', minWidth: 120 }}>
               <div style={{ fontSize: 11.5, color: UI.faint }}>{l}</div>
@@ -99,25 +108,29 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
         </div>
       )}
       <div style={{ fontSize: 12, color: UI.faint, marginBottom: 10, lineHeight: 1.6 }}>
-        كل صورة فاتورة قُرئت بالذكاء منذ تفعيل هذا السجل، بكل نداءاتها مجموعة (الاتجاه + القراءة + الإعادة بالأقوى + سطر الزبون). الكلفة تقديرية بأسعار Gemini الحالية. الصور تُحفظ مصغّرة 60 يوماً.
+        كل صورة فاتورة وكل طلبية مكتوبة قُرئت منذ تفعيل هذا السجل، بكل نداءاتها مجموعة (للصور: الاتجاه + القراءة + الإعادة بالأقوى + سطر الزبون). الطلبية التي قرأها ⚡ المحلل كلفتها صفر. الكلفة تقديرية بأسعار Gemini الحالية. السجل يُحفظ 60 يوماً.
       </div>
 
       {loading ? <Spinner /> : data && (
         data.rows.length === 0
-          ? <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: 24, textAlign: 'center', color: UI.faint, fontSize: 13 }}>لا توجد صور محلَّلة في هذه الفترة بعد — أرسل صورة فاتورة للبوت وستظهر هنا.</div>
+          ? <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: 24, textAlign: 'center', color: UI.faint, fontSize: 13 }}>لا توجد طلبيات محلَّلة في هذه الفترة بعد — أرسل صورة فاتورة أو طلبية مكتوبة للبوت وستظهر هنا.</div>
           : (
             <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
                 <thead>
                   <tr>
-                    {['الصورة', 'التاريخ', 'الحساب', 'وصلت إلى', 'المصدر / المرسل', 'المذخر', 'الصيدلية', 'أصناف', 'النموذج', 'نداءات', 'توكنز (إدخال/إخراج)', 'الكلفة', 'الحالة', ''].map(h => <th key={h} style={th}>{h}</th>)}
+                    {['الطلبية', 'التاريخ', 'الحساب', 'وصلت إلى', 'المصدر / المرسل', 'المذخر', 'الصيدلية', 'أصناف', 'النموذج', 'نداءات', 'توكنز (إدخال/إخراج)', 'الكلفة', 'الحالة', ''].map(h => <th key={h} style={th}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {data.rows.map(r => (
                     <Fragment key={r.id}>
                     <tr style={{ background: r.ok ? undefined : '#fff7f7' }}>
-                      <td style={td}>{r.hasImage ? <Thumb id={r.id} token={token} onOpen={setBig} /> : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                      <td style={td}>
+                        {r.kind === 'text'
+                          ? <div title={r.sourceText || ''} onClick={() => toggle(r.id)} style={{ width: 54, height: 54, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f0f9ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer' }}>💬</div>
+                          : r.hasImage ? <Thumb id={r.id} token={token} onOpen={setBig} /> : <span style={{ color: '#cbd5e1' }}>—</span>}
+                      </td>
                       <td style={{ ...td, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'end' }}>{when(r.createdAt)}</td>
                       <td style={{ ...td, fontWeight: 600 }}>{r.userName || '—'}</td>
                       <td style={td}>
@@ -142,7 +155,12 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
                       </td>
                       <td style={{ ...td, textAlign: 'center' }}>{r.rowCount}</td>
                       <td style={td}>
-                        {r.mode && MODE[r.mode] ? <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: MODE[r.mode].c, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>{MODE[r.mode].t}</span> : '—'}
+                        {r.kind === 'text' ? (
+                          <span title={r.mode ? `وضع الكروب: ${({ both: 'الاثنين', ai: 'الذكاء', parser: 'المحلل' } as Record<string, string>)[r.mode] || r.mode}` : ''}
+                            style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: r.readBy === 'parser' ? '#0891b2' : '#2563eb', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                            {r.readBy === 'parser' ? '⚡ المحلل' : '🤖 الذكاء'}
+                          </span>
+                        ) : r.mode && MODE[r.mode] ? <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: MODE[r.mode].c, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>{MODE[r.mode].t}</span> : '—'}
                         {r.retried && <div style={{ fontSize: 10.5, color: '#b45309', marginTop: 3, whiteSpace: 'nowrap' }}>🔁 أُعيدت بالأقوى</div>}
                       </td>
                       <td style={{ ...td, textAlign: 'center' }}>{r.calls}</td>
@@ -153,18 +171,25 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
                       <td style={{ ...td, fontWeight: 700, whiteSpace: 'nowrap', color: r.costUsd > 0.008 ? '#b91c1c' : '#15803d' }}>{usd(r.costUsd)}</td>
                       <td style={td} title={r.error || ''}>{r.ok ? '✅' : <span style={{ color: '#b91c1c', fontSize: 12 }}>❌ {r.error ? r.error.slice(0, 40) : ''}</span>}</td>
                       <td style={td}>
-                        {r.details?.items?.length ? (
+                        {r.details?.items?.length || r.sourceText ? (
                           <button onClick={() => toggle(r.id)} style={{ padding: '4px 10px', fontSize: 12, fontWeight: 700, borderRadius: 8, border: '1px solid #c7d2fe', background: open.has(r.id) ? '#4f46e5' : '#eef2ff', color: open.has(r.id) ? '#fff' : '#4338ca', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                             📋 التفاصيل {open.has(r.id) ? '▴' : '▾'}
                           </button>
                         ) : null}
                       </td>
                     </tr>
-                    {open.has(r.id) && r.details && (
+                    {open.has(r.id) && (r.details || r.sourceText) && (
                       <tr>
                         <td colSpan={14} style={{ padding: '4px 14px 14px', background: '#fafbff', borderBottom: '1px solid #e9edf3' }}>
+                          {r.sourceText && (
+                            <div style={{ margin: '8px 0', padding: '10px 12px', background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 8, fontSize: 13, color: UI.ink, whiteSpace: 'pre-wrap', lineHeight: 1.7, maxWidth: 520 }}>
+                              <div style={{ fontSize: 11, color: UI.faint, marginBottom: 4 }}>💬 الرسالة الأصلية</div>
+                              {r.sourceText}
+                            </div>
+                          )}
+                          {r.details && <>
                           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5, color: UI.muted, margin: '6px 0 8px' }}>
-                            <span>🧾 رقم الفاتورة: <b style={{ color: UI.ink }}>{r.details.invoiceNumber || '—'}</b></span>
+                            {r.kind !== 'text' && <span>🧾 رقم الفاتورة: <b style={{ color: UI.ink }}>{r.details.invoiceNumber || '—'}</b></span>}
                             <span>📅 التاريخ: <b style={{ color: UI.ink }}>{r.details.date || '—'}</b></span>
                             <span>🏬 المذخر: <b style={{ color: UI.ink }}>{r.warehouse || '—'}</b></span>
                             <span>💊 الصيدلية: <b style={{ color: UI.ink }}>{[r.pharmacy, r.area].filter(Boolean).join(' / ') || '—'}</b></span>
@@ -187,6 +212,7 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
                               })}
                             </tbody>
                           </table>
+                          </>}
                         </td>
                       </tr>
                     )}

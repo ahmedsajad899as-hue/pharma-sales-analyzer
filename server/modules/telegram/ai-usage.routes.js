@@ -42,7 +42,7 @@ router.put('/models', async (req, res) => {
 // الصور المحلَّلة: صورة لكل سطر مع المرسل والتاريخ والتوكنز والكلفة (lib/invoiceReadLog.js)
 router.get('/invoices', async (req, res) => {
   try {
-    res.json({ success: true, data: await listInvoiceReadLogs({ days: req.query.days, page: req.query.page }) });
+    res.json({ success: true, data: await listInvoiceReadLogs({ days: req.query.days, page: req.query.page, kind: req.query.kind }) });
   } catch (e) {
     console.error('[ai-usage/invoices]', e);
     res.status(500).json({ error: 'تعذّر جلب الصور المحلَّلة' });

@@ -135,7 +135,7 @@ export default function AiUsagePage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>استهلاك الذكاء الاصطناعي (Gemini)</h2>
         <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', marginInlineStart: 'auto' }}>
-          {([['usage', '📊 الاستهلاك'], ['images', '🖼️ الصور المحلَّلة']] as const).map(([k, l]) => (
+          {([['usage', '📊 الاستهلاك'], ['images', '🧾 الطلبيات المحلَّلة']] as const).map(([k, l]) => (
             <button key={k} onClick={() => setView(k)}
               style={{ padding: '6px 12px', fontSize: 12.5, fontWeight: 700, border: 'none', cursor: 'pointer',
                 background: view === k ? '#4f46e5' : '#fff', color: view === k ? '#fff' : '#475569' }}>{l}</button>

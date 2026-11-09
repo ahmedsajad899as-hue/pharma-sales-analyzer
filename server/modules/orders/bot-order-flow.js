@@ -22,6 +22,31 @@
 import { extractInvoiceRows, resolveSharedConditionOwner } from '../sales/sales.service.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
 import { extractOrderRowsByMode } from './order-extract.js';
+import { aiCallScope } from '../../lib/geminiAi.js';
+import { logTextOrderRead } from '../../lib/invoiceReadLog.js';
+
+/**
+ * يقرأ نص طلبية حسب وضع الكروب ويسجّله في «الطلبيات المحلَّلة» (لوحة الماستر): النص،
+ * المحلل أم الذكاء، كل النداءات بتوكنزها وكلفتها، والأصناف. يُعيد { rows, readBy } ويرمي
+ * ما ترميه القراءة (بعد تسجيل الفشل).
+ */
+async function readTextOrderLogged(text, { mode, throwOnAiFailure, ctx }) {
+  const calls = [];
+  const started = Date.now();
+  let out = { rows: [], readBy: null };
+  let error = null;
+  try {
+    await aiCallScope.run(calls, async () => {
+      out = await extractOrderRowsByMode(text, { mode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure });
+    });
+    return out;
+  } catch (e) {
+    error = String(e?.message || e);
+    throw e;
+  } finally {
+    logTextOrderRead({ ctx, text, calls, rows: out.rows || [], readBy: out.readBy, mode, error, durationMs: Date.now() - started });
+  }
+}
 import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
 import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess, findPendingOrderForReveal } from './orders.service.js';
 import { checkManualDuplicates, duplicateWarningText } from '../../lib/manualDuplicateCheck.js';
@@ -141,7 +166,10 @@ export async function handleIncomingOrderMessage({
       );
     } else {
       // منصّة تعيد الفاشل (onFailed) تحتاج تمييز تعطّل الذكاء عن «ليست طلبية»
-      ({ rows, readBy } = await extractOrderRowsByMode(text, { mode: aiMode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure: Boolean(transport.onFailed) }));
+      ({ rows, readBy } = await readTextOrderLogged(text, {
+        mode: aiMode, throwOnAiFailure: Boolean(transport.onFailed),
+        ctx: { source: transport.name, userId: user.id, userName: user.displayName || user.username, senderName, chatTitle },
+      }));
     }
 
     // مطابقة الأصناف بكتالوج المستخدم وتعبئة الشركة والسعر — لكلا المسارين
@@ -328,7 +356,10 @@ async function handleRepSaleMessage({ transport, user, chatId, senderName = null
           logContext: { source: `${transport.name} (مبيعي)`, userId: user.id, userName: user.displayName || user.username, senderName } },
       );
     } else if (body) {
-      ({ rows } = await extractOrderRowsByMode(body, { mode: aiMode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure: Boolean(transport.onFailed) }));
+      ({ rows } = await readTextOrderLogged(body, {
+        mode: aiMode, throwOnAiFailure: Boolean(transport.onFailed),
+        ctx: { source: `${transport.name} (مبيعي)`, userId: user.id, userName: user.displayName || user.username, senderName },
+      }));
     }
 
     await enrichRowsFromCatalog(rows, user.id);

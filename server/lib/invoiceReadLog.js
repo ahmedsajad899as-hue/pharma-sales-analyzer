@@ -7,6 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'node:crypto';
 import prisma from './prisma.js';
 import { downscaleJpeg, isJpeg } from './invoiceImage.js';
 
@@ -34,7 +35,7 @@ const short = (v, n = 200) => { const s = String(v ?? '').trim(); return s ? s.s
  * @param {object[]} p.calls ما جمعه aiCallScope لهذه الصورة
  * @param {Buffer} [p.image] الصورة الأصلية (تُحفظ مصغّرة)
  */
-export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, rows = [], card = null, mode = null, retried = false, ok = true, error = null, durationMs = 0, readKey = null }) {
+export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, rows = [], card = null, mode = null, retried = false, ok = true, error = null, durationMs = 0, readKey = null, kind = 'photo', sourceText = null, readBy = null }) {
   try {
     const promptTokens = calls.reduce((a, c) => a + (c.promptTokens || 0), 0);
     const outputTokens = calls.reduce((a, c) => a + (c.outputTokens || 0), 0);
@@ -43,6 +44,9 @@ export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, r
     const log = await prisma.invoiceReadLog.create({
       data: {
         source: short(ctx.source, 40) || 'unknown',
+        kind,
+        sourceText: short(sourceText, 4000),
+        readBy: short(readBy, 20),
         userId: Number.isInteger(ctx.userId) ? ctx.userId : null,
         userName: short(ctx.userName, 120),
         senderName: short(ctx.senderName, 120),
@@ -116,6 +120,22 @@ export function linkInvoiceReadLogs(orders) {
   run(0);
 }
 
+/**
+ * سجلّ طلبية مكتوبة (نص كروب): يلصق _readKey بصفوفها لربطها بالطلبيات المُنشأة، ويتخطّى
+ * الرسائل التي لم تكلّف شيئاً ولم تُنتج أصنافاً (دردشة رفضها المحلل بلا ذكاء).
+ */
+export function logTextOrderRead({ ctx = {}, text = '', calls = [], rows = [], readBy = null, mode = null, error = null, durationMs = 0 }) {
+  if (!rows.length && !calls.length && !error) return;
+  const readKey = randomUUID();
+  for (const r of rows) if (r && typeof r === 'object') r._readKey = readKey;
+  saveInvoiceReadLog({
+    ctx, calls, rows, mode, readKey, durationMs,
+    kind: 'text', sourceText: text, readBy: readBy || (calls.length ? 'ai' : null),
+    ok: !error && rows.length > 0,
+    error: error || (rows.length ? null : 'ليست طلبية'),
+  });
+}
+
 /** يحذف السجلات الأقدم من KEEP_DAYS وصورها (القرص 89% — لا تتراكم الصور). */
 async function prune() {
   try {
@@ -129,10 +149,10 @@ async function prune() {
   }
 }
 
-export async function listInvoiceReadLogs({ days = 7, page = 1, pageSize = 50 } = {}) {
+export async function listInvoiceReadLogs({ days = 7, page = 1, pageSize = 50, kind = null } = {}) {
   prune();
   const d = Math.min(Math.max(parseInt(days) || 7, 1), KEEP_DAYS);
-  const where = { createdAt: { gte: new Date(Date.now() - d * 86400_000) } };
+  const where = { createdAt: { gte: new Date(Date.now() - d * 86400_000) }, ...(kind === 'photo' || kind === 'text' ? { kind } : {}) };
   const take = Math.min(Math.max(parseInt(pageSize) || 50, 10), 200);
   const skip = (Math.max(parseInt(page) || 1, 1) - 1) * take;
   const [rows, total, sums] = await Promise.all([
