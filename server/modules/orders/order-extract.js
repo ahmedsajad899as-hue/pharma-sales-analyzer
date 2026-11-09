@@ -17,7 +17,7 @@ import { callAI } from '../../lib/geminiAi.js';
 import { parseInvoiceJson, splitPharmacyArea, isCopiedFromPrompt } from '../sales/sales.service.js';
 import { normalizeItemKey, normalizeAreaName } from '../../lib/itemResolver.js';
 import { MAX_ORDER_TEXT_LEN, stripTriggerPrefix } from './order-trigger.js';
-import { reconcileRowsWithText, normKey, KNOWN_WAREHOUSES } from './order-text-parse.js';
+import { reconcileRowsWithText, normKey, KNOWN_WAREHOUSES, parseOrderText, parseItemLine } from './order-text-parse.js';
 import prisma from '../../lib/prisma.js';
 
 // أسماء المذاخر المعروفة (دفتر رصيد المذاخر) — تكشف سطر مذخر كُتب بلا كلمة «مذخر»
@@ -243,6 +243,68 @@ export async function extractOrderRowsFromText(text, { todayISO, throwOnAiFailur
   }
 
   return applyTextParse(rows, raw);
+}
+
+// ─── من يقرأ الطلبية (زر لكل كروب: TelegramChatLink.aiMode / WaGroupLink.aiMode) ──
+export const AI_MODES = ['both', 'ai', 'parser', 'off'];
+export const pickAiMode = (v) => (AI_MODES.includes(String(v)) ? String(v) : null);
+
+/**
+ * قراءة بلا ذكاء: تنجح فقط حين يحسم **شكل** النص كل شيء — سطر صيدلية مُعلَّم (أو
+ * منطقة مسجّلة + سطر واحد)، وكل سطر صنف كميته صريحة («(10)»، «50+5»، «10 p»).
+ * أي لبس ⇒ null، فيقرّر المستدعي (الذكاء في وضع both، أو التجاهل في وضع parser).
+ * قيست 2026-11-09 على حالات المقارنة: 12/20 حُسمت هكذا، كلها صحيحة، والباقي
+ * (دردشة، كمية بالكلمات، ترويسة سطر واحد بلا «ص») رُدّ للذكاء.
+ */
+export async function parseOrderRowsWithoutAi(text, { todayISO } = {}) {
+  const raw = String(text ?? '').trim();
+  if (!raw || raw.length > MAX_ORDER_TEXT_LEN) return null;
+  const [known, areas] = await Promise.all([loadKnownWarehouseKeys(), loadKnownAreaIndex()]);
+  const { header, itemLines } = parseOrderText(raw, {
+    isKnownWarehouse: (t) => {
+      const k = normKey(t);
+      return known.has(k) || known.has(normKey(t.replace(/^(?:دواء|ادوية|أدوية)\s+/, '')));
+    },
+    areaOf: (t) => areas.get(normalizeAreaName(t)) ?? null,
+  });
+  if (!header.pharmacy || !itemLines.length) return null;
+  const items = itemLines.map(parseItemLine);
+  if (items.some(i => !i)) return null;
+  const today = todayISO || new Date().toISOString().slice(0, 10);
+  return items.map(i => ({
+    item: cleanName(i.name),
+    company: null,
+    quantity: i.quantity,
+    unitPrice: null,
+    total: null,
+    bonus: i.bonus ?? 0,
+    pharmacy: cleanName(header.pharmacy),
+    warehouse: cleanName(header.warehouse),
+    area: cleanName(header.area),
+    date: today,
+    invoiceNumber: null,
+    _imageIndex: null, _box: null, _boxCustomer: null, _boxHeader: null,
+  }));
+}
+
+/**
+ * نقطة الدخول حسب زر الكروب. يُعيد { rows, readBy } حيث readBy = 'parser' | 'ai' | null.
+ *  both   — المحلل أولاً، وما لا يحسمه يذهب للذكاء.
+ *  parser — المحلل فقط؛ ما لا يحسمه يُعامَل «ليست طلبية» (بلا كلفة).
+ *  ai     — الذكاء فقط (السلوك القديم).
+ *  off    — لا قراءة.
+ */
+export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, throwOnAiFailure = false } = {}) {
+  if (mode === 'off') return { rows: [], readBy: null };
+  if (mode !== 'ai') {
+    let parsed = null;
+    try { parsed = await parseOrderRowsWithoutAi(text, { todayISO }); }
+    catch (e) { console.error('[orders] المحلل بلا ذكاء:', e?.message); }
+    if (parsed?.length) return { rows: parsed, readBy: 'parser' };
+    if (mode === 'parser') return { rows: [], readBy: null };
+  }
+  const rows = await extractOrderRowsFromText(text, { todayISO, throwOnAiFailure });
+  return { rows, readBy: rows.length ? 'ai' : null };
 }
 
 /** نسخة القراءة الحتمية — تُخزَّن في payload فتُعاد قراءة الطلبيات الأقدم عند فتحها. */

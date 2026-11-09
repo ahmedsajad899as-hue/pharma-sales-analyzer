@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
+import { AiModeButtons, type AiMode } from './AiModeButtons';
 
 interface TgPerson { telegramUserId: string; firstName?: string | null; lastName?: string | null; username?: string | null; status?: string; lastSeenAt?: string; joinedAt?: string | null }
 interface MembersInfo { memberCount: number | null; admins: TgPerson[] | null; seen: TgPerson[]; links: Record<string, number>; reps: { id: number; name: string }[] }
@@ -13,6 +14,7 @@ interface TelegramLink {
   orderTextMode?: OrderTextMode;
   salesQueryEnabled?: boolean;
   silentMode?: boolean;
+  aiMode?: AiMode;
   user?: UserOption;
 }
 
@@ -109,6 +111,11 @@ export default function TelegramLinksPage() {
     load();
   };
 
+  const setAiMode = async (l: TelegramLink, aiMode: AiMode) => {
+    await fetch(`/api/sa/telegram-links/${l.id}`, { method: 'PUT', headers: H(), body: JSON.stringify({ aiMode }) });
+    await load();
+  };
+
   const del = async (l: TelegramLink) => {
     if (!confirm(`حذف ربط الكروب "${l.chatTitle || l.chatId}"؟`)) return;
     await fetch(`/api/sa/telegram-links/${l.id}`, { method: 'DELETE', headers: H() });
@@ -148,6 +155,7 @@ export default function TelegramLinksPage() {
                   <div style={{ fontSize: 11, color: l.silentMode ? '#be123c' : '#94a3b8', marginTop: 3, fontWeight: 600 }}>
                     {l.silentMode ? '🔇 صامت (لا ردود)' : '🔔 يرد على الرسائل'}
                   </div>
+                  <AiModeButtons value={l.aiMode} onChange={v => setAiMode(l, v)} />
                 </div>
                 <span style={{ background: l.isActive ? '#f0fdf4' : '#fef2f2', color: l.isActive ? '#16a34a' : '#b91c1c', borderRadius: 20, padding: '2px 9px', fontSize: 10.5, fontWeight: 600 }}>
                   {l.isActive ? 'نشط' : 'معطل'}

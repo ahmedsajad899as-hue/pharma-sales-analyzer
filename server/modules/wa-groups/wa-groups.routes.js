@@ -15,6 +15,7 @@ import { groupsSecret, sidecar } from './wa-groups.client.js';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import { handleGroupInbound } from '../warehouse-dispatch/dispatch.inbound.js';
 import { ORDER_TEXT_MODES } from '../orders/order-trigger.js';
+import { pickAiMode } from '../orders/order-extract.js';
 import { listenLinkFor, handleListenGroupMessage, invalidateListenCache, LISTEN_SOURCE, listRetryingByJid } from './wa-groups.listen.js';
 import { BOT_TO_CONDITION } from '../orders/bot-order-flow.js';
 import { resolveSharedConditionOwner } from '../sales/sales.service.js';
@@ -158,7 +159,8 @@ saRouter.get('/destination', async (req, res) => {
 });
 
 saRouter.put('/links', async (req, res) => {
-  const { jid, name, userId, orderTextMode, isActive, allowedSenders } = req.body || {};
+  const { jid, name, userId, orderTextMode, isActive, allowedSenders, aiMode } = req.body || {};
+  if (aiMode !== undefined && !pickAiMode(aiMode)) return res.status(400).json({ error: 'وضع التحليل غير صالح' });
   let senders;
   if (allowedSenders !== undefined) {
     if (allowedSenders !== null && !Array.isArray(allowedSenders)) return res.status(400).json({ error: 'قائمة الأشخاص غير صالحة' });
@@ -182,6 +184,7 @@ saRouter.put('/links', async (req, res) => {
     userId: uid,
     ...(name !== undefined ? { name: String(name || '').slice(0, 200) || null } : {}),
     ...(mode !== undefined ? { orderTextMode: mode } : {}),
+    ...(aiMode !== undefined ? { aiMode: pickAiMode(aiMode) } : {}),
     ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
     ...(senders !== undefined ? { allowedSenders: senders.length ? senders : Prisma.DbNull } : {}),
   };

@@ -1094,7 +1094,7 @@ async function createOrReplacePending({ ownerId, data, payload, rows, imageFiles
 export async function ingestBotOrder({
   user, source, chatId, chatTitle = null, senderName = null,
   kind, sourceText = null, rows, imageBuffers = [], mediaKeys = [], sourceMessageId = null,
-  maxPending = MAX_PENDING_ORDERS_PER_USER,
+  maxPending = MAX_PENDING_ORDERS_PER_USER, readBy = null,
 }) {
   if (!rows?.length) throw new AppError('لم أتعرّف على أي صنف في هذه الطلبية.', 422, 'NO_ORDER_ROWS');
 
@@ -1119,6 +1119,8 @@ export async function ingestBotOrder({
   };
   const basePayload = () => ({
     extractedAt: new Date().toISOString(), textParse: TEXT_PARSE_VERSION, routed: ROUTE_VERSION,
+    // من قرأها: 'parser' (بلا ذكاء) | 'ai' — يُعرض وسماً في طابور المراجعة لمراقبة المحلل.
+    ...(readBy ? { readBy } : {}),
     // رسالة المرسِل في الكروب — كي يجد «كشف» (ردّاً عليها) هذه الطلبية.
     ...(sourceMessageId ? { sourceMessageId: Number(sourceMessageId) } : {}),
   });
@@ -1328,6 +1330,7 @@ export async function listPendingOrders(userId) {
     ...r,
     payload: undefined,
     originName: r.payload?.originUserId ? (r.payload.originName || null) : null,
+    readBy: r.payload?.readBy || null,
     imageFiles: undefined,
     imageCount: toImageList(r.imageFiles).length,
     // أول صيدلية للعرض في الشريط بلا تحميل كل الصفوف

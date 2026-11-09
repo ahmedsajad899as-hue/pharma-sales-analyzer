@@ -581,6 +581,9 @@ model TelegramChatLink {
   // متى يُعتبر نص الكروب طلبية: off = تجاهل، trigger = يلزم كلمة «طلبية» في أول
   // الرسالة (أو ردّ على رسالة البوت)، all = كل رسالة فيها رقم (لكروب طلبيات مخصّص).
   orderTextMode String @default("trigger")
+  // من يقرأ الطلبية: ai = Gemini فقط، parser = المحلل الحتمي فقط (بلا ذكاء، الصور تُتجاهل)،
+  // both = المحلل أولاً والذكاء لما لا يحسمه، off = لا قراءة إطلاقاً.
+  aiMode String @default("both")
   // سؤال مبيعات نصّي («محمد باقر مبيع شهر 9») — بحث واستخراج بلا Gemini (راجع
   // server/modules/telegram/sales-query.js). مفعّل افتراضياً لكل كروب قائم.
   salesQueryEnabled Boolean @default(true)
@@ -681,6 +684,7 @@ model WaGroupLink {
   name          String?
   isActive      Boolean  @default(true)
   orderTextMode String   @default("all") // off | trigger | all — كروب مبيعات مخصّص فـall افتراضياً
+  aiMode        String   @default("both") // ai | parser | both | off — راجع TelegramChatLink.aiMode
   // عدّادات تشخيص للوحة الماستر: كل رسالة وصلت من الكروب / ما دخل منها طابور المراجعة
   messageCount  Int       @default(0)
   orderCount    Int       @default(0)

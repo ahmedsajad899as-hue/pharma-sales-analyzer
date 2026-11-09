@@ -1143,6 +1143,12 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                   </span>
                 )}
                 {o.chatTitle && <span style={{ fontSize: 11.5, color: '#94a3b8' }}>({o.chatTitle})</span>}
+                {o.readBy === 'parser' && (
+                  <span title="قُرئت بالمحلل بلا ذكاء اصطناعي — راجِعها بعناية أثناء التجربة"
+                    style={{ fontSize: 11, fontWeight: 700, color: '#0891b2', background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: 999, padding: '1px 8px' }}>
+                    ⚡ بلا ذكاء
+                  </span>
+                )}
                 {o.preview && (
                   <span style={{ fontSize: 11.5, color: '#475569', flex: 1, minWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {o.preview}

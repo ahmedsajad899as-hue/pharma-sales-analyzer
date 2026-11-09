@@ -21,7 +21,7 @@
 
 import { extractInvoiceRows, resolveSharedConditionOwner } from '../sales/sales.service.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
-import { extractOrderRowsFromText } from './order-extract.js';
+import { extractOrderRowsByMode } from './order-extract.js';
 import { isOrderTrigger, isExplicitOrderIntent } from './order-trigger.js';
 import { ingestBotOrder, enrichRowsFromCatalog, attachScientificRepGuess, findPendingOrderForReveal } from './orders.service.js';
 import { checkManualDuplicates, duplicateWarningText } from '../../lib/manualDuplicateCheck.js';
@@ -82,9 +82,14 @@ export async function handleIncomingOrderMessage({
   senderName = null, senderId = null, text = '', mediaRefs = [], isReplyToBot = false,
 }) {
   const hasMedia = mediaRefs.length > 0;
+  // زر الكروب «من يقرأ»: off = لا قراءة إطلاقاً؛ parser = بلا ذكاء، والصورة لا تُقرأ إلا بالذكاء
+  // فتُترك. ربط بلا العمود (فايبر/واتساب فردي) = both.
+  const aiMode = link?.aiMode || 'both';
+  if (aiMode === 'off') return false;
+  if (aiMode === 'parser' && hasMedia) return false;
   // «مبيعي …» نيّة صريحة تسبق مسار الطلبيات، فلا تدخل ملف الكوديشن حتى في وضع «كل الرسائل».
   if (link?.orderTextMode !== 'off' && hasPersonalSaleTrigger(text)) {
-    return handleRepSaleMessage({ transport, user, chatId, senderName, senderId, text, mediaRefs });
+    return handleRepSaleMessage({ transport, user, chatId, senderName, senderId, text, mediaRefs, aiMode });
   }
   if (!isOrderTrigger(text, link?.orderTextMode, { isReplyToBot, hasMedia })) return false;
   const toCondition = userFeatureOn(user, BOT_TO_CONDITION);
@@ -111,6 +116,7 @@ export async function handleIncomingOrderMessage({
   try {
     let rows = [];
     let imageBuffers = [];
+    let readBy = hasMedia ? 'ai' : null;
 
     if (hasMedia) {
       imageBuffers = (await Promise.all(
@@ -134,7 +140,7 @@ export async function handleIncomingOrderMessage({
       );
     } else {
       // منصّة تعيد الفاشل (onFailed) تحتاج تمييز تعطّل الذكاء عن «ليست طلبية»
-      rows = await extractOrderRowsFromText(text, { todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure: Boolean(transport.onFailed) });
+      ({ rows, readBy } = await extractOrderRowsByMode(text, { mode: aiMode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure: Boolean(transport.onFailed) }));
     }
 
     // مطابقة الأصناف بكتالوج المستخدم وتعبئة الشركة والسعر — لكلا المسارين
@@ -216,6 +222,7 @@ export async function handleIncomingOrderMessage({
       mediaKeys: mediaRefs.map(r => (typeof r === 'string' ? r : JSON.stringify(r))),
       sourceMessageId: messageId,
       maxPending: transport.maxPending,
+      readBy,
     });
     // خطّاف اختياري للمنصّة (كروبات «رقم الكروبات» تعدّ ما دخل الطابور) — لا يرمي
     try { await transport.onQueued?.(); } catch (e) { console.error('[orders] onQueued:', e?.message); }
@@ -294,7 +301,7 @@ export async function handleRevealCommand({ transport, chatId, orderId = null, m
  * تُسجَّل في «مبيعات المندوبين» لا طابور الطلبيات. الكلمة نيّة صريحة فيردّ البوت على كل حال.
  * لا يرمي — نفس عقد handleIncomingOrderMessage.
  */
-async function handleRepSaleMessage({ transport, user, chatId, senderName = null, senderId = null, text = '', mediaRefs = [] }) {
+async function handleRepSaleMessage({ transport, user, chatId, senderName = null, senderId = null, text = '', mediaRefs = [], aiMode = 'both' }) {
   const ctx = { chatId, messageId: null };
   try {
     ctx.messageId = await transport.sendText(chatId, '⏳ جاري تسجيل مبيعك…');
@@ -319,7 +326,7 @@ async function handleRepSaleMessage({ transport, user, chatId, senderName = null
         { extraContext: body || undefined, budgetMs: BOT_READ_BUDGET_MS },
       );
     } else if (body) {
-      rows = await extractOrderRowsFromText(body, { todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure: Boolean(transport.onFailed) });
+      ({ rows } = await extractOrderRowsByMode(body, { mode: aiMode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure: Boolean(transport.onFailed) }));
     }
 
     await enrichRowsFromCatalog(rows, user.id);

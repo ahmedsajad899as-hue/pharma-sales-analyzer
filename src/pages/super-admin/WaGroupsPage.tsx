@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { ErrBox, Modal, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
+import { AiModeButtons, type AiMode } from './AiModeButtons';
 
 interface Status { status?: string; connected?: boolean; me?: string | null; error?: string | null }
 interface Group { jid: string; name: string; size: number }
 interface UserOption { id: number; username: string; displayName?: string | null; role: string }
 interface ListenLink {
-  jid: string; name: string | null; userId: number; isActive: boolean; orderTextMode: OrderTextMode; user?: UserOption;
+  jid: string; name: string | null; userId: number; isActive: boolean; orderTextMode: OrderTextMode; aiMode?: AiMode; user?: UserOption;
   messageCount: number; orderCount: number; attachedCount: number; failedCount: number; lastMessageAt: string | null; lastOrderAt: string | null;
   skippedCount?: number; allowedSenders?: string[] | null; knownSenders?: Record<string, KnownSender> | null;
 }
@@ -232,6 +233,9 @@ export default function WaGroupsPage() {
   const toggleLink = async (l: ListenLink) => {
     try { await putLink({ jid: l.jid, isActive: !l.isActive }); loadLinks(); } catch (e: any) { setError(e.message); }
   };
+  const setAiMode = async (l: ListenLink, aiMode: AiMode) => {
+    try { await putLink({ jid: l.jid, aiMode }); await loadLinks(); } catch (e: any) { setError(e.message); }
+  };
   const removeLink = async (l: ListenLink) => {
     if (!window.confirm(`إلغاء القراءة الصامتة لكروب «${l.name || l.jid}»؟ لن تُسجَّل رسائله بعد الآن.`)) return;
     await fetch(`/api/sa/wa-groups/links/${encodeURIComponent(l.jid)}`, { method: 'DELETE', headers: H() });
@@ -351,6 +355,7 @@ export default function WaGroupsPage() {
                       🔇 قراءة صامتة ← {userLabel(l.user)}{l.isActive ? '' : ' (موقوفة)'}
                     </span>
                     <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>{ORDER_MODE_SHORT[l.orderTextMode] || ''}</span>
+                    <AiModeButtons value={l.aiMode} onChange={v => setAiMode(l, v)} />
                     <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, userId: l.userId, orderTextMode: l.orderTextMode, isNew: false, senders: l.allowedSenders || [], known: l.knownSenders || {} }); }} style={btnStyle('#3b82f6', true)}>تعديل</button>
                     <button onClick={() => toggleLink(l)} style={btnStyle(l.isActive ? '#d97706' : '#16a34a', true)}>{l.isActive ? 'إيقاف' : 'تفعيل'}</button>
                     <button onClick={() => removeLink(l)} style={btnStyle('#dc2626', true)}>إلغاء</button>
