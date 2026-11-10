@@ -102,3 +102,30 @@
   .wd-wh { font-size: 12px; }
   .wd-actions .wd-spacer { display: none; }
 }
+
+/* ─── المحادثات ─── */
+.wd-toolbar { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+.wd-toolbar .form-input:first-child { flex: 1; min-width: 180px; }
+.wd-chats { display: grid; grid-template-columns: 320px 1fr; gap: 12px; min-height: 60vh; }
+.wd-chat-list { display: flex; flex-direction: column; gap: 6px; max-height: 75vh; overflow-y: auto; }
+.wd-chat-item { text-align: right; font-family: inherit; background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 10px; padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: inherit; }
+.wd-chat-item.is-active { border-color: var(--c-accent); box-shadow: 0 0 0 1px var(--c-accent); }
+.wd-chat-head { display: flex; justify-content: space-between; gap: 8px; }
+.wd-chat-last { color: var(--c-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wd-chat-view { background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; min-width: 0; }
+.wd-chat-title { padding-bottom: 8px; border-bottom: 1px solid var(--c-border-light); margin-bottom: 8px; }
+.wd-msgs { display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow-y: auto; }
+.wd-msg { max-width: 80%; padding: 8px 10px; border-radius: 10px; font-size: 13px; line-height: 1.6; }
+.wd-msg--in { align-self: flex-start; background: var(--c-bg, #f3f4f6); border: 1px solid var(--c-border-light); }
+.wd-msg--out { align-self: flex-end; background: color-mix(in srgb, var(--c-accent) 12%, transparent); }
+.wd-msg--err { border: 1px solid #dc2626; }
+.wd-msg-meta { font-size: 11px; color: var(--c-text-muted); margin-bottom: 2px; }
+.wd-msg-text { white-space: pre-wrap; word-break: break-word; }
+.wd-msg-img { max-width: 260px; max-height: 320px; border-radius: 8px; cursor: zoom-in; display: block; }
+.wd-msg-imgbtn { font-size: 12px; padding: 4px 8px; }
+.wd-fail { color: #dc2626; }
+@media (max-width: 760px) {
+  .wd-chats { grid-template-columns: 1fr; }
+  .wd-chat-list { max-height: 35vh; }
+  .wd-msg { max-width: 95%; }
+}

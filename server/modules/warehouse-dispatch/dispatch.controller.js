@@ -3,6 +3,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import * as svc from './dispatch.service.js';
+import * as chats from './dispatch.chats.js';
 
 const wrap = (fn) => async (req, res, next) => {
   try { await fn(req, res); } catch (e) { next(e); }
@@ -23,4 +24,11 @@ export const getSettings     = wrap(async (req, res) => res.json({ success: true
 export const setUserMode     = wrap(async (req, res) => res.json({ success: true, setting: await svc.setUserMode(req.user, req.params.userId, req.body?.mode) }));
 export const setConfig       = wrap(async (req, res) => res.json({ success: true, config: await svc.setConfig(req.user, req.body) }));
 
-export const listGroups      = wrap(async (req, res) => res.json({ success: true, ...(await svc.listGroups(req.user)) }));
+export const listChats       = wrap(async (req, res) => res.json({ success: true, ...(await chats.listChats(req.user, req.query)) }));
+export const chatMessages    = wrap(async (req, res) => res.json({ success: true, ...(await chats.chatMessages(req.user, req.params.waId, req.query)) }));
+export const chatMedia       = wrap(async (req, res) => {
+  const buf = await chats.chatMedia(req.user, req.params.logId);
+  res.set('Cache-Control', 'private, max-age=86400').type('image/jpeg').send(buf);
+});
+
+export const listGroups     = wrap(async (req, res) => res.json({ success: true, ...(await svc.listGroups(req.user)) }));

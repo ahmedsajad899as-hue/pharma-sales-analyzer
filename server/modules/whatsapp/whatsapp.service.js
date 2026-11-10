@@ -18,6 +18,7 @@ import prisma from '../../lib/prisma.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
 import { handleWarehouseCloudMessage, handleDispatchStatus } from '../warehouse-dispatch/dispatch.inbound.js';
 import { registerNotifier } from '../warehouse-dispatch/dispatch.notify.js';
+import { logWa, describeInbound, describeOutbound } from './wa-chat-log.js';
 
 /** قراءات متأخّرة — لا قيمة محفوظة في نطاق الموديل. */
 export const whatsappToken     = () => process.env.WHATSAPP_TOKEN || '';
@@ -84,6 +85,8 @@ export async function sendRaw(to, payload, { kind = 'service' } = {}) {
   });
   const id = r.data?.messages?.[0]?.id ?? null;
   if (id) await countOutgoing(kind);
+  const d = describeOutbound(payload);
+  await logWa({ waId: to, direction: 'out', kind: d.kind, text: d.text, waMessageId: id, error: id ? null : (r.error?.message || 'فشل الإرسال') });
   return id ? { id } : { error: r.error || { code: 'UNKNOWN', message: 'لم يُرجع واتساب معرّف رسالة' } };
 }
 
@@ -201,6 +204,11 @@ function imageRef(message) {
 async function handleOneMessage(message, contactName) {
   const waId = message?.from;
   if (!waId || seenOnce(message.id)) return;
+
+  // كل رسالة واردة تُسجَّل قبل أي معالجة — حتى ما يتجاهله البوت (صوت، رقم غير مربوط)
+  // كي يرى المدير ما طُلب فعلاً ولم يُجَب.
+  const shown = describeInbound(message);
+  await logWa({ waId, direction: 'in', ...shown, contactName, waMessageId: message.id });
 
   // ردود المذاخر (أزرار الطلبية، صورة فاتورة، سبب رفض) قبل مسار طلبيات المندوبين —
   // رقم المذخر غير مربوط بحساب فكان سيتلقّى «هذا الرقم غير مربوط».

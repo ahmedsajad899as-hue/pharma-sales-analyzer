@@ -3493,6 +3493,25 @@ model WaMessageCounter {
   @@map("wa_message_counters")
 }
 
+// سجلّ محادثات رقم البوت الرسمي (واتساب Cloud API) — كل رسالة واردة وصادرة، ليرى المدير
+// ومالك التطبيق ما يدور بين البوت والمندوبين/المذاخر. يُنظَّف تلقائياً بعد 90 يوماً.
+model WaMessageLog {
+  id          Int      @id @default(autoincrement())
+  waId        String // الطرف الآخر (9647…)
+  direction   String // in | out
+  kind        String // text | image | button | list | template | interactive | audio | other
+  text        String?
+  mediaId     String? // media id من واتساب للصورة الواردة (يبقى صالحاً ~30 يوماً)
+  contactName String?
+  waMessageId String?
+  error       String? // فشل الإرسال
+  createdAt   DateTime @default(now())
+
+  @@index([waId, createdAt])
+  @@index([createdAt])
+  @@map("wa_message_logs")
+}
+
 model RepOrder {
   id            Int       @id @default(autoincrement())
   officeId      Int?
