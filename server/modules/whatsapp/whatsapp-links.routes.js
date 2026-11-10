@@ -2,6 +2,7 @@ import express from 'express';
 import { listLinks, createLink, updateLink, deleteLink } from './whatsapp-links.controller.js';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import * as chats from '../warehouse-dispatch/dispatch.chats.js';
+import { getOrderFormConfig, setOrderFormConfig, buildOrderFlowJson } from './wa-order-form.js';
 
 const router = express.Router();
 
@@ -18,6 +19,10 @@ router.get('/chats/media/:logId', wrap(async (req, res) => {
 }));
 router.get('/chats/:waId', wrap(async (req, res) => res.json({ success: true, ...(await chats.chatMessages(chats.masterActor(req.superAdmin), req.params.waId, req.query)) })));
 router.post('/chats/:waId/send', wrap(async (req, res) => res.json({ success: true, ...(await chats.sendChatMessage(chats.masterActor(req.superAdmin), req.params.waId, req.body)) })));
+
+// نموذج الطلبية داخل واتساب (Flows): معرّف النموذج + JSON يُلصق في WhatsApp Manager
+router.get('/order-form', wrap(async (req, res) => res.json({ success: true, config: await getOrderFormConfig({ fresh: true }), flowJson: buildOrderFlowJson() })));
+router.put('/order-form', wrap(async (req, res) => res.json({ success: true, config: await setOrderFormConfig(req.body || {}) })));
 
 router.get('/',       listLinks);
 router.post('/',      createLink);

@@ -21,6 +21,7 @@ import { registerNotifier } from '../warehouse-dispatch/dispatch.notify.js';
 import { logWa, describeInbound, describeOutbound, humanChatState } from './wa-chat-log.js';
 import { isExplicitOrderIntent } from '../orders/order-trigger.js';
 import { parseWarehouseText } from '../warehouse-dispatch/dispatch.inbound.js';
+import { maybeSendOrderForm, handleOrderFormReply } from './wa-order-form.js';
 
 /** قراءات متأخّرة — لا قيمة محفوظة في نطاق الموديل. */
 export const whatsappToken     = () => process.env.WHATSAPP_TOKEN || '';
@@ -220,6 +221,17 @@ async function handleOneMessage(message, contactName) {
     if ((human.replyToHuman || human.recentHuman) && !parseWarehouseText(body).action && !isExplicitOrderIntent(body)) return;
   }
 
+  // نموذج الطلبية المُرسَل (WhatsApp Flows) — قبل ردود المذاخر لأنه ردّ تفاعلي أيضاً
+  if (message.type === 'interactive' && message.interactive?.type === 'nfm_reply') {
+    const actor = await resolveActor(waId, contactName);
+    try {
+      await handleOrderFormReply({ message, waId: String(waId), user: actor?.user || null, sendText: sendMessage });
+    } catch (err) {
+      console.error('[whatsapp] نموذج الطلبية:', err);
+    }
+    return;
+  }
+
   // ردود المذاخر (أزرار الطلبية، صورة فاتورة، سبب رفض) قبل مسار طلبيات المندوبين —
   // رقم المذخر غير مربوط بحساب فكان سيتلقّى «هذا الرقم غير مربوط».
   try {
@@ -238,6 +250,15 @@ async function handleOneMessage(message, contactName) {
     where: { waId: String(waId) },
     data:  { lastMessageId: String(message.id ?? '') },
   }).catch(() => {});
+
+  // اسم صيدلية وحده (بلا أرقام) ⇒ نموذج الطلبية بدل قراءة نصّ — لمن فُعّلت له الميزة
+  if (!img && actor.link.orderTextMode !== 'off') {
+    try {
+      if (await maybeSendOrderForm({ waId: String(waId), user: actor.user, text: message.text?.body, sendRaw, sendText: sendMessage })) return;
+    } catch (err) {
+      console.error('[whatsapp] إرسال نموذج الطلبية:', err);
+    }
+  }
 
   try {
     await handleIncomingOrderMessage({

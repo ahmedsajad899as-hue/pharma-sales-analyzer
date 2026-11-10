@@ -7,6 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from '../../lib/prisma.js';
+import { describeFormReply } from './wa-order-form.js';
 
 const KEEP_DAYS = 90;
 const MAX_TEXT = 4000;
@@ -76,6 +77,7 @@ export function describeInbound(m) {
       return { kind: isImg ? 'image' : 'document', text: m.document?.caption || m.document?.filename || '[ملف]', mediaId: isImg ? m.document?.id : null };
     }
     case 'interactive': {
+      if (m.interactive?.type === 'nfm_reply') return { kind: 'button', text: describeFormReply(m.interactive.nfm_reply?.response_json) };
       const r = m.interactive?.button_reply || m.interactive?.list_reply;
       return { kind: 'button', text: r ? `🔘 ${r.title}` : '[ردّ تفاعلي]' };
     }

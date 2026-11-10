@@ -1096,6 +1096,8 @@ export async function ingestBotOrder({
   user, source, chatId, chatTitle = null, senderName = null,
   kind, sourceText = null, rows, imageBuffers = [], mediaKeys = [], sourceMessageId = null,
   maxPending = MAX_PENDING_ORDERS_PER_USER, readBy = null,
+  // false = تسجيل مبيع فقط (نموذج واتساب «مبيع تمّ») — لا إرسال للمذخر
+  dispatch = true,
 }) {
   if (!rows?.length) throw new AppError('لم أتعرّف على أي صنف في هذه الطلبية.', 422, 'NO_ORDER_ROWS');
 
@@ -1161,7 +1163,7 @@ export async function ingestBotOrder({
   // لكل فاتورة مرفوعة (2026-11-02).
   const toDispatch = kind === 'photo' ? rows.filter(r => !r.invoiceNumber && !r.warehouse) : rows;
   // كروب مندوبين بقراءة صامتة (wa_group) = تسجيل مبيعات فقط، لا إرسال للمذاخر
-  if (toDispatch.length && source !== 'wa_group') {
+  if (dispatch && toDispatch.length && source !== 'wa_group') {
     createFromBotOrder({ user, pendingId: pendingIds[0] ?? null, rows: toDispatch, source, chatId, repName: repName || senderName });
   }
   return lines.join('\n');

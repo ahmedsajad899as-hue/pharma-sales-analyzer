@@ -88,6 +88,8 @@ export default function WhatsAppLinksPage() {
         محادثات فردية فقط — لا كروبات.
       </div>
 
+      <OrderFormBox token={token} />
+
       {loading ? <Spinner /> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(270px,1fr))', gap: 12 }}>
           {links.map(l => (
@@ -140,6 +142,71 @@ export default function WhatsAppLinksPage() {
             <button onClick={save} disabled={saving} style={btnStyle('#0f172a', true)}>{saving ? '...' : 'حفظ'}</button>
           </div>
         </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── نموذج الطلبية داخل واتساب (WhatsApp Flows) ───────────────────────────────
+// إعداد لمرة واحدة: نسخ JSON → WhatsApp Manager → Flows → إنشاء نموذج → لصق → نشر →
+// لصق معرّف النموذج هنا. بعدها يفعّل السوبر أدمن الميزة لكل مندوب من «المميزات».
+function OrderFormBox({ token }: { token: string | null }) {
+  const [flowId, setFlowId] = useState('');
+  const [draft, setDraft] = useState(false);
+  const [json, setJson] = useState('');
+  const [msg, setMsg] = useState('');
+  const [open, setOpen] = useState(false);
+  const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
+
+  useEffect(() => {
+    fetch('/api/sa/whatsapp-links/order-form', { headers: H() }).then(r => r.json()).then(d => {
+      setFlowId(d.config?.orderFlowId || '');
+      setDraft(Boolean(d.config?.orderFlowDraft));
+      setJson(JSON.stringify(d.flowJson, null, 2));
+      if (!d.config?.orderFlowId) setOpen(true);
+    }).catch(() => {});
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async () => {
+    setMsg('');
+    const r = await fetch('/api/sa/whatsapp-links/order-form', { method: 'PUT', headers: H(), body: JSON.stringify({ orderFlowId: flowId, orderFlowDraft: draft }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { setMsg(d.error || 'تعذّر الحفظ'); return; }
+    setFlowId(d.config?.orderFlowId || '');
+    setMsg(d.config?.orderFlowId ? '✅ حُفظ — النموذج يعمل لمن فُعّلت له ميزة «نموذج الطلبية في واتساب»' : '✅ حُفظ — النموذج متوقف (بلا معرّف)');
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(json); setMsg('📋 نُسخ JSON النموذج'); } catch { setMsg('انسخه يدوياً من المربع'); }
+  };
+
+  return (
+    <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '12px 14px', marginBottom: 18, fontSize: 12.5, color: '#0c4a6e', lineHeight: 1.8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <b>📝 نموذج الطلبية داخل واتساب {flowId ? <span style={{ color: '#16a34a' }}>— مفعّل{draft ? ' (تجربة)' : ''}</span> : <span style={{ color: '#b45309' }}>— غير مُعدّ</span>}</b>
+        <button onClick={() => setOpen(o => !o)} style={btnStyle('#0369a1', true)}>{open ? 'إخفاء' : 'الإعداد'}</button>
+      </div>
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          <div>المندوب يكتب اسم الصيدلية فيرد البوت بزر يفتح نموذجاً: ايتماته بقائمة منسدلة + العدد والبونص + المذخر + «مبيع تمّ / طلبية للمذخر». الإعداد لمرة واحدة:</div>
+          <ol style={{ margin: '6px 0', paddingInlineStart: 20 }}>
+            <li>اضغط «نسخ JSON النموذج».</li>
+            <li>افتح WhatsApp Manager ← الحساب Thenashir ← <b>Flows</b> ← <b>Create flow</b> (الفئة: Other، بدون endpoint).</li>
+            <li>امسح المحتوى في المحرّر والصق المنسوخ، ثم <b>Save</b>. (للتجربة قبل النشر فعّل «تجربة» أدناه.)</li>
+            <li>اضغط <b>Publish</b>، وانسخ <b>Flow ID</b> (رقم طويل) والصقه هنا واحفظ.</li>
+            <li>فعّل لكل مندوب ميزة «نموذج الطلبية في واتساب» من المستخدمين ← المميزات.</li>
+          </ol>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '8px 0' }}>
+            <button onClick={copy} style={btnStyle('#1e293b', true)}>📋 نسخ JSON النموذج</button>
+            <input value={flowId} onChange={e => setFlowId(e.target.value)} placeholder="Flow ID" dir="ltr"
+              style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, minWidth: 200 }} />
+            <label style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <input type="checkbox" checked={draft} onChange={e => setDraft(e.target.checked)} /> تجربة (نموذج غير منشور)
+            </label>
+            <button onClick={save} style={btnStyle('#16a34a', true)}>حفظ</button>
+          </div>
+          {msg && <div style={{ fontWeight: 600 }}>{msg}</div>}
+          <textarea readOnly value={json} dir="ltr" style={{ width: '100%', height: 120, fontFamily: 'monospace', fontSize: 11, marginTop: 6, boxSizing: 'border-box' }} />
+        </div>
       )}
     </div>
   );

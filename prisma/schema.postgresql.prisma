@@ -3523,6 +3523,32 @@ model WaMessageLog {
   @@map("wa_message_logs")
 }
 
+// نموذج الطلبية داخل واتساب (WhatsApp Flows) — إعداد عام واحد (id=1). orderFlowId يُنشأ
+// يدوياً في WhatsApp Manager من JSON تولّده لوحة الماستر، ثم يُلصق معرّفه هنا.
+model WaBotConfig {
+  id             Int      @id @default(1)
+  orderFlowId    String?
+  orderFlowDraft Boolean  @default(false) // نموذج غير منشور بعد — يُرسل بوضع draft للتجربة
+  updatedAt      DateTime @updatedAt
+
+  @@map("wa_bot_config")
+}
+
+// جلسة نموذج: تُنشأ عند إرسال النموذج للمندوب، وتُقفل عند الإرسال (submittedAt) فلا يُحسب مرتين.
+model WaFlowSession {
+  token       String    @id
+  userId      Int
+  waId        String
+  pharmacy    String?
+  area        String?
+  createdAt   DateTime  @default(now())
+  submittedAt DateTime?
+  result      String? // sale:<repSaleId>|order:<repOrderId>
+
+  @@index([createdAt])
+  @@map("wa_flow_sessions")
+}
+
 model RepOrder {
   id            Int       @id @default(autoincrement())
   officeId      Int?
