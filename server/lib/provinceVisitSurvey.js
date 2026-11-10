@@ -213,32 +213,13 @@ async function buildAreaCatalog(ctx) {
     return provinceMap(province.id).get(key) ?? placeByName(province.name, key, province);
   };
 
-  const memo = new Map();
-  const resolveUncached = async (text, province) => {
-    if (!text || ctx.provinceOfText(text)?.id === province.id) return centerOf(province);
-
-    const key = normalizeAreaName(text);
-    if (!key) return centerOf(province);
-    const map = provinceMap(province.id);
-    const exact = map.get(key);
-    if (exact) return exact;
-
-    // عنوان وصفي يحوي اسم منطقة من المحافظة بكلمات كاملة («ناحية الحسينية»، «شارع
-    // الاسكان») — الأطول يغلب. أسماء المحافظة نفسها لا تُحتسب: كل عنوان قد يذكرها.
-    const ownKeys = provinceNameKeys(province);
-    const wrapped = ` ${key} `;
-    let best = null, bestLen = 0;
-    for (const [k, a] of map) {
-      if (k.length > 2 && !ownKeys.has(k) && k.length > bestLen && wrapped.includes(` ${k} `)) { best = a; bestLen = k.length; }
-    }
-    if (best) return best;
-    return placeByName(text, key, province);
-  };
-  catalog.resolve = async (rawText, province) => {
-    const text = String(rawText ?? '').trim();
-    const k = `${province.id}|${normalizeAreaName(text)}`;
-    if (!memo.has(k)) memo.set(k, await resolveUncached(text, province));
-    return memo.get(k);
+  // سيرفي المحافظات منطقته المحافظة نفسها (طلب المستخدم 2026-11-10): «حي الغدير» في
+  // كربلاء يُسجَّل «كربلاء» والحيّ يُحفظ في الزون/العنوان. المركز لا اسم المحافظة
+  // حرفياً حين يصطدم بحيّ في بغداد (القادسية ⇒ الديوانية) — راجع provinceNameCollision.
+  const centers = new Map();
+  catalog.center = async (province) => {
+    if (!centers.has(province.id)) centers.set(province.id, await centerOf(province));
+    return centers.get(province.id);
   };
   catalog.anyByKey = anyByKey;
   catalog.knownNames = () => new Set(areas.map(a => normalizeAreaName(a.name)));
@@ -280,15 +261,106 @@ function provinceForRow(row, areaText, rep, ctx, catalog) {
 // الصف رجع لاسم/عنوان الملف إن كان قد تبنّى هوية طبيب من مسار بغداد قبل اختيار المندوب.
 const rowDoctorName = r => String(r.rawDoctorName || r.doctorName || '').trim();
 const rowSpecialty  = r => String(r.rawSpecialty ?? r.specialty ?? '').trim();
-const rowAreaText   = r => (r.areaId ? (r.rawAreaText ?? r.areaName) : r.areaName);
+const rowAreaText   = r => String((r.areaId ? (r.rawAreaText ?? r.areaName) : r.areaName) ?? '').trim();
+// صيدلية الطبيب من الملف (عمود associated-client) — لا ما تبنّاه من سجل بغداد.
+const rowPharmacy   = r => String(r.rawPharmacyName ?? r.pharmacyName ?? '').trim();
 
 const specialtyConflict = (a, b) => !!a && !!b && normalizeRepName(a) !== normalizeRepName(b);
 const sameSpecialty     = (a, b) => !!a && !!b && normalizeRepName(a) === normalizeRepName(b);
 
+/** الحيّ كما كتبه المندوب — يُحفظ في الزون/العنوان. اسم المحافظة نفسها ليس حيّاً. */
+function subAreaText(text, province, ctx) {
+  const t = String(text ?? '').trim();
+  if (!t || ctx.provinceOfText(t)?.id === province.id) return '';
+  return t;
+}
+
 /**
- * يجهّز صفوف زيارات المحافظات قبل الحفظ العادي: يحسم منطقة كل صف داخل محافظته،
- * ويسجّل الطبيب/الصيدلية في السيرفي مرة واحدة. الصفوف تُعدَّل في مكانها، وصفوف
- * غير المحافظات لا تُمسّ. فشل صف لا يوقف البقية — يبقى في المسار العادي ويُذكر.
+ * سجلّ صيدليات سيرفي المحافظات، مقسوماً على المحافظات. منطقة صيدلية المحافظة هي
+ * المحافظة كلها، فالمطابقة داخل المحافظة. يُستعمل لصفوف زيارات الصيدليات ولصيدلية
+ * الطبيب القريبة معاً، فالاسم القانوني واحد ويربط الطرفين في صفحة السيرفي.
+ */
+async function buildPharmacyRegistry({ surveyId, surveyIds, catalog, ownerUserId, knownNames }) {
+  const [surveyPharms, pharmacyAliases] = await Promise.all([
+    prisma.masterSurveyPharmacy.findMany({
+      where: { surveyId: { in: surveyIds }, isActive: true },
+      select: { id: true, name: true, areaName: true, address: true },
+    }),
+    loadSurveyPharmacyAliases(surveyIds),
+  ]);
+  const phById = new Map(surveyPharms.map(p => [p.id, p]));
+  const provinceOfPharm = p => catalog.anyByKey.get(areaKeyOf(p.areaName))?.provinceId ?? null;
+  const nameKey = name => pharmacyDedupKey(name, '').split('::')[0];
+  const byProvince = new Map(); // provinceId → { byName: Map, list: [] }
+  const bucketOf = (pid) => {
+    if (!byProvince.has(pid)) byProvince.set(pid, { byName: new Map(), list: [] });
+    return byProvince.get(pid);
+  };
+  const addPharm = (pid, p) => {
+    const b = bucketOf(pid);
+    const k = nameKey(p.name);
+    if (k && !b.byName.has(k)) b.byName.set(k, p);
+    b.list.push(p);
+  };
+  // عند تغيّر الكتالوج فقط، لا لكل اسم صيدلية
+  let unplaced = surveyPharms;
+  let placedAtVersion = -1;
+  const place = () => {
+    if (placedAtVersion === catalog.version) return;
+    placedAtVersion = catalog.version;
+    unplaced = unplaced.filter(p => {
+      const pid = provinceOfPharm(p);
+      if (pid == null) return true;
+      addPharm(pid, p);
+      return false;
+    });
+  };
+
+  const memo = new Map();
+  const stats = { newPharmacies: 0 };
+  /** @returns {Promise<{id:number,name:string,areaName:string,address:string|null}>} الصف القانوني */
+  const ensure = async (rawName, area, subArea) => {
+    const name = normalizePharmacyStoredName(rawName) || rawName;
+    const memoKey = `${area.provinceId}|${nameKey(name)}`;
+    let match = memo.get(memoKey);
+    if (!match) {
+      place();
+      const bucket = bucketOf(area.provinceId);
+      const aliasId = pharmacyAliases.get(pharmacyDedupKey(name, area.name));
+      match = (aliasId && phById.get(aliasId)) || bucket.byName.get(nameKey(name)) || null;
+      if (!match) {
+        let bestScore = 0;
+        for (const p of bucket.list) {
+          const score = pharmacyMatchScore({ name: p.name, areaName: area.name }, { name, areaName: area.name });
+          if (score > bestScore) { bestScore = score; match = p; }
+        }
+        if (bestScore < PHARMACY_FUZZY_MIN) match = null;
+      }
+      if (!match) {
+        const made = await createSurveyPharmacy(surveyId, { name, areaName: area.name, address: subArea || null }, ownerUserId, knownNames);
+        const row = made?.updated ?? made; // صيدلية معطَّلة أُرجعت للعمل تعيد { old, updated }
+        match = { id: row.id, name: row.name, areaName: row.areaName, address: row.address ?? null };
+        phById.set(match.id, match);
+        addPharm(area.provinceId, match);
+        if (!made?._duplicate && !made?.updated) stats.newPharmacies++;
+      }
+      memo.set(memoKey, match);
+    }
+    // صيدلية سُجّلت بلا عنوان (من صيدلية طبيب) ثم زارها مندوب بعنوان ⇒ يُكمَّل
+    if (subArea && !match.address && match.id) {
+      match.address = subArea;
+      await prisma.masterSurveyPharmacy.update({ where: { id: match.id }, data: { address: subArea } });
+    }
+    return match;
+  };
+  return { ensure, stats };
+}
+
+/**
+ * يجهّز صفوف زيارات المحافظات قبل الحفظ العادي: كل صف يُسجَّل بمنطقة محافظته نفسها
+ * (والحيّ في الزون/العنوان)، والطبيب/الصيدلية في السيرفي مرة واحدة، وصيدلية الطبيب
+ * القريبة (associated-client) تُسجَّل وتُربط به. الصفوف تُعدَّل في مكانها، وصفوف غير
+ * المحافظات لا تُمسّ. فشل صف لا يوقف البقية — يبقى في المسار العادي ويُذكر.
  */
 export async function prepareProvinceVisitRows({ doctorRows = [], pharmacyRows = [], ownerUserId }) {
   const empty = { provinceRows: 0, newDoctors: 0, newPharmacies: 0, newAreas: 0, errors: [] };
@@ -303,16 +375,17 @@ export async function prepareProvinceVisitRows({ doctorRows = [], pharmacyRows =
   const surveys = await prisma.masterSurvey.findMany({ where: { isActive: true }, select: { id: true } });
   const surveyIds = [...new Set([...surveys.map(s => s.id), surveyId])];
   const errors = [];
-  let newDoctors = 0, newPharmacies = 0;
+  let newDoctors = 0;
+  const pharmacies = await buildPharmacyRegistry({ surveyId, surveyIds, catalog, ownerUserId, knownNames });
 
-  /** منطقة الصف + أثره: مندوب زار خارج محافظته تُسند له تلك المنطقة فلا تختفي زيارته. */
+  /** منطقة الصف (المحافظة) + الحيّ + أثره: مندوب زار خارج محافظته تُسند له منطقتها فلا تختفي زيارته. */
   const outsideLinked = new Set();
-  const areaForRow = async (r) => {
+  const placeRow = async (r) => {
     const rep = ctx.repIndex.get(r.repId);
     const text = rowAreaText(r);
     const province = provinceForRow(r, text, rep, ctx, catalog);
     if (!province) return null;
-    const area = await catalog.resolve(text, province);
+    const area = await catalog.center(province);
     knownNames.add(normalizeAreaName(area.name));
     if (!rep.provinceIds.has(province.id)) {
       const k = `${rep.userId}|${area.id}`;
@@ -321,7 +394,7 @@ export async function prepareProvinceVisitRows({ doctorRows = [], pharmacyRows =
         await prisma.userAreaAssignment.createMany({ data: [{ userId: rep.userId, areaId: area.id }], skipDuplicates: true });
       }
     }
-    return area;
+    return { area, subArea: subAreaText(text, province, ctx) };
   };
 
   // ── الأطباء ───────────────────────────────────────────────────────────────
@@ -329,7 +402,7 @@ export async function prepareProvinceVisitRows({ doctorRows = [], pharmacyRows =
     const [surveyDocs, doctorAliases, ownerDoctors] = await Promise.all([
       prisma.masterSurveyDoctor.findMany({
         where: { surveyId: { in: surveyIds }, isActive: true },
-        select: { id: true, name: true, areaName: true, specialty: true },
+        select: { id: true, surveyId: true, name: true, areaName: true, specialty: true, pharmacyName: true, zoneName: true },
       }),
       loadSurveyDoctorAliases(surveyIds),
       prisma.doctor.findMany({
@@ -376,56 +449,72 @@ export async function prepareProvinceVisitRows({ doctorRows = [], pharmacyRows =
       return provinceIndexes.get(provinceId);
     };
 
-    /** @returns {{ sd: object, fuzzy: boolean }|null} */
+    /**
+     * المنطقة هي المحافظة كلها، فالفهرس (pi) محصور بها أصلاً. الاسم نفسه يكفي ما لم
+     * يتعارض الاختصاص (اسمان متطابقان باختصاصين = شخصان)، والتشابه الإملائي بلا
+     * تعارض اختصاص يُربط ويُعرض للمراجعة.
+     * @returns {{ sd: object, fuzzy: boolean }|null}
+     */
     const findDoctor = (name, specialty, area, pi) => {
-      if (doctorAliases.has(doctorLinkKey(name, area.name))) {
-        const sd = sdById.get(doctorAliases.get(doctorLinkKey(name, area.name)));
-        if (sd) return { sd, fuzzy: false };
-      }
+      const aliasId = doctorAliases.get(doctorLinkKey(name, area.name));
+      if (aliasId && sdById.get(aliasId)) return { sd: sdById.get(aliasId), fuzzy: false };
       const key = normalizeRepName(cleanDoctorName(name));
       const sameName = pi.byName.get(key) ?? [];
-      const inArea = sameName.find(d => areaOf(d)?.id === area.id);
-      if (inArea) return { sd: inArea, fuzzy: false };
+      const bySpecialty = sameName.find(d => sameSpecialty(specialty, d.specialty));
+      if (bySpecialty) return { sd: bySpecialty, fuzzy: false };
+      const noConflict = sameName.find(d => !specialtyConflict(specialty, d.specialty));
+      if (noConflict) return { sd: noConflict, fuzzy: false };
 
-      // تهجئة مختلفة قليلاً في المنطقة نفسها («عبد الكريم» ↔ «عبدالكريم عليوي»)
+      // تهجئة مختلفة قليلاً («عبد الكريم» ↔ «عبدالكريم عليوي»)
       let best = null, bestScore = 0;
       for (const d of pi.index.candidatesFor(name)) {
-        if (areaOf(d)?.id !== area.id || specialtyConflict(specialty, d.specialty)) continue;
+        if (specialtyConflict(specialty, d.specialty)) continue;
         const score = doctorMatchScore({ name, areaName: area.name, specialty }, { name: d.name, areaName: area.name, specialty: d.specialty });
         if (score > bestScore) { bestScore = score; best = d; }
       }
       if (best && bestScore >= DOCTOR_FUZZY_MIN) return { sd: best, fuzzy: true };
-
-      // الاسم نفسه بعنوان آخر داخل المحافظة: عنوان CRM نص حر («الاسكان»/«طويريج») وقد
-      // يكون للطبيب عيادتان. يكفي الاسم حين يكون كاملاً (3 كلمات فأكثر) أو يطابق
-      // الاختصاص أيضاً — اسم ثنائي بلا دليل آخر قد يكون شخصاً مختلفاً فعلاً.
-      if (sameName.length) {
-        const bySpecialty = sameName.find(d => sameSpecialty(specialty, d.specialty));
-        if (bySpecialty) return { sd: bySpecialty, fuzzy: false };
-        const noConflict = sameName.find(d => !specialtyConflict(specialty, d.specialty));
-        if (noConflict && nameTokens(key).length >= 3) return { sd: noConflict, fuzzy: false };
-      }
       return null;
     };
 
-    const resolvedByRow = new Map(); // اسم|منطقة|اختصاص → { doctorId, sd } — آلاف الصفوف لنفس الطبيب
+    /** يكمّل خانات طبيب السيرفي الفارغة فقط — ما كتبه مستخدم لا يُمسّ. */
+    const fillDoctorBlanks = async (sd, { pharmacyName, zoneName }) => {
+      const data = {};
+      if (pharmacyName && !sd.pharmacyName) data.pharmacyName = pharmacyName;
+      if (zoneName && !sd.zoneName) data.zoneName = zoneName;
+      if (!Object.keys(data).length) return;
+      Object.assign(sd, data);
+      await prisma.masterSurveyDoctor.update({ where: { id: sd.id }, data });
+      if (data.pharmacyName) {
+        await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: sd.id, pharmacyName: null }, data: { pharmacyName: data.pharmacyName } });
+      }
+    };
+
+    const resolvedByRow = new Map(); // اسم|محافظة|اختصاص → { doctorId, sd } — آلاف الصفوف لنفس الطبيب
     let n = 0;
     for (const r of docs) {
       if (++n % 100 === 0) await new Promise(res => setImmediate(res)); // لا تُحجز حلقة الأحداث
       try {
         const name = cleanDoctorName(rowDoctorName(r));
         const specialty = rowSpecialty(r);
-        const area = await areaForRow(r);
-        if (!name || !area) continue;
+        const placed = await placeRow(r);
+        if (!name || !placed) continue;
+        const { area, subArea } = placed;
 
-        const memoKey = `${normalizeRepName(name)}|${area.id}|${normalizeRepName(specialty)}`;
+        // صيدلية الطبيب القريبة — تُسجَّل في صيدليات السيرفي باسمها القانوني نفسه
+        const nearRaw = rowPharmacy(r);
+        const near = nearRaw ? await pharmacies.ensure(nearRaw, area, '') : null;
+
+        const memoKey = `${normalizeRepName(name)}|${area.provinceId}|${normalizeRepName(specialty)}`;
         let hit = resolvedByRow.get(memoKey);
         if (!hit) {
           const pi = provinceIndex(area.provinceId);
           const found = findDoctor(name, specialty, area, pi);
           let sd = found?.sd ?? null;
           if (!sd) {
-            sd = await createSurveyDoctor(surveyId, { name, specialty: specialty || null, areaName: area.name }, ownerUserId, knownNames);
+            sd = await createSurveyDoctor(surveyId, {
+              name, specialty: specialty || null, areaName: area.name,
+              pharmacyName: near?.name ?? null, zoneName: subArea || null,
+            }, ownerUserId, knownNames);
             sdById.set(sd.id, sd);
             addToIndex(area.provinceId, sd);
             newDoctors++;
@@ -435,6 +524,7 @@ export async function prepareProvinceVisitRows({ doctorRows = [], pharmacyRows =
             const created = await prisma.doctor.create({
               data: {
                 name: sd.name, specialty: sd.specialty ?? (specialty || null), areaId: areaOf(sd)?.id ?? area.id,
+                pharmacyName: sd.pharmacyName ?? near?.name ?? null,
                 userId: ownerUserId, masterSurveyDoctorId: sd.id,
               },
               select: { id: true },
@@ -454,11 +544,17 @@ export async function prepareProvinceVisitRows({ doctorRows = [], pharmacyRows =
           hit = { doctorId, sd };
           resolvedByRow.set(memoKey, hit);
         }
+        // خانات طبيب سيرفي المحافظات وحده تُكمَّل — لا سيرفي آخر رُبط به عرضاً
+        if (hit.sd.surveyId === surveyId || hit.sd.surveyId == null) {
+          await fillDoctorBlanks(hit.sd, { pharmacyName: near?.name, zoneName: subArea });
+        }
 
         r.doctorId = hit.doctorId;
         r.doctorName = hit.sd.name;
         r.surveyDoctorId = null;
         r.forceNewDoctor = false;
+        r.pharmacyName = hit.sd.pharmacyName || near?.name || '';
+        r.pharmacyFromFile = false; // سُجّلت هنا — لا يكتبها الحفظ العادي مرة ثانية
         const sdArea = areaOf(hit.sd) ?? area;
         r.areaId = sdArea.id;
         r.areaName = sdArea.name;
@@ -469,88 +565,77 @@ export async function prepareProvinceVisitRows({ doctorRows = [], pharmacyRows =
   }
 
   // ── الصيدليات ─────────────────────────────────────────────────────────────
-  if (pharm.length) {
-    const [surveyPharms, pharmacyAliases] = await Promise.all([
-      prisma.masterSurveyPharmacy.findMany({
-        where: { surveyId: { in: surveyIds }, isActive: true },
-        select: { id: true, name: true, areaName: true },
-      }),
-      loadSurveyPharmacyAliases(surveyIds),
-    ]);
-    const phById = new Map(surveyPharms.map(p => [p.id, p]));
-    const areaOfPharm = p => catalog.anyByKey.get(areaKeyOf(p.areaName)) ?? null;
-    const nameKey = name => pharmacyDedupKey(name, '').split('::')[0];
-    // زيارة الصيدلية تُطابَق بالاسم + المنطقة وقت العرض، فلا سجل صيدلية لكل مالك.
-    // فرعان بمنطقتين صيدليتان فعلاً — فلا بحث خارج المنطقة (خلافاً للأطباء).
-    const byArea = new Map(); // areaId → { byName: Map, list: [] }
-    const bucketOf = (areaId) => {
-      if (!byArea.has(areaId)) byArea.set(areaId, { byName: new Map(), list: [] });
-      return byArea.get(areaId);
-    };
-    const addPharm = (areaId, p) => {
-      const b = bucketOf(areaId);
-      const k = nameKey(p.name);
-      if (k && !b.byName.has(k)) b.byName.set(k, p);
-      b.list.push(p);
-    };
-    // نفس توزيع الأطباء أعلاه: عند تغيّر الكتالوج فقط، لا لكل اسم صيدلية
-    let unplaced = surveyPharms;
-    let placedAtVersion = -1;
-    const placePharmacies = () => {
-      if (placedAtVersion === catalog.version) return;
-      placedAtVersion = catalog.version;
-      unplaced = unplaced.filter(p => {
-        const a = areaOfPharm(p);
-        if (!a) return true;
-        addPharm(a.id, p);
-        return false;
-      });
-    };
-
-    const memo = new Map();
-    let n = 0;
-    for (const r of pharm) {
-      if (++n % 100 === 0) await new Promise(res => setImmediate(res));
-      try {
-        const name = normalizePharmacyStoredName(String(r.pharmacyName).trim()) || String(r.pharmacyName).trim();
-        const area = await areaForRow(r);
-        if (!area) continue;
-
-        const memoKey = `${area.id}|${nameKey(name)}`;
-        let canonical = memo.get(memoKey);
-        if (!canonical) {
-          placePharmacies();
-          const bucket = bucketOf(area.id);
-          const aliasId = pharmacyAliases.get(pharmacyDedupKey(name, area.name));
-          let match = (aliasId && phById.get(aliasId)) || bucket.byName.get(nameKey(name)) || null;
-          if (!match) {
-            let bestScore = 0;
-            for (const p of bucket.list) {
-              const score = pharmacyMatchScore({ name: p.name, areaName: area.name }, { name, areaName: area.name });
-              if (score > bestScore) { bestScore = score; match = p; }
-            }
-            if (bestScore < PHARMACY_FUZZY_MIN) match = null;
-          }
-          if (!match) {
-            const made = await createSurveyPharmacy(surveyId, { name, areaName: area.name }, ownerUserId, knownNames);
-            const row = made?.updated ?? made; // صيدلية معطَّلة أُرجعت للعمل تعيد { old, updated }
-            match = { id: row.id, name: row.name, areaName: row.areaName };
-            phById.set(match.id, match);
-            addPharm(area.id, match);
-            if (!made?._duplicate && !made?.updated) newPharmacies++;
-          }
-          canonical = match.name;
-          memo.set(memoKey, canonical);
-        }
-
-        r.pharmacyName = canonical;
-        r.areaId = area.id;
-        r.areaName = area.name;
-      } catch (e) {
-        errors.push(`صيدلية محافظة — صف ${r?._row ?? '?'}: ${e.message}`);
-      }
+  let n = 0;
+  for (const r of pharm) {
+    if (++n % 100 === 0) await new Promise(res => setImmediate(res));
+    try {
+      const placed = await placeRow(r);
+      if (!placed) continue;
+      const match = await pharmacies.ensure(String(r.pharmacyName).trim(), placed.area, placed.subArea);
+      r.pharmacyName = match.name;
+      r.areaId = placed.area.id;
+      r.areaName = placed.area.name;
+    } catch (e) {
+      errors.push(`صيدلية محافظة — صف ${r?._row ?? '?'}: ${e.message}`);
     }
   }
 
-  return { provinceRows: docs.length + pharm.length, newDoctors, newPharmacies, newAreas: catalog.stats.newAreas, errors };
+  return {
+    provinceRows: docs.length + pharm.length, newDoctors, newPharmacies: pharmacies.stats.newPharmacies,
+    newAreas: catalog.stats.newAreas, errors,
+  };
+}
+
+/**
+ * ترحيل لمرة واحدة (idempotent، عند الإقلاع): سيرفي المحافظات القديم سُجّل بأحياء
+ * («حي الغدير»). يُنقل كل طبيب/صيدلية لمنطقة محافظته والحيّ للزون/العنوان، ومعه
+ * صف Doctor المربوط وزيارات الصيدلية بالاسم نفسه — وإلا انفصلت الزيارات عن السيرفي.
+ */
+export async function migrateProvinceSurveyToProvinceAreas() {
+  const survey = await prisma.masterSurvey.findFirst({ where: { description: PROVINCE_SURVEY_DESC }, select: { id: true } });
+  if (!survey) return { doctors: 0, pharmacies: 0 };
+  const [docs, pharms] = await Promise.all([
+    prisma.masterSurveyDoctor.findMany({ where: { surveyId: survey.id }, select: { id: true, name: true, areaName: true, zoneName: true } }),
+    prisma.masterSurveyPharmacy.findMany({ where: { surveyId: survey.id }, select: { id: true, name: true, areaName: true, address: true } }),
+  ]);
+  if (!docs.length && !pharms.length) return { doctors: 0, pharmacies: 0 };
+
+  const ctx = await loadProvinceVisitContext();
+  const catalog = await buildAreaCatalog(ctx);
+  const provinceById = new Map(ctx.provinces.map(p => [p.id, p]));
+  /** المنطقة القديمة + مركز محافظتها، أو null إن كان الصف في مركزها أصلاً */
+  const moveOf = async (areaName) => {
+    const old = catalog.anyByKey.get(areaKeyOf(areaName));
+    const province = old?.provinceId != null ? provinceById.get(old.provinceId) : null;
+    if (!province || province.name === BAGHDAD_PROVINCE) return null;
+    const center = await catalog.center(province);
+    return center.id === old.id ? null : { old, center, province };
+  };
+
+  let doctors = 0, pharmacies = 0;
+  for (const d of docs) {
+    const mv = await moveOf(d.areaName);
+    if (!mv) continue;
+    await prisma.masterSurveyDoctor.update({
+      where: { id: d.id },
+      data: { areaName: mv.center.name, zoneName: d.zoneName || subAreaText(d.areaName, mv.province, ctx) || null },
+    });
+    await prisma.doctor.updateMany({ where: { masterSurveyDoctorId: d.id, areaId: mv.old.id }, data: { areaId: mv.center.id } });
+    doctors++;
+  }
+  for (const p of pharms) {
+    const mv = await moveOf(p.areaName);
+    if (!mv) continue;
+    await prisma.masterSurveyPharmacy.update({
+      where: { id: p.id },
+      data: { areaName: mv.center.name, address: p.address || subAreaText(p.areaName, mv.province, ctx) || null },
+    });
+    await prisma.pharmacyVisit.updateMany({
+      where: { pharmacyName: p.name, areaId: mv.old.id },
+      data: { areaId: mv.center.id, areaName: mv.center.name },
+    });
+    pharmacies++;
+  }
+  if (doctors || pharmacies) invalidateAreaSnapshot();
+  return { doctors, pharmacies };
 }

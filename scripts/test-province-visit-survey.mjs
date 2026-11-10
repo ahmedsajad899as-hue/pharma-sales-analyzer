@@ -23,6 +23,7 @@ const db = {
   ],
   spharm: [],
   doctors: [],
+  pvisits: [],
   links: [],
   assignments: [],
 };
@@ -74,6 +75,7 @@ globalThis.prisma = {
   masterSurveyDoctor: {
     findMany: async () => db.sdoctors.filter(d => d.isActive),
     create: async ({ data }) => { const d = { id: nextId++, isActive: true, ...data }; db.sdoctors.push(d); return d; },
+    update: async ({ where, data }) => { const d = db.sdoctors.find(x => x.id === where.id); Object.assign(d, data); return d; },
   },
   masterSurveyEditLog: { create: async () => ({}) },
   masterSurveyDoctorAlias: { findMany: async () => [] },
@@ -82,10 +84,25 @@ globalThis.prisma = {
     findMany: async () => db.spharm,
     findUnique: async ({ where }) => db.spharm.find(p => p.id === where.id) ?? null,
     create: async ({ data }) => { const p = { id: nextId++, isActive: true, ...data }; db.spharm.push(p); return p; },
+    update: async ({ where, data }) => { const p = db.spharm.find(x => x.id === where.id); Object.assign(p, data); return p; },
+  },
+  pharmacyVisit: {
+    updateMany: async ({ where, data }) => {
+      const hit = db.pvisits.filter(v => v.pharmacyName === where.pharmacyName && v.areaId === where.areaId);
+      hit.forEach(v => Object.assign(v, data));
+      return { count: hit.length };
+    },
   },
   doctor: {
     findMany: async () => db.doctors.filter(d => d.masterSurveyDoctorId != null),
     create: async ({ data }) => { const d = { id: nextId++, ...data }; db.doctors.push(d); return d; },
+    updateMany: async ({ where, data }) => {
+      const hit = db.doctors.filter(d => d.masterSurveyDoctorId === where.masterSurveyDoctorId
+        && (!('pharmacyName' in where) || (d.pharmacyName ?? null) === where.pharmacyName)
+        && (!('areaId' in where) || d.areaId === where.areaId));
+      hit.forEach(d => Object.assign(d, data));
+      return { count: hit.length };
+    },
   },
   doctorNameLink: { upsert: async ({ create }) => { db.links.push(create); return create; } },
   userAreaAssignment: {
@@ -94,7 +111,7 @@ globalThis.prisma = {
   },
 };
 
-const { prepareProvinceVisitRows, loadProvinceVisitContext, isProvinceVisitRow, markProvinceRows } =
+const { prepareProvinceVisitRows, loadProvinceVisitContext, isProvinceVisitRow, markProvinceRows, migrateProvinceSurveyToProvinceAreas } =
   await import('../server/lib/provinceVisitSurvey.js');
 
 const OWNER = 99;
@@ -133,6 +150,8 @@ await t('الاستخراج: صف المحافظة يرجع لنص الملف و
   assert.equal(rows[1].baghdadClient, true);
 });
 
+const sdOf = row => db.sdoctors.find(d => db.doctors.find(x => x.id === row.doctorId)?.masterSurveyDoctorId === d.id);
+
 await t('طلب المستخدم: مندوبان يرفعان الاسم نفسه ⇒ طبيب واحد وزيارتان تحته', async () => {
   const a = doc(REP_A, 'قحطان علي العبيدي', 'الاسكان', 'اطفال');
   const b = doc(REP_B, 'قحطان علي العبيدي', 'الاسكان', 'اطفال');
@@ -143,7 +162,16 @@ await t('طلب المستخدم: مندوبان يرفعان الاسم نفس�
   assert.equal(karbalaDocs('قحطان علي العبيدي').length, 1);
   assert.equal(a.doctorId, b.doctorId);
   assert.ok(a.doctorId);
-  assert.equal(a.areaName, 'الاسكان');
+});
+
+await t('طلب المستخدم 2026-11-10: منطقة الطبيب = محافظة المندوب، والحيّ في الزون', async () => {
+  const sd = karbalaDocs('قحطان علي العبيدي')[0];
+  assert.equal(sd.areaName, 'كربلاء');
+  assert.equal(sd.zoneName, 'الاسكان');
+  const row = doc(REP_A, 'هديل الشوك', 'حي الغدير', 'نسائية وتوليد');
+  await run([row]);
+  assert.equal(row.areaName, 'كربلاء');
+  assert.equal(sdOf(row).zoneName, 'حي الغدير');
 });
 
 await t('الاسم نفسه داخل الملف الواحد وبصيغة «عيادة الدكتور» لا يتكرر', async () => {
@@ -155,38 +183,24 @@ await t('الاسم نفسه داخل الملف الواحد وبصيغة «ع�
   const res = await run(rows);
   assert.equal(res.newDoctors, 1);
   assert.equal(new Set(rows.map(r => r.doctorId)).size, 1);
-  assert.ok(rows.every(r => r.areaName === 'الاسكان'), 'كل تهجئات العنوان منطقة واحدة');
+  assert.ok(rows.every(r => r.areaName === 'كربلاء'));
 });
 
-await t('المنطقة: اسم يملكه حيّ ببغداد لا يُخلط — لاحقة المحافظة، وبدائله تصل إليها', async () => {
-  const rows = [
-    doc(REP_A, 'حيدر الياسري', 'الحسينية', 'عظام'),
-    doc(REP_A, 'سرهيد الساعدي', 'ناحية الحسينية', 'اطفال'),
-    doc(REP_A, 'عبد الحسين الخفاجي', 'حسينية', 'باطنية'),
-  ];
+await t('حيّ يحمل اسم حيّ ببغداد: لا منطقة جديدة ولا خلط — المحافظة نفسها', async () => {
+  const rows = [doc(REP_A, 'حيدر الياسري', 'الحسينية', 'عظام'), doc(REP_A, 'سرهيد الساعدي', 'ناحية الحسينية', 'اطفال')];
+  const before = db.areas.length;
   await run(rows);
-  assert.ok(rows.every(r => r.areaName === 'الحسينية - كربلاء'), JSON.stringify(rows.map(r => r.areaName)));
-  const area = db.areas.find(x => x.name === 'الحسينية - كربلاء');
-  assert.equal(area.provinceId, 2);
-  assert.equal(area.needsReview, true, 'منطقة جديدة تصل طابور المراجعة');
+  assert.ok(rows.every(r => r.areaName === 'كربلاء'), JSON.stringify(rows.map(r => r.areaName)));
+  assert.equal(db.areas.length, before);
   assert.equal(db.areas.find(x => x.id === 1).provinceId, 1, 'حيّ بغداد لم يُمسّ');
-  assert.equal(rows[0].areaId, area.id);
+  assert.equal(sdOf(rows[1]).zoneName, 'ناحية الحسينية');
 });
 
-await t('منطقة قديمة بلا محافظة تُتبنّى، وطبيبها السابق لا يتكرر', async () => {
-  const row = doc(REP_B, 'عيادة الدكتور علي حسين حنون', 'طويريج', 'اطفال');
-  const res = await run([row]);
-  assert.equal(res.newDoctors, 0);
-  assert.equal(db.areas.find(a => a.id === 3).provinceId, 2);
-  assert.equal(karbalaDocs('علي حسين حنون').length, 1);
-  assert.equal(row.doctorName, 'علي حسين حنون');
-  assert.equal(row.areaId, 3);
-});
-
-await t('بلا عنوان أو بعنوان = اسم المحافظة ⇒ منطقة باسم المحافظة', async () => {
+await t('بلا عنوان أو بعنوان = اسم المحافظة ⇒ منطقة باسم المحافظة وزون فارغ', async () => {
   const rows = [doc(REP_A, 'وسن فيصل حسن', 'karbala', 'نسائية'), doc(REP_A, 'كواكب علي جاسم', '', 'نسائية')];
   await run(rows);
   assert.ok(rows.every(r => r.areaName === 'كربلاء'), JSON.stringify(rows.map(r => r.areaName)));
+  assert.ok(rows.every(r => !sdOf(r).zoneName));
 });
 
 await t('اسم المحافظة بمركز معروف: القادسية ⇒ الديوانية', async () => {
@@ -195,7 +209,7 @@ await t('اسم المحافظة بمركز معروف: القادسية ⇒ ا�
   assert.equal(row.areaName, 'الديوانية');
 });
 
-await t('الاسم الكامل بعنوان آخر في المحافظة نفس الطبيب؛ الثنائي باختصاص مختلف شخص آخر', async () => {
+await t('الاسم نفسه بحيّ آخر في المحافظة نفس الطبيب؛ باختصاص مختلف شخص آخر', async () => {
   const full = [doc(REP_A, 'سعد ابراهيم الغبان', 'الولاية', 'جلدية'), doc(REP_B, 'سعد ابراهيم الغبان', 'حي الحر', 'جلدية')];
   await run(full);
   assert.equal(karbalaDocs('سعد ابراهيم الغبان').length, 1);
@@ -207,17 +221,17 @@ await t('الاسم الكامل بعنوان آخر في المحافظة نف�
   assert.notEqual(short[0].doctorId, short[1].doctorId);
 });
 
-await t('سميّ بمحافظة أخرى أو ببغداد لا يُربط', async () => {
+await t('سميّ ببغداد لا يُربط', async () => {
   const row = doc(REP_A, 'سامر كريم', 'الولاية', 'باطنية');
   const res = await run([row]);
   assert.equal(res.newDoctors, 1);
   assert.equal(karbalaDocs('سامر كريم').length, 2);
 });
 
-await t('تهجئة قريبة بالمنطقة نفسها تُربط وتذهب لطابور المراجعة؛ باختصاص مختلف لا', async () => {
+await t('تهجئة قريبة تُربط وتذهب لطابور المراجعة؛ باختصاص مختلف لا', async () => {
   const first = doc(REP_A, 'اياد داود سلمان', 'الولاية', 'باطنية');
   await run([first]);
-  const variant = doc(REP_B, 'اياد داوود سلمان', 'الولاية', 'باطنية');
+  const variant = doc(REP_B, 'اياد داوود سلمان', 'حي الحر', 'باطنية');
   await run([variant]);
   assert.equal(variant.doctorId, first.doctorId);
   assert.equal(db.links.at(-1).confidence, 'fuzzy');
@@ -228,19 +242,49 @@ await t('تهجئة قريبة بالمنطقة نفسها تُربط وتذهب
   assert.notEqual(other.doctorId, first.doctorId);
 });
 
-await t('الصيدليات: اسم واحد بصيغ مختلفة في المنطقة ⇒ سجل واحد؛ بمنطقة أخرى ⇒ فرع مستقل', async () => {
+await t('الصيدليات: صيغ الاسم نفسه في المحافظة ⇒ سجل واحد بمنطقة المحافظة والحيّ في العنوان', async () => {
   const rows = [
     ph(REP_A, 'صيدلية النور', 'الاسكان'),
     ph(REP_B, 'ص. النور', 'اسكان'),
-    ph(REP_LEADER, 'النور', 'الاسكان'),
-    ph(REP_A, 'صيدلية النور', 'الولاية'),
+    ph(REP_LEADER, 'النور', 'الولاية'),
   ];
   const res = await run([], rows);
-  assert.equal(res.newPharmacies, 2);
-  assert.equal(rows[0].pharmacyName, rows[1].pharmacyName);
-  assert.equal(rows[0].pharmacyName, rows[2].pharmacyName);
-  assert.equal(rows[0].areaId, rows[1].areaId);
-  assert.notEqual(rows[0].areaId, rows[3].areaId);
+  assert.equal(res.newPharmacies, 1);
+  assert.equal(new Set(rows.map(r => r.pharmacyName)).size, 1);
+  assert.ok(rows.every(r => r.areaName === 'كربلاء'));
+  const p = db.spharm.find(x => x.name === rows[0].pharmacyName);
+  assert.equal(p.areaName, 'كربلاء');
+  assert.equal(p.address, 'الاسكان');
+});
+
+await t('طلب المستخدم: صيدلية الطبيب القريبة تُسجَّل وتُربط به، وأطباء الصيدلية يظهرون تحتها', async () => {
+  const d1 = doc(REP_A, 'علاء جلاب مطر', 'حي الغدير', 'انف واذن وحنجرة', { pharmacyName: 'صيدلية الاحسان' });
+  const d2 = doc(REP_B, 'نورا الحميري', 'حي العامل', 'نسائية وتوليد', { pharmacyName: 'صيدلية  الاحسان' });
+  const res = await run([d1, d2]);
+  assert.equal(res.newPharmacies, 1);
+  const p = db.spharm.find(x => x.name === sdOf(d1).pharmacyName);
+  assert.ok(p, 'الصيدلية في السيرفي');
+  assert.equal(p.areaName, 'كربلاء');
+  assert.equal(sdOf(d2).pharmacyName, p.name, 'الاسم القانوني نفسه ⇒ الطبيبان تحت الصيدلية');
+  assert.equal(db.doctors.find(x => x.id === d1.doctorId).pharmacyName, p.name);
+  assert.equal(d1.pharmacyFromFile, false);
+
+  // زيارة الصيدلية نفسها لاحقاً: لا سجل جديد، ويُكمَّل عنوانها
+  const visit = ph(REP_A, 'صيدلية الاحسان', 'حي الغدير');
+  const res2 = await run([], [visit]);
+  assert.equal(res2.newPharmacies, 0);
+  assert.equal(visit.pharmacyName, p.name);
+  assert.equal(p.address, 'حي الغدير');
+});
+
+await t('طبيب مسجَّل بلا صيدلية يكتسبها من رفعة لاحقة، ولا تُستبدل صيدلية موجودة', async () => {
+  const later = doc(REP_A, 'قحطان علي العبيدي', 'الاسكان', 'اطفال', { pharmacyName: 'صيدلية فدك' });
+  await run([later]);
+  const sd = karbalaDocs('قحطان علي العبيدي')[0];
+  assert.equal(sd.pharmacyName, 'فدك');
+  const again = doc(REP_B, 'قحطان علي العبيدي', 'الاسكان', 'اطفال', { pharmacyName: 'صيدلية اوزون' });
+  await run([again]);
+  assert.equal(sd.pharmacyName, 'فدك');
 });
 
 await t('صفوف بغداد لا تُمسّ، وسيرفي المحافظات يبقى واحداً', async () => {
@@ -252,7 +296,7 @@ await t('صفوف بغداد لا تُمسّ، وسيرفي المحافظات �
   assert.equal(db.surveys.filter(s => s.name === 'سيرفي المحافظات').length, 1);
 });
 
-await t('مندوب زار محافظة أخرى: الطبيب في محافظته الحقيقية وتُسند المنطقة للمندوب كي تظهر زيارته', async () => {
+await t('مندوب زار محافظة أخرى: الطبيب في محافظته الحقيقية وتُسند منطقتها للمندوب كي تظهر زيارته', async () => {
   const row = doc(REP_A, 'جلال علي الكربلائي', 'الكوفة', 'اطفال', { clientCity: 'najaf' });
   await run([row]);
   const area = db.areas.find(a => a.id === row.areaId);
@@ -270,6 +314,29 @@ await t('إعادة رفع الملف نفسه: صفر سجلات جديدة', a
   assert.deepEqual({ d: db.sdoctors.length, p: db.spharm.length, a: db.areas.length, r: db.doctors.length }, before);
 });
 
+await t('ترحيل السيرفي القديم: الحيّ ⇒ المحافظة والزون/العنوان، ومعه صف الطبيب وزيارات الصيدلية', async () => {
+  const survey = db.surveys.find(s => s.name === 'سيرفي المحافظات');
+  const old = { id: 9001, name: 'محمد شريم', provinceId: 2, needsReview: true };
+  db.areas.push({ id: 9001, name: 'حي المعلمين', provinceId: 2, needsReview: true });
+  db.sdoctors.push({ id: 9002, surveyId: survey.id, name: old.name, areaName: 'حي المعلمين', specialty: 'باطنية', isActive: true });
+  db.doctors.push({ id: 9003, masterSurveyDoctorId: 9002, areaId: 9001 });
+  db.spharm.push({ id: 9004, surveyId: survey.id, name: 'صيدلية كرم الحسن', areaName: 'حي المعلمين', address: null, isActive: true });
+  db.pvisits.push({ id: 9005, pharmacyName: 'صيدلية كرم الحسن', areaId: 9001, areaName: 'حي المعلمين' });
+
+  const res = await migrateProvinceSurveyToProvinceAreas();
+  assert.ok(res.doctors >= 1 && res.pharmacies >= 1, JSON.stringify(res));
+  const center = db.areas.find(a => a.name === 'كربلاء' && a.provinceId === 2);
+  const sd = db.sdoctors.find(d => d.id === 9002);
+  assert.equal(sd.areaName, 'كربلاء');
+  assert.equal(sd.zoneName, 'حي المعلمين');
+  assert.equal(db.doctors.find(d => d.id === 9003).areaId, center.id);
+  assert.equal(db.spharm.find(p => p.id === 9004).address, 'حي المعلمين');
+  assert.equal(db.pvisits[0].areaId, center.id);
+
+  const again = await migrateProvinceSurveyToProvinceAreas();
+  assert.deepEqual(again, { doctors: 0, pharmacies: 0 }, 'idempotent');
+});
+
 const { resolveAreaScope, isForeignAreaVisit } = await import('../server/lib/surveyDoctors.js');
 const manager = { id: 1, role: 'company_manager' };
 const sorted = list => [...list].sort((a, b) => a - b);
@@ -281,7 +348,7 @@ await t('اختيار محافظة: مندوبوها وحدهم ومناطقها
   const karbalaIds = new Set(db.areas.filter(a => a.provinceId === 2).map(a => a.id));
   assert.ok(s.areaRecords.every(a => karbalaIds.has(a.id)));
   assert.equal(isForeignAreaVisit(s, 'الكرادة'), true, 'بغداد');
-  assert.equal(isForeignAreaVisit(s, 'الكوفة'), true, 'النجف');
+  assert.equal(isForeignAreaVisit(s, db.areas.find(a => a.provinceId === 4).name), true, 'النجف');
   assert.equal(isForeignAreaVisit(s, 'الاسكان'), false);
   assert.equal(isForeignAreaVisit(s, null), false);
 });

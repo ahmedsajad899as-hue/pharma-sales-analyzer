@@ -1,4 +1,5 @@
 import { fixProvinceNamedAreaCollisions } from './lib/provinceNameCollision.js';
+import { migrateProvinceSurveyToProvinceAreas } from './lib/provinceVisitSurvey.js';
 import express from 'express';
 import compression from 'compression';
 import multer from 'multer';
@@ -5074,6 +5075,9 @@ if (process.env.VERCEL) {
         // منطقة باسم المحافظة نفسها تصطدم بحيّ (القادسية المحافظة ↔ القادسية/الكرخ)
         const fixed = await fixProvinceNamedAreaCollisions(prisma, mergeAreaInto);
         for (const f of fixed) console.log(`✓ فُصل تصادم الاسم: «${f.from}» (${f.province}) دُمج في «${f.into}» — أُعيد ${f.returnedSales} صف مبيعات لحيّه`);
+        // سيرفي المحافظات منطقته المحافظة نفسها لا الحيّ — ترحيل الصفوف القديمة (idempotent)
+        const moved = await migrateProvinceSurveyToProvinceAreas();
+        if (moved.doctors || moved.pharmacies) console.log(`✓ سيرفي المحافظات: نُقل ${moved.doctors} طبيب و${moved.pharmacies} صيدلية لمنطقة محافظتهم`);
       })
       .catch(e => console.error('[seedProvinces]', e.message));
   });

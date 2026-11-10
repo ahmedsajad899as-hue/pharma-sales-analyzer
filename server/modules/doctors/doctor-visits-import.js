@@ -841,7 +841,7 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
     subcategory:   findCol(headers, ['client-subcategory']),
     address:       findCol(headers, ['client-address']),
     city:          findCol(headers, ['client-city']),
-    associated:    findCol(headers, ['associated-client']),
+    associated:    findCol(headers, ['associated-client', 'associated_client']),
     type:          findCol(headers, ['type']),
     created:       findCol(headers, ['created']),
     note:          findCol(headers, ['note']),
@@ -932,6 +932,10 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
         // المطابقة الفعلية (تامة/تشابه/سؤال المستخدم) تتم لاحقاً دفعة واحدة عبر
         // classifyDoctorRows — هنا فقط تنظيف الاسم.
         const doctorName = cleanDoctorName(clientName);
+        // associated-client لصف طبيب = صيدليته القريبة حين يسمّي صيدلية؛ كثيراً ما يكرّر
+        // اسم العيادة نفسها فلا يُعتدّ به حينها.
+        const associated = get(row, 'associated');
+        const nearPharmacy = associated && PHARMACY_NAME_RE.test(associated) ? associated.replace(/\s+/g, ' ').trim() : '';
         const parsedRD = parseReportDetails(get(row, 'reportDetails'), itemCtx);
         const itemSuggestion = (!parsedRD.item && parsedRD.itemText) ? suggestItemMatch(itemCtx, parsedRD.itemText) : null;
         doctorRows.push({
@@ -939,7 +943,7 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
           doctorName, doctorId: null,
           specialty: get(row, 'subcategory'),
           areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null, rawAreaText, clientCity,
-          pharmacyName: '',
+          pharmacyName: nearPharmacy,
           itemName: parsedRD.item ? parsedRD.item.name : parsedRD.itemText,
           itemId: parsedRD.item?.id ?? null,
           rawItemName: parsedRD.itemText,
