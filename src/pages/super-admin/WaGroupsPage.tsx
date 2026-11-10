@@ -14,6 +14,8 @@ interface ListenLink {
 }
 interface KnownSender { name: string | null; count: number; lastAt: string }
 interface LinkForm { jid: string; name: string; userId?: number; orderTextMode: OrderTextMode; isNew: boolean; senders: string[]; known: Record<string, KnownSender> }
+interface WarehouseOption { id: number; name: string; province: string | null; phone: string; channel: string; groupJid: string | null; owner: string | null }
+interface WhForm { jid: string; name: string; warehouseId?: number; q: string }
 interface PendingAt { userId: number; name: string; count: number }
 interface Retrying { count: number; nextAt: number | null; lastError: string | null; queueFull?: boolean }
 interface Destination {
@@ -155,7 +157,7 @@ const STATUS_LABEL: Record<string, { text: string; color: string; bg: string }> 
 
 // «رقم الكروبات» — شريحة مخصّصة تعمل كواتساب ويب (خدمة wa-groups على السيرفر)
 // لإرسال الطلبيات لكروبات المذاخر. رقم واحد لكل النظام ⇒ ماستر أدمن فقط.
-// ربط كل مذخر بكروبه يتم من صفحة «إرسال للمذاخر» ← المذاخر في التطبيق.
+// نوع كل كروب يُحدَّد هنا: كروب مذخر (يرسل ويستقبل) أو كروب مندوبين (قراءة صامتة فقط).
 export default function WaGroupsPage() {
   const { token } = useSuperAdmin();
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
@@ -176,6 +178,8 @@ export default function WaGroupsPage() {
   const [retryByJid, setRetryByJid] = useState<Record<string, Retrying>>({});
   const [dest, setDest] = useState<Destination | null>(null);
   const [destErr, setDestErr] = useState('');
+  const [whList, setWhList] = useState<WarehouseOption[] | null>(null);
+  const [whForm, setWhForm] = useState<WhForm | null>(null);
 
   const load = useCallback(() => {
     fetch('/api/sa/wa-groups/status', { headers: H() })
@@ -242,6 +246,28 @@ export default function WaGroupsPage() {
     loadLinks();
   };
 
+  const openWhForm = (g: Group) => {
+    setFormError('');
+    setWhForm({ jid: g.jid, name: g.name, q: '' });
+    if (!whList) fetch('/api/sa/wa-groups/warehouses', { headers: H() }).then(r => r.json()).then(d => { if (d.success) setWhList(d.warehouses); }).catch(() => setWhList([]));
+  };
+  const saveWhForm = async () => {
+    if (!whForm?.warehouseId) { setFormError('اختر المذخر'); return; }
+    setSaving(true); setFormError('');
+    try {
+      const res = await fetch('/api/sa/wa-groups/warehouse-link', { method: 'PUT', headers: H(), body: JSON.stringify({ jid: whForm.jid, groupName: whForm.name, warehouseId: whForm.warehouseId }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || 'تعذّر الحفظ');
+      setWhForm(null); setWhList(null); loadLinks();
+    } catch (e: any) { setFormError(e.message); } finally { setSaving(false); }
+  };
+  const unlinkWarehouse = async (g: Group, names: string[]) => {
+    if (!window.confirm(`فصل كروب «${g.name}» عن المذخر «${names.join('، ')}»؟ لن تُرسل له الطلبيات في هذا الكروب بعد الآن.`)) return;
+    const res = await fetch(`/api/sa/wa-groups/warehouse-link/${encodeURIComponent(g.jid)}`, { method: 'DELETE', headers: H() });
+    if (!res.ok) setError((await res.json().catch(() => ({}))).error || 'تعذّر الفصل');
+    setWhList(null); loadLinks();
+  };
+
   const pair = async () => {
     setBusy(true); setError(''); setCode('');
     try {
@@ -267,8 +293,8 @@ export default function WaGroupsPage() {
     <div style={{ direction: 'rtl', maxWidth: 760 }}>
       <h2 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 700, color: UI.ink }}>رقم الكروبات</h2>
       <div style={{ fontSize: 12.5, color: UI.faint, marginBottom: 16, lineHeight: 1.7 }}>
-        شريحة مخصّصة مربوطة كواتساب ويب، يرسل منها النظام الطلبيات لكروبات المذاخر (نص الطلبية، ثم يقرأ صورة الفاتورة ويقارنها بالطلبية)
-        ويستقبل ردودهم وصور الفواتير. بعد الربط اختر كروب كل مذخر من التطبيق: «إرسال للمذاخر» ← المذاخر ← القناة «كروب».
+        شريحة مخصّصة مربوطة كواتساب ويب. كل كروب يُضاف له الرقم تحدّد نوعه من القائمة أدناه:
+        كروب مذخر (يرسل الطلبيات ويقرأ الفواتير) أو كروب مندوبين (يقرأ فقط ولا يرسل شيئاً).
       </div>
 
       <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#92400e', lineHeight: 1.7 }}>
@@ -315,9 +341,10 @@ export default function WaGroupsPage() {
         <div style={{ marginTop: 16, background: '#fff', border: '1px solid #e9edf3', borderRadius: 12, padding: 18 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: UI.ink, marginBottom: 10 }}>الكروبات التي فيها الرقم ({groups?.length ?? '…'})</div>
           <div style={{ fontSize: 12, color: UI.faint, lineHeight: 1.8, marginBottom: 10 }}>
-            <b>كروب مذخر</b>: يرسل له النظام الطلبيات ويقرأ ردوده — يُربط من التطبيق: «إرسال للمذاخر» ← المذاخر ← القناة «كروب».<br />
-            <b>قراءة صامتة</b>: كروب مندوبين — كل طلبية/فاتورة فيه تُقرأ وتدخل طابور المراجعة ثم ملف اللكوديشن للحساب المختار (مثل بوت تلكرام)،
-            والرقم <b>لا يرسل فيه أي رسالة</b>. كروب غير مربوط بأيٍّ منهما يُتجاهل كلياً.
+            <b>🚚 كروب مذخر</b> — <b>يرسل ويستقبل</b>: يرسل له النظام طلبيات ذلك المذخر، ويقرأ صور الفواتير على أنها فواتير هذا المذخر ويقارنها بالطلبية (مجهّزة / ناقصة).<br />
+            <b>🔇 كروب مندوبين</b> — <b>يستقبل فقط</b>: كل طلبية/فاتورة يكتبها المندوبون تُقرأ وتدخل طابور المراجعة ثم ملف اللكوديشن للحساب المختار كمبيعات لهم،
+            والرقم <b>لا يرسل فيه أي رسالة</b>.<br />
+            كروب لم يُحدَّد نوعه يُتجاهل كلياً (لا قراءة ولا كلفة).
           </div>
           {groups && groups.length === 0 && <div style={{ fontSize: 12.5, color: UI.faint }}>الرقم ليس عضواً في أي كروب بعد — اطلب من المذاخر إضافته لكروباتهم.</div>}
           {(groups || []).map(g => {
@@ -348,11 +375,15 @@ export default function WaGroupsPage() {
                   )}
                 </div>
                 {wh ? (
-                  <span style={{ background: '#eff6ff', color: '#1d4ed8', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>🚚 كروب مذخر: {wh.join('، ')}</span>
+                  <>
+                    <span style={{ background: '#eff6ff', color: '#1d4ed8', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>🚚 كروب مذخر: {wh.join('، ')} — يرسل ويستقبل</span>
+                    <button onClick={() => openWhForm(g)} style={btnStyle('#3b82f6', true)}>تغيير المذخر</button>
+                    <button onClick={() => unlinkWarehouse(g, wh)} style={btnStyle('#dc2626', true)}>فصل</button>
+                  </>
                 ) : l ? (
                   <>
                     <span style={{ background: l.isActive ? '#f0fdf4' : '#fef2f2', color: l.isActive ? '#16a34a' : '#b91c1c', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>
-                      🔇 قراءة صامتة ← {userLabel(l.user)}{l.isActive ? '' : ' (موقوفة)'}
+                      🔇 كروب مندوبين (يستقبل فقط) ← {userLabel(l.user)}{l.isActive ? '' : ' (موقوفة)'}
                     </span>
                     <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>{ORDER_MODE_SHORT[l.orderTextMode] || ''}</span>
                     <AiModeButtons value={l.aiMode} onChange={v => setAiMode(l, v)} />
@@ -362,8 +393,9 @@ export default function WaGroupsPage() {
                   </>
                 ) : (
                   <>
-                    <span style={{ fontSize: 11.5, color: UI.faint }}>غير مستخدم</span>
-                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, orderTextMode: 'all', isNew: true, senders: [], known: {} }); }} style={btnStyle('#0f172a', true)}>🔇 قراءة صامتة</button>
+                    <span style={{ fontSize: 11.5, color: '#b45309', fontWeight: 600 }}>لم يُحدَّد نوعه</span>
+                    <button onClick={() => openWhForm(g)} style={btnStyle('#1d4ed8', true)}>🚚 كروب مذخر</button>
+                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, orderTextMode: 'all', isNew: true, senders: [], known: {} }); }} style={btnStyle('#0f172a', true)}>🔇 كروب مندوبين</button>
                   </>
                 )}
               </div>
@@ -374,7 +406,7 @@ export default function WaGroupsPage() {
       )}
 
       {form && (
-        <Modal onClose={() => setForm(null)} title={`قراءة صامتة — ${form.name}`}>
+        <Modal onClose={() => setForm(null)} title={`كروب مندوبين — ${form.name}`}>
           <div style={{ fontSize: 12.5, color: UI.muted, lineHeight: 1.7, marginBottom: 14 }}>
             طلبيات وفواتير المندوبين في هذا الكروب تُقرأ بالذكاء وتدخل طابور المراجعة لهذا الحساب، وبعد الاعتماد تُضاف لملف اللكوديشن.
             الرقم لا يرد في الكروب، ولا تُرسَل هذه الطلبيات للمذاخر.
@@ -398,6 +430,43 @@ export default function WaGroupsPage() {
           </div>
         </Modal>
       )}
+
+      {whForm && (() => {
+        const q = whForm.q.trim().toLowerCase();
+        const list = (whList || []).filter(w => !q || `${w.name} ${w.province || ''} ${w.owner || ''}`.toLowerCase().includes(q));
+        return (
+          <Modal onClose={() => setWhForm(null)} title={`كروب مذخر — ${whForm.name}`}>
+            <div style={{ fontSize: 12.5, color: UI.muted, lineHeight: 1.7, marginBottom: 12 }}>
+              الرقم <b>يرسل</b> في هذا الكروب طلبيات المذخر المختار، ويقرأ ردوده وصور فواتيره على أنها فواتير هذا المذخر (قراءة أرخص وأدق)،
+              ثم يقارنها بالطلبية: كاملة ⇒ مجهّزة، ناقصة ⇒ جزئية.
+            </div>
+            <input value={whForm.q} onChange={e => setWhForm(f => f && ({ ...f, q: e.target.value }))} placeholder="بحث باسم المذخر أو المحافظة…" autoFocus
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13.5, boxSizing: 'border-box', marginBottom: 8, fontFamily: 'inherit' }} />
+            <div style={{ maxHeight: 320, overflowY: 'auto', border: `1px solid ${UI.line}`, borderRadius: 10 }}>
+              {!whList && <div style={{ padding: 12, fontSize: 12.5, color: UI.faint }}>جاري التحميل…</div>}
+              {whList && !list.length && <div style={{ padding: 12, fontSize: 12.5, color: UI.faint }}>لا يوجد مذخر بهذا الاسم — أضفه أولاً من دليل المذاخر في التطبيق.</div>}
+              {list.map(w => {
+                const other = w.groupJid && w.groupJid !== whForm.jid;
+                return (
+                  <label key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderBottom: `1px solid ${UI.line}`, cursor: 'pointer', fontSize: 13, background: whForm.warehouseId === w.id ? '#eff6ff' : undefined }}>
+                    <input type="radio" checked={whForm.warehouseId === w.id} onChange={() => setWhForm(f => f && ({ ...f, warehouseId: w.id }))} />
+                    <span style={{ fontWeight: 600, color: UI.ink }}>{w.name}</span>
+                    {w.province && <span style={{ fontSize: 11.5, color: UI.muted }}>{w.province}</span>}
+                    <span style={{ fontSize: 11, color: UI.faint, marginInlineStart: 'auto' }}>
+                      {other ? '⚠️ مربوط بكروب آخر — سينتقل لهذا' : w.groupJid === whForm.jid ? '✓ الحالي' : ''}{w.owner ? ` · ${w.owner}` : ''}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            {formError && <ErrBox msg={formError} />}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button onClick={() => setWhForm(null)} style={btnStyle('#6b7280', true)}>إلغاء</button>
+              <button onClick={saveWhForm} disabled={saving} style={btnStyle('#1d4ed8', true)}>{saving ? '...' : 'حفظ'}</button>
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }

@@ -114,6 +114,54 @@ saRouter.get('/links', async (_req, res) => {
   res.json({ success: true, links, warehouses, pending: pendingByJid, retrying: listRetryingByJid() });
 });
 
+// ─── كروب مذخر من نفس الصفحة: نوع كل كروب يُحدَّد عند إضافة الرقم له ─────────
+// (طلب صاحب المشروع 2026-11-10) — كان الربط فقط من «إرسال للمذاخر» ← المذاخر.
+
+/** كل مذاخر الدليل (ماستر أدمن) لاختيار مذخر الكروب. */
+saRouter.get('/warehouses', async (_req, res) => {
+  const rows = await prisma.orderWarehouse.findMany({
+    select: { id: true, name: true, province: true, phone: true, channel: true, groupJid: true, createdById: true },
+    orderBy: { name: 'asc' }, take: 3000,
+  });
+  const owners = new Map((await prisma.user.findMany({
+    where: { id: { in: [...new Set(rows.map(r => r.createdById))] } }, select: { id: true, username: true, displayName: true },
+  })).map(u => [u.id, u.displayName?.trim() || u.username]));
+  res.json({ success: true, warehouses: rows.map(r => ({ ...r, owner: owners.get(r.createdById) || null })) });
+});
+
+/** المذخر الذي فقد كروبه يعود لرقم البوت الرسمي إن كان له رقم، وإلا يدوي. */
+const unlinkWarehouseGroup = (where) => prisma.$transaction(async (tx) => {
+  const ws = await tx.orderWarehouse.findMany({ where, select: { id: true, phone: true } });
+  for (const w of ws) {
+    await tx.orderWarehouse.update({ where: { id: w.id }, data: { groupJid: null, groupName: null, channel: String(w.phone || '').trim() ? 'cloud' : 'manual' } });
+  }
+  return ws.length;
+});
+
+saRouter.put('/warehouse-link', async (req, res) => {
+  const { jid, groupName, warehouseId } = req.body || {};
+  if (!/@g\.us$/.test(String(jid || ''))) return res.status(400).json({ error: 'معرّف كروب غير صالح' });
+  const w = await prisma.orderWarehouse.findUnique({ where: { id: Number(warehouseId) || 0 }, select: { id: true, name: true, groupJid: true } });
+  if (!w) return res.status(400).json({ error: 'اختر المذخر' });
+  // كروب المندوبين لا يصير كروب مذخر بصمت (هناك يقرأ فقط وهنا يرسل)
+  const listen = await prisma.waGroupLink.findUnique({ where: { jid: String(jid) }, select: { id: true } });
+  if (listen) return res.status(400).json({ error: 'هذا الكروب مربوط ككروب مندوبين (قراءة صامتة) — ألغِ ذلك أولاً' });
+  // كروب واحد = مذخر واحد: من كان مربوطاً بهذا الكروب يُفصل
+  await unlinkWarehouseGroup({ groupJid: String(jid), id: { not: w.id } });
+  await prisma.orderWarehouse.update({
+    where: { id: w.id },
+    data: { channel: 'group', groupJid: String(jid), groupName: String(groupName || '').trim().slice(0, 120) || null },
+  });
+  refreshSidecarJids();
+  res.json({ success: true, previousGroup: w.groupJid && w.groupJid !== String(jid) ? w.groupJid : null });
+});
+
+saRouter.delete('/warehouse-link/:jid', async (req, res) => {
+  const n = await unlinkWarehouseGroup({ groupJid: String(req.params.jid) });
+  refreshSidecarJids();
+  res.json({ success: true, unlinked: n });
+});
+
 // «وين راح تروح البيانات؟» للحساب المختار قبل الحفظ — نفس القواعد الفعلية:
 // مفتاح «فواتير البوت ← اللكوديشن»، تحويل الأسطر لمدراء الايتمات، والملف المشترك.
 saRouter.get('/destination', async (req, res) => {
@@ -174,7 +222,7 @@ saRouter.put('/links', async (req, res) => {
   const mode = orderTextMode === undefined ? undefined : String(orderTextMode);
   if (mode !== undefined && !ORDER_TEXT_MODES.includes(mode)) return res.status(400).json({ error: 'وضع القراءة غير صالح' });
   const used = await prisma.orderWarehouse.findFirst({ where: { channel: 'group', groupJid: String(jid) }, select: { name: true } });
-  if (used) return res.status(400).json({ error: `هذا الكروب مربوط بمذخر «${used.name}» — افصله من «إرسال للمذاخر» أولاً` });
+  if (used) return res.status(400).json({ error: `هذا الكروب مربوط بمذخر «${used.name}» — افصله أولاً («فصل المذخر»)` });
   const existing = await prisma.waGroupLink.findUnique({ where: { jid: String(jid) } });
   const uid = userId === undefined ? existing?.userId : Number(userId);
   if (!uid) return res.status(400).json({ error: 'اختر الحساب الذي تُسجَّل عليه المبيعات' });
