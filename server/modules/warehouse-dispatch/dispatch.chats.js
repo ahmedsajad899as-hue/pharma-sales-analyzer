@@ -13,6 +13,7 @@ import { AppError } from '../../middleware/errorHandler.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { loadViewer, warehouseScopeWhere, teamUserIds } from '../rep-orders/rep-orders.service.js';
 import { downloadMedia, sendRaw, whatsappEnabled } from '../whatsapp/whatsapp.service.js';
+import { userFeatureOn } from '../../lib/userFeatures.js';
 
 const ALL_SCOPE_ROLES = new Set(['admin', 'super_admin']);
 
@@ -28,6 +29,20 @@ async function visibleNumbers(viewer) {
   for (const l of links) m.set(l.waId, null);
   for (const w of whs) if (w.waId) m.set(w.waId, null);
   return m;
+}
+
+/** مُشاهِد من التطبيق: نطاقه حسب دوره، وردّه باسمه. */
+export async function userActor(reqUser) {
+  const viewer = await loadViewer(reqUser);
+  // صفحة اشتراك (wa_chats) — يفعّلها السوبر أدمن لكل حساب من «المميزات»
+  const perms = await prisma.user.findUnique({ where: { id: viewer.id }, select: { permissions: true } });
+  if (!userFeatureOn(perms, 'wa_chats', { optIn: true })) throw new AppError('صفحة محادثات واتساب غير مفعّلة لحسابك', 403);
+  return { allowed: await visibleNumbers(viewer), sender: { id: viewer.id, name: viewer.displayName || viewer.username } };
+}
+
+/** الماستر أدمن (لوحة السوبر أدمن، توكن مستقل): كل المحادثات. sentById سالب = ليس User. */
+export function masterActor(superAdmin) {
+  return { allowed: null, sender: { id: -Math.abs(Number(superAdmin?.id) || 1), name: superAdmin?.username || superAdmin?.name || 'الإدارة' } };
 }
 
 /** waId ⇒ { name, type: 'warehouse' | 'linked' | 'unknown', account } */
@@ -46,9 +61,8 @@ async function describeNumbers(waIds) {
   return out;
 }
 
-export async function listChats(reqUser, q = {}) {
-  const viewer = await loadViewer(reqUser);
-  const allowed = await visibleNumbers(viewer);
+export async function listChats(actor, q = {}) {
+  const { allowed } = actor;
   const days = Math.min(90, Math.max(1, Number(q.days) || 30));
   const where = { createdAt: { gte: new Date(Date.now() - days * 86_400_000) } };
   if (allowed) where.waId = { in: [...allowed.keys()] };
@@ -89,9 +103,8 @@ export async function listChats(reqUser, q = {}) {
   };
 }
 
-export async function chatMessages(reqUser, waId, q = {}) {
-  const viewer = await loadViewer(reqUser);
-  const allowed = await visibleNumbers(viewer);
+export async function chatMessages(actor, waId, q = {}) {
+  const { allowed } = actor;
   const id = String(waId);
   if (allowed && !allowed.has(id)) throw new AppError('المحادثة غير موجودة', 404);
   const before = Number(q.before) || null;
@@ -118,9 +131,8 @@ async function windowState(waId) {
   return { open: Boolean(closesAt && closesAt > Date.now()), lastInboundAt: last ? new Date(last) : null, closesAt: closesAt ? new Date(closesAt) : null };
 }
 
-export async function sendChatMessage(reqUser, waId, body = {}) {
-  const viewer = await loadViewer(reqUser);
-  const allowed = await visibleNumbers(viewer);
+export async function sendChatMessage(actor, waId, body = {}) {
+  const { allowed } = actor;
   const id = String(waId);
   if (allowed && !allowed.has(id)) throw new AppError('المحادثة غير موجودة', 404);
   if (!whatsappEnabled()) throw new AppError('رقم البوت غير مفعّل', 503);
@@ -129,16 +141,14 @@ export async function sendChatMessage(reqUser, waId, body = {}) {
   if (text.length > 4000) throw new AppError('الرسالة طويلة جداً (الحد 4000 حرف)', 400);
   const w = await windowState(id);
   if (!w.open) throw new AppError('مرّت 24 ساعة على آخر رسالة منه — واتساب لا يسمح بالكتابة له حتى يراسل الرقم أولاً', 409);
-  const name = viewer.displayName || viewer.username;
-  const r = await sendRaw(id, { type: 'text', text: { body: text } }, { sentBy: { id: viewer.id, name } });
+  const r = await sendRaw(id, { type: 'text', text: { body: text } }, { sentBy: actor.sender });
   if (r.error) throw new AppError(`لم تُرسل: ${r.error.message}`, 502);
   return { id: r.id };
 }
 
 /** صورة واردة — تُنزَّل من واتساب عند الطلب (media id صالح ~30 يوماً). */
-export async function chatMedia(reqUser, logId) {
-  const viewer = await loadViewer(reqUser);
-  const allowed = await visibleNumbers(viewer);
+export async function chatMedia(actor, logId) {
+  const { allowed } = actor;
   const row = await prisma.waMessageLog.findUnique({ where: { id: Number(logId) } });
   if (!row?.mediaId || (allowed && !allowed.has(row.waId))) throw new AppError('الصورة غير موجودة', 404);
   try {

@@ -66,6 +66,7 @@ const _importProvinceTeams       = () => import('./pages/ProvinceTeamsPage');
 const _importRepOrders           = () => import('./pages/RepOrdersPage');
 const _importRepSales            = () => import('./pages/RepSalesPage');
 const _importWarehouseDispatch   = () => import('./pages/WarehouseDispatchPage');
+const _importWaChats             = () => import('./pages/WaChatsPage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -103,6 +104,7 @@ const ProvinceTeamsPage       = lazyWithRetry(_importProvinceTeams);
 const RepOrdersPage           = lazyWithRetry(_importRepOrders);
 const RepSalesPage            = lazyWithRetry(_importRepSales);
 const WarehouseDispatchPage   = lazyWithRetry(_importWarehouseDispatch);
+const WaChatsPage             = lazyWithRetry(_importWaChats);
 
 // Minimal spinner shown while a page chunk is loading
 function PageLoader() {
@@ -154,6 +156,7 @@ export type PageId =
   | 'rep-orders'
   | 'rep-sales'
   | 'warehouse-dispatch'
+  | 'wa-chats'
   | 'bonus-sales'
   | 'account-builder'
   | 'aqdar-export'
@@ -715,6 +718,7 @@ function AppInner() {
     { id: 'rep-orders',         node: <RepOrdersPage /> },
     { id: 'rep-sales',          node: <RepSalesPage /> },
     { id: 'warehouse-dispatch', node: <WarehouseDispatchPage /> },
+    { id: 'wa-chats', node: <WaChatsPage /> },
   ];
 
   return (

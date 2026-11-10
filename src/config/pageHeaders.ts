@@ -45,6 +45,7 @@ export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
   'rep-orders':         { title: 'طلبيات المذاخر', subtitle: 'كتابة طلبيات اليوم وإرسالها لواتساب المذخر — مقسّمة حسب التاريخ والمذخر وحالة التجهيز' },
   'rep-sales':          { title: 'مبيعات المندوبين', subtitle: 'تسجيل المبيع اليومي وتأكيد الطلبيات، ومجموع كل مندوب وكل ايتم' },
   'warehouse-dispatch': { title: 'إرسال للمذاخر', subtitle: 'إرسال الطلبيات لواتساب المذاخر واستقبال ردّ التجهيز والفاتورة' },
+  'wa-chats':           { title: 'محادثات واتساب', subtitle: 'ما يدور بين رقم البوت الرسمي والمذاخر والزبائن — والرد من رقم البوت' },
   'team-engagement':    { title: 'نشاط الفريق', subtitle: 'مدى استخدام مدير الشركة والموارد البشرية والموظفين للتطبيق' },
   'representatives':    { title: 'المندوبين' },
   'scientific-reps':    { title: 'المندوبون العلميون' },

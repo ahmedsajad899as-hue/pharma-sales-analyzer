@@ -58,6 +58,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'rep-orders',        labelAr: 'طلبيات المذاخر',             icon: '🧾', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','scientific_rep','commercial_supervisor','commercial_team_leader','commercial_rep'] },
   { id: 'rep-sales',         labelAr: 'مبيعات المندوبين',           icon: '💵', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','scientific_rep','commercial_supervisor','commercial_team_leader','commercial_rep'] },
   { id: 'warehouse-dispatch', labelAr: 'إرسال للمذاخر',             icon: '🚚', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader'] },
+  { id: 'wa-chats',          labelAr: 'محادثات واتساب',             icon: '💬', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader'] },
   { id: 'rep-followup',      labelAr: 'متابعة المندوبين',           icon: '🎯', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
   { id: 'motivation',        labelAr: 'التحفيز',                    icon: '🏆', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
 ];
@@ -96,6 +97,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   rep_orders:         'rep-orders',
   rep_sales:          'rep-sales',
   warehouse_dispatch: 'warehouse-dispatch',
+  wa_chats:           'wa-chats',
 };
 
 // وصف كل صفحة يظهر للأدمن في شاشة المميزات
@@ -130,6 +132,7 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'rep-orders':        'صفحة طلبيات المذاخر — المندوب يكتب طلبياته اليومية (الصيدلية، المنطقة، المذخر، الأصناف والكميات وصورة الفاتورة) ويرسلها لرقم واتساب المذخر بضغطة، والمدير يرى طلبيات فريقه مقسّمة حسب التاريخ والمذخر وحالة التجهيز',
   'rep-sales':         'صفحة مبيعات المندوبين — المندوب العلمي أو المسوق يسجّل مبيعه اليومي (الصيدلية، المنطقة، الايتمات والأعداد، صورة الفاتورة): مؤكد مباشرةً، أو طلبية غير مؤكدة حتى يؤكدها بالأرقام نفسها أو بالفاتورة، والمدير يرى ما سجّله فريقه ومجموع كل مندوب وكل ايتم. سجلّ مستقل لا يدخل التقارير',
   'warehouse-dispatch': 'صفحة إرسال للمذاخر — الطلبيات تُرسل تلقائياً (أو بعد موافقة المدير) لواتساب المذخر عبر البوت أو لكروب المذخر، والمذخر يرد بأزرار (تم التجهيز/جزئي/رفض) أو بصورة الفاتورة فتتحدّث الحالة ويُشعَر المندوب، مع تحويل تلقائي للمذخر البديل عند الرفض أو عدم الرد',
+  'wa-chats':          'صفحة محادثات واتساب — كل ما يدور بين رقم البوت الرسمي والمذاخر والمندوبين/الزبائن (الرسائل الواردة حتى ما لا يفهمه البوت، وردود البوت، والطلبيات المرسلة)، مع ردّ يدوي من رقم البوت خلال 24 ساعة من آخر رسالة للطرف الآخر. المدير يرى مذاخره وأرقام فريقه فقط',
   'province-teams':    'صفحة فرق المحافظات — هيكلية المكاتب ذات التيم ليدر المشترك لكل محافظة: مندوب علمي لكل شركة (أو مندوب لشركتين بتقسيم الايتمات)، وحسبتان لكل مندوب: تغطية المحافظة من ملفات المكتب، ومبيع المندوب (المؤكد في «مبيعات المندوبين» + ميركاتو واللكوديشن باسمه)',
   'team-engagement':   'صفحة نشاط الفريق — متابعة مدى استخدام مدير الشركة والموارد البشرية وموظفي المكتب للتطبيق (مدير المكتب فقط)',
 };
@@ -311,6 +314,7 @@ export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
   'rep_orders',
   'rep_sales',
   'warehouse_dispatch',
+  'wa_chats',
   'rep_orders_ai_read',
   'bot_invoice_rep_orders',
   'rep_orders_image_send',
