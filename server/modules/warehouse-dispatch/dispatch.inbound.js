@@ -18,7 +18,6 @@ import { normalizeWaId } from '../../lib/waId.js';
 import { extractInvoiceRows } from '../sales/sales.service.js';
 import { scoreOrder } from '../rep-orders/rep-orders.invoice.js';
 import { sendWhatsAppText, sendList, downloadMedia } from '../whatsapp/whatsapp.service.js';
-import { sendGroupText } from '../wa-groups/wa-groups.client.js';
 import {
   applyAction, attachInvoice, saveInvoiceImage, setRejectReason, appendWarehouseNote, sendDispatch, GROUP_POLL_ACTIONS,
 } from './dispatch.core.js';
@@ -181,8 +180,20 @@ async function handleWarehouseEvent(ctx, ev) {
   // 2) صورة فاتورة
   if (ev.hasImage) {
     let target = quoted || await dispatchFor(explicitId(ev.text), whIds);
-    // الكروب: صورة بلا رد على رسالتنا وبلا رقم طلبية = ليست لنا على الأغلب
-    if (!target && ctx.channel === 'group') return false;
+    // الكروب بلا رد على الطلبية: تُقرأ الصورة وتُطابَق مع طلبيات هذا المذخر المفتوحة بصمت.
+    // لا طلبية تنتظر فاتورة ⇒ تُتجاهل الصورة بلا قراءة (لا كلفة على صور الكروب العادية).
+    if (!target && ctx.channel === 'group') {
+      const open = await openDispatches(whIds, { needInvoice: true });
+      if (!open.length) return false;
+      const buffer = await ev.getImage();
+      const g = await guessByInvoice(buffer, open, await warehouseHintFor(whIds), 'warehouse-group');
+      if (!g.best) {
+        console.log(`[dispatch] صورة في كروب مذخر لم تطابق أي طلبية مفتوحة (${open.length}) — تُركت`);
+        return false;
+      }
+      await attachInvoice(g.best.id, await saveInvoiceImage(buffer), { rows: g.rows });
+      return true;
+    }
     const buffer = await ev.getImage();
     const imagePath = await saveInvoiceImage(buffer);
     // المذخر معروف من الكروب/الرقم ⇒ بطاقته مباشرة (قراءة أرخص وأدق)
@@ -386,12 +397,13 @@ export async function handleGroupInbound(m) {
   if (!warehouses.length) return false;
   const whIds = warehouses.map(w => w.id);
   if (m.pollVote) return handleGroupPollVote(m, whIds);
-  const reply = (text) => sendGroupText(m.jid, text, { quotedId: m.msgId });
+  // كروب المذخر صامت: النظام لا يكتب فيه إلا الطلبيات (طلب صاحب المشروع)
+  const reply = async () => null;
   return handleWarehouseEvent({
     channel: 'group', whIds, reply,
     askWhich: async (open, imagePath, imageMsgId, rows) => {
-      const r = await reply(`استلمنا صورة الفاتورة 🧾 — لأي طلبية هي؟ ردّوا على هذه الرسالة برقم الطلبية:\n${open.slice(0, 10).map(shortLabel).join('\n')}`);
-      rememberGroupImage([imageMsgId, r?.id], { imagePath, rows });
+      // بلا سؤال في الكروب: إن كتب المذخر رقم الطلبية رداً على صورته تُثبَّت عليها
+      rememberGroupImage([imageMsgId], { imagePath, rows });
     },
   }, {
     payload: null,

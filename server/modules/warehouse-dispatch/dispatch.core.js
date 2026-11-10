@@ -95,7 +95,25 @@ export function lineText(l, i) {
   return `${i + 1}) ${l.item} — ${fmtQty(l.quantity)}${bonus}`;
 }
 
+/**
+ * نص الكروب: كأن شخصاً كتبه — بلا أيقونات ولا رقم طلبية ولا اسم المندوب ولا طلب الرد بالفاتورة
+ * (طلب صاحب المشروع). المطابقة لا تحتاج الرقم: الرد يُعرف من معرّف الرسالة، والفاتورة بقراءتها.
+ */
+function buildGroupOrderText(d) {
+  const lines = Array.isArray(d.lines) ? d.lines : [];
+  const ph = String(d.pharmacyName || '').trim();
+  const head = ph ? (/^صيدلي/.test(ph) ? ph : `صيدلية ${ph}`) : 'طلبية';
+  const out = [`${head}${d.areaName ? ` - ${d.areaName}` : ''}`];
+  lines.forEach((l) => {
+    const bonus = Number(l.bonus) > 0 ? ` + ${fmtQty(l.bonus)}` : '';
+    out.push(`${l.item} ${fmtQty(l.quantity)}${bonus}`);
+  });
+  if (d.notes) out.push(String(d.notes).trim());
+  return out.join('\n');
+}
+
 export function buildOrderText(d, { forGroup = false } = {}) {
+  if (forGroup) return buildGroupOrderText(d);
   const lines = Array.isArray(d.lines) ? d.lines : [];
   const out = [`📦 طلبية جديدة رقم ${d.id}`];
   if (d.repName) out.push(`👤 المندوب: ${d.repName}`);
@@ -104,9 +122,7 @@ export function buildOrderText(d, { forGroup = false } = {}) {
   lines.forEach((l, i) => out.push(lineText(l, i)));
   out.push('────────────');
   if (d.notes) out.push(`📝 ${d.notes}`);
-  out.push(forGroup
-    ? 'بعد التجهيز أرسلوا صورة الفاتورة رداً على هذه الرسالة (اسحبوها).'
-    : 'اختاروا أحد الأزرار، أو أرسلوا صورة فاتورة التجهيز رداً على هذه الرسالة.');
+  out.push('اختاروا أحد الأزرار، أو أرسلوا صورة فاتورة التجهيز رداً على هذه الرسالة.');
   return out.join('\n');
 }
 
@@ -334,8 +350,9 @@ export async function replyToWarehouse(d, text) {
   try {
     const w = d.warehouseId ? await prisma.orderWarehouse.findUnique({ where: { id: d.warehouseId } }) : null;
     if (!w) return;
-    if (d.channel === 'group') await sendGroupText(w.groupJid, text, { quotedId: d.outMessageIds?.[0] });
-    else await sendWhatsAppText(normalizeWaId(w.waId || w.phone), text);
+    // كروب المذخر: لا إقرارات ولا «شكراً» — النظام يرسل الطلبيات فقط ويقرأ بصمت (طلب صاحب المشروع)
+    if (d.channel === 'group') return;
+    await sendWhatsAppText(normalizeWaId(w.waId || w.phone), text);
   } catch (e) {
     console.error('[dispatch] تعذّر الرد على المذخر:', e?.message);
   }
