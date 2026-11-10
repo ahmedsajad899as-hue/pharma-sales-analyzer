@@ -1251,6 +1251,15 @@ export async function extractVisitsImport(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// ── POST /visits/import-ensure-reps — سجل مندوب لمستخدم مكتب اختير في المطابقة ──
+// body: { userIds: number[] } ⇒ { map: { [userId]: repId } }
+export async function ensureVisitsImportReps(req, res, next) {
+  try {
+    const map = await importVisits.ensurePickerRepIds(req.body?.userIds, req.user);
+    res.json({ success: true, data: { map } });
+  } catch (e) { next(e); }
+}
+
 // ── POST /visits/import-commit — حفظ الصفوف بعد مراجعة المستخدم ──────────────
 // body: { doctorRows?: [...], pharmacyRows?: [...], rememberRepLinks?: [{fromName, scientificRepId|null}],
 //         rememberDoctorLinks?: [{fromName, areaName|null, doctorId|null}], fileName?: string }

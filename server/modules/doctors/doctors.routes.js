@@ -27,6 +27,7 @@ router.post('/',            ctrl.create);
 router.post('/import',      upload.single('file'), ctrl.importExcel);
 router.post('/visits/import-extract', upload.single('file'), ctrl.extractVisitsImport);
 router.post('/visits/import-commit',  ctrl.commitVisitsImport);
+router.post('/visits/import-ensure-reps', ctrl.ensureVisitsImportReps);
 router.get('/visits/pending-import',    ctrl.getPendingVisitsImport);
 router.delete('/visits/pending-import', ctrl.deletePendingVisitsImport);
 router.get('/visits/import-files',      ctrl.listVisitImportFiles);

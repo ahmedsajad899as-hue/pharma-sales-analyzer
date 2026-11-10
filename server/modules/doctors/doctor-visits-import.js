@@ -35,6 +35,51 @@ import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
 import { resolveAreaByName } from '../../lib/areaResolver.js';
 import { loadProvinceVisitContext, isProvinceVisitRow, markProvinceRows, prepareProvinceVisitRows } from '../../lib/provinceVisitSurvey.js';
 import { BAGHDAD_PROVINCE } from '../../lib/pharmacyRep.js';
+import { provinceIdsByMember } from '../../lib/provinceScope.js';
+import { ensureLinkedRepId } from '../../lib/areaScope.js';
+
+const ROLE_LABEL = {
+  scientific_rep: 'مندوب', team_leader: 'تيم ليدر', commercial_rep: 'مندوب تجاري', company_manager: 'مدير شركة',
+  product_manager: 'مدير منتج', office_manager: 'مدير مكتب', office_hr: 'موارد بشرية', office_employee: 'موظف مكتب',
+  supervisor: 'مشرف', commercial_supervisor: 'مشرف تجاري', commercial_team_leader: 'تيم ليدر تجاري',
+  admin: 'مدير', manager: 'مدير', user: 'مستخدم',
+};
+
+/**
+ * كل مستخدمي مكتب الرافع (بلا المسؤول العام) — لقائمة مطابقة أسماء المندوبين، لا
+ * المندوبين وحدهم: من يكتب زيارات في الـCRM قد يكون مديراً أو موظف مكتب. بلا مكتب ⇒
+ * مستخدمو شركاته. لا يُنشئ أي سجل مندوب هنا — ensurePickerRepIds تفعل ذلك لمن يُختار فقط.
+ */
+async function loadOfficePickerUsers(user) {
+  if (!user?.id) return [];
+  const me = await prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } });
+  let where;
+  if (me?.officeId) where = { officeId: me.officeId };
+  else {
+    const companyIds = (await prisma.userCompanyAssignment.findMany({ where: { userId: user.id }, select: { companyId: true } })).map(c => c.companyId);
+    if (!companyIds.length) return [];
+    where = { companyAssignments: { some: { companyId: { in: companyIds } } } };
+  }
+  return prisma.user.findMany({
+    where: { ...where, isActive: true },
+    select: {
+      id: true, displayName: true, username: true, role: true, linkedRepId: true,
+      companyAssignments: { select: { isPrimary: true, company: { select: { name: true } } } },
+    },
+  });
+}
+
+/** يضمن سجل مندوب لمستخدمي المكتب المختارين (ضمن مكتب الرافع فقط) ⇒ {userId: repId}. */
+export async function ensurePickerRepIds(userIds, user) {
+  const allowed = new Set((await loadOfficePickerUsers(user)).map(u => u.id));
+  const out = {};
+  for (const id of [...new Set((userIds || []).map(Number))]) {
+    if (!allowed.has(id)) continue;
+    const repId = await ensureLinkedRepId(id);
+    if (repId) out[id] = repId;
+  }
+  return out;
+}
 
 // ── تعيين نص الفيدباك الحر إلى قيم Enum الثابتة في DoctorVisit.feedback ──────
 const FEEDBACK_RULES = [
@@ -1552,13 +1597,38 @@ export async function extractVisitsFromExcel(file, user) {
   // تطابق في هذا الملف) — الواجهة تعرض غير المربوطين فقط، مجمَّعين بالشركة والمحافظة.
   {
     const provinceNameById = new Map(provinceCtx.provinces.map(p => [p.id, p.name]));
+    const provinceLabel = (pIds) => {
+      const names = pIds ? [...pIds].map(id => provinceNameById.get(id)).filter(Boolean) : [];
+      return names.length ? names.join('، ') : BAGHDAD_PROVINCE;
+    };
     const linked = new Set(repClassification.linkedRepIds ?? []);
     for (const e of repClassification.resolved) if (e.rep?.id) linked.add(e.rep.id);
-    repClassification.reps = (repClassification.reps ?? []).map(r => {
-      const pIds = provinceCtx.repIndex.get(r.id)?.provinceIds;
-      const provinces = pIds ? [...pIds].map(id => provinceNameById.get(id)).filter(Boolean) : [];
-      return { ...r, province: provinces.length ? provinces.join('، ') : 'بغداد', linked: linked.has(r.id) };
+    const [officeUsers, members] = await Promise.all([loadOfficePickerUsers(user), provinceIdsByMember()]);
+    const userByRepId = new Map(officeUsers.filter(u => u.linkedRepId).map(u => [u.linkedRepId, u]));
+    const out = (repClassification.reps ?? []).map(r => {
+      const u = userByRepId.get(r.id);
+      return {
+        ...r, linked: linked.has(r.id), role: u ? (ROLE_LABEL[u.role] ?? u.role) : null,
+        province: provinceLabel(provinceCtx.repIndex.get(r.id)?.provinceIds ?? (u ? members.get(u.id) : null)),
+      };
     });
+    // بقية مستخدمي المكتب. من لا سجل مندوب له يحمل id سالباً (= -userId)، ويُنشأ سجله عند اختياره فقط.
+    const seen = new Set(out.map(r => r.id));
+    for (const u of officeUsers) {
+      const id = u.linkedRepId ?? -u.id;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        id, name: u.displayName || u.username,
+        // الأدوار المكتبية مُسندة لكل الشركات — لا شركة «رئيسية» حقيقية لها
+        company: ['office_manager', 'office_hr', 'office_employee'].includes(u.role) ? null
+          : (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name ?? null,
+        role: ROLE_LABEL[u.role] ?? u.role,
+        province: provinceLabel(members.get(u.id)),
+        linked: id > 0 && linked.has(id),
+      });
+    }
+    repClassification.reps = out;
   }
 
   if (isCrm) {

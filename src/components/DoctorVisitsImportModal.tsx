@@ -31,7 +31,8 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const newSaveToken = () =>
   (globalThis.crypto?.randomUUID?.() ?? `t${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-interface RepOpt { id: number; name: string; company?: string | null; province?: string; linked?: boolean }
+// id سالب = مستخدم مكتب بلا سجل مندوب بعد (-userId) — يُنشأ سجله عند تطبيق المطابقة
+interface RepOpt { id: number; name: string; company?: string | null; province?: string; linked?: boolean; role?: string | null }
 interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; company?: string | null; score: number }[] }
 interface DoctorSuggestion { id: number; name: string; score: number; areaId?: number | null; areaName: string | null; specialty: string | null; pharmacyName: string | null; crossArea?: boolean }
 interface DoctorNameEntry { raw: string; key: string; areaName?: string; specialty?: string; pharmacyName?: string; dates?: string[]; suggestions: DoctorSuggestion[] }
@@ -341,18 +342,20 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
       .filter(([k, v]) => k !== key && v && v !== 'none').map(([, v]) => Number(v)));
     const current = Number(nameChoice[key]) || null;
     const namePv = provinceOfName.get(key);
-    const groups = new Map<string, { label: string; top: boolean; reps: RepOpt[] }>();
+    // المحافظات: مجموعة لكل محافظة تضم كل منتسبيها بمختلف شركاتهم؛ بغداد: مجموعة لكل شركة.
+    const groups = new Map<string, { label: string; top: boolean; baghdad: boolean; reps: RepOpt[] }>();
     for (const r of reps) {
       const hidden = !showLinkedReps && (r.linked || takenHere.has(r.id));
       if (hidden && r.id !== current) continue;
       const pv = r.province || 'بغداد';
-      const label = `${r.company || 'بلا شركة'} — ${pv}`;
-      if (!groups.has(label)) groups.set(label, { label, top: !!namePv && pv.includes(namePv), reps: [] });
+      const baghdad = pv === 'بغداد';
+      const label = baghdad ? `بغداد — ${r.company || 'إدارة وموظفو المكتب'}` : `📍 ${pv}`;
+      if (!groups.has(label)) groups.set(label, { label, baghdad, top: !!namePv && pv.includes(namePv), reps: [] });
       groups.get(label)!.reps.push(r);
     }
     return [...groups.values()]
-      .map(g => ({ ...g, reps: g.reps.sort((a, b) => a.name.localeCompare(b.name, 'ar')) }))
-      .sort((a, b) => Number(b.top) - Number(a.top) || a.label.localeCompare(b.label, 'ar'));
+      .map(g => ({ ...g, reps: g.reps.sort((a, b) => (a.company || '').localeCompare(b.company || '', 'ar') || a.name.localeCompare(b.name, 'ar')) }))
+      .sort((a, b) => Number(b.top) - Number(a.top) || Number(a.baghdad) - Number(b.baghdad) || a.label.localeCompare(b.label, 'ar'));
   };
   const unlinkedRepCount = reps.filter(r => !r.linked).length;
   const decidedCount = needsDecision.filter(e => nameChoice[e.key]).length;
@@ -362,10 +365,31 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
     + pharmRows.filter(r => r.repName && normalizeLocal(r.repName) === key).length;
 
   /** يطبّق قرارات المطابقة على صفوف الأطباء والصيدليات معاً دفعة واحدة. */
-  const applyNameMatching = () => {
+  const applyNameMatching = async () => {
+    // مستخدمو مكتب بلا سجل مندوب (id سالب) ⇒ يُنشأ سجلهم أولاً فتحمل صفوفهم repId حقيقياً
+    const toEnsure = [...new Set(Object.values(nameChoice).map(Number).filter(n => n < 0).map(n => -n))];
+    let choices = nameChoice;
+    if (toEnsure.length) {
+      try {
+        const res = await fetch(`${API}/api/doctors/visits/import-ensure-reps`, {
+          method: 'POST', headers: { ...authH, 'Content-Type': 'application/json' }, body: JSON.stringify({ userIds: toEnsure }),
+        });
+        const j = await res.json();
+        if (!res.ok || !j.success) throw new Error(j.error || 'تعذّر تجهيز المستخدمين المختارين');
+        const map: Record<string, number> = j.data?.map ?? {};
+        const swap = (v: string) => { const n = Number(v); return n < 0 && map[-n] ? String(map[-n]) : v; };
+        choices = Object.fromEntries(Object.entries(nameChoice).map(([k, v]) => [k, swap(v)]));
+        if (Object.values(choices).some(v => Number(v) < 0)) throw new Error('بعض المستخدمين المختارين خارج مكتبك');
+        setReps(rs => rs.map(r => (r.id < 0 && map[-r.id] ? { ...r, id: map[-r.id] } : r)));
+        setNameChoice(choices);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'تعذّر تجهيز المستخدمين المختارين');
+        return;
+      }
+    }
     const choiceByKey = new Map<string, number | null>();
     for (const e of needsDecision) {
-      const c = nameChoice[e.key];
+      const c = choices[e.key];
       if (!c) continue;
       choiceByKey.set(e.key, c === 'none' ? null : Number(c));
     }
@@ -628,7 +652,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
               🔗 طابِق أسماء المندوبين أولاً ({decidedCount}/{needsDecision.length}) — يُطبَّق على كل صفوف كل اسم دفعة واحدة
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap', fontSize: 11.5, color: '#64748b' }}>
-              <span>القائمة تعرض المندوبين غير المربوطين فقط ({unlinkedRepCount})، مجمَّعين حسب الشركة والمحافظة — ⭐ = محافظة الاسم في الملف.</span>
+              <span>القائمة تعرض كل مستخدمي المكتب غير المربوطين ({unlinkedRepCount}): المحافظات كلٌّ تحت محافظته بمختلف الشركات، وبغداد حسب الشركة — ⭐ = محافظة الاسم في الملف.</span>
               <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#334155' }}>
                 <input type="checkbox" checked={showLinkedReps} onChange={ev => setShowLinkedReps(ev.target.checked)} />
                 إظهار المربوطين أيضاً
@@ -659,7 +683,9 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
                       {groups.map(g => (
                         <optgroup key={g.label} label={`${g.top ? '⭐ ' : ''}${g.label}`}>
                           {g.reps.map(r => (
-                            <option key={r.id} value={r.id}>{r.name}{r.linked ? ' (مربوط)' : ''}</option>
+                            <option key={r.id} value={r.id}>
+                              {r.name}{!g.baghdad && r.company ? ` — ${r.company}` : ''}{r.role && r.role !== 'مندوب' ? ` · ${r.role}` : ''}{r.linked ? ' (مربوط)' : ''}
+                            </option>
                           ))}
                         </optgroup>
                       ))}
@@ -817,7 +843,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
                           <select value={r.repId ?? ''} onChange={e => setDocCell(i, { repId: e.target.value ? Number(e.target.value) : null })}
                             style={{ ...cellInp, minWidth: 130, borderColor: r.repId ? '#e2e8f0' : '#fca5a5' }}>
                             <option value="">{r.repName || '— اختر —'}</option>
-                            {reps.map(rp => <option key={rp.id} value={rp.id}>{rp.name}</option>)}
+                            {reps.filter(rp => rp.id > 0 || rp.id === r.repId).map(rp => <option key={rp.id} value={rp.id}>{rp.name}</option>)}
                           </select>
                         </td>
                         <td style={td}>
@@ -901,7 +927,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
                           <select value={r.repId ?? ''} onChange={e => setPharmCell(i, { repId: e.target.value ? Number(e.target.value) : null })}
                             style={{ ...cellInp, minWidth: 130, borderColor: r.repId ? '#e2e8f0' : '#fca5a5' }}>
                             <option value="">{r.repName || '— اختر —'}</option>
-                            {reps.map(rp => <option key={rp.id} value={rp.id}>{rp.name}</option>)}
+                            {reps.filter(rp => rp.id > 0 || rp.id === r.repId).map(rp => <option key={rp.id} value={rp.id}>{rp.name}</option>)}
                           </select>
                         </td>
                         <td style={td}><input value={r.pharmacyName} onChange={e => setPharmCell(i, { pharmacyName: e.target.value })} style={{ ...cellInp, minWidth: 160 }} /></td>
