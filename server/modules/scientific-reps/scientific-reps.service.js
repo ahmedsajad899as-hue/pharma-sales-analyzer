@@ -952,6 +952,8 @@ export async function classifyRepNamesForUser(names, user = null) {
     // خارج نطاق مندوبي هذا المدير — تُعرض كعدد فقط، بلا سؤال
     unrelated: entries.filter(e => e.status === 'none').map(e => ({ raw: e.raw, key: e.key })).sort(byName),
     reps,
+    // مندوبون لهم اسم ملف مربوط مسبقاً (قرار محفوظ في النطاق) — لتصفية قائمة الاختيار
+    linkedRepIds: [...new Set(linkRows.map(l => l.scientificRepId).filter(Number.isInteger))],
   };
 }
 

@@ -45,6 +45,7 @@ globalThis.prisma = {
       ? where.id.in.map(id => ({ id, linkedRepId: id + 100 }))
       : [{ id: 14, provinceAssignments: [{ provinceId: 4 }] }]),
     findUnique: async ({ where }) => ({ id: where.id, linkedRepId: where.id + 100, role: 'scientific_rep', permissions: '{}' }),
+    findFirst: async ({ where }) => (where?.linkedRepId ? { id: where.linkedRepId - 100 } : null),
   },
   // فريق مدير الشركة لاختبار نطاق المحافظة: مندوبو المحافظات + مندوب بغداد (20)
   userManagerAssignment: {
@@ -132,7 +133,11 @@ await t('التمييز: مندوب/قائد/مسوق محافظة نعم، بغ
   assert.equal(isProvinceVisitRow({ repId: REP_A, clientCity: 'karbala' }, ctx), true);
   assert.equal(isProvinceVisitRow({ repId: REP_LEADER }, ctx), true);
   assert.equal(isProvinceVisitRow({ repId: REP_MARKETER }, ctx), true);
-  assert.equal(isProvinceVisitRow({ repId: REP_BAGHDAD, clientCity: 'karbala' }, ctx), false);
+  // مدينة الملف هي الحَكَم: مندوب بغداد زار كربلاء ⇒ زيارة محافظة
+  assert.equal(isProvinceVisitRow({ repId: REP_BAGHDAD, clientCity: 'karbala' }, ctx), true);
+  assert.equal(isProvinceVisitRow({ repId: REP_BAGHDAD, repCity: 'alnajaf' }, ctx), true);
+  assert.equal(isProvinceVisitRow({ repId: REP_BAGHDAD }, ctx), false);
+  assert.equal(isProvinceVisitRow({ repId: REP_A, clientCity: 'baghdad', repCity: 'karbala' }, ctx), false);
   assert.equal(isProvinceVisitRow({ repId: REP_A, clientCity: 'Baghdad' }, ctx), false);
   assert.equal(isProvinceVisitRow({ repId: null }, ctx), false);
 });
@@ -302,6 +307,16 @@ await t('مندوب زار محافظة أخرى: الطبيب في محافظت
   const area = db.areas.find(a => a.id === row.areaId);
   assert.equal(area.provinceId, 4);
   assert.ok(db.assignments.some(x => x.userId === 11 && x.areaId === area.id));
+});
+
+await t('طلب المستخدم 2026-11-10: مدينة الملف تحسم — مندوب بغداد زار كربلاء ⇒ سيرفي المحافظات بلا مطابقة بغداد', async () => {
+  const row = doc(REP_BAGHDAD, 'سامر كريم', 'الكرادة', 'باطنية', { clientCity: 'karbala', areaId: 2 });
+  const res = await run([row]);
+  assert.equal(res.provinceRows, 1);
+  const area = db.areas.find(a => a.id === row.areaId);
+  assert.equal(area.provinceId, 2); // كربلاء لا حيّ الكرادة ببغداد
+  assert.notEqual(row.surveyDoctorId ?? row.doctorId, 2); // لا يُربط بسميّ بغداد
+  assert.ok(db.assignments.some(x => x.userId === REP_BAGHDAD - 100 && x.areaId === area.id));
 });
 
 await t('إعادة رفع الملف نفسه: صفر سجلات جديدة', async () => {

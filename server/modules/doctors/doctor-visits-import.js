@@ -841,6 +841,7 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
     subcategory:   findCol(headers, ['client-subcategory']),
     address:       findCol(headers, ['client-address']),
     city:          findCol(headers, ['client-city']),
+    repCity:       findCol(headers, ['rep-city']),
     associated:    findCol(headers, ['associated-client', 'associated_client']),
     type:          findCol(headers, ['type']),
     created:       findCol(headers, ['created']),
@@ -876,6 +877,7 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
     // نص العنوان كما في الملف — مسار المحافظات يحسمه داخل محافظته لا كتالوج بغداد.
     // بلا عنوان: ذيل اسم العميل («عيادة الدكتور فلان / اطفال - الاسكان») قبل المدينة.
     const clientCity = get(row, 'city');
+    const repCity = get(row, 'repCity');
     const rawAreaText = get(row, 'address') || (clientRaw.match(/\s[-–]\s*([^-–/]+?)\s*$/)?.[1] ?? '') || clientCity;
     // مرشَّح واثق (تام أو ضبابي وحيد) → الاسم القانوني الموجود أصلاً يحلّ محل
     // الوصف الخام؛ التباس حقيقي أو بلا مرشّح إطلاقاً → يبقى النص الخام كما هو
@@ -918,7 +920,7 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
         pharmacyRows.push({
           _row, repName, repId: rep?.id ?? null,
           pharmacyName: clientName,
-          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null, rawAreaText, clientCity,
+          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null, rawAreaText, clientCity, repCity,
           itemName: '', itemId: null, rawItemName: '',
           itemSuggestionId: null, itemSuggestionName: null,
           date, time, notes, isDoubleVisit,
@@ -942,7 +944,7 @@ export function extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx = EM
           _row, repName, repId: rep?.id ?? null,
           doctorName, doctorId: null,
           specialty: get(row, 'subcategory'),
-          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null, rawAreaText, clientCity,
+          areaName: areaResolvedName, areaId: areaMatch.area?.id ?? null, rawAreaText, clientCity, repCity,
           pharmacyName: nearPharmacy,
           itemName: parsedRD.item ? parsedRD.item.name : parsedRD.itemText,
           itemId: parsedRD.item?.id ?? null,
@@ -1542,9 +1544,22 @@ export async function extractVisitsFromExcel(file, user) {
   // زيارات مندوبي المحافظات لا تُسأل عنها مطابقة أطباء: تبني السيرفي عند الحفظ. صف
   // مندوبه لم يُحسم بعد يُصنَّف كالمعتاد، والواجهة تُسقط سؤاله إن اختير له مندوب محافظة.
   const provinceRepIds = [...provinceCtx.repIndex.keys()];
+  // صف يقول ملفه (client-city/rep-city) إنه محافظة لا يُقارَن بأطباء بغداد أبداً — ولو لم يُحسم مندوبه بعد.
   const classifyNonProvince = (list) => classifyDoctorRows(
-    list.filter(r => !isProvinceVisitRow(r, provinceCtx)), ownerUserId, { excludeProvinceDoctors: true },
+    list.filter(r => !r.provinceFile && !isProvinceVisitRow(r, provinceCtx)), ownerUserId, { excludeProvinceDoctors: true },
   );
+  // قائمة اختيار المندوب: كل مندوب يحمل محافظته وهل هو مربوط مسبقاً (قرار محفوظ أو
+  // تطابق في هذا الملف) — الواجهة تعرض غير المربوطين فقط، مجمَّعين بالشركة والمحافظة.
+  {
+    const provinceNameById = new Map(provinceCtx.provinces.map(p => [p.id, p.name]));
+    const linked = new Set(repClassification.linkedRepIds ?? []);
+    for (const e of repClassification.resolved) if (e.rep?.id) linked.add(e.rep.id);
+    repClassification.reps = (repClassification.reps ?? []).map(r => {
+      const pIds = provinceCtx.repIndex.get(r.id)?.provinceIds;
+      const provinces = pIds ? [...pIds].map(id => provinceNameById.get(id)).filter(Boolean) : [];
+      return { ...r, province: provinces.length ? provinces.join('، ') : 'بغداد', linked: linked.has(r.id) };
+    });
+  }
 
   if (isCrm) {
     const { doctorRows, pharmacyRows } = extractCrmRows({ rows, headers, repByKey, allAreas, itemCtx, taskNotesMap });

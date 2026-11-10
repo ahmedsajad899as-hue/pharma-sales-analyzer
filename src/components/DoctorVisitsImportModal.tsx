@@ -31,7 +31,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const newSaveToken = () =>
   (globalThis.crypto?.randomUUID?.() ?? `t${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-interface RepOpt { id: number; name: string; company?: string | null }
+interface RepOpt { id: number; name: string; company?: string | null; province?: string; linked?: boolean }
 interface RepNameEntry { raw: string; key: string; status: string; rep: RepOpt | null; suggestions: { id: number; name: string; company?: string | null; score: number }[] }
 interface DoctorSuggestion { id: number; name: string; score: number; areaId?: number | null; areaName: string | null; specialty: string | null; pharmacyName: string | null; crossArea?: boolean }
 interface DoctorNameEntry { raw: string; key: string; areaName?: string; specialty?: string; pharmacyName?: string; dates?: string[]; suggestions: DoctorSuggestion[] }
@@ -53,6 +53,8 @@ interface DoctorRow {
   rawDoctorName?: string; rawSpecialty?: string; rawAreaName?: string; rawPharmacyName?: string;
   // عنوان الملف الخام، وهل الزبون في بغداد بنص الملف — لتمييز صفوف سيرفي المحافظات
   rawAreaText?: string; clientCity?: string; baghdadClient?: boolean;
+  // محافظة الزيارة من client-city/rep-city — provinceFile = محافظة غير بغداد (بلا مطابقة أطباء)
+  repCity?: string; fileProvince?: string | null; repProvince?: string | null; provinceFile?: boolean;
   specialty: string; areaName: string; areaId: number | null;
   pharmacyName: string;
   itemName: string; itemId: number | null;
@@ -67,6 +69,8 @@ interface PharmacyRow {
   repName: string; repId: number | null;
   pharmacyName: string;
   rawAreaText?: string; clientCity?: string; baghdadClient?: boolean;
+  // محافظة الزيارة من client-city/rep-city — provinceFile = محافظة غير بغداد (بلا مطابقة أطباء)
+  repCity?: string; fileProvince?: string | null; repProvince?: string | null; provinceFile?: boolean;
   areaName: string; areaId: number | null;
   itemName: string; itemId: number | null; // مستخرَجان من حقل note (يُحفظان كـ PharmacyVisitItem)
   rawItemName?: string;
@@ -114,6 +118,8 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
   const [nameChoice, setNameChoice] = useState<Record<string, string>>({});
   const [nameApplied, setNameApplied] = useState(false);
   const [rememberChoices, setRememberChoices] = useState(true);
+  // قائمة الاختيار تعرض غير المربوطين فقط؛ هذا يعيد إظهار الكل عند الحاجة
+  const [showLinkedReps, setShowLinkedReps] = useState(false);
 
   // مطابقة أسماء الأطباء المشكوك بها (خطوة ثانية بعد حسم أسماء المندوبين)
   const [pendingDoctorNames, setPendingDoctorNames] = useState<DoctorNameEntry[]>([]);
@@ -129,9 +135,11 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
   const totalRows = docRows.length + pharmRows.length;
 
   const provinceRepSet = useMemo(() => new Set(provinceRepIds), [provinceRepIds]);
-  const isProvinceRow = (r: { repId: number | null; baghdadClient?: boolean }) =>
-    !!r.repId && provinceRepSet.has(r.repId) && !r.baghdadClient;
-  const provinceRowCount = docRows.filter(isProvinceRow).length + pharmRows.filter(isProvinceRow).length;
+  // الملف يحدّد المحافظة (client-city/rep-city) ⇒ هو الحَكَم؛ بلا مدينة ⇒ عضوية المندوب كالسابق
+  const isProvinceRow = (r: { repId: number | null; baghdadClient?: boolean; fileProvince?: string | null; provinceFile?: boolean }) =>
+    r.provinceFile ? true : (!r.fileProvince && !!r.repId && provinceRepSet.has(r.repId) && !r.baghdadClient);
+  const provinceRowCount = docRows.filter(r => r.repId && isProvinceRow(r)).length
+    + pharmRows.filter(r => r.repId && isProvinceRow(r)).length;
   // سؤال طبيب كل صفوفه صارت لمندوبي محافظات (بعد مطابقة المندوب) لا معنى له
   const visiblePendingDoctors = useMemo(
     () => pendingDoctorNames.filter(e => docRows.some(r => r.doctorKey === e.key && !isProvinceRow(r))),
@@ -308,7 +316,45 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalRows]);
 
-  const needsDecision = useMemo(() => [...pendingNames, ...unrelatedNames.map(u => ({ ...u, status: 'none', rep: null, suggestions: [] as any[] }))], [pendingNames, unrelatedNames]);
+  /** محافظة اسم المندوب كما في الملف (rep-city، وإلا client-city) — للترتيب والتجميع. */
+  const provinceOfName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of [...docRows, ...pharmRows]) {
+      const k = r.repName ? normalizeLocal(r.repName) : '';
+      const p = r.repProvince || r.fileProvince;
+      if (k && p && !m.has(k)) m.set(k, p);
+    }
+    return m;
+  }, [docRows, pharmRows]);
+  const needsDecision = useMemo(() => {
+    const all = [...pendingNames, ...unrelatedNames.map(u => ({ ...u, status: 'none', rep: null, suggestions: [] as any[] }))];
+    const pv = (k: string) => provinceOfName.get(k) ?? '￿';
+    return all.sort((a, b) => pv(a.key).localeCompare(pv(b.key), 'ar') || a.raw.localeCompare(b.raw, 'ar'));
+  }, [pendingNames, unrelatedNames, provinceOfName]);
+
+  /**
+   * خيارات مندوب لاسم واحد: غير المربوطين فقط (لا رابط محفوظ ولا اختيار لاسم آخر هنا)،
+   * مجمَّعين «الشركة — المحافظة»، ومجموعات محافظة الاسم في الملف أولاً.
+   */
+  const repGroupsFor = (key: string) => {
+    const takenHere = new Set(Object.entries(nameChoice)
+      .filter(([k, v]) => k !== key && v && v !== 'none').map(([, v]) => Number(v)));
+    const current = Number(nameChoice[key]) || null;
+    const namePv = provinceOfName.get(key);
+    const groups = new Map<string, { label: string; top: boolean; reps: RepOpt[] }>();
+    for (const r of reps) {
+      const hidden = !showLinkedReps && (r.linked || takenHere.has(r.id));
+      if (hidden && r.id !== current) continue;
+      const pv = r.province || 'بغداد';
+      const label = `${r.company || 'بلا شركة'} — ${pv}`;
+      if (!groups.has(label)) groups.set(label, { label, top: !!namePv && pv.includes(namePv), reps: [] });
+      groups.get(label)!.reps.push(r);
+    }
+    return [...groups.values()]
+      .map(g => ({ ...g, reps: g.reps.sort((a, b) => a.name.localeCompare(b.name, 'ar')) }))
+      .sort((a, b) => Number(b.top) - Number(a.top) || a.label.localeCompare(b.label, 'ar'));
+  };
+  const unlinkedRepCount = reps.filter(r => !r.linked).length;
   const decidedCount = needsDecision.filter(e => nameChoice[e.key]).length;
 
   const countForName = (key: string) =>
@@ -581,13 +627,28 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
             <div style={{ fontSize: 12.5, fontWeight: 800, color: '#92400e', marginBottom: 8 }}>
               🔗 طابِق أسماء المندوبين أولاً ({decidedCount}/{needsDecision.length}) — يُطبَّق على كل صفوف كل اسم دفعة واحدة
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap', fontSize: 11.5, color: '#64748b' }}>
+              <span>القائمة تعرض المندوبين غير المربوطين فقط ({unlinkedRepCount})، مجمَّعين حسب الشركة والمحافظة — ⭐ = محافظة الاسم في الملف.</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#334155' }}>
+                <input type="checkbox" checked={showLinkedReps} onChange={ev => setShowLinkedReps(ev.target.checked)} />
+                إظهار المربوطين أيضاً
+              </label>
+            </div>
             <div style={{ maxHeight: '38vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {needsDecision.map(e => {
                 const count = countForName(e.key);
+                const pv = provinceOfName.get(e.key);
+                const groups = repGroupsFor(e.key);
                 return (
                   <div key={e.key} style={card}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
                       <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a' }}>{e.raw}</div>
+                      {pv && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999,
+                          background: pv === 'بغداد' ? '#e0f2fe' : '#fef3c7', color: pv === 'بغداد' ? '#075985' : '#92400e' }}>
+                          📍 {pv}
+                        </span>
+                      )}
                       <span style={{ fontSize: 10.5, color: '#94a3b8' }}>({count} صف)</span>
                     </div>
                     <select
@@ -595,13 +656,12 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
                       onChange={ev => setNameChoice(p => ({ ...p, [e.key]: ev.target.value }))}
                       style={{ width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 12.5, fontFamily: 'inherit' }}>
                       <option value="">— اختر —</option>
-                      {e.suggestions.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}{s.company ? ` — ${s.company}` : ''} (تشابه {Math.round(s.score * 100)}%)
-                        </option>
-                      ))}
-                      {reps.filter(r => !e.suggestions.some(s => s.id === r.id)).map(r => (
-                        <option key={r.id} value={r.id}>{r.name}{r.company ? ` — ${r.company}` : ''}</option>
+                      {groups.map(g => (
+                        <optgroup key={g.label} label={`${g.top ? '⭐ ' : ''}${g.label}`}>
+                          {g.reps.map(r => (
+                            <option key={r.id} value={r.id}>{r.name}{r.linked ? ' (مربوط)' : ''}</option>
+                          ))}
+                        </optgroup>
                       ))}
                       <option value="none">🚫 ليس مندوباً — تجاهل صفوفه</option>
                     </select>
@@ -703,7 +763,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
             </datalist>
             {provinceRowCount > 0 && (
               <div style={{ margin: '10px 0 0', padding: '8px 12px', borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#065f46', fontSize: 12.2, fontWeight: 600, lineHeight: 1.7 }}>
-                🗺️ {provinceRowCount} زيارة لمندوبي المحافظات تدخل تلقائياً بلا مطابقة أسماء: يُسجَّل الطبيب أو الصيدلية في سيرفي منطقته مرة واحدة، وتُضاف الزيارة تحت اسمه.
+                🗺️ {provinceRowCount} زيارة في المحافظات (حسب client-city / rep-city في الملف) تُحفظ مباشرة باسم مندوبها بلا مطابقة أطباء بغداد: يُسجَّل الطبيب أو الصيدلية في سيرفي المحافظة مرة واحدة، وتُضاف الزيارة تحته.
               </div>
             )}
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>

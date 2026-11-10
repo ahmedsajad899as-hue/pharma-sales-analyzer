@@ -85,20 +85,43 @@ export async function loadProvinceVisitContext() {
   const provinceOfText = (text) => {
     const raw = String(text ?? '').trim();
     if (!raw) return null;
-    const en = CITY_EN[raw.toLowerCase().replace(/[^a-z]/g, '')];
-    return en ? (byName.get(en) ?? null) : matchProvinceName(raw, lookup);
+    // «alanbar» / «al-najaf» = anbar / najaf: أداة التعريف تُجرَّب بلا «al» أيضاً
+    const key = raw.toLowerCase().replace(/[^a-z]/g, '');
+    const en = CITY_EN[key] ?? (key.startsWith('al') ? CITY_EN[key.slice(2)] : undefined);
+    return en ? (byName.get(en) ?? matchProvinceName(en, lookup) ?? null) : matchProvinceName(raw, lookup);
   };
 
   return { repIndex, provinces, provinceOfText };
 }
 
-/** الزبون في بغداد بنصّ الملف نفسه — فلا يدخل سيرفي المحافظات ولو كان مندوبه منها. */
-export function isBaghdadClient(row, ctx) {
-  return ctx.provinceOfText(row?.clientCity)?.name === BAGHDAD_PROVINCE;
+/**
+ * محافظة الزيارة كما يقولها الملف نفسه: client-city أولاً (الزبون فعلاً هناك)، ثم
+ * rep-city. null = الملف لا يحدّد (قالب بسيط/عمودان فارغان) فيُرجَع لعضوية المندوب.
+ */
+export function fileProvinceOf(row, ctx) {
+  return ctx.provinceOfText(row?.clientCity) ?? ctx.provinceOfText(row?.repCity) ?? null;
 }
 
+/** الزبون في بغداد بنصّ الملف نفسه — فلا يدخل سيرفي المحافظات ولو كان مندوبه منها. */
+export function isBaghdadClient(row, ctx) {
+  return fileProvinceOf(row, ctx)?.name === BAGHDAD_PROVINCE;
+}
+
+/** الملف يقول إن الزيارة في محافظة غير بغداد — لا يحتاج معرفة المندوب. */
+export function isProvinceFileRow(row, ctx) {
+  const p = fileProvinceOf(row, ctx);
+  return !!p && p.name !== BAGHDAD_PROVINCE;
+}
+
+/**
+ * زيارة محافظة تُحفظ مباشرة في سيرفي المحافظات بلا مطابقة أطباء. الحسم بمدينة الملف
+ * (client-city/rep-city) متى وُجدت — أيّ مندوب كان؛ وبدونها بعضوية المندوب في فريق محافظة.
+ */
 export function isProvinceVisitRow(row, ctx) {
-  return !!row?.repId && ctx.repIndex.has(row.repId) && !isBaghdadClient(row, ctx);
+  if (!row?.repId) return false;
+  const p = fileProvinceOf(row, ctx);
+  if (p) return p.name !== BAGHDAD_PROVINCE;
+  return ctx.repIndex.has(row.repId);
 }
 
 /**
@@ -107,8 +130,12 @@ export function isProvinceVisitRow(row, ctx) {
  */
 export function markProvinceRows(rows, ctx) {
   for (const r of rows) {
-    r.baghdadClient = isBaghdadClient(r, ctx);
-    if (isProvinceVisitRow(r, ctx)) {
+    const p = fileProvinceOf(r, ctx);
+    r.fileProvince = p?.name ?? null;
+    r.repProvince = ctx.provinceOfText(r.repCity)?.name ?? null; // لترتيب مندوبي الاختيار
+    r.baghdadClient = p?.name === BAGHDAD_PROVINCE;
+    r.provinceFile = !!p && !r.baghdadClient;
+    if (r.provinceFile || isProvinceVisitRow(r, ctx)) {
       r.areaName = r.rawAreaText ?? r.areaName;
       r.areaId = null;
     }
@@ -242,13 +269,14 @@ function areaKeyOf(text) {
 }
 
 // ── اختيار محافظة الصف ────────────────────────────────────────────────────────
-// مدينة الملف أولاً (الزبون فعلاً هناك)، ثم عنوان يذكر محافظة، ثم منطقة معروفة في
+// مدينة الملف أولاً (client-city ثم rep-city)، ثم عنوان يذكر محافظة، ثم منطقة معروفة في
 // إحدى محافظات المندوب، وإلا أولى محافظاته.
 function provinceForRow(row, areaText, rep, ctx, catalog) {
-  const fromCity = ctx.provinceOfText(row.clientCity);
+  const fromCity = fileProvinceOf(row, ctx);
   if (fromCity && fromCity.name !== BAGHDAD_PROVINCE) return fromCity;
   const fromText = ctx.provinceOfText(areaText);
   if (fromText && fromText.name !== BAGHDAD_PROVINCE) return fromText;
+  if (!rep) return null;
   const repProvinces = ctx.provinces.filter(p => rep.provinceIds.has(p.id));
   if (repProvinces.length > 1) {
     const holder = catalog.anyByKey.get(normalizeAreaName(areaText));
@@ -380,18 +408,29 @@ export async function prepareProvinceVisitRows({ doctorRows = [], pharmacyRows =
 
   /** منطقة الصف (المحافظة) + الحيّ + أثره: مندوب زار خارج محافظته تُسند له منطقتها فلا تختفي زيارته. */
   const outsideLinked = new Set();
+  // حساب المندوب (لإسناد منطقة المحافظة فلا تختفي زيارته) حين لا يكون عضو فريق محافظة
+  const repUserCache = new Map();
+  const repUserIdOf = async (repId) => {
+    if (!repId) return null;
+    if (!repUserCache.has(repId)) {
+      const u = await prisma.user.findFirst({ where: { linkedRepId: repId }, select: { id: true } });
+      repUserCache.set(repId, u?.id ?? null);
+    }
+    return repUserCache.get(repId);
+  };
   const placeRow = async (r) => {
-    const rep = ctx.repIndex.get(r.repId);
+    const rep = ctx.repIndex.get(r.repId); // undefined = مندوب ليس عضو فريق محافظة (الملف حسمها)
     const text = rowAreaText(r);
     const province = provinceForRow(r, text, rep, ctx, catalog);
     if (!province) return null;
     const area = await catalog.center(province);
     knownNames.add(normalizeAreaName(area.name));
-    if (!rep.provinceIds.has(province.id)) {
-      const k = `${rep.userId}|${area.id}`;
-      if (!outsideLinked.has(k)) {
+    if (!rep?.provinceIds.has(province.id)) {
+      const repUserId = rep?.userId ?? await repUserIdOf(r.repId);
+      const k = `${repUserId}|${area.id}`;
+      if (repUserId && !outsideLinked.has(k)) {
         outsideLinked.add(k);
-        await prisma.userAreaAssignment.createMany({ data: [{ userId: rep.userId, areaId: area.id }], skipDuplicates: true });
+        await prisma.userAreaAssignment.createMany({ data: [{ userId: repUserId, areaId: area.id }], skipDuplicates: true });
       }
     }
     return { area, subArea: subAreaText(text, province, ctx) };
