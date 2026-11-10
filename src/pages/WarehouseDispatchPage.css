@@ -129,3 +129,10 @@
   .wd-chat-list { max-height: 35vh; }
   .wd-msg { max-width: 95%; }
 }
+.wd-msg--human { background: color-mix(in srgb, #16a34a 14%, transparent); }
+.wd-reply { border-top: 1px solid var(--c-border-light); margin-top: 8px; padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.wd-reply-row { display: flex; gap: 8px; align-items: flex-end; }
+.wd-reply-row textarea { flex: 1; resize: vertical; min-height: 44px; font-family: inherit; }
+.wd-reply-hint { font-size: 11px; }
+.wd-chat-view { max-height: 85vh; }
+.wd-msgs { flex: 1; }

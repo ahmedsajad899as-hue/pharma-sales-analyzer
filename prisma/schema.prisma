@@ -3505,9 +3505,12 @@ model WaMessageLog {
   contactName String?
   waMessageId String?
   error       String? // فشل الإرسال
+  sentById    Int? // ردّ يدوي من مدير/مالك التطبيق (null = البوت نفسه)
+  sentByName  String?
   createdAt   DateTime @default(now())
 
   @@index([waId, createdAt])
+  @@index([waMessageId])
   @@index([createdAt])
   @@map("wa_message_logs")
 }

@@ -12,7 +12,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { loadViewer, warehouseScopeWhere, teamUserIds } from '../rep-orders/rep-orders.service.js';
-import { downloadMedia } from '../whatsapp/whatsapp.service.js';
+import { downloadMedia, sendRaw, whatsappEnabled } from '../whatsapp/whatsapp.service.js';
 
 const ALL_SCOPE_ROLES = new Set(['admin', 'super_admin']);
 
@@ -99,7 +99,40 @@ export async function chatMessages(reqUser, waId, q = {}) {
     where: { waId: id, ...(before ? { id: { lt: before } } : {}) },
     orderBy: { id: 'desc' }, take: 200,
   });
-  return { messages: rows.reverse(), hasMore: rows.length === 200 };
+  return { messages: rows.reverse(), hasMore: rows.length === 200, window: await windowState(id) };
+}
+
+// ─── الردّ اليدوي ────────────────────────────────────────────────────────────
+// واتساب يسمح بالرسالة الحرّة فقط خلال 24 ساعة من آخر رسالة كتبها الطرف الآخر
+// (وهي مجانية). خارجها يلزم قالب معتمد مدفوع — الردّ اليدوي لا يرسل قوالب.
+const WINDOW_MS = 24 * 60 * 60 * 1000;
+
+async function windowState(waId) {
+  const [lastIn, wh] = await Promise.all([
+    prisma.waMessageLog.findFirst({ where: { waId, direction: 'in' }, orderBy: { id: 'desc' }, select: { createdAt: true } }),
+    prisma.orderWarehouse.findFirst({ where: { waId, waLastInboundAt: { not: null } }, orderBy: { waLastInboundAt: 'desc' }, select: { waLastInboundAt: true } }),
+  ]);
+  const times = [lastIn?.createdAt, wh?.waLastInboundAt].filter(Boolean).map(d => new Date(d).getTime());
+  const last = times.length ? Math.max(...times) : null;
+  const closesAt = last ? last + WINDOW_MS : null;
+  return { open: Boolean(closesAt && closesAt > Date.now()), lastInboundAt: last ? new Date(last) : null, closesAt: closesAt ? new Date(closesAt) : null };
+}
+
+export async function sendChatMessage(reqUser, waId, body = {}) {
+  const viewer = await loadViewer(reqUser);
+  const allowed = await visibleNumbers(viewer);
+  const id = String(waId);
+  if (allowed && !allowed.has(id)) throw new AppError('المحادثة غير موجودة', 404);
+  if (!whatsappEnabled()) throw new AppError('رقم البوت غير مفعّل', 503);
+  const text = String(body.text ?? '').trim();
+  if (!text) throw new AppError('اكتب الرسالة', 400);
+  if (text.length > 4000) throw new AppError('الرسالة طويلة جداً (الحد 4000 حرف)', 400);
+  const w = await windowState(id);
+  if (!w.open) throw new AppError('مرّت 24 ساعة على آخر رسالة منه — واتساب لا يسمح بالكتابة له حتى يراسل الرقم أولاً', 409);
+  const name = viewer.displayName || viewer.username;
+  const r = await sendRaw(id, { type: 'text', text: { body: text } }, { sentBy: { id: viewer.id, name } });
+  if (r.error) throw new AppError(`لم تُرسل: ${r.error.message}`, 502);
+  return { id: r.id };
 }
 
 /** صورة واردة — تُنزَّل من واتساب عند الطلب (media id صالح ~30 يوماً). */

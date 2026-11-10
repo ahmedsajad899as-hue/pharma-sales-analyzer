@@ -35,11 +35,34 @@ export async function logWa(row) {
         contactName: row.contactName ? String(row.contactName).slice(0, 120) : null,
         waMessageId: row.waMessageId ? String(row.waMessageId) : null,
         error: row.error ? String(row.error).slice(0, 500) : null,
+        sentById: row.sentById ?? null,
+        sentByName: row.sentByName ? String(row.sentByName).slice(0, 120) : null,
       },
     });
     if (++sincePrune >= 500) { sincePrune = 0; prune(); }
   } catch (e) {
     console.error('[wa-log] تعذّر تسجيل الرسالة:', e?.message);
+  }
+}
+
+// بعد ردّ يدوي من إنسان تصبح المحادثة «بشرية» لهذه المدة: كلام الطرف الآخر العادي
+// لا يُقرأ كطلبية ولا يردّ عليه البوت (ولا يصرف توكنات) — الأزرار والصور و«تم/رفض»
+// وكلمة «طلبية» الصريحة تبقى تعمل.
+export const HUMAN_WINDOW_MS = 30 * 60 * 1000;
+
+/** هل الرسالة ردّ على رسالة كتبها إنسان، أو جاءت خلال نافذة محادثة بشرية؟ */
+export async function humanChatState(waId, contextId) {
+  try {
+    const [quoted, lastHuman] = await Promise.all([
+      contextId ? prisma.waMessageLog.findFirst({ where: { waMessageId: String(contextId) }, select: { sentById: true } }) : null,
+      prisma.waMessageLog.findFirst({
+        where: { waId: String(waId), direction: 'out', sentById: { not: null }, error: null, createdAt: { gte: new Date(Date.now() - HUMAN_WINDOW_MS) } },
+        select: { id: true },
+      }),
+    ]);
+    return { replyToHuman: Boolean(quoted?.sentById), recentHuman: Boolean(lastHuman) };
+  } catch {
+    return { replyToHuman: false, recentHuman: false };
   }
 }
 

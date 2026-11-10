@@ -306,7 +306,8 @@ interface ChatRow {
   waId: string; name: string | null; type: 'warehouse' | 'linked' | 'unknown'; account: string | null; contactName: string | null;
   count: number; failed: number; lastAt: string; lastText: string | null; lastDirection: 'in' | 'out' | null;
 }
-interface ChatMsg { id: number; direction: 'in' | 'out'; kind: string; text: string | null; mediaId: string | null; error: string | null; createdAt: string }
+interface ChatMsg { id: number; direction: 'in' | 'out'; kind: string; text: string | null; mediaId: string | null; error: string | null; sentByName: string | null; createdAt: string }
+interface ChatWindow { open: boolean; lastInboundAt: string | null; closesAt: string | null }
 const CHAT_TYPE: Record<ChatRow['type'], string> = { warehouse: '🏬 مذخر', linked: '👤 مربوط', unknown: '❔ غير مربوط' };
 
 function ChatsTab({ api, token }: { api: Api; token: string | null }) {
@@ -316,6 +317,9 @@ function ChatsTab({ api, token }: { api: Api; token: string | null }) {
   const [sel, setSel] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [imgs, setImgs] = useState<Record<number, string>>({});
+  const [win, setWin] = useState<ChatWindow | null>(null);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -326,7 +330,7 @@ function ChatsTab({ api, token }: { api: Api; token: string | null }) {
   useEffect(() => { load(); const t = setInterval(load, 30_000); return () => clearInterval(t); }, [load]);
 
   const loadMsgs = useCallback((waId: string) => {
-    api(`/warehouse-dispatch/chats/${encodeURIComponent(waId)}`).then(d => setMsgs(d.messages || [])).catch(e => setError(e.message));
+    api(`/warehouse-dispatch/chats/${encodeURIComponent(waId)}`).then(d => { setMsgs(d.messages || []); setWin(d.window || null); }).catch(e => setError(e.message));
   }, [api]);
   useEffect(() => {
     if (!sel) return;
@@ -344,6 +348,16 @@ function ChatsTab({ api, token }: { api: Api; token: string | null }) {
     } catch (e: any) { setError(e.message); }
   };
 
+  const send = async () => {
+    if (!sel || !draft.trim()) return;
+    setSending(true);
+    try {
+      await api(`/warehouse-dispatch/chats/${encodeURIComponent(sel)}/send`, { method: 'POST', body: JSON.stringify({ text: draft }) });
+      setDraft(''); setError('');
+      loadMsgs(sel); load();
+    } catch (e: any) { setError(e.message); } finally { setSending(false); }
+  };
+
   const shown = useMemo(() => {
     const t = q.trim();
     return t ? chats.filter(c => [c.name, c.waId, c.account, c.contactName, c.lastText].some(v => v?.includes(t))) : chats;
@@ -352,7 +366,7 @@ function ChatsTab({ api, token }: { api: Api; token: string | null }) {
 
   return (
     <>
-      <div className="wd-note">كل رسالة تصل لرقم البوت الرسمي أو يرسلها البوت تُسجَّل هنا — بما فيها ما لا يفهمه البوت (صوت، أسئلة) كي لا يفوتك شيء. تُحفظ 90 يوماً.</div>
+      <div className="wd-note">كل رسالة تصل لرقم البوت الرسمي أو يرسلها البوت تُسجَّل هنا — بما فيها ما لا يفهمه البوت (صوت، أسئلة) كي لا يفوتك شيء. تقدر ترد من هنا وتصل الرسالة من رقم البوت. تُحفظ 90 يوماً.</div>
       {error && <div className="wd-note wd-note--warn">{error}</div>}
       <div className="wd-toolbar">
         <input className="form-input" placeholder="بحث بالاسم أو الرقم أو النص…" value={q} onChange={e => setQ(e.target.value)} />
@@ -366,7 +380,7 @@ function ChatsTab({ api, token }: { api: Api; token: string | null }) {
           {loading && <div className="wd-empty">جاري التحميل…</div>}
           {!loading && !shown.length && <div className="wd-empty">لا محادثات في هذه المدة</div>}
           {shown.map(c => (
-            <button key={c.waId} className={`wd-chat-item ${sel === c.waId ? 'is-active' : ''}`} onClick={() => { setSel(c.waId); setMsgs([]); }}>
+            <button key={c.waId} className={`wd-chat-item ${sel === c.waId ? 'is-active' : ''}`} onClick={() => { setSel(c.waId); setMsgs([]); setWin(null); setDraft(''); }}>
               <div className="wd-chat-head">
                 <b>{c.name || c.waId}</b>
                 <span className="wd-muted">{fmtTime(c.lastAt)}</span>
@@ -383,8 +397,8 @@ function ChatsTab({ api, token }: { api: Api; token: string | null }) {
               <div className="wd-chat-title"><b>{cur.name || cur.waId}</b> <span className="wd-muted" dir="ltr">+{cur.waId}</span></div>
               <div className="wd-msgs">
                 {msgs.map(m => (
-                  <div key={m.id} className={`wd-msg wd-msg--${m.direction} ${m.error ? 'wd-msg--err' : ''}`}>
-                    <div className="wd-msg-meta">{m.direction === 'out' ? '🤖 البوت' : (cur.name || 'المرسل')} · {fmtTime(m.createdAt)}</div>
+                  <div key={m.id} className={`wd-msg wd-msg--${m.direction} ${m.sentByName ? 'wd-msg--human' : ''} ${m.error ? 'wd-msg--err' : ''}`}>
+                    <div className="wd-msg-meta">{m.direction === 'out' ? (m.sentByName ? `👤 ${m.sentByName}` : '🤖 البوت') : (cur.name || 'المرسل')} · {fmtTime(m.createdAt)}</div>
                     {m.kind === 'image' && (imgs[m.id]
                       ? <img src={imgs[m.id]} className="wd-msg-img" alt="" onClick={() => window.open(imgs[m.id], '_blank')} />
                       : m.mediaId && <button className="btn btn-secondary wd-msg-imgbtn" onClick={() => showImage(m.id)}><ImageIcon size={14} /> عرض الصورة</button>)}
@@ -392,6 +406,19 @@ function ChatsTab({ api, token }: { api: Api; token: string | null }) {
                     {m.error && <div className="wd-fail">⚠️ لم تُرسل: {m.error}</div>}
                   </div>
                 ))}
+              </div>
+              <div className="wd-reply">
+                {win && !win.open
+                  ? <div className="wd-note wd-note--warn">مرّت 24 ساعة على آخر رسالة منه — واتساب لا يسمح بالكتابة له من رقم البوت حتى يراسل الرقم أولاً.</div>
+                  : <>
+                      {win?.closesAt && <div className="wd-muted wd-reply-hint">يمكنك الرد حتى {fmtTime(win.closesAt)} · ردّك يصل من رقم البوت باسمك هنا، والبوت يسكت عن كلامه العادي 30 دقيقة</div>}
+                      <div className="wd-reply-row">
+                        <textarea className="form-input" rows={2} placeholder="اكتب رداً…" value={draft} disabled={sending}
+                          onChange={e => setDraft(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
+                        <button className="btn btn-primary" disabled={sending || !draft.trim()} onClick={send}><Send size={14} /> إرسال</button>
+                      </div>
+                    </>}
               </div>
             </>
           )}

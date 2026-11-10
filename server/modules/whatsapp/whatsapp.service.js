@@ -18,7 +18,9 @@ import prisma from '../../lib/prisma.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
 import { handleWarehouseCloudMessage, handleDispatchStatus } from '../warehouse-dispatch/dispatch.inbound.js';
 import { registerNotifier } from '../warehouse-dispatch/dispatch.notify.js';
-import { logWa, describeInbound, describeOutbound } from './wa-chat-log.js';
+import { logWa, describeInbound, describeOutbound, humanChatState } from './wa-chat-log.js';
+import { isExplicitOrderIntent } from '../orders/order-trigger.js';
+import { parseWarehouseText } from '../warehouse-dispatch/dispatch.inbound.js';
 
 /** قراءات متأخّرة — لا قيمة محفوظة في نطاق الموديل. */
 export const whatsappToken     = () => process.env.WHATSAPP_TOKEN || '';
@@ -78,7 +80,7 @@ export async function countOutgoing(kind) {
 }
 
 /** إرسال رسالة واتساب خام (أي نوع) — يُعيد { id } أو { error }. */
-export async function sendRaw(to, payload, { kind = 'service' } = {}) {
+export async function sendRaw(to, payload, { kind = 'service', sentBy = null } = {}) {
   const r = await graphCall(`${phoneNumberId()}/messages`, {
     method: 'POST',
     body: { messaging_product: 'whatsapp', recipient_type: 'individual', to: String(to), ...payload },
@@ -86,7 +88,7 @@ export async function sendRaw(to, payload, { kind = 'service' } = {}) {
   const id = r.data?.messages?.[0]?.id ?? null;
   if (id) await countOutgoing(kind);
   const d = describeOutbound(payload);
-  await logWa({ waId: to, direction: 'out', kind: d.kind, text: d.text, waMessageId: id, error: id ? null : (r.error?.message || 'فشل الإرسال') });
+  await logWa({ waId: to, direction: 'out', kind: d.kind, text: d.text, waMessageId: id, error: id ? null : (r.error?.message || 'فشل الإرسال'), sentById: sentBy?.id ?? null, sentByName: sentBy?.name ?? null });
   return id ? { id } : { error: r.error || { code: 'UNKNOWN', message: 'لم يُرجع واتساب معرّف رسالة' } };
 }
 
@@ -209,6 +211,14 @@ async function handleOneMessage(message, contactName) {
   // كي يرى المدير ما طُلب فعلاً ولم يُجَب.
   const shown = describeInbound(message);
   await logWa({ waId, direction: 'in', ...shown, contactName, waMessageId: message.id });
+
+  // محادثة يديرها إنسان (مدير/مالك التطبيق ردّ يدوياً): الكلام العادي يُسجَّل فقط —
+  // لا «⏳ جاري قراءة الطلبية» ولا قراءة ذكاء ولا «هذا الرقم غير مربوط».
+  if (message.type === 'text') {
+    const body = String(message.text?.body || '');
+    const human = await humanChatState(waId, message.context?.id);
+    if ((human.replyToHuman || human.recentHuman) && !parseWarehouseText(body).action && !isExplicitOrderIntent(body)) return;
+  }
 
   // ردود المذاخر (أزرار الطلبية، صورة فاتورة، سبب رفض) قبل مسار طلبيات المندوبين —
   // رقم المذخر غير مربوط بحساب فكان سيتلقّى «هذا الرقم غير مربوط».

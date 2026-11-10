@@ -14,6 +14,7 @@ router.post('/rep-order/:repOrderId', ctrl.sendRepOrder);
 router.get('/chats', ctrl.listChats);
 router.get('/chats/media/:logId', ctrl.chatMedia);
 router.get('/chats/:waId', ctrl.chatMessages);
+router.post('/chats/:waId/send', ctrl.chatSend);
 
 router.get('/', ctrl.list);
 router.put('/:id', ctrl.update);
