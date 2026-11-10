@@ -598,16 +598,18 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
     const areas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
     return res.json({ success: true, data: areas });
   }
-  // Return ONLY area names from the latest active survey (exact match, nothing extra)
-  const activeSurvey = await prisma.masterSurvey.findFirst({
-    where: { isActive: true }, orderBy: { createdAt: 'desc' }, select: { id: true },
+  // مناطق كل السيرفيات الفعّالة — لا آخر سيرفي فقط. سيرفي محافظة جديد (مثلاً
+  // كربلاء من استيراد الزيارات) كان يصبح «الأحدث» فتختفي كل مناطق السيرفي
+  // الرئيسي من صفحة المستخدم، وتظهر تعييناتهم المحفوظة «0 من 1».
+  const activeSurveys = await prisma.masterSurvey.findMany({
+    where: { isActive: true }, select: { id: true },
   });
-  if (!activeSurvey) {
+  if (activeSurveys.length === 0) {
     const areas = await prisma.area.findMany({ select: AREA_SA_SELECT, orderBy: { name: 'asc' } });
     return res.json({ success: true, data: areas });
   }
   const surveyRows = await prisma.masterSurveyDoctor.findMany({
-    where: { surveyId: activeSurvey.id, areaName: { not: null } },
+    where: { surveyId: { in: activeSurveys.map(s => s.id) }, areaName: { not: null } },
     select: { areaName: true },
     distinct: ['areaName'],
   });
@@ -639,6 +641,13 @@ app.get('/api/sa/areas', requireSuperAdmin, async (req, res) => {
   for (const n of surveyNames) {
     const area = lookup(n);
     if (area && !seenIds.has(area.id)) { result.push(area); seenIds.add(area.id); }
+  }
+  // أي منطقة معيّنة فعلاً لمستخدم تظهر دائماً — وإلا لا يراها السوبر أدمن ولا
+  // يستطيع إلغاءها، ويُحسب «المحدد» صفراً رغم وجود التعيين.
+  const assigned = result.length === 0 ? [] // السيرفي بلا مناطق → الرجوع لكل الجدول أدناه
+    : await prisma.userAreaAssignment.findMany({ select: { areaId: true }, distinct: ['areaId'] });
+  for (const { areaId } of assigned) {
+    if (!seenIds.has(areaId)) { seenIds.add(areaId); result.push({ id: areaId }); }
   }
   // If survey has no area data, fall back to all areas in the Area table (deduplicated by name)
   if (result.length === 0) {
