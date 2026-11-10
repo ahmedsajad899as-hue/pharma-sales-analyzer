@@ -224,6 +224,20 @@ function invoiceFromRows(rows) {
 }
 
 /**
+ * مقارنة فاتورة مقروءة بأسطر طلبية: لكل سطر (بنفس الترتيب) ما جهّزه المذخر منه.
+ * orderLines = [{ itemName, quantity }]. سطر لم يطابقه أي صنف في الفاتورة ⇒ matched=false وكمية 0.
+ * @returns {{ matched:boolean, qty:number, bonus:number, invItem:string|null }[]}
+ */
+export function compareInvoiceLines(orderLines, rows) {
+  const inv = invoiceFromRows(Array.isArray(rows) ? rows : []);
+  const { byLine } = mapLines(orderLines, inv.items);
+  return orderLines.map((_, i) => {
+    const it = byLine.has(i) ? inv.items[byLine.get(i).j] : null;
+    return { matched: Boolean(it), qty: it ? it.quantity : 0, bonus: it ? it.bonus : 0, invItem: it ? it.item : null };
+  });
+}
+
+/**
  * أقرب طلبية مذاخر لم تكتمل (نطاق الحساب، آخر 30 يوماً) لفاتورة البوت.
  * forcedOrderId = رقم الطلبية مكتوباً مع الصورة («#16») ⇒ تلك الطلبية بلا شرط ثقة.
  * يعيد null إن لم تُطابق بثقة، أو لم يطابق أي صنف (لا نسجّل «رفضاً» بفاتورة لا تخصّها).

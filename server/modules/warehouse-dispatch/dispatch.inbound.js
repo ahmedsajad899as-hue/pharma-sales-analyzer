@@ -10,7 +10,7 @@
 // عن الصورة بلا رد/رقم، بقائمة صيدليات المرجّح أولاً).
 //
 // الكروب فيه كلام كثير لا يخصّنا: لا نتصرّف فيه إلا برد على رسالتنا أو رقم طلبية صريح،
-// أو صوت على تصويت الطلبية (handleGroupPollVote — بديل الأزرار في الكروبات).
+// أو صوت على تصويت طلبية قديمة (handleGroupPollVote — التصويت أُلغي 2026-11-10).
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from '../../lib/prisma.js';
@@ -90,15 +90,33 @@ function openDispatches(whIds, { needInvoice = false } = {}) {
 
 const shortLabel = (d) => `${d.id} - ${d.pharmacyName || 'بلا صيدلية'}`;
 
-/** صورة فاتورة ← أقرب طلبية مفتوحة بالقراءة الذكية (صيدلية + أصناف + تاريخ). */
-async function guessByInvoice(buffer, candidates) {
-  let rows;
+/**
+ * اسم المذخر صاحب الكروب/الرقم — الصورة الواردة منه فاتورته، فتُقرأ ببطاقته مباشرة
+ * بلا سؤال الموديل «أي مذخر؟». أكثر من مذخر بأسماء مختلفة على نفس الكروب ⇒ null.
+ */
+async function warehouseHintFor(whIds) {
+  const names = [...new Set((await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { name: true } }))
+    .map(w => String(w.name || '').trim()).filter(Boolean))];
+  return names.length === 1 ? names[0] : null;
+}
+
+/** قراءة فاتورة المذخر ذكياً. null عند الفشل (تُثبَّت الصورة بلا مقارنة كما كان). */
+async function readWarehouseInvoice(buffer, hint, source) {
   try {
-    rows = await extractInvoiceRows([{ mimeType: 'image/jpeg', base64: buffer.toString('base64') }], { logContext: { source: 'warehouse-group' } });
+    return await extractInvoiceRows([{ mimeType: 'image/jpeg', base64: buffer.toString('base64') }],
+      { warehouseHint: hint, logContext: { source, chatTitle: hint || undefined } });
   } catch (e) {
     console.error('[dispatch] قراءة فاتورة المذخر:', e?.message);
-    return { rows: null, best: null };
+    return null;
   }
+}
+
+const trimRows = (rows) => rows.map(r => ({ item: r.item, quantity: r.quantity, bonus: r.bonus, pharmacy: r.pharmacy, invoiceNumber: r.invoiceNumber }));
+
+/** صورة فاتورة ← أقرب طلبية مفتوحة بالقراءة الذكية (صيدلية + أصناف + تاريخ). */
+async function guessByInvoice(buffer, candidates, hint = null, source = 'warehouse-group') {
+  const rows = await readWarehouseInvoice(buffer, hint, source);
+  if (!rows) return { rows: null, best: null };
   const head = rows.find(r => r.pharmacy) || rows[0] || {};
   const dm = String(rows.find(r => r.date)?.date || '').match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
   const inv = {
@@ -116,7 +134,7 @@ async function guessByInvoice(buffer, candidates) {
   })).sort((a, b) => b.score - a.score);
   const [a, b] = scored;
   const best = a && a.score >= AUTO_MIN_SCORE && (!b || a.score - b.score >= AUTO_MIN_GAP) ? a.d : null;
-  return { rows: rows.map(r => ({ item: r.item, quantity: r.quantity, bonus: r.bonus, pharmacy: r.pharmacy, invoiceNumber: r.invoiceNumber })), best };
+  return { rows: trimRows(rows), best };
 }
 
 // صور قيد السؤال «لأي طلبية؟» في الكروب: معرّف رسالة الصورة/سؤالنا ← مسار الصورة
@@ -167,20 +185,24 @@ async function handleWarehouseEvent(ctx, ev) {
     if (!target && ctx.channel === 'group') return false;
     const buffer = await ev.getImage();
     const imagePath = await saveInvoiceImage(buffer);
+    // المذخر معروف من الكروب/الرقم ⇒ بطاقته مباشرة (قراءة أرخص وأدق)
+    const hint = await warehouseHintFor(whIds);
+    const source = ctx.channel === 'group' ? 'warehouse-group' : 'warehouse-cloud';
     let rows = null;
     if (!target) {
       const open = await openDispatches(whIds, { needInvoice: true });
       // رقم البوت: نسأل دائماً «لأي صيدلية؟» ولا نثبّت تخميناً بصمت — المرجّح بالقراءة الذكية أولاً
       if (ctx.channel === 'cloud' && open.length) {
-        let best = null;
-        if (open.length > 1) ({ rows, best } = await guessByInvoice(buffer, open));
+        // تُقرأ حتى مع طلبية واحدة: القراءة هي التي تقارن الفاتورة بالطلبية (كاملة/ناقصة)
+        const { rows: r, best } = await guessByInvoice(buffer, open, hint, source);
+        rows = r;
         const ordered = best ? [best, ...open.filter(d => d.id !== best.id)] : open;
         await ctx.askWhich(ordered, imagePath, ev.msgId, rows, best?.id ?? null);
         return true;
       }
       if (open.length === 1) target = open[0];
       else if (open.length > 1) {
-        const g = await guessByInvoice(buffer, open);
+        const g = await guessByInvoice(buffer, open, hint, source);
         rows = g.rows;
         target = g.best;
         if (!target) {
@@ -191,6 +213,11 @@ async function handleWarehouseEvent(ctx, ev) {
         await ctx.reply('استلمنا الصورة، لكن لا توجد طلبية مفتوحة لديكم حالياً. إن كانت لطلبية معيّنة أرسلوها رداً على رسالة الطلبية.');
         return true;
       }
+    }
+    // الطلبية معروفة (رد/رقم/الوحيدة) ولم تُقرأ الفاتورة بعد ⇒ تُقرأ لتُقارن بها
+    if (!rows) {
+      const r = await readWarehouseInvoice(buffer, hint, source);
+      if (r) rows = trimRows(r);
     }
     await attachInvoice(target.id, imagePath, { rows });
     return true;

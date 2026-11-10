@@ -1695,11 +1695,13 @@ const ORIENTATION_CANDIDATES = [0, 90, 180, 270];
  * (السؤال الثاني يضيف ~10 token؛ مقيس 18/18 صحيح). يُعيد { deg, card } — deg = 0 و
  * card = null عند أي فشل، فتُقرأ الصورة كما هي بالبرومبت العام.
  */
-export async function detectInvoiceRotationAndCard(img) {
+export async function detectInvoiceRotationAndCard(img, { warehouseHint = null } = {}) {
   try {
     const cards = await loadInvoiceCards();
+    // المذخر معروف مسبقاً (صورة من كروب/رقم مذخر محدّد) ⇒ بطاقته مباشرة بلا سؤال الموديل عنه.
+    const known = warehouseHint && cards.length ? matchCard(cards, warehouseHint) : null;
     const small = downscaleJpeg(Buffer.from(img.base64, 'base64'), 768);
-    const prompt = cards.length
+    const prompt = cards.length && !known
       ? `${ORIENTATION_PICK_PROMPT.replace('أجب برقم واحد فقط.', '')}
 ثم: ما اسم المذخر (البائع) المطبوع بخط كبير في أعلى الفاتورة؟ اختر من القائمة: ${cards.map(c => c.name).join('، ')} — أو «غيره» إن كان مذخراً آخر.
 أجب بسطر واحد فقط بالشكل: ‹رقم النسخة›|‹اسم المذخر›`
@@ -1712,7 +1714,7 @@ export async function detectInvoiceRotationAndCard(img) {
     const reply = String(await callAI(parts, { timeoutMs: 25_000, thinkingBudget: 0, feature: 'invoice-orient', mediaResolution: 'MEDIA_RESOLUTION_LOW' }));
     const [pick, name = ''] = reply.split('|');
     const n = Number((pick.match(/[1-4]/) || [])[0]);
-    return { deg: n ? ORIENTATION_CANDIDATES[n - 1] : 0, card: cards.length ? matchCard(cards, name) : null };
+    return { deg: n ? ORIENTATION_CANDIDATES[n - 1] : 0, card: known || (cards.length ? matchCard(cards, name) : null) };
   } catch { return { deg: 0, card: null }; }
 }
 
@@ -1738,11 +1740,11 @@ export function unrotateBox(box, deg) {
 }
 
 /** يُدير الصورة للوضع القائم إن لزم. يُعيد { mimeType, base64, rotated, card }. */
-export async function orientInvoiceImage(img) {
+export async function orientInvoiceImage(img, { warehouseHint = null } = {}) {
   try {
     const buf = Buffer.from(img.base64, 'base64');
     if (!canRotate(buf)) return { ...img, rotated: 0, card: null };
-    const { deg, card } = await detectInvoiceRotationAndCard(img);
+    const { deg, card } = await detectInvoiceRotationAndCard(img, { warehouseHint });
     if (!deg) return { ...img, rotated: 0, card };
     const out = rotateJpeg(buf, deg);
     return { mimeType: 'image/jpeg', base64: out.toString('base64'), rotated: deg, card };
@@ -1792,12 +1794,13 @@ async function extractCustomerLineVoted(img, opts, n = 3, priorRead = null) {
  * Extract sale rows from one or more invoice images via Gemini vision.
  * Returns flat, UNSAVED rows for the user to review before saving.
  * @param {{ mimeType: string, base64: string }[]} images
- * @param {{ extraContext?: string }} [opts] extraContext = نص حرّ أرسله صاحب الصورة
+ *        warehouseHint = اسم المذخر حين يُعرف من مصدر الصورة (كروب المذخر) ⇒ بطاقته مباشرة.
+ * @param {{ extraContext?: string, warehouseHint?: string }} [opts] extraContext = نص حرّ أرسله صاحب الصورة
  *        مع الصورة (كابشن رسالة بوت مثلاً) يُلحَق بالبرومبت كسياق مساعد. حين لا
  *        يُمرَّر يبقى نص البرومبت مطابقاً حرفياً لما كان — مسار /extract-invoice سليم.
  * @returns {Promise<object[]>}
  */
-export async function extractInvoiceRows(images, { extraContext, budgetMs, logContext = null } = {}) {
+export async function extractInvoiceRows(images, { extraContext, budgetMs, logContext = null, warehouseHint = null } = {}) {
   if (!Array.isArray(images) || images.length === 0) {
     throw new AppError('لم يتم إرسال أي صورة.', 400, 'NO_IMAGES');
   }
@@ -1827,7 +1830,7 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs, logCo
       // اتجاه الصورة أولاً: فاتورة مُدارة 90° تُقرأ بتذبذب («النعيمي» بدل «النبض»)
       // وبعد تدويرها قائمةً تُقرأ صحيحة. صناديق التكبير تُعاد لإحداثيات الأصل أدناه
       // لأن المراجعة تعرض الصورة الأصلية لا المُدارة.
-      const img = await orientInvoiceImage(images[idx]);
+      const img = await orientInvoiceImage(images[idx], { warehouseHint });
       // مذخر معروف ⇒ برومبت مختصر + بطاقته (~1,850 token بدل ~3,650، نفس الدقة).
       const basePrompt = img.card ? `${CARD_BASE_PROMPT}${img.card.prompt}` : INVOICE_PROMPT;
       if (img.card) noteCardUse(img.card);

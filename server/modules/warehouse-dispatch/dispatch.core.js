@@ -9,8 +9,10 @@
 //  • cloud — رقم البوت الرسمي (Cloud API). داخل نافذة الـ24 ساعة (آخر رسالة من
 //    المذخر) نرسل رسالة أزرار حرّة (service: أول 1000 شهرياً مجانية)؛ خارجها قالب
 //    معتمد (template: مدفوع). إن ظنّنا النافذة مفتوحة وردّ واتساب 131047 نعيد بقالب.
-//  • group — كروب واتساب عبر «رقم الكروبات» (wa-groups). الأزرار لا تظهر في الكروبات،
-//    فنرسل بعد نصّ الطلبية تصويتاً (GROUP_POLL_OPTIONS) يصوّت عليه موظف المذخر، أو ردّ نصّي.
+//  • group — كروب واتساب عبر «رقم الكروبات» (wa-groups). نصّ الطلبية فقط (بلا تصويت منذ
+//    2026-11-10 بطلب صاحب المشروع): المذخر يردّ عليها بصورة الفاتورة، والقراءة الذكية
+//    (ببطاقة المذخر المعروف من الكروب) تقارنها بالطلبية فتقرّر «مجهّزة» أو «جزئية».
+//    الردّ النصّي («تم/جزئي/رفض») ما زال يُفهم.
 //
 // الوضع لكل حساب (WarehouseDispatchSetting): off | auto (فوراً) | approval (بعد
 // موافقة المدير من صفحة الإرسال، ويمكنه تغيير المذخر قبل الإرسال).
@@ -25,7 +27,8 @@ import { normalizeArabic } from '../../lib/itemResolver.js';
 import { normalizeWaId } from '../../lib/waId.js';
 import { warehouseScopeWhere, canDispatchOrders } from '../rep-orders/rep-orders.service.js';
 import { sendButtons, sendTemplate, sendWhatsAppText, whatsappEnabled } from '../whatsapp/whatsapp.service.js';
-import { sendGroupText, sendGroupPoll } from '../wa-groups/wa-groups.client.js';
+import { sendGroupText } from '../wa-groups/wa-groups.client.js';
+import { compareInvoiceLines } from '../rep-orders/rep-orders.invoice.js';
 import { recordPreparation, markSent } from '../rep-orders/rep-orders.service.js';
 import { notifyOrigin } from './dispatch.notify.js';
 
@@ -45,9 +48,8 @@ const templateName = () => process.env.WHATSAPP_DISPATCH_TEMPLATE || 'new_order'
 const templateLang = () => process.env.WHATSAPP_DISPATCH_TEMPLATE_LANG || 'ar';
 
 export const ACTION_LABEL = { prepared: 'تم التجهيز', partial: 'تجهيز جزئي', rejected: 'رفض' };
-// خيارات تصويت الكروب — الترتيب = رقم الخيار الذي يعيده رقم الكروبات (لا تغيّره)
+// تصويتات الكروب القديمة (أُرسلت قبل 2026-11-10) — ما زالت أصواتها تُفهم. الترتيب = رقم الخيار.
 export const GROUP_POLL_ACTIONS = ['prepared', 'partial', 'rejected'];
-export const GROUP_POLL_OPTIONS = ['✅ تم التجهيز', '⚠️ تجهيز جزئي', '❌ لا تُجهَّز'];
 
 // ─── الإعدادات ───────────────────────────────────────────────────────────────
 
@@ -103,7 +105,7 @@ export function buildOrderText(d, { forGroup = false } = {}) {
   out.push('────────────');
   if (d.notes) out.push(`📝 ${d.notes}`);
   out.push(forGroup
-    ? `صوّتوا على حالة الطلبية في التصويت أدناه 👇\nأو اسحبوا هذه الرسالة واكتبوا: «تم» أو «جزئي» أو «رفض + السبب»، وأرسلوا صورة الفاتورة رداً عليها.`
+    ? 'بعد التجهيز أرسلوا صورة الفاتورة رداً على هذه الرسالة (اسحبوها).'
     : 'اختاروا أحد الأزرار، أو أرسلوا صورة فاتورة التجهيز رداً على هذه الرسالة.');
   return out.join('\n');
 }
@@ -164,13 +166,8 @@ export async function sendDispatch(dispatchOrId, { byUserId = null, forceTemplat
   let ids = [], kind, err = null;
   if (w.channel === 'group') {
     const r = await sendGroupText(w.groupJid, buildOrderText(d, { forGroup: true }));
-    if (r.id) {
-      ids = [r.id]; kind = 'group';
-      // فشل التصويت لا يُفشل الإرسال: الرد النصّي ما زال يعمل
-      const poll = await sendGroupPoll(w.groupJid, `الطلبية رقم ${d.id}${d.pharmacyName ? ` — ${d.pharmacyName}` : ''}: حالة التجهيز؟`, GROUP_POLL_OPTIONS);
-      if (poll.id) ids.push(poll.id);
-      else console.error(`[dispatch] #${d.id} تعذّر إرسال التصويت:`, poll.error);
-    } else err = r.error;
+    if (r.id) { ids = [r.id]; kind = 'group'; }
+    else err = r.error;
   } else {
     if (!whatsappEnabled()) err = 'بوت واتساب غير مفعّل على السيرفر';
     else {
@@ -410,20 +407,43 @@ export async function saveInvoiceImage(buffer) {
 }
 
 /** ربط صورة فاتورة (محفوظة مسبقاً) بطلبية ⇒ «تم التجهيز» إن لم تكن جزئية. */
+/**
+ * فاتورة مقروءة ← مقارنة بأسطر الطلبية. null = لا أسطر مقروءة (فشل القراءة) فيبقى السلوك القديم.
+ * @returns {{ complete:boolean, matchedCount:number, summary:string } | null}
+ */
+export function invoiceVsOrder(d, rows) {
+  const items = (Array.isArray(rows) ? rows : []).filter(r => r?.item);
+  if (!items.length) return null;
+  const orderLines = Array.isArray(d.lines) ? d.lines : [];
+  const cmp = compareInvoiceLines(orderLines.map(l => ({ itemName: l.item, quantity: Number(l.quantity) || 0 })), items);
+  const lines = orderLines.map((l, i) => ({ item: l.item, asked: Number(l.quantity) || 0, ...cmp[i] }));
+  const short = lines.filter(l => l.qty < l.asked);
+  const matchedCount = lines.filter(l => l.matched).length;
+  const summary = !matchedCount
+    ? '⚠️ لم تطابق أي مادة في الفاتورة مواد الطلبية — راجعوها.'
+    : !short.length ? '✅ مجهّزة كاملة حسب الفاتورة.'
+    : `⚠️ تجهيز ناقص:\n${short.map(l => `• ${l.item}: طُلب ${fmtQty(l.asked)}، جُهّز ${fmtQty(l.qty)}`).join('\n')}`;
+  return { complete: matchedCount > 0 && !short.length, matchedCount, summary };
+}
+
 export async function attachInvoice(dispatchId, imagePath, { rows = null, ack = true } = {}) {
   const d = await prisma.warehouseDispatch.findUnique({ where: { id: Number(dispatchId) } });
   if (!d) return null;
+  // الفاتورة مقروءة ⇒ هي التي تقرّر: كل المواد بكمياتها = مجهّزة، وإلا جزئية.
+  // بلا قراءة (فشل الذكاء) ⇒ كما كان: مجهّزة (إلا إن كانت جزئية مسبقاً).
+  const cmp = invoiceVsOrder(d, rows);
+  const status = cmp ? (cmp.complete ? 'prepared' : 'partial') : (d.status === 'partial' ? 'partial' : 'prepared');
   const updated = await prisma.warehouseDispatch.update({
     where: { id: d.id },
     data: {
       invoiceImage: imagePath, ...(rows ? { invoiceRows: rows } : {}),
-      status: d.status === 'partial' ? 'partial' : 'prepared',
+      status,
       respondedAt: new Date(),
     },
   });
   if (ack) await replyToWarehouse(updated, `🧾 استلمنا فاتورة الطلبية رقم ${d.id}. شكراً.`);
-  await notifyOrigin(updated, `🧾 وصلت فاتورة تجهيز الطلبية رقم ${d.id} من مذخر ${d.warehouseName}${d.pharmacyName ? ` (${d.pharmacyName})` : ''}`);
-  await syncRepOrder(updated);
+  await notifyOrigin(updated, `🧾 وصلت فاتورة تجهيز الطلبية رقم ${d.id} من مذخر ${d.warehouseName}${d.pharmacyName ? ` (${d.pharmacyName})` : ''}${cmp ? `\n${cmp.summary}` : ''}`);
+  await syncRepOrder(updated, { rows: cmp?.matchedCount ? rows : null });
   return updated;
 }
 
@@ -432,10 +452,24 @@ export async function attachInvoice(dispatchId, imagePath, { rows = null, ack = 
  * recordPreparation نفسه الذي تستعمله الصفحة: «تم» = كل المتبقي من هذا المذخر،
  * «رفض» = لا شيء. «جزئي» بلا أصناف معروفة ⇒ نعلّم السجل فقط ويكمل المندوب الكميات.
  */
-async function syncRepOrder(d) {
+async function syncRepOrder(d, { rows = null } = {}) {
   if (!d.repOrderId) return;
   try {
     const viewer = { id: d.sentById ?? null };
+    if (rows) {
+      // كميات الفاتورة الفعلية لكل سطر من طلبية المذاخر (الناقص يبقى للمذخر التالي)
+      const order = await prisma.repOrder.findUnique({ where: { id: d.repOrderId }, include: { lines: { orderBy: { id: 'asc' } } } });
+      if (order) {
+        const cmp = compareInvoiceLines(order.lines, rows);
+        await recordPreparation(viewer, d.repOrderId, {
+          warehouseId: d.warehouseId,
+          lines: order.lines.map((l, i) => ({ lineId: l.id, preparedQty: cmp[i].qty, preparedBonus: cmp[i].bonus })),
+          image: d.invoiceImage || undefined,
+          invoiceNumber: rows.find(r => r.invoiceNumber)?.invoiceNumber ?? null,
+        });
+        return;
+      }
+    }
     if (d.status === 'prepared') {
       await recordPreparation(viewer, d.repOrderId, { warehouseId: d.warehouseId, allRemaining: true, image: d.invoiceImage || undefined });
     } else if (d.status === 'rejected') {
