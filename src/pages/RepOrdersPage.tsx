@@ -339,86 +339,45 @@ const VIEW_ICON: Record<View, typeof LayoutList> = { all: LayoutList, new: Spark
 const PERIOD_LABEL: Record<Period, string> = { all: 'كل التواريخ', today: 'اليوم', yesterday: 'أمس', week: 'آخر 7 أيام', month: 'هذا الشهر', custom: 'تاريخ محدد' };
 const dayTitle = (iso: string) => (iso === today() ? 'اليوم' : iso === shiftDay(-1) ? 'أمس' : null);
 
-// ─── تصدير Excel: كل الطلبيات المحمّلة بكل حالاتها — ورقة للطلبيات، وللأصناف، وللإرسالات ───
-const SEND_OUTCOME_LABEL: Record<SendOutcome, string> = { sent: 'أُرسلت', prepared: 'جهّز كامل', partial: 'جهّز جزئي', rejected: 'لم يجهّز' };
-const absUrl = (rel: string | null) => (rel ? new URL(rel, API || window.location.origin).href : '');
-const lineValue = (l: OrderLine, qty: number) => (l.unitPrice != null ? l.unitPrice * qty : null);
-async function exportOrdersExcel(orders: Order[], fileTag: string) {
+// ─── تصدير Excel بحقول ملف ميركاتو نفسها: صف لكل ايتم، كل الطلبيات المحمّلة بكل حالاتها ───
+const lineStatus = (o: Order, l: OrderLine) => {
+  if (o.status === 'cancelled') return 'ملغاة';
+  const done = l.preparedQty ?? 0;
+  if (done >= l.quantity || (o.status === 'prepared' && !done)) return 'مجهّزة';
+  if (done > 0) return `جزئية ${done}/${l.quantity}`;
+  return o.sentAt ? 'بانتظار التجهيز' : 'لم تُرسل';
+};
+async function exportOrdersExcel(orders: Order[], warehouses: WarehouseRow[], fileTag: string) {
   const XLSX = await import('xlsx');
-  const sum = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
-  const orderRows = orders.map(o => ({
-    'رقم الطلبية': o.id,
-    'تاريخ الطلب': fmtDay(o.orderDate),
-    'الحالة': STATE_LABEL[stateOf(o)],
-    'تجهيز جزئي': isPartial(o) ? 'نعم' : '',
-    'المندوب': o.repName,
-    'محوّلة من المدير': o.assignedBy ?? '',
-    'الصيدلية': o.pharmacyName,
-    'المنطقة': o.areaName ?? '',
-    'المذخر الأساسي': o.warehouses[0]?.name ?? o.warehouseName,
-    'مذاخر الاحتياط': o.warehouses.slice(1).map(w => w.name).join(' ← '),
-    'آخر مذخر أُرسلت له': o.sentAt ? currentWh(o).name : '',
-    'عدد مرات الإرسال': o.sentCount,
-    'وقت آخر إرسال': o.sentAt ? fmtShort(o.sentAt) : '',
-    'عدد الايتمات': o.lines.length,
-    'مجموع الكمية': sum(o.lines.map(l => l.quantity)),
-    'مجموع البونص': sum(o.lines.map(l => l.bonusQty)),
-    'مجموع المجهّز': sum(o.lines.map(l => l.preparedQty ?? 0)),
-    'مجموع الناقص': sum(o.lines.map(remainingOf)),
-    'قيمة المطلوب': sum(o.lines.map(l => lineValue(l, l.quantity))),
-    'قيمة المجهّز': sum(o.lines.map(l => lineValue(l, Math.min(l.quantity, l.preparedQty ?? 0)))),
-    'رقم الفاتورة': o.invoiceNumber ?? '',
-    'وقت التجهيز': o.preparedAt ? fmtShort(o.preparedAt) : '',
-    'جهّزها': o.preparedBy ?? '',
-    'ملاحظات': o.notes ?? '',
-    'صورة ختم الصيدلية': absUrl(o.invoiceImage),
-    'صورة/فاتورة التجهيز': absUrl(o.preparedImage),
-    'وقت الإنشاء': fmtShort(o.createdAt),
-  }));
-  const lineRows = orders.flatMap(o => o.lines.map(l => ({
-    'رقم الطلبية': o.id,
-    'تاريخ الطلب': fmtDay(o.orderDate),
-    'الحالة': STATE_LABEL[stateOf(o)],
-    'المندوب': o.repName,
-    'محوّلة من المدير': o.assignedBy ?? '',
-    'الصيدلية': o.pharmacyName,
-    'المنطقة': o.areaName ?? '',
-    'المذخر': currentWh(o).name,
-    'الايتم': l.itemName,
-    'الشركة': l.companyName ?? '',
-    'الكمية': l.quantity,
-    'البونص': l.bonusQty,
-    'الكمية المجهّزة': l.preparedQty ?? 0,
-    'البونص المجهّز': l.preparedBonus ?? 0,
-    'الناقص': remainingOf(l),
-    'سعر الوحدة': l.unitPrice ?? '',
-    'قيمة المطلوب': lineValue(l, l.quantity) ?? '',
-    'قيمة المجهّز': lineValue(l, Math.min(l.quantity, l.preparedQty ?? 0)) ?? '',
-  })));
-  const sendRows = orders.flatMap(o => o.sends.map(sd => ({
-    'رقم الطلبية': o.id,
-    'تاريخ الطلب': fmtDay(o.orderDate),
-    'المندوب': o.repName,
-    'الصيدلية': o.pharmacyName,
-    'المذخر': sd.warehouseName,
-    'رقم الطلبية عند المذخر': sd.whSeq ?? '',
-    'وقت الإرسال': fmtShort(sd.sentAt),
-    'النتيجة': SEND_LABEL[markOf(o, sd)] ?? SEND_OUTCOME_LABEL[sd.outcome],
-    'وقت النتيجة': sd.outcomeAt ? fmtShort(sd.outcomeAt) : '',
-    'ما جهّزه': sd.lines.map(x => `${x.itemName} ${x.qty}${x.bonus ? `+${x.bonus}` : ''}`).join('، '),
-    'صورة الفاتورة': absUrl(sd.image),
-  })));
+  const whProvince = new Map(warehouses.map(w => [w.id, w.province || w.provinceGuess || '']));
+  const hhmm = (iso: string) => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const rows = orders.flatMap(o => {
+    const wh = currentWh(o);
+    return o.lines.map(l => ({
+      'رقم طلبية المذخر': o.id,
+      'أنشات بتاريخ': `${fmtDay(o.orderDate)} ${hhmm(o.createdAt)}`,
+      'حالة طلبية المذخر': STATE_LABEL[stateOf(o)],
+      'اسم الشركة': o.pharmacyName,
+      'المنطقة': o.areaName ?? '',
+      'المدينة': (wh.id != null ? whProvince.get(wh.id) : '') ?? '',
+      'اسم المندوب': o.repName,
+      'الصنف': l.companyName ?? '',
+      'اسم المادة بالمكتب': l.itemName,
+      'الكمية': l.quantity,
+      'كمية البونص': l.bonusQty,
+      'السعر': l.unitPrice ?? '',
+      'المجموع الكلي': l.unitPrice != null ? l.unitPrice * l.quantity : '',
+      'اسم المذخر': wh.name,
+      'حالة المادة بطلبية المذخر': lineStatus(o, l),
+    }));
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const keys = Object.keys(rows[0] ?? {});
+  ws['!cols'] = keys.map(k => ({ wch: Math.min(40, Math.max(k.length + 2, ...rows.slice(0, 300).map(r => String((r as any)[k] ?? '').length + 1))) }));
+  ws['!autofilter'] = { ref: ws['!ref'] ?? 'A1' };
   const wb = XLSX.utils.book_new();
   wb.Workbook = { Views: [{ RTL: true }] };
-  const add = (rows: object[], name: string) => {
-    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ '': 'لا توجد بيانات' }]);
-    const keys = Object.keys(rows[0] ?? { '': '' });
-    ws['!cols'] = keys.map(k => ({ wch: Math.min(40, Math.max(k.length + 2, ...rows.slice(0, 300).map(r => String((r as any)[k] ?? '').length + 1))) }));
-    XLSX.utils.book_append_sheet(wb, ws, name);
-  };
-  add(orderRows, 'الطلبيات');
-  add(lineRows, 'الايتمات');
-  add(sendRows, 'الإرسال للمذاخر');
+  XLSX.utils.book_append_sheet(wb, ws, 'الطلبيات');
   XLSX.writeFile(wb, `طلبيات-المذاخر-${fileTag}.xlsx`);
 }
 
@@ -844,7 +803,7 @@ export default function RepOrdersPage() {
             <Warehouse size={15} /> <span className="ro-hide-sm">المذاخر</span>
           </button>
           <button className="ro-hero__btn" disabled={exporting || !orders.length} title="تصدير كل الطلبيات المعروضة بكل حالاتها إلى Excel"
-            onClick={async () => { setExporting(true); try { await exportOrdersExcel(orders, period === 'custom' && from ? `${from}_${to}` : period === 'all' ? today() : `${PERIOD_LABEL[period]}-${today()}`); } catch (e: any) { alert(e.message); } finally { setExporting(false); } }}>
+            onClick={async () => { setExporting(true); try { await exportOrdersExcel(orders, warehouses, period === 'custom' && from ? `${from}_${to}` : period === 'all' ? today() : `${PERIOD_LABEL[period]}-${today()}`); } catch (e: any) { alert(e.message); } finally { setExporting(false); } }}>
             <FileSpreadsheet size={15} /> <span className="ro-hide-sm">{exporting ? 'جارٍ التصدير…' : 'Excel'}</span>
           </button>
           <button className="ro-hero__btn ro-hero__btn--primary" onClick={() => setEditing('new')}><Plus size={15} /> طلبية جديدة</button>
