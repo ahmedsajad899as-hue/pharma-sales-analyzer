@@ -350,12 +350,11 @@ const lineStatus = (o: Order, l: OrderLine) => {
 async function exportOrdersExcel(orders: Order[], warehouses: WarehouseRow[], fileTag: string) {
   const XLSX = await import('xlsx');
   const whProvince = new Map(warehouses.map(w => [w.id, w.province || w.provinceGuess || '']));
-  const hhmm = (iso: string) => { const d = new Date(iso); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
   const rows = orders.flatMap(o => {
     const wh = currentWh(o);
     return o.lines.map(l => ({
       'رقم طلبية المذخر': o.id,
-      'أنشات بتاريخ': `${fmtDay(o.orderDate)} ${hhmm(o.createdAt)}`,
+      'أنشات بتاريخ': fmtDay(o.orderDate),
       'حالة طلبية المذخر': STATE_LABEL[stateOf(o)],
       'اسم الشركة': o.pharmacyName,
       'المنطقة': o.areaName ?? '',
@@ -604,9 +603,6 @@ export default function RepOrdersPage() {
   const [notice, setNotice] = useState<string | null>(null);
   // «إرسال كصورة» بالموبايل: بعد نسخ الصورة، زر يفتح كروب المذخر (الضغطة الثانية)
   const [openPrompt, setOpenPrompt] = useState<{ text: string; label: string; url: string; done: () => void } | null>(null);
-  // نص الصيدلية والمنطقة المرافق لصورة الطلبية — يُنسخ بزر بعد لصق الصورة في الكروب
-  const [captionCard, setCaptionCard] = useState<string | null>(null);
-  const [captionCopied, setCaptionCopied] = useState(false);
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 8000);
@@ -634,8 +630,7 @@ export default function RepOrdersPage() {
     const file = asImage ? orderImageFile(list, nos) : null;
     if (file) {
       const caption = ordersCaption(list);
-      // بعد لصق الصورة: زر ينسخ الاسم والمنطقة ليُلصقا في خانة التعليق (الحافظة تحمل الصورة فقط)
-      const showCaption = () => { setCaptionCard(caption); setCaptionCopied(false); };
+      // بطاقة «نسخ الاسم والمنطقة» وتنبيه اللصق بعد الإرسال أُلغيا بطلب صاحب المشروع (2026-11-11)
       const canClipImage = !!navigator.clipboard?.write && typeof ClipboardItem !== 'undefined';
       // قائمة المشاركة بالصورة فقط حين لا وجهة للمذخر (لا كروب/رقم/معرّف) أو تعذّر نسخ الصورة —
       // وإلا يُفتح كروب المذخر نفسه والصورة منسوخة (طلب صاحب المشروع)
@@ -663,16 +658,16 @@ export default function RepOrdersPage() {
         if (IS_TOUCH && url) {
           const msg = `✓ نُسخت صورة الطلبية. في ${where} اضغط مطوّلاً على خانة الكتابة ← لصق ← إرسال.`;
           if (deferred) {
-            return { go: () => setOpenPrompt({ text: msg, label: `فتح ${where}`, url, done: () => { markSent(list, wh); showCaption(); } }), cancel: none };
+            return { go: () => setOpenPrompt({ text: msg, label: `فتح ${where}`, url, done: () => markSent(list, wh) }), cancel: none };
           }
           return {
-            go: () => { setTimeout(() => window.open(url, '_blank'), 400); setNotice(msg); markSent(list, wh); showCaption(); },
+            go: () => { setTimeout(() => window.open(url, '_blank'), 400); markSent(list, wh); },
             cancel: none,
           };
         }
         const o = url ? opener(url) : null;
         return {
-          go: () => { o?.open(); setNotice(`✓ نُسخت صورة الطلبية. ${url ? `في ${where}` : `افتح ${where} ←`} اضغط على خانة الكتابة ثم Ctrl+V ← إرسال.`); markSent(list, wh); showCaption(); },
+          go: () => { o?.open(); if (!url) setNotice(`✓ نُسخت صورة الطلبية — افتح ${where} والصقها.`); markSent(list, wh); },
           cancel: o?.cancel ?? none,
         };
       }
@@ -971,21 +966,6 @@ export default function RepOrdersPage() {
           </div>
         </div>
       )}
-      {captionCard && !openPrompt && (
-        <div className="ro-openprompt" role="dialog">
-          <div className="ro-openprompt__text">
-            بعد لصق الصورة في الكروب: اضغط «نسخ الاسم والمنطقة» ثم الصقه في خانة التعليق تحت الصورة وأرسل.
-            <div style={{ marginTop: 6, whiteSpace: 'pre-line', fontWeight: 700 }}>{captionCard}</div>
-          </div>
-          <div className="ro-openprompt__btns">
-            <button className="ro-send-btn" onClick={() => { copyText(captionCard); setCaptionCopied(true); }}>
-              <Copy size={15} /> <span>{captionCopied ? '✓ نُسخ — الصقه في التعليق' : 'نسخ الاسم والمنطقة'}</span>
-            </button>
-            <button className="btn btn--secondary btn--sm" onClick={() => setCaptionCard(null)}>إغلاق</button>
-          </div>
-        </div>
-      )}
-
       {preview && (
         <div className="ro-modal" onClick={() => setPreview(null)}>
           <img className="ro-preview" src={`${API}${preview}`} alt="صورة الطلبية" />
