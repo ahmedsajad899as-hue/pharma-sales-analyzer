@@ -2,6 +2,10 @@ import React, { Suspense, lazy } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import { startAutoUpdate } from './lib/autoUpdate'
+import { initTabSession, getAuthToken } from './lib/authStorage'
+
+// كل تبويب يحمل جلسته (lib/authStorage.ts) — الدخول بحساب آخر لا يُخرج التبويبات الأخرى
+initTabSession()
 import './index.css'
 
 // لوحة السوبر-أدمن تُحمَّل عند الحاجة فقط. الاستيراد الثابت كان يسحب معه 9 صفحات
@@ -35,7 +39,7 @@ if (_impParams.get('share-target') === '1') {
 // Only injects auth_token if no Authorization header is already provided
 const _origFetch = window.fetch.bind(window);
 window.fetch = function(input: RequestInfo | URL, init: RequestInit = {}) {
-  const token = localStorage.getItem('auth_token');
+  const token = getAuthToken();
   const url   = typeof input === 'string' ? input : (input instanceof Request ? input.url : input.toString());
   const existingAuth = (init.headers as Record<string,string>)?.['Authorization'];
   if (token && !existingAuth && (url.includes('localhost:8080') || url.startsWith('/api'))) {

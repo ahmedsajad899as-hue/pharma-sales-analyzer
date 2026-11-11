@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { ALL_FEATURE_KEYS, isFeatureEnabled } from '../config/featureConfig';
+import { getAuthToken, getAuthUserRaw, setActiveSession, updateActiveUser, clearActiveSession } from '../lib/authStorage';
 
 export interface AuthUser {
   id: number;
@@ -60,18 +61,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(() => {
     try {
       if (_isImp()) return JSON.parse(sessionStorage.getItem('_imp_user') || 'null');
-      return JSON.parse(localStorage.getItem('auth_user') || 'null');
+      return JSON.parse(getAuthUserRaw() || 'null');
     }
     catch { return null; }
   });
   const [token, setToken] = useState<string | null>(
-    () => _isImp() ? sessionStorage.getItem('_imp_token') : localStorage.getItem('auth_token')
+    () => _isImp() ? sessionStorage.getItem('_imp_token') : getAuthToken()
   );
   const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>(() => {
     // Seed from localStorage: ensure the currently-logged-in account is always in the list
     const existing = loadSavedAccounts();
     const storedToken = localStorage.getItem('auth_token');
-    const storedUser: AuthUser | null = (() => { try { return JSON.parse(localStorage.getItem('auth_user') || 'null'); } catch { return null; } })();
+    const storedUser: AuthUser | null = (() => { try { return JSON.parse(getAuthUserRaw() || 'null'); } catch { return null; } })();
     if (!_isImp() && storedToken && storedUser && !existing.find(a => a.user.id === storedUser.id)) {
       const seeded = [{ token: storedToken, user: storedUser }, ...existing];
       persistSavedAccounts(seeded);
@@ -89,14 +90,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const imp = _isImp();
     let lastRun = 0;
     const refresh = () => {
-      const storedToken = imp ? sessionStorage.getItem('_imp_token') : localStorage.getItem('auth_token');
+      const storedToken = imp ? sessionStorage.getItem('_imp_token') : getAuthToken();
       if (!storedToken) return;
       const now = Date.now();
       if (now - lastRun < 15000) return; // at most once / 15s
       lastRun = now;
       fetch('/api/auth/me', { headers: { Authorization: `Bearer ${storedToken}` } })
-        .then(r => r.json())
-        .then(data => {
+        .then(async r => ({ status: r.status, data: await r.json().catch(() => ({})) }))
+        .then(({ status, data }) => {
           // جلسة «الدخول كحساب»: حدّث نسختها فقط — لا تلمس جلسة الأدمن المحفوظة في localStorage
           if (imp) {
             if (data.user) {
@@ -106,17 +107,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
           if (data.user) {
-            localStorage.setItem('auth_user', JSON.stringify(data.user));
+            updateActiveUser(storedToken, JSON.stringify(data.user));
             setUser(data.user);
             setSavedAccounts(prev => {
               const updated = prev.map(a => a.user.id === data.user.id ? { ...a, user: data.user } : a);
               persistSavedAccounts(updated);
               return updated;
             });
-          } else {
-            // Token invalid — clear session
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('auth_user');
+          } else if (status === 401) {
+            // التوكن منتهي فعلاً أو الحساب معطّل — فقط عندها نُخرج. أي خطأ آخر
+            // (500 من قاعدة البيانات، إعادة تشغيل السيرفر...) كان يُخرج الجميع.
+            clearActiveSession();
             setToken(null);
             setUser(null);
           }
@@ -143,8 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'فشل تسجيل الدخول');
-    localStorage.setItem('auth_token', data.token);
-    localStorage.setItem('auth_user',  JSON.stringify(data.user));
+    setActiveSession(data.token, JSON.stringify(data.user));
     setToken(data.token);
     setUser(data.user);
     // Save this account in the saved accounts list
@@ -162,15 +162,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.close();
       return;
     }
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
+    clearActiveSession();
     setToken(null);
     setUser(null);
   };
 
   const switchAccount = (account: SavedAccount) => {
-    localStorage.setItem('auth_token', account.token);
-    localStorage.setItem('auth_user',  JSON.stringify(account.user));
+    setActiveSession(account.token, JSON.stringify(account.user));
     setToken(account.token);
     setUser(account.user);
     // Move this account to the front

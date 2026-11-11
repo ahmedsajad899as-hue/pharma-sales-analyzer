@@ -4,6 +4,7 @@ import { useAuth, isMarketerUser } from '../context/AuthContext';
 import { Icon } from '../config/icons';
 import { sendEngagementPing } from '../lib/engagementPing';
 import SurveySyncRepBar from '../components/SurveySyncRepBar';
+import { getAuthToken } from '../lib/authStorage';
 
 // ── Types ────────────────────────────────────────────────────
 interface Survey {
@@ -75,7 +76,7 @@ function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClos
 // ── Main Page ────────────────────────────────────────────────
 export default function SurveyPage() {
   const { user } = useAuth();
-  const token = localStorage.getItem('auth_token');
+  const token = getAuthToken();
   const H = useCallback(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
   const isCompanyManager = user?.role === 'company_manager';
 

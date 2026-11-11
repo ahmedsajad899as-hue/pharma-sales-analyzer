@@ -19,11 +19,12 @@ import { Icon } from '../config/icons';
 import type { IconName } from '../config/icons';
 import StockMovementImportModal, { isPendingEmpty } from '../components/StockMovementImportModal';
 import type { PendingMatches, StockNameChoices } from '../components/StockMovementImportModal';
+import { getAuthToken } from '../lib/authStorage';
 
 const API = import.meta.env.VITE_API_URL || '';
 
 function authHeaders(): Record<string, string> {
-  const t = localStorage.getItem('auth_token');
+  const t = getAuthToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 

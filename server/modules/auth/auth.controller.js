@@ -4,7 +4,7 @@ import prisma from '../../lib/prisma.js';
 import { logActivity } from '../../lib/activityLogger.js';
 
 const JWT_SECRET  = process.env.JWT_SECRET  || 'pharma-sales-secret-key-2026';
-const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
+const JWT_EXPIRES = process.env.JWT_EXPIRES || '365d';
 
 /** POST /api/auth/login */
 export async function login(req, res) {

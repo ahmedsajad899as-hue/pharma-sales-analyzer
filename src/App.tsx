@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, useCallback, useRef, Component, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth, isMarketerUser, MARKETER_HIDDEN_PAGES } from './context/AuthContext';
+import { getAuthUserRaw } from './lib/authStorage';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Sidebar from './components/layout/Sidebar';
 import LoginPage from './pages/LoginPage';
@@ -328,7 +329,7 @@ function AppInner() {
     // صورة مُشارَكة من واتساب (share_target في manifest.json) ← صفحة «طلبيات المذاخر» لربطها بطلبية
     try { if (sessionStorage.getItem('ro-share') === '1') return 'rep-orders'; } catch {}
     try {
-      const u = JSON.parse(localStorage.getItem('auth_user') || 'null');
+      const u = JSON.parse(getAuthUserRaw() || 'null');
       if (u?.role === 'commercial_rep') return 'commercial';
       // company_manager now uses the merged rep-analysis page
       const companyMgrIndividualPages: string[] = ['upload', 'representatives', 'scientific-reps', 'reports'];
@@ -340,7 +341,7 @@ function AppInner() {
     const saved = localStorage.getItem('lastPage') as PageId | null;
     if (saved) return saved;
     try {
-      const u = JSON.parse(localStorage.getItem('auth_user') || 'null');
+      const u = JSON.parse(getAuthUserRaw() || 'null');
       const homeRoles = NAV_ITEMS.find(n => n.id === 'home')?.roles ?? [];
       if (u?.role && homeRoles.includes(u.role)) return 'home';
     } catch {}
@@ -359,7 +360,7 @@ function AppInner() {
   // هو عبر الريفرش أو تسجيل الخروج/الدخول لنفس الحساب، إلى أن يغيّره المستخدم بنفسه.
   const [activeFileIds, setActiveFileIds] = useState<number[]>(() => {
     try {
-      const u = JSON.parse(localStorage.getItem('auth_user') || 'null');
+      const u = JSON.parse(getAuthUserRaw() || 'null');
       const saved = localStorage.getItem(u?.id ? `activeFileIds_${u.id}` : 'activeFileIds');
       if (saved) return JSON.parse(saved) as number[];
     } catch {}

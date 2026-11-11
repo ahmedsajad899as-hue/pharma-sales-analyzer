@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { getAuthToken } from '../lib/authStorage';
 
 interface LocationPoint {
   id: number;
@@ -70,7 +71,7 @@ function makeVisitIcon(label: string) {
 async function fetchRouteSegment(coords: [number, number][]): Promise<[number, number][]> {
   if (coords.length < 2) return coords;
   try {
-    const token = localStorage.getItem('auth_token') || '';
+    const token = getAuthToken() || '';
     const res = await fetch('/api/ors/route', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -108,7 +109,7 @@ export default function RepTrackingMap({ repId, repName, date, visitMarkers = []
 
   // ── Fetch location points ──────────────────────────────────
   useEffect(() => {
-    const token = localStorage.getItem('auth_token') || '';
+    const token = getAuthToken() || '';
     setLoading(true);
     setError('');
     const query = repId > 0 ? `repId=${repId}&date=${date}` : `date=${date}`;

@@ -9,12 +9,13 @@ import {
   normColHeader, COMPANY_KW, detectCompanyCol, detectItemNameCol, detectPriceCol,
   parseStockFile, buildMergedFile,
 } from '../lib/stockParser';
+import { getAuthToken } from '../lib/authStorage';
 
 
 // ── API helpers (server-side persistence — synced across devices) ─────────────
 const API = import.meta.env.VITE_API_URL || '';
 function authHeaders(): Record<string, string> {
-  const t = localStorage.getItem('auth_token');
+  const t = getAuthToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 function toLocalFile(f: any): SalesFile {
