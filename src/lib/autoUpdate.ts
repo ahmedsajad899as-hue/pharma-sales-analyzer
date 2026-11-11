@@ -85,6 +85,18 @@ function reload() {
 /** مفتاح الصفحة التي طُلبت لحظة التحميل — App يفتحها أولاً (قبل قواعد الصفحة الافتتاحية للدور). */
 export const UPDATE_TARGET_KEY = 'au-page';
 
+/**
+ * زر «تحديث» اليدوي: يعيد تحميل التطبيق بأحدث نسخة ويبقى على الصفحة نفسها.
+ * حفظ جارٍ ⇒ يسأل أولاً كي لا يضيع. الـSW شبكة-أولاً فالتحميل يجلب الأحدث.
+ */
+export function refreshApp(page: string): boolean {
+  if (writesInFlight > 0 && !window.confirm('يوجد حفظ قيد التنفيذ — تحديث التطبيق الآن؟')) return false;
+  try { sessionStorage.setItem(UPDATE_TARGET_KEY, page); } catch {}
+  navigator.serviceWorker?.getRegistration?.().then(r => r?.update()).catch(() => {});
+  setTimeout(reload, 250); // تبقى الأيقونة تدور لحظة فيُرى أن الضغطة وصلت
+  return true;
+}
+
 /** يُستدعى عند الانتقال لصفحة أخرى: إن وصلت نسخة جديدة تُحمَّل الآن على الصفحة المطلوبة. */
 export function reloadIfUpdatePending(page: string): boolean {
   if (!pending || writesInFlight > 0) return false;

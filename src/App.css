@@ -4002,3 +4002,7 @@ body.rfs-map-fullscreen-lock { overflow: hidden; }
   100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
 }
 @media (prefers-reduced-motion: reduce) { .reps-summary-pulse { animation: none; } }
+
+/* زر «تحديث التطبيق» — دوران خفيف حتى يُعاد التحميل */
+@keyframes app-refresh-spin { to { transform: rotate(360deg); } }
+.app-refresh-spin { animation: app-refresh-spin .7s linear infinite; }

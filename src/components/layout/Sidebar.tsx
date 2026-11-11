@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { refreshApp } from '../../lib/autoUpdate';
 import type { PageId } from '../../App';
 import { useAuth, isMarketerUser, MARKETER_HIDDEN_PAGES } from '../../context/AuthContext';
 import type { SavedAccount } from '../../context/AuthContext';
@@ -20,6 +21,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, activeFileIds = [], showAI, onAIToggle }: SidebarProps) {
+  const [refreshing, setRefreshing] = useState(false);
+  const doRefresh = () => { if (refreshApp(activePage)) setRefreshing(true); };
   const { user, logout, isAdmin, isManager, isManagerOrAdmin, hasFeature, savedAccounts, switchAccount, removeSavedAccount } = useAuth();
   const { t, toggleLang, lang } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -295,6 +298,16 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
               ><Icon name="export" size={16} /></button>
             )}
             <button
+              onClick={doRefresh}
+              title="تحديث التطبيق"
+              aria-label="تحديث التطبيق"
+              style={{
+                width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
+                color: '#8fa0be', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            ><span className={refreshing ? 'app-refresh-spin' : undefined} style={{ display: 'flex' }}><Icon name="refresh" size={15} /></span></button>
+            <button
               onClick={logout}
               title={t.sidebar.logout}
               style={{
@@ -319,6 +332,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
           <span style={{ display:'flex', alignItems:'center' }}><OrdineLogo size={32} /></span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 0 }}>
+          <button className="mobile-menu-btn" onClick={doRefresh} title="تحديث التطبيق" aria-label="تحديث التطبيق" style={{ marginRight: 0, minHeight: 34, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span className={refreshing ? 'app-refresh-spin' : undefined} style={{ display: 'flex' }}><Icon name="refresh" size={16} /></span>
+          </button>
           <NotificationBell compact />
           <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(true)} title="menu" style={{ marginRight: 0, fontSize: 16 }}>
             ☰
