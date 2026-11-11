@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Image as ImageIcon, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ItemPicker, itemCompany, normSearch, type CatalogItem } from '../components/OrderItemPicker';
 import { compressImage, readDataUrl, loadImg } from '../lib/localImage';
@@ -24,7 +24,7 @@ type SendOutcome = 'sent' | 'prepared' | 'partial' | 'rejected';
 interface SendLine { lineId: number; itemName: string; qty: number; bonus: number }
 interface OrderSend { id: number; warehouseId: number | null; warehouseName: string; sentAt: string; outcome: SendOutcome; outcomeAt: string | null; image: string | null; whSeq?: number | null; lines: SendLine[] }
 interface Order {
-  id: number; orderDate: string; createdById: number; repName: string;
+  id: number; orderDate: string; createdById: number; repName: string; assignedBy?: string | null;
   warehouseId: number | null; warehouseName: string; warehousePhone: string | null;
   warehouses: OrderWh[]; lastSentWarehouseId: number | null;
   pharmacyName: string; areaName: string | null; notes: string | null;
@@ -339,6 +339,89 @@ const VIEW_ICON: Record<View, typeof LayoutList> = { all: LayoutList, new: Spark
 const PERIOD_LABEL: Record<Period, string> = { all: 'كل التواريخ', today: 'اليوم', yesterday: 'أمس', week: 'آخر 7 أيام', month: 'هذا الشهر', custom: 'تاريخ محدد' };
 const dayTitle = (iso: string) => (iso === today() ? 'اليوم' : iso === shiftDay(-1) ? 'أمس' : null);
 
+// ─── تصدير Excel: كل الطلبيات المحمّلة بكل حالاتها — ورقة للطلبيات، وللأصناف، وللإرسالات ───
+const SEND_OUTCOME_LABEL: Record<SendOutcome, string> = { sent: 'أُرسلت', prepared: 'جهّز كامل', partial: 'جهّز جزئي', rejected: 'لم يجهّز' };
+const absUrl = (rel: string | null) => (rel ? new URL(rel, API || window.location.origin).href : '');
+const lineValue = (l: OrderLine, qty: number) => (l.unitPrice != null ? l.unitPrice * qty : null);
+async function exportOrdersExcel(orders: Order[], fileTag: string) {
+  const XLSX = await import('xlsx');
+  const sum = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
+  const orderRows = orders.map(o => ({
+    'رقم الطلبية': o.id,
+    'تاريخ الطلب': fmtDay(o.orderDate),
+    'الحالة': STATE_LABEL[stateOf(o)],
+    'تجهيز جزئي': isPartial(o) ? 'نعم' : '',
+    'المندوب': o.repName,
+    'محوّلة من المدير': o.assignedBy ?? '',
+    'الصيدلية': o.pharmacyName,
+    'المنطقة': o.areaName ?? '',
+    'المذخر الأساسي': o.warehouses[0]?.name ?? o.warehouseName,
+    'مذاخر الاحتياط': o.warehouses.slice(1).map(w => w.name).join(' ← '),
+    'آخر مذخر أُرسلت له': o.sentAt ? currentWh(o).name : '',
+    'عدد مرات الإرسال': o.sentCount,
+    'وقت آخر إرسال': o.sentAt ? fmtShort(o.sentAt) : '',
+    'عدد الايتمات': o.lines.length,
+    'مجموع الكمية': sum(o.lines.map(l => l.quantity)),
+    'مجموع البونص': sum(o.lines.map(l => l.bonusQty)),
+    'مجموع المجهّز': sum(o.lines.map(l => l.preparedQty ?? 0)),
+    'مجموع الناقص': sum(o.lines.map(remainingOf)),
+    'قيمة المطلوب': sum(o.lines.map(l => lineValue(l, l.quantity))),
+    'قيمة المجهّز': sum(o.lines.map(l => lineValue(l, Math.min(l.quantity, l.preparedQty ?? 0)))),
+    'رقم الفاتورة': o.invoiceNumber ?? '',
+    'وقت التجهيز': o.preparedAt ? fmtShort(o.preparedAt) : '',
+    'جهّزها': o.preparedBy ?? '',
+    'ملاحظات': o.notes ?? '',
+    'صورة ختم الصيدلية': absUrl(o.invoiceImage),
+    'صورة/فاتورة التجهيز': absUrl(o.preparedImage),
+    'وقت الإنشاء': fmtShort(o.createdAt),
+  }));
+  const lineRows = orders.flatMap(o => o.lines.map(l => ({
+    'رقم الطلبية': o.id,
+    'تاريخ الطلب': fmtDay(o.orderDate),
+    'الحالة': STATE_LABEL[stateOf(o)],
+    'المندوب': o.repName,
+    'محوّلة من المدير': o.assignedBy ?? '',
+    'الصيدلية': o.pharmacyName,
+    'المنطقة': o.areaName ?? '',
+    'المذخر': currentWh(o).name,
+    'الايتم': l.itemName,
+    'الشركة': l.companyName ?? '',
+    'الكمية': l.quantity,
+    'البونص': l.bonusQty,
+    'الكمية المجهّزة': l.preparedQty ?? 0,
+    'البونص المجهّز': l.preparedBonus ?? 0,
+    'الناقص': remainingOf(l),
+    'سعر الوحدة': l.unitPrice ?? '',
+    'قيمة المطلوب': lineValue(l, l.quantity) ?? '',
+    'قيمة المجهّز': lineValue(l, Math.min(l.quantity, l.preparedQty ?? 0)) ?? '',
+  })));
+  const sendRows = orders.flatMap(o => o.sends.map(sd => ({
+    'رقم الطلبية': o.id,
+    'تاريخ الطلب': fmtDay(o.orderDate),
+    'المندوب': o.repName,
+    'الصيدلية': o.pharmacyName,
+    'المذخر': sd.warehouseName,
+    'رقم الطلبية عند المذخر': sd.whSeq ?? '',
+    'وقت الإرسال': fmtShort(sd.sentAt),
+    'النتيجة': SEND_LABEL[markOf(o, sd)] ?? SEND_OUTCOME_LABEL[sd.outcome],
+    'وقت النتيجة': sd.outcomeAt ? fmtShort(sd.outcomeAt) : '',
+    'ما جهّزه': sd.lines.map(x => `${x.itemName} ${x.qty}${x.bonus ? `+${x.bonus}` : ''}`).join('، '),
+    'صورة الفاتورة': absUrl(sd.image),
+  })));
+  const wb = XLSX.utils.book_new();
+  wb.Workbook = { Views: [{ RTL: true }] };
+  const add = (rows: object[], name: string) => {
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ '': 'لا توجد بيانات' }]);
+    const keys = Object.keys(rows[0] ?? { '': '' });
+    ws['!cols'] = keys.map(k => ({ wch: Math.min(40, Math.max(k.length + 2, ...rows.slice(0, 300).map(r => String((r as any)[k] ?? '').length + 1))) }));
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  };
+  add(orderRows, 'الطلبيات');
+  add(lineRows, 'الايتمات');
+  add(sendRows, 'الإرسال للمذاخر');
+  XLSX.writeFile(wb, `طلبيات-المذاخر-${fileTag}.xlsx`);
+}
+
 // عدّاد يصعد للرقم الجديد بنعومة
 function CountUp({ value }: { value: number }) {
   const [shown, setShown] = useState(value);
@@ -428,6 +511,9 @@ export default function RepOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [whNextSeq, setWhNextSeq] = useState<Record<number, number>>({});
   const [isManager, setIsManager] = useState(false);
+  const [viewerId, setViewerId] = useState<number | null>(null);
+  const [assignableReps, setAssignableReps] = useState<{ id: number; name: string }[]>([]);
+  const [exporting, setExporting] = useState(false);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [provinces, setProvinces] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -450,8 +536,8 @@ export default function RepOrdersPage() {
     if (from) q.set('from', from);
     if (to) q.set('to', to);
     try {
-      const r = await api<{ orders: Order[]; viewer: { isManager: boolean; canDispatch: boolean }; whNextSeq?: Record<number, number> }>(`?${q}`);
-      setOrders(r.orders); setIsManager(r.viewer.isManager); setCanDispatch(r.viewer.canDispatch); setWhNextSeq(r.whNextSeq ?? {});
+      const r = await api<{ orders: Order[]; viewer: { id: number; isManager: boolean; canDispatch: boolean }; assignableReps?: { id: number; name: string }[]; whNextSeq?: Record<number, number> }>(`?${q}`);
+      setOrders(r.orders); setIsManager(r.viewer.isManager); setViewerId(r.viewer.id); setAssignableReps(r.assignableReps ?? []); setCanDispatch(r.viewer.canDispatch); setWhNextSeq(r.whNextSeq ?? {});
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
   }, [token, api, from, to]);
 
@@ -757,6 +843,10 @@ export default function RepOrdersPage() {
           <button className="ro-hero__btn" onClick={() => setShowWarehouses(true)} title="دليل المذاخر وأرقام الواتساب">
             <Warehouse size={15} /> <span className="ro-hide-sm">المذاخر</span>
           </button>
+          <button className="ro-hero__btn" disabled={exporting || !orders.length} title="تصدير كل الطلبيات المعروضة بكل حالاتها إلى Excel"
+            onClick={async () => { setExporting(true); try { await exportOrdersExcel(orders, period === 'custom' && from ? `${from}_${to}` : period === 'all' ? today() : `${PERIOD_LABEL[period]}-${today()}`); } catch (e: any) { alert(e.message); } finally { setExporting(false); } }}>
+            <FileSpreadsheet size={15} /> <span className="ro-hide-sm">{exporting ? 'جارٍ التصدير…' : 'Excel'}</span>
+          </button>
           <button className="ro-hero__btn ro-hero__btn--primary" onClick={() => setEditing('new')}><Plus size={15} /> طلبية جديدة</button>
         </div>
       </header>
@@ -893,6 +983,7 @@ export default function RepOrdersPage() {
 
       {editing && (
         <OrderForm token={token} api={api} order={editing === 'new' ? null : editing} warehouses={warehouses} viaBot={canBotSend && viaBot} canAddWarehouse={canDispatch}
+          reps={assignableReps} viewerId={viewerId}
           onWarehousesChanged={loadWarehouses}
           onClose={() => setEditing(null)}
           onSaved={(d) => { setEditing(null); if (d && from && (d < from || d > to)) pickPeriod('all'); else load(); }} />
@@ -1123,7 +1214,7 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, show
                       {state === 'prepared' && o.preparedAt && <span className="ro-kv__when">{fmtShort(o.preparedAt)}{o.preparedBy ? ` · ${o.preparedBy}` : ''}</span>}
                     </dd></div>
                     {o.areaName && <div><dt><MapPin size={14} />المنطقة</dt><dd>{o.areaName}</dd></div>}
-                    <div><dt><UserRound size={14} />المندوب</dt><dd>{o.repName}</dd></div>
+                    <div><dt><UserRound size={14} />المندوب</dt><dd>{o.repName}{o.assignedBy && <span className="ro-kv__when">حوّلها {o.assignedBy}</span>}</dd></div>
                     <div><dt><CalendarDays size={14} />تاريخ الطلب</dt><dd>{fmtShortDay(o.orderDate)}</dd></div>
                     <div><dt><Warehouse size={14} />المذخر</dt><dd>{o.warehouses.map(w => w.name).join(' ← ') || wh.name}</dd></div>
                     {o.invoiceNumber && <div><dt><Hash size={14} />رقم الفاتورة</dt><dd>{o.invoiceNumber}</dd></div>}
@@ -1912,8 +2003,9 @@ interface FormLine { key: number; text: string; itemId: number | null; companyNa
 const newLine = (text = '', itemId: number | null = null, companyName = ''): FormLine => ({ key: Date.now() + Math.random(), text, itemId, companyName, quantity: '', bonusQty: '' });
 const MAX_WAREHOUSES = 6; // الأساسي + 5 احتياط
 
-function OrderForm({ token, api, order, warehouses, viaBot, canAddWarehouse, onWarehousesChanged, onClose, onSaved }: {
+function OrderForm({ token, api, order, warehouses, viaBot, canAddWarehouse, reps, viewerId, onWarehousesChanged, onClose, onSaved }: {
   token: string | null; viaBot: boolean; canAddWarehouse: boolean;
+  reps: { id: number; name: string }[]; viewerId: number | null;
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   order: Order | null; warehouses: WarehouseRow[];
   onWarehousesChanged: () => void; onClose: () => void; onSaved: (day: string | null) => void;
@@ -1937,6 +2029,10 @@ function OrderForm({ token, api, order, warehouses, viaBot, canAddWarehouse, onW
     const ids = (order?.warehouses ?? []).map(w => String(w.id ?? '')).filter(Boolean);
     return ids.length ? ids : order?.warehouseId ? [String(order.warehouseId)] : [];
   });
+  // المدير يكتبها باسم مندوب من فريقه ← تُحسب للمندوب. '' = باسمي
+  const [repId, setRepId] = useState(() => (order && order.createdById !== viewerId ? String(order.createdById) : ''));
+  const repOptions = useMemo(() => (order && repId && !reps.some(r => String(r.id) === repId)
+    ? [{ id: order.createdById, name: order.repName }, ...reps] : reps), [reps, order, repId]);
   const [pickItems, setPickItems] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -2008,6 +2104,7 @@ function OrderForm({ token, api, order, warehouses, viaBot, canAddWarehouse, onW
       const body = JSON.stringify({
         ...head,
         warehouseId: Number(whIds[0]),
+        ...(repId ? { repUserId: Number(repId) } : order && viewerId ? { repUserId: viewerId } : {}),
         backupWarehouseIds: whIds.slice(1).map(Number),
         // «إرسال عبر البوت» مطفأة ⇒ لا إرسال آلي حتى لو وضع الحساب «فوري»
         viaBot,
@@ -2048,6 +2145,14 @@ function OrderForm({ token, api, order, warehouses, viaBot, canAddWarehouse, onW
               <input className="form-input" list="ro-pharmacies" value={head.pharmacyName} onChange={e => onPharmacy(e.target.value)} />
               <datalist id="ro-pharmacies">{pharmacies.map(p => <option key={p.name} value={p.name} />)}</datalist>
             </label>
+            {repOptions.length > 0 && (
+              <label className="ro-field">المندوب
+                <select className="form-input" value={repId} onChange={e => setRepId(e.target.value)} title="تُحسب الطلبية للمندوب المختار في التقارير">
+                  <option value="">باسمي</option>
+                  {repOptions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </label>
+            )}
             <label className="ro-field">المنطقة
               <input className="form-input" list="ro-areas" value={head.areaName} onChange={e => setHead(h => ({ ...h, areaName: e.target.value }))} />
               <datalist id="ro-areas">{areas.map(a => <option key={a} value={a} />)}</datalist>

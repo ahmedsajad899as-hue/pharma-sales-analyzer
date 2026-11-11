@@ -3569,6 +3569,7 @@ model RepOrder {
   sentCount     Int       @default(0)
   preparedAt    DateTime?
   preparedById  Int?
+  assignedById  Int? // المدير الذي كتبها وحوّلها للمندوب (createdById = المندوب فتُحسب له)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

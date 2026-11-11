@@ -342,7 +342,7 @@ export async function listOrders(reqUser, q = {}) {
   const priceItems = priceItemIds.length ? await prisma.item.findMany({ where: { id: { in: priceItemIds } }, select: { id: true, price: true, warehousePrice: true } }) : [];
   const catalogPrice = new Map(priceItems.map(i => [i.id, i.warehousePrice ?? i.price ?? null]));
 
-  const userIds = [...new Set(rows.flatMap(r => [r.createdById, r.preparedById]).filter(Boolean))];
+  const userIds = [...new Set(rows.flatMap(r => [r.createdById, r.preparedById, r.assignedById]).filter(Boolean))];
   const users = userIds.length
     ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, displayName: true, username: true } })
     : [];
@@ -350,11 +350,15 @@ export async function listOrders(reqUser, q = {}) {
 
   // قائمة المندوبين لفلتر المدير (من يظهر في النتائج + فريقه)
   let reps = [];
+  let assignableReps = []; // مندوبو فريق المدير — لكتابة طلبية باسم أحدهم
   if (!isFieldRole(viewer.role)) {
-    const ids = new Set(await teamUserIds(viewer));
+    const team = await teamUserIds(viewer);
+    const ids = new Set(team);
     for (const r of rows) ids.add(r.createdById);
     const repUsers = await prisma.user.findMany({ where: { id: { in: [...ids] } }, select: { id: true, displayName: true, username: true } });
     reps = repUsers.map(u => ({ id: u.id, name: userName(u) })).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    const teamSet = new Set(team.filter(id => id !== viewer.id));
+    assignableReps = reps.filter(r => teamSet.has(r.id));
   }
 
   const canDispatch = !(await marketerProvinceNames(viewer));
@@ -362,12 +366,14 @@ export async function listOrders(reqUser, q = {}) {
   return {
     viewer: { id: viewer.id, name: userName(viewer), isManager: !isFieldRole(viewer.role), canDispatch },
     reps,
+    assignableReps,
     whNextSeq,
     orders: rows.map(r => ({
       id: r.id,
       orderDate: r.orderDate,
       createdById: r.createdById,
       repName: nameById.get(r.createdById) ?? '—',
+      assignedBy: r.assignedById ? (nameById.get(r.assignedById) ?? '—') : null,
       warehouseId: r.warehouseId,
       warehouseName: r.warehouse?.name ?? r.warehouseName,
       warehousePhone: r.warehouse?.phone ?? null,
@@ -474,11 +480,26 @@ export async function buildLines(raw) {
   return lines;
 }
 
+/**
+ * المدير يكتب الطلبية باسم مندوب من فريقه ← createdById = المندوب فتُحسب له في كل
+ * التقارير، وassignedById = المدير (إشارة «حوّلها المدير» في التفاصيل فقط).
+ * null = بلا تغيير المالك؛ اختيار المدير نفسه يعيدها له.
+ */
+async function resolveOwner(viewer, raw) {
+  const repUserId = Number(raw);
+  if (!repUserId) return null;
+  if (repUserId === viewer.id) return { createdById: viewer.id, assignedById: null };
+  if (isFieldRole(viewer.role)) throw new AppError('تحويل الطلبية لمندوب من صلاحية المدير فقط', 403);
+  if (!(await teamUserIds(viewer)).includes(repUserId)) throw new AppError('المندوب ليس من فريقك', 400);
+  return { createdById: repUserId, assignedById: viewer.id };
+}
+
 export async function createOrder(reqUser, body) {
   const viewer = await loadViewer(reqUser);
   const { head, lines } = await buildOrderData(viewer, body);
+  const owner = (await resolveOwner(viewer, body?.repUserId)) ?? { createdById: viewer.id, assignedById: null };
   return prisma.repOrder.create({
-    data: { ...head, officeId: viewer.officeId ?? null, createdById: viewer.id, lines: { create: lines } },
+    data: { ...head, officeId: viewer.officeId ?? null, ...owner, lines: { create: lines } },
     include: { lines: true },
   });
 }
@@ -488,9 +509,12 @@ export async function updateOrder(reqUser, id, body) {
   const order = await getVisibleOrder(viewer, id);
   await assertCanEdit(viewer, order, 'لا يمكنك تعديل هذه الطلبية');
   const { head, lines } = await buildOrderData(viewer, body);
+  // تغيير المندوب عند التعديل فقط إن اختار المدير مندوباً غير صاحبها الحالي
+  const wanted = Number(body?.repUserId);
+  const owner = wanted && wanted !== order.createdById ? await resolveOwner(viewer, wanted) : null;
   return prisma.$transaction(async (tx) => {
     await tx.repOrderLine.deleteMany({ where: { orderId: order.id } });
-    const updated = await tx.repOrder.update({ where: { id: order.id }, data: { ...head, lines: { create: lines } }, include: { lines: { orderBy: { id: 'asc' } } } });
+    const updated = await tx.repOrder.update({ where: { id: order.id }, data: { ...head, ...(owner ?? {}), lines: { create: lines } }, include: { lines: { orderBy: { id: 'asc' } } } });
     // الأسطر أُعيد إنشاؤها ← سجل التجهيز يُربط بها من جديد بالصنف نفسه
     const sends = await tx.repOrderSend.findMany({ where: { orderId: order.id } });
     if (sends.some(s => Array.isArray(s.lines) && s.lines.length)) {
@@ -721,7 +745,7 @@ export async function removeImage(reqUser, id, kind) {
 export async function suggestions(reqUser) {
   const viewer = await loadViewer(reqUser);
   const rows = await prisma.repOrder.findMany({
-    where: { createdById: viewer.id },
+    where: { OR: [{ createdById: viewer.id }, { assignedById: viewer.id }] },
     select: { pharmacyName: true, areaName: true },
     orderBy: { id: 'desc' },
     take: 1500,
