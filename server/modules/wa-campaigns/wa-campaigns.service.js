@@ -30,8 +30,15 @@ const graphBase = () => `https://graph.facebook.com/${process.env.WHATSAPP_API_V
 const phoneNumberId = () => process.env.WHATSAPP_PHONE_NUMBER_ID || '';
 // حساب واتساب للأعمال (WABA) الذي تُنشأ فيه القوالب. قد يظهر الرقم تحت أكثر من
 // معرّف، فنقرأ القوالب من كلها وندمجها.
-const wabaIds = () => String(process.env.WHATSAPP_WABA_IDS || '2846484169079403,2450625762413533')
+// الأول = الحساب الذي تُحاسَب عليه رسائل الرقم (فيه بيانات الكلفة) — تُنشأ القوالب فيه.
+const wabaIds = () => String(process.env.WHATSAPP_WABA_IDS || '2450625762413533,2846484169079403')
   .split(',').map(s => s.trim()).filter(Boolean);
+const primaryWaba = () => wabaIds()[0];
+
+// السعر الرسمي لرسالة التسويق للعراق (جدول Meta 2026) — يُستعمل فقط إن لم تُرسَل رسائل
+// تسويق بعد ليُحسب متوسطها الفعلي من فواتير الحساب.
+export const IQ_MARKETING_RATE = 0.0341;
+export const IQ_UTILITY_RATE = 0.0079;
 
 export const MAX_RECIPIENTS = 5000;
 const SEND_GAP_MS = 300;
@@ -81,7 +88,9 @@ export function parseTemplate(t) {
   });
 
   return {
-    name: t.name, language: t.language, category: t.category, status: t.status,
+    id: t.id || null, name: t.name, language: t.language, category: t.category, status: t.status,
+    rejectedReason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : null,
+    quality: t.quality_score?.score || null,
     named: t.parameter_format === 'NAMED',
     header, body: B?.text || '', footer: F?.text || null, buttons, vars, problem,
   };
@@ -96,7 +105,7 @@ export async function listTemplates({ fresh = false } = {}) {
   const errors = [];
   for (const id of wabaIds()) {
     try {
-      let next = `${id}/message_templates?fields=name,language,status,category,components,parameter_format&limit=200`;
+      let next = `${id}/message_templates?fields=id,name,language,status,category,components,parameter_format,rejected_reason,quality_score&limit=200`;
       for (let page = 0; next && page < 10; page++) {
         const d = await graphGet(next);
         for (const t of d.data || []) {
@@ -112,6 +121,147 @@ export async function listTemplates({ fresh = false } = {}) {
     (a.category === 'MARKETING' ? 0 : 1) - (b.category === 'MARKETING' ? 0 : 1) || a.name.localeCompare(b.name));
   tplCache = { at: Date.now(), list };
   return list;
+}
+
+// ─── إنشاء/حذف القوالب من التطبيق (بدل WhatsApp Manager) ─────────────────────
+
+async function graphSend(p, { method = 'POST', body, headers = {}, raw = false } = {}) {
+  const token = whatsappToken();
+  if (!token) throw new AppError('البوت الرسمي غير مفعّل على الخادم (WHATSAPP_TOKEN)', 400);
+  const res = await fetch(`${graphBase()}/${p}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, ...(body && !raw ? { 'Content-Type': 'application/json' } : {}), ...headers },
+    body: body ? (raw ? body : JSON.stringify(body)) : undefined,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new AppError(`Meta: ${data?.error?.error_user_msg || data?.error?.error_user_title || data?.error?.message || `HTTP ${res.status}`}`, 400);
+  return data;
+}
+
+let appIdCache = null;
+async function metaAppId() {
+  if (process.env.WHATSAPP_APP_ID) return process.env.WHATSAPP_APP_ID;
+  if (appIdCache) return appIdCache;
+  const t = whatsappToken();
+  const d = await graphGet(`debug_token?input_token=${encodeURIComponent(t)}`);
+  appIdCache = d?.data?.app_id || null;
+  if (!appIdCache) throw new AppError('تعذّر معرفة معرّف تطبيق Meta', 500);
+  return appIdCache;
+}
+
+/** صورة مثال لرأس القالب — Meta تطلبها عبر Resumable Upload وتعيد header_handle. */
+async function uploadSampleHandle(buffer, mime) {
+  if (!['image/jpeg', 'image/png'].includes(mime)) throw new AppError('صورة المثال يجب أن تكون JPG أو PNG', 400);
+  const appId = await metaAppId();
+  const sess = await graphSend(`${appId}/uploads?file_name=sample.${mime === 'image/png' ? 'png' : 'jpg'}&file_length=${buffer.length}&file_type=${encodeURIComponent(mime)}`);
+  const token = whatsappToken();
+  const res = await fetch(`${graphBase()}/${sess.id}`, {
+    method: 'POST', headers: { Authorization: `OAuth ${token}`, file_offset: '0' }, body: buffer,
+  });
+  const d = await res.json().catch(() => null);
+  if (!res.ok || !d?.h) throw new AppError(`تعذّر رفع صورة المثال: ${d?.error?.message || res.status}`, 400);
+  return d.h;
+}
+
+/**
+ * ينشئ قالباً في Meta ويُرسله للمراجعة. body: { name, category, language, headerType
+ * (none|image|text), headerText, bodyText, samples[], footer, buttons[] }.
+ */
+export async function createTemplate(body, imageFile) {
+  const name = String(body.name || '').trim();
+  if (!/^[a-z0-9_]{1,60}$/.test(name)) throw new AppError('اسم القالب: حروف إنكليزية صغيرة وأرقام و _ فقط (مثل item_offer)', 400);
+  const category = ['MARKETING', 'UTILITY'].includes(body.category) ? body.category : 'MARKETING';
+  const language = String(body.language || 'ar');
+  const text = String(body.bodyText || '').trim();
+  if (!text) throw new AppError('نص الرسالة فارغ', 400);
+  if (text.length > 1024) throw new AppError('نص الرسالة أطول من 1024 حرفاً', 400);
+
+  const nums = [...text.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map(m => Number(m[1]));
+  const uniq = [...new Set(nums)].sort((a, b) => a - b);
+  if (uniq.some((n, i) => n !== i + 1)) throw new AppError('المتغيّرات يجب أن تكون متسلسلة {{1}} {{2}} {{3}} … بلا قفز', 400);
+  if (/^\s*\{\{/.test(text) || /\}\}\s*[.!؟?]?\s*$/.test(text)) throw new AppError('Meta ترفض نصاً يبدأ أو ينتهي بمتغيّر — أضف كلمة قبله/بعده', 400);
+  if (/\{\{\s*\d+\s*\}\}\s*\{\{/.test(text)) throw new AppError('لا تضع متغيّرين متلاصقين — افصل بينهما بكلمة', 400);
+  const samples = (body.samples || []).map(s => String(s ?? '').replace(/[\r\n]+/g, ' ').trim());
+  if (uniq.length && (samples.length < uniq.length || samples.slice(0, uniq.length).some(s => !s))) throw new AppError('اكتب مثالاً لكل متغيّر', 400);
+
+  const components = [];
+  if (body.headerType === 'image') {
+    if (!imageFile) throw new AppError('ارفع صورة مثال للرأس', 400);
+    components.push({ type: 'HEADER', format: 'IMAGE', example: { header_handle: [await uploadSampleHandle(imageFile.buffer, imageFile.mimetype)] } });
+  } else if (body.headerType === 'text' && String(body.headerText || '').trim()) {
+    const ht = String(body.headerText).trim();
+    if (ht.length > 60) throw new AppError('عنوان الرأس أطول من 60 حرفاً', 400);
+    if (/\{\{/.test(ht)) throw new AppError('عنوان الرأس بلا متغيّرات هنا — اكتبه نصاً ثابتاً', 400);
+    components.push({ type: 'HEADER', format: 'TEXT', text: ht });
+  }
+  components.push({ type: 'BODY', text, ...(uniq.length ? { example: { body_text: [samples.slice(0, uniq.length)] } } : {}) });
+  const footer = String(body.footer || '').trim();
+  if (footer) {
+    if (footer.length > 60) throw new AppError('سطر التذييل أطول من 60 حرفاً', 400);
+    components.push({ type: 'FOOTER', text: footer });
+  }
+  const buttons = (body.buttons || []).map(b => String(b || '').trim()).filter(Boolean);
+  if (buttons.length > 3) throw new AppError('3 أزرار كحد أقصى', 400);
+  if (buttons.some(b => b.length > 25)) throw new AppError('نص الزر 25 حرفاً كحد أقصى', 400);
+  if (buttons.length) components.push({ type: 'BUTTONS', buttons: buttons.map(t => ({ type: 'QUICK_REPLY', text: t })) });
+
+  const d = await graphSend(`${primaryWaba()}/message_templates`, { body: { name, language, category, components } });
+  tplCache = { at: 0, list: null };
+  return { id: d.id, status: d.status, category: d.category };
+}
+
+/** حذف قالب — التسويقية فقط (الخدمية مثل new_order يعتمد عليها إرسال المذاخر). */
+export async function deleteTemplate(name) {
+  const t = (await listTemplates({ fresh: true })).find(x => x.name === name);
+  if (!t) throw new AppError('القالب غير موجود', 404);
+  if (t.category !== 'MARKETING') throw new AppError('يُحذف من هنا القوالب التسويقية فقط', 400);
+  const busy = await prisma.waCampaign.count({ where: { templateName: name, status: { in: ['sending', 'paused', 'draft'] } } });
+  if (busy) throw new AppError('حملة جارية/مسودة تستعمل هذا القالب — ألغها أولاً', 400);
+  await graphSend(`${primaryWaba()}/message_templates?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+  tplCache = { at: 0, list: null };
+}
+
+// ─── الكلفة الفعلية من Meta (pricing_analytics) ──────────────────────────────
+
+let costCache = new Map();
+
+/** حجم وكلفة الرسائل المدفوعة يومياً حسب الفئة والدولة. days ≤ 90. */
+export async function costReport(days = 30) {
+  days = Math.min(90, Math.max(1, Number(days) || 30));
+  const hit = costCache.get(days);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.data;
+  const end = Math.floor(Date.now() / 1000);
+  const start = end - days * 86400;
+  const fields = `pricing_analytics.start(${start}).end(${end}).granularity(DAILY).dimensions(["PRICING_CATEGORY","PRICING_TYPE","COUNTRY"])`;
+  const d = await graphGet(`${primaryWaba()}?fields=${encodeURIComponent(fields)}`);
+  const points = (d.pricing_analytics?.data || []).flatMap(x => x.data_points || []);
+  const rows = points.map(p => ({
+    date: new Date(p.start * 1000).toISOString().slice(0, 10),
+    category: String(p.pricing_category || '').toLowerCase(),
+    type: String(p.pricing_type || '').toLowerCase(),
+    country: p.country || null,
+    volume: Number(p.volume) || 0,
+    cost: Number(p.cost) || 0,
+  })).sort((a, b) => b.date.localeCompare(a.date));
+  const byCat = {};
+  for (const r of rows) {
+    const k = r.category || 'other';
+    byCat[k] ||= { volume: 0, cost: 0 };
+    byCat[k].volume += r.volume; byCat[k].cost += r.cost;
+  }
+  const data = { days, currency: 'USD', rows, byCategory: byCat, totalCost: rows.reduce((s, r) => s + r.cost, 0) };
+  costCache.set(days, { at: Date.now(), data });
+  return data;
+}
+
+/** سعر رسالة التسويق الفعلي (متوسط آخر 90 يوماً) وإلا السعر الرسمي للعراق. */
+export async function marketingPrice() {
+  try {
+    const r = await costReport(90);
+    const m = r.byCategory.marketing;
+    if (m?.volume > 0 && m.cost > 0) return { value: m.cost / m.volume, source: 'actual', volume: m.volume };
+  } catch {}
+  return { value: IQ_MARKETING_RATE, source: 'rate' };
 }
 
 /** حدّ الإرسال اليومي وجودة الرقم — للعرض فقط، فشلها لا يمنع الصفحة. */
@@ -262,13 +412,15 @@ const errText = (e) => {
 
 export async function campaignCounts(ids) {
   if (!ids.length) return new Map();
-  const [byStatus, byReply] = await Promise.all([
+  const [byStatus, byReply, billable] = await Promise.all([
     prisma.waCampaignRecipient.groupBy({ by: ['campaignId', 'status'], where: { campaignId: { in: ids } }, _count: { _all: true } }),
     prisma.waCampaignRecipient.groupBy({ by: ['campaignId', 'reply'], where: { campaignId: { in: ids }, reply: { not: null } }, _count: { _all: true } }),
+    prisma.waCampaignRecipient.groupBy({ by: ['campaignId'], where: { campaignId: { in: ids }, billable: true }, _count: { _all: true } }),
   ]);
-  const out = new Map(ids.map(id => [id, { pending: 0, sending: 0, sent: 0, delivered: 0, read: 0, failed: 0, skipped: 0, order: 0, stop: 0, text: 0, button: 0 }]));
+  const out = new Map(ids.map(id => [id, { pending: 0, sending: 0, sent: 0, delivered: 0, read: 0, failed: 0, skipped: 0, order: 0, stop: 0, text: 0, button: 0, billable: 0 }]));
   for (const g of byStatus) out.get(g.campaignId)[g.status] = g._count._all;
   for (const g of byReply) out.get(g.campaignId)[g.reply] = g._count._all;
+  for (const g of billable) out.get(g.campaignId).billable = g._count._all;
   return out;
 }
 
@@ -375,6 +527,13 @@ export async function handleCampaignStatus(st) {
   const r = await prisma.waCampaignRecipient.findFirst({ where: { waMessageId: String(st.id) } });
   if (!r) return false;
   const now = new Date();
+  // Meta تُرفق pricing بحالة sent/delivered: هل الرسالة محتسبة (مدفوعة) وفئتها
+  if (st.pricing && (r.billable === null || r.billable === undefined)) {
+    await prisma.waCampaignRecipient.update({
+      where: { id: r.id },
+      data: { billable: st.pricing.billable !== false, pricingCategory: st.pricing.category || null },
+    }).catch(() => {});
+  }
   if (st.status === 'failed') {
     const e = st.errors?.[0];
     await prisma.waCampaignRecipient.update({ where: { id: r.id }, data: { status: 'failed', error: errText({ code: e?.code, message: e?.error_data?.details || e?.title || e?.message }) } });

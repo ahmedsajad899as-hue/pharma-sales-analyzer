@@ -3590,6 +3590,8 @@ model WaCampaignRecipient {
   deliveredAt DateTime?
   readAt      DateTime?
   repliedAt   DateTime?
+  billable    Boolean? // من ويب-هوك الحالة: هل احتسبتها Meta مدفوعة
+  pricingCategory String? // marketing | utility | …
 
   @@unique([campaignId, waId])
   @@index([campaignId, status])

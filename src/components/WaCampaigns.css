@@ -64,6 +64,18 @@
 .wc-copy__head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--c-bg); font-size: 13px; }
 .wc-copy pre { margin: 0; padding: 10px 12px; white-space: pre-wrap; font-family: inherit; font-size: 14px; line-height: 1.8; background: var(--c-surface); }
 
+.wc-tpl { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.wc-tpl__body { white-space: pre-wrap; font-size: 13.5px; line-height: 1.7; background: var(--c-bg); border-radius: 8px; padding: 8px 10px; }
+.wc-tstat--approved { background: rgba(16, 185, 129, 0.14); color: var(--c-success); }
+.wc-tstat--pending, .wc-tstat--in_appeal { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+.wc-tstat--rejected, .wc-tstat--paused, .wc-tstat--disabled { background: var(--c-danger-bg); color: var(--c-danger); }
+.wc-samples { display: flex; flex-direction: column; gap: 6px; }
+.wc-sample { display: grid; grid-template-columns: 60px 1fr; gap: 8px; align-items: center; }
+
+.wc-cost-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.wc-cost-card { background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.wc-cost-card b { font-size: 20px; color: var(--c-text-primary); }
+
 @media (max-width: 700px) {
   .wc-var { grid-template-columns: 1fr; gap: 4px; }
   .wc-preview-wrap { grid-template-columns: 1fr; }

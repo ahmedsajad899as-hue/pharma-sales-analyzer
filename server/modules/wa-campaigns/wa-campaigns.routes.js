@@ -62,12 +62,32 @@ function buildRouter(getActor) {
     await getActor(req);
     let templates = []; let templatesError = null;
     try { templates = await svc.listTemplates({ fresh: req.query.fresh === '1' }); } catch (e) { templatesError = e.message; }
-    const [phone, optOuts, cfg] = await Promise.all([
+    const [phone, optOuts, cfg, marketingPrice] = await Promise.all([
       svc.phoneInfo(),
       prisma.waOptOut.count(),
       prisma.waBotConfig.findUnique({ where: { id: 1 }, select: { campaignMsgPrice: true } }),
+      svc.marketingPrice(),
     ]);
-    res.json({ success: true, templates, templatesError, phone, optOuts, price: cfg?.campaignMsgPrice ?? null, maxRecipients: svc.MAX_RECIPIENTS });
+    res.json({ success: true, templates, templatesError, phone, optOuts, price: cfg?.campaignMsgPrice ?? null, marketingPrice, maxRecipients: svc.MAX_RECIPIENTS });
+  }));
+
+  // إنشاء قالب في Meta من التطبيق (multipart: image اختيارية + data JSON)
+  r.post('/templates', upload.single('image'), wrap(async (req, res) => {
+    await getActor(req);
+    let data = {};
+    try { data = JSON.parse(req.body?.data || '{}'); } catch { throw new AppError('بيانات القالب تالفة', 400); }
+    res.json({ success: true, ...(await svc.createTemplate(data, req.file || null)) });
+  }));
+  r.delete('/templates/:name', wrap(async (req, res) => {
+    await getActor(req);
+    await svc.deleteTemplate(req.params.name);
+    res.json({ success: true });
+  }));
+
+  // الكلفة الفعلية كما تحسبها Meta (فواتير الحساب)
+  r.get('/cost', wrap(async (req, res) => {
+    await getActor(req);
+    res.json({ success: true, ...(await svc.costReport(req.query.days)), rates: { marketing: svc.IQ_MARKETING_RATE, utility: svc.IQ_UTILITY_RATE } });
   }));
 
   r.put('/price', wrap(async (req, res) => {

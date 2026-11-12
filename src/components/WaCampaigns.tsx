@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { RefreshCw, Upload, Send, Pause, Play, X, Trash2, Copy, Download, ChevronDown } from 'lucide-react';
+import { RefreshCw, Upload, Send, Pause, Play, X, Trash2, Download, ChevronDown } from 'lucide-react';
 import '../pages/WarehouseDispatchPage.css';
 import './WaCampaigns.css';
 
@@ -15,15 +15,17 @@ const API = import.meta.env.VITE_API_URL || '';
 // ─── أنواع ───────────────────────────────────────────────────────────────────
 interface TplButton { index: number; type: string; text: string; url: string | null; dynamic: boolean }
 interface Template {
+  id: string | null; rejectedReason: string | null; quality: string | null;
   name: string; language: string; category: string; status: string; named: boolean;
   header: { format: string; text: string | null } | null; body: string; footer: string | null;
   buttons: TplButton[]; vars: { key: string; label: string }[]; problem: string | null;
 }
 interface Meta {
   templates: Template[]; templatesError: string | null; optOuts: number; price: number | null; maxRecipients: number;
+  marketingPrice: { value: number; source: "actual" | "rate"; volume?: number };
   phone: { phone?: string; name?: string; quality?: string; tier?: string; dailyLimit?: number | null; error?: string };
 }
-type Counts = Record<'pending' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'skipped' | 'order' | 'stop' | 'text' | 'button', number>;
+type Counts = Record<'pending' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'skipped' | 'order' | 'stop' | 'text' | 'button' | 'billable', number>;
 interface Campaign {
   id: number; title: string; templateName: string; templateLang: string; template: Template | null;
   itemName: string | null; status: string; lastError: string | null; total: number; headerMediaId: string | null;
@@ -59,7 +61,8 @@ const fmtDate = (iso: string | null) => {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 const fmtNum = (n: number | null | undefined) => (n == null ? '' : Number(n).toLocaleString('en-US'));
-const fmtMoney = (n: number) => `$${n.toFixed(n < 10 ? 2 : 0)}`;
+const fmtMoney = (n: number) => `${n.toFixed(n < 1 ? 3 : n < 10 ? 2 : 0)}`;
+const fmtRate = (n: number) => `${n.toFixed(4)}`;
 
 const STATUS_AR: Record<string, string> = {
   draft: 'مسودة', sending: 'قيد الإرسال', paused: 'متوقفة', done: 'اكتملت', cancelled: 'أُلغيت',
@@ -117,7 +120,7 @@ export default function WaCampaigns({ base, token }: { base: string; token: stri
     return d;
   }, [base, token]);
 
-  const [tab, setTab] = useState<'list' | 'new' | 'optouts' | 'guide'>('list');
+  const [tab, setTab] = useState<'list' | 'new' | 'templates' | 'cost' | 'optouts' | 'guide'>('list');
   const [meta, setMeta] = useState<Meta | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -128,6 +131,8 @@ export default function WaCampaigns({ base, token }: { base: string; token: stri
   useEffect(() => { loadMeta(); }, [loadMeta]);
 
   const tier = meta?.phone?.dailyLimit;
+  // سعر الرسالة المعتمد للتقدير: ما كتبه المستخدم، وإلا المتوسط الفعلي من فواتير Meta، وإلا السعر الرسمي
+  const unitPrice = meta ? (meta.price ?? meta.marketingPrice?.value ?? 0.0341) : 0.0341;
 
   return (
     <div className="wd-page">
@@ -139,7 +144,7 @@ export default function WaCampaigns({ base, token }: { base: string; token: stri
       </div>
 
       <div className="wd-tabs">
-        {([['list', 'الحملات'], ['new', '+ حملة جديدة'], ['optouts', 'الموقوفون'], ['guide', 'نص القالب والقواعد']] as const).map(([k, l]) => (
+        {([['list', 'الحملات'], ['new', '+ حملة جديدة'], ['templates', 'القوالب'], ['cost', '💰 الكلفة'], ['optouts', 'الموقوفون'], ['guide', 'القواعد']] as const).map(([k, l]) => (
           <button key={k} className={`wd-tab ${tab === k ? 'is-active' : ''}`} onClick={() => { setTab(k); setError(''); setNotice(''); }}>{l}</button>
         ))}
       </div>
@@ -147,7 +152,7 @@ export default function WaCampaigns({ base, token }: { base: string; token: stri
       {error && <div className="wd-note wd-note--warn">{error}</div>}
       {notice && <div className="wd-note wc-note--ok">{notice}</div>}
 
-      {tab === 'list' && <CampaignList api={api} base={base} token={token} onError={setError} />}
+      {tab === 'list' && <CampaignList api={api} base={base} token={token} onError={setError} unitPrice={unitPrice} />}
       {tab === 'new' && meta && (
         <NewCampaign
           api={api} meta={meta} onError={setError} reloadMeta={() => loadMeta(true)}
@@ -156,6 +161,8 @@ export default function WaCampaigns({ base, token }: { base: string; token: stri
         />
       )}
       {tab === 'new' && !meta && <div className="wd-empty">جاري التحميل…</div>}
+      {tab === 'templates' && meta && <Templates api={api} meta={meta} onError={setError} reloadMeta={() => loadMeta(true)} />}
+      {tab === 'cost' && meta && <CostView api={api} meta={meta} unitPrice={unitPrice} onError={setError} />}
       {tab === 'optouts' && <OptOuts api={api} onError={setError} onChange={() => loadMeta()} />}
       {tab === 'guide' && <Guide />}
     </div>
@@ -163,7 +170,7 @@ export default function WaCampaigns({ base, token }: { base: string; token: stri
 }
 
 // ─── قائمة الحملات ───────────────────────────────────────────────────────────
-function CampaignList({ api, base, token, onError }: { api: (p: string, i?: RequestInit) => Promise<any>; base: string; token: string | null; onError: (s: string) => void }) {
+function CampaignList({ api, base, token, onError, unitPrice }: { api: (p: string, i?: RequestInit) => Promise<any>; base: string; token: string | null; onError: (s: string) => void; unitPrice: number }) {
   const [rows, setRows] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<number | null>(null);
@@ -185,15 +192,15 @@ function CampaignList({ api, base, token, onError }: { api: (p: string, i?: Requ
     <div className="wd-list">
       {rows.map(c => (
         <CampaignCard key={c.id} c={c} open={open === c.id} onToggle={() => setOpen(open === c.id ? null : c.id)}
-          api={api} base={base} token={token} onError={onError} reload={load} />
+          api={api} base={base} token={token} onError={onError} reload={load} unitPrice={unitPrice} />
       ))}
     </div>
   );
 }
 
-function CampaignCard({ c, open, onToggle, api, base, token, onError, reload }: {
+function CampaignCard({ c, open, onToggle, api, base, token, onError, reload, unitPrice }: {
   c: Campaign; open: boolean; onToggle: () => void; api: (p: string, i?: RequestInit) => Promise<any>;
-  base: string; token: string | null; onError: (s: string) => void; reload: () => void;
+  base: string; token: string | null; onError: (s: string) => void; reload: () => void; unitPrice: number;
 }) {
   const k = c.counts || ({} as Counts);
   const sent = (k.sent || 0) + (k.delivered || 0) + (k.read || 0);
@@ -227,6 +234,7 @@ function CampaignCard({ c, open, onToggle, api, base, token, onError, reload }: 
             {!!k.order && <span className="wc-good">🛒 {k.order} طلبوا</span>}
             {!!replied && <span>💬 {replied} ردّوا</span>}
             {!!k.stop && <span>⛔ {k.stop} أوقفوا</span>}
+            {!!k.billable && <span title="عدد الرسائل التي احتسبتها Meta مدفوعة × سعر الرسالة">💰 {fmtNum(k.billable)} مدفوعة ≈ {fmtMoney(k.billable * unitPrice)}</span>}
           </span>
         </div>
         <span className={`wd-status wc-status--${c.status}`}>{STATUS_AR[c.status] || c.status}</span>
@@ -472,10 +480,11 @@ function NewCampaign({ api, meta, onError, onDone, onSavePrice, reloadMeta }: {
   };
 
   const priceNum = price.trim() ? Number(price) : null;
-  const cost = priceNum != null && Number.isFinite(priceNum) ? priceNum * sendable.length : null;
+  const effPrice = priceNum != null && Number.isFinite(priceNum) ? priceNum : meta.marketingPrice.value;
+  const cost = effPrice * sendable.length;
 
   const create = async (start: boolean) => {
-    if (start && !confirm(`إرسال العرض إلى ${sendable.length} رقم الآن؟${cost != null ? `\nالكلفة التقديرية ${fmtMoney(cost)}` : ''}`)) return;
+    if (start && !confirm(`إرسال العرض إلى ${sendable.length} رقم الآن؟\nالكلفة التقديرية ${fmtMoney(cost)}`)) return;
     setBusy(true);
     try {
       await api('/campaigns', { method: 'POST', body: JSON.stringify({ ...payload(), start, recipients: parsed.ok.map(r => ({ waId: r.waId, name: r.name, extra: r.extra })) }) });
@@ -624,10 +633,12 @@ function NewCampaign({ api, meta, onError, onDone, onSavePrice, reloadMeta }: {
                 </label>
               )}
               <div className="wc-cost">
-                <label>سعر رسالة التسويق ($)
-                  <input className="form-input" inputMode="decimal" placeholder="مثلاً 0.05" value={price} onChange={e => setPrice(e.target.value)} onBlur={() => onSavePrice(price.trim() ? Number(price) : null).catch(() => {})} />
+                <label>سعر الرسالة ($)
+                  <input className="form-input" inputMode="decimal" placeholder={meta.marketingPrice.value.toFixed(4)} value={price} onChange={e => setPrice(e.target.value)} onBlur={() => onSavePrice(price.trim() ? Number(price) : null).catch(() => {})} />
                 </label>
-                <span>{cost != null ? <>الكلفة التقديرية: <b>{fmtMoney(cost)}</b> لـ {sendable.length} رسالة</> : <span className="wd-muted wd-small">اكتب سعر الرسالة من فاتورة Meta لتظهر الكلفة</span>}</span>
+                <span>الكلفة التقديرية: <b>{fmtMoney(cost)}</b> لـ {sendable.length} رسالة
+                  <span className="wd-muted wd-small" style={{ display: 'block' }}>{priceNum != null ? 'بالسعر الذي كتبته' : meta.marketingPrice.source === 'actual' ? `متوسط فعلي من فواتير Meta لحسابكم (${meta.marketingPrice.volume} رسالة تسويق)` : 'السعر الرسمي لرسالة التسويق في العراق — يتحدّث تلقائياً من فواتيركم بعد أول حملة'}</span>
+                </span>
               </div>
               <div className="wd-inline">
                 <input className="form-input wc-phone" dir="ltr" placeholder="07xxxxxxxxx" value={testPhone} onChange={e => setTestPhone(e.target.value)} />
@@ -686,39 +697,281 @@ function OptOuts({ api, onError, onChange }: { api: (p: string, i?: RequestInit)
   );
 }
 
-// ─── الدليل ──────────────────────────────────────────────────────────────────
-function CopyBox({ label, text }: { label: string; text: string }) {
-  const [ok, setOk] = useState(false);
+// ─── القوالب: إنشاء في Meta من التطبيق ───────────────────────────────────────
+const TPL_STATUS_AR: Record<string, string> = {
+  APPROVED: '✓ معتمد', PENDING: '⏳ قيد المراجعة', REJECTED: '❌ مرفوض', PAUSED: '⏸️ موقوف', DISABLED: '⛔ معطّل', IN_APPEAL: '⚖️ اعتراض',
+};
+const REJECT_AR: Record<string, string> = {
+  INVALID_FORMAT: 'صيغة غير صحيحة (متغيّرات أو أمثلة)', TAG_CONTENT_MISMATCH: 'المحتوى لا يطابق الفئة المختارة',
+  ABUSIVE_CONTENT: 'محتوى مخالف', SCAM: 'يشبه الاحتيال', PROMOTIONAL: 'محتوى ترويجي في فئة غير تسويقية', INCORRECT_CATEGORY: 'الفئة غير صحيحة',
+};
+
+function Templates({ api, meta, onError, reloadMeta }: { api: (p: string, i?: RequestInit) => Promise<any>; meta: Meta; onError: (s: string) => void; reloadMeta: () => void }) {
+  const [form, setForm] = useState(false);
+  const pending = meta.templates.some(t => t.status === 'PENDING');
+  useEffect(() => {
+    if (!pending) return;
+    const t = setInterval(reloadMeta, 30_000);
+    return () => clearInterval(t);
+  }, [pending, reloadMeta]);
+
+  const del = async (t: Template) => {
+    if (!confirm(`حذف القالب «${t.name}» من Meta؟ لا يمكن استعمال نفس الاسم خلال 30 يوماً.`)) return;
+    try { await api(`/templates/${encodeURIComponent(t.name)}`, { method: 'DELETE' }); reloadMeta(); } catch (e: any) { onError(e.message); }
+  };
+
   return (
-    <div className="wc-copy">
-      <div className="wc-copy__head"><b>{label}</b>
-        <button className="btn btn-secondary wc-mini" onClick={() => { navigator.clipboard?.writeText(text); setOk(true); setTimeout(() => setOk(false), 1500); }}>
-          <Copy size={13} /> {ok ? 'نُسخ' : 'نسخ'}
-        </button>
+    <div className="wc-wizard">
+      <div className="wd-inline">
+        {!form && <button className="btn btn-primary" onClick={() => setForm(true)}>+ قالب جديد</button>}
+        <button className="btn btn-secondary" onClick={reloadMeta}><RefreshCw size={14} /> تحديث الحالة</button>
+        {pending && <span className="wd-muted wd-small">يتحدّث تلقائياً كل 30 ثانية حتى تنتهي المراجعة</span>}
       </div>
-      <pre>{text}</pre>
+      {form && <TemplateForm api={api} onError={onError} onCancel={() => setForm(false)} onCreated={() => { setForm(false); reloadMeta(); }} existing={meta.templates.map(t => t.name)} />}
+      {meta.templatesError && <div className="wd-note wd-note--warn">تعذّر جلب القوالب: {meta.templatesError}</div>}
+      <div className="wd-list">
+        {meta.templates.map(t => (
+          <div key={`${t.name}|${t.language}`} className="wd-card">
+            <div className="wc-tpl">
+              <div className="wd-inline">
+                <b dir="ltr">{t.name}</b>
+                <span className="wd-pill">{t.language}</span>
+                <span className="wd-pill">{t.category === 'MARKETING' ? 'تسويقي' : t.category === 'UTILITY' ? 'خدمي' : t.category === 'AUTHENTICATION' ? 'تحقق' : t.category}</span>
+                <span className={`wd-status wc-tstat--${t.status.toLowerCase()}`}>{TPL_STATUS_AR[t.status] || t.status}</span>
+                {t.quality && t.quality !== 'UNKNOWN' && <span className="wd-pill">جودة: {t.quality === 'GREEN' ? 'عالية' : t.quality === 'YELLOW' ? 'متوسطة' : t.quality === 'RED' ? 'منخفضة' : t.quality}</span>}
+                <span className="wd-spacer" />
+                {t.category === 'MARKETING' && <button className="btn btn-secondary wc-mini wc-danger" title="حذف من Meta" onClick={() => del(t)}><Trash2 size={13} /></button>}
+              </div>
+              {t.rejectedReason && <div className="wc-bad wd-small">سبب الرفض: {REJECT_AR[t.rejectedReason] || t.rejectedReason}</div>}
+              {t.header?.format === 'IMAGE' && <div className="wd-muted wd-small">🖼️ صورة بالأعلى</div>}
+              <div className="wc-tpl__body">{t.body}</div>
+              {(t.footer || t.buttons.length > 0) && <div className="wd-muted wd-small">{t.footer}{t.buttons.length ? ` · أزرار: ${t.buttons.map(b => b.text).join(' / ')}` : ''}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
+function TemplateForm({ api, onError, onCancel, onCreated, existing }: {
+  api: (p: string, i?: RequestInit) => Promise<any>; onError: (s: string) => void; onCancel: () => void; onCreated: () => void; existing: string[];
+}) {
+  const firstName = existing.includes(READY_TEMPLATE.name) ? `${READY_TEMPLATE.name}_${existing.filter(n => n.startsWith(READY_TEMPLATE.name)).length + 1}` : READY_TEMPLATE.name;
+  const [name, setName] = useState(firstName);
+  const [category, setCategory] = useState<'MARKETING' | 'UTILITY'>('MARKETING');
+  const [headerType, setHeaderType] = useState<'image' | 'text' | 'none'>('image');
+  const [headerText, setHeaderText] = useState('');
+  const [image, setImage] = useState<File | null>(null);
+  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [body, setBody] = useState(READY_TEMPLATE.body);
+  const [samples, setSamples] = useState<string[]>(READY_TEMPLATE.samples);
+  const [footer, setFooter] = useState(READY_TEMPLATE.footer);
+  const [buttons, setButtons] = useState<string[]>(['اطلب الآن', 'إيقاف العروض']);
+  const [busy, setBusy] = useState(false);
+
+  const varNums = useMemo(() => [...new Set([...body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map(m => Number(m[1])))].sort((a, b) => a - b), [body]);
+  const nextVar = (varNums[varNums.length - 1] || 0) + 1;
+  const nameOk = /^[a-z0-9_]{1,60}$/.test(name);
+  const dup = existing.includes(name);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('data', JSON.stringify({ name, category, language: 'ar', headerType, headerText, bodyText: body, samples, footer, buttons }));
+      if (headerType === 'image' && image) fd.append('image', image);
+      await api('/templates', { method: 'POST', body: fd });
+      alert('✓ أُرسل القالب إلى Meta للمراجعة. عادةً تأخذ من دقائق إلى ساعات، والحالة تتحدّث هنا تلقائياً.');
+      onCreated();
+    } catch (e: any) { onError(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <section className="wc-step">
+      <h3>قالب جديد <span className="wd-muted wd-small" style={{ fontWeight: 400 }}>— يُرسل لـ Meta مباشرة للمراجعة</span></h3>
+      <div className="wc-grid2">
+        <label>اسم القالب (إنكليزي صغير و _ فقط)
+          <input className="form-input" dir="ltr" value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[\s-]+/g, '_'))} />
+          {!nameOk && <span className="wc-bad wd-small">حروف a-z وأرقام و _ فقط</span>}
+          {dup && <span className="wc-bad wd-small">هذا الاسم موجود — اختر اسماً آخر</span>}
+        </label>
+        <label>الفئة
+          <select className="form-input" value={category} onChange={e => setCategory(e.target.value as 'MARKETING' | 'UTILITY')}>
+            <option value="MARKETING">تسويقي — عروض وترويج (الصحيح للعروض)</option>
+            <option value="UTILITY">خدمي — إشعارات طلبيات/حسابات فقط بلا ترويج</option>
+          </select>
+        </label>
+      </div>
+      <label>رأس الرسالة
+        <select className="form-input" value={headerType} onChange={e => setHeaderType(e.target.value as 'image' | 'text' | 'none')}>
+          <option value="image">صورة (صورة الايتم تُرسل مع كل حملة)</option>
+          <option value="text">عنوان نصّي</option>
+          <option value="none">بلا رأس</option>
+        </select>
+      </label>
+      {headerType === 'image' && (
+        <div className="wc-media">
+          <span className="wd-small">Meta تطلب صورة <b>مثال</b> للمراجعة فقط (أي صورة ايتم). الصورة الحقيقية تختارها بكل حملة.</span>
+          <div className="wd-inline">
+            <label className="btn btn-secondary">اختر صورة مثال (JPG/PNG)
+              <input type="file" accept="image/jpeg,image/png" hidden onChange={e => { const f = e.target.files?.[0] || null; setImage(f); setImgUrl(f ? URL.createObjectURL(f) : null); e.target.value = ''; }} />
+            </label>
+            {image && <span className="wc-good">✓ {image.name}</span>}
+          </div>
+          {imgUrl && <img src={imgUrl} alt="" className="wc-img" />}
+        </div>
+      )}
+      {headerType === 'text' && <input className="form-input" maxLength={60} placeholder="مثلاً: عرض الأسبوع 🔥" value={headerText} onChange={e => setHeaderText(e.target.value)} />}
+      <label>نص الرسالة — المتغيّرات {'{{1}} {{2}} …'} يملؤها التطبيق لكل شخص
+        <textarea className="form-input" rows={7} maxLength={1024} value={body} onChange={e => setBody(e.target.value)} />
+      </label>
+      <div className="wd-inline">
+        <button className="btn btn-secondary wc-mini" onClick={() => setBody(b => `${b}{{${nextVar}}}`)}>+ متغيّر {`{{${nextVar}}}`}</button>
+        <span className="wd-muted wd-small">{body.length}/1024 · لا تبدأ ولا تنتهِ بمتغيّر</span>
+      </div>
+      {varNums.length > 0 && (
+        <div className="wc-samples">
+          <span className="wd-small">أمثلة للمراجعة (Meta تراها فقط):</span>
+          {varNums.map((n, i) => (
+            <div key={n} className="wc-sample">
+              <span className="wc-var__k">{`{{${n}}}`}</span>
+              <input className="form-input" value={samples[i] || ''} onChange={e => setSamples(s => { const c = [...s]; c[i] = e.target.value; return c; })} />
+            </div>
+          ))}
+        </div>
+      )}
+      <label>سطر التذييل (اختياري، 60 حرفاً)
+        <input className="form-input" maxLength={60} value={footer} onChange={e => setFooter(e.target.value)} />
+      </label>
+      <div className="wc-samples">
+        <span className="wd-small">الأزرار (حتى 3) — زر فيه «إيقاف» يوقف العروض لمن يضغطه، وغيره يُحسب «طلب»:</span>
+        {buttons.map((b, i) => (
+          <div key={i} className="wd-inline">
+            <input className="form-input wc-phone" maxLength={25} value={b} onChange={e => setButtons(x => x.map((y, j) => (j === i ? e.target.value : y)))} />
+            <button className="btn btn-secondary wc-mini" onClick={() => setButtons(x => x.filter((_, j) => j !== i))}><X size={13} /></button>
+          </div>
+        ))}
+        {buttons.length < 3 && <button className="btn btn-secondary wc-mini wd-self-start" onClick={() => setButtons(x => [...x, ''])}>+ زر</button>}
+      </div>
+      <div className="wd-inline">
+        <button className="btn btn-primary" disabled={busy || !nameOk || dup || !body.trim() || (headerType === 'image' && !image)} onClick={submit}><Send size={14} /> {busy ? 'جاري الإرسال…' : 'إرسال لـ Meta للموافقة'}</button>
+        <button className="btn btn-secondary" onClick={onCancel}>إلغاء</button>
+      </div>
+    </section>
+  );
+}
+
+// ─── الكلفة الفعلية ──────────────────────────────────────────────────────────
+const CAT_AR: Record<string, string> = {
+  marketing: '📣 تسويق (العروض)', utility: '🧾 خدمي (إشعارات الطلبيات)', authentication: '🔐 رموز التحقق', service: '💬 ردود داخل المحادثة', other: 'أخرى',
+};
+interface CostRow { date: string; category: string; type: string; country: string | null; volume: number; cost: number }
+interface CostData { rows: CostRow[]; byCategory: Record<string, { volume: number; cost: number }>; totalCost: number; rates: { marketing: number; utility: number } }
+
+function CostView({ api, meta, unitPrice, onError }: { api: (p: string, i?: RequestInit) => Promise<any>; meta: Meta; unitPrice: number; onError: (s: string) => void }) {
+  const [days, setDays] = useState(30);
+  const [data, setData] = useState<CostData | null>(null);
+  const [camps, setCamps] = useState<Campaign[]>([]);
+  useEffect(() => {
+    setData(null);
+    api(`/cost?days=${days}`).then(setData).catch(e => onError(e.message));
+  }, [api, days, onError]);
+  useEffect(() => { api('/campaigns').then(d => setCamps(d.campaigns || [])).catch(() => {}); }, [api]);
+
+  const byDay = useMemo(() => {
+    const m = new Map<string, { volume: number; cost: number; cats: Record<string, number> }>();
+    for (const r of data?.rows || []) {
+      const d = m.get(r.date) || { volume: 0, cost: 0, cats: {} };
+      d.volume += r.volume; d.cost += r.cost; d.cats[r.category] = (d.cats[r.category] || 0) + r.volume;
+      m.set(r.date, d);
+    }
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [data]);
+  const campCost = camps.filter(c => c.counts?.billable).map(c => ({ c, n: c.counts!.billable, cost: c.counts!.billable * unitPrice }));
+
+  return (
+    <div className="wc-wizard">
+      <div className="wd-note">
+        هذه الأرقام <b>من Meta نفسها</b> (فواتير حساب واتساب للأعمال)، وهي نفس اللي يُسحب من البطاقة. Meta تحدّثها خلال ساعات، فرسائل اليوم ممكن تتأخر شوية.
+        السعر الرسمي في العراق: رسالة تسويق ≈ <b>{fmtRate(data?.rates.marketing ?? 0.0341)}</b>، ورسالة خدمية أو رمز تحقق ≈ <b>{fmtRate(data?.rates.utility ?? 0.0079)}</b>.
+      </div>
+      <div className="wd-inline">
+        <select className="form-input wd-select" value={days} onChange={e => setDays(Number(e.target.value))}>
+          {[7, 30, 90].map(d => <option key={d} value={d}>آخر {d} يوم</option>)}
+        </select>
+        {data && <span className="wd-strong">المجموع: {fmtMoney(data.totalCost)}</span>}
+      </div>
+      {!data && <div className="wd-empty">جاري جلب الكلفة من Meta…</div>}
+      {data && (
+        <>
+          <div className="wc-cost-cards">
+            {Object.entries(data.byCategory).sort((a, b) => b[1].cost - a[1].cost).map(([k, v]) => (
+              <div key={k} className="wc-cost-card">
+                <span className="wd-small">{CAT_AR[k] || k}</span>
+                <b>{fmtMoney(v.cost)}</b>
+                <span className="wd-muted wd-small">{fmtNum(v.volume)} رسالة · {v.volume ? fmtRate(v.cost / v.volume) : '—'} للرسالة</span>
+              </div>
+            ))}
+            {!Object.keys(data.byCategory).length && <div className="wd-muted">لا رسائل مدفوعة في هذه المدة</div>}
+          </div>
+          {byDay.length > 0 && (
+            <div className="wc-table-wrap">
+              <table className="wc-table">
+                <thead><tr><th>اليوم</th><th>الرسائل</th><th>التفصيل</th><th>الكلفة</th></tr></thead>
+                <tbody>
+                  {byDay.map(([d, v]) => (
+                    <tr key={d}>
+                      <td className="wc-num">{d}</td>
+                      <td>{fmtNum(v.volume)}</td>
+                      <td className="wd-small">{Object.entries(v.cats).map(([c, n]) => `${(CAT_AR[c] || c).replace(/\s*\(.*\)/, '')}: ${n}`).join(' · ')}</td>
+                      <td><b>{fmtMoney(v.cost)}</b></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+      <section className="wc-step">
+        <h3>كلفة كل حملة</h3>
+        <span className="wd-muted wd-small">عدد الرسائل اللي أكّدت Meta إنها مدفوعة (توصل ويا إشعار التسليم) × سعر الرسالة {fmtRate(unitPrice)}{meta.price != null ? ' (السعر الذي كتبته)' : meta.marketingPrice.source === 'actual' ? ' (متوسط فعلي من فواتيركم)' : ' (السعر الرسمي)'}. الرسائل اللي فشلت أو ما وصلت ما تنحسب.</span>
+        {campCost.length ? (
+          <div className="wc-table-wrap">
+            <table className="wc-table">
+              <thead><tr><th>الحملة</th><th>المدفوعة</th><th>الكلفة</th><th>طلبوا</th><th>كلفة كل طلب</th></tr></thead>
+              <tbody>
+                {campCost.map(({ c, n, cost }) => (
+                  <tr key={c.id}>
+                    <td>{c.title}<div className="wd-muted wd-small">{fmtDate(c.createdAt)}</div></td>
+                    <td>{fmtNum(n)}</td>
+                    <td><b>{fmtMoney(cost)}</b></td>
+                    <td>{c.counts?.order || 0}</td>
+                    <td>{c.counts?.order ? fmtMoney(cost / c.counts.order) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <div className="wd-muted">لا حملات مُرسلة بعد</div>}
+      </section>
+    </div>
+  );
+}
+
+// ─── الدليل ──────────────────────────────────────────────────────────────────
 function Guide() {
   return (
     <div className="wc-guide">
       <section className="wc-step">
-        <h3>القالب الجاهز</h3>
-        <p className="wd-muted">من <b>WhatsApp Manager ← Message templates ← Create template</b>:</p>
+        <h3>كيف تبدأ</h3>
         <ol>
-          <li>الفئة <b>Marketing</b> ← النوع <b>Default</b>.</li>
-          <li>الاسم وكل الحروف إنكليزية صغيرة: <code>{READY_TEMPLATE.name}</code> — اللغة <b>Arabic</b>.</li>
-          <li>Header: اختر <b>Image</b> وارفع أي صورة كمثال. التطبيق يرسل صورة الايتم الحقيقية مع كل حملة.</li>
-          <li>Body: الصق النص التالي، واكتب في خانات الأمثلة (Samples) قيماً مثل التي تحته.</li>
-          <li>Footer: الصق السطر الأخير.</li>
-          <li>Buttons: زر <b>Quick reply</b> باسم «اطلب الآن»، ثم زر <b>Marketing opt-out</b> (أو Quick reply) باسم «إيقاف العروض».</li>
+          <li>من تبويب <b>«القوالب»</b> اضغط «+ قالب جديد». النموذج معبّأ بالقالب الجاهز: اختر صورة مثال واضغط «إرسال لـ Meta للموافقة».</li>
+          <li>انتظر لما تصير حالته <b>✓ معتمد</b> (عادة من دقائق لساعات).</li>
+          <li>من <b>«+ حملة جديدة»</b> ارفع الإكسل واختر القالب والايتم، واربط المتغيّرات: {'{{1}}'} = اسم الشخص، {'{{2}}'} = اسم الايتم، {'{{3}}'} = تفاصيل العرض، {'{{4}}'} = تاريخ النهاية.</li>
+          <li>أرسل تجربة لرقمك أولاً، وبعدها أرسل للكل.</li>
         </ol>
-        <CopyBox label="Body" text={READY_TEMPLATE.body} />
-        <CopyBox label="Footer" text={READY_TEMPLATE.footer} />
-        <CopyBox label="Samples (أمثلة للمتغيّرات)" text={READY_TEMPLATE.samples.map((s, i) => `{{${i + 1}}} = ${s}`).join('\n')} />
-        <p className="wd-muted">في الحملة اربط المتغيّرات هكذا: {'{{1}}'} = اسم الشخص، {'{{2}}'} = اسم الايتم، {'{{3}}'} = تفاصيل العرض (نص ثابت)، {'{{4}}'} = تاريخ نهاية العرض (نص ثابت). كل عرض جديد يحتاج تغيير هذه القيم فقط، والقالب يبقى كما هو.</p>
       </section>
       <section className="wc-step">
         <h3>تغيير القالب</h3>
