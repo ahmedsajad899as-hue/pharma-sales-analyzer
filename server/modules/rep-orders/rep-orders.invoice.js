@@ -47,7 +47,8 @@ function itemKey(s) {
     .trim();
 }
 
-function nameSim(a, b) {
+// مُصدَّرتان للفحص السريع (lib/invoiceGate.js) ومطابقة نص الطلبية المُقتبس — نفس مقياس scoreOrder.
+export function nameSim(a, b) {
   const ka = itemKey(a), kb = itemKey(b);
   if (!ka || !kb) return 0;
   if (ka === kb) return 1;
@@ -59,7 +60,7 @@ function nameSim(a, b) {
   return Math.max(whole, contains, first * 0.92);
 }
 
-function placeSim(a, b) {
+export function placeSim(a, b) {
   const ka = pharmacyKey(a), kb = pharmacyKey(b);
   if (!ka || !kb) return 0;
   if (ka === kb) return 1;
@@ -281,7 +282,8 @@ function warehouseNameScore(whName, printed) {
 export async function attachBotInvoice(userId, match, imageBuffer) {
   const { order, byLine, inv } = match;
   await fs.promises.mkdir(INVOICE_DIR, { recursive: true });
-  const name = `${crypto.randomBytes(16).toString('hex')}.jpg`;
+  const ext = imageBuffer.subarray(0, 1024).includes('%PDF-') ? 'pdf' : 'jpg'; // فاتورة PDF تُحفظ بامتدادها
+  const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
   await fs.promises.writeFile(path.join(INVOICE_DIR, name), imageBuffer);
   const url = `/uploads/rep-orders/${name}`;
 

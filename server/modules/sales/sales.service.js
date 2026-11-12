@@ -6,7 +6,9 @@
 
 import { canRotate, rotateJpeg, cropJpeg, downscaleJpeg } from '../../lib/invoiceImage.js';
 import { loadInvoiceCards, matchCard, noteCardUse, CARD_BASE_PROMPT, parseCardReply } from '../../lib/invoiceCards.js';
-import { getAiMode, AI_MODELS, invoiceNumbersProblem } from '../../lib/aiModelSettings.js';
+import { getAiMode, AI_MODELS, diagnoseInvoiceRows } from '../../lib/aiModelSettings.js';
+import { detectOrientationLocal } from '../../lib/invoiceOrientation.js';
+import { isPdf, extractPdfText } from '../../lib/invoicePdf.js';
 import { aiCallScope } from '../../lib/geminiAi.js';
 import { saveInvoiceReadLog } from '../../lib/invoiceReadLog.js';
 import { randomUUID } from 'node:crypto';
@@ -1688,34 +1690,56 @@ export function foldBonusRows(rows) {
 // كانت تخلط 90 بـ270 فتقلب الصورة الجانبية رأساً على عقب — وبكلفة ~7 أضعاف.
 // الاختيار بين بدائل مرئية أسهل على الموديل من حساب اتجاه الدوران.
 const ORIENTATION_PICK_PROMPT = 'هذه أربع نسخ من نفس الفاتورة بتدويرات مختلفة، مرقّمة 1 إلى 4. أيّها تُقرأ فيها الكتابة بشكل طبيعي (قائمة، غير مقلوبة ولا جانبية)؟ أجب برقم واحد فقط.';
+const ORIENTATION_PICK2_PROMPT = 'هاتان نسختان من نفس الفاتورة بتدويرين مختلفين، مرقّمتان 1 و2. أيّهما تُقرأ فيها الكتابة بشكل طبيعي (قائمة، غير مقلوبة)؟ أجب برقم واحد فقط.';
 const ORIENTATION_CANDIDATES = [0, 90, 180, 270];
 
 /**
- * يكتشف التدوير اللازم (0/90/180/270 مع عقارب الساعة) **ومذخر الفاتورة** في نفس النداء
- * (السؤال الثاني يضيف ~10 token؛ مقيس 18/18 صحيح). يُعيد { deg, card } — deg = 0 و
- * card = null عند أي فشل، فتُقرأ الصورة كما هي بالبرومبت العام.
+ * التدوير اللازم (0/90/180/270 مع عقارب الساعة) ومذخر الفاتورة — بأقل كلفة ممكنة:
+ *  1) **محلياً بلا ذكاء** (invoiceOrientation.js، 0 خطأ على 52 حالة حقيقية): حين يتأكد
+ *     الفحص لا يُسأل الذكاء عن الاتجاه إطلاقاً.
+ *  2) **المذخر معروف من مصدر الصورة** (كروب/رقم مذخر مربوط) ⇒ لا سؤال عنه ولا توكن —
+ *     حتى لو لم تكن له بطاقة بعد (طلب صاحب المشروع 2026-11-13).
+ *  3) ما بقي يُسأل في نداء واحد بنسخ مصغّرة LOW: أربع نسخ، أو نسختان حين يُعرف أن السطور
+ *     أفقية/عمودية ولا يُعرف إلا القلب، أو نسخة واحدة قائمة لسؤال المذخر وحده.
+ * يُعيد { deg, card, by: 'local'|'ai'|'none' } — deg = 0 و card = null عند أي فشل.
  */
-export async function detectInvoiceRotationAndCard(img, { warehouseHint = null } = {}) {
+export async function detectInvoiceRotationAndCard(img, { warehouseHint = null, forceAi = false } = {}) {
+  const cards = await loadInvoiceCards(); // لا ترمي (فشل القاعدة = بلا بطاقات)
+  const known = warehouseHint && cards.length ? matchCard(cards, warehouseHint) : null;
   try {
-    const cards = await loadInvoiceCards();
-    // المذخر معروف مسبقاً (صورة من كروب/رقم مذخر محدّد) ⇒ بطاقته مباشرة بلا سؤال الموديل عنه.
-    const known = warehouseHint && cards.length ? matchCard(cards, warehouseHint) : null;
-    const small = downscaleJpeg(Buffer.from(img.base64, 'base64'), 768);
-    const prompt = cards.length && !known
-      ? `${ORIENTATION_PICK_PROMPT.replace('أجب برقم واحد فقط.', '')}
-ثم: ما اسم المذخر (البائع) المطبوع بخط كبير في أعلى الفاتورة؟ اختر من القائمة: ${cards.map(c => c.name).join('، ')} — أو «غيره» إن كان مذخراً آخر.
-أجب بسطر واحد فقط بالشكل: ‹رقم النسخة›|‹اسم المذخر›`
-      : ORIENTATION_PICK_PROMPT;
+    const askWarehouse = !warehouseHint && cards.length > 0;
+    const buf = Buffer.from(img.base64, 'base64');
+    const local = forceAi ? null : detectOrientationLocal(buf);
+    if (local?.sure && !askWarehouse) return { deg: local.deg, card: known, by: 'local' };
+    const candidates = local?.sure ? [local.deg]
+      : local?.family === 'upright' ? [0, 180]
+        : local?.family === 'sideways' ? [90, 270]
+          : ORIENTATION_CANDIDATES;
+    const small = downscaleJpeg(buf, 768);
+    const whQ = `ما اسم المذخر (البائع) المطبوع بخط كبير في أعلى الفاتورة؟ اختر من القائمة: ${cards.map(c => c.name).join('، ')} — أو «غيره» إن كان مذخراً آخر.`;
+    let prompt;
+    if (candidates.length === 1) prompt = `${whQ}\nأجب بالاسم فقط.`;
+    else {
+      const pick = candidates.length === 4 ? ORIENTATION_PICK_PROMPT : ORIENTATION_PICK2_PROMPT;
+      prompt = askWarehouse
+        ? `${pick.replace('أجب برقم واحد فقط.', '')}\nثم: ${whQ}\nأجب بسطر واحد فقط بالشكل: ‹رقم النسخة›|‹اسم المذخر›`
+        : pick;
+    }
     const parts = [prompt];
-    ORIENTATION_CANDIDATES.forEach((deg, i) => {
-      parts.push(`النسخة ${i + 1}:`);
+    candidates.forEach((deg, i) => {
+      if (candidates.length > 1) parts.push(`النسخة ${i + 1}:`);
       parts.push({ inlineData: { mimeType: 'image/jpeg', data: (deg ? rotateJpeg(small, deg) : small).toString('base64') } });
     });
     const reply = String(await callAI(parts, { timeoutMs: 25_000, thinkingBudget: 0, feature: 'invoice-orient', mediaResolution: 'MEDIA_RESOLUTION_LOW' }));
+    if (candidates.length === 1) return { deg: candidates[0], card: matchCard(cards, reply), by: 'local' };
     const [pick, name = ''] = reply.split('|');
     const n = Number((pick.match(/[1-4]/) || [])[0]);
-    return { deg: n ? ORIENTATION_CANDIDATES[n - 1] : 0, card: known || (cards.length ? matchCard(cards, name) : null) };
-  } catch { return { deg: 0, card: null }; }
+    return {
+      deg: n && n <= candidates.length ? candidates[n - 1] : 0,
+      card: known || (askWarehouse ? matchCard(cards, name) : null),
+      by: 'ai',
+    };
+  } catch { return { deg: 0, card: known, by: 'none' }; }
 }
 
 /** التدوير وحده — للمستدعين الذين لا يحتاجون البطاقة. */
@@ -1739,18 +1763,23 @@ export function unrotateBox(box, deg) {
   return [Math.min(...ys), Math.min(...xs), Math.max(...ys), Math.max(...xs)].map(v => Math.max(0, Math.min(1000, Math.round(v))));
 }
 
-/** يُدير الصورة للوضع القائم إن لزم. يُعيد { mimeType, base64, rotated, card }. */
-export async function orientInvoiceImage(img, { warehouseHint = null } = {}) {
+/**
+ * يُدير الصورة للوضع القائم إن لزم. يُعيد { mimeType, base64, rotated, card, orient }.
+ * orient = { deg, by: 'local'|'ai'|'none' } — يُسجَّل في «الطلبيات المحلَّلة».
+ */
+export async function orientInvoiceImage(img, { warehouseHint = null, forceAi = false } = {}) {
+  const hinted = async () => (warehouseHint ? matchCard(await loadInvoiceCards(), warehouseHint) : null);
   try {
     const buf = Buffer.from(img.base64, 'base64');
-    if (!canRotate(buf)) return { ...img, rotated: 0, card: null };
-    const { deg, card } = await detectInvoiceRotationAndCard(img, { warehouseHint });
-    if (!deg) return { ...img, rotated: 0, card };
+    if (!canRotate(buf)) return { ...img, rotated: 0, card: await hinted(), orient: { deg: 0, by: 'none' } };
+    const { deg, card, by } = await detectInvoiceRotationAndCard(img, { warehouseHint, forceAi });
+    const orient = { deg, by };
+    if (!deg) return { ...img, rotated: 0, card, orient };
     const out = rotateJpeg(buf, deg);
-    return { mimeType: 'image/jpeg', base64: out.toString('base64'), rotated: deg, card };
+    return { mimeType: 'image/jpeg', base64: out.toString('base64'), rotated: deg, card, orient };
   } catch (e) {
     console.error('[invoice-extract] تعذّر تعديل اتجاه الصورة:', String(e?.message || '').slice(0, 120));
-    return { ...img, rotated: 0, card: null };
+    return { ...img, rotated: 0, card: await hinted().catch(() => null), orient: { deg: 0, by: 'none' } };
   }
 }
 
@@ -1790,25 +1819,378 @@ async function extractCustomerLineVoted(img, opts, n = 3, priorRead = null) {
   return best;
 }
 
+// ─── قراءة الفاتورة: صورة أو PDF ────────────────────────────────────────────
+
+const PURPOSES = new Set(['sales', 'compare', 'match']);
+
+/** مفتاح اسم مذخر/بطاقة للبحث في نص: حروف موحّدة بلا فواصل. */
+const nameKey = (s) => String(s ?? '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+  .toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
 /**
- * Extract sale rows from one or more invoice images via Gemini vision.
+ * تنظيف صفوف قراءة ملف واحد (مشترك بين الصورة والـPDF): فصل الصيدلية عن المنطقة، حارسا
+ * «المذخر في خانة الصيدلية» و«منسوخ من البرومبت»، صناديق التكبير لإحداثيات الأصل، طيّ البونص.
+ * المذخر معروف من مصدر الصورة (كروب المذخر) ⇒ يُكتب هو في الصفوف بلا اعتماد على القراءة.
+ */
+function cleanInvoiceRows(raw, { idx, guardPrompt, rotated = 0, card = null, warehouseHint = null }) {
+  let rows = [];
+  let warehouseAddress = '';
+  let custBox = null; // كتلة الزبون بإحداثيات الصورة المُدارة (لقصّها)
+  for (const row of raw) {
+    delete row.grandTotal;
+    if (!warehouseAddress && row.warehouseAddress) warehouseAddress = String(row.warehouseAddress);
+    if (!custBox) custBox = normalizeBox(row.box_customer);
+    const split = splitPharmacyArea(row.pharmacy, row.area); // clean prefixes + split "name - area"
+    const asWarehouse = isWarehouseAsPharmacy(split.pharmacy, row.warehouse)
+      || (warehouseHint && isWarehouseAsPharmacy(split.pharmacy, warehouseHint));
+    row.pharmacy = (asWarehouse || isCopiedFromPrompt(split.pharmacy, guardPrompt)) ? '' : split.pharmacy;
+    row.area = isWarehouseAddressArea(split.area, row.warehouseAddress) ? '' : split.area;
+    delete row.warehouseAddress;
+    if (warehouseHint) row.warehouse = warehouseHint;
+    row._imageIndex = idx;
+    row._box = unrotateBox(normalizeBox(row.box), rotated);                  // this item's whole row in the image
+    row._boxCustomer = unrotateBox(normalizeBox(row.box_customer), rotated); // pharmacy/area block
+    row._boxHeader = unrotateBox(normalizeBox(row.box_header), rotated);     // whole header block (warehouse+invoice#+date)
+    delete row.box; delete row.box_customer; delete row.box_header;
+    rows.push(row);
+  }
+  // بطاقة «البونص عمود»: الأسطر المكرّرة لنفس المادة مبيع حقيقي — لا تُطوى بونصاً.
+  if (card?.bonusStyle !== 'column') rows = foldBonusRows(rows);
+  for (const r of rows) delete r.priceShown;
+  return { rows, warehouseAddress, custBox };
+}
+
+// ─── «تلقائي»: الأقوى للجزء المتعذّر وحده ───────────────────────────────────
+// طلب صاحب المشروع (2026-11-13): يبدأ الأرخص، وما تعذّر عليه وحده يُعاد بالأقوى — قصاصة
+// الأسطر التي لم تتّسق أرقامها، أو قصاصة كتلة الزبون. القراءة الكاملة بالأقوى لا تُعاد إلا حين
+// لا يمكن تحديد الجزء: لا أصناف، مجموع لا يطابق وأسطره متّسقة، أكثر من نصف الأسطر، أو أسطر بلا موضع.
+
+const ROWS_CROP_PROMPT = `هذه قصاصة مكبّرة من جدول أصناف فاتورة مذخر أدوية: سطر أو أسطر قليلة، وقد لا يظهر رأس الجدول.
+اقرأ كل سطر صنف يظهر فيها كاملاً. أعِد **كائن JSON واحداً فقط** بلا أي نص آخر:
+{"r":[["اسم المادة كاملاً",الكمية,البونص,سعر_الوحدة,مجموع_السطر,السعر_مطبوع]]}
+- مجموع السطر = الكمية × سعر الوحدة عادةً — استعمله للتمييز بين الكمية والسعر.
+- السعر_مطبوع = true/false: هل خانة السعر أو المبلغ مطبوعة فعلاً بأرقام في هذا السطر.
+- الأرقام بلا فواصل آلاف («137'150» = 137150). ما لا تجده = null، لا تختلق.`;
+
+/** يعيد قراءة أسطر بعينها بالأقوى من قصاصة بعرض الورقة تضمّها. يُعيد الصفوف بعد الإصلاح، أو null. */
+export async function rereadRowsStrong(img, rows, badIdx, { card = null } = {}) {
+  try {
+    const boxes = badIdx.map(i => normalizeBox(rows[i].box)).filter(Boolean);
+    if (!boxes.length || boxes.length !== badIdx.length) return null;
+    const top = Math.max(0, Math.min(...boxes.map(b => Math.min(b[0], b[2]))) - 20);
+    const bottom = Math.min(1000, Math.max(...boxes.map(b => Math.max(b[0], b[2]))) + 20);
+    // عرض الورقة كاملاً: صندوق السطر قد لا يشمل كل أعمدة أسعاره
+    const crop = cropJpeg(Buffer.from(img.base64, 'base64'), [top, 0, bottom, 1000], { pad: 8 });
+    if (!crop) return null;
+    const prompt = card ? `${ROWS_CROP_PROMPT}\n\nوصف نموذج هذا المذخر (لترتيب الأعمدة):\n${card.prompt}` : ROWS_CROP_PROMPT;
+    const text = await callAI([prompt, { inlineData: { mimeType: 'image/jpeg', data: crop.toString('base64') } }],
+      { timeoutMs: 45_000, thinkingBudget: 0, feature: 'invoice-rows-fix', model: AI_MODELS.strong });
+    const got = parseCardReply(text, parseInvoiceJson).filter(g => g.item);
+    if (!got.length) return null;
+    const out = rows.map(r => ({ ...r }));
+    const used = new Set();
+    for (const i of badIdx) {
+      const key = normalizeItemKey(rows[i].item ?? '');
+      let best = -1, bestS = 0;
+      got.forEach((g, j) => {
+        if (used.has(j)) return;
+        const s = similarity(key, normalizeItemKey(g.item ?? ''));
+        if (s > bestS) { bestS = s; best = j; }
+      });
+      // سطر خاطئ واحد وقصاصة بسطر واحد ⇒ هو نفسه ولو اختلفت قراءة اسمه قليلاً
+      if (best < 0 || (bestS < 0.55 && !(got.length === 1 && badIdx.length === 1))) continue;
+      used.add(best);
+      const g = got[best];
+      Object.assign(out[i], { quantity: g.quantity, bonus: g.bonus, unitPrice: g.unitPrice, total: g.total, priceShown: g.priceShown });
+      if (String(g.item ?? '').length > String(out[i].item ?? '').length) out[i].item = g.item;
+    }
+    return used.size ? out : null;
+  } catch (e) {
+    console.error('[invoice-extract] إصلاح الأسطر بالأقوى:', String(e?.message || '').slice(0, 120));
+    return null;
+  }
+}
+
+/** قصاصة كتلة الزبون وحدها بالأقوى — نداء واحد. */
+async function readCustomerCropStrong(img, rows) {
+  try {
+    const box = rows.map(r => normalizeBox(r.box_customer)).find(Boolean) || [0, 0, 550, 1000];
+    const crop = cropJpeg(Buffer.from(img.base64, 'base64'), box);
+    if (!crop) return null;
+    return await extractCustomerLine({ mimeType: 'image/jpeg', base64: crop.toString('base64') },
+      { warehouse: rows.find(r => r.warehouse)?.warehouse || '', cropped: true, timeoutMs: 40_000 });
+  } catch { return null; }
+}
+
+/**
+ * وضع «تلقائي» بعد قراءة الأرخص: ما تعذّر وحده يُعاد بالأقوى.
+ * @returns {Promise<{ rows:object[], retried:boolean, part:string|null, customerTried:boolean }>}
+ */
+export async function repairWithStrong(raw, { img, card, readFull, needPharmacy, left }) {
+  const grandTotal = raw.find(r => r.grandTotal != null)?.grandTotal ?? null;
+  const d = diagnoseInvoiceRows(raw, { grandTotal, needPharmacy });
+  if (d.ok) return { rows: raw, retried: false, part: null, customerTried: false };
+  const full = async (why) => {
+    console.log(`[invoice-extract] تلقائي: إعادة كاملة بالأقوى (${String(why).slice(0, 80)})`);
+    try {
+      const rows = await readFull();
+      return { rows: rows.length ? rows : raw, retried: true, part: 'full', customerTried: false };
+    } catch (e) {
+      console.error('[invoice-extract] فشلت الإعادة بالأقوى، تُبقى قراءة الأرخص:', String(e?.message || '').slice(0, 120));
+      return { rows: raw, retried: false, part: null, customerTried: false };
+    }
+  };
+  const tooMany = d.badRows.length > Math.max(1, Math.floor(raw.length / 2));
+  const unboxed = d.badRows.some(i => !normalizeBox(raw[i].box));
+  if (d.noRows || (d.sumMismatch && !d.badRows.length) || tooMany || unboxed) return full(d.problem);
+
+  let rows = raw;
+  const parts = [];
+  if (d.badRows.length && left() > 15_000) {
+    const fixed = await rereadRowsStrong(img, rows, d.badRows, { card });
+    if (!fixed) return full(`أسطر: ${d.problem}`);
+    rows = fixed;
+    parts.push('rows');
+    // بعد إصلاح الأسطر ما زال مجموع الفاتورة لا يطابق ⇒ سطر ناقص على الأرجح ⇒ قراءة كاملة
+    const d2 = diagnoseInvoiceRows(rows, { grandTotal, needPharmacy: false });
+    if (d2.sumMismatch) return full(d2.problem);
+  }
+  let customerTried = false;
+  if (d.noPharmacy && left() > 12_000) {
+    customerTried = true;
+    const cust = await readCustomerCropStrong(img, rows);
+    if (cust?.pharmacy) rows = rows.map(r => ({ ...r, pharmacy: cust.pharmacy, area: cust.area || r.area }));
+    parts.push('customer');
+  }
+  if (parts.length) console.log(`[invoice-extract] تلقائي: أُعيد بالأقوى الجزء المتعذّر فقط (${parts.join('+')})`);
+  return { rows, retried: parts.length > 0, part: parts.join('+') || null, customerTried };
+}
+
+/** صورة فاتورة واحدة ← صفوف بعد التنظيف. imgLog يُملأ لسجلّ «الطلبيات المحلَّلة». */
+async function readInvoiceImage(image, { idx, warehouseHint, extraContext, purpose, fallbackPharmacy, left, imgLog }) {
+  // اتجاه الصورة أولاً: فاتورة مُدارة 90° تُقرأ بتذبذب («النعيمي» بدل «النبض») وبعد تدويرها
+  // قائمةً تُقرأ صحيحة. صناديق التكبير تُعاد لإحداثيات الأصل لأن المراجعة تعرض الأصل.
+  let img = await orientInvoiceImage(image, { warehouseHint });
+  imgLog.orient = img.orient || null;
+  const card = img.card;
+  // مذخر معروف ⇒ برومبت مختصر + بطاقته (~1,850 token بدل ~3,650، نفس الدقة).
+  const basePrompt = card ? `${CARD_BASE_PROMPT}${card.prompt}` : INVOICE_PROMPT;
+  if (card) noteCardUse(card);
+  const promptText = extraContext
+    ? `${basePrompt}
+
+ملاحظة من مُرسِل الصورة (نصّ حرّ قد يصحّح أو يكمل ما في الصورة — اعتمده حين يتعارض مع قراءة غير واضحة): «${extraContext}»`
+    : basePrompt;
+  // النموذج حسب اختيار الماستر (aiModelSettings): strong | lite | auto (الأرخص، ثم الأقوى للجزء المتعذّر).
+  const readFeature = card ? 'invoice-read-card' : 'invoice-read';
+  const readMode = await getAiMode(readFeature);
+  imgLog.mode = readMode; imgLog.card = card;
+  const parseRaw = (t) => (card ? parseCardReply(t, parseInvoiceJson) : parseInvoiceJson(t));
+  const readOnce = async (model, tag) => parseRaw(await callAI(
+    [promptText, { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } }],
+    { timeoutMs: 70_000, maxTotalMs: left(), thinkingBudget: 0, feature: tag, model },
+  ));
+  const firstModel = readMode === 'strong' ? AI_MODELS.strong : AI_MODELS.lite;
+  let raw = await readOnce(firstModel, readFeature);
+
+  // الاتجاه المحلي «متأكد» ولم تُقرأ أي أصناف: لعلّه أخطأ ⇒ يُسأل الذكاء عن الاتجاه وتُعاد مرة.
+  if (!raw.length && img.orient?.by === 'local' && left() > 25_000) {
+    const again = await orientInvoiceImage(image, { warehouseHint, forceAi: true });
+    if (again.rotated !== img.rotated) {
+      console.log(`[invoice-extract] الاتجاه المحلي ${img.rotated}° لم يُقرأ — الذكاء اختار ${again.rotated}°`);
+      img = { ...again, card };
+      imgLog.orient = { ...(again.orient || {}), localWas: imgLog.orient?.deg ?? null };
+      raw = await readOnce(firstModel, readFeature);
+    }
+  }
+
+  const needPharmacy = purpose === 'sales' || (purpose === 'match' && !fallbackPharmacy);
+  let customerTried = false;
+  if (readMode === 'auto') {
+    const fixed = await repairWithStrong(raw, {
+      img, card, needPharmacy, left, readFull: () => readOnce(AI_MODELS.strong, `${readFeature}-retry`),
+    });
+    raw = fixed.rows;
+    imgLog.retried = fixed.retried;
+    imgLog.retryPart = fixed.part;
+    customerTried = fixed.customerTried;
+  }
+
+  const { rows: imageRows, warehouseAddress: whAddress, custBox: custBoxOriented } = cleanInvoiceRows(raw, {
+    idx, guardPrompt: basePrompt, rotated: img.rotated, card, warehouseHint,
+  });
+
+  // كروب المذخر: الطلبية المعروفة (compare) لا تحتاج الصيدلية، والتخمين (match) يكفيه اسم الفحص
+  // السريع — فلا تصويت ولا قصاصات (كانت 3 نداءات بالصورة كاملة ≈ نصف كلفة الصورة).
+  if (purpose !== 'sales') {
+    if (purpose === 'match' && fallbackPharmacy && imageRows.length && !imageRows.some(r => r.pharmacy)) {
+      for (const r of imageRows) r.pharmacy = fallbackPharmacy;
+    }
+    return imageRows;
+  }
+  // «تلقائي» قرأ كتلة الزبون بالأقوى أصلاً — قراءته هي الجواب، بلا تصويت فوقها.
+  if (customerTried) return imageRows;
+
+  // احتياطي سطر الزبون: نداء مركَّز للصورة حين لم تُقرأ الصيدلية، **أو** قُرئت لكن الصيدلية غير
+  // محسومة في سيرفي الماستر. الحالة الثانية مقيسة: فاتورة «طريق السلام» المصوَّرة مُدارة 90° أعاد
+  // النداء الكامل فيها «اللحمي»/«**** النقدي» بدل «النعيمي»، بينما قرأ النداء المركَّز السطر صحيحاً.
+  // ثم تُختار القراءة التي تؤكّدها بيانات الماستر أكثر (التعادل للمركَّز).
+  const first = imageRows.find(r => r.pharmacy) || imageRows[0];
+  const firstScore = first?.pharmacy ? await customerKnownScore(first.pharmacy, first.area) : -1;
+  // مسار البطاقة: الموديل يعرف مكان الزبون وشكله، فالتصويت (3 نداءات بالصورة كاملة،
+  // ~4,500-6,000 token) لا يُشغَّل ما دام الاسم قُرئ — كان يرفع الفاتورة لـ~10,000 token
+  // كلما كانت الصيدلية جديدة على الماستر. مقيس: أسماء البطاقة صحيحة 62/65 بلا تصويت.
+  // اسم فارغ ⇒ احتياطي القصاصة أدناه كما هو.
+  const skipVote = Boolean(card && first?.pharmacy);
+  if (imageRows.length > 0 && firstScore < 2 && !skipVote) {
+    const cust = await extractCustomerLineVoted(img, {
+      timeoutMs: Math.min(45_000, Math.max(10_000, left())),
+      warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
+    }, 3, first?.pharmacy ? { pharmacy: first.pharmacy, area: first.area } : null);
+    if (cust && isWarehouseAddressArea(cust.area, whAddress)) cust.area = '';
+    if (cust && cust.score >= Math.max(0, firstScore)) {
+      for (const r of imageRows) {
+        r.pharmacy = cust.pharmacy;
+        if (cust.area || !r.area) r.area = cust.area;
+      }
+    }
+  }
+
+  // آخر محاولة: الصيدلية ما زالت فارغة ⇒ قصاصة مكبّرة لكتلة الزبون. الصورة الكاملة تُصغَّر عند
+  // الموديل فيقرأ أصناف الجدول الكبيرة ويضيع سطر الزبون الصغير (خصوصاً الصور المائلة). بلا
+  // صندوق من القراءة الأولى نقصّ النصف العلوي — مكان الترويسة.
+  if (imageRows.length > 0 && !imageRows.some(r => r.pharmacy) && left() > 15_000) {
+    let crop = null;
+    try {
+      crop = cropJpeg(Buffer.from(img.base64, 'base64'), custBoxOriented || [0, 0, 550, 1000]);
+    } catch (e) {
+      console.error('[invoice-extract] تعذّر قصّ كتلة الزبون:', String(e?.message || '').slice(0, 120));
+    }
+    if (crop) {
+      const cust = await extractCustomerLineVoted({ mimeType: 'image/jpeg', base64: crop.toString('base64') }, {
+        timeoutMs: Math.min(45_000, Math.max(10_000, left())),
+        warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
+        cropped: true,
+      }, 3);
+      if (cust && isWarehouseAddressArea(cust.area, whAddress)) cust.area = '';
+      if (cust?.pharmacy) {
+        for (const r of imageRows) {
+          r.pharmacy = cust.pharmacy;
+          if (cust.area || !r.area) r.area = cust.area;
+        }
+      }
+    }
+  }
+  return imageRows;
+}
+
+// ─── فاتورة PDF ─────────────────────────────────────────────────────────────
+
+const PDF_TEXT_PROMPT = `هذا نصّ فاتورة/طلبية مذخر أدوية مستخرج من ملف PDF: كل سطر كما في الورقة، والخانات مفصولة بـ « | » بترتيب رأس الجدول نفسه.
+أعِد **كائن JSON واحداً فقط** بلا أي نص قبله أو بعده، بهذا الشكل بالضبط:
+{"h":{"warehouse":"اسم المذخر","pharmacy":"اسم الصيدلية فقط","area":"منطقة الصيدلية أو null","date":"YYYY-MM-DD","invoiceNumber":"22287","grandTotal":"مجموع مبلغ الفاتورة المطبوع أو null"},
+ "r":[["اسم المادة كاملاً",الكمية,البونص,سعر_الوحدة,مجموع_السطر,السعر_مطبوع]]}
+- r: صف لكل سطر صنف بالترتيب: [item, quantity, bonus, unitPrice, total, priceShown(true/false)].
+- طابق كل خانة برأس عمودها: الكمية، البونص («مجاني»/«هدية»/«free»)، سعر الوحدة (الإفرادي/السعر)، مجموع السطر (المبلغ/القيمة). «10+2» في خانة الكمية ⇒ الكمية 10 والبونص 2. سطر مكرّر لنفس المادة بلا مبلغ ⇒ صف مستقل priceShown=false.
+- pharmacy: الزبون المشتري فقط — بعد «المتعامل» أو «اسم العميل» أو «السيد» أو «الزبون» أو «الصيدلية» — بلا «ص»/«صيدلية» وبلا المنطقة، وليس المذخر ولا المندوب.
+- area: منطقة الصيدلية فقط، لا عنوان المذخر.
+- الأرقام بلا فواصل آلاف. ما لا تجده = null، لا تختلق.`;
+
+/**
+ * فاتورة PDF ← صفوف. نصّ الملف يُستخرج محلياً بلا ذكاء (invoicePdf.js)، ثم نداء **نصّي** رخيص
+ * (بلا صورة ولا اتجاه ولا قصاصات) يرتّبه صفوفاً. PDF ممسوح ضوئياً (بلا نص) يُرسل الملف نفسه.
+ */
+async function readInvoicePdf(buf, { idx, warehouseHint, extraContext, purpose, fallbackPharmacy, left, imgLog }) {
+  const cards = await loadInvoiceCards();
+  const pdf = await extractPdfText(buf);
+  imgLog.pdf = { pages: pdf.pages, how: pdf.hasText ? 'text' : 'native' };
+  let card = warehouseHint && cards.length ? matchCard(cards, warehouseHint) : null;
+  // بلا مصدر يحدّد المذخر: اسم بطاقة مكتوب في نص الفاتورة نفسه — بلا ذكاء
+  if (!card && !warehouseHint && pdf.hasText) {
+    const t = nameKey(pdf.text);
+    card = cards.find(c => { const k = nameKey(c.name); return k.length >= 3 && t.includes(k); }) || null;
+  }
+  if (card) noteCardUse(card);
+  imgLog.card = card;
+  const note = extraContext ? `\n\nملاحظة من مُرسِل الملف (نصّ حرّ قد يصحّح أو يكمل ما فيه): «${extraContext}»` : '';
+  const needPharmacy = purpose === 'sales' || (purpose === 'match' && !fallbackPharmacy);
+  let raw = [];
+  let guardPrompt = PDF_TEXT_PROMPT;
+  if (pdf.hasText) {
+    const mode = await getAiMode('invoice-pdf');
+    imgLog.mode = mode;
+    const instructions = `${PDF_TEXT_PROMPT}${card ? `\n\nوصف نموذج فواتير هذا المذخر:\n${card.prompt}` : ''}`;
+    guardPrompt = instructions; // بلا نص الفاتورة نفسه — وإلا عُدّ كل اسم فيه «منسوخاً من البرومبت»
+    const prompt = `${instructions}${note}\n\nنص الفاتورة:\n${pdf.text}`;
+    const ask = async (model, tag) => parseCardReply(await callAI([prompt],
+      { timeoutMs: 60_000, maxTotalMs: left(), thinkingBudget: 0, feature: tag, model }), parseInvoiceJson);
+    raw = await ask(mode === 'strong' ? AI_MODELS.strong : AI_MODELS.lite, 'invoice-pdf');
+    if (mode === 'auto') {
+      const d = diagnoseInvoiceRows(raw, { grandTotal: raw.find(r => r.grandTotal != null)?.grandTotal, needPharmacy });
+      if (!d.ok) {
+        // نصّ لا صورة: إعادته كاملاً بالأقوى رخيصة (~1-2 ألف token)، فلا قصاصات هنا
+        console.log(`[invoice-extract] PDF تلقائي: إعادة النص بالأقوى (${String(d.problem).slice(0, 80)})`);
+        imgLog.retried = true; imgLog.retryPart = 'text';
+        try {
+          const again = await ask(AI_MODELS.strong, 'invoice-pdf-retry');
+          if (again.length) raw = again;
+        } catch (e) {
+          console.error('[invoice-extract] إعادة PDF بالأقوى:', String(e?.message || '').slice(0, 120));
+        }
+      }
+    }
+  }
+  if (!raw.length) {
+    // ممسوح ضوئياً، أو تعذّر فهم نصّه ⇒ الملف نفسه للذكاء (صفحاته تُقرأ كصور)
+    imgLog.pdf.how = pdf.hasText ? 'text+native' : 'native';
+    const basePrompt = card ? `${CARD_BASE_PROMPT}${card.prompt}` : INVOICE_PROMPT;
+    guardPrompt = basePrompt;
+    const feature = card ? 'invoice-read-card' : 'invoice-read';
+    const mode = await getAiMode(feature);
+    imgLog.mode = imgLog.mode || mode;
+    const text = await callAI([`${basePrompt}${note}`, { inlineData: { mimeType: 'application/pdf', data: buf.toString('base64') } }],
+      { timeoutMs: 70_000, maxTotalMs: left(), thinkingBudget: 0, feature, model: mode === 'lite' ? AI_MODELS.lite : AI_MODELS.strong });
+    raw = card ? parseCardReply(text, parseInvoiceJson) : parseInvoiceJson(text);
+    // صناديق صفحة PDF لا تقابل صورة تُعرض في المراجعة
+    for (const r of raw) { r.box = null; r.box_customer = null; r.box_header = null; }
+  }
+  const { rows } = cleanInvoiceRows(raw, { idx, guardPrompt, rotated: 0, card, warehouseHint });
+  if (purpose === 'match' && fallbackPharmacy && rows.length && !rows.some(r => r.pharmacy)) {
+    for (const r of rows) r.pharmacy = fallbackPharmacy;
+  }
+  return rows;
+}
+
+/**
+ * Extract sale rows from one or more invoice images — or PDF files — via Gemini.
  * Returns flat, UNSAVED rows for the user to review before saving.
- * @param {{ mimeType: string, base64: string }[]} images
- *        warehouseHint = اسم المذخر حين يُعرف من مصدر الصورة (كروب المذخر) ⇒ بطاقته مباشرة.
- * @param {{ extraContext?: string, warehouseHint?: string }} [opts] extraContext = نص حرّ أرسله صاحب الصورة
- *        مع الصورة (كابشن رسالة بوت مثلاً) يُلحَق بالبرومبت كسياق مساعد. حين لا
- *        يُمرَّر يبقى نص البرومبت مطابقاً حرفياً لما كان — مسار /extract-invoice سليم.
+ * @param {{ mimeType: string, base64: string }[]} images صور أو ملفات PDF (النوع يُكشف من البايتات)
+ * @param {object} [opts]
+ *   extraContext     نص حرّ أرسله صاحب الصورة (كابشن رسالة بوت مثلاً) يُلحَق بالبرومبت كسياق
+ *                    مساعد. حين لا يُمرَّر يبقى نص البرومبت مطابقاً حرفياً — مسار /extract-invoice سليم.
+ *   warehouseHint    اسم المذخر حين يُعرف من مصدر الصورة (كروب/رقم مذخر) ⇒ بطاقته مباشرة، بلا
+ *                    أي سؤال أو توكن عن المذخر، ويُكتب في الصفوف.
+ *   purpose          'sales' (الافتراضي — مبيعات تُراجَع: الصيدلية مهمّة، كما كان) |
+ *                    'compare' (فاتورة لطلبية معروفة: الأصناف والكميات فقط) |
+ *                    'match' (تخمين الطلبية بين المفتوحة: اسم الفحص السريع يكفي).
+ *   fallbackPharmacy اسم الزبون من الفحص السريع (match) — بدل نداءات سطر الزبون.
+ *   priorCalls       نداءات سبقت القراءة لنفس الصورة (الفحص السريع) — تُضمّ لسجلّها.
  * @returns {Promise<object[]>}
  */
-export async function extractInvoiceRows(images, { extraContext, budgetMs, logContext = null, warehouseHint = null } = {}) {
+export async function extractInvoiceRows(images, {
+  extraContext, budgetMs, logContext = null, warehouseHint = null,
+  purpose = 'sales', fallbackPharmacy = null, priorCalls = null,
+} = {}) {
   if (!Array.isArray(images) || images.length === 0) {
     throw new AppError('لم يتم إرسال أي صورة.', 400, 'NO_IMAGES');
   }
+  const why = PURPOSES.has(purpose) ? purpose : 'sales';
   // 190s: stay under Nginx's 300s proxy timeout. Callers outside an HTTP request
   // (the bots) pass a larger budget — otherwise the tail of a 10-photo album is
   // silently skipped by the `break` below.
   const OVERALL_BUDGET_MS = budgetMs ?? 190_000;
   const started = Date.now();
+  const left = () => OVERALL_BUDGET_MS - (Date.now() - started);
   const allRows = [];
   let processed = 0;
   let lastErr = null;
@@ -1817,137 +2199,28 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs, logCo
   // details (warehouse / invoiceNumber / date / pharmacy / area). `_imageIndex`
   // lets the UI link each row back to the invoice photo it came from.
   for (let idx = 0; idx < images.length; idx++) {
-    const elapsed = Date.now() - started;
-    if (elapsed >= OVERALL_BUDGET_MS) break;
-    // كل نداءات هذه الصورة (اتجاه، قراءة، إعادة، سطر زبون) تُجمع في imgCalls لسجلّها.
-    const imgCalls = [];
+    if (left() <= 0) break;
+    // كل نداءات هذه الصورة (فحص سريع، اتجاه، قراءة، إصلاح، سطر زبون) تُجمع في imgCalls لسجلّها.
+    const imgCalls = idx === 0 && Array.isArray(priorCalls) ? [...priorCalls] : [];
     const imgStarted = Date.now();
-    const imgLog = { card: null, mode: null, retried: false, rows: [] };
+    const imgLog = { card: null, mode: null, retried: false, retryPart: null, rows: [], kind: 'photo', orient: null, pdf: null };
     const readKey = randomUUID(); // يُلصق بالصفوف فيربط سجلّ الصورة بالطلبيات المُنشأة منها
+    const fileBuf = Buffer.from(images[idx].base64 || '', 'base64');
     let imgErr = null;
     try {
       await aiCallScope.run(imgCalls, async () => {
-      // اتجاه الصورة أولاً: فاتورة مُدارة 90° تُقرأ بتذبذب («النعيمي» بدل «النبض»)
-      // وبعد تدويرها قائمةً تُقرأ صحيحة. صناديق التكبير تُعاد لإحداثيات الأصل أدناه
-      // لأن المراجعة تعرض الصورة الأصلية لا المُدارة.
-      const img = await orientInvoiceImage(images[idx], { warehouseHint });
-      // مذخر معروف ⇒ برومبت مختصر + بطاقته (~1,850 token بدل ~3,650، نفس الدقة).
-      const basePrompt = img.card ? `${CARD_BASE_PROMPT}${img.card.prompt}` : INVOICE_PROMPT;
-      if (img.card) noteCardUse(img.card);
-      const parts = [
-        extraContext
-          ? `${basePrompt}
-
-ملاحظة من مُرسِل الصورة (نصّ حرّ قد يصحّح أو يكمل ما في الصورة — اعتمده حين يتعارض مع قراءة غير واضحة): «${extraContext}»`
-          : basePrompt,
-        { inlineData: { mimeType: img.mimeType || 'image/jpeg', data: img.base64 } },
-      ];
-      // النموذج حسب اختيار الماستر (aiModelSettings): strong | lite | auto. في auto يُقرأ
-      // بالأرخص، فإن لم تتّسق الأرقام (الكمية × السعر ≠ المجموع، أو مجموع الفاتورة) أُعيدت
-      // القراءة بالأقوى تحت وسم «‹الميزة›-retry» لتظهر نسبة الإعادات في صفحة الاستهلاك.
-      const readFeature = img.card ? 'invoice-read-card' : 'invoice-read';
-      const readMode = await getAiMode(readFeature);
-      imgLog.mode = readMode; imgLog.card = img.card;
-      const parseRaw = (t) => (img.card ? parseCardReply(t, parseInvoiceJson) : parseInvoiceJson(t));
-      const readOnce = (model, tag) => callAI(parts, {
-        timeoutMs:  70_000,
-        maxTotalMs: OVERALL_BUDGET_MS - (Date.now() - started),
-        thinkingBudget: 0,
-        feature: tag,
-        model,
-      });
-      let text = await readOnce(readMode === 'strong' ? AI_MODELS.strong : AI_MODELS.lite, readFeature);
-      if (readMode === 'auto') {
-        const first = parseRaw(text);
-        const problem = invoiceNumbersProblem(first, { grandTotal: first.find(r => r.grandTotal != null)?.grandTotal });
-        if (problem) {
-          console.log(`[invoice-extract] auto: الأرخص لم يجتز فحص الأرقام (${String(problem).slice(0, 80)}) — إعادة بالأقوى`);
-          imgLog.retried = true;
-          try { text = await readOnce(AI_MODELS.strong, `${readFeature}-retry`); }
-          catch (e) { console.error('[invoice-extract] فشلت الإعادة بالأقوى، تُبقى قراءة الأرخص:', String(e?.message || '').slice(0, 120)); }
+        const opts = { idx, warehouseHint, extraContext, purpose: why, fallbackPharmacy, left, imgLog };
+        let imageRows;
+        if (isPdf(fileBuf)) {
+          imgLog.kind = 'pdf';
+          imageRows = await readInvoicePdf(fileBuf, opts);
+        } else {
+          imageRows = await readInvoiceImage(images[idx], opts);
         }
-      }
-      let imageRows = [];
-      let imageWarehouseAddress = '';
-      let custBoxOriented = null; // كتلة الزبون بإحداثيات الصورة المُدارة (لقصّها أدناه)
-      for (const row of parseRaw(text)) {
-        delete row.grandTotal;
-        if (!imageWarehouseAddress && row.warehouseAddress) imageWarehouseAddress = String(row.warehouseAddress);
-        if (!custBoxOriented) custBoxOriented = normalizeBox(row.box_customer);
-        const split = splitPharmacyArea(row.pharmacy, row.area); // clean prefixes + split "name - area"
-        row.pharmacy = (isWarehouseAsPharmacy(split.pharmacy, row.warehouse) || isCopiedFromPrompt(split.pharmacy, basePrompt))
-          ? '' : split.pharmacy;
-        row.area = isWarehouseAddressArea(split.area, row.warehouseAddress) ? '' : split.area;
-        delete row.warehouseAddress;
-        row._imageIndex = idx;
-        imageRows.push(row);
-        row._box = unrotateBox(normalizeBox(row.box), img.rotated);                  // this item's whole row in the image
-        row._boxCustomer = unrotateBox(normalizeBox(row.box_customer), img.rotated); // pharmacy/area block
-        row._boxHeader = unrotateBox(normalizeBox(row.box_header), img.rotated);     // whole header block (warehouse+invoice#+date)
-        delete row.box; delete row.box_customer; delete row.box_header;
-      }
-      // بطاقة «البونص عمود»: الأسطر المكرّرة لنفس المادة مبيع حقيقي — لا تُطوى بونصاً.
-      if (img.card?.bonusStyle !== 'column') imageRows = foldBonusRows(imageRows);
-      for (const r of imageRows) delete r.priceShown;
-
-      // احتياطي سطر الزبون: نداء مركَّز واحد للصورة حين لم تُقرأ الصيدلية، **أو**
-      // قُرئت لكن الصيدلية غير محسومة في سيرفي الماستر. الحالة الثانية
-      // مقيسة: فاتورة «طريق السلام» المصوَّرة مُدارة 90° أعاد النداء الكامل فيها
-      // «اللحمي»/«**** النقدي» بدل «النعيمي»، بينما قرأ النداء المركَّز السطر صحيحاً.
-      // ثم تُختار القراءة التي تؤكّدها بيانات الماستر أكثر (التعادل للمركَّز).
-      const first = imageRows.find(r => r.pharmacy) || imageRows[0];
-      const whAddress = imageWarehouseAddress;
-      const firstScore = first?.pharmacy ? await customerKnownScore(first.pharmacy, first.area) : -1;
-      // مسار البطاقة: الموديل يعرف مكان الزبون وشكله، فالتصويت (3 نداءات بالصورة كاملة،
-      // ~4,500-6,000 token) لا يُشغَّل ما دام الاسم قُرئ — كان يرفع الفاتورة لـ~10,000 token
-      // كلما كانت الصيدلية جديدة على الماستر. مقيس: أسماء البطاقة صحيحة 62/65 بلا تصويت.
-      // اسم فارغ ⇒ احتياطي القصاصة أدناه كما هو.
-      const skipVote = Boolean(img.card && first?.pharmacy);
-      if (imageRows.length > 0 && firstScore < 2 && !skipVote) {
-        const cust = await extractCustomerLineVoted(img, {
-          timeoutMs: Math.min(45_000, Math.max(10_000, OVERALL_BUDGET_MS - (Date.now() - started))),
-          warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
-        }, 3, first?.pharmacy ? { pharmacy: first.pharmacy, area: first.area } : null);
-        if (cust && isWarehouseAddressArea(cust.area, whAddress)) cust.area = '';
-        if (cust && cust.score >= Math.max(0, firstScore)) {
-          for (const r of imageRows) {
-            r.pharmacy = cust.pharmacy;
-            if (cust.area || !r.area) r.area = cust.area;
-          }
-        }
-      }
-
-      // آخر محاولة: الصيدلية ما زالت فارغة ⇒ قصاصة مكبّرة لكتلة الزبون. الصورة الكاملة
-      // تُصغَّر عند الموديل فيقرأ أصناف الجدول الكبيرة ويضيع سطر الزبون الصغير (خصوصاً
-      // الصور المائلة). بلا صندوق من القراءة الأولى نقصّ النصف العلوي — مكان الترويسة.
-      if (imageRows.length > 0 && !imageRows.some(r => r.pharmacy)
-          && OVERALL_BUDGET_MS - (Date.now() - started) > 15_000) {
-        let crop = null;
-        try {
-          crop = cropJpeg(Buffer.from(img.base64, 'base64'), custBoxOriented || [0, 0, 550, 1000]);
-        } catch (e) {
-          console.error('[invoice-extract] تعذّر قصّ كتلة الزبون:', String(e?.message || '').slice(0, 120));
-        }
-        if (crop) {
-          const cust = await extractCustomerLineVoted({ mimeType: 'image/jpeg', base64: crop.toString('base64') }, {
-            timeoutMs: Math.min(45_000, Math.max(10_000, OVERALL_BUDGET_MS - (Date.now() - started))),
-            warehouse: imageRows.find(r => r.warehouse)?.warehouse || '',
-            cropped: true,
-          }, 3);
-          if (cust && isWarehouseAddressArea(cust.area, whAddress)) cust.area = '';
-          if (cust?.pharmacy) {
-            for (const r of imageRows) {
-              r.pharmacy = cust.pharmacy;
-              if (cust.area || !r.area) r.area = cust.area;
-            }
-          }
-        }
-      }
-
-      for (const r of imageRows) r._readKey = readKey;
-      imgLog.rows = imageRows;
-      allRows.push(...imageRows);
-      processed++;
+        for (const r of imageRows) r._readKey = readKey;
+        imgLog.rows = imageRows;
+        allRows.push(...imageRows);
+        processed++;
       });
     } catch (err) {
       imgErr = err;
@@ -1955,10 +2228,11 @@ export async function extractInvoiceRows(images, { extraContext, budgetMs, logCo
       console.error('[invoice-extract] image failed:', String(err?.message || '').slice(0, 200));
     }
     saveInvoiceReadLog({
-      ctx: logContext || {}, calls: imgCalls, image: Buffer.from(images[idx].base64 || '', 'base64'),
-      rows: imgLog.rows, card: imgLog.card, mode: imgLog.mode, retried: imgLog.retried,
+      ctx: logContext || {}, calls: imgCalls, image: fileBuf, kind: imgLog.kind,
+      rows: imgLog.rows, card: imgLog.card, mode: imgLog.mode, retried: imgLog.retried, retryPart: imgLog.retryPart,
       ok: !imgErr && imgLog.rows.length > 0, error: imgErr?.message || (imgLog.rows.length ? null : 'لا أصناف'),
       durationMs: Date.now() - imgStarted, readKey,
+      extra: { orient: imgLog.orient, pdf: imgLog.pdf, purpose: why === 'sales' ? undefined : why },
     });
   }
 

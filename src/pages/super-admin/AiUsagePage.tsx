@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, UI } from './OfficesPage';
 import InvoiceReadsPanel from './InvoiceReadsPanel';
-import { Bar, Seg, Section, Stat, Empty, statGrid, twoCols, th, td } from './saKit';
+import { Bar, Seg, Section, Stat, Empty, statGrid, twoCols, th, td, Toggle, TAG, ghost } from './saKit';
 
 interface Summary {
   days: number;
@@ -24,6 +24,12 @@ const FEATURE_LABEL: Record<string, string> = {
   'invoice-read-retry': 'إعادة بالأقوى',
   'invoice-orient': 'اتجاه الفاتورة',
   'invoice-customer-line': 'سطر الزبون',
+  'invoice-gate': 'فحص كروب المذخر',
+  'invoice-pdf': 'فاتورة PDF (نص)',
+  'invoice-pdf-retry': 'إعادة PDF بالأقوى',
+  'invoice-rows-fix': 'أسطر بالأقوى (تلقائي)',
+  'invoice-card-gen': 'توليد بطاقة مذخر',
+  'invoice-card-check': 'تحقّق بطاقة مذخر',
   'quiz-assist': 'مساعد الاختبارات',
   'item-analysis-report': 'تقرير الايتم',
   'survey-analysis': 'تحليل السيرفي',
@@ -43,11 +49,13 @@ interface ModelSetting { feature: string; mode: string; modes: string[]; default
 const MODE_INFO: Record<string, [string, string]> = {
   strong: ['الأقوى', 'gemini-3.8-flash — الأدق والأغلى'],
   lite:   ['الأرخص', 'gemini-3.5-flash-lite — حوالي نصف السعر'],
-  auto:   ['تلقائي', 'الأرخص أولاً، ويُعاد بالأقوى إن لم تتطابق الأرقام'],
+  auto:   ['تلقائي', 'الأرخص أولاً، والأقوى للجزء المتعذّر فقط (سطر لا تتّسق أرقامه، أو اسم الزبون)'],
 };
 const MODEL_FEATURE_LABEL: Record<string, string> = {
   'invoice-read-card': 'فواتير بطاقات المذاخر',
   'invoice-read': 'فواتير باقي المذاخر',
+  'invoice-pdf': 'فواتير PDF',
+  'invoice-gate': 'فحص كروبات المذاخر',
   'bot-order-text': 'الطلبيات النصية',
 };
 
@@ -76,6 +84,65 @@ function ModelSettings({ token }: { token: string | null }) {
           <span style={{ flex: '1 1 150px', fontSize: 12.5, fontWeight: 600, color: UI.ink }}>{MODEL_FEATURE_LABEL[r.feature] || r.feature}</span>
           <Seg value={r.mode} disabled={busy === r.feature} onChange={m => choose(r.feature, m)}
             options={r.modes.map(m => [m, MODE_INFO[m]?.[0] || m, MODE_INFO[m]?.[1]] as const)} />
+        </div>
+      ))}
+    </Section>
+  );
+}
+
+// ─── بطاقات المذاخر (يدوية + تلقائية من صور الكروبات — server/lib/invoiceCardAuto.js) ───
+interface InvoiceCard {
+  id: number | null; name: string; source: string; enabled: boolean; prompt: string | null; bonusStyle?: string;
+  samples: number; sampleCount?: number; checkedOk?: number | null; checkedOf?: number | null;
+  useCount?: number; lastUsedAt?: string | null; note?: string | null; pending?: boolean;
+}
+
+function CardsPanel({ token }: { token: string | null }) {
+  const [rows, setRows] = useState<InvoiceCard[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const load = () => fetch('/api/sa/ai-usage/cards', { headers: H }).then(r => r.json())
+    .then(d => { if (d.success) setRows(d.data); else setErr(d.error || 'خطأ'); })
+    .catch(() => setErr('تعذّر الاتصال'));
+  useEffect(() => { load(); }, []);
+  const toggle = async (c: InvoiceCard) => {
+    if (c.id == null) return;
+    setBusy(c.name); setErr('');
+    try {
+      const d = await (await fetch(`/api/sa/ai-usage/cards/${c.id}`, { method: 'PATCH', headers: H, body: JSON.stringify({ enabled: !c.enabled }) })).json();
+      if (d.success) setRows(d.data); else setErr(d.error || 'تعذّر الحفظ');
+    } catch { setErr('تعذّر الاتصال'); } finally { setBusy(''); }
+  };
+  const regen = async (c: InvoiceCard) => {
+    setBusy(c.name); setErr('');
+    try {
+      await fetch('/api/sa/ai-usage/cards/regenerate', { method: 'POST', headers: H, body: JSON.stringify({ name: c.name }) });
+      setTimeout(() => { load(); setBusy(''); }, 45_000);
+    } catch { setErr('تعذّر الاتصال'); setBusy(''); }
+  };
+  return (
+    <Section title="بطاقات المذاخر" count={rows?.length}>
+      {err && <ErrBox msg={err} />}
+      {!rows ? <Spinner /> : rows.length === 0 ? <Empty text="لا بطاقات" /> : rows.map(c => (
+        <div key={c.name} style={{ borderBottom: `1px solid ${UI.line}`, padding: '6px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <button onClick={() => setOpen(o => (o === c.name ? null : c.name))} disabled={!c.prompt}
+              style={{ flex: '1 1 140px', textAlign: 'start', border: 'none', background: 'none', padding: 0, fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: UI.ink, cursor: c.prompt ? 'pointer' : 'default' }}
+              title={c.prompt ? 'عرض نص البطاقة' : ''}>{c.name}</button>
+            <span style={c.source === 'auto' ? TAG.violet : TAG.mute} title={c.source === 'auto' ? 'كُتبت تلقائياً من صور كروب المذخر' : 'مكتوبة يدوياً'}>{c.source === 'auto' ? 'تلقائية' : 'يدوية'}</span>
+            <span style={TAG.info} title="صور العيّنات المحفوظة (أفضل 10)">🖼️ {c.samples}/10</span>
+            {c.checkedOf ? <span style={(c.checkedOk ?? 0) >= Math.ceil(c.checkedOf * 2 / 3) ? TAG.ok : TAG.warn} title="صور قُرئت بالبطاقة واتّسقت أرقامها وزبونها">✔ {c.checkedOk}/{c.checkedOf}</span> : null}
+            {c.pending ? <span style={TAG.warn} title="تُكتب البطاقة عند 5 صور">بانتظار الصور</span>
+              : <Toggle on={c.enabled} disabled={busy === c.name} label={c.enabled ? 'مفعّلة' : 'معطّلة'} onToggle={() => toggle(c)} title={c.note || ''} />}
+            {c.source === 'auto' && c.samples >= 3 && (
+              <button style={ghost()} disabled={busy === c.name} onClick={() => regen(c)} title="إعادة كتابتها من أفضل الصور الآن">{busy === c.name ? '…' : '↻'}</button>
+            )}
+          </div>
+          {open === c.name && c.prompt && (
+            <div style={{ marginTop: 6, padding: '8px 10px', background: UI.bg, borderRadius: 8, fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap', color: UI.ink }}>{c.prompt}</div>
+          )}
         </div>
       ))}
     </Section>
@@ -139,6 +206,7 @@ export default function AiUsagePage() {
             </Section>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
               <ModelSettings token={token} />
+              <CardsPanel token={token} />
               <Section title="حسب الموديل" flush>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>

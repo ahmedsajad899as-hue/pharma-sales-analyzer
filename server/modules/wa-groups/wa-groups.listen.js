@@ -156,7 +156,9 @@ async function processMessage(m, link) {
   const outcome = { failed: null };
   const user = await prisma.user.findUnique({ where: { id: link.userId } });
   if (!user?.isActive) return outcome;
-  const buffer = m.imageBase64 ? Buffer.from(m.imageBase64, 'base64') : null;
+  // صورة أو ملف PDF (فاتورة من نظام المذخر) — extractInvoiceRows يميّز النوع من البايتات
+  const media = m.imageBase64 || m.docBase64 || null;
+  const buffer = media ? Buffer.from(media, 'base64') : null;
   const pending = await countPendingOrders(link.userId);
   if (shouldDeferForFullQueue({
     text: String(m.text || '').trim(), mode: link.orderTextMode, hasMedia: Boolean(buffer),

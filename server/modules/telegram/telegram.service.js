@@ -305,9 +305,12 @@ async function isDuplicateUpdate(link, updateId, { deferWrite }) {
  * نصّ وصور فقط. لا تُضَف هنا «مساعدةً» — الصوت يحتاج برومبتاً ومعالجة لهجة
  * واختباراً خاصاً به، وإضافته صامتةً تُدخل بيانات لم يراجعها أحد.
  */
+// ملف PDF = فاتورة من نظام المذخر ⇒ مسار الطلبيات كالصورة (نصّه يُقرأ بلا صورة)، لا مسار ملفات الإكسل
+const isPdfDocument = (doc) => /pdf/i.test(doc?.mime_type || '') || /\.pdf$/i.test(doc?.file_name || '');
+
 function classifyMessage(message) {
   if (!message) return null;
-  if (message.document) return 'document';
+  if (message.document) return isPdfDocument(message.document) ? 'pdf' : 'document';
   if (Array.isArray(message.photo) && message.photo.length) return 'photo';
   if (message.voice || message.audio || message.video_note || message.video) return null;
   if (typeof message.text === 'string' && message.text.trim()) return 'text';
@@ -565,6 +568,15 @@ async function handleOrderMessage(actor, message, kind, updateId) {
     return;
   }
 
+  if (kind === 'pdf') {
+    await handleIncomingOrderMessage({
+      ...common,
+      text: String(message.caption || '').trim(),
+      mediaRefs: [message.document.file_id],
+    });
+    return;
+  }
+
   await handleIncomingOrderMessage({ ...common, text: message.text, mediaRefs: [] });
 }
 
@@ -580,9 +592,9 @@ export async function handleUpdate(update) {
   const kind = classifyMessage(message);
   if (!kind) return; // ستيكر/رسالة خدمة/صوت — تجاهل بصمت
 
-  const intentText = kind === 'photo' ? String(message.caption || '') : String(message.text || '');
+  const intentText = kind === 'photo' || kind === 'pdf' ? String(message.caption || '') : String(message.text || '');
   // «مبيعي …» مبيع مندوب (rep-sales.bot.js) — تحوي «مبيع» فتُستثنى من سؤال المبيعات.
-  const personalSale = (kind === 'text' || kind === 'photo') && hasPersonalSaleTrigger(intentText);
+  const personalSale = (kind === 'text' || kind === 'photo' || kind === 'pdf') && hasPersonalSaleTrigger(intentText);
   const salesQuery = kind === 'text' && !personalSale ? parseSalesQuery(message.text) : null;
   // سؤال المتابعة يُحلَّل هنا أيضاً ليدخل في `announce`: كروب غير مربوط يجب أن
   // يُخبر صاحبه بسبب الصمت، لا أن يتجاهل سؤالاً صريحاً.

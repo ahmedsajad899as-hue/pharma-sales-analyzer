@@ -52,7 +52,7 @@ export async function getPending(req, res, next) {
 export async function getPendingImage(req, res, next) {
   try {
     const filePath = await getPendingOrderImagePath(req.user.id, req.params.id, req.params.idx);
-    res.type('image/jpeg');
+    res.type(filePath.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
     const stream = fs.createReadStream(filePath);
     stream.on('error', () => {
       if (!res.headersSent) res.status(404).json({ success: false, error: 'الصورة غير موجودة.' });

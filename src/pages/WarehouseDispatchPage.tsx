@@ -233,7 +233,9 @@ function OrdersTab({ api, warehouses, onManage }: { api: Api; warehouses: Wh[]; 
                       </div>
                       {d.invoiceImage && (
                         <a href={d.invoiceImage} target="_blank" rel="noreferrer" className="wd-inv">
-                          <img src={d.invoiceImage} alt="فاتورة المذخر" />
+                          {/\.pdf$/i.test(d.invoiceImage)
+                            ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 48, height: 48, borderRadius: 6, background: '#fef2f2', color: '#b91c1c', fontWeight: 800, fontSize: 12 }}>PDF</span>
+                            : <img src={d.invoiceImage} alt="فاتورة المذخر" />}
                           <span>فاتورة التجهيز</span>
                         </a>
                       )}

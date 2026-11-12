@@ -39,7 +39,9 @@
     "test:rep-guess": "node scripts/test-rep-guess-rules.mjs",
     "test:manual-duplicates": "node scripts/test-manual-duplicates.mjs",
     "test:transit": "node scripts/test-transit-orders.mjs",
-    "test:condition-scope": "node scripts/test-condition-scope.mjs"
+    "test:condition-scope": "node scripts/test-condition-scope.mjs",
+    "test:invoice-cost": "node scripts/test-invoice-cost-cuts.mjs",
+    "test:invoice-orientation": "node scripts/test-invoice-orientation.mjs"
   },
   "keywords": [
     "pharmaceutical",

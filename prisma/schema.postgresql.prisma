@@ -2787,6 +2787,7 @@ model InvoiceReadLog {
   card         String? // اسم بطاقة المذخر إن استُعملت
   mode         String? // strong | lite | auto
   retried      Boolean  @default(false)
+  retryPart    String? // «تلقائي»: ما أُعيد بالأقوى — rows | customer | full | text
   pharmacy     String?
   area         String?
   rowCount     Int      @default(0)
@@ -2831,8 +2832,37 @@ model WarehouseInvoiceCard {
   lastUsedAt DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  // بطاقة مولَّدة تلقائياً من صور كروب المذخر (server/lib/invoiceCardAuto.js، 2026-11-13)
+  source      String    @default("manual") // manual | auto
+  sampleCount Int       @default(0) // عدد الصور التي وُلّدت منها
+  checkedOk   Int? // صور التحقق التي اجتازت فحص الأرقام بالبطاقة
+  checkedOf   Int?
+  genAttempts Int       @default(0)
+  lastGenAt   DateTime?
+  note        String?
 
   @@map("warehouse_invoice_cards")
+}
+
+// ─── عيّنات بطاقات المذاخر: صور فواتير كروب كل مذخر مربوط (أفضل 10 لكل مذخر بالجودة) — منها
+// تُولَّد بطاقته تلقائياً. الملفات في uploads/invoice-card-samples/<whKey>/.
+model InvoiceCardSample {
+  id          Int      @id @default(autoincrement())
+  createdAt   DateTime @default(now())
+  warehouse   String // اسم المذخر كما في ربط الكروب (OrderWarehouse.name)
+  whKey       String // مفتاح الاسم الموحّد (مجلد العيّنات)
+  file        String // اسم الملف داخل مجلد المذخر
+  kind        String   @default("photo") // photo | pdf
+  hash        String // sha1 للبايتات — الصورة نفسها لا تُحفظ مرتين
+  score       Float    @default(0)
+  rowCount    Int      @default(0)
+  numbersOk   Boolean  @default(false)
+  hasPharmacy Boolean  @default(false)
+  source      String? // warehouse-group | warehouse-cloud | backfill
+
+  @@unique([whKey, hash])
+  @@index([whKey])
+  @@map("invoice_card_samples")
 }
 
 model WarehouseNameLink {

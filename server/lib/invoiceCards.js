@@ -62,7 +62,7 @@ export function parseCardReply(text, parseArray) {
 // البطاقات الأولى (مختبَرة 2026-11-10). تُزرع في الجدول إن غابت ولا تُستبدل إن عُدّلت.
 // ⚠️ لا تضع أسماء صيدليات حقيقية أمثلةً في نصّ البطاقة: حارس isCopiedFromPrompt يُفرغ أي
 // صيدلية يجدها في البرومبت (يظنّها منسوخة من المثال) فيشتغل احتياطي سطر الزبون (3 نداءات).
-const DEFAULT_CARDS = [
+export const DEFAULT_CARDS = [
   {
     name: 'طريق السلام',
     bonusStyle: 'row',
@@ -120,6 +120,9 @@ export async function loadInvoiceCards() {
 }
 
 const norm = (s) => String(s ?? '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[^\p{L}\p{N}]+/gu, '');
+
+/** بعد إنشاء/تعديل بطاقة (التوليد التلقائي أو لوحة الماستر) — تُقرأ من القاعدة فوراً. */
+export function invalidateInvoiceCards() { cache = null; }
 
 /** يطابق جواب الموديل («2|طريق السلام») ببطاقة، أو null («غيره» أو اسم غير معروف). */
 export function matchCard(cards, answer) {

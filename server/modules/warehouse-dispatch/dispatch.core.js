@@ -30,6 +30,7 @@ import { sendButtons, sendTemplate, sendWhatsAppText, whatsappEnabled } from '..
 import { sendGroupText } from '../wa-groups/wa-groups.client.js';
 import { withParty } from '../whatsapp/wa-chat-log.js';
 import { compareInvoiceLines } from '../rep-orders/rep-orders.invoice.js';
+import { isPdf } from '../../lib/invoicePdf.js';
 import { recordPreparation, markSent } from '../rep-orders/rep-orders.service.js';
 import { notifyOrigin } from './dispatch.notify.js';
 
@@ -431,7 +432,8 @@ export async function appendWarehouseNote(d, text) {
 /** حفظ صورة فاتورة المذخر على القرص ← المسار العام. */
 export async function saveInvoiceImage(buffer) {
   await fs.promises.mkdir(DISPATCH_DIR, { recursive: true });
-  const name = `${crypto.randomBytes(16).toString('hex')}.jpg`;
+  // فاتورة PDF من نظام المذخر تُحفظ بامتدادها (الواجهة تعرضها رابطاً لا صورة)
+  const name = `${crypto.randomBytes(16).toString('hex')}.${isPdf(buffer) ? 'pdf' : 'jpg'}`;
   await fs.promises.writeFile(path.join(DISPATCH_DIR, name), buffer);
   return `/uploads/dispatch/${name}`;
 }

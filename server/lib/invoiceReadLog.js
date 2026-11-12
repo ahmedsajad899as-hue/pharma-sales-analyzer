@@ -10,10 +10,12 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'node:crypto';
 import prisma from './prisma.js';
 import { downscaleJpeg, isJpeg } from './invoiceImage.js';
+import { isPdf } from './invoicePdf.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const INVOICE_READ_DIR = path.join(__dirname, '..', '..', 'uploads', 'invoice-reads');
 const KEEP_DAYS = 60;
+const MAX_PDF_BYTES = 4 * 1024 * 1024; // فاتورة PDF تُحفظ كما هي لتُفتح من السجل
 
 // $ لكل مليون token (إدخال، إخراج — التفكير يُحاسَب إخراجاً). أسعار Gemini الحالية.
 const PRICES = {
@@ -33,14 +35,20 @@ const short = (v, n = 200) => { const s = String(v ?? '').trim(); return s ? s.s
  * @param {object} p
  * @param {object} [p.ctx]   { source, userId, userName, senderName, chatTitle } من المستدعي
  * @param {object[]} p.calls ما جمعه aiCallScope لهذه الصورة
- * @param {Buffer} [p.image] الصورة الأصلية (تُحفظ مصغّرة)
+ * @param {Buffer} [p.image] الصورة الأصلية (تُحفظ مصغّرة) أو ملف PDF (يُحفظ كما هو)
+ * @param {object} [p.extra]  حقول إضافية تُدمج في details: { orient, pdf, purpose, gate }
+ * @param {object} [p.header] { pharmacy, warehouse } بدل المأخوذ من الصفوف (الفحص السريع بلا أصناف)
+ * @param {string} [p.retryPart] ما أُعيد بالأقوى في «تلقائي»: rows | customer | full | text
  */
-export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, rows = [], card = null, mode = null, retried = false, ok = true, error = null, durationMs = 0, readKey = null, kind = 'photo', sourceText = null, readBy = null }) {
+export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, rows = [], card = null, mode = null, retried = false, retryPart = null, ok = true, error = null, durationMs = 0, readKey = null, kind = 'photo', sourceText = null, readBy = null, extra = null, header = null }) {
   try {
     const promptTokens = calls.reduce((a, c) => a + (c.promptTokens || 0), 0);
     const outputTokens = calls.reduce((a, c) => a + (c.outputTokens || 0), 0);
     const costUsd = calls.reduce((a, c) => a + costOf(c.model, c.promptTokens || 0, c.outputTokens || 0), 0);
     const first = rows.find(r => r?.pharmacy) || rows[0] || {};
+    const pharmacy = header?.pharmacy ?? first.pharmacy;
+    const warehouse = header?.warehouse ?? first.warehouse;
+    const more = extra ? Object.fromEntries(Object.entries(extra).filter(([, v]) => v != null && v !== '')) : {};
     const log = await prisma.invoiceReadLog.create({
       data: {
         source: short(ctx.source, 40) || 'unknown',
@@ -51,11 +59,12 @@ export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, r
         userName: short(ctx.userName, 120),
         senderName: short(ctx.senderName, 120),
         chatTitle: short(ctx.chatTitle, 160),
-        warehouse: short(first.warehouse, 120),
+        warehouse: short(warehouse, 120),
         card: short(card?.name, 120),
         mode: short(mode, 20),
         retried: Boolean(retried),
-        pharmacy: short(first.pharmacy, 160),
+        retryPart: short(retryPart, 40),
+        pharmacy: short(pharmacy, 160),
         area: short(first.area, 120),
         rowCount: rows.length,
         calls: calls.length,
@@ -65,10 +74,11 @@ export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, r
         ok: Boolean(ok),
         error: short(error, 300),
         readKey,
-        details: rows.length ? {
+        details: rows.length || Object.keys(more).length ? {
           invoiceNumber: short(first.invoiceNumber, 40),
           date: short(first.date, 20),
           items: rows.slice(0, 60).map(r => [short(r.item, 120), r.quantity ?? null, r.bonus ?? null, r.unitPrice ?? null, r.totalValue ?? r.total ?? null]),
+          ...more,
         } : undefined,
       },
     });
@@ -78,6 +88,11 @@ export async function saveInvoiceReadLog({ ctx = {}, calls = [], image = null, r
       await fs.promises.mkdir(INVOICE_READ_DIR, { recursive: true });
       const name = `${log.id}.jpg`;
       await fs.promises.writeFile(path.join(INVOICE_READ_DIR, name), thumb);
+      await prisma.invoiceReadLog.update({ where: { id: log.id }, data: { imageFile: name } });
+    } else if (image && isPdf(image) && image.length <= MAX_PDF_BYTES) {
+      await fs.promises.mkdir(INVOICE_READ_DIR, { recursive: true });
+      const name = `${log.id}.pdf`;
+      await fs.promises.writeFile(path.join(INVOICE_READ_DIR, name), image);
       await prisma.invoiceReadLog.update({ where: { id: log.id }, data: { imageFile: name } });
     }
   } catch (e) {
@@ -152,7 +167,8 @@ async function prune() {
 export async function listInvoiceReadLogs({ days = 7, page = 1, pageSize = 50, kind = null } = {}) {
   prune();
   const d = Math.min(Math.max(parseInt(days) || 7, 1), KEEP_DAYS);
-  const where = { createdAt: { gte: new Date(Date.now() - d * 86400_000) }, ...(kind === 'photo' || kind === 'text' ? { kind } : {}) };
+  // «صور الفواتير» تشمل ملفات PDF (فواتير أيضاً، بلا صورة)
+  const where = { createdAt: { gte: new Date(Date.now() - d * 86400_000) }, ...(kind === 'photo' ? { kind: { in: ['photo', 'pdf'] } } : kind === 'text' ? { kind } : {}) };
   const take = Math.min(Math.max(parseInt(pageSize) || 50, 10), 200);
   const skip = (Math.max(parseInt(page) || 1, 1) - 1) * take;
   const [rows, total, sums] = await Promise.all([

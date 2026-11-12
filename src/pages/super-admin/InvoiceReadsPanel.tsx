@@ -9,13 +9,19 @@ import { Seg, Stat, statGrid } from './saKit';
 interface ReadLog {
   id: number; createdAt: string; source: string;
   userName: string | null; senderName: string | null; chatTitle: string | null;
-  warehouse: string | null; card: string | null; mode: string | null; retried: boolean;
+  warehouse: string | null; card: string | null; mode: string | null; retried: boolean; retryPart: string | null;
   pharmacy: string | null; area: string | null; rowCount: number;
   calls: number; promptTokens: number; outputTokens: number; costUsd: number; durationMs: number;
   ok: boolean; error: string | null; hasImage: boolean;
-  kind: 'photo' | 'text'; sourceText: string | null; readBy: string | null;
+  kind: 'photo' | 'text' | 'pdf'; sourceText: string | null; readBy: string | null;
   routedTo: { orderId: number | null; userId: number | null; name: string | null; forwarded: boolean }[] | null;
-  details: { invoiceNumber: string | null; date: string | null; items: (string | number | null)[][] } | null;
+  details: {
+    invoiceNumber: string | null; date: string | null; items: (string | number | null)[][];
+    orient?: { deg: number; by: string; localWas?: number | null } | null;
+    pdf?: { pages: number; how: string } | null;
+    gate?: { best: number | null; how: string; open: number } | null;
+    purpose?: string;
+  } | null;
 }
 interface ListResp { rows: ReadLog[]; total: number; page: number; pageSize: number; sums: { images: number; calls: number; tokens: number; costUsd: number } }
 
@@ -27,6 +33,10 @@ const SOURCE: Record<string, string> = {
 const sourceLabel = (s: string) => { const base = s.split(' ')[0]; return (SOURCE[base] || base) + s.slice(base.length); };
 const MODE: Record<string, { t: string; c: string }> = {
   strong: { t: '💪 الأقوى', c: '#4f46e5' }, lite: { t: '💰 الأرخص', c: '#0891b2' }, auto: { t: '🧠 تلقائي', c: '#16a34a' },
+};
+// «تلقائي»: ما أُعيد بالأقوى وحده
+const RETRY_PART: Record<string, string> = {
+  rows: 'أسطر فقط', customer: 'الزبون فقط', 'rows+customer': 'أسطر والزبون', full: 'كاملة', text: 'نص PDF',
 };
 const fmt = (n: number) => (n ?? 0).toLocaleString('en-US');
 const usd = (n: number) => `$${(n ?? 0).toFixed(4)}`;
@@ -44,6 +54,23 @@ function useAuthImage(url: string | null, token: string | null) {
     return () => { alive = false; if (obj) URL.revokeObjectURL(obj); };
   }, [url, token]);
   return src;
+}
+
+/** ملف PDF محفوظ مع السجل: يُجلب بالتوكن ويُفتح في تبويب. */
+function PdfTile({ id, token, has }: { id: number; token: string | null; has: boolean }) {
+  const open = () => {
+    if (!has) return;
+    fetch(`/api/sa/ai-usage/invoices/${id}/image`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.blob() : null))
+      .then(b => { if (b) window.open(URL.createObjectURL(b), '_blank', 'noopener'); })
+      .catch(() => {});
+  };
+  return (
+    <div onClick={open} title={has ? 'فتح ملف PDF' : 'ملف PDF'}
+      style={{ width: 54, height: 54, borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#b91c1c', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, cursor: has ? 'pointer' : 'default' }}>
+      PDF
+    </div>
+  );
 }
 
 function Thumb({ id, token, onOpen }: { id: number; token: string | null; onOpen: (src: string) => void }) {
@@ -115,6 +142,7 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
                       <td style={td}>
                         {r.kind === 'text'
                           ? <div title={r.sourceText || ''} onClick={() => toggle(r.id)} style={{ width: 54, height: 54, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f0f9ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer' }}>💬</div>
+                          : r.kind === 'pdf' ? <PdfTile id={r.id} token={token} has={r.hasImage} />
                           : r.hasImage ? <Thumb id={r.id} token={token} onOpen={setBig} /> : <span style={{ color: '#cbd5e1' }}>—</span>}
                       </td>
                       <td style={{ ...td, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'end' }}>{when(r.createdAt)}</td>
@@ -125,7 +153,9 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
                             {o.forwarded ? <span title="حُوِّلت لمدير الشركة صاحب الأصناف" style={{ color: '#7c3aed', fontWeight: 700 }}>↪️ {o.name || '—'}</span> : <span>{o.name || '—'}</span>}
                             {o.orderId && <span style={{ color: UI.faint, fontSize: 11 }}> #{o.orderId}</span>}
                           </div>
-                        )) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                        )) : r.readBy === 'gate'
+                          ? <span title={`فحص سريع: لا تطابق أيّاً من الطلبيات المفتوحة${r.details?.gate?.open ? ` (${r.details.gate.open})` : ''} — بلا قراءة كاملة`} style={{ fontSize: 11.5, color: '#64748b', whiteSpace: 'nowrap' }}>🔎 لا تخصّ طلبية</span>
+                          : <span style={{ color: '#cbd5e1' }}>—</span>}
                       </td>
                       <td style={td}>
                         <div style={{ whiteSpace: 'nowrap' }}>{sourceLabel(r.source)}</div>
@@ -146,8 +176,12 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
                             style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: r.readBy === 'parser' ? '#0891b2' : '#2563eb', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
                             {r.readBy === 'parser' ? '⚡ المحلل' : '🤖 الذكاء'}
                           </span>
+                        ) : r.readBy === 'gate' ? (
+                          <span title="قُرئ اسم الزبون والأصناف فقط (أرخص نموذج)" style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#64748b', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>🔎 فحص سريع</span>
                         ) : r.mode && MODE[r.mode] ? <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: MODE[r.mode].c, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>{MODE[r.mode].t}</span> : '—'}
-                        {r.retried && <div style={{ fontSize: 10.5, color: '#b45309', marginTop: 3, whiteSpace: 'nowrap' }}>🔁 أُعيدت بالأقوى</div>}
+                        {r.retried && <div style={{ fontSize: 10.5, color: '#b45309', marginTop: 3, whiteSpace: 'nowrap' }}>🔁 بالأقوى: {RETRY_PART[r.retryPart || ''] || 'أُعيدت'}</div>}
+                        {r.details?.orient?.by === 'local' && <div title={`الاتجاه حُسم محلياً بلا ذكاء (${r.details.orient.deg}°)`} style={{ fontSize: 10.5, color: '#0f766e', marginTop: 3, whiteSpace: 'nowrap' }}>🧭 اتجاه محلي</div>}
+                        {r.kind === 'pdf' && r.details?.pdf && <div title={r.details.pdf.how === 'text' ? 'نصّ الملف قُرئ بلا صورة' : 'ملف ممسوح ضوئياً — قُرئ كصورة'} style={{ fontSize: 10.5, color: '#b91c1c', marginTop: 3, whiteSpace: 'nowrap' }}>📄 {r.details.pdf.how === 'text' ? 'نص PDF' : 'PDF ممسوح'}</div>}
                       </td>
                       <td style={{ ...td, textAlign: 'center' }}>{r.calls}</td>
                       <td style={{ ...td, whiteSpace: 'nowrap' }}>

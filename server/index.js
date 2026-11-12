@@ -112,6 +112,7 @@ import repOrdersRoutes          from './modules/rep-orders/rep-orders.routes.js'
 import repSalesRoutes           from './modules/rep-sales/rep-sales.routes.js';
 import warehouseDispatchRoutes  from './modules/warehouse-dispatch/dispatch.routes.js';
 import { resumeListenInbox } from './modules/wa-groups/wa-groups.listen.js';
+import { backfillCardSamples } from './lib/invoiceCardAuto.js';
 import dofiedRoutes from './modules/dofied/dofied.routes.js';
 import { startDofiedScheduler } from './modules/dofied/dofied.sync.js';
 import { internalRouter as waGroupsInternalRoutes, adminRouter as waGroupsAdminRoutes, saRouter as waGroupsSaRoutes } from './modules/wa-groups/wa-groups.routes.js';
@@ -5081,6 +5082,9 @@ if (process.env.VERCEL) {
     backfillOrderSends().then(() => backfillWarehouseSeqs());
     // محادثات البوت: الرسائل القديمة بلا جهة ← تُنسب لصاحبها (مذخر/حساب/زبون حملة)
     backfillParties();
+    // بطاقات المذاخر التلقائية: صور كروبات المذاخر المقروءة سابقاً ← عيّنات (مرة لكل مذخر)،
+    // بعد دقيقتين كي لا تزاحم الإقلاع
+    setTimeout(() => { backfillCardSamples().catch(e => console.error('[backfillCardSamples]', e?.message)); }, 120_000).unref?.();
     // حملات واتساب كانت قيد الإرسال لحظة إعادة التشغيل ← تُتابع
     resumeCampaigns()
       .then(n => { if (n) console.log(`✓ استؤنفت ${n} حملة واتساب`); })

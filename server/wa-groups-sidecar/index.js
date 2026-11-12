@@ -201,6 +201,15 @@ function unwrap(m) {
   return m?.ephemeralMessage?.message || m?.viewOnceMessageV2?.message || m?.viewOnceMessage?.message || m;
 }
 
+/** نصّ رسالة مقتبسة (نص، أو تعليق صورة/ملف) — مقصوص. */
+function quotedTextOf(q) {
+  const m = unwrap(q);
+  if (!m) return null;
+  const t = m.conversation || m.extendedTextMessage?.text || m.imageMessage?.caption || m.documentMessage?.caption
+    || m.documentWithCaptionMessage?.message?.documentMessage?.caption || '';
+  return t ? String(t).slice(0, 2000) : null;
+}
+
 /** @returns {Promise<boolean>} true إن أقرّ التطبيق بالاستلام (بعده السجلّ عنده يحمي الرسالة) */
 function forward(body) {
   const payload = JSON.stringify(body);
@@ -239,12 +248,17 @@ async function onMessage(msg, type = 'notify') {
 
   const m = unwrap(msg.message);
   if (!m) return;
-  const image = m.imageMessage || (m.documentMessage && /^image\//.test(m.documentMessage.mimetype || '') ? m.documentMessage : null);
-  const text = m.conversation || m.extendedTextMessage?.text || image?.caption || '';
-  const ctx = m.extendedTextMessage?.contextInfo || image?.contextInfo || null;
+  // ملف مع تعليق يصل ملفوفاً بـ documentWithCaptionMessage
+  const doc = m.documentMessage || m.documentWithCaptionMessage?.message?.documentMessage || null;
+  const image = m.imageMessage || (doc && /^image\//.test(doc.mimetype || '') ? doc : null);
+  // فاتورة PDF من نظام المذخر: نصّها يُقرأ في التطبيق بلا صورة ولا اتجاه (أرخص بكثير)
+  const pdf = !image && doc && (/pdf/i.test(doc.mimetype || '') || /\.pdf$/i.test(doc.fileName || '')) ? doc : null;
+  const media = image || pdf;
+  const text = m.conversation || m.extendedTextMessage?.text || media?.caption || '';
+  const ctx = m.extendedTextMessage?.contextInfo || media?.contextInfo || null;
 
-  if (!text && !image) return;
-  if (image && Number(image.fileLength || 0) > MAX_IMAGE_BYTES) return;
+  if (!text && !media) return;
+  if (media && Number(media.fileLength || 0) > MAX_IMAGE_BYTES) return;
 
   const msgId = msg.key.id;
   if (msgId && seen.has(msgId)) return;
@@ -253,15 +267,20 @@ async function onMessage(msg, type = 'notify') {
 
   let delivered = false;
   try {
-    let imageBase64 = null;
-    if (image) {
+    let imageBase64 = null, docBase64 = null;
+    if (media) {
       const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
-      imageBase64 = Buffer.from(buf).toString('base64');
+      if (pdf) docBase64 = Buffer.from(buf).toString('base64');
+      else imageBase64 = Buffer.from(buf).toString('base64');
     }
     delivered = await forward({
       // participantAlt = صيغة الهاتف حين يكون الكروب بوضع LID — التطبيق يربط المندوب برقمه
       jid, msgId, sender: msg.key.participantAlt || msg.key.participant || null, senderName: msg.pushName || null,
-      text, quotedId: ctx?.stanzaId || null, imageBase64,
+      text, quotedId: ctx?.stanzaId || null,
+      // نصّ الرسالة المقتبسة: ردّ المذخر على رسالة طلبية أُرسلت يدوياً يعرّفها بلا ذكاء
+      quotedText: quotedTextOf(ctx?.quotedMessage),
+      imageBase64,
+      ...(docBase64 ? { docBase64, docMime: 'application/pdf', docName: pdf.fileName || null } : {}),
     });
   } finally {
     // لم تصل التطبيق ⇒ لا تُعلَّم معالَجة، فإعادة التسليم تبقى ممكنة

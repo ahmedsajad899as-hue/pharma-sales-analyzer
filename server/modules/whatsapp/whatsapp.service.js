@@ -196,11 +196,16 @@ const seenOnce = (id) => {
   return false;
 };
 
-/** صورة مرسَلة كصورة، أو كملف (document) نوعه image/* — المندوبون يفعلون الاثنين. */
+/**
+ * صورة مرسَلة كصورة، أو كملف (document) نوعه image/* — المندوبون يفعلون الاثنين.
+ * وملف PDF (فاتورة من نظام المذخر): يمرّ بنفس المسار، وقارئ الفواتير يميّزه من البايتات
+ * فيقرأ نصّه بلا صورة.
+ */
 function imageRef(message) {
   if (message.type === 'image' && message.image?.id) return { id: message.image.id, caption: message.image.caption };
-  if (message.type === 'document' && message.document?.id && /^image\//.test(message.document.mime_type || '')) {
-    return { id: message.document.id, caption: message.document.caption };
+  const doc = message.type === 'document' ? message.document : null;
+  if (doc?.id && (/^image\//.test(doc.mime_type || '') || /pdf/i.test(doc.mime_type || '') || /\.pdf$/i.test(doc.filename || ''))) {
+    return { id: doc.id, caption: doc.caption };
   }
   return null;
 }

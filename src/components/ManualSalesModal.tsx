@@ -280,6 +280,14 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [images, setImages] = useState<string[]>([]);    // object URLs of uploaded invoice photos
   const [preview, setPreview] = useState<string | null>(null);
+  // روابط الفواتير التي هي ملفات PDF (لا صورة): تُعرض أيقونة وتُفتح في تبويب، لا في عارض الصور
+  const pdfUrls = useRef<Set<string>>(new Set());
+  const isPdfUrl = (u: string | null | undefined) => Boolean(u && pdfUrls.current.has(u));
+  const showFile = (u: string | null | undefined) => {
+    if (!u) return;
+    if (isPdfUrl(u)) window.open(u, '_blank', 'noopener');
+    else setPreview(u);
+  };
 
   // Destination
   // طلبيات البوت تذهب افتراضياً إلى «ملف الكوديشن» (حاوية تراكمية مرتبطة بميركاتو).
@@ -505,7 +513,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           try {
             const res = await fetch(`${API}/api/orders/pending/${o.id}/image/${i}`, { headers: authH });
             if (!res.ok) continue;
-            slots[base + i] = URL.createObjectURL(await res.blob());
+            const blob = await res.blob();
+            slots[base + i] = URL.createObjectURL(blob);
+            if (blob.type === 'application/pdf') pdfUrls.current.add(slots[base + i]);
             ok++;
           } catch { /* صورة مفقودة لا تُسقط المراجعة */ }
         }
@@ -523,7 +533,11 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     if (!fileList || fileList.length === 0) return;
     setError(''); setInfo(''); setExtracting(true);
     const baseIndex = imagesRef.current.length;
-    const newUrls = Array.from(fileList).map(f => URL.createObjectURL(f));
+    const newUrls = Array.from(fileList).map(f => {
+      const u = URL.createObjectURL(f);
+      if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) pdfUrls.current.add(u);
+      return u;
+    });
     setImages(prev => [...prev, ...newUrls]);
     try {
       const fd = new FormData();
@@ -757,14 +771,15 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
   useEffect(() => {
     if (confirm == null) return;
     const st = steps[confirm];
-    if (st && st.imageIndex != null && images[st.imageIndex]) setPreview(images[st.imageIndex]);
+    // التدقيق خطوة بخطوة يكبّر موضع كل حقل في الصورة — ملف PDF بلا صورة ولا مواضع
+    if (st && st.imageIndex != null && images[st.imageIndex] && !isPdfUrl(images[st.imageIndex])) setPreview(images[st.imageIndex]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirm]);
   const startConfirm = () => {
     if (!steps.length) return;
     setConfirm(0);
     const st = steps[0];
-    if (st.imageIndex != null && images[st.imageIndex]) setPreview(images[st.imageIndex]);
+    if (st.imageIndex != null && images[st.imageIndex] && !isPdfUrl(images[st.imageIndex])) setPreview(images[st.imageIndex]);
   };
   const stepLabel = (st: Step | null): string => {
     if (!st) return '';
@@ -892,7 +907,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
    */
   const showOrder = (orderId: number, imageIndex: number | null) => {
     setActiveOrderId(orderId);
-    if (imageIndex != null && images[imageIndex]) setPreview(images[imageIndex]);
+    if (imageIndex != null && images[imageIndex] && !isPdfUrl(images[imageIndex])) setPreview(images[imageIndex]);
   };
   const activeOrder = (activeOrderId != null ? orderById.get(activeOrderId) : null) ?? initialOrder;
   // التفاصيل تظهر عند تمرير الماوس فقط (title) — بلا شرح مرئي في الجدول.
@@ -1068,7 +1083,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
             <input type="checkbox" checked={onlyAssignedItems} onChange={e => setOnlyAssignedItems(e.target.checked)} />
             ايتماتي فقط
           </label>
-          <input ref={imgInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+          <input ref={imgInputRef} type="file" accept="image/*,application/pdf" multiple style={{ display: 'none' }}
             onChange={e => onImages(e.target.files)} />
           <button onClick={() => imgInputRef.current?.click()} disabled={extracting} style={imgBtn}
             title="تحليل صورة فاتورة بالذكاء الاصطناعي — يمكن اختيار عدة صور">
@@ -1113,8 +1128,10 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
               if (!u) return null; // صورة طلبية تعذّر تحميلها — خانتها محجوزة
               const n = rows.filter(r => r.imageIndex === i && rowHasData(r)).length;
               return (
-                <button key={i} onClick={() => { setPreview(u); scrollToGroup(i); }} title={`عرض الفاتورة ${i + 1} والانتقال لأصنافها`} style={thumb}>
-                  <img src={u} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+                <button key={i} onClick={() => { showFile(u); scrollToGroup(i); }} title={`عرض الفاتورة ${i + 1} والانتقال لأصنافها`} style={thumb}>
+                  {isPdfUrl(u)
+                    ? <span style={{ width: 40, height: 40, borderRadius: 4, background: '#fef2f2', color: '#b91c1c', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>PDF</span>
+                    : <img src={u} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />}
                   <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.3 }}>
                     <span style={{ fontSize: 11.5, fontWeight: 600, color: '#1e293b' }}>فاتورة {i + 1}</span>
                     <span style={{ fontSize: 10.5, color: n ? '#64748b' : '#b91c1c' }}>{n ? `${n} صنف` : 'بلا أصناف'}</span>
@@ -1213,7 +1230,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                           #{g.orderId}
                         </button>
                       ) : g.imageIndex != null ? (
-                        <button onClick={() => images[g.imageIndex!] && setPreview(images[g.imageIndex!])} style={invMini} title="عرض صورة الفاتورة">
+                        <button onClick={() => showFile(images[g.imageIndex!])} style={invMini} title="عرض صورة الفاتورة">
                           {g.imageIndex + 1}
                         </button>
                       ) : <span style={{ color: '#94a3b8', fontSize: 11 }}>يدوي</span>}

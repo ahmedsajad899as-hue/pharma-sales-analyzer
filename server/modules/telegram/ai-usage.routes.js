@@ -3,6 +3,9 @@ import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import { getAiUsageSummary } from '../../lib/aiUsage.js';
 import { listAiModelSettings, setAiModelSetting } from '../../lib/aiModelSettings.js';
 import { listInvoiceReadLogs, invoiceReadImagePath } from '../../lib/invoiceReadLog.js';
+import { listCardsWithSamples, maybeGenerateCard } from '../../lib/invoiceCardAuto.js';
+import { invalidateInvoiceCards } from '../../lib/invoiceCards.js';
+import prisma from '../../lib/prisma.js';
 
 const router = express.Router();
 router.use(requireMasterAdmin);
@@ -37,6 +40,37 @@ router.put('/models', async (req, res) => {
     console.error('[ai-usage/models]', e);
     res.status(500).json({ error: 'تعذّر الحفظ' });
   }
+});
+
+// بطاقات المذاخر (يدوية + مولَّدة تلقائياً من صور كروباتها — lib/invoiceCardAuto.js)
+router.get('/cards', async (_req, res) => {
+  try {
+    res.json({ success: true, data: await listCardsWithSamples() });
+  } catch (e) {
+    console.error('[ai-usage/cards]', e);
+    res.status(500).json({ error: 'تعذّر جلب البطاقات' });
+  }
+});
+
+router.patch('/cards/:id', async (req, res) => {
+  try {
+    const enabled = req.body?.enabled;
+    if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'قيمة غير صالحة' });
+    await prisma.warehouseInvoiceCard.update({ where: { id: Number(req.params.id) }, data: { enabled } });
+    invalidateInvoiceCards();
+    res.json({ success: true, data: await listCardsWithSamples() });
+  } catch (e) {
+    console.error('[ai-usage/cards]', e);
+    res.status(500).json({ error: 'تعذّر الحفظ' });
+  }
+});
+
+// إعادة توليد بطاقة من عيّناتها الآن (يعمل في الخلفية ~30-60 ث)
+router.post('/cards/regenerate', async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'اسم المذخر مطلوب' });
+  maybeGenerateCard(name, { force: true }).catch(e => console.error('[ai-usage/cards/regenerate]', e?.message));
+  res.json({ success: true });
 });
 
 // الصور المحلَّلة: صورة لكل سطر مع المرسل والتاريخ والتوكنز والكلفة (lib/invoiceReadLog.js)

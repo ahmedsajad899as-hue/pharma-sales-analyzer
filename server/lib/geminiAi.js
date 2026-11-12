@@ -22,7 +22,8 @@ const apiUrl = (model) => `https://generativelanguage.googleapis.com/v1beta/mode
 const DEFAULT_TIMEOUT_MS = 55_000; // قصير للمساعد؛ النداءات الثقيلة تمرّر أكثر (Nginx يسمح بـ300s)
 const MAX_OUTPUT_TOKENS  = 16_000;
 const RETRY_DELAY_MS     = 1_000;
-const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
+// application/pdf: فاتورة PDF ممسوحة ضوئياً (بلا نص) تُرسل كملف — Gemini يقرأ صفحاتها كصور.
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf']);
 
 // مجمّع نداءات اختياري: من يلفّ عمله بـ aiCallScope.run([], fn) يجد في المصفوفة كل نداء
 // جرى داخله (حتى المتوازية والمتداخلة) — هكذا يُحسب ما كلّفته صورة فاتورة واحدة كاملةً

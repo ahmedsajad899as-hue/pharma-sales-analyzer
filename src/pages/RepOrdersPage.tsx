@@ -101,6 +101,9 @@ const whStatsOf = (o: Order, whId: number | null) => {
 /** آخر إرسال لمذخر معيّن */
 const lastSendTo = (o: Order, whId: number | null) => [...o.sends].reverse().find(s => s.warehouseId === whId) ?? null;
 
+/** فاتورة المذخر قد تصل ملف PDF (من نظامه) لا صورة — تُعرض رابطاً يُفتح لا <img>. */
+const isPdfPath = (p: string | null | undefined) => Boolean(p && /\.pdf$/i.test(p));
+
 /** المذخر الحالي للطلبية: آخر مذخر أُرسلت له، وإلا الأساسي. */
 const currentWh = (o: Order): OrderWh => o.warehouses.find(w => w.id != null && w.id === o.lastSentWarehouseId) ?? o.warehouses[0] ?? { id: o.warehouseId, name: o.warehouseName, phone: o.warehousePhone };
 
@@ -1310,7 +1313,10 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, show
                     <div className="ro-invoices__list">
                       {o.sends.filter(sd => sd.image).map(sd => (
                         <figure key={sd.id} className="ro-invoices__item">
-                          <img className="ro-whp__thumb" src={`${API}${sd.image}`} alt={`فاتورة ${sd.warehouseName}`} onClick={() => onPreview(sd.image!)} />
+                          {isPdfPath(sd.image)
+                            ? <a className="ro-whp__thumb" href={`${API}${sd.image}`} target="_blank" rel="noreferrer" title="فاتورة PDF — فتح"
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#b91c1c', background: '#fef2f2', textDecoration: 'none' }}>PDF</a>
+                            : <img className="ro-whp__thumb" src={`${API}${sd.image}`} alt={`فاتورة ${sd.warehouseName}`} onClick={() => onPreview(sd.image!)} />}
                           <figcaption>
                             <span className="ro-invoices__wh">{o.warehouses.find(w => w.id === sd.warehouseId)?.name ?? sd.warehouseName}</span>
                             {sd.outcomeAt && <span className="ro-tl-date">{fmtShort(sd.outcomeAt)}</span>}
@@ -1921,7 +1927,10 @@ function ImageSlot({ label, hint, src, canRemove, onPreview, onUpload, onRemove 
       <div className="ro-slot__label">{label}</div>
       {src ? (
         <div className="ro-slot__img">
-          <img src={`${API}${src}`} alt={label} onClick={() => onPreview(src)} />
+          {isPdfPath(src)
+            ? <a href={`${API}${src}`} target="_blank" rel="noreferrer" title="فاتورة PDF — فتح"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', minHeight: 64, fontSize: 13, fontWeight: 800, color: '#b91c1c', background: '#fef2f2', borderRadius: 8, textDecoration: 'none' }}>📄 PDF</a>
+            : <img src={`${API}${src}`} alt={label} onClick={() => onPreview(src)} />}
           {canRemove && <button className="ro-slot__x" title="حذف الصورة" onClick={onRemove}><X size={12} /></button>}
         </div>
       ) : (

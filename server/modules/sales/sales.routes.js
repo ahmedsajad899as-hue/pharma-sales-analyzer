@@ -38,8 +38,9 @@ const imageUpload = multer({
   storage: multer.memoryStorage(),
   limits:  { fileSize: 12 * 1024 * 1024, files: 10 }, // 12 MB each, up to 10 images
   fileFilter: (_req, file, cb) => {
-    if (/^image\//.test(file.mimetype)) cb(null, true);
-    else cb(new Error('Only image files are allowed.'));
+    // PDF: فاتورة من نظام المذخر — نصّها يُقرأ بلا صورة (extractInvoiceRows يميّزه من البايتات)
+    if (/^image\//.test(file.mimetype) || file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Only image or PDF files are allowed.'));
   },
 });
 

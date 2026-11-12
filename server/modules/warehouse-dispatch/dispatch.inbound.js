@@ -16,7 +16,12 @@
 import prisma from '../../lib/prisma.js';
 import { normalizeWaId } from '../../lib/waId.js';
 import { extractInvoiceRows } from '../sales/sales.service.js';
-import { scoreOrder, compareInvoiceLines } from '../rep-orders/rep-orders.invoice.js';
+import { scoreOrder, compareInvoiceLines, placeSim, nameSim } from '../rep-orders/rep-orders.invoice.js';
+import { aiCallScope } from '../../lib/geminiAi.js';
+import { saveInvoiceReadLog } from '../../lib/invoiceReadLog.js';
+import { invoiceGate } from '../../lib/invoiceGate.js';
+import { isPdf } from '../../lib/invoicePdf.js';
+import { collectCardSample } from '../../lib/invoiceCardAuto.js';
 import { recordPreparation } from '../rep-orders/rep-orders.service.js';
 import { pharmacyKey } from '../../lib/pharmacyKey.js';
 import { sendWhatsAppText, sendList, downloadMedia } from '../whatsapp/whatsapp.service.js';
@@ -147,22 +152,59 @@ async function warehouseHintFor(whIds) {
   return names.length === 1 ? names[0] : null;
 }
 
-/** قراءة فاتورة المذخر ذكياً. null عند الفشل (تُثبَّت الصورة بلا مقارنة كما كان). */
-async function readWarehouseInvoice(buffer, hint, source) {
+/**
+ * قراءة فاتورة المذخر ذكياً (صورة أو PDF). null عند الفشل (تُثبَّت الصورة بلا مقارنة كما كان).
+ * purpose: 'compare' = الطلبية معروفة (رد/رقم) فيكفي الأصناف والكميات — بلا تصويت سطر الزبون
+ *          ولا قصاصاته؛ 'match' = تخمين بين المفتوحة، واسم الفحص السريع بديل نداءات الزبون.
+ * كل فاتورة مقروءة من مذخر معروف تصير عيّنة محتملة لبطاقته (invoiceCardAuto).
+ */
+async function readWarehouseInvoice(buffer, hint, source, { purpose = 'compare', fallbackPharmacy = null, priorCalls = null } = {}) {
   try {
-    return await extractInvoiceRows([{ mimeType: 'image/jpeg', base64: buffer.toString('base64') }],
-      { warehouseHint: hint, logContext: { source, chatTitle: hint || undefined } });
+    const rows = await extractInvoiceRows([{ mimeType: isPdf(buffer) ? 'application/pdf' : 'image/jpeg', base64: buffer.toString('base64') }],
+      { warehouseHint: hint, purpose, fallbackPharmacy, priorCalls, logContext: { source, chatTitle: hint || undefined } });
+    if (hint) collectCardSample({ warehouse: hint, buffer, rows, source });
+    return rows;
   } catch (e) {
     console.error('[dispatch] قراءة فاتورة المذخر:', e?.message);
     return null;
   }
 }
 
+/** طلبيات مفتوحة (بوت + يدوية) بشكل الفحص السريع: اسم الصيدلية والأصناف. */
+const gateCandidates = (open, manual) => [
+  ...open.map(d => ({ pharmacy: d.pharmacyName || '', items: (Array.isArray(d.lines) ? d.lines : []).map(l => l.item).filter(Boolean) })),
+  ...manual.map(s => ({ pharmacy: s.order.pharmacyName || '', items: s.order.lines.map(l => l.itemName).filter(Boolean) })),
+];
+
+/**
+ * ردّ المذخر على رسالة الطلبية نفسها (اقتباس): نصّ الرسالة المقتبسة يحمل «الصيدلية: …» والأصناف،
+ * فتُعرف الطلبية **بلا ذكاء** — حتى لطلبية أُرسلت يدوياً من هاتف المرسل (لا نعرف معرّف رسالتها).
+ * يُعيد { d } أو { s } للطلبية المطابقة بوضوح، أو null.
+ */
+export function matchQuotedText(text, open, manual) {
+  const t = String(text || '').trim();
+  if (t.length < 4) return null;
+  const lines = t.split(/\r?\n/)
+    .map(l => l.replace(/[*_~]/g, '').replace(/^\s*(?:الصيدلية|الصيدليه|صيدلية|صيدليه|ص)\s*[:：]?\s*/, '').trim())
+    .filter(Boolean);
+  const cands = [
+    ...open.map(d => ({ d, name: d.pharmacyName, items: (Array.isArray(d.lines) ? d.lines : []).map(l => l.item) })),
+    ...manual.map(s => ({ s, name: s.order.pharmacyName, items: s.order.lines.map(l => l.itemName) })),
+  ].filter(c => c.name).map(c => {
+    const ph = Math.max(0, ...lines.map(l => placeSim(c.name, l)));
+    const its = c.items.filter(Boolean);
+    const it = its.length ? its.filter(n => lines.some(l => nameSim(n, l) >= 0.62)).length / its.length : 0;
+    return { ...c, ph, score: Math.round(ph * 70 + it * 30) };
+  }).sort((a, b) => b.score - a.score);
+  const [a, b] = cands;
+  return a && a.ph >= 0.85 && a.score >= 70 && (!b || a.score - b.score >= 15) ? a : null;
+}
+
 const trimRows = (rows) => rows.map(r => ({ item: r.item, quantity: r.quantity, bonus: r.bonus, pharmacy: r.pharmacy, invoiceNumber: r.invoiceNumber }));
 
 /** صورة فاتورة ← أقرب طلبية مفتوحة بالقراءة الذكية (صيدلية + أصناف + تاريخ). */
 async function guessByInvoice(buffer, candidates, hint = null, source = 'warehouse-group') {
-  const rows = await readWarehouseInvoice(buffer, hint, source);
+  const rows = await readWarehouseInvoice(buffer, hint, source, { purpose: 'match' });
   if (!rows) return { rows: null, best: null };
   const inv = invoiceShape(rows);
   const scored = candidates.map(d => ({
@@ -210,9 +252,10 @@ async function handleWarehouseEvent(ctx, ev) {
     m = ev.payload.match(/^wdi:(\d+):([a-f0-9]{32})$/);
     if (m) {
       const d = await dispatchFor(m[1], whIds);
-      const rows = pendingCloudRows.get(m[2])?.rows ?? null;
+      const pending = pendingCloudRows.get(m[2]);
       pendingCloudRows.delete(m[2]);
-      if (d) await attachInvoice(d.id, `/uploads/dispatch/${m[2]}.jpg`, { rows });
+      // الفاتورة صورة (.jpg) أو ملف PDF (.pdf) — الامتداد محفوظ مع الأسطر
+      if (d) await attachInvoice(d.id, `/uploads/dispatch/${m[2]}.${pending?.ext || 'jpg'}`, { rows: pending?.rows ?? null });
       return true;
     }
     return false;
@@ -232,7 +275,41 @@ async function handleWarehouseEvent(ctx, ev) {
         return false;
       }
       const buffer = await ev.getImage();
-      const r = await readWarehouseInvoice(buffer, await warehouseHintFor(whIds), 'warehouse-group');
+      const hint = await warehouseHintFor(whIds);
+      // 1) ردّ على رسالة طلبية بنصّها (أُرسلت يدوياً من هاتف المرسل): الطلبية معروفة بلا ذكاء
+      const byQuote = matchQuotedText(ev.quotedText, open, manual);
+      if (byQuote) {
+        const r = await readWarehouseInvoice(buffer, hint, 'warehouse-group', { purpose: 'compare' });
+        console.log(`[dispatch] فاتورة كروب ردّاً على نصّ طلبية «${byQuote.name}» — عُرفت الطلبية بلا ذكاء`);
+        if (byQuote.d) {
+          await attachInvoice(byQuote.d.id, await saveInvoiceImage(buffer), { rows: r ? trimRows(r) : null });
+          return true;
+        }
+        // طلبية يدوية: بلا قراءة لا نعرف الكميات المجهّزة — لا نسجّل «لا شيء جُهّز» خطأً
+        if (!r?.length) {
+          console.log(`[dispatch] تعذّرت قراءة فاتورة رُدّ بها على طلبية «${byQuote.name}» اليدوية — تُركت`);
+          return false;
+        }
+        await attachManualSendInvoice(byQuote.s, await saveInvoiceImage(buffer), r);
+        return true;
+      }
+      // 2) فحص سريع رخيص: هل يمكن أصلاً أن تخصّ طلبية مفتوحة؟ الكروب فيه فواتير كل زبائن المذخر
+      const gateCalls = [];
+      const gStarted = Date.now();
+      const gate = await aiCallScope.run(gateCalls, () => invoiceGate(buffer, gateCandidates(open, manual)));
+      if (gate.decision === 'skip') {
+        console.log(`[dispatch] فحص سريع: صورة كروب مذخر لا تخصّ طلبية مفتوحة («${gate.pharmacy || '—'}»، أفضل تقدير ${gate.best}، ${gate.how}) — بلا قراءة كاملة`);
+        const gateRows = gate.items.map(item => ({ item, pharmacy: gate.pharmacy, warehouse: hint }));
+        saveInvoiceReadLog({
+          ctx: { source: 'warehouse-group', chatTitle: hint || undefined }, calls: gateCalls, image: buffer,
+          kind: isPdf(buffer) ? 'pdf' : 'photo', rows: gateRows, readBy: 'gate', mode: null,
+          header: { pharmacy: gate.pharmacy, warehouse: hint }, ok: true, durationMs: Date.now() - gStarted,
+          extra: { gate: { best: gate.best, how: gate.how, open: open.length + manual.length } },
+        });
+        if (hint) collectCardSample({ warehouse: hint, buffer, rows: gateRows.length ? gateRows : [{ pharmacy: gate.pharmacy }], source: 'warehouse-group' });
+        return false;
+      }
+      const r = await readWarehouseInvoice(buffer, hint, 'warehouse-group', { purpose: 'match', fallbackPharmacy: gate.pharmacy, priorCalls: gateCalls });
       if (!r) return false;
       const inv = invoiceShape(r);
       const scored = [
@@ -288,7 +365,7 @@ async function handleWarehouseEvent(ctx, ev) {
     }
     // الطلبية معروفة (رد/رقم/الوحيدة) ولم تُقرأ الفاتورة بعد ⇒ تُقرأ لتُقارن بها
     if (!rows) {
-      const r = await readWarehouseInvoice(buffer, hint, source);
+      const r = await readWarehouseInvoice(buffer, hint, source, { purpose: 'compare' });
       if (r) rows = trimRows(r);
     }
     await attachInvoice(target.id, imagePath, { rows });
@@ -383,11 +460,11 @@ export async function handleWarehouseCloudMessage(message, _contactName, img) {
   return handleWarehouseEvent({
     channel: 'cloud', whIds, reply,
     askWhich: async (open, imagePath, _msgId, rows, bestId) => {
-      const token = imagePath.match(/([a-f0-9]{32})\.jpg$/)?.[1];
-      if (token && rows) {
+      const [, token, ext] = imagePath.match(/([a-f0-9]{32})\.(jpg|pdf)$/) || [];
+      if (token) {
         const now = Date.now();
         for (const [k, v] of pendingCloudRows) if (now - v.at > PENDING_IMG_TTL) pendingCloudRows.delete(k);
-        pendingCloudRows.set(token, { rows, at: now });
+        pendingCloudRows.set(token, { rows: rows ?? null, ext, at: now });
       }
       const r = await sendList(waId, 'استلمنا صورة الفاتورة 🧾\nهذه الفاتورة لأي صيدلية؟ اختاروا من القائمة كي تُثبَّت على طلبيتها.', 'اختيار الصيدلية',
         open.slice(0, 10).map(d => ({
@@ -450,7 +527,7 @@ async function handleGroupPollVote(m, whIds) {
 
 /**
  * رسالة واردة من كروب مذخر (عبر خدمة رقم الكروبات).
- * @param {{ jid, msgId, text, quotedId, imageBase64 }} m
+ * @param {{ jid, msgId, text, quotedId, quotedText, imageBase64, docBase64 }} m
  */
 export async function handleGroupInbound(m) {
   if (!m?.jid) return false;
@@ -470,9 +547,12 @@ export async function handleGroupInbound(m) {
   }, {
     payload: null,
     quotedId: m.quotedId || null,
+    // نصّ الرسالة المقتبسة (رسالة الطلبية) — يعرّف الطلبية بلا ذكاء حتى لو أُرسلت يدوياً
+    quotedText: m.quotedText || null,
     text: m.text || '',
-    hasImage: Boolean(m.imageBase64),
-    getImage: async () => Buffer.from(m.imageBase64, 'base64'),
+    // صورة أو ملف PDF (فاتورة من نظام المذخر — نصّها يُقرأ بلا صورة)
+    hasImage: Boolean(m.imageBase64 || m.docBase64),
+    getImage: async () => Buffer.from(m.imageBase64 || m.docBase64, 'base64'),
     msgId: m.msgId,
     jid: m.jid,
   });

@@ -47,7 +47,8 @@ export const MAX_PENDING_SILENT_PER_USER = 300;
 /** تُقلَّم الصفوف الأقدم من هذا تلقائياً عند أول قراءة للقائمة. */
 const PRUNE_AFTER_DAYS = 30;
 
-const ALLOWED_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+// .pdf: فاتورة PDF من نظام المذخر أرسلها المندوب (تُعرض في المراجعة رابطاً لا صورة)
+const ALLOWED_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.pdf']);
 
 /**
  * بصمة الطلبية — الحارس الفعلي ضد التكرار، مستقلّ عن حارس update_id في تلكرام
@@ -955,7 +956,8 @@ async function saveImages(buffers) {
   const names = [];
   for (const buf of buffers) {
     if (!buf?.length) continue;
-    const name = `${Date.now()}_${crypto.randomBytes(8).toString('hex')}.jpg`;
+    const ext = buf.subarray(0, 1024).includes('%PDF-') ? 'pdf' : 'jpg';
+    const name = `${Date.now()}_${crypto.randomBytes(8).toString('hex')}.${ext}`;
     await fs.writeFile(path.join(BOT_ORDER_IMAGES_DIR, name), buf);
     names.push(name);
   }
