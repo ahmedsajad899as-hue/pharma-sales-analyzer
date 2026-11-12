@@ -16,7 +16,9 @@
 import prisma from '../../lib/prisma.js';
 import { normalizeWaId } from '../../lib/waId.js';
 import { extractInvoiceRows } from '../sales/sales.service.js';
-import { scoreOrder } from '../rep-orders/rep-orders.invoice.js';
+import { scoreOrder, compareInvoiceLines } from '../rep-orders/rep-orders.invoice.js';
+import { recordPreparation } from '../rep-orders/rep-orders.service.js';
+import { pharmacyKey } from '../../lib/pharmacyKey.js';
 import { sendWhatsAppText, sendList, downloadMedia } from '../whatsapp/whatsapp.service.js';
 import {
   applyAction, attachInvoice, saveInvoiceImage, setRejectReason, appendWarehouseNote, sendDispatch, GROUP_POLL_ACTIONS,
@@ -87,6 +89,52 @@ function openDispatches(whIds, { needInvoice = false } = {}) {
   });
 }
 
+/**
+ * إرسالات «طلبيات المذاخر» اليدوية لهذا المذخر (زر الإرسال بالصفحة ⇒ RepOrderSend) وما زالت
+ * بانتظار فاتورته. المذخر نفسه بالمعرّف، أو صفّ آخر في الدليل بنفس الاسم (كل حساب قد يضيف
+ * «سبأ الجديد» لنفسه بينما الكروب مربوط بصفّ واحد منها).
+ */
+async function openManualSends(whIds) {
+  const names = await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { name: true } });
+  const keys = new Set(names.map(w => pharmacyKey(w.name)).filter(Boolean));
+  const sends = await prisma.repOrderSend.findMany({
+    where: {
+      outcome: { in: ['sent', 'partial'] }, image: null,
+      sentAt: { gte: new Date(Date.now() - OPEN_LOOKBACK_MS) },
+      order: { status: 'pending' },
+    },
+    include: { order: { include: { lines: { orderBy: { id: 'asc' } } } } },
+    orderBy: { sentAt: 'desc' },
+    take: 500,
+  });
+  return sends.filter(s => whIds.includes(s.warehouseId) || keys.has(pharmacyKey(s.warehouseName))).slice(0, 40);
+}
+
+/** فاتورة كروب ← طلبية أُرسلت يدوياً: تُسجَّل كمياتها المجهّزة على إرسال هذا المذخر (نفس مسار الصفحة). */
+async function attachManualSendInvoice(send, imagePath, rows) {
+  const { order } = send;
+  const cmp = compareInvoiceLines(order.lines, rows);
+  await recordPreparation({ id: send.sentById ?? order.createdById ?? null }, order.id, {
+    warehouseId: send.warehouseId ?? undefined,
+    lines: order.lines.map((l, i) => ({ lineId: l.id, preparedQty: cmp[i].qty, preparedBonus: cmp[i].bonus })),
+    image: imagePath,
+    invoiceNumber: rows.find(r => r.invoiceNumber)?.invoiceNumber ?? null,
+  });
+  console.log(`[dispatch] فاتورة كروب ثُبّتت على طلبية المذاخر #${order.id} (${order.pharmacyName || ''} ← ${send.warehouseName})`);
+}
+
+/** أسطر القراءة ← شكل الفاتورة الذي يفهمه scoreOrder. */
+function invoiceShape(rows) {
+  const head = rows.find(r => r.pharmacy) || rows[0] || {};
+  const dm = String(rows.find(r => r.date)?.date || '').match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return {
+    pharmacy: head.pharmacy || null,
+    warehouse: rows.find(r => r.warehouse)?.warehouse || null,
+    date: dm ? new Date(Date.UTC(+dm[1], +dm[2] - 1, +dm[3], 12)) : null,
+    items: rows.filter(r => r.item).map(r => ({ item: String(r.item), quantity: Math.round(Number(r.quantity) || 0), bonus: Math.round(Number(r.bonus) || 0) })),
+  };
+}
+
 const shortLabel = (d) => `${d.id} - ${d.pharmacyName || 'بلا صيدلية'}`;
 
 /**
@@ -116,14 +164,7 @@ const trimRows = (rows) => rows.map(r => ({ item: r.item, quantity: r.quantity, 
 async function guessByInvoice(buffer, candidates, hint = null, source = 'warehouse-group') {
   const rows = await readWarehouseInvoice(buffer, hint, source);
   if (!rows) return { rows: null, best: null };
-  const head = rows.find(r => r.pharmacy) || rows[0] || {};
-  const dm = String(rows.find(r => r.date)?.date || '').match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
-  const inv = {
-    pharmacy: head.pharmacy || null,
-    warehouse: rows.find(r => r.warehouse)?.warehouse || null,
-    date: dm ? new Date(Date.UTC(+dm[1], +dm[2] - 1, +dm[3], 12)) : null,
-    items: rows.filter(r => r.item).map(r => ({ item: String(r.item), quantity: Math.round(Number(r.quantity) || 0), bonus: Math.round(Number(r.bonus) || 0) })),
-  };
+  const inv = invoiceShape(rows);
   const scored = candidates.map(d => ({
     d,
     score: scoreOrder({
@@ -184,14 +225,34 @@ async function handleWarehouseEvent(ctx, ev) {
     // لا طلبية تنتظر فاتورة ⇒ تُتجاهل الصورة بلا قراءة (لا كلفة على صور الكروب العادية).
     if (!target && ctx.channel === 'group') {
       const open = await openDispatches(whIds, { needInvoice: true });
-      if (!open.length) return false;
-      const buffer = await ev.getImage();
-      const g = await guessByInvoice(buffer, open, await warehouseHintFor(whIds), 'warehouse-group');
-      if (!g.best) {
-        console.log(`[dispatch] صورة في كروب مذخر لم تطابق أي طلبية مفتوحة (${open.length}) — تُركت`);
+      // طلبيات أُرسلت لهذا المذخر يدوياً من الصفحة (صورة/نص من واتساب المرسل) — بلا سجل إرسال بالبوت
+      const manual = (await openManualSends(whIds)).filter(s => !open.some(d => d.repOrderId === s.order.id));
+      if (!open.length && !manual.length) {
+        console.log(`[dispatch] صورة في كروب مذخر ${ev.jid || ''} ولا طلبية مفتوحة لهذا المذخر — تُركت بلا قراءة`);
         return false;
       }
-      await attachInvoice(g.best.id, await saveInvoiceImage(buffer), { rows: g.rows });
+      const buffer = await ev.getImage();
+      const r = await readWarehouseInvoice(buffer, await warehouseHintFor(whIds), 'warehouse-group');
+      if (!r) return false;
+      const inv = invoiceShape(r);
+      const scored = [
+        ...open.map(d => ({ d, ...scoreOrder({
+          pharmacyName: d.pharmacyName, warehouseName: d.warehouseName, orderDate: d.sentAt || d.createdAt,
+          lines: (Array.isArray(d.lines) ? d.lines : []).map(l => ({ itemName: l.item })),
+        }, inv) })),
+        ...manual.map(s => ({ s, ...scoreOrder({
+          pharmacyName: s.order.pharmacyName, warehouseName: s.warehouseName, orderDate: s.sentAt, lines: s.order.lines,
+        }, inv) })),
+      ].sort((a, b) => b.score - a.score);
+      const [a, b] = scored;
+      const best = a && a.score >= AUTO_MIN_SCORE && (!b || a.score - b.score >= AUTO_MIN_GAP) && a.byLine.size ? a : null;
+      if (!best) {
+        console.log(`[dispatch] صورة في كروب مذخر لم تطابق أي طلبية مفتوحة (${scored.length}؛ أعلى ${a?.score ?? 0}${b ? ` ثم ${b.score}` : ''}) — تُركت`);
+        return false;
+      }
+      const imagePath = await saveInvoiceImage(buffer);
+      if (best.d) await attachInvoice(best.d.id, imagePath, { rows: trimRows(r) });
+      else await attachManualSendInvoice(best.s, imagePath, r);
       return true;
     }
     const buffer = await ev.getImage();
@@ -412,5 +473,6 @@ export async function handleGroupInbound(m) {
     hasImage: Boolean(m.imageBase64),
     getImage: async () => Buffer.from(m.imageBase64, 'base64'),
     msgId: m.msgId,
+    jid: m.jid,
   });
 }
