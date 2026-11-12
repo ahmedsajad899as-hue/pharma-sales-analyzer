@@ -138,15 +138,12 @@ export async function collectCardSample({ warehouse, buffer, rows = [], source =
 
 const busy = new Set();
 
-function genPrompt(name, n) {
+function genPrompt(name, n, examples) {
   return `أنت تكتب «بطاقة» لنموذج فواتير مذخر أدوية عراقي اسمه «${name}»: وصفٌ ثابت لتصميم فواتيره يُلحَق ببرومبت قراءة مختصر، كي يقرأ نموذجُ ذكاءٍ أرخص فواتيرَ هذا المذخر بدقة.
 الملفات المرفقة (${n}) فواتير حقيقية من هذا المذخر نفسه.
 
-هذان مثالان لبطاقتين جاهزتين لمذخرين آخرين — للأسلوب والمستوى فقط، لا تنسخ محتواهما:
---- مثال 1 ---
-${DEFAULT_CARDS[0].prompt}
---- مثال 2 ---
-${DEFAULT_CARDS[1].prompt}
+${examples.length > 1 ? 'هذه أمثلة لبطاقات جاهزة' : 'هذا مثال لبطاقة جاهزة'} لمذخر${examples.length > 1 ? 'ين' : ''} آخر${examples.length > 1 ? 'ين' : ''} — للأسلوب والمستوى فقط، لا تنسخ محتواها:
+${examples.map((c, i) => `--- مثال ${i + 1} ---\n${c.prompt}`).join('\n')}
 ---
 
 اكتب بطاقة هذا المذخر بنفس الأسلوب، أسطراً قصيرة تبدأ بـ «-»، تصف:
@@ -174,11 +171,15 @@ const readSample = async (s) => {
  * كتابة البطاقة والتحقّق منها (نداءات الذكاء فقط — بلا قاعدة بيانات، فتُختبر وحدها).
  * @param {string} name اسم المذخر
  * @param {{ mimeType:string, buf:Buffer }[]} files العيّنات (الأفضل أولاً)
- * @param {{ knownNames?:string[] }} [opts] أسماء صيدليات شوهدت في فواتيره — تُمحى من نص البطاقة
+ * @param {{ knownNames?:string[], examples?:object[] }} [opts] knownNames = أسماء صيدليات شوهدت في
+ *        فواتيره — تُمحى من نص البطاقة. examples = بطاقات أمثلة (الافتراضي: البطاقتان اليدويتان،
+ *        عدا بطاقة المذخر نفسه إن وُجدت — وإلا نسخها الموديل بدل أن يقرأ الصور).
  * @returns {Promise<{ prompt:string, bonusStyle:'row'|'column', ok:number, of:number }>} يرمي إن لم تُكتب بطاقة
  */
-export async function generateCardFromFiles(name, files, { knownNames = [] } = {}) {
-  const parts = [genPrompt(name, files.length)];
+export async function generateCardFromFiles(name, files, { knownNames = [], examples = null } = {}) {
+  const own = warehouseKey(name);
+  const ex = (examples || DEFAULT_CARDS).filter(c => { const k = warehouseKey(c.name); return !(k && own && (k.includes(own) || own.includes(k))); });
+  const parts = [genPrompt(name, files.length, ex.length ? ex : DEFAULT_CARDS.slice(0, 1))];
   files.forEach((f, i) => {
     parts.push(`الفاتورة ${i + 1}:`);
     parts.push({ inlineData: { mimeType: f.mimeType, data: f.buf.toString('base64') } });
