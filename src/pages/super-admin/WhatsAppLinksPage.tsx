@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
+import { Bar, Section, Card, Toggle, Empty, ghost, solid, inputSm, TAG, cardGrid } from './saKit';
 
 interface UserOption { id: number; username: string; displayName?: string; role: string }
 interface WhatsAppLink {
@@ -26,6 +27,7 @@ export default function WhatsAppLinksPage() {
   const [form, setForm]       = useState<Partial<WhatsAppLink> | null>(null);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState('');
+  const [q, setQ]             = useState('');
 
   const load = () => {
     setLoading(true);
@@ -68,54 +70,38 @@ export default function WhatsAppLinksPage() {
   };
 
   const userLabel = (u?: UserOption) => u ? (u.displayName || u.username) : '—';
+  const qq = q.trim().toLowerCase();
+  const shown = links.filter(l => !qq || `${l.chatTitle || ''} ${l.waId} ${userLabel(l.user)}`.toLowerCase().includes(qq));
+  const active = links.filter(l => l.isActive).length;
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>روابط واتساب</h2>
-        <button onClick={() => setForm(EMPTY)} style={btnStyle('#1e293b')}>+ ربط رقم جديد</button>
-      </div>
-      <div style={{ fontSize: 12.5, color: UI.faint, marginBottom: 18, lineHeight: 1.6 }}>
-        الطلبيات والفواتير التي يرسلها المندوب لرقم البوت على واتساب (كلاماً أو صورة)
-        تُقرأ بالذكاء الاصطناعي وتنتظر مراجعة المستخدم في التطبيق. اربط رقم المندوب
-        بالحساب هنا (يُقبل 0770… أو ‎+964…). رقم غير مربوط يردّ عليه البوت برقمه.
-      </div>
-
-      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 18, fontSize: 12.5, color: '#92400e', lineHeight: 1.7 }}>
-        ⚠️ يعمل البوت فقط بعد ضبط <code>WHATSAPP_TOKEN</code> و<code>WHATSAPP_PHONE_NUMBER_ID</code>
-        و<code>WHATSAPP_APP_SECRET</code> و<code>WHATSAPP_VERIFY_TOKEN</code> في بيئة السيرفر،
-        وتسجيل الويب-هوك في لوحة Meta على <code>/api/whatsapp/webhook</code> (حقل messages).
-        محادثات فردية فقط — لا كروبات.
-      </div>
+    <div style={{ direction: 'rtl', maxWidth: 1100 }}>
+      <Bar end={<button onClick={() => setForm(EMPTY)} style={solid()}>+ ربط رقم</button>}>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="بحث بالاسم أو الرقم أو الحساب…" style={{ ...inputSm, width: 240 }} />
+        <span style={TAG.ok}>{active} نشط</span>
+        {links.length > active && <span style={TAG.mute}>{links.length - active} معطّل</span>}
+      </Bar>
 
       <OrderFormBox token={token} />
 
       {loading ? <Spinner /> : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(270px,1fr))', gap: 12 }}>
-          {links.map(l => (
-            <div key={l.id} style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14.5, color: UI.ink }}>{l.chatTitle || 'بلا تسمية'}</div>
-                  <div style={{ fontSize: 11.5, color: UI.faint, marginTop: 2 }}>رقم: {l.waId}</div>
-                  <div style={{ fontSize: 11.5, color: UI.faint }}>الحساب: {userLabel(l.user)}</div>
-                  <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 3, fontWeight: 600 }}>
-                    {ORDER_MODE_SHORT[(l.orderTextMode || 'trigger') as OrderTextMode]}
-                  </div>
+        <Section title="أرقام المندوبين" count={shown.length} accent="#16a34a">
+          {!shown.length && <Empty text={links.length ? 'لا نتائج' : 'لا توجد أرقام مربوطة'} />}
+          <div style={cardGrid}>
+            {shown.map(l => (
+              <Card key={l.id} dim={!l.isActive} title={l.chatTitle || 'بلا تسمية'} meta={<span dir="ltr">+{l.waId}</span>} actions={<>
+                <button onClick={() => setForm({ ...l })} style={ghost()}>تعديل</button>
+                <button onClick={() => del(l)} style={ghost('#dc2626')}>حذف</button>
+              </>}>
+                <div style={{ fontSize: 12, color: UI.muted, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span>الحساب: <b style={{ color: UI.text }}>{userLabel(l.user)}</b></span>
+                  <span style={TAG.violet}>{ORDER_MODE_SHORT[(l.orderTextMode || 'trigger') as OrderTextMode].replace('طلبيات: ', '')}</span>
                 </div>
-                <span style={{ background: l.isActive ? '#f0fdf4' : '#fef2f2', color: l.isActive ? '#16a34a' : '#b91c1c', borderRadius: 20, padding: '2px 9px', fontSize: 10.5, fontWeight: 600 }}>
-                  {l.isActive ? 'نشط' : 'معطل'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button onClick={() => setForm({ ...l })} style={btnStyle('#3b82f6', true)}>تعديل</button>
-                <button onClick={() => toggle(l)} style={btnStyle(l.isActive ? '#d97706' : '#16a34a', true)}>{l.isActive ? 'تعطيل' : 'تفعيل'}</button>
-                <button onClick={() => del(l)} style={btnStyle('#dc2626', true)}>حذف</button>
-              </div>
-            </div>
-          ))}
-          {links.length === 0 && <div style={{ color: UI.faint, padding: 32, textAlign: 'center', gridColumn: '1/-1' }}>لا توجد محادثات مربوطة بعد</div>}
-        </div>
+                <Toggle on={l.isActive} label="نشط" onToggle={() => toggle(l)} />
+              </Card>
+            ))}
+          </div>
+        </Section>
       )}
 
       {form && (
@@ -173,39 +159,32 @@ function OrderFormBox({ token }: { token: string | null }) {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { setMsg(d.error || 'تعذّر الحفظ'); return; }
     setFlowId(d.config?.orderFlowId || '');
-    setMsg(d.config?.orderFlowId ? '✅ حُفظ — النموذج يعمل لمن فُعّلت له ميزة «نموذج الطلبية في واتساب»' : '✅ حُفظ — النموذج متوقف (بلا معرّف)');
+    setMsg(d.config?.orderFlowId ? 'حُفظ' : 'حُفظ — متوقف (بلا معرّف)');
   };
   const copy = async () => {
-    try { await navigator.clipboard.writeText(json); setMsg('📋 نُسخ JSON النموذج'); } catch { setMsg('انسخه يدوياً من المربع'); }
+    try { await navigator.clipboard.writeText(json); setMsg('نُسخ'); } catch { setMsg('انسخه يدوياً'); }
   };
 
   return (
-    <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '12px 14px', marginBottom: 18, fontSize: 12.5, color: '#0c4a6e', lineHeight: 1.8 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <b>📝 نموذج الطلبية داخل واتساب {flowId ? <span style={{ color: '#16a34a' }}>— مفعّل{draft ? ' (تجربة)' : ''}</span> : <span style={{ color: '#b45309' }}>— غير مُعدّ</span>}</b>
-        <button onClick={() => setOpen(o => !o)} style={btnStyle('#0369a1', true)}>{open ? 'إخفاء' : 'الإعداد'}</button>
+    <div style={{ background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 12, padding: '8px 12px', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 700, fontSize: 13, color: UI.ink }}>نموذج الطلبية داخل واتساب</span>
+        {flowId ? <span style={TAG.ok}>مفعّل{draft ? ' · تجربة' : ''}</span> : <span style={TAG.warn}>غير مُعدّ</span>}
+        <button onClick={() => setOpen(o => !o)} style={{ ...ghost(), marginInlineStart: 'auto' }}>{open ? 'إخفاء' : 'الإعداد'}</button>
       </div>
       {open && (
-        <div style={{ marginTop: 8 }}>
-          <div>المندوب يكتب اسم الصيدلية فيرد البوت بزر يفتح نموذجاً: ايتماته بقائمة منسدلة + العدد والبونص + المذخر + «مبيع تمّ / طلبية للمذخر». الإعداد لمرة واحدة:</div>
-          <ol style={{ margin: '6px 0', paddingInlineStart: 20 }}>
-            <li>اضغط «نسخ JSON النموذج».</li>
-            <li>افتح WhatsApp Manager ← الحساب Thenashir ← <b>Flows</b> ← <b>Create flow</b> (الفئة: Other، بدون endpoint).</li>
-            <li>امسح المحتوى في المحرّر والصق المنسوخ، ثم <b>Save</b>. (للتجربة قبل النشر فعّل «تجربة» أدناه.)</li>
-            <li>اضغط <b>Publish</b>، وانسخ <b>Flow ID</b> (رقم طويل) والصقه هنا واحفظ.</li>
-            <li>فعّل لكل مندوب ميزة «نموذج الطلبية في واتساب» من المستخدمين ← المميزات.</li>
-          </ol>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '8px 0' }}>
-            <button onClick={copy} style={btnStyle('#1e293b', true)}>📋 نسخ JSON النموذج</button>
-            <input value={flowId} onChange={e => setFlowId(e.target.value)} placeholder="Flow ID" dir="ltr"
-              style={{ padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, minWidth: 200 }} />
-            <label style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-              <input type="checkbox" checked={draft} onChange={e => setDraft(e.target.checked)} /> تجربة (نموذج غير منشور)
-            </label>
-            <button onClick={save} style={btnStyle('#16a34a', true)}>حفظ</button>
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5, color: UI.text }}>
+          <div style={{ color: UI.muted, fontSize: 12 }} dir="rtl">
+            انسخ JSON ← WhatsApp Manager ← Flows ← Create flow ← الصق واحفظ ← Publish ← الصق Flow ID هنا
           </div>
-          {msg && <div style={{ fontWeight: 600 }}>{msg}</div>}
-          <textarea readOnly value={json} dir="ltr" style={{ width: '100%', height: 120, fontFamily: 'monospace', fontSize: 11, marginTop: 6, boxSizing: 'border-box' }} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button onClick={copy} style={ghost()}>نسخ JSON</button>
+            <input value={flowId} onChange={e => setFlowId(e.target.value)} placeholder="Flow ID" dir="ltr" style={{ ...inputSm, width: 220 }} />
+            <Toggle on={draft} label="تجربة" title="نموذج غير منشور" onToggle={() => setDraft(d => !d)} />
+            <button onClick={save} style={solid('#16a34a')}>حفظ</button>
+            {msg && <span style={{ fontSize: 12, color: UI.muted }}>{msg}</span>}
+          </div>
+          <textarea readOnly value={json} dir="ltr" style={{ width: '100%', height: 100, fontFamily: 'monospace', fontSize: 11, boxSizing: 'border-box', border: `1px solid ${UI.line}`, borderRadius: 7, padding: 6, color: UI.text }} />
         </div>
       )}
     </div>

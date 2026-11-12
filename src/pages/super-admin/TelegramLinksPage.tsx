@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { Spinner, ErrBox, Modal, Field, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
-import { AiModeButtons, type AiMode } from './AiModeButtons';
+import { type AiMode } from './AiModeButtons';
+import { Bar, Section, Card, Toggle, AiSeg, Empty, ghost, solid, inputSm, TAG, cardGrid } from './saKit';
 
 interface TgPerson { telegramUserId: string; firstName?: string | null; lastName?: string | null; username?: string | null; status?: string; lastSeenAt?: string; joinedAt?: string | null }
 interface MembersInfo { memberCount: number | null; admins: TgPerson[] | null; seen: TgPerson[]; links: Record<string, number>; reps: { id: number; name: string }[] }
@@ -34,10 +35,10 @@ export default function TelegramLinksPage() {
   const [form, setForm]       = useState<Partial<TelegramLink> | null>(null);
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState('');
-  const [menuFor, setMenuFor] = useState<number | null>(null);
-  const [membersFor, setMembersFor] = useState<TelegramLink | null>(null);
+    const [membersFor, setMembersFor] = useState<TelegramLink | null>(null);
   const [members, setMembers]       = useState<MembersInfo | null>(null);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [q, setQ] = useState('');
 
   const setPersonRep = async (p: TgPerson, userId: string) => {
     if (!membersFor) return;
@@ -52,9 +53,9 @@ export default function TelegramLinksPage() {
     <select
       value={members?.links?.[p.telegramUserId] ?? ''}
       onChange={e => setPersonRep(p, e.target.value)}
-      style={{ marginInlineStart: 8, padding: '2px 6px', fontSize: 12, border: '1px solid #d8dee8', borderRadius: 6, color: UI.ink }}
+      style={{ ...inputSm, padding: '2px 6px', fontSize: 12 }}
     >
-      <option value="">— غير مربوط بمندوب —</option>
+      <option value="">— بلا مندوب —</option>
       {(members?.reps ?? []).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
     </select>
   );
@@ -123,107 +124,78 @@ export default function TelegramLinksPage() {
   };
 
   const userLabel = (u?: UserOption) => u ? (u.displayName || u.username) : '—';
+  const qq = q.trim().toLowerCase();
+  const shown = links.filter(l => !qq || `${l.chatTitle || ''} ${l.chatId} ${userLabel(l.user)}`.toLowerCase().includes(qq));
+  const active = links.filter(l => l.isActive).length;
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: UI.ink }}>روابط تيليجرام</h2>
-        <button onClick={() => setForm(EMPTY)} style={btnStyle('#1e293b')}>+ ربط كروب جديد</button>
-      </div>
-      <div style={{ fontSize: 12.5, color: UI.faint, marginBottom: 18, lineHeight: 1.6 }}>
-        أي ملف Excel يُرسَل بكروب مربوط يُستورَد تلقائياً لحساب المستخدم المختار له.
-        لمعرفة رقم كروب جديد: أضف البوت له وأرسل أي ملف — يرد البوت برقم الكروب
-        إن لم يكن مربوطاً بعد. «سؤال المبيعات» يسمح بكتابة مثل «محمد باقر مبيع
-        شهر 9» في الكروب فيردّ البوت بمبيعات ذلك المندوب لذلك الشهر (مكتب + ميركاتو).
-      </div>
+    <div style={{ direction: 'rtl', maxWidth: 1100 }}>
+      <Bar end={<button onClick={() => setForm(EMPTY)} style={solid()}>+ ربط كروب</button>}>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="بحث بالاسم أو الرقم أو الحساب…" style={{ ...inputSm, width: 240 }} />
+        <span style={TAG.ok}>{active} نشط</span>
+        {links.length > active && <span style={TAG.mute}>{links.length - active} معطّل</span>}
+      </Bar>
 
       {loading ? <Spinner /> : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(270px,1fr))', gap: 12 }}>
-          {links.map(l => (
-            <div key={l.id} style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14.5, color: UI.ink }}>{l.chatTitle || 'بلا تسمية'}</div>
-                  <div style={{ fontSize: 11.5, color: UI.faint, marginTop: 2 }}>chat_id: {l.chatId}</div>
-                  <div style={{ fontSize: 11.5, color: UI.faint }}>الحساب: {userLabel(l.user)}</div>
-                  <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 3, fontWeight: 600 }}>
-                    {ORDER_MODE_SHORT[(l.orderTextMode || 'trigger') as OrderTextMode]}
+        <Section title="كروبات تلكرام" count={shown.length} accent="#0ea5e9">
+          {!shown.length && <Empty text={links.length ? 'لا نتائج' : 'لا توجد كروبات مربوطة'} />}
+          <div style={cardGrid}>
+            {shown.map(l => {
+              const sales = l.salesQueryEnabled ?? true;
+              return (
+                <Card key={l.id} dim={!l.isActive} title={l.chatTitle || 'بلا تسمية'} meta={<span dir="ltr">{l.chatId}</span>} actions={<>
+                  <button onClick={() => setForm({ ...l })} style={ghost()}>تعديل</button>
+                  <button onClick={() => openMembers(l)} style={ghost()}>الأعضاء</button>
+                  <button onClick={() => del(l)} style={ghost('#dc2626')}>حذف</button>
+                </>}>
+                  <div style={{ fontSize: 12, color: UI.muted, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span>الحساب: <b style={{ color: UI.text }}>{userLabel(l.user)}</b></span>
+                    <span style={TAG.violet}>{ORDER_MODE_SHORT[(l.orderTextMode || 'trigger') as OrderTextMode].replace('طلبيات: ', '')}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: (l.salesQueryEnabled ?? true) ? '#0891b2' : '#94a3b8', marginTop: 3, fontWeight: 600 }}>
-                    {(l.salesQueryEnabled ?? true) ? '📊 سؤال المبيعات: مفعّل' : '📊 سؤال المبيعات: معطّل'}
+                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                    <Toggle on={l.isActive} label="نشط" onToggle={() => toggle(l)} />
+                    <Toggle on={sales} label="سؤال المبيعات" title="«فلان مبيع شهر 9» ⇒ يرد بمبيعاته" onToggle={() => toggleSalesQuery(l)} />
+                    <Toggle on={!l.silentMode} label="الردود" title="مطفأ = يعالج بصمت ولا يرد" onToggle={() => toggleSilent(l)} />
                   </div>
-                  <div style={{ fontSize: 11, color: l.silentMode ? '#be123c' : '#94a3b8', marginTop: 3, fontWeight: 600 }}>
-                    {l.silentMode ? '🔇 صامت (لا ردود)' : '🔔 يرد على الرسائل'}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: UI.muted }}>التحليل</span>
+                    <AiSeg value={l.aiMode} onChange={v => setAiMode(l, v)} />
                   </div>
-                  <AiModeButtons value={l.aiMode} onChange={v => setAiMode(l, v)} />
-                </div>
-                <span style={{ background: l.isActive ? '#f0fdf4' : '#fef2f2', color: l.isActive ? '#16a34a' : '#b91c1c', borderRadius: 20, padding: '2px 9px', fontSize: 10.5, fontWeight: 600 }}>
-                  {l.isActive ? 'نشط' : 'معطل'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 6, position: 'relative' }}>
-                <button onClick={() => setForm({ ...l })} style={btnStyle('#3b82f6', true)}>تعديل</button>
-                <button onClick={() => openMembers(l)} style={btnStyle('#0f766e', true)}>👥 الأعضاء</button>
-                <button onClick={() => setMenuFor(menuFor === l.id ? null : l.id)} style={btnStyle('#475569', true)}>⋯ المزيد ▾</button>
-                {menuFor === l.id && (
-                  <>
-                    <div onClick={() => setMenuFor(null)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-                    <div style={{ position: 'absolute', top: '100%', insetInlineEnd: 0, marginTop: 4, zIndex: 41, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,.12)', minWidth: 190, overflow: 'hidden' }}>
-                      {[
-                        { label: l.isActive ? '⏸ تعطيل الربط' : '▶ تفعيل الربط', color: l.isActive ? '#d97706' : '#16a34a', run: () => toggle(l) },
-                        { label: (l.salesQueryEnabled ?? true) ? '📊 تعطيل سؤال المبيعات' : '📊 تفعيل سؤال المبيعات', color: '#0891b2', run: () => toggleSalesQuery(l) },
-                        { label: l.silentMode ? '🔔 إلغاء الصمت' : '🔇 جعله صامتاً', color: l.silentMode ? '#16a34a' : '#be123c', run: () => toggleSilent(l) },
-                        { label: '🗑 حذف', color: '#dc2626', run: () => del(l) },
-                      ].map(it => (
-                        <button key={it.label} onClick={() => { setMenuFor(null); it.run(); }}
-                          style={{ display: 'block', width: '100%', textAlign: 'start', padding: '9px 14px', background: 'none', border: 'none', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: it.color }}>
-                          {it.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-          {links.length === 0 && <div style={{ color: UI.faint, padding: 32, textAlign: 'center', gridColumn: '1/-1' }}>لا توجد كروبات مربوطة بعد</div>}
-        </div>
+                </Card>
+              );
+            })}
+          </div>
+        </Section>
       )}
 
       {membersFor && (
-        <Modal onClose={() => setMembersFor(null)} title={`أعضاء «${membersFor.chatTitle || membersFor.chatId}»`}>
-          {membersLoading ? <Spinner /> : !members ? <div style={{ color: UI.faint }}>تعذّر الجلب</div> : (
-            <div style={{ fontSize: 13, lineHeight: 1.9, color: UI.ink }}>
-              <div style={{ marginBottom: 10, fontWeight: 700 }}>
-                العدد الكلي في الكروب: {members.memberCount ?? '—'}
+        <Modal onClose={() => setMembersFor(null)} title={membersFor.chatTitle || membersFor.chatId}>
+          {membersLoading ? <Spinner /> : !members ? <div style={{ color: UI.faint }}>تعذّر الجلب</div> : (() => {
+            const known = new Set([...(members.admins ?? []), ...members.seen].map(p => p.telegramUserId));
+            const unknown = members.memberCount == null ? 0 : Math.max(0, members.memberCount - 1 - known.size); // -1 = البوت نفسه
+            const row = (p: TgPerson, sub: string) => (
+              <div key={p.telegramUserId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${UI.bg}`, fontSize: 12.5, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, color: UI.ink }}>{personName(p)}</span>
+                {p.username && <span dir="ltr" style={{ color: UI.faint, fontSize: 11.5 }}>@{p.username}</span>}
+                <span style={{ color: UI.faint, fontSize: 11 }}>{sub}</span>
+                <span style={{ marginInlineStart: 'auto' }}><RepSelect p={p} /></span>
               </div>
-              <div style={{ fontWeight: 700, color: '#0f766e' }}>المشرفون {members.admins ? `(${members.admins.length})` : ''}</div>
-              {(members.admins ?? []).map(a => (
-                <div key={a.telegramUserId}>• {personName(a)}{a.username ? ` @${a.username}` : ''} <span style={{ color: UI.faint }}>({a.status === 'creator' ? 'المالك' : 'مشرف'})</span><RepSelect p={a} /></div>
-              ))}
-              {members.admins === null && <div style={{ color: UI.faint }}>تعذّر جلب المشرفين (البوت يحتاج أن يكون مشرفاً أو عضواً بالكروب)</div>}
-              <div style={{ fontWeight: 700, color: '#0f766e', marginTop: 12 }}>الذين ظهروا بالكروب ({members.seen.length})</div>
-              {members.seen.map(m => (
-                <div key={m.telegramUserId}>• {personName(m)}{m.username ? ` @${m.username}` : ''}
-                  <span style={{ color: UI.faint }}> — آخر ظهور {m.lastSeenAt ? new Date(m.lastSeenAt).toLocaleDateString('ar-IQ') : ''}</span><RepSelect p={m} /></div>
-              ))}
-              {(() => {
-                if (members.memberCount == null) return null;
-                const known = new Set([...(members.admins ?? []), ...members.seen].map(p => p.telegramUserId));
-                const unknown = Math.max(0, members.memberCount - 1 - known.size); // -1 = البوت نفسه
-                return unknown > 0 ? (
-                  <div style={{ marginTop: 8, color: '#b45309', fontWeight: 600 }}>
-                    ⚠️ {unknown} عضو لم يكتب بعد — أسماؤهم غير معروفة للبوت حتى يكتبوا رسالة.
-                  </div>
-                ) : null;
-              })()}
-              {members.seen.length === 0 && <div style={{ color: UI.faint }}>لا أحد بعد — يُسجَّل كل من يكتب أو ينضم من الآن فصاعداً.</div>}
-              <div style={{ marginTop: 12, fontSize: 11.5, color: UI.faint, lineHeight: 1.6 }}>
-                🔗 اربط كل شخص بمندوبه العلمي: حين يرسل طلبية أو صورة ولم يُعرف المندوب من المنطقة/الشركة/الصنف تُسجَّل الطلبية باسم المندوب المربوط.<br />
-                تلكرام لا يسمح للبوت بسرد كل الأعضاء. القائمة = المشرفون + كل من كتب رسالة أو انضمّ منذ تفعيل هذه الميزة؛ الصامتون لن يظهروا حتى يكتبوا.
+            );
+            return (
+              <div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                  <span style={TAG.mute}>الأعضاء {members.memberCount ?? '—'}</span>
+                  {unknown > 0 && <span style={TAG.warn} title="أسماؤهم تظهر حين يكتبون">{unknown} لم يكتبوا بعد</span>}
+                </div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: UI.muted, margin: '4px 0' }}>المشرفون</div>
+                {members.admins === null && <div style={{ fontSize: 12, color: UI.faint }}>تعذّر الجلب</div>}
+                {(members.admins ?? []).map(a => row(a, a.status === 'creator' ? 'المالك' : 'مشرف'))}
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: UI.muted, margin: '10px 0 4px' }}>ظهروا بالكروب ({members.seen.length})</div>
+                {members.seen.length === 0 && <div style={{ fontSize: 12, color: UI.faint }}>لا أحد بعد</div>}
+                {members.seen.map(m => row(m, m.lastSeenAt ? new Date(m.lastSeenAt).toLocaleDateString('ar-IQ') : ''))}
               </div>
-            </div>
-          )}
+            );
+          })()}
         </Modal>
       )}
 
@@ -238,7 +210,7 @@ export default function TelegramLinksPage() {
               checked={form.salesQueryEnabled ?? true}
               onChange={e => setForm(f => ({ ...f!, salesQueryEnabled: e.target.checked }))}
             />
-            تفعيل سؤال المبيعات النصّي («فلان مبيع شهر 9»)
+            سؤال المبيعات («فلان مبيع شهر 9»)
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 14, cursor: 'pointer' }}>
             <input
@@ -246,7 +218,7 @@ export default function TelegramLinksPage() {
               checked={form.silentMode ?? false}
               onChange={e => setForm(f => ({ ...f!, silentMode: e.target.checked }))}
             />
-            🔇 صمت كامل (البوت يعالج بصمت ولا يرد بأي رسالة في هذا الكروب)
+            صمت كامل (لا يرد بأي رسالة)
           </label>
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 5 }}>الحساب المرتبط *</label>

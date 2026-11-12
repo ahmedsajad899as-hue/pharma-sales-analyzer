@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
-import { ErrBox, Spinner, btnStyle, UI } from './OfficesPage';
+import { ErrBox, Spinner, UI } from './OfficesPage';
+import { Bar, Section, Toggle, Kv, Notice, ghost, solid, tag, TAG, twoCols } from './saKit';
 
 interface UserOption { id: number; username: string; displayName?: string | null; role: string; isActive?: boolean }
 interface Config {
@@ -20,8 +21,8 @@ const STATUS: Record<string, { label: string; color: string }> = {
 const nameOf = (u?: { username: string; displayName?: string | null } | null) => (u ? u.displayName?.trim() || u.username : '—');
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
-const field = { width: '100%', padding: '8px 10px', border: `1px solid ${UI.line}`, borderRadius: 8, fontSize: 13, boxSizing: 'border-box' as const };
-const label = { display: 'block', fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 6 };
+const field = { width: '100%', padding: '6px 10px', border: `1px solid ${UI.line}`, borderRadius: 7, fontSize: 12.5, boxSizing: 'border-box' as const, fontFamily: 'inherit', color: UI.ink };
+const label = { display: 'flex', flexDirection: 'column' as const, gap: 4, fontSize: 11.5, fontWeight: 600, color: UI.muted };
 
 // «ربط دوفايد» — سحب يومي غير رسمي لتقارير زيارات المندوبين من dofied.com بحساب
 // المستخدم نفسه، إلى طابور مراجعة الزيارات للحساب المختار (لا حفظ بلا مراجعة).
@@ -78,79 +79,63 @@ export default function DofiedPage() {
   const dirty = form.username !== (cfg.username || '') || !!form.password || form.userId !== (cfg.userId ? String(cfg.userId) : '')
     || form.enabled !== cfg.enabled || form.runHour !== cfg.runHour || form.notifyChatId !== (cfg.notifyChatId || '');
 
+  const nextLabel = cfg.nextWindow ? `${cfg.nextWindow.from}${cfg.nextWindow.from === cfg.nextWindow.to ? '' : ` ← ${cfg.nextWindow.to}`}` : '—';
+  const needSave = dirty ? 'احفظ أولاً' : undefined;
+
   return (
-    <div style={{ direction: 'rtl', maxWidth: 760 }}>
-      <h2 style={{ margin: '0 0 6px', fontSize: 18, color: UI.ink }}>ربط دوفايد</h2>
-      <p style={{ margin: '0 0 14px', fontSize: 13, color: UI.muted, lineHeight: 1.7 }}>
-        يسحب تقارير زيارات المندوبين من موقع دوفايد مرة يومياً (أيام مكتملة حتى أمس) ويضعها في <b>طابور مراجعة الزيارات</b> للحساب المختار — نفس ما يحدث عند رفع ملف دوفايد يدوياً. لا يُحفظ شيء قبل المراجعة.
-      </p>
-      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginBottom: 16, lineHeight: 1.7 }}>
-        ⚠️ ربط غير رسمي بحسابك: أي تحديث في موقع دوفايد قد يوقفه، وتظهر الرسالة هنا. الرفع اليدوي يبقى متاحاً دائماً.
-      </div>
+    <div style={{ direction: 'rtl', maxWidth: 1100 }}>
+      <Bar end={<>
+        <button style={ghost('#0f766e')} disabled={!!busy || dirty || !cfg.hasPassword} title={needSave} onClick={() => call('test', '/api/sa/dofied/test', { method: 'POST' })}>{busy === 'test' ? '…' : 'اختبار الاتصال'}</button>
+        <button style={ghost('#b45309')} disabled={!!busy || dirty || !cfg.hasPassword || !cfg.userId} title={needSave} onClick={() => call('run', '/api/sa/dofied/run', { method: 'POST' })}>{busy === 'run' ? '…' : 'سحب الآن'}</button>
+        <button style={ghost()} disabled={!!busy || dirty || !cfg.notifyChatId} title={needSave} onClick={() => call('alert', '/api/sa/dofied/test-alert', { method: 'POST' })}>{busy === 'alert' ? '…' : 'تنبيه تجريبي'}</button>
+      </>}>
+        <span style={cfg.enabled ? TAG.ok : TAG.mute}>{cfg.enabled ? 'السحب اليومي مفعّل' : 'السحب اليومي متوقف'}</span>
+        {st && <span style={tag(st.color, '#f8fafc')}>آخر تشغيل: {st.label}</span>}
+        {cfg.pending && <span style={TAG.warn} title={cfg.pending.fileName}>ملف بانتظار المراجعة</span>}
+      </Bar>
 
-      {!cfg.enabled && cfg.lastStatus === 'error' && (
-        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginBottom: 12, lineHeight: 1.7 }}>
-          ⏸️ السحب التلقائي متوقف وآخر تشغيل فشل — راجع السبب أدناه قبل إعادة التفعيل.
-        </div>
-      )}
       {error && <ErrBox msg={error} />}
-      {notice && <div style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>{notice}</div>}
+      {notice && <Notice>{notice}</Notice>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
-        <div>
-          <label style={label}>اسم مستخدم دوفايد</label>
-          <input style={field} value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} autoComplete="off" dir="ltr" />
-        </div>
-        <div>
-          <label style={label}>كلمة السر {cfg.hasPassword && <span style={{ color: UI.faint, fontWeight: 400 }}>(محفوظة — اتركها فارغة لإبقائها)</span>}</label>
-          <input style={field} type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} autoComplete="new-password" dir="ltr" placeholder={cfg.hasPassword ? '••••••••' : ''} />
-        </div>
-        <div>
-          <label style={label}>الحساب الذي يستلم الملف للمراجعة</label>
-          <select style={field} value={form.userId} onChange={e => setForm({ ...form, userId: e.target.value })}>
-            <option value="">— اختر الحساب —</option>
-            {users.filter(u => u.isActive !== false || String(u.id) === form.userId).map(u => (
-              <option key={u.id} value={u.id}>{nameOf(u)} ({u.username})</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label style={label}>ساعة السحب اليومي (بغداد)</label>
-          <select style={field} value={form.runHour} onChange={e => setForm({ ...form, runHour: Number(e.target.value) })}>
-            {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
-          </select>
-        </div>
-        <div style={{ gridColumn: '1 / -1' }}>
-          <label style={label}>رقم محادثة تلكرام لاستلام التنبيهات</label>
-          <input style={{ ...field, maxWidth: 260 }} value={form.notifyChatId} onChange={e => setForm({ ...form, notifyChatId: e.target.value })} dir="ltr" placeholder="مثال: 123456789" />
-          <div style={{ fontSize: 11.5, color: UI.faint, marginTop: 5, lineHeight: 1.7 }}>
-            أرسل أي رسالة لبوت التطبيق على تلكرام <b>بمحادثة خاصة</b> فيردّ عليك برقم المحادثة — انسخه هنا. يصلك تنبيه إن فشل السحب، وتنبيه 🚨 إن ظهرت علامة اكتشاف (رفض الدخول أو حجب) مع إيقاف السحب التلقائي احتياطياً.
+      <div style={twoCols}>
+        <Section title="الإعدادات" end={<button style={dirty ? solid(UI.accent) : ghost(UI.faint)} disabled={!!busy || !dirty} onClick={save}>{busy === 'save' ? '…' : 'حفظ'}</button>}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+            <label style={label}>اسم المستخدم
+              <input style={field} value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} autoComplete="off" dir="ltr" />
+            </label>
+            <label style={label}>كلمة السر
+              <input style={field} type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} autoComplete="new-password" dir="ltr" placeholder={cfg.hasPassword ? '•••••••• محفوظة' : ''} />
+            </label>
+            <label style={label}>الحساب المستلِم
+              <select style={field} value={form.userId} onChange={e => setForm({ ...form, userId: e.target.value })}>
+                <option value="">— اختر —</option>
+                {users.filter(u => u.isActive !== false || String(u.id) === form.userId).map(u => (
+                  <option key={u.id} value={u.id}>{nameOf(u)} ({u.username})</option>
+                ))}
+              </select>
+            </label>
+            <label style={label}>ساعة السحب (بغداد)
+              <select style={field} value={form.runHour} onChange={e => setForm({ ...form, runHour: Number(e.target.value) })}>
+                {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+              </select>
+            </label>
+            <label style={label} title="أرسل أي رسالة لبوت التطبيق بمحادثة خاصة فيردّ برقم المحادثة">محادثة تلكرام للتنبيهات
+              <input style={field} value={form.notifyChatId} onChange={e => setForm({ ...form, notifyChatId: e.target.value })} dir="ltr" placeholder="123456789" />
+            </label>
           </div>
-        </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: UI.text, cursor: 'pointer', gridColumn: '1 / -1' }}>
-          <input type="checkbox" checked={form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} />
-          السحب اليومي التلقائي مفعّل
-        </label>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', gridColumn: '1 / -1' }}>
-          <button style={btnStyle(UI.accent)} disabled={!!busy || !dirty} onClick={save}>{busy === 'save' ? 'جاري الحفظ…' : 'حفظ'}</button>
-          <button style={btnStyle('#0f766e')} disabled={!!busy || dirty || !cfg.hasPassword} onClick={() => call('test', '/api/sa/dofied/test', { method: 'POST' })}
-            title={dirty ? 'احفظ أولاً' : ''}>{busy === 'test' ? 'جاري الاختبار…' : 'اختبار الاتصال'}</button>
-          <button style={btnStyle('#b45309')} disabled={!!busy || dirty || !cfg.hasPassword || !cfg.userId} onClick={() => call('run', '/api/sa/dofied/run', { method: 'POST' })}
-            title={dirty ? 'احفظ أولاً' : ''}>{busy === 'run' ? 'جاري السحب…' : 'سحب الآن'}</button>
-          <button style={btnStyle('#475569')} disabled={!!busy || dirty || !cfg.notifyChatId} onClick={() => call('alert', '/api/sa/dofied/test-alert', { method: 'POST' })}
-            title={dirty ? 'احفظ أولاً' : ''}>{busy === 'alert' ? 'جاري الإرسال…' : 'تنبيه تجريبي'}</button>
-        </div>
-      </div>
+          <Toggle on={form.enabled} label="السحب اليومي التلقائي" onToggle={() => setForm({ ...form, enabled: !form.enabled })} />
+        </Section>
 
-      <div style={{ background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 12, padding: 16, fontSize: 13, color: UI.text, lineHeight: 2 }}>
-        <div><b>آخر تشغيل:</b> {fmt(cfg.lastRunAt)} {st && <span style={{ color: st.color, fontWeight: 600 }}>· {st.label}</span>}</div>
-        {cfg.lastMessage && <div style={{ color: st?.color || UI.text }}>{cfg.lastMessage}</div>}
-        <div><b>آخر يوم سُحب:</b> {cfg.lastSyncedDate || 'لم يُسحب شيء بعد'}</div>
-        <div><b>السحب القادم:</b> {cfg.nextWindow ? `${cfg.nextWindow.from}${cfg.nextWindow.from === cfg.nextWindow.to ? '' : ` ← ${cfg.nextWindow.to}`}` : 'لا يوجد يوم مكتمل جديد'}</div>
-        <div><b>الحساب المستلِم:</b> {nameOf(cfg.user)} {cfg.user && !cfg.user.isActive && <span style={{ color: '#b91c1c' }}>(معطّل)</span>}</div>
-        {cfg.pending && (
-          <div style={{ color: '#b45309' }}>⏳ ملف «{cfg.pending.fileName}» بانتظار المراجعة منذ {fmt(cfg.pending.createdAt)} — لا يُسحب جديد حتى يُراجَع (صفحة زيارات الأطباء).</div>
-        )}
+        <Section title="الحالة">
+          <div>
+            <Kv k="آخر تشغيل">{fmt(cfg.lastRunAt)} {st && <span style={{ color: st.color, fontWeight: 600 }}>· {st.label}</span>}</Kv>
+            {cfg.lastMessage && <Kv k="الرسالة"><span style={{ color: st?.color || UI.text }}>{cfg.lastMessage}</span></Kv>}
+            <Kv k="آخر يوم سُحب">{cfg.lastSyncedDate || '—'}</Kv>
+            <Kv k="السحب القادم">{nextLabel}</Kv>
+            <Kv k="الحساب المستلِم">{nameOf(cfg.user)} {cfg.user && !cfg.user.isActive && <span style={TAG.bad}>معطّل</span>}</Kv>
+            {cfg.pending && <Kv k="بانتظار المراجعة"><span style={{ color: '#b45309' }}>«{cfg.pending.fileName}» منذ {fmt(cfg.pending.createdAt)}</span></Kv>}
+          </div>
+        </Section>
       </div>
     </div>
   );

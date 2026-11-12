@@ -88,3 +88,28 @@
 .wc-visibility select { width: auto; min-width: 180px; display: inline-block; }
 .wc-check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .wc-check input { width: 16px; height: 16px; }
+
+/* ─── نسخة مدمجة ─── */
+.wc-root { gap: 8px; }
+.wc-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; border-bottom: 1px solid var(--c-border-light); }
+.wc-head .wd-tabs { border-bottom: none; flex: 1 1 auto; }
+.wc-head .wd-usage { padding-bottom: 6px; }
+.wc-root .wd-tab { padding: 7px 12px; font-size: 13px; }
+.wc-root .wd-pill { padding: 1px 8px; font-size: 11.5px; }
+.wc-root .btn { padding: 5px 11px; font-size: 12.5px; gap: 5px; }
+.wc-root .wd-icon-btn { padding: 5px 8px; }
+.wc-root .wd-note { padding: 6px 10px; font-size: 12.5px; }
+.wc-root .wd-card__head { padding: 8px 10px; }
+.wc-root .wd-chip { padding: 3px 10px; font-size: 12px; }
+.wc-root .form-input { padding-block: 6px; font-size: 13px; }
+.wc-stats b { color: var(--c-text-primary); font-weight: 700; }
+.wc-good b, .wc-bad b { color: inherit; }
+.wc-progress { height: 4px; margin: 5px 0 3px; }
+.wc-step { padding: 10px 12px; gap: 8px; border-radius: 10px; }
+.wc-step h3 { font-size: 13.5px; }
+.wc-step h3 > span { width: 20px; height: 20px; font-size: 11.5px; }
+.wc-step label { font-size: 12px; }
+.wc-cost-card { padding: 8px 10px; border-radius: 10px; }
+.wc-cost-card b { font-size: 17px; }
+.wc-table { font-size: 12.5px; }
+.wc-table th, .wc-table td { padding: 6px 9px; }

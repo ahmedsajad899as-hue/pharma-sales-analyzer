@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Spinner, ErrBox, UI } from './OfficesPage';
+import { Seg, Stat, statGrid } from './saKit';
 
 // «🖼️ الصور المحلَّلة» — صورة لكل قراءة فاتورة مع المرسل والتاريخ والتوكنز والكلفة.
 // المصدر: InvoiceReadLog (server/lib/invoiceReadLog.js). الصور محمية بتوكن الماستر
@@ -84,36 +85,21 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
   return (
     <div>
       {err && <ErrBox msg={err} />}
-      <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
-        {([['', '🧾 الكل'], ['photo', '📷 صور الفواتير'], ['text', '💬 الطلبيات المكتوبة']] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setKind(k)}
-            style={{ padding: '6px 12px', fontSize: 12.5, fontWeight: 700, border: 'none', borderInlineEnd: '1px solid #e2e8f0', cursor: 'pointer',
-              background: kind === k ? '#0f172a' : '#fff', color: kind === k ? '#fff' : '#475569' }}>{l}</button>
-        ))}
+      <div style={{ marginBottom: 10 }}>
+        <Seg value={kind} onChange={setKind} options={[['', 'الكل'], ['photo', 'صور الفواتير'], ['text', 'المكتوبة']] as const} />
       </div>
       {data && (
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-          {[
-            ['🧾 طلبيات محلَّلة', fmt(data.sums.images)],
-            ['📞 نداءات', fmt(data.sums.calls)],
-            ['🔢 توكنز', fmt(data.sums.tokens)],
-            ['💵 الكلفة', usd(data.sums.costUsd)],
-            ['📊 معدّل الطلبية', usd(avg)],
-          ].map(([l, v]) => (
-            <div key={l} style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: '10px 14px', minWidth: 120 }}>
-              <div style={{ fontSize: 11.5, color: UI.faint }}>{l}</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: UI.ink, marginTop: 2 }}>{v}</div>
-            </div>
-          ))}
+        <div style={statGrid}>
+          <Stat label="طلبيات محلَّلة" value={fmt(data.sums.images)} />
+          <Stat label="نداءات" value={fmt(data.sums.calls)} />
+          <Stat label="توكنز" value={fmt(data.sums.tokens)} />
+          <Stat label="الكلفة" value={usd(data.sums.costUsd)} sub={`معدّل الطلبية ${usd(avg)}`} />
         </div>
       )}
-      <div style={{ fontSize: 12, color: UI.faint, marginBottom: 10, lineHeight: 1.6 }}>
-        كل صورة فاتورة وكل طلبية مكتوبة قُرئت منذ تفعيل هذا السجل، بكل نداءاتها مجموعة (للصور: الاتجاه + القراءة + الإعادة بالأقوى + سطر الزبون). الطلبية التي قرأها ⚡ المحلل كلفتها صفر. الكلفة تقديرية بأسعار Gemini الحالية. السجل يُحفظ 60 يوماً.
-      </div>
 
       {loading ? <Spinner /> : data && (
         data.rows.length === 0
-          ? <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: 24, textAlign: 'center', color: UI.faint, fontSize: 13 }}>لا توجد طلبيات محلَّلة في هذه الفترة بعد — أرسل صورة فاتورة أو طلبية مكتوبة للبوت وستظهر هنا.</div>
+          ? <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, padding: 24, textAlign: 'center', color: UI.faint, fontSize: 13 }}>لا توجد طلبيات محلَّلة في هذه الفترة</div>
           : (
             <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 10, overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>

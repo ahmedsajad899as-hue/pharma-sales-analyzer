@@ -136,3 +136,28 @@
 .wd-reply-hint { font-size: 11px; }
 .wd-chat-view { max-height: 85vh; }
 .wd-msgs { flex: 1; }
+
+/* ─── المحادثات: نسخة مدمجة ─── */
+.wd-toolbar { margin: 0 0 10px; padding: 8px; background: var(--c-surface); border: 1px solid var(--c-border-light); border-radius: 12px; }
+.wd-toolbar .form-input { padding-block: 6px; font-size: 13px; }
+.wd-chats { grid-template-columns: 300px 1fr; gap: 10px; }
+.wd-chat-list { gap: 4px; }
+.wd-chat-item { padding: 7px 10px; gap: 2px; font-size: 12.5px; border-radius: 9px; }
+.wd-chat-item:hover:not(.is-active) { border-color: var(--c-border); }
+.wd-chat-head b { font-size: 13px; }
+.wd-chat-head .wd-muted { font-size: 11px; white-space: nowrap; }
+.wd-chat-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; }
+.wd-chat-type { font-size: 10.5px; font-weight: 600; padding: 0 6px; border-radius: 5px; background: var(--c-border-light); color: var(--c-text-secondary); }
+.wd-chat-type--warehouse { background: rgba(59, 130, 246, 0.12); color: #1d4ed8; }
+.wd-chat-type--linked { background: rgba(16, 185, 129, 0.12); color: var(--c-success); }
+.wd-chat-type--campaign { background: rgba(124, 58, 237, 0.12); color: #6d28d9; }
+.wd-chat-type--unknown { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+.wd-chat-last { font-size: 12px; }
+.wd-chat-view { padding: 8px 10px; }
+.wd-chat-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; padding-bottom: 6px; margin-bottom: 6px; }
+.wd-msgs { gap: 6px; }
+.wd-msg { padding: 6px 9px; font-size: 12.5px; }
+.wd-msg-meta { font-size: 10.5px; }
+.wd-reply { padding-top: 6px; gap: 4px; }
+.wd-reply-row textarea { min-height: 38px; font-size: 13px; }
+.wd-reply-row .wd-icon-btn { padding: 9px 12px; }

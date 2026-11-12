@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { ErrBox, Modal, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
-import { AI_MODES, type AiMode } from './AiModeButtons';
+import { type AiMode } from './AiModeButtons';
+import { ghost, tag, Toggle, AiSeg, Section, Empty, Card, Bar } from './saKit';
 
 interface Status { status?: string; connected?: boolean; me?: string | null; error?: string | null }
 interface Group { jid: string; name: string; size: number }
@@ -79,92 +80,6 @@ function SendersField({ value, known, onChange }: { value: string[]; known: Reco
           {value.length === 0 && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 6 }}>لم تختر أحداً — سيُحفظ كـ«كل الأعضاء».</div>}
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── عناصر مدمجة للصفحة ──────────────────────────────────────────────────────
-
-const ghost = (color: string = UI.text): CSSProperties => ({
-  padding: '4px 10px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
-  border: `1px solid ${UI.line}`, background: '#fff', color, whiteSpace: 'nowrap', lineHeight: 1.4,
-});
-
-const tag = (color: string, bg: string): CSSProperties => ({
-  display: 'inline-block', fontSize: 11, fontWeight: 600, color, background: bg, borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap',
-});
-
-/** مفتاح تشغيل/إطفاء. */
-function Toggle({ on, label, title, onToggle }: { on: boolean; label: string; title: string; onToggle: () => void }) {
-  return (
-    <button type="button" onClick={onToggle} title={title} aria-pressed={on}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: on ? UI.ink : UI.faint }}>
-      <span style={{ position: 'relative', width: 26, height: 14, borderRadius: 7, background: on ? '#16a34a' : '#cbd5e1', flexShrink: 0, transition: 'background .15s' }}>
-        <span style={{ position: 'absolute', top: 2, insetInlineStart: on ? 14 : 2, width: 10, height: 10, borderRadius: '50%', background: '#fff', transition: 'inset-inline-start .15s' }} />
-      </span>
-      {label}
-    </button>
-  );
-}
-
-const AI_SHORT: Record<AiMode, { label: string; title: string }> = {
-  both:   { label: 'الاثنين', title: 'المحلل أولاً، وما لا يحسمه يذهب للذكاء' },
-  parser: { label: 'المحلل',  title: 'بلا ذكاء: الطلبيات الواضحة فقط' },
-  ai:     { label: 'الذكاء',  title: 'Gemini لكل رسالة' },
-  off:    { label: 'إطفاء',   title: 'لا تحليل لأي رسالة' },
-};
-
-/** وضع تحليل طلبيات كروب المندوبين — نسخة مدمجة. */
-function AiSeg({ value, onChange }: { value?: string | null; onChange: (v: AiMode) => Promise<unknown> }) {
-  const cur: AiMode = (AI_MODES as readonly string[]).includes(value || '') ? (value as AiMode) : 'both';
-  const [busy, setBusy] = useState(false);
-  return (
-    <div style={{ display: 'inline-flex', border: `1px solid ${UI.line}`, borderRadius: 7, overflow: 'hidden', opacity: busy ? 0.6 : 1 }}>
-      {AI_MODES.map((m, i) => {
-        const on = m === cur;
-        return (
-          <button key={m} type="button" title={AI_SHORT[m].title} disabled={busy}
-            onClick={async () => { if (on) return; setBusy(true); try { await onChange(m); } finally { setBusy(false); } }}
-            style={{
-              padding: '3px 9px', fontSize: 11.5, fontWeight: 600, border: 'none', fontFamily: 'inherit',
-              borderInlineStart: i ? `1px solid ${UI.line}` : 'none', cursor: on ? 'default' : 'pointer',
-              background: on ? (m === 'off' ? '#dc2626' : '#1e293b') : '#fff', color: on ? '#fff' : UI.muted,
-            }}>
-            {AI_SHORT[m].label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/** قسم بعنوان وعدّاد. */
-function Section({ title, count, accent, children }: { title: string; count: number; accent: string; children: ReactNode }) {
-  return (
-    <section style={{ background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 12, overflow: 'hidden', minWidth: 0 }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: `1px solid ${UI.line}`, borderTop: `3px solid ${accent}` }}>
-        <span style={{ fontWeight: 700, fontSize: 13.5, color: UI.ink }}>{title}</span>
-        <span style={{ fontSize: 11.5, fontWeight: 700, color: UI.muted, background: UI.bg, borderRadius: 10, padding: '1px 8px' }}>{count}</span>
-      </header>
-      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
-    </section>
-  );
-}
-
-const Empty = ({ text }: { text: string }) => <div style={{ fontSize: 12, color: UI.faint, padding: '10px 4px', textAlign: 'center' }}>{text}</div>;
-
-/** بطاقة كروب: الاسم + الإجراءات في السطر الأول، والتفاصيل تحته. */
-function GroupCard({ g, dim, actions, children }: { g: Group; dim?: boolean; actions: ReactNode; children?: ReactNode }) {
-  return (
-    <div style={{ border: `1px solid ${UI.line}`, borderRadius: 10, padding: '9px 12px', background: dim ? UI.bg : '#fff' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 140px', minWidth: 0 }}>
-          <span style={{ fontWeight: 700, fontSize: 13, color: dim ? UI.muted : UI.ink }}>{g.name}</span>
-          <span style={{ fontSize: 11, color: UI.faint, marginInlineStart: 6 }}>{g.size} عضو</span>
-        </div>
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>{actions}</div>
-      </div>
-      {children && <div style={{ marginTop: 7, display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</div>}
     </div>
   );
 }
@@ -398,16 +313,13 @@ export default function WaGroupsPage() {
   return (
     <div style={{ direction: 'rtl', maxWidth: 1100 }}>
       {/* شريط الحالة */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 12, padding: '10px 14px', marginBottom: 12 }}>
+      <Bar end={st?.connected && <>
+        <button onClick={() => { setGroups(null); loadLinks(); }} style={ghost()}>تحديث</button>
+        <button onClick={logout} style={ghost('#dc2626')}>فصل الرقم</button>
+      </>}>
         <span style={{ background: label.bg, color: label.color, borderRadius: 20, padding: '2px 10px', fontSize: 11.5, fontWeight: 700 }}>{label.text}</span>
         {meNumber && <span dir="ltr" style={{ fontSize: 12.5, color: UI.text, fontWeight: 600 }}>+{meNumber}</span>}
-        {st?.connected && (
-          <div style={{ display: 'flex', gap: 6, marginInlineStart: 'auto' }}>
-            <button onClick={() => { setGroups(null); loadLinks(); }} style={ghost()}>تحديث</button>
-            <button onClick={logout} style={ghost('#dc2626')}>فصل الرقم</button>
-          </div>
-        )}
-      </div>
+      </Bar>
 
       {error && <ErrBox msg={error} />}
 
@@ -443,7 +355,7 @@ export default function WaGroupsPage() {
                 const sw = whSw[g.jid] || { send: true, read: true };
                 const stopped = !sw.send && !sw.read;
                 return (
-                  <GroupCard key={g.jid} g={g} dim={stopped} actions={<>
+                  <Card key={g.jid} title={g.name} meta={`${g.size} عضو`} dim={stopped} actions={<>
                     <button onClick={() => openWhForm(g)} style={ghost()}>تغيير</button>
                     <button onClick={() => unlinkWarehouse(g, wh)} style={ghost('#dc2626')}>فصل</button>
                   </>}>
@@ -455,7 +367,7 @@ export default function WaGroupsPage() {
                       <Toggle on={sw.send} label="إرسال الطلبيات" title="مطفأ = لا تُرسل أي طلبية لهذا الكروب عبر البوت" onToggle={() => setWhSwitch(g, 'send', !sw.send)} />
                       <Toggle on={sw.read} label="تحليل الفواتير" title="مطفأ = لا يُقرأ أي شيء ينزل في الكروب" onToggle={() => setWhSwitch(g, 'read', !sw.read)} />
                     </div>
-                  </GroupCard>
+                  </Card>
                 );
               })}
             </Section>
@@ -469,7 +381,7 @@ export default function WaGroupsPage() {
                 const pending = pendingByJid[g.jid] || [];
                 const limited = (l.allowedSenders?.length ?? 0) > 0;
                 return (
-                  <GroupCard key={g.jid} g={g} dim={!l.isActive} actions={<>
+                  <Card key={g.jid} title={g.name} meta={`${g.size} عضو`} dim={!l.isActive} actions={<>
                     <button onClick={() => openRepForm(g, l)} style={ghost()}>تعديل</button>
                     <button onClick={() => toggleLink(l)} style={ghost(l.isActive ? '#b45309' : '#16a34a')}>{l.isActive ? 'إيقاف' : 'تفعيل'}</button>
                     <button onClick={() => removeLink(l)} style={ghost('#dc2626')}>إلغاء</button>
@@ -495,7 +407,7 @@ export default function WaGroupsPage() {
                       <span style={{ fontSize: 11.5, color: UI.muted }}>التحليل</span>
                       <AiSeg value={l.aiMode} onChange={v => setAiMode(l, v)} />
                     </div>
-                  </GroupCard>
+                  </Card>
                 );
               })}
             </Section>
@@ -505,7 +417,7 @@ export default function WaGroupsPage() {
             <div style={{ marginTop: 12 }}>
               <Section title="كروبات غير مصنّفة" count={untyped.length} accent="#94a3b8">
                 {untyped.map(g => (
-                  <GroupCard key={g.jid} g={g} actions={<>
+                  <Card key={g.jid} title={g.name} meta={`${g.size} عضو`} actions={<>
                     <button onClick={() => openWhForm(g)} style={ghost('#2563eb')}>كروب مذخر</button>
                     <button onClick={() => openRepForm(g)} style={ghost('#16a34a')}>كروب مندوبين</button>
                   </>} />
