@@ -3,8 +3,8 @@
 //
 // بخلاف السحب اليومي (dofied.sync.js، حساب واحد يختاره الماستر أدمن) هذا سحب عند
 // الطلب لأي حساب مفعَّلة له الميزة visits_dofied_pull، ببيانات دخول دوفايد نفسها:
-//  • المدى = آخر يوم فيه كولات لمندوبي الحساب ← اليوم. آخر يوم يُعاد سحبه عمداً:
-//    ربما سُحب ناقصاً (منتصف النهار)، والمكرّر منه يُسقط قبل المراجعة.
+//  • المدى = أقدم «آخر يوم فيه كولات» بين كل مندوبي الحساب ← اليوم (pullWindow)؛
+//    آخر يوم يُعاد سحبه عمداً (ربما سُحب ناقصاً)، والمكرّر يُسقط قبل المراجعة.
 //  • ملف المكتب كامل (كل الشركات) ⇒ يبقى منه مندوبو الحساب فقط — إلا أدوار المكتب
 //    التي ترفع للمكتب كله.
 //  • ما رُفع سابقاً (من هذا الحساب أو غيره لنفس المندوب) يُسقط قبل المراجعة
@@ -36,12 +36,34 @@ const addDays = (ymd, n) => {
   return d.toISOString().slice(0, 10);
 };
 
-/** مدى السحب. نقيّ. lastDay = آخر يوم فيه كولات (YYYY-MM-DD) أو null. */
-export function pullWindow(lastDay, today) {
-  let from = lastDay && lastDay <= today ? lastDay : addDays(today, -(DEFAULT_BACK_DAYS - 1));
-  const earliest = addDays(today, -(MAX_DAYS - 1));
-  if (from < earliest) from = earliest;
-  return { from, to: today };
+/**
+ * أقدم بداية مسموحة: أول الشهر الحالي، أو قبل 7 أيام إن كنا في أول أسبوع من الشهر
+ * (كي لا تضيع أيام آخر الشهر السابق). مندوب بلا كولات منذ ذلك اليوم يُسحب منه.
+ */
+export function pullFloor(today) {
+  const monthStart = `${today.slice(0, 8)}01`;
+  const weekAgo = addDays(today, -(DEFAULT_BACK_DAYS - 1));
+  return monthStart < weekAgo ? monthStart : weekAgo;
+}
+
+/**
+ * مدى السحب يغطي كل المندوبين (2026-11-13): البداية = أقدم «آخر يوم فيه كولات» بين
+ * مندوبي الحساب، لا أحدثها — مدير سحب لفريقه حتى اليوم لا يجعل موظف المكتب يتخطّى
+ * مندوباً آخر متأخراً. آخر يوم نفسه يُعاد (ربما سُحب ناقصاً)؛ المكرّر يُسقط قبل المراجعة.
+ * نقيّ. lastDays: Map(repId → 'YYYY-MM-DD' | null).
+ */
+export function pullWindow(repIds, lastDays, today) {
+  const floor = pullFloor(today);
+  let from = today;
+  let lagging = 0;
+  for (const id of repIds) {
+    const d = lastDays.get(id);
+    const start = d && d >= floor ? (d <= today ? d : today) : floor;
+    if (start < today) lagging++;
+    if (start < from) from = start;
+  }
+  if (!repIds.length) from = floor;
+  return { from, to: today, lagging };
 }
 
 const jobs = new Map(); // userId → حالة آخر سحب (ذاكرة فقط؛ إعادة تشغيل الخادم تنسى السحب الجاري)
@@ -54,30 +76,45 @@ async function scopeOf(userId) {
   if (!user?.isActive) throw Object.assign(new Error('الحساب غير موجود أو معطّل'), { status: 403 });
   const reps = await listScientificReps({}, user, {});
   const repIds = [...new Set(reps.map(r => r.id).filter(Number.isInteger))];
-  return { user, repIds, officeWide: OFFICE_SCOPED_ROLES.has(user.role) };
+  // مندوب معطَّل (ترك العمل) لا يُنتظر — وإلا لبدأ كل سحب من أول الشهر بسببه
+  const activeIds = new Set((await prisma.scientificRepresentative.findMany({
+    where: { id: { in: repIds }, isActive: true }, select: { id: true },
+  })).map(r => r.id));
+  return { user, repIds, windowRepIds: repIds.filter(id => activeIds.has(id)), officeWide: OFFICE_SCOPED_ROLES.has(user.role) };
 }
 
-async function lastVisitDay(repIds) {
-  if (!repIds.length) return null;
+/** آخر يوم (بغداد) فيه كولات فعّالة لكل مندوب — زيارات أطباء وصيدليات معاً. */
+async function lastVisitDays(repIds) {
+  const out = new Map();
+  if (!repIds.length) return out;
   const where = { scientificRepId: { in: repIds }, isActive: true };
   const [d, p] = await Promise.all([
-    prisma.doctorVisit.aggregate({ where, _max: { visitDate: true } }),
-    prisma.pharmacyVisit.aggregate({ where, _max: { visitDate: true } }),
+    prisma.doctorVisit.groupBy({ by: ['scientificRepId'], where, _max: { visitDate: true } }),
+    prisma.pharmacyVisit.groupBy({ by: ['scientificRepId'], where, _max: { visitDate: true } }),
   ]);
-  const max = [d._max.visitDate, p._max.visitDate].filter(Boolean).sort((a, b) => b - a)[0];
-  return max ? visitDayKey(max) : null;
+  for (const g of [...d, ...p]) {
+    if (!g._max.visitDate) continue;
+    const day = visitDayKey(g._max.visitDate);
+    const cur = out.get(g.scientificRepId);
+    if (!cur || day > cur) out.set(g.scientificRepId, day);
+  }
+  return out;
+}
+
+async function windowFor(repIds) {
+  return pullWindow(repIds, await lastVisitDays(repIds), baghdadNow().date);
 }
 
 /** ما يحتاجه الزر قبل الضغط: هل الميزة متاحة، والمدى المتوقع، وحالة آخر سحب. */
 export async function pullInfo(userId) {
-  const { user, repIds } = await scopeOf(userId);
+  const { user, windowRepIds } = await scopeOf(userId);
   const enabled = userFeatureOn(user, PULL_FEATURE, { optIn: true });
   const cfg = await getConfig();
   const configured = Boolean(cfg.username && cfg.passwordEnc);
-  const lastDay = enabled ? await lastVisitDay(repIds) : null;
+  const win = enabled ? await windowFor(windowRepIds) : null;
   return {
-    enabled, configured, lastDay,
-    window: pullWindow(lastDay, baghdadNow().date),
+    enabled, configured,
+    window: win, repCount: windowRepIds.length,
     job: jobs.get(userId) ?? null,
   };
 }
@@ -89,7 +126,7 @@ export async function startPull(userId) {
   if (cur?.finishedAt && Date.now() - cur.finishedAt < COOLDOWN_MS && cur.state !== 'error') {
     throw Object.assign(new Error('سُحب للتوّ — انتظر دقيقتين قبل سحب جديد'), { status: 429 });
   }
-  const { user, repIds, officeWide } = await scopeOf(userId);
+  const { user, repIds, windowRepIds, officeWide } = await scopeOf(userId);
   if (!userFeatureOn(user, PULL_FEATURE, { optIn: true })) {
     throw Object.assign(new Error('هذه الميزة غير مفعّلة لحسابك'), { status: 403 });
   }
@@ -105,9 +142,8 @@ export async function startPull(userId) {
     throw Object.assign(new Error('لا مندوبين مرتبطين بحسابك لسحب كولاتهم'), { status: 400 });
   }
 
-  const lastDay = await lastVisitDay(repIds);
-  const win = pullWindow(lastDay, baghdadNow().date);
-  const job = { state: 'running', from: win.from, to: win.to, lastDay, startedAt: Date.now(), message: 'جارِ الاتصال بدوفايد…' };
+  const win = await windowFor(windowRepIds);
+  const job = { state: 'running', from: win.from, to: win.to, lagging: win.lagging, startedAt: Date.now(), message: 'جارِ الاتصال بدوفايد…' };
   jobs.set(userId, job);
 
   runPull(job, { user, repIds, officeWide, cfg }).catch(e => {

@@ -233,7 +233,7 @@ export default function DoctorsPage() {
   // السحب يجري بالخادم في الخلفية (من آخر يوم فيه كولات لمندوبي الحساب ← اليوم،
   // بلا ما رُفع سابقاً)، والنتيجة تصير ملفاً معلَّقاً تُفتح له نافذة التدقيق نفسها.
   const showDofiedPull = !isMarketer && !isFieldRep && hasFeature('visits_dofied_pull');
-  const [dofiedInfo, setDofiedInfo] = useState<{ window?: { from: string; to: string }; lastDay?: string | null; configured?: boolean; job?: any } | null>(null);
+  const [dofiedInfo, setDofiedInfo] = useState<{ window?: { from: string; to: string; lagging?: number } | null; repCount?: number; configured?: boolean; job?: any } | null>(null);
   const [dofiedJob, setDofiedJob] = useState<any>(null);
   const dofiedPollRef = useRef<number | null>(null);
 
@@ -284,7 +284,7 @@ export default function DoctorsPage() {
   const startDofiedPull = async () => {
     if (pendingVisitsImport) { alert('لديك ملف زيارات بانتظار المراجعة — أكمله أو ألغِه أولاً.'); return; }
     const w = dofiedInfo?.window;
-    if (w && !confirm(`سحب كولات مندوبيك من دوفايد من ${w.from} إلى ${w.to}؟\nالكولات المرفوعة سابقاً لن تتكرّر، وكل شيء يُعرض عليك للتدقيق قبل الحفظ.`)) return;
+    if (w && !confirm(`سحب كولات مندوبيك من دوفايد من ${w.from} إلى ${w.to}؟\n${w.lagging ? `البداية = أقدم يوم ناقص بين كل مندوبيك (${w.lagging} من ${dofiedInfo?.repCount ?? '?'} مندوب كولاتهم غير مكتملة حتى اليوم).\n` : ''}الكولات المرفوعة سابقاً لن تتكرّر، وكل شيء يُعرض عليك للتدقيق قبل الحفظ.`)) return;
     try {
       const res = await fetch(`${API}/api/doctors/visits/dofied-pull`, { method: 'POST', headers: H() });
       const j = await res.json();
@@ -2283,7 +2283,7 @@ export default function DoctorsPage() {
                 disabled={dofiedRunning || dofiedInfo?.configured === false}
                 title={dofiedRunning ? (dofiedJob?.message || 'جارِ السحب…')
                   : dofiedInfo?.configured === false ? 'ربط دوفايد غير مُعدّ بعد — تواصل مع الإدارة'
-                  : dofiedInfo?.window ? `سحب كولات مندوبيك من دوفايد: ${dofiedInfo.window.from} ← ${dofiedInfo.window.to}${dofiedInfo.lastDay ? ` (آخر يوم مرفوع ${dofiedInfo.lastDay})` : ''}`
+                  : dofiedInfo?.window ? `سحب كولات مندوبيك من دوفايد: ${dofiedInfo.window.from} ← ${dofiedInfo.window.to}${dofiedInfo.window.lagging ? ` (${dofiedInfo.window.lagging} من ${dofiedInfo.repCount ?? '?'} مندوب كولاتهم ناقصة)` : ''}`
                   : 'سحب كولات مندوبيك من دوفايد'}
                 style={{
                   marginInlineStart: showVisitsImport ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 4,
