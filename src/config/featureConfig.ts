@@ -60,6 +60,7 @@ export const NAV_ITEMS: NavItemDef[] = [
   { id: 'warehouse-dispatch', labelAr: 'إرسال للمذاخر',             icon: '🚚', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader'] },
   { id: 'wa-chats',          labelAr: 'محادثات واتساب',             icon: '💬', roles: ['admin','manager','office_manager','office_hr','office_employee','user','company_manager','supervisor','product_manager','team_leader','commercial_supervisor','commercial_team_leader'] },
   { id: 'rep-followup',      labelAr: 'متابعة المندوبين',           icon: '🎯', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
+  { id: 'wa-campaigns',      labelAr: 'حملات واتساب',               icon: '📣', roles: ['office_employee','office_manager','office_hr','admin'] },
   { id: 'items-catalog',     labelAr: 'الايتمات والأسعار',         icon: '💊', roles: ['company_manager','office_manager','office_hr','office_employee','product_manager','admin','manager'] },
   { id: 'motivation',       labelAr: 'التحفيز',                    icon: '🏆', roles: ['admin','manager','company_manager','team_leader','supervisor','office_manager','product_manager','commercial_supervisor','commercial_team_leader','office_employee','office_hr','scientific_rep'] },
 ];
@@ -99,6 +100,7 @@ export const FEATURE_PAGE_MAP: Record<string, string> = {
   rep_sales:          'rep-sales',
   warehouse_dispatch: 'warehouse-dispatch',
   wa_chats:           'wa-chats',
+  wa_campaigns:       'wa-campaigns',
   items_catalog:      'items-catalog',
 };
 
@@ -136,6 +138,7 @@ export const PAGE_DESCRIPTIONS: Record<string, string> = {
   'warehouse-dispatch': 'صفحة إرسال للمذاخر — الطلبيات تُرسل تلقائياً (أو بعد موافقة المدير) لواتساب المذخر عبر البوت أو لكروب المذخر، والمذخر يرد بأزرار (تم التجهيز/جزئي/رفض) أو بصورة الفاتورة فتتحدّث الحالة ويُشعَر المندوب، مع تحويل تلقائي للمذخر البديل عند الرفض أو عدم الرد',
   'wa-chats':          'صفحة محادثات واتساب — كل ما يدور بين رقم البوت الرسمي والمذاخر والمندوبين/الزبائن (الرسائل الواردة حتى ما لا يفهمه البوت، وردود البوت، والطلبيات المرسلة)، مع ردّ يدوي من رقم البوت خلال 24 ساعة من آخر رسالة للطرف الآخر. المدير يرى مذاخره وأرقام فريقه فقط',
   'province-teams':    'صفحة فرق المحافظات — هيكلية المكاتب ذات التيم ليدر المشترك لكل محافظة: مندوب علمي لكل شركة (أو مندوب لشركتين بتقسيم الايتمات)، وحسبتان لكل مندوب: تغطية المحافظة من ملفات المكتب، ومبيع المندوب (المؤكد في «مبيعات المندوبين» + ميركاتو واللكوديشن باسمه)',
+  'wa-campaigns':      'صفحة حملات واتساب — موظف المكتب يرفع ملف إكسل (أسماء وأرقام) ويرسل عرضاً على ايتم بقالب تسويقي معتمد من Meta عبر رقم البوت الرسمي، ويتابع من وصلته وقرأها ومن ضغط «اطلب الآن» أو «إيقاف العروض». كل رسالة مدفوعة من Meta',
   'items-catalog':     'صفحة الايتمات والأسعار — مدير الشركة أو إدارة المكتب يعدّل ايتمات شركاته (الاسم، الاسم العلمي، الجرعة، الشكل، سعر المكتب، سعر المذخر، المسج العلمي) ويضيف ايتمات جديدة. التعديل يُكتب على كتالوج السوبر أدمن نفسه فيُعتمد عند الجميع فوراً، ويظهر في «تغييرات المناطق» عند السوبر أدمن',
   'team-engagement':   'صفحة نشاط الفريق — متابعة مدى استخدام مدير الشركة والموارد البشرية وموظفي المكتب للتطبيق (مدير المكتب فقط)',
 };
@@ -319,6 +322,7 @@ export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
   'rep_sales',
   'warehouse_dispatch',
   'wa_chats',
+  'wa_campaigns',
   'items_catalog',
   'wa_order_form',
   'rep_orders_ai_read',

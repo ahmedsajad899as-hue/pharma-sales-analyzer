@@ -68,6 +68,7 @@ const _importRepOrders           = () => import('./pages/RepOrdersPage');
 const _importRepSales            = () => import('./pages/RepSalesPage');
 const _importWarehouseDispatch   = () => import('./pages/WarehouseDispatchPage');
 const _importWaChats             = () => import('./pages/WaChatsPage');
+const _importWaCampaigns         = () => import('./pages/WaCampaignsPage');
 const _importItemsCatalog        = () => import('./pages/ItemsCatalogManagePage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
@@ -107,6 +108,7 @@ const RepOrdersPage           = lazyWithRetry(_importRepOrders);
 const RepSalesPage            = lazyWithRetry(_importRepSales);
 const WarehouseDispatchPage   = lazyWithRetry(_importWarehouseDispatch);
 const WaChatsPage             = lazyWithRetry(_importWaChats);
+const WaCampaignsPage         = lazyWithRetry(_importWaCampaigns);
 const ItemsCatalogManagePage  = lazyWithRetry(_importItemsCatalog);
 
 // Minimal spinner shown while a page chunk is loading
@@ -160,6 +162,7 @@ export type PageId =
   | 'rep-sales'
   | 'warehouse-dispatch'
   | 'wa-chats'
+  | 'wa-campaigns'
   | 'items-catalog'
   | 'bonus-sales'
   | 'account-builder'
@@ -723,6 +726,7 @@ function AppInner() {
     { id: 'rep-sales',          node: <RepSalesPage /> },
     { id: 'warehouse-dispatch', node: <WarehouseDispatchPage /> },
     { id: 'wa-chats', node: <WaChatsPage /> },
+    { id: 'wa-campaigns',       node: <WaCampaignsPage /> },
     { id: 'items-catalog',      node: <ItemsCatalogManagePage /> },
   ];
 

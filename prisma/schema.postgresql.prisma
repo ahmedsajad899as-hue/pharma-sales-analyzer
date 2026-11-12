@@ -3529,6 +3529,7 @@ model WaBotConfig {
   id             Int      @id @default(1)
   orderFlowId    String?
   orderFlowDraft Boolean  @default(false) // نموذج غير منشور بعد — يُرسل بوضع draft للتجربة
+  campaignMsgPrice Float? // سعر رسالة التسويق التقديري بالدولار (يكتبه المستخدم من فاتورة Meta)
   updatedAt      DateTime @updatedAt
 
   @@map("wa_bot_config")
@@ -3547,6 +3548,72 @@ model WaFlowSession {
 
   @@index([createdAt])
   @@map("wa_flow_sessions")
+}
+
+// حملات واتساب (عروض تسويقية) — إرسال قالب Marketing معتمد من Meta لقائمة أرقام من
+// Excel عبر رقم البوت الرسمي. الإرسال تدريجي في الخلفية ويُستأنف بعد إعادة التشغيل.
+model WaCampaign {
+  id                 Int                   @id @default(autoincrement())
+  title              String
+  templateName       String
+  templateLang       String
+  templateSnapshot   String // JSON — مكوّنات القالب لحظة الإنشاء (للمعاينة والإرسال)
+  varMap             String // JSON — [{ key, source: name|item|price|warehousePrice|text|col, value }]
+  headerMediaId      String? // صورة رأس القالب (media id مرفوع لواتساب، صالح ~30 يوماً)
+  itemId             Int?
+  itemName           String?
+  itemPrice          Float?
+  itemWarehousePrice Float?
+  replyText          String? // ردّ البوت حين يضغط المستلم «اطلب الآن»
+  status             String                @default("draft") // draft | sending | paused | done | cancelled
+  lastError          String?
+  total              Int                   @default(0)
+  createdById        Int? // سالب = سوبر أدمن (ليس User)
+  createdByName      String?
+  officeId           Int?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  recipients         WaCampaignRecipient[]
+
+  @@index([officeId, createdAt])
+  @@index([status])
+  @@map("wa_campaigns")
+}
+
+model WaCampaignRecipient {
+  id          Int        @id @default(autoincrement())
+  campaignId  Int
+  campaign    WaCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  waId        String
+  name        String?
+  extra       String? // JSON — بقية أعمدة صفّ الإكسل (متغيّرات القالب)
+  status      String     @default("pending") // pending | sending | sent | delivered | read | failed | skipped
+  waMessageId String?
+  error       String?
+  reply       String? // order | stop | text | button
+  replyText   String?
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  repliedAt   DateTime?
+
+  @@unique([campaignId, waId])
+  @@index([campaignId, status])
+  @@index([waMessageId])
+  @@index([waId])
+  @@map("wa_campaign_recipients")
+}
+
+// أرقام طلبت إيقاف العروض — لا تصلها أي حملة بعدها (عام لكل الحملات لأنه نفس رقم البوت)
+model WaOptOut {
+  waId       String   @id
+  source     String? // button | text | meta | manual
+  campaignId Int?
+  createdAt  DateTime @default(now())
+
+  @@map("wa_opt_outs")
 }
 
 model RepOrder {

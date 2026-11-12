@@ -22,6 +22,7 @@ import { logWa, describeInbound, describeOutbound, humanChatState } from './wa-c
 import { isExplicitOrderIntent } from '../orders/order-trigger.js';
 import { parseWarehouseText } from '../warehouse-dispatch/dispatch.inbound.js';
 import { maybeSendOrderForm, handleOrderFormReply } from './wa-order-form.js';
+import { handleCampaignButton, absorbCampaignReply, handleCampaignStatus } from '../wa-campaigns/wa-campaigns.service.js';
 
 /** قراءات متأخّرة — لا قيمة محفوظة في نطاق الموديل. */
 export const whatsappToken     = () => process.env.WHATSAPP_TOKEN || '';
@@ -232,12 +233,29 @@ async function handleOneMessage(message, contactName) {
     return;
   }
 
+  // زر على قالب حملة عروض («اطلب الآن» / «إيقاف العروض») — حمولته wc:… فلا تختلط بأزرار المذاخر
+  if (message.type === 'button') {
+    try {
+      if (await handleCampaignButton(message, { sendText: sendMessage })) return;
+    } catch (err) {
+      console.error('[whatsapp] زر حملة:', err);
+    }
+  }
+
   // ردود المذاخر (أزرار الطلبية، صورة فاتورة، سبب رفض) قبل مسار طلبيات المندوبين —
   // رقم المذخر غير مربوط بحساب فكان سيتلقّى «هذا الرقم غير مربوط».
   try {
     if (await handleWarehouseCloudMessage(message, contactName, imageRef(message))) return;
   } catch (err) {
     console.error('[whatsapp] فشل معالجة ردّ المذخر:', err);
+  }
+
+  // زبون وصله عرض وردّ عليه (وليس رقماً مربوطاً بحساب): يُسجَّل ردّاً على الحملة —
+  // لا «هذا الرقم غير مربوط» ولا قراءة طلبية
+  try {
+    if (await absorbCampaignReply(message, { sendText: sendMessage })) return;
+  } catch (err) {
+    console.error('[whatsapp] ردّ على حملة:', err);
   }
 
   const img = imageRef(message);
@@ -295,7 +313,10 @@ export async function handleWhatsAppWebhook(body) {
         await handleOneMessage(message, names.get(message.from));
       }
       for (const st of value.statuses || []) {
-        try { await handleDispatchStatus(st); } catch (err) { console.error('[whatsapp] حالة رسالة:', err?.message); }
+        try {
+          if (await handleCampaignStatus(st)) continue;
+          await handleDispatchStatus(st);
+        } catch (err) { console.error('[whatsapp] حالة رسالة:', err?.message); }
       }
     }
   }

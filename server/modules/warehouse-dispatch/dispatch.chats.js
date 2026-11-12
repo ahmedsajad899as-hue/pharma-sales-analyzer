@@ -26,6 +26,14 @@ async function visibleNumbers(viewer) {
     prisma.whatsAppChatLink.findMany({ where: { userId: { in: await teamUserIds(viewer) } }, select: { waId: true } }),
   ]);
   const m = new Map();
+  // زبائن حملات العروض لمكتبه (ردودهم على العرض تُتابَع من هنا)
+  if (viewer.officeId) {
+    const recips = await prisma.waCampaignRecipient.findMany({
+      where: { campaign: { is: { officeId: viewer.officeId } }, sentAt: { gte: new Date(Date.now() - 90 * 86_400_000) } },
+      distinct: ['waId'], select: { waId: true },
+    });
+    for (const r of recips) m.set(r.waId, null);
+  }
   for (const l of links) m.set(l.waId, null);
   for (const w of whs) if (w.waId) m.set(w.waId, null);
   return m;

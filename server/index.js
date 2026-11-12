@@ -102,6 +102,8 @@ import viberRoutes               from './modules/viber/viber.routes.js';
 import viberLinksRoutes          from './modules/viber/viber-links.routes.js';
 import whatsappRoutes            from './modules/whatsapp/whatsapp.routes.js';
 import whatsappLinksRoutes       from './modules/whatsapp/whatsapp-links.routes.js';
+import { appRouter as waCampaignsRoutes, saRouter as waCampaignsSaRoutes } from './modules/wa-campaigns/wa-campaigns.routes.js';
+import { resumeCampaigns } from './modules/wa-campaigns/wa-campaigns.service.js';
 import engagementRoutes          from './modules/engagement/engagement.routes.js';
 import repFollowupRoutes         from './modules/rep-followup/rep-followup.routes.js';
 import provinceTeamsRoutes       from './modules/province-teams/province-teams.routes.js';
@@ -247,6 +249,7 @@ app.use('/api/sa/telegram-links', telegramLinksRoutes);
 app.use('/api/sa/ai-usage',       aiUsageRoutes);
 app.use('/api/sa/viber-links',    viberLinksRoutes);
 app.use('/api/sa/whatsapp-links', whatsappLinksRoutes);
+app.use('/api/sa/wa-campaigns',   waCampaignsSaRoutes);
 app.use('/api/sa/dofied',         dofiedRoutes);
 app.use('/api/sa/wa-groups',      waGroupsSaRoutes);
 app.use('/api/sa/companies',      companiesRoutes);
@@ -1339,6 +1342,7 @@ app.use('/api/telegram',          telegramRoutes);
 app.use('/api/orders',            ordersRoutes);
 app.use('/api/viber',             viberRoutes);
 app.use('/api/whatsapp',          whatsappRoutes);
+app.use('/api/wa-campaigns',      waCampaignsRoutes);
 app.use('/api/engagement',        engagementRoutes);
 app.use('/api/rep-followup',      repFollowupRoutes);
 app.use('/api/province-teams',    provinceTeamsRoutes);
@@ -5074,6 +5078,10 @@ if (process.env.VERCEL) {
       .then(n => { if (n) console.log(`✓ استؤنفت ${n} رسالة كروب مندوبين منقطعة`); })
       .catch(e => console.error('[resumeListenInbox]', e.message));
     backfillOrderSends().then(() => backfillWarehouseSeqs());
+    // حملات واتساب كانت قيد الإرسال لحظة إعادة التشغيل ← تُتابع
+    resumeCampaigns()
+      .then(n => { if (n) console.log(`✓ استؤنفت ${n} حملة واتساب`); })
+      .catch(e => console.error('[resumeCampaigns]', e.message));
     // طلبيات تلكرام قطعتها إعادة التشغيل (نشر) أثناء قراءتها ← تُعاد قراءتها
     resumeInterruptedOrders()
       .then(n => { if (n) console.log(`✓ استؤنفت ${n} طلبية تلكرام منقطعة`); })
