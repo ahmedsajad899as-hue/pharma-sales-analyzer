@@ -31,7 +31,7 @@ import { classifyRepNamesForUser, normalizeRepName, repNameScore, saveRepNameLin
 import { createSurveyDoctor, cleanDoctorName, doctorLinkKey, doctorMatchScore, DOCTOR_ASK_FLOOR, loadSurveyDoctorAliases, buildDoctorNameIndex } from '../../lib/surveyDoctors.js';
 import { runFeedbackInferenceForImportFile } from './doctor-visit-feedback-ai.js';
 import { saveItemLinks } from '../stock-ledger/stock-ledger.service.js';
-import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
+import { recomputeVisitDuplicatesForReps, repIdsOfImport, visitDayKey, doctorNameKey, pharmacyVisitKey } from '../../lib/visitImportDedup.js';
 import { resolveAreaByName } from '../../lib/areaResolver.js';
 import { loadProvinceVisitContext, isProvinceVisitRow, markProvinceRows, prepareProvinceVisitRows } from '../../lib/provinceVisitSurvey.js';
 import { BAGHDAD_PROVINCE } from '../../lib/pharmacyRep.js';
@@ -1526,7 +1526,90 @@ function applyLooseRepFallback(rowsList, looseIndex) {
  * تلقائياً (قالبنا البسيط أو تصدير CRM خارجي) ويُرجع شكلاً موحّداً دائماً
  * (doctorRows + pharmacyRows) بصرف النظر عن الصيغة.
  */
+/**
+ * قراءة الملف ومطابقته، ثم إسقاط ما سبق رفعه (dropAlreadyImportedRows) — فلا
+ * يراجع المستخدم إلا الزيارات الجديدة فعلاً.
+ */
 export async function extractVisitsFromExcel(file, user) {
+  return dropAlreadyImportedRows(await extractVisitsFromExcelRaw(file, user));
+}
+
+/**
+ * يُسقط من نتيجة الاستخراج كل صف زيارة موجود أصلاً في رفعة مفعّلة سابقة — لأي
+ * حساب (2026-11-13): مدير رفع زيارات مندوبيه من 6 إلى 10، ثم رفع موظف المكتب ملف
+ * المكتب كاملاً لنفس الأيام ⇒ يُعرض عليه للمراجعة ما لم يُرفع فقط.
+ * المفتاح نفسه في visitImportDedup: المندوب × يوم الزيارة (بغداد) × (طبيب السيرفي
+ * أو الاسم المطبَّع) / الصيدلية. صف بلا مندوب محسوم يبقى — يحسمه الحفظ لاحقاً.
+ */
+export async function dropAlreadyImportedRows(data) {
+  const dRows = data.doctorRows ?? [], pRows = data.pharmacyRows ?? [];
+  const dayOf = (r) => { const d = applyRowTime(parseVisitDate(r.date), r); return d ? visitDayKey(d) : null; };
+  const candidates = [...dRows, ...pRows].filter(r => Number.isInteger(r.repId) && r.date);
+  if (!candidates.length) return { ...data, alreadyImported: 0 };
+
+  const repIds = [...new Set(candidates.map(r => r.repId))];
+  const days = candidates.map(dayOf).filter(Boolean).sort();
+  if (!days.length) return { ...data, alreadyImported: 0 };
+  const gte = new Date(`${days[0]}T00:00:00Z`); gte.setUTCDate(gte.getUTCDate() - 1);
+  const lt  = new Date(`${days[days.length - 1]}T00:00:00Z`); lt.setUTCDate(lt.getUTCDate() + 2);
+  const where = { scientificRepId: { in: repIds }, isActive: true, visitImportFileId: { not: null }, visitDate: { gte, lt } };
+
+  const [docVisits, pharmVisits, rowDoctors] = await Promise.all([
+    dRows.length ? prisma.doctorVisit.findMany({ where, select: { scientificRepId: true, visitDate: true, doctor: { select: { masterSurveyDoctorId: true, name: true } } } }) : [],
+    pRows.length ? prisma.pharmacyVisit.findMany({ where, select: { scientificRepId: true, visitDate: true, pharmacyName: true } }) : [],
+    prisma.doctor.findMany({
+      where: { id: { in: [...new Set(dRows.map(r => r.doctorId).filter(Number.isInteger))] } },
+      select: { id: true, masterSurveyDoctorId: true, name: true },
+    }),
+  ]);
+  if (!docVisits.length && !pharmVisits.length) return { ...data, alreadyImported: 0 };
+
+  const seen = new Set();
+  for (const v of docVisits) {
+    const tail = `|${v.scientificRepId}|${visitDayKey(v.visitDate)}`;
+    if (v.doctor?.masterSurveyDoctorId) seen.add(`s${v.doctor.masterSurveyDoctorId}${tail}`);
+    seen.add(`n${doctorNameKey(v.doctor?.name)}${tail}`);
+  }
+  for (const v of pharmVisits) seen.add(`p${pharmacyVisitKey(v.pharmacyName)}|${v.scientificRepId}|${visitDayKey(v.visitDate)}`);
+  const docById = new Map(rowDoctors.map(d => [d.id, d]));
+
+  const isDupDoctor = (r) => {
+    if (!Number.isInteger(r.repId)) return false;
+    const day = dayOf(r); if (!day) return false;
+    const tail = `|${r.repId}|${day}`;
+    const doc = Number.isInteger(r.doctorId) ? docById.get(r.doctorId) : null;
+    if (doc?.masterSurveyDoctorId && seen.has(`s${doc.masterSurveyDoctorId}${tail}`)) return true;
+    return [doc?.name, r.doctorName, r.rawDoctorName].some(n => n && seen.has(`n${doctorNameKey(n)}${tail}`));
+  };
+  const isDupPharm = (r) => {
+    if (!Number.isInteger(r.repId)) return false;
+    const day = dayOf(r); if (!day) return false;
+    return seen.has(`p${pharmacyVisitKey(r.pharmacyName)}|${r.repId}|${day}`);
+  };
+  const doctorRows = dRows.filter(r => !isDupDoctor(r));
+  const pharmacyRows = pRows.filter(r => !isDupPharm(r));
+  const alreadyImported = dRows.length - doctorRows.length + pRows.length - pharmacyRows.length;
+  if (!alreadyImported) return { ...data, alreadyImported: 0 };
+  return pruneNameLists({ ...data, doctorRows, pharmacyRows, alreadyImported });
+}
+
+/** بعد حذف صفوف: لا يُسأل عن اسم مندوب/طبيب لم يبقَ له أي صف. */
+export function pruneNameLists(data) {
+  const rows = [...(data.doctorRows ?? []), ...(data.pharmacyRows ?? [])];
+  const repKeys = new Set(rows.map(r => r.repName ? normalizeRepName(r.repName) : '').filter(Boolean));
+  const docKeys = new Set((data.doctorRows ?? []).map(r => r.doctorKey).filter(Boolean));
+  const rn = data.repNames ?? {};
+  const dn = data.doctorNames ?? {};
+  const keepRep = (list) => (list ?? []).filter(e => repKeys.has(e.key ?? normalizeRepName(e.raw)));
+  const keepDoc = (list) => (list ?? []).filter(e => !e.key || docKeys.has(e.key));
+  return {
+    ...data,
+    repNames: { ...rn, pending: keepRep(rn.pending), resolved: keepRep(rn.resolved), unrelated: keepRep(rn.unrelated) },
+    doctorNames: { ...dn, pending: keepDoc(dn.pending), resolved: keepDoc(dn.resolved), unrelated: keepDoc(dn.unrelated) },
+  };
+}
+
+async function extractVisitsFromExcelRaw(file, user) {
   // الملف المرفوع مؤقّت بحت: يُقرأ إلى الذاكرة ثم يُحذف فوراً من القرص — لا
   // يُخزَّن أي إكسل على الخادم، المحفوظ هو صفوف قاعدة البيانات فقط. الحذف في
   // finally كي لا يبقى ملف يتيم حين يفشل التحليل (ملف تالف/صيغة غير مدعومة).
@@ -1700,7 +1783,7 @@ export async function extractVisitsFromExcel(file, user) {
  * جديد» الموجودة أصلاً (addCustomDoctor) — كل طبيب جديد هنا يُنشأ عبر السيرفي
  * أولاً (createSurveyDoctor) لا كصف Doctor مستقل.
  */
-async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
+async function commitDoctorRows(rows, ownerUserId, user, importFileId, importBatchId = null) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
   const linkedAreaIds = new Set(
@@ -1994,6 +2077,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
           geoCorrect: typeof r.geoCorrect === 'boolean' ? r.geoCorrect : null,
           userId: user.id,
           visitImportFileId: importFileId ?? null,
+          visitImportBatchId: importBatchId ?? null,
         },
       });
       imported++;
@@ -2018,7 +2102,7 @@ async function commitDoctorRows(rows, ownerUserId, user, importFileId) {
 }
 
 /** نفس منطق commitDoctorRows لكن لِـ PharmacyVisit — pharmacyName نص حر بلا سجل رئيسي فيُحفظ كما هو. */
-async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
+async function commitPharmacyRows(rows, ownerUserId, user, importFileId, importBatchId = null) {
   const allAreas = await prisma.area.findMany({ select: { id: true, name: true } });
   const areaByNorm = new Map(allAreas.map(a => [normalizeAreaName(a.name), a]));
   const linkedAreaIds = new Set(
@@ -2067,6 +2151,7 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
           geoCorrect: typeof r.geoCorrect === 'boolean' ? r.geoCorrect : null,
           userId: user.id,
           visitImportFileId: importFileId ?? null,
+          visitImportBatchId: importBatchId ?? null,
         },
       });
       // الايتم المستخرج من حقل note — PharmacyVisitItem يقبل itemId أو اسماً حراً،
@@ -2108,15 +2193,18 @@ async function commitPharmacyRows(rows, ownerUserId, user, importFileId) {
  * واحدة من "الملفات المرفوعة")، ثم تستورد صفوف الأطباء والصيدليات معاً
  * (أي منهما قد يكون فارغاً حسب صيغة الملف) مربوطة به.
  */
-export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], rememberRepLinks = [], rememberDoctorLinks = [], fileName = '', clientToken = '', user }) {
+export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], rememberRepLinks = [], rememberDoctorLinks = [], fileName = '', clientToken = '', source = 'excel', user }) {
   const ownerUserId = await resolveDocOwnerUserId(user.id);
 
   // حماية من الاستيراد المزدوج: الواجهة تعيد إرسال نفس الطلب حين تنقطع الشبكة
   // أو تنتهي مهلة البوّابة — وهما حالتان قد يكون الحفظ فيهما نجح فعلاً ولم يصل
-  // الردّ. البصمة تحسم ذلك: إن وُجد ملف بنفسها فالعملية تمّت، تُعاد نتيجتها.
+  // الردّ. البصمة تحسم ذلك: إن وُجدت دفعة (أو ملف قديم) بنفسها فالعملية تمّت.
   const token = String(clientToken || '').trim() || null;
   if (token) {
-    const prior = await prisma.visitImportFile.findUnique({
+    const prior = await prisma.visitImportBatch.findUnique({
+      where: { clientToken: token },
+      include: { _count: { select: { doctorVisits: true, pharmacyVisits: true } } },
+    }) ?? await prisma.visitImportFile.findUnique({
       where: { clientToken: token },
       include: { _count: { select: { doctorVisits: true, pharmacyVisits: true } } },
     });
@@ -2139,47 +2227,124 @@ export async function commitVisitsImport({ doctorRows = [], pharmacyRows = [], r
   // لصفوفها، فلا يصل ذلك المسار إليها إلا زيارة جاهزة للتسجيل.
   const provinceResult = await prepareProvinceVisitRows({ doctorRows, pharmacyRows, ownerUserId });
 
-  const importFile = await prisma.visitImportFile.create({
-    data: { originalName: fileName?.trim() || 'ملف بدون اسم', userId: user.id, ownerUserId, clientToken: token },
+  // الملف التراكمي (2026-11-13): كل رفعة تنصهر في ملف واحد للمالك كدفعة مستقلة —
+  // مثل ملف المبيعات التراكمي. الدفعة تُعطَّل/تُحذف وحدها من «الملفات المرفوعة».
+  const { file: importFile, created: fileCreated } = await getOrCreateCumulativeVisitFile(ownerUserId, user.id);
+  const batch = await prisma.visitImportBatch.create({
+    data: {
+      fileId: importFile.id, originalName: fileName?.trim() || 'ملف بدون اسم', userId: user.id, clientToken: token,
+      source: ['excel', 'dofied', 'telegram'].includes(source) ? source : 'excel',
+    },
   });
 
   const [doctorResult, pharmacyResult] = await Promise.all([
-    commitDoctorRows(doctorRows, ownerUserId, user, importFile.id),
-    commitPharmacyRows(pharmacyRows, ownerUserId, user, importFile.id),
+    commitDoctorRows(doctorRows, ownerUserId, user, importFile.id, batch.id),
+    commitPharmacyRows(pharmacyRows, ownerUserId, user, importFile.id, batch.id),
   ]);
 
   const totalImported = doctorResult.imported + pharmacyResult.imported;
-  // زيارات هذا الملف الموجودة سلفاً في ملف مفعّل أقدم لا تُعدّ مرة ثانية
+  // زيارات هذه الدفعة الموجودة سلفاً في رفعة مفعّلة أقدم — لأي حساب، لنفس المندوب —
+  // لا تُعدّ مرة ثانية (مدير رفع زيارات مندوبيه، ثم رفع موظف المكتب ملف المكتب كاملاً).
   let duplicatesHidden = 0;
   if (totalImported > 0) {
-    await recomputeVisitImportDuplicates(ownerUserId);
-    const where = { visitImportFileId: importFile.id, isActive: false };
+    await recomputeVisitDuplicatesForReps(await repIdsOfImport({ batchId: batch.id }));
+    const where = { visitImportBatchId: batch.id, isActive: false };
     const [d, p] = await Promise.all([prisma.doctorVisit.count({ where }), prisma.pharmacyVisit.count({ where })]);
     duplicatesHidden = d + p;
   }
-  // لا نُبقي سجل ملف فارغاً (كل الصفوف فشلت/تُجوهلت) — يُربك قائمة "الملفات المرفوعة".
+  // لا نُبقي دفعة فارغة (كل الصفوف فشلت/تُجوهلت) — تُربك قائمة "الملفات المرفوعة".
   if (totalImported === 0) {
-    await prisma.visitImportFile.delete({ where: { id: importFile.id } }).catch(() => {});
+    await prisma.visitImportBatch.delete({ where: { id: batch.id } }).catch(() => {});
+    if (fileCreated) await prisma.visitImportFile.delete({ where: { id: importFile.id } }).catch(() => {});
   } else if (doctorResult.imported > 0) {
-    // استنتاج الفيدباك بالذكاء الاصطناعي لزيارات هذا الملف — لا يُنتظَر (fire-
+    // استنتاج الفيدباك بالذكاء الاصطناعي لزيارات هذه الدفعة — لا يُنتظَر (fire-
     // and-forget): استجابة الاستيراد يجب أن تعود فوراً بصرف النظر عن مدة/نجاح
     // استدعاء Gemini، ولا يجوز لفشله إسقاط نجاح الاستيراد نفسه.
-    runFeedbackInferenceForImportFile(importFile.id).catch(err => {
+    runFeedbackInferenceForImportFile(importFile.id, batch.id).catch(err => {
       console.error('[doctor-visits-import] feedback AI inference failed:', err?.message || err);
     });
   }
 
   return {
-    imported: totalImported,
+    imported: totalImported - duplicatesHidden,
+    duplicatesHidden,
     skipped:  doctorResult.skipped + pharmacyResult.skipped,
     errors:   [
       ...(provinceResult.provinceRows ? [`🗺️ سيرفي المحافظات: ${provinceResult.provinceRows} زيارة — أُضيف ${provinceResult.newDoctors} طبيب و${provinceResult.newPharmacies} صيدلية و${provinceResult.newAreas} منطقة جديدة (الأسماء المسجَّلة سابقاً لم تتكرر).`] : []),
-      ...(duplicatesHidden ? [`ℹ️ ${duplicatesHidden} زيارة موجودة أصلاً في ملف مفعّل سابق — لن تُحسب مرتين.`] : []),
+      ...(duplicatesHidden ? [`ℹ️ ${duplicatesHidden} زيارة كانت مرفوعة سابقاً (منك أو من حساب آخر لنفس المندوب) — لم تُكرَّر.`] : []),
       ...provinceResult.errors, ...doctorResult.errors, ...pharmacyResult.errors,
     ].slice(0, 30),
     doctor:   doctorResult,
     pharmacy: pharmacyResult,
   };
+}
+
+/** الملف التراكمي للمالك — الأقدم إن وُجد أكثر من واحد (سباق رفعتين متزامنتين). */
+export async function getOrCreateCumulativeVisitFile(ownerUserId, uploaderUserId) {
+  const existing = await prisma.visitImportFile.findFirst({
+    where: { ownerUserId, isCumulative: true }, orderBy: { id: 'asc' },
+  });
+  if (existing) return { file: existing, created: false };
+  const file = await prisma.visitImportFile.create({
+    data: { originalName: 'ملف الزيارات التراكمي', userId: uploaderUserId, ownerUserId, isCumulative: true },
+  });
+  return { file, created: true };
+}
+
+/**
+ * دمج الملفات المستقلة القديمة للمالك في ملفه التراكمي (مثل «دمج» ملفات المبيعات):
+ * كل ملف قديم يصير دفعة باسمه وتاريخ رفعه ورافعه وحالة تفعيله (معطَّل يبقى
+ * معطَّلاً)، وزياراته تنتقل كما هي بلا حذف. ملف تراكمي ثانٍ (سباق نادر) يُدمج
+ * أيضاً بدفعاته. ثم يُعاد حساب التكرار لمندوبيها.
+ */
+export async function mergeVisitImportFilesForOwner(ownerUserId, actingUserId) {
+  const files = await prisma.visitImportFile.findMany({
+    where: { ownerUserId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    select: { id: true, originalName: true, isActive: true, createdAt: true, userId: true, clientToken: true, isCumulative: true },
+  });
+  const cumulative = files.find(f => f.isCumulative);
+  const toMerge = files.filter(f => f.id !== cumulative?.id);
+  if (!toMerge.length) return { merged: 0 };
+  const { file: target } = cumulative ? { file: cumulative } : await getOrCreateCumulativeVisitFile(ownerUserId, actingUserId);
+
+  const repIds = new Set();
+  let movedVisits = 0;
+  for (const f of toMerge) {
+    for (const id of await repIdsOfImport({ fileId: f.id })) repIds.add(id);
+    await prisma.$transaction(async (tx) => {
+      if (f.isCumulative) {
+        // دفعات ملف تراكمي آخر: تنتقل كما هي؛ تعطيل ملفها يُورَّث لكل دفعة
+        if (!f.isActive) await tx.visitImportBatch.updateMany({ where: { fileId: f.id }, data: { isActive: false } });
+        await tx.visitImportBatch.updateMany({ where: { fileId: f.id }, data: { fileId: target.id } });
+        for (const model of ['doctorVisit', 'pharmacyVisit']) {
+          const r = await tx[model].updateMany({ where: { visitImportFileId: f.id }, data: { visitImportFileId: target.id } });
+          movedVisits += r.count;
+        }
+      } else {
+        // البصمة تنتقل للدفعة كي يبقى منع الإرسال المزدوج يعمل لهذه الرفعة
+        if (f.clientToken) await tx.visitImportFile.update({ where: { id: f.id }, data: { clientToken: null } });
+        const batch = await tx.visitImportBatch.create({
+          data: {
+            fileId: target.id, originalName: f.originalName, source: 'merged', isActive: f.isActive,
+            userId: f.userId, clientToken: f.clientToken, createdAt: f.createdAt,
+          },
+        });
+        for (const model of ['doctorVisit', 'pharmacyVisit']) {
+          const r = await tx[model].updateMany({
+            where: { visitImportFileId: f.id },
+            data: { visitImportFileId: target.id, visitImportBatchId: batch.id },
+          });
+          movedVisits += r.count;
+        }
+      }
+      await tx.visitImportFile.delete({ where: { id: f.id } });
+    }, { timeout: 120_000 });
+  }
+  // التراكمي أقدم من كل دفعاته (ترتيب العرض فقط — الأقدمية في الحساب بالدفعة)
+  const oldest = toMerge[0].createdAt;
+  if (oldest < target.createdAt) await prisma.visitImportFile.update({ where: { id: target.id }, data: { createdAt: oldest } });
+  await recomputeVisitDuplicatesForReps([...repIds]);
+  return { merged: toMerge.length, movedVisits, fileId: target.id };
 }
 
 /**

@@ -229,14 +229,80 @@ export default function DoctorsPage() {
   const [visitsModalInitialData, setVisitsModalInitialData] = useState<any>(null);
   const H = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
 
+  // ── «استيراد الكولات من دوفايد» (ميزة اشتراك visits_dofied_pull) ──────────
+  // السحب يجري بالخادم في الخلفية (من آخر يوم فيه كولات لمندوبي الحساب ← اليوم،
+  // بلا ما رُفع سابقاً)، والنتيجة تصير ملفاً معلَّقاً تُفتح له نافذة التدقيق نفسها.
+  const showDofiedPull = !isMarketer && !isFieldRep && hasFeature('visits_dofied_pull');
+  const [dofiedInfo, setDofiedInfo] = useState<{ window?: { from: string; to: string }; lastDay?: string | null; configured?: boolean; job?: any } | null>(null);
+  const [dofiedJob, setDofiedJob] = useState<any>(null);
+  const dofiedPollRef = useRef<number | null>(null);
+
+  const openPendingVisitsImport = async () => {
+    try {
+      const j = await (await fetch(`${API}/api/doctors/visits/pending-import`, { headers: H() })).json();
+      if (j.success && j.data) {
+        setPendingVisitsImport(j.data);
+        setVisitsModalInitialData(j.data);
+        setShowVisitsImportModal(true);
+      }
+    } catch { /* الشريط يبقى طريقاً بديلاً */ }
+  };
+
+  const pollDofied = () => {
+    if (dofiedPollRef.current) window.clearTimeout(dofiedPollRef.current);
+    dofiedPollRef.current = window.setTimeout(async () => {
+      try {
+        const j = await (await fetch(`${API}/api/doctors/visits/dofied-pull`, { headers: H() })).json();
+        if (!j.success) return;
+        setDofiedInfo(j.data);
+        const job = j.data.job;
+        setDofiedJob(job);
+        if (job?.state === 'running') { pollDofied(); return; }
+        if (job?.state === 'done' && job.imported > 0) { openPendingVisitsImport(); return; }
+        if (job) {
+          setVisitsImportMsg(job.state === 'error' ? `⚠️ دوفايد: ${job.message}` : `☁️ ${job.message}`);
+          setTimeout(() => setVisitsImportMsg(''), 15000);
+        }
+      } catch { pollDofied(); }
+    }, 3000);
+  };
+
   useEffect(() => {
-    if (!showVisitsImport || isFieldRep) return;
+    if (!showDofiedPull) return;
+    fetch(`${API}/api/doctors/visits/dofied-pull`, { headers: H() })
+      .then(r => r.json())
+      .then(j => {
+        if (!j.success) return;
+        setDofiedInfo(j.data);
+        if (j.data.job?.state === 'running') { setDofiedJob(j.data.job); pollDofied(); }
+      })
+      .catch(() => {});
+    return () => { if (dofiedPollRef.current) window.clearTimeout(dofiedPollRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDofiedPull]);
+
+  const startDofiedPull = async () => {
+    if (pendingVisitsImport) { alert('لديك ملف زيارات بانتظار المراجعة — أكمله أو ألغِه أولاً.'); return; }
+    const w = dofiedInfo?.window;
+    if (w && !confirm(`سحب كولات مندوبيك من دوفايد من ${w.from} إلى ${w.to}؟\nالكولات المرفوعة سابقاً لن تتكرّر، وكل شيء يُعرض عليك للتدقيق قبل الحفظ.`)) return;
+    try {
+      const res = await fetch(`${API}/api/doctors/visits/dofied-pull`, { method: 'POST', headers: H() });
+      const j = await res.json();
+      if (!j.success) { alert(j.error || 'تعذّر بدء السحب'); return; }
+      setDofiedJob(j.data);
+      pollDofied();
+    } catch { alert('تعذّر الوصول إلى الخادم'); }
+  };
+  const dofiedRunning = dofiedJob?.state === 'running';
+
+  useEffect(() => {
+    if ((!showVisitsImport && !showDofiedPull) || isFieldRep) return;
     fetch(`${API}/api/doctors/visits/pending-import`, { headers: H() })
       .then(r => r.json())
       .then(j => { if (j.success && j.data) setPendingVisitsImport(j.data); })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showVisitsImport, isFieldRep]);
+  }, [showVisitsImport, showDofiedPull, isFieldRep]);
 
   // بلا confirm هنا عمداً — كل نقطة استدعاء (الشريط أو زر المودال الداخلي) تؤكّد بنفسها أولاً.
   const cancelPendingVisitsImport = async () => {
@@ -2212,17 +2278,31 @@ export default function DoctorsPage() {
                   padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                   border: '1px solid var(--c-border)', background: 'var(--c-bg)', color: 'var(--c-text-secondary)',
                 }}><Icon name="import" size={12} /> استيراد</button>}
+              {showDofiedPull && <button
+                onClick={startDofiedPull}
+                disabled={dofiedRunning || dofiedInfo?.configured === false}
+                title={dofiedRunning ? (dofiedJob?.message || 'جارِ السحب…')
+                  : dofiedInfo?.configured === false ? 'ربط دوفايد غير مُعدّ بعد — تواصل مع الإدارة'
+                  : dofiedInfo?.window ? `سحب كولات مندوبيك من دوفايد: ${dofiedInfo.window.from} ← ${dofiedInfo.window.to}${dofiedInfo.lastDay ? ` (آخر يوم مرفوع ${dofiedInfo.lastDay})` : ''}`
+                  : 'سحب كولات مندوبيك من دوفايد'}
+                style={{
+                  marginInlineStart: showVisitsImport ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '4px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+                  cursor: dofiedRunning ? 'progress' : 'pointer', opacity: dofiedInfo?.configured === false ? 0.5 : 1,
+                  border: '1px solid var(--c-accent)', background: 'var(--c-accent-light)', color: 'var(--c-accent)',
+                }}><Icon name={dofiedRunning ? 'loading' : 'export'} size={12} className={dofiedRunning ? 'animate-spin' : undefined} />
+                {dofiedRunning ? 'جارِ السحب من دوفايد…' : 'استيراد الكولات من دوفايد'}</button>}
             </div>
           )}
 
-          {!isFieldRep && showVisitsImport && pendingVisitsImport && (
+          {!isFieldRep && (showVisitsImport || showDofiedPull) && pendingVisitsImport && (
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
               marginBottom: 14, padding: '10px 14px', borderRadius: 10,
               background: 'var(--c-warning-bg, #fffbeb)', border: '1px solid var(--c-warning-border, #fde68a)',
             }}>
               <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--c-warning, #92400e)' }}>
-                📋 لديك ملف زيارات مرفوع من تلكرام بانتظار المراجعة — "{pendingVisitsImport.fileName}"
+                📋 لديك ملف زيارات {pendingVisitsImport.source === 'dofied' ? 'مسحوب من دوفايد' : 'مرفوع من تلكرام'} بانتظار المراجعة — "{pendingVisitsImport.fileName}"
                 {' '}({(pendingVisitsImport.doctorRows?.length ?? 0)} طبيب / {(pendingVisitsImport.pharmacyRows?.length ?? 0)} صيدلية)
               </span>
               <div style={{ display: 'flex', gap: 8 }}>

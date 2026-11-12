@@ -28,11 +28,28 @@ router.post('/import',      upload.single('file'), ctrl.importExcel);
 router.post('/visits/import-extract', upload.single('file'), ctrl.extractVisitsImport);
 router.post('/visits/import-commit',  ctrl.commitVisitsImport);
 router.post('/visits/import-ensure-reps', ctrl.ensureVisitsImportReps);
+// استيراد الكولات من دوفايد بضغطة زر (ميزة اشتراك visits_dofied_pull). استيراد كسول:
+// dofied.pull يستورد doctor-visits-import الذي يستورد هذا الموديول — يُتفادى الدوران.
+const dofiedPull = () => import('../dofied/dofied.pull.js');
+router.get('/visits/dofied-pull', async (req, res, next) => {
+  try { res.json({ success: true, data: await (await dofiedPull()).pullInfo(req.user.id) }); } catch (e) { next(e); }
+});
+router.post('/visits/dofied-pull', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await (await dofiedPull()).startPull(req.user.id) });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ success: false, error: e.message });
+    next(e);
+  }
+});
 router.get('/visits/pending-import',    ctrl.getPendingVisitsImport);
 router.delete('/visits/pending-import', ctrl.deletePendingVisitsImport);
 router.get('/visits/import-files',      ctrl.listVisitImportFiles);
 router.patch('/visits/import-files/:id', ctrl.setVisitImportFileActive);
+router.post('/visits/import-files/merge', ctrl.mergeVisitImportFiles);
 router.delete('/visits/import-files/:id', ctrl.deleteVisitImportFile);
+router.patch('/visits/import-batches/:batchId', ctrl.setVisitImportBatchActive);
+router.delete('/visits/import-batches/:batchId', ctrl.deleteVisitImportBatch);
 router.put('/:id',          ctrl.update);
 router.delete('/all',       ctrl.deleteAll);
 router.delete('/:id',       ctrl.remove);

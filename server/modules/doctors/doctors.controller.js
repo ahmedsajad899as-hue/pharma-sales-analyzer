@@ -10,7 +10,7 @@ import {
 } from '../../lib/surveyDoctors.js';
 import { getScopedSurveyPharmacies, renameSurveyPharmacyByName } from '../../lib/surveyPharmacies.js';
 import { OFFICE_SCOPED_ROLES, isOfficeWideRosterRole, getRosterCompanyIds } from '../../lib/officeScope.js';
-import { recomputeVisitImportDuplicates } from '../../lib/visitImportDedup.js';
+import { recomputeVisitDuplicatesForReps, repIdsOfImport, deactivateDisabledUnits } from '../../lib/visitImportDedup.js';
 import { provinceMemberUserIds, provinceLeaderIds, provinceAreaIdsByUser, provinceIdsByMember } from '../../lib/provinceScope.js';
 
 // زر «مندوبي المحافظات» بالواجهة: ?provinceScope=baghdad|province — يسري على
@@ -1265,7 +1265,7 @@ export async function ensureVisitsImportReps(req, res, next) {
 //         rememberDoctorLinks?: [{fromName, areaName|null, doctorId|null}], fileName?: string }
 export async function commitVisitsImport(req, res, next) {
   try {
-    const { doctorRows, pharmacyRows, rememberRepLinks, rememberDoctorLinks, fileName, clientToken } = req.body || {};
+    const { doctorRows, pharmacyRows, rememberRepLinks, rememberDoctorLinks, fileName, clientToken, source } = req.body || {};
     const dRows = Array.isArray(doctorRows) ? doctorRows : [];
     const pRows = Array.isArray(pharmacyRows) ? pharmacyRows : [];
     if (dRows.length === 0 && pRows.length === 0) {
@@ -1278,6 +1278,7 @@ export async function commitVisitsImport(req, res, next) {
       rememberDoctorLinks: Array.isArray(rememberDoctorLinks) ? rememberDoctorLinks : [],
       fileName: typeof fileName === 'string' ? fileName : '',
       clientToken: typeof clientToken === 'string' ? clientToken : '',
+      source: typeof source === 'string' ? source : 'excel',
       user: req.user,
     });
     // الملف "استُهلك" — يُحذَف أي تعليق سابق لهذا المستخدم (ملف رفعه بوت تلكرام
@@ -1304,26 +1305,68 @@ export async function deletePendingVisitsImport(req, res, next) {
   } catch (e) { next(e); }
 }
 
-// ── GET /visits/import-files — ملفات الاستيراد السابقة (لتفعيل/تعطيل/حذف) ────
+// ── GET /visits/import-files — ملفات الاستيراد (الملف التراكمي بدفعاته + الملفات القديمة المستقلة) ──
 export async function listVisitImportFiles(req, res, next) {
   try {
     const ownerUserId = await resolveDocOwnerUserId(req.user.id);
     const files = await prisma.visitImportFile.findMany({
       where: { ownerUserId },
-      orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { doctorVisits: true, pharmacyVisits: true } } },
+      orderBy: [{ isCumulative: 'desc' }, { createdAt: 'desc' }],
+      include: {
+        _count: { select: { doctorVisits: true, pharmacyVisits: true } },
+        batches: { orderBy: { createdAt: 'desc' }, select: { id: true, originalName: true, source: true, isActive: true, createdAt: true, userId: true } },
+      },
     });
+    const fileIds = files.map(f => f.id);
+    // عدّ لكل وحدة: كل الزيارات، والظاهر منها (الباقي نسخ مكرّرة مخفية أو وحدة معطّلة)
+    const countBy = async (model, by) => fileIds.length
+      ? prisma[model].groupBy({ by: [by, 'isActive'], where: { visitImportFileId: { in: fileIds } }, _count: { _all: true } })
+      : [];
+    const [dByFile, pByFile, dByBatch, pByBatch] = await Promise.all([
+      countBy('doctorVisit', 'visitImportFileId'), countBy('pharmacyVisit', 'visitImportFileId'),
+      countBy('doctorVisit', 'visitImportBatchId'), countBy('pharmacyVisit', 'visitImportBatchId'),
+    ]);
+    const tally = (groups, key) => {
+      const m = new Map();
+      for (const g of groups) {
+        const id = g[key]; if (id == null) continue;
+        const t = m.get(id) ?? { total: 0, active: 0 };
+        t.total += g._count._all; if (g.isActive) t.active += g._count._all;
+        m.set(id, t);
+      }
+      return m;
+    };
+    const tdF = tally(dByFile, 'visitImportFileId'), tpF = tally(pByFile, 'visitImportFileId');
+    const tdB = tally(dByBatch, 'visitImportBatchId'), tpB = tally(pByBatch, 'visitImportBatchId');
+    const uploaderIds = [...new Set(files.flatMap(f => [f.userId, ...f.batches.map(b => b.userId)]))];
+    const uploaders = uploaderIds.length
+      ? await prisma.user.findMany({ where: { id: { in: uploaderIds } }, select: { id: true, displayName: true, username: true } })
+      : [];
+    const nameOf = new Map(uploaders.map(u => [u.id, u.displayName?.trim() || u.username]));
+    const z = { total: 0, active: 0 };
     res.json({
       success: true,
-      data: files.map(f => ({
-        id: f.id, originalName: f.originalName, isActive: f.isActive, createdAt: f.createdAt,
-        doctorVisitCount: f._count.doctorVisits, pharmacyVisitCount: f._count.pharmacyVisits,
-      })),
+      data: files.map(f => {
+        const d = tdF.get(f.id) ?? z, p = tpF.get(f.id) ?? z;
+        return {
+          id: f.id, originalName: f.originalName, isActive: f.isActive, createdAt: f.createdAt, isCumulative: f.isCumulative,
+          doctorVisitCount: f._count.doctorVisits, pharmacyVisitCount: f._count.pharmacyVisits,
+          activeVisitCount: d.active + p.active,
+          batches: f.batches.map(b => {
+            const bd = tdB.get(b.id) ?? z, bp = tpB.get(b.id) ?? z;
+            return {
+              id: b.id, originalName: b.originalName, source: b.source, isActive: b.isActive, createdAt: b.createdAt,
+              uploadedBy: nameOf.get(b.userId) ?? null,
+              doctorVisitCount: bd.total, pharmacyVisitCount: bp.total, activeVisitCount: bd.active + bp.active,
+            };
+          }),
+        };
+      }),
     });
   } catch (e) { next(e); }
 }
 
-// ── PATCH /visits/import-files/:id — تفعيل/تعطيل ملف (يُخفي/يُظهر زياراته في شاشة الزيارات) ──
+// ── PATCH /visits/import-files/:id — تفعيل/تعطيل ملف (يُخفي/يُظهر زياراته في كل الشاشات) ──
 export async function setVisitImportFileActive(req, res, next) {
   try {
     const id = parseInt(req.params.id);
@@ -1335,13 +1378,10 @@ export async function setVisitImportFileActive(req, res, next) {
     const file = await prisma.visitImportFile.findFirst({ where: { id, ownerUserId } });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
 
-    await prisma.$transaction([
-      prisma.visitImportFile.update({ where: { id }, data: { isActive } }),
-      prisma.doctorVisit.updateMany({ where: { visitImportFileId: id }, data: { isActive } }),
-      prisma.pharmacyVisit.updateMany({ where: { visitImportFileId: id }, data: { isActive } }),
-    ]);
-    // زيارة موجودة في ملفين مفعّلين تُعدّ مرة واحدة
-    await recomputeVisitImportDuplicates(ownerUserId);
+    await prisma.visitImportFile.update({ where: { id }, data: { isActive } });
+    if (!isActive) await deactivateDisabledUnits({ fileIds: [id] });
+    // زيارة موجودة في رفعتين مفعّلتين (لأي حساب، لنفس المندوب) تُعدّ مرة واحدة
+    await recomputeVisitDuplicatesForReps(await repIdsOfImport({ fileId: id }));
     res.json({ success: true });
   } catch (e) { next(e); }
 }
@@ -1355,10 +1395,54 @@ export async function deleteVisitImportFile(req, res, next) {
     const file = await prisma.visitImportFile.findFirst({ where: { id, ownerUserId } });
     if (!file) return res.status(404).json({ error: 'الملف غير موجود' });
 
+    const repIds = await repIdsOfImport({ fileId: id }); // قبل الحذف
     await prisma.visitImportFile.delete({ where: { id } });
-    // نسخ مكرّرة كانت مخفية في ملفات أخرى لصالح هذا الملف تعود فعّالة
-    await recomputeVisitImportDuplicates(ownerUserId);
+    // نسخ مكرّرة كانت مخفية في رفعات أخرى لصالح هذا الملف تعود فعّالة
+    await recomputeVisitDuplicatesForReps(repIds);
     res.json({ success: true });
+  } catch (e) { next(e); }
+}
+
+async function findOwnedBatch(req) {
+  const id = parseInt(req.params.batchId);
+  if (!Number.isInteger(id)) return null;
+  const ownerUserId = await resolveDocOwnerUserId(req.user.id);
+  return prisma.visitImportBatch.findFirst({ where: { id, file: { ownerUserId } } });
+}
+
+// ── PATCH /visits/import-batches/:batchId — تفعيل/تعطيل رفعة واحدة داخل الملف التراكمي ──
+export async function setVisitImportBatchActive(req, res, next) {
+  try {
+    const { isActive } = req.body || {};
+    if (typeof isActive !== 'boolean') return res.status(400).json({ error: 'مدخلات غير صالحة' });
+    const batch = await findOwnedBatch(req);
+    if (!batch) return res.status(404).json({ error: 'الرفعة غير موجودة' });
+    await prisma.visitImportBatch.update({ where: { id: batch.id }, data: { isActive } });
+    if (!isActive) await deactivateDisabledUnits({ batchIds: [batch.id] });
+    await recomputeVisitDuplicatesForReps(await repIdsOfImport({ batchId: batch.id }));
+    res.json({ success: true });
+  } catch (e) { next(e); }
+}
+
+// ── DELETE /visits/import-batches/:batchId — حذف رفعة واحدة وزياراتها (تراجع) ──
+export async function deleteVisitImportBatch(req, res, next) {
+  try {
+    const batch = await findOwnedBatch(req);
+    if (!batch) return res.status(404).json({ error: 'الرفعة غير موجودة' });
+    const repIds = await repIdsOfImport({ batchId: batch.id });
+    await prisma.visitImportBatch.delete({ where: { id: batch.id } });
+    await recomputeVisitDuplicatesForReps(repIds);
+    res.json({ success: true });
+  } catch (e) { next(e); }
+}
+
+// ── POST /visits/import-files/merge — دمج الملفات القديمة المستقلة في الملف التراكمي ──
+// كل ملف قديم يصير دفعة باسمه وتاريخه وحالة تفعيله، وزياراته تنتقل كما هي. لا زيارة تُحذف.
+export async function mergeVisitImportFiles(req, res, next) {
+  try {
+    const ownerUserId = await resolveDocOwnerUserId(req.user.id);
+    const result = await importVisits.mergeVisitImportFilesForOwner(ownerUserId, req.user.id);
+    res.json({ success: true, data: result });
   } catch (e) { next(e); }
 }
 

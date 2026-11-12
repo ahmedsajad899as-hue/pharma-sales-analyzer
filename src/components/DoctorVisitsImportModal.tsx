@@ -259,13 +259,20 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
     setPendingDoctorNames(data.doctorNames?.pending ?? []);
     setItemOptions(Array.isArray(data.itemOptions) ? data.itemOptions : []);
     setProvinceRepIds(Array.isArray(data.provinceRepIds) ? data.provinceRepIds : []);
+    // زيارات موجودة أصلاً في رفعة سابقة (لأي حساب، لنفس المندوب) أُسقطت بالخادم قبل العرض
+    const already = Number(data.alreadyImported) || 0;
+    const alreadyNote = already > 0 ? ` — وأُسقطت ${already} زيارة مرفوعة سابقاً (لن تتكرّر).` : '';
     if (dRows.length === 0 && pRows.length === 0) {
-      setInfo('لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب (أو أنه بصيغة معروفة).');
+      setInfo(already > 0
+        ? `كل زيارات الملف (${already}) مرفوعة سابقاً — لا جديد للحفظ.`
+        : 'لم يُستخرج أي صف — تأكّد أن الملف يحتوي عمود اسم الطبيب (أو أنه بصيغة معروفة).');
     } else if (dRows.length > 0) {
       const uniqueDoctors = new Set(dRows.map(r => r.doctorKey || r.doctorName)).size;
-      setInfo(pRows.length > 0
+      setInfo((pRows.length > 0
         ? `اكتُشف ملف يحتوي زيارات أطباء وصيدليات معاً — ${dRows.length} زيارة طبيب (${uniqueDoctors} طبيب) و${pRows.length} زيارة صيدلية.`
-        : `اكتُشف ${dRows.length} زيارة طبيب (${uniqueDoctors} طبيب).`);
+        : `اكتُشف ${dRows.length} زيارة طبيب (${uniqueDoctors} طبيب).`) + alreadyNote);
+    } else if (already > 0) {
+      setInfo(`اكتُشف ${pRows.length} زيارة صيدلية${alreadyNote}`);
     }
     // لا حاجة لمطابقة إضافية إن لم تكن هناك أسماء غير محسومة
     if ((data.repNames?.pending ?? []).length === 0 && (data.repNames?.unrelated ?? []).length === 0) {
@@ -531,6 +538,7 @@ export default function DoctorVisitsImportModal({ token, onClose, onSaved, initi
       const body = JSON.stringify({
         doctorRows: docRows, pharmacyRows: pharmRows,
         rememberRepLinks, rememberDoctorLinks, fileName, clientToken,
+        source: fromPendingImport ? (initialData?.source === 'dofied' ? 'dofied' : 'telegram') : 'excel',
       });
 
       // الخلل الذي كان يُفقِد العمل: انقطاع اتصال لحظي أثناء الحفظ يرفع

@@ -108,10 +108,12 @@ async function applyInferredFeedback(visits, deadline) {
  * فيدباكاً. تُستدعى بلا انتظار (fire-and-forget) من commitVisitsImport — فشلها
  * لا يجوز أن يُفشل استجابة الاستيراد نفسها.
  */
-export async function runFeedbackInferenceForImportFile(importFileId) {
+// importBatchId: الملف التراكمي يحمل كل الرفعات — تُستنتج زيارات الدفعة الجديدة وحدها.
+// النسخ المكرّرة المخفية (isActive=false) لا تُرسل للذكاء — لا تُعرض أصلاً.
+export async function runFeedbackInferenceForImportFile(importFileId, importBatchId = null) {
   if (!importFileId) return { updated: 0, total: 0 };
   const visits = await prisma.doctorVisit.findMany({
-    where: { visitImportFileId: importFileId, feedback: 'pending', feedbackSource: null, notes: { not: null } },
+    where: { visitImportFileId: importFileId, ...(importBatchId ? { visitImportBatchId: importBatchId, isActive: true } : {}), feedback: 'pending', feedbackSource: null, notes: { not: null } },
     select: { id: true, notes: true, itemName: true },
   });
   const withNotes = visits.filter(v => v.notes && v.notes.trim());

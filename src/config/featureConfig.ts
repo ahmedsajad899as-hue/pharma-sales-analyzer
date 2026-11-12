@@ -176,6 +176,7 @@ export const PAGE_CHILDREN: Record<string, FeatureNode[]> = {
     { key: 'pharmacies_tab',     label: 'قائمة الصيدليات',           icon: '🏪', desc: 'تبويب قائمة الصيدليات',        onlyRoles: COMMERCIAL_ROLES },
     { key: 'doctor_fields',      label: 'الحقول التفصيلية للطبيب',  icon: '🩺', desc: 'التخصص والمنطقة والصيدلية والملاحظات'          },
     { key: 'visits_import',      label: 'استيراد الزيارات من إكسل', icon: '📥', desc: 'استيراد زيارات الأطباء بالجملة من ملف إكسل خارجي بدل تسجيلها واحدة تلو الأخرى' },
+    { key: 'visits_dofied_pull', label: 'استيراد الكولات من دوفايد', icon: '☁️', desc: 'زر يسحب كولات المندوبين من دوفايد من آخر يوم مرفوع حتى الآن ويعرضها للتدقيق — بلا تكرار' },
   ],
   'monthly-plans': [
     { key: 'wish_list', label: 'قائمة الطلبات', icon: '📋', desc: 'قائمة الأطباء المطلوب زيارتهم بالأولوية ضمن البلان الشهري' },
@@ -334,6 +335,8 @@ export const OPT_IN_FEATURES: ReadonlySet<string> = new Set([
   'sci_class_table',
   'sci_merge_warehouses',
   'sci_pharmacy_warehouses',
+  // زر سحب الكولات من دوفايد في تحليل الكولات (2026-11-13)
+  'visits_dofied_pull',
 ]);
 
 interface FeaturePerms { disabledFeatures?: string[]; enabledFeatures?: string[] }

@@ -126,8 +126,25 @@ export async function testConnection() {
 
 let running = false;
 
+/** قفل بسيط: دخول واحد لدوفايد في كل لحظة (السحب اليومي + سحوبات الحسابات عند الطلب). */
+function createLock() {
+  let tail = Promise.resolve();
+  return {
+    run(fn) {
+      const result = tail.then(fn, fn);
+      tail = result.catch(() => {});
+      return result;
+    },
+  };
+}
+export const dofiedLock = createLock();
+
 /** سحب واحد. @returns {{status, message}} */
-export async function runSync({ trigger = 'schedule' } = {}) {
+export function runSync(opts = {}) {
+  return dofiedLock.run(() => runSyncInner(opts));
+}
+
+async function runSyncInner({ trigger = 'schedule' } = {}) {
   if (running) return { status: 'busy', message: 'سحب آخر يعمل الآن' };
   running = true;
   try {

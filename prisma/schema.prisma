@@ -1315,6 +1315,7 @@ model DoctorVisit {
   // VisitImportFile). isActive نسخة مُسطَّحة من حالة الملف — تُحدَّث دفعة واحدة
   // عند تفعيل/تعطيل الملف بدل الحاجة لـ join في كل استعلامات شاشة الزيارات.
   visitImportFileId Int?
+  visitImportBatchId Int? // الدفعة داخل الملف التراكمي (null لملف مستقل قديم)
   isActive          Boolean @default(true)
 
   userId        Int?
@@ -1324,6 +1325,7 @@ model DoctorVisit {
   item          Item?                     @relation(fields: [itemId], references: [id])
   planEntry     PlanEntry?                @relation(fields: [planEntryId], references: [id])
   visitImportFile VisitImportFile?        @relation(fields: [visitImportFileId], references: [id], onDelete: Cascade)
+  visitImportBatch VisitImportBatch?      @relation(fields: [visitImportBatchId], references: [id], onDelete: Cascade)
   likes         VisitLike[]
   comments      VisitComment[]
 
@@ -1332,6 +1334,7 @@ model DoctorVisit {
   @@index([visitDate])
   @@index([userId])
   @@index([visitImportFileId])
+  @@index([visitImportBatchId])
   @@map("doctor_visits")
 }
 
@@ -1382,6 +1385,7 @@ model PharmacyVisit {
 
   // راجع التعليق المطابق في DoctorVisit — نفس فكرة ربط/تفعيل ملف الاستيراد.
   visitImportFileId Int?
+  visitImportBatchId Int? // الدفعة داخل الملف التراكمي (null لملف مستقل قديم)
   isActive          Boolean @default(true)
 
   userId        Int?
@@ -1389,6 +1393,7 @@ model PharmacyVisit {
   area          Area?                     @relation(fields: [areaId], references: [id])
   scientificRep ScientificRepresentative? @relation(fields: [scientificRepId], references: [id])
   visitImportFile VisitImportFile?        @relation(fields: [visitImportFileId], references: [id], onDelete: Cascade)
+  visitImportBatch VisitImportBatch?      @relation(fields: [visitImportBatchId], references: [id], onDelete: Cascade)
   items         PharmacyVisitItem[]
   likes         PharmacyVisitLike[]
 
@@ -1399,6 +1404,7 @@ model PharmacyVisit {
   // هذا العمود، مرة لكل اسم — كان مسحاً كاملاً للجدول في كل مرة قبل هذا الفهرس.
   @@index([pharmacyName])
   @@index([visitImportFileId])
+  @@index([visitImportBatchId])
   @@map("pharmacy_visits")
 }
 
@@ -1425,9 +1431,34 @@ model VisitImportFile {
   doctorVisits   DoctorVisit[]
   pharmacyVisits PharmacyVisit[]
 
+  // الملف التراكمي: كل رفعة جديدة لنفس المالك تنصهر فيه كدفعة (VisitImportBatch)
+  // بدل ملف مستقل — مثل الملف التراكمي للمبيعات. ملف قديم مستقل = isCumulative=false.
+  isCumulative Boolean            @default(false)
+  batches      VisitImportBatch[]
+
   @@index([ownerUserId])
   @@index([userId])
   @@map("visit_import_files")
+}
+
+// دفعة واحدة (رفعة إكسل / سحب دوفايد / ملف تلكرام / ملف قديم مدموج) داخل الملف
+// التراكمي. تُفعَّل وتُعطَّل وتُحذف وحدها، وهي «وحدة الأقدمية» في visitImportDedup.
+model VisitImportBatch {
+  id           Int             @id @default(autoincrement())
+  fileId       Int
+  file         VisitImportFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  originalName String
+  source       String          @default("excel") // excel | dofied | telegram | merged
+  isActive     Boolean         @default(true)
+  userId       Int // رافع الدفعة الفعلي
+  clientToken  String?         @unique // نفس بصمة VisitImportFile.clientToken للرفعات التراكمية
+  createdAt    DateTime        @default(now())
+
+  doctorVisits   DoctorVisit[]
+  pharmacyVisits PharmacyVisit[]
+
+  @@index([fileId])
+  @@map("visit_import_batches")
 }
 
 // ─── Pharmacy Visit Like (إعجاب بزيارة صيدلية) ───────────────
