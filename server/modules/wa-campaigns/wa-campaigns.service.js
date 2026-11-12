@@ -22,6 +22,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { normalizeWaId } from '../../lib/waId.js';
 import { sendRaw, whatsappToken, downloadMedia, whatsappEnabled } from '../whatsapp/whatsapp.service.js';
+import { campaignParty } from '../whatsapp/wa-chat-log.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname, '../..');
@@ -488,7 +489,7 @@ async function runCampaign(id) {
       const payload = buildTemplatePayload(full, tpl, varMap, r);
       let res = null;
       for (let attempt = 0; attempt < 4; attempt++) {
-        res = await sendRaw(r.waId, payload, { kind: 'template', sentBy });
+        res = await sendRaw(r.waId, payload, { kind: 'template', sentBy, party: campaignParty(r.name) });
         if (res.id || !RETRY.has(res.error?.code)) break;
         await sleep(5000 * (attempt + 1));
       }
@@ -730,7 +731,7 @@ export async function sendTest(body, sentBy) {
   const { tpl, data } = await prepareCampaign(body);
   const sample = cleanRecipients([{ waId, name: body.sample?.name, extra: body.sample?.extra }])[0];
   const r = { id: 0, waId, name: sample?.name ?? null, extra: sample?.extra ?? null };
-  const res = await sendRaw(waId, buildTemplatePayload(data, tpl, safeJson(data.varMap, []), r), { kind: 'template', sentBy });
+  const res = await sendRaw(waId, buildTemplatePayload(data, tpl, safeJson(data.varMap, []), r), { kind: 'template', sentBy, party: campaignParty(r.name) });
   if (!res.id) throw new AppError(`فشلت التجربة: ${errText(res.error)}`, 400);
   return { messageId: res.id };
 }

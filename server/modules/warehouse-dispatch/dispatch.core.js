@@ -28,6 +28,7 @@ import { normalizeWaId } from '../../lib/waId.js';
 import { warehouseScopeWhere, canDispatchOrders } from '../rep-orders/rep-orders.service.js';
 import { sendButtons, sendTemplate, sendWhatsAppText, whatsappEnabled } from '../whatsapp/whatsapp.service.js';
 import { sendGroupText } from '../wa-groups/wa-groups.client.js';
+import { withParty } from '../whatsapp/wa-chat-log.js';
 import { compareInvoiceLines } from '../rep-orders/rep-orders.invoice.js';
 import { recordPreparation, markSent } from '../rep-orders/rep-orders.service.js';
 import { notifyOrigin } from './dispatch.notify.js';
@@ -190,15 +191,18 @@ export async function sendDispatch(dispatchOrId, { byUserId = null, forceTemplat
       const to = normalizeWaId(w.waId || w.phone);
       const windowOpen = w.waLastInboundAt && Date.now() - new Date(w.waLastInboundAt).getTime() < WINDOW_MS;
       let r;
-      if (windowOpen && !forceTemplate) {
-        r = await sendViaButtons(d, to);
-        if (r.ids) { ids = r.ids; kind = 'service'; }
-        else if (r.error?.code === 131047) r = null; // النافذة أُغلقت فعلاً ⇒ قالب
-      }
-      if (!ids.length && !(r && r.error)) {
-        r = await sendViaTemplate(d, to);
-        if (r.id) { ids = [r.id]; kind = 'template'; }
-      }
+      // محادثة هذا المذخر تحديداً (قد يشارك رقمه حساباً أو مذخراً آخر)
+      await withParty(to, `wh:${w.id}`, async () => {
+        if (windowOpen && !forceTemplate) {
+          r = await sendViaButtons(d, to);
+          if (r.ids) { ids = r.ids; kind = 'service'; }
+          else if (r.error?.code === 131047) r = null; // النافذة أُغلقت فعلاً ⇒ قالب
+        }
+        if (!ids.length && !(r && r.error)) {
+          r = await sendViaTemplate(d, to);
+          if (r.id) { ids = [r.id]; kind = 'template'; }
+        }
+      });
       if (!ids.length) err = templateErrorText(r?.error);
     }
   }
@@ -352,7 +356,8 @@ export async function replyToWarehouse(d, text) {
     if (!w) return;
     // كروب المذخر: لا إقرارات ولا «شكراً» — النظام يرسل الطلبيات فقط ويقرأ بصمت (طلب صاحب المشروع)
     if (d.channel === 'group') return;
-    await sendWhatsAppText(normalizeWaId(w.waId || w.phone), text);
+    const to = normalizeWaId(w.waId || w.phone);
+    await withParty(to, `wh:${w.id}`, () => sendWhatsAppText(to, text));
   } catch (e) {
     console.error('[dispatch] تعذّر الرد على المذخر:', e?.message);
   }

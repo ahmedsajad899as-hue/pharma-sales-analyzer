@@ -18,7 +18,7 @@ import prisma from '../../lib/prisma.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
 import { handleWarehouseCloudMessage, handleDispatchStatus } from '../warehouse-dispatch/dispatch.inbound.js';
 import { registerNotifier } from '../warehouse-dispatch/dispatch.notify.js';
-import { logWa, describeInbound, describeOutbound, humanChatState } from './wa-chat-log.js';
+import { logWa, describeInbound, describeOutbound, humanChatState, inboundParty, withParty } from './wa-chat-log.js';
 import { isExplicitOrderIntent } from '../orders/order-trigger.js';
 import { parseWarehouseText } from '../warehouse-dispatch/dispatch.inbound.js';
 import { maybeSendOrderForm, handleOrderFormReply } from './wa-order-form.js';
@@ -82,7 +82,7 @@ export async function countOutgoing(kind) {
 }
 
 /** إرسال رسالة واتساب خام (أي نوع) — يُعيد { id } أو { error }. */
-export async function sendRaw(to, payload, { kind = 'service', sentBy = null } = {}) {
+export async function sendRaw(to, payload, { kind = 'service', sentBy = null, party } = {}) {
   const r = await graphCall(`${phoneNumberId()}/messages`, {
     method: 'POST',
     body: { messaging_product: 'whatsapp', recipient_type: 'individual', to: String(to), ...payload },
@@ -90,7 +90,7 @@ export async function sendRaw(to, payload, { kind = 'service', sentBy = null } =
   const id = r.data?.messages?.[0]?.id ?? null;
   if (id) await countOutgoing(kind);
   const d = describeOutbound(payload);
-  await logWa({ waId: to, direction: 'out', kind: d.kind, text: d.text, waMessageId: id, error: id ? null : (r.error?.message || 'فشل الإرسال'), sentById: sentBy?.id ?? null, sentByName: sentBy?.name ?? null });
+  await logWa({ waId: to, direction: 'out', kind: d.kind, text: d.text, waMessageId: id, error: id ? null : (r.error?.message || 'فشل الإرسال'), sentById: sentBy?.id ?? null, sentByName: sentBy?.name ?? null, party });
   return id ? { id } : { error: r.error || { code: 'UNKNOWN', message: 'لم يُرجع واتساب معرّف رسالة' } };
 }
 
@@ -212,7 +212,13 @@ async function handleOneMessage(message, contactName) {
   // كل رسالة واردة تُسجَّل قبل أي معالجة — حتى ما يتجاهله البوت (صوت، رقم غير مربوط)
   // كي يرى المدير ما طُلب فعلاً ولم يُجَب.
   const shown = describeInbound(message);
-  await logWa({ waId, direction: 'in', ...shown, contactName, waMessageId: message.id });
+  // الجهة (مذخر/حساب/زبون حملة) — ردود البوت أثناء المعالجة توسَم بها أيضاً
+  const party = await inboundParty(message);
+  await logWa({ waId, direction: 'in', ...shown, contactName, waMessageId: message.id, party });
+  return withParty(waId, party, () => routeInbound(message, contactName, waId));
+}
+
+async function routeInbound(message, contactName, waId) {
 
   // محادثة يديرها إنسان (مدير/مالك التطبيق ردّ يدوياً): الكلام العادي يُسجَّل فقط —
   // لا «⏳ جاري قراءة الطلبية» ولا قراءة ذكاء ولا «هذا الرقم غير مربوط».

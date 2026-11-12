@@ -3507,9 +3507,11 @@ model WaMessageLog {
   error       String? // فشل الإرسال
   sentById    Int? // ردّ يدوي من مدير/مالك التطبيق (null = البوت نفسه)
   sentByName  String?
+  party       String? // صاحب المحادثة على هذا الرقم: wh:<مذخر> | acct:<حساب> | c:<اسم زبون الحملة> — رقم واحد قد يخدم أكثر من جهة
   createdAt   DateTime @default(now())
 
   @@index([waId, createdAt])
+  @@index([waId, party])
   @@index([waMessageId])
   @@index([createdAt])
   @@map("wa_message_logs")

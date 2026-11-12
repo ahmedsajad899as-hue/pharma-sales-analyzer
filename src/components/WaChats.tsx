@@ -16,13 +16,16 @@ const fmtTime = (iso: string | null) => {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
+// محادثة = رقم × جهة: رقم واحد قد يكون مذخراً وزبون حملة وحساباً — كلٌّ في محادثته
 interface ChatRow {
-  waId: string; name: string | null; type: 'warehouse' | 'linked' | 'unknown'; account: string | null; contactName: string | null;
+  key: string; waId: string; party: string; name: string | null; type: 'warehouse' | 'linked' | 'campaign' | 'unknown';
+  account: string | null; contactName: string | null; sameNumber: number;
   count: number; failed: number; lastAt: string; lastText: string | null; lastDirection: 'in' | 'out' | null;
 }
 interface ChatMsg { id: number; direction: 'in' | 'out'; kind: string; text: string | null; mediaId: string | null; error: string | null; sentByName: string | null; createdAt: string }
 interface ChatWindow { open: boolean; lastInboundAt: string | null; closesAt: string | null }
-const CHAT_TYPE: Record<ChatRow['type'], string> = { warehouse: '🏬 مذخر', linked: '👤 مربوط', unknown: '❔ غير مربوط' };
+const CHAT_TYPE: Record<ChatRow['type'], string> = { warehouse: '🏬 مذخر', linked: '👤 مربوط', campaign: '📢 زبون حملة', unknown: '❔ غير مربوط' };
+const splitKey = (key: string) => { const i = key.indexOf('|'); return { waId: key.slice(0, i), party: key.slice(i + 1) }; };
 
 export default function WaChats({ base, token }: { base: string; token: string | null }) {
   const api = useCallback(async (path: string, init: RequestInit = {}) => {
@@ -52,8 +55,9 @@ export default function WaChats({ base, token }: { base: string; token: string |
   }, [api, days]);
   useEffect(() => { load(); const t = setInterval(load, 30_000); return () => clearInterval(t); }, [load]);
 
-  const loadMsgs = useCallback((waId: string) => {
-    api(`/chats/${encodeURIComponent(waId)}`).then(d => { setMsgs(d.messages || []); setWin(d.window || null); }).catch(e => setError(e.message));
+  const loadMsgs = useCallback((key: string) => {
+    const { waId, party } = splitKey(key);
+    api(`/chats/${encodeURIComponent(waId)}?party=${encodeURIComponent(party)}`).then(d => { setMsgs(d.messages || []); setWin(d.window || null); }).catch(e => setError(e.message));
   }, [api]);
   useEffect(() => {
     if (!sel) return;
@@ -75,7 +79,8 @@ export default function WaChats({ base, token }: { base: string; token: string |
     if (!sel || !draft.trim()) return;
     setSending(true);
     try {
-      await api(`/chats/${encodeURIComponent(sel)}/send`, { method: 'POST', body: JSON.stringify({ text: draft }) });
+      const { waId, party } = splitKey(sel);
+      await api(`/chats/${encodeURIComponent(waId)}/send`, { method: 'POST', body: JSON.stringify({ text: draft, party }) });
       setDraft(''); setError('');
       loadMsgs(sel); load();
     } catch (e: any) { setError(e.message); } finally { setSending(false); }
@@ -85,7 +90,7 @@ export default function WaChats({ base, token }: { base: string; token: string |
     const t = q.trim();
     return t ? chats.filter(c => [c.name, c.waId, c.account, c.contactName, c.lastText].some(v => v?.includes(t))) : chats;
   }, [chats, q]);
-  const cur = chats.find(c => c.waId === sel);
+  const cur = chats.find(c => c.key === sel);
 
   return (
     <>
@@ -103,12 +108,13 @@ export default function WaChats({ base, token }: { base: string; token: string |
           {loading && <div className="wd-empty">جاري التحميل…</div>}
           {!loading && !shown.length && <div className="wd-empty">لا محادثات في هذه المدة</div>}
           {shown.map(c => (
-            <button key={c.waId} className={`wd-chat-item ${sel === c.waId ? 'is-active' : ''}`} onClick={() => { setSel(c.waId); setMsgs([]); setWin(null); setDraft(''); }}>
+            <button key={c.key} className={`wd-chat-item ${sel === c.key ? 'is-active' : ''}`} onClick={() => { setSel(c.key); setMsgs([]); setWin(null); setDraft(''); }}>
               <div className="wd-chat-head">
                 <b>{c.name || c.waId}</b>
                 <span className="wd-muted">{fmtTime(c.lastAt)}</span>
               </div>
               <div className="wd-muted">{CHAT_TYPE[c.type]}{c.account && c.account !== c.name ? ` · ${c.account}` : ''} · {c.count} رسالة{c.failed ? <span className="wd-fail"> · {c.failed} فشل</span> : null}</div>
+              {c.sameNumber > 0 && <div className="wd-muted">🔗 نفس الرقم له {c.sameNumber} محادثة أخرى</div>}
               <div className="wd-chat-last">{c.lastDirection === 'out' ? '🤖 ' : ''}{(c.lastText || '').slice(0, 80)}</div>
             </button>
           ))}
@@ -117,7 +123,8 @@ export default function WaChats({ base, token }: { base: string; token: string |
           {!cur && <div className="wd-empty">اختر محادثة</div>}
           {cur && (
             <>
-              <div className="wd-chat-title"><b>{cur.name || cur.waId}</b> <span className="wd-muted" dir="ltr">+{cur.waId}</span></div>
+              <div className="wd-chat-title"><b>{cur.name || cur.waId}</b> <span className="wd-muted">{CHAT_TYPE[cur.type]}</span> <span className="wd-muted" dir="ltr">+{cur.waId}</span></div>
+              {cur.sameNumber > 0 && <div className="wd-note">هذا الرقم مسجَّل لأكثر من جهة — هنا رسائل «{cur.name || cur.waId}» فقط، والباقي في محادثاتها المنفصلة. ردّك يُحفظ هنا ويصل لنفس الهاتف.</div>}
               <div className="wd-msgs">
                 {msgs.map(m => (
                   <div key={m.id} className={`wd-msg wd-msg--${m.direction} ${m.sentByName ? 'wd-msg--human' : ''} ${m.error ? 'wd-msg--err' : ''}`}>

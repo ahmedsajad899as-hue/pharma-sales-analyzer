@@ -104,6 +104,7 @@ import whatsappRoutes            from './modules/whatsapp/whatsapp.routes.js';
 import whatsappLinksRoutes       from './modules/whatsapp/whatsapp-links.routes.js';
 import { appRouter as waCampaignsRoutes, saRouter as waCampaignsSaRoutes } from './modules/wa-campaigns/wa-campaigns.routes.js';
 import { resumeCampaigns } from './modules/wa-campaigns/wa-campaigns.service.js';
+import { backfillParties } from './modules/whatsapp/wa-chat-log.js';
 import engagementRoutes          from './modules/engagement/engagement.routes.js';
 import repFollowupRoutes         from './modules/rep-followup/rep-followup.routes.js';
 import provinceTeamsRoutes       from './modules/province-teams/province-teams.routes.js';
@@ -5078,6 +5079,8 @@ if (process.env.VERCEL) {
       .then(n => { if (n) console.log(`✓ استؤنفت ${n} رسالة كروب مندوبين منقطعة`); })
       .catch(e => console.error('[resumeListenInbox]', e.message));
     backfillOrderSends().then(() => backfillWarehouseSeqs());
+    // محادثات البوت: الرسائل القديمة بلا جهة ← تُنسب لصاحبها (مذخر/حساب/زبون حملة)
+    backfillParties();
     // حملات واتساب كانت قيد الإرسال لحظة إعادة التشغيل ← تُتابع
     resumeCampaigns()
       .then(n => { if (n) console.log(`✓ استؤنفت ${n} حملة واتساب`); })
