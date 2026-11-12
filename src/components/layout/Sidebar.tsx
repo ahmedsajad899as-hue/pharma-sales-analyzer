@@ -192,7 +192,12 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
       <aside className={`sidebar sidebar--desktop ${isOpen ? 'sidebar--open' : 'sidebar--closed'}`}>
         <div className="sidebar-brand">
           <span className="sidebar-brand-icon"><OrdineLogo size={28} /></span>
-          {isOpen && <span className="sidebar-brand-text">{t.appName}</span>}
+          {isOpen && <span className="sidebar-brand-text" style={{ flex: '0 1 auto' }}>{t.appName}</span>}
+          {isOpen && (
+            <button className="sidebar-refresh-btn" onClick={doRefresh} title="تحديث التطبيق" aria-label="تحديث التطبيق">
+              <span className={refreshing ? 'app-refresh-spin' : undefined} style={{ display: 'flex' }}><Icon name="refresh" size={17} strokeWidth={2.4} /></span>
+            </button>
+          )}
           <button className="sidebar-toggle" onClick={onToggle} title={t.sidebar.collapse}>
             <Icon name={lang === 'ar' ? 'chevronRight' : 'chevronLeft'} size={14} />
           </button>
@@ -297,16 +302,6 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onToggle, acti
                 }}
               ><Icon name="export" size={16} /></button>
             )}
-            <button
-              onClick={doRefresh}
-              title="تحديث التطبيق"
-              aria-label="تحديث التطبيق"
-              style={{
-                width: 34, height: 34, borderRadius: 8, flexShrink: 0,
-                background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)',
-                color: '#8fa0be', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            ><span className={refreshing ? 'app-refresh-spin' : undefined} style={{ display: 'flex' }}><Icon name="refresh" size={15} /></span></button>
             <button
               onClick={logout}
               title={t.sidebar.logout}
