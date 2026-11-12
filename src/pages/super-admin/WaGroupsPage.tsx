@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { ErrBox, Modal, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
-import { AiModeButtons, type AiMode } from './AiModeButtons';
+import { AI_MODES, type AiMode } from './AiModeButtons';
 
 interface Status { status?: string; connected?: boolean; me?: string | null; error?: string | null }
 interface Group { jid: string; name: string; size: number }
@@ -60,10 +60,7 @@ function SendersField({ value, known, onChange }: { value: string[]; known: Reco
       </div>
       {restrict && (
         <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 12px' }}>
-          <div style={{ fontSize: 11.5, color: UI.faint, marginBottom: 8, lineHeight: 1.6 }}>
-            رسائل غير المحدَّدين تُتجاهل قبل القراءة بالذكاء (لا تكلفة ولا مراجعة). القائمة = من كتب في الكروب منذ هذا التحديث.
-          </div>
-          {rows.length === 0 && <div style={{ fontSize: 12, color: UI.muted, marginBottom: 8 }}>لم يكتب أحد بعد — أضف الرقم يدوياً، أو انتظر أول رسالة ثم افتح «تعديل».</div>}
+          {rows.length === 0 && <div style={{ fontSize: 12, color: UI.muted, marginBottom: 8 }}>لا أحد بعد — أضف رقماً يدوياً.</div>}
           <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
             {rows.map(([k, v]) => (
               <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: UI.text, cursor: 'pointer', padding: '3px 0' }}>
@@ -86,20 +83,89 @@ function SendersField({ value, known, onChange }: { value: string[]; known: Reco
   );
 }
 
-/** مفتاح تشغيل/إطفاء صغير لكروب المذخر. */
-function SwitchChip({ on, label, onToggle }: { on: boolean; label: string; onToggle: () => void }) {
+// ─── عناصر مدمجة للصفحة ──────────────────────────────────────────────────────
+
+const ghost = (color: string = UI.text): CSSProperties => ({
+  padding: '4px 10px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
+  border: `1px solid ${UI.line}`, background: '#fff', color, whiteSpace: 'nowrap', lineHeight: 1.4,
+});
+
+const tag = (color: string, bg: string): CSSProperties => ({
+  display: 'inline-block', fontSize: 11, fontWeight: 600, color, background: bg, borderRadius: 6, padding: '1px 7px', whiteSpace: 'nowrap',
+});
+
+/** مفتاح تشغيل/إطفاء. */
+function Toggle({ on, label, title, onToggle }: { on: boolean; label: string; title: string; onToggle: () => void }) {
   return (
-    <button type="button" onClick={onToggle} title={on ? 'شغّال — اضغط للإطفاء' : 'مطفأ — اضغط للتشغيل'}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontFamily: 'inherit',
-        border: `1px solid ${on ? '#86efac' : '#fca5a5'}`, background: on ? '#f0fdf4' : '#fef2f2',
-        color: on ? '#15803d' : '#b91c1c', borderRadius: 20, padding: '3px 10px 3px 4px', fontSize: 11.5, fontWeight: 600,
-      }}>
-      <span style={{ position: 'relative', width: 28, height: 16, borderRadius: 8, background: on ? '#22c55e' : '#cbd5e1', flexShrink: 0 }}>
-        <span style={{ position: 'absolute', top: 2, insetInlineStart: on ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', transition: 'inset-inline-start .15s' }} />
+    <button type="button" onClick={onToggle} title={title} aria-pressed={on}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: on ? UI.ink : UI.faint }}>
+      <span style={{ position: 'relative', width: 26, height: 14, borderRadius: 7, background: on ? '#16a34a' : '#cbd5e1', flexShrink: 0, transition: 'background .15s' }}>
+        <span style={{ position: 'absolute', top: 2, insetInlineStart: on ? 14 : 2, width: 10, height: 10, borderRadius: '50%', background: '#fff', transition: 'inset-inline-start .15s' }} />
       </span>
-      {label}: {on ? 'شغّال' : 'مطفأ'}
+      {label}
     </button>
+  );
+}
+
+const AI_SHORT: Record<AiMode, { label: string; title: string }> = {
+  both:   { label: 'الاثنين', title: 'المحلل أولاً، وما لا يحسمه يذهب للذكاء' },
+  parser: { label: 'المحلل',  title: 'بلا ذكاء: الطلبيات الواضحة فقط' },
+  ai:     { label: 'الذكاء',  title: 'Gemini لكل رسالة' },
+  off:    { label: 'إطفاء',   title: 'لا تحليل لأي رسالة' },
+};
+
+/** وضع تحليل طلبيات كروب المندوبين — نسخة مدمجة. */
+function AiSeg({ value, onChange }: { value?: string | null; onChange: (v: AiMode) => Promise<unknown> }) {
+  const cur: AiMode = (AI_MODES as readonly string[]).includes(value || '') ? (value as AiMode) : 'both';
+  const [busy, setBusy] = useState(false);
+  return (
+    <div style={{ display: 'inline-flex', border: `1px solid ${UI.line}`, borderRadius: 7, overflow: 'hidden', opacity: busy ? 0.6 : 1 }}>
+      {AI_MODES.map((m, i) => {
+        const on = m === cur;
+        return (
+          <button key={m} type="button" title={AI_SHORT[m].title} disabled={busy}
+            onClick={async () => { if (on) return; setBusy(true); try { await onChange(m); } finally { setBusy(false); } }}
+            style={{
+              padding: '3px 9px', fontSize: 11.5, fontWeight: 600, border: 'none', fontFamily: 'inherit',
+              borderInlineStart: i ? `1px solid ${UI.line}` : 'none', cursor: on ? 'default' : 'pointer',
+              background: on ? (m === 'off' ? '#dc2626' : '#1e293b') : '#fff', color: on ? '#fff' : UI.muted,
+            }}>
+            {AI_SHORT[m].label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** قسم بعنوان وعدّاد. */
+function Section({ title, count, accent, children }: { title: string; count: number; accent: string; children: ReactNode }) {
+  return (
+    <section style={{ background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 12, overflow: 'hidden', minWidth: 0 }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: `1px solid ${UI.line}`, borderTop: `3px solid ${accent}` }}>
+        <span style={{ fontWeight: 700, fontSize: 13.5, color: UI.ink }}>{title}</span>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: UI.muted, background: UI.bg, borderRadius: 10, padding: '1px 8px' }}>{count}</span>
+      </header>
+      <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
+    </section>
+  );
+}
+
+const Empty = ({ text }: { text: string }) => <div style={{ fontSize: 12, color: UI.faint, padding: '10px 4px', textAlign: 'center' }}>{text}</div>;
+
+/** بطاقة كروب: الاسم + الإجراءات في السطر الأول، والتفاصيل تحته. */
+function GroupCard({ g, dim, actions, children }: { g: Group; dim?: boolean; actions: ReactNode; children?: ReactNode }) {
+  return (
+    <div style={{ border: `1px solid ${UI.line}`, borderRadius: 10, padding: '9px 12px', background: dim ? UI.bg : '#fff' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 140px', minWidth: 0 }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: dim ? UI.muted : UI.ink }}>{g.name}</span>
+          <span style={{ fontSize: 11, color: UI.faint, marginInlineStart: 6 }}>{g.size} عضو</span>
+        </div>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>{actions}</div>
+      </div>
+      {children && <div style={{ marginTop: 7, display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</div>}
+    </div>
   );
 }
 
@@ -318,139 +384,140 @@ export default function WaGroupsPage() {
   const meNumber = st?.me ? String(st.me).split(':')[0].split('@')[0] : '';
   const fmtCode = code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code;
 
-  return (
-    <div style={{ direction: 'rtl', maxWidth: 760 }}>
-      <h2 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 700, color: UI.ink }}>رقم الكروبات</h2>
-      <div style={{ fontSize: 12.5, color: UI.faint, marginBottom: 16, lineHeight: 1.7 }}>
-        شريحة مخصّصة مربوطة كواتساب ويب. كل كروب يُضاف له الرقم تحدّد نوعه من القائمة أدناه:
-        كروب مذخر (يرسل الطلبيات ويقرأ الفواتير) أو كروب مندوبين (يقرأ فقط ولا يرسل شيئاً).
-      </div>
+  const all = groups || [];
+  const whGroups = all.filter(g => whByJid[g.jid]);
+  const repGroups = all.filter(g => !whByJid[g.jid] && links[g.jid]);
+  const untyped = all.filter(g => !whByJid[g.jid] && !links[g.jid]);
+  const openRepForm = (g: Group, l?: ListenLink) => {
+    setFormError('');
+    setForm(l
+      ? { jid: g.jid, name: g.name, userId: l.userId, orderTextMode: l.orderTextMode, isNew: false, senders: l.allowedSenders || [], known: l.knownSenders || {} }
+      : { jid: g.jid, name: g.name, orderTextMode: 'all', isNew: true, senders: [], known: {} });
+  };
 
-      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#92400e', lineHeight: 1.7 }}>
-        ⚠️ ربط غير رسمي — احتمال حظر الرقم قائم. استعمل شريحة جديدة مخصّصة فقط، لا رقم البوت الرسمي ولا رقماً شخصياً أو رقم المكتب.
+  return (
+    <div style={{ direction: 'rtl', maxWidth: 1100 }}>
+      {/* شريط الحالة */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 12, padding: '10px 14px', marginBottom: 12 }}>
+        <span style={{ background: label.bg, color: label.color, borderRadius: 20, padding: '2px 10px', fontSize: 11.5, fontWeight: 700 }}>{label.text}</span>
+        {meNumber && <span dir="ltr" style={{ fontSize: 12.5, color: UI.text, fontWeight: 600 }}>+{meNumber}</span>}
+        {st?.connected && (
+          <div style={{ display: 'flex', gap: 6, marginInlineStart: 'auto' }}>
+            <button onClick={() => { setGroups(null); loadLinks(); }} style={ghost()}>تحديث</button>
+            <button onClick={logout} style={ghost('#dc2626')}>فصل الرقم</button>
+          </div>
+        )}
       </div>
 
       {error && <ErrBox msg={error} />}
 
-      <div style={{ background: '#fff', border: '1px solid #e9edf3', borderRadius: 12, padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, color: UI.text }}>الحالة:</span>
-          <span style={{ background: label.bg, color: label.color, borderRadius: 20, padding: '3px 12px', fontSize: 12.5, fontWeight: 700 }}>{label.text}</span>
-          {meNumber && <span dir="ltr" style={{ fontSize: 13, color: UI.ink, fontWeight: 600 }}>+{meNumber}</span>}
-          {st?.connected && <button onClick={logout} style={{ ...btnStyle('#dc2626', true), marginInlineStart: 'auto' }}>فصل الرقم</button>}
-        </div>
-        {!st?.connected && st?.error && <div style={{ fontSize: 12, color: UI.faint }}>{st.error}</div>}
-
-        {st && !st.connected && st.status && (
-          <>
-            <ol style={{ margin: 0, paddingInlineStart: 20, fontSize: 13, color: UI.text, lineHeight: 1.9 }}>
-              <li>اكتب رقم الشريحة واضغط «كود الربط».</li>
-              <li>على الهاتف: واتساب ← ⋮ ← <b>الأجهزة المرتبطة</b> ← <b>ربط جهاز</b> ← <b>«الربط برقم الهاتف بدلاً من ذلك»</b>.</li>
-              <li>أدخل الكود خلال دقيقتين — الحالة تتحوّل هنا إلى «متصل» تلقائياً.</li>
-            </ol>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <input dir="ltr" value={phone} onChange={e => setPhone(e.target.value)} placeholder="07XXXXXXXXX"
-                style={{ padding: '8px 12px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 14, width: 200, fontFamily: 'inherit' }} />
-              <button onClick={pair} disabled={busy || !phone.trim()} style={{ ...btnStyle('#1e293b'), opacity: busy || !phone.trim() ? 0.5 : 1 }}>
-                {busy ? 'جاري طلب الكود…' : 'كود الربط'}
-              </button>
-            </div>
-            {code && (
-              <div style={{ textAlign: 'center', background: UI.bg, border: `1px dashed ${UI.line}`, borderRadius: 12, padding: 16 }}>
-                <div style={{ fontSize: 12.5, color: UI.muted, marginBottom: 6 }}>أدخل هذا الكود في واتساب على الهاتف</div>
-                <div dir="ltr" style={{ fontSize: 34, fontWeight: 800, letterSpacing: 6, color: UI.ink }}>{fmtCode}</div>
-                <div style={{ fontSize: 11.5, color: UI.faint, marginTop: 6 }}>انتهت صلاحيته؟ اضغط «كود الربط» مجدداً.</div>
+      {/* الربط */}
+      {st && !st.connected && (
+        <div style={{ background: '#fff', border: `1px solid ${UI.line}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {st.error && <div style={{ fontSize: 12, color: UI.faint }}>{st.error}</div>}
+          {st.status && (
+            <>
+              <div style={{ fontSize: 12.5, color: UI.muted }}>واتساب ← الأجهزة المرتبطة ← ربط جهاز ← الربط برقم الهاتف</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input dir="ltr" value={phone} onChange={e => setPhone(e.target.value)} placeholder="07XXXXXXXXX"
+                  style={{ padding: '7px 12px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13.5, width: 190, maxWidth: '100%', fontFamily: 'inherit' }} />
+                <button onClick={pair} disabled={busy || !phone.trim()} style={{ ...btnStyle('#1e293b', true), opacity: busy || !phone.trim() ? 0.5 : 1 }}>
+                  {busy ? '…' : 'كود الربط'}
+                </button>
               </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {st?.connected && (
-        <div style={{ marginTop: 16, background: '#fff', border: '1px solid #e9edf3', borderRadius: 12, padding: 18 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: UI.ink, marginBottom: 10 }}>الكروبات التي فيها الرقم ({groups?.length ?? '…'})</div>
-          <div style={{ fontSize: 12, color: UI.faint, lineHeight: 1.8, marginBottom: 10 }}>
-            <b>🚚 كروب مذخر</b> — <b>يرسل ويستقبل</b>: يرسل له النظام طلبيات ذلك المذخر، ويقرأ صور الفواتير على أنها فواتير هذا المذخر ويقارنها بالطلبية (مجهّزة / ناقصة).
-            لكل كروب مذخر مفتاحان مستقلان بلا حاجة للفصل: <b>📤 الإرسال</b> (مطفأ = لا تُرسل أي طلبية للكروب عبر البوت حتى لو اختير «عبر البوت») و<b>🧾 التحليل</b> (مطفأ = لا يُقرأ أي شيء ينزل في الكروب: لا صور ولا نص ولا كلفة).<br />
-            <b>🔇 كروب مندوبين</b> — <b>يستقبل فقط</b>: كل طلبية/فاتورة يكتبها المندوبون تُقرأ وتدخل طابور المراجعة ثم ملف اللكوديشن للحساب المختار كمبيعات لهم،
-            والرقم <b>لا يرسل فيه أي رسالة</b>.<br />
-            كروب لم يُحدَّد نوعه يُتجاهل كلياً (لا قراءة ولا كلفة).
-          </div>
-          {groups && groups.length === 0 && <div style={{ fontSize: 12.5, color: UI.faint }}>الرقم ليس عضواً في أي كروب بعد — اطلب من المذاخر إضافته لكروباتهم.</div>}
-          {(groups || []).map(g => {
-            const wh = whByJid[g.jid];
-            const l = links[g.jid];
-            return (
-              <div key={g.jid} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 0', borderTop: `1px solid ${UI.line}`, fontSize: 13, color: UI.text }}>
-                <div style={{ flex: '1 1 180px', minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: UI.ink }}>{g.name}</div>
-                  <div style={{ fontSize: 11.5, color: UI.faint }}>{g.size} عضو</div>
-                  {l && !wh && (
-                    <div style={{ fontSize: 11.5, color: UI.muted, marginTop: 3, lineHeight: 1.6 }}>
-                      📥 {l.messageCount} رسالة (آخرها {ago(l.lastMessageAt)}) · ✅ {l.orderCount} دخلت المراجعة{l.orderCount ? ` (آخرها ${ago(l.lastOrderAt)})` : ''}
-                      {l.attachedCount > 0 && <> · 🧾 {l.attachedCount} ثُبّتت على طلبيات المذاخر</>}
-                      {(l.allowedSenders?.length ?? 0) > 0 && <> · 👤 {l.allowedSenders!.length} أشخاص فقط ({l.skippedCount || 0} رسالة تُجوهلت)</>}
-                      {l.failedCount > 0 && <span style={{ color: '#b91c1c' }}> · ❌ {l.failedCount} فشلت نهائياً</span>}
-                      {retryByJid[g.jid] && (
-                        <div style={{ color: '#b91c1c' }} title={retryByJid[g.jid].lastError || ''}>
-                          ⚠️ {retryByJid[g.jid].count} {retryByJid[g.jid].queueFull ? 'تنتظر: طابور المراجعة ممتلئ، راجع الطلبيات' : 'فشلت قراءتها'} — تُعاد تلقائياً{retryByJid[g.jid].nextAt ? ` (المحاولة القادمة ${untilLabel(retryByJid[g.jid].nextAt!)})` : ''}
-                        </div>
-                      )}
-                      {(pendingByJid[g.jid] || []).length > 0 && (
-                        <div style={{ color: '#b45309' }}>
-                          ⏳ بانتظار المراجعة: {pendingByJid[g.jid].map(p => `${p.name} (${p.count})`).join('، ')}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                {wh ? (
-                  <>
-                    <span style={{ background: '#eff6ff', color: '#1d4ed8', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>🚚 كروب مذخر: {wh.join('، ')}</span>
-                    {(() => {
-                      const sw = whSw[g.jid] || { send: true, read: true };
-                      return (
-                        <span style={{ display: 'inline-flex', gap: 6, flexBasis: '100%', flexWrap: 'wrap', alignItems: 'center' }}>
-                          <SwitchChip on={sw.send} label="📤 إرسال الطلبيات عبر البوت" onToggle={() => setWhSwitch(g, 'send', !sw.send)} />
-                          <SwitchChip on={sw.read} label="🧾 تحليل الفواتير وربطها" onToggle={() => setWhSwitch(g, 'read', !sw.read)} />
-                          {!sw.send && !sw.read && <span style={{ fontSize: 11, color: '#b91c1c' }}>الكروب متوقف كلياً: لا إرسال ولا قراءة</span>}
-                        </span>
-                      );
-                    })()}
-                    <button onClick={() => openWhForm(g)} style={btnStyle('#3b82f6', true)}>تغيير المذخر</button>
-                    <button onClick={() => unlinkWarehouse(g, wh)} style={btnStyle('#dc2626', true)}>فصل</button>
-                  </>
-                ) : l ? (
-                  <>
-                    <span style={{ background: l.isActive ? '#f0fdf4' : '#fef2f2', color: l.isActive ? '#16a34a' : '#b91c1c', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>
-                      🔇 كروب مندوبين (يستقبل فقط) ← {userLabel(l.user)}{l.isActive ? '' : ' (موقوفة)'}
-                    </span>
-                    <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>{ORDER_MODE_SHORT[l.orderTextMode] || ''}</span>
-                    <AiModeButtons value={l.aiMode} onChange={v => setAiMode(l, v)} />
-                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, userId: l.userId, orderTextMode: l.orderTextMode, isNew: false, senders: l.allowedSenders || [], known: l.knownSenders || {} }); }} style={btnStyle('#3b82f6', true)}>تعديل</button>
-                    <button onClick={() => toggleLink(l)} style={btnStyle(l.isActive ? '#d97706' : '#16a34a', true)}>{l.isActive ? 'إيقاف' : 'تفعيل'}</button>
-                    <button onClick={() => removeLink(l)} style={btnStyle('#dc2626', true)}>إلغاء</button>
-                  </>
-                ) : (
-                  <>
-                    <span style={{ fontSize: 11.5, color: '#b45309', fontWeight: 600 }}>لم يُحدَّد نوعه</span>
-                    <button onClick={() => openWhForm(g)} style={btnStyle('#1d4ed8', true)}>🚚 كروب مذخر</button>
-                    <button onClick={() => { setFormError(''); setForm({ jid: g.jid, name: g.name, orderTextMode: 'all', isNew: true, senders: [], known: {} }); }} style={btnStyle('#0f172a', true)}>🔇 كروب مندوبين</button>
-                  </>
-                )}
-              </div>
-            );
-          })}
-          {groups && <button onClick={() => { setGroups(null); loadLinks(); }} style={{ ...btnStyle('#3b82f6', true), marginTop: 10 }}>تحديث القائمة</button>}
+              {code && <div dir="ltr" style={{ fontSize: 28, fontWeight: 800, letterSpacing: 5, color: UI.ink, textAlign: 'center', background: UI.bg, borderRadius: 10, padding: 12 }}>{fmtCode}</div>}
+            </>
+          )}
         </div>
       )}
 
-      {form && (
-        <Modal onClose={() => setForm(null)} title={`كروب مندوبين — ${form.name}`}>
-          <div style={{ fontSize: 12.5, color: UI.muted, lineHeight: 1.7, marginBottom: 14 }}>
-            طلبيات وفواتير المندوبين في هذا الكروب تُقرأ بالذكاء وتدخل طابور المراجعة لهذا الحساب، وبعد الاعتماد تُضاف لملف اللكوديشن.
-            الرقم لا يرد في الكروب، ولا تُرسَل هذه الطلبيات للمذاخر.
+      {st?.connected && (
+        <>
+          {groups && groups.length === 0 && <Empty text="الرقم ليس عضواً في أي كروب" />}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 380px), 1fr))', gap: 12, alignItems: 'start' }}>
+            <Section title="كروبات المذاخر" count={whGroups.length} accent="#2563eb">
+              {!groups && <Empty text="جاري التحميل…" />}
+              {groups && !whGroups.length && <Empty text="لا يوجد" />}
+              {whGroups.map(g => {
+                const wh = whByJid[g.jid];
+                const sw = whSw[g.jid] || { send: true, read: true };
+                const stopped = !sw.send && !sw.read;
+                return (
+                  <GroupCard key={g.jid} g={g} dim={stopped} actions={<>
+                    <button onClick={() => openWhForm(g)} style={ghost()}>تغيير</button>
+                    <button onClick={() => unlinkWarehouse(g, wh)} style={ghost('#dc2626')}>فصل</button>
+                  </>}>
+                    <div style={{ fontSize: 12, color: UI.muted }}>
+                      المذخر: <b style={{ color: UI.text }}>{wh.join('، ')}</b>
+                      {stopped && <span style={{ ...tag('#b91c1c', '#fef2f2'), marginInlineStart: 6 }}>متوقف</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                      <Toggle on={sw.send} label="إرسال الطلبيات" title="مطفأ = لا تُرسل أي طلبية لهذا الكروب عبر البوت" onToggle={() => setWhSwitch(g, 'send', !sw.send)} />
+                      <Toggle on={sw.read} label="تحليل الفواتير" title="مطفأ = لا يُقرأ أي شيء ينزل في الكروب" onToggle={() => setWhSwitch(g, 'read', !sw.read)} />
+                    </div>
+                  </GroupCard>
+                );
+              })}
+            </Section>
+
+            <Section title="كروبات المندوبين" count={repGroups.length} accent="#16a34a">
+              {!groups && <Empty text="جاري التحميل…" />}
+              {groups && !repGroups.length && <Empty text="لا يوجد" />}
+              {repGroups.map(g => {
+                const l = links[g.jid];
+                const retry = retryByJid[g.jid];
+                const pending = pendingByJid[g.jid] || [];
+                const limited = (l.allowedSenders?.length ?? 0) > 0;
+                return (
+                  <GroupCard key={g.jid} g={g} dim={!l.isActive} actions={<>
+                    <button onClick={() => openRepForm(g, l)} style={ghost()}>تعديل</button>
+                    <button onClick={() => toggleLink(l)} style={ghost(l.isActive ? '#b45309' : '#16a34a')}>{l.isActive ? 'إيقاف' : 'تفعيل'}</button>
+                    <button onClick={() => removeLink(l)} style={ghost('#dc2626')}>إلغاء</button>
+                  </>}>
+                    <div style={{ fontSize: 12, color: UI.muted, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span>الحساب: <b style={{ color: UI.text }}>{userLabel(l.user)}</b></span>
+                      {!l.isActive && <span style={tag('#b91c1c', '#fef2f2')}>موقوف</span>}
+                      <span style={tag('#6d28d9', '#f5f3ff')}>{(ORDER_MODE_SHORT[l.orderTextMode] || '').replace('طلبيات: ', '')}</span>
+                      {limited && <span style={tag(UI.text, UI.bg)}>{l.allowedSenders!.length} أشخاص فقط</span>}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: UI.muted }}>
+                      {l.messageCount} رسالة · {l.orderCount} طلبية{l.attachedCount > 0 ? ` · ${l.attachedCount} مثبّتة` : ''}
+                      {limited && l.skippedCount ? ` · ${l.skippedCount} متجاهلة` : ''} · آخر رسالة {ago(l.lastMessageAt)}
+                    </div>
+                    {(l.failedCount > 0 || retry || pending.length > 0) && (
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                        {pending.length > 0 && <span style={tag('#b45309', '#fffbeb')} title={pending.map(p => `${p.name} (${p.count})`).join('، ')}>بانتظار المراجعة {pending.reduce((n, p) => n + p.count, 0)}</span>}
+                        {retry && <span style={tag('#b91c1c', '#fef2f2')} title={retry.lastError || ''}>{retry.queueFull ? 'الطابور ممتلئ' : 'تُعاد'} {retry.count}{retry.nextAt ? ` · ${untilLabel(retry.nextAt)}` : ''}</span>}
+                        {l.failedCount > 0 && <span style={tag('#b91c1c', '#fef2f2')}>فشلت {l.failedCount}</span>}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11.5, color: UI.muted }}>التحليل</span>
+                      <AiSeg value={l.aiMode} onChange={v => setAiMode(l, v)} />
+                    </div>
+                  </GroupCard>
+                );
+              })}
+            </Section>
           </div>
+
+          {untyped.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <Section title="كروبات غير مصنّفة" count={untyped.length} accent="#94a3b8">
+                {untyped.map(g => (
+                  <GroupCard key={g.jid} g={g} actions={<>
+                    <button onClick={() => openWhForm(g)} style={ghost('#2563eb')}>كروب مذخر</button>
+                    <button onClick={() => openRepForm(g)} style={ghost('#16a34a')}>كروب مندوبين</button>
+                  </>} />
+                ))}
+              </Section>
+            </div>
+          )}
+        </>
+      )}
+
+      {form && (
+        <Modal onClose={() => setForm(null)} title={`كروب مندوبين · ${form.name}`}>
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: UI.text, marginBottom: 5 }}>الحساب الذي تُسجَّل عليه المبيعات *</label>
             <select value={form.userId ?? ''} onChange={e => setForm(f => f && ({ ...f, userId: e.target.value ? Number(e.target.value) : undefined }))}
@@ -475,16 +542,12 @@ export default function WaGroupsPage() {
         const q = whForm.q.trim().toLowerCase();
         const list = (whList || []).filter(w => !q || `${w.name} ${w.province || ''} ${w.owner || ''}`.toLowerCase().includes(q));
         return (
-          <Modal onClose={() => setWhForm(null)} title={`كروب مذخر — ${whForm.name}`}>
-            <div style={{ fontSize: 12.5, color: UI.muted, lineHeight: 1.7, marginBottom: 12 }}>
-              الرقم <b>يرسل</b> في هذا الكروب طلبيات المذخر المختار، ويقرأ ردوده وصور فواتيره على أنها فواتير هذا المذخر (قراءة أرخص وأدق)،
-              ثم يقارنها بالطلبية: كاملة ⇒ مجهّزة، ناقصة ⇒ جزئية.
-            </div>
+          <Modal onClose={() => setWhForm(null)} title={`كروب مذخر · ${whForm.name}`}>
             <input value={whForm.q} onChange={e => setWhForm(f => f && ({ ...f, q: e.target.value }))} placeholder="بحث باسم المذخر أو المحافظة…" autoFocus
               style={{ width: '100%', padding: '8px 12px', border: '1px solid #d8dee8', borderRadius: 8, fontSize: 13.5, boxSizing: 'border-box', marginBottom: 8, fontFamily: 'inherit' }} />
             <div style={{ maxHeight: 320, overflowY: 'auto', border: `1px solid ${UI.line}`, borderRadius: 10 }}>
               {!whList && <div style={{ padding: 12, fontSize: 12.5, color: UI.faint }}>جاري التحميل…</div>}
-              {whList && !list.length && <div style={{ padding: 12, fontSize: 12.5, color: UI.faint }}>لا يوجد مذخر بهذا الاسم — أضفه أولاً من دليل المذاخر في التطبيق.</div>}
+              {whList && !list.length && <div style={{ padding: 12, fontSize: 12.5, color: UI.faint }}>لا يوجد مذخر بهذا الاسم</div>}
               {list.map(w => {
                 const other = w.groupJid && w.groupJid !== whForm.jid;
                 return (
@@ -493,7 +556,7 @@ export default function WaGroupsPage() {
                     <span style={{ fontWeight: 600, color: UI.ink }}>{w.name}</span>
                     {w.province && <span style={{ fontSize: 11.5, color: UI.muted }}>{w.province}</span>}
                     <span style={{ fontSize: 11, color: UI.faint, marginInlineStart: 'auto' }}>
-                      {other ? '⚠️ مربوط بكروب آخر — سينتقل لهذا' : w.groupJid === whForm.jid ? '✓ الحالي' : ''}{w.owner ? ` · ${w.owner}` : ''}
+                      {other ? 'مربوط بكروب آخر' : w.groupJid === whForm.jid ? 'الحالي' : ''}{w.owner ? ` · ${w.owner}` : ''}
                     </span>
                   </label>
                 );
