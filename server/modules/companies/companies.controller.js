@@ -481,8 +481,10 @@ export async function getCompanyOrg(req, res) {
     const userIds = [...new Set(assignments.map(a => a.userId))];
 
     // Fetch users with their manager relationships
+    // المسوقون (repKind='pharmacy') لا ينتمون لأي شركة: كل شركات المكتب «رئيسية» عندهم
+    // للعمل عليها فقط، فلا يظهرون في هيكلية أي شركة.
     const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
+      where: { id: { in: userIds }, NOT: { linkedRep: { is: { repKind: 'pharmacy' } } } },
       select: {
         id: true,
         username: true,

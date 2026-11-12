@@ -1249,10 +1249,19 @@ app.get('/api/my-company-org', async (req, res) => {
       where: { id: { in: userIds } },
       select: {
         id: true, username: true, displayName: true, role: true, isActive: true, phone: true, permissions: true,
+        linkedRep: { select: { repKind: true } },
         managersOfUser:     { select: { managerId: true } },
         subordinatesOfUser: { select: { userId: true } },
       },
     });
+    // المسوقون لا ينتمون لأي شركة (كل شركات المكتب «رئيسية» عندهم للعمل فقط): هيكلية
+    // العلميين بلا مسوقين، وهيكلية المسوق/مدير المسوقين بالمسوقين وحدهم.
+    {
+      const me = await prisma.user.findUnique({ where: { id: userId }, select: { linkedRep: { select: { repKind: true } } } });
+      const viewerIsMarketer = me?.linkedRep?.repKind === 'pharmacy';
+      const kept = users.filter(u => (u.linkedRep?.repKind === 'pharmacy') === viewerIsMarketer || u.id === userId);
+      users.length = 0; users.push(...kept);
+    }
     // قادة الفرق يرون هيكلهم الفرعي فقط (حسابهم + مندوبيهم)، وليس هيكل الشركة كاملاً
     const TEAM_LEADER_ROLES = new Set(['team_leader', 'commercial_team_leader']);
     let scopedUsers = users;

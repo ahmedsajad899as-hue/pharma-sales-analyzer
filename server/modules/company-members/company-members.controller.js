@@ -354,7 +354,7 @@ export async function listCompanyMembers(req, res, next) {
         role: true,
         isActive: true,
         linkedRepId: true,
-        linkedRep: { select: { id: true, name: true } },
+        linkedRep: { select: { id: true, name: true, repKind: true } },
         areaAssignments: {
           select: { area: { select: { id: true, name: true } } },
         },
