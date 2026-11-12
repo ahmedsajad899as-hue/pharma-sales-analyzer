@@ -25,7 +25,7 @@ interface Meta {
   marketingPrice: { value: number; source: "actual" | "rate"; volume?: number };
   phone: { phone?: string; name?: string; quality?: string; tier?: string; dailyLimit?: number | null; error?: string };
 }
-type Counts = Record<'pending' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'skipped' | 'order' | 'stop' | 'text' | 'button' | 'billable', number>;
+type Counts = Record<'pending' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'skipped' | 'order' | 'visit' | 'stop' | 'text' | 'button' | 'billable', number>;
 interface Campaign {
   id: number; title: string; templateName: string; templateLang: string; template: Template | null;
   itemName: string | null; status: string; lastError: string | null; total: number; headerMediaId: string | null;
@@ -70,7 +70,7 @@ const STATUS_AR: Record<string, string> = {
 const R_STATUS_AR: Record<string, string> = {
   pending: '⏳ بالانتظار', sending: '… يُرسل', sent: '✓ أُرسلت', delivered: '✓✓ وصلت', read: '👁️ قُرئت', failed: '❌ فشلت', skipped: '⛔ تُخطّي',
 };
-const REPLY_AR: Record<string, string> = { order: '🛒 طلب', stop: '⛔ أوقف العروض', text: '💬 ردّ', button: '🔘 ضغط زر' };
+const REPLY_AR: Record<string, string> = { order: '🛒 طلب', visit: '🚶 طلب زيارة مندوب', stop: '⛔ أوقف العروض', text: '💬 ردّ', button: '🔘 ضغط زر' };
 
 const SOURCE_AR: Record<VarSource, string> = {
   name: 'اسم الشخص (من الإكسل)', item: 'اسم الايتم', price: 'سعر المكتب للايتم', warehousePrice: 'سعر المذخر للايتم', text: 'نص ثابت أكتبه', col: 'عمود من الإكسل',
@@ -232,6 +232,7 @@ function CampaignCard({ c, open, onToggle, api, base, token, onError, reload, un
             <span>👁️ {fmtNum(k.read || 0)} قُرئت</span>
             {!!k.failed && <span className="wc-bad">❌ {k.failed} فشلت</span>}
             {!!k.order && <span className="wc-good">🛒 {k.order} طلبوا</span>}
+            {!!k.visit && <span className="wc-good">🚶 {k.visit} طلبوا زيارة</span>}
             {!!replied && <span>💬 {replied} ردّوا</span>}
             {!!k.stop && <span>⛔ {k.stop} أوقفوا</span>}
             {!!k.billable && <span title="عدد الرسائل التي احتسبتها Meta مدفوعة × سعر الرسالة">💰 {fmtNum(k.billable)} مدفوعة ≈ {fmtMoney(k.billable * unitPrice)}</span>}
@@ -295,7 +296,7 @@ function CampaignDetail({ c, api, base, token, onError, act, del }: {
         <div className="wd-muted wd-small">ردّ البوت على «اطلب الآن»: {c.replyText || 'الرد الافتراضي (شكراً لاهتمامك… سيتواصل معك فريقنا)'}</div>
       )}
       <div className="wd-chips">
-        {([['', 'الكل', c.total], ['order', '🛒 طلبوا', k.order], ['replied', '💬 كل الردود', (k.order || 0) + (k.text || 0) + (k.button || 0) + (k.stop || 0)], ['failed', '❌ فشلت', k.failed], ['stop', '⛔ أوقفوا', k.stop]] as const).map(([v, l, n]) => (
+        {([['', 'الكل', c.total], ['order', '🛒 طلبوا', k.order], ['visit', '🚶 زيارة', k.visit], ['replied', '💬 كل الردود', (k.order || 0) + (k.visit || 0) + (k.text || 0) + (k.button || 0) + (k.stop || 0)], ['failed', '❌ فشلت', k.failed], ['stop', '⛔ أوقفوا', k.stop]] as const).map(([v, l, n]) => (
           <button key={v} className={`wd-chip ${filter === v ? 'is-active' : ''}`} onClick={() => setFilter(v)}>{l} <b>{n || 0}</b></button>
         ))}
       </div>
@@ -308,7 +309,7 @@ function CampaignDetail({ c, api, base, token, onError, act, del }: {
                 <td>{r.name || '—'}</td>
                 <td dir="ltr" className="wc-num">+{r.waId}</td>
                 <td>{R_STATUS_AR[r.status] || r.status}{r.error && <div className="wc-bad wd-small">{r.error}</div>}</td>
-                <td>{r.reply ? <><b>{REPLY_AR[r.reply]}</b>{r.replyText && r.reply !== 'order' && <div className="wd-small">{r.replyText}</div>}<div className="wd-muted wd-small">{fmtDate(r.repliedAt)}</div></> : ''}</td>
+                <td>{r.reply ? <><b>{REPLY_AR[r.reply]}</b>{r.replyText && !['order', 'visit'].includes(r.reply) && <div className="wd-small">{r.replyText}</div>}<div className="wd-muted wd-small">{fmtDate(r.repliedAt)}</div></> : ''}</td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={4} className="wd-muted">لا شيء</td></tr>}
@@ -845,7 +846,7 @@ function TemplateForm({ api, onError, onCancel, onCreated, existing }: {
         <input className="form-input" maxLength={60} value={footer} onChange={e => setFooter(e.target.value)} />
       </label>
       <div className="wc-samples">
-        <span className="wd-small">الأزرار (حتى 3) — زر فيه «إيقاف» يوقف العروض لمن يضغطه، وغيره يُحسب «طلب»:</span>
+        <span className="wd-small">الأزرار (حتى 3) — زر فيه «إيقاف» يوقف العروض، وزر فيه «زيارة» يُسجَّل طلب زيارة مندوب، وغيرهما يُحسب «طلب»:</span>
         {buttons.map((b, i) => (
           <div key={i} className="wd-inline">
             <input className="form-input wc-phone" maxLength={25} value={b} onChange={e => setButtons(x => x.map((y, j) => (j === i ? e.target.value : y)))} />

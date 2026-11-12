@@ -3592,7 +3592,7 @@ model WaCampaignRecipient {
   status      String     @default("pending") // pending | sending | sent | delivered | read | failed | skipped
   waMessageId String?
   error       String?
-  reply       String? // order | stop | text | button
+  reply       String? // order | visit | stop | text | button
   replyText   String?
   sentAt      DateTime?
   deliveredAt DateTime?

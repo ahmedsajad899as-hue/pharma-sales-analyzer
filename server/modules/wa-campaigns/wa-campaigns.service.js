@@ -417,7 +417,7 @@ export async function campaignCounts(ids) {
     prisma.waCampaignRecipient.groupBy({ by: ['campaignId', 'reply'], where: { campaignId: { in: ids }, reply: { not: null } }, _count: { _all: true } }),
     prisma.waCampaignRecipient.groupBy({ by: ['campaignId'], where: { campaignId: { in: ids }, billable: true }, _count: { _all: true } }),
   ]);
-  const out = new Map(ids.map(id => [id, { pending: 0, sending: 0, sent: 0, delivered: 0, read: 0, failed: 0, skipped: 0, order: 0, stop: 0, text: 0, button: 0, billable: 0 }]));
+  const out = new Map(ids.map(id => [id, { pending: 0, sending: 0, sent: 0, delivered: 0, read: 0, failed: 0, skipped: 0, order: 0, visit: 0, stop: 0, text: 0, button: 0, billable: 0 }]));
   for (const g of byStatus) out.get(g.campaignId)[g.status] = g._count._all;
   for (const g of byReply) out.get(g.campaignId)[g.reply] = g._count._all;
   for (const g of billable) out.get(g.campaignId).billable = g._count._all;
@@ -556,7 +556,10 @@ export async function handleCampaignStatus(st) {
 const STOP_BTN_RE = /إيقاف|ايقاف|توقف|توقيف|الغاء|إلغاء|stop|unsubscribe/i;
 const STOP_TEXT_RE = /^\s*(إيقاف|ايقاف|توقف|توقيف|stop|الغاء الاشتراك|إلغاء الاشتراك)(\s+العروض)?\s*[.!]?\s*$/i;
 const ORDER_BTN_RE = /اطلب|طلب|احجز|اشتري|أريد|اريد|order|buy/i;
+const VISIT_BTN_RE = /زيار|زياره|visit/i;
+const REPLY_RANK = { text: 1, button: 2, visit: 3, order: 4 };
 const DEFAULT_REPLY = 'شكراً لاهتمامك 🌷 تم تسجيل طلبك وسيتواصل معك فريقنا قريباً.';
+const VISIT_REPLY = 'تم تسجيل طلب الزيارة ✅ سيتواصل معكم مندوبنا لتحديد موعد زيارة صيدليتكم.';
 const STOP_REPLY = 'تم إيقاف العروض ✅ لن تصلك رسائل عروض منّا بعد الآن.';
 
 /** ضغطة زر على قالب حملة. يعيد true إن عولجت هنا. */
@@ -580,9 +583,13 @@ export async function handleCampaignButton(message, { sendText }) {
     return true;
   }
   if (!r) return true;
-  const kind = ORDER_BTN_RE.test(text) ? 'order' : 'button';
-  // «طلب» أهم من ضغطة عابرة — لا يُستبدل بردّ لاحق أقل أهمية
-  if (r.reply !== 'order') await prisma.waCampaignRecipient.update({ where: { id: r.id }, data: { reply: kind, replyText: text, repliedAt: new Date() } });
+  // «زيارة المندوب» قبل «طلب» — نصّه قد يحوي كلمة «طلب»
+  const kind = VISIT_BTN_RE.test(text) ? 'visit' : ORDER_BTN_RE.test(text) ? 'order' : 'button';
+  // الأهم لا يُستبدل بردّ لاحق أقل أهمية: طلب > زيارة > ضغطة > نص
+  if ((REPLY_RANK[kind] ?? 0) >= (REPLY_RANK[r.reply] ?? 0)) {
+    await prisma.waCampaignRecipient.update({ where: { id: r.id }, data: { reply: kind, replyText: text, repliedAt: new Date() } });
+  }
+  if (kind === 'visit') { await sendText(waId, VISIT_REPLY); return true; }
   const c = await prisma.waCampaign.findUnique({ where: { id: r.campaignId }, select: { replyText: true } });
   await sendText(waId, c?.replyText?.trim() || DEFAULT_REPLY);
   return true;
