@@ -159,9 +159,13 @@ export async function handleIncomingOrderMessage({
 
       // صورة فاتورة/طلبية = بالضبط ما كُتب له extractInvoiceRows (بصناديق
       // التكبير)، فيُعاد استخدامه كما هو والكابشن يمرّ كسياق مساعد.
+      // فاتورة تجهيز لطلبية مذاخر معروفة سلفاً (رقمها مع الصورة «#16»)، أو حساب لا يذهب للكوديشن
+      // أصلاً: يكفي الأصناف والكميات — بلا تدقيق اسم الصيدلية (مثل فاتورة كروب المذخر).
+      const knownOrder = toRepOrders && imageBuffers.length === 1 && (repOrderIdIn(text) || !toCondition);
       rows = await extractInvoiceRows(
         imageBuffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
         { extraContext: String(text ?? '').trim() || undefined, budgetMs: BOT_READ_BUDGET_MS,
+          purpose: knownOrder ? 'compare' : 'sales',
           logContext: { source: transport.name, userId: user.id, userName: user.displayName || user.username, senderName, chatTitle } },
       );
     } else {

@@ -88,9 +88,20 @@ function sampleScore({ kind, rows, numbersOk, hasPharmacy, meta }) {
  * لا ترمي ولا تُنتظر (fire-and-forget بعد القراءة).
  * @param {{ warehouse:string, buffer:Buffer, rows?:object[], source?:string, generate?:boolean }} p
  */
-export async function collectCardSample({ warehouse, buffer, rows = [], source = null, generate = true }) {
+export async function collectCardSample({ warehouse, buffer, rows = [], source = null, generate = true, fuzzy = false }) {
   try {
-    const name = String(warehouse || '').trim();
+    let name = String(warehouse || '').trim();
+    // اسم مقروء من الصورة (صور البوت) يتذبذب («مزايا» / «مزايا بغداد»): يُوحَّد مع مذخر له
+    // عيّنات أصلاً، ويُترك إن كانت لهذا المذخر بطاقة (يدوية أو تلقائية) بأي صيغة من اسمه.
+    if (fuzzy) {
+      const k = warehouseKey(name);
+      if (k.length < 3) return;
+      const cards = await prisma.warehouseInvoiceCard.findMany({ select: { name: true } });
+      if (matchCard(cards, name)) return;
+      const known = await prisma.invoiceCardSample.findMany({ distinct: ['whKey'], select: { whKey: true, warehouse: true } });
+      const same = known.find(s => s.whKey.length >= 3 && (s.whKey.includes(k) || k.includes(s.whKey)));
+      if (same) name = same.warehouse;
+    }
     const whKey = warehouseKey(name);
     if (!whKey || !Buffer.isBuffer(buffer) || buffer.length > MAX_SAMPLE_BYTES) return;
     const kind = isPdf(buffer) ? 'pdf' : isJpeg(buffer) ? 'photo' : null;
@@ -237,7 +248,9 @@ export async function maybeGenerateCard(name, { force = false } = {}) {
 
     const files = await Promise.all(samples.slice(0, KEEP).map(readSample));
     const knownNames = (await prisma.invoiceReadLog.findMany({
-      where: { chatTitle: String(name).trim(), pharmacy: { not: null } }, select: { pharmacy: true }, take: 200, orderBy: { id: 'desc' },
+      // كروب المذخر يُسجَّل باسمه في chatTitle؛ صور البوت تحمل اسمه المطبوع في warehouse
+      where: { pharmacy: { not: null }, OR: [{ chatTitle: String(name).trim() }, { warehouse: { contains: String(name).trim() } }] },
+      select: { pharmacy: true }, take: 300, orderBy: { id: 'desc' },
     })).map(r => r.pharmacy);
     const calls = [];
     const result = await aiCallScope.run(calls, () => generateCardFromFiles(String(name).trim(), files, { knownNames }));

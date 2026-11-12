@@ -9,6 +9,7 @@ import { loadInvoiceCards, matchCard, noteCardUse, CARD_BASE_PROMPT, parseCardRe
 import { getAiMode, AI_MODELS, diagnoseInvoiceRows } from '../../lib/aiModelSettings.js';
 import { detectOrientationLocal } from '../../lib/invoiceOrientation.js';
 import { isPdf, extractPdfText } from '../../lib/invoicePdf.js';
+import { collectCardSample } from '../../lib/invoiceCardAuto.js';
 import { aiCallScope } from '../../lib/geminiAi.js';
 import { saveInvoiceReadLog } from '../../lib/invoiceReadLog.js';
 import { randomUUID } from 'node:crypto';
@@ -1966,6 +1967,29 @@ export async function repairWithStrong(raw, { img, card, readFull, needPharmacy,
   return { rows, retried: parts.length > 0, part: parts.join('+') || null, customerTried };
 }
 
+/** اسم مذخر مطبوع ← اسم بطاقة: بلا «مذخر/أدوية/شركة» («مذخر ادوية مزايا بغداد» ← «مزايا بغداد»). */
+function cleanWarehouseTitle(s) {
+  const t = String(s ?? '')
+    .replace(/\b(drug\s*store|pharma(cy)?\s*store|for\s+drugs?)\b/gi, ' ')
+    .replace(/(^|\s)(مذخر|مذاخر|شركة|شركه|ادوية|أدوية|ادويه|للأدوية|للادوية|للادويه)(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  return t.length >= 3 ? t.slice(0, 60) : '';
+}
+
+/**
+ * صور البوت (طلب صاحب المشروع 2026-11-13): فاتورة مذخر بلا بطاقة تصير عيّنة لبطاقة تلقائية باسمه
+ * المطبوع — كي تنخفض كلفة صور البوت كما انخفضت كلفة كروبات المذاخر. لا يمسّ مسار الكروبات
+ * (المذخر هناك معروف: warehouseHint) ولا الفواتير المقروءة ببطاقة أصلاً. لا يرمي ولا يُنتظر.
+ */
+function collectBotSample(image, rows, { card, warehouseHint, purpose }) {
+  if (warehouseHint || card || purpose !== 'sales' || !rows?.length) return;
+  const name = cleanWarehouseTitle(rows.find(r => r.warehouse)?.warehouse);
+  if (!name) return;
+  try {
+    collectCardSample({ warehouse: name, buffer: Buffer.from(image.base64 || '', 'base64'), rows, source: 'bot', fuzzy: true });
+  } catch { /* لا يُفشل القراءة */ }
+}
+
 /** صورة فاتورة واحدة ← صفوف بعد التنظيف. imgLog يُملأ لسجلّ «الطلبيات المحلَّلة». */
 async function readInvoiceImage(image, { idx, warehouseHint, extraContext, purpose, fallbackPharmacy, left, imgLog }) {
   // اتجاه الصورة أولاً: فاتورة مُدارة 90° تُقرأ بتذبذب («النعيمي» بدل «النبض») وبعد تدويرها
@@ -2029,7 +2053,7 @@ async function readInvoiceImage(image, { idx, warehouseHint, extraContext, purpo
     return imageRows;
   }
   // «تلقائي» قرأ كتلة الزبون بالأقوى أصلاً — قراءته هي الجواب، بلا تصويت فوقها.
-  if (customerTried) return imageRows;
+  if (customerTried) { collectBotSample(image, imageRows, { card, warehouseHint, purpose }); return imageRows; }
 
   // احتياطي سطر الزبون: نداء مركَّز للصورة حين لم تُقرأ الصيدلية، **أو** قُرئت لكن الصيدلية غير
   // محسومة في سيرفي الماستر. الحالة الثانية مقيسة: فاتورة «طريق السلام» المصوَّرة مُدارة 90° أعاد
@@ -2042,6 +2066,31 @@ async function readInvoiceImage(image, { idx, warehouseHint, extraContext, purpo
   // كلما كانت الصيدلية جديدة على الماستر. مقيس: أسماء البطاقة صحيحة 62/65 بلا تصويت.
   // اسم فارغ ⇒ احتياطي القصاصة أدناه كما هو.
   const skipVote = Boolean(card && first?.pharmacy);
+  // «تلقائي» (طلب صاحب المشروع 2026-11-13): اسم مقروء لكنه جديد على الماستر ⇒ قراءة **واحدة**
+  // بالأقوى لقصاصة كتلة الزبون بدل 3 قراءات بالصورة كاملة (~0.0015$ بدل ~0.005$). القصاصة مكبّرة
+  // فتُقرأ أدقّ؛ ويُختار ما تؤكّده بيانات الماستر أكثر، والتعادل للقصاصة (كما في التصويت).
+  if (readMode === 'auto' && imageRows.length > 0 && first?.pharmacy && firstScore < 2 && !skipVote) {
+    let crop = null;
+    try { crop = cropJpeg(Buffer.from(img.base64, 'base64'), custBoxOriented || [0, 0, 550, 1000]); } catch { crop = null; }
+    const cust = crop
+      ? await extractCustomerLine({ mimeType: 'image/jpeg', base64: crop.toString('base64') },
+        { warehouse: imageRows.find(r => r.warehouse)?.warehouse || '', cropped: true, timeoutMs: Math.min(40_000, Math.max(10_000, left())) })
+      : null;
+    if (cust?.pharmacy) {
+      if (isWarehouseAddressArea(cust.area, whAddress)) cust.area = '';
+      const custScore = await customerKnownScore(cust.pharmacy, cust.area);
+      if (custScore >= Math.max(0, firstScore)) {
+        for (const r of imageRows) {
+          r.pharmacy = cust.pharmacy;
+          if (cust.area || !r.area) r.area = cust.area;
+        }
+      }
+    }
+    imgLog.retried = true;
+    imgLog.retryPart = imgLog.retryPart ? `${imgLog.retryPart}+customer` : 'customer';
+    collectBotSample(image, imageRows, { card, warehouseHint, purpose });
+    return imageRows;
+  }
   if (imageRows.length > 0 && firstScore < 2 && !skipVote) {
     const cust = await extractCustomerLineVoted(img, {
       timeoutMs: Math.min(45_000, Math.max(10_000, left())),
@@ -2081,6 +2130,7 @@ async function readInvoiceImage(image, { idx, warehouseHint, extraContext, purpo
       }
     }
   }
+  collectBotSample(image, imageRows, { card, warehouseHint, purpose });
   return imageRows;
 }
 
