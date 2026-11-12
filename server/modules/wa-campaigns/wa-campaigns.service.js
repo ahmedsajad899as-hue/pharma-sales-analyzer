@@ -465,6 +465,11 @@ async function runCampaign(id) {
     const batch = await prisma.waCampaignRecipient.findMany({ where: { campaignId: id, status: 'pending' }, orderBy: { id: 'asc' }, take: 25 });
     if (!batch.length) {
       await prisma.waCampaign.updateMany({ where: { id, status: 'sending' }, data: { status: 'done', finishedAt: new Date() } });
+      // أرقام أُضيفت لحظة الإغلاق ⇒ نكمل بدل تركها معلّقة
+      if (await prisma.waCampaignRecipient.count({ where: { campaignId: id, status: 'pending' } })) {
+        const back = await prisma.waCampaign.updateMany({ where: { id, status: 'done' }, data: { status: 'sending', finishedAt: null } });
+        if (back.count) continue;
+      }
       console.log(`[wa-campaigns] #${id} اكتملت`);
       return;
     }
@@ -526,6 +531,7 @@ export async function handleCampaignStatus(st) {
   if (!st?.id) return false;
   const r = await prisma.waCampaignRecipient.findFirst({ where: { waMessageId: String(st.id) } });
   if (!r) return false;
+  console.log(`[wa-campaigns] حالة #${r.campaignId}/${r.id}: ${st.status}${st.pricing ? ` billable=${st.pricing.billable}` : ''}${st.errors?.[0]?.code ? ` err=${st.errors[0].code}` : ''}`);
   const now = new Date();
   // Meta تُرفق pricing بحالة sent/delivered: هل الرسالة محتسبة (مدفوعة) وفئتها
   if (st.pricing && (r.billable === null || r.billable === undefined)) {
@@ -562,6 +568,42 @@ const DEFAULT_REPLY = 'شكراً لاهتمامك 🌷 تم تسجيل طلبك
 const VISIT_REPLY = 'سيزوركم مندوبنا إلى الصيدلية قريباً، مع التقدير 🌷';
 const STOP_REPLY = 'تم إيقاف العروض ✅ لن تصلك رسائل عروض منّا بعد الآن.';
 
+/** من ردّ على الرسالة قرأها حتماً — حتى لو لم تصل حالة «قُرئت» من Meta (إيصالات القراءة مطفأة مثلاً). */
+async function markReadByReply(r) {
+  if (!['sent', 'delivered', 'sending'].includes(r.status)) return;
+  const now = new Date();
+  await prisma.waCampaignRecipient.update({ where: { id: r.id }, data: { status: 'read', readAt: r.readAt || now, deliveredAt: r.deliveredAt || now } }).catch(() => {});
+}
+
+/** يضيف أرقاماً لحملة قائمة. حملة منتهية تعود للإرسال إن start=true. */
+export async function addRecipients(c, list, { start = true } = {}) {
+  if (c.status === 'cancelled') throw new AppError('الحملة ملغاة — أنشئ حملة جديدة', 400);
+  if (c.headerMediaId && Date.now() - new Date(c.createdAt).getTime() > 28 * 86_400_000) {
+    throw new AppError('صورة هذه الحملة انتهت صلاحيتها عند واتساب (30 يوماً) — أنشئ حملة جديدة', 400);
+  }
+  const recipients = cleanRecipients(list);
+  if (!recipients.length) throw new AppError('لا توجد أرقام صالحة', 400);
+  const existing = new Set((await prisma.waCampaignRecipient.findMany({
+    where: { campaignId: c.id, waId: { in: recipients.map(x => x.waId) } }, select: { waId: true },
+  })).map(x => x.waId));
+  const fresh = recipients.filter(x => !existing.has(x.waId));
+  if (c.total + fresh.length > MAX_RECIPIENTS) throw new AppError(`الحد ${MAX_RECIPIENTS} رقم للحملة الواحدة`, 400);
+  const opted = new Set((await prisma.waOptOut.findMany({ where: { waId: { in: fresh.map(x => x.waId) } }, select: { waId: true } })).map(x => x.waId));
+  if (fresh.length) {
+    await prisma.waCampaignRecipient.createMany({
+      data: fresh.map(x => ({ campaignId: c.id, ...x, ...(opted.has(x.waId) ? { status: 'skipped', error: 'طلب إيقاف العروض' } : {}) })),
+      skipDuplicates: true,
+    });
+  }
+  const toSend = fresh.length - opted.size;
+  const data = { total: { increment: fresh.length } };
+  // منتهية ⇒ تعود للإرسال للأرقام الجديدة فقط؛ الجارية يلتقطها المحرّك؛ المتوقفة/المسودة تبقى كما هي
+  if (start && toSend > 0 && c.status === 'done') Object.assign(data, { status: 'sending', finishedAt: null, lastError: null });
+  await prisma.waCampaign.update({ where: { id: c.id }, data });
+  if (start && toSend > 0 && ['done', 'sending'].includes(c.status)) kickCampaign(c.id);
+  return { added: fresh.length, duplicates: existing.size, optedOut: opted.size, toSend };
+}
+
 /** ضغطة زر على قالب حملة. يعيد true إن عولجت هنا. */
 export async function handleCampaignButton(message, { sendText }) {
   if (message?.type !== 'button') return false;
@@ -576,6 +618,7 @@ export async function handleCampaignButton(message, { sendText }) {
   if (!r && !payload.startsWith('wc:')) return false;
   const waId = String(message.from);
 
+  if (r) await markReadByReply(r);
   if (STOP_BTN_RE.test(text)) {
     await addOptOut(waId, 'button', r?.campaignId ?? null);
     if (r) await prisma.waCampaignRecipient.update({ where: { id: r.id }, data: { reply: 'stop', replyText: text, repliedAt: new Date() } });
@@ -610,6 +653,7 @@ export async function absorbCampaignReply(message, { sendText }) {
   });
   if (!r) return false;
   const body = message.type === 'text' ? String(message.text?.body || '') : `[${message.type}]`;
+  await markReadByReply(r);
   if (message.type === 'text' && STOP_TEXT_RE.test(body)) {
     await addOptOut(waId, 'text', r.campaignId);
     await prisma.waCampaignRecipient.update({ where: { id: r.id }, data: { reply: 'stop', replyText: body.slice(0, 500), repliedAt: new Date() } });

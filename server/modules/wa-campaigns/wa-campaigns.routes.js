@@ -203,6 +203,13 @@ function buildRouter(getActor) {
     res.json({ success: true, campaign: publicCampaign(c, counts.get(c.id)), recipients: recipients.map(x => ({ ...x, extra: undefined })) });
   }));
 
+  // إضافة أرقام لحملة بعد إرسالها (تُرسل للجدد فقط، نفس القالب والقيم والصورة)
+  r.post('/campaigns/:id/recipients', wrap(async (req, res) => {
+    const a = await getActor(req);
+    const c = await loadCampaign(a, req.params.id);
+    res.json({ success: true, ...(await svc.addRecipients(c, req.body?.recipients, { start: req.body?.start !== false })) });
+  }));
+
   r.get('/campaigns/:id/image', wrap(async (req, res) => {
     const a = await getActor(req);
     const buf = await svc.campaignImage(await loadCampaign(a, req.params.id));

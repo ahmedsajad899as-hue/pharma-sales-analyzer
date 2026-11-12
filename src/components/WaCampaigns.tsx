@@ -30,7 +30,7 @@ interface Campaign {
   id: number; title: string; templateName: string; templateLang: string; template: Template | null;
   itemName: string | null; status: string; lastError: string | null; total: number; headerMediaId: string | null;
   createdByName: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null; replyText: string | null;
-  counts: Counts | null;
+  counts: Counts | null; varMap: VarMap[];
 }
 interface Recipient {
   id: number; waId: string; name: string | null; status: string; error: string | null;
@@ -242,16 +242,17 @@ function CampaignCard({ c, open, onToggle, api, base, token, onError, reload, un
         <ChevronDown size={16} className={`wd-chevron ${open ? 'is-open' : ''}`} />
       </button>
       {c.lastError && <div className="wd-note wd-note--warn wc-inner">⚠️ توقفت: {c.lastError}</div>}
-      {open && <CampaignDetail c={c} api={api} base={base} token={token} onError={onError} act={act} del={del} />}
+      {open && <CampaignDetail c={c} api={api} base={base} token={token} onError={onError} act={act} del={del} reload={reload} />}
     </div>
   );
 }
 
-function CampaignDetail({ c, api, base, token, onError, act, del }: {
+function CampaignDetail({ c, api, base, token, onError, act, del, reload }: {
   c: Campaign; api: (p: string, i?: RequestInit) => Promise<any>; base: string; token: string | null;
-  onError: (s: string) => void; act: (a: 'start' | 'pause' | 'cancel') => void; del: () => void;
+  onError: (s: string) => void; act: (a: 'start' | 'pause' | 'cancel') => void; del: () => void; reload: () => void;
 }) {
   const [filter, setFilter] = useState<string>('');
+  const [adding, setAdding] = useState(false);
   const [rows, setRows] = useState<Recipient[]>([]);
   const [img, setImg] = useState<string | null>(null);
 
@@ -287,10 +288,12 @@ function CampaignDetail({ c, api, base, token, onError, act, del }: {
         {c.status === 'sending' && <button className="btn btn-secondary" onClick={() => act('pause')}><Pause size={14} /> إيقاف مؤقت</button>}
         {['draft', 'sending', 'paused'].includes(c.status) && <button className="btn btn-secondary" onClick={() => act('cancel')}><X size={14} /> إلغاء</button>}
         {c.headerMediaId && !img && <button className="btn btn-secondary" onClick={showImg}>🖼️ الصورة</button>}
+        {c.status !== 'cancelled' && !adding && <button className="btn btn-secondary" onClick={() => setAdding(true)}><Upload size={14} /> إضافة أرقام</button>}
         <button className="btn btn-secondary" onClick={exportXlsx}><Download size={14} /> تصدير</button>
         <span className="wd-spacer" />
         {c.status !== 'sending' && <button className="btn btn-secondary wc-danger" onClick={del}><Trash2 size={14} /></button>}
       </div>
+      {adding && <AddRecipients c={c} api={api} onError={onError} onClose={() => setAdding(false)} onDone={() => { setAdding(false); reload(); load(); }} />}
       {img && <img src={img} alt="" className="wc-img" />}
       {c.template && (
         <div className="wd-muted wd-small">ردّ البوت على «اطلب الآن»: {c.replyText || 'الرد الافتراضي (شكراً لاهتمامك… سيتواصل معك فريقنا)'}</div>
@@ -321,9 +324,149 @@ function CampaignDetail({ c, api, base, token, onError, act, del }: {
   );
 }
 
+// ─── إضافة أرقام لحملة قائمة ─────────────────────────────────────────────────
+function AddRecipients({ c, api, onError, onClose, onDone }: {
+  c: Campaign; api: (p: string, i?: RequestInit) => Promise<any>; onError: (s: string) => void; onClose: () => void; onDone: () => void;
+}) {
+  const [mode, setMode] = useState<'manual' | 'excel'>('manual');
+  const [text, setText] = useState('');
+  const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const parsed = useMemo(() => (mode === 'manual'
+    ? parseManual(text)
+    : sheet ? parseRows(sheet.raw, sheet.headers, sheet.phoneCol, sheet.nameCol) : { ok: [] as Row[], bad: [] as string[], dup: 0 }), [mode, text, sheet]);
+  const colVars = (c.varMap || []).filter(m => m.source === 'col').map(m => m.value);
+  const sendNow = c.status === 'done' || c.status === 'sending';
+
+  const submit = async () => {
+    if (!confirm(`إضافة ${parsed.ok.length} رقم للحملة «${c.title}»؟${sendNow ? '\nتُرسل لهم نفس الرسالة فوراً.' : ''}`)) return;
+    setBusy(true);
+    try {
+      const d = await api(`/campaigns/${c.id}/recipients`, { method: 'POST', body: JSON.stringify({ recipients: parsed.ok.map(r => ({ waId: r.waId, name: r.name, extra: r.extra })) }) });
+      const parts = [`✓ أُضيف ${d.added} رقم`];
+      if (d.duplicates) parts.push(`${d.duplicates} موجود سابقاً بالحملة (ما تكرر)`);
+      if (d.optedOut) parts.push(`${d.optedOut} أوقف العروض (يُتخطّى)`);
+      if (sendNow && d.toSend) parts.push(`جاري الإرسال لـ ${d.toSend} رقم.`);
+      else if (c.status === 'paused') parts.push('الحملة متوقفة — اضغط «متابعة الإرسال».');
+      else if (c.status === 'draft') parts.push('الحملة مسودة — اضغط «إرسال الآن».');
+      alert(parts.join('\n'));
+      onDone();
+    } catch (e: any) { onError(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="wc-add">
+      <div className="wd-inline">
+        <b>إضافة أرقام لهذه الحملة</b>
+        <span className="wd-muted wd-small">نفس الرسالة والصورة والقيم — الموجودون مسبقاً بالحملة ما تتكرر لهم</span>
+      </div>
+      <div className="wd-chips">
+        <button className={`wd-chip ${mode === 'manual' ? 'is-active' : ''}`} onClick={() => setMode('manual')}>كتابة</button>
+        <button className={`wd-chip ${mode === 'excel' ? 'is-active' : ''}`} onClick={() => setMode('excel')}>ملف إكسل</button>
+      </div>
+      {mode === 'manual' ? (
+        <textarea className="form-input" rows={5} placeholder={'سطر لكل شخص، مثل:\nد. أحمد علي 07701234567\nصيدلية النور 07801234567'} value={text} onChange={e => setText(e.target.value)} />
+      ) : (
+        <div className="wd-inline">
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={async e => {
+            const f = e.target.files?.[0]; e.target.value = '';
+            if (!f) return;
+            try { setSheet(await readSheet(f)); } catch (err: any) { onError(`تعذّر قراءة الملف: ${err.message}`); }
+          }} />
+          <button className="btn btn-secondary" onClick={() => fileRef.current?.click()}><Upload size={14} /> {sheet ? 'تغيير الملف' : 'رفع ملف'}</button>
+          {sheet && (
+            <>
+              <select className="form-input wd-select" value={sheet.phoneCol} onChange={e => setSheet({ ...sheet, phoneCol: Number(e.target.value) })}>
+                <option value={-1}>عمود الرقم…</option>
+                {sheet.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+              </select>
+              <select className="form-input wd-select" value={sheet.nameCol} onChange={e => setSheet({ ...sheet, nameCol: Number(e.target.value) })}>
+                <option value={-1}>بلا اسم</option>
+                {sheet.headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+              </select>
+            </>
+          )}
+        </div>
+      )}
+      <div className="wc-stats">
+        <span className="wc-good">✓ {parsed.ok.length} رقم صالح</span>
+        {!!parsed.dup && <span>🔁 {parsed.dup} مكرر</span>}
+        {!!parsed.bad.length && <span className="wc-bad">❌ غير صالح: {parsed.bad.slice(0, 4).join('، ')}{parsed.bad.length > 4 ? ' …' : ''}</span>}
+      </div>
+      {colVars.length > 0 && mode === 'manual' && (
+        <div className="wd-note wd-note--warn">الرسالة تاخذ قيمة من عمود الإكسل «{colVars.join('، ')}». للأرقام المكتوبة يدوياً راح تطلع «—»، فاستعمل ملف إكسل بيه نفس العمود.</div>
+      )}
+      <div className="wd-inline">
+        <button className="btn btn-primary" disabled={busy || !parsed.ok.length} onClick={submit}><Send size={14} /> {sendNow ? `إضافة وإرسال لـ ${parsed.ok.length}` : `إضافة ${parsed.ok.length}`}</button>
+        <button className="btn btn-secondary" onClick={onClose}>إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── حملة جديدة ──────────────────────────────────────────────────────────────
 const PHONE_HDR = /رقم|هاتف|موبايل|موبايل|جوال|واتس|تلفون|phone|mobile|whats|tel|number/i;
 const NAME_HDR = /اسم|الاسم|صيدلية|الصيدلية|زبون|عميل|الدكتور|طبيب|name|customer|pharmacy/i;
+
+interface Sheet { fileName: string; headers: string[]; raw: string[][]; phoneCol: number; nameCol: number }
+
+/** أول ورقة في الإكسل ⇒ عناوين + صفوف + تخمين عمودي الرقم والاسم. */
+async function readSheet(f: File): Promise<Sheet> {
+  const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const all = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '', raw: false }) as string[][];
+  const hi = all.findIndex(r => r.filter(c => String(c).trim()).length >= 1);
+  if (hi < 0) throw new Error('الملف فارغ');
+  let hdr = all[hi].map((h, i) => String(h).trim() || `عمود ${i + 1}`);
+  let body = all.slice(hi + 1);
+  // صف أول فيه أرقام هواتف ⇒ لا عناوين
+  if (hdr.some(h => validPhone(normPhone(h)))) { body = all.slice(hi); hdr = hdr.map((_, i) => `عمود ${i + 1}`); }
+  body = body.filter(r => r.some(c => String(c).trim()));
+  const raw = body.map(r => hdr.map((_, i) => String(r[i] ?? '').trim()));
+  let pc = hdr.findIndex(h => PHONE_HDR.test(h));
+  if (pc < 0) {
+    const score = hdr.map((_, i) => raw.slice(0, 50).filter(r => validPhone(normPhone(r[i]))).length);
+    pc = score.indexOf(Math.max(...score));
+  }
+  return { fileName: f.name, headers: hdr, raw, phoneCol: pc, nameCol: hdr.findIndex((h, i) => i !== pc && NAME_HDR.test(h)) };
+}
+
+/** صفوف ⇒ أرقام صالحة (موحّدة، بلا تكرار) + غير الصالحة. */
+function parseRows(raw: string[][], headers: string[], phoneCol: number, nameCol: number) {
+  const ok: Row[] = []; const bad: string[] = []; let dup = 0;
+  const seen = new Set<string>();
+  if (phoneCol < 0) return { ok, bad, dup };
+  for (const r of raw) {
+    const p = normPhone(r[phoneCol]);
+    if (!validPhone(p)) { if (r[phoneCol]) bad.push(r[phoneCol]); else bad.push(`(فارغ) ${nameCol >= 0 ? r[nameCol] : ''}`); continue; }
+    if (seen.has(p)) { dup++; continue; }
+    seen.add(p);
+    const extra: Record<string, string> = {};
+    headers.forEach((h, i) => { if (r[i]) extra[h] = r[i]; });
+    ok.push({ waId: p, name: nameCol >= 0 ? r[nameCol] : '', extra });
+  }
+  return { ok, bad, dup };
+}
+
+/** كتابة يدوية: سطر لكل شخص — «الاسم 0770…» أو «0770… الاسم» أو الرقم وحده. */
+function parseManual(text: string) {
+  const ok: Row[] = []; const bad: string[] = []; let dup = 0;
+  const seen = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    const m = t.match(/[+0-9٠-٩۰-۹][0-9٠-٩۰-۹\s-]{8,}[0-9٠-٩۰-۹]/);
+    const p = m ? normPhone(m[0]) : '';
+    if (!m || !validPhone(p)) { bad.push(t); continue; }
+    if (seen.has(p)) { dup++; continue; }
+    seen.add(p);
+    const name = t.replace(m[0], ' ').replace(/[,،:|\t-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    ok.push({ waId: p, name, extra: {} });
+  }
+  return { ok, bad, dup };
+}
 
 function NewCampaign({ api, meta, onError, onDone, onSavePrice, reloadMeta }: {
   api: (p: string, i?: RequestInit) => Promise<any>; meta: Meta; onError: (s: string) => void;
@@ -363,42 +506,12 @@ function NewCampaign({ api, meta, onError, onDone, onSavePrice, reloadMeta }: {
   const onFile = async (f: File | undefined) => {
     if (!f) return;
     try {
-      const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const all = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '', raw: false }) as string[][];
-      const hi = all.findIndex(r => r.filter(c => String(c).trim()).length >= 1);
-      if (hi < 0) throw new Error('الملف فارغ');
-      let hdr = all[hi].map((h, i) => String(h).trim() || `عمود ${i + 1}`);
-      let body = all.slice(hi + 1);
-      // صف أول فيه أرقام هواتف ⇒ لا عناوين
-      if (hdr.some(h => validPhone(normPhone(h)))) { body = all.slice(hi); hdr = hdr.map((_, i) => `عمود ${i + 1}`); }
-      body = body.filter(r => r.some(c => String(c).trim()));
-      setFileName(f.name); setHeaders(hdr); setRaw(body.map(r => hdr.map((_, i) => String(r[i] ?? '').trim())));
-      let pc = hdr.findIndex(h => PHONE_HDR.test(h));
-      if (pc < 0) {
-        const score = hdr.map((_, i) => body.slice(0, 50).filter(r => validPhone(normPhone(r[i]))).length);
-        pc = score.indexOf(Math.max(...score));
-      }
-      setPhoneCol(pc);
-      setNameCol(hdr.findIndex((h, i) => i !== pc && NAME_HDR.test(h)));
+      const sh = await readSheet(f);
+      setFileName(sh.fileName); setHeaders(sh.headers); setRaw(sh.raw); setPhoneCol(sh.phoneCol); setNameCol(sh.nameCol);
     } catch (e: any) { onError(`تعذّر قراءة الملف: ${e.message}`); }
   };
 
-  const parsed = useMemo(() => {
-    const ok: Row[] = []; const bad: string[] = []; let dup = 0;
-    const seen = new Set<string>();
-    if (phoneCol < 0) return { ok, bad, dup };
-    for (const r of raw) {
-      const p = normPhone(r[phoneCol]);
-      if (!validPhone(p)) { if (r[phoneCol]) bad.push(r[phoneCol]); else bad.push(`(فارغ) ${nameCol >= 0 ? r[nameCol] : ''}`); continue; }
-      if (seen.has(p)) { dup++; continue; }
-      seen.add(p);
-      const extra: Record<string, string> = {};
-      headers.forEach((h, i) => { if (r[i]) extra[h] = r[i]; });
-      ok.push({ waId: p, name: nameCol >= 0 ? r[nameCol] : '', extra });
-    }
-    return { ok, bad, dup };
-  }, [raw, phoneCol, nameCol, headers]);
+  const parsed = useMemo(() => parseRows(raw, headers, phoneCol, nameCol), [raw, phoneCol, nameCol, headers]);
 
   useEffect(() => {
     if (!parsed.ok.length) { setOptedOut(new Set()); return; }
