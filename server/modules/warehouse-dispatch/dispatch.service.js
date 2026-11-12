@@ -147,7 +147,11 @@ export async function sendRepOrder(reqUser, repOrderId, body = {}) {
   const warehouseId = Number(body.warehouseId) || o.warehouseId;
   if (!warehouseId) throw new AppError('حدّد المذخر أولاً', 400);
   const w = await getVisibleWarehouse(viewer, warehouseId);
-  if (!warehouseReady(w)) throw new AppError('المذخر غير مضبوط للإرسال الآلي (رقم/كروب) — اضبطه من صفحة «إرسال للمذاخر»', 400);
+  if (!warehouseReady(w)) {
+    throw new AppError(w.channel === 'group' && w.groupJid && w.groupSendOn === false
+      ? 'إرسال الطلبيات لكروب هذا المذخر موقوف من «رقم الكروبات» — أرسلها يدوياً أو شغّل الإرسال هناك'
+      : 'المذخر غير مضبوط للإرسال الآلي (رقم/كروب) — اضبطه من صفحة «إرسال للمذاخر»', 400);
+  }
   const creator = await prisma.user.findUnique({ where: { id: o.createdById }, select: { displayName: true, username: true } });
   const d = await prisma.warehouseDispatch.create({
     data: {
@@ -169,6 +173,7 @@ export async function listWarehouses(reqUser) {
   const rows = await prisma.orderWarehouse.findMany({ where: await warehouseScopeWhere(viewer), orderBy: { name: 'asc' } });
   return rows.map(w => ({
     id: w.id, name: w.name, phone: w.phone, channel: w.channel, groupJid: w.groupJid, groupName: w.groupName,
+    groupSendOn: w.groupSendOn !== false, groupReadOn: w.groupReadOn !== false,
     backupWarehouseIds: w.backupWarehouseIds, waLastInboundAt: w.waLastInboundAt,
     windowOpen: Boolean(w.waLastInboundAt && Date.now() - new Date(w.waLastInboundAt).getTime() < WINDOW_MS),
     ready: warehouseReady(w),

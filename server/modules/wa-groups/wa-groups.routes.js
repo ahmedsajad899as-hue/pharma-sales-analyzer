@@ -36,7 +36,8 @@ function checkSecret(req, res, next) {
 // الكروبات المعنيّة: كروبات مذاخر + كروبات مندوبين صامتة — الخدمة لا تمرّر غيرها (ولا تنزّل صورها)
 internalRouter.get('/known-jids', checkSecret, async (_req, res) => {
   const [wh, listen] = await Promise.all([
-    prisma.orderWarehouse.findMany({ where: { channel: 'group', groupJid: { not: null } }, select: { groupJid: true } }),
+    // قراءة كروب المذخر مطفأة ⇒ الخدمة لا تمرّر رسائله ولا تنزّل صوره أصلاً
+    prisma.orderWarehouse.findMany({ where: { channel: 'group', groupJid: { not: null }, groupReadOn: true }, select: { groupJid: true } }),
     prisma.waGroupLink.findMany({ where: { isActive: true }, select: { jid: true } }),
   ]);
   res.json({ jids: [...new Set([...wh.map(r => r.groupJid), ...listen.map(r => r.jid)])] });
@@ -100,18 +101,24 @@ const refreshSidecarJids = () => sidecar('/refresh-known', { method: 'POST', tim
 saRouter.get('/links', async (_req, res) => {
   const [links, wh, pending] = await Promise.all([
     prisma.waGroupLink.findMany({ include: { user: { select: { id: true, username: true, displayName: true, role: true } } }, orderBy: { id: 'asc' } }),
-    prisma.orderWarehouse.findMany({ where: { channel: 'group', groupJid: { not: null } }, select: { groupJid: true, name: true } }),
+    prisma.orderWarehouse.findMany({ where: { channel: 'group', groupJid: { not: null } }, select: { groupJid: true, name: true, groupSendOn: true, groupReadOn: true } }),
     // طلبيات الكروب التي لم تُراجَع بعد — بعد التحويل قد تكون عند أكثر من مدير
     prisma.pendingBotOrder.groupBy({ by: ['chatId', 'userId'], where: { source: LISTEN_SOURCE }, _count: { _all: true } }),
   ]);
   const warehouses = {};
-  for (const w of wh) (warehouses[w.groupJid] ||= []).push(w.name);
+  const warehouseSwitches = {}; // jid → { send, read } (كروب = مذخر واحد عادةً؛ أي مذخر شغّال ⇒ شغّال)
+  for (const w of wh) {
+    (warehouses[w.groupJid] ||= []).push(w.name);
+    const sw = (warehouseSwitches[w.groupJid] ||= { send: false, read: false });
+    sw.send ||= w.groupSendOn !== false;
+    sw.read ||= w.groupReadOn !== false;
+  }
   const names = new Map((await prisma.user.findMany({
     where: { id: { in: [...new Set(pending.map(p => p.userId))] } }, select: { id: true, username: true, displayName: true },
   })).map(u => [u.id, u.displayName?.trim() || u.username]));
   const pendingByJid = {};
   for (const p of pending) (pendingByJid[p.chatId] ||= []).push({ userId: p.userId, name: names.get(p.userId) || `#${p.userId}`, count: p._count._all });
-  res.json({ success: true, links, warehouses, pending: pendingByJid, retrying: listRetryingByJid() });
+  res.json({ success: true, links, warehouses, warehouseSwitches, pending: pendingByJid, retrying: listRetryingByJid() });
 });
 
 // ─── كروب مذخر من نفس الصفحة: نوع كل كروب يُحدَّد عند إضافة الرقم له ─────────
@@ -133,7 +140,7 @@ saRouter.get('/warehouses', async (_req, res) => {
 const unlinkWarehouseGroup = (where) => prisma.$transaction(async (tx) => {
   const ws = await tx.orderWarehouse.findMany({ where, select: { id: true, phone: true } });
   for (const w of ws) {
-    await tx.orderWarehouse.update({ where: { id: w.id }, data: { groupJid: null, groupName: null, channel: String(w.phone || '').trim() ? 'cloud' : 'manual' } });
+    await tx.orderWarehouse.update({ where: { id: w.id }, data: { groupJid: null, groupName: null, groupSendOn: true, groupReadOn: true, channel: String(w.phone || '').trim() ? 'cloud' : 'manual' } });
   }
   return ws.length;
 });
@@ -150,10 +157,25 @@ saRouter.put('/warehouse-link', async (req, res) => {
   await unlinkWarehouseGroup({ groupJid: String(jid), id: { not: w.id } });
   await prisma.orderWarehouse.update({
     where: { id: w.id },
-    data: { channel: 'group', groupJid: String(jid), groupName: String(groupName || '').trim().slice(0, 120) || null },
+    // ربط جديد يبدأ والمفتاحان شغّالان
+    data: { channel: 'group', groupJid: String(jid), groupName: String(groupName || '').trim().slice(0, 120) || null, groupSendOn: true, groupReadOn: true },
   });
   refreshSidecarJids();
   res.json({ success: true, previousGroup: w.groupJid && w.groupJid !== String(jid) ? w.groupJid : null });
+});
+
+// مفتاحا كروب المذخر بلا فصل: send = إرسال الطلبيات عبر البوت، read = قراءة الفواتير/الردود وربطها
+saRouter.patch('/warehouse-link/:jid', async (req, res) => {
+  const { send, read } = req.body || {};
+  const data = {
+    ...(typeof send === 'boolean' ? { groupSendOn: send } : {}),
+    ...(typeof read === 'boolean' ? { groupReadOn: read } : {}),
+  };
+  if (!Object.keys(data).length) return res.status(400).json({ error: 'لا تغيير' });
+  const r = await prisma.orderWarehouse.updateMany({ where: { groupJid: String(req.params.jid), channel: 'group' }, data });
+  if (!r.count) return res.status(404).json({ error: 'الكروب غير مربوط بمذخر' });
+  if (data.groupReadOn !== undefined) refreshSidecarJids();
+  res.json({ success: true });
 });
 
 saRouter.delete('/warehouse-link/:jid', async (req, res) => {

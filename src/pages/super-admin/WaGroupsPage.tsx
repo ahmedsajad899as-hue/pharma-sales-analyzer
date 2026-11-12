@@ -15,6 +15,7 @@ interface ListenLink {
 interface KnownSender { name: string | null; count: number; lastAt: string }
 interface LinkForm { jid: string; name: string; userId?: number; orderTextMode: OrderTextMode; isNew: boolean; senders: string[]; known: Record<string, KnownSender> }
 interface WarehouseOption { id: number; name: string; province: string | null; phone: string; channel: string; groupJid: string | null; owner: string | null }
+interface WhSwitches { send: boolean; read: boolean }
 interface WhForm { jid: string; name: string; warehouseId?: number; q: string }
 interface PendingAt { userId: number; name: string; count: number }
 interface Retrying { count: number; nextAt: number | null; lastError: string | null; queueFull?: boolean }
@@ -82,6 +83,23 @@ function SendersField({ value, known, onChange }: { value: string[]; known: Reco
         </div>
       )}
     </div>
+  );
+}
+
+/** مفتاح تشغيل/إطفاء صغير لكروب المذخر. */
+function SwitchChip({ on, label, onToggle }: { on: boolean; label: string; onToggle: () => void }) {
+  return (
+    <button type="button" onClick={onToggle} title={on ? 'شغّال — اضغط للإطفاء' : 'مطفأ — اضغط للتشغيل'}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontFamily: 'inherit',
+        border: `1px solid ${on ? '#86efac' : '#fca5a5'}`, background: on ? '#f0fdf4' : '#fef2f2',
+        color: on ? '#15803d' : '#b91c1c', borderRadius: 20, padding: '3px 10px 3px 4px', fontSize: 11.5, fontWeight: 600,
+      }}>
+      <span style={{ position: 'relative', width: 28, height: 16, borderRadius: 8, background: on ? '#22c55e' : '#cbd5e1', flexShrink: 0 }}>
+        <span style={{ position: 'absolute', top: 2, insetInlineStart: on ? 14 : 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', transition: 'inset-inline-start .15s' }} />
+      </span>
+      {label}: {on ? 'شغّال' : 'مطفأ'}
+    </button>
   );
 }
 
@@ -170,6 +188,7 @@ export default function WaGroupsPage() {
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [links, setLinks]   = useState<Record<string, ListenLink>>({});
   const [whByJid, setWhByJid] = useState<Record<string, string[]>>({});
+  const [whSw, setWhSw] = useState<Record<string, WhSwitches>>({});
   const [users, setUsers]   = useState<UserOption[]>([]);
   const [form, setForm]     = useState<LinkForm | null>(null);
   const [saving, setSaving] = useState(false);
@@ -198,6 +217,7 @@ export default function WaGroupsPage() {
       if (!d.success) return;
       setLinks(Object.fromEntries((d.links as ListenLink[]).map(l => [l.jid, l])));
       setWhByJid(d.warehouses || {});
+      setWhSw(d.warehouseSwitches || {});
       setPendingByJid(d.pending || {});
       setRetryByJid(d.retrying || {});
     }).catch(() => {});
@@ -260,6 +280,15 @@ export default function WaGroupsPage() {
       if (!res.ok) throw new Error(d.error || 'تعذّر الحفظ');
       setWhForm(null); setWhList(null); loadLinks();
     } catch (e: any) { setFormError(e.message); } finally { setSaving(false); }
+  };
+  const setWhSwitch = async (g: Group, key: keyof WhSwitches, on: boolean) => {
+    const prev = whSw[g.jid];
+    setWhSw(m => ({ ...m, [g.jid]: { ...(m[g.jid] || { send: true, read: true }), [key]: on } }));
+    const res = await fetch(`/api/sa/wa-groups/warehouse-link/${encodeURIComponent(g.jid)}`, { method: 'PATCH', headers: H(), body: JSON.stringify({ [key]: on }) });
+    if (!res.ok) {
+      setError((await res.json().catch(() => ({}))).error || 'تعذّر الحفظ');
+      setWhSw(m => ({ ...m, [g.jid]: prev }));
+    }
   };
   const unlinkWarehouse = async (g: Group, names: string[]) => {
     if (!window.confirm(`فصل كروب «${g.name}» عن المذخر «${names.join('، ')}»؟ لن تُرسل له الطلبيات في هذا الكروب بعد الآن.`)) return;
@@ -341,7 +370,8 @@ export default function WaGroupsPage() {
         <div style={{ marginTop: 16, background: '#fff', border: '1px solid #e9edf3', borderRadius: 12, padding: 18 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: UI.ink, marginBottom: 10 }}>الكروبات التي فيها الرقم ({groups?.length ?? '…'})</div>
           <div style={{ fontSize: 12, color: UI.faint, lineHeight: 1.8, marginBottom: 10 }}>
-            <b>🚚 كروب مذخر</b> — <b>يرسل ويستقبل</b>: يرسل له النظام طلبيات ذلك المذخر، ويقرأ صور الفواتير على أنها فواتير هذا المذخر ويقارنها بالطلبية (مجهّزة / ناقصة).<br />
+            <b>🚚 كروب مذخر</b> — <b>يرسل ويستقبل</b>: يرسل له النظام طلبيات ذلك المذخر، ويقرأ صور الفواتير على أنها فواتير هذا المذخر ويقارنها بالطلبية (مجهّزة / ناقصة).
+            لكل كروب مذخر مفتاحان مستقلان بلا حاجة للفصل: <b>📤 الإرسال</b> (مطفأ = لا تُرسل أي طلبية للكروب عبر البوت حتى لو اختير «عبر البوت») و<b>🧾 التحليل</b> (مطفأ = لا يُقرأ أي شيء ينزل في الكروب: لا صور ولا نص ولا كلفة).<br />
             <b>🔇 كروب مندوبين</b> — <b>يستقبل فقط</b>: كل طلبية/فاتورة يكتبها المندوبون تُقرأ وتدخل طابور المراجعة ثم ملف اللكوديشن للحساب المختار كمبيعات لهم،
             والرقم <b>لا يرسل فيه أي رسالة</b>.<br />
             كروب لم يُحدَّد نوعه يُتجاهل كلياً (لا قراءة ولا كلفة).
@@ -376,7 +406,17 @@ export default function WaGroupsPage() {
                 </div>
                 {wh ? (
                   <>
-                    <span style={{ background: '#eff6ff', color: '#1d4ed8', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>🚚 كروب مذخر: {wh.join('، ')} — يرسل ويستقبل</span>
+                    <span style={{ background: '#eff6ff', color: '#1d4ed8', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600 }}>🚚 كروب مذخر: {wh.join('، ')}</span>
+                    {(() => {
+                      const sw = whSw[g.jid] || { send: true, read: true };
+                      return (
+                        <span style={{ display: 'inline-flex', gap: 6, flexBasis: '100%', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <SwitchChip on={sw.send} label="📤 إرسال الطلبيات عبر البوت" onToggle={() => setWhSwitch(g, 'send', !sw.send)} />
+                          <SwitchChip on={sw.read} label="🧾 تحليل الفواتير وربطها" onToggle={() => setWhSwitch(g, 'read', !sw.read)} />
+                          {!sw.send && !sw.read && <span style={{ fontSize: 11, color: '#b91c1c' }}>الكروب متوقف كلياً: لا إرسال ولا قراءة</span>}
+                        </span>
+                      );
+                    })()}
                     <button onClick={() => openWhForm(g)} style={btnStyle('#3b82f6', true)}>تغيير المذخر</button>
                     <button onClick={() => unlinkWarehouse(g, wh)} style={btnStyle('#dc2626', true)}>فصل</button>
                   </>

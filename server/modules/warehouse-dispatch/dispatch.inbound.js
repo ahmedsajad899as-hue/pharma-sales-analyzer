@@ -454,7 +454,8 @@ async function handleGroupPollVote(m, whIds) {
  */
 export async function handleGroupInbound(m) {
   if (!m?.jid) return false;
-  const warehouses = await prisma.orderWarehouse.findMany({ where: { groupJid: String(m.jid), channel: 'group' }, select: { id: true } });
+  // مفتاح «تحليل الفواتير» مطفأ ⇒ لا قراءة لأي شيء ينزل (صور/نص/تصويت) — لا ذكاء ولا ربط
+  const warehouses = await prisma.orderWarehouse.findMany({ where: { groupJid: String(m.jid), channel: 'group', groupReadOn: true }, select: { id: true } });
   if (!warehouses.length) return false;
   const whIds = warehouses.map(w => w.id);
   if (m.pollVote) return handleGroupPollVote(m, whIds);

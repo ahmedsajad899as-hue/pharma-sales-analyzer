@@ -3402,6 +3402,8 @@ model OrderWarehouse {
   groupName          String?
   backupWarehouseIds Int[]     @default([]) // مذاخر بديلة بالترتيب عند الرفض أو عدم الرد
   waLastInboundAt    DateTime? // آخر رسالة من المذخر — نافذة الـ24 ساعة
+  groupSendOn        Boolean   @default(true) // كروب المذخر: إرسال الطلبيات عبر البوت (مطفأ = لا إرسال للكروب حتى لو اختير «عبر البوت»)
+  groupReadOn        Boolean   @default(true) // كروب المذخر: قراءة ما ينزل فيه (فواتير/ردود) وربطه بالطلبيات (مطفأ = يُتجاهل كلياً)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

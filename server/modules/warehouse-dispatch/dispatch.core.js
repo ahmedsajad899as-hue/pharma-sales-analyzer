@@ -82,9 +82,17 @@ export async function matchWarehouse(name, owner) {
 /** المذخر جاهز للإرسال الآلي على قناته؟ */
 export function warehouseReady(w) {
   if (!w) return false;
-  if (w.channel === 'group') return Boolean(w.groupJid);
+  // مفتاح «إرسال الطلبيات» في «رقم الكروبات» مطفأ ⇒ لا إرسال للكروب من أي مسار (فوري/موافقة/تحويل/بديل)
+  if (w.channel === 'group') return Boolean(w.groupJid) && w.groupSendOn !== false;
   if (w.channel === 'manual') return false;
   return Boolean(normalizeWaId(w.waId || w.phone));
+}
+
+/** سبب عدم جاهزية المذخر للإرسال — نصّ للمستخدم. */
+export function notReadyReason(w) {
+  if (w?.channel === 'group' && w.groupJid && w.groupSendOn === false) return 'إرسال الطلبيات لكروب هذا المذخر موقوف (رقم الكروبات)';
+  if (w?.channel === 'group') return 'لم يُختر كروب لهذا المذخر';
+  return 'المذخر بلا رقم واتساب أو مضبوط على «يدوي»';
 }
 
 // ─── نصّ الطلبية ─────────────────────────────────────────────────────────────
@@ -171,7 +179,7 @@ export async function sendDispatch(dispatchOrId, { byUserId = null, forceTemplat
   const fail = (msg, status = 'failed') => prisma.warehouseDispatch.update({ where: { id: d.id }, data: { status, error: msg } });
 
   if (!w) return fail('لم يُحدَّد مذخر من الدليل', 'needs_warehouse');
-  if (!warehouseReady(w)) return fail(w.channel === 'group' ? 'لم يُختر كروب لهذا المذخر' : 'المذخر بلا رقم واتساب أو مضبوط على «يدوي»', 'needs_warehouse');
+  if (!warehouseReady(w)) return fail(notReadyReason(w), 'needs_warehouse');
 
   // حارس سباق: ضغطتا «إرسال» متزامنتان لا ترسلان مرتين
   const claimed = await prisma.warehouseDispatch.updateMany({
