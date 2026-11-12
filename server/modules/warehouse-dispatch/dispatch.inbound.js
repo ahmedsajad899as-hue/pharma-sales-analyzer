@@ -24,7 +24,7 @@ import {
   applyAction, attachInvoice, saveInvoiceImage, setRejectReason, appendWarehouseNote, sendDispatch, GROUP_POLL_ACTIONS,
 } from './dispatch.core.js';
 
-const OPEN_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
+const OPEN_LOOKBACK_MS = 5 * 24 * 60 * 60 * 1000;
 const REASON_WINDOW_MS = 30 * 60 * 1000;
 const AUTO_MIN_SCORE = 60;
 const AUTO_MIN_GAP = 15;
