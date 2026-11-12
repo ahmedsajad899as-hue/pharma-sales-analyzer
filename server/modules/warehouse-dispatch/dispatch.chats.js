@@ -39,7 +39,7 @@ async function visibleNumbers(viewer) {
   // زبائن حملات العروض لمكتبه (ردودهم على العرض تُتابَع من هنا)
   if (viewer.officeId) {
     const recips = await prisma.waCampaignRecipient.findMany({
-      where: { campaign: { is: { officeId: viewer.officeId } }, sentAt: { gte: new Date(Date.now() - 90 * 86_400_000) } },
+      where: { campaign: { is: { officeId: viewer.officeId, chatsHidden: false } }, sentAt: { gte: new Date(Date.now() - 90 * 86_400_000) } },
       select: { waId: true, name: true },
     });
     for (const r of recips) add(r.waId, campaignParty(r.name));

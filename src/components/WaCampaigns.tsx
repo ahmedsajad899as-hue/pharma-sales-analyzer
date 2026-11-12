@@ -24,6 +24,7 @@ interface Meta {
   templates: Template[]; templatesError: string | null; optOuts: number; price: number | null; maxRecipients: number;
   marketingPrice: { value: number; source: "actual" | "rate"; volume?: number };
   phone: { phone?: string; name?: string; quality?: string; tier?: string; dailyLimit?: number | null; error?: string };
+  canPickOffice?: boolean; offices?: { id: number; name: string }[]; myOfficeId?: number | null;
 }
 type Counts = Record<'pending' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'skipped' | 'order' | 'visit' | 'stop' | 'text' | 'button' | 'billable', number>;
 interface Campaign {
@@ -31,6 +32,7 @@ interface Campaign {
   itemName: string | null; status: string; lastError: string | null; total: number; headerMediaId: string | null;
   createdByName: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null; replyText: string | null;
   counts: Counts | null; varMap: VarMap[];
+  officeId: number | null; officeName: string | null; chatsHidden: boolean;
 }
 interface Recipient {
   id: number; waId: string; name: string | null; status: string; error: string | null;
@@ -152,7 +154,7 @@ export default function WaCampaigns({ base, token }: { base: string; token: stri
       {error && <div className="wd-note wd-note--warn">{error}</div>}
       {notice && <div className="wd-note wc-note--ok">{notice}</div>}
 
-      {tab === 'list' && <CampaignList api={api} base={base} token={token} onError={setError} unitPrice={unitPrice} />}
+      {tab === 'list' && <CampaignList api={api} base={base} token={token} onError={setError} unitPrice={unitPrice} meta={meta} />}
       {tab === 'new' && meta && (
         <NewCampaign
           api={api} meta={meta} onError={setError} reloadMeta={() => loadMeta(true)}
@@ -170,7 +172,7 @@ export default function WaCampaigns({ base, token }: { base: string; token: stri
 }
 
 // ─── قائمة الحملات ───────────────────────────────────────────────────────────
-function CampaignList({ api, base, token, onError, unitPrice }: { api: (p: string, i?: RequestInit) => Promise<any>; base: string; token: string | null; onError: (s: string) => void; unitPrice: number }) {
+function CampaignList({ api, base, token, onError, unitPrice, meta }: { api: (p: string, i?: RequestInit) => Promise<any>; base: string; token: string | null; onError: (s: string) => void; unitPrice: number; meta: Meta | null }) {
   const [rows, setRows] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<number | null>(null);
@@ -192,15 +194,15 @@ function CampaignList({ api, base, token, onError, unitPrice }: { api: (p: strin
     <div className="wd-list">
       {rows.map(c => (
         <CampaignCard key={c.id} c={c} open={open === c.id} onToggle={() => setOpen(open === c.id ? null : c.id)}
-          api={api} base={base} token={token} onError={onError} reload={load} unitPrice={unitPrice} />
+          api={api} base={base} token={token} onError={onError} reload={load} unitPrice={unitPrice} meta={meta} />
       ))}
     </div>
   );
 }
 
-function CampaignCard({ c, open, onToggle, api, base, token, onError, reload, unitPrice }: {
+function CampaignCard({ c, open, onToggle, api, base, token, onError, reload, unitPrice, meta }: {
   c: Campaign; open: boolean; onToggle: () => void; api: (p: string, i?: RequestInit) => Promise<any>;
-  base: string; token: string | null; onError: (s: string) => void; reload: () => void; unitPrice: number;
+  base: string; token: string | null; onError: (s: string) => void; reload: () => void; unitPrice: number; meta: Meta | null;
 }) {
   const k = c.counts || ({} as Counts);
   const sent = (k.sent || 0) + (k.delivered || 0) + (k.read || 0);
@@ -225,6 +227,10 @@ function CampaignCard({ c, open, onToggle, api, base, token, onError, reload, un
         <div className="wd-main">
           <span className="wd-strong">{c.title}</span>
           <span className="wd-sub">{c.itemName ? `${c.itemName} · ` : ''}قالب {c.templateName} · {c.createdByName || '—'} · {fmtDate(c.createdAt)}</span>
+          {meta?.canPickOffice && (
+            <span className="wd-sub">🏢 {c.officeName || 'بلا مكتب (الإدارة فقط)'}{c.officeId && c.chatsHidden ? ' · 🙈 المحادثات مخفية عن المكتب' : ''}</span>
+          )}
+          {!meta?.canPickOffice && c.chatsHidden && <span className="wd-sub">🙈 ردودها مخفية من «محادثات واتساب»</span>}
           <div className="wc-progress"><span style={{ width: `${pct}%` }} /></div>
           <span className="wc-stats">
             <span>{fmtNum(sent)}/{fmtNum(c.total)} أُرسلت</span>
@@ -242,14 +248,14 @@ function CampaignCard({ c, open, onToggle, api, base, token, onError, reload, un
         <ChevronDown size={16} className={`wd-chevron ${open ? 'is-open' : ''}`} />
       </button>
       {c.lastError && <div className="wd-note wd-note--warn wc-inner">⚠️ توقفت: {c.lastError}</div>}
-      {open && <CampaignDetail c={c} api={api} base={base} token={token} onError={onError} act={act} del={del} reload={reload} />}
+      {open && <CampaignDetail c={c} api={api} base={base} token={token} onError={onError} act={act} del={del} reload={reload} meta={meta} />}
     </div>
   );
 }
 
-function CampaignDetail({ c, api, base, token, onError, act, del, reload }: {
+function CampaignDetail({ c, api, base, token, onError, act, del, reload, meta }: {
   c: Campaign; api: (p: string, i?: RequestInit) => Promise<any>; base: string; token: string | null;
-  onError: (s: string) => void; act: (a: 'start' | 'pause' | 'cancel') => void; del: () => void; reload: () => void;
+  onError: (s: string) => void; act: (a: 'start' | 'pause' | 'cancel') => void; del: () => void; reload: () => void; meta: Meta | null;
 }) {
   const [filter, setFilter] = useState<string>('');
   const [adding, setAdding] = useState(false);
@@ -293,6 +299,7 @@ function CampaignDetail({ c, api, base, token, onError, act, del, reload }: {
         <span className="wd-spacer" />
         {c.status !== 'sending' && <button className="btn btn-secondary wc-danger" onClick={del}><Trash2 size={14} /></button>}
       </div>
+      <Visibility c={c} api={api} meta={meta} onError={onError} onSaved={reload} />
       {adding && <AddRecipients c={c} api={api} onError={onError} onClose={() => setAdding(false)} onDone={() => { setAdding(false); reload(); load(); }} />}
       {img && <img src={img} alt="" className="wc-img" />}
       {c.template && (
@@ -320,6 +327,38 @@ function CampaignDetail({ c, api, base, token, onError, act, del, reload }: {
         </table>
       </div>
       {rows.length >= 1000 && <div className="wd-muted wd-small">يُعرض أول 1000 — التصدير يحمل نفس المعروض.</div>}
+    </div>
+  );
+}
+
+// ─── لمن تظهر الحملة وردودها ─────────────────────────────────────────────────
+function Visibility({ c, api, meta, onError, onSaved }: {
+  c: Campaign; api: (p: string, i?: RequestInit) => Promise<any>; meta: Meta | null; onError: (s: string) => void; onSaved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const save = async (patch: { officeId?: number | null; chatsHidden?: boolean }) => {
+    if (patch.officeId !== undefined && c.officeId && patch.officeId !== c.officeId
+      && !confirm('نقل الحملة؟ المكتب الحالي لن يرى الحملة ولا ردودها بعد الآن.')) return;
+    setBusy(true);
+    try { await api(`/campaigns/${c.id}/visibility`, { method: 'PATCH', body: JSON.stringify(patch) }); onSaved(); }
+    catch (e: any) { onError(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="wd-inline wc-visibility">
+      {meta?.canPickOffice && (
+        <label className="wd-small">تظهر لمكتب&nbsp;
+          <select className="form-input" disabled={busy} value={c.officeId ?? ''} onChange={e => save({ officeId: e.target.value ? Number(e.target.value) : null })}>
+            <option value="">— بلا مكتب (الإدارة فقط) —</option>
+            {(meta.offices || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+        </label>
+      )}
+      {(c.officeId || !meta?.canPickOffice) && (
+        <label className="wd-small wc-check">
+          <input type="checkbox" disabled={busy} checked={!c.chatsHidden} onChange={e => save({ chatsHidden: !e.target.checked })} />
+          ردود الزبائن تظهر للمكتب في «محادثات واتساب»
+        </label>
+      )}
     </div>
   );
 }
@@ -501,6 +540,8 @@ function NewCampaign({ api, meta, onError, onDone, onSavePrice, reloadMeta }: {
   const [busy, setBusy] = useState(false);
   const [testMsg, setTestMsg] = useState('');
   const [price, setPrice] = useState(meta.price != null ? String(meta.price) : '');
+  const [officeId, setOfficeId] = useState<number | null>(meta.myOfficeId ?? null);
+  const [chatsHidden, setChatsHidden] = useState(false);
 
   // ── قراءة الإكسل
   const onFile = async (f: File | undefined) => {
@@ -601,7 +642,7 @@ function NewCampaign({ api, meta, onError, onDone, onSavePrice, reloadMeta }: {
     if (start && !confirm(`إرسال العرض إلى ${sendable.length} رقم الآن؟\nالكلفة التقديرية ${fmtMoney(cost)}`)) return;
     setBusy(true);
     try {
-      await api('/campaigns', { method: 'POST', body: JSON.stringify({ ...payload(), start, recipients: parsed.ok.map(r => ({ waId: r.waId, name: r.name, extra: r.extra })) }) });
+      await api('/campaigns', { method: 'POST', body: JSON.stringify({ ...payload(), start, chatsHidden, ...(meta.canPickOffice ? { officeId } : {}), recipients: parsed.ok.map(r => ({ waId: r.waId, name: r.name, extra: r.extra })) }) });
       onDone(start ? `✓ بدأ إرسال الحملة إلى ${sendable.length} رقم — تتابع التقدّم من هنا.` : '✓ حُفظت الحملة كمسودة.');
     } catch (e: any) { onError(e.message); } finally { setBusy(false); }
   };
@@ -744,6 +785,20 @@ function NewCampaign({ api, meta, onError, onDone, onSavePrice, reloadMeta }: {
               {tpl.buttons.some(b => b.type === 'QUICK_REPLY') && (
                 <label>ردّ البوت حين يضغط الشخص «اطلب الآن»
                   <textarea className="form-input" rows={3} placeholder="شكراً لاهتمامك 🌷 تم تسجيل طلبك وسيتواصل معك فريقنا قريباً." value={replyText} onChange={e => setReplyText(e.target.value)} />
+                </label>
+              )}
+              {meta.canPickOffice && (
+                <label>تظهر الحملة وردودها لمكتب
+                  <select className="form-input" value={officeId ?? ''} onChange={e => setOfficeId(e.target.value ? Number(e.target.value) : null)}>
+                    <option value="">— بلا مكتب (الإدارة فقط) —</option>
+                    {(meta.offices || []).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  </select>
+                </label>
+              )}
+              {(officeId || !meta.canPickOffice) && (
+                <label className="wc-check">
+                  <input type="checkbox" checked={!chatsHidden} onChange={e => setChatsHidden(!e.target.checked)} />
+                  ردود الزبائن تظهر للمكتب في «محادثات واتساب»
                 </label>
               )}
               <div className="wc-cost">

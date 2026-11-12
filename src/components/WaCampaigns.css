@@ -82,3 +82,9 @@
   .wc-preview-wrap { grid-template-columns: 1fr; }
   .wc-phone { width: 100%; flex: 1; }
 }
+
+/* لمن تظهر الحملة وردودها */
+.wc-visibility { gap: 12px; flex-wrap: wrap; }
+.wc-visibility select { width: auto; min-width: 180px; display: inline-block; }
+.wc-check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.wc-check input { width: 16px; height: 16px; }

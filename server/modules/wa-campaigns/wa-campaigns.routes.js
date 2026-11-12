@@ -46,29 +46,49 @@ async function loadCampaign(a, id) {
   return c;
 }
 
-const publicCampaign = (c, counts) => {
+const publicCampaign = (c, counts, officeName = null) => {
   const { templateSnapshot, varMap, ...rest } = c;
   let template = null; let vars = [];
   try { template = JSON.parse(templateSnapshot); } catch {}
   try { vars = JSON.parse(varMap); } catch {}
-  return { ...rest, template, varMap: vars, counts: counts || null };
+  return { ...rest, template, varMap: vars, counts: counts || null, officeName };
 };
+
+async function officeNames(ids) {
+  const uniq = [...new Set(ids.filter(Boolean))];
+  if (!uniq.length) return new Map();
+  const rows = await prisma.scientificOffice.findMany({ where: { id: { in: uniq } }, select: { id: true, name: true } });
+  return new Map(rows.map(o => [o.id, o.name]));
+}
+
+/** المكتب الذي تظهر له الحملة وردودها — يختاره فقط من يرى الكل (السوبر أدمن / admin). */
+async function pickOffice(a, raw) {
+  if (!a.all || raw === undefined) return { ok: false };
+  if (raw === null || raw === '' || Number(raw) === 0) return { ok: true, officeId: null };
+  const o = await prisma.scientificOffice.findUnique({ where: { id: Number(raw) }, select: { id: true } });
+  if (!o) throw new AppError('المكتب غير موجود', 400);
+  return { ok: true, officeId: o.id };
+}
 
 function buildRouter(getActor) {
   const r = express.Router();
 
   // القوالب + حدّ الرقم + عدد الموقوفين + السعر التقديري
   r.get('/meta', wrap(async (req, res) => {
-    await getActor(req);
+    const a = await getActor(req);
     let templates = []; let templatesError = null;
     try { templates = await svc.listTemplates({ fresh: req.query.fresh === '1' }); } catch (e) { templatesError = e.message; }
-    const [phone, optOuts, cfg, marketingPrice] = await Promise.all([
+    const [phone, optOuts, cfg, marketingPrice, offices] = await Promise.all([
       svc.phoneInfo(),
       prisma.waOptOut.count(),
       prisma.waBotConfig.findUnique({ where: { id: 1 }, select: { campaignMsgPrice: true } }),
       svc.marketingPrice(),
+      a.all ? prisma.scientificOffice.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }) : [],
     ]);
-    res.json({ success: true, templates, templatesError, phone, optOuts, price: cfg?.campaignMsgPrice ?? null, marketingPrice, maxRecipients: svc.MAX_RECIPIENTS });
+    res.json({
+      success: true, templates, templatesError, phone, optOuts, price: cfg?.campaignMsgPrice ?? null, marketingPrice, maxRecipients: svc.MAX_RECIPIENTS,
+      canPickOffice: a.all, offices, myOfficeId: a.officeId,
+    });
   }));
 
   // إنشاء قالب في Meta من التطبيق (multipart: image اختيارية + data JSON)
@@ -158,8 +178,8 @@ function buildRouter(getActor) {
   r.get('/campaigns', wrap(async (req, res) => {
     const a = await getActor(req);
     const rows = await prisma.waCampaign.findMany({ where: scopeWhere(a), orderBy: { id: 'desc' }, take: 200 });
-    const counts = await svc.campaignCounts(rows.map(c => c.id));
-    res.json({ success: true, campaigns: rows.map(c => publicCampaign(c, counts.get(c.id))) });
+    const [counts, names] = await Promise.all([svc.campaignCounts(rows.map(c => c.id)), officeNames(rows.map(c => c.officeId))]);
+    res.json({ success: true, campaigns: rows.map(c => publicCampaign(c, counts.get(c.id), names.get(c.officeId) || null)) });
   }));
 
   r.post('/campaigns', wrap(async (req, res) => {
@@ -170,8 +190,13 @@ function buildRouter(getActor) {
     const { data } = await svc.prepareCampaign(req.body || {});
     const opted = new Set((await prisma.waOptOut.findMany({ where: { waId: { in: recipients.map(x => x.waId) } }, select: { waId: true } })).map(x => x.waId));
 
+    const picked = await pickOffice(a, req.body?.officeId);
     const c = await prisma.waCampaign.create({
-      data: { ...data, total: recipients.length, createdById: a.id, createdByName: a.name, officeId: a.officeId },
+      data: {
+        ...data, total: recipients.length, createdById: a.id, createdByName: a.name,
+        officeId: picked.ok ? picked.officeId : a.officeId,
+        chatsHidden: req.body?.chatsHidden === true,
+      },
     });
     for (let i = 0; i < recipients.length; i += 1000) {
       await prisma.waCampaignRecipient.createMany({
@@ -196,11 +221,28 @@ function buildRouter(getActor) {
     if (req.query.status) where.status = String(req.query.status);
     if (req.query.reply === 'any') where.reply = { not: null };
     else if (req.query.reply) where.reply = String(req.query.reply);
-    const [recipients, counts] = await Promise.all([
+    const [recipients, counts, names] = await Promise.all([
       prisma.waCampaignRecipient.findMany({ where, orderBy: [{ repliedAt: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }], take: 1000 }),
       svc.campaignCounts([c.id]),
+      officeNames([c.officeId]),
     ]);
-    res.json({ success: true, campaign: publicCampaign(c, counts.get(c.id)), recipients: recipients.map(x => ({ ...x, extra: undefined })) });
+    res.json({ success: true, campaign: publicCampaign(c, counts.get(c.id), names.get(c.officeId) || null), recipients: recipients.map(x => ({ ...x, extra: undefined })) });
+  }));
+
+  // لمن تظهر الحملة وردودها: officeId (السوبر أدمن/admin فقط) + chatsHidden (إخفاء المحادثات عن المكتب)
+  r.patch('/campaigns/:id/visibility', wrap(async (req, res) => {
+    const a = await getActor(req);
+    const c = await loadCampaign(a, req.params.id);
+    const data = {};
+    if (req.body?.officeId !== undefined) {
+      const picked = await pickOffice(a, req.body.officeId);
+      if (!picked.ok) throw new AppError('تغيير المكتب للإدارة فقط', 403);
+      data.officeId = picked.officeId;
+    }
+    if (typeof req.body?.chatsHidden === 'boolean') data.chatsHidden = req.body.chatsHidden;
+    if (!Object.keys(data).length) throw new AppError('لا تغيير', 400);
+    const u = await prisma.waCampaign.update({ where: { id: c.id }, data, select: { officeId: true, chatsHidden: true } });
+    res.json({ success: true, ...u });
   }));
 
   // إضافة أرقام لحملة بعد إرسالها (تُرسل للجدد فقط، نفس القالب والقيم والصورة)

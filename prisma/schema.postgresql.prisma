@@ -3573,6 +3573,7 @@ model WaCampaign {
   createdById        Int? // سالب = سوبر أدمن (ليس User)
   createdByName      String?
   officeId           Int?
+  chatsHidden        Boolean               @default(false) // true = ردود الحملة لا تظهر لموظفي المكتب في «محادثات واتساب»
   startedAt          DateTime?
   finishedAt         DateTime?
   createdAt          DateTime              @default(now())
