@@ -68,6 +68,7 @@ const _importRepOrders           = () => import('./pages/RepOrdersPage');
 const _importRepSales            = () => import('./pages/RepSalesPage');
 const _importWarehouseDispatch   = () => import('./pages/WarehouseDispatchPage');
 const _importWaChats             = () => import('./pages/WaChatsPage');
+const _importItemsCatalog        = () => import('./pages/ItemsCatalogManagePage');
 
 const DashboardPage       = lazyWithRetry(_importDashboard);
 const RepAnalysisPage     = lazyWithRetry(_importRepAnalysis);
@@ -106,6 +107,7 @@ const RepOrdersPage           = lazyWithRetry(_importRepOrders);
 const RepSalesPage            = lazyWithRetry(_importRepSales);
 const WarehouseDispatchPage   = lazyWithRetry(_importWarehouseDispatch);
 const WaChatsPage             = lazyWithRetry(_importWaChats);
+const ItemsCatalogManagePage  = lazyWithRetry(_importItemsCatalog);
 
 // Minimal spinner shown while a page chunk is loading
 function PageLoader() {
@@ -158,6 +160,7 @@ export type PageId =
   | 'rep-sales'
   | 'warehouse-dispatch'
   | 'wa-chats'
+  | 'items-catalog'
   | 'bonus-sales'
   | 'account-builder'
   | 'aqdar-export'
@@ -720,6 +723,7 @@ function AppInner() {
     { id: 'rep-sales',          node: <RepSalesPage /> },
     { id: 'warehouse-dispatch', node: <WarehouseDispatchPage /> },
     { id: 'wa-chats', node: <WaChatsPage /> },
+    { id: 'items-catalog',      node: <ItemsCatalogManagePage /> },
   ];
 
   return (

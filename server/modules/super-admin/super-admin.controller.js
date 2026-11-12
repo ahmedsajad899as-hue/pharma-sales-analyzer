@@ -533,7 +533,10 @@ export async function markDoctorChangesSeen(req, res) {
 // ════════════════════════════════════════════════════════════════════════════
 // rep_profile_update = تغيير اسم المندوب أو تفعيل/تعطيل حسابه من مديره (updateMember)
 // details = { targetUserId, oldName?, newName?, isActive? }
-const AREA_CHANGE_WHERE = { action: { in: ['rep_areas_update', 'rep_profile_update'] } };
+// item_catalog_update / item_catalog_create = تعديل/إضافة ايتم من صفحة «الايتمات والأسعار»
+// details = { itemId, itemName, companyId, changes: [{ field, from, to }] }
+const ITEM_CHANGE_ACTIONS = new Set(['item_catalog_update', 'item_catalog_create']);
+const AREA_CHANGE_WHERE = { action: { in: ['rep_areas_update', 'rep_profile_update', ...ITEM_CHANGE_ACTIONS] } };
 
 export async function listAreaChanges(req, res) {
   try {
@@ -564,10 +567,28 @@ export async function listAreaChanges(req, res) {
         })
       : [];
     const targetById = new Map(targets.map(t => [t.id, t]));
+    const companyIds = [...new Set(parsed.map(p => Number(p.d.companyId)).filter(Number.isInteger))];
+    const companies = companyIds.length
+      ? await prisma.scientificCompany.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true } })
+      : [];
+    const companyById = new Map(companies.map(c => [c.id, c.name]));
     const lastSeen = admin?.lastSeenAreaChangesAt ? new Date(admin.lastSeenAreaChangesAt) : null;
 
     const data = parsed.map(({ r, d }) => {
       const t = targetById.get(Number(d.targetUserId));
+      if (ITEM_CHANGE_ACTIONS.has(r.action)) {
+        return {
+          id: r.id, changedAt: r.createdAt,
+          isUnread: lastSeen ? new Date(r.createdAt) > lastSeen : true,
+          manager: r.user ? (r.user.displayName || r.user.username) : 'غير معروف',
+          managerRole: r.user?.role ?? null,
+          target: d.itemName || (d.itemId ? `#${d.itemId}` : 'ايتم'),
+          targetRole: null, added: [], removed: [], provinceMaterialized: false,
+          kind: r.action === 'item_catalog_create' ? 'item_create' : 'item',
+          companyName: companyById.get(Number(d.companyId)) ?? null,
+          itemChanges: Array.isArray(d.changes) ? d.changes : [],
+        };
+      }
       return {
         id:          r.id,
         changedAt:   r.createdAt,

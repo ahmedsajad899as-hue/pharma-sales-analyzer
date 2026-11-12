@@ -12,7 +12,9 @@ interface AreaChange {
   added: string[];
   removed: string[];
   provinceMaterialized: boolean;
-  kind?: 'areas' | 'profile';
+  kind?: 'areas' | 'profile' | 'item' | 'item_create';
+  companyName?: string | null;
+  itemChanges?: { field: string; from: string | number | null; to: string | number | null }[];
   oldName?: string | null;
   newName?: string | null;
   isActive?: boolean | null;
@@ -31,6 +33,12 @@ const ROLE_LABEL: Record<string, string> = {
   commercial_team_leader: 'قائد فريق تجاري',
   commercial_supervisor:  'مشرف تجاري',
 };
+const ITEM_FIELD_LABEL: Record<string, string> = {
+  name: 'الاسم', scientificName: 'الاسم العلمي', dosage: 'الجرعة', form: 'الشكل الدوائي',
+  price: 'سعر المكتب', warehousePrice: 'سعر المذخر', scientificMessage: 'المسج العلمي',
+};
+const fmtVal = (v: string | number | null) => v == null || v === '' ? '—' : typeof v === 'number' ? v.toLocaleString('en-US') : v;
+const isItemKind = (k?: string) => k === 'item' || k === 'item_create';
 const roleLabel = (r: string | null) => (r ? ROLE_LABEL[r] ?? r : '');
 
 // تغييرات المدراء على مناطق المندوبين/التيم ليدرية — من ActivityLog (rep_areas_update)
@@ -81,7 +89,7 @@ export default function AreaChangesPage() {
 
   const q = search.trim().toLowerCase();
   const visible = q
-    ? rows.filter(r => [r.manager, r.target, r.oldName ?? '', r.newName ?? '', ...r.added, ...r.removed].some(s => s.toLowerCase().includes(q)))
+    ? rows.filter(r => [r.manager, r.target, r.oldName ?? '', r.newName ?? '', r.companyName ?? '', ...r.added, ...r.removed].some(s => s.toLowerCase().includes(q)))
     : rows;
 
   return (
@@ -91,7 +99,7 @@ export default function AreaChangesPage() {
         <div>
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: '#1e1b4b' }}>📍 تغييرات المناطق</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
-            تعديلات المدراء على مناطق المندوبين والتيم ليدرية — من غيّر، لمن، وأي منطقة أُضيفت أو حُذفت
+            تعديلات المدراء على مناطق المندوبين والتيم ليدرية وحساباتهم، وعلى الايتمات وأسعارها — من غيّر، ماذا، وقبل/بعد
           </p>
         </div>
         <div style={{ fontSize: 13, color: '#6366f1', fontWeight: 700, background: '#eef2ff', padding: '6px 14px', borderRadius: 10 }}>
@@ -131,17 +139,25 @@ export default function AreaChangesPage() {
                 width: 38, height: 38, borderRadius: 11, flexShrink: 0,
                 background: '#6366f115', color: '#6366f1',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
-              }}>{r.kind === 'profile' ? '👤' : '📍'}</div>
+              }}>{isItemKind(r.kind) ? '💊' : r.kind === 'profile' ? '👤' : '📍'}</div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span>👔 {r.manager}</span>
                   {r.managerRole && <span style={roleChip}>{roleLabel(r.managerRole)}</span>}
-                  <span style={{ color: '#94a3b8', fontWeight: 500 }}>{r.kind === 'profile' ? 'عدّل حساب' : 'عدّل مناطق'}</span>
-                  <span>👤 {r.target}</span>
+                  <span style={{ color: '#94a3b8', fontWeight: 500 }}>{r.kind === 'item_create' ? 'أضاف ايتم' : r.kind === 'item' ? 'عدّل ايتم' : r.kind === 'profile' ? 'عدّل حساب' : 'عدّل مناطق'}</span>
+                  <span>{isItemKind(r.kind) ? '💊' : '👤'} {r.target}</span>
+                  {r.companyName && <span style={roleChip}>{r.companyName}</span>}
                   {r.targetRole && <span style={roleChip}>{roleLabel(r.targetRole)}</span>}
                 </div>
 
+                {isItemKind(r.kind) && (r.itemChanges ?? []).map((c, i) => (
+                  <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center', fontSize: 12.5 }}>
+                    <span style={{ fontWeight: 800, color: '#4f46e5' }}>✏️ {ITEM_FIELD_LABEL[c.field] ?? c.field}:</span>
+                    {r.kind === 'item' && <><span style={removeChip}>{fmtVal(c.from)}</span><span style={{ color: '#94a3b8' }}>←</span></>}
+                    <span style={addChip}>{fmtVal(c.to)}</span>
+                  </div>
+                ))}
                 {r.newName && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center', fontSize: 12.5 }}>
                     <span style={{ fontWeight: 800, color: '#4f46e5' }}>✏️ تغيير الاسم:</span>

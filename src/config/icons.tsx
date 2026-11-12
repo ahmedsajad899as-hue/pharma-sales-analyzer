@@ -157,6 +157,7 @@ export const NAV_ICON_BY_ID: Record<string, IconName> = {
   'rep-sales': 'navRepSales',
   'warehouse-dispatch': 'navWarehouseDispatch',
   'wa-chats': 'navWaChats',
+  'items-catalog': 'drug',
   'motivation': 'navMotivation',
 };
 
