@@ -19,7 +19,7 @@ import prisma from '../../lib/prisma.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import { callAI } from '../../lib/geminiAi.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
-import { buildRepIndex, matchRepName, repCoreKey } from '../../lib/repNameMatch.js';
+import { buildRepIndex, matchRepName, repCoreKey, normalizeRepName } from '../../lib/repNameMatch.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { isPharmacyRep } from '../../lib/pharmacyRep.js';
 import { resolveEffectiveAreaIds, userHasAllAreas } from '../../lib/areaScope.js';
@@ -125,11 +125,52 @@ async function loadRepScope(team, graph) {
   const itemsById = new Map(users.map(u => [u.id, new Set([
     ...u.itemAssignments.map(x => x.itemId), ...(u.linkedRep?.items ?? []).map(x => x.itemId),
   ])]));
-  return new Map(perRep.map(r => [r.id, {
-    all: r.all,
-    areas: r.all ? new Set() : graph.expand(r.areaIds.map(id => keyById.get(id)).filter(Boolean).map(looseArea), r.areaIds),
-    items: itemsById.get(r.id) ?? new Set(),
-  }]));
+  // محافظات المندوب: المعيّنة له مباشرة + محافظات مناطقه. مندوب المحافظات (محافظة واحدة
+  // غير بغداد) تُكتب محافظته في خانة المنطقة حين لا تذكر الطلبية منطقة («سمية» ← النجف).
+  const [provinces, directProv, areaProv] = await Promise.all([
+    prisma.province.findMany({ select: { id: true, name: true, aliases: true } }),
+    prisma.userProvinceAssignment.findMany({ where: { userId: { in: ids } }, select: { userId: true, provinceId: true } }),
+    allIds.length ? prisma.area.findMany({ where: { id: { in: allIds }, provinceId: { not: null } }, select: { id: true, provinceId: true } }) : [],
+  ]);
+  const provById = new Map(provinces.map(p => [p.id, p]));
+  const provOfArea = new Map(areaProv.map(a => [a.id, a.provinceId]));
+  const isBaghdad = (p) => /بغداد/.test(p?.name ?? '');
+  const provKeys = (p) => {
+    let al = [];
+    try { al = JSON.parse(p.aliases || '[]'); } catch { al = []; }
+    return [p.name, ...al].map(looseArea).filter(Boolean);
+  };
+  return new Map(perRep.map(r => {
+    const direct = directProv.filter(x => x.userId === r.id).map(x => x.provinceId);
+    const provIds = new Set(direct.length ? direct : r.areaIds.map(id => provOfArea.get(id)).filter(id => id != null));
+    const provs = [...provIds].map(id => provById.get(id)).filter(Boolean);
+    const outside = provs.filter(p => !isBaghdad(p));
+    return [r.id, {
+      all: r.all,
+      areas: r.all ? new Set() : graph.expand(r.areaIds.map(id => keyById.get(id)).filter(Boolean).map(looseArea), r.areaIds),
+      items: itemsById.get(r.id) ?? new Set(),
+      provinceKeys: new Set(provs.flatMap(provKeys)),
+      provinceName: provs.length === 1 && outside.length === 1 ? outside[0].name : null,
+    }];
+  }));
+}
+
+/**
+ * المرسل ← مندوب من الفريق: المطابقة الكاملة أولاً، ثم الاسم الأول وحده («سمية» ← «سمية باسم»)
+ * حين لا يحمله إلا عضو واحد في الفريق — الأسماء القصيرة يرفضها repNameScore عمداً لعموم المكتب،
+ * لكن داخل فريق صغير الاسم الأول الفريد دليل كافٍ.
+ */
+function matchSender(sender, team) {
+  if (!sender) return null;
+  const m = matchRepName(sender, team.index);
+  if (m.status === 'exact') return m.rep;
+  const toks = normalizeRepName(sender).split(/\s+/).filter(t => t.length >= 3);
+  if (!toks.length) return null;
+  const hits = team.list.filter(u => {
+    const ut = normalizeRepName(u.name).split(/\s+/);
+    return toks.every((t, i) => ut[i] === t);
+  });
+  return hits.length === 1 ? hits[0] : null;
 }
 
 /** ما اختاره المستخدم لنفس اسم المرسل في استيراد سابق ← نفس المندوب. */
@@ -266,7 +307,12 @@ async function buildDrafts(reqUser, messages, source) {
     const areaKey = looseArea(parsed.area || '');
     // اسم منطقة الطلبية بكل أسمائه المدموجة؛ المطابقة = اشتراك أي اسم، أو احتواء («شارع فلسطين» ⊃ «فلسطين»)
     const orderKeys = areaKey ? [...areaGraph.expand([areaKey])] : [];
-    const covers = (u) => { const ks = repScope.get(u.id)?.areas ?? new Set(); return orderKeys.some(k => areaMatches(ks, k)); };
+    // منطقة الطلبية قد تكون اسم محافظة («النجف») ⇒ أصحابها مندوبو تلك المحافظة
+    const covers = (u) => {
+      const sc = repScope.get(u.id);
+      if (!sc) return false;
+      return orderKeys.some(k => areaMatches(sc.areas, k) || sc.provinceKeys.has(k));
+    };
     const sci = team.list.filter(u => u.role === 'scientific_rep');
     const leaders = team.list.filter(u => u.role === 'team_leader');
     let pool = areaKey ? sci.filter(covers) : [];
@@ -293,8 +339,8 @@ async function buildDrafts(reqUser, messages, source) {
       repWhy = 'learned';
     }
     if (!rep && sender) {
-      const m = matchRepName(sender, team.index);
-      if (m.status === 'exact' && inPool(m.rep.id)) { rep = m.rep; repWhy = 'sender'; }
+      const hit = matchSender(sender, team);
+      if (hit && inPool(hit.id)) { rep = hit; repWhy = 'sender'; }
     }
     if (!rep && pool.length === 1) { rep = pool[0]; repWhy = leaderPick ? 'leader' : 'area'; }
     const repNote = rep || pool.length > 1 ? null
@@ -323,7 +369,8 @@ async function buildDrafts(reqUser, messages, source) {
       mentions: parsed.mentions,
       readBy: parsed.readBy,
       pharmacyName: parsed.pharmacy ?? '',
-      areaName: parsed.area ?? '',
+      // بلا منطقة في الطلبية ومندوبها مندوب محافظة ⇒ اسم محافظته
+      areaName: parsed.area || (rep && repScope.get(rep.id)?.provinceName) || '',
       warehouseId: primary?.id ?? null,
       warehouseName: primary?.name ?? whUnmatched[0] ?? '',
       backupWarehouseIds: whMatched.slice(1).map(w => w.id),

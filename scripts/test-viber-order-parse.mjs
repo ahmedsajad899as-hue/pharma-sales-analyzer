@@ -146,5 +146,11 @@ check('الثانية', [w2.pharmacy, w2.area, w2.items], ['نور عبدالل�
 check('صيغة تصدير واتساب «التاريخ - المرسل:»', splitWhatsAppMessages('11/13/26, 4:52 PM - Ali Hassan: ص الامل / المنصور\nPandev 40(10)'), [{ sender: 'Ali Hassan', text: 'ص الامل / المنصور\nPandev 40(10)' }]);
 check('نص فايبر بلا ترويسات ← null', splitWhatsAppMessages('ص الامل\nPandev 40(10)'), null);
 
+
+console.log('\n── الطلبية تبدأ بالأصناف (2026-11-14) ──');
+const it1 = parseViberOrder('potafast 10 p\nصيدلية الرتاج\nمذخر الشامل');
+check('«صيدلية الرتاج» بعد الصنف ← الصيدلية', [it1.pharmacy, it1.items, it1.warehouses], ['الرتاج', [{ name: 'potafast', quantity: 10, bonus: 0 }], ['الشامل']]);
+check('سطر ملاحظة بعد الصنف بلا دليل لا يصير صيدلية', parseViberOrder('Pandev 40(10)\nكل قائمة وحد تجهز').pharmacy, null);
+
 console.log(failed ? `\n✗ فشل ${failed}` : '\n✓ كلها نجحت');
 process.exit(failed ? 1 : 0);

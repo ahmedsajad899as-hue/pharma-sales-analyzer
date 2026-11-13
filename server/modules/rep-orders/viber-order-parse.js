@@ -262,6 +262,13 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
     if (whs && (seenItem || headerLines.length)) { whs.forEach(addWh); continue; }
     // الترويسة: كل الأسطر العربية القصيرة قبل أول صنف (حتى 3)
     if (!seenItem && headerLines.length < 3 && line.split(/\s+/).length <= 8) { headerLines.push(line); continue; }
+    // الطلبية قد تبدأ بالأصناف ثم «صيدلية الرتاج» (2026-11-14): بعد الأصناف يُعدّ السطر ترويسة
+    // فقط بدليل صريح — بادئة «ص/صيدلية»، أو منطقة مسجّلة، أو صيدلية من طلبيات سابقة —
+    // كي لا تصير ملاحظة («كل قائمة وحد تجهز») اسمَ صيدلية.
+    if (seenItem && headerLines.length < 3 && line.split(/\s+/).length <= 8 && (
+      PH_PREFIX_STRICT_RE.test(line) || PH_WORD_ONLY_RE.test(line.split(/\s*[\/|\-–]\s*/)[0])
+      || line.split(/\s*[\/|\-–]\s*/).some(p => areaOf(tidy(p).replace(AREA_PREFIX_RE, '$1')) || isKnownPharmacy(tidy(p)))
+    )) { headerLines.push(line); continue; }
     if (/ترانزيت|ترانسيت/.test(line)) transit = true;
     notes.push(line);
   }
