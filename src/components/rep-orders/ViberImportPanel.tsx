@@ -31,7 +31,7 @@ interface Draft {
   key: string; source: 'viber-paste' | 'viber-shot'; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
   pharmacyName: string; areaName: string; warehouseId: number | null; warehouseName: string; backupWarehouseIds: number[];
   mentionedWarehouses: MentionedWh[];
-  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'sender' | 'learned' | 'guess' | null;
+  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'sender' | 'learned' | 'guess' | null;
   repCandidates: { id: number; name: string }[]; sourceHash: string | null;
   duplicateOf: { id: number; pharmacyName: string; createdAt: string; status: string } | null; dupInBatch: boolean; warnings: string[];
   // الواجهة فقط
@@ -41,18 +41,12 @@ interface Wh { id: number; name: string }
 interface Rep { id: number; name: string }
 interface CatItem { id: number; name: string; price?: number | null; warehousePrice?: number | null; company?: { name: string } | null; scientificCompany?: { name: string } | null }
 
-const REP_WHY: Record<string, string> = { sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'حسب المنطقة والايتم' };
+const REP_WHY: Record<string, string> = { area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 const fmtPrice = (n?: number | null) => (n != null && Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString('en-US') : null);
 const catCompany = (i: CatItem) => i.scientificCompany?.name ?? i.company?.name ?? null;
 const catPrice = (i: CatItem) => i.warehousePrice ?? i.price ?? null;
-/** أصناف الكتالوج بنفس العلامة (أول كلمة) — «Potafast 50 mg» و«Potafast sachet» — ليختار المستخدم الصحيح. */
-const brandOf = (s: string) => (normSearch(s).match(/[a-z؀-ۿ]{3,}/) || [''])[0];
-const variantsOf = (catalog: CatItem[], name: string, exceptId: number | null) => {
-  const b = brandOf(name);
-  return b ? catalog.filter(c => c.id !== exceptId && brandOf(c.name) === b).slice(0, 12) : [];
-};
 
 /** المذخر الذي تذهب له الطلبية = المختار؛ الاحتياط = باقي المذكورة الفعّالة بترتيب الرسالة. */
 function choosePrimary(d: Draft, m: MentionedWh): Partial<Draft> {
@@ -105,6 +99,33 @@ function ItemSearch({ catalog, value, autoFocus, onText, onPick }: {
             <button key={it.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { onPick(it); setOpen(false); }}>
               <b>{it.name}</b>
               <small>{[catCompany(it), fmtPrice(catPrice(it))].filter(Boolean).join(' · ')}</small>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** خانة بحث بالكتابة في دليل المذاخر (بدل القائمة المنسدلة الطويلة). */
+function WarehouseSearch({ warehouses, placeholder, onPick }: { warehouses: Wh[]; placeholder: string; onPick: (w: Wh) => void }) {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const results = useMemo(() => {
+    const k = sKey(q);
+    const list = k ? warehouses.filter(w => { const n = sKey(w.name); return k.split(' ').every(t => n.includes(t) || n.replace(/ /g, '').includes(t)); }) : warehouses;
+    return list.slice(0, 30);
+  }, [warehouses, q]);
+  return (
+    <div className="vi-isearch">
+      <input className="form-input vi-wh-add" value={q} placeholder={placeholder}
+        onChange={e => { setQ(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && results.length > 0 && (
+        <div className="vi-isearch__list">
+          {results.map(w => (
+            <button key={w.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { onPick(w); setQ(''); setOpen(false); }}>
+              <b>{w.name}</b>
             </button>
           ))}
         </div>
@@ -354,10 +375,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
             const extraWh = warehouses.filter(w => !d.mentionedWarehouses.some(m => m.id === w.id));
             const candIds = new Set(d.repCandidates.map(c => c.id));
             const repList = [...repOptions.filter(r => candIds.has(r.id)), ...repOptions.filter(r => !candIds.has(r.id))];
-            const repHint = [
-              d.repWhy ? REP_WHY[d.repWhy] : d.repCandidates.length > 1 ? 'عدة مرشّحين ★' : !d.repUserId ? 'لم يُحدَّد — اختر' : '',
-              d.sender ? `المرسل: ${d.sender}` : '',
-            ].filter(Boolean).join(' · ');
+            const repHint = [d.repWhy ? REP_WHY[d.repWhy] : '', d.sender ? `المرسل: ${d.sender}` : ''].filter(Boolean).join(' · ');
             return (
               <div key={d.key} className={`vi-card ${!d.include ? 'is-off' : ''} ${d.state ? `is-${d.state}` : ''}`}>
                 <div className="vi-card__head">
@@ -399,9 +417,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
                     {/* المذاخر: كل ما ذُكر في الرسالة بترتيبه — الضغط يختار من تذهب له الطلبية */}
                     <div className="vi-sec">
-                      <div className="vi-sec__h">المذخر <small>اضغط لاختيار من تذهب له الطلبية</small></div>
+                      <div className="vi-sec__h">المذخر</div>
                       <div className="vi-whlist">
-                        {d.mentionedWarehouses.length === 0 && <div className="vi-hint">لم يُذكر مذخر في الرسالة — اختر من القائمة</div>}
                         {d.mentionedWarehouses.map((m, i) => {
                           const isPrimary = m.id ? m.id === d.warehouseId : !d.warehouseId && m.name === d.warehouseName;
                           const isBackup = !isPrimary && m.id != null && d.backupWarehouseIds.includes(m.id);
@@ -426,17 +443,12 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                           );
                         })}
                         {!locked && extraWh.length > 0 && (
-                          <select className="form-input vi-wh-add" value=""
-                            onChange={e => {
-                              const w = warehouses.find(x => x.id === Number(e.target.value));
-                              if (!w) return;
+                          <WarehouseSearch warehouses={extraWh} placeholder={d.mentionedWarehouses.length ? '+ مذخر آخر — اكتب الاسم' : 'اكتب اسم المذخر'}
+                            onPick={w => {
                               const m: MentionedWh = { id: w.id, name: w.name };
                               const next = { ...d, mentionedWarehouses: [...d.mentionedWarehouses, m] };
                               patch(d.key, { mentionedWarehouses: next.mentionedWarehouses, ...choosePrimary(next, m) });
-                            }}>
-                            <option value="">+ مذخر آخر من الدليل</option>
-                            {extraWh.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                          </select>
+                            }} />
                         )}
                         {d.backupWarehouseIds.some(id => !d.mentionedWarehouses.some(m => m.id === id)) && (
                           <div className="vi-hint">احتياط أيضاً: {d.backupWarehouseIds.filter(id => !d.mentionedWarehouses.some(m => m.id === id)).map(whName).join('، ')}</div>
@@ -459,23 +471,16 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                         <div className="vi-line vi-line--head"><span>الصنف</span><span>الكمية</span><span /><span>بونص</span><span /></div>
                         {d.lines.map((l, i) => {
                           const meta = [l.companyName, fmtPrice(l.unitPrice)].filter(Boolean).join(' · ');
-                          const variants = l.itemId && !l.editing && !locked ? variantsOf(catalog, l.itemName, l.itemId) : [];
+
                           return (
                             <div key={i} className={`vi-line ${l.itemId && !l.editing ? 'is-matched' : 'is-free'}`}>
                               {l.itemId && !l.editing ? (
                                 <div className="vi-line__item">
-                                  <span className="vi-line__name"><Check size={12} /> {l.itemName}</span>
-                                  <small className="vi-line__meta">
-                                    {meta}{l.writtenAs && l.writtenAs !== l.itemName ? `${meta ? ' · ' : ''}كُتبت: ${l.writtenAs}` : ''}
-                                  </small>
+                                  <button className="vi-line__name" disabled={locked} title="تغيير الصنف" onClick={() => patchLine(d.key, i, { editing: true })}>
+                                    <Check size={12} /> {l.itemName}
+                                  </button>
+                                  {meta && <small className="vi-line__meta">{meta}</small>}
                                   {!locked && <button className="vi-x vi-line__edit" title="تغيير الصنف" onClick={() => patchLine(d.key, i, { editing: true })}><Pencil size={11} /></button>}
-                                  {variants.length > 0 && (
-                                    <select className="vi-variants" value="" title="أصناف أخرى بنفس الاسم في الكتالوج"
-                                      onChange={e => { const v = catalog.find(c => c.id === Number(e.target.value)); if (v) pickItem(d.key, i, v); }}>
-                                      <option value="">بدائل بنفس الاسم ({variants.length}) ▾</option>
-                                      {variants.map(v => <option key={v.id} value={v.id}>{[v.name, catCompany(v), fmtPrice(catPrice(v))].filter(Boolean).join(' · ')}</option>)}
-                                    </select>
-                                  )}
                                 </div>
                               ) : locked ? (
                                 <span className="vi-line__name is-free">{l.itemName}</span>

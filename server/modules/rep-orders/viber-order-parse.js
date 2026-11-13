@@ -244,7 +244,10 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
       }
       // «+class A لوصفات الدكتور اكرم…»: جملة عربية فيها كلمة لاتينية = ملاحظة لا صنف
       const arabicWords = (line.match(/[؀-ۿ]{2,}/g) || []).length;
-      if (arabicWords >= 3) { notes.push(line); continue; }
+      // «د.قاسم محمد | Cardio»: اسم طبيب واختصاصه، أو أي سطر عربي-لاتيني بلا رقم = ملاحظة كذلك
+      if (arabicWords >= 3 || /^(?:د|دكتور|الدكتور)\s*[.:]?\s*\S/.test(line) || (!HAS_DIGIT.test(line) && arabicWords >= 1)) {
+        notes.push(line); continue;
+      }
       seenItem = true;
       unparsed.push(line);
       continue;

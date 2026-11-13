@@ -129,5 +129,8 @@ check('«بالمذخر» داخل جملة ليس سطر مذخر', parseViberO
 check('سطر مذاخر معروفة بلا كلمة مذخر: «سنايا، اسبرين»', parseViberOrder('ص الامل\nPandev 40(10)\nسنايا، اسبرين').warehouses, ['سنايا', 'اسبرين']);
 check('لصقتان في نص واحد تبقيان طلبيتين', splitPasteIntoOrders(`${q1}\n\n${q2}`).length, 2);
 
+const r6 = parseViberOrder('ص/جبل علي | الواثق\nUricodrop 80mg       20+4\n🟢د.قاسم محمد | Cardio\nPotafast         10+1\n@Zaher');
+check('«د.قاسم محمد | Cardio» ملاحظة طبيب لا صنف', [r6.pharmacy, r6.area, r6.items.length, r6.notes, r6.unparsed], ['جبل علي', 'الواثق', 2, ['د.قاسم محمد | Cardio'], []]);
+
 console.log(failed ? `\n✗ فشل ${failed}` : '\n✓ كلها نجحت');
 process.exit(failed ? 1 : 0);

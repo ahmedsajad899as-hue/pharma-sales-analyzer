@@ -7,7 +7,7 @@
 //   • مطابقة الأصناف بالكتالوج (enrichRowsFromCatalog)
 //   • مطابقة المذاخر بدليل المذاخر (matchWarehouse) — الأول أساسي والباقي احتياط
 //   • المندوب: اسم المرسل (من السكرين شوت) ← ما اختاره المستخدم لنفس المرسل سابقاً
-//     ← تخمين المواد والمنطقة (attachScientificRepGuess)
+//     ← المندوب العلمي صاحب منطقة الطلبية (loadRepScope)
 //   • كشف التكرار: داخل الدفعة + طلبيات آخر 3 أيام في نطاق المُشاهِد
 //
 // **لا يُنشئ شيئاً** — يُعيد مسوّدات تراجعها الواجهة، ثم تُحفظ بـ POST /api/rep-orders
@@ -22,9 +22,10 @@ import { getManagerRoster } from '../../lib/managerRoster.js';
 import { buildRepIndex, matchRepName, repCoreKey } from '../../lib/repNameMatch.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { isPharmacyRep } from '../../lib/pharmacyRep.js';
+import { resolveEffectiveAreaIds, userHasAllAreas } from '../../lib/areaScope.js';
 import { normKey } from '../orders/order-text-parse.js';
 import { loadKnownWarehouseKeys, loadKnownAreaIndex } from '../orders/order-extract.js';
-import { enrichRowsFromCatalog, attachScientificRepGuess } from '../orders/orders.service.js';
+import { enrichRowsFromCatalog } from '../orders/orders.service.js';
 import { matchWarehouse, warehouseReady } from '../warehouse-dispatch/dispatch.core.js';
 import { loadViewer, teamUserIds, orderScopeWhere, warehouseScopeWhere, cleanText } from './rep-orders.service.js';
 import { parseViberOrder, orderFingerprint, splitPasteIntoOrders } from './viber-order-parse.js';
@@ -52,6 +53,34 @@ async function loadTeam(viewer) {
     .map(u => ({ id: u.id, name: u.displayName?.trim() || u.username, role: u.role }))
     .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   return { ids: new Set(list.map(u => u.id)), list, index: buildRepIndex(list) };
+}
+
+/**
+ * لكل مندوب علمي في الفريق: مفاتيح أسماء مناطقه الفعلية (resolveEffectiveAreaIds = التعيين
+ * اليدوي + سجل المندوب + المحافظات)، وهل عنده راية «كل المناطق»، وايتماته (حسابه + سجله).
+ * بالاسم المطبَّع لا بالمعرّف: نفس اسم المنطقة صفوف مستقلة لكل حساب.
+ */
+async function loadRepScope(team) {
+  const ids = team.list.map(u => u.id);
+  if (!ids.length) return new Map();
+  const [perRep, users] = await Promise.all([
+    Promise.all(ids.map(async id => ({ id, all: await userHasAllAreas(id), areaIds: await resolveEffectiveAreaIds(id) }))),
+    prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, itemAssignments: { select: { itemId: true } }, linkedRep: { select: { items: { select: { itemId: true } } } } },
+    }),
+  ]);
+  const allIds = [...new Set(perRep.filter(r => !r.all).flatMap(r => r.areaIds))];
+  const areas = allIds.length ? await prisma.area.findMany({ where: { id: { in: allIds } }, select: { id: true, name: true } }) : [];
+  const keyById = new Map(areas.map(a => [a.id, normalizeAreaName(a.name)]));
+  const itemsById = new Map(users.map(u => [u.id, new Set([
+    ...u.itemAssignments.map(x => x.itemId), ...(u.linkedRep?.items ?? []).map(x => x.itemId),
+  ])]));
+  return new Map(perRep.map(r => [r.id, {
+    all: r.all,
+    areas: new Set(r.all ? [] : r.areaIds.map(id => keyById.get(id)).filter(Boolean)),
+    items: itemsById.get(r.id) ?? new Set(),
+  }]));
 }
 
 /** ما اختاره المستخدم لنفس اسم المرسل في استيراد سابق ← نفس المندوب. */
@@ -132,6 +161,7 @@ async function buildDrafts(reqUser, messages, source) {
     orderScopeWhere(viewer).then(where => prisma.repOrder.findMany({ where, select: { pharmacyName: true }, distinct: ['pharmacyName'], orderBy: { id: 'desc' }, take: 4000 })),
   ]);
   const areaOf = (t) => areas.get(normalizeAreaName(t)) ?? null;
+  const repScope = await loadRepScope(team);
   const dirKeys = new Set(directory.map(w => normKey(String(w.name).replace(/مذخر|مذاخر/g, ''))).filter(Boolean));
   const isKnownWarehouse = (t) => knownWh.has(normKey(t)) || dirKeys.has(normKey(t));
   const phKeys = new Set(pastPharmacies.map(o => normKey(o.pharmacyName)).filter(k => k && k.length >= 3));
@@ -177,38 +207,35 @@ async function buildDrafts(reqUser, messages, source) {
     const whUnmatched = mentioned.filter(m => !m.id).map(m => m.name);
     const primary = whMatched[0] ?? null;
 
-    // المندوب
+    // المندوب العلمي = صاحب **منطقة** الطلبية في فريق المستورد (طلب صاحب المشروع 2026-11-13):
+    //   • مندوب واحد معيّنة له المنطقة ⇒ يُختار مباشرة
+    //   • أكثر من واحد ⇒ تحسمه الايتمات (من تُعيَّن له أصناف الطلبية)، وإلا يبقى الاختيار بينهم
+    //   • المرشّحون (★) أصحاب المنطقة فقط — لا يُقترح مندوب بلا المنطقة
+    // اسم المرسل/ما اختير له سابقاً يُقبل فقط إن كان من أصحاب المنطقة (أو المنطقة غير معروفة).
+    const areaKey = normalizeAreaName(parsed.area || '');
+    const explicit = areaKey ? team.list.filter(u => repScope.get(u.id)?.areas.has(areaKey)) : [];
+    const allAreaReps = areaKey && !explicit.length ? team.list.filter(u => repScope.get(u.id)?.all) : [];
+    let pool = explicit.length ? explicit : allAreaReps;
+    const itemIds = new Set(rows.map(r => r._itemId).filter(Boolean));
+    if (pool.length > 1 && itemIds.size) {
+      const byItems = pool.filter(u => [...itemIds].some(id => repScope.get(u.id)?.items.has(id)));
+      if (byItems.length) pool = byItems;
+    }
+    const repCandidates = pool.map(u => ({ id: u.id, name: u.name }));
+    const inPool = (id) => !areaKey || pool.some(u => u.id === id);
+
     let rep = null;
     let repWhy = null;
     const sender = cleanText(msg.sender, 80);
-    if (sender && learned.has(sender) && team.ids.has(learned.get(sender))) {
+    if (sender && learned.has(sender) && team.ids.has(learned.get(sender)) && inPool(learned.get(sender))) {
       rep = team.list.find(u => u.id === learned.get(sender)) ?? null;
       repWhy = 'learned';
     }
     if (!rep && sender) {
       const m = matchRepName(sender, team.index);
-      if (m.status === 'exact') { rep = m.rep; repWhy = 'sender'; }
+      if (m.status === 'exact' && inPool(m.rep.id)) { rep = m.rep; repWhy = 'sender'; }
     }
-    let repCandidates = [];
-    if (!rep) {
-      await attachScientificRepGuess(rows, viewer);
-      const named = rows.map(r => r.scientificRep).filter(Boolean);
-      const uniq = [...new Set(named.map(repCoreKey))];
-      if (uniq.length === 1) {
-        const hit = team.list.find(u => repCoreKey(u.name) === uniq[0]);
-        if (hit) { rep = hit; repWhy = 'guess'; }
-      }
-      // المرشّحون (المنطقة ∩ الايتم) ضمن علميي الفريق فقط — بالمعرّف أو بالاسم (سجل المندوب
-      // الذي يملكه المدير يحمل اسمه لا معرّف حسابه)
-      const ids = new Set();
-      for (const r of rows) for (const c of (r._repCandidates || [])) {
-        if (c.id > 0 && team.ids.has(c.id)) { ids.add(c.id); continue; }
-        const byName = team.list.find(u => repCoreKey(u.name) === repCoreKey(c.name));
-        if (byName) ids.add(byName.id);
-      }
-      repCandidates = team.list.filter(u => ids.has(u.id)).map(u => ({ id: u.id, name: u.name }));
-      if (!rep && repCandidates.length === 1) { rep = repCandidates[0]; repWhy = 'guess'; }
-    }
+    if (!rep && pool.length === 1) { rep = pool[0]; repWhy = 'area'; }
 
     // التكرار
     const sourceHash = orderFingerprint({ pharmacy: parsed.pharmacy, items: parsed.items });
