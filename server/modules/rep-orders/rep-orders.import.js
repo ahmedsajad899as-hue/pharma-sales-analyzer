@@ -75,7 +75,41 @@ const areaMatches = (repKeys, orderKey) => {
  * اليدوي + سجل المندوب + المحافظات)، وهل عنده راية «كل المناطق»، وايتماته (حسابه + سجله).
  * بالاسم المطبَّع لا بالمعرّف: نفس اسم المنطقة صفوف مستقلة لكل حساب.
  */
-async function loadRepScope(team) {
+/**
+ * شبكة المناطق: كل منطقة بأسمائها كلها — اسمها + الأسماء المدموجة تحتها (AreaAlias)، وكل
+ * صفوف Area التي تحمل نفس الاسم عند حسابات أخرى (المنطقة لكل حساب). «الواثق» المدموجة
+ * تحت «ساحة الواثق» = منطقة واحدة (طلب صاحب المشروع 2026-11-14).
+ */
+async function loadAreaGraph() {
+  const [areas, aliases] = await Promise.all([
+    prisma.area.findMany({ select: { id: true, name: true } }),
+    prisma.areaAlias.findMany({ select: { fromKey: true, areaId: true } }),
+  ]);
+  const keysById = new Map();
+  const idsByKey = new Map();
+  const add = (id, key) => {
+    if (!key) return;
+    if (!keysById.has(id)) keysById.set(id, new Set());
+    keysById.get(id).add(key);
+    if (!idsByKey.has(key)) idsByKey.set(key, new Set());
+    idsByKey.get(key).add(id);
+  };
+  for (const a of areas) add(a.id, looseArea(a.name));
+  for (const al of aliases) add(al.areaId, looseArea(al.fromKey));
+  /** كل أسماء مجموعة المنطقة انطلاقاً من اسم أو معرّفات (خطوتان: الاسم ← صفوفه ← أسماؤها ← صفوفها). */
+  const expand = (startKeys, startIds = []) => {
+    const keys = new Set(startKeys.filter(Boolean));
+    const ids = new Set(startIds);
+    for (let step = 0; step < 2; step++) {
+      for (const k of [...keys]) for (const id of (idsByKey.get(k) ?? [])) ids.add(id);
+      for (const id of [...ids]) for (const k of (keysById.get(id) ?? [])) keys.add(k);
+    }
+    return keys;
+  };
+  return { expand };
+}
+
+async function loadRepScope(team, graph) {
   const ids = team.list.map(u => u.id);
   if (!ids.length) return new Map();
   const [perRep, users] = await Promise.all([
@@ -93,7 +127,7 @@ async function loadRepScope(team) {
   ])]));
   return new Map(perRep.map(r => [r.id, {
     all: r.all,
-    areas: new Set(r.all ? [] : r.areaIds.map(id => keyById.get(id)).filter(Boolean).map(looseArea).filter(Boolean)),
+    areas: r.all ? new Set() : graph.expand(r.areaIds.map(id => keyById.get(id)).filter(Boolean).map(looseArea), r.areaIds),
     items: itemsById.get(r.id) ?? new Set(),
   }]));
 }
@@ -176,7 +210,8 @@ async function buildDrafts(reqUser, messages, source) {
     orderScopeWhere(viewer).then(where => prisma.repOrder.findMany({ where, select: { pharmacyName: true }, distinct: ['pharmacyName'], orderBy: { id: 'desc' }, take: 4000 })),
   ]);
   const areaOf = (t) => areas.get(normalizeAreaName(t)) ?? null;
-  const repScope = await loadRepScope(team);
+  const areaGraph = await loadAreaGraph();
+  const repScope = await loadRepScope(team, areaGraph);
   const dirKeys = new Set(directory.map(w => normKey(String(w.name).replace(/مذخر|مذاخر/g, ''))).filter(Boolean));
   const isKnownWarehouse = (t) => knownWh.has(normKey(t)) || dirKeys.has(normKey(t));
   const phKeys = new Set(pastPharmacies.map(o => normKey(o.pharmacyName)).filter(k => k && k.length >= 3));
@@ -229,7 +264,9 @@ async function buildDrafts(reqUser, messages, source) {
     // اسم المرسل/ما اختير له سابقاً يُقبل فقط إن كان من أصحاب المنطقة (أو المنطقة غير معروفة).
     // الأولوية: المندوب العلمي صاحب المنطقة، وإن لم يوجد فالتيم ليدر صاحبها (طلب صاحب المشروع 2026-11-14)
     const areaKey = looseArea(parsed.area || '');
-    const covers = (u) => areaMatches(repScope.get(u.id)?.areas ?? new Set(), areaKey);
+    // اسم منطقة الطلبية بكل أسمائه المدموجة؛ المطابقة = اشتراك أي اسم، أو احتواء («شارع فلسطين» ⊃ «فلسطين»)
+    const orderKeys = areaKey ? [...areaGraph.expand([areaKey])] : [];
+    const covers = (u) => { const ks = repScope.get(u.id)?.areas ?? new Set(); return orderKeys.some(k => areaMatches(ks, k)); };
     const sci = team.list.filter(u => u.role === 'scientific_rep');
     const leaders = team.list.filter(u => u.role === 'team_leader');
     let pool = areaKey ? sci.filter(covers) : [];
