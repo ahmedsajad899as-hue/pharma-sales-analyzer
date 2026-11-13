@@ -21,6 +21,7 @@ import { callAI } from '../../lib/geminiAi.js';
 import { getManagerRoster } from '../../lib/managerRoster.js';
 import { buildRepIndex, matchRepName, repCoreKey } from '../../lib/repNameMatch.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
+import { isPharmacyRep } from '../../lib/pharmacyRep.js';
 import { normKey } from '../orders/order-text-parse.js';
 import { extractOrderRowsFromText, loadKnownWarehouseKeys, loadKnownAreaIndex } from '../orders/order-extract.js';
 import { enrichRowsFromCatalog, attachScientificRepGuess } from '../orders/orders.service.js';
@@ -35,14 +36,22 @@ const DUP_DAYS = 3;
 
 // ─── المندوبون المتاحون للمُشاهِد ─────────────────────────────────────────────
 
+/**
+ * المندوبون الذين تُحسب لهم طلبيات الفايبر: **العلميون** في فريق صاحب الحساب الذي يستورد
+ * (مدير الشركة) — لا المسوقون (سجل مندوب repKind='pharmacy') ولا المدراء. طلبية يرسلها
+ * مسوق في الكروب تُنسب للعلمي صاحب المنطقة والايتم (طلب صاحب المشروع 2026-11-13).
+ */
 async function loadTeam(viewer) {
   const ids = await teamUserIds(viewer);
   const users = await prisma.user.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, displayName: true, username: true, role: true },
+    where: { id: { in: ids, not: viewer.id }, isActive: true, role: { in: ['scientific_rep', 'team_leader'] } },
+    select: { id: true, displayName: true, username: true, role: true, linkedRep: { select: { repKind: true } } },
   });
-  const list = users.map(u => ({ id: u.id, name: u.displayName?.trim() || u.username, role: u.role }));
-  return { ids: new Set(ids), list, index: buildRepIndex(list) };
+  const list = users
+    .filter(u => !isPharmacyRep(u.linkedRep))
+    .map(u => ({ id: u.id, name: u.displayName?.trim() || u.username, role: u.role }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  return { ids: new Set(list.map(u => u.id)), list, index: buildRepIndex(list) };
 }
 
 /** ما اختاره المستخدم لنفس اسم المرسل في استيراد سابق ← نفس المندوب. */
@@ -151,6 +160,8 @@ async function buildDrafts(reqUser, messages, source) {
       quantity: Number(r.quantity) || 0,
       bonusQty: Number(r.bonus) || 0,
       matched: Boolean(r._itemId),
+      companyName: r.company ?? null,
+      unitPrice: r.unitPrice ?? null,
       suggestions: r._itemId ? [] : (r._itemMatch?.suggestions || []).slice(0, 4)
         .map(s => ({ id: s.id, name: s.name })).filter(s => s.id && s.name),
     }));
@@ -188,9 +199,16 @@ async function buildDrafts(reqUser, messages, source) {
         const hit = team.list.find(u => repCoreKey(u.name) === uniq[0]);
         if (hit) { rep = hit; repWhy = 'guess'; }
       }
+      // المرشّحون (المنطقة ∩ الايتم) ضمن علميي الفريق فقط — بالمعرّف أو بالاسم (سجل المندوب
+      // الذي يملكه المدير يحمل اسمه لا معرّف حسابه)
       const ids = new Set();
-      for (const r of rows) for (const c of (r._repCandidates || [])) if (c.id > 0 && team.ids.has(c.id)) ids.add(c.id);
+      for (const r of rows) for (const c of (r._repCandidates || [])) {
+        if (c.id > 0 && team.ids.has(c.id)) { ids.add(c.id); continue; }
+        const byName = team.list.find(u => repCoreKey(u.name) === repCoreKey(c.name));
+        if (byName) ids.add(byName.id);
+      }
       repCandidates = team.list.filter(u => ids.has(u.id)).map(u => ({ id: u.id, name: u.name }));
+      if (!rep && repCandidates.length === 1) { rep = repCandidates[0]; repWhy = 'guess'; }
     }
 
     // التكرار

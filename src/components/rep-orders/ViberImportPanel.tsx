@@ -9,17 +9,23 @@
 // الخادم (server/modules/rep-orders/rep-orders.import.js) يُعيد مسوّدات لا يحفظ شيئاً؛
 // الحفظ هنا بـ POST /api/rep-orders العادي، والإرسال بمسار «إرسال عبر البوت» نفسه.
 //
-// والرجوع للفايبر: ViberFeedbackButtons (نسخ الرد + نسخ صورة الفاتورة) في تفاصيل الطلبية.
+// والرجوع للفايبر: ViberInvoicesButton (كل الفواتير بنقرة) و ViberFeedbackButtons (فاتورة واحدة).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, ClipboardPaste, Image as ImageIcon, Trash2, Plus, Check, Send, ChevronDown } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { X, ClipboardPaste, Image as ImageIcon, Trash2, Plus, Check, Send, Pencil, Users, Images, LayoutGrid, MessageSquareText } from 'lucide-react';
 import { compressImage } from '../../lib/localImage';
+import { normSearch } from '../OrderItemPicker';
 import './ViberImportPanel.css';
 
 const API = import.meta.env.VITE_API_URL || '';
 
-interface DraftLine { itemId: number | null; itemName: string; writtenAs: string; quantity: number; bonusQty: number; matched: boolean; suggestions: { id: number; name: string }[] }
+interface DraftLine {
+  itemId: number | null; itemName: string; writtenAs: string; quantity: number; bonusQty: number; matched: boolean;
+  suggestions: { id: number; name: string }[]; companyName?: string | null; unitPrice?: number | null;
+  editing?: boolean; // الواجهة: الصنف المطابَق فُتح للبحث عن غيره
+}
 interface MentionedWh { id: number | null; name: string; ready?: boolean }
 interface Draft {
   key: string; source: 'viber-paste' | 'viber-shot'; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
@@ -29,16 +35,20 @@ interface Draft {
   repCandidates: { id: number; name: string }[]; sourceHash: string | null;
   duplicateOf: { id: number; pharmacyName: string; createdAt: string; status: string } | null; dupInBatch: boolean; warnings: string[];
   // الواجهة فقط
-  include: boolean; state?: 'saving' | 'done' | 'warn' | 'error'; result?: string; showSource?: boolean;
+  include: boolean; state?: 'saving' | 'done' | 'warn' | 'error'; result?: string;
 }
 interface Wh { id: number; name: string }
 interface Rep { id: number; name: string }
+interface CatItem { id: number; name: string; price?: number | null; warehousePrice?: number | null; company?: { name: string } | null; scientificCompany?: { name: string } | null }
 
-const REP_WHY: Record<string, string> = { sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'تخمين من المواد والمنطقة' };
+const REP_WHY: Record<string, string> = { sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'حسب المنطقة والايتم' };
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+const fmtPrice = (n?: number | null) => (n != null && Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString('en-US') : null);
+const catCompany = (i: CatItem) => i.scientificCompany?.name ?? i.company?.name ?? null;
+const catPrice = (i: CatItem) => i.warehousePrice ?? i.price ?? null;
 
-/** المذخر الذي تذهب له الطلبية = المختار؛ الاحتياط = باقي المذكورة المطابَقة بترتيب الرسالة. */
+/** المذخر الذي تذهب له الطلبية = المختار؛ الاحتياط = باقي المذكورة الفعّالة بترتيب الرسالة. */
 function choosePrimary(d: Draft, m: MentionedWh): Partial<Draft> {
   const active = new Set([...(d.warehouseId ? [d.warehouseId] : []), ...d.backupWarehouseIds]);
   const backups = d.mentionedWarehouses
@@ -47,7 +57,57 @@ function choosePrimary(d: Draft, m: MentionedWh): Partial<Draft> {
   return { warehouseId: m.id, warehouseName: m.name, backupWarehouseIds: backups };
 }
 
-export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, onClose, onChanged }: {
+// ─── البحث الذكي في الكتالوج ─────────────────────────────────────────────────
+const sKey = (s: unknown) => normSearch(s).replace(/[^a-z0-9؀-ۿ]+/g, ' ').trim();
+
+/** «pantactive 40» يطابق «PANTACTIVE 40MG TAB»؛ وكلمة ناقصة/خاطئة تُطابَق ببداية العلامة. */
+export function searchCatalog(items: CatItem[], q: string, limit = 8): CatItem[] {
+  const tq = sKey(q);
+  if (tq.length < 2) return [];
+  const toks = tq.split(' ').filter(Boolean);
+  const out: [number, CatItem][] = [];
+  for (const it of items) {
+    const n = sKey(it.name);
+    const tight = n.replace(/ /g, '');
+    let score = 0;
+    if (toks.every(t => n.includes(t) || tight.includes(t))) {
+      score = 2 + (n.startsWith(toks[0]) ? 2 : 0) + (n === tq ? 5 : 0);
+    } else {
+      const b = toks[0].slice(0, 4);
+      const rest = toks.slice(1).filter(t => /\d/.test(t));
+      if (b.length >= 3 && n.split(' ')[0].startsWith(b) && rest.every(t => n.includes(t))) score = 1;
+    }
+    if (score) out.push([score, it]);
+  }
+  return out.sort((a, b) => b[0] - a[0] || a[1].name.length - b[1].name.length).slice(0, limit).map(x => x[1]);
+}
+
+function ItemSearch({ catalog, value, autoFocus, onText, onPick }: {
+  catalog: CatItem[]; value: string; autoFocus?: boolean;
+  onText: (v: string) => void; onPick: (it: CatItem) => void;
+}) {
+  const [open, setOpen] = useState(Boolean(autoFocus));
+  const results = useMemo(() => searchCatalog(catalog, value), [catalog, value]);
+  return (
+    <div className="vi-isearch">
+      <input className="form-input vi-line__input" value={value} autoFocus={autoFocus} placeholder="اكتب اسم الصنف…"
+        onChange={e => { onText(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && results.length > 0 && (
+        <div className="vi-isearch__list">
+          {results.map(it => (
+            <button key={it.id} type="button" onMouseDown={e => e.preventDefault()} onClick={() => { onPick(it); setOpen(false); }}>
+              <b>{it.name}</b>
+              <small>{[catCompany(it), fmtPrice(catPrice(it))].filter(Boolean).join(' · ')}</small>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, onClose, onChanged, onFinished }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   token: string | null;
   warehouses: Wh[];
@@ -59,9 +119,12 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   initialImages?: File[] | null;
   onClose: () => void;
   onChanged: () => void;
+  /** انتهى الإنشاء بلا أخطاء ← تُغلق اللوحة وتُعرض الخلاصة في الصفحة */
+  onFinished?: (summary: string) => void;
 }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [team, setTeam] = useState<Rep[]>([]);
+  const [catalog, setCatalog] = useState<CatItem[]>([]);
   const [reading, setReading] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -69,11 +132,15 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   const fileRef = useRef<HTMLInputElement>(null);
   const captureRef = useRef<HTMLTextAreaElement>(null);
 
-  const repOptions = (() => {
-    const m = new Map<number, string>();
-    for (const r of [...reps, ...team]) if (!m.has(r.id)) m.set(r.id, r.name);
-    return [...m].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-  })();
+  // كتالوج الايتمات (الاسم + الشركة + السعر) للبحث الذكي في الأصناف
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API}/api/items`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+      .then(r => r.json()).then(j => setCatalog(Array.isArray(j?.data) ? j.data : [])).catch(() => {});
+  }, [token]);
+
+  // المندوبون = علميّو فريق صاحب الحساب كما أعادهم الخادم (بلا مسوقين)؛ قائمة الصفحة احتياط فقط
+  const repOptions = team.length ? team : reps;
 
   const addDrafts = useCallback((incoming: Draft[], t: Rep[]) => {
     if (t?.length) setTeam(prev => [...prev, ...t.filter(x => !prev.some(p => p.id === x.id))]);
@@ -169,6 +236,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   const patch = (key: string, p: Partial<Draft>) => setDrafts(ds => ds.map(d => (d.key === key ? { ...d, ...p } : d)));
   const patchLine = (key: string, i: number, p: Partial<DraftLine>) =>
     setDrafts(ds => ds.map(d => (d.key === key ? { ...d, lines: d.lines.map((l, j) => (j === i ? { ...l, ...p } : l)) } : d)));
+  const pickItem = (key: string, i: number, it: CatItem) =>
+    patchLine(key, i, { itemId: it.id, itemName: it.name, matched: true, companyName: catCompany(it), unitPrice: catPrice(it), editing: false });
 
   const problemOf = (d: Draft): string | null => {
     if (!d.pharmacyName.trim()) return 'اسم الصيدلية مطلوب';
@@ -197,6 +266,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       return;
     }
     setBusy(true);
+    let ok = 0, notSent = 0, failed = 0;
     for (const d of todo) {
       patch(d.key, { state: 'saving', result: undefined });
       try {
@@ -216,20 +286,29 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
         });
         const id = r.order.id;
         if (send && d.warehouseId) {
-          try { await sendBot(id, d.warehouseId); patch(d.key, { state: 'done', result: `#${id} أُرسلت لكروب ${d.warehouseName}` }); }
-          catch (e: any) { patch(d.key, { state: 'warn', result: `#${id} أُنشئت — لم تُرسل: ${e.message}` }); }
+          try { await sendBot(id, d.warehouseId); ok++; patch(d.key, { state: 'done', result: `#${id} أُرسلت لكروب ${d.warehouseName}` }); }
+          catch (e: any) { notSent++; patch(d.key, { state: 'warn', result: `#${id} أُنشئت — لم تُرسل: ${e.message}` }); }
+        } else if (send) {
+          notSent++; patch(d.key, { state: 'warn', result: `#${id} أُنشئت — المذخر غير مسجّل، أرسلها يدوياً` });
         } else {
-          patch(d.key, { state: send ? 'warn' : 'done', result: send ? `#${id} أُنشئت — المذخر غير مسجّل، أرسلها يدوياً` : `#${id} أُنشئت` });
+          ok++; patch(d.key, { state: 'done', result: `#${id} أُنشئت` });
         }
-      } catch (e: any) { patch(d.key, { state: 'error', result: e.message }); }
+      } catch (e: any) { failed++; patch(d.key, { state: 'error', result: e.message }); }
     }
     setBusy(false);
     onChanged();
+    // بلا أخطاء ← تُغلق اللوحة (طلب صاحب المشروع)؛ فشل إنشاء ← تبقى مفتوحة ليُصحَّح
+    if (!failed && onFinished) {
+      const parts = [send ? `أُرسلت ${ok} طلبية للمذاخر` : `أُنشئت ${ok} طلبية`];
+      if (notSent) parts.push(`${notSent} أُنشئت ولم تُرسل — أرسلها من القائمة`);
+      onFinished(parts.join(' · '));
+    }
   };
 
   const pending = drafts.filter(d => d.include && d.state !== 'done' && d.state !== 'warn');
   const finished = drafts.filter(d => d.state === 'done' || d.state === 'warn');
   const compactDrop = IS_TOUCH || drafts.length > 0;
+  const whName = (id: number) => warehouses.find(w => w.id === id)?.name ?? `#${id}`;
 
   return (
     <div className="ro-modal vi-modal" onClick={() => !busy && onClose()}>
@@ -266,129 +345,155 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
             const locked = d.state === 'done' || d.state === 'warn' || d.state === 'saving';
             const extraWh = warehouses.filter(w => !d.mentionedWarehouses.some(m => m.id === w.id));
             const candIds = new Set(d.repCandidates.map(c => c.id));
+            const repList = [...repOptions.filter(r => candIds.has(r.id)), ...repOptions.filter(r => !candIds.has(r.id))];
+            const repHint = [
+              d.repWhy ? REP_WHY[d.repWhy] : d.repCandidates.length > 1 ? 'عدة مرشّحين ★' : !d.repUserId ? 'لم يُحدَّد — اختر' : '',
+              d.sender ? `المرسل: ${d.sender}` : '',
+            ].filter(Boolean).join(' · ');
             return (
               <div key={d.key} className={`vi-card ${!d.include ? 'is-off' : ''} ${d.state ? `is-${d.state}` : ''}`}>
-                {/* الصيدلية والمنطقة */}
-                <div className="vi-top">
+                <div className="vi-card__head">
                   <label className="vi-include" title="تضمين في الإنشاء">
                     <input type="checkbox" checked={d.include} disabled={locked} onChange={e => patch(d.key, { include: e.target.checked })} />
-                    <b>{di + 1}</b>
+                    <b>طلبية {di + 1}</b>
                   </label>
-                  <input className="form-input vi-ph" value={d.pharmacyName} disabled={locked} placeholder="الصيدلية *" onChange={e => patch(d.key, { pharmacyName: e.target.value })} />
-                  <input className="form-input vi-area" value={d.areaName} disabled={locked} placeholder="المنطقة" onChange={e => patch(d.key, { areaName: e.target.value })} />
-                  {!locked && <button className="vi-x" title="حذف" onClick={() => setDrafts(ds => ds.filter(x => x.key !== d.key))}><Trash2 size={13} /></button>}
+                  {d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة مع #{d.duplicateOf.id}</span>}
+                  {d.dupInBatch && !d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة في الدفعة</span>}
+                  {d.readBy === 'ai' && <span className="vi-badge">🤖 قُرئت بالذكاء — راجعها</span>}
+                  <span className="ro-spacer" />
+                  {!locked && <button className="vi-x" title="حذف" onClick={() => setDrafts(ds => ds.filter(x => x.key !== d.key))}><Trash2 size={14} /></button>}
                 </div>
 
-                {(d.duplicateOf || d.dupInBatch || d.readBy === 'ai') && (
-                  <div className="vi-badges">
-                    {d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة مع #{d.duplicateOf.id}</span>}
-                    {d.dupInBatch && !d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة في الدفعة</span>}
-                    {d.readBy === 'ai' && <span className="vi-badge">🤖 قُرئت بالذكاء — راجعها</span>}
+                <div className="vi-card__body">
+                  {/* نص الرسالة الأصلي ظاهر دائماً للمقارنة */}
+                  <div className="vi-src">
+                    <div className="vi-src__head"><MessageSquareText size={12} /> رسالة الفايبر{d.sender ? ` — ${d.sender}` : ''}</div>
+                    <pre dir="auto">{d.sourceText}</pre>
                   </div>
-                )}
 
-                {/* المندوب */}
-                <div className="vi-row">
-                  <span className="vi-lbl">المندوب</span>
-                  <div className="vi-row__val">
-                    <select className="form-input" value={d.repUserId ?? ''} disabled={locked}
-                      onChange={e => patch(d.key, { repUserId: e.target.value ? Number(e.target.value) : null, repWhy: null })}>
-                      <option value="">باسمي</option>
-                      {[...repOptions.filter(r => candIds.has(r.id)), ...repOptions.filter(r => !candIds.has(r.id))]
-                        .map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
-                    </select>
-                    <span className="vi-hint">
-                      {d.sender && <>✉️ {d.sender} · </>}
-                      {d.repWhy ? REP_WHY[d.repWhy] : d.repCandidates.length > 1 ? 'عدة مرشّحين ★' : !d.repUserId ? 'اختر المندوب' : ''}
-                      {d.mentions.length > 0 && <> · @{d.mentions.join(' @')}</>}
-                    </span>
-                  </div>
-                </div>
+                  <div className="vi-form">
+                    <div className="vi-fields">
+                      <label className="vi-f vi-f--ph"><span>الصيدلية</span>
+                        <input className="form-input" value={d.pharmacyName} disabled={locked} placeholder="اسم الصيدلية *" onChange={e => patch(d.key, { pharmacyName: e.target.value })} />
+                      </label>
+                      <label className="vi-f"><span>المنطقة</span>
+                        <input className="form-input" value={d.areaName} disabled={locked} placeholder="المنطقة" onChange={e => patch(d.key, { areaName: e.target.value })} />
+                      </label>
+                      <label className="vi-f"><span>المندوب العلمي</span>
+                        <select className="form-input" value={d.repUserId ?? ''} disabled={locked}
+                          onChange={e => patch(d.key, { repUserId: e.target.value ? Number(e.target.value) : null, repWhy: null })}>
+                          <option value="">— اختر —</option>
+                          {repList.map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
+                        </select>
+                        {repHint && <small className="vi-hint">{repHint}</small>}
+                      </label>
+                    </div>
 
-                {/* المذاخر: كل ما ذُكر في الرسالة — الضغط يختار من تذهب له الطلبية */}
-                <div className="vi-row">
-                  <span className="vi-lbl">المذخر</span>
-                  <div className="vi-row__val vi-whs">
-                    {d.mentionedWarehouses.map((m, i) => {
-                      const isPrimary = m.id ? m.id === d.warehouseId : !d.warehouseId && m.name === d.warehouseName;
-                      const isBackup = !isPrimary && m.id != null && d.backupWarehouseIds.includes(m.id);
-                      return (
-                        <span key={`${m.id ?? m.name}-${i}`} className={`vi-wh ${isPrimary ? 'is-primary' : isBackup ? 'is-backup' : 'is-off'} ${m.id ? '' : 'is-unknown'}`}>
-                          <button disabled={locked} onClick={() => patch(d.key, choosePrimary(d, m))}
-                            title={isPrimary ? 'تذهب له الطلبية' : 'اضغط لإرسال الطلبية لهذا المذخر'}>
-                            {isPrimary && <Check size={12} />}{m.name}
-                            {isBackup && <small>احتياط</small>}
-                            {!m.id && <small>غير مسجّل</small>}
-                            {m.id && m.ready === false && <small>يدوي</small>}
+                    {/* المذاخر: كل ما ذُكر في الرسالة بترتيبه — الضغط يختار من تذهب له الطلبية */}
+                    <div className="vi-sec">
+                      <div className="vi-sec__h">المذخر <small>اضغط لاختيار من تذهب له الطلبية</small></div>
+                      <div className="vi-whlist">
+                        {d.mentionedWarehouses.length === 0 && <div className="vi-hint">لم يُذكر مذخر في الرسالة — اختر من القائمة</div>}
+                        {d.mentionedWarehouses.map((m, i) => {
+                          const isPrimary = m.id ? m.id === d.warehouseId : !d.warehouseId && m.name === d.warehouseName;
+                          const isBackup = !isPrimary && m.id != null && d.backupWarehouseIds.includes(m.id);
+                          return (
+                            <div key={`${m.id ?? m.name}-${i}`} className={`vi-whrow ${isPrimary ? 'is-primary' : isBackup ? 'is-backup' : 'is-off'}`}>
+                              <button className="vi-whrow__pick" disabled={locked} onClick={() => patch(d.key, choosePrimary(d, m))}>
+                                <span className="vi-radio">{isPrimary && <Check size={11} />}</span>
+                                <span className="vi-whrow__name">{m.name}</span>
+                                {!m.id && <small className="vi-tag vi-tag--warn">غير مسجّل</small>}
+                                {m.id && m.ready === false && <small className="vi-tag">يدوي</small>}
+                              </button>
+                              <span className="vi-whrow__state">{isPrimary ? 'تذهب له' : isBackup ? 'احتياط' : 'مستبعد'}</span>
+                              {!locked && isBackup && (
+                                <button className="vi-x" title="استبعاد من الاحتياط"
+                                  onClick={() => patch(d.key, { backupWarehouseIds: d.backupWarehouseIds.filter(x => x !== m.id) })}><X size={12} /></button>
+                              )}
+                              {!locked && !isPrimary && !isBackup && m.id != null && (
+                                <button className="vi-x" title="إرجاع كاحتياط"
+                                  onClick={() => patch(d.key, { backupWarehouseIds: d.mentionedWarehouses.filter(x => x.id && (x.id === m.id || d.backupWarehouseIds.includes(x.id)) && x.id !== d.warehouseId).map(x => x.id as number) })}><Plus size={12} /></button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {!locked && extraWh.length > 0 && (
+                          <select className="form-input vi-wh-add" value=""
+                            onChange={e => {
+                              const w = warehouses.find(x => x.id === Number(e.target.value));
+                              if (!w) return;
+                              const m: MentionedWh = { id: w.id, name: w.name };
+                              const next = { ...d, mentionedWarehouses: [...d.mentionedWarehouses, m] };
+                              patch(d.key, { mentionedWarehouses: next.mentionedWarehouses, ...choosePrimary(next, m) });
+                            }}>
+                            <option value="">+ مذخر آخر من الدليل</option>
+                            {extraWh.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                          </select>
+                        )}
+                        {d.backupWarehouseIds.some(id => !d.mentionedWarehouses.some(m => m.id === id)) && (
+                          <div className="vi-hint">احتياط أيضاً: {d.backupWarehouseIds.filter(id => !d.mentionedWarehouses.some(m => m.id === id)).map(whName).join('، ')}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* الأصناف */}
+                    <div className="vi-sec">
+                      <div className="vi-sec__h">
+                        الأصناف
+                        <span className="ro-spacer" />
+                        {!locked && (
+                          <button className="vi-btn vi-btn--ghost" onClick={() => patch(d.key, { lines: [...d.lines, { itemId: null, itemName: '', writtenAs: '', quantity: 0, bonusQty: 0, matched: false, suggestions: [], editing: true }] })}>
+                            <Plus size={13} /> صنف
                           </button>
-                          {isBackup && !locked && (
-                            <button className="vi-wh__x" title="إزالة من الاحتياط"
-                              onClick={() => patch(d.key, { backupWarehouseIds: d.backupWarehouseIds.filter(x => x !== m.id) })}><X size={10} /></button>
-                          )}
-                        </span>
-                      );
-                    })}
-                    {!locked && extraWh.length > 0 && (
-                      <select className="form-input vi-wh-add" value=""
-                        onChange={e => {
-                          const w = warehouses.find(x => x.id === Number(e.target.value));
-                          if (!w) return;
-                          const m: MentionedWh = { id: w.id, name: w.name };
-                          const next = { ...d, mentionedWarehouses: [...d.mentionedWarehouses, m] };
-                          patch(d.key, { mentionedWarehouses: next.mentionedWarehouses, ...choosePrimary(next, m) });
-                        }}>
-                        <option value="">{d.mentionedWarehouses.length ? '+ مذخر' : 'اختر المذخر'}</option>
-                        {extraWh.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                      </select>
+                        )}
+                      </div>
+                      <div className="vi-lines">
+                        <div className="vi-line vi-line--head"><span>الصنف</span><span>الكمية</span><span /><span>بونص</span><span /></div>
+                        {d.lines.map((l, i) => {
+                          const meta = [l.companyName, fmtPrice(l.unitPrice)].filter(Boolean).join(' · ');
+                          return (
+                            <div key={i} className={`vi-line ${l.itemId && !l.editing ? 'is-matched' : 'is-free'}`}>
+                              {l.itemId && !l.editing ? (
+                                <div className="vi-line__item">
+                                  <span className="vi-line__name"><Check size={12} /> {l.itemName}</span>
+                                  <small className="vi-line__meta">
+                                    {meta}{l.writtenAs && l.writtenAs !== l.itemName ? `${meta ? ' · ' : ''}كُتبت: ${l.writtenAs}` : ''}
+                                  </small>
+                                  {!locked && <button className="vi-x vi-line__edit" title="تغيير الصنف" onClick={() => patchLine(d.key, i, { editing: true })}><Pencil size={11} /></button>}
+                                </div>
+                              ) : locked ? (
+                                <span className="vi-line__name is-free">{l.itemName}</span>
+                              ) : (
+                                <ItemSearch catalog={catalog} value={l.itemName} autoFocus={l.editing}
+                                  onText={v => patchLine(d.key, i, { itemName: v, itemId: null, matched: false, companyName: null, unitPrice: null })}
+                                  onPick={it => pickItem(d.key, i, it)} />
+                              )}
+                              <input className="form-input vi-num" type="number" min={1} inputMode="numeric" disabled={locked} value={l.quantity || ''} placeholder="0"
+                                onChange={e => patchLine(d.key, i, { quantity: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
+                              <span className="vi-plus">+</span>
+                              <input className="form-input vi-num" type="number" min={0} inputMode="numeric" disabled={locked} value={l.bonusQty || ''} placeholder="0"
+                                onChange={e => patchLine(d.key, i, { bonusQty: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
+                              {!locked
+                                ? <button className="vi-x" tabIndex={-1} title="حذف السطر" onClick={() => patch(d.key, { lines: d.lines.filter((_, j) => j !== i) })}><X size={12} /></button>
+                                : <span />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <label className="vi-f"><span>ملاحظات للمذخر</span>
+                      <input className="form-input" value={d.notes} disabled={locked} placeholder="—" onChange={e => patch(d.key, { notes: e.target.value })} />
+                    </label>
+
+                    {d.warnings.length > 0 && !locked && <div className="vi-warn">⚠️ {d.warnings.join(' · ')}</div>}
+                    {d.result && (
+                      <div className={`vi-result vi-result--${d.state}`}>
+                        {d.state === 'error' ? `⚠️ ${d.result}` : d.state === 'done' ? `✅ ${d.result}` : d.state === 'warn' ? `🟡 ${d.result}` : d.result}
+                      </div>
                     )}
                   </div>
                 </div>
-
-                {/* الأصناف */}
-                <div className="vi-lines">
-                  {d.lines.map((l, i) => (
-                    <div key={i} className={`vi-line ${l.itemId ? 'is-matched' : 'is-free'}`}>
-                      {l.itemId
-                        ? <span className="vi-line__name" title={l.writtenAs && l.writtenAs !== l.itemName ? `كُتبت: ${l.writtenAs}` : undefined}><Check size={12} /> {l.itemName}</span>
-                        : <input className="form-input vi-line__input" value={l.itemName} disabled={locked} placeholder="الصنف" onChange={e => patchLine(d.key, i, { itemName: e.target.value })} />}
-                      <input className="form-input vi-num" type="number" min={1} inputMode="numeric" disabled={locked} value={l.quantity || ''} placeholder="ك"
-                        onChange={e => patchLine(d.key, i, { quantity: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
-                      <span className="vi-plus">+</span>
-                      <input className="form-input vi-num" type="number" min={0} inputMode="numeric" disabled={locked} value={l.bonusQty || ''} placeholder="ب"
-                        onChange={e => patchLine(d.key, i, { bonusQty: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
-                      {!locked
-                        ? <button className="vi-x" tabIndex={-1} title="حذف السطر" onClick={() => patch(d.key, { lines: d.lines.filter((_, j) => j !== i) })}><X size={12} /></button>
-                        : <span />}
-                      {!l.itemId && l.suggestions.length > 0 && !locked && (
-                        <select className="form-input vi-sug" value="" onChange={e => { const s = l.suggestions.find(x => x.id === Number(e.target.value)); if (s) patchLine(d.key, i, { itemId: s.id, itemName: s.name, matched: true }); }}>
-                          <option value="">ربط «{l.itemName}» بالكتالوج…</option>
-                          {l.suggestions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="vi-foot-row">
-                  <input className="form-input vi-notes" value={d.notes} disabled={locked} placeholder="ملاحظات للمذخر" onChange={e => patch(d.key, { notes: e.target.value })} />
-                  {!locked && (
-                    <button className="vi-btn vi-btn--ghost" title="إضافة صنف"
-                      onClick={() => patch(d.key, { lines: [...d.lines, { itemId: null, itemName: '', writtenAs: '', quantity: 0, bonusQty: 0, matched: false, suggestions: [] }] })}>
-                      <Plus size={13} /> صنف
-                    </button>
-                  )}
-                  <button className="vi-btn vi-btn--ghost" title="نص الرسالة الأصلي" onClick={() => patch(d.key, { showSource: !d.showSource })}>
-                    <ChevronDown size={12} style={{ transform: d.showSource ? 'rotate(180deg)' : undefined }} /> الرسالة
-                  </button>
-                </div>
-
-                {d.warnings.length > 0 && !locked && <div className="vi-warn">⚠️ {d.warnings.join(' · ')}</div>}
-                {d.result && (
-                  <div className={`vi-result vi-result--${d.state}`}>
-                    {d.state === 'error' ? `⚠️ ${d.result}` : d.state === 'done' ? `✅ ${d.result}` : d.state === 'warn' ? `🟡 ${d.result}` : d.result}
-                  </div>
-                )}
-                {d.showSource && <pre className="vi-src" dir="auto">{d.sourceText}</pre>}
               </div>
             );
           })}
@@ -427,7 +532,7 @@ export interface FbOrder {
 const invoiceImageOf = (o: FbOrder) =>
   [o.preparedImage, ...[...o.sends].reverse().map(s => s.image)].find(p => p && !/\.pdf$/i.test(p)) || null;
 
-/** آخر تغيّر في نتيجة الطلبية (رد مذخر، تجهيز) — للمقارنة مع وقت نسخ الفاتورة. */
+/** آخر تغيّر في نتيجة الطلبية (رد مذخر، تجهيز) — للمقارنة مع وقت إرسال الفاتورة. */
 const lastOutcomeAt = (o: FbOrder) => {
   const ts = [o.preparedAt, ...o.sends.filter(s => s.outcome !== 'sent').map(s => s.outcomeAt)].filter(Boolean).map(t => new Date(t!).getTime());
   return ts.length ? Math.max(...ts) : 0;
@@ -491,7 +596,7 @@ async function mergeInvoices(items: { label: string; bmp: ImageBitmap }[], title
   return new Promise((ok, bad) => c.toBlob(b => (b ? ok(b) : bad(new Error('تعذّر تكوين الصورة'))), 'image/png'));
 }
 
-/** فاتورة طلبية واحدة (أو أكثر) للفايبر — يستعمله زر تفاصيل الطلبية. */
+/** فاتورة طلبية واحدة للفايبر — زر تفاصيل الطلبية. */
 async function sendInvoices(list: FbOrder[], token: string | null): Promise<string | null> {
   const ids = list.map(o => o.id);
   if (IS_TOUCH && typeof navigator.share === 'function') {
@@ -520,93 +625,84 @@ async function sendInvoices(list: FbOrder[], token: string | null): Promise<stri
   return 'نُسخت الفاتورة — Ctrl+V في كروب الفايبر';
 }
 
-// ─── «فواتير الفايبر»: كل الفواتير غير المُرسلة بنقرة — ثلاثة أشكال يختارها المستخدم ───
+// ─── «فواتير الفايبر»: نافذة وسط الشاشة بثلاثة خيارات، والضغط على أيّها يرسل فوراً ───
 //   all      — صورة واحدة تجمع كل الفواتير
 //   rep      — صورة لكل مندوب تجمع فواتير طلبياته (بعنوان اسمه)
 //   separate — كل فاتورة صورة مستقلة (الموبايل فقط: الحافظة لا تحمل أكثر من صورة)
-// الصور تُجهَّز عند فتح القائمة لا عند النقر: المشاركة في الموبايل تشترط أن تأتي بعد
-// النقرة مباشرة، وتنزيل الفواتير وتجميعها قد يتجاوز تلك المهلة.
+// الأشكال الثلاثة تُجهَّز مسبقاً عند فتح النافذة: مشاركة الموبايل تشترط أن تأتي بعد
+// الضغطة مباشرة، وتنزيل الفواتير وتجميعها قد يتجاوز تلك المهلة.
 
 type InvMode = 'all' | 'rep' | 'separate';
 interface InvPack { key: string; title: string; ids: number[]; file: File }
-const MODE_LABEL: Record<InvMode, string> = { all: 'صورة واحدة للكل', rep: 'صورة لكل مندوب', separate: 'كل فاتورة منفصلة' };
-const MODE_KEY = 'vi-inv-mode';
+type InvPacks = Record<InvMode, InvPack[]>;
 
-async function buildPacks(list: FbOrder[], mode: InvMode): Promise<InvPack[]> {
+async function buildAllPacks(list: FbOrder[]): Promise<InvPacks> {
   const loaded = (await Promise.all(list.map(async o => {
     try {
       const blob = await loadBlob(`${API}${invoiceImageOf(o)}`);
-      return { o, blob, bmp: mode === 'separate' ? null : await createImageBitmap(blob) };
+      return { o, blob, bmp: await createImageBitmap(blob) };
     } catch { return null; }
-  }))).filter(Boolean) as { o: FbOrder; blob: Blob; bmp: ImageBitmap | null }[];
+  }))).filter(Boolean) as { o: FbOrder; blob: Blob; bmp: ImageBitmap }[];
   if (!loaded.length) throw new Error('تعذّر تحميل الفواتير');
   const stamp = new Date().toISOString().slice(0, 10);
   const asFile = (b: Blob, name: string) => new File([b], name, { type: b.type || 'image/png' });
 
-  if (mode === 'separate') {
-    return loaded.map(({ o, blob }) => ({
-      key: `o${o.id}`, title: label(o), ids: [o.id],
-      file: asFile(blob, `${o.id}-${o.pharmacyName}.${blob.type === 'image/png' ? 'png' : 'jpg'}`),
-    }));
-  }
-  if (mode === 'all') {
-    const blob = await mergeInvoices(loaded.map(x => ({ label: label(x.o), bmp: x.bmp! })));
-    return [{ key: 'all', title: `كل الفواتير (${loaded.length})`, ids: loaded.map(x => x.o.id), file: asFile(blob, `فواتير-${stamp}.png`) }];
-  }
+  const separate = loaded.map(({ o, blob }) => ({
+    key: `o${o.id}`, title: label(o), ids: [o.id],
+    file: asFile(blob, `${o.id}-${o.pharmacyName}.${blob.type === 'image/png' ? 'png' : 'jpg'}`),
+  }));
+  const allBlob = await mergeInvoices(loaded.map(x => ({ label: label(x.o), bmp: x.bmp })));
+  const all = [{ key: 'all', title: `كل الفواتير (${loaded.length})`, ids: loaded.map(x => x.o.id), file: asFile(allBlob, `فواتير-${stamp}.png`) }];
+
   const byRep = new Map<string, typeof loaded>();
   for (const x of loaded) {
     const k = String(x.o.createdById ?? x.o.repName ?? '—');
     if (!byRep.has(k)) byRep.set(k, []);
     byRep.get(k)!.push(x);
   }
-  const packs: InvPack[] = [];
+  const rep: InvPack[] = [];
   for (const [k, xs] of byRep) {
-    const rep = xs[0].o.repName || '—';
-    const blob = await mergeInvoices(xs.map(x => ({ label: label(x.o), bmp: x.bmp! })), `${rep} — ${xs.length} فاتورة`);
-    packs.push({ key: `r${k}`, title: rep, ids: xs.map(x => x.o.id), file: asFile(blob, `فواتير-${rep}-${stamp}.png`) });
+    const name = xs[0].o.repName || '—';
+    const blob = await mergeInvoices(xs.map(x => ({ label: label(x.o), bmp: x.bmp })), `${name} — ${xs.length} فاتورة`);
+    rep.push({ key: `r${k}`, title: name, ids: xs.map(x => x.o.id), file: asFile(blob, `فواتير-${name}-${stamp}.png`) });
   }
-  return packs.sort((a, b) => a.title.localeCompare(b.title, 'ar'));
+  rep.sort((a, b) => a.title.localeCompare(b.title, 'ar'));
+  return { all, rep, separate };
 }
 
 export function ViberInvoicesButton({ orders, token, onDone }: { orders: FbOrder[]; token: string | null; onDone?: () => void }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<InvMode>(() => {
-    try { const m = localStorage.getItem(MODE_KEY) as InvMode | null; return m && (m !== 'separate' || IS_TOUCH) ? m : 'all'; } catch { return 'all'; }
-  });
-  const [packs, setPacks] = useState<InvPack[] | null>(null);
+  const [packs, setPacks] = useState<InvPacks | null>(null);
   const [preparing, setPreparing] = useState(false);
+  const [repList, setRepList] = useState(false); // الكمبيوتر: نسخ مندوب مندوب
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [msg, setMsg] = useState<string | null>(null);
-  const boxRef = useRef<HTMLSpanElement>(null);
   const list = orders.filter(needsViberReply);
   const listKey = list.map(o => `${o.id}:${invoiceImageOf(o)}`).join(',');
   const canShare = IS_TOUCH && typeof navigator.share === 'function';
 
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 6000); return () => clearTimeout(t); }, [msg]);
 
-  // التجهيز المسبق عند فتح القائمة أو تغيير الشكل
   useEffect(() => {
     if (!open || !list.length) return;
     let alive = true;
-    setPacks(null); setSent(new Set()); setPreparing(true);
-    buildPacks(list, mode)
+    setPacks(null); setSent(new Set()); setRepList(false); setPreparing(true);
+    buildAllPacks(list)
       .then(p => { if (alive) setPacks(p); })
-      .catch(e => { if (alive) setMsg(e.message); })
+      .catch(e => { if (alive) { setMsg(e.message); setOpen(false); } })
       .finally(() => { if (alive) setPreparing(false); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, listKey]);
+  }, [open, listKey]);
 
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
   if (!list.length && !msg) return null;
-
-  const pickMode = (m: InvMode) => { setMode(m); try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ } };
 
   const finish = async (ps: InvPack[]) => {
     await markCopied(token, ps.flatMap(p => p.ids));
@@ -614,8 +710,8 @@ export function ViberInvoicesButton({ orders, token, onDone }: { orders: FbOrder
     onDone?.();
   };
 
-  /** الموبايل: مشاركة صورة/صور جاهزة. الكمبيوتر: نسخ صورة واحدة للحافظة. */
-  const deliver = async (ps: InvPack[]) => {
+  /** الموبايل: مشاركة الصور الجاهزة. الكمبيوتر: نسخ صورة واحدة للحافظة. */
+  const deliver = async (ps: InvPack[], closeAfter = true) => {
     try {
       if (canShare) {
         const files = ps.map(p => p.file);
@@ -624,62 +720,80 @@ export function ViberInvoicesButton({ orders, token, onDone }: { orders: FbOrder
         catch (e: any) { if (e?.name === 'AbortError') return; throw e; }
         await finish(ps);
         setMsg(ps.length > 1 ? `أُرسلت ${ps.length} صور` : 'أُرسلت');
-        return;
+      } else {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': ps[0].file })]);
+        await finish([ps[0]]);
+        setMsg(`نُسخت «${ps[0].title}» — Ctrl+V في كروب الفايبر`);
       }
-      const blob = ps[0].file.type === 'image/png' ? ps[0].file
-        : await createImageBitmap(ps[0].file).then(bmp => mergeInvoices([{ label: ps[0].title, bmp }]));
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      await finish([ps[0]]);
-      setMsg(`نُسخت «${ps[0].title}» — Ctrl+V في كروب الفايبر`);
+      if (closeAfter) setOpen(false);
     } catch (e: any) { setMsg(e?.message || 'تعذّر النسخ في هذا المتصفح'); }
   };
 
-  const modes: InvMode[] = canShare ? ['all', 'rep', 'separate'] : ['all', 'rep'];
-  const verb = canShare ? 'مشاركة' : 'نسخ';
-  const remaining = packs?.filter(p => !sent.has(p.key)) ?? [];
+  const pick = (mode: InvMode) => {
+    if (!packs) return;
+    const ps = packs[mode];
+    // الكمبيوتر: الحافظة تحمل صورة واحدة ← أكثر من مندوب يُنسخ واحداً واحداً من قائمة
+    if (!canShare && ps.length > 1) { setRepList(true); return; }
+    deliver(ps);
+  };
+
+  const repCount = packs?.rep.length ?? new Set(list.map(o => o.createdById ?? o.repName)).size;
+  const options: { mode: InvMode; icon: typeof Images; title: string; sub: string }[] = [
+    { mode: 'all', icon: LayoutGrid, title: 'صورة واحدة للكل', sub: `${list.length} فاتورة في صورة واحدة` },
+    { mode: 'rep', icon: Users, title: 'صورة لكل مندوب', sub: `${repCount} ${repCount === 1 ? 'مندوب' : 'مندوبين'} — كل صورة بعنوان اسمه` },
+    ...(canShare ? [{ mode: 'separate' as InvMode, icon: Images, title: 'كل فاتورة منفصلة', sub: `${list.length} صورة` }] : []),
+  ];
+
+  const modal = open && createPortal(
+    <div className="vi-inv-overlay" onClick={() => setOpen(false)}>
+      <div className="vi-inv-modal" role="dialog" onClick={e => e.stopPropagation()}>
+        <div className="vi-inv-modal__head">
+          <strong>{repList ? 'نسخ صورة كل مندوب' : 'إرسال فواتير الفايبر'}</strong>
+          <span className="vi-badge">{list.length}</span>
+          <span className="ro-spacer" />
+          <button className="vi-x" onClick={() => setOpen(false)}><X size={16} /></button>
+        </div>
+        {preparing && <div className="vi-reading vi-inv-prep"><i /> تجهيز الصور…</div>}
+        {!repList ? (
+          <div className="vi-inv-options">
+            {options.map(o => {
+              const Icon = o.icon;
+              return (
+                <button key={o.mode} className="vi-inv-opt" disabled={!packs} onClick={() => pick(o.mode)}>
+                  <span className="vi-inv-opt__icon"><Icon size={22} /></span>
+                  <span className="vi-inv-opt__text"><b>{o.title}</b><small>{o.sub}</small></span>
+                  <span className="vi-inv-opt__go">{canShare ? <Send size={16} /> : 'نسخ'}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="vi-inv-list">
+            <div className="vi-hint">الحافظة تحمل صورة واحدة — انسخ والصق كل مندوب على حدة</div>
+            {packs?.rep.map(p => (
+              <div key={p.key} className={`vi-inv-row ${sent.has(p.key) ? 'is-sent' : ''}`}>
+                <span className="vi-inv-row__name">{p.title}<small> · {p.ids.length} فاتورة</small></span>
+                <button className="vi-btn" disabled={sent.has(p.key)} onClick={() => deliver([p], false)}>{sent.has(p.key) ? '✓ نُسخت' : 'نسخ'}</button>
+              </div>
+            ))}
+            <button className="vi-btn vi-btn--ghost" onClick={() => setRepList(false)}>رجوع</button>
+          </div>
+        )}
+        {msg && <div className="vi-fb__msg vi-inv-msg">{msg}</div>}
+      </div>
+    </div>,
+    document.body,
+  );
 
   return (
-    <span className="vi-fb vi-inv" ref={boxRef}>
+    <span className="vi-fb">
       {list.length > 0 && (
-        <button className={`ro-chip vi-inv-all ${open ? 'is-active' : ''}`} onClick={() => setOpen(o => !o)}
-          title="كل فواتير طلبيات الفايبر التي لم تُرسل للفايبر بعد">
+        <button className="ro-chip vi-inv-all" onClick={() => setOpen(true)} title="كل فواتير طلبيات الفايبر التي لم تُرسل للفايبر بعد">
           <ImageIcon size={13} /> فواتير الفايبر <b>{list.length}</b>
         </button>
       )}
-      {msg && <span className="vi-fb__msg">{msg}</span>}
-      {open && list.length > 0 && (
-        <div className="vi-inv-pop" role="dialog">
-          <div className="vi-inv-modes">
-            {modes.map(m => (
-              <button key={m} className={`vi-inv-mode ${mode === m ? 'is-active' : ''}`} onClick={() => pickMode(m)}>{MODE_LABEL[m]}</button>
-            ))}
-          </div>
-          {preparing && <div className="vi-reading"><i /> تجهيز الصور…</div>}
-          {packs && mode === 'all' && (
-            <button className="vi-btn vi-btn--primary vi-inv-go" disabled={sent.has('all')} onClick={() => deliver(packs)}>
-              {sent.has('all') ? '✓ تم' : `${verb} صورة الكل (${packs[0].ids.length} فاتورة)`}
-            </button>
-          )}
-          {packs && mode !== 'all' && (
-            <div className="vi-inv-list">
-              {canShare && remaining.length > 1 && (
-                <button className="vi-btn vi-btn--primary vi-inv-go" onClick={() => deliver(remaining)}>
-                  مشاركة الكل ({remaining.length} {mode === 'rep' ? 'صور' : 'فاتورة'})
-                </button>
-              )}
-              {packs.map(p => (
-                <div key={p.key} className={`vi-inv-row ${sent.has(p.key) ? 'is-sent' : ''}`}>
-                  <span className="vi-inv-row__name">{p.title}{mode === 'rep' && <small> · {p.ids.length} فاتورة</small>}</span>
-                  <button className="vi-btn" disabled={sent.has(p.key)} onClick={() => deliver([p])}>
-                    {sent.has(p.key) ? '✓' : verb}
-                  </button>
-                </div>
-              ))}
-              {!canShare && mode === 'rep' && <div className="vi-hint">الحافظة تحمل صورة واحدة — انسخ والصق كل مندوب على حدة</div>}
-            </div>
-          )}
-        </div>
-      )}
+      {msg && !open && <span className="vi-fb__msg">{msg}</span>}
+      {modal}
     </span>
   );
 }

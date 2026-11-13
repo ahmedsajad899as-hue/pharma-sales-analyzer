@@ -976,7 +976,8 @@ export default function RepOrdersPage() {
       {showViber && (
         <ViberImportPanel api={api} token={token} warehouses={warehouses} reps={assignableReps} canSend={canBotSend}
           initialText={viberInit?.text} initialImages={viberInit?.images}
-          onClose={() => { setShowViber(false); setViberInit(null); }} onChanged={load} />
+          onClose={() => { setShowViber(false); setViberInit(null); }} onChanged={load}
+          onFinished={(summary) => { setShowViber(false); setViberInit(null); setNotice(`✅ ${summary}`); }} />
       )}
       {showWarehouses && (
         <WarehousesModal api={api} warehouses={warehouses} provinces={provinces} canManage={canDispatch} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
