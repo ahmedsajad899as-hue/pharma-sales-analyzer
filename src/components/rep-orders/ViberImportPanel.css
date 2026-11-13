@@ -155,4 +155,5 @@
   .vi-foot { padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); }
   .vi-foot .vi-btn--primary { flex: 1; justify-content: center; height: 38px; font-size: 13.5px; }
 }
-.vi-variants { align-self: flex-start; margin-top: 2px; border: 1px dashed var(--c-accent); border-radius: 999px; background: var(--c-accent-light); color: var(--c-accent); font: inherit; font-size: 11px; font-weight: 600; padding: 1px 8px; max-width: 100%; cursor: pointer; }
+button.vi-line__name { border: 0; background: none; padding: 0; font-family: inherit; cursor: pointer; text-align: start; max-width: 100%; }
+button.vi-line__name:disabled { cursor: default; }
