@@ -18,6 +18,7 @@ import { loadSharedRepScopes, visibleSharedLines } from '../../lib/provinceSeats
 import { isOfficeScopedRole } from '../../lib/officeScope.js';
 import { isFieldRole } from '../../lib/surveyDoctors.js';
 import { normalizeWaId } from '../../lib/waId.js';
+import { warehouseBotVia, BOT_VIA_SELECT } from '../../lib/warehouseBotVia.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { buildProvinceLookup, matchProvinceName, provinceFromText } from '../../lib/provinces.js';
 import { provinceIdsForUser, resolveEffectiveAreaIds, userHasAllAreas } from '../../lib/areaScope.js';
@@ -211,6 +212,7 @@ export async function listWarehouses(reqUser) {
     warehouses: rows.map(w => ({
       ...w,
       provinceGuess: w.province ? null : prov.guess(w.name),
+      botVia: warehouseBotVia(w),
       canEdit: !scope && (w.createdById === viewer.id || !isFieldRole(viewer.role)),
     })),
   };
@@ -323,7 +325,7 @@ export async function listOrders(reqUser, q = {}) {
     take: 2000,
     include: {
       lines: { orderBy: { id: 'asc' } },
-      warehouse: { select: { id: true, name: true, phone: true, groupLink: true, handle: true } },
+      warehouse: { select: { id: true, name: true, phone: true, groupLink: true, handle: true, ...BOT_VIA_SELECT } },
       sends: { orderBy: { id: 'asc' } },
     },
   });
@@ -331,8 +333,8 @@ export async function listOrders(reqUser, q = {}) {
 
   // مذاخر الاحتياط وآخر مذخر أُرسلت له — استعلام واحد لكل الطلبيات
   const whIds = [...new Set(rows.flatMap(r => [...r.backupWarehouseIds, r.lastSentWarehouseId, ...r.sends.map(s => s.warehouseId)]).filter(Boolean))];
-  const whRows = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true, phone: true, groupLink: true, handle: true } }) : [];
-  const whById = new Map(whRows.map(w => [w.id, w]));
+  const whRows = whIds.length ? await prisma.orderWarehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, name: true, phone: true, groupLink: true, handle: true, ...BOT_VIA_SELECT } }) : [];
+  const whById = new Map(whRows.map(w => [w.id, { id: w.id, name: w.name, phone: w.phone, groupLink: w.groupLink, handle: w.handle, botVia: warehouseBotVia(w) }]));
   // الرقم التالي عند كل مذخر — الواجهة تكتبه في نص الإرسال قبل markSent (الذي يحفظه)
   const seqMax = await maxWhSeqs(prisma, rows.flatMap(r => [r.warehouseId, ...r.backupWarehouseIds]));
   const whNextSeq = Object.fromEntries([...new Set(rows.flatMap(r => [r.warehouseId, ...r.backupWarehouseIds]).filter(Boolean))].map(id => [id, (seqMax.get(id) ?? 0) + 1]));
@@ -379,7 +381,7 @@ export async function listOrders(reqUser, q = {}) {
       warehousePhone: r.warehouse?.phone ?? null,
       // كل مذاخر الطلبية بالترتيب: الأساسي ثم الاحتياط
       warehouses: [
-        r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, phone: r.warehouse.phone, groupLink: r.warehouse.groupLink, handle: r.warehouse.handle } : { id: null, name: r.warehouseName, phone: null, groupLink: null },
+        r.warehouse ? { id: r.warehouse.id, name: r.warehouse.name, phone: r.warehouse.phone, groupLink: r.warehouse.groupLink, handle: r.warehouse.handle, botVia: warehouseBotVia(r.warehouse) } : { id: null, name: r.warehouseName, phone: null, groupLink: null },
         ...r.backupWarehouseIds.map(id => whById.get(id)).filter(Boolean),
         // مذاخر خارج القائمة أُرسلت لها الطلبية (تحويل/بديل من «إرسال للمذاخر») — كي تظهر ردودها وفواتيرها
         ...[...new Set(r.sends.map(s => s.warehouseId))]

@@ -83,15 +83,19 @@ export async function matchWarehouse(name, owner) {
 /** المذخر جاهز للإرسال الآلي على قناته؟ */
 export function warehouseReady(w) {
   if (!w) return false;
-  // مفتاح «إرسال الطلبيات» في «رقم الكروبات» مطفأ ⇒ لا إرسال للكروب من أي مسار (فوري/موافقة/تحويل/بديل)
-  if (w.channel === 'group') return Boolean(w.groupJid) && w.groupSendOn !== false;
+  // groupSendOn = مفتاح «الإرسال الآلي» للمذخر على أي قناة (لوحة الماستر «المذاخر والبوت»، وفي
+  // «رقم الكروبات» لكروب المذخر). مطفأ ⇒ لا إرسال آلي من أي مسار (فوري/موافقة/تحويل/بديل)
+  if (w.groupSendOn === false) return false;
+  if (w.channel === 'group') return Boolean(w.groupJid);
   if (w.channel === 'manual') return false;
   return Boolean(normalizeWaId(w.waId || w.phone));
 }
 
+export { warehouseBotVia } from '../../lib/warehouseBotVia.js';
+
 /** سبب عدم جاهزية المذخر للإرسال — نصّ للمستخدم. */
 export function notReadyReason(w) {
-  if (w?.channel === 'group' && w.groupJid && w.groupSendOn === false) return 'إرسال الطلبيات لكروب هذا المذخر موقوف (رقم الكروبات)';
+  if (w?.groupSendOn === false) return 'الإرسال الآلي لهذا المذخر موقوف (لوحة الماستر) — أرسلها يدوياً';
   if (w?.channel === 'group') return 'لم يُختر كروب لهذا المذخر';
   return 'المذخر بلا رقم واتساب أو مضبوط على «يدوي»';
 }

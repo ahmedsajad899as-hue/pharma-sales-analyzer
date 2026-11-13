@@ -20,7 +20,8 @@ const SHARE_CACHE = 'ordine-share'; // نفس الاسم في public/sw.js
 type Status = 'pending' | 'prepared' | 'cancelled';
 
 interface OrderLine { id?: number; itemId: number | null; itemName: string; companyName: string | null; quantity: number; bonusQty: number; preparedQty?: number | null; preparedBonus?: number | null; unitPrice?: number | null }
-interface OrderWh { id: number | null; name: string; phone: string | null; groupLink?: string | null; handle?: string | null }
+type BotVia = 'cloud' | 'group' | 'off' | 'manual';
+interface OrderWh { id: number | null; name: string; phone: string | null; groupLink?: string | null; handle?: string | null; botVia?: BotVia }
 type SendOutcome = 'sent' | 'prepared' | 'partial' | 'rejected';
 interface SendLine { lineId: number; itemName: string; qty: number; bonus: number }
 interface OrderSend { id: number; warehouseId: number | null; warehouseName: string; sentAt: string; outcome: SendOutcome; outcomeAt: string | null; image: string | null; whSeq?: number | null; lines: SendLine[] }
@@ -36,7 +37,7 @@ interface Order {
 }
 interface WarehouseRow {
   id: number; name: string; phone: string; groupLink: string | null; notes: string | null; canEdit: boolean;
-  province?: string | null; provinceGuess?: string | null; handle?: string | null;
+  province?: string | null; provinceGuess?: string | null; handle?: string | null; botVia?: BotVia;
 }
 
 
@@ -161,6 +162,20 @@ const channelOf = (wh?: OrderWh | null): Channel => {
   return 'share';
 };
 const CHANNEL_LABEL: Record<Channel, string> = { 'wa-group': 'كروب واتساب', 'viber-group': 'كروب فايبر', 'wa-number': 'واتساب', 'wa-user': 'واتساب (معرّف)', tg: 'تيليكرام', link: 'رابط المذخر', share: 'مشاركة' };
+// أي بوت يرسل لهذا المذخر حين «إرسال عبر البوت» مفعّلة — يحدّده المذخر لا الخانة
+// (القناة ومفتاح الإرسال من لوحة الماستر «المذاخر والبوت» / «رقم الكروبات»)
+const BOT_VIA: Record<BotVia, { icon: string; label: string; hint: string }> = {
+  cloud:  { icon: '🤖', label: 'البوت الرسمي', hint: 'رقم البوت الرسمي يرسل الطلبية لرقم واتساب المذخر (أزرار تجهيز/جزئي/رفض)' },
+  group:  { icon: '👥', label: 'بوت الكروبات', hint: '«رقم الكروبات» يرسل الطلبية في كروب المذخر ويقرأ فاتورته' },
+  off:    { icon: '⛔', label: 'البوت موقوف', hint: 'الإرسال الآلي لهذا المذخر موقوف من لوحة الماستر — أرسلها يدوياً' },
+  manual: { icon: '✋', label: 'يدوي', hint: 'لا بوت لهذا المذخر (بلا رقم/كروب أو مضبوط يدوياً) — يُرسل من واتسابك' },
+};
+function BotBadge({ via, compact }: { via?: BotVia; compact?: boolean }) {
+  if (!via) return null;
+  const b = BOT_VIA[via];
+  return <span className={`ro-botvia ro-botvia--${via}`} title={`عبر البوت: ${b.label} — ${b.hint}`}>{b.icon}{!compact && <> {b.label}</>}</span>;
+}
+
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
 // أيقونة التطبيق فقط (واتساب/فايبر) بدل نص القناة — التفصيل في title
@@ -853,7 +868,7 @@ export default function RepOrdersPage() {
 
       <div className="ro-bar">
         {canBotSend && (
-          <label className="ro-via-bot" title="البوت يرسل الطلبية للمذخر ويستقبل ردّه (تجهيز/رفض/فاتورة) تلقائياً — المتابعة في صفحة «إرسال للمذاخر»">
+          <label className="ro-via-bot" title="البوت يرسل الطلبية للمذخر ويستقبل ردّه (تجهيز/رفض/فاتورة) تلقائياً. أي بوت؟ حسب المذخر — انظر الشارة قرب اسمه: 🤖 البوت الرسمي (رقم المذخر) · 👥 بوت الكروبات (كروب المذخر) · ⛔ موقوف · ✋ يدوي. مطفأة = ترسلها أنت من واتسابك">
             <input type="checkbox" checked={viaBot} onChange={e => toggleViaBot(e.target.checked)} /> إرسال عبر البوت
           </label>
         )}
@@ -944,7 +959,7 @@ export default function RepOrdersPage() {
                       </tr>
                     )}
                     {g.orders.map(o => (
-                      <OrderRow key={o.id} index={rowI++} o={o} open={openId === o.id} colCount={colCount} terms={terms} canDispatch={canDispatch}
+                      <OrderRow key={o.id} index={rowI++} o={o} open={openId === o.id} colCount={colCount} terms={terms} canDispatch={canDispatch} botSend={canBotSend}
                         showDate={showDate} showRep={showRep} showWh={showWh}
                         onToggle={() => toggleOpen(o.id)}
                         onSend={wh => sendToWarehouse([o], wh)}
@@ -967,7 +982,7 @@ export default function RepOrdersPage() {
       )}
 
       {editing && (
-        <OrderForm token={token} api={api} order={editing === 'new' ? null : editing} warehouses={warehouses} viaBot={canBotSend && viaBot} canAddWarehouse={canDispatch}
+        <OrderForm token={token} api={api} order={editing === 'new' ? null : editing} warehouses={warehouses} viaBot={canBotSend && viaBot} showBot={canBotSend} canAddWarehouse={canDispatch}
           reps={assignableReps} viewerId={viewerId}
           onWarehousesChanged={loadWarehouses}
           onClose={() => setEditing(null)}
@@ -980,7 +995,7 @@ export default function RepOrdersPage() {
           onFinished={(summary) => { setShowViber(false); setViberInit(null); setNotice(`✅ ${summary}`); }} />
       )}
       {showWarehouses && (
-        <WarehousesModal api={api} warehouses={warehouses} provinces={provinces} canManage={canDispatch} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
+        <WarehousesModal api={api} warehouses={warehouses} provinces={provinces} canManage={canDispatch} showBot={canBotSend} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
       )}
       {shared.length > 0 && (
         <SharedImagePicker api={api} images={shared} beginSend={canDispatch ? (o, wh) => beginSend([o], wh, true) : undefined}
@@ -1074,8 +1089,8 @@ function GroupMenu({ groupBy, isManager, options, filter, onGroup, onPick }: {
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onPrepare, onRemoveImage, onPreview, onFeedbackCopied }: {
-  index: number; o: Order; open: boolean; colCount: number; terms: string[]; canDispatch: boolean; showDate: boolean; showRep: boolean; showWh: boolean;
+function OrderRow({ index, o, open, colCount, terms, canDispatch, botSend, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onPrepare, onRemoveImage, onPreview, onFeedbackCopied }: {
+  index: number; o: Order; open: boolean; colCount: number; terms: string[]; canDispatch: boolean; botSend: boolean; showDate: boolean; showRep: boolean; showWh: boolean;
   onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onPrepare: (whId: number | null, f: File | null) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
   onFeedbackCopied?: () => void; // موجود = ميزة «استيراد من الفايبر» مفعّلة
@@ -1161,7 +1176,7 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, show
             {itemHits.length > 0 && <span className="ro-hit">🔎 {itemHits.map(l => `${l.itemName} ×${l.quantity}`).join('، ')}</span>}
           </div>
         </td>
-        {showWh && <td className="ro-hide-sm"><span className="ro-wh-cell">{whLink(wh)}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</span></td>}
+        {showWh && <td className="ro-hide-sm"><span className="ro-wh-cell">{whLink(wh)}{botSend && <BotBadge via={wh.botVia} compact />}{backups > 0 && <span className="ro-more" title="مذاخر احتياط">+{backups}</span>}</span></td>}
         {showRep && <td className="ro-hide-sm ro-nowrap">{o.repName}</td>}
         <td className="ro-state-td"><span className="ro-status"><span className={`ro-badge ro-badge--${state}`}>{STATE_LABEL[state]}</span>{partial && <span className="ro-badge ro-badge--partial">جزئي</span>}</span></td>
         <td className="ro-col-actions" onClick={stop}>
@@ -1198,7 +1213,7 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, show
                     {o.areaName && <div><dt><MapPin size={14} />المنطقة</dt><dd>{o.areaName}</dd></div>}
                     <div><dt><UserRound size={14} />المندوب</dt><dd>{o.repName}{o.assignedBy && <span className="ro-kv__when">حوّلها {o.assignedBy}</span>}</dd></div>
                     <div><dt><CalendarDays size={14} />تاريخ الطلب</dt><dd>{fmtShortDay(o.orderDate)}</dd></div>
-                    <div><dt><Warehouse size={14} />المذخر</dt><dd>{o.warehouses.map(w => w.name).join(' ← ') || wh.name}</dd></div>
+                    <div><dt><Warehouse size={14} />المذخر</dt><dd>{o.warehouses.length ? o.warehouses.map((w, i) => <span key={`${w.id}-${i}`}>{i > 0 && ' ← '}{w.name}{botSend && <> <BotBadge via={w.botVia} compact /></>}</span>) : wh.name}</dd></div>
                     {o.invoiceNumber && <div><dt><Hash size={14} />رقم الفاتورة</dt><dd>{o.invoiceNumber}</dd></div>}
                   </dl>
                 </section>
@@ -1288,7 +1303,7 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, show
                       <div key={`${w.id}-${i}`} className={`ro-whp__card ${isSel ? 'is-open' : ''} ${m ? `ro-wh--${m}` : ''}`}>
                         <button type="button" className="ro-whp__head" onClick={() => setSel(isSel ? -1 : i)} aria-expanded={isSel}>
                           <span className={`ro-whp__rank ${i === 0 ? 'is-main' : ''}`}>{i === 0 ? 'أساسي' : `احتياط ${i}`}</span>
-                          <span className="ro-whp__name" title={w.name}>{m && <i className={`ro-dot ro-dot--${m}`} />}<span className="ro-whp__nm">{w.name}</span><ChannelIcon ch={ch} size={12} /></span>
+                          <span className="ro-whp__name" title={w.name}>{m && <i className={`ro-dot ro-dot--${m}`} />}<span className="ro-whp__nm">{w.name}</span><ChannelIcon ch={ch} size={12} />{botSend && <BotBadge via={w.botVia} compact />}</span>
                           <span className={`ro-sendmark ro-sendmark--${m ?? 'none'}`}>{m ? SEND_LABEL[m] : legacySent ? 'أُرسلت' : 'لم تُرسل'}</span>
                           <ChevronDown size={14} className="ro-whp__chev" />
                         </button>
@@ -1999,8 +2014,8 @@ interface FormLine { key: number; text: string; itemId: number | null; companyNa
 const newLine = (text = '', itemId: number | null = null, companyName = ''): FormLine => ({ key: Date.now() + Math.random(), text, itemId, companyName, quantity: '', bonusQty: '' });
 const MAX_WAREHOUSES = 6; // الأساسي + 5 احتياط
 
-function OrderForm({ token, api, order, warehouses, viaBot, canAddWarehouse, reps, viewerId, onWarehousesChanged, onClose, onSaved }: {
-  token: string | null; viaBot: boolean; canAddWarehouse: boolean;
+function OrderForm({ token, api, order, warehouses, viaBot, showBot, canAddWarehouse, reps, viewerId, onWarehousesChanged, onClose, onSaved }: {
+  token: string | null; viaBot: boolean; showBot: boolean; canAddWarehouse: boolean;
   reps: { id: number; name: string }[]; viewerId: number | null;
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   order: Order | null; warehouses: WarehouseRow[];
@@ -2136,7 +2151,7 @@ function OrderForm({ token, api, order, warehouses, viaBot, canAddWarehouse, rep
             <label className="ro-field">التاريخ
               <input className="form-input" type="date" value={head.orderDate} onChange={e => setHead(h => ({ ...h, orderDate: e.target.value }))} />
             </label>
-            <WarehousePicker warehouses={pickable} value={whIds} onChange={setWhIds} onNew={canAddWarehouse ? () => setNewWh({ name: '', phone: '' }) : undefined} />
+            <WarehousePicker warehouses={pickable} value={whIds} onChange={setWhIds} showBot={showBot} onNew={canAddWarehouse ? () => setNewWh({ name: '', phone: '' }) : undefined} />
             <label className="ro-field">الصيدلية *
               <input className="form-input" list="ro-pharmacies" value={head.pharmacyName} onChange={e => onPharmacy(e.target.value)} />
               <datalist id="ro-pharmacies">{pharmacies.map(p => <option key={p.name} value={p.name} />)}</datalist>
@@ -2203,8 +2218,8 @@ function OrderForm({ token, api, order, warehouses, viaBot, canAddWarehouse, rep
 
 // ─── اختيار المذاخر: حقل واحد، الترتيب بترتيب الاختيار (الأول أساسي) ─────────────
 
-function WarehousePicker({ warehouses, value, onChange, onNew }: {
-  warehouses: WarehouseRow[]; value: string[]; onChange: (v: string[]) => void; onNew?: () => void;
+function WarehousePicker({ warehouses, value, onChange, onNew, showBot }: {
+  warehouses: WarehouseRow[]; value: string[]; onChange: (v: string[]) => void; onNew?: () => void; showBot?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -2228,7 +2243,7 @@ function WarehousePicker({ warehouses, value, onChange, onNew }: {
     <div className="ro-field ro-msel" ref={ref}>
       <span>المذخر *</span>
       <button type="button" className="form-input ro-msel__btn" onClick={() => setOpen(v => !v)}>
-        <span className="ro-msel__val">{value.length ? value.map(nameOf).join(' ← ') : 'اختر المذخر…'}</span>
+        <span className="ro-msel__val">{value.length ? value.map((id, i) => <span key={id}>{i > 0 && ' ← '}{nameOf(id)}{showBot && <> <BotBadge via={warehouses.find(w => String(w.id) === id)?.botVia} compact /></>}</span>) : 'اختر المذخر…'}</span>
         <ChevronDown size={14} />
       </button>
       {open && (
@@ -2241,7 +2256,7 @@ function WarehousePicker({ warehouses, value, onChange, onNew }: {
             const rank = value.indexOf(id);
             return (
               <button type="button" key={w.id} className={`ro-gm__opt ${rank >= 0 ? 'is-active' : ''}`} onClick={() => toggle(id)}>
-                <span>{rank >= 0 ? '☑' : '☐'} {w.name}</span>{rank >= 0 && <b>{rankOf(rank)}</b>}
+                <span>{rank >= 0 ? '☑' : '☐'} {w.name}{showBot && <> <BotBadge via={w.botVia} /></>}</span>{rank >= 0 && <b>{rankOf(rank)}</b>}
               </button>
             );
           })}
@@ -2266,9 +2281,9 @@ function WarehousePicker({ warehouses, value, onChange, onNew }: {
 
 // ─── دليل المذاخر (الاسم + رقم الواتساب) ──────────────────────────────────────
 
-function WarehousesModal({ api, warehouses, provinces, canManage, onOpen, onChanged, onClose }: {
+function WarehousesModal({ api, warehouses, provinces, canManage, showBot, onOpen, onChanged, onClose }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
-  warehouses: WarehouseRow[]; provinces: string[]; canManage: boolean; onOpen: (w: OrderWh) => void; onChanged: () => void; onClose: () => void;
+  warehouses: WarehouseRow[]; provinces: string[]; canManage: boolean; showBot?: boolean; onOpen: (w: OrderWh) => void; onChanged: () => void; onClose: () => void;
 }) {
   const NO_PROV = 'بدون محافظة';
   const provOf = (w: WarehouseRow) => w.province || w.provinceGuess || NO_PROV;
@@ -2353,6 +2368,7 @@ function WarehousesModal({ api, warehouses, provinces, canManage, onOpen, onChan
                     {/* الاسم يفتح كروب المذخر أو محادثته */}
                     {!canManage || channelOf(w) === 'share' ? w.name : <button type="button" className="ro-whlink" title={`فتح ${CHANNEL_LABEL[channelOf(w)]}`} onClick={() => onOpen(w)}>{w.name}</button>}
                     {canManage && <ChannelIcon ch={channelOf(w)} size={13} />}
+                    {showBot && <BotBadge via={w.botVia} />}
                   </span>
                   <span className="ro-whdir__contact">
                     {canManage && w.phone && <span dir="ltr">{w.phone}</span>}

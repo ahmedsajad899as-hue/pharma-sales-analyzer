@@ -11,7 +11,9 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import { normalizeWaId } from '../../lib/waId.js';
-import { groupsSecret, sidecar } from './wa-groups.client.js';
+import { groupsSecret, groupsConfigured, sidecar } from './wa-groups.client.js';
+import { whatsappEnabled } from '../whatsapp/whatsapp.service.js';
+import { warehouseBotVia } from '../../lib/warehouseBotVia.js';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import { handleGroupInbound } from '../warehouse-dispatch/dispatch.inbound.js';
 import { ORDER_TEXT_MODES } from '../orders/order-trigger.js';
@@ -127,20 +129,44 @@ saRouter.get('/links', async (_req, res) => {
 /** كل مذاخر الدليل (ماستر أدمن) لاختيار مذخر الكروب. */
 saRouter.get('/warehouses', async (_req, res) => {
   const rows = await prisma.orderWarehouse.findMany({
-    select: { id: true, name: true, province: true, phone: true, channel: true, groupJid: true, createdById: true },
+    select: { id: true, name: true, province: true, phone: true, waId: true, channel: true, groupJid: true, groupName: true, groupSendOn: true, groupReadOn: true, waLastInboundAt: true, createdById: true },
     orderBy: { name: 'asc' }, take: 3000,
   });
   const owners = new Map((await prisma.user.findMany({
     where: { id: { in: [...new Set(rows.map(r => r.createdById))] } }, select: { id: true, username: true, displayName: true },
   })).map(u => [u.id, u.displayName?.trim() || u.username]));
-  res.json({ success: true, warehouses: rows.map(r => ({ ...r, owner: owners.get(r.createdById) || null })) });
+  res.json({
+    success: true,
+    channels: { cloud: whatsappEnabled(), groups: groupsConfigured() },
+    warehouses: rows.map(r => ({ ...r, hasPhone: Boolean(normalizeWaId(r.waId || r.phone)), botVia: warehouseBotVia(r), owner: owners.get(r.createdById) || null })),
+  });
+});
+
+// لوحة الماستر «المذاخر والبوت»: قناة كل مذخر + مفتاح الإرسال الآلي (groupSendOn لأي قناة)
+saRouter.patch('/warehouses/:id', async (req, res) => {
+  const w = await prisma.orderWarehouse.findUnique({ where: { id: Number(req.params.id) || 0 } });
+  if (!w) return res.status(404).json({ error: 'المذخر غير موجود' });
+  const { channel, sendOn } = req.body || {};
+  const data = {};
+  if (channel !== undefined) {
+    if (!['cloud', 'group', 'manual'].includes(channel)) return res.status(400).json({ error: 'قناة غير معروفة' });
+    if (channel === 'group' && !w.groupJid) return res.status(400).json({ error: 'هذا المذخر بلا كروب — اربطه بكروبه من «رقم الكروبات» أولاً' });
+    if (channel === 'cloud' && !normalizeWaId(w.waId || w.phone)) return res.status(400).json({ error: 'هذا المذخر بلا رقم واتساب — أضف رقمه من «طلبيات المذاخر» ← المذاخر' });
+    data.channel = channel;
+  }
+  if (typeof sendOn === 'boolean') data.groupSendOn = sendOn;
+  if (!Object.keys(data).length) return res.status(400).json({ error: 'لا تغيير' });
+  const u = await prisma.orderWarehouse.update({ where: { id: w.id }, data });
+  // قراءة الكروب تتبع القناة (الكروب يُقرأ فقط لمذخر قناته group)
+  if (data.channel !== undefined && w.groupJid) refreshSidecarJids();
+  res.json({ success: true, channel: u.channel, groupSendOn: u.groupSendOn, botVia: warehouseBotVia(u) });
 });
 
 /** المذخر الذي فقد كروبه يعود لرقم البوت الرسمي إن كان له رقم، وإلا يدوي. */
 const unlinkWarehouseGroup = (where) => prisma.$transaction(async (tx) => {
   const ws = await tx.orderWarehouse.findMany({ where, select: { id: true, phone: true } });
   for (const w of ws) {
-    await tx.orderWarehouse.update({ where: { id: w.id }, data: { groupJid: null, groupName: null, groupSendOn: true, groupReadOn: true, channel: String(w.phone || '').trim() ? 'cloud' : 'manual' } });
+    await tx.orderWarehouse.update({ where: { id: w.id }, data: { groupJid: null, groupName: null, groupReadOn: true, channel: String(w.phone || '').trim() ? 'cloud' : 'manual' } });
   }
   return ws.length;
 });

@@ -14,7 +14,7 @@ import { loadViewer, orderScopeWhere, warehouseScopeWhere, getVisibleOrder, asse
 import { whatsappEnabled } from '../whatsapp/whatsapp.service.js';
 import { groupsConfigured, sidecar } from '../wa-groups/wa-groups.client.js';
 import {
-  MODES, PRE_SEND, getConfig, sendDispatch, applyAction, forwardToWarehouse, warehouseReady,
+  MODES, PRE_SEND, getConfig, sendDispatch, applyAction, forwardToWarehouse, warehouseReady, warehouseBotVia,
 } from './dispatch.core.js';
 
 const ALL_SCOPE_ROLES = new Set(['admin', 'super_admin']);
@@ -148,8 +148,8 @@ export async function sendRepOrder(reqUser, repOrderId, body = {}) {
   if (!warehouseId) throw new AppError('حدّد المذخر أولاً', 400);
   const w = await getVisibleWarehouse(viewer, warehouseId);
   if (!warehouseReady(w)) {
-    throw new AppError(w.channel === 'group' && w.groupJid && w.groupSendOn === false
-      ? 'إرسال الطلبيات لكروب هذا المذخر موقوف من «رقم الكروبات» — أرسلها يدوياً أو شغّل الإرسال هناك'
+    throw new AppError(w.groupSendOn === false
+      ? 'الإرسال الآلي لهذا المذخر موقوف من لوحة الماستر — أرسلها يدوياً (أطفئ «إرسال عبر البوت»)'
       : 'المذخر غير مضبوط للإرسال الآلي (رقم/كروب) — اضبطه من صفحة «إرسال للمذاخر»', 400);
   }
   const creator = await prisma.user.findUnique({ where: { id: o.createdById }, select: { displayName: true, username: true } });
@@ -176,7 +176,7 @@ export async function listWarehouses(reqUser) {
     groupSendOn: w.groupSendOn !== false, groupReadOn: w.groupReadOn !== false,
     backupWarehouseIds: w.backupWarehouseIds, waLastInboundAt: w.waLastInboundAt,
     windowOpen: Boolean(w.waLastInboundAt && Date.now() - new Date(w.waLastInboundAt).getTime() < WINDOW_MS),
-    ready: warehouseReady(w),
+    ready: warehouseReady(w), botVia: warehouseBotVia(w),
   }));
 }
 

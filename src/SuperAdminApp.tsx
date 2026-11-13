@@ -62,9 +62,10 @@ import WhatsAppLinksPage from './pages/super-admin/WhatsAppLinksPage';
 import WaChats from './components/WaChats';
 import WaCampaigns from './components/WaCampaigns';
 import WaGroupsPage from './pages/super-admin/WaGroupsPage';
+import WarehousesBotPage from './pages/super-admin/WarehousesBotPage';
 import DofiedPage from './pages/super-admin/DofiedPage';
 
-type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'area-changes' | 'telegram-links' | 'viber-links' | 'whatsapp-links' | 'wa-chats' | 'wa-campaigns' | 'wa-groups' | 'dofied' | 'ai-usage';
+type Page = 'offices' | 'companies' | 'items' | 'areas' | 'users' | 'super-admins' | 'visits' | 'surveys' | 'doctor-changes' | 'area-changes' | 'telegram-links' | 'viber-links' | 'whatsapp-links' | 'wa-chats' | 'wa-campaigns' | 'wa-groups' | 'warehouses-bot' | 'dofied' | 'ai-usage';
 
 // لون تمييز واحد فقط للحالة النشطة (بدل لون مختلف لكل عنصر) — يهدّئ الشريط الجانبي
 // ويجعل العين تتبع "أين أنا" بدل التوهان بين تدرّجات ملوّنة متعددة.
@@ -85,6 +86,7 @@ const NAV: { id: Page; label: string; icon: string; masterOnly?: boolean }[] = [
   { id: 'wa-chats', label: 'محادثات واتساب', icon: '🗨️', masterOnly: true },
   { id: 'wa-campaigns', label: 'حملات واتساب', icon: '📣', masterOnly: true },
   { id: 'wa-groups',    label: 'رقم الكروبات',  icon: '👥', masterOnly: true },
+  { id: 'warehouses-bot', label: 'المذاخر والبوت', icon: '🏭', masterOnly: true },
   { id: 'dofied',       label: 'ربط دوفايد',    icon: '🔗', masterOnly: true },
   { id: 'ai-usage',     label: 'استهلاك الذكاء', icon: '📈', masterOnly: true },
 ];
@@ -377,6 +379,7 @@ function SuperAdminShell() {
         {page === 'wa-chats' && <div className="wd-page"><WaChats base="/api/sa/whatsapp-links" token={token} /></div>}
         {page === 'wa-campaigns' && <WaCampaigns base="/api/sa/wa-campaigns" token={token} />}
         {page === 'wa-groups' && <WaGroupsPage />}
+        {page === 'warehouses-bot' && <WarehousesBotPage />}
         {page === 'dofied' && <DofiedPage />}
             {page === 'ai-usage' && <AiUsagePage />}
           </div>
