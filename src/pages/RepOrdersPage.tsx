@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Image as ImageIcon, FileSpreadsheet } from 'lucide-react';
+import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban, ChevronDown, Camera, Search, ClipboardList, LayoutList, Sparkles, Clock, CircleCheck, MapPin, CalendarDays, UserRound, Hash, CircleDot, Pill, ZoomIn, ZoomOut, Minus, ChevronLeft, ChevronRight, ClipboardPaste, Copy, Image as ImageIcon, FileSpreadsheet, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ItemPicker, itemCompany, normSearch, type CatalogItem } from '../components/OrderItemPicker';
 import { compressImage, readDataUrl, loadImg } from '../lib/localImage';
@@ -500,6 +500,8 @@ export default function RepOrdersPage() {
   const [viewerId, setViewerId] = useState<number | null>(null);
   const [assignableReps, setAssignableReps] = useState<{ id: number; name: string }[]>([]);
   const [exporting, setExporting] = useState(false);
+  // الهاتف: Excel + التاريخ + التقسيم خلف أيقونة واحدة
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [provinces, setProvinces] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -821,6 +823,13 @@ export default function RepOrdersPage() {
   const showWh = groupBy !== 'warehouse';
   const colCount = 4 + (showDate ? 1 : 0) + (showRep ? 1 : 0) + (showWh ? 1 : 0);
 
+  const doExport = async () => {
+    setExporting(true);
+    try { await exportOrdersExcel(orders, warehouses, period === 'custom' && from ? `${from}_${to}` : period === 'all' ? today() : `${PERIOD_LABEL[period]}-${today()}`); }
+    catch (e: any) { alert(e.message); } finally { setExporting(false); }
+  };
+  const toolsActive = period !== 'all' || !!groupFilter;
+
   return (
     <div className="ro-page">
       {!focused && <>
@@ -836,8 +845,7 @@ export default function RepOrdersPage() {
           <button className="ro-hero__btn" onClick={() => setShowWarehouses(true)} title="دليل المذاخر وأرقام الواتساب">
             <Warehouse size={15} /> <span className="ro-hide-sm">المذاخر</span>
           </button>
-          <button className="ro-hero__btn" disabled={exporting || !orders.length} title="تصدير كل الطلبيات المعروضة بكل حالاتها إلى Excel"
-            onClick={async () => { setExporting(true); try { await exportOrdersExcel(orders, warehouses, period === 'custom' && from ? `${from}_${to}` : period === 'all' ? today() : `${PERIOD_LABEL[period]}-${today()}`); } catch (e: any) { alert(e.message); } finally { setExporting(false); } }}>
+          <button className="ro-hero__btn ro-hide-sm" disabled={exporting || !orders.length} title="تصدير كل الطلبيات المعروضة بكل حالاتها إلى Excel" onClick={doExport}>
             <FileSpreadsheet size={15} /> <span className="ro-hide-sm">{exporting ? 'جارٍ التصدير…' : 'Excel'}</span>
           </button>
           {viberImport && (
@@ -873,6 +881,11 @@ export default function RepOrdersPage() {
             <input type="checkbox" checked={viaBot} onChange={e => toggleViaBot(e.target.checked)} /> إرسال عبر البوت
           </label>
         )}
+        <button type="button" className={`ro-tools-btn ${toolsOpen ? 'is-open' : ''}`} onClick={() => setToolsOpen(v => !v)}
+          title="التاريخ · التقسيم · Excel" aria-label="خيارات العرض" aria-expanded={toolsOpen}>
+          <SlidersHorizontal size={16} />{toolsActive && <i className="ro-tools-btn__dot" />}
+        </button>
+        <div className={`ro-tools ${toolsOpen ? 'is-open' : ''}`}>
         <select className="form-input ro-select" value={period} onChange={e => pickPeriod(e.target.value as Period)} aria-label="التاريخ">
           <option value="all">كل التواريخ</option>
           <option value="today">اليوم</option>
@@ -897,6 +910,10 @@ export default function RepOrdersPage() {
         <GroupMenu groupBy={groupBy} isManager={isManager} options={groupOptions} filter={groupFilter}
           onGroup={t => { setGroupBy(t); setGroupFilter(null); }}
           onPick={(t, opt) => { setGroupBy(t); setGroupFilter({ type: t, key: opt.key, title: opt.title }); }} />
+        <button type="button" className="form-input ro-tools__excel" disabled={exporting || !orders.length} onClick={doExport}>
+          <FileSpreadsheet size={15} /> {exporting ? 'جارٍ التصدير…' : 'تصدير Excel'}
+        </button>
+        </div>
         {/* كل فواتير طلبيات الفايبر التي لم تُرسل بعد ← نقرة واحدة ثم لصق في كروب الفايبر */}
         {viberImport && <ViberInvoicesButton orders={orders} token={token} onDone={load} />}
         {groupFilter && (

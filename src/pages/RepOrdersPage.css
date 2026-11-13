@@ -734,3 +734,18 @@ button.ro-prep { cursor: pointer; }
 .ro-openprompt__text { font-size: 13px; line-height: 1.6; color: var(--c-text-primary); }
 .ro-openprompt__btns { display: flex; gap: 8px; align-items: center; }
 .ro-openprompt__btns .ro-send-btn { flex: 1; }
+
+/* الهاتف: Excel + التاريخ + التقسيم خلف أيقونة واحدة (الحاسوب كما هو) */
+.ro-tools { display: contents; }
+.ro-tools-btn, .ro-tools__excel { display: none; }
+@media (max-width: 720px) {
+  .ro-tools-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 40px; height: 40px; border: 1px solid var(--c-border-light); border-radius: 10px; background: var(--c-surface, #fff); color: var(--c-text-secondary); cursor: pointer; order: 9; }
+  .ro-tools-btn.is-open { border-color: var(--c-accent); color: var(--c-accent); }
+  .ro-tools-btn__dot { position: absolute; top: 6px; inset-inline-end: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--c-accent); }
+  .ro-tools { display: none; }
+  .ro-tools.is-open { display: flex; flex-wrap: wrap; gap: 8px; flex-basis: 100%; order: 11; padding: 8px; border: 1px solid var(--c-border-light); border-radius: 12px; }
+  .ro-tools.is-open .ro-select, .ro-tools.is-open .ro-gm { flex: 1 1 45%; }
+  .ro-tools.is-open .ro-dates { flex-basis: 100%; }
+  .ro-tools__excel { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex-basis: 100%; cursor: pointer; font-family: inherit; }
+  .ro-via-bot { flex: 1 1 auto; justify-content: center; }
+}
