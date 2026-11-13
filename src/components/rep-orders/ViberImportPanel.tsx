@@ -47,6 +47,12 @@ const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointe
 const fmtPrice = (n?: number | null) => (n != null && Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString('en-US') : null);
 const catCompany = (i: CatItem) => i.scientificCompany?.name ?? i.company?.name ?? null;
 const catPrice = (i: CatItem) => i.warehousePrice ?? i.price ?? null;
+/** أصناف الكتالوج بنفس العلامة (أول كلمة) — «Potafast 50 mg» و«Potafast sachet» — ليختار المستخدم الصحيح. */
+const brandOf = (s: string) => (normSearch(s).match(/[a-z؀-ۿ]{3,}/) || [''])[0];
+const variantsOf = (catalog: CatItem[], name: string, exceptId: number | null) => {
+  const b = brandOf(name);
+  return b ? catalog.filter(c => c.id !== exceptId && brandOf(c.name) === b).slice(0, 12) : [];
+};
 
 /** المذخر الذي تذهب له الطلبية = المختار؛ الاحتياط = باقي المذكورة الفعّالة بترتيب الرسالة. */
 function choosePrimary(d: Draft, m: MentionedWh): Partial<Draft> {
@@ -243,6 +249,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     if (!d.pharmacyName.trim()) return 'اسم الصيدلية مطلوب';
     if (!d.warehouseId && !d.warehouseName.trim()) return 'اختر المذخر';
     if (!d.lines.some(l => l.itemName.trim() && l.quantity > 0)) return 'لا أصناف بكمية';
+    const noQty = d.lines.find(l => l.itemName.trim() && !(l.quantity > 0));
+    if (noQty) return `أكمل كمية «${noQty.itemName}» أو احذف السطر`;
     return null;
   };
 
@@ -451,6 +459,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                         <div className="vi-line vi-line--head"><span>الصنف</span><span>الكمية</span><span /><span>بونص</span><span /></div>
                         {d.lines.map((l, i) => {
                           const meta = [l.companyName, fmtPrice(l.unitPrice)].filter(Boolean).join(' · ');
+                          const variants = l.itemId && !l.editing && !locked ? variantsOf(catalog, l.itemName, l.itemId) : [];
                           return (
                             <div key={i} className={`vi-line ${l.itemId && !l.editing ? 'is-matched' : 'is-free'}`}>
                               {l.itemId && !l.editing ? (
@@ -460,6 +469,13 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                                     {meta}{l.writtenAs && l.writtenAs !== l.itemName ? `${meta ? ' · ' : ''}كُتبت: ${l.writtenAs}` : ''}
                                   </small>
                                   {!locked && <button className="vi-x vi-line__edit" title="تغيير الصنف" onClick={() => patchLine(d.key, i, { editing: true })}><Pencil size={11} /></button>}
+                                  {variants.length > 0 && (
+                                    <select className="vi-variants" value="" title="أصناف أخرى بنفس الاسم في الكتالوج"
+                                      onChange={e => { const v = catalog.find(c => c.id === Number(e.target.value)); if (v) pickItem(d.key, i, v); }}>
+                                      <option value="">بدائل بنفس الاسم ({variants.length}) ▾</option>
+                                      {variants.map(v => <option key={v.id} value={v.id}>{[v.name, catCompany(v), fmtPrice(catPrice(v))].filter(Boolean).join(' · ')}</option>)}
+                                    </select>
+                                  )}
                                 </div>
                               ) : locked ? (
                                 <span className="vi-line__name is-free">{l.itemName}</span>

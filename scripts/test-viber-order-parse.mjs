@@ -88,5 +88,46 @@ check('بصمة مختلفة لطلبية أخرى', f1 === orderFingerprint(par
 check('لصقة فيها 3 طلبيات ⇒ 3 كتل', splitPasteIntoOrders(`${o1}\n\n${o2}\n\n${o3}`).length, 3);
 check('لصقة رسالة واحدة بأسطر فارغة ⇒ كتلة واحدة', splitPasteIntoOrders(o3).length, 1);
 
+
+console.log('\n── حالات 2026-11-13 (سكرين شوت الكروب الثاني) ──');
+const areaOf = (t) => ({ 'يوسفية': 'اليوسفيه', 'اليوسفية': 'اليوسفيه', 'شهداء البياع': 'شهداء البياع', 'المنصور': 'المنصور' }[t] ?? null);
+const q1 = `ص / هدير حمادي سلوم / يوسفية
+
+Potafast (20+2
+Potafast (30+3
+
+كل قائمة وحد تجهز
+
+
+ترانزيت مذخر الضامن
+
+@Ahmed Sajad`;
+const r1 = parseViberOrder(q1, { areaOf });
+check('«ص» وحدها بين فاصلين ← الصيدلية الجزء التالي', [r1.pharmacy, r1.area, r1.headerSure], ['هدير حمادي سلوم', 'اليوسفيه', true]);
+check('«ترانزيت مذخر الضامن» ← المذخر + ملاحظة ترانزيت', [r1.warehouses, r1.notes], [['الضامن'], ['ترانزيت', 'كل قائمة وحد تجهز']]);
+check('قوس غير مغلق مع بونص', r1.items, [{ name: 'Potafast', quantity: 20, bonus: 2 }, { name: 'Potafast', quantity: 30, bonus: 3 }]);
+check('اللصقة لا تُقطع عند سطر فارغ قبل الملاحظة والمذخر', splitPasteIntoOrders(q1).length, 1);
+
+const q2 = `ص النور / المنصور
+Potafast        10+1
+🟢م. صلالة، ناقوس
+@Ahmed Sajad`;
+const r2 = parseViberOrder(q2, { areaOf });
+check('«م. صلالة، ناقوس» ← مذخران (والإيموجي يُحذف)', r2.warehouses, ['صلالة', 'الناقوس']);
+check('مسافات كثيرة بين الصنف والكمية', r2.items, [{ name: 'Potafast', quantity: 10, bonus: 1 }]);
+
+const r3 = parseViberOrder('ص الياقوت الابيض /شهداء البياع\nPotafast 10+1\nمذخر الناقوس', { areaOf });
+check('«ص الياقوت الابيض /شهداء البياع»', [r3.pharmacy, r3.area, r3.warehouses], ['الياقوت الابيض', 'شهداء البياع', ['الناقوس']]);
+
+const known = (t) => t === 'هدير حمادي سلوم';
+const r4 = parseViberOrder('اليوسفية - هدير حمادي سلوم\nPotafast 10+1\nاوزون', { areaOf, isKnownPharmacy: known });
+check('بلا «ص»: صيدلية معروفة من طلبيات سابقة + منطقة مسجّلة + مذخر بلا كلمة مذخر', [r4.pharmacy, r4.area, r4.headerSure, r4.warehouses], ['هدير حمادي سلوم', 'اليوسفيه', true, ['اوزون']]);
+
+const r5 = parseViberOrder('المنصور\nص. الشفاء\nPandev 40(10)\nتجهز من مذخر اسبرين بسبب عدم التوفر', { areaOf });
+check('ترويسة سطرين + «تجهز من مذخر X بسبب…»', [r5.pharmacy, r5.area, r5.warehouses], ['الشفاء', 'المنصور', ['اسبرين']]);
+check('«بالمذخر» داخل جملة ليس سطر مذخر', parseViberOrder('ص الامل\nPandev 40(10)\nاذا ما متوفر بالمذخر الاول').warehouses, []);
+check('سطر مذاخر معروفة بلا كلمة مذخر: «سنايا، اسبرين»', parseViberOrder('ص الامل\nPandev 40(10)\nسنايا، اسبرين').warehouses, ['سنايا', 'اسبرين']);
+check('لصقتان في نص واحد تبقيان طلبيتين', splitPasteIntoOrders(`${q1}\n\n${q2}`).length, 2);
+
 console.log(failed ? `\n✗ فشل ${failed}` : '\n✓ كلها نجحت');
 process.exit(failed ? 1 : 0);

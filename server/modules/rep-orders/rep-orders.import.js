@@ -23,10 +23,10 @@ import { buildRepIndex, matchRepName, repCoreKey } from '../../lib/repNameMatch.
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { isPharmacyRep } from '../../lib/pharmacyRep.js';
 import { normKey } from '../orders/order-text-parse.js';
-import { extractOrderRowsFromText, loadKnownWarehouseKeys, loadKnownAreaIndex } from '../orders/order-extract.js';
+import { loadKnownWarehouseKeys, loadKnownAreaIndex } from '../orders/order-extract.js';
 import { enrichRowsFromCatalog, attachScientificRepGuess } from '../orders/orders.service.js';
 import { matchWarehouse, warehouseReady } from '../warehouse-dispatch/dispatch.core.js';
-import { loadViewer, teamUserIds, orderScopeWhere, cleanText } from './rep-orders.service.js';
+import { loadViewer, teamUserIds, orderScopeWhere, warehouseScopeWhere, cleanText } from './rep-orders.service.js';
 import { parseViberOrder, orderFingerprint, splitPasteIntoOrders } from './viber-order-parse.js';
 
 const MAX_BLOCKS = 40;
@@ -89,39 +89,32 @@ async function recentFingerprints(viewer) {
   return byFp;
 }
 
-// ─── الدمج مع الذكاء ─────────────────────────────────────────────────────────
-
-const brand = (s) => (normKey(s).match(/[a-z؀-ۿ]{3,}/) || [''])[0];
+// ─── ما لم يحسمه الشكل: الكتالوج بدل الذكاء ──────────────────────────────────
+// (طلب صاحب المشروع 2026-11-13: لصق الفايبر بلا استهلاك ذكاء — المحلّل + بيانات المكتب)
 
 /**
- * ما لم يحسمه الشكل يُقرأ بالذكاء (نفس برومبت طلبيات البوت). المحلّل يغلب حيث حسم:
- * الصيدلية بـ«ص»، وكمية كل صنف قُرئ سطره.
+ * سطر صنف برقم مجرّد في آخره («Potafast 10»، «Devit 50»): الشكل وحده لا يفرّق بين
+ * الكمية والتركيز، فيحسمه الكتالوج — الاسم كاملاً بالرقم صنفٌ معروف ⇒ الرقم تركيز (يبقى
+ * للمستخدم)؛ الاسم بلا الرقم صنفٌ معروف ⇒ الرقم كمية.
+ * سطر لم يُحسم يصير صنفاً بكمية فارغة يكمله المستخدم بالبحث الذكي — لا نداء ذكاء.
  */
-async function withAiFallback(parsed) {
-  if (!parsed.needsAi) return { ...parsed, readBy: 'parser' };
-  let rows = [];
-  try { rows = await extractOrderRowsFromText(parsed.cleanText); }
-  catch (e) { console.error('[viber-import] الذكاء:', e?.message); }
-  if (!rows.length) return { ...parsed, readBy: 'parser', aiFailed: true };
-
-  const sure = new Map(parsed.items.map(i => [brand(i.name), i]));
-  const items = [];
-  for (const r of rows) {
-    const b = brand(r.item);
-    const p = b && sure.get(b);
-    if (p) { items.push(p); sure.delete(b); continue; }
-    if (r.quantity > 0) items.push({ name: r.item, quantity: Number(r.quantity), bonus: Number(r.bonus) || 0 });
+async function resolveWithCatalog(parsed, userId) {
+  const items = [...parsed.items];
+  const still = [];
+  for (const line of parsed.unparsed) {
+    const m = String(line).trim().match(/^(.*?[a-z].*?)\s*[*×x]?\s*(\d+)\s*(?:p|pc|pcs|ع|علبة|علب)?\s*$/i);
+    if (m) {
+      const whole = [{ item: line.trim() }];
+      const bare = [{ item: m[1].trim() }];
+      try { await enrichRowsFromCatalog(whole, userId, { linkOnly: true }); await enrichRowsFromCatalog(bare, userId, { linkOnly: true }); }
+      catch { /* بلا كتالوج يبقى السطر للمستخدم */ }
+      if (!whole[0]._itemId && bare[0]._itemId) { items.push({ name: m[1].trim(), quantity: Number(m[2]), bonus: 0 }); continue; }
+    }
+    still.push(line);
   }
-  for (const p of sure.values()) items.push(p); // صنف حسمه المحلّل ولم يذكره الموديل
-  const first = rows[0] || {};
-  return {
-    ...parsed,
-    items,
-    pharmacy: parsed.headerSure ? parsed.pharmacy : (first.pharmacy || parsed.pharmacy),
-    area: parsed.headerSure && parsed.area ? parsed.area : (first.area || parsed.area),
-    warehouses: parsed.warehouses.length ? parsed.warehouses : (first.warehouse ? [first.warehouse] : []),
-    readBy: 'ai',
-  };
+  // ما بقي: صنف بلا كمية — يظهر بخانة بحث وكمية فارغة
+  for (const line of still) items.push({ name: String(line).trim(), quantity: 0, bonus: 0, unsure: true });
+  return { ...parsed, items, unparsed: still, readBy: 'parser' };
 }
 
 // ─── المسوّدة ────────────────────────────────────────────────────────────────
@@ -132,17 +125,23 @@ async function withAiFallback(parsed) {
  */
 async function buildDrafts(reqUser, messages, source) {
   const viewer = await loadViewer(reqUser);
-  const [knownWh, areas, team, recent] = await Promise.all([
+  const [knownWh, areas, team, recent, directory, pastPharmacies] = await Promise.all([
     loadKnownWarehouseKeys(), loadKnownAreaIndex(), loadTeam(viewer), recentFingerprints(viewer),
+    // «تعليم» المحلّل من بيانات المكتب: دليل مذاخر الحساب، وأسماء صيدليات طلبياته السابقة
+    warehouseScopeWhere(viewer).then(where => prisma.orderWarehouse.findMany({ where, select: { name: true } })),
+    orderScopeWhere(viewer).then(where => prisma.repOrder.findMany({ where, select: { pharmacyName: true }, distinct: ['pharmacyName'], orderBy: { id: 'desc' }, take: 4000 })),
   ]);
   const areaOf = (t) => areas.get(normalizeAreaName(t)) ?? null;
-  const isKnownWarehouse = (t) => knownWh.has(normKey(t));
+  const dirKeys = new Set(directory.map(w => normKey(String(w.name).replace(/مذخر|مذاخر/g, ''))).filter(Boolean));
+  const isKnownWarehouse = (t) => knownWh.has(normKey(t)) || dirKeys.has(normKey(t));
+  const phKeys = new Set(pastPharmacies.map(o => normKey(o.pharmacyName)).filter(k => k && k.length >= 3));
+  const isKnownPharmacy = (t) => phKeys.has(normKey(t));
 
   const parsedAll = await Promise.all(messages.map(async (m) => {
-    const p = parseViberOrder(m.text, { areaOf, isKnownWarehouse });
-    // رسالة بلا أي صنف ولا سطر ملتبس = دردشة/منشن وحده ← ليست طلبية (بلا كلفة ذكاء)
+    const p = parseViberOrder(m.text, { areaOf, isKnownWarehouse, isKnownPharmacy });
+    // رسالة بلا أي صنف ولا سطر ملتبس = دردشة/منشن وحده ← ليست طلبية
     if (!p.items.length && !p.unparsed.length) return null;
-    return { msg: m, parsed: await withAiFallback(p) };
+    return { msg: m, parsed: await resolveWithCatalog(p, viewer.id) };
   }));
   const found = parsedAll.filter(Boolean);
   const learned = await learnedSenders(viewer, found.map(f => f.msg.sender));
@@ -221,8 +220,8 @@ async function buildDrafts(reqUser, messages, source) {
 
     const warnings = [];
     if (msg.partial) warnings.push('مقطوعة في الصورة — راجع الأصناف');
-    if (parsed.aiFailed) warnings.push('تعذّرت قراءة بعض الأسطر — أكملها يدوياً');
-    if (parsed.unparsed.length && parsed.readBy !== 'ai') warnings.push(`لم تُقرأ: ${parsed.unparsed.join(' · ')}`);
+    if (parsed.unparsed.length) warnings.push(`أكمل الكمية: ${parsed.unparsed.join(' · ')}`);
+    if (!parsed.pharmacy) warnings.push('لم تُعرف الصيدلية — اكتبها');
     if (!parsed.headerSure) warnings.push('راجع اسم الصيدلية والمنطقة');
 
     drafts.push({
