@@ -56,6 +56,21 @@ async function loadTeam(viewer) {
 }
 
 /**
+ * مفتاح منطقة مرن للمطابقة بين ما كُتب في الطلبية واسم المنطقة المعيّنة للمندوب:
+ * بلا «شارع/حي/منطقة» وبلا «ال» وبلا مسافات — «شارع فلسطين» = «فلسطين»، «يوسفية» = «اليوسفيه».
+ */
+const looseArea = (s) => normalizeAreaName(String(s ?? ''))
+  .replace(/(^|\s)(?:شارع|حي|منطقه|منطقة|محله|محلة|قرب|مقابل)(?=\s)/g, ' ')
+  .replace(/(^|\s)ال/g, '$1')
+  .replace(/\s+/g, '');
+const areaMatches = (repKeys, orderKey) => {
+  if (!orderKey) return false;
+  if (repKeys.has(orderKey)) return true;
+  for (const k of repKeys) if (k.length >= 4 && orderKey.length >= 4 && (k.includes(orderKey) || orderKey.includes(k))) return true;
+  return false;
+};
+
+/**
  * لكل مندوب علمي في الفريق: مفاتيح أسماء مناطقه الفعلية (resolveEffectiveAreaIds = التعيين
  * اليدوي + سجل المندوب + المحافظات)، وهل عنده راية «كل المناطق»، وايتماته (حسابه + سجله).
  * بالاسم المطبَّع لا بالمعرّف: نفس اسم المنطقة صفوف مستقلة لكل حساب.
@@ -78,7 +93,7 @@ async function loadRepScope(team) {
   ])]));
   return new Map(perRep.map(r => [r.id, {
     all: r.all,
-    areas: new Set(r.all ? [] : r.areaIds.map(id => keyById.get(id)).filter(Boolean)),
+    areas: new Set(r.all ? [] : r.areaIds.map(id => keyById.get(id)).filter(Boolean).map(looseArea).filter(Boolean)),
     items: itemsById.get(r.id) ?? new Set(),
   }]));
 }
@@ -212,14 +227,23 @@ async function buildDrafts(reqUser, messages, source) {
     //   • أكثر من واحد ⇒ تحسمه الايتمات (من تُعيَّن له أصناف الطلبية)، وإلا يبقى الاختيار بينهم
     //   • المرشّحون (★) أصحاب المنطقة فقط — لا يُقترح مندوب بلا المنطقة
     // اسم المرسل/ما اختير له سابقاً يُقبل فقط إن كان من أصحاب المنطقة (أو المنطقة غير معروفة).
-    const areaKey = normalizeAreaName(parsed.area || '');
-    const explicit = areaKey ? team.list.filter(u => repScope.get(u.id)?.areas.has(areaKey)) : [];
-    const allAreaReps = areaKey && !explicit.length ? team.list.filter(u => repScope.get(u.id)?.all) : [];
-    let pool = explicit.length ? explicit : allAreaReps;
+    // الأولوية: المندوب العلمي صاحب المنطقة، وإن لم يوجد فالتيم ليدر صاحبها (طلب صاحب المشروع 2026-11-14)
+    const areaKey = looseArea(parsed.area || '');
+    const covers = (u) => areaMatches(repScope.get(u.id)?.areas ?? new Set(), areaKey);
+    const sci = team.list.filter(u => u.role === 'scientific_rep');
+    const leaders = team.list.filter(u => u.role === 'team_leader');
+    let pool = areaKey ? sci.filter(covers) : [];
+    let leaderPick = false;
+    if (areaKey && !pool.length) { pool = leaders.filter(covers); leaderPick = pool.length > 0; }
+    if (areaKey && !pool.length) pool = sci.filter(u => repScope.get(u.id)?.all);
     const itemIds = new Set(rows.map(r => r._itemId).filter(Boolean));
     if (pool.length > 1 && itemIds.size) {
       const byItems = pool.filter(u => [...itemIds].some(id => repScope.get(u.id)?.items.has(id)));
       if (byItems.length) pool = byItems;
+    }
+    // سجلّ تشخيص (PM2) — يُقرأ عبر SSH حين لا يُختار المندوب المتوقَّع
+    if (!pool.length || pool.length > 1) {
+      console.log(`[viber-import] rep viewer=${viewer.id} area="${parsed.area}" key=${areaKey} pool=${pool.map(u => u.name).join('|') || '-'} team=${team.list.map(u => `${u.name}:${u.role}:${[...(repScope.get(u.id)?.areas ?? [])].slice(0, 12).join(',')}`).join(' ; ')}`);
     }
     const repCandidates = pool.map(u => ({ id: u.id, name: u.name }));
     const inPool = (id) => !areaKey || pool.some(u => u.id === id);
@@ -235,7 +259,10 @@ async function buildDrafts(reqUser, messages, source) {
       const m = matchRepName(sender, team.index);
       if (m.status === 'exact' && inPool(m.rep.id)) { rep = m.rep; repWhy = 'sender'; }
     }
-    if (!rep && pool.length === 1) { rep = pool[0]; repWhy = 'area'; }
+    if (!rep && pool.length === 1) { rep = pool[0]; repWhy = leaderPick ? 'leader' : 'area'; }
+    const repNote = rep || pool.length > 1 ? null
+      : !parsed.area ? 'لم تُعرف المنطقة'
+      : `«${parsed.area}» غير معيّنة لمندوب علمي أو تيم ليدر في فريقك`;
 
     // التكرار
     const sourceHash = orderFingerprint({ pharmacy: parsed.pharmacy, items: parsed.items });
@@ -270,6 +297,7 @@ async function buildDrafts(reqUser, messages, source) {
       repName: rep?.name ?? null,
       repWhy,
       repCandidates,
+      repNote,
       sourceHash,
       duplicateOf: duplicateOf ? { id: duplicateOf.id, pharmacyName: duplicateOf.pharmacyName, createdAt: duplicateOf.createdAt, status: duplicateOf.status } : null,
       dupInBatch: dupInBatch != null,

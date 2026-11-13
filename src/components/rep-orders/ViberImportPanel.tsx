@@ -31,7 +31,7 @@ interface Draft {
   key: string; source: 'viber-paste' | 'viber-shot'; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
   pharmacyName: string; areaName: string; warehouseId: number | null; warehouseName: string; backupWarehouseIds: number[];
   mentionedWarehouses: MentionedWh[];
-  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'sender' | 'learned' | 'guess' | null;
+  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'leader' | 'sender' | 'learned' | 'guess' | null; repNote?: string | null;
   repCandidates: { id: number; name: string }[]; sourceHash: string | null;
   duplicateOf: { id: number; pharmacyName: string; createdAt: string; status: string } | null; dupInBatch: boolean; warnings: string[];
   // الواجهة فقط
@@ -41,7 +41,7 @@ interface Wh { id: number; name: string }
 interface Rep { id: number; name: string }
 interface CatItem { id: number; name: string; price?: number | null; warehousePrice?: number | null; company?: { name: string } | null; scientificCompany?: { name: string } | null }
 
-const REP_WHY: Record<string, string> = { area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
+const REP_WHY: Record<string, string> = { leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 const fmtPrice = (n?: number | null) => (n != null && Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString('en-US') : null);
@@ -375,7 +375,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
             const extraWh = warehouses.filter(w => !d.mentionedWarehouses.some(m => m.id === w.id));
             const candIds = new Set(d.repCandidates.map(c => c.id));
             const repList = [...repOptions.filter(r => candIds.has(r.id)), ...repOptions.filter(r => !candIds.has(r.id))];
-            const repHint = [d.repWhy ? REP_WHY[d.repWhy] : '', d.sender ? `المرسل: ${d.sender}` : ''].filter(Boolean).join(' · ');
+            const repHint = [d.repWhy ? REP_WHY[d.repWhy] : d.repUserId ? '' : (d.repNote ?? ''), d.sender ? `المرسل: ${d.sender}` : ''].filter(Boolean).join(' · ');
             return (
               <div key={d.key} className={`vi-card ${!d.include ? 'is-off' : ''} ${d.state ? `is-${d.state}` : ''}`}>
                 <div className="vi-card__head">
