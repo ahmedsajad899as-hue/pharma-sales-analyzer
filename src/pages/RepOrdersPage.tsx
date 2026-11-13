@@ -1304,7 +1304,7 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, botSend, showD
                       <div key={`${w.id}-${i}`} className={`ro-whp__card ${isSel ? 'is-open' : ''} ${m ? `ro-wh--${m}` : ''}`}>
                         <button type="button" className="ro-whp__head" onClick={() => setSel(isSel ? -1 : i)} aria-expanded={isSel}>
                           <span className={`ro-whp__rank ${i === 0 ? 'is-main' : ''}`}>{i === 0 ? 'أساسي' : `احتياط ${i}`}</span>
-                          <span className="ro-whp__name" title={w.name}>{m && <i className={`ro-dot ro-dot--${m}`} />}<span className="ro-whp__nm">{w.name}</span><ChannelIcon ch={ch} size={12} />{botSend && <BotBadge via={w.botVia} compact />}</span>
+                          <span className="ro-whp__name" title={w.name}>{m && <i className={`ro-dot ro-dot--${m}`} />}<span className="ro-whp__nm">{w.name}</span>{botSend && <BotBadge via={w.botVia} compact />}</span>
                           <span className={`ro-sendmark ro-sendmark--${m ?? 'none'}`}>{m ? SEND_LABEL[m] : legacySent ? 'أُرسلت' : 'لم تُرسل'}</span>
                           <ChevronDown size={14} className="ro-whp__chev" />
                         </button>
@@ -1638,7 +1638,7 @@ function PrepareDialog({ api, order, file, initialWh, ai, cancelLabel = 'إلغ�
               <div className="ro-chips">
                 {whChoices.map(w => (
                   <button key={w.id} className={`ro-chip ${whId === w.id ? 'is-active' : ''}`} onClick={() => setWhId(w.id)}>
-                    <ChannelIcon ch={channelOf(w)} size={14} />{w.name}
+                    {w.name}
                   </button>
                 ))}
               </div>
@@ -1932,7 +1932,7 @@ function SharedImagePicker({ api, images, beginSend, onViber, onDone, onCancel }
               <button className={`ro-chip ${!whKey ? 'is-active' : ''}`} onClick={() => setWhKey(null)}>كل المذاخر <b>{pool.length}</b></button>
               {whOptions.map(w => (
                 <button key={w.key} className={`ro-chip ${whKey === w.key ? 'is-active' : ''}`} onClick={() => setWhKey(w.key)}>
-                  <ChannelIcon ch={w.ch} size={14} />{w.name} <b>{w.count}</b>
+                  {w.name} <b>{w.count}</b>
                 </button>
               ))}
             </div>
@@ -2368,7 +2368,6 @@ function WarehousesModal({ api, warehouses, provinces, canManage, showBot, onOpe
                   <span className="ro-wh-dir__name ro-whdir__name">
                     {/* الاسم يفتح كروب المذخر أو محادثته */}
                     {!canManage || channelOf(w) === 'share' ? w.name : <button type="button" className="ro-whlink" title={`فتح ${CHANNEL_LABEL[channelOf(w)]}`} onClick={() => onOpen(w)}>{w.name}</button>}
-                    {canManage && <ChannelIcon ch={channelOf(w)} size={13} />}
                     {showBot && <BotBadge via={w.botVia} />}
                   </span>
                   <span className="ro-whdir__contact">
