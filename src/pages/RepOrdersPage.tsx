@@ -170,10 +170,11 @@ const BOT_VIA: Record<BotVia, { icon: string; label: string; hint: string }> = {
   off:    { icon: '⛔', label: 'البوت موقوف', hint: 'الإرسال الآلي لهذا المذخر موقوف من لوحة الماستر — أرسلها يدوياً' },
   manual: { icon: '✋', label: 'يدوي', hint: 'لا بوت لهذا المذخر (بلا رقم/كروب أو مضبوط يدوياً) — يُرسل من واتسابك' },
 };
-function BotBadge({ via, compact }: { via?: BotVia; compact?: boolean }) {
+// أيقونة فقط (بلا نص) — الشرح في title عند الوقوف عليها
+function BotBadge({ via }: { via?: BotVia; compact?: boolean }) {
   if (!via) return null;
   const b = BOT_VIA[via];
-  return <span className={`ro-botvia ro-botvia--${via}`} title={`عبر البوت: ${b.label} — ${b.hint}`}>{b.icon}{!compact && <> {b.label}</>}</span>;
+  return <span className={`ro-botvia ro-botvia--${via}`} title={`عبر البوت: ${b.label} — ${b.hint}`} aria-label={b.label}>{b.icon}</span>;
 }
 
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;

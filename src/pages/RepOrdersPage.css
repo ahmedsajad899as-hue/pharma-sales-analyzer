@@ -264,12 +264,9 @@
 .ro-share-item.ro-row--prepared { background: rgba(16, 185, 129, 0.08); }
 
 /* «إرسال عبر البوت» — صفحة «إرسال للمذاخر» */
-/* شارة «أي بوت» قرب اسم المذخر */
-.ro-botvia { display: inline-flex; align-items: center; gap: 2px; margin-inline-start: 4px; padding: 0 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700; line-height: 17px; white-space: nowrap; vertical-align: middle; cursor: help; border: 1px solid transparent; }
-.ro-botvia--cloud  { color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
-.ro-botvia--group  { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }
-.ro-botvia--off    { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
-.ro-botvia--manual { color: #64748b; background: #f1f5f9; border-color: #e2e8f0; }
+/* أيقونة «أي بوت» قرب اسم المذخر — بلا نص ولا خلفية */
+.ro-botvia { display: inline-block; margin-inline-start: 4px; font-size: 12px; line-height: 1; vertical-align: middle; cursor: help; }
+.ro-botvia--manual { opacity: 0.55; }
 .ro-via-bot { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--c-text-secondary); padding: 4px 8px; border: 1px solid var(--c-border-light); border-radius: 8px; cursor: pointer; white-space: nowrap; }
 
 /* الهاتف: قائمة التقسيم تأخذ عرض الشريط كاملاً بدل الامتداد من الزر خارج الشاشة. */
