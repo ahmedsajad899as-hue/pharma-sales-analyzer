@@ -609,6 +609,17 @@ export default function UsersDirectory(props: Props) {
           </button>
         );
       })}
+      {(() => {
+        // مسوق محافظة (عبر مديره مدير مسوقي المحافظات) بلا محافظة محددة بعد
+        const list = pmMarketers.filter(m => !m.provinceIds.length).map(m => userById.get(m.userId)).filter((u): u is UserRow => !!u);
+        return list.length ? (
+          <div className="ud-cols-pm ud-link-row">
+            <strong>بلا محافظة محددة</strong>
+            <span className="ud-cell is-muted" title={list.map(nameOf).join('، ')}>{list.map(nameOf).join('، ')}</span>
+            <span className="ud-num">{list.length}</span>
+          </div>
+        ) : null;
+      })()}
     </div>
   </>;
 

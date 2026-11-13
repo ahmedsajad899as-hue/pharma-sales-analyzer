@@ -11,7 +11,7 @@ import { PHARMACY_KIND, repSideOf } from '../../lib/pharmacyRep.js';
 import { syncUserItemDerivedLinks } from '../../lib/itemScope.js';
 import { isOfficeScopedRole, syncOfficeScopedCompanies } from '../../lib/officeScope.js';
 import { shareOfficeFilesWithNewUser } from '../../lib/officeFileShares.js';
-import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies, PROVINCE_MARKETER_WHERE } from '../../lib/provinceScope.js';
+import { isProvinceLeader, provinceLeaderIds, syncProvinceLeaderCompanies, PROVINCE_MARKETER_WHERE, PROVINCE_MARKETER_PROVINCES_SELECT, marketerProvinceIdsOf } from '../../lib/provinceScope.js';
 import { loadSeatManagers, loadMarketerManagers } from '../../lib/provinceSeats.js';
 import { newUserPermissions } from '../../lib/newUserFeatures.js';
 import * as provinceTeamsService from '../province-teams/province-teams.service.js';
@@ -138,7 +138,7 @@ export async function listProvinceStructure(req, res) {
     loadMarketerManagers(),
     prisma.user.findMany({
       where: { ...PROVINCE_MARKETER_WHERE, officeId: { not: null } },
-      select: { id: true, officeId: true, provinceAssignments: { select: { provinceId: true } } },
+      select: { id: true, officeId: true, ...PROVINCE_MARKETER_PROVINCES_SELECT },
     }),
   ]);
   res.json({
@@ -152,7 +152,7 @@ export async function listProvinceStructure(req, res) {
       companyCount: m.companyIds.length, itemCount: m.itemIds.length, handlesProvinces: m.handlesProvinces,
     })),
     provinceMarketers: provinceMarketers.map(m => ({
-      userId: m.id, officeId: m.officeId, provinceIds: m.provinceAssignments.map(p => p.provinceId),
+      userId: m.id, officeId: m.officeId, provinceIds: marketerProvinceIdsOf(m),
     })),
   });
 }

@@ -1,6 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
-import { provinceMemberUserIds } from '../../lib/provinceScope.js';
+import { provinceMemberUserIds, provinceIdsByMember, provinceLeaderIds } from '../../lib/provinceScope.js';
 import { provinceByAreaName } from '../../lib/repLocation.js';
 import {
   resolveEffectiveAreas, resolveEffectiveAreaIds, userHasAllAreas, saveUserAreaAssignments,
@@ -366,7 +366,11 @@ export async function listCompanyMembers(req, res, next) {
       orderBy: { username: 'asc' },
     }), provinceByAreaName()]);
 
-    const [effective, provinceMembers] = await Promise.all([effectiveAreasByMember(members), provinceMemberUserIds()]);
+    const [effective, provinceMembers, provIdsByMember, provLeaders, provRows] = await Promise.all([
+      effectiveAreasByMember(members), provinceMemberUserIds(), provinceIdsByMember(), provinceLeaderIds(),
+      prisma.province.findMany({ select: { id: true, name: true } }),
+    ]);
+    const provName = new Map(provRows.map(p => [p.id, p.name]));
     const data = members.map(m => ({
       id: m.id,
       username: m.username,
@@ -379,6 +383,9 @@ export async function listCompanyMembers(req, res, next) {
       companies: m.companyAssignments.map(a => ({ ...a.company, isPrimary: a.isPrimary })),
       managerIds: m.managersOfUser.map(a => a.managerId),
       isProvinceMember: provinceMembers.has(m.id),
+      // تيم ليدر المحافظة لا يُحسب لشركة: يُصنَّف بمحافظته، ومندوبوه من شركات مختلفة تحته.
+      isProvinceLeader: provLeaders.has(m.id),
+      provinces: [...(provIdsByMember.get(m.id) ?? [])].map(id => provName.get(id)).filter(Boolean),
     }));
 
     res.json({ success: true, data, canEdit: !READ_ONLY_ROLES.has(req.user.role) });

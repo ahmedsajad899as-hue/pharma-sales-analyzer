@@ -11,7 +11,6 @@ const isMarketerMember = (m: { linkedRep?: ScientificRep | null }) => m.linkedRe
 const MARKETER_ROLE_LABELS: Record<string, string> = {
   scientific_rep: '🏪 مسوّق', team_leader: '🎯 قائد فريق المسوقين', company_manager: '🏪 مدير المسوقين',
 };
-const MARKETERS_SECTION_KEY = 'marketers';
 
 interface User {
   id: number;
@@ -35,6 +34,8 @@ interface CompanyMember {
   companies: { id: number; name: string; isPrimary?: boolean }[];
   managerIds?: number[];
   isProvinceMember?: boolean;
+  isProvinceLeader?: boolean;
+  provinces?: string[];
 }
 
 interface AreaItem {
@@ -569,7 +570,9 @@ export default function UsersPage() {
                       <div style={{ minWidth: 150, flex: '0 1 220px' }}>
                         <div style={{ fontWeight: isLead ? 900 : 700, fontSize: 14, color: '#1e293b' }}>{name}</div>
                         <div style={{ fontSize: 11, color: '#6366f1', marginTop: 2 }}>
-                          {(isMarketerMember(member) && MARKETER_ROLE_LABELS[member.role]) || ROLE_LABELS[member.role] || member.role}
+                          {(isMarketerMember(member) && MARKETER_ROLE_LABELS[member.role])
+                            || (member.isProvinceLeader && member.role === 'team_leader' && `🎯 قائد فريق محافظة${member.provinces?.length ? ' ' + member.provinces.join('، ') : ''}`)
+                            || ROLE_LABELS[member.role] || member.role}
                           {isLead && <span style={{ color: '#64748b', marginRight: 6 }}>· {childCount} تحته</span>}
                           {!member.isActive && <span style={{ color: '#ef4444', marginRight: 6 }}>● غير نشط</span>}
                         </div>
@@ -583,6 +586,17 @@ export default function UsersPage() {
                             🏢 يعمل على {member.companies.length} شركة
                           </span>
                         )}
+                        {/* عرض المحافظات: الأقسام بالمحافظة، فشركة المندوب العلمي تظهر بجانبه (قائد المحافظة لا شركة له) */}
+                        {isOfficeView && onlyProvince && !isMarketerMember(member) && !member.isProvinceLeader && member.companies.length > 0 && (() => {
+                          const primary = member.companies.filter(c => c.isPrimary);
+                          const shown = primary.length ? primary : member.companies;
+                          return (
+                            <span title={member.companies.map(c => c.name + (c.isPrimary ? ' (رئيسية)' : '')).join('\n')}
+                              style={{ fontSize: 11, fontWeight: 700, color: '#5b21b6', background: '#f5f3ff', padding: '3px 8px', borderRadius: 12 }}>
+                              🏢 {shown.length === 1 ? shown[0].name : `مشترك · ${shown.length} شركات`}
+                            </span>
+                          );
+                        })()}
                         {member.areas.length === 0 ? (
                           <span style={{ fontSize: 12, color: '#94a3b8' }}>لا مناطق محددة</span>
                         ) : (
@@ -654,17 +668,34 @@ export default function UsersPage() {
               if (isOfficeView) {
                 // المسوقون قسم مستقل للمكتب كله، لا تحت أي شركة: شركات المكتب كلها «رئيسية»
                 // عندهم للعمل فقط، فكانوا يقعون تحت أول شركة (ALFURAT) كمندوبين علميين.
-                const marketers = filtered.filter(isMarketerMember)
-                  .map(m => ({ ...m, companies: [{ id: -1, name: MARKETERS_SECTION_KEY, isPrimary: true }] }));
-                const marketersSection = companySections(marketers)
-                  .map(sec => ({ ...sec, key: MARKETERS_SECTION_KEY, name: '🏪 المسوقين — للمكتب كله' }));
+                // وفي عرض المحافظات: التيم ليدر مدير محافظة لا شركة — القسم = المحافظة،
+                // وتحته مندوبوه العلميون من أي شركة (أو المشترك بين عدة شركات).
                 const restore = new Map(filtered.map(m => [m.id, m]));
                 const fixNode = (n: MemberNode<CompanyMember>): MemberNode<CompanyMember> =>
                   ({ member: restore.get(n.member.id) ?? n.member, children: n.children.map(fixNode) });
-                const sections = [
-                  ...companySections(filtered.filter(m => !isMarketerMember(m))),
-                  ...marketersSection.map(sec => ({ ...sec, roots: sec.roots.map(fixNode) })),
-                ];
+                const sectionsBy = (list: CompanyMember[], groupOf: (m: CompanyMember) => string, prefix: string, icon: string) => {
+                  const ids = new Map<string, number>();
+                  const faked = list.map(m => {
+                    const g = groupOf(m);
+                    if (!ids.has(g)) ids.set(g, -(ids.size + 2));
+                    return { ...m, companies: [{ id: ids.get(g)!, name: g, isPrimary: true }] };
+                  });
+                  return companySections(faked).map(sec => ({ ...sec, key: prefix + sec.key, icon, roots: sec.roots.map(fixNode) }));
+                };
+                const provinceOf = (m: CompanyMember) => m.provinces?.[0]
+                  || groupByRegion(m.areas).find(r => r.province !== NO_PROVINCE && r.province !== 'بغداد')?.province
+                  || 'بلا محافظة';
+                const scientific = filtered.filter(m => !isMarketerMember(m));
+                const marketers = filtered.filter(isMarketerMember);
+                const sections = onlyProvince
+                  ? [
+                      ...sectionsBy(scientific, m => `📍 ${provinceOf(m)}`, 'prov:', ''),
+                      ...sectionsBy(marketers, m => `🏪 مسوقو المحافظات — ${provinceOf(m)}`, 'mk:', ''),
+                    ]
+                  : [
+                      ...companySections(scientific).map(sec => ({ ...sec, icon: sec.key === NO_COMPANY_SECTION ? '⚪' : '🏢' })),
+                      ...sectionsBy(marketers, () => '🏪 المسوقين — للمكتب كله', 'mk:', ''),
+                    ];
                 return sections.map(section => {
                   const rows: JSX.Element[] = [];
                   const countAll = (n: MemberNode<CompanyMember>): number => n.children.reduce((s, c) => s + 1 + countAll(c), 0);
@@ -675,9 +706,7 @@ export default function UsersPage() {
                   section.roots.forEach(r => walk(r, 0));
                   return (
                     <div key={section.key} style={{ marginBottom: 18 }}>
-                      {section.key === MARKETERS_SECTION_KEY
-                        ? sectionHeader('', section.name, section.members.length)
-                        : sectionHeader(section.key === NO_COMPANY_SECTION ? '⚪' : '🏢', section.name, section.members.length)}
+                      {sectionHeader(section.icon, section.name, section.members.length)}
                       <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
                         {rows}
                       </div>

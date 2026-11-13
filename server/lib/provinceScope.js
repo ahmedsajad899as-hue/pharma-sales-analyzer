@@ -14,11 +14,43 @@ import { PHARMACY_KIND, BAGHDAD_PROVINCE } from './pharmacyRep.js';
  * مسوق محافظة: فارمسي مُسند إلى محافظة غير بغداد. هذا الإسناد هو انتماؤه كله، وفرق
  * المحافظات (ProvinceTeam / ProvinceRepAssignment) للعلميين فقط ولا تربطه بها شيء.
  */
+const NOT_BAGHDAD = { province: { name: { not: BAGHDAD_PROVINCE } } };
+const IS_BAGHDAD  = { province: { name: BAGHDAD_PROVINCE } };
+
+/** مدير مسوقي المحافظات (managesProvinceMarketers): مدير مسوقين مسنَد لمحافظات بلا بغداد. */
+export const PROVINCE_MARKETERS_MANAGER_WHERE = {
+  role: 'company_manager',
+  linkedRep: { is: { repKind: PHARMACY_KIND } },
+  provinceAssignments: { some: NOT_BAGHDAD, none: IS_BAGHDAD },
+};
+
+/**
+ * مسوق محافظة إذا تحقق أيٌّ مما يلي (ولم يُسنَد لبغداد كمحافظة):
+ *  - مُسنَد مباشرةً لمحافظة غير بغداد؛
+ *  - مديره مدير مسوقي المحافظات (عمر اسماعيل تحت وليد كان يظهر في «مسوقين بغداد»
+ *    لأن الأنبار وصلته عبر مناطقه/مديره لا عبر تعيين محافظة مباشر)؛
+ *  - كل مناطقه خارج بغداد.
+ */
 export const PROVINCE_MARKETER_WHERE = {
   role: { in: ['scientific_rep', 'team_leader'] },
   linkedRep: { is: { repKind: PHARMACY_KIND } },
-  provinceAssignments: { some: { province: { name: { not: BAGHDAD_PROVINCE } } } },
+  OR: [
+    { provinceAssignments: { some: NOT_BAGHDAD } },
+    { provinceAssignments: { none: IS_BAGHDAD }, managersOfUser: { some: { manager: PROVINCE_MARKETERS_MANAGER_WHERE } } },
+    { provinceAssignments: { none: IS_BAGHDAD }, areaAssignments: { some: { area: NOT_BAGHDAD }, none: { area: IS_BAGHDAD } } },
+  ],
 };
+
+/** محافظات مسوق المحافظة (بلا بغداد): المُسنَدة مباشرةً، وإلا محافظات مناطقه. */
+export const PROVINCE_MARKETER_PROVINCES_SELECT = {
+  provinceAssignments: { where: NOT_BAGHDAD, select: { provinceId: true } },
+  areaAssignments: { where: { area: NOT_BAGHDAD }, select: { area: { select: { provinceId: true } } } },
+};
+export function marketerProvinceIdsOf(row) {
+  const direct = (row.provinceAssignments ?? []).map(p => p.provinceId);
+  if (direct.length) return [...new Set(direct)];
+  return [...new Set((row.areaAssignments ?? []).map(a => a.area?.provinceId).filter(id => id != null))];
+}
 
 /** معرّفات من يقود فريق محافظة فعّالاً (اختيارياً ضمن مكتب). */
 export async function provinceLeaderIds(officeId = null) {
@@ -60,7 +92,7 @@ export async function provinceIdsByMember() {
     }),
     prisma.user.findMany({
       where: PROVINCE_MARKETER_WHERE,
-      select: { id: true, provinceAssignments: { where: { province: notBaghdad }, select: { provinceId: true } } },
+      select: { id: true, ...PROVINCE_MARKETER_PROVINCES_SELECT },
     }),
   ]);
   const out = new Map();
@@ -70,7 +102,7 @@ export async function provinceIdsByMember() {
   };
   for (const t of teams) add(t.leaderUserId, t.provinceId);
   for (const a of assign) add(a.repUserId, a.team.provinceId);
-  for (const m of marketers) for (const p of m.provinceAssignments) add(m.id, p.provinceId);
+  for (const m of marketers) for (const pid of marketerProvinceIdsOf(m)) add(m.id, pid);
   return out;
 }
 
