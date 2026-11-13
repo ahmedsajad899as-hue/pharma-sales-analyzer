@@ -609,6 +609,15 @@ export default function RepOrdersPage() {
   }, [visible, groupBy]);
 
   const toggleOpen = (id: number) => setOpenId(x => (x === id ? null : id));
+  // بعد إغلاق التفاصيل: العودة لمكان نفس الطلبية في القائمة لا لأولها
+  const lastOpenRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (openId != null) { lastOpenRef.current = openId; return; }
+    const id = lastOpenRef.current;
+    if (id == null) return;
+    lastOpenRef.current = null;
+    requestAnimationFrame(() => document.querySelector(`[data-ro-order="${id}"]`)?.scrollIntoView({ block: 'center' }));
+  }, [openId]);
   // تُعرض حتى لو خرجت من فلتر الحالة الحالي (أُرسلت من «جديد» مثلاً) كي لا تختفي من تحت المستخدم
   const focused = openId != null ? orders.find(o => o.id === openId) ?? null : null;
   useEffect(() => {
@@ -1177,7 +1186,7 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, botSend, showD
 
   return (
     <>
-      <tr className={`ro-row ro-row--${state} ${open ? 'is-open' : ''}`} hidden={open} onClick={onToggle} style={{ '--i': Math.min(index, 14) } as React.CSSProperties}>
+      <tr data-ro-order={o.id} className={`ro-row ro-row--${state} ${open ? 'is-open' : ''}`} hidden={open} onClick={onToggle} style={{ '--i': Math.min(index, 14) } as React.CSSProperties}>
         <td className="ro-col-no">
           <span className="ro-chevron"><ChevronDown size={14} /></span>
           <span className="ro-id">{o.id}</span>
@@ -1210,7 +1219,9 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, botSend, showD
               <div className="ro-detail__main">
                 <section className={`ro-card ro-card--order ro-card--${state}`}>
                   <div className="ro-card__head ro-card__head--order">
-                    <div className="ro-card__title">
+                    {/* الضغط على اسم الصيدلية يغلق التفاصيل ويرجع للقائمة */}
+                    <div className="ro-card__title ro-card__title--back" role="button" tabIndex={0} title="رجوع لكل الطلبيات"
+                      onClick={onToggle} onKeyDown={e => { if (e.key === 'Enter') onToggle(); }}>
                       <span className="ro-card__ph">{o.pharmacyName}</span>
                       <span className="ro-card__no">#{o.id}</span>
                     </div>

@@ -749,3 +749,6 @@ button.ro-prep { cursor: pointer; }
   .ro-tools__excel { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex-basis: 100%; cursor: pointer; font-family: inherit; }
   .ro-via-bot { flex: 1 1 auto; justify-content: center; }
 }
+
+.ro-card__title--back { cursor: pointer; align-self: stretch; align-items: center; }
+.ro-card__title--back:hover .ro-card__ph { text-decoration: underline; }
