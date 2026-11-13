@@ -121,17 +121,16 @@ const nextWh = (o: Order): OrderWh => {
 /** رقم الطلبية عند مذخر: ترقيم مستقل لكل مذخر (whSeq) — وإلا id الطلبية */
 const whSeqOf = (o: Order, whId: number | null) => o.sends.find(sd => sd.warehouseId === whId && sd.whSeq != null)?.whSeq ?? null;
 
-// ما يصل المذخر: الصيدلية والمنطقة + المتبقي من الأصناف. بلا «طلبية رقم» (طلب صاحب المشروع)
-// ولا مندوب/مذخر/تاريخ/ملاحظات/صورة ختم (صورة الختم مؤجّلة — تُعاد هنا إن طُلبت).
+// ما يصل المذخر — نفس شكل البوت (buildOrderText في dispatch.core.js) بطلب صاحب المشروع:
+//   صيدلية X - المنطقة ← سطر فارغ ← «الايتم    الكمية + البونص» للمتبقي فقط.
+// بلا «طلبية رقم» ولا مندوب/مذخر/تاريخ/ملاحظات/صورة ختم.
+const QTY_GAP = '    ';
 function orderText(o: Order): string {
-  const out: string[] = [];
-  out.push(`*الصيدلية: ${o.pharmacyName}*`);
-  if (o.areaName) out.push(`المنطقة: ${o.areaName}`);
-  out.push('──────────');
-  o.lines.filter(l => remainingOf(l) > 0).forEach((l, i) => {
+  const ph = o.pharmacyName.trim();
+  const out: string[] = [`${/^صيدلي/.test(ph) ? ph : `صيدلية ${ph}`}${o.areaName ? ` - ${o.areaName}` : ''}`, ''];
+  o.lines.filter(l => remainingOf(l) > 0).forEach(l => {
     const b = Math.max(0, l.bonusQty - (l.preparedBonus ?? 0));
-    const bonus = b ? ` + بونص ${b}` : '';
-    out.push(`${i + 1}) ${l.itemName}${l.companyName ? ` (${l.companyName})` : ''} — الكمية: ${remainingOf(l)}${bonus}`);
+    out.push(`${l.itemName}${QTY_GAP}${remainingOf(l)}${b ? ` + ${b}` : ''}`);
   });
   return out.join('\n');
 }
@@ -207,7 +206,7 @@ function ChannelIcon({ ch, size = 16 }: { ch: Channel; size?: number }) {
 /** نص رسالة المذخر: طلبية واحدة أو عدة طلبيات في رسالة واحدة. */
 const ordersText = (list: Order[]) => (list.length === 1
   ? orderText(list[0])
-  : [`*${list.length} طلبيات*`, ...list.map(o => `\n${orderText(o)}`)].join('\n'));
+  : [`${list.length} طلبيات`,...list.map(o => `\n${orderText(o)}`)].join('\n'));
 
 /** النص المرافق لصورة الطلبية (خارجها): اسم الصيدلية ومنطقتها — بلا «طلبية رقم». */
 const ordersCaption = (list: Order[]) => list

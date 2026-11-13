@@ -104,39 +104,29 @@ export function notReadyReason(w) {
 
 const fmtQty = (n) => (Number.isFinite(Number(n)) ? String(Math.round(Number(n))) : '—');
 
-export function lineText(l, i) {
-  const bonus = Number(l.bonus) > 0 ? ` + ${fmtQty(l.bonus)} بونص` : '';
-  return `${i + 1}) ${l.item} — ${fmtQty(l.quantity)}${bonus}`;
-}
+
+// فاصل بين اسم الايتم وكميته — مسافات واضحة (واتساب يحافظ على المسافات المتتالية)
+const QTY_GAP = '    ';
 
 /**
- * نص الكروب: كأن شخصاً كتبه — بلا أيقونات ولا رقم طلبية ولا اسم المندوب ولا طلب الرد بالفاتورة
- * (طلب صاحب المشروع). المطابقة لا تحتاج الرقم: الرد يُعرف من معرّف الرسالة، والفاتورة بقراءتها.
+ * نص الطلبية — شكل واحد بسيط لكل المسارات (كروب، البوت الرسمي، والإرسال اليدوي في الواجهة
+ * orderText بـ RepOrdersPage.tsx) بطلب صاحب المشروع 2026-11-13:
+ *   صيدلية X - المنطقة
+ *   (سطر فارغ)
+ *   ITEM    10 + 3
+ * بلا أيقونات ولا رقم طلبية ولا اسم المندوب. المطابقة لا تحتاج الرقم: الرد يُعرف من معرّف
+ * الرسالة (أو من payload الأزرار في البوت الرسمي)، والفاتورة بقراءتها.
  */
-function buildGroupOrderText(d) {
+export function buildOrderText(d) {
   const lines = Array.isArray(d.lines) ? d.lines : [];
   const ph = String(d.pharmacyName || '').trim();
   const head = ph ? (/^صيدلي/.test(ph) ? ph : `صيدلية ${ph}`) : 'طلبية';
-  const out = [`${head}${d.areaName ? ` - ${d.areaName}` : ''}`];
+  const out = [`${head}${d.areaName ? ` - ${d.areaName}` : ''}`, ''];
   lines.forEach((l) => {
     const bonus = Number(l.bonus) > 0 ? ` + ${fmtQty(l.bonus)}` : '';
-    out.push(`${l.item} ${fmtQty(l.quantity)}${bonus}`);
+    out.push(`${l.item}${QTY_GAP}${fmtQty(l.quantity)}${bonus}`);
   });
-  if (d.notes) out.push(String(d.notes).trim());
-  return out.join('\n');
-}
-
-export function buildOrderText(d, { forGroup = false } = {}) {
-  if (forGroup) return buildGroupOrderText(d);
-  const lines = Array.isArray(d.lines) ? d.lines : [];
-  const out = [`📦 طلبية جديدة رقم ${d.id}`];
-  if (d.repName) out.push(`👤 المندوب: ${d.repName}`);
-  out.push(`🏥 الصيدلية: ${d.pharmacyName || '—'}${d.areaName ? ` — ${d.areaName}` : ''}`);
-  out.push('────────────');
-  lines.forEach((l, i) => out.push(lineText(l, i)));
-  out.push('────────────');
-  if (d.notes) out.push(`📝 ${d.notes}`);
-  out.push('اختاروا أحد الأزرار، أو أرسلوا صورة فاتورة التجهيز رداً على هذه الرسالة.');
+  if (d.notes) out.push('', String(d.notes).trim());
   return out.join('\n');
 }
 
@@ -195,7 +185,7 @@ export async function sendDispatch(dispatchOrId, { byUserId = null, forceTemplat
 
   let ids = [], kind, err = null;
   if (w.channel === 'group') {
-    const r = await sendGroupText(w.groupJid, buildOrderText(d, { forGroup: true }));
+    const r = await sendGroupText(w.groupJid, buildOrderText(d));
     if (r.id) { ids = [r.id]; kind = 'group'; }
     else err = r.error;
   } else {
