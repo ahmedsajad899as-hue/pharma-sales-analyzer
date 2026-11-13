@@ -1242,10 +1242,9 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, botSend, showD
                       <thead>
                         <tr>
                           <th className="ro-mt__name">الصنف</th>
+                          {/* الكمية والبونص بخانة واحدة «10+1»، وبلا عمود الناقص (طلب صاحب المشروع) */}
                           <th>الكمية</th>
-                          <th>بونص</th>
                           {hasPrepared && <th>المجهّز</th>}
-                          {hasPrepared && <th>الناقص</th>}
                           {hasPrice && <th>السعر</th>}
                           {hasPrice && <th>المجموع</th>}
                         </tr>
@@ -1264,10 +1263,8 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, botSend, showD
                                 {l.companyName && <div className="ro-sub"><span>{l.companyName}</span></div>}
                                 {by.length > 0 && <div className="ro-sub"><span>{by.join(' · ')}</span></div>}
                               </td>
-                              <td className="ro-mt__qty">{l.quantity}</td>
-                              <td className="ro-mt__bonus">{l.bonusQty || <span className="ro-muted">—</span>}</td>
+                              <td className="ro-mt__qty">{l.quantity}{l.bonusQty ? <small className="ro-bonus">+{l.bonusQty}</small> : null}</td>
                               {hasPrepared && <td><span className={`ro-prep ro-prep--${st}`}>{got}{l.preparedBonus ? <small className="ro-bonus">+{l.preparedBonus}</small> : null}</span></td>}
-                              {hasPrepared && <td>{short > 0 ? <span className="ro-short">{short}</span> : <span className="ro-muted">—</span>}</td>}
                               {hasPrice && <td className="ro-mt__price">{l.unitPrice != null ? fmtMoney(l.unitPrice) : '—'}</td>}
                               {hasPrice && (
                                 <td className="ro-mt__sum">
@@ -1282,10 +1279,8 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, botSend, showD
                       <tfoot>
                         <tr>
                           <td className="ro-mt__name">الإجمالي</td>
-                          <td className="ro-mt__qty">{total}</td>
-                          <td className="ro-mt__bonus">{totalBonus || '—'}</td>
+                          <td className="ro-mt__qty">{total}{totalBonus ? <small className="ro-bonus">+{totalBonus}</small> : null}</td>
                           {hasPrepared && <td>{preparedTotal}{preparedBonusTotal ? <small className="ro-bonus">+{preparedBonusTotal}</small> : null}</td>}
-                          {hasPrepared && <td>{shortTotal || '—'}</td>}
                           {hasPrice && <td />}
                           {hasPrice && <td className="ro-mt__sum ro-mt__total">{fmtMoney(value)}</td>}
                         </tr>
@@ -1335,10 +1330,8 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, botSend, showD
                                   <div key={it.l.id} className="ro-whp__item">
                                     <span className="ro-whp__iname">{it.l.itemName}</span>
                                     <span className={`ro-prep ro-prep--${it.q >= it.l.quantity ? 'full' : 'part'}`}>{it.q}{it.b ? <small className="ro-bonus">+{it.b}</small> : null}</span>
-                                    {hasPrice && <span className="ro-price">{it.l.unitPrice != null ? fmtMoney(it.l.unitPrice * it.q) : '—'}</span>}
                                   </div>
                                 ))}
-                                {hasPrice && <div className="ro-whp__total">قيمة ما جهّزه <b>{fmtMoney(ws.value)}</b></div>}
                               </div>
                             )}
                             {(m === 'partial' || m === 'rejected') && ws.short.length > 0 && (
