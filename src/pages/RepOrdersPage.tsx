@@ -1015,7 +1015,9 @@ export default function RepOrdersPage() {
           onSaved={(d) => { setEditing(null); if (d && from && (d < from || d > to)) pickPeriod('all'); else load(); }} />
       )}
       {showViber && (
-        <ViberImportPanel api={api} token={token} warehouses={warehouses} reps={assignableReps} canSend={canBotSend}
+        <ViberImportPanel api={api} token={token} warehouses={warehouses} reps={assignableReps}
+          // «إنشاء وإرسال» عبر البوت فقط إن كانت خانة «إرسال عبر البوت» مفعّلة — مطفأة = إنشاء فقط ثم إرسال يدوي
+          canSend={canBotSend && viaBot}
           initialText={viberInit?.text} initialImages={viberInit?.images}
           onClose={() => { setShowViber(false); setViberInit(null); }} onChanged={load}
           onFinished={(summary) => { setShowViber(false); setViberInit(null); setNotice(`✅ ${summary}`); }} />
