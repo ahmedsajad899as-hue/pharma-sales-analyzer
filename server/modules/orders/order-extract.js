@@ -25,7 +25,7 @@ import prisma from '../../lib/prisma.js';
 // الممكن تصنيف سطر كمذخر وهو ما يراه المراجِع.
 const WAREHOUSE_CACHE_MS = 10 * 60_000;
 let warehouseCache = null; // { at, keys:Set }
-async function loadKnownWarehouseKeys() {
+export async function loadKnownWarehouseKeys() {
   if (warehouseCache && Date.now() - warehouseCache.at < WAREHOUSE_CACHE_MS) return warehouseCache.keys;
   const keys = new Set();
   try {
@@ -333,7 +333,7 @@ export async function applyTextParse(rows, text) {
 // أسماء المناطق المسجّلة (Area) + أسماؤها المدموجة (AreaAlias) ← الاسم القانوني.
 // عامة بلا نطاق حساب: نفس الاسم عند أكثر من حساب صفوف مستقلة لكن الاسم واحد.
 let areaCache = null; // { at, map:Map<key, canonicalName> }
-async function loadKnownAreaIndex() {
+export async function loadKnownAreaIndex() {
   if (areaCache && Date.now() - areaCache.at < WAREHOUSE_CACHE_MS) return areaCache.map;
   const map = new Map();
   try {

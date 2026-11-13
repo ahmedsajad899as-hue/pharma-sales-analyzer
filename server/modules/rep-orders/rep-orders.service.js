@@ -390,6 +390,10 @@ export async function listOrders(reqUser, q = {}) {
       pharmacyName: r.pharmacyName,
       areaName: r.areaName,
       notes: r.notes,
+      source: r.source,
+      sourceText: r.sourceText,
+      sourceSender: r.sourceSender,
+      feedbackCopiedAt: r.feedbackCopiedAt,
       status: r.status,
       invoiceImage: r.invoiceImage,
       preparedImage: r.preparedImage,
@@ -447,6 +451,18 @@ async function buildOrderData(viewer, body) {
   };
 }
 
+// «استيراد من الفايبر» (rep-orders.import.js): نصّ الرسالة الأصلي ومرسلها وبصمتها — عند الإنشاء فقط
+const IMPORT_SOURCES = new Set(['viber-paste', 'viber-shot']);
+function importSourceData(body) {
+  if (!IMPORT_SOURCES.has(body?.source)) return {};
+  return {
+    source: body.source,
+    sourceText: String(body.sourceText ?? '').slice(0, 2500) || null,
+    sourceSender: cleanText(body.sourceSender, 80),
+    sourceHash: String(body.sourceHash ?? '').slice(0, 1000) || null,
+  };
+}
+
 /** أسطر الأصناف من الطلب: اسم الصنف وشركته وسعره من الكتالوج، والصنف الحرّ يبقى كما كُتب. */
 export async function buildLines(raw) {
   const rawLines = Array.isArray(raw) ? raw.slice(0, MAX_LINES) : [];
@@ -499,7 +515,7 @@ export async function createOrder(reqUser, body) {
   const { head, lines } = await buildOrderData(viewer, body);
   const owner = (await resolveOwner(viewer, body?.repUserId)) ?? { createdById: viewer.id, assignedById: null };
   return prisma.repOrder.create({
-    data: { ...head, officeId: viewer.officeId ?? null, ...owner, lines: { create: lines } },
+    data: { ...head, ...importSourceData(body), officeId: viewer.officeId ?? null, ...owner, lines: { create: lines } },
     include: { lines: true },
   });
 }

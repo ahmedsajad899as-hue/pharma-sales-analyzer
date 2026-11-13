@@ -26,6 +26,13 @@ const readUpload = multer({
   fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
 });
 
+// سكرين شوت كروب الفايبر — يُقرأ ولا يُحفظ (ذاكرة فقط)
+const shotUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 6 * 1024 * 1024, files: 8 },
+  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+});
+
 const router = Router();
 
 router.get('/warehouses', ctrl.listWarehouses);
@@ -37,6 +44,9 @@ router.get('/suggestions', ctrl.suggestions);
 router.post('/invoice/read', readUpload.single('image'), ctrl.readInvoice);
 router.post('/status', ctrl.setStatus);
 router.post('/mark-sent', ctrl.markSent);
+// «📥 استيراد من الفايبر»: مسوّدات للمراجعة فقط — الحفظ بـ POST / العادي
+router.post('/import/text', ctrl.importText);
+router.post('/import/screenshot', shotUpload.array('images', 8), ctrl.importShots);
 
 router.get('/', ctrl.listOrders);
 router.post('/', ctrl.createOrder);
@@ -46,6 +56,7 @@ router.delete('/:id', ctrl.deleteOrder);
 router.post('/:id/image/:kind', invoiceUpload.single('image'), ctrl.attachImage);
 router.delete('/:id/image/:kind', ctrl.removeImage);
 router.post('/:id/apply-invoice', ctrl.applyInvoice);
+router.post('/:id/feedback-copied', ctrl.feedbackCopied);
 // ما جهّزه المذخر لكل سطر (كامل/جزئي/لا شيء) + فاتورته اختيارياً ← الباقي يُرسل للمذخر التالي
 router.post('/:id/prepare', invoiceUpload.single('image'), ctrl.prepareOrder);
 

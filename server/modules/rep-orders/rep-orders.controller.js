@@ -5,6 +5,7 @@
 
 import * as svc from './rep-orders.service.js';
 import * as invoice from './rep-orders.invoice.js';
+import * as viberImport from './rep-orders.import.js';
 import { createFromRepOrder } from '../warehouse-dispatch/dispatch.core.js';
 
 const wrap = (fn) => async (req, res, next) => {
@@ -37,4 +38,7 @@ export const deleteWarehouse = wrap(async (req, res) => { await svc.deleteWareho
 
 export const readInvoice     = wrap(async (req, res) => res.json({ success: true, ...(await invoice.readInvoice(req.user, req.file)) }));
 export const applyInvoice    = wrap(async (req, res) => res.json({ success: true, ...(await invoice.applyInvoice(req.user, req.params.id, req.body)) }));
+export const importText      = wrap(async (req, res) => res.json({ success: true, ...(await viberImport.importFromText(req.user, req.body)) }));
+export const importShots     = wrap(async (req, res) => res.json({ success: true, ...(await viberImport.importFromScreenshots(req.user, req.files)) }));
+export const feedbackCopied  = wrap(async (req, res) => res.json({ success: true, ...(await viberImport.markFeedbackCopied(req.user, req.params.id)) }));
 export const prepareOrder    = wrap(async (req, res) => res.json({ success: true, ...(await svc.prepareOrder(req.user, req.params.id, req.body, req.file)) }));

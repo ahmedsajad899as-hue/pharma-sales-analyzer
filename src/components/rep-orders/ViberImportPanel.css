@@ -1,0 +1,68 @@
+/* «📥 استيراد من الفايبر» — يعتمد متغيّرات الألوان العامة (--c-*) فيتبع الوضع الليلي */
+
+.vi-dialog { width: min(980px, 100%); }
+
+.vi-drop { border: 2px dashed var(--c-border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; background: var(--c-surface); transition: border-color .15s, background .15s; }
+.vi-drop.is-over { border-color: var(--c-accent); background: var(--c-accent-light); }
+.vi-drop__icons { display: flex; gap: 10px; color: var(--c-accent); }
+.vi-drop__title { font-weight: 700; font-size: 14px; color: var(--c-text-primary); }
+.vi-drop__sub { font-size: 12.5px; color: var(--c-text-secondary); }
+.vi-drop kbd { font-family: inherit; font-size: 11px; padding: 1px 6px; border: 1px solid var(--c-border); border-bottom-width: 2px; border-radius: 5px; background: var(--c-border-light); }
+.vi-drop__row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+.vi-capture { width: 200px; min-height: 34px; resize: none; }
+.vi-reading { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--c-accent); font-weight: 600; }
+.vi-reading i { width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: vi-spin .8s linear infinite; }
+@keyframes vi-spin { to { transform: rotate(360deg); } }
+
+.vi-card { border: 1px solid var(--c-border-light); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--c-surface); }
+.vi-card.is-off { opacity: .55; }
+.vi-card.is-done { border-color: var(--c-success); }
+.vi-card.is-warn { border-color: #d97706; }
+.vi-card.is-error { border-color: var(--c-danger-border); }
+.vi-card__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vi-include { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.vi-ph { flex: 2 1 200px; font-weight: 700; }
+.vi-area { flex: 1 1 140px; }
+.vi-badge { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--c-border-light); color: var(--c-text-secondary); white-space: nowrap; }
+.vi-badge--dup { background: rgba(245, 158, 11, .15); color: #b45309; font-weight: 700; }
+
+.vi-card__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+.vi-hint { font-size: 11.5px; font-weight: 400; color: var(--c-text-secondary); }
+.vi-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.vi-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; padding: 1px 8px; border-radius: 999px; background: var(--c-accent-light); color: var(--c-text-primary); }
+.vi-chip button { border: 0; background: none; padding: 0; cursor: pointer; color: inherit; display: inline-flex; }
+
+.vi-lines { display: flex; flex-direction: column; gap: 5px; }
+.vi-line { display: grid; grid-template-columns: minmax(0, 1fr) 76px 12px 76px 28px; gap: 6px; align-items: center; }
+.vi-line__item { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.vi-line__item .form-input { flex: 1; min-width: 0; }
+.vi-line__name { font-weight: 600; font-size: 13px; color: var(--c-success); display: inline-flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vi-line__name small { color: var(--c-text-secondary); font-weight: 400; }
+.vi-line.is-free .form-input:first-child { border-color: #d97706; }
+.vi-sug { max-width: 180px; }
+.vi-num { text-align: center; }
+.vi-plus { color: var(--c-text-secondary); text-align: center; }
+.vi-addline { align-self: flex-start; font-size: 12.5px; }
+.vi-notes { font-size: 12.5px; }
+
+.vi-warn { margin: 0; padding: 6px 22px 6px 10px; font-size: 12px; color: #b45309; background: rgba(245, 158, 11, .08); border-radius: 8px; }
+.vi-result { font-size: 12.5px; font-weight: 600; padding: 6px 10px; border-radius: 8px; }
+.vi-result--done { color: var(--c-success); background: rgba(22, 163, 74, .08); }
+.vi-result--warn { color: #b45309; background: rgba(245, 158, 11, .1); }
+.vi-result--error { color: var(--c-danger); background: var(--c-danger-bg); }
+.vi-result--saving { color: var(--c-text-secondary); }
+.vi-src-toggle { align-self: flex-start; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px; }
+.vi-src { margin: 0; font-family: inherit; font-size: 12px; white-space: pre-wrap; background: var(--c-border-light); border-radius: 8px; padding: 8px 10px; color: var(--c-text-secondary); }
+
+.vi-foot { flex-wrap: wrap; }
+
+/* أزرار الرد للفايبر في تفاصيل الطلبية */
+.vi-fb { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.vi-fb__done { font-size: 12px; color: var(--c-success); font-weight: 600; }
+.vi-fb__msg { font-size: 12px; color: var(--c-accent); }
+
+@media (max-width: 720px) {
+  .vi-line { grid-template-columns: minmax(0, 1fr) 58px 10px 58px 26px; gap: 4px; }
+  .vi-sug { max-width: 120px; }
+  .vi-capture { width: 100%; }
+}

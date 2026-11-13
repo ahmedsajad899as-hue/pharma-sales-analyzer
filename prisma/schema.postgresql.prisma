@@ -3705,6 +3705,12 @@ model RepOrder {
   preparedAt    DateTime?
   preparedById  Int?
   assignedById  Int? // المدير الذي كتبها وحوّلها للمندوب (createdById = المندوب فتُحسب له)
+  // «استيراد من الفايبر»: نص الرسالة الأصلي ومرسلها + بصمة لكشف التكرار، ومتى نُسخ الرد للفايبر
+  source           String? // viber-paste | viber-shot — null = كُتبت في الصفحة
+  sourceText       String?
+  sourceSender     String?
+  sourceHash       String?
+  feedbackCopiedAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -3712,6 +3718,7 @@ model RepOrder {
   lines     RepOrderLine[]
   sends     RepOrderSend[]
 
+  @@index([sourceHash])
   @@index([createdById, orderDate])
   @@index([officeId, orderDate])
   @@index([warehouseId])

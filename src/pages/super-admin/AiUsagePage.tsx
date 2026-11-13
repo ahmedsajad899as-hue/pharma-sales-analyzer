@@ -25,6 +25,7 @@ const FEATURE_LABEL: Record<string, string> = {
   'invoice-orient': 'اتجاه الفاتورة',
   'invoice-customer-line': 'سطر الزبون',
   'invoice-gate': 'فحص كروب المذخر',
+  'viber-screenshot': 'سكرين شوت الفايبر',
   'invoice-pdf': 'فاتورة PDF (نص)',
   'invoice-pdf-retry': 'إعادة PDF بالأقوى',
   'invoice-rows-fix': 'أسطر بالأقوى (تلقائي)',
@@ -57,6 +58,7 @@ const MODEL_FEATURE_LABEL: Record<string, string> = {
   'invoice-pdf': 'فواتير PDF',
   'invoice-gate': 'فحص كروبات المذاخر',
   'bot-order-text': 'الطلبيات النصية',
+  'viber-screenshot': 'سكرين شوت طلبيات الفايبر',
 };
 
 function ModelSettings({ token }: { token: string | null }) {

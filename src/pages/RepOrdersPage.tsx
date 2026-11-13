@@ -11,6 +11,7 @@ import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban
 import { useAuth } from '../context/AuthContext';
 import { ItemPicker, itemCompany, normSearch, type CatalogItem } from '../components/OrderItemPicker';
 import { compressImage, readDataUrl, loadImg } from '../lib/localImage';
+import ViberImportPanel, { ViberFeedbackButtons, needsViberReply } from '../components/rep-orders/ViberImportPanel';
 import './RepOrdersPage.css';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -30,6 +31,8 @@ interface Order {
   pharmacyName: string; areaName: string | null; notes: string | null;
   status: Status; invoiceImage: string | null; preparedImage: string | null; invoiceNumber?: string | null; createdAt: string; sentAt: string | null; sentCount: number;
   preparedAt: string | null; preparedBy: string | null; lines: OrderLine[]; sends: OrderSend[]; canEdit: boolean;
+  // «استيراد من الفايبر»: viber-paste | viber-shot، ومتى نُسخ الرد للفايبر
+  source?: string | null; sourceText?: string | null; sourceSender?: string | null; feedbackCopiedAt?: string | null;
 }
 interface WarehouseRow {
   id: number; name: string; phone: string; groupLink: string | null; notes: string | null; canEdit: boolean;
@@ -444,6 +447,10 @@ export default function RepOrdersPage() {
   const canBotSend = hasFeature('warehouse_dispatch') && canDispatch;
   // «إرسال الطلبية كصورة» (اشتراك لكل حساب) — بدونها يبقى الإرسال اليدوي نصاً
   const asImage = hasFeature('rep_orders_image_send');
+  // «📥 استيراد من الفايبر» + أزرار الرد للفايبر (اشتراك لكل حساب)
+  const viberImport = hasFeature('rep_orders_viber_import');
+  const [showViber, setShowViber] = useState(false);
+  const [viberPending, setViberPending] = useState(false);
   const [viaBot, setViaBot] = useState<boolean>(() => { try { return localStorage.getItem('ro-via-bot') === '1'; } catch { return false; } });
   const toggleViaBot = (v: boolean) => { setViaBot(v); try { localStorage.setItem('ro-via-bot', v ? '1' : '0'); } catch {} };
 
@@ -559,7 +566,8 @@ export default function RepOrdersPage() {
     return out;
   }, [orders, view, bySearch]);
 
-  const visible = useMemo(() => orders.filter(o => inView(o, view) && byGroup(o)), [orders, view, byGroup]);
+  const viberPendingCount = useMemo(() => (viberImport ? orders.filter(needsViberReply).length : 0), [orders, viberImport]);
+  const visible = useMemo(() => orders.filter(o => inView(o, view) && byGroup(o) && (!viberPending || needsViberReply(o))), [orders, view, byGroup, viberPending]);
 
   const groups = useMemo(() => {
     if (groupBy === 'none') return [{ key: 'all', title: '', orders: visible }];
@@ -590,13 +598,14 @@ export default function RepOrdersPage() {
       const ce = e as CustomEvent<{ activePage?: string }>;
       if (ce.detail?.activePage !== 'rep-orders' || ce.defaultPrevented) return;
       if (preview)        { ce.preventDefault(); setPreview(null); return; }
+      if (showViber)      { ce.preventDefault(); setShowViber(false); return; }
       if (editing)        { ce.preventDefault(); setEditing(null); return; }
       if (showWarehouses) { ce.preventDefault(); setShowWarehouses(false); return; }
       if (openId != null) { ce.preventDefault(); setOpenId(null); }
     };
     window.addEventListener('before-navigate-back', onBack);
     return () => window.removeEventListener('before-navigate-back', onBack);
-  }, [preview, editing, showWarehouses, openId]);
+  }, [preview, editing, showWarehouses, openId, showViber]);
 
 
   // ── الإرسال لواتساب المذخر ─────────────────────────────────────────────────
@@ -804,6 +813,11 @@ export default function RepOrdersPage() {
             onClick={async () => { setExporting(true); try { await exportOrdersExcel(orders, warehouses, period === 'custom' && from ? `${from}_${to}` : period === 'all' ? today() : `${PERIOD_LABEL[period]}-${today()}`); } catch (e: any) { alert(e.message); } finally { setExporting(false); } }}>
             <FileSpreadsheet size={15} /> <span className="ro-hide-sm">{exporting ? 'جارٍ التصدير…' : 'Excel'}</span>
           </button>
+          {viberImport && (
+            <button className="ro-hero__btn" onClick={() => setShowViber(true)} title="لصق رسائل كروب الفايبر أو سكرين شوت لها ← طلبيات جاهزة للإرسال">
+              <ClipboardPaste size={15} /> <span>من الفايبر</span>
+            </button>
+          )}
           <button className="ro-hero__btn ro-hero__btn--primary" onClick={() => setEditing('new')}><Plus size={15} /> طلبية جديدة</button>
         </div>
       </header>
@@ -856,6 +870,11 @@ export default function RepOrdersPage() {
         <GroupMenu groupBy={groupBy} isManager={isManager} options={groupOptions} filter={groupFilter}
           onGroup={t => { setGroupBy(t); setGroupFilter(null); }}
           onPick={(t, opt) => { setGroupBy(t); setGroupFilter({ type: t, key: opt.key, title: opt.title }); }} />
+        {viberImport && (viberPendingCount > 0 || viberPending) && (
+          <button className={`ro-chip ${viberPending ? 'is-active' : ''}`} onClick={() => setViberPending(v => !v)} title="طلبيات من الفايبر جاءت نتيجة تجهيزها ولم يُنسخ ردّها للفايبر بعد">
+            بانتظار الرد للفايبر <b>{viberPendingCount}</b>
+          </button>
+        )}
         {groupFilter && (
           <button className="ro-chip is-active" onClick={() => setGroupFilter(null)} title="إزالة الفلتر">
             {GROUP_LABEL[groupFilter.type]}: {groupFilter.title} <X size={12} />
@@ -928,7 +947,8 @@ export default function RepOrdersPage() {
                         onUpload={(k, f) => (k === 'prepared' ? setPrepFor({ order: o, file: f }) : uploadImage(o, k, f))}
                         onPrepare={(whId, f) => setPrepFor({ order: o, file: f, whId })}
                         onRemoveImage={k => removeImage(o, k)}
-                        onPreview={setPreview} />
+                        onPreview={setPreview}
+                        onFeedbackCopied={viberImport ? load : undefined} />
                     ))}
                   </Fragment>
                 );
@@ -944,6 +964,10 @@ export default function RepOrdersPage() {
           onWarehousesChanged={loadWarehouses}
           onClose={() => setEditing(null)}
           onSaved={(d) => { setEditing(null); if (d && from && (d < from || d > to)) pickPeriod('all'); else load(); }} />
+      )}
+      {showViber && (
+        <ViberImportPanel api={api} token={token} warehouses={warehouses} reps={assignableReps} canSend={canBotSend}
+          onClose={() => setShowViber(false)} onChanged={load} />
       )}
       {showWarehouses && (
         <WarehousesModal api={api} warehouses={warehouses} provinces={provinces} canManage={canDispatch} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
@@ -1036,11 +1060,13 @@ function GroupMenu({ groupBy, isManager, options, filter, onGroup, onPick }: {
 
 // ─── سطر طلبية + تفاصيلها ────────────────────────────────────────────────────
 
-function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onPrepare, onRemoveImage, onPreview }: {
+function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, showRep, showWh, onToggle, onSend, onShare, onStatus, onEdit, onDelete, onUpload, onPrepare, onRemoveImage, onPreview, onFeedbackCopied }: {
   index: number; o: Order; open: boolean; colCount: number; terms: string[]; canDispatch: boolean; showDate: boolean; showRep: boolean; showWh: boolean;
   onToggle: () => void; onSend: (wh: OrderWh) => void; onShare: (wh: OrderWh) => void; onStatus: (s: Status) => void; onEdit: () => void; onDelete: () => void;
   onUpload: (k: ImageKind, f: File) => void; onPrepare: (whId: number | null, f: File | null) => void; onRemoveImage: (k: ImageKind) => void; onPreview: (src: string) => void;
+  onFeedbackCopied?: () => void; // موجود = ميزة «استيراد من الفايبر» مفعّلة
 }) {
+  const { token } = useAuth();
   const state = stateOf(o);
   const partial = isPartial(o);
   // اسم المذخر في قائمة الطلبيات نصّ فقط — لا يفتح كروبه/محادثته (طلب صاحب المشروع)
@@ -1344,6 +1370,7 @@ function OrderRow({ index, o, open, colCount, terms, canDispatch, showDate, show
               </div>
             </div>
             <div className="ro-detail__actions">
+              {onFeedbackCopied && o.source?.startsWith('viber') && <ViberFeedbackButtons order={o} token={token} onCopied={onFeedbackCopied} />}
               {o.status !== 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('pending')}><RotateCcw size={14} /> إرجاع</button>}
               {o.status === 'pending' && <button className="btn btn--secondary btn--sm" onClick={() => onStatus('cancelled')}><Ban size={14} /> إلغاء</button>}
             </div>

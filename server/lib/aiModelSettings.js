@@ -26,6 +26,8 @@ export const AI_MODEL_FEATURES = {
   'invoice-pdf':       { default: 'auto',   modes: ['strong', 'lite', 'auto'] }, // نصّ PDF — نداء نصّي بلا صورة
   'invoice-gate':      { default: 'lite',   modes: ['strong', 'lite'] },        // فحص كروب المذخر: اسم الزبون والأصناف فقط
   'bot-order-text':    { default: 'lite',   modes: ['strong', 'lite'] },
+  // سكرين شوت كروب الفايبر ← نصّ الرسائل حرفياً (rep-orders.import.js)
+  'viber-screenshot':  { default: 'strong', modes: ['strong', 'lite'] },
 };
 
 // ترحيل لمرة واحدة: إعداد «الأقوى» المحفوظ لبطاقات المذاخر قبل هذا التاريخ ← «تلقائي»
