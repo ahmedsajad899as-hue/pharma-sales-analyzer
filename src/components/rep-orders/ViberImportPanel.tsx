@@ -420,6 +420,7 @@ export interface FbOrder {
   id: number; pharmacyName: string; areaName: string | null; status: 'pending' | 'prepared' | 'cancelled';
   preparedImage: string | null; preparedAt: string | null;
   sends: FbSend[]; source?: string | null; feedbackCopiedAt?: string | null;
+  repName?: string; createdById?: number;
 }
 
 /** صورة الفاتورة الأحدث: صورة التجهيز، وإلا آخر صورة رد من مذخر (PDF لا يُنسخ). */
@@ -450,33 +451,38 @@ const loadBlob = async (url: string) => {
 const label = (o: FbOrder) => `#${o.id} — ${o.pharmacyName}${o.areaName ? ` (${o.areaName})` : ''}`;
 
 /**
- * فواتير عدة طلبيات في صورة واحدة (حافظة الكمبيوتر تحمل صورة واحدة فقط): عمودان، وفوق
- * كل فاتورة شريط باسم الصيدلية ورقم الطلبية. الارتفاع محدود كي لا يتجاوز حدّ الـcanvas.
+ * فواتير عدة طلبيات في صورة واحدة: عمودان، وفوق كل فاتورة شريط باسم الصيدلية ورقم
+ * الطلبية، وعنوان اختياري أعلى الصورة (اسم المندوب). الارتفاع محدود لحدّ الـcanvas.
  */
-async function mergeInvoices(items: { label: string; bmp: ImageBitmap }[]): Promise<Blob> {
+async function mergeInvoices(items: { label: string; bmp: ImageBitmap }[], title?: string): Promise<Blob> {
   const cols = items.length > 1 ? 2 : 1;
   const tileW = cols === 1 ? 1100 : 900;
-  const gap = 16, bar = 44;
+  const gap = 16, bar = 44, head = title ? 64 : 0;
   const tiles = items.map(it => ({ ...it, h: Math.round(it.bmp.height * (tileW / it.bmp.width)) }));
   const rows: (typeof tiles)[] = [];
   for (let i = 0; i < tiles.length; i += cols) rows.push(tiles.slice(i, i + cols));
   const rowH = rows.map(r => Math.max(...r.map(t => t.h)) + bar);
   const rawW = cols * tileW + (cols + 1) * gap;
-  const rawH = rowH.reduce((a, b) => a + b + gap, gap);
+  const rawH = rowH.reduce((a, b) => a + b + gap, gap + head);
   const scale = rawH > 16000 ? 16000 / rawH : 1;
   const c = document.createElement('canvas');
   c.width = Math.round(rawW * scale); c.height = Math.round(rawH * scale);
   const g = c.getContext('2d')!;
   g.scale(scale, scale);
   g.fillStyle = '#ffffff'; g.fillRect(0, 0, rawW, rawH);
-  let y = gap;
+  g.textAlign = 'right'; g.direction = 'rtl';
+  if (title) {
+    g.fillStyle = '#7360f2'; g.fillRect(0, 0, rawW, head);
+    g.fillStyle = '#ffffff'; g.font = 'bold 32px Tajawal, "Segoe UI", sans-serif';
+    g.fillText(title, rawW - gap - 6, 43, rawW - gap * 2);
+  }
+  let y = gap + head;
   rows.forEach((r, ri) => {
     r.forEach((t, ci) => {
       // RTL: الأولى يميناً
       const x = cols === 1 ? gap : (ci === 0 ? gap * 2 + tileW : gap);
       g.fillStyle = '#1e293b'; g.fillRect(x, y, tileW, bar);
       g.fillStyle = '#ffffff'; g.font = 'bold 24px Tajawal, "Segoe UI", sans-serif';
-      g.textAlign = 'right'; g.direction = 'rtl';
       g.fillText(t.label, x + tileW - 14, y + 31, tileW - 28);
       g.drawImage(t.bmp, x, y + bar, tileW, t.h);
     });
@@ -485,12 +491,7 @@ async function mergeInvoices(items: { label: string; bmp: ImageBitmap }[]): Prom
   return new Promise((ok, bad) => c.toBlob(b => (b ? ok(b) : bad(new Error('تعذّر تكوين الصورة'))), 'image/png'));
 }
 
-/**
- * يرسل فواتير طلبيات للفايبر بنقرة واحدة:
- *  • الموبايل: قائمة المشاركة بكل الصور ← الفايبر يرسلها دفعة واحدة.
- *  • الكمبيوتر: صورة واحدة تجمعها كلها في الحافظة ← Ctrl+V في كروب الفايبر.
- * يُعيد رسالة للمستخدم، أو null إن ألغى المشاركة.
- */
+/** فاتورة طلبية واحدة (أو أكثر) للفايبر — يستعمله زر تفاصيل الطلبية. */
 async function sendInvoices(list: FbOrder[], token: string | null): Promise<string | null> {
   const ids = list.map(o => o.id);
   if (IS_TOUCH && typeof navigator.share === 'function') {
@@ -507,7 +508,6 @@ async function sendInvoices(list: FbOrder[], token: string | null): Promise<stri
       return `أُرسلت ${files.length} فاتورة`;
     }
   }
-  // تُمرَّر الصورة كـPromise كي تبقى الكتابة للحافظة داخل نقرة المستخدم
   const merged = (async () => {
     const items = (await Promise.all(list.map(async o => {
       try { return { label: label(o), bmp: await createImageBitmap(await loadBlob(`${API}${invoiceImageOf(o)}`)) }; } catch { return null; }
@@ -517,35 +517,169 @@ async function sendInvoices(list: FbOrder[], token: string | null): Promise<stri
   })();
   await navigator.clipboard.write([new ClipboardItem({ 'image/png': merged })]);
   await markCopied(token, ids);
-  return list.length > 1 ? `نُسخت ${list.length} فاتورة بصورة واحدة — Ctrl+V في كروب الفايبر` : 'نُسخت الفاتورة — Ctrl+V في كروب الفايبر';
+  return 'نُسخت الفاتورة — Ctrl+V في كروب الفايبر';
 }
 
-/** «🧾 فواتير الفايبر»: كل فواتير طلبيات الفايبر التي لم تُرسل بعد — بنقرة واحدة. */
+// ─── «فواتير الفايبر»: كل الفواتير غير المُرسلة بنقرة — ثلاثة أشكال يختارها المستخدم ───
+//   all      — صورة واحدة تجمع كل الفواتير
+//   rep      — صورة لكل مندوب تجمع فواتير طلبياته (بعنوان اسمه)
+//   separate — كل فاتورة صورة مستقلة (الموبايل فقط: الحافظة لا تحمل أكثر من صورة)
+// الصور تُجهَّز عند فتح القائمة لا عند النقر: المشاركة في الموبايل تشترط أن تأتي بعد
+// النقرة مباشرة، وتنزيل الفواتير وتجميعها قد يتجاوز تلك المهلة.
+
+type InvMode = 'all' | 'rep' | 'separate';
+interface InvPack { key: string; title: string; ids: number[]; file: File }
+const MODE_LABEL: Record<InvMode, string> = { all: 'صورة واحدة للكل', rep: 'صورة لكل مندوب', separate: 'كل فاتورة منفصلة' };
+const MODE_KEY = 'vi-inv-mode';
+
+async function buildPacks(list: FbOrder[], mode: InvMode): Promise<InvPack[]> {
+  const loaded = (await Promise.all(list.map(async o => {
+    try {
+      const blob = await loadBlob(`${API}${invoiceImageOf(o)}`);
+      return { o, blob, bmp: mode === 'separate' ? null : await createImageBitmap(blob) };
+    } catch { return null; }
+  }))).filter(Boolean) as { o: FbOrder; blob: Blob; bmp: ImageBitmap | null }[];
+  if (!loaded.length) throw new Error('تعذّر تحميل الفواتير');
+  const stamp = new Date().toISOString().slice(0, 10);
+  const asFile = (b: Blob, name: string) => new File([b], name, { type: b.type || 'image/png' });
+
+  if (mode === 'separate') {
+    return loaded.map(({ o, blob }) => ({
+      key: `o${o.id}`, title: label(o), ids: [o.id],
+      file: asFile(blob, `${o.id}-${o.pharmacyName}.${blob.type === 'image/png' ? 'png' : 'jpg'}`),
+    }));
+  }
+  if (mode === 'all') {
+    const blob = await mergeInvoices(loaded.map(x => ({ label: label(x.o), bmp: x.bmp! })));
+    return [{ key: 'all', title: `كل الفواتير (${loaded.length})`, ids: loaded.map(x => x.o.id), file: asFile(blob, `فواتير-${stamp}.png`) }];
+  }
+  const byRep = new Map<string, typeof loaded>();
+  for (const x of loaded) {
+    const k = String(x.o.createdById ?? x.o.repName ?? '—');
+    if (!byRep.has(k)) byRep.set(k, []);
+    byRep.get(k)!.push(x);
+  }
+  const packs: InvPack[] = [];
+  for (const [k, xs] of byRep) {
+    const rep = xs[0].o.repName || '—';
+    const blob = await mergeInvoices(xs.map(x => ({ label: label(x.o), bmp: x.bmp! })), `${rep} — ${xs.length} فاتورة`);
+    packs.push({ key: `r${k}`, title: rep, ids: xs.map(x => x.o.id), file: asFile(blob, `فواتير-${rep}-${stamp}.png`) });
+  }
+  return packs.sort((a, b) => a.title.localeCompare(b.title, 'ar'));
+}
+
 export function ViberInvoicesButton({ orders, token, onDone }: { orders: FbOrder[]; token: string | null; onDone?: () => void }) {
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<InvMode>(() => {
+    try { const m = localStorage.getItem(MODE_KEY) as InvMode | null; return m && (m !== 'separate' || IS_TOUCH) ? m : 'all'; } catch { return 'all'; }
+  });
+  const [packs, setPacks] = useState<InvPack[] | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [sent, setSent] = useState<Set<string>>(new Set());
   const [msg, setMsg] = useState<string | null>(null);
-  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 6000); return () => clearTimeout(t); }, [msg]);
+  const boxRef = useRef<HTMLSpanElement>(null);
   const list = orders.filter(needsViberReply);
+  const listKey = list.map(o => `${o.id}:${invoiceImageOf(o)}`).join(',');
+  const canShare = IS_TOUCH && typeof navigator.share === 'function';
+
+  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 6000); return () => clearTimeout(t); }, [msg]);
+
+  // التجهيز المسبق عند فتح القائمة أو تغيير الشكل
+  useEffect(() => {
+    if (!open || !list.length) return;
+    let alive = true;
+    setPacks(null); setSent(new Set()); setPreparing(true);
+    buildPacks(list, mode)
+      .then(p => { if (alive) setPacks(p); })
+      .catch(e => { if (alive) setMsg(e.message); })
+      .finally(() => { if (alive) setPreparing(false); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mode, listKey]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
   if (!list.length && !msg) return null;
 
-  const run = async () => {
-    setBusy(true);
-    try {
-      const m = await sendInvoices(list, token);
-      if (m) { setMsg(m); onDone?.(); }
-    } catch (e: any) { setMsg(e?.message || 'تعذّر النسخ في هذا المتصفح'); }
-    setBusy(false);
+  const pickMode = (m: InvMode) => { setMode(m); try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ } };
+
+  const finish = async (ps: InvPack[]) => {
+    await markCopied(token, ps.flatMap(p => p.ids));
+    setSent(s => new Set([...s, ...ps.map(p => p.key)]));
+    onDone?.();
   };
 
+  /** الموبايل: مشاركة صورة/صور جاهزة. الكمبيوتر: نسخ صورة واحدة للحافظة. */
+  const deliver = async (ps: InvPack[]) => {
+    try {
+      if (canShare) {
+        const files = ps.map(p => p.file);
+        if (!navigator.canShare?.({ files })) throw new Error('المشاركة غير مدعومة لهذه الصور');
+        try { await navigator.share({ files }); }
+        catch (e: any) { if (e?.name === 'AbortError') return; throw e; }
+        await finish(ps);
+        setMsg(ps.length > 1 ? `أُرسلت ${ps.length} صور` : 'أُرسلت');
+        return;
+      }
+      const blob = ps[0].file.type === 'image/png' ? ps[0].file
+        : await createImageBitmap(ps[0].file).then(bmp => mergeInvoices([{ label: ps[0].title, bmp }]));
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      await finish([ps[0]]);
+      setMsg(`نُسخت «${ps[0].title}» — Ctrl+V في كروب الفايبر`);
+    } catch (e: any) { setMsg(e?.message || 'تعذّر النسخ في هذا المتصفح'); }
+  };
+
+  const modes: InvMode[] = canShare ? ['all', 'rep', 'separate'] : ['all', 'rep'];
+  const verb = canShare ? 'مشاركة' : 'نسخ';
+  const remaining = packs?.filter(p => !sent.has(p.key)) ?? [];
+
   return (
-    <span className="vi-fb">
+    <span className="vi-fb vi-inv" ref={boxRef}>
       {list.length > 0 && (
-        <button className="ro-chip vi-inv-all" disabled={busy} onClick={run}
-          title="كل فواتير طلبيات الفايبر التي لم تُرسل للفايبر بعد — بنقرة واحدة">
-          <ImageIcon size={13} /> {busy ? 'جارٍ التجميع…' : IS_TOUCH ? 'مشاركة فواتير الفايبر' : 'نسخ فواتير الفايبر'} <b>{list.length}</b>
+        <button className={`ro-chip vi-inv-all ${open ? 'is-active' : ''}`} onClick={() => setOpen(o => !o)}
+          title="كل فواتير طلبيات الفايبر التي لم تُرسل للفايبر بعد">
+          <ImageIcon size={13} /> فواتير الفايبر <b>{list.length}</b>
         </button>
       )}
       {msg && <span className="vi-fb__msg">{msg}</span>}
+      {open && list.length > 0 && (
+        <div className="vi-inv-pop" role="dialog">
+          <div className="vi-inv-modes">
+            {modes.map(m => (
+              <button key={m} className={`vi-inv-mode ${mode === m ? 'is-active' : ''}`} onClick={() => pickMode(m)}>{MODE_LABEL[m]}</button>
+            ))}
+          </div>
+          {preparing && <div className="vi-reading"><i /> تجهيز الصور…</div>}
+          {packs && mode === 'all' && (
+            <button className="vi-btn vi-btn--primary vi-inv-go" disabled={sent.has('all')} onClick={() => deliver(packs)}>
+              {sent.has('all') ? '✓ تم' : `${verb} صورة الكل (${packs[0].ids.length} فاتورة)`}
+            </button>
+          )}
+          {packs && mode !== 'all' && (
+            <div className="vi-inv-list">
+              {canShare && remaining.length > 1 && (
+                <button className="vi-btn vi-btn--primary vi-inv-go" onClick={() => deliver(remaining)}>
+                  مشاركة الكل ({remaining.length} {mode === 'rep' ? 'صور' : 'فاتورة'})
+                </button>
+              )}
+              {packs.map(p => (
+                <div key={p.key} className={`vi-inv-row ${sent.has(p.key) ? 'is-sent' : ''}`}>
+                  <span className="vi-inv-row__name">{p.title}{mode === 'rep' && <small> · {p.ids.length} فاتورة</small>}</span>
+                  <button className="vi-btn" disabled={sent.has(p.key)} onClick={() => deliver([p])}>
+                    {sent.has(p.key) ? '✓' : verb}
+                  </button>
+                </div>
+              ))}
+              {!canShare && mode === 'rep' && <div className="vi-hint">الحافظة تحمل صورة واحدة — انسخ والصق كل مندوب على حدة</div>}
+            </div>
+          )}
+        </div>
+      )}
     </span>
   );
 }
