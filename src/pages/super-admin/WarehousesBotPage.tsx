@@ -11,7 +11,7 @@ import { Bar, Empty, Seg, Toggle, TAG, ghost, inputSm, th, td } from './saKit';
 type Channel = 'cloud' | 'group' | 'manual';
 type BotVia = 'cloud' | 'group' | 'off' | 'manual';
 interface Wh {
-  id: number; name: string; province: string | null; phone: string; hasPhone: boolean;
+  id: number; name: string; province: string | null; phone: string; hasPhone: boolean; groupLink: string | null; handle: string | null;
   channel: Channel; groupJid: string | null; groupName: string | null; groupSendOn: boolean;
   waLastInboundAt: string | null; botVia: BotVia; owner: string | null;
 }
@@ -22,6 +22,10 @@ const VIA: Record<BotVia, { label: string; style: CSSProperties; hint: string }>
   off:    { label: '⛔ موقوف', style: TAG.bad, hint: 'الإرسال الآلي مطفأ — المندوب يرسل يدوياً' },
   manual: { label: '✋ يدوي', style: TAG.mute, hint: 'لا بوت: بلا رقم/كروب أو مضبوط يدوياً' },
 };
+/** نوع جهة المذخر: كروب (مربوط بالبوت أو له رابط دعوة) أو حساب خاص (رقم/معرّف). */
+const kindOf = (w: Wh): 'group' | 'private' | null =>
+  w.groupJid || w.groupLink ? 'group' : w.hasPhone || w.phone || w.handle ? 'private' : null;
+
 const FILTERS: (BotVia | 'all')[] = ['all', 'cloud', 'group', 'off', 'manual'];
 
 export default function WarehousesBotPage() {
@@ -103,7 +107,11 @@ export default function WarehousesBotPage() {
                 return (
                   <tr key={w.id} style={{ opacity: busy ? 0.6 : 1, background: w.botVia === 'off' ? '#fffafa' : undefined }}>
                     <td style={td}>
-                      <div style={{ fontWeight: 700 }}>{w.name}</div>
+                      <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {w.name}
+                        {kindOf(w) === 'group' && <span style={TAG.ok} title={w.groupName ? `الكروب: ${w.groupName}` : 'له رابط كروب'}>كروب</span>}
+                        {kindOf(w) === 'private' && <span style={TAG.violet} title="رقم أو معرّف واتساب للمذخر">حساب خاص</span>}
+                      </div>
                       <div style={{ fontSize: 11, color: UI.faint }}>
                         {[w.province, w.owner, w.hasPhone ? w.phone : null, w.groupName ? `كروب: ${w.groupName}` : null].filter(Boolean).join(' · ')}
                       </div>

@@ -129,7 +129,7 @@ saRouter.get('/links', async (_req, res) => {
 /** كل مذاخر الدليل (ماستر أدمن) لاختيار مذخر الكروب. */
 saRouter.get('/warehouses', async (_req, res) => {
   const rows = await prisma.orderWarehouse.findMany({
-    select: { id: true, name: true, province: true, phone: true, waId: true, channel: true, groupJid: true, groupName: true, groupSendOn: true, groupReadOn: true, waLastInboundAt: true, createdById: true },
+    select: { id: true, name: true, province: true, phone: true, waId: true, groupLink: true, handle: true, channel: true, groupJid: true, groupName: true, groupSendOn: true, groupReadOn: true, waLastInboundAt: true, createdById: true },
     orderBy: { name: 'asc' }, take: 3000,
   });
   const owners = new Map((await prisma.user.findMany({
