@@ -11,7 +11,7 @@ import { Plus, Trash2, Send, Share2, Check, RotateCcw, Pencil, X, Warehouse, Ban
 import { useAuth } from '../context/AuthContext';
 import { ItemPicker, itemCompany, normSearch, type CatalogItem } from '../components/OrderItemPicker';
 import { compressImage, readDataUrl, loadImg } from '../lib/localImage';
-import ViberImportPanel, { ViberFeedbackButtons, needsViberReply } from '../components/rep-orders/ViberImportPanel';
+import ViberImportPanel, { ViberFeedbackButtons, ViberInvoicesButton } from '../components/rep-orders/ViberImportPanel';
 import './RepOrdersPage.css';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -453,7 +453,6 @@ export default function RepOrdersPage() {
   // ما وصل بـ«مشاركة ← Ordine» ويُفتح مباشرة في لوحة الفايبر (نص رسالة، أو سكرين شوت)
   const [viberInit, setViberInit] = useState<{ text?: string; images?: File[] } | null>(null);
   const openViber = (init: { text?: string; images?: File[] } | null = null) => { setViberInit(init); setShowViber(true); };
-  const [viberPending, setViberPending] = useState(false);
   const [viaBot, setViaBot] = useState<boolean>(() => { try { return localStorage.getItem('ro-via-bot') === '1'; } catch { return false; } });
   const toggleViaBot = (v: boolean) => { setViaBot(v); try { localStorage.setItem('ro-via-bot', v ? '1' : '0'); } catch {} };
 
@@ -579,8 +578,7 @@ export default function RepOrdersPage() {
     return out;
   }, [orders, view, bySearch]);
 
-  const viberPendingCount = useMemo(() => (viberImport ? orders.filter(needsViberReply).length : 0), [orders, viberImport]);
-  const visible = useMemo(() => orders.filter(o => inView(o, view) && byGroup(o) && (!viberPending || needsViberReply(o))), [orders, view, byGroup, viberPending]);
+  const visible = useMemo(() => orders.filter(o => inView(o, view) && byGroup(o)), [orders, view, byGroup]);
 
   const groups = useMemo(() => {
     if (groupBy === 'none') return [{ key: 'all', title: '', orders: visible }];
@@ -883,11 +881,8 @@ export default function RepOrdersPage() {
         <GroupMenu groupBy={groupBy} isManager={isManager} options={groupOptions} filter={groupFilter}
           onGroup={t => { setGroupBy(t); setGroupFilter(null); }}
           onPick={(t, opt) => { setGroupBy(t); setGroupFilter({ type: t, key: opt.key, title: opt.title }); }} />
-        {viberImport && (viberPendingCount > 0 || viberPending) && (
-          <button className={`ro-chip ${viberPending ? 'is-active' : ''}`} onClick={() => setViberPending(v => !v)} title="طلبيات من الفايبر جاءت نتيجة تجهيزها ولم يُنسخ ردّها للفايبر بعد">
-            بانتظار الرد للفايبر <b>{viberPendingCount}</b>
-          </button>
-        )}
+        {/* كل فواتير طلبيات الفايبر التي لم تُرسل بعد ← نقرة واحدة ثم لصق في كروب الفايبر */}
+        {viberImport && <ViberInvoicesButton orders={orders} token={token} onDone={load} />}
         {groupFilter && (
           <button className="ro-chip is-active" onClick={() => setGroupFilter(null)} title="إزالة الفلتر">
             {GROUP_LABEL[groupFilter.type]}: {groupFilter.title} <X size={12} />

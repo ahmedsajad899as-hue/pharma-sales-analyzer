@@ -13,7 +13,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, ClipboardPaste, Image as ImageIcon, Trash2, Plus, Check, Copy, Send, ChevronDown } from 'lucide-react';
+import { X, ClipboardPaste, Image as ImageIcon, Trash2, Plus, Check, Send, ChevronDown } from 'lucide-react';
 import { compressImage } from '../../lib/localImage';
 import './ViberImportPanel.css';
 
@@ -412,133 +412,163 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   );
 }
 
-// ─── الرجوع للفايبر: نص الرد + صورة الفاتورة ─────────────────────────────────
+// ─── الرجوع للفايبر: صور الفواتير ────────────────────────────────────────────
+// (زر «نسخ الرد» النصّي أُلغي بطلب صاحب المشروع 2026-11-13 — الفاتورة نفسها هي الرد)
 
-interface FbLine { id?: number; itemName: string; quantity: number; bonusQty: number; preparedQty?: number | null; preparedBonus?: number | null }
-interface FbSend { warehouseName: string; outcome: 'sent' | 'prepared' | 'partial' | 'rejected'; outcomeAt: string | null; image: string | null; lines: { lineId: number; itemName: string; qty: number; bonus: number }[] }
+interface FbSend { outcome: 'sent' | 'prepared' | 'partial' | 'rejected'; outcomeAt: string | null; image: string | null }
 export interface FbOrder {
   id: number; pharmacyName: string; areaName: string | null; status: 'pending' | 'prepared' | 'cancelled';
-  invoiceNumber?: string | null; preparedImage: string | null; preparedAt: string | null; warehouseName: string;
-  lines: FbLine[]; sends: FbSend[]; source?: string | null; feedbackCopiedAt?: string | null;
+  preparedImage: string | null; preparedAt: string | null;
+  sends: FbSend[]; source?: string | null; feedbackCopiedAt?: string | null;
 }
 
-const qtyStr = (q: number, b: number) => `${q}${b > 0 ? `+${b}` : ''}`;
+/** صورة الفاتورة الأحدث: صورة التجهيز، وإلا آخر صورة رد من مذخر (PDF لا يُنسخ). */
+const invoiceImageOf = (o: FbOrder) =>
+  [o.preparedImage, ...[...o.sends].reverse().map(s => s.image)].find(p => p && !/\.pdf$/i.test(p)) || null;
 
-/** آخر تغيّر في نتيجة الطلبية (رد مذخر، تجهيز) — للمقارنة مع وقت نسخ الرد. */
+/** آخر تغيّر في نتيجة الطلبية (رد مذخر، تجهيز) — للمقارنة مع وقت نسخ الفاتورة. */
 const lastOutcomeAt = (o: FbOrder) => {
   const ts = [o.preparedAt, ...o.sends.filter(s => s.outcome !== 'sent').map(s => s.outcomeAt)].filter(Boolean).map(t => new Date(t!).getTime());
   return ts.length ? Math.max(...ts) : 0;
 };
 
-/** طلبية من الفايبر لها نتيجة جديدة لم يُنسخ ردّها بعد. */
+/** طلبية من الفايبر لها فاتورة لم تُرسل للفايبر بعد (أو جاءت فاتورة أحدث بعد الإرسال). */
 export const needsViberReply = (o: FbOrder) => {
-  if (!o.source?.startsWith('viber')) return false;
-  const last = lastOutcomeAt(o);
-  if (!last && o.status !== 'cancelled') return false;
-  return !o.feedbackCopiedAt || new Date(o.feedbackCopiedAt).getTime() < last;
+  if (!o.source?.startsWith('viber') || !invoiceImageOf(o)) return false;
+  return !o.feedbackCopiedAt || new Date(o.feedbackCopiedAt).getTime() < lastOutcomeAt(o);
 };
 
-/** نص الرد للصقه في كروب الفايبر (رداً على رسالة المندوب). */
-export function viberReplyText(o: FbOrder): string {
-  const head = `${o.pharmacyName}${o.areaName ? ` (${o.areaName})` : ''}`;
-  if (o.status === 'cancelled') return `🚫 أُلغيت طلبية ${head}`;
-  const out: string[] = [];
-  const done = o.sends.filter(s => s.outcome === 'prepared' || s.outcome === 'partial');
-  const rejected = o.sends.filter(s => s.outcome === 'rejected');
-  const missing = o.lines.filter(l => (l.preparedQty ?? 0) < l.quantity);
-  const anyPrepared = o.lines.some(l => (l.preparedQty ?? 0) > 0);
+const markCopied = (token: string | null, ids: number[]) => Promise.all(ids.map(id =>
+  fetch(`${API}/api/rep-orders/${id}/feedback-copied`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => null)));
 
-  if (o.status === 'prepared') out.push(`✅ تم تجهيز طلبية ${head}`);
-  else if (anyPrepared) out.push(`🟡 تجهيز جزئي — ${head}`);
-  else if (rejected.length) out.push(`❌ لم تُجهَّز طلبية ${head}`);
-  else out.push(`⏳ طلبية ${head} أُرسلت لمذخر ${o.sends[o.sends.length - 1]?.warehouseName || o.warehouseName} — بانتظار التجهيز`);
-
-  for (const s of done) {
-    const items = s.lines.filter(l => l.qty > 0).map(l => `${l.itemName} ${qtyStr(l.qty, l.bonus)}`);
-    out.push(`من ${s.warehouseName}:${items.length ? `\n${items.join('\n')}` : ' كاملة'}`);
-  }
-  if (!done.length && anyPrepared) {
-    out.push(o.lines.filter(l => (l.preparedQty ?? 0) > 0).map(l => `${l.itemName} ${qtyStr(l.preparedQty ?? 0, l.preparedBonus ?? 0)}`).join('\n'));
-  }
-  if (anyPrepared && missing.length && o.status !== 'prepared') {
-    out.push(`الناقص:\n${missing.map(l => `${l.itemName} ${l.quantity - (l.preparedQty ?? 0)}`).join('\n')}`);
-  }
-  if (rejected.length && o.status !== 'prepared') out.push(`رفض: ${rejected.map(s => s.warehouseName).join('، ')}`);
-  if (o.invoiceNumber) out.push(`فاتورة رقم ${o.invoiceNumber}`);
-  return out.filter(Boolean).join('\n');
-}
-
-/** صورة الفاتورة الأحدث: صورة التجهيز، وإلا آخر صورة رد من مذخر. */
-const invoiceImageOf = (o: FbOrder) => o.preparedImage || [...o.sends].reverse().find(s => s.image && !/\.pdf$/i.test(s.image))?.image || null;
-
-async function toPngBlob(url: string): Promise<Blob> {
+const loadBlob = async (url: string) => {
   const res = await fetch(url, { cache: 'force-cache' });
-  if (!res.ok) throw new Error('تعذّر تحميل الصورة');
-  const blob = await res.blob();
-  if (blob.type === 'image/png') return blob;
-  const bmp = await createImageBitmap(blob);
+  if (!res.ok) throw new Error('تعذّر تحميل صورة الفاتورة');
+  return res.blob();
+};
+
+const label = (o: FbOrder) => `#${o.id} — ${o.pharmacyName}${o.areaName ? ` (${o.areaName})` : ''}`;
+
+/**
+ * فواتير عدة طلبيات في صورة واحدة (حافظة الكمبيوتر تحمل صورة واحدة فقط): عمودان، وفوق
+ * كل فاتورة شريط باسم الصيدلية ورقم الطلبية. الارتفاع محدود كي لا يتجاوز حدّ الـcanvas.
+ */
+async function mergeInvoices(items: { label: string; bmp: ImageBitmap }[]): Promise<Blob> {
+  const cols = items.length > 1 ? 2 : 1;
+  const tileW = cols === 1 ? 1100 : 900;
+  const gap = 16, bar = 44;
+  const tiles = items.map(it => ({ ...it, h: Math.round(it.bmp.height * (tileW / it.bmp.width)) }));
+  const rows: (typeof tiles)[] = [];
+  for (let i = 0; i < tiles.length; i += cols) rows.push(tiles.slice(i, i + cols));
+  const rowH = rows.map(r => Math.max(...r.map(t => t.h)) + bar);
+  const rawW = cols * tileW + (cols + 1) * gap;
+  const rawH = rowH.reduce((a, b) => a + b + gap, gap);
+  const scale = rawH > 16000 ? 16000 / rawH : 1;
   const c = document.createElement('canvas');
-  c.width = bmp.width; c.height = bmp.height;
-  c.getContext('2d')!.drawImage(bmp, 0, 0);
-  return new Promise((ok, bad) => c.toBlob(b => (b ? ok(b) : bad(new Error('تعذّر تحويل الصورة'))), 'image/png'));
+  c.width = Math.round(rawW * scale); c.height = Math.round(rawH * scale);
+  const g = c.getContext('2d')!;
+  g.scale(scale, scale);
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, rawW, rawH);
+  let y = gap;
+  rows.forEach((r, ri) => {
+    r.forEach((t, ci) => {
+      // RTL: الأولى يميناً
+      const x = cols === 1 ? gap : (ci === 0 ? gap * 2 + tileW : gap);
+      g.fillStyle = '#1e293b'; g.fillRect(x, y, tileW, bar);
+      g.fillStyle = '#ffffff'; g.font = 'bold 24px Tajawal, "Segoe UI", sans-serif';
+      g.textAlign = 'right'; g.direction = 'rtl';
+      g.fillText(t.label, x + tileW - 14, y + 31, tileW - 28);
+      g.drawImage(t.bmp, x, y + bar, tileW, t.h);
+    });
+    y += rowH[ri] + gap;
+  });
+  return new Promise((ok, bad) => c.toBlob(b => (b ? ok(b) : bad(new Error('تعذّر تكوين الصورة'))), 'image/png'));
 }
 
-export function ViberFeedbackButtons({ order, token, onCopied }: { order: FbOrder; token: string | null; onCopied?: () => void }) {
-  const [msg, setMsg] = useState<string | null>(null);
-  const img = invoiceImageOf(order);
-  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t); }, [msg]);
-
-  const mark = () => fetch(`${API}/api/rep-orders/${order.id}/feedback-copied`, {
-    method: 'POST', headers: { Authorization: `Bearer ${token}` },
-  }).then(() => onCopied?.()).catch(() => {});
-
-  const copyReply = async () => {
-    const text = viberReplyText(order);
-    try { await navigator.clipboard.writeText(text); setMsg('نُسخ الرد — الصقه رداً على رسالة المندوب في الفايبر'); mark(); }
-    catch { setMsg('تعذّر النسخ'); }
-  };
-  const copyImage = async () => {
-    if (!img) return;
-    try {
-      // ClipboardItem يقبل Promise — يبقى النسخ داخل ضغطة المستخدم (Safari)
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPngBlob(`${API}${img}`) })]);
-      setMsg('نُسخت صورة الفاتورة — الصقها في الفايبر'); mark();
-    } catch { setMsg('تعذّر نسخ الصورة في هذا المتصفح'); }
-  };
-
-  // الموبايل: «مشاركة ← فايبر» ترسل النص وصورة الفاتورة معاً بدل النسخ واللصق
-  const shareReply = async () => {
-    const text = viberReplyText(order);
-    try {
-      let files: File[] | undefined;
-      if (img) {
-        const blob = await fetch(`${API}${img}`, { cache: 'force-cache' }).then(r => (r.ok ? r.blob() : null)).catch(() => null);
-        if (blob) files = [new File([blob], `invoice-${order.id}.${blob.type === 'image/png' ? 'png' : 'jpg'}`, { type: blob.type || 'image/jpeg' })];
-      }
-      const data: ShareData = files && navigator.canShare?.({ files }) ? { text, files } : { text };
-      await navigator.share(data);
-      mark();
-    } catch (e: any) {
-      if (e?.name !== 'AbortError') copyReply();
-    }
-  };
-
+/**
+ * يرسل فواتير طلبيات للفايبر بنقرة واحدة:
+ *  • الموبايل: قائمة المشاركة بكل الصور ← الفايبر يرسلها دفعة واحدة.
+ *  • الكمبيوتر: صورة واحدة تجمعها كلها في الحافظة ← Ctrl+V في كروب الفايبر.
+ * يُعيد رسالة للمستخدم، أو null إن ألغى المشاركة.
+ */
+async function sendInvoices(list: FbOrder[], token: string | null): Promise<string | null> {
+  const ids = list.map(o => o.id);
   if (IS_TOUCH && typeof navigator.share === 'function') {
-    return (
-      <span className="vi-fb">
-        <button className="btn btn--secondary btn--sm" onClick={shareReply} title="مشاركة نتيجة التجهيز وصورة الفاتورة للفايبر"><Send size={14} /> مشاركة الرد للفايبر</button>
-        <button className="btn btn--secondary btn--sm" onClick={copyReply} title="نسخ نص الرد فقط"><Copy size={14} /></button>
-        {order.feedbackCopiedAt && !needsViberReply(order) && <span className="vi-fb__done">✓ أُرسل الرد</span>}
-        {msg && <span className="vi-fb__msg">{msg}</span>}
-      </span>
-    );
+    const files = (await Promise.all(list.map(async o => {
+      try {
+        const b = await loadBlob(`${API}${invoiceImageOf(o)}`);
+        return new File([b], `${o.id}-${o.pharmacyName}.${b.type === 'image/png' ? 'png' : 'jpg'}`, { type: b.type || 'image/jpeg' });
+      } catch { return null; }
+    }))).filter(Boolean) as File[];
+    if (files.length && navigator.canShare?.({ files })) {
+      try { await navigator.share({ files }); }
+      catch (e: any) { if (e?.name === 'AbortError') return null; throw e; }
+      await markCopied(token, ids);
+      return `أُرسلت ${files.length} فاتورة`;
+    }
   }
+  // تُمرَّر الصورة كـPromise كي تبقى الكتابة للحافظة داخل نقرة المستخدم
+  const merged = (async () => {
+    const items = (await Promise.all(list.map(async o => {
+      try { return { label: label(o), bmp: await createImageBitmap(await loadBlob(`${API}${invoiceImageOf(o)}`)) }; } catch { return null; }
+    }))).filter(Boolean) as { label: string; bmp: ImageBitmap }[];
+    if (!items.length) throw new Error('تعذّر تحميل الفواتير');
+    return mergeInvoices(items);
+  })();
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': merged })]);
+  await markCopied(token, ids);
+  return list.length > 1 ? `نُسخت ${list.length} فاتورة بصورة واحدة — Ctrl+V في كروب الفايبر` : 'نُسخت الفاتورة — Ctrl+V في كروب الفايبر';
+}
+
+/** «🧾 فواتير الفايبر»: كل فواتير طلبيات الفايبر التي لم تُرسل بعد — بنقرة واحدة. */
+export function ViberInvoicesButton({ orders, token, onDone }: { orders: FbOrder[]; token: string | null; onDone?: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 6000); return () => clearTimeout(t); }, [msg]);
+  const list = orders.filter(needsViberReply);
+  if (!list.length && !msg) return null;
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const m = await sendInvoices(list, token);
+      if (m) { setMsg(m); onDone?.(); }
+    } catch (e: any) { setMsg(e?.message || 'تعذّر النسخ في هذا المتصفح'); }
+    setBusy(false);
+  };
 
   return (
     <span className="vi-fb">
-      <button className="btn btn--secondary btn--sm" onClick={copyReply} title="نص جاهز بنتيجة التجهيز للصقه في كروب الفايبر"><Copy size={14} /> نسخ الرد للفايبر</button>
-      {img && <button className="btn btn--secondary btn--sm" onClick={copyImage} title="نسخ صورة فاتورة المذخر للصقها في الفايبر"><ImageIcon size={14} /> نسخ الفاتورة</button>}
-      {order.feedbackCopiedAt && !needsViberReply(order) && <span className="vi-fb__done">✓ نُسخ الرد</span>}
+      {list.length > 0 && (
+        <button className="ro-chip vi-inv-all" disabled={busy} onClick={run}
+          title="كل فواتير طلبيات الفايبر التي لم تُرسل للفايبر بعد — بنقرة واحدة">
+          <ImageIcon size={13} /> {busy ? 'جارٍ التجميع…' : IS_TOUCH ? 'مشاركة فواتير الفايبر' : 'نسخ فواتير الفايبر'} <b>{list.length}</b>
+        </button>
+      )}
+      {msg && <span className="vi-fb__msg">{msg}</span>}
+    </span>
+  );
+}
+
+/** في تفاصيل الطلبية: فاتورة هذه الطلبية وحدها. */
+export function ViberFeedbackButtons({ order, token, onCopied }: { order: FbOrder; token: string | null; onCopied?: () => void }) {
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t); }, [msg]);
+  if (!invoiceImageOf(order)) return null;
+
+  const run = async () => {
+    try {
+      const m = await sendInvoices([order], token);
+      if (m) { setMsg(m); onCopied?.(); }
+    } catch { setMsg('تعذّر نسخ الصورة في هذا المتصفح'); }
+  };
+
+  return (
+    <span className="vi-fb">
+      <button className="btn btn--secondary btn--sm" onClick={run} title="فاتورة المذخر لهذه الطلبية للفايبر">
+        <ImageIcon size={14} /> {IS_TOUCH ? 'مشاركة الفاتورة' : 'نسخ الفاتورة'}
+      </button>
+      {order.feedbackCopiedAt && !needsViberReply(order) && <span className="vi-fb__done">✓ أُرسلت للفايبر</span>}
       {msg && <span className="vi-fb__msg">{msg}</span>}
     </span>
   );
