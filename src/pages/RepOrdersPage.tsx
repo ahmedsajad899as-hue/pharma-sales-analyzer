@@ -450,6 +450,9 @@ export default function RepOrdersPage() {
   // «📥 استيراد من الفايبر» + أزرار الرد للفايبر (اشتراك لكل حساب)
   const viberImport = hasFeature('rep_orders_viber_import');
   const [showViber, setShowViber] = useState(false);
+  // ما وصل بـ«مشاركة ← Ordine» ويُفتح مباشرة في لوحة الفايبر (نص رسالة، أو سكرين شوت)
+  const [viberInit, setViberInit] = useState<{ text?: string; images?: File[] } | null>(null);
+  const openViber = (init: { text?: string; images?: File[] } | null = null) => { setViberInit(init); setShowViber(true); };
   const [viberPending, setViberPending] = useState(false);
   const [viaBot, setViaBot] = useState<boolean>(() => { try { return localStorage.getItem('ro-via-bot') === '1'; } catch { return false; } });
   const toggleViaBot = (v: boolean) => { setViaBot(v); try { localStorage.setItem('ro-via-bot', v ? '1' : '0'); } catch {} };
@@ -512,7 +515,8 @@ export default function RepOrdersPage() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadWarehouses(); }, [loadWarehouses]);
 
-  // صور وصلت عبر «مشاركة ← Ordine» (sw.js خزّنها في كاش ordine-share)
+  // صور أو نص وصلت عبر «مشاركة ← Ordine» (sw.js خزّنها في كاش ordine-share):
+  // الصور ← ربط بطلبية (أو «طلبيات فايبر» من نافذتها)، النص وحده ← لوحة استيراد الفايبر
   const [shared, setShared] = useState<Blob[]>([]);
   useEffect(() => {
     try { sessionStorage.removeItem('ro-share'); } catch { /* ignore */ }
@@ -520,13 +524,22 @@ export default function RepOrdersPage() {
     (async () => {
       const cache = await caches.open(SHARE_CACHE);
       const keys = await cache.keys();
+      const textKey = keys.find(k => new URL(k.url).pathname === '/shared-text');
+      const imageKeys = keys.filter(k => k !== textKey);
       // نسخة في الذاكرة مستقلة عن الكاش (الكاش يُحذف بعد الربط أو بمشاركة جديدة)
-      const blobs = await Promise.all(keys.map(async k => {
+      const blobs = await Promise.all(imageKeys.map(async k => {
         const b = await (await cache.match(k))!.blob();
         return new Blob([await b.arrayBuffer()], { type: b.type || 'image/jpeg' });
       }));
-      if (blobs.length) setShared(blobs);
+      if (blobs.length) { setShared(blobs); return; }
+      if (!textKey) return;
+      const text = (await (await cache.match(textKey))?.text()) ?? '';
+      await caches.delete(SHARE_CACHE);
+      if (!text.trim()) return;
+      if (viberImport) openViber({ text });
+      else setNotice('لإدخال طلبية من نص مُشارَك فعّل ميزة «استيراد طلبيات الفايبر» من المميزات');
     })().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const clearShared = () => {
     setShared([]);
@@ -967,13 +980,18 @@ export default function RepOrdersPage() {
       )}
       {showViber && (
         <ViberImportPanel api={api} token={token} warehouses={warehouses} reps={assignableReps} canSend={canBotSend}
-          onClose={() => setShowViber(false)} onChanged={load} />
+          initialText={viberInit?.text} initialImages={viberInit?.images}
+          onClose={() => { setShowViber(false); setViberInit(null); }} onChanged={load} />
       )}
       {showWarehouses && (
         <WarehousesModal api={api} warehouses={warehouses} provinces={provinces} canManage={canDispatch} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
       )}
       {shared.length > 0 && (
         <SharedImagePicker api={api} images={shared} beginSend={canDispatch ? (o, wh) => beginSend([o], wh, true) : undefined}
+          onViber={viberImport ? () => {
+            const files = shared.map((b, i) => new File([b], `shot-${i}.jpg`, { type: b.type || 'image/jpeg' }));
+            clearShared(); openViber({ images: files });
+          } : undefined}
           onDone={() => { clearShared(); load(); }} onCancel={clearShared} />
       )}
       {prepFor && (
@@ -1699,10 +1717,12 @@ interface ReadResult {
 
 const whKeyOf = (o: Order) => { const w = currentWh(o); return String(w.id ?? w.name); };
 
-function SharedImagePicker({ api, images, beginSend, onDone, onCancel }: {
+function SharedImagePicker({ api, images, beginSend, onViber, onDone, onCancel }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   images: Blob[];
   beginSend?: (o: Order, wh: OrderWh) => { go: () => void; cancel: () => void };
+  /** الصورة سكرين شوت طلبيات من كروب الفايبر ← لوحة الاستيراد بدل الربط بطلبية */
+  onViber?: () => void;
   onDone: () => void; onCancel: () => void;
 }) {
   const [orders, setOrders] = useState<Order[] | null>(null);
@@ -1851,6 +1871,11 @@ function SharedImagePicker({ api, images, beginSend, onDone, onCancel }: {
       <div className="ro-dialog">
         <div className="ro-dialog__head">
           <strong>ربط الصورة بطلبية</strong>
+          {onViber && (
+            <button className="btn btn--secondary btn--sm ro-viber-shot" onClick={onViber} title="الصورة سكرين شوت طلبيات من كروب الفايبر ← تكوين طلبيات منها">
+              <ClipboardPaste size={14} /> طلبيات فايبر
+            </button>
+          )}
           <button className="ro-icon-btn" onClick={onCancel}><X size={16} /></button>
         </div>
         <div className="ro-dialog__body">

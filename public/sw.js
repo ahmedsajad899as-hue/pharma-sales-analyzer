@@ -20,8 +20,10 @@ self.addEventListener('activate', e =>
 self.addEventListener('fetch', e => {
   const { request } = e;
 
-  // Share target (manifest.json): صور مُشارَكة من تطبيق آخر (كروب المذخر بواتساب).
-  // تُخزَّن في كاش منفصل، وصفحة «طلبيات المذاخر» تقرؤها لربطها بطلبية ثم تحذفها.
+  // Share target (manifest.json): صور مُشارَكة من تطبيق آخر (كروب المذخر بواتساب)، أو
+  // نصّ طلبية من كروب الفايبر («مشاركة ← Ordine» على الرسالة).
+  // تُخزَّن في كاش منفصل، وصفحة «طلبيات المذاخر» تقرؤها (الصور: ربط بطلبية، النص:
+  // «استيراد من الفايبر») ثم تحذفها.
   if (request.method === 'POST' && new URL(request.url).pathname === '/share-target') {
     e.respondWith((async () => {
       try {
@@ -30,6 +32,10 @@ self.addEventListener('fetch', e => {
         const cache = await caches.open(SHARE_CACHE);
         for (const k of await cache.keys()) await cache.delete(k);
         await Promise.all(files.map((f, i) => cache.put(`/shared-image/${i}`, new Response(f, { headers: { 'Content-Type': f.type || 'image/jpeg' } }))));
+        // النص أولاً؛ العنوان فقط إن لم يأتِ نص (بعض التطبيقات تضع فيه اسمها فيُقرأ ترويسة صيدلية)
+        const str = (v) => (typeof v === 'string' ? v.trim() : '');
+        const text = str(form.get('text')) || str(form.get('title'));
+        if (text) await cache.put('/shared-text', new Response(text, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }));
       } catch (_) { /* نتابع للتحويل على أي حال */ }
       return Response.redirect('/?share-target=1', 303);
     })());

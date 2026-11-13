@@ -4,7 +4,8 @@
 //
 // الفايبر لا يسمح لبوت بقراءة كروب ولا بتحديد عدة رسائل ونسخها معاً، فالإدخال:
 //   • كل Ctrl+V لرسالة منسوخة = بطاقة طلبية فوراً (النسخ واحدة واحدة يصير سريعاً)
-//   • أو سكرين شوت (Win+Shift+S ثم Ctrl+V، أو اختيار/سحب الصور) — 3-4 طلبيات بصورة
+//   • «مشاركة ← Ordine» على رسالة بالموبايل (sw.js يحفظ النص ← initialText)
+//   • أو سكرين شوت (Win+Shift+S ثم Ctrl+V، أو اختيار/سحب/مشاركة الصور) — 3-4 طلبيات بصورة
 // الخادم (server/modules/rep-orders/rep-orders.import.js) يُعيد مسوّدات لا يحفظ شيئاً؛
 // الحفظ هنا بـ POST /api/rep-orders العادي، والإرسال بمسار «إرسال عبر البوت» نفسه.
 //
@@ -19,9 +20,11 @@ import './ViberImportPanel.css';
 const API = import.meta.env.VITE_API_URL || '';
 
 interface DraftLine { itemId: number | null; itemName: string; writtenAs: string; quantity: number; bonusQty: number; matched: boolean; suggestions: { id: number; name: string }[] }
+interface MentionedWh { id: number | null; name: string; ready?: boolean }
 interface Draft {
   key: string; source: 'viber-paste' | 'viber-shot'; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
-  pharmacyName: string; areaName: string; warehouseId: number | null; warehouseName: string; warehouseReady: boolean; backupWarehouseIds: number[];
+  pharmacyName: string; areaName: string; warehouseId: number | null; warehouseName: string; backupWarehouseIds: number[];
+  mentionedWarehouses: MentionedWh[];
   notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'sender' | 'learned' | 'guess' | null;
   repCandidates: { id: number; name: string }[]; sourceHash: string | null;
   duplicateOf: { id: number; pharmacyName: string; createdAt: string; status: string } | null; dupInBatch: boolean; warnings: string[];
@@ -33,13 +36,27 @@ interface Rep { id: number; name: string }
 
 const REP_WHY: Record<string, string> = { sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'تخمين من المواد والمنطقة' };
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
-export default function ViberImportPanel({ api, token, warehouses, reps, canSend, onClose, onChanged }: {
+/** المذخر الذي تذهب له الطلبية = المختار؛ الاحتياط = باقي المذكورة المطابَقة بترتيب الرسالة. */
+function choosePrimary(d: Draft, m: MentionedWh): Partial<Draft> {
+  const active = new Set([...(d.warehouseId ? [d.warehouseId] : []), ...d.backupWarehouseIds]);
+  const backups = d.mentionedWarehouses
+    .filter(x => x.id && x.id !== m.id && active.has(x.id))
+    .map(x => x.id as number);
+  return { warehouseId: m.id, warehouseName: m.name, backupWarehouseIds: backups };
+}
+
+export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, onClose, onChanged }: {
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   token: string | null;
   warehouses: Wh[];
   reps: Rep[];
   canSend: boolean;
+  /** نصّ وصل بـ«مشاركة ← Ordine» — يُقرأ فور الفتح */
+  initialText?: string | null;
+  /** سكرين شوت وصل بالمشاركة */
+  initialImages?: File[] | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -65,7 +82,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       const next = incoming.map(d => {
         const dupInBatch = d.dupInBatch || Boolean(d.sourceHash && hashes.has(d.sourceHash));
         if (d.sourceHash) hashes.add(d.sourceHash);
-        return { ...d, dupInBatch, include: !dupInBatch && !d.duplicateOf };
+        return { ...d, mentionedWarehouses: d.mentionedWarehouses ?? [], dupInBatch, include: !dupInBatch && !d.duplicateOf };
       });
       return [...prev, ...next];
     });
@@ -76,7 +93,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     setReading(n => n + 1); setErr(null);
     try {
       const r = await api<{ drafts: Draft[]; team: Rep[] }>('/import/text', { method: 'POST', body: JSON.stringify({ blocks: [text] }) });
-      if (!r.drafts.length) setErr('لم تُقرأ طلبية من النص الملصوق');
+      if (!r.drafts.length) setErr('لم تُقرأ طلبية من النص');
       addDrafts(r.drafts, r.team);
     } catch (e: any) { setErr(e.message); } finally { setReading(n => n - 1); }
   }, [api, addDrafts]);
@@ -95,6 +112,15 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     } catch (e: any) { setErr(e.message); } finally { setReading(n => n - 1); }
   }, [api, addDrafts]);
 
+  // ما وصل بالمشاركة يُقرأ مرة واحدة عند الفتح
+  const initDone = useRef(false);
+  useEffect(() => {
+    if (initDone.current) return;
+    initDone.current = true;
+    if (initialText) readText(initialText);
+    if (initialImages?.length) readImages(initialImages);
+  }, [initialText, initialImages, readText, readImages]);
+
   // Ctrl+V في أي مكان من اللوحة (عدا حقول التعديل) = لصقة جديدة: صورة أو نص
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
@@ -112,6 +138,28 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     return () => window.removeEventListener('paste', onPaste);
   }, [readImages, readText]);
 
+  // زر «لصق» للموبايل: يقرأ الحافظة مباشرةً (صورة أو نص) بلا ضغط مطوّل
+  const pasteFromClipboard = async () => {
+    setErr(null);
+    try {
+      if (navigator.clipboard?.read) {
+        const items = await navigator.clipboard.read();
+        const files: File[] = [];
+        for (const it of items) {
+          const type = it.types.find(t => t.startsWith('image/'));
+          if (type) files.push(new File([await it.getType(type)], 'clip.png', { type }));
+        }
+        if (files.length) { readImages(files); return; }
+      }
+      const text = await navigator.clipboard.readText();
+      if (text.trim()) readText(text);
+      else setErr('الحافظة فارغة — انسخ رسالة الطلبية من الفايبر أولاً');
+    } catch {
+      setErr('المتصفح منع قراءة الحافظة — اضغط مطوّلاً على خانة «الصق هنا» واختر لصق');
+      captureRef.current?.focus();
+    }
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
     window.addEventListener('keydown', onKey);
@@ -125,8 +173,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   const problemOf = (d: Draft): string | null => {
     if (!d.pharmacyName.trim()) return 'اسم الصيدلية مطلوب';
     if (!d.warehouseId && !d.warehouseName.trim()) return 'اختر المذخر';
-    const ok = d.lines.filter(l => l.itemName.trim() && l.quantity > 0);
-    if (!ok.length) return 'لا أصناف بكمية';
+    if (!d.lines.some(l => l.itemName.trim() && l.quantity > 0)) return 'لا أصناف بكمية';
     return null;
   };
 
@@ -169,10 +216,10 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
         });
         const id = r.order.id;
         if (send && d.warehouseId) {
-          try { await sendBot(id, d.warehouseId); patch(d.key, { state: 'done', result: `#${id} أُنشئت وأُرسلت لكروب ${d.warehouseName}` }); }
-          catch (e: any) { patch(d.key, { state: 'warn', result: `#${id} أُنشئت — لم تُرسل: ${e.message}. أرسلها من قائمة الطلبيات` }); }
+          try { await sendBot(id, d.warehouseId); patch(d.key, { state: 'done', result: `#${id} أُرسلت لكروب ${d.warehouseName}` }); }
+          catch (e: any) { patch(d.key, { state: 'warn', result: `#${id} أُنشئت — لم تُرسل: ${e.message}` }); }
         } else {
-          patch(d.key, { state: send ? 'warn' : 'done', result: send ? `#${id} أُنشئت — المذخر غير موجود في الدليل، أرسلها يدوياً` : `#${id} أُنشئت` });
+          patch(d.key, { state: send ? 'warn' : 'done', result: send ? `#${id} أُنشئت — المذخر غير مسجّل، أرسلها يدوياً` : `#${id} أُنشئت` });
         }
       } catch (e: any) { patch(d.key, { state: 'error', result: e.message }); }
     }
@@ -182,118 +229,165 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
   const pending = drafts.filter(d => d.include && d.state !== 'done' && d.state !== 'warn');
   const finished = drafts.filter(d => d.state === 'done' || d.state === 'warn');
-  const whName = (id: number) => warehouses.find(w => w.id === id)?.name ?? `#${id}`;
+  const compactDrop = IS_TOUCH || drafts.length > 0;
 
   return (
-    <div className="ro-modal" onClick={() => !busy && onClose()}>
+    <div className="ro-modal vi-modal" onClick={() => !busy && onClose()}>
       <div className="ro-dialog vi-dialog" onClick={e => e.stopPropagation()}>
-        <div className="ro-dialog__head">
-          <strong>📥 استيراد طلبيات من الفايبر</strong>
-          <button className="ro-icon-btn" disabled={busy} onClick={onClose}><X size={16} /></button>
+        <div className="ro-dialog__head vi-head">
+          <strong>📥 طلبيات الفايبر</strong>
+          {reading > 0 && <span className="vi-reading"><i /> جارٍ القراءة{reading > 1 ? ` (${reading})` : ''}</span>}
+          <span className="ro-spacer" />
+          <button className="ro-icon-btn" disabled={busy} onClick={onClose}><X size={15} /></button>
         </div>
 
-        <div className="ro-dialog__body">
-          <div className={`vi-drop ${dragOver ? 'is-over' : ''}`}
+        <div className="ro-dialog__body vi-body">
+          <div className={`vi-drop ${compactDrop ? 'is-compact' : ''} ${dragOver ? 'is-over' : ''}`}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={e => { e.preventDefault(); setDragOver(false); readImages([...e.dataTransfer.files]); }}>
-            <div className="vi-drop__icons"><ClipboardPaste size={22} /><ImageIcon size={22} /></div>
-            <div className="vi-drop__title">انسخ رسالة من الفايبر ثم <kbd>Ctrl</kbd>+<kbd>V</kbd> هنا — كل لصقة تصير طلبية</div>
-            <div className="vi-drop__sub">أو سكرين شوت لعدة طلبيات: <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> ثم <kbd>Ctrl</kbd>+<kbd>V</kbd> · أو اسحب الصور هنا</div>
+            {!compactDrop && (
+              <>
+                <div className="vi-drop__title">انسخ رسالة من الفايبر ثم <kbd>Ctrl</kbd>+<kbd>V</kbd> هنا — كل لصقة تصير طلبية</div>
+                <div className="vi-drop__sub">أو سكرين شوت لعدة طلبيات: <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> ثم <kbd>Ctrl</kbd>+<kbd>V</kbd> · أو اسحب الصور هنا</div>
+              </>
+            )}
             <div className="vi-drop__row">
-              <textarea ref={captureRef} className="form-input vi-capture" rows={1} placeholder="الصق هنا (للموبايل)" value="" onChange={() => {}} />
-              <button className="btn btn--secondary btn--sm" onClick={() => fileRef.current?.click()}><ImageIcon size={14} /> اختيار صور</button>
+              <textarea ref={captureRef} className="form-input vi-capture" rows={1} placeholder="الصق هنا…" value="" onChange={() => {}} />
+              <button className="vi-btn" onClick={pasteFromClipboard} title="لصق من الحافظة"><ClipboardPaste size={14} /> لصق</button>
+              <button className="vi-btn" onClick={() => fileRef.current?.click()} title="سكرين شوت"><ImageIcon size={14} /> صور</button>
               <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => { readImages([...(e.target.files ?? [])]); e.target.value = ''; }} />
             </div>
-            {reading > 0 && <div className="vi-reading"><i /> جارٍ القراءة…{reading > 1 ? ` (${reading})` : ''}</div>}
           </div>
 
-          {err && <div className="ro-note ro-note--warn">⚠️ {err}</div>}
+          {err && <div className="vi-err">⚠️ {err}</div>}
 
           {drafts.map((d, di) => {
-            const problem = d.state === 'error' ? d.result : null;
             const locked = d.state === 'done' || d.state === 'warn' || d.state === 'saving';
+            const extraWh = warehouses.filter(w => !d.mentionedWarehouses.some(m => m.id === w.id));
+            const candIds = new Set(d.repCandidates.map(c => c.id));
             return (
               <div key={d.key} className={`vi-card ${!d.include ? 'is-off' : ''} ${d.state ? `is-${d.state}` : ''}`}>
-                <div className="vi-card__head">
-                  <label className="vi-include">
+                {/* الصيدلية والمنطقة */}
+                <div className="vi-top">
+                  <label className="vi-include" title="تضمين في الإنشاء">
                     <input type="checkbox" checked={d.include} disabled={locked} onChange={e => patch(d.key, { include: e.target.checked })} />
                     <b>{di + 1}</b>
                   </label>
                   <input className="form-input vi-ph" value={d.pharmacyName} disabled={locked} placeholder="الصيدلية *" onChange={e => patch(d.key, { pharmacyName: e.target.value })} />
                   <input className="form-input vi-area" value={d.areaName} disabled={locked} placeholder="المنطقة" onChange={e => patch(d.key, { areaName: e.target.value })} />
-                  {d.duplicateOf && <span className="vi-badge vi-badge--dup" title={`طلبية #${d.duplicateOf.id} بنفس الصيدلية والأصناف`}>⚠️ مكررة مع #{d.duplicateOf.id}</span>}
-                  {d.dupInBatch && !d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة في هذه الدفعة</span>}
-                  {d.readBy === 'ai' && <span className="vi-badge" title="بعض الأسطر قُرئت بالذكاء الاصطناعي — راجعها">🤖</span>}
-                  <span className="ro-spacer" />
-                  {!locked && <button className="ro-icon-btn" title="حذف" onClick={() => setDrafts(ds => ds.filter(x => x.key !== d.key))}><Trash2 size={14} /></button>}
+                  {!locked && <button className="vi-x" title="حذف" onClick={() => setDrafts(ds => ds.filter(x => x.key !== d.key))}><Trash2 size={13} /></button>}
                 </div>
 
-                <div className="vi-card__grid">
-                  <label className="ro-field">المندوب
+                {(d.duplicateOf || d.dupInBatch || d.readBy === 'ai') && (
+                  <div className="vi-badges">
+                    {d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة مع #{d.duplicateOf.id}</span>}
+                    {d.dupInBatch && !d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة في الدفعة</span>}
+                    {d.readBy === 'ai' && <span className="vi-badge">🤖 قُرئت بالذكاء — راجعها</span>}
+                  </div>
+                )}
+
+                {/* المندوب */}
+                <div className="vi-row">
+                  <span className="vi-lbl">المندوب</span>
+                  <div className="vi-row__val">
                     <select className="form-input" value={d.repUserId ?? ''} disabled={locked}
                       onChange={e => patch(d.key, { repUserId: e.target.value ? Number(e.target.value) : null, repWhy: null })}>
                       <option value="">باسمي</option>
-                      {(d.repCandidates.length ? [...d.repCandidates, ...repOptions.filter(r => !d.repCandidates.some(c => c.id === r.id))] : repOptions)
-                        .map(r => <option key={r.id} value={r.id}>{r.name}{d.repCandidates.some(c => c.id === r.id) ? ' ★' : ''}</option>)}
+                      {[...repOptions.filter(r => candIds.has(r.id)), ...repOptions.filter(r => !candIds.has(r.id))]
+                        .map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
                     </select>
                     <span className="vi-hint">
-                      {d.sender && <>المرسل: <b>{d.sender}</b> · </>}
-                      {d.repWhy ? REP_WHY[d.repWhy] : d.repCandidates.length > 1 ? 'عدة مرشّحين (★) — اختر' : !d.repUserId ? 'لم يُحدَّد — اختر' : ''}
-                      {d.mentions.length > 0 && <> · منشن: {d.mentions.join('، ')}</>}
+                      {d.sender && <>✉️ {d.sender} · </>}
+                      {d.repWhy ? REP_WHY[d.repWhy] : d.repCandidates.length > 1 ? 'عدة مرشّحين ★' : !d.repUserId ? 'اختر المندوب' : ''}
+                      {d.mentions.length > 0 && <> · @{d.mentions.join(' @')}</>}
                     </span>
-                  </label>
-                  <label className="ro-field">المذخر
-                    <select className="form-input" value={d.warehouseId ?? ''} disabled={locked}
-                      onChange={e => { const id = e.target.value ? Number(e.target.value) : null; patch(d.key, { warehouseId: id, warehouseName: id ? whName(id) : d.warehouseName, backupWarehouseIds: d.backupWarehouseIds.filter(x => x !== id) }); }}>
-                      {!d.warehouseId && <option value="">{d.warehouseName ? `${d.warehouseName} (غير موجود في الدليل)` : '— اختر —'}</option>}
-                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                    <span className="vi-chips">
-                      {d.backupWarehouseIds.map(id => (
-                        <span key={id} className="vi-chip">احتياط: {whName(id)}{!locked && <button onClick={() => patch(d.key, { backupWarehouseIds: d.backupWarehouseIds.filter(x => x !== id) })}><X size={11} /></button>}</span>
-                      ))}
-                    </span>
-                  </label>
+                  </div>
                 </div>
 
+                {/* المذاخر: كل ما ذُكر في الرسالة — الضغط يختار من تذهب له الطلبية */}
+                <div className="vi-row">
+                  <span className="vi-lbl">المذخر</span>
+                  <div className="vi-row__val vi-whs">
+                    {d.mentionedWarehouses.map((m, i) => {
+                      const isPrimary = m.id ? m.id === d.warehouseId : !d.warehouseId && m.name === d.warehouseName;
+                      const isBackup = !isPrimary && m.id != null && d.backupWarehouseIds.includes(m.id);
+                      return (
+                        <span key={`${m.id ?? m.name}-${i}`} className={`vi-wh ${isPrimary ? 'is-primary' : isBackup ? 'is-backup' : 'is-off'} ${m.id ? '' : 'is-unknown'}`}>
+                          <button disabled={locked} onClick={() => patch(d.key, choosePrimary(d, m))}
+                            title={isPrimary ? 'تذهب له الطلبية' : 'اضغط لإرسال الطلبية لهذا المذخر'}>
+                            {isPrimary && <Check size={12} />}{m.name}
+                            {isBackup && <small>احتياط</small>}
+                            {!m.id && <small>غير مسجّل</small>}
+                            {m.id && m.ready === false && <small>يدوي</small>}
+                          </button>
+                          {isBackup && !locked && (
+                            <button className="vi-wh__x" title="إزالة من الاحتياط"
+                              onClick={() => patch(d.key, { backupWarehouseIds: d.backupWarehouseIds.filter(x => x !== m.id) })}><X size={10} /></button>
+                          )}
+                        </span>
+                      );
+                    })}
+                    {!locked && extraWh.length > 0 && (
+                      <select className="form-input vi-wh-add" value=""
+                        onChange={e => {
+                          const w = warehouses.find(x => x.id === Number(e.target.value));
+                          if (!w) return;
+                          const m: MentionedWh = { id: w.id, name: w.name };
+                          const next = { ...d, mentionedWarehouses: [...d.mentionedWarehouses, m] };
+                          patch(d.key, { mentionedWarehouses: next.mentionedWarehouses, ...choosePrimary(next, m) });
+                        }}>
+                        <option value="">{d.mentionedWarehouses.length ? '+ مذخر' : 'اختر المذخر'}</option>
+                        {extraWh.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </select>
+                    )}
+                  </div>
+                </div>
+
+                {/* الأصناف */}
                 <div className="vi-lines">
                   {d.lines.map((l, i) => (
                     <div key={i} className={`vi-line ${l.itemId ? 'is-matched' : 'is-free'}`}>
-                      <div className="vi-line__item">
-                        {l.itemId
-                          ? <span className="vi-line__name"><Check size={13} /> {l.itemName}{l.writtenAs && l.writtenAs !== l.itemName && <small> ← {l.writtenAs}</small>}</span>
-                          : <input className="form-input" value={l.itemName} disabled={locked} onChange={e => patchLine(d.key, i, { itemName: e.target.value })} />}
-                        {!l.itemId && l.suggestions.length > 0 && !locked && (
-                          <select className="form-input vi-sug" value="" onChange={e => { const s = l.suggestions.find(x => x.id === Number(e.target.value)); if (s) patchLine(d.key, i, { itemId: s.id, itemName: s.name, matched: true }); }}>
-                            <option value="">من الكتالوج…</option>
-                            {l.suggestions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                          </select>
-                        )}
-                      </div>
-                      <input className="form-input vi-num" type="number" min={1} inputMode="numeric" disabled={locked} value={l.quantity || ''} placeholder="كمية"
+                      {l.itemId
+                        ? <span className="vi-line__name" title={l.writtenAs && l.writtenAs !== l.itemName ? `كُتبت: ${l.writtenAs}` : undefined}><Check size={12} /> {l.itemName}</span>
+                        : <input className="form-input vi-line__input" value={l.itemName} disabled={locked} placeholder="الصنف" onChange={e => patchLine(d.key, i, { itemName: e.target.value })} />}
+                      <input className="form-input vi-num" type="number" min={1} inputMode="numeric" disabled={locked} value={l.quantity || ''} placeholder="ك"
                         onChange={e => patchLine(d.key, i, { quantity: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
                       <span className="vi-plus">+</span>
-                      <input className="form-input vi-num" type="number" min={0} inputMode="numeric" disabled={locked} value={l.bonusQty || ''} placeholder="بونص"
+                      <input className="form-input vi-num" type="number" min={0} inputMode="numeric" disabled={locked} value={l.bonusQty || ''} placeholder="ب"
                         onChange={e => patchLine(d.key, i, { bonusQty: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
-                      {!locked && <button className="ro-icon-btn" tabIndex={-1} title="حذف السطر" onClick={() => patch(d.key, { lines: d.lines.filter((_, j) => j !== i) })}><X size={13} /></button>}
+                      {!locked
+                        ? <button className="vi-x" tabIndex={-1} title="حذف السطر" onClick={() => patch(d.key, { lines: d.lines.filter((_, j) => j !== i) })}><X size={12} /></button>
+                        : <span />}
+                      {!l.itemId && l.suggestions.length > 0 && !locked && (
+                        <select className="form-input vi-sug" value="" onChange={e => { const s = l.suggestions.find(x => x.id === Number(e.target.value)); if (s) patchLine(d.key, i, { itemId: s.id, itemName: s.name, matched: true }); }}>
+                          <option value="">ربط «{l.itemName}» بالكتالوج…</option>
+                          {l.suggestions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      )}
                     </div>
                   ))}
-                  {!locked && (
-                    <button className="ro-link vi-addline" onClick={() => patch(d.key, { lines: [...d.lines, { itemId: null, itemName: '', writtenAs: '', quantity: 0, bonusQty: 0, matched: false, suggestions: [] }] })}>
-                      <Plus size={13} /> سطر
-                    </button>
-                  )}
                 </div>
 
-                <input className="form-input vi-notes" value={d.notes} disabled={locked} placeholder="ملاحظات (تُرسل مع الطلبية للمذخر)" onChange={e => patch(d.key, { notes: e.target.value })} />
+                <div className="vi-foot-row">
+                  <input className="form-input vi-notes" value={d.notes} disabled={locked} placeholder="ملاحظات للمذخر" onChange={e => patch(d.key, { notes: e.target.value })} />
+                  {!locked && (
+                    <button className="vi-btn vi-btn--ghost" title="إضافة صنف"
+                      onClick={() => patch(d.key, { lines: [...d.lines, { itemId: null, itemName: '', writtenAs: '', quantity: 0, bonusQty: 0, matched: false, suggestions: [] }] })}>
+                      <Plus size={13} /> صنف
+                    </button>
+                  )}
+                  <button className="vi-btn vi-btn--ghost" title="نص الرسالة الأصلي" onClick={() => patch(d.key, { showSource: !d.showSource })}>
+                    <ChevronDown size={12} style={{ transform: d.showSource ? 'rotate(180deg)' : undefined }} /> الرسالة
+                  </button>
+                </div>
 
-                {d.warnings.length > 0 && !locked && <ul className="vi-warn">{d.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
-                {d.result && <div className={`vi-result vi-result--${d.state}`}>{problem ? `⚠️ ${problem}` : d.state === 'done' ? `✅ ${d.result}` : d.state === 'warn' ? `🟡 ${d.result}` : d.result}</div>}
-
-                <button className="ro-link vi-src-toggle" onClick={() => patch(d.key, { showSource: !d.showSource })}>
-                  <ChevronDown size={12} style={{ transform: d.showSource ? 'rotate(180deg)' : undefined }} /> نص الرسالة
-                </button>
+                {d.warnings.length > 0 && !locked && <div className="vi-warn">⚠️ {d.warnings.join(' · ')}</div>}
+                {d.result && (
+                  <div className={`vi-result vi-result--${d.state}`}>
+                    {d.state === 'error' ? `⚠️ ${d.result}` : d.state === 'done' ? `✅ ${d.result}` : d.state === 'warn' ? `🟡 ${d.result}` : d.result}
+                  </div>
+                )}
                 {d.showSource && <pre className="vi-src" dir="auto">{d.sourceText}</pre>}
               </div>
             );
@@ -302,18 +396,16 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
         <div className="ro-dialog__foot vi-foot">
           {canSend && (
-            <button className="btn btn--primary" disabled={busy || !pending.length} onClick={() => create(true)}>
-              <Send size={14} /> {busy ? 'جارٍ…' : `إنشاء ${pending.length || ''} وإرسال لكروبات المذاخر`}
+            <button className="vi-btn vi-btn--primary" disabled={busy || !pending.length} onClick={() => create(true)}>
+              <Send size={14} /> {busy ? 'جارٍ…' : `إنشاء وإرسال${pending.length ? ` (${pending.length})` : ''}`}
             </button>
           )}
-          <button className={`btn ${canSend ? 'btn--secondary' : 'btn--primary'}`} disabled={busy || !pending.length} onClick={() => create(false)}>
-            {canSend ? 'إنشاء فقط' : `إنشاء ${pending.length || ''} طلبية`}
+          <button className={`vi-btn ${canSend ? '' : 'vi-btn--primary'}`} disabled={busy || !pending.length} onClick={() => create(false)}>
+            {canSend ? 'إنشاء فقط' : `إنشاء${pending.length ? ` (${pending.length})` : ''}`}
           </button>
           {finished.length > 0 && !busy && (
-            <button className="btn btn--secondary" onClick={() => setDrafts(ds => ds.filter(d => d.state !== 'done' && d.state !== 'warn'))}>مسح المنجزة ({finished.length})</button>
+            <button className="vi-btn vi-btn--ghost" onClick={() => setDrafts(ds => ds.filter(d => d.state !== 'done' && d.state !== 'warn'))}>مسح المنجزة ({finished.length})</button>
           )}
-          <span className="ro-spacer" />
-          <span className="ro-muted ro-small">{drafts.length ? `${drafts.length} طلبية` : ''}</span>
         </div>
       </div>
     </div>
@@ -410,9 +502,37 @@ export function ViberFeedbackButtons({ order, token, onCopied }: { order: FbOrde
     try {
       // ClipboardItem يقبل Promise — يبقى النسخ داخل ضغطة المستخدم (Safari)
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': toPngBlob(`${API}${img}`) })]);
-      setMsg('نُسخت صورة الفاتورة — Ctrl+V في الفايبر'); mark();
+      setMsg('نُسخت صورة الفاتورة — الصقها في الفايبر'); mark();
     } catch { setMsg('تعذّر نسخ الصورة في هذا المتصفح'); }
   };
+
+  // الموبايل: «مشاركة ← فايبر» ترسل النص وصورة الفاتورة معاً بدل النسخ واللصق
+  const shareReply = async () => {
+    const text = viberReplyText(order);
+    try {
+      let files: File[] | undefined;
+      if (img) {
+        const blob = await fetch(`${API}${img}`, { cache: 'force-cache' }).then(r => (r.ok ? r.blob() : null)).catch(() => null);
+        if (blob) files = [new File([blob], `invoice-${order.id}.${blob.type === 'image/png' ? 'png' : 'jpg'}`, { type: blob.type || 'image/jpeg' })];
+      }
+      const data: ShareData = files && navigator.canShare?.({ files }) ? { text, files } : { text };
+      await navigator.share(data);
+      mark();
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') copyReply();
+    }
+  };
+
+  if (IS_TOUCH && typeof navigator.share === 'function') {
+    return (
+      <span className="vi-fb">
+        <button className="btn btn--secondary btn--sm" onClick={shareReply} title="مشاركة نتيجة التجهيز وصورة الفاتورة للفايبر"><Send size={14} /> مشاركة الرد للفايبر</button>
+        <button className="btn btn--secondary btn--sm" onClick={copyReply} title="نسخ نص الرد فقط"><Copy size={14} /></button>
+        {order.feedbackCopiedAt && !needsViberReply(order) && <span className="vi-fb__done">✓ أُرسل الرد</span>}
+        {msg && <span className="vi-fb__msg">{msg}</span>}
+      </span>
+    );
+  }
 
   return (
     <span className="vi-fb">

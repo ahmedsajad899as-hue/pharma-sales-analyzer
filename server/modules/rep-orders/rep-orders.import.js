@@ -24,7 +24,7 @@ import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { normKey } from '../orders/order-text-parse.js';
 import { extractOrderRowsFromText, loadKnownWarehouseKeys, loadKnownAreaIndex } from '../orders/order-extract.js';
 import { enrichRowsFromCatalog, attachScientificRepGuess } from '../orders/orders.service.js';
-import { matchWarehouse } from '../warehouse-dispatch/dispatch.core.js';
+import { matchWarehouse, warehouseReady } from '../warehouse-dispatch/dispatch.core.js';
 import { loadViewer, teamUserIds, orderScopeWhere, cleanText } from './rep-orders.service.js';
 import { parseViberOrder, orderFingerprint, splitPasteIntoOrders } from './viber-order-parse.js';
 
@@ -155,14 +155,16 @@ async function buildDrafts(reqUser, messages, source) {
         .map(s => ({ id: s.id, name: s.name })).filter(s => s.id && s.name),
     }));
 
-    // المذاخر: الأول المطابَق أساسي، والباقي احتياط بالترتيب
-    const whMatched = [];
-    const whUnmatched = [];
+    // المذاخر: كل ما ذُكر في الرسالة بترتيبه (الواجهة تعرضها ليختار المستخدم من تذهب له
+    // الطلبية) — الأول المطابَق أساسي، والباقي احتياط. غير الموجود في الدليل يُعرض اسماً فقط.
+    const mentioned = [];
     for (const name of parsed.warehouses) {
       const w = await matchWarehouse(name, viewer);
-      if (w && !whMatched.some(x => x.id === w.id)) whMatched.push(w);
-      else if (!w) whUnmatched.push(name);
+      if (w ? mentioned.some(x => x.id === w.id) : mentioned.some(x => !x.id && x.name === name)) continue;
+      mentioned.push(w ? { id: w.id, name: w.name, ready: warehouseReady(w) } : { id: null, name, ready: false });
     }
+    const whMatched = mentioned.filter(m => m.id);
+    const whUnmatched = mentioned.filter(m => !m.id).map(m => m.name);
     const primary = whMatched[0] ?? null;
 
     // المندوب
@@ -200,11 +202,10 @@ async function buildDrafts(reqUser, messages, source) {
     if (batchKey && !seenInBatch.has(batchKey)) seenInBatch.set(batchKey, i);
 
     const warnings = [];
-    if (msg.partial) warnings.push('الرسالة مقطوعة في الصورة — تأكّد من أصنافها');
+    if (msg.partial) warnings.push('مقطوعة في الصورة — راجع الأصناف');
     if (parsed.aiFailed) warnings.push('تعذّرت قراءة بعض الأسطر — أكملها يدوياً');
-    if (parsed.unparsed.length && parsed.readBy !== 'ai') warnings.push(`أسطر لم تُقرأ: ${parsed.unparsed.join(' · ')}`);
-    if (whUnmatched.length) warnings.push(`مذاخر غير موجودة في الدليل: ${whUnmatched.join('، ')}`);
-    if (!parsed.headerSure) warnings.push('تأكّد من اسم الصيدلية والمنطقة');
+    if (parsed.unparsed.length && parsed.readBy !== 'ai') warnings.push(`لم تُقرأ: ${parsed.unparsed.join(' · ')}`);
+    if (!parsed.headerSure) warnings.push('راجع اسم الصيدلية والمنطقة');
 
     drafts.push({
       key: `${Date.now().toString(36)}-${i}`,
@@ -217,8 +218,8 @@ async function buildDrafts(reqUser, messages, source) {
       areaName: parsed.area ?? '',
       warehouseId: primary?.id ?? null,
       warehouseName: primary?.name ?? whUnmatched[0] ?? '',
-      warehouseReady: primary ? (primary.channel === 'group' ? Boolean(primary.groupJid) && primary.groupSendOn !== false : primary.channel !== 'manual') : false,
       backupWarehouseIds: whMatched.slice(1).map(w => w.id),
+      mentionedWarehouses: mentioned,
       notes: parsed.notes.join(' — '),
       lines,
       repUserId: rep?.id ?? null,
