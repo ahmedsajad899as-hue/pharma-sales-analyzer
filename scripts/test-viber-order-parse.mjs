@@ -5,7 +5,7 @@
 // الحالات من كروب «مبيعات فارماكتف مذاخر» (سكرين شوت صاحب المشروع 2026-11-13).
 // ════════════════════════════════════════════════════════════════════════════
 
-import { parseViberOrder, parseViberItemLine, splitHeaderLine, orderFingerprint, splitPasteIntoOrders } from '../server/modules/rep-orders/viber-order-parse.js';
+import { parseViberOrder, parseViberItemLine, splitHeaderLine, orderFingerprint, splitPasteIntoOrders, splitWhatsAppMessages } from '../server/modules/rep-orders/viber-order-parse.js';
 
 let failed = 0;
 const check = (label, actual, expected) => {
@@ -131,6 +131,20 @@ check('لصقتان في نص واحد تبقيان طلبيتين', splitPasteI
 
 const r6 = parseViberOrder('ص/جبل علي | الواثق\nUricodrop 80mg       20+4\n🟢د.قاسم محمد | Cardio\nPotafast         10+1\n@Zaher');
 check('«د.قاسم محمد | Cardio» ملاحظة طبيب لا صنف', [r6.pharmacy, r6.area, r6.items.length, r6.notes, r6.unparsed], ['جبل علي', 'الواثق', 2, ['د.قاسم محمد | Cardio'], []]);
+
+
+console.log('\n── لصق من واتساب (2026-11-14) ──');
+const wa = splitWhatsAppMessages(`[11/13, 4:52 PM] اوردين: صيدلية ماجد حميد - شارع فلسطين
+PANTACTIVE 20MG 28TAB 10
+PANTACTIVE 40MG 28TAB 10 + 3
+[11/13, 8:22 PM] اوردين: صيدلية نور عبدالله الزلزلي - المشتل
+Potafast 50 mg 20`);
+check('رسالتا واتساب ← طلبيتان بمرسلهما', wa.map(x => x.sender), ['اوردين', 'اوردين']);
+const w1 = parseViberOrder(wa[0].text), w2 = parseViberOrder(wa[1].text);
+check('الأولى: صيدلية ومنطقة وأصناف', [w1.pharmacy, w1.area, w1.items], ['ماجد حميد', 'شارع فلسطين', [{ name: 'PANTACTIVE 20MG 28TAB', quantity: 10, bonus: 0 }, { name: 'PANTACTIVE 40MG 28TAB', quantity: 10, bonus: 3 }]]);
+check('الثانية', [w2.pharmacy, w2.area, w2.items], ['نور عبدالله الزلزلي', 'المشتل', [{ name: 'Potafast 50 mg', quantity: 20, bonus: 0 }]]);
+check('صيغة تصدير واتساب «التاريخ - المرسل:»', splitWhatsAppMessages('11/13/26, 4:52 PM - Ali Hassan: ص الامل / المنصور\nPandev 40(10)'), [{ sender: 'Ali Hassan', text: 'ص الامل / المنصور\nPandev 40(10)' }]);
+check('نص فايبر بلا ترويسات ← null', splitWhatsAppMessages('ص الامل\nPandev 40(10)'), null);
 
 console.log(failed ? `\n✗ فشل ${failed}` : '\n✓ كلها نجحت');
 process.exit(failed ? 1 : 0);

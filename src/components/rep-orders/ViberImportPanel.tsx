@@ -343,7 +343,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     <div className="ro-modal vi-modal" onClick={() => !busy && onClose()}>
       <div className="ro-dialog vi-dialog" onClick={e => e.stopPropagation()}>
         <div className="ro-dialog__head vi-head">
-          <strong>📥 طلبيات الفايبر</strong>
+          <strong>📥 طلبيات الفايبر / واتساب</strong>
           {reading > 0 && <span className="vi-reading"><i /> جارٍ القراءة{reading > 1 ? ` (${reading})` : ''}</span>}
           <span className="ro-spacer" />
           <button className="ro-icon-btn" disabled={busy} onClick={onClose}><X size={15} /></button>
@@ -393,7 +393,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                 <div className="vi-card__body">
                   {/* نص الرسالة الأصلي ظاهر دائماً للمقارنة */}
                   <div className="vi-src">
-                    <div className="vi-src__head"><MessageSquareText size={12} /> رسالة الفايبر{d.sender ? ` — ${d.sender}` : ''}</div>
+                    <div className="vi-src__head"><MessageSquareText size={12} /> الرسالة{d.sender ? ` — ${d.sender}` : ''}</div>
                     <pre dir="auto">{d.sourceText}</pre>
                   </div>
 

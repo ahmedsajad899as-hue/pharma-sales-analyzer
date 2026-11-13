@@ -858,7 +858,7 @@ export default function RepOrdersPage() {
           </button>
           {viberImport && (
             <button className="ro-hero__btn" onClick={() => setShowViber(true)} title="لصق رسائل كروب الفايبر أو سكرين شوت لها ← طلبيات جاهزة للإرسال">
-              <ClipboardPaste size={15} /> <span>من الفايبر</span>
+              <ClipboardPaste size={15} /> <span>فايبر / واتساب</span>
             </button>
           )}
           <button className="ro-hero__btn ro-hero__btn--primary" onClick={() => setEditing('new')}><Plus size={15} /> طلبية جديدة</button>

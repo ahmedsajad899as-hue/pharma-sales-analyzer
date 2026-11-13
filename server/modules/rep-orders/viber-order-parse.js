@@ -323,3 +323,38 @@ export function splitPasteIntoOrders(text) {
   }
   return merged;
 }
+
+/**
+ * نسخ عدة رسائل من واتساب يُلصق كل رسالة بترويسة «[التاريخ، الوقت] المرسل: نص السطر الأول»:
+ *   [11/13, 4:52 PM] اوردين: صيدلية ماجد حميد - شارع فلسطين
+ *   PANTACTIVE 20MG 28TAB 10
+ *   [11/13, 8:22 PM] اوردين: صيدلية نور عبدالله الزلزلي - المشتل
+ * وصيغة التصدير/أندرويد: «11/13/26, 4:52 PM - اوردين: …». كل ترويسة تبدأ رسالة جديدة
+ * ومرسلها = اسم المندوب (يُستعمل لتذكّر مندوبه). نص بلا ترويسات ⇒ null (فايبر/رسالة واحدة).
+ * @returns {{ sender: string, text: string }[] | null}
+ */
+const WA_HEAD_RE = /^\s*[\u200e\u200f]*\[(\d{1,4}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?,?\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AaPp]\.?\s?[Mm]\.?|ص|م)?)\]\s*([^:\n]{1,60}?):\s?(.*)$/;
+const WA_EXPORT_RE = /^\s*[\u200e\u200f]*(\d{1,4}[\/.\-]\d{1,2}[\/.\-]\d{2,4},?\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AaPp]\.?\s?[Mm]\.?|ص|م)?)\s+-\s+([^:\n]{1,60}?):\s?(.*)$/;
+
+export function splitWhatsAppMessages(text) {
+  const lines = String(text ?? '').split(/\r?\n/);
+  const out = [];
+  let cur = null;
+  for (const l of lines) {
+    const m = l.match(WA_HEAD_RE) || l.match(WA_EXPORT_RE);
+    if (m) {
+      if (cur) out.push(cur);
+      cur = { sender: tidy(m[2]), lines: [m[3]] };
+    } else if (cur) {
+      cur.lines.push(l);
+    } else if (tidy(l)) {
+      // نص قبل أول ترويسة (بقية رسالة لم تُحدَّد) — رسالة بلا مرسل
+      cur = { sender: null, lines: [l] };
+    }
+  }
+  if (cur) out.push(cur);
+  if (!out.some(x => x.sender)) return null;
+  return out
+    .map(x => ({ sender: x.sender, text: x.lines.join('\n').trim() }))
+    .filter(x => x.text && !/^<(?:Media omitted|تم استبعاد الوسائط)>$/i.test(x.text));
+}

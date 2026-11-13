@@ -28,7 +28,7 @@ import { loadKnownWarehouseKeys, loadKnownAreaIndex } from '../orders/order-extr
 import { enrichRowsFromCatalog } from '../orders/orders.service.js';
 import { matchWarehouse, warehouseReady } from '../warehouse-dispatch/dispatch.core.js';
 import { loadViewer, teamUserIds, orderScopeWhere, warehouseScopeWhere, cleanText } from './rep-orders.service.js';
-import { parseViberOrder, orderFingerprint, splitPasteIntoOrders } from './viber-order-parse.js';
+import { parseViberOrder, orderFingerprint, splitPasteIntoOrders, splitWhatsAppMessages } from './viber-order-parse.js';
 
 const MAX_BLOCKS = 40;
 const MAX_BLOCK_LEN = 2500;
@@ -312,12 +312,15 @@ async function buildDrafts(reqUser, messages, source) {
 /** body.blocks: لصقات منفصلة (كل Ctrl+V كتلة). لصقة فيها عدة طلبيات تُقسَّم. */
 export async function importFromText(reqUser, body) {
   const raw = Array.isArray(body?.blocks) ? body.blocks : [body?.text];
+  // لصقة من واتساب (عدة رسائل بترويسة «[التاريخ] المرسل:») تُقسَّم على الرسائل ومرسليها أولاً،
+  // ثم كل رسالة (أو لصقة فايبر) تُقسَّم إن حملت أكثر من طلبية.
   const messages = raw
-    .map(b => String(b ?? '').slice(0, MAX_BLOCK_LEN * 4))
-    .flatMap(splitPasteIntoOrders)
-    .filter(t => t.trim())
+    .map(b => String(b ?? '').slice(0, MAX_BLOCK_LEN * 10))
+    .flatMap(b => splitWhatsAppMessages(b) ?? [{ sender: null, text: b }])
+    .flatMap(m => splitPasteIntoOrders(m.text).map(text => ({ sender: m.sender, text })))
+    .filter(m => m.text.trim())
     .slice(0, MAX_BLOCKS)
-    .map(text => ({ text: text.slice(0, MAX_BLOCK_LEN), sender: null }));
+    .map(m => ({ text: m.text.slice(0, MAX_BLOCK_LEN), sender: m.sender }));
   if (!messages.length) throw new AppError('الصق نص طلبية واحدة على الأقل', 400);
   return buildDrafts(reqUser, messages, 'viber-paste');
 }
