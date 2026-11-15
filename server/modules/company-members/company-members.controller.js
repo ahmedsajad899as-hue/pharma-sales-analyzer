@@ -8,8 +8,10 @@ import {
 
 /** أدوار تشرف على شركات مكتبها كلها (رئيسية وثانوية بالتساوي)، لا على شركتها الرئيسية فقط. */
 const OFFICE_WIDE_ROLES = new Set(['office_manager', 'office_hr', 'office_employee']);
-/** أدوار ترى القائمة فقط بلا تعديل (مناطق/اسم/تفعيل). */
-const READ_ONLY_ROLES = new Set(['office_employee']);
+/** أدوار ترى القائمة فقط بلا تعديل (مناطق/اسم/تفعيل). موظف المكتب صار يعدّل (2026-11-15). */
+const READ_ONLY_ROLES = new Set([]);
+/** حسابات بمستوى المكتب أو أعلى — لا يعدّلها موظف المكتب (يعدّل المندوبين والمدراء فقط). */
+const OFFICE_LEVEL_ROLES = new Set(['office_manager', 'office_hr', 'office_employee', 'admin', 'super_admin']);
 const isOfficeWide = role => OFFICE_WIDE_ROLES.has(role);
 
 /** Helper: get the PRIMARY company IDs of the requesting manager.
@@ -62,6 +64,10 @@ async function hierarchySubordinateIds(managerId) {
 async function canManage(manager, targetUserId) {
   if (!targetUserId || targetUserId === manager.id) return false;
   if (READ_ONLY_ROLES.has(manager.role)) return false;
+  if (manager.role === 'office_employee') {
+    const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+    if (!target || OFFICE_LEVEL_ROLES.has(target.role)) return false;
+  }
   if (manager.role === 'company_manager') {
     return (await hierarchySubordinateIds(manager.id)).has(targetUserId);
   }
@@ -104,8 +110,11 @@ const withProvince = (areas, provMap) =>
 //     الجميع (والسوبر أدمن) التعديل فوراً، ولا تُنشأ منطقة جديدة أبداً.
 // ════════════════════════════════════════════════════════════════════════════
 
-/** نطاق المدير: { all: bool, names: Set<norm>|null } */
-async function managerScope(managerId) {
+/** نطاق المدير: { all: bool, names: Set<norm>|null }
+ *  أدوار المكتب (مدير/HR/موظف) تشرف على كل شركات المكتب بغداد والمحافظات ⇒ كل المناطق. */
+async function managerScope(manager) {
+  if (isOfficeWide(manager.role)) return { all: true, names: null };
+  const managerId = manager.id;
   if (await userHasAllAreas(managerId)) return { all: true, names: null };
   const areas = await resolveEffectiveAreas(managerId);
   return { all: false, names: new Set(areas.map(a => normalizeAreaName(a.name))) };
@@ -119,8 +128,8 @@ async function scopeOptions(scope) {
   return dedupeByName(rows.filter(a => inScope(scope, a.name)));
 }
 
-async function buildAreaState(managerId, targetUserId) {
-  const scope = await managerScope(managerId);
+async function buildAreaState(manager, targetUserId) {
+  const scope = await managerScope(manager);
   const [options, explicit, effectiveIds, provMap] = await Promise.all([
     scopeOptions(scope),
     prisma.userAreaAssignment.findMany({
@@ -177,7 +186,7 @@ function httpError(status, message) {
 }
 
 async function applyManagerAreas(manager, targetUserId, areaIds) {
-  const scope = await managerScope(manager.id);
+  const scope = await managerScope(manager);
   const requested = [...new Set(areaIds.map(Number).filter(Number.isInteger))];
   const requestedRows = requested.length
     ? await prisma.area.findMany({ where: { id: { in: requested } }, select: { id: true, name: true } })
@@ -399,7 +408,7 @@ export async function getMemberAreas(req, res, next) {
     if (!(await canManage(req.user, targetUserId))) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذا المستخدم.' });
     }
-    res.json({ success: true, ...(await buildAreaState(req.user.id, targetUserId)) });
+    res.json({ success: true, ...(await buildAreaState(req.user, targetUserId)) });
   } catch (err) { next(err); }
 }
 
@@ -444,7 +453,7 @@ export async function getRepAreas(req, res, next) {
     if (!(await canManage(req.user, userId))) {
       return res.status(403).json({ error: 'ليس لديك صلاحية الوصول لهذا المندوب.' });
     }
-    res.json({ success: true, ...(await buildAreaState(req.user.id, userId)), userId });
+    res.json({ success: true, ...(await buildAreaState(req.user, userId)), userId });
   } catch (err) { next(err); }
 }
 

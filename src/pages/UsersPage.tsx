@@ -621,7 +621,8 @@ export default function UsersPage() {
                             border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer',
                           }}>{expanded ? '▴ إخفاء' : '▾ عرض'}</button>
                         )}
-                        {canEditMembers && (
+                        {canEditMembers && !(currentUser?.role === 'office_employee'
+                          && ['office_manager', 'office_hr', 'office_employee', 'admin', 'super_admin'].includes(member.role)) && (
                           <>
                             <button onClick={() => openAccountModal(member)} style={{
                               padding: '6px 12px', fontSize: 12, fontWeight: 700, background: '#f8fafc', color: '#334155',
