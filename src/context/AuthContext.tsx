@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>(() => {
     // Seed from localStorage: ensure the currently-logged-in account is always in the list
     const existing = loadSavedAccounts();
-    const storedToken = localStorage.getItem('auth_token');
+    const storedToken = getAuthToken();
     const storedUser: AuthUser | null = (() => { try { return JSON.parse(getAuthUserRaw() || 'null'); } catch { return null; } })();
     if (!_isImp() && storedToken && storedUser && !existing.find(a => a.user.id === storedUser.id)) {
       const seeded = [{ token: storedToken, user: storedUser }, ...existing];

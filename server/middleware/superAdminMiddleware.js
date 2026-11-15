@@ -8,7 +8,8 @@ export function requireSuperAdmin(req, res, next) {
     return res.status(401).json({ error: 'No token provided' });
 
   try {
-    const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+    // لا انتهاء للجلسة (2026-11-15) — التوقيع يكفي
+    const payload = jwt.verify(auth.slice(7), JWT_SECRET, { ignoreExpiration: true });
     if (payload.type !== 'super_admin')
       return res.status(403).json({ error: 'Access denied' });
     req.superAdmin = payload;

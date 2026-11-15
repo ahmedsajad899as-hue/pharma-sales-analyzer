@@ -12,7 +12,10 @@ export function requireAuth(req, res, next) {
   }
   const token = header.slice(7);
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    // لا انتهاء للجلسة أبداً (طلب المستخدم 2026-11-15): توكنات قديمة صدرت بمدة 7 أيام
+    // ما زالت محفوظة في «تبديل الحساب» وكانت تُرجع 401 فتُخرج المستخدم. التوقيع يكفي؛
+    // الحساب المعطَّل يُرفض في /api/auth/me.
+    const payload = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
     req.user = payload; // { id, username, role }
     next();
   } catch {
