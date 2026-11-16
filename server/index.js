@@ -15,6 +15,7 @@ import prisma from './lib/prisma.js';
 import { ensurePrimaryCompanies } from './lib/ensurePrimaryCompanies.js';
 import { hasNonProvinceSubordinates } from './lib/provinceScope.js';
 import { autoEnrollAllReps, cleanForeignManagerLinks, detachMarketersFromTeams } from './modules/province-teams/province-teams.service.js';
+import { clearStaleMarketerKind } from './modules/admin-users/admin-users.controller.js';
 import { backfillSalesDataFileOfficeSync } from './lib/backfillSalesDataFileOfficeSync.js';
 import { backfillProductManagerFileShares } from './lib/backfillProductManagerFileShares.js';
 import { backfillConditionFileShares } from './lib/officeFileShares.js';
@@ -5047,6 +5048,9 @@ if (process.env.VERCEL) {
     renameConditionFiles()
       .then(n => { if (n) console.log(`✓ صُحّح اسم ${n} ملف لكوديشن («اللكوديشن»)`); })
       .catch(e => console.error('[renameConditionFiles]', e.message));
+    // مسوقون سابقون صاروا موظفي مكتب وغيره: أزل علامة «فارمسي» عن سجل مندوبهم
+    clearStaleMarketerKind()
+      .catch(e => console.error('[clearStaleMarketerKind]', e.message));
     // المسوقون خارج فرق العلميين أولاً: مقاعدهم تُحرَّر قبل تسجيل العلميين (idempotent)
     detachMarketersFromTeams()
       .then(r => { if (r.assignments || r.leaders) console.log(`✓ أُخرج المسوقون من فرق المحافظات: ${r.assignments} تعيين، ${r.leaders} قائد، ${r.links} رابط`); })

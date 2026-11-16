@@ -325,6 +325,19 @@ export async function applyRepKind(userId, role, repKind) {
   if (kind === PHARMACY_KIND) await prisma.userCompanyAssignment.updateMany({ where: { userId }, data: { isPrimary: true } });
 }
 
+// تنظيف عند الإقلاع (idempotent): حسابات تحوّلت من مسوق إلى دور غير مندوب قبل إصلاح
+// updateUser — سجل مندوبها ما زال repKind='pharmacy'.
+export async function clearStaleMarketerKind() {
+  const stale = await prisma.user.findMany({
+    where: { role: { notIn: [...REP_KIND_ROLES] }, linkedRep: { repKind: PHARMACY_KIND } },
+    select: { username: true, linkedRepId: true },
+  });
+  if (!stale.length) return 0;
+  await prisma.scientificRepresentative.updateMany({ where: { id: { in: stale.map(u => u.linkedRepId) } }, data: { repKind: 'scientific' } });
+  console.log('[stale-marketer-kind] cleared', JSON.stringify(stale.map(u => u.username)));
+  return stale.length;
+}
+
 // ── Update user ───────────────────────────────────────────────────────────
 export async function updateUser(req, res) {
   try {
@@ -372,6 +385,13 @@ export async function updateUser(req, res) {
 
     if (req.body.repKind !== undefined) {
       await applyRepKind(id, user.role, req.body.repKind);
+      user = await prisma.user.findUnique({ where: { id }, select: userSelect });
+    }
+
+    // تحوّل المسوق إلى دور غير مندوب (موظف مكتب…): علامة «فارمسي» على سجل مندوبه
+    // تبقى فيظل يظهر في «مسوقين بغداد» ونطاقات المسوقين — نُرجعها علمياً.
+    if (role !== undefined && !REP_KIND_ROLES.has(user.role) && user.linkedRep?.repKind === PHARMACY_KIND) {
+      await prisma.scientificRepresentative.update({ where: { id: user.linkedRep.id }, data: { repKind: 'scientific' } });
       user = await prisma.user.findUnique({ where: { id }, select: userSelect });
     }
 
