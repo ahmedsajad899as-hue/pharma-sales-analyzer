@@ -4186,16 +4186,26 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // المذاخر/المندوبين معاً — "كم بِيع من هذا الايتم بكل مذاخر بغداد مجتمعة"،
   // بدل تفصيله مذخراً بمذخر. مجمّعة بالشركة بنفس منطق تفصيل الايتمات أعلاه.
   const buildBaghdadItemRows = () => {
-    type ItemRow = { itemName: string; companyName: string; netQty: number; netValue: number };
+    // warehouses: المذاخر التي اشترت الايتم (مجمَّعة بالمذخر عبر كل المندوبين) — تُعرض عند الضغط على الايتم.
+    type WhPart = { warehouseName: string; netQty: number; netValue: number };
+    type ItemRow = { key: string; itemName: string; companyName: string; netQty: number; netValue: number; whMap: Map<string, WhPart> };
     const byItem = new Map<string, ItemRow>();
     for (const info of buildBaghdadWarehouseNetRows()) {
       const iKey = normReportName(info.itemName);
-      if (!byItem.has(iKey)) byItem.set(iKey, { itemName: info.itemName, companyName: info.companyName, netQty: 0, netValue: 0 });
+      if (!byItem.has(iKey)) byItem.set(iKey, { key: iKey, itemName: info.itemName, companyName: info.companyName, netQty: 0, netValue: 0, whMap: new Map() });
       const row = byItem.get(iKey)!;
       row.netQty   += info.netQty;
       row.netValue += info.netValue;
+      const wKey = normReportName(info.warehouseName);
+      if (!row.whMap.has(wKey)) row.whMap.set(wKey, { warehouseName: info.warehouseName, netQty: 0, netValue: 0 });
+      const w = row.whMap.get(wKey)!;
+      w.netQty   += info.netQty;
+      w.netValue += info.netValue;
     }
-    return sortByCompanyGroup([...byItem.values()]);
+    return sortByCompanyGroup([...byItem.values()].map(({ whMap, ...r }) => ({
+      ...r,
+      warehouses: [...whMap.values()].filter(w => w.netQty !== 0 || w.netValue !== 0).sort((a, b) => (b.netQty - a.netQty) || (b.netValue - a.netValue)),
+    })));
   };
 
   const exportBaghdadWarehouseToExcel = () => {
@@ -4237,6 +4247,12 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     for (let r = 1; r < aoa.length; r++) { applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: 3 })); applyNumFmt(ws, XLSX.utils.encode_cell({ r, c: 4 })); }
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('مذاخر بغداد - حسب الايتم'));
+    const whHeader = ['الشركة', 'الايتم', 'المذخر', 'صافي الكمية', valueColLabel];
+    const whAoa = [whHeader, ...rows.flatMap(row => row.warehouses.map(w => [row.companyName, row.itemName, w.warehouseName, w.netQty, cv(w.netValue)]))];
+    const whWs = XLSX.utils.aoa_to_sheet(whAoa);
+    styleSheet(whWs, whAoa, [20, 28, 24, 14, 18]);
+    for (let r = 1; r < whAoa.length; r++) { applyNumFmt(whWs, XLSX.utils.encode_cell({ r, c: 3 })); applyNumFmt(whWs, XLSX.utils.encode_cell({ r, c: 4 })); }
+    XLSX.utils.book_append_sheet(wb, whWs, sanitizeSheetName('الايتم × المذخر'));
     XLSX.writeFile(wb, `مذاخر-بغداد-حسب-الايتم_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
@@ -5409,11 +5425,28 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                                       <td colSpan={3} style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, fontSize: 13, color: '#3730a3', padding: '6px 10px' }}>{it.companyName}</td>
                                     </tr>
                                   )}
-                                  <tr>
-                                    <td style={{ ...pivotTd, textAlign: 'right' }}><span>{it.itemName}</span></td>
-                                    <td style={pivotTd}>{it.netQty}</td>
-                                    <td style={{ ...pivotTd, fontWeight: 700, background: it.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(it.netValue)}</td>
-                                  </tr>
+                                  {(() => {
+                                    const openKey = `item:${it.key}`;
+                                    const open = expandedBaghdadWarehouses.has(openKey);
+                                    return <>
+                                      <tr onClick={() => toggleRow(openKey)} style={{ cursor: 'pointer', background: open ? '#f5f3ff' : undefined }} title="اضغط لعرض المذاخر التي اشترت هذا الايتم">
+                                        <td style={{ ...pivotTd, textAlign: 'right' }}>
+                                          <span style={{ display: 'inline-block', width: 14, color: '#6366f1', fontSize: 10 }}>{open ? '▼' : '◀'}</span>
+                                          <span style={{ fontWeight: open ? 700 : 400 }}>{it.itemName}</span>
+                                          <span style={{ marginInlineStart: 6, fontSize: 11, color: '#64748b' }}>({it.warehouses.length} مذخر)</span>
+                                        </td>
+                                        <td style={pivotTd}>{it.netQty}</td>
+                                        <td style={{ ...pivotTd, fontWeight: 700, background: it.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(it.netValue)}</td>
+                                      </tr>
+                                      {open && it.warehouses.map((w, wi) => (
+                                        <tr key={`w${wi}`} style={{ background: '#fafaff' }}>
+                                          <td style={{ ...pivotTd, textAlign: 'right', paddingInlineStart: 34, color: '#334155' }}>🏬 {w.warehouseName}</td>
+                                          <td style={{ ...pivotTd, color: '#334155' }}>{w.netQty}</td>
+                                          <td style={{ ...pivotTd, color: '#334155', background: w.netValue < 0 ? 'rgba(239, 68, 68, 0.12)' : undefined }}>{fmtValSigned(w.netValue)}</td>
+                                        </tr>
+                                      ))}
+                                    </>;
+                                  })()}
                                   {isLastOfCompany && (
                                     <tr style={{ background: '#f8fafc' }}>
                                       <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, color: '#475569' }}>إجمالي {it.companyName}</td>
