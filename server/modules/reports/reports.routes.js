@@ -693,7 +693,10 @@ router.get('/overall', async (req, res) => {
         // اسم الشركة لهذا الايتم — نفس rowCompany المحسوم أعلاه لنفس الصف (DB
         // company/scientificCompany → عمود rawData) — يُستعمل فقط لتجميع/ترتيب
         // الايتمات داخل كل مذخر عند عرض التفاصيل، لا للتجميع نفسه.
-        const itemCompanyName = rowCompany?.display || 'غير مصنّف';
+        // الشركة = الشركة التي أُسند لها الايتم في النظام (تيم مديرها، مثل تبويب المحافظة) —
+        // لا الشركة المصنّعة المكتوبة بالملف (Moreserc: HEJHEZ بالملف لكنه ضمن HELPA).
+        // احتياطي للايتم غير المُسنَد: شركته من الملف.
+        const itemCompanyName = (teamName !== UNASSIGNED_COMPANY ? teamName : null) || rowCompany?.display || 'غير مصنّف';
         const bwKey = `${repName}::${warehouseName}::${itemName}`;
         if (!baghdadWarehouseMap.has(bwKey)) {
           baghdadWarehouseMap.set(bwKey, { repName, warehouseName, itemName, companyName: itemCompanyName, totalQuantity: 0, totalValue: 0 });
