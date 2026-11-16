@@ -9,6 +9,7 @@
 
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import RepLiquidationLines from './RepLiquidationLines';
 
 interface DirItem { itemId: number | null; name: string; company: string; net: number; qty: number; targetQty: number; personalQty: number; personalNet: number }
 interface DirRep { repUserId: number; repName: string; repActive: boolean; companies: string[]; net: number; repNet: number; qty: number; targetQty: number; personalQty: number; personalNet: number; items: DirItem[] }
@@ -57,6 +58,8 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
   const [q, setQ] = useState(initialProvince ?? '');
   const [openRep, setOpenRep] = useState<string | null>(() => (prefetched ? openKeyFor(prefetched) : null));
   const focusRef = useRef<HTMLDivElement | null>(null);
+  // صفحة «لكوديشن المندوب» للمندوب المفتوح جدوله
+  const [linesOpen, setLinesOpen] = useState(false);
   const focusKey = useRef<string | null>(initialRepUserId != null ? openRep : null);
 
   useEffect(() => {
@@ -98,6 +101,15 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
       t.reps.some(r => r.repName.includes(s) || r.companies.some(c => c.includes(s))));
   }, [teams, q]);
 
+  // المندوب المفتوح: فريقه (محافظته) وحسابه — زر اللكوديشن أعلى النافذة يعمل عليه
+  const openInfo = useMemo(() => {
+    if (!openRep) return null;
+    const [tid, uid] = openRep.split(':').map(Number);
+    const t = teams.find(x => x.id === tid);
+    const r = t?.reps.find(x => x.repUserId === uid);
+    return t && r ? { province: t.provinceName, repUserId: uid, repName: r.repName } : null;
+  }, [openRep, teams]);
+
   return (
     <div dir="rtl" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 20, width: 'min(980px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(15,23,42,.35)' }}>
@@ -105,8 +117,17 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
           <div style={{ fontSize: 18, fontWeight: 900, color: '#0f172a' }}>فرق المحافظات</div>
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="بحث: محافظة / تيم ليدر / مندوب / شركة"
             style={{ flex: 1, minWidth: 180, border: '1px solid #cbd5e1', borderRadius: 999, padding: '7px 14px', fontSize: 13 }} />
+          <button type="button" disabled={!openInfo} onClick={() => setLinesOpen(true)}
+            title={openInfo ? `كل سطور لكوديشن ${openInfo.repName} في ${openInfo.province}: الصيدلية، التاريخ، الكمية، السعر…` : 'افتح مندوباً أولاً'}
+            style={{ border: '1px solid #0f766e', background: openInfo ? '#0f766e' : '#f1f5f9', color: openInfo ? '#fff' : '#94a3b8', borderColor: openInfo ? '#0f766e' : '#e2e8f0', borderRadius: 999, padding: '7px 14px', fontSize: 13, fontWeight: 800, cursor: openInfo ? 'pointer' : 'default', whiteSpace: 'nowrap', opacity: 1 }}>
+            🧾 لكوديشن {openInfo ? openInfo.repName : 'المندوب'}
+          </button>
           <button type="button" onClick={onClose} style={{ border: 'none', background: '#f1f5f9', borderRadius: 999, width: 32, height: 32, cursor: 'pointer', fontSize: 16 }} aria-label="إغلاق">✕</button>
         </div>
+        {linesOpen && openInfo && (
+          <RepLiquidationLines token={token} fileIds={fileIds} applyMonth={applyMonth} fmtVal={fmtVal} currencyLabel={currencyLabel}
+            repUserId={openInfo.repUserId} repName={openInfo.repName} province={openInfo.province} onClose={() => setLinesOpen(false)} />
+        )}
 
         <div style={{ overflowY: 'auto', padding: 14 }}>
           {loading && <div style={{ color: '#64748b', padding: 24, textAlign: 'center' }}>جاري التحميل…</div>}

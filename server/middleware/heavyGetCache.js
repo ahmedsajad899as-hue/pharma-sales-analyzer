@@ -23,6 +23,7 @@ const HEAVY_PATHS = [
   /^\/api\/scientific-reps\/rep-names\/check$/,
   /^\/api\/scientific-reps\/\d+\/report$/,
   /^\/api\/province-teams\/directory$/,
+  /^\/api\/province-teams\/rep-lines$/,
   /^\/api\/rep-sales\/province-summary$/,
   /^\/api\/targets\/actuals$/,
 ];

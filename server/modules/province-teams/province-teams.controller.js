@@ -8,7 +8,7 @@ import * as structure from './province-teams.service.js';
 import { resolveCoverageFiles, listCoverageMonths, computeCoverage } from './province-coverage.js';
 import * as personal from './personal-sales.service.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
-import { buildMonthFilter, monthToRange } from '../../lib/salesMonths.js';
+import { buildMonthFilter, monthToRange, UNDATED_CUTOFF } from '../../lib/salesMonths.js';
 import { loadConditionSalesForReps } from '../../lib/conditionFile.js';
 import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
 import { loadManagerSeat, loadSeatManagers, loadSharedRepScopes } from '../../lib/provinceSeats.js';
@@ -41,7 +41,7 @@ export async function months(req, res, next) {
  * @returns {Promise<Map<string, Map<string|number, {itemId:number|null, itemName:string, qty:number, usd:number, rows:number, pharmacies:Set<string>}>>>}
  *   المفتاح `${محافظة}|${حساب}`
  */
-async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
+async function loadTeamLiquidation(repUserIds, files, month, viewerId, onLine = null) {
   const out = new Map();
   if (!repUserIds.length) return out;
   const { sales, mercatoRows, users, ownerOfRow } = await loadLiquidationData({
@@ -71,7 +71,14 @@ async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
   for (const s of sales) {
     const provinceName = province.ofSale(s);
     for (const l of s.lines) {
-      add(provinceName, receiverOf(provinceName, s.createdById, l.itemId, s.areaName, s.pharmacyName), l.itemId, l.itemName, l.quantity, l.quantity * (l.unitPrice ?? 0) / rate, s.pharmacyName);
+      const receiver = receiverOf(provinceName, s.createdById, l.itemId, s.areaName, s.pharmacyName);
+      const usd = l.quantity * (l.unitPrice ?? 0) / rate;
+      add(provinceName, receiver, l.itemId, l.itemName, l.quantity, usd, s.pharmacyName);
+      onLine?.(provinceName, receiver, {
+        date: dayOf(s.saleDate), invoice: s.invoiceNumber ?? '', pharmacy: s.pharmacyName ?? '', area: s.areaName ?? '',
+        warehouse: s.warehouseName ?? '', itemId: l.itemId ?? null, item: l.itemName ?? '', company: l.companyName ?? '',
+        quantity: l.quantity, bonus: l.bonusQty ?? 0, usd, source: 'مبيعات المندوب',
+      });
     }
   }
   for (const r of mercatoRows) {
@@ -84,9 +91,67 @@ async function loadTeamLiquidation(repUserIds, files, month, viewerId) {
       if (counted.has(`${provinceName}|${receiver}`)) continue;
       counted.add(`${provinceName}|${receiver}`);
       add(provinceName, receiver, r.itemId, r.item?.name ?? `#${r.itemId}`, sign * r.quantity, sign * saleValueUSD(r), sign > 0 ? r.customer?.name : null);
+      if (onLine) {
+        const raw = rawOf(r.rawData);
+        const condition = String(r.uploadedFile?.mergeGroup ?? '').endsWith('|condition');
+        onLine(provinceName, receiver, {
+          date: dayOf(r.saleDate), invoice: String(raw.invoiceNumber ?? rawCol(raw, INVOICE_KEY_RE) ?? '').trim(),
+          pharmacy: String(raw.pharmacy || r.customer?.name || '').trim(),
+          area: r.area?.name && r.area.name !== 'غير محدد' ? r.area.name : '',
+          warehouse: String(raw.warehouse ?? rawCol(raw, WAREHOUSE_KEY_RE) ?? '').trim(),
+          itemId: r.itemId ?? null, item: r.item?.name ?? `#${r.itemId}`, company: String(raw.company ?? '').trim(),
+          quantity: sign * r.quantity, bonus: Number(raw.bonus) || 0, usd: sign * saleValueUSD(r),
+          source: sign < 0 ? 'إرجاع' : condition ? (LIQ_SOURCE_LABEL[raw.source] || 'ملف اللكوديشن') : 'ميركاتو',
+        });
+      }
     }
   }
   return out;
+}
+
+const dayOf = (d) => (d && new Date(d) >= UNDATED_CUTOFF ? new Date(d).toISOString().slice(0, 10) : '');
+const rawOf = (v) => { if (v && typeof v === 'object') return v; try { return JSON.parse(v || '{}') || {}; } catch { return {}; } };
+const INVOICE_KEY_RE = /رقم\s*(ال)?(فاتور|طلب)|invoice/i;
+const WAREHOUSE_KEY_RE = /مذخر|warehouse|distributor/i;
+const rawCol = (raw, re) => { const k = Object.keys(raw).find(x => re.test(x)); return k ? raw[k] : null; };
+const LIQ_SOURCE_LABEL = {
+  'telegram-order': 'بوت تلكرام', 'viber-order': 'بوت فايبر', 'whatsapp-order': 'بوت واتساب',
+  'warehouse-gap-template': 'إكسل اللكوديشن', 'manual-invoice': 'فاتورة يدوية',
+};
+
+// ── GET /api/province-teams/rep-lines?repUserId=&province=&month=&fileIds= ──────
+// سطور لكوديشن مندوب علمي في محافظة: نفس بيانات personalNet في /directory (loadTeamLiquidation
+// بالمندوبين أنفسهم وتقسيم المقاعد نفسه)، فمجموعها = رقم المندوب في نافذة الفرق. القيم بالدولار.
+export async function repLines(req, res, next) {
+  try {
+    const viewer = await loadViewer(req.user);
+    const month = String(req.query.month ?? '').trim() || 'all';
+    const repUserId = toInt(req.query.repUserId);
+    const norm = (x) => String(x ?? '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
+    const [teams, files] = await Promise.all([
+      structure.loadVisibleTeams(viewer),
+      resolveCoverageFiles(viewer, req.query.fileIds),
+    ]);
+    const has = (t) => t.assignments.some(a => a.repUserId === repUserId);
+    const team = teams.find(t => has(t) && norm(t.provinceName) === norm(req.query.province)) ?? teams.find(has);
+    if (!repUserId || !team) return res.status(404).json({ success: false, message: 'المندوب غير موجود في فرق المحافظات المرئية لك' });
+
+    const allowed = viewer.mode === 'company' ? await resolveEffectiveItemIds(viewer.id) : null;
+    const seat = await loadManagerSeat(viewer.id);
+    const shared = seat ? (await loadSharedRepScopes(viewer.id)).byUser.get(repUserId) : null;
+    const allowedSet = shared ?? (allowed ? new Set(allowed) : null);
+
+    const repIds = [...new Set(teams.flatMap(t => t.assignments.map(a => a.repUserId)))];
+    const rows = [];
+    await loadTeamLiquidation(repIds, files, month, viewer.id, (provinceName, userId, line) => {
+      if (provinceName !== team.provinceName || userId !== repUserId) return;
+      if (allowedSet && !allowedSet.has(line.itemId)) return;
+      rows.push({ ...line, province: provinceName, usd: +line.usd.toFixed(4) });
+    });
+    rows.sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.pharmacy.localeCompare(b.pharmacy, 'ar'));
+    const repName = team.assignments.find(a => a.repUserId === repUserId)?.repName ?? '';
+    res.json({ success: true, month, province: team.provinceName, repName, files: { currency: files.currency, rate: files.rate }, rows });
+  } catch (e) { next(e); }
 }
 
 // ── GET /api/province-teams/directory ──────────────────────────────────────

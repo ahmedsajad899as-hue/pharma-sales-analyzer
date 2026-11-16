@@ -7,6 +7,7 @@ const router = Router();
 router.get('/overview', ctrl.overview);
 router.get('/months', ctrl.months);
 router.get('/directory', ctrl.directory);
+router.get('/rep-lines', ctrl.repLines); // لكوديشن مندوب في محافظة: سطراً سطراً
 
 // الهيكلية (إدارة المكتب)
 router.get('/options', ctrl.options);
