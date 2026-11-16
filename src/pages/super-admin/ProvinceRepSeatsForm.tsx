@@ -17,6 +17,8 @@ interface Props {
   /** مندوب قائم للتعديل؛ بدونه يُنشأ حساب جديد. */
   rep: (ProvTeamRep & { name: string }) | null;
   presetManagerId: number | null;
+  /** تحويل مندوب قائم إلى مشترك: اختيار الشركة الثانية من قائمة، وعرض شركاته المختارة فقط. */
+  shareMode?: boolean;
   token: string | null;
   onSaved: (note: string) => void;
   onCancel: () => void;
@@ -35,7 +37,7 @@ function initialPick(seat: ProvSeat, rep: Props['rep'], preset: number | null, s
   return { on, all, ids: all ? seatItemIds : ids };
 }
 
-export default function ProvinceRepSeatsForm({ officeId, provinceId, seats, options, rep, presetManagerId, token, onSaved, onCancel }: Props) {
+export default function ProvinceRepSeatsForm({ officeId, provinceId, seats, options, rep, presetManagerId, shareMode = false, token, onSaved, onCancel }: Props) {
   const itemsOf = (managerUserId: number) => options.seatItems[managerUserId] ?? [];
   const [name, setName] = useState('');
   const [picks, setPicks] = useState<Record<number, Pick>>(() =>
@@ -64,6 +66,7 @@ export default function ProvinceRepSeatsForm({ officeId, provinceId, seats, opti
     if (busy) return;
     if (!rep && !name.trim()) { setError('اكتب اسم المندوب'); return; }
     if (!chosen.length) { setError('اختر شركة واحدة على الأقل'); return; }
+    if (shareMode && chosen.length < 2) { setError('اختر الشركة الثانية التي سيكون مشتركاً عليها'); return; }
     const emptySeat = chosen.find(s => !picks[s.managerUserId].all && !picks[s.managerUserId].ids.length);
     if (emptySeat) { setError(`اختر ايتماً واحداً على الأقل من ${emptySeat.companyName}`); return; }
     setBusy(true); setError('');
@@ -79,7 +82,7 @@ export default function ProvinceRepSeatsForm({ officeId, provinceId, seats, opti
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.success) { setError(j.error || j.message || 'تعذّر الحفظ'); return; }
-      onSaved(rep ? `تم حفظ مقاعد «${rep.name}»` : `تم إنشاء «${j.username}» — الرمز ${j.password}`);
+      onSaved(rep ? (shareMode ? `«${rep.name}» صار مندوباً مشتركاً: ${chosen.map(s => s.companyName).join(' + ')}` : `تم حفظ مقاعد «${rep.name}»`) : `تم إنشاء «${j.username}» — الرمز ${j.password}`);
     } catch {
       setError('تعذّر الاتصال بالخادم');
     } finally {
@@ -93,7 +96,34 @@ export default function ProvinceRepSeatsForm({ officeId, provinceId, seats, opti
         <input value={name} disabled={busy} autoComplete="off" placeholder="اسم المندوب (يصير اسم الدخول)"
           onChange={e => setName(e.target.value)} style={inputStyle} />
       )}
-      {seats.map(s => {
+      {shareMode && rep && (() => {
+        const current = seats.filter(s => rep.seatManagerIds.includes(s.managerUserId));
+        const others = seats.filter(s => !rep.seatManagerIds.includes(s.managerUserId));
+        const added = others.filter(s => picks[s.managerUserId]?.on);
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            <div style={{ fontSize: 12.5, color: '#334155' }}>
+              شركته الحالية: <b>{current.map(s => s.companyName).join(' + ') || '—'}</b>
+            </div>
+            <label style={{ fontSize: 12.5, fontWeight: 700, color: '#0f172a' }}>الشركة الثانية التي سيكون مشتركاً عليها</label>
+            <select value={added[0]?.managerUserId ?? ''} disabled={busy} style={inputStyle}
+              onChange={e => {
+                const id = Number(e.target.value);
+                setPicks(p => {
+                  const n = { ...p };
+                  for (const s of others) n[s.managerUserId] = { ...n[s.managerUserId], on: s.managerUserId === id, all: true, ids: itemsOf(s.managerUserId).map(i => i.id) };
+                  return n;
+                });
+                setError('');
+              }}>
+              <option value="" disabled>— اختر الشركة —</option>
+              {others.map(s => <option key={s.managerUserId} value={s.managerUserId}>{s.companyName} — مدير الشركة: {s.managerName}</option>)}
+            </select>
+            <div style={{ fontSize: 11.5, color: '#64748b' }}>يأخذ كل ايتمات مدير الشركة الثانية افتراضياً؛ تقدر تحدد ايتمات معيّنة من زر الايتمات أدناه.</div>
+          </div>
+        );
+      })()}
+      {seats.filter(s => !shareMode || picks[s.managerUserId]?.on).map(s => {
         const p = picks[s.managerUserId];
         const total = itemsOf(s.managerUserId).length;
         const open = openItems === s.managerUserId;

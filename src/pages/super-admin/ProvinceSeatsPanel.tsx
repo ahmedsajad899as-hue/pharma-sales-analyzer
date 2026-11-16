@@ -76,7 +76,8 @@ export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId
   const [notes, setNotes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   // نموذج المقاعد: مندوب جديد (repUserId=null) بشركة محددة مسبقاً، أو مندوب قائم.
-  const [form, setForm] = useState<{ repUserId: number | null; presetManagerId: number | null } | null>(null);
+  // share: تحويل مندوب قائم إلى مشترك — النموذج يطلب اسم الشركة الثانية.
+  const [form, setForm] = useState<{ repUserId: number | null; presetManagerId: number | null; share?: boolean } | null>(null);
   const [options, setOptions] = useState<SeatOptions | null>(null);
   const hasMultiRepSeat = seats.some(s => reps.filter(r => r.seatManagerIds.includes(s.managerUserId)).length > 1);
 
@@ -157,7 +158,10 @@ export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId
   );
 
   // زر «المقاعد والايتمات» صار داخل قائمة صف المندوب.
-  const seatsMenu = (r: ProvTeamRep): RowOpts['extra'] => [{ label: 'المقاعد والايتمات', onClick: () => setForm({ repUserId: r.userId, presetManagerId: null }) }];
+  const seatsMenu = (r: ProvTeamRep): RowOpts['extra'] => [
+    ...(seats.length > r.seatManagerIds.length ? [{ label: r.seatManagerIds.length > 1 ? 'إضافة شركة أخرى للمشترك' : 'تحويل إلى مندوب مشترك', onClick: () => setForm({ repUserId: r.userId, presetManagerId: null, share: true }) }] : []),
+    { label: 'المقاعد والايتمات', onClick: () => setForm({ repUserId: r.userId, presetManagerId: null }) },
+  ];
 
   const leaderSelect = (
     <select value={leaderUserId ?? ''} disabled={saving || busy} aria-label="اختيار تيم ليدر المحافظة"
@@ -189,7 +193,12 @@ export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId
             <SeatRow key={s.managerUserId} title={s.companyName}
               sub={`مدير الشركة: ${s.managerName} · ${s.itemCount ? `${s.itemCount} ايتم` : 'كل ايتمات الشركة'}`}
               filled={occupants.length > 0} error={errors[key]}
-              tool={<button type="button" className="ud-seat-link" onClick={() => setForm({ repUserId: null, presetManagerId: s.managerUserId })}>+ مندوب آخر لهذه الشركة</button>}>
+              tool={<>
+                <button type="button" className="ud-seat-link" onClick={() => setForm({ repUserId: null, presetManagerId: s.managerUserId })}>+ مندوب آخر لهذه الشركة</button>
+                {occupants.length === 1 && occupants[0].seatManagerIds.length === 1 && seats.length > 1 && (
+                  <button type="button" className="ud-seat-link" style={{ marginInlineStart: 12 }} onClick={() => setForm({ repUserId: occupants[0].userId, presetManagerId: null, share: true })}>⇄ تحويله لمندوب مشترك</button>
+                )}
+              </>}>
               {occupants.length === 0 && nameInput(key, `اسم مندوب ${s.companyName}`)}
               {occupants.map(r => {
                 const u = userById.get(r.userId);
@@ -255,12 +264,12 @@ export default function ProvinceSeatsPanel<U>({ officeId, province, leaderUserId
       )}
 
       {form && createPortal(
-        <Modal title={formRep ? `مقاعد «${nameOfRep(formRep.userId)}»` : 'مندوب جديد في المحافظة'} maxWidth={620} footer={<span />} onClose={() => setForm(null)}>
+        <Modal title={formRep ? (form.share ? `تحويل «${nameOfRep(formRep.userId)}» إلى مندوب مشترك` : `مقاعد «${nameOfRep(formRep.userId)}»`) : 'مندوب جديد في المحافظة'} maxWidth={620} footer={<span />} onClose={() => setForm(null)}>
           {options
-            ? <ProvinceRepSeatsForm key={`${form.repUserId ?? 'new'}-${form.presetManagerId ?? ''}`}
+            ? <ProvinceRepSeatsForm key={`${form.repUserId ?? 'new'}-${form.presetManagerId ?? ''}-${form.share ? 's' : ''}`}
                 officeId={officeId} provinceId={province.id} seats={seats} options={options}
                 rep={formRep ? { ...formRep, name: nameOfRep(formRep.userId) } : null}
-                presetManagerId={form.presetManagerId} token={token}
+                presetManagerId={form.presetManagerId} shareMode={!!form.share && !!formRep} token={token}
                 onSaved={(note) => { setNotes([note]); setForm(null); onCreated(); }}
                 onCancel={() => setForm(null)} />
             : <div style={{ fontSize: 12.5, color: '#94a3b8', padding: 12 }}>جارٍ تحميل الايتمات…</div>}
