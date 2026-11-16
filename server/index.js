@@ -29,6 +29,7 @@ import { flagConditionRowsInMercato, flagConditionTransitDups } from './lib/manu
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth } from './middleware/authMiddleware.js';
+import { heavyGetCache, bumpOnWrite } from './middleware/heavyGetCache.js';
 import { activityMiddleware } from './lib/activityLogger.js';
 import { buildNormalizationMap, areSimilar, normalizeStr, similarity } from './lib/fuzzyMatch.js';
 import { normalizeItemKey, normalizeAreaName, loadCompanyContext, resolveItemName } from './lib/itemResolver.js';
@@ -174,6 +175,8 @@ app.use('/api', (req, res, next) => {
   });
   next();
 });
+// مخبأ تقارير المحافظات/بغداد الثقيلة + إبطاله بعد كل كتابة — server/middleware/heavyGetCache.js
+app.use('/api', bumpOnWrite, heavyGetCache);
 // توقيعا فايبر (X-Viber-Content-Signature) وواتساب (X-Hub-Signature-256) يُحسَبان على الجسم **الخام** الذي يستهلكه
 // express.json ويرميه. نحفظه لذلك المسار وحده كي لا نُبقي 50 ميجا في الذاكرة على
 // كل طلب عادي. راجع server/modules/viber/viber.controller.js.

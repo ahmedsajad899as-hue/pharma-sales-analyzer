@@ -80,7 +80,7 @@ interface ProvinceCell { name: string; total: number; cond: number; companies: C
 // all = مبيع ايتمات المندوب في المحافظة، liq = لكوديشنه.
 type TeamLite = { p: string; leader: string | null; lr: number | null; reps: { u: number; id: number | null; name: string; active: boolean; kind: string; co: string; all: number; liq: number }[] };
 // null = الرقم غير معروف: المندوب ظهر من province-map فقط (خارج فريق المحافظة)
-interface NameRep { key: string; id: number | null; name: string; company: string; sales: number | null; cond: number | null; active: boolean }
+interface NameRep { key: string; id: number | null; u?: number | null; name: string; company: string; sales: number | null; cond: number | null; active: boolean }
 interface NameRow { leader: { id: number | null; name: string } | null; reps: NameRep[] }
 // مبيع المندوب لكل محافظة — value: المؤكد من «مبيعات المندوبين» بالدينار، usd: ميركاتو بعملة التقارير.
 // company=null: ايتم بلا مدير شركة
@@ -105,6 +105,9 @@ const LABEL_NUDGE: Record<string, [number, number]> = {
 type SalesRows = { prov: Map<string, { name: string; value: number }>; pc: { p: string; c: string; v: number }[]; bga: { a: string; s: string | null; v: number }[] };
 type CacheEntry = { v: any; t: number };
 const MEM = new Map<string, CacheEntry>();
+// رد /api/province-teams/directory كاملاً (بالايتمات) لنفس مفتاح t5 — نافذة الفرق تفتح منه فوراً بلا
+// إعادة الطلب الثقيل. في الذاكرة فقط (حجمه أكبر من أن يُحفظ في localStorage).
+const FULL_DIR = new Map<string, { teams: any[]; t: number }>();
 const LS_PREFIX = 'iqmap:v5:';
 const LS_MAX = 24;
 const FRESH_MS = 3 * 60 * 1000;
@@ -276,6 +279,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const [teamsOpen, setTeamsOpen] = useState(false);
   // محافظة ضُغطت من الخريطة → النافذة تفتح على فريقها مباشرة (null = كل الفرق)
   const [dirProvince, setDirProvince] = useState<string | null>(null);
+  // مندوب ضُغط اسمه في جدول الأسماء → النافذة تفتح على جدول ايتماته مباشرة
+  const [dirRepUserId, setDirRepUserId] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapW, setWrapW] = useState(1200);
 
@@ -424,10 +429,12 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         finally { if (!dead) setLoadingReps(false); }
       }
       if (dead || !cacheable) return;
-      for (const ym of prefetchMonths()) {
+      // تقرير لكل مندوب (~95) يأخذ عشرات الثواني على معالج السيرفر الوحيد: شهر سابق واحد
+      // فقط، وبعد مهلة أطول كي لا يزاحم ما يفتحه المستخدم الآن.
+      for (const ym of prefetchMonths().slice(0, 1)) {
         const c = cacheGet(keyOf(ym));
         if (c && Date.now() - c.t < FRESH_MS) continue;
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 8000));
         if (dead) return;
         try { const r = await fetchReps(paramsFor(ym)); if (dead) return; cacheSet(keyOf(ym), r); } catch { return; }
       }
@@ -584,6 +591,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', co: x.teamCompany ?? '', all: x.net ?? 0, liq: x.personalNet ?? 0 })),
         }));
         if (cacheable) cacheSet(key, rows);
+        FULL_DIR.set(key, { teams: j.teams ?? [], t: Date.now() });
+        if (FULL_DIR.size > 6) FULL_DIR.delete(FULL_DIR.keys().next().value!);
         setTeams(rows);
       } catch (e: any) { if (!dead && e?.name !== 'AbortError' && !hit) setTeams([]); }
       finally { if (!dead) setLoadingTeams(false); }
@@ -681,8 +690,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       for (const r of t.reps) {
         if (repKind && (r.kind === 'pharmacy') !== marketers) continue;
         const cur = row.reps.find(x => (r.id != null && x.id === r.id) || norm(x.name) === norm(r.name));
-        if (cur) { cur.sales = r.all; cur.cond = r.liq; cur.id = cur.id ?? r.id; cur.active = r.active; cur.company = r.co || cur.company; }
-        else row.reps.push({ key: `u${r.u}`, id: r.id, name: r.name, company: r.co, sales: r.all, cond: r.liq, active: r.active });
+        if (cur) { cur.sales = r.all; cur.cond = r.liq; cur.id = cur.id ?? r.id; cur.u = r.u; cur.active = r.active; cur.company = r.co || cur.company; }
+        else row.reps.push({ key: `u${r.u}`, id: r.id, u: r.u, name: r.name, company: r.co, sales: r.all, cond: r.liq, active: r.active });
       }
     }
     for (const row of out.values()) {
@@ -772,7 +781,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   const side = wrapW >= 940;
 
-  const pickProvince = (name: string) => { setSel(name); setDirProvince(name); setTeamsOpen(true); };
+  const pickProvince = (name: string) => { setSel(name); setDirProvince(name); setDirRepUserId(null); setTeamsOpen(true); };
+  const openRepItems = (repUserId: number, province: string) => { setDirProvince(province); setDirRepUserId(repUserId); setTeamsOpen(true); };
+  const dirKey = `t5|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
   const openBaghdad = () => { setBgOpen(true); setBgSide(null); setBgArea(null); setHover(null); };
 
   // أجزاء مشتركة بين جدول مقارنة الخريطة وجدول الأسماء
@@ -959,13 +970,15 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   // ── عرض الأسماء: سطر التيم ليدر بمبيع المحافظة ولكوديشنها، وتحته سطر لكل مندوب برقميه ──
   const repIdSet = new Set(reps.map(r => r.id));
-  const nameBtn = (id: number | null, label: string, province: string, opts: { leader?: boolean; active?: boolean } = {}) => {
-    const { leader = false, active: isActive = true } = opts;
-    const clickable = !!onOpenRep && id != null && repIdSet.has(id);
-    const on = clickable && String(id) === selectedRepId && province === selectedProvince;
+  const nameBtn = (id: number | null, label: string, province: string, opts: { leader?: boolean; active?: boolean; u?: number | null } = {}) => {
+    const { leader = false, active: isActive = true, u = null } = opts;
+    // مندوب في فريق المحافظة: الضغط يفتح جدول ايتماته (نافذة الفرق). غيره: تقريره كما كان.
+    const items = !leader && u != null && !marketersOnly;
+    const clickable = items || (!!onOpenRep && id != null && repIdSet.has(id));
+    const on = clickable && ((items && teamsOpen && dirRepUserId === u) || (String(id) === selectedRepId && province === selectedProvince));
     return (
-      <button type="button" disabled={!clickable} title={clickable ? `فتح تقرير ${label}` : undefined}
-        onClick={e => { e.stopPropagation(); if (clickable) onOpenRep!(id!, province); }}
+      <button type="button" disabled={!clickable} title={clickable ? (items ? `ايتمات ${label} في ${province}` : `فتح تقرير ${label}`) : undefined}
+        onClick={e => { e.stopPropagation(); if (items) openRepItems(u!, province); else if (clickable) onOpenRep!(id!, province); }}
         style={{
           // opacity: اسم بلا تقرير يبقى واضحاً، و button:disabled في App.css كان يبهته
           background: 'none', border: 'none', padding: '0 1px', opacity: 1, cursor: clickable ? 'pointer' : 'default', fontSize: leader ? 14.5 : 12.5, lineHeight: 1.5,
@@ -1040,7 +1053,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                       {n?.reps.map(r => (
                         <tr key={r.key}>
                           <td style={td} />
-                          <td style={td}>{nameBtn(r.id, r.name, c.name, { active: r.active })}</td>
+                          <td style={td}>{nameBtn(r.id, r.name, c.name, { active: r.active, u: r.u })}</td>
                           {showCompany && <td style={{ ...td, whiteSpace: 'normal', fontSize: 12, color: '#475569' }}>{r.company || dash}</td>}
                           <td style={{ ...num, color: valColor(r.sales) ?? '#334155' }}>{r.sales != null ? fmtVal(r.sales) : dash}</td>
                           {hasCond && <td style={{ ...num, color: valColor(r.cond) ?? '#334155' }}>{r.cond ? fmtVal(r.cond) : dash}</td>}
@@ -1164,7 +1177,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
             </button>
           ))}
           {!marketersOnly && (
-            <button type="button" title="فرق المحافظات: الايتمات والتارگت" onClick={() => { setDirProvince(null); setTeamsOpen(true); }}
+            <button type="button" title="فرق المحافظات: الايتمات والتارگت" onClick={() => { setDirProvince(null); setDirRepUserId(null); setTeamsOpen(true); }}
               style={toolbarBtn}>
               الفرق
             </button>
@@ -1178,7 +1191,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         </div>
       </div>
       {teamsOpen && (
-        <ProvinceTeamsDirectory initialProvince={dirProvince} token={token} fileIds={fileIds} applyMonth={applyMonth} fmtVal={fmtVal} currencyLabel={currencyLabel} onClose={() => setTeamsOpen(false)} />
+        <ProvinceTeamsDirectory initialProvince={dirProvince} initialRepUserId={dirRepUserId}
+          prefetched={monthKey !== 'custom' ? FULL_DIR.get(dirKey)?.teams ?? null : null} token={token} fileIds={fileIds} applyMonth={applyMonth} fmtVal={fmtVal} currencyLabel={currencyLabel} onClose={() => setTeamsOpen(false)} />
       )}
 
       {err && <div style={{ color: '#be123c', fontSize: 13, marginBottom: 8 }}>{err}</div>}

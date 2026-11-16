@@ -70,7 +70,19 @@ export function repKindOf({ role, name = '', leadsProvinceTeam = false }) {
  * الاسم يحملهما (صفوف الحسابات الموازية كثيراً ما تكون بلا provinceId، والصف
  * القانوني يحملها). القسم يُفضَّل من أول صف يحمله حتى لو سبقه صف بمحافظة فقط.
  */
-export async function provinceByAreaName() {
+// ذاكرة قصيرة: province-map يستدعيها لكل مندوب (~95 مرة في الطلب الواحد)، وكل مرة تمسح
+// جدول المناطق كله. للقراءة فقط — لا تعدّل الخريطة المُعادة.
+let areaIndexMemo = null; // { at, promise }
+const AREA_INDEX_TTL = 15 * 1000;
+export function provinceByAreaName() {
+  if (areaIndexMemo && Date.now() - areaIndexMemo.at < AREA_INDEX_TTL) return areaIndexMemo.promise;
+  const promise = buildProvinceByAreaName();
+  areaIndexMemo = { at: Date.now(), promise };
+  promise.catch(() => { if (areaIndexMemo?.promise === promise) areaIndexMemo = null; });
+  return promise;
+}
+
+async function buildProvinceByAreaName() {
   const rows = await prisma.area.findMany({
     where:  { provinceId: { not: null } },
     select: {

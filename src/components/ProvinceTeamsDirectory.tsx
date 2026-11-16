@@ -8,7 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import type React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface DirItem { itemId: number | null; name: string; company: string; net: number; qty: number; targetQty: number; personalQty: number; personalNet: number }
 interface DirRep { repUserId: number; repName: string; repActive: boolean; companies: string[]; net: number; repNet: number; qty: number; targetQty: number; personalQty: number; personalNet: number; items: DirItem[] }
@@ -23,6 +23,10 @@ interface Props {
   onClose: () => void;
   /** يفتح على هذه المحافظة: يفلتر عليها ويفتح جدول مندوبها مباشرة. */
   initialProvince?: string | null;
+  /** مندوب ضُغط اسمه في جدول «مندوبو المحافظات»: يُفتح جدول ايتماته ويُمرَّر إليه. */
+  initialRepUserId?: number | null;
+  /** رد directory نفسه محمَّلاً مسبقاً في جدول الأسماء — تفتح النافذة منه فوراً بلا طلب. */
+  prefetched?: DirTeam[] | null;
 }
 
 const nf = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -35,14 +39,28 @@ const achievedOf = (items: DirItem[]) => items.reduce((a, i) => a + (i.targetQty
 const normP = (x: string) => String(x || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
 const pctOf = (a: number, b: number) => `${Math.round((a / b) * 100)}%`;
 
-export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmtVal, currencyLabel, onClose, initialProvince }: Props) {
-  const [teams, setTeams] = useState<DirTeam[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmtVal, currencyLabel, onClose, initialProvince, initialRepUserId, prefetched }: Props) {
+  // المندوب المطلوب ومحافظته — ثم أول مندوب في المحافظة
+  const openKeyFor = (list: DirTeam[]) => {
+    const inProv = initialProvince ? list.filter(x => normP(x.provinceName) === normP(initialProvince)) : list;
+    if (initialRepUserId != null) {
+      const t = inProv.find(x => x.reps.some(r => r.repUserId === initialRepUserId))
+        ?? list.find(x => x.reps.some(r => r.repUserId === initialRepUserId));
+      if (t) return `${t.id}:${initialRepUserId}`;
+    }
+    const t = initialProvince ? inProv[0] : undefined;
+    return t?.reps[0] ? `${t.id}:${t.reps[0].repUserId}` : null;
+  };
+  const [teams, setTeams] = useState<DirTeam[]>(prefetched ?? []);
+  const [loading, setLoading] = useState(!prefetched);
   const [err, setErr] = useState('');
   const [q, setQ] = useState(initialProvince ?? '');
-  const [openRep, setOpenRep] = useState<string | null>(null);
+  const [openRep, setOpenRep] = useState<string | null>(() => (prefetched ? openKeyFor(prefetched) : null));
+  const focusRef = useRef<HTMLDivElement | null>(null);
+  const focusKey = useRef<string | null>(initialRepUserId != null ? openRep : null);
 
   useEffect(() => {
+    if (prefetched) return;
     const ac = new AbortController();
     (async () => {
       try {
@@ -53,10 +71,9 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
         const j = await r.json();
         if (!r.ok || j.success === false) throw new Error(j.message || 'تعذّر تحميل الفرق');
         setTeams(j.teams ?? []);
-        if (initialProvince) {
-          const t = (j.teams ?? []).find((x: DirTeam) => normP(x.provinceName) === normP(initialProvince));
-          if (t?.reps[0]) setOpenRep(`${t.id}:${t.reps[0].repUserId}`);
-        }
+        const k = openKeyFor(j.teams ?? []);
+        if (k) setOpenRep(k);
+        if (initialRepUserId != null) focusKey.current = k;
       } catch (e: any) { if (e.name !== 'AbortError') setErr(e.message || 'تعذّر تحميل الفرق'); }
       finally { if (!ac.signal.aborted) setLoading(false); }
     })();
@@ -64,6 +81,13 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
   // الجلب مرة عند فتح النافذة (الشهر والملفات ثابتان وقت الفتح)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // المندوب المضغوط اسمه: مرّر إلى جدوله (قد لا يكون الأول في فريقه)
+  useEffect(() => {
+    if (!focusKey.current || openRep !== focusKey.current || !focusRef.current) return;
+    focusRef.current.scrollIntoView({ block: 'start' });
+    focusKey.current = null;
+  }, [openRep, teams]);
 
   const shown = useMemo(() => {
     const s = q.trim();
@@ -106,7 +130,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                 const key = `${t.id}:${r.repUserId}`;
                 const on = openRep === key;
                 return (
-                  <div key={key} style={{ borderTop: '1px solid #eef2f7' }}>
+                  <div key={key} ref={on ? focusRef : undefined} style={{ borderTop: '1px solid #eef2f7', scrollMarginTop: 8 }}>
                     <button type="button" onClick={() => setOpenRep(on ? null : key)}
                       style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 14px', background: on ? '#eef3fd' : '#fff', border: 'none', cursor: 'pointer', textAlign: 'right' }}>
                       <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
