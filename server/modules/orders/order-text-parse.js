@@ -126,6 +126,8 @@ const WAREHOUSE_PREFIX_RE = /^م(?:\s*[.:：\-/]\s*|\s+)(\S.*)$/;
 const DOCTOR_LINE_RE = /^\(?\s*(?:ال)?(?:دكتور[ةه]?|طبيب[ةه]?|د)(?:\s*[.:：\-/]\s*|\s+)\S/;
 // سطر عربي محاط بقوسين بلا رقم = ملاحظة («( عاجل )»)، لا ترويسة.
 const NOTE_LINE_RE = /^\(\s*[^()\da-z]*\)$/i;
+// «@244168991453375» أو «@Ahmed» — إشارة لعضو في الكروب (كلمة واحدة بعد @).
+const MENTION_LINE_RE = /^@[\p{L}\p{N}_.+-]+$/u;
 // سهم يفصل حقلين في سطر واحد: «م. الضامن ⬅️ ص. علاء عبد الحسن».
 const ARROW_SPLIT_RE = /\s*(?:[←-⇿➡➔➘-➯⬅-⬇⭠-⭯]️?|<-+|-+>|=>)\s*/u;
 
@@ -163,8 +165,19 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
   let pharmacyIdx = -1;
   let firstItemIdx = -1;
 
+  let lastItemIdx = -1;
   lines.forEach((line, idx) => {
     let m;
+    // «@244168991453375» — إشارة واتساب لعضو، ليست صنفاً ولا ترويسة.
+    if (MENTION_LINE_RE.test(line)) return;
+    // «10 قطعة» وحدها في سطر بعد «Amikavir 5 amp» (كروب الديوانية #220، 2026-11-17):
+    // هي كمية الصنف الذي فوقها، و«5 amp» حجم العبوة في اسمه. تُلصق بسطره بين قوسين.
+    if ((m = line.match(QTY_ONLY_RE)) && lastItemIdx === idx - 1 && itemLines.length
+        && !parseItemLine(itemLines[itemLines.length - 1])) {
+      itemLines[itemLines.length - 1] += ` (${m[1]}${m[2] != null ? `+${m[2]}` : ''})`;
+      lastItemIdx = idx;
+      return;
+    }
     if ((m = line.match(WAREHOUSE_LINE_RE)) && !HAS_LATIN.test(line)) {
       // «تجهز ترانزيت من مذخر الناقوس بسبب عدم الانضمام…» ← «الناقوس» فقط.
       header.warehouse ??= cleanWarehouseName(m[1]);
@@ -189,6 +202,7 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
     if (HAS_LATIN.test(line) || HAS_DIGIT.test(line) || UNIT_WORD_RE.test(line)) {
       if (firstItemIdx < 0) firstItemIdx = idx;
       itemLines.push(line);
+      lastItemIdx = idx;
       return;
     }
     if ((m = line.match(EMBEDDED_PHARMACY_RE)) && m[1].split(/\s+/).length <= 4) {
@@ -269,6 +283,8 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
 // ─── أسطر الأصناف ───────────────────────────────────────────────────────────
 // «ق» = قطعة («Nasomista 20 ق»، كروب الديوانية 2026-11-17).
 const COUNT_UNIT = String.raw`(?:p|pc|pcs|pack|box|ع|علب[ةه]?|علب|حب[ةه]|شريط|قطع[ةه]?|ق)`;
+// سطر كمية وحده: «10 قطعة»، «(10)»، «10+2 علبة»، «10».
+const QTY_ONLY_RE = new RegExp(String.raw`^\(?\s*(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}?\s*\)?$`, 'i');
 // «(5)»، «(10p)»، «( 10 علبة )» في آخر السطر.
 // والبونص داخل القوس «(30+3)»، والقوس الختامي اختياري («Potafast (10+1» كما كتبها مندوب،
 // 2026-11-11). القوس الافتتاحي إلزامي هنا — بدونه يبقى «Pandev 40» تركيزاً لا كمية.
@@ -302,6 +318,8 @@ export function parseItemLine(line) {
     return null;
   }
   name = tidy(name)
+    // «Amikavir. 5 amp» ← «Amikavir 5 amp»: نقطة بعد كلمة لاتينية (لا داخل «0.5mg»).
+    .replace(/([a-z])\.(?=\s|$)/gi, '$1')
     // «Devit50» ← «Devit 50»: الالتصاق يُفشل مطابقة الكتالوج («Devit 50,000 IU»).
     .replace(/([a-z]{3,})(\d)/gi, '$1 $2')
     // «50,000» ← «50000»: فاصل الآلاف داخل التركيز يقسمه رقمين عند حارس الجرعة.

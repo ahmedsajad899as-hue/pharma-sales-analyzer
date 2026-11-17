@@ -215,5 +215,22 @@ check('«د. علي» سطر طبيب لا منطقة', parseOrderText('ص ال�
   { pharmacy: 'النور', area: null, warehouse: null, pharmacyLines: 1 });
 check('«منصور» ليست بادئة «م»', parseOrderText('منصور\nص النور\nPandev (3)').header.area, 'منصور');
 
+// ── كروب الديوانية #220 (2026-11-17): الكمية في سطر وحدها، و«5 amp» حجم العبوة لا الكمية ──
+// ذهبت للذكاء فقرأ «5» كمية والصحيح 10؛ وسطر «@رقم» (إشارة واتساب) كان يُعدّ صنفاً.
+const T220 = 'Amikavir. 5 amp\n10 قطعة\nصيدلية الولاية\nمذخر الضامن\n@244168991453375';
+check('#220: سطر «10 قطعة» يلتصق بصنفه والإشارة تُتجاهل', parseOrderText(T220),
+  { header: { pharmacy: 'الولاية', area: null, warehouse: 'الضامن', pharmacyLines: 1 }, itemLines: ['Amikavir. 5 amp (10)'] });
+check('#220: الاسم يحتفظ بـ«5 amp» والكمية 10', parseItemLine('Amikavir. 5 amp (10)'), { name: 'Amikavir 5 amp', quantity: 10, bonus: null });
+check('#220: قراءة الموديل (5) تُصحَّح إلى 10', run(T220,
+  [{ item: 'Amikavir', quantity: 5, pharmacy: 'الولاية', area: null, warehouse: 'الضامن' }]).map(r => [r.item, r.quantity]),
+  [['Amikavir 5 amp', 10]]);
+check('سطر كمية بعد صنف كميته صريحة لا يلتصق', parseOrderText('ص النور\nPandev (3)\n10').itemLines, ['Pandev (3)', '10']);
+check('«10+2 علبة» وحدها = كمية وبونص', parseOrderText('ص النور\nPandev 40\n10+2 علبة').itemLines, ['Pandev 40 (10+2)']);
+const cat220 = [{ id: 1, name: 'Amikaver 500mg 2ml 5 amp' }, { id: 2, name: 'Amikaver 500mg 2ml 1 amp' }];
+check('#220: «Amikavir 5 amp» ← حجم 5 amp (عدد العبوة يحسم)', brandDoseFallback('Amikavir 5 amp', cat220)?.canonicalItem?.id, 1);
+check('«Amikavir 1 amp» ← حجم 1 amp', brandDoseFallback('Amikavir 1 amp', cat220)?.canonicalItem?.id, 2);
+check('«Amikavir» بلا عدد ⇒ لا ربط', brandDoseFallback('Amikavir', cat220)?.confidence, 'medium');
+check('عدد لا يطابق أي حجم ⇒ لا ربط', brandDoseFallback('Amikavir 10 amp', cat220)?.confidence, 'medium');
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

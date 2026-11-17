@@ -4,7 +4,7 @@
 // الحالة الأصلية: كروب «ديوانية مكتب النسق»، المرسل «Ameer Madher» = المندوب «امير مضر».
 // ════════════════════════════════════════════════════════════════════════════
 
-import { areaFromTitle, sameNameAcrossScripts, pickRepBySenderName, nameSkeleton } from '../server/modules/orders/group-context.js';
+import { areaFromTitle, sameNameAcrossScripts, pickRepBySenderName, nameSkeleton, repSlotOpen } from '../server/modules/orders/group-context.js';
 import { reconcileRowsWithText } from '../server/modules/orders/order-text-parse.js';
 
 let failed = 0;
@@ -52,6 +52,13 @@ check('منطقة «م. الضامن ⬅️» القديمة تُمسح والم
     'Nasomista 20 ق\nم. الضامن ⬅️ ص. علاء عبد الحسن\n( الدكتور محمد سعيد )')
     .map(r => [r.item, r.quantity, r.pharmacy, r.area, r.warehouse]),
   [['Nasomista', 20, 'علاء عبد الحسن', null, 'الضامن']]);
+
+// #220 (2026-11-17): «Ibrahim Mohsen» = «ابراهيم محسن نعمة»، واسم المرسل يغلب احتياط التيم ليدر فقط.
+check('Ibrahim Mohsen ≡ ابراهيم محسن نعمة', sameNameAcrossScripts('Ibrahim Mohsen', 'ابراهيم محسن نعمة'), true);
+check('خانة فارغة مفتوحة', repSlotOpen({ scientificRep: null }), true);
+check('التيم ليدر احتياطاً مفتوحة للمرسل', repSlotOpen({ scientificRep: 'امير جميل مالك', _repPick: 'leader' }), true);
+check('مندوب حسمه الصنف لا يُمسّ', repSlotOpen({ scientificRep: 'امير جميل مالك' }), false);
+check('مندوب واحد غير قائد (rep) لا يُمسّ', repSlotOpen({ scientificRep: 'س', _repPick: 'rep' }), false);
 
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

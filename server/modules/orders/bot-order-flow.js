@@ -55,7 +55,7 @@ import { ingestBotRepSales } from '../rep-sales/rep-sales.bot.js';
 import { renderOrderTablePng, paginateOrderRows } from './order-table-image.js';
 import { matchBotInvoice, attachBotInvoice } from '../rep-orders/rep-orders.invoice.js';
 import { userFeatureOn } from '../../lib/userFeatures.js';
-import { fillAreaFromGroup, fillRepFromSenderName } from './group-context.js';
+import { fillAreaFromGroup, fillRepFromSenderName, repSlotOpen } from './group-context.js';
 
 // نوعا ما يصل للبوت (طلب صاحب المشروع 2026-10-31)، لكلٍّ مفتاح في «المميزات» لكل حساب:
 //  • BOT_TO_CONDITION — طلبيات/فواتير البوت ← ملف الكوديشن (مفعّلة افتراضياً، السلوك القديم).
@@ -197,7 +197,7 @@ export async function handleIncomingOrderMessage({
         const senderRep = await transport.resolveSenderRep(chatId, senderId);
         if (senderRep) {
           for (const row of rows) {
-            if (!row.scientificRep) { row.scientificRep = senderRep.name; row._repSource = 'sender'; }
+            if (repSlotOpen(row)) { row.scientificRep = senderRep.name; row._repSource = 'sender'; delete row._repPick; }
           }
         }
       } catch (e) {

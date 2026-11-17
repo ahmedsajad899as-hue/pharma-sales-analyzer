@@ -22,6 +22,7 @@ import { REP_ROLES } from '../../lib/areaScope.js';
 import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader } from '../../lib/repGuessRules.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
+import { fillRepFromSenderName } from './group-context.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
 import { createFromBotOrder } from '../warehouse-dispatch/dispatch.core.js';
 import { linkInvoiceReadLogs } from '../../lib/invoiceReadLog.js';
@@ -94,6 +95,12 @@ function doseNumbers(s) {
   const joined = String(s ?? '').replace(/\b([1-9]\d{0,2})[.,'](\d{3})(?!\d)/g, '$1$2');
   return (normalizeItemKey(joined).replace(PACK_RE, ' ').match(/\d+/g) || []).map(Number);
 }
+// عدد العبوة («5 amp»، «8CAP»، «30 tab») — يفصل أحجام نفس الصنف («Amikaver 500mg 2ml 5 amp»
+// عن «… 1 amp»). ml ليس عدداً بل حجماً.
+const PACK_COUNT_RE = /\b(\d+)\s*(?:x\s*\d+\s*)?(?:amps?|ampoules?|ampul|vials?|sachets?|tabs?|tablets?|caps?|capsules?|supp|suppositor(?:y|ies))\b/gi;
+function packCounts(s) {
+  return [...normalizeItemKey(s).matchAll(PACK_COUNT_RE)].map(m => Number(m[1]));
+}
 const brandWord = (s) => (normalizeItemKey(s).match(/[a-z؀-ۿ]{3,}/) || [])[0] || '';
 
 // جرعة مركّبة: فاتورة المذخر تكتب المكوّنين «Amoklavin-BID 400/57mg» والكتالوج
@@ -162,6 +169,12 @@ export function brandDoseFallback(name, catalog) {
   // يحسم ما بقي ملتبساً بعد الجرعة.
   const f = formOf(name);
   if (hits.length > 1 && f >= 0) hits = hits.filter(c => formOf(c.name) === f);
+  // عدد العبوة المكتوب («Amikavir 5 amp») يحسم بين أحجام نفس الجرعة — فقط إن طابق أحدها.
+  const packs = packCounts(name);
+  if (hits.length > 1 && packs.length) {
+    const byPack = hits.filter(c => packCounts(c.name).some(n => packs.includes(n)));
+    if (byPack.length) hits = byPack;
+  }
   if (hits.length === 1) return { canonicalItem: hits[0], confidence: 'high', suggestions, via: 'brand-dose' };
   // ملتبس: candidates = ما طابق الجرعة (قد يكون أحجام نفس الصنف)، family = العلامة كلها —
   // لا ربط بأيّهما، لكن قد يتّفقان على شركة أو مالك (linkRowsFromOfficeCatalog).
@@ -1480,6 +1493,11 @@ export async function getPendingOrder(userId, id) {
   // كل الصفوف تُمرَّر (لا الفارغة وحدها): المحسومة منها دليل «اتّساق الفاتورة»
   // لبقية أصنافها، والتخمين لا يكتب فوق مندوب مؤهَّل.
   if (user) await attachScientificRepGuess(rows.filter(Boolean), user);
+  // اسم المرسل في الكروب يغلب احتياط «التيم ليدر» عند الفتح أيضاً — فتُشفى الطلبيات
+  // المعلَّقة التي كُتب فيها القائد قبل هذا الإصلاح (#220، 2026-11-17).
+  if (user && row.senderName) {
+    await fillRepFromSenderName(rows.filter(Boolean), { user, senderName: row.senderName, chatTitle: row.chatTitle });
+  }
   return {
     id: row.id,
     source: row.source,

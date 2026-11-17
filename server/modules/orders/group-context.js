@@ -180,8 +180,16 @@ export async function fillAreaFromGroup(rows, chatTitle) {
   }
 }
 
+/**
+ * صفّ ينتظر مندوباً: فارغ، أو حُسم بـ«التيم ليدر» احتياطاً (_repPick='leader') — ذاك ليس
+ * دليلاً بل ملء خانة، ومرسل الطلبية المسجّل مندوباً في المحافظة أولى منه (#220: المرسل
+ * «Ibrahim Mohsen» = «ابراهيم محسن نعمة» والتخمين كتب قائد الفريق لأن الصنف لم يُربط).
+ * مندوب حسمه تعيين الصنف لا يُمسّ — الايتمات تحدّد المندوب.
+ */
+export const repSlotOpen = (r) => !r?.scientificRep || r._repPick === 'leader';
+
 export async function fillRepFromSenderName(rows, { user, senderName, chatTitle }) {
-  if (!rows?.length || !user || !String(senderName ?? '').trim() || rows.every(r => r.scientificRep)) return null;
+  if (!rows?.length || !user || !String(senderName ?? '').trim() || !rows.some(repSlotOpen)) return null;
   try {
     const [candidates, provinceIndex, areaIndex] = await Promise.all([loadOfficeReps(user), loadProvinceIndex(), loadKnownAreaIndex()]);
     const hit = areaFromTitle(chatTitle, areaIndex, provinceIndex);
@@ -192,7 +200,10 @@ export async function fillRepFromSenderName(rows, { user, senderName, chatTitle 
     }
     const rep = pickRepBySenderName(senderName, candidates, provinceId);
     if (!rep) return null;
-    for (const r of rows) if (!r.scientificRep) { r.scientificRep = rep.name; r._repSource = 'sender'; }
+    for (const r of rows) {
+      if (!repSlotOpen(r)) continue;
+      r.scientificRep = rep.name; r._repSource = 'sender'; delete r._repPick;
+    }
     return rep;
   } catch (e) {
     console.error('[orders] مندوب من اسم المرسل:', e?.message);
