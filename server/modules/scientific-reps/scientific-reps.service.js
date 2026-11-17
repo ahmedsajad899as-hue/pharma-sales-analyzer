@@ -1737,23 +1737,33 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     }
   }
 
-  // ── مسوّق مصدر مكتبه «اليزن» (officeSource='warehouse') ─────────────────────
-  // صف ميركاتو باسمه مرسَل لمذخر اليزن = مبيع مكتب: يُوسَم officeViaWarehouse فيُعدّ
-  // Office في buildReport ويخرج من سطر Mercato. التيم ليدر: الوسم بإعداد صاحب الاسم في الصف.
-  if (pharmacyMode && yazenMonths.size > 0) {
-    const memberById = new Map(pharmacyMembers.map(m => [m.repId, m]));
-    const links = await prisma.sciRepNameLink.findMany({ where: { scientificRepId: { in: pharmacyMembers.map(m => m.repId) } }, select: { fromKey: true, scientificRepId: true } });
-    const modeByName = new Map();
-    for (const m of pharmacyMembers) modeByName.set(_normalizeAr(m.name ?? ''), m.officeSource);
-    for (const l of links) if (!modeByName.has(l.fromKey)) modeByName.set(l.fromKey, memberById.get(l.scientificRepId)?.officeSource ?? null);
-    const ownMode = memberById.get(rep.id)?.officeSource ?? null;
+  // ── صفوف مذخر اليزن (= المكتب) للمسوّق ─────────────────────────────────────
+  // صف ميركاتو باسم المسوّق مرسَل لمذخر اليزن هو مبيع مكتب لا مذخر:
+  //  • مسوّق 'warehouse' (في شهر يزن): يُوسَم officeViaWarehouse فيُعدّ Office ويخرج من Mercato.
+  //  • مسوّق «معلومات الزبون»: مكتبه محسوب من ملف المكتب، فصف اليزن يُسقط — كان يُعدّ
+  //    Mercato فيتكرر مبيع المكتب مرتين (ملف ميركاتو 11/2026: 91 مليون يزن داخل Mercato
+  //    فوق 54.7 مليون Office من ملف المكتب).
+  // التيم ليدر: الحكم بإعداد صاحب الاسم في الصف. صفوف ملف الكوديشن لا تُمسّ.
+  if (pharmacyMode && mercatoFileIds.length > 0) {
     const mercatoSet = new Set(mercatoFileIds);
-    rawSales = rawSales.map(s => {
-      if (!mercatoSet.has(s.uploadedFileId) || conditionFileIdSet.has(s.uploadedFileId)) return s;
-      const key = _normalizeAr(s.representative?.name ?? '');
-      const mode = modeByName.has(key) ? modeByName.get(key) : ownMode;
-      return mode === OFFICE_SOURCE_WAREHOUSE && yazenMonths.has(monthKeyUTC(s.saleDate)) && isOfficeWarehouseRow(s.rawData) ? { ...s, officeViaWarehouse: true } : s;
-    });
+    const isYazenRow = s => mercatoSet.has(s.uploadedFileId) && !conditionFileIdSet.has(s.uploadedFileId) && isOfficeWarehouseRow(s.rawData);
+    if (rawSales.some(isYazenRow)) {
+      const memberById = new Map(pharmacyMembers.map(m => [m.repId, m]));
+      const links = await prisma.sciRepNameLink.findMany({ where: { scientificRepId: { in: pharmacyMembers.map(m => m.repId) } }, select: { fromKey: true, scientificRepId: true } });
+      const modeByName = new Map();
+      for (const m of pharmacyMembers) modeByName.set(_normalizeAr(m.name ?? ''), m.officeSource);
+      for (const l of links) if (!modeByName.has(l.fromKey)) modeByName.set(l.fromKey, memberById.get(l.scientificRepId)?.officeSource ?? null);
+      const ownMode = memberById.get(rep.id)?.officeSource ?? null;
+      const out = [];
+      for (const s of rawSales) {
+        if (!isYazenRow(s)) { out.push(s); continue; }
+        const key = _normalizeAr(s.representative?.name ?? '');
+        const mode = modeByName.has(key) ? modeByName.get(key) : ownMode;
+        if (mode === OFFICE_SOURCE_WAREHOUSE && yazenMonths.has(monthKeyUTC(s.saleDate))) out.push({ ...s, officeViaWarehouse: true });
+        // وإلا: مكتب هذا الشهر من ملف المكتب ← صف اليزن لا يُحسب (لا Office ولا Mercato).
+      }
+      rawSales = out;
+    }
   }
 
   // ── Deduplicate ONLY across overlapping files ──────────────────────────────
