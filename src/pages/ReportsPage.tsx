@@ -1227,6 +1227,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // صفوف مفتوحة (تفصيل الايتمات) في جدول «مذاخر بغداد» — مفتاح الصف = مندوب::مذخر.
   const [expandedBaghdadWarehouses, setExpandedBaghdadWarehouses] = useState<Set<string>>(new Set());
   const [showProvinceItemTable, setShowProvinceItemTable] = useState(false);
+  // عمود «باقي الايتمات» بجدول المحافظات: يظهر عنوانه دائماً عند «الكل» لكن أرقامه
+  // لا تُعرض ولا تُجمَع مع الإجمالي إلا بعد تفعيله من زر رأس العمود — مطفأ افتراضياً.
+  const [showOtherItemsCol, setShowOtherItemsCol] = useState(false);
   // طريقة عرض تبويب «مذاخر بغداد»: مندوب×مذخر (تفصيلي) أو حسب الايتم (تجميعي
   // عبر كل المذاخر معاً — «كم بِيع من هذا الايتم بكل بغداد»).
   const [baghdadViewMode, setBaghdadViewMode] = useState<'repWarehouse' | 'byItem'>('repWarehouse');
@@ -4045,7 +4048,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     const provinceOrder = [...provinceNames.keys()];
 
     const rows = provinceOrder.map(pKey => {
-      const cells = companyKeys.map((cKey, ci) => ci === otherIdx ? (otherNet.get(pKey) ?? 0) : (netByKey.get(`${pKey}::${cKey}`) ?? 0));
+      // عمود «باقي الايتمات» المطفأ = صفر في الحساب (لا يدخل الإجمالي) ويُعرض فارغاً.
+      const cells = companyKeys.map((cKey, ci) => ci === otherIdx ? (showOtherItemsCol ? (otherNet.get(pKey) ?? 0) : 0) : (netByKey.get(`${pKey}::${cKey}`) ?? 0));
       const rowTotal = cells.reduce((s, v) => s + v, 0);
       return { provinceName: provinceNames.get(pKey)!, cells, rowTotal };
     }).filter(row => row.cells.some(v => v !== 0)).sort((a, b) => b.rowTotal - a.rowTotal);
@@ -4092,8 +4096,15 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   };
 
   const exportProvinceCompanyToExcel = () => {
-    const { companies, companyTotals, rows, grandTotal } = buildProvinceCompanyPivot();
-    if (rows.length === 0) return;
+    const pivot = buildProvinceCompanyPivot();
+    if (pivot.rows.length === 0) return;
+    // «باقي الايتمات» المطفأ لا يُصدَّر عموداً من الأصفار — يُحذف كما هو مخفيّ الأرقام بالشاشة.
+    const drop = pivot.otherIdx >= 0 && !showOtherItemsCol ? pivot.otherIdx : -1;
+    const keep = <T,>(arr: T[]) => arr.filter((_, i) => i !== drop);
+    const companies = keep(pivot.companies);
+    const companyTotals = keep(pivot.companyTotals);
+    const rows = pivot.rows.map(r => ({ ...r, cells: keep(r.cells) }));
+    const grandTotal = pivot.grandTotal;
     const cv = (n: number) => +convertVal(n).toFixed(2);
     const valueColLabel = `صافي المبيع (${fileCurrencyMode === 'USD' ? '$' : 'د.ع'})`;
     const header = ['المحافظة', ...companies, `الإجمالي (${valueColLabel})`];
@@ -5289,7 +5300,18 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                       <thead>
                         <tr>
                           <th style={{ ...pivotTh, textAlign: 'right', right: 0 }}>المحافظة</th>
-                          {companies.map((c, ci) => <th key={c} style={ci === otherIdx ? { ...pivotTh, color: '#475569', fontStyle: 'italic' } : pivotTh} title={ci === otherIdx ? 'مبيع الايتمات غير المُسنَدة لأي مدير شركة' : undefined}>{c}</th>)}
+                          {companies.map((c, ci) => ci === otherIdx ? (
+                            <th key={c} style={{ ...pivotTh, color: '#475569' }} title="مبيع الايتمات غير المُسنَدة لأي مدير شركة — فعّله لعرض أرقامه وجمعها مع الإجمالي">
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontStyle: 'italic' }}>{c}</span>
+                                <button type="button" role="switch" aria-checked={showOtherItemsCol} aria-label="إظهار أرقام باقي الايتمات"
+                                  onClick={() => setShowOtherItemsCol(v => !v)}
+                                  style={{ position: 'relative', width: 30, height: 16, borderRadius: 999, border: 'none', padding: 0, cursor: 'pointer', background: showOtherItemsCol ? '#4f46e5' : '#cbd5e1', transition: 'background .15s', flexShrink: 0 }}>
+                                  <span style={{ position: 'absolute', top: 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', insetInlineStart: showOtherItemsCol ? 16 : 2, transition: 'inset-inline-start .15s' }} />
+                                </button>
+                              </span>
+                            </th>
+                          ) : <th key={c} style={pivotTh}>{c}</th>)}
                           <th style={pivotTh}>الإجمالي</th>
                         </tr>
                       </thead>
@@ -5299,7 +5321,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                             <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#fff' }}>{row.provinceName}</td>
                             {row.cells.map((v, ci) => (
                               <td key={ci} style={{ ...pivotTd, fontWeight: v !== 0 ? 700 : 400, background: v < 0 ? 'rgba(239, 68, 68, 0.12)' : ci === otherIdx ? otherBg : undefined }}>
-                                {v !== 0 ? fmtValSigned(v) : '—'}
+                                {ci === otherIdx && !showOtherItemsCol ? '' : v !== 0 ? fmtValSigned(v) : '—'}
                               </td>
                             ))}
                             <td style={{ ...pivotTd, fontWeight: 800, background: row.rowTotal < 0 ? 'rgba(239, 68, 68, 0.12)' : '#f8fafc' }}>{fmtValSigned(row.rowTotal)}</td>
@@ -5310,7 +5332,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                         <tr>
                           <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 800, position: 'sticky', right: 0, background: '#f1f5f9' }}>الإجمالي الكلي</td>
                           {companyTotals.map((v, ci) => (
-                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, background: v < 0 ? 'rgba(239, 68, 68, 0.16)' : '#f1f5f9' }}>{fmtValSigned(v)}</td>
+                            <td key={ci} style={{ ...pivotTd, fontWeight: 800, background: v < 0 ? 'rgba(239, 68, 68, 0.16)' : '#f1f5f9' }}>{ci === otherIdx && !showOtherItemsCol ? '' : fmtValSigned(v)}</td>
                           ))}
                           <td style={{ ...pivotTd, fontWeight: 900, background: grandTotal < 0 ? 'rgba(239, 68, 68, 0.2)' : '#e2e8f0' }}>{fmtValSigned(grandTotal)}</td>
                         </tr>
