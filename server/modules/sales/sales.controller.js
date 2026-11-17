@@ -5,7 +5,7 @@
  */
 
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
-import { consumePendingOrder, enrichRowsFromCatalog, attachScientificRepGuess, loadOrderOrigins } from '../orders/orders.service.js';
+import { consumePendingOrder, enrichRowsFromCatalog, attachScientificRepGuess, loadOrderOrigins, claimPendingOrders } from '../orders/orders.service.js';
 import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, insertManualSales,
   checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope,
   resolveSharedConditionOwner, moveConditionFileToShared } from './sales.service.js';
@@ -197,6 +197,13 @@ export async function addManualSales(req, res, next) {
       .map(Number).filter(n => Number.isFinite(n) && n > 0))];
     const tgt = target || {};
 
+    // الطلبية يراها مدير الشركة وموظف المكتب معاً: من يحفظ أولاً يحجزها، والثاني
+    // يُرفَض بـ409 بدل أن تُحفَظ مرتين. الحجز يُحرَّر إن فشل الحفظ.
+    const releaseClaim = await claimPendingOrders(reviewerId, orderIds, req.user?.displayName || req.user?.username);
+    const partitions = new Map(); // ownerId → rows
+    const results = [];
+    try {
+
     // طلبية محوَّلة لمدير الشركة تُحفَظ في ملف كوديشن **حساب الكروب الأصلي**
     // (الملف المشترك مع إدارة المكتب) لا في ملف شخصي عند المدير. loadOrderOrigins
     // يفحص أن الطلبية تخصّ المراجِع — فلا يكتب أحد في ملف غيره إلا بطلبية حُوِّلت له.
@@ -211,7 +218,6 @@ export async function addManualSales(req, res, next) {
       if (!ownerCache.has(uid)) ownerCache.set(uid, await resolveSharedConditionOwner({ id: uid }));
       return ownerCache.get(uid);
     };
-    const partitions = new Map(); // ownerId → rows
     for (const r of rows) {
       const { pendingOrderId: rowOrderId, ...clean } = r || {};
       const owner = await condOwnerOf(origins.get(Number(rowOrderId)) ?? reviewerId);
@@ -219,7 +225,6 @@ export async function addManualSales(req, res, next) {
       partitions.get(owner).push(clean);
     }
 
-    const results = [];
     let firstPart = true;
     for (const [ownerId, ownerRows] of partitions) {
       const result = await insertManualSales({
@@ -247,6 +252,10 @@ export async function addManualSales(req, res, next) {
         }
       }
       results.push(result);
+    }
+    } catch (saveErr) {
+      await releaseClaim();
+      throw saveErr;
     }
 
     // الطلبية "استُهلكت" — نفس نمط commitVisitsImport، best-effort لا يُسقط الحفظ.

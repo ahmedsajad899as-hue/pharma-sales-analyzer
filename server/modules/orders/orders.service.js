@@ -922,9 +922,82 @@ export async function listOfficeScientificReps(userId) {
     .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 }
 
-/** عدد صفوف الطلبية المعلَّقة — يُعرَض في الشريط وفي ردّ البوت. */
+/** عدد صفوف الطلبية المعلَّقة **المملوكة** — حدّ الطابور في ردّ البوت (لا ما يراه موظف المكتب). */
 export async function countPendingOrders(userId) {
   return prisma.pendingBotOrder.count({ where: { userId } });
+}
+
+// ─── من يرى الطلبية المعلَّقة ويراجعها (قرار صاحب المشروع 2026-11-17) ─────────
+// الطلبية المحوَّلة لمدير الشركة صاحب الايتم تظهر أيضاً عند **موظف المكتب** في نفس
+// المكتب. صفّ واحد مشترك لا نسختان: من يحفظ أولاً يستهلكه فيختفي عند الآخر،
+// و claimPendingOrders يمنع حفظه مرتين حين يضغطان «حفظ» معاً.
+const OFFICE_REVIEW_ROLES = new Set(['office_employee']);
+
+/** شرط Prisma للطلبيات التي يراها المستخدم: طلبياته + (موظف المكتب) المحوَّلة لمدراء مكتبه. */
+export async function pendingVisibleWhere(userId) {
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, officeId: true } });
+  if (!me?.officeId || !OFFICE_REVIEW_ROLES.has(me.role)) return { userId };
+  return {
+    OR: [
+      { userId },
+      { user: { officeId: me.officeId }, payload: { path: ['originUserId'], gt: 0 } },
+    ],
+  };
+}
+
+async function findVisiblePending(userId, id, select) {
+  const n = Number(id);
+  if (!Number.isFinite(n)) return null;
+  return prisma.pendingBotOrder.findFirst({ where: { AND: [await pendingVisibleWhere(userId), { id: n }] }, select });
+}
+
+/** العدّ الذي يستجوبه الشريط — ما يراه المستخدم لا ما يملكه. */
+export async function countVisiblePendingOrders(userId) {
+  return prisma.pendingBotOrder.count({ where: await pendingVisibleWhere(userId) });
+}
+
+// حجز مؤقّت أثناء الحفظ: يُكتب في payload.claim ذرّياً (UPDATE مشروط). حجز عالق بعد
+// انهيار يسقط بعد CLAIM_TTL_MS.
+const CLAIM_TTL_MS = 5 * 60_000;
+const claimFresh = (c) => c && c.at && Date.now() - new Date(c.at).getTime() < CLAIM_TTL_MS;
+
+/**
+ * يحجز طلبيات قبل حفظها كمبيعات. يرمي 409 إن حُفظت/أُلغيت أو يحفظها شخص آخر الآن.
+ * @returns {Promise<() => Promise<void>>} دالة تحرير الحجز (عند فشل الحفظ)
+ */
+export async function claimPendingOrders(userId, ids, name = '') {
+  const list = [...new Set((ids || []).map(Number).filter(n => Number.isFinite(n) && n > 0))];
+  const noop = async () => {};
+  if (!userId || !list.length) return noop;
+  const visible = await prisma.pendingBotOrder.findMany({
+    where: { AND: [await pendingVisibleWhere(userId), { id: { in: list } }] }, select: { id: true },
+  });
+  if (visible.length < list.length) {
+    throw new AppError('هذه الطلبية حُفظت أو أُلغيت من شخص آخر — حدّث الصفحة.', 409, 'ORDER_TAKEN');
+  }
+  const claim = JSON.stringify({ by: userId, name: String(name || '').slice(0, 80), at: new Date().toISOString() });
+  const staleBefore = new Date(Date.now() - CLAIM_TTL_MS).toISOString();
+  const got = await prisma.$queryRaw`
+    UPDATE pending_bot_orders SET payload = jsonb_set(payload::jsonb, '{claim}', ${claim}::jsonb)
+    WHERE id = ANY(${list}::int[])
+      AND (payload->'claim' IS NULL
+           OR (payload->'claim'->>'by')::int = ${userId}
+           OR (payload->'claim'->>'at') < ${staleBefore})
+    RETURNING id`;
+  const release = async () => {
+    try {
+      await prisma.$executeRaw`
+        UPDATE pending_bot_orders SET payload = payload::jsonb - 'claim'
+        WHERE id = ANY(${list}::int[]) AND (payload->'claim'->>'by')::int = ${userId}`;
+    } catch (e) { console.error('[orders] تحرير حجز الطلبية:', e?.message); }
+  };
+  if (got.length < list.length) {
+    await release();
+    const other = await prisma.pendingBotOrder.findMany({ where: { id: { in: list } }, select: { payload: true } });
+    const holder = other.map(o => o.payload?.claim).find(c => claimFresh(c) && c.by !== userId);
+    throw new AppError(`هذه الطلبية يحفظها الآن ${holder?.name || 'شخص آخر'} — انتظر قليلاً ثم حدّث الصفحة.`, 409, 'ORDER_CLAIMED');
+  }
+  return release;
 }
 
 /**
@@ -1276,7 +1349,7 @@ export async function loadOrderOrigins(reviewerId, ids) {
   const list = [...new Set((ids || []).map(Number).filter(Number.isFinite))];
   if (!reviewerId || !list.length) return new Map();
   const rows = await prisma.pendingBotOrder.findMany({
-    where: { id: { in: list }, userId: reviewerId }, select: { id: true, payload: true },
+    where: { AND: [await pendingVisibleWhere(reviewerId), { id: { in: list } }] }, select: { id: true, payload: true },
   });
   return new Map(rows.map(r => [r.id, Number(r.payload?.originUserId) || reviewerId]));
 }
@@ -1332,17 +1405,23 @@ export async function listPendingOrders(userId) {
   await routeQueuedOrders(userId);
 
   const rows = await prisma.pendingBotOrder.findMany({
-    where: { userId },
+    where: await pendingVisibleWhere(userId),
     orderBy: { createdAt: 'desc' },
     select: {
       id: true, source: true, chatTitle: true, senderName: true, repName: true,
       kind: true, sourceText: true, rowCount: true, imageFiles: true, createdAt: true, payload: true,
+      userId: true, user: { select: { displayName: true, username: true } },
     },
   });
 
   return rows.map(r => ({
     ...r,
     payload: undefined,
+    user: undefined,
+    // طلبية مدير يراها موظف المكتب: عند من هي.
+    ownerName: r.userId !== userId ? displayNameOf(r.user) : null,
+    // يحفظها الآن شخص آخر (حجز حيّ).
+    claimedBy: claimFresh(r.payload?.claim) && r.payload.claim.by !== userId ? (r.payload.claim.name || 'شخص آخر') : null,
     originName: r.payload?.originUserId ? (r.payload.originName || null) : null,
     readBy: r.payload?.readBy || null,
     imageFiles: undefined,
@@ -1359,8 +1438,10 @@ export async function listPendingOrders(userId) {
  * طريقَي الدخول بلا تفريع.
  */
 export async function getPendingOrder(userId, id) {
-  const row = await prisma.pendingBotOrder.findFirst({ where: { id: Number(id), userId } });
-  if (!row) throw new AppError('الطلبية غير موجودة أو لا تخصّك.', 404, 'ORDER_NOT_FOUND');
+  const row = await findVisiblePending(userId, id);
+  if (!row) throw new AppError('الطلبية غير موجودة — ربما حُفظت أو أُلغيت.', 404, 'ORDER_NOT_FOUND');
+  // سياق الكتالوج والتخمين = صاحب الطلبية (مدير الشركة) لا من يفتحها (موظف المكتب).
+  const ownerId = row.userId;
   const payload = row.payload || {};
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
   // طلبية نصّية قُرئت قبل القراءة الحتمية للنص (2026-10-19) تُعاد قراءتها عند الفتح:
@@ -1372,7 +1453,7 @@ export async function getPendingOrder(userId, id) {
     // النصّ كما هو: الأسطر هي ما يقرأه المحلّل، وparseOrderText يُسقط سطر «طلبية» بنفسه.
     await applyTextParse(live, row.sourceText);
     rows.splice(0, rows.length, ...live); // القراءة قد تحذف صفوفاً (سطر مذاخر قُرئ صنفاً)
-    await enrichRowsFromCatalog(live, userId);
+    await enrichRowsFromCatalog(live, ownerId);
     await matchInvoiceCustomers(live);
     // مندوب خُمِّن من منطقة خاطئة يُمسح ليُعاد تخمينه من المنطقة المصحّحة أدناه.
     live.forEach((r, i) => { if (r.area !== areaBefore[i]) r.scientificRep = null; });
@@ -1386,7 +1467,7 @@ export async function getPendingOrder(userId, id) {
   }
   const needLink = rows.some(r => r && !r._itemId && String(r.item ?? '').trim());
   const user = rows.length
-    ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true, officeId: true } })
+    ? await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true, officeId: true } })
     : null;
   // صنف بلا ربط (طلبية حُوِّلت من حساب الكروب قبل 2026-10-31 بلا شركة) يُربط
   // بكتالوج المكتب عند الفتح فتظهر شركته وسعره — في الذاكرة فقط.
@@ -1415,14 +1496,15 @@ export async function getPendingOrder(userId, id) {
     // طلبية محوَّلة من حساب الكروب: الحفظ في ملف كوديشن ذلك الحساب.
     originUserId: payload.originUserId ?? null,
     originName: payload.originUserId ? (payload.originName || null) : null,
+    ownerName: ownerId !== userId
+      ? displayNameOf(await prisma.user.findUnique({ where: { id: ownerId }, select: { displayName: true, username: true } }))
+      : null,
   };
 }
 
 /** مسار صورة على القرص بعد التحقق من ملكية الصف — للبثّ عبر نقطة مصادَقة. */
 export async function getPendingOrderImagePath(userId, id, index) {
-  const row = await prisma.pendingBotOrder.findFirst({
-    where: { id: Number(id), userId }, select: { imageFiles: true },
-  });
+  const row = await findVisiblePending(userId, id, { imageFiles: true });
   if (!row) throw new AppError('الطلبية غير موجودة أو لا تخصّك.', 404, 'ORDER_NOT_FOUND');
   const names = toImageList(row.imageFiles);
   const name = names[Number(index)];
@@ -1432,10 +1514,12 @@ export async function getPendingOrderImagePath(userId, id, index) {
 
 /** إلغاء طلبية معلَّقة بلا حفظ أي شيء منها. */
 export async function deletePendingOrder(userId, id) {
-  const row = await prisma.pendingBotOrder.findFirst({
-    where: { id: Number(id), userId }, select: { id: true, imageFiles: true },
-  });
-  if (!row) throw new AppError('الطلبية غير موجودة أو لا تخصّك.', 404, 'ORDER_NOT_FOUND');
+  const row = await findVisiblePending(userId, id, { id: true, imageFiles: true, payload: true });
+  if (!row) throw new AppError('الطلبية غير موجودة — ربما حُفظت أو أُلغيت.', 404, 'ORDER_NOT_FOUND');
+  const c = row.payload?.claim;
+  if (claimFresh(c) && c.by !== userId) {
+    throw new AppError(`لا يمكن الإلغاء — يحفظها الآن ${c.name || 'شخص آخر'}.`, 409, 'ORDER_CLAIMED');
+  }
   await prisma.pendingBotOrder.delete({ where: { id: row.id } });
   await unlinkImages(row.imageFiles);
   return true;
@@ -1448,9 +1532,7 @@ export async function deletePendingOrder(userId, id) {
 export async function consumePendingOrder(userId, id) {
   if (!id) return;
   try {
-    const row = await prisma.pendingBotOrder.findFirst({
-      where: { id: Number(id), userId }, select: { id: true, imageFiles: true },
-    });
+    const row = await findVisiblePending(userId, id, { id: true, imageFiles: true });
     if (!row) return;
     await prisma.pendingBotOrder.delete({ where: { id: row.id } });
     await unlinkImages(row.imageFiles);

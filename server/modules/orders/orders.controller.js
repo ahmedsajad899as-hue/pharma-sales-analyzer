@@ -6,7 +6,7 @@
 import fs from 'fs';
 import {
   listPendingOrders, getPendingOrder, deletePendingOrder,
-  countPendingOrders, getPendingOrderImagePath, listOfficeScientificReps,
+  countVisiblePendingOrders, getPendingOrderImagePath, listOfficeScientificReps,
   refreshReviewRow, catalogSuggestions,
 } from './orders.service.js';
 
@@ -35,7 +35,7 @@ export async function listPending(req, res, next) {
 // ── GET /api/orders/pending/count — نداء count وحده، هذا ما يستجوبه الاستقصاء ──
 export async function getPendingCount(req, res, next) {
   try {
-    res.json({ success: true, data: { count: await countPendingOrders(req.user.id) } });
+    res.json({ success: true, data: { count: await countVisiblePendingOrders(req.user.id) } });
   } catch (e) { next(e); }
 }
 

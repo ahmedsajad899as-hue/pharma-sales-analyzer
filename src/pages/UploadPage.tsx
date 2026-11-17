@@ -1142,6 +1142,17 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     ↪️ محوَّلة من {o.originName}
                   </span>
                 )}
+                {o.ownerName && (
+                  <span title="طلبية عند مدير الشركة صاحب الايتم — تظهر لك أيضاً، ومن يحفظها أولاً تختفي عند الآخر"
+                    style={{ fontSize: 11, fontWeight: 700, color: '#0f766e', background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 999, padding: '1px 8px' }}>
+                    👤 عند {o.ownerName}
+                  </span>
+                )}
+                {o.claimedBy && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 999, padding: '1px 8px' }}>
+                    ✍️ يحفظها الآن {o.claimedBy}
+                  </span>
+                )}
                 {o.chatTitle && <span style={{ fontSize: 11.5, color: '#94a3b8' }}>({o.chatTitle})</span>}
                 {o.readBy === 'parser' && (
                   <span title="قُرئت بالمحلل بلا ذكاء اصطناعي — راجِعها بعناية أثناء التجربة"
