@@ -567,6 +567,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const hasCond = liqMode || (condFiles?.length ?? 0) > 0 || repSalesShown.length > 0;
 
   // ── فرق المحافظات لعرض الأسماء — تحسب التغطية فلا تُجلب إلا حين يظهر الجدول ──
+  // تُعاد مع repSalesTick (عودة الصفحة للظهور) كمجموع المحافظة: طلبية حُفظت في اللكوديشن ثم
+  // عاد المستخدم كانت تظهر في رقم المحافظة وتبقى «–» أمام المندوب (2026-11-17، امير مضر).
+  const teamsTickSeen = useRef(repSalesTick);
   useEffect(() => {
     if (view !== 'names' || !ready || marketersOnly) return;
     let dead = false;
@@ -575,7 +578,9 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     const key = `t5|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
     const hit = cacheable ? cacheGet(key) : undefined;
     if (hit) setTeams(hit.v);
-    if (hit && Date.now() - hit.t < FRESH_MS) return () => { dead = true; };
+    const ticked = teamsTickSeen.current !== repSalesTick;
+    teamsTickSeen.current = repSalesTick;
+    if (hit && !ticked && Date.now() - hit.t < FRESH_MS) return () => { dead = true; };
     (async () => {
       if (!hit) setLoadingTeams(true);
       try {
@@ -599,7 +604,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     })();
     return () => { dead = true; ac.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, fileKey, monthKey, tok, ready, ownTeamId]);
+  }, [view, fileKey, monthKey, tok, ready, ownTeamId, repSalesTick]);
 
   // ── دمج: محافظة ← شركات (مبيع + مندوبون) ─────────────────────────────────
   const cells = useMemo(() => {
