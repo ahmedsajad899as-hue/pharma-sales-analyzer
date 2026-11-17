@@ -5858,7 +5858,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         // الحالي مبنياً على دمج ملف مكتب مع ملف ميركاتو معاً (كلاهما له صفوف فعلية).
         const src = sciReport.bySource;
         // الكوديشن (ومنه طلبيات الترانزيت من ملف المكتب) يُظهر الصندوق بلا ملف ميركاتو أيضاً.
-        const hasMixedSources = !!(src?.hasOffice && (src?.hasMercato || src?.hasCondition)) || (provLiqReport && !!src);
+        // يظهر دائماً (حتى لمندوب بلا مكتب/ميركاتو/لكوديشن) — القسم الفارغ يُعرض صفراً.
+        const hasMixedSources = true;
         const officeNetVal  = (src?.office.totalValue  ?? 0) - (sciReturnsReport?.bySource?.office.totalValue  ?? 0);
         // حين يوجد كوديشن، سطر Mercato = ميركاتو بدونه، كي تُجمَع الأسطر الثلاثة للإجمالي.
         const mercOf = (b: any) => (b?.hasCondition && b?.mercatoOnly) ? b.mercatoOnly : b?.mercato;
@@ -5866,7 +5867,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         // نفس التوزيع لكن لقيمة الخانة المعروضة حالياً فقط (مبيع أو ارجاع) بدل الصافي —
         // يظهر في كل الخانات لا الصافي وحده، للمقارنة بين الملفين مباشرة أياً كانت الخانة.
         const viewSrc = viewData?.bySource;
-        const viewHasMixedSources = !!(viewSrc?.hasOffice && (viewSrc?.hasMercato || viewSrc?.hasCondition)) || (provLiqReport && !!viewSrc);
+        const viewHasMixedSources = true;
         // صندوق واحد مدمج (قيمة + عدد طلبيات معاً) لكل مصدر ملف — Office/Mercato
         // بدل الشرح العربي الطويل، للدلالة المختصرة فقط.
         const condNetVal = (src?.condition?.totalValue ?? 0) - (sciReturnsReport?.bySource?.condition?.totalValue ?? 0);
@@ -6033,7 +6034,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 fmtValSigned(officeNetVal), fmtValSigned(mercatoNetVal),
                 officeNetVal >= 0 ? '#065f46' : '#991b1b', mercatoNetVal >= 0 ? '#065f46' : '#991b1b',
                 src?.office.orderCount ?? 0, mercOf(src)?.orderCount ?? 0,
-                src?.hasCondition || provLiqReport ? { valStr: fmtValSigned(condNetVal), color: condNetVal >= 0 ? '#065f46' : '#991b1b', count: src?.condition?.orderCount ?? 0 } : null,
+                { valStr: fmtValSigned(condNetVal), color: condNetVal >= 0 ? '#065f46' : '#991b1b', count: src?.condition?.orderCount ?? 0 },
               )}
               {tierBox}
               {sciToggles}
@@ -6115,7 +6116,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                 fmtVal(viewSrc?.office.totalValue ?? 0), fmtVal(mercOf(viewSrc)?.totalValue ?? 0),
                 '#1e293b', '#1e293b',
                 viewSrc?.office.orderCount ?? 0, mercOf(viewSrc)?.orderCount ?? 0,
-                viewSrc?.hasCondition || provLiqReport ? { valStr: fmtVal(viewSrc?.condition?.totalValue ?? 0), color: '#1e293b', count: viewSrc?.condition?.orderCount ?? 0 } : null,
+                { valStr: fmtVal(viewSrc?.condition?.totalValue ?? 0), color: '#1e293b', count: viewSrc?.condition?.orderCount ?? 0 },
               )}
               {tierBox}
               {sciToggles}
