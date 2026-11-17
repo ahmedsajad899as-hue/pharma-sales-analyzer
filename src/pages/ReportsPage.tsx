@@ -982,7 +982,9 @@ interface ProvinceItemRow { provinceName: string; itemName: string; totalQty: nu
 // (مندوب×مذخر) الرئيسي عمداً، كي يُبنى منها أيضاً تفصيل الايتمات داخل كل مذخر
 // بلا طلب خادم إضافي. راجع byBaghdadWarehouse في server/modules/reports/reports.routes.js.
 interface BaghdadWarehouseRow { repName: string; warehouseName: string; itemName: string; companyName: string; totalQty: number; totalValue: number; }
-interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; byProvinceCompany: ProvinceCompanyRow[]; byProvinceItem: ProvinceItemRow[]; byBaghdadWarehouse: BaghdadWarehouseRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
+/** عمود جدول محافظة × شركة لمبيع الايتمات غير المُسنَدة لأي مدير شركة (شريحة «الكل» فقط). */
+const OTHER_ITEMS_COL = 'باقي الايتمات';
+interface OverallReport { totalQuantity: number; totalValue: number; byItem: BreakdownRow[]; byArea: BreakdownRow[]; byAreaItem: AreaItemRow[]; byCompany: BreakdownRow[]; byProvince: BreakdownRow[]; byProvinceCompany: ProvinceCompanyRow[]; byProvinceItem: ProvinceItemRow[]; byProvinceOther?: BreakdownRow[]; byBaghdadWarehouse: BaghdadWarehouseRow[]; minDate?: string | null; maxDate?: string | null; recordCount?: number; undatedExcluded?: number; }
 
 // مطابقة اسم متسامحة مع حالة الأحرف والتشكيل العربي — الشركة/المنطقة/الايتم قد
 // تصل بحالة أحرف مختلفة بين استعلام المبيعات واستعلام الإرجاع المنفصلين
@@ -1938,6 +1940,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         byProvince: (d.byProvince ?? []).map((r: any) => ({ name: r.provinceName ?? r.name, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byProvinceCompany: (d.byProvinceCompany ?? []).map((r: any) => ({ provinceName: r.provinceName, companyName: r.companyName, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byProvinceItem: (d.byProvinceItem ?? []).map((r: any) => ({ provinceName: r.provinceName, itemName: r.itemName, totalQty: r.totalQuantity ?? 0 })),
+        byProvinceOther: (d.byProvinceOther ?? []).map((r: any) => ({ name: r.provinceName, totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         byBaghdadWarehouse: (d.byBaghdadWarehouse ?? []).map((r: any) => ({ repName: r.repName, warehouseName: r.warehouseName, itemName: r.itemName, companyName: r.companyName ?? 'غير مصنّف', totalQty: r.totalQuantity ?? 0, totalValue: r.totalValue ?? 0 })),
         minDate: d.minDate ?? null,
         maxDate: d.maxDate ?? null,
@@ -3997,7 +4000,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   // («غير مصنّف» من الخادم)، كي يبقى مجموع كل سطر = صافي المحافظة الحقيقي ولا
   // يختفي أي مبيع بصمت. الأسطر: كل محافظة لها صافي فعلي.
   const buildProvinceCompanyPivot = () => {
-    const EMPTY = { companies: [] as string[], companyTotals: [] as number[], rows: [] as { provinceName: string; cells: number[]; rowTotal: number }[], grandTotal: 0 };
+    const EMPTY = { companies: [] as string[], companyTotals: [] as number[], rows: [] as { provinceName: string; cells: number[]; rowTotal: number }[], grandTotal: 0, otherIdx: -1, assignedTotal: 0 };
     if (!overallSales) return EMPTY;
     const rowKey = (r: ProvinceCompanyRow) => `${normReportName(r.provinceName)}::${normReportName(r.companyName)}`;
     const salesRows = overallSales.byProvinceCompany ?? [];
@@ -4021,18 +4024,36 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
       if (!teamKeys.has(cKey)) extraNames.set(cKey, info.companyName);
     }
 
-    const companies   = [...overallTeams.map(t => t.name), ...extraNames.values()];
+    // «باقي الايتمات»: صافي مبيع الايتمات غير المُسنَدة لأي مدير شركة — يرسله
+    // الخادم (byProvinceOther) عند شريحة «الكل» وحدها، فيظهر عموداً أخيراً.
+    const otherNet = new Map<string, number>();
+    for (const r of overallSales.byProvinceOther ?? []) {
+      const pKey = normReportName(r.name);
+      otherNet.set(pKey, (otherNet.get(pKey) ?? 0) + r.totalValue);
+      if (!provinceNames.has(pKey)) provinceNames.set(pKey, r.name);
+    }
+    for (const r of overallReturns?.byProvinceOther ?? []) {
+      const pKey = normReportName(r.name);
+      otherNet.set(pKey, (otherNet.get(pKey) ?? 0) - r.totalValue);
+      if (!provinceNames.has(pKey)) provinceNames.set(pKey, r.name);
+    }
+    const hasOther = [...otherNet.values()].some(v => v !== 0);
+
+    const companies   = [...overallTeams.map(t => t.name), ...extraNames.values(), ...(hasOther ? [OTHER_ITEMS_COL] : [])];
     const companyKeys = companies.map(normReportName);
+    const otherIdx = hasOther ? companies.length - 1 : -1;
     const provinceOrder = [...provinceNames.keys()];
 
     const rows = provinceOrder.map(pKey => {
-      const cells = companyKeys.map(cKey => netByKey.get(`${pKey}::${cKey}`) ?? 0);
+      const cells = companyKeys.map((cKey, ci) => ci === otherIdx ? (otherNet.get(pKey) ?? 0) : (netByKey.get(`${pKey}::${cKey}`) ?? 0));
       const rowTotal = cells.reduce((s, v) => s + v, 0);
       return { provinceName: provinceNames.get(pKey)!, cells, rowTotal };
-    }).sort((a, b) => b.rowTotal - a.rowTotal);
+    }).filter(row => row.cells.some(v => v !== 0)).sort((a, b) => b.rowTotal - a.rowTotal);
     const companyTotals = companyKeys.map((_, ci) => rows.reduce((s, row) => s + row.cells[ci], 0));
     const grandTotal = companyTotals.reduce((s, v) => s + v, 0);
-    return { companies, companyTotals, rows, grandTotal };
+    // للتحقّق الذاتي أمام byProvince (ايتمات مُسنَدة فقط): المجموع بلا عمود «باقي الايتمات».
+    const assignedTotal = grandTotal - (otherIdx >= 0 ? companyTotals[otherIdx] : 0);
+    return { companies, companyTotals, rows, grandTotal, otherIdx, assignedTotal };
   };
 
   // جدول محافظة × ايتم بالكمية الصافية (مبيع - مرتجع) — نفس شرط تبويب المحافظة
@@ -5229,7 +5250,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
             {/* ── تبويب المحافظة: جدول محوري (محافظة × شركة رئيسية) دائماً ظاهر —
                  لا جدول مبسَّط منفصل ولا قائمة تُطوى/تُفتح، طلب صريح. ── */}
             {overallTab === 'province' && (() => {
-              const { companies, companyTotals, rows, grandTotal } = buildProvinceCompanyPivot();
+              const { companies, companyTotals, rows, grandTotal, otherIdx, assignedTotal } = buildProvinceCompanyPivot();
               if (rows.length === 0) {
                 return <div style={{ marginTop: 14, textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10 }}>لا توجد بيانات شركات مطابَقة لعرضها محافظةً بمحافظة</div>;
               }
@@ -5244,7 +5265,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
               const provinceNetTotal =
                 overallSales.byProvince.reduce((s, p) => s + p.totalValue, 0)
                 - (overallReturns?.byProvince ?? []).reduce((s, p) => s + p.totalValue, 0);
-              const coverageGap = provinceNetTotal - grandTotal;
+              const coverageGap = provinceNetTotal - assignedTotal;
+              // عمود «باقي الايتمات» مميَّز بخلفية رمادية خفيفة كي لا يُقرأ كشركة.
+              const otherBg = '#f8fafc';
               return (
                 <div style={{ marginTop: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
@@ -5266,7 +5289,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                       <thead>
                         <tr>
                           <th style={{ ...pivotTh, textAlign: 'right', right: 0 }}>المحافظة</th>
-                          {companies.map(c => <th key={c} style={pivotTh}>{c}</th>)}
+                          {companies.map((c, ci) => <th key={c} style={ci === otherIdx ? { ...pivotTh, color: '#475569', fontStyle: 'italic' } : pivotTh} title={ci === otherIdx ? 'مبيع الايتمات غير المُسنَدة لأي مدير شركة' : undefined}>{c}</th>)}
                           <th style={pivotTh}>الإجمالي</th>
                         </tr>
                       </thead>
@@ -5275,7 +5298,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                           <tr key={row.provinceName}>
                             <td style={{ ...pivotTd, textAlign: 'right', fontWeight: 700, position: 'sticky', right: 0, background: '#fff' }}>{row.provinceName}</td>
                             {row.cells.map((v, ci) => (
-                              <td key={ci} style={{ ...pivotTd, fontWeight: v !== 0 ? 700 : 400, background: v < 0 ? 'rgba(239, 68, 68, 0.12)' : undefined }}>
+                              <td key={ci} style={{ ...pivotTd, fontWeight: v !== 0 ? 700 : 400, background: v < 0 ? 'rgba(239, 68, 68, 0.12)' : ci === otherIdx ? otherBg : undefined }}>
                                 {v !== 0 ? fmtValSigned(v) : '—'}
                               </td>
                             ))}
@@ -5296,7 +5319,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                   </div>
                   {Math.abs(coverageGap) > 1 && (
                     <div style={{ marginTop: 8, padding: '8px 12px', border: '1px solid #94a3b8', background: '#f8fafc', fontSize: 12, color: '#111827' }}>
-                      تنبيه: مجموع الجدول ({fmtValSigned(grandTotal)}) يقلّ عن صافي كل المحافظات ({fmtValSigned(provinceNetTotal)}) بمقدار {fmtValSigned(coverageGap)} — مبيع لم يُنسَب لأي شركة.
+                      تنبيه: مجموع أعمدة الشركات ({fmtValSigned(assignedTotal)}) يقلّ عن صافي كل المحافظات ({fmtValSigned(provinceNetTotal)}) بمقدار {fmtValSigned(coverageGap)} — مبيع لم يُنسَب لأي شركة.
                     </div>
                   )}
                   {showProvinceItemTable && (() => {

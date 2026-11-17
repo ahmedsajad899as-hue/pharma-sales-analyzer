@@ -570,6 +570,7 @@ router.get('/overall', async (req, res) => {
     const provinceMap = new Map(); // key: اسم المحافظة (أو اسم المنطقة حين لا محافظة في الملف)
     const provinceCompanyMap = new Map(); // key: "اسم المحافظة::مفتاح الشركة الموحَّد"
     const provinceItemMap = new Map(); // key: "اسم المحافظة::مفتاح الايتم"
+    const provinceOtherMap = new Map(); // key: اسم المحافظة — ايتمات غير مُسنَدة لمدير شركة
     // مذاخر بغداد: صفوف مبيع تجارية بمحافظة بغداد وُسِمَت "مذخر" في عمود الصنف
     // الخام (isWarehouseSaleRow) — لا علاقة لها بتبويب «المحافظة» أعلاه (ذاك
     // يستبعد الايتمات غير المُسنَدة لتيم؛ هذا يشمل كل الصفوف بلا قيد تيم، لأن
@@ -680,6 +681,15 @@ router.get('/overall', async (req, res) => {
           if (!provinceItemMap.has(piKey)) provinceItemMap.set(piKey, { provinceName, itemName: s.item.name, totalQuantity: 0 });
           provinceItemMap.get(piKey).totalQuantity += qty;
         }
+      } else if (provinceName && !mgrId) {
+        // «باقي الايتمات» (طلب صريح 2026-11-17): مبيع الايتمات غير المُسنَدة لأي
+        // مدير شركة — عمود مستقل في جدول المحافظات عند شريحة «الكل» وحدها. مصفوفة
+        // منفصلة عن byProvinceCompany/byProvince عمداً كي لا تمسّ خريطة العراق
+        // (IraqRepsMap) ولا إجمالي المحافظة المعتمَد على الايتمات المُسنَدة.
+        if (!provinceOtherMap.has(provinceName)) provinceOtherMap.set(provinceName, { provinceName, totalQuantity: 0, totalValue: 0 });
+        const po = provinceOtherMap.get(provinceName);
+        po.totalQuantity += qty;
+        po.totalValue    += val;
       }
 
       if (provinceName === 'بغداد' && isWarehouseSaleRow(s.rawData)) {
@@ -732,11 +742,12 @@ router.get('/overall', async (req, res) => {
     const byProvinceCompany = [...provinceCompanyMap.values()].sort((a, b) =>
       a.provinceName.localeCompare(b.provinceName, 'ar') || b.totalValue - a.totalValue);
     const byProvinceItem = [...provinceItemMap.values()];
+    const byProvinceOther = [...provinceOtherMap.values()];
     const byBaghdadArea = [...baghdadAreaMap.values()].sort((a, b) => b.totalValue - a.totalValue);
     const byBaghdadWarehouse = [...baghdadWarehouseMap.values()].sort((a, b) =>
       a.repName.localeCompare(b.repName, 'ar') || a.warehouseName.localeCompare(b.warehouseName, 'ar') || b.totalValue - a.totalValue);
 
-    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byProvinceItem, byBaghdadWarehouse, byBaghdadArea, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied,
+    res.json({ success: true, data: { totalQuantity, totalValue, byItem, byArea, byAreaItem, byCompany, byProvince, byProvinceCompany, byProvinceItem, byProvinceOther, byBaghdadWarehouse, byBaghdadArea, minDate, maxDate, recordCount: sales.length, undatedExcluded, rawRequested, rawApplied,
       _debug: { parsedFileIds, userId, effectiveStartDate, effectiveEndDate, whereClause: JSON.stringify(where).slice(0, 4000) } } });
   } catch (err) {
     res.status(500).json({ error: err.message });
