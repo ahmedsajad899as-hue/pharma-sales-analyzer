@@ -73,6 +73,8 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
   const [choice, setChoice]   = useState<Record<string, string>>({});
   // أسماء محسومة فُتح تعديلها
   const [editing, setEditing] = useState<Record<string, boolean>>({});
+  // المطابقة يحسمها موظف المكتب وحده (server/lib/repNameResolver.js) — غيره يرى المحسوم فقط.
+  const [readOnly, setReadOnly] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true); setError('');
@@ -84,6 +86,7 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
         setResolved(j.data?.resolved ?? []);
         setUnrelated(j.data?.unrelated ?? []);
         setReps(j.data?.reps ?? []);
+        setReadOnly(!!j.data?.readOnly);
         setChoice({});
         setEditing({});
       })
@@ -141,6 +144,11 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
           </h3>
           <button onClick={onClose} style={xBtn}>✕</button>
         </div>
+        {readOnly ? (
+          <div style={{ margin: '0 0 14px', padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#1e40af', fontSize: 12.5, fontWeight: 700 }}>
+            🔒 مطابقة الأسماء يحسمها موظف المكتب (من يرفع الملفات) — هنا للعرض فقط.
+          </div>
+        ) : (
         <p style={{ margin: '0 0 14px', fontSize: 12.5, color: '#64748b', lineHeight: 1.7 }}>
           اسم المندوب في ملف ميركاتو هو المندوب العلمي نفسه، وقد يُكتب مختصراً عن
           الاسم المسجَّل في التطبيق. المطابقة تتم مع <b>مندوبيك أنت فقط</b> — وأي
@@ -150,12 +158,13 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
           <br />الأسماء التي لم تُطابَق يمكنك <b>نسبها يدوياً</b> لأي حساب في شركتك (حتى الحسابات الجديدة)،
           وأي اسم محسوم تستطيع تعديله بزر ✎.
         </p>
+        )}
 
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>⏳ جاري فحص الأسماء…</div>
         ) : (
           <>
-            {pending.length === 0 ? (
+            {readOnly ? null : pending.length === 0 ? (
               <div style={{ padding: '18px 14px', textAlign: 'center', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, color: '#166534', fontSize: 13, fontWeight: 600 }}>
                 ✅ لا أسئلة معلّقة — كل الأسماء القريبة من مندوبيك محسومة.
                 {hinted > 0 && (
@@ -265,14 +274,14 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
                       </span>
                       {/* تطابق الاسم الكامل حرفياً يُنسب لصاحبه دائماً (resolveSciRepSales)، فربطه بغيره
                           يجعله منسوباً للاثنين — التعديل للأسماء المحسومة بقرار فقط */}
-                      {e.status === 'linked' && (
+                      {e.status === 'linked' && !readOnly && (
                         <button onClick={() => {
                           setEditing(p => ({ ...p, [e.key]: !p[e.key] }));
                           setChoice(p => { const n = { ...p }; delete n[e.key]; return n; });
                         }} title="تعديل: نسب الاسم لمندوب آخر"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4f46e5', fontSize: 12.5, fontWeight: 800, padding: 0 }}>✎</button>
                       )}
-                      {e.status === 'linked' && (
+                      {e.status === 'linked' && !readOnly && (
                         <button onClick={() => unlink(e.key)} title="إلغاء الربط وإعادة السؤال (يشمل قرار الزميل — القرار مشترك)"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 12, fontWeight: 800, padding: 0 }}>✕</button>
                       )}

@@ -3,6 +3,7 @@ import { getMarketersWarehouseShare } from './marketers-warehouse.js';
 
 import { monthToRange } from '../../lib/salesMonths.js';
 import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
+import { canResolveRepNames } from '../../lib/repNameResolver.js';
 
 // ── شريحة الشهر ──────────────────────────────────────────────────────────────
 // الواجهة ترسل `month` (2026-09 | none | all)، ونترجمه هنا إلى نفس مدى
@@ -305,16 +306,21 @@ export async function setBlockedEntityEnabled(req, res, next) {
 }
 
 // ── مطابقة أسماء المندوبين في ملفات ميركاتو ─────────────────────────────────
+// مطابقة أسماء ميركاتو يحسمها موظف المكتب وحده — lib/repNameResolver.js.
+const REP_NAMES_FORBIDDEN = 'مطابقة أسماء المندوبين يحسمها موظف المكتب فقط.';
+
 export async function checkRepNames(req, res, next) {
   try {
     const fileIds = parseFileIds(req.query.fileIds);
-    const data = await svc.checkMercatoRepNames({ fileIds, user: req.user ?? null });
+    const canResolve = await canResolveRepNames(req.user ?? null);
+    const data = await svc.checkMercatoRepNames({ fileIds, user: req.user ?? null, canResolve });
     res.json({ success: true, data });
   } catch (err) { next(err); }
 }
 
 export async function saveRepNames(req, res, next) {
   try {
+    if (!(await canResolveRepNames(req.user ?? null))) return res.status(403).json({ error: REP_NAMES_FORBIDDEN });
     const result = await svc.saveRepNameLinks(req.user?.id ?? null, req.body?.links);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
@@ -322,6 +328,7 @@ export async function saveRepNames(req, res, next) {
 
 export async function deleteRepNameLink(req, res, next) {
   try {
+    if (!(await canResolveRepNames(req.user ?? null))) return res.status(403).json({ error: REP_NAMES_FORBIDDEN });
     await svc.removeRepNameLink(req.user?.id ?? null, req.params.fromKey);
     res.json({ success: true });
   } catch (err) { next(err); }

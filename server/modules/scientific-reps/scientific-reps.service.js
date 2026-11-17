@@ -964,8 +964,8 @@ export async function classifyRepNamesForUser(names, user = null) {
  * classifyRepNamesForUser يستخرج الأسماء من صفوف المبيعات أولاً.
  * @param {{ fileIds:number[]|null, user:object }} opts
  */
-export async function checkMercatoRepNames({ fileIds = null, user = null } = {}) {
-  const EMPTY = { pending: [], resolved: [], unrelated: [], mercatoFileCount: 0, reps: [] };
+export async function checkMercatoRepNames({ fileIds = null, user = null, canResolve = true } = {}) {
+  const EMPTY = { pending: [], resolved: [], unrelated: [], mercatoFileCount: 0, reps: [], readOnly: !canResolve };
   const ids = Array.isArray(fileIds) ? fileIds.filter(Number.isInteger) : [];
   if (ids.length === 0) return EMPTY;
 
@@ -986,6 +986,12 @@ export async function checkMercatoRepNames({ fileIds = null, user = null } = {})
   const fileNames = [...new Set(rows.map(r => r.representative?.name).filter(Boolean))];
 
   const classified = await classifyRepNamesForUser(fileNames, user);
+
+  // غير موظف المكتب (lib/repNameResolver.js): عرض المحسوم فقط — لا أسئلة، لا
+  // نسب يدوي، ولا حفظ تلقائي باسمه.
+  if (!canResolve) {
+    return { ...classified, pending: [], unrelated: [], reps: [], mercatoFileCount: mercatoIds.length, readOnly: true };
+  }
 
   // «تطابق تام» بنواة الاسم (الحساب «عبدالله عمر/ كرخ ph» والملف «عبدالله عمر»)
   // يُحسم هنا، لكن نسبة مبيعات ميركاتو (resolveSciRepSales) تقارن بالاسم الكامل
@@ -1011,7 +1017,7 @@ export async function checkMercatoRepNames({ fileIds = null, user = null } = {})
     const suggestions = m.rep ? [{ id: m.rep.id, name: m.rep.name, company: m.rep.company ?? null, score: 1 }] : m.suggestions.slice(0, 3);
     return { ...u, suggestions };
   });
-  return { ...classified, unrelated, reps: pickerReps, mercatoFileCount: mercatoIds.length };
+  return { ...classified, unrelated, reps: pickerReps, mercatoFileCount: mercatoIds.length, readOnly: false };
 }
 
 /**
