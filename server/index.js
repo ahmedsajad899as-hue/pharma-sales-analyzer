@@ -2349,20 +2349,29 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
   try {
     const file = await findReadableFile(id, req.user?.id ?? null);
     if (!file) return res.status(404).json({ error: 'الملف غير موجود أو لا تملك صلاحية عليه' });
+    // توقيت كل مرحلة — يُسجَّل حين يبطؤ الطلب (تشخيص بطء فتح الملف، 2026-11-17).
+    const t0 = Date.now(); let tPrev = t0; const stages = [];
+    const lap = (name) => { const t = Date.now(); stages.push(`${name}=${t - tPrev}`); tPrev = t; };
     // طلبيات الترانزيت من ملفات المكتب المفعّلة للمُشاهِد (lib/transitOrders.js).
     const transit = await transitSourceFiles(req.user?.id ?? null);
     const months = await listSalesMonths(prisma, [id, ...transit.officeFileIds], 'sale');
+    lap('months');
     // month=latest (الافتراضي في الواجهة) ← آخر شهر فيه بيانات.
     const month = req.query.month === 'latest' ? (months.latest || 'all') : (req.query.month || null);
     const all = await loadConditionSheets(id, { month, transit });
+    lap('sheets+transit');
     // صفوف محسوبة أيضاً في إكسل ميركاتو (صورة فاتورة طلبية جهّزها ميركاتو) — تنبيه فقط.
     await flagConditionRowsInMercato(all, file.userId).catch(e => console.error('[condition] فحص ميركاتو:', e?.message));
+    lap('mercato');
     // صف بوت/فاتورة يشبه طلبية ترانزيت من ملف المكتب (نفس الصيدلية/المذخر/الايتم/الكمية، تاريخ قريب).
     try { flagConditionTransitDups(all); } catch (e) { console.error('[condition] فحص الترانزيت:', e?.message); }
     await attachConditionTeams(all, await conditionOfficeId(file.userId, req.user?.id));
+    lap('teams');
     const sheets = await scopeSheetsToRoster(all, req.user);
     const companySheet = await buildCompanySheet(all, sheets, req.user);
     const canEdit = await canEditConditionFile(id, req.user);
+    lap('roster');
+    if (Date.now() - t0 > 1000) console.log(`[condition-view] #${id} ${month} ${Date.now() - t0}ms — ${stages.join(' ')}`);
     res.json({ success: true, data: { file, sheets, companySheet, months, month: month || 'all', canEdit } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

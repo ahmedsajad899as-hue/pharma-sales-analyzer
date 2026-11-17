@@ -26,11 +26,15 @@ const HEAVY_PATHS = [
   /^\/api\/province-teams\/rep-lines$/,
   /^\/api\/rep-sales\/province-summary$/,
   /^\/api\/targets\/actuals$/,
+  // ملف اللكوديشن «شيت لكل مندوب» — 2–7 ثوانٍ لكل فتح وكل تبديل شهر (2026-11-17).
+  /^\/api\/files\/\d+\/condition-view$/,
 ];
 // كتابات لا تمسّ الأرقام
 const NON_DATA_WRITES = /^\/api\/(engagement|auth)\b/;
 
 let dataVersion = 0;
+/** رقم نسخة البيانات — يزيد مع كل كتابة HTTP ناجحة. لمذكّرات داخلية تُبطَل معه. */
+export const getDataVersion = () => dataVersion;
 const cache = new Map();    // key -> { at, ver, status, body }
 const inflight = new Map(); // key -> Promise<{ status, body } | null>
 

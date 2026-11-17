@@ -243,6 +243,14 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
         setMonths(j.data.months?.months ?? []);
         setResolvedMonth(j.data.month || 'all');
         if (typeof j.data.canEdit === 'boolean') setCanEdit(j.data.canEdit);
+        // تحميل الشهر السابق بالخلفية بعد الفتح الأول: يحفظه مخبأ الخادم فيصير التبديل إليه فورياً.
+        if (!silent && month === 'latest') {
+          const yms = ((j.data.months?.months ?? []) as Month[]).map(m => m.ym).sort();
+          const prev = yms[yms.indexOf(j.data.month) - 1];
+          if (prev) setTimeout(() => {
+            fetch(`/api/files/${fileId}/condition-view?month=${encodeURIComponent(prev)}`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+          }, 1500);
+        }
       } catch (e: any) { if (alive) setError(e.message); }
       finally { if (alive) setLoading(false); }
     })();

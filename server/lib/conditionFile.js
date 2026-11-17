@@ -22,7 +22,7 @@ import { loadItemOwnerManagers } from './itemOwnerManager.js';
 import { loadManagerSeat, loadProvinceSeatReps } from './provinceSeats.js';
 import { loadTransitSales, officeFileIdsOf } from './transitOrders.js';
 import { PHARMACY_KIND, parseCustomerInfoLabels, normalizeCustomerInfoLabel, repSideOf } from './pharmacyRep.js';
-import { areaIdsOfProvinces } from './areaScope.js';
+import { getDataVersion } from '../middleware/heavyGetCache.js';
 import { normalizeArabic, normalizeAreaName } from './itemResolver.js';
 import { buildProvinceLookup, matchProvinceName, extractRawColumnValue, PROVINCE_COLUMN_ALIASES } from './provinces.js';
 
@@ -161,7 +161,20 @@ export async function transitSourceFiles(viewerId) {
  * نطاق كل مندوب علمي (ومنهم التيم ليدر) له حساب في المكتب: أسماء مناطقه مطبَّعة
  * (مناطقه + مناطق محافظاته) وايتماته (resolveSciRepItemIds — نفس نطاق تقريره).
  */
+// مذكّرة لكل مكتب: تُبنى بمئات الاستعلامات (مناطق وايتمات كل مندوب) وكانت تُعاد مع كل
+// فتح لملف اللكوديشن وكل تبديل شهر. تُبطَل مع أي كتابة HTTP (getDataVersion) أو بعد 10 دقائق.
+const REP_SCOPES_TTL = 10 * 60 * 1000;
+const repScopesMemo = new Map(); // officeId -> { at, ver, promise }
 async function loadOfficeRepScopes(officeId) {
+  const ver = getDataVersion();
+  const hit = repScopesMemo.get(officeId);
+  if (hit && hit.ver === ver && Date.now() - hit.at < REP_SCOPES_TTL) return hit.promise;
+  const promise = buildOfficeRepScopes(officeId);
+  repScopesMemo.set(officeId, { at: Date.now(), ver, promise });
+  promise.catch(() => repScopesMemo.delete(officeId));
+  return promise;
+}
+async function buildOfficeRepScopes(officeId) {
   const users = await prisma.user.findMany({
     where:  { officeId, isActive: true, linkedRepId: { not: null } },
     select: { id: true, displayName: true, username: true, linkedRepId: true, role: true, linkedRep: { select: { repKind: true, customerInfoLabels: true } } },
@@ -175,27 +188,34 @@ async function loadOfficeRepScopes(officeId) {
   ]);
   const areaName = new Map(allAreas.map(a => [a.id, a.name]));
   const areaProvince = new Map(allAreas.map(a => [a.id, a.provinceId]));
+  // مناطق كل محافظة من allAreas المحمَّلة أصلاً — لا استعلام لكل مندوب.
+  const areasOfProvince = new Map();
+  for (const a of allAreas) {
+    if (a.provinceId == null) continue;
+    if (!areasOfProvince.has(a.provinceId)) areasOfProvince.set(a.provinceId, []);
+    areasOfProvince.get(a.provinceId).push(a.id);
+  }
   const { resolveSciRepItemIds } = await import('../modules/scientific-reps/scientific-reps.service.js');
-  const scopes = [];
-  for (const repId of repIds) {
+  // المندوبون بالتوازي (كانوا واحداً بعد واحد) — الترتيب محفوظ بـ map.
+  const built = await Promise.all(repIds.map(async (repId) => {
     const repUsers = users.filter(u => u.linkedRepId === repId);
     const userIds = new Set(repUsers.map(u => u.id));
     const provIds = [...new Set(provRows.filter(p => userIds.has(p.userId)).map(p => p.provinceId))];
     const directAreaIds = areaLinks.filter(l => l.scientificRepId === repId).map(l => l.areaId);
-    const areaIds = [...directAreaIds, ...await areaIdsOfProvinces(provIds)];
+    const areaIds = [...directAreaIds, ...provIds.flatMap(pid => areasOfProvince.get(pid) || [])];
     const areaNorms = new Set(areaIds.map(id => areaName.get(id)).filter(Boolean).map(n => normalizeArabic(n)));
     const directAreaNorms = new Set(directAreaIds.map(id => areaName.get(id)).filter(Boolean).map(n => normalizeArabic(n)));
-    if (!areaNorms.size) continue;
+    if (!areaNorms.size) return null;
     const provinceIds = new Set([...provIds, ...areaIds.map(id => areaProvince.get(id)).filter(Boolean)]);
     const { itemIds } = await resolveSciRepItemIds(repId, repUsers.map(u => ({ id: u.id })));
     const rk = repUsers[0].linkedRep;
-    scopes.push({
+    return ({
       // marketer: مسوّق (فارمسي لاين) — يأخذ ترانزيت «فارمسي» فقط بتسمياته، والعلمي ترانزيت «علمي/تجاري».
       marketer: rk?.repKind === PHARMACY_KIND, labels: parseCustomerInfoLabels(rk?.customerInfoLabels),
       name: repUsers[0].displayName || repUsers[0].username, areaNorms, directAreaNorms, provinceIds,
       leader: repUsers.some(u => u.role === 'team_leader'), wholeProvinceIds: new Set(provIds), itemIds: itemIds ? new Set(itemIds) : null });
-  }
-  return scopes;
+  }));
+  return built.filter(Boolean);
 }
 
 /**
