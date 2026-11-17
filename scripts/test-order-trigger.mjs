@@ -117,5 +117,17 @@ check('ردّ على البوت = نيّة صريحة',  isExplicitOrderIntent('
 check('رسالة التقطها all ليست صريحة', isExplicitOrderIntent('صيدلية النور بانادول 5 علبة'), false);
 check('نصّ فارغ ليس صريحاً',          isExplicitOrderIntent(''), false);
 
+// ── 2026-11-17: دردشة فيها رقم كانت تمرّ في all وتكلّف نداء ذكاء لتعود «ليست طلبية» ──
+console.log('\n── all: دردشة برقم لا تصل للذكاء ──');
+[
+  'اليوم 3 زيارات للدكاترة',
+  'تم التسليم 2 طلبية امس',
+  'الحمد لله تم 👍 100%',
+  'الاجتماع الساعة 10 الصبح يا شباب',
+].forEach((t, i) => check(`دردشة برقم #${i + 1} تُتجاهل في all`, isOrderTrigger(t, 'all'), false));
+check('طلبية الديوانية #219 تُقبل في all',
+  isOrderTrigger('Nasomista 20 ق\nم. الضامن ⬅️ ص. علاء عبد الحسن\n( الدكتور محمد سعيد )', 'all'), true);
+check('«ص النور / بانادول 5» تُقبل في all', isOrderTrigger('ص النور\nبانادول 5', 'all'), true);
+
 console.log(failed === 0 ? '\n✅ كل الاختبارات نجحت' : `\n❌ فشل ${failed} اختبار`);
 process.exit(failed === 0 ? 0 : 1);

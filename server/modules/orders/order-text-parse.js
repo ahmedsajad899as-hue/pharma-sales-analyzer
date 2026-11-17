@@ -119,11 +119,20 @@ const EMBEDDED_PHARMACY_RE = new RegExp(String.raw`^(\S.*?)\s+${PH_WORD}${PH_TAI
 // «مذخر الناقوس»، «من مذخر النور»، «تم التجهيز من مذخر اسبرين»، «المذخر: اوزون».
 const WAREHOUSE_LINE_RE = /(?:^|\s)(?:ال)?(?:مذخر|مذاخر|مخزن|مستودع)(?:\s*[:：\-/]\s*|\s+)(\S.*)$/;
 const AREA_LINE_RE = /^(?:ال)?منطق[ةه](?:\s*[:：\-/]\s*|\s+)(\S.*)$/;
+// «م. الضامن» — «م» وحدها بادئة المذخر في كروبات المحافظات (الديوانية، 2026-11-17).
+// تُعدّ بادئة فقط متبوعةً بفاصل أو مسافة، فلا تقصّ أول «منصور» أو «مستشفى».
+const WAREHOUSE_PREFIX_RE = /^م(?:\s*[.:：\-/]\s*|\s+)(\S.*)$/;
+// «( الدكتور محمد سعيد )»، «د. علي» — الطبيب صاحب الوصفة، ليس صيدلية ولا منطقة ولا مذخراً.
+const DOCTOR_LINE_RE = /^\(?\s*(?:ال)?(?:دكتور[ةه]?|طبيب[ةه]?|د)(?:\s*[.:：\-/]\s*|\s+)\S/;
+// سطر عربي محاط بقوسين بلا رقم = ملاحظة («( عاجل )»)، لا ترويسة.
+const NOTE_LINE_RE = /^\(\s*[^()\da-z]*\)$/i;
+// سهم يفصل حقلين في سطر واحد: «م. الضامن ⬅️ ص. علاء عبد الحسن».
+const ARROW_SPLIT_RE = /\s*(?:[←-⇿➡➔➘-➯⬅-⬇⭠-⭯]️?|<-+|-+>|=>)\s*/u;
 
 const HAS_LATIN = /[a-z]/i;
 const HAS_DIGIT = /\d/;
 // صنف عربي بكمية بالحروف («بانادول علبتين») سطر صنف لا ترويسة.
-const UNIT_WORD_RE = /(علب|حبه|حبة|حبتين|شريط|درزن|دزن|قنين|امبول|أمبول|كرتون)/;
+const UNIT_WORD_RE = /(علب|حبه|حبة|حبتين|شريط|درزن|دزن|قنين|امبول|أمبول|كرتون|قطع)/;
 
 /** أطول عدد كلمات لسطر ترويسة بلا عنوان — أطول من هذا جملة/تعليق لا اسم مكان. */
 const MAX_HEADER_WORDS = 5;
@@ -139,7 +148,9 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
   // سطر بلا عنوان هو مذخر إن كان كلّه اسم مذخر معروف (القائمة الثابتة أو دفتر المذاخر).
   const warehouseOf = (t) => findKnownWarehouse(t, { whole: true }) || (isKnownInDb(t) ? t : null);
   const isKnownWarehouse = (t) => warehouseOf(t) != null;
-  const lines = toLatinDigits(text).split(/\r?\n/).map(l => tidy(l)).filter(Boolean);
+  const lines = toLatinDigits(text).split(/\r?\n/)
+    .flatMap(l => l.split(ARROW_SPLIT_RE))
+    .map(l => tidy(l)).filter(Boolean);
   // «طلبية» وحدها في سطر، أو ملتصقة بأول سطر الزبون.
   if (lines.length && hasTriggerWord(lines[0])) {
     const rest = tidy(stripTriggerPrefix(lines[0]));
@@ -159,6 +170,13 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
       header.warehouse ??= cleanWarehouseName(m[1]);
       return;
     }
+    // «م. الضامن ص. علاء» في سطر واحد بلا سهم يكمل لفرع «ص» المضمَّنة أدناه.
+    if (!HAS_LATIN.test(line) && !HAS_DIGIT.test(line) && (m = line.match(WAREHOUSE_PREFIX_RE))
+        && !EMBEDDED_PHARMACY_RE.test(line)) {
+      header.warehouse ??= cleanWarehouseName(m[1]);
+      return;
+    }
+    if (!HAS_LATIN.test(line) && (DOCTOR_LINE_RE.test(line) || NOTE_LINE_RE.test(line))) return;
     if ((m = line.match(PHARMACY_LINE_RE))) {
       header.pharmacyLines++;
       if (header.pharmacy == null) { header.pharmacy = tidy(m[1]); pharmacyIdx = idx; }
@@ -177,7 +195,10 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
       header.pharmacyLines++;
       if (header.pharmacy == null) {
         header.pharmacy = tidy(m[2]);
-        header.area ??= tidy(m[1]);
+        // «م. الضامن ص. علاء» بلا سهم: ما قبل «ص» مذخر لا منطقة.
+        const wh = tidy(m[1]).match(WAREHOUSE_PREFIX_RE);
+        if (wh) header.warehouse ??= cleanWarehouseName(wh[1]);
+        else header.area ??= tidy(m[1]);
         pharmacyIdx = idx;
       }
       return;
@@ -246,7 +267,8 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
 }
 
 // ─── أسطر الأصناف ───────────────────────────────────────────────────────────
-const COUNT_UNIT = String.raw`(?:p|pc|pcs|pack|box|ع|علب[ةه]?|علب|حب[ةه]|شريط)`;
+// «ق» = قطعة («Nasomista 20 ق»، كروب الديوانية 2026-11-17).
+const COUNT_UNIT = String.raw`(?:p|pc|pcs|pack|box|ع|علب[ةه]?|علب|حب[ةه]|شريط|قطع[ةه]?|ق)`;
 // «(5)»، «(10p)»، «( 10 علبة )» في آخر السطر.
 // والبونص داخل القوس «(30+3)»، والقوس الختامي اختياري («Potafast (10+1» كما كتبها مندوب،
 // 2026-11-11). القوس الافتتاحي إلزامي هنا — بدونه يبقى «Pandev 40» تركيزاً لا كمية.
@@ -326,6 +348,8 @@ export function reconcileRowsWithText(rows, text, opts = {}) {
       // أو اسم الصيدلية نفسه — تُمسح إن طابقت أحدهما.
       if (header.area) row.area = header.area;
       else if (row.area && [header.pharmacy, header.warehouse].some(v => v && normKey(v) === normKey(row.area))) row.area = null;
+      // قراءة أقدم جعلت سطر «م. الضامن ⬅️» منطقة — وهو المذخر نفسه ببادئته.
+      else if (row.area && header.warehouse && normKey(row.area) === `م ${normKey(header.warehouse)}`) row.area = null;
     }
     if (header.warehouse) row.warehouse = header.warehouse;
     // مذخر الموديل حين لم يحسمه الشكل: يُنظَّف من الملاحظات الملتصقة بنفس القاعدة.

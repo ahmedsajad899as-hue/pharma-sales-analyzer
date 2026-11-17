@@ -55,6 +55,7 @@ import { ingestBotRepSales } from '../rep-sales/rep-sales.bot.js';
 import { renderOrderTablePng, paginateOrderRows } from './order-table-image.js';
 import { matchBotInvoice, attachBotInvoice } from '../rep-orders/rep-orders.invoice.js';
 import { userFeatureOn } from '../../lib/userFeatures.js';
+import { fillAreaFromGroup, fillRepFromSenderName } from './group-context.js';
 
 // نوعا ما يصل للبوت (طلب صاحب المشروع 2026-10-31)، لكلٍّ مفتاح في «المميزات» لكل حساب:
 //  • BOT_TO_CONDITION — طلبيات/فواتير البوت ← ملف الكوديشن (مفعّلة افتراضياً، السلوك القديم).
@@ -179,6 +180,9 @@ export async function handleIncomingOrderMessage({
     // مطابقة الأصناف بكتالوج المستخدم وتعبئة الشركة والسعر — لكلا المسارين
     // (نصّ وصورة) كي لا يفترق سلوكهما. لا يرمي ولا يحفظ شيئاً.
     await enrichRowsFromCatalog(rows, user.id);
+    // طلبية بلا منطقة في كروب يسمّي منطقته/محافظته («ديوانية مكتب النسق») ← منطقة الكروب.
+    // قبل مطابقة الصيدلية كي تُطابَق داخل تلك المنطقة لا بصيدلية بنفس الاسم في بغداد.
+    await fillAreaFromGroup(rows, chatTitle);
     // الصيدلية/المنطقة المقروءة ← الأسماء القانونية من الماستر أدمن («منصور» ←
     // «المنصور»). قبل التخمين لأن المندوب العلمي يُستنتج من المنطقة.
     await matchInvoiceCustomers(rows);
@@ -199,6 +203,9 @@ export async function handleIncomingOrderMessage({
         console.error('[orders] تعذّر حلّ مندوب المرسل:', e?.message);
       }
     }
+    // رقم غير مربوط: اسم المرسل في واتساب/تلكرام («Ameer Madher») ← المندوب المسجّل
+    // بنفس الاسم («امير مضر») في محافظة الكروب. للصفوف غير المحسومة فقط.
+    await fillRepFromSenderName(rows, { user, senderName, chatTitle });
 
     if (!rows.length) {
       // صورة مُرسَلة عمداً تستحق ردّاً حتى بلا كلمة مفتاحية؛ أما نصّ التقطه وضع

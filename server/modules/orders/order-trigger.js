@@ -71,7 +71,28 @@ export function hasTriggerWord(text) {
 
 // كميات مكتوبة بالحروف — دليل كمية حين لا يوجد رقم. مطبَّعة (ة→ه) لأنها
 // تُقارَن بنصّ مرّ على normalizeAr.
-const QUANTITY_WORD_RE = /(علبه|علبتين|علب|حبه|حبتين|شريط|شريطين|درزن|قنينه|كرتون|نص دزن)/;
+const QUANTITY_WORD_RE = /(علبه|علبتين|علب|حبه|حبتين|شريط|شريطين|درزن|قنينه|كرتون|نص دزن|قطعه|قطع)/;
+
+// شكل طلبية في نصّ خام (قبل التطبيع، لأن التطبيع يُسقط الأسطر والنقاط):
+// اسم دواء لاتيني (3 حروف فأكثر)، أو سطر يبدأ بعنوان طلبية «ص.»/«صيدلية»/«م.»/«مذخر».
+const LATIN_WORD_RE = /[a-z]{3,}/i;
+const ORDER_HEADER_LINE_RE = /(?:^|\n)\s*(?:ال)?(?:صيدلي[ةه]|مذخر|ص|م)(?:\s*[.:：\-/]|\s)/;
+
+/**
+ * مُرشِّح وضع «كل الرسائل» قبل أي قراءة (2026-11-17): دردشة الكروب التي فيها رقم
+ * («اليوم 3 زيارات»، «تم التسليم 2») كانت تمرّ وتكلّف نداء ذكاء (~2,200 توكن) لتعود
+ * «ليست طلبية». الطلبية الحقيقية تحمل دليل كمية **و** دليل صنف/ترويسة.
+ */
+export function looksLikeOrderText(raw) {
+  const s = String(raw ?? '');
+  const norm = normalizeAr(s);
+  const qtyWord = QUANTITY_WORD_RE.test(norm);
+  if (!/\d/.test(norm) && !qtyWord) return false;
+  return qtyWord || LATIN_WORD_RE.test(s) || ORDER_HEADER_LINE_RE.test(s)
+    // صنف عربي بكمية+بونص «دافلون 10+1» أو كمية بين قوسين «زنتاك (5)».
+    || /\d\s*\+\s*\d/.test(toLatin(s)) || /\(\s*\d+\s*\)?/.test(toLatin(s));
+}
+const toLatin = (s) => String(s).replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660));
 
 /**
  * القرار النهائي: هل نعالج هذه الرسالة كطلبية؟
@@ -110,6 +131,5 @@ export function isOrderTrigger(text, mode, { isReplyToBot = false, hasMedia = fa
   // وحده كان يُسقط طلبيات حقيقية مثل «صيدلية النور بانادول علبتين».
   if (hasMedia) return true;
   if (raw.length < MIN_ORDER_TEXT_LEN) return false;
-  const norm = normalizeAr(raw);
-  return /\d/.test(norm) || QUANTITY_WORD_RE.test(norm);
+  return looksLikeOrderText(raw);
 }

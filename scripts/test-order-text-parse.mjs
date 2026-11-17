@@ -201,5 +201,19 @@ check('#80 كاملة: الموديل قلب الصيدلية والمنطقة',
   { areaOf },
 ).map(r => [r.pharmacy, r.area]), [['هيثم عكلة حنو', 'مدينة الصدر']]);
 
+// ── كروب الديوانية (2026-11-17، الطلبية #219): «ق» = قطعة، «م.» = مذخر، سهم يفصل الحقلين ──
+// ذهبت للذكاء لأن «20 ق» لم تُعرف كمية، وقُرئ «م. الضامن ⬅️» منطقةً.
+check('Nasomista 20 ق → كمية 20', parseItemLine('Nasomista 20 ق'), { name: 'Nasomista', quantity: 20, bonus: null });
+check('Nasomista 5 قطعة', parseItemLine('Nasomista 5 قطعة'), { name: 'Nasomista', quantity: 5, bonus: null });
+check('#219: م. الضامن ⬅️ ص. علاء عبد الحسن + سطر الطبيب',
+  parseOrderText('Nasomista 20 ق\nم. الضامن ⬅️ ص. علاء عبد الحسن\n( الدكتور محمد سعيد )'),
+  { header: { pharmacy: 'علاء عبد الحسن', area: null, warehouse: 'الضامن', pharmacyLines: 1 }, itemLines: ['Nasomista 20 ق'] });
+check('«م. الضامن ص. علاء» بلا سهم، والطبيب قبل الأصناف لا يصير مذخراً',
+  parseOrderText('م. الضامن ص. علاء عبد الحسن\n( الدكتور محمد سعيد )\nNasomista 20 ق').header,
+  { pharmacy: 'علاء عبد الحسن', area: null, warehouse: 'الضامن', pharmacyLines: 1 });
+check('«د. علي» سطر طبيب لا منطقة', parseOrderText('ص النور\nد. علي حسين\nPandev (3)').header,
+  { pharmacy: 'النور', area: null, warehouse: null, pharmacyLines: 1 });
+check('«منصور» ليست بادئة «م»', parseOrderText('منصور\nص النور\nPandev (3)').header.area, 'منصور');
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);
