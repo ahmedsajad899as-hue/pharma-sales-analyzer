@@ -2103,7 +2103,7 @@ function collectBotSample(image, rows, { card, warehouseHint, purpose }) {
 }
 
 /** صورة فاتورة واحدة ← صفوف بعد التنظيف. imgLog يُملأ لسجلّ «الطلبيات المحلَّلة». */
-async function readInvoiceImage(image, { idx, warehouseHint, extraContext, purpose, fallbackPharmacy, left, imgLog }) {
+async function readInvoiceImage(image, { idx, warehouseHint, extraContext, purpose, fallbackPharmacy, left, imgLog, modelMode = null }) {
   // اتجاه الصورة أولاً: فاتورة مُدارة 90° تُقرأ بتذبذب («النعيمي» بدل «النبض») وبعد تدويرها
   // قائمةً تُقرأ صحيحة. صناديق التكبير تُعاد لإحداثيات الأصل لأن المراجعة تعرض الأصل.
   let img = await orientInvoiceImage(image, { warehouseHint });
@@ -2119,7 +2119,8 @@ async function readInvoiceImage(image, { idx, warehouseHint, extraContext, purpo
     : basePrompt;
   // النموذج حسب اختيار الماستر (aiModelSettings): strong | lite | auto (الأرخص، ثم الأقوى للجزء المتعذّر).
   const readFeature = card ? 'invoice-read-card' : 'invoice-read';
-  const readMode = await getAiMode(readFeature);
+  // زر «تحليل الصور» للكروب (modelMode) يتجاوز الإعداد العام
+  const readMode = modelMode || await getAiMode(readFeature);
   imgLog.mode = readMode; imgLog.card = card;
   const parseRaw = (t) => (card ? parseCardReply(t, parseInvoiceJson) : parseInvoiceJson(t));
   const readOnce = async (model, tag) => parseRaw(await callAI(
@@ -2262,7 +2263,7 @@ const PDF_TEXT_PROMPT = `هذا نصّ فاتورة/طلبية مذخر أدوي
  * فاتورة PDF ← صفوف. نصّ الملف يُستخرج محلياً بلا ذكاء (invoicePdf.js)، ثم نداء **نصّي** رخيص
  * (بلا صورة ولا اتجاه ولا قصاصات) يرتّبه صفوفاً. PDF ممسوح ضوئياً (بلا نص) يُرسل الملف نفسه.
  */
-async function readInvoicePdf(buf, { idx, warehouseHint, extraContext, purpose, fallbackPharmacy, left, imgLog }) {
+async function readInvoicePdf(buf, { idx, warehouseHint, extraContext, purpose, fallbackPharmacy, left, imgLog, modelMode = null }) {
   const cards = await loadInvoiceCards();
   const pdf = await extractPdfText(buf);
   imgLog.pdf = { pages: pdf.pages, how: pdf.hasText ? 'text' : 'native' };
@@ -2279,7 +2280,7 @@ async function readInvoicePdf(buf, { idx, warehouseHint, extraContext, purpose, 
   let raw = [];
   let guardPrompt = PDF_TEXT_PROMPT;
   if (pdf.hasText) {
-    const mode = await getAiMode('invoice-pdf');
+    const mode = modelMode || await getAiMode('invoice-pdf');
     imgLog.mode = mode;
     const instructions = `${PDF_TEXT_PROMPT}${card ? `\n\nوصف نموذج فواتير هذا المذخر:\n${card.prompt}` : ''}`;
     guardPrompt = instructions; // بلا نص الفاتورة نفسه — وإلا عُدّ كل اسم فيه «منسوخاً من البرومبت»
@@ -2308,7 +2309,7 @@ async function readInvoicePdf(buf, { idx, warehouseHint, extraContext, purpose, 
     const basePrompt = card ? `${CARD_BASE_PROMPT}${card.prompt}` : INVOICE_PROMPT;
     guardPrompt = basePrompt;
     const feature = card ? 'invoice-read-card' : 'invoice-read';
-    const mode = await getAiMode(feature);
+    const mode = modelMode || await getAiMode(feature);
     imgLog.mode = imgLog.mode || mode;
     const text = await callAI([`${basePrompt}${note}`, { inlineData: { mimeType: 'application/pdf', data: buf.toString('base64') } }],
       { timeoutMs: 70_000, maxTotalMs: left(), thinkingBudget: 0, feature, model: mode === 'lite' ? AI_MODELS.lite : AI_MODELS.strong });
@@ -2337,11 +2338,13 @@ async function readInvoicePdf(buf, { idx, warehouseHint, extraContext, purpose, 
  *                    'match' (تخمين الطلبية بين المفتوحة: اسم الفحص السريع يكفي).
  *   fallbackPharmacy اسم الزبون من الفحص السريع (match) — بدل نداءات سطر الزبون.
  *   priorCalls       نداءات سبقت القراءة لنفس الصورة (الفحص السريع) — تُضمّ لسجلّها.
+ *   modelMode        'auto'|'strong'|'lite' — يتجاوز إعداد «استهلاك الذكاء» لقراءة هذه الصور
+ *                    (زر «تحليل الصور» لكروب المندوبين). null = الإعداد العام.
  * @returns {Promise<object[]>}
  */
 export async function extractInvoiceRows(images, {
   extraContext, budgetMs, logContext = null, warehouseHint = null,
-  purpose = 'sales', fallbackPharmacy = null, priorCalls = null,
+  purpose = 'sales', fallbackPharmacy = null, priorCalls = null, modelMode = null,
 } = {}) {
   if (!Array.isArray(images) || images.length === 0) {
     throw new AppError('لم يتم إرسال أي صورة.', 400, 'NO_IMAGES');
@@ -2371,7 +2374,8 @@ export async function extractInvoiceRows(images, {
     let imgErr = null;
     try {
       await aiCallScope.run(imgCalls, async () => {
-        const opts = { idx, warehouseHint, extraContext, purpose: why, fallbackPharmacy, left, imgLog };
+        const opts = { idx, warehouseHint, extraContext, purpose: why, fallbackPharmacy, left, imgLog,
+          modelMode: ['auto', 'strong', 'lite'].includes(modelMode) ? modelMode : null };
         let imageRows;
         if (isPdf(fileBuf)) {
           imgLog.kind = 'pdf';

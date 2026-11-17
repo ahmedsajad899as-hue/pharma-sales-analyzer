@@ -86,6 +86,26 @@ export function AiSeg({ value, onChange }: { value?: string | null; onChange: (v
   );
 }
 
+// زر «تحليل الصور» لكروب المندوبين — القيم تطابق IMAGE_MODES في server/modules/orders/order-extract.js
+export const IMAGE_MODES = ['default', 'auto', 'strong', 'lite', 'off'] as const;
+export type ImageMode = typeof IMAGE_MODES[number];
+const IMAGE_OPTS = [
+  ['default', 'افتراضي', 'حسب إعداد صفحة «استهلاك الذكاء» العام'],
+  ['auto', 'تلقائي', 'الخفيف أولاً، ثم الأقوى للجزء المتعذّر فقط (سطر أرقامه لا تتّسق، صيدلية فارغة)'],
+  ['strong', 'الأقوى', 'gemini-3.8-flash لكل صورة — الأدق والأغلى'],
+  ['lite', 'الخفيف', 'gemini-3.5-flash-lite فقط — الأرخص، بلا إعادة'],
+  ['off', 'إطفاء', 'الصور وملفات PDF لا تُقرأ إطلاقاً في هذا الكروب'],
+] as const;
+
+/** وضع تحليل الصور لكروب. value = القيمة الفعلية (null على السيرفر = يتبع تحليل النصوص). */
+export function ImageSeg({ value, onChange }: { value: ImageMode; onChange: (v: ImageMode) => Promise<unknown> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Seg value={value} options={IMAGE_OPTS} danger="off" disabled={busy}
+      onChange={async v => { setBusy(true); try { await onChange(v); } finally { setBusy(false); } }} />
+  );
+}
+
 /** شريط علوي: حالة + أدوات على الطرف. */
 export function Bar({ children, end }: { children?: ReactNode; end?: ReactNode }) {
   return (

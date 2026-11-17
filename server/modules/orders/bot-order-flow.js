@@ -21,7 +21,7 @@
 
 import { extractInvoiceRows, resolveSharedConditionOwner } from '../sales/sales.service.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
-import { extractOrderRowsByMode } from './order-extract.js';
+import { extractOrderRowsByMode, effectiveImageMode, imageModelMode } from './order-extract.js';
 import { aiCallScope } from '../../lib/geminiAi.js';
 import { logTextOrderRead } from '../../lib/invoiceReadLog.js';
 
@@ -108,14 +108,15 @@ export async function handleIncomingOrderMessage({
   senderName = null, senderId = null, text = '', mediaRefs = [], isReplyToBot = false,
 }) {
   const hasMedia = mediaRefs.length > 0;
-  // زر الكروب «من يقرأ»: off = لا قراءة إطلاقاً؛ parser = بلا ذكاء، والصورة لا تُقرأ إلا بالذكاء
-  // فتُترك. ربط بلا العمود (فايبر/واتساب فردي) = both.
+  // زرّا الكروب: «تحليل النصوص» (aiMode) للنص، و«تحليل الصور» (imageMode) للصورة/PDF —
+  // كلٌّ مستقل. ربط بلا العمودين (فايبر/واتساب فردي) = both، والصور تتبع aiMode القديم.
   const aiMode = link?.aiMode || 'both';
-  if (aiMode === 'off') return false;
-  if (aiMode === 'parser' && hasMedia) return false;
+  const imageMode = effectiveImageMode(link);
+  if (hasMedia ? imageMode === 'off' : aiMode === 'off') return false;
+  const modelMode = imageModelMode(imageMode);
   // «مبيعي …» نيّة صريحة تسبق مسار الطلبيات، فلا تدخل ملف الكوديشن حتى في وضع «كل الرسائل».
   if (link?.orderTextMode !== 'off' && hasPersonalSaleTrigger(text)) {
-    return handleRepSaleMessage({ transport, user, chatId, senderName, senderId, text, mediaRefs, aiMode });
+    return handleRepSaleMessage({ transport, user, chatId, senderName, senderId, text, mediaRefs, aiMode, modelMode });
   }
   if (!isOrderTrigger(text, link?.orderTextMode, { isReplyToBot, hasMedia })) return false;
   const toCondition = userFeatureOn(user, BOT_TO_CONDITION);
@@ -166,7 +167,7 @@ export async function handleIncomingOrderMessage({
       rows = await extractInvoiceRows(
         imageBuffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
         { extraContext: String(text ?? '').trim() || undefined, budgetMs: BOT_READ_BUDGET_MS,
-          purpose: knownOrder ? 'compare' : 'sales',
+          purpose: knownOrder ? 'compare' : 'sales', modelMode,
           logContext: { source: transport.name, userId: user.id, userName: user.displayName || user.username, senderName, chatTitle } },
       );
     } else {
@@ -341,7 +342,7 @@ export async function handleRevealCommand({ transport, chatId, orderId = null, m
  * تُسجَّل في «مبيعات المندوبين» لا طابور الطلبيات. الكلمة نيّة صريحة فيردّ البوت على كل حال.
  * لا يرمي — نفس عقد handleIncomingOrderMessage.
  */
-async function handleRepSaleMessage({ transport, user, chatId, senderName = null, senderId = null, text = '', mediaRefs = [], aiMode = 'both' }) {
+async function handleRepSaleMessage({ transport, user, chatId, senderName = null, senderId = null, text = '', mediaRefs = [], aiMode = 'both', modelMode = null }) {
   const ctx = { chatId, messageId: null };
   try {
     ctx.messageId = await transport.sendText(chatId, '⏳ جاري تسجيل مبيعك…');
@@ -363,7 +364,7 @@ async function handleRepSaleMessage({ transport, user, chatId, senderName = null
       }
       rows = await extractInvoiceRows(
         imageBuffers.map(b => ({ mimeType: 'image/jpeg', base64: b.toString('base64') })),
-        { extraContext: body || undefined, budgetMs: BOT_READ_BUDGET_MS,
+        { extraContext: body || undefined, budgetMs: BOT_READ_BUDGET_MS, modelMode,
           logContext: { source: `${transport.name} (مبيعي)`, userId: user.id, userName: user.displayName || user.username, senderName } },
       );
     } else if (body) {

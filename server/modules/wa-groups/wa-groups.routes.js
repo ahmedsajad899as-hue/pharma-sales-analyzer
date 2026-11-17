@@ -17,7 +17,7 @@ import { warehouseBotVia } from '../../lib/warehouseBotVia.js';
 import { requireMasterAdmin } from '../../middleware/superAdminMiddleware.js';
 import { handleGroupInbound } from '../warehouse-dispatch/dispatch.inbound.js';
 import { ORDER_TEXT_MODES } from '../orders/order-trigger.js';
-import { pickAiMode } from '../orders/order-extract.js';
+import { pickAiMode, pickImageMode } from '../orders/order-extract.js';
 import { listenLinkFor, handleListenGroupMessage, invalidateListenCache, LISTEN_SOURCE, listRetryingByJid } from './wa-groups.listen.js';
 import { BOT_TO_CONDITION } from '../orders/bot-order-flow.js';
 import { resolveSharedConditionOwner } from '../sales/sales.service.js';
@@ -255,8 +255,9 @@ saRouter.get('/destination', async (req, res) => {
 });
 
 saRouter.put('/links', async (req, res) => {
-  const { jid, name, userId, orderTextMode, isActive, allowedSenders, aiMode } = req.body || {};
+  const { jid, name, userId, orderTextMode, isActive, allowedSenders, aiMode, imageMode } = req.body || {};
   if (aiMode !== undefined && !pickAiMode(aiMode)) return res.status(400).json({ error: 'وضع التحليل غير صالح' });
+  if (imageMode !== undefined && !pickImageMode(imageMode)) return res.status(400).json({ error: 'وضع تحليل الصور غير صالح' });
   let senders;
   if (allowedSenders !== undefined) {
     if (allowedSenders !== null && !Array.isArray(allowedSenders)) return res.status(400).json({ error: 'قائمة الأشخاص غير صالحة' });
@@ -281,6 +282,7 @@ saRouter.put('/links', async (req, res) => {
     ...(name !== undefined ? { name: String(name || '').slice(0, 200) || null } : {}),
     ...(mode !== undefined ? { orderTextMode: mode } : {}),
     ...(aiMode !== undefined ? { aiMode: pickAiMode(aiMode) } : {}),
+    ...(imageMode !== undefined ? { imageMode: pickImageMode(imageMode) } : {}),
     ...(isActive !== undefined ? { isActive: Boolean(isActive) } : {}),
     ...(senders !== undefined ? { allowedSenders: senders.length ? senders : Prisma.DbNull } : {}),
   };

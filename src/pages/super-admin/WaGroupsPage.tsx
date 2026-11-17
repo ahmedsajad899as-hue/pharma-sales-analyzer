@@ -3,13 +3,13 @@ import { useSuperAdmin } from '../../context/SuperAdminContext';
 import { ErrBox, Modal, btnStyle, UI } from './OfficesPage';
 import { OrderTextModeField, ORDER_MODE_SHORT, type OrderTextMode } from './OrderTextModeField';
 import { type AiMode } from './AiModeButtons';
-import { ghost, tag, Toggle, AiSeg, Section, Empty, Card, Bar } from './saKit';
+import { ghost, tag, Toggle, AiSeg, ImageSeg, IMAGE_MODES, type ImageMode, Section, Empty, Card, Bar } from './saKit';
 
 interface Status { status?: string; connected?: boolean; me?: string | null; error?: string | null }
 interface Group { jid: string; name: string; size: number }
 interface UserOption { id: number; username: string; displayName?: string | null; role: string }
 interface ListenLink {
-  jid: string; name: string | null; userId: number; isActive: boolean; orderTextMode: OrderTextMode; aiMode?: AiMode; user?: UserOption;
+  jid: string; name: string | null; userId: number; isActive: boolean; orderTextMode: OrderTextMode; aiMode?: AiMode; imageMode?: ImageMode | null; user?: UserOption;
   messageCount: number; orderCount: number; attachedCount: number; failedCount: number; lastMessageAt: string | null; lastOrderAt: string | null;
   skippedCount?: number; allowedSenders?: string[] | null; knownSenders?: Record<string, KnownSender> | null;
 }
@@ -85,6 +85,11 @@ function SendersField({ value, known, onChange }: { value: string[]; known: Reco
 }
 
 const userLabel = (u?: UserOption) => u ? (u.displayName || u.username) : '—';
+
+/** نفس effectiveImageMode على السيرفر: بلا اختيار صريح تتبع الصور تحليل النصوص (إطفاء/المحلل ⇒ مطفأ). */
+const imageModeOf = (l: ListenLink): ImageMode =>
+  (IMAGE_MODES as readonly string[]).includes(l.imageMode || '') ? (l.imageMode as ImageMode)
+    : (l.aiMode === 'off' || l.aiMode === 'parser') ? 'off' : 'default';
 
 // «قبل 5 د» / «قبل 3 س» / «قبل 2 ي» — تشخيص سريع: هل الكروب يُقرأ فعلاً؟
 function ago(iso: string | null): string {
@@ -239,7 +244,12 @@ export default function WaGroupsPage() {
     try { await putLink({ jid: l.jid, isActive: !l.isActive }); loadLinks(); } catch (e: any) { setError(e.message); }
   };
   const setAiMode = async (l: ListenLink, aiMode: AiMode) => {
-    try { await putLink({ jid: l.jid, aiMode }); await loadLinks(); } catch (e: any) { setError(e.message); }
+    // أول تغيير للنص يثبّت وضع الصور الحالي كي لا يتبدّل معه ضمنياً
+    const keep = l.imageMode ? {} : { imageMode: imageModeOf(l) };
+    try { await putLink({ jid: l.jid, aiMode, ...keep }); await loadLinks(); } catch (e: any) { setError(e.message); }
+  };
+  const setImageMode = async (l: ListenLink, imageMode: ImageMode) => {
+    try { await putLink({ jid: l.jid, imageMode }); await loadLinks(); } catch (e: any) { setError(e.message); }
   };
   const removeLink = async (l: ListenLink) => {
     if (!window.confirm(`إلغاء القراءة الصامتة لكروب «${l.name || l.jid}»؟ لن تُسجَّل رسائله بعد الآن.`)) return;
@@ -403,9 +413,13 @@ export default function WaGroupsPage() {
                         {l.failedCount > 0 && <span style={tag('#b91c1c', '#fef2f2')}>فشلت {l.failedCount}</span>}
                       </div>
                     )}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 11.5, color: UI.muted }}>التحليل</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11.5, color: UI.muted, minWidth: 64 }}>تحليل النصوص</span>
                       <AiSeg value={l.aiMode} onChange={v => setAiMode(l, v)} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11.5, color: UI.muted, minWidth: 64 }}>تحليل الصور</span>
+                      <ImageSeg value={imageModeOf(l)} onChange={v => setImageMode(l, v)} />
                     </div>
                   </Card>
                 );

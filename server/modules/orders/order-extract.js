@@ -251,6 +251,21 @@ export async function extractOrderRowsFromText(text, { todayISO, throwOnAiFailur
 export const AI_MODES = ['both', 'ai', 'parser', 'off'];
 export const pickAiMode = (v) => (AI_MODES.includes(String(v)) ? String(v) : null);
 
+// ─── تحليل الصور/PDF في الكروب (زر مستقل: WaGroupLink.imageMode) ────────────────
+// default = إعداد «استهلاك الذكاء» العام · auto/strong/lite = نموذج قراءة الفاتورة لهذا الكروب
+// (يتجاوز العام) · off = الصور لا تُقرأ. null (لم يُضغط الزر بعد / تلكرام) = السلوك القديم:
+// الصور تتبع aiMode — off أو parser ⇒ لا قراءة.
+export const IMAGE_MODES = ['default', 'auto', 'strong', 'lite', 'off'];
+export const pickImageMode = (v) => (IMAGE_MODES.includes(String(v)) ? String(v) : null);
+export function effectiveImageMode(link) {
+  const m = pickImageMode(link?.imageMode);
+  if (m) return m;
+  const ai = link?.aiMode || 'both';
+  return ai === 'off' || ai === 'parser' ? 'off' : 'default';
+}
+/** نموذج القراءة الممرَّر لـ extractInvoiceRows — null = الإعداد العام. */
+export const imageModelMode = (mode) => (['auto', 'strong', 'lite'].includes(mode) ? mode : null);
+
 /**
  * قراءة بلا ذكاء: تنجح فقط حين يحسم **شكل** النص كل شيء — سطر صيدلية مُعلَّم (أو
  * منطقة مسجّلة + سطر واحد)، وكل سطر صنف كميته صريحة («(10)»، «50+5»، «10 p»).

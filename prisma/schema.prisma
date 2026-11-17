@@ -685,6 +685,7 @@ model WaGroupLink {
   isActive      Boolean  @default(true)
   orderTextMode String   @default("all") // off | trigger | all — كروب مبيعات مخصّص فـall افتراضياً
   aiMode        String   @default("both") // ai | parser | both | off — راجع TelegramChatLink.aiMode
+  imageMode     String?  // default | auto | strong | lite | off — زر «تحليل الصور»؛ null = يتبع aiMode (off/parser ⇒ مطفأ)
   // عدّادات تشخيص للوحة الماستر: كل رسالة وصلت من الكروب / ما دخل منها طابور المراجعة
   messageCount  Int       @default(0)
   orderCount    Int       @default(0)

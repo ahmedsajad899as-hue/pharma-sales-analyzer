@@ -21,6 +21,7 @@ import { normalizeWaId } from '../../lib/waId.js';
 import { handleIncomingOrderMessage } from '../orders/bot-order-flow.js';
 import { countPendingOrders, MAX_PENDING_SILENT_PER_USER } from '../orders/orders.service.js';
 import { retryable, shouldDeferForFullQueue, QUEUE_FULL_CODE } from './listen-retry.js';
+import { effectiveImageMode } from '../orders/order-extract.js';
 
 export const LISTEN_SOURCE = 'wa_group';
 
@@ -232,6 +233,8 @@ export async function handleListenGroupMessage(m, link) {
   });
   // شخص غير محدَّد للتحليل ⇒ تُتجاهل قبل الذكاء (لا tokens، لا سجلّ، لا مراجعة)
   if (!allowed) return;
+  // «تحليل الصور» مطفأ ⇒ الصورة/PDF لا تُسجَّل ولا تنتظر طابوراً ممتلئاً
+  if ((m.imageBase64 || m.docBase64) && effectiveImageMode(link) === 'off') return;
   const key = m.msgId ? `wag_${m.msgId}` : `wag_${crypto.randomBytes(8).toString('hex')}`;
   const entry = { at: Date.now(), m, boots: 0, attempts: 0 };
   journalWrite(key, entry);
