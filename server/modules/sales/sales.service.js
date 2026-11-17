@@ -357,6 +357,21 @@ export async function processUploadedFile(file, options = {}) {
         console.log(`[upload] تواريخ مقلوبة (يوم↔شهر، ${kind}) صُحِّحت: ${n} صف.`);
       }
     }
+    // خلايا شاذة مقلوبة وسط ملف سليم (ملف ميركاتو 11/2026: 951 تاريخاً سليماً و29 صفاً
+    // يدوياً بلا وقت قلبها الإكسل، 9/11 ← 11 أيلول، 12/11 ← 11 كانون الأول): حين يغلب على
+    // الملف شهر واحد (≥ 80% من صفوفه)، الخلية الملتبسة خارجه التي يُدخلها القلب فيه تُقلب.
+    const ymOf = d => d.toISOString().slice(0, 7);
+    const monthCounts = new Map();
+    for (const x of entryDates) if (valid(x)) monthCounts.set(ymOf(x.date), (monthCounts.get(ymOf(x.date)) || 0) + 1);
+    const totalDated = [...monthCounts.values()].reduce((a, b) => a + b, 0);
+    const [domMonth, domCount] = [...monthCounts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
+    if (totalDated >= 10 && domCount >= 0.8 * totalDated) {
+      let n = 0;
+      for (const x of entryDates) {
+        if (valid(x) && x.ambiguous && ymOf(x.date) !== domMonth && ymOf(x.swapped) === domMonth) { x.date = x.swapped; n++; }
+      }
+      if (n) console.log(`[upload] تواريخ شاذة مقلوبة (يوم↔شهر) صُحِّحت إلى ${domMonth}: ${n} صف.`);
+    }
   }
 
   // ── 2. Column map is now per-row (set above per-sheet)
