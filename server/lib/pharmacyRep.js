@@ -180,6 +180,50 @@ export function normalizeOfficeSource(v) {
   return v === OFFICE_SOURCE_WAREHOUSE ? OFFICE_SOURCE_WAREHOUSE : null;
 }
 
+// ── «أشهر اليزن» ──────────────────────────────────────────────────────────────
+// المسوّق على 'warehouse' يُحسب مكتبه من اليزن فقط في الأشهر التي فيها صفوف يزن فعلاً
+// بملفات ميركاتو النشطة (أي مندوب)؛ بقية الأشهر (رُفعت قبل شيت اليزن) على الطريقة
+// القديمة — «معلومات الزبون» في ملف المكتب (طلب 2026-11-17). الشهر بتوقيت UTC كشرائح
+// الشهر (salesMonths.js). نفس منطق isOfficeWarehouseRow لكن في SQL: عمود المذخر يحسم
+// متى امتلأ، واسم الشيت يكفي حين لا مذخر.
+const WH_KEYS_RE = '"(اسم المذخر|المذخر|اسم المخزن|المخزن|اسم المستودع|المستودع|warehouse)"[[:space:]]*:[[:space:]]*"';
+const yazenMonthsCache = new Map(); // key → { at, fp, promise }
+
+/** @returns {Promise<Set<string>>} 'YYYY-MM' */
+export async function officeWarehouseMonths(prisma, fileIds) {
+  const ids = (fileIds || []).map(Number).filter(Number.isInteger);
+  if (!ids.length) return new Set();
+  const key = [...ids].sort((a, b) => a - b).join(',');
+  const agg = await prisma.sale.aggregate({ where: { uploadedFileId: { in: ids } }, _count: { _all: true }, _max: { id: true } });
+  const fp = `${agg._count._all}|${agg._max.id ?? 0}`;
+  const hit = yazenMonthsCache.get(key);
+  if (hit && hit.fp === fp && Date.now() - hit.at < 5 * 60_000) return hit.promise;
+  const promise = prisma.$queryRawUnsafe(
+    `SELECT DISTINCT to_char(date_trunc('month', "saleDate" AT TIME ZONE 'UTC'), 'YYYY-MM') AS ym
+       FROM sales
+      WHERE "uploadedFileId" IN (${ids.join(',')}) AND "isHidden" = false
+        AND ( "rawData" ~* '${WH_KEYS_RE}[^"]*(yaz[aeiy]?n|يزن)'
+           OR ( "rawData" ~* '"_sheetName"[[:space:]]*:[[:space:]]*"[^"]*(يزن|مسوق|مكتب|yaz[aeiy]?n|alyaz)'
+                AND "rawData" !~* '${WH_KEYS_RE}[^"[:space:]]' ) )`,
+  ).then(rows => new Set(rows.map(r => r.ym).filter(Boolean)));
+  yazenMonthsCache.set(key, { at: Date.now(), fp, promise });
+  promise.catch(() => yazenMonthsCache.delete(key));
+  if (yazenMonthsCache.size > 30) yazenMonthsCache.delete(yazenMonthsCache.keys().next().value);
+  return promise;
+}
+
+/** شروط Prisma لمدى كل شهر (UTC) — لاستبعاد أشهر اليزن من فرع ملف المكتب. */
+export function monthRangesWhere(months) {
+  return [...months].map(ym => {
+    const [y, m] = ym.split('-').map(Number);
+    return { saleDate: { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) } };
+  });
+}
+
+export function monthKeyUTC(d) {
+  return d ? new Date(d).toISOString().slice(0, 7) : null;
+}
+
 /** اسم مذخر = اليزن؟ ALYAZEN / AL YAZIN / اليزن / مذخر اليزن. */
 export function isOfficeWarehouseName(name) {
   const v = String(name ?? '').toLowerCase().replace(/[^a-z\u0600-\u06ff]/g, '');

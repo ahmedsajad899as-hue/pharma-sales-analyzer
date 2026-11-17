@@ -11,7 +11,7 @@ import { attributeLine } from '../province-teams/province-teams.rules.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
-import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, normalizeOfficeSource, isOfficeWarehouseRow, OFFICE_SOURCE_WAREHOUSE, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
+import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, normalizeOfficeSource, isOfficeWarehouseRow, OFFICE_SOURCE_WAREHOUSE, officeWarehouseMonths, monthRangesWhere, monthKeyUTC, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
 import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
@@ -1491,6 +1491,14 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   const hasItems = itemIds && itemIds.length > 0;
   const hasCommReps = expandedCommRepIds.length > 0;
 
+  // أشهر اليزن: فيها يُحسب مكتب المسوّق 'warehouse' من ميركاتو، وخارجها بالطريقة القديمة.
+  // بلا أي صف يزن في ميركاتو النشط ← كل الأشهر على الطريقة القديمة.
+  const yazenMonths = pharmacyMode && pharmacyMembers.some(m => m.officeSource === OFFICE_SOURCE_WAREHOUSE)
+    ? await officeWarehouseMonths(prisma, mercatoFileIds.filter(fid => !conditionFileIdSet.has(fid)))
+    : new Set();
+  const yazenRanges = monthRangesWhere(yazenMonths);
+  const usesYazen = (m, saleDate) => m.officeSource === OFFICE_SOURCE_WAREHOUSE && yazenMonths.has(monthKeyUTC(saleDate));
+
   // ── Helper: build the sales-row WHERE filter ──────────────────────────────
   // RULE: always restrict to assigned commercial reps (or name-match) FIRST,
   // then intersect with area/item filters using AND.
@@ -1511,10 +1519,11 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     // ∩ ايتماته، لكل عضو (هو، ومندوبوه إن كان تيم ليدر) — بلا مندوبين تجاريين.
     if (pharmacyMode && officeFileIds.length > 0) {
       for (const m of pharmacyMembers) {
-        if (m.officeSource === OFFICE_SOURCE_WAREHOUSE) continue; // مكتبه من اليزن في ميركاتو
         if (!m.areaIds || m.areaIds.length === 0) continue;
         const office = [
           { uploadedFileId: { in: officeFileIds } },
+          // مسوّق اليزن: ملف المكتب فقط خارج أشهر اليزن (تلك تأتي من ميركاتو).
+          ...(m.officeSource === OFFICE_SOURCE_WAREHOUSE && yazenRanges.length ? [{ NOT: { OR: yazenRanges } }] : []),
           { areaId: { in: m.areaIds } },
           customerInfoLabelsWhere(m.labels),
         ];
@@ -1621,7 +1630,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // rawData يُجلب دائماً هنا (فلتر المذاخر + كشف صفوف اليزن)، ومعرّف الملف واسم المندوب
   // لوسم صفوف اليزن أدناه.
   const fetchSelect = {
-    ...select, rawData: true, uploadedFileId: true,
+    ...select, rawData: true, uploadedFileId: true, saleDate: true,
     representative: select.representative && typeof select.representative === 'object'
       ? { select: { ...(select.representative.select ?? {}), name: true } }
       : { select: { name: true } },
@@ -1675,7 +1684,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   rawSales = rawSales.filter(s => parseTransitRow(s.rawData, s.totalValue)?.kind !== ownTransitKind);
   // ترانزيت «فارمسي لاين» للمسوّق (وفريقه إن كان تيم ليدر): منطقة الصيدلية ∩ مناطق العضو،
   // والايتم ∩ ايتماته، و«معلومات الزبون» ∩ تسمياته. منطقة الصيدلية وحدها (لا محافظة فقط).
-  if (pharmacyMode && officeFileIds.length > 0 && recordType !== 'return' && pharmacyMembers.some(m => m.areaNorms.size && m.officeSource !== OFFICE_SOURCE_WAREHOUSE)) {
+  if (pharmacyMode && officeFileIds.length > 0 && recordType !== 'return' && pharmacyMembers.some(m => m.areaNorms.size)) {
     const tw = [dateFilter];
     if (blockedItemIds.length) tw.push({ NOT: { itemId: { in: blockedItemIds } } });
     const transit = await loadTransitSales({ officeFileIds, lookupFileIds: fileIds, where: { AND: tw }, select: { ...select, rawData: true }, kind: 'pharmacy' });
@@ -1684,7 +1693,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       const t = s.transit;
       if (!t.areaNorm || (t.areaId && blockedAreaSet.has(t.areaId))) continue;
       const info = normalizeArabic(t.customerInfo || '');
-      const hit = pharmacyMembers.some(m => m.officeSource !== OFFICE_SOURCE_WAREHOUSE && m.areaNorms.has(t.areaNorm)
+      const hit = pharmacyMembers.some(m => !usesYazen(m, s.saleDate) && m.areaNorms.has(t.areaNorm)
         && (!m.itemIds || m.itemIds.includes(s.itemId))
         && (!m.labels.length || m.labels.includes(info)));
       if (!hit) continue;
@@ -1731,7 +1740,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // ── مسوّق مصدر مكتبه «اليزن» (officeSource='warehouse') ─────────────────────
   // صف ميركاتو باسمه مرسَل لمذخر اليزن = مبيع مكتب: يُوسَم officeViaWarehouse فيُعدّ
   // Office في buildReport ويخرج من سطر Mercato. التيم ليدر: الوسم بإعداد صاحب الاسم في الصف.
-  if (pharmacyMode && mercatoFileIds.length > 0 && pharmacyMembers.some(m => m.officeSource === OFFICE_SOURCE_WAREHOUSE)) {
+  if (pharmacyMode && yazenMonths.size > 0) {
     const memberById = new Map(pharmacyMembers.map(m => [m.repId, m]));
     const links = await prisma.sciRepNameLink.findMany({ where: { scientificRepId: { in: pharmacyMembers.map(m => m.repId) } }, select: { fromKey: true, scientificRepId: true } });
     const modeByName = new Map();
@@ -1743,7 +1752,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       if (!mercatoSet.has(s.uploadedFileId) || conditionFileIdSet.has(s.uploadedFileId)) return s;
       const key = _normalizeAr(s.representative?.name ?? '');
       const mode = modeByName.has(key) ? modeByName.get(key) : ownMode;
-      return mode === OFFICE_SOURCE_WAREHOUSE && isOfficeWarehouseRow(s.rawData) ? { ...s, officeViaWarehouse: true } : s;
+      return mode === OFFICE_SOURCE_WAREHOUSE && yazenMonths.has(monthKeyUTC(s.saleDate)) && isOfficeWarehouseRow(s.rawData) ? { ...s, officeViaWarehouse: true } : s;
     });
   }
 
