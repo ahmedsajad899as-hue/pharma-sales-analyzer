@@ -1497,7 +1497,6 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     ? await officeWarehouseMonths(prisma, mercatoFileIds.filter(fid => !conditionFileIdSet.has(fid)))
     : new Set();
   const yazenRanges = monthRangesWhere(yazenMonths);
-  const usesYazen = (m, saleDate) => m.officeSource === OFFICE_SOURCE_WAREHOUSE && yazenMonths.has(monthKeyUTC(saleDate));
 
   // ── Helper: build the sales-row WHERE filter ──────────────────────────────
   // RULE: always restrict to assigned commercial reps (or name-match) FIRST,
@@ -1693,7 +1692,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       const t = s.transit;
       if (!t.areaNorm || (t.areaId && blockedAreaSet.has(t.areaId))) continue;
       const info = normalizeArabic(t.customerInfo || '');
-      const hit = pharmacyMembers.some(m => !usesYazen(m, s.saleDate) && m.areaNorms.has(t.areaNorm)
+      // مسوّق اليزن أيضاً: الترانزيت لا يمرّ عبر اليزن في ميركاتو، فيبقى في سطر Liquidation (قرار 2026-11-17).
+      const hit = pharmacyMembers.some(m => m.areaNorms.has(t.areaNorm)
         && (!m.itemIds || m.itemIds.includes(s.itemId))
         && (!m.labels.length || m.labels.includes(info)));
       if (!hit) continue;
