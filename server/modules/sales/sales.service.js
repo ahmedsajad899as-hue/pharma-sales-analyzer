@@ -51,7 +51,6 @@ import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { callAI } from '../../lib/geminiAi.js';
-import { OFFICE_WAREHOUSE_SHEET_RE } from '../../lib/pharmacyRep.js';
 
 const __filename2 = fileURLToPath(import.meta.url);
 const __dirname2  = path.dirname(__filename2);
@@ -257,9 +256,9 @@ export async function processUploadedFile(file, options = {}) {
         sheetsToProcess.push({ sheetName: sn, forceReturn: true });
       } else if (isSalesSheet(sn)) {
         sheetsToProcess.push({ sheetName: sn, forceReturn: false });
-      } else if (OFFICE_WAREHOUSE_SHEET_RE.test(sn)) {
-        // شيت مبيعات مذخر اليزن داخل ملف ميركاتو («اليزن»/«المسوقين»/«المكتب») —
-        // يُقرأ فقط إن حمل توقيع ميركاتو (راجع onlyIfMercato أدناه). lib/pharmacyRep.js.
+      } else {
+        // شيت إضافي في ملف ميركاتو (مثل شيت مبيعات مذخر اليزن للمسوقين، أياً كان اسمه) —
+        // يُقرأ فقط إن حمل توقيع ميركاتو، وصفّه المكرَّر من الشيت الأول يُسقط (أدناه).
         sheetsToProcess.push({ sheetName: sn, forceReturn: false, onlyIfMercato: true });
       }
     }
@@ -306,12 +305,58 @@ export async function processUploadedFile(file, options = {}) {
       console.log(`[upload] Sheet "${sheetName}" detected as MERCATO — using explicit column map.`);
     }
     console.log(`[upload] Sheet: "${sheetName}" | forceReturn=${forceReturn} | rows=${rows.length} | cols:`, sheetColMap);
-    for (const row of rows) allRawEntries.push({ raw: { ...row, _sheetName: sheetName }, forceReturn, colMap: sheetColMap });
+    for (const row of rows) allRawEntries.push({ raw: { ...row, _sheetName: sheetName }, forceReturn, colMap: sheetColMap, extraSheet: !!onlyIfMercato });
     totalRows += rows.length;
   }
 
   if (allRawEntries.length === 0) {
     throw new AppError('Excel file is empty or has no data rows.', 400, 'EMPTY_FILE');
+  }
+
+  // ── شيت ميركاتو إضافي: صف موجود أصلاً في الشيتات الأساسية يُسقط (عدّاً لا مجموعةً،
+  // فالتكرار المشروع داخل الشيت الأساسي يبقى) — كي لا تُحسب طلبية اليزن مرتين حين
+  // يحملها الشيت العام وشيتها الخاص معاً.
+  if (allRawEntries.some(e => e.extraSheet)) {
+    const keyOf = ({ raw, colMap: rc }) => {
+      const order = Object.keys(raw).find(k => /رقم\s*طلبي/.test(k));
+      return [rc.repName, rc.item, rc.customer, rc.quantity, rc.totalValue, rc.date]
+        .map(c => { const v = raw[c]; return v instanceof Date ? v.toISOString() : String(v ?? '').trim(); })
+        .concat(order ? String(raw[order] ?? '').trim() : '').join('|');
+    };
+    const baseCounts = new Map();
+    for (const e of allRawEntries) if (!e.extraSheet) { const k = keyOf(e); baseCounts.set(k, (baseCounts.get(k) || 0) + 1); }
+    let droppedCross = 0;
+    for (let i = allRawEntries.length - 1; i >= 0; i--) {
+      const e = allRawEntries[i];
+      if (!e.extraSheet) continue;
+      const k = keyOf(e), n = baseCounts.get(k) || 0;
+      if (n > 0) { baseCounts.set(k, n - 1); allRawEntries.splice(i, 1); droppedCross++; }
+    }
+    if (droppedCross) console.log(`[upload] أُسقط ${droppedCross} صف مكرر بين الشيتات (موجود في الشيت الأساسي).`);
+  }
+
+  // ── تواريخ قلبها الإكسل (يوم↔شهر) ─────────────────────────────────────────────
+  // تصدير بتواريخ نصية dd/mm يفتحه إكسل بإعداد أمريكي فيحوّل الملتبس منها (اليوم ≤ 12)
+  // إلى تاريخ حقيقي مقلوب: 1/11 (1 تشرين الثاني) ← 11 كانون الثاني، وما لا يُقلب
+  // (16/11) يبقى نصاً صحيحاً. النتيجة ملف شهر واحد موزَّع على 12 شهراً. القرار للملف
+  // كله: إن جمع قلبُ الملتبس التواريخَ في مدى قصير (≤ 62 يوماً) بينما هي مبعثرة
+  // كما هي (> 62) فهي مقلوبة. ملف متعدد الأشهر حقيقي لا يتجمّع بالقلب فلا يُمسّ.
+  const entryDates = allRawEntries.map(e => parseExcelDateInfo(e.raw[e.colMap.date]));
+  {
+    const valid = x => x && x.date && x.date.getUTCFullYear() >= 2000;
+    const spanOf = arr => { const t = arr.filter(Boolean).map(d => d.getTime()); return t.length ? Math.max(...t) - Math.min(...t) : 0; };
+    const DAY = 86400000;
+    // خلايا التاريخ الحقيقية (قلبها الإكسل) والنصية (بقيت كما صُدِّرت) قد تختلف اتجاهاً
+    // في الملف نفسه — يُقرَّر لكل نوع وحده، والنوع الآخر مرساة كما هو.
+    for (const kind of ['date', 'text']) {
+      const asIs = entryDates.filter(valid).map(x => x.date);
+      const flipped = entryDates.filter(valid).map(x => (x.kind === kind && x.ambiguous ? x.swapped : x.date));
+      if (entryDates.some(x => valid(x) && x.kind === kind && x.ambiguous) && spanOf(asIs) > 62 * DAY && spanOf(flipped) <= 62 * DAY) {
+        let n = 0;
+        for (const x of entryDates) if (valid(x) && x.kind === kind && x.ambiguous) { x.date = x.swapped; n++; }
+        console.log(`[upload] تواريخ مقلوبة (يوم↔شهر، ${kind}) صُحِّحت: ${n} صف.`);
+      }
+    }
   }
 
   // ── 2. Column map is now per-row (set above per-sheet)
@@ -398,7 +443,7 @@ export async function processUploadedFile(file, options = {}) {
         const v = String(raw[rc.customerInfo] || '').trim();
         return v ? normalizeArabic(v) : undefined;
       })(),
-      date:       parseExcelDate(raw[rc.date]),
+      date:       entryDates[i]?.date ?? undefined,
       rawData:    JSON.stringify(raw),
     };
 
@@ -765,6 +810,49 @@ export function parseNumeric(val) {
  * Returns undefined if unparseable.
  */
 export function parseExcelDate(val) {
+  return parseExcelDateInfo(val)?.date;
+}
+
+/**
+ * مثل parseExcelDate مع علم الالتباس: ambiguous = اليوم والشهر كلاهما ≤ 12 فقد يكون
+ * مقلوباً، وswapped = نفس التاريخ بقلب اليوم والشهر (للتصحيح على مستوى الملف كاملاً).
+ */
+export function parseExcelDateInfo(val) {
+  if (!val) return undefined;
+  if (val instanceof Date && isFinite(val.getTime())) {
+    // xlsx يبني الخلية بتوقيت الخادم المحلي (مكوّناتها المحلية = ساعة الإكسل). نثبّت تلك
+    // الساعة كـ UTC — كالتاريخ النصي — كي لا يقع 00:06 من أول الشهر في الشهر السابق
+    // بشرائح الشهر (UTC). على خادم بتوقيت UTC لا يتغيّر شيء.
+    const Y = val.getFullYear(), d = val.getDate(), m = val.getMonth() + 1;
+    const mk = (dd, mm) => new Date(Date.UTC(Y, mm - 1, dd, val.getHours(), val.getMinutes(), val.getSeconds()));
+    if (d > 12 || d === m) return { date: mk(d, m), kind: 'date', ambiguous: false };
+    return { date: mk(d, m), kind: 'date', ambiguous: true, swapped: mk(m, d) };
+  }
+  if (typeof val === 'string') {
+    // dd/mm/yyyy مع وقت اختياري («12/11/2026 18:37»، «1/11/2026 2:05 PM») — كان الوقت
+    // يُسقطه إلى new Date() الأمريكي (mm/dd) فيقلب التاريخ.
+    const t = val.trim().match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm|ص|م)?)?$/i);
+    if (t) {
+      let [, a, b, y, hh, mi, ss, ap] = t;
+      a = Number(a); b = Number(b);
+      let day = a, mon = b;
+      if (a <= 12 && b > 12) { day = b; mon = a; } // لا يكون الشهر > 12
+      if (mon < 1 || mon > 12 || day < 1 || day > 31) return undefined;
+      let h = Number(hh || 0);
+      if (ap && /pm|م/i.test(ap) && h < 12) h += 12;
+      if (ap && /am|ص/i.test(ap) && h === 12) h = 0;
+      const mk = (dd, mm) => new Date(Date.UTC(Number(y), mm - 1, dd, h, Number(mi || 0), Number(ss || 0)));
+      const date = mk(day, mon);
+      if (!isFinite(date.getTime())) return undefined;
+      const ambiguous = day <= 12 && mon <= 12 && day !== mon;
+      return { date, kind: 'text', ambiguous, swapped: ambiguous ? mk(mon, day) : undefined };
+    }
+  }
+  const d = parseExcelDateLegacy(val);
+  return d ? { date: d, ambiguous: false } : undefined;
+}
+
+function parseExcelDateLegacy(val) {
   if (!val) return undefined;
   if (val instanceof Date && isFinite(val.getTime())) return val;
   if (typeof val === 'number') {
