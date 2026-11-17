@@ -62,8 +62,9 @@ const isConditionSale = (s: any): boolean =>
 const splitMercatoSales = (sales: any[]): { office: any[]; mercato: any[]; condition: any[] } => {
   const condition = sales.filter(isConditionSale);
   const rest      = sales.filter(s => !isConditionSale(s));
-  const mercato = rest.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
-  const office  = rest.filter(s => s.uploadedFile?.sourceSystem !== 'mercato');
+  // officeViaWarehouse: صف ميركاتو مرسَل لمذخر اليزن لمسوّق مكتبه من اليزن = مكتب.
+  const mercato = rest.filter(s => s.uploadedFile?.sourceSystem === 'mercato' && !s.officeViaWarehouse);
+  const office  = rest.filter(s => s.uploadedFile?.sourceSystem !== 'mercato' || s.officeViaWarehouse);
   return { office, mercato, condition };
 };
 // شيتات المصدر الإضافية في تصدير متعدد المندوبين: ميركاتو/اللكوديشن كلٌّ وحده، فقط حين
@@ -3101,11 +3102,11 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     const orderCount = countDistinctOrders(saleRows);
     // تفصيل عدد الطلبيات حسب المصدر (ميركاتو مقابل المكتب) — يُضاف فقط حين توجد
     // طلبيات ميركاتو فعلاً، وإلا كان سطراً مكرراً بلا فائدة على الحسابات المكتبية البحتة.
-    const mercatoSaleRows = saleRows.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
+    const mercatoSaleRows = saleRows.filter(s => s.uploadedFile?.sourceSystem === 'mercato' && !s.officeViaWarehouse);
     const hasMercatoOrders = mercatoSaleRows.length > 0;
     const mercatoOrderCount = hasMercatoOrders ? countDistinctOrders(mercatoSaleRows) : 0;
     const officeOrderCount  = hasMercatoOrders
-      ? countDistinctOrders(saleRows.filter(s => s.uploadedFile?.sourceSystem !== 'mercato'))
+      ? countDistinctOrders(saleRows.filter(s => s.uploadedFile?.sourceSystem !== 'mercato' || s.officeViaWarehouse))
       : 0;
 
     // Note: «عدد المناطق المعيّنة» / «إجمالي صفوف المبيعات» / «إجمالي صفوف المرتجعات»

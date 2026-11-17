@@ -51,6 +51,7 @@ import { ExcelRowSchema } from './sales.dto.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { callAI } from '../../lib/geminiAi.js';
+import { OFFICE_WAREHOUSE_SHEET_RE } from '../../lib/pharmacyRep.js';
 
 const __filename2 = fileURLToPath(import.meta.url);
 const __dirname2  = path.dirname(__filename2);
@@ -256,6 +257,10 @@ export async function processUploadedFile(file, options = {}) {
         sheetsToProcess.push({ sheetName: sn, forceReturn: true });
       } else if (isSalesSheet(sn)) {
         sheetsToProcess.push({ sheetName: sn, forceReturn: false });
+      } else if (OFFICE_WAREHOUSE_SHEET_RE.test(sn)) {
+        // شيت مبيعات مذخر اليزن داخل ملف ميركاتو («اليزن»/«المسوقين»/«المكتب») —
+        // يُقرأ فقط إن حمل توقيع ميركاتو (راجع onlyIfMercato أدناه). lib/pharmacyRep.js.
+        sheetsToProcess.push({ sheetName: sn, forceReturn: false, onlyIfMercato: true });
       }
     }
   }
@@ -264,7 +269,7 @@ export async function processUploadedFile(file, options = {}) {
   const allRawEntries = [];
   let totalRows = 0;
   let isMercatoFile = false;   // أي ورقة بتوقيع ميركاتو تجعل الملف كله ميركاتو
-  for (const { sheetName, forceReturn } of sheetsToProcess) {
+  for (const { sheetName, forceReturn, onlyIfMercato } of sheetsToProcess) {
     const ws = workbook.Sheets[sheetName];
     // Skip leading title/metadata rows: start parsing from the detected header row.
     const headerRowIdx = detectHeaderRow(ws, columnMapping);
@@ -285,6 +290,10 @@ export async function processUploadedFile(file, options = {}) {
     }
     // Resolve columns independently per sheet (each sheet may have different header names)
     const sheetHeaders = Object.keys(rows[0]);
+    if (onlyIfMercato && !detectMercatoFormat(sheetHeaders)) {
+      console.log(`[upload] Sheet "${sheetName}": ليس بتوقيع ميركاتو — تُرك.`);
+      continue;
+    }
     const sheetColMap  = resolveColumns(sheetHeaders, columnMapping);
     // ميركاتو: نفرض خريطته الصريحة فوق المطابقة العامة (تُخطئ في المادة/الشركة/
     // الزبون هنا) — مع إبقاء أي override صريح من المستخدم فوق الجميع.

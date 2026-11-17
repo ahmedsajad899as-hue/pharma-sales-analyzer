@@ -871,6 +871,8 @@ model ScientificRepresentative {
   // المكتب التي «معلومات الزبون» فيها إحدى customerInfoLabels ∩ مناطقه ∩ ايتماته.
   repKind            String  @default("scientific") // "scientific" | "pharmacy"
   customerInfoLabels String? // JSON: قيم «معلومات الزبون» المطبَّعة؛ فارغ = كل ما فيه فارم/pharm
+  // مصدر «Office» للمسوّق: null = ملف المكتب بـ«معلومات الزبون»؛ 'warehouse' = ميركاتو المرسَل لمذخر اليزن (lib/pharmacyRep.js)
+  officeSource       String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

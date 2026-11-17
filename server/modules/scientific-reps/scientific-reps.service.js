@@ -11,7 +11,7 @@ import { attributeLine } from '../province-teams/province-teams.rules.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
-import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
+import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, normalizeOfficeSource, isOfficeWarehouseRow, OFFICE_SOURCE_WAREHOUSE, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
 import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
@@ -174,7 +174,7 @@ export async function list(filters, user = null, options = {}) {
           items:          { select: { item:          { select: { id: true, name: true } } } },
           companies:      { select: { company:       { select: { id: true, name: true } } } },
           commercialReps: { select: { commercialRep: { select: { id: true, name: true } } } },
-          repKind: true, customerInfoLabels: true,
+          repKind: true, customerInfoLabels: true, officeSource: true,
         },
       });
 
@@ -193,6 +193,7 @@ export async function list(filters, user = null, options = {}) {
         commercialReps: sciRepData?.commercialReps?.map(l => l.commercialRep) ?? [],
         repKind: sciRepData?.repKind ?? 'scientific',
         customerInfoLabels: parseCustomerInfoLabels(sciRepData?.customerInfoLabels),
+        officeSource: sciRepData?.officeSource ?? null,
         // الكرخ/الرصافة — تجميع المسوقين (فارمسي لاين) في التقارير بدل الشركة.
         side: repSideOf(u.subProvinceAssignments.map(a => a.subProvince.name), sciRepData?.areas?.map(a => a.area.subProvince?.name)),
         _isUser: true,
@@ -243,11 +244,12 @@ export async function update(id, dto) {
 }
 
 /** نوع المندوب (علمي/فارمسي لاين) وتسميات «معلومات الزبون» له — lib/pharmacyRep.js. */
-export async function setPharmacySettings(id, { repKind, customerInfoLabels } = {}) {
+export async function setPharmacySettings(id, { repKind, customerInfoLabels, officeSource } = {}) {
   await assertExists(id);
   const data = {};
   if (repKind !== undefined) data.repKind = repKind === PHARMACY_KIND ? PHARMACY_KIND : 'scientific';
   if (customerInfoLabels !== undefined) data.customerInfoLabels = serializeCustomerInfoLabels(customerInfoLabels);
+  if (officeSource !== undefined) data.officeSource = normalizeOfficeSource(officeSource);
   const r = await repo.updateScientificRep(id, data);
   return { ...r, customerInfoLabels: parseCustomerInfoLabels(r.customerInfoLabels) };
 }
@@ -1139,7 +1141,7 @@ async function resolvePharmacyMembers(rep) {
     }
   }
   const [repRows, allAreas] = await Promise.all([
-    prisma.scientificRepresentative.findMany({ where: { id: { in: repIds } }, select: { id: true, customerInfoLabels: true } }),
+    prisma.scientificRepresentative.findMany({ where: { id: { in: repIds } }, select: { id: true, name: true, customerInfoLabels: true, officeSource: true } }),
     prisma.area.findMany({ select: { id: true, name: true } }),
   ]);
   const nameOf = new Map(allAreas.map(a => [a.id, a.name]));
@@ -1147,6 +1149,9 @@ async function resolvePharmacyMembers(rep) {
     const areaIds = await resolveRepAreaIdsByName(r.id, allAreas);
     return {
       repId:   r.id,
+      name:    r.name,
+      // 'warehouse' = Office من ميركاتو المرسَل لمذخر اليزن، لا من ملف المكتب (lib/pharmacyRep.js).
+      officeSource: normalizeOfficeSource(r.officeSource),
       labels:  parseCustomerInfoLabels(r.customerInfoLabels),
       areaIds,
       // أسماء المناطق مطبَّعة — منطقة صيدلية الترانزيت تُطابَق بالاسم (transit.areaNorm).
@@ -1229,12 +1234,14 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   // يستبعد الصفوف ذات القيمة NULL أيضاً (SQL `<> ` لا يطابق NULL) — وهي الغالبية.
   let mercatoFileIds = [];
   let officeFileIds  = [];
+  const conditionFileIdSet = new Set();
   if (fileIds && fileIds.length > 0) {
     const fileRows = await prisma.uploadedFile.findMany({
       where:  { id: { in: fileIds } },
-      select: { id: true, sourceSystem: true },
+      select: { id: true, sourceSystem: true, mergeGroup: true },
     });
     for (const f of fileRows) {
+      if (String(f.mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`)) conditionFileIdSet.add(f.id);
       if (f.sourceSystem === 'mercato') mercatoFileIds.push(f.id);
       else officeFileIds.push(f.id);
     }
@@ -1504,6 +1511,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     // ∩ ايتماته، لكل عضو (هو، ومندوبوه إن كان تيم ليدر) — بلا مندوبين تجاريين.
     if (pharmacyMode && officeFileIds.length > 0) {
       for (const m of pharmacyMembers) {
+        if (m.officeSource === OFFICE_SOURCE_WAREHOUSE) continue; // مكتبه من اليزن في ميركاتو
         if (!m.areaIds || m.areaIds.length === 0) continue;
         const office = [
           { uploadedFileId: { in: officeFileIds } },
@@ -1610,6 +1618,14 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
 
   let rawSales = [];
   const salesWhere = buildSalesWhere();
+  // rawData يُجلب دائماً هنا (فلتر المذاخر + كشف صفوف اليزن)، ومعرّف الملف واسم المندوب
+  // لوسم صفوف اليزن أدناه.
+  const fetchSelect = {
+    ...select, rawData: true, uploadedFileId: true,
+    representative: select.representative && typeof select.representative === 'object'
+      ? { select: { ...(select.representative.select ?? {}), name: true } }
+      : { select: { name: true } },
+  };
   const dateFilter = (startDate || endDate)
     ? { saleDate: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } }
     : {};
@@ -1628,7 +1644,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
         },
         // rawData يُجلب دائماً هنا (بصرف النظر عن select الأصلي) لأجل فلتر
         // isWarehouseSaleRow أدناه — يُستبعد من الناتج النهائي إن لم يطلبه المستدعي.
-        select: { ...select, rawData: true },
+        select: fetchSelect,
       });
       rawSales = rawSales.concat(sharedSales);
     }
@@ -1643,7 +1659,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
           ...(recordType ? { recordType } : {}),
           ...salesWhere,
         },
-        select: { ...select, rawData: true },
+        select: fetchSelect,
       });
       rawSales = rawSales.concat(nonSharedSales);
     }
@@ -1659,7 +1675,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
   rawSales = rawSales.filter(s => parseTransitRow(s.rawData, s.totalValue)?.kind !== ownTransitKind);
   // ترانزيت «فارمسي لاين» للمسوّق (وفريقه إن كان تيم ليدر): منطقة الصيدلية ∩ مناطق العضو،
   // والايتم ∩ ايتماته، و«معلومات الزبون» ∩ تسمياته. منطقة الصيدلية وحدها (لا محافظة فقط).
-  if (pharmacyMode && officeFileIds.length > 0 && recordType !== 'return' && pharmacyMembers.some(m => m.areaNorms.size)) {
+  if (pharmacyMode && officeFileIds.length > 0 && recordType !== 'return' && pharmacyMembers.some(m => m.areaNorms.size && m.officeSource !== OFFICE_SOURCE_WAREHOUSE)) {
     const tw = [dateFilter];
     if (blockedItemIds.length) tw.push({ NOT: { itemId: { in: blockedItemIds } } });
     const transit = await loadTransitSales({ officeFileIds, lookupFileIds: fileIds, where: { AND: tw }, select: { ...select, rawData: true }, kind: 'pharmacy' });
@@ -1668,7 +1684,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
       const t = s.transit;
       if (!t.areaNorm || (t.areaId && blockedAreaSet.has(t.areaId))) continue;
       const info = normalizeArabic(t.customerInfo || '');
-      const hit = pharmacyMembers.some(m => m.areaNorms.has(t.areaNorm)
+      const hit = pharmacyMembers.some(m => m.officeSource !== OFFICE_SOURCE_WAREHOUSE && m.areaNorms.has(t.areaNorm)
         && (!m.itemIds || m.itemIds.includes(s.itemId))
         && (!m.labels.length || m.labels.includes(info)));
       if (!hit) continue;
@@ -1710,6 +1726,25 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
         customerId: null,
       });
     }
+  }
+
+  // ── مسوّق مصدر مكتبه «اليزن» (officeSource='warehouse') ─────────────────────
+  // صف ميركاتو باسمه مرسَل لمذخر اليزن = مبيع مكتب: يُوسَم officeViaWarehouse فيُعدّ
+  // Office في buildReport ويخرج من سطر Mercato. التيم ليدر: الوسم بإعداد صاحب الاسم في الصف.
+  if (pharmacyMode && mercatoFileIds.length > 0 && pharmacyMembers.some(m => m.officeSource === OFFICE_SOURCE_WAREHOUSE)) {
+    const memberById = new Map(pharmacyMembers.map(m => [m.repId, m]));
+    const links = await prisma.sciRepNameLink.findMany({ where: { scientificRepId: { in: pharmacyMembers.map(m => m.repId) } }, select: { fromKey: true, scientificRepId: true } });
+    const modeByName = new Map();
+    for (const m of pharmacyMembers) modeByName.set(_normalizeAr(m.name ?? ''), m.officeSource);
+    for (const l of links) if (!modeByName.has(l.fromKey)) modeByName.set(l.fromKey, memberById.get(l.scientificRepId)?.officeSource ?? null);
+    const ownMode = memberById.get(rep.id)?.officeSource ?? null;
+    const mercatoSet = new Set(mercatoFileIds);
+    rawSales = rawSales.map(s => {
+      if (!mercatoSet.has(s.uploadedFileId) || conditionFileIdSet.has(s.uploadedFileId)) return s;
+      const key = _normalizeAr(s.representative?.name ?? '');
+      const mode = modeByName.has(key) ? modeByName.get(key) : ownMode;
+      return mode === OFFICE_SOURCE_WAREHOUSE && isOfficeWarehouseRow(s.rawData) ? { ...s, officeViaWarehouse: true } : s;
+    });
   }
 
   // ── Deduplicate ONLY across overlapping files ──────────────────────────────
@@ -2343,13 +2378,16 @@ async function buildReport(resolved, query) {
   // hasOffice/hasMercato وحدهما يحكمان إظهار ذلك — لا الإجماليات نفسها (قد
   // تكون قيمة أحد الجانبين صفراً فعلياً وله صفوف حقيقية بالمقابل).
   // طلبيات الترانزيت (صفوف ملف المكتب، s.transit) تُعدّ كوديشن لا Office.
-  const officeRows  = salesForAggregation.filter(s => s.uploadedFile?.sourceSystem !== 'mercato' && !s.transit);
-  const mercatoRows = salesForAggregation.filter(s => s.uploadedFile?.sourceSystem === 'mercato');
+  // صف اليزن لمسوّق مصدر مكتبه المذخر (officeViaWarehouse) = Office لا Mercato — lib/pharmacyRep.js.
+  const isOfficeSrc  = s => s.officeViaWarehouse || (s.uploadedFile?.sourceSystem !== 'mercato' && !s.transit);
+  const isMercatoSrc = s => s.uploadedFile?.sourceSystem === 'mercato' && !s.officeViaWarehouse;
+  const officeRows  = salesForAggregation.filter(isOfficeSrc);
+  const mercatoRows = salesForAggregation.filter(isMercatoSrc);
   // عدد الطلبيات لكل مصدر على حدة — من rawSales (لا salesForAggregation) لأن
   // orderCount أعلاه يُحسب منها أيضاً، ونفس استثناء صفوف الإرجاع.
   const isOrderRow = s => String(s.recordType ?? '').trim().toLowerCase() !== 'return';
-  const officeOrderRows  = rawSales.filter(s => s.uploadedFile?.sourceSystem !== 'mercato' && !s.transit && isOrderRow(s));
-  const mercatoOrderRows = rawSales.filter(s => s.uploadedFile?.sourceSystem === 'mercato' && isOrderRow(s));
+  const officeOrderRows  = rawSales.filter(s => isOfficeSrc(s) && isOrderRow(s));
+  const mercatoOrderRows = rawSales.filter(s => isMercatoSrc(s) && isOrderRow(s));
   const isConditionFileRow = s => String(s.uploadedFile?.mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`);
   const isConditionRow   = s => !!s.transit || isConditionFileRow(s);
   const conditionRows    = salesForAggregation.filter(isConditionRow);

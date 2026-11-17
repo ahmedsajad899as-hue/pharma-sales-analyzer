@@ -60,6 +60,7 @@ interface ScientificRep {
   _isUser?: boolean; // true for company-linked reps (not standalone)
   repKind?: string;              // 'pharmacy' = فارمسي لاين (server/lib/pharmacyRep.js)
   customerInfoLabels?: string[];
+  officeSource?: string | null;
 }
 
 type ModalType = 'add' | 'edit' | 'assign' | null;
@@ -1272,7 +1273,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     </td>
                     <td>
                       <div className="tag-list">
-                        {rep.repKind === 'pharmacy'
+                        {rep.repKind === 'pharmacy' && rep.officeSource === 'warehouse'
+                          ? <span className="tag" style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }} title="مبيعات المكتب = ميركاتو المرسَل لمذخر اليزن">🏬 مكتب: اليزن</span>
+                          : rep.repKind === 'pharmacy'
                           ? ((rep.customerInfoLabels ?? []).length
                               ? (rep.customerInfoLabels ?? []).map(l => <span key={l} className="tag" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>📇 {l}</span>)
                               : <span className="tag" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>📇 كل الفارماسي</span>)

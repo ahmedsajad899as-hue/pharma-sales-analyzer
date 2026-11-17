@@ -164,3 +164,41 @@ export function customerInfoLabelsWhere(labels) {
   }
   return { OR: DEFAULT_LABEL_FRAGMENTS.map(f => ({ customerInfoNorm: { contains: f, mode: 'insensitive' } })) };
 }
+
+// ── مصدر «Office» للمسوّق (طلب 2026-11-17) ───────────────────────────────────
+// طريقتان يختار السوبر أدمن/المدير إحداهما لكل مسوّق (ScientificRepresentative.officeSource):
+//   • 'customer_info' (الافتراضي، null): صفوف ملف المكتب بـ«معلومات الزبون» — كما أعلاه.
+//   • 'warehouse': صفوف ميركاتو باسمه المرسَلة لمذخر «اليزن» (= المكتب نفسه) تُعدّ Office
+//     وتخرج من سطر Mercato، وصفوف ملف المكتب لا تُحسب له إطلاقاً.
+// صفوف اليزن تأتي إما في الشيت العام لميركاتو (عمود «اسم المذخر» = ALYAZEN) أو في شيت
+// خاص اسمه «اليزن»/«المسوقين»/«المكتب» (rawData._sheetName).
+export const OFFICE_SOURCE_WAREHOUSE = 'warehouse';
+export const OFFICE_WAREHOUSE_SHEET_RE = /يزن|مسوق|مكتب|yaz[aeiy]?n|alyaz/i;
+const WAREHOUSE_KEYS = ['المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع', 'warehouse'];
+
+export function normalizeOfficeSource(v) {
+  return v === OFFICE_SOURCE_WAREHOUSE ? OFFICE_SOURCE_WAREHOUSE : null;
+}
+
+/** اسم مذخر = اليزن؟ ALYAZEN / AL YAZIN / اليزن / مذخر اليزن. */
+export function isOfficeWarehouseName(name) {
+  const v = String(name ?? '').toLowerCase().replace(/[^a-z\u0600-\u06ff]/g, '');
+  if (!v) return false;
+  return /yaz[aeiy]?n/.test(v) || normalizeArabic(v).includes('يزن');
+}
+
+/** صف ميركاتو مرسَل لمذخر المكتب (اليزن) — بعمود المذخر أو باسم شيته. */
+export function isOfficeWarehouseRow(rawDataJson) {
+  if (!rawDataJson) return false;
+  let raw;
+  try { raw = typeof rawDataJson === 'string' ? JSON.parse(rawDataJson) : rawDataJson; } catch { return false; }
+  if (!raw || typeof raw !== 'object') return false;
+  // عمود المذخر يحسم متى امتلأ — شيت عام اسمه فيه «مكتب» لا يجعل مذخراً آخر يزناً.
+  let named = false;
+  for (const k of Object.keys(raw)) {
+    if (!WAREHOUSE_KEYS.includes(String(k).trim()) || !String(raw[k] ?? '').trim()) continue;
+    if (isOfficeWarehouseName(raw[k])) return true;
+    named = true;
+  }
+  return !named && OFFICE_WAREHOUSE_SHEET_RE.test(String(raw._sheetName ?? ''));
+}
