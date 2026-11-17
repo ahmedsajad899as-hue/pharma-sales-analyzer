@@ -21,7 +21,7 @@
 
 import { extractInvoiceRows, resolveSharedConditionOwner } from '../sales/sales.service.js';
 import { matchInvoiceCustomers } from '../../lib/invoiceCustomerMatch.js';
-import { extractOrderRowsByMode, effectiveImageMode, imageModelMode } from './order-extract.js';
+import { extractOrderRowsByMode, effectiveImageMode, imageModelMode, applyTextParse } from './order-extract.js';
 import { aiCallScope } from '../../lib/geminiAi.js';
 import { logTextOrderRead } from '../../lib/invoiceReadLog.js';
 
@@ -170,6 +170,12 @@ export async function handleIncomingOrderMessage({
           purpose: knownOrder ? 'compare' : 'sales', modelMode,
           logContext: { source: transport.name, userId: user.id, userName: user.displayName || user.username, senderName, chatTitle } },
       );
+      // الكابشن المكتوب («ص احمد الشيباني» / «م الضرغام او …») يحسم الصيدلية والمذخر على
+      // قراءة الصورة (#228: قُرئت «م . ضرغام» صيدليةً و«الخليج» منطقةً). الأصناف من الصورة.
+      if (rows.length && String(text ?? '').trim()) {
+        try { await applyTextParse(rows, String(text), { headerOnly: true }); }
+        catch (e) { console.error('[orders] ترويسة الكابشن:', e?.message); }
+      }
     } else {
       // منصّة تعيد الفاشل (onFailed) تحتاج تمييز تعطّل الذكاء عن «ليست طلبية»
       ({ rows, readBy } = await readTextOrderLogged(text, {

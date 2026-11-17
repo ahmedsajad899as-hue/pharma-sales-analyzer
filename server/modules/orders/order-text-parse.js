@@ -76,7 +76,8 @@ export function findKnownWarehouse(text, { whole = false } = {}) {
 }
 
 // كلمات تبدأ بها الملاحظة بعد اسم المذخر: «مذخر الناقوس بسبب عدم الانضمام الى ميركاتو».
-const WAREHOUSE_NOTE_RE = /\s+(?:بسبب|لسبب|لعدم|عدم|لان|لأن|لانه|لأنه|كون|حتى|علمود|الى|إلى|ترانزيت|بدل|بدون|حسب|مع|عن طريق)(?:\s|$).*$/;
+// «م الضرغام او الخليج او الضامن» (#228): «او» تبدأ بدائل التجهيز — المذخر هو الأول.
+const WAREHOUSE_NOTE_RE = /\s+(?:او|أو|والا|وإلا|اذا|إذا|بسبب|لسبب|لعدم|عدم|لان|لأن|لانه|لأنه|كون|حتى|علمود|الى|إلى|ترانزيت|بدل|بدون|حسب|مع|عن طريق)(?:\s|$).*$/;
 
 /**
  * اسم المذخر من ذيل «مذخر …»: المعروف أولاً، وإلا ما قبل أول كلمة ملاحظة وبحدّ ثلاث كلمات.
@@ -284,7 +285,8 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
 // «ق» = قطعة («Nasomista 20 ق»، كروب الديوانية 2026-11-17).
 const COUNT_UNIT = String.raw`(?:p|pc|pcs|pack|box|ع|علب[ةه]?|علب|حب[ةه]|شريط|قطع[ةه]?|ق)`;
 // سطر كمية وحده: «10 قطعة»، «(10)»، «10+2 علبة»، «10».
-const QTY_ONLY_RE = new RegExp(String.raw`^\(?\s*(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}?\s*\)?$`, 'i');
+// والوحدة قبل الرقم «ع 10» (#228).
+const QTY_ONLY_RE = new RegExp(String.raw`^\(?\s*(?:${COUNT_UNIT}\s*)?(\d+)\s*(?:\+\s*(\d+)\s*)?${COUNT_UNIT}?\s*\)?$`, 'i');
 // «(5)»، «(10p)»، «( 10 علبة )» في آخر السطر.
 // والبونص داخل القوس «(30+3)»، والقوس الختامي اختياري («Potafast (10+1» كما كتبها مندوب،
 // 2026-11-11). القوس الافتتاحي إلزامي هنا — بدونه يبقى «Pandev 40» تركيزاً لا كمية.
@@ -296,6 +298,8 @@ const PAREN_QTY_START = new RegExp(String.raw`^\(\s*(\d+)\s*${COUNT_UNIT}?\s*\)\
 const PLUS_QTY_END = new RegExp(String.raw`(?:^|\s)(\d+)\s*\+\s*(\d+)\s*${COUNT_UNIT}?\s*$`, 'i');
 // «10 p»، «10p»، «5 علبة» في آخر السطر — الوحدة إلزامية هنا وإلا كان الرقم تركيزاً.
 const UNIT_QTY_END = new RegExp(String.raw`(?:^|\s)(\d+)\s*${COUNT_UNIT}\s*$`, 'i');
+// «Amoklavin 625 ع 10» — الوحدة قبل الرقم في آخر السطر (بمسافة قبلها كي لا تُقصّ من كلمة).
+const UNIT_FIRST_QTY_END = new RegExp(String.raw`\s${COUNT_UNIT}\s*(\d+)\s*$`, 'i');
 
 /**
  * يقرأ الكمية من سطر صنف حين يحدّدها **الشكل** بلا لبس: بين قوسين، أو «ك+ب»،
@@ -312,7 +316,7 @@ export function parseItemLine(line) {
     quantity = Number(m[1]); name = s.slice(m[0].length);
   } else if ((m = s.match(PLUS_QTY_END))) {
     quantity = Number(m[1]); bonus = Number(m[2]); name = s.slice(0, m.index);
-  } else if ((m = s.match(UNIT_QTY_END))) {
+  } else if ((m = s.match(UNIT_QTY_END)) || (m = s.match(UNIT_FIRST_QTY_END))) {
     quantity = Number(m[1]); name = s.slice(0, m.index);
   } else {
     return null;
@@ -344,6 +348,12 @@ function brandOf(s) {
 export function reconcileRowsWithText(rows, text, opts = {}) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const { header, itemLines } = parseOrderText(text, opts);
+  // أسطر المذخر في النص («م الضرغام او الخليج او الضامن») — منطقة قرأها الموديل منها
+  // («الخليج»، #228) بديل تجهيز لا منطقة.
+  const whKeys = toLatinDigits(text).split(/\r?\n/).flatMap(l => l.split(ARROW_SPLIT_RE)).map(tidy)
+    .filter(l => !HAS_LATIN.test(l) && (WAREHOUSE_LINE_RE.test(l) || WAREHOUSE_PREFIX_RE.test(l)))
+    .map(l => ` ${normKey(l)} `);
+  const inWarehouseLine = (a) => { const k = normKey(a); return Boolean(k) && whKeys.some(l => l.includes(` ${k} `)); };
 
   // سطر أسماء مذاخر بعد الأصناف («سنايا اسبرين منارة» — بدائل التجهيز) قرأه الموديل
   // صنفاً. صفّ **بلا كمية** اسمه عربي ويحوي مذخراً معروفاً = مذخر لا صنف، فيُحذف.
@@ -369,11 +379,17 @@ export function reconcileRowsWithText(rows, text, opts = {}) {
       // قراءة أقدم جعلت سطر «م. الضامن ⬅️» منطقة — وهو المذخر نفسه ببادئته.
       else if (row.area && header.warehouse && normKey(row.area) === `م ${normKey(header.warehouse)}`) row.area = null;
     }
+    // _areaRaw: ما قُرئ قبل توحيده بالماستر («الخليج» ← «حي الخليج») في الطلبيات المخزّنة.
+    if (!header.area && row.area && (inWarehouseLine(row.area) || (row._areaRaw && inWarehouseLine(row._areaRaw)))) {
+      row.area = null; delete row._areaRaw;
+    }
     if (header.warehouse) row.warehouse = header.warehouse;
     // مذخر الموديل حين لم يحسمه الشكل: يُنظَّف من الملاحظات الملتصقة بنفس القاعدة.
     else if (row.warehouse) row.warehouse = cleanWarehouseName(String(row.warehouse).replace(/^(?:من\s+)?(?:ال)?مذخر\s+/, ''));
   }
 
+  // كابشن صورة (headerOnly): الترويسة فقط — أصناف الصورة وكمياتها من الفاتورة نفسها.
+  if (opts.headerOnly) return rows;
   // ربط كل صف بسطره: بالعلامة التجارية، بالترتيب، وكل سطر يُستهلك مرة واحدة.
   const used = new Set();
   for (const row of rows) {

@@ -330,6 +330,7 @@ export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, th
 // 3: صفّ بلا كمية اسمه مذخر معروف («سنايا اسبرين منارة») يُحذف.
 // 4: قاعدة المناطق (Area + AreaAlias) تفصل المنطقة عن الصيدلية بلا «ص» وتوحّد الاسم.
 // 5 (2026-11-17): «م.» مذخر، «ق» قطعة، السهم فاصل حقول، سطر الطبيب يُتجاهل.
+// 6 (تتمة #228): «ع 10» الوحدة قبل الرقم، «او» تقصّ بدائل المذخر، وكابشن الصورة يحسم الترويسة.
 // 6: سطر الكمية وحده يلتصق بصنفه («Amikavir 5 amp» ⏎ «10 قطعة»)، وإشارة «@رقم» تُتجاهل.
 export const TEXT_PARSE_VERSION = 6;
 
@@ -339,9 +340,10 @@ export const TEXT_PARSE_VERSION = 6;
  * تُطبَّق على صفوف **الموديل الخام** فقط (قبل مطابقة الكتالوج) — على صفوف مُطابَقة
  * كانت ستستبدل اسم الكتالوج بالاسم المكتوب.
  */
-export async function applyTextParse(rows, text) {
+export async function applyTextParse(rows, text, { headerOnly = false } = {}) {
   const [known, areas] = await Promise.all([loadKnownWarehouseKeys(), loadKnownAreaIndex()]);
   return reconcileRowsWithText(rows, text, {
+    headerOnly,
     isKnownWarehouse: (t) => {
       const k = normKey(t);
       return known.has(k) || known.has(normKey(t.replace(/^(?:دواء|ادوية|أدوية)\s+/, '')));

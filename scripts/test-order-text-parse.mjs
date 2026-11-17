@@ -232,5 +232,24 @@ check('«Amikavir 1 amp» ← حجم 1 amp', brandDoseFallback('Amikavir 1 amp',
 check('«Amikavir» بلا عدد ⇒ لا ربط', brandDoseFallback('Amikavir', cat220)?.confidence, 'medium');
 check('عدد لا يطابق أي حجم ⇒ لا ربط', brandDoseFallback('Amikavir 10 amp', cat220)?.confidence, 'medium');
 
+// ── كروب الديوانية #228 (2026-11-17): صورة + كابشن، «ع 10» الوحدة قبل الرقم، بدائل مذخر بـ«او» ──
+// قُرئت الصيدلية «م . ضرغام» والمنطقة «الخليج» (بديل مذخر) والمذخر فارغاً.
+const T228 = 'Amoklavin 625\nع 10\nAmoklavin 457\nع 10\nص احمد الشيباني\nم الضرغام او الخليج او الضامن\n@244168991453375';
+check('#228: الترويسة والأصناف من النص', parseOrderText(T228),
+  { header: { pharmacy: 'احمد الشيباني', area: null, warehouse: 'الضرغام', pharmacyLines: 1 }, itemLines: ['Amoklavin 625 (10)', 'Amoklavin 457 (10)'] });
+check('«Amoklavin 625 ع 10» في سطر واحد', parseItemLine('Amoklavin 625 ع 10'), { name: 'Amoklavin 625', quantity: 10, bonus: null });
+check('«مذخر اوزون او الناقوس» ← الأول', cleanWarehouseName('الضرغام او الخليج'), 'الضرغام');
+const img228 = () => [
+  { item: 'AMOKLAVIN BID 625 500 125MG 10CAP', quantity: 10, pharmacy: 'م . ضرغام', area: 'حي الخليج', _areaRaw: 'الخليج', warehouse: null },
+  { item: 'AMOKLAVIN BID 457MG SYRUP', quantity: 10, pharmacy: 'م . ضرغام', area: 'الخليج', warehouse: null },
+];
+check('#228 صورة: الكابشن يحسم الصيدلية والمذخر ويمسح منطقة البديل، والأصناف تبقى',
+  reconcileRowsWithText(img228(), T228, { headerOnly: true }).map(r => [r.item, r.quantity, r.pharmacy, r.area, r.warehouse]), [
+    ['AMOKLAVIN BID 625 500 125MG 10CAP', 10, 'احمد الشيباني', null, 'الضرغام'],
+    ['AMOKLAVIN BID 457MG SYRUP', 10, 'احمد الشيباني', null, 'الضرغام'],
+  ]);
+check('منطقة الموديل غير المذكورة في سطر المذخر تبقى', run('ص النور\nم الضامن\nPandev (3)',
+  [{ item: 'Pandev', quantity: 3, pharmacy: 'النور', area: 'الحرية' }]).map(r => r.area), ['الحرية']);
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);
