@@ -2827,6 +2827,7 @@ export default function UsersPage({ jumpUserId, onJumpClear }: { jumpUserId?: nu
         onBulkImport={() => setShowBulkImport(true)}
         onSetLeader={setProvinceLeader}
         onReloadStructure={reloadProvinceStructure}
+        onReloadUsers={() => load(true)}
       />
 
       {form && !detail && (() => {

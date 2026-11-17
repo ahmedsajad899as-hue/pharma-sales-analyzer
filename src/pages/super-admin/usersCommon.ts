@@ -46,7 +46,7 @@ export interface UserRow {
   _count?: { companyAssignments?: number; areas?: number; doctorVisits?: number };
   companyAssignments?: { companyId: number; isPrimary?: boolean; company: { id: number; name: string } }[];
   managersOfUser?:     { managerId: number; manager: { id: number; username: string; displayName?: string } }[];
-  linkedRep?:          { id?: number; name?: string; repKind?: string } | null;
+  linkedRep?:          { id?: number; name?: string; repKind?: string; officeSource?: string | null } | null;
   side?:               string | null; // المسوقون: الكرخ/الرصافة
 }
 

@@ -25,7 +25,7 @@ const userSelect = {
   linkedRepId: true,
   createdAt: true,
   office: { select: { id: true, name: true } },
-  linkedRep: { select: { id: true, name: true, repKind: true } },
+  linkedRep: { select: { id: true, name: true, repKind: true, officeSource: true } },
   companyAssignments: { include: { company: { select: { id: true, name: true } } } },
   lineAssignments:    { include: { line:    { select: { id: true, name: true, companyId: true } } } },
   itemAssignments:    { include: { item:    { select: { id: true, name: true } } } },
@@ -52,7 +52,7 @@ export async function listAllUsers(req, res) {
     select: {
       id: true, username: true, displayName: true, role: true,
       isActive: true, phone: true, officeId: true, linkedRepId: true,
-      linkedRep: { select: { repKind: true } },
+      linkedRep: { select: { repKind: true, officeSource: true } },
       office: { select: { id: true, name: true } },
       _count: { select: { companyAssignments: true, doctorVisits: true } },
       companyAssignments: { include: { company: { select: { id: true, name: true } } } },
@@ -1165,6 +1165,29 @@ export async function setUserFeatures(req, res) {
 // PUT /api/sa/users/bulk-features  { userIds: number[], featureKey: string, enabled: boolean }
 // يُضيف/يُزيل featureKey فقط من disabledFeatures لكل حساب (لا يمسّ باقي ميزاته
 // المحفوظة)، بخلاف setUserFeatures أعلاه الذي يستبدل القائمة كاملة لحساب واحد.
+/**
+ * PUT /api/sa/users/marketers/office-source — { userIds:number[], officeSource:'warehouse'|null }
+ * «مبيع المكتب» للمسوقين: من «معلومات الزبون» (null) أو من مذخر اليزن في ميركاتو
+ * ('warehouse') — server/lib/pharmacyRep.js. صار قرار السوبر أدمن وحده (2026-11-17)؛
+ * كان زراً في صفحة التحليل لكل موظف مكتب.
+ */
+export async function setMarketersOfficeSource(req, res, next) {
+  try {
+    const ids = (Array.isArray(req.body?.userIds) ? req.body.userIds : []).map(Number).filter(Number.isInteger);
+    if (!ids.length) return res.status(400).json({ error: 'لا يوجد مسوقون' });
+    const officeSource = req.body?.officeSource === 'warehouse' ? 'warehouse' : null;
+    const users = await prisma.user.findMany({
+      where: { id: { in: ids }, linkedRep: { repKind: PHARMACY_KIND } },
+      select: { linkedRepId: true },
+    });
+    const repIds = [...new Set(users.map(u => u.linkedRepId).filter(Boolean))];
+    const r = repIds.length
+      ? await prisma.scientificRepresentative.updateMany({ where: { id: { in: repIds } }, data: { officeSource } })
+      : { count: 0 };
+    res.json({ success: true, data: { updated: r.count, officeSource } });
+  } catch (err) { next(err); }
+}
+
 export async function bulkSetUserFeature(req, res) {
   const { userIds, featureKey, enabled } = req.body;
   if (!Array.isArray(userIds) || userIds.length === 0) {

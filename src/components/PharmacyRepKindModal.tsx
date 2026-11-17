@@ -18,7 +18,8 @@ export default function PharmacyRepKindModal({ rep, token, activeFileIds, onClos
   const [kind, setKind]       = useState<'scientific' | 'pharmacy'>(rep.repKind === 'pharmacy' ? 'pharmacy' : 'scientific');
   const [labels, setLabels]   = useState<string[]>(rep.customerInfoLabels ?? []);
   // مصدر «Office»: معلومات الزبون في ملف المكتب، أو ميركاتو المرسَل لمذخر اليزن (server/lib/pharmacyRep.js).
-  const [officeSource, setOfficeSource] = useState<'customer_info' | 'warehouse'>(rep.officeSource === 'warehouse' ? 'warehouse' : 'customer_info');
+  // يُضبط من السوبر أدمن وحده (المستخدمون ← «مسوقين بغداد») — هنا للعرض فقط.
+  const officeSource: 'customer_info' | 'warehouse' = rep.officeSource === 'warehouse' ? 'warehouse' : 'customer_info';
   const [values, setValues]   = useState<CustomerInfoValue[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [custom, setCustom]   = useState('');
@@ -47,7 +48,7 @@ export default function PharmacyRepKindModal({ rep, token, activeFileIds, onClos
       const r = await fetch(`${API}/api/scientific-reps/${rep.id}/pharmacy`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ repKind: kind, customerInfoLabels: labels, officeSource: officeSource === 'warehouse' ? 'warehouse' : null }),
+        body: JSON.stringify({ repKind: kind, customerInfoLabels: labels }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j?.success === false) throw new Error(j?.error || 'فشل الحفظ');
@@ -77,19 +78,9 @@ export default function PharmacyRepKindModal({ rep, token, activeFileIds, onClos
           </div>
 
           {kind === 'pharmacy' && (
-            <div style={{ marginBottom: 12 }}>
-              <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>🏢 حساب مبيعات المكتب (Office)</strong>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {([['customer_info', '📇 معلومات الزبون', 'ملف المكتب'], ['warehouse', '🏬 مذخر اليزن', 'من ملف ميركاتو']] as const).map(([k, label, hint]) => (
-                  <button key={k} type="button"
-                    className={`btn ${officeSource === k ? 'btn--primary' : 'btn--secondary'}`}
-                    style={{ flex: 1, flexDirection: 'column', gap: 2 }}
-                    title={k === 'warehouse' ? 'صفوف ميركاتو باسمه المرسَلة لمذخر اليزن = مكتب، وتخرج من سطر Mercato. صفوف ملف المكتب لا تُحسب له.' : 'صفوف ملف المكتب بـ«معلومات الزبون» ∩ مناطقه ∩ ايتماته'}
-                    onClick={() => setOfficeSource(k)}>
-                    <span>{label}</span><span style={{ fontSize: 10.5, opacity: .75 }}>{hint}</span>
-                  </button>
-                ))}
-              </div>
+            <div style={{ marginBottom: 12, fontSize: 12, color: '#64748b' }}
+              title="يُضبط من السوبر أدمن ← المستخدمون ← «مسوقين بغداد»">
+              🏢 مبيع المكتب: <b style={{ color: '#1d4ed8' }}>{officeSource === 'warehouse' ? '🏬 مذخر اليزن' : '📇 معلومات الزبون'}</b> 🔒
             </div>
           )}
 

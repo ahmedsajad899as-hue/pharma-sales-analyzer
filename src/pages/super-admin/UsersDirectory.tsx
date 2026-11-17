@@ -4,7 +4,7 @@
 // الجلب والحفظ يبقيان في UsersPage؛ هذا الملف عرض وتنقّل فقط.
 // ════════════════════════════════════════════════════════════════════════════
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Spinner } from './OfficesPage';
 import ProvinceSeatsPanel from './ProvinceSeatsPanel';
 import type { ProvSeat } from './ProvinceSeatsPanel';
@@ -245,6 +245,8 @@ interface Props {
   onBulkImport: () => void;
   onSetLeader: (officeId: number, provinceId: number, leaderUserId: number | null) => void;
   onReloadStructure: () => void;
+  /** إعادة جلب المستخدمين بصمت (بعد تبديل «مبيع المكتب» للمسوقين). */
+  onReloadUsers: () => void;
 }
 
 export default function UsersDirectory(props: Props) {
@@ -639,6 +641,51 @@ export default function UsersDirectory(props: Props) {
     </>;
   };
 
+  // «مبيع المكتب» للمسوقين: 📇 من «معلومات الزبون» في ملف المكتب، أو 🏬 من مذخر اليزن في
+  // ميركاتو (server/lib/pharmacyRep.js). قرار السوبر أدمن وحده — يُطبَّق على كل مسوقي القسم.
+  const [officeSrcSaving, setOfficeSrcSaving] = useState(false);
+  const officeSrcSwitch = (list: UserRow[]) => {
+    const mk = list.filter(isMarketer);
+    if (!mk.length) return null;
+    const onYazen = mk.filter(u => u.linkedRep?.officeSource === 'warehouse').length;
+    const state = onYazen === 0 ? 'customer_info' : onYazen === mk.length ? 'warehouse' : 'mixed';
+    const apply = async (src: 'warehouse' | null) => {
+      if (officeSrcSaving || (src === 'warehouse' ? state === 'warehouse' : state === 'customer_info')) return;
+      if (!window.confirm(src === 'warehouse'
+        ? `حساب مبيع المكتب لكل المسوقين (${mk.length}) من مذخر اليزن في ميركاتو؟
+الأشهر التي لا يزن فيها تبقى على «معلومات الزبون».`
+        : `حساب مبيع المكتب لكل المسوقين (${mk.length}) من «معلومات الزبون» في ملف المكتب؟`)) return;
+      setOfficeSrcSaving(true);
+      try {
+        const r = await fetch('/api/sa/users/marketers/office-source', {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userIds: mk.map(u => u.id), officeSource: src }),
+        });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); window.alert(j.error || 'تعذّر الحفظ'); }
+        props.onReloadUsers();
+      } finally { setOfficeSrcSaving(false); }
+    };
+    const seg = (on: boolean): CSSProperties => ({
+      border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 15, lineHeight: 1.2,
+      cursor: officeSrcSaving ? 'wait' : 'pointer', fontFamily: 'inherit',
+      background: on ? '#fff' : 'transparent', boxShadow: on ? '0 1px 3px rgba(0,0,0,.15)' : 'none',
+      opacity: on ? 1 : 0.45,
+    });
+    return (
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title="مبيع المكتب للمسوقين">
+        <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2 }}>
+          <button type="button" disabled={officeSrcSaving} style={seg(state === 'customer_info')} onClick={() => apply(null)}
+            title="مبيع المكتب من «معلومات الزبون» في ملف المكتب">📇</button>
+          <button type="button" disabled={officeSrcSaving} style={seg(state === 'warehouse')} onClick={() => apply('warehouse')}
+            title="مبيع المكتب من مذخر اليزن في ميركاتو">🏬</button>
+        </div>
+        {state === 'mixed' && <span style={{ fontSize: 11, color: '#b45309', fontWeight: 700 }} title="بعض المسوقين على اليزن وبعضهم على معلومات الزبون">{onYazen}/{mk.length}</span>}
+        {officeSrcSaving && <span style={{ fontSize: 11, color: '#94a3b8' }}>…</span>}
+      </div>
+    );
+  };
+
   // «مسوقين بغداد»: مدير المسوقين ← الأقسام ← كل تيم ليدر ومندوبوه ← بلا قائد.
   const renderMarketers = () => {
     const sorted = sortUsers(allMarketers);
@@ -663,7 +710,7 @@ export default function UsersDirectory(props: Props) {
     });
     const shownManagers = managers.filter(match);
     return <>
-      {paneHead('مسوقين بغداد', `${leaders.length} تيم ليدر · ${others.length} مندوب`, filterTools)}
+      {paneHead('مسوقين بغداد', `${leaders.length} تيم ليدر · ${others.length} مندوب`, <>{officeSrcSwitch(allMarketers)}{filterTools}</>)}
       <div className="ud-table">
         <TableHead />
         {shownManagers.map(u => <UserLine key={u.id} u={u} />)}

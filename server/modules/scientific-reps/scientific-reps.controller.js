@@ -148,7 +148,9 @@ export async function setPharmacySettings(req, res, next) {
     if (['scientific_rep', 'commercial_rep', 'user'].includes(req.user?.role)) {
       return res.status(403).json({ success: false, error: 'غير مسموح' });
     }
-    const rep = await svc.setPharmacySettings(+req.params.id, req.body || {});
+    // «مبيع المكتب» (officeSource) يُضبط من السوبر أدمن وحده — PUT /api/sa/users/marketers/office-source.
+    const { officeSource: _ignored, ...body } = req.body || {};
+    const rep = await svc.setPharmacySettings(+req.params.id, body);
     res.json({ success: true, data: rep });
   } catch (err) { next(err); }
 }

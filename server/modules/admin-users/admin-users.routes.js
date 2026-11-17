@@ -7,7 +7,7 @@ import {
   syncManagerScopeToSubordinates, syncProvinceLeaderScope,
   setUserStockCompanies, setUserStockItems,
   getUserRepInfo, getUserCompanyItems, getUserItemTiers, setUserItemTiers,
-  deleteUser, listProvinceStructure, setProvinceLeader,
+  deleteUser, listProvinceStructure, setProvinceLeader, setMarketersOfficeSource,
 } from './admin-users.controller.js';
 import { previewUsersImport, commitUsersImport } from './admin-users-import.js';
 import { createProvinceSeats, createProvinceMarketers, saveProvinceRepSeats, saveProvinceSeatSplit, provinceSeatOptions } from './province-seats.js';
@@ -34,6 +34,7 @@ router.post('/import/preview', upload.single('file'), previewUsersImport);
 router.post('/import/commit',  commitUsersImport);
 // قبل '/:id' كي لا يُفسَّر "bulk-features" كمعرّف مستخدم
 router.put('/bulk-features', bulkSetUserFeature);
+router.put('/marketers/office-source', setMarketersOfficeSource); // «مبيع المكتب» للمسوقين — سوبر أدمن فقط
 router.get('/:id',         getUser);
 router.post('/',           createUser);
 router.put('/:id',         updateUser);

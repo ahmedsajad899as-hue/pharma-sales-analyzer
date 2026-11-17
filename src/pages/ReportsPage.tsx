@@ -1275,8 +1275,6 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   const [overallTeamReady, setOverallTeamReady] = useState(false);
   const [overallTeamsLoaded, setOverallTeamsLoaded] = useState(false);
   const [sciRepsLoaded, setSciRepsLoaded] = useState(false);
-  // حفظ «مبيع المكتب» للمسوقين دفعة واحدة (معلومات الزبون / مذخر اليزن) — server/lib/pharmacyRep.js.
-  const [officeSrcSaving, setOfficeSrcSaving] = useState(false);
   // فلتر مندوب داخل «مذاخر بغداد» — يضبطه المساعد («مبيعات المذاخر لمحمود بلال»).
   const [baghdadRepFilter, setBaghdadRepFilter] = useState<string | null>(null);
   // وفلتر مذخر («طلعلي مبيعات مذخر الناقوس»)
@@ -4602,47 +4600,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
                     title={canToggleRepKind ? `مبيع ${g.company} كاملاً — كل من تحتها` : undefined}
                     onClick={() => canToggleRepKind ? pickGroup(`grp:${g.company}`) : setQuickCompany(g.company)}>{g.company}</button>
                 ))}
-                {marketersView && (() => {
-                  // «مبيع المكتب» لكل المسوقين المعروضين معاً: ملف المكتب بـ«معلومات الزبون»، أو
-                  // ميركاتو المرسَل لمذخر اليزن (الأشهر التي فيها يزن فقط؛ غيرها بالطريقة القديمة).
-                  const mk = sciReps.filter(r => r.repKind === 'pharmacy');
-                  if (!mk.length) return null;
-                  const onYazen = mk.filter(r => r.officeSource === 'warehouse').length;
-                  const state = onYazen === 0 ? 'customer_info' : onYazen === mk.length ? 'warehouse' : 'mixed';
-                  const setAll = async (src: 'warehouse' | null) => {
-                    if (officeSrcSaving) return;
-                    if (!window.confirm(src === 'warehouse'
-                      ? `حساب مبيع المكتب لكل المسوقين (${mk.length}) من مذخر اليزن في ملف ميركاتو؟\nالأشهر التي لا يزن فيها تبقى على «معلومات الزبون».`
-                      : `إرجاع حساب مبيع المكتب لكل المسوقين (${mk.length}) إلى «معلومات الزبون» في ملف المكتب؟`)) return;
-                    setOfficeSrcSaving(true);
-                    try {
-                      const res = await Promise.all(mk.map(r => fetch(`/api/scientific-reps/${r.id}/pharmacy`, {
-                        method: 'PATCH', headers: { ...authH(), 'Content-Type': 'application/json' }, body: JSON.stringify({ officeSource: src }),
-                      }).then(x => x.ok)));
-                      const okIds = new Set(mk.filter((_, i) => res[i]).map(r => r.id));
-                      setSciReps(prev => prev.map(r => okIds.has(r.id) ? { ...r, officeSource: src } : r));
-                      if (okIds.size < mk.length) setError(`تعذّر حفظ ${mk.length - okIds.size} مسوّق`);
-                      SCI_REPORT_CACHE.clear();
-                      if (sciRepId) loadSciReport(sciRepId);
-                    } finally { setOfficeSrcSaving(false); }
-                  };
-                  const seg = (on: boolean): React.CSSProperties => ({
-                    border: 'none', borderRadius: 6, padding: '3px 9px', fontSize: 11.5, fontWeight: 700, cursor: officeSrcSaving ? 'wait' : 'pointer',
-                    background: on ? '#fff' : 'transparent', color: on ? '#1d4ed8' : '#64748b', boxShadow: on ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
-                  });
-                  return (
-                    <div style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}
-                      title="كيف يُحسب مبيع المكتب (Office) للمسوقين">
-                      <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 700 }}>مبيع المكتب:</span>
-                      <div style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2 }}>
-                        <button type="button" disabled={officeSrcSaving} style={seg(state === 'customer_info')} onClick={() => setAll(null)}>📇 معلومات الزبون</button>
-                        <button type="button" disabled={officeSrcSaving} style={seg(state === 'warehouse')} onClick={() => setAll('warehouse')}>🏬 مذخر اليزن</button>
-                      </div>
-                      {state === 'mixed' && <span style={{ fontSize: 11, color: '#b45309' }}>{onYazen}/{mk.length} على اليزن</span>}
-                      {officeSrcSaving && <span style={{ fontSize: 11, color: '#94a3b8' }}>…</span>}
-                    </div>
-                  );
-                })()}
+                {/* «مبيع المكتب» للمسوقين (معلومات الزبون / مذخر اليزن) صار يُضبط من السوبر أدمن
+                    ← المستخدمون ← «مسوقين بغداد» (UsersDirectory.tsx). */}
               </div>
               {lines.map((ln, idx) => {
                 // المندوبون على سطرين متوازنين بجانب اسم قائدهم.
