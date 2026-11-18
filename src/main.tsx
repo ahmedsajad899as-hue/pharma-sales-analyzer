@@ -32,6 +32,8 @@ if (_impParams.get('imp') === '1') {
 // ── Share target: sw.js خزّن الصور المُشارَكة (من واتساب مثلاً) وحوّل إلى ?share-target=1 ──
 if (_impParams.get('share-target') === '1') {
   try { sessionStorage.setItem('ro-share', '1'); } catch {}
+  // فتحٌ بالمشاركة: App.tsx لا يضيف مدخل سجلّ فيبقى للصفحة حقّ إغلاق نفسها بعد الحفظ
+  (window as any).__ordineShareLaunch = true;
   window.history.replaceState({}, '', '/');
 }
 

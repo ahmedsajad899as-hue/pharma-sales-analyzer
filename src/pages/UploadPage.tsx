@@ -4,6 +4,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import FileRowsEditor from '../components/FileRowsEditor';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import ManualSalesModal, { type PendingOrderDetail } from '../components/ManualSalesModal';
+import ViberImportPanel from '../components/rep-orders/ViberImportPanel';
 import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
 import RepNameMatchModal from '../components/RepNameMatchModal';
 import CumulativeAuditModal from '../components/CumulativeAuditModal';
@@ -121,6 +122,8 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   const [pendingOrders, setPendingOrders]     = useState<any[]>([]);
   // الطلبيات المفتوحة للمراجعة — واحدة («مراجعة») أو كلها في جدول واحد («مراجعة الكل»).
   const [orderDetails, setOrderDetails]       = useState<PendingOrderDetail[]>([]);
+  // مراجعة طلبيات البوت ببطاقات لوحة الفايبر (طلب صاحب المشروع 2026-11-18)؛ «الجدول» يفتح المودال القديم
+  const [botPanel, setBotPanel]               = useState(false);
   // رقم الطلبية قيد الجلب، أو -1 = جلب الكل.
   const [loadingOrder, setLoadingOrder]       = useState<number | null>(null);
 
@@ -195,13 +198,24 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
     return j.data;
   }, [token]);
 
+  /** مسارات /api/rep-orders (اقتراحات المناطق واختيار المندوب) للوحة مراجعة طلبيات البوت. */
+  const repOrdersApi = useCallback(async <T = any,>(path: string, init?: RequestInit): Promise<T> => {
+    const res = await fetch(`${API}/api/rep-orders${path}`, {
+      ...init,
+      headers: { Authorization: `Bearer ${token}`, ...(init?.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(init?.headers || {}) },
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || j.success === false) throw new Error(j.error || j.message || 'تعذّر الطلب');
+    return j as T;
+  }, [token]);
+
   /** يفتح طلبية للمراجعة — التفصيل (الصفوف) يُجلب عند الحاجة لا مع القائمة. */
   const reviewOrder = useCallback(async (id: number) => {
     setLoadingOrder(id);
     setManualMsg('');
     try {
       setOrderDetails([await fetchOrderDetail(id)]);
-      setShowManualModal(true);
+      setBotPanel(true);
     } catch (e: any) {
       setError(e.message || 'تعذّر فتح الطلبية');
     } finally {
@@ -233,7 +247,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
       if (!out.length) throw new Error('تعذّر فتح الطلبيات');
       if (failed) setError(`تعذّر فتح ${failed} طلبية — بقيت في القائمة.`);
       setOrderDetails(out);
-      setShowManualModal(true);
+      setBotPanel(true);
     } catch (e: any) {
       setError(e.message || 'تعذّر فتح الطلبيات');
     } finally {
@@ -250,6 +264,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
     setPendingOrders(prev => prev.filter(o => !gone.has(o.id)));
     setOrderDetails([]);
     setShowManualModal(false);
+    setBotPanel(false);
   }, [token]);
   const cancelPendingOrder = useCallback((id: number) => cancelPendingOrders([id]), [cancelPendingOrders]);
 
@@ -1311,6 +1326,26 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
           canFix={auditFile.canFix}
           onClose={() => setAuditFile(null)}
           onFixed={() => { loadFiles(); setExpandedBatchesId(null); }}
+        />
+      )}
+
+      {/* مراجعة طلبيات البوت: نفس بطاقات «طلبيات الفايبر» — تُحفظ في ملف اللكوديشن */}
+      {ordersFeature && botPanel && orderDetails.length > 0 && (
+        <ViberImportPanel
+          api={repOrdersApi} token={token} warehouses={[]} reps={[]} canSend={false}
+          botOrders={orderDetails}
+          onLegacy={() => { setBotPanel(false); setShowManualModal(true); }}
+          onClose={() => { setBotPanel(false); setOrderDetails([]); }}
+          onChanged={() => {}}
+          onBotSaved={async (ids, fileId, summary, done) => {
+            const saved = new Set(ids);
+            setPendingOrders(prev => prev.filter(o => !saved.has(o.id)));
+            if (done) { setBotPanel(false); setOrderDetails([]); }
+            setManualMsg(`✅ ${summary}`);
+            if (fileId && !activeFileIds.includes(fileId)) onFileActivated(fileId);
+            await loadFiles();
+            setTimeout(() => setManualMsg(''), 12000);
+          }}
         />
       )}
 

@@ -466,8 +466,18 @@ export default function RepOrdersPage() {
   const viberImport = hasFeature('rep_orders_viber_import');
   const [showViber, setShowViber] = useState(false);
   // ما وصل بـ«مشاركة ← Ordine» ويُفتح مباشرة في لوحة الفايبر (نص رسالة، أو سكرين شوت)
-  const [viberInit, setViberInit] = useState<{ text?: string; images?: File[] } | null>(null);
-  const openViber = (init: { text?: string; images?: File[] } | null = null) => { setViberInit(init); setShowViber(true); };
+  // fromShare: فُتحت بـ«مشاركة» من الفايبر/الواتساب ← بعد الحفظ يُغلق التطبيق ويعود المستخدم للمحادثة
+  const [viberInit, setViberInit] = useState<{ text?: string; images?: File[]; fromShare?: boolean } | null>(null);
+  const openViber = (init: { text?: string; images?: File[]; fromShare?: boolean } | null = null) => { setViberInit(init); setShowViber(true); };
+  /**
+   * غلق التطبيق بعد حفظ طلبية وصلت بالمشاركة (طلب صاحب المشروع 2026-11-18). المتصفح يسمح
+   * لصفحة بإغلاق نفسها فقط إن كان سجلّها مدخلاً واحداً — App.tsx لا يضيف مدخله عند الفتح
+   * بالمشاركة لهذا. إن رفض المتصفح تبقى رسالة «ارجع للفايبر».
+   */
+  const closeAfterShare = (summary: string) => {
+    setNotice(`✅ ${summary} — ارجع للفايبر/الواتساب`);
+    setTimeout(() => { try { window.close(); } catch { /* المتصفح رفض */ } }, 700);
+  };
   const [viaBot, setViaBot] = useState<boolean>(() => { try { return localStorage.getItem('ro-via-bot') === '1'; } catch { return false; } });
   const toggleViaBot = (v: boolean) => { setViaBot(v); try { localStorage.setItem('ro-via-bot', v ? '1' : '0'); } catch {} };
 
@@ -552,7 +562,7 @@ export default function RepOrdersPage() {
       const text = (await (await cache.match(textKey))?.text()) ?? '';
       await caches.delete(SHARE_CACHE);
       if (!text.trim()) return;
-      if (viberImport) openViber({ text });
+      if (viberImport) openViber({ text, fromShare: true });
       else setNotice('لإدخال طلبية من نص مُشارَك فعّل ميزة «استيراد طلبيات الفايبر» من المميزات');
     })().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1020,7 +1030,11 @@ export default function RepOrdersPage() {
           canSend={canBotSend && viaBot}
           initialText={viberInit?.text} initialImages={viberInit?.images}
           onClose={() => { setShowViber(false); setViberInit(null); }} onChanged={load}
-          onFinished={(summary) => { setShowViber(false); setViberInit(null); setNotice(`✅ ${summary}`); }} />
+          onFinished={(summary) => {
+            const share = viberInit?.fromShare;
+            setShowViber(false); setViberInit(null);
+            if (share) closeAfterShare(summary); else setNotice(`✅ ${summary}`);
+          }} />
       )}
       {showWarehouses && (
         <WarehousesModal api={api} warehouses={warehouses} provinces={provinces} canManage={canDispatch} showBot={canBotSend} onOpen={openWarehouse} onChanged={() => { loadWarehouses(); load(); }} onClose={() => setShowWarehouses(false)} />
@@ -1029,7 +1043,7 @@ export default function RepOrdersPage() {
         <SharedImagePicker api={api} images={shared} beginSend={canDispatch ? (o, wh) => beginSend([o], wh, true) : undefined}
           onViber={viberImport ? () => {
             const files = shared.map((b, i) => new File([b], `shot-${i}.jpg`, { type: b.type || 'image/jpeg' }));
-            clearShared(); openViber({ images: files });
+            clearShared(); openViber({ images: files, fromShare: true });
           } : undefined}
           onDone={() => { clearShared(); load(); }} onCancel={clearShared} />
       )}

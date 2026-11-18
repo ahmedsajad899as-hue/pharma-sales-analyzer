@@ -54,6 +54,15 @@
 .vi-card__body { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 12px; padding: 10px; }
 .vi-src { order: 2; align-self: start; background: rgba(115, 96, 242, .07); border: 1px solid rgba(115, 96, 242, .25); border-radius: 10px; padding: 6px 8px; }
 .vi-src__head { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #7360f2; margin-bottom: 4px; }
+.vi-thumbs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 4px; }
+.vi-thumbs img { height: 96px; max-width: 160px; object-fit: cover; border-radius: 8px; border: 1px solid var(--c-border); cursor: zoom-in; flex-shrink: 0; background: #fff; }
+.vi-src__none { color: var(--c-text-secondary); font-size: 11px !important; }
+.vi-zoom { position: fixed; inset: 0; z-index: 3100; background: rgba(15, 23, 42, .85); display: flex; align-items: center; justify-content: center; padding: 10px; cursor: zoom-out; }
+.vi-zoom img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+/* المذاخر المكتوبة في الرسالة (وضع اللكوديشن) */
+.vi-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.vi-chip { border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-primary); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.vi-chip.is-on { border-color: var(--c-accent); background: var(--c-accent-light); color: var(--c-accent); font-weight: 700; }
 .vi-src__more { display: none; margin-inline-start: auto; font-weight: 600; color: var(--c-accent); }
 .vi-src pre { margin: 0; font-family: inherit; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--c-text-primary); }
 .vi-form { order: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -161,7 +170,9 @@
   .vi-src { order: 0; padding: 4px 8px; cursor: pointer; }
   .vi-src__head { margin-bottom: 2px; }
   .vi-src__more { display: inline; }
-  .vi-src pre { max-height: 2.9em; overflow: hidden; font-size: 11.5px; line-height: 1.45; }
+  /* ثلاثة أسطر من الرسالة ظاهرة وهي مطويّة (طلب صاحب المشروع 2026-11-18) */
+  .vi-src pre { max-height: 4.35em; overflow: hidden; font-size: 11.5px; line-height: 1.45; }
+  .vi-thumbs img { height: 72px; }
   .vi-src.is-open pre { max-height: 50vh; overflow-y: auto; }
   .vi-form { gap: 6px; }
   .vi-fields { gap: 6px; }

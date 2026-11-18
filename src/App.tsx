@@ -485,8 +485,11 @@ function AppInner() {
     const saved = (localStorage.getItem('lastPage') as PageId) || 'dashboard';
     // Single base entry – when popped we know user wants to exit
     history.replaceState({ page: saved }, '');
-    // Working entry – user always sits here when no layers open
-    history.pushState({ page: saved, appShell: true }, '');
+    // Working entry – user always sits here when no layers open.
+    // Except when launched from the share sheet (Viber/WhatsApp → Ordine): a page may only
+    // close itself (window.close) while its history has a single entry, and the share flow
+    // closes the app after saving to return the user to the chat. Back then simply exits.
+    if (!(window as any).__ordineShareLaunch) history.pushState({ page: saved, appShell: true }, '');
 
     let exitPending = false;
     let exitTimer: ReturnType<typeof setTimeout> | null = null;

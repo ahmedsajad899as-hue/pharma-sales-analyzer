@@ -421,6 +421,8 @@ async function buildDrafts(reqUser, messages, source) {
       warehouseName: primary?.name ?? whUnmatched[0] ?? '',
       backupWarehouseIds: whMatched.slice(1).map(w => w.id),
       mentionedWarehouses: mentioned,
+      // كما كُتبت في الرسالة — وضع «لكوديشن» يحفظ الاسم المكتوب لا اسم الدليل
+      writtenWarehouses: parsed.warehousesWritten ?? [],
       notes: parsed.notes.join(' — '),
       lines,
       repUserId: rep?.id ?? null,
@@ -552,7 +554,7 @@ export async function areaSuggestions(reqUser) {
   }
   const list = [...out.values()].map(x => ({ ...x, covered: isCovered(x.canon || x.name) }));
   list.sort((a, b) => Number(b.covered) - Number(a.covered) || a.name.localeCompare(b.name, 'ar'));
-  return { areas: list };
+  return { areas: list, team: ctx.team.list.map(u => ({ id: u.id, name: u.name })) };
 }
 
 /**

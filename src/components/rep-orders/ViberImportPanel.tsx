@@ -17,6 +17,8 @@ import { createPortal } from 'react-dom';
 import { X, ClipboardPaste, Image as ImageIcon, Trash2, Plus, Check, Send, Pencil, Users, Images, LayoutGrid, MessageSquareText } from 'lucide-react';
 import { compressImage } from '../../lib/localImage';
 import { normSearch } from '../OrderItemPicker';
+// أصناف ro-modal/ro-dialog — اللوحة تُفتح أيضاً من صفحة رفع الملفات (مراجعة طلبيات البوت)
+import '../../pages/RepOrdersPage.css';
 import './ViberImportPanel.css';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -27,11 +29,22 @@ interface DraftLine {
   editing?: boolean; // الواجهة: الصنف المطابَق فُتح للبحث عن غيره
 }
 interface MentionedWh { id: number | null; name: string; ready?: boolean }
+/** طلبية بوت معلَّقة (صفحة رفع الملفات) — نفس شكل PendingOrderDetail في ManualSalesModal. */
+export interface BotOrder {
+  id: number; source: string; kind: string; rows: any[];
+  repName?: string | null; sourceText?: string | null; senderName?: string | null;
+  imageCount?: number; createdAt?: string;
+}
 interface Draft {
-  key: string; source: 'viber-paste' | 'viber-shot'; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
+  // المذاخر كما كُتبت في الرسالة، والمذخر المحفوظ في اللكوديشن (نص حرّ لا اختيار من الدليل)
+  writtenWarehouses?: string[]; whText?: string;
+  // طلبية بوت: رقمها ومصدرها وحساب الكروب، وتاريخ الفاتورة ورقمها من صفوفها
+  bot?: { orderId: number; source: string; repAccount: string | null; createdAt?: string };
+  date?: string; invoiceNumber?: string;
+  key: string; source: string; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
   pharmacyName: string; areaName: string; warehouseId: number | null; warehouseName: string; backupWarehouseIds: number[];
   mentionedWarehouses: MentionedWh[];
-  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'leader' | 'sender' | 'learned' | 'guess' | null; repNote?: string | null;
+  notes: string; lines: DraftLine[]; repUserId: number | null; repName: string | null; repWhy: 'area' | 'leader' | 'sender' | 'learned' | 'guess' | 'bot' | null; repNote?: string | null;
   repCandidates: { id: number; name: string }[]; sourceHash: string | null;
   duplicateOf: { id: number; pharmacyName: string; createdAt: string; status: string } | null; dupInBatch: boolean; warnings: string[];
   // الواجهة فقط
@@ -49,7 +62,48 @@ interface CatItem { id: number; name: string; price?: number | null; warehousePr
  */
 type Mode = 'liq' | 'wh';
 
-const REP_WHY: Record<string, string> = { leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
+/** اسم مندوب للمطابقة: بلا «/ المنطقة ph»، وبلا همزات وتاء مربوطة ومسافات. */
+const repKey = (s: string) => String(s ?? '').split('/')[0].replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, '').toLowerCase();
+const numOf = (v: unknown) => { const n = Number(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : 0; };
+
+/** صفوف طلبية بوت ← بطاقة لكل (صيدلية × رقم فاتورة): الصورة قد تحمل أكثر من فاتورة. */
+function botDrafts(o: BotOrder): Draft[] {
+  const groups = new Map<string, any[]>();
+  for (const r of (o.rows || []).filter(Boolean)) {
+    const k = `${repKey(r.pharmacy || '')}|${String(r.invoiceNumber ?? '').trim()}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(r);
+  }
+  return [...groups.values()].map((rs, gi) => {
+    const first = rs[0] || {};
+    const written = [...new Set(rs.map(r => String(r.warehouse ?? '').trim()).filter(Boolean))];
+    return {
+      key: `b${o.id}-${gi}`, source: o.source, sourceText: o.sourceText || '', sender: o.senderName || null,
+      mentions: [], readBy: 'parser',
+      pharmacyName: String(first.pharmacy ?? ''), areaName: String(first.area ?? ''),
+      warehouseId: null, warehouseName: written[0] ?? '', backupWarehouseIds: [], mentionedWarehouses: [],
+      writtenWarehouses: written, whText: written[0] ?? '',
+      notes: [...new Set(rs.map(r => String(r.notes ?? '').trim()).filter(Boolean))].join(' — '),
+      lines: rs.map(r => {
+        const q = numOf(r.quantity);
+        const unit = r.unitPrice != null && r.unitPrice !== '' ? numOf(r.unitPrice) : (numOf(r.total) && q ? numOf(r.total) / q : null);
+        return {
+          itemId: r._itemId ?? null, itemName: String(r.item ?? ''), writtenAs: String(r.item ?? ''),
+          quantity: q, bonusQty: numOf(r.bonus), matched: Boolean(r._itemId), suggestions: [],
+          companyName: r.company || null, unitPrice: unit,
+        };
+      }),
+      repUserId: null, repName: String(first.scientificRep ?? '') || null, repWhy: null, repNote: null,
+      repCandidates: [], sourceHash: null, duplicateOf: null, dupInBatch: false, warnings: [], include: true,
+      date: first.date ? String(first.date) : undefined, invoiceNumber: first.invoiceNumber ? String(first.invoiceNumber) : undefined,
+      bot: { orderId: o.id, source: o.source, repAccount: o.repName ?? null, createdAt: o.createdAt },
+      // مرشّحو الخادم للبطاقة (أسماء) — تُطابَق بأعضاء الفريق بعد تحميله
+      ...({ _cands: (first._repCandidates || []).map((c: any) => c?.name).filter(Boolean) } as any),
+    } as Draft;
+  });
+}
+
+const REP_WHY: Record<string, string> = { bot: 'من الطلبية', leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 const fmtPrice = (n?: number | null) => (n != null && Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString('en-US') : null);
@@ -187,7 +241,13 @@ function WarehouseSearch({ warehouses, placeholder, onPick }: { warehouses: Wh[]
   );
 }
 
-export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, onClose, onChanged, onFinished }: {
+export default function ViberImportPanel({ api, token, warehouses, reps, canSend, initialText, initialImages, onClose, onChanged, onFinished, botOrders, onBotSaved, onLegacy }: {
+  /** مراجعة طلبيات البوت (صفحة رفع الملفات): نفس البطاقات، تُحفظ في اللكوديشن فقط */
+  botOrders?: BotOrder[] | null;
+  /** حُفظت طلبيات البوت: أرقامها (تُزال من الطابور)، وملف اللكوديشن، والخلاصة */
+  onBotSaved?: (orderIds: number[], fileId: number | undefined, summary: string, done: boolean) => void;
+  /** فتح نفس الطلبيات بجدول المراجعة القديم (للفواتير المعقّدة) */
+  onLegacy?: () => void;
   api: <T = any>(path: string, init?: RequestInit) => Promise<T>;
   token: string | null;
   warehouses: Wh[];
@@ -225,18 +285,76 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
   // أسماء مناطق النظام لاقتراحات خانة المنطقة — مرة واحدة عند فتح اللوحة
   const [areaOpts, setAreaOpts] = useState<(AreaOpt & { k: string })[]>([]);
+  const isBot = Boolean(botOrders?.length);
+  // صور طلبيات البوت المصوّرة: رقم الطلبية ← روابط blob
+  const [botImages, setBotImages] = useState<Record<number, string[]>>({});
+  const [zoom, setZoom] = useState<string | null>(null);
   useEffect(() => {
-    api<{ areas: AreaOpt[] }>('/import/areas')
-      .then(r => setAreaOpts((r.areas ?? []).map(a => ({ ...a, k: sKey(a.name) }))))
-      .catch(() => {});
+    let alive = true;
+    (async () => {
+      let teamList: Rep[] = [];
+      try {
+        const r = await api<{ areas: AreaOpt[]; team?: Rep[] }>('/import/areas');
+        if (!alive) return;
+        setAreaOpts((r.areas ?? []).map(a => ({ ...a, k: sKey(a.name) })));
+        teamList = r.team ?? [];
+        if (teamList.length) setTeam(prev => [...prev, ...teamList.filter(x => !prev.some(p => p.id === x.id))]);
+      } catch { /* الاقتراحات ليست شرطاً */ }
+      if (!alive || !botOrders?.length) return;
+      // طلبيات البوت ← بطاقات. المندوب المكتوب في الطلبية يُطابَق باسم عضو في الفريق؛ اسم
+      // خارج الفريق يبقى خياراً باسمه؛ وبلا اسم يُختار صاحب المنطقة من الخادم.
+      const extra: Rep[] = [];
+      const optOf = (name: string): Rep => {
+        const hit = teamList.find(u => repKey(u.name) === repKey(name))
+          ?? teamList.find(u => repKey(u.name).startsWith(repKey(name)) || repKey(name).startsWith(repKey(u.name)));
+        if (hit) return hit;
+        const ex = extra.find(u => repKey(u.name) === repKey(name));
+        if (ex) return ex;
+        const made = { id: -(extra.length + 1), name: name.split('/')[0].trim() };
+        extra.push(made);
+        return made;
+      };
+      const built = botOrders.flatMap(botDrafts).map(d => {
+        const cands = ((d as any)._cands as string[]).map(optOf);
+        const picked = d.repName ? optOf(d.repName) : null;
+        return { ...d, repCandidates: cands, repUserId: picked?.id ?? null, repName: picked?.name ?? null, repWhy: picked ? 'bot' as const : null };
+      });
+      if (extra.length) setTeam(prev => [...prev, ...extra.filter(x => !prev.some(p => p.id === x.id))]);
+      setDrafts(built);
+      for (const d of built) if (!d.repUserId && d.areaName) resolveRep(d.key, d.areaName, d);
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!botOrders?.length || !token) return;
+    const urls: string[] = [];
+    (async () => {
+      for (const o of botOrders) {
+        const n = o.imageCount ?? 0;
+        const got: string[] = [];
+        for (let i = 0; i < n; i++) {
+          try {
+            const res = await fetch(`${API}/api/orders/pending/${o.id}/image/${i}`, { headers: { Authorization: `Bearer ${token}` } });
+            if (!res.ok) continue;
+            const blob = await res.blob();
+            if (blob.type === 'application/pdf') continue;
+            const u = URL.createObjectURL(blob);
+            urls.push(u); got.push(u);
+          } catch { /* صورة مفقودة لا تُسقط المراجعة */ }
+        }
+        if (got.length) setBotImages(m => ({ ...m, [o.id]: got }));
+      }
+    })();
+    return () => { urls.forEach(u => URL.revokeObjectURL(u)); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const draftsRef = useRef<Draft[]>([]);
   draftsRef.current = drafts;
   /** المنطقة تغيّرت ⇒ نفس قاعدة الخادم: صاحب المنطقة (وتحسمه الايتمات إن تعدّد). */
-  const resolveRep = async (key: string, area: string) => {
-    const d = draftsRef.current.find(x => x.key === key);
+  const resolveRep = async (key: string, area: string, base?: Draft) => {
+    const d = base ?? draftsRef.current.find(x => x.key === key);
     if (!d) return;
     try {
       const r = await api<{ area: string; rep: Rep | null; repWhy: Draft['repWhy']; repCandidates: Rep[]; repNote: string | null }>('/import/rep-for-area', {
@@ -266,7 +384,10 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       const next = incoming.map(d => {
         const dupInBatch = d.dupInBatch || Boolean(d.sourceHash && hashes.has(d.sourceHash));
         if (d.sourceHash) hashes.add(d.sourceHash);
-        return { ...d, mentionedWarehouses: d.mentionedWarehouses ?? [], dupInBatch, include: !dupInBatch && !d.duplicateOf };
+        return {
+          ...d, mentionedWarehouses: d.mentionedWarehouses ?? [], dupInBatch, include: !dupInBatch && !d.duplicateOf,
+          whText: d.whText ?? d.writtenWarehouses?.[0] ?? d.warehouseName ?? '',
+        };
       });
       return [...prev, ...next];
     });
@@ -359,7 +480,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   const problemOf = (d: Draft): string | null => {
     if (!d.pharmacyName.trim()) return 'اسم الصيدلية مطلوب';
     // اللكوديشن: المبيع يُحسب للمندوب العلمي، فهو الشرط؛ المذخر اختياري
-    if (mode === 'liq' && !d.repUserId) return 'اختر المندوب العلمي — المبيع يُحسب له';
+    // (طلبية البوت بلا مندوب تبقى مقبولة كما كانت بالجدول القديم ← شيت «بلا مندوب»)
+    if (mode === 'liq' && !d.bot && !d.repUserId) return 'اختر المندوب العلمي — المبيع يُحسب له';
     if (mode === 'wh' && !d.warehouseId && !d.warehouseName.trim()) return 'اختر المذخر';
     if (!d.lines.some(l => l.itemName.trim() && l.quantity > 0)) return 'لا أصناف بكمية';
     const noQty = d.lines.find(l => l.itemName.trim() && !(l.quantity > 0));
@@ -381,6 +503,20 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   /** صفوف ملف اللكوديشن لطلبية واحدة — بنفس شكل صفوف مراجعة طلبيات البوت (ManualSalesModal). */
   const liqRows = (d: Draft) => {
     const rep = repOptions.find(r => r.id === d.repUserId)?.name ?? d.repName ?? '';
+    if (d.bot) {
+      // طلبية بوت: نفس صفوف الجدول القديم (ManualSalesModal) — مصدرها ورقم BOT-<id> وتاريخ فاتورتها
+      return d.lines.filter(l => l.itemName.trim() && l.quantity > 0).map(l => ({
+        repName: d.bot!.repAccount || rep, scientificRep: rep || undefined,
+        pendingOrderId: d.bot!.orderId,
+        source: `${d.bot!.source}-order`,
+        invoiceNumber: d.invoiceNumber || `BOT-${d.bot!.orderId}`,
+        date: d.date || undefined,
+        item: l.itemName.trim(), itemId: l.itemId ?? undefined, company: l.companyName || undefined,
+        quantity: l.quantity, bonus: l.bonusQty || undefined, unitPrice: l.unitPrice ?? undefined,
+        pharmacy: d.pharmacyName.trim(), area: d.areaName.trim() || undefined,
+        warehouse: (d.whText ?? '').trim() || undefined, notes: d.notes.trim() || undefined,
+      }));
+    }
     // رقم تركيبي يجمع أسطر الطلبية في طلبية واحدة (عدّ الطلبيات). بادئة BOT- عمداً:
     // matchHelpers.realInvoice يعدّها غير حقيقية فلا تُطابَق برقم فاتورة ميركاتو.
     // ولأنها من بصمة الرسالة، إعادة لصق الرسالة نفسها تُسقطها بصمةُ الملف (saleFingerprint).
@@ -398,7 +534,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       unitPrice: l.unitPrice ?? undefined,
       pharmacy: d.pharmacyName.trim(),
       area: d.areaName.trim() || undefined,
-      warehouse: d.warehouseName.trim() || undefined,
+      // المذخر كما كُتب في الرسالة (لا اسم الدليل) — طلب صاحب المشروع 2026-11-18
+      warehouse: (d.whText ?? '').trim() || undefined,
       notes: d.notes.trim() || undefined,
     }));
   };
@@ -417,6 +554,10 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     try {
       const dup = await salesPost<{ groups: { group: string; level: string; match?: { mercato?: boolean } }[] }>('check-duplicates', {
         rows: todo.flatMap(d => liqRows(d).map(r => ({ ...r, group: d.key }))), target,
+        ...(isBot ? {
+          pendingOrderIds: [...new Set(todo.map(d => d.bot?.orderId).filter(Boolean))],
+          receivedAt: todo.map(d => d.bot?.createdAt).filter(Boolean).sort()[0],
+        } : {}),
       });
       const hits = (dup?.groups ?? []).filter(g => g.level !== 'possible');
       if (hits.length) {
@@ -433,24 +574,45 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
     setBusy(true);
     let ok = 0, failed = 0, lines = 0;
+    // طلبية البوت تُحفظ كلها (كل بطاقاتها) بطلب واحد: الخادم يحجزها ثم يستهلكها بعد الحفظ،
+    // فطلب ثانٍ لنفس الطلبية يُرفض. لصقة الفايبر: كل بطاقة وحدها.
+    const batches: Draft[][] = [];
+    const byOrder = new Map<number, Draft[]>();
     for (const d of todo) {
-      patch(d.key, { state: 'saving', result: undefined });
+      if (!d.bot) { batches.push([d]); continue; }
+      if (!byOrder.has(d.bot.orderId)) { byOrder.set(d.bot.orderId, []); batches.push(byOrder.get(d.bot.orderId)!); }
+      byOrder.get(d.bot.orderId)!.push(d);
+    }
+    const savedOrders: number[] = [];
+    let fileId: number | undefined;
+    for (const batch of batches) {
+      for (const d of batch) patch(d.key, { state: 'saving', result: undefined });
+      const orderId = batch[0].bot?.orderId;
       try {
-        const r = await salesPost<{ addedCount?: number; skippedCount?: number }>('manual', { rows: liqRows(d), target });
+        const r = await salesPost<{ addedCount?: number; skippedCount?: number; uploadedFile?: { id: number } }>('manual', {
+          rows: batch.flatMap(d => liqRows(d) as any[]), target, ...(orderId ? { pendingOrderIds: [orderId] } : {}),
+        });
         const added = r?.addedCount ?? 0, skipped = r?.skippedCount ?? 0;
-        const rep = repOptions.find(x => x.id === d.repUserId)?.name ?? '';
+        fileId = fileId ?? r?.uploadedFile?.id;
+        if (orderId) savedOrders.push(orderId);
         if (!added && skipped) {
-          patch(d.key, { state: 'warn', result: `موجودة أصلاً في اللكوديشن — لم يُضف شيء (${skipped} سطر)` });
+          for (const d of batch) patch(d.key, { state: 'warn', result: `موجودة أصلاً في اللكوديشن — لم يُضف شيء (${skipped} سطر)` });
         } else {
-          ok++; lines += added;
-          patch(d.key, { state: 'done', result: `أُضيفت للكوديشن باسم ${rep} — ${added} صنف${skipped ? ` (أُسقط ${skipped} مكرر)` : ''}` });
+          ok += batch.length; lines += added;
+          for (const d of batch) {
+            const rep = repOptions.find(x => x.id === d.repUserId)?.name ?? '';
+            patch(d.key, { state: 'done', result: `أُضيفت للكوديشن${rep ? ` باسم ${rep}` : ' (بلا مندوب)'}${batch.length === 1 ? ` — ${added} صنف` : ''}${skipped ? ` (أُسقط ${skipped} مكرر)` : ''}` });
+          }
         }
-      } catch (e: any) { failed++; patch(d.key, { state: 'error', result: e.message }); }
+      } catch (e: any) { failed += batch.length; for (const d of batch) patch(d.key, { state: 'error', result: e.message }); }
     }
     setBusy(false);
     // التقارير تخزّن نتائجها في المتصفح — هذا يرميها فيظهر المبيع الجديد
     if (ok) window.dispatchEvent(new CustomEvent('report-data-changed'));
-    if (!failed && onFinished) onFinished(`أُضيفت ${ok} طلبية (${lines} صنف) لملف اللكوديشن`);
+    const summary = `أُضيفت ${ok} طلبية (${lines} صنف) لملف اللكوديشن`;
+    // فشل بعضها ⇒ تبقى اللوحة مفتوحة لتصحيحها (done=false) والمحفوظ يُزال من الطابور
+    if (isBot) { if (savedOrders.length || !failed) onBotSaved?.(savedOrders, fileId, summary, !failed); }
+    else if (!failed && onFinished) onFinished(summary);
   };
 
   const create = async (send: boolean) => {
@@ -511,10 +673,11 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     <div className="ro-modal vi-modal" onClick={() => !busy && onClose()}>
       <div className="ro-dialog vi-dialog" onClick={e => e.stopPropagation()}>
         <div className="ro-dialog__head vi-head">
-          <strong>📥 طلبيات الفايبر / واتساب</strong>
+          <strong>{isBot ? `📋 مراجعة طلبيات البوت (${botOrders!.length})` : '📥 طلبيات الفايبر / واتساب'}</strong>
           {reading > 0 && <span className="vi-reading"><i /> جارٍ القراءة{reading > 1 ? ` (${reading})` : ''}</span>}
           <span className="ro-spacer" />
-          <div className="vi-mode" role="radiogroup" aria-label="وجهة الطلبيات">
+          {isBot && onLegacy && <button className="vi-btn vi-btn--ghost" disabled={busy} onClick={onLegacy} title="نفس الطلبيات بجدول المراجعة القديم">الجدول</button>}
+          {!isBot && <div className="vi-mode" role="radiogroup" aria-label="وجهة الطلبيات">
             {([['liq', 'لكوديشن'], ['wh', 'مذاخر']] as const).map(([m, t]) => (
               <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? 'is-on' : ''} disabled={busy}
                 title={m === 'liq' ? 'تُحفظ مبيعاً في ملف اللكوديشن وتُحسب للمندوب' : 'تُنشأ طلبية مذخر في «طلبيات المذاخر» للإرسال'}
@@ -524,12 +687,12 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                   setDrafts(ds => ds.map(d => (d.state === 'error' ? { ...d, state: undefined, result: undefined } : d)));
                 }}>{t}</button>
             ))}
-          </div>
+          </div>}
           <button className="ro-icon-btn" disabled={busy} onClick={onClose}><X size={15} /></button>
         </div>
 
         <div className="ro-dialog__body vi-body">
-          <div className={`vi-drop ${compactDrop ? 'is-compact' : ''} ${dragOver ? 'is-over' : ''}`}
+          {!isBot && <div className={`vi-drop ${compactDrop ? 'is-compact' : ''} ${dragOver ? 'is-over' : ''}`}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={e => { e.preventDefault(); setDragOver(false); readImages([...e.dataTransfer.files]); }}>
@@ -545,7 +708,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
               <button className="vi-btn" onClick={() => fileRef.current?.click()} title="سكرين شوت"><ImageIcon size={14} /> صور</button>
               <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e => { readImages([...(e.target.files ?? [])]); e.target.value = ''; }} />
             </div>
-          </div>
+          </div>}
+          {isBot && !drafts.length && <div className="vi-reading"><i /> تجهيز الطلبيات…</div>}
 
           {err && <div className="vi-err">⚠️ {err}</div>}
 
@@ -576,7 +740,14 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                     <div className="vi-src__head"><MessageSquareText size={12} /> الرسالة{d.sender ? ` — ${d.sender}` : ''}
                       <span className="vi-src__more">{openSrc.has(d.key) ? 'طيّ' : 'عرض كاملة'}</span>
                     </div>
-                    <pre dir="auto">{d.sourceText}</pre>
+                    {d.bot && (botImages[d.bot.orderId]?.length ?? 0) > 0 && (
+                      <div className="vi-thumbs">
+                        {botImages[d.bot.orderId].map((u, i) => (
+                          <img key={i} src={u} alt="صورة الطلبية" onClick={e => { e.stopPropagation(); setZoom(u); }} />
+                        ))}
+                      </div>
+                    )}
+                    {d.sourceText ? <pre dir="auto">{d.sourceText}</pre> : !d.bot ? null : <pre className="vi-src__none">صورة بلا نص</pre>}
                   </div>
 
                   <div className="vi-form">
@@ -598,9 +769,25 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                       </label>
                     </div>
 
+                    {/* اللكوديشن: المذخر نصّاً كما كُتب في الرسالة (الاختيار من الدليل في وضع «مذاخر» فقط) */}
+                    {mode === 'liq' && (
+                      <div className="vi-sec">
+                        <div className="vi-sec__h">المذخر <small>كما في الرسالة</small></div>
+                        <input className="form-input" value={d.whText ?? ''} disabled={locked} placeholder="اسم المذخر (اختياري)"
+                          onChange={e => patch(d.key, { whText: e.target.value })} />
+                        {(d.writtenWarehouses?.length ?? 0) > 1 && (
+                          <div className="vi-chips">
+                            {d.writtenWarehouses!.map(w => (
+                              <button key={w} type="button" disabled={locked} className={`vi-chip ${w === d.whText ? 'is-on' : ''}`} onClick={() => patch(d.key, { whText: w })}>{w}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* المذاخر: كل ما ذُكر في الرسالة بترتيبه — الضغط يختار من تذهب له الطلبية */}
-                    <div className="vi-sec">
-                      <div className="vi-sec__h">{mode === 'liq' ? 'المذخر (اختياري)' : 'المذخر'}</div>
+                    {mode === 'wh' && <div className="vi-sec">
+                      <div className="vi-sec__h">المذخر</div>
                       <div className="vi-whlist">
                         {d.mentionedWarehouses.map((m, i) => {
                           const isPrimary = m.id ? m.id === d.warehouseId : !d.warehouseId && m.name === d.warehouseName;
@@ -613,7 +800,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                                 {!m.id && <small className="vi-tag vi-tag--warn">غير مسجّل</small>}
                                 {m.id && m.ready === false && <small className="vi-tag">يدوي</small>}
                               </button>
-                              <span className="vi-whrow__state">{mode === 'liq' ? (isPrimary ? 'المذخر' : '') : isPrimary ? 'تذهب له' : isBackup ? 'احتياط' : 'مستبعد'}</span>
+                              <span className="vi-whrow__state">{isPrimary ? 'تذهب له' : isBackup ? 'احتياط' : 'مستبعد'}</span>
                               {!locked && mode === 'wh' && isBackup && (
                                 <button className="vi-x" title="استبعاد من الاحتياط"
                                   onClick={() => patch(d.key, { backupWarehouseIds: d.backupWarehouseIds.filter(x => x !== m.id) })}><X size={12} /></button>
@@ -637,7 +824,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                           <div className="vi-hint">احتياط أيضاً: {d.backupWarehouseIds.filter(id => !d.mentionedWarehouses.some(m => m.id === id)).map(whName).join('، ')}</div>
                         )}
                       </div>
-                    </div>
+                    </div>}
 
                     {/* الأصناف */}
                     <div className="vi-sec">
@@ -702,6 +889,9 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
             );
           })}
         </div>
+
+        {zoom && createPortal(
+          <div className="vi-zoom" onClick={() => setZoom(null)}><img src={zoom} alt="" /></div>, document.body)}
 
         <div className="ro-dialog__foot vi-foot">
           {mode === 'liq' && (

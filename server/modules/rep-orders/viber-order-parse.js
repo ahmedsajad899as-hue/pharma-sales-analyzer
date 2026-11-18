@@ -136,10 +136,11 @@ export function parseSentenceLine(line) {
   const head = tidy(s.slice(0, marks.length ? marks[0][1] : s.length));
   let pharmacy = null;
   const warehouses = [];
+  const whRaw = [];
   marks.forEach(([kind, at], i) => {
     const seg = s.slice(at, i + 1 < marks.length ? marks[i + 1][1] : s.length);
     if (kind === 'ph') pharmacy = tidy(seg.replace(PH_MARK_ANY_RE, ' ').replace(VERB_RE, ' ').replace(UNIT_WORD_RE, ' ')) || null;
-    else warehouses.push(...warehousesFromTail(seg.replace(WH_MARK_RE, ' ')));
+    else { warehouses.push(...warehousesFromTail(seg.replace(WH_MARK_RE, ' '))); whRaw.push(...splitWhTail(seg.replace(WH_MARK_RE, ' '))); }
   });
 
   let rest = head.replace(VERB_RE, ' ');
@@ -163,19 +164,25 @@ export function parseSentenceLine(line) {
   }
   const name = tidy(itemToks.join(' ').replace(/[*×]\s*$/, ''));
   const note = tidy(noteToks.join(' ')) || null;
-  if (latin && HAS_LATIN.test(name) && qty > 0) return { item: { name, quantity: qty, bonus }, qty: null, bonus, pharmacy, warehouses, note };
-  if (!latin && qty > 0) return { item: null, qty, bonus, pharmacy, warehouses, note };
-  if (!latin && pharmacy) return { item: null, qty: null, bonus, pharmacy, warehouses, note };
+  if (latin && HAS_LATIN.test(name) && qty > 0) return { item: { name, quantity: qty, bonus }, qty: null, bonus, pharmacy, warehouses, whRaw, note };
+  if (!latin && qty > 0) return { item: null, qty, bonus, pharmacy, warehouses, whRaw, note };
+  if (!latin && pharmacy) return { item: null, qty: null, bonus, pharmacy, warehouses, whRaw, note };
   return null;
 }
 
-/** أسماء مذاخر من ذيل «مذاخر اوزون/شغف، الدواء المتكامل». */
-function warehousesFromTail(tail) {
+/** أسماء المذاخر من ذيل «مذاخر اوزون/شغف، الدواء المتكامل» **كما كُتبت** (بلا مطابقة بالقائمة المعروفة). */
+export function splitWhTail(tail) {
   // «X او مذخر Y» / «X أو Y» = مذخر بديل: الأول أساسي والباقي احتياط
   return tidy(tail)
     .split(/\s*[\/،,|+]\s*|\s+(?:او|أو|ولا|والا|وإلا)\s+|\s+و\s*(?=\S)/)
     .map(p => tidy(p).replace(/^(?:من\s+)?(?:ال)?(?:مذخر|مذاخر|مدخر|مداخر|مخزن)\s*[:：]?\s*/, ''))
-    .map(cleanWarehouseName).filter(Boolean);
+    .map(p => tidy(p).split(/\s+/).slice(0, 4).join(' '))
+    .filter(Boolean);
+}
+
+/** نفس الأسماء مطبَّعة على القائمة المعروفة (لمطابقة دليل المذاخر في وضع «مذاخر»). */
+function warehousesFromTail(tail) {
+  return splitWhTail(tail).map(cleanWarehouseName).filter(Boolean);
 }
 
 /**
@@ -193,11 +200,11 @@ export function parseWarehouseLine(line) {
   if (WH_INTRO_ANY_RE.test(t)) return { intro: true, transit };
   if ((m = t.match(WH_ANY_RE))) {
     const list = warehousesFromTail(m[1]);
-    if (list.length) return { list, transit };
+    if (list.length) return { list, raw: splitWhTail(m[1]), transit };
   }
   if ((m = t.match(WH_ABBR_RE))) {
     const list = warehousesFromTail(m[1]);
-    if (list.length) return { list, transit };
+    if (list.length) return { list, raw: splitWhTail(m[1]), transit };
   }
   return null;
 }
@@ -218,7 +225,7 @@ const PH_WORD_ONLY_RE = /^(?:ال)?(?:صيدلي[ةه]|ص)$/;
 export function classifyHeader(lines, { areaOf = () => null, isKnownPharmacy = () => false, wholeWarehouse = () => null } = {}) {
   const parts = lines.flatMap(l => tidy(l).split(/\s*[\/|\\]\s*|\s+[-–]\s+|\s*،\s*/)).map(tidy).filter(Boolean);
   const used = new Set();
-  const out = { pharmacy: null, area: null, sure: false, warehouses: [], extra: [] };
+  const out = { pharmacy: null, area: null, sure: false, warehouses: [], warehousesRaw: [], extra: [] };
   const areaName = (p) => { const m = p.match(AREA_PREFIX_RE); return m ? tidy(m[1]) : p; };
 
   // 1. بادئة الصيدلية
@@ -239,7 +246,7 @@ export function classifyHeader(lines, { areaOf = () => null, isKnownPharmacy = (
   parts.forEach((p, i) => {
     if (used.has(i)) return;
     const wh = wholeWarehouse(p);
-    if (wh) { out.warehouses.push(wh); used.add(i); return; }
+    if (wh) { out.warehouses.push(wh); out.warehousesRaw.push(p); used.add(i); return; }
     const canon = areaOf(areaName(p));
     if (out.area == null && (canon || AREA_PREFIX_RE.test(p))) {
       out.area = canon || areaName(p); areaKnown = Boolean(canon); used.add(i); return;
@@ -294,6 +301,9 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
   };
   const warehouses = [];
   const addWh = (w) => { if (w && !warehouses.some(x => normKey(x) === normKey(w))) warehouses.push(w); };
+  // المذاخر كما كُتبت في الرسالة (وضع «لكوديشن» يحفظها هكذا؛ المطابقة بالدليل لوضع «مذاخر»)
+  const written = [];
+  const addWritten = (w) => { const t = tidy(w); if (t && !written.some(x => normKey(x) === normKey(t))) written.push(t); };
   const items = [];
   const unparsed = [];
   const notes = [];
@@ -310,6 +320,7 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
       else notes.push(`${sen.qty}${sen.bonus ? `+${sen.bonus}` : ''}`);
     }
     sen.warehouses.forEach(w => addWh(wholeWarehouse(w) || w));
+    (sen.whRaw || []).forEach(addWritten);
     if (sen.pharmacy && !sentencePharmacy) sentencePharmacy = sen.pharmacy;
     if (sen.note) notes.push(sen.note);
   };
@@ -327,12 +338,14 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
       if (wl.transit) transit = true;
       if (wl.intro) { inWhList = true; continue; }
       wl.list.forEach(addWh);
+      (wl.raw || []).forEach(addWritten);
       inWhList = true;
       continue;
     }
     // قائمة المذاخر: سطر عربي قصير بلا أرقام بعد «عن طريق مذاخر»
     if (inWhList && !HAS_LATIN.test(line) && !HAS_DIGIT.test(line) && line.split(/\s+/).length <= 4) {
       warehousesFromTail(line).forEach(w => addWh(wholeWarehouse(w) || w));
+      splitWhTail(line).forEach(addWritten);
       continue;
     }
     inWhList = false;
@@ -360,7 +373,7 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
     }
 
     const whs = knownWarehouseList(line);
-    if (whs && (seenItem || headerLines.length)) { whs.forEach(addWh); continue; }
+    if (whs && (seenItem || headerLines.length)) { whs.forEach(addWh); tidy(line).split(/\s*[\/،,|]\s*/).map(tidy).filter(Boolean).forEach(addWritten); continue; }
     // الترويسة: كل الأسطر العربية القصيرة قبل أول صنف (حتى 3)
     if (!seenItem && headerLines.length < 3 && line.split(/\s+/).length <= 8) { headerLines.push(line); continue; }
     // الطلبية قد تبدأ بالأصناف ثم «صيدلية الرتاج» (2026-11-14): بعد الأصناف يُعدّ السطر ترويسة
@@ -378,12 +391,13 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
   if (sentencePharmacy && !headerLines.some(l => PH_PREFIX_STRICT_RE.test(l))) headerLines.unshift(`ص ${sentencePharmacy}`);
   const h = classifyHeader(headerLines, { areaOf, isKnownPharmacy, wholeWarehouse });
   h.warehouses.forEach(addWh);
+  h.warehousesRaw.forEach(addWritten);
   notes.unshift(...h.extra);
   if (transit && !notes.some(n => /ترانزيت|ترانسيت/.test(n))) notes.unshift('ترانزيت');
 
   const needsAi = !h.pharmacy || unparsed.length > 0 || items.length === 0;
   const cleanText = lines.join('\n');
-  return { pharmacy: h.pharmacy, area: h.area, headerSure: h.sure, warehouses, items, unparsed, notes, mentions, needsAi, cleanText };
+  return { pharmacy: h.pharmacy, area: h.area, headerSure: h.sure, warehouses, warehousesWritten: written, items, unparsed, notes, mentions, needsAi, cleanText };
 }
 
 /**
