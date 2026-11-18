@@ -149,27 +149,20 @@ export function explainUnmatched(yazen, office, matches) {
   return { counts, samples };
 }
 
-// ── النطاق: ملفات مكتب واحد (أو مستخدم بلا مكتب) ─────────────────────────────
+// ── النطاق: كل ملفات المبيعات (مطابقة واحدة شاملة) ─────────────────────────────
+// كان النطاق مكتب صاحب الملف، لكن ملف المكتب الشهري قد يرفعه حساب خارج مكتب من رفع ميركاتو
+// (أول تشغيل على الإنتاج: 0/483 لأن ملف المكتب الفعلي في نطاق آخر). المطابقة تتطلب الصيدلية
+// والايتم والكمية والتاريخ معاً، فلا خطر يُذكر من خلط ملفات مكاتب أخرى.
+export const GLOBAL_SCOPE = 'all';
 
-const fileWhereOf = (scopeKey) => {
-  const [kind, raw] = String(scopeKey).split(':');
-  const id = Number(raw);
-  return kind === 'office' ? { user: { officeId: id } } : { userId: id };
-};
-
-/** نطاقات الملفات المعطاة: 'office:<id>' لصاحب الملف، أو 'user:<id>' إن لم يكن له مكتب. */
+/** نطاقات الملفات المعطاة (نطاق واحد شامل). */
 export async function scopeKeysForFiles(fileIds) {
-  const ids = (fileIds || []).map(Number).filter(Number.isInteger);
-  if (!ids.length) return [];
-  const files = await prisma.uploadedFile.findMany({
-    where: { id: { in: ids } }, select: { userId: true, user: { select: { officeId: true } } },
-  });
-  return [...new Set(files.filter(f => f.userId).map(f => (f.user?.officeId ? `office:${f.user.officeId}` : `user:${f.userId}`)))];
+  return (fileIds || []).length ? [GLOBAL_SCOPE] : [];
 }
 
 async function loadScopeFiles(scopeKey) {
   return prisma.uploadedFile.findMany({
-    where: { ...fileWhereOf(scopeKey), fileType: { in: ['sales', 'returns'] } },
+    where: { fileType: { in: ['sales', 'returns'] } },
     select: { id: true, sourceSystem: true, mergeGroup: true },
   });
 }
@@ -201,7 +194,7 @@ async function scopeFingerprint(files, names) {
 }
 
 // يُرفع مع أي تغيير في قواعد المطابقة، فيُعاد حساب كل نطاق عند الإقلاع.
-const MATCH_VERSION = 2;
+const MATCH_VERSION = 3;
 
 const yieldLoop = () => new Promise(r => setImmediate(r));
 
@@ -244,56 +237,66 @@ async function computeScope(scopeKey, { force = false } = {}) {
       yazen.push(prepareYazenRow(s, repId));
     }
 
+    // كل ملف مكتب يُطابَق وحده: نسخ بيانات المكتب نفسها في ملفات حسابات مختلفة تُعزل كلها،
+    // وصف المكتب لا يُستعمل مرتين داخل ملفه.
     let matches = [];
     const days = yazen.map(y => y.day).filter(d => d != null);
+    const matchedYazen = new Set();
     if (days.length && officeIds.length) {
       // نطاق التواريخ فقط (لا ايتمات): الايتم قد يختلف معرّفه بين ملفَي النظامين.
       const from = new Date(Math.min(...days) - 2 * DAY);
       const to = new Date(Math.max(...days) + 5 * DAY);
-      const office = [];
-      const BATCH = 5000;
-      let cursor = 0;
-      for (;;) {
-        const rows = await prisma.sale.findMany({
-          where: { uploadedFileId: { in: officeIds }, isHidden: false, saleDate: { gte: from, lte: to }, id: { gt: cursor } },
-          select: {
-            id: true, itemId: true, quantity: true, recordType: true, saleDate: true,
-            item: { select: { name: true } }, customer: { select: { name: true } }, area: { select: { name: true } },
-          },
-          orderBy: { id: 'asc' }, take: BATCH,
-        });
-        for (const r of rows) office.push(prepareOfficeRow(r));
-        if (rows.length < BATCH) break;
-        cursor = rows[rows.length - 1].id;
+      const fmt = (d) => new Date(d).toISOString().slice(0, 10);
+      let biggest = null;
+      for (const fileId of officeIds) {
+        const office = [];
+        const BATCH = 5000;
+        let cursor = 0;
+        for (;;) {
+          const rows = await prisma.sale.findMany({
+            where: { uploadedFileId: fileId, isHidden: false, saleDate: { gte: from, lte: to }, id: { gt: cursor } },
+            select: {
+              id: true, itemId: true, quantity: true, recordType: true, saleDate: true,
+              item: { select: { name: true } }, customer: { select: { name: true } }, area: { select: { name: true } },
+            },
+            orderBy: { id: 'asc' }, take: BATCH,
+          });
+          for (const r of rows) office.push(prepareOfficeRow(r));
+          if (rows.length < BATCH) break;
+          cursor = rows[rows.length - 1].id;
+          await yieldLoop();
+        }
+        if (!office.length) continue;
         await yieldLoop();
+        const found = matchYazenToOffice(yazen, office);
+        for (const m of found) { matches.push(m); matchedYazen.add(m.mercatoSaleId); }
+        console.log(`[yazen-match] file ${fileId}: ${office.length} office rows in window, matched ${found.length}/${yazen.length}`);
+        if (!biggest || office.length > biggest.office.length) biggest = { fileId, office, found };
       }
-      await yieldLoop();
-      matches = matchYazenToOffice(yazen, office);
-      const officeDays = office.map(o => o.day).filter(d => d != null);
-      console.log(`[yazen-match] ${scopeKey} office files ${officeIds.length}, rows in window ${office.length}`
-        + (officeDays.length ? ` (${new Date(Math.min(...officeDays)).toISOString().slice(0, 10)}..${new Date(Math.max(...officeDays)).toISOString().slice(0, 10)})` : '')
-        + `, yazen ${new Date(Math.min(...days)).toISOString().slice(0, 10)}..${new Date(Math.max(...days)).toISOString().slice(0, 10)}`);
-      if (matches.length < yazen.length) {
-        const why = explainUnmatched(yazen, office, matches);
-        console.log(`[yazen-match] ${scopeKey} unmatched by stage ${JSON.stringify(why.counts)}`);
-        for (const s of why.samples) console.log(`[yazen-match] sample ${JSON.stringify(s)}`);
+      console.log(`[yazen-match] yazen ${fmt(Math.min(...days))}..${fmt(Math.max(...days))}, office files ${officeIds.length}`);
+      if (biggest && biggest.found.length < yazen.length) {
+        const why = explainUnmatched(yazen, biggest.office, biggest.found);
+        console.log(`[yazen-match] file ${biggest.fileId} unmatched by stage ${JSON.stringify(why.counts)}`);
+        for (const smp of why.samples) console.log(`[yazen-match] sample ${JSON.stringify(smp)}`);
       }
     } else {
       console.log(`[yazen-match] ${scopeKey} skipped: yazen days ${days.length}, office files ${officeIds.length}`);
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.yazenOfficeMatch.deleteMany({ where: { scopeKey } });
+      // يشمل صفوف النطاقات القديمة (office:N) من قبل النطاق الشامل.
+      await tx.yazenOfficeMatch.deleteMany({});
       for (let i = 0; i < matches.length; i += 1000) {
         await tx.yazenOfficeMatch.createMany({ data: matches.slice(i, i + 1000).map(m => ({ ...m, scopeKey })), skipDuplicates: true });
       }
+      await tx.yazenMatchRun.deleteMany({ where: { scopeKey: { not: scopeKey } } });
     }, { timeout: 60_000 });
     const ms = Date.now() - t0;
     const run = await prisma.yazenMatchRun.update({
       where: { scopeKey },
-      data: { status: 'idle', fingerprint: fp, matched: matches.length, yazenRows: yazen.length, ms, finishedAt: new Date() },
+      data: { status: 'idle', fingerprint: fp, matched: matchedYazen.size, yazenRows: yazen.length, ms, finishedAt: new Date() },
     });
-    console.log(`[yazen-match] ${scopeKey} matched ${matches.length}/${yazen.length} in ${ms}ms`);
+    console.log(`[yazen-match] ${scopeKey} matched ${matchedYazen.size}/${yazen.length} yazen rows (${matches.length} office rows) in ${ms}ms`);
     return run;
   } catch (e) {
     console.error(`[yazen-match] ${scopeKey} failed:`, e.message);
@@ -331,12 +334,8 @@ export async function scheduleYazenMatchForFiles(fileIds) {
 }
 
 /** بعد رفع ملف لمستخدم (الملف الجديد قد لا يُعرف معرّفه هنا). */
-export async function scheduleYazenMatchForUser(userId) {
-  try {
-    if (!userId) return;
-    const u = await prisma.user.findUnique({ where: { id: Number(userId) }, select: { officeId: true } });
-    scheduleYazenMatch(u?.officeId ? `office:${u.officeId}` : `user:${userId}`);
-  } catch (e) { console.error('[yazen-match] schedule', e.message); }
+export function scheduleYazenMatchForUser() {
+  scheduleYazenMatch(GLOBAL_SCOPE);
 }
 
 /**
@@ -375,14 +374,9 @@ export async function yazenMatchStatus() {
   return runs.map(r => ({ ...r, busy: running.has(r.scopeKey) || timers.has(r.scopeKey) }));
 }
 
-/** عند الإقلاع: كل نطاق فيه ملف ميركاتو يُفحص (يتخطى الحساب إن لم تتغيّر بصمته). */
+/** عند الإقلاع: يتخطى الحساب إن لم تتغيّر البصمة. */
 export function startYazenMatchOnBoot(delayMs = 60_000) {
-  setTimeout(async () => {
-    try {
-      const files = await prisma.uploadedFile.findMany({ where: { sourceSystem: 'mercato' }, select: { id: true } });
-      for (const k of await scopeKeysForFiles(files.map(f => f.id))) runScope(k).catch(() => {});
-    } catch (e) { console.error('[yazen-match] boot', e.message); }
-  }, delayMs).unref?.();
+  setTimeout(() => { runScope(GLOBAL_SCOPE).catch(() => {}); }, delayMs).unref?.();
 }
 
 /** إعادة الحساب فوراً (زر السوبر أدمن). */
