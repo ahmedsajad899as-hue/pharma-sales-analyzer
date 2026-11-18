@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import './TargetsMatrix.css';
 import { fetchActuals, fmtQty, pctClass, pctText, TargetCompareModal, type ActualRow, type RepActuals } from './TargetCompare';
-import { buildTargetGroups, isLeader, isManagerCol, orderGroupColumns, type MatrixRep, type TargetGroup } from './targetGroups';
+import { buildTargetGroups, isLeader, isManagerCol, orderGroupColumns, targetReps, type MatrixRep, type TargetGroup } from './targetGroups';
 
 /**
  * جدول التارگت: تبويب لكل شركة (مدير شركة) + «مسوقين بغداد» + «مسوقين المحافظات».
@@ -93,7 +93,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
   const ordered = useMemo(() => (group ? orderGroupColumns(group) : { cols: [], blocks: [] }), [group]);
   // بغداد/محافظات داخل الشركة — فقط حين تجمع الشركة الاثنين
   const hasRegions = useMemo(() => {
-    const rs = group?.reps ?? [];
+    const rs = group ? targetReps(group) : [];
     return group?.kind !== 'marketers' && rs.some(r => r.isProvinceMember) && rs.some(r => !r.isProvinceMember);
   }, [group]);
   const visReps = useMemo(() => {
@@ -445,7 +445,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
         <button className={`tg-btn ${onlyFilled ? 'on' : ''}`} onClick={() => setOnlyFilled(v => !v)}
           title="إخفاء الايتمات التي لا تارگت لها">ذات التارگت فقط</button>
       </>}
-      {actions?.({ reps: (group?.reps ?? []), groupName: group?.name ?? '' })}
+      {actions?.({ reps: (group ? targetReps(group) : []), groupName: group?.name ?? '' })}
       {msg && <span className={`tg-msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</span>}
       {/* الحفظ في الشريط لا أسفل الجدول: الجدول يملأ الشاشة فما تحته يبقى خارجها */}
       {edits.size > 0 && <>
@@ -472,8 +472,8 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
   const tabs = groups.length > 1 && (
     <div className="tg-tabs" role="tablist">
       {groups.map((g, i) => {
-        const total = g.reps.reduce((s, r) => s + (repTotals.get(r.id) ?? 0), 0);
-        const dirty = [...g.managers, ...g.reps].some(r => dirtyReps.has(r.id));
+        const total = targetReps(g).reduce((s, r) => s + (repTotals.get(r.id) ?? 0), 0);
+        const dirty = targetReps(g).some(r => dirtyReps.has(r.id));
         const sub = g.kind === 'company'
           ? g.managers.map(m => m.name).join('، ')
           : g.kind === 'marketers' ? (g.managers.map(m => m.name).join('، ') || 'للمكتب كله') : 'بلا مدير شركة';
@@ -488,7 +488,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
             </span>
             <span className="tg-tab-row tg-tab-sub">
               <span dir="auto">{sub}</span>
-              <span>{g.reps.length} مندوب</span>
+              <span>{targetReps(g).length} مندوب</span>
             </span>
           </button>
         );

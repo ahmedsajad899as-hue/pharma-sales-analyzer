@@ -99,8 +99,12 @@ export function buildTargetGroups(people: MatrixRep[]): TargetGroup[] {
   return list;
 }
 
+/** من يُعيَّن له تارگت في الجدول: المندوبون فقط — لا المدراء ولا قادة الفرق (طلب 2026-11-19). */
+export const targetReps = (g: TargetGroup) => g.reps.filter(r => !isLeader(r));
+
 /**
- * ترتيب أعمدة المجموعة: المدير، ثم كل قائد فريق يتبعه مندوبوه، ثم الباقون.
+ * ترتيب أعمدة المجموعة: مندوبو كل قائد فريق معاً، ثم الباقون. المدير وقائد الفريق
+ * لا عمود لهما؛ المدير يبقى مصدر ايتمات الشركة، والقائد عنوان كتلة فريقه فقط.
  * blocks = عناوين الصف العلوي في رأس الجدول (فريق فلان…).
  */
 export function orderGroupColumns(g: TargetGroup): { cols: MatrixRep[]; blocks: ColumnBlock[] } {
@@ -111,7 +115,6 @@ export function orderGroupColumns(g: TargetGroup): { cols: MatrixRep[]; blocks: 
     cols.push(...list);
     blocks.push({ label, span: list.length });
   };
-  push(g.kind === 'marketers' ? 'مدير المسوقين' : 'المدير', [...g.managers].sort(byName));
 
   const leaders = g.reps.filter(isLeader).sort(byName);
   const claimed = new Set<number>(leaders.map(l => l.id));
@@ -120,7 +123,7 @@ export function orderGroupColumns(g: TargetGroup): { cols: MatrixRep[]; blocks: 
       .filter(r => !claimed.has(r.id) && (r.managerIds ?? []).includes(leader.userId!))
       .sort(byName);
     members.forEach(m => claimed.add(m.id));
-    push(`فريق ${leader.name}`, [leader, ...members]);
+    push(`فريق ${leader.name}`, members);
   }
   const rest = g.reps.filter(r => !claimed.has(r.id)).sort(byName);
   push(blocks.length ? 'بلا قائد فريق' : '', rest);
