@@ -668,14 +668,31 @@ export async function listManagersPrimaryCompanies(userId) {
       isPrimary: true,
       user: { role: 'company_manager', isActive: true, ...(viewer?.officeId ? { officeId: viewer.officeId } : {}) },
     },
-    select: { company: { select: { name: true } } },
+    select: {
+      userId: true,
+      company: { select: { name: true } },
+      user: { select: { username: true, linkedRep: { select: { repKind: true } } } },
+    },
   });
-  const seen = new Map();
+  // مدير المسوقين/حسابات الفارمسي تُعلَّم كل شركاتها «رئيسية» (admin-users applyRepKind،
+  // province-seats) — ليست شركة مدير. المدير الحقيقي له شركة رئيسية واحدة فقط.
+  const perUser = new Map();
   for (const r of rows) {
-    const n = r.company?.name?.trim();
-    if (n && !seen.has(companyKey(n))) seen.set(companyKey(n), n);
+    if (r.user?.linkedRep?.repKind === PHARMACY_KIND) continue;
+    if (!perUser.has(r.userId)) perUser.set(r.userId, []);
+    perUser.get(r.userId).push(r);
   }
-  return [...seen.values()];
+  const seen = new Map(); // key -> { name, users[] }
+  for (const list of perUser.values()) {
+    if (list.length !== 1) continue;
+    const n = list[0].company?.name?.trim();
+    if (!n) continue;
+    const k = companyKey(n);
+    if (!seen.has(k)) seen.set(k, { name: n, users: [] });
+    seen.get(k).users.push(list[0].user?.username);
+  }
+  console.log(`[wh-primary] viewer=${userId} office=${viewer?.officeId ?? '-'} ` + [...seen.values()].map(v => `${v.name}<${v.users.join(',')}>`).join(' | '));
+  return [...seen.values()].map(v => v.name);
 }
 
 export async function getExcludeWarehouseSales(userId) {
