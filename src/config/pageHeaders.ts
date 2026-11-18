@@ -48,7 +48,7 @@ export const PAGE_HEADERS: Partial<Record<PageId, PageHeader>> = {
   'wa-campaigns':       { title: 'حملات واتساب', subtitle: 'عروض الايتمات لقائمة أرقام من الإكسل عبر رقم البوت الرسمي' },
   'wa-chats':           { title: 'محادثات واتساب', subtitle: 'ما يدور بين رقم البوت الرسمي والمذاخر والزبائن — والرد من رقم البوت' },
   'items-catalog':      { title: 'الايتمات والأسعار', subtitle: 'ايتمات شركاتك وأسعارها — أي تعديل هنا يُعتمد عند الجميع فوراً' },
-  'team-engagement':    { title: 'نشاط الفريق', subtitle: 'مدى استخدام مدير الشركة والموارد البشرية والموظفين للتطبيق' },
+  'team-engagement':    { title: 'نشاط الفريق', subtitle: 'مدى استخدام مدير الشركة ومدير المنتج والموارد البشرية والموظفين للتطبيق' },
   'representatives':    { title: 'المندوبين' },
   'scientific-reps':    { title: 'المندوبون العلميون' },
 };

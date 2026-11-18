@@ -32,6 +32,7 @@ interface Summary { total: number; activeToday: number; avgScore: number; avgMin
 
 const ROLE_LABELS: Record<string, string> = {
   company_manager: '🏭 مدير شركة',
+  product_manager: '📦 مدير منتج',
   office_hr:       '🧑‍💼 موارد بشرية',
   office_employee: '👤 موظف مكتب',
 };

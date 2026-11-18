@@ -4,7 +4,7 @@ const PING_TYPES = new Set(['app_open', 'page_view', 'heartbeat', 'search', 'cal
 // سقف دفاعي على الخادم لثواني كل نبضة (كل نبضة تمثّل دقيقة كاملة = 60 من
 // src/hooks/useEngagementHeartbeat.ts) — يحمي من نبضة مزوَّرة/معطوبة بقيمة ضخمة.
 const MAX_HEARTBEAT_SECONDS = 90;
-const OFFICE_ENGAGEMENT_ROLES = ['company_manager', 'office_hr', 'office_employee'];
+const OFFICE_ENGAGEMENT_ROLES = ['company_manager', 'product_manager', 'office_hr', 'office_employee'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // المستخدمون في العراق (UTC+3، بلا توقيت صيفي) — "اليوم" في التقرير يجب أن يطابق
@@ -58,7 +58,7 @@ function scoreUser({ lastActiveAt, activeDaysLast7, distinctFeaturesLast30, inte
 }
 
 // ── GET /api/engagement/team ─────────────────────────────────────
-// office_manager only: engagement snapshot of company_manager/office_hr/
+// office_manager only: engagement snapshot of company_manager/product_manager/office_hr/
 // office_employee accounts sharing their officeId.
 export async function getTeamEngagement(req, res) {
   const viewer = await prisma.user.findUnique({
