@@ -701,11 +701,58 @@ export async function getExcludeWarehouseSales(userId) {
   return (await getExcludeWarehouseConfig(userId)).enabled;
 }
 
-/** أسماء شركات المندوب العلمي المطبَّعة — نفس تجميع صفحة «المندوبون العلميون». */
+/** أسماء شركات سجل المندوب العلمي نفسه (ScientificRepCompany → Company القديم، أو rep.company). */
 function repCompanyKeys(rep) {
   const names = (rep?.companies ?? []).map(c => c.company?.name).filter(Boolean);
   if (!names.length && rep?.company) names.push(rep.company);
   return names.map(companyKey).filter(Boolean);
+}
+
+// شركات حساب المستخدم المربوط بالمندوب (UserCompanyAssignment الرئيسية → ScientificCompany)
+// + شركة فريق المحافظة. هذه هي الأسماء التي تُجمِّع بها صفحة «المندوبون العلميون» وتعرضها
+// قائمة نطاق الاستبعاد (شركات المدراء الرئيسية) — بدونها لا يطابق اختيار «humanis» مثلاً أي
+// مندوب لأن جدول ScientificRepCompany يشير لموديل Company القديم بأسماء مختلفة.
+const _repUserCoMemo = new Map(); // repId -> { at, keys }
+const REP_USER_CO_MEMO_MS = 60 * 1000;
+async function repUserCompanyKeysMap(repIds) {
+  const out = new Map();
+  const missing = [];
+  for (const id of repIds) {
+    const m = _repUserCoMemo.get(id);
+    if (m && Date.now() - m.at < REP_USER_CO_MEMO_MS) out.set(id, m.keys); else missing.push(id);
+  }
+  if (missing.length) {
+    const users = await prisma.user.findMany({
+      where: { linkedRepId: { in: missing } },
+      select: {
+        linkedRepId: true,
+        companyAssignments: { where: { isPrimary: true }, select: { company: { select: { name: true } } } },
+        provinceRepAssignments: { where: { isActive: true }, select: { company: { select: { name: true } } } },
+      },
+    }).catch(() => []);
+    const acc = new Map(missing.map(id => [id, new Set()]));
+    for (const u of users) {
+      const set = acc.get(u.linkedRepId);
+      if (!set) continue;
+      for (const a of u.companyAssignments ?? []) if (a.company?.name) set.add(companyKey(a.company.name));
+      for (const a of u.provinceRepAssignments ?? []) if (a.company?.name) set.add(companyKey(a.company.name));
+    }
+    for (const [id, set] of acc) {
+      const keys = [...set].filter(Boolean);
+      _repUserCoMemo.set(id, { at: Date.now(), keys });
+      out.set(id, keys);
+    }
+    if (_repUserCoMemo.size > 2000) _repUserCoMemo.clear();
+  }
+  return out;
+}
+
+/** هل يقع المندوب ضمن نطاق الشركات المختار؟ (شركات سجله ∪ شركات حسابه وفريق محافظته) */
+async function repInWarehouseScope(rep, scope) {
+  if (repCompanyKeys(rep).some(k => scope.has(k))) return true;
+  if (!rep?.id) return false;
+  const keys = (await repUserCompanyKeysMap([rep.id])).get(rep.id) ?? [];
+  return keys.some(k => scope.has(k));
 }
 
 /** هل يُستبعد مبيع المذاخر من تقرير هذا المندوب لهذا المُشاهِد؟ */
@@ -716,7 +763,7 @@ async function excludeWarehouseForRep(viewerId, rep) {
   if (!cfg.companies.length) return true;
   const scope = new Set(cfg.companies.map(companyKey));
   if (isPharmacyRep(rep)) return scope.has(WH_SCOPE_MARKETERS);
-  return repCompanyKeys(rep).some(k => scope.has(k));
+  return repInWarehouseScope(rep, scope);
 }
 
 export async function setExcludeWarehouseSales(userId, enabled, companies) {
@@ -2347,9 +2394,12 @@ async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId 
     const scope = new Set(whCfg.companies.map(companyKey));
     const reps = await prisma.scientificRepresentative.findMany({
       where: { id: { in: repIds } },
-      select: { id: true, company: true, companies: { select: { company: { select: { name: true } } } } },
+      select: { id: true, company: true, repKind: true, companies: { select: { company: { select: { name: true } } } } },
     });
-    whRepIds = new Set(reps.filter(r => repCompanyKeys(r).some(k => scope.has(k))).map(r => r.id));
+    const userKeys = await repUserCompanyKeysMap(reps.map(r => r.id));
+    whRepIds = new Set(reps.filter(r => isPharmacyRep(r)
+      ? scope.has(WH_SCOPE_MARKETERS)
+      : (repCompanyKeys(r).some(k => scope.has(k)) || (userKeys.get(r.id) ?? []).some(k => scope.has(k)))).map(r => r.id));
   }
   const dropWarehouse = (s) => {
     if (!whCfg.enabled || !isWarehouseSaleRow(s.rawData)) return false;
