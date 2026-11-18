@@ -40,8 +40,26 @@ run('ايتم مختلف → لا مطابقة', () => {
   assert.equal(matchYazenToOffice([y()], [o({ item: 'AIRTIDE 250 50MCG 60CAP', row: { itemId: 2 } })]).length, 0);
 });
 
-run('منطقة مختلفة صراحةً → لا مطابقة', () => {
-  assert.equal(matchYazenToOffice([y()], [o({ area: 'الكرادة' })]).length, 0);
+run('منطقة مختلفة (المكتب يكتب منطقة واسعة) → مطابقة، والمنطقة نفسها أولى', () => {
+  // إنتاج 2026-11-19: «ركن ابن البلدي» الطالبية (يزن) = مدينة الصدر (المكتب).
+  assert.equal(matchYazenToOffice([y({ area: 'الطالبية' })], [o({ area: 'مدينة الصدر' })]).length, 1);
+  const a = y({ area: 'الحبيبية' });
+  const far = o({ area: 'مدينة الصدر' });
+  const same = o({ area: 'الحبيبية' });
+  assert.equal(matchYazenToOffice([a], [far, same])[0].officeSaleId, same.id);
+});
+
+run('«عبد الله» = «عبدالله» في اسم الصيدلية', () => {
+  assert.equal(matchYazenToOffice([y({ pharmacy: 'صيدلية عبد الله عمران عباس' })], [o({ pharmacy: 'صيدلية عبدالله عمران عباس' })]).length, 1);
+});
+
+run('اسم الايتم بصيغتي النظامين', () => {
+  const same = (a, b) => matchYazenToOffice([y({ item: a, row: { itemId: 10 } })], [o({ item: b, row: { itemId: 11 } })]).length === 1;
+  assert.ok(same('VOLTAYAT 12.5MG 5SUPP', 'VOLTAYYAT12.5 SUPP'));
+  assert.ok(same('DAYTRIX IM 1G 3.5ML 1VIAL', 'DAYTRIX ( CEFTRIAXONE ) 1G IM'));
+  assert.ok(!same('DAYTRIX IM 1G 3.5ML 1VIAL', 'DAYTRIX ( CEFTRIAXONE ) 1G IV'), 'IM ≠ IV');
+  assert.ok(!same('DEVIT 3 300.000IU 1AMP', 'DEVIT 3 50.000IU 8CAP'), 'تركيز مختلف');
+  assert.ok(!same('VOLTAYAT 12.5MG 5SUPP', 'VOLTAYAT 50MG 5SUPP'), 'تركيز مختلف');
 });
 
 run('الكمية مع البونص → مطابقة', () => {

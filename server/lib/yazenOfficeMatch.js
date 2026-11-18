@@ -32,35 +32,81 @@ const parseRaw = (s) => { try { return JSON.parse(s || '{}') || {}; } catch { re
 const isReturn = (s) => String(s.recordType ?? 'sale').trim().toLowerCase() === 'return';
 const isConditionFile = (f) => String(f?.mergeGroup ?? '').endsWith(`|${CONDITION_VARIANT}`);
 
+/** «عبد الله» (كلمتان: تُسقط «ال») = «عبدالله» (كلمة): كلاهما «عبدله». */
+const pharmKey = (v) => matchHelpers.pharmKey(v).replace(/عبدال/g, 'عبد');
+
+// ── بصمة الايتم: النظامان يكتبان الاسم نفسه بصيغ مختلفة ────────────────────────
+// «VOLTAYAT 12.5MG 5SUPP» = «VOLTAYYAT12.5 SUPP»، «DAYTRIX IM 1G 3.5ML 1VIAL» = «DAYTRIX (CEFTRIAXONE) 1G IM».
+// الاسم التجاري (بلا حروف مكررة) + التركيز + الشكل + طريق الحقن (IM/IV) إن ذُكرت في الطرفين.
+const FORM_GROUPS = [
+  [/supp|ovule/, 'supp'], [/vial|amp|inj/, 'inj'], [/tab|caplet/, 'tab'], [/cap/, 'cap'],
+  [/susp/, 'susp'], [/syr/, 'syrup'], [/cream|crm/, 'cream'], [/gel/, 'gel'], [/oint/, 'oint'],
+  [/drop|damla/, 'drop'], [/spray/, 'spray'], [/sach/, 'sachet'],
+];
+export function itemSig(name) {
+  const s = String(name ?? '').toLowerCase().replace(/\([^)]*\)/g, ' ')
+    .replace(/([a-z])(\d)/g, '$1 $2').replace(/(\d)([a-z%])/g, '$1 $2');
+  const words = s.match(/[a-z]+/g) ?? [];
+  const brand = (words.find(w => w.length >= 3) ?? '').replace(/(.)\1+/g, '$1');
+  const strengths = [];
+  const re = /(\d+(?:[.,]\d+)?)\s*(mcg|mg|g|iu|ml|%)(?![a-z])/g;
+  let m;
+  while ((m = re.exec(s))) {
+    const v = m[1].replace(',', '.');
+    let n = Number(v);
+    if (m[2] === 'iu' && /^\d{1,3}\.\d{3}$/.test(v)) n = Number(v.replace('.', '')); // 300.000IU = 300000
+    if (m[2] === 'g') n *= 1000;
+    if (m[2] !== 'ml') strengths.push(`${n}${m[2] === 'g' ? 'mg' : m[2]}`);
+  }
+  const nums = new Set((s.match(/\d+(?:\.\d+)?/g) ?? []).map(Number).filter(n => n >= 2));
+  const form = FORM_GROUPS.find(([r]) => r.test(s))?.[1] ?? null;
+  const route = /\bim\b/.test(s) ? 'im' : /\biv\b/.test(s) ? 'iv' : null;
+  return { brand, strengths, nums, form, route };
+}
+
+export function sigsMatch(a, b) {
+  if (!a.brand || a.brand.length < 4 || a.brand !== b.brand) return false;
+  if (a.route && b.route && a.route !== b.route) return false;
+  if (a.form && b.form && a.form !== b.form) return false;
+  if (a.strengths.length && b.strengths.length) return a.strengths.some(x => b.strengths.includes(x));
+  if (!a.nums.size && !b.nums.size) return true;
+  for (const n of a.nums) if (b.nums.has(n)) return true;
+  return false;
+}
+
 // ── الجزء الصافي (بلا قاعدة بيانات) — يُختبر في scripts/test-yazen-match.mjs ──
 
 /** صف يزن (Sale من ميركاتو مع rawData) ← شكل المطابقة. */
 export function prepareYazenRow(s, repId = null) {
   const raw = parseRaw(s.rawData);
-  return {
+  const out = {
     id: s.id, repId, ret: isReturn(s),
     itemId: s.itemId ?? null,
     keys: new Set([normalizeItemKey(s.item?.name ?? ''), raw['اسم المادة بالمكتب'] ? normalizeItemKey(raw['اسم المادة بالمكتب']) : null].filter(Boolean)),
     qty: Math.abs(Number(s.quantity) || 0),
     bonus: Math.abs(Number(raw.bonus ?? raw['كمية البونص']) || 0),
-    pharmacy: matchHelpers.pharmKey(raw.pharmacy || s.customer?.name || raw['اسم الشركة'] || ''),
+    pharmacy: pharmKey(raw.pharmacy || s.customer?.name || raw['اسم الشركة'] || ''),
     area: matchHelpers.areaKey(s.area?.name),
     day: matchHelpers.dayOf(s.saleDate),
   };
+  out.sigs = [...out.keys].map(itemSig);
+  return out;
 }
 
 /** صف ملف المكتب (حقول خفيفة، بلا rawData) ← شكل المطابقة. */
 export function prepareOfficeRow(s) {
   const t = s.saleDate ? new Date(new Date(s.saleDate).getTime() + OFFICE_TZ_SHIFT) : null;
-  return {
+  const out = {
     id: s.id, ret: isReturn(s),
     itemId: s.itemId ?? null,
     keys: new Set([normalizeItemKey(s.item?.name ?? '')].filter(Boolean)),
     qty: Math.abs(Number(s.quantity) || 0),
-    pharmacy: matchHelpers.pharmKey(s.customer?.name ?? ''),
+    pharmacy: pharmKey(s.customer?.name ?? ''),
     area: matchHelpers.areaKey(s.area?.name),
     day: matchHelpers.dayOf(t),
   };
+  out.sigs = [...out.keys].map(itemSig);
+  return out;
 }
 
 /** ميركاتو قد يعدّ البونص ضمن الكمية أو خارجها. */
@@ -71,14 +117,16 @@ function sameItem(y, o) {
   if (y.itemId && o.itemId && y.itemId === o.itemId) return true;
   for (const k of o.keys) if (y.keys.has(k)) return true;
   for (const a of y.keys) for (const b of o.keys) if (areSimilar(a, b)) return true;
+  for (const a of y.sigs) for (const b of o.sigs) if (sigsMatch(a, b)) return true;
   return false;
 }
 
+// المنطقة لا تمنع: ملف المكتب يكتب منطقة واسعة (مدينة الصدر) واليزن الحي نفسه (الحبيبية،
+// الطالبية) — أول تشغيل على الإنتاج: 92 من 136 صفاً فاتت بهذا. تبقى أفضلية بين المرشحين فقط.
 function samePharmacy(y, o) {
-  if (matchHelpers.namesMatch(y.pharmacy, o.pharmacy) !== true) return false;
-  // منطقة مختلفة صراحةً = صيدلية أخرى بالاسم نفسه. الطرف الفارغ لا يمنع.
-  return matchHelpers.namesMatch(y.area, o.area, 0.85) !== false;
+  return matchHelpers.namesMatch(y.pharmacy, o.pharmacy) === true;
 }
+const areaAgrees = (y, o) => matchHelpers.namesMatch(y.area, o.area, 0.85) !== false;
 
 /**
  * مطابقة واحد لواحد. الدورة الخارجية على فرق الأيام بالأفضلية، فكل مطابقات «اليوم التالي»
@@ -103,12 +151,16 @@ export function matchYazenToOffice(yazen, office) {
         if (doneYazen.has(y) || y.day == null) continue;
         const list = byDay.get(y.day + gap * DAY);
         if (!list) continue;
+        let pick = null;
         for (const o of list) {
           if (usedOffice.has(o) || o.ret !== y.ret || !qtyOk(y, o)) continue;
           if (!samePharmacy(y, o) || !sameItem(y, o)) continue;
-          usedOffice.add(o); doneYazen.add(y);
-          out.push({ officeSaleId: o.id, mercatoSaleId: y.id, marketerRepId: y.repId, gapDays: gap });
-          break;
+          if (!pick) pick = o;
+          if (areaAgrees(y, o)) { pick = o; break; } // المنطقة نفسها أولى من غيرها
+        }
+        if (pick) {
+          usedOffice.add(pick); doneYazen.add(y);
+          out.push({ officeSaleId: pick.id, mercatoSaleId: y.id, marketerRepId: y.repId, gapDays: gap });
         }
       }
     }
@@ -218,7 +270,7 @@ async function scopeFingerprint(files, names) {
 }
 
 // يُرفع مع أي تغيير في قواعد المطابقة، فيُعاد حساب كل نطاق عند الإقلاع.
-const MATCH_VERSION = 5;
+const MATCH_VERSION = 6;
 
 const yieldLoop = () => new Promise(r => setImmediate(r));
 
