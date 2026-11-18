@@ -25,8 +25,11 @@ const DAY = 86400000;
 const OFFICE_TZ_SHIFT = 3 * 3600000;
 /** فرق الأيام (يوم المكتب − يوم اليزن) بالأفضلية: اليوم التالي أولاً. */
 export const GAP_PREFERENCE = [1, 0, 2, -1, 3];
-/** كمية مختلفة (تجهيز جزئي): اليوم نفسه أو التالي فقط. */
-const ANY_QTY_GAPS = [1, 0];
+/**
+ * كمية مختلفة (طلبية تأخر تجهيزها أو جُهّزت جزئياً): حتى 3 أيام بعد اليزن — بشرط ألا تكون
+ * في تلك الأيام طلبية يزن أخرى للصيدلية نفسها والايتم نفسه (قاعدة المستخدم 2026-11-19).
+ */
+const ANY_QTY_GAPS = [1, 0, 2, 3];
 
 const parseRaw = (s) => { try { return JSON.parse(s || '{}') || {}; } catch { return {}; } };
 const isReturn = (s) => String(s.recordType ?? 'sale').trim().toLowerCase() === 'return';
@@ -76,37 +79,56 @@ export function sigsMatch(a, b) {
 
 // ── الجزء الصافي (بلا قاعدة بيانات) — يُختبر في scripts/test-yazen-match.mjs ──
 
+/**
+ * سياق الهوية من الدمج الموجود (طلب 2026-11-19): ما دمجه المستخدم سابقاً يُعدّ الشيء نفسه.
+ *  itemRules: fromKey (normalizeItemKey) → [{ toItemId, toKey }] — من ItemMergeRule.
+ *  areaAliases: مفتاح منطقة (بلا مسافات) → [مفتاح المنطقة القانونية] — من AreaAlias (الحبيبية → مدينة الصدر).
+ */
+export const EMPTY_CTX = { itemRules: new Map(), areaAliases: new Map() };
+
+function itemIdentity(itemId, names, ctx) {
+  const keys = new Set(names.map(n => normalizeItemKey(n ?? '')).filter(Boolean));
+  const ids = new Set(itemId ? [itemId] : []);
+  for (const k of [...keys]) {
+    for (const r of ctx.itemRules.get(k) ?? []) {
+      if (r.toItemId) ids.add(r.toItemId);
+      if (r.toKey) keys.add(r.toKey);
+    }
+  }
+  return { ids, keys, sigs: [...keys].map(itemSig) };
+}
+
+function areaIdentity(name, ctx) {
+  const k = matchHelpers.areaKey(name);
+  if (!k) return new Set();
+  return new Set([k, ...(ctx.areaAliases.get(k) ?? [])]);
+}
+
 /** صف يزن (Sale من ميركاتو مع rawData) ← شكل المطابقة. */
-export function prepareYazenRow(s, repId = null) {
+export function prepareYazenRow(s, repId = null, ctx = EMPTY_CTX) {
   const raw = parseRaw(s.rawData);
-  const out = {
+  return {
     id: s.id, repId, ret: isReturn(s),
-    itemId: s.itemId ?? null,
-    keys: new Set([normalizeItemKey(s.item?.name ?? ''), raw['اسم المادة بالمكتب'] ? normalizeItemKey(raw['اسم المادة بالمكتب']) : null].filter(Boolean)),
+    ...itemIdentity(s.itemId ?? null, [s.item?.name, raw['اسم المادة بالمكتب']], ctx),
     qty: Math.abs(Number(s.quantity) || 0),
     bonus: Math.abs(Number(raw.bonus ?? raw['كمية البونص']) || 0),
     pharmacy: pharmKey(raw.pharmacy || s.customer?.name || raw['اسم الشركة'] || ''),
-    area: matchHelpers.areaKey(s.area?.name),
+    areas: areaIdentity(s.area?.name, ctx),
     day: matchHelpers.dayOf(s.saleDate),
   };
-  out.sigs = [...out.keys].map(itemSig);
-  return out;
 }
 
 /** صف ملف المكتب (حقول خفيفة، بلا rawData) ← شكل المطابقة. */
-export function prepareOfficeRow(s) {
+export function prepareOfficeRow(s, ctx = EMPTY_CTX) {
   const t = s.saleDate ? new Date(new Date(s.saleDate).getTime() + OFFICE_TZ_SHIFT) : null;
-  const out = {
+  return {
     id: s.id, ret: isReturn(s),
-    itemId: s.itemId ?? null,
-    keys: new Set([normalizeItemKey(s.item?.name ?? '')].filter(Boolean)),
+    ...itemIdentity(s.itemId ?? null, [s.item?.name], ctx),
     qty: Math.abs(Number(s.quantity) || 0),
     pharmacy: pharmKey(s.customer?.name ?? ''),
-    area: matchHelpers.areaKey(s.area?.name),
+    areas: areaIdentity(s.area?.name, ctx),
     day: matchHelpers.dayOf(t),
   };
-  out.sigs = [...out.keys].map(itemSig);
-  return out;
 }
 
 /** ميركاتو قد يعدّ البونص ضمن الكمية أو خارجها. */
@@ -114,7 +136,7 @@ const sameQty = (y, o) => Math.abs(y.qty - o.qty) < 0.001
   || (y.bonus > 0 && (Math.abs(y.qty + y.bonus - o.qty) < 0.001 || Math.abs(y.qty - y.bonus - o.qty) < 0.001));
 
 function sameItem(y, o) {
-  if (y.itemId && o.itemId && y.itemId === o.itemId) return true;
+  for (const id of o.ids) if (y.ids.has(id)) return true; // نفس الايتم أو مدموج إليه
   for (const k of o.keys) if (y.keys.has(k)) return true;
   for (const a of y.keys) for (const b of o.keys) if (areSimilar(a, b)) return true;
   for (const a of y.sigs) for (const b of o.sigs) if (sigsMatch(a, b)) return true;
@@ -126,7 +148,12 @@ function sameItem(y, o) {
 function samePharmacy(y, o) {
   return matchHelpers.namesMatch(y.pharmacy, o.pharmacy) === true;
 }
-const areaAgrees = (y, o) => matchHelpers.namesMatch(y.area, o.area, 0.85) !== false;
+function areaAgrees(y, o) {
+  if (!y.areas.size || !o.areas.size) return true;
+  for (const a of y.areas) if (o.areas.has(a)) return true; // نفسها أو مدموجة تحتها
+  for (const a of y.areas) for (const b of o.areas) if (matchHelpers.namesMatch(a, b, 0.85) === true) return true;
+  return false;
+}
 
 /**
  * مطابقة واحد لواحد. الدورة الخارجية على فرق الأيام بالأفضلية، فكل مطابقات «اليوم التالي»
@@ -166,7 +193,10 @@ export function matchYazenToOffice(yazen, office) {
     }
   };
   pass(GAP_PREFERENCE, sameQty);
-  pass(ANY_QTY_GAPS, () => true);
+  // صف مكتب بكمية مختلفة لا يُنسب لطلبية يزن إن كانت هناك طلبية يزن أخرى قد تكون هي أصله.
+  const unambiguous = (y, o) => !yazen.some(y2 => y2 !== y && y2.ret === y.ret && y2.day != null
+    && o.day - y2.day >= 0 && o.day - y2.day <= 3 * DAY && samePharmacy(y2, o) && sameItem(y2, o));
+  pass(ANY_QTY_GAPS, unambiguous);
   return out;
 }
 
@@ -194,8 +224,8 @@ export function explainUnmatched(yazen, office, matches) {
     }
     counts[STAGES[best]]++;
     if (samples.length < 6 && best >= 2) {
-      samples.push({ stage: STAGES[best], yazen: { day: y.day && new Date(y.day).toISOString().slice(0, 10), pharmacy: y.pharmacy, area: y.area, keys: [...y.keys], qty: y.qty },
-        office: cand && { day: cand.day && new Date(cand.day).toISOString().slice(0, 10), pharmacy: cand.pharmacy, area: cand.area, keys: [...cand.keys], qty: cand.qty, used: usedOffice.has(cand.id) } });
+      samples.push({ stage: STAGES[best], yazen: { day: y.day && new Date(y.day).toISOString().slice(0, 10), pharmacy: y.pharmacy, area: [...y.areas].join('/'), keys: [...y.keys], qty: y.qty },
+        office: cand && { day: cand.day && new Date(cand.day).toISOString().slice(0, 10), pharmacy: cand.pharmacy, area: [...cand.areas].join('/'), keys: [...cand.keys], qty: cand.qty, used: usedOffice.has(cand.id) } });
     }
   }
   // أعمق: لكل غير مطابَق — هل الصيدلية + الايتم موجودان بفرق أيام أبعد؟ وإلا فأسماء الصيدليات
@@ -214,7 +244,7 @@ export function explainUnmatched(yazen, office, matches) {
     }
     const near = office.filter(o => o.day != null && o.ret === y.ret && Math.abs((o.day - y.day) / DAY - 1) <= 2 && sameItem(y, o));
     if (near.length) {
-      if (pharmPairs.length < 12) pharmPairs.push(`${y.pharmacy}|${y.area} ↔ ${[...new Set(near.filter(o => sameQty(y, o)).map(o => `${o.pharmacy}|${o.area}`))].slice(0, 3).join(' ; ') || '(qty≠) ' + [...new Set(near.map(o => o.pharmacy))].slice(0, 3).join(' ; ')}`);
+      if (pharmPairs.length < 12) pharmPairs.push(`${y.pharmacy}|${[...y.areas].join('/')} ↔ ${[...new Set(near.filter(o => sameQty(y, o)).map(o => `${o.pharmacy}|${[...o.areas].join('/')}`))].slice(0, 3).join(' ; ') || '(qty≠) ' + [...new Set(near.map(o => o.pharmacy))].slice(0, 3).join(' ; ')}`);
     } else if (itemMisses.length < 12) {
       const first = [...y.keys][0]?.split(' ')[0] ?? '';
       const alike = [...new Set(office.filter(o => [...o.keys].some(k => k.startsWith(first.slice(0, 4)))).flatMap(o => [...o.keys]))].slice(0, 3);
@@ -259,6 +289,30 @@ async function loadMarketerNames() {
   return byName;
 }
 
+/** دمج الايتمات (ItemMergeRule) ودمج المناطق (AreaAlias) — الهوية التي قرّرها المستخدم. */
+async function loadIdentityContext() {
+  const [rules, aliases] = await Promise.all([
+    prisma.itemMergeRule.findMany({ select: { fromKey: true, toItemId: true, toName: true } }),
+    prisma.areaAlias.findMany({ select: { fromKey: true, area: { select: { name: true } } } }),
+  ]);
+  const itemRules = new Map();
+  for (const r of rules) {
+    const k = normalizeItemKey(r.fromKey ?? '');
+    if (!k) continue;
+    if (!itemRules.has(k)) itemRules.set(k, []);
+    itemRules.get(k).push({ toItemId: r.toItemId ?? null, toKey: r.toName ? normalizeItemKey(r.toName) : null });
+  }
+  const areaAliases = new Map();
+  for (const a of aliases) {
+    const from = matchHelpers.areaKey(a.fromKey);
+    const to = matchHelpers.areaKey(a.area?.name);
+    if (!from || !to || from === to) continue;
+    if (!areaAliases.has(from)) areaAliases.set(from, []);
+    areaAliases.get(from).push(to);
+  }
+  return { itemRules, areaAliases, size: rules.length + aliases.length };
+}
+
 async function scopeFingerprint(files, names) {
   const ids = files.map(f => f.id).sort((a, b) => a - b);
   if (!ids.length) return `v${MATCH_VERSION}|empty`;
@@ -266,11 +320,13 @@ async function scopeFingerprint(files, names) {
   const nameSig = [...names.entries()].map(([k, v]) => `${k}=${v}`).sort().join(',');
   let h = 0;
   for (let i = 0; i < nameSig.length; i++) h = (h * 31 + nameSig.charCodeAt(i)) | 0;
-  return `v${MATCH_VERSION}|${ids.join(',')}|${agg._count._all}|${agg._max.id ?? 0}|${h}`;
+  const [rules, aliases] = await Promise.all([prisma.itemMergeRule.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }), prisma.areaAlias.aggregate({ _count: { _all: true }, _max: { id: true } })]);
+  const merges = `${rules._count._all}.${rules._max.updatedAt?.getTime() ?? 0}.${aliases._count._all}.${aliases._max.id ?? 0}`;
+  return `v${MATCH_VERSION}|${ids.join(',')}|${agg._count._all}|${agg._max.id ?? 0}|${h}|${merges}`;
 }
 
 // يُرفع مع أي تغيير في قواعد المطابقة، فيُعاد حساب كل نطاق عند الإقلاع.
-const MATCH_VERSION = 6;
+const MATCH_VERSION = 7;
 
 const yieldLoop = () => new Promise(r => setImmediate(r));
 
@@ -287,6 +343,7 @@ async function computeScope(scopeKey, { force = false } = {}) {
     update: { status: 'running', startedAt: new Date(), error: null },
   });
   try {
+    const ctx = await loadIdentityContext();
     const mercatoIds = files.filter(f => f.sourceSystem === 'mercato' && !isConditionFile(f)).map(f => f.id);
     const officeIds = files.filter(f => f.sourceSystem !== 'mercato').map(f => f.id);
 
@@ -310,7 +367,7 @@ async function computeScope(scopeKey, { force = false } = {}) {
       if (!isOfficeWarehouseRow(s.rawData)) continue;
       const repId = names.get(normalizeRepName(s.representative?.name ?? ''));
       if (repId == null) continue; // يزن مندوب علمي: يبقى مبيعه هو، لا فارمسي
-      yazen.push(prepareYazenRow(s, repId));
+      yazen.push(prepareYazenRow(s, repId, ctx));
     }
 
     // كل ملف مكتب يُطابَق وحده: نسخ بيانات المكتب نفسها في ملفات حسابات مختلفة تُعزل كلها،
@@ -337,7 +394,7 @@ async function computeScope(scopeKey, { force = false } = {}) {
             },
             orderBy: { id: 'asc' }, take: BATCH,
           });
-          for (const r of rows) office.push(prepareOfficeRow(r));
+          for (const r of rows) office.push(prepareOfficeRow(r, ctx));
           if (rows.length < BATCH) break;
           cursor = rows[rows.length - 1].id;
           await yieldLoop();

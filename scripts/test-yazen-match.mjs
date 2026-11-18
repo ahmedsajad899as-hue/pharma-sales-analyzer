@@ -12,12 +12,12 @@ const y = (o = {}) => prepareYazenRow({
   item: { name: o.item ?? 'AMOKLAVIN BID 1000MG 10TAB' }, customer: { name: o.pharmacy ?? 'صيدلية النور' }, area: { name: o.area ?? 'المنصور' },
   rawData: JSON.stringify({ 'اسم المذخر': 'ALYAZEN', ...(o.bonus ? { 'كمية البونص': o.bonus } : {}) }),
   ...o.row,
-}, 7);
+}, 7, o.ctx);
 const o = (p = {}) => prepareOfficeRow({
   id: nextId++, itemId: 1, quantity: 10, recordType: 'sale', saleDate: officeAt(p.date ?? '2026-11-11'),
   item: { name: p.item ?? 'AMOKLAVIN BID 1000MG 10TAB' }, customer: { name: p.pharmacy ?? 'صيدلية النور' }, area: { name: p.area ?? 'المنصور' },
   ...p.row,
-});
+}, p.ctx);
 
 const run = (name, fn) => { fn(); console.log('✓', name); };
 
@@ -86,9 +86,35 @@ run('إرجاع لا يطابق مبيعاً، وإرجاع يطابق إرجا�
   assert.equal(matchYazenToOffice([y({ row: { recordType: 'return' } })], [o({ row: { recordType: 'return' } })]).length, 1);
 });
 
-run('كمية مختلفة (تجهيز جزئي) في اليوم التالي → مطابقة، وبعد 3 أيام → لا', () => {
+run('كمية مختلفة (تأخر التجهيز) حتى 3 أيام → مطابقة، وبعد 4 → لا', () => {
   assert.equal(matchYazenToOffice([y()], [o({ row: { quantity: 6 } })]).length, 1);
-  assert.equal(matchYazenToOffice([y()], [o({ date: '2026-11-13', row: { quantity: 6 } })]).length, 0);
+  assert.equal(matchYazenToOffice([y()], [o({ date: '2026-11-13', row: { quantity: 6 } })]).length, 1);
+  assert.equal(matchYazenToOffice([y()], [o({ date: '2026-11-14', row: { quantity: 6 } })]).length, 0);
+});
+
+run('كمية مختلفة وطلبية يزن مشابهة أخرى في الأيام الثلاثة → لا مطابقة', () => {
+  // يزن 50 يوم 10 ويزن 30 يوم 11 (الصيدلية والايتم نفسهما)، والمكتب 15 يوم 12: لا يُعرف أصله.
+  const a = y({ row: { quantity: 50 } });
+  const b = y({ date: '2026-11-11', row: { quantity: 30 } });
+  assert.equal(matchYazenToOffice([a, b], [o({ date: '2026-11-12', row: { quantity: 15 } })]).length, 0);
+  // يزن لصيدلية أخرى لا يمنع.
+  const c = y({ date: '2026-11-11', pharmacy: 'صيدلية الشفاء', row: { quantity: 30 } });
+  assert.equal(matchYazenToOffice([a, c], [o({ date: '2026-11-12', row: { quantity: 15 } })]).length, 1);
+});
+
+run('المنطقة المدموجة (AreaAlias) = المنطقة القانونية', () => {
+  const ctx = { itemRules: new Map(), areaAliases: new Map([['حبيبيه', ['مدينهصدر']]]) };
+  const a = y({ area: 'الحبيبية', ctx });
+  const other = o({ area: 'الكرادة', ctx });
+  const merged = o({ area: 'مدينة الصدر', ctx });
+  assert.equal(matchYazenToOffice([a], [other, merged])[0].officeSaleId, merged.id);
+});
+
+run('الايتم المدموج (ItemMergeRule) = الايتم القانوني', () => {
+  const ctx = { itemRules: new Map([['amk 1g', [{ toItemId: 99, toKey: null }]]]), areaAliases: new Map() };
+  const a = y({ item: 'AMK 1G', row: { itemId: 5 }, ctx });
+  assert.equal(matchYazenToOffice([a], [o({ item: 'شي اخر', row: { itemId: 99 }, ctx })]).length, 1);
+  assert.equal(matchYazenToOffice([a], [o({ item: 'شي اخر', row: { itemId: 98 }, ctx })]).length, 0);
 });
 
 run('اسم ايتم المكتب من عمود «اسم المادة بالمكتب» بمعرّف مختلف', () => {
