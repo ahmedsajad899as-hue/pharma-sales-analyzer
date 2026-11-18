@@ -24,7 +24,8 @@ interface Entry {
 /** اسم لم يُطابَق مندوبيك — suggestions من حسابات شركتك خارج فريقك (اقتراح لا حسم) */
 interface Unrelated { raw: string; key: string; suggestions?: Suggestion[] }
 /** outOfTeam = حساب في شركتك لكنه غير معيَّن تحتك (مثل حساب جديد لم يُعيَّن بعد) */
-interface RepOpt { id: number; name: string; company?: string | null; outOfTeam?: boolean }
+/** staff = تيم ليدر/مدير/موظف مكتب (ليس مندوباً علمياً) — id سالب إن لم يكن له سجل مندوب بعد */
+interface RepOpt { id: number; name: string; company?: string | null; outOfTeam?: boolean; staff?: boolean }
 
 const repLabel = (r: { name: string; company?: string | null }) => r.company ? `${r.name} — ${r.company}` : r.name;
 
@@ -33,7 +34,8 @@ function RepSelect({ reps, value, onChange, withNone, placeholder }: {
   reps: RepOpt[]; value: string; onChange: (v: string) => void; withNone?: boolean; placeholder: string;
 }) {
   const mine = reps.filter(r => !r.outOfTeam);
-  const others = reps.filter(r => r.outOfTeam);
+  const others = reps.filter(r => r.outOfTeam && !r.staff);
+  const staff = reps.filter(r => r.outOfTeam && r.staff);
   return (
     <select value={value} onChange={ev => onChange(ev.target.value)}
       style={{ flex: 1, minWidth: 160, padding: '4px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12.5, fontFamily: 'inherit' }}>
@@ -47,6 +49,11 @@ function RepSelect({ reps, value, onChange, withNone, placeholder }: {
       {others.length > 0 && (
         <optgroup label="حسابات أخرى في شركتك (خارج فريقك)">
           {others.map(r => <option key={r.id} value={r.id}>{repLabel(r)}</option>)}
+        </optgroup>
+      )}
+      {staff.length > 0 && (
+        <optgroup label="تيم ليدرية ومدراء وموظفو المكتب">
+          {staff.map(r => <option key={r.id} value={r.id}>{repLabel(r)}</option>)}
         </optgroup>
       )}
     </select>

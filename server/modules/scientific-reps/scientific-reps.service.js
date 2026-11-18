@@ -1021,41 +1021,75 @@ export async function checkMercatoRepNames({ fileIds = null, user = null, canRes
 }
 
 /**
- * المندوبون الذين يمكن نسب اسم ميركاتو إليهم يدوياً: مندوبو المستخدم (list) +
- * كل حسابات المندوبين الفعّالة في شركاته (رئيسية أو ثانوية) — نفس نطاق مشاركة
- * القرار (expandOwnerIdsByCompany). من ليس من فريق المستخدم يُعلَّم outOfTeam.
+ * الحسابات التي يمكن نسب اسم ميركاتو إليها يدوياً: مندوبو المستخدم (list) +
+ * كل حسابات شركاته ومكتبه الفعّالة — مندوبون، تيم ليدرية، مدراء، وموظفو المكتب
+ * (طلب المستخدم 2026-11-18: اسم في ملف ميركاتو قد يكون لمدير أو موظف مكتب).
+ * من ليس من فريق المستخدم يُعلَّم outOfTeam؛ غير المندوبين يُعلَّمون staff.
+ *
+ * حساب إداري بلا سجل مندوب علمي بعد لا نُنشئ له سجلاً هنا (الفحص GET يُستدعى
+ * كثيراً، وإنشاء سجلات مندوب لكل مدير يُظهرهم في قوائم المندوبين) — نعطيه
+ * معرّفاً سالباً (-userId) ويُنشأ سجلّه فقط عند الحفظ الفعلي (saveRepNameLinks).
  */
+const REP_ACCOUNT_ROLES = new Set(['scientific_rep', 'team_leader', 'commercial_rep']);
+const ROLE_LABEL_AR = {
+  team_leader: 'تيم ليدر', company_manager: 'مدير', supervisor: 'مشرف', product_manager: 'مدير منتج',
+  office_manager: 'مدير مكتب', office_employee: 'موظف مكتب', office_hr: 'HR',
+  commercial_supervisor: 'مشرف تجاري', commercial_team_leader: 'تيم ليدر تجاري', commercial_rep: 'مندوب تجاري',
+};
+
+async function linkableAccountsWhere(user) {
+  const [me, assigns] = await Promise.all([
+    prisma.user.findUnique({ where: { id: user.id }, select: { officeId: true } }),
+    prisma.userCompanyAssignment.findMany({ where: { userId: user.id }, select: { companyId: true } }),
+  ]);
+  const companyIds = assigns.map(r => r.companyId);
+  const or = [];
+  if (companyIds.length) or.push({ companyAssignments: { some: { companyId: { in: companyIds } } } });
+  if (me?.officeId) or.push({ officeId: me.officeId });
+  if (or.length === 0) return null;
+  return { isActive: true, role: { notIn: ['admin', 'super_admin', 'user'] }, OR: or };
+}
+
 async function repNameLinkOptions(user, baseReps) {
   const out = baseReps.map(r => ({ ...r, outOfTeam: false }));
   if (!user?.id || !COMPANY_SCOPED_ROLES.has(user.role)) return out;
-  const companyIds = (await prisma.userCompanyAssignment.findMany({
-    where: { userId: user.id }, select: { companyId: true },
-  })).map(r => r.companyId);
-  if (companyIds.length === 0) return out;
+  const where = await linkableAccountsWhere(user);
+  if (!where) return out;
   const users = await prisma.user.findMany({
-    where: {
-      role: { in: ['scientific_rep', 'team_leader', 'commercial_rep'] },
-      isActive: true,
-      companyAssignments: { some: { companyId: { in: companyIds } } },
-    },
+    where,
     select: {
-      id: true, linkedRepId: true, displayName: true, username: true,
+      id: true, role: true, linkedRepId: true, displayName: true, username: true,
       companyAssignments: { select: { isPrimary: true, company: { select: { name: true } } } },
     },
   });
   const seen = new Set(out.map(r => r.id));
   for (const u of users) {
-    const repId = u.linkedRepId || await ensureLinkedRepId(u.id);
+    const isRep = REP_ACCOUNT_ROLES.has(u.role);
+    // المندوب يُنشأ سجلّه فوراً كما كان؛ الإداري بلا سجل → معرّف سالب مؤقت
+    const repId = u.linkedRepId || (isRep ? await ensureLinkedRepId(u.id) : -u.id);
     if (!repId || seen.has(repId)) continue;
     seen.add(repId);
+    const company = (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name ?? null;
     out.push({
       id: repId,
       name: u.displayName || u.username,
-      company: (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name ?? null,
+      company: u.role === 'scientific_rep' ? company : [ROLE_LABEL_AR[u.role] ?? u.role, company].filter(Boolean).join(' · '),
       outOfTeam: true,
+      staff: u.role !== 'scientific_rep',
     });
   }
   return out;
+}
+
+/** معرّف سالب (-userId) من قائمة النسب → سجل المندوب العلمي للحساب، بعد التحقق أنه ضمن نطاق المستخدم. */
+async function resolvePickerRepId(user, id) {
+  if (!Number.isInteger(id)) return null;
+  if (id > 0) return id;
+  const where = await linkableAccountsWhere(user);
+  if (!where) return null;
+  const target = await prisma.user.findFirst({ where: { AND: [where, { id: -id }] }, select: { id: true } });
+  if (!target) throw new AppError('الحساب المختار خارج نطاق مكتبك', 400, 'BAD_ACCOUNT');
+  return ensureLinkedRepId(target.id);
 }
 
 /**
@@ -1066,6 +1100,7 @@ async function repNameLinkOptions(user, baseReps) {
  */
 export async function saveRepNameLinks(userId, links) {
   if (!userId) throw new AppError('غير مصرح', 401, 'UNAUTHORIZED');
+  const actor = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
   // القرار مشترك على نطاق الشركة (classifyRepNamesForUser)، والنسبة تقرأ كل الروابط
   // بـ scientificRepId بلا userId — فتعديل اسم حسمه زميل يجب أن يحذف ربطه، وإلا
   // بقي الاسم منسوباً للمندوبَين القديم والجديد معاً.
@@ -1075,7 +1110,7 @@ export async function saveRepNameLinks(userId, links) {
     const fromName = String(l?.fromName ?? '').trim();
     const fromKey  = normalizeRepName(fromName);
     if (!fromKey) continue;
-    const repId = Number.isInteger(l?.scientificRepId) ? l.scientificRepId : null;
+    const repId = await resolvePickerRepId(actor, l?.scientificRepId);
     await prisma.sciRepNameLink.deleteMany({
       where: { fromKey, userId: { in: scopeIds, not: userId } },
     });
