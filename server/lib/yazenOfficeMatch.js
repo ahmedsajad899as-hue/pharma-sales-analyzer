@@ -118,6 +118,37 @@ export function matchYazenToOffice(yazen, office) {
   return out;
 }
 
+/**
+ * تشخيص: لكل صف يزن لم يُطابَق — أبعد مرحلة بلغها أقرب مرشح في نافذة الأيام.
+ * المراحل: noDay (لا صف مكتب في تلك الأيام) → type → item → pharmacy → qty → used.
+ */
+export function explainUnmatched(yazen, office, matches) {
+  const done = new Set(matches.map(m => m.mercatoSaleId));
+  const usedOffice = new Set(matches.map(m => m.officeSaleId));
+  const byDay = new Map();
+  for (const o of office) { if (o.day == null) continue; if (!byDay.has(o.day)) byDay.set(o.day, []); byDay.get(o.day).push(o); }
+  const STAGES = ['noDay', 'type', 'item', 'pharmacy', 'qty', 'used'];
+  const counts = Object.fromEntries(STAGES.map(s => [s, 0]));
+  const samples = [];
+  for (const y of yazen) {
+    if (done.has(y.id)) continue;
+    let best = 0, cand = null;
+    for (const gap of GAP_PREFERENCE) {
+      for (const o of byDay.get(y.day + gap * DAY) ?? []) {
+        let st = 1;
+        if (o.ret === y.ret) { st = 2; if (sameItem(y, o)) { st = 3; if (samePharmacy(y, o)) { st = 4; if (sameQty(y, o)) st = 5; } } }
+        if (st > best) { best = st; cand = o; }
+      }
+    }
+    counts[STAGES[best]]++;
+    if (samples.length < 6 && best >= 2) {
+      samples.push({ stage: STAGES[best], yazen: { day: y.day && new Date(y.day).toISOString().slice(0, 10), pharmacy: y.pharmacy, area: y.area, keys: [...y.keys], qty: y.qty },
+        office: cand && { day: cand.day && new Date(cand.day).toISOString().slice(0, 10), pharmacy: cand.pharmacy, area: cand.area, keys: [...cand.keys], qty: cand.qty, used: usedOffice.has(cand.id) } });
+    }
+  }
+  return { counts, samples };
+}
+
 // ── النطاق: ملفات مكتب واحد (أو مستخدم بلا مكتب) ─────────────────────────────
 
 const fileWhereOf = (scopeKey) => {
@@ -161,13 +192,16 @@ async function loadMarketerNames() {
 
 async function scopeFingerprint(files, names) {
   const ids = files.map(f => f.id).sort((a, b) => a - b);
-  if (!ids.length) return 'empty';
+  if (!ids.length) return `v${MATCH_VERSION}|empty`;
   const agg = await prisma.sale.aggregate({ where: { uploadedFileId: { in: ids }, isHidden: false }, _count: { _all: true }, _max: { id: true } });
   const nameSig = [...names.entries()].map(([k, v]) => `${k}=${v}`).sort().join(',');
   let h = 0;
   for (let i = 0; i < nameSig.length; i++) h = (h * 31 + nameSig.charCodeAt(i)) | 0;
-  return `${ids.join(',')}|${agg._count._all}|${agg._max.id ?? 0}|${h}`;
+  return `v${MATCH_VERSION}|${ids.join(',')}|${agg._count._all}|${agg._max.id ?? 0}|${h}`;
 }
+
+// يُرفع مع أي تغيير في قواعد المطابقة، فيُعاد حساب كل نطاق عند الإقلاع.
+const MATCH_VERSION = 2;
 
 const yieldLoop = () => new Promise(r => setImmediate(r));
 
@@ -235,6 +269,17 @@ async function computeScope(scopeKey, { force = false } = {}) {
       }
       await yieldLoop();
       matches = matchYazenToOffice(yazen, office);
+      const officeDays = office.map(o => o.day).filter(d => d != null);
+      console.log(`[yazen-match] ${scopeKey} office files ${officeIds.length}, rows in window ${office.length}`
+        + (officeDays.length ? ` (${new Date(Math.min(...officeDays)).toISOString().slice(0, 10)}..${new Date(Math.max(...officeDays)).toISOString().slice(0, 10)})` : '')
+        + `, yazen ${new Date(Math.min(...days)).toISOString().slice(0, 10)}..${new Date(Math.max(...days)).toISOString().slice(0, 10)}`);
+      if (matches.length < yazen.length) {
+        const why = explainUnmatched(yazen, office, matches);
+        console.log(`[yazen-match] ${scopeKey} unmatched by stage ${JSON.stringify(why.counts)}`);
+        for (const s of why.samples) console.log(`[yazen-match] sample ${JSON.stringify(s)}`);
+      }
+    } else {
+      console.log(`[yazen-match] ${scopeKey} skipped: yazen days ${days.length}, office files ${officeIds.length}`);
     }
 
     await prisma.$transaction(async (tx) => {
