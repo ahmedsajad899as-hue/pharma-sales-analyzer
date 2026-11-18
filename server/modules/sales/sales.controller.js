@@ -368,7 +368,7 @@ export async function checkNames(req, res, next) {
  */
 export async function checkDuplicates(req, res, next) {
   try {
-    const { rows, target, receivedAt, pendingOrderIds } = req.body || {};
+    const { rows, target, receivedAt, pendingOrderIds, looseWarehouse } = req.body || {};
     const at = receivedAt ? new Date(receivedAt) : null;
     // طلبيات محوَّلة لمدير الشركة تُحفَظ في ملف كوديشن حساب الكروب — فالتكرار
     // يُفحَص مقابل ذلك الملف لا ملف المدير.
@@ -384,6 +384,7 @@ export async function checkDuplicates(req, res, next) {
     const data = await checkManualDuplicates({
       rows, target: target || {}, userId,
       receivedAt: at && isFinite(at.getTime()) ? at : null,
+      looseWarehouse: looseWarehouse === true,
     });
     return res.json({ success: true, data });
   } catch (err) {

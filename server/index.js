@@ -24,7 +24,7 @@ import { backfillMercatoManualRows } from './lib/backfillMercatoManualRows.js';
 import { backfillVisitImportDuplicates } from './lib/visitImportDedup.js';
 import { updateConditionRow, deleteConditionRow, canEditConditionFile } from './modules/sales/sales.service.js';
 import { loadConditionSheets, scopeSheetsToRoster, buildCompanySheet, buildConditionWorkbook, migrateRowsToConditionFiles, transitSourceFiles, filterSheetsByProvince, renameConditionFiles, attachConditionTeams, filterConditionByTeam } from './lib/conditionFile.js';
-import { flagConditionRowsInMercato, flagConditionTransitDups } from './lib/manualDuplicateCheck.js';
+import { flagConditionRowsInMercato, flagConditionTransitDups, flagConditionSelfDups } from './lib/manualDuplicateCheck.js';
 
 // ── New modules ──────────────────────────────────────────────
 import { errorHandler } from './middleware/errorHandler.js';
@@ -2365,6 +2365,8 @@ app.get('/api/files/:id/condition-view', requireAuth, async (req, res) => {
     lap('mercato');
     // صف بوت/فاتورة يشبه طلبية ترانزيت من ملف المكتب (نفس الصيدلية/المذخر/الايتم/الكمية، تاريخ قريب).
     try { flagConditionTransitDups(all); } catch (e) { console.error('[condition] فحص الترانزيت:', e?.message); }
+    // نفس الطلبية محفوظة مرتين داخل الملف (نفس الصيدلية/الايتم/الكمية خلال 3 أيام) — تنبيه فقط.
+    try { flagConditionSelfDups(all); } catch (e) { console.error('[condition] فحص التكرار الداخلي:', e?.message); }
     await attachConditionTeams(all, await conditionOfficeId(file.userId, req.user?.id));
     lap('teams');
     const sheets = await scopeSheetsToRoster(all, req.user);

@@ -105,7 +105,7 @@ function matchItems(incItems, exItems) {
 /**
  * يقارن فاتورة واردة بطلبية محفوظة. يُرجع null إن لم يكن بينهما ما يُذكر.
  */
-function compareOrder(inc, ex) {
+function compareOrder(inc, ex, { looseWarehouse = false } = {}) {
   const invSame = Boolean(inc.invoice && ex.invoice && inc.invoice === ex.invoice);
   // رقم طلبية ميركاتو ليس رقم فاتورة المذخر المصوَّرة — اختلافهما لا يعني طلبيتين.
   const invBoth = Boolean(inc.invoice && ex.invoice && !ex.mercato);
@@ -114,7 +114,9 @@ function compareOrder(inc, ex) {
   // مذخر مختلف = طلبية أخرى (الصيدلية تطلب الأصناف نفسها من مذخرين) — حتى مع رقم مطابق،
   // فأرقام الفواتير تتكرّر بين المذاخر.
   const wh      = namesMatch(inc.warehouse, ex.warehouseKey, 0.85);
-  if (wh === false) return null;
+  // looseWarehouse (لوحة الفايبر/البوت): اسم المذخر مكتوب يدوياً بأشكال مختلفة — المختلف
+  // لا يُسقط المطابقة بل يخفّضها لـ«ربما» (2026-11-18: «العناية الطبية» / «العناية المتميزة»).
+  if (wh === false && !looseWarehouse) return null;
   const area    = namesMatch(inc.area, ex.area, 0.85);
   // الطرف بلا تاريخ (طلبية نصية) يُقاس بلحظة وصوله/حفظه بدلاً منه — كي لا
   // تُطابَق طلبية من شهر مضى لمجرد تشابه الصيدلية والأصناف.
@@ -148,6 +150,7 @@ function compareOrder(inc, ex) {
     }
   }
 
+  if (wh === false && level) level = 'possible';
   // مكررة لكن الواردة تحمل أصنافاً زائدة ⇒ جزئية (الزائد جديد).
   if (level === 'duplicate' && matched < inc.items.length) level = 'partial';
 
@@ -156,6 +159,7 @@ function compareOrder(inc, ex) {
   if (pharm) reasons.push('نفس الصيدلية');
   if (area) reasons.push('نفس المنطقة');
   if (wh) reasons.push('نفس المذخر');
+  else if (wh === false) reasons.push('مذخر مختلف الكتابة');
   if (date === 'same') reasons.push(exactDate ? 'نفس التاريخ' : 'بنفس اليوم');
   else if (date === 'near') reasons.push('تاريخ قريب');
   if (matched) reasons.push(`${sameQty === matched ? matched : `${matched} (${sameQty} بنفس الكمية)`} من ${inc.items.length} أصناف مطابقة`);
@@ -286,7 +290,7 @@ const describeMatch = (ex) => ({
  * @param {Date}   [p.receivedAt] لحظة وصول الطلبية (بديل التاريخ حين لا يُذكر)
  * @returns {Promise<{groups: object[], rows: object[], checkedFiles: number}>}
  */
-export async function checkManualDuplicates({ rows, target = {}, userId, receivedAt = null }) {
+export async function checkManualDuplicates({ rows, target = {}, userId, receivedAt = null, looseWarehouse = false }) {
   const out = { groups: [], rows: [], checkedFiles: 0 };
   if (!userId || !Array.isArray(rows) || rows.length === 0) return out;
 
@@ -337,7 +341,7 @@ export async function checkManualDuplicates({ rows, target = {}, userId, receive
   incoming.forEach((inc, gi) => {
     let best = null;
     for (const ex of existing) {
-      const c = compareOrder(inc, ex);
+      const c = compareOrder(inc, ex, { looseWarehouse });
       if (c && (!best || c.score > best.c.score)) best = { c, ex, inBatch: false };
     }
     for (let pj = 0; pj < gi; pj++) {
@@ -367,6 +371,64 @@ export async function checkManualDuplicates({ rows, target = {}, userId, receive
   });
   out.rows = [...rowFlags.values()];
   return out;
+}
+
+/**
+ * تكرار **داخل** ملف اللكوديشن نفسه: نفس الصيدلية + نفس الايتم + نفس الكمية خلال 3 أيام
+ * (طلب صاحب المشروع 2026-11-18: «زينة الحارثية» حُفظت مرتين — مرة باسم مذخر الدليل
+ * «العناية الطبية» ومرة كما كُتب «العناية المتميزة» — فلم ينبّه شيء). اختلاف اسم المذخر
+ * لا يُسقط الاشتباه هنا (يخفّضه لـ«ربما») لأن الاسم نفسه قد يُكتب بأكثر من شكل.
+ * تنبيه فقط على الطرفين (row.selfDup) — لا يُحذف شيء.
+ */
+export function flagConditionSelfDups(sheets) {
+  const byId = new Map();
+  for (const s of sheets) for (const r of s.rows) {
+    if (r.transit || !r.item || !(Number(r.quantity) > 0)) continue;
+    if (!byId.has(r.id)) byId.set(r.id, []);
+    byId.get(r.id).push(r);
+  }
+  const prep = [...byId.values()].map(copies => {
+    const r = copies[0];
+    return { r, copies, itemId: r.itemId ?? null, itemKey: normalizeItemKey(String(r.item ?? '')), qty: Math.abs(Number(r.quantity) || 0),
+      pharm: pharmKey(r.pharmacy), wh: whKey(r.warehouse), day: dayOf(r.date || null) };
+  }).filter(x => x.pharm);
+  // مجموعات بالكمية والصيدلية أولاً (تقليل المقارنات)
+  const groups = new Map();
+  for (const x of prep) {
+    const k = `${x.qty}|${x.pharm}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(x);
+  }
+  let flagged = 0;
+  const mark = (a, b, level, reasons) => {
+    for (const copy of a.copies) {
+      if (copy.selfDup && copy.selfDup.level === 'duplicate') continue;
+      copy.selfDup = { level, reasons, otherId: b.r.id, date: b.r.date, warehouse: b.r.warehouse, pharmacy: b.r.pharmacy,
+        quantity: b.r.quantity, invoice: b.r.invoice, source: b.r.source, other: compareView(b.r, b.r.rep) };
+    }
+  };
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => (a.day ?? 0) - (b.day ?? 0) || a.r.id - b.r.id);
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
+      const sameItem = (a.itemId && b.itemId && a.itemId === b.itemId)
+        || (a.itemKey && a.itemKey === b.itemKey) || (a.itemKey && b.itemKey && areSimilar(a.itemKey, b.itemKey));
+      if (!sameItem) continue;
+      const gap = a.day != null && b.day != null ? Math.abs(b.day - a.day) / DAY : null;
+      if (gap != null && gap > 3) continue;
+      const wh = namesMatch(a.wh, b.wh, 0.85);
+      const level = wh !== false && gap === 0 ? 'duplicate' : 'possible';
+      const reasons = ['نفس الصيدلية', 'نفس الايتم', 'نفس الكمية'];
+      reasons.push(gap == null ? 'تاريخ غير معروف' : gap === 0 ? 'نفس اليوم' : `بفارق ${gap} يوم`);
+      if (wh === true) reasons.push('نفس المذخر');
+      else if (wh === false) reasons.push(`مذخر مختلف الكتابة («${a.r.warehouse || '—'}» / «${b.r.warehouse || '—'}»)`);
+      mark(b, a, level, reasons);
+      mark(a, b, level, reasons);
+      flagged++;
+    }
+  }
+  return flagged;
 }
 
 /** مطابقة الحقول نفسها لمنع تكرار مبيعات المندوبين مع ميركاتو (lib/repLiquidation.js). */

@@ -41,6 +41,8 @@ interface Draft {
   // طلبية بوت: رقمها ومصدرها وحساب الكروب، وتاريخ الفاتورة ورقمها من صفوفها
   bot?: { orderId: number; source: string; repAccount: string | null; createdAt?: string };
   date?: string; invoiceNumber?: string;
+  // تكرار مع ملف اللكوديشن/ميركاتو (فُحص عند ظهور البطاقة): مستواه ووصف المحفوظ سابقاً
+  dupChecked?: boolean; liqDup?: { level: string; text: string } | null;
   key: string; source: string; sourceText: string; sender: string | null; mentions: string[]; readBy: string;
   pharmacyName: string; areaName: string; warehouseId: number | null; warehouseName: string; backupWarehouseIds: number[];
   mentionedWarehouses: MentionedWh[];
@@ -548,25 +550,56 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     return j.data as T;
   };
 
+  type DupGroup = { group: string; level: string; reasons?: string[]; match?: { inBatch?: boolean; date?: string; savedAt?: string; pharmacy?: string; warehouse?: string; source?: string; fileName?: string; mercato?: boolean } };
+  const dupBody = (list: Draft[]) => ({
+    rows: list.flatMap(d => (liqRows(d) as any[]).map(r => ({ ...r, group: d.key }))),
+    target: { condition: true, sourceCurrency: 'IQD' },
+    // اسم المذخر مكتوب بأشكال: المختلف لا يُسقط الاشتباه بل يجعله «ربما»
+    looseWarehouse: true,
+    ...(isBot ? {
+      pendingOrderIds: [...new Set(list.map(d => d.bot?.orderId).filter(Boolean))],
+      receivedAt: list.map(d => d.bot?.createdAt).filter(Boolean).sort()[0],
+    } : {}),
+  });
+  const dupText = (g: DupGroup) => {
+    const m = g.match || {};
+    const where = m.inBatch ? 'في نفس الدفعة' : m.mercato ? `في ميركاتو «${m.fileName ?? ''}»` : 'في اللكوديشن';
+    return `${where}: ${[m.date || (m.savedAt ? String(m.savedAt).slice(0, 10) : ''), m.pharmacy, m.warehouse, m.source].filter(Boolean).join(' · ')}${g.reasons?.length ? ` — ${g.reasons.join('، ')}` : ''}`;
+  };
+
+  // فحص التكرار فور ظهور البطاقات في وضع اللكوديشن (لا عند الحفظ فقط) — المكررة بثقة تُلغى من التحديد
+  useEffect(() => {
+    if (mode !== 'liq') return;
+    const todo = drafts.filter(d => !d.dupChecked && !d.state && d.lines.some(l => l.itemName.trim() && l.quantity > 0));
+    if (!todo.length) return;
+    const keys = new Set(todo.map(d => d.key));
+    setDrafts(ds => ds.map(d => (keys.has(d.key) ? { ...d, dupChecked: true } : d)));
+    salesPost<{ groups: DupGroup[] }>('check-duplicates', dupBody(todo)).then(r => {
+      const hits = (r?.groups ?? []).filter(g => !g.match?.inBatch);
+      if (!hits.length) return;
+      setDrafts(ds => ds.map(d => {
+        const g = hits.find(h => h.group === d.key);
+        if (!g) return d;
+        return { ...d, liqDup: { level: g.level, text: dupText(g) }, include: g.level !== 'possible' ? false : d.include };
+      }));
+    }).catch(() => { /* الفحص تنبيه فقط */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drafts, mode]);
+
   /** «لكوديشن»: فحص التكرار مع الملف وميركاتو (تنبيه فقط كمراجعة البوت) ثم حفظ كل طلبية وحدها. */
   const createLiq = async (todo: Draft[]) => {
     const target = { condition: true, sourceCurrency: 'IQD' };
     try {
-      const dup = await salesPost<{ groups: { group: string; level: string; match?: { mercato?: boolean } }[] }>('check-duplicates', {
-        rows: todo.flatMap(d => liqRows(d).map(r => ({ ...r, group: d.key }))), target,
-        ...(isBot ? {
-          pendingOrderIds: [...new Set(todo.map(d => d.bot?.orderId).filter(Boolean))],
-          receivedAt: todo.map(d => d.bot?.createdAt).filter(Boolean).sort()[0],
-        } : {}),
-      });
-      const hits = (dup?.groups ?? []).filter(g => g.level !== 'possible');
+      const dup = await salesPost<{ groups: DupGroup[] }>('check-duplicates', dupBody(todo));
+      // «ربما» تُعرض أيضاً (كانت تُهمَل فمرّ تكرار «زينة الحارثية» بلا تنبيه)
+      const hits = dup?.groups ?? [];
       if (hits.length) {
-        const names = hits.map(g => todo.find(d => d.key === g.group)?.pharmacyName).filter(Boolean);
+        const lines = hits.map(g => `• ${todo.find(d => d.key === g.group)?.pharmacyName ?? ''} — ${g.level === 'possible' ? 'ربما مكررة' : 'مكررة'} ${dupText(g)}`);
         const ok = window.confirm(
-          `⚠️ ${hits.length} طلبية محفوظة سابقاً في اللكوديشن أو ميركاتو${names.length ? `: ${names.join('، ')}` : ''} — حفظها مرة ثانية يضاعف المبيع.\n\n`
+          `⚠️ ${hits.length} طلبية تشبه مبيعاً محفوظاً سابقاً — حفظها مرة ثانية يضاعف المبيع:\n${lines.join('\n')}\n\n`
           + 'موافق = احفظ رغم ذلك\nإلغاء = ارجع (ألغِ تحديد المكررة)');
         if (!ok) {
-          for (const g of hits) patch(g.group, { state: 'error', result: 'محفوظة سابقاً — ألغِ تحديدها أو احفظ رغم التكرار' });
+          for (const g of hits) patch(g.group, { state: 'error', result: 'محفوظة سابقاً — ألغِ تحديدها أو احفظ رغم التكرار', liqDup: { level: g.level, text: dupText(g) } });
           return;
         }
       }
@@ -729,6 +762,9 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                   {d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة مع #{d.duplicateOf.id}</span>}
                   {d.dupInBatch && !d.duplicateOf && <span className="vi-badge vi-badge--dup">⚠️ مكررة في الدفعة</span>}
                   {d.readBy === 'ai' && <span className="vi-badge">🤖 قُرئت بالذكاء — راجعها</span>}
+                  {mode === 'liq' && d.liqDup && (
+                    <span className="vi-badge vi-badge--dup" title={d.liqDup.text}>⚠️ {d.liqDup.level === 'possible' ? 'ربما مكررة' : 'مكررة'} باللكوديشن</span>
+                  )}
                   <span className="ro-spacer" />
                   {!locked && <button className="vi-x" title="حذف" onClick={() => setDrafts(ds => ds.filter(x => x.key !== d.key))}><Trash2 size={14} /></button>}
                 </div>
@@ -877,6 +913,9 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                       <input className="form-input" value={d.notes} disabled={locked} placeholder="ملاحظات" onChange={e => patch(d.key, { notes: e.target.value })} />
                     </label>
 
+                    {mode === 'liq' && d.liqDup && !locked && (
+                      <div className="vi-warn vi-warn--dup">⚠️ {d.liqDup.level === 'possible' ? 'ربما محفوظة سابقاً' : 'محفوظة سابقاً'} {d.liqDup.text}{d.liqDup.level !== 'possible' ? ' — أُلغي تحديدها؛ حدّدها إن كانت طلبية جديدة' : ''}</div>
+                    )}
                     {d.warnings.length > 0 && !locked && <div className="vi-warn">⚠️ {d.warnings.join(' · ')}</div>}
                     {d.result && (
                       <div className={`vi-result vi-result--${d.state}`}>

@@ -37,6 +37,11 @@ type Row = {
     level: 'duplicate' | 'possible'; reasons: string[]; date: string; warehouse: string; pharmacy: string;
     quantity: number; total: number; otherId: number; source?: string; other?: CompareLine;
   };
+  /** نفس الطلبية محفوظة مرتين داخل الملف (flagConditionSelfDups في الخادم) — على الطرفين */
+  selfDup?: {
+    level: 'duplicate' | 'possible'; reasons: string[]; date: string; warehouse: string; pharmacy: string;
+    quantity: number; invoice?: string; otherId: number; source?: string; other?: CompareLine;
+  };
 };
 /** team: شركة المندوب أو «مسوقين الكرخ/الرصافة» (attachConditionTeams في الخادم) */
 type Sheet = { rep: string; rows: Row[]; quantity: number; total: number; orders: number; all?: boolean; team?: string | null };
@@ -61,9 +66,9 @@ type Scope = 'baghdad' | 'provinces' | null;
 const UNKNOWN_PROVINCE = 'غير محددة';
 // نفس filterSheetsByProvince في server/lib/conditionFile.js: صف بلا محافظة معروفة يُعدّ من «المحافظات».
 const inScope = (r: Row, scope: Scope) => !scope || ((r.province === 'بغداد') === (scope === 'baghdad'));
-function scopeSheet(s: Sheet, scope: Scope, mercatoOnly = false, transitOnly = false): Sheet {
-  if (!scope && !mercatoOnly && !transitOnly) return s;
-  const rows = s.rows.filter(r => inScope(r, scope) && (!mercatoOnly || r.mercatoMatch) && (!transitOnly || r.transitMatch));
+function scopeSheet(s: Sheet, scope: Scope, mercatoOnly = false, transitOnly = false, selfOnly = false): Sheet {
+  if (!scope && !mercatoOnly && !transitOnly && !selfOnly) return s;
+  const rows = s.rows.filter(r => inScope(r, scope) && (!mercatoOnly || r.mercatoMatch) && (!transitOnly || r.transitMatch) && (!selfOnly || r.selfDup));
   return {
     ...s, rows,
     quantity: rows.reduce((a, r) => a + r.quantity, 0),
@@ -124,6 +129,14 @@ function compareSections(r: Row): CompareSection[] {
         + [t.date, t.pharmacy, t.warehouse].filter(Boolean).join(' · ') + ` — ${t.reasons.join('، ')}`,
     });
   }
+  const d = r.selfDup;
+  if (d) {
+    out.push({
+      key: 'self', color: '#b91c1c', bg: '#fef2f2', line: d.other,
+      caption: `⚠️ ${d.level === 'duplicate' ? 'مكرر داخل الملف' : 'ربما مكرر داخل الملف'} مع صف آخر: `
+        + [d.date, d.pharmacy, d.warehouse, d.source].filter(Boolean).join(' · ') + ` — ${d.reasons.join('، ')}`,
+    });
+  }
   const m = r.mercatoMatch;
   if (m) {
     const danger = m.level === 'duplicate';
@@ -155,15 +168,19 @@ function cellDiffers(r: Row, l: CompareLine, key: string, currency: string): boo
   return false;
 }
 // عمود الصف ← حقل التعديل في PATCH /api/files/:id/condition-rows/:saleId
+// w = وزن العرض (نسبة من عرض الجدول) — الجدول كله بعرض النافذة بلا تمرير أفقي (طلب صاحب المشروع
+// 2026-11-18): النص يلتفّ بدل أن يمدّ العمود، والمحافظة سطر صغير تحت المنطقة لا عموداً،
+// والمندوب عمود فقط في الشيتات الجامعة (في شيت المندوب كل الصفوف له).
 const EDIT_COLS: { key: string; label: string; w: number; num?: boolean; ro?: boolean }[] = [
-  { key: 'date', label: 'التاريخ', w: 128 }, { key: 'invoice', label: 'رقم الفاتورة', w: 90 },
-  { key: 'pharmacy', label: 'الصيدلية', w: 150 }, { key: 'area', label: 'المنطقة', w: 100 },
-  { key: 'province', label: 'المحافظة', w: 80, ro: true },
-  { key: 'warehouse', label: 'المذخر', w: 130 }, { key: 'item', label: 'الايتم', w: 160 },
-  { key: 'company', label: 'الشركة', w: 100 }, { key: 'rep', label: 'المندوب', w: 120 },
-  { key: 'quantity', label: 'الكمية', w: 64, num: true }, { key: 'bonus', label: 'البونص', w: 56, num: true },
-  { key: 'unitPrice', label: 'السعر', w: 76, num: true }, { key: 'total', label: 'القيمة', w: 90, num: true },
+  { key: 'date', label: 'التاريخ', w: 8.5 }, { key: 'invoice', label: 'الفاتورة', w: 6 },
+  { key: 'pharmacy', label: 'الصيدلية', w: 11.5 }, { key: 'area', label: 'المنطقة', w: 8.5 },
+  { key: 'warehouse', label: 'المذخر', w: 10 }, { key: 'item', label: 'الايتم', w: 14 },
+  { key: 'company', label: 'الشركة', w: 6.5 }, { key: 'rep', label: 'المندوب', w: 9 },
+  { key: 'quantity', label: 'الكمية', w: 4.5, num: true }, { key: 'bonus', label: 'بونص', w: 4, num: true },
+  { key: 'unitPrice', label: 'السعر', w: 5.5, num: true }, { key: 'total', label: 'القيمة', w: 6.5, num: true },
 ];
+/** رقم فاتورة تركيبي (طلبية بوت/فايبر بلا رقم) — لا معنى لعرضه كاملاً ولا لتعديله. */
+const isSyntheticInvoice = (v: string) => /^BOT-/i.test(v);
 
 type Suggest = { items: ComboOpt[]; companies: ComboOpt[]; areas: ComboOpt[]; reps: ComboOpt[]; warehouses: ComboOpt[] };
 const NO_SUGGEST: Suggest = { items: [], companies: [], areas: [], reps: [], warehouses: [] };
@@ -181,13 +198,14 @@ function EditCell({ col, value, options, state, onSave }: {
   useEffect(() => { setV(value); base.current = value; }, [value]);
   const commit = (nv: string) => { if (nv.trim() !== base.current.trim()) { base.current = nv; onSave(nv); } };
   const tone: CSSProperties = state === 'saving' ? { opacity: 0.45 } : state === 'ok' ? { background: '#dcfce7' } : state === 'err' ? { background: '#fee2e2' } : {};
-  const cs: CSSProperties = { width: col.w, minWidth: col.w, fontSize: 12, textAlign: col.num ? 'center' : 'right', transition: 'background .4s', ...tone };
+  const cs: CSSProperties = { width: '100%', minWidth: 0, fontSize: 11.5, textAlign: col.num ? 'center' : 'right', transition: 'background .4s', ...tone };
   if (col.key === 'date' || col.num) {
+    // التاريخ نصّاً YYYY-MM-DD: حقل type=date يحتاج عرضاً ثابتاً كبيراً فيقصّ السنة في عمود ضيّق
     return (
-      <input value={v} type={col.key === 'date' ? 'date' : 'text'} inputMode={col.num ? 'decimal' : undefined}
+      <input value={v} type="text" inputMode={col.num ? 'decimal' : undefined} placeholder={col.key === 'date' ? 'YYYY-MM-DD' : undefined}
         onChange={e => setV(e.target.value)} onBlur={() => commit(v)}
         onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setV(base.current); }}
-        style={{ border: '1px solid transparent', borderRadius: 6, padding: '5px 6px', background: 'transparent', boxSizing: 'border-box', ...cs }}
+        style={{ border: '1px solid transparent', borderRadius: 6, padding: '4px 3px', background: 'transparent', boxSizing: 'border-box', ...cs }}
         onFocus={e => { e.target.style.border = '1px solid var(--c-accent)'; }} onBlurCapture={e => { e.target.style.border = '1px solid transparent'; }} />
     );
   }
@@ -210,6 +228,8 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   const [mercatoOnly, setMercatoOnly] = useState(false);
   // «⚠️ اشتباه تكرار مع الترانزيت فقط» — صف البوت وطلبية الترانزيت التي تشبهه.
   const [transitOnly, setTransitOnly] = useState(false);
+  // «مكرر داخل الملف فقط» — نفس الطلبية محفوظة مرتين (flagConditionSelfDups)
+  const [selfOnly, setSelfOnly] = useState(false);
   // الصفوف المفتوحة مقارنتها — بالمعرّف كي تبقى مفتوحة بعد إعادة الجلب الصامتة عند حفظ خانة.
   const [compareOpen, setCompareOpen] = useState<Set<number>>(() => new Set());
   const toggleCompare = (id: number) => setCompareOpen(cur => {
@@ -275,8 +295,8 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
   }, [canEdit, token]);
 
   // زرّا «بغداد / المحافظات»: تصفية الصفوف ومجاميعها، والشيت الذي فرغ يختفي.
-  const scopedSheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope, mercatoOnly, transitOnly)).filter(s => s.rows.length > 0), [allSheets, scope, mercatoOnly, transitOnly]);
-  const scopedCompany = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, scope, mercatoOnly, transitOnly) : null), [allCompanySheet, scope, mercatoOnly, transitOnly]);
+  const scopedSheets = useMemo(() => allSheets.map(s => scopeSheet(s, scope, mercatoOnly, transitOnly, selfOnly)).filter(s => s.rows.length > 0), [allSheets, scope, mercatoOnly, transitOnly, selfOnly]);
+  const scopedCompany = useMemo(() => (allCompanySheet ? scopeSheet(allCompanySheet, scope, mercatoOnly, transitOnly, selfOnly) : null), [allCompanySheet, scope, mercatoOnly, transitOnly, selfOnly]);
   // الشركات الموجودة في الملف (لأزرار الأعلى): الشركات أبجدياً ثم المسوقون.
   const teams = useMemo(() => [...new Set(allSheets.map(s => s.team).filter((t): t is string => !!t))]
     .sort((a, b) => Number(isMarketerTeam(a)) - Number(isMarketerTeam(b)) || a.localeCompare(b, 'ar')), [allSheets]);
@@ -298,6 +318,13 @@ export default function ConditionFileModal({ fileId, fileName, currency, token, 
     return { pairs: rows.length, sure: rows.filter(r => r.transitMatch!.level === 'duplicate').length, total: rows.reduce((a, r) => a + r.total, 0) };
   }, [allSheets, scope]);
   useEffect(() => { if (transitOnly && transitDup.pairs === 0) setTransitOnly(false); }, [transitOnly, transitDup.pairs]);
+  const selfDup = useMemo(() => {
+    const seen = new Map<number, Row>();
+    for (const s of allSheets) for (const r of s.rows) if (r.selfDup && inScope(r, scope)) seen.set(r.id, r);
+    const rows = [...seen.values()];
+    return { rows: rows.length, sure: rows.filter(r => r.selfDup!.level === 'duplicate').length };
+  }, [allSheets, scope]);
+  useEffect(() => { if (selfOnly && selfDup.rows === 0) setSelfOnly(false); }, [selfOnly, selfDup.rows]);
   // تفصيل المحافظات (زر «المحافظات»): مجموع كل محافظة — الصف يُعدّ مرة واحدة.
   const byProvince = useMemo(() => {
     if (scope !== 'provinces') return [];
@@ -421,6 +448,11 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
   const hasData = sheets.length > 0 || (companySheet?.rows.length ?? 0) > 0;
   const th: CSSProperties = { padding: '6px 8px', background: '#f1f5f9', fontWeight: 700, fontSize: 11.5, whiteSpace: 'nowrap', textAlign: 'center', position: 'sticky', top: 0 };
   const td: CSSProperties = { padding: '5px 8px', borderTop: '1px solid #e2e8f0', fontSize: 12, textAlign: 'center', whiteSpace: 'nowrap' };
+  // جدول الصفوف: النص يلتفّ داخل عموده (بلا تمرير أفقي)
+  const cellWrap: CSSProperties = { whiteSpace: 'normal', overflowWrap: 'anywhere', fontSize: 11.5, lineHeight: 1.35 };
+  const cols = EDIT_COLS.filter(c => c.key !== 'rep' || current?.all);
+  const colTotal = cols.reduce((a, c) => a + c.w, 0) + 7; // + عمود المصدر
+  const colRoom = canEdit ? 97 : 100;
   const tabBtn = (active: boolean): CSSProperties => ({
     border: `1px solid ${active ? 'var(--c-accent)' : '#e2e8f0'}`, background: active ? 'var(--c-accent-light)' : '#fff',
     color: active ? 'var(--c-accent)' : '#334155', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 700,
@@ -429,7 +461,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} dir="rtl" style={{ background: '#fff', borderRadius: 14, width: 'min(1100px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 18, boxShadow: '0 20px 50px rgba(0,0,0,.25)' }}>
+      <div onClick={e => e.stopPropagation()} dir="rtl" style={{ background: '#fff', borderRadius: 14, width: 'min(1320px, 100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', padding: 18, boxShadow: '0 20px 50px rgba(0,0,0,.25)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap', flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 16, flex: '1 1 200px' }}>📋 {fileName}</h3>
           {/* بغداد / المحافظات — ضغطة ثانية على الزر نفسه تُرجع الكل */}
@@ -482,6 +514,18 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
             </span>
             <button onClick={() => setTransitOnly(v => !v)} style={{ border: '1px solid #fdba74', background: transitOnly ? '#ea580c' : '#fff', color: transitOnly ? '#fff' : '#9a3412', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
               {transitOnly ? 'عرض الكل' : 'عرضها فقط'}
+            </button>
+          </div>
+        )}
+        {!loading && selfDup.rows > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 0, marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: 12.5 }}>
+            <span style={{ flex: '1 1 260px' }}>
+              ⚠️ {fmt(selfDup.rows)} صف يشبه صفاً آخر في الملف — نفس الصيدلية والايتم والكمية خلال 3 أيام
+              {selfDup.sure < selfDup.rows ? ` (${fmt(selfDup.rows - selfDup.sure)} منها محتمل فقط: مذخر مكتوب بشكل آخر أو يوم مختلف)` : ''}.
+              غالباً الطلبية نفسها حُفظت مرتين — {canEdit ? 'قارنها واحذف المكرر' : 'راجعها مع مالك الملف'}.
+            </span>
+            <button onClick={() => setSelfOnly(v => !v)} style={{ border: '1px solid #fca5a5', background: selfOnly ? '#dc2626' : '#fff', color: selfOnly ? '#fff' : '#b91c1c', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+              {selfOnly ? 'عرض الكل' : 'عرضها فقط'}
             </button>
           </div>
         )}
@@ -575,11 +619,17 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                 </table>
                 </>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e2e8f0' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e2e8f0', tableLayout: 'fixed' }}>
+                  <colgroup>
+                    {/* الأوزان تُطبَّع لتملأ العرض (يُترك ~3% لعمود الحذف) — لا تمرير أفقي في أي شيت */}
+                    {cols.map(c => <col key={c.key} style={{ width: `${(c.w / colTotal) * colRoom}%` }} />)}
+                    <col style={{ width: `${(7 / colTotal) * colRoom}%` }} />
+                    {canEdit && <col style={{ width: 28 }} />}
+                  </colgroup>
                   <thead>
                     <tr>
-                      {EDIT_COLS.map(c => <th key={c.key} style={th}>{c.label}</th>)}
-                      <th style={th}>المصدر</th>
+                      {cols.map(c => <th key={c.key} style={{ ...th, whiteSpace: 'normal', padding: '6px 3px' }}>{c.label}</th>)}
+                      <th style={{ ...th, whiteSpace: 'normal', padding: '6px 3px' }}>المصدر</th>
                       {canEdit && <th style={th} />}
                     </tr>
                   </thead>
@@ -587,27 +637,36 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                     {current.rows.map(r => {
                       // صف الترانزيت يعيش في ملف المكتب — لا يُعدَّل ولا يُحذف من هنا.
                       const rowEditable = canEdit && !r.transit;
-                      const sections = r.transitMatch || r.mercatoMatch ? compareSections(r) : [];
+                      const sections = r.transitMatch || r.mercatoMatch || r.selfDup ? compareSections(r) : [];
                       const open = compareOpen.has(r.id);
                       return (
                       <Fragment key={r.id}>
-                      <tr style={r.transitMatch ? { background: '#ffedd5' } : r.transit ? { background: '#f0f9ff' } : r.mercatoMatch ? { background: r.mercatoMatch.level === 'duplicate' ? '#fee2e2' : '#fef3c7' } : undefined}
-                        title={r.transitMatch ? transitTitle(r) : r.transit ? r.note : r.mercatoMatch ? mercatoTitle(r) : undefined}>
-                        {EDIT_COLS.map(c => {
+                      <tr style={r.selfDup ? { background: '#fee2e2' } : r.transitMatch ? { background: '#ffedd5' } : r.transit ? { background: '#f0f9ff' } : r.mercatoMatch ? { background: r.mercatoMatch.level === 'duplicate' ? '#fee2e2' : '#fef3c7' } : undefined}
+                        title={r.selfDup ? sections[0]?.caption : r.transitMatch ? transitTitle(r) : r.transit ? r.note : r.mercatoMatch ? mercatoTitle(r) : undefined}>
+                        {cols.map(c => {
                           const val = c.key === 'rep' ? (current.all ? (r.rep || NO_REP) : current.rep) : String((r as any)[c.key] ?? '');
-                          const editable = rowEditable && !c.ro;
+                          const synthetic = c.key === 'invoice' && isSyntheticInvoice(val);
+                          const editable = rowEditable && !c.ro && !synthetic;
                           const shown = (c.key === 'rep' && val === NO_REP) || (val === '0' && (c.key === 'bonus' || c.key === 'unitPrice')) ? '' : val;
                           return (
-                            <td key={c.key} style={{ ...td, padding: editable ? 2 : td.padding,
+                            <td key={c.key} style={{ ...td, ...cellWrap, padding: editable ? 1 : '4px 3px',
                               ...(c.key === 'rep' && val === NO_REP ? { background: '#fef3c7', color: '#92400e', fontWeight: 700 } : null) }}>
-                              {editable ? (
+                              {synthetic ? <span title={val} style={{ color: '#94a3b8', fontSize: 11 }}>تلقائي</span>
+                                : editable ? (
                                 <EditCell col={c} value={shown} options={optionsFor(c.key)} state={cellState[`${r.id}:${c.key}`]}
                                   onSave={v => saveCell(r, c.key, v)} />
                               ) : (c.num ? (val && val !== '0' ? fmt(Number(val)) : '—') : (val || '—'))}
+                              {/* المحافظة سطر صغير تحت المنطقة (كانت عموداً مستقلاً) */}
+                              {c.key === 'area' && r.province && <div style={{ fontSize: 10.5, color: '#94a3b8', lineHeight: 1.2 }}>{r.province}</div>}
                             </td>
                           );
                         })}
-                        <td style={{ ...td, color: '#64748b' }}>
+                        <td style={{ ...td, ...cellWrap, color: '#64748b', fontSize: 11 }}>
+                          {r.selfDup && (
+                            <span style={{ display: 'inline-block', marginInlineEnd: 4, marginBottom: 2, background: '#fff', color: '#b91c1c', border: '1px solid currentColor', borderRadius: 6, padding: '0 5px', fontWeight: 700 }}>
+                              ⚠️ {r.selfDup.level === 'duplicate' ? 'مكرر' : 'ربما مكرر'}
+                            </span>
+                          )}
                           {r.transitMatch && (
                             <span title={transitTitle(r)} style={{ marginInlineEnd: 6, background: '#fff', color: '#c2410c', border: '1px solid currentColor', borderRadius: 6, padding: '0 6px', fontWeight: 700, whiteSpace: 'nowrap' }}>
                               ⚠️ {r.transitMatch.level === 'duplicate' ? 'مشتبه تكرار' : 'ربما مكرر'}
@@ -639,14 +698,14 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                       </tr>
                       {open && sections.map(sec => {
                         const l = sec.line;
-                        const anyDiff = !!l && EDIT_COLS.some(c => cellDiffers(r, l, c.key, currency));
+                        const anyDiff = !!l && cols.some(c => cellDiffers(r, l, c.key, currency));
                         const otherCurrency = l?.currency && l.currency !== currency ? l.currency : '';
                         return (
                           <Fragment key={sec.key}>
                             {/* العمود الأيمن من الجدول قد يكون خارج الشاشة بعد التمرير الأفقي: الوصف ثابت في المنظور. */}
                             <tr style={{ background: sec.bg }}>
-                              <td colSpan={EDIT_COLS.length + 1 + (canEdit ? 1 : 0)} style={{ ...td, textAlign: 'right', padding: 0 }}>
-                                <div style={{ position: 'sticky', right: 0, left: 0, width: 'min(1040px, calc(100vw - 100px))', boxSizing: 'border-box', padding: '5px 8px', whiteSpace: 'normal', color: sec.color, fontWeight: 600 }}>
+                              <td colSpan={cols.length + 1 + (canEdit ? 1 : 0)} style={{ ...td, textAlign: 'right', padding: 0 }}>
+                                <div style={{ boxSizing: 'border-box', padding: '5px 8px', whiteSpace: 'normal', color: sec.color, fontWeight: 600 }}>
                                   {sec.caption}
                                   {otherCurrency && ` — قيمة ميركاتو بعملة ${otherCurrency}`}
                                   {anyDiff && <span style={{ marginInlineStart: 6, background: '#fef08a', color: '#713f12', borderRadius: 4, padding: '0 5px' }}>المظلَّل يختلف عن الصف أعلاه</span>}
@@ -655,16 +714,16 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                             </tr>
                             {l && (
                               <tr style={{ background: '#fff' }}>
-                                {EDIT_COLS.map(c => {
+                                {cols.map(c => {
                                   const raw = (l as any)[c.key];
                                   const diff = cellDiffers(r, l, c.key, currency);
                                   return (
-                                    <td key={c.key} style={{ ...td, whiteSpace: 'normal', maxWidth: c.w, ...(diff ? { background: '#fef08a', color: '#713f12', fontWeight: 800 } : null) }}>
+                                    <td key={c.key} style={{ ...td, ...cellWrap, ...(diff ? { background: '#fef08a', color: '#713f12', fontWeight: 800 } : null) }}>
                                       {c.num ? (raw ? fmtExact(Number(raw)) : '—') : (raw || '—')}
                                     </td>
                                   );
                                 })}
-                                <td style={{ ...td, color: sec.color, fontWeight: 700 }}>{l.transit ? '🔁 ترانزيت' : (l.source || '—')}</td>
+                                <td style={{ ...td, ...cellWrap, color: sec.color, fontWeight: 700 }}>{l.transit ? '🔁 ترانزيت' : (l.source || '—')}</td>
                                 {canEdit && <td style={td} />}
                               </tr>
                             )}
@@ -675,7 +734,7 @@ ${row.item} — ${row.pharmacy || ''}`)) return;
                       );
                     })}
                     <tr style={{ background: '#f8fafc' }}>
-                      <td style={{ ...td, fontWeight: 800 }} colSpan={9}>المجموع — {fmt(current.orders)} طلبية</td>
+                      <td style={{ ...td, fontWeight: 800 }} colSpan={cols.findIndex(c => c.key === 'quantity')}>المجموع — {fmt(current.orders)} طلبية</td>
                       <td style={{ ...td, fontWeight: 800 }}>{fmt(current.quantity)}</td>
                       <td style={td} colSpan={2} />
                       <td style={{ ...td, fontWeight: 800 }}>{fmt(current.total)}</td>
