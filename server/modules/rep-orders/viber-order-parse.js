@@ -209,6 +209,9 @@ export function parseWarehouseLine(line) {
   return null;
 }
 
+/** كلمات تأتي بعد «مذخر» وليست اسم مذخر: «مذخر عادي»، «أي مذخر»، «مستعجل». */
+const NOT_WH_RE = /^(?:عادي|عاديه|عادية|اي|أي|اي واحد|أي واحد|اي مذخر|أي مذخر|مستعجل|ضروري|كاش|اجل|آجل|نقد|نقدي)$/;
+
 /** «ص» أو «صيدلية» وحدها بين فاصلين: «ص / هدير حمادي سلوم / يوسفية» ← الجزء التالي هو الصيدلية. */
 const PH_WORD_ONLY_RE = /^(?:ال)?(?:صيدلي[ةه]|ص)$/;
 
@@ -245,12 +248,14 @@ export function classifyHeader(lines, { areaOf = () => null, isKnownPharmacy = (
   let areaKnown = false;
   parts.forEach((p, i) => {
     if (used.has(i)) return;
-    const wh = wholeWarehouse(p);
-    if (wh) { out.warehouses.push(wh); out.warehousesRaw.push(p); used.add(i); return; }
+    // المنطقة قبل المذخر: سطر الترويسة «ص/ نور بكه / المنصور» مكانه الصيدلية والمنطقة، واسم منطقة
+    // معروفة قد يطابق مذخراً في الدليل («مذخر المنصور») فكان يُسرق للمذاخر وتبقى المنطقة فارغة (2026-11-19)
     const canon = areaOf(areaName(p));
     if (out.area == null && (canon || AREA_PREFIX_RE.test(p))) {
       out.area = canon || areaName(p); areaKnown = Boolean(canon); used.add(i); return;
     }
+    const wh = wholeWarehouse(p);
+    if (wh) { out.warehouses.push(wh); out.warehousesRaw.push(p); used.add(i); return; }
     if (out.pharmacy == null && isKnownPharmacy(p)) { out.pharmacy = p; out.sure = true; used.add(i); }
   });
   // 4. الباقي بالموضع
@@ -300,10 +305,16 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
     return ps.length && ws.every(Boolean) ? ws : null;
   };
   const warehouses = [];
-  const addWh = (w) => { if (w && !warehouses.some(x => normKey(x) === normKey(w))) warehouses.push(w); };
+  // «مذخر عادي» / «أي مذخر» = لا مذخر محدد — ملاحظة لا اسم مذخر
+  const notAWarehouse = (w) => NOT_WH_RE.test(tidy(w));
+  const addWh = (w) => {
+    if (!w) return;
+    if (notAWarehouse(w)) { if (!notes.some(n => n.includes(tidy(w)))) notes.push(`مذخر ${tidy(w)}`); return; }
+    if (!warehouses.some(x => normKey(x) === normKey(w))) warehouses.push(w);
+  };
   // المذاخر كما كُتبت في الرسالة (وضع «لكوديشن» يحفظها هكذا؛ المطابقة بالدليل لوضع «مذاخر»)
   const written = [];
-  const addWritten = (w) => { const t = tidy(w); if (t && !written.some(x => normKey(x) === normKey(t))) written.push(t); };
+  const addWritten = (w) => { const t = tidy(w); if (t && !notAWarehouse(t) && !written.some(x => normKey(x) === normKey(t))) written.push(t); };
   const items = [];
   const unparsed = [];
   const notes = [];

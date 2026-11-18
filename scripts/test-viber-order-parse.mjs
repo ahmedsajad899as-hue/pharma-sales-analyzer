@@ -168,5 +168,15 @@ const s4 = parseViberOrder('Amoklavin 1g\n10 قطع ل صيدليه سر الد�
 check('الصنف سطر ثم «10 قطع لصيدلية … من مذخر …»', [s4.pharmacy, s4.items, s4.warehouses], ['سر الدواء', [{ name: 'Amoklavin 1g', quantity: 10, bonus: 0 }], ['مصدر الدواء']]);
 check('ترويسة «صيدلية الرتاج» تبقى ترويسة', parseViberOrder('صيدلية الرتاج / المنصور\nPandev 40(10)').pharmacy, 'الرتاج');
 
+console.log('\n── المنطقة قبل المذخر في الترويسة (2026-11-19) ──');
+{
+  const areaOf2 = (t) => ({ 'المنصور': 'المنصور', 'الحارثية': 'الحارثية' })[t] ?? null;
+  const isKnownWarehouse = (t) => ['المنصور', 'عادي', 'سنايا'].includes(t);
+  const h1 = parseViberOrder('ص/ نور بكه / المنصور\nPotafast 10 + 1\nمذخر عادي', { areaOf: areaOf2, isKnownWarehouse });
+  check('«المنصور» بالترويسة منطقة لا مذخر؛ «مذخر عادي» ملاحظة', [h1.pharmacy, h1.area, h1.warehouses, h1.notes], ['نور بكه', 'المنصور', [], ['مذخر عادي']]);
+  const h2 = parseViberOrder('ص الامل / الحارثية\nPotafast 10 + 1\nمذخر المنصور', { areaOf: areaOf2, isKnownWarehouse });
+  check('سطر «مذخر المنصور» يبقى مذخراً', [h2.area, h2.warehouses], ['الحارثية', ['المنصور']]);
+}
+
 console.log(failed ? `\n✗ فشل ${failed}` : '\n✓ كلها نجحت');
 process.exit(failed ? 1 : 0);
