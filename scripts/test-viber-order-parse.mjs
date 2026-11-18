@@ -152,5 +152,21 @@ const it1 = parseViberOrder('potafast 10 p\nصيدلية الرتاج\nمذخر 
 check('«صيدلية الرتاج» بعد الصنف ← الصيدلية', [it1.pharmacy, it1.items, it1.warehouses], ['الرتاج', [{ name: 'potafast', quantity: 10, bonus: 0 }], ['الشامل']]);
 check('سطر ملاحظة بعد الصنف بلا دليل لا يصير صيدلية', parseViberOrder('Pandev 40(10)\nكل قائمة وحد تجهز').pharmacy, null);
 
+console.log('\n── ملاحظات لاتينية + طلبية جملةً (2026-11-18) ──');
+const n1 = parseViberOrder('القادسية/صيدلية المركز الاستشاري\nتم سحب\nAmoklavin 1000mg *10(+2)\nمن قبل مذخر الناقوس الفضي\nReorder\nلوصفات الدكتورة ذرى محمود اخصائية النسائية و التوليد');
+check('«Reorder» و«تم سحب» ملاحظات لا أصناف', [n1.pharmacy, n1.area, n1.items, n1.unparsed, n1.warehouses],
+  ['المركز الاستشاري', 'القادسية', [{ name: 'Amoklavin 1000mg', quantity: 10, bonus: 2 }], [], ['الناقوس']]);
+check('«Test order» سطراً وحده ملاحظة', parseViberOrder('ص / الامنية / الحارثية\nAmoklavin bid 457mg *20(+2)\nTest order').unparsed, []);
+const s1 = parseViberOrder('انوار دبي\nتم سحب amoklavine 1g 30 قطعة عن طريق مذخر ادوية ارض البنفسج');
+check('«انوار دبي» ثم جملة «تم سحب … قطعة عن طريق مذخر»', [s1.pharmacy, s1.items, s1.warehouses.length > 0, s1.needsAi],
+  ['انوار دبي', [{ name: 'amoklavine 1g', quantity: 30, bonus: 0 }], true, false]);
+const s2 = parseViberOrder('انوار دبي\namoklavine 1g 30 تم سحب\nقطعة عن طريق مذخر ادوية ارض البنفسج');
+check('نفس الرسالة ملتفّة على سطرين', [s2.pharmacy, s2.items, s2.warehouses.length > 0], ['انوار دبي', [{ name: 'amoklavine 1g', quantity: 30, bonus: 0 }], true]);
+const s3 = parseViberOrder('تم بيع Amoklavin 1g 10 قطع ل صيدليه سر الدواء من مذخر مصدر الدواء');
+check('«تم بيع X 10 قطع ل صيدلية Y من مذخر Z»', [s3.pharmacy, s3.items, s3.warehouses], ['سر الدواء', [{ name: 'Amoklavin 1g', quantity: 10, bonus: 0 }], ['مصدر الدواء']]);
+const s4 = parseViberOrder('Amoklavin 1g\n10 قطع ل صيدليه سر الدواء من مذخر مصدر الدواء');
+check('الصنف سطر ثم «10 قطع لصيدلية … من مذخر …»', [s4.pharmacy, s4.items, s4.warehouses], ['سر الدواء', [{ name: 'Amoklavin 1g', quantity: 10, bonus: 0 }], ['مصدر الدواء']]);
+check('ترويسة «صيدلية الرتاج» تبقى ترويسة', parseViberOrder('صيدلية الرتاج / المنصور\nPandev 40(10)').pharmacy, 'الرتاج');
+
 console.log(failed ? `\n✗ فشل ${failed}` : '\n✓ كلها نجحت');
 process.exit(failed ? 1 : 0);

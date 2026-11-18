@@ -59,7 +59,9 @@ async function loadTeam(viewer) {
  * مفتاح منطقة مرن للمطابقة بين ما كُتب في الطلبية واسم المنطقة المعيّنة للمندوب:
  * بلا «شارع/حي/منطقة» وبلا «ال» وبلا مسافات — «شارع فلسطين» = «فلسطين»، «يوسفية» = «اليوسفيه».
  */
-const looseArea = (s) => normalizeAreaName(String(s ?? ''))
+/** «شارع ٢٠» = «شارع 20»: المحلّل يحوّل أرقام الرسالة للاتينية، والمنطقة/الاسم المدموج قد يُحفظ بالعربية. */
+const latinDigits = (s) => String(s ?? '').replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06F0));
+const looseArea = (s) => normalizeAreaName(latinDigits(s))
   .replace(/(^|\s)(?:شارع|حي|منطقه|منطقة|محله|محلة|قرب|مقابل)(?=\s)/g, ' ')
   .replace(/(^|\s)ال/g, '$1')
   .replace(/\s+/g, '');
@@ -231,9 +233,20 @@ async function resolveWithCatalog(parsed, userId) {
     }
     still.push(line);
   }
+  // سطر لاتيني بلا رقم لا يشبه أي صنف في الكتالوج («Reorder»، «Test order»، «urgent pls»)
+  // = ملاحظة لا صنف (2026-11-18). ما يشبه صنفاً يبقى صنفاً بكمية فارغة يكمله المستخدم.
+  const notes = [...parsed.notes];
+  const left = [];
+  for (const line of still) {
+    if (/\d/.test(line)) { left.push(line); continue; }
+    const probe = [{ item: String(line).trim() }];
+    try { await enrichRowsFromCatalog(probe, userId, { linkOnly: true }); } catch { /* بلا كتالوج يبقى صنفاً */ left.push(line); continue; }
+    if (probe[0]._itemId || probe[0]._itemMatch?.suggestions?.length) left.push(line);
+    else notes.push(String(line).trim());
+  }
   // ما بقي: صنف بلا كمية — يظهر بخانة بحث وكمية فارغة
-  for (const line of still) items.push({ name: String(line).trim(), quantity: 0, bonus: 0, unsure: true });
-  return { ...parsed, items, unparsed: still, readBy: 'parser' };
+  for (const line of left) items.push({ name: String(line).trim(), quantity: 0, bonus: 0, unsure: true });
+  return { ...parsed, items, notes, unparsed: left, readBy: 'parser' };
 }
 
 // ─── المسوّدة ────────────────────────────────────────────────────────────────
@@ -250,7 +263,16 @@ async function buildDrafts(reqUser, messages, source) {
     warehouseScopeWhere(viewer).then(where => prisma.orderWarehouse.findMany({ where, select: { name: true } })),
     orderScopeWhere(viewer).then(where => prisma.repOrder.findMany({ where, select: { pharmacyName: true }, distinct: ['pharmacyName'], orderBy: { id: 'desc' }, take: 4000 })),
   ]);
-  const areaOf = (t) => areas.get(normalizeAreaName(t)) ?? null;
+  // الاسم المكتوب ← اسم المنطقة (والاسم المدموج ← المنطقة التي دُمج تحتها، «شارع 20» ← «البياع»).
+  // احتياط بمفتاح بلا مسافات وبأرقام لاتينية: «شارع٢٠» / «شارع 20» / «شارع ٢٠» واحد.
+  const tightArea = (t) => normalizeAreaName(latinDigits(t)).replace(/\s+/g, '');
+  const areaTight = new Map();
+  for (const [k, canon] of areas) {
+    const tk = tightArea(k);
+    // الاسم المدموج (يشير لمنطقة باسم آخر) يغلب صفّاً بنفس الاسم عند حساب آخر
+    if (tk && (!areaTight.has(tk) || tightArea(canon) !== tk)) areaTight.set(tk, canon);
+  }
+  const areaOf = (t) => areas.get(normalizeAreaName(t)) ?? areaTight.get(tightArea(t)) ?? null;
   const areaGraph = await loadAreaGraph();
   const repScope = await loadRepScope(team, areaGraph);
   const dirKeys = new Set(directory.map(w => normKey(String(w.name).replace(/مذخر|مذاخر/g, ''))).filter(Boolean));
@@ -262,7 +284,9 @@ async function buildDrafts(reqUser, messages, source) {
     const p = parseViberOrder(m.text, { areaOf, isKnownWarehouse, isKnownPharmacy });
     // رسالة بلا أي صنف ولا سطر ملتبس = دردشة/منشن وحده ← ليست طلبية
     if (!p.items.length && !p.unparsed.length) return null;
-    return { msg: m, parsed: await resolveWithCatalog(p, viewer.id) };
+    const r = await resolveWithCatalog(p, viewer.id);
+    // كل أسطرها اللاتينية صارت ملاحظات ⇒ ليست طلبية
+    return r.items.length ? { msg: m, parsed: r } : null;
   }));
   const found = parsedAll.filter(Boolean);
   const learned = await learnedSenders(viewer, found.map(f => f.msg.sender));
@@ -419,7 +443,9 @@ const SHOT_PROMPT = `هذه لقطة شاشة لمحادثة كروب (فايب�
 - اسم المرسل يظهر أعلى الفقاعة بلون مختلف. إن لم يظهر فوق الفقاعة ضع sender: null.
 - الرسالة المرسلة من صاحب الشاشة (عليها علامة صحّ ✓ للتسليم) ضع لها outgoing: true.
 - المنشنات (@اسم) انسخها في أسطرها كما هي.
-- تجاهل: الوقت، «Yesterday/Today»، أزرار التفاعل والقلوب، فقاعات الصور بلا نص، رسائل النظام، شريط الكتابة.
+- تجاهل: الوقت، «Yesterday/Today»، أزرار التفاعل والقلوب، فقاعات الصور بلا نص، رسائل النظام، شريط الكتابة، أزرار مثل «Remix image» و«Suggest replies».
+- فقاعة فيها صورة (فاتورة مثلاً) وتحتها تعليق مكتوب: انسخ **التعليق المكتوب فقط** كفقاعة، ولا تنسخ النص الموجود داخل الصورة.
+- السطر الطويل الذي يلتفّ على سطرين داخل الفقاعة انسخه سطراً واحداً كما كُتب («تم سحب amoklavine 1g 30 قطعة عن طريق مذخر …»).
 - فقاعة مقطوعة عند أعلى أو أسفل الصورة: انسخ الظاهر منها وضع partial: true.
 
 أعِد **مصفوفة JSON فقط** بلا أي نص قبلها أو بعدها وبلا أسوار \`\`\`، بترتيب الفقاعات من الأعلى للأسفل:

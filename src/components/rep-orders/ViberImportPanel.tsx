@@ -166,6 +166,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   const [dragOver, setDragOver] = useState(false);
   // مثبّت على اللكوديشن عند كل فتح (طلب صاحب المشروع) — لا يُتذكَّر آخر اختيار
   const [mode, setMode] = useState<Mode>('liq');
+  // الموبايل: نص الرسالة مطويّ لسطرين حتى يُضغط (كي تظهر البطاقة كلها بشاشة واحدة)
+  const [openSrc, setOpenSrc] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
   const captureRef = useRef<HTMLTextAreaElement>(null);
 
@@ -491,8 +493,11 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
                 <div className="vi-card__body">
                   {/* نص الرسالة الأصلي ظاهر دائماً للمقارنة */}
-                  <div className="vi-src">
-                    <div className="vi-src__head"><MessageSquareText size={12} /> الرسالة{d.sender ? ` — ${d.sender}` : ''}</div>
+                  <div className={`vi-src ${openSrc.has(d.key) ? 'is-open' : ''}`}
+                    onClick={() => setOpenSrc(s => { const n = new Set(s); if (n.has(d.key)) n.delete(d.key); else n.add(d.key); return n; })}>
+                    <div className="vi-src__head"><MessageSquareText size={12} /> الرسالة{d.sender ? ` — ${d.sender}` : ''}
+                      <span className="vi-src__more">{openSrc.has(d.key) ? 'طيّ' : 'عرض كاملة'}</span>
+                    </div>
                     <pre dir="auto">{d.sourceText}</pre>
                   </div>
 
@@ -507,7 +512,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                       <label className="vi-f"><span>المندوب العلمي</span>
                         <select className="form-input" value={d.repUserId ?? ''} disabled={locked}
                           onChange={e => patch(d.key, { repUserId: e.target.value ? Number(e.target.value) : null, repWhy: null })}>
-                          <option value="">— اختر —</option>
+                          <option value="">— المندوب العلمي —</option>
                           {repList.map(r => <option key={r.id} value={r.id}>{candIds.has(r.id) ? '★ ' : ''}{r.name}</option>)}
                         </select>
                         {repHint && <small className="vi-hint">{repHint}</small>}
@@ -603,7 +608,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                     </div>
 
                     <label className="vi-f"><span>{mode === 'liq' ? 'ملاحظات' : 'ملاحظات للمذخر'}</span>
-                      <input className="form-input" value={d.notes} disabled={locked} placeholder="—" onChange={e => patch(d.key, { notes: e.target.value })} />
+                      <input className="form-input" value={d.notes} disabled={locked} placeholder="ملاحظات" onChange={e => patch(d.key, { notes: e.target.value })} />
                     </label>
 
                     {d.warnings.length > 0 && !locked && <div className="vi-warn">⚠️ {d.warnings.join(' · ')}</div>}

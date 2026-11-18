@@ -90,6 +90,85 @@ export function parseViberItemLine(line) {
   return null;
 }
 
+// ─── ملاحظات لاتينية لا أصناف ────────────────────────────────────────────────
+// «Reorder» / «Test order» سطراً وحده = وصف للطلبية (2026-11-18: كانت تصير صنفاً بكمية فارغة)
+const LATIN_NOTE_RE = /^(?:re[\s-]?order|test(?:\s*order)?|new\s*order|first\s*order|repeat(?:\s*order)?|order|urgent|cash|credit|sample|samples|bonus|offer|ok|done|note|notes|pending|returned?)$/i;
+export const isLatinNoteLine = (line) => {
+  const s = tidy(line).replace(/[!.?]+$/, '').trim();
+  return Boolean(s) && !HAS_DIGIT.test(s) && LATIN_NOTE_RE.test(s);
+};
+
+// ─── طلبية مكتوبة جملةً ──────────────────────────────────────────────────────
+// «تم سحب amoklavine 1g 30 قطعة عن طريق مذخر ادوية ارض البنفسج»
+// «تم بيع Amoklavin 1g 10 قطع ل صيدلية سر الدواء من مذخر مصدر الدواء»
+// «10 قطع ل صيدليه سر الدواء من مذخر مصدر الدواء» (اسم الصنف في السطر الذي قبله)
+const VERB_RE = /(?:^|\s)(?:تم\s+|راح\s+)?(?:سحب|بيع|تسليم|تجهيز|صرف|توزيع|بعت|سحبت|بعنا|سحبنا)(?=\s|$)/g;
+const VERB_ONLY_RE = /^(?:تم|راح)?\s*(?:سحب|بيع|تسليم|تجهيز|صرف|توزيع|بعت|سحبت|بعنا|سحبنا)(?:\s+(?:ل|لل|من|الى|إلى))?$/;
+const UNIT = '(?:قطع[ةه]?|علب[ةه]?|علب|باكيت|باكيتات|كارتون|حب[ةه]|شريط|pcs?|box(?:es)?)';
+const UNIT_QTY_RE = new RegExp(`(\\d+)\\s*${UNIT}(?=\\s|$|[.,،)])`, 'i');
+const UNIT_WORD_RE = new RegExp(`(?:^|\\s)${UNIT}(?=\\s|$)`, 'gi');
+// «ل صيدلية X»، «لصيدلية X»، «الى صيدلية X» — الحرف قبل «صيدلية» هو ما يفرّقها عن ترويسة «صيدلية الرتاج»
+const PH_MARK_RE = /(?:^|\s)(?:(?:ل|لـ)\s*|(?:الى|إلى|الي)\s+)(?:ال)?صيدلي[ةه]\s+/;
+const PH_MARK_ANY_RE = /(?:^|\s)(?:(?:ل|لـ)\s*|(?:الى|إلى|الي)\s+)?(?:ال)?صيدلي[ةه]\s+/;
+const WH_MARK_RE = /(?:^|\s)(?:(?:من|عن\s+طريق|عبر|بواسطة|من\s+قبل)\s+)?(?:ال)?(?:مذخر|مذاخر|مدخر|مداخر|مخزن)\s+/;
+const BONUS_RE = /(?:\(\s*\+\s*(\d+)\s*\)|\+\s*(\d+)|بونص\s*(\d+))/;
+const CONC_RE = /\d\s*(?:mg|mcg|g|gm|ml|iu|%)\b/i;
+
+/**
+ * سطر طلبية مكتوب جملةً عربية فيها الصنف والكمية والصيدلية والمذخر.
+ * @returns {{ item: {name,quantity,bonus}|null, qty: number|null, bonus: number, pharmacy: string|null, warehouses: string[], note: string|null } | null}
+ *   item = صنف كامل؛ qty بلا item = كمية لاسم صنف في السطر السابق. null = ليس هذا الشكل.
+ */
+export function parseSentenceLine(line) {
+  const s = tidy(toLatinDigits(line));
+  if (!s) return null;
+  const latin = HAS_LATIN.test(s);
+  const hasVerb = new RegExp(VERB_RE.source).test(s);
+  const unitQty = s.match(UNIT_QTY_RE);
+  const phAt = s.search(latin ? PH_MARK_ANY_RE : PH_MARK_RE);
+  const whAt = s.search(WH_MARK_RE);
+  // بلا لاتيني: سطر بكمية ووحدة («10 قطع …»)، أو «لصيدلية X» مع مذخر/فعل — لا ترويسة عادية
+  if (!latin && !unitQty && !(phAt >= 0 && (whAt >= 0 || hasVerb))) return null;
+  if (latin && !hasVerb && !unitQty && phAt < 0 && whAt < 0) return null;
+
+  // تقطيع على العلامات: [قبلها = الصنف] [صيدلية …] [مذخر …] بأي ترتيب
+  const marks = [['ph', phAt], ['wh', whAt]].filter(([, i]) => i >= 0).sort((a, b) => a[1] - b[1]);
+  const head = tidy(s.slice(0, marks.length ? marks[0][1] : s.length));
+  let pharmacy = null;
+  const warehouses = [];
+  marks.forEach(([kind, at], i) => {
+    const seg = s.slice(at, i + 1 < marks.length ? marks[i + 1][1] : s.length);
+    if (kind === 'ph') pharmacy = tidy(seg.replace(PH_MARK_ANY_RE, ' ').replace(VERB_RE, ' ').replace(UNIT_WORD_RE, ' ')) || null;
+    else warehouses.push(...warehousesFromTail(seg.replace(WH_MARK_RE, ' ')));
+  });
+
+  let rest = head.replace(VERB_RE, ' ');
+  let bonus = 0;
+  const b = rest.match(BONUS_RE);
+  if (b) { bonus = Number(b[1] ?? b[2] ?? b[3]) || 0; rest = rest.replace(BONUS_RE, ' '); }
+  let qty = null;
+  const uq = rest.match(UNIT_QTY_RE);
+  if (uq) { qty = Number(uq[1]); rest = rest.replace(UNIT_QTY_RE, ' '); }
+  rest = rest.replace(UNIT_WORD_RE, ' ');
+  // ما بقي: كلمات الصنف (لاتيني/أرقام) والباقي العربي ملاحظة
+  const toks = tidy(rest).split(/\s+/).filter(Boolean);
+  const itemToks = toks.filter(t => !HAS_ARABIC.test(t));
+  const noteToks = toks.filter(t => HAS_ARABIC.test(t));
+  if (qty == null && itemToks.length) {
+    const last = itemToks[itemToks.length - 1];
+    const first = itemToks[0];
+    // «amoklavine 1g 30» — رقم مجرّد بعد تركيز مكتوب؛ «30 amoklavine 1g» — رقم قبل الاسم
+    if (/^\d+$/.test(last) && itemToks.length > 1 && CONC_RE.test(itemToks.slice(0, -1).join(' '))) { qty = Number(last); itemToks.pop(); }
+    else if (/^\d+$/.test(first) && itemToks.length > 1) { qty = Number(first); itemToks.shift(); }
+  }
+  const name = tidy(itemToks.join(' ').replace(/[*×]\s*$/, ''));
+  const note = tidy(noteToks.join(' ')) || null;
+  if (latin && HAS_LATIN.test(name) && qty > 0) return { item: { name, quantity: qty, bonus }, qty: null, bonus, pharmacy, warehouses, note };
+  if (!latin && qty > 0) return { item: null, qty, bonus, pharmacy, warehouses, note };
+  if (!latin && pharmacy) return { item: null, qty: null, bonus, pharmacy, warehouses, note };
+  return null;
+}
+
 /** أسماء مذاخر من ذيل «مذاخر اوزون/شغف، الدواء المتكامل». */
 function warehousesFromTail(tail) {
   // «X او مذخر Y» / «X أو Y» = مذخر بديل: الأول أساسي والباقي احتياط
@@ -222,8 +301,27 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
   let inWhList = false;
   let seenItem = false;
   let transit = false;
+  let sentencePharmacy = null;
+  /** سطر جملة: الصنف والكمية والصيدلية والمذخر منه. كمية بلا اسم تُكمل آخر سطر صنف بلا كمية. */
+  const applySentence = (sen) => {
+    if (sen.item) { items.push(sen.item); seenItem = true; }
+    else if (sen.qty) {
+      if (unparsed.length) { items.push({ name: unparsed.pop(), quantity: sen.qty, bonus: sen.bonus }); seenItem = true; }
+      else notes.push(`${sen.qty}${sen.bonus ? `+${sen.bonus}` : ''}`);
+    }
+    sen.warehouses.forEach(w => addWh(wholeWarehouse(w) || w));
+    if (sen.pharmacy && !sentencePharmacy) sentencePharmacy = sen.pharmacy;
+    if (sen.note) notes.push(sen.note);
+  };
 
   for (const line of lines) {
+    // «تم سحب» / «تم بيع» وحدها: وصف لا ترويسة (كانت تصير اسم صيدلية حين تسبق الاسم)
+    if (VERB_ONLY_RE.test(line)) { notes.push(line); continue; }
+    if (isLatinNoteLine(line)) { notes.push(line); continue; }
+    if (!HAS_LATIN.test(line)) {
+      const sen = parseSentenceLine(line);
+      if (sen) { applySentence(sen); inWhList = false; continue; }
+    }
     const wl = parseWarehouseLine(line);
     if (wl) {
       if (wl.transit) transit = true;
@@ -247,6 +345,9 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
         if (it.note) notes.push(it.note);
         continue;
       }
+      // «تم سحب amoklavine 1g 30 قطعة عن طريق مذخر …» — جملة فيها الصنف والكمية
+      const sen = parseSentenceLine(line);
+      if (sen) { applySentence(sen); continue; }
       // «+class A لوصفات الدكتور اكرم…»: جملة عربية فيها كلمة لاتينية = ملاحظة لا صنف
       const arabicWords = (line.match(/[؀-ۿ]{2,}/g) || []).length;
       // «د.قاسم محمد | Cardio»: اسم طبيب واختصاصه، أو أي سطر عربي-لاتيني بلا رقم = ملاحظة كذلك
@@ -273,6 +374,8 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
     notes.push(line);
   }
 
+  // «ل صيدلية X» داخل جملة يحسم الصيدلية؛ أسطر الترويسة الباقية تصير منطقة/ملاحظة
+  if (sentencePharmacy && !headerLines.some(l => PH_PREFIX_STRICT_RE.test(l))) headerLines.unshift(`ص ${sentencePharmacy}`);
   const h = classifyHeader(headerLines, { areaOf, isKnownPharmacy, wholeWarehouse });
   h.warehouses.forEach(addWh);
   notes.unshift(...h.extra);
