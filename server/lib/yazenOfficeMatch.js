@@ -86,6 +86,19 @@ export function sigsMatch(a, b) {
  */
 export const EMPTY_CTX = { itemRules: new Map(), areaAliases: new Map() };
 
+// كل هوية (ايتم/صيدلية) ← رقم صغير مرة واحدة، فمفتاح ذاكرة المقارنة رقم لا نص طويل يُبنى
+// ويُحسب hash له مع كل مقارنة (كان ذلك وحده 5.7 من 6 ثوانٍ في القياس).
+const internTable = new Map();
+function intern(str) {
+  let v = internTable.get(str);
+  if (v === undefined) {
+    if (internTable.size > 1_000_000) internTable.clear();
+    v = internTable.size + 1;
+    internTable.set(str, v);
+  }
+  return v;
+}
+
 function itemIdentity(itemId, names, ctx) {
   const keys = new Set(names.map(n => normalizeItemKey(n ?? '')).filter(Boolean));
   const ids = new Set(itemId ? [itemId] : []);
@@ -95,7 +108,13 @@ function itemIdentity(itemId, names, ctx) {
       if (r.toKey) keys.add(r.toKey);
     }
   }
-  return { ids, keys, sigs: [...keys].map(itemSig) };
+  // مفتاح الهوية لذاكرة المقارنة: صفوف الايتم نفسه تتكرر بالآلاف.
+  const itemTok = intern([...ids].sort((a, b) => a - b).join(',') + '#' + [...keys].sort().join('|'));
+  return { ids, keys, sigs: [...keys].map(itemSig), itemTok };
+}
+
+function pharmacyIdentity(pharmacy) {
+  return { pharmacy, pharmTok: intern('' + pharmacy) };
 }
 
 function areaIdentity(name, ctx) {
@@ -112,7 +131,7 @@ export function prepareYazenRow(s, repId = null, ctx = EMPTY_CTX) {
     ...itemIdentity(s.itemId ?? null, [s.item?.name, raw['اسم المادة بالمكتب']], ctx),
     qty: Math.abs(Number(s.quantity) || 0),
     bonus: Math.abs(Number(raw.bonus ?? raw['كمية البونص']) || 0),
-    pharmacy: pharmKey(raw.pharmacy || s.customer?.name || raw['اسم الشركة'] || ''),
+    ...pharmacyIdentity(pharmKey(raw.pharmacy || s.customer?.name || raw['اسم الشركة'] || '')),
     areas: areaIdentity(s.area?.name, ctx),
     day: matchHelpers.dayOf(s.saleDate),
   };
@@ -125,7 +144,7 @@ export function prepareOfficeRow(s, ctx = EMPTY_CTX) {
     id: s.id, ret: isReturn(s),
     ...itemIdentity(s.itemId ?? null, [s.item?.name], ctx),
     qty: Math.abs(Number(s.quantity) || 0),
-    pharmacy: pharmKey(s.customer?.name ?? ''),
+    ...pharmacyIdentity(pharmKey(s.customer?.name ?? '')),
     areas: areaIdentity(s.area?.name, ctx),
     day: matchHelpers.dayOf(t),
   };
@@ -135,7 +154,28 @@ export function prepareOfficeRow(s, ctx = EMPTY_CTX) {
 const sameQty = (y, o) => Math.abs(y.qty - o.qty) < 0.001
   || (y.bonus > 0 && (Math.abs(y.qty + y.bonus - o.qty) < 0.001 || Math.abs(y.qty - y.bonus - o.qty) < 0.001));
 
+// ذاكرة المقارنات أثناء المطابقة: المقارنة التقريبية (Levenshtein) هي الكلفة كلها، وأزواج
+// الأسماء نفسها تتكرر عبر الأيام والمراحل. أول تشغيل بلا ذاكرة: 24 ثانية تحجب الخادم.
+let memo = null;
+function withMemo(fn) {
+  const outer = memo;
+  memo = outer ?? { ph: new Map(), it: new Map() };
+  try { return fn(); } finally { memo = outer; }
+}
+/** ذاكرة بمفتاحين صغيرين (Map داخل Map): الرقم المركّب الكبير يخرج من نطاق Smi فيبطؤ. */
+function cached(map, a, b, compute) {
+  let inner = map.get(a);
+  if (!inner) { inner = new Map(); map.set(a, inner); }
+  let v = inner.get(b);
+  if (v === undefined) { v = compute(); inner.set(b, v); }
+  return v;
+}
+
 function sameItem(y, o) {
+  return memo ? cached(memo.it, y.itemTok, o.itemTok, () => sameItemRaw(y, o)) : sameItemRaw(y, o);
+}
+
+function sameItemRaw(y, o) {
   for (const id of o.ids) if (y.ids.has(id)) return true; // نفس الايتم أو مدموج إليه
   for (const k of o.keys) if (y.keys.has(k)) return true;
   for (const a of y.keys) for (const b of o.keys) if (areSimilar(a, b)) return true;
@@ -146,7 +186,8 @@ function sameItem(y, o) {
 // المنطقة لا تمنع: ملف المكتب يكتب منطقة واسعة (مدينة الصدر) واليزن الحي نفسه (الحبيبية،
 // الطالبية) — أول تشغيل على الإنتاج: 92 من 136 صفاً فاتت بهذا. تبقى أفضلية بين المرشحين فقط.
 function samePharmacy(y, o) {
-  return matchHelpers.namesMatch(y.pharmacy, o.pharmacy) === true;
+  const raw = () => matchHelpers.namesMatch(y.pharmacy, o.pharmacy) === true;
+  return memo ? cached(memo.ph, y.pharmTok, o.pharmTok, raw) : raw();
 }
 function areaAgrees(y, o) {
   if (!y.areas.size || !o.areas.size) return true;
@@ -163,6 +204,10 @@ function areaAgrees(y, o) {
  * @returns {Array<{officeSaleId:number, mercatoSaleId:number, marketerRepId:number|null, gapDays:number}>}
  */
 export function matchYazenToOffice(yazen, office) {
+  return withMemo(() => matchYazenToOfficeRaw(yazen, office));
+}
+
+function matchYazenToOfficeRaw(yazen, office) {
   const byDay = new Map();
   for (const o of office) {
     if (o.day == null) continue;
@@ -181,7 +226,7 @@ export function matchYazenToOffice(yazen, office) {
         let pick = null;
         for (const o of list) {
           if (usedOffice.has(o) || o.ret !== y.ret || !qtyOk(y, o)) continue;
-          if (!samePharmacy(y, o) || !sameItem(y, o)) continue;
+          if (!sameItem(y, o) || !samePharmacy(y, o)) continue;
           if (!pick) pick = o;
           if (areaAgrees(y, o)) { pick = o; break; } // المنطقة نفسها أولى من غيرها
         }
@@ -194,8 +239,16 @@ export function matchYazenToOffice(yazen, office) {
   };
   pass(GAP_PREFERENCE, sameQty);
   // صف مكتب بكمية مختلفة لا يُنسب لطلبية يزن إن كانت هناك طلبية يزن أخرى قد تكون هي أصله.
-  const unambiguous = (y, o) => !yazen.some(y2 => y2 !== y && y2.ret === y.ret && y2.day != null
-    && o.day - y2.day >= 0 && o.day - y2.day <= 3 * DAY && samePharmacy(y2, o) && sameItem(y2, o));
+  const yazenByDay = new Map();
+  for (const y of yazen) if (y.day != null) { if (!yazenByDay.has(y.day)) yazenByDay.set(y.day, []); yazenByDay.get(y.day).push(y); }
+  const unambiguous = (y, o) => {
+    for (let g = 0; g <= 3; g++) {
+      for (const y2 of yazenByDay.get(o.day - g * DAY) ?? []) {
+        if (y2 !== y && y2.ret === y.ret && sameItem(y2, o) && samePharmacy(y2, o)) return false;
+      }
+    }
+    return true;
+  };
   pass(ANY_QTY_GAPS, unambiguous);
   return out;
 }
@@ -205,6 +258,10 @@ export function matchYazenToOffice(yazen, office) {
  * المراحل: noDay (لا صف مكتب في تلك الأيام) → type → item → pharmacy → qty → used.
  */
 export function explainUnmatched(yazen, office, matches) {
+  return withMemo(() => explainUnmatchedRaw(yazen, office, matches));
+}
+
+function explainUnmatchedRaw(yazen, office, matches) {
   const done = new Set(matches.map(m => m.mercatoSaleId));
   const usedOffice = new Set(matches.map(m => m.officeSaleId));
   const byDay = new Map();
