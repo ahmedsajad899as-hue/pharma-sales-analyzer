@@ -25,8 +25,8 @@ const TABS: { id: TabId; label: string; desc: string }[] = [
   { id: 'targets',         label: 'التارگت',          desc: 'إدارة التارگت الشهري للمندوبين ومقارنته بالمبيعات' },
 ];
 
-// صفحات تُفتح بأزرار من داخل تبويب التارگت (ليست تبويبات في الشريط)
-const TARGET_SUBPAGES: TabId[] = ['representatives', 'scientific-reps', 'items'];
+// صفحات تُفتح بأزرار مطويّة تحت سهم صغير في تبويب التقارير (ليست تبويبات في الشريط)
+const REPORT_SUBPAGES: TabId[] = ['representatives', 'scientific-reps', 'items'];
 
 // تبويبات تحصل على تظليل خلفية خفيف لتمييزها بصرياً عن البقية
 const HIGHLIGHTED_TABS = new Set<TabId>(['upload', 'reports', 'targets']);
@@ -37,11 +37,14 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
     return (saved && TABS.some(t => t.id === saved)) ? saved as TabId : 'upload';
   });
   const [animKey, setAnimKey] = useState(0);
+  // أزرار المندوبين/الايتمات مطويّة افتراضياً؛ تبقى مفتوحة ما دامت إحدى صفحاتها معروضة
+  const [subOpen, setSubOpen] = useState(false);
+  const subVisible = subOpen || REPORT_SUBPAGES.includes(activeTab);
 
   // Back button: go to default tab when on a secondary tab (only if this page is active)
   usePageBackHandler('rep-analysis', [
-    [TARGET_SUBPAGES.includes(activeTab), () => handleTabChange('targets')],
-    [activeTab !== 'upload' && !TARGET_SUBPAGES.includes(activeTab), () => handleTabChange('upload')],
+    [REPORT_SUBPAGES.includes(activeTab), () => handleTabChange('reports')],
+    [activeTab !== 'upload' && !REPORT_SUBPAGES.includes(activeTab), () => handleTabChange('upload')],
   ]);
 
   const handleTabChange = (id: TabId) => {
@@ -113,8 +116,8 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
       }}>
         {/* Tab bar */}
         <div className="ra-tabs" style={{ display: 'flex', gap: 0 }}>
-          {TABS.filter(tab => !TARGET_SUBPAGES.includes(tab.id)).map(tab => {
-            const isActive = activeTab === tab.id || (tab.id === 'targets' && TARGET_SUBPAGES.includes(activeTab));
+          {TABS.filter(tab => !REPORT_SUBPAGES.includes(tab.id)).map(tab => {
+            const isActive = activeTab === tab.id || (tab.id === 'reports' && REPORT_SUBPAGES.includes(activeTab));
             const isHighlighted = HIGHLIGHTED_TABS.has(tab.id);
             return (
               <button
@@ -145,20 +148,37 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
 
       {/* ── Content ── */}
       <div key={animKey} style={{ flex: 1, background: '#f8fafc' }}>
-        {(activeTab === 'targets' || TARGET_SUBPAGES.includes(activeTab)) && (
-          <div className="ra-subrow" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', direction: 'rtl', padding: '12px 28px 0' }}>
-            {TABS.filter(tab => TARGET_SUBPAGES.includes(tab.id)).map(tab => {
+        {(activeTab === 'reports' || REPORT_SUBPAGES.includes(activeTab)) && (
+          // يسار الصفحة (نهاية السطر في RTL): السهم، والأزرار تنفتح بجانبه
+          <div className="ra-subrow" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', direction: 'rtl', padding: '6px 28px 0' }}>
+            {subVisible && TABS.filter(tab => REPORT_SUBPAGES.includes(tab.id)).map(tab => {
               const on = activeTab === tab.id;
               return (
-                <button key={tab.id} title={tab.desc} onClick={() => handleTabChange(on ? 'targets' : tab.id)}
+                <button key={tab.id} title={tab.desc} onClick={() => handleTabChange(on ? 'reports' : tab.id)}
                   style={{
-                    padding: '6px 14px', borderRadius: 20, fontSize: 13, cursor: 'pointer',
+                    padding: '4px 12px', borderRadius: 20, fontSize: 12.5, cursor: 'pointer',
                     border: '1px solid ' + (on ? '#4f46e5' : '#e2e8f0'),
                     background: on ? '#4f46e5' : '#fff', color: on ? '#fff' : '#475569',
                     fontWeight: on ? 600 : 400,
                   }}>{tab.label}</button>
               );
             })}
+            <button type="button" aria-expanded={subVisible}
+              title={subVisible ? 'إخفاء' : 'المندوبون التجاريون · المندوبون العلميون · الايتمات'}
+              onClick={() => {
+                if (subVisible && REPORT_SUBPAGES.includes(activeTab)) handleTabChange('reports');
+                setSubOpen(!subVisible);
+              }}
+              style={{
+                width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: 7, border: '1px solid #e2e8f0', background: subVisible ? '#eef2ff' : '#fff',
+                color: '#475569', cursor: 'pointer', padding: 0,
+              }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: subVisible ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform .15s' }}>
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
           </div>
         )}
         {renderContent()}

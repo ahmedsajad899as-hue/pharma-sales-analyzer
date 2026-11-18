@@ -5,7 +5,7 @@
 /* شريط واحد يجمع العنوان والفترة والإجراءات — كل عناصره بنفس الارتفاع */
 .tg-bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .tg-title { font-size: 16px; font-weight: 800; color: var(--c-text-primary); margin-inline-end: 6px; white-space: nowrap; }
 .tg-sel, .tg-btn, .tg-search {
@@ -32,16 +32,18 @@
 
 /* ── تبويبات الشركات + مجموعتا المسوقين ── */
 .tg-tabs {
-  display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; padding-bottom: 3px;
+  display: flex; gap: 5px; overflow-x: auto; margin-bottom: 8px; padding-bottom: 3px;
   scrollbar-width: thin;
 }
 .tg-tab {
-  flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 2px;
-  min-width: 150px; max-width: 230px; padding: 7px 11px; text-align: right; cursor: pointer;
-  border: 1px solid var(--c-border); border-radius: 8px; background: #fff; font: inherit;
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 1px;
+  min-width: 118px; max-width: 190px; padding: 4px 9px; text-align: right; cursor: pointer;
+  border: 1px solid var(--c-border); border-radius: 7px; background: #fff; font: inherit;
 }
+.tg-tab-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.tg-tab-total { font-size: 11.5px; font-weight: 800; color: var(--c-text-primary); font-variant-numeric: tabular-nums; flex: none; }
 .tg-tab:hover { border-color: #b8c4da; transform: none; box-shadow: none; }
-.tg-tab.on { border-color: var(--c-primary); box-shadow: inset 0 -3px 0 var(--c-primary); }
+.tg-tab.on { border-color: var(--c-primary); box-shadow: inset 0 -2px 0 var(--c-primary); }
 /* فاصل قبل مجموعات المسوقين: ليست شركات */
 .tg-tab--sep { margin-inline-start: 10px; position: relative; }
 .tg-tab--sep::before {
@@ -49,14 +51,14 @@
   border-inline-start: 1px solid var(--c-border);
 }
 .tg-tab-name {
-  display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 800; color: var(--c-text-primary);
+  display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 800; min-width: 0; color: var(--c-text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tg-tab.on .tg-tab-name { color: var(--c-primary); }
 .tg-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; flex: none; }
-.tg-tab-sub { font-size: 11px; color: var(--c-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tg-tab-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--c-text-secondary); }
-.tg-tab-meta b { font-weight: 800; color: var(--c-text-primary); font-variant-numeric: tabular-nums; }
+.tg-tab-sub { font-size: 10.5px; color: var(--c-text-muted); white-space: nowrap; }
+.tg-tab-sub > span:first-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tg-tab-sub > span:last-child { flex: none; }
 
 /* شريط المجموعة المختارة */
 .tg-bar--sub { margin-bottom: 8px; }
@@ -75,17 +77,17 @@
 .tg-link:hover { transform: none; box-shadow: none; }
 
 /* ── الجدول: يتمرّر داخل إطاره، والرأس وعمود الايتم و«للكل» والمجموع ثابتة كتجميد الأجزاء في إكسل ── */
-.tm-wrap, .tm-table { --tm-item-w: 290px; --tm-bulk-w: 84px; }
+.tm-wrap, .tm-table { --tm-item-w: 270px; --tm-bulk-w: 76px; }
 .tm-wrap {
-  overflow: auto; max-height: max(340px, calc(100dvh - 330px));
+  overflow: auto; max-height: max(360px, calc(100dvh - 215px));
   border: 1px solid var(--c-border); border-radius: 10px; background: #fff;
   /* حتى لا تختفي الخلية المحدّدة خلف الأجزاء الثابتة عند التنقل بالأسهم */
-  scroll-padding: 80px 72px 95px calc(var(--tm-item-w) + var(--tm-bulk-w));
+  scroll-padding: 70px 72px 85px calc(var(--tm-item-w) + var(--tm-bulk-w));
 }
 
 /* أعمدة المندوبين متساوية العرض وتتسع لعرض الشاشة؛ حدّها الأدنى يكفي لاسم بسطرين */
 .tm-table {
-  width: 100%; min-width: calc(var(--tm-item-w) + var(--tm-bulk-w) + 72px + var(--tm-reps, 1) * 92px);
+  width: 100%; min-width: calc(var(--tm-item-w) + var(--tm-bulk-w) + 72px + var(--tm-reps, 1) * 84px);
   table-layout: fixed; border-collapse: separate; border-spacing: 0;
   font-size: 12px; direction: rtl; font-variant-numeric: tabular-nums;
 }
@@ -100,25 +102,25 @@
 
 .tm-table thead { position: sticky; top: 0; z-index: 3; }
 .tm-table thead th {
-  padding: 6px 4px; font-size: 11.5px; font-weight: 700; color: var(--c-text-primary);
+  padding: 4px 4px; font-size: 10.5px; font-weight: 700; color: var(--c-text-primary);
   text-align: center; line-height: 1.25; vertical-align: middle; background: var(--c-bg);
   border-bottom: 1px solid var(--c-border);
 }
-.tm-table thead tr.tm-grp th { color: var(--c-text-secondary); padding: 4px 6px; font-size: 11px; }
+.tm-table thead tr.tm-grp th { color: var(--c-text-secondary); padding: 3px 6px; font-size: 10.5px; }
 .tm-grp-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* رأس المندوب: مربع التحديد للتعميم + الاسم كاملاً (سطران) + الصفة */
-.tm-rep-check { display: flex; justify-content: center; margin-bottom: 3px; cursor: pointer; }
+.tm-rep-check { display: flex; justify-content: center; margin-bottom: 2px; cursor: pointer; }
 .tm-rep-check input { width: 13px; height: 13px; margin: 0; cursor: pointer; accent-color: var(--c-primary); }
 .tm-rep-name {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
   overflow-wrap: break-word; width: 100%;
   border: 0; background: none; padding: 0; margin: 0; font: inherit; font-weight: 700; color: inherit;
-  text-align: center; line-height: 1.3; cursor: default;
+  text-align: center; line-height: 1.25; cursor: default;
 }
 .tm-rep-name--open { cursor: pointer; }
 .tm-rep-name--open:hover { text-decoration: underline; transform: none; box-shadow: none; }
-.tm-rep-role { display: block; margin-top: 2px; font-size: 10px; font-weight: 600; color: var(--c-text-muted); }
+.tm-rep-role { display: block; margin-top: 1px; font-size: 9.5px; font-weight: 600; color: var(--c-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tm-table thead th.tm-rep--sel { box-shadow: inset 0 -2px 0 var(--c-primary); }
 /* عمود المدير: هدفه يتداخل مع فريقه ولا يدخل المجموع — يُميَّز بخلفية خفيفة */
 .tm-table thead th.tm-rep--mgr { background: var(--c-border-light); }
@@ -130,10 +132,10 @@
   padding: 0 10px; text-align: right; font-weight: 600; background: #fff;
   border-inline-start: 1px solid var(--c-border);
 }
-.tm-table thead th.tm-item { z-index: 2; background: var(--c-bg); font-size: 11.5px; }
+.tm-table thead th.tm-item { z-index: 2; background: var(--c-bg); font-size: 11px; }
 .tm-item-name {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
-  text-align: right; line-height: 1.3; font-size: 12.5px; overflow-wrap: anywhere;
+  text-align: right; line-height: 1.25; font-size: 11.5px; overflow-wrap: anywhere;
 }
 
 /* عمود «للكل» ثابت بجانب الايتم */
@@ -146,13 +148,13 @@
 .tm-table td.tm-bulk input { color: var(--c-primary); }
 .tm-table td.tm-bulk input::placeholder { color: var(--c-text-muted); font-weight: 500; }
 
-.tm-table tbody td { height: 36px; }
+.tm-table tbody td { height: 29px; }
 .tm-table tbody tr:hover td { background: var(--c-bg); }
 
 .tm-cell { position: relative; }
 .tm-cell input {
-  display: block; width: 100%; height: 35px; border: 0; background: transparent; text-align: center; direction: ltr;
-  font: inherit; font-size: 12.5px; font-weight: 700; color: var(--c-text-primary); outline: none; padding: 0 2px;
+  display: block; width: 100%; height: 28px; border: 0; background: transparent; text-align: center; direction: ltr;
+  font: inherit; font-size: 12px; font-weight: 700; color: var(--c-text-primary); outline: none; padding: 0 2px;
   transform: none; box-shadow: none; min-width: 0; border-radius: 0;
 }
 .tm-cell input:focus { background: #fff; box-shadow: inset 0 0 0 1.5px var(--c-primary); }
@@ -170,13 +172,13 @@
 
 .tm-table tfoot { position: sticky; bottom: 0; z-index: 3; }
 .tm-table tfoot td {
-  height: 34px; text-align: center; font-weight: 800; color: var(--c-text-primary); background: var(--c-bg);
+  height: 30px; text-align: center; font-weight: 800; color: var(--c-text-primary); background: var(--c-bg);
   border-top: 1px solid var(--c-border); border-bottom: 0;
 }
 .tm-table tfoot td.tm-foot-label { z-index: 2; text-align: right; padding: 0 10px; color: var(--c-text-secondary); font-weight: 700; font-size: 11.5px; white-space: nowrap; overflow: hidden; }
 .tm-table tfoot td.tm-total { z-index: 2; }
 /* سطرا المقارنة: المبيع النت والإنجاز */
-.tm-table tfoot tr.tm-foot-compare td { height: 27px; border-top: 0; font-weight: 700; font-size: 11.5px; }
+.tm-table tfoot tr.tm-foot-compare td { height: 24px; border-top: 0; font-weight: 700; font-size: 11.5px; }
 .tm-foot-progress { font-weight: 500; font-size: 10px; color: var(--c-text-muted); }
 .tm-table tfoot td.tm-foot-hint { color: var(--c-text-muted); font-weight: 500; }
 .tm-table tfoot td.tc-good, .tc-good { color: var(--c-success); }
@@ -225,8 +227,9 @@
   .tm-table { min-width: calc(var(--tm-item-w) + var(--tm-bulk-w) + 56px + var(--tm-reps, 1) * 72px); }
   .tm-table thead th { font-size: 11px; }
   .tm-col-total { width: 56px; }
-  .tm-item-name { font-size: 11.5px; }
+  .tm-item-name { font-size: 11px; }
+  .tm-wrap { max-height: max(360px, calc(100dvh - 250px)); }
   .tg-search { flex: 1; min-width: 120px; }
-  .tg-tab { min-width: 130px; }
+  .tg-tab { min-width: 112px; }
   .tc-kpis b { font-size: 15px; }
 }

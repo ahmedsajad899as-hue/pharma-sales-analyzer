@@ -49,7 +49,8 @@ function roleLabel(r: MatrixRep): string {
   if (isManagerCol(r.id)) return r.repKind === 'pharmacy' ? 'مدير المسوقين' : 'مدير';
   const parts: string[] = [];
   if (isLeader(r)) parts.push('قائد فريق');
-  if (r.isProvinceMember && r.repKind !== 'pharmacy') parts.push('محافظة');
+  if (r.provinceNames?.length) parts.push(r.provinceNames.join('، '));
+  else if (r.isProvinceMember) parts.push('محافظة');
   return parts.join(' · ');
 }
 
@@ -64,7 +65,8 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
   const [targetItems, setTargetItems] = useState<NamedItem[]>([]);
 
   const [groupKey, setGroupKey] = useState<string>(readGroup);
-  const [region, setRegion] = useState<Region>('all');
+  // داخل الشركة: بغداد افتراضياً
+  const [region, setRegion] = useState<Region>('baghdad');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulk, setBulk] = useState<Map<number, string>>(new Map());
   const [search, setSearch] = useState('');
@@ -85,7 +87,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
   const group: TargetGroup | undefined = groups.find(g => g.key === groupKey) ?? groups[0];
   const pickGroup = (k: string) => {
     setGroupKey(k); writeGroup(k);
-    setSelected(new Set()); setBulk(new Map()); setRegion('all');
+    setSelected(new Set()); setBulk(new Map()); setRegion('baghdad');
   };
 
   const ordered = useMemo(() => (group ? orderGroupColumns(group) : { cols: [], blocks: [] }), [group]);
@@ -418,11 +420,31 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
       + `.tm-table thead [data-c="${c}"]{background:var(--c-border-light) !important}`;
   };
 
-  // ── الشريط العلوي: الفترة + الإجراءات + الحفظ ──
+  const bulkLabel = selected.size ? `للمحدَّدين (${selected.size})` : 'للكل';
+
+  // ── شريط واحد: الفترة + بغداد/المحافظات + البحث + الإجراءات + الحفظ ──
   const topBar = (
     <div className="tg-bar">
       {controls}
+      {group && hasRegions && (
+        <div className="tg-seg" role="group" aria-label="المنطقة">
+          {([['baghdad', 'بغداد'], ['province', 'المحافظات'], ['all', 'الكل']] as [Region, string][]).map(([v, l]) => (
+            <button key={v} className={region === v ? 'on' : ''} onClick={() => setRegion(v)}>{l}</button>
+          ))}
+        </div>
+      )}
       <span className="tg-grow" />
+      {selected.size > 0 && (
+        <span className="tg-sel-info">
+          محدَّد {selected.size}
+          <button className="tg-link" onClick={() => setSelected(new Set())}>إلغاء</button>
+        </span>
+      )}
+      {group && <>
+        <input className="tg-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث عن ايتم…" />
+        <button className={`tg-btn ${onlyFilled ? 'on' : ''}`} onClick={() => setOnlyFilled(v => !v)}
+          title="إخفاء الايتمات التي لا تارگت لها">ذات التارگت فقط</button>
+      </>}
       {actions?.({ reps: (group?.reps ?? []), groupName: group?.name ?? '' })}
       {msg && <span className={`tg-msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</span>}
       {/* الحفظ في الشريط لا أسفل الجدول: الجدول يملأ الشاشة فما تحته يبقى خارجها */}
@@ -460,11 +482,13 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
           <button key={g.key} role="tab" aria-selected={g.key === group.key}
             className={`tg-tab ${g.key === group.key ? 'on' : ''} ${firstMarketers ? 'tg-tab--sep' : ''}`}
             onClick={() => pickGroup(g.key)} title={`${g.name} — ${sub}`}>
-            <span className="tg-tab-name" dir="auto">{g.name}{dirty && <i className="tg-tab-dot" title="تعديلات غير محفوظة" />}</span>
-            <span className="tg-tab-sub">{sub}</span>
-            <span className="tg-tab-meta">
+            <span className="tg-tab-row">
+              <span className="tg-tab-name" dir="auto">{g.name}{dirty && <i className="tg-tab-dot" title="تعديلات غير محفوظة" />}</span>
+              <b className="tg-tab-total">{total ? fmt(total) : '—'}</b>
+            </span>
+            <span className="tg-tab-row tg-tab-sub">
+              <span dir="auto">{sub}</span>
               <span>{g.reps.length} مندوب</span>
-              <b>{total ? fmt(total) : '—'}</b>
             </span>
           </button>
         );
@@ -472,37 +496,11 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
     </div>
   );
 
-  const bulkLabel = selected.size ? `للمحدَّدين (${selected.size})` : 'للكل';
-
   return (
     <div>
       <style ref={colStyleRef} />
       {topBar}
       {tabs}
-
-      <div className="tg-bar tg-bar--sub">
-        <div className="tg-group-title">
-          <b dir="auto">{group.name}</b>
-          <span>{visReps.filter(r => !isManagerCol(r.id)).length} مندوب · {groupRows.length} ايتم</span>
-        </div>
-        {hasRegions && (
-          <div className="tg-seg" role="group" aria-label="المنطقة">
-            {([['all', 'الكل'], ['baghdad', 'بغداد'], ['province', 'المحافظات']] as [Region, string][]).map(([v, l]) => (
-              <button key={v} className={region === v ? 'on' : ''} onClick={() => setRegion(v)}>{l}</button>
-            ))}
-          </div>
-        )}
-        <span className="tg-grow" />
-        {selected.size > 0 && (
-          <span className="tg-sel-info">
-            محدَّد {selected.size} — «{bulkLabel}» يعمّم عليهم فقط
-            <button className="tg-link" onClick={() => setSelected(new Set())}>إلغاء التحديد</button>
-          </span>
-        )}
-        <input className="tg-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث عن ايتم…" />
-        <button className={`tg-btn ${onlyFilled ? 'on' : ''}`} onClick={() => setOnlyFilled(v => !v)}
-          title="إخفاء الايتمات التي لا تارگت لها">ذات التارگت فقط</button>
-      </div>
 
       <div className="tm-wrap">
         {loading ? (

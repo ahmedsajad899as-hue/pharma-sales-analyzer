@@ -19,6 +19,8 @@ export interface MatrixRep {
   repKind?: string;
   marketerScope?: 'baghdad' | 'province';
   isProvinceMember?: boolean;
+  /** محافظات مندوب/مسوق المحافظة — تُكتب تحت اسمه */
+  provinceNames?: string[];
 }
 
 export type GroupKind = 'company' | 'other' | 'marketers';

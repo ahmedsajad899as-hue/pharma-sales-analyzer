@@ -1,6 +1,6 @@
 import prisma from '../../lib/prisma.js';
 import { list, getReport, getGroupReport, resolveMyRepId } from '../scientific-reps/scientific-reps.service.js';
-import { provinceMemberUserIds } from '../../lib/provinceScope.js';
+import { provinceMemberUserIds, provinceIdsByMember } from '../../lib/provinceScope.js';
 import { loadManagerSeat, repIdsInManagerTeam, sharedRepItemsForViewer } from '../../lib/provinceSeats.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
 import { PHARMACY_KIND, managesProvinceMarketers } from '../../lib/pharmacyRep.js';
@@ -55,6 +55,28 @@ const MANAGER_SELECT = {
  * /api/scientific-reps لا تُمسّ: صفحات كثيرة تعتمد عليها ولا تتوقع المدراء فيها.
  */
 export async function listTargetPeople(user) {
+  return withProvinceNames(await listTargetPeopleRaw(user));
+}
+
+/** اسم محافظة كل مندوب/مسوق محافظة — يُكتب تحت اسمه في رأس عمود التارگت. */
+async function withProvinceNames(people) {
+  const members = people.filter(p => p.isProvinceMember && p.userId != null);
+  if (!members.length) return people;
+  const byMember = await provinceIdsByMember();
+  const ids = new Set();
+  members.forEach(p => byMember.get(p.userId)?.forEach(id => ids.add(id)));
+  if (!ids.size) return people;
+  const provinces = await prisma.province.findMany({ where: { id: { in: [...ids] } }, select: { id: true, name: true, sortOrder: true } });
+  const nameOf = new Map(provinces.map(p => [p.id, p]));
+  return people.map(p => {
+    const pids = p.isProvinceMember && p.userId != null ? [...(byMember.get(p.userId) ?? [])] : [];
+    const names = pids.map(id => nameOf.get(id)).filter(Boolean)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map(x => x.name);
+    return names.length ? { ...p, provinceNames: names } : p;
+  });
+}
+
+async function listTargetPeopleRaw(user) {
   const reps = await list({}, user);
   if (user.role === 'team_leader') {
     const repId = await resolveMyRepId(user.id);
