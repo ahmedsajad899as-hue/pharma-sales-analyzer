@@ -41,6 +41,14 @@ interface Wh { id: number; name: string }
 interface Rep { id: number; name: string }
 interface CatItem { id: number; name: string; price?: number | null; warehousePrice?: number | null; company?: { name: string } | null; scientificCompany?: { name: string } | null }
 
+/**
+ * وجهة الطلبيات المقروءة (زر أعلى اللوحة):
+ *   liq — «لكوديشن»: تُحفَظ مبيعاً في ملف اللكوديشن المشترك للمكتب (POST /api/sales/manual
+ *         بـ target.condition) باسم المندوب العلمي، فتُحسب له مع مبيعاته. الافتراضي دائماً.
+ *   wh  — «مذاخر»: طلبية مذخر في «طلبيات المذاخر» (المسار القديم) ثم الإرسال للمذخر.
+ */
+type Mode = 'liq' | 'wh';
+
 const REP_WHY: Record<string, string> = { leader: 'تيم ليدر المنطقة (لا مندوب علمي لها)', area: 'صاحب المنطقة', sender: 'من اسم المرسل', learned: 'اخترته سابقاً لنفس المرسل', guess: 'صاحب المنطقة' };
 const dayStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const IS_TOUCH = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
@@ -156,6 +164,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  // مثبّت على اللكوديشن عند كل فتح (طلب صاحب المشروع) — لا يُتذكَّر آخر اختيار
+  const [mode, setMode] = useState<Mode>('liq');
   const fileRef = useRef<HTMLInputElement>(null);
   const captureRef = useRef<HTMLTextAreaElement>(null);
 
@@ -268,7 +278,9 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
   const problemOf = (d: Draft): string | null => {
     if (!d.pharmacyName.trim()) return 'اسم الصيدلية مطلوب';
-    if (!d.warehouseId && !d.warehouseName.trim()) return 'اختر المذخر';
+    // اللكوديشن: المبيع يُحسب للمندوب العلمي، فهو الشرط؛ المذخر اختياري
+    if (mode === 'liq' && !d.repUserId) return 'اختر المندوب العلمي — المبيع يُحسب له';
+    if (mode === 'wh' && !d.warehouseId && !d.warehouseName.trim()) return 'اختر المذخر';
     if (!d.lines.some(l => l.itemName.trim() && l.quantity > 0)) return 'لا أصناف بكمية';
     const noQty = d.lines.find(l => l.itemName.trim() && !(l.quantity > 0));
     if (noQty) return `أكمل كمية «${noQty.itemName}» أو احذف السطر`;
@@ -286,6 +298,81 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     if (d.dispatch?.status && d.dispatch.status !== 'sent') throw new Error(d.dispatch?.error || 'لم يُرسل');
   };
 
+  /** صفوف ملف اللكوديشن لطلبية واحدة — بنفس شكل صفوف مراجعة طلبيات البوت (ManualSalesModal). */
+  const liqRows = (d: Draft) => {
+    const rep = repOptions.find(r => r.id === d.repUserId)?.name ?? d.repName ?? '';
+    // رقم تركيبي يجمع أسطر الطلبية في طلبية واحدة (عدّ الطلبيات). بادئة BOT- عمداً:
+    // matchHelpers.realInvoice يعدّها غير حقيقية فلا تُطابَق برقم فاتورة ميركاتو.
+    // ولأنها من بصمة الرسالة، إعادة لصق الرسالة نفسها تُسقطها بصمةُ الملف (saleFingerprint).
+    const inv = `BOT-VB${String(d.sourceHash || d.key).replace(/[^a-z0-9]/gi, '').slice(0, 12)}`;
+    return d.lines.filter(l => l.itemName.trim() && l.quantity > 0).map(l => ({
+      repName: rep, scientificRep: rep,
+      source: 'viber-order', // ضمن CONDITION_SOURCES — يظهر في عرض الملف كأي طلبية فايبر
+      invoiceNumber: inv,
+      date: dayStr(new Date()),
+      item: l.itemName.trim(),
+      itemId: l.itemId ?? undefined,
+      company: l.companyName || undefined,
+      quantity: l.quantity,
+      bonus: l.bonusQty || undefined,
+      unitPrice: l.unitPrice ?? undefined,
+      pharmacy: d.pharmacyName.trim(),
+      area: d.areaName.trim() || undefined,
+      warehouse: d.warehouseName.trim() || undefined,
+      notes: d.notes.trim() || undefined,
+    }));
+  };
+
+  const authJson = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const salesPost = async <T,>(path: string, body: unknown): Promise<T> => {
+    const res = await fetch(`${API}/api/sales/${path}`, { method: 'POST', headers: authJson, body: JSON.stringify(body) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || j.success === false) throw new Error(j.message || j.error || 'تعذّر الحفظ');
+    return j.data as T;
+  };
+
+  /** «لكوديشن»: فحص التكرار مع الملف وميركاتو (تنبيه فقط كمراجعة البوت) ثم حفظ كل طلبية وحدها. */
+  const createLiq = async (todo: Draft[]) => {
+    const target = { condition: true, sourceCurrency: 'IQD' };
+    try {
+      const dup = await salesPost<{ groups: { group: string; level: string; match?: { mercato?: boolean } }[] }>('check-duplicates', {
+        rows: todo.flatMap(d => liqRows(d).map(r => ({ ...r, group: d.key }))), target,
+      });
+      const hits = (dup?.groups ?? []).filter(g => g.level !== 'possible');
+      if (hits.length) {
+        const names = hits.map(g => todo.find(d => d.key === g.group)?.pharmacyName).filter(Boolean);
+        const ok = window.confirm(
+          `⚠️ ${hits.length} طلبية محفوظة سابقاً في اللكوديشن أو ميركاتو${names.length ? `: ${names.join('، ')}` : ''} — حفظها مرة ثانية يضاعف المبيع.\n\n`
+          + 'موافق = احفظ رغم ذلك\nإلغاء = ارجع (ألغِ تحديد المكررة)');
+        if (!ok) {
+          for (const g of hits) patch(g.group, { state: 'error', result: 'محفوظة سابقاً — ألغِ تحديدها أو احفظ رغم التكرار' });
+          return;
+        }
+      }
+    } catch { /* تعذّر الفحص لا يمنع الحفظ */ }
+
+    setBusy(true);
+    let ok = 0, failed = 0, lines = 0;
+    for (const d of todo) {
+      patch(d.key, { state: 'saving', result: undefined });
+      try {
+        const r = await salesPost<{ addedCount?: number; skippedCount?: number }>('manual', { rows: liqRows(d), target });
+        const added = r?.addedCount ?? 0, skipped = r?.skippedCount ?? 0;
+        const rep = repOptions.find(x => x.id === d.repUserId)?.name ?? '';
+        if (!added && skipped) {
+          patch(d.key, { state: 'warn', result: `موجودة أصلاً في اللكوديشن — لم يُضف شيء (${skipped} سطر)` });
+        } else {
+          ok++; lines += added;
+          patch(d.key, { state: 'done', result: `أُضيفت للكوديشن باسم ${rep} — ${added} صنف${skipped ? ` (أُسقط ${skipped} مكرر)` : ''}` });
+        }
+      } catch (e: any) { failed++; patch(d.key, { state: 'error', result: e.message }); }
+    }
+    setBusy(false);
+    // التقارير تخزّن نتائجها في المتصفح — هذا يرميها فيظهر المبيع الجديد
+    if (ok) window.dispatchEvent(new CustomEvent('report-data-changed'));
+    if (!failed && onFinished) onFinished(`أُضيفت ${ok} طلبية (${lines} صنف) لملف اللكوديشن`);
+  };
+
   const create = async (send: boolean) => {
     const todo = drafts.filter(d => d.include && d.state !== 'done' && d.state !== 'warn');
     if (!todo.length) return;
@@ -294,6 +381,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
       for (const [d, p] of bad) patch(d.key, { state: 'error', result: p! });
       return;
     }
+    if (mode === 'liq') { await createLiq(todo); return; }
     setBusy(true);
     let ok = 0, notSent = 0, failed = 0;
     for (const d of todo) {
@@ -346,6 +434,17 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
           <strong>📥 طلبيات الفايبر / واتساب</strong>
           {reading > 0 && <span className="vi-reading"><i /> جارٍ القراءة{reading > 1 ? ` (${reading})` : ''}</span>}
           <span className="ro-spacer" />
+          <div className="vi-mode" role="radiogroup" aria-label="وجهة الطلبيات">
+            {([['liq', 'لكوديشن'], ['wh', 'مذاخر']] as const).map(([m, t]) => (
+              <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? 'is-on' : ''} disabled={busy}
+                title={m === 'liq' ? 'تُحفظ مبيعاً في ملف اللكوديشن وتُحسب للمندوب' : 'تُنشأ طلبية مذخر في «طلبيات المذاخر» للإرسال'}
+                onClick={() => {
+                  setMode(m);
+                  // أخطاء التحقق تخص الوضع السابق (المذخر/المندوب) — تُعاد عند الحفظ
+                  setDrafts(ds => ds.map(d => (d.state === 'error' ? { ...d, state: undefined, result: undefined } : d)));
+                }}>{t}</button>
+            ))}
+          </div>
           <button className="ro-icon-btn" disabled={busy} onClick={onClose}><X size={15} /></button>
         </div>
 
@@ -417,7 +516,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
 
                     {/* المذاخر: كل ما ذُكر في الرسالة بترتيبه — الضغط يختار من تذهب له الطلبية */}
                     <div className="vi-sec">
-                      <div className="vi-sec__h">المذخر</div>
+                      <div className="vi-sec__h">{mode === 'liq' ? 'المذخر (اختياري)' : 'المذخر'}</div>
                       <div className="vi-whlist">
                         {d.mentionedWarehouses.map((m, i) => {
                           const isPrimary = m.id ? m.id === d.warehouseId : !d.warehouseId && m.name === d.warehouseName;
@@ -430,12 +529,12 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                                 {!m.id && <small className="vi-tag vi-tag--warn">غير مسجّل</small>}
                                 {m.id && m.ready === false && <small className="vi-tag">يدوي</small>}
                               </button>
-                              <span className="vi-whrow__state">{isPrimary ? 'تذهب له' : isBackup ? 'احتياط' : 'مستبعد'}</span>
-                              {!locked && isBackup && (
+                              <span className="vi-whrow__state">{mode === 'liq' ? (isPrimary ? 'المذخر' : '') : isPrimary ? 'تذهب له' : isBackup ? 'احتياط' : 'مستبعد'}</span>
+                              {!locked && mode === 'wh' && isBackup && (
                                 <button className="vi-x" title="استبعاد من الاحتياط"
                                   onClick={() => patch(d.key, { backupWarehouseIds: d.backupWarehouseIds.filter(x => x !== m.id) })}><X size={12} /></button>
                               )}
-                              {!locked && !isPrimary && !isBackup && m.id != null && (
+                              {!locked && mode === 'wh' && !isPrimary && !isBackup && m.id != null && (
                                 <button className="vi-x" title="إرجاع كاحتياط"
                                   onClick={() => patch(d.key, { backupWarehouseIds: d.mentionedWarehouses.filter(x => x.id && (x.id === m.id || d.backupWarehouseIds.includes(x.id)) && x.id !== d.warehouseId).map(x => x.id as number) })}><Plus size={12} /></button>
                               )}
@@ -450,7 +549,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                               patch(d.key, { mentionedWarehouses: next.mentionedWarehouses, ...choosePrimary(next, m) });
                             }} />
                         )}
-                        {d.backupWarehouseIds.some(id => !d.mentionedWarehouses.some(m => m.id === id)) && (
+                        {mode === 'wh' && d.backupWarehouseIds.some(id => !d.mentionedWarehouses.some(m => m.id === id)) && (
                           <div className="vi-hint">احتياط أيضاً: {d.backupWarehouseIds.filter(id => !d.mentionedWarehouses.some(m => m.id === id)).map(whName).join('، ')}</div>
                         )}
                       </div>
@@ -503,7 +602,7 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                       </div>
                     </div>
 
-                    <label className="vi-f"><span>ملاحظات للمذخر</span>
+                    <label className="vi-f"><span>{mode === 'liq' ? 'ملاحظات' : 'ملاحظات للمذخر'}</span>
                       <input className="form-input" value={d.notes} disabled={locked} placeholder="—" onChange={e => patch(d.key, { notes: e.target.value })} />
                     </label>
 
@@ -521,14 +620,21 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
         </div>
 
         <div className="ro-dialog__foot vi-foot">
-          {canSend && (
+          {mode === 'liq' && (
+            <button className="vi-btn vi-btn--primary" disabled={busy || !pending.length} onClick={() => create(false)}>
+              <Check size={14} /> {busy ? 'جارٍ…' : `حفظ في اللكوديشن${pending.length ? ` (${pending.length})` : ''}`}
+            </button>
+          )}
+          {mode === 'wh' && canSend && (
             <button className="vi-btn vi-btn--primary" disabled={busy || !pending.length} onClick={() => create(true)}>
               <Send size={14} /> {busy ? 'جارٍ…' : `إنشاء وإرسال${pending.length ? ` (${pending.length})` : ''}`}
             </button>
           )}
-          <button className={`vi-btn ${canSend ? '' : 'vi-btn--primary'}`} disabled={busy || !pending.length} onClick={() => create(false)}>
-            {canSend ? 'إنشاء فقط' : `إنشاء${pending.length ? ` (${pending.length})` : ''}`}
-          </button>
+          {mode === 'wh' && (
+            <button className={`vi-btn ${canSend ? '' : 'vi-btn--primary'}`} disabled={busy || !pending.length} onClick={() => create(false)}>
+              {canSend ? 'إنشاء فقط' : `إنشاء${pending.length ? ` (${pending.length})` : ''}`}
+            </button>
+          )}
           {finished.length > 0 && !busy && (
             <button className="vi-btn vi-btn--ghost" onClick={() => setDrafts(ds => ds.filter(d => d.state !== 'done' && d.state !== 'warn'))}>مسح المنجزة ({finished.length})</button>
           )}
