@@ -43,7 +43,8 @@
     "test:transit": "node scripts/test-transit-orders.mjs",
     "test:condition-scope": "node scripts/test-condition-scope.mjs",
     "test:invoice-cost": "node scripts/test-invoice-cost-cuts.mjs",
-    "test:invoice-orientation": "node scripts/test-invoice-orientation.mjs"
+    "test:invoice-orientation": "node scripts/test-invoice-orientation.mjs",
+    "test:rep-name-picker-tree": "node scripts/test-rep-name-picker-tree.mjs"
   },
   "keywords": [
     "pharmaceutical",

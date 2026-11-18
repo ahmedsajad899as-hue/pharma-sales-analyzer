@@ -25,7 +25,8 @@ interface Entry {
 interface Unrelated { raw: string; key: string; suggestions?: Suggestion[] }
 /** outOfTeam = حساب في شركتك لكنه غير معيَّن تحتك (مثل حساب جديد لم يُعيَّن بعد) */
 /** staff = تيم ليدر/مدير/موظف مكتب (ليس مندوباً علمياً) — id سالب إن لم يكن له سجل مندوب بعد */
-interface RepOpt { id: number; name: string; company?: string | null; roleLabel?: string | null; outOfTeam?: boolean; staff?: boolean }
+/** section/group/depth: موضعه في هيكلية المكتب (server/lib/repNamePickerTree.js) — الترتيب يأتي من الخادم */
+interface RepOpt { id: number; name: string; company?: string | null; roleLabel?: string | null; outOfTeam?: boolean; staff?: boolean; section?: string; group?: string; depth?: number }
 
 const repLabel = (r: { name: string; company?: string | null }) => r.company ? `${r.name} — ${r.company}` : r.name;
 
@@ -35,11 +36,14 @@ const norm = (t: string) => t.toLowerCase()
   .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
   .replace(/\s+/g, ' ').trim();
 
-const NO_COMPANY = 'بلا شركة';
+const SECTION_ICON: Record<string, string> = {
+  'الشركات': '🏢', 'المحافظات': '🗺️', 'مسوقو بغداد': '💊', 'مسوقو المحافظات': '🧭', 'إدارة المكتب': '🏛️',
+};
 
 /**
- * قائمة اختيار حساب قابلة للبحث، مرتّبة حسب الشركة — داخل كل شركة المدراء/التيم ليدرية
- * أولاً ثم المندوبون أبجدياً. الحساب المربوط مسبقاً باسم آخر يظهر باهتاً مع الاسم المربوط
+ * قائمة اختيار حساب قابلة للبحث بهيكلية المكتب: الشركات (المدير ← تيم ليدر الكرخ ومندوبوه ←
+ * تيم ليدر الرصافة ومندوبوه)، المحافظات (القائد ← مندوبوه)، مسوقو بغداد، مسوقو المحافظات،
+ * إدارة المكتب. الترتيب من الخادم كما هو. الحساب المربوط مسبقاً باسم آخر يظهر باهتاً مع الاسم المربوط
  * (يبقى قابلاً للاختيار: قد يُكتب المندوب نفسه بأكثر من صيغة في الملف).
  */
 function RepSelect({ reps, value, onChange, withNone, placeholder, linkedBy }: {
@@ -79,8 +83,8 @@ function RepSelect({ reps, value, onChange, withNone, placeholder, linkedBy }: {
     const r = btnRef.current?.getBoundingClientRect();
     if (r) {
       const below = window.innerHeight - r.bottom;
-      const up = below < 320 && r.top > below;
-      const width = Math.max(r.width, 300);
+      const up = below < 420 && r.top > below;
+      const width = Math.min(Math.max(r.width, 560), window.innerWidth - 16);
       setPos({ top: up ? r.top - 4 : r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)), width, up });
     }
     setQ('');
@@ -88,26 +92,28 @@ function RepSelect({ reps, value, onChange, withNone, placeholder, linkedBy }: {
   };
   const pick = (v: string) => { onChange(v); setOpen(false); };
 
+  /** أقسام ← مجموعات ← حسابات، بترتيب الخادم. البحث يُبقي رأس القسم/المجموعة لما تبقّى. */
   const groups = useMemo(() => {
     const terms = norm(q).split(' ').filter(Boolean);
     const hit = (r: RepOpt) => {
       if (!terms.length) return true;
-      const hay = norm(`${r.name} ${r.company ?? ''} ${r.roleLabel ?? ''}`);
+      const hay = norm(`${r.name} ${r.company ?? ''} ${r.roleLabel ?? ''} ${r.group ?? ''} ${r.section ?? ''}`);
       return terms.every(t => hay.includes(t));
     };
-    const byCo = new Map<string, RepOpt[]>();
+    const sections: { section: string; groups: { group: string; list: RepOpt[] }[] }[] = [];
     for (const r of reps) {
       if (!hit(r)) continue;
-      const co = r.company || NO_COMPANY;
-      if (!byCo.has(co)) byCo.set(co, []);
-      byCo.get(co)!.push(r);
+      const sec = r.section || 'حسابات أخرى';
+      const grp = r.group || r.company || 'أخرى';
+      let S = sections[sections.length - 1];
+      if (!S || S.section !== sec) { S = sections.find(x => x.section === sec) ?? (sections.push({ section: sec, groups: [] }), sections[sections.length - 1]); }
+      let G = S.groups.find(x => x.group === grp);
+      if (!G) { G = { group: grp, list: [] }; S.groups.push(G); }
+      G.list.push(r);
     }
-    const rank = (r: RepOpt) => (r.staff ? 0 : 1);
-    return [...byCo.entries()]
-      .sort(([x], [y]) => (x === NO_COMPANY ? 1 : y === NO_COMPANY ? -1 : x.localeCompare(y, 'ar')))
-      .map(([co, list]) => [co, [...list].sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name, 'ar'))] as const);
+    return sections;
   }, [reps, q]);
-  const total = groups.reduce((n, [, l]) => n + l.length, 0);
+  const total = groups.reduce((n, S) => n + S.groups.reduce((m, G) => m + G.list.length, 0), 0);
 
   return (
     <>
@@ -119,7 +125,7 @@ function RepSelect({ reps, value, onChange, withNone, placeholder, linkedBy }: {
       {open && (
         <div ref={boxRef} dir="rtl"
           style={{ position: 'fixed', zIndex: 10100, left: pos.left, width: pos.width, ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }),
-            background: '#fff', border: '1px solid #c7d2fe', borderRadius: 10, boxShadow: '0 12px 32px rgba(15,23,42,0.25)', display: 'flex', flexDirection: 'column', maxHeight: 340 }}>
+            background: '#fff', border: '1px solid #c7d2fe', borderRadius: 10, boxShadow: '0 12px 32px rgba(15,23,42,0.25)', display: 'flex', flexDirection: 'column', maxHeight: 'min(72vh, 620px)' }}>
           <div style={{ padding: 6, borderBottom: '1px solid #e2e8f0' }}>
             <input autoFocus value={q} onChange={ev => setQ(ev.target.value)} placeholder="🔍 ابحث بالاسم أو الشركة أو الدور…"
               style={{ width: '100%', boxSizing: 'border-box', padding: '6px 9px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 12.5, fontFamily: 'inherit', outline: 'none' }} />
@@ -128,25 +134,34 @@ function RepSelect({ reps, value, onChange, withNone, placeholder, linkedBy }: {
             <div style={{ ...rowSt, color: '#64748b' }} onClick={() => pick('')}>{placeholder}</div>
             {withNone && <div style={{ ...rowSt, color: '#b45309' }} onClick={() => pick('none')}>🚫 ليس أحد المندوبين — تجاهله</div>}
             {total === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: '#94a3b8' }}>لا نتائج</div>}
-            {groups.map(([co, list]) => (
-              <div key={co}>
-                <div style={{ position: 'sticky', top: 0, background: '#f1f5f9', padding: '4px 10px', fontSize: 11, fontWeight: 800, color: '#475569' }}>
-                  🏢 {co} <span style={{ fontWeight: 600, color: '#94a3b8' }}>({list.length})</span>
+            {groups.map(S => (
+              <div key={S.section}>
+                <div style={{ position: 'sticky', top: 0, zIndex: 2, background: '#312e81', color: '#fff', padding: '6px 12px', fontSize: 12.5, fontWeight: 800 }}>
+                  {SECTION_ICON[S.section] ?? '👥'} {S.section}
                 </div>
-                {list.map(r => {
-                  const linked = linkedBy?.get(r.id);
-                  const isSel = String(r.id) === value;
-                  return (
-                    <div key={r.id} onClick={() => pick(String(r.id))}
-                      title={linked ? `مربوط مسبقاً بـ: ${linked.join('، ')}` : undefined}
-                      style={{ ...rowSt, background: isSel ? '#e0e7ff' : undefined, opacity: linked && !isSel ? 0.45 : 1 }}>
-                      <span style={{ fontWeight: isSel ? 800 : 600, color: '#0f172a' }}>{r.name}</span>
-                      {r.roleLabel && <span style={tagSt('#fef3c7', '#92400e')}>{r.roleLabel}</span>}
-                      {!r.outOfTeam && <span style={tagSt('#dcfce7', '#166534')}>مندوبك</span>}
-                      {linked && <span style={{ marginInlineStart: 'auto', fontSize: 10.5, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>🔗 {linked.join('، ')}</span>}
+                {S.groups.map(G => (
+                  <div key={G.group}>
+                    <div style={{ background: '#eef2ff', padding: '4px 14px', fontSize: 11.5, fontWeight: 800, color: '#3730a3', borderBottom: '1px solid #e0e7ff' }}>
+                      {G.group} <span style={{ fontWeight: 600, color: '#818cf8' }}>({G.list.length})</span>
                     </div>
-                  );
-                })}
+                    {G.list.map(r => {
+                      const linked = linkedBy?.get(r.id);
+                      const isSel = String(r.id) === value;
+                      const head = (r.depth ?? 0) === 0 && !!r.staff;
+                      return (
+                        <div key={r.id} onClick={() => pick(String(r.id))}
+                          title={linked ? `مربوط مسبقاً بـ: ${linked.join('، ')}` : undefined}
+                          style={{ ...rowSt, paddingInlineStart: 14 + (r.depth ?? 0) * 22, background: isSel ? '#e0e7ff' : undefined, opacity: linked && !isSel ? 0.45 : 1 }}>
+                          {(r.depth ?? 0) > 0 && <span style={{ color: '#cbd5e1' }}>└</span>}
+                          <span style={{ fontWeight: isSel || head ? 800 : 600, color: '#0f172a' }}>{r.name}</span>
+                          {r.roleLabel && r.roleLabel !== 'مندوب' && <span style={tagSt(head ? '#fef3c7' : '#f1f5f9', head ? '#92400e' : '#475569')}>{r.roleLabel}</span>}
+                          {!r.outOfTeam && <span style={tagSt('#dcfce7', '#166534')}>مندوبك</span>}
+                          {linked && <span style={{ marginInlineStart: 'auto', fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>🔗 {linked.join('، ')}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -434,7 +449,7 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
 
 // ── styles ──
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10050, padding: 16 };
-const panel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 640, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.35)' };
+const panel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 820, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.35)' };
 const xBtn: React.CSSProperties = { background: 'none', border: 'none', fontSize: 19, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 };
 const card: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, background: '#f8fafc' };
 const opt: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#334155', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '7px 10px', cursor: 'pointer' };

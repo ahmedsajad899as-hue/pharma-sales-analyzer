@@ -4,7 +4,8 @@ import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { areaIdsOfProvinces, ensureLinkedRepId } from '../../lib/areaScope.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
-import { provinceMemberUserIds, hasNonProvinceSubordinates } from '../../lib/provinceScope.js';
+import { provinceMemberUserIds, hasNonProvinceSubordinates, PROVINCE_MARKETER_WHERE, PROVINCE_MARKETERS_MANAGER_WHERE, PROVINCE_MARKETER_PROVINCES_SELECT, marketerProvinceIdsOf } from '../../lib/provinceScope.js';
+import { buildRepNamePickerTree } from '../../lib/repNamePickerTree.js';
 import { loadManagerSeat, repIdsInManagerTeam, managerItemsForProvinceRep, sharedRepItemsForViewer } from '../../lib/provinceSeats.js';
 import { loadSplitPlansForReps } from '../../lib/provinceSplit.js';
 import { attributeLine } from '../province-teams/province-teams.rules.js';
@@ -1031,11 +1032,6 @@ export async function checkMercatoRepNames({ fileIds = null, user = null, canRes
  * معرّفاً سالباً (-userId) ويُنشأ سجلّه فقط عند الحفظ الفعلي (saveRepNameLinks).
  */
 const REP_ACCOUNT_ROLES = new Set(['scientific_rep', 'team_leader', 'commercial_rep']);
-const ROLE_LABEL_AR = {
-  team_leader: 'تيم ليدر', company_manager: 'مدير', supervisor: 'مشرف', product_manager: 'مدير منتج',
-  office_manager: 'مدير مكتب', office_employee: 'موظف مكتب', office_hr: 'HR',
-  commercial_supervisor: 'مشرف تجاري', commercial_team_leader: 'تيم ليدر تجاري', commercial_rep: 'مندوب تجاري',
-};
 
 async function linkableAccountsWhere(user) {
   const [me, assigns] = await Promise.all([
@@ -1058,28 +1054,66 @@ async function repNameLinkOptions(user, baseReps) {
   const users = await prisma.user.findMany({
     where,
     select: {
-      id: true, role: true, linkedRepId: true, displayName: true, username: true,
+      id: true, role: true, linkedRepId: true, displayName: true, username: true, officeId: true,
+      linkedRep: { select: { repKind: true } },
+      managersOfUser: { select: { managerId: true } },
+      subProvinceAssignments: { select: { subProvince: { select: { name: true } } } },
       companyAssignments: { select: { isPrimary: true, company: { select: { name: true } } } },
     },
   });
-  const seen = new Set(out.map(r => r.id));
-  for (const u of users) {
+  const userIds = users.map(u => u.id);
+  const officeIds = [...new Set(users.map(u => u.officeId).filter(Boolean))];
+  const [teams, pvMarketers, pvManagers, areaRows] = await Promise.all([
+    prisma.provinceTeam.findMany({
+      where: { isActive: true, ...(officeIds.length ? { officeId: { in: officeIds } } : {}) },
+      select: { leaderUserId: true, province: { select: { name: true } }, assignments: { where: { isActive: true }, select: { repUserId: true } } },
+    }),
+    prisma.user.findMany({ where: { AND: [PROVINCE_MARKETER_WHERE, { id: { in: userIds } }] }, select: { id: true, ...PROVINCE_MARKETER_PROVINCES_SELECT } }),
+    prisma.user.findMany({ where: { AND: [PROVINCE_MARKETERS_MANAGER_WHERE, { id: { in: userIds } }] }, select: { id: true } }),
+    prisma.scientificRepArea.findMany({
+      where: { scientificRepId: { in: users.map(u => u.linkedRepId).filter(Boolean) } },
+      select: { scientificRepId: true, area: { select: { subProvince: { select: { name: true } } } } },
+    }),
+  ]);
+  const pvIds = [...new Set(pvMarketers.flatMap(m => marketerProvinceIdsOf(m)))];
+  const pvName = new Map((pvIds.length ? await prisma.province.findMany({ where: { id: { in: pvIds } }, select: { id: true, name: true } }) : []).map(p => [p.id, p.name]));
+
+  const nameOf = (u) => u.displayName || u.username;
+  const primaryCo = (u) => (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name ?? null;
+  const tree = buildRepNamePickerTree({
+    users: users.map(u => ({
+      id: u.id, role: u.role, name: nameOf(u), company: primaryCo(u),
+      isMarketer: u.linkedRep?.repKind === PHARMACY_KIND,
+      managerIds: u.managersOfUser.map(m => m.managerId),
+      side: repSideOf(u.subProvinceAssignments.map(r => r.subProvince.name),
+        areaRows.filter(r => r.scientificRepId === u.linkedRepId).map(r => r.area.subProvince?.name)),
+    })),
+    provinceTeams: teams.map(t => ({ provinceName: t.province.name, leaderUserId: t.leaderUserId, repUserIds: t.assignments.map(a => a.repUserId) })),
+    provinceMarketers: new Map(pvMarketers.map(m => [m.id, marketerProvinceIdsOf(m).map(id => pvName.get(id)).filter(Boolean)])),
+    provinceMarketerManagers: new Set(pvManagers.map(m => m.id)),
+  });
+
+  // ترتيب القائمة = ترتيب الهيكلية؛ «مندوبوك» (list) يُعلَّمون ولا يُفصلون في مجموعة مستقلة
+  const mine = new Map(out.map(r => [r.id, r]));
+  const userById = new Map(users.map(u => [u.id, u]));
+  const result = [];
+  const seen = new Set();
+  for (const node of tree) {
+    const u = userById.get(node.userId);
     const isRep = REP_ACCOUNT_ROLES.has(u.role);
     // المندوب يُنشأ سجلّه فوراً كما كان؛ الإداري بلا سجل → معرّف سالب مؤقت
     const repId = u.linkedRepId || (isRep ? await ensureLinkedRepId(u.id) : -u.id);
     if (!repId || seen.has(repId)) continue;
     seen.add(repId);
-    const company = (u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0])?.company?.name ?? null;
-    out.push({
-      id: repId,
-      name: u.displayName || u.username,
-      company,
-      roleLabel: u.role === 'scientific_rep' ? null : (ROLE_LABEL_AR[u.role] ?? u.role),
-      outOfTeam: true,
-      staff: u.role !== 'scientific_rep',
+    result.push({
+      id: repId, name: nameOf(u), company: primaryCo(u),
+      roleLabel: node.roleLabel, section: node.section, group: node.group, depth: node.depth,
+      outOfTeam: !mine.has(repId), staff: u.role !== 'scientific_rep',
     });
   }
-  return out;
+  // مندوبو list() بلا حساب ضمن النطاق (سجلات مندوب قديمة) — في الأخير
+  for (const r of out) if (!seen.has(r.id)) result.push({ ...r, section: 'حسابات أخرى', group: 'أخرى', depth: 0 });
+  return result;
 }
 
 /** معرّف سالب (-userId) من قائمة النسب → سجل المندوب العلمي للحساب، بعد التحقق أنه ضمن نطاق المستخدم. */
