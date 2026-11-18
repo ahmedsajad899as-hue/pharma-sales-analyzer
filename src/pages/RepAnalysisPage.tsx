@@ -105,6 +105,12 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
           .ra-header { padding: 10px 10px 0 !important; }
           .ra-subrow { padding: 10px 12px 0 !important; }
         }
+        /* السهم وهو مطويّ لا يأخذ سطراً كاملاً: يطفو في الفراغ يسار شريط «تحليل شامل…»،
+           وتُقلَّص الحافة العليا لصفحة التقارير كي تصعد المبيعات للشاشة (الحاسوب فقط) */
+        @media (min-width: 641px) {
+          .ra-subrow.ra-subrow-collapsed { position: absolute; top: 12px; left: 0; z-index: 2; }
+          .ra-content-reports > .page { padding-top: 10px; }
+        }
       `}</style>
 
       {/* ── Header ── */}
@@ -147,10 +153,10 @@ export default function RepAnalysisPage({ activeFileIds, onFileActivated, onNavi
       </div>
 
       {/* ── Content ── */}
-      <div key={animKey} style={{ flex: 1, background: '#f8fafc' }}>
+      <div key={animKey} className={activeTab === 'reports' ? 'ra-content-reports' : undefined} style={{ flex: 1, background: '#f8fafc', position: 'relative' }}>
         {(activeTab === 'reports' || REPORT_SUBPAGES.includes(activeTab)) && (
           // يسار الصفحة (نهاية السطر في RTL): السهم، والأزرار تنفتح بجانبه
-          <div className="ra-subrow" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', direction: 'rtl', padding: '6px 28px 0' }}>
+          <div className={'ra-subrow' + (subVisible ? '' : ' ra-subrow-collapsed')} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', direction: 'rtl', padding: '6px 28px 0' }}>
             {subVisible && TABS.filter(tab => REPORT_SUBPAGES.includes(tab.id)).map(tab => {
               const on = activeTab === tab.id;
               return (
