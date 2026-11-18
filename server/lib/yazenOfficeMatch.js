@@ -162,7 +162,8 @@ export async function scopeKeysForFiles(fileIds) {
 
 async function loadScopeFiles(scopeKey) {
   return prisma.uploadedFile.findMany({
-    where: { fileType: { in: ['sales', 'returns'] } },
+    // نفس قاعدة قائمة الملفات (index.js /api/files): كل الأنواع (sales/returns/auto/matrix) عدا هذين.
+    where: { NOT: { fileType: { in: ['filter_page', 'pharmacy_net'] } } },
     select: { id: true, sourceSystem: true, mergeGroup: true },
   });
 }
@@ -194,7 +195,7 @@ async function scopeFingerprint(files, names) {
 }
 
 // يُرفع مع أي تغيير في قواعد المطابقة، فيُعاد حساب كل نطاق عند الإقلاع.
-const MATCH_VERSION = 3;
+const MATCH_VERSION = 4;
 
 const yieldLoop = () => new Promise(r => setImmediate(r));
 
