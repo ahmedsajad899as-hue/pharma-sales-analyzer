@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 /**
  * مطابقة أسماء المندوبين في ملفات ميركاتو مع سجلات المندوبين العلميين.
@@ -25,40 +25,139 @@ interface Entry {
 interface Unrelated { raw: string; key: string; suggestions?: Suggestion[] }
 /** outOfTeam = حساب في شركتك لكنه غير معيَّن تحتك (مثل حساب جديد لم يُعيَّن بعد) */
 /** staff = تيم ليدر/مدير/موظف مكتب (ليس مندوباً علمياً) — id سالب إن لم يكن له سجل مندوب بعد */
-interface RepOpt { id: number; name: string; company?: string | null; outOfTeam?: boolean; staff?: boolean }
+interface RepOpt { id: number; name: string; company?: string | null; roleLabel?: string | null; outOfTeam?: boolean; staff?: boolean }
 
 const repLabel = (r: { name: string; company?: string | null }) => r.company ? `${r.name} — ${r.company}` : r.name;
 
-/** قائمة اختيار مندوب: مندوبوك أولاً ثم بقية حسابات شركتك. */
-function RepSelect({ reps, value, onChange, withNone, placeholder }: {
+/** تطبيع للبحث: الهمزات والتاء المربوطة والألف المقصورة والتشكيل */
+const norm = (t: string) => t.toLowerCase()
+  .replace(/[\u064B-\u0652\u0640]/g, '')
+  .replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+  .replace(/\s+/g, ' ').trim();
+
+const NO_COMPANY = 'بلا شركة';
+
+/**
+ * قائمة اختيار حساب قابلة للبحث، مرتّبة حسب الشركة — داخل كل شركة المدراء/التيم ليدرية
+ * أولاً ثم المندوبون أبجدياً. الحساب المربوط مسبقاً باسم آخر يظهر باهتاً مع الاسم المربوط
+ * (يبقى قابلاً للاختيار: قد يُكتب المندوب نفسه بأكثر من صيغة في الملف).
+ */
+function RepSelect({ reps, value, onChange, withNone, placeholder, linkedBy }: {
   reps: RepOpt[]; value: string; onChange: (v: string) => void; withNone?: boolean; placeholder: string;
+  linkedBy?: Map<number, string[]>;
 }) {
-  const mine = reps.filter(r => !r.outOfTeam);
-  const others = reps.filter(r => r.outOfTeam && !r.staff);
-  const staff = reps.filter(r => r.outOfTeam && r.staff);
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; up: boolean }>({ top: 0, left: 0, width: 0, up: false });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  const selected = value && value !== 'none' ? reps.find(r => String(r.id) === value) : null;
+  const shown = value === 'none' ? '🚫 ليس أحد المندوبين — تجاهله' : selected ? repLabel(selected) : placeholder;
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (ev: MouseEvent) => {
+      const t = ev.target as Node;
+      if (!boxRef.current?.contains(t) && !btnRef.current?.contains(t)) setOpen(false);
+    };
+    // القائمة بموضع ثابت — تمرير الحاوية يُبعدها عن الزر فنغلقها
+    const onScroll = (ev: Event) => { if (!boxRef.current?.contains(ev.target as Node)) setOpen(false); };
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', onScroll, true);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    if (open) { setOpen(false); return; }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) {
+      const below = window.innerHeight - r.bottom;
+      const up = below < 320 && r.top > below;
+      const width = Math.max(r.width, 300);
+      setPos({ top: up ? r.top - 4 : r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)), width, up });
+    }
+    setQ('');
+    setOpen(true);
+  };
+  const pick = (v: string) => { onChange(v); setOpen(false); };
+
+  const groups = useMemo(() => {
+    const terms = norm(q).split(' ').filter(Boolean);
+    const hit = (r: RepOpt) => {
+      if (!terms.length) return true;
+      const hay = norm(`${r.name} ${r.company ?? ''} ${r.roleLabel ?? ''}`);
+      return terms.every(t => hay.includes(t));
+    };
+    const byCo = new Map<string, RepOpt[]>();
+    for (const r of reps) {
+      if (!hit(r)) continue;
+      const co = r.company || NO_COMPANY;
+      if (!byCo.has(co)) byCo.set(co, []);
+      byCo.get(co)!.push(r);
+    }
+    const rank = (r: RepOpt) => (r.staff ? 0 : 1);
+    return [...byCo.entries()]
+      .sort(([x], [y]) => (x === NO_COMPANY ? 1 : y === NO_COMPANY ? -1 : x.localeCompare(y, 'ar')))
+      .map(([co, list]) => [co, [...list].sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name, 'ar'))] as const);
+  }, [reps, q]);
+  const total = groups.reduce((n, [, l]) => n + l.length, 0);
+
   return (
-    <select value={value} onChange={ev => onChange(ev.target.value)}
-      style={{ flex: 1, minWidth: 160, padding: '4px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12.5, fontFamily: 'inherit' }}>
-      <option value="">{placeholder}</option>
-      {withNone && <option value="none">🚫 ليس أحد المندوبين — تجاهله</option>}
-      {mine.length > 0 && (
-        <optgroup label="مندوبوك">
-          {mine.map(r => <option key={r.id} value={r.id}>{repLabel(r)}</option>)}
-        </optgroup>
+    <>
+      <button ref={btnRef} type="button" onClick={toggle}
+        style={{ flex: 1, minWidth: 160, padding: '5px 8px', borderRadius: 6, border: `1px solid ${open ? '#6366f1' : '#cbd5e1'}`, fontSize: 12.5, fontFamily: 'inherit', background: '#fff', textAlign: 'start', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, color: selected || value === 'none' ? '#0f172a' : '#64748b' }}>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shown}</span>
+        <span style={{ fontSize: 10, color: '#94a3b8' }}>▾</span>
+      </button>
+      {open && (
+        <div ref={boxRef} dir="rtl"
+          style={{ position: 'fixed', zIndex: 10100, left: pos.left, width: pos.width, ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }),
+            background: '#fff', border: '1px solid #c7d2fe', borderRadius: 10, boxShadow: '0 12px 32px rgba(15,23,42,0.25)', display: 'flex', flexDirection: 'column', maxHeight: 340 }}>
+          <div style={{ padding: 6, borderBottom: '1px solid #e2e8f0' }}>
+            <input autoFocus value={q} onChange={ev => setQ(ev.target.value)} placeholder="🔍 ابحث بالاسم أو الشركة أو الدور…"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '6px 9px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 12.5, fontFamily: 'inherit', outline: 'none' }} />
+          </div>
+          <div style={{ overflowY: 'auto', paddingBottom: 4 }}>
+            <div style={{ ...rowSt, color: '#64748b' }} onClick={() => pick('')}>{placeholder}</div>
+            {withNone && <div style={{ ...rowSt, color: '#b45309' }} onClick={() => pick('none')}>🚫 ليس أحد المندوبين — تجاهله</div>}
+            {total === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: '#94a3b8' }}>لا نتائج</div>}
+            {groups.map(([co, list]) => (
+              <div key={co}>
+                <div style={{ position: 'sticky', top: 0, background: '#f1f5f9', padding: '4px 10px', fontSize: 11, fontWeight: 800, color: '#475569' }}>
+                  🏢 {co} <span style={{ fontWeight: 600, color: '#94a3b8' }}>({list.length})</span>
+                </div>
+                {list.map(r => {
+                  const linked = linkedBy?.get(r.id);
+                  const isSel = String(r.id) === value;
+                  return (
+                    <div key={r.id} onClick={() => pick(String(r.id))}
+                      title={linked ? `مربوط مسبقاً بـ: ${linked.join('، ')}` : undefined}
+                      style={{ ...rowSt, background: isSel ? '#e0e7ff' : undefined, opacity: linked && !isSel ? 0.45 : 1 }}>
+                      <span style={{ fontWeight: isSel ? 800 : 600, color: '#0f172a' }}>{r.name}</span>
+                      {r.roleLabel && <span style={tagSt('#fef3c7', '#92400e')}>{r.roleLabel}</span>}
+                      {!r.outOfTeam && <span style={tagSt('#dcfce7', '#166534')}>مندوبك</span>}
+                      {linked && <span style={{ marginInlineStart: 'auto', fontSize: 10.5, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>🔗 {linked.join('، ')}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
-      {others.length > 0 && (
-        <optgroup label="حسابات أخرى في شركتك (خارج فريقك)">
-          {others.map(r => <option key={r.id} value={r.id}>{repLabel(r)}</option>)}
-        </optgroup>
-      )}
-      {staff.length > 0 && (
-        <optgroup label="تيم ليدرية ومدراء وموظفو المكتب">
-          {staff.map(r => <option key={r.id} value={r.id}>{repLabel(r)}</option>)}
-        </optgroup>
-      )}
-    </select>
+    </>
   );
 }
+
+const rowSt: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5, cursor: 'pointer', color: '#334155' };
+const tagSt = (bg: string, fg: string): React.CSSProperties => ({ background: bg, color: fg, borderRadius: 8, padding: '0 6px', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' });
 
 export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: {
   token: string;
@@ -104,6 +203,18 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
   useEffect(load, [load]);
 
   const answered = Object.values(choice).filter(Boolean).length;
+  /** الحساب ← أسماء الملف المربوطة به (المحسوم + اختيارات الجلسة غير المحفوظة) — للتغويش في القائمة.
+   *  exceptKey يستثني الصف نفسه كي لا يبدو اختياره الحالي «مربوطاً». */
+  const linkedFor = useCallback((exceptKey: string) => {
+    const m = new Map<number, string[]>();
+    const add = (id: number, raw: string) => { if (!m.has(id)) m.set(id, []); m.get(id)!.push(raw); };
+    for (const e of resolved) if (e.rep && e.key !== exceptKey && !choice[e.key]) add(e.rep.id, e.raw);
+    for (const e of [...pending, ...unrelated, ...resolved]) {
+      const v = choice[e.key];
+      if (e.key !== exceptKey && v && v !== 'none') add(Number(v), e.raw);
+    }
+    return m;
+  }, [resolved, pending, unrelated, choice]);
   const setPick = (key: string, v: string) => setChoice(p => ({ ...p, [key]: v }));
   // الأسماء التي تشبه حساباً في شركتك أولاً — هي غالباً حسابات جديدة لم تُعيَّن تحتك
   const unrelatedSorted = [...unrelated].sort((a, b) => (b.suggestions?.length ? 1 : 0) - (a.suggestions?.length ? 1 : 0));
@@ -219,7 +330,7 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
                             checked={!!choice[e.key] && choice[e.key] !== 'none' && !e.suggestions.some(s => String(s.id) === choice[e.key])}
                             onChange={() => { /* يُحدَّد باختيار مندوب من القائمة */ }} />
                           <span>مندوب آخر:</span>
-                          <RepSelect reps={reps} placeholder="— اختر —"
+                          <RepSelect reps={reps} placeholder="— اختر —" linkedBy={linkedFor(e.key)}
                             value={e.suggestions.some(s => String(s.id) === choice[e.key]) ? '' : (choice[e.key] === 'none' ? '' : (choice[e.key] ?? ''))}
                             onChange={v => setPick(e.key, v)} />
                         </label>
@@ -255,7 +366,7 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
                             {picked === String(s.id) ? '✓' : '؟'} {repLabel(s)}
                           </button>
                         ))}
-                        <RepSelect reps={reps} value={picked} onChange={v => setPick(u.key, v)} placeholder="— اتركه بلا نسبة —" />
+                        <RepSelect reps={reps} linkedBy={linkedFor(u.key)} value={picked} onChange={v => setPick(u.key, v)} placeholder="— اتركه بلا نسبة —" />
                       </div>
                     );
                   })}
@@ -294,7 +405,7 @@ export default function RepNameMatchModal({ token, fileIds, onClose, onSaved }: 
                       )}
                       {editing[e.key] && (
                         <div style={{ flexBasis: '100%', display: 'flex' }}>
-                          <RepSelect reps={reps} withNone value={choice[e.key] ?? ''} onChange={v => setPick(e.key, v)} placeholder="— اختر المندوب الصحيح —" />
+                          <RepSelect reps={reps} withNone linkedBy={linkedFor(e.key)} value={choice[e.key] ?? ''} onChange={v => setPick(e.key, v)} placeholder="— اختر المندوب الصحيح —" />
                         </div>
                       )}
                     </div>

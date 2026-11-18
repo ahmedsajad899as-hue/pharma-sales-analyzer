@@ -1073,7 +1073,8 @@ async function repNameLinkOptions(user, baseReps) {
     out.push({
       id: repId,
       name: u.displayName || u.username,
-      company: u.role === 'scientific_rep' ? company : [ROLE_LABEL_AR[u.role] ?? u.role, company].filter(Boolean).join(' · '),
+      company,
+      roleLabel: u.role === 'scientific_rep' ? null : (ROLE_LABEL_AR[u.role] ?? u.role),
       outOfTeam: true,
       staff: u.role !== 'scientific_rep',
     });
