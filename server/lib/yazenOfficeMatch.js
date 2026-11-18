@@ -430,8 +430,11 @@ export async function ensureYazenMatches(fileIds) {
     if (running.has(k) || timers.has(k)) continue;
     if (Date.now() - (lastChecked.get(k) ?? 0) < 30_000) continue;
     lastChecked.set(k, Date.now());
-    const [files, names] = await Promise.all([loadScopeFiles(k), loadMarketerNames()]);
-    if (await scopeFingerprint(files, names) !== r.fingerprint) scheduleYazenMatch(k, 0);
+    // فحص البصمة في الخلفية: التقرير لا ينتظر عدّ صفوف كل الملفات.
+    Promise.all([loadScopeFiles(k), loadMarketerNames()])
+      .then(([files, names]) => scopeFingerprint(files, names))
+      .then(fp => { if (fp !== r.fingerprint) scheduleYazenMatch(k, 0); })
+      .catch(e => console.error('[yazen-match] check', e.message));
   }
 }
 
