@@ -61,7 +61,19 @@ interface ScientificRep {
   repKind?: string;              // 'pharmacy' = فارمسي لاين (server/lib/pharmacyRep.js)
   customerInfoLabels?: string[];
   officeSource?: string | null;
+  marketerScope?: 'baghdad' | 'province'; // للمسوقين فقط — تصنيفهم بدل الشركة
 }
+
+// المسوّق لا ينتمي لشركة: تُسند له كل شركات المكتب للعمل على ايتماتها فقط.
+const isMarketer = (rep: { repKind?: string }) => rep.repKind === 'pharmacy';
+const marketerGroupName = (rep: { marketerScope?: string }) =>
+  rep.marketerScope === 'province' ? 'مسوقين المحافظات' : 'مسوقين بغداد';
+const MarketerTag = ({ rep, small }: { rep: { marketerScope?: string }; small?: boolean }) => (
+  <span className="tag" title="المسوّق يعمل على ايتمات شركات المكتب ولا يُصنَّف تحت شركة"
+    style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', ...(small ? { fontSize: 11 } : {}) }}>
+    🏪 {marketerGroupName(rep)}
+  </span>
+);
 
 type ModalType = 'add' | 'edit' | 'assign' | null;
 type AssignTab = 'areas' | 'companies' | 'items' | 'commercialReps';
@@ -136,6 +148,12 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   const companyGroups = useMemo<CompanyGroupView[]>(() => {
     const map = new Map<string, CompanyGroupView>();
     for (const rep of reps) {
+      if (isMarketer(rep)) {
+        const key = `m:${rep.marketerScope === 'province' ? 'province' : 'baghdad'}`;
+        if (!map.has(key)) map.set(key, { key, name: marketerGroupName(rep), reps: [] });
+        map.get(key)!.reps.push(rep);
+        continue;
+      }
       const cos: NamedItem[] = (rep.companies && rep.companies.length > 0)
         ? rep.companies
         : (rep.company ? [{ id: -1, name: rep.company }] : []);
@@ -152,7 +170,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         if (!grp.reps.some(r => r.id === rep.id)) grp.reps.push(rep);
       }
     }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    // الشركات أولاً ثم مجموعات المسوقين (ليست شركات).
+    const rank = (g: CompanyGroupView) => g.key.startsWith('m:') ? 1 : 0;
+    return [...map.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'ar'));
   }, [reps, t]);
   // Reset a stale filter (e.g. after the underlying reps/companies changed)
   useEffect(() => {
@@ -827,7 +847,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
           )}
           {whScopeOpen && excludeWarehouse && (() => {
             const keyOf = (n: string) => normalizeAr(n).toLowerCase();
-            const allGroupNames = companyGroups.filter(g => g.key !== '__none__').map(g => g.name);
+            const allGroupNames = companyGroups.filter(g => g.key.startsWith('c:')).map(g => g.name);
             // فقط الشركات الرئيسية لمدراء الشركات — شركات المندوبين الفرعية (ALFURAT، savvy pharma…) لا تُعرض.
             const primarySet = whPrimaryCompanies && whPrimaryCompanies.length ? new Set(whPrimaryCompanies.map(keyOf)) : null;
             const inPrimary = primarySet ? allGroupNames.filter(n => primarySet.has(keyOf(n))) : allGroupNames;
@@ -1237,7 +1257,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     onClick={() => setCompanyFilterKey(g.key)}
                     style={{ cursor: 'pointer' }}
                   >
-                    <div className="quick-action-icon" style={{ background: '#c2410c' }}>🏢</div>
+                    <div className="quick-action-icon" style={{ background: g.key.startsWith('m:') ? '#047857' : '#c2410c' }}>{g.key.startsWith('m:') ? '🏪' : '🏢'}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="quick-action-label">{g.name}</div>
                       <div className="quick-action-desc">{g.reps.length} {t.sciReps.repsCountSuffix}</div>
@@ -1251,8 +1271,8 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                 <button className="btn btn--secondary btn--sm" onClick={() => setCompanyFilterKey(null)}>
                   ‹ {t.sciReps.backToCompanies}
                 </button>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 14, color: '#c2410c' }}>
-                  🏢 {companyGroups.find(g => g.key === companyFilterKey)?.name}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 14, color: companyFilterKey.startsWith('m:') ? '#047857' : '#c2410c' }}>
+                  {companyFilterKey.startsWith('m:') ? '🏪' : '🏢'} {companyGroups.find(g => g.key === companyFilterKey)?.name}
                 </span>
               </div>
             )
@@ -1286,7 +1306,9 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                     <td>{rep.phone || '—'}</td>
                     <td>
                       <div className="tag-list">
-                        {(rep.companies ?? []).length > 0
+                        {isMarketer(rep)
+                          ? <MarketerTag rep={rep} />
+                          : (rep.companies ?? []).length > 0
                           ? (rep.companies ?? []).map(c => <span key={c.id} className="tag" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa' }}>{c.name}</span>)
                           // لا شركات مُعيَّنة للمندوب نفسه — نعرض الشركة الرئيسية المُعيَّنة لحساب المستخدم بدلاً من فراغ
                           : rep.company
@@ -1435,11 +1457,13 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                   </div>
                 </div>
 
-                {((rep.companies ?? []).length > 0 || rep.company) && (
+                {(isMarketer(rep) || (rep.companies ?? []).length > 0 || rep.company) && (
                   <div className="rep-mobile-card-row">
                     <span className="rep-mobile-card-label">{t.sciReps.labelCompany}</span>
                     <div className="tag-list" style={{ flex: 1 }}>
-                      {(rep.companies ?? []).length > 0
+                      {isMarketer(rep)
+                        ? <MarketerTag rep={rep} small />
+                        : (rep.companies ?? []).length > 0
                         ? (rep.companies ?? []).map(c => <span key={c.id} className="tag" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: 11 }}>{c.name}</span>)
                         : <span className="tag" style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: 11 }}>{rep.company}</span>
                       }

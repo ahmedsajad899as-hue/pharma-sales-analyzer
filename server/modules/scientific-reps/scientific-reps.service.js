@@ -209,6 +209,18 @@ export async function list(filters, user = null, options = {}) {
       };
     }));
 
+    // المسوّق لا ينتمي لشركة (كل شركات المكتب «رئيسية» له للعمل فقط) — يُصنَّف «مسوقين بغداد»
+    // أو «مسوقين المحافظات» (PROVINCE_MARKETER_WHERE)، والواجهة تجمعهم بذلك لا بالشركة.
+    const marketerUserIds = repsWithIds.filter(r => r.repKind === PHARMACY_KIND).map(r => r.userId);
+    if (marketerUserIds.length) {
+      const pv = new Set((await prisma.user.findMany({
+        where: { AND: [PROVINCE_MARKETER_WHERE, { id: { in: marketerUserIds } }] }, select: { id: true },
+      })).map(u => u.id));
+      for (const r of repsWithIds) {
+        if (r.repKind === PHARMACY_KIND) r.marketerScope = pv.has(r.userId) ? 'province' : 'baghdad';
+      }
+    }
+
     return repsWithIds;
   }
 
