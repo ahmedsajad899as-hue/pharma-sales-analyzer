@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } from 'react';
 import { AutoText, ComboCell, normQ, gCell, type ComboOpt } from './ComboCell';
 import { shrinkImage } from '../lib/shrinkImage';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 /**
  * Modal for adding sales that don't appear in the uploaded Excel files —
@@ -255,6 +256,8 @@ const hdrBtn: React.CSSProperties = { background: 'rgba(255,255,255,0.18)', bord
 
 export default function ManualSalesModal({ token, files, onClose, onSaved, initialOrder: singleOrder, initialOrders, onCancelPending }: Props) {
   const authH = { Authorization: `Bearer ${token}` };
+  // الهاتف: نافذة بملء الشاشة وبطاقة لكل فاتورة بدل الجدول العريض. الحاسوب لا يتغيّر.
+  const isMobile = useIsMobile();
   // كل الطلبيات المعروضة (واحدة أو أكثر). initialOrder = الأولى — لما يخصّ الجلسة كلها.
   const orderList: PendingOrderDetail[] = initialOrders?.length ? initialOrders : singleOrder ? [singleOrder] : [];
   const initialOrder: PendingOrderDetail | null = orderList[0] ?? null;
@@ -959,11 +962,190 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
     : [];
   const allAnswered = askList.every(({ e, kind }) => choice[kind + '|' + e.raw]);
 
+  const renderField = (i: number, c: typeof cols[number], tgt: number[], cs: React.CSSProperties) => {
+    const r = rows[i];
+    return c.numeric ? (
+      <input
+        value={(() => {
+          const v = r[c.key] as string;
+          const money = c.key === 'unitPrice' || c.key === 'total';
+          return money && editingCell !== `${i}:${c.key}` ? fmtThousands(v) : v;
+        })()}
+        inputMode="decimal"
+        onFocus={() => setEditingCell(`${i}:${c.key}`)}
+        onBlur={() => setEditingCell(cur => (cur === `${i}:${c.key}` ? null : cur))}
+        onChange={e => {
+          // تُسقَط فواصل الآلاف من أي لصق — الحالة أرقام خام دائماً.
+          const val = e.target.value.replace(/\./g, '').replace(/,/g, '.');
+          if (c.key === 'quantity' || c.key === 'unitPrice') onQtyPrice(i, c.key, val);
+          else setCell(i, c.key, val);
+        }}
+        style={{ ...gCell, ...cs, textAlign: 'center', direction: 'ltr', fontVariantNumeric: 'tabular-nums' }} />
+    ) : c.key === 'pharmacy' ? (
+      <ComboCell
+        value={r.pharmacy}
+        onChange={v => {
+          // اختيار صيدلية من السيرفي يجلب منطقتها معها.
+          const hit = r.pharmacyCandidates?.find(p => p.name === v);
+          setRows(rs => rs.map((x, idx) => (tgt.includes(idx)
+            ? { ...x, pharmacy: v, ...(hit?.area ? { area: hit.area } : null) }
+            : x)));
+          // منطقة جديدة من الصيدلية المختارة ⇒ مندوبها.
+          if (hit?.area && hit.area !== r.area) setTimeout(() => tgt.forEach(x => refreshRow(x, 'area', hit.area!)), 0);
+        }}
+        options={(r.pharmacyCandidates || []).map(p => ({ value: p.name, hint: p.area || undefined, star: true }))}
+        title={r.pharmacyCandidates?.length
+          ? `صيدليات قريبة في السيرفي: ${r.pharmacyCandidates.map(p => p.area ? `${p.name} (${p.area})` : p.name).join(' ، ')}`
+          : r.pharmacy}
+        style={cs}
+      />
+    ) : c.key === 'item' ? (
+      <ComboCell
+        value={r.item}
+        onChange={v => setCell(i, 'item', v)}
+        onCommit={v => refreshRow(i, 'item', v)}
+        options={suggest.items.map(it => ({ value: it.name, hint: it.company || undefined }))}
+        title={r.item}
+        style={{ ...cs, fontWeight: 600 }}
+      />
+    ) : c.key === 'company' ? (
+      <ComboCell
+        value={r.company}
+        onChange={v => setCell(i, 'company', v)}
+        options={suggest.companies.map(v => ({ value: v }))}
+        title={r.company}
+        style={{ ...cs, direction: 'ltr', textAlign: 'right' }}
+      />
+    ) : c.key === 'area' ? (
+      <ComboCell
+        value={r.area}
+        onChange={v => setCells(tgt, 'area', v)}
+        onCommit={v => tgt.forEach(x => refreshRow(x, 'area', v))}
+        options={suggest.areas.map(v => ({ value: v }))}
+        title={r.area}
+        style={cs}
+      />
+    ) : c.key === 'scientificRep' ? (
+      <ComboCell
+        value={r.scientificRep}
+        onChange={v => setCell(i, 'scientificRep', v)}
+        onPick={v => pickRep(i, v)}
+        options={repOptionsFor(r)}
+        placeholder={refreshing.has(i) ? '⏳ جاري التخمين…' : r.repCandidates?.length ? `اختر من ${r.repCandidates.length} مرشّحين ▾` : 'اختر مندوباً ▾'}
+        title={r.repCandidates?.length
+          ? `مرشّحون: ${r.repCandidates.map(c => c.name).join(' ، ')}`
+          : 'لم يُعرَف مندوب من المنطقة والشركة — اختر من القائمة'}
+        style={{ ...cs, ...(r.scientificRep.trim() ? null : candTone), ...(refreshing.has(i) ? { opacity: 0.4 } : null) }}
+      />
+    ) : (
+      <>
+        <AutoText value={r[c.key] as string} onChange={v => setCell(i, c.key, v)}
+          title={r[c.key] as string}
+          style={cs} />
+      </>
+    );
+  };
+
+  // ── الهاتف: بطاقة لكل فاتورة/طلبية — كل الحقول ظاهرة بلا تمرير أفقي ──────────
+  // نفس المحرّرات (renderField) ونفس منطق الدمج: الصيدلية/المنطقة مرة واحدة للفاتورة
+  // إن تطابقت أصنافها. data-hl/data-cell كما في الجدول ليعمل «تدقيق من الصورة».
+  const colOf = (k: keyof Row) => cols.find(c => c.key === k)!;
+  const renderMobileCards = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {groups.map(g => {
+        const i0 = g.idxs[0];
+        const first = rows[i0];
+        const hdrOn = (key: keyof Row) => cellActive(i0, key);
+        const custShared = g.idxs.every(x => normQ(rows[x].pharmacy) === normQ(first.pharmacy)
+          && normQ(rows[x].area) === normQ(first.area));
+        const fieldBox = (i: number, key: keyof Row, label: string, tgt: number[] = [i]) => {
+          const on = tgt.some(x => cellActive(x, key));
+          return (
+            <MField label={label} on={on} cell={`${i}:${key}`}>
+              {renderField(i, colOf(key), tgt, on ? hlInp : {})}
+            </MField>
+          );
+        };
+        const isActiveOrder = activeOrder?.id === g.orderId && orderList.length > 1;
+        return (
+          <div key={g.key} data-group={g.key} style={mCard}>
+            {/* ترويسة الفاتورة: رقم الطلبية + المذخر + رقم الفاتورة + التاريخ بسطر واحد */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1.4fr) minmax(0,0.9fr) minmax(0,1.3fr)', gap: 5, alignItems: 'end' }}>
+              <div style={{ paddingBottom: 4 }}>
+                {g.orderId != null ? (
+                  <button onClick={() => showOrder(g.orderId!, g.imageIndex)}
+                    style={{ ...invMini, padding: '4px 6px', ...(isActiveOrder ? { background: '#1e293b', color: '#fff', borderColor: '#1e293b' } : null) }}>
+                    #{g.orderId}
+                  </button>
+                ) : g.imageIndex != null ? (
+                  <button onClick={() => showFile(images[g.imageIndex!])} style={{ ...invMini, padding: '4px 6px' }}>🖼 {g.imageIndex + 1}</button>
+                ) : <span style={{ color: '#94a3b8', fontSize: 11 }}>يدوي</span>}
+              </div>
+              <MField label="المذخر" on={hdrOn('warehouse')} cell={`${i0}:warehouse`}>
+                <AutoText value={first.warehouse} onChange={v => setGroupField(g.idxs, 'warehouse', v)} placeholder="—"
+                  style={hdrOn('warehouse') ? hlInp : undefined} />
+              </MField>
+              <MField label="رقم الفاتورة" on={hdrOn('invoiceNumber')} cell={`${i0}:invoiceNumber`}>
+                <AutoText value={first.invoiceNumber} onChange={v => setGroupField(g.idxs, 'invoiceNumber', v)} placeholder="—"
+                  style={{ direction: 'ltr', textAlign: 'right', ...(hdrOn('invoiceNumber') ? hlInp : null) }} />
+              </MField>
+              <MField label="التاريخ" on={hdrOn('date')} cell={`${i0}:date`}>
+                <input type="date" value={first.date} onChange={e => setGroupField(g.idxs, 'date', e.target.value)}
+                  style={{ ...gCell, padding: '6px 2px', fontSize: 11.5, ...(hdrOn('date') ? hlInp : null) }} />
+              </MField>
+            </div>
+            {custShared && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) minmax(0,1fr)', gap: 5, marginTop: 5 }}>
+                {fieldBox(i0, 'pharmacy', 'الصيدلية', g.idxs)}
+                {fieldBox(i0, 'area', 'المنطقة', g.idxs)}
+              </div>
+            )}
+            {g.idxs.map(i => {
+              const r = rows[i];
+              const dr = dupRowByIdx.get(i);
+              const bad = rowState(r) === 'bad';
+              return (
+                <div key={i} className={`msm-row${dr ? (dr.level === 'duplicate' ? ' msm-dup' : ' msm-dup-maybe') : ''}`}
+                  title={dr ? dupTitle(i) : undefined}
+                  style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #cbd5e1',
+                    ...(dr ? { background: dr.level === 'duplicate' ? '#fef2f2' : '#fffbeb', borderRadius: 6 } : null),
+                    ...(bad ? { boxShadow: 'inset -3px 0 0 #dc2626', paddingInlineStart: 6 } : null) }}>
+                  {dr && <div style={{ ...dupTag, padding: '0 0 4px' }}>{dr.level === 'duplicate' ? '⚠️ محفوظ سابقاً' : '⚠️ قد يكون مكرراً'}</div>}
+                  <div style={{ display: 'flex', gap: 5, alignItems: 'flex-end' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>{fieldBox(i, 'item', 'المادة *')}</div>
+                    <button onClick={() => clearRow(i)} style={{ ...clearBtn, height: 34, padding: '0 8px' }} title="تفريغ خانات الصف">⌫</button>
+                    <button onClick={() => removeRow(i)} style={{ ...delBtn, height: 34, padding: '0 10px' }} title="حذف الصف">×</button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 5, marginTop: 5 }}>
+                    {fieldBox(i, 'quantity', 'الكمية *')}
+                    {fieldBox(i, 'unitPrice', 'سعر الوحدة')}
+                    {fieldBox(i, 'total', 'الكلي')}
+                    {fieldBox(i, 'bonus', 'البونص')}
+                  </div>
+                  {!custShared && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) minmax(0,1fr)', gap: 5, marginTop: 5 }}>
+                      {fieldBox(i, 'pharmacy', 'الصيدلية')}
+                      {fieldBox(i, 'area', 'المنطقة')}
+                    </div>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.6fr)', gap: 5, marginTop: 5 }}>
+                    {fieldBox(i, 'company', 'الشركة')}
+                    {fieldBox(i, 'scientificRep', 'المندوب العلمي')}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
     // الضغط على الخلفية خارج الإطار يغلق النافذة. يُشترط أن يبدأ الضغط **وينتهي**
     // على الخلفية نفسها: سحبُ تحديد نصّ من داخل خانة وإفلاته خارج الإطار يُطلق
     // click على الخلفية، ولا يجوز أن يغلق النافذة ويضيع التعديل.
-    <div style={overlay}
+    <div style={isMobile ? { ...overlay, padding: 0 } : overlay}
       onMouseDown={e => { backdropDownRef.current = e.target === e.currentTarget; }}
       onClick={e => {
         if (e.target !== e.currentTarget || !backdropDownRef.current) return;
@@ -1035,11 +1217,11 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           </div>
         </div>
       )}
-      <div style={panel} dir="rtl">
+      <div style={isMobile ? { ...panel, ...mPanel } : panel} dir="rtl">
         <style>{GRID_CSS}</style>
-        <div style={header}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#0f172a' }}>
+        <div style={isMobile ? { ...header, marginBottom: 8, paddingBottom: 8 } : header}>
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0, fontSize: isMobile ? 15 : 17, fontWeight: 700, color: '#0f172a' }}>
               {fromPendingOrder
                 ? (orderList.length > 1 ? `مراجعة ${orderList.length} طلبيات` : `مراجعة الطلبية #${initialOrder?.id ?? ''}`)
                 : 'إضافة مبيعات'}
@@ -1055,14 +1237,14 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         </div>
 
         {/* شريط الأدوات: المندوب + رفع صورة */}
-        <div style={topBar}>
-          <label style={lbl}>
+        <div style={isMobile ? { ...topBar, gap: 8, marginBottom: 8 } : topBar}>
+          <label style={isMobile ? { ...lbl, flex: '1 1 100%' } : lbl}>
             <span>المندوب</span>
             {/* طلبية بوت ⇒ منسدلة لا حقل حرّ. findOrCreateRep في الخادم يُنشئ
                 مندوباً جديداً صامتاً عند أي فرق حرف، فينشقّ تاريخ المندوب على
                 صفّين في كل تقرير. الاختيار من القائمة يضمن اسماً قائماً حرفياً. */}
             {fromPendingOrder ? (
-              <select value={repName} onChange={e => setRepName(e.target.value)} style={{ ...inp, minWidth: 180 }}>
+              <select value={repName} onChange={e => setRepName(e.target.value)} style={{ ...inp, minWidth: isMobile ? 0 : 180, flex: isMobile ? 1 : undefined }}>
                 <option value="">— اختر —</option>
                 {reps.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
                 {repName && !reps.some(r => r.name === repName) && (
@@ -1072,12 +1254,12 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
             ) : (
               <>
                 <input list="rep-suggestions" value={repName} onChange={e => setRepName(e.target.value)}
-                  placeholder="اسم المندوب" style={{ ...inp, minWidth: 180 }} />
+                  placeholder="اسم المندوب" style={{ ...inp, minWidth: isMobile ? 0 : 180, flex: isMobile ? 1 : undefined }} />
                 <datalist id="rep-suggestions">{reps.map(r => <option key={r.id} value={r.name} />)}</datalist>
               </>
             )}
           </label>
-          <span style={{ flex: 1 }} />
+          {!isMobile && <span style={{ flex: 1 }} />}
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', cursor: 'pointer' }}
             title="تُستخرج من الصورة الايتمات المعيّنة لك فقط">
             <input type="checkbox" checked={onlyAssignedItems} onChange={e => setOnlyAssignedItems(e.target.checked)} />
@@ -1085,7 +1267,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           </label>
           <input ref={imgInputRef} type="file" accept="image/*,application/pdf" multiple style={{ display: 'none' }}
             onChange={e => onImages(e.target.files)} />
-          <button onClick={() => imgInputRef.current?.click()} disabled={extracting} style={imgBtn}
+          <button onClick={() => imgInputRef.current?.click()} disabled={extracting} style={isMobile ? { ...imgBtn, marginInlineStart: 'auto', padding: '5px 10px', fontSize: 12 } : imgBtn}
             title="تحليل صورة فاتورة بالذكاء الاصطناعي — يمكن اختيار عدة صور">
             {extracting ? 'جاري التحليل…' : 'رفع صورة فاتورة'}
           </button>
@@ -1093,7 +1275,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
 
         {/* نصّ الطلبية كما وصل — مرجع المراجِع ليقابل الصفوف المستخرَجة بالأصل. */}
         {fromPendingOrder && activeOrder && (
-          <div ref={srcPanelRef} style={srcPanel}>
+          <div ref={srcPanelRef} style={isMobile ? { ...srcPanel, padding: '6px 10px', marginBottom: 8 } : srcPanel}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
               <span style={{ fontSize: 11.5, fontWeight: 700, color: '#64748b' }}>
                 الرسالة الأصلية{orderList.length > 1 ? ` — #${activeOrder.id}` : ''}
@@ -1104,7 +1286,9 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                 </span>
               )}
               {orderList.length > 1 && (
-                <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginInlineStart: 'auto' }}>
+                <span style={isMobile
+                  ? { display: 'flex', gap: 4, flexWrap: 'nowrap', overflowX: 'auto', width: '100%', paddingBottom: 2 }
+                  : { display: 'flex', gap: 4, flexWrap: 'wrap', marginInlineStart: 'auto' }}>
                   {orderList.map(o => (
                     <button key={o.id} onClick={() => showOrder(o.id, null)}
                       title={(o.sourceText || '').slice(0, 200)}
@@ -1116,7 +1300,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
               )}
             </div>
             {activeOrder.sourceText
-              ? <div style={srcText}>{activeOrder.sourceText}</div>
+              ? <div style={isMobile ? { ...srcText, fontSize: 12.5, lineHeight: 1.5, maxHeight: 96 } : srcText}>{activeOrder.sourceText}</div>
               : <div style={{ fontSize: 12.5, color: '#64748b' }}>طلبية صورة — انقر رقمها في الجدول لعرض الصورة.</div>}
           </div>
         )}
@@ -1180,7 +1364,8 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           </div>
         )}
 
-        <div ref={gridRef} style={{ overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
+        <div ref={gridRef} style={isMobile ? { marginBottom: 10 } : { overflowX: 'auto', marginBottom: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff' }}>
+          {isMobile ? renderMobileCards() : (
           <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5, width: '100%', minWidth: 1100, tableLayout: 'fixed' }}>
             <colgroup>
               {INV_COLS.map(c => <col key={c.key} style={{ width: `${c.pct}%` }} />)}
@@ -1257,86 +1442,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
                     return (
                       <td key={c.key} rowSpan={merged ? span : undefined} data-hl={on ? '1' : undefined} data-cell={`${i}:${c.key}`}
                         style={{ ...gTd, ...(merged ? gInvTd : null), ...sep, ...(ci === 0 && bad ? { boxShadow: 'inset -2px 0 0 #dc2626' } : null), ...(on ? { background: '#fef9c3' } : null) }}>
-                        {c.numeric ? (
-                          <input
-                            value={(() => {
-                              const v = r[c.key] as string;
-                              const money = c.key === 'unitPrice' || c.key === 'total';
-                              return money && editingCell !== `${i}:${c.key}` ? fmtThousands(v) : v;
-                            })()}
-                            inputMode="decimal"
-                            onFocus={() => setEditingCell(`${i}:${c.key}`)}
-                            onBlur={() => setEditingCell(cur => (cur === `${i}:${c.key}` ? null : cur))}
-                            onChange={e => {
-                              // تُسقَط فواصل الآلاف من أي لصق — الحالة أرقام خام دائماً.
-                              const val = e.target.value.replace(/\./g, '').replace(/,/g, '.');
-                              if (c.key === 'quantity' || c.key === 'unitPrice') onQtyPrice(i, c.key, val);
-                              else setCell(i, c.key, val);
-                            }}
-                            style={{ ...gCell, ...cs, textAlign: 'center', direction: 'ltr', fontVariantNumeric: 'tabular-nums' }} />
-                        ) : c.key === 'pharmacy' ? (
-                          <ComboCell
-                            value={r.pharmacy}
-                            onChange={v => {
-                              // اختيار صيدلية من السيرفي يجلب منطقتها معها.
-                              const hit = r.pharmacyCandidates?.find(p => p.name === v);
-                              setRows(rs => rs.map((x, idx) => (tgt.includes(idx)
-                                ? { ...x, pharmacy: v, ...(hit?.area ? { area: hit.area } : null) }
-                                : x)));
-                              // منطقة جديدة من الصيدلية المختارة ⇒ مندوبها.
-                              if (hit?.area && hit.area !== r.area) setTimeout(() => tgt.forEach(x => refreshRow(x, 'area', hit.area!)), 0);
-                            }}
-                            options={(r.pharmacyCandidates || []).map(p => ({ value: p.name, hint: p.area || undefined, star: true }))}
-                            title={r.pharmacyCandidates?.length
-                              ? `صيدليات قريبة في السيرفي: ${r.pharmacyCandidates.map(p => p.area ? `${p.name} (${p.area})` : p.name).join(' ، ')}`
-                              : r.pharmacy}
-                            style={cs}
-                          />
-                        ) : c.key === 'item' ? (
-                          <ComboCell
-                            value={r.item}
-                            onChange={v => setCell(i, 'item', v)}
-                            onCommit={v => refreshRow(i, 'item', v)}
-                            options={suggest.items.map(it => ({ value: it.name, hint: it.company || undefined }))}
-                            title={r.item}
-                            style={{ ...cs, fontWeight: 600 }}
-                          />
-                        ) : c.key === 'company' ? (
-                          <ComboCell
-                            value={r.company}
-                            onChange={v => setCell(i, 'company', v)}
-                            options={suggest.companies.map(v => ({ value: v }))}
-                            title={r.company}
-                            style={{ ...cs, direction: 'ltr', textAlign: 'right' }}
-                          />
-                        ) : c.key === 'area' ? (
-                          <ComboCell
-                            value={r.area}
-                            onChange={v => setCells(tgt, 'area', v)}
-                            onCommit={v => tgt.forEach(x => refreshRow(x, 'area', v))}
-                            options={suggest.areas.map(v => ({ value: v }))}
-                            title={r.area}
-                            style={cs}
-                          />
-                        ) : c.key === 'scientificRep' ? (
-                          <ComboCell
-                            value={r.scientificRep}
-                            onChange={v => setCell(i, 'scientificRep', v)}
-                            onPick={v => pickRep(i, v)}
-                            options={repOptionsFor(r)}
-                            placeholder={refreshing.has(i) ? '⏳ جاري التخمين…' : r.repCandidates?.length ? `اختر من ${r.repCandidates.length} مرشّحين ▾` : 'اختر مندوباً ▾'}
-                            title={r.repCandidates?.length
-                              ? `مرشّحون: ${r.repCandidates.map(c => c.name).join(' ، ')}`
-                              : 'لم يُعرَف مندوب من المنطقة والشركة — اختر من القائمة'}
-                            style={{ ...cs, ...(r.scientificRep.trim() ? null : candTone), ...(refreshing.has(i) ? { opacity: 0.4 } : null) }}
-                          />
-                        ) : (
-                          <>
-                            <AutoText value={r[c.key] as string} onChange={v => setCell(i, c.key, v)}
-                              title={r[c.key] as string}
-                              style={cs} />
-                          </>
-                        )}
+                        {renderField(i, c, tgt, cs)}
                       </td>
                     );
                   })}
@@ -1352,6 +1458,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
               }))}
             </tbody>
           </table>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button onClick={addRow} style={addBtn}>+ صف</button>
@@ -1363,7 +1470,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         </div>
 
         {/* Destination */}
-        <div style={destBar}>
+        <div style={isMobile ? { ...destBar, gap: 10, marginTop: 10, padding: '8px 2px' } : destBar}>
           <span style={{ fontSize: 12.5, fontWeight: 700, color: '#334155' }}>الحفظ في</span>
           <label style={radio}>
             <input type="radio" checked={destMode === 'condition'} onChange={() => setDestMode('condition')} />
@@ -1380,7 +1487,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           <span style={{ flex: 1 }} />
           {destMode === 'existing' ? (
             <>
-              <select value={destFileId} onChange={e => setDestFileId(Number(e.target.value))} style={{ ...inp, minWidth: 260 }}>
+              <select value={destFileId} onChange={e => setDestFileId(Number(e.target.value))} style={{ ...inp, minWidth: isMobile ? 0 : 260, flex: isMobile ? 1 : undefined, maxWidth: '100%' }}>
                 {files.map(f => (
                   <option key={f.id} value={f.id}>
                     {f.originalName}
@@ -1396,7 +1503,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
           ) : (
             <>
               {destMode === 'new' && (
-                <input value={newFileName} onChange={e => setNewFileName(e.target.value)} placeholder="اسم الملف" style={{ ...inp, minWidth: 220 }} />
+                <input value={newFileName} onChange={e => setNewFileName(e.target.value)} placeholder="اسم الملف" style={{ ...inp, minWidth: isMobile ? 0 : 220, flex: isMobile ? 1 : undefined }} />
               )}
               <select value={newCurrency} onChange={e => setNewCurrency(e.target.value as 'IQD' | 'USD')} style={inp} title="العملة">
                 <option value="IQD">IQD</option>
@@ -1409,7 +1516,7 @@ export default function ManualSalesModal({ token, files, onClose, onSaved, initi
         {error && <div style={errBox}>{error}</div>}
         {info && <div style={infoBox}>{info}</div>}
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
+        <div style={isMobile ? mSaveBar : { display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
           <button onClick={onSave} disabled={saving || extracting || checking} style={saveBtn}>
             {checking ? 'جاري فحص الأسماء…' : saving ? 'جاري الحفظ…' : 'حفظ'}
           </button>
@@ -1487,6 +1594,22 @@ const normDate = (v: any): string => {
 };
 
 // ── styles ──
+
+// ── الهاتف (isMobile فقط) ──
+const mPanel: React.CSSProperties = { borderRadius: 0, padding: '10px 10px 0', minHeight: '100%', maxWidth: '100%', boxShadow: 'none' };
+const mCard: React.CSSProperties = { border: '1px solid #cbd5e1', borderRadius: 10, padding: 8, background: '#fff' };
+const mLbl: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: '#94a3b8', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const mBox: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 7, background: '#fff' };
+const mSaveBar: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', position: 'sticky', bottom: 0, zIndex: 6, background: '#fff', borderTop: '1px solid #e2e8f0', padding: '8px 0 10px', marginTop: 8 };
+/** خانة البطاقة على الهاتف: عنوان صغير فوق محرّر بإطار. */
+function MField({ label, on, cell, children }: { label: string; on?: boolean; cell?: string; children: React.ReactNode }) {
+  return (
+    <div data-hl={on ? '1' : undefined} data-cell={cell} style={{ minWidth: 0 }}>
+      <div style={mLbl}>{label}</div>
+      <div style={{ ...mBox, ...(on ? { background: '#fef9c3', borderColor: '#f59e0b' } : null) }}>{children}</div>
+    </div>
+  );
+}
 const askOverlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10050, padding: 16 };
 const askPanel: React.CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 620, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' };
 const askCard: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, background: '#f8fafc' };

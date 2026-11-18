@@ -1,5 +1,6 @@
 ﻿import { useState, useRef, useCallback, useEffect } from 'react';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { useIsMobile } from '../hooks/useIsMobile';
 import FileRowsEditor from '../components/FileRowsEditor';
 import AnalysisRenderer from '../components/AnalysisRenderer';
 import ManualSalesModal, { type PendingOrderDetail } from '../components/ManualSalesModal';
@@ -100,6 +101,9 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   const [analyzeFile, setAnalyzeFile] = useState<UploadedFile | null>(null);
   const [analysisText, setAnalysisText] = useState('');
   const [analyzing, setAnalyzing]     = useState(false);
+
+  // الهاتف: بطاقات طلبيات وملفات مختصرة. الحاسوب لا يتغيّر.
+  const isMobile = useIsMobile();
 
   // Manual / invoice-image sales entry
   const [showManualModal, setShowManualModal] = useState(false);
@@ -1113,8 +1117,55 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
         )}
       </div>
 
+      {/* ── الهاتف: طلبيات البوت بسطرين لكل طلبية (المحتوى + المرسل/الوقت) ── */}
+      {ordersFeature && pendingOrders.length > 0 && isMobile && (
+        <div style={{ ...CARD, padding: '10px', background: 'var(--c-warning-bg, #fffbeb)', borderColor: 'var(--c-warning-border, #fde68a)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--c-warning, #92400e)' }}>
+              📋 {pendingOrders.length} طلبية بانتظار المراجعة
+            </span>
+            {pendingOrders.length > 1 && (
+              <button onClick={reviewAllOrders} disabled={loadingOrder != null}
+                style={{ marginInlineStart: 'auto', padding: '6px 10px', background: 'var(--c-purple)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 800, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {loadingOrder === -1 ? '⏳' : '🗂️ مراجعة الكل'}
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {pendingOrders.map(o => (
+              <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #fde68a', borderRadius: 8, padding: '7px 8px' }}>
+                <div onClick={() => { if (loadingOrder == null) reviewOrder(o.id); }} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1f2937', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {o.kind === 'photo' ? '🖼️ ' : ''}{o.preview || `${o.rowCount} صنف`}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 11, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                    {o.rowCount > 1 && <span style={{ fontWeight: 700, color: '#334155' }}>{o.rowCount} صنف</span>}
+                    {o.senderName && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{o.senderName}</span>}
+                    {o.ownerName && <span style={{ color: '#0f766e', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>👤 {o.ownerName}</span>}
+                    {o.readBy === 'parser' && <span title="قُرئت بلا ذكاء" style={{ color: '#0891b2' }}>⚡</span>}
+                    <span style={{ marginInlineStart: 'auto', color: '#94a3b8', flexShrink: 0 }}>
+                      {new Date(o.createdAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  {o.claimedBy && <div style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c', marginTop: 2 }}>✍️ يحفظها الآن {o.claimedBy}</div>}
+                </div>
+                <button onClick={() => reviewOrder(o.id)} disabled={loadingOrder === o.id}
+                  style={{ padding: '7px 10px', background: 'var(--c-purple)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  {loadingOrder === o.id ? '⏳' : 'مراجعة'}
+                </button>
+                <button onClick={() => { if (window.confirm('إلغاء هذه الطلبية نهائياً بلا حفظ أي شيء منها؟')) cancelPendingOrder(o.id); }}
+                  title="إلغاء الطلبية"
+                  style={{ width: 30, height: 30, padding: 0, background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── طلبيات وصلت عبر البوت بانتظار المراجعة ──────────── */}
-      {ordersFeature && pendingOrders.length > 0 && (
+      {ordersFeature && pendingOrders.length > 0 && !isMobile && (
         <div style={{ ...CARD, padding: '12px 16px', background: 'var(--c-warning-bg, #fffbeb)', borderColor: 'var(--c-warning-border, #fde68a)' }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--c-warning, #92400e)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>📋 لديك {pendingOrders.length} طلبية وصلت عبر البوت بانتظار المراجعة</span>
@@ -1512,14 +1563,82 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                                           { label: t.upload.typeSalesLabel,    color: 'var(--c-accent)', bg: 'var(--c-accent-light)', border: 'var(--c-accent)' };
 
               const currIsDollar = (f.currencyMode ?? f.detectedCurrency) === 'USD';
+              const fileChips = (() => {
+                      const chip = (c: string, bg: string, bd: string, clickable = false): React.CSSProperties => ({
+                        display: 'inline-flex', alignItems: 'center', gap: 3, height: 24, padding: '0 7px',
+                        borderRadius: 999, border: `1px solid ${bd}`, background: bg, color: c,
+                        fontSize: 10.5, fontWeight: 700, lineHeight: 1, flexShrink: 0,
+                        cursor: clickable ? 'pointer' : 'default',
+                      });
+                      const typeIcon = f.fileType === 'returns' ? 'uploadReturns' : f.fileType === 'auto' ? 'uploadAuto' : f.fileType === 'matrix' ? 'netBalance' : 'uploadSales';
+                      const chev = (open: boolean) => (
+                        <span style={{ fontSize: 8, display: 'inline-block', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>▼</span>
+                      );
+                      return (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                          {!(isMobile && (f.fileType ?? 'sales') === 'sales') && (
+                          <span title={typeMeta.label.replace(/^\S+\s*/, '')} style={chip(typeMeta.color, typeMeta.bg, typeMeta.border)}>
+                            <Icon name={typeIcon as any} size={12} />
+                          </span>
+                          )}
+                          {isCond && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setConditionView(f); }}
+                              style={chip('var(--c-warning)', 'var(--c-warning-bg)', 'var(--c-warning-border)', true)}
+                              title="ملف اللكوديشن — طلبيات بوت تلكرام وإكسل اللكوديشن، تُحتسب مع ميركاتو. اضغط لفتحه (شيت لكل مندوب) أو تصديره إكسل."
+                            ><Icon name="file" size={12} /><span>لكوديشن</span></button>
+                          )}
+                          {f.sourceSystem === 'mercato' && !isCond && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setRepNameFileIds([f.id]); }}
+                              style={chip('var(--c-warning)', 'var(--c-warning-bg)', 'var(--c-warning-border)', true)}
+                              title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. اضغط لمطابقة أسماء المندوبين في الملف مع سجلاتهم في التطبيق."
+                            ><Icon name="pharmacy" size={12} /></button>
+                          )}
+                          {f.isCumulative && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleBatches(f.id); }}
+                              style={chip('var(--c-purple)', 'var(--c-purple-bg)', 'var(--c-purple-border)', true)}
+                              title={`ملف تراكمي — كل الأشهر بداخله${f._count?.mergeBatches ? ` (${f._count.mergeBatches} رفعة)` : ''}. اضغط لعرض الرفعات التي انصهرت فيه.`}
+                            >
+                              <Icon name="transfer" size={12} />
+                              {!!f._count?.mergeBatches && <span>{f._count.mergeBatches}</span>}
+                              {chev(expandedBatchesId === f.id)}
+                            </button>
+                          )}
+                          {isActive && !isMobile && (
+                            <span title={t.upload.statusActive} style={chip('var(--c-success)', 'var(--c-success-bg)', 'var(--c-success-border)')}>
+                              <Icon name="checkCircle" size={12} />
+                            </span>
+                          )}
+                          {isSharedByMe && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setExpandedSharesId(expandedSharesId === f.id ? null : f.id); }}
+                              style={chip('var(--c-purple)', expandedSharesId === f.id ? 'var(--c-purple-bg)' : 'var(--c-surface)', 'var(--c-purple-border)', true)}
+                              title={`مُزامَن مع ${shareCount} مندوب — اضغط لعرضهم`}
+                            >
+                              <Icon name="link" size={12} /><span>{shareCount}</span>
+                              {chev(expandedSharesId === f.id)}
+                            </button>
+                          )}
+                          {isSharedToMe && (
+                            <span title="مشارك معك" style={chip('var(--c-warning)', '#fef3c7', '#fcd34d')}>
+                              <Icon name="import" size={12} />
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })();
+
 
               return (
                 <div key={f.id} onClick={() => onFileActivated(f.id)} style={{
                   ...CARD,
                   marginBottom: 0,
                   cursor: 'pointer',
+                  ...(isMobile ? { padding: '8px 10px' } : {}),
                   // ملتصق بملف ميركاتو أعلاه: إزاحة + خط ربط على جهة البداية.
-                  ...(mercatoSibling ? { marginInlineStart: 28, marginTop: -4, borderInlineStart: '4px solid var(--c-warning-border)' } : {}),
+                  ...(mercatoSibling ? { marginInlineStart: isMobile ? 14 : 28, marginTop: -4, borderInlineStart: '4px solid var(--c-warning-border)' } : {}),
                   borderColor: isActive ? 'var(--c-success-border)' : isSharedToMe ? 'var(--c-warning-border)' : '#e2e8f0',
                   background: isActive ? 'var(--c-success-bg)' : isSharedToMe ? 'var(--c-warning-bg)' : '#fff',
                 }}>
@@ -1629,75 +1748,12 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     {/* File name */}
                     <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', flex: '1 1 160px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {f.originalName}
-                      {mercatoSibling && (
+                      {mercatoSibling && !isMobile && (
                         <span style={{ fontSize: 10.5, fontWeight: 600, color: '#92400e', marginInlineStart: 8 }}>🔗 مرتبط بـ«{mercatoSibling.originalName}»</span>
                       )}
                     </span>
                     {/* ── حالة الملف: شارات أيقونية صغيرة بتلميحات — كل شارة تحتفظ بوظيفتها ── */}
-                    {(() => {
-                      const chip = (c: string, bg: string, bd: string, clickable = false): React.CSSProperties => ({
-                        display: 'inline-flex', alignItems: 'center', gap: 3, height: 24, padding: '0 7px',
-                        borderRadius: 999, border: `1px solid ${bd}`, background: bg, color: c,
-                        fontSize: 10.5, fontWeight: 700, lineHeight: 1, flexShrink: 0,
-                        cursor: clickable ? 'pointer' : 'default',
-                      });
-                      const typeIcon = f.fileType === 'returns' ? 'uploadReturns' : f.fileType === 'auto' ? 'uploadAuto' : f.fileType === 'matrix' ? 'netBalance' : 'uploadSales';
-                      const chev = (open: boolean) => (
-                        <span style={{ fontSize: 8, display: 'inline-block', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>▼</span>
-                      );
-                      return (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                          <span title={typeMeta.label.replace(/^\S+\s*/, '')} style={chip(typeMeta.color, typeMeta.bg, typeMeta.border)}>
-                            <Icon name={typeIcon as any} size={12} />
-                          </span>
-                          {isCond && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setConditionView(f); }}
-                              style={chip('var(--c-warning)', 'var(--c-warning-bg)', 'var(--c-warning-border)', true)}
-                              title="ملف اللكوديشن — طلبيات بوت تلكرام وإكسل اللكوديشن، تُحتسب مع ميركاتو. اضغط لفتحه (شيت لكل مندوب) أو تصديره إكسل."
-                            ><Icon name="file" size={12} /><span>لكوديشن</span></button>
-                          )}
-                          {f.sourceSystem === 'mercato' && !isCond && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setRepNameFileIds([f.id]); }}
-                              style={chip('var(--c-warning)', 'var(--c-warning-bg)', 'var(--c-warning-border)', true)}
-                              title="ملف ميركاتو — طلبيات المندوبين العلميين عبر المذاخر العامة. اضغط لمطابقة أسماء المندوبين في الملف مع سجلاتهم في التطبيق."
-                            ><Icon name="pharmacy" size={12} /></button>
-                          )}
-                          {f.isCumulative && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); toggleBatches(f.id); }}
-                              style={chip('var(--c-purple)', 'var(--c-purple-bg)', 'var(--c-purple-border)', true)}
-                              title={`ملف تراكمي — كل الأشهر بداخله${f._count?.mergeBatches ? ` (${f._count.mergeBatches} رفعة)` : ''}. اضغط لعرض الرفعات التي انصهرت فيه.`}
-                            >
-                              <Icon name="transfer" size={12} />
-                              {!!f._count?.mergeBatches && <span>{f._count.mergeBatches}</span>}
-                              {chev(expandedBatchesId === f.id)}
-                            </button>
-                          )}
-                          {isActive && (
-                            <span title={t.upload.statusActive} style={chip('var(--c-success)', 'var(--c-success-bg)', 'var(--c-success-border)')}>
-                              <Icon name="checkCircle" size={12} />
-                            </span>
-                          )}
-                          {isSharedByMe && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setExpandedSharesId(expandedSharesId === f.id ? null : f.id); }}
-                              style={chip('var(--c-purple)', expandedSharesId === f.id ? 'var(--c-purple-bg)' : 'var(--c-surface)', 'var(--c-purple-border)', true)}
-                              title={`مُزامَن مع ${shareCount} مندوب — اضغط لعرضهم`}
-                            >
-                              <Icon name="link" size={12} /><span>{shareCount}</span>
-                              {chev(expandedSharesId === f.id)}
-                            </button>
-                          )}
-                          {isSharedToMe && (
-                            <span title="مشارك معك" style={chip('var(--c-warning)', '#fef3c7', '#fcd34d')}>
-                              <Icon name="import" size={12} />
-                            </span>
-                          )}
-                        </span>
-                      );
-                    })()}
+                    {!isMobile && fileChips}
                   </div>
 
                   {/* ── Expanded reps row ── */}
@@ -1791,8 +1847,11 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                   )}
 
                   {/* ── Row 2: meta (no row count) ── */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 11, color: '#64748b' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="calendar" size={12} /> {fmtDate(f.uploadedAt)}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 5 : 12, flexWrap: 'wrap', marginTop: isMobile ? 5 : 6, fontSize: 11, color: '#64748b' }}>
+                    {isMobile && fileChips}
+                    {isMobile
+                      ? <span style={{ color: '#94a3b8' }}>{new Date(f.uploadedAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })}</span>
+                      : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="calendar" size={12} /> {fmtDate(f.uploadedAt)}</span>}
                     {!!f._count?.columnFilters && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setEditorFile({ id: f.id, name: f.originalName }); setOpenMenuId(null); }}
@@ -1802,17 +1861,18 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                         🔽 مفلتر ({f._count.columnFilters})
                       </button>
                     )}
-                    {hasFeature('currency_convert') ? (
+                    {/* الهاتف: الدينار هو الافتراضي فلا شارة له — الدولار وحده يُعلَّم */}
+                    {isMobile && !currIsDollar ? null : hasFeature('currency_convert') ? (
                       <button
                         onClick={(e) => { e.stopPropagation(); toggleCurrency(f); }}
                         title={currIsDollar ? 'تحويل إلى دينار عراقي' : 'تحويل إلى دولار'}
                         style={{ ...BADGE(currIsDollar ? 'var(--c-warning-bg)' : 'var(--c-success-bg)', currIsDollar ? 'var(--c-warning)' : 'var(--c-success)', currIsDollar ? 'var(--c-warning-border)' : 'var(--c-success-border)'), cursor: 'pointer' }}
                       >
-                        {currIsDollar ? '$ USD' : 'IQD د.ع'}
+                        {currIsDollar ? (isMobile ? '$' : '$ USD') : (isMobile ? 'IQD' : 'IQD د.ع')}
                       </button>
                     ) : (
                       <span style={BADGE(currIsDollar ? 'var(--c-warning-bg)' : 'var(--c-success-bg)', currIsDollar ? 'var(--c-warning)' : 'var(--c-success)', currIsDollar ? 'var(--c-warning-border)' : 'var(--c-success-border)')}>
-                        {currIsDollar ? '$ USD' : 'IQD د.ع'}
+                        {currIsDollar ? (isMobile ? '$' : '$ USD') : (isMobile ? 'IQD' : 'IQD د.ع')}
                       </span>
                     )}
                     <button
@@ -1836,7 +1896,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     >
                       {isActive ? <><Icon name="checkCircle" size={11} /> نشط</> : <><Icon name="target" size={11} /> تفعيل</>}
                     </button>
-                    {isCond && (
+                    {isCond && !isMobile && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setConditionView(f); }}
                         title="فتح الملف — عرض البيانات (شيت لكل مندوب)"
@@ -1859,7 +1919,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                           title={both ? 'إلغاء تفعيل ميركاتو واللكوديشن معاً' : 'تفعيل ميركاتو واللكوديشن معاً'}
                           style={{ border: '1px solid var(--c-warning-border)', borderRadius: 20, padding: '2px 10px', background: both ? 'var(--c-warning-bg)' : '#fff', color: 'var(--c-warning)', cursor: 'pointer', fontSize: 11, fontWeight: 700, flexShrink: 0 }}
                         >
-                          🔗 {both ? 'إلغاء الاثنين' : 'مع اللكوديشن'}
+                          🔗 {isMobile ? (both ? '✓ الاثنين' : '+ لكوديشن') : (both ? 'إلغاء الاثنين' : 'مع اللكوديشن')}
                         </button>
                       );
                     })()}
