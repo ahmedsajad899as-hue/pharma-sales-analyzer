@@ -10,6 +10,7 @@ import { processUploadedFile, extractInvoiceRows, filterRowsToAssignedItems, ins
   checkManualNames, buildWarehouseGapTemplateForUser, parseWarehouseGapFile, getWarehouseGapScope,
   resolveSharedConditionOwner, moveConditionFileToShared } from './sales.service.js';
 import { matchConditionNames } from '../../lib/conditionNameMatch.js';
+import { scheduleYazenMatchForFiles, scheduleYazenMatchForUser } from '../../lib/yazenOfficeMatch.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import prisma from '../../lib/prisma.js';
 import { listSalesMonths } from '../../lib/salesMonths.js';
@@ -116,6 +117,9 @@ export async function uploadSales(req, res, next) {
     } catch (syncErr) {
       console.error('[autoSyncIfOfficeEmployee]', syncErr);
     }
+    // مطابقة اليزن↔المكتب («بدون الفارمسي») تُعاد في الخلفية — lib/yazenOfficeMatch.js.
+    if (result?.uploadedFile?.id) scheduleYazenMatchForFiles([result.uploadedFile.id]);
+    else scheduleYazenMatchForUser(req.user?.id);
 
     return res.status(201).json({
       success: true,

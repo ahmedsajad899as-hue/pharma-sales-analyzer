@@ -117,6 +117,7 @@ import { resumeListenInbox } from './modules/wa-groups/wa-groups.listen.js';
 import { backfillCardSamples } from './lib/invoiceCardAuto.js';
 import dofiedRoutes from './modules/dofied/dofied.routes.js';
 import { startDofiedScheduler } from './modules/dofied/dofied.sync.js';
+import { scheduleYazenMatchForFiles, scheduleYazenMatchForUser, startYazenMatchOnBoot } from './lib/yazenOfficeMatch.js';
 import { internalRouter as waGroupsInternalRoutes, adminRouter as waGroupsAdminRoutes, saRouter as waGroupsSaRoutes } from './modules/wa-groups/wa-groups.routes.js';
 
 dotenv.config();
@@ -2277,6 +2278,7 @@ app.post('/api/files/merge', requireAuth, async (req, res) => {
       userId:  req.user?.id ?? null,
       fileIds: Array.isArray(req.body?.fileIds) ? req.body.fileIds : [],
     });
+    scheduleYazenMatchForUser(req.user?.id);
     res.json({ success: true, data: result });
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
@@ -2434,6 +2436,7 @@ app.patch('/api/files/:id/batches/:batchId', requireAuth, async (req, res) => {
       : await releaseBatch({ fileId: id, batchId, mode: 'deactivate' });
     // صفوف ظهرت من جديد قد تكون مستبعدة بفلتر عمود — يُعاد تطبيقه.
     if (req.body.active) await resyncHiddenRows(id);
+    scheduleYazenMatchForFiles([id]);
     res.json({ success: true, data: result });
   } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
@@ -2488,6 +2491,7 @@ app.delete('/api/files/:id/batches/:batchId', requireAuth, async (req, res) => {
     const { handed, released } = await releaseBatch({ fileId: id, batchId, mode: 'delete' });
     if (handed > 0) await resyncHiddenRows(id);
     const refreshed = await refreshCumulativeFile(id);
+    scheduleYazenMatchForFiles([id]);
     res.json({ success: true, data: { removed: released, handed, totalRows: refreshed.rowCount } });
   } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
@@ -3380,6 +3384,9 @@ app.delete('/api/files/:id', requireAuth, async (req, res) => {
       if (deleted.count === 0) return res.status(403).json({ error: 'ليس لديك صلاحية حذف هذا الملف' });
       return res.json({ success: true, message: 'تمت إزالة الملف من قائمتك' });
     }
+
+    // مطابقة اليزن↔المكتب: النطاق يُحسم الآن قبل حذف الملف، والحساب في الخلفية.
+    await scheduleYazenMatchForFiles([id]);
 
     // 1. Find all commercial reps that have sales in this file
     const repIdsInFile = await prisma.sale.findMany({
@@ -5101,6 +5108,8 @@ if (process.env.VERCEL) {
     startDispatchTimers();
     // ربط دوفايد: سحب يومي لتقارير الزيارات إلى طابور المراجعة
     startDofiedScheduler();
+    // مطابقة اليزن↔المكتب («بدون الفارمسي»): كل نطاق تغيّرت بصمته يُعاد بعد دقيقة من الإقلاع.
+    startYazenMatchOnBoot();
     backfillWarehouseWaIds();
     // رسائل كروبات المندوبين الصامتة قطعتها إعادة التشغيل أثناء قراءتها ← تُعاد
     resumeListenInbox()

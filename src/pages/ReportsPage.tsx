@@ -5982,7 +5982,9 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
         );
         const sciTogglesList = [
           showExcludePharmacy && canExPharm && toggleBtn('exPharm', excludePharmacy, '🏪 بدون الفارمسي',
-            excludePharmacy ? 'مبيعات/مرتجعات المكتب المحسوبة للفارمسي لاين معزولة — اضغط لإرجاعها' : 'عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين',
+            excludePharmacy
+              ? 'مبيعات/مرتجعات المكتب المحسوبة للفارمسي لاين معزولة — اضغط لإرجاعها'
+              : 'عزل مبيعات وارجاعات المكتب المحسوبة للفارمسي لاين (بمعلومات الزبون، أو بمطابقة طلبيات اليزن حسب إعداد الشركة)',
             () => {
               const v = !excludePharmacy;
               setExcludePharmacy(v);

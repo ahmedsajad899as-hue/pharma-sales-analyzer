@@ -19,6 +19,10 @@ import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
 import { dedupCrossFile } from '../../lib/crossFileDedup.js';
 import { dateRangeWhere, dropBlockedLines, dropConditionRowsFoundInMercato, dropLinesFoundInMercato, assignProvince, isInDateRange, isLiquidationRow, repSaleToRows, widenDateRange } from '../../lib/repLiquidation.js';
 import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
+import { ensureYazenMatches, matchedOfficeSaleIds } from '../../lib/yazenOfficeMatch.js';
+
+/** ScientificCompany.pharmacyExclusionSource: طريقة «بدون الفارمسي» بمطابقة اليزن. */
+export const PHARMACY_EXCLUSION_YAZEN = 'yazen';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -1711,7 +1715,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
 
   // أشهر اليزن: فيها يُحسب مكتب المسوّق 'warehouse' من ميركاتو، وخارجها بالطريقة القديمة.
   // بلا أي صف يزن في ميركاتو النشط ← كل الأشهر على الطريقة القديمة.
-  const yazenMonths = pharmacyMode && pharmacyMembers.some(m => m.officeSource === OFFICE_SOURCE_WAREHOUSE)
+  // officeByLabels: «بدون الفارمسي» بطريقة «معلومات الزبون» — كل الأشهر بالتسميات.
+  const yazenMonths = pharmacyMode && !query.officeByLabels && pharmacyMembers.some(m => m.officeSource === OFFICE_SOURCE_WAREHOUSE)
     ? await officeWarehouseMonths(prisma, mercatoFileIds.filter(fid => !conditionFileIdSet.has(fid)))
     : new Set();
   const yazenRanges = monthRangesWhere(yazenMonths);
@@ -2459,17 +2464,41 @@ async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId 
 }
 
 // ── «بدون الفارمسي» / «بدون التجاري» ─────────────────────────────────────────
-// يحتاجان id (للفارمسي) وcustomerInfoNorm (للتجاري) في الـselect.
+// يحتاجان id (للفارمسي) وcustomerInfoNorm (للتجاري) في الـselect، وشركة الايتم لطريقة العزل.
 function exclusionSelect(select) {
-  return { ...select, id: true, customerInfoNorm: true };
+  const item = select.item && typeof select.item === 'object' ? select.item.select : { id: true, name: true };
+  return { ...select, id: true, customerInfoNorm: true, item: { select: { ...item, scientificCompanyId: true } } };
 }
+
+/** صف ملف مكتب حقيقي (لا ميركاتو ولا ترانزيت ولا سطر مبيع مندوب). */
+const isOfficeFileRow = s => typeof s.id === 'number' && s.uploadedFile && s.uploadedFile.sourceSystem !== 'mercato' && !s.transit;
 
 async function applySciExclusions(rawSales, fileIds, query, viewerId) {
   let out = rawSales;
   // «بدون التجاري»: صفوف المكتب التي «معلومات الزبون» فيها تجاري (ميركاتو بلا قيمة فيبقى).
   if (query.excludeCommercial) out = out.filter(s => !looksLikeCommercialInfo(s.customerInfoNorm));
   if (query.excludePharmacy) {
-    const ex = await resolvePharmacyOfficeSaleIds(fileIds, viewerId);
+    // طريقة العزل لكل شركة (السوبر أدمن): 'yazen' = صفوف المكتب المطابقة ليزن المسوقين
+    // (lib/yazenOfficeMatch.js، محسوبة مسبقاً)، وإلا «معلومات الزبون» كما كانت.
+    const officeRows = out.filter(isOfficeFileRow);
+    const companyIds = [...new Set(officeRows.map(s => s.item?.scientificCompanyId).filter(Boolean))];
+    const yazenCompanies = new Set(companyIds.length
+      ? (await prisma.scientificCompany.findMany({ where: { id: { in: companyIds }, pharmacyExclusionSource: PHARMACY_EXCLUSION_YAZEN }, select: { id: true } })).map(c => c.id)
+      : []);
+    // ايتم بلا شركة يتبع الشركة الغالبة في التقرير: صفوف على اليزن ← يزن.
+    const unknownYazen = yazenCompanies.size > 0;
+    const usesYazen = s => (s.item?.scientificCompanyId ? yazenCompanies.has(s.item.scientificCompanyId) : unknownYazen);
+    const yazenRows = officeRows.filter(usesYazen);
+    const labelRows = officeRows.filter(s => !usesYazen(s));
+    const ex = new Set();
+    if (yazenRows.length) {
+      await ensureYazenMatches(fileIds);
+      for (const id of await matchedOfficeSaleIds(yazenRows.map(s => s.id))) ex.add(id);
+    }
+    if (labelRows.length) {
+      const byLabels = await resolvePharmacyOfficeSaleIds(fileIds, viewerId, { byLabels: true });
+      for (const s of labelRows) if (byLabels.has(s.id)) ex.add(s.id);
+    }
     out = out.filter(s => !ex.has(s.id));
   }
   return out;
@@ -2479,11 +2508,13 @@ async function applySciExclusions(rawSales, fileIds, query, viewerId) {
 // صفوف ملف المكتب (مبيع + إرجاع) المحسوبة لأيّ مسوّق (فارمسي لاين) — بالضبط ما يُنسب لهم
 // (resolveSciRepSales لكل مسوّق نشط) لا تخميناً بنص «معلومات الزبون». بلا تاريخ ولا نوع سجل،
 // فيُخزَّن لكل (مُشاهد، ملفات) 3 دقائق مع بصمة الصفوف، كحساب فريق المسوقين.
+// byLabels: كل الأشهر بالتسميات حتى لمسوّق اليزن — وإلا لا صف مكتب له في أشهر اليزن.
 const pharmacyOfficeIdsCache = new Map(); // key → { at, fp, promise }
+export function clearPharmacyOfficeIdsCache() { pharmacyOfficeIdsCache.clear(); }
 
-export async function resolvePharmacyOfficeSaleIds(fileIds, viewerId = null) {
+export async function resolvePharmacyOfficeSaleIds(fileIds, viewerId = null, { byLabels = false } = {}) {
   if (!fileIds?.length) return new Set();
-  const key = `${viewerId ?? ''}|${[...fileIds].sort((a, b) => a - b).join(',')}`;
+  const key = `${byLabels ? 'L' : ''}${viewerId ?? ''}|${[...fileIds].sort((a, b) => a - b).join(',')}`;
   const agg = await prisma.sale.aggregate({ where: { uploadedFileId: { in: fileIds } }, _count: { _all: true }, _max: { id: true } });
   const fp = `${agg._count._all}|${agg._max.id ?? 0}`;
   const hit = pharmacyOfficeIdsCache.get(key);
@@ -2495,7 +2526,7 @@ export async function resolvePharmacyOfficeSaleIds(fileIds, viewerId = null) {
     });
     const ids = new Set();
     for (const repId of [...new Set(marketers.map(u => u.linkedRepId))]) {
-      const { rawSales } = await resolveSciRepSales(repId, { fileIds, skipItemTiers: true }, { id: true, quantity: true, recordType: true, saleDate: true, areaId: true, uploadedFileId: true,
+      const { rawSales } = await resolveSciRepSales(repId, { fileIds, skipItemTiers: true, officeByLabels: byLabels }, { id: true, quantity: true, recordType: true, saleDate: true, areaId: true, uploadedFileId: true,
         item: { select: { name: true } }, customer: { select: { name: true } }, representative: { select: { name: true } }, uploadedFile: { select: { sourceSystem: true } } }, viewerId);
       for (const s of rawSales) if (s.id != null && s.uploadedFile?.sourceSystem !== 'mercato') ids.add(s.id);
     }

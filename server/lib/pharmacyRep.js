@@ -189,6 +189,11 @@ export function normalizeOfficeSource(v) {
 const WH_KEYS_RE = '"(اسم المذخر|المذخر|اسم المخزن|المخزن|اسم المستودع|المستودع|warehouse)"[[:space:]]*:[[:space:]]*"';
 const yazenMonthsCache = new Map(); // key → { at, fp, promise }
 
+/** شرط SQL خام (جدول sales) لصف يزن: عمود المذخر يحسم متى امتلأ، واسم الشيت حين لا مذخر. */
+export const OFFICE_WAREHOUSE_SQL = `( "rawData" ~* '${WH_KEYS_RE}[^"]*(yaz[aeiy]?n|يزن)'
+           OR ( "rawData" ~* '"_sheetName"[[:space:]]*:[[:space:]]*"[^"]*(يزن|مسوق|مكتب|yaz[aeiy]?n|alyaz)'
+                AND "rawData" !~* '${WH_KEYS_RE}[^"[:space:]]' ) )`;
+
 /** @returns {Promise<Set<string>>} 'YYYY-MM' */
 export async function officeWarehouseMonths(prisma, fileIds) {
   const ids = (fileIds || []).map(Number).filter(Number.isInteger);
@@ -202,9 +207,7 @@ export async function officeWarehouseMonths(prisma, fileIds) {
     `SELECT DISTINCT to_char(date_trunc('month', "saleDate" AT TIME ZONE 'UTC'), 'YYYY-MM') AS ym
        FROM sales
       WHERE "uploadedFileId" IN (${ids.join(',')}) AND "isHidden" = false
-        AND ( "rawData" ~* '${WH_KEYS_RE}[^"]*(yaz[aeiy]?n|يزن)'
-           OR ( "rawData" ~* '"_sheetName"[[:space:]]*:[[:space:]]*"[^"]*(يزن|مسوق|مكتب|yaz[aeiy]?n|alyaz)'
-                AND "rawData" !~* '${WH_KEYS_RE}[^"[:space:]]' ) )`,
+        AND ${OFFICE_WAREHOUSE_SQL}`,
   ).then(rows => new Set(rows.map(r => r.ym).filter(Boolean)));
   yazenMonthsCache.set(key, { at: Date.now(), fp, promise });
   promise.catch(() => yazenMonthsCache.delete(key));

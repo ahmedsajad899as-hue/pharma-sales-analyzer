@@ -13,6 +13,7 @@ import {
 } from './companies.controller.js';
 import { listCompanyNameAliases, createCompanyNameAlias, deleteCompanyNameAlias } from './company-name-alias.controller.js';
 import { requireSuperAdmin } from '../../middleware/superAdminMiddleware.js';
+import { setPharmacyExclusion, getYazenMatchStatus, rerunYazenMatch } from './pharmacy-exclusion.controller.js';
 
 const router = express.Router();
 const memUpload = multer({ storage: multer.memoryStorage() });
@@ -21,6 +22,8 @@ router.use(requireSuperAdmin);
 
 // Static routes first (must be before /:id)
 router.get('/all-lines',  getAllLines);
+router.get('/yazen-match/status', getYazenMatchStatus);
+router.post('/yazen-match/rerun', rerunYazenMatch);
 
 // Companies
 router.get('/',           listCompanies);
@@ -29,6 +32,8 @@ router.get('/:id',        getCompany);
 router.post('/',          createCompany);
 router.put('/:id',        updateCompany);
 router.delete('/:id',     deleteCompany);
+// «بدون الفارمسي»: معلومات الزبون أو مطابقة اليزن
+router.put('/:id/pharmacy-exclusion', setPharmacyExclusion);
 
 // Items within a company
 router.post('/:id/items',                  createCompanyItem);

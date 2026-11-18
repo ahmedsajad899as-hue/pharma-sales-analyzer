@@ -436,6 +436,8 @@ model Sale {
   item           Item                  @relation(fields: [itemId], references: [id])
   customer       Customer?             @relation(fields: [customerId], references: [id])
   uploadedFile   UploadedFile?         @relation(fields: [uploadedFileId], references: [id])
+  yazenAsOffice  YazenOfficeMatch?     @relation("YazenOfficeSale")
+  yazenAsMercato YazenOfficeMatch[]    @relation("YazenMercatoSale")
 
   // Indexes for performance
   @@index([representativeId])
@@ -1304,6 +1306,9 @@ model ScientificCompany {
   officeId  Int
   isActive  Boolean  @default(true)
   notes     String?
+  // «بدون الفارمسي» في تقرير العلميين: كيف تُعرف صفوف الفارمسي في ملف المكتب لايتمات هذه الشركة.
+  // null = «معلومات الزبون» (تسميات المسوقين)، 'yazen' = مطابقة صفوف اليزن في ميركاتو (YazenOfficeMatch).
+  pharmacyExclusionSource String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -3837,4 +3842,38 @@ model DofiedSync {
   updatedAt      DateTime  @updatedAt
 
   @@map("dofied_sync")
+}
+
+// ─── مطابقة صفوف «اليزن» (ميركاتو) بصفوف ملف المكتب — زر «بدون الفارمسي» ───
+// تُحسب في الخلفية بعد كل رفع/حذف (server/lib/yazenOfficeMatch.js) وتُقرأ جاهزة في التقرير.
+model YazenOfficeMatch {
+  id            Int      @id @default(autoincrement())
+  scopeKey      String
+  officeSaleId  Int      @unique
+  mercatoSaleId Int
+  marketerRepId Int?
+  gapDays       Int
+  createdAt     DateTime @default(now())
+
+  officeSale  Sale @relation("YazenOfficeSale", fields: [officeSaleId], references: [id], onDelete: Cascade)
+  mercatoSale Sale @relation("YazenMercatoSale", fields: [mercatoSaleId], references: [id], onDelete: Cascade)
+
+  @@index([scopeKey])
+  @@index([mercatoSaleId])
+  @@map("yazen_office_matches")
+}
+
+model YazenMatchRun {
+  id          Int       @id @default(autoincrement())
+  scopeKey    String    @unique
+  fingerprint String?
+  status      String    @default("idle") // idle | running | failed
+  matched     Int       @default(0)
+  yazenRows   Int       @default(0)
+  ms          Int       @default(0)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  error       String?
+
+  @@map("yazen_match_runs")
 }

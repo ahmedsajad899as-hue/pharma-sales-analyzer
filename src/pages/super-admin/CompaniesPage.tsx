@@ -5,7 +5,24 @@ import { parseExcelFile } from '../../services/excelParser';
 import { Spinner, ErrBox, Modal, Field, btnStyle } from './OfficesPage';
 
 interface Office   { id: number; name: string; }
-interface Company  { id: number; name: string; officeId: number; isActive: boolean; notes?: string; office?: { name: string }; _count?: { items: number; lines: number }; }
+interface Company  { id: number; name: string; officeId: number; isActive: boolean; notes?: string; office?: { name: string }; _count?: { items: number; lines: number }; pharmacyExclusionSource?: string | null; }
+/** آخر مطابقة يزن↔مكتب لكل نطاق (server/lib/yazenOfficeMatch.js). */
+interface YazenRun { scopeKey: string; label: string; status: string; matched: number; yazenRows: number; ms: number; finishedAt: string | null; error: string | null; busy: boolean; }
+
+// «بدون الفارمسي» في تقرير العلميين: كيف تُعرف صفوف الفارمسي في ملف المكتب لايتمات الشركة.
+const EXCLUSION_MODES: { value: string | null; icon: string; label: string; tip: string }[] = [
+  { value: null,    icon: '📇', label: 'معلومات الزبون', tip: 'صفوف ملف المكتب التي «معلومات الزبون» فيها فارمسي لاين (تسميات المسوقين)' },
+  { value: 'yazen', icon: '🔗', label: 'مطابقة اليزن',   tip: 'صفوف ملف المكتب المطابقة لطلبيات اليزن في ميركاتو باسم المسوقين (الايتم + الكمية + الصيدلية، واليزن يسبق المكتب بيوم غالباً)' },
+];
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return '—';
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'الآن';
+  if (m < 60) return `قبل ${m} د`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `قبل ${h} س` : `قبل ${Math.round(h / 24)} يوم`;
+}
 interface Item     { id: number; name: string; scientificName?: string; dosage?: string; form?: string; price?: number | null; scientificMessage?: string; }
 interface Line     { id: number; name?: string; isActive: boolean; lineItems: { item: Item }[]; }
 interface CompanyDetail extends Company { items: Item[]; lines: Line[]; }
@@ -276,8 +293,34 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
       .finally(() => setOrgLoading(false));
   };
 
+  const [yazenRuns, setYazenRuns] = useState<YazenRun[]>([]);
+  const [rerunning, setRerunning] = useState<string | null>(null);
+  const loadYazen = () => {
+    fetch('/api/sa/companies/yazen-match/status', { headers: H() }).then(r => r.json())
+      .then(d => { if (d.success) setYazenRuns(d.data); }).catch(() => {});
+  };
+  const rerunYazen = async (scopeKey: string) => {
+    setRerunning(scopeKey);
+    try {
+      const r = await fetch('/api/sa/companies/yazen-match/rerun', { method: 'POST', headers: H(), body: JSON.stringify({ scopeKey }) });
+      const d = await r.json();
+      if (!d.success) alert(d.error || 'فشلت المطابقة');
+    } finally { setRerunning(null); loadYazen(); }
+  };
+  const setExclusion = async (c: Company, source: string | null) => {
+    if ((c.pharmacyExclusionSource ?? null) === source) return;
+    setCompanies(list => list.map(x => (x.id === c.id ? { ...x, pharmacyExclusionSource: source } : x)));
+    const r = await fetch(`/api/sa/companies/${c.id}/pharmacy-exclusion`, { method: 'PUT', headers: H(), body: JSON.stringify({ source }) });
+    const d = await r.json().catch(() => ({}));
+    if (!d.success) {
+      setCompanies(list => list.map(x => (x.id === c.id ? { ...x, pharmacyExclusionSource: c.pharmacyExclusionSource ?? null } : x)));
+      alert(d.error || 'تعذّر الحفظ');
+    }
+  };
+
   const load = () => {
     setLoading(true);
+    loadYazen();
     Promise.all([
       fetch('/api/sa/companies', { headers: H() }).then(r => r.json()),
       fetch('/api/sa/offices',   { headers: H() }).then(r => r.json()),
@@ -729,6 +772,22 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
         <button onClick={() => setForm({ name: '', isActive: true })} style={btnStyle('#1e293b')}>+ إضافة شركة</button>
       </div>
 
+      {yazenRuns.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 12, color: '#475569' }}>
+          <span style={{ fontWeight: 700 }} title="مطابقة طلبيات اليزن (ميركاتو) بصفوف ملف المكتب — تُعاد تلقائياً في الخلفية بعد كل رفع أو حذف ملف">🔗 مطابقة اليزن:</span>
+          {yazenRuns.map(r => (
+            <span key={r.scopeKey} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: r.status === 'failed' ? '#fef2f2' : '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 20, padding: '3px 10px' }}
+              title={r.error || `آخر مطابقة ${r.finishedAt ? new Date(r.finishedAt).toLocaleString('ar-IQ') : '—'} · ${r.ms}ms`}>
+              <b>{r.label}</b>
+              <span>{r.matched}/{r.yazenRows} صف</span>
+              <span style={{ color: '#94a3b8' }}>{r.busy || r.status === 'running' ? 'جاري التحديث…' : r.status === 'failed' ? 'فشلت' : timeAgo(r.finishedAt)}</span>
+              <button onClick={() => rerunYazen(r.scopeKey)} disabled={rerunning === r.scopeKey} title="إعادة المطابقة الآن"
+                style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, fontSize: 13, color: '#3b82f6' }}>{rerunning === r.scopeKey ? '…' : '↻'}</button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {loading ? <Spinner /> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(270px,1fr))', gap: 12 }}>
           {companies.map(c => (
@@ -745,7 +804,23 @@ export default function CompaniesPage({ onOpenUser }: { onOpenUser?: (userId: nu
                   {c.isActive ? 'نشط' : 'معطل'}
                 </span>
               </div>
-              <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 12 }}>{c.office?.name} · {c._count?.items ?? 0} ايتم · {c._count?.lines ?? 0} لاين</div>
+              <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 10 }}>{c.office?.name} · {c._count?.items ?? 0} ايتم · {c._count?.lines ?? 0} لاين</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: 11.5, color: '#64748b' }} onClick={e => e.stopPropagation()}
+                title="زر «بدون الفارمسي» في تقرير العلميين: كيف تُعرف صفوف الفارمسي في ملف المكتب لهذه الشركة">
+                <span>🏪 بدون الفارمسي:</span>
+                <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                  {EXCLUSION_MODES.map(m => {
+                    const on = (c.pharmacyExclusionSource ?? null) === m.value;
+                    return (
+                      <button key={m.label} onClick={() => setExclusion(c, m.value)} title={m.tip} aria-pressed={on}
+                        style={{ border: 'none', padding: '3px 9px', fontSize: 11.5, cursor: 'pointer', fontWeight: on ? 700 : 500,
+                          background: on ? '#1e293b' : '#fff', color: on ? '#fff' : '#475569' }}>
+                        {m.icon} {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
                 <button onClick={() => setForm({ ...c })} style={btnStyle('#3b82f6', true)}>تعديل</button>
                 <button onClick={() => toggleCompany(c)} style={btnStyle(c.isActive ? '#d97706' : '#16a34a', true)}>{c.isActive ? 'تعطيل' : 'تفعيل'}</button>
