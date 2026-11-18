@@ -173,6 +173,12 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   // استبعاد مبيعات/مرتجعات المذاخر عن تقارير المندوبين العلميين — مفتاح مستقل، مُفعّل افتراضياً
   const [excludeWarehouse, setExcludeWarehouse] = useState(true);
   const [excludeWarehouseToggling, setExcludeWarehouseToggling] = useState(false);
+  // الحالة الفعلية من السيرفر وصلت؟ قبلها الزر معطّل — كانت الضغطة تقلب القيمة الافتراضية لا المحفوظة.
+  const [excludeWarehouseReady, setExcludeWarehouseReady] = useState(false);
+  // نطاق الاستبعاد: أسماء الشركات المشمولة (فارغ = كل الشركات).
+  const [excludeWarehouseCompanies, setExcludeWarehouseCompanies] = useState<string[]>([]);
+  const [whScopeOpen, setWhScopeOpen] = useState(false);
+  const whScopeRef = useRef<HTMLDivElement>(null);
   const [blockKind, setBlockKind]           = useState<BlockKind>('commercial');
   const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string; enabled: boolean }[]>>({ commercial: [], area: [], item: [], pharmacy: [], customerInfo: [] });
   // حجب جزئي: مناطق محددة لمندوب تجاري محدد (لا المندوب كاملاً)
@@ -248,9 +254,6 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       fetch(`${API}/api/scientific-reps/blocking-enabled`, { headers: authH() })
         .then(r => r.json()).then(j => { if (typeof j?.data?.enabled === 'boolean') setBlockingEnabled(j.data.enabled); })
         .catch(() => {});
-      fetch(`${API}/api/scientific-reps/exclude-warehouse-sales`, { headers: authH() })
-        .then(r => r.json()).then(j => { if (typeof j?.data?.enabled === 'boolean') setExcludeWarehouse(j.data.enabled); })
-        .catch(() => {});
 
       const namesOf = async (r: Response) => {
         const j = await r.json().catch(() => ({}));
@@ -265,6 +268,29 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   }, [token]);
   useEffect(() => { loadBlocked(); }, [loadBlocked]);
 
+  // مفتاح المذاخر يُجلب وحده فوراً (لا ينتظر قوائم الحجب والأسماء الثقيلة أعلاه).
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API}/api/scientific-reps/exclude-warehouse-sales`, { headers: authH() })
+      .then(r => r.json())
+      .then(j => {
+        if (!alive) return;
+        if (typeof j?.data?.enabled === 'boolean') setExcludeWarehouse(j.data.enabled);
+        if (Array.isArray(j?.data?.companies)) setExcludeWarehouseCompanies(j.data.companies);
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setExcludeWarehouseReady(true); });
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  useEffect(() => {
+    if (!whScopeOpen) return;
+    const h = (e: MouseEvent) => { if (whScopeRef.current && !whScopeRef.current.contains(e.target as Node)) setWhScopeOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [whScopeOpen]);
+
   const toggleBlocking = async () => {
     const next = !blockingEnabled;
     setBlockingToggling(true);
@@ -274,21 +300,42 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ enabled: next }),
       });
       if (!r.ok) throw new Error('فشل');
+      window.dispatchEvent(new CustomEvent('report-data-changed'));
     } catch { setBlockingEnabled(!next); }
     finally { setBlockingToggling(false); }
   };
 
-  const toggleExcludeWarehouse = async () => {
-    const next = !excludeWarehouse;
+  // حفظ مفتاح المذاخر (+ نطاق الشركات اختيارياً). بعد النجاح تُمسح تقارير المندوبين
+  // المخزّنة في صفحة التقارير ويُعاد جلب المعروض — بدونه كان التقرير يبقى بالأرقام القديمة
+  // حتى دقيقتين (والتحميل المسبق حتى 10 دقائق).
+  const saveExcludeWarehouse = async (enabled: boolean, companies?: string[]) => {
+    const prev = { enabled: excludeWarehouse, companies: excludeWarehouseCompanies };
     setExcludeWarehouseToggling(true);
-    setExcludeWarehouse(next); // optimistic
+    setExcludeWarehouse(enabled); // optimistic
+    if (companies) setExcludeWarehouseCompanies(companies);
     try {
       const r = await fetch(`${API}/api/scientific-reps/exclude-warehouse-sales`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() }, body: JSON.stringify({ enabled: next }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authH() },
+        body: JSON.stringify(companies ? { enabled, companies } : { enabled }),
       });
-      if (!r.ok) throw new Error('فشل');
-    } catch { setExcludeWarehouse(!next); }
-    finally { setExcludeWarehouseToggling(false); }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.message || 'فشل');
+      if (typeof j?.data?.enabled === 'boolean') setExcludeWarehouse(j.data.enabled);
+      if (Array.isArray(j?.data?.companies)) setExcludeWarehouseCompanies(j.data.companies);
+      window.dispatchEvent(new CustomEvent('report-data-changed'));
+    } catch {
+      setExcludeWarehouse(prev.enabled);
+      setExcludeWarehouseCompanies(prev.companies);
+    } finally { setExcludeWarehouseToggling(false); }
+  };
+  const toggleExcludeWarehouse = () => saveExcludeWarehouse(!excludeWarehouse);
+  const toggleWhCompany = (name: string) => {
+    const key = normalizeAr(name).toLowerCase();
+    const has = excludeWarehouseCompanies.some(c => normalizeAr(c).toLowerCase() === key);
+    const next = has
+      ? excludeWarehouseCompanies.filter(c => normalizeAr(c).toLowerCase() !== key)
+      : [...excludeWarehouseCompanies, name];
+    saveExcludeWarehouse(excludeWarehouse, next);
   };
 
   const addBlock = async (rawName: string) => {
@@ -741,23 +788,70 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
       {/* ── Global block panel (commercial reps / areas / items) ── */}
       {user?.role !== 'scientific_rep' && (
         <div style={{ margin: '0 0 18px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start' }}>
-          <button onClick={toggleExcludeWarehouse} disabled={excludeWarehouseToggling}
+          <div ref={whScopeRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={toggleExcludeWarehouse} disabled={excludeWarehouseToggling || !excludeWarehouseReady}
             title={excludeWarehouse
               ? 'استبعاد مبيعات ومرتجعات المذاخر عن تقارير المندوبين العلميين — مُفعّل (اضغط للإيقاف)'
               : 'استبعاد مبيعات ومرتجعات المذاخر متوقّف — اضغط للتفعيل'}
             style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 20,
-              cursor: excludeWarehouseToggling ? 'default' : 'pointer', fontSize: 12, fontWeight: 700,
+              cursor: excludeWarehouseToggling || !excludeWarehouseReady ? 'default' : 'pointer', fontSize: 12, fontWeight: 700,
               border: `1.5px solid ${excludeWarehouse ? '#16a34a' : '#cbd5e1'}`,
               background: excludeWarehouse ? '#dcfce7' : '#f1f5f9',
               color: excludeWarehouse ? '#166534' : '#64748b',
-              opacity: excludeWarehouseToggling ? 0.6 : 1,
+              opacity: excludeWarehouseToggling || !excludeWarehouseReady ? 0.6 : 1,
             }}>
             <span style={{ width: 30, height: 16, borderRadius: 10, background: excludeWarehouse ? '#16a34a' : '#cbd5e1', position: 'relative', flexShrink: 0 }}>
               <span style={{ position: 'absolute', top: 2, left: excludeWarehouse ? 16 : 2, width: 12, height: 12, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
             </span>
             🏬 استبعاد مبيعات المذاخر
           </button>
+          {excludeWarehouse && excludeWarehouseReady && (
+            <button onClick={() => setWhScopeOpen(o => !o)}
+              title="اختيار الشركات/التيمات التي يُطبَّق عليها الاستبعاد — بلا اختيار = كل الشركات"
+              style={{
+                padding: '6px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                border: '1.5px solid #86efac', background: '#fff', color: '#166534', whiteSpace: 'nowrap',
+              }}>
+              {excludeWarehouseCompanies.length === 0
+                ? 'كل الشركات ▾'
+                : excludeWarehouseCompanies.length <= 2
+                  ? `${excludeWarehouseCompanies.join('، ')} ▾`
+                  : `${excludeWarehouseCompanies.length} شركات ▾`}
+            </button>
+          )}
+          {whScopeOpen && excludeWarehouse && (() => {
+            const groupNames = companyGroups.filter(g => g.key !== '__none__').map(g => g.name);
+            const keyOf = (n: string) => normalizeAr(n).toLowerCase();
+            const known = new Set(groupNames.map(keyOf));
+            const names = [...groupNames, ...excludeWarehouseCompanies.filter(c => !known.has(keyOf(c)))];
+            const picked = new Set(excludeWarehouseCompanies.map(keyOf));
+            return (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 6px)', insetInlineStart: 0, zIndex: 50, minWidth: 230, maxWidth: 'min(320px, 90vw)',
+                background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, boxShadow: '0 10px 30px rgba(15,23,42,.15)', padding: 10,
+              }}>
+                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8, lineHeight: 1.5 }}>
+                  الشركات المشمولة بالاستبعاد. بلا اختيار = كل الشركات. غير المختارة تبقى مبيعات مذاخرها ظاهرة.
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderBottom: '1px solid #f1f5f9', marginBottom: 4 }}>
+                  <input type="checkbox" checked={excludeWarehouseCompanies.length === 0} disabled={excludeWarehouseToggling}
+                    onChange={() => { if (excludeWarehouseCompanies.length) saveExcludeWarehouse(excludeWarehouse, []); }} />
+                  كل الشركات
+                </label>
+                <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                  {names.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', padding: 4 }}>لا توجد شركات</div>}
+                  {names.map(n => (
+                    <label key={n} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', fontSize: 12, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={picked.has(keyOf(n))} disabled={excludeWarehouseToggling} onChange={() => toggleWhCompany(n)} />
+                      <span style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}>{n}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+          </div>
           {(() => {
             const totalBlocked = Object.values(blockedLists).reduce((sum, list) => sum + list.length, 0);
             return !blockPanelOpen ? (

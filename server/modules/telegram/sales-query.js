@@ -104,14 +104,14 @@ export async function answerSalesQuery({ actorUser, repNameRaw, month, year, qua
 
   // وضع «تفاصيل»: يكشف المدخلات التي تصنع أي فرق عن شاشة التطبيق — مجموعة
   // الملفات، وحساب المُشاهِد (مفاتيح الحجب واستبعاد المذاخر شخصية لكل حساب).
-  const excludeWarehouse = await sciRepSvc.getExcludeWarehouseSales(actorUser.id);
+  const whCfg = await sciRepSvc.getExcludeWarehouseConfig(actorUser.id);
   const shown = files.names.slice(0, 10).map((n) => `   • ${n}`).join('\n');
   return [
     answer,
     '',
     '— تفاصيل الحساب —',
     `الحساب: ${actorUser.displayName || actorUser.username} (#${actorUser.id})`,
-    `استبعاد مبيعات المذاخر: ${excludeWarehouse ? 'نعم' : 'لا'}`,
+    `استبعاد مبيعات المذاخر: ${whCfg.enabled ? (whCfg.companies.length ? `نعم (${whCfg.companies.join('، ')})` : 'نعم') : 'لا'}`,
     `مصدر الملفات: ${files.source}`,
     `الملفات (${files.ids.length}):`,
     shown + (files.names.length > 10 ? `\n   • … و${files.names.length - 10} غيرها` : ''),

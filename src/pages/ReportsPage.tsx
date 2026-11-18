@@ -826,12 +826,25 @@ const REPORT_CACHE_MAX = 150;
 const REPORT_INFLIGHT = new Map<string, Promise<ReportPair>>();
 let sciReportSeq = 0;
 let commReportSeq = 0;
+// إعداد يغيّر أرقام تقارير المندوبين (استبعاد المذاخر، مفتاح الحجب) حُفظ في صفحة أخرى ←
+// تُرمى تقاريرهم المخزّنة فوراً. على مستوى الوحدة كي يعمل حتى والصفحة غير مركّبة. الجيل
+// يمنع طلباً بدأ قبل التغيير من إعادة تخزين أرقام قديمة.
+let repCacheGen = 0;
+if (typeof window !== 'undefined') {
+  window.addEventListener('report-data-changed', () => {
+    repCacheGen++;
+    SCI_REPORT_CACHE.clear();
+    COMM_REPORT_CACHE.clear();
+    REPORT_INFLIGHT.clear();
+  });
+}
 function fetchReportPair(
   cache: Map<string, ReportPair>, key: string, base: string,
   headers: Record<string, string>, parse: (d: any) => any, errMsg: string,
 ): Promise<ReportPair> {
   const running = REPORT_INFLIGHT.get(key);
   if (running) return running;
+  const gen = repCacheGen;
   const p = (async () => {
     const [salesRes, returnsRes] = await Promise.all([
       fetch(`${base}&recordType=sale`, { headers }),
@@ -844,10 +857,12 @@ function fetchReportPair(
       returns: returnsRes.ok ? parse(returnsJson.data ?? returnsJson) : null,
       at: Date.now(),
     };
-    cache.delete(key); cache.set(key, pair);
-    if (cache.size > REPORT_CACHE_MAX) cache.delete(cache.keys().next().value!);
+    if (gen === repCacheGen) {
+      cache.delete(key); cache.set(key, pair);
+      if (cache.size > REPORT_CACHE_MAX) cache.delete(cache.keys().next().value!);
+    }
     return pair;
-  })().finally(() => REPORT_INFLIGHT.delete(key));
+  })().finally(() => { if (REPORT_INFLIGHT.get(key) === p) REPORT_INFLIGHT.delete(key); });
   REPORT_INFLIGHT.set(key, p);
   return p;
 }
@@ -1698,6 +1713,8 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
   };
   // طلبات يطلبها المستخدم الآن — التحميل المسبق يتوقف مؤقتاً حتى تنتهي.
   const userLoads = useRef(0);
+  // يزيد مع «report-data-changed» — يُعيد تشغيل التحميل المسبق بعد رمي الكاش.
+  const [repDataGen, setRepDataGen] = useState(0);
   const resetReportView = () => {
     setReportView(getDefaultReportView());
     setShowTargets(false);
@@ -1859,7 +1876,7 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, hasRepReport, monthsReady, prefetchIds, fromDate, toDate, activeFileIds.join(','), selMonth, excludePharmacy, excludeCommercial, repKindView, user?.id]);
+  }, [mode, hasRepReport, monthsReady, prefetchIds, fromDate, toDate, activeFileIds.join(','), selMonth, excludePharmacy, excludeCommercial, repKindView, user?.id, repDataGen]);
 
   // ملخص صافي المبيع + طلبيات المكتب/المذخر لكل المندوبين العلميين المرئيين
   // للمستخدم دفعة واحدة — القائمة الثانوية «كل المندوبين العلميين».
@@ -2056,6 +2073,20 @@ export default function ReportsPage({ activeFileIds, onNavigate, aiSalesTarget }
     if (mode === 'commercial' && commRepId && commReport) loadCommReport();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selMonth, mode]);
+
+  // إعداد يغيّر الأرقام حُفظ (استبعاد المذاخر/الحجب) — الكاش رُمي على مستوى الوحدة؛ هنا
+  // يُعاد جلب التقرير المعروض فوراً بدل انتظار ضغطة «عرض» أو انتهاء عمر الكاش.
+  const reloadShownRef = useRef<() => void>(() => {});
+  reloadShownRef.current = () => {
+    if (provReportOpen && sciRepId && sciReport) loadSciReport(sciRepId, { list: provReps, liquidation: true, province: provRepProvince ?? undefined });
+    else if (repMode === 'scientific' && sciRepId && sciReport) loadSciReport();
+    if (mode === 'commercial' && commRepId && commReport) loadCommReport();
+  };
+  useEffect(() => {
+    const h = () => { setRepDataGen(g => g + 1); reloadShownRef.current(); };
+    window.addEventListener('report-data-changed', h);
+    return () => window.removeEventListener('report-data-changed', h);
+  }, []);
 
   // أسماء التقرير الفعلية → المساعد الصوتي (يطابق بها النطق العامي). تُحفظ لكل
   // مستخدم في localStorage كي تتوفر حتى لو لم تكن صفحة التقارير مفتوحة.

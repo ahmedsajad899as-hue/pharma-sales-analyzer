@@ -640,14 +640,55 @@ export async function setBlockingEnabled(userId, enabled) {
 // ─── Master on/off switch: exclude warehouse (مذخر) sales/returns from sci-rep reports ──
 // Independent of the block-lists feature above — no names to manage, just a flag
 // read directly off the viewer's own account (see resolveSciRepSales/isWarehouseSaleRow).
-export async function getExcludeWarehouseSales(userId) {
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { excludeWarehouseSales: true } });
-  return u?.excludeWarehouseSales ?? true;
+// الإعداد يُقرأ مرة لكل مندوب في التقرير (تقرير مجموعة = عشرات المندوبين) — مذكّرة قصيرة
+// لكل حساب، تُمسح فور الحفظ.
+const _exWhMemo = new Map(); // userId -> { at, cfg }
+const EX_WH_MEMO_MS = 15 * 1000;
+const companyKey = (name) => normalizeArabic(String(name ?? '')).toLowerCase().trim();
+
+/** @returns {Promise<{ enabled: boolean, companies: string[] }>} companies فارغة = كل الشركات */
+export async function getExcludeWarehouseConfig(userId) {
+  const m = _exWhMemo.get(userId);
+  if (m && Date.now() - m.at < EX_WH_MEMO_MS) return m.cfg;
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { excludeWarehouseSales: true, excludeWarehouseCompanies: true } });
+  const cfg = { enabled: u?.excludeWarehouseSales ?? true, companies: u?.excludeWarehouseCompanies ?? [] };
+  _exWhMemo.set(userId, { at: Date.now(), cfg });
+  return cfg;
 }
 
-export async function setExcludeWarehouseSales(userId, enabled) {
-  await prisma.user.update({ where: { id: userId }, data: { excludeWarehouseSales: !!enabled } });
-  return { enabled: !!enabled };
+export async function getExcludeWarehouseSales(userId) {
+  return (await getExcludeWarehouseConfig(userId)).enabled;
+}
+
+/** أسماء شركات المندوب العلمي المطبَّعة — نفس تجميع صفحة «المندوبون العلميون». */
+function repCompanyKeys(rep) {
+  const names = (rep?.companies ?? []).map(c => c.company?.name).filter(Boolean);
+  if (!names.length && rep?.company) names.push(rep.company);
+  return names.map(companyKey).filter(Boolean);
+}
+
+/** هل يُستبعد مبيع المذاخر من تقرير هذا المندوب لهذا المُشاهِد؟ */
+async function excludeWarehouseForRep(viewerId, rep) {
+  if (!viewerId) return true;
+  const cfg = await getExcludeWarehouseConfig(viewerId);
+  if (!cfg.enabled) return false;
+  if (!cfg.companies.length) return true;
+  const scope = new Set(cfg.companies.map(companyKey));
+  return repCompanyKeys(rep).some(k => scope.has(k));
+}
+
+export async function setExcludeWarehouseSales(userId, enabled, companies) {
+  const data = { excludeWarehouseSales: !!enabled };
+  if (Array.isArray(companies)) {
+    const seen = new Set();
+    data.excludeWarehouseCompanies = companies
+      .map(c => String(c ?? '').trim()).filter(Boolean)
+      .filter(c => { const k = companyKey(c); if (seen.has(k)) return false; seen.add(k); return true; })
+      .slice(0, 200);
+  }
+  const u = await prisma.user.update({ where: { id: userId }, data, select: { excludeWarehouseSales: true, excludeWarehouseCompanies: true } });
+  _exWhMemo.delete(userId);
+  return { enabled: u.excludeWarehouseSales, companies: u.excludeWarehouseCompanies };
 }
 
 // isWarehouseSaleRow انتقلت إلى lib/orderKey.js (مُعاد تصديرها هنا كي لا ينكسر
@@ -1885,7 +1926,8 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
 
   // استبعاد مبيعات/مرتجعات المذاخر — مفتاح المُشاهِد نفسه (لا الملف)، مُفعّل
   // افتراضياً. راجع isWarehouseSaleRow أعلاه وgetExcludeWarehouseSales.
-  const excludeWarehouse = viewerId ? await getExcludeWarehouseSales(viewerId) : true;
+  // نطاق الشركات: يُطبَّق فقط إن كانت إحدى شركات المندوب ضمن ما اختاره المُشاهِد (فارغ = الكل).
+  const excludeWarehouse = await excludeWarehouseForRep(viewerId, rep);
   // الترانزيت مبيع لمذخر شكلاً فقط — يبقى.
   const filtered = excludeWarehouse ? deduped.filter(s => s.transit || !isWarehouseSaleRow(s.rawData)) : deduped;
   // rawData هنا مؤقت لأجل الفلتر أعلاه فقط حين لم يطلبه الـselect أصلاً
@@ -2256,13 +2298,29 @@ async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId 
       uploadedFile: { select: { detectedCurrency: true, exchangeRate: true, sourceSystem: true, mergeGroup: true } },
     },
   });
-  const excludeWarehouse = viewerId ? await getExcludeWarehouseSales(viewerId) : true;
+  // استبعاد المذاخر لكل مندوب حسب نطاق الشركات المختار (فارغ = الكل).
+  const whCfg = viewerId ? await getExcludeWarehouseConfig(viewerId) : { enabled: true, companies: [] };
+  let whRepIds = null; // null = كل المندوبين
+  if (whCfg.enabled && whCfg.companies.length) {
+    const scope = new Set(whCfg.companies.map(companyKey));
+    const reps = await prisma.scientificRepresentative.findMany({
+      where: { id: { in: repIds } },
+      select: { id: true, company: true, companies: { select: { company: { select: { name: true } } } } },
+    });
+    whRepIds = new Set(reps.filter(r => repCompanyKeys(r).some(k => scope.has(k))).map(r => r.id));
+  }
+  const dropWarehouse = (s) => {
+    if (!whCfg.enabled || !isWarehouseSaleRow(s.rawData)) return false;
+    if (!whRepIds) return true;
+    const ids = repsByName.get(normalizeRepName(s.representative?.name ?? ''));
+    return !!ids && [...ids].some(id => whRepIds.has(id));
+  };
   const named = sales.filter(s => isLiquidationRow(s)
     && repsByName.has(normalizeRepName(s.representative?.name ?? ''))
     && !blocks.areas.has(normalizeArabic(s.area?.name ?? ''))
     && !blocks.items.has(normalizeArabic(s.item?.name ?? ''))
     && !blocks.pharmacies.has(normalizeArabic(s.customer?.name ?? ''))
-    && !(excludeWarehouse && isWarehouseSaleRow(s.rawData)));
+    && !dropWarehouse(s));
   // نفس مفتاح التكرار بين الملفات المتداخلة في resolveSciRepSales.
   const unique = dedupCrossFile(named, s => [
     normalizeArabic(s.representative?.name ?? ''), s.areaId, normalizeArabic(s.item?.name ?? ''),

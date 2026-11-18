@@ -223,14 +223,16 @@ export async function setBlockingEnabled(req, res, next) {
 // ── Master on/off switch: exclude warehouse (مذخر) sales/returns ────────────
 export async function getExcludeWarehouseSales(req, res, next) {
   try {
-    const enabled = await svc.getExcludeWarehouseSales(req.user.id);
-    res.json({ success: true, data: { enabled } });
+    const data = await svc.getExcludeWarehouseConfig(req.user.id);
+    res.json({ success: true, data });
   } catch (err) { next(err); }
 }
 
 export async function setExcludeWarehouseSales(req, res, next) {
   try {
-    const result = await svc.setExcludeWarehouseSales(req.user.id, !!req.body?.enabled);
+    // companies اختياري: غيابه يُبقي النطاق المحفوظ كما هو (ضغط المفتاح وحده).
+    const companies = Array.isArray(req.body?.companies) ? req.body.companies : undefined;
+    const result = await svc.setExcludeWarehouseSales(req.user.id, !!req.body?.enabled, companies);
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 }
