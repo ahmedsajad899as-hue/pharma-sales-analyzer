@@ -656,6 +656,28 @@ export async function getExcludeWarehouseConfig(userId) {
   return cfg;
 }
 
+/**
+ * الشركات الرئيسية لمدراء الشركات (UserCompanyAssignment.isPrimary) — لقائمة نطاق
+ * استبعاد المذاخر. شركات المندوبين (ScientificRepCompany) تضم شركات فرعية/قديمة لا
+ * يملكها أي مدير (ALFURAT، savvy pharma…) فلا تُعرض. مقيّدة بمكتب المُشاهِد إن كان له مكتب.
+ */
+export async function listManagersPrimaryCompanies(userId) {
+  const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { officeId: true } });
+  const rows = await prisma.userCompanyAssignment.findMany({
+    where: {
+      isPrimary: true,
+      user: { role: 'company_manager', isActive: true, ...(viewer?.officeId ? { officeId: viewer.officeId } : {}) },
+    },
+    select: { company: { select: { name: true } } },
+  });
+  const seen = new Map();
+  for (const r of rows) {
+    const n = r.company?.name?.trim();
+    if (n && !seen.has(companyKey(n))) seen.set(companyKey(n), n);
+  }
+  return [...seen.values()];
+}
+
 export async function getExcludeWarehouseSales(userId) {
   return (await getExcludeWarehouseConfig(userId)).enabled;
 }

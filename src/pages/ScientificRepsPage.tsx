@@ -178,6 +178,8 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
   // نطاق الاستبعاد: أسماء الشركات المشمولة (فارغ = كل الشركات).
   const [excludeWarehouseCompanies, setExcludeWarehouseCompanies] = useState<string[]>([]);
   const [whScopeOpen, setWhScopeOpen] = useState(false);
+  // الشركات الرئيسية لمدراء الشركات (null = لم تصل → تُعرض كل شركات المندوبين).
+  const [whPrimaryCompanies, setWhPrimaryCompanies] = useState<string[] | null>(null);
   const whScopeRef = useRef<HTMLDivElement>(null);
   const [blockKind, setBlockKind]           = useState<BlockKind>('commercial');
   const [blockedLists, setBlockedLists]     = useState<Record<BlockKind, { id: number; name: string; enabled: boolean }[]>>({ commercial: [], area: [], item: [], pharmacy: [], customerInfo: [] });
@@ -277,6 +279,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
         if (!alive) return;
         if (typeof j?.data?.enabled === 'boolean') setExcludeWarehouse(j.data.enabled);
         if (Array.isArray(j?.data?.companies)) setExcludeWarehouseCompanies(j.data.companies);
+        if (Array.isArray(j?.data?.primaryCompanies)) setWhPrimaryCompanies(j.data.primaryCompanies);
       })
       .catch(() => {})
       .finally(() => { if (alive) setExcludeWarehouseReady(true); });
@@ -821,8 +824,12 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
             </button>
           )}
           {whScopeOpen && excludeWarehouse && (() => {
-            const groupNames = companyGroups.filter(g => g.key !== '__none__').map(g => g.name);
             const keyOf = (n: string) => normalizeAr(n).toLowerCase();
+            const allGroupNames = companyGroups.filter(g => g.key !== '__none__').map(g => g.name);
+            // فقط الشركات الرئيسية لمدراء الشركات — شركات المندوبين الفرعية (ALFURAT، savvy pharma…) لا تُعرض.
+            const primarySet = whPrimaryCompanies && whPrimaryCompanies.length ? new Set(whPrimaryCompanies.map(keyOf)) : null;
+            const inPrimary = primarySet ? allGroupNames.filter(n => primarySet.has(keyOf(n))) : allGroupNames;
+            const groupNames = primarySet && inPrimary.length === 0 ? whPrimaryCompanies! : inPrimary;
             const known = new Set(groupNames.map(keyOf));
             const names = [...groupNames, ...excludeWarehouseCompanies.filter(c => !known.has(keyOf(c)))];
             const picked = new Set(excludeWarehouseCompanies.map(keyOf));

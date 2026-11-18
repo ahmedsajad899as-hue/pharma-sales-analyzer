@@ -223,8 +223,11 @@ export async function setBlockingEnabled(req, res, next) {
 // ── Master on/off switch: exclude warehouse (مذخر) sales/returns ────────────
 export async function getExcludeWarehouseSales(req, res, next) {
   try {
-    const data = await svc.getExcludeWarehouseConfig(req.user.id);
-    res.json({ success: true, data });
+    const [cfg, primaryCompanies] = await Promise.all([
+      svc.getExcludeWarehouseConfig(req.user.id),
+      svc.listManagersPrimaryCompanies(req.user.id).catch(() => null),
+    ]);
+    res.json({ success: true, data: { ...cfg, primaryCompanies } });
   } catch (err) { next(err); }
 }
 
