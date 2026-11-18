@@ -259,5 +259,15 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('كابشن صورة: الصنف والكمية', itemLines.map(parseItemLine), [{ name: 'Amoklavin ES', quantity: 30, bonus: null }]);
 }
 
+// 2026-11-18: كروب Basra nasq — «عدد 10» سطراً وحده تحت الصنف (المحلل وحده رفضه فضاعت الطلبية)
+{
+  const t = 'ص زهراء هاشم رشيد\nDaytrix im\nعدد 10\nWinfast\nعدد 5';
+  const { header, itemLines } = parseOrderText(t);
+  check('«عدد N»: الصيدلية', header.pharmacy, 'زهراء هاشم رشيد');
+  check('«عدد N»: الأصناف والكميات', itemLines.map(parseItemLine),
+    [{ name: 'Daytrix im', quantity: 10, bonus: null }, { name: 'Winfast', quantity: 5, bonus: null }]);
+  check('«Pandev 40 10 عدد» في سطر واحد', parseItemLine('Pandev 40 10 عدد'), { name: 'Pandev 40', quantity: 10, bonus: null });
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);
