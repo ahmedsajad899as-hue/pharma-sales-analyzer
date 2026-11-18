@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import type { GroupableRep } from '../components/RepSelectOptions';
 import TargetsImportModal from '../components/TargetsImportModal';
 import TargetsMatrix from '../components/TargetsMatrix';
+import type { MatrixRep } from '../components/targetGroups';
 import { fetchActuals, fmtQty, pctClass, pctText, type ActualRow, type RepActuals } from '../components/TargetCompare';
-import ProvinceRepsToggle, { useProvinceRepScope, filterByProvinceScope } from '../components/ProvinceRepsToggle';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -37,17 +36,16 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   const isManager = MANAGER_ROLES.has(user?.role ?? '');
   const repType: 'scientific' | 'commercial' = COMMERCIAL_ROLES.has(user?.role ?? '') ? 'commercial' : 'scientific';
 
-  const [sciReps, setSciReps] = useState<GroupableRep[]>([]);
-  // بغداد افتراضياً؛ زر «مندوبي المحافظات» يعرضهم وحدهم (راجع ProvinceRepsToggle)
-  const [onlyProvince, setOnlyProvince] = useProvinceRepScope('targets');
-  const [commReps, setCommReps] = useState<GroupableRep[]>([]);
+  const [sciReps, setSciReps] = useState<MatrixRep[]>([]);
+  const [commReps, setCommReps] = useState<MatrixRep[]>([]);
   const [month, setMonth] = useState(NOW.getMonth() + 1);
   const [year, setYear] = useState(NOW.getFullYear());
   const [myTargets, setMyTargets] = useState<SavedTarget[]>([]);
   const [myActuals, setMyActuals] = useState<RepActuals | null>(null);
   const [loading, setLoading] = useState(false);
   const [allItems, setAllItems] = useState<NamedItem[]>([]);
-  const [showImport, setShowImport] = useState(false);
+  // الاستيراد يعمل على مندوبي التبويب المعروض (شركة / مسوقين)
+  const [importFor, setImportFor] = useState<{ reps: MatrixRep[]; groupName: string } | null>(null);
   const [importKey, setImportKey] = useState(0);
 
   // تارگتات المندوب نفسه — للاطلاع فقط
@@ -105,10 +103,9 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, isManager]);
 
-  // عمود المدير (معرّف سالب) يظهر مع مندوبي بغداد ومع مندوبي المحافظات: فريقه قد يشمل الاثنين
-  const reps = repType === 'scientific'
-    ? [...sciReps.filter(r => r.id < 0), ...filterByProvinceScope(sciReps.filter(r => r.id > 0), onlyProvince)]
-    : commReps;
+  // كل الأشخاص: الجدول يقسمهم تبويبات (شركة لكل مدير + مسوقين بغداد/المحافظات)،
+  // وبغداد/المحافظات صار فلتراً داخل الشركة نفسها
+  const reps: MatrixRep[] = repType === 'scientific' ? sciReps : commReps;
 
   const periodControls = (
     <>
@@ -135,29 +132,24 @@ export default function TargetsPage({ activeFileIds = [] }: { activeFileIds?: nu
           activeFileIds={activeFileIds}
           token={token}
           reloadKey={importKey}
-          controls={<>
-            {periodControls}
-            {repType === 'scientific' && (
-              <ProvinceRepsToggle reps={sciReps} value={onlyProvince} onChange={setOnlyProvince} compact />
-            )}
-          </>}
-          actions={
-            <button className="tg-btn" onClick={() => setShowImport(true)}
-              title="استيراد التارگت من ملف إكسل وتعميمه على كل المندوبين أو قسم منهم">
+          controls={periodControls}
+          actions={ctx => (
+            <button className="tg-btn" onClick={() => setImportFor(ctx)}
+              title={`استيراد التارگت من ملف إكسل وتعميمه على مندوبي ${ctx.groupName || 'المجموعة'} أو قسم منهم`}>
               استيراد إكسل
             </button>
-          }
+          )}
         />
-        {showImport && (
+        {importFor && (
           <TargetsImportModal
             repType={repType}
-            reps={reps.filter(r => r.id > 0)}
+            reps={importFor.reps.filter(r => r.id > 0)}
             allItems={allItems}
             month={month}
             year={year}
             monthLabel={MONTHS[month - 1]}
             token={token}
-            onClose={() => setShowImport(false)}
+            onClose={() => setImportFor(null)}
             onDone={() => setImportKey(k => k + 1)}
           />
         )}

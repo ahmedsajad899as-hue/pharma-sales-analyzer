@@ -1,23 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import './TargetsMatrix.css';
 import { fetchActuals, fmtQty, pctClass, pctText, TargetCompareModal, type ActualRow, type RepActuals } from './TargetCompare';
+import { buildTargetGroups, isLeader, isManagerCol, orderGroupColumns, type MatrixRep, type TargetGroup } from './targetGroups';
 
 /**
- * جدول التارگت الشامل: المندوبون أفقياً × الايتمات عمودياً لشهر واحد.
- * تحرير مباشر في الخلية، لصق كتلة من إكسل، تنقّل بالأسهم/Enter، تعميم قيمة على
- * صف كامل، وإجماليات للصف والعمود — بتصميم جدول الستوك (كثيف، رسمي، بلا ألوان).
- * أسفل كل عمود المبيع النت والإنجاز، والضغط على الاسم يفتح المقارنة ايتماً ايتماً.
- * عمود معرّفه سالب = مدير شركة: هدفه يتداخل مع فريقه، فلا يدخل المجموع ولا التعميم.
+ * جدول التارگت: تبويب لكل شركة (مدير شركة) + «مسوقين بغداد» + «مسوقين المحافظات».
+ * التبويب يعرض مندوبي تلك المجموعة أعمدةً × ايتمات مديرها صفوفاً — فالأعمدة قليلة
+ * وعريضة والأسماء كاملة. تحرير مباشر، لصق كتلة من إكسل، تنقّل بالأسهم/Enter،
+ * وعمود «للكل» ثابت بجانب الايتم يعمّم القيمة على كل مندوبي الصف أو على المحدَّدين
+ * منهم فقط (مربع الاختيار في رأس العمود). أسفل كل عمود المبيع النت والإنجاز، والضغط
+ * على الاسم يفتح المقارنة ايتماً ايتماً. عمود المدير (معرّف سالب) لا يدخل المجموع.
  *
- * البيانات بطلب واحد: GET /api/targets/matrix (تارگتات + نطاق ايتمات كل مندوب
- * علمي). الحفظ upsert لكل مندوب عُدّل عبر PUT /api/targets — نفس مسار الصفحة.
- * خلية خارج نطاق ايتمات المندوب العلمي مقفلة (نفس قاعدة جدول المندوب الواحد).
+ * البيانات بطلب واحد: GET /api/targets/matrix لكل الأشخاص (تارگتات + نطاق ايتمات كل
+ * شخص). الحفظ upsert لكل مندوب عُدّل عبر PUT /api/targets.
  */
 
 const API = import.meta.env.VITE_API_URL || '';
+const GROUP_STORE = 'targets:group';
 
 interface NamedItem { id: number; name: string; }
-interface MatrixRep { id: number; name: string; company?: string | null; role?: string; }
 
 interface Props {
   repType: 'scientific' | 'commercial';
@@ -29,18 +30,28 @@ interface Props {
   activeFileIds: number[];
   token: string | null;
   reloadKey?: number;
-  /** أدوات الصفحة (العنوان، الشهر، السنة) — تُعرض في بداية شريط الجدول */
+  /** أدوات الصفحة (العنوان، الشهر، السنة) — بداية الشريط العلوي */
   controls?: ReactNode;
-  /** أزرار الصفحة (الاستيراد) — تُعرض في نهاية شريط الجدول */
-  actions?: ReactNode;
+  /** أزرار الصفحة (الاستيراد) — تستلم مندوبي المجموعة المعروضة */
+  actions?: (ctx: { reps: MatrixRep[]; groupName: string }) => ReactNode;
 }
+
+type Region = 'all' | 'baghdad' | 'province';
 
 const key = (repId: number, itemId: number) => `${repId}:${itemId}`;
 const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const clean = (v: string) => v.replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[^\d.]/g, '');
-const isManagerCol = (repId: number) => repId < 0;
-const ROLE_RANK: Record<string, number> = { company_manager: 0, team_leader: 1 };
-const roleRank = (r: MatrixRep) => ROLE_RANK[r.role ?? ''] ?? 2;
+
+const readGroup = () => { try { return localStorage.getItem(GROUP_STORE) || ''; } catch { return ''; } };
+const writeGroup = (k: string) => { try { localStorage.setItem(GROUP_STORE, k); } catch { /* تفضيل عرض */ } };
+
+function roleLabel(r: MatrixRep): string {
+  if (isManagerCol(r.id)) return r.repKind === 'pharmacy' ? 'مدير المسوقين' : 'مدير';
+  const parts: string[] = [];
+  if (isLeader(r)) parts.push('قائد فريق');
+  if (r.isProvinceMember && r.repKind !== 'pharmacy') parts.push('محافظة');
+  return parts.join(' · ');
+}
 
 export default function TargetsMatrix({ repType, reps, allItems, month, year, monthLabel, activeFileIds, token, reloadKey = 0, controls, actions }: Props) {
   const H = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
@@ -52,11 +63,12 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
   const [scopeItems, setScopeItems] = useState<NamedItem[]>([]);
   const [targetItems, setTargetItems] = useState<NamedItem[]>([]);
 
+  const [groupKey, setGroupKey] = useState<string>(readGroup);
+  const [region, setRegion] = useState<Region>('all');
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulk, setBulk] = useState<Map<number, string>>(new Map());
   const [search, setSearch] = useState('');
   const [onlyFilled, setOnlyFilled] = useState(false);
-  const [company, setCompany] = useState<string>('');
-  const [fillItem, setFillItem] = useState<number | null>(null);
-  const [fillVal, setFillVal] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [flash, setFlash] = useState<Set<string>>(new Set());
@@ -68,8 +80,42 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
 
   const repIdsKey = reps.map(r => r.id).join(',');
 
-  // ── المبيع النت لكل شخص ──
-  // طلب لكل شخص وباثنين معاً: التقرير ثقيل والخادم بمعالج واحد، فتمتلئ الأعمدة تدريجياً.
+  // ── المجموعات ──
+  const groups = useMemo(() => buildTargetGroups(reps), [reps]);
+  const group: TargetGroup | undefined = groups.find(g => g.key === groupKey) ?? groups[0];
+  const pickGroup = (k: string) => {
+    setGroupKey(k); writeGroup(k);
+    setSelected(new Set()); setBulk(new Map()); setRegion('all');
+  };
+
+  const ordered = useMemo(() => (group ? orderGroupColumns(group) : { cols: [], blocks: [] }), [group]);
+  // بغداد/محافظات داخل الشركة — فقط حين تجمع الشركة الاثنين
+  const hasRegions = useMemo(() => {
+    const rs = group?.reps ?? [];
+    return group?.kind !== 'marketers' && rs.some(r => r.isProvinceMember) && rs.some(r => !r.isProvinceMember);
+  }, [group]);
+  const visReps = useMemo(() => {
+    if (!hasRegions || region === 'all') return ordered.cols;
+    const wantProv = region === 'province';
+    return ordered.cols.filter(r => isManagerCol(r.id) || !!r.isProvinceMember === wantProv);
+  }, [ordered, hasRegions, region]);
+  const blocks = useMemo(() => {
+    // نفس كتل الرأس بعد فلتر المنطقة: يُعاد عدّها على الأعمدة الظاهرة
+    if (visReps.length === ordered.cols.length) return ordered.blocks;
+    const shown = new Set(visReps.map(r => r.id));
+    const out: { label: string; span: number }[] = [];
+    let i = 0;
+    for (const b of ordered.blocks) {
+      const span = ordered.cols.slice(i, i + b.span).filter(r => shown.has(r.id)).length;
+      i += b.span;
+      if (span) out.push({ label: b.label, span });
+    }
+    return out;
+  }, [visReps, ordered]);
+  const showBlocks = blocks.length > 1;
+  const visIdsKey = visReps.map(r => r.id).join(',');
+
+  // ── المبيع النت لكل شخص — يُطلب لأعمدة التبويب الظاهر فقط، ويبقى محفوظاً عند التنقل ──
   const compareOn = repType === 'scientific';
   const fileKey = activeFileIds.join(',');
   const noFiles = compareOn && activeFileIds.length === 0;
@@ -78,29 +124,36 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
   const [actualsNonce, setActualsNonce] = useState(0);
   const [compareRepId, setCompareRepId] = useState<number | null>(null);
   const actualsScopeRef = useRef('');
+  const fetchedRef = useRef<Map<number, string>>(new Map());
 
   useEffect(() => {
-    const scope = `${month}|${year}|${fileKey}|${repIdsKey}`;
-    // نفس الفترة والأشخاص (بعد حفظ) تبقى الأرقام ظاهرة حتى تصل الجديدة
-    if (actualsScopeRef.current !== scope) { actualsScopeRef.current = scope; setActuals({}); }
-    if (!compareOn || !fileKey || !repIdsKey) { setActualsPending(0); return; }
+    const scope = `${month}|${year}|${fileKey}`;
+    if (actualsScopeRef.current !== scope) {
+      actualsScopeRef.current = scope;
+      fetchedRef.current = new Map();
+      setActuals({});
+    }
+    if (!compareOn || !fileKey || !visIdsKey) { setActualsPending(0); return; }
+    const stamp = `${scope}|${actualsNonce}|${reloadKey}`;
+    const queue = visIdsKey.split(',').map(Number).filter(id => fetchedRef.current.get(id) !== stamp);
+    if (!queue.length) { setActualsPending(0); return; }
     let cancelled = false;
-    const queue = repIdsKey.split(',').map(Number);
     const fileIds = fileKey.split(',').map(Number);
     setActualsPending(queue.length);
+    // التقرير ثقيل والخادم بمعالج واحد: طلبان معاً فتمتلئ الأعمدة تدريجياً
     const worker = async () => {
       while (queue.length && !cancelled) {
         const id = queue.shift()!;
         try {
           const data = await fetchActuals(id, { month, year, fileIds }, token);
-          if (!cancelled) setActuals(prev => ({ ...prev, [id]: data }));
+          if (!cancelled) { fetchedRef.current.set(id, stamp); setActuals(prev => ({ ...prev, [id]: data })); }
         } catch { /* يبقى عموده بلا رقم */ }
         if (!cancelled) setActualsPending(n => n - 1);
       }
     };
     worker(); worker();
     return () => { cancelled = true; };
-  }, [compareOn, month, year, fileKey, repIdsKey, token, actualsNonce, reloadKey]);
+  }, [compareOn, month, year, fileKey, visIdsKey, token, actualsNonce, reloadKey]);
 
   const actualByCell = useMemo(() => {
     const out: Record<number, Map<number, ActualRow>> = {};
@@ -184,22 +237,11 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
     return () => window.removeEventListener('beforeunload', h);
   }, []);
 
-  // ── الصفوف والأعمدة ──
+  // ── القيم ──
   const inScope = useCallback((repId: number, itemId: number) => {
     const s = scopes[repId];
     return s === undefined || s === null || s.has(itemId);
   }, [scopes]);
-
-  const companies = useMemo(() => {
-    const set = new Set<string>();
-    reps.forEach(r => set.add(r.company || ''));
-    return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b));
-  }, [reps]);
-
-  const visReps = useMemo(() => {
-    const list = company ? reps.filter(r => (r.company || '') === company) : reps;
-    return list.slice().sort((a, b) => (a.company || '').localeCompare(b.company || '') || roleRank(a) - roleRank(b) || a.name.localeCompare(b.name));
-  }, [reps, company]);
 
   const value = useCallback((repId: number, itemId: number): string => {
     const k = key(repId, itemId);
@@ -209,42 +251,53 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
   }, [edits, saved]);
   const num = (repId: number, itemId: number) => parseFloat(value(repId, itemId)) || 0;
 
-  const allRows = useMemo(() => {
+  // مجموع كل شخص (المحفوظ + التعديل) — لأرقام التبويبات
+  const repTotals = useMemo(() => {
+    const t = new Map<number, number>();
+    const add = (k: string, v: number) => { const id = +k.split(':')[0]; t.set(id, (t.get(id) ?? 0) + v); };
+    saved.forEach((v, k) => { if (!edits.has(k)) add(k, v); });
+    edits.forEach((v, k) => add(k, parseFloat(v) || 0));
+    return t;
+  }, [saved, edits]);
+  const dirtyReps = useMemo(() => new Set([...edits.keys()].map(k => +k.split(':')[0])), [edits]);
+
+  // ── صفوف التبويب: ايتمات مدير الشركة (أو نطاق مندوبيها إن لم يكن لها مدير) ──
+  const itemById = useMemo(() => {
+    const m = new Map<number, NamedItem>();
+    [...allItems, ...scopeItems, ...targetItems].forEach(i => m.set(i.id, i));
+    return m;
+  }, [allItems, scopeItems, targetItems]);
+
+  const groupRows = useMemo(() => {
+    if (!group) return [];
     const map = new Map<number, NamedItem>();
-    const anyUnrestricted = reps.some(r => !scopes[r.id]);
-    if (anyUnrestricted) allItems.forEach(i => { if (!i.name.includes('(مؤقت)')) map.set(i.id, i); });
-    scopeItems.forEach(i => map.set(i.id, i));
-    targetItems.forEach(i => map.set(i.id, i));
+    const add = (it: NamedItem | undefined) => { if (it && !it.name.includes('(مؤقت)')) map.set(it.id, it); };
+    const sources = group.managers.length ? group.managers : group.reps;
+    const sets = sources.map(p => scopes[p.id]);
+    if (!sets.length || sets.some(s => s === undefined || s === null)) allItems.forEach(add);
+    sets.forEach(s => s?.forEach(id => add(itemById.get(id))));
+    // تارگت محفوظ خارج النطاق يبقى ظاهراً حتى لا يختفي رقم قائم
+    const colIds = new Set(ordered.cols.map(r => r.id));
+    saved.forEach((v, k) => {
+      const [rid, iid] = k.split(':').map(Number);
+      if (v > 0 && colIds.has(rid)) add(itemById.get(iid));
+    });
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [reps, scopes, allItems, scopeItems, targetItems]);
+  }, [group, ordered, scopes, allItems, itemById, saved]);
 
   const visRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return allRows.filter(it => {
+    return groupRows.filter(it => {
       if (q && !it.name.toLowerCase().includes(q)) return false;
-      // ايتم لا يحمله أي مندوب ظاهر لا معنى لصفّه
       if (!visReps.some(r => inScope(r.id, it.id))) return false;
       if (onlyFilled && !visReps.some(r => num(r.id, it.id) > 0)) return false;
       return true;
     });
-  }, [allRows, search, onlyFilled, visReps, inScope, value]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [groupRows, search, onlyFilled, visReps, inScope, value]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const colTotals = useMemo(() => visReps.map(r => visRows.reduce((s, it) => s + num(r.id, it.id), 0)),
     [visReps, visRows, value]); // eslint-disable-line react-hooks/exhaustive-deps
   const grand = colTotals.reduce((a, b, c) => (isManagerCol(visReps[c].id) ? a : a + b), 0);
-
-  // مجموعات الشركات لرأس الجدول
-  const groups = useMemo(() => {
-    const g: { name: string; span: number }[] = [];
-    visReps.forEach(r => {
-      const n = r.company || 'بدون شركة';
-      if (g.length && g[g.length - 1].name === n) g[g.length - 1].span++;
-      else g.push({ name: n, span: 1 });
-    });
-    return g;
-  }, [visReps]);
-  // شركة واحدة لا تضيف معلومة — صفها في الرأس ضجيج ويأخذ من مساحة الجدول
-  const showGroups = groups.length > 1;
 
   // ── تحرير ──
   const setCell = (repId: number, itemId: number, raw: string) => {
@@ -260,36 +313,56 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
     setMsg(null);
   };
 
+  // التعميم: على المحدَّدين إن وُجدوا، وإلا كل مندوبي الصف (بلا المدير)
+  const bulkTargets = useMemo(() => (selected.size
+    ? visReps.filter(r => selected.has(r.id))
+    : visReps.filter(r => !isManagerCol(r.id))), [selected, visReps]);
+  const applyBulk = (itemId: number, raw: string) => {
+    const v = clean(raw);
+    if (v !== '') bulkTargets.forEach(rep => { if (inScope(rep.id, itemId)) setCell(rep.id, itemId, v); });
+    setBulk(prev => { const n = new Map(prev); n.delete(itemId); return n; });
+  };
+
   const focusCell = (r: number, c: number) => {
     const el = tableRef.current?.querySelector<HTMLInputElement>(`input[data-cell="${r}-${c}"]`);
     if (el) { el.focus(); el.select(); return true; }
     return false;
   };
+  // عمود «للكل» = العمود -1 في التنقل
   const move = (r: number, c: number, dr: number, dc: number) => {
-    // يتخطّى الخلايا المقفلة (خارج النطاق)
     let nr = r + dr, nc = c + dc;
-    while (nr >= 0 && nr < visRows.length && nc >= 0 && nc < visReps.length) {
+    while (nr >= 0 && nr < visRows.length && nc >= -1 && nc < visReps.length) {
       if (focusCell(nr, nc)) return;
       nr += dr; nc += dc;
     }
   };
   const onKey = (e: React.KeyboardEvent<HTMLInputElement>, r: number, c: number) => {
     // RTL: السهم الأيسر يتقدّم للعمود التالي بصرياً
-    if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); move(r, c, 1, 0); }
+    if (e.key === 'Enter' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (c === -1) applyBulk(visRows[r].id, (e.target as HTMLInputElement).value);
+      move(r, c, 1, 0);
+    }
     else if (e.key === 'ArrowUp') { e.preventDefault(); move(r, c, -1, 0); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); move(r, c, 0, 1); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); move(r, c, 0, -1); }
     else if (e.key === 'Escape') {
-      const rep = visReps[c], it = visRows[r];
+      const it = visRows[r];
+      if (c === -1) { setBulk(prev => { const n = new Map(prev); n.delete(it.id); return n; }); return; }
+      const rep = visReps[c];
       setEdits(prev => { const n = new Map(prev); n.delete(key(rep.id, it.id)); return n; });
     }
   };
-  // لصق كتلة من إكسل تبدأ من الخلية الحالية
+  // لصق كتلة من إكسل تبدأ من الخلية الحالية؛ في عمود «للكل» كل سطر يُعمَّم على صفّه
   const onPaste = (e: React.ClipboardEvent<HTMLInputElement>, r: number, c: number) => {
     const text = e.clipboardData.getData('text');
     if (!/[\t\n]/.test(text.trim())) return;
     e.preventDefault();
     const grid = text.replace(/\r/g, '').replace(/\n$/, '').split('\n').map(l => l.split('\t'));
+    if (c === -1) {
+      grid.forEach((line, i) => { const it = visRows[r + i]; if (it) applyBulk(it.id, line[0] ?? ''); });
+      return;
+    }
     setEdits(prev => {
       const n = new Map(prev);
       grid.forEach((line, i) => line.forEach((cellVal, j) => {
@@ -304,11 +377,11 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
     });
   };
 
-  const applyFill = (itemId: number) => {
-    const v = clean(fillVal);
-    if (v !== '') visReps.forEach(rep => { if (!isManagerCol(rep.id) && inScope(rep.id, itemId)) setCell(rep.id, itemId, v); });
-    setFillItem(null); setFillVal('');
-  };
+  const toggleSel = (id: number) => setSelected(prev => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
 
   const save = async () => {
     if (edits.size === 0) return;
@@ -345,22 +418,12 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
       + `.tm-table thead [data-c="${c}"]{background:var(--c-border-light) !important}`;
   };
 
-  const toolbar = (
+  // ── الشريط العلوي: الفترة + الإجراءات + الحفظ ──
+  const topBar = (
     <div className="tg-bar">
       {controls}
       <span className="tg-grow" />
-      {reps.length > 0 && <>
-        <input className="tg-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث عن ايتم…" />
-        {companies.length > 1 && (
-          <select className="tg-sel" value={company} onChange={e => setCompany(e.target.value)}>
-            <option value="">كل الشركات</option>
-            {companies.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        )}
-        <button className={`tg-btn ${onlyFilled ? 'on' : ''}`} onClick={() => setOnlyFilled(v => !v)}
-          title="إخفاء الايتمات التي لا تارگت لها">ذات التارگت فقط</button>
-      </>}
-      {actions}
+      {actions?.({ reps: (group?.reps ?? []), groupName: group?.name ?? '' })}
       {msg && <span className={`tg-msg ${msg.ok ? 'ok' : 'err'}`}>{msg.text}</span>}
       {/* الحفظ في الشريط لا أسفل الجدول: الجدول يملأ الشاشة فما تحته يبقى خارجها */}
       {edits.size > 0 && <>
@@ -372,10 +435,10 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
     </div>
   );
 
-  if (reps.length === 0) {
+  if (reps.length === 0 || !group) {
     return (
       <div>
-        {toolbar}
+        {topBar}
         <div className="tm-wrap"><div className="tm-empty">
           {repType === 'commercial' ? 'لا يوجد مندوبون تجاريون — فعّل ملف مبيعات أولاً' : 'لا يوجد مندوبون علميون'}
         </div></div>
@@ -383,41 +446,106 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
     );
   }
 
+  // ── تبويبات الشركات ──
+  const tabs = groups.length > 1 && (
+    <div className="tg-tabs" role="tablist">
+      {groups.map((g, i) => {
+        const total = g.reps.reduce((s, r) => s + (repTotals.get(r.id) ?? 0), 0);
+        const dirty = [...g.managers, ...g.reps].some(r => dirtyReps.has(r.id));
+        const sub = g.kind === 'company'
+          ? g.managers.map(m => m.name).join('، ')
+          : g.kind === 'marketers' ? (g.managers.map(m => m.name).join('، ') || 'للمكتب كله') : 'بلا مدير شركة';
+        const firstMarketers = g.kind === 'marketers' && groups[i - 1]?.kind !== 'marketers';
+        return (
+          <button key={g.key} role="tab" aria-selected={g.key === group.key}
+            className={`tg-tab ${g.key === group.key ? 'on' : ''} ${firstMarketers ? 'tg-tab--sep' : ''}`}
+            onClick={() => pickGroup(g.key)} title={`${g.name} — ${sub}`}>
+            <span className="tg-tab-name" dir="auto">{g.name}{dirty && <i className="tg-tab-dot" title="تعديلات غير محفوظة" />}</span>
+            <span className="tg-tab-sub">{sub}</span>
+            <span className="tg-tab-meta">
+              <span>{g.reps.length} مندوب</span>
+              <b>{total ? fmt(total) : '—'}</b>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const bulkLabel = selected.size ? `للمحدَّدين (${selected.size})` : 'للكل';
+
   return (
     <div>
       <style ref={colStyleRef} />
-      {toolbar}
+      {topBar}
+      {tabs}
+
+      <div className="tg-bar tg-bar--sub">
+        <div className="tg-group-title">
+          <b dir="auto">{group.name}</b>
+          <span>{visReps.filter(r => !isManagerCol(r.id)).length} مندوب · {groupRows.length} ايتم</span>
+        </div>
+        {hasRegions && (
+          <div className="tg-seg" role="group" aria-label="المنطقة">
+            {([['all', 'الكل'], ['baghdad', 'بغداد'], ['province', 'المحافظات']] as [Region, string][]).map(([v, l]) => (
+              <button key={v} className={region === v ? 'on' : ''} onClick={() => setRegion(v)}>{l}</button>
+            ))}
+          </div>
+        )}
+        <span className="tg-grow" />
+        {selected.size > 0 && (
+          <span className="tg-sel-info">
+            محدَّد {selected.size} — «{bulkLabel}» يعمّم عليهم فقط
+            <button className="tg-link" onClick={() => setSelected(new Set())}>إلغاء التحديد</button>
+          </span>
+        )}
+        <input className="tg-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث عن ايتم…" />
+        <button className={`tg-btn ${onlyFilled ? 'on' : ''}`} onClick={() => setOnlyFilled(v => !v)}
+          title="إخفاء الايتمات التي لا تارگت لها">ذات التارگت فقط</button>
+      </div>
 
       <div className="tm-wrap">
         {loading ? (
           <div className="tm-empty">جاري تحميل التارگتات…</div>
+        ) : visReps.length === 0 ? (
+          <div className="tm-empty">لا يوجد مندوبون في هذه المجموعة</div>
         ) : visRows.length === 0 ? (
-          <div className="tm-empty">{search || onlyFilled ? 'لا توجد ايتمات مطابقة' : 'لا توجد ايتمات ضمن نطاق هؤلاء المندوبين'}</div>
+          <div className="tm-empty">{search || onlyFilled ? 'لا توجد ايتمات مطابقة' : 'لا توجد ايتمات معيّنة لمدير هذه الشركة'}</div>
         ) : (
           <table className="tm-table" ref={tableRef} style={{ '--tm-reps': visReps.length } as CSSProperties}
             onMouseOver={onHover} onMouseLeave={() => { if (colStyleRef.current) colStyleRef.current.textContent = ''; }}>
             <colgroup>
               <col className="tm-col-item" />
+              <col className="tm-col-bulk" />
               {visReps.map(r => <col key={r.id} />)}
               <col className="tm-col-total" />
             </colgroup>
             <thead>
-              {showGroups && (
+              {showBlocks && (
                 <tr className="tm-grp">
                   <th className="tm-item" />
-                  {groups.map((g, i) => <th key={i} colSpan={g.span}>{g.name}</th>)}
+                  <th className="tm-bulk" />
+                  {blocks.map((b, i) => <th key={i} colSpan={b.span} title={b.label}><span className="tm-grp-label">{b.label}</span></th>)}
                   <th className="tm-total" />
                 </tr>
               )}
               <tr>
                 <th className="tm-item">الايتم</th>
-                {visReps.map((r, c) => (
-                  <th key={r.id} data-c={c} className={`tm-rep ${compareOn ? 'tm-rep--open' : ''}`} title={r.name}
-                    onClick={compareOn ? () => setCompareRepId(r.id) : undefined}>
-                    <span className="tm-rep-name">{r.name}</span>
-                    {isManagerCol(r.id) && <span className="tm-rep-role">مدير</span>}
-                  </th>
-                ))}
+                <th className="tm-bulk" title="القيمة المكتوبة هنا تُوضع لكل مندوبي الصف — أو للمحدَّدين فقط إن حدّدت مندوبين">{bulkLabel}</th>
+                {visReps.map((r, c) => {
+                  const role = roleLabel(r);
+                  return (
+                    <th key={r.id} data-c={c} className={`tm-rep ${isManagerCol(r.id) ? 'tm-rep--mgr' : ''} ${selected.has(r.id) ? 'tm-rep--sel' : ''}`} title={r.name}>
+                      <label className="tm-rep-check" title="تحديد للتعميم">
+                        <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)} />
+                      </label>
+                      <button type="button" className={`tm-rep-name ${compareOn ? 'tm-rep-name--open' : ''}`}
+                        onClick={compareOn ? () => setCompareRepId(r.id) : undefined}
+                        title={compareOn ? `${r.name} — التارگت مقابل المبيع` : r.name}>{r.name}</button>
+                      {role && <span className="tm-rep-role">{role}</span>}
+                    </th>
+                  );
+                })}
                 <th className="tm-total" title="مجموع المندوبين، بلا أعمدة المدراء">المجموع</th>
               </tr>
             </thead>
@@ -429,15 +557,14 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
                     <td className="tm-item" title={it.name}>
                       {/* dir=auto: الأسماء الإنجليزية تُعرض بترتيبها الصحيح ولا تُقص من بدايتها */}
                       <span className="tm-item-name" dir="auto">{it.name}</span>
-                      {fillItem === it.id ? (
-                        <input autoFocus className="tm-fill-input" value={fillVal} placeholder="للكل"
-                          onChange={e => setFillVal(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') applyFill(it.id); if (e.key === 'Escape') { setFillItem(null); setFillVal(''); } }}
-                          onBlur={() => applyFill(it.id)} />
-                      ) : (
-                        <button className="tm-fill" title="نفس القيمة لكل المندوبين الظاهرين في هذا الصف"
-                          onClick={() => { setFillItem(it.id); setFillVal(''); }}>تعميم</button>
-                      )}
+                    </td>
+                    <td className="tm-bulk tm-cell">
+                      <input data-cell={`${r}--1`} inputMode="decimal" placeholder="—"
+                        value={bulk.get(it.id) ?? ''}
+                        onChange={e => { const v = clean(e.target.value); setBulk(prev => new Map(prev).set(it.id, v)); }}
+                        onKeyDown={e => onKey(e, r, -1)}
+                        onPaste={e => onPaste(e, r, -1)}
+                        onBlur={e => { if (e.target.value) applyBulk(it.id, e.target.value); }} />
                     </td>
                     {visReps.map((rep, c) => {
                       if (!inScope(rep.id, it.id)) {
@@ -448,7 +575,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
                       return (
                         <td key={rep.id} data-c={c}
                           title={cmp ? `التارگت ${fmtQty(cmp.target)} · المبيع النت ${fmtQty(cmp.net)} · الإنجاز ${pctText(cmp.pct)}` : undefined}
-                          className={`tm-cell ${edits.has(k) ? 'tm-cell--dirty' : ''} ${flash.has(k) ? 'tm-flash' : ''}`}>
+                          className={`tm-cell ${isManagerCol(rep.id) ? 'tm-cell--mgr' : ''} ${edits.has(k) ? 'tm-cell--dirty' : ''} ${flash.has(k) ? 'tm-flash' : ''}`}>
                           <input data-cell={`${r}-${c}`} inputMode="decimal" value={value(rep.id, it.id)}
                             onChange={e => setCell(rep.id, it.id, e.target.value)}
                             onKeyDown={e => onKey(e, r, c)}
@@ -465,20 +592,23 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
             <tfoot>
               <tr>
                 <td className="tm-item tm-foot-label">التارگت · {visRows.length} ايتم</td>
+                <td className="tm-bulk" />
                 {colTotals.map((t, c) => <td key={c} data-c={c}>{t ? fmt(t) : ''}</td>)}
                 <td className="tm-total">{fmt(grand)}</td>
               </tr>
               {compareOn && (noFiles ? (
                 <tr className="tm-foot-compare">
                   <td className="tm-item tm-foot-label">المبيع النت</td>
+                  <td className="tm-bulk" />
                   <td colSpan={visReps.length} className="tm-foot-hint">فعّل ملف مبيعات لعرض المبيع النت</td>
                   <td className="tm-total" />
                 </tr>
               ) : <>
                 <tr className="tm-foot-compare">
                   <td className="tm-item tm-foot-label">
-                    المبيع النت{actualsPending > 0 && <span className="tm-foot-progress"> · جاري الحساب {reps.length - actualsPending}/{reps.length}</span>}
+                    المبيع النت{actualsPending > 0 && <span className="tm-foot-progress"> · جاري الحساب {visReps.length - actualsPending}/{visReps.length}</span>}
                   </td>
+                  <td className="tm-bulk" />
                   {visReps.map((r, c) => {
                     const a = actuals[r.id];
                     return <td key={r.id} data-c={c}>{a ? (a.totalTarget > 0 ? fmtQty(a.totalNet) : '') : actualsPending > 0 ? '…' : '—'}</td>;
@@ -487,6 +617,7 @@ export default function TargetsMatrix({ repType, reps, allItems, month, year, mo
                 </tr>
                 <tr className="tm-foot-compare">
                   <td className="tm-item tm-foot-label">الإنجاز</td>
+                  <td className="tm-bulk" />
                   {visReps.map((r, c) => {
                     const a = actuals[r.id];
                     return <td key={r.id} data-c={c} className={pctClass(a?.pct ?? null)}>{a?.pct != null ? `${a.pct}%` : ''}</td>;

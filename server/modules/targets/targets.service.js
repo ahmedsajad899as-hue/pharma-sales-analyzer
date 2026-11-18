@@ -3,7 +3,7 @@ import { list, getReport, getGroupReport, resolveMyRepId } from '../scientific-r
 import { provinceMemberUserIds } from '../../lib/provinceScope.js';
 import { loadManagerSeat, repIdsInManagerTeam, sharedRepItemsForViewer } from '../../lib/provinceSeats.js';
 import { resolveEffectiveItemIds } from '../../lib/itemScope.js';
-import { PHARMACY_KIND } from '../../lib/pharmacyRep.js';
+import { PHARMACY_KIND, managesProvinceMarketers } from '../../lib/pharmacyRep.js';
 import { buildTargetComparison } from '../../lib/targetCompare.js';
 
 // ── أعمدة الأشخاص في جدول التارگت ───────────────────────────────────────────
@@ -24,6 +24,7 @@ const OFFICE_VIEW_ROLES = new Set(['office_manager', 'office_hr', 'office_employ
 
 function managerColumn(u) {
   const primary = u.companyAssignments.find(a => a.isPrimary) ?? u.companyAssignments[0];
+  const repKind = u.linkedRep?.repKind ?? 'scientific';
   return {
     id: -u.id,
     userId: u.id,
@@ -31,7 +32,11 @@ function managerColumn(u) {
     company: primary?.company?.name ?? null,
     companyId: primary?.company?.id ?? null,
     role: 'company_manager',
-    repKind: u.linkedRep?.repKind ?? 'scientific',
+    repKind,
+    // مدير المسوقين ليس شركة: صفحة التارگت تضعه في «مسوقين بغداد» أو «مسوقين المحافظات»
+    ...(repKind === PHARMACY_KIND ? {
+      marketerScope: managesProvinceMarketers((u.provinceAssignments ?? []).map(p => p.province?.name)) ? 'province' : 'baghdad',
+    } : {}),
     isProvinceMember: false,
     items: [],
   };
@@ -41,6 +46,7 @@ const MANAGER_SELECT = {
   id: true, displayName: true, username: true,
   linkedRep: { select: { repKind: true } },
   companyAssignments: { select: { isPrimary: true, company: { select: { id: true, name: true } } } },
+  provinceAssignments: { select: { province: { select: { name: true } } } },
 };
 
 /**
