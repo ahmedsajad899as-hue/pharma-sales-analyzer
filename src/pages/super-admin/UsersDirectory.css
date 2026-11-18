@@ -107,7 +107,8 @@
 
 /* ── جداول المراجعة (شركات/محافظات) ───────────────────── */
 .ud-cols-prov { display: grid; grid-template-columns: minmax(90px, .8fr) minmax(120px, 1.2fr) 66px 128px 84px; align-items: center; column-gap: 10px; }
-.ud-cols-co { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(130px, 1.4fr) 76px 76px; align-items: center; column-gap: 10px; }
+.ud-cols-co { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(130px, 1.4fr) 76px 76px 96px; align-items: center; column-gap: 10px; }
+.ud-link-row[role="button"]:focus-visible { outline: 2px solid #a5b4fc; outline-offset: -2px; }
 .ud-cols-pm { display: grid; grid-template-columns: minmax(90px, .6fr) minmax(150px, 2fr) 70px; align-items: center; column-gap: 10px; }
 .ud-link-row { width: 100%; padding: 0 12px; min-height: 40px; border: none; border-bottom: 1px solid #f1f3f7; background: #fff; text-align: right; font-size: 12.5px; color: var(--text); cursor: pointer; transition: background .1s; }
 .ud-table > .ud-link-row:last-child { border-bottom: none; }

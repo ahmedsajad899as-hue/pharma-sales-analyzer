@@ -478,18 +478,23 @@ export default function UsersDirectory(props: Props) {
   </>;
 
   const renderCompanies = () => <>
-    {paneHead('الشركات', `${companyGroups.filter(g => g.company).length} شركة في ${officeName}`)}
+    {paneHead('الشركات', `${companyGroups.filter(g => g.company).length} شركة في ${officeName}`, <>{yazenStatus()}</>)}
     <div className="ud-table">
-      <div className="ud-cols-co ud-thead"><div>الشركة</div><div>المدير</div><div>المندوبون</div><div>المجموع</div></div>
+      <div className="ud-cols-co ud-thead"><div>الشركة</div><div>المدير</div><div>المندوبون</div><div>المجموع</div>
+        <div title="زر «بدون الفارمسي» في تقرير العلميين: 📇 معلومات الزبون · 🔗 مطابقة اليزن">بدون الفارمسي</div></div>
       {companyGroups.map(g => {
         const managers = g.users.filter(u => u.role === 'company_manager');
+        const open = () => go(`company:${g.key}`);
+        // div لا button: الصف يحوي أزرار «بدون الفارمسي»، وزر داخل زر غير صالح.
         return (
-          <button key={g.key} type="button" className={`ud-cols-co ud-link-row${g.company ? '' : ' is-empty'}`} onClick={() => go(`company:${g.key}`)}>
+          <div key={g.key} role="button" tabIndex={0} className={`ud-cols-co ud-link-row${g.company ? '' : ' is-empty'}`} onClick={open}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}>
             <strong>{g.company?.name ?? 'بدون شركة'}</strong>
             <span className="ud-cell is-muted">{managers.length ? <>{nameOf(managers[0])}<More names={managers.slice(1).map(nameOf)} /></> : '—'}</span>
             <span className="ud-num">{g.users.length - managers.length}</span>
             <span className="ud-num">{g.users.length}</span>
-          </button>
+            <span>{g.company ? exclusionSwitch(g.company) : null}</span>
+          </div>
         );
       })}
       {!companyGroups.length && <div className="ud-empty">لا توجد شركات فيها مستخدمون</div>}
@@ -685,6 +690,89 @@ export default function UsersDirectory(props: Props) {
       </div>
     );
   };
+
+  // «بدون الفارمسي» في تقرير العلميين — طريقة العزل لكل شركة (ScientificCompany.pharmacyExclusionSource):
+  // 📇 معلومات الزبون (null) أو 🔗 مطابقة طلبيات اليزن (server/lib/yazenOfficeMatch.js). قرار السوبر أدمن.
+  const [exclusionByCo, setExclusionByCo] = useState<Map<number, string | null>>(new Map());
+  const [exclusionSaving, setExclusionSaving] = useState<number | null>(null);
+  type YazenRun = { scopeKey: string; label: string; status: string; matched: number; yazenRows: number; finishedAt: string | null; error: string | null; busy: boolean };
+  const [yazenRuns, setYazenRuns] = useState<YazenRun[]>([]);
+  const [yazenRerunning, setYazenRerunning] = useState(false);
+  const loadExclusion = () => {
+    const H = { Authorization: `Bearer ${token}` };
+    fetch('/api/sa/companies', { headers: H }).then(r => r.json())
+      .then(d => { if (d.success) setExclusionByCo(new Map(d.data.map((c: { id: number; pharmacyExclusionSource?: string | null }) => [c.id, c.pharmacyExclusionSource ?? null]))); })
+      .catch(() => {});
+    fetch('/api/sa/companies/yazen-match/status', { headers: H }).then(r => r.json())
+      .then(d => { if (d.success) setYazenRuns(d.data); }).catch(() => {});
+  };
+  useEffect(() => { if (view === 'companies') loadExclusion(); }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setExclusion = async (company: { id: number; name: string }, src: 'yazen' | null) => {
+    if (exclusionSaving != null || (exclusionByCo.get(company.id) ?? null) === src) return;
+    if (!window.confirm(src === 'yazen'
+      ? `«بدون الفارمسي» لشركة ${company.name}: عزل صفوف ملف المكتب المطابقة لطلبيات اليزن (باسم المسوقين) في ميركاتو؟`
+      : `«بدون الفارمسي» لشركة ${company.name}: عزل صفوف ملف المكتب بـ«معلومات الزبون» (فارمسي لاين)؟`)) return;
+    setExclusionSaving(company.id);
+    try {
+      const r = await fetch(`/api/sa/companies/${company.id}/pharmacy-exclusion`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ source: src }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j.success) window.alert(j.error || 'تعذّر الحفظ');
+      else setExclusionByCo(m => new Map(m).set(company.id, src));
+    } finally { setExclusionSaving(null); }
+  };
+
+  const exclusionSwitch = (company: { id: number; name: string }) => {
+    const cur = exclusionByCo.get(company.id) ?? null;
+    const busy = exclusionSaving === company.id;
+    const seg = (on: boolean): CSSProperties => ({
+      border: 'none', borderRadius: 6, padding: '3px 8px', fontSize: 15, lineHeight: 1.2,
+      cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit',
+      background: on ? '#fff' : 'transparent', boxShadow: on ? '0 1px 3px rgba(0,0,0,.15)' : 'none',
+      opacity: on ? 1 : 0.45,
+    });
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+        <span style={{ display: 'flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2 }}>
+          <button type="button" disabled={busy} style={seg(cur === null)} onClick={() => setExclusion(company, null)}
+            title="«بدون الفارمسي»: صفوف ملف المكتب التي «معلومات الزبون» فيها فارمسي لاين">📇</button>
+          <button type="button" disabled={busy} style={seg(cur === 'yazen')} onClick={() => setExclusion(company, 'yazen')}
+            title="«بدون الفارمسي»: صفوف ملف المكتب المطابقة لطلبيات اليزن في ميركاتو (الصيدلية + الايتم + الكمية، واليزن يسبق المكتب بيوم غالباً)">🔗</button>
+        </span>
+        {busy && <span style={{ fontSize: 11, color: '#94a3b8' }}>…</span>}
+      </span>
+    );
+  };
+
+  const timeAgo = (iso: string | null) => {
+    if (!iso) return '—';
+    const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (m < 1) return 'الآن';
+    if (m < 60) return `قبل ${m} د`;
+    const h = Math.round(m / 60);
+    return h < 24 ? `قبل ${h} س` : `قبل ${Math.round(h / 24)} يوم`;
+  };
+  const rerunYazen = async (scopeKey: string) => {
+    setYazenRerunning(true);
+    try {
+      const r = await fetch('/api/sa/companies/yazen-match/rerun', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ scopeKey }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j.success) window.alert(j.error || 'فشلت المطابقة');
+    } finally { setYazenRerunning(false); loadExclusion(); }
+  };
+  const yazenStatus = () => yazenRuns.map(r => (
+    <span key={r.scopeKey} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#475569', background: r.status === 'failed' ? '#fef2f2' : '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 20, padding: '2px 9px' }}
+      title={r.error || 'مطابقة طلبيات اليزن (ميركاتو) بصفوف ملف المكتب — تُعاد تلقائياً بعد كل رفع أو حذف ملف'}>
+      🔗 <b>{r.matched}/{r.yazenRows}</b>
+      <span style={{ color: '#94a3b8' }}>{r.busy || r.status === 'running' ? 'جاري التحديث…' : r.status === 'failed' ? 'فشلت' : timeAgo(r.finishedAt)}</span>
+      <button type="button" onClick={() => rerunYazen(r.scopeKey)} disabled={yazenRerunning} title="إعادة المطابقة الآن"
+        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 0, fontSize: 13, color: '#3b82f6' }}>{yazenRerunning ? '…' : '↻'}</button>
+    </span>
+  ));
 
   // «مسوقين بغداد»: مدير المسوقين ← الأقسام ← كل تيم ليدر ومندوبوه ← بلا قائد.
   const renderMarketers = () => {
