@@ -146,7 +146,30 @@ export function explainUnmatched(yazen, office, matches) {
         office: cand && { day: cand.day && new Date(cand.day).toISOString().slice(0, 10), pharmacy: cand.pharmacy, area: cand.area, keys: [...cand.keys], qty: cand.qty, used: usedOffice.has(cand.id) } });
     }
   }
-  return { counts, samples };
+  // أعمق: لكل غير مطابَق — هل الصيدلية + الايتم موجودان بفرق أيام أبعد؟ وإلا فأسماء الصيدليات
+  // المرشحة (نفس الايتم والكمية داخل النافذة) وأسماء الايتمات الغائبة.
+  const gaps = {};
+  const pharmPairs = [];
+  const itemMisses = [];
+  for (const y of yazen) {
+    if (done.has(y.id) || y.day == null) continue;
+    const same = office.filter(o => o.day != null && o.ret === y.ret && sameItem(y, o) && samePharmacy(y, o));
+    if (same.length) {
+      const g = Math.min(...same.map(o => Math.round((o.day - y.day) / DAY)), 99);
+      const key = same.some(o => sameQty(y, o)) ? `${g}` : `${g}~q`;
+      gaps[key] = (gaps[key] ?? 0) + 1;
+      continue;
+    }
+    const near = office.filter(o => o.day != null && o.ret === y.ret && Math.abs((o.day - y.day) / DAY - 1) <= 2 && sameItem(y, o));
+    if (near.length) {
+      if (pharmPairs.length < 12) pharmPairs.push(`${y.pharmacy}|${y.area} ↔ ${[...new Set(near.filter(o => sameQty(y, o)).map(o => `${o.pharmacy}|${o.area}`))].slice(0, 3).join(' ; ') || '(qty≠) ' + [...new Set(near.map(o => o.pharmacy))].slice(0, 3).join(' ; ')}`);
+    } else if (itemMisses.length < 12) {
+      const first = [...y.keys][0]?.split(' ')[0] ?? '';
+      const alike = [...new Set(office.filter(o => [...o.keys].some(k => k.startsWith(first.slice(0, 4)))).flatMap(o => [...o.keys]))].slice(0, 3);
+      itemMisses.push(`${[...y.keys].join(' / ')} @${y.pharmacy} ⇢ ${alike.join(' ; ') || '—'}`);
+    }
+  }
+  return { counts, samples, gaps, pharmPairs, itemMisses };
 }
 
 // ── النطاق: كل ملفات المبيعات (مطابقة واحدة شاملة) ─────────────────────────────
@@ -195,7 +218,7 @@ async function scopeFingerprint(files, names) {
 }
 
 // يُرفع مع أي تغيير في قواعد المطابقة، فيُعاد حساب كل نطاق عند الإقلاع.
-const MATCH_VERSION = 4;
+const MATCH_VERSION = 5;
 
 const yieldLoop = () => new Promise(r => setImmediate(r));
 
@@ -278,7 +301,9 @@ async function computeScope(scopeKey, { force = false } = {}) {
       if (biggest && biggest.found.length < yazen.length) {
         const why = explainUnmatched(yazen, biggest.office, biggest.found);
         console.log(`[yazen-match] file ${biggest.fileId} unmatched by stage ${JSON.stringify(why.counts)}`);
-        for (const smp of why.samples) console.log(`[yazen-match] sample ${JSON.stringify(smp)}`);
+        console.log(`[yazen-match] same pharmacy+item at gap (days, ~q = qty differs) ${JSON.stringify(why.gaps)}`);
+        for (const p of why.pharmPairs) console.log(`[yazen-match] pharm ${p}`);
+        for (const p of why.itemMisses) console.log(`[yazen-match] item ${p}`);
       }
     } else {
       console.log(`[yazen-match] ${scopeKey} skipped: yazen days ${days.length}, office files ${officeIds.length}`);
