@@ -30,14 +30,14 @@ import { logTextOrderRead } from '../../lib/invoiceReadLog.js';
  * المحلل أم الذكاء، كل النداءات بتوكنزها وكلفتها، والأصناف. يُعيد { rows, readBy } ويرمي
  * ما ترميه القراءة (بعد تسجيل الفشل).
  */
-async function readTextOrderLogged(text, { mode, throwOnAiFailure, ctx }) {
+async function readTextOrderLogged(text, { mode, throwOnAiFailure, ctx, allowReview = true }) {
   const calls = [];
   const started = Date.now();
   let out = { rows: [], readBy: null };
   let error = null;
   try {
     await aiCallScope.run(calls, async () => {
-      out = await extractOrderRowsByMode(text, { mode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure });
+      out = await extractOrderRowsByMode(text, { mode, todayISO: new Date().toISOString().slice(0, 10), throwOnAiFailure, allowReview });
     });
     return out;
   } catch (e) {
@@ -273,6 +273,8 @@ export async function handleIncomingOrderMessage({
       sourceMessageId: messageId,
       maxPending: transport.maxPending,
       readBy,
+      // طلبية مشكوك بقراءتها (كمية/صنف ناقص) لا تُرسَل للمذخر قبل أن يصحّحها المراجِع.
+      ...(readBy === 'review' ? { dispatch: false } : {}),
     });
     // خطّاف اختياري للمنصّة (كروبات «رقم الكروبات» تعدّ ما دخل الطابور) — لا يرمي
     try { await transport.onQueued?.(); } catch (e) { console.error('[orders] onQueued:', e?.message); }
@@ -288,7 +290,8 @@ export async function handleIncomingOrderMessage({
     } catch (e) {
       console.error('[orders] تعذّر فحص التكرار:', e?.message);
     }
-    await reply(transport, ctx, msg + dupNote);
+    const reviewNote = readBy === 'review' ? '\n⚠️ لم تُقرأ كاملة — تُكمَّل الخانات الناقصة في التطبيق.' : '';
+    await reply(transport, ctx, msg + reviewNote + dupNote);
   } catch (err) {
     // نصّ AppError التشغيلي مفهوم للمستخدم ويُعرَض كما هو؛ غيره يُخفى كي لا يصل
     // stack trace إلى كروب مبيعات. نفس نمط handleCallbackQuery في تلكرام.
@@ -377,8 +380,9 @@ async function handleRepSaleMessage({ transport, user, chatId, senderName = null
           logContext: { source: `${transport.name} (مبيعي)`, userId: user.id, userName: user.displayName || user.username, senderName } },
       );
     } else if (body) {
+      // «مبيعي» يُحفظ مباشرة بلا شاشة مراجعة ⇒ لا قراءة «للمراجعة» بكميات فارغة.
       ({ rows } = await readTextOrderLogged(body, {
-        mode: aiMode, throwOnAiFailure: Boolean(transport.onFailed),
+        mode: aiMode, throwOnAiFailure: Boolean(transport.onFailed), allowReview: false,
         ctx: { source: `${transport.name} (مبيعي)`, userId: user.id, userName: user.displayName || user.username, senderName },
       }));
     }

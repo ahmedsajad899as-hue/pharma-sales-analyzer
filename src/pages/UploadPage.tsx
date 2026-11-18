@@ -1143,6 +1143,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                     {o.senderName && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{o.senderName}</span>}
                     {o.ownerName && <span style={{ color: '#0f766e', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>👤 {o.ownerName}</span>}
                     {o.readBy === 'parser' && <span title="قُرئت بلا ذكاء" style={{ color: '#0891b2' }}>⚡</span>}
+                    {o.readBy === 'review' && <span title="لم تُقرأ كاملة — أكمل الكميات/الخانات الناقصة" style={{ color: '#b45309', fontWeight: 700 }}>⚠️ تدقيق</span>}
                     <span style={{ marginInlineStart: 'auto', color: '#94a3b8', flexShrink: 0 }}>
                       {new Date(o.createdAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                     </span>
@@ -1209,6 +1210,12 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                   <span title="قُرئت بالمحلل بلا ذكاء اصطناعي — راجِعها بعناية أثناء التجربة"
                     style={{ fontSize: 11, fontWeight: 700, color: '#0891b2', background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: 999, padding: '1px 8px' }}>
                     ⚡ بلا ذكاء
+                  </span>
+                )}
+                {o.readBy === 'review' && (
+                  <span title="شكلها طلبية لكن لم تُقرأ كاملة — أكمل الكميات والخانات الناقصة قبل الحفظ"
+                    style={{ fontSize: 11, fontWeight: 700, color: '#b45309', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 999, padding: '1px 8px' }}>
+                    ⚠️ تحتاج تدقيق
                   </span>
                 )}
                 {o.preview && (

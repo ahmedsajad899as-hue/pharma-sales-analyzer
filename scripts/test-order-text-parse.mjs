@@ -89,8 +89,11 @@ check('«ص النور / الكرخ» في سطر واحد', parseOrderText('ط�
   { pharmacy: 'النور', area: 'الكرخ', warehouse: null, pharmacyLines: 1 });
 check('«طلبية صيدلية النور» ملتصقة', parseOrderText('طلبية صيدلية النور\nالكرخ\nبانادول علبتين').header,
   { pharmacy: 'النور', area: 'الكرخ', warehouse: null, pharmacyLines: 1 });
-check('صنف عربي بلا رقم بعد الأصناف لا يصير منطقة', parseOrderText('ص النور\nAmoxil 500 (5)\nبانادول').header,
-  { pharmacy: 'النور', area: null, warehouse: null, pharmacyLines: 1 });
+// 2026-11-18: آخر سطر عربي بعد الأصناف = المذخر (بتأكيد صاحب المشروع) — فلا يصير منطقة،
+// وصنف عربي بلا كمية في الذيل يُقرأ مذخراً (ثمن مقبول يراه المراجِع).
+check('سطر عربي في الذيل لا يصير منطقة (بل مذخراً)', parseOrderText('ص النور\nAmoxil 500 (5)\nبانادول').header,
+  { pharmacy: 'النور', area: null, warehouse: 'بانادول', pharmacyLines: 1 });
+check('سطر عربي بعد الأصناف ليس الأخير ⇒ لا مذخر', parseOrderText('ص النور\nAmoxil 500 (5)\nبانادول\nPandev (3)').header.warehouse, null);
 check('صيدليتان في رسالة واحدة ⇒ لا حسم', parseOrderText('ص النور\nAmoxil (5)\nص الشفاء\nPandev (3)').header,
   { pharmacy: null, area: null, warehouse: null, pharmacyLines: 2 });
 check('«صباح» ليست بادئة «ص»', parseOrderText('صباح الخير\nAmoxil (5)').header.pharmacy, null);
@@ -266,6 +269,10 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('«عدد N»: الصيدلية', header.pharmacy, 'زهراء هاشم رشيد');
   check('«عدد N»: الأصناف والكميات', itemLines.map(parseItemLine),
     [{ name: 'Daytrix im', quantity: 10, bonus: null }, { name: 'Winfast', quantity: 5, bonus: null }]);
+  check('«سيادة» في الذيل بلا «مذخر» = المذخر', parseOrderText(t + '\nسيادة').header.warehouse, 'سيادة');
+  check('ذيل مجاملة «شكرا» ليس مذخراً', parseOrderText(t + '\nشكرا').header.warehouse, null);
+  check('ذيل «تسليم باجر» ليس مذخراً', parseOrderText(t + '\nتسليم باجر').header.warehouse, null);
+  check('«مذخر» صريح يغلب الذيل', parseOrderText('ص النور\nمذخر الضامن\nPandev (3)\nسيادة').header.warehouse, 'الضامن');
   check('«Pandev 40 10 عدد» في سطر واحد', parseItemLine('Pandev 40 10 عدد'), { name: 'Pandev 40', quantity: 10, bonus: null });
 }
 

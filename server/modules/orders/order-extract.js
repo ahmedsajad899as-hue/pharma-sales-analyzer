@@ -277,17 +277,26 @@ export const imageModelMode = (mode) => (['auto', 'strong', 'lite'].includes(mod
 export async function parseOrderRowsWithoutAi(text, { todayISO } = {}) {
   const raw = String(text ?? '').trim();
   if (!raw || raw.length > MAX_ORDER_TEXT_LEN) return null;
+  const { header, itemLines } = await parseTextShape(raw);
+  if (!header.pharmacy || !itemLines.length) return null;
+  const items = itemLines.map(parseItemLine);
+  if (items.some(i => !i)) return null;
+  return shapeRows(header, items, todayISO);
+}
+
+/** تصنيف أسطر النص مع أسماء المذاخر والمناطق المسجّلة (مشترك بين القراءتين أدناه). */
+async function parseTextShape(raw) {
   const [known, areas] = await Promise.all([loadKnownWarehouseKeys(), loadKnownAreaIndex()]);
-  const { header, itemLines } = parseOrderText(raw, {
+  return parseOrderText(raw, {
     isKnownWarehouse: (t) => {
       const k = normKey(t);
       return known.has(k) || known.has(normKey(t.replace(/^(?:دواء|ادوية|أدوية)\s+/, '')));
     },
     areaOf: (t) => areas.get(normalizeAreaName(t)) ?? null,
   });
-  if (!header.pharmacy || !itemLines.length) return null;
-  const items = itemLines.map(parseItemLine);
-  if (items.some(i => !i)) return null;
+}
+
+const shapeRows = (header, items, todayISO) => {
   const today = todayISO || new Date().toISOString().slice(0, 10);
   return items.map(i => ({
     item: cleanName(i.name),
@@ -303,26 +312,56 @@ export async function parseOrderRowsWithoutAi(text, { todayISO } = {}) {
     invoiceNumber: null,
     _imageIndex: null, _box: null, _boxCustomer: null, _boxHeader: null,
   }));
+};
+
+/** أقصى أسطر أصناف لقراءة «للمراجعة» — أكثر من هذا نصّ طويل لا طلبية. */
+const REVIEW_MAX_ITEMS = 40;
+const LATIN_NAME_RE = /[a-z]{3,}/i;
+
+/**
+ * قراءة «للمراجعة» (2026-11-18، طلب صاحب المشروع: «حتى لا تضيع أي طلبية نازلة بالكروبات»):
+ * حين لا يحسم المحلل الطلبية (ولا يجد الذكاء فيها شيئاً) لكن شكلها شكل طلبية، تُرفع بما
+ * قُرئ منها — الصنف الذي لم تُفهم كميته يأتي بكمية فارغة فيكمّلها المراجِع، والصيدلية/
+ * المذخر كما قُرئا أو فارغين. الشكّ الكبير = سطر صنف واحد على الأقل باسم لاتيني (≥3
+ * أحرف) أو بكمية صريحة. دردشة عربية بأرقام («تم التسليم 2») لا تمرّ.
+ */
+export async function parseOrderRowsForReview(text, { todayISO } = {}) {
+  const raw = String(text ?? '').trim();
+  if (!raw || raw.length > MAX_ORDER_TEXT_LEN) return null;
+  const { header, itemLines } = await parseTextShape(raw);
+  if (!itemLines.length || itemLines.length > REVIEW_MAX_ITEMS) return null;
+  const items = itemLines.map(l => parseItemLine(l) || { name: l, quantity: null, bonus: null });
+  const suspicious = items.some(i => i.quantity != null || LATIN_NAME_RE.test(i.name));
+  if (!suspicious) return null;
+  return shapeRows(header, items, todayISO).filter(r => r.item);
 }
 
 /**
- * نقطة الدخول حسب زر الكروب. يُعيد { rows, readBy } حيث readBy = 'parser' | 'ai' | null.
+ * نقطة الدخول حسب زر الكروب. يُعيد { rows, readBy } حيث readBy = 'parser' | 'ai' | 'review' | null.
  *  both   — المحلل أولاً، وما لا يحسمه يذهب للذكاء.
- *  parser — المحلل فقط؛ ما لا يحسمه يُعامَل «ليست طلبية» (بلا كلفة).
+ *  parser — المحلل فقط (بلا كلفة).
  *  ai     — الذكاء فقط (السلوك القديم).
  *  off    — لا قراءة.
+ * وفي الأوضاع الثلاثة: ما لم يُقرأ لكن شكله طلبية ⇒ readBy='review' (تُرفع للتصحيح ولا تضيع).
  */
-export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, throwOnAiFailure = false } = {}) {
+export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, throwOnAiFailure = false, allowReview = true } = {}) {
   if (mode === 'off') return { rows: [], readBy: null };
+  let rows = [];
   if (mode !== 'ai') {
     let parsed = null;
     try { parsed = await parseOrderRowsWithoutAi(text, { todayISO }); }
     catch (e) { console.error('[orders] المحلل بلا ذكاء:', e?.message); }
     if (parsed?.length) return { rows: parsed, readBy: 'parser' };
-    if (mode === 'parser') return { rows: [], readBy: null };
   }
-  const rows = await extractOrderRowsFromText(text, { todayISO, throwOnAiFailure });
-  return { rows, readBy: rows.length ? 'ai' : null };
+  if (mode !== 'parser') {
+    rows = await extractOrderRowsFromText(text, { todayISO, throwOnAiFailure });
+    if (rows.length) return { rows, readBy: 'ai' };
+  }
+  if (!allowReview) return { rows: [], readBy: null };
+  let review = null;
+  try { review = await parseOrderRowsForReview(text, { todayISO }); }
+  catch (e) { console.error('[orders] قراءة للمراجعة:', e?.message); }
+  return review?.length ? { rows: review, readBy: 'review' } : { rows: [], readBy: null };
 }
 
 /** نسخة القراءة الحتمية — تُخزَّن في payload فتُعاد قراءة الطلبيات الأقدم عند فتحها. */
@@ -333,7 +372,8 @@ export async function extractOrderRowsByMode(text, { mode = 'both', todayISO, th
 // 6 (تتمة #228): «ع 10» الوحدة قبل الرقم، «او» تقصّ بدائل المذخر، وكابشن الصورة يحسم الترويسة.
 // 6: سطر الكمية وحده يلتصق بصنفه («Amikavir 5 amp» ⏎ «10 قطعة»)، وإشارة «@رقم» تُتجاهل.
 // 7 (2026-11-18): «عدد 10» وحدة كمية (قبل الرقم أو بعده).
-export const TEXT_PARSE_VERSION = 7;
+// 8: آخر سطر عربي بعد الأصناف بلا «مذخر/م» = المذخر («سيادة»).
+export const TEXT_PARSE_VERSION = 8;
 
 /**
  * القراءة الحتمية للنصّ تغلب اجتهاد الموديل حيث يحسم الشكل: ترويسة متعدّدة الأسطر

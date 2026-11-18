@@ -173,8 +173,8 @@ export default function InvoiceReadsPanel({ token, days }: { token: string | nul
                       <td style={td}>
                         {r.kind === 'text' ? (
                           <span title={r.mode ? `وضع الكروب: ${({ both: 'الاثنين', ai: 'الذكاء', parser: 'المحلل' } as Record<string, string>)[r.mode] || r.mode}` : ''}
-                            style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: r.readBy === 'parser' ? '#0891b2' : '#2563eb', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
-                            {r.readBy === 'parser' ? '⚡ المحلل' : '🤖 الذكاء'}
+                            style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: r.readBy === 'parser' ? '#0891b2' : r.readBy === 'review' ? '#d97706' : '#2563eb', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                            {r.readBy === 'parser' ? '⚡ المحلل' : r.readBy === 'review' ? '⚠️ للتدقيق' : '🤖 الذكاء'}
                           </span>
                         ) : r.readBy === 'gate' ? (
                           <span title="قُرئ اسم الزبون والأصناف فقط (أرخص نموذج)" style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#64748b', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>🔎 فحص سريع</span>

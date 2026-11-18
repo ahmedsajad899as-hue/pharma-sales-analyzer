@@ -137,6 +137,9 @@ const HAS_DIGIT = /\d/;
 // صنف عربي بكمية بالحروف («بانادول علبتين») سطر صنف لا ترويسة.
 const UNIT_WORD_RE = /(علب|حبه|حبة|حبتين|شريط|درزن|دزن|قنين|امبول|أمبول|كرتون|قطع)/;
 
+// كلمات تجعل سطر الذيل ملاحظة/مجاملة لا اسم مذخر («شكراً»، «مستعجل»، «تسليم باجر»).
+const TAIL_NOT_WAREHOUSE_RE = /\s(?:شكرا|شكراً|مشكور|مشكورين|رجاء|رجاءا|ارجو|يرجى|مستعجل|عاجل|ضروري|اليوم|غدا|باجر|بكرة|بكره|تحياتي|سلام|السلام|الله|نقد|كاش|دين|آجل|اجل|تسليم|توصيل|مع|بس|فقط|هسة|هسه)\s/;
+
 /** أطول عدد كلمات لسطر ترويسة بلا عنوان — أطول من هذا جملة/تعليق لا اسم مكان. */
 const MAX_HEADER_WORDS = 5;
 
@@ -167,10 +170,12 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
   let firstItemIdx = -1;
 
   let lastItemIdx = -1;
+  let lastContentIdx = -1; // آخر سطر ذي محتوى (عدا إشارات @)
   lines.forEach((line, idx) => {
     let m;
     // «@244168991453375» — إشارة واتساب لعضو، ليست صنفاً ولا ترويسة.
     if (MENTION_LINE_RE.test(line)) return;
+    lastContentIdx = idx;
     // «10 قطعة» وحدها في سطر بعد «Amikavir 5 amp» (كروب الديوانية #220، 2026-11-17):
     // هي كمية الصنف الذي فوقها، و«5 amp» حجم العبوة في اسمه. تُلصق بسطره بين قوسين.
     if ((m = line.match(QTY_ONLY_RE)) && lastItemIdx === idx - 1 && itemLines.length
@@ -269,6 +274,14 @@ export function parseOrderText(text, { isKnownWarehouse: isKnownInDb = () => fal
     // المنطقة والصيدلية محسومتان بعناوين ⇒ السطر الباقي الوحيد هو المذخر
     // («ص شمس الرواسي / دواء الكندي / منطقة الامين»).
     if (header.warehouse == null && leftovers.length === 1) header.warehouse = leftovers[0].text;
+    // **آخر سطر** في الرسالة، عربي قصير بعد الأصناف وبلا «مذخر/م» = اسم المذخر («سيادة»
+    // في ذيل طلبية كروب Basra nasq، 2026-11-18، بتأكيد صاحب المشروع). ليس منطقة مسجّلة
+    // ولا عبارة مجاملة/ملاحظة. ثمنه: صنف عربي بلا كمية في آخر سطر يُقرأ مذخراً — يراه المراجِع.
+    if (header.warehouse == null && lastItemIdx >= 0) {
+      const tail = loose.find(l => l.idx === lastContentIdx && l.idx > lastItemIdx && !isKnownWarehouse(l.text)
+        && l.text.split(/\s+/).length <= 3 && !areaOf(l.text) && !TAIL_NOT_WAREHOUSE_RE.test(` ${l.text} `));
+      if (tail) header.warehouse = cleanWarehouseName(tail.text) || tail.text;
+    }
   }
 
   // المنطقة باسمها القانوني في السوبر أدمن (والمدموجة باسم ما دُمجت تحته).
