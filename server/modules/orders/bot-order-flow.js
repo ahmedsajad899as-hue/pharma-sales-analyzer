@@ -107,11 +107,14 @@ export async function handleIncomingOrderMessage({
   transport, link, user, chatId, chatTitle = null, messageId = null,
   senderName = null, senderId = null, text = '', mediaRefs = [], isReplyToBot = false,
 }) {
-  const hasMedia = mediaRefs.length > 0;
   // زرّا الكروب: «تحليل النصوص» (aiMode) للنص، و«تحليل الصور» (imageMode) للصورة/PDF —
   // كلٌّ مستقل. ربط بلا العمودين (فايبر/واتساب فردي) = both، والصور تتبع aiMode القديم.
   const aiMode = link?.aiMode || 'both';
   const imageMode = effectiveImageMode(link);
+  // صورة + طلبية مكتوبة معها («Amoklavin ES ⏎ 30 قطعة ⏎ صيدلية …») والصور مطفأة ⇒
+  // تُقرأ الكتابة وحدها بمسار النص (المحلل/الذكاء حسب aiMode) وتُترك الصورة.
+  if (mediaRefs.length && imageMode === 'off' && aiMode !== 'off' && String(text ?? '').trim()) mediaRefs = [];
+  const hasMedia = mediaRefs.length > 0;
   if (hasMedia ? imageMode === 'off' : aiMode === 'off') return false;
   const modelMode = imageModelMode(imageMode);
   // «مبيعي …» نيّة صريحة تسبق مسار الطلبيات، فلا تدخل ملف الكوديشن حتى في وضع «كل الرسائل».

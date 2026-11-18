@@ -251,5 +251,13 @@ check('#228 صورة: الكابشن يحسم الصيدلية والمذخر و
 check('منطقة الموديل غير المذكورة في سطر المذخر تبقى', run('ص النور\nم الضامن\nPandev (3)',
   [{ item: 'Pandev', quantity: 3, pharmacy: 'النور', area: 'الحرية' }]).map(r => r.area), ['الحرية']);
 
+// 2026-11-18: كابشن صورة يُقرأ وحده كنصّ حين «تحليل الصور» مطفأ (كروب ديوانية مكتب النسق)
+{
+  const cap = 'Amoklavin ES\n30 قطعة\nصيدلية البدوية\nترانزيت من مذخر الغدير\n@9647812345678\nالى الدكتور سعد عباس جوده';
+  const { header, itemLines } = parseOrderText(cap);
+  check('كابشن صورة: ترويسة', { pharmacy: header.pharmacy, warehouse: header.warehouse }, { pharmacy: 'البدوية', warehouse: 'الغدير' });
+  check('كابشن صورة: الصنف والكمية', itemLines.map(parseItemLine), [{ name: 'Amoklavin ES', quantity: 30, bonus: null }]);
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

@@ -233,8 +233,12 @@ export async function handleListenGroupMessage(m, link) {
   });
   // شخص غير محدَّد للتحليل ⇒ تُتجاهل قبل الذكاء (لا tokens، لا سجلّ، لا مراجعة)
   if (!allowed) return;
-  // «تحليل الصور» مطفأ ⇒ الصورة/PDF لا تُسجَّل ولا تنتظر طابوراً ممتلئاً
-  if ((m.imageBase64 || m.docBase64) && effectiveImageMode(link) === 'off') return;
+  // «تحليل الصور» مطفأ ⇒ الصورة/PDF لا تُسجَّل ولا تنتظر طابوراً ممتلئاً. إن كُتبت
+  // الطلبية مع الصورة و«تحليل النصوص» شغّال ⇒ يُقرأ الكابشن وحده كرسالة نصية.
+  if ((m.imageBase64 || m.docBase64) && effectiveImageMode(link) === 'off') {
+    if (!String(m.text || '').trim() || (link.aiMode || 'both') === 'off') return;
+    m = { ...m, imageBase64: null, docBase64: null };
+  }
   const key = m.msgId ? `wag_${m.msgId}` : `wag_${crypto.randomBytes(8).toString('hex')}`;
   const entry = { at: Date.now(), m, boots: 0, attempts: 0 };
   journalWrite(key, entry);
