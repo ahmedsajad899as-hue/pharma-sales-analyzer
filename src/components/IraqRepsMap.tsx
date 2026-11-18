@@ -78,7 +78,7 @@ interface CompanyCell { name: string; value: number; cond: number; reps: RepRow[
 interface ProvinceCell { name: string; total: number; cond: number; companies: CompanyCell[]; marketers: RepRow[] }
 // فرق المحافظات بصيغة مختصرة للمخبأ. p المحافظة، lr معرّف مندوب القائد، u حساب المندوب.
 // all = مبيع ايتمات المندوب في المحافظة، liq = لكوديشنه.
-type TeamLite = { p: string; leader: string | null; lr: number | null; reps: { u: number; id: number | null; name: string; active: boolean; kind: string; co: string; all: number; liq: number }[] };
+type TeamLite = { p: string; leader: string | null; lr: number | null; reps: { u: number; id: number | null; name: string; active: boolean; kind: string; co: string; all: number; liq: number; ml: boolean }[] };
 // null = الرقم غير معروف: المندوب ظهر من province-map فقط (خارج فريق المحافظة)
 interface NameRep { key: string; id: number | null; u?: number | null; name: string; company: string; sales: number | null; cond: number | null; active: boolean }
 interface NameRow { leader: { id: number | null; name: string } | null; reps: NameRep[] }
@@ -108,7 +108,7 @@ const MEM = new Map<string, CacheEntry>();
 // رد /api/province-teams/directory كاملاً (بالايتمات) لنفس مفتاح t5 — نافذة الفرق تفتح منه فوراً بلا
 // إعادة الطلب الثقيل. في الذاكرة فقط (حجمه أكبر من أن يُحفظ في localStorage).
 const FULL_DIR = new Map<string, { teams: any[]; t: number }>();
-const LS_PREFIX = 'iqmap:v5:';
+const LS_PREFIX = 'iqmap:v6:';
 const LS_MAX = 24;
 const FRESH_MS = 3 * 60 * 1000;
 function cacheGet(k: string): CacheEntry | undefined {
@@ -575,7 +575,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     let dead = false;
     const ac = new AbortController();
     const cacheable = monthKey !== 'custom';
-    const key = `t5|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
+    const key = `t6|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
     const hit = cacheable ? cacheGet(key) : undefined;
     if (hit) setTeams(hit.v);
     const ticked = teamsTickSeen.current !== repSalesTick;
@@ -593,7 +593,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
         if (dead) return;
         const rows: TeamLite[] = (j.teams ?? []).map((t: any) => ({
           p: t.provinceName, leader: t.leaderName ?? null, lr: t.leaderRepId ?? null,
-          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', co: x.teamCompany ?? '', all: x.net ?? 0, liq: x.personalNet ?? 0 })),
+          reps: (t.reps ?? []).map((x: any) => ({ u: x.repUserId, id: x.repId ?? null, name: x.repName, active: x.repActive !== false, kind: x.repKind ?? 'scientific', co: x.teamCompany ?? '', all: x.net ?? 0, liq: x.personalNet ?? 0, ml: x.underLeader === true })),
         }));
         if (cacheable) cacheSet(key, rows);
         FULL_DIR.set(key, { teams: j.teams ?? [], t: Date.now() });
@@ -694,6 +694,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
       if (!marketers && t.leader && !row.leader) row.leader = { id: t.lr, name: t.leader };
       for (const r of t.reps) {
         if (repKind && (r.kind === 'pharmacy') !== marketers) continue;
+        // العلمي يظهر تحت قائد المحافظة فقط إن كان القائد مُعيَّناً مديراً له
+        if (!marketers && r.kind !== 'pharmacy' && !r.ml) continue;
         const cur = row.reps.find(x => (r.id != null && x.id === r.id) || norm(x.name) === norm(r.name));
         if (cur) { cur.sales = r.all; cur.cond = r.liq; cur.id = cur.id ?? r.id; cur.u = r.u; cur.active = r.active; cur.company = r.co || cur.company; }
         else row.reps.push({ key: `u${r.u}`, id: r.id, u: r.u, name: r.name, company: r.co, sales: r.all, cond: r.liq, active: r.active });
@@ -788,7 +790,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
 
   const pickProvince = (name: string) => { setSel(name); setDirProvince(name); setDirRepUserId(null); setTeamsOpen(true); };
   const openRepItems = (repUserId: number, province: string) => { setDirProvince(province); setDirRepUserId(repUserId); setTeamsOpen(true); };
-  const dirKey = `t5|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
+  const dirKey = `t6|${tok}|${ownTeamId ?? ''}|${fileKey}|${monthKey}`;
   const openBaghdad = () => { setBgOpen(true); setBgSide(null); setBgArea(null); setHover(null); };
 
   // أجزاء مشتركة بين جدول مقارنة الخريطة وجدول الأسماء

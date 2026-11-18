@@ -2862,11 +2862,31 @@ export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerI
         linkedRepId: true, role: true,
         provinceAssignments: { select: { province: { select: { name: true } } } },
         subProvinceAssignments: { select: { subProvince: { select: { province: { select: { name: true } }, _count: { select: { areas: true } } } } } },
-        managersOfUser: { select: { manager: { select: { linkedRepId: true } } } },
+        managersOfUser: { select: { managerId: true, manager: { select: { linkedRepId: true } } } },
       },
     }),
     prisma.scientificRepresentative.findMany({ where: { id: { in: okIds } }, select: { id: true, repKind: true } }),
   ]);
+  // قاعدة المستخدم (2026-11-18): المندوب العلمي يظهر في محافظة فقط إن كان تيم ليدر تلك المحافظة
+  // (ProvinceTeam.leaderUserId) مُعيَّناً مديراً لحسابه — منطقة له هناك وحدها لا تكفي.
+  const leadersOfProvince = new Map(); // اسم المحافظة → Set(userId للقادة)
+  for (const t of await prisma.provinceTeam.findMany({
+    where: { isActive: true, leaderUserId: { not: null } },
+    select: { leaderUserId: true, province: { select: { name: true } } },
+  })) {
+    if (!leadersOfProvince.has(t.province.name)) leadersOfProvince.set(t.province.name, new Set());
+    leadersOfProvince.get(t.province.name).add(t.leaderUserId);
+  }
+  const managersOfRep = new Map(); // repId → Set(userId للمدراء)
+  for (const u of linkedUsers) {
+    if (!managersOfRep.has(u.linkedRepId)) managersOfRep.set(u.linkedRepId, new Set());
+    for (const m of u.managersOfUser ?? []) managersOfRep.get(u.linkedRepId).add(m.managerId);
+  }
+  const underLeader = (prov, repId) => {
+    const leaders = leadersOfProvince.get(prov);
+    const mgrs = managersOfRep.get(repId);
+    return !!leaders && !!mgrs && [...leaders].some(id => mgrs.has(id));
+  };
   for (const u of linkedUsers) {
     if (!assignedProvinces.has(u.linkedRepId)) assignedProvinces.set(u.linkedRepId, new Set());
     for (const pa of u.provinceAssignments ?? []) assignedProvinces.get(u.linkedRepId).add(pa.province.name);
@@ -2907,8 +2927,12 @@ export async function getProvinceMapForReps(requestedRepIds, query = {}, viewerI
   });
   const homesOf = new Map(marketers.map(m => [m.id, new Set(m.homes)]));
   const marketerLeaders = pickMarketerLeaders(marketers);
-  // مسوق خارج محافظات انتمائه لا يُعرض فيها؛ بقية المندوبين كما هم
-  const belongs = (prov, rep) => !homesOf.has(rep.scientificRep.id) || homesOf.get(rep.scientificRep.id).has(prov);
+  // مسوق خارج محافظات انتمائه لا يُعرض فيها؛ العلمي فقط تحت تيم ليدر المحافظة إن كان مديره
+  const belongs = (prov, rep) => {
+    const id = rep.scientificRep.id;
+    if (homesOf.has(id)) return homesOf.get(id).has(prov);
+    return underLeader(prov, id);
+  };
 
   // provinceName -> repId -> { id, name, netValue, orderShare }
   const byProvince = new Map();
