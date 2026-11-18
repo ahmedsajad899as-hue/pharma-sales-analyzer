@@ -47,6 +47,8 @@ router.post('/mark-sent', ctrl.markSent);
 // «📥 استيراد من الفايبر»: مسوّدات للمراجعة فقط — الحفظ بـ POST / العادي
 router.post('/import/text', ctrl.importText);
 router.post('/import/screenshot', shotUpload.array('images', 8), ctrl.importShots);
+router.get('/import/areas', ctrl.importAreas);
+router.post('/import/rep-for-area', ctrl.importRepForArea);
 
 router.get('/', ctrl.listOrders);
 router.post('/', ctrl.createOrder);

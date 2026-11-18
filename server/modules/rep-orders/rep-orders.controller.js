@@ -40,5 +40,7 @@ export const readInvoice     = wrap(async (req, res) => res.json({ success: true
 export const applyInvoice    = wrap(async (req, res) => res.json({ success: true, ...(await invoice.applyInvoice(req.user, req.params.id, req.body)) }));
 export const importText      = wrap(async (req, res) => res.json({ success: true, ...(await viberImport.importFromText(req.user, req.body)) }));
 export const importShots     = wrap(async (req, res) => res.json({ success: true, ...(await viberImport.importFromScreenshots(req.user, req.files)) }));
+export const importAreas     = wrap(async (req, res) => res.json({ success: true, ...(await viberImport.areaSuggestions(req.user)) }));
+export const importRepForArea = wrap(async (req, res) => res.json({ success: true, ...(await viberImport.repForArea(req.user, req.body)) }));
 export const feedbackCopied  = wrap(async (req, res) => res.json({ success: true, ...(await viberImport.markFeedbackCopied(req.user, req.params.id)) }));
 export const prepareOrder    = wrap(async (req, res) => res.json({ success: true, ...(await svc.prepareOrder(req.user, req.params.id, req.body, req.file)) }));

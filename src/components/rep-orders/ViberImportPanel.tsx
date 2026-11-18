@@ -115,6 +115,51 @@ function ItemSearch({ catalog, value, autoFocus, onText, onPick }: {
   );
 }
 
+/** منطقة من النظام: الاسم، وإن كان مدموجاً فالمنطقة التي دُمج تحتها، وهل لها مندوب في الفريق. */
+interface AreaOpt { name: string; canon: string | null; covered: boolean }
+
+/**
+ * خانة المنطقة باقتراحات من أسماء مناطق النظام (والأسماء المدموجة). الفارغة تعرض مناطق
+ * الفريق أولاً. الاختيار أو تعديل الاسم يُعيد اختيار المندوب من الخادم (onCommit).
+ */
+function AreaSearch({ areas, value, disabled, onText, onCommit }: {
+  areas: (AreaOpt & { k: string })[]; value: string; disabled?: boolean;
+  onText: (v: string) => void; onCommit: (area: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const typedAt = useRef<string | null>(null); // القيمة عند التركيز — يُعاد الاختيار فقط إن تغيّرت
+  const results = useMemo(() => {
+    const k = sKey(value);
+    if (!k) return areas.filter(a => a.covered).slice(0, 8);
+    const toks = k.split(' ');
+    const hit = areas.filter(a => toks.every(t => a.k.includes(t) || a.k.replace(/ /g, '').includes(t)));
+    return hit.sort((a, b) => Number(b.covered) - Number(a.covered) || Number(b.k.startsWith(toks[0])) - Number(a.k.startsWith(toks[0]))).slice(0, 8);
+  }, [areas, value]);
+  const pick = (a: AreaOpt) => { const name = a.canon || a.name; onText(name); typedAt.current = name; setOpen(false); onCommit(name); };
+  return (
+    <div className="vi-isearch">
+      <input className="form-input" value={value} disabled={disabled} placeholder="المنطقة"
+        onChange={e => { onText(e.target.value); setOpen(true); }}
+        onFocus={() => { typedAt.current = value; setOpen(true); }}
+        onBlur={() => setTimeout(() => {
+          setOpen(false);
+          if (typedAt.current !== null && typedAt.current !== value) onCommit(value);
+          typedAt.current = null;
+        }, 150)} />
+      {open && results.length > 0 && (
+        <div className="vi-isearch__list">
+          {results.map(a => (
+            <button key={a.k} type="button" onMouseDown={e => e.preventDefault()} onClick={() => pick(a)}>
+              <b>{a.name}</b>
+              {(a.canon || a.covered) && <small>{[a.canon ? `مدموجة تحت ${a.canon}` : '', a.covered ? 'لها مندوب بفريقك' : ''].filter(Boolean).join(' · ')}</small>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** خانة بحث بالكتابة في دليل المذاخر (بدل القائمة المنسدلة الطويلة). */
 function WarehouseSearch({ warehouses, placeholder, onPick }: { warehouses: Wh[]; placeholder: string; onPick: (w: Wh) => void }) {
   const [q, setQ] = useState('');
@@ -177,6 +222,39 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
     fetch(`${API}/api/items`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
       .then(r => r.json()).then(j => setCatalog(Array.isArray(j?.data) ? j.data : [])).catch(() => {});
   }, [token]);
+
+  // أسماء مناطق النظام لاقتراحات خانة المنطقة — مرة واحدة عند فتح اللوحة
+  const [areaOpts, setAreaOpts] = useState<(AreaOpt & { k: string })[]>([]);
+  useEffect(() => {
+    api<{ areas: AreaOpt[] }>('/import/areas')
+      .then(r => setAreaOpts((r.areas ?? []).map(a => ({ ...a, k: sKey(a.name) }))))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const draftsRef = useRef<Draft[]>([]);
+  draftsRef.current = drafts;
+  /** المنطقة تغيّرت ⇒ نفس قاعدة الخادم: صاحب المنطقة (وتحسمه الايتمات إن تعدّد). */
+  const resolveRep = async (key: string, area: string) => {
+    const d = draftsRef.current.find(x => x.key === key);
+    if (!d) return;
+    try {
+      const r = await api<{ area: string; rep: Rep | null; repWhy: Draft['repWhy']; repCandidates: Rep[]; repNote: string | null }>('/import/rep-for-area', {
+        method: 'POST',
+        body: JSON.stringify({ area, itemIds: d.lines.map(l => l.itemId).filter(Boolean), sender: d.sender }),
+      });
+      if (r.rep) setTeam(prev => (prev.some(p => p.id === r.rep!.id) ? prev : [...prev, r.rep!]));
+      setDrafts(ds => ds.map(x => (x.key !== key ? x : {
+        ...x,
+        areaName: r.area || area,
+        repCandidates: r.repCandidates ?? [],
+        repNote: r.repNote,
+        // مندوب جديد للمنطقة ⇒ يُختار؛ لا أحد ⇒ يُمسح المختار تلقائياً للمنطقة القديمة، ويبقى ما اختاره المستخدم بيده
+        ...(r.rep ? { repUserId: r.rep.id, repName: r.rep.name, repWhy: r.repWhy }
+          : x.repWhy ? { repUserId: null, repName: null, repWhy: null } : {}),
+      })));
+    } catch { /* يبقى الاختيار اليدوي */ }
+  };
 
   // المندوبون = علميّو فريق صاحب الحساب كما أعادهم الخادم (بلا مسوقين)؛ قائمة الصفحة احتياط فقط
   const repOptions = team.length ? team : reps;
@@ -507,7 +585,8 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                         <input className="form-input" value={d.pharmacyName} disabled={locked} placeholder="اسم الصيدلية *" onChange={e => patch(d.key, { pharmacyName: e.target.value })} />
                       </label>
                       <label className="vi-f"><span>المنطقة</span>
-                        <input className="form-input" value={d.areaName} disabled={locked} placeholder="المنطقة" onChange={e => patch(d.key, { areaName: e.target.value })} />
+                        <AreaSearch areas={areaOpts} value={d.areaName} disabled={locked}
+                          onText={v => patch(d.key, { areaName: v })} onCommit={a => resolveRep(d.key, a)} />
                       </label>
                       <label className="vi-f"><span>المندوب العلمي</span>
                         <select className="form-input" value={d.repUserId ?? ''} disabled={locked}

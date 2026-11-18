@@ -249,6 +249,83 @@ async function resolveWithCatalog(parsed, userId) {
   return { ...parsed, items, notes, unparsed: left, readBy: 'parser' };
 }
 
+// ─── المنطقة ← المندوب (مشترك بين القراءة وتعديل المنطقة في الواجهة) ─────────
+
+/**
+ * الاسم المكتوب ← اسم المنطقة (والاسم المدموج ← المنطقة التي دُمج تحتها، «شارع 20» ← «البياع»).
+ * احتياط بمفتاح بلا مسافات وبأرقام لاتينية: «شارع٢٠» / «شارع 20» / «شارع ٢٠» واحد.
+ */
+function makeAreaOf(areas) {
+  const tightArea = (t) => normalizeAreaName(latinDigits(t)).replace(/\s+/g, '');
+  const areaTight = new Map();
+  for (const [k, canon] of areas) {
+    const tk = tightArea(k);
+    // الاسم المدموج (يشير لمنطقة باسم آخر) يغلب صفّاً بنفس الاسم عند حساب آخر
+    if (tk && (!areaTight.has(tk) || tightArea(canon) !== tk)) areaTight.set(tk, canon);
+  }
+  return (t) => areas.get(normalizeAreaName(t)) ?? areaTight.get(tightArea(t)) ?? null;
+}
+
+/** الفريق + مناطق كل مندوب + شبكة المناطق — ما يلزم لاختيار المندوب من المنطقة. */
+async function loadRepContext(viewer) {
+  const [team, areas, areaGraph] = await Promise.all([loadTeam(viewer), loadKnownAreaIndex(), loadAreaGraph()]);
+  const repScope = await loadRepScope(team, areaGraph);
+  return { team, areaOf: makeAreaOf(areas), areaGraph, repScope };
+}
+
+/**
+ * المندوب العلمي = صاحب **منطقة** الطلبية في فريق المستورد (طلب صاحب المشروع 2026-11-13):
+ *   • مندوب واحد معيّنة له المنطقة ⇒ يُختار مباشرة
+ *   • أكثر من واحد ⇒ تحسمه الايتمات (من تُعيَّن له أصناف الطلبية)، وإلا يبقى الاختيار بينهم
+ *   • المرشّحون (★) أصحاب المنطقة فقط — لا يُقترح مندوب بلا المنطقة
+ * اسم المرسل/ما اختير له سابقاً يُقبل فقط إن كان من أصحاب المنطقة (أو المنطقة غير معروفة).
+ * الأولوية: المندوب العلمي صاحب المنطقة، وإن لم يوجد فالتيم ليدر صاحبها (طلب صاحب المشروع 2026-11-14)
+ */
+function chooseRep({ team, areaGraph, repScope }, { viewerId, area, itemIds = [], sender = null, learned = new Map() }) {
+  const areaKey = looseArea(area || '');
+  // اسم منطقة الطلبية بكل أسمائه المدموجة؛ المطابقة = اشتراك أي اسم، أو احتواء («شارع فلسطين» ⊃ «فلسطين»)
+  const orderKeys = areaKey ? [...areaGraph.expand([areaKey])] : [];
+  // منطقة الطلبية قد تكون اسم محافظة («النجف») ⇒ أصحابها مندوبو تلك المحافظة
+  const covers = (u) => {
+    const sc = repScope.get(u.id);
+    if (!sc) return false;
+    return orderKeys.some(k => areaMatches(sc.areas, k) || sc.provinceKeys.has(k));
+  };
+  const sci = team.list.filter(u => u.role === 'scientific_rep');
+  const leaders = team.list.filter(u => u.role === 'team_leader');
+  let pool = areaKey ? sci.filter(covers) : [];
+  let leaderPick = false;
+  if (areaKey && !pool.length) { pool = leaders.filter(covers); leaderPick = pool.length > 0; }
+  if (areaKey && !pool.length) pool = sci.filter(u => repScope.get(u.id)?.all);
+  const ids = new Set(itemIds.filter(Boolean));
+  if (pool.length > 1 && ids.size) {
+    const byItems = pool.filter(u => [...ids].some(id => repScope.get(u.id)?.items.has(id)));
+    if (byItems.length) pool = byItems;
+  }
+  // سجلّ تشخيص (PM2) — يُقرأ عبر SSH حين لا يُختار المندوب المتوقَّع
+  if (!pool.length || pool.length > 1) {
+    console.log(`[viber-import] rep viewer=${viewerId} area="${area}" key=${areaKey} pool=${pool.map(u => u.name).join('|') || '-'} team=${team.list.map(u => `${u.name}:${u.role}:${[...(repScope.get(u.id)?.areas ?? [])].slice(0, 12).join(',')}`).join(' ; ')}`);
+  }
+  const repCandidates = pool.map(u => ({ id: u.id, name: u.name }));
+  const inPool = (id) => !areaKey || pool.some(u => u.id === id);
+
+  let rep = null;
+  let repWhy = null;
+  if (sender && learned.has(sender) && team.ids.has(learned.get(sender)) && inPool(learned.get(sender))) {
+    rep = team.list.find(u => u.id === learned.get(sender)) ?? null;
+    repWhy = 'learned';
+  }
+  if (!rep && sender) {
+    const hit = matchSender(sender, team);
+    if (hit && inPool(hit.id)) { rep = hit; repWhy = 'sender'; }
+  }
+  if (!rep && pool.length === 1) { rep = pool[0]; repWhy = leaderPick ? 'leader' : 'area'; }
+  const repNote = rep || pool.length > 1 ? null
+    : !area ? 'لم تُعرف المنطقة'
+    : `«${area}» غير معيّنة لمندوب علمي أو تيم ليدر في فريقك`;
+  return { rep, repWhy, repCandidates, repNote };
+}
+
 // ─── المسوّدة ────────────────────────────────────────────────────────────────
 
 /**
@@ -257,24 +334,13 @@ async function resolveWithCatalog(parsed, userId) {
  */
 async function buildDrafts(reqUser, messages, source) {
   const viewer = await loadViewer(reqUser);
-  const [knownWh, areas, team, recent, directory, pastPharmacies] = await Promise.all([
-    loadKnownWarehouseKeys(), loadKnownAreaIndex(), loadTeam(viewer), recentFingerprints(viewer),
+  const [knownWh, ctx, recent, directory, pastPharmacies] = await Promise.all([
+    loadKnownWarehouseKeys(), loadRepContext(viewer), recentFingerprints(viewer),
     // «تعليم» المحلّل من بيانات المكتب: دليل مذاخر الحساب، وأسماء صيدليات طلبياته السابقة
     warehouseScopeWhere(viewer).then(where => prisma.orderWarehouse.findMany({ where, select: { name: true } })),
     orderScopeWhere(viewer).then(where => prisma.repOrder.findMany({ where, select: { pharmacyName: true }, distinct: ['pharmacyName'], orderBy: { id: 'desc' }, take: 4000 })),
   ]);
-  // الاسم المكتوب ← اسم المنطقة (والاسم المدموج ← المنطقة التي دُمج تحتها، «شارع 20» ← «البياع»).
-  // احتياط بمفتاح بلا مسافات وبأرقام لاتينية: «شارع٢٠» / «شارع 20» / «شارع ٢٠» واحد.
-  const tightArea = (t) => normalizeAreaName(latinDigits(t)).replace(/\s+/g, '');
-  const areaTight = new Map();
-  for (const [k, canon] of areas) {
-    const tk = tightArea(k);
-    // الاسم المدموج (يشير لمنطقة باسم آخر) يغلب صفّاً بنفس الاسم عند حساب آخر
-    if (tk && (!areaTight.has(tk) || tightArea(canon) !== tk)) areaTight.set(tk, canon);
-  }
-  const areaOf = (t) => areas.get(normalizeAreaName(t)) ?? areaTight.get(tightArea(t)) ?? null;
-  const areaGraph = await loadAreaGraph();
-  const repScope = await loadRepScope(team, areaGraph);
+  const { team, areaOf, repScope } = ctx;
   const dirKeys = new Set(directory.map(w => normKey(String(w.name).replace(/مذخر|مذاخر/g, ''))).filter(Boolean));
   const isKnownWarehouse = (t) => knownWh.has(normKey(t)) || dirKeys.has(normKey(t));
   const phKeys = new Set(pastPharmacies.map(o => normKey(o.pharmacyName)).filter(k => k && k.length >= 3));
@@ -322,54 +388,10 @@ async function buildDrafts(reqUser, messages, source) {
     const whUnmatched = mentioned.filter(m => !m.id).map(m => m.name);
     const primary = whMatched[0] ?? null;
 
-    // المندوب العلمي = صاحب **منطقة** الطلبية في فريق المستورد (طلب صاحب المشروع 2026-11-13):
-    //   • مندوب واحد معيّنة له المنطقة ⇒ يُختار مباشرة
-    //   • أكثر من واحد ⇒ تحسمه الايتمات (من تُعيَّن له أصناف الطلبية)، وإلا يبقى الاختيار بينهم
-    //   • المرشّحون (★) أصحاب المنطقة فقط — لا يُقترح مندوب بلا المنطقة
-    // اسم المرسل/ما اختير له سابقاً يُقبل فقط إن كان من أصحاب المنطقة (أو المنطقة غير معروفة).
-    // الأولوية: المندوب العلمي صاحب المنطقة، وإن لم يوجد فالتيم ليدر صاحبها (طلب صاحب المشروع 2026-11-14)
-    const areaKey = looseArea(parsed.area || '');
-    // اسم منطقة الطلبية بكل أسمائه المدموجة؛ المطابقة = اشتراك أي اسم، أو احتواء («شارع فلسطين» ⊃ «فلسطين»)
-    const orderKeys = areaKey ? [...areaGraph.expand([areaKey])] : [];
-    // منطقة الطلبية قد تكون اسم محافظة («النجف») ⇒ أصحابها مندوبو تلك المحافظة
-    const covers = (u) => {
-      const sc = repScope.get(u.id);
-      if (!sc) return false;
-      return orderKeys.some(k => areaMatches(sc.areas, k) || sc.provinceKeys.has(k));
-    };
-    const sci = team.list.filter(u => u.role === 'scientific_rep');
-    const leaders = team.list.filter(u => u.role === 'team_leader');
-    let pool = areaKey ? sci.filter(covers) : [];
-    let leaderPick = false;
-    if (areaKey && !pool.length) { pool = leaders.filter(covers); leaderPick = pool.length > 0; }
-    if (areaKey && !pool.length) pool = sci.filter(u => repScope.get(u.id)?.all);
-    const itemIds = new Set(rows.map(r => r._itemId).filter(Boolean));
-    if (pool.length > 1 && itemIds.size) {
-      const byItems = pool.filter(u => [...itemIds].some(id => repScope.get(u.id)?.items.has(id)));
-      if (byItems.length) pool = byItems;
-    }
-    // سجلّ تشخيص (PM2) — يُقرأ عبر SSH حين لا يُختار المندوب المتوقَّع
-    if (!pool.length || pool.length > 1) {
-      console.log(`[viber-import] rep viewer=${viewer.id} area="${parsed.area}" key=${areaKey} pool=${pool.map(u => u.name).join('|') || '-'} team=${team.list.map(u => `${u.name}:${u.role}:${[...(repScope.get(u.id)?.areas ?? [])].slice(0, 12).join(',')}`).join(' ; ')}`);
-    }
-    const repCandidates = pool.map(u => ({ id: u.id, name: u.name }));
-    const inPool = (id) => !areaKey || pool.some(u => u.id === id);
-
-    let rep = null;
-    let repWhy = null;
     const sender = cleanText(msg.sender, 80);
-    if (sender && learned.has(sender) && team.ids.has(learned.get(sender)) && inPool(learned.get(sender))) {
-      rep = team.list.find(u => u.id === learned.get(sender)) ?? null;
-      repWhy = 'learned';
-    }
-    if (!rep && sender) {
-      const hit = matchSender(sender, team);
-      if (hit && inPool(hit.id)) { rep = hit; repWhy = 'sender'; }
-    }
-    if (!rep && pool.length === 1) { rep = pool[0]; repWhy = leaderPick ? 'leader' : 'area'; }
-    const repNote = rep || pool.length > 1 ? null
-      : !parsed.area ? 'لم تُعرف المنطقة'
-      : `«${parsed.area}» غير معيّنة لمندوب علمي أو تيم ليدر في فريقك`;
+    const { rep, repWhy, repCandidates, repNote } = chooseRep(ctx, {
+      viewerId: viewer.id, area: parsed.area, itemIds: rows.map(r => r._itemId), sender, learned,
+    });
 
     // التكرار
     const sourceHash = orderFingerprint({ pharmacy: parsed.pharmacy, items: parsed.items });
@@ -497,6 +519,60 @@ export async function importFromScreenshots(reqUser, files) {
   }
   if (!messages.length) return { drafts: [], team: [] };
   return buildDrafts(reqUser, messages.slice(0, MAX_BLOCKS), 'viber-shot');
+}
+
+// ─── تعديل المنطقة في الواجهة ────────────────────────────────────────────────
+
+/**
+ * أسماء المناطق لاقتراحات خانة المنطقة: أسماء المناطق + الأسماء المدموجة (alias ← المنطقة
+ * التي دُمج تحتها). covered = منطقة يغطّيها مندوب علمي/ليدر في فريق المُشاهِد — تُعرض أولاً
+ * لأن اختيارها يحدّد المندوب تلقائياً.
+ */
+export async function areaSuggestions(reqUser) {
+  const viewer = await loadViewer(reqUser);
+  const [ctx, areas, aliases] = await Promise.all([
+    loadRepContext(viewer),
+    prisma.area.findMany({ select: { name: true } }),
+    prisma.areaAlias.findMany({ select: { fromName: true, area: { select: { name: true } } } }),
+  ]);
+  const teamKeys = new Set();
+  for (const sc of ctx.repScope.values()) for (const k of sc.areas) teamKeys.add(k);
+  const isCovered = (name) => [...ctx.areaGraph.expand([looseArea(name)])].some(k => teamKeys.has(k));
+  const out = new Map(); // مفتاح الاسم ← { name, canon }
+  for (const a of areas) {
+    const name = String(a.name ?? '').trim();
+    const k = looseArea(name);
+    if (k && !out.has(k)) out.set(k, { name, canon: null });
+  }
+  for (const al of aliases) {
+    const name = String(al.fromName ?? '').trim();
+    const canon = String(al.area?.name ?? '').trim();
+    const k = looseArea(name);
+    if (k && canon && looseArea(canon) !== k) out.set(k, { name, canon });
+  }
+  const list = [...out.values()].map(x => ({ ...x, covered: isCovered(x.canon || x.name) }));
+  list.sort((a, b) => Number(b.covered) - Number(a.covered) || a.name.localeCompare(b.name, 'ar'));
+  return { areas: list };
+}
+
+/**
+ * المنطقة عُدّلت في الواجهة ⇒ نفس قاعدة اختيار المندوب عند القراءة.
+ * body: { area, itemIds?, sender? } → { area (اسم المنطقة المعروف أو كما كُتب), rep, repWhy, repCandidates, repNote }
+ */
+export async function repForArea(reqUser, body) {
+  const viewer = await loadViewer(reqUser);
+  const ctx = await loadRepContext(viewer);
+  const typed = cleanText(body?.area, 120) || '';
+  const area = typed ? (ctx.areaOf(typed) || typed) : '';
+  const sender = cleanText(body?.sender, 80) || null;
+  const learned = sender ? await learnedSenders(viewer, [sender]) : new Map();
+  const itemIds = (Array.isArray(body?.itemIds) ? body.itemIds : []).map(Number).filter(n => Number.isInteger(n) && n > 0);
+  const r = chooseRep(ctx, { viewerId: viewer.id, area, itemIds, sender, learned });
+  return {
+    area,
+    rep: r.rep ? { id: r.rep.id, name: r.rep.name } : null,
+    repWhy: r.repWhy, repCandidates: r.repCandidates, repNote: r.repNote,
+  };
 }
 
 // ─── الرد للفايبر ────────────────────────────────────────────────────────────
