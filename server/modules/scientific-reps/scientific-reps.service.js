@@ -645,6 +645,9 @@ export async function setBlockingEnabled(userId, enabled) {
 const _exWhMemo = new Map(); // userId -> { at, cfg }
 const EX_WH_MEMO_MS = 15 * 1000;
 const companyKey = (name) => normalizeArabic(String(name ?? '')).toLowerCase().trim();
+// خيار «المسوقين» في نطاق الاستبعاد — المسوّق لا ينتمي لأي شركة (تُسند له كل شركات المكتب
+// للعمل فقط)، فلا يُطابَق باسم شركة بل بهذا الخيار وحده.
+export const WH_SCOPE_MARKETERS = '__marketers__';
 
 /** @returns {Promise<{ enabled: boolean, companies: string[] }>} companies فارغة = كل الشركات */
 export async function getExcludeWarehouseConfig(userId) {
@@ -691,7 +694,6 @@ export async function listManagersPrimaryCompanies(userId) {
     if (!seen.has(k)) seen.set(k, { name: n, users: [] });
     seen.get(k).users.push(list[0].user?.username);
   }
-  console.log(`[wh-primary] viewer=${userId} office=${viewer?.officeId ?? '-'} ` + [...seen.values()].map(v => `${v.name}<${v.users.join(',')}>`).join(' | '));
   return [...seen.values()].map(v => v.name);
 }
 
@@ -713,6 +715,7 @@ async function excludeWarehouseForRep(viewerId, rep) {
   if (!cfg.enabled) return false;
   if (!cfg.companies.length) return true;
   const scope = new Set(cfg.companies.map(companyKey));
+  if (isPharmacyRep(rep)) return scope.has(WH_SCOPE_MARKETERS);
   return repCompanyKeys(rep).some(k => scope.has(k));
 }
 

@@ -332,6 +332,8 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
     } finally { setExcludeWarehouseToggling(false); }
   };
   const toggleExcludeWarehouse = () => saveExcludeWarehouse(!excludeWarehouse);
+  const WH_MARKETERS = '__marketers__';
+  const whLabel = (c: string) => c === WH_MARKETERS ? 'المسوقين' : c;
   const toggleWhCompany = (name: string) => {
     const key = normalizeAr(name).toLowerCase();
     const has = excludeWarehouseCompanies.some(c => normalizeAr(c).toLowerCase() === key);
@@ -819,7 +821,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
               {excludeWarehouseCompanies.length === 0
                 ? 'كل الشركات ▾'
                 : excludeWarehouseCompanies.length <= 2
-                  ? `${excludeWarehouseCompanies.join('، ')} ▾`
+                  ? `${excludeWarehouseCompanies.map(whLabel).join('، ')} ▾`
                   : `${excludeWarehouseCompanies.length} شركات ▾`}
             </button>
           )}
@@ -830,8 +832,10 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
             const primarySet = whPrimaryCompanies && whPrimaryCompanies.length ? new Set(whPrimaryCompanies.map(keyOf)) : null;
             const inPrimary = primarySet ? allGroupNames.filter(n => primarySet.has(keyOf(n))) : allGroupNames;
             const groupNames = primarySet && inPrimary.length === 0 ? whPrimaryCompanies! : inPrimary;
-            const known = new Set(groupNames.map(keyOf));
-            const names = [...groupNames, ...excludeWarehouseCompanies.filter(c => !known.has(keyOf(c)))];
+            // المسوقون لا يُصنَّفون تحت شركة — خيار مستقل.
+            const withMarketers = reps.some(r => r.repKind === 'pharmacy') ? [...groupNames, WH_MARKETERS] : groupNames;
+            const known = new Set(withMarketers.map(keyOf));
+            const names = [...withMarketers, ...excludeWarehouseCompanies.filter(c => !known.has(keyOf(c)))];
             const picked = new Set(excludeWarehouseCompanies.map(keyOf));
             return (
               <div style={{
@@ -851,7 +855,7 @@ export default function ScientificRepsPage({ activeFileIds = [] }: { activeFileI
                   {names.map(n => (
                     <label key={n} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', fontSize: 12, cursor: 'pointer' }}>
                       <input type="checkbox" checked={picked.has(keyOf(n))} disabled={excludeWarehouseToggling} onChange={() => toggleWhCompany(n)} />
-                      <span style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}>{n}</span>
+                      <span style={{ direction: 'ltr', unicodeBidi: 'plaintext' }}>{n === WH_MARKETERS ? '🏪 المسوقين' : n}</span>
                     </label>
                   ))}
                 </div>
