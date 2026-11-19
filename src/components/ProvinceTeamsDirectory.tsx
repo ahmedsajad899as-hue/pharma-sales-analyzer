@@ -39,6 +39,17 @@ const subHead: React.CSSProperties = { padding: '6px 4px', fontWeight: 700 };
 const achievedOf = (items: DirItem[]) => items.reduce((a, i) => a + (i.targetQty > 0 ? i.personalQty : 0), 0);
 const normP = (x: string) => String(x || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
 const pctOf = (a: number, b: number) => `${Math.round((a / b) * 100)}%`;
+// مبيع المندوب: الكمية أولاً وبارزة، والقيمة صغيرة بجانبها
+const repQtyVal = (qty: number, val: string) => (
+  <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, whiteSpace: 'nowrap' }}>
+    <b style={{ fontSize: 14, fontWeight: 900, color: '#4c1d95' }}>{nf(qty)}</b>
+    <span style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>{val}</span>
+  </span>
+);
+const PULSE_CSS = `@keyframes ptdPulse{0%{box-shadow:0 0 0 0 rgba(15,118,110,.45)}70%{box-shadow:0 0 0 9px rgba(15,118,110,0)}100%{box-shadow:0 0 0 0 rgba(15,118,110,0)}}
+.ptd-pulse{animation:ptdPulse 2.2s ease-out infinite}
+.ptd-pulse:hover{animation-play-state:paused}
+@media (prefers-reduced-motion: reduce){.ptd-pulse{animation:none}}`;
 
 export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmtVal, currencyLabel, onClose, initialProvince, initialRepUserId, prefetched }: Props) {
   // المندوب المطلوب ومحافظته — ثم أول مندوب في المحافظة
@@ -111,13 +122,14 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
   }, [openRep, teams]);
 
   return (
-    <div dir="rtl" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 20, width: 'min(980px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(15,23,42,.35)' }}>
+    <div dir="rtl" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+      <style>{PULSE_CSS}</style>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: 'min(1400px, 100%)', height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(15,23,42,.35)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
           <div style={{ fontSize: 18, fontWeight: 900, color: '#0f172a' }}>فرق المحافظات</div>
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="بحث: محافظة / تيم ليدر / مندوب / شركة"
             style={{ flex: 1, minWidth: 180, border: '1px solid #cbd5e1', borderRadius: 999, padding: '7px 14px', fontSize: 13 }} />
-          <button type="button" disabled={!openInfo} onClick={() => setLinesOpen(true)}
+          <button type="button" disabled={!openInfo} onClick={() => setLinesOpen(true)} className={openInfo ? 'ptd-pulse' : undefined}
             title={openInfo ? `كل سطور لكوديشن ${openInfo.repName} في ${openInfo.province}: الصيدلية، التاريخ، الكمية، السعر…` : 'افتح مندوباً أولاً'}
             style={{ border: '1px solid #0f766e', background: openInfo ? '#0f766e' : '#f1f5f9', color: openInfo ? '#fff' : '#94a3b8', borderColor: openInfo ? '#0f766e' : '#e2e8f0', borderRadius: 999, padding: '7px 14px', fontSize: 13, fontWeight: 800, cursor: openInfo ? 'pointer' : 'default', whiteSpace: 'nowrap', opacity: 1 }}>
             🧾 لكوديشن {openInfo ? openInfo.repName : 'المندوب'}
@@ -129,7 +141,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
             repUserId={openInfo.repUserId} repName={openInfo.repName} province={openInfo.province} onClose={() => setLinesOpen(false)} />
         )}
 
-        <div style={{ overflowY: 'auto', padding: 14 }}>
+        <div style={{ overflowY: 'auto', padding: 14, flex: 1, minHeight: 0 }}>
           {loading && <div style={{ color: '#64748b', padding: 24, textAlign: 'center' }}>جاري التحميل…</div>}
           {err && <div style={{ color: '#be123c', padding: 12 }}>{err}</div>}
           {!loading && !err && shown.length === 0 && (
@@ -179,7 +191,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                                   <th style={{ ...subHead, background: CO_BG }}>الشركة</th>
                                   <th style={{ ...subHead, background: CO_BG, textAlign: 'left' }}>الكمية</th>
                                   <th style={{ ...subHead, background: CO_BG, textAlign: 'left' }}>القيمة ({currencyLabel})</th>
-                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left', borderRight: GRP_SEP }}>مبيع المندوب (كمية · قيمة)</th>
+                                  <th style={{ ...subHead, background: REP_BG, textAlign: 'left', borderRight: GRP_SEP }}>مبيع المندوب (الكمية · القيمة)</th>
                                   <th style={{ ...subHead, background: REP_BG, textAlign: 'left' }}>التارگت (كمية)</th>
                                   <th style={{ ...subHead, background: REP_BG, textAlign: 'left' }}>الإنجاز</th>
                                 </tr>
@@ -191,7 +203,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                                     <td style={{ padding: '6px 4px', color: '#64748b', background: CO_BG_SOFT }}>{i.company}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', background: CO_BG_SOFT }}>{nf(i.qty)}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.net < 0 ? '#be123c' : '#334155', background: CO_BG_SOFT }}>{fmtVal(i.net)}</td>
-                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', color: '#475569', background: REP_BG_SOFT, borderRight: GRP_SEP }}>{i.personalQty ? `${nf(i.personalQty)} · ${fmtVal(i.personalNet)}` : '—'}</td>
+                                    <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', color: '#475569', background: REP_BG_SOFT, borderRight: GRP_SEP }}>{i.personalQty ? repQtyVal(i.personalQty, fmtVal(i.personalNet)) : '—'}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT }}>{i.targetQty > 0 ? nf(i.targetQty) : '—'}</td>
                                     <td style={{ padding: '6px 4px', textAlign: 'left', direction: 'ltr', fontWeight: 700, color: i.targetQty > 0 && i.personalQty >= i.targetQty ? '#0f766e' : '#64748b', background: REP_BG_SOFT }}>{i.targetQty > 0 ? pctOf(i.personalQty, i.targetQty) : '—'}</td>
                                   </tr>
@@ -203,7 +215,7 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
                                   <td style={{ background: CO_BG_SOFT }} />
                                   <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: CO_BG_SOFT }}>{nf(r.qty)}</td>
                                   <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: CO_BG_SOFT }}>{fmtVal(r.net)}</td>
-                                  <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT, borderRight: GRP_SEP }}>{r.personalQty ? `${nf(r.personalQty)} · ${fmtVal(r.personalNet)}` : '—'}</td>
+                                  <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT, borderRight: GRP_SEP }}>{r.personalQty ? repQtyVal(r.personalQty, fmtVal(r.personalNet)) : '—'}</td>
                                   <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT }}>{r.targetQty > 0 ? nf(r.targetQty) : '—'}</td>
                                   <td style={{ padding: '7px 4px', textAlign: 'left', direction: 'ltr', background: REP_BG_SOFT, color: r.targetQty > 0 && achievedOf(r.items) >= r.targetQty ? '#0f766e' : '#334155' }}>{r.targetQty > 0 ? pctOf(achievedOf(r.items), r.targetQty) : '—'}</td>
                                 </tr>
