@@ -73,6 +73,29 @@ assert.equal(afterDedup([m1, condition('2026-10-10', 6, 'Vitamin C', 10)]).lengt
 assert.equal(afterDedup([m1, condition('2026-10-10', 5, 'Amoklavin 1G', 10, {}, { customer: { name: 'صيدلية النور' } })]).length, 2, 'صيدلية أخرى');
 assert.equal(afterDedup([m1, condition('2026-10-10', 5, 'Amoklavin 1G', 10, {}, { recordType: 'return' })]).length, 2, 'إرجاع اللكوديشن يبقى');
 assert.equal(afterDedup([m1, condition('2026-10-10', 5, 'Amoklavin 1G', 8, { bonus: 2 })]).length, 1, 'ميركاتو يعدّ البونص ضمن الكمية');
+
+// ── صفوف اليزن للمندوب العلمي: لا تُحسب لكنها تُسقط الطلبية نفسها (2026-11-20) ──
+{
+  const { isOfficeWarehouseRow, IGNORE_YAZEN_FOR_SCIENTIFIC } = await import('../server/lib/pharmacyRep.js');
+  assert.equal(IGNORE_YAZEN_FOR_SCIENTIFIC, true);
+  const yazen = mercato('2026-10-10', 5, 'Amoklavin 1G', 10, { 'اسم المذخر': 'ALYAZEN' });
+  const other = mercato('2026-10-10', 6, 'Vitamin C', 4, { 'اسم المذخر': 'المنارة - بغداد' });
+  assert.equal(isOfficeWarehouseRow(yazen.rawData), true, 'عمود المذخر = اليزن');
+  assert.equal(isOfficeWarehouseRow(other.rawData), false, 'مذخر آخر');
+  assert.equal(isOfficeWarehouseRow(JSON.stringify({ _sheetName: 'المكتب' })), true, 'شيت اليزن بلا عمود مذخر');
+  assert.equal(isOfficeWarehouseRow(JSON.stringify({ _sheetName: 'المكتب', 'اسم المذخر': 'المنارة' })), false, 'عمود المذخر يحسم قبل اسم الشيت');
+
+  // صف لكوديشن للطلبية نفسها يُسقط باليزن، واليزن نفسه لا يعود ضمن الصفوف المحسوبة.
+  const cYazen = condition('2026-10-11', 5, 'Amoklavin 1G', 10);
+  const res = dropConditionRowsFoundInMercato([other, cYazen], new Set(), [yazen]);
+  assert.deepEqual(res.rows, [other], 'اليزن يُسقط اللكوديشن المكرر ولا يُضاف');
+  assert.deepEqual(res.dropped, [cYazen]);
+  // بلا اليزن كمستهلِك يبقى صف اللكوديشن (السلوك الذي نمنعه).
+  assert.equal(dropConditionRowsFoundInMercato([other, cYazen]).rows.length, 2);
+  // سطر المندوب للطلبية نفسها يسقط باليزن أيضاً.
+  assert.deepEqual(kept([sale('2026-10-10', [line(5, 'Amoklavin 1G', 10)])], [other, yazen]), [], 'سطر المندوب لطلبية اليزن لا يُحسب');
+  assert.deepEqual(kept([sale('2026-10-10', [line(7, 'Zinc', 3)])], [other, yazen]), ['Zinc'], 'سطر آخر يبقى');
+}
 assert.equal(afterDedup([m1, condition('2026-10-10', 5, 'Amoklavin 1G', 10), condition('2026-10-10', 5, 'Amoklavin 1G', 10)]).length, 2, 'كل صف ميركاتو يقابل صف لكوديشن واحداً');
 assert.deepEqual(kept([sale('2026-10-10', [line(5, 'Amoklavin 1G', 10)])], [condition('2026-10-10', 5, 'Amoklavin 1G', 10)]), [], 'سطر المندوب الموجود في اللكوديشن يُحسب منه وحده');
 

@@ -131,6 +131,32 @@ export async function uploadSales(req, res, next) {
 }
 
 /**
+ * POST /api/upload-sales/preview — «الرفع الذكي»: معاينة بلا أي كتابة (lib/uploadPreview.js).
+ * نفس حقول /upload-sales؛ fileType الافتراضي 'smart' (يُحسم من اسم الملف وأوراقه)،
+ * وsourceCurrency الفارغ = عملة الملف التراكمي القائم أو الكشف بالقيم. الرفع الفعلي بعدها
+ * يرسل fileType وsourceCurrency المحسومَين هنا إلى /upload-sales كما هو.
+ */
+export async function previewUploadSales(req, res, next) {
+  try {
+    if (!req.file) {
+      throw new AppError('No file uploaded. Send a multipart/form-data request with key "file".', 400, 'NO_FILE');
+    }
+    const fileType = ['smart', 'sales', 'returns', 'auto'].includes(req.body.fileType) ? req.body.fileType : 'smart';
+    const sourceCurrency = ['IQD', 'USD'].includes(req.body.sourceCurrency) ? req.body.sourceCurrency : null;
+    const data = await processUploadedFile(req.file, {
+      userId: req.user?.id ?? null,
+      fileType,
+      sourceCurrency,
+      mergeIntoCumulative: !(req.body.standalone === 'true' || req.body.standalone === '1'),
+      dryRun: true,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * POST /api/sales/extract-invoice
  * Accepts one or more invoice IMAGES (multipart, field "images") and returns
  * AI-extracted sale rows for review. Does NOT save anything.

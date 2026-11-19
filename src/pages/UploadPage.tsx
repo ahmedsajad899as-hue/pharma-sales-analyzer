@@ -9,6 +9,7 @@ import WarehouseGapImportModal from '../components/WarehouseGapImportModal';
 import RepNameMatchModal from '../components/RepNameMatchModal';
 import CumulativeAuditModal from '../components/CumulativeAuditModal';
 import ConditionFileModal from '../components/ConditionFileModal';
+import SmartUploadModal, { type SmartUploadResult } from '../components/SmartUploadModal';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Icon } from '../config/icons';
@@ -68,6 +69,11 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   // الدمج هو الافتراضي: رفعة شهر 10 تنصهر داخل نفس الملف الذي يحمل شهر 9، وما
   // سبق إدخاله يُسقط بلا تكرار. standalone لرفعة يريدها المستخدم معزولة.
   const [standalone, setStandalone] = useState(false);
+  // «رفع ذكي» (SmartUploadModal): null = مغلق، [] = مفتوح بلا ملفات بعد. مسار إضافي —
+  // الأزرار الثلاثة ونافذة العملة أدناه باقية كما هي.
+  const [smartFiles, setSmartFiles] = useState<File[] | null>(null);
+  const smartOpenRef = useRef(false);
+  smartOpenRef.current = smartFiles !== null;
   type MergeBatch = { id: number; originalName: string; uploadedAt: string; uploadedBy: string | null; rowsAdded: number; rowsSkipped: number; monthsLabel: string | null; storedFilename: string | null; isActive: boolean; ownedRows: number; firstDate: string | null; lastDate: string | null };
   type BatchSummary = { total: number; active: number; firstDate: string | null; lastDate: string | null };
   const [batchSummary, setBatchSummary] = useState<BatchSummary | null>(null);
@@ -446,15 +452,35 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
+    // عدة ملفات معاً ← «رفع ذكي» (كان يُرفع الأول وحده ويُهمل الباقي بصمت).
+    if (e.dataTransfer.files.length > 1) { setSmartFiles(Array.from(e.dataTransfer.files)); return; }
     const file = e.dataTransfer.files[0];
     if (file) requestUpload(file);
   };
+
+  /** بعد «رفع ذكي»: نفس ما يفعله uploadFile بعد رفعة واحدة، لكل الملفات معاً. */
+  const onSmartUploaded = useCallback(async (results: SmartUploadResult[]) => {
+    const ids = [...new Set(results.map(r => r.fileId))];
+    for (const id of ids) if (!activeFileIdsRef.current.includes(id)) onFileActivatedRef.current(id);
+    await loadFiles();
+    const unknown = [...new Set(results.flatMap(r => r.unknownItems))];
+    if (unknown.length) checkSimilarItemsRef.current(unknown);
+    const mercatoIds = [...new Set(results.filter(r => r.sourceSystem === 'mercato').map(r => r.fileId))];
+    if (mercatoIds.length) {
+      try {
+        const chk = await fetch(`${API}/api/scientific-reps/rep-names/check?fileIds=${mercatoIds.join(',')}`, { headers: { Authorization: `Bearer ${token}` } });
+        const cj = await chk.json();
+        if ((cj.data?.pending ?? []).length > 0) setRepNameFileIds(mercatoIds);
+      } catch { /* غير حرج — يبقى الزر على بطاقة الملف */ }
+    }
+  }, [loadFiles, token]);
 
   // Clipboard paste — lets user Ctrl+V a file copied from WhatsApp Desktop
   const requestUploadRef = useRef<(f: File) => void>(requestUpload);
   useEffect(() => { requestUploadRef.current = requestUpload; });
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
+      if (smartOpenRef.current) return; // نافذة «رفع ذكي» مفتوحة — لا تفتح نافذة الرفع القديمة فوقها
       const items = e.clipboardData?.items;
       if (!items) return;
       for (const item of Array.from(items)) {
@@ -1127,10 +1153,28 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                   <span>{opt.label}</span>
                 </button>
               ))}
+              {/* «رفع ذكي»: عدة ملفات بلا اختيار نوع، ومعاينة الجديد/الموجود قبل الحفظ */}
+              <button onClick={() => setSmartFiles([])}
+                title="ملفات اليوم كلها مرة واحدة: يُعرف النوع والعملة تلقائياً وتُعرض الصفوف الجديدة قبل الحفظ"
+                style={{
+                  padding: '12px 22px', borderRadius: 8, cursor: 'pointer', fontWeight: 700,
+                  fontSize: 13, border: '1.5px solid var(--c-success-border, #6ee7b7)',
+                  background: 'var(--c-success-bg, #ecfdf5)', color: 'var(--c-success, #059669)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                  minWidth: 110, transition: 'opacity 0.1s',
+                }}
+              >
+                <Icon name="import" size={24} />
+                <span>رفع ذكي (عدة ملفات)</span>
+              </button>
             </div>
           </>
         )}
       </div>
+
+      {smartFiles !== null && (
+        <SmartUploadModal token={token} initialFiles={smartFiles} onClose={() => setSmartFiles(null)} onUploaded={onSmartUploaded} />
+      )}
 
       {/* ── الهاتف: طلبيات البوت بسطرين لكل طلبية (المحتوى + المرسل/الوقت) ── */}
       {ordersFeature && pendingOrders.length > 0 && isMobile && (

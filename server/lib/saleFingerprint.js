@@ -109,6 +109,16 @@ export function contentKey({ rawData, itemId, customerId, recordType = 'sale', q
   return [orderNo, dateRaw, pharmacy, company, item, recordType, num(quantity), num(totalValue)].join('|');
 }
 
+/**
+ * هل يحتاج مفتاح الصف itemId/customerId؟ (لا يحمل rawData عمود ايتم/صيدلية بقيمة.)
+ * لمعاينة الرفع (uploadPreview.js): تُحسم المعرّفات بالقراءة فقط لهذه الصفوف وحدها.
+ * @returns {{ item: boolean, customer: boolean }}
+ */
+export function keyFallbacks(rawData) {
+  const raw = parseRaw(rawData);
+  return { item: !pick(raw, ITEM_ALIASES), customer: !pick(raw, PHARMACY_ALIASES) };
+}
+
 const hash = (s) => KEY_VERSION_PREFIX + createHash('sha1').update(s, 'utf8').digest('base64url').slice(0, 22);
 
 /**

@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadSales, extractInvoice, addManualSales, checkNames, checkDuplicates, conditionMatch, moveConditionToShared,
+import { uploadSales, previewUploadSales, extractInvoice, addManualSales, checkNames, checkDuplicates, conditionMatch, moveConditionToShared,
   downloadWarehouseGapTemplate, parseWarehouseGapUpload, getWarehouseGapScopeJson,
   saveActiveFiles, getSalesMonths } from './sales.controller.js';
 import {
@@ -58,6 +58,12 @@ const imageUpload = multer({
  *   totalValueCol (optional) - override column name for total value
  */
 router.post('/upload-sales', upload.single('file'), uploadSales);
+
+/**
+ * POST /api/upload-sales/preview — «الرفع الذكي»: نفس حقول /upload-sales، بلا أي كتابة.
+ * يعيد: النوع والعملة المحسومَين، كم صفاً جديداً/موجوداً، التواريخ، صفوف اليزن، الأوراق.
+ */
+router.post('/upload-sales/preview', upload.single('file'), previewUploadSales);
 
 /**
  * POST /api/sales/extract-invoice

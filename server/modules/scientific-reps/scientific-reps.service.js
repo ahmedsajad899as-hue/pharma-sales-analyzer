@@ -12,12 +12,12 @@ import { attributeLine } from '../province-teams/province-teams.rules.js';
 import { countDistinctOrders, groupOrdersByWarehouse, isWarehouseSaleRow } from '../../lib/orderKey.js';
 import { CONDITION_VARIANT } from '../../lib/saleFingerprint.js';
 import { loadTransitSales, parseTransitRow } from '../../lib/transitOrders.js';
-import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, normalizeOfficeSource, isOfficeWarehouseRow, OFFICE_SOURCE_WAREHOUSE, officeWarehouseMonths, monthRangesWhere, monthKeyUTC, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
+import { PHARMACY_KIND, repSideOf, marketerHomeProvinces, pickMarketerLeaders, isPharmacyRep, parseCustomerInfoLabels, serializeCustomerInfoLabels, customerInfoLabelsWhere, normalizeOfficeSource, isOfficeWarehouseRow, OFFICE_SOURCE_WAREHOUSE, IGNORE_YAZEN_FOR_SCIENTIFIC, officeWarehouseMonths, monthRangesWhere, monthKeyUTC, looksLikePharmacyInfo, looksLikeCommercialInfo, customerInfoClassOf } from '../../lib/pharmacyRep.js';
 import { applyItemTiersToRows, TIER_SECONDARY } from '../../lib/itemTiers.js';
 import { normalizeAreaName } from '../../lib/itemResolver.js';
 import { loadRepLocations, provinceByAreaName } from '../../lib/repLocation.js';
 import { dedupCrossFile } from '../../lib/crossFileDedup.js';
-import { dateRangeWhere, dropBlockedLines, dropConditionRowsFoundInMercato, dropLinesFoundInMercato, assignProvince, isInDateRange, isLiquidationRow, repSaleToRows, widenDateRange } from '../../lib/repLiquidation.js';
+import { dateRangeWhere, dropBlockedLines, dropConditionRowsFoundInMercato, dropLinesFoundInMercato, assignProvince, isInDateRange, isLiquidationRow, isPureMercatoRow, repSaleToRows, widenDateRange } from '../../lib/repLiquidation.js';
 import { loadMarketersManagerScope } from '../../lib/marketersManagerScope.js';
 import { ensureYazenMatches, matchedOfficeSaleIds } from '../../lib/yazenOfficeMatch.js';
 
@@ -1989,6 +1989,19 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     }
   }
 
+  // ── صفوف مذخر اليزن للمندوب العلمي: لا تُحسب (قرار 2026-11-20) ────────────────
+  // مكتبه من ملف المكتب، وصف اليزن الطلبية نفسها. تُعاد منفصلة (yazenIgnoredRows) كي
+  // تُسقط مطابقة اللكوديشن ما يكرّرها دون أن تُحسب هي — راجع IGNORE_YAZEN_FOR_SCIENTIFIC.
+  let yazenIgnoredRows = [];
+  if (!pharmacyMode && IGNORE_YAZEN_FOR_SCIENTIFIC && mercatoFileIds.length > 0) {
+    const mercatoSet = new Set(mercatoFileIds);
+    const isYazenRow = s => mercatoSet.has(s.uploadedFileId) && !conditionFileIdSet.has(s.uploadedFileId) && isOfficeWarehouseRow(s.rawData);
+    if (rawSales.some(isYazenRow)) {
+      yazenIgnoredRows = rawSales.filter(isYazenRow);
+      rawSales = rawSales.filter(s => !isYazenRow(s));
+    }
+  }
+
   // ── Deduplicate ONLY across overlapping files ──────────────────────────────
   // When two active files carry the same rows (e.g. a «كل العراق» file and a
   // per-region file), a logical sale must not be counted twice. BUT genuine
@@ -2050,7 +2063,7 @@ async function resolveSciRepSales(id, query = {}, select, viewerId = null) {
     ({ rows: tieredSales, mode: itemTierMode } = await applyItemTiersToRows(linkedUser.id, finalSales));
   }
 
-  return { ...meta, rawSales: tieredSales, itemTierMode, sharedFileIds, nonSharedFileIds, linkedUserId: linkedUser?.id ?? null };
+  return { ...meta, rawSales: tieredSales, itemTierMode, sharedFileIds, nonSharedFileIds, linkedUserId: linkedUser?.id ?? null, yazenIgnoredRows };
 }
 
 /**
@@ -2221,7 +2234,9 @@ async function resolveLiquidationSales(id, query, select, viewerId) {
     area: { select: { id: true, name: true, province: { select: { name: true } } } },
     customer: select.customer ?? { select: { name: true } },
   }, viewerId);
-  const { rows: fileRows, dropped: droppedConditionRows } = dropConditionRowsFoundInMercato(resolved.rawSales.filter(isLiquidationRow));
+  // صفوف اليزن لا تُحسب، لكنها تُسقط ما يطابقها من لكوديشن وأسطر مندوب (الطلبية نفسها).
+  const yazenAbsorbers = resolved.yazenIgnoredRows ?? [];
+  const { rows: fileRows, dropped: droppedConditionRows } = dropConditionRowsFoundInMercato(resolved.rawSales.filter(isLiquidationRow), new Set(), yazenAbsorbers);
   const shownFileRows = fileRows.filter(s => isInDateRange(s.saleDate, range));
 
   const userIds = await liquidationUserIds(id);
@@ -2232,7 +2247,7 @@ async function resolveLiquidationSales(id, query, select, viewerId) {
       })
     : [];
   const { sales: unique, droppedLines } = wantsSales
-    ? dropLinesFoundInMercato(dropBlockedLines(repSales, await loadLiquidationBlocks(query.fileIds, viewerId)), fileRows)
+    ? dropLinesFoundInMercato(dropBlockedLines(repSales, await loadLiquidationBlocks(query.fileIds, viewerId)), [...fileRows, ...yazenAbsorbers])
     : { sales: [], droppedLines: [] };
   const shownRepSales = repSales.filter(s => isInDateRange(s.saleDate, range));
   const shownSales = unique.filter(s => isInDateRange(s.saleDate, range));
@@ -2324,9 +2339,11 @@ export async function loadLiquidationData({ fileIds, range, repSaleWhere, userWh
   const others = wideSales.filter(s => !repIdByUser.has(s.createdById));
   const used = new Set();
   const unique = [];
+  // صفوف اليزن (absorbers) تُسقط سطر المندوب للطلبية نفسها ولا تُحسب هي.
+  const matchPool = [...mercato.rows, ...(mercato.absorbers ?? [])];
   for (const repId of new Set(scientific.map(s => repIdByUser.get(s.createdById)))) {
     const own = scientific.filter(s => repIdByUser.get(s.createdById) === repId);
-    unique.push(...dropLinesFoundInMercato(own, mercato.rows.filter(r => r.repIds.includes(repId)), used).sales);
+    unique.push(...dropLinesFoundInMercato(own, matchPool.filter(r => r.repIds.includes(repId)), used).sales);
   }
   const userByRep = new Map(mercato.users.map(u => [u.linkedRepId, u.id]));
   return {
@@ -2454,13 +2471,16 @@ async function loadLiquidationMercatoRows({ fileIds, range, userWhere, viewerId 
     if (owners.length) rows.push({ ...s, repIds: owners });
   }
   // صف اللكوديشن يُقارَن بصفوف ميركاتو مندوبه فقط، كسطر المندوب في loadLiquidationData.
+  // صفوف اليزن هنا صفوف ميركاتو عادية فتُسقط ما يطابقها، ثم تُعزل فلا تُحسب (IGNORE_YAZEN_FOR_SCIENTIFIC).
   const duplicates = new Set();
   const used = new Set();
   for (const repId of repsInRows) {
     const own = rows.filter(r => r.repIds.includes(repId) && !duplicates.has(r));
     for (const row of dropConditionRowsFoundInMercato(own, used).dropped) duplicates.add(row);
   }
-  return { rows: rows.filter(r => !duplicates.has(r)), users, blocks };
+  const isIgnoredYazen = r => IGNORE_YAZEN_FOR_SCIENTIFIC && isPureMercatoRow(r) && isOfficeWarehouseRow(r.rawData);
+  const kept = rows.filter(r => !duplicates.has(r));
+  return { rows: kept.filter(r => !isIgnoredYazen(r)), absorbers: kept.filter(isIgnoredYazen), users, blocks };
 }
 
 // ── «بدون الفارمسي» / «بدون التجاري» ─────────────────────────────────────────

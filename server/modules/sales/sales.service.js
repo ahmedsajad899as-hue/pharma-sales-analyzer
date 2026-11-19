@@ -31,6 +31,7 @@ import {
   normalizeArabic,
 } from './sales.repository.js';
 import { buildNormalizationMap, areSimilar, similarity } from '../../lib/fuzzyMatch.js';
+import { previewParsedUpload } from '../../lib/uploadPreview.js';
 import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName, provinceFromText } from '../../lib/provinces.js';
 import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks, resolveEffectiveAreaIds } from '../../lib/areaScope.js';
@@ -168,8 +169,14 @@ export async function processUploadedFile(file, options = {}) {
   // multipart القادمة من متصفح/multer — عطل ترميز معروف). مصادر أخرى (تلكرام
   // مثلاً) ترسل file.originalname كنص UTF-8 صحيح أصلاً؛ تمريره لنفس التحويل
   // كان سيُفسده بدل تصحيحه.
-  const { uploadedBy, columnMapping = {}, userId = null, fileType = 'sales', sourceCurrency = null, rawOriginalName = false, mergeIntoCumulative = true } = options;
+  // dryRun: «الرفع الذكي» — يقرأ الملف كاملاً ويعيد معاينة (جديد/موجود/التواريخ/اليزن)
+  // بلا أي كتابة؛ يتوقف قبل _finishProcessing (lib/uploadPreview.js). fileType='smart'
+  // يُحسم هنا من اسم الملف وأوراقه (decideSmartFileType) — المعاينة وحدها ترسله، والرفع
+  // الفعلي بعدها يرسل النوع المحسوم فيمرّ بالمسار القائم نفسه.
+  const { uploadedBy, columnMapping = {}, userId = null, fileType: requestedType = 'sales', sourceCurrency = null, rawOriginalName = false, mergeIntoCumulative = true, dryRun = false } = options;
+  let fileType = requestedType;
   const fixOriginalName = (name) => rawOriginalName ? name : Buffer.from(name, 'latin1').toString('utf8');
+  const diag = { sheets: [], hiddenByFilter: 0, droppedCrossSheet: 0, smartReason: null };
 
   // ── 0. filter_page — just store the file, skip all sales processing ──────────
   if (fileType === 'filter_page') {
@@ -203,7 +210,13 @@ export async function processUploadedFile(file, options = {}) {
   // فلتر الإكسل (AutoFilter) عند القراءة أدناه (skipHidden).
   const workbook   = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true, cellStyles: true });
 
-  console.log(`[upload] fileType="${fileType}" | sheets in workbook:`, workbook.SheetNames);
+  if (fileType === 'smart') {
+    const decided = decideSmartFileType(workbook, fixOriginalName(file.originalname || ''));
+    fileType = decided.fileType;
+    diag.smartReason = decided.reason;
+  }
+
+  console.log(`[upload] fileType="${fileType}"${dryRun ? ' (dry-run)' : ''} | sheets in workbook:`, workbook.SheetNames);
 
   // ── 1b. Matrix (cross-tabular pivot) format shortcut ─────
   if (fileType === 'matrix') {
@@ -220,6 +233,12 @@ export async function processUploadedFile(file, options = {}) {
       );
     }
 
+    if (dryRun) {
+      return previewParsedUpload({
+        salesRows: matrixRows, returnsRows: [], skippedRows: [], userId, fileType: 'sales', requestedType,
+        sourceCurrency, sourceSystem: null, mergeIntoCumulative, diag, originalName: fixOriginalName(file.originalname || ''),
+      });
+    }
     // Inject the matrix flat rows directly as salesRows and skip the tabular parser
     return await _finishProcessing({
       salesRows:      matrixRows,
@@ -273,6 +292,8 @@ export async function processUploadedFile(file, options = {}) {
     // Skip leading title/metadata rows: start parsing from the detected header row.
     const headerRowIdx = detectHeaderRow(ws, columnMapping);
     let rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: headerRowIdx });
+    const sheetDiag = { name: sheetName, rows: rows.length, hidden: 0, forceReturn: !!forceReturn, read: false, mercato: false };
+    diag.sheets.push(sheetDiag);
     if (rows.length === 0) continue;
     // فلتر الإكسل (AutoFilter): الصفوف التي أخفاها المستخدم بفلتر في الملف الأصلي
     // (قبل الرفع) تبقى مستبعدة هنا فلا تُستورد — أي فلتره في الإكسل يستمر مفعوله
@@ -284,6 +305,8 @@ export async function processUploadedFile(file, options = {}) {
       rows = rows.filter(row => !hiddenRowInfo[row.__rowNum__]?.hidden);
       if (rows.length < beforeFilter) {
         console.log(`[upload] Sheet "${sheetName}": استبعدنا ${beforeFilter - rows.length} صف مخفي بفلتر الإكسل (AutoFilter).`);
+        sheetDiag.hidden = beforeFilter - rows.length;
+        diag.hiddenByFilter += sheetDiag.hidden;
       }
       if (rows.length === 0) continue;
     }
@@ -293,11 +316,14 @@ export async function processUploadedFile(file, options = {}) {
       console.log(`[upload] Sheet "${sheetName}": ليس بتوقيع ميركاتو — تُرك.`);
       continue;
     }
+    sheetDiag.read = true;
+    sheetDiag.rows = rows.length;
     const sheetColMap  = resolveColumns(sheetHeaders, columnMapping);
     // ميركاتو: نفرض خريطته الصريحة فوق المطابقة العامة (تُخطئ في المادة/الشركة/
     // الزبون هنا) — مع إبقاء أي override صريح من المستخدم فوق الجميع.
     if (detectMercatoFormat(sheetHeaders)) {
       isMercatoFile = true;
+      sheetDiag.mercato = true;
       for (const [field, col] of Object.entries(mercatoColumnMap(sheetHeaders))) {
         if (columnMapping[field] && sheetHeaders.includes(columnMapping[field])) continue;
         sheetColMap[field] = col;
@@ -333,6 +359,7 @@ export async function processUploadedFile(file, options = {}) {
       if (n > 0) { baseCounts.set(k, n - 1); allRawEntries.splice(i, 1); droppedCross++; }
     }
     if (droppedCross) console.log(`[upload] أُسقط ${droppedCross} صف مكرر بين الشيتات (موجود في الشيت الأساسي).`);
+    diag.droppedCrossSheet = droppedCross;
   }
 
   // ── تواريخ قلبها الإكسل (يوم↔شهر) ─────────────────────────────────────────────
@@ -488,6 +515,14 @@ export async function processUploadedFile(file, options = {}) {
       422,
       'ALL_ROWS_INVALID',
     );
+  }
+
+  if (dryRun) {
+    return previewParsedUpload({
+      salesRows, returnsRows, skippedRows, userId, fileType, requestedType, sourceCurrency,
+      sourceSystem: isMercatoFile ? 'mercato' : null, mergeIntoCumulative, diag,
+      originalName: fixOriginalName(file.originalname || ''),
+    });
   }
 
   // ── 3b–7. Shared finishing logic ─────────────────────────
@@ -788,6 +823,49 @@ function isReturnSheet(sheetName) {
 function isSalesSheet(sheetName) {
   const s = String(sheetName).trim();
   return /مبيع|مبيعات|المبيع|المبيعات|sale|sales/i.test(s);
+}
+
+/**
+ * «الرفع الذكي»: نوع الرفعة من اسم الملف وأوراقه، بمعاني الأزرار الثلاثة نفسها.
+ *  - 'returns': اسم الملف أو الورقة الأولى يدل على إرجاع لا على مبيع.
+ *  - 'sales' لميركاتو دائماً: 'auto' يقرأ كل الأوراق بلا إسقاط صفوف ورقة اليزن المكررة
+ *    من الورقة العامة، فتُحسب طلبية اليزن مرتين.
+ *  - 'auto': ملف مكتب فيه ورقة إضافية بالأعمدة نفسها (ملف مقسّم ورقة لكل منطقة) —
+ *    'sales' كان سيقرأ الأولى وحدها. ورقة ملخص بأعمدة أخرى لا تكفي.
+ *  - 'sales' للباقي: الورقة الأولى + أوراق «مبيعات/ارجاعات» بأسمائها، والكمية السالبة إرجاع.
+ * @returns {{ fileType: 'sales'|'returns'|'auto', reason: string }}
+ */
+export function decideSmartFileType(workbook, originalName = '') {
+  const names = workbook.SheetNames || [];
+  const first = names[0] ?? '';
+  const base = String(originalName).replace(/\.[^.]+$/, '');
+  const looksReturn = (s) => isReturnSheet(s) && !isSalesSheet(s);
+  if (looksReturn(base)) return { fileType: 'returns', reason: 'file-name' };
+  if (looksReturn(first)) return { fileType: 'returns', reason: 'sheet-name' };
+
+  const headersOf = (sn) => {
+    const ws = workbook.Sheets[sn];
+    if (!ws || !ws['!ref']) return null;
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: detectHeaderRow(ws), blankrows: false });
+    if (aoa.length < 2) return null; // ترويسة + صف بيانات واحد على الأقل
+    return aoa[0].map(c => String(c ?? '').trim()).filter(Boolean);
+  };
+  const firstHeaders = headersOf(first);
+  if (!firstHeaders) return { fileType: 'sales', reason: 'default' };
+  if (detectMercatoFormat(firstHeaders)) return { fileType: 'sales', reason: 'mercato' };
+
+  const firstSet = new Set(firstHeaders);
+  const sameShape = (h) => {
+    const cm = resolveColumns(h, {});
+    if (!h.includes(cm.item) || !h.includes(cm.quantity)) return false;
+    return firstHeaders.filter(x => h.includes(x)).length >= Math.ceil(firstSet.size * 0.7);
+  };
+  const extraData = names.slice(1).filter(sn => !isReturnSheet(sn) && !isSalesSheet(sn)).some((sn) => {
+    const h = headersOf(sn);
+    return h && !detectMercatoFormat(h) && sameShape(h);
+  });
+  if (extraData) return { fileType: 'auto', reason: 'multi-sheet' };
+  return { fileType: 'sales', reason: 'default' };
 }
 
 /**

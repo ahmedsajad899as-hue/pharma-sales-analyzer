@@ -150,12 +150,14 @@ function conditionRowAsSale(row, id) {
  *
  * @param {Array} rows صفوف Sale لمندوب واحد، ميركاتو ولكوديشن معاً
  * @param {Set} [used] صفوف ميركاتو المستعملة، يشاركها أكثر من حساب بالاسم نفسه
+ * @param {Array} [absorbers] صفوف ميركاتو لا تُحسب لكنها تُسقط ما يطابقها (صفوف اليزن
+ *        للمندوب العلمي — IGNORE_YAZEN_FOR_SCIENTIFIC في pharmacyRep.js). لا تعود في rows.
  * @returns {{rows: Array, dropped: Array}}
  */
-export function dropConditionRowsFoundInMercato(rows, used = new Set()) {
+export function dropConditionRowsFoundInMercato(rows, used = new Set(), absorbers = []) {
   const conditionRows = rows.filter(r => isConditionFileRow(r) && !isReturnRow(r));
   if (!conditionRows.length) return { rows, dropped: [] };
-  const { droppedLines } = dropLinesFoundInMercato(conditionRows.map(conditionRowAsSale), rows.filter(isPureMercatoRow), used);
+  const { droppedLines } = dropLinesFoundInMercato(conditionRows.map(conditionRowAsSale), [...rows.filter(isPureMercatoRow), ...absorbers], used);
   const dropped = new Set(droppedLines.map(i => conditionRows[i]));
   return { rows: rows.filter(r => !dropped.has(r)), dropped: [...dropped] };
 }

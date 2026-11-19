@@ -174,6 +174,14 @@ export function customerInfoLabelsWhere(labels) {
 // خاص اسمه «اليزن»/«المسوقين»/«المكتب» (rawData._sheetName).
 export const OFFICE_SOURCE_WAREHOUSE = 'warehouse';
 export const OFFICE_WAREHOUSE_SHEET_RE = /يزن|مسوق|مكتب|yaz[aeiy]?n|alyaz/i;
+
+// ── صفوف اليزن للمندوب العلمي (قرار المستخدم 2026-11-20) ─────────────────────
+// مبيع المكتب للمندوب العلمي يُحسب من ملف المكتب وحده. صف ميركاتو باسمه مرسَل لمذخر
+// اليزن (= المكتب) هو الطلبية نفسها، فإن حُسب ميركاتو تكرّرت. يُرفع ويُخزَّن كما هو
+// ولا يُحسب له: لا في تقريره ولا في اللكوديشن. يبقى «مستهلِكاً» في مطابقة التكرار
+// (repLiquidation.js) كي لا يدخل سطر مندوب أو صف لكوديشن للطلبية نفسها بدلاً منه.
+// المسوّقون على قواعدهم (officeSource أعلاه). false يعيد السلوك السابق كما كان.
+export const IGNORE_YAZEN_FOR_SCIENTIFIC = true;
 const WAREHOUSE_KEYS = ['المذخر', 'اسم المذخر', 'المخزن', 'اسم المخزن', 'المستودع', 'اسم المستودع', 'warehouse'];
 
 export function normalizeOfficeSource(v) {
