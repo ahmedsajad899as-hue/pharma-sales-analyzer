@@ -22,7 +22,7 @@ import { REP_ROLES } from '../../lib/areaScope.js';
 import { isManagementRepRecord, candidateOwnsItem, candidateHoldsItem, provinceIdByNameKey, rowCoverage, candidateCoversRow, pickRepOrLeader } from '../../lib/repGuessRules.js';
 import { similarity } from '../../lib/fuzzyMatch.js';
 import { applyTextParse, TEXT_PARSE_VERSION } from './order-extract.js';
-import { fillRepFromSenderName, fillAreaFromGroup } from './group-context.js';
+import { fillRepFromSenderName, fillAreaFromGroup, fillAreaFromRep } from './group-context.js';
 import { loadItemOwnerManagers } from '../../lib/itemOwnerManager.js';
 import { createFromBotOrder } from '../warehouse-dispatch/dispatch.core.js';
 import { linkInvoiceReadLogs } from '../../lib/invoiceReadLog.js';
@@ -1467,6 +1467,7 @@ export async function getPendingOrder(userId, id) {
     await applyTextParse(live, row.sourceText);
     rows.splice(0, rows.length, ...live); // القراءة قد تحذف صفوفاً (سطر مذاخر قُرئ صنفاً)
     await enrichRowsFromCatalog(live, ownerId);
+    await fillAreaFromGroup(live, row.chatTitle); // «Basra nasq» ← البصرة (تعرّف لاتيني جديد)
     await matchInvoiceCustomers(live);
     // مندوب خُمِّن من منطقة خاطئة يُمسح ليُعاد تخمينه من المنطقة المصحّحة أدناه.
     live.forEach((r, i) => { if (r.area !== areaBefore[i]) r.scientificRep = null; });
@@ -1503,6 +1504,8 @@ export async function getPendingOrder(userId, id) {
   if (user && row.senderName) {
     await fillRepFromSenderName(rows.filter(Boolean), { user, senderName: row.senderName, chatTitle: row.chatTitle });
   }
+  // منطقة ما زالت فارغة ← محافظة المندوب (كروب البصرة، 2026-11-19).
+  if (user) await fillAreaFromRep(rows.filter(Boolean), { user });
   return {
     id: row.id,
     source: row.source,

@@ -4,7 +4,7 @@
 // الحالة الأصلية: كروب «ديوانية مكتب النسق»، المرسل «Ameer Madher» = المندوب «امير مضر».
 // ════════════════════════════════════════════════════════════════════════════
 
-import { areaFromTitle, sameNameAcrossScripts, pickRepBySenderName, nameSkeleton, repSlotOpen } from '../server/modules/orders/group-context.js';
+import { areaFromTitle, sameNameAcrossScripts, pickRepBySenderName, nameSkeleton, repSlotOpen, pickAreaFromRep } from '../server/modules/orders/group-context.js';
 import { reconcileRowsWithText } from '../server/modules/orders/order-text-parse.js';
 
 let failed = 0;
@@ -59,6 +59,27 @@ check('خانة فارغة مفتوحة', repSlotOpen({ scientificRep: null }), 
 check('التيم ليدر احتياطاً مفتوحة للمرسل', repSlotOpen({ scientificRep: 'امير جميل مالك', _repPick: 'leader' }), true);
 check('مندوب حسمه الصنف لا يُمسّ', repSlotOpen({ scientificRep: 'امير جميل مالك' }), false);
 check('مندوب واحد غير قائد (rep) لا يُمسّ', repSlotOpen({ scientificRep: 'س', _repPick: 'rep' }), false);
+
+// 2026-11-19: كروب البصرة — اسم لاتيني، والمنطقة من محافظة المندوب.
+console.log('\n── كروب البصرة ──');
+const provB = new Map([['بصره', { id: 3, name: 'البصرة' }], ['بغداد', { id: 1, name: 'بغداد' }],
+  ['نجف', { id: 9, name: 'النجف' }], ['ميسان', { id: 12, name: 'ميسان' }], ['ذي قار', { id: 11, name: 'ذي قار' }]]);
+check('«Basra nasq» ← البصرة', areaFromTitle('Basra nasq', new Map(), provB), { area: 'البصرة', provinceId: 3, kind: 'province' });
+check('«Basrah office» ← البصرة', areaFromTitle('Basrah office', new Map(), provB)?.area, 'البصرة');
+check('«Al Basra» ← البصرة', areaFromTitle('Al Basra', new Map(), provB)?.area, 'البصرة');
+check('«Najaf reps» ← النجف', areaFromTitle('Najaf reps', new Map(), provB)?.area, 'النجف');
+check('«Dhi Qar» ← ذي قار', areaFromTitle('Dhi Qar team', new Map(), provB)?.area, 'ذي قار');
+check('«Sales team» ← لا شيء', areaFromTitle('Sales team', new Map(), provB), null);
+check('«مندوبين البصره» ← البصرة', areaFromTitle('مندوبين البصره', new Map(), provB)?.area, 'البصرة');
+check('Murtadha Khalid ≡ مرتضى خالد نعيم', sameNameAcrossScripts('Murtadha Khalid', 'مرتضى خالد نعيم'), true);
+const repsB = [
+  { id: 1, name: 'مرتضى خالد نعيم', provinces: new Set([3]) },
+  { id: 2, name: 'علي حسن', provinces: new Set([3, 1]) },
+];
+const provNames = new Map([[3, 'البصرة'], [1, 'بغداد']]);
+check('مندوب محافظة واحدة ← محافظته', pickAreaFromRep('مرتضى خالد نعيم', repsB, provNames), 'البصرة');
+check('مندوب بمحافظتين ← لا حسم', pickAreaFromRep('علي حسن', repsB, provNames), null);
+check('مندوب غير معروف ← null', pickAreaFromRep('زيد', repsB, provNames), null);
 
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

@@ -276,5 +276,26 @@ check('منطقة الموديل غير المذكورة في سطر المذخ�
   check('«Pandev 40 10 عدد» في سطر واحد', parseItemLine('Pandev 40 10 عدد'), { name: 'Pandev 40', quantity: 10, bonus: null });
 }
 
+// 2026-11-19: كروب البصرة (المرسل Murtadha Khalid) — «عدد50قطعة» الرقم بين وحدتين ملتصقاً بهما.
+// رُفعت «للمراجعة» بكمية فارغة والاسم يحمل «عدد50قطعة» فلم يُربط الصنف.
+{
+  const t = 'Amikaver 5 amp عدد50قطعة\nDikloron gel عدد30قطعة\nص الارض الطيبة\nم سيادة';
+  const { header, itemLines } = parseOrderText(t);
+  check('البصرة: الترويسة', { pharmacy: header.pharmacy, warehouse: header.warehouse }, { pharmacy: 'الارض الطيبة', warehouse: 'سيادة' });
+  check('البصرة: الأصناف والكميات', itemLines.map(parseItemLine), [
+    { name: 'Amikaver 5 amp', quantity: 50, bonus: null },
+    { name: 'Dikloron gel', quantity: 30, bonus: null },
+  ]);
+  check('صفوف المراجعة القديمة تُشفى عند الفتح', run(t, [
+    { item: 'Amikaver 5 amp عدد50قطعة', quantity: null, pharmacy: 'الارض الطيبة', warehouse: 'سيادة' },
+    { item: 'Dikloron gel عدد30قطعة', quantity: null, pharmacy: 'الارض الطيبة', warehouse: 'سيادة' },
+  ]).map(r => [r.item, r.quantity]), [['Amikaver 5 amp', 50], ['Dikloron gel', 30]]);
+  check('«عدد 50 قطعة» بمسافات', parseItemLine('Pandev 40 عدد 50 قطعة'), { name: 'Pandev 40', quantity: 50, bonus: null });
+  const catB = [{ id: 1, name: 'Amikaver 500mg 2ml 5 amp' }, { id: 2, name: 'Amikaver 500mg 2ml 1 amp' },
+    { id: 3, name: 'Dikloron 50 g Gel' }, { id: 4, name: 'Dikloron 75mg 3ml 5 amp' }, { id: 5, name: 'Dikloron 50mg 20 tab' }];
+  check('«Amikaver 5 amp» ← Amikaver 500mg 2ml 5 amp', brandDoseFallback('Amikaver 5 amp', catB)?.canonicalItem?.id, 1);
+  check('«Dikloron gel» ← Dikloron 50 g Gel', brandDoseFallback('Dikloron gel', catB)?.canonicalItem?.id, 3);
+}
+
 console.log(failed ? `\n✗ ${failed} فشل` : '\n✓ كلها ناجحة');
 process.exit(failed ? 1 : 0);

@@ -42,6 +42,32 @@ export function areaFromTitle(title, areaIndex, provinceIndex) {
     const p = provinceIndex.get(k);
     if (p) return { area: p.name, provinceId: p.id, kind: 'province' };
   }
+  return provinceFromLatinTitle(title, provinceIndex);
+}
+
+// هيكل اسم مكان: «ة/ه» الختامية تُسقط («البصرة» BSR = «Basra» BSR = «Basrah»).
+const placeSkeleton = (w) => wordSkeleton(w).replace(/H$/, '');
+
+/**
+ * اسم كروب لاتيني («Basra nasq»، 2026-11-19): هيكل الحروف الساكنة يطابق محافظة بالعربي.
+ * المحافظات فقط (قائمة قصيرة) — هيكل ثلاثة حروف يصطدم بمئات المناطق. هيكل أقصر من 3
+ * حروف لا يُعتمد، وأكثر من محافظة بنفس الهيكل = لا حسم.
+ */
+export function provinceFromLatinTitle(title, provinceIndex) {
+  const words = String(title ?? '').toLowerCase().match(/[a-z]+/g) || [];
+  if (!words.length) return null;
+  const provs = [...provinceIndex].map(([k, p]) => ({ sk: String(k).split(/\s+/).map(placeSkeleton).join(''), p }));
+  for (let n = Math.min(2, words.length); n >= 1; n--) {
+    for (let i = 0; i + n <= words.length; i++) {
+      const sk = words.slice(i, i + n).filter(w => w !== 'al' && w !== 'el').map(placeSkeleton).join('');
+      if (sk.length < 3) continue;
+      const ids = new Map(provs.filter(x => x.sk === sk).map(x => [x.p.id, x.p]));
+      if (ids.size === 1) {
+        const p = [...ids.values()][0];
+        return { area: p.name, provinceId: p.id, kind: 'province' };
+      }
+    }
+  }
   return null;
 }
 
@@ -207,6 +233,38 @@ export async function fillRepFromSenderName(rows, { user, senderName, chatTitle 
     return rep;
   } catch (e) {
     console.error('[orders] مندوب من اسم المرسل:', e?.message);
+    return null;
+  }
+}
+
+/**
+ * المنطقة من **المندوب** حين لم تأتِ من النص ولا من اسم الكروب (كروب البصرة، 2026-11-19:
+ * المرسل «Murtadha Khalid» = «مرتضى خالد نعيم» مندوب البصرة، والمنطقة بقيت فارغة).
+ * مندوب في محافظة واحدة ← اسم المحافظة. أكثر من محافظة = لا حسم. للصفوف الفارغة فقط.
+ * نقي: pickAreaFromRep للاختبار.
+ */
+export function pickAreaFromRep(repName, candidates, provinceNameById) {
+  const key = normalizeAreaName(String(repName ?? '')).trim();
+  if (!key) return null;
+  const hits = candidates.filter(c => normalizeAreaName(c.name).trim() === key);
+  if (hits.length !== 1 || hits[0].provinces.size !== 1) return null;
+  return provinceNameById.get([...hits[0].provinces][0]) ?? null;
+}
+
+export async function fillAreaFromRep(rows, { user }) {
+  if (!rows?.length || !user || !rows.some(r => r && !r.area && r.scientificRep)) return null;
+  try {
+    const [candidates, provinceIndex] = await Promise.all([loadOfficeReps(user), loadProvinceIndex()]);
+    const nameById = new Map([...provinceIndex.values()].map(p => [p.id, p.name]));
+    let filled = 0;
+    for (const r of rows) {
+      if (!r || r.area || !r.scientificRep) continue;
+      const area = pickAreaFromRep(r.scientificRep, candidates, nameById);
+      if (area) { r.area = area; r._areaSource = 'rep'; filled++; }
+    }
+    return filled;
+  } catch (e) {
+    console.error('[orders] منطقة من المندوب:', e?.message);
     return null;
   }
 }

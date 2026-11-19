@@ -55,7 +55,7 @@ import { ingestBotRepSales } from '../rep-sales/rep-sales.bot.js';
 import { renderOrderTablePng, paginateOrderRows } from './order-table-image.js';
 import { matchBotInvoice, attachBotInvoice } from '../rep-orders/rep-orders.invoice.js';
 import { userFeatureOn } from '../../lib/userFeatures.js';
-import { fillAreaFromGroup, fillRepFromSenderName, repSlotOpen } from './group-context.js';
+import { fillAreaFromGroup, fillRepFromSenderName, fillAreaFromRep, repSlotOpen } from './group-context.js';
 
 // نوعا ما يصل للبوت (طلب صاحب المشروع 2026-10-31)، لكلٍّ مفتاح في «المميزات» لكل حساب:
 //  • BOT_TO_CONDITION — طلبيات/فواتير البوت ← ملف الكوديشن (مفعّلة افتراضياً، السلوك القديم).
@@ -216,6 +216,8 @@ export async function handleIncomingOrderMessage({
     // رقم غير مربوط: اسم المرسل في واتساب/تلكرام («Ameer Madher») ← المندوب المسجّل
     // بنفس الاسم («امير مضر») في محافظة الكروب. للصفوف غير المحسومة فقط.
     await fillRepFromSenderName(rows, { user, senderName, chatTitle });
+    // لا منطقة من النص ولا من الكروب ← محافظة المندوب (إن كان في محافظة واحدة).
+    await fillAreaFromRep(rows, { user });
 
     if (!rows.length) {
       // صورة مُرسَلة عمداً تستحق ردّاً حتى بلا كلمة مفتاحية؛ أما نصّ التقطه وضع
