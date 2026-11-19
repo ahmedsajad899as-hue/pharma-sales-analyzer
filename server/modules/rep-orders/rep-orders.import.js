@@ -108,7 +108,9 @@ async function loadAreaGraph() {
     }
     return keys;
   };
-  return { expand };
+  /** أسماء صفوف بعينها فقط (اسمها + ما دُمج تحتها مباشرة) — بلا قفز لحسابات أخرى. */
+  const keysOf = (ids) => new Set(ids.flatMap(id => [...(keysById.get(id) ?? [])]));
+  return { expand, keysOf };
 }
 
 async function loadRepScope(team, graph) {
@@ -149,6 +151,8 @@ async function loadRepScope(team, graph) {
     const outside = provs.filter(p => !isBaghdad(p));
     return [r.id, {
       all: r.all,
+      // direct = مناطقه بأسمائها (وما دُمج تحتها مباشرة)؛ areas = موسّعة بالشبكة — احتياط فقط
+      direct: r.all ? new Set() : new Set([...r.areaIds.map(id => keyById.get(id)).filter(Boolean).map(looseArea), ...graph.keysOf(r.areaIds)]),
       areas: r.all ? new Set() : graph.expand(r.areaIds.map(id => keyById.get(id)).filter(Boolean).map(looseArea), r.areaIds),
       items: itemsById.get(r.id) ?? new Set(),
       provinceKeys: new Set(provs.flatMap(provKeys)),
@@ -281,21 +285,43 @@ async function loadRepContext(viewer) {
  * اسم المرسل/ما اختير له سابقاً يُقبل فقط إن كان من أصحاب المنطقة (أو المنطقة غير معروفة).
  * الأولوية: المندوب العلمي صاحب المنطقة، وإن لم يوجد فالتيم ليدر صاحبها (طلب صاحب المشروع 2026-11-14)
  */
-function chooseRep({ team, areaGraph, repScope }, { viewerId, area, itemIds = [], sender = null, learned = new Map() }) {
+export function chooseRep({ team, areaGraph, repScope }, { viewerId, area, itemIds = [], sender = null, learned = new Map() }) {
   const areaKey = looseArea(area || '');
   // اسم منطقة الطلبية بكل أسمائه المدموجة؛ المطابقة = اشتراك أي اسم، أو احتواء («شارع فلسطين» ⊃ «فلسطين»)
   const orderKeys = areaKey ? [...areaGraph.expand([areaKey])] : [];
-  // منطقة الطلبية قد تكون اسم محافظة («النجف») ⇒ أصحابها مندوبو تلك المحافظة
-  const covers = (u) => {
+  // الدليل الأقوى أولاً (2026-11-20): الشبكة تقفز عبر الأسماء المدموجة بين الحسابات — «الميكانيك»
+  // مدموجة تحت «الدورة» عند حساب وتحت «مدينة الصدر» عند آخر — فصار «مدينة الصدر» يقترح
+  // حسين قحطان (الدورة) بجانب مصطفى ثائر. لذا: مندوب معيّنة له المنطقة باسمها يُغني عن الشبكة،
+  // والشبكة تُستعمل فقط إن لم يغطِّها أحد مباشرة.
+  //   1 اسم مطابق · 2 احتواء («شارع فلسطين» ⊃ «فلسطين») · 3 الشبكة مطابقة · 4 الشبكة احتواء
+  // منطقة الطلبية قد تكون اسم محافظة («النجف») ⇒ أصحابها مندوبو تلك المحافظة (مستوى 1)
+  const level = (u) => {
     const sc = repScope.get(u.id);
-    if (!sc) return false;
-    return orderKeys.some(k => areaMatches(sc.areas, k) || sc.provinceKeys.has(k));
+    if (!sc || !areaKey) return 0;
+    if (sc.direct.has(areaKey) || sc.provinceKeys.has(areaKey)) return 1;
+    if (areaMatches(sc.direct, areaKey)) return 2;
+    if (orderKeys.some(k => sc.areas.has(k) || sc.provinceKeys.has(k))) return 3;
+    if (orderKeys.some(k => areaMatches(sc.areas, k))) return 4;
+    return 0;
   };
   const sci = team.list.filter(u => u.role === 'scientific_rep');
   const leaders = team.list.filter(u => u.role === 'team_leader');
-  let pool = areaKey ? sci.filter(covers) : [];
+  let pool = [];
   let leaderPick = false;
-  if (areaKey && !pool.length) { pool = leaders.filter(covers); leaderPick = pool.length > 0; }
+  let tier = 0;
+  if (areaKey) {
+    const lv = new Map(team.list.map(u => [u.id, level(u)]));
+    // الترتيب: علمي 1 ← علمي 2 ← ليدر 1-2 ← علمي 3 ← علمي 4 ← ليدر 3-4
+    // (العلمي قبل الليدر داخل الدليل المباشر، ثم كذلك داخل الشبكة)
+    for (const lo of [1, 2, 3, 4]) {
+      pool = sci.filter(u => lv.get(u.id) === lo);
+      if (pool.length) { tier = lo; break; }
+      if (lo === 2 || lo === 4) {
+        pool = leaders.filter(u => { const l = lv.get(u.id); return l === lo || l === lo - 1; });
+        if (pool.length) { leaderPick = true; tier = lo; break; }
+      }
+    }
+  }
   if (areaKey && !pool.length) pool = sci.filter(u => repScope.get(u.id)?.all);
   const ids = new Set(itemIds.filter(Boolean));
   if (pool.length > 1 && ids.size) {
@@ -304,7 +330,7 @@ function chooseRep({ team, areaGraph, repScope }, { viewerId, area, itemIds = []
   }
   // سجلّ تشخيص (PM2) — يُقرأ عبر SSH حين لا يُختار المندوب المتوقَّع
   if (!pool.length || pool.length > 1) {
-    console.log(`[viber-import] rep viewer=${viewerId} area="${area}" key=${areaKey} pool=${pool.map(u => u.name).join('|') || '-'} team=${team.list.map(u => `${u.name}:${u.role}:${[...(repScope.get(u.id)?.areas ?? [])].slice(0, 12).join(',')}`).join(' ; ')}`);
+    console.log(`[viber-import] rep viewer=${viewerId} area="${area}" key=${areaKey} tier=${tier} pool=${pool.map(u => u.name).join('|') || '-'} team=${team.list.map(u => `${u.name}:${u.role}:${[...(repScope.get(u.id)?.direct ?? [])].slice(0, 20).join(',')}`).join(' ; ')}`);
   }
   const repCandidates = pool.map(u => ({ id: u.id, name: u.name }));
   const inPool = (id) => !areaKey || pool.some(u => u.id === id);

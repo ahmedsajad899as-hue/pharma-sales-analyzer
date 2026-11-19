@@ -137,10 +137,16 @@ export function parseSentenceLine(line) {
   let pharmacy = null;
   const warehouses = [];
   const whRaw = [];
+  const whyNotes = [];
   marks.forEach(([kind, at], i) => {
     const seg = s.slice(at, i + 1 < marks.length ? marks[i + 1][1] : s.length);
     if (kind === 'ph') pharmacy = tidy(seg.replace(PH_MARK_ANY_RE, ' ').replace(VERB_RE, ' ').replace(UNIT_WORD_RE, ' ')) || null;
-    else { warehouses.push(...warehousesFromTail(seg.replace(WH_MARK_RE, ' '))); whRaw.push(...splitWhTail(seg.replace(WH_MARK_RE, ' '))); }
+    else {
+      const tail = seg.replace(WH_MARK_RE, ' ');
+      warehouses.push(...warehousesFromTail(tail)); whRaw.push(...splitWhTail(tail));
+      const why = cutWhReason(tail).reason;
+      if (why) whyNotes.push(why);
+    }
   });
 
   let rest = head.replace(VERB_RE, ' ');
@@ -163,17 +169,29 @@ export function parseSentenceLine(line) {
     else if (/^\d+$/.test(first) && itemToks.length > 1) { qty = Number(first); itemToks.shift(); }
   }
   const name = tidy(itemToks.join(' ').replace(/[*×]\s*$/, ''));
-  const note = tidy(noteToks.join(' ')) || null;
+  const note = tidy([...noteToks, ...whyNotes].join(' ')) || null;
   if (latin && HAS_LATIN.test(name) && qty > 0) return { item: { name, quantity: qty, bonus }, qty: null, bonus, pharmacy, warehouses, whRaw, note };
   if (!latin && qty > 0) return { item: null, qty, bonus, pharmacy, warehouses, whRaw, note };
   if (!latin && pharmacy) return { item: null, qty: null, bonus, pharmacy, warehouses, whRaw, note };
   return null;
 }
 
+/**
+ * سبب مكتوب بعد اسم المذخر ليس من الاسم: «عن طريق مذخر بلاتين لعدم توفر المادة» ← «بلاتين»
+ * والسبب ملاحظة (2026-11-20: كان المذخر يُحفظ «بلاتين لعدم توفر المادة»).
+ */
+const WH_REASON_RE = /(?:^|\s)(?:بسبب|لسبب|لعدم|ل\s+عدم|عدم|لان|لأن|لانه|لأنه|لانها|لأنها|لكون|كون|علمود|لنفاد|لنفاذ|لنقص|لقلة|لقله|بدل|بدون|حسب|لغرض)(?=\s|$)/;
+export function cutWhReason(tail) {
+  const t = tidy(tail);
+  const at = t.search(WH_REASON_RE);
+  if (at < 0) return { tail: t, reason: null };
+  return { tail: tidy(t.slice(0, at)), reason: tidy(t.slice(at)) || null };
+}
+
 /** أسماء المذاخر من ذيل «مذاخر اوزون/شغف، الدواء المتكامل» **كما كُتبت** (بلا مطابقة بالقائمة المعروفة). */
 export function splitWhTail(tail) {
   // «X او مذخر Y» / «X أو Y» = مذخر بديل: الأول أساسي والباقي احتياط
-  return tidy(tail)
+  return cutWhReason(tail).tail
     .split(/\s*[\/،,|+]\s*|\s+(?:او|أو|ولا|والا|وإلا)\s+|\s+و\s*(?=\S)/)
     .map(p => tidy(p).replace(/^(?:من\s+)?(?:ال)?(?:مذخر|مذاخر|مدخر|مداخر|مخزن)\s*[:：]?\s*/, ''))
     .map(p => tidy(p).split(/\s+/).slice(0, 4).join(' '))
@@ -200,11 +218,11 @@ export function parseWarehouseLine(line) {
   if (WH_INTRO_ANY_RE.test(t)) return { intro: true, transit };
   if ((m = t.match(WH_ANY_RE))) {
     const list = warehousesFromTail(m[1]);
-    if (list.length) return { list, raw: splitWhTail(m[1]), transit };
+    if (list.length) return { list, raw: splitWhTail(m[1]), transit, reason: cutWhReason(m[1]).reason };
   }
   if ((m = t.match(WH_ABBR_RE))) {
     const list = warehousesFromTail(m[1]);
-    if (list.length) return { list, raw: splitWhTail(m[1]), transit };
+    if (list.length) return { list, raw: splitWhTail(m[1]), transit, reason: cutWhReason(m[1]).reason };
   }
   return null;
 }
@@ -226,7 +244,17 @@ const PH_WORD_ONLY_RE = /^(?:ال)?(?:صيدلي[ةه]|ص)$/;
  * @returns {{ pharmacy:string|null, area:string|null, sure:boolean, warehouses:string[], extra:string[] }}
  */
 export function classifyHeader(lines, { areaOf = () => null, isKnownPharmacy = () => false, wholeWarehouse = () => null } = {}) {
-  const parts = lines.flatMap(l => tidy(l).split(/\s*[\/|\\]\s*|\s+[-–]\s+|\s*،\s*/)).map(tidy).filter(Boolean);
+  const splitParts = (t) => t.split(/\s*[\/|\\]\s*|\s+[-–]\s+|\s*،\s*/).map(tidy).filter(Boolean);
+  // «صيدلية ياسمين ريسان كاظم (مدينة الصدر)»: ما بين القوسين جزء مستقل — مكان الصيدلية
+  // غالباً (2026-11-20: كان يبقى داخل اسم الصيدلية والمنطقة فارغة). يُفحص بعد الأجزاء الأخرى.
+  const parts = [];
+  const paren = new Set();
+  for (const l of lines) {
+    const inner = [];
+    const outer = tidy(l).replace(/[(（]([^()（）]*)[)）]/g, (_, x) => { inner.push(x); return ' / '; });
+    parts.push(...splitParts(outer));
+    for (const x of inner) for (const p of splitParts(x)) { paren.add(parts.length); parts.push(p); }
+  }
   const used = new Set();
   const out = { pharmacy: null, area: null, sure: false, warehouses: [], warehousesRaw: [], extra: [] };
   const areaName = (p) => { const m = p.match(AREA_PREFIX_RE); return m ? tidy(m[1]) : p; };
@@ -259,7 +287,8 @@ export function classifyHeader(lines, { areaOf = () => null, isKnownPharmacy = (
     if (out.pharmacy == null && isKnownPharmacy(p)) { out.pharmacy = p; out.sure = true; used.add(i); }
   });
   // 4. الباقي بالموضع
-  const left = parts.filter((_, i) => !used.has(i));
+  const left = parts.map((p, i) => [p, i]).filter(([, i]) => !used.has(i))
+    .sort((a, b) => Number(paren.has(a[1])) - Number(paren.has(b[1])) || a[1] - b[1]).map(([p]) => p);
   for (const p of left) {
     if (out.pharmacy == null) {
       out.pharmacy = p;
@@ -350,6 +379,7 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
       if (wl.intro) { inWhList = true; continue; }
       wl.list.forEach(addWh);
       (wl.raw || []).forEach(addWritten);
+      if (wl.reason && !notes.includes(wl.reason)) notes.push(wl.reason);
       inWhList = true;
       continue;
     }
@@ -357,6 +387,8 @@ export function parseViberOrder(text, { areaOf = () => null, isKnownWarehouse = 
     if (inWhList && !HAS_LATIN.test(line) && !HAS_DIGIT.test(line) && line.split(/\s+/).length <= 4) {
       warehousesFromTail(line).forEach(w => addWh(wholeWarehouse(w) || w));
       splitWhTail(line).forEach(addWritten);
+      const why = cutWhReason(line).reason;
+      if (why && !notes.includes(why)) notes.push(why);
       continue;
     }
     inWhList = false;

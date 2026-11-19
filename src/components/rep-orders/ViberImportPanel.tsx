@@ -910,7 +910,13 @@ export default function ViberImportPanel({ api, token, warehouses, reps, canSend
                     </div>
 
                     <label className="vi-f"><span>{mode === 'liq' ? 'ملاحظات' : 'ملاحظات للمذخر'}</span>
-                      <input className="form-input" value={d.notes} disabled={locked} placeholder="ملاحظات" onChange={e => patch(d.key, { notes: e.target.value })} />
+                      <span className="vi-clearable">
+                        <input className="form-input" value={d.notes} disabled={locked} placeholder="ملاحظات" onChange={e => patch(d.key, { notes: e.target.value })} />
+                        {!locked && d.notes && (
+                          <button type="button" className="vi-x vi-clearable__x" title="مسح الملاحظات"
+                            onClick={e => { e.preventDefault(); patch(d.key, { notes: '' }); }}><X size={14} /></button>
+                        )}
+                      </span>
                     </label>
 
                     {mode === 'liq' && d.liqDup && !locked && (
