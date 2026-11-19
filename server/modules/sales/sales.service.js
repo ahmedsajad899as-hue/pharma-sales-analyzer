@@ -32,6 +32,7 @@ import {
 } from './sales.repository.js';
 import { buildNormalizationMap, areSimilar, similarity } from '../../lib/fuzzyMatch.js';
 import { previewParsedUpload } from '../../lib/uploadPreview.js';
+import { uploadIndex, applySupersede } from '../../lib/cumulativeSupersede.js';
 import { isPlaceholderCompanyValue } from '../../lib/companyResolver.js';
 import { PROVINCE_COLUMN_ALIASES, buildProvinceLookup, matchProvinceName, provinceFromText } from '../../lib/provinces.js';
 import { userIdsAssignedToProvinces, syncUserAreaDerivedLinks, resolveEffectiveAreaIds } from '../../lib/areaScope.js';
@@ -173,7 +174,9 @@ export async function processUploadedFile(file, options = {}) {
   // بلا أي كتابة؛ يتوقف قبل _finishProcessing (lib/uploadPreview.js). fileType='smart'
   // يُحسم هنا من اسم الملف وأوراقه (decideSmartFileType) — المعاينة وحدها ترسله، والرفع
   // الفعلي بعدها يرسل النوع المحسوم فيمرّ بالمسار القائم نفسه.
-  const { uploadedBy, columnMapping = {}, userId = null, fileType: requestedType = 'sales', sourceCurrency = null, rawOriginalName = false, mergeIntoCumulative = true, dryRun = false } = options;
+  // supersedeKinds/supersedeMax: «الرفع الذكي» فقط — «أحدث ملف هو الصحيح لفترته»
+  // (lib/cumulativeSupersede.js). فارغة في كل مسار آخر فلا يتغير شيء.
+  const { uploadedBy, columnMapping = {}, userId = null, fileType: requestedType = 'sales', sourceCurrency = null, rawOriginalName = false, mergeIntoCumulative = true, dryRun = false, supersedeKinds = [], supersedeMax = 0 } = options;
   let fileType = requestedType;
   const fixOriginalName = (name) => rawOriginalName ? name : Buffer.from(name, 'latin1').toString('utf8');
   const diag = { sheets: [], hiddenByFilter: 0, droppedCrossSheet: 0, smartReason: null };
@@ -526,13 +529,13 @@ export async function processUploadedFile(file, options = {}) {
   }
 
   // ── 3b–7. Shared finishing logic ─────────────────────────
-  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem: isMercatoFile ? 'mercato' : null, unclearCompanyItems: [...unclearCompanyItems], rawOriginalName, mergeIntoCumulative });
+  return _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem: isMercatoFile ? 'mercato' : null, unclearCompanyItems: [...unclearCompanyItems], rawOriginalName, mergeIntoCumulative, supersedeKinds, supersedeMax });
 }
 
 // ─── _finishProcessing ─────────────────────────────────────────────────────────
 // Everything from fuzzy normalisation to bulk insert — shared by both the
 // standard tabular path and the matrix (cross-tabular) path.
-async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem = null, unclearCompanyItems = [], rawOriginalName = false, mergeIntoCumulative = true }) {
+async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, uploadedBy, userId, fileType, sourceCurrency, sourceSystem = null, unclearCompanyItems = [], rawOriginalName = false, mergeIntoCumulative = true, supersedeKinds = [], supersedeMax = 0 }) {
   const fixOriginalName = (name) => rawOriginalName ? name : Buffer.from(name, 'latin1').toString('utf8');
   const validRows = [...salesRows, ...returnsRows];
 
@@ -734,6 +737,22 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
       userId,
     });
     await closeMergeBatch(batch.id, { rowsAdded: added, rowsSkipped: skipped, monthsLabel });
+    // «أحدث ملف هو الصحيح لفترته» — باختيار المستخدم في «الرفع الذكي» فقط. الصفوف أُدرجت
+    // فعلاً، فخطأ هنا لا يُفشل الرفع: يُبلَّغ ولا يُخفى شيء.
+    let superseded = null;
+    if (supersedeKinds.length) {
+      try {
+        const idx = uploadIndex(buildInsert(salesRows), buildInsert(returnsRows));
+        superseded = await applySupersede({
+          fileId: target.id, keySet: idx.keySet, orders: idx.orders,
+          dates: [...salesRows, ...returnsRows].map(r => r.date ?? null), fileType,
+          kinds: supersedeKinds, max: supersedeMax, uploadName: originalName, uploadedBy: uploadedBy || null,
+        });
+      } catch (e) {
+        console.error('[supersede] failed (upload kept):', e);
+        superseded = { skipped: true, reason: 'error', count: 0 };
+      }
+    }
     uploadedFile = await refreshCumulativeFile(target.id);
     mergeInfo = {
       merged:      true,
@@ -744,6 +763,7 @@ async function _finishProcessing({ salesRows, returnsRows, skippedRows, file, up
       monthsLabel,
       fileName:    uploadedFile.originalName,
       totalRows:   uploadedFile.rowCount,
+      superseded,
     };
     console.log(`[upload] merged into cumulative #${target.id}: +${added} صف، ${skipped} مكرر مُسقط (${monthsLabel})`);
   } else {

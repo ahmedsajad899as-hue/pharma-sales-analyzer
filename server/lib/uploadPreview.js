@@ -12,7 +12,8 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 import prisma from './prisma.js';
-import { fingerprintRows, keyFallbacks, mergeGroupKey, cumulativeFileName, CONDITION_VARIANT } from './saleFingerprint.js';
+import { keyFallbacks, mergeGroupKey, cumulativeFileName, CONDITION_VARIANT } from './saleFingerprint.js';
+import { uploadIndex, uploadDayRange, findSupersededRows, publicSummary, recordTypesForUpload } from './cumulativeSupersede.js';
 import { isMergeableType, monthsLabelOf } from './cumulativeFile.js';
 import { fileNeedsRestamp } from './cumulativeAudit.js';
 import { UNDATED_CUTOFF } from './salesMonths.js';
@@ -146,10 +147,12 @@ export async function previewParsedUpload({
     };
   };
 
-  // نفس ترتيب appendRowsToCumulative: مبيعات ثم إرجاع، بعدّاد واحد.
-  const counters = new Map();
-  const saleKeys = fingerprintRows(await Promise.all(salesRows.map(r => toKeyRow(r, 'sale'))), counters);
-  const returnKeys = fingerprintRows(await Promise.all(returnsRows.map(r => toKeyRow(r, 'return'))), counters);
+  // نفس ترتيب appendRowsToCumulative: مبيعات ثم إرجاع، بعدّاد واحد (uploadIndex).
+  const saleKeyRows = await Promise.all(salesRows.map(r => toKeyRow(r, 'sale')));
+  const returnKeyRows = await Promise.all(returnsRows.map(r => toKeyRow(r, 'return')));
+  const index = uploadIndex(saleKeyRows, returnKeyRows);
+  const saleKeys = index.keys.slice(0, salesRows.length);
+  const returnKeys = index.keys.slice(salesRows.length);
 
   // ── أيّها موجود أصلاً في الملف الهدف ──
   const existing = new Map(); // dedupKey → isHidden
@@ -194,6 +197,18 @@ export async function previewParsedUpload({
   ];
   const fresh = datedRange(newRowsList);
 
+  // ── «أحدث ملف هو الصحيح لفترته»: صفوف رفعات سابقة غابت عن هذا الملف (cumulativeSupersede.js) ──
+  // لا يُحسب على ملف ما زال يحمل بصمات قديمة: كل صفوفه ستبدو «غائبة» فيُقترح إخفاؤها.
+  let supersede = null;
+  if (target && !approximate) {
+    const range = uploadDayRange(allRows.map(r => r.date ?? null));
+    if (range) {
+      supersede = publicSummary(await findSupersededRows({
+        fileId: target.id, keySet: index.keySet, orders: index.orders, range, recordTypes: recordTypesForUpload(fileType),
+      }));
+    }
+  }
+
   // ── صفوف اليزن (ميركاتو): تُحسب مكتباً للمسوّقين ولا تُحسب للمندوب العلمي ──
   let yazen = null;
   if (sourceSystem === 'mercato') {
@@ -223,6 +238,7 @@ export async function previewParsedUpload({
       ? { fileId: target?.id ?? null, name: target?.originalName ?? cumulativeFileName({ sourceSystem, detectedCurrency: currency }), exists: !!target }
       : null,
     yazen,
+    supersede,
     sheets: diag.sheets ?? [],
     hiddenByFilter: diag.hiddenByFilter ?? 0,
     droppedCrossSheet: diag.droppedCrossSheet ?? 0,

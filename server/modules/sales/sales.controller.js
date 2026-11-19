@@ -16,6 +16,7 @@ import prisma from '../../lib/prisma.js';
 import { listSalesMonths } from '../../lib/salesMonths.js';
 import { resolveFileScope } from '../../lib/fileScope.js';
 import { checkManualDuplicates } from '../../lib/manualDuplicateCheck.js';
+import { parseSupersedeKinds } from '../../lib/cumulativeSupersede.js';
 
 /**
  * PUT /api/active-files — يحفظ «الملفات المفعّلة» لهذا الحساب على السيرفر.
@@ -109,6 +110,10 @@ export async function uploadSales(req, res, next) {
       fileType,
       sourceCurrency: req.body.sourceCurrency || null,  // user-specified: 'IQD' | 'USD' | null
       mergeIntoCumulative: !standalone,
+      // «الرفع الذكي» وحده يرسلهما: إخفاء صفوف رفعات سابقة غابت عن هذا الملف في فترته،
+      // بحدّ أقصى ما وافق عليه المستخدم في المعاينة (lib/cumulativeSupersede.js).
+      supersedeKinds: parseSupersedeKinds(req.body.supersede),
+      supersedeMax:   Number(req.body.supersedeMax) || 0,
     });
 
     // لا تُسقط نجاح الرفع لو فشلت خطوة التعميم التلقائي لسبب عابر

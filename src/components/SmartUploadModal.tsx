@@ -27,11 +27,34 @@ interface Preview {
   dates: { first: string | null; last: string | null; undated: number; newFirst: string | null; newLast: string | null; months: string };
   target: { fileId: number | null; name: string; exists: boolean } | null;
   yazen: { rows: number; newRows: number } | null;
+  /** «أحدث ملف هو الصحيح لفترته» — server/lib/cumulativeSupersede.js */
+  supersede: Supersede | null;
   sheets: Array<{ name: string; rows: number; hidden: number; read: boolean; mercato: boolean; forceReturn: boolean }>;
   hiddenByFilter: number;
   droppedCrossSheet: number;
   approximate: boolean;
 }
+
+interface SupersedeGroup {
+  count: number;
+  value: number;
+  sample: Array<{ date: string | null; pharmacy: string | null; item: string | null; quantity: number; value: number; type: string }>;
+}
+interface Supersede {
+  range: { first: string; last: string };
+  inRange: number;
+  matched: number;
+  coverage: number;
+  /** طلبيتها ما زالت في الملف الجديد بأسطر أخرى (كمية/قيمة/مادة تعدّلت أو سطر حُذف) */
+  changed: SupersedeGroup;
+  /** الطلبية غابت، ورفعتها السابقة نسخة أقدم من هذا الملف ← ملغاة */
+  vanished: SupersedeGroup;
+  /** الطلبية غابت، لكن رفعتها ملف آخر (مكمّل، أو هذا الملف جزئي) — لا تُخفى افتراضياً */
+  foreign: SupersedeGroup & { files: string[] };
+}
+type SupersedeKind = 'changed' | 'vanished' | 'foreign';
+const SUPERSEDE_KINDS: SupersedeKind[] = ['changed', 'vanished', 'foreign'];
+const supersedeCount = (s: Supersede | null | undefined) => (s ? s.changed.count + s.vanished.count + s.foreign.count : 0);
 
 type Status = 'queued' | 'previewing' | 'ready' | 'error' | 'uploading' | 'done';
 
@@ -44,8 +67,16 @@ interface Item {
   /** اختيار المستخدم يغلب الحسم التلقائي عند إعادة الفحص */
   override: { fileType?: FileType; currency?: Currency };
   include: boolean;
-  result?: { added: number; skipped: number };
+  /** الأقسام المختارة لإخفاء صفوف رفعات سابقة غابت عن هذا الملف */
+  hide: Record<SupersedeKind, boolean>;
+  result?: { added: number; skipped: number; hidden: number; hideSkipped: boolean };
 }
+
+const defaultHide = (s: Supersede | null): Record<SupersedeKind, boolean> => ({
+  changed: !!s && s.changed.count > 0,
+  vanished: !!s && s.vanished.count > 0,
+  foreign: false,
+});
 
 export interface SmartUploadResult {
   fileId: number;
@@ -92,7 +123,7 @@ export default function SmartUploadModal({ token, initialFiles, onClose, onUploa
     setItems(prev => {
       const seen = new Set(prev.map(i => i.key));
       const fresh = files.filter(isExcel).filter(f => !seen.has(fileKey(f)))
-        .map<Item>(f => ({ key: fileKey(f), file: f, status: 'queued', override: {}, include: true }));
+        .map<Item>(f => ({ key: fileKey(f), file: f, status: 'queued', override: {}, include: true, hide: { changed: false, vanished: false, foreign: false } }));
       return [...prev, ...fresh];
     });
   }, []);
@@ -116,7 +147,9 @@ export default function SmartUploadModal({ token, initialFiles, onClose, onUploa
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j.success) throw new Error(String(j.message || j.error || 'تعذّر فحص الملف').split('\n')[0]);
         const p: Preview = j.data;
-        patch(next.key, { status: 'ready', preview: p, include: p.newCounts.total > 0 });
+        const hide = defaultHide(p.supersede);
+        // ملف بلا صف جديد يُرفع فقط إن كان سيصحّح صفوفاً قديمة (أُلغيت أو تعدّلت).
+        patch(next.key, { status: 'ready', preview: p, hide, include: p.newCounts.total > 0 || hide.changed || hide.vanished });
       } catch (e: any) {
         patch(next.key, { status: 'error', error: e.message || 'تعذّر فحص الملف', include: false });
       } finally {
@@ -135,6 +168,8 @@ export default function SmartUploadModal({ token, initialFiles, onClose, onUploa
   const toSave = items.filter(i => i.status === 'ready' && i.include && i.preview);
   const scanning = items.some(i => i.status === 'queued' || i.status === 'previewing');
   const newTotal = toSave.reduce((s, i) => s + (i.preview?.newCounts.total ?? 0), 0);
+  const hideTotal = toSave.reduce((s, i) => s + SUPERSEDE_KINDS
+    .reduce((a, k) => a + (i.hide[k] ? (i.preview?.supersede?.[k].count ?? 0) : 0), 0), 0);
 
   const saveAll = async () => {
     if (!toSave.length) return;
@@ -148,11 +183,21 @@ export default function SmartUploadModal({ token, initialFiles, onClose, onUploa
         fd.append('file', it.file);
         fd.append('fileType', p.fileType);
         fd.append('sourceCurrency', p.currency);
+        // الحد الأقصى = ما رآه المستخدم هنا؛ إن وجد السيرفر أكثر وقت الحفظ لا يُخفي شيئاً.
+        const kinds = p.supersede ? SUPERSEDE_KINDS.filter(k => it.hide[k] && p.supersede![k].count > 0) : [];
+        if (kinds.length) {
+          fd.append('supersede', kinds.join(','));
+          fd.append('supersedeMax', String(kinds.reduce((s, k) => s + p.supersede![k].count, 0)));
+        }
         const res = await fetch('/api/upload-sales', { method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` } });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(String(j.message || j.error || 'فشل الرفع').split('\n')[0]);
         const d = j.data ?? j;
-        patch(it.key, { status: 'done', result: { added: d.merge?.added ?? d.rowCount ?? 0, skipped: d.merge?.skipped ?? 0 } });
+        const sup = d.merge?.superseded;
+        patch(it.key, { status: 'done', result: {
+          added: d.merge?.added ?? d.rowCount ?? 0, skipped: d.merge?.skipped ?? 0,
+          hidden: sup && !sup.skipped ? sup.count : 0, hideSkipped: !!sup?.skipped,
+        } });
         if (d.uploadedFile?.id) results.push({ fileId: d.uploadedFile.id, sourceSystem: d.uploadedFile.sourceSystem ?? null, unknownItems: d.unknownItems ?? [] });
       } catch (e: any) {
         patch(it.key, { status: 'error', error: e.message || 'فشل الرفع', include: false });
@@ -212,6 +257,7 @@ export default function SmartUploadModal({ token, initialFiles, onClose, onUploa
         <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 }}>
           {items.map(it => <FileCard key={it.key} it={it} saving={saving}
             onToggle={() => patch(it.key, { include: !it.include })}
+            onHide={(k, v) => patch(it.key, { hide: { ...it.hide, [k]: v } })}
             onType={t => reprobe(it, { fileType: t })}
             onCurrency={c => reprobe(it, { currency: c })}
             onRetry={() => reprobe(it, {})}
@@ -222,7 +268,7 @@ export default function SmartUploadModal({ token, initialFiles, onClose, onUploa
           <span style={{ fontSize: 12, color: 'var(--c-text-secondary, #64748b)' }}>
             {scanning ? '⏳ جاري فحص الملفات…'
               : finished ? 'تم الحفظ — الملفات المرفوعة فُعّلت في التحليل.'
-              : toSave.length ? `سيُرفع ${toSave.length} ملف · ${num(newTotal)} صف جديد` : items.length ? 'لا ملف محدد للرفع' : ''}
+              : toSave.length ? `سيُرفع ${toSave.length} ملف · ${num(newTotal)} صف جديد${hideTotal ? ` · يُخفى ${num(hideTotal)} صف قديم` : ''}` : items.length ? 'لا ملف محدد للرفع' : ''}
           </span>
           <div style={{ marginInlineStart: 'auto', display: 'flex', gap: 8 }}>
             <button onClick={onClose} disabled={saving}
@@ -245,9 +291,10 @@ export default function SmartUploadModal({ token, initialFiles, onClose, onUploa
 
 // ── بطاقة ملف واحد ──────────────────────────────────────────────────────────
 
-function FileCard({ it, saving, onToggle, onType, onCurrency, onRetry, onRemove }: {
+function FileCard({ it, saving, onToggle, onHide, onType, onCurrency, onRetry, onRemove }: {
   it: Item; saving: boolean;
-  onToggle: () => void; onType: (t: FileType) => void; onCurrency: (c: Currency) => void; onRetry: () => void; onRemove: () => void;
+  onToggle: () => void; onHide: (k: SupersedeKind, v: boolean) => void;
+  onType: (t: FileType) => void; onCurrency: (c: Currency) => void; onRetry: () => void; onRemove: () => void;
 }) {
   const p = it.preview;
   const locked = saving || it.status === 'uploading' || it.status === 'done';
@@ -280,7 +327,13 @@ function FileCard({ it, saving, onToggle, onType, onCurrency, onRetry, onRemove 
           {it.status === 'queued' && 'بالانتظار'}
           {it.status === 'previewing' && '⏳ يُفحص…'}
           {it.status === 'uploading' && '⏳ يُرفع…'}
-          {it.status === 'done' && it.result && <b style={{ color: 'var(--c-success, #059669)' }}>✓ أُضيف {num(it.result.added)}{it.result.skipped ? ` · أُسقط ${num(it.result.skipped)} مكرر` : ''}</b>}
+          {it.status === 'done' && it.result && <b style={{ color: 'var(--c-success, #059669)' }}>
+            ✓ أُضيف {num(it.result.added)}{it.result.skipped ? ` · أُسقط ${num(it.result.skipped)} مكرر` : ''}
+            {it.result.hidden ? ` · أُخفي ${num(it.result.hidden)} صف قديم` : ''}
+          </b>}
+          {it.status === 'done' && it.result?.hideSkipped && (
+            <b style={{ color: 'var(--c-warning, #b45309)' }}> · لم يُخفَ شيء (تغيّر الملف منذ الفحص)</b>
+          )}
         </span>
         {!locked && it.status !== 'previewing' && (
           <button onClick={onRemove} aria-label="إزالة" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--c-text-muted, #94a3b8)', padding: 0 }}>
@@ -348,13 +401,17 @@ function FileCard({ it, saving, onToggle, onType, onCurrency, onRetry, onRemove 
             </div>
           )}
 
+          {p.supersede && supersedeCount(p.supersede) > 0 && (
+            <SupersedeBox s={p.supersede} hide={it.hide} currency={p.currency} disabled={locked || !it.include} onHide={onHide} />
+          )}
+
           {/* التنبيهات */}
           {p.hiddenByFilter > 0 && (
             <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--c-danger, #dc2626)', fontWeight: 700 }}>
               ⚠️ فلتر إكسل يخفي {num(p.hiddenByFilter)} صف — لن تُرفع. إن كانت مطلوبة امسح الفلتر في الإكسل واختر الملف مرة ثانية.
             </div>
           )}
-          {nothingNew && p.counts.total > 0 && (
+          {nothingNew && p.counts.total > 0 && !supersedeCount(p.supersede) && (
             <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--c-text-muted, #94a3b8)' }}>كل صفوفه موجودة سابقاً — لا حاجة لرفعه.</div>
           )}
           {p.existingHidden > 0 && (
@@ -373,6 +430,62 @@ function FileCard({ it, saving, onToggle, onType, onCurrency, onRetry, onRemove 
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ── «أحدث ملف هو الصحيح لفترته» ─────────────────────────────────────────────
+
+function SupersedeBox({ s, hide, currency, disabled, onHide }: {
+  s: Supersede; hide: Record<SupersedeKind, boolean>; currency: Currency; disabled: boolean;
+  onHide: (k: SupersedeKind, v: boolean) => void;
+}) {
+  const [open, setOpen] = useState<SupersedeKind | null>(null);
+  const cur = currency === 'USD' ? '$' : 'د.ع';
+  const pct = Math.round(s.coverage * 100);
+  const line = (k: SupersedeKind, label: React.ReactNode) => {
+    const g = s[k];
+    if (!g.count) return null;
+    return (
+      <div style={{ marginTop: 5 }}>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 6, cursor: disabled ? 'default' : 'pointer' }}>
+          <input type="checkbox" checked={hide[k]} disabled={disabled} onChange={e => onHide(k, e.target.checked)}
+            style={{ accentColor: 'var(--c-warning, #b45309)', marginTop: 2 }} />
+          <span>
+            <b>{num(g.count)}</b> {label} <span style={{ color: 'var(--c-text-muted, #94a3b8)' }}>({num(g.value)} {cur})</span>
+            <button type="button" onClick={() => setOpen(open === k ? null : k)}
+              style={{ marginInlineStart: 6, fontSize: 10.5, background: 'none', border: 'none', color: 'var(--c-accent)', cursor: 'pointer', padding: 0 }}>
+              {open === k ? 'إخفاء القائمة' : 'عرض'}
+            </button>
+          </span>
+        </label>
+        {open === k && (
+          <div style={{ margin: '4px 22px 0 0', fontSize: 10.5, color: 'var(--c-text-secondary, #64748b)', lineHeight: 1.7 }}>
+            {g.sample.map((r, i) => (
+              <div key={i}>{shortDate(r.date)} · {r.pharmacy || '—'} · {r.item || '—'} · {num(r.quantity)}{r.type === 'return' ? ' (ارجاع)' : ''}</div>
+            ))}
+            {g.count > g.sample.length && <div>… و{num(g.count - g.sample.length)} غيرها</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+  return (
+    <div style={{ marginTop: 8, padding: '7px 10px', borderRadius: 8, fontSize: 11.5, lineHeight: 1.6,
+      background: 'var(--c-warning-bg, #fffbeb)', border: '1px solid var(--c-warning-border, #fde68a)', color: 'var(--c-text-primary, #1e293b)' }}>
+      <div style={{ fontWeight: 700 }}>
+        🔄 صفوف رُفعت سابقاً للفترة {range(s.range.first, s.range.last)} وليست في هذا الملف
+        <span style={{ fontWeight: 400, color: 'var(--c-text-muted, #94a3b8)' }}> — الملف يحوي {pct}% من صفوف الفترة السابقة</span>
+      </div>
+      {line('changed', 'صف تعدّل في طلبيات ما زالت في الملف (كمية أو قيمة أو مادة) — تُخفى النسخة القديمة')}
+      {line('vanished', 'صف لطلبيات لم تعد في الملف، من نسخة سابقة منه (ملغاة أو محذوفة) — تُخفى')}
+      {line('foreign', <>
+        صف من ملف آخر رُفع لنفس الفترة{s.foreign.files.length ? <> («{s.foreign.files.slice(0, 3).join('»، «')}»)</> : null}
+        {' '}<span style={{ color: 'var(--c-danger, #dc2626)', fontWeight: 700 }}>— غالباً مكمّل لا ملغى، أو هذا الملف جزئي (منطقة/شركة). لا تُخفِها إلا إن كنت متأكداً.</span>
+      </>)}
+      <div style={{ marginTop: 4, fontSize: 10.5, color: 'var(--c-text-muted, #94a3b8)' }}>
+        لا يُحذف شيء: المخفي يُحفظ كرفعة موقوفة «مُستبدَل بـ…» في قائمة رفعات الملف، ويعود بتفعيلها.
+      </div>
     </div>
   );
 }
