@@ -5,7 +5,7 @@
 
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadSales, previewUploadSales, extractInvoice, addManualSales, checkNames, checkDuplicates, conditionMatch, moveConditionToShared,
+import { uploadSales, previewUploadSales, autoUploadSales, extractInvoice, addManualSales, checkNames, checkDuplicates, conditionMatch, moveConditionToShared,
   downloadWarehouseGapTemplate, parseWarehouseGapUpload, getWarehouseGapScopeJson,
   saveActiveFiles, getSalesMonths } from './sales.controller.js';
 import {
@@ -64,6 +64,12 @@ router.post('/upload-sales', upload.single('file'), uploadSales);
  * يعيد: النوع والعملة المحسومَين، كم صفاً جديداً/موجوداً، التواريخ، صفوف اليزن، الأوراق.
  */
 router.post('/upload-sales/preview', upload.single('file'), previewUploadSales);
+
+/**
+ * POST /api/upload-sales/auto — «مجلد المبيعات»: معاينة ثم رفع تلقائي إن كان الملف سليماً،
+ * وإلا { action: 'review', reasons } بلا أي كتابة.
+ */
+router.post('/upload-sales/auto', upload.single('file'), autoUploadSales);
 
 /**
  * POST /api/sales/extract-invoice

@@ -10,6 +10,7 @@ import RepNameMatchModal from '../components/RepNameMatchModal';
 import CumulativeAuditModal from '../components/CumulativeAuditModal';
 import ConditionFileModal from '../components/ConditionFileModal';
 import SmartUploadModal, { type SmartUploadResult } from '../components/SmartUploadModal';
+import SalesFolderPanel from '../components/SalesFolderPanel';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Icon } from '../config/icons';
@@ -152,6 +153,13 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   }, [token]); // removed activeFileIds & onFileActivated — refs keep them up-to-date without re-triggering
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
+
+  // «مجلد المبيعات» (lib/salesFolder.ts) رفع ملفاً أو حُفظت مراجعته ← حدّث القائمة.
+  useEffect(() => {
+    const h = () => { loadFiles(); };
+    window.addEventListener('sales-files-changed', h);
+    return () => window.removeEventListener('sales-files-changed', h);
+  }, [loadFiles]);
 
   // ── طلبيات البوت المعلَّقة ───────────────────────────────────────────────
   const loadPendingOrders = useCallback(async () => {
@@ -1168,6 +1176,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                 <span>رفع ذكي (عدة ملفات)</span>
               </button>
             </div>
+            {!isMobile && <SalesFolderPanel />}
           </>
         )}
       </div>

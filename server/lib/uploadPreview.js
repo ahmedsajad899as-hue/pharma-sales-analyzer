@@ -246,3 +246,43 @@ export async function previewParsedUpload({
     skippedSample: skippedRows.slice(0, 3).map(s => ({ row: s.row, errors: s.errors })),
   };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// الرفع التلقائي من «مجلد المبيعات» (المرحلة 3): يُرفع الملف بلا مراجعة فقط حين تكون
+// معاينته «سليمة»؛ أي شيء غير مألوف يُترك للمستخدم في نافذة «الرفع الذكي».
+// ════════════════════════════════════════════════════════════════════════════
+
+/** صفوف قديمة تُخفى تلقائياً بلا مراجعة حتى هذا العدد (أو 5% من صفوف الفترة إن كانت أكثر). */
+export const AUTO_HIDE_LIMIT = 20;
+
+/** أقسام «أحدث ملف هو الصحيح» التي يُطبّقها الرفع التلقائي — «من ملف آخر» أبداً. */
+export function autoSupersedePlan(preview) {
+  const s = preview?.supersede;
+  const kinds = s ? ['changed', 'vanished'].filter(k => s[k].count > 0) : [];
+  return { kinds, max: kinds.reduce((n, k) => n + s[k].count, 0) };
+}
+
+/**
+ * لماذا لا يُرفع هذا الملف تلقائياً؟ مصفوفة فارغة = سليم.
+ * @returns {string[]} أسباب بالعربية تُعرض للمستخدم
+ */
+export function autoUploadBlockers(preview) {
+  const out = [];
+  const t = preview.target;
+  if (!t) out.push('الرفعة لن تُدمج في ملف تراكمي');
+  else if (!t.exists) out.push(`سيُنشئ ملفاً جديداً «${t.name}»`);
+  if (preview.currencyReason !== 'existing' && preview.currencyReason !== 'chosen') out.push('العملة غير مؤكدة');
+  if (preview.hiddenByFilter > 0) out.push(`فلتر إكسل يخفي ${preview.hiddenByFilter} صف`);
+  if (preview.approximate) out.push('الملف التراكمي يحتاج إعادة ختم');
+  if (preview.fileType === 'auto') out.push('ملف بعدة أوراق يُقرأ كمختلط');
+  const s = preview.supersede;
+  if (s?.foreign.count) out.push(`${s.foreign.count} صف من ملف آخر غائب عن هذا الملف`);
+  const hide = autoSupersedePlan(preview).max;
+  if (hide > Math.max(AUTO_HIDE_LIMIT, Math.round((s?.inRange ?? 0) * 0.05))) out.push(`سيُخفي ${hide} صفاً قديماً`);
+  return out;
+}
+
+/** لا جديد ولا تصحيح: الملف موجود كله أصلاً. */
+export function nothingToUpload(preview) {
+  return preview.newCounts.total === 0 && autoSupersedePlan(preview).max === 0;
+}

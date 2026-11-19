@@ -6,6 +6,8 @@ import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import Sidebar from './components/layout/Sidebar';
 import LoginPage from './pages/LoginPage';
 import RepNameMatchModal from './components/RepNameMatchModal';
+import SalesFolderWatcher from './components/SalesFolderWatcher';
+import type { FolderUploadResult } from './lib/salesFolder';
 import { Icon } from './config/icons';
 import { getPageHeader, getPageHeaderIcon } from './config/pageHeaders';
 import { NAV_ITEMS, FEATURE_PAGE_MAP } from './config/featureConfig';
@@ -376,6 +378,9 @@ function AppInner() {
   // دخوله (تبديل حساب، أو خروج ثم دخول) دون الحاجة لإعادة تحميل الصفحة بالكامل.
   // ملفات ميركاتو تحتاج تأكيد مطابقة أسماء مندوبيها — راجع الـuseEffect أدناه.
   const [mercatoRepNameCheckIds, setMercatoRepNameCheckIds] = useState<number[] | null>(null);
+  // آخر قيمة لـactiveFileIds لمن يحتاجها خارج دورة الرسم («مجلد المبيعات» أدناه).
+  const activeFileIdsNowRef = useRef<number[]>(activeFileIds);
+  activeFileIdsNowRef.current = activeFileIds;
   const activeFileIdsUserRef = useRef<number | null | undefined>(user?.id ?? null);
   useEffect(() => {
     const uid = user?.id ?? null;
@@ -688,6 +693,20 @@ function AppInner() {
     });
   }, [user?.id]);
 
+  // «مجلد المبيعات» رفع ملفاً تلقائياً: نفس ما يلي رفعة من صفحة «رفع الملفات» — تفعيل
+  // الملف، رمي كاش التقارير، تحديث القائمة، وفحص أسماء ميركاتو الجديدة.
+  const onFolderUploaded = useCallback((r: FolderUploadResult) => {
+    if (!activeFileIdsNowRef.current.includes(r.fileId)) toggleFileActive(r.fileId);
+    window.dispatchEvent(new CustomEvent('report-data-changed'));
+    window.dispatchEvent(new CustomEvent('sales-files-changed'));
+    if (r.sourceSystem === 'mercato' && token) {
+      fetch(`/api/scientific-reps/rep-names/check?fileIds=${r.fileId}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(j => { if ((j.data?.pending ?? []).length > 0) setMercatoRepNameCheckIds([r.fileId]); })
+        .catch(() => {});
+    }
+  }, [toggleFileActive, token]);
+
   // Show login page when not authenticated
   if (!user) return <LoginPage />;
 
@@ -784,6 +803,9 @@ function AppInner() {
         <Suspense fallback={null}>
           <AIAssistant activePage={activePage} navigateTo={navigateTo} />
         </Suspense>
+      )}
+      {token && user?.id != null && (
+        <SalesFolderWatcher userId={user.id} token={token} onUploaded={onFolderUploaded} />
       )}
       {mercatoRepNameCheckIds && token && (
         <RepNameMatchModal

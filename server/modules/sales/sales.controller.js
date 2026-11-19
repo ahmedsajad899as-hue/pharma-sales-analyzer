@@ -17,6 +17,7 @@ import { listSalesMonths } from '../../lib/salesMonths.js';
 import { resolveFileScope } from '../../lib/fileScope.js';
 import { checkManualDuplicates } from '../../lib/manualDuplicateCheck.js';
 import { parseSupersedeKinds } from '../../lib/cumulativeSupersede.js';
+import { autoUploadBlockers, autoSupersedePlan, nothingToUpload } from '../../lib/uploadPreview.js';
 
 /**
  * PUT /api/active-files — يحفظ «الملفات المفعّلة» لهذا الحساب على السيرفر.
@@ -65,6 +66,55 @@ export async function autoSyncIfOfficeEmployee(user, fileId, fileType) {
     data: targets.map(u => ({ fileId, userId: u.id })),
     skipDuplicates: true,
   });
+}
+
+/** ما بعد كل رفعة مبيعات (الرفع العادي والتلقائي من المجلد). */
+async function afterSalesUpload(user, result, fileType) {
+  // لا تُسقط نجاح الرفع لو فشلت خطوة التعميم التلقائي لسبب عابر
+  try {
+    await autoSyncIfOfficeEmployee(user, result?.uploadedFile?.id, fileType);
+  } catch (syncErr) {
+    console.error('[autoSyncIfOfficeEmployee]', syncErr);
+  }
+  // مطابقة اليزن↔المكتب («بدون الفارمسي») تُعاد في الخلفية — lib/yazenOfficeMatch.js.
+  if (result?.uploadedFile?.id) scheduleYazenMatchForFiles([result.uploadedFile.id]);
+  else scheduleYazenMatchForUser(user?.id);
+}
+
+/**
+ * POST /api/upload-sales/auto — «مجلد المبيعات» (المرحلة 3): ملف واحد وصل من مجلد ربطه
+ * المستخدم في المتصفح. يُعاين كالرفع الذكي، ثم:
+ *   - action 'nothing': لا جديد ولا تصحيح — لا يُكتب شيء.
+ *   - action 'review':  غير مألوف (autoUploadBlockers) — لا يُكتب شيء، والواجهة تفتحه للمراجعة.
+ *   - action 'uploaded': يُرفع بالمسار القائم نفسه (النوع والعملة المحسومَين، و«أحدث ملف
+ *     هو الصحيح» بقسمَي التعديل والإلغاء فقط) — ملف واحد ينقل بايتاته مرة واحدة.
+ */
+export async function autoUploadSales(req, res, next) {
+  try {
+    if (!req.file) {
+      throw new AppError('No file uploaded. Send a multipart/form-data request with key "file".', 400, 'NO_FILE');
+    }
+    const userId = req.user?.id ?? null;
+    const preview = await processUploadedFile(req.file, { userId, fileType: 'smart', dryRun: true });
+    if (nothingToUpload(preview)) return res.json({ success: true, data: { action: 'nothing', preview } });
+    const reasons = autoUploadBlockers(preview);
+    if (reasons.length) return res.json({ success: true, data: { action: 'review', reasons, preview } });
+
+    const plan = autoSupersedePlan(preview);
+    const result = await processUploadedFile(req.file, {
+      uploadedBy:     req.user?.username || null,
+      userId,
+      fileType:       preview.fileType,
+      sourceCurrency: preview.currency,
+      supersedeKinds: plan.kinds,
+      supersedeMax:   plan.max,
+    });
+    await afterSalesUpload(req.user, result, preview.fileType);
+    console.log(`[folder-auto] user ${userId} «${preview.fileName}»: +${result?.merge?.added ?? 0}، أُخفي ${result?.merge?.superseded?.count ?? 0}`);
+    return res.status(201).json({ success: true, data: { action: 'uploaded', preview, result } });
+  } catch (err) {
+    next(err);
+  }
 }
 
 /**
@@ -116,15 +166,7 @@ export async function uploadSales(req, res, next) {
       supersedeMax:   Number(req.body.supersedeMax) || 0,
     });
 
-    // لا تُسقط نجاح الرفع لو فشلت خطوة التعميم التلقائي لسبب عابر
-    try {
-      await autoSyncIfOfficeEmployee(req.user, result?.uploadedFile?.id, fileType);
-    } catch (syncErr) {
-      console.error('[autoSyncIfOfficeEmployee]', syncErr);
-    }
-    // مطابقة اليزن↔المكتب («بدون الفارمسي») تُعاد في الخلفية — lib/yazenOfficeMatch.js.
-    if (result?.uploadedFile?.id) scheduleYazenMatchForFiles([result.uploadedFile.id]);
-    else scheduleYazenMatchForUser(req.user?.id);
+    await afterSalesUpload(req.user, result, fileType);
 
     return res.status(201).json({
       success: true,
