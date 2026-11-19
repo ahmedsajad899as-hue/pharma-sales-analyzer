@@ -41,9 +41,10 @@ const normP = (x: string) => String(x || '').trim().replace(/[أإآ]/g, 'ا').r
 const pctOf = (a: number, b: number) => `${Math.round((a / b) * 100)}%`;
 // مبيع المندوب: الكمية أولاً وبارزة، والقيمة صغيرة بجانبها
 const repQtyVal = (qty: number, val: string) => (
-  <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, whiteSpace: 'nowrap' }}>
-    <b style={{ fontSize: 14, fontWeight: 900, color: '#4c1d95' }}>{nf(qty)}</b>
-    <span style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>{val}</span>
+  <span style={{ display: 'inline-flex', direction: 'rtl', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
+    <b style={{ fontSize: 14, fontWeight: 900, color: '#4c1d95', direction: 'ltr' }}>{nf(qty)}</b>
+    <span style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 700 }}>|</span>
+    <span style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600, direction: 'ltr' }}>{val}</span>
   </span>
 );
 const PULSE_CSS = `@keyframes ptdPulse{0%{box-shadow:0 0 0 0 rgba(15,118,110,.45)}70%{box-shadow:0 0 0 9px rgba(15,118,110,0)}100%{box-shadow:0 0 0 0 rgba(15,118,110,0)}}
