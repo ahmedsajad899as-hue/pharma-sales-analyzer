@@ -121,13 +121,22 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
     return t && r ? { province: t.provinceName, repUserId: uid, repName: r.repName } : null;
   }, [openRep, teams]);
 
+  // مندوب مفتوح ⇒ يُعرض فريقه ومندوبه فقط (بلا باقي الأسماء فوق/تحت الجدول)
+  const visible = useMemo(() => {
+    if (!openRep || !openInfo) return shown;
+    const [tid, uid] = openRep.split(':').map(Number);
+    const t = teams.find(x => x.id === tid);
+    return t ? [{ ...t, reps: t.reps.filter(r => r.repUserId === uid) }] : shown;
+  }, [openRep, openInfo, shown, teams]);
+  const focused = !!openRep && !!openInfo;
+
   return (
     <div dir="rtl" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
       <style>{PULSE_CSS}</style>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: 'min(1400px, 100%)', height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(15,23,42,.35)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
           <div style={{ fontSize: 18, fontWeight: 900, color: '#0f172a' }}>فرق المحافظات</div>
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="بحث: محافظة / تيم ليدر / مندوب / شركة"
+          <input value={q} onChange={e => { setQ(e.target.value); setOpenRep(null); }}placeholder="بحث: محافظة / تيم ليدر / مندوب / شركة"
             style={{ flex: 1, minWidth: 180, border: '1px solid #cbd5e1', borderRadius: 999, padding: '7px 14px', fontSize: 13 }} />
           <button type="button" disabled={!openInfo} onClick={() => setLinesOpen(true)} className={openInfo ? 'ptd-pulse' : undefined}
             title={openInfo ? `كل سطور لكوديشن ${openInfo.repName} في ${openInfo.province}: الصيدلية، التاريخ، الكمية، السعر…` : 'افتح مندوباً أولاً'}
@@ -148,12 +157,20 @@ export default function ProvinceTeamsDirectory({ token, fileIds, applyMonth, fmt
             <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center' }}>لا توجد فرق محافظات لعرضها.</div>
           )}
 
-          {shown.map(t => (
+          {visible.map(t => (
             <div key={t.id} style={{ border: '1px solid #e2e8f0', borderRadius: 16, marginBottom: 12, overflow: 'hidden' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#f8fafc', padding: '10px 14px' }}>
                 <span style={{ fontWeight: 900, fontSize: 16, color: '#0f172a' }}>{t.provinceName}</span>
-                <span style={{ fontSize: 12.5, color: '#475569' }}>
-                  التيم ليدر: <b style={{ color: '#1f4fb4' }}>{t.leaderName ?? 'غير معيَّن'}</b>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12.5, color: '#475569' }}>
+                    التيم ليدر: <b style={{ color: '#1f4fb4' }}>{t.leaderName ?? 'غير معيَّن'}</b>
+                  </span>
+                  {focused && (
+                    <button type="button" onClick={() => setOpenRep(null)}
+                      style={{ border: '1px solid #cbd5e1', background: '#fff', color: '#334155', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      ← كل المندوبين
+                    </button>
+                  )}
                 </span>
               </div>
 
