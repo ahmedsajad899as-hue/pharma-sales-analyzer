@@ -14,6 +14,7 @@ import SalesFolderPanel from '../components/SalesFolderPanel';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Icon } from '../config/icons';
+import BatchMonthGroups, { type BatchItem } from '../components/BatchMonthGroups';
 
 interface UploadedFile {
   id: number;
@@ -75,7 +76,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
   const [smartFiles, setSmartFiles] = useState<File[] | null>(null);
   const smartOpenRef = useRef(false);
   smartOpenRef.current = smartFiles !== null;
-  type MergeBatch = { id: number; originalName: string; uploadedAt: string; uploadedBy: string | null; rowsAdded: number; rowsSkipped: number; monthsLabel: string | null; storedFilename: string | null; isActive: boolean; ownedRows: number; firstDate: string | null; lastDate: string | null };
+  type MergeBatch = { id: number; originalName: string; uploadedAt: string; uploadedBy: string | null; rowsAdded: number; rowsSkipped: number; monthsLabel: string | null; storedFilename: string | null; isActive: boolean; ownedRows: number; firstDate: string | null; lastDate: string | null; items?: BatchItem[] };
   type BatchSummary = { total: number; active: number; firstDate: string | null; lastDate: string | null };
   const [batchSummary, setBatchSummary] = useState<BatchSummary | null>(null);
   const [togglingBatch, setTogglingBatch] = useState<number | null>(null);
@@ -1893,8 +1894,8 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                               )}
                             </div>
                           )}
-                          {batches.map((b, i) => (
-                            <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: b.isActive ? '#f8fafc' : '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 11.5, opacity: b.isActive ? 1 : 0.6 }}>
+                          <BatchMonthGroups batches={batches} renderBatch={(b, i, itemsBtn) => (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: b.isActive ? '#f8fafc' : '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 11.5, opacity: b.isActive ? 1 : 0.6 }}>
                               <span style={{ color: '#94a3b8', fontWeight: 700 }}>#{(batches.length - i).toLocaleString('ar-IQ')}</span>
                               <span style={{ fontWeight: 700, color: '#0f172a', flex: '1 1 140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: b.isActive ? 'none' : 'line-through' }}>{b.originalName}</span>
                               {!b.isActive && <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 999, padding: '1px 8px', fontWeight: 700 }}>موقوف</span>}
@@ -1907,6 +1908,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                               <span style={{ color: '#065f46' }}>+{Math.max(0, b.rowsAdded).toLocaleString('ar-IQ')}</span>
                               {b.rowsSkipped > 0 && <span style={{ color: '#b45309' }}>مكرر {b.rowsSkipped.toLocaleString('ar-IQ')}</span>}
                               <span style={{ color: '#94a3b8' }} title="تاريخ الرفع">{fmtDate(b.uploadedAt)}</span>
+                              {itemsBtn}
                               {f.userId === user?.id && (
                                 <button
                                   onClick={() => toggleBatchActive(f.id, b)}
@@ -1935,7 +1937,7 @@ export default function UploadPage({ activeFileIds, onFileActivated, onSwitchToI
                                 {deletingBatch === b.id ? '…' : 'حذف'}
                               </button>
                             </div>
-                          ))}
+                          )} />
                         </div>
                       )}
                     </div>

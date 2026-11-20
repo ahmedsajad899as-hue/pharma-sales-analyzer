@@ -2308,8 +2308,28 @@ app.get('/api/files/:id/batches', requireAuth, async (req, res) => {
       }),
     ]);
     const countOf = new Map(liveCounts.map(c => [c.mergeBatchId, c._count._all]));
+    // ايتمات كل رفعة (كمية/قيمة صافية: الإرجاع بالسالب) — الواجهة تجمع الرفعات اليومية
+    // تحت شهرها وتؤشّر الايتمات التي حملتها كل رفعة (خصوصاً آخرها).
+    const itemRows = await prisma.sale.groupBy({
+      by: ['mergeBatchId', 'itemId', 'recordType'],
+      where: { uploadedFileId: id, mergeBatchId: { not: null } },
+      _sum: { quantity: true, totalValue: true },
+    });
+    const itemNames = new Map((await prisma.item.findMany({
+      where: { id: { in: [...new Set(itemRows.map(r => r.itemId))] } }, select: { id: true, name: true },
+    })).map(i => [i.id, i.name]));
+    const itemsOf = new Map();
+    for (const r of itemRows) {
+      const sign = String(r.recordType || '').toLowerCase() === 'return' ? -1 : 1;
+      if (!itemsOf.has(r.mergeBatchId)) itemsOf.set(r.mergeBatchId, new Map());
+      const m = itemsOf.get(r.mergeBatchId);
+      const o = m.get(r.itemId) || { itemId: r.itemId, name: itemNames.get(r.itemId) || '—', qty: 0, value: 0 };
+      o.qty += sign * (r._sum.quantity || 0); o.value += sign * (r._sum.totalValue || 0);
+      m.set(r.itemId, o);
+    }
     const data = batches.map(b => ({
       ...b,
+      items: [...(itemsOf.get(b.id)?.values() || [])].sort((a, z) => z.value - a.value),
       ownedRows: countOf.get(b.id) || 0,
       firstDate: ranges.get(b.id)?.firstDate ?? null,
       lastDate:  ranges.get(b.id)?.lastDate ?? null,
