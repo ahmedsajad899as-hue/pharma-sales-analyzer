@@ -255,6 +255,10 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
   const setView =(v: 'names' | 'map') => { setViewState(v); try { sessionStorage.setItem('rpt_provView', v); } catch { /* ignore */ } };
   const [teams, setTeams] = useState<TeamLite[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
+  // ملاحظة قصيرة أمام كل مندوب (مثل «شمال بابل») — مشتركة داخل المكتب، يكتبها المكتب
+  const [repNotes, setRepNotes] = useState<Record<string, string>>({});
+  const [canEditNotes, setCanEditNotes] = useState(false);
+  const [editNote, setEditNote] = useState<string | null>(null);
   // المحافظة المفتوح توزيع شركاتها في جدول الأسماء
   const [openProv, setOpenProv] = useState<string | null>(null);
   const marketers = repKind === 'pharmacy';
@@ -605,6 +609,55 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
     return () => { dead = true; ac.abort(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, fileKey, monthKey, tok, ready, ownTeamId, repSalesTick]);
+
+  useEffect(() => {
+    if (view !== 'names' || !token) return;
+    let dead = false;
+    fetch('/api/province-teams/rep-notes', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (!dead && j) { setRepNotes(j.notes ?? {}); setCanEditNotes(!!j.canEdit); } })
+      .catch(() => { /* الملاحظات تكميلية */ });
+    return () => { dead = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, tok]);
+
+  const saveRepNote = async (key: string, raw: string) => {
+    setEditNote(null);
+    const note = raw.replace(/\s+/g, ' ').trim().slice(0, 60);
+    const prev = repNotes[key] ?? '';
+    if (note === prev) return;
+    setRepNotes(m => { const n = { ...m }; if (note) n[key] = note; else delete n[key]; return n; });
+    try {
+      const r = await fetch('/api/province-teams/rep-notes', {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, note }),
+      });
+      if (!r.ok) throw new Error();
+    } catch {
+      setRepNotes(m => { const n = { ...m }; if (prev) n[key] = prev; else delete n[key]; return n; });
+      alert('تعذّر حفظ الملاحظة');
+    }
+  };
+
+  const noteCell = (key: string) => {
+    const note = repNotes[key] ?? '';
+    if (editNote === key) {
+      return (
+        <input autoFocus defaultValue={note} maxLength={60} placeholder="ملاحظة…"
+          onClick={e => e.stopPropagation()}
+          onBlur={e => saveRepNote(key, e.currentTarget.value)}
+          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setEditNote(null); }}
+          style={{ width: '100%', minWidth: 110, fontSize: 11.5, padding: '1px 6px', border: '1px solid #93b4ef', borderRadius: 6, outline: 'none', background: '#fff' }} />
+      );
+    }
+    if (!canEditNotes) return note ? <span style={{ fontSize: 11.5, color: '#64748b' }}>{note}</span> : null;
+    return (
+      <span className={note ? "rep-note" : "rep-note rep-note--empty"} title={note ? 'تعديل الملاحظة' : 'إضافة ملاحظة'} onClick={e => { e.stopPropagation(); setEditNote(key); }}
+        style={{ display: 'inline-block', minWidth: 60, fontSize: 11.5, cursor: 'text', borderRadius: 6, padding: '0 6px', color: note ? '#64748b' : 'transparent' }}>
+        {note || '+ ملاحظة'}
+      </span>
+    );
+  };
 
   // ── دمج: محافظة ← شركات (مبيع + مندوبون) ─────────────────────────────────
   const cells = useMemo(() => {
@@ -1020,6 +1073,7 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
           <div style={{ color: '#94a3b8', fontSize: 13, padding: 12 }}>{loading || loadingTeams ? 'جاري تحميل بيانات المحافظات…' : 'لا توجد مبيعات ولا فرق محافظات في الفترة المختارة.'}</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
+            <style>{'.rep-note-row:hover .rep-note--empty{color:#94a3b8 !important}.rep-note-row:hover .rep-note{background:#f1f5f9}.rep-note-row:hover .rep-note:hover{background:#e8effc}'}</style>
             <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: hasCond ? 640 : 510 }}>
               <thead>
                 <tr>
@@ -1058,8 +1112,8 @@ export default function IraqRepsMap({ reps, token, fileIds, applyMonth, months =
                         )}
                       </tr>
                       {n?.reps.map(r => (
-                        <tr key={r.key}>
-                          <td style={td} />
+                        <tr key={r.key} className="rep-note-row">
+                          <td style={{ ...td, textAlign: 'left' }}>{noteCell(r.key)}</td>
                           <td style={td}>{nameBtn(r.id, r.name, c.name, { active: r.active, u: r.u })}</td>
                           {showCompany && <td style={{ ...td, whiteSpace: 'normal', fontSize: 12, color: '#475569' }}>{r.company || dash}</td>}
                           <td style={{ ...num, color: valColor(r.sales) ?? '#334155' }}>{r.sales != null ? fmtVal(r.sales) : dash}</td>

@@ -647,3 +647,37 @@ export async function pendingCount(req, res, next) {
     res.json({ success: true, ...(await personal.pendingCounts(viewer)) });
   } catch (e) { next(e); }
 }
+
+// ── ملاحظات المندوبين في جدول اللكوديشن (مثل «شمال بابل») ───────────────────
+// تُشارَك داخل المكتب: يقرؤها كل من في المكتب، ويكتبها إدارة المكتب وموظفوه.
+const NOTE_MAX = 60;
+const NOTE_KEY = /^[ur]\d{1,10}$/;
+
+// GET /api/province-teams/rep-notes
+export async function repNotes(req, res, next) {
+  try {
+    const viewer = await loadViewer(req.user);
+    const officeId = viewer.officeId ?? 0;
+    const rows = await prisma.provinceRepNote.findMany({ where: { officeId }, select: { key: true, note: true } });
+    res.json({ success: true, canEdit: viewer.mode === 'office', notes: Object.fromEntries(rows.map(r => [r.key, r.note])) });
+  } catch (e) { next(e); }
+}
+
+// PUT /api/province-teams/rep-notes  { key, note } — نص فارغ = حذف
+export async function saveRepNote(req, res, next) {
+  try {
+    const viewer = await loadViewer(req.user);
+    if (viewer.mode !== 'office') return res.status(403).json({ success: false, message: 'غير مسموح' });
+    const key = String(req.body?.key ?? '');
+    if (!NOTE_KEY.test(key)) return res.status(400).json({ success: false, message: 'مفتاح غير صالح' });
+    const note = String(req.body?.note ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX);
+    const officeId = viewer.officeId ?? 0;
+    if (!note) await prisma.provinceRepNote.deleteMany({ where: { officeId, key } });
+    else await prisma.provinceRepNote.upsert({
+      where: { officeId_key: { officeId, key } },
+      create: { officeId, key, note, updatedById: viewer.id },
+      update: { note, updatedById: viewer.id },
+    });
+    res.json({ success: true, key, note });
+  } catch (e) { next(e); }
+}

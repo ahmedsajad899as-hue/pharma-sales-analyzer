@@ -3877,3 +3877,16 @@ model YazenMatchRun {
 
   @@map("yazen_match_runs")
 }
+
+/// ملاحظة قصيرة يكتبها المكتب أمام مندوب في جدول اللكوديشن (مثل «شمال بابل»).
+/// key = مفتاح السطر في الجدول: u<userId> لمندوب فريق، r<repId> لغيره.
+model ProvinceRepNote {
+  id          Int      @id @default(autoincrement())
+  officeId    Int      @default(0)
+  key         String
+  note        String
+  updatedById Int?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([officeId, key])
+}

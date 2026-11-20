@@ -8,6 +8,8 @@ router.get('/overview', ctrl.overview);
 router.get('/months', ctrl.months);
 router.get('/directory', ctrl.directory);
 router.get('/rep-lines', ctrl.repLines); // لكوديشن مندوب في محافظة: سطراً سطراً
+router.get('/rep-notes', ctrl.repNotes);
+router.put('/rep-notes', ctrl.saveRepNote);
 
 // الهيكلية (إدارة المكتب)
 router.get('/options', ctrl.options);
